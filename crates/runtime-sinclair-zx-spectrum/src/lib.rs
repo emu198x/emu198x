@@ -36,7 +36,7 @@ mod variants;
 
 pub use autoload::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, SpectrumAutoloadError,
-    SpectrumTapeAutoloadResult, autoload_basic_tape,
+    SpectrumTapeAutoloadResult, autoload_basic_tape, tap_key, tap_symbol_combo,
 };
 pub use basic_loader::{
     DEFAULT_BASIC_LOADER_BOOT_FRAMES, LoadBasicError, LoadBasicResult, load_basic_program,

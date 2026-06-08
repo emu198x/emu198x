@@ -158,7 +158,19 @@ where
     Ok(line.to_owned())
 }
 
-pub(crate) fn tap_key<R, Q>(
+/// Presses and releases one Spectrum key through the headless session, driving
+/// the real ROM keyboard editor (no ROM patching).
+///
+/// `name` is a [`common_sinclair_zx_spectrum::SpectrumKey`] name (e.g. `"j"`,
+/// `"enter"`, a digit `"1"`). Remember the 48K editor's cursor modes: at the
+/// start of a line the cursor is `K`, so a single letter key enters that key's
+/// *keyword* (`"j"` → `LOAD`, `"s"` → `SAVE`, `"p"` → `PRINT`, `"e"` → `REM`);
+/// after a keyword the cursor is `L`, so letters enter literally. For symbols
+/// that need SYMBOL SHIFT (e.g. `"` is SYMBOL SHIFT + `P`) use
+/// [`tap_symbol_combo`]. This is the canonical way to type into the 48K BASIC
+/// editor from a test or tool — see `docs/systems/sinclair/zx-spectrum/index.md`
+/// § "Port $FE I/O, tape SAVE/LOAD, and driving the keyboard from tests".
+pub fn tap_key<R, Q>(
     session: &mut HeadlessSession<R, Q>,
     name: &'static str,
 ) -> Result<(), SessionError>
@@ -179,7 +191,11 @@ where
     Ok(())
 }
 
-fn tap_symbol_combo<R, Q>(
+/// Presses SYMBOL SHIFT + `name` through the headless session, for the symbols
+/// that the 48K editor places on the symbol-shifted layer (e.g. `"` is SYMBOL
+/// SHIFT + `P`, `;` is SYMBOL SHIFT + `O`). See [`tap_key`] for the cursor-mode
+/// notes.
+pub fn tap_symbol_combo<R, Q>(
     session: &mut HeadlessSession<R, Q>,
     name: &'static str,
 ) -> Result<(), SessionError>

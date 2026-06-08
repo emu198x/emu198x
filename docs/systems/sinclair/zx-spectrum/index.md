@@ -93,6 +93,57 @@ The Spectrum boots, loads tapes, plays games, and has full audio. The 128K model
 - **Disassembler** — `disasm` present; converges on the Asm198x shared Z80
   disassembler.
 
+## Port $FE I/O, tape SAVE/LOAD, and driving the keyboard from tests
+
+Recurring rediscovery; documented here so it isn't re-derived each time.
+
+**Port `$FE` bit map** (`common-sinclair-zx-spectrum/src/ula_engine.rs`):
+
+| Bit | Write | Read |
+|-----|-------|------|
+| 0–2 | Border colour | keyboard half-row (active low) |
+| 3 | **MIC** — tape SAVE output | — |
+| 4 | **EAR / beeper** — speaker | — |
+| 6 | — | **EAR input** — tape LOAD level |
+
+MIC (bit 3) only toggles during a `SAVE`; nothing else drives it. The EAR read
+(bit 6) is where tape playback feeds the loader. Both edges are captured with
+T-state timing the same way the beeper level is (`sync_beeper_level`).
+
+**Tape LOAD** = playback: a `.tap`/`.tzx` parses into a `TapeSpan` stream that
+`TapePlayer` (`common-sinclair-zx-spectrum/src/tape.rs`) advances one T-state at
+a time, presenting the EAR level on `$FE` bit 6.
+
+**Tape SAVE** = capture (2026-06-08): `TapeRecorder`
+(`common-sinclair-zx-spectrum/src/tape_recorder.rs`) is the mirror image — it
+timestamps every MIC edge and `decode()`s the pulse train (pilot → 2 sync
+pulses → two pulses per data bit, MSB first) back into standard-speed blocks.
+`SpectrumRuntime::flush_tape_image()` serialises those to a reloadable `.tap`
+via `format-sinclair-zx-spectrum-tap::encode_tap`. Wired for the **48K class**
+only so far (the shared core captures; the 16K/+ just need the one-line trait
+override, 128K needs its core wired). Standard pulse constants live in
+`tape.rs`; SAVE never mutates a mounted playback tape, so no writable-flag
+gating is needed (unlike disk). Repro: `cargo test -p runtime-sinclair-zx-spectrum
+--test tape_save_roundtrip -- --ignored`.
+
+**Driving the 48K BASIC editor from a test or tool** — use a `HeadlessSession`
+(`SpectrumSessionQueryProvider`) and the public `tap_key` / `tap_symbol_combo`
+helpers (`runtime-sinclair-zx-spectrum`, re-exported at the crate root). Key
+points:
+
+- **Cursor modes.** At the start of a line the cursor is **K** (keyword): a
+  single letter key enters that key's *keyword* — `s` → `SAVE`, `j` → `LOAD`,
+  `p` → `PRINT`, `e` → `REM`. After a keyword the cursor is **L** (letter), so
+  letters/digits enter literally. Type a line number with digit keys while still
+  in K, then the statement keyword key.
+- **Symbols** needing SYMBOL SHIFT use `tap_symbol_combo` — e.g. `"` is SYMBOL
+  SHIFT + `P` (`tap_symbol_combo(s, "p")`).
+- **`SAVE` waits.** After `SAVE "x"` + ENTER the ROM prints "Start tape, then
+  press any key." and blocks until a keypress — send one before expecting the
+  signal.
+- Worked example: `tests/tape_save_roundtrip.rs` (enter `10 REM`, `SAVE "A"`,
+  flush, assert the `.tap` header + data block).
+
 ## Peripherals & connectivity
 
 - **Emulated now** — tape (TAP/TZX/WAV), +3 disk (DSK via uPD765A FDC), Kempston
