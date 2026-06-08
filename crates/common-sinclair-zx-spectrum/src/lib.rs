@@ -17,6 +17,7 @@ pub mod peripheral;
 mod serde_skip_audit;
 pub mod snapshot;
 pub mod tape;
+pub mod tape_recorder;
 pub mod timing;
 pub mod ula;
 pub mod ula_engine;
@@ -35,3 +36,4 @@ pub use snapshot::{
     apply_ay_registers, apply_z80_registers,
 };
 pub use tape::{TapeBlock, TapePlayer, TapeSpan};
+pub use tape_recorder::TapeRecorder;
