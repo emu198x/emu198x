@@ -476,3 +476,34 @@ as a future note, not a blocker.
 Neither alone is sufficient: (1) gets the directory written; (2) keeps the
 channel alive so the data block and the close commit. Together the SAVE
 round-trips.
+
+## Parity audit — is the same bug class elsewhere? (2026-06-08)
+
+After the 1541 fixes, swept the other disk controllers for the two bug classes
+(four read-only Explore agents). **Both bugs were 1541-only.**
+
+- **WD1770** (Einstein/Dragon): clean. Byte-level buffer latches correctly (no
+  live-index). Empty drive → `RecordNotFound`, not write-protect. No disk-change.
+- **Beta WD179x** (Spectrum): write fully stubbed (`ST_WRITE_PROTECT` for all
+  writes); WP not presence-gated. N/A.
+- **µPD765A** (+3): WriteData execution stubbed; the exec buffer is latch-style.
+  WP never reported (ST3 bit 6 always 0) — *not* the 1541 bug, but a gap: a
+  protected +3 disk would read writable once WriteData lands.
+- **Amiga** (Paula/floppy): disk-write DMA suppressed (`disk_dma_is_write`
+  early-returns). WP hardcoded `false` always — the *correct/safe* direction
+  (empty reads not-protected), so no phantom disk-change; disk-change itself is
+  correctly modelled (set on insert/eject, cleared on first step). Gap: a
+  protected ADF wouldn't be honoured.
+
+**Why pattern A (live-index serialiser) is 1541-specific:** the 1541 is the only
+CPU-driven *flux bit-serialiser* — the bug was indexing the data register live
+per *bit*. Every other controller writes whole bytes to a buffer (WD179x/WD1770/
+µPD765) or uses word-DMA (Amiga); none has the per-bit concern.
+
+**Why pattern B (empty-reads-protected) is 1541-specific:** it uniquely gated WP
+on `disk.is_some()`. WD1770 and Amiga already read an empty drive as
+not-protected; µPD765A and Beta don't model WP at all.
+
+**For whoever implements write on +3 / Beta / Amiga:** report WP from the *disk's*
+protect state, and make sure an EMPTY drive reads NOT protected — never gate "not
+protected" on disk presence, or you reproduce the phantom-disk-change close.
