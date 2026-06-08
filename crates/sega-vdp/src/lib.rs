@@ -455,11 +455,26 @@ impl SegaVdp {
         }
     }
 
-    /// Draw the active pixel at column `x` of `line`: the background pixel,
-    /// overlaid by this line's sprite pixel if present.
+    /// Draw the active pixel at column `x` of `line`. In Mode 4 the background
+    /// and this line's sprite pixel are arbitrated by the SMS priority rule:
+    /// the sprite is shown **unless** an *opaque* background pixel
+    /// (`color_idx != 0`) belongs to a tile whose priority bit is set — then the
+    /// foreground background tile occludes the sprite (status bars, HUD layers).
+    /// Background `color_idx` 0 is transparent for this comparison, so sprites
+    /// always show through it regardless of the priority bit.
     fn render_pixel(&mut self, line: usize, x: usize) {
         let sprite = self.sprite_buf[x];
-        let argb = if sprite != 0 {
+        let argb = if self.display_enabled() && self.mode4_active() {
+            let (bg_idx, bg_priority, palette) = self.mode4_bg_lookup(line, x);
+            let bg_opaque = bg_idx != 0;
+            if sprite != 0 && !(bg_priority && bg_opaque) {
+                self.cram_to_argb(16 + sprite as usize)
+            } else if bg_opaque || bg_priority {
+                self.cram_to_argb(palette + bg_idx as usize)
+            } else {
+                self.backdrop_color()
+            }
+        } else if sprite != 0 {
             self.cram_to_argb(16 + sprite as usize)
         } else {
             self.bg_pixel(line, x)
@@ -467,24 +482,20 @@ impl SegaVdp {
         self.framebuffer[Self::active_offset(line) + x] = argb;
     }
 
-    /// Background colour at column `x` of `line`, before sprites. Returns the
-    /// backdrop when the display is blanked or in a (placeholder) legacy mode.
-    fn bg_pixel(&self, line: usize, x: usize) -> u32 {
-        if !self.display_enabled() {
-            return self.backdrop_color();
-        }
-        if self.mode4_active() {
-            self.mode4_bg_pixel(line, x)
-        } else {
-            // Legacy TMS9918A modes — backdrop placeholder (unchanged).
-            self.backdrop_color()
-        }
+    /// Background colour when active Mode-4 rendering is not in effect (display
+    /// blanked or a placeholder legacy TMS9918 mode) — both render as backdrop.
+    fn bg_pixel(&self, _line: usize, _x: usize) -> u32 {
+        self.backdrop_color()
     }
 
-    fn mode4_bg_pixel(&self, line: usize, pixel_x: usize) -> u32 {
-        // Column-0 blanking takes priority over the tile fetch.
+    /// Background colour-index, tile priority bit, and palette base at column
+    /// `pixel_x` of `line` in Mode 4. `color_idx` 0 is transparent for sprite
+    /// priority; `priority` is the tile's foreground bit. The colour itself is
+    /// resolved by the caller so it can arbitrate against the sprite pixel.
+    fn mode4_bg_lookup(&self, line: usize, pixel_x: usize) -> (u8, bool, usize) {
+        // Column-0 blanking: the masked column reads as transparent backdrop.
         if self.regs[0] & 0x20 != 0 && pixel_x < 8 {
-            return self.backdrop_color();
+            return (0, false, 0);
         }
 
         let name_base = (self.regs[2] as usize & 0x0E) * 0x400;
@@ -532,11 +543,7 @@ impl SegaVdp {
             | (((b2 >> col) & 1) << 2)
             | (((b3 >> col) & 1) << 3);
 
-        if color_idx == 0 && !priority {
-            self.backdrop_color()
-        } else {
-            self.cram_to_argb(palette + color_idx as usize)
-        }
+        (color_idx, priority, palette)
     }
 
     /// Prepare this line's sprite overlay: clear `sprite_buf`, then (when the
@@ -816,6 +823,57 @@ mod tests {
         assert!(!vdp.mode4_active());
         vdp.regs[0] = 0x04;
         assert!(vdp.mode4_active());
+    }
+
+    #[test]
+    fn mode4_priority_tile_occludes_sprite() {
+        // SMS BG-over-sprite priority: a sprite shows unless an opaque
+        // background pixel belongs to a tile whose priority bit is set.
+        fn setup(priority: bool, bg_opaque: bool) -> SegaVdp {
+            let mut vdp = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2);
+            vdp.regs[0] = 0x04; // Mode 4; no column-0 blank, no hscroll lock
+            vdp.regs[1] = 0x40; // display on
+            vdp.regs[2] = 0x00; // name table base $0000
+            // Tile (0,0): pattern 1, palette 0, priority optional.
+            let nt_entry: u16 = 0x0001 | if priority { 0x1000 } else { 0 };
+            vdp.vram[0] = (nt_entry & 0xFF) as u8;
+            vdp.vram[1] = (nt_entry >> 8) as u8;
+            // Pattern 1, row 0: leftmost pixel (col 7) = colour index 1 if opaque.
+            vdp.vram[32] = if bg_opaque { 0x80 } else { 0x00 };
+            vdp.cram[1] = 0x3F; // BG colour 1 = white
+            vdp.cram[16 + 5] = 0x03; // sprite colour 5 = red
+            vdp.sprite_buf[0] = 5; // a sprite pixel at column 0
+            vdp
+        }
+        let fb = SegaVdp::active_offset(0); // column 0 of the active line
+
+        // Opaque, high-priority background occludes the sprite.
+        let mut vdp = setup(true, true);
+        vdp.render_pixel(0, 0);
+        assert_eq!(
+            vdp.framebuffer[fb],
+            vdp.cram_to_argb(1),
+            "opaque priority tile should occlude the sprite"
+        );
+
+        // Without the priority bit, the sprite shows over the same tile.
+        let mut vdp = setup(false, true);
+        vdp.render_pixel(0, 0);
+        assert_eq!(
+            vdp.framebuffer[fb],
+            vdp.cram_to_argb(16 + 5),
+            "non-priority tile must not occlude the sprite"
+        );
+
+        // Priority bit set but the background pixel is transparent (index 0):
+        // a transparent BG pixel is never in front, so the sprite shows.
+        let mut vdp = setup(true, false);
+        vdp.render_pixel(0, 0);
+        assert_eq!(
+            vdp.framebuffer[fb],
+            vdp.cram_to_argb(16 + 5),
+            "transparent background (index 0) never occludes, even with priority"
+        );
     }
 
     #[test]
