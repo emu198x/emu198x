@@ -2231,6 +2231,7 @@ dependencies = [
  "nintendo-game-boy-mbc",
  "nintendo-game-boy-ppu",
  "nintendo-game-boy-timer",
+ "png",
  "serde",
  "serde-big-array",
  "sharp-lr35902",

@@ -96,6 +96,7 @@ fn script_swaps_after_a1000_wom_lock() {
                 slot: "floppy-0".to_owned(),
                 kind: emu198x_shell::ScriptMediaKind::Disk,
                 path: kickstart_disk_path,
+                writable: false,
             },
             ScriptStep::WaitForQueryBool {
                 path: "amiga.a1000.wom_locked".to_owned(),
@@ -111,6 +112,7 @@ fn script_swaps_after_a1000_wom_lock() {
                 slot: "floppy-0".to_owned(),
                 kind: emu198x_shell::ScriptMediaKind::Disk,
                 path: workbench_disk_path,
+                writable: false,
             },
             ScriptStep::RunFrames { frames: 3000 },
             ScriptStep::SaveScreenshot {

@@ -36,6 +36,17 @@
 //! matches FS-UAE for that row; the env var is provided for the
 //! bootstrap workflow but should almost never be used.
 //!
+//! Provenance exception — `a500-ks13-wb13` (re-blessed 2026-06-09):
+//! the original capture predated working hardware-sprite DMA, so it
+//! showed a clean desktop with no mouse pointer. Once the Agnus→Denise
+//! sprite handoff (gap #162) landed, the Workbench pointer renders at
+//! the WB screen's top-left corner. This was verified to be the real
+//! KS 1.3 boot position — `IntuitionBase.MouseX/MouseY` read back as
+//! (0,0), which maps through DIWSTRT to that raster spot — so the
+//! pointer is where the ROM puts it, not an emulator artifact. The
+//! golden was regenerated from our (verified-correct) output to include
+//! it. Everything outside the pointer stayed pixel-identical.
+//!
 //! On mismatch the harness writes two debug PNGs next to the
 //! golden:
 //!
@@ -413,6 +424,7 @@ fn run_row(row: &GoldenRow) {
                         slot: "floppy-0".to_owned(),
                         kind: ScriptMediaKind::Disk,
                         path: kickstart_path,
+                        writable: false,
                     },
                     ScriptStep::WaitForQueryBool {
                         path: "amiga.a1000.wom_locked".to_owned(),
@@ -428,6 +440,7 @@ fn run_row(row: &GoldenRow) {
                         slot: "floppy-0".to_owned(),
                         kind: ScriptMediaKind::Disk,
                         path: workbench_path,
+                        writable: false,
                     },
                     ScriptStep::RunFrames {
                         frames: post_swap_frames
