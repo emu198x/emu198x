@@ -1340,6 +1340,29 @@ impl Agnus {
         }
     }
 
+    /// Apply a direct (CPU/copper) write to `SPRxPOS` — update the
+    /// vertical-start comparator just as a DMA control-word fetch does.
+    /// On real Agnus the SPRxPOS/CTL registers ARE the comparators;
+    /// every write (DMA or register) updates them. Without this, a
+    /// program that positions a DMA sprite by writing the registers
+    /// directly (e.g. Blitz `ShowSprite`, which leaves the chip-RAM
+    /// control words zero) leaves VSTART/VSTOP at 0 and the sprite never
+    /// displays. Mirrors vAmiga `Agnus::setSPRxPOS` (AgnusRegs.cpp:462).
+    pub fn poke_sprite_pos(&mut self, channel: usize, val: u16) {
+        if channel < 8 {
+            self.latch_sprite_pos(channel, val);
+        }
+    }
+
+    /// Apply a direct (CPU/copper) write to `SPRxCTL` — update the
+    /// VSTART[8]/VSTOP comparators. See [`Self::poke_sprite_pos`].
+    /// Mirrors vAmiga `Agnus::setSPRxCTL` (AgnusRegs.cpp:501).
+    pub fn poke_sprite_ctl(&mut self, channel: usize, val: u16) {
+        if channel < 8 {
+            self.latch_sprite_ctl(channel, val);
+        }
+    }
+
     /// Latch VSTART low 8 bits from a fetched SPRxPOS word (bits 15-8).
     fn latch_sprite_pos(&mut self, channel: usize, pos: u16) {
         self.spr_vstart[channel] = (self.spr_vstart[channel] & 0x0100) | (pos >> 8);

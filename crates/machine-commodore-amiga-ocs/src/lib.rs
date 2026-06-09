@@ -1332,6 +1332,21 @@ impl AmigaOcs {
                 let high = (offset & 2) == 0;
                 self.agnus.write_sprite_pointer_reg(sprite, high, val);
             }
+            // Direct (CPU/copper) writes to SPRxPOS ($140+8n) / SPRxCTL
+            // ($142+8n) must update Agnus's VSTART/VSTOP comparators, not
+            // just Denise — otherwise a DMA sprite positioned by direct
+            // register writes (Blitz `ShowSprite`, whose chip-RAM control
+            // words stay zero) never activates. Mirrors vAmiga, where
+            // every SPRxPOS/CTL write pokes both Agnus and Denise (#455).
+            0x140..=0x17F => {
+                let channel = ((offset - 0x140) / 8) as usize;
+                match offset & 0x7 {
+                    0 => self.agnus.poke_sprite_pos(channel, val),
+                    2 => self.agnus.poke_sprite_ctl(channel, val),
+                    _ => {} // SPRxDATA / SPRxDATB are Denise-only.
+                }
+                self.denise.write_word(offset, val);
+            }
             _ => self.denise.write_word(offset, val),
         }
         if matches!(offset, 0x020 | 0x022 | 0x024 | 0x026 | 0x07E) {

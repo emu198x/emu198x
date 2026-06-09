@@ -119,3 +119,77 @@ fn dma_sprite_renders_pixels_into_the_display() {
         amiga.denise().ocs.sprite_pixels_rendered(0)
     );
 }
+
+/// Regression (#455): a DMA sprite positioned by *direct* CPU/copper
+/// writes to SPR0POS/SPR0CTL — with the chip-RAM control words left
+/// zero — must still render. Blitz BASIC's `ShowSprite` works this way:
+/// it leaves the sprite data header at 0 and writes the position
+/// registers directly each frame. Direct SPRxPOS/CTL writes used to
+/// reach Denise only, never Agnus's VSTART/VSTOP comparator, so the
+/// sprite never activated and nothing drew. We reproduce that exact
+/// shape — zero header, direct register writes applied after the
+/// reset-line control fetch (as a per-frame copper would) — and assert
+/// Denise composited pixels.
+#[test]
+fn sprite_positioned_by_direct_pos_ctl_writes_renders() {
+    let mut amiga = AmigaOcs::new(parked_cpu_rom());
+
+    // Open the same wide display window as the DMA-way test.
+    amiga.poke_word(0x00DF_F08E, 0x2C81); // DIWSTRT
+    amiga.poke_word(0x00DF_F090, 0xF4C1); // DIWSTOP
+
+    // Sprite 0 data at $2000 with a ZERO control-word header (the Blitz
+    // shape) followed by opaque image lines.
+    amiga.poke_word(0x2000, 0x0000); // POS — left zero
+    amiga.poke_word(0x2002, 0x0000); // CTL — left zero
+    for line in 0..16u32 {
+        amiga.poke_word(0x2004 + line * 4, 0xFFFF); // DATA
+        amiga.poke_word(0x2006 + line * 4, 0x0000); // DATB
+    }
+    amiga.poke_word(0x00DF_F120, 0x0000); // SPR0PTH
+    amiga.poke_word(0x00DF_F122, 0x2000); // SPR0PTL
+    amiga.poke_word(0x00DF_F096, 0x8000 | 0x0200 | 0x0020); // DMACON: DMAEN|SPREN
+
+    // Run past the reset line (VBL_END_LINE = 25), where the DMA control
+    // fetch reads the zero header and pins VSTART/VSTOP at 0.
+    let mut guard = 0;
+    while amiga.agnus().vpos < 40 && guard < 4_000_000 {
+        amiga.tick();
+        guard += 1;
+    }
+    assert_eq!(
+        amiga.agnus().sprite_vstart(0),
+        0,
+        "zero header pins VSTART at 0 until a register write positions it"
+    );
+
+    // Now position the sprite the Blitz way — direct register writes:
+    //   SPR0POS = 0x3264 -> VSTART=0x32(50), HSTART=(0x64)<<1=200
+    //   SPR0CTL = 0x3C00 -> VSTOP =0x3C(60)
+    amiga.poke_word(0x00DF_F140, 0x3264); // SPR0POS
+    amiga.poke_word(0x00DF_F142, 0x3C00); // SPR0CTL
+
+    assert_eq!(
+        amiga.agnus().sprite_vstart(0),
+        50,
+        "direct SPR0POS write must update Agnus's VSTART comparator"
+    );
+    assert_eq!(
+        amiga.agnus().sprite_vstop(0),
+        60,
+        "direct SPR0CTL write must update Agnus's VSTOP comparator"
+    );
+
+    // Run past VSTOP so every active line has been composited.
+    while amiga.agnus().vpos < 62 && guard < 8_000_000 {
+        amiga.tick();
+        guard += 1;
+    }
+
+    assert!(
+        amiga.denise().ocs.sprite_pixels_rendered(0) > 0,
+        "sprite positioned by direct SPR0POS/CTL writes composited at least \
+         one pixel (got {})",
+        amiga.denise().ocs.sprite_pixels_rendered(0)
+    );
+}
