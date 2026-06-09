@@ -555,7 +555,7 @@ mod tests {
     /// bounded-RAM path is a drop-in for the buffered one.
     #[test]
     fn wav_stream_writer_matches_buffered_encoder() {
-        let samples: Vec<f32> = (0..1000).map(|i| ((i as f32) / 500.0 - 1.0)).collect();
+        let samples: Vec<f32> = (0..1000).map(|i| (i as f32) / 500.0 - 1.0).collect();
         let sample_rate = 44_100;
         let channels = 2u8;
 

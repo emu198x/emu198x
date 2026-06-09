@@ -281,10 +281,10 @@ mod tests {
         // with bit 0 (up) and bit 4 (trigger) clear, the rest high.
         apply_input_event(&mut msx, &mut cache, &button(1, "up", true));
         apply_input_event(&mut msx, &mut cache, &button(1, "fire", true));
-        assert_eq!(msx.joystick_byte(1), 0xFF & !0x01 & !0x10);
+        assert_eq!(msx.joystick_byte(1), !(0x01 | 0x10));
         // Releasing up restores its bit while fire stays held.
         apply_input_event(&mut msx, &mut cache, &button(1, "up", false));
-        assert_eq!(msx.joystick_byte(1), 0xFF & !0x10);
+        assert_eq!(msx.joystick_byte(1), !0x10);
     }
 
     #[test]
@@ -292,7 +292,7 @@ mod tests {
         let mut msx = make_msx();
         let mut cache = ControllerCache::default();
         apply_input_event(&mut msx, &mut cache, &button(2, "right", true));
-        assert_eq!(msx.joystick_byte(2), 0xFF & !0x08);
+        assert_eq!(msx.joystick_byte(2), !0x08);
         // Port 1 is untouched.
         assert_eq!(msx.joystick_byte(1), 0xFF);
     }

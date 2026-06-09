@@ -3,7 +3,7 @@
 
 mod common;
 
-use emu198x_shell::{DebugTarget, MachineCore, MediaImage, MediaKind, MediaSet};
+use emu198x_shell::{MachineCore, MediaImage, MediaKind, MediaSet};
 use runtime_nintendo_game_boy::{GameBoyRuntime, Model};
 
 use common::loop_rom;

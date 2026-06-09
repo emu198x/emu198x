@@ -2,8 +2,8 @@
 //!
 //! The joystick is cross-wired into the two pot pairs (verified vs
 //! vAmiga Joystick::joydat() + HRM Appendix A): the X pair (JOY1DAT
-//! bits 1,0) carries RIGHT + DOWN, the Y pair (bits 9,8) carries LEFT
-//! + UP. A prior bug used the naive X=horizontal / Y=vertical layout,
+//! bits 1,0) carries RIGHT and DOWN, the Y pair (bits 9,8) carries
+//! LEFT and UP. A prior bug used the naive X=horizontal / Y=vertical layout,
 //! so LEFT read as DOWN and DOWN read as LEFT in real games.
 
 use machine_commodore_amiga_a1200::AmigaA1200;

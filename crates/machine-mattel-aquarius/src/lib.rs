@@ -660,7 +660,7 @@ mod tests {
 
         let mut pal = Aquarius::new(trap_rom(), 0, AquariusRegion::Pal);
         assert_eq!(pal.run_frame(), PAL_TSTATES_PER_FRAME);
-        assert!(PAL_TSTATES_PER_FRAME > NTSC_TSTATES_PER_FRAME);
+        const _: () = assert!(PAL_TSTATES_PER_FRAME > NTSC_TSTATES_PER_FRAME);
     }
 
     #[test]
