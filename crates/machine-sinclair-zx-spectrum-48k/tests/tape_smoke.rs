@@ -423,10 +423,59 @@ fn run_and_compare_with_spectron(test_name: &str, spectron_png: Option<&str>) {
 #[test]
 #[ignore = "requires local 48K ROM and floatspy.tap; ~100 s wall time at cycle-accurate tape speed"]
 fn floatspy_runs_to_completion() {
-    // Spectron parity pending: its reference is the completed self-test
-    // screen, ours captures the interactive menu. Needs run-to-completion
-    // input driving (#10) before the Spectron byte-compare is meaningful.
+    // Captures floatspy's interactive menu. After the +3 floating-bus
+    // phase fix (#62) the menu's IN() BYTE reads 0, matching Spectron's
+    // floatspy_48.png. Compared to the self-locked menu golden here; the
+    // self-test-to-completion compare lives in `floatspy_selftest_ok`.
     run_and_compare("floatspy");
+}
+
+/// Drive floatspy's self-test (`T`) to completion and byte-compare the
+/// finished "Floating bus OK" screen to Spectron's `floatspy_48.png`. This
+/// is the end-to-end proof of the floating-bus read-phase fix (#62): the
+/// IN() BYTE reads 0 and floatspy reports OK, byte-equal to the oracle.
+/// Gated on `EMU198X_SPECTRON_RESULTS_DIR`; ~370 s at cycle-accurate speed.
+#[test]
+#[ignore = "requires local 48K ROM, floatspy.tap, and EMU198X_SPECTRON_RESULTS_DIR; ~370 s"]
+fn floatspy_selftest_ok() {
+    let rom_path = rom_path();
+    if !rom_path.is_file() {
+        return;
+    }
+    let tap_path = system_tests_dir().join("floatspy.tap");
+    if !tap_path.is_file() {
+        return;
+    }
+    let rom = std::fs::read(&rom_path).unwrap();
+    let tape_blocks =
+        tap_blocks_to_tape_blocks(parse_tap(&std::fs::read(&tap_path).unwrap()).unwrap());
+    let mut machine = Spectrum48k::new();
+    machine.load_rom_bytes(&rom).unwrap();
+    machine.reset();
+    machine.load_tape_blocks(tape_blocks);
+    for _ in 0..BOOT_FRAMES {
+        machine.run_frame();
+    }
+    let after = type_load_command(&mut machine, BOOT_FRAMES);
+    for _ in 0..30 {
+        machine.run_frame();
+    }
+    machine.play_tape();
+    for _ in (after + 30)..(after + 30 + RUN_BUDGET_FRAMES) {
+        machine.run_frame();
+    }
+    machine.keyboard_mut().set_key(SpectrumKey::T, true);
+    for _ in 0..4 {
+        machine.run_frame();
+    }
+    machine.keyboard_mut().set_key(SpectrumKey::T, false);
+    for _ in 0..40_000 {
+        machine.run_frame();
+    }
+    let dump = std::env::temp_dir().join("floatspy-selftest.png");
+    write_indexed_png(&dump, machine.framebuffer());
+    eprintln!("floatspy self-test screen written to {}", dump.display());
+    assert_screen_matches_spectron("floatspy_48.png", machine.framebuffer());
 }
 
 #[test]
