@@ -484,8 +484,37 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         if port & 0x01 == 0 {
             self.read_fe(port)
         } else {
-            self.ula.floating_bus()
+            self.floating_bus_read()
         }
+    }
+
+    /// Read the floating bus for an unused odd-port `IN`.
+    ///
+    /// The live ULA bus is exact *at the beam*, but a real `IN A,(n)`
+    /// samples the data bus three T-states after our `io_read` fires for
+    /// it (`handle_bus` resolves the IO transaction relative to the M1
+    /// boundary rather than the data phase). Verified against floatspy
+    /// (#62): its timed read (`in a,(0ffh)`, port `0x00FF`) lands on the
+    /// first floating-bus data slot on real hardware, which is `+3`
+    /// T-states from where our `io_read` fires. So evaluate the
+    /// floating-bus model at the hardware sample instant instead of the
+    /// live beam value.
+    ///
+    /// `tstate_in_frame()` numbers the frame from display line 0, which is
+    /// FUSE T-state 14336; add the 3 T-state sample lead → FUSE-T =
+    /// our-T + 14339. The model is byte-exact vs Spectron/FUSE (#10).
+    fn floating_bus_read(&self) -> u8 {
+        const ORIGIN: u32 = 14_336; // our-T 0 == FUSE-T of display line 0
+        const SAMPLE_LEAD: u32 = 3; // hardware samples 3 T after our io_read
+        const FLOAT_START: u32 = 14_338; // Spectron FloatingBusStartTicks (48K)
+        let frame = TIMING_48K.tstates_per_frame;
+        let t = (self.tstate_in_frame() + ORIGIN + SAMPLE_LEAD) % frame;
+        common_sinclair_zx_spectrum::ula_engine::floating_bus_byte(
+            t,
+            FLOAT_START,
+            TIMING_48K.tstates_per_line,
+            &self.memory,
+        )
     }
 
     fn io_write(&mut self, port: u16, data: u8) {
@@ -865,7 +894,9 @@ mod tests {
 
         for i in 0..SPAN {
             let t = START + i;
-            let live = m.io_read(0xFF);
+            // The live beam bus (io_read adds a +3 T-state hardware
+            // sample-lead correction; see `floating_bus_read`).
+            let live = m.ula.floating_bus();
             match spectron(t) {
                 None => assert_eq!(
                     live, 0xFF,
@@ -931,7 +962,8 @@ mod tests {
         m.z80.regs.pc = 0x8000;
 
         for t in 0..frame {
-            let our_idle = m.io_read(0xFF) == 0xFF;
+            // The live beam bus (io_read adds a sample-lead correction).
+            let our_idle = m.ula.floating_bus() == 0xFF;
             let fuse_t = (t + ORIGIN_OFFSET) % frame;
             assert_eq!(
                 our_idle,
@@ -994,19 +1026,23 @@ mod tests {
 
     #[test]
     fn odd_port_outside_kempston_range_reads_floating_bus() {
-        // $FFFF has A5 set, so it's outside the Kempston decode mask.
-        // The ULA's idle floating bus returns $FF regardless of
-        // whether a Kempston is attached.
+        // $FFFF has A5 set, so it's outside the Kempston decode mask, so
+        // the read falls through to the floating bus regardless of whether
+        // a Kempston is attached. At the reset beam position (frame T-state
+        // 0, display line 0) the floating-bus read samples bitmap column 0
+        // ($4000) — a sentinel here proves the port routes to the bus.
         let mut machine = Spectrum48k::new();
-        assert_eq!(machine.io_read(0xffff), 0xff);
+        machine.write(0x4000, 0xAB);
+        assert_eq!(machine.io_read(0xffff), 0xAB);
     }
 
     #[test]
     fn unattached_kempston_does_not_claim_port_one_f() {
-        // Default state: no Kempston plugged in. A port read at $1F
-        // falls through to the ULA floating bus.
+        // Default state: no Kempston plugged in. A port read at $1F falls
+        // through to the floating bus (bitmap column 0 at the reset beam).
         let mut machine = Spectrum48k::new();
-        assert_eq!(machine.io_read(0x1F), 0xff);
+        machine.write(0x4000, 0xAB);
+        assert_eq!(machine.io_read(0x1F), 0xAB);
     }
 
     #[test]

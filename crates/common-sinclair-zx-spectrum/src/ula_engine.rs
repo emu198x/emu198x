@@ -373,6 +373,44 @@ pub fn snow_address(cpu_rfsh: bool, cpu_addr: u16) -> Option<u16> {
     }
 }
 
+/// Spectron/FUSE floating-bus model byte at frame T-state `frame_tstate`
+/// (FUSE convention). Idle (`0xFF`) outside the four fetch slots of each
+/// 8-T group and outside the 192-line display; bitmap/attr otherwise.
+/// Proven byte-exact against the live ULA bus frame-wide (#10).
+#[must_use]
+pub fn floating_bus_byte(
+    frame_tstate: u32,
+    float_start: u32,
+    tstates_per_line: u32,
+    memory: &dyn MemoryBus,
+) -> u8 {
+    if frame_tstate <= float_start {
+        return 0xFF;
+    }
+    let rel = frame_tstate - 1 - float_start;
+    let line = rel / tstates_per_line;
+    if line >= 192 {
+        return 0xFF;
+    }
+    let col = rel % tstates_per_line;
+    if col >= 128 {
+        return 0xFF;
+    }
+    let goff = (col & 0x07) as u16;
+    if goff >= 4 {
+        return 0xFF;
+    }
+    let group = (col / 8) as u16;
+    let cc = 2 * group + (goff >> 1);
+    let y = line as u16;
+    let addr = if goff & 0x01 == 0 {
+        0x4000 | UlaEngine::compute_data_addr(y).wrapping_add(cc)
+    } else {
+        0x4000 | UlaEngine::compute_attr_addr(y).wrapping_add(cc)
+    };
+    memory.read_screen(addr)
+}
+
 impl UlaEngine {
     /// Re-install the timing config after deserialization.
     pub fn set_config(&mut self, config: &'static UlaConfig) {
@@ -885,5 +923,46 @@ mod tests {
             snowy.data_addr, 0x0143,
             "the fetch counter still advances under snow"
         );
+    }
+
+    /// `floating_bus_byte` reproduces the Spectron/FUSE model: idle
+    /// (`0xFF`) outside the four data slots of each 8-T group and outside
+    /// the 192-line display; bitmap / attribute at the data slots.
+    /// Column-encoded screen so each fetched byte reveals its column.
+    struct ColumnMemory;
+    impl MemoryBus for ColumnMemory {
+        fn read(&self, addr: u16) -> u8 {
+            if (0x5800..0x5B00).contains(&addr) {
+                0x80 | (addr & 0x1F) as u8
+            } else {
+                (addr & 0x1F) as u8
+            }
+        }
+        fn write(&mut self, _addr: u16, _value: u8) {}
+        fn is_contended(&self, _addr: u16) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn floating_bus_byte_matches_the_spectron_model() {
+        let mem = ColumnMemory;
+        const FS: u32 = 14_338; // 48K FloatingBusStartTicks
+        let b = |t: u32| floating_bus_byte(t, FS, 224, &mem);
+
+        // First 8-T group of display line 0 (rel 0..7): bitmap col0, attr
+        // col0, bitmap col1, attr col1, then four idle slots.
+        assert_eq!(b(FS + 1), 0x00, "rel 0 → bitmap column 0");
+        assert_eq!(b(FS + 2), 0x80, "rel 1 → attribute column 0");
+        assert_eq!(b(FS + 3), 0x01, "rel 2 → bitmap column 1");
+        assert_eq!(b(FS + 4), 0x81, "rel 3 → attribute column 1");
+        for rel in 4..8 {
+            assert_eq!(b(FS + 1 + rel), 0xFF, "rel {rel} idle");
+        }
+        // Before the first content T-state, the right border (col >= 128),
+        // and below the 192-line display all read idle.
+        assert_eq!(b(FS), 0xFF, "at/before float_start");
+        assert_eq!(b(FS + 1 + 128), 0xFF, "column 128 past the active region");
+        assert_eq!(b(FS + 1 + 192 * 224), 0xFF, "line 192 past the display");
     }
 }
