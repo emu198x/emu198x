@@ -68,11 +68,13 @@ below are residual accuracy/scope debt, not blockers.
   before equality. The smokes are green against self-locked goldens today;
   this tightens the oracle, it does not gate the launch. See
   [`knowledge/tests/spectrum.md`](../../knowledge/tests/spectrum.md).
-- **A — 4 residual FUSE block-I/O AF disagreements** on `INIR`, `OTIR`,
-  `INDR`, `OTDR` (X/Y undocumented flag bits at the final repeat
+- **A — 4 residual FUSE block-repeat AF disagreements** on `INIR`,
+  `OTIR`, `CPDR`, `OTDR` (X/Y undocumented flag bits at the final repeat
   iteration). WZ matches, T-states match, memory effects match; just the
   undoc bits. Resolution needs silicon-level evidence; not a launch
-  blocker.
+  blocker. (Verified against FUSE's fixtures 2026-06-09: the fourth op is
+  `CPDR`/`edb9`, a block-compare — an earlier note mislabelled it `INDR`.
+  `INDR`/`edba` passes all bits and is not allowlisted. Issue #13.)
 - **S — Scorpion ZS-256 screen rendering.** CPU-liveness boot test
   passes; the Service ROM doesn't paint standard screen RAM yet. Three
   concrete bugs in `machine-scorpion-zs256/src/memory.rs` identified

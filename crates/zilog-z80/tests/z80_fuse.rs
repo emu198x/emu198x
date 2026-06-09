@@ -130,17 +130,24 @@ struct FuseObserved {
 
 const ACCEPTED_FUSE_DISAGREEMENTS: &[(&str, &[&str])] = &[
     ("76", &["PC"]),
-    // INIR / OTIR / INDR / OTDR — WZ now matches FUSE (and Patrik
-    // Rak's z80memptr) after the 2026-05-31 fix to stop the repeat
-    // path from clobbering WZ that was correctly set to BC ± 1
-    // during the IN / OUT portion. `edba_1` (INDR) passed all bits
-    // after the WZ fix and is no longer listed. AF (specifically
-    // the X/Y undocumented bits, F bits 2 and 3) remains a
-    // separate disagreement — silicon evidence pending.
-    ("edb2_1", &["AF"]),
-    ("edb3_1", &["AF"]),
-    ("edb9_2", &["AF"]),
-    ("edbb_1", &["AF"]),
+    // Four block-repeat instructions disagree only on the X/Y
+    // undocumented AF bits (F bits 2 and 3) of the *final* repeat
+    // iteration — INIR (edb2), OTIR (edb3), CPDR (edb9) and OTDR
+    // (edbb). WZ now matches FUSE (and Patrik Rak's z80memptr) after
+    // the 2026-05-31 fix that stopped the repeat path from clobbering
+    // the WZ value (BC ± 1) set during the IN/OUT portion; everything
+    // except the undoc X/Y bits matches. These bits are silicon-
+    // variable at the final iteration (issue #13) — verified against
+    // FUSE's own fixtures, they're effectively unclosable without
+    // silicon evidence, so they stay allowlisted.
+    //
+    // NB: `edb9` is CPDR (ED B9), a block-*compare*, not a block-I/O
+    // op — an earlier note mislabelled it INDR. INDR itself (`edba`)
+    // passes all bits exactly and is deliberately *not* listed.
+    ("edb2_1", &["AF"]), // INIR
+    ("edb3_1", &["AF"]), // OTIR
+    ("edb9_2", &["AF"]), // CPDR
+    ("edbb_1", &["AF"]), // OTDR
 ];
 
 fn parse_hex_u16(token: &str) -> u16 {
