@@ -71,6 +71,21 @@ impl FerrantiUla {
         self.engine.border
     }
 
+    /// Debug raster probe: `(scan, pixel, video, idle, bus_data)`. Used by
+    /// floating-bus / interrupt-phase investigations to map a frame
+    /// T-state onto the ULA's internal beam position.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn debug_raster(&self) -> (u16, u16, bool, bool, u8) {
+        (
+            self.engine.scan,
+            self.engine.pixel,
+            self.engine.video,
+            self.engine.idle,
+            self.engine.bus_data,
+        )
+    }
+
     /// Reinstall the 48K timing config after a snapshot restore.
     ///
     /// `UlaEngine::config` is `#[serde(skip)]` and falls back to the

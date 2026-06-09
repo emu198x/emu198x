@@ -886,6 +886,62 @@ mod tests {
         }
     }
 
+    /// The live floating bus matches Spectron's model across the *entire*
+    /// frame — every display line, the borders, vsync, and the interrupt
+    /// line — not just the one scanline the sibling test checks.
+    ///
+    /// One subtlety this test pins down (#62): our `tstate_in_frame()`
+    /// numbers the frame from the first display line (the ULA's `scan 0`,
+    /// `hc = 0`), whereas FUSE/Spectron number it from the interrupt, with
+    /// the display starting at T=14336. The interrupt itself fires at the
+    /// correct beam position (`int_scan = 248`), so this is purely an
+    /// internal-numbering convention: `FUSE_T = (our_T + 14336) mod frame`.
+    /// Feeding our raw T-states into Spectron's model therefore disagrees
+    /// (an artefact); applying the offset, the two agree on every one of
+    /// the 69,888 T-states. This is *why* floatspy — which times its read
+    /// from the interrupt — needs the interrupt-acknowledge phase right
+    /// (#62), even though the bus content is exact.
+    #[test]
+    fn floating_bus_matches_spectron_model_across_the_whole_frame() {
+        const FS: u32 = 14_338;
+        // FUSE T=0 is the interrupt; our T=0 is the first display line, so
+        // the display sits +14336 later in FUSE's numbering than in ours.
+        const ORIGIN_OFFSET: u32 = 14_336;
+        let frame = TIMING_48K.tstates_per_frame;
+
+        let spectron_idle = |t: u32| -> bool {
+            if t <= FS {
+                return true;
+            }
+            let rel = t - 1 - FS;
+            if rel / 224 >= 192 {
+                return true; // below the 192-line display
+            }
+            let col = rel % 224;
+            col >= 128 || (col % 8) >= 4 // right border / idle half of each group
+        };
+
+        // Zeroed screen: the bus reads 0x00 at a data slot and 0xFF when
+        // idle, so the returned byte directly encodes our idle flag.
+        let mut m = Spectrum48k::new();
+        for addr in 0x4000u16..0x5B00 {
+            m.write(addr, 0x00);
+        }
+        m.write(0x8000, 0x76); // HALT to keep the CPU off screen RAM
+        m.z80.regs.pc = 0x8000;
+
+        for t in 0..frame {
+            let our_idle = m.io_read(0xFF) == 0xFF;
+            let fuse_t = (t + ORIGIN_OFFSET) % frame;
+            assert_eq!(
+                our_idle,
+                spectron_idle(fuse_t),
+                "our_T={t} (FUSE_T={fuse_t}): idle flag differs from Spectron"
+            );
+            m.advance_tstates(1);
+        }
+    }
+
     #[test]
     fn not_taken_djnz_uses_mreq_only_fallthrough_cycle() {
         let mut machine = Spectrum48k::new();
