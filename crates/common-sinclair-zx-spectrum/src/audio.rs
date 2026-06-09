@@ -377,7 +377,7 @@ mod tests {
             "onset sample {} should be near full scale",
             out[0]
         );
-        let last = *out.last().unwrap();
+        let last = *out.last().expect("output is non-empty");
         assert!(
             last < 0.05,
             "held level should decay; last sample was {last}"

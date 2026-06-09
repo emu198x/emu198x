@@ -904,7 +904,7 @@ mod tests {
         }
         assert!(!fdc.drq());
         assert_eq!(fdc.read(STATUS) & ST_BUSY, 0);
-        assert!(fdc.disk(0).unwrap().is_dirty());
+        assert!(fdc.disk(0).expect("drive 0 has a disk").is_dirty());
 
         // Read it back.
         fdc.write(SECTOR, 4);
@@ -926,7 +926,7 @@ mod tests {
         fdc.write(STATUS, 0xA0); // write sector
         let st = settle(&mut fdc);
         assert_eq!(st & ST_WRITE_PROTECT, ST_WRITE_PROTECT);
-        assert!(!fdc.disk(0).unwrap().is_dirty());
+        assert!(!fdc.disk(0).expect("drive 0 has a disk").is_dirty());
     }
 
     #[test]

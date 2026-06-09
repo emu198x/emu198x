@@ -815,7 +815,7 @@ mod tests {
     fn diagnostic_nes_suite() {
         let dir = std::env::var("EMU198X_NES_SUITE").expect("set EMU198X_NES_SUITE");
         let mut roms: Vec<_> = std::fs::read_dir(&dir)
-            .unwrap()
+            .expect("read NES suite dir")
             .flatten()
             .map(|e| e.path())
             .filter(|p| p.extension().is_some_and(|x| x == "nes"))
@@ -827,8 +827,12 @@ mod tests {
             .unwrap_or(600);
         let (mut pass, mut total) = (0, 0);
         for rom in &roms {
-            let name = rom.file_stem().unwrap().to_string_lossy().to_string();
-            let code = run_blargg_nes(&std::fs::read(rom).unwrap(), frames);
+            let name = rom
+                .file_stem()
+                .expect("ROM has a file stem")
+                .to_string_lossy()
+                .to_string();
+            let code = run_blargg_nes(&std::fs::read(rom).expect("read NES ROM"), frames);
             total += 1;
             if code == Some(0) {
                 pass += 1;

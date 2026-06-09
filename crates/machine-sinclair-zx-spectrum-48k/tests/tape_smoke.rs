@@ -446,11 +446,13 @@ fn floatspy_selftest_ok() {
     if !tap_path.is_file() {
         return;
     }
-    let rom = std::fs::read(&rom_path).unwrap();
-    let tape_blocks =
-        tap_blocks_to_tape_blocks(parse_tap(&std::fs::read(&tap_path).unwrap()).unwrap());
+    let rom = std::fs::read(&rom_path).expect("read 48K ROM");
+    let tape_blocks = tap_blocks_to_tape_blocks(
+        parse_tap(&std::fs::read(&tap_path).expect("read floatspy.tap"))
+            .expect("parse floatspy.tap"),
+    );
     let mut machine = Spectrum48k::new();
-    machine.load_rom_bytes(&rom).unwrap();
+    machine.load_rom_bytes(&rom).expect("load 48K ROM bytes");
     machine.reset();
     machine.load_tape_blocks(tape_blocks);
     for _ in 0..BOOT_FRAMES {

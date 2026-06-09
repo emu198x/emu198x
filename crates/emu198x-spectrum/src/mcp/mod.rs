@@ -291,7 +291,7 @@ mod tests {
             &mut session,
             1,
             "tools/call",
-            json!({ "name": "load_snapshot", "arguments": { "path": path.to_str().unwrap() } }),
+            json!({ "name": "load_snapshot", "arguments": { "path": path.to_str().expect("temp path is valid UTF-8") } }),
         );
         assert_ne!(
             load.get("isError").and_then(Value::as_bool),
