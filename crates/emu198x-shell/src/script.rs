@@ -982,6 +982,9 @@ impl HeadlessScript {
     }
 }
 
+/// Maximum bytes returned by a single `memory_read` step.
+const MEMORY_READ_MAX: u32 = 256;
+
 impl ScriptStep {
     /// Executes one script step against one live headless session.
     ///
@@ -1148,9 +1151,28 @@ impl ScriptStep {
             Self::LoadBasicProgram { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "load_basic_program",
             }),
-            Self::MemoryRead { .. } => Err(ScriptError::SystemSpecificStep {
-                step: "memory_read",
-            }),
+            Self::MemoryRead { addr, len } => {
+                // Generic, side-effect-free read through the machine's shared
+                // DebugTarget bus view — works for every debug-capable family
+                // (6502/Z80/6809 via the debug-primitive macros, Amiga by hand),
+                // so a per-binary intercept is no longer required. Machines that
+                // expose no debug target fall back to the system-specific error.
+                let Some(target) = session.machine().debug_target() else {
+                    return Err(ScriptError::SystemSpecificStep {
+                        step: "memory_read",
+                    });
+                };
+                let base = *addr;
+                let capped = (*len).min(MEMORY_READ_MAX);
+                let bytes = (0..capped)
+                    .map(|i| target.peek(base.wrapping_add(i)))
+                    .collect();
+                Ok(Some(ScriptObservation::MemoryRead {
+                    addr: base,
+                    len: capped,
+                    bytes,
+                }))
+            }
             Self::PokeByte { .. } => Err(ScriptError::SystemSpecificStep { step: "poke_byte" }),
             Self::PokeWord { .. } => Err(ScriptError::SystemSpecificStep { step: "poke_word" }),
             Self::WatchMemoryStart { .. } => Err(ScriptError::SystemSpecificStep {
@@ -1258,6 +1280,7 @@ mod tests {
         tape_loaded: usize,
         commands: usize,
         restored: usize,
+        ram: Vec<u8>,
     }
 
     impl DummyMachine {
@@ -1287,7 +1310,33 @@ mod tests {
                 tape_loaded: 0,
                 commands: 0,
                 restored: 0,
+                ram: vec![0u8; 0x1_0000],
             }
+        }
+    }
+
+    // A trivial debug surface over the dummy machine's RAM, so the generic
+    // `memory_read` step has a `DebugTarget` to read through.
+    impl crate::debug::DebugPrimitives for DummyMachine {
+        fn dbg_pc(&self) -> u32 {
+            0
+        }
+        fn dbg_peek(&self, addr: u32) -> u8 {
+            self.ram.get(addr as usize).copied().unwrap_or(0)
+        }
+        fn dbg_poke(&mut self, addr: u32, value: u8) {
+            if let Some(slot) = self.ram.get_mut(addr as usize) {
+                *slot = value;
+            }
+        }
+        fn dbg_cpu_state(&self) -> serde_json::Value {
+            json!({})
+        }
+        fn dbg_disassemble(&self, _addr: u32) -> Option<(String, u8)> {
+            None
+        }
+        fn dbg_step(&mut self) -> u64 {
+            0
         }
     }
 
@@ -1347,6 +1396,10 @@ mod tests {
         fn capabilities(&self) -> CapabilitySet {
             CapabilitySet::new()
         }
+
+        fn debug_target(&self) -> Option<&dyn crate::debug::DebugTarget> {
+            Some(self)
+        }
     }
 
     #[derive(Clone, Copy, Debug, Default)]
@@ -1393,6 +1446,50 @@ mod tests {
                 })),
                 _ => Ok(None),
             }
+        }
+    }
+
+    #[test]
+    fn memory_read_step_reads_through_the_debug_target() {
+        let mut machine = DummyMachine::new();
+        machine.ram[0xC000] = 0x42;
+        machine.ram[0xC001] = 0x99;
+        let mut session = HeadlessSession::new(machine, 1);
+
+        let obs = ScriptStep::MemoryRead {
+            addr: 0xC000,
+            len: 4,
+        }
+        .execute_collect(&mut session)
+        .expect("memory_read should execute")
+        .expect("memory_read should emit an observation");
+
+        match obs {
+            ScriptObservation::MemoryRead { addr, len, bytes } => {
+                assert_eq!(addr, 0xC000);
+                assert_eq!(len, 4);
+                assert_eq!(bytes, vec![0x42, 0x99, 0x00, 0x00]);
+            }
+            other => panic!("expected a MemoryRead observation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn memory_read_step_caps_length_at_256() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 1);
+        let obs = ScriptStep::MemoryRead {
+            addr: 0x0000,
+            len: 1000,
+        }
+        .execute_collect(&mut session)
+        .expect("memory_read should execute")
+        .expect("memory_read should emit an observation");
+        match obs {
+            ScriptObservation::MemoryRead { len, bytes, .. } => {
+                assert_eq!(len, 256);
+                assert_eq!(bytes.len(), 256);
+            }
+            other => panic!("expected a MemoryRead observation, got {other:?}"),
         }
     }
 
