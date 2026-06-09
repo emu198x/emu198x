@@ -171,7 +171,10 @@ fn run_until_applies_mouse_input_to_controller_port_zero() {
         .expect("one frame should run");
 
     assert_eq!(runtime.machine().read_word(0x00DF_F00A), 0x0403);
-    assert_eq!(runtime.machine().read_word(0x00BF_E001) & 0x80, 0);
+    // Mouse left button → /FIR0 on CIA-A PA6 (bit 6, active-low). Per
+    // the MAME-verified mapping locked in cia_a_fire_buttons.rs; PA7
+    // (/FIR1, port 1) stays high.
+    assert_eq!(runtime.machine().read_word(0x00BF_E001) & 0x40, 0);
 }
 
 #[test]
@@ -205,7 +208,10 @@ fn run_until_applies_joystick_input_to_controller_port_two() {
         .expect("one frame should run");
 
     assert_eq!(runtime.machine().read_word(0x00DF_F00C) & 0x0003, 0x0003);
-    assert_eq!(runtime.machine().read_word(0x00BF_E001) & 0x40, 0);
+    // Port-1 joystick fire → /FIR1 on CIA-A PA7 (bit 7, active-low). Per
+    // the MAME-verified mapping locked in cia_a_fire_buttons.rs; PA6
+    // (/FIR0, port 0) stays high.
+    assert_eq!(runtime.machine().read_word(0x00BF_E001) & 0x80, 0);
 }
 
 // ---------------------------------------------------------------------
