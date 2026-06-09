@@ -236,4 +236,87 @@ mod tests {
             );
         }
     }
+
+    /// Regression for #6: the MCP `load_snapshot` tool must route a
+    /// portable `.sna` through the shared snapshot parser, not
+    /// postcard-decode it as the runtime's own save state. The bug
+    /// surfaced as `Found a bool that wasn't 0 or 1` because a `.sna`
+    /// is not postcard. Loads a hand-built 48K `.sna` whose RAM dump
+    /// carries a sentinel byte and reads it back to prove the snapshot
+    /// applied. Skips when the 48K ROM is absent.
+    #[test]
+    fn load_snapshot_routes_portable_sna_not_postcard() {
+        let runtime_48k = match boot_eager_48k() {
+            Ok(rt) => rt,
+            Err(_) => {
+                eprintln!("skipping: 48K ROM missing (set up ~/.emu198x/roms/...)");
+                return;
+            }
+        };
+        let kind = SpectrumRuntimeKind::Spectrum48K(runtime_48k);
+        let frame_halfcycles = u64::from(kind.frame_halfcycles());
+        let mut session = HeadlessSession::new_with_query_provider(
+            kind,
+            frame_halfcycles,
+            SpectrumSessionQueryProvider,
+        );
+        let mut server: Server<tools::SpectrumSession> =
+            Server::new(ServerInfo::new("emu198x-spectrum", "test"));
+        register_full_surface(&mut server);
+
+        // Minimal valid 48K .sna: 27-byte header + 49152 bytes of RAM
+        // ($4000-$FFFF). Park SP at $6000 so the PC restore pops from
+        // harmless zero RAM; IM = 1. A sentinel at $C000 proves the RAM
+        // dump landed — a postcard misdecode would have errored, not
+        // written RAM.
+        const SENTINEL_ADDR: usize = 0xC000;
+        let mut sna = vec![0u8; 49179];
+        sna[23] = 0x00; // SP low
+        sna[24] = 0x60; // SP high -> $6000
+        sna[25] = 0x01; // interrupt mode 1
+        sna[27 + (SENTINEL_ADDR - 0x4000)] = 0xA5;
+
+        let path = std::env::temp_dir().join(format!(
+            "emu198x_mcp_sna_regression_{}.sna",
+            std::process::id()
+        ));
+        std::fs::write(&path, &sna).expect("write temp .sna");
+
+        // Pre-fix this call postcard-decoded the .sna and errored; the
+        // overriding Spectrum tool routes it to the portable parser. A
+        // tool-level error surfaces as `isError`, which the sentinel
+        // read below would also catch.
+        let load = call(
+            &mut server,
+            &mut session,
+            1,
+            "tools/call",
+            json!({ "name": "load_snapshot", "arguments": { "path": path.to_str().unwrap() } }),
+        );
+        assert_ne!(
+            load.get("isError").and_then(Value::as_bool),
+            Some(true),
+            "load_snapshot of a portable .sna must not error: {load}"
+        );
+
+        let read = tool_text(&call(
+            &mut server,
+            &mut session,
+            2,
+            "tools/call",
+            json!({ "name": "memory_read", "arguments": { "addr": SENTINEL_ADDR, "len": 1 } }),
+        ));
+        let first = read
+            .get("bytes")
+            .and_then(Value::as_array)
+            .and_then(|a| a.first())
+            .and_then(Value::as_u64);
+        assert_eq!(
+            first,
+            Some(0xA5),
+            "loaded .sna RAM byte at $C000 should be the sentinel 0xA5: {read}"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
 }

@@ -1054,6 +1054,23 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
         }),
     }));
 
+    // Override the shared `load_snapshot` tool (register_common_tools)
+    // with the Spectrum one so it dispatches through `mcp_execute_step`,
+    // which routes portable `.sna` / `.z80` (and `.zip`) files to the
+    // shared snapshot parser. The shared tool postcard-decodes the path
+    // as the runtime's own save state, which fails on a portable
+    // snapshot ("Found a bool that wasn't 0 or 1"). Registered last so it
+    // wins by name. gap #6.
+    registry.register(Box::new(ScriptStepTool {
+        name: "load_snapshot",
+        description: "Restore a snapshot into the live machine. Portable `.sna` / `.z80` files (optionally inside a `.zip`) are parsed and applied; a runtime save-state blob is restored directly.",
+        schema: json!({
+            "type": "object",
+            "properties": { "path": string_field() },
+            "required": ["path"],
+        }),
+    }));
+
     registry.register(Box::new(ScriptStepTool {
         name: "query_ay",
         description: "Query the AY-3-8912 sound chip's full register state in one call. Returns the 16 raw registers plus decoded tone periods (A/B/C), noise period, mixer, amplitudes, envelope period, and envelope shape. Errors when the active variant has no AY (16K / 48K / Spectrum+); call set_machine first to switch to a 128K-class variant.",
@@ -1452,12 +1469,16 @@ mod tests {
         register_spectrum_tools(&mut registry);
         let names: Vec<_> = registry.iter().map(|tool| tool.name().to_owned()).collect();
 
-        // The Spectrum-specific tools (bespoke + rich Z80 debug) live here.
+        // The Spectrum-specific tools (bespoke + rich Z80 debug) live
+        // here, plus `load_snapshot` — an intentional override of the
+        // shared tool so portable `.sna` / `.z80` files route through the
+        // Spectrum snapshot parser rather than postcard (gap #6).
         let expected = [
             "clear_audio_capture",
             "set_machine",
             "autoload_tape",
             "load_basic_program",
+            "load_snapshot",
             "query_ay",
             "query_cpu",
             "step",
