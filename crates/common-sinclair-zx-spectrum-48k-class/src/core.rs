@@ -810,6 +810,82 @@ mod tests {
         );
     }
 
+    /// The live floating bus reproduces Spectron's model byte-for-byte
+    /// across a display scanline — both the idle window (data at the four
+    /// fetch slots of each 8-T group, idle elsewhere and past the 128-T
+    /// active region) and the byte *values* (the column Spectron predicts
+    /// for each data slot). This pins #10: our floating bus is correct vs
+    /// the Spectron oracle. The floatspy-tap discrepancy lives on a
+    /// different axis (interrupt-acknowledge / IM2 read phase), not the
+    /// bus model — see `knowledge/systems/spectrum/floating-bus-accuracy.md`.
+    ///
+    /// Method: drive the ULA directly (CPU parked on a HALT so it stays
+    /// off screen RAM) and read `IN A,($FF)` at each frame T-state. This
+    /// is deterministic and oracle-anchored — no tape, no interrupt
+    /// timing in the loop.
+    #[test]
+    fn floating_bus_matches_spectron_model_across_a_scanline() {
+        const START: u32 = 14_330;
+        const SPAN: u32 = 160;
+        const FS: u32 = 14_338; // Spectron FloatingBusStartTicks (48K)
+
+        // Spectron's floating-bus model at frame T-state `t`, line 0.
+        let spectron = |t: u32| -> Option<(bool, u8)> {
+            // None = idle (0xFF); Some((is_attr, column)) = a data slot.
+            if t <= FS {
+                return None;
+            }
+            let rel = t - 1 - FS;
+            let col = rel % 224;
+            if col >= 128 {
+                return None;
+            }
+            let goff = col % 8;
+            if goff >= 4 {
+                return None;
+            }
+            let group = (col / 8) as u16;
+            let cc = (2 * group + (goff as u16 >> 1)) as u8;
+            Some((goff & 1 == 1, cc))
+        };
+
+        // Column-encoded screen so a fetched byte reveals its column
+        // regardless of which display line the float is reading:
+        // bitmap → column, attribute → 0x80 | column.
+        let mut m = Spectrum48k::new();
+        for addr in 0x4000u16..0x5800 {
+            m.write(addr, (addr & 0x1F) as u8);
+        }
+        for addr in 0x5800u16..0x5B00 {
+            m.write(addr, 0x80 | (addr & 0x1F) as u8);
+        }
+        m.write(0x8000, 0x76); // HALT; IFF=0 after reset so it sticks
+        m.z80.regs.pc = 0x8000;
+        m.advance_tstates(START);
+
+        for i in 0..SPAN {
+            let t = START + i;
+            let live = m.io_read(0xFF);
+            match spectron(t) {
+                None => assert_eq!(
+                    live, 0xFF,
+                    "T={t}: Spectron idle but live bus = {live:#04x}"
+                ),
+                Some((is_attr, col)) => {
+                    let expected = if is_attr { 0x80 | col } else { col };
+                    assert_eq!(
+                        live,
+                        expected,
+                        "T={t}: Spectron expects {} column {col} ({expected:#04x}), \
+                         live bus = {live:#04x}",
+                        if is_attr { "attribute" } else { "bitmap" },
+                    );
+                }
+            }
+            m.advance_tstates(1);
+        }
+    }
+
     #[test]
     fn not_taken_djnz_uses_mreq_only_fallthrough_cycle() {
         let mut machine = Spectrum48k::new();
