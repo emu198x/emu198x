@@ -216,36 +216,6 @@ jobs:
           name: coverage-html
           path: target/llvm-cov/html
 
-  zex:
-    name: ZEXDOC + ZEXALL
-    runs-on: ubuntu-latest
-    needs: [fmt, clippy]
-    # Frank Cringle's Z80 exerciser. Long-running (tens of minutes in
-    # release on the GitHub runner) but hermetic — `.com` corpus is
-    # checked in at test-data/zex/. Parallel to coverage so it doesn't
-    # slow PR feedback on lint, and gated on fmt+clippy so it doesn't
-    # waste a slow compile on broken code.
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Read pinned toolchain
-        # See note in the fmt job above.
-        id: toolchain
-        run: |
-          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
-          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ steps.toolchain.outputs.channel }}
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: zex
-
-      - name: Run ZEXDOC + ZEXALL
-        run: cargo test --release -p zilog-z80 --test zex_tests -- --include-ignored --nocapture
+  # ZEXDOC + ZEXALL moved to .github/workflows/zex.yml — it runs only when
+  # the Z80 core or its corpus changes (plus on demand), so it no longer
+  # makes every push wait tens of minutes on a stable CPU exerciser.
