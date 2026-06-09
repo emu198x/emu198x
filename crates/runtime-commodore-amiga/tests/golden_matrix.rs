@@ -55,11 +55,14 @@
 //!
 //! Both are gitignored so they don't pollute the tree.
 //!
-//! # Phase 1 scope
+//! # Scope
 //!
-//! OCS only — A1000 bootstrap + A500 / A500+A501 with Kickstart-era
-//! boot paths, with and without a Workbench ADF inserted. Later phases extend
-//! the matrix to ECS (A500+/A600), AGA (A1200/A4000), and HDD boot.
+//! OCS — A1000 bootstrap + A500 / A500+A501 with Kickstart-era boot
+//! paths, with and without a Workbench ADF inserted. Plus one AGA row:
+//! A1200 + Kickstart 3.1 booting Workbench 3.1 to the desktop (issue
+//! #42), which locks the FMODE wide-fetch and 68020 EA-decode paths.
+//! Remaining phases extend the matrix to ECS (A500+/A600), more AGA
+//! (A4000/CD32), and HDD boot.
 
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -69,8 +72,8 @@ use emu198x_shell::{
 };
 use format_commodore_amiga_adf::Adf;
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AmigaSessionQueryProvider, DISPLAY_HEIGHT,
-    DISPLAY_WIDTH, Model,
+    A500_PAL_FRAME_TICKS, AmigaA1200Runtime, AmigaOcsRuntime, AmigaSessionQueryProvider,
+    DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
 };
 
 /// One row in the golden matrix.
@@ -167,6 +170,21 @@ const MATRIX: &[GoldenRow] = &[
             kickstart_disk: DiskAsset::A1000KickstartZip,
             workbench_disk: DiskAsset::HomeMedia("workbench-1.2.adf"),
             post_swap_frames: 3000,
+        },
+    },
+    // AGA: A1200 + Kickstart 3.1 booting Workbench 3.1 to the desktop.
+    // Locks the FMODE bitplane wide-fetch and 68020 full-format EA decode
+    // paths against regression (issue #42). The bootable disk is "Disk 2
+    // (Workbench)" of the WB 3.1 six-disk set.
+    GoldenRow {
+        name: "a1200-ks31-wb31",
+        model: Model::A1200AgaPal,
+        kickstart: "kick31a1200.rom",
+        boot: BootFlow::Direct {
+            disk: Some(DiskAsset::HomeMedia(
+                "wb31/Workbench v3.1 rev 40.42 (1996)(ESCOM)(M10)(Disk 2 of 6)(Workbench).adf",
+            )),
+            settle_frames: 1800,
         },
     },
 ];
@@ -278,7 +296,14 @@ fn tick_frames(rt: &mut AmigaOcsRuntime, frames: u64) {
 /// vertical trim, discarding the outer PAL overscan border that
 /// FS-UAE doesn't show.
 fn capture_fsuae_rgb(rt: &AmigaOcsRuntime) -> Vec<u8> {
-    let fb = rt.machine().denise().framebuffer();
+    crop_fsuae_rgb(rt.machine().denise().framebuffer())
+}
+
+/// Crop a full 768×576 PAL Standard framebuffer to FS-UAE's default
+/// PAL region and return it as RGB bytes. Chipset-agnostic — OCS, ECS
+/// and AGA all render to the same `DISPLAY_WIDTH × DISPLAY_HEIGHT`
+/// buffer, so the same crop applies.
+fn crop_fsuae_rgb(fb: &[u32]) -> Vec<u8> {
     assert_eq!(fb.len(), (DISPLAY_WIDTH * DISPLAY_HEIGHT) as usize);
     let x_off = (DISPLAY_WIDTH - FSUAE_W) / 2;
     let y_off = (DISPLAY_HEIGHT - FSUAE_H) / 2;
@@ -383,6 +408,29 @@ fn run_row(row: &GoldenRow) {
     };
 
     let actual_rgb = match row.boot {
+        BootFlow::Direct {
+            disk,
+            settle_frames,
+        } if row.model.is_aga() => {
+            // AGA (A1200) boots through the Lisa chip stack, so it needs
+            // the AGA runtime rather than the OCS one. The boot shape is
+            // otherwise identical to the OCS Direct path: optional disk,
+            // tick to settle, crop the same 768×576 framebuffer.
+            let mut rt = AmigaA1200Runtime::new(row.model, rom_bytes)
+                .unwrap_or_else(|e| panic!("{}: build runtime: {e:?}", row.name));
+            if let Some(spec) = disk {
+                let Some(bytes) = load_optional_disk_asset(spec, row.name) else {
+                    return;
+                };
+                let adf = Adf::from_bytes(bytes)
+                    .unwrap_or_else(|e| panic!("{}: decode ADF: {e}", row.name));
+                rt.machine_mut().insert_adf(adf);
+            }
+            for _ in 0..(settle_frames * A500_PAL_FRAME_TICKS) {
+                rt.machine_mut().tick();
+            }
+            crop_fsuae_rgb(rt.machine().denise().framebuffer())
+        }
         BootFlow::Direct {
             disk,
             settle_frames,
@@ -550,4 +598,9 @@ fn a1000_ks12_no_disk() {
 #[test]
 fn a1000_ks12_wb12() {
     run_row(&MATRIX[4]);
+}
+
+#[test]
+fn a1200_ks31_wb31() {
+    run_row(&MATRIX[5]);
 }
