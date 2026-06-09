@@ -71,7 +71,7 @@
 use mos_6502::M6502;
 use mos_via_6522::Via6522;
 use motorola_6845::Crtc6845;
-use ti_sn76489::Sn76489;
+use ti_sn76489::{NoiseLfsr, Sn76489};
 
 /// Framebuffer width (640 pixels — MODE 0 native).
 pub const FB_WIDTH: u32 = 640;
@@ -356,7 +356,7 @@ impl BbcMicro {
             video_ula: VideoUla::new(),
             system_via: Via6522::new(),
             user_via: Via6522::new(),
-            psg: Sn76489::new(SN76489_CLOCK_HZ),
+            psg: Sn76489::new(SN76489_CLOCK_HZ, NoiseLfsr::Tms15),
             ram: [0; 32768],
             mos_rom,
             sideways_roms: Vec::new(),

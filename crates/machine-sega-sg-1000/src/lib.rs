@@ -51,7 +51,7 @@
 //! corresponds to one Z80 T-state; per iteration the phase counter
 //! advances by 3 and yields one VDP dot whenever it reaches 2.
 
-use ti_sn76489::Sn76489;
+use ti_sn76489::{NoiseLfsr, Sn76489};
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
 
@@ -169,7 +169,7 @@ impl Sg1000 {
         Self {
             cpu: Z80::new(),
             vdp: Tms9918::new(vdp_region),
-            psg: Sn76489::new(psg_clock_hz),
+            psg: Sn76489::new(psg_clock_hz, NoiseLfsr::Tms15),
             cart_rom,
             ram: [0; 1024],
             controller1: ControllerState::default(),

@@ -77,7 +77,7 @@
 //! `docs/status/outstanding-work.md` § Sega Master System.
 
 use sega_vdp::{SegaVdp, VdpRegion, VdpVariant};
-use ti_sn76489::Sn76489;
+use ti_sn76489::{NoiseLfsr, Sn76489};
 use zilog_z80::{BusOp, Z80};
 
 const CPU_TSTATES_PER_SCANLINE: u64 = 228;
@@ -170,7 +170,7 @@ impl Sms {
         Self {
             cpu: Z80::new(),
             vdp,
-            psg: Sn76489::new(variant.psg_clock_hz()),
+            psg: Sn76489::new(variant.psg_clock_hz(), NoiseLfsr::Sega16),
             cart_rom,
             ram: [0; 8192],
             mapper_regs: [0x00, 0x00, 0x01, 0x02],

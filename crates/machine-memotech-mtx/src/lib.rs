@@ -51,7 +51,7 @@ pub use input::MtxKey;
 pub use keyboard::KeyboardState;
 pub use ti_tms9918::Tms9918;
 
-use ti_sn76489::Sn76489;
+use ti_sn76489::{NoiseLfsr, Sn76489};
 use ti_tms9918::VdpRegion;
 use zilog_z80::z80::{BusOp, Z80};
 use zilog_z80_ctc::Ctc;
@@ -152,7 +152,7 @@ impl Mtx {
             blocks: model.blocks(),
             page_reg: 0,
             vdp: Tms9918::new(VdpRegion::Pal),
-            psg: Sn76489::new(4_000_000),
+            psg: Sn76489::new(4_000_000, NoiseLfsr::Tms15),
             ctc: Ctc::new(),
             keyboard: KeyboardState::new(),
             kbd_drive: 0,

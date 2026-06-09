@@ -48,7 +48,7 @@
 //! which ran the VDP and wall-clock 1.5× too fast. Same model as the
 //! SG-1000 (identical TMS9918A + Z80 at the same clocks).
 
-use ti_sn76489::Sn76489;
+use ti_sn76489::{NoiseLfsr, Sn76489};
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
 
@@ -206,7 +206,7 @@ impl ColecoVision {
         Self {
             cpu: Z80::new(),
             vdp: Tms9918::new(vdp_region),
-            psg: Sn76489::new(3_579_545),
+            psg: Sn76489::new(3_579_545, NoiseLfsr::Tms15),
             bios,
             cart_rom,
             ram: [0; 1024],
