@@ -76,23 +76,11 @@ Impossible Mission D64 end-to-end through the IEC bus and 1541. CPU
 oracles: Tom Harte 100%, Dormann functional pass, Lorenz 250/265. 71/71
 active runtime tests pass.
 
-- **S — Real-software autoload tests are gated on archive paths.** 8
-  D64 autoload tests + 5 TAP autoload tests (Impossible Mission,
-  Ghostbusters, Thomas the Tank Engine, Thing on a Spring, Thinker) sit
-  `ignored` waiting for the local archive root to land. Tests are
-  written; wire them once the archive path is settled.
-- **S — `--autoload-disk` only types `LOAD"*",8,1`.** For non-autostart
-  binaries the load completes and drops back to `READY.` Adding an
-  `--autoload-run` (or an `8,1` → `RUN` extension) would smooth game
-  launches to one command.
-- **A — 15 Lorenz `cpu` skips need full C64 machine model** (CIA timer
-  interaction, 6510 banking, KERNAL tape traps, IRQ delivery,
-  cycle-observable `cputiming`, `finish` screen-clear). The 6510 zero-page
-  port `cpuport` already flipped to PASS once the three pin classes were
-  modelled.
-- **A — Drive/tape workflows are flag-heavy.** Discoverability gap, not
-  correctness gap. Could be folded into a single `--smart-autoload` that
-  picks disk vs tape vs PRG by file extension.
+**Open work is now tracked in GitHub Issues, not here** — the
+[**C64 100% milestone**](https://github.com/emu198x/emu198x/milestone/2)
+(filter `label:system:c64`): the Lorenz full-machine-model accuracy debt,
+autoload/`--smart-autoload` ergonomics, SID filter fidelity, cartridges and
+drives, and the rest of the completionist tail.
 
 ## Nintendo NES — `emu198x-nes`
 
@@ -101,28 +89,11 @@ stable model per the NES test-oracle decision); nestest 8991/8991;
 155-ROM sweep at **135 PASS / 5 FAIL / 0 TIMEOUT / 15 VISUAL**. APU
 length-counter timing and LXA both closed 2026-06-01.
 
-- **A — `blargg_nes_cpu_test5` test 01-implied (2 ROMs).** Both `cpu.nes`
-  and `official.nes` now fail uniquely on test 01 after the LXA fix.
-  Probe at
-  [`crates/machine-nintendo-nes/tests/cpu_test5_probe.rs`](../../crates/machine-nintendo-nes/tests/cpu_test5_probe.rs)
-  confirms sub-tests 02-11 all carry `[OK]` markers. Test 01 covers 22
-  implied-mode opcodes (ROL/ASL/ROR/LSR A, T(A/X/Y), IN/DE X/Y, the
-  seven flag set/clear ops, NOP). A Rust port of blargg's CRC-32
-  framework lives at
-  [`crates/mos-6502/tests/blargg_01_implied_crc.rs`](../../crates/mos-6502/tests/blargg_01_implied_crc.rs);
-  2/20 OFFICIAL_ONLY opcodes match (TXA, TYA), confirming the
-  CRC + iteration order are correct. The remaining 18 likely diverge in
-  `set_paxyso`'s PLP behaviour or first-iteration CPU state.
-- **A — OAMDMA + DMC DMA cycle accounting** (`sprdma_and_dmc_dma` 0/2).
-  OAMDMA is fixed 514 cycles in the machine layer; DMC sample DMA steals
-  individual CPU cycles but doesn't interleave with an in-progress
-  OAMDMA. Need: 513/514 by even/odd alignment + DMC interleave.
-- **A — `cpu_timing_test6` protocol** (0/1). Settles at
-  `$00F0 = 0x98`; protocol not understood (the `0x98` byte is the TYA
-  opcode, which may be a hint but is not confirmed).
-- **S — More mapper coverage.** Memory mapping, expansion audio, and
-  scanline IRQ are wired for MMC5; broader mapper coverage and
-  hardware-test cross-checking remain useful.
+**Open work is now tracked in GitHub Issues, not here** — the
+[**NES 100% milestone**](https://github.com/emu198x/emu198x/milestone/3)
+(filter `label:system:nes`): the blargg `cpu_test5` 01-implied probe, OAMDMA/DMC
+DMA cycle accounting, the `cpu_timing_test6` protocol, and broader mapper
+coverage.
 
 ## Commodore Amiga — `emu198x-amiga`
 
@@ -133,24 +104,11 @@ to a clean Workbench 3.1 desktop — no palette or geometry artefacts. CPU
 oracles: 68000 100% Tom Harte (1M tests); 68010/68020 100% against Musashi
 via `m68k-test-gen`.
 
-- **A — Promote AGA Workbench 3.1 boot to an automated screenshot smoke.**
-  The boot was verified manually this session (`--model a1200
-  --kickstart kick31a1200.rom --disk workbench31.adf --frames 1800
-  --screenshot aga_wb.png`). Locking a golden would catch regressions in
-  the FMODE bitplane wide-fetch (`d31e46a`) and 68020 full-format EA
-  decode (`369d50b`) paths.
-- **A — Gayle for A600 / A1200.** Current Gayle wiring covers what
-  Kickstart 3.1 needs to boot. IDE and PCMCIA paths are stub-level;
-  broader software (e.g. an A1200 with a hard drive image) will need
-  them properly modelled.
-- **S — Broader software validation across OCS / ECS / AGA.** Workbench
-  1.3 / 2.x / 3.1 desktops verified, but game/application coverage is
-  thin. Pick representative titles per chipset and wire as headless
-  smokes with screenshot artefacts.
-- **S — Long-term scope (recorded, not active).** Apollo Vampire FPGA +
-  AC68080, PiStorm, RTG framebuffer expansions — the trait surface was
-  designed to accommodate non-Commodore CPUs / chipsets / dual-display
-  from day one, but no implementation work is scheduled.
+**Open work is now tracked in GitHub Issues, not here** — the
+[**Amiga 100% milestone**](https://github.com/emu198x/emu198x/milestone/4)
+(filter `label:system:amiga`): the AGA/HAM8 render paths, Gayle/IDE, the AGA
+Workbench screenshot smoke, broader OCS/ECS/AGA software validation, and the
+long-term FPGA/RTG scope.
 
 ## Nintendo Game Boy — `emu198x-game-boy`
 
