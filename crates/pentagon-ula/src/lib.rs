@@ -49,9 +49,11 @@ impl Ula for PentagonUla {
         _cpu_addr: u16,
         _cpu_mreq: bool,
         cpu_iorq: bool,
+        // Pentagon has no contention and no snow effect.
+        _cpu_rfsh: bool,
         framebuffer: &mut [u8],
     ) {
-        self.engine.tick_rendering(memory, framebuffer);
+        self.engine.tick_rendering(memory, framebuffer, None);
         // No contention — CPU clock is always live.
         self.engine.cpu_clock = true;
         self.engine.track_z80_clock(cpu_iorq, false);

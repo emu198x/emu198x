@@ -45,9 +45,11 @@ impl Ula for ScorpionUla {
         _cpu_addr: u16,
         _cpu_mreq: bool,
         cpu_iorq: bool,
+        // Scorpion has no contention and no snow effect.
+        _cpu_rfsh: bool,
         framebuffer: &mut [u8],
     ) {
-        self.engine.tick_rendering(memory, framebuffer);
+        self.engine.tick_rendering(memory, framebuffer, None);
         self.engine.cpu_clock = true; // No contention.
         self.engine.track_z80_clock(cpu_iorq, false);
     }

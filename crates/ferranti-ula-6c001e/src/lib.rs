@@ -116,13 +116,18 @@ impl Ula for FerrantiUla {
         cpu_addr: u16,
         cpu_mreq: bool,
         cpu_iorq: bool,
+        cpu_rfsh: bool,
         framebuffer: &mut [u8],
     ) {
         let e = &mut self.engine;
         let phase = (e.pixel as usize) & 0x0F;
 
+        // Snow: a CPU refresh with I in screen-RAM range collides with
+        // the video fetch (the Ferranti ULA ignores /RFSH). gap #12.
+        let snow = ula_engine::snow_address(cpu_rfsh, cpu_addr);
+
         // Rendering: video fetch, pixel output, counters, interrupt
-        e.tick_rendering(memory, framebuffer);
+        e.tick_rendering(memory, framebuffer, snow);
 
         // Contention (48K model): memory + I/O + internal
         if e.video {

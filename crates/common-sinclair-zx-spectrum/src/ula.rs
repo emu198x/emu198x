@@ -28,8 +28,12 @@ pub trait Ula {
     ///
     /// Arguments:
     /// - `memory`: memory bus for screen data fetches
-    /// - `cpu_addr`: current CPU address bus value (for contention check)
+    /// - `cpu_addr`: current CPU address bus value (for contention check;
+    ///   also carries the refresh address `I:R` when `cpu_rfsh` is set)
     /// - `cpu_mreq`: whether the CPU's MREQ signal is active
+    /// - `cpu_iorq`: whether the CPU's IORQ signal is active
+    /// - `cpu_rfsh`: whether the CPU is in the refresh half of an M1
+    ///   (T3/T4, `I:R` on the address bus) — drives the snow effect
     /// - `framebuffer`: pixel output buffer (palette indices, 1 byte per pixel)
     fn tick(
         &mut self,
@@ -37,6 +41,7 @@ pub trait Ula {
         cpu_addr: u16,
         cpu_mreq: bool,
         cpu_iorq: bool,
+        cpu_rfsh: bool,
         framebuffer: &mut [u8],
     );
 

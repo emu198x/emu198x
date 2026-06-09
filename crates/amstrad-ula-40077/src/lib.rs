@@ -63,12 +63,16 @@ impl Ula for AmstradGateArray {
         cpu_addr: u16,
         cpu_mreq: bool,
         cpu_iorq: bool,
+        // The Amstrad 40077/40078 gate array is not (yet) modelled as
+        // exhibiting the Ferranti/Sinclair snow effect, so the refresh
+        // line is unused here.
+        _cpu_rfsh: bool,
         framebuffer: &mut [u8],
     ) {
         let e = &mut self.engine;
         let phase = (e.pixel as usize) & 0x0F;
 
-        e.tick_rendering(memory, framebuffer);
+        e.tick_rendering(memory, framebuffer, None);
 
         // Amstrad contention: MREQ-only. No I/O contention, no internal
         // contention. The gate array contends only when the CPU is mid

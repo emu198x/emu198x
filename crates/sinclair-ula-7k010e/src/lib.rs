@@ -61,12 +61,17 @@ impl Ula for SinclairUla {
         cpu_addr: u16,
         cpu_mreq: bool,
         cpu_iorq: bool,
+        cpu_rfsh: bool,
         framebuffer: &mut [u8],
     ) {
         let e = &mut self.engine;
         let phase = (e.pixel as usize) & 0x0F;
 
-        e.tick_rendering(memory, framebuffer);
+        // Snow: a CPU refresh with I in screen-RAM range collides with
+        // the video fetch (the Sinclair ULA ignores /RFSH). gap #12.
+        let snow = ula_engine::snow_address(cpu_rfsh, cpu_addr);
+
+        e.tick_rendering(memory, framebuffer, snow);
 
         // Contention: same model as 48K (memory + I/O), same delay table.
         // The phase difference (`contention_phase: 1`) is a property of the

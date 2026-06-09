@@ -302,6 +302,7 @@ impl SpectrumDriver for ScorpionZS256 {
             self.z80.addr,
             self.z80.mreq,
             self.z80.iorq,
+            self.z80.rfsh,
             &mut self.framebuffer,
         );
     }

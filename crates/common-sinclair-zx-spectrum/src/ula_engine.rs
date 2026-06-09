@@ -351,6 +351,28 @@ fn default_config() -> &'static UlaConfig {
     &CONFIG_48K
 }
 
+/// Compute the snow-effect fetch override for one ULA tick.
+///
+/// Returns `Some(refresh_addr)` when the CPU is presenting a refresh
+/// address in screen-RAM range — `cpu_rfsh` is asserted (T3/T4 of an M1,
+/// `I:R` on the bus) and the I register is in `$40..=$7F`, i.e. the
+/// address falls in `$4000..=$7FFF`. In that case a colliding CPU `/RAS`
+/// corrupts the in-flight video fetch and the ULA reads from the refresh
+/// address instead. `None` otherwise. ULAs that exhibit snow (Ferranti
+/// 48K, Sinclair 128K) feed the result to `tick_rendering`; the Amstrad
+/// gate array and the clone ULAs pass `None`.
+///
+/// Mechanism: Chris Smith, *The ZX Spectrum ULA*, pp. 246–248. See
+/// `knowledge/systems/spectrum/snow-effect.md`.
+#[must_use]
+pub fn snow_address(cpu_rfsh: bool, cpu_addr: u16) -> Option<u16> {
+    if cpu_rfsh && (cpu_addr & 0xC000) == 0x4000 {
+        Some(cpu_addr)
+    } else {
+        None
+    }
+}
+
 impl UlaEngine {
     /// Re-install the timing config after deserialization.
     pub fn set_config(&mut self, config: &'static UlaConfig) {
@@ -418,7 +440,19 @@ impl UlaEngine {
     /// Run the rendering portion of a ULA tick: video fetch, pixel output,
     /// counter advance, and interrupt timing. Does NOT handle contention —
     /// that's the variant wrapper's job.
-    pub fn tick_rendering(&mut self, memory: &dyn MemoryBus, framebuffer: &mut [u8]) {
+    /// `snow`: when `Some(refresh_addr)`, the CPU is driving a refresh
+    /// address in screen-RAM range (`I` ∈ `$40..=$7F`) that collides with
+    /// this cycle's video fetch — the ULA reads from `refresh_addr`
+    /// instead of its intended screen address, producing the "snow"
+    /// artefact. See `knowledge/systems/spectrum/snow-effect.md`. `None`
+    /// for the overwhelming majority of cycles (and for ULAs that don't
+    /// model snow).
+    pub fn tick_rendering(
+        &mut self,
+        memory: &dyn MemoryBus,
+        framebuffer: &mut [u8],
+        snow: Option<u16>,
+    ) {
         let p = self.pixel as usize;
         let phase = p & 0x0F;
         let cfg = self.config;
@@ -504,7 +538,10 @@ impl UlaEngine {
                     let a = self.data_addr;
                     self.data_addr = self.data_addr.wrapping_add(1);
                     let base = if dual && !hires { 0x6000u16 } else { 0x4000u16 };
-                    let addr = base | (a & 0x1FFF);
+                    // Snow: a colliding refresh /RAS corrupts the fetched
+                    // row address, so the ULA reads from the refresh
+                    // address instead. The fetch counter still advances.
+                    let addr = snow.unwrap_or(base | (a & 0x1FFF));
                     self.bus_data = memory.read_screen(addr);
                     self.data_latch_pending = self.bus_data;
 
@@ -531,11 +568,13 @@ impl UlaEngine {
                     } else {
                         let base = if dual { 0x7800u16 } else { 0x5800u16 };
                         // For dual-screen without hi-colour: attrs from second screen area
-                        let addr = if dual {
+                        let intended = if dual {
                             base | (a & 0x02FF)
                         } else {
                             0x4000 | (a & 0x1FFF)
                         };
+                        // Snow corrupts the attribute fetch the same way.
+                        let addr = snow.unwrap_or(intended);
                         self.bus_data = memory.read_screen(addr);
                         self.attr_latch_pending = self.bus_data;
                     }
@@ -735,14 +774,14 @@ mod tests {
         // Tick 7 times: pixel 5→12 at end, none of the entry-pixels
         // (5..=11) match p&7==4.
         for _ in 0..7 {
-            e.tick_rendering(&mem, &mut fb);
+            e.tick_rendering(&mem, &mut fb, None);
         }
         assert_eq!(e.pixel, 12);
         assert_eq!(e.border_aolatch, 7, "AOLatch unchanged before the boundary");
 
         // Eighth tick: entry pixel = 12 (matches p&0x07==4). AOLatch
         // samples BorderLatch. Pixel increments to 13.
-        e.tick_rendering(&mem, &mut fb);
+        e.tick_rendering(&mem, &mut fb, None);
         assert_eq!(e.pixel, 13);
         assert_eq!(
             e.border_aolatch, 2,
@@ -767,11 +806,84 @@ mod tests {
         e.border_aolatch = 7;
         e.write_fe(0x04); // border = green
 
-        e.tick_rendering(&mem, &mut fb);
+        e.tick_rendering(&mem, &mut fb, None);
         assert_eq!(e.pixel, 5);
         assert_eq!(
             e.border_aolatch, 4,
             "AOLatch fired during border-only scanline"
+        );
+    }
+
+    /// Snow gate (issue #12): the effect arms only when the CPU is in a
+    /// refresh half-cycle (`rfsh`) AND the refresh address (`I:R`) lands
+    /// in screen-RAM range — `I` ∈ `$40..=$7F`, i.e. `$4000..=$7FFF`.
+    #[test]
+    fn snow_address_gates_on_refresh_and_i_register_range() {
+        // Armed: refresh active, I in $40..=$7F.
+        assert_eq!(snow_address(true, 0x4000), Some(0x4000));
+        assert_eq!(snow_address(true, 0x5B42), Some(0x5B42));
+        assert_eq!(snow_address(true, 0x7FFF), Some(0x7FFF));
+        // Not a refresh cycle → never snows.
+        assert_eq!(snow_address(false, 0x4000), None);
+        // I below the screen bank (ROM / IM1 vector area, e.g. I=$3F).
+        assert_eq!(snow_address(true, 0x3FFF), None);
+        // I at/above $80 (the usual IM2 table region) → no collision.
+        assert_eq!(snow_address(true, 0x8000), None);
+        assert_eq!(snow_address(true, 0xBE00), None);
+    }
+
+    /// A memory whose `read` returns the low byte of the address, so a
+    /// fetched value reveals which address the ULA actually read.
+    struct AddrLowMemory;
+    impl MemoryBus for AddrLowMemory {
+        fn read(&self, addr: u16) -> u8 {
+            (addr & 0xFF) as u8
+        }
+        fn write(&mut self, _addr: u16, _value: u8) {}
+        fn is_contended(&self, _addr: u16) -> bool {
+            false
+        }
+    }
+
+    /// When snow is armed, the bitmap fetch reads from the refresh
+    /// address instead of the intended screen address — the visible
+    /// corruption. The fetch counter still advances either way.
+    #[test]
+    fn snow_corrupts_the_bitmap_fetch_address() {
+        let mem = AddrLowMemory;
+        let mut fb = vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT];
+
+        // Pixel 8 is a bitmap-fetch phase (MEM_TABLE[8] == false,
+        // phase & 0x02 == 0) that is NOT `fetch_start` (4), so it doesn't
+        // recompute `data_addr` — letting us pin a known fetch address. A
+        // visible scanline (scan < 192) keeps `video` set.
+        let setup = |e: &mut UlaEngine| {
+            e.video = true;
+            e.scan = 100;
+            e.pixel = 8;
+            e.data_addr = 0x0142;
+            e.scld_mode = 0;
+        };
+
+        // No snow: reads the intended address $4000 | (0x142 & 0x1FFF)
+        // = $4142 → low byte $42.
+        let mut clean = UlaEngine::new(&CONFIG_48K);
+        setup(&mut clean);
+        clean.tick_rendering(&mem, &mut fb, None);
+        assert_eq!(clean.bus_data, 0x42, "clean fetch reads the screen address");
+
+        // Snow armed at refresh address $4099: the ULA reads $4099
+        // instead → low byte $99.
+        let mut snowy = UlaEngine::new(&CONFIG_48K);
+        setup(&mut snowy);
+        snowy.tick_rendering(&mem, &mut fb, Some(0x4099));
+        assert_eq!(
+            snowy.bus_data, 0x99,
+            "snow redirects the fetch to the refresh address"
+        );
+        assert_eq!(
+            snowy.data_addr, 0x0143,
+            "the fetch counter still advances under snow"
         );
     }
 }

@@ -81,12 +81,17 @@ impl Ula for TimexScld {
         cpu_addr: u16,
         cpu_mreq: bool,
         cpu_iorq: bool,
+        // The Timex SCLD shares the Ferranti DRAM design and likely
+        // snows in standard mode, but its interaction with the SCLD
+        // hi-res/hi-colour fetch paths is unverified, so snow is not
+        // modelled here yet.
+        _cpu_rfsh: bool,
         framebuffer: &mut [u8],
     ) {
         let e = &mut self.engine;
         let phase = (e.pixel as usize) & 0x0F;
 
-        e.tick_rendering(memory, framebuffer);
+        e.tick_rendering(memory, framebuffer, None);
 
         // Same contention as 48K Ferranti (memory + I/O)
         if e.video {

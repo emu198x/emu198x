@@ -552,6 +552,7 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumDriver for SpectrumMachineCore<M,
             self.z80.addr,
             self.z80.mreq,
             self.z80.iorq,
+            self.z80.rfsh,
             &mut self.framebuffer,
         );
     }
@@ -741,6 +742,7 @@ mod tests {
                 machine.z80.addr,
                 machine.z80.mreq,
                 machine.z80.iorq,
+                machine.z80.rfsh,
                 &mut machine.framebuffer,
             );
 

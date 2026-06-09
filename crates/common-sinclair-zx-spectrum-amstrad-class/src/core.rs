@@ -483,6 +483,7 @@ impl<V: AmstradVariant> SpectrumDriver for SpectrumAmstradClassCore<V> {
             self.z80.addr,
             self.z80.mreq,
             self.z80.iorq,
+            self.z80.rfsh,
             &mut self.framebuffer,
         );
     }
