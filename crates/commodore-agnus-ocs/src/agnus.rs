@@ -392,6 +392,15 @@ pub struct Agnus {
     spr_pt_hi_latch: [u16; 8],
     spr_pt_hi_pending: [bool; 8],
 
+    // Sprite-DMA state machine (gap #162). Agnus latches each sprite's
+    // VSTART/VSTOP from the control words it fetches and tracks the
+    // per-sprite DMA-on flag; the control-vs-data decision lives in
+    // `service_sprite_dma_cyc`, the activation/deactivation in
+    // `update_sprite_dma`. Grounded in vAmiga Agnus.cpp:559-680.
+    spr_vstart: [u16; 8],
+    spr_vstop: [u16; 8],
+    spr_dma_on: [bool; 8],
+
     // Disk pointer
     pub dsk_pt: u32,
 
@@ -488,6 +497,9 @@ impl Agnus {
             spr_pt: [0; 8],
             spr_pt_hi_latch: [0; 8],
             spr_pt_hi_pending: [false; 8],
+            spr_vstart: [0; 8],
+            spr_vstop: [0; 8],
+            spr_dma_on: [false; 8],
             dsk_pt: 0,
             fmode: 0,
             lof: true,
@@ -1237,7 +1249,122 @@ impl Agnus {
                     self.lof = !self.lof;
                 }
             }
+            // New display line: run the per-line sprite-DMA update
+            // (VSTART activation, VSTOP deactivation, top-of-frame
+            // control-refetch priming). gap #162.
+            self.update_sprite_dma();
         }
+    }
+
+    /// Per-line sprite-DMA update — run once as the beam enters each new
+    /// display line. Activates a sprite when the beam reaches its VSTART
+    /// and deactivates at VSTOP; on the vertical-blank end line it forces
+    /// every sprite's VSTOP to that line so the next slots refetch the
+    /// control words, re-priming VSTART/VSTOP from the (copper-reloaded)
+    /// pointers for the new frame. Mirrors vAmiga `updateSpriteDMA`
+    /// (Agnus.cpp:658-680).
+    fn update_sprite_dma(&mut self) {
+        if !self.dma_enabled(0x0020) {
+            return;
+        }
+        let v = self.vpos;
+        if v == VBL_END_LINE {
+            for s in 0..8 {
+                self.spr_vstop[s] = VBL_END_LINE;
+            }
+            return;
+        }
+        if v + 1 >= self.lines_per_frame {
+            for s in 0..8 {
+                self.spr_dma_on[s] = false;
+            }
+            return;
+        }
+        if v < VBL_END_LINE {
+            return;
+        }
+        for s in 0..8 {
+            if v == self.spr_vstart[s] {
+                self.spr_dma_on[s] = true;
+            }
+            if v == self.spr_vstop[s] {
+                self.spr_dma_on[s] = false;
+            }
+        }
+    }
+
+    /// Service one sprite-DMA bus cycle for `channel` (gap #162). Called
+    /// by the machine when Agnus has granted this CCK's slot to a sprite;
+    /// `second_word` selects the second of the channel's two per-line
+    /// fetches. Returns `(is_control, word)` when a fetch occurs — the
+    /// machine routes the word to Denise's SPRxPOS/CTL (control) or
+    /// SPRxDATA/DATB (data) — or `None` when the sprite is idle.
+    ///
+    /// The control-vs-data decision — VSTOP wins over the DMA-on flag —
+    /// and the VSTART/VSTOP latch follow vAmiga's `executeFirst/Second
+    /// SpriteCycle` (Agnus.cpp:559-641). The pointer advances one word
+    /// per fetched word; there is no automatic reload (the copper/CPU
+    /// rewrite SPRxPT each frame).
+    pub fn service_sprite_dma_cyc(
+        &mut self,
+        channel: usize,
+        second_word: bool,
+        read: impl FnOnce(u32) -> u16,
+    ) -> Option<(bool, u16)> {
+        if channel >= 8 {
+            return None;
+        }
+        // Sprite DMA is suppressed during vertical blank; fetching starts
+        // at the reset line (the first control fetch of the frame), so a
+        // sprite whose VSTOP still sits at its power-on 0 does not fetch
+        // spuriously on line 0. Mirrors vAmiga's `!inVBlankArea` gate.
+        if self.vpos < VBL_END_LINE {
+            return None;
+        }
+        if self.vpos == self.spr_vstop[channel] {
+            self.spr_dma_on[channel] = false;
+            let word = read(self.spr_pt[channel]);
+            self.spr_pt[channel] = self.spr_pt[channel].wrapping_add(2);
+            if second_word {
+                self.latch_sprite_ctl(channel, word);
+            } else {
+                self.latch_sprite_pos(channel, word);
+            }
+            Some((true, word))
+        } else if self.spr_dma_on[channel] {
+            let word = read(self.spr_pt[channel]);
+            self.spr_pt[channel] = self.spr_pt[channel].wrapping_add(2);
+            Some((false, word))
+        } else {
+            None
+        }
+    }
+
+    /// Latch VSTART low 8 bits from a fetched SPRxPOS word (bits 15-8).
+    fn latch_sprite_pos(&mut self, channel: usize, pos: u16) {
+        self.spr_vstart[channel] = (self.spr_vstart[channel] & 0x0100) | (pos >> 8);
+    }
+
+    /// Latch VSTOP (CTL bits 15-8) plus VSTART[8] (CTL bit 2) and
+    /// VSTOP[8] (CTL bit 1) from a fetched SPRxCTL word. OCS is 9-bit;
+    /// the ECS VSTART[9]/VSTOP[9] bits (CTL 6/5) are not modelled here.
+    fn latch_sprite_ctl(&mut self, channel: usize, ctl: u16) {
+        self.spr_vstart[channel] = (self.spr_vstart[channel] & 0x00FF) | ((ctl & 0x0004) << 6);
+        self.spr_vstop[channel] = (ctl >> 8) | ((ctl & 0x0002) << 7);
+    }
+
+    /// Test/diagnostic accessors for the sprite-DMA state machine.
+    #[must_use]
+    pub fn sprite_vstart(&self, channel: usize) -> u16 {
+        self.spr_vstart[channel]
+    }
+    #[must_use]
+    pub fn sprite_vstop(&self, channel: usize) -> u16 {
+        self.spr_vstop[channel]
+    }
+    #[must_use]
+    pub fn sprite_dma_on(&self, channel: usize) -> bool {
+        self.spr_dma_on[channel]
     }
 
     /// Determine who owns the current CCK slot.
@@ -2023,5 +2150,152 @@ mod tests {
             assert!(!agnus.lol, "PAL must never set lol");
             agnus.tick_cck();
         }
+    }
+
+    // ── Sprite DMA state machine (gap #162) ──────────────────────────
+
+    fn sprite_dma_agnus() -> Agnus {
+        let mut agnus = Agnus::new();
+        agnus.dmacon = 0x0200 | 0x0020; // DMAEN | SPREN
+        agnus
+    }
+
+    #[test]
+    fn sprite_control_fetch_latches_vstart_vstop_and_bumps_pointer() {
+        let mut agnus = sprite_dma_agnus();
+        agnus.spr_pt[0] = 0x1000;
+        agnus.vpos = 30; // past the reset line, so fetches are not VB-suppressed
+        agnus.spr_vstop[0] = 30; // vpos == vstop → control fetch
+        // word 0 = SPRxPOS: VSTART[7:0] = bits 15-8 = 0x28 (40).
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, false, |_| 0x2800),
+            Some((true, 0x2800))
+        );
+        assert_eq!(agnus.spr_pt[0], 0x1002, "pointer advances one word");
+        assert_eq!(agnus.sprite_vstart(0), 40);
+        assert!(!agnus.sprite_dma_on(0), "control fetch turns DMA off");
+        // word 1 = SPRxCTL: VSTOP[7:0] = bits 15-8 = 0x32 (50); bit8s clear.
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, true, |_| 0x3200),
+            Some((true, 0x3200))
+        );
+        assert_eq!(agnus.spr_pt[0], 0x1004);
+        assert_eq!(agnus.sprite_vstop(0), 50);
+        assert_eq!(agnus.sprite_vstart(0), 40);
+    }
+
+    #[test]
+    fn sprite_ctl_high_bits_extend_vstart_vstop_to_9_bits() {
+        let mut agnus = sprite_dma_agnus();
+        agnus.vpos = 30;
+        agnus.spr_vstop[0] = 30;
+        let _ = agnus.service_sprite_dma_cyc(0, false, |_| 0x0100); // VSTART low = 1
+        // CTL: VSTOP low = 2; bit2 (SV8)=1 → VSTART|=0x100; bit1 (EV8)=1 → VSTOP|=0x100.
+        let _ = agnus.service_sprite_dma_cyc(0, true, |_| 0x0200 | 0x04 | 0x02);
+        assert_eq!(agnus.sprite_vstart(0), 0x101, "VSTART = 0x100 | 1");
+        assert_eq!(agnus.sprite_vstop(0), 0x102, "VSTOP = 0x100 | 2");
+    }
+
+    #[test]
+    fn sprite_data_fetch_when_active() {
+        let mut agnus = sprite_dma_agnus();
+        agnus.spr_pt[1] = 0x2000;
+        agnus.vpos = 45;
+        agnus.spr_vstop[1] = 50;
+        agnus.spr_dma_on[1] = true;
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(1, false, |_| 0xAAAA),
+            Some((false, 0xAAAA))
+        );
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(1, true, |_| 0x5555),
+            Some((false, 0x5555))
+        );
+        assert_eq!(agnus.spr_pt[1], 0x2004);
+    }
+
+    #[test]
+    fn sprite_idle_when_off_does_not_fetch_or_advance() {
+        let mut agnus = sprite_dma_agnus();
+        agnus.spr_pt[2] = 0x3000;
+        agnus.vpos = 30;
+        agnus.spr_vstop[2] = 50;
+        agnus.spr_dma_on[2] = false;
+        assert_eq!(agnus.service_sprite_dma_cyc(2, false, |_| 0xFFFF), None);
+        assert_eq!(
+            agnus.spr_pt[2], 0x3000,
+            "idle slot leaves the pointer alone"
+        );
+    }
+
+    #[test]
+    fn sprite_vstop_wins_over_active_flag() {
+        let mut agnus = sprite_dma_agnus();
+        agnus.spr_pt[3] = 0x4000;
+        agnus.vpos = 50;
+        agnus.spr_vstop[3] = 50;
+        agnus.spr_dma_on[3] = true; // active...
+        // ...but vpos == vstop forces a control fetch, not data.
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(3, false, |_| 0x1234),
+            Some((true, 0x1234))
+        );
+        assert!(!agnus.sprite_dma_on(3));
+    }
+
+    #[test]
+    fn update_sprite_dma_activates_at_vstart_deactivates_at_vstop() {
+        let mut agnus = sprite_dma_agnus();
+        agnus.spr_vstart[0] = 40;
+        agnus.spr_vstop[0] = 60;
+        agnus.vpos = 39;
+        agnus.update_sprite_dma();
+        assert!(!agnus.sprite_dma_on(0));
+        agnus.vpos = 40;
+        agnus.update_sprite_dma();
+        assert!(agnus.sprite_dma_on(0), "activates at VSTART");
+        agnus.vpos = 50;
+        agnus.update_sprite_dma();
+        assert!(agnus.sprite_dma_on(0), "stays on between");
+        agnus.vpos = 60;
+        agnus.update_sprite_dma();
+        assert!(!agnus.sprite_dma_on(0), "deactivates at VSTOP");
+    }
+
+    #[test]
+    fn update_sprite_dma_reset_line_forces_control_refetch() {
+        let mut agnus = sprite_dma_agnus();
+        for s in 0..8 {
+            agnus.spr_vstop[s] = 999;
+        }
+        agnus.vpos = VBL_END_LINE;
+        agnus.update_sprite_dma();
+        for s in 0..8 {
+            assert_eq!(
+                agnus.sprite_vstop(s),
+                VBL_END_LINE,
+                "reset line forces a VSTOP refetch"
+            );
+        }
+    }
+
+    #[test]
+    fn sprite_dma_suppressed_during_vertical_blank() {
+        let mut agnus = sprite_dma_agnus();
+        agnus.spr_pt[0] = 0x1000;
+        agnus.vpos = 0;
+        agnus.spr_vstop[0] = 0; // would control-fetch if not VB-suppressed
+        assert_eq!(agnus.service_sprite_dma_cyc(0, false, |_| 0xBEEF), None);
+        assert_eq!(agnus.spr_pt[0], 0x1000, "no fetch in vertical blank");
+    }
+
+    #[test]
+    fn sprite_update_is_noop_without_spren() {
+        let mut agnus = Agnus::new();
+        agnus.dmacon = 0x0200; // DMAEN but no SPREN
+        agnus.spr_vstart[0] = 40;
+        agnus.vpos = 40;
+        agnus.update_sprite_dma();
+        assert!(!agnus.sprite_dma_on(0), "no sprite DMA without SPREN");
     }
 }

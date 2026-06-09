@@ -182,17 +182,6 @@ pub struct Denise<C: DeniseChip> {
     /// vpos of the most recent `begin_beam_line()` call — guards
     /// against multiple resets per line.
     last_begin_line: Option<u16>,
-    /// vpos of the most recent sprite-DMA pass — guards against
-    /// re-fetching the same sprite pair if tick is called twice on
-    /// the same line for any reason.
-    last_sprite_dma_line: Option<u16>,
-    /// Per-sprite display-mode flag. When `true` the next line-start
-    /// DMA pair fetches DATA+DATB (displaying); when `false` it
-    /// fetches POS+CTL (waiting for vstart).
-    spr_displaying: [bool; 8],
-    /// Latched sprite vertical window from the most recent POS+CTL
-    /// fetch. `(vstart, vstop)`.
-    spr_vwindow: [(u16, u16); 8],
 }
 
 impl<C: DeniseChip> Default for Denise<C> {
@@ -209,9 +198,6 @@ impl<C: DeniseChip> Denise<C> {
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
             bytes_this_line: 0,
             last_begin_line: None,
-            last_sprite_dma_line: None,
-            spr_displaying: [false; 8],
-            spr_vwindow: [(0, 0); 8],
         }
     }
 
@@ -337,36 +323,15 @@ impl<C: DeniseChip> Denise<C> {
                 self.last_begin_line = None;
             }
 
-            // Sprite DMA — one 2-word pair per sprite per line.
-            let spr_dma_on = dmacon & 0x0220 == 0x0220;
-            if hpos == 0 && spr_dma_on && self.last_sprite_dma_line != Some(vpos) {
-                for sprite in 0..8 {
-                    let (_vstart_sprite, vstop_sprite) = self.spr_vwindow[sprite];
-                    if self.spr_displaying[sprite] && vpos >= vstop_sprite {
-                        self.spr_displaying[sprite] = false;
-                    }
-                    let addr = agnus.spr_pt[sprite];
-                    let w0 = memory.read_chip_ram_word(addr);
-                    let w1 = memory.read_chip_ram_word(addr.wrapping_add(2));
-                    agnus.spr_pt[sprite] = agnus.spr_pt[sprite].wrapping_add(4);
-                    if self.spr_displaying[sprite] {
-                        self.ocs.write_sprite_data(sprite, w0);
-                        self.ocs.write_sprite_datb(sprite, w1);
-                    } else {
-                        self.ocs.write_sprite_pos(sprite, w0);
-                        self.ocs.write_sprite_ctl(sprite, w1);
-                        let new_vstart = (((w1 >> 2) & 1) << 8) | ((w0 >> 8) & 0xFF);
-                        let new_vstop = (((w1 >> 1) & 1) << 8) | ((w1 >> 8) & 0xFF);
-                        self.spr_vwindow[sprite] = (new_vstart, new_vstop);
-                        if new_vstart == vpos.wrapping_add(1) && new_vstop > new_vstart {
-                            self.spr_displaying[sprite] = true;
-                        }
-                    }
-                }
-                self.last_sprite_dma_line = Some(vpos);
-            } else if hpos != 0 {
-                self.last_sprite_dma_line = None;
-            }
+            // Sprite DMA is serviced per colour-clock slot by the machine
+            // (Agnus owns the control/data state machine + the SPRxPT
+            // pointers; see `Agnus::service_sprite_dma_cyc`). The earlier
+            // per-line implementation here advanced the pointer every line
+            // — including idle and vblank lines — which desynced VSTART/
+            // VSTOP from the data stream after the first control fetch, so
+            // DMA-driven sprites never displayed (gap #162). The control/
+            // data words land in this chip via the same `write_sprite_*`
+            // helpers, so the render path is unchanged.
         }
 
         // ── Per-tick: output one lores pixel ────────────────────

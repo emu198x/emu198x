@@ -1634,6 +1634,30 @@ impl AmigaA1200 {
             self.paula
                 .tick_audio_cck(dmacon, slot, true, |addr| memory.read_chip_ram_byte(addr));
 
+            // ── Sprite DMA — fetch the control/data words from chip RAM
+            // at the sprite pointers and deliver them to Denise. Agnus
+            // owns the per-sprite control/data state machine; the machine
+            // reads chip RAM and routes the word to the matching SPRxPOS/
+            // CTL/DATA/DATB register (the same path a CPU/copper write
+            // takes). gap #162.
+            if let Some(channel) = bus_plan.sprite_dma_service_channel {
+                let second_word = (self.agnus.hpos.wrapping_sub(0x0B) & 1) == 1;
+                let fetched =
+                    self.agnus
+                        .service_sprite_dma_cyc(channel as usize, second_word, |addr| {
+                            memory.read_chip_ram_word(addr)
+                        });
+                if let Some((is_control, word)) = fetched {
+                    let base = 0x140 + u16::from(channel) * 8;
+                    let reg = if is_control {
+                        base + if second_word { 2 } else { 0 }
+                    } else {
+                        base + if second_word { 6 } else { 4 }
+                    };
+                    self.denise.write_word(reg, word);
+                }
+            }
+
             // ── Paula disk engine — DSKBYTR byte-pacing + WORDEQUAL
             // delay. Ticked once per CCK; no-op until a drive has
             // delivered a word via `tick_disk_dma_slot`. Paula owns
