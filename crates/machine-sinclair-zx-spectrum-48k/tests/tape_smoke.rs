@@ -11,13 +11,20 @@
 //! `tests/goldens/`. Same shape as `runtime-sinclair-zx-spectrum`'s
 //! `goldens.rs` for the boot screens.
 //!
-//! Strict byte-equal comparison against Spectron's
-//! `tests/Results/<name>_48.png` references is impractical (Spectron
-//! renders at 1224×968 with border + scaling), but locking our own
-//! goldens still gives a regression contract over every cycle-counted
-//! line of the result frame — drift in tape timing, BASIC interpreter
-//! cycle budget, ULA contention, or the Z80's bus probe all show up
-//! as a pixel diff.
+//! Each smoke also byte-compares its 256×192 screen content against
+//! Spectron's `tests/Results/<name>_48.png` reference when
+//! `EMU198X_SPECTRON_RESULTS_DIR` is set — a trusted timing-accurate
+//! oracle, not just our own golden (#10). Spectron's PNGs turn out to
+//! be clean 4× nearest-neighbour scales of its raw framebuffer, so
+//! after downscaling and mapping both sides to Spectrum colour indices
+//! the content compares exactly. `btime` matches byte-for-byte today;
+//! `floatspy`/`halt2int` need run-to-completion input driving (their
+//! references are the finished self-test screen, our capture the
+//! interactive menu) before the compare is meaningful; `ptime` has no
+//! 48K reference to compare against. The self-locked golden stays as a
+//! second regression contract: drift in tape timing, BASIC interpreter
+//! cycle budget, ULA contention, or the Z80's bus probe all show up as
+//! a pixel diff.
 //!
 //! Required local fixtures (resolved in this order):
 //!
@@ -39,6 +46,12 @@ use std::path::{Path, PathBuf};
 
 const ROM_PATH_ENV: &str = "EMU198X_SPECTRUM_48K_ROM";
 const SYSTEM_TESTS_DIR_ENV: &str = "EMU198X_SPECTRUM_SYSTEM_TESTS_DIR";
+/// Directory holding Spectron's `tests/Results/<name>.png` references
+/// (e.g. `…/emulators/zx-spectrum/Spectron/tests/Results`). When set,
+/// the smokes additionally byte-compare their 256×192 screen content
+/// against Spectron's — a trusted timing-accurate oracle, not just our
+/// own locked golden. Unset → that extra check is skipped.
+const SPECTRON_RESULTS_ENV: &str = "EMU198X_SPECTRON_RESULTS_DIR";
 
 const BOOT_FRAMES: usize = 200;
 const RUN_BUDGET_FRAMES: usize = 5_000;
@@ -190,6 +203,132 @@ fn read_indexed_png(path: &Path) -> Vec<u8> {
     buf
 }
 
+/// Map an 8-bit RGB triple to a ZX Spectrum colour index (0–15):
+/// `bright<<3 | green<<2 | red<<1 | blue`. Normal colours use the 215
+/// component value, bright ones 255, with each channel either off (0)
+/// or on — so a single `== 255` check distinguishes bright, and `> 0`
+/// gives each colour bit. Both Spectron's RGB output and our palette
+/// resolve to the same indices, making the comparison palette-RGB
+/// independent.
+fn rgb_to_spectrum_index(r: u8, g: u8, b: u8) -> u8 {
+    let bright = if r == 255 || g == 255 || b == 255 {
+        8
+    } else {
+        0
+    };
+    bright | (if g > 0 { 4 } else { 0 }) | (if r > 0 { 2 } else { 0 }) | (if b > 0 { 1 } else { 0 })
+}
+
+/// Resolve one of our framebuffer's palette indices to a Spectrum
+/// colour index via `SPECTRUM_PALETTE`.
+fn our_pixel_to_spectrum_index(palette_index: u8) -> u8 {
+    let entry = SPECTRUM_PALETTE[palette_index as usize & 0x0F];
+    rgb_to_spectrum_index(
+        ((entry >> 24) & 0xFF) as u8,
+        ((entry >> 16) & 0xFF) as u8,
+        ((entry >> 8) & 0xFF) as u8,
+    )
+}
+
+/// Decode a Spectron reference PNG, verify it is a clean 4× nearest-
+/// neighbour scale of the raw ULA framebuffer, downscale it back, and
+/// map every pixel to a Spectrum colour index. Returns `(indices,
+/// raw_width, raw_height)`. Spectron renders the same 256-px-wide
+/// content with a symmetric horizontal border, so `raw_width` carries
+/// the per-render border size.
+fn load_spectron_indices(path: &Path) -> (Vec<u8>, usize, usize) {
+    let file = std::fs::File::open(path).expect("open spectron reference");
+    let decoder = png::Decoder::new(std::io::BufReader::new(file));
+    let mut reader = decoder.read_info().expect("decode spectron header");
+    let mut buf = vec![0u8; reader.output_buffer_size().expect("buffer size")];
+    let info = reader.next_frame(&mut buf).expect("decode spectron frame");
+    let (w, h) = (info.width as usize, info.height as usize);
+    let channels = match info.color_type {
+        png::ColorType::Rgba => 4,
+        png::ColorType::Rgb => 3,
+        other => panic!("spectron ref {} has colour type {other:?}", path.display()),
+    };
+    assert!(
+        w % 4 == 0 && h % 4 == 0,
+        "spectron ref {} is {w}×{h}, not a 4× scale",
+        path.display()
+    );
+    let (rw, rh) = (w / 4, h / 4);
+    // Verify the 4× nearest-neighbour scale: each 4×4 block is uniform.
+    for by in 0..rh {
+        for bx in 0..rw {
+            let base = ((by * 4) * w + (bx * 4)) * channels;
+            let c = &buf[base..base + 3];
+            for dy in 0..4 {
+                for dx in 0..4 {
+                    let o = ((by * 4 + dy) * w + (bx * 4 + dx)) * channels;
+                    assert_eq!(
+                        &buf[o..o + 3],
+                        c,
+                        "spectron ref {} is not a clean 4× scale at block ({bx},{by})",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+    let mut out = vec![0u8; rw * rh];
+    for y in 0..rh {
+        for x in 0..rw {
+            let o = ((y * 4) * w + (x * 4)) * channels;
+            out[y * rw + x] = rgb_to_spectrum_index(buf[o], buf[o + 1], buf[o + 2]);
+        }
+    }
+    (out, rw, rh)
+}
+
+/// Byte-compare our 256×192 screen content against Spectron's reference,
+/// both reduced to Spectrum colour indices. Our screen content sits at
+/// (48, 52) in the 352×296 framebuffer; Spectron's vertical screen
+/// origin varies with its render border, so it's found as the alignment
+/// that maximises the match and the assertion is that the best alignment
+/// is *exact*. A non-exact best alignment means a real rendering/timing
+/// difference from the reference. No-op when the references aren't
+/// installed.
+fn assert_screen_matches_spectron(spectron_png: &str, framebuffer: &[u8]) {
+    let Some(dir) = std::env::var_os(SPECTRON_RESULTS_ENV) else {
+        return;
+    };
+    let path = PathBuf::from(dir).join(spectron_png);
+    if !path.is_file() {
+        eprintln!("spectron ref {} not found — skipping", path.display());
+        return;
+    }
+    let (spec, sw, sh) = load_spectron_indices(&path);
+    let sbl = (sw - 256) / 2; // symmetric horizontal border
+    const OX: usize = 48;
+    const OY: usize = 52;
+    let our = |x: usize, y: usize| {
+        our_pixel_to_spectrum_index(framebuffer[(OY + y) * SCREEN_WIDTH + (OX + x)])
+    };
+    let (mut best_matches, mut best_sy) = (0usize, 0usize);
+    for sy in 0..=(sh - 192) {
+        let mut m = 0;
+        for y in 0..192 {
+            for x in 0..256 {
+                if spec[(sy + y) * sw + (sbl + x)] == our(x, y) {
+                    m += 1;
+                }
+            }
+        }
+        if m > best_matches {
+            best_matches = m;
+            best_sy = sy;
+        }
+    }
+    let total = 256 * 192;
+    assert_eq!(
+        best_matches, total,
+        "{spectron_png}: 256×192 screen content differs from Spectron — \
+         {best_matches}/{total} match at best vertical alignment (spec_y={best_sy})"
+    );
+}
+
 fn compare_or_update(test_name: &str, framebuffer: &[u8]) {
     let path = goldens_dir().join(format!("{test_name}.png"));
     let updating = std::env::var_os("UPDATE_GOLDENS").is_some();
@@ -230,6 +369,13 @@ fn compare_or_update(test_name: &str, framebuffer: &[u8]) {
 /// Common runner: load TAP, boot, type LOAD"", play tape, run for the
 /// budget, compare framebuffer to the locked golden.
 fn run_and_compare(test_name: &str) {
+    run_and_compare_with_spectron(test_name, None);
+}
+
+/// As `run_and_compare`, but when `spectron_png` is `Some`, also assert
+/// the captured screen content is byte-equal to Spectron's reference of
+/// that name (gated on `EMU198X_SPECTRON_RESULTS_DIR`).
+fn run_and_compare_with_spectron(test_name: &str, spectron_png: Option<&str>) {
     let rom_path = rom_path();
     if !rom_path.is_file() {
         eprintln!("48K ROM not found at {} — skipping", rom_path.display());
@@ -269,29 +415,39 @@ fn run_and_compare(test_name: &str) {
     }
 
     compare_or_update(test_name, machine.framebuffer());
+    if let Some(reference) = spectron_png {
+        assert_screen_matches_spectron(reference, machine.framebuffer());
+    }
 }
 
 #[test]
 #[ignore = "requires local 48K ROM and floatspy.tap; ~100 s wall time at cycle-accurate tape speed"]
 fn floatspy_runs_to_completion() {
+    // Spectron parity pending: its reference is the completed self-test
+    // screen, ours captures the interactive menu. Needs run-to-completion
+    // input driving (#10) before the Spectron byte-compare is meaningful.
     run_and_compare("floatspy");
 }
 
 #[test]
 #[ignore = "requires local 48K ROM and halt2int.tap; ~100 s wall time"]
 fn halt2int_runs_to_completion() {
+    // Spectron parity pending — see `floatspy_runs_to_completion` (#10).
     run_and_compare("halt2int");
 }
 
 #[test]
 #[ignore = "requires local 48K ROM and btime.tap; ~100 s wall time"]
 fn btime_runs_to_completion() {
-    run_and_compare("btime");
+    run_and_compare_with_spectron("btime", Some("btime_48.png"));
 }
 
 #[test]
 #[ignore = "requires local 48K ROM and ptime.tap; ~100 s wall time"]
 fn ptime_runs_to_completion() {
+    // Spectron ships only a 128K ptime reference (`ptime_128.png`); there
+    // is no 48K one to validly compare this 48K run against, so it stays
+    // on its self-locked golden. (#10)
     run_and_compare("ptime");
 }
 
