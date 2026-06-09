@@ -13,10 +13,12 @@ use std::process;
 
 use emu198x_shell::{
     BootArtifacts, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession, MediaImage,
-    MediaKind, MediaSet, ScriptObservation, boot_machine, read_firmware_asset, read_media_asset,
+    MediaKind, MediaSet, ScriptObservation, ScriptStep, boot_machine, read_firmware_asset,
+    read_media_asset,
 };
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider, Model,
+    A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider, DEFAULT_KEY_HOLD_FRAMES,
+    DEFAULT_TYPE_SETTLE_FRAMES, Model, type_string,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -286,11 +288,38 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
     if let Some(path) = &cli.script {
         let script = HeadlessScript::from_path(path)
             .map_err(|err| format!("failed to load script {}: {err}", path.display()))?;
-        observations.extend(
-            script
-                .execute_collect(&mut session)
-                .map_err(|err| format!("script execution failed: {err}"))?,
-        );
+        // Intercept `type_string` (a system-specific step the shell can't
+        // execute without the Amiga keymap) and run it through the keyboard
+        // typing helper; everything else delegates to the shared executor.
+        for step in &script.steps {
+            match step {
+                ScriptStep::TypeString {
+                    text,
+                    hold_frames,
+                    settle_frames,
+                } => {
+                    let chars_typed = type_string(
+                        &mut session,
+                        text,
+                        hold_frames.unwrap_or(DEFAULT_KEY_HOLD_FRAMES),
+                        settle_frames.unwrap_or(DEFAULT_TYPE_SETTLE_FRAMES),
+                    )
+                    .map_err(|err| format!("type_string failed: {err}"))?;
+                    observations.push(ScriptObservation::TypeString {
+                        chars_typed,
+                        reached: session.time(),
+                    });
+                }
+                other => {
+                    if let Some(observation) = other
+                        .execute_collect(&mut session)
+                        .map_err(|err| format!("script execution failed: {err}"))?
+                    {
+                        observations.push(observation);
+                    }
+                }
+            }
+        }
     }
 
     if cli.frames > 0 {

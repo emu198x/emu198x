@@ -9,6 +9,7 @@ mod profiles;
 mod queries;
 mod runtime;
 mod snapshot;
+mod typing;
 mod variants;
 
 pub use amiga_model::{
@@ -16,6 +17,7 @@ pub use amiga_model::{
     FATTER_AGNUS_CHIP_RAM_BYTES, KIB, MIB, OCS_AGNUS_CHIP_RAM_BYTES,
 };
 pub use cpu_trace::CpuTraceEntry;
+pub use input::keys_for_char;
 pub use live_access::{
     AgaLisaSnapshot, AmigaLiveAccess, Bplcon0LogEntry, CpuSnapshot, CustomWriteEntry, DskLogEntry,
     PaletteLogEntry, RegReadLogEntry, WatchLogEntry,
@@ -27,6 +29,10 @@ pub use profiles::{
 };
 pub use queries::AmigaSessionQueryProvider;
 pub use runtime::{AmigaRuntime, DISPLAY_HEIGHT, DISPLAY_WIDTH};
+pub use typing::{
+    DEFAULT_KEY_HOLD_FRAMES, DEFAULT_TYPE_SETTLE_FRAMES, MAX_KEY_HOLD_FRAMES, press_key,
+    type_string,
+};
 pub use variants::{
     AmigaA1200Runtime, AmigaEcsRuntime, AmigaMachine, AmigaOcsRuntime, AmigaRuntimeKind,
 };

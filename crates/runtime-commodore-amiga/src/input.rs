@@ -77,6 +77,11 @@ fn joystick_machine_port(input_port: u8) -> Option<u8> {
 /// Names are matched case-insensitively. The `raw-XX` prefix (with
 /// optional `0x`) lets host code address keys the lookup table doesn't
 /// expose by name.
+///
+/// Codes follow the Amiga Hardware Reference Manual keyboard table
+/// (Appendix F): the alphanumeric block, then `Return = 0x44`,
+/// `Esc = 0x45`, the function row `F1..F10 = 0x50..0x59`, and the
+/// modifier keys at `0x60+`.
 fn key_name_to_raw_code(name: &str) -> Option<u8> {
     let lower = name.to_ascii_lowercase();
     if let Some(raw) = lower.strip_prefix("raw-") {
@@ -93,6 +98,9 @@ fn key_name_to_raw_code(name: &str) -> Option<u8> {
         "8" => 0x08,
         "9" => 0x09,
         "0" => 0x0A,
+        "minus" => 0x0B,
+        "equals" => 0x0C,
+        "backslash" => 0x0D,
         "q" => 0x10,
         "w" => 0x11,
         "e" => 0x12,
@@ -103,6 +111,8 @@ fn key_name_to_raw_code(name: &str) -> Option<u8> {
         "i" => 0x17,
         "o" => 0x18,
         "p" => 0x19,
+        "lbracket" => 0x1A,
+        "rbracket" => 0x1B,
         "a" => 0x20,
         "s" => 0x21,
         "d" => 0x22,
@@ -112,6 +122,8 @@ fn key_name_to_raw_code(name: &str) -> Option<u8> {
         "j" => 0x26,
         "k" => 0x27,
         "l" => 0x28,
+        "semicolon" => 0x29,
+        "apostrophe" => 0x2A,
         "z" => 0x31,
         "x" => 0x32,
         "c" => 0x33,
@@ -119,17 +131,111 @@ fn key_name_to_raw_code(name: &str) -> Option<u8> {
         "b" => 0x35,
         "n" => 0x36,
         "m" => 0x37,
+        "comma" => 0x38,
+        "period" => 0x39,
+        "slash" => 0x3A,
+        "backquote" => 0x00,
         "space" => 0x40,
         "backspace" => 0x41,
         "tab" => 0x42,
-        "enter" | "return" => 0x45,
+        "enter" | "return" => 0x44,
+        "escape" | "esc" => 0x45,
+        "delete" => 0x46,
+        "f1" => 0x50,
+        "f2" => 0x51,
+        "f3" => 0x52,
+        "f4" => 0x53,
+        "f5" => 0x54,
+        "f6" => 0x55,
+        "f7" => 0x56,
+        "f8" => 0x57,
+        "f9" => 0x58,
+        "f10" => 0x59,
+        "lshift" | "shift" => 0x60,
+        "rshift" => 0x61,
+        "ctrl" | "control" => 0x63,
+        "lalt" => 0x64,
+        "ralt" => 0x65,
         _ => return None,
     })
 }
 
+/// Map one printable ASCII character to the key chord (in press order)
+/// that produces it on the Amiga's US keyboard layout. Bare keys return
+/// a single name; characters needing Shift return `["lshift", key]`.
+/// Returns `None` for characters with no single-chord keycap.
+///
+/// The names are the same ones [`key_name_to_raw_code`] understands, so
+/// the typing helper can route them straight back through the keyboard.
+/// US layout is the physical-keyboard default; software that loads a
+/// different keymap (e.g. AMOS Pro's `SetMap gb`) remaps a few shifted
+/// symbols — build such disks with `SetMap usa` to match.
+pub fn keys_for_char(ch: char) -> Option<Vec<&'static str>> {
+    if ch.is_ascii_uppercase() {
+        return Some(vec!["lshift", LETTER_KEYS[(ch as u8 - b'A') as usize]]);
+    }
+    if ch.is_ascii_lowercase() {
+        return Some(vec![LETTER_KEYS[(ch as u8 - b'a') as usize]]);
+    }
+    Some(match ch {
+        ' ' => vec!["space"],
+        '\n' | '\r' => vec!["return"],
+        '\t' => vec!["tab"],
+        '1' => vec!["1"],
+        '2' => vec!["2"],
+        '3' => vec!["3"],
+        '4' => vec!["4"],
+        '5' => vec!["5"],
+        '6' => vec!["6"],
+        '7' => vec!["7"],
+        '8' => vec!["8"],
+        '9' => vec!["9"],
+        '0' => vec!["0"],
+        '!' => vec!["lshift", "1"],
+        '@' => vec!["lshift", "2"],
+        '#' => vec!["lshift", "3"],
+        '$' => vec!["lshift", "4"],
+        '%' => vec!["lshift", "5"],
+        '^' => vec!["lshift", "6"],
+        '&' => vec!["lshift", "7"],
+        '*' => vec!["lshift", "8"],
+        '(' => vec!["lshift", "9"],
+        ')' => vec!["lshift", "0"],
+        '-' => vec!["minus"],
+        '_' => vec!["lshift", "minus"],
+        '=' => vec!["equals"],
+        '+' => vec!["lshift", "equals"],
+        '[' => vec!["lbracket"],
+        '{' => vec!["lshift", "lbracket"],
+        ']' => vec!["rbracket"],
+        '}' => vec!["lshift", "rbracket"],
+        '\\' => vec!["backslash"],
+        '|' => vec!["lshift", "backslash"],
+        ';' => vec!["semicolon"],
+        ':' => vec!["lshift", "semicolon"],
+        '\'' => vec!["apostrophe"],
+        '"' => vec!["lshift", "apostrophe"],
+        ',' => vec!["comma"],
+        '<' => vec!["lshift", "comma"],
+        '.' => vec!["period"],
+        '>' => vec!["lshift", "period"],
+        '/' => vec!["slash"],
+        '?' => vec!["lshift", "slash"],
+        '`' => vec!["backquote"],
+        '~' => vec!["lshift", "backquote"],
+        _ => return None,
+    })
+}
+
+/// Lowercase letter-key names indexed by `letter - 'a'`.
+const LETTER_KEYS: [&str; 26] = [
+    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s",
+    "t", "u", "v", "w", "x", "y", "z",
+];
+
 #[cfg(test)]
 mod tests {
-    use super::{joystick_machine_port, key_name_to_raw_code};
+    use super::{joystick_machine_port, key_name_to_raw_code, keys_for_char};
 
     /// Port 2 is the documented joystick port (JOY1DAT) per *Mapping the
     /// Amiga*; port 0 is the cross-system primary-stick alias. Both reach
@@ -149,9 +255,9 @@ mod tests {
         assert_eq!(joystick_machine_port(255), None);
     }
 
-    /// Spec invariant: every named key in the lookup table maps to a
-    /// stable raw matrix code. One assert per arm catches a regression
-    /// where someone widens an arm and silently shifts a key.
+    /// Spec invariant: named keys map to stable HRM raw matrix codes.
+    /// One assert per region catches a regression where someone widens
+    /// an arm and silently shifts a key.
     #[test]
     fn key_name_lookup_covers_documented_keys() {
         assert_eq!(key_name_to_raw_code("1"), Some(0x01));
@@ -162,16 +268,52 @@ mod tests {
         assert_eq!(key_name_to_raw_code("space"), Some(0x40));
         assert_eq!(key_name_to_raw_code("backspace"), Some(0x41));
         assert_eq!(key_name_to_raw_code("tab"), Some(0x42));
-        assert_eq!(key_name_to_raw_code("enter"), Some(0x45));
-        assert_eq!(key_name_to_raw_code("return"), Some(0x45));
+        // Return is 0x44 and Escape is 0x45 (HRM Appendix F). A prior
+        // table had Return on 0x45 — which is actually Escape, and put
+        // AMOS Pro into Direct mode instead of inserting a newline.
+        assert_eq!(key_name_to_raw_code("enter"), Some(0x44));
+        assert_eq!(key_name_to_raw_code("return"), Some(0x44));
+        assert_eq!(key_name_to_raw_code("escape"), Some(0x45));
+        assert_eq!(key_name_to_raw_code("esc"), Some(0x45));
+        // Function row and modifiers.
+        assert_eq!(key_name_to_raw_code("f1"), Some(0x50));
+        assert_eq!(key_name_to_raw_code("f10"), Some(0x59));
+        assert_eq!(key_name_to_raw_code("lshift"), Some(0x60));
+        // Symbol keys used by typed source.
+        assert_eq!(key_name_to_raw_code("semicolon"), Some(0x29));
+        assert_eq!(key_name_to_raw_code("apostrophe"), Some(0x2A));
         // Case-insensitive lookup is part of the contract.
         assert_eq!(key_name_to_raw_code("Space"), Some(0x40));
-        assert_eq!(key_name_to_raw_code("ENTER"), Some(0x45));
+        assert_eq!(key_name_to_raw_code("ENTER"), Some(0x44));
         // raw-XX prefix accepts host-supplied raw codes the lookup
         // table doesn't otherwise expose by name.
         assert_eq!(key_name_to_raw_code("raw-50"), Some(0x50));
         assert_eq!(key_name_to_raw_code("raw-0x5F"), Some(0x5F));
         assert_eq!(key_name_to_raw_code("unknown"), None);
         assert_eq!(key_name_to_raw_code(""), None);
+    }
+
+    /// Lowercase is a bare keycap; uppercase and shifted symbols return
+    /// a Shift chord; the colon and double-quote that AMOS source leans
+    /// on resolve to real chords.
+    #[test]
+    fn keys_for_char_maps_letters_and_shifted_symbols() {
+        assert_eq!(keys_for_char('a'), Some(vec!["a"]));
+        assert_eq!(keys_for_char('A'), Some(vec!["lshift", "a"]));
+        assert_eq!(keys_for_char('6'), Some(vec!["6"]));
+        assert_eq!(keys_for_char(' '), Some(vec!["space"]));
+        assert_eq!(keys_for_char('\n'), Some(vec!["return"]));
+        assert_eq!(keys_for_char(':'), Some(vec!["lshift", "semicolon"]));
+        assert_eq!(keys_for_char('"'), Some(vec!["lshift", "apostrophe"]));
+        assert_eq!(keys_for_char('('), Some(vec!["lshift", "9"]));
+        // Every chord resolves to a real raw code.
+        for ch in "Print \"Hello\" : Cls 6".chars() {
+            if let Some(keys) = keys_for_char(ch) {
+                for k in keys {
+                    assert!(key_name_to_raw_code(k).is_some(), "no raw code for {k}");
+                }
+            }
+        }
+        assert_eq!(keys_for_char('£'), None);
     }
 }
