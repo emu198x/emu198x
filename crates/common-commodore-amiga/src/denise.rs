@@ -364,11 +364,19 @@ impl<C: DeniseChip> Denise<C> {
             let in_visible_h = beam_x_lores >= hstart && beam_x_lores < hstop;
             let playfield_gate = in_visible_line && in_visible_h;
 
-            let dbg = self.ocs.output_pixel_with_beam_and_playfield_gate(
+            // The bitplane pipeline runs in scroll-relative coordinates
+            // (`pipeline_x`/`pipeline_y`), but the sprite comparator needs
+            // the *absolute* beam position: SPRxPOS/CTL decode to an
+            // absolute raster line (VSTART/VSTOP) and lores HSTART. Feed
+            // the sprite path `beam_x_lores` and the raw `vpos` so DMA-
+            // driven sprites land where the copper positioned them. gap #162.
+            let dbg = self.ocs.output_pixel_with_beam_sprite_coords(
                 pipeline_x,
                 pipeline_y,
                 pipeline_x,
                 pipeline_y,
+                beam_x_lores,
+                u32::from(vpos),
                 playfield_gate,
             );
             let cols = if dbg.called {

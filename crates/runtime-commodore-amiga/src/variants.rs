@@ -266,6 +266,13 @@ impl AmigaMachine for AmigaOcs {
             "amiga.agnus.hpos" => json!(self.agnus().hpos),
             "amiga.agnus.dmacon" => json!(self.dmacon()),
             "amiga.agnus.bplcon0" => json!(self.bplcon0()),
+            "amiga.sprite0.dma_on" => json!(self.agnus().sprite_dma_on(0)),
+            "amiga.sprite0.vstart" => json!(self.agnus().sprite_vstart(0)),
+            "amiga.sprite0.vstop" => json!(self.agnus().sprite_vstop(0)),
+            "amiga.sprite0.pixels_rendered" => {
+                json!(self.denise().ocs.sprite_pixels_rendered(0))
+            }
+            "amiga.sprite0.ptr" => json!(self.agnus().spr_pt[0]),
             "amiga.paula.intena" => json!(self.intena()),
             "amiga.paula.intreq" => json!(self.intreq()),
             "amiga.debug.dsk_write_count" => json!(self.debug_dsk_log.len()),
@@ -408,6 +415,13 @@ impl AmigaMachine for AmigaEcs {
             "amiga.agnus.hpos" => json!(self.agnus().hpos),
             "amiga.agnus.dmacon" => json!(self.dmacon()),
             "amiga.agnus.bplcon0" => json!(self.bplcon0()),
+            "amiga.sprite0.dma_on" => json!(self.agnus().sprite_dma_on(0)),
+            "amiga.sprite0.vstart" => json!(self.agnus().sprite_vstart(0)),
+            "amiga.sprite0.vstop" => json!(self.agnus().sprite_vstop(0)),
+            "amiga.sprite0.pixels_rendered" => {
+                json!(self.denise().ocs.sprite_pixels_rendered(0))
+            }
+            "amiga.sprite0.ptr" => json!(self.agnus().spr_pt[0]),
             "amiga.paula.intena" => json!(self.intena()),
             "amiga.paula.intreq" => json!(self.intreq()),
             "amiga.debug.dsk_write_count" => json!(self.debug_dsk_log.len()),
@@ -575,6 +589,13 @@ impl AmigaMachine for AmigaA1200 {
             "amiga.agnus.hpos" => json!(self.agnus().hpos),
             "amiga.agnus.dmacon" => json!(self.dmacon()),
             "amiga.agnus.bplcon0" => json!(self.bplcon0()),
+            "amiga.sprite0.dma_on" => json!(self.agnus().sprite_dma_on(0)),
+            "amiga.sprite0.vstart" => json!(self.agnus().sprite_vstart(0)),
+            "amiga.sprite0.vstop" => json!(self.agnus().sprite_vstop(0)),
+            "amiga.sprite0.pixels_rendered" => {
+                json!(self.denise().ocs.sprite_pixels_rendered(0))
+            }
+            "amiga.sprite0.ptr" => json!(self.agnus().spr_pt[0]),
             "amiga.paula.intena" => json!(self.intena()),
             "amiga.paula.intreq" => json!(self.intreq()),
             "amiga.debug.dsk_write_count" => json!(self.debug_dsk_log.len()),

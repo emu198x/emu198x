@@ -51,6 +51,23 @@ pub trait DeniseChip:
         beam_y: u32,
         playfield_visible_gate: bool,
     ) -> DeniseOutputPixelDebug;
+    /// As `output_pixel_with_beam_and_playfield_gate`, but with the sprite
+    /// comparator driven by *absolute* beam coordinates (`spr_beam_x` in
+    /// lores units, `spr_beam_y` the raster line) distinct from the
+    /// bitplane pipeline's scroll-relative `beam_x`/`beam_y`. The board
+    /// uses this so DMA-driven sprites position by their SPRxPOS/CTL
+    /// absolute HSTART/VSTART. gap #162.
+    #[allow(clippy::too_many_arguments)]
+    fn output_pixel_with_beam_sprite_coords(
+        &mut self,
+        x: u32,
+        y: u32,
+        beam_x: u32,
+        beam_y: u32,
+        spr_beam_x: u32,
+        spr_beam_y: u32,
+        playfield_visible_gate: bool,
+    ) -> DeniseOutputPixelDebug;
     fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16;
 
     // ── Field accessors used by the wrapper ──
@@ -111,6 +128,26 @@ impl DeniseChip for DeniseOcs {
         playfield_visible_gate: bool,
     ) -> DeniseOutputPixelDebug {
         self.output_pixel_with_beam_and_playfield_gate(x, y, beam_x, beam_y, playfield_visible_gate)
+    }
+    fn output_pixel_with_beam_sprite_coords(
+        &mut self,
+        x: u32,
+        y: u32,
+        beam_x: u32,
+        beam_y: u32,
+        spr_beam_x: u32,
+        spr_beam_y: u32,
+        playfield_visible_gate: bool,
+    ) -> DeniseOutputPixelDebug {
+        self.output_pixel_with_beam_sprite_coords(
+            x,
+            y,
+            beam_x,
+            beam_y,
+            spr_beam_x,
+            spr_beam_y,
+            playfield_visible_gate,
+        )
     }
     fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16 {
         self.resolve_color_rgb12(color_idx)
@@ -187,6 +224,26 @@ impl DeniseChip for DeniseEcs {
     ) -> DeniseOutputPixelDebug {
         self.as_inner_mut()
             .output_pixel_with_beam_and_playfield_gate(x, y, beam_x, beam_y, playfield_visible_gate)
+    }
+    fn output_pixel_with_beam_sprite_coords(
+        &mut self,
+        x: u32,
+        y: u32,
+        beam_x: u32,
+        beam_y: u32,
+        spr_beam_x: u32,
+        spr_beam_y: u32,
+        playfield_visible_gate: bool,
+    ) -> DeniseOutputPixelDebug {
+        self.as_inner_mut().output_pixel_with_beam_sprite_coords(
+            x,
+            y,
+            beam_x,
+            beam_y,
+            spr_beam_x,
+            spr_beam_y,
+            playfield_visible_gate,
+        )
     }
     fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16 {
         self.as_inner_mut().resolve_color_rgb12(color_idx)

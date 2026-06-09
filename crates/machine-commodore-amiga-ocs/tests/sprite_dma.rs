@@ -72,3 +72,50 @@ fn dma_sprite_control_words_are_fetched_and_sprite_activates() {
         "SPR0PT advanced past the control words as data was fetched"
     );
 }
+
+/// End-to-end: a DMA-driven sprite must actually composite *pixels* into
+/// the framebuffer, not merely fetch its words. This is the test that was
+/// missing when gap #162 first shipped — Agnus fetched control + data
+/// correctly, but the board fed Denise's sprite comparator scroll-relative
+/// pipeline coordinates instead of the absolute beam position, so the
+/// comparator never matched and the Workbench pointer never drew. We open
+/// the display window, place the sprite inside it the DMA way, and assert
+/// Denise's per-sprite rendered-pixel counter is non-zero.
+#[test]
+fn dma_sprite_renders_pixels_into_the_display() {
+    let mut amiga = AmigaOcs::new(parked_cpu_rom());
+
+    // Open a wide display window: DIWSTRT vstart=0x2C(44)/hstart=0x81(129),
+    // DIWSTOP vstop=0xF4(244)/hstop=0x1C1(449).
+    amiga.poke_word(0x00DF_F08E, 0x2C81); // DIWSTRT
+    amiga.poke_word(0x00DF_F090, 0xF4C1); // DIWSTOP
+
+    // Sprite 0 the DMA way, positioned inside the window:
+    //   SPR0POS = 0x3264 -> VSTART=0x32(50), HSTART=(0x64)<<1=200
+    //   SPR0CTL = 0x3C00 -> VSTOP =0x3C(60), HSTART bit0=0, no ATTACH
+    //   DATA=0xFFFF / DATB=0x0000 -> every pixel code 1 (opaque)
+    amiga.poke_word(0x2000, 0x3264); // POS
+    amiga.poke_word(0x2002, 0x3C00); // CTL
+    for line in 0..16u32 {
+        amiga.poke_word(0x2004 + line * 4, 0xFFFF); // DATA
+        amiga.poke_word(0x2006 + line * 4, 0x0000); // DATB
+    }
+
+    amiga.poke_word(0x00DF_F120, 0x0000); // SPR0PTH
+    amiga.poke_word(0x00DF_F122, 0x2000); // SPR0PTL
+    amiga.poke_word(0x00DF_F096, 0x8000 | 0x0200 | 0x0020); // DMACON: DMAEN|SPREN
+
+    // Run past the sprite's VSTOP line so all active lines have been drawn.
+    let mut guard = 0;
+    while amiga.agnus().vpos < 62 && guard < 4_000_000 {
+        amiga.tick();
+        guard += 1;
+    }
+
+    assert!(
+        amiga.denise().ocs.sprite_pixels_rendered(0) > 0,
+        "DMA-driven sprite 0 composited at least one pixel into the display \
+         (got {})",
+        amiga.denise().ocs.sprite_pixels_rendered(0)
+    );
+}

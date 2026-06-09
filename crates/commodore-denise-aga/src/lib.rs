@@ -307,6 +307,29 @@ impl DeniseChip for DeniseAga {
             .output_pixel_with_beam_and_playfield_gate(x, y, beam_x, beam_y, playfield_visible_gate)
     }
 
+    fn output_pixel_with_beam_sprite_coords(
+        &mut self,
+        x: u32,
+        y: u32,
+        beam_x: u32,
+        beam_y: u32,
+        spr_beam_x: u32,
+        spr_beam_y: u32,
+        playfield_visible_gate: bool,
+    ) -> DeniseOutputPixelDebug {
+        self.inner
+            .as_inner_mut()
+            .output_pixel_with_beam_sprite_coords(
+                x,
+                y,
+                beam_x,
+                beam_y,
+                spr_beam_x,
+                spr_beam_y,
+                playfield_visible_gate,
+            )
+    }
+
     fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16 {
         self.inner.resolve_color_rgb12(color_idx)
     }

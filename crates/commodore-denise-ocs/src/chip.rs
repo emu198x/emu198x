@@ -69,6 +69,11 @@ pub struct DeniseOcs {
     /// Sprite pixel width: 16 (OCS/ECS), 32, or 64 (AGA via FMODE bits 3-2).
     pub spr_width: u8,
     spr_current_code: [u8; 8],
+    /// Cumulative count of output pixels each sprite has contributed to
+    /// the composited display (a sprite group rendered a non-transparent
+    /// pixel inside the display window). A query/diagnostic surface for
+    /// confirming a sprite is actually drawing — see `sprite_pixels_rendered`.
+    spr_pixels_rendered: [u64; 8],
     sprite_runtime_line_valid: bool,
     sprite_runtime_beam_x: u32,
     sprite_runtime_beam_y: u32,
@@ -179,6 +184,7 @@ impl DeniseOcs {
             spr_shift_count: [0; 8],
             spr_width: 16,
             spr_current_code: [0; 8],
+            spr_pixels_rendered: [0; 8],
             sprite_runtime_line_valid: false,
             sprite_runtime_beam_x: 0,
             sprite_runtime_beam_y: 0,
@@ -365,6 +371,15 @@ impl DeniseOcs {
         }
     }
 
+    /// Cumulative count of composited pixels a sprite has contributed to
+    /// the display. Non-zero means the sprite is actually drawing — a
+    /// diagnostic/query surface (used to confirm DMA-driven sprites
+    /// render). Returns 0 for out-of-range indices.
+    #[must_use]
+    pub fn sprite_pixels_rendered(&self, sprite: usize) -> u64 {
+        self.spr_pixels_rendered.get(sprite).copied().unwrap_or(0)
+    }
+
     /// Reset per-line state for bitplane shift-load timing.
     ///
     /// Clears `bpl_prev_data` so the BPLCON1 barrel-shift carry does not
@@ -492,14 +507,15 @@ impl DeniseOcs {
             }
         }
 
-        // Sprites run at lores rate: one pixel per CCK (= 2 beam_x steps).
-        // The HSTART comparator matches at beam_x resolution (supporting
-        // sub-pixel positioning via SPRxCTL bit 0), but the shift register
-        // advances once per CCK. We read the current MSB on every beam_x
-        // (so both halves of the CCK display the same pixel), then shift
-        // on odd beam_x positions (end of each CCK).
-        let shift_phase = (beam_x & 1) == 1;
-
+        // OCS sprites run at lores resolution: one sprite pixel per lores
+        // pixel. `beam_x` is in lores units (one step per lores pixel, two
+        // per colour clock), so the serial shifter advances on *every*
+        // beam_x step. HSTART (SPRxPOS H8-H1 + SPRxCTL H0) is the lores
+        // position the comparator matches against. An earlier model shifted
+        // only once per two beam_x steps ("one pixel per CCK"), which made
+        // every sprite pixel two lores pixels wide — invisible until the
+        // first DMA-driven sprite (the Workbench pointer) rendered and
+        // showed up double-width. gap #162.
         self.spr_current_code = [0; 8];
         for sprite in 0..8usize {
             if !self.spr_armed[sprite] {
@@ -513,9 +529,7 @@ impl DeniseOcs {
             let vstart = u32::from(Self::sprite_vstart(pos, ctl));
             let vstop = u32::from(Self::sprite_vstop(pos, ctl));
 
-            // Comparator phase: detect the horizontal match at beam_x
-            // resolution. HSTART encodes the lores position in the upper
-            // 8 bits and the sub-pixel delay in bit 0.
+            // Comparator: detect the horizontal match at lores resolution.
             let load_pulse = Self::sprite_line_active(beam_y, vstart, vstop) && beam_x == hstart;
 
             // Load phase: copy sprite data regs into the serial shifters.
@@ -525,24 +539,19 @@ impl DeniseOcs {
                 self.spr_shift_count[sprite] = self.spr_width;
             }
 
-            // Output phase: read current MSB (same pixel for both halves
-            // of the CCK, giving each sprite pixel its correct lores width).
             if self.spr_shift_count[sprite] == 0 {
                 continue;
             }
 
+            // Output the current MSB, then advance one lores pixel.
             let msb = u32::from(self.spr_width) - 1;
             let lo = (self.spr_shift_data[sprite] >> msb) & 1;
             let hi = (self.spr_shift_datb[sprite] >> msb) & 1;
             self.spr_current_code[sprite] = (lo | (hi << 1)) as u8;
 
-            // Shift phase: advance the register once per CCK (on odd
-            // beam_x, i.e. the second half of each CCK).
-            if shift_phase {
-                self.spr_shift_data[sprite] <<= 1;
-                self.spr_shift_datb[sprite] <<= 1;
-                self.spr_shift_count[sprite] -= 1;
-            }
+            self.spr_shift_data[sprite] <<= 1;
+            self.spr_shift_datb[sprite] <<= 1;
+            self.spr_shift_count[sprite] -= 1;
         }
     }
 
@@ -1121,16 +1130,25 @@ impl DeniseOcs {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn output_pixel_with_beam_n_source_samples(
         &mut self,
         x: u32,
         y: u32,
         beam_x: u32,
         beam_y: u32,
+        spr_beam_x: u32,
+        spr_beam_y: u32,
         source_pixels_per_output_call: u8,
         playfield_visible_gate: bool,
     ) -> DeniseOutputPixelDebug {
-        self.sync_sprite_runtime_to_beam(beam_x, beam_y);
+        // The sprite comparator runs in *absolute* beam coordinates
+        // (SPRxPOS/CTL decode to absolute raster line and lores HSTART),
+        // independent of the bitplane pipeline's scroll-relative
+        // `beam_x`/`beam_y`. The board passes the absolute beam position
+        // here; the standalone Denise wrappers pass `beam_x`/`beam_y`
+        // (in those call sites the two spaces coincide). gap #162.
+        self.sync_sprite_runtime_to_beam(spr_beam_x, spr_beam_y);
         let hires = (self.bplcon0 & 0x8000) != 0;
         let source_pixels_per_fb_pixel = source_pixels_per_output_call.clamp(1, 4);
         let mut quad_samples = [(0usize, 0u8, 0u8); 4];
@@ -1201,6 +1219,13 @@ impl DeniseOcs {
         } else {
             None
         };
+        if let Some(sp) = &sprite_pixel {
+            // A sprite produced a non-transparent pixel inside the display
+            // window. (Diagnostic counter; over an empty playfield the
+            // sprite wins priority and this pixel reaches the framebuffer.)
+            self.spr_pixels_rendered[sp.sprite_group & 7] =
+                self.spr_pixels_rendered[sp.sprite_group & 7].saturating_add(1);
+        }
 
         // Cache BPLCON2 priority positions for sprite resolution (avoids
         // re-borrowing &self through a closure while &mut self is live).
@@ -1288,6 +1313,46 @@ impl DeniseOcs {
             y,
             beam_x,
             beam_y,
+            beam_x,
+            beam_y,
+            source_pixels_per_output_call,
+            playfield_visible_gate,
+        )
+    }
+
+    /// Output one pixel with the sprite comparator driven by *absolute*
+    /// beam coordinates (`spr_beam_x` in lores units, `spr_beam_y` the
+    /// raster line), separate from the bitplane pipeline's scroll-relative
+    /// `beam_x`/`beam_y`. The board uses this so DMA-driven sprites — whose
+    /// SPRxPOS/CTL HSTART/VSTART are absolute — position correctly against
+    /// the real beam rather than the data-fetch-relative pipeline. gap #162.
+    #[allow(clippy::too_many_arguments)]
+    pub fn output_pixel_with_beam_sprite_coords(
+        &mut self,
+        x: u32,
+        y: u32,
+        beam_x: u32,
+        beam_y: u32,
+        spr_beam_x: u32,
+        spr_beam_y: u32,
+        playfield_visible_gate: bool,
+    ) -> DeniseOutputPixelDebug {
+        let hires = (self.bplcon0 & 0x8000) != 0;
+        let shres = (self.bplcon0 & 0x0040) != 0;
+        let source_pixels_per_output_call = if shres {
+            4
+        } else if hires {
+            2
+        } else {
+            1
+        };
+        self.output_pixel_with_beam_n_source_samples(
+            x,
+            y,
+            beam_x,
+            beam_y,
+            spr_beam_x,
+            spr_beam_y,
             source_pixels_per_output_call,
             playfield_visible_gate,
         )
