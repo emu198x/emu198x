@@ -57,31 +57,17 @@ surfaces for the vocabulary):
 launch.** CPU surface in genuinely
 good shape: Tom Harte 100%, ZEXDOC/ZEXALL all checkpoints, FUSE 1,351/1,356
 with 5 documented disagreements, Patrik Rak `z80test` 6/6 with zero allowlist.
-262/262 runtime tests pass. 11 variants boot to a working screen. The items
-below are residual accuracy/scope debt, not blockers.
+262/262 runtime tests pass. 11 variants boot to a working screen.
 
-- **A — Strict PNG comparison for the 5 ULA / contention smokes against
-  Spectron references.** The smokes currently compare against self-locked
-  goldens; spec'd target is byte-equal against Spectron's
-  `tests/Results/<name>_{48,128}.png`. Spectron renders 1224×968 with
-  border + scaling, so the comparator needs a downscale-and-crop step
-  before equality. The smokes are green against self-locked goldens today;
-  this tightens the oracle, it does not gate the launch. See
-  [`knowledge/tests/spectrum.md`](../../knowledge/tests/spectrum.md).
-- **A — 4 residual FUSE block-repeat AF disagreements** on `INIR`,
-  `OTIR`, `CPDR`, `OTDR` (X/Y undocumented flag bits at the final repeat
-  iteration). WZ matches, T-states match, memory effects match; just the
-  undoc bits. Resolution needs silicon-level evidence; not a launch
-  blocker. (Verified against FUSE's fixtures 2026-06-09: the fourth op is
-  `CPDR`/`edb9`, a block-compare — an earlier note mislabelled it `INDR`.
-  `INDR`/`edba` passes all bits and is not allowlisted. Issue #13.)
-- **S — Scorpion ZS-256 screen rendering.** CPU-liveness boot test
-  passes; the Service ROM doesn't paint standard screen RAM yet. Three
-  concrete bugs in `machine-scorpion-zs256/src/memory.rs` identified
-  against FUSE's `machines/scorpion.c`: page-select bit (`$1FFD` bit 0
-  vs bit 4), ROM-select logic, and ROM 3 should be Beta Disk overlay not
-  bank-selectable. The fixes interact and need to land together —
-  research recorded for a future one-session attempt.
+**Open work is now tracked in GitHub Issues, not here.** Spectrum's full
+backlog — residual accuracy/scope debt plus the completionist tail (clones,
+peripherals, disk/tape formats, network) — lives in the
+[**Spectrum 100% milestone**](https://github.com/emu198x/emu198x/milestone/1)
+(filter `label:system:spectrum`). This section is now a pointer, to keep the doc
+and the issues from drifting; the per-item detail (the ULA-smoke oracle, the
+Scorpion ZS-256 memory-map bugs, the FUSE block-repeat disagreements) lives in
+the issues. Spectrum is the first machine promoted this way — the machines below
+stay doc-tracked until their backlogs are likewise moved.
 
 ## Commodore 64 — `emu198x-c64`
 
