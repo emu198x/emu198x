@@ -77,16 +77,23 @@ const STEP_TSTATES: u32 = 1;
 /// — that is the canonical Smith Ch 12 / Ch 21 "fetched byte on the data
 /// bus" tap.
 ///
-/// **Our engine:** prints `14339`. The ULA's two-stage shifter (Seam 1 of
-/// the [architecture review](../../../knowledge/decisions/spectrum-architecture-review.md))
-/// lands the DataLatch at T-14336 and the bus exposure at T-14338, matching
-/// silicon. The 1-T-state offset visible at the IN A,($FF) probe is a
-/// Z80/ULA phase-alignment subtlety in when our Z80 model samples the IO
-/// data bus inside the IN M-cycle — independent of the ULA fetch timing
-/// itself. Tracked as a follow-up engine fidelity item; the catalogue
-/// frame hashes are unaffected (they depend on the visible-pixel tap, not
-/// the floating-bus probe's IO sample point).
-const FLOAT48K_EXPECTED_TSTATE: u32 = 14339;
+/// **Our engine:** prints `14337` since the #62 floating-bus read-phase
+/// fix. The ULA's two-stage shifter lands the bus exposure at T-14338
+/// (matching silicon), but the IO-read sample point inside the `IN`
+/// M-cycle never lined up with hardware: before the fix this probe read
+/// one T-state *late* (14339), and floatspy read the wrong byte entirely.
+///
+/// The fix samples the floating bus at the hardware instant (a +3 lead;
+/// see `SpectrumMachineCore::floating_bus_read`), which makes floatspy
+/// byte-equal to Spectron's `floatspy_48.png` — the authoritative,
+/// full-self-test oracle (`floatspy_selftest_ok`). With it, this edge-
+/// detection probe lands one T-state *early* (14337) instead of one late.
+/// Both probes do `in a,(0ffh)`, so a residual ±1 T-state between them
+/// (floatspy lands its specific byte exactly; Float48K's first-non-`$FF`
+/// edge is 1 before Woody's 14338) is the remaining sub-T-state IO-sample
+/// fidelity item. floatspy is the stronger oracle, so the fix is anchored
+/// there. Catalogue frame hashes are unaffected (visible-pixel tap).
+const FLOAT48K_EXPECTED_TSTATE: u32 = 14337;
 
 fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").expect("HOME must be set"))
