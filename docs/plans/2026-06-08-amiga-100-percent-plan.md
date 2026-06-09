@@ -25,9 +25,11 @@ three big subsystems are facades that the "boots Workbench 3.1" headline hides.
 - **NES** — most-finished cores, breadth + two bugs.
 - **Amiga** — the chips are deep and well-tested *as units* (the 68000 is the
   best-validated CPU in the fleet; every Blitter minterm and Copper instruction is
-  implemented; OCS Denise is pixel-exact; Paula audio + IRQ are complete; the 8520s
-  and AutoConfig are done). But the integration is unfinished and the flagship
-  features are facades.
+  implemented; OCS Denise is pixel-exact for playfields; Paula audio + IRQ are
+  complete; the 8520s and AutoConfig are done). But the integration is unfinished,
+  the flagship features are facades — and the seams between deep-but-isolated chips
+  are where the bugs hide (the Agnus→Denise sprite handoff being a worked example,
+  below).
 
 The three facades the headline conceals:
 
@@ -35,6 +37,14 @@ The three facades the headline conceals:
    wide sprites are decoded and stored but never displayed — the board path
    resolves every variant through the OCS 12-bit palette. AGA today is an ECS
    machine that boots the 3.1 desktop. **Denise: OCS ~95%, ECS ~90%, AGA ~40%.**
+   *(2026-06-09: the Agnus→Denise hardware-sprite handoff — gap #162 — is now
+   wired and displaying. Two seam bugs surfaced and were fixed once a real
+   DMA sprite finally rendered: the board fed the sprite comparator
+   pipeline-relative instead of absolute beam coordinates, so sprites never
+   matched; and the shifter ran at one pixel per colour clock instead of per
+   lores pixel, so every sprite was double-width. Workbench 1.3 now draws its
+   mouse pointer. The OCS/ECS sprite path is sound; AGA wide sprites remain
+   below.)*
 2. **The Blitter runs in zero cycles** (synchronous on the BLTSIZE write). The
    correct incremental per-slot scheduler is *built and tested* but wired into no
    machine; there's no BBUSY/BZERO. Blitter timing and bus contention are absent.
