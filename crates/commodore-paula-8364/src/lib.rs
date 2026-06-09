@@ -1393,7 +1393,17 @@ impl Paula8364 {
             (POTGO_OUTLX, POTGO_DATLX),
         ] {
             let pin = if self.potgo & out_mask != 0 {
-                self.potgo & dat_mask
+                // Output mode: the pin is driven by POTGO, but the mouse
+                // right/middle button is a switch to ground that pulls the
+                // line low whenever it is held — it wins over the driver.
+                // The OS exploits exactly this to read the digital buttons:
+                // it drives the pins high (OUTxx=1, DATxx=1) and then reads
+                // POTGOR to see the button pull a line low. Wired-AND the
+                // driven value with the injected external level so a held
+                // button still reads low. Without this AND, Intuition never
+                // sees the right (menu) button while the OS has the pins in
+                // output mode. (#63)
+                self.potgo & dat_mask & self.pot_pin_levels
             } else {
                 self.pot_pin_levels & dat_mask
             };
@@ -1501,6 +1511,48 @@ mod tests {
         assert_eq!(p.read_audio(0, AudioField::Len), 0x0008);
         assert_eq!(p.read_audio(0, AudioField::Per), 500);
         assert_eq!(p.read_audio(0, AudioField::Vol), 32);
+    }
+
+    /// Regression for #63: the OS reads the digital mouse buttons by
+    /// driving the pot pins high in output mode (POTGO `OUTxx=1, DATxx=1`)
+    /// and watching POTGOR for a button pulling a line low. A held
+    /// right/middle button is a switch to ground that wins over the
+    /// driver, so it must read low even in output mode. Before the fix,
+    /// output mode reported the driven (high) value and Intuition never
+    /// saw the right (menu) button.
+    #[test]
+    fn held_mouse_button_pulls_potgor_low_even_in_output_mode() {
+        let mut p = Paula8364::new();
+
+        // OS drives port-0 pins high to scan the buttons — real Kickstart
+        // 2.04 writes 0x0F00 (OUTLX|DATLX|OUTRX|DATRX).
+        p.write_potgo(POTGO_OUTRX | POTGO_DATRX | POTGO_OUTLX | POTGO_DATLX);
+        assert_ne!(
+            p.peek_potgor() & POTGO_DATRX,
+            0,
+            "released right button idles high"
+        );
+
+        // Held → the switch to ground wins over the output driver.
+        p.set_pot_pin_level(POTGOR_BTN_PORT0_RIGHT, false);
+        assert_eq!(
+            p.peek_potgor() & POTGO_DATRX,
+            0,
+            "held right button must read low in output mode"
+        );
+
+        // Release returns the line high.
+        p.set_pot_pin_level(POTGOR_BTN_PORT0_RIGHT, true);
+        assert_ne!(p.peek_potgor() & POTGO_DATRX, 0, "release returns high");
+
+        // Input mode (OUTRX=0) was already correct — held still reads low.
+        p.write_potgo(0);
+        p.set_pot_pin_level(POTGOR_BTN_PORT0_RIGHT, false);
+        assert_eq!(
+            p.peek_potgor() & POTGO_DATRX,
+            0,
+            "held right button reads low in input mode"
+        );
     }
 
     #[test]
