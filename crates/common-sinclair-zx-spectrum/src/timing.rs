@@ -226,6 +226,16 @@ pub const TIMING_SCORPION: FrameTiming = FrameTiming {
 /// different contention pattern (`[1, 0, 7, 6, 5, 4, 3, 2]`) and has
 /// no I/O contention or internal-op contention — the gate array is
 /// MREQ-only.
+///
+/// Video/INT geometry verified against FUSE/libspectrum (issue #11):
+/// `timings_frame_amstrad_asic` has the identical border/screen/retrace
+/// breakdown to the 128K's `timings_frame_ferranti_7c` (H 24/128/24/52,
+/// V 48/192/48/23), so aliasing the display geometry to the 128K's is
+/// correct. The only real deltas are the contention pattern + the
+/// MREQ-only behaviour, both modelled below. (FUSE records a shorter
+/// INT pulse for the ASIC — 32 vs the 128K's 36 — but `interrupt_length_
+/// tstates` is documentary-only here; the actual IRQ is driven by
+/// `feed_irq`, not this field.)
 pub const TIMING_PLUS2A: FrameTiming = FrameTiming {
     master_hz: MASTER_HZ_128K,
     cpu_divisor: 5,
@@ -318,5 +328,47 @@ mod tests {
         assert_eq!(TIMING_48K.tstates_to_hc(224), 896);
         assert_eq!(TIMING_48K.hc_to_tstates(896), 224);
         assert_eq!(TIMING_48K.tstate_to_line_pos(224), (1, 0));
+    }
+
+    /// Issue #11: the +2A/+3 (Amstrad 40077/40078 ASIC) shares the 128K's
+    /// display geometry — verified against FUSE/libspectrum, whose
+    /// `timings_frame_amstrad_asic` has the same border/screen/retrace
+    /// breakdown as the 128K's `timings_frame_ferranti_7c`. Only the
+    /// contention behaviour differs. This pins that relationship so a
+    /// future edit can't silently desync the +2A video geometry.
+    #[test]
+    fn plus2a_video_geometry_matches_128k() {
+        // Clock + line/frame layout.
+        assert_eq!(TIMING_PLUS2A.master_hz, TIMING_128K.master_hz);
+        assert_eq!(TIMING_PLUS2A.cpu_divisor, TIMING_128K.cpu_divisor);
+        assert_eq!(TIMING_PLUS2A.tstates_per_line, TIMING_128K.tstates_per_line);
+        assert_eq!(TIMING_PLUS2A.lines_per_frame, TIMING_128K.lines_per_frame);
+        // Display window position.
+        assert_eq!(
+            TIMING_PLUS2A.first_screen_line,
+            TIMING_128K.first_screen_line
+        );
+        assert_eq!(TIMING_PLUS2A.last_screen_line, TIMING_128K.last_screen_line);
+        assert_eq!(
+            TIMING_PLUS2A.first_screen_tstate,
+            TIMING_128K.first_screen_tstate
+        );
+        assert_eq!(
+            TIMING_PLUS2A.contention_start_tstate,
+            TIMING_128K.contention_start_tstate
+        );
+        assert_eq!(
+            TIMING_PLUS2A.interrupt_start_tstate,
+            TIMING_128K.interrupt_start_tstate
+        );
+
+        // ...but the contention behaviour is the real delta: a different
+        // pattern, phase 0 (vs the 128K's phase 1).
+        assert_eq!(TIMING_PLUS2A.contention_pattern, CONTENTION_PATTERN_PLUS2A);
+        assert_eq!(TIMING_PLUS2A.contention_phase, 0);
+        assert_ne!(
+            TIMING_PLUS2A.contention_pattern,
+            TIMING_128K.contention_pattern
+        );
     }
 }
