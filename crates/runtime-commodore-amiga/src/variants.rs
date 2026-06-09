@@ -162,6 +162,8 @@ const OCS_VARIANT_QUERY_PATHS: &[&str] = &[
     "amiga.disk.step_events",
     "amiga.keyboard.state",
     "amiga.keyboard.queued",
+    "amiga.input.joy0dat",
+    "amiga.input.joy1dat",
 ];
 
 impl AmigaMachine for AmigaOcs {
@@ -292,6 +294,8 @@ impl AmigaMachine for AmigaOcs {
             "amiga.disk.step_events" => json!(drive.step_event_counter()),
             "amiga.keyboard.state" => json!(self.keyboard().debug_state_name()),
             "amiga.keyboard.queued" => json!(self.keyboard().queued_key_count()),
+            "amiga.input.joy0dat" => json!(self.joy0dat()),
+            "amiga.input.joy1dat" => json!(self.joy1dat()),
             _ => return Ok(None),
         };
         Ok(Some(value))
@@ -441,6 +445,8 @@ impl AmigaMachine for AmigaEcs {
             "amiga.disk.step_events" => json!(drive.step_event_counter()),
             "amiga.keyboard.state" => json!(self.keyboard().debug_state_name()),
             "amiga.keyboard.queued" => json!(self.keyboard().queued_key_count()),
+            "amiga.input.joy0dat" => json!(self.joy0dat()),
+            "amiga.input.joy1dat" => json!(self.joy1dat()),
             _ => return Ok(None),
         };
         Ok(Some(value))
@@ -493,6 +499,8 @@ const AGA_VARIANT_QUERY_PATHS: &[&str] = &[
     "amiga.disk.step_events",
     "amiga.keyboard.state",
     "amiga.keyboard.queued",
+    "amiga.input.joy0dat",
+    "amiga.input.joy1dat",
 ];
 
 impl AmigaMachine for AmigaA1200 {
@@ -615,6 +623,8 @@ impl AmigaMachine for AmigaA1200 {
             "amiga.disk.step_events" => json!(drive.step_event_counter()),
             "amiga.keyboard.state" => json!(self.keyboard().debug_state_name()),
             "amiga.keyboard.queued" => json!(self.keyboard().queued_key_count()),
+            "amiga.input.joy0dat" => json!(self.joy0dat()),
+            "amiga.input.joy1dat" => json!(self.joy1dat()),
             _ => return Ok(None),
         };
         Ok(Some(value))

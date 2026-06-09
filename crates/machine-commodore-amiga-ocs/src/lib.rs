@@ -921,6 +921,23 @@ impl AmigaOcs {
         true
     }
 
+    /// Read-only JOY0DAT (`$DFF00A`, controller port 0 / mouse) — the
+    /// raw 16-bit pot-counter register a program reads to sense the
+    /// mouse or a joystick plugged into port 0.
+    #[must_use]
+    pub fn joy0dat(&self) -> u16 {
+        joydat(self.joy0_x, self.joy0_y)
+    }
+
+    /// Read-only JOY1DAT (`$DFF00C`, controller port 1 / joystick) —
+    /// the raw 16-bit pot-counter register. Digital-joystick direction
+    /// bits are decoded here exactly as the hardware presents them, so
+    /// a headless query sees the same value `Joyx(1)`/`Joyy(1)` would.
+    #[must_use]
+    pub fn joy1dat(&self) -> u16 {
+        joydat(self.joy1_x, self.joy1_y)
+    }
+
     /// Read-only keyboard controller access — useful for tests
     /// inspecting the power-up state or queued key count.
     #[must_use]
