@@ -141,11 +141,6 @@ fn mcp_server_boots_and_lists_tools() {
         "step",
         "reset",
         "query_cpu",
-        "query_chipset",
-        "query_paula",
-        "query_cia",
-        "query_agnus",
-        "query_blitter",
         "query_copper_list",
         "query_stack",
         "memory_read",
@@ -162,8 +157,6 @@ fn mcp_server_boots_and_lists_tools() {
         "disasm_around",
         "insert_media",
         "eject_media",
-        "query_disk",
-        "query_aga",
         "bplcon0_log",
         "dump_framebuffer",
         "start_video_recording",
@@ -228,10 +221,12 @@ fn mcp_tools_drive_a_real_boot() {
         &mut session,
         13,
         "tools/call",
-        json!({ "name": "query_chipset", "arguments": {} }),
+        json!({ "name": "query", "arguments": { "path": "chipset" } }),
     ));
-    let cop1lc = chipset.get("cop1lc").and_then(Value::as_str).unwrap();
-    assert_ne!(cop1lc, "$00000000", "expected COP1LC to be programmed");
+    // The `query` tool wraps the folded chip snapshot as
+    // { kind: "query", result: { path, value: { ... } } }, raw numbers.
+    let cop1lc = chipset["result"]["value"]["cop1lc"].as_u64().unwrap();
+    assert_ne!(cop1lc, 0, "expected COP1LC to be programmed");
 
     let copper = unwrap_tool_text(&call(
         &mut server,
@@ -765,7 +760,9 @@ fn mcp_tools_drive_a_real_boot() {
         &mut session,
         16,
         "tools/call",
-        json!({ "name": "query_disk", "arguments": {} }),
+        json!({ "name": "query", "arguments": { "path": "disk" } }),
     ));
-    assert_eq!(disk.get("has_disk").and_then(Value::as_bool), Some(false));
+    // Folded `disk` snapshot: the pre-fold leaf name `inserted` (= the
+    // old tool's `has_disk`) is preserved.
+    assert_eq!(disk["result"]["value"]["inserted"].as_bool(), Some(false));
 }

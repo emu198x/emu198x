@@ -25,6 +25,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use crate::queries::{aga_snapshot, chip_field, is_chip, resolve_chip_query};
 use crate::{AmigaRuntime, Model};
 
 /// Per-variant machine surface for the Amiga family.
@@ -143,6 +144,15 @@ const OCS_VARIANT_QUERY_PATHS: &[&str] = &[
     "cpu.pc",
     "cpu.sr",
     "cpu.ipl",
+    // Folded chip groups (#456) — each resolves as a whole object; the
+    // long-standing leaves below them stay advertised and now resolve
+    // through the grouped snapshot.
+    "chipset",
+    "agnus",
+    "blitter",
+    "paula",
+    "cia",
+    "disk",
     "agnus.vpos",
     "agnus.hpos",
     "agnus.dmacon",
@@ -255,8 +265,11 @@ impl AmigaMachine for AmigaOcs {
     }
 
     fn resolve_variant_query(&self, path: &str) -> Result<Option<Value>, QueryError> {
-        let drive = self.drive();
-        let drive_status = drive.status();
+        // Folded chip snapshots (#456): grouped `agnus` / `paula` / `cia`
+        // / `blitter` / `chipset` / `disk` objects + per-field leaves.
+        if let Some(value) = resolve_chip_query(self, path) {
+            return Ok(Some(value));
+        }
         let value = match path {
             "a1000.boot_rom_visible" => json!(self.memory().a1000_boot_rom_visible()),
             "a1000.wom_locked" => json!(self.memory().a1000_wom_locked()),
@@ -264,10 +277,6 @@ impl AmigaMachine for AmigaOcs {
             "cpu.pc" => json!(self.cpu().regs.pc),
             "cpu.sr" => json!(self.cpu().regs.sr),
             "cpu.ipl" => json!(self.cpu().ipl),
-            "agnus.vpos" => json!(self.agnus().vpos),
-            "agnus.hpos" => json!(self.agnus().hpos),
-            "agnus.dmacon" => json!(self.dmacon()),
-            "agnus.bplcon0" => json!(self.bplcon0()),
             "sprite0.dma_on" => json!(self.agnus().sprite_dma_on(0)),
             "sprite0.vstart" => json!(self.agnus().sprite_vstart(0)),
             "sprite0.vstop" => json!(self.agnus().sprite_vstop(0)),
@@ -275,8 +284,6 @@ impl AmigaMachine for AmigaOcs {
                 json!(self.denise().ocs.sprite_pixels_rendered(0))
             }
             "sprite0.ptr" => json!(self.agnus().spr_pt[0]),
-            "paula.intena" => json!(self.intena()),
-            "paula.intreq" => json!(self.intreq()),
             "debug.dsk_write_count" => json!(self.debug_dsk_log.len()),
             "debug.last_dsk_write" => {
                 json!(self.debug_dsk_log.last().map(|(cck, pc, reg, val)| {
@@ -285,13 +292,6 @@ impl AmigaMachine for AmigaOcs {
             }
             "display.color00" => json!(self.color(0)),
             "display.color01" => json!(self.color(1)),
-            "disk.inserted" => json!(drive.has_disk()),
-            "disk.change_pending" => json!(drive_status.disk_change),
-            "disk.cylinder" => json!(drive.cylinder()),
-            "disk.head" => json!(drive.head()),
-            "disk.motor_on" => json!(drive.motor_on()),
-            "disk.motor_spinning" => json!(drive_status.ready),
-            "disk.step_events" => json!(drive.step_event_counter()),
             "keyboard.state" => json!(self.keyboard().debug_state_name()),
             "keyboard.queued" => json!(self.keyboard().queued_key_count()),
             "input.joy0dat" => json!(self.joy0dat()),
@@ -406,8 +406,12 @@ impl AmigaMachine for AmigaEcs {
         // ECS carries is also valid on OCS. The ECS-only paths
         // (BEAMCON0, BPLCON3 reads) will land alongside whichever
         // verifier flow needs them first.
-        let drive = self.drive();
-        let drive_status = drive.status();
+        //
+        // Folded chip snapshots (#456): grouped `agnus` / `paula` / `cia`
+        // / `blitter` / `chipset` / `disk` objects + per-field leaves.
+        if let Some(value) = resolve_chip_query(self, path) {
+            return Ok(Some(value));
+        }
         let value = match path {
             "a1000.boot_rom_visible" => json!(self.memory().a1000_boot_rom_visible()),
             "a1000.wom_locked" => json!(self.memory().a1000_wom_locked()),
@@ -415,10 +419,6 @@ impl AmigaMachine for AmigaEcs {
             "cpu.pc" => json!(self.cpu().regs.pc),
             "cpu.sr" => json!(self.cpu().regs.sr),
             "cpu.ipl" => json!(self.cpu().ipl),
-            "agnus.vpos" => json!(self.agnus().vpos),
-            "agnus.hpos" => json!(self.agnus().hpos),
-            "agnus.dmacon" => json!(self.dmacon()),
-            "agnus.bplcon0" => json!(self.bplcon0()),
             "sprite0.dma_on" => json!(self.agnus().sprite_dma_on(0)),
             "sprite0.vstart" => json!(self.agnus().sprite_vstart(0)),
             "sprite0.vstop" => json!(self.agnus().sprite_vstop(0)),
@@ -426,8 +426,6 @@ impl AmigaMachine for AmigaEcs {
                 json!(self.denise().ocs.sprite_pixels_rendered(0))
             }
             "sprite0.ptr" => json!(self.agnus().spr_pt[0]),
-            "paula.intena" => json!(self.intena()),
-            "paula.intreq" => json!(self.intreq()),
             "debug.dsk_write_count" => json!(self.debug_dsk_log.len()),
             "debug.last_dsk_write" => {
                 json!(self.debug_dsk_log.last().map(|(cck, pc, reg, val)| {
@@ -436,13 +434,6 @@ impl AmigaMachine for AmigaEcs {
             }
             "display.color00" => json!(self.color(0)),
             "display.color01" => json!(self.color(1)),
-            "disk.inserted" => json!(drive.has_disk()),
-            "disk.change_pending" => json!(drive_status.disk_change),
-            "disk.cylinder" => json!(drive.cylinder()),
-            "disk.head" => json!(drive.head()),
-            "disk.motor_on" => json!(drive.motor_on()),
-            "disk.motor_spinning" => json!(drive_status.ready),
-            "disk.step_events" => json!(drive.step_event_counter()),
             "keyboard.state" => json!(self.keyboard().debug_state_name()),
             "keyboard.queued" => json!(self.keyboard().queued_key_count()),
             "input.joy0dat" => json!(self.joy0dat()),
@@ -480,6 +471,15 @@ const AGA_VARIANT_QUERY_PATHS: &[&str] = &[
     "cpu.pc",
     "cpu.sr",
     "cpu.ipl",
+    // Folded chip groups (#456); `aga` is the AGA-only Lisa + 24-bit
+    // palette snapshot.
+    "chipset",
+    "agnus",
+    "blitter",
+    "paula",
+    "cia",
+    "disk",
+    "aga",
     "agnus.vpos",
     "agnus.hpos",
     "agnus.dmacon",
@@ -586,17 +586,20 @@ impl AmigaMachine for AmigaA1200 {
     }
 
     fn resolve_variant_query(&self, path: &str) -> Result<Option<Value>, QueryError> {
-        let drive = self.drive();
-        let drive_status = drive.status();
+        // Folded chip snapshots (#456): the shared `agnus` / `paula` /
+        // `cia` / `blitter` / `chipset` / `disk` groups plus the
+        // AGA-only `aga` group (Lisa registers + 24-bit palette).
+        if let Some(value) = resolve_chip_query(self, path) {
+            return Ok(Some(value));
+        }
+        if is_chip(path, "aga") {
+            return Ok(aga_snapshot(self).and_then(|snap| chip_field(path, "aga", snap)));
+        }
         let value = match path {
             "memory.overlay" => json!(self.memory().overlay()),
             "cpu.pc" => json!(self.cpu().regs.pc),
             "cpu.sr" => json!(self.cpu().regs.sr),
             "cpu.ipl" => json!(self.cpu().ipl),
-            "agnus.vpos" => json!(self.agnus().vpos),
-            "agnus.hpos" => json!(self.agnus().hpos),
-            "agnus.dmacon" => json!(self.dmacon()),
-            "agnus.bplcon0" => json!(self.bplcon0()),
             "sprite0.dma_on" => json!(self.agnus().sprite_dma_on(0)),
             "sprite0.vstart" => json!(self.agnus().sprite_vstart(0)),
             "sprite0.vstop" => json!(self.agnus().sprite_vstop(0)),
@@ -604,8 +607,6 @@ impl AmigaMachine for AmigaA1200 {
                 json!(self.denise().ocs.sprite_pixels_rendered(0))
             }
             "sprite0.ptr" => json!(self.agnus().spr_pt[0]),
-            "paula.intena" => json!(self.intena()),
-            "paula.intreq" => json!(self.intreq()),
             "debug.dsk_write_count" => json!(self.debug_dsk_log.len()),
             "debug.last_dsk_write" => {
                 json!(self.debug_dsk_log.last().map(|(cck, pc, reg, val)| {
@@ -614,13 +615,6 @@ impl AmigaMachine for AmigaA1200 {
             }
             "display.color00" => json!(self.color(0)),
             "display.color01" => json!(self.color(1)),
-            "disk.inserted" => json!(drive.has_disk()),
-            "disk.change_pending" => json!(drive_status.disk_change),
-            "disk.cylinder" => json!(drive.cylinder()),
-            "disk.head" => json!(drive.head()),
-            "disk.motor_on" => json!(drive.motor_on()),
-            "disk.motor_spinning" => json!(drive_status.ready),
-            "disk.step_events" => json!(drive.step_event_counter()),
             "keyboard.state" => json!(self.keyboard().debug_state_name()),
             "keyboard.queued" => json!(self.keyboard().queued_key_count()),
             "input.joy0dat" => json!(self.joy0dat()),

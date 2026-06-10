@@ -6,10 +6,12 @@
 //!   run_frames / run_ticks   advance machine time
 //!   run_until_pc             advance until PC hits a target (or limit)
 //!   reset                    re-load ROM, fresh boot
-//!   query_chipset            BPLCON0 / DMACON / vpos / hpos / copper / IRQ state
-//!   query_cia                CIA-A and CIA-B timer + control state
 //!   memory_read              raw bytes from any address (chip RAM or ROM)
 //!   disasm                   m68k disassembly at an address
+//!
+//! The chip-state snapshots (`chipset` / `agnus` / `paula` / `cia` /
+//! `blitter` / `disk` / `aga`) are served as grouped query paths on the
+//! generic `query` tool, not as bespoke tools (#456).
 //!
 //! Each tool returns a JSON object (or array) inside the
 //! `ToolResponse::success_text` body — the client parses the JSON.
@@ -134,105 +136,6 @@ fn tool_run_until_pc(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolEr
         "ticks_taken": ticks_taken,
         "pc": format!("${:08X}", s.live().cpu_pc()),
         "target": format!("${:08X}", target),
-    }))
-}
-
-fn tool_query_chipset(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let m = s.live();
-    Ok(json!({
-        "bplcon0": format!("${:04X}", m.bplcon0()),
-        "dmacon":  format!("${:04X}", m.dmacon()),
-        "adkcon":  format!("${:04X}", m.adkcon()),
-        "color00": format!("${:04X}", m.color(0)),
-        "cop1lc":  format!("${:08X}", m.copper_cop1lc()),
-        "cop2lc":  format!("${:08X}", m.copper_cop2lc()),
-        "copper_pc": format!("${:08X}", m.copper_pc()),
-        "overlay": m.overlay(),
-    }))
-}
-
-fn tool_query_paula(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let access = s.live();
-    let intena = access.intena();
-    let intreq = access.intreq();
-    let master = (intena & 0x4000) != 0;
-    Ok(json!({
-        "intena": format!("${:04X}", intena),
-        "intreq": format!("${:04X}", intreq),
-        "master_enable": master,
-        "intena_bits": decode_int_bits(intena),
-        "intreq_bits": decode_int_bits(intreq),
-    }))
-}
-
-/// Decode the Paula INTENA/INTREQ bit layout into a readable map.
-/// Bit 14 = master enable; bits 13..0 are individual interrupt sources.
-fn decode_int_bits(val: u16) -> Value {
-    const NAMES: [&str; 15] = [
-        "TBE", "DSKBLK", "SOFT", "PORTS", "COPER", "VERTB", "BLIT", "AUD0", "AUD1", "AUD2", "AUD3",
-        "RBF", "DSKSYN", "EXTER", "INTEN",
-    ];
-    let mut out = serde_json::Map::new();
-    for (bit, name) in NAMES.iter().enumerate() {
-        if val & (1 << bit) != 0 {
-            out.insert((*name).to_string(), Value::Bool(true));
-        }
-    }
-    Value::Object(out)
-}
-
-fn tool_query_cia(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    fn snapshot(c: &mos_cia_8520::Cia8520) -> Value {
-        json!({
-            "cra": format!("${:02X}", c.cra()),
-            "crb": format!("${:02X}", c.crb()),
-            "timer_a": format!("${:04X}", c.timer_a()),
-            "timer_b": format!("${:04X}", c.timer_b()),
-            "timer_a_running": c.timer_a_running(),
-            "timer_b_running": c.timer_b_running(),
-            "icr_status": format!("${:02X}", c.icr_status()),
-            "icr_mask":   format!("${:02X}", c.icr_mask()),
-            "irq_active": c.irq_active(),
-            "ddr_a": format!("${:02X}", c.ddr_a()),
-            "ddr_b": format!("${:02X}", c.ddr_b()),
-            "port_a_output": format!("${:02X}", c.port_a_output()),
-            "port_b_output": format!("${:02X}", c.port_b_output()),
-            "tod_counter": format!("${:06X}", c.tod_counter()),
-            "tod_alarm":   format!("${:06X}", c.tod_alarm()),
-            "tod_halted":  c.tod_halted(),
-        })
-    }
-    let access = s.live();
-    Ok(json!({
-        "cia_a": snapshot(access.cia_a()),
-        "cia_b": snapshot(access.cia_b()),
-    }))
-}
-
-fn tool_query_agnus(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let a = s.live().agnus();
-    Ok(json!({
-        "vpos": a.vpos,
-        "hpos_cck": a.hpos,
-        "blitter_busy": a.blitter_busy,
-        "blitter_exec_pending": a.blitter_exec_pending,
-        "blitter_ccks_remaining": a.blitter_ccks_remaining,
-        "bpl_pt": (0..8).map(|i| format!("${:08X}", a.bpl_pt[i])).collect::<Vec<_>>(),
-        "blt_apt": format!("${:08X}", a.blt_apt),
-        "blt_bpt": format!("${:08X}", a.blt_bpt),
-        "blt_cpt": format!("${:08X}", a.blt_cpt),
-        "blt_dpt": format!("${:08X}", a.blt_dpt),
-        "fmode": format!("${:04X}", a.fmode),
-        "bpl_fetch_width": a.bpl_fetch_width(),
-        "spr_fetch_width": a.spr_fetch_width(),
-        "diwstrt": format!("${:04X}", a.diwstrt),
-        "diwstop": format!("${:04X}", a.diwstop),
-        "ddfstrt": format!("${:04X}", a.ddfstrt),
-        "ddfstop": format!("${:04X}", a.ddfstop),
-        "bpl1mod": a.bpl1mod,
-        "bpl2mod": a.bpl2mod,
-        "bplcon0": format!("${:04X}", a.bplcon0),
-        "num_bitplanes": a.num_bitplanes(),
     }))
 }
 
@@ -1462,59 +1365,6 @@ fn tool_bplcon0_log(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolErr
     }))
 }
 
-fn tool_query_aga(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let ocs_palette: Vec<String> = (0..32)
-        .map(|i| format!("${:03X}", s.live().color(i)))
-        .collect();
-    // AGA Lisa state via the trait — `None` on OCS / ECS sessions.
-    let Some(aga) = s.live().aga_lisa() else {
-        return Err(ToolError::Execution(
-            "query_aga: active session is not AGA (no Lisa state)".into(),
-        ));
-    };
-    let bplcon3 = aga.bplcon3;
-    let bank = (bplcon3 >> 13) & 7;
-    let loct = (bplcon3 & 0x0200) != 0;
-    // Count non-zero entries per bank — surfaces whether KS has
-    // populated any AGA-specific palette banks beyond bank 0.
-    let mut bank_nonzero: [u32; 8] = [0; 8];
-    for (i, &c) in aga.palette_24.iter().enumerate() {
-        if c != 0 {
-            bank_nonzero[i / 32] += 1;
-        }
-    }
-    let bank0: Vec<String> = aga.palette_24[0..32]
-        .iter()
-        .map(|c| format!("${:06X}", c))
-        .collect();
-    let mut full_palette: Option<Vec<String>> = None;
-    if args
-        .get("all_banks")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        full_palette = Some(
-            aga.palette_24
-                .iter()
-                .map(|c| format!("${:06X}", c))
-                .collect(),
-        );
-    }
-    Ok(json!({
-        "deniseid": format!("${:04X}", aga.deniseid),
-        "bplcon3": format!("${:04X}", bplcon3),
-        "bplcon3_bank": bank,
-        "bplcon3_loct": loct,
-        "bplcon4": format!("${:04X}", aga.bplcon4),
-        "spr_width": aga.spr_width,
-        "ham_prev_rgb24": format!("${:06X}", aga.ham_prev_rgb24),
-        "palette_24_nonzero_per_bank": bank_nonzero,
-        "palette_24_bank0": bank0,
-        "ocs_palette_12bit": ocs_palette,
-        "palette_24_full": full_palette,
-    }))
-}
-
 fn tool_chipset_read_log(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     // Chipset-register read tracing is mirrored across OCS / ECS /
     // AGA. The trait hands back a slice directly.
@@ -1878,22 +1728,6 @@ fn tool_palette_log(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolErr
         "filtered_total": total,
         "returned": entries.len(),
         "entries": entries,
-    }))
-}
-
-fn tool_query_blitter(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    // Cross-cutting: every field below is on the shared OCS Agnus base
-    // type that the ECS / AGA wrappers Deref to, so the trait surface
-    // suffices.
-    let a = s.live().agnus();
-    Ok(json!({
-        "busy": a.blitter_busy,
-        "exec_pending": a.blitter_exec_pending,
-        "ccks_remaining": a.blitter_ccks_remaining,
-        "apt": format!("${:08X}", a.blt_apt),
-        "bpt": format!("${:08X}", a.blt_bpt),
-        "cpt": format!("${:08X}", a.blt_cpt),
-        "dpt": format!("${:08X}", a.blt_dpt),
     }))
 }
 
@@ -2298,25 +2132,6 @@ fn tool_eject_media(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolEr
     Ok(json!({
         "ejected": had_disk,
         "has_disk": s.live().drive().has_disk(),
-    }))
-}
-
-fn tool_query_disk(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let drive = s.live().drive();
-    let status = drive.status();
-    Ok(json!({
-        "has_disk": drive.has_disk(),
-        "selected": drive.selected(),
-        "cylinder": drive.cylinder(),
-        "head": drive.head(),
-        "motor_on": drive.motor_on(),
-        "motor_spinning": drive.motor_spinning(),
-        "status": {
-            "disk_change_low": status.disk_change,
-            "write_protect_low": status.write_protect,
-            "track0_low": status.track0,
-            "ready_low": status.ready,
-        },
     }))
 }
 
@@ -2937,41 +2752,11 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
     // enriched `DebugTarget::dbg_cpu_state` (full D0-D7 / A0-A7, PC, SR +
     // supervisor / IRQ-mask decode, VBR, IPL, exception state) — no
     // bespoke override here any more (#456).
-    add(
-        registry,
-        "query_chipset",
-        "BPLCON0 / DMACON / ADKCON / COLOR00 / COP1LC / copper PC / overlay state.",
-        empty(),
-        tool_query_chipset,
-    );
-    add(
-        registry,
-        "query_paula",
-        "Paula INTENA / INTREQ with bit names decoded.",
-        empty(),
-        tool_query_paula,
-    );
-    add(
-        registry,
-        "query_cia",
-        "CIA-A + CIA-B timer / ICR / port / TOD snapshot.",
-        empty(),
-        tool_query_cia,
-    );
-    add(
-        registry,
-        "query_agnus",
-        "Agnus snapshot (vpos / hpos / bitplane pointers / blitter pointers).",
-        empty(),
-        tool_query_agnus,
-    );
-    add(
-        registry,
-        "query_blitter",
-        "Blitter snapshot (busy, exec_pending, ccks_remaining, APT/BPT/CPT/DPT).",
-        empty(),
-        tool_query_blitter,
-    );
+    // `query_chipset` / `query_paula` / `query_cia` / `query_agnus` /
+    // `query_blitter` (and `query_disk` / `query_aga` below) folded into
+    // grouped `chipset` / `paula` / `cia` / `agnus` / `blitter` / `disk`
+    // / `aga` query paths on the generic `query` surface (#456) — see
+    // `runtime_commodore_amiga::queries`.
     add(
         registry,
         "query_exec_tasks",
@@ -2985,20 +2770,6 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
         "Walk ExecBase->PortList (SysBase+392) and dump every public MsgPort: name, mp_SigBit (which signal bit notifies the owner), mp_SigTask (owning task address), mp_Flags (PA_SIGNAL / PA_SOFTINT / PA_IGNORE), and queued-message count. Use to find which port WB.Workbench is blocked on — cross-reference `mp_sigtask` against `query_exec_tasks` Workbench addr, look for the port with the matching `mp_sigbit_mask`.",
         empty(),
         tool_query_exec_ports,
-    );
-    let query_aga_schema = json!({
-        "type": "object",
-        "properties": {
-            "all_banks": {"type": "boolean", "default": false,
-                          "description": "Include the full 256-entry palette_24 dump in the response."}
-        }
-    });
-    add(
-        registry,
-        "query_aga",
-        "AGA Lisa state. DENISEID, BPLCON3 bank+LOCT, BPLCON4, palette_24 bank 0 + non-zero counts per bank, OCS 12-bit palette side-by-side. Pass `all_banks:true` for the full 256-entry dump.",
-        query_aga_schema,
-        tool_query_aga,
     );
     let palette_log_schema = json!({
         "type": "object",
@@ -3359,13 +3130,6 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
         empty(),
         tool_eject_media,
     );
-    add(
-        registry,
-        "query_disk",
-        "DF0 drive status (cylinder, head, motor, status bits, has_disk).",
-        empty(),
-        tool_query_disk,
-    );
 }
 
 #[cfg(test)]
@@ -3401,10 +3165,11 @@ mod tests {
                 .unwrap_or_else(|err| panic!("tool `{name}` ran: {err:?}"))
         };
 
-        // Bespoke chip query reaches the live AGA chipset.
-        call(&registry, &mut s, "query_chipset", json!({}));
-        // AGA Lisa state via the trait accessor (Some on an AGA session).
-        call(&registry, &mut s, "query_aga", json!({}));
+        // A bespoke chip-reaching tool drives the live AGA chipset. (The
+        // flat chip snapshots — chipset / agnus / paula / cia / blitter /
+        // disk / aga — are now query paths on the shared `query` tool, so
+        // they are tested in `runtime_commodore_amiga::queries`, not here.)
+        call(&registry, &mut s, "query_copper_list", json!({}));
         // Instruction trace: arm → step → log, all on the runtime-owned trace.
         call(
             &registry,
