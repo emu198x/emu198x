@@ -17,7 +17,7 @@
 //! lowest 16 KiB ROM bank.
 
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::runtime::{SpectrumMachine, SpectrumRuntime};
 
@@ -181,6 +181,7 @@ impl<M: SpectrumMachine> SessionQueryProvider<SpectrumRuntime<M>> for SpectrumSe
             .iter()
             .copied()
             .chain(M::variant_query_paths().iter().copied())
+            .chain(M::ay_query_paths().iter().copied())
             .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
             .map(str::to_owned)
             .collect();
@@ -220,6 +221,32 @@ impl<M: SpectrumMachine> SessionQueryProvider<SpectrumRuntime<M>> for SpectrumSe
             value,
         }))
     }
+}
+
+/// Does `path` address chip `chip` — either the bare group name or a
+/// dotted leaf beneath it (`ay`, `ay.mixer`)? Shared by the variant
+/// resolvers that fold a chip snapshot into grouped + leaf query paths.
+pub(crate) fn is_chip(path: &str, chip: &str) -> bool {
+    path == chip
+        || path
+            .strip_prefix(chip)
+            .is_some_and(|rest| rest.starts_with('.'))
+}
+
+/// Resolve a chip path against a built snapshot: the bare group name
+/// returns the whole object, a `chip.field` leaf returns that field, and
+/// an unknown sub-field returns `None` (an unknown path, not a null).
+pub(crate) fn chip_field(path: &str, chip: &str, snapshot: Value) -> Option<QueryResult> {
+    let value = if path == chip {
+        snapshot
+    } else {
+        let field = path.strip_prefix(chip)?.strip_prefix('.')?;
+        snapshot.get(field)?.clone()
+    };
+    Some(QueryResult {
+        path: path.to_owned(),
+        value,
+    })
 }
 
 #[cfg(test)]

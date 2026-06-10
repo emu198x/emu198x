@@ -67,6 +67,10 @@ mod tests {
     /// `register_common_tools` + `register_debug_tools`: the fold may ADD
     /// tools (e.g. `run_ticks`, `io_trace`) but must not drop or rename
     /// any of these. Keep this list as the regression gate.
+    ///
+    /// `query_ay` was deliberately removed (#456): its data is now the
+    /// grouped `ay` object + decoded `ay.*` query paths on the generic
+    /// `query` tool. The curriculum does not call `query_ay` by name.
     const REQUIRED_TOOLS: &[&str] = &[
         "autoload_tape",
         "clear_audio_capture",
@@ -83,7 +87,6 @@ mod tests {
         "port_write",
         "press_key",
         "query",
-        "query_ay",
         "query_cpu",
         "query_paths",
         "reset",
@@ -209,8 +212,10 @@ mod tests {
         ));
         assert!(cpu.get("pc").is_some(), "query_cpu must report pc: {cpu}");
 
-        // Run a few frames, then memory_read / disasm / step / query_ay
-        // all respond without error on the live machine.
+        // Run a few frames, then memory_read / disasm / step and a couple
+        // of query paths all respond without error on the live machine.
+        // (`ay` resolves only on AY-bearing variants; on this 48K boot it
+        // is an unknown path, which `let _` tolerates.)
         call(
             &mut server,
             &mut session,
@@ -222,7 +227,7 @@ mod tests {
             (4, "memory_read", json!({ "addr": "$4000", "len": 8 })),
             (5, "disasm", json!({ "addr": "$0000", "count": 4 })),
             (6, "step", json!({ "count": 2 })),
-            (7, "query_ay", json!({})),
+            (7, "query", json!({ "path": "ay" })),
             (8, "query", json!({ "path": "boot.detected" })),
         ] {
             let _ = call(

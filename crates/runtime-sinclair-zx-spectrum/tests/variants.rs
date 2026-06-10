@@ -1032,6 +1032,42 @@ where
     assert_eq!(arr[7], serde_json::json!(0x3E));
     assert_eq!(arr[13], serde_json::json!(0x09));
     assert_eq!(arr[2], serde_json::json!(0x00));
+
+    // Folded decoded snapshot (#456): the grouped `ay` object carries the
+    // decoded fields, and each leaf equals the group's field.
+    let ay = provider
+        .query(runtime, "ay")
+        .expect("grouped ay query should resolve")
+        .expect("provider must own the ay group");
+    // tone A = fine 0xAB | (coarse 0x0F & 0x0F) << 8 = 0x0FAB.
+    assert_eq!(ay.value["tone_period_a"], serde_json::json!(0x0FAB));
+    assert_eq!(ay.value["mixer"], serde_json::json!(0x3E));
+    assert_eq!(ay.value["envelope_shape"], serde_json::json!(0x09));
+    assert_eq!(ay.value["selected_register"], serde_json::json!(13));
+
+    let leaf = provider
+        .query(runtime, "ay.tone_period_a")
+        .expect("ay leaf query should resolve")
+        .expect("provider must own ay.tone_period_a");
+    assert_eq!(leaf.value, ay.value["tone_period_a"]);
+
+    // The decoded leaves are advertised, not just resolvable.
+    let advertised = provider.query_paths(runtime, Some("ay."));
+    for path in ["ay.tone_period_a", "ay.mixer", "ay.envelope_shape"] {
+        assert!(
+            advertised.contains(&path.to_string()),
+            "query_paths must advertise {path}, got {advertised:?}"
+        );
+    }
+
+    // An unknown sub-field is an unknown path, not a null value.
+    assert!(
+        provider
+            .query(runtime, "ay.bogus")
+            .expect("unknown ay sub-field must not error")
+            .is_none(),
+        "ay.bogus is an unknown path, not a null"
+    );
 }
 
 /// Bridge trait so a single generic test covers every AY-equipped

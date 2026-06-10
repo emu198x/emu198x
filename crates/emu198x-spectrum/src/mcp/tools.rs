@@ -941,18 +941,19 @@ fn parse_step(action: &str, arguments: Value) -> Result<ScriptStep, ToolError> {
 
 /// Registers the Spectrum-specific MCP tools on the supplied registry:
 /// the bespoke surface (`set_machine`, `autoload_tape`,
-/// `load_basic_program`, `query_ay`, `port_read`/`write`, `type_string`,
+/// `load_basic_program`, `port_read`/`write`, `type_string`,
 /// `press_key`, `watch_ay_*`, `watch_memory_*`, `clear_audio_capture`)
 /// plus the Z80 debug tools that aren't on the shared surface
 /// (`memory_read`, `disasm`, `step`, `run_until_pc`,
 /// `poke_byte`/`poke_word`).
 ///
-/// `query_cpu` is NOT here: it comes from the shared
-/// `register_debug_tools`, powered by the enriched
-/// `DebugTarget::dbg_cpu_state` (full Z80 file + decoded flags) (#456).
-/// The other generic tools (`run_frames`, `input`, `query`, media,
-/// capture, `reset`, …) likewise come from `register_common_tools`.
-/// Order is the order shown by `tools/list`.
+/// Two reads are NOT here, both folded onto the generic surface (#456):
+/// `query_cpu` comes from the shared `register_debug_tools` via the
+/// enriched `DebugTarget::dbg_cpu_state`, and `query_ay` became the
+/// grouped `ay` object + decoded `ay.*` query paths. The other generic
+/// tools (`run_frames`, `input`, `query`, media, capture, `reset`, …)
+/// likewise come from `register_common_tools`. Order is the order shown
+/// by `tools/list`.
 /// `save_tape` — persist a tape `SAVE` to a host `.tap`.
 ///
 /// During a BASIC `SAVE` the ROM toggles the MIC line; the recorder captures
@@ -1072,11 +1073,10 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
         }),
     }));
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "query_ay",
-        description: "Query the AY-3-8912 sound chip's full register state in one call. Returns the 16 raw registers plus decoded tone periods (A/B/C), noise period, mixer, amplitudes, envelope period, and envelope shape. Errors when the active variant has no AY (16K / 48K / Spectrum+); call set_machine first to switch to a 128K-class variant.",
-        schema: json!({"type": "object"}),
-    }));
+    // `query_ay` folded into the generic `query` surface (#456): the AY
+    // snapshot is the grouped `ay` object plus decoded `ay.*` leaves
+    // (tone/noise periods, mixer, amplitudes, envelope), resolved by the
+    // runtime's `resolve_ay_path`. No bespoke MCP tool any more.
 
     // `query_cpu` is served by the shared `register_debug_tools` via the
     // enriched `DebugTarget::dbg_cpu_state` (full Z80 file + decoded
@@ -1472,16 +1472,16 @@ mod tests {
         // the shared surface) live here, plus `load_snapshot` — an
         // intentional override of the shared tool so portable `.sna` /
         // `.z80` files route through the Spectrum snapshot parser rather
-        // than postcard (gap #6). `query_cpu` is NOT here — it comes from
-        // the shared `register_debug_tools` via the enriched
-        // `dbg_cpu_state` (#456).
+        // than postcard (gap #6). `query_cpu` and `query_ay` are NOT here
+        // — both folded onto the generic surface (#456): `query_cpu` via
+        // the shared `register_debug_tools` / enriched `dbg_cpu_state`,
+        // `query_ay` into the `ay.*` query paths.
         let expected = [
             "clear_audio_capture",
             "set_machine",
             "autoload_tape",
             "load_basic_program",
             "load_snapshot",
-            "query_ay",
             "step",
             "run_until_pc",
             "disasm",

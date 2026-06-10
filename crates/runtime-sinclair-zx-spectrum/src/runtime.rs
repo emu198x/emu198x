@@ -382,6 +382,16 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
         &[]
     }
 
+    /// AY-3-8912 query paths this variant owns (grouped `ay` object plus
+    /// decoded leaves). Default: none — the 16K / 48K / Spectrum+ /
+    /// TC2048 have no AY chip. AY-bearing variants override this to
+    /// return the shared `AY_QUERY_PATHS`, keeping advertisement and the
+    /// `resolve_ay_path` dispatch on a single source.
+    #[must_use]
+    fn ay_query_paths() -> &'static [&'static str] {
+        &[]
+    }
+
     /// Resolves one variant-specific query path.
     ///
     /// Returns `Ok(None)` when the variant does not own the path; the
