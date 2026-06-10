@@ -11,7 +11,7 @@ use crate::control::ControlCommand;
 use crate::error::MachineError;
 use crate::headless::prepare_machine;
 use crate::host::{HostIo, InputEvent, NullTraceSink, TraceSink};
-use crate::machine::{MachineCore, ResetKind, RunResult, StopReason};
+use crate::machine::{FamilyRuntime, MachineCore, ResetKind, RunResult, StopReason};
 use crate::media::MediaSet;
 use crate::query::{
     NoAdditionalQueries, QueryError, QueryPathsResult, QueryResult, SessionQueryProvider,
@@ -271,6 +271,34 @@ impl<M, Q> HeadlessSession<M, Q> {
     #[must_use]
     pub fn into_machine(self) -> M {
         self.machine
+    }
+}
+
+impl<M: FamilyRuntime, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
+    /// Swap the active machine for a freshly-built family variant: build it
+    /// from `model` + `firmware`, install it, re-pace the session to the new
+    /// variant's frame length, and hard-reset session-side state (queued
+    /// input, latest frame, captured audio, last run result).
+    ///
+    /// This is the generic body every family's `set_machine` shares — both
+    /// the MCP server and the `--script` runner drive variant swaps through
+    /// it, so the swap plumbing lives once rather than per family.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError`] when the variant cannot be built from the
+    /// firmware, or when the hard reset is rejected (e.g. a video recording
+    /// is in flight).
+    pub fn swap_machine(
+        &mut self,
+        model: M::Model,
+        firmware: &crate::firmware::FirmwareSet<'_>,
+    ) -> Result<(), SessionError> {
+        let new = M::from_firmware(model, firmware)?;
+        let ticks = new.native_frame_ticks();
+        *self.machine_mut() = new;
+        self.set_native_frame_ticks(ticks);
+        self.reset(ResetKind::Hard)
     }
 }
 
@@ -1147,11 +1175,13 @@ mod tests {
         commands: usize,
         restored: usize,
         received_inputs: Vec<InputEvent>,
+        pacing: u64,
     }
 
     impl DummyMachine {
         fn new() -> Self {
             Self {
+                pacing: 1_000,
                 profile: MachineProfile {
                     machine_id: MachineId::from("dummy-machine"),
                     profile_id: ProfileId::from("dummy-profile"),
@@ -1243,6 +1273,61 @@ mod tests {
         fn capabilities(&self) -> CapabilitySet {
             CapabilitySet::new()
         }
+    }
+
+    #[derive(Clone, Copy)]
+    enum DummyModel {
+        Slow,
+        Fast,
+    }
+
+    impl FamilyRuntime for DummyMachine {
+        type Model = DummyModel;
+
+        fn from_firmware(
+            model: Self::Model,
+            _firmware: &crate::firmware::FirmwareSet<'_>,
+        ) -> Result<Self, MachineError> {
+            let pacing = match model {
+                DummyModel::Slow => 1_000,
+                DummyModel::Fast => 2_000,
+            };
+            Ok(Self {
+                pacing,
+                ..Self::new()
+            })
+        }
+
+        fn native_frame_ticks(&self) -> u64 {
+            self.pacing
+        }
+    }
+
+    #[test]
+    fn swap_machine_rebuilds_variant_and_re_paces_the_session() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 1_000);
+        session.queue_input(InputEvent::Key {
+            name: "A".into(),
+            pressed: true,
+        });
+
+        let firmware = crate::firmware::FirmwareSet::new();
+        session
+            .swap_machine(DummyModel::Fast, &firmware)
+            .expect("swap to the fast variant succeeds");
+
+        // Re-paced to the new variant's frame length.
+        assert_eq!(session.native_frame_ticks(), 2_000);
+        assert_eq!(session.machine().pacing, 2_000);
+        // Hard reset ran (machine time cleared back to default).
+        assert_eq!(session.time(), MachineTime::default());
+
+        // Swapping again re-paces to the other variant.
+        session
+            .swap_machine(DummyModel::Slow, &firmware)
+            .expect("swap to the slow variant succeeds");
+        assert_eq!(session.native_frame_ticks(), 1_000);
+        assert_eq!(session.machine().pacing, 1_000);
     }
 
     #[derive(Clone, Copy, Debug, Default)]

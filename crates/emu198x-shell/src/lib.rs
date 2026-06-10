@@ -52,8 +52,8 @@ pub use input::{
     NativeGamepadInput,
 };
 pub use machine::{
-    Family, MachineCore, MachineId, MachineProfile, ProfileId, Region, ResetKind, RunResult,
-    StopReason, SupportTier,
+    Family, FamilyRuntime, MachineCore, MachineId, MachineProfile, ProfileId, Region, ResetKind,
+    RunResult, StopReason, SupportTier,
 };
 pub use media::{FirmwareRequirement, MediaImage, MediaKind, MediaSet, MediaSlot, WritebackPolicy};
 pub use query::{

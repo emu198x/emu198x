@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::capability::CapabilitySet;
 use crate::control::ControlCommand;
 use crate::error::MachineError;
+use crate::firmware::FirmwareSet;
 use crate::host::HostIo;
 use crate::media::{FirmwareRequirement, MediaSet, MediaSlot};
 use crate::time::{ClockDesc, MachineTime};
@@ -296,4 +297,36 @@ pub trait MachineCore {
     fn debug_target_mut(&mut self) -> Option<&mut dyn crate::debug::DebugTarget> {
         None
     }
+}
+
+/// A runtime that is one of a system family's machine *variants* —
+/// constructible by model and able to report its own native frame pacing.
+///
+/// This is the variant-dispatch *shape*, lifted to the shell so every
+/// multi-variant family (the Spectrum's 13 models, the Amiga's OCS / ECS /
+/// AGA, a future C128 alongside the C64, NTSC/PAL splits) implements it once
+/// instead of re-hand-rolling the build-and-swap plumbing. A family's
+/// runtime-dispatch enum (`SpectrumRuntimeKind`, `AmigaRuntimeKind`)
+/// implements it; [`HeadlessSession::swap_machine`] then drives the swap
+/// generically for both the MCP server and the `--script` runner.
+///
+/// It sits strictly *above* [`MachineCore`] (a supertrait bound) and never
+/// touches the run loop — the active variant's `run_until` is reached by
+/// ordinary dispatch — so the per-system run-loop boundary is unaffected.
+pub trait FamilyRuntime: MachineCore + Sized {
+    /// The family's model selector (its `Model` enum).
+    type Model: Copy;
+
+    /// Build the variant identified by `model` from already-loaded ROMs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MachineError`] when the firmware is missing or invalid for
+    /// the requested model.
+    fn from_firmware(model: Self::Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError>;
+
+    /// Native master-clock ticks per video frame for the active variant —
+    /// the value to feed [`crate::HeadlessSession::set_native_frame_ticks`]
+    /// so the session paces one native frame per `run_frames` call.
+    fn native_frame_ticks(&self) -> u64;
 }
