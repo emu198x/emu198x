@@ -1,7 +1,11 @@
 //! Exercises the shared `DebugTarget` surface on the MSX runtime.
 //!
-//! Gated `#[ignore]`: needs the MSX BIOS at
-//! `~/.emu198x/roms/microsoft-msx/msx.rom`.
+//! [`z80_disasm_is_wired`] runs in CI with a synthesized BIOS, so the
+//! `impl_z80_debug_primitives!` macro's disassembly path is proven without
+//! an external ROM — mirroring the C64 (6502) and Dragon (6809) guards.
+//! [`debug_surface_works_on_z80`] is the fuller `#[ignore]` test that needs
+//! the real BIOS at `~/.emu198x/roms/microsoft-msx/msx.rom` to exercise
+//! I/O tracing against live boot code.
 //!
 //! ```text
 //! cargo test -p runtime-msx --test debug_target -- --ignored --nocapture
@@ -16,6 +20,35 @@ fn bios() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").ok()?;
     let p = PathBuf::from(home).join(".emu198x/roms/microsoft-msx/msx.rom");
     p.exists().then(|| std::fs::read(&p).expect("read BIOS"))
+}
+
+/// CI guard for the z80 macro's disassembly wiring. A 32 KiB synthetic BIOS
+/// (all the runtime needs to become debuggable) carries a known instruction
+/// at `$0000`; the macro-generated `disassemble` must decode it. Proves the
+/// `disasm` base tool really works on a Z80 machine — not just that it
+/// returns `Some`, but that it decodes the right instruction length.
+#[test]
+fn z80_disasm_is_wired() {
+    // $3E $42 = `LD A,$42`, a two-byte Z80 instruction. A stubbed decoder
+    // could not report length 2.
+    let mut rom = vec![0u8; 32 * 1024];
+    rom[0] = 0x3E;
+    rom[1] = 0x42;
+    let runtime = MsxRuntime::new(Model::Msx1Ntsc, rom).expect("32 KiB BIOS builds the machine");
+
+    let dbg = runtime
+        .debug_target()
+        .expect("machine is debuggable once the BIOS is set");
+    assert_eq!(dbg.peek(0x0000), 0x3E, "peek reads the planted BIOS byte");
+    let (text, len) = dbg
+        .disassemble(0x0000)
+        .expect("the z80 macro wires a real disassembler");
+    assert_eq!(len, 2, "LD A,n decodes as two bytes, not a stub");
+    assert!(!text.is_empty(), "disasm yields a mnemonic: {text:?}");
+    assert!(
+        dbg.cpu_state().get("pc").is_some(),
+        "cpu_state exposes the Z80 pc"
+    );
 }
 
 #[test]
