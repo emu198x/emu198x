@@ -1544,6 +1544,13 @@ impl AmigaOcs {
             // Advance the beam.
             self.agnus.tick_cck();
 
+            // CIA-B TOD pin is wired to /HSYNC on the real Amiga, so it
+            // ticks once per scanline. tick_cck() wraps hpos to 0 at each
+            // line start, so that edge is one /HSYNC.
+            if self.agnus.hpos == 0 {
+                self.cia_b.tod_pulse();
+            }
+
             // Paula-style latch of Agnus's /VERTB level signal:
             // - On the rising edge (beam enters blanking window) we
             //   fire the copper restart — real Agnus reloads the
@@ -1682,7 +1689,11 @@ impl AmigaOcs {
             // internal ticks). CIA-B PRB updates the control pins on
             // writes; the E-clock phase advances the mechanical drive
             // state and feeds status back onto CIA-A PRA.
-            let _ = self.drive.tick();
+            // CIA-B FLAG pin is wired to the floppy /INDEX pulse on the
+            // Amiga; the drive emits one index pulse per revolution.
+            if self.drive.tick() {
+                self.cia_b.flag_falling_edge();
+            }
             self.refresh_cia_a_external_inputs();
 
             // Keyboard controller — detect CIA-A CRA bit 6 (SPMODE)
