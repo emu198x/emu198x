@@ -21,18 +21,19 @@ use emu198x_shell::{
     ScriptError, ScriptObservation, ScriptStep, SessionQueryProvider, mcp::ToolError,
     read_firmware_asset, read_media_asset,
 };
-use format_sinclair_zx_spectrum_bas::tokenise;
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_BASIC_LOADER_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime,
-    Spectrum128kRuntime, SpectrumMachine, SpectrumPlus2ARuntime, SpectrumPlus2Runtime,
-    SpectrumPlus3Runtime, SpectrumRuntime, SpectrumSessionQueryProvider, autoload_basic_tape,
-    load_basic_program,
+    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime, Spectrum128kRuntime, SpectrumMachine,
+    SpectrumPlus2ARuntime, SpectrumPlus2Runtime, SpectrumPlus3Runtime, SpectrumRuntime,
+    SpectrumSessionQueryProvider,
 };
 use serde::Serialize;
 
 use crate::AppError;
 use crate::machine::{MachineKind, rom_root, variant_rom_bundle};
-use crate::mcp::tools::{dispatch_live_step, execute_press_key, execute_type_string};
+use crate::mcp::tools::{
+    dispatch_live_step, execute_autoload_tape, execute_load_basic_program, execute_press_key,
+    execute_type_string,
+};
 use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapshot_at};
 
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
@@ -225,9 +226,13 @@ pub(crate) fn execute_step(
         ScriptStep::AutoloadTape {
             slot,
             max_boot_frames,
-        } => execute_autoload_tape(session, slot, *max_boot_frames).map(Some),
+        } => execute_autoload_tape(session, slot, *max_boot_frames)
+            .map(Some)
+            .map_err(map_tool_error),
         ScriptStep::LoadBasicProgram { path, run } => {
-            execute_load_basic_program(session, path, *run).map(Some)
+            execute_load_basic_program(session, path, *run)
+                .map(Some)
+                .map_err(map_tool_error)
         }
         ScriptStep::PressKey { key, hold_frames } => execute_press_key(session, key, *hold_frames)
             .map(Some)
@@ -276,53 +281,6 @@ fn execute_load_portable_snapshot(
     let snapshot = parse_portable_snapshot_at(path)?;
     SpectrumMachine::apply_snapshot(session.machine_mut().machine_mut(), &snapshot);
     Ok(())
-}
-
-/// Executes an `autoload_tape` step against the current 48K session.
-/// Wraps the existing `runtime-sinclair-zx-spectrum::autoload_basic_tape`
-/// helper, which is currently 48K-specific.
-fn execute_autoload_tape(
-    session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
-    slot: &str,
-    max_boot_frames: u32,
-) -> Result<ScriptObservation, AppError> {
-    let result = autoload_basic_tape(session, slot, max_boot_frames)?;
-    Ok(ScriptObservation::AutoloadTape {
-        slot: result.slot,
-        boot_frames: result.boot.frames,
-    })
-}
-
-/// Reads one BASIC source file from disk, tokenises it, and installs
-/// the result as the live machine's program via the runtime helper.
-fn execute_load_basic_program(
-    session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
-    path: &PathBuf,
-    run: bool,
-) -> Result<ScriptObservation, AppError> {
-    let source = std::fs::read_to_string(path).map_err(|err| {
-        AppError::Io(std::io::Error::other(format!(
-            "failed to read BASIC source {}: {err}",
-            path.display()
-        )))
-    })?;
-    let program = tokenise(&source).map_err(|reason| {
-        AppError::Io(std::io::Error::other(format!(
-            "failed to tokenise BASIC source {}: {reason}",
-            path.display()
-        )))
-    })?;
-    let result = load_basic_program(session, &program, run, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
-        .map_err(|err| {
-            AppError::Io(std::io::Error::other(format!(
-                "BASIC loader failed for {}: {err}",
-                path.display()
-            )))
-        })?;
-    Ok(ScriptObservation::LoadBasicProgram {
-        program_bytes: result.program_bytes,
-        ran: result.ran,
-    })
 }
 
 /// Map a [`ToolError`] from a shared step helper into the script

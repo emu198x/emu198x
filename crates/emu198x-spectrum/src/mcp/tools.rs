@@ -61,12 +61,10 @@ fn add_step(
 ///   captured audio, last run result) is cleared via
 ///   [`HeadlessSession::reset`] so the new variant starts from a
 ///   clean session.
-/// - `AutoloadTape` / `LoadBasicProgram`: 48K-only on the runtime
-///   side today. We downcast through
-///   [`SpectrumRuntimeKind::as_48k_mut`]; if the active variant is
-///   not 48K we return [`ToolError::Execution`] with a clear message.
-///   (Generalising these helpers to the 128K family is its own
-///   commit on the runtime crate.)
+/// - `PressKey` / `TypeString` / `AutoloadTape` / `LoadBasicProgram`:
+///   handled by the shared generic helpers (`execute_press_key`, …),
+///   which the `--script` runner calls too — one implementation per
+///   step, no MCP/script drift (#456).
 /// - Everything else delegates to [`ScriptStep::execute_collect`],
 ///   which works generically over `MachineCore`.
 fn mcp_execute_step(
@@ -844,8 +842,14 @@ fn ay_unsupported_error(err: &emu198x_shell::QueryError) -> ToolError {
     ))
 }
 
-fn execute_autoload_tape(
-    session: &mut SpectrumSession,
+/// Type `LOAD ""` and start tape transport on the named slot. Generic
+/// over the session type so MCP and `--script` share one implementation
+/// (#456); the runtime helper already spans both session kinds.
+pub(crate) fn execute_autoload_tape<
+    M: MachineCore + SpectrumLiveAccess,
+    Q: SessionQueryProvider<M>,
+>(
+    session: &mut HeadlessSession<M, Q>,
     slot: &str,
     max_boot_frames: u32,
 ) -> Result<ScriptObservation, ToolError> {
@@ -857,8 +861,14 @@ fn execute_autoload_tape(
     })
 }
 
-fn execute_load_basic_program(
-    session: &mut SpectrumSession,
+/// Read a `.bas` file, tokenise it, and install it as the live BASIC
+/// program (optionally RUN). Generic over the session type so MCP and
+/// `--script` share one implementation (#456).
+pub(crate) fn execute_load_basic_program<
+    M: MachineCore + SpectrumLiveAccess,
+    Q: SessionQueryProvider<M>,
+>(
+    session: &mut HeadlessSession<M, Q>,
     path: &std::path::Path,
     run: bool,
 ) -> Result<ScriptObservation, ToolError> {
