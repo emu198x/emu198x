@@ -1,10 +1,11 @@
 //! NES-specific MCP tools.
 //!
-//! Mirrors the depth of the Amiga MCP's tools surface for the NES
-//! debugging tasks that come up in practice: comprehensive
-//! `query_cpu` / `query_ppu` / `query_apu` snapshots, raw memory /
-//! palette / OAM / nametable dumps, instruction stepping, and
-//! `run_until_pc` / `run_until_mem_change` breakpoint primitives.
+//! Action-and-dump tools for the NES debugging tasks that come up in
+//! practice: raw memory / palette / OAM / nametable dumps, instruction
+//! stepping, and `run_until_pc` / `run_until_mem_change` breakpoint
+//! primitives. The chip-register snapshots (`cpu` / `ppu` / `apu` /
+//! `mapper`) now live on the generic `query` surface as folded query
+//! paths — see `runtime_nintendo_nes::queries` (#456).
 //!
 //! Tool bodies return a `Value` that the shared
 //! [`InlineTool`](emu198x_shell::mcp::InlineTool) wrapper serialises to a
@@ -83,97 +84,6 @@ fn arg_u16_or(args: &Value, name: &str, default: u16) -> Result<u16, ToolError> 
 // ════════════════════════════════════════════════════════════════
 //  Tools
 // ════════════════════════════════════════════════════════════════
-
-fn tool_query_cpu(_args: Value, s: &mut NesSession) -> Result<Value, ToolError> {
-    let nes = nes_ref(s)?;
-    let r = &nes.cpu.regs;
-    Ok(json!({
-        "pc":  format!("${:04X}", r.pc),
-        "a":   format!("${:02X}", r.a),
-        "x":   format!("${:02X}", r.x),
-        "y":   format!("${:02X}", r.y),
-        "sp":  format!("${:02X}", r.sp),
-        "p":   format!("${:02X}", r.p),
-        "flags": {
-            "n": r.p & 0x80 != 0,
-            "v": r.p & 0x40 != 0,
-            "u": r.p & 0x20 != 0,
-            "b": r.p & 0x10 != 0,
-            "d": r.p & 0x08 != 0,
-            "i": r.p & 0x04 != 0,
-            "z": r.p & 0x02 != 0,
-            "c": r.p & 0x01 != 0,
-        },
-        "addr_bus":     format!("${:04X}", nes.cpu.addr),
-        "data_bus":     format!("${:02X}", nes.cpu.data),
-        "data_in":      format!("${:02X}", nes.cpu.data_in),
-        "rw":           nes.cpu.rw,
-        "sync":         nes.cpu.sync,
-        "nmi_pin":      nes.cpu.nmi,
-        "irq_pin":      nes.cpu.irq,
-        "pending_nmi":  nes.cpu.pending_nmi(),
-        "nmi_prev":     nes.cpu.nmi_prev(),
-        "instruction_complete": nes.cpu.instruction_complete(),
-        "instruction_cycle":    nes.cpu.instruction_cycle(),
-        "total_cycles": nes.cpu.total_cycles,
-        "reset_phase":  nes.cpu.reset_phase,
-        "halted":       nes.cpu.halted,
-    }))
-}
-
-fn tool_query_ppu(_args: Value, s: &mut NesSession) -> Result<Value, ToolError> {
-    let nes = nes_ref(s)?;
-    let p = &nes.ppu;
-    Ok(json!({
-        "scanline":           p.scanline(),
-        "dot":                p.dot(),
-        "frame_odd":          p.frame_odd(),
-        "pre_render_line":    p.pre_render_line(),
-        "ppu_clock":          p.ppu_clock(),
-        "ctrl":               format!("${:02X}", p.ctrl()),
-        "mask":               format!("${:02X}", p.mask()),
-        "status":             format!("${:02X}", p.status()),
-        "oam_addr":           format!("${:02X}", p.oam_addr()),
-        "nmi_occurred":       p.nmi_occurred(),
-        "nmi_output":         p.nmi_output(),
-        "nmi_pin":            p.nmi,
-        "rendering_enabled":  (p.mask() & 0x18) != 0,
-    }))
-}
-
-fn tool_query_apu(_args: Value, s: &mut NesSession) -> Result<Value, ToolError> {
-    let nes = nes_ref(s)?;
-    Ok(json!({
-        "irq_pending": nes.apu.irq_pending(),
-        "dmc": {
-            "enabled":          nes.apu.dmc.enabled(),
-            "irq_enabled":      nes.apu.dmc.irq_enabled(),
-            "irq_flag":         nes.apu.dmc.irq_flag,
-            "output_level":     nes.apu.dmc.output_level,
-            "timer_period":     nes.apu.dmc.timer_period,
-            "sample_address":   format!("${:04X}", nes.apu.dmc.sample_address),
-            "sample_length":    nes.apu.dmc.sample_length,
-            "current_address":  format!("${:04X}", nes.apu.dmc.current_address),
-            "bytes_remaining":  nes.apu.dmc.bytes_remaining,
-            "shift_register":   format!("${:02X}", nes.apu.dmc.shift_register),
-            "bits_remaining":   nes.apu.dmc.bits_remaining,
-            "silence_flag":     nes.apu.dmc.silence_flag,
-            "dma_pending":      nes.apu.dmc.dma_pending,
-        }
-    }))
-}
-
-fn tool_query_mapper(_args: Value, s: &mut NesSession) -> Result<Value, ToolError> {
-    let machine = s.machine();
-    let mapper_number = machine.cartridge_mapper();
-    let nes = nes_ref(s)?;
-    let mirroring = format!("{:?}", nes.mapper.mirroring());
-    Ok(json!({
-        "mapper_number": mapper_number,
-        "mirroring":     mirroring,
-        "irq_pending":   nes.mapper.irq_pending(),
-    }))
-}
 
 fn tool_memory_read(args: Value, s: &mut NesSession) -> Result<Value, ToolError> {
     let addr = arg_u16(&args, "addr")?;
@@ -462,34 +372,6 @@ pub fn register_nes_tools(registry: &mut ToolRegistry<NesSession>) {
         }
     });
 
-    add(
-        registry,
-        "query_cpu",
-        "Full 6502 register snapshot (A, X, Y, SP, P + flag breakdown, PC, bus state, NMI/IRQ pins, instruction phase, total cycles).",
-        empty(),
-        tool_query_cpu,
-    );
-    add(
-        registry,
-        "query_ppu",
-        "Full 2C02 PPU snapshot (scanline, dot, frame_odd, ctrl/mask/status, OAM addr, NMI state, rendering enabled).",
-        empty(),
-        tool_query_ppu,
-    );
-    add(
-        registry,
-        "query_apu",
-        "2A03 APU snapshot — frame-counter IRQ pending, DMC channel state (enable, IRQ, sample addr/length, current addr, bytes remaining, DMA pending).",
-        empty(),
-        tool_query_apu,
-    );
-    add(
-        registry,
-        "query_mapper",
-        "Cartridge mapper number + current mirroring + mapper IRQ line state.",
-        empty(),
-        tool_query_mapper,
-    );
     add(
         registry,
         "memory_read",

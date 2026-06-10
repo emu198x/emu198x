@@ -140,6 +140,59 @@ fn every_advertised_query_path_resolves_with_cartridge_loaded() {
     }
 }
 
+/// The folded chip snapshots (`cpu` / `ppu` / `apu` / `mapper`) resolve
+/// both as a grouped object and per-leaf, the leaf equals the group's
+/// field, and an unknown sub-field is an unknown path (not a null).
+#[test]
+fn folded_chip_snapshots_resolve_grouped_and_as_leaves() {
+    let rom = minimal_ines();
+    let mut runtime = NesRuntime::blank(Model::NesNtsc);
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &rom));
+    runtime.load_media(&media).expect("valid iNES should load");
+
+    let provider = NesSessionQueryProvider;
+    let resolve = |path: &str| {
+        provider
+            .query(&runtime, path)
+            .unwrap_or_else(|err| panic!("path {path} should not fail: {err:?}"))
+            .unwrap_or_else(|| panic!("path {path} should resolve"))
+            .value
+    };
+
+    // Grouped objects carry the folded fields; leaves match.
+    let cpu = resolve("cpu");
+    assert!(cpu.get("pc").is_some());
+    assert!(cpu.get("flags").is_some());
+    assert_eq!(resolve("cpu.pc"), cpu["pc"]);
+    assert_eq!(resolve("cpu.flags"), cpu["flags"]);
+
+    let ppu = resolve("ppu");
+    assert!(ppu.get("scanline").is_some());
+    assert_eq!(resolve("ppu.oam_addr"), ppu["oam_addr"]);
+
+    let apu = resolve("apu");
+    assert!(apu.get("dmc").is_some());
+    assert_eq!(resolve("apu.dmc"), apu["dmc"]);
+
+    let mapper = resolve("mapper");
+    assert!(mapper.get("mapper_number").is_some());
+    assert_eq!(resolve("mapper.mirroring"), mapper["mirroring"]);
+
+    // Raw numbers, not hex strings — fleet convention.
+    assert!(cpu["pc"].is_number(), "cpu.pc should be a raw number");
+    assert!(ppu["ctrl"].is_number(), "ppu.ctrl should be a raw number");
+
+    // An unknown sub-field is an unknown path, not a null value.
+    assert!(
+        provider
+            .query(&runtime, "cpu.bogus")
+            .expect("unknown sub-field should not error")
+            .is_none(),
+        "an unknown chip sub-field is an unknown path, not a null value"
+    );
+}
+
 #[test]
 fn query_paths_filters_by_prefix() {
     let runtime = NesRuntime::blank(Model::NesNtsc);

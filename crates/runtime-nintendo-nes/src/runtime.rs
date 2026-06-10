@@ -107,8 +107,8 @@ impl NesRuntime {
     }
 
     /// Cartridge mapper id (iNES header value) when a cartridge is
-    /// loaded. Used by the query module for `nes.cartridge.mapper`,
-    /// the snapshot envelope, and the MCP `query_mapper` tool.
+    /// loaded. Used by the query module for the `cartridge.mapper` and
+    /// `mapper.mapper_number` paths, plus the snapshot envelope.
     #[must_use]
     pub fn cartridge_mapper(&self) -> Option<u16> {
         self.cartridge_mapper

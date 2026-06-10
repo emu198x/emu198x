@@ -4,10 +4,13 @@
 //! - the shared machine-agnostic tool surface (run frames /
 //!   ticks, query state, load media, snapshots, capture) via
 //!   `register_common_tools`, AND
-//! - the NES-specific debugging surface (`query_cpu`, `query_ppu`,
-//!   `query_apu`, `query_mapper`, `memory_read`, `dump_palette`,
-//!   `dump_oam`, `dump_nametable`, `step`, `run_until_pc`,
-//!   `run_until_mem_change`) via `register_nes_tools`.
+//! - the NES-specific debugging surface (`memory_read`,
+//!   `dump_palette`, `dump_oam`, `dump_nametable`, `step`,
+//!   `run_until_pc`, `run_until_mem_change`) via `register_nes_tools`.
+//!
+//! The chip-register snapshots (`cpu` / `ppu` / `apu` / `mapper`) are
+//! served as folded query paths on the generic `query` tool, not as
+//! bespoke tools (#456).
 //!
 //! Cartridge is loaded at runtime via the `load_media` tool, so
 //! the server starts without media — the client drives it the
