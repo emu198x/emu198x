@@ -45,8 +45,23 @@ impl DebugPrimitives for AmigaRuntimeKind {
     }
 
     fn dbg_cpu_state(&self) -> Value {
-        let r = self.cpu_snapshot().regs;
+        // Full 68k register file + exception state pushed down from the
+        // old bespoke `query_cpu` MCP tool (#456): individual D0-D7 /
+        // A0-A7 (A7 = the active stack pointer), the supervisor + IRQ
+        // mask decode, VBR, and the in-flight exception / followup
+        // bookkeeping. Hex strings keep this consistent with the rest of
+        // the fleet's `DebugTarget` surface.
+        let cpu = self.cpu_snapshot();
+        let r = &cpu.regs;
         json!({
+            "pc": format!("${:08X}", r.pc),
+            "instr_start_pc": format!("${:08X}", cpu.instr_start_pc),
+            "sr": format!("${:04X}", r.sr),
+            "supervisor": r.is_supervisor(),
+            "interrupt_mask": r.interrupt_mask(),
+            "ssp": format!("${:08X}", r.ssp),
+            "usp": format!("${:08X}", r.usp),
+            "vbr": format!("${:08X}", r.vbr),
             "d0": format!("${:08X}", r.d[0]),
             "d1": format!("${:08X}", r.d[1]),
             "d2": format!("${:08X}", r.d[2]),
@@ -55,17 +70,20 @@ impl DebugPrimitives for AmigaRuntimeKind {
             "d5": format!("${:08X}", r.d[5]),
             "d6": format!("${:08X}", r.d[6]),
             "d7": format!("${:08X}", r.d[7]),
-            "a0": format!("${:08X}", r.a[0]),
-            "a1": format!("${:08X}", r.a[1]),
-            "a2": format!("${:08X}", r.a[2]),
-            "a3": format!("${:08X}", r.a[3]),
-            "a4": format!("${:08X}", r.a[4]),
-            "a5": format!("${:08X}", r.a[5]),
-            "a6": format!("${:08X}", r.a[6]),
-            "usp": format!("${:08X}", r.usp),
-            "ssp": format!("${:08X}", r.ssp),
-            "pc": format!("${:08X}", r.pc),
-            "sr": format!("${:04X}", r.sr),
+            "a0": format!("${:08X}", r.a(0)),
+            "a1": format!("${:08X}", r.a(1)),
+            "a2": format!("${:08X}", r.a(2)),
+            "a3": format!("${:08X}", r.a(3)),
+            "a4": format!("${:08X}", r.a(4)),
+            "a5": format!("${:08X}", r.a(5)),
+            "a6": format!("${:08X}", r.a(6)),
+            "a7": format!("${:08X}", r.a(7)),
+            "ipl_pin": cpu.ipl,
+            "interrupts_taken": cpu.interrupts_taken,
+            "exc_vector": cpu.exc_vector,
+            "in_followup": cpu.in_followup,
+            "followup_tag": cpu.followup_tag,
+            "instruction_starts": cpu.instruction_starts,
         })
     }
 

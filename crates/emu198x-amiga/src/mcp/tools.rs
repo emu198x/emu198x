@@ -6,7 +6,6 @@
 //!   run_frames / run_ticks   advance machine time
 //!   run_until_pc             advance until PC hits a target (or limit)
 //!   reset                    re-load ROM, fresh boot
-//!   query_cpu                full CPU register snapshot
 //!   query_chipset            BPLCON0 / DMACON / vpos / hpos / copper / IRQ state
 //!   query_cia                CIA-A and CIA-B timer + control state
 //!   memory_read              raw bytes from any address (chip RAM or ROM)
@@ -135,29 +134,6 @@ fn tool_run_until_pc(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolEr
         "ticks_taken": ticks_taken,
         "pc": format!("${:08X}", s.live().cpu_pc()),
         "target": format!("${:08X}", target),
-    }))
-}
-
-fn tool_query_cpu(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let cpu = s.live().cpu_snapshot();
-    let regs = &cpu.regs;
-    Ok(json!({
-        "pc":  format!("${:08X}", regs.pc),
-        "instr_start_pc": format!("${:08X}", cpu.instr_start_pc),
-        "sr":  format!("${:04X}", regs.sr),
-        "supervisor": regs.is_supervisor(),
-        "interrupt_mask": regs.interrupt_mask(),
-        "ssp": format!("${:08X}", regs.ssp),
-        "usp": format!("${:08X}", regs.usp),
-        "vbr": format!("${:08X}", regs.vbr),
-        "d": (0..8).map(|i| format!("${:08X}", regs.d[i])).collect::<Vec<_>>(),
-        "a": (0..8).map(|i| format!("${:08X}", regs.a(i))).collect::<Vec<_>>(),
-        "ipl_pin": cpu.ipl,
-        "interrupts_taken": cpu.interrupts_taken,
-        "exc_vector": cpu.exc_vector,
-        "in_followup": cpu.in_followup,
-        "followup_tag": cpu.followup_tag,
-        "instruction_starts": cpu.instruction_starts,
     }))
 }
 
@@ -2957,13 +2933,10 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
         cpu_trace_log_schema,
         tool_cpu_trace_log,
     );
-    add(
-        registry,
-        "query_cpu",
-        "Full CPU register snapshot (D0-D7, A0-A7, PC, SR, SSP, USP, VBR, IPL pin, exception state).",
-        empty(),
-        tool_query_cpu,
-    );
+    // `query_cpu` is served by the shared `register_debug_tools` via the
+    // enriched `DebugTarget::dbg_cpu_state` (full D0-D7 / A0-A7, PC, SR +
+    // supervisor / IRQ-mask decode, VBR, IPL, exception state) — no
+    // bespoke override here any more (#456).
     add(
         registry,
         "query_chipset",
