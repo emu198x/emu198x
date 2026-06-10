@@ -6,50 +6,20 @@
 //! palette / OAM / nametable dumps, instruction stepping, and
 //! `run_until_pc` / `run_until_mem_change` breakpoint primitives.
 //!
-//! The shape mirrors `emu198x-amiga/src/mcp/tools.rs`:
-//! - `InlineTool` wrapper turns a fn pointer + schema into a
-//!   `Tool<NesSession>`.
-//! - `register_all` walks an ordered list, registering each.
-//! - All bodies return a `Value` that gets serialised to a JSON
-//!   text content block (the client parses).
-//!
-//! Tools are listed at the bottom of this file in the same order
-//! they appear in `tools/list`.
+//! Tool bodies return a `Value` that the shared
+//! [`InlineTool`](emu198x_shell::mcp::InlineTool) wrapper serialises to a
+//! JSON text content block (the client parses). Tools are listed at the
+//! bottom of this file in the same order they appear in `tools/list`.
 
 use emu198x_shell::{
     HeadlessSession,
-    mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
+    mcp::{InlineTool, ToolError, ToolRegistry},
 };
 use machine_nintendo_nes::Nes;
 use runtime_nintendo_nes::{NesRuntime, NesSessionQueryProvider};
 use serde_json::{Value, json};
 
 type NesSession = HeadlessSession<NesRuntime, NesSessionQueryProvider>;
-
-struct InlineTool {
-    name: &'static str,
-    description: &'static str,
-    schema: Value,
-    run: fn(Value, &mut NesSession) -> Result<Value, ToolError>,
-}
-
-impl Tool<NesSession> for InlineTool {
-    fn name(&self) -> &str {
-        self.name
-    }
-    fn description(&self) -> &str {
-        self.description
-    }
-    fn input_schema(&self) -> Value {
-        self.schema.clone()
-    }
-    fn call(&self, arguments: Value, session: &mut NesSession) -> Result<ToolResponse, ToolError> {
-        let body = (self.run)(arguments, session)?;
-        let text = serde_json::to_string(&body)
-            .map_err(|err| ToolError::Execution(format!("serialize: {err}")))?;
-        Ok(ToolResponse::success_text(text))
-    }
-}
 
 // ════════════════════════════════════════════════════════════════
 //  Helpers — argument parsing + machine access

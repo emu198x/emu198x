@@ -1,48 +1,20 @@
 //! Atari 800XL-specific MCP tools.
 //!
 //! CPU / memory / poke / disasm / stepping come from the shared
-//! [`emu198x_shell::mcp_tools::register_base_tools`] set (6502 `disasm` is
-//! wired via the Asm198x `isa-disasm` decoder). This adds the ANTIC / GTIA /
-//! POKEY / PIA chip snapshots and the keyboard input tools (`press_key`,
-//! `type_string`) on top.
+//! [`register_base_tools`](emu198x_shell::mcp_tools::register_base_tools)
+//! set, and the ANTIC / GTIA / POKEY / PIA chip state is read through the
+//! generic `query` tool as query paths. This crate adds only the keyboard
+//! input tools (`press_key`, `type_string`), built on the shared
+//! [`InlineTool`](emu198x_shell::mcp::InlineTool) wrapper.
 
 use emu198x_shell::{
     HeadlessSession, InputEvent,
-    mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
+    mcp::{InlineTool, ToolError, ToolRegistry},
 };
 use runtime_atari_800xl::{Atari800xlRuntime, Atari800xlSessionQueryProvider};
 use serde_json::{Value, json};
 
 type A800xlSession = HeadlessSession<Atari800xlRuntime, Atari800xlSessionQueryProvider>;
-
-struct InlineTool {
-    name: &'static str,
-    description: &'static str,
-    schema: Value,
-    run: fn(Value, &mut A800xlSession) -> Result<Value, ToolError>,
-}
-
-impl Tool<A800xlSession> for InlineTool {
-    fn name(&self) -> &str {
-        self.name
-    }
-    fn description(&self) -> &str {
-        self.description
-    }
-    fn input_schema(&self) -> Value {
-        self.schema.clone()
-    }
-    fn call(
-        &self,
-        arguments: Value,
-        session: &mut A800xlSession,
-    ) -> Result<ToolResponse, ToolError> {
-        let body = (self.run)(arguments, session)?;
-        let text = serde_json::to_string(&body)
-            .map_err(|err| ToolError::Execution(format!("serialize: {err}")))?;
-        Ok(ToolResponse::success_text(text))
-    }
-}
 
 /// Parse a numeric JSON argument that may be a number or a `$xx` / `0x` /
 /// plain hex/decimal string.

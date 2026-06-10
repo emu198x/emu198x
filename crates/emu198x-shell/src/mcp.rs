@@ -280,6 +280,55 @@ pub trait Tool<C>: Send + Sync {
     ) -> Result<ToolResponse, ToolError>;
 }
 
+/// A machine-specific MCP tool whose body is a plain function pointer.
+///
+/// The shell provides three tool wrappers, one mechanism each:
+/// `ScriptStepTool` lifts a shared `ScriptStep` action, `DebugTool` lifts
+/// the generic CPU/memory debug surface, and `InlineTool` is for genuinely
+/// machine-specific tools — chip pokes, watches, traces, machine actions —
+/// whose body is a function over the binary's own session/context `C`.
+///
+/// Every machine binary uses this one type instead of hand-rolling its own
+/// wrapper, so the MCP surface stays on a single registration mechanism.
+/// It holds only owned data plus a function pointer, so it is `Send + Sync`
+/// for any `C` (the `C` appears only behind the `&mut` in the fn pointer),
+/// satisfying [`Tool`]'s bound without constraining `C`.
+pub struct InlineTool<C> {
+    /// Stable MCP tool name.
+    pub name: &'static str,
+    /// Human-readable description shown by MCP clients.
+    pub description: &'static str,
+    /// JSON Schema for the tool's arguments.
+    pub schema: serde_json::Value,
+    /// Tool body: maps `(arguments, context)` to a JSON result.
+    pub run: fn(serde_json::Value, &mut C) -> Result<serde_json::Value, ToolError>,
+}
+
+impl<C> Tool<C> for InlineTool<C> {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn description(&self) -> &str {
+        self.description
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        self.schema.clone()
+    }
+
+    fn call(
+        &self,
+        arguments: serde_json::Value,
+        context: &mut C,
+    ) -> Result<ToolResponse, ToolError> {
+        let body = (self.run)(arguments, context)?;
+        let text = serde_json::to_string(&body)
+            .map_err(|err| ToolError::Execution(format!("serialize: {err}")))?;
+        Ok(ToolResponse::success_text(text))
+    }
+}
+
 /// Tool descriptor returned by `tools/list`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDescriptor {
@@ -711,6 +760,36 @@ mod tests {
         assert!(!response.is_error);
         match &response.content[0] {
             ToolContent::Text { text } => assert_eq!(text, "hi"),
+        }
+    }
+
+    #[test]
+    fn inline_tool_runs_its_fn_and_serialises_the_json_body() {
+        fn echo_args(
+            args: serde_json::Value,
+            _ctx: &mut (),
+        ) -> Result<serde_json::Value, ToolError> {
+            Ok(json!({ "got": args }))
+        }
+
+        let mut registry: ToolRegistry<()> = ToolRegistry::new();
+        registry.register(Box::new(InlineTool {
+            name: "echo_inline",
+            description: "echoes its arguments back as JSON",
+            schema: json!({ "type": "object" }),
+            run: echo_args,
+        }));
+
+        let tool = registry.get("echo_inline").expect("tool present");
+        assert_eq!(tool.name(), "echo_inline");
+
+        let response = tool
+            .call(json!({ "x": 1 }), &mut ())
+            .expect("inline tool should succeed");
+        assert!(!response.is_error);
+        match &response.content[0] {
+            // The fn's JSON body, serialised to a text content block.
+            ToolContent::Text { text } => assert_eq!(text, r#"{"got":{"x":1}}"#),
         }
     }
 

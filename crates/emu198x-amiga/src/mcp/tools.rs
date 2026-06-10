@@ -19,7 +19,7 @@ use std::path::PathBuf;
 
 use emu198x_shell::HeadlessSession;
 use emu198x_shell::SessionQueryProvider;
-use emu198x_shell::mcp::{Tool, ToolError, ToolRegistry, ToolResponse};
+use emu198x_shell::mcp::{InlineTool, ToolError, ToolRegistry};
 use machine_commodore_amiga_a1200::Adf;
 use motorola_68000::disasm::disassemble;
 use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind};
@@ -52,37 +52,6 @@ where
 }
 
 /// Wrap a free function as a `Tool` impl over any session context `C`.
-/// The function receives parsed arguments and a mutable session
-/// reference and returns the JSON response body. Generic over `C` so the
-/// same inline tools register on both the legacy [`AmigaSession`] and the
-/// shared `HeadlessSession` (the run fns are generic over `AmigaCtx`).
-struct InlineTool<C> {
-    name: &'static str,
-    description: &'static str,
-    schema: Value,
-    run: fn(Value, &mut C) -> Result<Value, ToolError>,
-}
-
-// `InlineTool<C>` holds only a fn pointer + owned data, so it is
-// unconditionally `Send + Sync` regardless of `C` — no bound needed.
-impl<C> Tool<C> for InlineTool<C> {
-    fn name(&self) -> &str {
-        self.name
-    }
-    fn description(&self) -> &str {
-        self.description
-    }
-    fn input_schema(&self) -> Value {
-        self.schema.clone()
-    }
-    fn call(&self, arguments: Value, session: &mut C) -> Result<ToolResponse, ToolError> {
-        let body = (self.run)(arguments, session)?;
-        let text = serde_json::to_string(&body)
-            .map_err(|err| ToolError::Execution(format!("serialize: {err}")))?;
-        Ok(ToolResponse::success_text(text))
-    }
-}
-
 /// Helper: pull an unsigned 64-bit integer out of an `arguments`
 /// object. Accepts both JSON-number and decimal-or-hex JSON strings
 /// (`"0xF80000"` / `"16252928"` / `16252928`). Hex prefix `$` is
