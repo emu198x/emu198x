@@ -39,7 +39,7 @@ mod tools;
 use std::path::PathBuf;
 
 use emu198x_shell::mcp::{Server, ServerInfo, serve_stdio};
-use emu198x_shell::mcp_tools::{register_common_tools, register_debug_tools};
+use emu198x_shell::mcp_tools::register_base_tools;
 use emu198x_shell::{HeadlessSession, MediaSet};
 use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider};
 
@@ -93,8 +93,7 @@ pub fn run(cli: McpCli) -> Result<(), AppError> {
     // shared debug verbs (CPU/memory/disasm/step via DebugTarget) + the
     // bespoke Amiga chip/exec/copper tools — the richer Amiga overrides
     // win on name collisions (last write).
-    register_common_tools(server.registry_mut());
-    register_debug_tools(server.registry_mut());
+    register_base_tools(server.registry_mut());
     register_amiga_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(AppError::from)?;

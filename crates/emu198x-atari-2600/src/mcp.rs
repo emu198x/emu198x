@@ -3,7 +3,7 @@
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_common_tools,
+    mcp_tools::register_base_tools,
 };
 use runtime_atari_2600::{Atari2600Runtime, Atari2600SessionQueryProvider, Model};
 
@@ -28,7 +28,7 @@ pub fn run() -> Result<(), String> {
         "emu198x-atari-2600",
         env!("CARGO_PKG_VERSION"),
     ));
-    register_common_tools(server.registry_mut());
+    register_base_tools(server.registry_mut());
     register_vcs_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

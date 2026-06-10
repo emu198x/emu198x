@@ -3,11 +3,9 @@
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_common_tools,
+    mcp_tools::register_base_tools,
 };
 use runtime_acorn_atom::{AtomRuntime, AtomSessionQueryProvider, Model};
-
-use crate::mcp_tools::register_atom_tools;
 
 // Atom: 6502 @ 1 MHz, 50 Hz PAL → ~20,000 cycles/frame.
 const FRAME_TICKS: u64 = 20_000;
@@ -25,7 +23,6 @@ pub fn run() -> Result<(), String> {
         "emu198x-acorn-atom",
         env!("CARGO_PKG_VERSION"),
     ));
-    register_common_tools(server.registry_mut());
-    register_atom_tools(server.registry_mut());
+    register_base_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

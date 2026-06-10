@@ -3,11 +3,9 @@
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_common_tools,
+    mcp_tools::register_base_tools,
 };
 use runtime_spectravideo_svi_328::{Model, Svi328Runtime, Svi328SessionQueryProvider};
-
-use crate::mcp_tools::register_svi_tools;
 
 // Z80 @ 3.58 MHz, 60 Hz NTSC → 228 * 262 = ~59,736 t-states/frame.
 const FRAME_TICKS_NTSC: u64 = 228 * 262;
@@ -28,7 +26,6 @@ pub fn run() -> Result<(), String> {
         "emu198x-spectravideo-svi-328",
         env!("CARGO_PKG_VERSION"),
     ));
-    register_common_tools(server.registry_mut());
-    register_svi_tools(server.registry_mut());
+    register_base_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

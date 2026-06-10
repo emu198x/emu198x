@@ -7,11 +7,9 @@ use std::path::PathBuf;
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_common_tools,
+    mcp_tools::register_base_tools,
 };
 use runtime_mattel_aquarius::{AquariusRuntime, AquariusSessionQueryProvider, Model};
-
-use crate::mcp_tools::register_aquarius_tools;
 
 /// Aquarius runs at ~3.58 MHz CPU; PAL frame = ~71,569 T-states.
 const FRAME_TICKS_PAL: u64 = 71_590;
@@ -52,8 +50,7 @@ pub fn run() -> Result<(), String> {
         "emu198x-mattel-aquarius",
         env!("CARGO_PKG_VERSION"),
     ));
-    register_common_tools(server.registry_mut());
-    register_aquarius_tools(server.registry_mut());
+    register_base_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }
 

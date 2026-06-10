@@ -1,7 +1,7 @@
 //! Atari 2600-specific MCP tools.
 //!
 //! CPU / memory / stepping come from the shared
-//! [`emu198x_shell::mcp_tools::register_debug_tools`] set — `memory_read`
+//! [`emu198x_shell::mcp_tools::register_base_tools`] set — `memory_read`
 //! now works via the machine's side-effect-free `peek` (cartridge ROM +
 //! RIOT RAM; the TIA-latch concern that previously blocked it is handled
 //! by not reading the chip registers). This adds the TIA snapshot on top.
@@ -61,8 +61,6 @@ fn tool_query_tia(_args: Value, session: &mut VcsSession) -> Result<Value, ToolE
 
 /// Register Atari 2600 MCP tools: the shared debug surface plus the TIA query.
 pub fn register_vcs_tools(registry: &mut ToolRegistry<VcsSession>) {
-    emu198x_shell::mcp_tools::register_debug_tools(registry);
-
     registry.register(Box::new(InlineTool {
         name: "query_tia",
         description: "TIA snapshot — beam position (hpos/vpos), frame count, framebuffer dimensions.",

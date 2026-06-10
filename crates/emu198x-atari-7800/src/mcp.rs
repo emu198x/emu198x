@@ -3,11 +3,9 @@
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_common_tools,
+    mcp_tools::register_base_tools,
 };
 use runtime_atari_7800::{Atari7800Runtime, Atari7800SessionQueryProvider, Model};
-
-use crate::mcp_tools::register_a7800_tools;
 
 const FRAME_TICKS_NTSC: u64 = 262 * 228;
 
@@ -27,7 +25,6 @@ pub fn run() -> Result<(), String> {
         "emu198x-atari-7800",
         env!("CARGO_PKG_VERSION"),
     ));
-    register_common_tools(server.registry_mut());
-    register_a7800_tools(server.registry_mut());
+    register_base_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

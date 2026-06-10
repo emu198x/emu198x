@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_common_tools,
+    mcp_tools::register_base_tools,
 };
 use runtime_sord_m5::{M5Runtime, M5SessionQueryProvider, Model};
 
@@ -35,7 +35,7 @@ pub fn run() -> Result<(), String> {
         "emu198x-sord-m5",
         env!("CARGO_PKG_VERSION"),
     ));
-    register_common_tools(server.registry_mut());
+    register_base_tools(server.registry_mut());
     register_m5_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

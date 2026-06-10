@@ -1,7 +1,6 @@
 //! `emu198x-oric-atmos` — Oric-1 / Atmos native binary.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;

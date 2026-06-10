@@ -1,7 +1,7 @@
 //! Sord M5-specific MCP tools.
 //!
 //! CPU / memory / disasm / stepping / I/O trace come from the shared
-//! [`emu198x_shell::mcp_tools::register_debug_tools`] set; this adds the
+//! [`emu198x_shell::mcp_tools::register_base_tools`] set; this adds the
 //! M5 chip-specific CTC and VDP snapshots on top.
 
 use emu198x_shell::{
@@ -83,8 +83,6 @@ fn tool_query_vdp(_args: Value, session: &mut M5Session) -> Result<Value, ToolEr
 /// Register Sord M5 MCP tools: the shared debug surface plus the CTC and
 /// VDP chip-specific snapshots.
 pub fn register_m5_tools(registry: &mut ToolRegistry<M5Session>) {
-    emu198x_shell::mcp_tools::register_debug_tools(registry);
-
     registry.register(Box::new(InlineTool {
         name: "query_ctc",
         description: "Z80 CTC state: vector base, INT line, and per-channel mode / counter.",

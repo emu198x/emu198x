@@ -1,7 +1,6 @@
 //! `emu198x-acorn-bbc-micro` — BBC Micro native binary.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;

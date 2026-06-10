@@ -1,7 +1,6 @@
 //! `emu198x-atari-5200` — Atari 5200 native binary.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;

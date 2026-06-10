@@ -15,7 +15,7 @@ pub(crate) mod tools;
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::{register_common_tools, register_debug_tools},
+    mcp_tools::register_base_tools,
 };
 use runtime_sinclair_zx_spectrum::{SpectrumRuntimeKind, SpectrumSessionQueryProvider};
 
@@ -49,8 +49,7 @@ pub fn run() -> Result<(), AppError> {
     // then the Spectrum-specific surface. The bespoke debug tools are
     // registered last, so they override the generic `register_debug_tools`
     // versions by name and keep the rich Z80 curriculum output.
-    register_common_tools(server.registry_mut());
-    register_debug_tools(server.registry_mut());
+    register_base_tools(server.registry_mut());
     tools::register_spectrum_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(AppError::from)?;
@@ -113,8 +112,7 @@ mod tests {
 
     /// Register the full MCP surface exactly as `run()` does.
     fn register_full_surface(server: &mut Server<tools::SpectrumSession>) {
-        register_common_tools(server.registry_mut());
-        register_debug_tools(server.registry_mut());
+        register_base_tools(server.registry_mut());
         tools::register_spectrum_tools(server.registry_mut());
     }
 

@@ -1,7 +1,6 @@
 //! `emu198x-sinclair-zx81` — ZX81 native binary.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;

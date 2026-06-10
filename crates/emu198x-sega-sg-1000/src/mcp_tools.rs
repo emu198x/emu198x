@@ -1,7 +1,7 @@
 //! SG-1000-specific MCP tools.
 //!
 //! CPU / memory / disasm / stepping / I/O trace come from the shared
-//! [`emu198x_shell::mcp_tools::register_debug_tools`] set; this adds the
+//! [`emu198x_shell::mcp_tools::register_base_tools`] set; this adds the
 //! SG-1000 chip-specific snapshots on top.
 
 use emu198x_shell::{
@@ -62,8 +62,6 @@ fn tool_query_vdp(_args: Value, session: &mut Sg1000Session) -> Result<Value, To
 
 /// Register SG-1000 MCP tools: the shared debug surface plus the VDP query.
 pub fn register_sg1000_tools(registry: &mut ToolRegistry<Sg1000Session>) {
-    emu198x_shell::mcp_tools::register_debug_tools(registry);
-
     registry.register(Box::new(InlineTool {
         name: "query_vdp",
         description: "TMS9918A VDP snapshot — scanline, frame count, framebuffer dimensions.",

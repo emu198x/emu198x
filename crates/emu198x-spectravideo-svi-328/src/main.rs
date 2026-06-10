@@ -1,7 +1,6 @@
 //! `emu198x-spectravideo-svi-328` — SVI-328 native binary.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;

@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use emu198x_shell::{
     FirmwareImage, FirmwareSet, HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_common_tools,
+    mcp_tools::register_base_tools,
     read_firmware_asset,
 };
 use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
@@ -48,7 +48,7 @@ pub fn run() -> Result<(), String> {
     );
 
     let mut server = Server::new(ServerInfo::new("emu198x-dragon", env!("CARGO_PKG_VERSION")));
-    register_common_tools(server.registry_mut());
+    register_base_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

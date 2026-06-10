@@ -1,7 +1,7 @@
 //! Electron-specific MCP tools.
 //!
 //! CPU / memory / stepping come from the shared
-//! [`emu198x_shell::mcp_tools::register_debug_tools`] set — `memory_read`
+//! [`emu198x_shell::mcp_tools::register_base_tools`] set — `memory_read`
 //! now works via the machine's side-effect-free `peek` (the ULA-latch
 //! concern that previously blocked it is handled by reading RAM/ROM
 //! directly). This adds the Electron ULA snapshot on top.
@@ -64,8 +64,6 @@ fn tool_query_ula(_args: Value, session: &mut ElectronSession) -> Result<Value, 
 
 /// Register Electron MCP tools: the shared debug surface plus the ULA query.
 pub fn register_electron_tools(registry: &mut ToolRegistry<ElectronSession>) {
-    emu198x_shell::mcp_tools::register_debug_tools(registry);
-
     registry.register(Box::new(InlineTool {
         name: "query_ula",
         description: "Electron ULA snapshot — display mode, IRQ line, frame count, framebuffer dimensions.",

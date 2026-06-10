@@ -16,7 +16,7 @@
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_common_tools,
+    mcp_tools::register_base_tools,
 };
 use runtime_nintendo_nes::{Model, NesRuntime, NesSessionQueryProvider};
 
@@ -37,7 +37,7 @@ pub fn run() -> Result<(), String> {
         HeadlessSession::new_with_query_provider(machine, NES_FRAME_TICKS, NesSessionQueryProvider);
 
     let mut server = Server::new(ServerInfo::new("emu198x-nes", env!("CARGO_PKG_VERSION")));
-    register_common_tools(server.registry_mut());
+    register_base_tools(server.registry_mut());
     register_nes_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())

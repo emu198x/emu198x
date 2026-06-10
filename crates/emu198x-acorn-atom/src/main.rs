@@ -1,7 +1,6 @@
 //! `emu198x-acorn-atom` — Acorn Atom native binary.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;

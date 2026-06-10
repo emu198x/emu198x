@@ -1,7 +1,6 @@
 //! `emu198x-jupiter-ace` — Jupiter Ace native binary.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;

@@ -1,7 +1,7 @@
 //! ColecoVision-specific MCP tools.
 //!
 //! CPU / memory / disasm / stepping / I/O trace come from the shared
-//! [`emu198x_shell::mcp_tools::register_debug_tools`] set; this adds the
+//! [`emu198x_shell::mcp_tools::register_base_tools`] set; this adds the
 //! ColecoVision VDP snapshot on top.
 
 use emu198x_shell::{
@@ -58,8 +58,6 @@ fn tool_query_vdp(_args: Value, session: &mut CvSession) -> Result<Value, ToolEr
 
 /// Register ColecoVision MCP tools: the shared debug surface plus the VDP query.
 pub fn register_cv_tools(registry: &mut ToolRegistry<CvSession>) {
-    emu198x_shell::mcp_tools::register_debug_tools(registry);
-
     registry.register(Box::new(InlineTool {
         name: "query_vdp",
         description: "TMS9918A VDP snapshot — scanline, frame count, framebuffer dimensions.",

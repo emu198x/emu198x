@@ -3,7 +3,7 @@
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_common_tools,
+    mcp_tools::register_base_tools,
 };
 use runtime_atari_800xl::{Atari800xlRuntime, Atari800xlSessionQueryProvider, Model};
 
@@ -27,7 +27,7 @@ pub fn run() -> Result<(), String> {
         "emu198x-atari-800xl",
         env!("CARGO_PKG_VERSION"),
     ));
-    register_common_tools(server.registry_mut());
+    register_base_tools(server.registry_mut());
     register_a800xl_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

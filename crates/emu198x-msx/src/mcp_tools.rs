@@ -53,7 +53,7 @@ fn msx_ref(s: &MsxSession) -> Result<&Msx, ToolError> {
 
 // ════════════════════════════════════════════════════════════════
 //  Tool bodies — chip-specific snapshots. CPU / memory / disasm /
-//  stepping / I/O trace come from `register_debug_tools`.
+//  stepping / I/O trace come from `register_base_tools`.
 // ════════════════════════════════════════════════════════════════
 
 fn tool_query_vdp(_args: Value, session: &mut MsxSession) -> Result<Value, ToolError> {
@@ -97,7 +97,7 @@ fn tool_query_ppi(_args: Value, session: &mut MsxSession) -> Result<Value, ToolE
 /// Register MSX-specific MCP tools on top of the shared shell surface.
 /// The shared debug tools (`query_cpu`, `memory_read`, `poke_byte`,
 /// `poke_word`, `disasm`, `run_until_pc`, `step`, `io_trace`) come from
-/// [`emu198x_shell::mcp_tools::register_debug_tools`]; this adds the
+/// [`emu198x_shell::mcp_tools::register_base_tools`]; this adds the
 /// MSX chip-specific snapshots on top.
 pub fn register_msx_tools(registry: &mut ToolRegistry<MsxSession>) {
     fn add(
@@ -114,8 +114,6 @@ pub fn register_msx_tools(registry: &mut ToolRegistry<MsxSession>) {
             run,
         }));
     }
-
-    emu198x_shell::mcp_tools::register_debug_tools(registry);
 
     let empty = || json!({"type": "object", "additionalProperties": false});
 

@@ -1,7 +1,6 @@
 //! `emu198x-atari-7800` — Atari 7800 native binary.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;

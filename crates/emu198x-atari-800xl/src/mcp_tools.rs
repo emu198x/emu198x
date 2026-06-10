@@ -1,7 +1,7 @@
 //! Atari 800XL-specific MCP tools.
 //!
 //! CPU / memory / poke / disasm / stepping come from the shared
-//! [`emu198x_shell::mcp_tools::register_debug_tools`] set (6502 `disasm` is
+//! [`emu198x_shell::mcp_tools::register_base_tools`] set (6502 `disasm` is
 //! pending the Asm198x crate). This adds the ANTIC / GTIA / POKEY / PIA
 //! chip snapshots and the keyboard input tools (`press_key`, `type_string`)
 //! on top.
@@ -210,11 +210,11 @@ fn tool_type_string(args: Value, session: &mut A800xlSession) -> Result<Value, T
     Ok(json!({ "text": text, "chars_typed": typed }))
 }
 
-/// Register the 800XL MCP tools: the shared debug surface plus the ANTIC /
-/// GTIA / POKEY / PIA chip snapshots and the keyboard input tools.
+/// Register the 800XL-specific MCP tools: the ANTIC / GTIA / POKEY / PIA
+/// chip snapshots and the keyboard input tools. The CPU / memory / debug
+/// surface comes from [`register_base_tools`](emu198x_shell::mcp_tools::register_base_tools),
+/// registered first by the server.
 pub fn register_a800xl_tools(registry: &mut ToolRegistry<A800xlSession>) {
-    emu198x_shell::mcp_tools::register_debug_tools(registry);
-
     let empty = || json!({"type": "object", "additionalProperties": false});
     let mut tool = |name, description, schema, run| {
         registry.register(Box::new(InlineTool {
@@ -290,6 +290,7 @@ pub fn register_a800xl_tools(registry: &mut ToolRegistry<A800xlSession>) {
 mod tests {
     use super::{A800xlSession, parse_num, register_a800xl_tools};
     use emu198x_shell::mcp::{ToolContent, ToolRegistry, ToolResponse};
+    use emu198x_shell::mcp_tools::register_base_tools;
     use emu198x_shell::{HeadlessSession, MediaSet};
     use runtime_atari_800xl::{Atari800xlRuntime, Atari800xlSessionQueryProvider, Model};
     use serde_json::{Value, json};
@@ -341,6 +342,7 @@ mod tests {
         session.run_frames(600).expect("boot");
 
         let mut reg: ToolRegistry<A800xlSession> = ToolRegistry::new();
+        register_base_tools(&mut reg);
         register_a800xl_tools(&mut reg);
 
         let call = |s: &mut A800xlSession, name: &str, args: Value| -> Value {
@@ -425,6 +427,7 @@ mod tests {
         session.run_frames(600).expect("boot");
 
         let mut reg: ToolRegistry<A800xlSession> = ToolRegistry::new();
+        register_base_tools(&mut reg);
         register_a800xl_tools(&mut reg);
         let call = |s: &mut A800xlSession, name: &str, args: Value| -> Value {
             body(&reg.get(name).expect("tool").call(args, s).expect("ok"))

@@ -7,11 +7,9 @@ use std::path::PathBuf;
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_common_tools,
+    mcp_tools::register_base_tools,
 };
 use runtime_commodore_pet::{Model, PetRuntime, PetSessionQueryProvider};
-
-use crate::mcp_tools::register_pet_tools;
 
 /// PET 40-col PAL: ~20000 cycles per 50 Hz frame at 1 MHz.
 const FRAME_TICKS: u64 = 20_000;
@@ -52,8 +50,7 @@ pub fn run() -> Result<(), String> {
         "emu198x-commodore-pet",
         env!("CARGO_PKG_VERSION"),
     ));
-    register_common_tools(server.registry_mut());
-    register_pet_tools(server.registry_mut());
+    register_base_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }
 

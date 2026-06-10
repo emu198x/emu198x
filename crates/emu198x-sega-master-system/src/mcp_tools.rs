@@ -1,7 +1,7 @@
 //! SMS / Game Gear-specific MCP tools.
 //!
 //! CPU / memory / disasm / stepping / I/O trace come from the shared
-//! [`emu198x_shell::mcp_tools::register_debug_tools`] set; this adds the
+//! [`emu198x_shell::mcp_tools::register_base_tools`] set; this adds the
 //! SMS VDP and cartridge-mapper snapshots on top.
 
 use emu198x_shell::{
@@ -69,8 +69,6 @@ fn tool_query_mapper(_args: Value, session: &mut SmsSession) -> Result<Value, To
 
 /// Register SMS MCP tools: the shared debug surface plus VDP / mapper queries.
 pub fn register_sms_tools(registry: &mut ToolRegistry<SmsSession>) {
-    emu198x_shell::mcp_tools::register_debug_tools(registry);
-
     registry.register(Box::new(InlineTool {
         name: "query_vdp",
         description: "Sega VDP snapshot — V counter, frame count, framebuffer dimensions.",
