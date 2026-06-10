@@ -2,9 +2,9 @@
 //!
 //! CPU / memory / poke / disasm / stepping come from the shared
 //! [`emu198x_shell::mcp_tools::register_base_tools`] set (6502 `disasm` is
-//! pending the Asm198x crate). This adds the ANTIC / GTIA / POKEY / PIA
-//! chip snapshots and the keyboard input tools (`press_key`, `type_string`)
-//! on top.
+//! wired via the Asm198x `isa-disasm` decoder). This adds the ANTIC / GTIA /
+//! POKEY / PIA chip snapshots and the keyboard input tools (`press_key`,
+//! `type_string`) on top.
 
 use emu198x_shell::{
     HeadlessSession, InputEvent,

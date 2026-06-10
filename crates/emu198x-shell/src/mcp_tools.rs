@@ -459,10 +459,10 @@ fn run_disasm<M: MachineCore, Q>(
     let mut a = addr;
     for _ in 0..count {
         let Some((text, len)) = target.disassemble(a) else {
-            return Err(ToolError::Execution(
-                "no disassembler wired for this CPU (e.g. the 6809 family has no disassemble hook yet)"
-                    .into(),
-            ));
+            return Err(ToolError::Execution(format!(
+                "could not disassemble at ${a:04X}: the bytes are not a valid \
+                 instruction, or this CPU has no disassembler wired"
+            )));
         };
         lines.push(json!({ "addr": format!("${a:04X}"), "text": text }));
         a = a.wrapping_add(u32::from(len.max(1)));
@@ -687,8 +687,8 @@ where
     add(
         registry,
         "disasm",
-        "Disassemble `count` instructions from `addr` (CPU-dependent; \
-         6502 disassembly pending the Asm198x crate).",
+        "Disassemble `count` instructions from `addr`. Wired for the Z80, \
+         6502, 6809 and SM83 families.",
         disasm_schema,
         run_disasm,
     );
