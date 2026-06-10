@@ -31,6 +31,8 @@ struct Cli {
     smoke_root: Option<PathBuf>,
     smoke_report: Option<PathBuf>,
     smoke_screenshot_dir: Option<PathBuf>,
+    battery_save: Option<PathBuf>,
+    no_battery_save: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -110,6 +112,10 @@ Automation:
     --smoke-report PATH        write smoke matrix JSON to PATH
     --smoke-screenshot-dir PATH
                                write one PNG per successful smoke row
+
+Battery save:
+    --battery-save PATH        load/write cartridge battery RAM sidecar
+    --no-battery-save          disable automatic .sav load/write
 
 Other:
     --help, -h                 show this help
@@ -199,6 +205,12 @@ where
                 cli.smoke_screenshot_dir =
                     Some(PathBuf::from(next_arg(&mut iter, "--smoke-screenshot-dir")));
             }
+            "--battery-save" => {
+                cli.battery_save = Some(PathBuf::from(next_arg(&mut iter, "--battery-save")));
+            }
+            "--no-battery-save" => {
+                cli.no_battery_save = true;
+            }
             "--help" | "-h" => {
                 println!("{USAGE}");
                 process::exit(0);
@@ -256,6 +268,9 @@ fn die(message: &str) -> ! {
 }
 
 fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
+    if cli.no_battery_save && cli.battery_save.is_some() {
+        return Err("--battery-save conflicts with --no-battery-save".into());
+    }
     if cli.media.is_empty() {
         return Err(
             "a cartridge image is required; use --rom or --media cartridge-1:cartridge=PATH".into(),
@@ -289,6 +304,11 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
         .prepare(&media, &[])
         .map_err(|err| format!("machine preparation failed: {err}"))?;
 
+    let battery_save_path = resolve_battery_save_path(&cli);
+    if let Some(path) = &battery_save_path {
+        load_battery_save(session.machine_mut(), path, cli.battery_save.is_some())?;
+    }
+
     let mut observations = Vec::new();
     if let Some(path) = &cli.script {
         let script = HeadlessScript::from_path(path)
@@ -318,6 +338,10 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
             .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
     }
 
+    if let Some(path) = &battery_save_path {
+        write_battery_save(session.machine(), path)?;
+    }
+
     let test_result = if cli.assert_blargg {
         Some(assert_blargg_result(&session)?)
     } else {
@@ -330,6 +354,63 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
         cartridge_loaded: session.machine().machine().is_some(),
         test_result,
     })
+}
+
+/// Resolve the battery-save sidecar path: an explicit `--battery-save`
+/// wins; otherwise default to the cartridge ROM's path with a `.sav`
+/// extension. `--no-battery-save` suppresses it entirely.
+fn resolve_battery_save_path(cli: &Cli) -> Option<PathBuf> {
+    if cli.no_battery_save {
+        return None;
+    }
+    cli.battery_save.clone().or_else(|| {
+        cli.media
+            .iter()
+            .find(|entry| {
+                entry.slot == DEFAULT_CARTRIDGE_SLOT && entry.kind == MediaKind::Cartridge
+            })
+            .map(|entry| default_battery_save_path(&entry.path))
+    })
+}
+
+fn default_battery_save_path(rom_path: &Path) -> PathBuf {
+    let mut path = rom_path.to_path_buf();
+    path.set_extension("sav");
+    path
+}
+
+/// Load a `.sav` sidecar onto the cartridge's battery RAM. A missing file
+/// is fine (first run); an explicit `--battery-save` on a non-battery cart
+/// is an error, but the implicit default silently skips.
+fn load_battery_save(runtime: &mut NesRuntime, path: &Path, explicit: bool) -> Result<(), String> {
+    if !runtime.has_battery_backed_ram() {
+        if explicit {
+            return Err("loaded cartridge does not have battery-backed RAM".to_owned());
+        }
+        return Ok(());
+    }
+
+    match std::fs::read(path) {
+        Ok(bytes) => runtime
+            .restore_cartridge_ram(&bytes)
+            .map_err(|err| format!("failed to restore battery save {}: {err}", path.display())),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!(
+            "failed to read battery save {}: {err}",
+            path.display()
+        )),
+    }
+}
+
+fn write_battery_save(runtime: &NesRuntime, path: &Path) -> Result<(), String> {
+    if !runtime.has_battery_backed_ram() {
+        return Ok(());
+    }
+    let Some(ram) = runtime.cartridge_ram() else {
+        return Ok(());
+    };
+    std::fs::write(path, ram)
+        .map_err(|err| format!("failed to write battery save {}: {err}", path.display()))
 }
 
 fn assert_blargg_result(
@@ -479,6 +560,8 @@ fn run_smoke_matrix(cli: &Cli) -> Result<SmokeMatrixReport, String> {
             smoke_root: None,
             smoke_report: None,
             smoke_screenshot_dir: None,
+            battery_save: None,
+            no_battery_save: false,
         });
 
         match result {
@@ -606,6 +689,14 @@ mod tests {
         data
     }
 
+    /// `minimal_ines` with the battery flag (flags6 bit 1) set, so the
+    /// loaded NROM cart exposes battery-backed PRG-RAM at $6000-$7FFF.
+    fn battery_ines() -> Vec<u8> {
+        let mut data = minimal_ines();
+        data[6] |= 0x02;
+        data
+    }
+
     fn blargg_ines(status: u8, text: &[u8]) -> Vec<u8> {
         let mut prg = vec![0xea; 16 * 1024];
         let mut cursor = 0usize;
@@ -676,8 +767,84 @@ mod tests {
                 smoke_root: None,
                 smoke_report: None,
                 smoke_screenshot_dir: None,
+                battery_save: None,
+                no_battery_save: false,
             }
         );
+    }
+
+    #[test]
+    fn default_battery_save_path_replaces_rom_extension() {
+        assert_eq!(
+            default_battery_save_path(Path::new("zelda.nes")),
+            PathBuf::from("zelda.sav")
+        );
+    }
+
+    #[test]
+    fn parse_cli_accepts_battery_save_controls() {
+        let cli = parse_cli([
+            "--rom".to_string(),
+            "zelda.nes".to_string(),
+            "--battery-save".to_string(),
+            "zelda.sav".to_string(),
+        ]);
+        assert_eq!(cli.battery_save, Some(PathBuf::from("zelda.sav")));
+        assert_eq!(
+            resolve_battery_save_path(&cli),
+            Some(PathBuf::from("zelda.sav"))
+        );
+
+        // `--no-battery-save` suppresses the implicit default sidecar.
+        let cli = parse_cli([
+            "--rom".to_string(),
+            "zelda.nes".to_string(),
+            "--no-battery-save".to_string(),
+        ]);
+        assert!(cli.no_battery_save);
+        assert_eq!(resolve_battery_save_path(&cli), None);
+    }
+
+    #[test]
+    fn run_loads_and_writes_battery_save() {
+        let temp_dir = std::env::temp_dir();
+        let rom_path = temp_dir.join(format!("emu198x-nes-{}-battery.nes", std::process::id()));
+        let save_path = temp_dir.join(format!("emu198x-nes-{}-battery.sav", std::process::id()));
+        let save = vec![0x5A; 0x2000];
+
+        fs::write(&rom_path, battery_ines()).expect("temporary ROM write should succeed");
+        fs::write(&save_path, &save).expect("temporary save write should succeed");
+
+        let result = run_cli(Cli {
+            media: vec![MediaArg {
+                slot: DEFAULT_CARTRIDGE_SLOT.to_owned(),
+                kind: MediaKind::Cartridge,
+                path: rom_path.clone(),
+            }],
+            screenshot: None,
+            audio_capture: None,
+            script: None,
+            frames: 0,
+            assert_blargg: false,
+            smoke_root: None,
+            smoke_report: None,
+            smoke_screenshot_dir: None,
+            battery_save: Some(save_path.clone()),
+            no_battery_save: false,
+        });
+
+        assert!(
+            result.is_ok(),
+            "runner should preserve battery save: {result:?}"
+        );
+        assert_eq!(
+            fs::read(&save_path).expect("battery save should be readable"),
+            save,
+            "the loaded .sav round-trips back to disk on exit"
+        );
+
+        let _ = fs::remove_file(rom_path);
+        let _ = fs::remove_file(save_path);
     }
 
     #[test]
@@ -704,6 +871,8 @@ mod tests {
             smoke_root: None,
             smoke_report: None,
             smoke_screenshot_dir: None,
+            battery_save: None,
+            no_battery_save: false,
         });
 
         assert!(result.is_ok(), "runner should capture outputs: {result:?}");
@@ -750,6 +919,8 @@ mod tests {
             smoke_root: None,
             smoke_report: None,
             smoke_screenshot_dir: None,
+            battery_save: None,
+            no_battery_save: false,
         });
 
         assert!(result.is_ok(), "runner should execute script: {result:?}");
@@ -778,6 +949,8 @@ mod tests {
             smoke_root: Some(temp_dir.clone()),
             smoke_report: None,
             smoke_screenshot_dir: None,
+            battery_save: None,
+            no_battery_save: false,
         })
         .expect("smoke matrix should run");
 
@@ -809,6 +982,8 @@ mod tests {
             smoke_root: None,
             smoke_report: None,
             smoke_screenshot_dir: None,
+            battery_save: None,
+            no_battery_save: false,
         })
         .expect("Blargg assertion should pass");
 

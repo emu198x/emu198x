@@ -19,6 +19,7 @@ pub struct NesRuntime {
     time: MachineTime,
     cartridge_bytes: Option<Vec<u8>>,
     cartridge_mapper: Option<u16>,
+    has_battery: bool,
     rgba_framebuffer: Vec<u8>,
 }
 
@@ -32,8 +33,39 @@ impl NesRuntime {
             time: MachineTime::default(),
             cartridge_bytes: None,
             cartridge_mapper: None,
+            has_battery: false,
             rgba_framebuffer: vec![0; (FB_WIDTH * FB_HEIGHT * 4) as usize],
         }
+    }
+
+    /// Whether the loaded cartridge has battery-backed PRG-RAM — i.e. a
+    /// `.sav` sidecar should be loaded on insert and flushed on exit.
+    #[must_use]
+    pub fn has_battery_backed_ram(&self) -> bool {
+        self.has_battery && self.machine.is_some()
+    }
+
+    /// Battery-backed PRG-RAM to persist to a `.sav`, or `None` when the
+    /// cartridge has no battery RAM (so nothing is written).
+    #[must_use]
+    pub fn cartridge_ram(&self) -> Option<&[u8]> {
+        if !self.has_battery {
+            return None;
+        }
+        let ram = self.machine.as_ref()?.mapper.save_ram();
+        (!ram.is_empty()).then_some(ram)
+    }
+
+    /// Restore a loaded `.sav` into the cartridge's battery PRG-RAM. A
+    /// no-op for non-battery cartridges; oversized/short sidecars are
+    /// truncated by the mapper rather than rejected.
+    pub fn restore_cartridge_ram(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
+        if self.has_battery
+            && let Some(machine) = self.machine.as_mut()
+        {
+            machine.mapper.restore_save_ram(bytes);
+        }
+        Ok(())
     }
 
     /// Returns the wrapped NES machine when a cartridge is loaded.
@@ -118,6 +150,7 @@ impl NesRuntime {
             reason,
         })?;
 
+        self.has_battery = parsed.header.has_battery;
         self.machine = Some(Nes::new(parsed.mapper));
         self.cartridge_bytes = Some(bytes.to_vec());
         self.cartridge_mapper = Some(parsed.header.mapper_number);
@@ -136,11 +169,13 @@ impl NesRuntime {
 
         match parse_ines(bytes) {
             Ok(parsed) => {
+                self.has_battery = parsed.header.has_battery;
                 self.machine = Some(Nes::new(parsed.mapper));
                 self.cartridge_mapper = Some(parsed.header.mapper_number);
                 self.rgba_framebuffer.fill(0);
             }
             Err(_) => {
+                self.has_battery = false;
                 self.machine = None;
                 self.cartridge_mapper = None;
                 self.rgba_framebuffer.fill(0);

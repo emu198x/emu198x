@@ -176,4 +176,18 @@ pub trait Mapper: Send {
 
     /// Capture concrete mapper state for save-state export.
     fn snapshot(&self) -> MapperSnapshot;
+
+    /// Cartridge PRG-RAM ($6000-$7FFF work/save RAM), for battery `.sav`
+    /// persistence. Empty by default; mappers with PRG-RAM expose it
+    /// here. The runtime gates persistence on the cartridge's battery
+    /// flag, so a non-battery work-RAM mapper may expose RAM here without
+    /// it being written to a `.sav`.
+    fn save_ram(&self) -> &[u8] {
+        &[]
+    }
+
+    /// Restore a loaded `.sav` into PRG-RAM. No-op by default; mappers
+    /// with PRG-RAM copy in as many bytes as fit (a short or oversized
+    /// sidecar is truncated, never panics).
+    fn restore_save_ram(&mut self, _bytes: &[u8]) {}
 }

@@ -7,7 +7,7 @@
 //! present.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use emu198x_native_video::{
@@ -56,6 +56,8 @@ Options:
     --rom PATH      iNES/NES 2.0 ROM image or zip containing one ROM candidate
     --scale N       integer window scale, default 3
     --video MODE    raw | lcd | crt [default: raw]
+    --battery-save PATH  load/write cartridge battery RAM sidecar (default <rom>.sav)
+    --no-battery-save    disable automatic .sav load/write
     --help, -h      show this help
 
 Controls:
@@ -79,6 +81,8 @@ pub struct Cli {
     rom: Option<PathBuf>,
     scale: u32,
     video: VideoFilter,
+    battery_save: Option<PathBuf>,
+    no_battery_save: bool,
 }
 
 impl Default for Cli {
@@ -87,6 +91,8 @@ impl Default for Cli {
             rom: None,
             scale: DEFAULT_SCALE,
             video: VideoFilter::Raw,
+            battery_save: None,
+            no_battery_save: false,
         }
     }
 }
@@ -121,6 +127,7 @@ struct NesRunner {
     frame_capture: LatestFrameCapture,
     audio_output: NativeAudioOutput,
     last_run_result: Option<RunResult>,
+    battery_save_path: Option<PathBuf>,
 }
 
 impl NesRunner {
@@ -144,15 +151,37 @@ impl NesRunner {
         ));
         runtime.load_media(&media)?;
 
+        // Load a battery .sav sidecar (default <rom>.sav) into the
+        // cartridge's PRG-RAM before the first frame runs.
+        let battery_save_path = resolve_battery_save_path(cli, path);
+        if let Some(save_path) = &battery_save_path {
+            load_battery_save(&mut runtime, save_path, cli.battery_save.is_some())?;
+        }
+
         let mut runner = Self {
             runtime,
             cartridge_media: loaded.bytes,
             frame_capture: LatestFrameCapture::default(),
             audio_output: NativeAudioOutput::new(MAX_AUDIO_BUFFER_MS)?,
             last_run_result: None,
+            battery_save_path,
         };
         runner.run_frame(&[])?;
         Ok(runner)
+    }
+
+    /// Write the cartridge's battery PRG-RAM back to its `.sav` sidecar.
+    /// A no-op when battery saves are disabled or the cartridge has none.
+    fn flush_battery_save(&self) -> Result<(), AppError> {
+        let Some(path) = &self.battery_save_path else {
+            return Ok(());
+        };
+        let Some(ram) = self.runtime.cartridge_ram() else {
+            return Ok(());
+        };
+        std::fs::write(path, ram).map_err(|err| AppError::Setup {
+            reason: format!("failed to write battery save {}: {err}", path.display()),
+        })
     }
 
     fn reset(&mut self) -> Result<(), AppError> {
@@ -510,11 +539,59 @@ pub fn run(cli: Cli) -> Result<(), AppError> {
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
 
+    // Persist the cartridge's battery RAM to its .sav on the way out.
+    app.runner.flush_battery_save()?;
+
     if let Some(err) = app.take_error() {
         return Err(err);
     }
 
     Ok(())
+}
+
+/// Resolve the battery `.sav` sidecar path: `None` when disabled, an
+/// explicit `--battery-save` path, or `<rom>.sav` next to the cartridge.
+fn resolve_battery_save_path(cli: &Cli, rom_path: &Path) -> Option<PathBuf> {
+    if cli.no_battery_save {
+        return None;
+    }
+    cli.battery_save
+        .clone()
+        .or_else(|| Some(default_battery_save_path(rom_path)))
+}
+
+fn default_battery_save_path(rom_path: &Path) -> PathBuf {
+    let mut path = rom_path.to_path_buf();
+    path.set_extension("sav");
+    path
+}
+
+/// Load a battery `.sav` into the cartridge's PRG-RAM. A missing file is
+/// fine (fresh save). An explicit `--battery-save` on a non-battery
+/// cartridge is an error; the default path is silently skipped.
+fn load_battery_save(
+    runtime: &mut NesRuntime,
+    path: &Path,
+    explicit: bool,
+) -> Result<(), AppError> {
+    if !runtime.has_battery_backed_ram() {
+        if explicit {
+            return Err(AppError::Setup {
+                reason: "loaded cartridge does not have battery-backed RAM".to_owned(),
+            });
+        }
+        return Ok(());
+    }
+
+    match std::fs::read(path) {
+        Ok(bytes) => runtime
+            .restore_cartridge_ram(&bytes)
+            .map_err(AppError::Machine),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(AppError::Setup {
+            reason: format!("failed to read battery save {}: {err}", path.display()),
+        }),
+    }
 }
 
 /// Parses the interactive CLI (`--rom`, `--scale`, `--video`, positional
@@ -537,6 +614,10 @@ where
             "--video" => {
                 cli.video = parse_video_arg(&next_arg(&mut iter, "--video"));
             }
+            "--battery-save" => {
+                cli.battery_save = Some(PathBuf::from(next_arg(&mut iter, "--battery-save")));
+            }
+            "--no-battery-save" => cli.no_battery_save = true,
             "--help" | "-h" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -626,7 +707,42 @@ mod tests {
                 rom: Some(PathBuf::from("game.nes")),
                 scale: 2,
                 video: VideoFilter::Raw,
+                battery_save: None,
+                no_battery_save: false,
             }
+        );
+    }
+
+    #[test]
+    fn default_battery_save_path_replaces_rom_extension() {
+        assert_eq!(
+            default_battery_save_path(Path::new("zelda.nes")),
+            PathBuf::from("zelda.sav")
+        );
+    }
+
+    #[test]
+    fn parse_cli_accepts_battery_save_controls() {
+        let cli = parse_cli([
+            "--battery-save".to_owned(),
+            "slot.sav".to_owned(),
+            "game.nes".to_owned(),
+        ]);
+        assert_eq!(cli.battery_save, Some(PathBuf::from("slot.sav")));
+        assert_eq!(
+            resolve_battery_save_path(&cli, Path::new("game.nes")),
+            Some(PathBuf::from("slot.sav"))
+        );
+
+        let cli = parse_cli(["--no-battery-save".to_owned(), "game.nes".to_owned()]);
+        assert!(cli.no_battery_save);
+        assert_eq!(resolve_battery_save_path(&cli, Path::new("game.nes")), None);
+
+        // Default: <rom>.sav.
+        let cli = parse_cli(["game.nes".to_owned()]);
+        assert_eq!(
+            resolve_battery_save_path(&cli, Path::new("game.nes")),
+            Some(PathBuf::from("game.sav"))
         );
     }
 

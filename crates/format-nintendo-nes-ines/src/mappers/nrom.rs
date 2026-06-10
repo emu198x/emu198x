@@ -101,6 +101,15 @@ impl Mapper for Nrom {
         self.mirroring
     }
 
+    fn save_ram(&self) -> &[u8] {
+        &self.prg_ram
+    }
+
+    fn restore_save_ram(&mut self, bytes: &[u8]) {
+        let n = bytes.len().min(self.prg_ram.len());
+        self.prg_ram[..n].copy_from_slice(&bytes[..n]);
+    }
+
     fn snapshot(&self) -> MapperSnapshot {
         MapperSnapshot::Nrom(self.clone())
     }
