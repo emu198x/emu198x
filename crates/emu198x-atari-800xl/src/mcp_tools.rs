@@ -10,7 +10,6 @@ use emu198x_shell::{
     HeadlessSession, InputEvent,
     mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
 };
-use machine_atari_800xl::Atari800xl;
 use runtime_atari_800xl::{Atari800xlRuntime, Atari800xlSessionQueryProvider};
 use serde_json::{Value, json};
 
@@ -45,12 +44,6 @@ impl Tool<A800xlSession> for InlineTool {
     }
 }
 
-fn a800xl_ref(s: &A800xlSession) -> Result<&Atari800xl, ToolError> {
-    s.machine()
-        .machine()
-        .ok_or_else(|| ToolError::Execution("no OS / cart loaded".into()))
-}
-
 /// Parse a numeric JSON argument that may be a number or a `$xx` / `0x` /
 /// plain hex/decimal string.
 fn parse_num(args: &Value, key: &str) -> Result<u32, ToolError> {
@@ -81,67 +74,6 @@ fn opt_num(args: &Value, key: &str, default: u32) -> Result<u32, ToolError> {
     } else {
         Ok(default)
     }
-}
-
-fn hex8(v: u8) -> String {
-    format!("${v:02X}")
-}
-fn hex8s(vs: [u8; 4]) -> Vec<String> {
-    vs.iter().map(|&v| hex8(v)).collect()
-}
-
-fn tool_query_antic(_args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
-    let a = a800xl_ref(session)?.antic();
-    Ok(json!({
-        "dmactl": hex8(a.dmactl_value()),
-        "nmien":  hex8(a.nmien_value()),
-        "dlist":  format!("${:04X}", a.dlist_value()),
-        "chbase": hex8(a.chbase_value()),
-        "chactl": hex8(a.chactl_value()),
-        "hscrol": hex8(a.hscrol_value()),
-        "vscrol": hex8(a.vscrol_value()),
-        "scan_line": a.scan_line(),
-        "vcount":    hex8(a.vcount()),
-    }))
-}
-
-fn tool_query_gtia(_args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
-    let g = a800xl_ref(session)?.gtia();
-    Ok(json!({
-        "colbk":  hex8(g.colbk_value()),
-        "colpf":  hex8s(g.colpf_values()),
-        "colpm":  hex8s(g.colpm_values()),
-        "prior":  hex8(g.prior_value()),
-        "gractl": hex8(g.gractl_value()),
-        "consol": hex8(g.console_switches()),
-    }))
-}
-
-fn tool_query_pokey(_args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
-    let p = a800xl_ref(session)?.pokey();
-    Ok(json!({
-        "audf":   hex8s(p.audf()),
-        "audc":   hex8s(p.audc()),
-        "audctl": hex8(p.audctl()),
-        "irqen":  hex8(p.irqen()),
-        "irqst":  hex8(p.irqst()),
-        "skctl":  hex8(p.skctl()),
-        "skstat": hex8(p.skstat()),
-        "kbcode": hex8(p.kbcode()),
-    }))
-}
-
-fn tool_query_pia(_args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
-    let p = a800xl_ref(session)?.pia();
-    Ok(json!({
-        "porta": hex8(p.port_a_output()),
-        "portb": hex8(p.port_b_output()),
-        "ddra":  hex8(p.ddr_a()),
-        "ddrb":  hex8(p.ddr_b()),
-        "cra":   hex8(p.cra()),
-        "crb":   hex8(p.crb()),
-        "irq_pending": p.irq_pending(),
-    }))
 }
 
 /// Frames a key is held / settled between presses.
@@ -210,12 +142,13 @@ fn tool_type_string(args: Value, session: &mut A800xlSession) -> Result<Value, T
     Ok(json!({ "text": text, "chars_typed": typed }))
 }
 
-/// Register the 800XL-specific MCP tools: the ANTIC / GTIA / POKEY / PIA
-/// chip snapshots and the keyboard input tools. The CPU / memory / debug
-/// surface comes from [`register_base_tools`](emu198x_shell::mcp_tools::register_base_tools),
-/// registered first by the server.
+/// Register the 800XL-specific MCP tools: the keyboard input tools. The
+/// CPU / memory / debug surface comes from
+/// [`register_base_tools`](emu198x_shell::mcp_tools::register_base_tools),
+/// and the ANTIC / GTIA / POKEY / PIA chip state is read through the generic
+/// `query` tool as query paths (`antic`, `gtia`, `pokey`, `pia`, and their
+/// leaves) — both registered by the server before this.
 pub fn register_a800xl_tools(registry: &mut ToolRegistry<A800xlSession>) {
-    let empty = || json!({"type": "object", "additionalProperties": false});
     let mut tool = |name, description, schema, run| {
         registry.register(Box::new(InlineTool {
             name,
@@ -225,33 +158,6 @@ pub fn register_a800xl_tools(registry: &mut ToolRegistry<A800xlSession>) {
         }));
     };
 
-    tool(
-        "query_antic",
-        "ANTIC display-list processor registers (DMACTL, NMIEN, DLIST, CHBASE, \
-         CHACTL, HSCROL, VSCROL, scan line).",
-        empty(),
-        tool_query_antic,
-    );
-    tool(
-        "query_gtia",
-        "GTIA registers (COLBK, COLPF0-3, COLPM0-3, PRIOR, GRACTL, console \
-         switches).",
-        empty(),
-        tool_query_gtia,
-    );
-    tool(
-        "query_pokey",
-        "POKEY registers (AUDF/AUDC 0-3, AUDCTL, IRQEN, IRQST, SKCTL, SKSTAT, \
-         KBCODE).",
-        empty(),
-        tool_query_pokey,
-    );
-    tool(
-        "query_pia",
-        "PIA 6520 registers (PORTA/PORTB outputs, DDRA/DDRB, CRA/CRB, IRQ).",
-        empty(),
-        tool_query_pia,
-    );
     tool(
         "press_key",
         "Press, hold, and release one key. `key` is a single character (case \
@@ -349,17 +255,21 @@ mod tests {
             body(&reg.get(name).expect("tool").call(args, s).expect("ok"))
         };
 
-        // ANTIC programmed for display: DMACTL with DL DMA on.
-        let antic = call(&mut session, "query_antic", json!({}));
+        // Chip state is read via query paths now. ANTIC programmed for
+        // display: DMACTL with DL DMA on.
+        let chip = |s: &mut A800xlSession, path: &str| -> Value {
+            call(s, "query", json!({ "path": path }))["result"]["value"].clone()
+        };
+        let antic = chip(&mut session, "antic");
         let dmactl_hex = antic["dmactl"].as_str().expect("dmactl string");
         let dmactl =
             u8::from_str_radix(dmactl_hex.trim_start_matches('$'), 16).expect("dmactl hex");
         assert_ne!(dmactl & 0x20, 0, "DMACTL DL DMA: {antic}");
 
-        // Chip queries all surface their registers.
-        assert!(call(&mut session, "query_gtia", json!({}))["colpf"].is_array());
-        assert!(call(&mut session, "query_pokey", json!({}))["irqen"].is_string());
-        assert!(call(&mut session, "query_pia", json!({}))["portb"].is_string());
+        // The other chip snapshots all surface their registers.
+        assert!(chip(&mut session, "gtia")["colpf"].is_array());
+        assert!(chip(&mut session, "pokey")["irqen"].is_string());
+        assert!(chip(&mut session, "pia")["portb"].is_string());
 
         // Shared memory_read: 16 space-separated hex bytes by default.
         let mem = call(&mut session, "memory_read", json!({"addr": "$0200"}));
