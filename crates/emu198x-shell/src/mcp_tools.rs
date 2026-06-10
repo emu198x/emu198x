@@ -19,19 +19,77 @@ use serde_json::{Value, json};
 use crate::machine::MachineCore;
 use crate::mcp::{Tool, ToolError, ToolRegistry, ToolResponse};
 use crate::query::SessionQueryProvider;
-use crate::script::ScriptStep;
+use crate::script::{ScriptObservation, ScriptStep};
 use crate::session::HeadlessSession;
+
+/// A pluggable step dispatcher: turns a parsed [`ScriptStep`] into an
+/// optional [`ScriptObservation`]. The default
+/// [`dispatch_via_execute_collect`] runs the step generically through
+/// [`ScriptStep::execute_collect`]; a system whose MCP surface needs
+/// richer, machine-specific handling (the Spectrum's live-access steps,
+/// `set_machine`, `type_string`, …) supplies its own.
+pub type StepDispatch<M, Q> =
+    fn(&ScriptStep, &mut HeadlessSession<M, Q>) -> Result<Option<ScriptObservation>, ToolError>;
+
+/// The default dispatcher: run the step generically over any
+/// [`MachineCore`] + [`SessionQueryProvider`].
+pub fn dispatch_via_execute_collect<M, Q>(
+    step: &ScriptStep,
+    session: &mut HeadlessSession<M, Q>,
+) -> Result<Option<ScriptObservation>, ToolError>
+where
+    M: MachineCore,
+    Q: SessionQueryProvider<M>,
+{
+    step.execute_collect(session)
+        .map_err(|err| ToolError::Execution(err.to_string()))
+}
 
 /// One MCP tool mapping directly onto a machine-agnostic [`ScriptStep`]
 /// variant. The tool name is the variant's serde `action` tag; the
-/// arguments are the variant's remaining fields.
-struct ScriptStepTool {
+/// arguments are the variant's remaining fields. The `dispatch` field
+/// selects how the parsed step is executed — `common` uses the generic
+/// executor, `with_dispatch` injects a system-specific one.
+pub struct ScriptStepTool<M, Q> {
     name: &'static str,
     description: &'static str,
     schema: Value,
+    dispatch: StepDispatch<M, Q>,
 }
 
-impl<M, Q> Tool<HeadlessSession<M, Q>> for ScriptStepTool
+impl<M, Q> ScriptStepTool<M, Q>
+where
+    M: MachineCore,
+    Q: SessionQueryProvider<M>,
+{
+    /// A common tool whose step runs through the generic executor.
+    pub fn common(name: &'static str, description: &'static str, schema: Value) -> Self {
+        Self {
+            name,
+            description,
+            schema,
+            dispatch: dispatch_via_execute_collect,
+        }
+    }
+
+    /// A tool that runs its step through a system-specific dispatcher
+    /// (e.g. the Spectrum's `mcp_execute_step`).
+    pub fn with_dispatch(
+        name: &'static str,
+        description: &'static str,
+        schema: Value,
+        dispatch: StepDispatch<M, Q>,
+    ) -> Self {
+        Self {
+            name,
+            description,
+            schema,
+            dispatch,
+        }
+    }
+}
+
+impl<M, Q> Tool<HeadlessSession<M, Q>> for ScriptStepTool<M, Q>
 where
     M: MachineCore,
     Q: SessionQueryProvider<M>,
@@ -54,9 +112,7 @@ where
         session: &mut HeadlessSession<M, Q>,
     ) -> Result<ToolResponse, ToolError> {
         let step = build_step(self.name, arguments)?;
-        let observation = step
-            .execute_collect(session)
-            .map_err(|err| ToolError::Execution(err.to_string()))?;
+        let observation = (self.dispatch)(&step, session)?;
         let body = match observation {
             Some(obs) => serde_json::to_string(&obs).map_err(|err| {
                 ToolError::Execution(format!("failed to serialize observation: {err}"))
@@ -70,7 +126,7 @@ where
 /// Build a [`ScriptStep`] from a tool name (the serde `action` tag) and
 /// its JSON arguments by merging the tag into the argument object and
 /// deserializing.
-fn build_step(action: &str, arguments: Value) -> Result<ScriptStep, ToolError> {
+pub fn build_step(action: &str, arguments: Value) -> Result<ScriptStep, ToolError> {
     let mut obj = match arguments {
         Value::Object(map) => map,
         Value::Null => serde_json::Map::new(),
@@ -95,43 +151,43 @@ fn build_step(action: &str, arguments: Value) -> Result<ScriptStep, ToolError> {
 /// [`MachineCore`] + [`SessionQueryProvider`].
 pub fn register_common_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
 where
-    M: MachineCore,
-    Q: SessionQueryProvider<M>,
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
 {
-    registry.register(Box::new(ScriptStepTool {
-        name: "run_frames",
-        description: "Run the machine for a number of native video frames.",
-        schema: json!({
+    registry.register(Box::new(ScriptStepTool::common(
+        "run_frames",
+        "Run the machine for a number of native video frames.",
+        json!({
             "type": "object",
             "properties": { "frames": { "type": "integer", "minimum": 0 } },
             "required": ["frames"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "run_ticks",
-        description: "Run the machine for an exact number of sub-frame ticks \
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "run_ticks",
+        "Run the machine for an exact number of sub-frame ticks \
                       (one authoritative-clock unit each, e.g. one PPU dot on \
                       the NES) for cycle-exact debugging. Errors if the system \
                       does not support sub-frame stepping.",
-        schema: json!({
+        json!({
             "type": "object",
             "properties": { "ticks": { "type": "integer", "minimum": 0 } },
             "required": ["ticks"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "wait_for_boot",
-        description: "Run frames until the machine reports it has booted (or the frame budget is exhausted).",
-        schema: json!({
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "wait_for_boot",
+        "Run frames until the machine reports it has booted (or the frame budget is exhausted).",
+        json!({
             "type": "object",
             "properties": { "max_frames": { "type": "integer", "minimum": 0 } },
             "required": ["max_frames"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "wait_for_query_contains",
-        description: "Run frames until a text-bearing query path contains a substring.",
-        schema: json!({
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "wait_for_query_contains",
+        "Run frames until a text-bearing query path contains a substring.",
+        json!({
             "type": "object",
             "properties": {
                 "path": { "type": "string" },
@@ -140,11 +196,11 @@ where
             },
             "required": ["path", "needle", "max_frames"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "wait_for_query_bool",
-        description: "Run frames until a boolean query path reaches a target value.",
-        schema: json!({
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "wait_for_query_bool",
+        "Run frames until a boolean query path reaches a target value.",
+        json!({
             "type": "object",
             "properties": {
                 "path": { "type": "string" },
@@ -153,37 +209,37 @@ where
             },
             "required": ["path", "value", "max_frames"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "query",
-        description: "Resolve one shared query path against the live session.",
-        schema: json!({
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "query",
+        "Resolve one shared query path against the live session.",
+        json!({
             "type": "object",
             "properties": { "path": { "type": "string" } },
             "required": ["path"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "query_paths",
-        description: "List supported query paths, optionally filtered by prefix.",
-        schema: json!({
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "query_paths",
+        "List supported query paths, optionally filtered by prefix.",
+        json!({
             "type": "object",
             "properties": { "prefix": { "type": ["string", "null"] } }
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "input",
-        description: "Queue generic input events (keys / buttons / axes) for the next run step.",
-        schema: json!({
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "input",
+        "Queue generic input events (keys / buttons / axes) for the next run step.",
+        json!({
             "type": "object",
             "properties": { "events": { "type": "array" } },
             "required": ["events"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "load_media",
-        description: "Load a media image (cartridge / disk / tape / program) into a named slot. Set `writable` to allow the machine to persist a SAVE to this image (archive media must stay read-only; default false).",
-        schema: json!({
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "load_media",
+        "Load a media image (cartridge / disk / tape / program) into a named slot. Set `writable` to allow the machine to persist a SAVE to this image (archive media must stay read-only; default false).",
+        json!({
             "type": "object",
             "properties": {
                 "slot": { "type": "string" },
@@ -193,11 +249,11 @@ where
             },
             "required": ["slot", "kind", "path"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "media_transport",
-        description: "Start or stop media transport on a named slot.",
-        schema: json!({
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "media_transport",
+        "Start or stop media transport on a named slot.",
+        json!({
             "type": "object",
             "properties": {
                 "slot": { "type": "string" },
@@ -205,38 +261,38 @@ where
             },
             "required": ["slot", "transport"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "load_snapshot",
-        description: "Restore a snapshot file into the live machine.",
-        schema: json!({
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "load_snapshot",
+        "Restore a snapshot file into the live machine.",
+        json!({
             "type": "object",
             "properties": { "path": { "type": "string" } },
             "required": ["path"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "save_snapshot",
-        description: "Save the current machine snapshot to disk.",
-        schema: json!({
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "save_snapshot",
+        "Save the current machine snapshot to disk.",
+        json!({
             "type": "object",
             "properties": { "path": { "type": "string" } },
             "required": ["path"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "save_screenshot",
-        description: "Save the latest emitted frame as a PNG file.",
-        schema: json!({
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "save_screenshot",
+        "Save the latest emitted frame as a PNG file.",
+        json!({
             "type": "object",
             "properties": { "path": { "type": "string" } },
             "required": ["path"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "save_audio_capture",
-        description: "Save the captured audio stream as a WAV file.",
-        schema: json!({
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "save_audio_capture",
+        "Save the captured audio stream as a WAV file.",
+        json!({
             "type": "object",
             "properties": {
                 "path": { "type": "string" },
@@ -244,51 +300,51 @@ where
             },
             "required": ["path"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "start_audio_recording",
-        description: "Begin recording emitted audio to a 16-bit PCM WAV file. \
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "start_audio_recording",
+        "Begin recording emitted audio to a 16-bit PCM WAV file. \
                       Subsequent run_frames tee audio into the session buffer; \
                       the WAV is written when stop_audio_recording is called.",
-        schema: json!({
+        json!({
             "type": "object",
             "properties": { "path": { "type": "string" } },
             "required": ["path"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "stop_audio_recording",
-        description: "Finalise the in-flight audio recording and return the summary.",
-        schema: json!({ "type": "object" }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "start_video_recording",
-        description: "Begin recording the live framebuffer + audio to one MP4 file. \
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "stop_audio_recording",
+        "Finalise the in-flight audio recording and return the summary.",
+        json!({ "type": "object" }),
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "start_video_recording",
+        "Begin recording the live framebuffer + audio to one MP4 file. \
                       The file is written when stop_video_recording is called.",
-        schema: json!({
+        json!({
             "type": "object",
             "properties": { "path": { "type": "string" } },
             "required": ["path"]
         }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "stop_video_recording",
-        description: "Finalise the in-flight video recording and return the summary.",
-        schema: json!({ "type": "object" }),
-    }));
-    registry.register(Box::new(ScriptStepTool {
-        name: "reset",
-        description: "Reset the machine. `kind` is \"hard\" (power-cycle, the \
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "stop_video_recording",
+        "Finalise the in-flight video recording and return the summary.",
+        json!({ "type": "object" }),
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
+        "reset",
+        "Reset the machine. `kind` is \"hard\" (power-cycle, the \
                       default) or \"soft\" (machine-local). Clears queued input, \
                       the latest frame, captured audio, and the last run result; \
                       rejected while a video recording is in flight.",
-        schema: json!({
+        json!({
             "type": "object",
             "properties": {
                 "kind": { "type": "string", "enum": ["hard", "soft"], "default": "hard" }
             }
         }),
-    }));
+    )));
 }
 
 // ---------------------------------------------------------------------------

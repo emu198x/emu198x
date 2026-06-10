@@ -15,6 +15,7 @@ use emu198x_shell::{
     AyWriteEntry, DisasmInstruction, FirmwareImage, FirmwareSet, HeadlessSession, MachineCore,
     MemoryWriteEntry, ScriptObservation, ScriptStep, SessionQueryProvider,
     mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
+    mcp_tools::ScriptStepTool,
     read_firmware_asset,
 };
 use format_sinclair_zx_spectrum_bas::tokenise;
@@ -34,44 +35,23 @@ use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapsho
 /// `set_machine` tool.
 pub type SpectrumSession = HeadlessSession<SpectrumRuntimeKind, SpectrumSessionQueryProvider>;
 
-/// One MCP tool that maps directly onto a `ScriptStep` variant.
-struct ScriptStepTool {
-    /// Stable tool name; matches the variant's serde `action` tag.
+/// Register one Spectrum step tool: the shared `ScriptStepTool` wrapper
+/// (from the shell) carrying the Spectrum's richer `mcp_execute_step`
+/// dispatcher. Replaces the bespoke wrapper that used to live here — the
+/// tool plumbing is now shared fleet-wide, only the dispatcher is
+/// Spectrum-specific (#456).
+fn add_step(
+    registry: &mut ToolRegistry<SpectrumSession>,
     name: &'static str,
-    /// Human-readable description shown by MCP clients.
     description: &'static str,
-    /// JSON Schema for the tool's input arguments.
     schema: Value,
-}
-
-impl Tool<SpectrumSession> for ScriptStepTool {
-    fn name(&self) -> &str {
-        self.name
-    }
-
-    fn description(&self) -> &str {
-        self.description
-    }
-
-    fn input_schema(&self) -> Value {
-        self.schema.clone()
-    }
-
-    fn call(
-        &self,
-        arguments: Value,
-        session: &mut SpectrumSession,
-    ) -> Result<ToolResponse, ToolError> {
-        let step = parse_step(self.name, arguments)?;
-        let observation = mcp_execute_step(&step, session)?;
-        let body = match observation {
-            Some(obs) => serde_json::to_string(&obs).map_err(|err| {
-                ToolError::Execution(format!("failed to serialize observation: {err}"))
-            })?,
-            None => String::from("null"),
-        };
-        Ok(ToolResponse::success_text(body))
-    }
+) {
+    registry.register(Box::new(ScriptStepTool::with_dispatch(
+        name,
+        description,
+        schema,
+        mcp_execute_step,
+    )));
 }
 
 /// Family-MCP dispatch for one `ScriptStep`.
@@ -919,26 +899,6 @@ fn kind_to_model(kind: MachineKind) -> runtime_sinclair_zx_spectrum::Model {
     }
 }
 
-/// Re-deserializes a `ScriptStep` by injecting the `action` tag into
-/// the supplied arguments object. Mirrors the shell crate's serde
-/// shape, so any field rename / addition shows up here as a parse
-/// error rather than a silent shape mismatch.
-fn parse_step(action: &str, arguments: Value) -> Result<ScriptStep, ToolError> {
-    let mut object = match arguments {
-        Value::Object(map) => map,
-        Value::Null => serde_json::Map::new(),
-        _ => {
-            return Err(ToolError::InvalidArguments(
-                "arguments must be a JSON object".to_owned(),
-            ));
-        }
-    };
-    object.insert("action".to_owned(), Value::String(action.to_owned()));
-    serde_json::from_value(Value::Object(object)).map_err(|err| {
-        ToolError::InvalidArguments(format!("could not parse {action} arguments: {err}"))
-    })
-}
-
 /// Registers the Spectrum-specific MCP tools on the supplied registry:
 /// the bespoke surface (`set_machine`, `autoload_tape`,
 /// `load_basic_program`, `port_read`/`write`, `type_string`,
@@ -1011,29 +971,32 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
     let integer_field = || json!({"type": "integer", "minimum": 0});
     let boolean_field = || json!({"type": "boolean"});
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "clear_audio_capture",
-        description: "Drop the session capture buffer without writing it to disk. Pair with save_audio_capture when you want save + buffer-reset in two explicit steps rather than the `reset_after` boolean. No effect on the start_audio_recording / stop_audio_recording path — that uses its own per-recording offset.",
-        schema: json!({
+    add_step(
+        registry,
+        "clear_audio_capture",
+        "Drop the session capture buffer without writing it to disk. Pair with save_audio_capture when you want save + buffer-reset in two explicit steps rather than the `reset_after` boolean. No effect on the start_audio_recording / stop_audio_recording path — that uses its own per-recording offset.",
+        json!({
             "type": "object",
             "properties": {},
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "set_machine",
-        description: "Switch the live machine to the named variant (currently errors with `not yet supported`).",
-        schema: json!({
+    add_step(
+        registry,
+        "set_machine",
+        "Switch the live machine to the named variant (currently errors with `not yet supported`).",
+        json!({
             "type": "object",
             "properties": {"machine": string_field()},
             "required": ["machine"],
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "autoload_tape",
-        description: "Wait for boot, type LOAD \"\", and start tape transport on the named slot.",
-        schema: json!({
+    add_step(
+        registry,
+        "autoload_tape",
+        "Wait for boot, type LOAD \"\", and start tape transport on the named slot.",
+        json!({
             "type": "object",
             "properties": {
                 "slot": string_field(),
@@ -1041,12 +1004,13 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
             },
             "required": ["slot", "max_boot_frames"],
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "load_basic_program",
-        description: "Tokenise a plain-text .bas file and install it as the live BASIC program (optionally RUN it).",
-        schema: json!({
+    add_step(
+        registry,
+        "load_basic_program",
+        "Tokenise a plain-text .bas file and install it as the live BASIC program (optionally RUN it).",
+        json!({
             "type": "object",
             "properties": {
                 "path": string_field(),
@@ -1054,7 +1018,7 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
             },
             "required": ["path"],
         }),
-    }));
+    );
 
     // Override the shared `load_snapshot` tool (register_common_tools)
     // with the Spectrum one so it dispatches through `mcp_execute_step`,
@@ -1063,15 +1027,16 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
     // as the runtime's own save state, which fails on a portable
     // snapshot ("Found a bool that wasn't 0 or 1"). Registered last so it
     // wins by name. gap #6.
-    registry.register(Box::new(ScriptStepTool {
-        name: "load_snapshot",
-        description: "Restore a snapshot into the live machine. Portable `.sna` / `.z80` files (optionally inside a `.zip`) are parsed and applied; a runtime save-state blob is restored directly.",
-        schema: json!({
+    add_step(
+        registry,
+        "load_snapshot",
+        "Restore a snapshot into the live machine. Portable `.sna` / `.z80` files (optionally inside a `.zip`) are parsed and applied; a runtime save-state blob is restored directly.",
+        json!({
             "type": "object",
             "properties": { "path": string_field() },
             "required": ["path"],
         }),
-    }));
+    );
 
     // `query_ay` folded into the generic `query` surface (#456): the AY
     // snapshot is the grouped `ay` object plus decoded `ay.*` leaves
@@ -1082,21 +1047,23 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
     // enriched `DebugTarget::dbg_cpu_state` (full Z80 file + decoded
     // flags), so there is no bespoke override here any more (#456).
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "step",
-        description: "Single-step the Z80. Runs cycles until one instruction completes (or `instructions` instructions, default 1, max 16384). Returns the post-step PC, halt state, and total half-cycles consumed.",
-        schema: json!({
+    add_step(
+        registry,
+        "step",
+        "Single-step the Z80. Runs cycles until one instruction completes (or `instructions` instructions, default 1, max 16384). Returns the post-step PC, halt state, and total half-cycles consumed.",
+        json!({
             "type": "object",
             "properties": {
                 "instructions": integer_field(),
             },
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "run_until_pc",
-        description: "Run the Z80 until PC reaches `addr` at an instruction boundary, or `max_halfcycles` master-clock half-cycles elapse (default 700000 ≈ ten 48K frames, max 50000000). Useful for 'run to here' debugging.",
-        schema: json!({
+    add_step(
+        registry,
+        "run_until_pc",
+        "Run the Z80 until PC reaches `addr` at an instruction boundary, or `max_halfcycles` master-clock half-cycles elapse (default 700000 ≈ ten 48K frames, max 50000000). Useful for 'run to here' debugging.",
+        json!({
             "type": "object",
             "properties": {
                 "addr": integer_field(),
@@ -1104,12 +1071,13 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
             },
             "required": ["addr"],
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "disasm",
-        description: "Disassemble `instructions` Z80 opcodes starting at `addr` (default 16, max 64). Reads through the CPU memory bus so paging is honoured. Returns the mnemonic, raw bytes, and length of each instruction.",
-        schema: json!({
+    add_step(
+        registry,
+        "disasm",
+        "Disassemble `instructions` Z80 opcodes starting at `addr` (default 16, max 64). Reads through the CPU memory bus so paging is honoured. Returns the mnemonic, raw bytes, and length of each instruction.",
+        json!({
             "type": "object",
             "properties": {
                 "addr": integer_field(),
@@ -1117,24 +1085,26 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
             },
             "required": ["addr"],
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "port_read",
-        description: "Read one Z80 I/O port through the bus-level handler. Same value an IN A,(C) would observe (ULA $FE, Kempston $1F, AY $FFFD, …) without driving the CPU through the synthetic instruction.",
-        schema: json!({
+    add_step(
+        registry,
+        "port_read",
+        "Read one Z80 I/O port through the bus-level handler. Same value an IN A,(C) would observe (ULA $FE, Kempston $1F, AY $FFFD, …) without driving the CPU through the synthetic instruction.",
+        json!({
             "type": "object",
             "properties": {
                 "port": integer_field(),
             },
             "required": ["port"],
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "port_write",
-        description: "Write one Z80 I/O port through the bus-level handler. Side-effects mirror OUT (C),A — border colour ($FE bits 0-2), beeper (bit 4), 128K paging ($7FFD), AY register select ($FFFD) and data ($BFFD). Silent.",
-        schema: json!({
+    add_step(
+        registry,
+        "port_write",
+        "Write one Z80 I/O port through the bus-level handler. Side-effects mirror OUT (C),A — border colour ($FE bits 0-2), beeper (bit 4), 128K paging ($7FFD), AY register select ($FFFD) and data ($BFFD). Silent.",
+        json!({
             "type": "object",
             "properties": {
                 "port": integer_field(),
@@ -1142,36 +1112,40 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
             },
             "required": ["port", "value"],
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "watch_ay_start",
-        description: "Begin recording every OUT ($BFFD), data — the Z80 → AY data port — capturing (pc, register, value). Curriculum-focused: lets a script show how a music driver or sound-effect routine programs the AY across a frame/scene/bar. Errors when the active variant has no AY (16K / 48K / Spectrum+ / TC2048).",
-        schema: json!({"type": "object"}),
-    }));
+    add_step(
+        registry,
+        "watch_ay_start",
+        "Begin recording every OUT ($BFFD), data — the Z80 → AY data port — capturing (pc, register, value). Curriculum-focused: lets a script show how a music driver or sound-effect routine programs the AY across a frame/scene/bar. Errors when the active variant has no AY (16K / 48K / Spectrum+ / TC2048).",
+        json!({"type": "object"}),
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "watch_ay_clear",
-        description: "Stop the AY register tracer and drop the captured log. Reports how many records were held at the moment of clear.",
-        schema: json!({"type": "object"}),
-    }));
+    add_step(
+        registry,
+        "watch_ay_clear",
+        "Stop the AY register tracer and drop the captured log. Reports how many records were held at the moment of clear.",
+        json!({"type": "object"}),
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "watch_ay_log",
-        description: "Fetch the captured AY writes. Returns up to `limit` most-recent entries (default 64), oldest-first. Set `unique = true` to deduplicate by (pc, register, value) before applying the limit.",
-        schema: json!({
+    add_step(
+        registry,
+        "watch_ay_log",
+        "Fetch the captured AY writes. Returns up to `limit` most-recent entries (default 64), oldest-first. Set `unique = true` to deduplicate by (pc, register, value) before applying the limit.",
+        json!({
             "type": "object",
             "properties": {
                 "limit": integer_field(),
                 "unique": boolean_field(),
             },
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "press_key",
-        description: "Press a single named Spectrum key, hold for `hold_frames` native frames (default 3), then release. One step replaces the press / run_frames / release dance. Valid key names: A-Z, 0-9, Space, Enter, CapsShift, SymbolShift (case-insensitive).",
-        schema: json!({
+    add_step(
+        registry,
+        "press_key",
+        "Press a single named Spectrum key, hold for `hold_frames` native frames (default 3), then release. One step replaces the press / run_frames / release dance. Valid key names: A-Z, 0-9, Space, Enter, CapsShift, SymbolShift (case-insensitive).",
+        json!({
             "type": "object",
             "properties": {
                 "key": string_field(),
@@ -1179,12 +1153,13 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
             },
             "required": ["key"],
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "type_string",
-        description: "Type a string of characters with proper per-key hold/release timing. Each character is pressed individually with `hold_frames` (default 3) hold time and a 1-frame settle gap between keystrokes. Uppercase letters automatically use CapsShift. Newlines press Enter. `settle_frames` (default 10) extra frames run after the last keystroke. Much faster than calling press_key per character.",
-        schema: json!({
+    add_step(
+        registry,
+        "type_string",
+        "Type a string of characters with proper per-key hold/release timing. Each character is pressed individually with `hold_frames` (default 3) hold time and a 1-frame settle gap between keystrokes. Uppercase letters automatically use CapsShift. Newlines press Enter. `settle_frames` (default 10) extra frames run after the last keystroke. Much faster than calling press_key per character.",
+        json!({
             "type": "object",
             "properties": {
                 "text": string_field(),
@@ -1193,12 +1168,13 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
             },
             "required": ["text"],
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "memory_read",
-        description: "Read a contiguous span of CPU-visible memory (Z80 address space, 0x0000-0xFFFF). Returns raw bytes in memory order. `len` is capped at 256 bytes per call.",
-        schema: json!({
+    add_step(
+        registry,
+        "memory_read",
+        "Read a contiguous span of CPU-visible memory (Z80 address space, 0x0000-0xFFFF). Returns raw bytes in memory order. `len` is capped at 256 bytes per call.",
+        json!({
             "type": "object",
             "properties": {
                 "addr": integer_field(),
@@ -1206,12 +1182,13 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
             },
             "required": ["addr", "len"],
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "poke_byte",
-        description: "Write one byte to CPU-visible memory at the given address. Silent — no observation is emitted.",
-        schema: json!({
+    add_step(
+        registry,
+        "poke_byte",
+        "Write one byte to CPU-visible memory at the given address. Silent — no observation is emitted.",
+        json!({
             "type": "object",
             "properties": {
                 "addr": integer_field(),
@@ -1219,12 +1196,13 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
             },
             "required": ["addr", "value"],
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "poke_word",
-        description: "Write a 16-bit value to CPU-visible memory, little-endian (low byte at addr+0, high byte at addr+1). Silent.",
-        schema: json!({
+    add_step(
+        registry,
+        "poke_word",
+        "Write a 16-bit value to CPU-visible memory, little-endian (low byte at addr+0, high byte at addr+1). Silent.",
+        json!({
             "type": "object",
             "properties": {
                 "addr": integer_field(),
@@ -1232,12 +1210,13 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
             },
             "required": ["addr", "value"],
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "watch_memory_start",
-        description: "Begin recording every Z80 CPU write that lands inside [addr, addr+len). Each capture stores (pc, addr, value). Replaces any prior watch and clears the log. Capture cap is 8192 entries; further writes are dropped silently. Pair with watch_memory_log / watch_memory_clear.",
-        schema: json!({
+    add_step(
+        registry,
+        "watch_memory_start",
+        "Begin recording every Z80 CPU write that lands inside [addr, addr+len). Each capture stores (pc, addr, value). Replaces any prior watch and clears the log. Capture cap is 8192 entries; further writes are dropped silently. Pair with watch_memory_log / watch_memory_clear.",
+        json!({
             "type": "object",
             "properties": {
                 "addr": integer_field(),
@@ -1245,25 +1224,27 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
             },
             "required": ["addr", "len"],
         }),
-    }));
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "watch_memory_clear",
-        description: "Stop watching CPU writes and drop the captured log. Reports how many records were held at the moment of clear.",
-        schema: json!({"type": "object"}),
-    }));
+    add_step(
+        registry,
+        "watch_memory_clear",
+        "Stop watching CPU writes and drop the captured log. Reports how many records were held at the moment of clear.",
+        json!({"type": "object"}),
+    );
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "watch_memory_log",
-        description: "Fetch the captured CPU writes. Returns up to `limit` most-recent entries (default 64), in oldest-first order. Set `unique = true` to deduplicate by (pc, addr, value) before applying the limit.",
-        schema: json!({
+    add_step(
+        registry,
+        "watch_memory_log",
+        "Fetch the captured CPU writes. Returns up to `limit` most-recent entries (default 64), in oldest-first order. Set `unique = true` to deduplicate by (pc, addr, value) before applying the limit.",
+        json!({
             "type": "object",
             "properties": {
                 "limit": integer_field(),
                 "unique": boolean_field(),
             },
         }),
-    }));
+    );
 
     registry.register(Box::new(SaveTapeTool));
 }
@@ -1271,6 +1252,10 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The step-parsing round-trip tests below validate ScriptStep serde
+    // for Spectrum-relevant actions; they exercise the shared shell
+    // builder (the bespoke `parse_step` folded into it, #456).
+    use emu198x_shell::mcp_tools::build_step as parse_step;
 
     #[test]
     fn parse_step_round_trips_run_frames_arguments() {
