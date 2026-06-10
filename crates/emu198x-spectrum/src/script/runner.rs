@@ -13,13 +13,12 @@
 
 use std::path::{Path, PathBuf};
 
-use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
 use common_sinclair_zx_spectrum::snapshot::SnapshotModel;
 use common_sinclair_zx_spectrum::timing::{TIMING_48K, TIMING_128K, TIMING_PLUS2A};
 use emu198x_shell::{
-    ControlCommand, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession, InputEvent,
-    MachineCore, MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction,
-    MediaTransportCommand, ScriptError, ScriptObservation, ScriptStep, SessionQueryProvider,
+    ControlCommand, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession, MachineCore,
+    MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
+    ScriptError, ScriptObservation, ScriptStep, SessionQueryProvider, mcp::ToolError,
     read_firmware_asset, read_media_asset,
 };
 use format_sinclair_zx_spectrum_bas::tokenise;
@@ -33,7 +32,7 @@ use serde::Serialize;
 
 use crate::AppError;
 use crate::machine::{MachineKind, rom_root, variant_rom_bundle};
-use crate::mcp::tools::dispatch_live_step;
+use crate::mcp::tools::{dispatch_live_step, execute_press_key, execute_type_string};
 use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapshot_at};
 
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
@@ -230,14 +229,16 @@ pub(crate) fn execute_step(
         ScriptStep::LoadBasicProgram { path, run } => {
             execute_load_basic_program(session, path, *run).map(Some)
         }
-        ScriptStep::PressKey { key, hold_frames } => {
-            execute_press_key(session, key, *hold_frames).map(Some)
-        }
+        ScriptStep::PressKey { key, hold_frames } => execute_press_key(session, key, *hold_frames)
+            .map(Some)
+            .map_err(map_tool_error),
         ScriptStep::TypeString {
             text,
             hold_frames,
             settle_frames,
-        } => execute_type_string(session, text, *hold_frames, *settle_frames).map(Some),
+        } => execute_type_string(session, text, *hold_frames, *settle_frames)
+            .map(Some)
+            .map_err(map_tool_error),
         ScriptStep::LoadSnapshot { path } if is_portable_snapshot_path(path) => {
             execute_load_portable_snapshot(session, path).map(|_| None)
         }
@@ -246,9 +247,7 @@ pub(crate) fn execute_step(
         // with MCP mode via `dispatch_live_step`, so the two can't drift. Only
         // steps it doesn't own fall through to the shell's generic executor.
         other => match dispatch_live_step(other, session) {
-            Some(result) => {
-                result.map_err(|err| AppError::Io(std::io::Error::other(err.to_string())))
-            }
+            Some(result) => result.map_err(map_tool_error),
             None => other.execute_collect(session).map_err(map_script_error),
         },
     }
@@ -326,131 +325,13 @@ fn execute_load_basic_program(
     })
 }
 
-// Frame budgets for keyboard injection. Three frames at 50 Hz is 60 ms —
-// above the ROM's one-frame keyboard scan interval, short enough not to
-// stall a script. Mirrors the MCP-side constants in `mcp/tools.rs`.
-const DEFAULT_PRESS_KEY_HOLD_FRAMES: u32 = 3;
-const MAX_PRESS_KEY_HOLD_FRAMES: u32 = 600;
-const DEFAULT_TYPE_STRING_SETTLE_FRAMES: u32 = 10;
-
-/// Press one named key, hold it for `hold_frames`, release, and settle.
-///
-/// Script-mode twin of `mcp::tools::execute_press_key`. The two session
-/// types differ (`Spectrum48kRuntime` here, `SpectrumRuntimeKind` for MCP),
-/// so — exactly as with [`execute_load_portable_snapshot`] — the logic is
-/// duplicated rather than shared. Keep the two in step.
-fn execute_press_key(
-    session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
-    key: &str,
-    hold_frames: Option<u32>,
-) -> Result<ScriptObservation, AppError> {
-    if SpectrumKey::from_name(key).is_none() {
-        return Err(AppError::Io(std::io::Error::other(format!(
-            "press_key: unknown key `{key}` — valid names: A-Z, 0-9, Space, \
-             Enter, CapsShift, SymbolShift (case-insensitive)"
-        ))));
-    }
-
-    let hold = hold_frames
-        .unwrap_or(DEFAULT_PRESS_KEY_HOLD_FRAMES)
-        .clamp(1, MAX_PRESS_KEY_HOLD_FRAMES);
-
-    session.queue_input(InputEvent::Key {
-        name: key.to_owned().into(),
-        pressed: true,
-    });
-    session.run_frames(hold)?;
-
-    session.queue_input(InputEvent::Key {
-        name: key.to_owned().into(),
-        pressed: false,
-    });
-    // One settle frame so the release lands before the next step runs.
-    session.run_frames(1)?;
-
-    Ok(ScriptObservation::PressKey {
-        key: key.to_owned(),
-        hold_frames: hold,
-        reached: session.time(),
-    })
-}
-
-/// Type a string of characters, one key at a time, with CapsShift applied
-/// for uppercase and Enter for newlines.
-///
-/// Script-mode twin of `mcp::tools::execute_type_string` — see
-/// [`execute_press_key`] for why the logic is duplicated rather than shared.
-fn execute_type_string(
-    session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
-    text: &str,
-    hold_frames: Option<u32>,
-    settle_frames: Option<u32>,
-) -> Result<ScriptObservation, AppError> {
-    let hold = hold_frames
-        .unwrap_or(DEFAULT_PRESS_KEY_HOLD_FRAMES)
-        .clamp(1, MAX_PRESS_KEY_HOLD_FRAMES);
-    let settle = settle_frames.unwrap_or(DEFAULT_TYPE_STRING_SETTLE_FRAMES);
-    let mut chars_typed: u32 = 0;
-    let mut prev_key: Option<String> = None;
-
-    for ch in text.chars() {
-        let (key_name, needs_caps_shift) = match ch {
-            'a'..='z' => (ch.to_ascii_uppercase().to_string(), false),
-            'A'..='Z' => (ch.to_string(), true),
-            '0'..='9' => (ch.to_string(), false),
-            ' ' => ("Space".to_owned(), false),
-            '\n' => ("Enter".to_owned(), false),
-            _ => continue,
-        };
-
-        if SpectrumKey::from_name(&key_name).is_none() {
-            continue;
-        }
-
-        // Extra settle before a repeated key so the ROM scan sees the
-        // release before the next press.
-        if prev_key.as_deref() == Some(&key_name) {
-            session.run_frames(3)?;
-        }
-
-        if needs_caps_shift {
-            session.queue_input(InputEvent::Key {
-                name: "CapsShift".to_owned().into(),
-                pressed: true,
-            });
-        }
-
-        session.queue_input(InputEvent::Key {
-            name: key_name.clone().into(),
-            pressed: true,
-        });
-        session.run_frames(hold)?;
-
-        session.queue_input(InputEvent::Key {
-            name: key_name.clone().into(),
-            pressed: false,
-        });
-        if needs_caps_shift {
-            session.queue_input(InputEvent::Key {
-                name: "CapsShift".to_owned().into(),
-                pressed: false,
-            });
-        }
-
-        session.run_frames(1)?;
-
-        prev_key = Some(key_name);
-        chars_typed += 1;
-    }
-
-    if settle > 0 {
-        session.run_frames(settle)?;
-    }
-
-    Ok(ScriptObservation::TypeString {
-        chars_typed,
-        reached: session.time(),
-    })
+/// Map a [`ToolError`] from a shared step helper into the script
+/// runner's [`AppError`]. The keyboard-injection helpers
+/// (`execute_press_key` / `execute_type_string`) and `dispatch_live_step`
+/// are shared with MCP mode and report `ToolError`; script mode wraps
+/// that as an I/O error, matching how the live-step arm already maps.
+fn map_tool_error(err: ToolError) -> AppError {
+    AppError::Io(std::io::Error::other(err.to_string()))
 }
 
 /// Eager-boot the default 48K runtime from the conventional ROM path

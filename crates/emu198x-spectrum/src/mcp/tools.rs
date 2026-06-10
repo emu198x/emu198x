@@ -653,8 +653,12 @@ pub(crate) fn execute_watch_ay_clear<
 const DEFAULT_PRESS_KEY_HOLD_FRAMES: u32 = 3;
 const MAX_PRESS_KEY_HOLD_FRAMES: u32 = 600;
 
-fn execute_press_key(
-    session: &mut SpectrumSession,
+/// Press one named key, hold it, release, and settle. Generic over the
+/// session type so MCP mode (`SpectrumRuntimeKind`) and the `--script`
+/// runner (`Spectrum48kRuntime`) share one implementation — the keyboard
+/// injection only needs the shared `HeadlessSession` surface (#456).
+pub(crate) fn execute_press_key<M: MachineCore, Q: SessionQueryProvider<M>>(
+    session: &mut HeadlessSession<M, Q>,
     key: &str,
     hold_frames: Option<u32>,
 ) -> Result<ScriptObservation, ToolError> {
@@ -701,8 +705,11 @@ fn execute_press_key(
 
 const DEFAULT_TYPE_STRING_SETTLE_FRAMES: u32 = 10;
 
-fn execute_type_string(
-    session: &mut SpectrumSession,
+/// Type a string key-by-key with CapsShift for uppercase and Enter for
+/// newlines. Generic over the session type — see [`execute_press_key`]
+/// — so MCP and `--script` share one implementation (#456).
+pub(crate) fn execute_type_string<M: MachineCore, Q: SessionQueryProvider<M>>(
+    session: &mut HeadlessSession<M, Q>,
     text: &str,
     hold_frames: Option<u32>,
     settle_frames: Option<u32>,
