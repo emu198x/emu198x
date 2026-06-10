@@ -1,7 +1,6 @@
 //! `emu198x-atari-2600` — Atari 2600 / VCS native binary.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;

@@ -11,7 +11,10 @@ pub(crate) const ELECTRON_QUERY_PATHS: &[&str] = &[
     "cpu.pc",
     "firmware.loaded",
     "machine.frame_count",
+    "ula",
     "ula.display_mode",
+    "ula.framebuffer_height",
+    "ula.framebuffer_width",
     "ula.irq",
 ];
 
@@ -42,8 +45,20 @@ impl SessionQueryProvider<ElectronRuntime> for ElectronSessionQueryProvider {
             }
             "cpu.cycles" => json!(loaded(machine, path)?.cpu_cycles()),
             "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            // Electron ULA — grouped snapshot + leaves.
+            "ula" => {
+                let el = loaded(machine, path)?;
+                json!({
+                    "display_mode": el.display_mode(),
+                    "irq": el.irq_asserted(),
+                    "framebuffer_width": el.framebuffer_width(),
+                    "framebuffer_height": el.framebuffer_height(),
+                })
+            }
             "ula.display_mode" => json!(loaded(machine, path)?.display_mode()),
             "ula.irq" => json!(loaded(machine, path)?.irq_asserted()),
+            "ula.framebuffer_width" => json!(loaded(machine, path)?.framebuffer_width()),
+            "ula.framebuffer_height" => json!(loaded(machine, path)?.framebuffer_height()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

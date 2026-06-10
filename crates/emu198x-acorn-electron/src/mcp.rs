@@ -11,8 +11,6 @@ use emu198x_shell::{
 };
 use runtime_acorn_electron::{ElectronRuntime, ElectronSessionQueryProvider, Model};
 
-use crate::mcp_tools::register_electron_tools;
-
 /// Electron PAL: 312 lines × ~128 cycles/line at 2 MHz ≈ 40000 cycles.
 const FRAME_TICKS_PAL: u64 = 40_000;
 
@@ -55,7 +53,6 @@ pub fn run() -> Result<(), String> {
         env!("CARGO_PKG_VERSION"),
     ));
     register_base_tools(server.registry_mut());
-    register_electron_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }
 

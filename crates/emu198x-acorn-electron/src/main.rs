@@ -1,7 +1,6 @@
 //! `emu198x-acorn-electron` — Electron native binary.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;

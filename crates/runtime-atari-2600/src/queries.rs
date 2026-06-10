@@ -16,6 +16,9 @@ pub(crate) const VCS_QUERY_PATHS: &[&str] = &[
     "machine.frame_count",
     "machine.master_clock",
     "machine.region",
+    "tia",
+    "tia.framebuffer_height",
+    "tia.framebuffer_width",
     "tia.hpos",
     "tia.vpos",
 ];
@@ -56,8 +59,20 @@ impl SessionQueryProvider<Atari2600Runtime> for Atari2600SessionQueryProvider {
             "input.swchb" => json!(loaded(machine, path)?.riot().swchb()),
             "input.inpt4" => json!(loaded(machine, path)?.tia().read(0x0C)),
             "input.inpt5" => json!(loaded(machine, path)?.tia().read(0x0D)),
+            // TIA — grouped snapshot + leaves.
+            "tia" => {
+                let tia = loaded(machine, path)?.tia();
+                json!({
+                    "hpos": tia.hpos(),
+                    "vpos": tia.vpos(),
+                    "framebuffer_width": tia.framebuffer_width(),
+                    "framebuffer_height": tia.framebuffer_height(),
+                })
+            }
             "tia.hpos" => json!(loaded(machine, path)?.tia().hpos()),
             "tia.vpos" => json!(loaded(machine, path)?.tia().vpos()),
+            "tia.framebuffer_width" => json!(loaded(machine, path)?.tia().framebuffer_width()),
+            "tia.framebuffer_height" => json!(loaded(machine, path)?.tia().framebuffer_height()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

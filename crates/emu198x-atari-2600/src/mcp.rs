@@ -7,8 +7,6 @@ use emu198x_shell::{
 };
 use runtime_atari_2600::{Atari2600Runtime, Atari2600SessionQueryProvider, Model};
 
-use crate::mcp_tools::register_vcs_tools;
-
 /// Atari 2600 NTSC frame = 262 lines × 228 colour clocks.
 const FRAME_TICKS_NTSC: u64 = 262 * 228;
 
@@ -29,6 +27,5 @@ pub fn run() -> Result<(), String> {
         env!("CARGO_PKG_VERSION"),
     ));
     register_base_tools(server.registry_mut());
-    register_vcs_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }
