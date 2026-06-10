@@ -3479,4 +3479,44 @@ mod tests {
         assert!(registry.get("reset").is_none());
         assert!(registry.get("start_video_recording").is_none());
     }
+
+    /// Regression (#454): the Amiga — the most input-dependent machine in
+    /// the fleet — must be keyboard- and mouse-drivable over MCP. The
+    /// production server (`mcp::run`) layers the bespoke Amiga tools on
+    /// top of `register_common_tools`, which surfaces the shared `input`
+    /// tool routing `Key` / `PointerMotion` / `PointerButton` into
+    /// Paula/CIA. This pins the full production surface so the input door
+    /// can't silently close again (it was absent in the 2026-06-05
+    /// drivability assessment, before the HeadlessSession cutover).
+    #[test]
+    fn full_mcp_surface_is_keyboard_and_mouse_drivable() {
+        use emu198x_shell::mcp_tools::{register_common_tools, register_debug_tools};
+
+        let mut registry: ToolRegistry<Sess> = ToolRegistry::new();
+        register_common_tools(&mut registry);
+        register_debug_tools(&mut registry);
+        register_amiga_tools(&mut registry);
+
+        let input = registry
+            .get("input")
+            .expect("shared `input` tool reaches the Amiga MCP surface (#454)");
+
+        // The Amiga's three modelled input events queue without error.
+        let mut s = boot();
+        input
+            .call(
+                json!({ "events": [{ "Key": { "name": "return", "pressed": true } }] }),
+                &mut s,
+            )
+            .expect("input tool accepts a keyboard event");
+        input
+            .call(
+                json!({ "events": [
+                    { "PointerMotion": { "device": "mouse-1", "dx": 4, "dy": -2 } },
+                    { "PointerButton": { "device": "mouse-1", "button": "left", "pressed": true } }
+                ] }),
+                &mut s,
+            )
+            .expect("input tool accepts mouse motion + button events");
+    }
 }
