@@ -943,14 +943,15 @@ fn parse_step(action: &str, arguments: Value) -> Result<ScriptStep, ToolError> {
 /// the bespoke surface (`set_machine`, `autoload_tape`,
 /// `load_basic_program`, `query_ay`, `port_read`/`write`, `type_string`,
 /// `press_key`, `watch_ay_*`, `watch_memory_*`, `clear_audio_capture`)
-/// plus the rich Z80 debug tools (`query_cpu` reporting the full register
-/// file with decoded flags, `memory_read`, `disasm`, `step`,
-/// `run_until_pc`, `poke_byte`/`poke_word`).
+/// plus the Z80 debug tools that aren't on the shared surface
+/// (`memory_read`, `disasm`, `step`, `run_until_pc`,
+/// `poke_byte`/`poke_word`).
 ///
-/// The generic tools (`run_frames`, `input`, `query`, media, capture,
-/// `reset`, …) come from the shared `register_common_tools`; the debug
-/// tools here are registered AFTER `register_debug_tools` so they override
-/// its generic versions by name, preserving the curriculum output shape.
+/// `query_cpu` is NOT here: it comes from the shared
+/// `register_debug_tools`, powered by the enriched
+/// `DebugTarget::dbg_cpu_state` (full Z80 file + decoded flags) (#456).
+/// The other generic tools (`run_frames`, `input`, `query`, media,
+/// capture, `reset`, …) likewise come from `register_common_tools`.
 /// Order is the order shown by `tools/list`.
 /// `save_tape` — persist a tape `SAVE` to a host `.tap`.
 ///
@@ -1077,11 +1078,9 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
         schema: json!({"type": "object"}),
     }));
 
-    registry.register(Box::new(ScriptStepTool {
-        name: "query_cpu",
-        description: "Read every Z80 register in one call: PC, SP, I, R, the main bank (AF/BC/DE/HL + a/f/b/c/d/e/h/l), the alternate bank (AF'/BC'/DE'/HL'), index registers (IX/IY), interrupt state (IM/IFF1/IFF2), the decoded F flags (S/Z/5/H/3/P-V/N/C), and the halt pin.",
-        schema: json!({"type": "object"}),
-    }));
+    // `query_cpu` is served by the shared `register_debug_tools` via the
+    // enriched `DebugTarget::dbg_cpu_state` (full Z80 file + decoded
+    // flags), so there is no bespoke override here any more (#456).
 
     registry.register(Box::new(ScriptStepTool {
         name: "step",
@@ -1469,10 +1468,13 @@ mod tests {
         register_spectrum_tools(&mut registry);
         let names: Vec<_> = registry.iter().map(|tool| tool.name().to_owned()).collect();
 
-        // The Spectrum-specific tools (bespoke + rich Z80 debug) live
-        // here, plus `load_snapshot` — an intentional override of the
-        // shared tool so portable `.sna` / `.z80` files route through the
-        // Spectrum snapshot parser rather than postcard (gap #6).
+        // The Spectrum-specific tools (bespoke + Z80 debug that isn't on
+        // the shared surface) live here, plus `load_snapshot` — an
+        // intentional override of the shared tool so portable `.sna` /
+        // `.z80` files route through the Spectrum snapshot parser rather
+        // than postcard (gap #6). `query_cpu` is NOT here — it comes from
+        // the shared `register_debug_tools` via the enriched
+        // `dbg_cpu_state` (#456).
         let expected = [
             "clear_audio_capture",
             "set_machine",
@@ -1480,7 +1482,6 @@ mod tests {
             "load_basic_program",
             "load_snapshot",
             "query_ay",
-            "query_cpu",
             "step",
             "run_until_pc",
             "disasm",

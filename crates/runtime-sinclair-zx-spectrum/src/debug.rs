@@ -9,13 +9,12 @@
 //! exposes — putting the Spectrum onto the same debug tier as the rest of
 //! the fleet.
 //!
-//! The MCP server registers the richer bespoke Spectrum debug tools
-//! (`query_cpu` with the full Z80 file + decoded flags, etc.) AFTER
-//! `register_debug_tools`, so they override the shared ones by name. This
-//! impl therefore backstops the shared surface (and the `io_trace` tool)
-//! rather than being the output the curriculum reads. `io_trace` is left
-//! unsupported (the default) — the Spectrum exposes I/O through
-//! `port_read` / `port_write` and the AY write-watch instead.
+//! `dbg_cpu_state` here carries the full Z80 register file + decoded
+//! flags, so the shared `register_debug_tools` `query_cpu` is the rich
+//! curriculum surface — the bespoke `query_cpu` override was removed
+//! (#456). `io_trace` is left unsupported (the default) — the Spectrum
+//! exposes I/O through `port_read` / `port_write` and the AY
+//! write-watch instead.
 
 use emu198x_shell::DebugPrimitives;
 use serde_json::{Value, json};
@@ -39,21 +38,49 @@ impl DebugPrimitives for SpectrumRuntimeKind {
     }
 
     fn dbg_cpu_state(&self) -> Value {
+        // The full Z80 register file pushed down from the old bespoke
+        // `query_cpu` MCP tool (#456): the main bank with its 8-bit
+        // halves, the alternate bank, index + interrupt state, and the
+        // decoded F flags. Hex strings keep this consistent with the
+        // rest of the fleet's `DebugTarget` surface.
         let r = self.z80_registers();
+        let f = r.f();
         json!({
-            "af": format!("${:04X}", r.af),
-            "bc": format!("${:04X}", r.bc),
-            "de": format!("${:04X}", r.de),
-            "hl": format!("${:04X}", r.hl),
-            "ix": format!("${:04X}", r.ix),
-            "iy": format!("${:04X}", r.iy),
-            "sp": format!("${:04X}", r.sp),
             "pc": format!("${:04X}", r.pc),
+            "sp": format!("${:04X}", r.sp),
             "i":  format!("${:02X}", r.i),
             "r":  format!("${:02X}", r.r),
+            "af": format!("${:04X}", r.af),
+            "a":  format!("${:02X}", r.a()),
+            "f":  format!("${:02X}", f),
+            "bc": format!("${:04X}", r.bc),
+            "b":  format!("${:02X}", r.b()),
+            "c":  format!("${:02X}", r.c()),
+            "de": format!("${:04X}", r.de),
+            "d":  format!("${:02X}", r.d()),
+            "e":  format!("${:02X}", r.e()),
+            "hl": format!("${:04X}", r.hl),
+            "h":  format!("${:02X}", r.h()),
+            "l":  format!("${:02X}", r.l()),
+            "af_alt": format!("${:04X}", r.af_alt),
+            "bc_alt": format!("${:04X}", r.bc_alt),
+            "de_alt": format!("${:04X}", r.de_alt),
+            "hl_alt": format!("${:04X}", r.hl_alt),
+            "ix": format!("${:04X}", r.ix),
+            "iy": format!("${:04X}", r.iy),
+            "im":   r.im,
             "iff1": r.iff1,
             "iff2": r.iff2,
-            "im":   r.im,
+            "flags": {
+                "s":  f & 0x80 != 0,
+                "z":  f & 0x40 != 0,
+                "f5": f & 0x20 != 0,
+                "h":  f & 0x10 != 0,
+                "f3": f & 0x08 != 0,
+                "pv": f & 0x04 != 0,
+                "n":  f & 0x02 != 0,
+                "c":  f & 0x01 != 0,
+            },
             "halt": self.z80_halted(),
         })
     }
