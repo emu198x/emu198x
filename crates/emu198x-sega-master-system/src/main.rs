@@ -5,7 +5,6 @@
 //! (`--mcp`/`--mcp-stdio`). Mirrors the Coleco / SG-1000 binaries.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;

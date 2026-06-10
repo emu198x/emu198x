@@ -1,7 +1,6 @@
 //! `emu198x-sord-m5` — Sord M5 native binary.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;

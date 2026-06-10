@@ -13,6 +13,14 @@ pub(crate) const SMS_QUERY_PATHS: &[&str] = &[
     "machine.frame_count",
     "machine.region",
     "machine.variant",
+    "mapper",
+    "mapper.control",
+    "mapper.page0",
+    "mapper.page1",
+    "mapper.page2",
+    "vdp",
+    "vdp.framebuffer_height",
+    "vdp.framebuffer_width",
     "vdp.scanline",
 ];
 
@@ -39,7 +47,36 @@ impl SessionQueryProvider<SmsRuntime> for SmsSessionQueryProvider {
             "machine.frame_count" => json!(machine.machine().map_or(0, Sms::frame_count)),
             "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             "cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
+
+            // Sega VDP — grouped snapshot + leaves. `scanline` is the V
+            // counter (the chip's scanline register).
+            "vdp" => {
+                let vdp = loaded(machine, path)?.vdp();
+                json!({
+                    "scanline": vdp.read_v_counter(),
+                    "framebuffer_width": vdp.framebuffer_width(),
+                    "framebuffer_height": vdp.framebuffer_height(),
+                })
+            }
             "vdp.scanline" => json!(loaded(machine, path)?.vdp().read_v_counter()),
+            "vdp.framebuffer_width" => json!(loaded(machine, path)?.vdp().framebuffer_width()),
+            "vdp.framebuffer_height" => json!(loaded(machine, path)?.vdp().framebuffer_height()),
+
+            // Sega mapper — control + three bank-page selects.
+            "mapper" => {
+                let regs = loaded(machine, path)?.mapper_regs();
+                json!({
+                    "control": format!("${:02X}", regs[0]),
+                    "page0": format!("${:02X}", regs[1]),
+                    "page1": format!("${:02X}", regs[2]),
+                    "page2": format!("${:02X}", regs[3]),
+                })
+            }
+            "mapper.control" => json!(format!("${:02X}", loaded(machine, path)?.mapper_regs()[0])),
+            "mapper.page0" => json!(format!("${:02X}", loaded(machine, path)?.mapper_regs()[1])),
+            "mapper.page1" => json!(format!("${:02X}", loaded(machine, path)?.mapper_regs()[2])),
+            "mapper.page2" => json!(format!("${:02X}", loaded(machine, path)?.mapper_regs()[3])),
+
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

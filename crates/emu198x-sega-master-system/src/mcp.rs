@@ -7,8 +7,6 @@ use emu198x_shell::{
 };
 use runtime_sega_master_system::{Model, SmsRuntime, SmsSessionQueryProvider};
 
-use crate::mcp_tools::register_sms_tools;
-
 const SMS_FRAME_TICKS_NTSC: u64 = 228 * 262;
 
 /// Runs MCP mode. Starts blank; cartridge arrives via load_media.
@@ -28,6 +26,5 @@ pub fn run() -> Result<(), String> {
         env!("CARGO_PKG_VERSION"),
     ));
     register_base_tools(server.registry_mut());
-    register_sms_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

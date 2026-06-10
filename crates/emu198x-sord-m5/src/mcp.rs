@@ -11,8 +11,6 @@ use emu198x_shell::{
 };
 use runtime_sord_m5::{M5Runtime, M5SessionQueryProvider, Model};
 
-use crate::mcp_tools::register_m5_tools;
-
 const FRAME_TICKS_NTSC: u64 = 228 * 262;
 
 /// Runs MCP mode.
@@ -36,7 +34,6 @@ pub fn run() -> Result<(), String> {
         env!("CARGO_PKG_VERSION"),
     ));
     register_base_tools(server.registry_mut());
-    register_m5_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }
 
