@@ -1,7 +1,7 @@
 ---
 title: MCP query namespace (drop machine prefix), chip-read folding, and write access
 date: 2026-06-10
-status: accepted — implementation gated on the Code198x path-usage check (step 0)
+status: accepted — Code198x path-usage check cleared 2026-06-10; safe to implement
 scope: mcp / query + write surface
 ---
 
@@ -120,12 +120,18 @@ chip writes are a later convenience, not a gap.
 
 Design together (shared namespace); land in order, each on a clean base:
 
-0. **GATE — Code198x path-usage check.** These query paths *are* the
-   curriculum's query surface; dropping the prefix breaks any lesson teaching
-   `query nes.ppu.scanline`. This is a cross-sibling decision touching the
-   October 2026 launch. Open the Code198x scope, grep for `<machine>.` path
-   references, and decide: clean break now (cheapest pre-launch) or keep the
-   prefix. **No code moves until this is resolved.**
+0. **GATE — Code198x path-usage check. ✅ CLEARED 2026-06-10.** Swept the
+   whole Code198x sibling (230 `.script.json` session files + lessons +
+   docs). The curriculum drives the emulator with action tools only —
+   `run_frames` (1465×), `input` (1116×), `save_screenshot`, `load_snapshot`,
+   `start/stop_video_recording`, `load_basic_program`, `type_string`,
+   `wait_for_boot`, `poke_byte`, `load_media`, `autoload_tape`, `press_key`,
+   audio capture. It uses **zero** `query` / `wait_for_query_*` /
+   `query_paths` / `query_<chip>` actions: no machine state is read by query
+   path anywhere. Every `"path":` key is a *file* path (`.sna`/`.bas`/`.png`),
+   unaffected by the namespace change. And `poke_byte` is address-based,
+   which decision 3 keeps. So the prefix drop, the chip-read fold, and the
+   `set` addition are all clear of curriculum impact — safe to proceed.
 1. Settle the namespace — drop `<machine>`, update providers + path lists +
    tests + the reserved-prefix rule.
 2. Fold chip-snapshot reads into the clean namespace; delete the bespoke
