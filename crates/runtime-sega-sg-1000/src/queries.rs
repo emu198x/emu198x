@@ -12,6 +12,9 @@ pub(crate) const SG1000_QUERY_PATHS: &[&str] = &[
     "cpu.tstates",
     "machine.frame_count",
     "machine.region",
+    "vdp",
+    "vdp.framebuffer_height",
+    "vdp.framebuffer_width",
     "vdp.scanline",
 ];
 
@@ -43,7 +46,20 @@ impl SessionQueryProvider<Sg1000Runtime> for Sg1000SessionQueryProvider {
             }
             "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             "cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
+
+            // TMS9918 VDP — grouped snapshot + leaves.
+            "vdp" => {
+                let vdp = loaded(machine, path)?.vdp();
+                json!({
+                    "scanline": vdp.scanline(),
+                    "framebuffer_width": vdp.framebuffer_width(),
+                    "framebuffer_height": vdp.framebuffer_height(),
+                })
+            }
             "vdp.scanline" => json!(loaded(machine, path)?.vdp().scanline()),
+            "vdp.framebuffer_width" => json!(loaded(machine, path)?.vdp().framebuffer_width()),
+            "vdp.framebuffer_height" => json!(loaded(machine, path)?.vdp().framebuffer_height()),
+
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

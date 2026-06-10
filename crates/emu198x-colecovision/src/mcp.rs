@@ -11,8 +11,6 @@ use emu198x_shell::{
 };
 use runtime_coleco_colecovision::{CvRuntime, CvSessionQueryProvider, Model};
 
-use crate::mcp_tools::register_cv_tools;
-
 /// ColecoVision NTSC: 228 T-states × 262 scanlines.
 const CV_FRAME_TICKS_NTSC: u64 = 228 * 262;
 
@@ -56,7 +54,6 @@ pub fn run() -> Result<(), String> {
         env!("CARGO_PKG_VERSION"),
     ));
     register_base_tools(server.registry_mut());
-    register_cv_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

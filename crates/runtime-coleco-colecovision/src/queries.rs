@@ -13,6 +13,9 @@ pub(crate) const CV_QUERY_PATHS: &[&str] = &[
     "cpu.pc",
     "machine.frame_count",
     "machine.region",
+    "vdp",
+    "vdp.framebuffer_height",
+    "vdp.framebuffer_width",
     "vdp.scanline",
 ];
 
@@ -42,7 +45,24 @@ impl SessionQueryProvider<CvRuntime> for CvSessionQueryProvider {
             }
             "cpu.cycles" => json!(loaded_machine(machine, path)?.cpu_cycles()),
             "cpu.pc" => json!(loaded_machine(machine, path)?.cpu().regs.pc),
+
+            // TMS9918 VDP — grouped snapshot + leaves.
+            "vdp" => {
+                let vdp = loaded_machine(machine, path)?.vdp();
+                json!({
+                    "scanline": vdp.scanline(),
+                    "framebuffer_width": vdp.framebuffer_width(),
+                    "framebuffer_height": vdp.framebuffer_height(),
+                })
+            }
             "vdp.scanline" => json!(loaded_machine(machine, path)?.vdp().scanline()),
+            "vdp.framebuffer_width" => {
+                json!(loaded_machine(machine, path)?.vdp().framebuffer_width())
+            }
+            "vdp.framebuffer_height" => {
+                json!(loaded_machine(machine, path)?.vdp().framebuffer_height())
+            }
+
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

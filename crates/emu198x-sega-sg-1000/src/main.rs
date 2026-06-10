@@ -5,7 +5,6 @@
 //! Mirrors the Coleco binary; full UI is a follow-up.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;
