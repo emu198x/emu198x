@@ -7,10 +7,10 @@ use serde_json::json;
 use crate::runtime::Zx81Runtime;
 
 pub(crate) const ZX81_QUERY_PATHS: &[&str] = &[
-    "zx81.cpu.pc",
-    "zx81.firmware.loaded",
-    "zx81.machine.frame_count",
-    "zx81.ram.bytes",
+    "cpu.pc",
+    "firmware.loaded",
+    "machine.frame_count",
+    "ram.bytes",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -30,10 +30,10 @@ impl SessionQueryProvider<Zx81Runtime> for Zx81SessionQueryProvider {
 
     fn query(&self, machine: &Zx81Runtime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "zx81.firmware.loaded" => json!(machine.machine().is_some()),
-            "zx81.ram.bytes" => json!(machine.ram_bytes()),
-            "zx81.machine.frame_count" => json!(machine.machine().map_or(0, Zx81::frame_count)),
-            "zx81.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "firmware.loaded" => json!(machine.machine().is_some()),
+            "ram.bytes" => json!(machine.ram_bytes()),
+            "machine.frame_count" => json!(machine.machine().map_or(0, Zx81::frame_count)),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

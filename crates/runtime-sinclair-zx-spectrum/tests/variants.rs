@@ -821,23 +821,23 @@ fn assert_shared_query_paths_resolve<M: SpectrumMachine>(runtime: &SpectrumRunti
         .expect("screen.text.rows should resolve")
         .expect("provider must own screen.text.rows");
     let kbd = provider
-        .query(runtime, "spectrum.keyboard.rows")
+        .query(runtime, "keyboard.rows")
         .expect("keyboard rows should resolve")
         .expect("provider must own spectrum.keyboard.rows");
     let tape_loaded = provider
-        .query(runtime, "spectrum.tape.loaded")
+        .query(runtime, "tape.loaded")
         .expect("tape loaded should resolve")
         .expect("provider must own spectrum.tape.loaded");
     let tape_playing = provider
-        .query(runtime, "spectrum.tape.playing")
+        .query(runtime, "tape.playing")
         .expect("tape playing should resolve")
         .expect("provider must own spectrum.tape.playing");
     let hc = provider
-        .query(runtime, "spectrum.machine.half_cycle_in_frame")
+        .query(runtime, "machine.half_cycle_in_frame")
         .expect("half-cycle should resolve")
         .expect("provider must own half_cycle_in_frame");
     let tstate = provider
-        .query(runtime, "spectrum.machine.tstate_in_frame")
+        .query(runtime, "machine.tstate_in_frame")
         .expect("tstate should resolve")
         .expect("provider must own tstate_in_frame");
 
@@ -908,14 +908,14 @@ fn spectrum_plus_runtime_resolves_disk_slot_query() {
 
     let provider = SpectrumSessionQueryProvider;
     let plus3_disk = provider
-        .query(&runtime3, "spectrum.plus.disk_slot_supported")
+        .query(&runtime3, "plus.disk_slot_supported")
         .expect("disk slot query should resolve")
         .expect("provider must own disk_slot_supported");
     assert_eq!(plus3_disk.value, serde_json::json!(true));
 
     let runtime2a = SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new());
     let plus2a_disk = provider
-        .query(&runtime2a, "spectrum.plus.disk_slot_supported")
+        .query(&runtime2a, "plus.disk_slot_supported")
         .expect("disk slot query should resolve")
         .expect("provider must own disk_slot_supported");
     assert_eq!(plus2a_disk.value, serde_json::json!(false));
@@ -929,7 +929,7 @@ fn pentagon_128_runtime_exposes_kempston_state_query() {
 
     let provider = SpectrumSessionQueryProvider;
     let kempston = provider
-        .query(&runtime, "spectrum.kempston.state")
+        .query(&runtime, "kempston.state")
         .expect("kempston query should resolve")
         .expect("provider must own kempston.state");
     // Default kempston state is 0 (no buttons pressed).
@@ -944,7 +944,7 @@ fn scorpion_runtime_exposes_kempston_state_query() {
 
     let provider = SpectrumSessionQueryProvider;
     let kempston = provider
-        .query(&runtime, "spectrum.kempston.state")
+        .query(&runtime, "kempston.state")
         .expect("kempston query should resolve")
         .expect("provider must own kempston.state");
     assert_eq!(kempston.value, serde_json::json!(0));
@@ -959,7 +959,7 @@ fn timex_tc2048_runtime_exposes_kempston_state_query() {
 
         let provider = SpectrumSessionQueryProvider;
         let kempston = provider
-            .query(&runtime, "spectrum.kempston.state")
+            .query(&runtime, "kempston.state")
             .expect("kempston query should resolve")
             .expect("provider must own kempston.state");
         assert_eq!(kempston.value, serde_json::json!(0));
@@ -976,7 +976,7 @@ fn timex_ts2068_runtime_exposes_model_query_alongside_kempston() {
 
         let provider = SpectrumSessionQueryProvider;
         let model = provider
-            .query(&runtime, "spectrum.timex.model")
+            .query(&runtime, "timex.model")
             .expect("timex model query should resolve")
             .expect("provider must own timex.model");
         assert_eq!(model.value, serde_json::json!("ts2068"));
@@ -984,7 +984,7 @@ fn timex_ts2068_runtime_exposes_model_query_alongside_kempston() {
         let runtime_tc =
             TimexTS2068Runtime::new(Model::TimexTC2068, TimexTS2068::new(TimexModel::TC2068));
         let model_tc = provider
-            .query(&runtime_tc, "spectrum.timex.model")
+            .query(&runtime_tc, "timex.model")
             .expect("timex model query should resolve")
             .expect("provider must own timex.model");
         assert_eq!(model_tc.value, serde_json::json!("tc2068"));
@@ -1016,13 +1016,13 @@ where
     let provider = SpectrumSessionQueryProvider;
 
     let selected = provider
-        .query(runtime, "spectrum.ay.selected_register")
+        .query(runtime, "ay.selected_register")
         .expect("AY register query should resolve")
         .expect("provider must own ay.selected_register");
     assert_eq!(selected.value, serde_json::json!(13));
 
     let regs = provider
-        .query(runtime, "spectrum.ay.registers")
+        .query(runtime, "ay.registers")
         .expect("AY register-file query should resolve")
         .expect("provider must own ay.registers");
     let arr = regs.value.as_array().expect("registers value is an array");
@@ -1110,14 +1110,14 @@ fn non_ay_variants_do_not_advertise_ay_paths() {
     let provider = SpectrumSessionQueryProvider;
 
     let runtime48 = Spectrum48kRuntime::new(Model::Spectrum48KPal, Spectrum48k::new());
-    let paths_48 = provider.query_paths(&runtime48, Some("spectrum.ay."));
+    let paths_48 = provider.query_paths(&runtime48, Some("ay."));
     assert!(
         paths_48.is_empty(),
         "48K should not advertise spectrum.ay.* paths, got {paths_48:?}"
     );
     assert!(
         provider
-            .query(&runtime48, "spectrum.ay.selected_register")
+            .query(&runtime48, "ay.selected_register")
             .expect("query call must not error")
             .is_none(),
         "48K must not own spectrum.ay.selected_register"
@@ -1125,14 +1125,14 @@ fn non_ay_variants_do_not_advertise_ay_paths() {
 
     run_with_large_stack(move || {
         let runtime_tc = TimexTC2048Runtime::new(Model::TimexTC2048, TimexTC2048::new());
-        let paths_tc = provider.query_paths(&runtime_tc, Some("spectrum.ay."));
+        let paths_tc = provider.query_paths(&runtime_tc, Some("ay."));
         assert!(
             paths_tc.is_empty(),
             "TC2048 should not advertise spectrum.ay.* paths, got {paths_tc:?}"
         );
         assert!(
             provider
-                .query(&runtime_tc, "spectrum.ay.registers")
+                .query(&runtime_tc, "ay.registers")
                 .expect("query call must not error")
                 .is_none(),
             "TC2048 must not own spectrum.ay.registers"

@@ -367,7 +367,7 @@ fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
     // resetting on every PRB write) used to cap step_events at ~12
     // before the loader gave up.
     let steps = provider
-        .query(&runtime, "amiga.disk.step_events")?
+        .query(&runtime, "disk.step_events")?
         .expect("disk step_events should be available")
         .value
         .as_u64()

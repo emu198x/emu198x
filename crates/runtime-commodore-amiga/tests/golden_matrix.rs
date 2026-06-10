@@ -475,12 +475,12 @@ fn run_row(row: &GoldenRow) {
                         writable: false,
                     },
                     ScriptStep::WaitForQueryBool {
-                        path: "amiga.a1000.wom_locked".to_owned(),
+                        path: "a1000.wom_locked".to_owned(),
                         value: true,
                         max_frames: 1800,
                     },
                     ScriptStep::WaitForQueryBool {
-                        path: "amiga.disk.motor_spinning".to_owned(),
+                        path: "disk.motor_spinning".to_owned(),
                         value: false,
                         max_frames: 600,
                     },

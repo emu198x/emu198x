@@ -863,12 +863,12 @@ fn wait_for_tape_motion_to_stop(
     let mut saw_motion = false;
 
     loop {
-        let playing = query_bool(session, "c64.tape.playing")?;
+        let playing = query_bool(session, "tape.playing")?;
         if playing {
             saw_motion = true;
         } else if saw_motion {
             return Ok(ScriptObservation::WaitForQueryBool {
-                path: "c64.tape.playing".to_owned(),
+                path: "tape.playing".to_owned(),
                 value: false,
                 frames,
                 reached: session.time(),
@@ -877,7 +877,7 @@ fn wait_for_tape_motion_to_stop(
 
         if frames >= max_frames {
             return Ok(ScriptObservation::WaitForQueryBool {
-                path: "c64.tape.playing".to_owned(),
+                path: "tape.playing".to_owned(),
                 value: false,
                 frames,
                 reached: session.time(),

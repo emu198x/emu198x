@@ -448,8 +448,8 @@ impl SpectrumRunner {
         // comes from the live runtime's profile.display_name — updates
         // on Machine-menu switch.
         let tape = match (
-            self.query_bool("spectrum.tape.loaded"),
-            self.query_bool("spectrum.tape.playing"),
+            self.query_bool("tape.loaded"),
+            self.query_bool("tape.playing"),
         ) {
             (true, true) => "tape playing",
             (true, false) => "tape loaded",
@@ -460,7 +460,7 @@ impl SpectrumRunner {
     }
 
     pub fn tape_playing(&self) -> bool {
-        self.query_bool("spectrum.tape.playing")
+        self.query_bool("tape.playing")
     }
 }
 

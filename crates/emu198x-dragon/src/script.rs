@@ -2941,7 +2941,7 @@ impl RecentTraceCollector {
 impl TraceSink for RecentTraceCollector {
     fn push_trace(&mut self, event: TraceEvent<'_>) -> Result<(), MachineError> {
         match event.kind.as_ref() {
-            "dragon.device_access" => {
+            "device_access" => {
                 let payload = String::from_utf8_lossy(event.payload);
                 self.entries
                     .push(format!("{} {}", event.timestamp.0, payload));
@@ -2956,7 +2956,7 @@ impl TraceSink for RecentTraceCollector {
                     }
                 }
             }
-            "dragon.interrupt_accept" | "dragon.interrupt_line" => {
+            "interrupt_accept" | "interrupt_line" => {
                 let payload = String::from_utf8_lossy(event.payload);
                 self.interrupt_entries
                     .push(format!("{} {}", event.timestamp.0, payload));
@@ -3057,10 +3057,10 @@ fn run_typed_command(
         boot_frames: boot.frames,
         boot_reason: boot.reason,
         frames_after_command,
-        cycles: query_u64(&session, "dragon.cpu.cycles")?,
-        instructions: query_u64(&session, "dragon.cpu.instructions")?,
-        pc: query_u16(&session, "dragon.cpu.pc")?,
-        text_screen_base: query_u16(&session, "dragon.text.base")?,
+        cycles: query_u64(&session, "cpu.cycles")?,
+        instructions: query_u64(&session, "cpu.instructions")?,
+        pc: query_u16(&session, "cpu.pc")?,
+        text_screen_base: query_u16(&session, "text.base")?,
         screen_text: screen_text_lines(&session)?,
         screenshot_png,
         disk_vdk,
@@ -3122,10 +3122,10 @@ fn runtime_smoke_state(
         .map_err(|err| format!("failed to capture runtime smoke screenshot: {err}"))?;
 
     Ok(RuntimeSmokeState {
-        cycles: query_u64(session, "dragon.cpu.cycles")?,
-        instructions: query_u64(session, "dragon.cpu.instructions")?,
-        pc: query_u16(session, "dragon.cpu.pc")?,
-        text_screen_base: query_u16(session, "dragon.text.base")?,
+        cycles: query_u64(session, "cpu.cycles")?,
+        instructions: query_u64(session, "cpu.instructions")?,
+        pc: query_u16(session, "cpu.pc")?,
+        text_screen_base: query_u16(session, "text.base")?,
         distinct_colors,
         non_background_pixels,
         screen_text_for_hash: screen_text.clone(),
@@ -3709,10 +3709,10 @@ fn run_runtime_smoke_inner(
     session
         .load_media(&media)
         .map_err(|err| format!("failed to load tape into runtime: {err}"))?;
-    let tape_length_bits = query_u64(&session, "dragon.tape.length_bits")?;
+    let tape_length_bits = query_u64(&session, "tape.length_bits")?;
 
     session.clear_audio_capture();
-    let load_pc_before = query_u16(&session, "dragon.cpu.pc")?;
+    let load_pc_before = query_u16(&session, "cpu.pc")?;
     type_basic_command(&mut session, command)?;
     let before_load = session
         .screenshot_png_bytes()
@@ -3733,7 +3733,7 @@ fn run_runtime_smoke_inner(
         .screenshot_png_bytes()
         .map_err(|err| format!("failed to capture post-load frame: {err}"))?;
     let load_visible_change = after_load != before_load;
-    let load_pc_after = query_u16(&session, "dragon.cpu.pc")?;
+    let load_pc_after = query_u16(&session, "cpu.pc")?;
     let load_video = video_state(&session)?;
     let load_screenshot = write_smoke_screenshot(
         screenshot_stem,
@@ -3785,7 +3785,7 @@ fn run_runtime_smoke_inner(
         )
     };
     let basic_error = screen_text.iter().any(|line| line.contains("ERROR"));
-    let start_pc_after = query_u16(&session, "dragon.cpu.pc")?;
+    let start_pc_after = query_u16(&session, "cpu.pc")?;
     let start_video = video_state(&session)?;
     let start_screenshot_frame = session
         .screenshot_png_bytes()
@@ -3885,9 +3885,9 @@ fn run_runtime_smoke_inner(
         start_pc_after,
         load_video,
         start_video,
-        tape_position_bits: query_u64(&session, "dragon.tape.position_bits")?,
+        tape_position_bits: query_u64(&session, "tape.position_bits")?,
         tape_length_bits,
-        tape_finished: query_bool(&session, "dragon.tape.finished")?,
+        tape_finished: query_bool(&session, "tape.finished")?,
         visible_change_after_start,
         start_video_changed,
         start_settle_visible_change,
@@ -4009,13 +4009,13 @@ fn video_state(
     session: &HeadlessSession<DragonRuntime, DragonSessionQueryProvider>,
 ) -> Result<DragonVideoState, String> {
     Ok(DragonVideoState {
-        sam_video_mode: query_u8(session, "dragon.sam.video_mode")?,
-        sam_display_offset: query_u8(session, "dragon.sam.display_offset")?,
-        display_base: query_u16(session, "dragon.video.display_base")?,
-        pia1_output_b: query_u8(session, "dragon.pia1.output_b")?,
-        pia1_ddr_b: query_u8(session, "dragon.pia1.ddr_b")?,
-        pia1_control_b: query_u8(session, "dragon.pia1.control_b")?,
-        pia1_cb2: query_bool(session, "dragon.pia1.cb2")?,
+        sam_video_mode: query_u8(session, "sam.video_mode")?,
+        sam_display_offset: query_u8(session, "sam.display_offset")?,
+        display_base: query_u16(session, "video.display_base")?,
+        pia1_output_b: query_u8(session, "pia1.output_b")?,
+        pia1_ddr_b: query_u8(session, "pia1.ddr_b")?,
+        pia1_control_b: query_u8(session, "pia1.control_b")?,
+        pia1_cb2: query_bool(session, "pia1.cb2")?,
     })
 }
 
@@ -5616,10 +5616,10 @@ fn wait_for_tape_load_stop(
     max_frames: u32,
 ) -> Result<TapeLoadStop, String> {
     for _ in 0..=max_frames {
-        if !query_bool(session, "dragon.tape.motor_on")? {
+        if !query_bool(session, "tape.motor_on")? {
             return Ok(TapeLoadStop::MotorOff);
         }
-        if query_bool(session, "dragon.tape.finished")? {
+        if query_bool(session, "tape.finished")? {
             return Ok(TapeLoadStop::TapeFinished);
         }
         session
@@ -5955,7 +5955,7 @@ fn wait_for_tape_position_above(
     max_frames: u32,
 ) -> Result<u64, String> {
     for _ in 0..=max_frames {
-        let position = query_u64(session, "dragon.tape.position_bits")?;
+        let position = query_u64(session, "tape.position_bits")?;
         if position > threshold {
             return Ok(position);
         }
@@ -5963,7 +5963,7 @@ fn wait_for_tape_position_above(
             .run_frames(1)
             .map_err(|err| format!("runtime failed while waiting for tape movement: {err}"))?;
     }
-    query_u64(session, "dragon.tape.position_bits")
+    query_u64(session, "tape.position_bits")
 }
 
 fn wait_for_screenshot_change(

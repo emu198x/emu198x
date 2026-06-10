@@ -7,12 +7,12 @@ use serde_json::json;
 use crate::runtime::Atari800xlRuntime;
 
 pub(crate) const A800XL_QUERY_PATHS: &[&str] = &[
-    "atari800xl.basic.enabled",
-    "atari800xl.basic.loaded",
-    "atari800xl.cartridge.loaded",
-    "atari800xl.cpu.pc",
-    "atari800xl.machine.frame_count",
-    "atari800xl.os.loaded",
+    "basic.enabled",
+    "basic.loaded",
+    "cartridge.loaded",
+    "cpu.pc",
+    "machine.frame_count",
+    "os.loaded",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -36,14 +36,14 @@ impl SessionQueryProvider<Atari800xlRuntime> for Atari800xlSessionQueryProvider 
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "atari800xl.os.loaded" => json!(machine.os_bytes().is_some()),
-            "atari800xl.basic.loaded" => json!(machine.basic_bytes().is_some()),
-            "atari800xl.basic.enabled" => json!(machine.basic_enabled()),
-            "atari800xl.cartridge.loaded" => json!(machine.cart_bytes().is_some()),
-            "atari800xl.machine.frame_count" => {
+            "os.loaded" => json!(machine.os_bytes().is_some()),
+            "basic.loaded" => json!(machine.basic_bytes().is_some()),
+            "basic.enabled" => json!(machine.basic_enabled()),
+            "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, Atari800xl::frame_count))
             }
-            "atari800xl.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

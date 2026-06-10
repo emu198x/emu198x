@@ -11,7 +11,7 @@ use serde_json::json;
 use crate::runtime::GameBoyRuntime;
 
 /// Every path the Game Boy runtime answers via `query()`.
-pub(crate) const GAME_BOY_QUERY_PATHS: &[&str] = &["gameboy.cartridge.loaded", "gameboy.cpu.pc"];
+pub(crate) const GAME_BOY_QUERY_PATHS: &[&str] = &["cartridge.loaded", "cpu.pc"];
 
 /// Game Boy-family query provider layered above the shared shell surface.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -35,8 +35,8 @@ impl SessionQueryProvider<GameBoyRuntime> for GameBoySessionQueryProvider {
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "gameboy.cartridge.loaded" => json!(machine.machine().is_some()),
-            "gameboy.cpu.pc" => json!(
+            "cartridge.loaded" => json!(machine.machine().is_some()),
+            "cpu.pc" => json!(
                 machine
                     .machine()
                     .ok_or_else(|| QueryError::UnavailablePath {
@@ -82,7 +82,7 @@ mod tests {
         let provider = GameBoySessionQueryProvider;
         assert!(
             provider
-                .query(&runtime, "gameboy.does.not.exist")
+                .query(&runtime, "does.not.exist")
                 .expect("unknown path should not error")
                 .is_none()
         );
@@ -96,11 +96,11 @@ mod tests {
         let runtime = GameBoyRuntime::blank(Model::Dmg);
         let provider = GameBoySessionQueryProvider;
         let err = provider
-            .query(&runtime, "gameboy.cpu.pc")
+            .query(&runtime, "cpu.pc")
             .expect_err("cpu.pc without a cartridge should error");
         match err {
             QueryError::UnavailablePath { path, .. } => {
-                assert_eq!(path, "gameboy.cpu.pc");
+                assert_eq!(path, "cpu.pc");
             }
             other => panic!("expected UnavailablePath, got {other:?}"),
         }

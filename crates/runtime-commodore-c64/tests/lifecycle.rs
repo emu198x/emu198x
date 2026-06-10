@@ -47,7 +47,7 @@ fn runtime_can_attach_optional_drive_rom() {
     assert!(runtime.drive8().is_some());
     assert_eq!(
         provider
-            .query(&runtime, "c64.drive8.attached")
+            .query(&runtime, "drive8.attached")
             .expect("drive attachment query should not fail")
             .expect("drive attachment query should resolve")
             .value,
@@ -153,7 +153,7 @@ fn runtime_load_media_mounts_d64_into_attached_drive() {
 
     assert_eq!(
         provider
-            .query(&runtime, "c64.drive8.disk.inserted")
+            .query(&runtime, "drive8.disk.inserted")
             .expect("disk inserted query should not fail")
             .expect("disk inserted query should resolve")
             .value,
@@ -161,7 +161,7 @@ fn runtime_load_media_mounts_d64_into_attached_drive() {
     );
     assert_eq!(
         provider
-            .query(&runtime, "c64.drive8.disk.name")
+            .query(&runtime, "drive8.disk.name")
             .expect("disk name query should not fail")
             .expect("disk name query should resolve")
             .value,
@@ -169,7 +169,7 @@ fn runtime_load_media_mounts_d64_into_attached_drive() {
     );
     assert_eq!(
         provider
-            .query(&runtime, "c64.drive8.disk.id")
+            .query(&runtime, "drive8.disk.id")
             .expect("disk id query should not fail")
             .expect("disk id query should resolve")
             .value,
@@ -177,14 +177,14 @@ fn runtime_load_media_mounts_d64_into_attached_drive() {
     );
     assert_eq!(
         provider
-            .query(&runtime, "c64.drive8.disk.write_protected")
+            .query(&runtime, "drive8.disk.write_protected")
             .expect("disk write-protect query should not fail")
             .expect("disk write-protect query should resolve")
             .value,
         json!(true)
     );
     let directory = provider
-        .query(&runtime, "c64.drive8.disk.directory")
+        .query(&runtime, "drive8.disk.directory")
         .expect("disk directory query should not fail")
         .expect("disk directory query should resolve")
         .value;

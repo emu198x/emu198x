@@ -7,17 +7,17 @@ use serde_json::json;
 use crate::runtime::Atari2600Runtime;
 
 pub(crate) const VCS_QUERY_PATHS: &[&str] = &[
-    "vcs.cartridge.loaded",
-    "vcs.cpu.pc",
-    "vcs.input.inpt4",
-    "vcs.input.inpt5",
-    "vcs.input.swcha",
-    "vcs.input.swchb",
-    "vcs.machine.frame_count",
-    "vcs.machine.master_clock",
-    "vcs.machine.region",
-    "vcs.tia.hpos",
-    "vcs.tia.vpos",
+    "cartridge.loaded",
+    "cpu.pc",
+    "input.inpt4",
+    "input.inpt5",
+    "input.swcha",
+    "input.swchb",
+    "machine.frame_count",
+    "machine.master_clock",
+    "machine.region",
+    "tia.hpos",
+    "tia.vpos",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -41,23 +41,23 @@ impl SessionQueryProvider<Atari2600Runtime> for Atari2600SessionQueryProvider {
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "vcs.cartridge.loaded" => json!(machine.cart_bytes().is_some()),
-            "vcs.machine.region" => json!(format!("{:?}", machine.model().region())),
-            "vcs.machine.frame_count" => json!(machine.machine().map_or(0, Atari2600::frame_count)),
-            "vcs.machine.master_clock" => {
+            "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
+            "machine.region" => json!(format!("{:?}", machine.model().region())),
+            "machine.frame_count" => json!(machine.machine().map_or(0, Atari2600::frame_count)),
+            "machine.master_clock" => {
                 json!(machine.machine().map_or(0, Atari2600::master_clock))
             }
-            "vcs.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             // Effective input registers — verify host input reached the chips.
             // SWCHA/SWCHB are active-low (a 0 bit means a pressed direction or
             // switch); INPT4/5 bit 7 clear means the corresponding fire button
             // is held.
-            "vcs.input.swcha" => json!(loaded(machine, path)?.riot().swcha()),
-            "vcs.input.swchb" => json!(loaded(machine, path)?.riot().swchb()),
-            "vcs.input.inpt4" => json!(loaded(machine, path)?.tia().read(0x0C)),
-            "vcs.input.inpt5" => json!(loaded(machine, path)?.tia().read(0x0D)),
-            "vcs.tia.hpos" => json!(loaded(machine, path)?.tia().hpos()),
-            "vcs.tia.vpos" => json!(loaded(machine, path)?.tia().vpos()),
+            "input.swcha" => json!(loaded(machine, path)?.riot().swcha()),
+            "input.swchb" => json!(loaded(machine, path)?.riot().swchb()),
+            "input.inpt4" => json!(loaded(machine, path)?.tia().read(0x0C)),
+            "input.inpt5" => json!(loaded(machine, path)?.tia().read(0x0D)),
+            "tia.hpos" => json!(loaded(machine, path)?.tia().hpos()),
+            "tia.vpos" => json!(loaded(machine, path)?.tia().vpos()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

@@ -7,11 +7,11 @@ use serde_json::json;
 use crate::runtime::PetRuntime;
 
 pub(crate) const PET_QUERY_PATHS: &[&str] = &[
-    "pet.cpu.pc",
-    "pet.firmware.loaded",
-    "pet.machine.frame_count",
-    "pet.machine.master_clock",
-    "pet.model.screen_chars",
+    "cpu.pc",
+    "firmware.loaded",
+    "machine.frame_count",
+    "machine.master_clock",
+    "model.screen_chars",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -31,11 +31,11 @@ impl SessionQueryProvider<PetRuntime> for PetSessionQueryProvider {
 
     fn query(&self, machine: &PetRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "pet.firmware.loaded" => json!(machine.machine().is_some()),
-            "pet.model.screen_chars" => json!(machine.model().screen_chars()),
-            "pet.machine.frame_count" => json!(machine.machine().map_or(0, Pet::frame_count)),
-            "pet.machine.master_clock" => json!(machine.machine().map_or(0, Pet::master_clock)),
-            "pet.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "firmware.loaded" => json!(machine.machine().is_some()),
+            "model.screen_chars" => json!(machine.model().screen_chars()),
+            "machine.frame_count" => json!(machine.machine().map_or(0, Pet::frame_count)),
+            "machine.master_clock" => json!(machine.machine().map_or(0, Pet::master_clock)),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

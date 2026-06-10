@@ -36,46 +36,46 @@ const DRAGON_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
     "screen.text.lines",
-    "dragon.cpu.cycles",
-    "dragon.cpu.instructions",
-    "dragon.cpu.pc",
-    "dragon.cpu.s",
-    "dragon.hardware.model",
-    "dragon.machine.halted",
-    "dragon.disk.drive1.inserted",
-    "dragon.disk.drive1.sector_size",
-    "dragon.disk.drive1.sectors_per_track",
-    "dragon.disk.drive1.sides",
-    "dragon.disk.drive1.tracks",
-    "dragon.pia0.control_a",
-    "dragon.pia0.control_b",
-    "dragon.pia0.ddr_a",
-    "dragon.pia0.ddr_b",
-    "dragon.pia1.ca2",
-    "dragon.pia1.cb2",
-    "dragon.pia1.control_a",
-    "dragon.pia1.control_b",
-    "dragon.pia1.ddr_b",
-    "dragon.pia1.output_b",
-    "dragon.sam.display_offset",
-    "dragon.sam.video_mode",
-    "dragon.tape.blocks",
-    "dragon.tape.checksums_valid",
-    "dragon.tape.finished",
-    "dragon.tape.header.file_type",
-    "dragon.tape.header.name",
-    "dragon.tape.ignored_bytes",
-    "dragon.tape.ignored_segments",
-    "dragon.tape.length_bits",
-    "dragon.tape.loaded",
-    "dragon.tape.motor_on",
-    "dragon.tape.position_bits",
-    "dragon.text.base",
-    "dragon.video.display_base",
-    "dragon.program.exec_address",
-    "dragon.program.length",
-    "dragon.program.load_address",
-    "dragon.program.loaded",
+    "cpu.cycles",
+    "cpu.instructions",
+    "cpu.pc",
+    "cpu.s",
+    "hardware.model",
+    "machine.halted",
+    "disk.drive1.inserted",
+    "disk.drive1.sector_size",
+    "disk.drive1.sectors_per_track",
+    "disk.drive1.sides",
+    "disk.drive1.tracks",
+    "pia0.control_a",
+    "pia0.control_b",
+    "pia0.ddr_a",
+    "pia0.ddr_b",
+    "pia1.ca2",
+    "pia1.cb2",
+    "pia1.control_a",
+    "pia1.control_b",
+    "pia1.ddr_b",
+    "pia1.output_b",
+    "sam.display_offset",
+    "sam.video_mode",
+    "tape.blocks",
+    "tape.checksums_valid",
+    "tape.finished",
+    "tape.header.file_type",
+    "tape.header.name",
+    "tape.ignored_bytes",
+    "tape.ignored_segments",
+    "tape.length_bits",
+    "tape.loaded",
+    "tape.motor_on",
+    "tape.position_bits",
+    "text.base",
+    "video.display_base",
+    "program.exec_address",
+    "program.length",
+    "program.load_address",
+    "program.loaded",
 ];
 const PROGRAM_BOOT_FRAME_BUDGET: u64 = 100;
 const PROGRAM_BOOT_SETTLE_FRAMES: u64 = 30;
@@ -935,7 +935,7 @@ impl MachineCore for DragonRuntime {
             })?;
             host.trace_sink.push_trace(TraceEvent {
                 timestamp: self.time,
-                kind: Cow::Borrowed("dragon.device_access"),
+                kind: Cow::Borrowed("device_access"),
                 payload: &payload,
             })?;
         }
@@ -951,7 +951,7 @@ impl MachineCore for DragonRuntime {
             })?;
             host.trace_sink.push_trace(TraceEvent {
                 timestamp: self.time,
-                kind: Cow::Borrowed("dragon.interrupt_accept"),
+                kind: Cow::Borrowed("interrupt_accept"),
                 payload: &payload,
             })?;
         }
@@ -968,7 +968,7 @@ impl MachineCore for DragonRuntime {
             })?;
             host.trace_sink.push_trace(TraceEvent {
                 timestamp: self.time,
-                kind: Cow::Borrowed("dragon.interrupt_line"),
+                kind: Cow::Borrowed("interrupt_line"),
                 payload: &payload,
             })?;
         }
@@ -1038,22 +1038,22 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
             "boot.detected" => json!(machine.boot_status().detected),
             "boot.reason" => json!(machine.boot_status().reason),
             "screen.text.lines" => json!(machine.screen_text_lines()),
-            "dragon.cpu.cycles" => json!(machine.machine.cycles()),
-            "dragon.cpu.instructions" => json!(machine.machine.instructions()),
-            "dragon.cpu.pc" => json!(machine.machine.pc()),
-            "dragon.cpu.s" => json!(machine.machine.stack_pointer()),
-            "dragon.hardware.model" => {
+            "cpu.cycles" => json!(machine.machine.cycles()),
+            "cpu.instructions" => json!(machine.machine.instructions()),
+            "cpu.pc" => json!(machine.machine.pc()),
+            "cpu.s" => json!(machine.machine.stack_pointer()),
+            "hardware.model" => {
                 json!(hardware_model_label(machine.machine.hardware_model()))
             }
-            "dragon.machine.halted" => json!(machine.machine.is_halted()),
-            "dragon.disk.drive1.inserted" => json!(machine.machine.disk_inserted(0)),
-            "dragon.disk.drive1.tracks" => {
+            "machine.halted" => json!(machine.machine.is_halted()),
+            "disk.drive1.inserted" => json!(machine.machine.disk_inserted(0)),
+            "disk.drive1.tracks" => {
                 json!(machine.machine.disk_summary(0).map(|disk| disk.tracks))
             }
-            "dragon.disk.drive1.sides" => {
+            "disk.drive1.sides" => {
                 json!(machine.machine.disk_summary(0).map(|disk| disk.sides))
             }
-            "dragon.disk.drive1.sectors_per_track" => {
+            "disk.drive1.sectors_per_track" => {
                 json!(
                     machine
                         .machine
@@ -1061,38 +1061,38 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
                         .map(|disk| disk.sectors_per_track)
                 )
             }
-            "dragon.disk.drive1.sector_size" => {
+            "disk.drive1.sector_size" => {
                 json!(machine.machine.disk_summary(0).map(|disk| disk.sector_size))
             }
-            "dragon.pia0.control_a" => json!(machine.machine.pia0_control_a()),
-            "dragon.pia0.control_b" => json!(machine.machine.pia0_control_b()),
-            "dragon.pia0.ddr_a" => json!(machine.machine.pia0_ddr_a()),
-            "dragon.pia0.ddr_b" => json!(machine.machine.pia0_ddr_b()),
-            "dragon.pia1.ca2" => json!(machine.machine.pia1_ca2()),
-            "dragon.pia1.cb2" => json!(machine.machine.pia1_cb2()),
-            "dragon.pia1.control_a" => json!(machine.machine.pia1_control_a()),
-            "dragon.pia1.control_b" => json!(machine.machine.pia1_control_b()),
-            "dragon.pia1.ddr_b" => json!(machine.machine.pia1_ddr_b()),
-            "dragon.pia1.output_b" => json!(machine.machine.pia1_output_b()),
-            "dragon.pia1.pins_b" => json!(machine.machine.pia1_pins_b()),
-            "dragon.sam.display_offset" => json!(machine.machine.sam_display_offset()),
-            "dragon.sam.video_mode" => json!(machine.machine.sam_video_mode()),
-            "dragon.tape.loaded" => json!(machine.tape.is_some()),
-            "dragon.tape.blocks" => json!(machine.tape.as_ref().map(|tape| tape.blocks.len())),
-            "dragon.tape.checksums_valid" => {
+            "pia0.control_a" => json!(machine.machine.pia0_control_a()),
+            "pia0.control_b" => json!(machine.machine.pia0_control_b()),
+            "pia0.ddr_a" => json!(machine.machine.pia0_ddr_a()),
+            "pia0.ddr_b" => json!(machine.machine.pia0_ddr_b()),
+            "pia1.ca2" => json!(machine.machine.pia1_ca2()),
+            "pia1.cb2" => json!(machine.machine.pia1_cb2()),
+            "pia1.control_a" => json!(machine.machine.pia1_control_a()),
+            "pia1.control_b" => json!(machine.machine.pia1_control_b()),
+            "pia1.ddr_b" => json!(machine.machine.pia1_ddr_b()),
+            "pia1.output_b" => json!(machine.machine.pia1_output_b()),
+            "pia1.pins_b" => json!(machine.machine.pia1_pins_b()),
+            "sam.display_offset" => json!(machine.machine.sam_display_offset()),
+            "sam.video_mode" => json!(machine.machine.sam_video_mode()),
+            "tape.loaded" => json!(machine.tape.is_some()),
+            "tape.blocks" => json!(machine.tape.as_ref().map(|tape| tape.blocks.len())),
+            "tape.checksums_valid" => {
                 json!(machine.tape.as_ref().map(CasImage::checksums_valid))
             }
-            "dragon.tape.ignored_segments" => {
+            "tape.ignored_segments" => {
                 json!(machine.tape.as_ref().map(|tape| tape.ignored_ranges.len()))
             }
-            "dragon.tape.ignored_bytes" => {
+            "tape.ignored_bytes" => {
                 json!(machine.tape.as_ref().map(CasImage::ignored_byte_count))
             }
-            "dragon.tape.finished" => json!(machine.machine.cassette_finished()),
-            "dragon.tape.length_bits" => json!(machine.machine.cassette_len_bits()),
-            "dragon.tape.motor_on" => json!(machine.machine.cassette_motor_on()),
-            "dragon.tape.position_bits" => json!(machine.machine.cassette_position_bits()),
-            "dragon.tape.header.name" => {
+            "tape.finished" => json!(machine.machine.cassette_finished()),
+            "tape.length_bits" => json!(machine.machine.cassette_len_bits()),
+            "tape.motor_on" => json!(machine.machine.cassette_motor_on()),
+            "tape.position_bits" => json!(machine.machine.cassette_position_bits()),
+            "tape.header.name" => {
                 json!(
                     machine
                         .tape
@@ -1101,7 +1101,7 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
                         .map(|header| header.name.as_str())
                 )
             }
-            "dragon.tape.header.file_type" => {
+            "tape.header.file_type" => {
                 json!(
                     machine
                         .tape
@@ -1110,14 +1110,14 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
                         .map(|header| cas_file_type_label(header.file_type))
                 )
             }
-            "dragon.program.loaded" => json!(machine.program.is_some()),
-            "dragon.program.load_address" => {
+            "program.loaded" => json!(machine.program.is_some()),
+            "program.load_address" => {
                 json!(machine.program.as_ref().map(|program| program.load_address))
             }
-            "dragon.program.exec_address" => {
+            "program.exec_address" => {
                 json!(machine.program.as_ref().map(|program| program.exec_address))
             }
-            "dragon.program.length" => {
+            "program.length" => {
                 json!(
                     machine
                         .program
@@ -1125,8 +1125,8 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
                         .map(|program| program.payload.len())
                 )
             }
-            "dragon.text.base" => json!(machine.machine.text_screen_base()),
-            "dragon.video.display_base" => json!(machine.machine.video_display_base()),
+            "text.base" => json!(machine.machine.text_screen_base()),
+            "video.display_base" => json!(machine.machine.video_display_base()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -1512,11 +1512,11 @@ mod tests {
         let provider = DragonSessionQueryProvider;
 
         let query = provider
-            .query(&runtime, "dragon.video.display_base")
+            .query(&runtime, "video.display_base")
             .expect("query should not fail")
             .expect("query should be owned");
         let legacy_query = provider
-            .query(&runtime, "dragon.text.base")
+            .query(&runtime, "text.base")
             .expect("query should not fail")
             .expect("query should be owned");
 
@@ -1608,7 +1608,7 @@ mod tests {
         let provider = DragonSessionQueryProvider;
         assert_eq!(
             provider
-                .query(&runtime, "dragon.tape.header.name")
+                .query(&runtime, "tape.header.name")
                 .expect("query should not fail")
                 .expect("query should be owned")
                 .value,
@@ -1616,7 +1616,7 @@ mod tests {
         );
         assert_eq!(
             provider
-                .query(&runtime, "dragon.tape.loaded")
+                .query(&runtime, "tape.loaded")
                 .expect("query should not fail")
                 .expect("query should be owned")
                 .value,
@@ -1624,7 +1624,7 @@ mod tests {
         );
         assert_eq!(
             provider
-                .query(&runtime, "dragon.tape.position_bits")
+                .query(&runtime, "tape.position_bits")
                 .expect("query should not fail")
                 .expect("query should be owned")
                 .value,
@@ -1632,7 +1632,7 @@ mod tests {
         );
         assert_eq!(
             provider
-                .query(&runtime, "dragon.tape.length_bits")
+                .query(&runtime, "tape.length_bits")
                 .expect("query should not fail")
                 .expect("query should be owned")
                 .value,
@@ -1695,7 +1695,7 @@ mod tests {
         let provider = DragonSessionQueryProvider;
         assert_eq!(
             provider
-                .query(&runtime, "dragon.disk.drive1.inserted")
+                .query(&runtime, "disk.drive1.inserted")
                 .expect("query should not fail")
                 .expect("query should be owned")
                 .value,
@@ -1703,7 +1703,7 @@ mod tests {
         );
         assert_eq!(
             provider
-                .query(&runtime, "dragon.disk.drive1.sectors_per_track")
+                .query(&runtime, "disk.drive1.sectors_per_track")
                 .expect("query should not fail")
                 .expect("query should be owned")
                 .value,
@@ -1871,7 +1871,7 @@ mod tests {
         let provider = DragonSessionQueryProvider;
         assert_eq!(
             provider
-                .query(&runtime, "dragon.program.loaded")
+                .query(&runtime, "program.loaded")
                 .expect("query should not fail")
                 .expect("query should be owned")
                 .value,
@@ -1879,7 +1879,7 @@ mod tests {
         );
         assert_eq!(
             provider
-                .query(&runtime, "dragon.program.load_address")
+                .query(&runtime, "program.load_address")
                 .expect("query should not fail")
                 .expect("query should be owned")
                 .value,
@@ -1887,7 +1887,7 @@ mod tests {
         );
         assert_eq!(
             provider
-                .query(&runtime, "dragon.cpu.s")
+                .query(&runtime, "cpu.s")
                 .expect("query should not fail")
                 .expect("query should be owned")
                 .value,

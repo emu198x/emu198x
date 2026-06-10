@@ -573,13 +573,13 @@ mod tests {
             audio_capture: Some(audio_path.clone()),
             script: None,
             wait_for_boot: None,
-            print_queries: vec!["amiga.disk.inserted".to_owned()],
+            print_queries: vec!["disk.inserted".to_owned()],
             frames: 2,
         })
         .expect("runner should capture png and wav");
 
         assert_eq!(result.query_values.len(), 1);
-        assert_eq!(result.query_values[0].path, "amiga.disk.inserted");
+        assert_eq!(result.query_values[0].path, "disk.inserted");
         assert_eq!(result.query_values[0].value, Value::Bool(true));
         assert!(screenshot_path.is_file());
         assert!(audio_path.is_file());

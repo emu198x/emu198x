@@ -437,8 +437,8 @@ fn assert_blargg_result(
 fn read_blargg_result(
     session: &HeadlessSession<NesRuntime, NesSessionQueryProvider>,
 ) -> Result<BlarggTestResult, String> {
-    let signature = query_u8_array3(session, "nes.test.blargg.signature")?;
-    let valid = query_bool(session, "nes.test.blargg.valid")?;
+    let signature = query_u8_array3(session, "test.blargg.signature")?;
+    let valid = query_bool(session, "test.blargg.valid")?;
     if !valid {
         return Err(format!(
             "Blargg signature missing at $6001-$6003: {:02X} {:02X} {:02X}",
@@ -446,8 +446,8 @@ fn read_blargg_result(
         ));
     }
 
-    let status = query_u8(session, "nes.test.blargg.status")?;
-    let text = query_string(session, "nes.test.blargg.text")?;
+    let status = query_u8(session, "test.blargg.status")?;
+    let text = query_string(session, "test.blargg.text")?;
     Ok(BlarggTestResult {
         kind: "blargg",
         status,
@@ -899,7 +899,7 @@ mod tests {
             r#"
             [
               {"action":"run_frames","frames":1},
-              {"action":"query","path":"nes.cartridge.loaded"}
+              {"action":"query","path":"cartridge.loaded"}
             ]
             "#,
         )

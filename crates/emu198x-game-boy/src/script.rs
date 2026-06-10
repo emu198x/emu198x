@@ -622,7 +622,7 @@ mod tests {
             r#"
             [
               {"action":"run_frames","frames":1},
-              {"action":"query","path":"gameboy.cartridge.loaded"}
+              {"action":"query","path":"cartridge.loaded"}
             ]
             "#,
         )

@@ -7,13 +7,13 @@ use serde_json::json;
 use crate::runtime::AquariusRuntime;
 
 pub(crate) const AQUARIUS_QUERY_PATHS: &[&str] = &[
-    "aquarius.bios.loaded",
-    "aquarius.cartridge.loaded",
-    "aquarius.cpu.pc",
-    "aquarius.cpu.tstates",
-    "aquarius.expansion.kb",
-    "aquarius.machine.frame_count",
-    "aquarius.speaker.bit",
+    "bios.loaded",
+    "cartridge.loaded",
+    "cpu.pc",
+    "cpu.tstates",
+    "expansion.kb",
+    "machine.frame_count",
+    "speaker.bit",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -37,15 +37,15 @@ impl SessionQueryProvider<AquariusRuntime> for AquariusSessionQueryProvider {
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "aquarius.bios.loaded" => json!(machine.machine().is_some()),
-            "aquarius.cartridge.loaded" => json!(machine.cart_bytes().is_some()),
-            "aquarius.expansion.kb" => json!(machine.expansion_kb()),
-            "aquarius.machine.frame_count" => {
+            "bios.loaded" => json!(machine.machine().is_some()),
+            "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
+            "expansion.kb" => json!(machine.expansion_kb()),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, Aquarius::frame_count))
             }
-            "aquarius.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
-            "aquarius.cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
-            "aquarius.speaker.bit" => json!(loaded(machine, path)?.speaker_bit()),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
+            "speaker.bit" => json!(loaded(machine, path)?.speaker_bit()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

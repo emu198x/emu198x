@@ -534,7 +534,7 @@ impl MachineCore for C64Runtime {
                     })?;
                     host.trace_sink.push_trace(TraceEvent {
                         timestamp: self.time,
-                        kind: Cow::Borrowed("c64.vic.colour_write"),
+                        kind: Cow::Borrowed("vic.colour_write"),
                         payload: &payload,
                     })?;
                     prev_border = border;
@@ -554,7 +554,7 @@ impl MachineCore for C64Runtime {
                     })?;
                     host.trace_sink.push_trace(TraceEvent {
                         timestamp: self.time,
-                        kind: Cow::Borrowed("c64.vic.colour_write"),
+                        kind: Cow::Borrowed("vic.colour_write"),
                         payload: &payload,
                     })?;
                     prev_background = background;
@@ -574,7 +574,7 @@ impl MachineCore for C64Runtime {
                             })?;
                         host.trace_sink.push_trace(TraceEvent {
                             timestamp: self.time,
-                            kind: Cow::Borrowed("c64.drive8.rom_trace"),
+                            kind: Cow::Borrowed("drive8.rom_trace"),
                             payload: &payload,
                         })?;
                         self.last_drive_trace_state = Some(state);

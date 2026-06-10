@@ -6,12 +6,8 @@ use serde_json::json;
 
 use crate::runtime::OricRuntime;
 
-pub(crate) const ORIC_QUERY_PATHS: &[&str] = &[
-    "oric.bios.loaded",
-    "oric.cpu.pc",
-    "oric.cpu.cycles",
-    "oric.machine.frame_count",
-];
+pub(crate) const ORIC_QUERY_PATHS: &[&str] =
+    &["bios.loaded", "cpu.pc", "cpu.cycles", "machine.frame_count"];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct OricSessionQueryProvider;
@@ -30,12 +26,12 @@ impl SessionQueryProvider<OricRuntime> for OricSessionQueryProvider {
 
     fn query(&self, machine: &OricRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "oric.bios.loaded" => json!(machine.machine().is_some()),
-            "oric.machine.frame_count" => {
+            "bios.loaded" => json!(machine.machine().is_some()),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, OricAtmos::frame_count))
             }
-            "oric.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
-            "oric.cpu.cycles" => json!(loaded(machine, path)?.cpu_cycles()),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.cycles" => json!(loaded(machine, path)?.cpu_cycles()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

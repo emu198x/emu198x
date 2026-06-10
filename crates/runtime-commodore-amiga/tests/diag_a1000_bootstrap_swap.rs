@@ -99,12 +99,12 @@ fn script_swaps_after_a1000_wom_lock() {
                 writable: false,
             },
             ScriptStep::WaitForQueryBool {
-                path: "amiga.a1000.wom_locked".to_owned(),
+                path: "a1000.wom_locked".to_owned(),
                 value: true,
                 max_frames: 1800,
             },
             ScriptStep::WaitForQueryBool {
-                path: "amiga.disk.motor_spinning".to_owned(),
+                path: "disk.motor_spinning".to_owned(),
                 value: false,
                 max_frames: 600,
             },
@@ -127,14 +127,14 @@ fn script_swaps_after_a1000_wom_lock() {
 
     assert_eq!(
         session
-            .query("amiga.a1000.boot_rom_visible")
+            .query("a1000.boot_rom_visible")
             .expect("query boot-rom-visible")
             .value,
         serde_json::json!(false)
     );
     assert_eq!(
         session
-            .query("amiga.a1000.wom_locked")
+            .query("a1000.wom_locked")
             .expect("query wom-locked")
             .value,
         serde_json::json!(true)

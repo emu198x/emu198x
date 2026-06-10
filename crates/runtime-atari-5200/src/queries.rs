@@ -7,11 +7,11 @@ use serde_json::json;
 use crate::runtime::Atari5200Runtime;
 
 pub(crate) const A5200_QUERY_PATHS: &[&str] = &[
-    "atari5200.bios.loaded",
-    "atari5200.cartridge.loaded",
-    "atari5200.cpu.pc",
-    "atari5200.machine.frame_count",
-    "atari5200.machine.region",
+    "bios.loaded",
+    "cartridge.loaded",
+    "cpu.pc",
+    "machine.frame_count",
+    "machine.region",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -35,13 +35,13 @@ impl SessionQueryProvider<Atari5200Runtime> for Atari5200SessionQueryProvider {
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "atari5200.bios.loaded" => json!(!machine.bios_bytes().is_empty()),
-            "atari5200.cartridge.loaded" => json!(machine.cart_bytes().is_some()),
-            "atari5200.machine.region" => json!(format!("{:?}", machine.model().region())),
-            "atari5200.machine.frame_count" => {
+            "bios.loaded" => json!(!machine.bios_bytes().is_empty()),
+            "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
+            "machine.region" => json!(format!("{:?}", machine.model().region())),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, Atari5200::frame_count))
             }
-            "atari5200.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

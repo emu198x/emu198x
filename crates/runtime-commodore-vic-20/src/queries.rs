@@ -7,12 +7,12 @@ use serde_json::json;
 use crate::runtime::Vic20Runtime;
 
 pub(crate) const VIC20_QUERY_PATHS: &[&str] = &[
-    "vic20.cpu.pc",
-    "vic20.firmware.loaded",
-    "vic20.machine.frame_count",
-    "vic20.machine.master_clock",
-    "vic20.machine.region",
-    "vic20.ram.expansion_kb",
+    "cpu.pc",
+    "firmware.loaded",
+    "machine.frame_count",
+    "machine.master_clock",
+    "machine.region",
+    "ram.expansion_kb",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -32,14 +32,14 @@ impl SessionQueryProvider<Vic20Runtime> for Vic20SessionQueryProvider {
 
     fn query(&self, machine: &Vic20Runtime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "vic20.firmware.loaded" => json!(machine.machine().is_some()),
-            "vic20.ram.expansion_kb" => json!(machine.ram_expansion_kb()),
-            "vic20.machine.region" => json!(format!("{:?}", machine.model().region())),
-            "vic20.machine.frame_count" => json!(machine.machine().map_or(0, Vic20::frame_count)),
-            "vic20.machine.master_clock" => {
+            "firmware.loaded" => json!(machine.machine().is_some()),
+            "ram.expansion_kb" => json!(machine.ram_expansion_kb()),
+            "machine.region" => json!(format!("{:?}", machine.model().region())),
+            "machine.frame_count" => json!(machine.machine().map_or(0, Vic20::frame_count)),
+            "machine.master_clock" => {
                 json!(machine.machine().map_or(0, Vic20::master_clock))
             }
-            "vic20.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

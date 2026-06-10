@@ -23,7 +23,7 @@ fn dragon32_real_rom_reaches_basic_prompt_and_captures_frame() {
 
     assert_eq!(
         session
-            .query("dragon.text.base")
+            .query("text.base")
             .expect("text base query should work")
             .value,
         serde_json::json!(0x400)
@@ -52,10 +52,10 @@ fn dragon64_real_rom_reaches_basic_prompt() {
         .unwrap_or_else(|err| {
             panic!(
                 "Dragon 64 ROM should reach BASIC prompt: {err}; pc=${:04X} s=${:04X} text_base=${:04X} display_base=${:04X}\n{}",
-                query_u64(&session, "dragon.cpu.pc"),
-                query_u64(&session, "dragon.cpu.s"),
-                query_u64(&session, "dragon.text.base"),
-                query_u64(&session, "dragon.video.display_base"),
+                query_u64(&session, "cpu.pc"),
+                query_u64(&session, "cpu.s"),
+                query_u64(&session, "text.base"),
+                query_u64(&session, "video.display_base"),
                 screen_text_lines(&session).join("\n")
             )
         });
@@ -91,19 +91,19 @@ fn dragon64_exec_48000_enters_sixty_four_kib_mode() {
         .expect("Dragon 64 mode transition should advance");
 
     let model = session
-        .query("dragon.hardware.model")
+        .query("hardware.model")
         .expect("hardware model query should work")
         .value;
     assert_eq!(
         model,
         serde_json::json!("dragon64-mode"),
         "Dragon 64 EXEC 48000 did not enter 64K mode; pc=${:04X} s=${:04X} pia1_cb=${:02X} pia1_ddrb=${:02X} pia1_ob=${:02X} pia1_pb=${:02X}\n{}",
-        query_u64(&session, "dragon.cpu.pc"),
-        query_u64(&session, "dragon.cpu.s"),
-        query_u64(&session, "dragon.pia1.control_b"),
-        query_u64(&session, "dragon.pia1.ddr_b"),
-        query_u64(&session, "dragon.pia1.output_b"),
-        query_u64(&session, "dragon.pia1.pins_b"),
+        query_u64(&session, "cpu.pc"),
+        query_u64(&session, "cpu.s"),
+        query_u64(&session, "pia1.control_b"),
+        query_u64(&session, "pia1.ddr_b"),
+        query_u64(&session, "pia1.output_b"),
+        query_u64(&session, "pia1.pins_b"),
         screen_text_lines(&session).join("\n")
     );
 
@@ -113,8 +113,8 @@ fn dragon64_exec_48000_enters_sixty_four_kib_mode() {
     if let Err(err) = session.wait_for_query_text_contains("screen.text.lines", "PRINT 1", 60) {
         panic!(
             "Dragon 64 64-mode BASIC should echo input after EXEC 48000: {err}; pc=${:04X} s=${:04X}\n{}",
-            query_u64(&session, "dragon.cpu.pc"),
-            query_u64(&session, "dragon.cpu.s"),
+            query_u64(&session, "cpu.pc"),
+            query_u64(&session, "cpu.s"),
             screen_text_lines(&session).join("\n")
         );
     }
@@ -125,8 +125,8 @@ fn dragon64_exec_48000_enters_sixty_four_kib_mode() {
     assert!(
         lines.iter().any(|line| line.trim() == "1"),
         "Dragon 64 64-mode BASIC should print a numeric result after EXEC 48000; pc=${:04X} s=${:04X}\n{}",
-        query_u64(&session, "dragon.cpu.pc"),
-        query_u64(&session, "dragon.cpu.s"),
+        query_u64(&session, "cpu.pc"),
+        query_u64(&session, "cpu.s"),
         lines.join("\n")
     );
 }
@@ -179,15 +179,15 @@ fn dragon32_real_rom_accepts_enter_key() {
     assert!(
         lines.iter().any(|line| line.trim() == "1"),
         "Dragon BASIC should accept Enter and execute PRINT 1; PC=${:04X} halted={}; PIA0 CRA=${:02X} CRB=${:02X} DDRA=${:02X} DDRB=${:02X}\n{}",
-        query_u64(&session, "dragon.cpu.pc"),
+        query_u64(&session, "cpu.pc"),
         session
-            .query("dragon.machine.halted")
-            .expect("dragon.machine.halted query should work")
+            .query("machine.halted")
+            .expect("machine.halted query should work")
             .value,
-        query_u64(&session, "dragon.pia0.control_a"),
-        query_u64(&session, "dragon.pia0.control_b"),
-        query_u64(&session, "dragon.pia0.ddr_a"),
-        query_u64(&session, "dragon.pia0.ddr_b"),
+        query_u64(&session, "pia0.control_a"),
+        query_u64(&session, "pia0.control_b"),
+        query_u64(&session, "pia0.ddr_a"),
+        query_u64(&session, "pia0.ddr_b"),
         lines.join("\n")
     );
 }
@@ -250,10 +250,10 @@ fn dragon_runtime_starts_real_textstar_cas_after_cload_when_available() {
     assert!(
         position > 0,
         "Dragon ROM did not consume tape bits after CLOAD; PIA1 control A=${:02X} CA2={}\n{}",
-        query_u64(&session, "dragon.pia1.control_a"),
+        query_u64(&session, "pia1.control_a"),
         session
-            .query("dragon.pia1.ca2")
-            .expect("dragon.pia1.ca2 query should work")
+            .query("pia1.ca2")
+            .expect("pia1.ca2 query should work")
             .value,
         screen_text_lines(&session).join("\n")
     );
@@ -287,7 +287,7 @@ fn dragon_runtime_loads_real_textstar_cas_to_basic_prompt_when_available() {
         "Dragon ROM should start consuming Textstar tape bits"
     );
     session
-        .wait_for_query_bool("dragon.tape.motor_on", false, 3_500)
+        .wait_for_query_bool("tape.motor_on", false, 3_500)
         .expect("Dragon ROM should turn the cassette motor off after loading Textstar");
     let returned_to_prompt = wait_for_ok_prompt_without_error(&mut session, 180);
     let lines = screen_text_lines(&session);
@@ -295,15 +295,15 @@ fn dragon_runtime_loads_real_textstar_cas_to_basic_prompt_when_available() {
     assert!(
         returned_to_prompt,
         "Dragon BASIC should return to OK after loading Textstar; prompts={prompt_count} position={}/{} finished={} motor={}\n{}",
-        query_u64(&session, "dragon.tape.position_bits"),
-        query_u64(&session, "dragon.tape.length_bits"),
+        query_u64(&session, "tape.position_bits"),
+        query_u64(&session, "tape.length_bits"),
         session
-            .query("dragon.tape.finished")
-            .expect("dragon.tape.finished query should work")
+            .query("tape.finished")
+            .expect("tape.finished query should work")
             .value,
         session
-            .query("dragon.tape.motor_on")
-            .expect("dragon.tape.motor_on query should work")
+            .query("tape.motor_on")
+            .expect("tape.motor_on query should work")
             .value,
         lines.join("\n")
     );
@@ -333,7 +333,7 @@ fn dragon_runtime_runs_real_textstar_after_cload_when_available() {
     let moved_to = wait_for_tape_position_above(&mut session, 0, 180);
     assert!(moved_to > 0);
     session
-        .wait_for_query_bool("dragon.tape.motor_on", false, 3_500)
+        .wait_for_query_bool("tape.motor_on", false, 3_500)
         .expect("Dragon ROM should turn the cassette motor off after loading Textstar");
 
     for name in ["r", "u", "n"] {
@@ -371,8 +371,8 @@ fn dragon_runtime_loads_and_executes_real_machine_code_cas_when_available() {
 
     assert_eq!(
         session
-            .query("dragon.tape.header.file_type")
-            .expect("dragon.tape.header.file_type query should work")
+            .query("tape.header.file_type")
+            .expect("tape.header.file_type query should work")
             .value,
         serde_json::json!("machine-code")
     );
@@ -386,20 +386,20 @@ fn dragon_runtime_loads_and_executes_real_machine_code_cas_when_available() {
         "Dragon ROM should start consuming machine-code tape bits after CLOADM"
     );
     session
-        .wait_for_query_bool("dragon.tape.motor_on", false, 4_500)
+        .wait_for_query_bool("tape.motor_on", false, 4_500)
         .expect("Dragon ROM should reach a cassette motor-off interval while loading CLOADM");
     assert!(
         wait_for_ok_prompt_without_error(&mut session, 4_500),
         "Dragon BASIC should return to OK after CLOADM; position={}/{} finished={} motor={}\n{}",
-        query_u64(&session, "dragon.tape.position_bits"),
-        query_u64(&session, "dragon.tape.length_bits"),
+        query_u64(&session, "tape.position_bits"),
+        query_u64(&session, "tape.length_bits"),
         session
-            .query("dragon.tape.finished")
-            .expect("dragon.tape.finished query should work")
+            .query("tape.finished")
+            .expect("tape.finished query should work")
             .value,
         session
-            .query("dragon.tape.motor_on")
-            .expect("dragon.tape.motor_on query should work")
+            .query("tape.motor_on")
+            .expect("tape.motor_on query should work")
             .value,
         screen_text_lines(&session).join("\n")
     );
@@ -409,15 +409,15 @@ fn dragon_runtime_loads_and_executes_real_machine_code_cas_when_available() {
     assert!(
         prompt_count >= 1 && !lines.iter().any(|line| line.contains("ERROR")),
         "Dragon BASIC should return to OK after CLOADM; prompts={prompt_count} position={}/{} finished={} motor={}\n{}",
-        query_u64(&session, "dragon.tape.position_bits"),
-        query_u64(&session, "dragon.tape.length_bits"),
+        query_u64(&session, "tape.position_bits"),
+        query_u64(&session, "tape.length_bits"),
         session
-            .query("dragon.tape.finished")
-            .expect("dragon.tape.finished query should work")
+            .query("tape.finished")
+            .expect("tape.finished query should work")
             .value,
         session
-            .query("dragon.tape.motor_on")
-            .expect("dragon.tape.motor_on query should work")
+            .query("tape.motor_on")
+            .expect("tape.motor_on query should work")
             .value,
         lines.join("\n")
     );
@@ -743,7 +743,7 @@ fn wait_for_tape_position_above(
     max_frames: u32,
 ) -> u64 {
     for _ in 0..=max_frames {
-        let position = query_u64(session, "dragon.tape.position_bits");
+        let position = query_u64(session, "tape.position_bits");
         if position > threshold {
             return position;
         }
@@ -751,7 +751,7 @@ fn wait_for_tape_position_above(
             .run_frames(1)
             .expect("Dragon runtime should advance while waiting for tape movement");
     }
-    query_u64(session, "dragon.tape.position_bits")
+    query_u64(session, "tape.position_bits")
 }
 
 fn ok_prompt_count(lines: &[String]) -> usize {

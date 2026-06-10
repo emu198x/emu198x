@@ -20,24 +20,24 @@ fn query_provider_returns_declared_paths() {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let paths = provider.query_paths(&runtime, None);
-    assert!(paths.contains(&"amiga.a1000.boot_rom_visible".to_owned()));
-    assert!(paths.contains(&"amiga.a1000.wom_locked".to_owned()));
-    assert!(paths.contains(&"amiga.cpu.pc".to_owned()));
-    assert!(paths.contains(&"amiga.debug.dsk_write_count".to_owned()));
-    assert!(paths.contains(&"amiga.disk.change_pending".to_owned()));
-    assert!(paths.contains(&"amiga.disk.inserted".to_owned()));
-    assert!(paths.contains(&"amiga.disk.step_events".to_owned()));
-    assert!(paths.contains(&"amiga.keyboard.state".to_owned()));
+    assert!(paths.contains(&"a1000.boot_rom_visible".to_owned()));
+    assert!(paths.contains(&"a1000.wom_locked".to_owned()));
+    assert!(paths.contains(&"cpu.pc".to_owned()));
+    assert!(paths.contains(&"debug.dsk_write_count".to_owned()));
+    assert!(paths.contains(&"disk.change_pending".to_owned()));
+    assert!(paths.contains(&"disk.inserted".to_owned()));
+    assert!(paths.contains(&"disk.step_events".to_owned()));
+    assert!(paths.contains(&"keyboard.state".to_owned()));
 }
 
 #[test]
 fn query_cpu_pc_returns_initial_reset_vector() {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let result = AmigaSessionQueryProvider
-        .query(&runtime, "amiga.cpu.pc")
+        .query(&runtime, "cpu.pc")
         .expect("query succeeds")
         .expect("path present");
-    assert_eq!(result.path, "amiga.cpu.pc");
+    assert_eq!(result.path, "cpu.pc");
     assert_eq!(result.value, json!(0x00F8_0008u32));
 }
 
@@ -46,13 +46,13 @@ fn a1000_queries_report_bootstrap_state() {
     let runtime = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
         .expect("runtime init");
     let boot_rom_visible = AmigaSessionQueryProvider
-        .query(&runtime, "amiga.a1000.boot_rom_visible")
+        .query(&runtime, "a1000.boot_rom_visible")
         .expect("query succeeds")
         .expect("path present");
     assert_eq!(boot_rom_visible.value, json!(true));
 
     let wom_locked = AmigaSessionQueryProvider
-        .query(&runtime, "amiga.a1000.wom_locked")
+        .query(&runtime, "a1000.wom_locked")
         .expect("query succeeds")
         .expect("path present");
     assert_eq!(wom_locked.value, json!(false));
@@ -172,7 +172,7 @@ fn unknown_path_returns_ok_none() {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let value = provider
-        .query(&runtime, "amiga.does.not.exist")
+        .query(&runtime, "does.not.exist")
         .expect("unknown path should not error");
     assert!(value.is_none(), "unknown path should return None");
 }
@@ -181,9 +181,9 @@ fn unknown_path_returns_ok_none() {
 fn query_paths_filters_by_prefix() {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;
-    let disk_paths = provider.query_paths(&runtime, Some("amiga.disk."));
+    let disk_paths = provider.query_paths(&runtime, Some("disk."));
     assert!(!disk_paths.is_empty());
-    assert!(disk_paths.iter().all(|p| p.starts_with("amiga.disk.")));
+    assert!(disk_paths.iter().all(|p| p.starts_with("disk.")));
 
     let boot_paths = provider.query_paths(&runtime, Some("boot."));
     assert!(boot_paths.contains(&"boot.detected".to_owned()));
@@ -207,12 +207,12 @@ fn debug_dsk_log_query_reports_zero_when_empty() {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let count = provider
-        .query(&runtime, "amiga.debug.dsk_write_count")
+        .query(&runtime, "debug.dsk_write_count")
         .expect("query succeeds")
         .expect("path present");
     assert_eq!(count.value, json!(0));
     let last = provider
-        .query(&runtime, "amiga.debug.last_dsk_write")
+        .query(&runtime, "debug.last_dsk_write")
         .expect("query succeeds")
         .expect("path present");
     assert_eq!(last.value, json!(null));
@@ -224,7 +224,7 @@ fn frame_count_query_advances_after_run_until() {
         AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;
     let initial = provider
-        .query(&runtime, "amiga.machine.frame_count")
+        .query(&runtime, "machine.frame_count")
         .expect("query succeeds")
         .expect("path present");
     assert_eq!(initial.value, json!(0));
@@ -245,7 +245,7 @@ fn frame_count_query_advances_after_run_until() {
         .expect("two frames should run");
 
     let after = provider
-        .query(&runtime, "amiga.machine.frame_count")
+        .query(&runtime, "machine.frame_count")
         .expect("query succeeds")
         .expect("path present");
     assert_eq!(after.value, json!(2));
@@ -258,7 +258,7 @@ fn disk_queries_flip_after_load_media() {
     let provider = AmigaSessionQueryProvider;
 
     let inserted = provider
-        .query(&runtime, "amiga.disk.inserted")
+        .query(&runtime, "disk.inserted")
         .expect("query succeeds")
         .expect("path present");
     assert_eq!(inserted.value, json!(false));
@@ -269,7 +269,7 @@ fn disk_queries_flip_after_load_media() {
     runtime.load_media(&media).expect("ADF bytes should insert");
 
     let inserted = provider
-        .query(&runtime, "amiga.disk.inserted")
+        .query(&runtime, "disk.inserted")
         .expect("query succeeds")
         .expect("path present");
     assert_eq!(inserted.value, json!(true));

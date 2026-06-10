@@ -667,7 +667,7 @@ fn run_spectrum_16k_entry(
     autoload_basic_tape(&mut session, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
         .map_err(|err| CatalogueError::Session(format!("16K autoload: {err}")))?;
 
-    wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+    wait_for_tape_stop(&mut session, media_kind, "tape.playing")?;
     run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_48K))
 }
 
@@ -708,7 +708,7 @@ fn run_spectrum_plus_entry(
     autoload_basic_tape(&mut session, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
         .map_err(|err| CatalogueError::Session(format!("Spectrum+ autoload: {err}")))?;
 
-    wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+    wait_for_tape_stop(&mut session, media_kind, "tape.playing")?;
     run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_48K))
 }
 
@@ -749,7 +749,7 @@ fn run_spectrum_48k_entry(
     autoload_basic_tape(&mut session, &media.slot, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
         .map_err(|err| CatalogueError::Session(format!("48K autoload: {err}")))?;
 
-    wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+    wait_for_tape_stop(&mut session, media_kind, "tape.playing")?;
     run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_48K))
 }
 
@@ -786,7 +786,7 @@ fn run_spectrum_plus2_entry(
 
     autoload_128k_tape_loader(&mut session, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
 
-    wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+    wait_for_tape_stop(&mut session, media_kind, "tape.playing")?;
     run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_128K))
 }
 
@@ -825,7 +825,7 @@ fn run_spectrum_128k_entry(
 
     autoload_128k_tape_loader(&mut session, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
 
-    wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+    wait_for_tape_stop(&mut session, media_kind, "tape.playing")?;
 
     // Diagnostic: dump full 64K RAM image at end-of-tape (immediately
     // after the tape transport reports stopped, before the boot wait).
@@ -1149,7 +1149,7 @@ where
     let media_kind = load_media_spec(&mut session, media, media_root)?;
 
     autoload_128k_tape_loader(&mut session, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
-    wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+    wait_for_tape_stop(&mut session, media_kind, "tape.playing")?;
 
     run_assertions(&mut session, entry, spectrum_frames_per_sec(&TIMING_PLUS2A))
 }
@@ -1201,7 +1201,7 @@ fn run_spectrum_plus3_entry(
             autoload_plus3_loader(&mut session, DEFAULT_128K_BOOT_FRAMES)?;
         }
         MediaKind::Tape => {
-            wait_for_tape_stop(&mut session, media_kind, "spectrum.tape.playing")?;
+            wait_for_tape_stop(&mut session, media_kind, "tape.playing")?;
         }
         _ => {}
     }
@@ -1570,7 +1570,7 @@ fn snapshot_check_16k(
         DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
     )
     .map_err(|err| CatalogueError::Session(format!("16K autoload: {err}")))?;
-    wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+    wait_for_tape_stop(&mut original, media_kind, "tape.playing")?;
 
     let fresh_runtime = Spectrum16kRuntime::from_firmware(&firmware_set)
         .map_err(|err| CatalogueError::Session(format!("16K fresh runtime: {err}")))?;
@@ -1627,7 +1627,7 @@ fn snapshot_check_plus(
         DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
     )
     .map_err(|err| CatalogueError::Session(format!("Spectrum+ autoload: {err}")))?;
-    wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+    wait_for_tape_stop(&mut original, media_kind, "tape.playing")?;
 
     let fresh_runtime = SpectrumPlusRuntime::from_firmware(&firmware_set)
         .map_err(|err| CatalogueError::Session(format!("Spectrum+ fresh runtime: {err}")))?;
@@ -1684,7 +1684,7 @@ fn snapshot_check_48k(
         DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
     )
     .map_err(|err| CatalogueError::Session(format!("48K autoload: {err}")))?;
-    wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+    wait_for_tape_stop(&mut original, media_kind, "tape.playing")?;
 
     let fresh_runtime = Spectrum48kRuntime::from_firmware(&firmware_set)
         .map_err(|err| CatalogueError::Session(format!("48K fresh runtime: {err}")))?;
@@ -1733,7 +1733,7 @@ fn snapshot_check_plus2(
     let media_kind = load_media_spec(&mut original, media, media_root)?;
 
     autoload_128k_tape_loader(&mut original, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
-    wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+    wait_for_tape_stop(&mut original, media_kind, "tape.playing")?;
 
     let fresh_runtime = build_plus2_runtime(&rom0, &rom1);
     let mut restored = HeadlessSession::new_with_query_provider(
@@ -1781,7 +1781,7 @@ fn snapshot_check_128k(
     let media_kind = load_media_spec(&mut original, media, media_root)?;
 
     autoload_128k_tape_loader(&mut original, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
-    wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+    wait_for_tape_stop(&mut original, media_kind, "tape.playing")?;
 
     let fresh_runtime = build_128k_runtime(&rom0, &rom1);
     let mut restored = HeadlessSession::new_with_query_provider(
@@ -1870,7 +1870,7 @@ where
     let media_kind = load_media_spec(&mut original, media, media_root)?;
 
     autoload_128k_tape_loader(&mut original, &media.slot, DEFAULT_128K_BOOT_FRAMES)?;
-    wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+    wait_for_tape_stop(&mut original, media_kind, "tape.playing")?;
 
     let fresh_runtime = build_runtime(&r0, &r1, &r2, &r3);
     let mut restored = HeadlessSession::new_with_query_provider(
@@ -1929,7 +1929,7 @@ fn snapshot_check_plus3(
             autoload_plus3_loader(&mut original, DEFAULT_128K_BOOT_FRAMES)?;
         }
         MediaKind::Tape => {
-            wait_for_tape_stop(&mut original, media_kind, "spectrum.tape.playing")?;
+            wait_for_tape_stop(&mut original, media_kind, "tape.playing")?;
         }
         _ => {}
     }

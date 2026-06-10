@@ -6,11 +6,7 @@ use serde_json::json;
 
 use crate::runtime::MtxRuntime;
 
-pub(crate) const MTX_QUERY_PATHS: &[&str] = &[
-    "mtx.cpu.pc",
-    "mtx.firmware.loaded",
-    "mtx.machine.frame_count",
-];
+pub(crate) const MTX_QUERY_PATHS: &[&str] = &["cpu.pc", "firmware.loaded", "machine.frame_count"];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MtxSessionQueryProvider;
@@ -29,9 +25,9 @@ impl SessionQueryProvider<MtxRuntime> for MtxSessionQueryProvider {
 
     fn query(&self, machine: &MtxRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "mtx.firmware.loaded" => json!(machine.machine().is_some()),
-            "mtx.machine.frame_count" => json!(machine.machine().map_or(0, Mtx::frame_count)),
-            "mtx.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "firmware.loaded" => json!(machine.machine().is_some()),
+            "machine.frame_count" => json!(machine.machine().map_or(0, Mtx::frame_count)),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

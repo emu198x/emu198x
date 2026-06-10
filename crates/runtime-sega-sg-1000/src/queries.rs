@@ -7,12 +7,12 @@ use serde_json::json;
 use crate::runtime::Sg1000Runtime;
 
 pub(crate) const SG1000_QUERY_PATHS: &[&str] = &[
-    "sg1000.cartridge.loaded",
-    "sg1000.cpu.pc",
-    "sg1000.cpu.tstates",
-    "sg1000.machine.frame_count",
-    "sg1000.machine.region",
-    "sg1000.vdp.scanline",
+    "cartridge.loaded",
+    "cpu.pc",
+    "cpu.tstates",
+    "machine.frame_count",
+    "machine.region",
+    "vdp.scanline",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -36,14 +36,14 @@ impl SessionQueryProvider<Sg1000Runtime> for Sg1000SessionQueryProvider {
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "sg1000.cartridge.loaded" => json!(machine.cart_bytes().is_some()),
-            "sg1000.machine.region" => json!(format!("{:?}", machine.model().region())),
-            "sg1000.machine.frame_count" => {
+            "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
+            "machine.region" => json!(format!("{:?}", machine.model().region())),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, Sg1000::frame_count))
             }
-            "sg1000.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
-            "sg1000.cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
-            "sg1000.vdp.scanline" => json!(loaded(machine, path)?.vdp().scanline()),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
+            "vdp.scanline" => json!(loaded(machine, path)?.vdp().scanline()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

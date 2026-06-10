@@ -15,11 +15,8 @@ fn query_provider_lists_gameboy_paths() {
     let runtime = GameBoyRuntime::blank(Model::Dmg);
     let provider = GameBoySessionQueryProvider;
     assert_eq!(
-        provider.query_paths(&runtime, Some("gameboy.")),
-        vec![
-            "gameboy.cartridge.loaded".to_string(),
-            "gameboy.cpu.pc".to_string()
-        ]
+        provider.query_paths(&runtime, Some("")),
+        vec!["cartridge.loaded".to_string(), "cpu.pc".to_string()]
     );
 }
 
@@ -36,17 +33,17 @@ fn query_provider_reports_loaded_state_and_cpu_pc() {
     let provider = GameBoySessionQueryProvider;
     assert_eq!(
         provider
-            .query(&runtime, "gameboy.cartridge.loaded")
-            .expect("gameboy.cartridge.loaded query should not fail")
-            .expect("gameboy.cartridge.loaded should resolve")
+            .query(&runtime, "cartridge.loaded")
+            .expect("cartridge.loaded query should not fail")
+            .expect("cartridge.loaded should resolve")
             .value,
         json!(true)
     );
     assert_eq!(
         provider
-            .query(&runtime, "gameboy.cpu.pc")
-            .expect("gameboy.cpu.pc query should not fail")
-            .expect("gameboy.cpu.pc should resolve")
+            .query(&runtime, "cpu.pc")
+            .expect("cpu.pc query should not fail")
+            .expect("cpu.pc should resolve")
             .value,
         json!(0x0100u16)
     );
@@ -56,12 +53,16 @@ fn query_provider_reports_loaded_state_and_cpu_pc() {
 fn headless_session_exposes_gameboy_queries() {
     let runtime = GameBoyRuntime::blank(Model::Dmg);
     let session = HeadlessSession::new_with_query_provider(runtime, 1, GameBoySessionQueryProvider);
-    let paths = session.query_paths(Some("gameboy."));
-    assert_eq!(
-        paths.paths,
-        vec![
-            "gameboy.cartridge.loaded".to_string(),
-            "gameboy.cpu.pc".to_string()
-        ]
+    let paths = session.query_paths(None);
+    // The session surfaces the machine's own paths alongside the shared
+    // session/capture/run set; assert the machine paths are present (no
+    // machine prefix to isolate them by any more).
+    assert!(
+        paths.paths.contains(&"cartridge.loaded".to_string()),
+        "session exposes the cartridge.loaded query"
+    );
+    assert!(
+        paths.paths.contains(&"cpu.pc".to_string()),
+        "session exposes the cpu.pc query"
     );
 }

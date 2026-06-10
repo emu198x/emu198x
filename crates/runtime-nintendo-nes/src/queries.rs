@@ -13,26 +13,26 @@ use crate::runtime::NesRuntime;
 
 /// Every path the NES runtime answers via `query()`.
 pub(crate) const NES_QUERY_PATHS: &[&str] = &[
-    "nes.cartridge.loaded",
-    "nes.cartridge.mapper",
-    "nes.cpu.nmi",
-    "nes.cpu.nmi_pending",
-    "nes.cpu.nmi_prev",
-    "nes.cpu.pc",
-    "nes.machine.frame_count",
-    "nes.machine.master_clock",
-    "nes.ppu.ctrl",
-    "nes.ppu.dot",
-    "nes.ppu.frame_odd",
-    "nes.ppu.mask",
-    "nes.ppu.nmi",
-    "nes.ppu.rendering_enabled",
-    "nes.ppu.scanline",
-    "nes.ppu.status",
-    "nes.test.blargg.signature",
-    "nes.test.blargg.status",
-    "nes.test.blargg.text",
-    "nes.test.blargg.valid",
+    "cartridge.loaded",
+    "cartridge.mapper",
+    "cpu.nmi",
+    "cpu.nmi_pending",
+    "cpu.nmi_prev",
+    "cpu.pc",
+    "machine.frame_count",
+    "machine.master_clock",
+    "ppu.ctrl",
+    "ppu.dot",
+    "ppu.frame_odd",
+    "ppu.mask",
+    "ppu.nmi",
+    "ppu.rendering_enabled",
+    "ppu.scanline",
+    "ppu.status",
+    "test.blargg.signature",
+    "test.blargg.status",
+    "test.blargg.text",
+    "test.blargg.valid",
 ];
 
 const BLARGG_STATUS_ADDR: u16 = 0x6000;
@@ -59,15 +59,15 @@ impl SessionQueryProvider<NesRuntime> for NesSessionQueryProvider {
 
     fn query(&self, machine: &NesRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "nes.cartridge.loaded" => json!(machine.machine().is_some()),
-            "nes.cartridge.mapper" => json!(machine.cartridge_mapper()),
-            "nes.machine.frame_count" => {
+            "cartridge.loaded" => json!(machine.machine().is_some()),
+            "cartridge.mapper" => json!(machine.cartridge_mapper()),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, Nes::frame_count))
             }
-            "nes.machine.master_clock" => {
+            "machine.master_clock" => {
                 json!(machine.machine().map_or(0, Nes::master_clock))
             }
-            "nes.cpu.pc" => json!(
+            "cpu.pc" => json!(
                 machine
                     .machine()
                     .ok_or_else(|| QueryError::UnavailablePath {
@@ -78,7 +78,7 @@ impl SessionQueryProvider<NesRuntime> for NesSessionQueryProvider {
                     .regs
                     .pc
             ),
-            "nes.ppu.scanline" => json!(
+            "ppu.scanline" => json!(
                 machine
                     .machine()
                     .ok_or_else(|| QueryError::UnavailablePath {
@@ -88,7 +88,7 @@ impl SessionQueryProvider<NesRuntime> for NesSessionQueryProvider {
                     .ppu
                     .scanline()
             ),
-            "nes.ppu.dot" => json!(
+            "ppu.dot" => json!(
                 machine
                     .machine()
                     .ok_or_else(|| QueryError::UnavailablePath {
@@ -98,27 +98,27 @@ impl SessionQueryProvider<NesRuntime> for NesSessionQueryProvider {
                     .ppu
                     .dot()
             ),
-            "nes.cpu.nmi" => json!(loaded_machine(machine, path)?.cpu.nmi),
-            "nes.cpu.nmi_pending" => json!(loaded_machine(machine, path)?.cpu.pending_nmi()),
-            "nes.cpu.nmi_prev" => json!(loaded_machine(machine, path)?.cpu.nmi_prev()),
-            "nes.ppu.ctrl" => json!(loaded_machine(machine, path)?.ppu.ctrl()),
-            "nes.ppu.mask" => json!(loaded_machine(machine, path)?.ppu.mask()),
-            "nes.ppu.status" => json!(loaded_machine(machine, path)?.ppu.status()),
-            "nes.ppu.frame_odd" => json!(loaded_machine(machine, path)?.ppu.frame_odd()),
-            "nes.ppu.rendering_enabled" => {
+            "cpu.nmi" => json!(loaded_machine(machine, path)?.cpu.nmi),
+            "cpu.nmi_pending" => json!(loaded_machine(machine, path)?.cpu.pending_nmi()),
+            "cpu.nmi_prev" => json!(loaded_machine(machine, path)?.cpu.nmi_prev()),
+            "ppu.ctrl" => json!(loaded_machine(machine, path)?.ppu.ctrl()),
+            "ppu.mask" => json!(loaded_machine(machine, path)?.ppu.mask()),
+            "ppu.status" => json!(loaded_machine(machine, path)?.ppu.status()),
+            "ppu.frame_odd" => json!(loaded_machine(machine, path)?.ppu.frame_odd()),
+            "ppu.rendering_enabled" => {
                 json!(loaded_machine(machine, path)?.ppu.mask() & 0x18 != 0)
             }
-            "nes.ppu.nmi" => json!(loaded_machine(machine, path)?.ppu.nmi),
-            "nes.test.blargg.status" => {
+            "ppu.nmi" => json!(loaded_machine(machine, path)?.ppu.nmi),
+            "test.blargg.status" => {
                 json!(loaded_machine(machine, path)?.peek(BLARGG_STATUS_ADDR))
             }
-            "nes.test.blargg.signature" => {
+            "test.blargg.signature" => {
                 json!(blargg_signature(loaded_machine(machine, path)?))
             }
-            "nes.test.blargg.valid" => {
+            "test.blargg.valid" => {
                 json!(blargg_signature(loaded_machine(machine, path)?) == BLARGG_SIGNATURE)
             }
-            "nes.test.blargg.text" => {
+            "test.blargg.text" => {
                 json!(blargg_text(loaded_machine(machine, path)?))
             }
             _ => return Ok(None),

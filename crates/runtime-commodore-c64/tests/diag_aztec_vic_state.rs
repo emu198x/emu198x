@@ -103,7 +103,7 @@ fn dump_vic_state_at_aztec_player_select() {
     println!("  → {mode}");
 
     let cia2_pa = provider
-        .query(session.machine(), "c64.cia2.pa")
+        .query(session.machine(), "cia2.pa")
         .ok()
         .flatten()
         .map(|r| r.value);

@@ -7,11 +7,11 @@ use serde_json::json;
 use crate::runtime::Svi328Runtime;
 
 pub(crate) const SVI_QUERY_PATHS: &[&str] = &[
-    "svi.bios.loaded",
-    "svi.cartridge.loaded",
-    "svi.cpu.pc",
-    "svi.cpu.tstates",
-    "svi.machine.frame_count",
+    "bios.loaded",
+    "cartridge.loaded",
+    "cpu.pc",
+    "cpu.tstates",
+    "machine.frame_count",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -35,13 +35,13 @@ impl SessionQueryProvider<Svi328Runtime> for Svi328SessionQueryProvider {
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "svi.bios.loaded" => json!(machine.machine().is_some()),
-            "svi.cartridge.loaded" => json!(machine.cart_bytes().is_some()),
-            "svi.machine.frame_count" => {
+            "bios.loaded" => json!(machine.machine().is_some()),
+            "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, Svi328::frame_count))
             }
-            "svi.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
-            "svi.cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

@@ -7,10 +7,10 @@ use serde_json::json;
 use crate::runtime::BbcMicroRuntime;
 
 pub(crate) const BBC_QUERY_PATHS: &[&str] = &[
-    "bbc.cpu.cycles",
-    "bbc.cpu.pc",
-    "bbc.firmware.loaded",
-    "bbc.machine.frame_count",
+    "cpu.cycles",
+    "cpu.pc",
+    "firmware.loaded",
+    "machine.frame_count",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -34,10 +34,10 @@ impl SessionQueryProvider<BbcMicroRuntime> for BbcMicroSessionQueryProvider {
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "bbc.firmware.loaded" => json!(machine.machine().is_some()),
-            "bbc.machine.frame_count" => json!(machine.machine().map_or(0, BbcMicro::frame_count)),
-            "bbc.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
-            "bbc.cpu.cycles" => json!(loaded(machine, path)?.cpu_cycles()),
+            "firmware.loaded" => json!(machine.machine().is_some()),
+            "machine.frame_count" => json!(machine.machine().map_or(0, BbcMicro::frame_count)),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.cycles" => json!(loaded(machine, path)?.cpu_cycles()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

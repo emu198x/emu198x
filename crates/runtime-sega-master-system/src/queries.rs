@@ -7,13 +7,13 @@ use serde_json::json;
 use crate::runtime::SmsRuntime;
 
 pub(crate) const SMS_QUERY_PATHS: &[&str] = &[
-    "sms.cartridge.loaded",
-    "sms.cpu.pc",
-    "sms.cpu.tstates",
-    "sms.machine.frame_count",
-    "sms.machine.region",
-    "sms.machine.variant",
-    "sms.vdp.scanline",
+    "cartridge.loaded",
+    "cpu.pc",
+    "cpu.tstates",
+    "machine.frame_count",
+    "machine.region",
+    "machine.variant",
+    "vdp.scanline",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -33,13 +33,13 @@ impl SessionQueryProvider<SmsRuntime> for SmsSessionQueryProvider {
 
     fn query(&self, machine: &SmsRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "sms.cartridge.loaded" => json!(machine.cart_bytes().is_some()),
-            "sms.machine.region" => json!(format!("{:?}", machine.model().region())),
-            "sms.machine.variant" => json!(format!("{:?}", machine.model())),
-            "sms.machine.frame_count" => json!(machine.machine().map_or(0, Sms::frame_count)),
-            "sms.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
-            "sms.cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
-            "sms.vdp.scanline" => json!(loaded(machine, path)?.vdp().read_v_counter()),
+            "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
+            "machine.region" => json!(format!("{:?}", machine.model().region())),
+            "machine.variant" => json!(format!("{:?}", machine.model())),
+            "machine.frame_count" => json!(machine.machine().map_or(0, Sms::frame_count)),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
+            "vdp.scanline" => json!(loaded(machine, path)?.vdp().read_v_counter()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

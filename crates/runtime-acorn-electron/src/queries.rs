@@ -7,12 +7,12 @@ use serde_json::json;
 use crate::runtime::ElectronRuntime;
 
 pub(crate) const ELECTRON_QUERY_PATHS: &[&str] = &[
-    "electron.cpu.cycles",
-    "electron.cpu.pc",
-    "electron.firmware.loaded",
-    "electron.machine.frame_count",
-    "electron.ula.display_mode",
-    "electron.ula.irq",
+    "cpu.cycles",
+    "cpu.pc",
+    "firmware.loaded",
+    "machine.frame_count",
+    "ula.display_mode",
+    "ula.irq",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -36,14 +36,14 @@ impl SessionQueryProvider<ElectronRuntime> for ElectronSessionQueryProvider {
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "electron.firmware.loaded" => json!(machine.machine().is_some()),
-            "electron.machine.frame_count" => {
+            "firmware.loaded" => json!(machine.machine().is_some()),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, AcornElectron::frame_count))
             }
-            "electron.cpu.cycles" => json!(loaded(machine, path)?.cpu_cycles()),
-            "electron.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
-            "electron.ula.display_mode" => json!(loaded(machine, path)?.display_mode()),
-            "electron.ula.irq" => json!(loaded(machine, path)?.irq_asserted()),
+            "cpu.cycles" => json!(loaded(machine, path)?.cpu_cycles()),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "ula.display_mode" => json!(loaded(machine, path)?.display_mode()),
+            "ula.irq" => json!(loaded(machine, path)?.irq_asserted()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

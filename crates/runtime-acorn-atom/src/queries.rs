@@ -7,11 +7,11 @@ use serde_json::json;
 use crate::runtime::AtomRuntime;
 
 pub(crate) const ATOM_QUERY_PATHS: &[&str] = &[
-    "atom.bios.loaded",
-    "atom.cpu.pc",
-    "atom.cpu.master_clock",
-    "atom.machine.frame_count",
-    "atom.machine.ram_bytes",
+    "bios.loaded",
+    "cpu.pc",
+    "cpu.master_clock",
+    "machine.frame_count",
+    "machine.ram_bytes",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -31,13 +31,13 @@ impl SessionQueryProvider<AtomRuntime> for AtomSessionQueryProvider {
 
     fn query(&self, machine: &AtomRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "atom.bios.loaded" => json!(machine.machine().is_some()),
-            "atom.machine.frame_count" => {
+            "bios.loaded" => json!(machine.machine().is_some()),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, AcornAtom::frame_count))
             }
-            "atom.machine.ram_bytes" => json!(machine.model().ram_bytes()),
-            "atom.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
-            "atom.cpu.master_clock" => json!(loaded(machine, path)?.master_clock()),
+            "machine.ram_bytes" => json!(machine.model().ram_bytes()),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.master_clock" => json!(loaded(machine, path)?.master_clock()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

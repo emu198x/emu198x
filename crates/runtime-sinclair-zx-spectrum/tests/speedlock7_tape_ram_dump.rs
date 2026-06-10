@@ -187,7 +187,7 @@ fn dump_speedlock7_loader_ram() {
         let prog_hi = session.machine().machine().read_byte(0x5C54);
         let prog = u16::from_le_bytes([prog_lo, prog_hi]);
         let tape_playing = session
-            .query("spectrum.tape.playing")
+            .query("tape.playing")
             .ok()
             .and_then(|r| r.value.as_bool())
             .unwrap_or(false);

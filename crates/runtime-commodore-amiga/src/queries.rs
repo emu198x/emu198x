@@ -27,7 +27,7 @@ pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
     "boot.row",
-    "amiga.machine.frame_count",
+    "machine.frame_count",
 ];
 
 /// Boot-status snapshot derived from the most recent frame. Matches
@@ -101,7 +101,7 @@ impl<M: AmigaMachine> SessionQueryProvider<AmigaRuntime<M>> for AmigaSessionQuer
             "boot.detected" => json!(boot_status(machine).detected),
             "boot.reason" => json!(boot_status(machine).reason),
             "boot.row" => json!(boot_status(machine).row),
-            "amiga.machine.frame_count" => json!(machine.frame_count()),
+            "machine.frame_count" => json!(machine.frame_count()),
             _ => {
                 // Push everything else down to the variant.
                 return match machine.machine().resolve_variant_query(path)? {

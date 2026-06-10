@@ -559,9 +559,9 @@ mod tests {
     fn query_provider_dispatches_to_inner_variants() {
         let kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
         let provider = SpectrumSessionQueryProvider;
-        let paths = provider.query_paths(&kind, Some("spectrum.tape."));
+        let paths = provider.query_paths(&kind, Some("tape."));
         assert!(
-            paths.iter().any(|p| p.starts_with("spectrum.tape.")),
+            paths.iter().any(|p| p.starts_with("tape.")),
             "expected at least one spectrum.tape.* path; got {paths:?}"
         );
     }

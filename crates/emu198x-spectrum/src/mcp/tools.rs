@@ -444,7 +444,7 @@ pub(crate) fn execute_query_ay<M: SpectrumLiveAccess + MachineCore, Q: SessionQu
     // QueryError::UnknownPath. We surface that as a clear "active
     // variant has no AY" error rather than a generic UnknownPath.
     let regs = session
-        .query("spectrum.ay.registers")
+        .query("ay.registers")
         .map_err(|err| ay_unsupported_error(&err))?;
     let raw: Vec<u8> = serde_json::from_value(regs.value).map_err(|err| {
         ToolError::Execution(format!(
@@ -458,7 +458,7 @@ pub(crate) fn execute_query_ay<M: SpectrumLiveAccess + MachineCore, Q: SessionQu
         )));
     }
     let selected = session
-        .query("spectrum.ay.selected_register")
+        .query("ay.selected_register")
         .map_err(|err| ay_unsupported_error(&err))?;
     let selected_register: u8 = serde_json::from_value(selected.value).map_err(|err| {
         ToolError::Execution(format!(

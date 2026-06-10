@@ -56,9 +56,9 @@ fn query_provider_reports_blank_runtime_as_not_booted() {
     assert_eq!(row.value, json!(null));
 
     let tape_loaded = provider
-        .query(&runtime, "c64.tape.loaded")
-        .expect("c64.tape.loaded query should not fail")
-        .expect("c64.tape.loaded should resolve");
+        .query(&runtime, "tape.loaded")
+        .expect("tape.loaded query should not fail")
+        .expect("tape.loaded should resolve");
     assert_eq!(tape_loaded.value, json!(false));
 
     let text_lines = provider
@@ -93,25 +93,25 @@ fn runtime_load_media_and_transport_update_tape_queries() {
         .expect("synthetic TAP should load through runtime");
     assert_eq!(
         provider
-            .query(&runtime, "c64.tape.loaded")
-            .expect("c64.tape.loaded query should not fail")
-            .expect("c64.tape.loaded should resolve")
+            .query(&runtime, "tape.loaded")
+            .expect("tape.loaded query should not fail")
+            .expect("tape.loaded should resolve")
             .value,
         json!(true)
     );
     assert_eq!(
         provider
-            .query(&runtime, "c64.tape.playing")
-            .expect("c64.tape.playing query should not fail")
-            .expect("c64.tape.playing should resolve")
+            .query(&runtime, "tape.playing")
+            .expect("tape.playing query should not fail")
+            .expect("tape.playing should resolve")
             .value,
         json!(false)
     );
     assert_eq!(
         provider
-            .query(&runtime, "c64.tape.sense")
-            .expect("c64.tape.sense query should not fail")
-            .expect("c64.tape.sense should resolve")
+            .query(&runtime, "tape.sense")
+            .expect("tape.sense query should not fail")
+            .expect("tape.sense should resolve")
             .value,
         json!(false)
     );
@@ -124,17 +124,17 @@ fn runtime_load_media_and_transport_update_tape_queries() {
         .expect("tape transport should start");
     assert_eq!(
         provider
-            .query(&runtime, "c64.tape.playing")
-            .expect("c64.tape.playing query should not fail")
-            .expect("c64.tape.playing should resolve")
+            .query(&runtime, "tape.playing")
+            .expect("tape.playing query should not fail")
+            .expect("tape.playing should resolve")
             .value,
         json!(false)
     );
     assert_eq!(
         provider
-            .query(&runtime, "c64.tape.sense")
-            .expect("c64.tape.sense query should not fail")
-            .expect("c64.tape.sense should resolve")
+            .query(&runtime, "tape.sense")
+            .expect("tape.sense query should not fail")
+            .expect("tape.sense should resolve")
             .value,
         json!(true)
     );
@@ -147,17 +147,17 @@ fn runtime_load_media_and_transport_update_tape_queries() {
         .expect("tape transport should stop");
     assert_eq!(
         provider
-            .query(&runtime, "c64.tape.playing")
-            .expect("c64.tape.playing query should not fail")
-            .expect("c64.tape.playing should resolve")
+            .query(&runtime, "tape.playing")
+            .expect("tape.playing query should not fail")
+            .expect("tape.playing should resolve")
             .value,
         json!(false)
     );
     assert_eq!(
         provider
-            .query(&runtime, "c64.tape.sense")
-            .expect("c64.tape.sense query should not fail")
-            .expect("c64.tape.sense should resolve")
+            .query(&runtime, "tape.sense")
+            .expect("tape.sense query should not fail")
+            .expect("tape.sense should resolve")
             .value,
         json!(false)
     );
@@ -205,17 +205,17 @@ fn memory_ram_prefix_query_returns_byte_at_address() {
         .expect("blank firmware should construct a runtime");
     let provider = C64SessionQueryProvider;
     let result = provider
-        .query(&runtime, "c64.memory.ram.0400")
+        .query(&runtime, "memory.ram.0400")
         .expect("hex address suffix should not error")
         .expect("hex address suffix should resolve");
     assert!(result.value.is_u64());
 
     // Decimal-only suffixes that aren't valid hex are rejected.
     let err = provider
-        .query(&runtime, "c64.memory.ram.zzzz")
+        .query(&runtime, "memory.ram.zzzz")
         .expect_err("non-hex suffix should be rejected");
     let msg = format!("{err:?}");
-    assert!(msg.contains("c64.memory.ram.zzzz"));
+    assert!(msg.contains("memory.ram.zzzz"));
 }
 
 #[test]
@@ -224,7 +224,7 @@ fn drive8_mem_prefix_query_returns_some_when_drive_attached() {
         .expect("blank firmware with drive should construct a runtime");
     let provider = C64SessionQueryProvider;
     let result = provider
-        .query(&runtime, "c64.drive8.mem.C000")
+        .query(&runtime, "drive8.mem.C000")
         .expect("hex address suffix should not error")
         .expect("hex address suffix should resolve");
     // With a drive attached, the response is a u8.
@@ -237,7 +237,7 @@ fn drive8_mem_prefix_query_returns_null_when_drive_absent() {
         .expect("blank firmware should construct a runtime");
     let provider = C64SessionQueryProvider;
     let result = provider
-        .query(&runtime, "c64.drive8.mem.C000")
+        .query(&runtime, "drive8.mem.C000")
         .expect("hex address suffix should not error")
         .expect("hex address suffix should resolve");
     assert!(result.value.is_null());
@@ -248,9 +248,9 @@ fn query_paths_filters_by_prefix() {
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank firmware should construct a runtime");
     let provider = C64SessionQueryProvider;
-    let cia1 = provider.query_paths(&runtime, Some("c64.cia1."));
+    let cia1 = provider.query_paths(&runtime, Some("cia1."));
     assert!(!cia1.is_empty());
-    assert!(cia1.iter().all(|p| p.starts_with("c64.cia1.")));
+    assert!(cia1.iter().all(|p| p.starts_with("cia1.")));
 }
 
 #[test]
@@ -278,14 +278,14 @@ fn query_provider_reports_real_attached_drive_progress() {
 
     assert_eq!(
         provider
-            .query(&runtime, "c64.drive8.attached")
+            .query(&runtime, "drive8.attached")
             .expect("drive attachment query should not fail")
             .expect("drive attachment query should resolve")
             .value,
         json!(true)
     );
     let drive_cycles = provider
-        .query(&runtime, "c64.drive8.cpu.cycles")
+        .query(&runtime, "drive8.cpu.cycles")
         .expect("drive cycle query should not fail")
         .expect("drive cycle query should resolve")
         .value

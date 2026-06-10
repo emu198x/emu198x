@@ -41,7 +41,7 @@ fn real_d64_mount_bruce_lee_reports_disk_metadata() {
 
     assert_eq!(
         provider
-            .query(&runtime, "c64.drive8.attached")
+            .query(&runtime, "drive8.attached")
             .expect("drive attachment query should not fail")
             .expect("drive attachment query should resolve")
             .value,
@@ -49,7 +49,7 @@ fn real_d64_mount_bruce_lee_reports_disk_metadata() {
     );
     assert_eq!(
         provider
-            .query(&runtime, "c64.drive8.disk.inserted")
+            .query(&runtime, "drive8.disk.inserted")
             .expect("disk inserted query should not fail")
             .expect("disk inserted query should resolve")
             .value,
@@ -57,7 +57,7 @@ fn real_d64_mount_bruce_lee_reports_disk_metadata() {
     );
     assert_eq!(
         provider
-            .query(&runtime, "c64.drive8.disk.name")
+            .query(&runtime, "drive8.disk.name")
             .expect("disk name query should not fail")
             .expect("disk name query should resolve")
             .value,
@@ -65,7 +65,7 @@ fn real_d64_mount_bruce_lee_reports_disk_metadata() {
     );
     assert_eq!(
         provider
-            .query(&runtime, "c64.drive8.disk.id")
+            .query(&runtime, "drive8.disk.id")
             .expect("disk id query should not fail")
             .expect("disk id query should resolve")
             .value,
@@ -73,7 +73,7 @@ fn real_d64_mount_bruce_lee_reports_disk_metadata() {
     );
     assert_eq!(
         provider
-            .query(&runtime, "c64.drive8.disk.write_protected")
+            .query(&runtime, "drive8.disk.write_protected")
             .expect("disk write-protect query should not fail")
             .expect("disk write-protect query should resolve")
             .value,
@@ -114,7 +114,7 @@ fn real_d64_autoload_bruce_lee_starts_drive_motion() {
     assert_eq!(autoload.slot, DEFAULT_DISK_AUTOLOAD_SLOT);
 
     let start_head = session
-        .query("c64.drive8.head_position")
+        .query("drive8.head_position")
         .expect("head position query should not fail")
         .value
         .as_u64()
@@ -125,7 +125,7 @@ fn real_d64_autoload_bruce_lee_starts_drive_motion() {
         .expect("Bruce Lee disk autoload should advance the attached drive");
 
     let end_head = session
-        .query("c64.drive8.head_position")
+        .query("drive8.head_position")
         .expect("head position query should not fail")
         .value
         .as_u64()

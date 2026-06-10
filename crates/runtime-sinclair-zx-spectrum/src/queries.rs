@@ -28,20 +28,20 @@ use crate::runtime::{SpectrumMachine, SpectrumRuntime};
 pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
     "screen.text.cols",
     "screen.text.lines",
-    "spectrum.basic.prog",
-    "spectrum.basic.vars",
-    "spectrum.basic.e_line",
-    "spectrum.basic.worksp",
-    "spectrum.basic.e_ppc",
-    "spectrum.basic.newppc",
-    "spectrum.basic.flags",
-    "spectrum.basic.mode",
+    "basic.prog",
+    "basic.vars",
+    "basic.e_line",
+    "basic.worksp",
+    "basic.e_ppc",
+    "basic.newppc",
+    "basic.flags",
+    "basic.mode",
     "screen.text.rows",
-    "spectrum.keyboard.rows",
-    "spectrum.machine.half_cycle_in_frame",
-    "spectrum.machine.tstate_in_frame",
-    "spectrum.tape.loaded",
-    "spectrum.tape.playing",
+    "keyboard.rows",
+    "machine.half_cycle_in_frame",
+    "machine.tstate_in_frame",
+    "tape.loaded",
+    "tape.playing",
 ];
 
 pub(crate) const SCREEN_TEXT_COLS: usize = 32;
@@ -199,19 +199,19 @@ impl<M: SpectrumMachine> SessionQueryProvider<SpectrumRuntime<M>> for SpectrumSe
             "screen.text.cols" => json!(SCREEN_TEXT_COLS),
             "screen.text.rows" => json!(SCREEN_TEXT_ROWS),
             "screen.text.lines" => json!(screen_text_lines(machine)),
-            "spectrum.keyboard.rows" => json!(machine.keyboard_rows()),
-            "spectrum.machine.half_cycle_in_frame" => json!(machine.half_cycle_in_frame()),
-            "spectrum.machine.tstate_in_frame" => json!(machine.tstate_in_frame()),
-            "spectrum.tape.loaded" => json!(machine.tape_is_loaded()),
-            "spectrum.tape.playing" => json!(machine.tape_is_playing()),
-            "spectrum.basic.prog" => json!(read_word_le(machine, 0x5C53)),
-            "spectrum.basic.vars" => json!(read_word_le(machine, 0x5C4B)),
-            "spectrum.basic.e_line" => json!(read_word_le(machine, 0x5C59)),
-            "spectrum.basic.worksp" => json!(read_word_le(machine, 0x5C61)),
-            "spectrum.basic.e_ppc" => json!(read_word_le(machine, 0x5C49)),
-            "spectrum.basic.newppc" => json!(read_word_le(machine, 0x5C42)),
-            "spectrum.basic.flags" => json!(machine.read_byte(0x5C3B)),
-            "spectrum.basic.mode" => json!(machine.read_byte(0x5C41)),
+            "keyboard.rows" => json!(machine.keyboard_rows()),
+            "machine.half_cycle_in_frame" => json!(machine.half_cycle_in_frame()),
+            "machine.tstate_in_frame" => json!(machine.tstate_in_frame()),
+            "tape.loaded" => json!(machine.tape_is_loaded()),
+            "tape.playing" => json!(machine.tape_is_playing()),
+            "basic.prog" => json!(read_word_le(machine, 0x5C53)),
+            "basic.vars" => json!(read_word_le(machine, 0x5C4B)),
+            "basic.e_line" => json!(read_word_le(machine, 0x5C59)),
+            "basic.worksp" => json!(read_word_le(machine, 0x5C61)),
+            "basic.e_ppc" => json!(read_word_le(machine, 0x5C49)),
+            "basic.newppc" => json!(read_word_le(machine, 0x5C42)),
+            "basic.flags" => json!(machine.read_byte(0x5C3B)),
+            "basic.mode" => json!(machine.read_byte(0x5C41)),
             _ => return machine.resolve_variant_query(path),
         };
 
@@ -301,7 +301,7 @@ mod tests {
         // `spectrum.machine.issue` is a 48K-only path. The shared
         // dispatcher must hand it off to `resolve_variant_query`.
         let issue = provider
-            .query(&runtime, "spectrum.machine.issue")
+            .query(&runtime, "machine.issue")
             .expect("issue query should resolve")
             .expect("provider should own issue path");
         assert_eq!(issue.value, serde_json::json!("issue3"));

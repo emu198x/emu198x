@@ -159,7 +159,7 @@ fn find_74a4_writes_in_rainbow_islands() {
             prev = now;
         }
         let playing = session
-            .query("spectrum.tape.playing")
+            .query("tape.playing")
             .ok()
             .and_then(|v| v.value.as_bool())
             .unwrap_or(true);

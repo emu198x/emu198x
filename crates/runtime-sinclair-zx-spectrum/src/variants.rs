@@ -232,25 +232,17 @@ const COMMON_BOOT_PATHS: &[&str] = &["boot.detected", "boot.reason", "boot.row"]
 /// AY-3-8912 query paths shared by every variant that owns an AY chip
 /// (128K, +2A/+2B/+3, Pentagon, Scorpion, TS2068). The 48K and TC2048
 /// have no AY and never expose these. Resolved by [`resolve_ay_path`].
-const AY_QUERY_PATHS: &[&str] = &["spectrum.ay.selected_register", "spectrum.ay.registers"];
+const AY_QUERY_PATHS: &[&str] = &["ay.selected_register", "ay.registers"];
 
-const SPECTRUM_48K_QUERY_PATHS: &[&str] = &[
-    "boot.detected",
-    "boot.reason",
-    "boot.row",
-    "spectrum.machine.issue",
-];
+const SPECTRUM_48K_QUERY_PATHS: &[&str] =
+    &["boot.detected", "boot.reason", "boot.row", "machine.issue"];
 
 // 16K shares the 48K ROM image (same banner) and ships in the same
 // Issue 2 / Issue 3 boards, so it exposes exactly the same query
 // surface. Kept as its own constant rather than aliased so any future
 // 16K-only path lands in one obvious place.
-const SPECTRUM_16K_QUERY_PATHS: &[&str] = &[
-    "boot.detected",
-    "boot.reason",
-    "boot.row",
-    "spectrum.machine.issue",
-];
+const SPECTRUM_16K_QUERY_PATHS: &[&str] =
+    &["boot.detected", "boot.reason", "boot.row", "machine.issue"];
 
 const SPECTRUM_16K_BANNERS: &[&str] = SPECTRUM_48K_BANNERS;
 
@@ -264,8 +256,8 @@ const SPECTRUM_128K_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
     "boot.row",
-    "spectrum.ay.selected_register",
-    "spectrum.ay.registers",
+    "ay.selected_register",
+    "ay.registers",
 ];
 
 // +2 shares the 128K's chip set and so exposes the same query surface.
@@ -274,52 +266,48 @@ const SPECTRUM_PLUS2_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
     "boot.row",
-    "spectrum.ay.selected_register",
-    "spectrum.ay.registers",
+    "ay.selected_register",
+    "ay.registers",
 ];
 
 const SPECTRUM_PLUS_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
     "boot.row",
-    "spectrum.plus.disk_slot_supported",
-    "spectrum.ay.selected_register",
-    "spectrum.ay.registers",
+    "plus.disk_slot_supported",
+    "ay.selected_register",
+    "ay.registers",
 ];
 
 const PENTAGON_128_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
     "boot.row",
-    "spectrum.kempston.state",
-    "spectrum.ay.selected_register",
-    "spectrum.ay.registers",
+    "kempston.state",
+    "ay.selected_register",
+    "ay.registers",
 ];
 
 const SCORPION_ZS256_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
     "boot.row",
-    "spectrum.kempston.state",
-    "spectrum.ay.selected_register",
-    "spectrum.ay.registers",
+    "kempston.state",
+    "ay.selected_register",
+    "ay.registers",
 ];
 
-const TIMEX_TC2048_QUERY_PATHS: &[&str] = &[
-    "boot.detected",
-    "boot.reason",
-    "boot.row",
-    "spectrum.kempston.state",
-];
+const TIMEX_TC2048_QUERY_PATHS: &[&str] =
+    &["boot.detected", "boot.reason", "boot.row", "kempston.state"];
 
 const TIMEX_TS2068_QUERY_PATHS: &[&str] = &[
     "boot.detected",
     "boot.reason",
     "boot.row",
-    "spectrum.kempston.state",
-    "spectrum.timex.model",
-    "spectrum.ay.selected_register",
-    "spectrum.ay.registers",
+    "kempston.state",
+    "timex.model",
+    "ay.selected_register",
+    "ay.registers",
 ];
 
 fn boot_status_query<M: SpectrumMachine>(machine: &M, banners: &[&str]) -> SpectrumBootStatus {
@@ -354,8 +342,8 @@ fn resolve_boot_path<M: SpectrumMachine>(
 /// variant-specific resolvers.
 fn resolve_ay_path(ay: &Ay3_8912, path: &str) -> Result<Option<QueryResult>, QueryError> {
     let value = match path {
-        "spectrum.ay.selected_register" => json!(ay.selected_register()),
-        "spectrum.ay.registers" => json!(ay.registers()),
+        "ay.selected_register" => json!(ay.selected_register()),
+        "ay.registers" => json!(ay.registers()),
         _ => return Ok(None),
     };
     Ok(Some(QueryResult {
@@ -470,7 +458,7 @@ impl SpectrumMachine for Spectrum48k {
             return resolve_boot_path(self, SPECTRUM_48K_BANNERS, path);
         }
         let value = match path {
-            "spectrum.machine.issue" => json!(ula_revision_name(self.revision())),
+            "machine.issue" => json!(ula_revision_name(self.revision())),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -611,7 +599,7 @@ impl SpectrumMachine for Spectrum16K {
             return resolve_boot_path(self, SPECTRUM_16K_BANNERS, path);
         }
         let value = match path {
-            "spectrum.machine.issue" => json!(ula_revision_name(self.revision())),
+            "machine.issue" => json!(ula_revision_name(self.revision())),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -757,7 +745,7 @@ impl SpectrumMachine for SpectrumPlus {
             return resolve_boot_path(self, SPECTRUM_PROPER_PLUS_BANNERS, path);
         }
         let value = match path {
-            "spectrum.machine.issue" => json!(ula_revision_name(self.revision())),
+            "machine.issue" => json!(ula_revision_name(self.revision())),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -1242,7 +1230,7 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
             return resolve_ay_path(&self.ay, path);
         }
         let value = match path {
-            "spectrum.plus.disk_slot_supported" => {
+            "plus.disk_slot_supported" => {
                 json!(self.supports_disk_slot("disk-a"))
             }
             _ => return Ok(None),
@@ -1428,7 +1416,7 @@ impl SpectrumMachine for Pentagon128 {
             return resolve_ay_path(&self.ay, path);
         }
         let value = match path {
-            "spectrum.kempston.state" => json!(self.kempston.state),
+            "kempston.state" => json!(self.kempston.state),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -1560,7 +1548,7 @@ impl SpectrumMachine for ScorpionZS256 {
             return resolve_ay_path(&self.ay, path);
         }
         let value = match path {
-            "spectrum.kempston.state" => json!(self.kempston.state),
+            "kempston.state" => json!(self.kempston.state),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -1684,7 +1672,7 @@ impl SpectrumMachine for TimexTC2048 {
             return resolve_boot_path(self, TIMEX_TC2048_BANNERS, path);
         }
         let value = match path {
-            "spectrum.kempston.state" => json!(self.kempston.state),
+            "kempston.state" => json!(self.kempston.state),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -1814,8 +1802,8 @@ impl SpectrumMachine for TimexTS2068 {
             return resolve_ay_path(&self.ay, path);
         }
         let value = match path {
-            "spectrum.kempston.state" => json!(self.kempston.state),
-            "spectrum.timex.model" => json!(match self.model {
+            "kempston.state" => json!(self.kempston.state),
+            "timex.model" => json!(match self.model {
                 TimexModel::TC2068 => "tc2068",
                 TimexModel::TS2068 => "ts2068",
             }),

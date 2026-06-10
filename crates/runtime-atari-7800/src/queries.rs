@@ -7,10 +7,10 @@ use serde_json::json;
 use crate::runtime::Atari7800Runtime;
 
 pub(crate) const A7800_QUERY_PATHS: &[&str] = &[
-    "atari7800.cartridge.loaded",
-    "atari7800.cpu.pc",
-    "atari7800.machine.frame_count",
-    "atari7800.machine.region",
+    "cartridge.loaded",
+    "cpu.pc",
+    "machine.frame_count",
+    "machine.region",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -34,12 +34,12 @@ impl SessionQueryProvider<Atari7800Runtime> for Atari7800SessionQueryProvider {
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "atari7800.cartridge.loaded" => json!(machine.cart_bytes().is_some()),
-            "atari7800.machine.region" => json!(format!("{:?}", machine.model().region())),
-            "atari7800.machine.frame_count" => {
+            "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
+            "machine.region" => json!(format!("{:?}", machine.model().region())),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, Atari7800::frame_count))
             }
-            "atari7800.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

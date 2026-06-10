@@ -7,11 +7,11 @@ use serde_json::json;
 use crate::runtime::EinsteinRuntime;
 
 pub(crate) const EINSTEIN_QUERY_PATHS: &[&str] = &[
-    "einstein.cpu.pc",
-    "einstein.cpu.tstates",
-    "einstein.firmware.loaded",
-    "einstein.machine.frame_count",
-    "einstein.machine.rom_paged_in",
+    "cpu.pc",
+    "cpu.tstates",
+    "firmware.loaded",
+    "machine.frame_count",
+    "machine.rom_paged_in",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -35,15 +35,15 @@ impl SessionQueryProvider<EinsteinRuntime> for EinsteinSessionQueryProvider {
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "einstein.firmware.loaded" => json!(machine.machine().is_some()),
-            "einstein.machine.frame_count" => {
+            "firmware.loaded" => json!(machine.machine().is_some()),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, Einstein::frame_count))
             }
-            "einstein.machine.rom_paged_in" => {
+            "machine.rom_paged_in" => {
                 json!(machine.machine().is_some_and(Einstein::rom_paged_in))
             }
-            "einstein.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
-            "einstein.cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

@@ -7,11 +7,11 @@ use serde_json::json;
 use crate::runtime::JupiterAceRuntime;
 
 pub(crate) const ACE_QUERY_PATHS: &[&str] = &[
-    "ace.bios.loaded",
-    "ace.cpu.pc",
-    "ace.cpu.master_clock",
-    "ace.machine.frame_count",
-    "ace.machine.ram_kb",
+    "bios.loaded",
+    "cpu.pc",
+    "cpu.master_clock",
+    "machine.frame_count",
+    "machine.ram_kb",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -35,13 +35,13 @@ impl SessionQueryProvider<JupiterAceRuntime> for JupiterAceSessionQueryProvider 
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "ace.bios.loaded" => json!(machine.machine().is_some()),
-            "ace.machine.frame_count" => {
+            "bios.loaded" => json!(machine.machine().is_some()),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, JupiterAce::frame_count))
             }
-            "ace.machine.ram_kb" => json!(machine.model().ram_kb()),
-            "ace.cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
-            "ace.cpu.master_clock" => json!(loaded(machine, path)?.master_clock()),
+            "machine.ram_kb" => json!(machine.model().ram_kb()),
+            "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            "cpu.master_clock" => json!(loaded(machine, path)?.master_clock()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

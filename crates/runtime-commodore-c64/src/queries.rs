@@ -19,116 +19,116 @@ pub(crate) const C64_QUERY_PATHS: &[&str] = &[
     "boot.row",
     "boot.reason",
     "boot.offset",
-    "c64.cpu.a",
-    "c64.cpu.addr",
-    "c64.cpu.data",
-    "c64.cpu.irq",
-    "c64.cpu.instruction_complete",
-    "c64.cpu.nmi",
-    "c64.cpu.p",
-    "c64.cpu.pc",
-    "c64.cpu.rdy",
-    "c64.cpu.rw",
-    "c64.cpu.sp",
-    "c64.cpu.sync",
-    "c64.cpu.total_cycles",
-    "c64.cpu.x",
-    "c64.cpu.y",
-    "c64.cia1.flag",
-    "c64.cia1.irq",
-    "c64.cia1.icr_mask",
-    "c64.cia1.icr_status",
-    "c64.cia1.timer_a",
-    "c64.cia1.timer_a_latch",
-    "c64.cia1.timer_b",
-    "c64.cia1.timer_b_latch",
-    "c64.cia2.irq",
-    "c64.cia2.pa",
-    "c64.cia2.pb",
-    "c64.cia2.port_a_latch",
-    "c64.cia2.port_b_latch",
-    "c64.cia2.ddra",
-    "c64.cia2.ddrb",
-    "c64.cia2.port_a_drive_state",
-    "c64.cia2.port_b_drive_state",
-    "c64.cia2.cra",
-    "c64.cia2.crb",
-    "c64.cia2.icr_mask",
-    "c64.cia2.icr_status",
-    "c64.cia2.timer_a",
-    "c64.cia2.timer_a_latch",
-    "c64.cia2.timer_b",
-    "c64.cia2.timer_b_latch",
-    "c64.drive8.attached",
-    "c64.drive8.cpu.addr",
-    "c64.drive8.cpu.cycles",
-    "c64.drive8.cpu.data",
-    "c64.drive8.cpu.instruction_complete",
-    "c64.drive8.cpu.p",
-    "c64.drive8.cpu.pc",
-    "c64.drive8.cpu.rw",
-    "c64.drive8.cpu.sp",
-    "c64.drive8.cpu.sync",
-    "c64.drive8.cpu.x",
-    "c64.drive8.cpu.y",
-    "c64.drive8.via1.irq",
-    "c64.drive8.via1.ca1",
-    "c64.drive8.via1.pa",
-    "c64.drive8.via1.pb",
-    "c64.drive8.via1.ora",
-    "c64.drive8.via1.orb",
-    "c64.drive8.via1.ddra",
-    "c64.drive8.via1.ddrb",
-    "c64.drive8.via1.acr",
-    "c64.drive8.via1.pcr",
-    "c64.drive8.via1.t1_counter",
-    "c64.drive8.via1.t1_latch",
-    "c64.drive8.via2.irq",
-    "c64.drive8.via2.ca1",
-    "c64.drive8.via2.pa",
-    "c64.drive8.via2.pb",
-    "c64.drive8.via2.ora",
-    "c64.drive8.via2.orb",
-    "c64.drive8.via2.ddra",
-    "c64.drive8.via2.ddrb",
-    "c64.drive8.via2.acr",
-    "c64.drive8.via2.pcr",
-    "c64.drive8.gcr_read",
-    "c64.drive8.byte_ready",
-    "c64.drive8.byte_ready_events",
-    "c64.drive8.sync_detected",
-    "c64.drive8.sync_events",
-    "c64.drive8.motor_on",
-    "c64.drive8.activity_led",
-    "c64.drive8.head_position",
-    "c64.drive8.density_code",
-    "c64.drive8.disk.inserted",
-    "c64.drive8.disk.name",
-    "c64.drive8.disk.id",
-    "c64.drive8.disk.write_protected",
-    "c64.drive8.disk.directory",
-    "c64.drive8.trace.recent_writes",
-    "c64.drive8.mem.<hex16>",
-    "c64.iec.cpu_port",
-    "c64.iec.drive_port",
-    "c64.memory.effective_port",
-    "c64.memory.io_visible",
-    "c64.memory.port_data",
-    "c64.memory.port_ddr",
-    "c64.machine.cycle_in_line",
-    "c64.machine.frame_count",
-    "c64.memory.ram.<hex16>",
-    "c64.machine.raster_line",
-    "c64.tape.loaded",
-    "c64.tape.motor_on",
-    "c64.tape.pulse_count",
-    "c64.tape.pulse_index",
-    "c64.tape.playing",
-    "c64.tape.sense",
-    "c64.vic.background_colour",
-    "c64.vic.ba_low",
-    "c64.vic.border_colour",
-    "c64.vic.irq",
+    "cpu.a",
+    "cpu.addr",
+    "cpu.data",
+    "cpu.irq",
+    "cpu.instruction_complete",
+    "cpu.nmi",
+    "cpu.p",
+    "cpu.pc",
+    "cpu.rdy",
+    "cpu.rw",
+    "cpu.sp",
+    "cpu.sync",
+    "cpu.total_cycles",
+    "cpu.x",
+    "cpu.y",
+    "cia1.flag",
+    "cia1.irq",
+    "cia1.icr_mask",
+    "cia1.icr_status",
+    "cia1.timer_a",
+    "cia1.timer_a_latch",
+    "cia1.timer_b",
+    "cia1.timer_b_latch",
+    "cia2.irq",
+    "cia2.pa",
+    "cia2.pb",
+    "cia2.port_a_latch",
+    "cia2.port_b_latch",
+    "cia2.ddra",
+    "cia2.ddrb",
+    "cia2.port_a_drive_state",
+    "cia2.port_b_drive_state",
+    "cia2.cra",
+    "cia2.crb",
+    "cia2.icr_mask",
+    "cia2.icr_status",
+    "cia2.timer_a",
+    "cia2.timer_a_latch",
+    "cia2.timer_b",
+    "cia2.timer_b_latch",
+    "drive8.attached",
+    "drive8.cpu.addr",
+    "drive8.cpu.cycles",
+    "drive8.cpu.data",
+    "drive8.cpu.instruction_complete",
+    "drive8.cpu.p",
+    "drive8.cpu.pc",
+    "drive8.cpu.rw",
+    "drive8.cpu.sp",
+    "drive8.cpu.sync",
+    "drive8.cpu.x",
+    "drive8.cpu.y",
+    "drive8.via1.irq",
+    "drive8.via1.ca1",
+    "drive8.via1.pa",
+    "drive8.via1.pb",
+    "drive8.via1.ora",
+    "drive8.via1.orb",
+    "drive8.via1.ddra",
+    "drive8.via1.ddrb",
+    "drive8.via1.acr",
+    "drive8.via1.pcr",
+    "drive8.via1.t1_counter",
+    "drive8.via1.t1_latch",
+    "drive8.via2.irq",
+    "drive8.via2.ca1",
+    "drive8.via2.pa",
+    "drive8.via2.pb",
+    "drive8.via2.ora",
+    "drive8.via2.orb",
+    "drive8.via2.ddra",
+    "drive8.via2.ddrb",
+    "drive8.via2.acr",
+    "drive8.via2.pcr",
+    "drive8.gcr_read",
+    "drive8.byte_ready",
+    "drive8.byte_ready_events",
+    "drive8.sync_detected",
+    "drive8.sync_events",
+    "drive8.motor_on",
+    "drive8.activity_led",
+    "drive8.head_position",
+    "drive8.density_code",
+    "drive8.disk.inserted",
+    "drive8.disk.name",
+    "drive8.disk.id",
+    "drive8.disk.write_protected",
+    "drive8.disk.directory",
+    "drive8.trace.recent_writes",
+    "drive8.mem.<hex16>",
+    "iec.cpu_port",
+    "iec.drive_port",
+    "memory.effective_port",
+    "memory.io_visible",
+    "memory.port_data",
+    "memory.port_ddr",
+    "machine.cycle_in_line",
+    "machine.frame_count",
+    "memory.ram.<hex16>",
+    "machine.raster_line",
+    "tape.loaded",
+    "tape.motor_on",
+    "tape.pulse_count",
+    "tape.pulse_index",
+    "tape.playing",
+    "tape.sense",
+    "vic.background_colour",
+    "vic.ba_low",
+    "vic.border_colour",
+    "vic.irq",
     "screen.text.lines",
 ];
 
@@ -165,184 +165,184 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "boot.row" => json!(boot.row),
             "boot.reason" => json!(boot.reason),
             "boot.offset" => json!(boot.offset),
-            "c64.cpu.a" => json!(machine.machine().cpu().regs.a),
-            "c64.cpu.addr" => json!(machine.machine().cpu().addr),
-            "c64.cpu.data" => json!(machine.machine().cpu().data),
-            "c64.cpu.irq" => json!(machine.machine().cpu().irq),
-            "c64.cpu.instruction_complete" => {
+            "cpu.a" => json!(machine.machine().cpu().regs.a),
+            "cpu.addr" => json!(machine.machine().cpu().addr),
+            "cpu.data" => json!(machine.machine().cpu().data),
+            "cpu.irq" => json!(machine.machine().cpu().irq),
+            "cpu.instruction_complete" => {
                 json!(machine.machine().cpu().instruction_complete())
             }
-            "c64.cpu.nmi" => json!(machine.machine().cpu().nmi),
-            "c64.cpu.p" => json!(machine.machine().cpu().regs.p),
-            "c64.cpu.pc" => json!(machine.machine().cpu().regs.pc),
-            "c64.cpu.rdy" => json!(machine.machine().cpu().rdy),
-            "c64.cpu.rw" => json!(machine.machine().cpu().rw),
-            "c64.cpu.sp" => json!(machine.machine().cpu().regs.sp),
-            "c64.cpu.sync" => json!(machine.machine().cpu().sync),
-            "c64.cpu.total_cycles" => json!(machine.machine().cpu().total_cycles),
-            "c64.cpu.x" => json!(machine.machine().cpu().regs.x),
-            "c64.cpu.y" => json!(machine.machine().cpu().regs.y),
-            "c64.cia1.flag" => json!(machine.machine().cia1().flag),
-            "c64.cia1.icr_mask" => json!(machine.machine().cia1().icr_mask()),
-            "c64.cia1.icr_status" => json!(machine.machine().cia1().icr_status()),
-            "c64.cia1.timer_a" => json!(machine.machine().cia1().timer_a()),
-            "c64.cia1.timer_a_latch" => json!(machine.machine().cia1().timer_a_latch()),
-            "c64.cia1.timer_b" => json!(machine.machine().cia1().timer_b()),
-            "c64.cia1.timer_b_latch" => json!(machine.machine().cia1().timer_b_latch()),
-            "c64.cia2.cra" => json!(machine.machine().cia2().cra()),
-            "c64.cia2.crb" => json!(machine.machine().cia2().crb()),
-            "c64.cia2.icr_mask" => json!(machine.machine().cia2().icr_mask()),
-            "c64.cia2.icr_status" => json!(machine.machine().cia2().icr_status()),
-            "c64.cia2.pa" => json!(machine.machine().cia2().pa),
-            "c64.cia2.pb" => json!(machine.machine().cia2().pb),
-            "c64.cia2.port_a_latch" => json!(machine.machine().cia2().port_a_latch()),
-            "c64.cia2.port_b_latch" => json!(machine.machine().cia2().port_b_latch()),
-            "c64.cia2.ddra" => json!(machine.machine().cia2().ddr_a()),
-            "c64.cia2.ddrb" => json!(machine.machine().cia2().ddr_b()),
-            "c64.cia2.port_a_drive_state" => {
+            "cpu.nmi" => json!(machine.machine().cpu().nmi),
+            "cpu.p" => json!(machine.machine().cpu().regs.p),
+            "cpu.pc" => json!(machine.machine().cpu().regs.pc),
+            "cpu.rdy" => json!(machine.machine().cpu().rdy),
+            "cpu.rw" => json!(machine.machine().cpu().rw),
+            "cpu.sp" => json!(machine.machine().cpu().regs.sp),
+            "cpu.sync" => json!(machine.machine().cpu().sync),
+            "cpu.total_cycles" => json!(machine.machine().cpu().total_cycles),
+            "cpu.x" => json!(machine.machine().cpu().regs.x),
+            "cpu.y" => json!(machine.machine().cpu().regs.y),
+            "cia1.flag" => json!(machine.machine().cia1().flag),
+            "cia1.icr_mask" => json!(machine.machine().cia1().icr_mask()),
+            "cia1.icr_status" => json!(machine.machine().cia1().icr_status()),
+            "cia1.timer_a" => json!(machine.machine().cia1().timer_a()),
+            "cia1.timer_a_latch" => json!(machine.machine().cia1().timer_a_latch()),
+            "cia1.timer_b" => json!(machine.machine().cia1().timer_b()),
+            "cia1.timer_b_latch" => json!(machine.machine().cia1().timer_b_latch()),
+            "cia2.cra" => json!(machine.machine().cia2().cra()),
+            "cia2.crb" => json!(machine.machine().cia2().crb()),
+            "cia2.icr_mask" => json!(machine.machine().cia2().icr_mask()),
+            "cia2.icr_status" => json!(machine.machine().cia2().icr_status()),
+            "cia2.pa" => json!(machine.machine().cia2().pa),
+            "cia2.pb" => json!(machine.machine().cia2().pb),
+            "cia2.port_a_latch" => json!(machine.machine().cia2().port_a_latch()),
+            "cia2.port_b_latch" => json!(machine.machine().cia2().port_b_latch()),
+            "cia2.ddra" => json!(machine.machine().cia2().ddr_a()),
+            "cia2.ddrb" => json!(machine.machine().cia2().ddr_b()),
+            "cia2.port_a_drive_state" => {
                 json!(machine.machine().cia2().port_a_drive_state())
             }
-            "c64.cia2.port_b_drive_state" => {
+            "cia2.port_b_drive_state" => {
                 json!(machine.machine().cia2().port_b_drive_state())
             }
-            "c64.cia2.timer_a" => json!(machine.machine().cia2().timer_a()),
-            "c64.cia2.timer_a_latch" => json!(machine.machine().cia2().timer_a_latch()),
-            "c64.cia2.timer_b" => json!(machine.machine().cia2().timer_b()),
-            "c64.cia2.timer_b_latch" => json!(machine.machine().cia2().timer_b_latch()),
-            "c64.drive8.attached" => json!(machine.drive8().is_some()),
-            "c64.drive8.cpu.addr" => json!(machine.drive8().map(|drive| drive.cpu().addr)),
-            "c64.drive8.cpu.cycles" => json!(machine.drive8().map(|drive| drive.cycles())),
-            "c64.drive8.cpu.data" => json!(machine.drive8().map(|drive| drive.cpu().data)),
-            "c64.drive8.cpu.instruction_complete" => {
+            "cia2.timer_a" => json!(machine.machine().cia2().timer_a()),
+            "cia2.timer_a_latch" => json!(machine.machine().cia2().timer_a_latch()),
+            "cia2.timer_b" => json!(machine.machine().cia2().timer_b()),
+            "cia2.timer_b_latch" => json!(machine.machine().cia2().timer_b_latch()),
+            "drive8.attached" => json!(machine.drive8().is_some()),
+            "drive8.cpu.addr" => json!(machine.drive8().map(|drive| drive.cpu().addr)),
+            "drive8.cpu.cycles" => json!(machine.drive8().map(|drive| drive.cycles())),
+            "drive8.cpu.data" => json!(machine.drive8().map(|drive| drive.cpu().data)),
+            "drive8.cpu.instruction_complete" => {
                 json!(
                     machine
                         .drive8()
                         .map(|drive| drive.cpu().instruction_complete())
                 )
             }
-            "c64.drive8.cpu.p" => json!(machine.drive8().map(|drive| drive.cpu().regs.p)),
-            "c64.drive8.cpu.pc" => json!(machine.drive8().map(|drive| drive.cpu().regs.pc)),
-            "c64.drive8.cpu.rw" => json!(machine.drive8().map(|drive| drive.cpu().rw)),
-            "c64.drive8.cpu.sp" => json!(machine.drive8().map(|drive| drive.cpu().regs.sp)),
-            "c64.drive8.cpu.sync" => json!(machine.drive8().map(|drive| drive.cpu().sync)),
-            "c64.drive8.cpu.x" => json!(machine.drive8().map(|drive| drive.cpu().regs.x)),
-            "c64.drive8.cpu.y" => json!(machine.drive8().map(|drive| drive.cpu().regs.y)),
-            "c64.drive8.via1.irq" => json!(machine.drive8().map(|drive| drive.via1().irq)),
-            "c64.drive8.via1.ca1" => json!(machine.drive8().map(|drive| drive.via1().ca1)),
-            "c64.drive8.via1.pa" => json!(machine.drive8().map(|drive| drive.via1().pa)),
-            "c64.drive8.via1.pb" => json!(machine.drive8().map(|drive| drive.via1().pb)),
-            "c64.drive8.via1.ora" => json!(machine.drive8().map(|drive| drive.via1().ora())),
-            "c64.drive8.via1.orb" => json!(machine.drive8().map(|drive| drive.via1().orb())),
-            "c64.drive8.via1.ddra" => {
+            "drive8.cpu.p" => json!(machine.drive8().map(|drive| drive.cpu().regs.p)),
+            "drive8.cpu.pc" => json!(machine.drive8().map(|drive| drive.cpu().regs.pc)),
+            "drive8.cpu.rw" => json!(machine.drive8().map(|drive| drive.cpu().rw)),
+            "drive8.cpu.sp" => json!(machine.drive8().map(|drive| drive.cpu().regs.sp)),
+            "drive8.cpu.sync" => json!(machine.drive8().map(|drive| drive.cpu().sync)),
+            "drive8.cpu.x" => json!(machine.drive8().map(|drive| drive.cpu().regs.x)),
+            "drive8.cpu.y" => json!(machine.drive8().map(|drive| drive.cpu().regs.y)),
+            "drive8.via1.irq" => json!(machine.drive8().map(|drive| drive.via1().irq)),
+            "drive8.via1.ca1" => json!(machine.drive8().map(|drive| drive.via1().ca1)),
+            "drive8.via1.pa" => json!(machine.drive8().map(|drive| drive.via1().pa)),
+            "drive8.via1.pb" => json!(machine.drive8().map(|drive| drive.via1().pb)),
+            "drive8.via1.ora" => json!(machine.drive8().map(|drive| drive.via1().ora())),
+            "drive8.via1.orb" => json!(machine.drive8().map(|drive| drive.via1().orb())),
+            "drive8.via1.ddra" => {
                 json!(machine.drive8().map(|drive| drive.via1().ddra()))
             }
-            "c64.drive8.via1.ddrb" => {
+            "drive8.via1.ddrb" => {
                 json!(machine.drive8().map(|drive| drive.via1().ddrb()))
             }
-            "c64.drive8.via1.acr" => json!(machine.drive8().map(|drive| drive.via1().peek(0x0B))),
-            "c64.drive8.via1.pcr" => json!(machine.drive8().map(|drive| drive.via1().peek(0x0C))),
-            "c64.drive8.via1.t1_counter" => json!(machine.drive8().map(|drive| {
+            "drive8.via1.acr" => json!(machine.drive8().map(|drive| drive.via1().peek(0x0B))),
+            "drive8.via1.pcr" => json!(machine.drive8().map(|drive| drive.via1().peek(0x0C))),
+            "drive8.via1.t1_counter" => json!(machine.drive8().map(|drive| {
                 u16::from(drive.via1().peek(0x04)) | (u16::from(drive.via1().peek(0x05)) << 8)
             })),
-            "c64.drive8.via1.t1_latch" => json!(machine.drive8().map(|drive| {
+            "drive8.via1.t1_latch" => json!(machine.drive8().map(|drive| {
                 u16::from(drive.via1().peek(0x06)) | (u16::from(drive.via1().peek(0x07)) << 8)
             })),
-            "c64.drive8.via2.irq" => json!(machine.drive8().map(|drive| drive.via2().irq)),
-            "c64.drive8.via2.ca1" => json!(machine.drive8().map(|drive| drive.via2().ca1)),
-            "c64.drive8.via2.pa" => json!(machine.drive8().map(|drive| drive.via2().pa)),
-            "c64.drive8.via2.pb" => json!(machine.drive8().map(|drive| drive.via2().pb)),
-            "c64.drive8.via2.ora" => json!(machine.drive8().map(|drive| drive.via2().ora())),
-            "c64.drive8.via2.orb" => json!(machine.drive8().map(|drive| drive.via2().orb())),
-            "c64.drive8.via2.ddra" => {
+            "drive8.via2.irq" => json!(machine.drive8().map(|drive| drive.via2().irq)),
+            "drive8.via2.ca1" => json!(machine.drive8().map(|drive| drive.via2().ca1)),
+            "drive8.via2.pa" => json!(machine.drive8().map(|drive| drive.via2().pa)),
+            "drive8.via2.pb" => json!(machine.drive8().map(|drive| drive.via2().pb)),
+            "drive8.via2.ora" => json!(machine.drive8().map(|drive| drive.via2().ora())),
+            "drive8.via2.orb" => json!(machine.drive8().map(|drive| drive.via2().orb())),
+            "drive8.via2.ddra" => {
                 json!(machine.drive8().map(|drive| drive.via2().ddra()))
             }
-            "c64.drive8.via2.ddrb" => {
+            "drive8.via2.ddrb" => {
                 json!(machine.drive8().map(|drive| drive.via2().ddrb()))
             }
-            "c64.drive8.via2.acr" => json!(machine.drive8().map(|drive| drive.via2().peek(0x0B))),
-            "c64.drive8.via2.pcr" => json!(machine.drive8().map(|drive| drive.via2().peek(0x0C))),
-            "c64.drive8.gcr_read" => json!(machine.drive8().map(|drive| drive.gcr_read())),
-            "c64.drive8.byte_ready" => json!(machine.drive8().map(|drive| drive.byte_ready())),
-            "c64.drive8.byte_ready_events" => {
+            "drive8.via2.acr" => json!(machine.drive8().map(|drive| drive.via2().peek(0x0B))),
+            "drive8.via2.pcr" => json!(machine.drive8().map(|drive| drive.via2().peek(0x0C))),
+            "drive8.gcr_read" => json!(machine.drive8().map(|drive| drive.gcr_read())),
+            "drive8.byte_ready" => json!(machine.drive8().map(|drive| drive.byte_ready())),
+            "drive8.byte_ready_events" => {
                 json!(machine.drive8().map(|drive| drive.byte_ready_event_count()))
             }
-            "c64.drive8.sync_detected" => {
+            "drive8.sync_detected" => {
                 json!(machine.drive8().map(|drive| drive.sync_detected()))
             }
-            "c64.drive8.sync_events" => {
+            "drive8.sync_events" => {
                 json!(machine.drive8().map(|drive| drive.sync_event_count()))
             }
-            "c64.drive8.motor_on" => json!(machine.drive8().map(|drive| drive.motor_on())),
-            "c64.drive8.activity_led" => {
+            "drive8.motor_on" => json!(machine.drive8().map(|drive| drive.motor_on())),
+            "drive8.activity_led" => {
                 json!(machine.drive8().map(|drive| drive.activity_led()))
             }
-            "c64.drive8.head_position" => {
+            "drive8.head_position" => {
                 json!(machine.drive8().map(|drive| drive.head_position()))
             }
-            "c64.drive8.density_code" => {
+            "drive8.density_code" => {
                 json!(machine.drive8().map(|drive| drive.density_code()))
             }
-            "c64.drive8.disk.inserted" => {
+            "drive8.disk.inserted" => {
                 json!(machine.drive8().is_some_and(|drive| drive.disk_inserted()))
             }
-            "c64.drive8.disk.name" => json!(
+            "drive8.disk.name" => json!(
                 machine
                     .drive8()
                     .and_then(|drive| drive.disk())
                     .map(|disk| disk.disk_name())
             ),
-            "c64.drive8.disk.id" => json!(
+            "drive8.disk.id" => json!(
                 machine
                     .drive8()
                     .and_then(|drive| drive.disk())
                     .map(|disk| disk.disk_id())
             ),
-            "c64.drive8.disk.write_protected" => json!(
+            "drive8.disk.write_protected" => json!(
                 machine
                     .drive8()
                     .and_then(|drive| drive.disk())
                     .map(|disk| disk.write_protected())
             ),
-            "c64.drive8.disk.directory" => json!(
+            "drive8.disk.directory" => json!(
                 machine
                     .drive8()
                     .and_then(|drive| drive.disk())
                     .map(|disk| disk.directory_entries())
             ),
-            "c64.drive8.trace.recent_writes" => {
+            "drive8.trace.recent_writes" => {
                 json!(machine.drive8().map(|drive| drive.recent_io_writes()))
             }
-            "c64.iec.cpu_port" => json!(machine.iec_bus().cpu_port()),
-            "c64.iec.drive_port" => json!(machine.iec_bus().drive_port()),
-            "c64.memory.effective_port" => json!(machine.machine().memory().effective_port()),
-            "c64.memory.io_visible" => json!(machine.machine().memory().is_io_visible()),
-            "c64.memory.port_data" => json!(machine.machine().memory().port_data()),
-            "c64.memory.port_ddr" => json!(machine.machine().memory().port_ddr()),
-            "c64.machine.raster_line" => json!(machine.machine().raster_line()),
-            "c64.machine.cycle_in_line" => json!(machine.machine().cycle_in_line()),
-            "c64.machine.frame_count" => json!(machine.machine().frame_count()),
-            "c64.tape.loaded" => json!(machine.machine().tape_is_loaded()),
-            "c64.tape.motor_on" => json!(machine.machine().tape_motor_on()),
-            "c64.tape.pulse_count" => json!(machine.machine().tape_pulse_count()),
-            "c64.tape.pulse_index" => json!(machine.machine().tape_pulse_index()),
-            "c64.tape.playing" => json!(machine.machine().tape_is_playing()),
-            "c64.tape.sense" => json!(machine.machine().tape_sense_active()),
-            "c64.vic.background_colour" => json!(machine.machine().vic_register(0x21) & 0x0F),
-            "c64.vic.ba_low" => json!(machine.machine().vic().ba_is_low()),
-            "c64.vic.border_colour" => json!(machine.machine().vic_register(0x20) & 0x0F),
-            "c64.vic.irq" => json!(machine.machine().vic().irq_active()),
-            "c64.cia1.irq" => json!(machine.machine().cia1().irq_active()),
-            "c64.cia2.irq" => json!(machine.machine().cia2().irq_active()),
+            "iec.cpu_port" => json!(machine.iec_bus().cpu_port()),
+            "iec.drive_port" => json!(machine.iec_bus().drive_port()),
+            "memory.effective_port" => json!(machine.machine().memory().effective_port()),
+            "memory.io_visible" => json!(machine.machine().memory().is_io_visible()),
+            "memory.port_data" => json!(machine.machine().memory().port_data()),
+            "memory.port_ddr" => json!(machine.machine().memory().port_ddr()),
+            "machine.raster_line" => json!(machine.machine().raster_line()),
+            "machine.cycle_in_line" => json!(machine.machine().cycle_in_line()),
+            "machine.frame_count" => json!(machine.machine().frame_count()),
+            "tape.loaded" => json!(machine.machine().tape_is_loaded()),
+            "tape.motor_on" => json!(machine.machine().tape_motor_on()),
+            "tape.pulse_count" => json!(machine.machine().tape_pulse_count()),
+            "tape.pulse_index" => json!(machine.machine().tape_pulse_index()),
+            "tape.playing" => json!(machine.machine().tape_is_playing()),
+            "tape.sense" => json!(machine.machine().tape_sense_active()),
+            "vic.background_colour" => json!(machine.machine().vic_register(0x21) & 0x0F),
+            "vic.ba_low" => json!(machine.machine().vic().ba_is_low()),
+            "vic.border_colour" => json!(machine.machine().vic_register(0x20) & 0x0F),
+            "vic.irq" => json!(machine.machine().vic().irq_active()),
+            "cia1.irq" => json!(machine.machine().cia1().irq_active()),
+            "cia2.irq" => json!(machine.machine().cia2().irq_active()),
             "screen.text.lines" => json!(decode_screen_text_lines(machine.machine())),
-            _ if path.starts_with("c64.memory.ram.") => {
-                let suffix = &path["c64.memory.ram.".len()..];
+            _ if path.starts_with("memory.ram.") => {
+                let suffix = &path["memory.ram.".len()..];
                 let addr = parse_hex_u16(suffix).ok_or_else(|| QueryError::UnknownPath {
                     path: path.to_owned(),
                 })?;
                 json!(machine.machine().memory().ram_read(addr))
             }
-            _ if path.starts_with("c64.drive8.mem.") => {
-                let suffix = &path["c64.drive8.mem.".len()..];
+            _ if path.starts_with("drive8.mem.") => {
+                let suffix = &path["drive8.mem.".len()..];
                 let addr = parse_hex_u16(suffix).ok_or_else(|| QueryError::UnknownPath {
                     path: path.to_owned(),
                 })?;

@@ -23,7 +23,7 @@ fn query_provider_reports_loaded_cartridge_state() {
 
     let provider = NesSessionQueryProvider;
     let loaded = provider
-        .query(&runtime, "nes.cartridge.loaded")
+        .query(&runtime, "cartridge.loaded")
         .expect("query should succeed")
         .expect("provider should own the path");
 
@@ -54,7 +54,7 @@ fn query_provider_reports_blargg_result_block() {
     let provider = NesSessionQueryProvider;
     assert_eq!(
         provider
-            .query(&runtime, "nes.test.blargg.valid")
+            .query(&runtime, "test.blargg.valid")
             .expect("query should succeed")
             .expect("provider should own the path")
             .value,
@@ -62,7 +62,7 @@ fn query_provider_reports_blargg_result_block() {
     );
     assert_eq!(
         provider
-            .query(&runtime, "nes.test.blargg.status")
+            .query(&runtime, "test.blargg.status")
             .expect("query should succeed")
             .expect("provider should own the path")
             .value,
@@ -70,7 +70,7 @@ fn query_provider_reports_blargg_result_block() {
     );
     assert_eq!(
         provider
-            .query(&runtime, "nes.test.blargg.signature")
+            .query(&runtime, "test.blargg.signature")
             .expect("query should succeed")
             .expect("provider should own the path")
             .value,
@@ -78,7 +78,7 @@ fn query_provider_reports_blargg_result_block() {
     );
     assert_eq!(
         provider
-            .query(&runtime, "nes.test.blargg.text")
+            .query(&runtime, "test.blargg.text")
             .expect("query should succeed")
             .expect("provider should own the path")
             .value,
@@ -99,10 +99,10 @@ fn every_advertised_query_path_resolves_or_reports_unavailable_when_blank() {
     for path in provider.query_paths(&runtime, None) {
         let result = provider.query(&runtime, &path);
         match path.as_str() {
-            "nes.cartridge.loaded"
-            | "nes.cartridge.mapper"
-            | "nes.machine.frame_count"
-            | "nes.machine.master_clock" => {
+            "cartridge.loaded"
+            | "cartridge.mapper"
+            | "machine.frame_count"
+            | "machine.master_clock" => {
                 let value = result
                     .unwrap_or_else(|err| panic!("path {path} should not fail: {err:?}"))
                     .unwrap_or_else(|| panic!("path {path} should resolve"));
@@ -145,15 +145,15 @@ fn query_paths_filters_by_prefix() {
     let runtime = NesRuntime::blank(Model::NesNtsc);
     let provider = NesSessionQueryProvider;
 
-    let blargg = provider.query_paths(&runtime, Some("nes.test.blargg."));
+    let blargg = provider.query_paths(&runtime, Some("test.blargg."));
     assert!(!blargg.is_empty());
-    assert!(blargg.iter().all(|p| p.starts_with("nes.test.blargg.")));
+    assert!(blargg.iter().all(|p| p.starts_with("test.blargg.")));
 
-    let cartridge = provider.query_paths(&runtime, Some("nes.cartridge."));
+    let cartridge = provider.query_paths(&runtime, Some("cartridge."));
     assert!(!cartridge.is_empty());
-    assert!(cartridge.iter().all(|p| p.starts_with("nes.cartridge.")));
+    assert!(cartridge.iter().all(|p| p.starts_with("cartridge.")));
 
-    let none = provider.query_paths(&runtime, Some("nes.does.not.exist."));
+    let none = provider.query_paths(&runtime, Some("does.not.exist."));
     assert!(none.is_empty());
 }
 
@@ -162,7 +162,7 @@ fn unknown_query_path_returns_none() {
     let runtime = NesRuntime::blank(Model::NesNtsc);
     let provider = NesSessionQueryProvider;
     let result = provider
-        .query(&runtime, "nes.does.not.exist")
+        .query(&runtime, "does.not.exist")
         .expect("unknown path should not error");
     assert!(result.is_none(), "unknown path should be Ok(None)");
 }
@@ -197,7 +197,7 @@ fn blargg_text_passes_whitespace_and_replaces_non_printable_bytes() {
 
     let provider = NesSessionQueryProvider;
     let value = provider
-        .query(&runtime, "nes.test.blargg.text")
+        .query(&runtime, "test.blargg.text")
         .expect("blargg.text should not error")
         .expect("blargg.text should resolve");
     assert_eq!(value.value, json!("A\n\t.B"));
@@ -231,7 +231,7 @@ fn blargg_valid_is_false_without_signature_bytes() {
 
     let provider = NesSessionQueryProvider;
     let value = provider
-        .query(&runtime, "nes.test.blargg.valid")
+        .query(&runtime, "test.blargg.valid")
         .expect("blargg.valid should not error")
         .expect("blargg.valid should resolve");
     assert_eq!(value.value, json!(false));

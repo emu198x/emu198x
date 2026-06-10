@@ -431,7 +431,7 @@ impl C64Runner {
         } else {
             "no tape"
         };
-        let disk = if self.query_bool("c64.drive8.disk.inserted") {
+        let disk = if self.query_bool("drive8.disk.inserted") {
             "disk loaded"
         } else {
             "no disk"

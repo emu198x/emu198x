@@ -192,14 +192,11 @@ fn spectrum_query_provider_lists_supported_paths() {
         Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024]).expect("dummy ROM should load");
     let provider = SpectrumSessionQueryProvider;
 
-    let paths = provider.query_paths(&runtime, Some("spectrum.tape."));
+    let paths = provider.query_paths(&runtime, Some("tape."));
 
     assert_eq!(
         paths,
-        vec![
-            "spectrum.tape.loaded".to_owned(),
-            "spectrum.tape.playing".to_owned()
-        ]
+        vec!["tape.loaded".to_owned(), "tape.playing".to_owned()]
     );
 }
 
@@ -250,7 +247,7 @@ fn spectrum_query_provider_reads_runtime_state() {
     let provider = SpectrumSessionQueryProvider;
 
     let issue = provider
-        .query(&runtime, "spectrum.machine.issue")
+        .query(&runtime, "machine.issue")
         .expect("issue query should resolve")
         .expect("provider should own issue path");
     let boot = provider
@@ -266,11 +263,11 @@ fn spectrum_query_provider_reads_runtime_state() {
         .expect("screen text lines query should resolve")
         .expect("provider should own screen text lines path");
     let tstate = provider
-        .query(&runtime, "spectrum.machine.tstate_in_frame")
+        .query(&runtime, "machine.tstate_in_frame")
         .expect("tstate query should resolve")
         .expect("provider should own tstate path");
     let tape = provider
-        .query(&runtime, "spectrum.tape.playing")
+        .query(&runtime, "tape.playing")
         .expect("tape query should resolve")
         .expect("provider should own tape path");
 

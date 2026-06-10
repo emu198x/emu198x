@@ -7,13 +7,13 @@ use serde_json::json;
 use crate::runtime::CvRuntime;
 
 pub(crate) const CV_QUERY_PATHS: &[&str] = &[
-    "cv.bios.loaded",
-    "cv.cartridge.loaded",
-    "cv.cpu.cycles",
-    "cv.cpu.pc",
-    "cv.machine.frame_count",
-    "cv.machine.region",
-    "cv.vdp.scanline",
+    "bios.loaded",
+    "cartridge.loaded",
+    "cpu.cycles",
+    "cpu.pc",
+    "machine.frame_count",
+    "machine.region",
+    "vdp.scanline",
 ];
 
 /// ColecoVision query provider.
@@ -34,15 +34,15 @@ impl SessionQueryProvider<CvRuntime> for CvSessionQueryProvider {
 
     fn query(&self, machine: &CvRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "cv.bios.loaded" => json!(machine.machine().is_some()),
-            "cv.cartridge.loaded" => json!(machine.cart_bytes().is_some()),
-            "cv.machine.region" => json!(format!("{:?}", machine.model().region())),
-            "cv.machine.frame_count" => {
+            "bios.loaded" => json!(machine.machine().is_some()),
+            "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
+            "machine.region" => json!(format!("{:?}", machine.model().region())),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, ColecoVision::frame_count))
             }
-            "cv.cpu.cycles" => json!(loaded_machine(machine, path)?.cpu_cycles()),
-            "cv.cpu.pc" => json!(loaded_machine(machine, path)?.cpu().regs.pc),
-            "cv.vdp.scanline" => json!(loaded_machine(machine, path)?.vdp().scanline()),
+            "cpu.cycles" => json!(loaded_machine(machine, path)?.cpu_cycles()),
+            "cpu.pc" => json!(loaded_machine(machine, path)?.cpu().regs.pc),
+            "vdp.scanline" => json!(loaded_machine(machine, path)?.vdp().scanline()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {

@@ -8,15 +8,15 @@ use crate::runtime::MsxRuntime;
 
 /// Paths the MSX1 runtime answers via `query()`.
 pub(crate) const MSX_QUERY_PATHS: &[&str] = &[
-    "msx.bios.loaded",
-    "msx.cartridge.cart1.loaded",
-    "msx.cartridge.cart2.loaded",
-    "msx.cpu.pc",
-    "msx.cpu.sp",
-    "msx.cpu.tstates",
-    "msx.machine.frame_count",
-    "msx.machine.region",
-    "msx.vdp.scanline",
+    "bios.loaded",
+    "cartridge.cart1.loaded",
+    "cartridge.cart2.loaded",
+    "cpu.pc",
+    "cpu.sp",
+    "cpu.tstates",
+    "machine.frame_count",
+    "machine.region",
+    "vdp.scanline",
 ];
 
 /// MSX1-family query provider layered above the shared shell surface.
@@ -37,17 +37,17 @@ impl SessionQueryProvider<MsxRuntime> for MsxSessionQueryProvider {
 
     fn query(&self, machine: &MsxRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "msx.bios.loaded" => json!(machine.machine().is_some()),
-            "msx.cartridge.cart1.loaded" => json!(machine.cart1_bytes().is_some()),
-            "msx.cartridge.cart2.loaded" => json!(machine.cart2_bytes().is_some()),
-            "msx.machine.region" => json!(format!("{:?}", machine.model().region())),
-            "msx.machine.frame_count" => {
+            "bios.loaded" => json!(machine.machine().is_some()),
+            "cartridge.cart1.loaded" => json!(machine.cart1_bytes().is_some()),
+            "cartridge.cart2.loaded" => json!(machine.cart2_bytes().is_some()),
+            "machine.region" => json!(format!("{:?}", machine.model().region())),
+            "machine.frame_count" => {
                 json!(machine.machine().map_or(0, Msx::frame_count))
             }
-            "msx.cpu.pc" => json!(loaded_machine(machine, path)?.cpu().regs.pc),
-            "msx.cpu.sp" => json!(loaded_machine(machine, path)?.cpu().regs.sp),
-            "msx.cpu.tstates" => json!(loaded_machine(machine, path)?.cpu_tstates()),
-            "msx.vdp.scanline" => json!(loaded_machine(machine, path)?.vdp().scanline()),
+            "cpu.pc" => json!(loaded_machine(machine, path)?.cpu().regs.pc),
+            "cpu.sp" => json!(loaded_machine(machine, path)?.cpu().regs.sp),
+            "cpu.tstates" => json!(loaded_machine(machine, path)?.cpu_tstates()),
+            "vdp.scanline" => json!(loaded_machine(machine, path)?.vdp().scanline()),
             _ => return Ok(None),
         };
 
