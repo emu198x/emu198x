@@ -105,6 +105,12 @@ pub struct Cia8520 {
     cra: u8,
     crb: u8,
 
+    // Timer output pin levels (CRA/CRB PBON, HRM §F): Timer A drives PB6,
+    // Timer B drives PB7 when PBON is set. OUTMODE selects toggle (flip
+    // each underflow) vs pulse (high for the single underflow cycle).
+    pb6_out: bool,
+    pb7_out: bool,
+
     sdr: u8,
     tod_counter: u32,
     tod_alarm: u32,
@@ -159,6 +165,8 @@ impl Cia8520 {
             icr_mask: 0,
             cra: 0,
             crb: 0,
+            pb6_out: false,
+            pb7_out: false,
             sdr: 0,
             tod_counter: 0,
             tod_alarm: 0,
@@ -178,9 +186,10 @@ impl Cia8520 {
     pub fn phi2_pulse(&mut self) {
         self.apply_timer_force_loads();
 
-        let mut timer_a_underflow = false;
-        if self.timer_a_running && (self.cra & CRA_INMODE == 0) {
-            timer_a_underflow = self.step_timer_a_count();
+        let ta_clocked = self.timer_a_running && (self.cra & CRA_INMODE == 0);
+        let timer_a_underflow = ta_clocked && self.step_timer_a_count();
+        if ta_clocked {
+            self.drive_pb6(timer_a_underflow);
         }
 
         if self.timer_b_running {
@@ -191,7 +200,8 @@ impl Cia8520 {
                 _ => false,
             };
             if should_count {
-                self.step_timer_b_count();
+                let timer_b_underflow = self.step_timer_b_count();
+                self.drive_pb7(timer_b_underflow);
             }
         }
     }
@@ -202,12 +212,16 @@ impl Cia8520 {
     pub fn cnt_pulse(&mut self) {
         self.apply_timer_force_loads();
 
-        if self.timer_a_running && (self.cra & CRA_INMODE != 0) {
-            self.step_timer_a_count();
+        let ta_clocked = self.timer_a_running && (self.cra & CRA_INMODE != 0);
+        let timer_a_underflow = ta_clocked && self.step_timer_a_count();
+        if ta_clocked {
+            self.drive_pb6(timer_a_underflow);
         }
 
-        if self.timer_b_running && (self.crb & CRB_INMODE_MASK) == CRB_INMODE_CNT {
-            self.step_timer_b_count();
+        let tb_clocked = self.timer_b_running && (self.crb & CRB_INMODE_MASK) == CRB_INMODE_CNT;
+        let timer_b_underflow = tb_clocked && self.step_timer_b_count();
+        if tb_clocked {
+            self.drive_pb7(timer_b_underflow);
         }
     }
 
@@ -252,7 +266,7 @@ impl Cia8520 {
     pub fn peek(&self, reg: u8) -> u8 {
         match reg & 0x0F {
             reg::PRA => Self::effective_port(self.port_a, self.ddr_a, self.external_a),
-            reg::PRB => Self::effective_port(self.port_b, self.ddr_b, self.external_b),
+            reg::PRB => self.port_b_value(),
             reg::DDRA => self.ddr_a,
             reg::DDRB => self.ddr_b,
             reg::TA_LO => self.timer_a as u8,
@@ -396,6 +410,7 @@ impl Cia8520 {
                 }
             }
             reg::CRA => {
+                let was_running = self.timer_a_running;
                 // LOAD (bit 4) is a strobe — does not read back.
                 self.cra = value & !CR_LOAD;
                 self.timer_a_running = value & CR_START != 0;
@@ -403,13 +418,23 @@ impl Cia8520 {
                 if value & CR_LOAD != 0 {
                     self.timer_a_force_load = true;
                 }
+                // Toggle output is set high when the timer is started
+                // (HRM §F); pulse output idles low.
+                if !was_running && self.timer_a_running && value & CR_OUTMODE != 0 {
+                    self.pb6_out = true;
+                }
             }
             reg::CRB => {
+                let was_running = self.timer_b_running;
                 self.crb = value & !CR_LOAD;
                 self.timer_b_running = value & CR_START != 0;
                 self.timer_b_oneshot = value & CR_RUNMODE != 0;
                 if value & CR_LOAD != 0 {
                     self.timer_b_force_load = true;
+                }
+                // Toggle output set high on start (HRM §F); pulse idles low.
+                if !was_running && self.timer_b_running && value & CR_OUTMODE != 0 {
+                    self.pb7_out = true;
                 }
             }
             _ => {}
@@ -439,6 +464,8 @@ impl Cia8520 {
         self.icr_mask = 0;
         self.cra = 0;
         self.crb = 0;
+        self.pb6_out = false;
+        self.pb7_out = false;
         self.sdr = 0;
         self.tod_latched = false;
         self.timer_a_read_hi_latched = false;
@@ -544,13 +571,57 @@ impl Cia8520 {
 
     #[must_use]
     pub fn port_b_output(&self) -> u8 {
-        Self::effective_port(self.port_b, self.ddr_b, self.external_b)
+        self.port_b_value()
     }
 
     // ── Internals ────────────────────────────────────────────────────
 
     fn effective_port(data: u8, direction: u8, external: u8) -> u8 {
         (data & direction) | (external & !direction)
+    }
+
+    /// Drive Timer A's underflow onto PB6 per CRA PBON/OUTMODE (HRM §F).
+    /// A no-op unless PBON (CRA bit 1) is set. Toggle mode (OUTMODE = 1)
+    /// flips the level on each underflow — a square wave at half the
+    /// underflow rate; pulse mode (OUTMODE = 0) holds the level high for
+    /// the single underflow cycle and low otherwise.
+    fn drive_pb6(&mut self, underflow: bool) {
+        if self.cra & CR_PBON == 0 {
+            return;
+        }
+        if self.cra & CR_OUTMODE != 0 {
+            self.pb6_out ^= underflow;
+        } else {
+            self.pb6_out = underflow;
+        }
+    }
+
+    /// Drive Timer B's underflow onto PB7 per CRB PBON/OUTMODE. See
+    /// [`Self::drive_pb6`].
+    fn drive_pb7(&mut self, underflow: bool) {
+        if self.crb & CR_PBON == 0 {
+            return;
+        }
+        if self.crb & CR_OUTMODE != 0 {
+            self.pb7_out ^= underflow;
+        } else {
+            self.pb7_out = underflow;
+        }
+    }
+
+    /// Port-B read value with the timer outputs overlaid. When PBON is
+    /// set the pin becomes a timer-driven output: PB6 (Timer A) / PB7
+    /// (Timer B) read back the timer output level regardless of DDRB,
+    /// per HRM §F.
+    fn port_b_value(&self) -> u8 {
+        let mut v = Self::effective_port(self.port_b, self.ddr_b, self.external_b);
+        if self.cra & CR_PBON != 0 {
+            v = (v & !0x40) | (u8::from(self.pb6_out) << 6);
+        }
+        if self.crb & CR_PBON != 0 {
+            v = (v & !0x80) | (u8::from(self.pb7_out) << 7);
+        }
+        v
     }
 
     fn write_tod_byte(&mut self, byte_index: u8, value: u8) {
@@ -900,5 +971,74 @@ mod tests {
         // caller's chosen external value).
         assert_eq!(cia.read(reg::PRA), 0xEB);
         assert_eq!(cia.external_a(), 0xEB);
+    }
+
+    // ── PBON / OUTMODE timer output on PB6 / PB7 (HRM §F, #451) ──────
+
+    #[test]
+    fn timer_a_toggle_drives_pb6_square_wave() {
+        let mut cia = Cia8520::new();
+        // Latch = 1 → Timer A underflows every 2 PHI2 pulses.
+        cia.write(reg::TA_LO, 1);
+        cia.write(reg::TA_HI, 0);
+        // PBON + toggle (OUTMODE) + continuous + start.
+        cia.write(reg::CRA, CR_PBON | CR_OUTMODE | CR_START);
+
+        // Toggle output is initialised high when the timer starts.
+        assert_eq!(cia.read(reg::PRB) & 0x40, 0x40, "PB6 high after start");
+
+        cia.phi2_pulse(); // 1 -> 0
+        cia.phi2_pulse(); // underflow #1 -> toggle low
+        assert_eq!(cia.read(reg::PRB) & 0x40, 0x00, "PB6 low after underflow 1");
+
+        cia.phi2_pulse(); // 1 -> 0
+        cia.phi2_pulse(); // underflow #2 -> toggle high
+        assert_eq!(
+            cia.read(reg::PRB) & 0x40,
+            0x40,
+            "PB6 high after underflow 2"
+        );
+    }
+
+    #[test]
+    fn timer_b_pulse_drives_pb7_for_one_cycle() {
+        let mut cia = Cia8520::new();
+        cia.write(reg::TB_LO, 1);
+        cia.write(reg::TB_HI, 0);
+        // PBON + pulse (OUTMODE clear) + continuous + start, PHI2-sourced.
+        cia.write(reg::CRB, CR_PBON | CR_START);
+
+        // Pulse output idles low.
+        assert_eq!(cia.read(reg::PRB) & 0x80, 0x00, "PB7 idles low");
+        cia.phi2_pulse(); // 1 -> 0, still no underflow
+        assert_eq!(cia.read(reg::PRB) & 0x80, 0x00, "PB7 low pre-underflow");
+        cia.phi2_pulse(); // underflow -> high for this cycle
+        assert_eq!(
+            cia.read(reg::PRB) & 0x80,
+            0x80,
+            "PB7 high on the underflow cycle"
+        );
+        cia.phi2_pulse(); // next cycle -> back low
+        assert_eq!(cia.read(reg::PRB) & 0x80, 0x00, "PB7 low one cycle later");
+    }
+
+    #[test]
+    fn without_pbon_the_timer_leaves_pb6_pb7_alone() {
+        let mut cia = Cia8520::new();
+        // PB6/PB7 driven as outputs holding 1s; no PBON.
+        cia.write(reg::DDRB, 0xC0);
+        cia.write(reg::PRB, 0xC0);
+        cia.write(reg::TA_LO, 1);
+        cia.write(reg::TA_HI, 0);
+        // Toggle + start but PBON clear — the timer must not reach the pins.
+        cia.write(reg::CRA, CR_OUTMODE | CR_START);
+
+        cia.phi2_pulse();
+        cia.phi2_pulse(); // underflow — would toggle if PBON were set
+        assert_eq!(
+            cia.read(reg::PRB) & 0xC0,
+            0xC0,
+            "PB6/PB7 keep their port value when PBON is clear"
+        );
     }
 }
