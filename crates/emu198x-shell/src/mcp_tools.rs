@@ -715,3 +715,25 @@ where
         run_io_trace,
     );
 }
+
+/// Register the **base** MCP tool surface every machine must expose: the
+/// common session / media / capture tools ([`register_common_tools`])
+/// plus the generic CPU / memory / disassembly debug verbs
+/// ([`register_debug_tools`], driven through the machine's
+/// [`DebugTarget`](crate::debug::DebugTarget)).
+///
+/// This is the single entry point a machine's `mcp.rs` should call for
+/// its core surface. Bundling the two halves means a machine can no
+/// longer adopt only one — the drift that left C64 and Dragon with no
+/// `memory_read` / `step` / `disasm` over MCP (#456). Machines layer
+/// their bespoke registrar *after* this call; later registrations win on
+/// name collisions, so a machine shipping a richer `memory_read`
+/// (Amiga, NES) still shadows the generic one.
+pub fn register_base_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
+where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    register_common_tools(registry);
+    register_debug_tools(registry);
+}

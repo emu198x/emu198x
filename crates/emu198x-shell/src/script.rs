@@ -1948,6 +1948,61 @@ mod tests {
     }
 
     #[test]
+    fn register_base_tools_exposes_the_whole_base_surface() {
+        // #456: `register_base_tools` is the single entry point every
+        // machine's mcp.rs calls. It must register the common session /
+        // media / capture tools AND the generic debug verbs together, so
+        // no machine can half-adopt the base set (the drift that left
+        // C64 and Dragon without memory_read / step / disasm over MCP).
+        use crate::mcp::ToolRegistry;
+        use crate::mcp_tools::register_base_tools;
+
+        // The canonical base surface: 18 common tools + 8 debug verbs.
+        const BASE_TOOLS: &[&str] = &[
+            // common (session / media / capture)
+            "run_frames",
+            "run_ticks",
+            "wait_for_boot",
+            "wait_for_query_contains",
+            "wait_for_query_bool",
+            "query",
+            "query_paths",
+            "input",
+            "load_media",
+            "media_transport",
+            "load_snapshot",
+            "save_snapshot",
+            "save_screenshot",
+            "save_audio_capture",
+            "start_audio_recording",
+            "stop_audio_recording",
+            "start_video_recording",
+            "stop_video_recording",
+            "reset",
+            // debug verbs (driven through DebugTarget)
+            "query_cpu",
+            "memory_read",
+            "poke_byte",
+            "poke_word",
+            "disasm",
+            "run_until_pc",
+            "step",
+            "io_trace",
+        ];
+
+        let mut registry: ToolRegistry<HeadlessSession<DummyMachine, DummyQueryProvider>> =
+            ToolRegistry::new();
+        register_base_tools(&mut registry);
+
+        for tool in BASE_TOOLS {
+            assert!(
+                registry.get(tool).is_some(),
+                "base MCP surface must expose `{tool}`"
+            );
+        }
+    }
+
+    #[test]
     fn reset_step_round_trips_through_json_for_both_kinds() {
         for (json, kind) in [
             (r#"[{"action":"reset","kind":"hard"}]"#, ResetKind::Hard),
