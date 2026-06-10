@@ -106,6 +106,19 @@ pub trait Mapper: Send {
         self.cpu_read(addr)
     }
 
+    /// CPU-side read of the cartridge expansion area (`$4020-$5FFF`).
+    ///
+    /// Returns `Some(byte)` when the cartridge drives the data bus and
+    /// `None` (the default) when it leaves the bus floating, so the
+    /// machine layer can supply open-bus. Almost every mapper leaves
+    /// `$4020-$5FFF` unclaimed; MMC5 is the exception, putting its
+    /// IRQ-status, 8×8 multiplier and ExRAM registers here. May carry
+    /// read side effects — reading MMC5's `$5204` clears the in-frame
+    /// IRQ and `$5010` clears the PCM IRQ — so it takes `&mut self`.
+    fn cpu_read_expansion(&mut self, _addr: u16) -> Option<u8> {
+        None
+    }
+
     /// CPU-side bus write. Called by the machine layer's
     /// `cpu_write` for addresses in `$4020-$FFFF`. The mapper
     /// decides whether to latch the value (bank switching), write

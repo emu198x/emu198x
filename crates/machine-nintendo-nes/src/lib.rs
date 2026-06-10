@@ -518,12 +518,15 @@ impl Nes {
             // $4018-$401F: APU test registers (unused). Open bus.
             0x4018..=0x401F => self.open_bus,
 
-            // $4020-$5FFF: cartridge expansion area. Unused by every
-            // mapper we currently support (NROM, MMC1, UxROM, CNROM,
-            // MMC3, AxROM), so it reads as open bus. Mappers like
-            // MMC5 that put registers here will need to claim this
-            // range explicitly when added.
-            0x4020..=0x5FFF => self.open_bus,
+            // $4020-$5FFF: cartridge expansion area. Most mappers
+            // leave it floating, so it reads as open bus; MMC5 claims
+            // it for its IRQ-status, multiplier and ExRAM registers.
+            // The mapper returns `None` when it leaves the bus
+            // floating, and the open-bus value stands.
+            0x4020..=0x5FFF => self
+                .mapper
+                .cpu_read_expansion(addr)
+                .unwrap_or(self.open_bus),
 
             // $6000-$FFFF: PRG-RAM + PRG-ROM.
             0x6000..=0xFFFF => self.mapper.cpu_read_side_effect(addr),

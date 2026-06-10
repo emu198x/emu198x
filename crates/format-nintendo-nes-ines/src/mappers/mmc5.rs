@@ -472,6 +472,21 @@ impl Mapper for Mmc5 {
         self.read_with_side_effect(addr)
     }
 
+    fn cpu_read_expansion(&mut self, addr: u16) -> Option<u8> {
+        match addr {
+            // IRQ status, audio status and the 8×8 multiplier. The
+            // $5204 and $5010 reads acknowledge their IRQ, so route
+            // them through the side-effecting reader.
+            0x5010 | 0x5015 | 0x5204 | 0x5205 | 0x5206 => Some(self.read_with_side_effect(addr)),
+            // ExRAM is CPU-readable only in modes 2 (RAM) and 3
+            // (read-only ROM); in the PPU-owned modes 0/1 a CPU read
+            // sees open bus.
+            0x5C00..=0x5FFF if self.exram_mode >= 2 => Some(self.exram[usize::from(addr - 0x5C00)]),
+            // Everything else in $4020-$5FFF floats — open bus.
+            _ => None,
+        }
+    }
+
     fn cpu_write(&mut self, addr: u16, value: u8) {
         match addr {
             0x5000 => self.audio_pulses[0].write_control(value),
@@ -632,5 +647,66 @@ impl Mapper for Mmc5 {
 
     fn snapshot(&self) -> MapperSnapshot {
         MapperSnapshot::Mmc5(self.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Mapper;
+
+    fn mmc5() -> Mmc5 {
+        Mmc5::new(vec![0u8; 8192], vec![0u8; 8192])
+    }
+
+    #[test]
+    fn unclaimed_expansion_addresses_float() {
+        let mut m = mmc5();
+        // Outside MMC5's register window the cartridge leaves the bus
+        // floating, so the machine fills open bus rather than a 0.
+        assert!(m.cpu_read_expansion(0x4020).is_none());
+        assert!(m.cpu_read_expansion(0x5000).is_none());
+        assert!(m.cpu_read_expansion(0x5800).is_none());
+    }
+
+    #[test]
+    fn multiplier_product_reads_back_over_the_expansion_bus() {
+        let mut m = mmc5();
+        m.cpu_write(0x5205, 200);
+        m.cpu_write(0x5206, 200); // 200 × 200 = 40000 = 0x9C40
+        assert_eq!(m.cpu_read_expansion(0x5205), Some(0x40));
+        assert_eq!(m.cpu_read_expansion(0x5206), Some(0x9C));
+    }
+
+    #[test]
+    fn reading_5204_acknowledges_the_scanline_irq() {
+        let mut m = mmc5();
+        m.irq_pending = true;
+        let status = m
+            .cpu_read_expansion(0x5204)
+            .expect("$5204 drives the data bus");
+        assert_ne!(status & 0x80, 0, "bit 7 reports the pending IRQ");
+        assert!(
+            !m.irq_pending,
+            "reading $5204 must acknowledge and clear the IRQ"
+        );
+    }
+
+    #[test]
+    fn exram_is_cpu_readable_only_in_ram_modes() {
+        let mut m = mmc5();
+        m.exram[0] = 0xBB;
+
+        // Modes 0/1 hand ExRAM to the PPU; CPU reads see open bus.
+        m.exram_mode = 0;
+        assert!(m.cpu_read_expansion(0x5C00).is_none());
+        m.exram_mode = 1;
+        assert!(m.cpu_read_expansion(0x5C00).is_none());
+
+        // Modes 2 (RAM) and 3 (read-only) expose it to the CPU.
+        m.exram_mode = 2;
+        assert_eq!(m.cpu_read_expansion(0x5C00), Some(0xBB));
+        m.exram_mode = 3;
+        assert_eq!(m.cpu_read_expansion(0x5C00), Some(0xBB));
     }
 }
