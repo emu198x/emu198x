@@ -1920,6 +1920,34 @@ mod tests {
     }
 
     #[test]
+    fn recording_steps_are_exposed_on_the_common_mcp_surface() {
+        // #453: start/stop audio and video recording must be reachable
+        // over MCP on every common machine, not only the bespoke
+        // Amiga/Spectrum surfaces. `register_common_tools` is the single
+        // registrar every common machine calls, so asserting the four
+        // recording tools land there guarantees fleet-wide script/MCP
+        // parity in one place.
+        use crate::mcp::ToolRegistry;
+        use crate::mcp_tools::register_common_tools;
+
+        let mut registry: ToolRegistry<HeadlessSession<DummyMachine, DummyQueryProvider>> =
+            ToolRegistry::new();
+        register_common_tools(&mut registry);
+
+        for tool in [
+            "start_audio_recording",
+            "stop_audio_recording",
+            "start_video_recording",
+            "stop_video_recording",
+        ] {
+            assert!(
+                registry.get(tool).is_some(),
+                "common MCP surface must expose `{tool}` for script/MCP parity"
+            );
+        }
+    }
+
+    #[test]
     fn reset_step_round_trips_through_json_for_both_kinds() {
         for (json, kind) in [
             (r#"[{"action":"reset","kind":"hard"}]"#, ResetKind::Hard),
