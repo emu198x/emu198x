@@ -1,11 +1,11 @@
 //! MCP server mode — `--mcp` / `--mcp-stdio`.
 //!
-//! Boots a blank NTSC MSX1 session (no BIOS yet) and exposes:
-//! - the shared machine-agnostic tool surface (run frames / ticks,
-//!   query state, load media, snapshots, capture) via
-//!   `register_common_tools`
-//! - the MSX1-specific debugging tools (`query_cpu`, `query_vdp`,
-//!   `query_psg`, `query_ppi`, `memory_read`) via `register_msx_tools`
+//! Boots a blank NTSC MSX1 session (no BIOS yet) and exposes the shared
+//! base tool surface (run frames / ticks, query state, load media,
+//! snapshots, capture, CPU/memory/disasm debug) via `register_base_tools`.
+//! MSX chip state — VDP, the AY-3-8910 PSG (`ay.*`), the 8255 PPI — is read
+//! through the generic `query` tool as query paths (`vdp`, `ay`, `ppi`, and
+//! their leaves), not bespoke tools.
 //!
 //! BIOS + cartridges arrive via the shared `load_media` tool — the
 //! client drives the session the same way the `--script` path does.
@@ -20,8 +20,6 @@ use emu198x_shell::{
     mcp_tools::register_base_tools,
 };
 use runtime_msx::{Model, MsxRuntime, MsxSessionQueryProvider};
-
-use crate::mcp_tools::register_msx_tools;
 
 /// One MSX1 NTSC frame = 228 T-states × 262 scanlines.
 const MSX_FRAME_TICKS_NTSC: u64 = 228 * 262;
@@ -68,7 +66,6 @@ pub fn run() -> Result<(), String> {
 
     let mut server = Server::new(ServerInfo::new("emu198x-msx", env!("CARGO_PKG_VERSION")));
     register_base_tools(server.registry_mut());
-    register_msx_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

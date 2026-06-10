@@ -10,7 +10,6 @@
 //! script mode.
 
 mod mcp;
-mod mcp_tools;
 mod script;
 
 use std::process;
