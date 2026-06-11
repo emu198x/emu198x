@@ -1125,3 +1125,35 @@ fn exhausted_sprite_leaves_no_collision_trail_past_its_right_edge() {
         "exhausted sprite 0 must not phantom-collide with sprite 2 to its right"
     );
 }
+
+#[test]
+fn wide_sprite_renders_pixels_beyond_the_16px_window() {
+    // AGA wide sprites (#95): with `spr_width = 64` the shifter emits up
+    // to 64 lores pixels per line, so a data bit at position 23 shows at
+    // column hstart + (63 - 23) = +40 — a column a 16-px sprite can
+    // never reach. The FMODE→spr_width wiring is what feeds this width;
+    // here we pin the shifter capability it unlocks.
+    let render_at_plus_40 = |width: u8| {
+        let mut d = DeniseOcs::new();
+        d.set_palette(0, 0x000); // COLOR00 = black background
+        d.set_palette(17, 0xF00); // sprite 0/1 pair, colour code 1 = red
+        d.spr_width = width;
+        let (pos, ctl) = encode_sprite_pos_ctl(20, 10, 11);
+        d.spr_pos[0] = pos;
+        d.spr_ctl[0] = ctl;
+        d.spr_data[0] = 1u64 << 23; // emits at hstart(20) + 40 = column 60
+        d.spr_datb[0] = 0;
+        d.output_pixel_color(60, 10)
+    };
+
+    assert_eq!(
+        render_at_plus_40(64),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "64-px sprite shows the bit-23 pixel 40 columns past hstart"
+    );
+    assert_eq!(
+        render_at_plus_40(16),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "16-px sprite cannot reach column hstart+40 — background only"
+    );
+}

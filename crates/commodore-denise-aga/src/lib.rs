@@ -144,11 +144,18 @@ impl DeniseAga {
     ///
     /// FMODE bits 3..2: 00 → 16 px, 01/10 → 32 px, 11 → 64 px.
     pub fn set_sprite_width_from_fmode(&mut self, fmode: u16) {
-        self.spr_width = match (fmode >> 2) & 0x0003 {
+        let width = match (fmode >> 2) & 0x0003 {
             0 => 16,
             1 | 2 => 32,
             _ => 64,
         };
+        self.spr_width = width;
+        // Propagate into the OCS sprite shifter that actually emits the
+        // pixels (`spr_data`/`spr_shift_data` are u64, and the shifter
+        // outputs `spr_width` lores pixels per line). DeniseAga's own
+        // `spr_width` is only a diagnostic mirror the render path never
+        // reads — without this write, AGA sprites stayed 16 px wide (#95).
+        self.inner.as_inner_mut().spr_width = width;
     }
 
     /// Handle a CPU/copper write to one of the COLOR registers
@@ -407,6 +414,13 @@ mod tests {
         for (fmode, expected) in [(0x0000, 16u8), (0x0004, 32), (0x0008, 32), (0x000C, 64)] {
             denise.write_word(0x01FC, fmode);
             assert_eq!(denise.spr_width, expected, "FMODE={fmode:#06x}");
+            // The width must reach the OCS sprite shifter (the field the
+            // render path actually reads), not just the wrapper mirror (#95).
+            assert_eq!(
+                denise.as_inner().as_inner().spr_width,
+                expected,
+                "FMODE={fmode:#06x}: OCS shifter spr_width"
+            );
         }
     }
 
