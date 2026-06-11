@@ -44,6 +44,18 @@ pub use rtc::RTC_BASE;
 
 use motorola_68000::bus::{BusStatus, FunctionCode};
 use motorola_68000::cpu::State;
+
+/// `BlitterBus` adaptor over chip RAM. The blitter sees chip RAM only,
+/// via Agnus DMA, and addresses wrap at the 2 MiB chip-RAM boundary.
+struct ChipRamBus<'a>(&'a mut Memory);
+impl commodore_agnus_ocs::BlitterBus for ChipRamBus<'_> {
+    fn read_word(&mut self, addr: u32) -> u16 {
+        self.0.read_chip_ram_word(addr)
+    }
+    fn write_word(&mut self, addr: u32, val: u16) {
+        self.0.write_word(addr & 0x001F_FFFE, val);
+    }
+}
 use motorola_68020::Cpu68020;
 use rtc::Msm6242Rtc;
 
@@ -1149,24 +1161,18 @@ impl AmigaA1200 {
         }
     }
 
-    /// Drive the pending Agnus blit to completion and raise INT_BLIT.
-    /// Called immediately after a BLTSIZE ($058) write — the simple
-    /// "synchronous completion" integration model — so any CPU code
-    /// that writes BLTSIZE and then polls DMACONR.BBUSY sees BBUSY
-    /// already clear on the next bus cycle.
-    fn run_blit_to_completion(&mut self) {
-        struct ChipRamBus<'a>(&'a mut Memory);
-        impl<'a> commodore_agnus_ocs::BlitterBus for ChipRamBus<'a> {
-            fn read_word(&mut self, addr: u32) -> u16 {
-                self.0.read_chip_ram_word(addr)
-            }
-            fn write_word(&mut self, addr: u32, val: u16) {
-                self.0.write_word(addr & 0x001F_FFFE, val);
-            }
+    /// Serialize a blitter-register write against an in-flight blit.
+    /// Real Agnus CPU-stalls a blitter-register write that lands while a
+    /// blit is in flight (BBUSY) until the blitter is free; we
+    /// approximate that by draining the current blit before the write
+    /// lands, so code that reprograms the blitter without an intervening
+    /// WaitBlit isn't aborted by the next `start_blit`. No-op when idle.
+    fn drain_blit_if_busy(&mut self) {
+        if self.agnus.blitter_busy {
+            let mut bus = ChipRamBus(&mut self.memory);
+            self.agnus.run_blit_to_completion(&mut bus);
+            self.paula.raise(IntSource::Blit);
         }
-        let mut bus = ChipRamBus(&mut self.memory);
-        self.agnus.run_blit_to_completion(&mut bus);
-        self.paula.raise(IntSource::Blit);
     }
 
     /// Convenience: current BPLCON0 value.
@@ -1294,9 +1300,20 @@ impl AmigaA1200 {
             // LF updates and BLTSIZV/BLTSIZH for many text + icon
             // blits; without these handlers WB content would never
             // render once we report a real ECS / AGA chipset.
-            0x05A => self.agnus.write_bltcon0l(val),
-            0x05C => self.agnus.write_bltsizv(val),
+            0x05A => {
+                self.drain_blit_if_busy();
+                self.agnus.write_bltcon0l(val);
+            }
+            0x05C => {
+                self.drain_blit_if_busy();
+                self.agnus.write_bltsizv(val);
+            }
             0x05E => {
+                // BLTSIZH starts the ECS/AGA large blit; `write_bltsizh`
+                // arms the incremental scheduler. The blit then drains
+                // one DMA op per granted CCK in the tick loop (#31)
+                // instead of completing here.
+                self.drain_blit_if_busy();
                 self.agnus.write_bltsizh(val);
                 self.debug_blit_starts += 1;
                 self.debug_blit_log.push((
@@ -1310,14 +1327,15 @@ impl AmigaA1200 {
                     self.agnus.blt_dpt,
                     self.agnus.bltsize,
                 ));
-                self.run_blit_to_completion();
             }
-            // Agnus-owned blitter registers. BLTSIZE ($058) fires
-            // `start_blit` inside the helper; we drive the blit to
-            // completion below, raise INT_BLIT, and let the CPU see
-            // BBUSY clear on the next DMACONR read.
-            0x040..=0x074 if self.agnus.write_blitter_register(offset, val) => {
-                if offset == 0x058 {
+            // Agnus-owned blitter registers. BLTSIZE ($058) arms the
+            // incremental scheduler via `start_blit`; the blit drains
+            // one DMA op per granted CCK in the tick loop (#31). A
+            // register write that lands mid-blit drains the in-flight
+            // blit first (hardware CPU-stall serialization).
+            0x040..=0x074 => {
+                self.drain_blit_if_busy();
+                if self.agnus.write_blitter_register(offset, val) && offset == 0x058 {
                     self.debug_blit_starts += 1;
                     self.debug_blit_log.push((
                         self.tick_count / TICKS_PER_CCK,
@@ -1330,7 +1348,6 @@ impl AmigaA1200 {
                         self.agnus.blt_dpt,
                         self.agnus.bltsize,
                     ));
-                    self.run_blit_to_completion();
                 }
             }
             // Agnus-owned bitplane + display-window + DSK pointer.
@@ -1545,7 +1562,7 @@ impl AmigaA1200 {
         }
         if let Some(offset) = self.custom_offset_for_addr(addr24) {
             return match offset {
-                0x002 => self.agnus.dmacon,
+                0x002 => self.agnus.dmaconr(),
                 0x004 => self.agnus.vposr(),
                 0x006 => self.agnus.vhposr(),
                 0x00A => joydat(self.joy0_x, self.joy0_y),
@@ -1668,6 +1685,18 @@ impl AmigaA1200 {
             // also needs the raw DMACON value for its master+channel
             // enable gates.
             let bus_plan = self.agnus.cck_bus_plan();
+
+            // ── Blitter DMA — one op per granted CCK (#31). The blit
+            // consumes real chip cycles and contends for the bus; BBUSY
+            // (DMACONR bit 14) stays set until it drains. INT_BLIT fires
+            // on the CCK that drains the last op.
+            if bus_plan.blitter_dma_progress_granted {
+                let mut bus = ChipRamBus(&mut self.memory);
+                if self.agnus.tick_blitter_dma(&mut bus) {
+                    self.paula.raise(IntSource::Blit);
+                }
+            }
+
             let slot = bus_plan.audio_dma_service_channel;
             let dmacon = self.agnus.dmacon;
             // Move the memory borrow outside the closure so the
@@ -2086,7 +2115,7 @@ impl AmigaA1200 {
                 0x012 => self.paula.pot0dat(),
                 0x014 => self.paula.pot1dat(),
                 0x016 => self.paula.peek_potgor(),
-                0x002 => self.agnus.dmacon,
+                0x002 => self.agnus.dmaconr(),
                 0x07C => self.denise.deniseid(),
                 // FMODE write-side lives on Alice. On real AGA the
                 // register reads back as the last-written value (not
