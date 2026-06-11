@@ -95,14 +95,17 @@ generalises cleanly. The unified MCP `disasm` JSON becomes this (note: it
 `mnemonic`/`raw` vs `text`/`bytes`). One shape, fleet-wide. **Recommend: keep
 `DisasmInstruction`; the Part A `DebugTool` enrichment is superseded by it.**
 
-### D7 — New verbs `run_until_any_pc` / `run_until_mem_change`
+### D7 — New verbs `run_until_any_pc` / `run_until_mem_change` (RESOLVED: converge up)
 
-Add as `ScriptStep`s + generic observations (single watched address;
-`{addr, changed, old, new, ticks, steps, cpu_pc}`). The Amiga's *richer*
-multi-address, tracer-based `run_until_mem_change` is a genuinely different
-mechanism (chipset write-watch, not step+peek) — it **stays** as an Amiga
-override (converge up, don't flatten richness). **Recommend: generic
-single-address shared; Amiga keeps its multi-address tracer version.**
+Add as `ScriptStep`s + generic observations. **The shared
+`run_until_mem_change` watches a *list* of addresses** — the Amiga's richer
+multi-address design is *elevated to the shared tier* (step+peek each watched
+address per instruction, report which changed) so every machine gets it.
+Observation: `{ addrs, changed, changed_addr, old, new, ticks, steps, pc }`.
+The Amiga's tracer-based impl (chipset write-watch, catches intra-instruction
+writes step+peek can miss) is evaluated in commit 3 — kept as a more-accurate
+override only if that extra accuracy matters, otherwise dropped for the shared
+one. `run_until_any_pc`: `{ targets }` → `{ reached, pc, ticks, steps }`.
 
 ### D8 — `io_trace` stays special (for now)
 
@@ -145,16 +148,24 @@ debug tool *not* on the `ScriptStep` path until there's a reason to move it.
    Z80/AY-specific); drop the Amiga `step` / `run_until_any_pc` overrides (keep
    the tracer-based `run_until_mem_change` + chip/exec tools).
 
-## Open questions for Steve
+## Resolved with Steve (2026-06-11)
 
-1. **Code198x impact (D-migration)** — do any Code198x report parsers consume
-   `Step.halfcycles` / `Step.halt` / the Z80-shaped `QueryCpu` observation? If
-   yes, we version the report or keep a compat shim; if no, we change freely.
-2. **`ticks` naming/unit** — `ticks` as a machine-native unit OK, or do you
-   want a normalised unit (e.g. always master-clock) across machines?
-3. **D7** — happy for the Amiga to keep a *richer* multi-address
-   `run_until_mem_change` override, or force everything onto the single-address
-   shared shape for strict uniformity?
-4. **Scope** — land all three commits in one push, or stop after #1 (generic
-   arms, additive, no contract break) to de-risk and validate before the
-   fleet-wide MCP change in #2?
+1. **Code198x impact — CLEAR TO CHANGE FREELY.** Audited
+   `~/Projects/198x/Code198x`: scripts use only `run_frames` / `input` /
+   `poke_byte` / `type_string` / media / capture actions — *no* `disasm` /
+   `step` / `query_cpu` / `run_until*` / `memory_read`. `code-samples/_capture/
+   capture.py` reads `observations` but filters only on `kind ∈
+   {stop_audio_recording, stop_video_recording}` — it never touches a debug
+   observation. No compat shim needed; redesign the debug observation shapes
+   freely. `poke_byte` *input* stays unchanged, so the 10 scripts using it are
+   safe.
+2. **`ticks` unit — machine-native.** `ticks: u64`, documented as the
+   machine's own unit (Spectrum master half-cycles, NES/Amiga master ticks).
+   No cross-machine normalisation.
+3. **D7 — converge UP: the shared `run_until_mem_change` is multi-address.**
+   Elevate the Amiga's richer multi-address watch to the shared tier (every
+   machine gets it), don't keep it as an Amiga-only override. Shared shape
+   watches a list of addresses via step+peek; commit 3 decides whether the
+   Amiga's tracer-based impl is kept for intra-instruction-write accuracy or
+   dropped for the shared one.
+4. **Scope — all three commits in one go.**
