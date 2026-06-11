@@ -11,7 +11,7 @@
 //! Spectrum coverage gate (SOLID criterion 11) above its floor.
 
 use common_sinclair_zx_spectrum::audio::SpeakerChannel;
-use emu198x_shell::{DebugPrimitives, FirmwareImage, FirmwareSet};
+use emu198x_shell::{DebugPrimitives, FamilyRuntime, FirmwareImage, FirmwareSet};
 use machine_pentagon_128::Pentagon128;
 use machine_scorpion_zs256::ScorpionZS256;
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;

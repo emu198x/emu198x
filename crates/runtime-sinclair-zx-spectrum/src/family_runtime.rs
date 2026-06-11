@@ -26,8 +26,8 @@
 //! profile.
 
 use emu198x_shell::{
-    ControlCommand, FirmwareSet, HostIo, MachineCore, MachineError, MachineProfile, MachineTime,
-    MediaSet, QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider,
+    ControlCommand, FamilyRuntime, FirmwareSet, HostIo, MachineCore, MachineError, MachineProfile,
+    MachineTime, MediaSet, QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider,
 };
 
 use crate::queries::SpectrumSessionQueryProvider;
@@ -249,16 +249,54 @@ pub enum SpectrumRuntimeKind {
 }
 
 impl SpectrumRuntimeKind {
-    /// Construct from a [`crate::Model`] and a firmware bundle. Every
-    /// Spectrum-family variant — SOLID 8 + the five exotics (Pentagon,
-    /// Scorpion, Timex TC2048 / TC2068 / TS2068) — builds its concrete
-    /// `SpectrumRuntime<M>` via the corresponding `from_firmware`
-    /// constructor.
-    ///
-    /// # Errors
-    /// Returns the underlying `MachineError` from the inner runtime
-    /// constructor on firmware-resolution failure.
-    pub fn from_firmware(
+    /// Master half-cycles per frame for the active variant. Different
+    /// Spectrum classes run at different master clocks: the 48K family
+    /// at 14 MHz / 69888 hc/frame, the 128K family at 14.16 MHz / 70908,
+    /// the +2A/+2B/+3 family at 17.7 MHz / 70908, the Pentagon at
+    /// 14.336 MHz / 71680, the Scorpion at 14 MHz / 71680, the TC2048
+    /// at the 48K rate, and the TC2068/TS2068 at their SCLD rate.
+    #[must_use]
+    pub fn frame_halfcycles(&self) -> u32 {
+        use common_sinclair_zx_spectrum::timing::{
+            TIMING_48K, TIMING_128K, TIMING_PENTAGON, TIMING_PLUS2A, TIMING_SCORPION,
+        };
+        use machine_timex_ts2068::TIMING_TS2068;
+        match self {
+            Self::Spectrum16K(_) | Self::Spectrum48K(_) | Self::SpectrumPlus(_) => {
+                TIMING_48K.halfcycles_per_frame
+            }
+            Self::Spectrum128K(_) | Self::SpectrumPlus2(_) => TIMING_128K.halfcycles_per_frame,
+            Self::SpectrumPlus2A(_) | Self::SpectrumPlus2B(_) | Self::SpectrumPlus3(_) => {
+                TIMING_PLUS2A.halfcycles_per_frame
+            }
+            Self::Pentagon128(_) => TIMING_PENTAGON.halfcycles_per_frame,
+            Self::ScorpionZS256(_) => TIMING_SCORPION.halfcycles_per_frame,
+            Self::TimexTC2048(_) | Self::TimexTC2068(_) => TIMING_48K.halfcycles_per_frame,
+            Self::TimexTS2068(_) => TIMING_TS2068.halfcycles_per_frame,
+        }
+    }
+
+    /// Returns a mutable reference to the inner 48K runtime when this
+    /// kind is `Spectrum48K`, otherwise `None`. Used by 48K-only
+    /// helpers (`autoload_basic_tape`, `load_basic_program`) on the
+    /// family-MCP path so they keep working when the active variant
+    /// is 48K and gracefully error otherwise.
+    pub fn as_48k_mut(&mut self) -> Option<&mut Spectrum48kRuntime> {
+        if let Self::Spectrum48K(rt) = self {
+            Some(rt)
+        } else {
+            None
+        }
+    }
+}
+
+impl FamilyRuntime for SpectrumRuntimeKind {
+    type Model = crate::Model;
+
+    /// Build the requested Spectrum variant — SOLID 8 + the five exotics
+    /// (Pentagon, Scorpion, Timex TC2048 / TC2068 / TS2068) — by routing
+    /// to its concrete `SpectrumRuntime<M>::from_firmware` constructor.
+    fn from_firmware(
         model: crate::Model,
         firmware: &FirmwareSet<'_>,
     ) -> Result<Self, MachineError> {
@@ -307,44 +345,8 @@ impl SpectrumRuntimeKind {
         })
     }
 
-    /// Master half-cycles per frame for the active variant. Different
-    /// Spectrum classes run at different master clocks: the 48K family
-    /// at 14 MHz / 69888 hc/frame, the 128K family at 14.16 MHz / 70908,
-    /// the +2A/+2B/+3 family at 17.7 MHz / 70908, the Pentagon at
-    /// 14.336 MHz / 71680, the Scorpion at 14 MHz / 71680, the TC2048
-    /// at the 48K rate, and the TC2068/TS2068 at their SCLD rate.
-    #[must_use]
-    pub fn frame_halfcycles(&self) -> u32 {
-        use common_sinclair_zx_spectrum::timing::{
-            TIMING_48K, TIMING_128K, TIMING_PENTAGON, TIMING_PLUS2A, TIMING_SCORPION,
-        };
-        use machine_timex_ts2068::TIMING_TS2068;
-        match self {
-            Self::Spectrum16K(_) | Self::Spectrum48K(_) | Self::SpectrumPlus(_) => {
-                TIMING_48K.halfcycles_per_frame
-            }
-            Self::Spectrum128K(_) | Self::SpectrumPlus2(_) => TIMING_128K.halfcycles_per_frame,
-            Self::SpectrumPlus2A(_) | Self::SpectrumPlus2B(_) | Self::SpectrumPlus3(_) => {
-                TIMING_PLUS2A.halfcycles_per_frame
-            }
-            Self::Pentagon128(_) => TIMING_PENTAGON.halfcycles_per_frame,
-            Self::ScorpionZS256(_) => TIMING_SCORPION.halfcycles_per_frame,
-            Self::TimexTC2048(_) | Self::TimexTC2068(_) => TIMING_48K.halfcycles_per_frame,
-            Self::TimexTS2068(_) => TIMING_TS2068.halfcycles_per_frame,
-        }
-    }
-
-    /// Returns a mutable reference to the inner 48K runtime when this
-    /// kind is `Spectrum48K`, otherwise `None`. Used by 48K-only
-    /// helpers (`autoload_basic_tape`, `load_basic_program`) on the
-    /// family-MCP path so they keep working when the active variant
-    /// is 48K and gracefully error otherwise.
-    pub fn as_48k_mut(&mut self) -> Option<&mut Spectrum48kRuntime> {
-        if let Self::Spectrum48K(rt) = self {
-            Some(rt)
-        } else {
-            None
-        }
+    fn native_frame_ticks(&self) -> u64 {
+        u64::from(self.frame_halfcycles())
     }
 }
 

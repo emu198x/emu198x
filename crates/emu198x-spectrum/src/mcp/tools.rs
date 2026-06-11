@@ -391,19 +391,14 @@ fn execute_set_machine(
     for (id, bytes) in &rom_bytes {
         firmware.push(FirmwareImage::new(id.clone(), bytes));
     }
-    let new_runtime = SpectrumRuntimeKind::from_firmware(model, &firmware)
-        .map_err(|err| ToolError::Execution(format!("set_machine: build runtime: {err}")))?;
-    let profile = new_runtime.profile().clone();
-
-    // Swap the inner machine + clear session-side state, and re-pace
-    // the session to the new variant's frame budget so `run_frames`
-    // emits one native frame per call.
-    let new_frame_ticks = u64::from(new_runtime.frame_halfcycles());
-    *session.machine_mut() = new_runtime;
-    session.set_native_frame_ticks(new_frame_ticks);
+    // Build the new variant, install it, re-pace the session to its frame
+    // budget, and hard-reset session-side state — all via the shared
+    // `HeadlessSession::swap_machine`, the same generic swap the `--script`
+    // runner uses (#456).
     session
-        .reset(emu198x_shell::ResetKind::Hard)
-        .map_err(|err| ToolError::Execution(format!("set_machine: clear session: {err}")))?;
+        .swap_machine(model, &firmware)
+        .map_err(|err| ToolError::Execution(format!("set_machine: {err}")))?;
+    let profile = session.machine().profile().clone();
 
     Ok(ScriptObservation::SetMachine {
         machine: requested.to_owned(),
