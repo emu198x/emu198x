@@ -469,6 +469,51 @@ impl MachineCore for SpectrumRuntimeKind {
     fn watch_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::WatchTarget> {
         Some(self)
     }
+
+    fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
+        Some(self)
+    }
+}
+
+impl emu198x_shell::KeyboardTarget for SpectrumRuntimeKind {
+    fn key_name_is_valid(&self, name: &str) -> bool {
+        common_sinclair_zx_spectrum::keyboard::SpectrumKey::from_name(name).is_some()
+    }
+
+    fn key_names_hint(&self) -> &'static str {
+        "A-Z, 0-9, Space, Enter, CapsShift, SymbolShift"
+    }
+
+    fn keys_for_char(&self, ch: char) -> Option<Vec<String>> {
+        // Uppercase needs CapsShift; the default charset draws letters in
+        // upper case, so a lowercase source char presses the bare keycap.
+        let (key_name, needs_caps_shift) = match ch {
+            'a'..='z' => (ch.to_ascii_uppercase().to_string(), false),
+            'A'..='Z' => (ch.to_string(), true),
+            '0'..='9' => (ch.to_string(), false),
+            ' ' => ("Space".to_owned(), false),
+            '\n' => ("Enter".to_owned(), false),
+            _ => return None,
+        };
+        // Skip anything the layout doesn't actually name.
+        common_sinclair_zx_spectrum::keyboard::SpectrumKey::from_name(&key_name)?;
+        Some(if needs_caps_shift {
+            vec!["CapsShift".to_owned(), key_name]
+        } else {
+            vec![key_name]
+        })
+    }
+
+    fn key_timing(&self) -> emu198x_shell::KeyTiming {
+        emu198x_shell::KeyTiming {
+            default_hold_frames: 3,
+            max_hold_frames: 600,
+            press_settle_frames: 1,
+            inter_key_settle_frames: 1,
+            repeat_settle_frames: 3,
+            default_type_settle_frames: 10,
+        }
+    }
 }
 
 impl emu198x_shell::WatchTarget for SpectrumRuntimeKind {

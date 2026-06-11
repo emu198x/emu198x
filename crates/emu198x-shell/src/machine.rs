@@ -315,6 +315,17 @@ pub trait MachineCore {
     fn watch_target_mut(&mut self) -> Option<&mut dyn crate::watch::WatchTarget> {
         None
     }
+
+    /// Returns a keyboard description of this machine, if it has one.
+    ///
+    /// The default returns `None` (no keyboard). Machines with a keyboard
+    /// override this to expose [`crate::keyboard::KeyboardTarget`], which
+    /// powers the shared `press_key` / `type_string` tools registered by
+    /// [`crate::mcp_tools::register_keyboard_tools`]. Read-only: the key
+    /// injection itself runs on the session.
+    fn keyboard_target(&self) -> Option<&dyn crate::keyboard::KeyboardTarget> {
+        None
+    }
 }
 
 /// A runtime that is one of a system family's machine *variants* —

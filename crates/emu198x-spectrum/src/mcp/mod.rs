@@ -15,7 +15,10 @@ pub(crate) mod tools;
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::{register_ay_watch_tools, register_base_tools, register_memory_watch_tools},
+    mcp_tools::{
+        register_ay_watch_tools, register_base_tools, register_keyboard_tools,
+        register_memory_watch_tools,
+    },
 };
 use runtime_sinclair_zx_spectrum::{SpectrumRuntimeKind, SpectrumSessionQueryProvider};
 
@@ -53,6 +56,7 @@ pub fn run() -> Result<(), AppError> {
     register_base_tools(server.registry_mut());
     register_memory_watch_tools(server.registry_mut());
     register_ay_watch_tools(server.registry_mut());
+    register_keyboard_tools(server.registry_mut());
     tools::register_spectrum_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(AppError::from)?;
@@ -121,6 +125,7 @@ mod tests {
         register_base_tools(server.registry_mut());
         register_memory_watch_tools(server.registry_mut());
         register_ay_watch_tools(server.registry_mut());
+        register_keyboard_tools(server.registry_mut());
         tools::register_spectrum_tools(server.registry_mut());
     }
 

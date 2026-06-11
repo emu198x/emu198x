@@ -28,10 +28,7 @@ use serde::Serialize;
 
 use crate::AppError;
 use crate::machine::{MachineKind, rom_root, variant_rom_bundle};
-use crate::mcp::tools::{
-    dispatch_live_step, execute_autoload_tape, execute_load_basic_program, execute_press_key,
-    execute_type_string,
-};
+use crate::mcp::tools::{dispatch_live_step, execute_autoload_tape, execute_load_basic_program};
 use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapshot_at};
 
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
@@ -203,16 +200,6 @@ pub(crate) fn execute_step(
                 .map(Some)
                 .map_err(map_tool_error)
         }
-        ScriptStep::PressKey { key, hold_frames } => execute_press_key(session, key, *hold_frames)
-            .map(Some)
-            .map_err(map_tool_error),
-        ScriptStep::TypeString {
-            text,
-            hold_frames,
-            settle_frames,
-        } => execute_type_string(session, text, *hold_frames, *settle_frames)
-            .map(Some)
-            .map_err(map_tool_error),
         ScriptStep::LoadSnapshot { path } if is_portable_snapshot_path(path) => {
             // Shared with MCP — the family enum implements `SpectrumLiveAccess`,
             // so one `apply_snapshot` path covers every variant (#456).
@@ -232,10 +219,12 @@ pub(crate) fn execute_step(
 }
 
 /// Map a [`ToolError`] from a shared step helper into the script
-/// runner's [`AppError`]. The keyboard-injection helpers
-/// (`execute_press_key` / `execute_type_string`) and `dispatch_live_step`
-/// are shared with MCP mode and report `ToolError`; script mode wraps
-/// that as an I/O error, matching how the live-step arm already maps.
+/// runner's [`AppError`]. The shared helpers (`execute_autoload_tape`,
+/// `execute_load_basic_program`, the portable-snapshot loader) and
+/// `dispatch_live_step` are shared with MCP mode and report `ToolError`;
+/// script mode wraps that as an I/O error, matching how the live-step arm
+/// already maps. (Keyboard verbs now run through the shell's generic
+/// `execute_collect` instead.)
 fn map_tool_error(err: ToolError) -> AppError {
     AppError::Io(std::io::Error::other(err.to_string()))
 }

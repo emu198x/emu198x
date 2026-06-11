@@ -65,12 +65,12 @@ fn add_step(
 ///   captured audio, last run result) is cleared via
 ///   [`HeadlessSession::reset`] so the new variant starts from a
 ///   clean session.
-/// - `PressKey` / `TypeString` / `AutoloadTape` / `LoadBasicProgram`:
-///   handled by the shared generic helpers (`execute_press_key`, …),
-///   which the `--script` runner calls too — one implementation per
-///   step, no MCP/script drift (#456).
-/// - Everything else delegates to [`ScriptStep::execute_collect`],
-///   which works generically over `MachineCore`.
+/// - `AutoloadTape` / `LoadBasicProgram`: handled by shared generic
+///   helpers, which the `--script` runner calls too — one implementation
+///   per step, no MCP/script drift (#456).
+/// - `PressKey` / `TypeString` and everything else delegate to
+///   [`ScriptStep::execute_collect`] — the keyboard verbs run through the
+///   shared `KeyboardTarget` (RULES.md #30); the rest is generic.
 fn mcp_execute_step(
     step: &ScriptStep,
     session: &mut SpectrumSession,
@@ -83,14 +83,8 @@ fn mcp_execute_step(
     }
     match step {
         ScriptStep::SetMachine { machine } => execute_set_machine(machine, session).map(Some),
-        ScriptStep::PressKey { key, hold_frames } => {
-            execute_press_key(session, key, *hold_frames).map(Some)
-        }
-        ScriptStep::TypeString {
-            text,
-            hold_frames,
-            settle_frames,
-        } => execute_type_string(session, text, *hold_frames, *settle_frames).map(Some),
+        // press_key / type_string fall through to the shared `execute_collect`
+        // arms, which drive the machine's `KeyboardTarget` (RULES.md #30).
         ScriptStep::AutoloadTape {
             slot,
             max_boot_frames,
@@ -304,155 +298,6 @@ pub(crate) fn execute_port_write<
     value: u8,
 ) {
     session.machine_mut().port_write(port, value);
-}
-
-/// Default frames to hold a key down for `press_key`. Three frames
-/// of a 50 Hz PAL refresh is 60 ms — well above the ROM keyboard
-/// scan interval (one frame) but short enough that a script doesn't
-/// stall noticeably.
-const DEFAULT_PRESS_KEY_HOLD_FRAMES: u32 = 3;
-const MAX_PRESS_KEY_HOLD_FRAMES: u32 = 600;
-
-/// Press one named key, hold it, release, and settle. Generic over the
-/// session type so MCP mode (`SpectrumRuntimeKind`) and the `--script`
-/// runner (`Spectrum48kRuntime`) share one implementation — the keyboard
-/// injection only needs the shared `HeadlessSession` surface (#456).
-pub(crate) fn execute_press_key<M: MachineCore, Q: SessionQueryProvider<M>>(
-    session: &mut HeadlessSession<M, Q>,
-    key: &str,
-    hold_frames: Option<u32>,
-) -> Result<ScriptObservation, ToolError> {
-    // Validate the key name through SpectrumKey::from_name so a
-    // typo yields a clean error rather than silently doing nothing.
-    if common_sinclair_zx_spectrum::keyboard::SpectrumKey::from_name(key).is_none() {
-        return Err(ToolError::InvalidArguments(format!(
-            "press_key: unknown key `{key}` — valid names: A-Z, 0-9, Space, \
-             Enter, CapsShift, SymbolShift (case-insensitive)"
-        )));
-    }
-
-    let hold = hold_frames
-        .unwrap_or(DEFAULT_PRESS_KEY_HOLD_FRAMES)
-        .clamp(1, MAX_PRESS_KEY_HOLD_FRAMES);
-
-    // Press.
-    session.queue_input(emu198x_shell::InputEvent::Key {
-        name: key.to_owned().into(),
-        pressed: true,
-    });
-    session
-        .run_frames(hold)
-        .map_err(|err| ToolError::Execution(format!("press_key: hold run failed: {err}")))?;
-
-    // Release.
-    session.queue_input(emu198x_shell::InputEvent::Key {
-        name: key.to_owned().into(),
-        pressed: false,
-    });
-    // One settle frame so the released state is visible to the next
-    // step (otherwise the next run_frames would start with the key
-    // still drawn as pressed).
-    session
-        .run_frames(1)
-        .map_err(|err| ToolError::Execution(format!("press_key: settle run failed: {err}")))?;
-
-    Ok(ScriptObservation::PressKey {
-        key: key.to_owned(),
-        hold_frames: hold,
-        reached: session.time(),
-    })
-}
-
-const DEFAULT_TYPE_STRING_SETTLE_FRAMES: u32 = 10;
-
-/// Type a string key-by-key with CapsShift for uppercase and Enter for
-/// newlines. Generic over the session type — see [`execute_press_key`]
-/// — so MCP and `--script` share one implementation (#456).
-pub(crate) fn execute_type_string<M: MachineCore, Q: SessionQueryProvider<M>>(
-    session: &mut HeadlessSession<M, Q>,
-    text: &str,
-    hold_frames: Option<u32>,
-    settle_frames: Option<u32>,
-) -> Result<ScriptObservation, ToolError> {
-    let hold = hold_frames
-        .unwrap_or(DEFAULT_PRESS_KEY_HOLD_FRAMES)
-        .clamp(1, MAX_PRESS_KEY_HOLD_FRAMES);
-    let settle = settle_frames.unwrap_or(DEFAULT_TYPE_STRING_SETTLE_FRAMES);
-    let mut chars_typed: u32 = 0;
-
-    let mut prev_key: Option<String> = None;
-
-    for ch in text.chars() {
-        let (key_name, needs_caps_shift) = match ch {
-            'a'..='z' => (ch.to_ascii_uppercase().to_string(), false),
-            'A'..='Z' => (ch.to_string(), true),
-            '0'..='9' => (ch.to_string(), false),
-            ' ' => ("Space".to_owned(), false),
-            '\n' => ("Enter".to_owned(), false),
-            _ => continue,
-        };
-
-        if common_sinclair_zx_spectrum::keyboard::SpectrumKey::from_name(&key_name).is_none() {
-            continue;
-        }
-
-        // Extra settle before a repeated key so the ROM keyboard
-        // scan sees the release before the next press.
-        if prev_key.as_deref() == Some(&key_name) {
-            session.run_frames(3).map_err(|err| {
-                ToolError::Execution(format!("type_string: repeat settle failed: {err}"))
-            })?;
-        }
-
-        // Press CapsShift if needed for uppercase.
-        if needs_caps_shift {
-            session.queue_input(emu198x_shell::InputEvent::Key {
-                name: "CapsShift".to_owned().into(),
-                pressed: true,
-            });
-        }
-
-        // Press the key.
-        session.queue_input(emu198x_shell::InputEvent::Key {
-            name: key_name.clone().into(),
-            pressed: true,
-        });
-        session
-            .run_frames(hold)
-            .map_err(|err| ToolError::Execution(format!("type_string: hold failed: {err}")))?;
-
-        // Release the key.
-        session.queue_input(emu198x_shell::InputEvent::Key {
-            name: key_name.clone().into(),
-            pressed: false,
-        });
-        if needs_caps_shift {
-            session.queue_input(emu198x_shell::InputEvent::Key {
-                name: "CapsShift".to_owned().into(),
-                pressed: false,
-            });
-        }
-
-        // Settle frame between keystrokes.
-        session
-            .run_frames(1)
-            .map_err(|err| ToolError::Execution(format!("type_string: settle failed: {err}")))?;
-
-        prev_key = Some(key_name);
-        chars_typed += 1;
-    }
-
-    // Extra settle after the last key.
-    if settle > 0 {
-        session.run_frames(settle).map_err(|err| {
-            ToolError::Execution(format!("type_string: final settle failed: {err}"))
-        })?;
-    }
-
-    Ok(ScriptObservation::TypeString {
-        chars_typed,
-        reached: session.time(),
-    })
 }
 
 fn ay_unsupported_error(err: &emu198x_shell::QueryError) -> ToolError {
@@ -713,34 +558,10 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
         }),
     );
 
-    add_step(
-        registry,
-        "press_key",
-        "Press a single named Spectrum key, hold for `hold_frames` native frames (default 3), then release. One step replaces the press / run_frames / release dance. Valid key names: A-Z, 0-9, Space, Enter, CapsShift, SymbolShift (case-insensitive).",
-        json!({
-            "type": "object",
-            "properties": {
-                "key": string_field(),
-                "hold_frames": integer_field(),
-            },
-            "required": ["key"],
-        }),
-    );
-
-    add_step(
-        registry,
-        "type_string",
-        "Type a string of characters with proper per-key hold/release timing. Each character is pressed individually with `hold_frames` (default 3) hold time and a 1-frame settle gap between keystrokes. Uppercase letters automatically use CapsShift. Newlines press Enter. `settle_frames` (default 10) extra frames run after the last keystroke. Much faster than calling press_key per character.",
-        json!({
-            "type": "object",
-            "properties": {
-                "text": string_field(),
-                "hold_frames": integer_field(),
-                "settle_frames": integer_field(),
-            },
-            "required": ["text"],
-        }),
-    );
+    // press_key / type_string now come from the shared keyboard tier
+    // (`register_keyboard_tools`, registered in `mcp/mod.rs`) over the
+    // Spectrum's `KeyboardTarget` impl — one body for MCP + `--script`,
+    // fleet-wide. RULES.md #30.
 
     registry.register(Box::new(SaveTapeTool));
 }
@@ -967,8 +788,6 @@ mod tests {
             "load_snapshot",
             "port_read",
             "port_write",
-            "press_key",
-            "type_string",
             "save_tape",
         ];
         for name in expected {
@@ -976,10 +795,11 @@ mod tests {
         }
         assert_eq!(names.len(), expected.len(), "unexpected extra tool");
 
-        // The generic + watch verbs come from the shared tiers
+        // The generic + watch + keyboard verbs come from the shared tiers
         // (`register_common_tools` / `register_debug_tools` /
-        // `register_memory_watch_tools` / `register_ay_watch_tools`), NOT
-        // from here — they must be absent so the fold doesn't double up.
+        // `register_memory_watch_tools` / `register_ay_watch_tools` /
+        // `register_keyboard_tools`), NOT from here — they must be absent so
+        // the fold doesn't double up.
         for shared in [
             "run_frames",
             "load_media",
@@ -992,6 +812,8 @@ mod tests {
             "watch_ay_start",
             "watch_ay_clear",
             "watch_ay_log",
+            "press_key",
+            "type_string",
         ] {
             assert!(
                 !names.contains(&shared.to_owned()),

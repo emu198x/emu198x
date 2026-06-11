@@ -15,6 +15,7 @@ pub mod firmware;
 pub mod headless;
 pub mod host;
 pub mod input;
+pub mod keyboard;
 pub mod machine;
 pub mod mcp;
 pub mod mcp_tools;
@@ -52,6 +53,7 @@ pub use input::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl,
     NativeGamepadInput,
 };
+pub use keyboard::{KeyTiming, KeyboardTarget};
 pub use machine::{
     Family, FamilyRuntime, MachineCore, MachineId, MachineProfile, ProfileId, Region, ResetKind,
     RunResult, StopReason, SupportTier,

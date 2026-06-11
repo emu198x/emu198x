@@ -1355,10 +1355,100 @@ impl ScriptStep {
                     entries,
                 }))
             }
-            Self::PressKey { .. } => Err(ScriptError::SystemSpecificStep { step: "press_key" }),
-            Self::TypeString { .. } => Err(ScriptError::SystemSpecificStep {
-                step: "type_string",
-            }),
+            // press_key / type_string run generically through the shared
+            // `KeyboardTarget`: the machine describes its layout + timing, the
+            // session does the key injection. One body for MCP and `--script`
+            // on every keyboard machine (RULES.md #30). Machines without a
+            // keyboard fall back to the system-specific error.
+            Self::PressKey { key, hold_frames } => {
+                let timing = {
+                    let Some(kt) = session.machine().keyboard_target() else {
+                        return Err(ScriptError::SystemSpecificStep { step: "press_key" });
+                    };
+                    if !kt.key_name_is_valid(key) {
+                        return Err(ScriptError::InvalidStep {
+                            step: "press_key",
+                            reason: format!("unknown key `{key}` — valid: {}", kt.key_names_hint()),
+                        });
+                    }
+                    kt.key_timing()
+                };
+                let hold = hold_frames
+                    .unwrap_or(timing.default_hold_frames)
+                    .clamp(1, timing.max_hold_frames);
+                session.queue_input(crate::host::InputEvent::Key {
+                    name: key.clone().into(),
+                    pressed: true,
+                });
+                session.run_frames(hold)?;
+                session.queue_input(crate::host::InputEvent::Key {
+                    name: key.clone().into(),
+                    pressed: false,
+                });
+                if timing.press_settle_frames > 0 {
+                    session.run_frames(timing.press_settle_frames)?;
+                }
+                Ok(Some(ScriptObservation::PressKey {
+                    key: key.clone(),
+                    hold_frames: hold,
+                    reached: session.time(),
+                }))
+            }
+            Self::TypeString {
+                text,
+                hold_frames,
+                settle_frames,
+            } => {
+                // Translate every character to its key chord up front (under a
+                // read-only borrow), then drive the injection on the session.
+                let (timing, chords) = {
+                    let Some(kt) = session.machine().keyboard_target() else {
+                        return Err(ScriptError::SystemSpecificStep {
+                            step: "type_string",
+                        });
+                    };
+                    let chords: Vec<Vec<String>> =
+                        text.chars().filter_map(|ch| kt.keys_for_char(ch)).collect();
+                    (kt.key_timing(), chords)
+                };
+                let hold = hold_frames
+                    .unwrap_or(timing.default_hold_frames)
+                    .clamp(1, timing.max_hold_frames);
+                let final_settle = settle_frames.unwrap_or(timing.default_type_settle_frames);
+                let mut prev: Option<String> = None;
+                let mut typed = 0u32;
+                for chord in &chords {
+                    let base = chord.last().cloned();
+                    // Extra settle before a repeated key so the ROM scan sees
+                    // the release between two identical presses.
+                    if timing.repeat_settle_frames > 0 && base.is_some() && prev == base {
+                        session.run_frames(timing.repeat_settle_frames)?;
+                    }
+                    for k in chord {
+                        session.queue_input(crate::host::InputEvent::Key {
+                            name: k.clone().into(),
+                            pressed: true,
+                        });
+                    }
+                    session.run_frames(hold)?;
+                    for k in chord.iter().rev() {
+                        session.queue_input(crate::host::InputEvent::Key {
+                            name: k.clone().into(),
+                            pressed: false,
+                        });
+                    }
+                    session.run_frames(timing.inter_key_settle_frames)?;
+                    prev = base;
+                    typed += 1;
+                }
+                if final_settle > 0 {
+                    session.run_frames(final_settle)?;
+                }
+                Ok(Some(ScriptObservation::TypeString {
+                    chars_typed: typed,
+                    reached: session.time(),
+                }))
+            }
             Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "autoload_tape",
             }),
@@ -1752,6 +1842,39 @@ mod tests {
         fn watch_target_mut(&mut self) -> Option<&mut dyn crate::watch::WatchTarget> {
             Some(self)
         }
+        fn keyboard_target(&self) -> Option<&dyn crate::keyboard::KeyboardTarget> {
+            Some(self)
+        }
+    }
+
+    // A trivial keyboard: letters (uppercase keycap), Space, Enter. Enough to
+    // exercise the generic `press_key` / `type_string` arms.
+    impl crate::keyboard::KeyboardTarget for DummyMachine {
+        fn key_name_is_valid(&self, name: &str) -> bool {
+            matches!(name, "Space" | "Enter")
+                || (name.len() == 1 && name.chars().all(|c| c.is_ascii_uppercase()))
+        }
+        fn key_names_hint(&self) -> &'static str {
+            "A-Z, Space, Enter"
+        }
+        fn keys_for_char(&self, ch: char) -> Option<Vec<String>> {
+            match ch {
+                'a'..='z' | 'A'..='Z' => Some(vec![ch.to_ascii_uppercase().to_string()]),
+                ' ' => Some(vec!["Space".to_owned()]),
+                '\n' => Some(vec!["Enter".to_owned()]),
+                _ => None,
+            }
+        }
+        fn key_timing(&self) -> crate::keyboard::KeyTiming {
+            crate::keyboard::KeyTiming {
+                default_hold_frames: 3,
+                max_hold_frames: 600,
+                press_settle_frames: 1,
+                inter_key_settle_frames: 1,
+                repeat_settle_frames: 3,
+                default_type_settle_frames: 5,
+            }
+        }
     }
 
     // A trivial watch surface: memory captures on poke (see `dbg_poke`); AY
@@ -1994,6 +2117,58 @@ mod tests {
                 assert_eq!(steps, 4);
             }
             other => panic!("expected RunUntilMemChange, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn keyboard_verbs_run_generically_through_the_keyboard_target() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 1);
+        let run = |session: &mut HeadlessSession<DummyMachine, _>, step: ScriptStep| {
+            step.execute_collect(session).expect("step executes")
+        };
+
+        // press_key with a valid name → PressKey observation, default hold 3.
+        match run(
+            &mut session,
+            ScriptStep::PressKey {
+                key: "A".to_owned(),
+                hold_frames: None,
+            },
+        )
+        .expect("emits observation")
+        {
+            ScriptObservation::PressKey {
+                key, hold_frames, ..
+            } => {
+                assert_eq!(key, "A");
+                assert_eq!(hold_frames, 3);
+            }
+            other => panic!("expected PressKey, got {other:?}"),
+        }
+
+        // press_key with an unknown name → InvalidStep, not a silent no-op.
+        let invalid = ScriptStep::PressKey {
+            key: "nope".to_owned(),
+            hold_frames: None,
+        };
+        match invalid.execute_collect(&mut session) {
+            Err(ScriptError::InvalidStep { step, .. }) => assert_eq!(step, "press_key"),
+            other => panic!("expected InvalidStep, got {other:?}"),
+        }
+
+        // type_string counts only translatable chars: 'a','B',' ' map; '!' skips.
+        match run(
+            &mut session,
+            ScriptStep::TypeString {
+                text: "aB !".to_owned(),
+                hold_frames: None,
+                settle_frames: None,
+            },
+        )
+        .expect("emits observation")
+        {
+            ScriptObservation::TypeString { chars_typed, .. } => assert_eq!(chars_typed, 3),
+            other => panic!("expected TypeString, got {other:?}"),
         }
     }
 

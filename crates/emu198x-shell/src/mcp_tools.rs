@@ -663,6 +663,55 @@ where
     );
 }
 
+/// Register the keyboard verbs (`press_key`, `type_string`) as
+/// `ScriptStepTool` wrappers over the shared [`ScriptStep`] arms (so MCP and
+/// `--script` run one body, via each machine's [`MachineCore::keyboard_target`]).
+///
+/// Opt-in — call from a binary whose machine implements
+/// [`crate::keyboard::KeyboardTarget`] (any machine with a keyboard).
+pub fn register_keyboard_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
+where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    let mut common = |name, description, schema| {
+        registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+            name,
+            description,
+            schema,
+        )));
+    };
+
+    common(
+        "press_key",
+        "Press one named key, hold it for `hold_frames` native frames (default \
+         3), then release. Valid key names depend on the machine's layout.",
+        json!({
+            "type": "object",
+            "required": ["key"],
+            "properties": {
+                "key":         { "type": "string", "description": "Named key for this machine's layout." },
+                "hold_frames": { "type": "integer", "minimum": 1 }
+            }
+        }),
+    );
+    common(
+        "type_string",
+        "Type a string through the keyboard with per-key hold/release timing. \
+         Characters with no single keystroke on this machine are skipped.",
+        json!({
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+                "text":          { "type": "string" },
+                "hold_frames":   { "type": "integer", "minimum": 1 },
+                "settle_frames": { "type": "integer", "minimum": 0,
+                                   "description": "Extra frames after the last keystroke." }
+            }
+        }),
+    );
+}
+
 /// Register the AY register-write watch verbs (`watch_ay_start`,
 /// `watch_ay_clear`, `watch_ay_log`) as `ScriptStepTool` wrappers over the
 /// shared [`ScriptStep`] arms.
