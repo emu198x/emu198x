@@ -28,6 +28,12 @@ pub struct C64 {
     datasette: Datasette,
     memory: C64Memory,
     keyboard: KeyboardMatrix,
+    /// RESTORE key state. RESTORE is not on the keyboard matrix — it is
+    /// wired straight to the CPU `/NMI` line (in parallel with CIA #2), so
+    /// pressing it pulses an NMI. Held high here while pressed; the 6502's
+    /// edge-trigger fires the NMI once and not again until release+repress.
+    /// Host momentary input — not part of the snapshot.
+    restore_nmi: bool,
     joysticks: [JoystickState; 2],
     /// Paddle pot positions, `[port][axis]` (port 0/1, axis 0 = X, 1 = Y).
     /// Lines default open (`0xFF`) until a host axis arrives; the CIA #1 mux
@@ -167,6 +173,7 @@ impl C64 {
             datasette: Datasette::new(),
             memory,
             keyboard: KeyboardMatrix::new(),
+            restore_nmi: false,
             joysticks: [JoystickState::default(); 2],
             paddles: [[0xFF; 2]; 2],
             phi2_cycles: 0,
@@ -260,6 +267,13 @@ impl C64 {
     #[must_use]
     pub fn keyboard_mut(&mut self) -> &mut KeyboardMatrix {
         &mut self.keyboard
+    }
+
+    /// Press or release the RESTORE key. RESTORE is wired to the CPU `/NMI`
+    /// line (not the keyboard matrix), so a press pulses an NMI — held with
+    /// Run/Stop down, the KERNAL NMI handler performs a warm reset.
+    pub fn set_restore(&mut self, pressed: bool) {
+        self.restore_nmi = pressed;
     }
 
     /// Sets one joystick control on controller port 1 or 2.
@@ -466,7 +480,7 @@ impl C64 {
         self.refresh_paddle_pots();
         self.refresh_vic_bank();
         self.cpu.irq = self.vic.irq || self.cia1.irq;
-        self.cpu.nmi = self.cia2.irq;
+        self.cpu.nmi = self.cia2.irq || self.restore_nmi;
         self.cpu.rdy = !self.vic.ba_low || !self.cpu.rw;
 
         if self.cpu.rdy {
@@ -501,7 +515,7 @@ impl C64 {
         self.refresh_paddle_pots();
         self.refresh_vic_bank();
         self.cpu.irq = self.vic.irq || self.cia1.irq;
-        self.cpu.nmi = self.cia2.irq;
+        self.cpu.nmi = self.cia2.irq || self.restore_nmi;
         self.cpu.rdy = !self.vic.ba_low || !self.cpu.rw;
 
         if self.cpu.rdy {
@@ -1217,6 +1231,25 @@ mod tests {
         machine.tick();
         assert!(machine.cia2().irq);
         assert!(machine.cpu().nmi);
+    }
+
+    #[test]
+    fn restore_key_pulses_the_cpu_nmi_line() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        // Idle: no NMI source asserted.
+        machine.tick();
+        assert!(!machine.cpu().nmi, "no NMI source idle");
+        // RESTORE is wired to /NMI, so a press drives the line.
+        machine.set_restore(true);
+        machine.tick();
+        assert!(machine.cpu().nmi, "RESTORE asserts the CPU /NMI line");
+        // Releasing it drops the line back to the CIA #2 source (idle = low).
+        machine.set_restore(false);
+        machine.tick();
+        assert!(
+            !machine.cpu().nmi,
+            "release returns /NMI to the CIA #2 source"
+        );
     }
 
     #[test]

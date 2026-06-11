@@ -666,7 +666,7 @@ impl emu198x_shell::KeyboardTarget for C64Runtime {
 
     fn key_names_hint(&self) -> &'static str {
         "A-Z, 0-9, Space, Return, Delete, F1/F3/F5/F7, cursor Up/Down/Left/Right, \
-         LShift, RShift, Ctrl, Commodore, RunStop"
+         LShift, RShift, Ctrl, Commodore, RunStop, Restore"
     }
 
     fn keys_for_char(&self, ch: char) -> Option<Vec<String>> {

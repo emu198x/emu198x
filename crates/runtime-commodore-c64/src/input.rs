@@ -83,6 +83,9 @@ pub(crate) fn apply_input_event(machine: &mut C64, event: &InputEvent) {
         InputEvent::Key { name, pressed } => {
             if let Some((row, col)) = c64_key_position(name.as_ref()) {
                 machine.keyboard_mut().set_key(row, col, *pressed);
+            } else if name.as_ref().eq_ignore_ascii_case("restore") {
+                // RESTORE is not on the matrix — it pulses the CPU /NMI.
+                machine.set_restore(*pressed);
             }
         }
         InputEvent::Button {
@@ -212,7 +215,8 @@ fn c64_key_position(name: &str) -> Option<(u8, u8)> {
 /// curriculum author drives by hand).
 #[must_use]
 pub fn key_name_is_valid(name: &str) -> bool {
-    c64_key_position(name).is_some()
+    // RESTORE is a real key but lives on the /NMI line, not the matrix.
+    c64_key_position(name).is_some() || name.eq_ignore_ascii_case("restore")
 }
 
 /// C64 keycap names for the letters `A`–`Z`, indexed `0..26`.
