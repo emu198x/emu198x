@@ -696,6 +696,22 @@ where
         }),
     );
     common(
+        "press_keys",
+        "Press several named keys as a chord — held together for `hold_frames`, \
+         then released in reverse. For combos no single key covers: the Amiga's \
+         Ctrl-Amiga-Amiga reset, the C64's RunStop+Restore, the Spectrum's \
+         CapsShift compounds, any modifier+key.",
+        json!({
+            "type": "object",
+            "required": ["keys"],
+            "properties": {
+                "keys": { "type": "array", "minItems": 1, "items": { "type": "string" },
+                          "description": "Keys to hold together, in press order (modifiers first)." },
+                "hold_frames": { "type": "integer", "minimum": 1 }
+            }
+        }),
+    );
+    common(
         "type_string",
         "Type a string through the keyboard with per-key hold/release timing. \
          Characters with no single keystroke on this machine are skipped.",

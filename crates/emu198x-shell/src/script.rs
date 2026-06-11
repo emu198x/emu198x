@@ -480,6 +480,23 @@ pub enum ScriptStep {
         #[serde(default)]
         hold_frames: Option<u32>,
     },
+    /// Press several named keys as a chord — all held down together for
+    /// `hold_frames`, then released in reverse order. The verb for key
+    /// combinations no single keystroke covers: the Amiga's
+    /// Ctrl-Amiga-Amiga reset, the C64's Run/Stop+Restore, the Spectrum's
+    /// Caps-Shift compound functions (`CapsShift` + `1` = Edit), and any
+    /// modifier+key sequence.
+    ///
+    /// Errors when any key name is not recognised by the active machine's
+    /// keyboard layout.
+    PressKeys {
+        /// Named keys to hold simultaneously, in press order (modifiers
+        /// first by convention). Released in reverse.
+        keys: Vec<String>,
+        /// Number of native frames to hold the chord. Defaults to 3.
+        #[serde(default)]
+        hold_frames: Option<u32>,
+    },
     /// Type a string of characters, pressing each key in sequence
     /// with proper hold/release timing. Handles uppercase via
     /// CapsShift automatically. Newlines in the string press Enter.
@@ -901,6 +918,15 @@ pub enum ScriptObservation {
         /// The key that was pressed (echoed back from the request).
         key: String,
         /// Frames the key was held before release.
+        hold_frames: u32,
+        /// Machine time after the press / hold / release sequence.
+        reached: crate::MachineTime,
+    },
+    /// Result of pressing a key chord.
+    PressKeys {
+        /// The keys that were held together (echoed back from the request).
+        keys: Vec<String>,
+        /// Frames the chord was held before release.
         hold_frames: u32,
         /// Machine time after the press / hold / release sequence.
         reached: crate::MachineTime,
@@ -1390,6 +1416,51 @@ impl ScriptStep {
                 }
                 Ok(Some(ScriptObservation::PressKey {
                     key: key.clone(),
+                    hold_frames: hold,
+                    reached: session.time(),
+                }))
+            }
+            Self::PressKeys { keys, hold_frames } => {
+                if keys.is_empty() {
+                    return Err(ScriptError::InvalidStep {
+                        step: "press_keys",
+                        reason: "`keys` must list at least one key".to_owned(),
+                    });
+                }
+                let timing = {
+                    let Some(kt) = session.machine().keyboard_target() else {
+                        return Err(ScriptError::SystemSpecificStep { step: "press_keys" });
+                    };
+                    if let Some(bad) = keys.iter().find(|k| !kt.key_name_is_valid(k)) {
+                        return Err(ScriptError::InvalidStep {
+                            step: "press_keys",
+                            reason: format!("unknown key `{bad}` — valid: {}", kt.key_names_hint()),
+                        });
+                    }
+                    kt.key_timing()
+                };
+                let hold = hold_frames
+                    .unwrap_or(timing.default_hold_frames)
+                    .clamp(1, timing.max_hold_frames);
+                // Press the whole chord, hold it together, release in reverse.
+                for k in keys {
+                    session.queue_input(crate::host::InputEvent::Key {
+                        name: k.clone().into(),
+                        pressed: true,
+                    });
+                }
+                session.run_frames(hold)?;
+                for k in keys.iter().rev() {
+                    session.queue_input(crate::host::InputEvent::Key {
+                        name: k.clone().into(),
+                        pressed: false,
+                    });
+                }
+                if timing.press_settle_frames > 0 {
+                    session.run_frames(timing.press_settle_frames)?;
+                }
+                Ok(Some(ScriptObservation::PressKeys {
+                    keys: keys.clone(),
                     hold_frames: hold,
                     reached: session.time(),
                 }))
@@ -2153,6 +2224,35 @@ mod tests {
         };
         match invalid.execute_collect(&mut session) {
             Err(ScriptError::InvalidStep { step, .. }) => assert_eq!(step, "press_key"),
+            other => panic!("expected InvalidStep, got {other:?}"),
+        }
+
+        // press_keys holds a chord of valid keys together.
+        match run(
+            &mut session,
+            ScriptStep::PressKeys {
+                keys: vec!["A".to_owned(), "B".to_owned()],
+                hold_frames: Some(5),
+            },
+        )
+        .expect("emits observation")
+        {
+            ScriptObservation::PressKeys {
+                keys, hold_frames, ..
+            } => {
+                assert_eq!(keys, vec!["A".to_owned(), "B".to_owned()]);
+                assert_eq!(hold_frames, 5);
+            }
+            other => panic!("expected PressKeys, got {other:?}"),
+        }
+
+        // press_keys rejects a chord containing an unknown key.
+        let bad_chord = ScriptStep::PressKeys {
+            keys: vec!["A".to_owned(), "nope".to_owned()],
+            hold_frames: None,
+        };
+        match bad_chord.execute_collect(&mut session) {
+            Err(ScriptError::InvalidStep { step, .. }) => assert_eq!(step, "press_keys"),
             other => panic!("expected InvalidStep, got {other:?}"),
         }
 
