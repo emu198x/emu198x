@@ -221,9 +221,9 @@ fn set_machine_swaps_the_live_variant() {
         &mut session,
         3,
         "tools/call",
-        json!({ "name": "step", "arguments": { "count": 2 } }),
+        json!({ "name": "step", "arguments": { "instructions": 2 } }),
     ));
-    assert_eq!(step.get("completed").and_then(Value::as_u64), Some(2));
+    assert_eq!(step.get("instructions").and_then(Value::as_u64), Some(2));
 
     // An unknown model id is a clean tool error, not a panic/crash.
     let bad = call(
@@ -271,11 +271,11 @@ fn mcp_tools_drive_a_real_boot() {
         &mut session,
         11,
         "tools/call",
-        json!({ "name": "step", "arguments": { "count": 4 } }),
+        json!({ "name": "step", "arguments": { "instructions": 4 } }),
     ));
-    assert_eq!(step.get("completed").and_then(Value::as_u64), Some(4));
+    assert_eq!(step.get("instructions").and_then(Value::as_u64), Some(4));
     assert_eq!(
-        step.get("trace").and_then(Value::as_array).map(Vec::len),
+        step.get("pc_trace").and_then(Value::as_array).map(Vec::len),
         Some(4)
     );
 

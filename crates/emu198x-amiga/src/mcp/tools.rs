@@ -156,35 +156,7 @@ fn read_long(session: &impl AmigaCtx, addr: u32) -> u32 {
     session.live().read_long(addr)
 }
 
-fn read_byte(session: &impl AmigaCtx, addr: u32) -> u8 {
-    let aligned = addr & !1;
-    let long = session.live().read_long(aligned & !2);
-    let shift = (3 - (addr & 3)) * 8;
-    ((long >> shift) & 0xFF) as u8
-}
-
 // ─── Tool implementations ─────────────────────────────────────────────
-
-fn tool_run_until_pc(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let target = arg_u32(&args, "target")?;
-    let max_ticks = arg_u64_or(&args, "max_ticks", 100_000_000)?;
-    let mut ticks_taken: u64 = 0;
-    let mut hit = false;
-    while ticks_taken < max_ticks {
-        s.live_mut().tick();
-        ticks_taken += 1;
-        if s.live().cpu_pc() == target {
-            hit = true;
-            break;
-        }
-    }
-    Ok(json!({
-        "hit": hit,
-        "ticks_taken": ticks_taken,
-        "pc": format!("${:08X}", s.live().cpu_pc()),
-        "target": format!("${:08X}", target),
-    }))
-}
 
 /// Read a NUL-terminated C string from chip RAM via the trait's
 /// `read_word` accessor. The Amiga ROM / chip RAM is big-endian
@@ -1996,72 +1968,6 @@ fn tool_cpu_trace_log(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolE
     }))
 }
 
-fn tool_step(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let n = arg_u64_or(&args, "count", 1)?;
-    let max_ticks = arg_u64_or(&args, "max_ticks", 1_000_000)?;
-    let start = s.live().cpu_instruction_starts();
-    let target = start.wrapping_add(n);
-    let mut ticks_taken: u64 = 0;
-    let mut trace: Vec<Value> = Vec::new();
-    let mut last_seen = start;
-    while s.live().cpu_instruction_starts() != target && ticks_taken < max_ticks {
-        s.live_mut().tick();
-        ticks_taken += 1;
-        let now = s.live().cpu_instruction_starts();
-        if now != last_seen && !s.live().cpu_in_followup() {
-            last_seen = now;
-            trace.push(json!({
-                "step": now.wrapping_sub(start),
-                "pc": format!("${:08X}", s.live().cpu_pc()),
-            }));
-            if trace.len() as u64 >= n {
-                break;
-            }
-        }
-    }
-    Ok(json!({
-        "requested": n,
-        "completed": s.live().cpu_instruction_starts().wrapping_sub(start),
-        "ticks_taken": ticks_taken,
-        "pc": format!("${:08X}", s.live().cpu_pc()),
-        "trace": trace,
-    }))
-}
-
-fn tool_run_until_any_pc(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let targets = args
-        .get("targets")
-        .and_then(Value::as_array)
-        .ok_or_else(|| ToolError::InvalidArguments("missing array `targets`".into()))?;
-    let mut wanted: Vec<u32> = Vec::with_capacity(targets.len());
-    for t in targets {
-        let one = json!({ "x": t });
-        wanted.push(arg_u32(&one, "x")?);
-    }
-    if wanted.is_empty() {
-        return Err(ToolError::InvalidArguments(
-            "`targets` must be non-empty".into(),
-        ));
-    }
-    let max_ticks = arg_u64_or(&args, "max_ticks", 100_000_000)?;
-    let mut ticks_taken: u64 = 0;
-    let mut hit: Option<u32> = None;
-    while ticks_taken < max_ticks {
-        s.live_mut().tick();
-        ticks_taken += 1;
-        let pc = s.live().cpu_pc();
-        if wanted.contains(&pc) {
-            hit = Some(pc);
-            break;
-        }
-    }
-    Ok(json!({
-        "hit": hit.map(|p| format!("${:08X}", p)),
-        "ticks_taken": ticks_taken,
-        "pc": format!("${:08X}", s.live().cpu_pc()),
-    }))
-}
-
 fn tool_set_machine(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     let model_id = args
         .get("model")
@@ -2194,74 +2100,6 @@ fn tool_eject_media(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolEr
     Ok(json!({
         "ejected": had_disk,
         "has_disk": s.live().drive().has_disk(),
-    }))
-}
-
-fn tool_run_until_mem_change(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let addrs = args
-        .get("addrs")
-        .and_then(Value::as_array)
-        .ok_or_else(|| ToolError::InvalidArguments("missing array `addrs`".into()))?;
-    let mut watch: Vec<(u32, u32)> = Vec::with_capacity(addrs.len());
-    {
-        let access = s.live();
-        for a in addrs {
-            let one = json!({ "x": a });
-            let addr = arg_u32(&one, "x")?;
-            watch.push((addr, access.read_long(addr)));
-        }
-    }
-    if watch.is_empty() {
-        return Err(ToolError::InvalidArguments(
-            "`addrs` must be non-empty".into(),
-        ));
-    }
-    let max_ticks = arg_u64_or(&args, "max_ticks", 50_000_000)?;
-    let mut ticks_taken: u64 = 0;
-    let mut hit: Option<(u32, u32, u32)> = None;
-    while ticks_taken < max_ticks {
-        s.live_mut().tick();
-        ticks_taken += 1;
-        for (addr, old) in &watch {
-            let now = s.live().read_long(*addr);
-            if now != *old {
-                hit = Some((*addr, *old, now));
-                break;
-            }
-        }
-        if hit.is_some() {
-            break;
-        }
-    }
-    let result = hit.map(|(a, o, n)| {
-        json!({
-            "addr": format!("${:08X}", a),
-            "old": format!("${:08X}", o),
-            "new": format!("${:08X}", n),
-        })
-    });
-    Ok(json!({
-        "hit": result,
-        "ticks_taken": ticks_taken,
-        "pc": format!("${:08X}", s.live().cpu_pc()),
-    }))
-}
-
-fn tool_memory_read(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let addr = arg_u32(&args, "addr")?;
-    let len = arg_u64_or(&args, "len", 16)?;
-    let len =
-        u32::try_from(len).map_err(|_| ToolError::InvalidArguments("len exceeds u32".into()))?;
-    if len == 0 || len > 4096 {
-        return Err(ToolError::InvalidArguments("len must be 1..=4096".into()));
-    }
-    let bytes: Vec<String> = (0..len)
-        .map(|i| format!("{:02X}", read_byte(s, addr.wrapping_add(i))))
-        .collect();
-    Ok(json!({
-        "addr": format!("${:08X}", addr),
-        "len": len,
-        "bytes_hex": bytes.join(" "),
     }))
 }
 
@@ -2430,43 +2268,6 @@ fn tool_resolve_lvo(args: Value, _s: &mut impl AmigaCtx) -> Result<Value, ToolEr
         "entries":     entries,
         "entry_count": entry_count,
     }))
-}
-
-fn tool_disasm(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let addr = arg_u32(&args, "addr")?;
-    let count = arg_u64_or(&args, "count", 8)? as u32;
-    if count == 0 || count > 128 {
-        return Err(ToolError::InvalidArguments("count must be 1..=128".into()));
-    }
-    let mut pc = addr;
-    let mut lines: Vec<Value> = Vec::new();
-    let access = s.live();
-    for _ in 0..count {
-        let read = |a: u32| -> u8 {
-            let aligned = a & !3;
-            let long = access.read_long(aligned);
-            let shift = (3 - (a & 3)) * 8;
-            ((long >> shift) & 0xFF) as u8
-        };
-        let (mnemonic, instr_len) = disassemble(pc, read);
-        let bytes_hex: String = (0..instr_len)
-            .map(|i| {
-                let a = pc.wrapping_add(u32::from(i));
-                let aligned = a & !3;
-                let long = access.read_long(aligned);
-                let shift = (3 - (a & 3)) * 8;
-                format!("{:02X}", ((long >> shift) & 0xFF) as u8)
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-        lines.push(json!({
-            "addr": format!("${:08X}", pc),
-            "bytes": bytes_hex,
-            "disasm": mnemonic,
-        }));
-        pc = pc.wrapping_add(u32::from(instr_len));
-    }
-    Ok(json!(lines))
 }
 
 /// Disasm `before` instructions ending at `addr`, then `addr` itself,
@@ -2652,59 +2453,11 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
     }
 
     let empty = || json!({"type": "object", "additionalProperties": false});
-    let until_pc_schema = json!({
-        "type": "object",
-        "required": ["target"],
-        "properties": {
-            "target": {"description": "PC target — decimal int or hex string ($XXX / 0xXXX)"},
-            "max_ticks": {"type": "integer", "minimum": 1, "default": 100000000}
-        }
-    });
     let addr_only = json!({
         "type": "object",
         "required": ["addr"],
         "properties": {
             "addr": {"description": "Address — decimal int or hex string ($XXX / 0xXXX)"}
-        }
-    });
-    let memory_schema = json!({
-        "type": "object",
-        "required": ["addr"],
-        "properties": {
-            "addr": {"description": "Address — decimal int or hex string"},
-            "len": {"type": "integer", "minimum": 1, "maximum": 4096, "default": 16}
-        }
-    });
-    let disasm_schema = json!({
-        "type": "object",
-        "required": ["addr"],
-        "properties": {
-            "addr": {"description": "Address — decimal int or hex string"},
-            "count": {"type": "integer", "minimum": 1, "maximum": 128, "default": 8}
-        }
-    });
-
-    let step_schema = json!({
-        "type": "object",
-        "properties": {
-            "count": {"type": "integer", "minimum": 1, "default": 1},
-            "max_ticks": {"type": "integer", "minimum": 1, "default": 1000000}
-        }
-    });
-    let any_pc_schema = json!({
-        "type": "object",
-        "required": ["targets"],
-        "properties": {
-            "targets": {"type": "array", "items": {"description": "PC — decimal int or hex string"}, "minItems": 1},
-            "max_ticks": {"type": "integer", "minimum": 1, "default": 100000000}
-        }
-    });
-    let mem_change_schema = json!({
-        "type": "object",
-        "required": ["addrs"],
-        "properties": {
-            "addrs": {"type": "array", "items": {"description": "Address (longword) — decimal int or hex string"}, "minItems": 1},
-            "max_ticks": {"type": "integer", "minimum": 1, "default": 50000000}
         }
     });
     let copper_list_schema = json!({
@@ -2742,34 +2495,11 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
         }
     });
 
-    add(
-        registry,
-        "run_until_pc",
-        "Run until PC == target or max_ticks reached.",
-        until_pc_schema,
-        tool_run_until_pc,
-    );
-    add(
-        registry,
-        "run_until_any_pc",
-        "Run until PC matches any address in `targets` or max_ticks reached.",
-        any_pc_schema,
-        tool_run_until_any_pc,
-    );
-    add(
-        registry,
-        "run_until_mem_change",
-        "Run until any longword in `addrs` changes value, or max_ticks reached.",
-        mem_change_schema,
-        tool_run_until_mem_change,
-    );
-    add(
-        registry,
-        "step",
-        "Step one or more CPU instructions, returning a PC trace.",
-        step_schema,
-        tool_step,
-    );
+    // run_until_pc / run_until_any_pc / run_until_mem_change / step are served
+    // by the shared `register_debug_tools` tier (RULES.md #30) — the 68k runs
+    // them through the same generic arms as every other CPU, so the Amiga's
+    // bespoke copies are gone. `poke_word` (big-endian), `memory_read_long`,
+    // `disasm_around`, and the chipset/Exec tracers stay Amiga-specific.
     let cpu_trace_arm_schema = json!({
         "type": "object",
         "properties": {
@@ -3012,13 +2742,6 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
     );
     add(
         registry,
-        "memory_read",
-        "Read raw bytes from any address (chip RAM / ROM / chipset).",
-        memory_schema,
-        tool_memory_read,
-    );
-    add(
-        registry,
         "memory_read_long",
         "Read a 32-bit longword from an address.",
         addr_only,
@@ -3181,13 +2904,6 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
     );
     add(
         registry,
-        "disasm",
-        "Disassemble `count` m68k instructions starting at `addr`.",
-        disasm_schema,
-        tool_disasm,
-    );
-    add(
-        registry,
         "insert_media",
         "Insert disk media into DF0 (only `adf` kind today; use `change_pending:true` to fire a disk-change event).",
         insert_media_schema,
@@ -3254,7 +2970,6 @@ mod tests {
             "cpu_trace_arm",
             json!({ "max_entries": 100 }),
         );
-        call(&registry, &mut s, "step", json!({ "count": 1 }));
         call(&registry, &mut s, "cpu_trace_log", json!({}));
 
         // Session-only tools are deliberately absent — shared shell owns them.
@@ -3262,6 +2977,17 @@ mod tests {
         assert!(registry.get("run_ticks").is_none());
         assert!(registry.get("reset").is_none());
         assert!(registry.get("start_video_recording").is_none());
+        // The generic debug verbs are absent here too: they now live in the
+        // shared `register_debug_tools` tier (RULES.md #30), not in the Amiga
+        // registrar. Only big-endian `poke_word`, `memory_read_long`, and
+        // `disasm_around` stay Amiga-specific.
+        assert!(registry.get("step").is_none());
+        assert!(registry.get("memory_read").is_none());
+        assert!(registry.get("disasm").is_none());
+        assert!(registry.get("run_until_pc").is_none());
+        assert!(registry.get("poke_word").is_some());
+        assert!(registry.get("memory_read_long").is_some());
+        assert!(registry.get("disasm_around").is_some());
     }
 
     /// Regression (#454): the Amiga — the most input-dependent machine in

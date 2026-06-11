@@ -1,11 +1,13 @@
 //! MCP tool registrations for the Spectrum binary.
 //!
-//! One tool per `ScriptStep` variant (≈18 tools). Each tool's `call`
-//! lifts the supplied JSON arguments into a `ScriptStep` (by injecting
-//! the `action` discriminator and re-deserializing), dispatches it
-//! through the same `execute_step` interceptor that script mode uses,
-//! and returns the resulting `ScriptObservation` as a JSON-text content
-//! block.
+//! Only the genuinely Spectrum-specific tools live here — Z80 port I/O, AY
+//! register watches, tape/BASIC loaders, keyboard helpers, `set_machine`,
+//! and the `load_snapshot` override. The generic CPU/memory/disassembly
+//! verbs come from the shared `register_debug_tools` tier. Each tool's
+//! `call` lifts the JSON arguments into a `ScriptStep` (by injecting the
+//! `action` discriminator and re-deserializing), dispatches it through the
+//! same `mcp_execute_step` interceptor script mode uses, and returns the
+//! resulting `ScriptObservation` as a JSON-text content block.
 //!
 //! Schemas are hand-written. The crate's existing JSON-round-trip tests
 //! freeze the wire shape of each `ScriptStep` variant; if those tests
@@ -110,12 +112,12 @@ fn mcp_execute_step(
     }
 }
 
-/// Execute the steps that only need [`SpectrumLiveAccess`] — memory reads and
-/// pokes, CPU/AY queries, ports, single-stepping, disassembly, and the watch
-/// buffers — plus the query provider for AY. Generic over the runtime, so both
-/// MCP mode (`SpectrumRuntimeKind`) and the `--script` runner
-/// (`Spectrum48kRuntime`) dispatch the *same* implementation; that's what keeps
-/// the two from drifting. Returns `None` for steps it doesn't own.
+/// Execute the steps that are genuinely Z80/AY-specific — the AY register
+/// query + watches, Z80 I/O ports, and the memory write-watch buffers.
+/// Generic over the runtime, so MCP mode (`SpectrumRuntimeKind`) and the
+/// `--script` runner dispatch the *same* implementation. The CPU / memory /
+/// disassembly verbs are NOT here any more — they run through the shared
+/// `DebugTarget` arms (RULES.md #30). Returns `None` for steps it doesn't own.
 pub(crate) fn dispatch_live_step<
     M: SpectrumLiveAccess + MachineCore,
     Q: SessionQueryProvider<M>,
@@ -139,13 +141,9 @@ pub(crate) fn dispatch_live_step<
         ScriptStep::WatchAyLog { limit, unique } => {
             Ok(Some(execute_watch_ay_log(session, *limit, *unique)))
         }
-        ScriptStep::MemoryRead { addr, len } => execute_memory_read(session, *addr, *len).map(Some),
-        ScriptStep::PokeByte { addr, value } => {
-            execute_poke_byte(session, *addr, *value).map(|()| None)
-        }
-        ScriptStep::PokeWord { addr, value } => {
-            execute_poke_word(session, *addr, *value).map(|()| None)
-        }
+        // memory_read / poke_byte / poke_word also fall through to the shared
+        // `execute_collect` arms now — only the AY / port / watch verbs stay
+        // Spectrum-specific.
         ScriptStep::WatchMemoryStart { addr, len } => {
             execute_watch_memory_start(session, *addr, *len).map(Some)
         }
@@ -187,63 +185,6 @@ fn addr_to_u16(addr: u32, label: &str) -> Result<u16, ToolError> {
             "{label}: address ${addr:08X} is outside the Z80 0000-FFFF address space"
         ))
     })
-}
-
-/// Cap a requested read length so the response stays bounded.
-const MEMORY_READ_MAX: u32 = 256;
-
-pub(crate) fn execute_memory_read<
-    M: SpectrumLiveAccess + MachineCore,
-    Q: SessionQueryProvider<M>,
->(
-    session: &mut HeadlessSession<M, Q>,
-    addr: u32,
-    len: u32,
-) -> Result<ScriptObservation, ToolError> {
-    if len == 0 {
-        return Err(ToolError::InvalidArguments(
-            "memory_read: `len` must be at least 1".to_owned(),
-        ));
-    }
-    let start = addr_to_u16(addr, "memory_read")?;
-    let capped = len.min(MEMORY_READ_MAX);
-    let machine = session.machine();
-    let mut bytes = Vec::with_capacity(capped as usize);
-    for offset in 0..capped {
-        let a = start.wrapping_add(offset as u16);
-        bytes.push(machine.read_byte(a));
-    }
-    Ok(ScriptObservation::MemoryRead {
-        addr,
-        len: capped,
-        bytes,
-    })
-}
-
-pub(crate) fn execute_poke_byte<M: SpectrumLiveAccess + MachineCore, Q: SessionQueryProvider<M>>(
-    session: &mut HeadlessSession<M, Q>,
-    addr: u32,
-    value: u8,
-) -> Result<(), ToolError> {
-    let a = addr_to_u16(addr, "poke_byte")?;
-    session.machine_mut().write_byte(a, value);
-    Ok(())
-}
-
-pub(crate) fn execute_poke_word<M: SpectrumLiveAccess + MachineCore, Q: SessionQueryProvider<M>>(
-    session: &mut HeadlessSession<M, Q>,
-    addr: u32,
-    value: u16,
-) -> Result<(), ToolError> {
-    // Z80 stores 16-bit values little-endian: low byte at addr+0,
-    // high byte at addr+1. The high byte may wrap around at $FFFF —
-    // mirror that behaviour rather than rejecting the call.
-    let low_addr = addr_to_u16(addr, "poke_word")?;
-    let high_addr = low_addr.wrapping_add(1);
-    let machine = session.machine_mut();
-    machine.write_byte(low_addr, (value & 0xFF) as u8);
-    machine.write_byte(high_addr, (value >> 8) as u8);
-    Ok(())
 }
 
 pub(crate) fn execute_watch_memory_start<
@@ -934,46 +875,6 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
 
     add_step(
         registry,
-        "step",
-        "Single-step the Z80. Runs cycles until one instruction completes (or `instructions` instructions, default 1, max 16384). Returns the post-step PC, halt state, and total half-cycles consumed.",
-        json!({
-            "type": "object",
-            "properties": {
-                "instructions": integer_field(),
-            },
-        }),
-    );
-
-    add_step(
-        registry,
-        "run_until_pc",
-        "Run the Z80 until PC reaches `addr` at an instruction boundary, or `max_halfcycles` master-clock half-cycles elapse (default 700000 ≈ ten 48K frames, max 50000000). Useful for 'run to here' debugging.",
-        json!({
-            "type": "object",
-            "properties": {
-                "addr": integer_field(),
-                "max_halfcycles": integer_field(),
-            },
-            "required": ["addr"],
-        }),
-    );
-
-    add_step(
-        registry,
-        "disasm",
-        "Disassemble `instructions` Z80 opcodes starting at `addr` (default 16, max 64). Reads through the CPU memory bus so paging is honoured. Returns the mnemonic, raw bytes, and length of each instruction.",
-        json!({
-            "type": "object",
-            "properties": {
-                "addr": integer_field(),
-                "instructions": integer_field(),
-            },
-            "required": ["addr"],
-        }),
-    );
-
-    add_step(
-        registry,
         "port_read",
         "Read one Z80 I/O port through the bus-level handler. Same value an IN A,(C) would observe (ULA $FE, Kempston $1F, AY $FFFD, …) without driving the CPU through the synthetic instruction.",
         json!({
@@ -1052,48 +953,6 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
                 "settle_frames": integer_field(),
             },
             "required": ["text"],
-        }),
-    );
-
-    add_step(
-        registry,
-        "memory_read",
-        "Read a contiguous span of CPU-visible memory (Z80 address space, 0x0000-0xFFFF). Returns raw bytes in memory order. `len` is capped at 256 bytes per call.",
-        json!({
-            "type": "object",
-            "properties": {
-                "addr": integer_field(),
-                "len": integer_field(),
-            },
-            "required": ["addr", "len"],
-        }),
-    );
-
-    add_step(
-        registry,
-        "poke_byte",
-        "Write one byte to CPU-visible memory at the given address. Silent — no observation is emitted.",
-        json!({
-            "type": "object",
-            "properties": {
-                "addr": integer_field(),
-                "value": integer_field(),
-            },
-            "required": ["addr", "value"],
-        }),
-    );
-
-    add_step(
-        registry,
-        "poke_word",
-        "Write a 16-bit value to CPU-visible memory, little-endian (low byte at addr+0, high byte at addr+1). Silent.",
-        json!({
-            "type": "object",
-            "properties": {
-                "addr": integer_field(),
-                "value": integer_field(),
-            },
-            "required": ["addr", "value"],
         }),
     );
 
@@ -1338,23 +1197,22 @@ mod tests {
         register_spectrum_tools(&mut registry);
         let names: Vec<_> = registry.iter().map(|tool| tool.name().to_owned()).collect();
 
-        // The Spectrum-specific tools (bespoke + Z80 debug that isn't on
-        // the shared surface) live here, plus `load_snapshot` — an
-        // intentional override of the shared tool so portable `.sna` /
-        // `.z80` files route through the Spectrum snapshot parser rather
-        // than postcard (gap #6). `query_cpu` and `query_ay` are NOT here
-        // — both folded onto the generic surface (#456): `query_cpu` via
-        // the shared `register_debug_tools` / enriched `dbg_cpu_state`,
-        // `query_ay` into the `ay.*` query paths.
+        // Only genuinely Spectrum-specific tools live here — Z80 port I/O,
+        // AY register watches, tape/BASIC loaders, keyboard helpers,
+        // `set_machine`, and `load_snapshot` (an intentional override so
+        // portable `.sna` / `.z80` route through the Spectrum parser, gap
+        // #6). The generic CPU/memory/disassembly verbs — `query_cpu`,
+        // `memory_read`, `disasm`, `step`, `poke_byte`, `poke_word`,
+        // `run_until_pc` — are NOT here: they come from the shared
+        // `register_debug_tools` tier, so MCP and `--script` run one
+        // implementation (RULES.md #30, #456). `query_ay` folds into the
+        // `ay.*` query paths.
         let expected = [
             "clear_audio_capture",
             "set_machine",
             "autoload_tape",
             "load_basic_program",
             "load_snapshot",
-            "step",
-            "run_until_pc",
-            "disasm",
             "port_read",
             "port_write",
             "watch_ay_start",
@@ -1362,9 +1220,6 @@ mod tests {
             "watch_ay_log",
             "press_key",
             "type_string",
-            "memory_read",
-            "poke_byte",
-            "poke_word",
             "watch_memory_start",
             "watch_memory_clear",
             "watch_memory_log",
