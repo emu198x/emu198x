@@ -66,10 +66,13 @@ overstate the AGA render path — see the gaps below for ground truth.
 - **Kickstart** — 1.2/1.3 (OCS, golden-tested), 3.1 (AGA, hand-verified). 2.0x
   (ECS) boots but is unproven in CI.
 - **Variants** — A1000, A500 (×4 RAM configs), A500+, A600, A1200, A2000 — all
-  real and selectable via `--model`.
-- **Drivability** — one of the richest debug surfaces in the fleet: ~44 MCP tools
+  real and selectable at launch via `--model` and swappable mid-session via the
+  `set_machine` tool (MCP) / `SetMachine` step (`--script`), which rebuilds the
+  OCS/ECS/AGA variant and re-paces the session.
+- **Drivability** — one of the richest debug surfaces in the fleet: ~45 MCP tools
   (chip queries, Exec/Kickstart introspection, task control, tracing, framebuffer
-  dump) over a unified `HeadlessSession`. The driver replatform is **complete**.
+  dump, model swap) over a unified `HeadlessSession`. The driver replatform is
+  **complete**.
 - **Media (read)** — DF0 `ADF` (incl. inside `.zip`); screenshots, audio capture,
   scripted input.
 
