@@ -12,16 +12,18 @@
 //!   sprite colour base (ESPRM/OSPRM, bits 7..0).
 //! - **FMODE-driven sprite widths** — 16 / 32 / 64-pixel sprites.
 //!
-//! For Stage A of the A1200 wiring (per
-//! `knowledge/decisions/amiga-machine-rollout-plan.md`), Lisa is
-//! structurally complete (wrapper + AGA register storage + DeniseChip
-//! trait impl + DENISEID = $00F8) but the rendering paths (24-bit
-//! palette resolution, HAM8 chaining, wide sprite emit) are
-//! deferred to the first AGA catalogue entry that exercises them.
-//! KS 3.x boot reads DENISEID + writes BPLCON3 / BPLCON4 / FMODE
-//! during init; the writes land in AGA-specific state, the reads
-//! return the AGA marker, and rendering continues through the ECS
-//! 12-bit palette path until the AGA rendering work lands.
+//! Rendering status (per `knowledge/decisions/amiga-machine-rollout-plan.md`):
+//! - **24-bit palette resolution** — done (#93): normal indexed modes
+//!   resolve through `palette_24` for 8-bit-per-channel colour.
+//! - **Wide sprite emit** — done (#95): FMODE feeds the OCS shifter's
+//!   `spr_width` (16 / 32 / 64 px).
+//! - **HAM8 chaining** — pending (#94): HAM still resolves 12-bit (HAM6).
+//! - **BPLAM bitplane XOR** — pending (#96): BPLCON4 sprite XOR is wired,
+//!   the bitplane-index XOR is not.
+//!
+//! KS 3.x boot reads DENISEID + writes BPLCON3 / BPLCON4 / FMODE during
+//! init; the writes land in AGA-specific state and the reads return the
+//! AGA marker ($00F8).
 //!
 //! Adapted from `Emu198x-Oldest/crates/commodore-denise-aga/`.
 
