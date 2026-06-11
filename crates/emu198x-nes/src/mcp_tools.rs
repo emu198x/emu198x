@@ -26,12 +26,6 @@ type NesSession = HeadlessSession<NesRuntime, NesSessionQueryProvider>;
 //  Helpers — argument parsing + machine access
 // ════════════════════════════════════════════════════════════════
 
-fn nes_mut(s: &mut NesSession) -> Result<&mut Nes, ToolError> {
-    s.machine_mut()
-        .machine_mut()
-        .ok_or_else(|| ToolError::Execution("no cartridge loaded".into()))
-}
-
 fn nes_ref(s: &NesSession) -> Result<&Nes, ToolError> {
     s.machine()
         .machine()
@@ -84,24 +78,6 @@ fn arg_u16_or(args: &Value, name: &str, default: u16) -> Result<u16, ToolError> 
 // ════════════════════════════════════════════════════════════════
 //  Tools
 // ════════════════════════════════════════════════════════════════
-
-fn tool_memory_read(args: Value, s: &mut NesSession) -> Result<Value, ToolError> {
-    let addr = arg_u16(&args, "addr")?;
-    let len = arg_u64_or(&args, "len", 16)?.min(4096);
-    let nes = nes_ref(s)?;
-    let bytes: Vec<u8> = (0..len as u16)
-        .map(|i| nes.peek(addr.wrapping_add(i)))
-        .collect();
-    Ok(json!({
-        "addr":  format!("${:04X}", addr),
-        "len":   bytes.len(),
-        "bytes": bytes.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" "),
-        "ascii": bytes
-            .iter()
-            .map(|&b| if (0x20..=0x7E).contains(&b) { b as char } else { '.' })
-            .collect::<String>(),
-    }))
-}
 
 fn tool_dump_palette(_args: Value, s: &mut NesSession) -> Result<Value, ToolError> {
     let nes = nes_ref(s)?;
@@ -185,105 +161,6 @@ fn tool_dump_nametable(args: Value, s: &mut NesSession) -> Result<Value, ToolErr
     }))
 }
 
-fn tool_step(args: Value, s: &mut NesSession) -> Result<Value, ToolError> {
-    let count = arg_u64_or(&args, "count", 1)?.max(1);
-    let max_master_ticks = arg_u64_or(&args, "max_master_ticks", 100_000_000)?;
-    let mut pc_trace: Vec<String> = Vec::new();
-    let mut master_ticks_used: u64 = 0;
-    for _ in 0..count {
-        // Step one instruction: capture the PC at the current
-        // instruction boundary, then advance master ticks until
-        // we land at a NEW boundary with a different PC. The CPU
-        // ticks every 3rd master tick; `instruction_complete()`
-        // returns true at the boundary the *current* opcode fetch
-        // is about to happen at, so we need both "moved off the
-        // start boundary" and "arrived at a new boundary" before
-        // we count the step.
-        let start_pc = nes_ref(s)?.cpu.regs.pc;
-        let mut left_boundary = false;
-        let step_start = master_ticks_used;
-        loop {
-            let nes = nes_mut(s)?;
-            nes.tick();
-            master_ticks_used += 1;
-            if master_ticks_used - step_start > max_master_ticks {
-                return Err(ToolError::Execution(format!(
-                    "step exceeded max_master_ticks ({max_master_ticks}) without completing an instruction"
-                )));
-            }
-            let nes_r = nes_ref(s)?;
-            let complete = nes_r.cpu.instruction_complete();
-            if !complete {
-                left_boundary = true;
-            }
-            if left_boundary && complete && nes_r.cpu.regs.pc != start_pc {
-                break;
-            }
-        }
-        let pc = nes_ref(s)?.cpu.regs.pc;
-        pc_trace.push(format!("${pc:04X}"));
-    }
-    Ok(json!({
-        "count":             count,
-        "master_ticks_used": master_ticks_used,
-        "pc_trace":          pc_trace,
-        "pc":                pc_trace.last().cloned().unwrap_or_else(|| "$????".into()),
-    }))
-}
-
-fn tool_run_until_pc(args: Value, s: &mut NesSession) -> Result<Value, ToolError> {
-    let target = arg_u16(&args, "target")?;
-    let max_master_ticks = arg_u64_or(&args, "max_master_ticks", 50_000_000)?;
-    let mut master_ticks_used: u64 = 0;
-    let mut hit = false;
-    while master_ticks_used < max_master_ticks {
-        let nes = nes_mut(s)?;
-        nes.tick();
-        master_ticks_used += 1;
-        let pc_match = {
-            let nes = nes_ref(s)?;
-            nes.cpu.instruction_complete() && nes.cpu.regs.pc == target
-        };
-        if pc_match {
-            hit = true;
-            break;
-        }
-    }
-    let final_pc = nes_ref(s)?.cpu.regs.pc;
-    Ok(json!({
-        "hit":               hit,
-        "master_ticks_used": master_ticks_used,
-        "target":            format!("${:04X}", target),
-        "pc":                format!("${:04X}", final_pc),
-    }))
-}
-
-fn tool_run_until_mem_change(args: Value, s: &mut NesSession) -> Result<Value, ToolError> {
-    let addr = arg_u16(&args, "addr")?;
-    let max_master_ticks = arg_u64_or(&args, "max_master_ticks", 50_000_000)?;
-    let initial = nes_ref(s)?.peek(addr);
-    let mut master_ticks_used: u64 = 0;
-    let mut hit = false;
-    let mut current = initial;
-    while master_ticks_used < max_master_ticks {
-        let nes = nes_mut(s)?;
-        nes.tick();
-        master_ticks_used += 1;
-        current = nes_ref(s)?.peek(addr);
-        if current != initial {
-            hit = true;
-            break;
-        }
-    }
-    Ok(json!({
-        "hit":               hit,
-        "master_ticks_used": master_ticks_used,
-        "addr":              format!("${:04X}", addr),
-        "initial":           format!("${:02X}", initial),
-        "current":           format!("${:02X}", current),
-    }))
-}
-
 // ════════════════════════════════════════════════════════════════
 //  Registration
 // ════════════════════════════════════════════════════════════════
@@ -306,24 +183,6 @@ pub fn register_nes_tools(registry: &mut ToolRegistry<NesSession>) {
 
     let empty = || json!({"type": "object", "additionalProperties": false});
 
-    let addr_only = json!({
-        "type": "object",
-        "required": ["addr"],
-        "properties": {
-            "addr": {"description": "CPU bus address — integer or hex string ($XXXX / 0xXXXX)."},
-        }
-    });
-
-    let memory_schema = json!({
-        "type": "object",
-        "required": ["addr"],
-        "properties": {
-            "addr": {"description": "CPU bus start address — integer or hex string."},
-            "len":  {"type": "integer", "minimum": 1, "maximum": 4096, "default": 16,
-                     "description": "Number of bytes to read."}
-        }
-    });
-
     let oam_schema = json!({
         "type": "object",
         "properties": {
@@ -342,43 +201,13 @@ pub fn register_nes_tools(registry: &mut ToolRegistry<NesSession>) {
         }
     });
 
-    let step_schema = json!({
-        "type": "object",
-        "properties": {
-            "count":            {"type": "integer", "minimum": 1, "default": 1,
-                                 "description": "Number of CPU instructions to step."},
-            "max_master_ticks": {"type": "integer", "minimum": 1, "default": 100_000_000,
-                                 "description": "Per-instruction master-tick ceiling — guards against KIL / halted CPU."}
-        }
-    });
-
-    let until_pc_schema = json!({
-        "type": "object",
-        "required": ["target"],
-        "properties": {
-            "target":           {"description": "PC target — integer or hex string."},
-            "max_master_ticks": {"type": "integer", "minimum": 1, "default": 50_000_000,
-                                 "description": "Master-tick ceiling before giving up."}
-        }
-    });
-
-    let until_mem_schema = json!({
-        "type": "object",
-        "required": ["addr"],
-        "properties": {
-            "addr":             {"description": "CPU bus address to watch — integer or hex string."},
-            "max_master_ticks": {"type": "integer", "minimum": 1, "default": 50_000_000,
-                                 "description": "Master-tick ceiling before giving up."}
-        }
-    });
-
-    add(
-        registry,
-        "memory_read",
-        "Read `len` bytes from CPU-visible memory starting at `addr` (no side effects). Returns hex + ASCII.",
-        memory_schema,
-        tool_memory_read,
-    );
+    // memory_read / step / run_until_pc / run_until_mem_change are served by
+    // the shared `register_debug_tools` tier (registered earlier via
+    // `register_base_tools`). The NES used to shadow them with master-tick
+    // variants; now that the shared `step_instruction` reports master ticks
+    // and the shared tier carries `pc_trace` + `run_until_mem_change`, the
+    // shadows are redundant — converged up per RULES.md #30. Only the
+    // PPU-specific dumps stay bespoke.
     add(
         registry,
         "dump_palette",
@@ -400,27 +229,4 @@ pub fn register_nes_tools(registry: &mut ToolRegistry<NesSession>) {
         nametable_schema,
         tool_dump_nametable,
     );
-    add(
-        registry,
-        "step",
-        "Step `count` CPU instructions, returning a PC trace. Drives the machine at master-tick granularity until each instruction boundary; the PPU advances accordingly.",
-        step_schema,
-        tool_step,
-    );
-    add(
-        registry,
-        "run_until_pc",
-        "Run until CPU PC == target at an instruction boundary, or master_tick ceiling reached.",
-        until_pc_schema,
-        tool_run_until_pc,
-    );
-    add(
-        registry,
-        "run_until_mem_change",
-        "Run until the byte at `addr` changes from its current value, or master_tick ceiling reached.",
-        until_mem_schema,
-        tool_run_until_mem_change,
-    );
-
-    let _ = addr_only; // kept for future tools that need just an address
 }

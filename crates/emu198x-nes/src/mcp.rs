@@ -1,12 +1,14 @@
 //! MCP server mode — `--mcp`.
 //!
 //! Boots a blank NTSC NES session and exposes:
-//! - the shared machine-agnostic tool surface (run frames /
-//!   ticks, query state, load media, snapshots, capture) via
-//!   `register_common_tools`, AND
-//! - the NES-specific debugging surface (`memory_read`,
-//!   `dump_palette`, `dump_oam`, `dump_nametable`, `step`,
-//!   `run_until_pc`, `run_until_mem_change`) via `register_nes_tools`.
+//! - the shared base surface via `register_base_tools` — run/query/media/
+//!   capture (`register_common_tools`) plus the generic 6502 debug verbs
+//!   (`query_cpu`, `memory_read`, `disasm`, `step`, `poke_*`,
+//!   `run_until_pc`, `run_until_any_pc`, `run_until_mem_change`) driven
+//!   through the NES `DebugTarget`, AND
+//! - the NES-specific PPU dumps (`dump_palette`, `dump_oam`,
+//!   `dump_nametable`) via `register_nes_tools`. The debug verbs the NES
+//!   once shadowed are now served by the shared tier (RULES.md #30).
 //!
 //! The chip-register snapshots (`cpu` / `ppu` / `apu` / `mapper`) are
 //! served as folded query paths on the generic `query` tool, not as
