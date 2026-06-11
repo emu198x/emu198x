@@ -520,8 +520,18 @@ fn run_disasm<M: MachineCore, Q>(
                  instruction, or this CPU has no disassembler wired"
             )));
         };
-        lines.push(json!({ "addr": format!("${a:04X}"), "text": text }));
-        a = a.wrapping_add(u32::from(len.max(1)));
+        let span = u32::from(len.max(1));
+        let bytes: String = (0..span)
+            .map(|i| format!("{:02X}", target.peek(a.wrapping_add(i))))
+            .collect::<Vec<_>>()
+            .join(" ");
+        lines.push(json!({
+            "addr": format!("${a:04X}"),
+            "text": text,
+            "bytes": bytes,
+            "len": span,
+        }));
+        a = a.wrapping_add(span);
     }
     Ok(json!({ "lines": lines }))
 }
@@ -561,8 +571,13 @@ fn run_step<M: MachineCore, Q>(
     let count = parse_opt(&args, "count", 1)?.min(100_000);
     let target = debug_mut(session)?;
     let mut ticks = 0u64;
+    // Trace the PC at each instruction boundary so a multi-step call shows
+    // the path taken, not just the endpoint. Every CPU provides this through
+    // `step_instruction` + `pc` — no architecture knowledge needed.
+    let mut pc_trace = Vec::with_capacity(count as usize);
     for _ in 0..count {
         ticks += target.step_instruction();
+        pc_trace.push(format!("${:04X}", target.pc()));
     }
     let pc = target.pc();
     let next = target.disassemble(pc).map(|(text, _)| text);
@@ -571,6 +586,79 @@ fn run_step<M: MachineCore, Q>(
         "ticks": ticks,
         "cpu_pc": format!("${pc:04X}"),
         "next": next,
+        "pc_trace": pc_trace,
+    }))
+}
+
+fn run_run_until_mem_change<M: MachineCore, Q>(
+    args: Value,
+    session: &mut HeadlessSession<M, Q>,
+) -> Result<Value, ToolError> {
+    let addr = parse_num(&args, "addr")?;
+    let max_steps = u64::from(parse_opt(&args, "max_steps", 2_000_000)?);
+    let target = debug_mut(session)?;
+    let initial = target.peek(addr);
+    let mut ticks = 0u64;
+    let mut steps = 0u64;
+    let mut changed = false;
+    while steps < max_steps {
+        ticks += target.step_instruction();
+        steps += 1;
+        if target.peek(addr) != initial {
+            changed = true;
+            break;
+        }
+    }
+    let current = target.peek(addr);
+    Ok(json!({
+        "addr": format!("${addr:04X}"),
+        "changed": changed,
+        "steps": steps,
+        "ticks": ticks,
+        "old": format!("${initial:02X}"),
+        "new": format!("${current:02X}"),
+        "cpu_pc": format!("${:04X}", target.pc()),
+    }))
+}
+
+fn run_run_until_any_pc<M: MachineCore, Q>(
+    args: Value,
+    session: &mut HeadlessSession<M, Q>,
+) -> Result<Value, ToolError> {
+    let raw = args
+        .get("targets")
+        .and_then(Value::as_array)
+        .ok_or_else(|| ToolError::InvalidArguments("missing array `targets`".into()))?;
+    if raw.is_empty() {
+        return Err(ToolError::InvalidArguments(
+            "`targets` must list at least one address".into(),
+        ));
+    }
+    // Each element parses with the same int/$XXXX/0xXXXX grammar as a
+    // single address; wrap it in a one-key object so `parse_num` applies.
+    let targets: Vec<u32> = raw
+        .iter()
+        .map(|v| parse_num(&json!({ "t": v }), "t"))
+        .collect::<Result<_, _>>()?;
+    let max_steps = u64::from(parse_opt(&args, "max_steps", 2_000_000)?);
+    let target = debug_mut(session)?;
+    let mut ticks = 0u64;
+    let mut steps = 0u64;
+    let mut reached = false;
+    while steps < max_steps {
+        if targets.contains(&target.pc()) {
+            reached = true;
+            break;
+        }
+        ticks += target.step_instruction();
+        steps += 1;
+    }
+    reached |= targets.contains(&target.pc());
+    Ok(json!({
+        "reached": reached,
+        "steps": steps,
+        "ticks": ticks,
+        "cpu_pc": format!("${:04X}", target.pc()),
     }))
 }
 
@@ -634,7 +722,8 @@ fn run_io_trace<M: MachineCore, Q: SessionQueryProvider<M>>(
 /// cleanly at call time when no debug target is available.
 ///
 /// Registers: `query_cpu`, `memory_read`, `poke_byte`, `poke_word`,
-/// `disasm`, `run_until_pc`, `step`, `io_trace`.
+/// `disasm`, `run_until_pc`, `run_until_any_pc`, `run_until_mem_change`,
+/// `step`, `io_trace`.
 pub fn register_debug_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
 where
     M: MachineCore + 'static,
@@ -700,6 +789,23 @@ where
             "max_steps": { "type": "integer", "minimum": 1, "default": 2000000 }
         }
     });
+    let run_until_any_pc_schema = json!({
+        "type": "object",
+        "required": ["targets"],
+        "properties": {
+            "targets":   { "type": "array", "minItems": 1,
+                           "description": "Target PCs (each an integer or $XXXX / 0xXXXX); stops at the first one hit." },
+            "max_steps": { "type": "integer", "minimum": 1, "default": 2000000 }
+        }
+    });
+    let run_until_mem_change_schema = json!({
+        "type": "object",
+        "required": ["addr"],
+        "properties": {
+            "addr":      { "description": "Watched address (integer or $XXXX / 0xXXXX)." },
+            "max_steps": { "type": "integer", "minimum": 1, "default": 2000000 }
+        }
+    });
     let step_schema = json!({
         "type": "object",
         "properties": { "count": { "type": "integer", "minimum": 1, "maximum": 100000, "default": 1 } }
@@ -754,6 +860,20 @@ where
         "Run whole instructions until the CPU reaches `pc` or `max_steps` elapse.",
         run_until_schema,
         run_run_until_pc,
+    );
+    add(
+        registry,
+        "run_until_any_pc",
+        "Run whole instructions until the CPU PC matches any address in `targets`, or `max_steps` elapse.",
+        run_until_any_pc_schema,
+        run_run_until_any_pc,
+    );
+    add(
+        registry,
+        "run_until_mem_change",
+        "Single-step until the byte at `addr` changes value, or `max_steps` elapse; reports old/new value.",
+        run_until_mem_change_schema,
+        run_run_until_mem_change,
     );
     add(
         registry,
