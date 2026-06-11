@@ -363,6 +363,10 @@ pub struct Agnus {
     pub bltsizh_ecs: u16,
     pub blitter_busy: bool,
     pub blitter_exec_pending: bool,
+    /// Running NOR of every D word the current blit has written: stays
+    /// `true` while all results are zero, cleared on the first non-zero
+    /// D word. Read out as DMACONR BZERO (bit 13). Reset at `start_blit`.
+    pub blitter_dzero: bool,
     pub blitter_ccks_remaining: u32,
     blitter_word_state: Option<BlitterWordState>,
     blitter_line_runtime: Option<BlitterLineRuntime>,
@@ -473,6 +477,7 @@ impl Agnus {
             bltsizh_ecs: 0,
             blitter_busy: false,
             blitter_exec_pending: false,
+            blitter_dzero: true,
             blitter_ccks_remaining: 0,
             blitter_word_state: None,
             blitter_line_runtime: None,
@@ -648,6 +653,7 @@ impl Agnus {
     pub fn start_blit(&mut self) {
         self.blitter_busy = true;
         self.blitter_exec_pending = true;
+        self.blitter_dzero = true; // BZERO accumulates from "all zero"
         self.init_incremental_blitter_runtime();
         self.init_blitter_word_state();
         self.blitter_ccks_remaining = self.count_total_blitter_ops();
@@ -865,6 +871,9 @@ impl Agnus {
                     if line.sing {
                         result = (result & pixel_mask) | (c_val & !pixel_mask);
                     }
+                    if result != 0 {
+                        self.blitter_dzero = false; // BZERO: a non-zero D word
+                    }
                     write_word(line.dpt, result);
 
                     if line.texture_enabled {
@@ -1034,6 +1043,9 @@ impl Agnus {
         }
 
         if area.use_d {
+            if result != 0 {
+                self.blitter_dzero = false; // BZERO: a non-zero D word
+            }
             write_word(area.dpt, result);
             area.dpt = (area.dpt as i32 + area.ptr_step) as u32;
         }
@@ -1766,12 +1778,17 @@ impl Agnus {
     /// blit is in flight so a `WaitBlit` poll (read DMACONR until BBUSY
     /// clears) is honoured now that blits take real chip cycles rather
     /// than completing instantly on the BLTSIZE write (#31/#32). BZERO
-    /// (bit 13) follows once the blit-result accumulator lands.
+    /// (bit 13) reports whether the (last) blit produced an all-zero D
+    /// result — the signal collision/comparison blits read after
+    /// WaitBlit.
     #[must_use]
     pub fn dmaconr(&self) -> u16 {
         let mut v = self.dmacon & bits::DMACON_MASK;
         if self.blitter_busy {
             v |= 0x4000; // BBUSY
+        }
+        if self.blitter_dzero {
+            v |= 0x2000; // BZERO
         }
         v
     }

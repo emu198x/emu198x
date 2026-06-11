@@ -486,6 +486,39 @@ fn assert_paths_agree(setup: impl Fn(&mut Agnus, &TestRam), label: &str) {
 }
 
 #[test]
+fn bzero_tracks_whether_all_d_words_were_zero() {
+    // Non-zero D result → BZERO clear.
+    let mut agnus = Agnus::new();
+    let ram = TestRam::new();
+    ram.poke(0x1000, 0xABCD);
+    agnus.blt_apt = 0x1000;
+    agnus.blt_dpt = 0x2000;
+    program_single_word_blit(&mut agnus, 0xF0, true, false, false, true); // D = A
+    agnus.start_blit();
+    run_blit(&mut agnus, &ram);
+    assert!(
+        !agnus.blitter_dzero,
+        "a non-zero D word must clear BZERO (DMACONR bit 13)"
+    );
+    assert_eq!(agnus.dmaconr() & 0x2000, 0, "DMACONR BZERO clear");
+
+    // All-zero D result → BZERO set.
+    let mut agnus = Agnus::new();
+    let ram = TestRam::new();
+    ram.poke(0x1000, 0x0000);
+    agnus.blt_apt = 0x1000;
+    agnus.blt_dpt = 0x2000;
+    program_single_word_blit(&mut agnus, 0xF0, true, false, false, true);
+    agnus.start_blit();
+    run_blit(&mut agnus, &ram);
+    assert!(
+        agnus.blitter_dzero,
+        "an all-zero D result must set BZERO (the collision-test signal)"
+    );
+    assert_ne!(agnus.dmaconr() & 0x2000, 0, "DMACONR BZERO set");
+}
+
+#[test]
 fn incremental_drain_matches_synchronous_blit() {
     // Area copy, A -> D, minterm $F0.
     assert_paths_agree(
