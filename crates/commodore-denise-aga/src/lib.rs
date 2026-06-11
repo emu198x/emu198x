@@ -341,6 +341,28 @@ impl DeniseChip for DeniseAga {
         self.inner.resolve_color_rgb12(color_idx)
     }
 
+    /// Resolve to a final ARGB8888 pixel through the AGA 24-bit palette
+    /// for normal indexed modes (#93). HAM and EHB derive their colours
+    /// from the 12-bit palette rather than the indexed 24-bit table, so
+    /// they stay on the 12-bit path (HAM8 is #94).
+    fn resolve_color_argb(&mut self, color_idx: u8) -> u32 {
+        let ocs = self.inner.as_inner();
+        let bplcon0 = ocs.bplcon0;
+        let ham = bplcon0 & 0x0800 != 0;
+        let dual_playfield = bplcon0 & 0x0400 != 0;
+        let planes = ocs.num_bitplanes();
+        // HAM (≥5 planes) and EHB (6 planes, no HAM) derive their colour
+        // from the 12-bit palette rather than the 24-bit indexed table.
+        let derived_mode = !dual_playfield && ((ham && planes >= 5) || (!ham && planes == 6));
+        if derived_mode {
+            InnerDeniseOcs::rgb12_to_argb32(
+                self.inner.as_inner_mut().resolve_color_rgb12(color_idx),
+            )
+        } else {
+            0xFF00_0000 | (self.palette_24[color_idx as usize] & 0x00FF_FFFF)
+        }
+    }
+
     fn palette(&self) -> &[u16; 32] {
         &self.inner.as_inner().palette
     }
@@ -406,6 +428,39 @@ mod tests {
         let mut denise = DeniseAga::new();
         denise.write_word(0x010C, 0x5A3C);
         assert_eq!(denise.bplcon4, 0x5A3C);
+    }
+
+    #[test]
+    fn normal_mode_resolves_through_24bit_palette() {
+        // #93: a normal indexed AGA screen resolves colours through the
+        // 24-bit palette, giving true 8-bit-per-channel output — not the
+        // 12-bit-quantised value the OCS/ECS path would produce.
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x1000); // BPU=1, lores, no HAM → normal indexed
+        denise.palette_24[1] = 0x0012_3456; // R=$12 G=$34 B=$56 (low ≠ high nibble)
+
+        assert_eq!(
+            denise.resolve_color_argb(1),
+            0xFF12_3456,
+            "24-bit palette gives the exact 8-bit colour, not 12-bit $FF11_3355"
+        );
+        // COLOR00 (background) resolves the same way.
+        denise.palette_24[0] = 0x00AB_CDEF;
+        assert_eq!(denise.resolve_color_argb(0), 0xFFAB_CDEF);
+    }
+
+    #[test]
+    fn ham_mode_keeps_the_12bit_path() {
+        // HAM derives colours from the 12-bit palette, not the indexed
+        // 24-bit table, so palette_24 must NOT be consulted (HAM8 = #94).
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x5000 | 0x0800); // BPU=5 + HAM (bit 11)
+        denise.palette_24[1] = 0x0012_3456; // would show if 24-bit path were used
+        assert_ne!(
+            denise.resolve_color_argb(1),
+            0xFF12_3456,
+            "HAM mode must not resolve through the 24-bit palette"
+        );
     }
 
     #[test]

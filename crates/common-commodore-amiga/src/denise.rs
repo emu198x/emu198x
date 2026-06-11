@@ -414,8 +414,9 @@ impl<C: DeniseChip> Denise<C> {
                 };
                 for &dy in rows {
                     for (dx, color_idx) in cols.iter().enumerate() {
-                        let rgb12 = self.ocs.resolve_color_rgb12(*color_idx);
-                        let pixel = rgb12_to_argb(rgb12);
+                        // Resolve through the chip's colour path — 24-bit
+                        // palette on AGA, 12-bit upscaled on OCS/ECS (#93).
+                        let pixel = self.ocs.resolve_color_argb(*color_idx);
                         let x = local_x * 2 + dx as u32;
                         let idx = (dy * FB_WIDTH + x) as usize;
                         if idx < self.framebuffer.len() {
@@ -429,8 +430,7 @@ impl<C: DeniseChip> Denise<C> {
             if phase == 1 && hpos == agnus.current_line_ccks() - 1 {
                 let tail_start = u32::from(hpos - VIEWPORT_H_START_CCK + 1) * 4;
                 if tail_start < FB_WIDTH {
-                    let rgb12_bg = self.ocs.resolve_color_rgb12(0);
-                    let bg_pixel = rgb12_to_argb(rgb12_bg);
+                    let bg_pixel = self.ocs.resolve_color_argb(0);
                     let rows: &[u32] = if lace {
                         if agnus.lof {
                             &[local_y]
@@ -454,7 +454,7 @@ impl<C: DeniseChip> Denise<C> {
     }
 }
 
-fn rgb12_to_argb(c12: u16) -> u32 {
+pub(crate) fn rgb12_to_argb(c12: u16) -> u32 {
     let r = ((c12 >> 8) & 0xF) as u32;
     let g = ((c12 >> 4) & 0xF) as u32;
     let b = (c12 & 0xF) as u32;

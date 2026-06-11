@@ -70,6 +70,15 @@ pub trait DeniseChip:
     ) -> DeniseOutputPixelDebug;
     fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16;
 
+    /// Resolve a playfield colour index to a final ARGB8888 pixel. The
+    /// default is the 12-bit palette path upscaled (OCS / ECS — 4 bits
+    /// per channel); AGA Lisa overrides it to resolve normal indexed
+    /// modes through its 24-bit palette for true 8-bit-per-channel
+    /// colour (#93).
+    fn resolve_color_argb(&mut self, color_idx: u8) -> u32 {
+        crate::denise::rgb12_to_argb(self.resolve_color_rgb12(color_idx))
+    }
+
     // ── Field accessors used by the wrapper ──
     fn palette(&self) -> &[u16; 32];
     fn interlace_active(&self) -> bool;
