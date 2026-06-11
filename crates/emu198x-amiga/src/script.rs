@@ -23,6 +23,8 @@ use runtime_commodore_amiga::{
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::mcp::tools::AmigaCtx;
+
 const KICKSTART_ID: &str = "commodore-amiga-kickstart-rom";
 const A1000_BOOTSTRAP_ID: &str = "commodore-amiga-a1000-bootstrap-rom";
 const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
@@ -310,6 +312,20 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
                         reached: session.time(),
                     });
                 }
+                // Shared with the MCP `set_machine` tool: resolve the model's
+                // Kickstart by convention and swap the session's variant via
+                // `HeadlessSession::swap_machine`. Script mode holds the family
+                // enum (`AmigaRuntimeKind`), so mid-script model swaps work (#456).
+                ScriptStep::SetMachine { machine } => {
+                    let outcome = session
+                        .set_machine(machine)
+                        .map_err(|err| format!("set_machine to `{machine}` failed: {err}"))?;
+                    observations.push(ScriptObservation::SetMachine {
+                        machine: machine.clone(),
+                        profile_id: outcome.profile_id,
+                        display_name: outcome.display_name,
+                    });
+                }
                 other => {
                     if let Some(observation) = other
                         .execute_collect(&mut session)
@@ -548,6 +564,71 @@ mod tests {
                 frames: 12,
             }
         );
+    }
+
+    /// A `SetMachine` step in a `--script` run is intercepted and swaps
+    /// the live variant (it used to fall through to the shell executor
+    /// and error as `SystemSpecificStep`). Launches a dummy-ROM A500,
+    /// runs a one-step script swapping to the AGA A1200, and asserts the
+    /// SetMachine observation lands. The swap resolves the A1200
+    /// Kickstart by convention, so it skips when that ROM is absent.
+    #[test]
+    fn script_set_machine_step_swaps_variant() {
+        let home = match std::env::var("HOME") {
+            Ok(h) => h,
+            Err(_) => return,
+        };
+        let a1200_rom = PathBuf::from(&home).join(".emu198x/roms/commodore-amiga/kick31a1200.rom");
+        if !a1200_rom.exists() {
+            eprintln!(
+                "skipping: A1200 Kickstart missing at {}",
+                a1200_rom.display()
+            );
+            return;
+        }
+
+        let temp_dir = std::env::temp_dir();
+        let pid = std::process::id();
+        let kickstart_path = temp_dir.join(format!("emu198x-amiga-{pid}-setmachine-kick.rom"));
+        let script_path = temp_dir.join(format!("emu198x-amiga-{pid}-setmachine.json"));
+        fs::write(&kickstart_path, dummy_kickstart()).expect("write dummy Kickstart");
+        fs::write(
+            &script_path,
+            r#"[{"action":"set_machine","machine":"a1200"}]"#,
+        )
+        .expect("write script");
+
+        let result = run_cli(Cli {
+            model: ModelArg::A500,
+            rom_dir: None,
+            kickstart: Some(kickstart_path.clone()),
+            disk: None,
+            screenshot: None,
+            audio_capture: None,
+            script: Some(script_path.clone()),
+            wait_for_boot: None,
+            print_queries: vec![],
+            frames: 0,
+        })
+        .expect("script with SetMachine should run, not error as unsupported");
+
+        let swapped = result.observations.iter().find_map(|obs| match obs {
+            ScriptObservation::SetMachine {
+                machine,
+                profile_id,
+                ..
+            } => Some((machine.clone(), profile_id.clone())),
+            _ => None,
+        });
+        let (machine, profile_id) = swapped.expect("a SetMachine observation must be emitted");
+        assert_eq!(machine, "a1200");
+        assert!(
+            profile_id.contains("a1200"),
+            "swapped profile should be an A1200 variant, got {profile_id}"
+        );
+
+        let _ = fs::remove_file(kickstart_path);
+        let _ = fs::remove_file(script_path);
     }
 
     #[test]

@@ -23,6 +23,12 @@ use serde_json::{Value, json};
 
 #[path = "../src/mcp/lvo.rs"]
 mod lvo;
+// `tools.rs` resolves models + Kickstart ROMs through `crate::model::…`
+// (its `set_machine` impl); include the same module so the shared source
+// compiles in this second crate root, mirroring how the binary re-exports
+// it at its own root.
+#[path = "../src/model.rs"]
+mod model;
 #[path = "../src/mcp/tools.rs"]
 mod tools;
 
@@ -163,12 +169,75 @@ fn mcp_server_boots_and_lists_tools() {
         "stop_video_recording",
         "palette_log",
         "restart",
+        "set_machine",
     ] {
         assert!(
             names.contains(expected),
             "tools/list is missing `{expected}` (got {names:?})"
         );
     }
+}
+
+/// The `set_machine` tool swaps the live variant: boot the A1200 (AGA),
+/// swap to the A500 (OCS), and confirm the reported profile changes and
+/// the running machine re-pace itself to the new variant. Needs the A500
+/// Kickstart (kick13.rom) on top of the A1200 ROM `load_rom` requires;
+/// skips loudly if it's absent.
+#[test]
+fn set_machine_swaps_the_live_variant() {
+    let Some((rom_bytes, _rom_path)) = load_rom() else {
+        return;
+    };
+    let home = std::env::var("HOME").expect("HOME is set");
+    let a500_rom = PathBuf::from(&home).join(".emu198x/roms/commodore-amiga/kick13.rom");
+    if !a500_rom.exists() {
+        eprintln!("skipping: A500 Kickstart missing at {}", a500_rom.display());
+        return;
+    }
+
+    // Booted as the AGA A1200 (see boot_server); swap to the OCS A500.
+    let (mut server, mut session) = boot_server(rom_bytes);
+
+    let swapped = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        2,
+        "tools/call",
+        json!({ "name": "set_machine", "arguments": { "model": "a500" } }),
+    ));
+    assert_eq!(swapped.get("model").and_then(Value::as_str), Some("a500"));
+    let profile_id = swapped
+        .get("profile_id")
+        .and_then(Value::as_str)
+        .expect("set_machine reports profile_id");
+    assert!(
+        profile_id.contains("a500"),
+        "swapped profile should be an A500 variant, got {profile_id}"
+    );
+
+    // The freshly-installed OCS machine drives: stepping advances it.
+    let step = unwrap_tool_text(&call(
+        &mut server,
+        &mut session,
+        3,
+        "tools/call",
+        json!({ "name": "step", "arguments": { "count": 2 } }),
+    ));
+    assert_eq!(step.get("completed").and_then(Value::as_u64), Some(2));
+
+    // An unknown model id is a clean tool error, not a panic/crash.
+    let bad = call(
+        &mut server,
+        &mut session,
+        4,
+        "tools/call",
+        json!({ "name": "set_machine", "arguments": { "model": "a4000" } }),
+    );
+    assert_eq!(
+        bad.get("isError").and_then(Value::as_bool),
+        Some(true),
+        "unknown model id must surface as a tool error: {bad}"
+    );
 }
 
 #[test]

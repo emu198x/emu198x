@@ -29,10 +29,11 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
-use crate::{AppError, ModelArg, USAGE, die, find_rom_path, next_arg, parse_model_arg};
+use crate::{
+    AppError, ModelArg, USAGE, die, find_rom_path, firmware_id_for_model_arg, next_arg,
+    parse_model_arg,
+};
 
-const KICKSTART_ID: &str = "commodore-amiga-kickstart-rom";
-const A1000_BOOTSTRAP_ID: &str = "commodore-amiga-a1000-bootstrap-rom";
 const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
 const DEFAULT_SCALE: u32 = 1;
 const INPUT_SLICES_PER_FRAME: u32 = 4;
@@ -651,19 +652,6 @@ fn parse_video_arg(video: &str) -> VideoFilter {
     video
         .parse()
         .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"))
-}
-
-fn firmware_id_for_model_arg(model: ModelArg) -> &'static str {
-    match model {
-        ModelArg::A1000 => A1000_BOOTSTRAP_ID,
-        ModelArg::A500
-        | ModelArg::A500A501
-        | ModelArg::A500Plus
-        | ModelArg::A500Maxed
-        | ModelArg::A600
-        | ModelArg::A1200
-        | ModelArg::A2000 => KICKSTART_ID,
-    }
 }
 
 fn resolve_firmware_path(cli: &Cli) -> Result<PathBuf, String> {

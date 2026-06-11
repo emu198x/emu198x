@@ -34,7 +34,7 @@
 //! [`AmigaLiveAccess`]: runtime_commodore_amiga::AmigaLiveAccess
 
 mod lvo;
-mod tools;
+pub(crate) mod tools;
 
 use std::path::PathBuf;
 
