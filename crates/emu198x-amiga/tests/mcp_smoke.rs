@@ -255,12 +255,15 @@ fn mcp_tools_drive_a_real_boot() {
         "tools/call",
         json!({ "name": "query_cpu", "arguments": {} }),
     ));
-    let pc0 = cpu0.get("pc").and_then(Value::as_str).unwrap();
+    // query_cpu is the shared tool now: the per-CPU register snapshot lives
+    // under `registers`.
+    let regs = cpu0.get("registers").expect("query_cpu carries registers");
+    let pc0 = regs.get("pc").and_then(Value::as_str).unwrap();
     assert!(
         pc0.starts_with("$00F"),
         "fresh-boot PC should be in ROM window, got {pc0}"
     );
-    assert_eq!(cpu0.get("supervisor").and_then(Value::as_bool), Some(true));
+    assert_eq!(regs.get("supervisor").and_then(Value::as_bool), Some(true));
 
     // Step a few instructions; instruction counter must advance.
     let step = unwrap_tool_text(&call(
@@ -629,7 +632,11 @@ fn mcp_tools_drive_a_real_boot() {
         "tools/call",
         json!({ "name": "query_cpu", "arguments": {} }),
     ));
-    let pc_str = cpu_now.get("pc").and_then(Value::as_str).unwrap();
+    let pc_str = cpu_now
+        .get("registers")
+        .and_then(|r| r.get("pc"))
+        .and_then(Value::as_str)
+        .unwrap();
     let around = unwrap_tool_text(&call(
         &mut server,
         &mut session,

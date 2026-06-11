@@ -17,7 +17,7 @@
 use serde_json::{Value, json};
 
 use crate::machine::MachineCore;
-use crate::mcp::{Tool, ToolError, ToolRegistry, ToolResponse};
+use crate::mcp::{InlineTool, Tool, ToolError, ToolRegistry, ToolResponse};
 use crate::query::SessionQueryProvider;
 use crate::script::{ScriptObservation, ScriptStep};
 use crate::session::HeadlessSession;
@@ -356,55 +356,13 @@ where
 // copy-pasted into each binary's `mcp_tools.rs`.
 // ---------------------------------------------------------------------------
 
-use std::marker::PhantomData;
-
 use crate::debug::DebugTarget;
 
-/// A debug tool whose body is a monomorphized function pointer over a
-/// specific `(M, Q)`. The generic [`register_debug_tools`] instantiates one
-/// per machine with the matching run functions.
-struct DebugTool<M, Q> {
-    name: &'static str,
-    description: &'static str,
-    schema: Value,
-    run: fn(Value, &mut HeadlessSession<M, Q>) -> Result<Value, ToolError>,
-    _pd: PhantomData<fn() -> (M, Q)>,
-}
-
-impl<M, Q> Tool<HeadlessSession<M, Q>> for DebugTool<M, Q>
-where
-    M: MachineCore,
-    Q: SessionQueryProvider<M>,
-{
-    fn name(&self) -> &str {
-        self.name
-    }
-    fn description(&self) -> &str {
-        self.description
-    }
-    fn input_schema(&self) -> Value {
-        self.schema.clone()
-    }
-    fn call(
-        &self,
-        arguments: Value,
-        session: &mut HeadlessSession<M, Q>,
-    ) -> Result<ToolResponse, ToolError> {
-        let body = (self.run)(arguments, session)?;
-        let text = serde_json::to_string(&body)
-            .map_err(|err| ToolError::Execution(format!("serialize: {err}")))?;
-        Ok(ToolResponse::success_text(text))
-    }
-}
-
-fn debug_ref<M: MachineCore, Q>(
-    session: &HeadlessSession<M, Q>,
-) -> Result<&dyn DebugTarget, ToolError> {
-    session
-        .machine()
-        .debug_target()
-        .ok_or_else(|| ToolError::Execution("debug target unavailable (machine not loaded)".into()))
-}
+// The CPU / memory / disassembly / stepping debug verbs are registered as
+// `ScriptStepTool`s over the shared `ScriptStep` arms (see `register_debug_tools`
+// below), so MCP and `--script` run one implementation. Only `io_trace` — which
+// runs frames and is gated on `supports_io_trace` — stays a bespoke
+// `InlineTool`; its helpers (`debug_mut` / `parse_num` / `parse_opt`) live here.
 
 fn debug_mut<M: MachineCore, Q>(
     session: &mut HeadlessSession<M, Q>,
@@ -448,218 +406,6 @@ fn parse_opt(args: &Value, name: &str, default: u32) -> Result<u32, ToolError> {
     } else {
         Ok(default)
     }
-}
-
-fn run_query_cpu<M: MachineCore, Q>(
-    _args: Value,
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<Value, ToolError> {
-    Ok(debug_ref(session)?.cpu_state())
-}
-
-fn run_memory_read<M: MachineCore, Q>(
-    args: Value,
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<Value, ToolError> {
-    let addr = parse_num(&args, "addr")?;
-    let len = parse_opt(&args, "len", 16)?.min(4096);
-    let target = debug_ref(session)?;
-    let mut hex = String::new();
-    let mut ascii = String::new();
-    for offset in 0..len {
-        let byte = target.peek(addr.wrapping_add(offset));
-        if offset > 0 {
-            hex.push(' ');
-        }
-        hex.push_str(&format!("{byte:02X}"));
-        ascii.push(if (0x20..=0x7E).contains(&byte) {
-            char::from(byte)
-        } else {
-            '.'
-        });
-    }
-    Ok(json!({ "addr": format!("${addr:04X}"), "len": len, "hex": hex, "ascii": ascii }))
-}
-
-fn run_poke_byte<M: MachineCore, Q>(
-    args: Value,
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<Value, ToolError> {
-    let addr = parse_num(&args, "addr")?;
-    let value = parse_num(&args, "value")? as u8;
-    debug_mut(session)?.poke(addr, value);
-    Ok(json!({ "addr": format!("${addr:04X}"), "value": format!("${value:02X}") }))
-}
-
-fn run_poke_word<M: MachineCore, Q>(
-    args: Value,
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<Value, ToolError> {
-    let addr = parse_num(&args, "addr")?;
-    let value = parse_num(&args, "value")? as u16;
-    let target = debug_mut(session)?;
-    let [lo, hi] = value.to_le_bytes();
-    target.poke(addr, lo);
-    target.poke(addr.wrapping_add(1), hi);
-    Ok(json!({ "addr": format!("${addr:04X}"), "value": format!("${value:04X}") }))
-}
-
-fn run_disasm<M: MachineCore, Q>(
-    args: Value,
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<Value, ToolError> {
-    let addr = parse_num(&args, "addr")?;
-    let count = parse_opt(&args, "count", 16)?.min(256);
-    let target = debug_ref(session)?;
-    let mut lines = Vec::new();
-    let mut a = addr;
-    for _ in 0..count {
-        let Some((text, len)) = target.disassemble(a) else {
-            return Err(ToolError::Execution(format!(
-                "could not disassemble at ${a:04X}: the bytes are not a valid \
-                 instruction, or this CPU has no disassembler wired"
-            )));
-        };
-        let span = u32::from(len.max(1));
-        let bytes: String = (0..span)
-            .map(|i| format!("{:02X}", target.peek(a.wrapping_add(i))))
-            .collect::<Vec<_>>()
-            .join(" ");
-        lines.push(json!({
-            "addr": format!("${a:04X}"),
-            "text": text,
-            "bytes": bytes,
-            "len": span,
-        }));
-        a = a.wrapping_add(span);
-    }
-    Ok(json!({ "lines": lines }))
-}
-
-fn run_run_until_pc<M: MachineCore, Q>(
-    args: Value,
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<Value, ToolError> {
-    let target_pc = parse_num(&args, "pc")?;
-    let max_steps = u64::from(parse_opt(&args, "max_steps", 2_000_000)?);
-    let target = debug_mut(session)?;
-    let mut ticks = 0u64;
-    let mut reached = false;
-    let mut steps = 0u64;
-    while steps < max_steps {
-        if target.pc() == target_pc {
-            reached = true;
-            break;
-        }
-        ticks += target.step_instruction();
-        steps += 1;
-    }
-    reached |= target.pc() == target_pc;
-    Ok(json!({
-        "pc": format!("${target_pc:04X}"),
-        "reached": reached,
-        "steps": steps,
-        "ticks": ticks,
-        "cpu_pc": format!("${:04X}", target.pc()),
-    }))
-}
-
-fn run_step<M: MachineCore, Q>(
-    args: Value,
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<Value, ToolError> {
-    let count = parse_opt(&args, "count", 1)?.min(100_000);
-    let target = debug_mut(session)?;
-    let mut ticks = 0u64;
-    // Trace the PC at each instruction boundary so a multi-step call shows
-    // the path taken, not just the endpoint. Every CPU provides this through
-    // `step_instruction` + `pc` — no architecture knowledge needed.
-    let mut pc_trace = Vec::with_capacity(count as usize);
-    for _ in 0..count {
-        ticks += target.step_instruction();
-        pc_trace.push(format!("${:04X}", target.pc()));
-    }
-    let pc = target.pc();
-    let next = target.disassemble(pc).map(|(text, _)| text);
-    Ok(json!({
-        "count": count,
-        "ticks": ticks,
-        "cpu_pc": format!("${pc:04X}"),
-        "next": next,
-        "pc_trace": pc_trace,
-    }))
-}
-
-fn run_run_until_mem_change<M: MachineCore, Q>(
-    args: Value,
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<Value, ToolError> {
-    let addr = parse_num(&args, "addr")?;
-    let max_steps = u64::from(parse_opt(&args, "max_steps", 2_000_000)?);
-    let target = debug_mut(session)?;
-    let initial = target.peek(addr);
-    let mut ticks = 0u64;
-    let mut steps = 0u64;
-    let mut changed = false;
-    while steps < max_steps {
-        ticks += target.step_instruction();
-        steps += 1;
-        if target.peek(addr) != initial {
-            changed = true;
-            break;
-        }
-    }
-    let current = target.peek(addr);
-    Ok(json!({
-        "addr": format!("${addr:04X}"),
-        "changed": changed,
-        "steps": steps,
-        "ticks": ticks,
-        "old": format!("${initial:02X}"),
-        "new": format!("${current:02X}"),
-        "cpu_pc": format!("${:04X}", target.pc()),
-    }))
-}
-
-fn run_run_until_any_pc<M: MachineCore, Q>(
-    args: Value,
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<Value, ToolError> {
-    let raw = args
-        .get("targets")
-        .and_then(Value::as_array)
-        .ok_or_else(|| ToolError::InvalidArguments("missing array `targets`".into()))?;
-    if raw.is_empty() {
-        return Err(ToolError::InvalidArguments(
-            "`targets` must list at least one address".into(),
-        ));
-    }
-    // Each element parses with the same int/$XXXX/0xXXXX grammar as a
-    // single address; wrap it in a one-key object so `parse_num` applies.
-    let targets: Vec<u32> = raw
-        .iter()
-        .map(|v| parse_num(&json!({ "t": v }), "t"))
-        .collect::<Result<_, _>>()?;
-    let max_steps = u64::from(parse_opt(&args, "max_steps", 2_000_000)?);
-    let target = debug_mut(session)?;
-    let mut ticks = 0u64;
-    let mut steps = 0u64;
-    let mut reached = false;
-    while steps < max_steps {
-        if targets.contains(&target.pc()) {
-            reached = true;
-            break;
-        }
-        ticks += target.step_instruction();
-        steps += 1;
-    }
-    reached |= targets.contains(&target.pc());
-    Ok(json!({
-        "reached": reached,
-        "steps": steps,
-        "ticks": ticks,
-        "cpu_pc": format!("${:04X}", target.pc()),
-    }))
 }
 
 fn run_io_trace<M: MachineCore, Q: SessionQueryProvider<M>>(
@@ -717,193 +463,142 @@ fn run_io_trace<M: MachineCore, Q: SessionQueryProvider<M>>(
     }))
 }
 
-/// Register the shared debug tools onto a per-system registry. Requires the
-/// machine's runtime to implement [`MachineCore::debug_target`]; tools error
-/// cleanly at call time when no debug target is available.
+/// Register the shared debug verbs onto a per-system registry, as
+/// [`ScriptStepTool`]s over the machine-agnostic [`ScriptStep`] debug arms —
+/// so the MCP tool and the matching `--script` step run the *same*
+/// implementation through the machine's [`DebugTarget`]. Tools error cleanly
+/// when no debug target is available.
 ///
-/// Registers: `query_cpu`, `memory_read`, `poke_byte`, `poke_word`,
-/// `disasm`, `run_until_pc`, `run_until_any_pc`, `run_until_mem_change`,
-/// `step`, `io_trace`.
+/// Registers: `query_cpu`, `memory_read`, `poke_byte`, `poke_word`, `disasm`,
+/// `step`, `run_until_pc`, `run_until_any_pc`, `run_until_mem_change` (all
+/// `ScriptStep`-backed), plus `io_trace` (a bespoke [`InlineTool`]: it runs
+/// frames and is gated on port-mapped I/O, so it has no `ScriptStep`).
 pub fn register_debug_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
 where
     M: MachineCore + 'static,
     Q: SessionQueryProvider<M> + 'static,
 {
-    fn add<M, Q>(
-        registry: &mut ToolRegistry<HeadlessSession<M, Q>>,
-        name: &'static str,
-        description: &'static str,
-        schema: Value,
-        run: fn(Value, &mut HeadlessSession<M, Q>) -> Result<Value, ToolError>,
-    ) where
-        M: MachineCore + 'static,
-        Q: SessionQueryProvider<M> + 'static,
-    {
-        registry.register(Box::new(DebugTool {
+    let mut common = |name, description, schema| {
+        registry.register(Box::new(ScriptStepTool::<M, Q>::common(
             name,
             description,
             schema,
-            run,
-            _pd: PhantomData,
-        }));
-    }
+        )));
+    };
 
-    let empty = || json!({ "type": "object", "additionalProperties": false });
-    let addr_schema = json!({
-        "type": "object",
-        "required": ["addr"],
-        "properties": {
-            "addr": { "description": "Address (integer or $XXXX / 0xXXXX)." },
-            "len":  { "type": "integer", "minimum": 1, "maximum": 4096, "default": 16 }
-        }
-    });
-    let poke_byte_schema = json!({
-        "type": "object",
-        "required": ["addr", "value"],
-        "properties": {
-            "addr":  { "description": "Address (integer or $XXXX / 0xXXXX)." },
-            "value": { "description": "Byte value (integer or $XX / 0xXX)." }
-        }
-    });
-    let poke_word_schema = json!({
-        "type": "object",
-        "required": ["addr", "value"],
-        "properties": {
-            "addr":  { "description": "Address (integer or $XXXX / 0xXXXX)." },
-            "value": { "description": "16-bit value, written little-endian." }
-        }
-    });
-    let disasm_schema = json!({
-        "type": "object",
-        "required": ["addr"],
-        "properties": {
-            "addr":  { "description": "Start address (integer or $XXXX / 0xXXXX)." },
-            "count": { "type": "integer", "minimum": 1, "maximum": 256, "default": 16 }
-        }
-    });
-    let run_until_schema = json!({
-        "type": "object",
-        "required": ["pc"],
-        "properties": {
-            "pc":        { "description": "Target PC (integer or $XXXX / 0xXXXX)." },
-            "max_steps": { "type": "integer", "minimum": 1, "default": 2000000 }
-        }
-    });
-    let run_until_any_pc_schema = json!({
-        "type": "object",
-        "required": ["targets"],
-        "properties": {
-            "targets":   { "type": "array", "minItems": 1,
-                           "description": "Target PCs (each an integer or $XXXX / 0xXXXX); stops at the first one hit." },
-            "max_steps": { "type": "integer", "minimum": 1, "default": 2000000 }
-        }
-    });
-    let run_until_mem_change_schema = json!({
-        "type": "object",
-        "required": ["addr"],
-        "properties": {
-            "addr":      { "description": "Watched address (integer or $XXXX / 0xXXXX)." },
-            "max_steps": { "type": "integer", "minimum": 1, "default": 2000000 }
-        }
-    });
-    let step_schema = json!({
-        "type": "object",
-        "properties": { "count": { "type": "integer", "minimum": 1, "maximum": 100000, "default": 1 } }
-    });
-    let io_trace_schema = json!({
-        "type": "object",
-        "properties": {
-            "frames": { "type": "integer", "minimum": 1, "maximum": 600, "default": 4 },
-            "limit":  { "type": "integer", "minimum": 1, "maximum": 4096, "default": 256 }
-        }
-    });
-
-    add(
-        registry,
+    common(
         "query_cpu",
-        "CPU register snapshot.",
-        empty(),
-        run_query_cpu,
+        "CPU register snapshot (machine-specific fields under `registers`).",
+        json!({ "type": "object", "additionalProperties": false }),
     );
-    add(
-        registry,
+    common(
         "memory_read",
         "Read `len` bytes from the CPU bus at `addr` (no side effects).",
-        addr_schema,
-        run_memory_read,
+        json!({
+            "type": "object",
+            "required": ["addr"],
+            "properties": {
+                "addr": { "type": "integer", "description": "Start address." },
+                "len":  { "type": "integer", "minimum": 1, "maximum": 256, "default": 16 }
+            }
+        }),
     );
-    add(
-        registry,
+    common(
         "poke_byte",
         "Write one byte to writable memory at `addr`.",
-        poke_byte_schema,
-        run_poke_byte,
+        json!({
+            "type": "object",
+            "required": ["addr", "value"],
+            "properties": {
+                "addr":  { "type": "integer" },
+                "value": { "type": "integer", "minimum": 0, "maximum": 255 }
+            }
+        }),
     );
-    add(
-        registry,
+    common(
         "poke_word",
-        "Write a 16-bit little-endian value to memory at `addr`.",
-        poke_word_schema,
-        run_poke_word,
+        "Write a 16-bit little-endian value at `addr` (big-endian CPUs override).",
+        json!({
+            "type": "object",
+            "required": ["addr", "value"],
+            "properties": {
+                "addr":  { "type": "integer" },
+                "value": { "type": "integer", "minimum": 0, "maximum": 65535 }
+            }
+        }),
     );
-    add(
-        registry,
+    common(
         "disasm",
-        "Disassemble `count` instructions from `addr`. Wired for the Z80, \
-         6502, 6809 and SM83 families.",
-        disasm_schema,
-        run_disasm,
+        "Disassemble `instructions` opcodes from `addr`; each line carries text + raw bytes.",
+        json!({
+            "type": "object",
+            "required": ["addr"],
+            "properties": {
+                "addr":         { "type": "integer" },
+                "instructions": { "type": "integer", "minimum": 1, "maximum": 256, "default": 16 }
+            }
+        }),
     );
-    add(
-        registry,
-        "run_until_pc",
-        "Run whole instructions until the CPU reaches `pc` or `max_steps` elapse.",
-        run_until_schema,
-        run_run_until_pc,
-    );
-    add(
-        registry,
-        "run_until_any_pc",
-        "Run whole instructions until the CPU PC matches any address in `targets`, or `max_steps` elapse.",
-        run_until_any_pc_schema,
-        run_run_until_any_pc,
-    );
-    add(
-        registry,
-        "run_until_mem_change",
-        "Single-step until the byte at `addr` changes value, or `max_steps` elapse; reports old/new value.",
-        run_until_mem_change_schema,
-        run_run_until_mem_change,
-    );
-    add(
-        registry,
+    common(
         "step",
-        "Single-step `count` whole CPU instructions; returns the new PC and next instruction.",
-        step_schema,
-        run_step,
+        "Single-step `instructions` whole CPU instructions; returns the PC trace + next instruction.",
+        json!({
+            "type": "object",
+            "properties": { "instructions": { "type": "integer", "minimum": 1, "default": 1 } }
+        }),
     );
-    add(
-        registry,
-        "io_trace",
-        "Run `frames` frames capturing every I/O port access (Z80-family \
-         machines only); returns a per-port summary plus a sample of events.",
-        io_trace_schema,
-        run_io_trace,
+    common(
+        "run_until_pc",
+        "Step whole instructions until PC reaches `addr`, or `max_steps` elapse.",
+        json!({
+            "type": "object",
+            "required": ["addr"],
+            "properties": {
+                "addr":      { "type": "integer" },
+                "max_steps": { "type": "integer", "minimum": 1 }
+            }
+        }),
     );
+    common(
+        "run_until_any_pc",
+        "Step whole instructions until PC matches any entry in `targets`, or `max_steps` elapse.",
+        json!({
+            "type": "object",
+            "required": ["targets"],
+            "properties": {
+                "targets":   { "type": "array", "minItems": 1, "items": { "type": "integer" } },
+                "max_steps": { "type": "integer", "minimum": 1 }
+            }
+        }),
+    );
+    common(
+        "run_until_mem_change",
+        "Step whole instructions until any watched byte in `addrs` changes, or `max_steps` elapse.",
+        json!({
+            "type": "object",
+            "required": ["addrs"],
+            "properties": {
+                "addrs":     { "type": "array", "minItems": 1, "items": { "type": "integer" } },
+                "max_steps": { "type": "integer", "minimum": 1 }
+            }
+        }),
+    );
+    registry.register(Box::new(InlineTool {
+        name: "io_trace",
+        description: "Run `frames` frames capturing every I/O port access (port-mapped \
+                      Z80 / 6502 machines only); returns a per-port summary plus a sample \
+                      of events.",
+        schema: json!({
+            "type": "object",
+            "properties": {
+                "frames": { "type": "integer", "minimum": 1, "maximum": 600, "default": 4 },
+                "limit":  { "type": "integer", "minimum": 1, "maximum": 4096, "default": 256 }
+            }
+        }),
+        run: run_io_trace,
+    }));
 }
 
-/// Register the **base** MCP tool surface every machine must expose: the
-/// common session / media / capture tools ([`register_common_tools`])
-/// plus the generic CPU / memory / disassembly debug verbs
-/// ([`register_debug_tools`], driven through the machine's
-/// [`DebugTarget`](crate::debug::DebugTarget)).
-///
-/// This is the single entry point a machine's `mcp.rs` should call for
-/// its core surface. Bundling the two halves means a machine can no
-/// longer adopt only one — the drift that left C64 and Dragon with no
-/// `memory_read` / `step` / `disasm` over MCP (#456). Machines layer
-/// their bespoke registrar *after* this call; later registrations win on
-/// name collisions, so a machine shipping a richer `memory_read`
 /// (Amiga, NES) still shadows the generic one.
 pub fn register_base_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
 where

@@ -1,8 +1,10 @@
 //! End-to-end check of the SHARED debug-tool tier (`register_debug_tools`)
 //! on a no-shadow 6502 machine. The C64 takes the shared tools as-is, so it's
-//! the cleanest place to prove the cross-fleet enrichments land for every
-//! machine: `disasm` carries raw `bytes` + `len`, `step` carries a `pc_trace`,
-//! and `run_until_any_pc` / `run_until_mem_change` exist as shared verbs.
+//! the cleanest place to prove the unified surface: every debug verb is now a
+//! `ScriptStepTool` over the machine-agnostic `ScriptStep` arms (so MCP and
+//! `--script` run the identical body), and the observations carry the generic
+//! shapes — `disasm` lines with text + raw bytes, `step` with a `pc_trace`,
+//! plus `run_until_any_pc` / `run_until_mem_change`.
 //!
 //! Runs ROM-free against `C64Runtime::blank`.
 
@@ -31,7 +33,7 @@ fn call(
 }
 
 #[test]
-fn shared_debug_tools_are_enriched_and_complete() {
+fn shared_debug_tools_are_unified_and_complete() {
     let mut session = HeadlessSession::new_with_query_provider(
         C64Runtime::blank(Model::C64PalBreadbin),
         1,
@@ -40,46 +42,75 @@ fn shared_debug_tools_are_enriched_and_complete() {
     let mut registry: ToolRegistry<C64Session> = ToolRegistry::new();
     register_debug_tools(&mut registry);
 
-    // The two new shared run-until verbs are registered for every machine.
+    for verb in [
+        "query_cpu",
+        "memory_read",
+        "poke_byte",
+        "poke_word",
+        "disasm",
+        "step",
+        "run_until_pc",
+        "run_until_any_pc",
+        "run_until_mem_change",
+    ] {
+        assert!(
+            registry.get(verb).is_some(),
+            "`{verb}` must be a shared debug verb"
+        );
+    }
+
+    // query_cpu carries the machine's register snapshot under `registers`.
+    let cpu = call(&registry, &mut session, "query_cpu", json!({}));
     assert!(
-        registry.get("run_until_any_pc").is_some(),
-        "run_until_any_pc is now a shared verb"
-    );
-    assert!(
-        registry.get("run_until_mem_change").is_some(),
-        "run_until_mem_change is now a shared verb"
+        cpu.get("registers").and_then(|r| r.get("pc")).is_some(),
+        "query_cpu exposes registers.pc: {cpu}"
     );
 
-    // Plant LDA #$42 (A9 42) in RAM via the shared poke, then disassemble:
-    // the line now carries the raw instruction bytes and length, not just text.
+    // poke_byte writes through the debug target; memory_read reads it back.
+    // Plant LDA #$42 = A9 42 into RAM at $1000.
     call(
         &registry,
         &mut session,
         "poke_byte",
-        json!({ "addr": "$1000", "value": "$A9" }),
+        json!({ "addr": 0x1000, "value": 0xA9 }),
     );
     call(
         &registry,
         &mut session,
         "poke_byte",
-        json!({ "addr": "$1001", "value": "$42" }),
+        json!({ "addr": 0x1001, "value": 0x42 }),
     );
+    let read = call(
+        &registry,
+        &mut session,
+        "memory_read",
+        json!({ "addr": 0x1000, "len": 2 }),
+    );
+    assert_eq!(
+        read["bytes"],
+        json!([0xA9, 0x42]),
+        "memory_read returns the poked bytes: {read}"
+    );
+
+    // disasm decodes the planted instruction, carrying text + raw bytes + len.
     let dis = call(
         &registry,
         &mut session,
         "disasm",
-        json!({ "addr": "$1000", "count": 1 }),
+        json!({ "addr": 0x1000, "instructions": 1 }),
     );
-    let line = &dis["lines"][0];
-    assert_eq!(line["text"], "LDA #$42");
-    assert_eq!(
-        line["bytes"], "A9 42",
-        "disasm now includes raw instruction bytes: {line}"
-    );
-    assert_eq!(line["len"], 2, "disasm now includes instruction length");
+    let line = &dis["instructions"][0];
+    assert_eq!(line["mnemonic"], "LDA #$42");
+    assert_eq!(line["raw"], json!([0xA9, 0x42]), "disasm carries raw bytes");
+    assert_eq!(line["bytes"], 2, "disasm carries instruction length");
 
-    // step now reports a per-instruction PC trace.
-    let st = call(&registry, &mut session, "step", json!({ "count": 3 }));
+    // step reports a per-instruction pc_trace.
+    let st = call(
+        &registry,
+        &mut session,
+        "step",
+        json!({ "instructions": 3 }),
+    );
     assert_eq!(
         st["pc_trace"].as_array().map(Vec::len),
         Some(3),
@@ -92,20 +123,18 @@ fn shared_debug_tools_are_enriched_and_complete() {
         &registry,
         &mut session,
         "run_until_any_pc",
-        json!({ "targets": ["$FFFF", "$1234"], "max_steps": 50 }),
+        json!({ "targets": [0xFFFF, 0x1234], "max_steps": 50 }),
     );
-    assert!(any.get("reached").is_some() && any.get("cpu_pc").is_some());
+    assert!(any.get("reached").is_some() && any.get("pc").is_some());
 
     let memchg = call(
         &registry,
         &mut session,
         "run_until_mem_change",
-        json!({ "addr": "$0200", "max_steps": 50 }),
+        json!({ "addrs": [0x0200, 0x0201], "max_steps": 50 }),
     );
     assert!(
-        memchg.get("changed").is_some()
-            && memchg.get("old").is_some()
-            && memchg.get("new").is_some(),
-        "run_until_mem_change reports changed/old/new: {memchg}"
+        memchg.get("changed").is_some() && memchg["addrs"] == json!([0x0200, 0x0201]),
+        "run_until_mem_change reports changed + the watched addrs: {memchg}"
     );
 }

@@ -117,12 +117,12 @@ fn shared_tools_drive_the_amiga_session() {
         &registry,
         &mut session,
         "memory_read",
-        json!({ "addr": "$F80000", "len": 4 }),
+        json!({ "addr": 0xF8_0000, "len": 4 }),
     );
     call(
         &registry,
         &mut session,
         "disasm",
-        json!({ "addr": "$F80000", "count": 1 }),
+        json!({ "addr": 0xF8_0000, "instructions": 1 }),
     );
 }

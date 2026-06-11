@@ -210,7 +210,10 @@ mod tests {
             "tools/call",
             json!({ "name": "query_cpu", "arguments": {} }),
         ));
-        assert!(cpu.get("pc").is_some(), "query_cpu must report pc: {cpu}");
+        assert!(
+            cpu.get("registers").and_then(|r| r.get("pc")).is_some(),
+            "query_cpu must report registers.pc: {cpu}"
+        );
 
         // Run a few frames, then memory_read / disasm / step and a couple
         // of query paths all respond without error on the live machine.
@@ -224,9 +227,9 @@ mod tests {
             json!({ "name": "run_frames", "arguments": { "frames": 4 } }),
         );
         for (id, name, args) in [
-            (4, "memory_read", json!({ "addr": "$4000", "len": 8 })),
-            (5, "disasm", json!({ "addr": "$0000", "count": 4 })),
-            (6, "step", json!({ "count": 2 })),
+            (4, "memory_read", json!({ "addr": 0x4000, "len": 8 })),
+            (5, "disasm", json!({ "addr": 0x0000, "instructions": 4 })),
+            (6, "step", json!({ "instructions": 2 })),
             (7, "query", json!({ "path": "ay" })),
             (8, "query", json!({ "path": "boot.detected" })),
         ] {
