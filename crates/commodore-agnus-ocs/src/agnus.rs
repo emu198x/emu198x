@@ -1761,6 +1761,21 @@ impl Agnus {
         ((self.vpos & 0xFF) << 8) | (self.hpos & 0xFF)
     }
 
+    /// Read DMACONR ($DFF002): the stored DMACON enable/control bits
+    /// plus live blitter status. BBUSY (bit 14) is asserted while a
+    /// blit is in flight so a `WaitBlit` poll (read DMACONR until BBUSY
+    /// clears) is honoured now that blits take real chip cycles rather
+    /// than completing instantly on the BLTSIZE write (#31/#32). BZERO
+    /// (bit 13) follows once the blit-result accumulator lands.
+    #[must_use]
+    pub fn dmaconr(&self) -> u16 {
+        let mut v = self.dmacon & bits::DMACON_MASK;
+        if self.blitter_busy {
+            v |= 0x4000; // BBUSY
+        }
+        v
+    }
+
     /// Level-sensitive /VERTB signal — high while the beam sits inside
     /// the vertical blanking interval. Paula edge-latches this to set
     /// INTREQ.VERTB.
