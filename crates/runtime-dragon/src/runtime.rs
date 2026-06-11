@@ -1012,6 +1012,10 @@ impl MachineCore for DragonRuntime {
 
     // Eager machine (firmware-backed at construction) — the `direct` arm.
     emu198x_shell::debug_target_hooks!(direct);
+
+    fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
+        Some(&emu198x_shell::STANDARD_KEYBOARD)
+    }
 }
 
 // 6809 debug target via the shared macro (`direct`: `machine: Dragon32` is

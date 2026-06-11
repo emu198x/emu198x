@@ -220,6 +220,12 @@ impl MachineCore for OricRuntime {
     }
     emu198x_shell::debug_target_hooks!();
 
+    fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
+        self.machine
+            .is_some()
+            .then_some(&emu198x_shell::STANDARD_KEYBOARD as &dyn emu198x_shell::KeyboardTarget)
+    }
+
     fn watch_target(&self) -> Option<&dyn emu198x_shell::WatchTarget> {
         self.machine
             .is_some()

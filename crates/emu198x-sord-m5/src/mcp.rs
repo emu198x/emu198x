@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_base_tools,
+    mcp_tools::{register_base_tools, register_keyboard_tools},
 };
 use runtime_sord_m5::{M5Runtime, M5SessionQueryProvider, Model};
 
@@ -34,6 +34,8 @@ pub fn run() -> Result<(), String> {
         env!("CARGO_PKG_VERSION"),
     ));
     register_base_tools(server.registry_mut());
+    // The machine has a keyboard, so the shared press_key / type_string apply.
+    register_keyboard_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }
 

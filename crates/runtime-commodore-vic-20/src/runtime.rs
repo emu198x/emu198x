@@ -370,6 +370,11 @@ impl MachineCore for Vic20Runtime {
     }
 
     emu198x_shell::debug_target_hooks!();
+    fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
+        self.machine
+            .is_some()
+            .then_some(&emu198x_shell::STANDARD_KEYBOARD as &dyn emu198x_shell::KeyboardTarget)
+    }
 }
 
 // 6502 debug target via the shared macro (lazy `machine: Option<Vic20>`).

@@ -319,6 +319,11 @@ impl MachineCore for PetRuntime {
         self.profile.capabilities.clone()
     }
     emu198x_shell::debug_target_hooks!();
+    fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
+        self.machine
+            .is_some()
+            .then_some(&emu198x_shell::STANDARD_KEYBOARD as &dyn emu198x_shell::KeyboardTarget)
+    }
 }
 
 emu198x_shell::impl_6502_debug_primitives!(PetRuntime);
