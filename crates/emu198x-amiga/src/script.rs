@@ -12,9 +12,9 @@ use std::path::{Path, PathBuf};
 use std::process;
 
 use emu198x_shell::{
-    BootArtifacts, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession, MediaImage,
-    MediaKind, MediaSet, ScriptObservation, ScriptStep, boot_machine, read_firmware_asset,
-    read_media_asset,
+    BootArtifacts, FamilyRuntime, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession,
+    MediaImage, MediaKind, MediaSet, ScriptObservation, ScriptStep, boot_machine,
+    read_firmware_asset, read_media_asset,
 };
 use runtime_commodore_amiga::{
     A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider, DEFAULT_KEY_HOLD_FRAMES,

@@ -680,24 +680,6 @@ impl AmigaRuntimeKind {
         }
     }
 
-    /// Construct from the profile's firmware set.
-    ///
-    /// # Errors
-    /// Returns the underlying `MachineError` from the dispatched
-    /// runtime constructor.
-    pub fn from_firmware(
-        model: Model,
-        firmware: &emu198x_shell::FirmwareSet<'_>,
-    ) -> Result<Self, emu198x_shell::MachineError> {
-        if model.is_aga() {
-            AmigaA1200Runtime::from_firmware(model, firmware).map(Self::Aga)
-        } else if model.is_ecs() {
-            AmigaEcsRuntime::from_firmware(model, firmware).map(Self::Ecs)
-        } else {
-            AmigaOcsRuntime::from_firmware(model, firmware).map(Self::Ocs)
-        }
-    }
-
     /// Construct with a zero-filled placeholder firmware. Useful for
     /// tests and verifier dry-runs.
     #[must_use]
@@ -735,6 +717,43 @@ impl AmigaRuntimeKind {
     #[must_use]
     pub fn is_aga(&self) -> bool {
         matches!(self, Self::Aga(_))
+    }
+}
+
+impl emu198x_shell::FamilyRuntime for AmigaRuntimeKind {
+    type Model = Model;
+
+    /// Construct the dispatched variant from the profile's firmware set,
+    /// picking OCS / ECS / AGA by `Model`. This is the shell-level
+    /// constructor `HeadlessSession::swap_machine` drives, so a future
+    /// Amiga `set_machine` tool gets variant swapping for free (#456).
+    ///
+    /// # Errors
+    /// Returns the underlying `MachineError` from the dispatched runtime
+    /// constructor.
+    fn from_firmware(
+        model: Self::Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, emu198x_shell::MachineError> {
+        if model.is_aga() {
+            AmigaA1200Runtime::from_firmware(model, firmware).map(Self::Aga)
+        } else if model.is_ecs() {
+            AmigaEcsRuntime::from_firmware(model, firmware).map(Self::Ecs)
+        } else {
+            AmigaOcsRuntime::from_firmware(model, firmware).map(Self::Ocs)
+        }
+    }
+
+    /// Native frame length in machine ticks, read from the active
+    /// variant's chipset (`AmigaMachine::frame_ticks`) so a swap re-paces
+    /// the session to the new variant's video timing rather than assuming
+    /// the PAL-OCS constant.
+    fn native_frame_ticks(&self) -> u64 {
+        match self {
+            Self::Ocs(rt) => rt.machine().frame_ticks(),
+            Self::Ecs(rt) => rt.machine().frame_ticks(),
+            Self::Aga(rt) => rt.machine().frame_ticks(),
+        }
     }
 }
 

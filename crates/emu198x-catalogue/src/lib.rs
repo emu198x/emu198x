@@ -15,8 +15,8 @@ use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::timing::{TIMING_48K, TIMING_128K, TIMING_PLUS2A};
 use emu198x_shell::{
-    ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineCore,
-    MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
+    ControlCommand, FamilyRuntime, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent,
+    MachineCore, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
     SessionQueryProvider, read_firmware_asset, read_media_asset,
 };
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
