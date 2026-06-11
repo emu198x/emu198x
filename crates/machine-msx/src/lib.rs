@@ -76,7 +76,7 @@
 //! the phase counter advances by 3 and yields one VDP dot whenever
 //! it reaches 2. PSG ticks every other T-state (clock ÷ 2).
 
-use gi_ay_3_8912::Ay3_8912;
+use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use intel_8255::Ppi8255;
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
@@ -245,6 +245,10 @@ pub struct Msx {
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
     io_trace: Option<Vec<IoEvent>>,
+    /// When `Some`, every write to the PSG data port ($A1) is captured
+    /// for the shared `watch_ay_*` tools. Host-side debug only, not part
+    /// of the snapshot.
+    ay_watch: Option<AyWriteWatch>,
     /// Active-low PSG port-A byte for each of the two joystick ports
     /// (`[0]` = port 1, `[1]` = port 2). The MSX reads the joystick through
     /// the AY-3-891x sound chip: register 14 (port A) presents the directions
@@ -287,6 +291,7 @@ impl Msx {
             psg_phase: 0,
             frame_count: 0,
             io_trace: None,
+            ay_watch: None,
             joystick: [0xFF; 2],
         }
     }
@@ -480,7 +485,12 @@ impl Msx {
             0x98 => self.vdp.write_data(value),
             0x99 => self.vdp.write_control(value),
             0xA0 => self.psg.select_register(value),
-            0xA1 => self.psg.write_data(value),
+            0xA1 => {
+                if let Some(w) = &mut self.ay_watch {
+                    w.record(self.cpu.regs.pc, self.psg.selected_register(), value);
+                }
+                self.psg.write_data(value);
+            }
             0xA8 => self.ppi.write(0, value),
             0xAA => self.ppi.write(2, value),
             0xAB => self.ppi.write(3, value),
@@ -603,6 +613,34 @@ impl Msx {
     pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
         self.io_trace.take().unwrap_or_default()
     }
+
+    /// Start (or restart) capturing PSG register writes for `watch_ay_*`.
+    /// Returns the log capacity (max records before writes are dropped).
+    pub fn start_ay_write_watch(&mut self) -> u32 {
+        let watch = AyWriteWatch::new();
+        let cap = watch.cap() as u32;
+        self.ay_watch = Some(watch);
+        cap
+    }
+
+    /// Stop capturing PSG writes and drop the log.
+    pub fn stop_ay_write_watch(&mut self) {
+        self.ay_watch = None;
+    }
+
+    /// Captured PSG writes since the last `start_ay_write_watch`, or
+    /// `None` when the watch is disarmed.
+    #[must_use]
+    pub fn ay_write_watch_records(&self) -> Option<&[AyWriteRecord]> {
+        self.ay_watch.as_ref().map(AyWriteWatch::records)
+    }
+
+    /// Drop captured PSG writes while leaving the watch armed.
+    pub fn clear_ay_write_watch_records(&mut self) {
+        if let Some(w) = &mut self.ay_watch {
+            w.clear();
+        }
+    }
 }
 
 impl zilog_z80::Z80Stepper for Msx {
@@ -635,6 +673,39 @@ mod tests {
         let t = sys.run_frame();
         assert_eq!(t, NTSC_TSTATES_PER_FRAME);
         assert_eq!(sys.frame_count(), 1);
+    }
+
+    #[test]
+    fn ay_watch_captures_psg_data_writes() {
+        let mut sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        // Disarmed by default: no records.
+        assert!(sys.ay_write_watch_records().is_none());
+
+        let cap = sys.start_ay_write_watch();
+        assert!(cap > 0, "start reports a non-zero capacity");
+
+        // Select R7 (mixer), write a value; select R8 (channel-A volume),
+        // write another. Each data write ($A1) should capture the register
+        // selected by the preceding $A0 write.
+        sys.io_write(0xA0, 7);
+        sys.io_write(0xA1, 0x38);
+        sys.io_write(0xA0, 8);
+        sys.io_write(0xA1, 0x0F);
+
+        let records = sys.ay_write_watch_records().expect("watch is armed");
+        assert_eq!(records.len(), 2, "two data writes captured");
+        assert_eq!((records[0].register, records[0].value), (7, 0x38));
+        assert_eq!((records[1].register, records[1].value), (8, 0x0F));
+
+        // A bare register-select ($A0) is not a data write — still two.
+        sys.io_write(0xA0, 1);
+        assert_eq!(sys.ay_write_watch_records().expect("armed").len(), 2);
+
+        sys.clear_ay_write_watch_records();
+        assert_eq!(sys.ay_write_watch_records().expect("armed").len(), 0);
+
+        sys.stop_ay_write_watch();
+        assert!(sys.ay_write_watch_records().is_none());
     }
 
     #[test]
