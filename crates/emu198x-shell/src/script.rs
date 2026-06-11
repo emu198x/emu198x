@@ -356,30 +356,49 @@ pub enum ScriptStep {
     },
     /// Run the CPU until PC reaches a target address.
     ///
-    /// System-specific step (binary-dispatched). Runs cycles until
-    /// either PC matches `addr` at an instruction boundary, or
-    /// `max_halfcycles` master-clock half-cycles have elapsed
-    /// (default 700 000 — about ten 48K frames).
-    ///
-    /// Emits [`ScriptObservation::RunUntilPc`] reporting whether the
-    /// PC was reached, how many half-cycles were consumed, and how
-    /// many instructions executed.
+    /// Steps whole instructions through the shared `DebugTarget` until
+    /// PC matches `addr`, or `max_steps` instructions have elapsed
+    /// (default 2,000,000). Emits [`ScriptObservation::RunUntilPc`].
     RunUntilPc {
         /// Target program counter.
-        addr: u16,
-        /// Optional half-cycle budget. `None` uses the default cap.
+        addr: u32,
+        /// Optional instruction budget. `None` uses the default cap.
         #[serde(default)]
-        max_halfcycles: Option<u32>,
+        max_steps: Option<u64>,
+    },
+    /// Run the CPU until PC reaches any of several target addresses.
+    ///
+    /// Steps whole instructions through the shared `DebugTarget` until
+    /// PC matches any entry in `targets`, or `max_steps` instructions
+    /// elapse. Emits [`ScriptObservation::RunUntilAnyPc`].
+    RunUntilAnyPc {
+        /// Target program counters; stops at the first one hit.
+        targets: Vec<u32>,
+        /// Optional instruction budget. `None` uses the default cap.
+        #[serde(default)]
+        max_steps: Option<u64>,
+    },
+    /// Run the CPU until any watched byte changes value.
+    ///
+    /// Steps whole instructions through the shared `DebugTarget`,
+    /// peeking each address in `addrs` after every step, until one
+    /// changes or `max_steps` instructions elapse. Emits
+    /// [`ScriptObservation::RunUntilMemChange`].
+    RunUntilMemChange {
+        /// Addresses to watch.
+        addrs: Vec<u32>,
+        /// Optional instruction budget. `None` uses the default cap.
+        #[serde(default)]
+        max_steps: Option<u64>,
     },
     /// Disassemble a span of CPU memory.
     ///
-    /// System-specific step (binary-dispatched). Reads bytes through
-    /// the CPU memory bus (so paging is honoured) and decodes
-    /// `instructions` opcodes starting at `addr`. Emits
-    /// [`ScriptObservation::Disasm`].
+    /// Reads bytes through the shared `DebugTarget` bus view (so paging
+    /// is honoured) and decodes `instructions` opcodes starting at
+    /// `addr`. Emits [`ScriptObservation::Disasm`].
     Disasm {
         /// Starting address.
-        addr: u16,
+        addr: u32,
         /// Number of instructions to decode. Defaults to 16, max 64.
         #[serde(default)]
         instructions: Option<u32>,
@@ -752,113 +771,84 @@ pub enum ScriptObservation {
         /// Number of records captured between start and clear.
         captured: u32,
     },
-    /// Result of querying the Z80 register file.
+    /// Result of `query_cpu` — the machine's CPU register snapshot.
     ///
-    /// Wide enough that pc/sp and the 16-bit pairs are first-class
-    /// fields, and the F flags are decoded as named booleans so
-    /// curriculum scripts can write `flag_z` rather than masking
-    /// bit 6 of `f`.
+    /// Carries the per-CPU register file as a JSON value (the shape
+    /// `DebugTarget::cpu_state` emits): Z80, 6502 and 68000 each report
+    /// their own fields, so this is generic rather than a fixed list.
     QueryCpu {
-        // ─── Control ────────────────────────────────────────────────
-        /// Program counter.
-        pc: u16,
-        /// Stack pointer.
-        sp: u16,
-        /// Interrupt vector register.
-        i: u8,
-        /// Refresh register.
-        r: u8,
-        // ─── Main bank ─────────────────────────────────────────────
-        /// Accumulator and flags.
-        af: u16,
-        /// Accumulator byte (high of AF).
-        a: u8,
-        /// Flags byte (low of AF).
-        f: u8,
-        /// Register pair BC.
-        bc: u16,
-        /// B byte (high of BC).
-        b: u8,
-        /// C byte (low of BC).
-        c: u8,
-        /// Register pair DE.
-        de: u16,
-        /// D byte (high of DE).
-        d: u8,
-        /// E byte (low of DE).
-        e: u8,
-        /// Register pair HL.
-        hl: u16,
-        /// H byte (high of HL).
-        h: u8,
-        /// L byte (low of HL).
-        l: u8,
-        // ─── Alternate bank ────────────────────────────────────────
-        /// Alternate accumulator/flags pair (AF').
-        af_alt: u16,
-        /// Alternate BC pair.
-        bc_alt: u16,
-        /// Alternate DE pair.
-        de_alt: u16,
-        /// Alternate HL pair.
-        hl_alt: u16,
-        // ─── Index registers ───────────────────────────────────────
-        /// Index register IX.
-        ix: u16,
-        /// Index register IY.
-        iy: u16,
-        // ─── Interrupt state ───────────────────────────────────────
-        /// Interrupt mode (0, 1, or 2).
-        im: u8,
-        /// Interrupt enable flip-flop 1 (current masked-interrupt enable).
-        iff1: bool,
-        /// Interrupt enable flip-flop 2 (shadow IFF1, restored by RETN).
-        iff2: bool,
-        // ─── Decoded flags (F register bits) ───────────────────────
-        /// Sign flag (F bit 7).
-        flag_s: bool,
-        /// Zero flag (F bit 6).
-        flag_z: bool,
-        /// Undocumented bit 5 of F (copy of bit 5 of the last ALU
-        /// operand on many instructions).
-        flag_5: bool,
-        /// Half-carry flag (F bit 4).
-        flag_h: bool,
-        /// Undocumented bit 3 of F.
-        flag_3: bool,
-        /// Parity / overflow flag (F bit 2).
-        flag_pv: bool,
-        /// Subtract flag (F bit 1) — set by SUB/DEC, cleared by ADD/INC.
-        flag_n: bool,
-        /// Carry flag (F bit 0).
-        flag_c: bool,
-        // ─── Bus / halt state ──────────────────────────────────────
-        /// `true` when the CPU is currently halted (executing NOPs
-        /// until an interrupt arrives).
-        halt: bool,
+        /// Machine-specific register snapshot.
+        registers: serde_json::Value,
     },
     /// Result of stepping the CPU.
     Step {
         /// Number of instructions actually executed.
         instructions: u32,
-        /// Total master-clock half-cycles consumed.
-        halfcycles: u32,
-        /// Program counter after the step.
-        pc: u16,
-        /// `true` when the CPU is now halted (executing NOPs while
-        /// waiting for an interrupt).
-        halt: bool,
+        /// Machine-native ticks consumed (Spectrum master half-cycles,
+        /// NES / Amiga master ticks).
+        ticks: u64,
+        /// Program counter after the final step.
+        pc: u32,
+        /// PC at each instruction boundary, in order.
+        pc_trace: Vec<u32>,
+        /// Disassembly of the instruction at the final PC, when a
+        /// disassembler is wired for this CPU.
+        next: Option<String>,
     },
     /// Result of `run_until_pc`.
     RunUntilPc {
-        /// `true` when PC matched `addr` before the budget expired.
+        /// `true` when PC reached the target before the budget expired.
         reached: bool,
-        /// Final PC (matches `addr` when `reached` is `true`).
-        pc: u16,
-        /// Half-cycles consumed.
-        halfcycles: u32,
+        /// Final PC.
+        pc: u32,
+        /// Machine-native ticks consumed.
+        ticks: u64,
         /// Number of instructions executed.
-        instructions: u32,
+        steps: u64,
+    },
+    /// Result of `run_until_any_pc`.
+    RunUntilAnyPc {
+        /// `true` when PC matched any target before the budget expired.
+        reached: bool,
+        /// Final PC.
+        pc: u32,
+        /// Machine-native ticks consumed.
+        ticks: u64,
+        /// Number of instructions executed.
+        steps: u64,
+    },
+    /// Result of `run_until_mem_change` — watches a list of addresses.
+    RunUntilMemChange {
+        /// Watched addresses.
+        addrs: Vec<u32>,
+        /// `true` when one of the watched bytes changed in budget.
+        changed: bool,
+        /// The address that changed first (when `changed`).
+        changed_addr: Option<u32>,
+        /// Value of `changed_addr` before the change.
+        old: Option<u8>,
+        /// Value of `changed_addr` after the change.
+        new: Option<u8>,
+        /// Machine-native ticks consumed.
+        ticks: u64,
+        /// Number of instructions executed.
+        steps: u64,
+        /// Final PC.
+        pc: u32,
+    },
+    /// Result of a `poke_byte` write.
+    PokeByte {
+        /// Address written.
+        addr: u32,
+        /// Byte written.
+        value: u8,
+    },
+    /// Result of a `poke_word` write.
+    PokeWord {
+        /// Address written (low byte).
+        addr: u32,
+        /// 16-bit value written.
+        value: u16,
     },
     /// Result of disassembling memory.
     Disasm {
@@ -984,6 +974,12 @@ impl HeadlessScript {
 
 /// Maximum bytes returned by a single `memory_read` step.
 const MEMORY_READ_MAX: u32 = 256;
+/// Maximum instructions a single `step` step will execute.
+const STEP_MAX: u32 = 100_000;
+/// Maximum instructions a single `disasm` step will decode.
+const DISASM_MAX: u32 = 256;
+/// Default instruction budget for the `run_until_*` steps.
+const RUN_UNTIL_MAX_STEPS: u64 = 2_000_000;
 
 impl ScriptStep {
     /// Executes one script step against one live headless session.
@@ -1124,12 +1120,162 @@ impl ScriptStep {
                 step: "set_machine",
             }),
             Self::QueryAy => Err(ScriptError::SystemSpecificStep { step: "query_ay" }),
-            Self::QueryCpu => Err(ScriptError::SystemSpecificStep { step: "query_cpu" }),
-            Self::Step { .. } => Err(ScriptError::SystemSpecificStep { step: "step" }),
-            Self::RunUntilPc { .. } => Err(ScriptError::SystemSpecificStep {
-                step: "run_until_pc",
-            }),
-            Self::Disasm { .. } => Err(ScriptError::SystemSpecificStep { step: "disasm" }),
+            // CPU/memory/disassembly debug verbs run generically through the
+            // shared `DebugTarget`, so MCP and `--script` execute the identical
+            // body (the MCP tools are `ScriptStepTool` wrappers over these).
+            // Machines exposing no debug target fall back to the system-specific
+            // error.
+            Self::QueryCpu => {
+                let Some(target) = session.machine().debug_target() else {
+                    return Err(ScriptError::SystemSpecificStep { step: "query_cpu" });
+                };
+                Ok(Some(ScriptObservation::QueryCpu {
+                    registers: target.cpu_state(),
+                }))
+            }
+            Self::Step { instructions } => {
+                let count = instructions.unwrap_or(1).min(STEP_MAX);
+                let Some(target) = session.machine_mut().debug_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep { step: "step" });
+                };
+                let mut ticks = 0u64;
+                let mut pc_trace = Vec::with_capacity(count as usize);
+                for _ in 0..count {
+                    ticks += target.step_instruction();
+                    pc_trace.push(target.pc());
+                }
+                let pc = target.pc();
+                let next = target.disassemble(pc).map(|(text, _)| text);
+                Ok(Some(ScriptObservation::Step {
+                    instructions: count,
+                    ticks,
+                    pc,
+                    pc_trace,
+                    next,
+                }))
+            }
+            Self::RunUntilPc { addr, max_steps } => {
+                let budget = max_steps.unwrap_or(RUN_UNTIL_MAX_STEPS);
+                let target_pc = *addr;
+                let Some(target) = session.machine_mut().debug_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep {
+                        step: "run_until_pc",
+                    });
+                };
+                let mut ticks = 0u64;
+                let mut steps = 0u64;
+                let mut reached = false;
+                while steps < budget {
+                    if target.pc() == target_pc {
+                        reached = true;
+                        break;
+                    }
+                    ticks += target.step_instruction();
+                    steps += 1;
+                }
+                reached |= target.pc() == target_pc;
+                Ok(Some(ScriptObservation::RunUntilPc {
+                    reached,
+                    pc: target.pc(),
+                    ticks,
+                    steps,
+                }))
+            }
+            Self::RunUntilAnyPc { targets, max_steps } => {
+                let budget = max_steps.unwrap_or(RUN_UNTIL_MAX_STEPS);
+                let Some(target) = session.machine_mut().debug_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep {
+                        step: "run_until_any_pc",
+                    });
+                };
+                let mut ticks = 0u64;
+                let mut steps = 0u64;
+                let mut reached = false;
+                while steps < budget {
+                    if targets.contains(&target.pc()) {
+                        reached = true;
+                        break;
+                    }
+                    ticks += target.step_instruction();
+                    steps += 1;
+                }
+                reached |= targets.contains(&target.pc());
+                Ok(Some(ScriptObservation::RunUntilAnyPc {
+                    reached,
+                    pc: target.pc(),
+                    ticks,
+                    steps,
+                }))
+            }
+            Self::RunUntilMemChange { addrs, max_steps } => {
+                let budget = max_steps.unwrap_or(RUN_UNTIL_MAX_STEPS);
+                let Some(target) = session.machine_mut().debug_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep {
+                        step: "run_until_mem_change",
+                    });
+                };
+                let initial: Vec<u8> = addrs.iter().map(|a| target.peek(*a)).collect();
+                let mut ticks = 0u64;
+                let mut steps = 0u64;
+                let mut changed_addr = None;
+                let mut old = None;
+                let mut new = None;
+                while steps < budget {
+                    ticks += target.step_instruction();
+                    steps += 1;
+                    let mut hit = false;
+                    for (i, a) in addrs.iter().enumerate() {
+                        let now = target.peek(*a);
+                        if now != initial[i] {
+                            changed_addr = Some(*a);
+                            old = Some(initial[i]);
+                            new = Some(now);
+                            hit = true;
+                            break;
+                        }
+                    }
+                    if hit {
+                        break;
+                    }
+                }
+                Ok(Some(ScriptObservation::RunUntilMemChange {
+                    addrs: addrs.clone(),
+                    changed: changed_addr.is_some(),
+                    changed_addr,
+                    old,
+                    new,
+                    ticks,
+                    steps,
+                    pc: target.pc(),
+                }))
+            }
+            Self::Disasm { addr, instructions } => {
+                let count = instructions.unwrap_or(16).min(DISASM_MAX);
+                let Some(target) = session.machine().debug_target() else {
+                    return Err(ScriptError::SystemSpecificStep { step: "disasm" });
+                };
+                let mut decoded = Vec::with_capacity(count as usize);
+                let mut a = *addr;
+                for _ in 0..count {
+                    let Some((mnemonic, len)) = target.disassemble(a) else {
+                        break;
+                    };
+                    let span = u32::from(len.max(1));
+                    let raw = (0..span).map(|i| target.peek(a.wrapping_add(i))).collect();
+                    decoded.push(DisasmInstruction {
+                        addr: a,
+                        bytes: len.max(1),
+                        raw,
+                        mnemonic,
+                    });
+                    a = a.wrapping_add(span);
+                }
+                Ok(Some(ScriptObservation::Disasm {
+                    addr: *addr,
+                    count: decoded.len() as u32,
+                    instructions: decoded,
+                }))
+            }
             Self::PortRead { .. } => Err(ScriptError::SystemSpecificStep { step: "port_read" }),
             Self::PortWrite { .. } => Err(ScriptError::SystemSpecificStep { step: "port_write" }),
             Self::WatchAyStart => Err(ScriptError::SystemSpecificStep {
@@ -1173,8 +1319,31 @@ impl ScriptStep {
                     bytes,
                 }))
             }
-            Self::PokeByte { .. } => Err(ScriptError::SystemSpecificStep { step: "poke_byte" }),
-            Self::PokeWord { .. } => Err(ScriptError::SystemSpecificStep { step: "poke_word" }),
+            Self::PokeByte { addr, value } => {
+                let Some(target) = session.machine_mut().debug_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep { step: "poke_byte" });
+                };
+                target.poke(*addr, *value);
+                Ok(Some(ScriptObservation::PokeByte {
+                    addr: *addr,
+                    value: *value,
+                }))
+            }
+            Self::PokeWord { addr, value } => {
+                // Little-endian (Z80 / 6502). Big-endian CPUs (the 68000)
+                // keep a bespoke poke_word override; this generic path serves
+                // the little-endian fleet.
+                let Some(target) = session.machine_mut().debug_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep { step: "poke_word" });
+                };
+                let [lo, hi] = value.to_le_bytes();
+                target.poke(*addr, lo);
+                target.poke(addr.wrapping_add(1), hi);
+                Ok(Some(ScriptObservation::PokeWord {
+                    addr: *addr,
+                    value: *value,
+                }))
+            }
             Self::WatchMemoryStart { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "watch_memory_start",
             }),
@@ -1400,6 +1569,9 @@ mod tests {
         fn debug_target(&self) -> Option<&dyn crate::debug::DebugTarget> {
             Some(self)
         }
+        fn debug_target_mut(&mut self) -> Option<&mut dyn crate::debug::DebugTarget> {
+            Some(self)
+        }
     }
 
     #[derive(Clone, Copy, Debug, Default)]
@@ -1490,6 +1662,105 @@ mod tests {
                 assert_eq!(bytes.len(), 256);
             }
             other => panic!("expected a MemoryRead observation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn debug_verb_steps_run_generically_through_the_debug_target() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 1);
+        let run = |session: &mut HeadlessSession<DummyMachine, _>, step: ScriptStep| {
+            step.execute_collect(session)
+                .expect("step executes")
+                .expect("step emits an observation")
+        };
+
+        // query_cpu → carries the machine's cpu_state value (DummyMachine: {}).
+        match run(&mut session, ScriptStep::QueryCpu) {
+            ScriptObservation::QueryCpu { registers } => assert!(registers.is_object()),
+            other => panic!("expected QueryCpu, got {other:?}"),
+        }
+
+        // poke_byte writes through the debug target, then memory_read sees it.
+        run(
+            &mut session,
+            ScriptStep::PokeByte {
+                addr: 0x4000,
+                value: 0xAB,
+            },
+        );
+        match run(
+            &mut session,
+            ScriptStep::MemoryRead {
+                addr: 0x4000,
+                len: 1,
+            },
+        ) {
+            ScriptObservation::MemoryRead { bytes, .. } => assert_eq!(bytes, vec![0xAB]),
+            other => panic!("expected MemoryRead, got {other:?}"),
+        }
+
+        // step → pc_trace has one entry per requested instruction.
+        match run(
+            &mut session,
+            ScriptStep::Step {
+                instructions: Some(3),
+            },
+        ) {
+            ScriptObservation::Step {
+                instructions,
+                pc_trace,
+                ..
+            } => {
+                assert_eq!(instructions, 3);
+                assert_eq!(pc_trace.len(), 3, "one PC traced per step");
+            }
+            other => panic!("expected Step, got {other:?}"),
+        }
+
+        // run_until_pc: DummyMachine PC is 0, so target 0 is reached at once.
+        match run(
+            &mut session,
+            ScriptStep::RunUntilPc {
+                addr: 0,
+                max_steps: Some(4),
+            },
+        ) {
+            ScriptObservation::RunUntilPc { reached, .. } => assert!(reached),
+            other => panic!("expected RunUntilPc, got {other:?}"),
+        }
+
+        // run_until_any_pc: 0 is in the target set → reached.
+        match run(
+            &mut session,
+            ScriptStep::RunUntilAnyPc {
+                targets: vec![0x1234, 0],
+                max_steps: Some(4),
+            },
+        ) {
+            ScriptObservation::RunUntilAnyPc { reached, .. } => assert!(reached),
+            other => panic!("expected RunUntilAnyPc, got {other:?}"),
+        }
+
+        // run_until_mem_change: nothing changes the byte, so it runs the budget
+        // and reports changed=false over the watched list.
+        match run(
+            &mut session,
+            ScriptStep::RunUntilMemChange {
+                addrs: vec![0x4000, 0x4001],
+                max_steps: Some(4),
+            },
+        ) {
+            ScriptObservation::RunUntilMemChange {
+                changed,
+                addrs,
+                steps,
+                ..
+            } => {
+                assert!(!changed);
+                assert_eq!(addrs, vec![0x4000, 0x4001]);
+                assert_eq!(steps, 4);
+            }
+            other => panic!("expected RunUntilMemChange, got {other:?}"),
         }
     }
 
