@@ -7,8 +7,7 @@
 //! in `main.rs` routes here when a headless-only flag is present. The
 //! rich chip-level debugging surface lives in `--mcp` mode.
 
-use std::env;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process;
 
 use emu198x_shell::{
@@ -18,15 +17,18 @@ use emu198x_shell::{
 };
 use runtime_commodore_amiga::{
     A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider, DEFAULT_KEY_HOLD_FRAMES,
-    DEFAULT_TYPE_SETTLE_FRAMES, Model, type_string,
+    DEFAULT_TYPE_SETTLE_FRAMES, type_string,
 };
 use serde::Serialize;
 use serde_json::Value;
 
+// Model selection + Kickstart resolution are shared with the UI and MCP
+// modes (`crate::model`); script mode used to carry a parallel copy whose
+// ROM-candidate lists had drifted (A500+ tried KS1.3 before KS2.04). All
+// three modes now resolve through `crate::find_rom_path`.
 use crate::mcp::tools::AmigaCtx;
+use crate::{ModelArg, find_rom_path, firmware_id_for_model_arg, parse_model_arg};
 
-const KICKSTART_ID: &str = "commodore-amiga-kickstart-rom";
-const A1000_BOOTSTRAP_ID: &str = "commodore-amiga-a1000-bootstrap-rom";
 const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -41,19 +43,6 @@ struct Cli {
     wait_for_boot: Option<u32>,
     print_queries: Vec<String>,
     frames: u32,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-enum ModelArg {
-    A1000,
-    #[default]
-    A500,
-    A500A501,
-    A500Plus,
-    A500Maxed,
-    A600,
-    A1200,
-    A2000,
 }
 
 #[derive(Debug, Serialize)]
@@ -188,23 +177,6 @@ where
     cli
 }
 
-fn parse_model_arg(value: &str) -> ModelArg {
-    match value {
-        "a1000" => ModelArg::A1000,
-        "a500" => ModelArg::A500,
-        "a500-a501" => ModelArg::A500A501,
-        "a500-plus" => ModelArg::A500Plus,
-        "a500-maxed" => ModelArg::A500Maxed,
-        "a600" => ModelArg::A600,
-        "a1200" => ModelArg::A1200,
-        "a2000" => ModelArg::A2000,
-        _ => die(
-            "--model expects a1000, a500, a500-a501, a500-plus, a500-maxed, \
-             a600, a1200, or a2000",
-        ),
-    }
-}
-
 fn next_arg<I>(iter: &mut I, flag: &str) -> String
 where
     I: Iterator<Item = String>,
@@ -232,7 +204,7 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
     }
 
     let model = cli.model.to_model();
-    let firmware_path = resolve_firmware_path(&cli)?;
+    let firmware_path = find_rom_path(cli.model, cli.rom_dir.as_deref(), cli.kickstart.as_deref())?;
     let firmware_bytes = read_firmware_asset(&firmware_path).map_err(|err| {
         format!(
             "failed to read Amiga firmware {}: {err}",
@@ -380,109 +352,6 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
         boot_reason,
         query_values,
     })
-}
-
-impl ModelArg {
-    const fn to_model(self) -> Model {
-        match self {
-            Self::A1000 => Model::A1000OcsPal,
-            Self::A500 => Model::A500OcsPal,
-            Self::A500A501 => Model::A500OcsPalA501,
-            Self::A500Plus => Model::A500PlusEcsPal,
-            Self::A500Maxed => Model::A500OcsPalMaxed,
-            Self::A600 => Model::A600EcsPal,
-            Self::A1200 => Model::A1200AgaPal,
-            Self::A2000 => Model::A2000OcsPal,
-        }
-    }
-}
-
-fn firmware_id_for_model_arg(model: ModelArg) -> &'static str {
-    match model {
-        ModelArg::A1000 => A1000_BOOTSTRAP_ID,
-        ModelArg::A500
-        | ModelArg::A500A501
-        | ModelArg::A500Plus
-        | ModelArg::A500Maxed
-        | ModelArg::A600
-        | ModelArg::A1200
-        | ModelArg::A2000 => KICKSTART_ID,
-    }
-}
-
-fn resolve_firmware_path(cli: &Cli) -> Result<PathBuf, String> {
-    if let Some(path) = &cli.kickstart {
-        return Ok(path.clone());
-    }
-
-    let rom_dir = candidate_rom_dirs(cli)
-        .into_iter()
-        .find(|dir| dir.is_dir())
-        .ok_or_else(|| {
-            "no Amiga ROM directory found; use --kickstart PATH or --rom-dir DIR".to_owned()
-        })?;
-
-    let candidates: &[&str] = match cli.model {
-        ModelArg::A1000 => &[
-            "a1000-bootstrap.rom",
-            "a1000_bootstrap.rom",
-            "bootstrap.rom",
-        ],
-        ModelArg::A600 => &[
-            "kick31.rom",
-            "kick31a600.rom",
-            "kick30.rom",
-            "kick20.rom",
-            "kickstart.rom",
-            "kick.rom",
-        ],
-        ModelArg::A1200 => &[
-            "kick31a1200.rom",
-            "kick31.rom",
-            "kick30.rom",
-            "kickstart.rom",
-            "kick.rom",
-        ],
-        ModelArg::A500
-        | ModelArg::A500A501
-        | ModelArg::A500Plus
-        | ModelArg::A500Maxed
-        | ModelArg::A2000 => &[
-            "kick13.rom",
-            "kick12.rom",
-            "kick31.rom",
-            "kickstart.rom",
-            "kick.rom",
-        ],
-    };
-
-    for name in candidates {
-        let path = rom_dir.join(name);
-        if path.is_file() {
-            return Ok(path);
-        }
-    }
-
-    Err(format!(
-        "no Amiga firmware ROM found in {}; tried {}",
-        rom_dir.display(),
-        candidates.join(", ")
-    ))
-}
-
-fn candidate_rom_dirs(cli: &Cli) -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    if let Some(dir) = &cli.rom_dir {
-        dirs.push(dir.clone());
-    }
-    if let Some(dir) = env::var_os("EMU198X_AMIGA_ROM_DIR") {
-        dirs.push(PathBuf::from(dir));
-    }
-    if let Some(home) = env::var_os("HOME") {
-        dirs.push(Path::new(&home).join(".emu198x/roms/commodore-amiga"));
-        dirs.push(Path::new(&home).join(".emu198x/roms/amiga"));
-    }
-    dirs
 }
 
 fn query_bool(
@@ -676,14 +545,5 @@ mod tests {
         let _ = fs::remove_file(disk_path);
         let _ = fs::remove_file(screenshot_path);
         let _ = fs::remove_file(audio_path);
-    }
-
-    #[test]
-    fn model_arg_maps_to_runtime_model() {
-        assert_eq!(ModelArg::A1000.to_model(), Model::A1000OcsPal);
-        assert_eq!(ModelArg::A500.to_model(), Model::A500OcsPal);
-        assert_eq!(ModelArg::A500A501.to_model(), Model::A500OcsPalA501);
-        assert_eq!(ModelArg::A500Plus.to_model(), Model::A500PlusEcsPal);
-        assert_eq!(ModelArg::A500Maxed.to_model(), Model::A500OcsPalMaxed);
     }
 }
