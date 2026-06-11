@@ -649,6 +649,52 @@ impl Nes {
         }
     }
 
+    /// Borrow the 6502 CPU. Companion accessor to the public `cpu`
+    /// field — the shared `impl_6502_debug_primitives!` macro reaches
+    /// the register file through `cpu().regs`, matching every other
+    /// 6502 machine in the fleet.
+    #[must_use]
+    pub fn cpu(&self) -> &M6502 {
+        &self.cpu
+    }
+
+    /// Debug write into the CPU address space, mirroring [`Self::peek`]:
+    /// internal RAM and cartridge space only. Deliberately *not* the
+    /// full bus path — a debug poke must not trigger OAMDMA, PPU/APU
+    /// register side effects, or the controller strobe.
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        match addr {
+            0x0000..=0x1FFF => self.ram[(addr & 0x07FF) as usize] = value,
+            0x4020..=0xFFFF => self.mapper.cpu_write(addr, value),
+            _ => {}
+        }
+    }
+
+    /// Advance until the CPU retires one instruction, returning the
+    /// master-clock ticks consumed. The CPU runs on every third master
+    /// tick; this ticks until the CPU leaves its current instruction
+    /// boundary and arrives at a new one with a different PC — the same
+    /// boundary detection the MCP `step` tool open-coded. Bounded so a
+    /// wedged CPU (e.g. a `KIL`/jam opcode) can't spin forever.
+    pub fn step_instruction(&mut self) -> u64 {
+        const MAX_TICKS: u64 = 100_000;
+        let start_pc = self.cpu.regs.pc;
+        let mut left_boundary = false;
+        let mut ticks = 0u64;
+        while ticks < MAX_TICKS {
+            self.tick();
+            ticks += 1;
+            let complete = self.cpu.instruction_complete();
+            if !complete {
+                left_boundary = true;
+            }
+            if left_boundary && complete && self.cpu.regs.pc != start_pc {
+                break;
+            }
+        }
+        ticks
+    }
+
     /// Master clock count (PPU dots since construction).
     #[must_use]
     pub fn master_clock(&self) -> u64 {

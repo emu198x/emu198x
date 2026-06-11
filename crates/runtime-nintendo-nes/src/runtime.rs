@@ -1,9 +1,8 @@
 //! Runtime wrapper for the fresh-workspace NES baseline.
 
 use emu198x_shell::{
-    AudioPacket, CapabilitySet, ControlCommand, DebugPrimitives, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, ResetKind, RunResult,
-    StopReason,
+    AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
+    MachineProfile, MachineTime, MediaKind, MediaSet, ResetKind, RunResult, StopReason,
 };
 use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::{ApuChannel, AudioControls, FB_HEIGHT, FB_WIDTH, Nes};
@@ -348,32 +347,10 @@ impl MachineCore for NesRuntime {
     emu198x_shell::debug_target_hooks!();
 }
 
-// Minimal debug surface. NES is a memory-mapped 6502, so the wired debug verb is
-// `memory_read`, served by the side-effect-free `Nes::peek`. This is hand-written
-// rather than via `impl_6502_debug_primitives!` because `Nes` exposes `cpu` as a
-// field and has no `poke`/`step_instruction`, which don't match the macro's
-// `cpu()`/`poke()`/`step_instruction()` shape. poke/step/disasm are stubbed until
-// a NES debugger needs them.
-impl DebugPrimitives for NesRuntime {
-    fn dbg_pc(&self) -> u32 {
-        self.machine
-            .as_ref()
-            .map_or(0, |m| u32::from(m.cpu.regs.pc))
-    }
-    fn dbg_peek(&self, addr: u32) -> u8 {
-        self.machine.as_ref().map_or(0xFF, |m| m.peek(addr as u16))
-    }
-    fn dbg_poke(&mut self, _addr: u32, _value: u8) {}
-    fn dbg_cpu_state(&self) -> serde_json::Value {
-        self.machine.as_ref().map_or_else(
-            || serde_json::json!({}),
-            |m| serde_json::json!({ "pc": format!("${:04X}", m.cpu.regs.pc) }),
-        )
-    }
-    fn dbg_disassemble(&self, _addr: u32) -> Option<(String, u8)> {
-        None
-    }
-    fn dbg_step(&mut self) -> u64 {
-        0
-    }
-}
+// Full 6502 debug surface via the shared fleet macro: `cpu_state`
+// (A/X/Y/SP/PC/P), `peek`/`poke`, single-instruction `step`, and
+// disassembly through the Asm198x `isa_disasm` spec decoder. The NES now
+// exposes the `cpu()` / `poke()` / `step_instruction()` shape the macro
+// needs (see `Nes`), so it uses the same path as every other 6502 machine
+// instead of a stub. The lazy form reads `self.machine: Option<Nes>`.
+emu198x_shell::impl_6502_debug_primitives!(NesRuntime);
