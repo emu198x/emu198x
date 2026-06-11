@@ -106,6 +106,16 @@ pub enum AppError {
         reason: String,
     },
 
+    /// One script step's arguments were rejected by the active machine
+    /// (e.g. a zero-length watch range, or an out-of-range address).
+    #[error("script step `{step}` rejected: {reason}")]
+    ScriptStepRejected {
+        /// The step's serde tag (e.g. `"watch_memory_start"`).
+        step: &'static str,
+        /// Why the machine rejected the request.
+        reason: String,
+    },
+
     /// `--ui` mode requested but the binary was built without the
     /// `ui` Cargo feature. Surfaces only on `--no-default-features`
     /// headless builds.

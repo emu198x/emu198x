@@ -297,6 +297,24 @@ pub trait MachineCore {
     fn debug_target_mut(&mut self) -> Option<&mut dyn crate::debug::DebugTarget> {
         None
     }
+
+    /// Returns a write-watch view of the running machine, if one is available.
+    ///
+    /// The default returns `None` (no watch surface). Runtimes that wrap a
+    /// live machine with write-capture override this to expose
+    /// [`crate::watch::WatchTarget`], which powers the shared MCP/script
+    /// watch tools (`watch_memory_*`, `watch_ay_*`) registered by
+    /// [`crate::mcp_tools::register_memory_watch_tools`] /
+    /// [`register_ay_watch_tools`](crate::mcp_tools::register_ay_watch_tools).
+    fn watch_target(&self) -> Option<&dyn crate::watch::WatchTarget> {
+        None
+    }
+
+    /// Mutable counterpart of [`watch_target`](MachineCore::watch_target),
+    /// for arming and clearing a watch.
+    fn watch_target_mut(&mut self) -> Option<&mut dyn crate::watch::WatchTarget> {
+        None
+    }
 }
 
 /// A runtime that is one of a system family's machine *variants* —

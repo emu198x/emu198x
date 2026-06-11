@@ -11,6 +11,7 @@ use crate::machine::{MachineCore, ResetKind};
 use crate::media::{MediaImage, MediaKind, MediaSet};
 use crate::query::{QueryError, QueryPathsResult, QueryResult, SessionQueryProvider};
 use crate::session::{HeadlessSession, SessionError};
+use crate::watch::{WatchAyRecord, WatchMemoryRecord};
 
 /// One user-facing script media kind with stable JSON spellings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,10 +86,10 @@ pub struct DisasmInstruction {
 
 /// One captured CPU write reported by [`ScriptObservation::WatchMemoryLog`].
 ///
-/// Widened to `u32` on every field so the same shape covers both
-/// 16-bit (Z80, 6502) and 32-bit (68000) address spaces. Per-system
-/// binaries narrow on the way in (Spectrum truncates `pc` and `addr`
-/// to `u16` and `value` to `u8` when matching).
+/// Widened to `u32` on every address field so the same shape covers both
+/// 16-bit (Z80, 6502) and 32-bit (68000) address spaces. `cck` and
+/// `size_bytes` carry the richer 68000 detail the Amiga records; byte-only
+/// 8/16-bit machines leave `cck` absent and `size_bytes` `1`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryWriteEntry {
     /// Program counter at the moment of the write.
@@ -98,6 +99,13 @@ pub struct MemoryWriteEntry {
     /// Value that was written. Bytes occupy the low 8 bits; words
     /// occupy the low 16.
     pub value: u32,
+    /// Colour-clock timestamp of the write, when the machine stamps one
+    /// (the Amiga does; the 8/16-bit cores do not). Omitted from the JSON
+    /// when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cck: Option<u64>,
+    /// Width of the write in bytes (`1` for a byte store, `2` for a word).
+    pub size_bytes: u8,
 }
 
 /// One shared JSON script step.
@@ -980,6 +988,8 @@ const STEP_MAX: u32 = 100_000;
 const DISASM_MAX: u32 = 256;
 /// Default instruction budget for the `run_until_*` steps.
 const RUN_UNTIL_MAX_STEPS: u64 = 2_000_000;
+/// Default number of entries a `watch_*_log` step returns.
+const WATCH_LOG_DEFAULT_LIMIT: u32 = 64;
 
 impl ScriptStep {
     /// Executes one script step against one live headless session.
@@ -1278,15 +1288,72 @@ impl ScriptStep {
             }
             Self::PortRead { .. } => Err(ScriptError::SystemSpecificStep { step: "port_read" }),
             Self::PortWrite { .. } => Err(ScriptError::SystemSpecificStep { step: "port_write" }),
-            Self::WatchAyStart => Err(ScriptError::SystemSpecificStep {
-                step: "watch_ay_start",
-            }),
-            Self::WatchAyClear => Err(ScriptError::SystemSpecificStep {
-                step: "watch_ay_clear",
-            }),
-            Self::WatchAyLog { .. } => Err(ScriptError::SystemSpecificStep {
-                step: "watch_ay_log",
-            }),
+            // AY register-write watch runs generically through the shared
+            // `WatchTarget`, so MCP and `--script` execute the identical body.
+            // Machines with no AY surface fall back to the system-specific
+            // error (start) or an empty log (clear / log).
+            Self::WatchAyStart => {
+                let Some(target) = session.machine_mut().watch_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep {
+                        step: "watch_ay_start",
+                    });
+                };
+                let capacity = target
+                    .start_ay_watch()
+                    .map_err(|err| ScriptError::InvalidStep {
+                        step: "watch_ay_start",
+                        reason: err.to_string(),
+                    })?;
+                Ok(Some(ScriptObservation::WatchAyStart { capacity }))
+            }
+            Self::WatchAyClear => {
+                let Some(target) = session.machine_mut().watch_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep {
+                        step: "watch_ay_clear",
+                    });
+                };
+                let (had_watch, captured) = target.clear_ay_watch();
+                Ok(Some(ScriptObservation::WatchAyClear {
+                    had_watch,
+                    captured,
+                }))
+            }
+            Self::WatchAyLog { limit, unique } => {
+                let limit = limit.unwrap_or(WATCH_LOG_DEFAULT_LIMIT) as usize;
+                let Some(target) = session.machine().watch_target() else {
+                    return Err(ScriptError::SystemSpecificStep {
+                        step: "watch_ay_log",
+                    });
+                };
+                let Some(records) = target.ay_watch_records() else {
+                    return Ok(Some(ScriptObservation::WatchAyLog {
+                        total_writes: 0,
+                        returned: 0,
+                        entries: Vec::new(),
+                    }));
+                };
+                let total_writes = records.len() as u32;
+                let mut filtered: Vec<&WatchAyRecord> = records.iter().collect();
+                if *unique {
+                    let mut seen = std::collections::HashSet::new();
+                    filtered.retain(|r| seen.insert((r.pc, r.register, r.value)));
+                }
+                // Take the most-recent `limit`, restored to oldest-first order.
+                let start = filtered.len().saturating_sub(limit);
+                let entries: Vec<AyWriteEntry> = filtered[start..]
+                    .iter()
+                    .map(|r| AyWriteEntry {
+                        pc: r.pc,
+                        register: r.register,
+                        value: r.value,
+                    })
+                    .collect();
+                Ok(Some(ScriptObservation::WatchAyLog {
+                    total_writes,
+                    returned: entries.len() as u32,
+                    entries,
+                }))
+            }
             Self::PressKey { .. } => Err(ScriptError::SystemSpecificStep { step: "press_key" }),
             Self::TypeString { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "type_string",
@@ -1344,15 +1411,89 @@ impl ScriptStep {
                     value: *value,
                 }))
             }
-            Self::WatchMemoryStart { .. } => Err(ScriptError::SystemSpecificStep {
-                step: "watch_memory_start",
-            }),
-            Self::WatchMemoryClear => Err(ScriptError::SystemSpecificStep {
-                step: "watch_memory_clear",
-            }),
-            Self::WatchMemoryLog { .. } => Err(ScriptError::SystemSpecificStep {
-                step: "watch_memory_log",
-            }),
+            // Memory-write watch runs generically through the shared
+            // `WatchTarget` (the Amiga + Spectrum capture buffers), so MCP and
+            // `--script` execute the identical body. Machines with no watch
+            // surface fall back to the system-specific error / empty log.
+            Self::WatchMemoryStart { addr, len } => {
+                if *len == 0 {
+                    return Err(ScriptError::InvalidStep {
+                        step: "watch_memory_start",
+                        reason: "`len` must be at least 1".to_owned(),
+                    });
+                }
+                let Some(target) = session.machine_mut().watch_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep {
+                        step: "watch_memory_start",
+                    });
+                };
+                let capacity = target.start_memory_watch(*addr, *len).map_err(|err| {
+                    ScriptError::InvalidStep {
+                        step: "watch_memory_start",
+                        reason: err.to_string(),
+                    }
+                })?;
+                Ok(Some(ScriptObservation::WatchMemoryStart {
+                    addr: *addr,
+                    len: *len,
+                    capacity,
+                }))
+            }
+            Self::WatchMemoryClear => {
+                let Some(target) = session.machine_mut().watch_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep {
+                        step: "watch_memory_clear",
+                    });
+                };
+                let (had_watch, captured) = target.clear_memory_watch();
+                Ok(Some(ScriptObservation::WatchMemoryClear {
+                    had_watch,
+                    captured,
+                }))
+            }
+            Self::WatchMemoryLog { limit, unique } => {
+                let limit = limit.unwrap_or(WATCH_LOG_DEFAULT_LIMIT) as usize;
+                let Some(target) = session.machine().watch_target() else {
+                    return Err(ScriptError::SystemSpecificStep {
+                        step: "watch_memory_log",
+                    });
+                };
+                let range = target.memory_watch_range();
+                let Some(records) = target.memory_watch_records() else {
+                    return Ok(Some(ScriptObservation::WatchMemoryLog {
+                        addr: None,
+                        len: None,
+                        total_writes: 0,
+                        returned: 0,
+                        entries: Vec::new(),
+                    }));
+                };
+                let total_writes = records.len() as u32;
+                let mut filtered: Vec<&WatchMemoryRecord> = records.iter().collect();
+                if *unique {
+                    let mut seen = std::collections::HashSet::new();
+                    filtered.retain(|r| seen.insert((r.pc, r.addr, r.value)));
+                }
+                // Take the most-recent `limit`, restored to oldest-first order.
+                let start = filtered.len().saturating_sub(limit);
+                let entries: Vec<MemoryWriteEntry> = filtered[start..]
+                    .iter()
+                    .map(|r| MemoryWriteEntry {
+                        pc: r.pc,
+                        addr: r.addr,
+                        value: r.value,
+                        cck: r.cck,
+                        size_bytes: r.size_bytes,
+                    })
+                    .collect();
+                Ok(Some(ScriptObservation::WatchMemoryLog {
+                    addr: range.map(|(lo, _)| lo),
+                    len: range.map(|(_, len)| len),
+                    total_writes,
+                    returned: entries.len() as u32,
+                    entries,
+                }))
+            }
             Self::StartVideoRecording { path } => {
                 session.start_video_recording(path.clone())?;
                 Ok(None)
@@ -1422,6 +1563,16 @@ pub enum ScriptError {
         /// The step's serde tag (e.g. `"set_machine"`, `"autoload_tape"`).
         step: &'static str,
     },
+
+    /// A step's arguments were rejected by the active machine — e.g. a
+    /// zero-length watch range, or an address outside the CPU's space.
+    #[error("script step `{step}` rejected: {reason}")]
+    InvalidStep {
+        /// The step's serde tag (e.g. `"watch_memory_start"`).
+        step: &'static str,
+        /// Why the machine rejected the request.
+        reason: String,
+    },
 }
 
 const fn default_true() -> bool {
@@ -1450,6 +1601,10 @@ mod tests {
         commands: usize,
         restored: usize,
         ram: Vec<u8>,
+        mem_watch: Option<(u32, u32)>,
+        mem_log: Vec<crate::watch::WatchMemoryRecord>,
+        ay_watching: bool,
+        ay_log: Vec<crate::watch::WatchAyRecord>,
     }
 
     impl DummyMachine {
@@ -1480,6 +1635,10 @@ mod tests {
                 commands: 0,
                 restored: 0,
                 ram: vec![0u8; 0x1_0000],
+                mem_watch: None,
+                mem_log: Vec::new(),
+                ay_watching: false,
+                ay_log: Vec::new(),
             }
         }
     }
@@ -1496,6 +1655,20 @@ mod tests {
         fn dbg_poke(&mut self, addr: u32, value: u8) {
             if let Some(slot) = self.ram.get_mut(addr as usize) {
                 *slot = value;
+            }
+            // Capture into the memory-write watch log when armed and in range,
+            // so the generic `watch_memory_*` arms have something to report.
+            if let Some((lo, len)) = self.mem_watch
+                && addr >= lo
+                && addr < lo.wrapping_add(len)
+            {
+                self.mem_log.push(crate::watch::WatchMemoryRecord {
+                    pc: 0,
+                    addr,
+                    value: u32::from(value),
+                    cck: None,
+                    size_bytes: 1,
+                });
             }
         }
         fn dbg_cpu_state(&self) -> serde_json::Value {
@@ -1571,6 +1744,65 @@ mod tests {
         }
         fn debug_target_mut(&mut self) -> Option<&mut dyn crate::debug::DebugTarget> {
             Some(self)
+        }
+        fn watch_target(&self) -> Option<&dyn crate::watch::WatchTarget> {
+            Some(self)
+        }
+        fn watch_target_mut(&mut self) -> Option<&mut dyn crate::watch::WatchTarget> {
+            Some(self)
+        }
+    }
+
+    // A trivial watch surface: memory captures on poke (see `dbg_poke`); AY
+    // captures one synthetic record per `start` so both verb families are
+    // exercised generically.
+    impl crate::watch::WatchTarget for DummyMachine {
+        fn supports_memory_watch(&self) -> bool {
+            true
+        }
+        fn start_memory_watch(
+            &mut self,
+            addr: u32,
+            len: u32,
+        ) -> Result<u32, crate::watch::WatchError> {
+            self.mem_watch = Some((addr, len));
+            self.mem_log.clear();
+            Ok(256)
+        }
+        fn clear_memory_watch(&mut self) -> (bool, u32) {
+            let had = self.mem_watch.take().is_some();
+            let captured = self.mem_log.len() as u32;
+            self.mem_log.clear();
+            (had, captured)
+        }
+        fn memory_watch_range(&self) -> Option<(u32, u32)> {
+            self.mem_watch
+        }
+        fn memory_watch_records(&self) -> Option<Vec<crate::watch::WatchMemoryRecord>> {
+            self.mem_watch.map(|_| self.mem_log.clone())
+        }
+
+        fn supports_ay_watch(&self) -> bool {
+            true
+        }
+        fn start_ay_watch(&mut self) -> Result<u32, crate::watch::WatchError> {
+            self.ay_watching = true;
+            self.ay_log = vec![crate::watch::WatchAyRecord {
+                pc: 0,
+                register: 7,
+                value: 0x3E,
+            }];
+            Ok(128)
+        }
+        fn clear_ay_watch(&mut self) -> (bool, u32) {
+            let had = self.ay_watching;
+            let captured = self.ay_log.len() as u32;
+            self.ay_watching = false;
+            self.ay_log.clear();
+            (had, captured)
+        }
+        fn ay_watch_records(&self) -> Option<Vec<crate::watch::WatchAyRecord>> {
+            self.ay_watching.then(|| self.ay_log.clone())
         }
     }
 
@@ -1761,6 +1993,111 @@ mod tests {
                 assert_eq!(steps, 4);
             }
             other => panic!("expected RunUntilMemChange, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn watch_verbs_run_generically_through_the_watch_target() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 1);
+        let run = |session: &mut HeadlessSession<DummyMachine, _>, step: ScriptStep| {
+            step.execute_collect(session)
+                .expect("step executes")
+                .expect("step emits an observation")
+        };
+
+        // Arm a memory watch, drive a write through poke_byte, see it logged.
+        match run(
+            &mut session,
+            ScriptStep::WatchMemoryStart {
+                addr: 0x4000,
+                len: 4,
+            },
+        ) {
+            ScriptObservation::WatchMemoryStart {
+                addr,
+                len,
+                capacity,
+            } => {
+                assert_eq!((addr, len), (0x4000, 4));
+                assert_eq!(capacity, 256);
+            }
+            other => panic!("expected WatchMemoryStart, got {other:?}"),
+        }
+        run(
+            &mut session,
+            ScriptStep::PokeByte {
+                addr: 0x4001,
+                value: 0x99,
+            },
+        );
+        // A poke outside the range is not captured.
+        run(
+            &mut session,
+            ScriptStep::PokeByte {
+                addr: 0x5000,
+                value: 0x11,
+            },
+        );
+        match run(
+            &mut session,
+            ScriptStep::WatchMemoryLog {
+                limit: None,
+                unique: false,
+            },
+        ) {
+            ScriptObservation::WatchMemoryLog {
+                addr,
+                len,
+                total_writes,
+                entries,
+                ..
+            } => {
+                assert_eq!((addr, len), (Some(0x4000), Some(4)));
+                assert_eq!(total_writes, 1, "only the in-range write is captured");
+                assert_eq!(entries.len(), 1);
+                assert_eq!((entries[0].addr, entries[0].value), (0x4001, 0x99));
+                assert_eq!(entries[0].size_bytes, 1);
+            }
+            other => panic!("expected WatchMemoryLog, got {other:?}"),
+        }
+        match run(&mut session, ScriptStep::WatchMemoryClear) {
+            ScriptObservation::WatchMemoryClear {
+                had_watch,
+                captured,
+            } => {
+                assert!(had_watch);
+                assert_eq!(captured, 1);
+            }
+            other => panic!("expected WatchMemoryClear, got {other:?}"),
+        }
+
+        // AY watch: start seeds one record, log returns it, clear drops it.
+        match run(&mut session, ScriptStep::WatchAyStart) {
+            ScriptObservation::WatchAyStart { capacity } => assert_eq!(capacity, 128),
+            other => panic!("expected WatchAyStart, got {other:?}"),
+        }
+        match run(
+            &mut session,
+            ScriptStep::WatchAyLog {
+                limit: None,
+                unique: false,
+            },
+        ) {
+            ScriptObservation::WatchAyLog { entries, .. } => {
+                assert_eq!(entries.len(), 1);
+                assert_eq!((entries[0].register, entries[0].value), (7, 0x3E));
+            }
+            other => panic!("expected WatchAyLog, got {other:?}"),
+        }
+        match run(&mut session, ScriptStep::WatchAyClear) {
+            ScriptObservation::WatchAyClear {
+                had_watch,
+                captured,
+            } => {
+                assert!(had_watch);
+                assert_eq!(captured, 1);
+            }
+            other => panic!("expected WatchAyClear, got {other:?}"),
         }
     }
 

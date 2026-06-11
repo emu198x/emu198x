@@ -1,9 +1,11 @@
 //! MCP tool registrations for the Spectrum binary.
 //!
-//! Only the genuinely Spectrum-specific tools live here — Z80 port I/O, AY
-//! register watches, tape/BASIC loaders, keyboard helpers, `set_machine`,
+//! Only the genuinely Spectrum-specific tools live here — Z80 port I/O, the
+//! AY register query, tape/BASIC loaders, keyboard helpers, `set_machine`,
 //! and the `load_snapshot` override. The generic CPU/memory/disassembly
-//! verbs come from the shared `register_debug_tools` tier. Each tool's
+//! verbs come from the shared `register_debug_tools` tier, and the
+//! `watch_memory_*` / `watch_ay_*` verbs from the shared watch tier
+//! (`register_memory_watch_tools` / `register_ay_watch_tools`). Each tool's
 //! `call` lifts the JSON arguments into a `ScriptStep` (by injecting the
 //! `action` discriminator and re-deserializing), dispatches it through the
 //! same `mcp_execute_step` interceptor script mode uses, and returns the
@@ -14,8 +16,8 @@
 //! break, a tool's schema here probably also needs an update.
 
 use emu198x_shell::{
-    AyWriteEntry, FirmwareImage, FirmwareSet, HeadlessSession, MachineCore, MemoryWriteEntry,
-    ScriptObservation, ScriptStep, SessionQueryProvider,
+    FirmwareImage, FirmwareSet, HeadlessSession, MachineCore, ScriptObservation, ScriptStep,
+    SessionQueryProvider,
     mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
     mcp_tools::ScriptStepTool,
     read_firmware_asset,
@@ -113,11 +115,12 @@ fn mcp_execute_step(
 }
 
 /// Execute the steps that are genuinely Z80/AY-specific — the AY register
-/// query + watches, Z80 I/O ports, and the memory write-watch buffers.
-/// Generic over the runtime, so MCP mode (`SpectrumRuntimeKind`) and the
-/// `--script` runner dispatch the *same* implementation. The CPU / memory /
-/// disassembly verbs are NOT here any more — they run through the shared
-/// `DebugTarget` arms (RULES.md #30). Returns `None` for steps it doesn't own.
+/// query and the Z80 I/O ports. Generic over the runtime, so MCP mode
+/// (`SpectrumRuntimeKind`) and the `--script` runner dispatch the *same*
+/// implementation. The CPU / memory / disassembly verbs and the
+/// `watch_memory_*` / `watch_ay_*` verbs are NOT here any more — they run
+/// through the shared `DebugTarget` / `WatchTarget` arms (RULES.md #30).
+/// Returns `None` for steps it doesn't own.
 pub(crate) fn dispatch_live_step<
     M: SpectrumLiveAccess + MachineCore,
     Q: SessionQueryProvider<M>,
@@ -136,21 +139,11 @@ pub(crate) fn dispatch_live_step<
             execute_port_write(session, *port, *value);
             Ok(None)
         }
-        ScriptStep::WatchAyStart => execute_watch_ay_start(session).map(Some),
-        ScriptStep::WatchAyClear => Ok(Some(execute_watch_ay_clear(session))),
-        ScriptStep::WatchAyLog { limit, unique } => {
-            Ok(Some(execute_watch_ay_log(session, *limit, *unique)))
-        }
-        // memory_read / poke_byte / poke_word also fall through to the shared
-        // `execute_collect` arms now — only the AY / port / watch verbs stay
+        // memory_read / poke_byte / poke_word AND the watch verbs
+        // (watch_memory_* / watch_ay_*) now fall through to the shared
+        // `execute_collect` arms, which drive each machine's `WatchTarget`
+        // (RULES.md #30). Only the AY register query + Z80 I/O ports stay
         // Spectrum-specific.
-        ScriptStep::WatchMemoryStart { addr, len } => {
-            execute_watch_memory_start(session, *addr, *len).map(Some)
-        }
-        ScriptStep::WatchMemoryClear => execute_watch_memory_clear(session).map(Some),
-        ScriptStep::WatchMemoryLog { limit, unique } => {
-            execute_watch_memory_log(session, *limit, *unique).map(Some)
-        }
         _ => return None,
     })
 }
@@ -176,112 +169,6 @@ pub(crate) fn execute_load_portable_snapshot(
         parse_portable_snapshot_at(path).map_err(|err| ToolError::Execution(format!("{err}")))?;
     SpectrumLiveAccess::apply_snapshot(session.machine_mut(), &snapshot);
     Ok(())
-}
-
-/// Validate that a u32 address fits in the Z80's u16 space.
-fn addr_to_u16(addr: u32, label: &str) -> Result<u16, ToolError> {
-    u16::try_from(addr).map_err(|_| {
-        ToolError::InvalidArguments(format!(
-            "{label}: address ${addr:08X} is outside the Z80 0000-FFFF address space"
-        ))
-    })
-}
-
-pub(crate) fn execute_watch_memory_start<
-    M: SpectrumLiveAccess + MachineCore,
-    Q: SessionQueryProvider<M>,
->(
-    session: &mut HeadlessSession<M, Q>,
-    addr: u32,
-    len: u32,
-) -> Result<ScriptObservation, ToolError> {
-    if len == 0 {
-        return Err(ToolError::InvalidArguments(
-            "watch_memory_start: `len` must be at least 1".to_owned(),
-        ));
-    }
-    let start = addr_to_u16(addr, "watch_memory_start")?;
-    let len_u16 = u16::try_from(len).map_err(|_| {
-        ToolError::InvalidArguments(format!(
-            "watch_memory_start: `len` {len} exceeds the Z80 64 KiB address space"
-        ))
-    })?;
-    session
-        .machine_mut()
-        .start_memory_write_watch(start, len_u16)
-        .map_err(|err| ToolError::Execution(format!("watch_memory_start: {err}")))?;
-    Ok(ScriptObservation::WatchMemoryStart {
-        addr,
-        len,
-        capacity: common_sinclair_zx_spectrum::DEFAULT_WATCH_CAP as u32,
-    })
-}
-
-pub(crate) fn execute_watch_memory_clear<
-    M: SpectrumLiveAccess + MachineCore,
-    Q: SessionQueryProvider<M>,
->(
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<ScriptObservation, ToolError> {
-    let captured = session
-        .machine()
-        .memory_write_watch_records()
-        .map(|r| r.len() as u32)
-        .unwrap_or(0);
-    let had_watch = session.machine().memory_write_watch_records().is_some();
-    session.machine_mut().stop_memory_write_watch();
-    Ok(ScriptObservation::WatchMemoryClear {
-        had_watch,
-        captured,
-    })
-}
-
-pub(crate) fn execute_watch_memory_log<
-    M: SpectrumLiveAccess + MachineCore,
-    Q: SessionQueryProvider<M>,
->(
-    session: &mut HeadlessSession<M, Q>,
-    limit: Option<u32>,
-    unique: bool,
-) -> Result<ScriptObservation, ToolError> {
-    let limit = limit.unwrap_or(64) as usize;
-    let machine = session.machine();
-    let range = machine.memory_write_watch_range();
-    let Some(records) = machine.memory_write_watch_records() else {
-        return Ok(ScriptObservation::WatchMemoryLog {
-            addr: None,
-            len: None,
-            total_writes: 0,
-            returned: 0,
-            entries: Vec::new(),
-        });
-    };
-    let total_writes = records.len() as u32;
-    let mut filtered: Vec<&common_sinclair_zx_spectrum::MemoryWriteRecord> =
-        records.iter().collect();
-    if unique {
-        let mut seen = std::collections::HashSet::new();
-        filtered.retain(|r| seen.insert((r.pc, r.addr, r.value)));
-    }
-    // Take the most-recent `limit` entries, then restore oldest-first
-    // order for readability.
-    let total_filtered = filtered.len();
-    let start = total_filtered.saturating_sub(limit);
-    let entries: Vec<MemoryWriteEntry> = filtered[start..]
-        .iter()
-        .map(|r| MemoryWriteEntry {
-            pc: u32::from(r.pc),
-            addr: u32::from(r.addr),
-            value: u32::from(r.value),
-        })
-        .collect();
-    Ok(ScriptObservation::WatchMemoryLog {
-        addr: range.map(|(lo, _)| u32::from(lo)),
-        len: range.map(|(_, len)| u32::from(len)),
-        total_writes,
-        returned: entries.len() as u32,
-        entries,
-    })
 }
 
 /// Build + install the requested Spectrum variant via the shared
@@ -417,40 +304,6 @@ pub(crate) fn execute_port_write<
     value: u8,
 ) {
     session.machine_mut().port_write(port, value);
-}
-
-pub(crate) fn execute_watch_ay_start<
-    M: SpectrumLiveAccess + MachineCore,
-    Q: SessionQueryProvider<M>,
->(
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<ScriptObservation, ToolError> {
-    session
-        .machine_mut()
-        .start_ay_write_watch()
-        .map_err(|err| ToolError::Execution(format!("watch_ay_start: {err}")))?;
-    Ok(ScriptObservation::WatchAyStart {
-        capacity: common_sinclair_zx_spectrum::DEFAULT_AY_WATCH_CAP as u32,
-    })
-}
-
-pub(crate) fn execute_watch_ay_clear<
-    M: SpectrumLiveAccess + MachineCore,
-    Q: SessionQueryProvider<M>,
->(
-    session: &mut HeadlessSession<M, Q>,
-) -> ScriptObservation {
-    let machine = session.machine();
-    let captured = machine
-        .ay_write_watch_records()
-        .map(|r| r.len() as u32)
-        .unwrap_or(0);
-    let had_watch = machine.ay_write_watch_records().is_some();
-    session.machine_mut().stop_ay_write_watch();
-    ScriptObservation::WatchAyClear {
-        had_watch,
-        captured,
-    }
 }
 
 /// Default frames to hold a key down for `press_key`. Three frames
@@ -600,46 +453,6 @@ pub(crate) fn execute_type_string<M: MachineCore, Q: SessionQueryProvider<M>>(
         chars_typed,
         reached: session.time(),
     })
-}
-
-pub(crate) fn execute_watch_ay_log<
-    M: SpectrumLiveAccess + MachineCore,
-    Q: SessionQueryProvider<M>,
->(
-    session: &HeadlessSession<M, Q>,
-    limit: Option<u32>,
-    unique: bool,
-) -> ScriptObservation {
-    let limit = limit.unwrap_or(64) as usize;
-    let machine = session.machine();
-    let Some(records) = machine.ay_write_watch_records() else {
-        return ScriptObservation::WatchAyLog {
-            total_writes: 0,
-            returned: 0,
-            entries: Vec::new(),
-        };
-    };
-    let total_writes = records.len() as u32;
-    let mut filtered: Vec<&common_sinclair_zx_spectrum::AyWriteRecord> = records.iter().collect();
-    if unique {
-        let mut seen = std::collections::HashSet::new();
-        filtered.retain(|r| seen.insert((r.pc, r.register, r.value)));
-    }
-    let total_filtered = filtered.len();
-    let start = total_filtered.saturating_sub(limit);
-    let entries: Vec<AyWriteEntry> = filtered[start..]
-        .iter()
-        .map(|r| AyWriteEntry {
-            pc: u32::from(r.pc),
-            register: r.register,
-            value: r.value,
-        })
-        .collect();
-    ScriptObservation::WatchAyLog {
-        total_writes,
-        returned: entries.len() as u32,
-        entries,
-    }
 }
 
 fn ay_unsupported_error(err: &emu198x_shell::QueryError) -> ToolError {
@@ -902,33 +715,6 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
 
     add_step(
         registry,
-        "watch_ay_start",
-        "Begin recording every OUT ($BFFD), data — the Z80 → AY data port — capturing (pc, register, value). Curriculum-focused: lets a script show how a music driver or sound-effect routine programs the AY across a frame/scene/bar. Errors when the active variant has no AY (16K / 48K / Spectrum+ / TC2048).",
-        json!({"type": "object"}),
-    );
-
-    add_step(
-        registry,
-        "watch_ay_clear",
-        "Stop the AY register tracer and drop the captured log. Reports how many records were held at the moment of clear.",
-        json!({"type": "object"}),
-    );
-
-    add_step(
-        registry,
-        "watch_ay_log",
-        "Fetch the captured AY writes. Returns up to `limit` most-recent entries (default 64), oldest-first. Set `unique = true` to deduplicate by (pc, register, value) before applying the limit.",
-        json!({
-            "type": "object",
-            "properties": {
-                "limit": integer_field(),
-                "unique": boolean_field(),
-            },
-        }),
-    );
-
-    add_step(
-        registry,
         "press_key",
         "Press a single named Spectrum key, hold for `hold_frames` native frames (default 3), then release. One step replaces the press / run_frames / release dance. Valid key names: A-Z, 0-9, Space, Enter, CapsShift, SymbolShift (case-insensitive).",
         json!({
@@ -953,40 +739,6 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
                 "settle_frames": integer_field(),
             },
             "required": ["text"],
-        }),
-    );
-
-    add_step(
-        registry,
-        "watch_memory_start",
-        "Begin recording every Z80 CPU write that lands inside [addr, addr+len). Each capture stores (pc, addr, value). Replaces any prior watch and clears the log. Capture cap is 8192 entries; further writes are dropped silently. Pair with watch_memory_log / watch_memory_clear.",
-        json!({
-            "type": "object",
-            "properties": {
-                "addr": integer_field(),
-                "len": integer_field(),
-            },
-            "required": ["addr", "len"],
-        }),
-    );
-
-    add_step(
-        registry,
-        "watch_memory_clear",
-        "Stop watching CPU writes and drop the captured log. Reports how many records were held at the moment of clear.",
-        json!({"type": "object"}),
-    );
-
-    add_step(
-        registry,
-        "watch_memory_log",
-        "Fetch the captured CPU writes. Returns up to `limit` most-recent entries (default 64), in oldest-first order. Set `unique = true` to deduplicate by (pc, addr, value) before applying the limit.",
-        json!({
-            "type": "object",
-            "properties": {
-                "limit": integer_field(),
-                "unique": boolean_field(),
-            },
         }),
     );
 
@@ -1198,15 +950,15 @@ mod tests {
         let names: Vec<_> = registry.iter().map(|tool| tool.name().to_owned()).collect();
 
         // Only genuinely Spectrum-specific tools live here — Z80 port I/O,
-        // AY register watches, tape/BASIC loaders, keyboard helpers,
-        // `set_machine`, and `load_snapshot` (an intentional override so
-        // portable `.sna` / `.z80` route through the Spectrum parser, gap
-        // #6). The generic CPU/memory/disassembly verbs — `query_cpu`,
-        // `memory_read`, `disasm`, `step`, `poke_byte`, `poke_word`,
-        // `run_until_pc` — are NOT here: they come from the shared
-        // `register_debug_tools` tier, so MCP and `--script` run one
-        // implementation (RULES.md #30, #456). `query_ay` folds into the
-        // `ay.*` query paths.
+        // tape/BASIC loaders, keyboard helpers, `set_machine`, and
+        // `load_snapshot` (an intentional override so portable `.sna` /
+        // `.z80` route through the Spectrum parser, gap #6). The generic
+        // CPU/memory/disassembly verbs — `query_cpu`, `memory_read`,
+        // `disasm`, `step`, `poke_byte`, `poke_word`, `run_until_pc` — are
+        // NOT here: they come from the shared `register_debug_tools` tier,
+        // and the `watch_memory_*` / `watch_ay_*` verbs from the shared
+        // watch tier, so MCP and `--script` run one implementation (RULES.md
+        // #30, #456). `query_ay` folds into the `ay.*` query paths.
         let expected = [
             "clear_audio_capture",
             "set_machine",
@@ -1215,14 +967,8 @@ mod tests {
             "load_snapshot",
             "port_read",
             "port_write",
-            "watch_ay_start",
-            "watch_ay_clear",
-            "watch_ay_log",
             "press_key",
             "type_string",
-            "watch_memory_start",
-            "watch_memory_clear",
-            "watch_memory_log",
             "save_tape",
         ];
         for name in expected {
@@ -1230,12 +976,26 @@ mod tests {
         }
         assert_eq!(names.len(), expected.len(), "unexpected extra tool");
 
-        // The generic tools come from the shared `register_common_tools`,
-        // NOT from here — they must be absent so the fold doesn't double up.
-        for shared in ["run_frames", "load_media", "input", "query", "reset"] {
+        // The generic + watch verbs come from the shared tiers
+        // (`register_common_tools` / `register_debug_tools` /
+        // `register_memory_watch_tools` / `register_ay_watch_tools`), NOT
+        // from here — they must be absent so the fold doesn't double up.
+        for shared in [
+            "run_frames",
+            "load_media",
+            "input",
+            "query",
+            "reset",
+            "watch_memory_start",
+            "watch_memory_clear",
+            "watch_memory_log",
+            "watch_ay_start",
+            "watch_ay_clear",
+            "watch_ay_log",
+        ] {
             assert!(
                 !names.contains(&shared.to_owned()),
-                "`{shared}` should come from register_common_tools, not register_spectrum_tools"
+                "`{shared}` should come from a shared tier, not register_spectrum_tools"
             );
         }
     }

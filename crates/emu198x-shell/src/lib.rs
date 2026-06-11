@@ -24,6 +24,7 @@ pub mod script;
 pub mod session;
 pub mod time;
 pub mod video;
+pub mod watch;
 
 // Re-exported so the `impl_6502_debug_primitives!` macro can reach the shared
 // disassembler as `$crate::isa_disasm` — keeping the dependency on this crate
@@ -70,3 +71,4 @@ pub use video::{
     DEFAULT_RECORDING_FADE_MS, VideoRecorder, VideoRecordingError, VideoRecordingSummary,
     compute_fps, find_ffmpeg, trim_audio_after, trim_audio_after_with_fade,
 };
+pub use watch::{WatchAyRecord, WatchError, WatchMemoryRecord, WatchTarget};

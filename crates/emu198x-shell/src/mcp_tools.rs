@@ -608,3 +608,102 @@ where
     register_common_tools(registry);
     register_debug_tools(registry);
 }
+
+/// Register the memory-write watch verbs (`watch_memory_start`,
+/// `watch_memory_clear`, `watch_memory_log`) as `ScriptStepTool` wrappers over
+/// the shared [`ScriptStep`] arms (so MCP and `--script` run one body, via
+/// each machine's [`MachineCore::watch_target`]).
+///
+/// Opt-in — call from a binary whose machine implements the memory-watch
+/// surface of [`crate::watch::WatchTarget`] (the Spectrum + Amiga families
+/// today). Not folded into [`register_base_tools`]: most cores have not wired
+/// write-capture, and exposing a non-functional tool would mislead.
+pub fn register_memory_watch_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
+where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    let mut common = |name, description, schema| {
+        registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+            name,
+            description,
+            schema,
+        )));
+    };
+
+    common(
+        "watch_memory_start",
+        "Begin recording CPU writes inside `[addr, addr + len)`; replaces any \
+         prior range and clears the log.",
+        json!({
+            "type": "object",
+            "required": ["addr", "len"],
+            "properties": {
+                "addr": { "type": "integer", "description": "Watch range start." },
+                "len":  { "type": "integer", "minimum": 1, "description": "Range length in bytes." }
+            }
+        }),
+    );
+    common(
+        "watch_memory_clear",
+        "Stop watching memory writes and drop the captured log.",
+        json!({ "type": "object", "additionalProperties": false }),
+    );
+    common(
+        "watch_memory_log",
+        "Fetch the captured memory-write log (most-recent `limit`, oldest first).",
+        json!({
+            "type": "object",
+            "properties": {
+                "limit":  { "type": "integer", "minimum": 1, "default": 64 },
+                "unique": { "type": "boolean", "default": false,
+                            "description": "Deduplicate identical (pc, addr, value) triples." }
+            }
+        }),
+    );
+}
+
+/// Register the AY register-write watch verbs (`watch_ay_start`,
+/// `watch_ay_clear`, `watch_ay_log`) as `ScriptStepTool` wrappers over the
+/// shared [`ScriptStep`] arms.
+///
+/// Opt-in — call from a binary whose machine implements the AY-watch surface
+/// of [`crate::watch::WatchTarget`] (the Spectrum family today; the wider AY
+/// fleet — MSX, Oric, SVI-328, … — once their cores wire AY write-capture).
+pub fn register_ay_watch_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
+where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    let mut common = |name, description, schema| {
+        registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+            name,
+            description,
+            schema,
+        )));
+    };
+
+    common(
+        "watch_ay_start",
+        "Begin recording every AY register write as (pc, register, value); \
+         clears any prior log.",
+        json!({ "type": "object", "additionalProperties": false }),
+    );
+    common(
+        "watch_ay_clear",
+        "Stop watching AY writes and drop the captured log.",
+        json!({ "type": "object", "additionalProperties": false }),
+    );
+    common(
+        "watch_ay_log",
+        "Fetch the captured AY-write log (most-recent `limit`, oldest first).",
+        json!({
+            "type": "object",
+            "properties": {
+                "limit":  { "type": "integer", "minimum": 1, "default": 64 },
+                "unique": { "type": "boolean", "default": false,
+                            "description": "Deduplicate identical (pc, register, value) triples." }
+            }
+        }),
+    );
+}

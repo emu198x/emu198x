@@ -458,6 +458,102 @@ impl MachineCore for SpectrumRuntimeKind {
     fn debug_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::DebugTarget> {
         Some(self)
     }
+
+    // The Spectrum joins the shared watch tier via `impl WatchTarget` below,
+    // which the generic `watch_memory_*` / `watch_ay_*` arms drive. Memory
+    // watch is always available; AY watch is advertised family-wide but
+    // `start_ay_watch` errors on the AY-less variants (16K/48K/+/TC2048).
+    fn watch_target(&self) -> Option<&dyn emu198x_shell::WatchTarget> {
+        Some(self)
+    }
+    fn watch_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::WatchTarget> {
+        Some(self)
+    }
+}
+
+impl emu198x_shell::WatchTarget for SpectrumRuntimeKind {
+    fn supports_memory_watch(&self) -> bool {
+        true
+    }
+
+    fn start_memory_watch(
+        &mut self,
+        addr: u32,
+        len: u32,
+    ) -> Result<u32, emu198x_shell::WatchError> {
+        let start = u16::try_from(addr).map_err(|_| {
+            emu198x_shell::WatchError::Invalid(format!(
+                "address ${addr:08X} is outside the Z80 0000-FFFF address space"
+            ))
+        })?;
+        let len_u16 = u16::try_from(len).map_err(|_| {
+            emu198x_shell::WatchError::Invalid(format!(
+                "`len` {len} exceeds the Z80 64 KiB address space"
+            ))
+        })?;
+        self.start_memory_write_watch(start, len_u16)
+            .map_err(|err| emu198x_shell::WatchError::Invalid(err.to_owned()))?;
+        Ok(common_sinclair_zx_spectrum::DEFAULT_WATCH_CAP as u32)
+    }
+
+    fn clear_memory_watch(&mut self) -> (bool, u32) {
+        let captured = self
+            .memory_write_watch_records()
+            .map_or(0, |r| r.len() as u32);
+        let had_watch = self.memory_write_watch_records().is_some();
+        self.stop_memory_write_watch();
+        (had_watch, captured)
+    }
+
+    fn memory_watch_range(&self) -> Option<(u32, u32)> {
+        self.memory_write_watch_range()
+            .map(|(lo, len)| (u32::from(lo), u32::from(len)))
+    }
+
+    fn memory_watch_records(&self) -> Option<Vec<emu198x_shell::WatchMemoryRecord>> {
+        self.memory_write_watch_records().map(|records| {
+            records
+                .iter()
+                .map(|r| emu198x_shell::WatchMemoryRecord {
+                    pc: u32::from(r.pc),
+                    addr: u32::from(r.addr),
+                    value: u32::from(r.value),
+                    cck: None,
+                    size_bytes: 1,
+                })
+                .collect()
+        })
+    }
+
+    fn supports_ay_watch(&self) -> bool {
+        true
+    }
+
+    fn start_ay_watch(&mut self) -> Result<u32, emu198x_shell::WatchError> {
+        self.start_ay_write_watch()
+            .map_err(|err| emu198x_shell::WatchError::Invalid(err.to_owned()))?;
+        Ok(common_sinclair_zx_spectrum::DEFAULT_AY_WATCH_CAP as u32)
+    }
+
+    fn clear_ay_watch(&mut self) -> (bool, u32) {
+        let captured = self.ay_write_watch_records().map_or(0, |r| r.len() as u32);
+        let had_watch = self.ay_write_watch_records().is_some();
+        self.stop_ay_write_watch();
+        (had_watch, captured)
+    }
+
+    fn ay_watch_records(&self) -> Option<Vec<emu198x_shell::WatchAyRecord>> {
+        self.ay_write_watch_records().map(|records| {
+            records
+                .iter()
+                .map(|r| emu198x_shell::WatchAyRecord {
+                    pc: u32::from(r.pc),
+                    register: r.register,
+                    value: r.value,
+                })
+                .collect()
+        })
+    }
 }
 
 impl SpectrumLiveAccess for SpectrumRuntimeKind {

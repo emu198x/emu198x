@@ -383,6 +383,7 @@ fn map_script_error(err: ScriptError) -> AppError {
                 "step `{step}` is system-specific and not yet supported in this binary"
             ),
         },
+        ScriptError::InvalidStep { step, reason } => AppError::ScriptStepRejected { step, reason },
         ScriptError::Asset(e) => AppError::Asset(e),
         ScriptError::Io(e) => AppError::Io(e),
         ScriptError::Parse(e) => AppError::Io(std::io::Error::other(format!("script parse: {e}"))),
