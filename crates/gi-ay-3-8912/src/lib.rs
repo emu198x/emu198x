@@ -18,6 +18,10 @@
 
 use gi_ay_3_8910::Ay3_8910;
 
+// The register-write tracer lives in the base 8910 crate so every AY-bearing
+// core — whether it embeds the 8910 or this 8912 facade — reaches one struct.
+pub use gi_ay_3_8910::{AyWriteRecord, AyWriteWatch, DEFAULT_AY_WATCH_CAP};
+
 /// AY-3-8912: the single-port member of the AY-3-891x family. Wraps the
 /// shared [`Ay3_8910`] core and surfaces only the port-A I/O; port B is
 /// not bonded out on this part.

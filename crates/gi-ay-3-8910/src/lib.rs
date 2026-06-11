@@ -22,6 +22,9 @@
 //! - Data write: OUT to port $BFFD
 //! - Data read: IN from port $FFFD
 
+pub mod watch;
+pub use watch::{AyWriteRecord, AyWriteWatch, DEFAULT_AY_WATCH_CAP};
+
 /// Logarithmic volume table for the AY-3-8910.
 /// 16 levels (0 = silent, 15 = maximum). The curve approximates
 /// the real chip's DAC output measured by various sources.

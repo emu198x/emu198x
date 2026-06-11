@@ -1,32 +1,34 @@
-//! AY-3-8912 register-write tracer.
+//! AY-3-891x register-write tracer.
 //!
-//! Captures every CPU write to the AY data port (`$BFFD` on 128K,
-//! also on +2 / +2A / +2B / +3 / Pentagon / Scorpion / TS2068)
-//! along with the currently-selected register and the program
-//! counter at the issuing `OUT` instruction. Used by the
-//! `watch_ay_*` MCP / script tools to show curriculum scripts how
-//! a music driver or sound-effect routine programs the AY across
-//! a window (frame, scene, song bar) — the same shape as
-//! [`crate::memory_watch::MemoryWriteWatch`] but routed through
-//! the I/O bus rather than memory.
+//! Captures every CPU write to the AY *data* port — along with the
+//! register selected at the time and the program counter at the issuing
+//! `OUT` — for the shared `watch_ay_*` MCP / script tools. Lets a
+//! curriculum script show how a music driver or sound-effect routine
+//! programs the AY across a window (frame, scene, song bar).
 //!
-//! Capture is opt-in: the field on each AY-bearing core defaults
-//! to `None`. When `Some(_)`, the per-write cost is one push into
-//! the buffer; once the buffer hits its cap, further writes are
-//! silently dropped (`is_full()` reports the saturation).
+//! The chip cannot see the CPU's program counter, so capture is wired by
+//! the host machine at its AY-data-write site: the machine owns an
+//! `Option<AyWriteWatch>` and, when armed, calls [`AyWriteWatch::record`]
+//! with `(pc, ay.selected_register(), value)` just before
+//! `ay.write_data(value)`. Every AY-bearing core — Spectrum 128K-class,
+//! MSX, Oric, SVI-328, Aquarius, Einstein — uses the same shape.
+//!
+//! Capture is opt-in: the field defaults to `None`. When `Some(_)`, the
+//! per-write cost is one push; once the buffer hits its cap, further
+//! writes are silently dropped ([`AyWriteWatch::is_full`] reports it).
 
 use serde::{Deserialize, Serialize};
 
-/// Default cap on captured AY writes. Sized for a few seconds of
-/// music: a typical tracker writes 14 of the 16 registers every
-/// 50 Hz frame, so 4096 records covers about 6 s of playback —
-/// plenty for curriculum chapter analysis without unbounded growth.
+/// Default cap on captured AY writes. Sized for a few seconds of music:
+/// a typical tracker writes 14 of the 16 registers every 50 Hz frame, so
+/// 4096 records covers about 6 s of playback — plenty for curriculum
+/// chapter analysis without unbounded growth.
 pub const DEFAULT_AY_WATCH_CAP: usize = 4096;
 
 /// One captured AY data write.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AyWriteRecord {
-    /// CPU program counter at the time of the `OUT ($BFFD),A`.
+    /// CPU program counter at the issuing `OUT` to the AY data port.
     pub pc: u16,
     /// AY register index (0-15) that was selected when the write
     /// happened. R0/R1 set tone-A period, R8/R9/R10 set channel
@@ -36,8 +38,7 @@ pub struct AyWriteRecord {
     pub value: u8,
 }
 
-/// AY register-write tracer state owned by a Spectrum-class core
-/// that carries an AY-3-8912.
+/// AY register-write tracer state owned by an AY-bearing core.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AyWriteWatch {
     /// Captured writes, in chronological order, capped at `cap`.
@@ -68,8 +69,7 @@ impl AyWriteWatch {
         self.cap
     }
 
-    /// `true` once the buffer has hit `cap` and is dropping new
-    /// matches.
+    /// `true` once the buffer has hit `cap` and is dropping new matches.
     #[must_use]
     pub fn is_full(&self) -> bool {
         self.writes.len() >= self.cap
@@ -86,9 +86,9 @@ impl AyWriteWatch {
         self.writes.clear();
     }
 
-    /// Record one AY write if the buffer is not yet full. Returns
-    /// `true` when a record was appended (used by tests; production
-    /// code ignores the bool).
+    /// Record one AY write if the buffer is not yet full. Returns `true`
+    /// when a record was appended (used by tests; production code ignores
+    /// the bool).
     pub fn record(&mut self, pc: u16, register: u8, value: u8) -> bool {
         if self.writes.len() >= self.cap {
             return false;
