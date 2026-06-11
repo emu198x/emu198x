@@ -67,6 +67,42 @@ If you catch yourself doing any of these, **stop and re-consult this decision re
 - **Adding a sibling `runtime-{family}-{variant}` crate** when the variant shares its chip stack with an existing runtime. The right shape is generic-over-`M` *within the existing runtime crate* — not a new crate.
 - **Adding an `apply_input_event` as a method** (`&mut self`) on the Runtime struct. The shape is a *free fn* in `input.rs`. It can take `&mut <Machine>`, `&mut Option<Machine>` (Game Boy, where the machine is loaded lazily), or `&mut Runtime<M>` (Spectrum, where the runtime owns an input buffer that survives across `run_until` calls because the keyboard matrix is a whole-matrix-snapshot model rather than per-key events) — pick the smallest argument that lets the function do its job. What's not allowed is the method form: that doesn't generalise to the per-variant generic case and it tangles input handling into the lifecycle module.
 - **Promoting struct fields to `pub` because a test or sibling module needs them.** Add a `pub(crate)` accessor instead. Match the C64 pattern — every cross-module read goes through a small named accessor.
+- **Hand-rolling the variant-swap body** (build a new variant → install it → re-pace the session → reset) inside a `set_machine` tool or the script runner. That shape lives once in the shell as `HeadlessSession::swap_machine`; the runtime crate's job is only to `impl FamilyRuntime` for its dispatcher enum. See *The variant-dispatch shape lives in the shell* below.
+- **Hard-typing a binary's session to one concrete variant** (`HeadlessSession<Spectrum48kRuntime, …>`) when the family has a dispatcher enum. Hold the enum (`SpectrumRuntimeKind`) instead, so mid-session `SetMachine` works in `--script` exactly as it does in MCP. The script runner picks the *initial* variant (e.g. from a snapshot's model); it does not lock the session to it.
+
+## The variant-dispatch shape lives in the shell (`FamilyRuntime`)
+
+**Date:** June 2026. Part of #456 (MCP / script / UI parity).
+
+A multi-variant family carries a **dispatcher enum** — `SpectrumRuntimeKind` (OCS-style 13 models), `AmigaRuntimeKind` (OCS / ECS / AGA) — a single concrete type that holds any one variant and forwards `MachineCore` + the family live-access trait + `SessionQueryProvider` to the active case. That enum is the per-family part and stays in the `runtime-{family}` crate (`family_runtime.rs` / `variants.rs`).
+
+What is **not** per-family is the *shape* of constructing-a-variant, knowing-its-pacing, and swapping-it. That lives once at the top, in `emu198x-shell`:
+
+```rust
+// machine.rs — sits ABOVE MachineCore; never touches the run loop.
+pub trait FamilyRuntime: MachineCore + Sized {
+    type Model: Copy;
+    fn from_firmware(model: Self::Model, firmware: &FirmwareSet<'_>)
+        -> Result<Self, MachineError>;
+    fn native_frame_ticks(&self) -> u64;
+}
+
+// session.rs — the one swap body, generic over any family.
+impl<M: FamilyRuntime, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
+    pub fn swap_machine(&mut self, model: M::Model, firmware: &FirmwareSet<'_>)
+        -> Result<(), SessionError> {
+        let new = M::from_firmware(model, firmware)?;
+        let ticks = new.native_frame_ticks();
+        *self.machine_mut() = new;
+        self.set_native_frame_ticks(ticks);   // re-pace to the new variant's frame
+        self.reset(ResetKind::Hard)
+    }
+}
+```
+
+Each family enum does `impl FamilyRuntime` (a 3-to-13-arm `from_firmware` dispatch + a `native_frame_ticks` reading the active variant's frame length). The MCP `set_machine` tool and the `--script` `SetMachine` step both call `swap_machine` — one implementation, so the two modes can't drift. `from_firmware` is the trait method *only* (not also inherent) — same name on both makes `Type::from_firmware(…)` calls ambiguous (E0034), so call sites that build the enum bring `FamilyRuntime` into scope.
+
+**Why a trait + enum and not `Box<dyn>`.** The variant set is closed and known at compile time — exactly what an enum is for. Eliminating the enum via `Box<dyn MachineCore>` was considered and rejected: it contradicts this record's "generic-over-`M` within the crate" stance, reintroduces the heap indirection the Amiga enum explicitly rejects (`#[allow(clippy::large_enum_variant)]` — one instance per session, held for its lifetime, so boxing only adds per-tick indirection on the hot forwarding path), and `SpectrumMachine::variant_query_paths()` is a static (no-`self`) method, making the query surface not object-safe without a wrapper rewrite across every machine impl + MCP handler + test. The trait lifts the *shared shape*; the enum keeps the *closed dispatch*.
 
 ## When the per-variant generic axis applies
 
