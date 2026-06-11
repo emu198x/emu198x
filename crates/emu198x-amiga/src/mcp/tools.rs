@@ -1559,72 +1559,6 @@ fn tool_poke_word(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError
     }))
 }
 
-fn tool_watch_memory(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let lo = arg_u32(&args, "addr")?;
-    let len = arg_u32(&args, "len")?;
-    if len == 0 {
-        return Err(ToolError::InvalidArguments("`len` must be ≥ 1".into()));
-    }
-    s.live_mut().set_watch(Some((lo, len)));
-    Ok(json!({
-        "watching": {
-            "lo":  format!("${:08X}", lo),
-            "len": len,
-            "hi_exclusive": format!("${:08X}", lo.wrapping_add(len)),
-        },
-        "log_cleared": true,
-    }))
-}
-
-fn tool_watch_memory_clear(_args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let prior = s.live().watch_range();
-    let count = s.live().watch_log().len();
-    s.live_mut().set_watch(None);
-    Ok(json!({
-        "had_watch": prior.is_some(),
-        "writes_captured_before_clear": count,
-    }))
-}
-
-fn tool_watch_memory_log(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let access = s.live();
-    let log = access.watch_log();
-    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(64) as usize;
-    let unique = args.get("unique").and_then(Value::as_bool).unwrap_or(false);
-
-    let mut entries: Vec<&(u64, u32, u32, u16, bool)> = log.iter().collect();
-    if unique {
-        let mut seen = std::collections::HashSet::new();
-        entries.retain(|(_, pc, addr, val, _)| seen.insert((*pc, *addr, *val)));
-    }
-    let total = entries.len();
-    let returned: Vec<Value> = entries
-        .iter()
-        .rev()
-        .take(limit)
-        .rev()
-        .map(|(cck, pc, addr, val, is_word)| {
-            json!({
-                "cck": cck,
-                "pc":   format!("${:08X}", pc),
-                "addr": format!("${:08X}", addr),
-                "val":  format!("${:04X}", val),
-                "size": if *is_word { "word" } else { "byte" },
-            })
-        })
-        .collect();
-    Ok(json!({
-        "total_writes": log.len(),
-        "filtered_total": total,
-        "returned": returned.len(),
-        "watch_range": access.watch_range().map(|(lo, len)| json!({
-            "lo": format!("${:08X}", lo),
-            "len": len,
-        })),
-        "entries": returned,
-    }))
-}
-
 fn tool_restart(args: Value, _s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     // Tear down a live recording cleanly so the temp file doesn't
     // leak — `VideoRecorder::Drop` would handle this too, but doing
@@ -2604,22 +2538,6 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
         restart_schema,
         tool_restart,
     );
-    let watch_set_schema = json!({
-        "type": "object",
-        "required": ["addr", "len"],
-        "properties": {
-            "addr": {"description": "Watch range low address (inclusive). Hex/decimal accepted."},
-            "len":  {"description": "Watch range length in bytes. Hex/decimal accepted."}
-        }
-    });
-    let watch_log_schema = json!({
-        "type": "object",
-        "properties": {
-            "limit":  {"type": "integer", "minimum": 1, "maximum": 8192, "default": 64},
-            "unique": {"type": "boolean", "default": false,
-                       "description": "De-dupe by (PC, addr, value). Drops repeated identical writes."}
-        }
-    });
     let poke_word_schema = json!({
         "type": "object",
         "required": ["addr", "val"],
@@ -2677,27 +2595,10 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
         chipset_write_schema,
         tool_chipset_write_log,
     );
-    add(
-        registry,
-        "watch_memory",
-        "Set a write-watchpoint on a chip-RAM byte range. Captures every CPU bus write that lands in the range as (cck, pc, addr, val, size). Clears any prior log.",
-        watch_set_schema,
-        tool_watch_memory,
-    );
-    add(
-        registry,
-        "watch_memory_clear",
-        "Clear the active write-watchpoint (stops further capture). Returns how many writes were captured.",
-        empty(),
-        tool_watch_memory_clear,
-    );
-    add(
-        registry,
-        "watch_memory_log",
-        "Dump the writes captured by the watchpoint. `unique:true` de-dupes by (PC, addr, value).",
-        watch_log_schema,
-        tool_watch_memory_log,
-    );
+    // watch_memory / watch_memory_clear / watch_memory_log now come from the
+    // shared watch tier (`register_memory_watch_tools`, registered in
+    // `mcp/mod.rs`) over the Amiga's `WatchTarget` impl — one body for MCP +
+    // `--script`, fleet-wide naming (`watch_memory_start`). RULES.md #30.
     let bplcon0_log_schema = json!({
         "type": "object",
         "properties": {

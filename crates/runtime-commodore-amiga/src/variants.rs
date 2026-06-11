@@ -25,6 +25,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use crate::live_access::AmigaLiveAccess;
 use crate::queries::{aga_snapshot, chip_field, is_chip, resolve_chip_query};
 use crate::{AmigaRuntime, Model};
 
@@ -860,6 +861,66 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
     }
     fn debug_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::DebugTarget> {
         Some(self)
+    }
+
+    // The Amiga joins the shared watch tier via `impl WatchTarget` below; it
+    // exposes the memory-write surface only (Paula, not an AY-3-8912).
+    fn watch_target(&self) -> Option<&dyn emu198x_shell::WatchTarget> {
+        Some(self)
+    }
+    fn watch_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::WatchTarget> {
+        Some(self)
+    }
+}
+
+/// Memory-write watch over the shared [`emu198x_shell::WatchTarget`]. The
+/// Amiga stamps each write with its colour-clock count and byte/word width
+/// (preserved through `WatchMemoryRecord::cck` / `size_bytes`), and grows the
+/// capture buffer without limit (so `start` reports capacity `0` = unbounded).
+/// No AY surface — the Amiga's sound chip is Paula.
+impl emu198x_shell::WatchTarget for AmigaRuntimeKind {
+    fn supports_memory_watch(&self) -> bool {
+        true
+    }
+
+    fn start_memory_watch(
+        &mut self,
+        addr: u32,
+        len: u32,
+    ) -> Result<u32, emu198x_shell::WatchError> {
+        AmigaLiveAccess::set_watch(self, Some((addr, len)));
+        Ok(0)
+    }
+
+    fn clear_memory_watch(&mut self) -> (bool, u32) {
+        let had_watch = AmigaLiveAccess::watch_range(self).is_some();
+        let captured = AmigaLiveAccess::watch_log(self).len() as u32;
+        AmigaLiveAccess::set_watch(self, None);
+        (had_watch, captured)
+    }
+
+    fn memory_watch_range(&self) -> Option<(u32, u32)> {
+        AmigaLiveAccess::watch_range(self)
+    }
+
+    fn memory_watch_records(&self) -> Option<Vec<emu198x_shell::WatchMemoryRecord>> {
+        // `Some` only while armed, matching the shared shape (a `None` range
+        // reports as "no active watch" rather than an empty log).
+        AmigaLiveAccess::watch_range(self)?;
+        Some(
+            AmigaLiveAccess::watch_log(self)
+                .iter()
+                .map(
+                    |&(cck, pc, addr, val, is_word)| emu198x_shell::WatchMemoryRecord {
+                        pc,
+                        addr,
+                        value: u32::from(val),
+                        cck: Some(cck),
+                        size_bytes: if is_word { 2 } else { 1 },
+                    },
+                )
+                .collect(),
+        )
     }
 }
 

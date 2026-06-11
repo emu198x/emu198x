@@ -769,7 +769,8 @@ pub enum ScriptObservation {
         len: u32,
         /// Capacity (max records the log can hold). Once full the log
         /// stops growing; callers should poll via
-        /// [`ScriptStep::WatchMemoryLog`] before that.
+        /// [`ScriptStep::WatchMemoryLog`] before that. `0` means the log
+        /// is unbounded (the Amiga grows its buffer without limit).
         capacity: u32,
     },
     /// Result of stopping a memory write watch and dropping its log.
