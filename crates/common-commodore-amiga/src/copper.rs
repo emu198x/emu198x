@@ -51,10 +51,10 @@ pub struct Copper {
     /// compared; bit 0 forced to 0 since hpos LSB is ignored).
     pub wait_mask: u16,
     /// Blitter-finished-disable bit from the WAIT instruction. When
-    /// false (`BFD=0`), the WAIT must also observe blitter-finished
-    /// before proceeding. We don't yet model the blitter, so BFD=0
-    /// currently behaves as "blitter always finished" — this is the
-    /// same simplification UAE uses when the blitter is idle.
+    /// false (`BFD=0`), the WAIT also blocks until the blitter has
+    /// finished — `tick_cck` is passed the live `blitter_busy` and
+    /// holds the WAIT while a blit is in flight (#33). When true
+    /// (`BFD=1`, the common case) the blitter is ignored.
     pub wait_bfd: bool,
     /// CCKs accumulated since last copper instruction step. MOVE and
     /// SKIP complete in 2 eligible CCKs (HRM: "two memory cycles and
@@ -137,6 +137,7 @@ impl Copper {
         beam_vp: u16,
         beam_hp: u16,
         claim: DmaClaim,
+        blitter_busy: bool,
     ) -> Option<(u16, u16)> {
         // Halted by a dangerous MOVE? Sit still until the next
         // COPJMP1/COPJMP2 strobe (which the VBL auto-fires).
@@ -144,13 +145,16 @@ impl Copper {
             return None;
         }
 
-        // If waiting, only resume when the masked beam position
-        // reaches the masked target AND (for BFD=0) the blitter is
-        // finished. We don't yet model the blitter; treat BFD=0 as
-        // "blitter always finished" — matches UAE's idle-blitter
-        // behaviour.
+        // If waiting, only resume when the masked beam position reaches
+        // the masked target AND — for a BFD=0 WAIT — the blitter has
+        // finished (#33). `wait_bfd` true means BFD=1, i.e. the WAIT
+        // ignores the blitter (the common case); BFD=0 is the
+        // BltWait/copper-blitter-sync idiom that blocks the copper until
+        // the in-flight blit drains.
         if self.waiting {
-            if beam_match(self.wait_target, self.wait_mask, beam_vp, beam_hp) {
+            let satisfied = beam_match(self.wait_target, self.wait_mask, beam_vp, beam_hp)
+                && (self.wait_bfd || !blitter_busy);
+            if satisfied {
                 self.waiting = false;
                 self.cck_phase = 0;
             }
@@ -183,14 +187,16 @@ impl Copper {
             // which the beam has wrapped to line 256 (V[7:0] = 0),
             // instead of seeing the still-$FF V[7:0] of line 255.
             self.pending_wait_delay = false;
-            if beam_match(
+            let satisfied = beam_match(
                 self.pending_wait_target,
                 self.pending_wait_mask,
                 beam_vp,
                 beam_hp,
-            ) {
-                // Beam already at/past target: the WAIT completes and
-                // the copper proceeds to fetch the next instruction.
+            ) && (self.pending_wait_bfd || !blitter_busy);
+            if satisfied {
+                // Beam already at/past target (and, for BFD=0, blitter
+                // idle): the WAIT completes and the copper proceeds to
+                // fetch the next instruction.
                 self.cck_phase = 0;
             } else {
                 self.waiting = true;
@@ -348,7 +354,7 @@ mod tests {
     /// `dispatch_custom_write` in production.
     fn run_ccks(copper: &mut Copper, mem: &Memory, denise: &mut TestDenise, vpos: u16, ccks: u16) {
         for i in 0..ccks {
-            if let Some((reg, val)) = copper.tick_cck(mem, vpos, i % 227, DmaClaim::Free) {
+            if let Some((reg, val)) = copper.tick_cck(mem, vpos, i % 227, DmaClaim::Free, false) {
                 denise.write_word(reg, val);
             }
         }
@@ -379,7 +385,7 @@ mod tests {
         copper.jump1();
 
         for _ in 0..40 {
-            let write = copper.tick_cck(&mem, 0, 0, DmaClaim::Free);
+            let write = copper.tick_cck(&mem, 0, 0, DmaClaim::Free, false);
             if let Some((reg, val)) = write {
                 denise.write_word(reg, val);
             }
@@ -405,7 +411,7 @@ mod tests {
             } else {
                 DmaClaim::Free
             };
-            if let Some((reg, val)) = copper.tick_cck(&mem, 0, hpos, claim) {
+            if let Some((reg, val)) = copper.tick_cck(&mem, 0, hpos, claim, false) {
                 denise.write_word(reg, val);
             }
         }
@@ -440,7 +446,7 @@ mod tests {
 
         // Tick more with beam still below target — MOVE doesn't run.
         for i in 0..50 {
-            if let Some((reg, val)) = copper.tick_cck(&mem, 4, i % 227, DmaClaim::Free) {
+            if let Some((reg, val)) = copper.tick_cck(&mem, 4, i % 227, DmaClaim::Free, false) {
                 denise.write_word(reg, val);
             }
         }
@@ -772,7 +778,7 @@ mod tests {
 
         for vpos in 250u16..312 {
             for hpos in 0u16..227 {
-                if let Some((reg, val)) = copper.tick_cck(&mem, vpos, hpos, DmaClaim::Free) {
+                if let Some((reg, val)) = copper.tick_cck(&mem, vpos, hpos, DmaClaim::Free, false) {
                     denise.write_word(reg, val);
                     if reg == 0x0180 {
                         return Some(vpos);
@@ -799,6 +805,51 @@ mod tests {
             line,
             Some(284),
             "post-crossing MOVE must fire at line 284, not at the crossing"
+        );
+    }
+
+    #[test]
+    fn bfd0_wait_blocks_until_blitter_idle() {
+        // Regression for #33. A WAIT with BFD=0 (word2 bit 15 clear) is
+        // the copper↔blitter sync idiom: it must NOT release while the
+        // blitter is busy, even once the beam position is reached.
+        let mem = build_test_memory_with_list(
+            &[
+                (0x0001, 0x7FFE), // WAIT vp=0, BFD=0 (bit 15 clear)
+                (0x0180, 0x0F00), // MOVE COLOR00 = $0F00
+                (0xFFFF, 0xFFFE),
+            ],
+            0x1000,
+        );
+        let mut denise = TestDenise::new();
+        let mut copper = Copper::new();
+        copper.cop1lc = 0x1000;
+        copper.jump1();
+
+        // Beam already past the target, but the blitter is busy: the
+        // WAIT must hold, so the MOVE never runs.
+        for i in 0..40u16 {
+            if let Some((reg, val)) = copper.tick_cck(&mem, 0, i % 227, DmaClaim::Free, true) {
+                denise.write_word(reg, val);
+            }
+        }
+        assert_eq!(
+            denise.color(0),
+            0x0000,
+            "BFD=0 WAIT must hold while the blitter is busy"
+        );
+        assert!(copper.waiting, "copper stays parked at the BFD=0 WAIT");
+
+        // Blitter goes idle: the WAIT releases and the MOVE runs.
+        for i in 0..8u16 {
+            if let Some((reg, val)) = copper.tick_cck(&mem, 0, i % 227, DmaClaim::Free, false) {
+                denise.write_word(reg, val);
+            }
+        }
+        assert_eq!(
+            denise.color(0),
+            0x0F00,
+            "BFD=0 WAIT releases once the blitter is idle"
         );
     }
 }

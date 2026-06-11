@@ -1574,7 +1574,12 @@ impl AmigaEcs {
                 // the non-Denise ones.
                 let vpos = self.agnus.vpos;
                 let hpos = self.agnus.hpos;
-                if let Some((reg, val)) = self.copper.tick_cck(&self.memory, vpos, hpos, claim) {
+                // BFD=0 copper WAITs block on the live blitter (#33).
+                let blitter_busy = self.agnus.blitter_busy;
+                if let Some((reg, val)) =
+                    self.copper
+                        .tick_cck(&self.memory, vpos, hpos, claim, blitter_busy)
+                {
                     self.debug_copper_move_log.push((
                         self.tick_count / TICKS_PER_CCK,
                         vpos,
