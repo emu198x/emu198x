@@ -337,6 +337,14 @@ impl DeniseOcs {
         value
     }
 
+    /// Non-destructive CLXDAT read for the debug / inspection bus
+    /// (`&self`). The real CPU read clears on read via [`Self::read_clxdat`];
+    /// a `memory_read` of `$DFF00E` must not destroy collision state.
+    #[must_use]
+    pub fn peek_clxdat(&self) -> u16 {
+        self.clxdat
+    }
+
     pub fn write_sprite_pos(&mut self, sprite: usize, val: u16) {
         if sprite < 8 {
             // Register updates immediately for Agnus DMA control (vstart/vstop).
@@ -540,6 +548,13 @@ impl DeniseOcs {
             }
 
             if self.spr_shift_count[sprite] == 0 {
+                // Shifter exhausted: emit nothing. No code clear is needed
+                // here — `spr_current_code` was already zeroed for every
+                // sprite at the top of this step (the `= [0; 8]` above), so an
+                // exhausted sprite contributes no collision code for the rest
+                // of the line. (This is why the "stale right-edge collision
+                // trail" of issue #459 cannot occur; locked in by the
+                // `exhausted_sprite_leaves_no_collision_trail*` regression.)
                 continue;
             }
 

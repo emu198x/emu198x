@@ -1550,6 +1550,9 @@ impl AmigaA1200 {
                 0x006 => self.agnus.vhposr(),
                 0x00A => joydat(self.joy0_x, self.joy0_y),
                 0x00C => joydat(self.joy1_x, self.joy1_y),
+                // CLXDAT — debug peek, non-clearing (the real CPU read
+                // clears on read via `dispatch_custom_register`).
+                0x00E => self.denise.peek_clxdat(),
                 // DENISEID — KS reads this to discriminate AGA Lisa
                 // ($00F8) from ECS Super Denise ($FFFC) and OCS
                 // Denise ($FFFF, open bus). A1200 = Lisa.
@@ -2073,6 +2076,8 @@ impl AmigaA1200 {
                 0x006 => self.agnus.vhposr(),
                 0x00A => joydat(self.joy0_x, self.joy0_y),
                 0x00C => joydat(self.joy1_x, self.joy1_y),
+                // CLXDAT — latched sprite/playfield collisions, cleared on read.
+                0x00E => self.denise.read_clxdat(),
                 0x01C => self.paula.intena(),
                 0x01E => self.paula.intreq(),
                 0x010 => self.paula.adkcon(),

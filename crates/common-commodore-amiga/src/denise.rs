@@ -215,6 +215,20 @@ impl<C: DeniseChip> Denise<C> {
         self.ocs.deniseid()
     }
 
+    /// CLXDAT register read ($DFF00E) — latched sprite/playfield
+    /// collision bits, cleared on read. Forwarded to the concrete
+    /// chip's collision latch.
+    pub fn read_clxdat(&mut self) -> u16 {
+        self.ocs.read_clxdat()
+    }
+
+    /// Non-destructive CLXDAT read for the debug / inspection bus
+    /// (`&self`); does not clear the latch.
+    #[must_use]
+    pub fn peek_clxdat(&self) -> u16 {
+        self.ocs.peek_clxdat()
+    }
+
     /// Framebuffer dimensions (width, height).
     #[must_use]
     pub fn framebuffer_size(&self) -> (u32, u32) {

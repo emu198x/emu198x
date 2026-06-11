@@ -365,6 +365,12 @@ impl DeniseChip for DeniseAga {
     fn deniseid(&self) -> u16 {
         DeniseAga::deniseid(self)
     }
+    fn read_clxdat(&mut self) -> u16 {
+        self.inner.as_inner_mut().read_clxdat()
+    }
+    fn peek_clxdat(&self) -> u16 {
+        self.inner.as_inner().peek_clxdat()
+    }
 }
 
 #[cfg(test)]

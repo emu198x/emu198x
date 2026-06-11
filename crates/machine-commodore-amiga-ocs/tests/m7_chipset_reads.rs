@@ -117,3 +117,25 @@ fn cia_a_pra_inputs_float_high() {
          (bits 0+1 = PRA, bits 2-7 = empty-drive input pins)"
     );
 }
+
+#[test]
+fn clxdat_read_is_wired_not_open_bus() {
+    // Regression for #457. CLXDAT ($DFF00E) had no dispatch arm, so the
+    // read fell through to the `_ => 0xFFFF` open-bus default — every
+    // collision bit set on every read, forever. The fix routes $00E to
+    // Denise's collision latch. At reset, with no collision latched, the
+    // register must read back $0000 — emphatically not $FFFF.
+    //
+    // A dummy (zero) Kickstart is enough: this drives no CPU, it only
+    // exercises the custom-register read dispatch.
+    let amiga = AmigaOcs::new(vec![0u8; 512 * 1024]);
+    let clxdat = amiga.read_word(0x00DFF00E);
+    assert_eq!(
+        clxdat, 0x0000,
+        "CLXDAT must route to Denise (clear at reset), not open-bus $FFFF"
+    );
+    assert_ne!(
+        clxdat, 0xFFFF,
+        "CLXDAT must not be the open-bus fallthrough"
+    );
+}

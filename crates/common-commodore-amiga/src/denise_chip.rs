@@ -82,6 +82,14 @@ pub trait DeniseChip:
     /// reads this to discriminate chipset generation during init.
     fn deniseid(&self) -> u16;
 
+    /// CLXDAT register read ($DFF00E): the latched sprite/playfield
+    /// collision bits, cleared on read. Collision state lives in the
+    /// shared OCS core for every chipset, so each variant forwards
+    /// to it.
+    fn read_clxdat(&mut self) -> u16;
+    /// Non-destructive CLXDAT read for the debug / inspection bus.
+    fn peek_clxdat(&self) -> u16;
+
     // ── Field mutators used by the wrapper ──
     fn set_bplcon0(&mut self, v: u16);
     fn set_interlace_active(&mut self, v: bool);
@@ -177,6 +185,12 @@ impl DeniseChip for DeniseOcs {
         // OCS Denise 8362 has no version register — open-bus read.
         0xFFFF
     }
+    fn read_clxdat(&mut self) -> u16 {
+        self.read_clxdat()
+    }
+    fn peek_clxdat(&self) -> u16 {
+        self.peek_clxdat()
+    }
 }
 
 // DeniseEcs wraps DeniseOcs via Deref<Target = DeniseOcs>; field
@@ -271,5 +285,11 @@ impl DeniseChip for DeniseEcs {
     }
     fn deniseid(&self) -> u16 {
         DeniseEcs::deniseid(self)
+    }
+    fn read_clxdat(&mut self) -> u16 {
+        self.as_inner_mut().read_clxdat()
+    }
+    fn peek_clxdat(&self) -> u16 {
+        self.as_inner().peek_clxdat()
     }
 }

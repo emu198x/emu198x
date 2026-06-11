@@ -1085,3 +1085,43 @@ fn priority_loop_skips_attached_odd_sprite_then_lights_unattached_below() {
         "attached transparent pair must fall through to next sprite"
     );
 }
+
+#[test]
+fn exhausted_sprite_leaves_no_collision_trail_past_its_right_edge() {
+    // Guards the concern raised in #459: once a sprite's serial shifter
+    // exhausts, it must stop contributing its last colour code to the
+    // collision latch, or a solid-to-the-edge sprite would phantom-collide
+    // with any later sprite on the same line even though the two never
+    // overlap a pixel. The per-pixel `spr_current_code = [0; 8]` reset in
+    // `step_sprite_runtime_one_pixel` already makes this hold (so #459 was
+    // not actually a live bug); this test locks that behaviour in.
+    let mut d = with_clear_playfield();
+    d.clxcon = 0xFFFF; // enable every collision source
+
+    // Sprite 0 (group 0): armed at hstart=30, solid across its full
+    // 16-pixel width so its rightmost emitted pixel is non-transparent
+    // (the staleness trigger). It covers beam_x 30..=45, then exhausts.
+    let (pos0, ctl0) = encode_sprite_pos_ctl(30, 5, 6);
+    d.write_sprite_pos(0, pos0);
+    d.write_sprite_ctl(0, ctl0);
+    d.write_sprite_datb(0, 0x0000);
+    d.write_sprite_data(0, 0xFFFF);
+
+    // Sprite 2 (group 1): armed at hstart=60, well past sprite 0's right
+    // edge — the two are never co-incident at any pixel.
+    let (pos2, ctl2) = encode_sprite_pos_ctl(60, 5, 6);
+    d.write_sprite_pos(2, pos2);
+    d.write_sprite_ctl(2, ctl2);
+    d.write_sprite_datb(2, 0x0000);
+    d.write_sprite_data(2, 0xFFFF);
+
+    // Resolve the pixel where sprite 2 is live but sprite 0 has long
+    // since exhausted. Bit 9 is the SP01 ^ SP23 group cross.
+    let _ = d.output_pixel_with_beam(60, 5, 60, 5);
+    let clx = d.read_clxdat();
+    assert_eq!(
+        clx & (1 << 9),
+        0,
+        "exhausted sprite 0 must not phantom-collide with sprite 2 to its right"
+    );
+}
