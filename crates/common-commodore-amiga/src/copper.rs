@@ -173,11 +173,31 @@ impl Copper {
         // this flag is set, the current eligible CCK is that 3rd
         // cycle: commit the stashed target/mask and enter waiting.
         if self.pending_wait_delay {
-            self.waiting = true;
-            self.wait_target = self.pending_wait_target;
-            self.wait_mask = self.pending_wait_mask;
-            self.wait_bfd = self.pending_wait_bfd;
+            // This eligible CCK is the WAITSKIP2 cycle (Minimig
+            // agnus_copper.v FSM: FETCH1 → FETCH2 → WAITSKIP1 →
+            // WAITSKIP2). The beam comparison happens HERE — after the
+            // word-pair fetch and the dummy cycle — not at fetch time.
+            // Evaluating it here is what makes the $FFDF line-255
+            // crossing behave (#458): a WAIT fetched late on line 255
+            // has its compare deferred to a couple of CCKs later, by
+            // which the beam has wrapped to line 256 (V[7:0] = 0),
+            // instead of seeing the still-$FF V[7:0] of line 255.
             self.pending_wait_delay = false;
+            if beam_match(
+                self.pending_wait_target,
+                self.pending_wait_mask,
+                beam_vp,
+                beam_hp,
+            ) {
+                // Beam already at/past target: the WAIT completes and
+                // the copper proceeds to fetch the next instruction.
+                self.cck_phase = 0;
+            } else {
+                self.waiting = true;
+                self.wait_target = self.pending_wait_target;
+                self.wait_mask = self.pending_wait_mask;
+                self.wait_bfd = self.pending_wait_bfd;
+            }
             return None;
         }
 
@@ -254,18 +274,17 @@ impl Copper {
             let bfd = (word2 & 0x8000) != 0;
 
             if word2 & 1 == 0 {
-                // WAIT.
-                if beam_match(target, mask, beam_vp, beam_hp) {
-                    // Already past — instruction completes, copper
-                    // continues with the next pair on the next tick.
-                } else {
-                    // Arm the 3rd-memory-cycle delay. The next
-                    // eligible CCK will commit the waiting state.
-                    self.pending_wait_delay = true;
-                    self.pending_wait_target = target;
-                    self.pending_wait_mask = mask;
-                    self.pending_wait_bfd = bfd;
-                }
+                // WAIT. The beam comparison is NOT made here at fetch
+                // time — it is deferred to the WAITSKIP2 cycle (the
+                // `pending_wait_delay` handler above), matching the
+                // Agnus copper FSM. Arm the delay unconditionally and
+                // stash the target/mask/bfd; the next eligible CCK
+                // evaluates the compare and either completes the WAIT
+                // (already past) or commits the waiting state.
+                self.pending_wait_delay = true;
+                self.pending_wait_target = target;
+                self.pending_wait_mask = mask;
+                self.pending_wait_bfd = bfd;
             } else {
                 // SKIP: if beam already satisfies the mask/target,
                 // skip the next instruction word-pair.
@@ -728,5 +747,58 @@ mod tests {
 
         run_ccks(&mut copper, &mem, &mut denise, 10, 12);
         assert_eq!(denise.color(0), 0x0F00);
+    }
+
+    /// Drive a real beam across the line-255 → 256 wrap through the
+    /// canonical PAL-bottom sequence and report the line on which the
+    /// post-crossing MOVE fires. Returns `Some(line)` or `None` if the
+    /// copper never reached the MOVE within the frame.
+    fn ffdf_crossing_fire_line() -> Option<u16> {
+        // WAIT $FFDF (cross line 255), WAIT $1C01 (target line 284),
+        // MOVE COLOR00, end. Full PAL line = 227 CCKs (hpos 0..=226).
+        let mem = build_test_memory_with_list(
+            &[
+                (0xFFDF, 0xFFFE),
+                (0x1C01, 0xFFFE),
+                (0x0180, 0x0F00),
+                (0xFFFF, 0xFFFE),
+            ],
+            0x1000,
+        );
+        let mut denise = TestDenise::new();
+        let mut copper = Copper::new();
+        copper.cop1lc = 0x1000;
+        copper.jump1();
+
+        for vpos in 250u16..312 {
+            for hpos in 0u16..227 {
+                if let Some((reg, val)) = copper.tick_cck(&mem, vpos, hpos, DmaClaim::Free) {
+                    denise.write_word(reg, val);
+                    if reg == 0x0180 {
+                        return Some(vpos);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn ffdf_line255_crossing_waits_for_the_real_target_line() {
+        // Regression for #458. After `WAIT $FFDF` crosses line 255
+        // (V[7:0] = $FF), a following `WAIT $1C01` must wait for the
+        // beam to wrap to line 256 (V[7:0] = 0) and count up to $1C —
+        // i.e. fire at line 284 — NOT fire immediately at the crossing.
+        //
+        // The bug fired it at line 256 because the copper evaluated the
+        // second WAIT's beam comparison at fetch time (still V[7:0]=$FF,
+        // and $FF >= $1C), instead of at the hardware WAITSKIP2 point a
+        // couple of CCKs later, by which the beam has wrapped.
+        let line = ffdf_crossing_fire_line();
+        assert_eq!(
+            line,
+            Some(284),
+            "post-crossing MOVE must fire at line 284, not at the crossing"
+        );
     }
 }
