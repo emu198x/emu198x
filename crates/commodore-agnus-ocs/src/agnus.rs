@@ -367,6 +367,16 @@ pub struct Agnus {
     /// `true` while all results are zero, cleared on the first non-zero
     /// D word. Read out as DMACONR BZERO (bit 13). Reset at `start_blit`.
     pub blitter_dzero: bool,
+    /// Effective blit height (rows for area mode, length for line mode):
+    /// the legacy BLTSIZE `>>6` field (0→1024) or, for an ECS large
+    /// blit, the full 15-bit BLTSIZV (0→32768). Set at blit start so the
+    /// op count + runtime don't re-derive a wrapped value from the
+    /// 10-bit legacy field (#36).
+    pub blt_height: u32,
+    /// Effective blit width in words: the legacy BLTSIZE low-6 field
+    /// (0→64) or, for an ECS large blit, the full 11-bit BLTSIZH
+    /// (0→2048). Set at blit start (#36).
+    pub blt_width_words: u32,
     pub blitter_ccks_remaining: u32,
     blitter_word_state: Option<BlitterWordState>,
     blitter_line_runtime: Option<BlitterLineRuntime>,
@@ -478,6 +488,8 @@ impl Agnus {
             blitter_busy: false,
             blitter_exec_pending: false,
             blitter_dzero: true,
+            blt_height: 0,
+            blt_width_words: 0,
             blitter_ccks_remaining: 0,
             blitter_word_state: None,
             blitter_line_runtime: None,
@@ -651,6 +663,28 @@ impl Agnus {
     /// This preserves `blitter_busy` across CCKs so bus arbitration can react
     /// to the blitter before the existing synchronous blit implementation runs.
     pub fn start_blit(&mut self) {
+        // Legacy BLTSIZE encoding: V in bits 15-6 (0 → 1024 lines), H in
+        // bits 5-0 (0 → 64 words).
+        let height = match u32::from((self.bltsize >> 6) & 0x03FF) {
+            0 => 1024,
+            h => h,
+        };
+        let width_words = match u32::from(self.bltsize & 0x003F) {
+            0 => 64,
+            w => w,
+        };
+        self.start_blit_with_size(height, width_words);
+    }
+
+    /// Start a blit with an explicit height/width, bypassing the legacy
+    /// 10+6-bit BLTSIZE decode. The ECS large-blit path (BLTSIZV at
+    /// $05C, BLTSIZH at $05E) calls this to drive the engine from the
+    /// full 15-bit height / 11-bit width without wrapping them back into
+    /// the legacy field widths (#36). `height` is rows (area) / length
+    /// (line); `width_words` is words per row.
+    pub fn start_blit_with_size(&mut self, height: u32, width_words: u32) {
+        self.blt_height = height;
+        self.blt_width_words = width_words;
         self.blitter_busy = true;
         self.blitter_exec_pending = true;
         self.blitter_dzero = true; // BZERO accumulates from "all zero"
@@ -1106,10 +1140,10 @@ impl Agnus {
 
     /// Count the total blitter DMA ops for the entire blit (for BLTBUSY timing).
     fn count_total_blitter_ops(&self) -> u32 {
-        let height = u32::from((self.bltsize >> 6) & 0x03FF);
-        let width_words = u32::from(self.bltsize & 0x003F);
-        let height = if height == 0 { 1024 } else { height };
-        let width_words = if width_words == 0 { 64 } else { width_words };
+        // Effective size set by start_blit / start_blit_with_size — full
+        // width for ECS large blits, legacy-decoded otherwise (#36).
+        let height = self.blt_height;
+        let width_words = self.blt_width_words;
 
         if (self.bltcon1 & 0x0001) != 0 {
             // LINE mode: 2 ops per step (ReadC + WriteD).
@@ -1132,10 +1166,10 @@ impl Agnus {
         self.blitter_line_runtime = None;
         self.blitter_area_runtime = None;
         if (self.bltcon1 & 0x0001) == 0 {
-            let height = u32::from((self.bltsize >> 6) & 0x03FF);
-            let width_words = u32::from(self.bltsize & 0x003F);
-            let height = if height == 0 { 1024 } else { height };
-            let width_words = if width_words == 0 { 64 } else { width_words };
+            // Effective size from start_blit_with_size — full width for
+            // ECS large blits, legacy-decoded otherwise (#36).
+            let height = self.blt_height;
+            let width_words = self.blt_width_words;
             let use_a = (self.bltcon0 & 0x0800) != 0;
             let use_b = (self.bltcon0 & 0x0400) != 0;
             let use_c = (self.bltcon0 & 0x0200) != 0;
@@ -1181,8 +1215,9 @@ impl Agnus {
             return;
         }
 
-        let length = u32::from((self.bltsize >> 6) & 0x03FF);
-        let length = if length == 0 { 1024 } else { length };
+        // Line mode: length is the effective height field (legacy
+        // BLTSIZE only — ECS BLTSIZV/H drive area blits).
+        let length = self.blt_height;
         let ash = (self.bltcon0 >> 12) & 0xF;
         let lf = self.bltcon0 as u8;
         let texture_enabled = (self.bltcon0 & 0x0400) != 0;

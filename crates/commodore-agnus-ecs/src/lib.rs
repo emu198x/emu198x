@@ -178,27 +178,28 @@ impl AgnusEcs {
     }
 
     /// BLTSIZH ($05E) — set the ECS extended horizontal blit size
-    /// (words, 11 bits) AND trigger the blit. The blit runs with V
-    /// from the most recent BLTSIZV write.
+    /// (words, 11 bits) AND trigger the blit. The blit runs with V from
+    /// the most recent BLTSIZV write.
     ///
-    /// Encodes V+H into the legacy `bltsize` register so the existing
-    /// OCS blitter engine drives it unchanged. Most KS 2.x / WB blits
-    /// fit the legacy encoding (V ≤ 1023 lines, H ≤ 63 words); if a
-    /// caller hits the wider ECS range the encoding wraps — that's a
-    /// known gap, flagged for follow-up if any KS / app actually hits
-    /// it (none observed in the WB 2.x / 3.x boot to date).
+    /// Drives the blitter from the FULL ECS size (15-bit height, 11-bit
+    /// width) via `start_blit_with_size`, so blits wider than the legacy
+    /// 10+6-bit BLTSIZE field no longer wrap (#36). A value of 0 in
+    /// either field means the field maximum, matching WinUAE
+    /// (BLTSIZV → 0x8000 lines, BLTSIZH → 0x800 words).
     pub fn write_bltsizh(&mut self, val: u16) {
         let h = val & 0x07FF;
         self.bltsizh = h;
-        // Pack into the legacy BLTSIZE encoding: bits 15..6 = V
-        // (10 bits, 0 = 1024), bits 5..0 = H (6 bits, 0 = 64). For
-        // sizes that overflow the legacy width we'd need to extend
-        // the blitter engine; until then we mask down so existing
-        // tests continue to pass.
-        let v6 = (self.bltsizv & 0x03FF) << 6;
-        let h6 = h & 0x003F;
-        self.inner.bltsize = v6 | h6;
-        self.inner.start_blit();
+        let height = if self.bltsizv == 0 {
+            0x8000
+        } else {
+            u32::from(self.bltsizv)
+        };
+        let width_words = if h == 0 { 0x0800 } else { u32::from(h) };
+        // Keep a clamped legacy-encoded BLTSIZE so query/debug views of
+        // `bltsize` stay populated; the engine itself runs from the full
+        // size above, not this packed (and for large blits lossy) value.
+        self.inner.bltsize = ((self.bltsizv & 0x03FF) << 6) | (h & 0x003F);
+        self.inner.start_blit_with_size(height, width_words);
     }
 
     /// Borrow the wrapped OCS Agnus core.

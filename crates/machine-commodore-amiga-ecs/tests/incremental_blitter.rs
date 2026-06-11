@@ -92,3 +92,37 @@ fn ecs_legacy_bltsize_start_path_also_works() {
     run_to_idle(&mut amiga);
     assert_eq!(chip_word(&amiga, dst), 0x1234);
 }
+
+#[test]
+fn ecs_large_blit_wider_than_legacy_field_does_not_wrap() {
+    // Regression for #36 end-to-end: a 100-word-wide D-only fill driven
+    // through the ECS BLTSIZV/BLTSIZH path must write all 100 words, not
+    // wrap to 100 & 0x3F = 36 at the legacy 6-bit width field.
+    let mut amiga = machine();
+    let dst = 0x0003_0000;
+
+    amiga.poke_word(0x00DF_F096, 0x8000 | 0x0200 | 0x0040); // DMAEN | BLTEN
+    amiga.poke_word(0x00DF_F040, 0x0100 | 0x00FF); // BLTCON0: USED + minterm $FF (D := 1)
+    amiga.poke_word(0x00DF_F042, 0x0000); // BLTCON1
+    amiga.poke_word(0x00DF_F044, 0xFFFF); // BLTAFWM
+    amiga.poke_word(0x00DF_F046, 0xFFFF); // BLTALWM
+    amiga.poke_word(0x00DF_F066, 0x0000); // BLTDMOD = 0 (contiguous)
+    amiga.poke_word(0x00DF_F054, (dst >> 16) as u16); // BLTDPTH
+    amiga.poke_word(0x00DF_F056, (dst & 0xFFFF) as u16); // BLTDPTL
+    amiga.poke_word(0x00DF_F05C, 1); // BLTSIZV: 1 row
+    amiga.poke_word(0x00DF_F05E, 100); // BLTSIZH: 100 words — starts the blit
+
+    run_to_idle(&mut amiga);
+    assert_eq!(chip_word(&amiga, dst + 63 * 2), 0xFFFF, "word 63 written");
+    assert_eq!(
+        chip_word(&amiga, dst + 64 * 2),
+        0xFFFF,
+        "word 64 written — legacy 6-bit width would have wrapped this away"
+    );
+    assert_eq!(chip_word(&amiga, dst + 99 * 2), 0xFFFF, "word 99 written");
+    assert_eq!(
+        chip_word(&amiga, dst + 100 * 2),
+        0x0000,
+        "word 100 not written"
+    );
+}

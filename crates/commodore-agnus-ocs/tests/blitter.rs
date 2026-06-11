@@ -486,6 +486,54 @@ fn assert_paths_agree(setup: impl Fn(&mut Agnus, &TestRam), label: &str) {
 }
 
 #[test]
+fn large_blit_size_beyond_legacy_fields_does_not_wrap() {
+    // Regression for #36. The ECS large-blit path drives the engine via
+    // `start_blit_with_size` with the full 15-bit height / 11-bit width.
+    // A width past the legacy 6-bit field (>63 words) or a height past
+    // the legacy 10-bit field (>1023 lines) must NOT wrap.
+
+    // 100-word-wide D-only fill (minterm $FF → D := all ones).
+    let mut agnus = Agnus::new();
+    let ram = TestRam::new();
+    agnus.blt_dpt = 0x2000;
+    agnus.bltcon0 = 0x0100 | 0xFF; // USED + minterm $FF
+    agnus.bltcon1 = 0;
+    agnus.blt_afwm = 0xFFFF;
+    agnus.blt_alwm = 0xFFFF;
+    agnus.blt_dmod = 0;
+    agnus.start_blit_with_size(1, 100); // 1 row × 100 words (> 63)
+    run_blit(&mut agnus, &ram);
+    assert_eq!(ram.peek(0x2000 + 63 * 2), 0xFFFF, "word 63 written");
+    assert_eq!(
+        ram.peek(0x2000 + 64 * 2),
+        0xFFFF,
+        "word 64 written — the legacy 6-bit width would have wrapped this away"
+    );
+    assert_eq!(ram.peek(0x2000 + 99 * 2), 0xFFFF, "word 99 written");
+    assert_eq!(ram.peek(0x2000 + 100 * 2), 0x0000, "word 100 not written");
+
+    // 1100-line-tall D-only fill (height > the legacy 1023-line field).
+    let mut agnus = Agnus::new();
+    let ram = TestRam::new();
+    agnus.blt_dpt = 0x4000;
+    agnus.bltcon0 = 0x0100 | 0xFF;
+    agnus.bltcon1 = 0;
+    agnus.blt_afwm = 0xFFFF;
+    agnus.blt_alwm = 0xFFFF;
+    agnus.blt_dmod = 0;
+    agnus.start_blit_with_size(1100, 1); // 1100 rows × 1 word (> 1023)
+    run_blit(&mut agnus, &ram);
+    // One word per row, dmod 0 → contiguous; row 1099 lands at +1099 words.
+    assert_eq!(ram.peek(0x4000 + 1023 * 2), 0xFFFF, "row 1023 written");
+    assert_eq!(
+        ram.peek(0x4000 + 1099 * 2),
+        0xFFFF,
+        "row 1099 written — the legacy 10-bit height would have wrapped this away"
+    );
+    assert_eq!(ram.peek(0x4000 + 1100 * 2), 0x0000, "row 1100 not written");
+}
+
+#[test]
 fn bzero_tracks_whether_all_d_words_were_zero() {
     // Non-zero D result → BZERO clear.
     let mut agnus = Agnus::new();
