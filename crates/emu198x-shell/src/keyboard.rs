@@ -63,3 +63,104 @@ pub trait KeyboardTarget {
     /// Frame timing tuned to this machine's keyboard scan.
     fn key_timing(&self) -> KeyTiming;
 }
+
+/// Conservative default keyboard timing, in frames — suits a 50/60 Hz
+/// keyboard scan on a machine that has no specially-tuned values.
+pub const STANDARD_KEY_TIMING: KeyTiming = KeyTiming {
+    default_hold_frames: 3,
+    max_hold_frames: 600,
+    press_settle_frames: 1,
+    inter_key_settle_frames: 2,
+    repeat_settle_frames: 2,
+    default_type_settle_frames: 8,
+};
+
+/// A ready-made [`KeyboardTarget`] for the common case: a machine whose input
+/// layer accepts lowercased key names and whose default character set draws
+/// letters in upper case (so a letter types via its bare keycap, no shift).
+///
+/// It maps the universal core every 198x keyboard accepts — letters
+/// (lowercased), digits, space (`"space"`), and Enter (`"enter"`) — and passes
+/// any other printable ASCII through as its own one-character name; the
+/// machine's input layer silently ignores a name it doesn't recognise. A
+/// machine whose symbols need a shifted keycap (e.g. the Spectrum) implements
+/// [`KeyboardTarget`] by hand instead.
+///
+/// Stateless, so one shared instance serves every machine: see
+/// [`STANDARD_KEYBOARD`].
+pub struct StandardKeyboard {
+    timing: KeyTiming,
+}
+
+impl StandardKeyboard {
+    /// Build a standard keyboard with the given timing.
+    #[must_use]
+    pub const fn new(timing: KeyTiming) -> Self {
+        Self { timing }
+    }
+}
+
+impl Default for StandardKeyboard {
+    fn default() -> Self {
+        Self::new(STANDARD_KEY_TIMING)
+    }
+}
+
+impl KeyboardTarget for StandardKeyboard {
+    fn key_name_is_valid(&self, name: &str) -> bool {
+        // The input layer drops names it doesn't know, so accept anything
+        // non-empty rather than maintain a per-machine allow-list here.
+        !name.is_empty()
+    }
+
+    fn key_names_hint(&self) -> &'static str {
+        "A-Z, 0-9, Space, Enter (plus this machine's other named keys)"
+    }
+
+    fn keys_for_char(&self, ch: char) -> Option<Vec<String>> {
+        let name = match ch {
+            'a'..='z' | 'A'..='Z' => ch.to_ascii_lowercase().to_string(),
+            '0'..='9' => ch.to_string(),
+            ' ' => "space".to_owned(),
+            '\n' | '\r' => "enter".to_owned(),
+            c if c.is_ascii_graphic() => c.to_string(),
+            _ => return None,
+        };
+        Some(vec![name])
+    }
+
+    fn key_timing(&self) -> KeyTiming {
+        self.timing
+    }
+}
+
+/// The shared [`StandardKeyboard`] instance. A machine with an ASCII keyboard
+/// returns `Some(&STANDARD_KEYBOARD)` from
+/// [`MachineCore::keyboard_target`](crate::MachineCore::keyboard_target) to get
+/// the shared `press_key` / `type_string` verbs with no per-machine table.
+pub static STANDARD_KEYBOARD: StandardKeyboard = StandardKeyboard::new(STANDARD_KEY_TIMING);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn standard_keyboard_maps_the_universal_core() {
+        let kb = StandardKeyboard::default();
+        // Letters map to the lowercased bare keycap (uppercase charset).
+        assert_eq!(kb.keys_for_char('A'), Some(vec!["a".to_owned()]));
+        assert_eq!(kb.keys_for_char('a'), Some(vec!["a".to_owned()]));
+        // Digits, space, and both newline forms.
+        assert_eq!(kb.keys_for_char('7'), Some(vec!["7".to_owned()]));
+        assert_eq!(kb.keys_for_char(' '), Some(vec!["space".to_owned()]));
+        assert_eq!(kb.keys_for_char('\n'), Some(vec!["enter".to_owned()]));
+        assert_eq!(kb.keys_for_char('\r'), Some(vec!["enter".to_owned()]));
+        // Printable symbols pass through as their own one-character name.
+        assert_eq!(kb.keys_for_char('*'), Some(vec!["*".to_owned()]));
+        // Non-printable / control characters are skipped.
+        assert_eq!(kb.keys_for_char('\t'), None);
+        // Validation is permissive (the input layer drops unknown names).
+        assert!(kb.key_name_is_valid("return"));
+        assert!(!kb.key_name_is_valid(""));
+    }
+}
