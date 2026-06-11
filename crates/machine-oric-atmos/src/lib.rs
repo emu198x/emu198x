@@ -82,7 +82,7 @@
 //! reset at the start of each line. Same 8-colour 3-bit RGB palette as the
 //! Acorn / BBC family.
 
-use gi_ay_3_8912::Ay3_8912;
+use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use mos_6502::M6502;
 use mos_via_6522::Via6522;
 
@@ -151,6 +151,10 @@ pub struct OricAtmos {
     model: OricModel,
     cpu_cycles: u64,
     frame_count: u64,
+    /// When `Some`, every write to the AY data register (via the VIA's
+    /// BDIR/BC1 handshake) is captured for the shared `watch_ay_*` tools.
+    /// Host-side debug only, not part of the snapshot.
+    ay_watch: Option<AyWriteWatch>,
 }
 
 impl OricAtmos {
@@ -177,6 +181,35 @@ impl OricAtmos {
             model,
             cpu_cycles: 0,
             frame_count: 0,
+            ay_watch: None,
+        }
+    }
+
+    /// Start (or restart) capturing AY register writes for `watch_ay_*`.
+    /// Returns the log capacity (max records before writes are dropped).
+    pub fn start_ay_write_watch(&mut self) -> u32 {
+        let watch = AyWriteWatch::new();
+        let cap = watch.cap() as u32;
+        self.ay_watch = Some(watch);
+        cap
+    }
+
+    /// Stop capturing AY writes and drop the log.
+    pub fn stop_ay_write_watch(&mut self) {
+        self.ay_watch = None;
+    }
+
+    /// Captured AY writes since the last `start_ay_write_watch`, or
+    /// `None` when the watch is disarmed.
+    #[must_use]
+    pub fn ay_write_watch_records(&self) -> Option<&[AyWriteRecord]> {
+        self.ay_watch.as_ref().map(AyWriteWatch::records)
+    }
+
+    /// Drop captured AY writes while leaving the watch armed.
+    pub fn clear_ay_write_watch_records(&mut self) {
+        if let Some(w) = &mut self.ay_watch {
+            w.clear();
         }
     }
 
@@ -276,6 +309,9 @@ impl OricAtmos {
                 self.psg.select_register(port_a);
             }
             (true, false) => {
+                if let Some(w) = &mut self.ay_watch {
+                    w.record(self.cpu.regs.pc, self.psg.selected_register(), port_a);
+                }
                 self.psg.write_data(port_a);
             }
             (false, true) => {
@@ -698,6 +734,40 @@ mod tests {
         sys.mem_write(0x030C, 0xEE);
         // AY's selected register should now be 7.
         assert_eq!(sys.psg.selected_register(), 7);
+    }
+
+    #[test]
+    fn ay_watch_captures_data_writes_through_the_via() {
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        sys.mem_write(0x0303, 0xFF); // DDRA = $FF (port A all output)
+        assert!(sys.ay_write_watch_records().is_none());
+        let cap = sys.start_ay_write_watch();
+        assert!(cap > 0);
+
+        // Drive a select-then-write for R7=0x38, then R8=0x0F, the way the
+        // ROM does: load port A, then pulse PCR for BDIR/BC1. PCR=$EE
+        // selects (BDIR=1,BC1=1); PCR=$0E writes (BDIR=1,BC1=0); PCR=$00 is
+        // inactive so a port-A load between operations is not latched.
+        let program = |sys: &mut OricAtmos, reg: u8, val: u8| {
+            sys.mem_write(0x030C, 0x00); // inactive
+            sys.mem_write(0x0301, reg); // port A = register index
+            sys.mem_write(0x030C, 0xEE); // BDIR=1,BC1=1 → select
+            sys.mem_write(0x030C, 0x00); // inactive
+            sys.mem_write(0x0301, val); // port A = data
+            sys.mem_write(0x030C, 0x0E); // BDIR=1,BC1=0 → write data
+        };
+        program(&mut sys, 7, 0x38);
+        program(&mut sys, 8, 0x0F);
+
+        let records = sys.ay_write_watch_records().expect("armed");
+        assert_eq!(records.len(), 2, "two data writes captured");
+        assert_eq!((records[0].register, records[0].value), (7, 0x38));
+        assert_eq!((records[1].register, records[1].value), (8, 0x0F));
+
+        sys.clear_ay_write_watch_records();
+        assert_eq!(sys.ay_write_watch_records().expect("armed").len(), 0);
+        sys.stop_ay_write_watch();
+        assert!(sys.ay_write_watch_records().is_none());
     }
 
     #[test]

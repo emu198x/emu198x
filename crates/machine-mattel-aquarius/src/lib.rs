@@ -68,7 +68,7 @@
 //! (register 14) is player 2, port B (register 15) is player 1. Codes are
 //! transcribed from MAME `bus/aquarius/mini.cpp`.
 
-use gi_ay_3_8910::Ay3_8910;
+use gi_ay_3_8910::{Ay3_8910, AyWriteRecord, AyWriteWatch};
 use zilog_z80::{BusOp, Z80};
 
 /// Mini Expander AY-3-8910 clock: the Z80 clock divided by two
@@ -222,6 +222,10 @@ pub struct Aquarius {
     /// Controller bytes presented on the AY I/O ports, active low. Index 0 is
     /// AY port A (player 2), index 1 is AY port B (player 1). Idle is `0xFF`.
     ctrl_input: [u8; 2],
+    /// When `Some`, every write to the PSG data port ($F6) is captured
+    /// for the shared `watch_ay_*` tools. Host-side debug only, not
+    /// part of the snapshot.
+    ay_watch: Option<AyWriteWatch>,
 }
 
 impl Aquarius {
@@ -259,6 +263,7 @@ impl Aquarius {
             io_trace: None,
             psg: Ay3_8910::new(AY_CLOCK_HZ, AY_SAMPLE_RATE, ay_samples_per_frame),
             ctrl_input: [0xFF; 2],
+            ay_watch: None,
         }
     }
 
@@ -469,7 +474,12 @@ impl Aquarius {
         let low = port as u8;
         match low {
             // Mini Expander AY-3-8910: $F7 selects the register, $F6 writes data.
-            0xF6 => self.psg.write_data(value),
+            0xF6 => {
+                if let Some(w) = &mut self.ay_watch {
+                    w.record(self.cpu.regs.pc, self.psg.selected_register(), value);
+                }
+                self.psg.write_data(value);
+            }
             0xF7 => self.psg.select_register(value),
             0xFC => {} // Cassette (stub).
             0xFE => {} // Printer data stub.
@@ -617,6 +627,34 @@ impl Aquarius {
     #[must_use]
     pub fn speaker_bit(&self) -> bool {
         self.speaker_bit
+    }
+
+    /// Start (or restart) capturing PSG register writes for `watch_ay_*`.
+    /// Returns the log capacity (max records before writes are dropped).
+    pub fn start_ay_write_watch(&mut self) -> u32 {
+        let watch = AyWriteWatch::new();
+        let cap = watch.cap() as u32;
+        self.ay_watch = Some(watch);
+        cap
+    }
+
+    /// Stop capturing PSG writes and drop the log.
+    pub fn stop_ay_write_watch(&mut self) {
+        self.ay_watch = None;
+    }
+
+    /// Captured PSG writes since the last `start_ay_write_watch`, or
+    /// `None` when the watch is disarmed.
+    #[must_use]
+    pub fn ay_write_watch_records(&self) -> Option<&[AyWriteRecord]> {
+        self.ay_watch.as_ref().map(AyWriteWatch::records)
+    }
+
+    /// Drop captured PSG writes while leaving the watch armed.
+    pub fn clear_ay_write_watch_records(&mut self) {
+        if let Some(w) = &mut self.ay_watch {
+            w.clear();
+        }
     }
 }
 
@@ -788,6 +826,26 @@ mod tests {
         assert_eq!(super::disc_position(true, true, false, false), None);
         assert_eq!(super::disc_position(false, false, true, true), None);
         assert_eq!(super::disc_position(true, false, true, false), Some(14)); // up+left
+    }
+
+    #[test]
+    fn ay_watch_captures_psg_data_writes() {
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
+        assert!(sys.ay_write_watch_records().is_none());
+        let cap = sys.start_ay_write_watch();
+        assert!(cap > 0);
+        sys.io_write(0xF7, 7); // select R7
+        sys.io_write(0xF6, 0x38); // data
+        sys.io_write(0xF7, 8); // select R8
+        sys.io_write(0xF6, 0x0F); // data
+        let records = sys.ay_write_watch_records().expect("armed");
+        assert_eq!(records.len(), 2);
+        assert_eq!((records[0].register, records[0].value), (7, 0x38));
+        assert_eq!((records[1].register, records[1].value), (8, 0x0F));
+        sys.clear_ay_write_watch_records();
+        assert_eq!(sys.ay_write_watch_records().expect("armed").len(), 0);
+        sys.stop_ay_write_watch();
+        assert!(sys.ay_write_watch_records().is_none());
     }
 }
 

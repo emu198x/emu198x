@@ -75,7 +75,7 @@
 //! as the Memotech MTX (the other 4 MHz TMS9918 machine). PSG ticks
 //! every other T-state for the CPU ÷ 2 = 2 MHz AY clock.
 
-use gi_ay_3_8910::Ay3_8910;
+use gi_ay_3_8910::{Ay3_8910, AyWriteRecord, AyWriteWatch};
 use ti_tms9918::{Tms9918, VdpRegion};
 use western_digital_wd1770::{Disk, Wd1770};
 use zilog_z80::{BusOp, Z80};
@@ -204,6 +204,10 @@ pub struct Einstein {
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
     io_trace: Option<Vec<IoEvent>>,
+    /// When `Some`, every write to the PSG data port ($03) is captured
+    /// for the shared `watch_ay_*` tools. Host-side debug only, not
+    /// part of the snapshot.
+    ay_watch: Option<AyWriteWatch>,
 }
 
 impl Einstein {
@@ -235,6 +239,7 @@ impl Einstein {
             psg_phase: 0,
             frame_count: 0,
             io_trace: None,
+            ay_watch: None,
         }
     }
 
@@ -408,7 +413,12 @@ impl Einstein {
             // AY register select on $02 write, data write on $03 (the AY
             // data *read* is on $02). $00-$01 are the system reset latch.
             0x02 => self.psg.select_register(value),
-            0x03 => self.psg.write_data(value),
+            0x03 => {
+                if let Some(w) = &mut self.ay_watch {
+                    w.record(self.cpu.regs.pc, self.psg.selected_register(), value);
+                }
+                self.psg.write_data(value);
+            }
             0x08 => self.vdp.write_data(value),
             0x09 => self.vdp.write_control(value),
             0x18..=0x1B => self.fdc.write((port & 0x03) as u8, value),
@@ -609,6 +619,34 @@ impl Einstein {
     #[must_use]
     pub fn frame_count(&self) -> u64 {
         self.frame_count
+    }
+
+    /// Start (or restart) capturing PSG register writes for `watch_ay_*`.
+    /// Returns the log capacity (max records before writes are dropped).
+    pub fn start_ay_write_watch(&mut self) -> u32 {
+        let watch = AyWriteWatch::new();
+        let cap = watch.cap() as u32;
+        self.ay_watch = Some(watch);
+        cap
+    }
+
+    /// Stop capturing PSG writes and drop the log.
+    pub fn stop_ay_write_watch(&mut self) {
+        self.ay_watch = None;
+    }
+
+    /// Captured PSG writes since the last `start_ay_write_watch`, or
+    /// `None` when the watch is disarmed.
+    #[must_use]
+    pub fn ay_write_watch_records(&self) -> Option<&[AyWriteRecord]> {
+        self.ay_watch.as_ref().map(AyWriteWatch::records)
+    }
+
+    /// Drop captured PSG writes while leaving the watch armed.
+    pub fn clear_ay_write_watch_records(&mut self) {
+        if let Some(w) = &mut self.ay_watch {
+            w.clear();
+        }
     }
 }
 
@@ -857,6 +895,26 @@ mod tests {
         }
         assert_eq!(dots, VDP_CLOCK_HZ);
         assert_eq!(accum, 0);
+    }
+
+    #[test]
+    fn ay_watch_captures_psg_data_writes() {
+        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
+        assert!(sys.ay_write_watch_records().is_none());
+        let cap = sys.start_ay_write_watch();
+        assert!(cap > 0);
+        sys.io_write(0x02, 7); // select R7
+        sys.io_write(0x03, 0x38); // data
+        sys.io_write(0x02, 8); // select R8
+        sys.io_write(0x03, 0x0F); // data
+        let records = sys.ay_write_watch_records().expect("armed");
+        assert_eq!(records.len(), 2);
+        assert_eq!((records[0].register, records[0].value), (7, 0x38));
+        assert_eq!((records[1].register, records[1].value), (8, 0x0F));
+        sys.clear_ay_write_watch_records();
+        assert_eq!(sys.ay_write_watch_records().expect("armed").len(), 0);
+        sys.stop_ay_write_watch();
+        assert!(sys.ay_write_watch_records().is_none());
     }
 
     #[test]

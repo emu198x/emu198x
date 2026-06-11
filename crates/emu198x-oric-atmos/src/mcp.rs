@@ -3,7 +3,7 @@
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_base_tools,
+    mcp_tools::{register_ay_watch_tools, register_base_tools},
 };
 use runtime_oric_atmos::{Model, OricRuntime, OricSessionQueryProvider};
 
@@ -24,5 +24,7 @@ pub fn run() -> Result<(), String> {
         env!("CARGO_PKG_VERSION"),
     ));
     register_base_tools(server.registry_mut());
+    // The Oric carries an AY-3-8912 (PSG), so the shared AY-watch verbs apply.
+    register_ay_watch_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

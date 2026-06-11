@@ -3,7 +3,7 @@
 use emu198x_shell::{
     HeadlessSession,
     mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::register_base_tools,
+    mcp_tools::{register_ay_watch_tools, register_base_tools},
 };
 use runtime_spectravideo_svi_328::{Model, Svi328Runtime, Svi328SessionQueryProvider};
 
@@ -27,5 +27,7 @@ pub fn run() -> Result<(), String> {
         env!("CARGO_PKG_VERSION"),
     ));
     register_base_tools(server.registry_mut());
+    // The SVI-328 carries an AY-3-8910/8912 (PSG), so the AY-watch verbs apply.
+    register_ay_watch_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
 }

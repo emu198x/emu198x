@@ -65,7 +65,7 @@
 //! Adopts SG-1000 / MSX 3:2 VDP-dot-per-T-state phase counter. PSG
 //! ticks every other T-state for the CPU ÷ 2 = 1.789 MHz AY clock.
 
-use gi_ay_3_8912::Ay3_8912;
+use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use intel_8255::Ppi8255;
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
@@ -128,6 +128,10 @@ pub struct Svi328 {
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
     io_trace: Option<Vec<IoEvent>>,
+    /// When `Some`, every write to the PSG data port ($8C) is captured
+    /// for the shared `watch_ay_*` tools. Host-side debug only, not
+    /// part of the snapshot.
+    ay_watch: Option<AyWriteWatch>,
 }
 
 impl Svi328 {
@@ -163,6 +167,7 @@ impl Svi328 {
             psg_phase: 0,
             frame_count: 0,
             io_trace: None,
+            ay_watch: None,
         }
     }
 
@@ -337,6 +342,9 @@ impl Svi328 {
                 self.psg.select_register(value);
             }
             0x8C => {
+                if let Some(w) = &mut self.ay_watch {
+                    w.record(self.cpu.regs.pc, self.psg.selected_register(), value);
+                }
                 self.psg.write_data(value);
                 // The AY-3-8910's port B (R15) is the memory-bank register.
                 // Bit 1 (`bk21`) low banks the lower 32 KB of RAM in over the
@@ -614,6 +622,26 @@ mod tests {
         sys.release_key(3, 2);
         assert_eq!(sys.keyboard[3] & 0b0000_0100, 0b0000_0100);
     }
+
+    #[test]
+    fn ay_watch_captures_psg_data_writes() {
+        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        assert!(sys.ay_write_watch_records().is_none());
+        let cap = sys.start_ay_write_watch();
+        assert!(cap > 0);
+        sys.io_write(0x88, 7); // select R7
+        sys.io_write(0x8C, 0x38); // data
+        sys.io_write(0x88, 8); // select R8
+        sys.io_write(0x8C, 0x0F); // data
+        let records = sys.ay_write_watch_records().expect("armed");
+        assert_eq!(records.len(), 2);
+        assert_eq!((records[0].register, records[0].value), (7, 0x38));
+        assert_eq!((records[1].register, records[1].value), (8, 0x0F));
+        sys.clear_ay_write_watch_records();
+        assert_eq!(sys.ay_write_watch_records().expect("armed").len(), 0);
+        sys.stop_ay_write_watch();
+        assert!(sys.ay_write_watch_records().is_none());
+    }
 }
 
 /// One captured I/O port access, for the debug trace.
@@ -649,5 +677,33 @@ impl Svi328 {
     /// Stop tracing and return the captured I/O events.
     pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
         self.io_trace.take().unwrap_or_default()
+    }
+
+    /// Start (or restart) capturing PSG register writes for `watch_ay_*`.
+    /// Returns the log capacity (max records before writes are dropped).
+    pub fn start_ay_write_watch(&mut self) -> u32 {
+        let watch = AyWriteWatch::new();
+        let cap = watch.cap() as u32;
+        self.ay_watch = Some(watch);
+        cap
+    }
+
+    /// Stop capturing PSG writes and drop the log.
+    pub fn stop_ay_write_watch(&mut self) {
+        self.ay_watch = None;
+    }
+
+    /// Captured PSG writes since the last `start_ay_write_watch`, or
+    /// `None` when the watch is disarmed.
+    #[must_use]
+    pub fn ay_write_watch_records(&self) -> Option<&[AyWriteRecord]> {
+        self.ay_watch.as_ref().map(AyWriteWatch::records)
+    }
+
+    /// Drop captured PSG writes while leaving the watch armed.
+    pub fn clear_ay_write_watch_records(&mut self) {
+        if let Some(w) = &mut self.ay_watch {
+            w.clear();
+        }
     }
 }

@@ -219,6 +219,60 @@ impl MachineCore for EinsteinRuntime {
         self.profile.capabilities.clone()
     }
     emu198x_shell::debug_target_hooks!();
+
+    fn watch_target(&self) -> Option<&dyn emu198x_shell::WatchTarget> {
+        self.machine
+            .is_some()
+            .then_some(self as &dyn emu198x_shell::WatchTarget)
+    }
+    fn watch_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::WatchTarget> {
+        if self.machine.is_some() {
+            Some(self as &mut dyn emu198x_shell::WatchTarget)
+        } else {
+            None
+        }
+    }
 }
 
 emu198x_shell::impl_z80_debug_primitives!(EinsteinRuntime);
+
+// AY register-write watch. The Einstein has no memory-write watch, so only the
+// AY surface is implemented; the shared `watch_ay_*` tools drive it.
+impl emu198x_shell::WatchTarget for EinsteinRuntime {
+    fn supports_ay_watch(&self) -> bool {
+        true
+    }
+
+    fn start_ay_watch(&mut self) -> Result<u32, emu198x_shell::WatchError> {
+        match self.machine.as_mut() {
+            Some(m) => Ok(m.start_ay_write_watch()),
+            None => Err(emu198x_shell::WatchError::Unsupported),
+        }
+    }
+
+    fn clear_ay_watch(&mut self) -> (bool, u32) {
+        let Some(m) = self.machine.as_mut() else {
+            return (false, 0);
+        };
+        let captured = m.ay_write_watch_records().map_or(0, |r| r.len() as u32);
+        let had_watch = m.ay_write_watch_records().is_some();
+        m.stop_ay_write_watch();
+        (had_watch, captured)
+    }
+
+    fn ay_watch_records(&self) -> Option<Vec<emu198x_shell::WatchAyRecord>> {
+        self.machine
+            .as_ref()?
+            .ay_write_watch_records()
+            .map(|records| {
+                records
+                    .iter()
+                    .map(|r| emu198x_shell::WatchAyRecord {
+                        pc: u32::from(r.pc),
+                        register: r.register,
+                        value: r.value,
+                    })
+                    .collect()
+            })
+    }
+}
