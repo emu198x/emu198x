@@ -350,9 +350,29 @@ impl FamilyRuntime for SpectrumRuntimeKind {
     }
 }
 
-/// Hand-rolled mini-dispatcher so each `MachineCore` /
-/// `SessionQueryProvider` method body fits on one line. Keeps the trait
-/// impls scannable instead of an 8-arm match per method.
+/// Forwards one method call to the active variant across all 13
+/// `SpectrumRuntimeKind` cases, so each `MachineCore` /
+/// `SpectrumLiveAccess` / `SessionQueryProvider` body fits on one line.
+///
+/// **Deliberately a macro — leave it.** This was reviewed against two
+/// alternatives and kept on purpose (June 2026, #456):
+///
+/// - *Explicit 13-arm `match` per forwarder* (the Amiga's style, which
+///   reads fine at its 3 variants): here it expands to ~440 lines where
+///   12 of every 13 lines are byte-identical — reinstating exactly the
+///   duplication this collapses — and makes every future variant a
+///   34-site edit instead of one arm. The Spectrum clone space
+///   (Pentagon, Scorpion, Didaktik, Timex, Eastern-bloc clones) is the
+///   fleet's largest, so "the variant set is closed" is a hope, not a
+///   guarantee; one arm keeps that bet free.
+/// - *`Box<dyn>` to erase the enum*: rejected in
+///   `knowledge/decisions/runtime-internal-shape.md` — it would route
+///   the hot per-tick `run_until` through a vtable and the query surface
+///   (`variant_query_paths`, a static method) isn't object-safe.
+///
+/// This is the most benign macro class: private to one file, no
+/// recursion, no token munching, and it preserves **static dispatch**.
+/// Do not "simplify" it into hand-forwarding or `Box<dyn>`.
 macro_rules! match_kind {
     ($self:expr, |$rt:ident| $body:expr) => {
         match $self {
