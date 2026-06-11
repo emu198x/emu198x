@@ -68,8 +68,83 @@ fn axis_to_pot12(value: i16) -> u16 {
 
 #[must_use]
 fn key_to_matrix(name: &str) -> Option<(usize, usize)> {
+    // The authoritative BBC Micro 10×8 keyboard matrix, as `(column, row)`.
+    // Internal key code = `row*16 + column` (so `column = code & 0x0F`,
+    // `row = code >> 4`), matching how the machine decodes the scan code on
+    // System VIA PA0-6. Verified against BeebWiki / the BBC AUG; the prior
+    // table was a fictional "logical QWERTY rows" layout that never matched the
+    // hardware scan, so keyboard input did not actually work.
     Some(match name.to_ascii_lowercase().as_str() {
-        // Function and control keys
+        // Row 0 — modifiers (read directly).
+        "shift" | "lshift" | "rshift" => (0, 0),
+        "ctrl" | "control" => (1, 0),
+        // Row 1.
+        "q" => (0, 1),
+        "3" => (1, 1),
+        "4" => (2, 1),
+        "5" => (3, 1),
+        "f4" => (4, 1),
+        "8" => (5, 1),
+        "f7" => (6, 1),
+        "-" | "minus" => (7, 1),
+        "^" | "caret" => (8, 1),
+        "left" | "arrowleft" => (9, 1),
+        // Row 2.
+        "f0" => (0, 2),
+        "w" => (1, 2),
+        "e" => (2, 2),
+        "t" => (3, 2),
+        "7" => (4, 2),
+        "i" => (5, 2),
+        "9" => (6, 2),
+        "0" => (7, 2),
+        "_" | "underscore" | "pound" => (8, 2),
+        "down" | "arrowdown" => (9, 2),
+        // Row 3.
+        "1" => (0, 3),
+        "2" => (1, 3),
+        "d" => (2, 3),
+        "r" => (3, 3),
+        "6" => (4, 3),
+        "u" => (5, 3),
+        "o" => (6, 3),
+        "p" => (7, 3),
+        "[" | "leftbracket" => (8, 3),
+        "up" | "arrowup" => (9, 3),
+        // Row 4.
+        "caps" | "capslock" => (0, 4),
+        "a" => (1, 4),
+        "x" => (2, 4),
+        "f" => (3, 4),
+        "y" => (4, 4),
+        "j" => (5, 4),
+        "k" => (6, 4),
+        "@" | "at" => (7, 4),
+        ":" | "colon" => (8, 4),
+        "return" | "enter" => (9, 4),
+        // Row 5.
+        "shiftlock" => (0, 5),
+        "s" => (1, 5),
+        "c" => (2, 5),
+        "g" => (3, 5),
+        "h" => (4, 5),
+        "n" => (5, 5),
+        "l" => (6, 5),
+        ";" | "semicolon" => (7, 5),
+        "]" | "rightbracket" => (8, 5),
+        "delete" | "del" | "backspace" | "bs" => (9, 5),
+        // Row 6.
+        "tab" => (0, 6),
+        "z" => (1, 6),
+        "space" | " " => (2, 6),
+        "v" => (3, 6),
+        "b" => (4, 6),
+        "m" => (5, 6),
+        "," | "comma" => (6, 6),
+        "." | "period" => (7, 6),
+        "/" | "slash" => (8, 6),
+        "copy" => (9, 6),
+        // Row 7.
         "escape" | "esc" => (0, 7),
         "f1" => (1, 7),
         "f2" => (2, 7),
@@ -78,61 +153,7 @@ fn key_to_matrix(name: &str) -> Option<(usize, usize)> {
         "f6" => (5, 7),
         "f8" => (6, 7),
         "f9" => (7, 7),
-        // Digits + symbols
-        "1" => (0, 6),
-        "2" => (1, 6),
-        "3" => (2, 6),
-        "4" => (3, 6),
-        "5" => (4, 6),
-        "6" => (5, 6),
-        "7" => (6, 6),
-        "8" => (7, 6),
-        "9" => (8, 6),
-        "0" => (9, 6),
-        // QWERTY row
-        "q" => (0, 5),
-        "w" => (1, 5),
-        "e" => (2, 5),
-        "r" => (3, 5),
-        "t" => (4, 5),
-        "y" => (5, 5),
-        "u" => (6, 5),
-        "i" => (7, 5),
-        "o" => (8, 5),
-        "p" => (9, 5),
-        // ASDF row
-        "a" => (1, 4),
-        "s" => (2, 4),
-        "d" => (3, 4),
-        "f" => (4, 4),
-        "g" => (5, 4),
-        "h" => (6, 4),
-        "j" => (7, 4),
-        "k" => (8, 4),
-        "l" => (9, 4),
-        ";" | "semicolon" => (8, 3),
-        ":" => (9, 3),
-        // ZXCV row
-        "shift" | "lshift" | "rshift" => (0, 1),
-        "z" => (1, 3),
-        "x" => (2, 3),
-        "c" => (3, 3),
-        "v" => (4, 3),
-        "b" => (5, 3),
-        "n" => (6, 3),
-        "m" => (7, 3),
-        "," | "comma" => (8, 2),
-        "." | "period" => (9, 2),
-        // Special keys
-        "space" | " " => (2, 1),
-        "return" | "enter" => (9, 1),
-        "caps" | "capslock" => (4, 1),
-        "ctrl" | "control" => (1, 1),
-        "tab" => (3, 1),
-        "delete" | "del" | "backspace" | "bs" => (9, 5),
-        "up" | "arrowup" => (3, 1),
-        "down" | "arrowdown" => (2, 2),
-        "left" | "arrowleft" => (1, 1),
+        "\\" | "backslash" => (8, 7),
         "right" | "arrowright" => (9, 7),
         _ => return None,
     })
@@ -182,5 +203,109 @@ mod tests {
         let mut sys = make_bbc();
         apply_input_event(&mut sys, &axis(1, "throttle", i16::MAX));
         assert_eq!(sys.adc_channel(0), 0x0800, "channels stay centred");
+    }
+
+    #[test]
+    fn keyboard_matrix_is_the_authoritative_bbc_layout() {
+        use std::collections::HashSet;
+        // One canonical name per physical key — every cell must be distinct.
+        let keys = [
+            "shift",
+            "ctrl",
+            "q",
+            "3",
+            "4",
+            "5",
+            "f4",
+            "8",
+            "f7",
+            "-",
+            "^",
+            "left",
+            "f0",
+            "w",
+            "e",
+            "t",
+            "7",
+            "i",
+            "9",
+            "0",
+            "_",
+            "down",
+            "1",
+            "2",
+            "d",
+            "r",
+            "6",
+            "u",
+            "o",
+            "p",
+            "[",
+            "up",
+            "caps",
+            "a",
+            "x",
+            "f",
+            "y",
+            "j",
+            "k",
+            "@",
+            ":",
+            "return",
+            "shiftlock",
+            "s",
+            "c",
+            "g",
+            "h",
+            "n",
+            "l",
+            ";",
+            "]",
+            "delete",
+            "tab",
+            "z",
+            "space",
+            "v",
+            "b",
+            "m",
+            ",",
+            ".",
+            "/",
+            "copy",
+            "escape",
+            "f1",
+            "f2",
+            "f3",
+            "f5",
+            "f6",
+            "f8",
+            "f9",
+            "\\",
+            "right",
+        ];
+        let mut cells = HashSet::new();
+        for k in keys {
+            let cell = key_to_matrix(k).expect("key resolves");
+            assert!(cells.insert(cell), "`{k}` collides at {cell:?}");
+        }
+
+        // Spot-checks against the reference (column, row).
+        assert_eq!(key_to_matrix("a"), Some((1, 4)));
+        assert_eq!(key_to_matrix("1"), Some((0, 3)));
+        assert_eq!(key_to_matrix("space"), Some((2, 6)));
+        assert_eq!(key_to_matrix("return"), Some((9, 4)));
+        // The four cursor keys live in column 9.
+        assert_eq!(key_to_matrix("left"), Some((9, 1)));
+        assert_eq!(key_to_matrix("down"), Some((9, 2)));
+        assert_eq!(key_to_matrix("up"), Some((9, 3)));
+        assert_eq!(key_to_matrix("right"), Some((9, 7)));
+
+        // Regressions for #463: previously-colliding keys are now distinct,
+        // and the missing function keys are present.
+        assert_ne!(key_to_matrix("up"), key_to_matrix("tab"));
+        assert_ne!(key_to_matrix("delete"), key_to_matrix("p"));
+        assert_eq!(key_to_matrix("f4"), Some((4, 1)));
+        assert_eq!(key_to_matrix("f7"), Some((6, 1)));
+        assert_eq!(key_to_matrix("f0"), Some((0, 2)));
     }
 }
