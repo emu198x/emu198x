@@ -1,190 +1,25 @@
-//! Atari 800XL-specific MCP tools.
+//! Atari 800XL MCP surface tests.
 //!
-//! CPU / memory / poke / disasm / stepping come from the shared
-//! [`register_base_tools`](emu198x_shell::mcp_tools::register_base_tools)
-//! set, and the ANTIC / GTIA / POKEY / PIA chip state is read through the
-//! generic `query` tool as query paths. This crate adds only the keyboard
-//! input tools (`press_key`, `type_string`), built on the shared
-//! [`InlineTool`](emu198x_shell::mcp::InlineTool) wrapper.
-
-use emu198x_shell::{
-    HeadlessSession, InputEvent,
-    mcp::{InlineTool, ToolError, ToolRegistry},
-};
-use runtime_atari_800xl::{Atari800xlRuntime, Atari800xlSessionQueryProvider};
-use serde_json::{Value, json};
-
-type A800xlSession = HeadlessSession<Atari800xlRuntime, Atari800xlSessionQueryProvider>;
-
-/// Parse a numeric JSON argument that may be a number or a `$xx` / `0x` /
-/// plain hex/decimal string.
-fn parse_num(args: &Value, key: &str) -> Result<u32, ToolError> {
-    let v = args
-        .get(key)
-        .ok_or_else(|| ToolError::InvalidArguments(format!("missing `{key}`")))?;
-    if let Some(n) = v.as_u64() {
-        return Ok(n as u32);
-    }
-    let s = v
-        .as_str()
-        .ok_or_else(|| ToolError::InvalidArguments(format!("`{key}` must be a number or string")))?
-        .trim();
-    let (radix, digits) = if let Some(h) = s.strip_prefix('$') {
-        (16, h)
-    } else if let Some(h) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-        (16, h)
-    } else {
-        (10, s)
-    };
-    u32::from_str_radix(digits, radix)
-        .map_err(|_| ToolError::InvalidArguments(format!("`{key}` is not a valid number: {s}")))
-}
-
-fn opt_num(args: &Value, key: &str, default: u32) -> Result<u32, ToolError> {
-    if args.get(key).is_some() {
-        parse_num(args, key)
-    } else {
-        Ok(default)
-    }
-}
-
-/// Frames a key is held / settled between presses.
-const KEY_HOLD_FRAMES: u32 = 3;
-const KEY_SETTLE_FRAMES: u32 = 6;
-
-fn press_release(
-    session: &mut A800xlSession,
-    name: &str,
-    hold: u32,
-    settle: u32,
-) -> Result<(), ToolError> {
-    session.queue_input(InputEvent::Key {
-        name: name.to_owned().into(),
-        pressed: true,
-    });
-    session
-        .run_frames(hold)
-        .map_err(|e| ToolError::Execution(format!("press hold: {e}")))?;
-    session.queue_input(InputEvent::Key {
-        name: name.to_owned().into(),
-        pressed: false,
-    });
-    session
-        .run_frames(settle)
-        .map_err(|e| ToolError::Execution(format!("release settle: {e}")))?;
-    Ok(())
-}
-
-fn tool_press_key(args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
-    let name = args
-        .get("key")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ToolError::InvalidArguments("missing `key` (string)".into()))?
-        .to_owned();
-    let hold = opt_num(&args, "hold_frames", KEY_HOLD_FRAMES)?.clamp(1, 600);
-    press_release(session, &name, hold, KEY_SETTLE_FRAMES)?;
-    Ok(json!({ "key": name, "hold_frames": hold }))
-}
-
-fn tool_type_string(args: Value, session: &mut A800xlSession) -> Result<Value, ToolError> {
-    let text = args
-        .get("text")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ToolError::InvalidArguments("missing `text` (string)".into()))?
-        .to_owned();
-    let hold = opt_num(&args, "hold_frames", KEY_HOLD_FRAMES)?.clamp(1, 600);
-
-    let mut typed = 0u32;
-    let mut prev: Option<String> = None;
-    for ch in text.chars() {
-        let name = if ch == '\n' || ch == '\r' {
-            "Return".to_owned()
-        } else {
-            ch.to_string()
-        };
-        if prev.as_deref() == Some(name.as_str()) {
-            session
-                .run_frames(KEY_SETTLE_FRAMES)
-                .map_err(|e| ToolError::Execution(format!("repeat settle: {e}")))?;
-        }
-        press_release(session, &name, hold, KEY_SETTLE_FRAMES)?;
-        prev = Some(name);
-        typed += 1;
-    }
-    Ok(json!({ "text": text, "chars_typed": typed }))
-}
-
-/// Register the 800XL-specific MCP tools: the keyboard input tools. The
-/// CPU / memory / debug surface comes from
-/// [`register_base_tools`](emu198x_shell::mcp_tools::register_base_tools),
-/// and the ANTIC / GTIA / POKEY / PIA chip state is read through the generic
-/// `query` tool as query paths (`antic`, `gtia`, `pokey`, `pia`, and their
-/// leaves) — both registered by the server before this.
-pub fn register_a800xl_tools(registry: &mut ToolRegistry<A800xlSession>) {
-    let mut tool = |name, description, schema, run| {
-        registry.register(Box::new(InlineTool {
-            name,
-            description,
-            schema,
-            run,
-        }));
-    };
-
-    tool(
-        "press_key",
-        "Press, hold, and release one key. `key` is a single character (case \
-         set by caps lock) or a name (Return, Space, Esc, Tab, Delete). \
-         Optional hold_frames (default 3).",
-        json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "key":         {"type": "string"},
-                "hold_frames": {"type": "integer", "minimum": 1, "maximum": 600}
-            },
-            "required": ["key"]
-        }),
-        tool_press_key,
-    );
-    tool(
-        "type_string",
-        "Type a string by pressing each character in turn (newline → RETURN). \
-         Letters arrive uppercase under the power-on caps lock, as on real \
-         hardware. Optional hold_frames (default 3).",
-        json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "text":        {"type": "string"},
-                "hold_frames": {"type": "integer", "minimum": 1, "maximum": 600}
-            },
-            "required": ["text"]
-        }),
-        tool_type_string,
-    );
-}
+//! The 800XL has no bespoke MCP tools: CPU / memory / poke / disasm /
+//! stepping come from [`register_base_tools`](emu198x_shell::mcp_tools::register_base_tools),
+//! the ANTIC / GTIA / POKEY / PIA chip state through the generic `query`
+//! tool, and `press_key` / `type_string` from the shared keyboard tier
+//! ([`register_keyboard_tools`](emu198x_shell::mcp_tools::register_keyboard_tools))
+//! over the 800XL's `KeyboardTarget`. This module houses the integration
+//! tests that drive that surface end-to-end.
 
 #[cfg(test)]
 mod tests {
-    use super::{A800xlSession, parse_num, register_a800xl_tools};
     use emu198x_shell::mcp::{ToolContent, ToolRegistry, ToolResponse};
-    use emu198x_shell::mcp_tools::register_base_tools;
+    use emu198x_shell::mcp_tools::{register_base_tools, register_keyboard_tools};
     use emu198x_shell::{HeadlessSession, MediaSet};
     use runtime_atari_800xl::{Atari800xlRuntime, Atari800xlSessionQueryProvider, Model};
     use serde_json::{Value, json};
     use std::path::PathBuf;
 
-    const FRAME_TICKS_NTSC: u64 = 262 * 228;
+    type A800xlSession = HeadlessSession<Atari800xlRuntime, Atari800xlSessionQueryProvider>;
 
-    #[test]
-    fn parse_num_accepts_dollar_hex_0x_and_decimal() {
-        assert_eq!(parse_num(&json!({"a": "$D40E"}), "a").expect("hex"), 0xD40E);
-        assert_eq!(parse_num(&json!({"a": "0x20"}), "a").expect("0x"), 0x20);
-        assert_eq!(parse_num(&json!({"a": 1536}), "a").expect("int"), 1536);
-        assert_eq!(parse_num(&json!({"a": "512"}), "a").expect("dec"), 512);
-        assert!(parse_num(&json!({"a": "nope"}), "a").is_err());
-        assert!(parse_num(&json!({}), "a").is_err());
-    }
+    const FRAME_TICKS_NTSC: u64 = 262 * 228;
 
     fn rom(name: &str) -> Option<Vec<u8>> {
         let home = std::env::var("HOME").ok()?;
@@ -221,7 +56,7 @@ mod tests {
 
         let mut reg: ToolRegistry<A800xlSession> = ToolRegistry::new();
         register_base_tools(&mut reg);
-        register_a800xl_tools(&mut reg);
+        register_keyboard_tools(&mut reg);
 
         let call = |s: &mut A800xlSession, name: &str, args: Value| -> Value {
             body(&reg.get(name).expect("tool").call(args, s).expect("ok"))
@@ -310,7 +145,7 @@ mod tests {
 
         let mut reg: ToolRegistry<A800xlSession> = ToolRegistry::new();
         register_base_tools(&mut reg);
-        register_a800xl_tools(&mut reg);
+        register_keyboard_tools(&mut reg);
         let call = |s: &mut A800xlSession, name: &str, args: Value| -> Value {
             body(&reg.get(name).expect("tool").call(args, s).expect("ok"))
         };

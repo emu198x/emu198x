@@ -644,12 +644,49 @@ impl MachineCore for C64Runtime {
 
     // Eager machine (firmware-backed at construction) — the `direct` arm.
     emu198x_shell::debug_target_hooks!(direct);
+
+    fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
+        Some(self)
+    }
 }
 
 // 6502 debug target via the shared macro (`direct`: `machine: C64` is eager, not
 // `Option`). Disassembles through the Asm198x spec crate. See
 // 198x/decisions/rung1-wiring.md.
 emu198x_shell::impl_6502_debug_primitives!(C64Runtime, direct);
+
+// Keyboard description for the shared `press_key` / `type_string` tools. The
+// key-name validation + char→keystroke table already live in `crate::input`
+// (and back the BASIC loader's RUN step); this just surfaces them plus the
+// C64's keyboard-scan timing.
+impl emu198x_shell::KeyboardTarget for C64Runtime {
+    fn key_name_is_valid(&self, name: &str) -> bool {
+        crate::input::key_name_is_valid(name)
+    }
+
+    fn key_names_hint(&self) -> &'static str {
+        "A-Z, 0-9, Space, Return, Delete, F1/F3/F5/F7, cursor Up/Down/Left/Right, \
+         LShift, RShift, Ctrl, Commodore, RunStop"
+    }
+
+    fn keys_for_char(&self, ch: char) -> Option<Vec<String>> {
+        crate::input::keys_for_char(ch).map(|keys| keys.into_iter().map(str::to_owned).collect())
+    }
+
+    fn key_timing(&self) -> emu198x_shell::KeyTiming {
+        emu198x_shell::KeyTiming {
+            default_hold_frames: crate::DEFAULT_KEY_HOLD_FRAMES,
+            max_hold_frames: crate::MAX_KEY_HOLD_FRAMES,
+            // press_key settles 1 frame after release; type_string runs 2
+            // (`INTER_CHAR_FRAMES`) between characters and has no extra
+            // repeated-key settle (the 2-frame gap already separates them).
+            press_settle_frames: 1,
+            inter_key_settle_frames: 2,
+            repeat_settle_frames: 0,
+            default_type_settle_frames: crate::DEFAULT_TYPE_SETTLE_FRAMES,
+        }
+    }
+}
 
 fn build_machine(
     model: Model,

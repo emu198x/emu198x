@@ -269,6 +269,45 @@ impl MachineCore for Atari800xlRuntime {
         self.profile.capabilities.clone()
     }
     emu198x_shell::debug_target_hooks!();
+
+    fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
+        self.machine
+            .is_some()
+            .then_some(self as &dyn emu198x_shell::KeyboardTarget)
+    }
 }
 
 emu198x_shell::impl_6502_debug_primitives!(Atari800xlRuntime);
+
+// Keyboard description for the shared `press_key` / `type_string` tools. The
+// 800XL types a character by pressing the keycap of the same name (newline →
+// `Return`); the input layer drops names it doesn't recognise, so any
+// single character is accepted. Hold 3 / settle 6 match the prior tool.
+impl emu198x_shell::KeyboardTarget for Atari800xlRuntime {
+    fn key_name_is_valid(&self, name: &str) -> bool {
+        !name.is_empty()
+    }
+
+    fn key_names_hint(&self) -> &'static str {
+        "a single character (case-insensitive) or Return"
+    }
+
+    fn keys_for_char(&self, ch: char) -> Option<Vec<String>> {
+        Some(vec![if ch == '\n' || ch == '\r' {
+            "Return".to_owned()
+        } else {
+            ch.to_string()
+        }])
+    }
+
+    fn key_timing(&self) -> emu198x_shell::KeyTiming {
+        emu198x_shell::KeyTiming {
+            default_hold_frames: 3,
+            max_hold_frames: 600,
+            press_settle_frames: 6,
+            inter_key_settle_frames: 6,
+            repeat_settle_frames: 6,
+            default_type_settle_frames: 0,
+        }
+    }
+}

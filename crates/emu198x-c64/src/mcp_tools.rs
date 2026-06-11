@@ -1,5 +1,4 @@
-//! C64-specific MCP tools: `load_basic_program`, `press_key`,
-//! `type_string`.
+//! C64-specific MCP tools: `load_basic_program`, `save_disk`.
 //!
 //! The shared `register_common_tools` covers the machine-agnostic surface
 //! (run frames, query, media, capture, reset, …). These three carry the
@@ -13,8 +12,7 @@ use emu198x_shell::HeadlessSession;
 use emu198x_shell::ScriptObservation;
 use emu198x_shell::mcp::{Tool, ToolError, ToolRegistry, ToolResponse};
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, DEFAULT_BASIC_LOADER_BOOT_FRAMES, DEFAULT_KEY_HOLD_FRAMES,
-    DEFAULT_TYPE_SETTLE_FRAMES, key_name_is_valid, load_basic_source, press_key, type_string,
+    C64Runtime, C64SessionQueryProvider, DEFAULT_BASIC_LOADER_BOOT_FRAMES, load_basic_source,
 };
 use serde_json::{Value, json};
 
@@ -32,13 +30,6 @@ fn required_str<'a>(arguments: &'a Value, key: &str) -> Result<&'a str, ToolErro
         .get(key)
         .and_then(Value::as_str)
         .ok_or_else(|| ToolError::InvalidArguments(format!("`{key}` (string) is required")))
-}
-
-fn optional_u32(arguments: &Value, key: &str) -> Option<u32> {
-    arguments
-        .get(key)
-        .and_then(Value::as_u64)
-        .and_then(|value| u32::try_from(value).ok())
 }
 
 /// `load_basic_program` — tokenise a plain-text `.bas` file, install it at
@@ -89,92 +80,6 @@ impl Tool<C64Session> for LoadBasicProgramTool {
     }
 }
 
-/// `press_key` — press one named C64 key, hold it, and release it.
-struct PressKeyTool;
-
-impl Tool<C64Session> for PressKeyTool {
-    fn name(&self) -> &str {
-        "press_key"
-    }
-
-    fn description(&self) -> &str {
-        "Press a single named C64 key, hold for `hold_frames` (default 3), then release. Names: A-Z, 0-9, Space, Return, Delete, F1/F3/F5/F7, cursor Up/Down/Left/Right, LShift, RShift, Ctrl, Commodore, RunStop (case-insensitive)."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "key": {"type": "string"},
-                "hold_frames": {"type": "integer", "minimum": 0},
-            },
-            "required": ["key"],
-        })
-    }
-
-    fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
-        let key = required_str(&arguments, "key")?;
-        if !key_name_is_valid(key) {
-            return Err(ToolError::InvalidArguments(format!(
-                "press_key: unknown key `{key}` — valid names: A-Z, 0-9, Space, Return, \
-                 Delete, F1/F3/F5/F7, Up/Down/Left/Right, LShift, RShift, Ctrl, \
-                 Commodore, RunStop (case-insensitive)"
-            )));
-        }
-        let hold = optional_u32(&arguments, "hold_frames").unwrap_or(DEFAULT_KEY_HOLD_FRAMES);
-
-        let reached = press_key(session, key, hold)
-            .map_err(|err| ToolError::Execution(format!("press_key: {err}")))?;
-
-        observation_response(&ScriptObservation::PressKey {
-            key: key.to_owned(),
-            hold_frames: hold.clamp(1, 600),
-            reached,
-        })
-    }
-}
-
-/// `type_string` — type a string through the C64 keyboard, one character
-/// at a time.
-struct TypeStringTool;
-
-impl Tool<C64Session> for TypeStringTool {
-    fn name(&self) -> &str {
-        "type_string"
-    }
-
-    fn description(&self) -> &str {
-        "Type a string through the C64 keyboard with per-key hold/release timing. Letters use the unshifted keycap (the default charset is upper case). Newlines press RETURN. Characters with no single C64 keystroke are skipped."
-    }
-
-    fn input_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "text": {"type": "string"},
-                "hold_frames": {"type": "integer", "minimum": 0},
-                "settle_frames": {"type": "integer", "minimum": 0},
-            },
-            "required": ["text"],
-        })
-    }
-
-    fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
-        let text = required_str(&arguments, "text")?;
-        let hold = optional_u32(&arguments, "hold_frames").unwrap_or(DEFAULT_KEY_HOLD_FRAMES);
-        let settle =
-            optional_u32(&arguments, "settle_frames").unwrap_or(DEFAULT_TYPE_SETTLE_FRAMES);
-
-        let chars_typed = type_string(session, text, hold, settle)
-            .map_err(|err| ToolError::Execution(format!("type_string: {err}")))?;
-
-        observation_response(&ScriptObservation::TypeString {
-            chars_typed,
-            reached: session.time(),
-        })
-    }
-}
-
 /// `save_disk` — persist drive 8's writable disk to a host `.d64`.
 ///
 /// A SAVE in BASIC lands GCR on the drive's live surface; this decodes the
@@ -218,11 +123,11 @@ impl Tool<C64Session> for SaveDiskTool {
 }
 
 /// Registers the C64-specific BASIC-authoring tools on the registry, after
-/// the shared `register_common_tools`.
+/// the shared `register_common_tools`. `press_key` / `type_string` now come
+/// from the shared keyboard tier (`register_keyboard_tools`, registered in
+/// `mcp.rs`) over the C64's `KeyboardTarget` impl. RULES.md #30.
 pub fn register_c64_tools(registry: &mut ToolRegistry<C64Session>) {
     registry.register(Box::new(LoadBasicProgramTool));
-    registry.register(Box::new(PressKeyTool));
-    registry.register(Box::new(TypeStringTool));
     registry.register(Box::new(SaveDiskTool));
 }
 
@@ -231,7 +136,7 @@ mod tests {
     use super::register_c64_tools;
     use emu198x_shell::HeadlessSession;
     use emu198x_shell::mcp::{JsonRpcId, JsonRpcRequest, Server, ServerInfo};
-    use emu198x_shell::mcp_tools::register_common_tools;
+    use emu198x_shell::mcp_tools::{register_common_tools, register_keyboard_tools};
     use runtime_commodore_c64::{C64Runtime, C64SessionQueryProvider, Model};
     use serde_json::{Value, json};
 
@@ -246,6 +151,7 @@ mod tests {
     fn registers_the_basic_authoring_tools() {
         let mut server: Server<C64Session> = Server::new(ServerInfo::new("emu198x-c64", "test"));
         register_common_tools(server.registry_mut());
+        register_keyboard_tools(server.registry_mut());
         register_c64_tools(server.registry_mut());
 
         for name in [
@@ -265,6 +171,7 @@ mod tests {
     fn tools_list_exposes_the_capture_surface() {
         let mut server: Server<C64Session> = Server::new(ServerInfo::new("emu198x-c64", "test"));
         register_common_tools(server.registry_mut());
+        register_keyboard_tools(server.registry_mut());
         register_c64_tools(server.registry_mut());
         let mut session = stub_session();
 

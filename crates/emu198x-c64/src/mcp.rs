@@ -9,7 +9,7 @@
 //! Claude) then drives the session to debug it.
 
 use emu198x_shell::mcp::{Server, ServerInfo, serve_stdio};
-use emu198x_shell::mcp_tools::register_base_tools;
+use emu198x_shell::mcp_tools::{register_base_tools, register_keyboard_tools};
 
 use crate::mcp_tools::register_c64_tools;
 
@@ -25,6 +25,8 @@ pub fn run() -> Result<(), String> {
 
     let mut server = Server::new(ServerInfo::new("emu198x-c64", env!("CARGO_PKG_VERSION")));
     register_base_tools(server.registry_mut());
+    // The C64 has a keyboard, so the shared press_key / type_string apply.
+    register_keyboard_tools(server.registry_mut());
     register_c64_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
