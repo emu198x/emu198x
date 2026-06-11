@@ -1,29 +1,27 @@
 //! Script execution loop.
 //!
-//! Boots the eager 48K runtime, wraps it in a `HeadlessSession`, and
-//! iterates the script. System-specific steps (`SetMachine`,
-//! `AutoloadTape`) are intercepted before the shell executor sees
-//! them; everything else delegates to `ScriptStep::execute_collect`.
+//! Boots the family-dispatch enum (`SpectrumRuntimeKind`) for the
+//! chosen variant, wraps it in a `HeadlessSession`, and iterates the
+//! script. System-specific steps (`SetMachine`, `AutoloadTape`) are
+//! intercepted before the shell executor sees them; everything else
+//! delegates to `ScriptStep::execute_collect`.
 //!
-//! `SetMachine` is **not yet supported** in this commit — it errors
-//! with a clear message. Mid-script runtime swaps need an
-//! enum-of-sessions wrapper (each variant has a different concrete
-//! `HeadlessSession<M, Q>` type) which is its own commit. Code198x's
-//! existing scripts don't need it; eager 48K covers them.
+//! `SetMachine` works here: the session holds the same family enum the
+//! MCP server holds, so mid-script variant swaps route through the
+//! shared `HeadlessSession::swap_machine` (#456). The initial variant
+//! is picked from the script's first portable `LoadSnapshot` (so a
+//! 128K-family snapshot boots its own runtime), defaulting to 48K.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use common_sinclair_zx_spectrum::snapshot::SnapshotModel;
-use common_sinclair_zx_spectrum::timing::{TIMING_48K, TIMING_128K, TIMING_PLUS2A};
 use emu198x_shell::{
-    ControlCommand, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession, MachineCore,
-    MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
-    ScriptError, ScriptObservation, ScriptStep, SessionQueryProvider, mcp::ToolError,
-    read_firmware_asset, read_media_asset,
+    ControlCommand, FamilyRuntime, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession,
+    MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, ScriptError,
+    ScriptObservation, ScriptStep, mcp::ToolError, read_firmware_asset, read_media_asset,
 };
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime, Spectrum128kRuntime, SpectrumMachine,
-    SpectrumPlus2ARuntime, SpectrumPlus2Runtime, SpectrumPlus3Runtime, SpectrumRuntime,
+    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime, SpectrumLiveAccess, SpectrumRuntimeKind,
     SpectrumSessionQueryProvider,
 };
 use serde::Serialize;
@@ -66,13 +64,16 @@ pub struct RunnerReport {
 
 /// Runs the script. Pre-scans the script for the first portable
 /// `LoadSnapshot` step; if it targets a 128K-family snapshot, boots
-/// a 128K runtime instead of the default 48K and pre-applies the
+/// that variant instead of the default 48K and pre-applies the
 /// snapshot. Otherwise eager-boots 48K and iterates as usual.
 ///
 /// The pre-scan is what makes diagnostic flows like "drop a SkoolKit
-/// `tap2sna.py` snapshot into our emulator and run it" work — the
-/// `HeadlessSession` type is monomorphised per runtime, so we have to
-/// pick the right concrete type before constructing the session.
+/// `tap2sna.py` snapshot into our emulator and run it" work — applying
+/// a 128K-family snapshot to a 48K map would silently lose the upper
+/// banks, so we pick the variant up front. The session always holds the
+/// family enum (`SpectrumRuntimeKind`), so "picking the variant" is just
+/// choosing a `MachineKind`; mid-script `SetMachine` swaps follow the
+/// same enum and re-pace through `swap_machine` (#456).
 pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
     let json_script = match &inputs.script {
         Some(path) => Some(HeadlessScript::from_path(path).map_err(|err| {
@@ -84,73 +85,36 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
         None => None,
     };
 
-    // Decide which runtime to boot. If the script's first
+    // Decide which variant to boot. If the script's first
     // portable-snapshot LoadSnapshot points at a non-48K snapshot,
-    // we have to start the session as the matching variant —
-    // applying a snapshot to the wrong runtime would silently lose
-    // the upper banks (128K-family) or paging state, and leave the
-    // CPU executing against a hybrid memory map.
+    // we start the session as the matching variant — applying a
+    // snapshot to the wrong runtime would silently lose the upper
+    // banks (128K-family) or paging state, and leave the CPU
+    // executing against a hybrid memory map. The session holds the
+    // family enum either way, so picking the variant is just a
+    // `MachineKind`; one boot path covers all of them.
     let preload = detect_first_portable_snapshot(json_script.as_ref())?;
-    if let Some(preload) = preload {
-        match preload.model {
-            SnapshotModel::Spectrum128K => {
-                return run_script_for_variant(
-                    inputs,
-                    json_script,
-                    preload,
-                    boot_eager_variant::<Spectrum128kRuntime>(MachineKind::Spectrum128K)?,
-                    TIMING_128K.halfcycles_per_frame,
-                    "128K",
-                );
-            }
-            SnapshotModel::SpectrumPlus2 => {
-                return run_script_for_variant(
-                    inputs,
-                    json_script,
-                    preload,
-                    boot_eager_variant::<SpectrumPlus2Runtime>(MachineKind::SpectrumPlus2)?,
-                    TIMING_128K.halfcycles_per_frame,
-                    "+2",
-                );
-            }
-            SnapshotModel::SpectrumPlus2A => {
-                return run_script_for_variant(
-                    inputs,
-                    json_script,
-                    preload,
-                    boot_eager_variant::<SpectrumPlus2ARuntime>(MachineKind::SpectrumPlus2A)?,
-                    TIMING_PLUS2A.halfcycles_per_frame,
-                    "+2A",
-                );
-            }
-            SnapshotModel::SpectrumPlus3 => {
-                return run_script_for_variant(
-                    inputs,
-                    json_script,
-                    preload,
-                    boot_eager_variant::<SpectrumPlus3Runtime>(MachineKind::SpectrumPlus3)?,
-                    TIMING_PLUS2A.halfcycles_per_frame,
-                    "+3",
-                );
-            }
-            SnapshotModel::Spectrum48K
-            | SnapshotModel::Pentagon128
-            | SnapshotModel::Scorpion256 => {
-                // 48K snapshots flow through the existing eager-48K
-                // path below. Pentagon / Scorpion: snapshot exists
-                // but no script-side runtime wired yet — fall through
-                // to 48K and let the (degraded) apply_snapshot run;
-                // a later commit can add their boot helpers.
-            }
-        }
-    }
+    let boot_kind = match &preload {
+        Some(preload) => snapshot_model_to_kind(preload.model),
+        None => MachineKind::Spectrum48K,
+    };
 
-    let runtime = boot_eager_48k()?;
+    let runtime = boot_eager_kind(boot_kind)?;
+    let frame_ticks = runtime.native_frame_ticks();
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
-        u64::from(TIMING_48K.halfcycles_per_frame),
+        frame_ticks,
         SpectrumSessionQueryProvider,
     );
+
+    // Pre-apply the detected snapshot so subsequent steps see the
+    // loaded state. The first matching portable `LoadSnapshot` in the
+    // script is then skipped during iteration (below) since it's
+    // already applied. Routed through the enum's `SpectrumLiveAccess`,
+    // so every variant shares one apply path (#456).
+    if let Some(preload) = &preload {
+        SpectrumLiveAccess::apply_snapshot(session.machine_mut(), &preload.snapshot);
+    }
 
     let synthetic = synthetic_steps_from_cli(&inputs);
 
@@ -182,7 +146,18 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
     }
 
     if let Some(script) = &json_script {
+        // When a snapshot was pre-applied, skip the first matching
+        // portable `LoadSnapshot` step (already applied above); a
+        // later `LoadSnapshot` still runs normally.
+        let mut snapshot_skipped = preload.is_none();
         for step in &script.steps {
+            if !snapshot_skipped
+                && let ScriptStep::LoadSnapshot { path } = step
+                && is_portable_snapshot_path(path)
+            {
+                snapshot_skipped = true;
+                continue;
+            }
             if let Some(observation) = execute_step(step, &mut session)? {
                 observations.push(observation);
             }
@@ -192,8 +167,8 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
     Ok(RunnerReport {
         observations,
         time: session.time().get(),
-        tape_loaded: session.machine().machine().tape_is_loaded(),
-        tape_playing: session.machine().machine().tape_is_playing(),
+        tape_loaded: session.machine().tape_is_loaded(),
+        tape_playing: session.machine().tape_is_playing(),
     })
 }
 
@@ -205,23 +180,17 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
 /// LoadBasicProgram interception is shared across both modes.
 pub(crate) fn execute_step(
     step: &ScriptStep,
-    session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
+    session: &mut HeadlessSession<SpectrumRuntimeKind, SpectrumSessionQueryProvider>,
 ) -> Result<Option<ScriptObservation>, AppError> {
     match step {
         ScriptStep::SetMachine { machine } => {
-            // SetMachine isn't yet wired in script mode. Mid-script
-            // runtime swaps need an enum-of-sessions wrapper (each
-            // variant is a distinct `HeadlessSession<M, Q>` type)
-            // and a follow-up commit will add it. Until then, eager
-            // 48K covers Code198x's existing pipeline.
-            Err(AppError::ScriptUnsupported {
-                step: "set_machine",
-                reason: format!(
-                    "set_machine to '{machine}' not yet supported in script mode; \
-                     this binary boots 48K eagerly. Mid-script runtime swaps land \
-                     in a follow-up commit."
-                ),
-            })
+            // Shared with the MCP `set_machine` tool: resolve the variant's
+            // ROM bundle and swap the session's runtime via the generic
+            // `HeadlessSession::swap_machine`. Script mode holds the family
+            // enum now, so mid-script variant swaps work (#456).
+            crate::mcp::tools::execute_set_machine(machine, session)
+                .map(Some)
+                .map_err(map_tool_error)
         }
         ScriptStep::AutoloadTape {
             slot,
@@ -245,7 +214,11 @@ pub(crate) fn execute_step(
             .map(Some)
             .map_err(map_tool_error),
         ScriptStep::LoadSnapshot { path } if is_portable_snapshot_path(path) => {
-            execute_load_portable_snapshot(session, path).map(|_| None)
+            // Shared with MCP — the family enum implements `SpectrumLiveAccess`,
+            // so one `apply_snapshot` path covers every variant (#456).
+            crate::mcp::tools::execute_load_portable_snapshot(session, path)
+                .map(|()| None)
+                .map_err(map_tool_error)
         }
         // Inspection / debug / live-memory steps (memory, poke, ports, CPU/AY
         // queries, single-step, disassembly, watches) share one implementation
@@ -256,31 +229,6 @@ pub(crate) fn execute_step(
             None => other.execute_collect(session).map_err(map_script_error),
         },
     }
-}
-
-/// Parses a portable `.sna` / `.z80` snapshot (or extracts one from a
-/// `.zip` archive carrying a single matching file) and applies it to
-/// the live machine. The UI-side equivalent lives in
-/// `crates/emu198x-spectrum/src/ui/runner.rs::import_portable_snapshot_from_path`;
-/// MCP shares the classifier + parser through
-/// [`crate::portable_snapshot`].
-fn execute_load_portable_snapshot(
-    session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
-    path: &Path,
-) -> Result<(), AppError> {
-    if session.is_recording() {
-        return Err(AppError::ScriptUnsupported {
-            step: "load_snapshot",
-            reason: format!(
-                "cannot load portable snapshot {} while a video recording is in flight; \
-                 stop the recording first",
-                path.display()
-            ),
-        });
-    }
-    let snapshot = parse_portable_snapshot_at(path)?;
-    SpectrumMachine::apply_snapshot(session.machine_mut().machine_mut(), &snapshot);
-    Ok(())
 }
 
 /// Map a [`ToolError`] from a shared step helper into the script
@@ -320,44 +268,16 @@ pub(crate) fn boot_eager_48k() -> Result<Spectrum48kRuntime, AppError> {
     Spectrum48kRuntime::from_firmware(&firmware).map_err(AppError::from)
 }
 
-/// Local boot trait that abstracts over the inherent `from_firmware`
-/// constructor each Spectrum runtime exposes. The runtime crate doesn't
-/// publish a public trait for this — the constructors are inherent
-/// methods — so we adapt them here with a thin local trait so
-/// `boot_eager_variant<R>` can stay generic over the chosen variant.
-trait BootFromFirmware: Sized {
-    fn from_firmware(firmware: &FirmwareSet<'_>) -> Result<Self, MachineError>;
-}
-
-impl BootFromFirmware for Spectrum128kRuntime {
-    fn from_firmware(firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
-        Spectrum128kRuntime::from_firmware(firmware)
-    }
-}
-
-impl BootFromFirmware for SpectrumPlus2Runtime {
-    fn from_firmware(firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
-        SpectrumPlus2Runtime::from_firmware(firmware)
-    }
-}
-
-impl BootFromFirmware for SpectrumPlus2ARuntime {
-    fn from_firmware(firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
-        SpectrumPlus2ARuntime::from_firmware(firmware)
-    }
-}
-
-impl BootFromFirmware for SpectrumPlus3Runtime {
-    fn from_firmware(firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
-        SpectrumPlus3Runtime::from_firmware(firmware)
-    }
-}
-
-/// Eager-boot a 128K-family runtime variant from the conventional ROM
-/// path (`~/.emu198x/roms/sinclair-zx-spectrum-…`). Used when the
-/// script's first portable `LoadSnapshot` step targets a 128K-family
-/// snapshot — see `run_script_for_variant`.
-fn boot_eager_variant<R: BootFromFirmware>(kind: MachineKind) -> Result<R, AppError> {
+/// Eager-boot the family-dispatch enum for any Spectrum variant from
+/// the conventional ROM path (`~/.emu198x/roms/sinclair-zx-spectrum-…`).
+///
+/// One path for every model: resolve the variant's ROM bundle, then
+/// build the active variant through the shared `FamilyRuntime`
+/// constructor — the same one the MCP `set_machine` tool drives via
+/// `HeadlessSession::swap_machine`. The script runner holds the family
+/// enum (`SpectrumRuntimeKind`), so the result slots straight into the
+/// session regardless of which model was picked (#456).
+fn boot_eager_kind(kind: MachineKind) -> Result<SpectrumRuntimeKind, AppError> {
     let root = rom_root().ok_or_else(|| AppError::MissingRom {
         path: "$HOME unset; cannot locate ROM bundle".to_owned(),
     })?;
@@ -378,7 +298,27 @@ fn boot_eager_variant<R: BootFromFirmware>(kind: MachineKind) -> Result<R, AppEr
     for (id, bytes) in &rom_bytes {
         firmware.push(FirmwareImage::new(id.clone(), bytes));
     }
-    R::from_firmware(&firmware).map_err(AppError::from)
+    let model = crate::mcp::tools::kind_to_model(kind);
+    SpectrumRuntimeKind::from_firmware(model, &firmware).map_err(AppError::from)
+}
+
+/// Maps a portable snapshot's declared model onto the `MachineKind`
+/// whose runtime should host it. 128K-family snapshots (`128K`, `+2`,
+/// `+2A`, `+3`) boot their own variant so the upper banks and paging
+/// state survive; everything else (48K plus the not-yet-script-wired
+/// Pentagon / Scorpion clones) falls back to 48K and applies the
+/// snapshot against that map. Preserves the model→variant routing the
+/// old per-variant boot helpers hard-coded.
+fn snapshot_model_to_kind(model: SnapshotModel) -> MachineKind {
+    match model {
+        SnapshotModel::Spectrum128K => MachineKind::Spectrum128K,
+        SnapshotModel::SpectrumPlus2 => MachineKind::SpectrumPlus2,
+        SnapshotModel::SpectrumPlus2A => MachineKind::SpectrumPlus2A,
+        SnapshotModel::SpectrumPlus3 => MachineKind::SpectrumPlus3,
+        SnapshotModel::Spectrum48K | SnapshotModel::Pentagon128 | SnapshotModel::Scorpion256 => {
+            MachineKind::Spectrum48K
+        }
+    }
 }
 
 /// One pre-loaded portable snapshot — used by `run_script` to decide
@@ -408,122 +348,6 @@ fn detect_first_portable_snapshot(
         }
     }
     Ok(None)
-}
-
-/// Runs the script against the given pre-booted variant runtime,
-/// pre-applying the detected portable snapshot before iterating
-/// remaining steps.
-///
-/// Generic over `M: SpectrumMachine` so any Spectrum variant whose
-/// runtime is a `SpectrumRuntime<M>` plugs in unchanged. The
-/// pre-applied `LoadSnapshot` step is skipped when iterating. CLI
-/// convenience flags (tape / play-tape / autoload-tape) are
-/// 48K-specific and rejected here with a clear error. `variant_label`
-/// is woven into error messages so the user knows which runtime was
-/// auto-selected.
-fn run_script_for_variant<M>(
-    inputs: ScriptInputs,
-    script: Option<HeadlessScript>,
-    preload: PreloadedSnapshot,
-    runtime: SpectrumRuntime<M>,
-    frame_halfcycles: u32,
-    variant_label: &'static str,
-) -> Result<RunnerReport, AppError>
-where
-    M: SpectrumMachine,
-    SpectrumRuntime<M>: MachineCore,
-    SpectrumSessionQueryProvider: SessionQueryProvider<SpectrumRuntime<M>>,
-{
-    if inputs.tape.is_some() || inputs.play_tape || inputs.autoload_tape {
-        return Err(AppError::ScriptUnsupported {
-            step: "tape convenience flag",
-            reason: format!(
-                "--tape / --play-tape / --autoload-tape are 48K-only convenience flags; \
-                 they can't combine with a {variant_label} LoadSnapshot in the same script. \
-                 Drop the flags and add explicit MediaTransport / AutoloadTape steps if you \
-                 need tape interaction post-snapshot."
-            ),
-        });
-    }
-
-    let mut session = HeadlessSession::new_with_query_provider(
-        runtime,
-        u64::from(frame_halfcycles),
-        SpectrumSessionQueryProvider,
-    );
-
-    // Pre-apply the snapshot so subsequent steps see the loaded state.
-    SpectrumMachine::apply_snapshot(session.machine_mut().machine_mut(), &preload.snapshot);
-
-    let mut observations = Vec::new();
-    if let Some(script) = &script {
-        let mut snapshot_applied = false;
-        for step in &script.steps {
-            // Skip the LoadSnapshot we already applied. Match by
-            // step kind + path so a second LoadSnapshot later in the
-            // script still runs (a `restore_snapshot`-style postcard
-            // path) — though the typical case is a single LoadSnapshot.
-            if !snapshot_applied
-                && let ScriptStep::LoadSnapshot { path } = step
-                && is_portable_snapshot_path(path)
-            {
-                snapshot_applied = true;
-                continue;
-            }
-            // The non-48K path doesn't honour the 48K-specific
-            // interceptions (AutoloadTape / LoadBasicProgram) — those
-            // helpers are tape-loader-specific and bound to
-            // `Spectrum48kRuntime`. Everything else delegates through
-            // the shell crate's generic dispatch.
-            match step {
-                ScriptStep::AutoloadTape { .. } | ScriptStep::LoadBasicProgram { .. } => {
-                    return Err(AppError::ScriptUnsupported {
-                        step: "48K-only step in non-48K snapshot mode",
-                        reason: format!(
-                            "{} is currently only implemented for the 48K runtime; \
-                             the binary picked a {variant_label} runtime because the \
-                             script's first LoadSnapshot targets a {variant_label} snapshot. \
-                             Drop the {} step or move it to a separate 48K script.",
-                            step_name(step),
-                            step_name(step),
-                        ),
-                    });
-                }
-                ScriptStep::SetMachine { machine } => {
-                    return Err(AppError::ScriptUnsupported {
-                        step: "set_machine",
-                        reason: format!(
-                            "set_machine to '{machine}' not yet supported in script mode."
-                        ),
-                    });
-                }
-                other => {
-                    if let Some(obs) = other
-                        .execute_collect(&mut session)
-                        .map_err(map_script_error)?
-                    {
-                        observations.push(obs);
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(RunnerReport {
-        observations,
-        time: session.time().get(),
-        tape_loaded: session.machine().machine().tape_is_loaded(),
-        tape_playing: session.machine().machine().tape_is_playing(),
-    })
-}
-
-fn step_name(step: &ScriptStep) -> &'static str {
-    match step {
-        ScriptStep::AutoloadTape { .. } => "autoload_tape",
-        ScriptStep::LoadBasicProgram { .. } => "load_basic_program",
-        ScriptStep::SetMachine { .. } => "set_machine",
-        _ => "unknown",
-    }
 }
 
 /// Translates surviving CLI convenience flags into prepended
@@ -581,6 +405,9 @@ fn _control_command_anchor() -> ControlCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // `profile()` comes from the `MachineCore` trait — only the variant-swap
+    // test reads it, so scope the import to the test module.
+    use emu198x_shell::MachineCore;
 
     #[test]
     fn synthetic_steps_default_to_empty() {
@@ -627,6 +454,64 @@ mod tests {
                 "expected postcard fallthrough for {path:?}"
             );
         }
+    }
+
+    /// Regression for #456: a `SetMachine` step in a `--script` run swaps
+    /// the active variant. Before the runner held the family enum this
+    /// errored with `ScriptUnsupported`; now it routes through the same
+    /// `HeadlessSession::swap_machine` the MCP `set_machine` tool uses.
+    /// Boots the 48K enum session, swaps to 128K via `execute_step`, and
+    /// asserts the live profile and frame pacing both changed. Skips when
+    /// the 48K or 128K ROM bundles are absent.
+    #[test]
+    fn set_machine_step_swaps_variant_in_script_mode() {
+        let runtime = match boot_eager_48k() {
+            Ok(rt) => rt,
+            Err(_) => {
+                eprintln!("skipping: 48K ROM missing (set up ~/.emu198x/roms/...)");
+                return;
+            }
+        };
+        let kind = SpectrumRuntimeKind::Spectrum48K(runtime);
+        let ticks = kind.native_frame_ticks();
+        let mut session =
+            HeadlessSession::new_with_query_provider(kind, ticks, SpectrumSessionQueryProvider);
+
+        let before_profile = session.machine().profile().profile_id.as_str().to_owned();
+        let before_ticks = session.native_frame_ticks();
+
+        let step = ScriptStep::SetMachine {
+            machine: "spectrum_128k".to_owned(),
+        };
+        let observation = match execute_step(&step, &mut session) {
+            Ok(obs) => obs,
+            Err(_) => {
+                eprintln!("skipping: 128K ROM bundle missing");
+                return;
+            }
+        };
+
+        assert!(
+            matches!(observation, Some(ScriptObservation::SetMachine { .. })),
+            "set_machine must report a SetMachine observation, got {observation:?}"
+        );
+        let after_profile = session.machine().profile().profile_id.as_str().to_owned();
+        assert_ne!(
+            before_profile, after_profile,
+            "set_machine should change the active profile (48K -> 128K)"
+        );
+        // The session re-paced to the new variant's frame budget, and that
+        // budget is what the freshly-installed runtime reports.
+        assert_eq!(
+            session.native_frame_ticks(),
+            session.machine().native_frame_ticks(),
+            "session frame pacing must track the swapped-in variant"
+        );
+        assert_ne!(
+            before_ticks,
+            session.native_frame_ticks(),
+            "128K has a longer frame than 48K; the session pacing should differ"
+        );
     }
 
     #[test]

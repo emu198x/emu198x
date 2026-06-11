@@ -166,8 +166,9 @@ pub(crate) fn dispatch_live_step<
 /// `crate::script::runner::execute_load_portable_snapshot`. Shares the
 /// classifier + parser through [`crate::portable_snapshot`] and applies
 /// the result through [`SpectrumLiveAccess::apply_snapshot`] so every
-/// runtime kind in `SpectrumRuntimeKind` is reachable.
-fn execute_load_portable_snapshot(
+/// runtime kind in `SpectrumRuntimeKind` is reachable. Shared with the
+/// `--script` runner (#456) — both modes hold the family enum session.
+pub(crate) fn execute_load_portable_snapshot(
     session: &mut SpectrumSession,
     path: &std::path::Path,
 ) -> Result<(), ToolError> {
@@ -347,7 +348,10 @@ pub(crate) fn execute_watch_memory_log<
     })
 }
 
-fn execute_set_machine(
+/// Build + install the requested Spectrum variant via the shared
+/// `HeadlessSession::swap_machine`. Shared with the `--script` runner so
+/// `set_machine` behaves identically in MCP and script mode (#456).
+pub(crate) fn execute_set_machine(
     requested: &str,
     session: &mut SpectrumSession,
 ) -> Result<ScriptObservation, ToolError> {
@@ -369,7 +373,7 @@ fn execute_set_machine(
 
     // Two-pass firmware load: read all ROM bytes into an owned vec,
     // then borrow them into the `FirmwareSet`. Mirrors the pattern
-    // used by `script::runner::boot_eager_variant`.
+    // used by `script::runner::boot_eager_kind`.
     let bundle = variant_rom_bundle(kind, &rom_root_dir);
     let mut rom_bytes: Vec<(String, Vec<u8>)> = Vec::with_capacity(bundle.len());
     for (id, path) in bundle {
@@ -892,7 +896,7 @@ pub(crate) fn execute_load_basic_program<
     })
 }
 
-fn kind_to_model(kind: MachineKind) -> runtime_sinclair_zx_spectrum::Model {
+pub(crate) fn kind_to_model(kind: MachineKind) -> runtime_sinclair_zx_spectrum::Model {
     use runtime_sinclair_zx_spectrum::Model;
     match kind {
         MachineKind::Spectrum16K => Model::Spectrum16KPal,
