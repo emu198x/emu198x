@@ -39,7 +39,9 @@ pub(crate) mod tools;
 use std::path::PathBuf;
 
 use emu198x_shell::mcp::{Server, ServerInfo, serve_stdio};
-use emu198x_shell::mcp_tools::{register_base_tools, register_memory_watch_tools};
+use emu198x_shell::mcp_tools::{
+    register_base_tools, register_keyboard_tools, register_memory_watch_tools,
+};
 use emu198x_shell::{HeadlessSession, MediaSet};
 use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider};
 
@@ -96,6 +98,9 @@ pub fn run(cli: McpCli) -> Result<(), AppError> {
     // richer Amiga overrides win on name collisions (last write).
     register_base_tools(server.registry_mut());
     register_memory_watch_tools(server.registry_mut());
+    // The Amiga has a keyboard (with a Shift-aware char table + the two Amiga
+    // keys), so the shared press_key / press_keys / type_string apply.
+    register_keyboard_tools(server.registry_mut());
     register_amiga_tools(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(AppError::from)?;

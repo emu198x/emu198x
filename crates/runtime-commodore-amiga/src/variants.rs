@@ -871,6 +871,44 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
     fn watch_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::WatchTarget> {
         Some(self)
     }
+
+    fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
+        Some(self)
+    }
+}
+
+/// Keyboard description for the shared `press_key` / `press_keys` / `type_string`
+/// tools. The Amiga has a real Shift-aware `keys_for_char` and the full HRM
+/// rawkey vocabulary (including the two Amiga keys for the Ctrl-Amiga-Amiga
+/// reset), so it carries a bespoke impl rather than the ASCII default.
+impl emu198x_shell::KeyboardTarget for AmigaRuntimeKind {
+    fn key_name_is_valid(&self, name: &str) -> bool {
+        crate::input::key_name_is_valid(name)
+    }
+
+    fn key_names_hint(&self) -> &'static str {
+        "A-Z, 0-9, F1-F10, Space, Return, Esc, Tab, Backspace, Delete, Help, \
+         cursor Up/Down/Left/Right, LShift/RShift, Ctrl, LAlt/RAlt, Caps, \
+         LAmiga/RAmiga (or raw-NN)"
+    }
+
+    fn keys_for_char(&self, ch: char) -> Option<Vec<String>> {
+        crate::input::keys_for_char(ch).map(|keys| keys.into_iter().map(str::to_owned).collect())
+    }
+
+    fn key_timing(&self) -> emu198x_shell::KeyTiming {
+        emu198x_shell::KeyTiming {
+            default_hold_frames: crate::DEFAULT_KEY_HOLD_FRAMES,
+            max_hold_frames: crate::MAX_KEY_HOLD_FRAMES,
+            // press_key settles 1 frame after release; type_string runs 2 between
+            // characters with no extra repeat settle (the 2-frame gap separates
+            // identical keys).
+            press_settle_frames: 1,
+            inter_key_settle_frames: 2,
+            repeat_settle_frames: 0,
+            default_type_settle_frames: crate::DEFAULT_TYPE_SETTLE_FRAMES,
+        }
+    }
 }
 
 /// Memory-write watch over the shared [`emu198x_shell::WatchTarget`]. The

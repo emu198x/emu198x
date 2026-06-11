@@ -15,10 +15,7 @@ use emu198x_shell::{
     MediaImage, MediaKind, MediaSet, ScriptObservation, ScriptStep, boot_machine,
     read_firmware_asset, read_media_asset,
 };
-use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider, DEFAULT_KEY_HOLD_FRAMES,
-    DEFAULT_TYPE_SETTLE_FRAMES, type_string,
-};
+use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -262,28 +259,11 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
     if let Some(path) = &cli.script {
         let script = HeadlessScript::from_path(path)
             .map_err(|err| format!("failed to load script {}: {err}", path.display()))?;
-        // Intercept `type_string` (a system-specific step the shell can't
-        // execute without the Amiga keymap) and run it through the keyboard
-        // typing helper; everything else delegates to the shared executor.
+        // Only `set_machine` is intercepted; everything else delegates to the
+        // shared executor. press_key / press_keys / type_string now run through
+        // the machine's `KeyboardTarget` there (the Amiga keymap is wired in).
         for step in &script.steps {
             match step {
-                ScriptStep::TypeString {
-                    text,
-                    hold_frames,
-                    settle_frames,
-                } => {
-                    let chars_typed = type_string(
-                        &mut session,
-                        text,
-                        hold_frames.unwrap_or(DEFAULT_KEY_HOLD_FRAMES),
-                        settle_frames.unwrap_or(DEFAULT_TYPE_SETTLE_FRAMES),
-                    )
-                    .map_err(|err| format!("type_string failed: {err}"))?;
-                    observations.push(ScriptObservation::TypeString {
-                        chars_typed,
-                        reached: session.time(),
-                    });
-                }
                 // Shared with the MCP `set_machine` tool: resolve the model's
                 // Kickstart by convention and swap the session's variant via
                 // `HeadlessSession::swap_machine`. Script mode holds the family

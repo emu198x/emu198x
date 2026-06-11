@@ -140,7 +140,12 @@ fn key_name_to_raw_code(name: &str) -> Option<u8> {
         "tab" => 0x42,
         "enter" | "return" => 0x44,
         "escape" | "esc" => 0x45,
-        "delete" => 0x46,
+        "delete" | "del" => 0x46,
+        // Cursor keys (HRM Appendix F): Up/Down/Right/Left.
+        "cursor-up" | "up" | "arrowup" => 0x4C,
+        "cursor-down" | "down" | "arrowdown" => 0x4D,
+        "cursor-right" | "right" | "arrowright" => 0x4E,
+        "cursor-left" | "left" | "arrowleft" => 0x4F,
         "f1" => 0x50,
         "f2" => 0x51,
         "f3" => 0x52,
@@ -151,13 +156,26 @@ fn key_name_to_raw_code(name: &str) -> Option<u8> {
         "f8" => 0x57,
         "f9" => 0x58,
         "f10" => 0x59,
+        "help" => 0x5F,
         "lshift" | "shift" => 0x60,
         "rshift" => 0x61,
+        "capslock" | "caps" => 0x62,
         "ctrl" | "control" => 0x63,
         "lalt" => 0x64,
         "ralt" => 0x65,
+        // The two Amiga (Commodore) command keys. Ctrl + LAmiga + RAmiga is
+        // the keyboard reset — reachable now as a `press_keys` chord.
+        "lamiga" | "leftamiga" | "lcommand" | "lcmd" => 0x66,
+        "ramiga" | "rightamiga" | "rcommand" | "rcmd" => 0x67,
         _ => return None,
     })
+}
+
+/// Whether `name` is a key this Amiga keyboard recognises — including the
+/// `raw-NN` escape hatch — for the shared `press_key` / `press_keys` verbs.
+#[must_use]
+pub fn key_name_is_valid(name: &str) -> bool {
+    key_name_to_raw_code(name).is_some()
 }
 
 /// Map one printable ASCII character to the key chord (in press order)
@@ -291,6 +309,24 @@ mod tests {
         assert_eq!(key_name_to_raw_code("raw-0x5F"), Some(0x5F));
         assert_eq!(key_name_to_raw_code("unknown"), None);
         assert_eq!(key_name_to_raw_code(""), None);
+    }
+
+    #[test]
+    fn special_keys_and_reset_combo_are_named() {
+        // Cursor keys, Help, Caps.
+        assert_eq!(key_name_to_raw_code("up"), Some(0x4C));
+        assert_eq!(key_name_to_raw_code("down"), Some(0x4D));
+        assert_eq!(key_name_to_raw_code("right"), Some(0x4E));
+        assert_eq!(key_name_to_raw_code("left"), Some(0x4F));
+        assert_eq!(key_name_to_raw_code("help"), Some(0x5F));
+        assert_eq!(key_name_to_raw_code("caps"), Some(0x62));
+        // The Ctrl-Amiga-Amiga reset salute — every key is now nameable.
+        assert_eq!(key_name_to_raw_code("ctrl"), Some(0x63));
+        assert_eq!(key_name_to_raw_code("lamiga"), Some(0x66));
+        assert_eq!(key_name_to_raw_code("ramiga"), Some(0x67));
+        assert!(super::key_name_is_valid("lamiga"));
+        assert!(super::key_name_is_valid("raw-66"));
+        assert!(!super::key_name_is_valid("nope"));
     }
 
     /// Lowercase is a bare keycap; uppercase and shifted symbols return
