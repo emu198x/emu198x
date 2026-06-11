@@ -416,3 +416,153 @@ fn blitter_nasty_mode_requires_busy_blten_bltpri_all_set() {
     agnus.blitter_busy = false;
     assert!(!agnus.blitter_nasty_active());
 }
+
+// ────────────────────────────────────────────────────────────────
+// Incremental drain (#31) — byte-for-byte parity with the synchronous
+// path. `tick_blitter_dma` (one op per granted CCK) must produce the
+// same chip RAM as `run_blit` / `run_blit_to_completion`.
+// ────────────────────────────────────────────────────────────────
+
+/// `BlitterBus` view over the test RAM (interior-mutable, so `&TestRam`
+/// is enough). Lets us drive the public `tick_blitter_dma` exactly as
+/// the machine tick loop does.
+struct RamBus<'a>(&'a TestRam);
+impl commodore_agnus_ocs::BlitterBus for RamBus<'_> {
+    fn read_word(&mut self, addr: u32) -> u16 {
+        self.0.peek(addr)
+    }
+    fn write_word(&mut self, addr: u32, val: u16) {
+        self.0.poke(addr, val);
+    }
+}
+
+/// Drive a started blit one op per call via the per-CCK path. Returns
+/// total ops; asserts completion is reported exactly once and the
+/// blitter clears.
+fn run_blit_incremental(agnus: &mut Agnus, ram: &TestRam) -> u32 {
+    let mut bus = RamBus(ram);
+    let mut ops = 0u32;
+    loop {
+        let done = agnus.tick_blitter_dma(&mut bus);
+        ops += 1;
+        if done {
+            break;
+        }
+        if ops > 10_000 {
+            panic!("incremental blit runaway");
+        }
+    }
+    assert!(
+        !agnus.blitter_busy,
+        "blitter must clear when the incremental blit completes"
+    );
+    ops
+}
+
+/// Run `setup` through both the synchronous and the incremental paths
+/// into independent RAMs, then assert every word in the working range
+/// agrees and the op counts match.
+fn assert_paths_agree(setup: impl Fn(&mut Agnus, &TestRam), label: &str) {
+    let mut a_sync = Agnus::new();
+    let ram_sync = TestRam::new();
+    setup(&mut a_sync, &ram_sync);
+    a_sync.start_blit();
+    let sync_ops = run_blit(&mut a_sync, &ram_sync);
+
+    let mut a_inc = Agnus::new();
+    let ram_inc = TestRam::new();
+    setup(&mut a_inc, &ram_inc);
+    a_inc.start_blit();
+    let inc_ops = run_blit_incremental(&mut a_inc, &ram_inc);
+
+    assert_eq!(sync_ops, inc_ops, "{label}: op count differs");
+    for addr in (0x0000u32..0x6000).step_by(2) {
+        assert_eq!(
+            ram_sync.peek(addr),
+            ram_inc.peek(addr),
+            "{label}: word ${addr:05X} differs (sync vs incremental)"
+        );
+    }
+}
+
+#[test]
+fn incremental_drain_matches_synchronous_blit() {
+    // Area copy, A -> D, minterm $F0.
+    assert_paths_agree(
+        |agnus, ram| {
+            ram.poke(0x1000, 0xABCD);
+            agnus.blt_apt = 0x1000;
+            agnus.blt_dpt = 0x2000;
+            program_single_word_blit(agnus, 0xF0, true, false, false, true);
+        },
+        "area copy A->D",
+    );
+
+    // Multi-row 3x2 area copy (exercises row-end modulo + word advance).
+    assert_paths_agree(
+        |agnus, ram| {
+            for i in 0..6u32 {
+                ram.poke(0x1000 + i * 2, 0x1000 + i as u16);
+            }
+            agnus.blt_apt = 0x1000;
+            agnus.blt_dpt = 0x2000;
+            agnus.blt_amod = 0;
+            agnus.blt_dmod = 0;
+            agnus.bltcon0 = 0x0900 | 0xF0; // USEA + USED + minterm A
+            agnus.blt_afwm = 0xFFFF;
+            agnus.blt_alwm = 0xFFFF;
+            agnus.bltsize = (2 << 6) | 3;
+        },
+        "multi-row 3x2 copy",
+    );
+
+    // Full A/B/C minterm (a mux) into D — exercises all three reads.
+    assert_paths_agree(
+        |agnus, ram| {
+            ram.poke(0x1000, 0xF0F0);
+            ram.poke(0x2000, 0xCCCC);
+            ram.poke(0x3000, 0xAAAA);
+            agnus.blt_apt = 0x1000;
+            agnus.blt_bpt = 0x2000;
+            agnus.blt_cpt = 0x3000;
+            agnus.blt_dpt = 0x4000;
+            agnus.bltcon0 = 0x0F00 | 0xCA; // USEA+B+C+D, minterm $CA (mux)
+            agnus.blt_afwm = 0xFFFF;
+            agnus.blt_alwm = 0xFFFF;
+            agnus.bltsize = (1 << 6) | 1;
+        },
+        "abc minterm mux",
+    );
+
+    // Inclusive-fill (channel-C area blit through the fill unit).
+    assert_paths_agree(
+        |agnus, ram| {
+            ram.poke(0x3000, 0x8001);
+            agnus.blt_cpt = 0x3000;
+            agnus.blt_dpt = 0x4000;
+            agnus.bltcon0 = 0x0300 | 0xAA;
+            agnus.bltcon1 = 0x0010; // EFE
+            agnus.blt_afwm = 0xFFFF;
+            agnus.blt_alwm = 0xFFFF;
+            agnus.bltsize = (1 << 6) | 1;
+        },
+        "exclusive-fill",
+    );
+
+    // Line mode (the ReadC -> WriteD per-step path).
+    assert_paths_agree(
+        |agnus, _ram| {
+            agnus.bltcon0 = 0x0B00 | 0xCA; // USEB+C+D, standard line LF
+            agnus.bltcon1 = 0x0001; // LINE mode
+            agnus.blt_apt = 0;
+            agnus.blt_bdat = 0xFFFF;
+            agnus.blt_cpt = 0x2000;
+            agnus.blt_dpt = 0x2000;
+            agnus.blt_amod = 0;
+            agnus.blt_bmod = 4;
+            agnus.blt_cmod = 0;
+            agnus.bltsize = (4 << 6) | 2;
+        },
+        "line mode horizontal",
+    );
+}

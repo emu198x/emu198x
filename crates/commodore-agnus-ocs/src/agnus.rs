@@ -1695,6 +1695,46 @@ impl Agnus {
         }
         self.blitter_busy = false;
     }
+
+    /// Service exactly one granted blitter DMA op against the chip bus —
+    /// the per-CCK counterpart to [`Agnus::run_blit_to_completion`]. The
+    /// machine calls this once on each CCK the bus plan grants the
+    /// blitter (`CckBusPlan::blitter_dma_progress_granted`), so a blit
+    /// consumes real chip cycles and contends for the bus instead of
+    /// finishing instantly on the BLTSIZE write.
+    ///
+    /// Returns `true` on the CCK that drains the last op — the caller
+    /// raises INT_BLIT. The body mirrors `run_blit_to_completion`'s loop
+    /// exactly; the only difference is one op per call instead of a
+    /// drain-to-completion loop. An equivalence test
+    /// (`incremental_drain_matches_synchronous_blit`) pins that the two
+    /// paths produce byte-identical chip-RAM output.
+    pub fn tick_blitter_dma(&mut self, bus: &mut dyn BlitterBus) -> bool {
+        let Some(op) = self.next_blitter_dma_request() else {
+            // Caller only ticks us while busy; no pending op means the
+            // blit is already drained — report completion once.
+            self.blitter_busy = false;
+            return true;
+        };
+        self.grant_blitter_dma_op(op);
+        let done = match op {
+            BlitterDmaOp::WriteD => self.execute_incremental_blitter_op(
+                op,
+                |_| 0,
+                |addr, val| bus.write_word(addr, val),
+            ),
+            BlitterDmaOp::Internal => self.execute_incremental_blitter_op(op, |_| 0, |_, _| {}),
+            _ => self.execute_incremental_blitter_op(op, |addr| bus.read_word(addr), |_, _| {}),
+        };
+        if self.blitter_word_complete() && !done {
+            self.advance_blitter_word();
+        }
+        if self.next_blitter_dma_request().is_none() {
+            self.blitter_busy = false;
+            return true;
+        }
+        false
+    }
 }
 
 /// Chip-bus interface for the blitter synchronous-completion helper.
