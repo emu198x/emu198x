@@ -650,6 +650,18 @@ pub type AmigaA1200Runtime = AmigaRuntime<AmigaA1200>;
 // One instance per session, held for its lifetime; boxing the larger
 // variant would only add heap indirection to the hot per-tick
 // `MachineCore` forwarding path.
+//
+// The arms are chip-stack TIERS, not machines: new Amiga models (A600,
+// A4000, CD32, NTSC ...) route onto an existing arm via `Model`, so they
+// add a `Model` variant + a branch in `new`/`from_firmware`/`blank`, NOT
+// a match arm. The forwarders below are therefore written as explicit
+// 3-arm matches, which read fine inline. The Spectrum enum has 13 arms
+// (per-variant, no tier to collapse onto) and uses a `match_kind!`
+// forwarding macro instead — see
+// `knowledge/decisions/runtime-internal-shape.md`. If the Amiga ever
+// grows past ~5 chip-stack tiers (e.g. a SAGA / Apollo arm lands and the
+// explicit matches start to sting), adopt the same macro here — it's a
+// mechanical, internal-only change with no API churn.
 #[allow(clippy::large_enum_variant)]
 pub enum AmigaRuntimeKind {
     /// OCS chip stack — A1000, A500, A500-A501, A500-Maxed (PAL/NTSC).
