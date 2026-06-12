@@ -1137,6 +1137,28 @@ impl AmigaOcs {
         }
     }
 
+    /// Disk *write* DMA glue — the chip-RAM → drive mirror of
+    /// `feed_next_mfm_word`. Pull the next word from chip RAM at DSKPT,
+    /// hand it to Paula's write slot, and on `Some` feed it to the
+    /// drive's MFM write capture and advance DSKPT (Paula owns the word
+    /// countdown + the DSKBLK interrupt). When the transfer drains,
+    /// decode the captured MFM track and persist the decoded sectors to
+    /// the disk image — turning a Workbench SAVE into real bytes instead
+    /// of silently dropping it.
+    fn feed_next_write_word(&mut self) {
+        let addr = self.agnus.dsk_pt & 0x001F_FFFE;
+        let word = self.memory.read_word(addr);
+        if let Some(write_word) = self.paula.tick_disk_write_dma_slot(word) {
+            self.drive.note_write_mfm_word(write_word);
+            self.agnus.dsk_pt = self.agnus.dsk_pt.wrapping_add(2);
+            if !self.paula.disk_dma_write_active() {
+                // Final word transferred — decode the captured MFM and
+                // write the decoded sectors back to the disk image.
+                self.drive.flush_write_capture();
+            }
+        }
+    }
+
     /// CCKs between consecutive MFM words at 250 kbit/s (ADKCON.FAST
     /// clear) or 500 kbit/s (FAST set). Paula's internal byte pacer
     /// uses 28 / 14 CCKs per byte; a word is two bytes.
@@ -1690,7 +1712,17 @@ impl AmigaOcs {
             // With drive selected, motor spinning, disk present, and
             // Paula expecting data, feed MFM words word-by-word at
             // the disk byte rate.
-            if self.drive.read_data_available() {
+            if self.paula.disk_dma_write_active() {
+                // Disk WRITE DMA: pull words from chip RAM to the drive
+                // at the disk byte rate (same pacer as the read path — a
+                // transfer is either a read or a write, never both).
+                if self.track_pacer == 0 {
+                    self.feed_next_write_word();
+                    self.track_pacer = self.disk_word_cck_interval();
+                } else {
+                    self.track_pacer = self.track_pacer.saturating_sub(1);
+                }
+            } else if self.drive.read_data_available() {
                 if self.track_pacer == 0 {
                     self.feed_next_mfm_word();
                     self.track_pacer = self.disk_word_cck_interval();
