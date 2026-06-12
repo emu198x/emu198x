@@ -511,3 +511,56 @@ not-protected; µPD765A and Beta don't model WP at all.
 **For whoever implements write on +3 / Beta / Amiga:** report WP from the *disk's*
 protect state, and make sure an EMPTY drive reads NOT protected — never gate "not
 protected" on disk presence, or you reproduce the phantom-disk-change close.
+
+---
+
+## Amendment 2026-06-12: sidecar save target for writable mounts (Amiga first)
+
+**Driver (Steve):** even when a disk *is* writable, a SAVE should not overwrite
+the real source image the host handed us — but it must still persist somewhere
+(cf. WinUAE's "save disk changes to a separate file").
+
+This refines rules 2–3; rule 1 (archive = read-only, rejects SAVE) is unchanged
+and **not** weakened — this is narrower than the rejected "copy-on-write overlay
+on *any* mount" (a read-only/write-protected disk still authentically rejects
+the SAVE; we only choose *where a writable mount's bytes land*).
+
+**The refinement:** a writable mount's flush target **defaults to a sidecar
+file** beside the source, not the source itself:
+
+- `Game.adf` mounted writable → SAVE persists to `Game.save.adf`; `Game.adf` is
+  never touched.
+- `Game.adf` mounted write-protected → SAVE fails with DSKPROT (authentic tab).
+- A scratch/work image mounted writable **with explicit `--overwrite`** → SAVE
+  lands in place (the learner's own disk, rule 2).
+
+So the save target is: *write-protected* → nowhere (reject); *writable, default*
+→ sidecar; *writable, overwrite* → in place. Source bytes are still never mutated
+in place unless the user explicitly asks (rule 3 holds, strengthened to "never,
+even on a writable mount, without `--overwrite`").
+
+**Mechanism, not overlay.** The core still works on its in-memory image and
+flushes the whole image on demand (no per-sector COW diff, no read-time merge).
+"Sidecar" only changes the *output path* the runtime writes to; the drive/chip
+layer is unaware. A sparse/diff on-disk format can come later without changing
+this policy.
+
+**Layering:**
+- Drive/chip: a `writable` flag drives `is_writable()` (gates `flush_write_capture`)
+  and the DSKPROT write-protect status. A write-protected disk rejects writes —
+  authentic.
+- Runtime/host: owns the source path + the writable flag, derives the sidecar
+  path (`<stem>.save.<ext>`), and writes the bytes there on `save_disk` (or to
+  the source when `overwrite` is set).
+
+**Parity (rule 4):** the sidecar default is platform-neutral and a candidate to
+backport to the C64/Spectrum paths (which today overwrite the explicit work
+image). Not retrofitted now; Amiga adopts it first.
+
+### Drift triggers (additions)
+- "Make a writable mount overwrite the source by default" — no. Default sidecar;
+  in-place needs explicit `overwrite`.
+- "Let a write-protected disk save to the sidecar so it 'just works'" — no. That
+  is the rejected overlay-on-any-mount; protected media rejects the SAVE (DSKPROT).
+- "Build a per-sector COW diff format" — out of scope; sidecar = whole-image
+  flush to an alternate path. Revisit only if space/round-trip needs demand it.
