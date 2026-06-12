@@ -1,18 +1,24 @@
-//! Phase 1 characterization tests — Agnus DMA slot arbitration.
+//! Agnus DMA slot arbitration — hardware-correct positions (#30).
 //!
-//! Per HRM Chapter 6 Table 6-1 (DMA time slot allocation).
-//!
-//! The 227-CCK line partitions into fixed and variable regions:
+//! The 227-CCK line (hpos 0x00..0xE2) allocates every fixed chipset
+//! channel to an ODD hpos, matching vAmiga's `SequencerDas.cpp`
+//! `dasDMA` table (the non-circular reference anchor). The CPU takes the
+//! even cells (and any unclaimed odd cell); the copper takes the even
+//! FREE cells when COPEN is set.
 //!
 //! ```text
-//!   hpos 0x00          free (CPU)
-//!   hpos 0x01-0x03     memory refresh (3 slots)
-//!   hpos 0x04-0x06     disk DMA (3 slots, gated by DMACON.DSKEN)
-//!   hpos 0x07-0x0A     audio DMA (4 slots, one per channel)
-//!   hpos 0x0B-0x1A     sprite DMA (8 sprites × 2 slots each)
-//!   hpos 0x1B          refresh
-//!   hpos 0x1C..=0xE2   bitplane / copper / CPU (display fetch window)
+//!   hpos 0x00          free (CPU / copper-even)
+//!   hpos 0x01/03/05    memory refresh
+//!   hpos 0x07/09/0B    disk DMA D0/D1/D2 (DMACON.DSKEN)
+//!   hpos 0x0D/0F/11/13 audio DMA ch0..3 (per-channel gate)
+//!   hpos 0x15..0x33    sprite DMA: sprite (hpos-0x15)/4, 2 odd slots each
+//!   hpos 0x1C..        bitplane (DDF-gated) / copper (even) / CPU
+//!   hpos 0xE2 / 0xE3   end-of-line refresh (short / long line)
 //! ```
+//!
+//! Priority on a contended cell:
+//!   disk > refresh > audio > bitplane > sprite > copper > cpu
+//! (blitter contention is layered onto the Cpu slots in `cck_bus_plan`).
 //!
 //! Chip-level gates:
 //!   - Every DMA channel needs DMACON.DMAEN (bit 9) set.
@@ -56,75 +62,84 @@ fn hpos_0_is_cpu_slot() {
     assert_eq!(a.current_slot(), SlotOwner::Cpu);
 }
 
+// Hardware-correct positions (vAmiga `SequencerDas.cpp`): every fixed
+// chipset slot is ODD; the even cells are CPU (or copper when COPEN).
+// These values are the non-circular reference anchor for #30.
+
 #[test]
-fn hpos_1_through_3_are_refresh_slots() {
+fn refresh_slots_are_01_03_05_and_end_of_line() {
     let mut a = agnus_with_dmacon(DMAEN | DSKEN | AUD0EN | SPREN);
-    for hpos in 1..=3 {
+    for hpos in [0x01u16, 0x03, 0x05, 0xE2] {
         at_hpos(&mut a, hpos);
         assert_eq!(
             a.current_slot(),
             SlotOwner::Refresh,
-            "hpos {hpos:#x} is always refresh regardless of DMACON"
+            "hpos {hpos:#x} is refresh regardless of DMACON"
         );
     }
 }
 
 #[test]
-fn hpos_1b_is_the_final_refresh_slot() {
-    let mut a = agnus_with_dmacon(DMAEN | BPLEN);
-    at_hpos(&mut a, 0x1B);
-    assert_eq!(a.current_slot(), SlotOwner::Refresh);
+fn even_cells_in_the_fixed_region_are_cpu_without_copen() {
+    let mut a = agnus_with_dmacon(DMAEN | DSKEN);
+    for hpos in [0x00u16, 0x02, 0x04, 0x06, 0x0C, 0x14] {
+        at_hpos(&mut a, hpos);
+        assert_eq!(
+            a.current_slot(),
+            SlotOwner::Cpu,
+            "even hpos {hpos:#x} -> CPU"
+        );
+    }
 }
 
 // ────────────────────────────────────────────────────────────────
-// Disk slots (4-6) — gated by DMACON.DSKEN
+// Disk slots (0x07/0x09/0x0B) — gated by DMACON.DSKEN
 // ────────────────────────────────────────────────────────────────
 
 #[test]
-fn disk_slots_4_5_6_granted_when_dsken_and_master_enabled() {
+fn disk_slots_07_09_0b_granted_when_dsken_and_master_enabled() {
     let mut a = agnus_with_dmacon(DMAEN | DSKEN);
-    for hpos in 4..=6 {
+    for hpos in [0x07u16, 0x09, 0x0B] {
         at_hpos(&mut a, hpos);
-        assert_eq!(a.current_slot(), SlotOwner::Disk);
+        assert_eq!(a.current_slot(), SlotOwner::Disk, "hpos {hpos:#x} -> disk");
     }
 }
 
 #[test]
 fn disk_slots_fall_back_to_cpu_without_dsken() {
-    let mut a = agnus_with_dmacon(DMAEN); // master on, DSKEN off
-    for hpos in 4..=6 {
+    let mut a = agnus_with_dmacon(DMAEN);
+    for hpos in [0x07u16, 0x09, 0x0B] {
         at_hpos(&mut a, hpos);
         assert_eq!(
             a.current_slot(),
             SlotOwner::Cpu,
-            "hpos {hpos:#x}: no DSKEN → CPU"
+            "hpos {hpos:#x}: no DSKEN -> CPU"
         );
     }
 }
 
 #[test]
 fn disk_slots_fall_back_to_cpu_without_master_enable() {
-    // DSKEN set but DMAEN clear → no DMA happens at all.
     let mut a = agnus_with_dmacon(DSKEN);
-    for hpos in 4..=6 {
+    for hpos in [0x07u16, 0x09, 0x0B] {
         at_hpos(&mut a, hpos);
         assert_eq!(a.current_slot(), SlotOwner::Cpu);
     }
 }
 
 // ────────────────────────────────────────────────────────────────
-// Audio slots (7-A) — per-channel gates
+// Audio slots (0x0D/0x0F/0x11/0x13) — per-channel gates
 // ────────────────────────────────────────────────────────────────
 
 #[test]
 fn audio_channels_each_own_exactly_one_slot() {
     let mut a = agnus_with_dmacon(DMAEN | AUD0EN | AUD1EN | AUD2EN | AUD3EN);
-    for (hpos, expected_ch) in [(0x07u16, 0u8), (0x08, 1), (0x09, 2), (0x0A, 3)] {
+    for (hpos, expected_ch) in [(0x0Du16, 0u8), (0x0F, 1), (0x11, 2), (0x13, 3)] {
         at_hpos(&mut a, hpos);
         assert_eq!(
             a.current_slot(),
             SlotOwner::Audio(expected_ch),
-            "hpos {hpos:#x} → audio {expected_ch}"
+            "hpos {hpos:#x} -> audio {expected_ch}"
         );
     }
 }
@@ -132,37 +147,38 @@ fn audio_channels_each_own_exactly_one_slot() {
 #[test]
 fn audio_channel_disabled_individually_yields_cpu() {
     let mut a = agnus_with_dmacon(DMAEN | AUD0EN | AUD2EN); // 1 + 3 disabled
-    at_hpos(&mut a, 0x08);
+    at_hpos(&mut a, 0x0F);
     assert_eq!(a.current_slot(), SlotOwner::Cpu);
-    at_hpos(&mut a, 0x0A);
+    at_hpos(&mut a, 0x13);
     assert_eq!(a.current_slot(), SlotOwner::Cpu);
-    at_hpos(&mut a, 0x07);
+    at_hpos(&mut a, 0x0D);
     assert_eq!(a.current_slot(), SlotOwner::Audio(0));
-    at_hpos(&mut a, 0x09);
+    at_hpos(&mut a, 0x11);
     assert_eq!(a.current_slot(), SlotOwner::Audio(2));
 }
 
 // ────────────────────────────────────────────────────────────────
-// Sprite slots (B-1A) — 8 sprites × 2 slots each
+// Sprite slots (0x15..0x33) — 8 sprites × 2 odd slots each
 // ────────────────────────────────────────────────────────────────
 
 #[test]
 fn sprite_slots_map_channel_to_hpos_pairs() {
+    // vAmiga: sprite n words at 0x15+4n (first) and 0x17+4n (second).
     let mut a = agnus_with_dmacon(DMAEN | SPREN);
     for ch in 0u8..8 {
-        let base = 0x0B + u16::from(ch) * 2;
+        let base = 0x15 + u16::from(ch) * 4;
         at_hpos(&mut a, base);
         assert_eq!(
             a.current_slot(),
             SlotOwner::Sprite(ch),
             "sprite {ch} first slot at hpos {base:#x}"
         );
-        at_hpos(&mut a, base + 1);
+        at_hpos(&mut a, base + 2);
         assert_eq!(
             a.current_slot(),
             SlotOwner::Sprite(ch),
             "sprite {ch} second slot at hpos {:#x}",
-            base + 1
+            base + 2
         );
     }
 }
@@ -170,7 +186,7 @@ fn sprite_slots_map_channel_to_hpos_pairs() {
 #[test]
 fn sprite_slots_fall_back_to_cpu_without_spren() {
     let mut a = agnus_with_dmacon(DMAEN);
-    at_hpos(&mut a, 0x0B);
+    at_hpos(&mut a, 0x15);
     assert_eq!(a.current_slot(), SlotOwner::Cpu);
 }
 
@@ -397,13 +413,13 @@ fn bus_plan_echoes_slot_grants_by_category() {
     a.ddfstrt = 0x38;
     a.ddfstop = 0xD0;
 
-    at_hpos(&mut a, 0x04);
+    at_hpos(&mut a, 0x07);
     assert!(a.cck_bus_plan().disk_dma_slot_granted);
 
-    at_hpos(&mut a, 0x07);
+    at_hpos(&mut a, 0x0D);
     assert_eq!(a.cck_bus_plan().audio_dma_service_channel, Some(0));
 
-    at_hpos(&mut a, 0x0B);
+    at_hpos(&mut a, 0x15);
     assert_eq!(a.cck_bus_plan().sprite_dma_service_channel, Some(0));
 
     at_hpos(&mut a, 0x3F);
