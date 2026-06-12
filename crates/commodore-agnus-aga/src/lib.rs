@@ -13,13 +13,14 @@
 //! All ECS-and-below behaviour is delegated through `Deref` to
 //! `AgnusEcs`. Only AGA-specific state lives on this wrapper.
 //!
-//! For Stage A of the A1200 wiring (per
-//! `knowledge/decisions/amiga-machine-rollout-plan.md`), the FMODE
-//! register is stored but the bus-plan / fetch-width overrides are
-//! not yet wired in — KS 3.x boots probe AGA presence and write
-//! FMODE during early init, but the bus-plan deltas only matter
-//! during actual bitplane rendering. The rendering-time overrides
-//! land alongside the first AGA catalogue entry that needs them.
+//! FMODE drives real fetch behaviour: bitplane DMA fetches 1/2/4 words
+//! per slot at 16/32/64-bit widths (validated against a live Workbench
+//! 3.1 modulo oracle), sprite DMA widens to match (`spr_fetch_width`,
+//! #95/#99), and the SHRES column of the fetch cadence is selected for
+//! superhires (#469). The 8-plane lowres fetch order fills the two slots
+//! OCS/ECS leave idle (#99). The `fmode` register lives on this wrapper
+//! (silicon-correct) and is propagated onto the inner OCS Agnus, whose
+//! shared fetch loop reads it.
 //!
 //! Adapted from `Emu198x-Oldest/crates/commodore-agnus-aga/` — the
 //! donor crate's structure carried over directly, but `fmode` moved
