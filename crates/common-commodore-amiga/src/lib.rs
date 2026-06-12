@@ -19,8 +19,10 @@ pub mod cia;
 pub mod copper;
 pub mod denise;
 pub mod denise_chip;
+pub mod driver;
 pub mod memory;
 pub mod rtc;
 
 pub use board::{BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, ChipRamBus, TICKS_PER_CCK};
 pub use denise_chip::DeniseChip;
+pub use driver::AmigaDriver;
