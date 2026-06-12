@@ -194,6 +194,18 @@ pub const HIRES_DDF_TO_PLANE: [Option<u8>; 4] = [
     Some(0), // BPL1 (triggers shift register load)
 ];
 
+/// Superhires bitplane fetch order within a 2-CCK group (ECS/AGA SHRES).
+///
+/// SuperHires (BPLCON0 bit 6, 35ns pixels) fetches twice as often as hires,
+/// so each fetch group is 2 CCKs. At the 16-bit fetch width (FMODE 0, the
+/// classic ECS SuperHires) this caps at 2 planes / 4 colours; BPL1 stays
+/// last so Denise triggers its shift-load on the final fetch. The same
+/// 2-plane group is reused by the wide-fetch path's smallest SHRES groups.
+pub const SHRES_DDF_TO_PLANE: [Option<u8>; 2] = [
+    Some(1), // BPL2
+    Some(0), // BPL1 (triggers shift register load)
+];
+
 /// AGA wide-fetch (FMODE > 0) plane order within a fetchstart group.
 ///
 /// WinUAE's `bpl_sequence_8` (custom.cpp), here 0-based. Every FMODE > 0
@@ -226,9 +238,11 @@ pub const WIDE_FETCH_PLANE_ORDER: [Option<u8>; 8] = [
 ///
 /// `fetch_width == 1` (FMODE = 0, the only case on OCS / ECS) returns
 /// the historical 16-bit cadence — so this is a no-op for every
-/// non-AGA machine.
+/// non-AGA machine. `shres` (BPLCON0 bit 6) selects the superhires
+/// column; it takes precedence over `hires` because real hardware
+/// treats the two bits that way.
 #[must_use]
-pub const fn fetch_cadence(fetch_width: u8, hires: bool) -> (u32, u32) {
+pub const fn fetch_cadence(fetch_width: u8, hires: bool, shres: bool) -> (u32, u32) {
     const FETCHUNITS: [u32; 12] = [8, 8, 8, 0, 16, 8, 8, 0, 32, 16, 8, 0];
     const FETCHSTART_SHIFT: [u32; 12] = [3, 2, 1, 0, 4, 3, 2, 0, 5, 4, 3, 0];
     let fetchmode = match fetch_width {
@@ -236,7 +250,13 @@ pub const fn fetch_cadence(fetch_width: u8, hires: bool) -> (u32, u32) {
         2 => 1,
         _ => 2,
     };
-    let res = if hires { 1 } else { 0 };
+    let res = if shres {
+        2
+    } else if hires {
+        1
+    } else {
+        0
+    };
     let idx = fetchmode * 4 + res;
     (FETCHUNITS[idx], 1u32 << FETCHSTART_SHIFT[idx])
 }
@@ -1533,21 +1553,34 @@ impl Agnus {
                 // fetching 38 BPL1 words (76 bytes).
                 let num_bpl = self.num_bitplanes();
                 let hires = (self.bplcon0 & 0x8000) != 0;
+                let shres = (self.bplcon0 & 0x0040) != 0;
                 let fetch_width = self.bpl_fetch_width();
                 let bitplane = if self.dma_enabled(0x0100)
                     && num_bpl > 0
                     && self.hpos >= self.ddfstrt
                 {
                     if fetch_width <= 1 {
-                        // OCS / ECS 16-bit cadence (unchanged).
-                        let group_len = if hires { 4 } else { 8 };
+                        // OCS / ECS / AGA 16-bit cadence. SuperHires (ECS+)
+                        // halves the group to 2 CCKs; lores/hires unchanged.
+                        let group_len = if shres {
+                            2
+                        } else if hires {
+                            4
+                        } else {
+                            8
+                        };
                         let fetchunit: u32 = 8;
                         let ddf_span = u32::from(self.ddfstop.saturating_sub(self.ddfstrt));
                         let blocks = ddf_span.div_ceil(fetchunit) + 1;
                         let fetch_window_end = u32::from(self.ddfstrt) + blocks * fetchunit - 1;
                         if u32::from(self.hpos) <= fetch_window_end {
                             let pos_in_group = ((self.hpos - self.ddfstrt) % group_len) as usize;
-                            let plane_slot = if hires {
+                            let plane_slot = if shres {
+                                // SuperHires at 16-bit fetch — 2 planes / 4
+                                // colours (#469). BPL3+ are not fetched (the
+                                // 2-slot group caps it, matching real SHRES).
+                                SHRES_DDF_TO_PLANE[pos_in_group]
+                            } else if hires {
                                 HIRES_DDF_TO_PLANE[pos_in_group]
                             } else if self.max_bitplanes > 6 {
                                 // AGA lowres fills the two idle slots with
@@ -1569,18 +1602,24 @@ impl Agnus {
                         // transferring `fetch_width` words. The DDFSTOP-rounding
                         // "complete the block plus one more" rule (div_ceil + 1)
                         // is the same as the 16-bit path.
-                        let (fetchunit, fetchstart) = fetch_cadence(fetch_width, hires);
+                        let (fetchunit, fetchstart) = fetch_cadence(fetch_width, hires, shres);
                         let ddf_span = u32::from(self.ddfstop.saturating_sub(self.ddfstrt));
                         let blocks = ddf_span.div_ceil(fetchunit) + 1;
                         let fetch_window_end = u32::from(self.ddfstrt) + blocks * fetchunit - 1;
                         if u32::from(self.hpos) <= fetch_window_end {
                             let pos = ((u32::from(self.hpos) - u32::from(self.ddfstrt))
                                 % fetchstart) as usize;
-                            WIDE_FETCH_PLANE_ORDER
-                                .get(pos)
-                                .copied()
-                                .flatten()
-                                .filter(|&p| p < num_bpl)
+                            // The 8-entry WIDE order covers planes 0..7 only
+                            // when the group is >= 8 CCKs (FMODE>0 lores/hires,
+                            // and SHRES@FMODE2). SHRES@FMODE1 shrinks the group
+                            // to 4 CCKs / 4 planes (#469) — the wide order does
+                            // not nest, so reuse the 4-slot hires order, whose
+                            // plane set is exactly planes 0..3 with BPL1 last.
+                            let plane_slot = match fetchstart {
+                                4 => HIRES_DDF_TO_PLANE.get(pos).copied().flatten(),
+                                _ => WIDE_FETCH_PLANE_ORDER.get(pos).copied().flatten(),
+                            };
+                            plane_slot.filter(|&p| p < num_bpl)
                         } else {
                             None
                         }
@@ -1901,16 +1940,22 @@ mod tests {
     fn fetch_cadence_matches_winuae_tables() {
         // 16-bit (FMODE=0): historical OCS/ECS cadence — fetchunit 8,
         // fetchstart 4 (hires) / 8 (lores). Must be unchanged.
-        assert_eq!(fetch_cadence(1, true), (8, 4));
-        assert_eq!(fetch_cadence(1, false), (8, 8));
+        assert_eq!(fetch_cadence(1, true, false), (8, 4));
+        assert_eq!(fetch_cadence(1, false, false), (8, 8));
         // 32-bit (FMODE bits=01/10): fetchunit 8, fetchstart 8 (hires).
-        assert_eq!(fetch_cadence(2, true), (8, 8));
-        assert_eq!(fetch_cadence(2, false), (16, 16));
+        assert_eq!(fetch_cadence(2, true, false), (8, 8));
+        assert_eq!(fetch_cadence(2, false, false), (16, 16));
         // 64-bit (FMODE bits=11): hires fetchunit 16, fetchstart 16 —
         // one plane access per 16 CCK, four words each. This is the
         // Workbench 3.1 AGA case.
-        assert_eq!(fetch_cadence(4, true), (16, 16));
-        assert_eq!(fetch_cadence(4, false), (32, 32));
+        assert_eq!(fetch_cadence(4, true, false), (16, 16));
+        assert_eq!(fetch_cadence(4, false, false), (32, 32));
+        // SuperHires column (#469) — fetchstart halves vs hires at each
+        // width: FMODE0 shres = (8, 2), FMODE1 = (8, 4), FMODE2 = (8, 8).
+        // `shres` overrides `hires`.
+        assert_eq!(fetch_cadence(1, false, true), (8, 2));
+        assert_eq!(fetch_cadence(2, false, true), (8, 4));
+        assert_eq!(fetch_cadence(4, true, true), (8, 8));
     }
 
     /// Count bitplane DMA grants for one plane across a whole scan line.

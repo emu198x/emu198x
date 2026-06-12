@@ -266,6 +266,82 @@ fn aga_lowres_six_planes_leave_slots_0_and_4_idle() {
 }
 
 #[test]
+fn shres_fmode0_fetches_bpl1_bpl2_every_two_ccks() {
+    // #469: ECS/AGA SuperHires at 16-bit fetch (FMODE=0) is 2 planes /
+    // 4 colours, fetched in 2-CCK groups — twice the hires rate. Before
+    // the fix this fell through to the lores 8-CCK group and starved the
+    // (4 source-pixels/output) SHRES shifter.
+    let mut a = agnus_with_dmacon(DMAEN | BPLEN);
+    a.bplcon0 = 0x2040; // BPU=2 + SHRES (bit 6), not hires
+    a.ddfstrt = 0x0038;
+    a.ddfstop = 0x00D0;
+    assert_eq!(a.num_bitplanes(), 2);
+
+    at_hpos(&mut a, 0x38); // group pos 0 — BPL2
+    assert_eq!(a.current_slot(), SlotOwner::Bitplane(1));
+    at_hpos(&mut a, 0x39); // group pos 1 — BPL1 (loads last)
+    assert_eq!(a.current_slot(), SlotOwner::Bitplane(0));
+    at_hpos(&mut a, 0x3A); // next group — BPL2 again (2-CCK cadence)
+    assert_eq!(a.current_slot(), SlotOwner::Bitplane(1));
+    at_hpos(&mut a, 0x3B);
+    assert_eq!(a.current_slot(), SlotOwner::Bitplane(0));
+}
+
+#[test]
+fn shres_fmode1_four_planes_cover_bpl1_through_bpl4() {
+    // #469: SuperHires at 32-bit fetch (FMODE=1) is 4 planes / 16 colours,
+    // fetchstart 4. The 8-entry wide order does not nest to 4 slots, so the
+    // fetch reuses the 4-slot hires order — its plane set is exactly 0..3.
+    let mut a = agnus_with_dmacon(DMAEN | BPLEN);
+    a.max_bitplanes = 8; // AGA
+    a.fmode = 0x0001; // 32-bit fetch
+    a.bplcon0 = 0x4040; // BPU=4 + SHRES
+    a.ddfstrt = 0x0038;
+    a.ddfstop = 0x00D0;
+    assert_eq!(a.num_bitplanes(), 4);
+
+    let planes: Vec<_> = (0x38u16..0x3C)
+        .map(|h| {
+            at_hpos(&mut a, h);
+            a.current_slot()
+        })
+        .collect();
+    // All four planes fetched within the 4-CCK group, BPL1 last.
+    assert_eq!(
+        planes,
+        vec![
+            SlotOwner::Bitplane(3),
+            SlotOwner::Bitplane(1),
+            SlotOwner::Bitplane(2),
+            SlotOwner::Bitplane(0),
+        ]
+    );
+}
+
+#[test]
+fn shres_fmode2_eight_planes_cover_bpl1_through_bpl8() {
+    // #469: SuperHires at 64-bit fetch (FMODE=2) is 8 planes / 256 colours,
+    // fetchstart 8 — the existing wide order already covers planes 0..7.
+    let mut a = agnus_with_dmacon(DMAEN | BPLEN);
+    a.max_bitplanes = 8; // AGA
+    a.fmode = 0x0003; // 64-bit fetch
+    a.bplcon0 = 0x0050; // BPU=8 (bit 4) + SHRES (bit 6)
+    a.ddfstrt = 0x0038;
+    a.ddfstop = 0x00D0;
+    assert_eq!(a.num_bitplanes(), 8);
+
+    let mut seen = std::collections::BTreeSet::new();
+    for h in 0x38u16..0x40 {
+        at_hpos(&mut a, h);
+        if let SlotOwner::Bitplane(p) = a.current_slot() {
+            seen.insert(p);
+        }
+    }
+    // Every plane BPL1..BPL8 is fetched once in the 8-CCK group.
+    assert_eq!(seen, (0u8..8).collect());
+}
+
+#[test]
 fn num_bitplanes_clamps_to_six_for_ocs() {
     let mut a = Agnus::new();
     a.bplcon0 = 0x7000; // BPU = 7, invalid on OCS
