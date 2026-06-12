@@ -43,9 +43,8 @@
 use crate::board::{BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, TICKS_PER_CCK};
 use crate::cia::Cia;
 use crate::copper::Copper;
-use crate::denise::{self, DmaClaim};
 use crate::memory::Memory;
-use commodore_agnus_ocs::Agnus;
+use commodore_agnus_ocs::{Agnus, SlotOwner};
 use commodore_paula_8364::{IntSource, Paula8364};
 use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode};
@@ -89,12 +88,13 @@ pub trait AmigaDriver {
 
     /// Run the copper for one CCK, feeding it chip RAM. Returns the
     /// `(reg, val)` of any MOVE it produced this cycle. Encapsulates the
-    /// `&mut copper` + `&memory` split borrow.
+    /// `&mut copper` + `&memory` split borrow. `copper_slot_granted` is
+    /// Agnus's per-CCK grant (`current_slot` == Copper).
     fn copper_tick_cck(
         &mut self,
         vpos: u16,
         hpos: u16,
-        claim: DmaClaim,
+        copper_slot_granted: bool,
         blitter_busy: bool,
     ) -> Option<(u16, u16)>;
 
@@ -204,15 +204,12 @@ pub trait AmigaDriver {
 
             // Copper runs when DMACON.COPEN (bit 7) AND DMAEN (bit 9)
             // are both set. Agnus arbitrates the chip bus; pass the
-            // current CCK's claim so the copper yields to bitplane
-            // DMA.
-            let claim = denise::dma_claim(
-                self.agnus().hpos,
-                self.agnus().dmacon,
-                self.agnus().bplcon0,
-                self.agnus().ddfstrt,
-                self.agnus().ddfstop,
-            );
+            // current CCK's copper grant (`current_slot` == Copper,
+            // the even free cells) so the copper only fetches on the
+            // cells Agnus allocates to it (#30). Computed before the
+            // copper's own MOVE dispatch so a same-CCK DMACON write
+            // can't retroactively change this cell's grant.
+            let copper_slot_granted = self.agnus().cck_bus_plan().copper_dma_slot_granted;
             if self.agnus().dmacon & 0x0280 == 0x0280 {
                 // Route copper MOVEs through the same custom-register
                 // dispatch the CPU uses. The copper can legitimately
@@ -224,7 +221,9 @@ pub trait AmigaDriver {
                 let hpos = self.agnus().hpos;
                 // BFD=0 copper WAITs block on the live blitter (#33).
                 let blitter_busy = self.agnus().blitter_busy;
-                if let Some((reg, val)) = self.copper_tick_cck(vpos, hpos, claim, blitter_busy) {
+                if let Some((reg, val)) =
+                    self.copper_tick_cck(vpos, hpos, copper_slot_granted, blitter_busy)
+                {
                     let cck = self.tick_count() / TICKS_PER_CCK;
                     self.push_copper_move_log((cck, vpos, hpos, reg, val));
                     self.dispatch_custom_write(reg, val);
@@ -258,7 +257,10 @@ pub trait AmigaDriver {
             // CTL/DATA/DATB register (the same path a CPU/copper write
             // takes). gap #162.
             if let Some(channel) = bus_plan.sprite_dma_service_channel {
-                let second_word = (self.agnus().hpos.wrapping_sub(0x0B) & 1) == 1;
+                // Sprites occupy odd cells 0x15..0x33, two per channel:
+                // word = ((hpos - 0x15) / 2) & 1 (#30). Word 0 is the
+                // control pair (SPRxPOS/CTL), word 1 the data pair.
+                let second_word = ((self.agnus().hpos.wrapping_sub(0x15)) / 2) & 1 == 1;
                 // FMODE widens the sprite data fetch to 1/2/4 words (#99).
                 let width = self.agnus().spr_fetch_width();
                 self.service_sprite_dma(channel, second_word, width);
@@ -404,22 +406,17 @@ pub trait AmigaDriver {
         }
 
         // Chip-RAM bus arbitration: Agnus owns the chip-RAM bus during
-        // DMA slots; CPU chip-RAM accesses stall to the next free CCK.
-        // Reads with OVL on land in ROM (not contended); writes always
-        // hit chip RAM (OVL only gates reads); non-chip-RAM accesses
-        // (CIA / custom / slow / ROM / unmapped) bypass arbitration.
+        // DMA slots; CPU chip-RAM accesses stall to the next cell Agnus
+        // leaves to the CPU. The single slot authority (`current_slot`,
+        // #30) now decides this for *every* owner — refresh, disk,
+        // audio, sprite, bitplane, and copper — not just bitplane DMA
+        // as the retired `dma_claim` did. Reads with OVL on land in ROM
+        // (not contended); writes always hit chip RAM (OVL only gates
+        // reads); non-chip-RAM accesses (CIA / custom / slow / ROM /
+        // unmapped) bypass arbitration.
         let addr24 = addr & 0xFF_FFFF;
         let is_chip_ram_access = addr24 < 0x20_0000 && (!is_read || !self.memory().overlay());
-        if is_chip_ram_access
-            && !denise::dma_claim(
-                self.agnus().hpos,
-                self.agnus().dmacon,
-                self.agnus().bplcon0,
-                self.agnus().ddfstrt,
-                self.agnus().ddfstop,
-            )
-            .is_free()
-        {
+        if is_chip_ram_access && self.agnus().current_slot() != SlotOwner::Cpu {
             self.cpu_base_mut().bus_status = BusStatus::Wait;
             return;
         }

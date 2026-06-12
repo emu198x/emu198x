@@ -12,10 +12,11 @@
 //!   - copy the chip's per-pixel output into the board's own ARGB
 //!     framebuffer for display.
 //!
-//! DDF / DIW windowing helpers and the bitplane-DMA slot schedule
-//! (`dma_claim`, `lores_fetch_plane`) live here because Agnus (not
-//! Denise) owns those registers on real silicon — the helpers only
-//! need the register values, not Denise state.
+//! DDF / DIW windowing helpers (`ddf_window`, `diw_vertical_window`)
+//! live here because Agnus (not Denise) owns those registers on real
+//! silicon — the helpers only need the register values, not Denise
+//! state. The per-CCK DMA slot schedule itself now lives in one place:
+//! Agnus's `current_slot` / `cck_bus_plan` (#30).
 //!
 //! HIRES / HAM / EHB / DPF / sprites / collisions all flow through
 //! the chip's `output_pixel_with_beam_and_playfield_gate` unchanged.
@@ -60,103 +61,6 @@ pub fn diw_vertical_window(diwstrt: u16, diwstop: u16) -> (u16, u16) {
 #[must_use]
 pub fn ddf_window(ddfstrt: u16, ddfstop: u16) -> (u16, u16) {
     (ddfstrt & 0x00FC, ddfstop & 0x00FC)
-}
-
-/// Lores 8-CCK fetch block schedule:
-///   slot 0: BPL4 (BPU >= 4)
-///   slot 1: BPL6 (BPU >= 6) — HAM/EHB only
-///   slot 2: BPL2 (BPU >= 2)
-///   slot 3: BPL5 (BPU >= 5)
-///   slot 4: BPL3 (BPU >= 3)
-///   slot 5: (idle)
-///   slot 6: BPL1 (BPU >= 1)
-///   slot 7: (idle)
-#[must_use]
-pub fn lores_fetch_plane(slot_in_block: u16, bpu: u8) -> Option<usize> {
-    match slot_in_block {
-        0 if bpu >= 4 => Some(3),
-        1 if bpu >= 6 => Some(5),
-        2 if bpu >= 2 => Some(1),
-        3 if bpu >= 5 => Some(4),
-        4 if bpu >= 3 => Some(2),
-        6 if bpu >= 1 => Some(0),
-        _ => None,
-    }
-}
-
-/// Hires 4-CCK fetch block schedule. Each slot fetches one bitplane;
-/// BPL1 (plane 0) sits in the final slot so the shift-register load
-/// happens after all higher planes have been latched.
-///
-///   slot 0: BPL4 (BPU >= 4)
-///   slot 1: BPL2 (BPU >= 2)
-///   slot 2: BPL3 (BPU >= 3)
-///   slot 3: BPL1 (BPU >= 1)
-///
-/// Matches `HIRES_DDF_TO_PLANE` in `commodore-agnus-ocs` — the Agnus-side
-/// scheduler already uses that table; this companion is for the
-/// machine-layer bitplane-vs-copper arbitration in `dma_claim`.
-#[must_use]
-pub fn hires_fetch_plane(slot_in_block: u16, bpu: u8) -> Option<usize> {
-    match slot_in_block {
-        0 if bpu >= 4 => Some(3),
-        1 if bpu >= 2 => Some(1),
-        2 if bpu >= 3 => Some(2),
-        3 if bpu >= 1 => Some(0),
-        _ => None,
-    }
-}
-
-/// DMA arbitration claim for a given CCK. Currently only bitplane
-/// DMA is modelled — refresh / audio / sprites / disk land in later
-/// milestones with their own features.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum DmaClaim {
-    /// CCK is free — copper, blitter, or CPU can use the chip bus.
-    Free,
-    /// CCK is claimed by bitplane DMA for plane index 0..=5.
-    Bitplane(u8),
-}
-
-impl DmaClaim {
-    #[must_use]
-    pub const fn is_free(self) -> bool {
-        matches!(self, DmaClaim::Free)
-    }
-}
-
-/// Compute the DMA claim at the given horizontal beam position for
-/// a given chipset state. Considers bitplane DMA only (M12 minimum).
-///
-/// Per HRM Chapter 2: "The Copper is a two-cycle processor that
-/// requests the bus only during odd-numbered memory cycles. This
-/// prevents collision with audio, disk, refresh, sprites, and most
-/// low resolution display DMA access, all of which use only the
-/// even-numbered memory cycles." — so bitplane DMA predominantly
-/// claims even CCKs, but BPL5 / BPL6 claim odd CCKs, which is
-/// exactly where copper competes.
-#[must_use]
-pub fn dma_claim(hpos: u16, dmacon: u16, bplcon0: u16, ddfstrt: u16, ddfstop: u16) -> DmaClaim {
-    if dmacon & 0x0300 != 0x0300 {
-        return DmaClaim::Free;
-    }
-    let (ddf_start, ddf_stop) = ddf_window(ddfstrt, ddfstop);
-    if !(ddf_stop > ddf_start && (ddf_start..ddf_stop).contains(&hpos)) {
-        return DmaClaim::Free;
-    }
-    let bpu = ((bplcon0 >> 12) & 0x07) as u8;
-    let hires = (bplcon0 & 0x8000) != 0;
-    let plane = if hires {
-        let slot_in_block = (hpos - ddf_start) % 4;
-        hires_fetch_plane(slot_in_block, bpu)
-    } else {
-        let slot_in_block = (hpos - ddf_start) % 8;
-        lores_fetch_plane(slot_in_block, bpu)
-    };
-    match plane {
-        Some(p) => DmaClaim::Bitplane(p as u8),
-        None => DmaClaim::Free,
-    }
 }
 
 /// Board-level Denise wrapper, generic over the concrete chip
@@ -477,20 +381,6 @@ mod tests {
     }
 
     #[test]
-    fn lores_fetch_schedule() {
-        // BPU=1: only slot 6 (BPL1).
-        assert_eq!(lores_fetch_plane(6, 1), Some(0));
-        for s in [0, 1, 2, 3, 4, 5, 7] {
-            assert_eq!(lores_fetch_plane(s, 1), None);
-        }
-        // BPU=3: slots 2 (BPL2), 4 (BPL3), 6 (BPL1).
-        assert_eq!(lores_fetch_plane(2, 3), Some(1));
-        assert_eq!(lores_fetch_plane(4, 3), Some(2));
-        assert_eq!(lores_fetch_plane(6, 3), Some(0));
-        assert_eq!(lores_fetch_plane(0, 3), None);
-    }
-
-    #[test]
     fn diw_vertical_window_pal_nominal() {
         let (vstart, vstop) = diw_vertical_window(0x2C81, 0x2CC1);
         assert_eq!(vstart, 0x2C);
@@ -509,120 +399,6 @@ mod tests {
         assert_eq!(ddf_window(0x0038, 0x00D0), (0x38, 0xD0));
         assert_eq!(ddf_window(0x003B, 0x00D2), (0x38, 0xD0));
         assert_eq!(ddf_window(0x003C, 0x00D3), (0x3C, 0xD0));
-    }
-
-    const DMACON_BPL: u16 = 0x0300;
-    const DDFSTRT: u16 = 0x0038;
-    const DDFSTOP: u16 = 0x00D0;
-    const fn bplcon0(bpu: u16) -> u16 {
-        bpu << 12
-    }
-
-    #[test]
-    fn dma_claim_free_when_bpl_dma_disabled() {
-        for hpos in 0..227 {
-            assert_eq!(
-                dma_claim(hpos, 0x0000, bplcon0(3), DDFSTRT, DDFSTOP),
-                DmaClaim::Free,
-            );
-        }
-    }
-
-    #[test]
-    fn dma_claim_free_outside_ddf_window() {
-        assert_eq!(
-            dma_claim(0x30, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
-            DmaClaim::Free,
-        );
-        assert_eq!(
-            dma_claim(0xE0, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
-            DmaClaim::Free,
-        );
-    }
-
-    #[test]
-    fn dma_claim_bpu1_claims_only_slot_6() {
-        assert_eq!(
-            dma_claim(0x38 + 6, DMACON_BPL, bplcon0(1), DDFSTRT, DDFSTOP),
-            DmaClaim::Bitplane(0),
-        );
-        for s in [0u16, 1, 2, 3, 4, 5, 7] {
-            assert_eq!(
-                dma_claim(0x38 + s, DMACON_BPL, bplcon0(1), DDFSTRT, DDFSTOP),
-                DmaClaim::Free,
-                "BPU=1, slot {s} should be free",
-            );
-        }
-    }
-
-    #[test]
-    fn hires_fetch_schedule() {
-        // BPU=1: only slot 3 (BPL1).
-        assert_eq!(hires_fetch_plane(3, 1), Some(0));
-        for s in [0u16, 1, 2] {
-            assert_eq!(hires_fetch_plane(s, 1), None);
-        }
-        // BPU=2: slot 1 (BPL2) and slot 3 (BPL1).
-        assert_eq!(hires_fetch_plane(1, 2), Some(1));
-        assert_eq!(hires_fetch_plane(3, 2), Some(0));
-        for s in [0u16, 2] {
-            assert_eq!(hires_fetch_plane(s, 2), None);
-        }
-        // BPU=4: all four slots active.
-        assert_eq!(hires_fetch_plane(0, 4), Some(3));
-        assert_eq!(hires_fetch_plane(1, 4), Some(1));
-        assert_eq!(hires_fetch_plane(2, 4), Some(2));
-        assert_eq!(hires_fetch_plane(3, 4), Some(0));
-    }
-
-    #[test]
-    fn dma_claim_hires_uses_4_cck_block() {
-        const DMACON_BPL: u16 = 0x0300;
-        const HIRES: u16 = 0x8000;
-        // HIRES + BPU=2: BPL2 at slot 1, BPL1 at slot 3 of each 4-CCK block.
-        let bplcon0 = HIRES | (2 << 12);
-        assert_eq!(
-            dma_claim(0x38 + 1, DMACON_BPL, bplcon0, DDFSTRT, DDFSTOP),
-            DmaClaim::Bitplane(1)
-        );
-        assert_eq!(
-            dma_claim(0x38 + 3, DMACON_BPL, bplcon0, DDFSTRT, DDFSTOP),
-            DmaClaim::Bitplane(0)
-        );
-        // Next 4-CCK block at $3C: same pattern repeats.
-        assert_eq!(
-            dma_claim(0x38 + 4 + 3, DMACON_BPL, bplcon0, DDFSTRT, DDFSTOP),
-            DmaClaim::Bitplane(0)
-        );
-        // Slots 0 and 2 of each HIRES block are free for BPU=2.
-        assert_eq!(
-            dma_claim(0x38, DMACON_BPL, bplcon0, DDFSTRT, DDFSTOP),
-            DmaClaim::Free
-        );
-        assert_eq!(
-            dma_claim(0x38 + 2, DMACON_BPL, bplcon0, DDFSTRT, DDFSTOP),
-            DmaClaim::Free
-        );
-    }
-
-    #[test]
-    fn dma_claim_bpu6_claims_bpl5_and_bpl6_on_odd_slots() {
-        assert_eq!(
-            dma_claim(0x38 + 1, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
-            DmaClaim::Bitplane(5),
-        );
-        assert_eq!(
-            dma_claim(0x38 + 3, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
-            DmaClaim::Bitplane(4),
-        );
-        assert_eq!(
-            dma_claim(0x38 + 5, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
-            DmaClaim::Free,
-        );
-        assert_eq!(
-            dma_claim(0x38 + 7, DMACON_BPL, bplcon0(6), DDFSTRT, DDFSTOP),
-            DmaClaim::Free,
-        );
     }
 
     #[test]

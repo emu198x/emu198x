@@ -1880,11 +1880,11 @@ impl AmigaDriver for AmigaEcs {
         &mut self,
         vpos: u16,
         hpos: u16,
-        claim: common_commodore_amiga::denise::DmaClaim,
+        copper_slot_granted: bool,
         blitter_busy: bool,
     ) -> Option<(u16, u16)> {
         self.copper
-            .tick_cck(&self.memory, vpos, hpos, claim, blitter_busy)
+            .tick_cck(&self.memory, vpos, hpos, copper_slot_granted, blitter_busy)
     }
 
     fn blitter_dma_step(&mut self) -> bool {

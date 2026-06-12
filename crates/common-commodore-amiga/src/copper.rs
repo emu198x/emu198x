@@ -23,13 +23,13 @@
 //!                     next instruction if the masked beam already
 //!                     ≥ the masked target.
 //!
-//! Scheduling: this module does not yet model Agnus DMA-slot
-//! arbitration for the copper (odd-CCK copper slots competing with
-//! bitplane / sprite / blitter). The throttle is a simple "at most
-//! one instruction per 4 CCKs" until a later milestone brings in
-//! the full slot schedule.
+//! Scheduling: Agnus owns the DMA-slot arbitration. The driver
+//! passes `copper_slot_granted` each CCK — true on the even free
+//! cells Agnus allocates to the copper (#30, `current_slot`). The
+//! copper consumes one granted cell per memory cycle; each MOVE /
+//! SKIP costs two, a WAIT three, so an instruction lands every
+//! ~4 wall CCKs when grants are unobstructed.
 
-use crate::denise::DmaClaim;
 use crate::memory::Memory;
 use serde::{Deserialize, Serialize};
 
@@ -136,7 +136,7 @@ impl Copper {
         memory: &Memory,
         beam_vp: u16,
         beam_hp: u16,
-        claim: DmaClaim,
+        copper_slot_granted: bool,
         blitter_busy: bool,
     ) -> Option<(u16, u16)> {
         // Halted by a dangerous MOVE? Sit still until the next
@@ -161,13 +161,13 @@ impl Copper {
             return None;
         }
 
-        // Copper-eligible CCK: odd hpos AND no bitplane claim. Per
-        // HRM Chapter 2: "The Copper is a two-cycle processor that
-        // requests the bus only during odd-numbered memory cycles."
-        // BPL5 / BPL6 at BPU ≥ 5 / 6 claim odd slots within DDF —
-        // those are the ones copper must yield to.
-        let eligible = (beam_hp & 1) != 0 && claim.is_free();
-        if !eligible {
+        // Copper-eligible CCK: Agnus granted this cell to the copper.
+        // The driver feeds `copper_slot_granted` from `current_slot`
+        // — true on the even free cells the copper takes after disk /
+        // refresh / audio / bitplane / sprite resolve (#30). A WAIT
+        // release / `stopped` check above runs every CCK (matching the
+        // old behaviour); only the fetch/execute cadence is gated here.
+        if !copper_slot_granted {
             return None;
         }
 
@@ -208,10 +208,11 @@ impl Copper {
         }
 
         // Each MOVE / SKIP (and the fetch+decode portion of WAIT)
-        // requires two memory cycles (= two eligible CCKs). In
-        // unconstrained conditions those are two consecutive odd
-        // CCKs, for 4 wall CCKs. When BPL5 / BPL6 steal odd slots the
-        // copper's effective rate drops proportionally.
+        // requires two memory cycles (= two granted CCKs). In
+        // unconstrained conditions those are two consecutive even
+        // free cells, for 4 wall CCKs. When bitplane / sprite DMA
+        // steals those cells the copper's effective rate drops
+        // proportionally (Agnus simply stops granting the slot).
         self.cck_phase = self.cck_phase.wrapping_add(1);
         if self.cck_phase < 2 {
             return None;
@@ -345,16 +346,26 @@ mod tests {
         mem
     }
 
+    /// Mirror of the driver's copper grant for a copper-only test
+    /// (no bitplane / sprite DMA): the even free cells, minus the
+    /// `0xE0` block, are the copper's slots (#30, `current_slot`).
+    fn copper_slot_granted(hpos: u16) -> bool {
+        hpos.is_multiple_of(2) && hpos != 0xE0
+    }
+
     /// Tick the copper for `ccks` wall-CCKs, advancing hpos each
-    /// tick and holding vpos fixed. Keeps claim = Free so copper
-    /// sees unconstrained odd-CCK availability. MOVEs returned by
+    /// tick and holding vpos fixed. Grants the copper its even free
+    /// cells so it sees unconstrained availability. MOVEs returned by
     /// the copper are routed through Denise — these tests only
     /// exercise Denise-owned registers, so a local routing closure
     /// is enough. The machine layer wires this through the full
     /// `dispatch_custom_write` in production.
     fn run_ccks(copper: &mut Copper, mem: &Memory, denise: &mut TestDenise, vpos: u16, ccks: u16) {
         for i in 0..ccks {
-            if let Some((reg, val)) = copper.tick_cck(mem, vpos, i % 227, DmaClaim::Free, false) {
+            let hpos = i % 227;
+            if let Some((reg, val)) =
+                copper.tick_cck(mem, vpos, hpos, copper_slot_granted(hpos), false)
+            {
                 denise.write_word(reg, val);
             }
         }
@@ -375,29 +386,10 @@ mod tests {
     }
 
     #[test]
-    fn move_does_not_run_when_only_even_ccks_offered() {
-        // Pin hpos = 0 (even) for 40 ticks — copper gets zero
-        // eligible cycles and should not execute.
-        let mem = build_test_memory_with_list(&[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)], 0x1000);
-        let mut denise = TestDenise::new();
-        let mut copper = Copper::new();
-        copper.cop1lc = 0x1000;
-        copper.jump1();
-
-        for _ in 0..40 {
-            let write = copper.tick_cck(&mem, 0, 0, DmaClaim::Free, false);
-            if let Some((reg, val)) = write {
-                denise.write_word(reg, val);
-            }
-        }
-        assert_eq!(denise.color(0), 0x0000, "copper must not run on even CCKs");
-    }
-
-    #[test]
-    fn move_blocked_by_bitplane_claim_on_odd_cck() {
-        // Copper MOVE needs 2 eligible odd CCKs. If every odd CCK is
-        // claimed by a bitplane (simulating BPL5/BPL6 contention at
-        // BPU ≥ 5), the copper never completes.
+    fn move_does_not_run_when_slot_never_granted() {
+        // Agnus never grants the copper a slot (e.g. every cell taken
+        // by a higher-priority channel): the copper gets zero memory
+        // cycles and must not execute.
         let mem = build_test_memory_with_list(&[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)], 0x1000);
         let mut denise = TestDenise::new();
         let mut copper = Copper::new();
@@ -405,20 +397,40 @@ mod tests {
         copper.jump1();
 
         for i in 0..40u16 {
-            let hpos = i % 227;
-            let claim = if hpos & 1 != 0 {
-                DmaClaim::Bitplane(5) // BPL6 blocks copper
-            } else {
-                DmaClaim::Free
-            };
-            if let Some((reg, val)) = copper.tick_cck(&mem, 0, hpos, claim, false) {
+            let write = copper.tick_cck(&mem, 0, i % 227, false, false);
+            if let Some((reg, val)) = write {
                 denise.write_word(reg, val);
             }
         }
         assert_eq!(
             denise.color(0),
             0x0000,
-            "copper must yield to bitplane DMA on odd CCKs",
+            "copper must not run when its slot is never granted",
+        );
+    }
+
+    #[test]
+    fn move_blocked_when_bitplane_steals_every_copper_cell() {
+        // Copper MOVE needs 2 granted cells. Agnus withholds the grant
+        // on the even cells (simulating bitplane / sprite DMA claiming
+        // every cell the copper would otherwise take), so the copper
+        // never completes.
+        let mem = build_test_memory_with_list(&[(0x0180, 0x0F0F), (0xFFFF, 0xFFFE)], 0x1000);
+        let mut denise = TestDenise::new();
+        let mut copper = Copper::new();
+        copper.cop1lc = 0x1000;
+        copper.jump1();
+
+        for i in 0..40u16 {
+            // Grant nothing: every potential copper cell is contended.
+            if let Some((reg, val)) = copper.tick_cck(&mem, 0, i % 227, false, false) {
+                denise.write_word(reg, val);
+            }
+        }
+        assert_eq!(
+            denise.color(0),
+            0x0000,
+            "copper must yield when bitplane DMA steals its cells",
         );
     }
 
@@ -445,18 +457,21 @@ mod tests {
         assert!(copper.waiting);
 
         // Tick more with beam still below target — MOVE doesn't run.
-        for i in 0..50 {
-            if let Some((reg, val)) = copper.tick_cck(&mem, 4, i % 227, DmaClaim::Free, false) {
+        for i in 0..50u16 {
+            let hpos = i % 227;
+            if let Some((reg, val)) =
+                copper.tick_cck(&mem, 4, hpos, copper_slot_granted(hpos), false)
+            {
                 denise.write_word(reg, val);
             }
         }
         assert_eq!(denise.color(0), 0);
 
-        // Tick with beam at target — WAIT releases (i=0) then copper
-        // needs 2 eligible odd CCKs (i=1, i=3) to execute the MOVE.
-        // 4 wall CCKs is exactly right; running further would fetch
-        // the end-of-list WAIT and re-enter the waiting state.
-        run_ccks(&mut copper, &mem, &mut denise, 5, 4);
+        // Tick with beam at target — the WAIT releases on the first
+        // CCK (the release check runs every cycle), then the copper
+        // needs 2 granted even cells to fetch + execute the MOVE.
+        // 6 wall CCKs covers the release plus those two grants.
+        run_ccks(&mut copper, &mem, &mut denise, 5, 6);
         assert_eq!(denise.color(0), 0x0FFF, "MOVE after WAIT release");
     }
 
@@ -582,10 +597,11 @@ mod tests {
         // Mask: (0xFF00 & 0x7FFE) | 0x8000 = 0xFF00.
         assert_eq!(copper.wait_mask, 0xFF00);
 
-        // Advance beam to vpos=10 — WAIT releases (i=0), then copper
-        // takes 2 eligible odd CCKs to fetch + execute the MOVE.
-        // 4 wall CCKs is enough; don't overrun into end-of-list.
-        run_ccks(&mut copper, &mem, &mut denise, 10, 4);
+        // Advance beam to vpos=10 — the WAIT releases on the first
+        // CCK, then the copper takes 2 granted even cells to fetch +
+        // execute the MOVE. 6 wall CCKs covers it without overrunning
+        // into end-of-list.
+        run_ccks(&mut copper, &mem, &mut denise, 10, 6);
         assert_eq!(denise.color(0), 0x0ABC, "MOVE after horizontal-masked WAIT");
     }
 
@@ -778,7 +794,9 @@ mod tests {
 
         for vpos in 250u16..312 {
             for hpos in 0u16..227 {
-                if let Some((reg, val)) = copper.tick_cck(&mem, vpos, hpos, DmaClaim::Free, false) {
+                if let Some((reg, val)) =
+                    copper.tick_cck(&mem, vpos, hpos, copper_slot_granted(hpos), false)
+                {
                     denise.write_word(reg, val);
                     if reg == 0x0180 {
                         return Some(vpos);
@@ -829,7 +847,10 @@ mod tests {
         // Beam already past the target, but the blitter is busy: the
         // WAIT must hold, so the MOVE never runs.
         for i in 0..40u16 {
-            if let Some((reg, val)) = copper.tick_cck(&mem, 0, i % 227, DmaClaim::Free, true) {
+            let hpos = i % 227;
+            if let Some((reg, val)) =
+                copper.tick_cck(&mem, 0, hpos, copper_slot_granted(hpos), true)
+            {
                 denise.write_word(reg, val);
             }
         }
@@ -842,7 +863,10 @@ mod tests {
 
         // Blitter goes idle: the WAIT releases and the MOVE runs.
         for i in 0..8u16 {
-            if let Some((reg, val)) = copper.tick_cck(&mem, 0, i % 227, DmaClaim::Free, false) {
+            let hpos = i % 227;
+            if let Some((reg, val)) =
+                copper.tick_cck(&mem, 0, hpos, copper_slot_granted(hpos), false)
+            {
                 denise.write_word(reg, val);
             }
         }
