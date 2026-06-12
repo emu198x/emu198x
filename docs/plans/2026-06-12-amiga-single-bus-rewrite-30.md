@@ -59,11 +59,16 @@ the research appendix at the bottom of this file.
 | `0x0D,0x0F,0x11,0x13` | Audio A0–A3 (slot always present; fetch gated by per-channel data-request) |
 | `0x15..0x33` (odd) | Sprite `n=(hpos-0x15)/4`, word `((hpos-0x15)/2)&1` (SPREN) |
 
-**Bitplane (DDF-gated, odd grid):** DDFSTRT/DDFSTOP masked `0xFC` on OCS
-(`0xFE` ECS). Lores fetch unit = 8 cells, plane fetch on **odd** in-unit
-offsets `1,3,5,7` → planes `L4,L2,L3,L1` (even offsets free). Hires unit
-= 4 cells, `H4,H2,H3,H1` on all four (denser, both parities). Keep the
-plane *interleave order* exactly.
+**Bitplane (DDF-gated):** DDFSTRT/DDFSTOP masked `0xFC` on OCS (`0xFE`
+ECS). **VERIFIED 2026-06-12: our `LOWRES_DDF_TO_PLANE` (idx 1,2,3,5,6,7 →
+BPL4,6,2,3,5,1; idx 0,4 free) and `HIRES_DDF_TO_PLANE` (H4,H2,H3,H1) are
+byte-identical to vAmiga's `computeLoresFetchUnit` / `computeHiresFetchUnit`
+(`SequencerBpl.cpp:517-556`).** The bitplane fetch grid is therefore
+**already hardware-correct and does NOT change** — what Denise fetches
+each cell is unchanged, removing the rendering-regression risk. The
+research agent's "odd-only, 4-plane" summary was an extraction error (it
+dropped the `channels>=5/>=6` entries). The free in-unit cells (offsets
+0,4 — *even* hpos when DDFSTRT is even) are exactly where the copper runs.
 
 **Copper:** takes a slot iff `COPEN AND busOwner==NONE AND IS_EVEN(hpos)
 AND hpos ∉ {0xE0,0xE1}`. (Even free cells only; the `E0/E1` block defers
@@ -89,8 +94,9 @@ any odd cell no channel claimed (disabled channels). `bls` (CPU starved
 
 ### Phase 1 — Rewrite `current_slot()` (the single authority)
 - Replace the fixed-slot match arms with the odd-parity vAmiga map.
-- Re-derive the bitplane fetch grid (lores odd-only-per-unit; hires
-  4-cell) — new DDF→plane tables; keep plane interleave order.
+- **Bitplane grid unchanged** (verified vAmiga-identical) — keep the
+  existing DDF→plane tables; only the *gating against the new fixed
+  slots* and the priority order change.
 - Copper = even free cells; CPU = leftover; priority chain as above.
 - Keep `cck_bus_plan` as the thin derivation it already is.
 - Gate: Phase-0 table test green; agnus unit tests updated to the new
@@ -110,11 +116,12 @@ any odd cell no channel claimed (disabled channels). `bls` (CPU starved
 - Gate: boots (WB1.3) + copper/sprite/audio/disk/blitter tests pass
   functionally; clippy.
 
-### Phase 3 — Denise rendering validation (the fetch-grid risk)
-- The fetch-grid change alters which plane is fetched per cell → Denise
-  output. Capture vAmiga reference frames for the golden scenes; compare
-  our framebuffer structurally (not just "differs"). Reason through any
-  diff before accepting.
+### Phase 3 — Rendering re-validation (now low-risk)
+- The bitplane fetch grid is unchanged, so Denise's per-cell plane
+  fetches don't move. The residual rendering effect is **sprite timing**
+  (sprite slots moved 0x0B→0x15) and any second-order copper-timing
+  shift. Confirm sprite rendering + a few golden scenes are correct vs
+  reference before re-baselining.
 - Gate: rendering confirmed correct vs reference, not merely re-baselined.
 
 ### Phase 4 — Per-variant (ECS/AGA) + re-baseline
