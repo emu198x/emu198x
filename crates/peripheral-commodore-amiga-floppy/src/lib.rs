@@ -36,11 +36,25 @@ pub trait DiskImage: Send {
 /// ADF disk image wrapper implementing `DiskImage`.
 pub struct AdfDiskImage {
     adf: Adf,
+    /// Mount writability. `false` = the write-protect tab is on:
+    /// `write_sector` still mutates the in-memory image but
+    /// `flush_write_capture` will not persist it (and the drive
+    /// reports DSKPROT), so a SAVE to a read-only mount is rejected.
+    writable: bool,
 }
 
 impl AdfDiskImage {
+    /// Insert writable (the default for a plain mount).
     pub fn new(adf: Adf) -> Self {
-        Self { adf }
+        Self {
+            adf,
+            writable: true,
+        }
+    }
+
+    /// Insert with an explicit writability (archives mount read-only).
+    pub fn new_with_writable(adf: Adf, writable: bool) -> Self {
+        Self { adf, writable }
     }
 }
 
@@ -60,7 +74,7 @@ impl DiskImage for AdfDiskImage {
     }
 
     fn is_writable(&self) -> bool {
-        true
+        self.writable
     }
 
     fn write_sector(&mut self, cyl: u32, head: u32, sector: u32, data: &[u8]) {
@@ -176,9 +190,17 @@ impl AmigaFloppyDrive {
         }
     }
 
-    /// Insert an ADF disk image (convenience wrapper).
+    /// Insert an ADF disk image, writable (convenience wrapper).
     pub fn insert_disk(&mut self, adf: Adf) {
         self.disk = Some(Box::new(AdfDiskImage::new(adf)));
+        self.disk_changed = true;
+    }
+
+    /// Insert an ADF with an explicit writability. A read-only mount
+    /// (archive / write-protect tab on) reports DSKPROT and rejects a
+    /// SAVE — `flush_write_capture` will not persist to it.
+    pub fn insert_disk_writable(&mut self, adf: Adf, writable: bool) {
+        self.disk = Some(Box::new(AdfDiskImage::new_with_writable(adf, writable)));
         self.disk_changed = true;
     }
 
@@ -327,7 +349,10 @@ impl AmigaFloppyDrive {
         };
         DriveStatus {
             disk_change: self.disk_changed,
-            write_protect: false, // Not write-protected
+            // /DSKPROT asserts (protected) for a read-only mount. An
+            // empty drive reads NOT protected (no tab to sense), per the
+            // disk-save-write-back decision.
+            write_protect: self.disk.as_ref().is_some_and(|img| !img.is_writable()),
             track0: self.cylinder == 0,
             ready,
         }
@@ -725,6 +750,43 @@ mod tests {
         let saved = drive.save_adf().expect("disk present");
         let expected: Vec<u8> = (0..512).map(|i| (i & 0xFF) as u8).collect();
         assert_eq!(&saved[..512], &expected[..]);
+    }
+
+    #[test]
+    fn write_protected_mount_reports_dskprot_and_rejects_save() {
+        let mut drive = AmigaFloppyDrive::new();
+        // Empty drive: not protected (no tab to sense).
+        assert!(!drive.status().write_protect);
+
+        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        drive.insert_disk_writable(adf, false); // read-only archive mount
+        assert!(
+            drive.status().write_protect,
+            "a read-only mount must assert /DSKPROT"
+        );
+
+        // A SAVE (captured MFM for a real sector) must not persist.
+        let mut track = vec![0u8; 11 * 512];
+        track[0] = 0xAB;
+        let mfm = mfm::encode_mfm_track(&track, 0, 11);
+        for w in mfm.chunks_exact(2) {
+            drive.note_write_mfm_word((u16::from(w[0]) << 8) | u16::from(w[1]));
+        }
+        assert_eq!(
+            drive.flush_write_capture(),
+            0,
+            "write-protected mount must reject the flush"
+        );
+        let saved = drive.save_adf().expect("disk present");
+        assert_eq!(saved[0], 0x00, "source must be unchanged");
+    }
+
+    #[test]
+    fn writable_mount_does_not_report_dskprot() {
+        let mut drive = AmigaFloppyDrive::new();
+        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        drive.insert_disk_writable(adf, true);
+        assert!(!drive.status().write_protect);
     }
 
     #[test]

@@ -870,6 +870,15 @@ impl AmigaOcs {
         self.refresh_cia_a_external_inputs();
     }
 
+    /// Insert an ADF into DF0 with an explicit writability (archives
+    /// mount read-only) and acknowledge the change. A read-only mount
+    /// reports /DSKPROT and rejects a SAVE (#97).
+    pub fn insert_adf_writable(&mut self, adf: Adf, writable: bool) {
+        self.drive.insert_disk_writable(adf, writable);
+        self.drive.acknowledge_disk_change();
+        self.refresh_cia_a_external_inputs();
+    }
+
     /// Insert an ADF image into DF0 but leave `/DSKCHANGE` pending.
     ///
     /// This is useful for probes that want to compare "disk already

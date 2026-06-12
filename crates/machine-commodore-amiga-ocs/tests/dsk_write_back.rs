@@ -93,3 +93,52 @@ fn write_dma_persists_a_track_to_the_adf() {
         "sector 0 must persist through the write-DMA path"
     );
 }
+
+/// Build a track-0 MFM word stream with a known sector-0 pattern.
+fn encoded_track_words() -> Vec<u16> {
+    let mut track = vec![0u8; 11 * 512];
+    for (i, b) in track[..512].iter_mut().enumerate() {
+        *b = (i & 0xFF) as u8;
+    }
+    encode_mfm_track(&track, 0, 11)
+        .chunks_exact(2)
+        .map(|c| (u16::from(c[0]) << 8) | u16::from(c[1]))
+        .collect()
+}
+
+#[test]
+fn write_protected_mount_drops_the_save() {
+    let mut amiga = AmigaOcs::new(halt_rom());
+    disable_ovl(&mut amiga);
+    // Read-only (archive) mount.
+    amiga.insert_adf_writable(Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid"), false);
+
+    let words = encoded_track_words();
+    let base = 0x0001_0000u32;
+    for (i, &w) in words.iter().enumerate() {
+        amiga.poke_word(base + (i as u32) * 2, w);
+    }
+    amiga.poke_word(0x00DF_F020, (base >> 16) as u16);
+    amiga.poke_word(0x00DF_F022, (base & 0xFFFF) as u16);
+    let dsklen = 0x8000 | 0x4000 | (words.len() as u16);
+    amiga.poke_word(0x00DF_F024, dsklen);
+    amiga.poke_word(0x00DF_F024, dsklen);
+
+    let mut ticks = 0u64;
+    while amiga.paula().disk_dma_write_active() && ticks < 5_000_000 {
+        amiga.tick();
+        ticks += 1;
+    }
+    assert!(
+        !amiga.paula().disk_dma_write_active(),
+        "DMA still drains to the head"
+    );
+
+    // The transfer completes (the head "wrote") but a write-protected
+    // mount persists nothing — the ADF stays blank.
+    let saved = amiga.drive().save_adf().expect("disk present");
+    assert!(
+        saved[..512].iter().all(|&b| b == 0),
+        "a write-protected SAVE must not reach the image"
+    );
+}
