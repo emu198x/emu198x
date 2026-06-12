@@ -76,6 +76,15 @@ different ROM/RAM/storage config.
 
 ### 3. Stock CPU per chipset; accelerator as override
 
+> **Partially superseded 2026-06-12** — see
+> [Amendment: composable configuration model](#amendment-2026-06-12-composable-configuration-model).
+> The *mechanism* below (runtime active-CPU dispatch at the bus boundary,
+> three chipset variants, no `OcsCore<C: Cpu>` generic) stands. What changes:
+> CPU is now a first-class **runtime configuration axis** (`ActiveCpu`
+> enum), because stock CPUs vary per model (A3000 = 68030, A4000 = 68040)
+> and accelerators make CPU orthogonal to chipset across the whole range.
+> "Stock CPU hardcoded per chipset" as a *type* is the part that's wrong.
+
 The chipset core hardcodes its stock CPU:
 
 - `OcsCore.cpu: Cpu68000`
@@ -321,3 +330,136 @@ Stop and re-consult before:
   `SpectrumLiveAccess` + match_kind! dispatch).
 - [`motorola-68k-variant-pattern.md`](motorola-68k-variant-pattern.md)
   — wrap-don't-clone for CPU variants. Binding.
+
+---
+
+## Amendment 2026-06-12: composable configuration model
+
+**Driver:** the emulator must let the user **select a machine by independent
+axes**, not only pick a named preset — machine type, chip RAM, slow RAM, fast
+RAM, CPU, accelerator card, RTG (later), and any other attached peripherals.
+Guiding star: **maximum authenticity and accuracy** (when a choice is between
+an authentic model and a convenient shortcut, take the authentic one).
+
+This amends rule 3 and extends rule 2. Rules 1 (three chipset variants), 4
+(hierarchical `AmigaModel` catalogue), and the `AmigaMachine`/`AmigaLiveAccess`
+trait shape are **unchanged and reinforced**.
+
+### What stays (the load-bearing invariant)
+
+**Chipset is the only axis that changes the chip stack's structural *type*.**
+`AmigaRuntimeKind` keeps exactly its three variants (`Ocs`/`Ecs`/`Aga`, plus
+`Saga` when Vampire lands). Everything else a user selects is **configuration
+resolved at runtime**, carried on the core — never a new Rust type, never a
+generic type parameter on the core. This is what keeps the variant set
+*additive* instead of Cartesian.
+
+### What changes: CPU is a runtime configuration axis, orthogonal to chipset
+
+Rule 3 hardcoded one stock CPU type per chipset core (`OcsCore.cpu: Cpu68000`).
+That under-models reality on two counts:
+
+1. **Stock CPUs already vary within a chipset.** A3000 is ECS **+ 68030**;
+   A4000 is AGA **+ 68040**; A1200 is AGA **+ 68EC020**. The chipset does not
+   determine the CPU.
+2. **Accelerators make CPU orthogonal to chipset across the whole range.** A
+   stock-68000 A500 runs a Blizzard 1230 ('030), 1260 ('060), or PiStorm
+   (ARM-hosted); an A1200 runs '040/'060/PPC/Vampire. *Any* chipset pairs with
+   *almost any* CPU.
+
+So the active CPU is a **runtime-resolved value**, held as a closed enum:
+
+```rust
+enum ActiveCpu {
+    M68000(Cpu68000),
+    M68010(Cpu68010),
+    M68EC020(Cpu68020),  // EC = no coprocessor/MMU pins (A1200/CD32)
+    M68020(Cpu68020),
+    M68030(Cpu68030),
+    M68040(Cpu68040),
+    M68060(Cpu68060),    // when it lands
+    // Vampire AC68080 / PiStorm-hosted land here too
+}
+```
+
+The model resolves the **stock** `ActiveCpu`; an `Accelerator` overrides it
+(and may add its own fast RAM + MMU/FPU). The bus-dispatch layer routes to the
+active variant once per instruction — exactly the hook rule 3 already reserved
+for `Option<Accelerator>`, now generalised so the *stock* CPU can also be
+anything.
+
+**Why an enum, not the alternatives the original rejected:**
+- `OcsCore<C: Cpu>` generic — still rejected, for the original's reason: it
+  Cartesian-explodes `AmigaRuntimeKind` (chipset × CPU). The enum keeps CPU
+  *additive*.
+- `Box<dyn Cpu>` — rejected, consistent with the codebase's closed-enum-over-
+  heap-dispatch stance ([`runtime-internal-shape.md`](runtime-internal-shape.md)).
+- The original's objections to a CPU enum (snapshot size, enum-match per
+  instruction) are now acceptable: the active CPU occupies the same memory
+  whether it's a typed field or an enum variant, and one match at the
+  instruction-dispatch boundary is negligible. The objections only held while
+  CPU *didn't need to vary* — the new requirement removes that premise.
+
+### Extends rule 2: the full configuration surface
+
+The core's configuration grows to the axes the user selects. Sketch:
+
+```rust
+struct AmigaConfig {
+    model: AmigaModel,            // resolves the stock defaults below
+    region: Region,              // Pal | Ntsc
+    kickstart: KickstartVersion, // 1.2 … 3.1 / 3.2
+    cpu: ActiveCpu,              // stock per model; accelerator overrides
+    accelerator: Option<Accelerator>,
+    ram: RamLayout {            // each independently sized within hw limits
+        chip_kb,                //   capped by the Agnus (512K/1M/2M)
+        slow_kb,                //   $C0_0000 trapdoor
+        fast_kb,                //   Zorro-II/III / accelerator-local
+    },
+    rtg: Option<RtgBoard>,      // Picasso II / uaegfx — later (#117); dual-display
+    peripherals: Vec<Peripheral>, // IDE/SCSI HDF, PCMCIA card, parallel,
+                                  // serial bridge, network, mouse/joystick, …
+}
+```
+
+`chipset` is *not* in the config struct — it is the `AmigaRuntimeKind` type the
+config selects into. RTG and peripherals are optional/additive and default
+empty, so today's machines are unaffected.
+
+### User-facing selection: presets over a config space
+
+The named-model catalogue (rule 4) becomes a set of **presets** that fill an
+`AmigaConfig` with authentic stock values. The user can start from a preset and
+override any axis (more fast RAM, an '040 accelerator, an RTG board, an HDF),
+or build a config from scratch — subject to **authenticity validation** (e.g. a
+2 MB chip-RAM selection requires an AGA/ECS Agnus; an RTG board requires a Zorro
+slot the chipset/model provides). Invalid combinations are rejected, not
+silently coerced.
+
+### Drift triggers
+
+- Reaching for `OcsCore<C: Cpu>` or `Box<dyn Cpu>` — no. CPU is the `ActiveCpu`
+  enum; chipset is the only type axis.
+- Adding a fourth `AmigaRuntimeKind` arm for a CPU or RAM difference — no. Only
+  a new *chipset structural shape* (SAGA) earns a variant.
+- Hardcoding "this chipset implies this CPU" anywhere — no. The model resolves
+  the stock CPU; accelerators override; they are orthogonal.
+- Silently coercing an impossible config (e.g. fast RAM with no slot, 2 MB chip
+  on a 512 KB Agnus) instead of rejecting it — no. Validate against the real
+  hardware envelope.
+- Treating RTG as a chipset variant — no. It is an optional peripheral board
+  with its own framebuffer (dual-display aware), per
+  [[emu198x:project_amiga_long_term_scope]].
+
+### Bearing on open issues
+
+- **#110 (A3000) / #111 (A4000):** the catalogue collision (ECS+68030 vs
+  ECS+68000; AGA+68040 vs AGA+68EC020) is resolved by this amendment — the model
+  resolves the stock `ActiveCpu`; no new chipset variant.
+- **#34 (unified driver):** the generic machine driver is parameterised over the
+  chipset variant + an `ActiveCpu`-dispatching bus seam; this amendment defines
+  the CPU half of that seam.
+- **#117 (RTG):** RTG enters as an `Option<RtgBoard>` config axis (dual-display),
+  not a chipset change.
+- **#102/#43 (storage), #100 (serial), accelerators:** all land as `peripherals`
+  / `accelerator` config, additive.
