@@ -229,6 +229,14 @@ pub trait AmigaLiveAccess {
     fn insert_floppy0(&mut self, adf: Adf, change_pending: bool);
     fn eject_floppy0(&mut self);
 
+    /// Decode DF0's current in-memory image back to ADF bytes so the
+    /// host can persist a SAVE. `None` when DF0 is empty. The host
+    /// chooses where the bytes land (sidecar by default — see
+    /// `knowledge/decisions/disk-save-write-back.md`).
+    fn save_floppy0_image(&self) -> Option<Vec<u8>> {
+        self.drive().save_adf()
+    }
+
     // ---------- instruction-boundary CPU trace ----------
     //
     // The trace lives on `AmigaRuntime` and is captured by its tick

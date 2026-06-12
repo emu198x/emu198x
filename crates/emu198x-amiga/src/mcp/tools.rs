@@ -1950,6 +1950,52 @@ fn tool_insert_media(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolEr
     }
 }
 
+/// Derive the sidecar save path for a source image: `Game.adf` →
+/// `Game.save.adf`. Preserves the original extension; falls back to
+/// `.adf` / a `disk` stem for pathological inputs.
+fn sidecar_path(source: &str) -> PathBuf {
+    let p = PathBuf::from(source);
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("disk");
+    let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("adf");
+    p.with_file_name(format!("{stem}.save.{ext}"))
+}
+
+/// `save_disk` — persist DF0's current image to a host ADF.
+///
+/// A Workbench SAVE lands decoded sectors on the in-memory image; this
+/// writes that image out. **Sidecar by default** (`Game.adf` →
+/// `Game.save.adf`) so the source archive is never touched; pass
+/// `overwrite:true` to write `path` in place (a writable work disk).
+/// See `knowledge/decisions/disk-save-write-back.md`.
+fn tool_save_disk(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
+    let path = args
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ToolError::InvalidArguments("missing string `path`".into()))?;
+    let overwrite = args
+        .get("overwrite")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let bytes = s
+        .live()
+        .save_floppy0_image()
+        .ok_or_else(|| ToolError::Execution("save_disk: no disk in DF0".into()))?;
+    let target = if overwrite {
+        PathBuf::from(path)
+    } else {
+        sidecar_path(path)
+    };
+    std::fs::write(&target, &bytes).map_err(|err| {
+        ToolError::Execution(format!("save_disk: write {}: {err}", target.display()))
+    })?;
+    Ok(json!({
+        "saved": true,
+        "path": target.display().to_string(),
+        "bytes": bytes.len(),
+        "overwrote_source": overwrite,
+    }))
+}
+
 /// Load the raw bytes of a media image from disk. If `path` has a
 /// `.zip` extension, opens the archive and reads either a single
 /// `.adf` member (auto-detected when there's exactly one) or the
@@ -2420,6 +2466,15 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
                                "description": "Use insert_adf_with_change_pending so KS sees a disk-change event."}
         }
     });
+    let save_disk_schema = json!({
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+            "path": {"type": "string", "description": "Source image path. By default the save lands beside it as <stem>.save.<ext> (e.g. Game.adf → Game.save.adf), leaving the source untouched."},
+            "overwrite": {"type": "boolean", "default": false,
+                          "description": "Write `path` in place instead of a sidecar. Only for a writable work disk; never an archive."}
+        }
+    });
     let set_machine_schema = json!({
         "type": "object",
         "required": ["model"],
@@ -2819,6 +2874,13 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
     );
     add(
         registry,
+        "save_disk",
+        "Persist DF0's image to a host ADF. Sidecar by default (Game.adf → Game.save.adf), so the source is never touched; pass overwrite:true for a writable work disk.",
+        save_disk_schema,
+        tool_save_disk,
+    );
+    add(
+        registry,
         "set_machine",
         "Swap to a different Amiga model (a1000 / a500 / a500-a501 / a500-plus / a500-maxed / a600 / a1200 / a2000), rebuilding the OCS/ECS/AGA variant. Hard-resets — re-insert any disk after.",
         set_machine_schema,
@@ -2831,6 +2893,18 @@ mod tests {
     use super::*;
     use emu198x_shell::mcp::ToolRegistry;
     use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaSessionQueryProvider, Model};
+
+    #[test]
+    fn sidecar_path_keeps_extension_and_directory() {
+        assert_eq!(sidecar_path("Game.adf"), PathBuf::from("Game.save.adf"));
+        assert_eq!(
+            sidecar_path("/disks/Workbench.adf"),
+            PathBuf::from("/disks/Workbench.save.adf")
+        );
+        // Unusual inputs fall back gracefully.
+        assert_eq!(sidecar_path("noext"), PathBuf::from("noext.save.adf"));
+        assert_eq!(sidecar_path("a.ipf"), PathBuf::from("a.save.ipf"));
+    }
 
     type Sess = HeadlessSession<AmigaRuntimeKind, AmigaSessionQueryProvider>;
 
