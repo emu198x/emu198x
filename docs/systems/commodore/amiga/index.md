@@ -14,10 +14,11 @@ facades.** Three honest caveats the "boots Workbench 3.1" headline conceals:
 
 1. **AGA colour and deep modes now render.** The 256-colour 24-bit palette (#93),
    HAM8 (#94), the BPLCON4 BPLAM bitplane XOR (#96), 32/64-px wide sprites — display
-   *and* DMA fetch (#95/#99) — and 8-plane lowres bitplane fetch (#99) are decoded
-   **and displayed**. AGA is no longer "an ECS machine that boots 3.1": real AGA
-   colour software looks right. The one known render-bandwidth gap is **superhires
-   (SHRES)**, whose DMA fetch is still modelled as hires (#469) — a niche mode.
+   *and* DMA fetch (#95/#99) — 8-plane lowres bitplane fetch (#99), and superhires
+   DMA bandwidth (#469) are decoded **and displayed**. AGA is no longer "an ECS
+   machine that boots 3.1": real AGA software looks right. The only render nuance
+   left is the cycle-exact intra-group fetch order for SHRES at FMODE1 (16-colour
+   superhires) — a niche-of-a-niche timing detail, not a visible gap.
 2. **The Blitter is incremental but drains on observation.** The per-slot scheduler
    is wired into all three machines (#31) with BBUSY/BZERO readback (#32) and
    Copper BFD=0 sync (#33); a synchronous `run_blit_to_completion` drain remains
@@ -34,9 +35,9 @@ path to a cycle-exact chipset.
 
 Deep per-chip and per-Kickstart notes live in [`chipset/`](chipset/) and
 [`kickstart/`](kickstart/). The AGA render path described in
-[`chipset/denise.md`](chipset/denise.md) is now largely real (24-bit palette, HAM8,
-wide sprites, BPLAM XOR all landed); the one outstanding render gap is superhires
-DMA bandwidth (#469) — see the gaps below.
+[`chipset/denise.md`](chipset/denise.md) is now real: 24-bit palette, HAM8, wide
+sprites, BPLAM XOR, 8-plane lowres and superhires fetch all landed (#93/#94/#96/
+#99/#469). Only a SHRES@FMODE1 intra-group timing nuance remains — see the gaps.
 
 ## What works
 
@@ -82,20 +83,20 @@ DMA bandwidth (#469) — see the gaps below.
 
 ## Not implemented / accuracy gaps
 
-### AGA video: colour + deep modes done, superhires bandwidth remaining
+### AGA video: colour + deep modes done; one SHRES timing nuance
 
-OCS Denise is ~95% pixel-exact and ECS ~90%. AGA/Lisa has closed the colour and
-deep-mode gaps: the 24-bit 256-entry banked palette (#93), HAM8 with 24-bit
-chaining (#94), the BPLCON4 BPLAM bitplane XOR (#96), 32/64-px wide sprites —
-display *and* DMA fetch (#95/#99) — and 8-plane lowres bitplane fetch (#99) all
-render through the AGA path now, not the OCS 12-bit palette. The AGA Denise
-bitplane ceiling was raised to 8 so deep modes compose, and Agnus fills the two
-idle lowres fetch slots with BPL7/BPL8. The one remaining AGA-render gap is
-**superhires (SHRES)**: the Denise shifter handles 4 source-pixels/output and
-colour resolves correctly, but the Agnus DMA fetch models SHRES as hires, so a
-superhires screen is fed half the plane bandwidth it needs (#469). Niche mode;
-far narrower than the old "everything is a facade" framing — real AGA *colour*
-software now looks right.
+OCS Denise is ~95% pixel-exact and ECS ~90%. AGA/Lisa has closed its render gaps:
+the 24-bit 256-entry banked palette (#93), HAM8 with 24-bit chaining (#94), the
+BPLCON4 BPLAM bitplane XOR (#96), 32/64-px wide sprites — display *and* DMA fetch
+(#95/#99) — 8-plane lowres bitplane fetch (#99), and superhires DMA bandwidth
+(#469) all render through the AGA path now, not the OCS 12-bit palette. The AGA
+Denise bitplane ceiling was raised to 8 so deep modes compose; Agnus fills the two
+idle lowres fetch slots with BPL7/BPL8 and fetches SHRES in 2/4/8-CCK groups
+(FMODE 0/1/2 → 4/16/256 colours). The only nuance left is the cycle-exact
+intra-group fetch *order* for SHRES@FMODE1 (4 planes), derived from the hires
+construction rather than a WinUAE per-cycle oracle — bandwidth and plane set are
+correct, so it is not a visible gap. This is a different world from the old
+"everything is a facade" framing.
 
 ### The chipset is pre-cycle-exact (integration debt)
 
