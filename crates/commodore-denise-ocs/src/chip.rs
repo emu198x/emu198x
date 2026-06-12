@@ -218,7 +218,7 @@ impl DeniseOcs {
     /// | `$098`      | CLXCON (collision match/enable mask)              |
     /// | `$10C`      | BPLCON4 (AGA sprite XOR — ignored on OCS)         |
     /// | `$110..$11C`| BPL1DAT..BPL6DAT (shift-load triggers on BPL1DAT) |
-    /// | `$140..$17C`| SPRxPOS / SPRxCTL / SPRxDATA / SPRxDATB × 8       |
+    /// | `$140..$17E`| SPRxPOS / SPRxCTL / SPRxDATA / SPRxDATB × 8       |
     /// | `$180..$1BE`| COLOR00..COLOR31                                  |
     ///
     /// Anything else is silently ignored; machine dispatch routes
@@ -241,7 +241,10 @@ impl DeniseOcs {
                     self.queue_shift_load_from_bpl1dat();
                 }
             }
-            0x140..=0x17C => {
+            // 8 sprites × 8 register-bytes span $140..=$17F; the last is
+            // SPR7DATB at $17E. The range must reach $17E or that write
+            // is silently dropped and sprite 7 loses its B plane (#468).
+            0x140..=0x17E => {
                 let sprite = ((offset - 0x140) / 8) as usize;
                 match (offset - 0x140) % 8 {
                     0 => self.write_sprite_pos(sprite, val),

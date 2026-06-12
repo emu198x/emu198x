@@ -1157,3 +1157,23 @@ fn wide_sprite_renders_pixels_beyond_the_16px_window() {
         "16-px sprite cannot reach column hstart+40 — background only"
     );
 }
+
+#[test]
+fn every_sprite_datb_write_lands_through_write_word() {
+    // #468: the Denise sprite-register decode must reach SPR7DATB at
+    // $17E. The range previously ended at $17C, so sprite 7's B-plane
+    // write fell into the ignore arm and was silently dropped — sprite 7
+    // rendered plane A only (the Flock unit 13 duck came out monochrome).
+    // Every other sprite register fits below $17C, so only sprite 7 broke.
+    let mut d = DeniseOcs::new();
+    for sprite in 0..8u16 {
+        let datb_reg = 0x140 + sprite * 8 + 6; // SPRxDATB
+        let val = 0xA000 | sprite; // distinct, non-zero per sprite
+        d.write_word(datb_reg, val);
+        assert_eq!(
+            d.spr_datb[sprite as usize],
+            u64::from(val),
+            "SPR{sprite}DATB (${datb_reg:03X}) write must land, not be dropped"
+        );
+    }
+}
