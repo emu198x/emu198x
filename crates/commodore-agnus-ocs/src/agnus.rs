@@ -1544,7 +1544,18 @@ impl Agnus {
         let hires = (self.bplcon0 & 0x8000) != 0;
         let shres = (self.bplcon0 & 0x0040) != 0;
         let fetch_width = self.bpl_fetch_width();
-        if self.dma_enabled(0x0100) && num_bpl > 0 && self.hpos >= self.ddfstrt {
+        // DDFSTRT/DDFSTOP align to the fetch boundary: the hardware
+        // ignores the low DDF bits. OCS masks $FC (4-CCK lores
+        // granularity); ECS/AGA mask $FE (2-CCK, the finer step SHRES
+        // needs). agnus_id >= $2000 selects ECS and later. #30 Phase 4.
+        let ddf_mask: u16 = if self.agnus_id >= 0x2000 {
+            0x00FE
+        } else {
+            0x00FC
+        };
+        let ddfstrt = self.ddfstrt & ddf_mask;
+        let ddfstop = self.ddfstop & ddf_mask;
+        if self.dma_enabled(0x0100) && num_bpl > 0 && self.hpos >= ddfstrt {
             if fetch_width <= 1 {
                 // OCS / ECS / AGA 16-bit cadence. SuperHires (ECS+)
                 // halves the group to 2 CCKs; lores/hires unchanged.
@@ -1556,11 +1567,11 @@ impl Agnus {
                     8
                 };
                 let fetchunit: u32 = 8;
-                let ddf_span = u32::from(self.ddfstop.saturating_sub(self.ddfstrt));
+                let ddf_span = u32::from(ddfstop.saturating_sub(ddfstrt));
                 let blocks = ddf_span.div_ceil(fetchunit) + 1;
-                let fetch_window_end = u32::from(self.ddfstrt) + blocks * fetchunit - 1;
+                let fetch_window_end = u32::from(ddfstrt) + blocks * fetchunit - 1;
                 if u32::from(self.hpos) <= fetch_window_end {
-                    let pos_in_group = ((self.hpos - self.ddfstrt) % group_len) as usize;
+                    let pos_in_group = ((self.hpos - ddfstrt) % group_len) as usize;
                     let plane_slot = if shres {
                         // SuperHires at 16-bit fetch — 2 planes / 4
                         // colours (#469). BPL3+ are not fetched (the
@@ -1589,12 +1600,11 @@ impl Agnus {
                 // "complete the block plus one more" rule (div_ceil + 1)
                 // is the same as the 16-bit path.
                 let (fetchunit, fetchstart) = fetch_cadence(fetch_width, hires, shres);
-                let ddf_span = u32::from(self.ddfstop.saturating_sub(self.ddfstrt));
+                let ddf_span = u32::from(ddfstop.saturating_sub(ddfstrt));
                 let blocks = ddf_span.div_ceil(fetchunit) + 1;
-                let fetch_window_end = u32::from(self.ddfstrt) + blocks * fetchunit - 1;
+                let fetch_window_end = u32::from(ddfstrt) + blocks * fetchunit - 1;
                 if u32::from(self.hpos) <= fetch_window_end {
-                    let pos =
-                        ((u32::from(self.hpos) - u32::from(self.ddfstrt)) % fetchstart) as usize;
+                    let pos = ((u32::from(self.hpos) - u32::from(ddfstrt)) % fetchstart) as usize;
                     // The 8-entry WIDE order covers planes 0..7 only
                     // when the group is >= 8 CCKs (FMODE>0 lores/hires,
                     // and SHRES@FMODE2). SHRES@FMODE1 shrinks the group
@@ -1980,6 +1990,57 @@ mod tests {
         assert_eq!(agnus.num_bitplanes(), 2);
         assert_eq!(bitplane_grants(&mut agnus, 0), 38, "BPL1 accesses/line");
         assert_eq!(bitplane_grants(&mut agnus, 1), 38, "BPL2 accesses/line");
+    }
+
+    /// The whole-line bitplane plane map (which plane, if any, each
+    /// hpos fetches) — the fetch grid `bitplane_slot_at` produces.
+    fn plane_map(agnus: &mut Agnus) -> Vec<Option<u8>> {
+        (0u16..=0xE2)
+            .map(|h| {
+                agnus.hpos = h;
+                match agnus.current_slot() {
+                    SlotOwner::Bitplane(p) => Some(p),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ddf_strt_aligns_to_fetch_boundary_per_variant() {
+        // OCS ignores DDFSTRT's low 2 bits ($FC, 4-CCK lores boundary):
+        // an unaligned $3A produces exactly the same fetch grid as $38.
+        let mut aligned = Agnus::new(); // OCS, agnus_id = $1000
+        aligned.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        aligned.bplcon0 = 0x6000; // lores, 6 planes
+        aligned.ddfstrt = 0x38;
+        aligned.ddfstop = 0xD0;
+
+        let mut unaligned = Agnus::new();
+        unaligned.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        unaligned.bplcon0 = 0x6000;
+        unaligned.ddfstrt = 0x3A; // masks to $38 on OCS
+        unaligned.ddfstop = 0xD0;
+        assert_eq!(
+            plane_map(&mut aligned),
+            plane_map(&mut unaligned),
+            "OCS masks DDFSTRT to $FC — $3A behaves as $38",
+        );
+
+        // ECS/AGA mask only the low bit ($FE, 2-CCK), the granularity
+        // SuperHires needs: $3A stays $3A, shifting the grid vs OCS's
+        // aligned-down $38.
+        let mut ecs = Agnus::new();
+        ecs.agnus_id = 0x2000; // ECS discriminator
+        ecs.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        ecs.bplcon0 = 0x6000;
+        ecs.ddfstrt = 0x3A;
+        ecs.ddfstop = 0xD0;
+        assert_ne!(
+            plane_map(&mut ecs),
+            plane_map(&mut aligned),
+            "ECS masks $FE — $3A is not aligned down to $38",
+        );
     }
 
     #[test]
