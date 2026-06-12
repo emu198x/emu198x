@@ -404,3 +404,47 @@ fn dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite() {
         "sprite should appear when PF2P places SP01 ahead of front PF2"
     );
 }
+
+#[test]
+fn bplcon4_bplam_xors_the_playfield_colour_index() {
+    // #96: BPLCON4 bits 15-8 (BPLAM) XOR the bitplane colour index before
+    // the palette lookup on AGA (WinUAE `pix ^ bplcon4_denise_xor_val`).
+    // `bplcon4` defaults to 0, so this is a no-op on OCS/ECS; here we set
+    // it directly to exercise the XOR.
+    let mut d = DeniseOcs::new();
+    d.bplcon0 = 0x2000; // BPU=2, lores, no DBLPF
+    d.set_palette(0, 0x000);
+    d.set_palette(1, 0x0F0); // green at index 1
+    d.set_palette(3, 0x00F); // blue at index 3
+    d.bplcon4 = 0x0200; // BPLAM = $02
+    d.begin_beam_line();
+    d.bpl_data[0] = 0x8000; // plane 0 set at pixel 0 → raw index 1
+    d.bpl_data[1] = 0x0000;
+    d.trigger_shift_load();
+
+    // Index 1 XOR BPLAM 2 = 3, so the pixel resolves to COLOR03 (blue),
+    // not COLOR01 (green).
+    assert_eq!(
+        d.output_pixel_color(0, 0),
+        DeniseOcs::rgb12_to_argb32(0x00F),
+        "raw index 1 XOR BPLAM $02 = 3 → COLOR03"
+    );
+}
+
+#[test]
+fn bplcon4_zero_leaves_the_playfield_index_unchanged() {
+    // OCS/ECS safety: with BPLAM (bplcon4) zero, the index is untouched.
+    let mut d = DeniseOcs::new();
+    d.bplcon0 = 0x2000;
+    d.set_palette(1, 0x0F0); // green at index 1
+    d.bplcon4 = 0x0000;
+    d.begin_beam_line();
+    d.bpl_data[0] = 0x8000;
+    d.bpl_data[1] = 0x0000;
+    d.trigger_shift_load();
+    assert_eq!(
+        d.output_pixel_color(0, 0),
+        DeniseOcs::rgb12_to_argb32(0x0F0),
+        "BPLAM 0 leaves index 1 → COLOR01"
+    );
+}

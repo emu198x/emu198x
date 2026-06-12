@@ -754,47 +754,56 @@ impl DeniseOcs {
         pf2_code: u8,
     ) -> PlayfieldPixel {
         let dual_playfield = (self.bplcon0 & 0x0400) != 0; // DBLPF
-        if !dual_playfield {
-            return PlayfieldPixel {
+        let mut pf = if !dual_playfield {
+            PlayfieldPixel {
                 visible_color_idx: raw_color_idx,
                 front_playfield: if raw_color_idx != 0 {
                     Some(PlayfieldId::Pf1)
                 } else {
                     None
                 },
-            };
-        }
-
-        let pf1_nonzero = pf1_code != 0;
-        let pf2_nonzero = pf2_code != 0;
-        match (pf1_nonzero, pf2_nonzero) {
-            (false, false) => PlayfieldPixel {
-                visible_color_idx: 0,
-                front_playfield: None,
-            },
-            (true, false) => PlayfieldPixel {
-                visible_color_idx: usize::from(pf1_code),
-                front_playfield: Some(PlayfieldId::Pf1),
-            },
-            (false, true) => PlayfieldPixel {
-                visible_color_idx: 8 + usize::from(pf2_code),
-                front_playfield: Some(PlayfieldId::Pf2),
-            },
-            (true, true) => {
-                let pf2_front = (self.bplcon2 & 0x0040) != 0; // PF2PRI
-                if pf2_front {
-                    PlayfieldPixel {
-                        visible_color_idx: 8 + usize::from(pf2_code),
-                        front_playfield: Some(PlayfieldId::Pf2),
-                    }
-                } else {
-                    PlayfieldPixel {
-                        visible_color_idx: usize::from(pf1_code),
-                        front_playfield: Some(PlayfieldId::Pf1),
+            }
+        } else {
+            let pf1_nonzero = pf1_code != 0;
+            let pf2_nonzero = pf2_code != 0;
+            match (pf1_nonzero, pf2_nonzero) {
+                (false, false) => PlayfieldPixel {
+                    visible_color_idx: 0,
+                    front_playfield: None,
+                },
+                (true, false) => PlayfieldPixel {
+                    visible_color_idx: usize::from(pf1_code),
+                    front_playfield: Some(PlayfieldId::Pf1),
+                },
+                (false, true) => PlayfieldPixel {
+                    visible_color_idx: 8 + usize::from(pf2_code),
+                    front_playfield: Some(PlayfieldId::Pf2),
+                },
+                (true, true) => {
+                    let pf2_front = (self.bplcon2 & 0x0040) != 0; // PF2PRI
+                    if pf2_front {
+                        PlayfieldPixel {
+                            visible_color_idx: 8 + usize::from(pf2_code),
+                            front_playfield: Some(PlayfieldId::Pf2),
+                        }
+                    } else {
+                        PlayfieldPixel {
+                            visible_color_idx: usize::from(pf1_code),
+                            front_playfield: Some(PlayfieldId::Pf1),
+                        }
                     }
                 }
             }
-        }
+        };
+
+        // BPLCON4 BPLAM (bits 15-8): XOR the playfield colour index just
+        // before the palette lookup, matching WinUAE
+        // (`pix ^ bplcon4_denise_xor_val`). AGA-only — `bplcon4` is 0 on
+        // OCS/ECS, so this is a no-op there. It affects the *colour* only:
+        // playfield priority (`front_playfield`) and collision both key off
+        // the raw plane bits, not this index (#96).
+        pf.visible_color_idx ^= ((self.bplcon4 >> 8) & 0xFF) as usize;
+        pf
     }
 
     /// Copy all bitplane holding latches into the shift registers.

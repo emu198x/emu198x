@@ -256,6 +256,12 @@ impl DeniseChip for DeniseAga {
         match offset {
             BPLCON4 => {
                 self.bplcon4 = val;
+                // Forward to the OCS core, which owns pixel composition:
+                // bits 15-8 (BPLAM) XOR the playfield colour index (#96)
+                // and bits 7-0 (ESPRM/OSPRM) the sprite colour base. Both
+                // read `bplcon4` off the OCS chip; DeniseAga.bplcon4 is the
+                // diagnostic mirror.
+                self.inner.as_inner_mut().bplcon4 = val;
             }
             FMODE => {
                 // Lisa cares about FMODE bits 3..2 for sprite width.
@@ -430,6 +436,13 @@ mod tests {
         let mut denise = DeniseAga::new();
         denise.write_word(0x010C, 0x5A3C);
         assert_eq!(denise.bplcon4, 0x5A3C);
+        // Must also reach the OCS core, which owns pixel composition: the
+        // BPLAM XOR (#96) and sprite ESPRM/OSPRM both read bplcon4 there.
+        assert_eq!(
+            denise.as_inner().as_inner().bplcon4,
+            0x5A3C,
+            "BPLCON4 must forward to the OCS composition core"
+        );
     }
 
     #[test]
