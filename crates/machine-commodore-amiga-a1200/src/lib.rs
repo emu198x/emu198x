@@ -1718,19 +1718,27 @@ impl AmigaA1200 {
             // takes). gap #162.
             if let Some(channel) = bus_plan.sprite_dma_service_channel {
                 let second_word = (self.agnus.hpos.wrapping_sub(0x0B) & 1) == 1;
-                let fetched =
-                    self.agnus
-                        .service_sprite_dma_cyc(channel as usize, second_word, |addr| {
-                            memory.read_chip_ram_word(addr)
-                        });
-                if let Some((is_control, word)) = fetched {
-                    let base = 0x140 + u16::from(channel) * 8;
-                    let reg = if is_control {
-                        base + if second_word { 2 } else { 0 }
+                // FMODE widens the sprite data fetch to 1/2/4 words (#99).
+                let width = self.agnus.spr_fetch_width();
+                let fetched = self.agnus.service_sprite_dma_cyc(
+                    channel as usize,
+                    second_word,
+                    width,
+                    |addr| memory.read_chip_ram_word(addr),
+                );
+                if let Some((is_control, value)) = fetched {
+                    let channel = channel as usize;
+                    if is_control {
+                        // SPRxPOS / SPRxCTL — 16-bit, via the unified dispatch.
+                        let reg = 0x140 + (channel as u16) * 8 + if second_word { 2 } else { 0 };
+                        self.denise.write_word(reg, value as u16);
+                    } else if second_word {
+                        // SPRxDATB — full FMODE width into the serial shifter.
+                        self.denise.ocs.write_sprite_datb_wide(channel, value);
                     } else {
-                        base + if second_word { 6 } else { 4 }
-                    };
-                    self.denise.write_word(reg, word);
+                        // SPRxDATA — full FMODE width into the serial shifter.
+                        self.denise.ocs.write_sprite_data_wide(channel, value);
+                    }
                 }
             }
 

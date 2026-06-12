@@ -1356,8 +1356,9 @@ impl Agnus {
         &mut self,
         channel: usize,
         second_word: bool,
-        read: impl FnOnce(u32) -> u16,
-    ) -> Option<(bool, u16)> {
+        width: u8,
+        mut read: impl FnMut(u32) -> u16,
+    ) -> Option<(bool, u64)> {
         if channel >= 8 {
             return None;
         }
@@ -1369,6 +1370,8 @@ impl Agnus {
             return None;
         }
         if self.vpos == self.spr_vstop[channel] {
+            // Control fetch (SPRxPOS / SPRxCTL): always a single word —
+            // FMODE widens the data fetch, not the control words.
             self.spr_dma_on[channel] = false;
             let word = read(self.spr_pt[channel]);
             self.spr_pt[channel] = self.spr_pt[channel].wrapping_add(2);
@@ -1377,11 +1380,20 @@ impl Agnus {
             } else {
                 self.latch_sprite_pos(channel, word);
             }
-            Some((true, word))
+            Some((true, u64::from(word)))
         } else if self.spr_dma_on[channel] {
-            let word = read(self.spr_pt[channel]);
-            self.spr_pt[channel] = self.spr_pt[channel].wrapping_add(2);
-            Some((false, word))
+            // Data fetch (SPRxDATA / SPRxDATB): FMODE makes the access
+            // fetch `width` (1/2/4) consecutive words, assembled MSB-first
+            // into the 64-bit serial-shifter payload — the first word
+            // holds the leftmost pixels (#99). width 1 keeps OCS/ECS at
+            // the historical single-word, low-16-bit behaviour.
+            let mut data = 0u64;
+            for _ in 0..width.max(1) {
+                let word = read(self.spr_pt[channel]);
+                self.spr_pt[channel] = self.spr_pt[channel].wrapping_add(2);
+                data = (data << 16) | u64::from(word);
+            }
+            Some((false, data))
         } else {
             None
         }
@@ -2298,7 +2310,7 @@ mod tests {
         agnus.spr_vstop[0] = 30; // vpos == vstop → control fetch
         // word 0 = SPRxPOS: VSTART[7:0] = bits 15-8 = 0x28 (40).
         assert_eq!(
-            agnus.service_sprite_dma_cyc(0, false, |_| 0x2800),
+            agnus.service_sprite_dma_cyc(0, false, 1, |_| 0x2800),
             Some((true, 0x2800))
         );
         assert_eq!(agnus.spr_pt[0], 0x1002, "pointer advances one word");
@@ -2306,7 +2318,7 @@ mod tests {
         assert!(!agnus.sprite_dma_on(0), "control fetch turns DMA off");
         // word 1 = SPRxCTL: VSTOP[7:0] = bits 15-8 = 0x32 (50); bit8s clear.
         assert_eq!(
-            agnus.service_sprite_dma_cyc(0, true, |_| 0x3200),
+            agnus.service_sprite_dma_cyc(0, true, 1, |_| 0x3200),
             Some((true, 0x3200))
         );
         assert_eq!(agnus.spr_pt[0], 0x1004);
@@ -2319,9 +2331,9 @@ mod tests {
         let mut agnus = sprite_dma_agnus();
         agnus.vpos = 30;
         agnus.spr_vstop[0] = 30;
-        let _ = agnus.service_sprite_dma_cyc(0, false, |_| 0x0100); // VSTART low = 1
+        let _ = agnus.service_sprite_dma_cyc(0, false, 1, |_| 0x0100); // VSTART low = 1
         // CTL: VSTOP low = 2; bit2 (SV8)=1 → VSTART|=0x100; bit1 (EV8)=1 → VSTOP|=0x100.
-        let _ = agnus.service_sprite_dma_cyc(0, true, |_| 0x0200 | 0x04 | 0x02);
+        let _ = agnus.service_sprite_dma_cyc(0, true, 1, |_| 0x0200 | 0x04 | 0x02);
         assert_eq!(agnus.sprite_vstart(0), 0x101, "VSTART = 0x100 | 1");
         assert_eq!(agnus.sprite_vstop(0), 0x102, "VSTOP = 0x100 | 2");
     }
@@ -2334,11 +2346,11 @@ mod tests {
         agnus.spr_vstop[1] = 50;
         agnus.spr_dma_on[1] = true;
         assert_eq!(
-            agnus.service_sprite_dma_cyc(1, false, |_| 0xAAAA),
+            agnus.service_sprite_dma_cyc(1, false, 1, |_| 0xAAAA),
             Some((false, 0xAAAA))
         );
         assert_eq!(
-            agnus.service_sprite_dma_cyc(1, true, |_| 0x5555),
+            agnus.service_sprite_dma_cyc(1, true, 1, |_| 0x5555),
             Some((false, 0x5555))
         );
         assert_eq!(agnus.spr_pt[1], 0x2004);
@@ -2351,7 +2363,7 @@ mod tests {
         agnus.vpos = 30;
         agnus.spr_vstop[2] = 50;
         agnus.spr_dma_on[2] = false;
-        assert_eq!(agnus.service_sprite_dma_cyc(2, false, |_| 0xFFFF), None);
+        assert_eq!(agnus.service_sprite_dma_cyc(2, false, 1, |_| 0xFFFF), None);
         assert_eq!(
             agnus.spr_pt[2], 0x3000,
             "idle slot leaves the pointer alone"
@@ -2367,7 +2379,7 @@ mod tests {
         agnus.spr_dma_on[3] = true; // active...
         // ...but vpos == vstop forces a control fetch, not data.
         assert_eq!(
-            agnus.service_sprite_dma_cyc(3, false, |_| 0x1234),
+            agnus.service_sprite_dma_cyc(3, false, 1, |_| 0x1234),
             Some((true, 0x1234))
         );
         assert!(!agnus.sprite_dma_on(3));
@@ -2415,8 +2427,49 @@ mod tests {
         agnus.spr_pt[0] = 0x1000;
         agnus.vpos = 0;
         agnus.spr_vstop[0] = 0; // would control-fetch if not VB-suppressed
-        assert_eq!(agnus.service_sprite_dma_cyc(0, false, |_| 0xBEEF), None);
+        assert_eq!(agnus.service_sprite_dma_cyc(0, false, 1, |_| 0xBEEF), None);
         assert_eq!(agnus.spr_pt[0], 0x1000, "no fetch in vertical blank");
+    }
+
+    #[test]
+    fn wide_sprite_data_fetch_assembles_fmode_words_msb_first() {
+        // #99: an FMODE 32-bit sprite fetches 2 consecutive words per
+        // SPRxDATA access, assembled MSB-first (first word = leftmost
+        // pixels) into the 64-bit serial-shifter payload.
+        let mut agnus = sprite_dma_agnus();
+        agnus.spr_pt[1] = 0x2000;
+        agnus.vpos = 45;
+        agnus.spr_vstop[1] = 50;
+        agnus.spr_dma_on[1] = true;
+        let words = [0xAAAAu16, 0xBBBBu16];
+        let mut i = 0;
+        let fetched = agnus.service_sprite_dma_cyc(1, false, 2, |_addr| {
+            let w = words[i];
+            i += 1;
+            w
+        });
+        assert_eq!(
+            fetched,
+            Some((false, 0xAAAA_BBBB)),
+            "two words assemble MSB-first into a 32-bit payload"
+        );
+        assert_eq!(agnus.spr_pt[1], 0x2004, "pointer advances by 2 words");
+
+        // 64-bit (width 4): four words fill the full u64.
+        let mut agnus = sprite_dma_agnus();
+        agnus.spr_pt[2] = 0x3000;
+        agnus.vpos = 45;
+        agnus.spr_vstop[2] = 50;
+        agnus.spr_dma_on[2] = true;
+        let words = [0x1111u16, 0x2222, 0x3333, 0x4444];
+        let mut i = 0;
+        let fetched = agnus.service_sprite_dma_cyc(2, false, 4, |_addr| {
+            let w = words[i];
+            i += 1;
+            w
+        });
+        assert_eq!(fetched, Some((false, 0x1111_2222_3333_4444)));
+        assert_eq!(agnus.spr_pt[2], 0x3008, "pointer advances by 4 words");
     }
 
     #[test]

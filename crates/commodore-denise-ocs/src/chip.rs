@@ -368,8 +368,17 @@ impl DeniseOcs {
     }
 
     pub fn write_sprite_data(&mut self, sprite: usize, val: u16) {
+        self.write_sprite_data_wide(sprite, u64::from(val));
+    }
+
+    /// Load the full `spr_width`-bit SPRxDATA value (the serial shifter
+    /// payload). The 16-bit `write_sprite_data` is the CPU/copper path;
+    /// AGA's wide-sprite DMA (FMODE 32/64 px) assembles 2/4 fetched words
+    /// and loads them here (#99). Bits above `spr_width` are unused by the
+    /// shifter.
+    pub fn write_sprite_data_wide(&mut self, sprite: usize, val: u64) {
         if sprite < 8 {
-            self.spr_data[sprite] = u64::from(val);
+            self.spr_data[sprite] = val;
             // Writing SPRxDATA arms the sprite comparator (manual mode) and is
             // also how DMA refreshes sprite line data before display.
             self.spr_armed[sprite] = true;
@@ -377,8 +386,14 @@ impl DeniseOcs {
     }
 
     pub fn write_sprite_datb(&mut self, sprite: usize, val: u16) {
+        self.write_sprite_datb_wide(sprite, u64::from(val));
+    }
+
+    /// Load the full `spr_width`-bit SPRxDATB value. See
+    /// [`Self::write_sprite_data_wide`] (#99).
+    pub fn write_sprite_datb_wide(&mut self, sprite: usize, val: u64) {
         if sprite < 8 {
-            self.spr_datb[sprite] = u64::from(val);
+            self.spr_datb[sprite] = val;
         }
     }
 

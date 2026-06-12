@@ -1159,6 +1159,38 @@ fn wide_sprite_renders_pixels_beyond_the_16px_window() {
 }
 
 #[test]
+fn wide_sprite_data_setter_loads_the_full_payload() {
+    // #99: `write_sprite_data_wide` loads a 32/64-bit payload (the
+    // DMA-assembled value) so the shifter can display columns past 16.
+    // Here a 32-px sprite's second data word (bits 15-0) shows at
+    // columns 16-31 — unreachable by a 16-px sprite.
+    let make = |width: u8| {
+        let mut d = DeniseOcs::new();
+        d.set_palette(0, 0x000);
+        d.set_palette(17, 0xF00); // sprite 0/1, colour code 1 = red
+        d.spr_width = width;
+        let (pos, ctl) = encode_sprite_pos_ctl(20, 10, 11);
+        d.spr_pos[0] = pos;
+        d.spr_ctl[0] = ctl;
+        // Bit 8 set → emits at hstart + (31 - 8) = +23 (a column only a
+        // 32-px sprite reaches; the low word holds it).
+        d.write_sprite_data_wide(0, 1u64 << 8);
+        d.write_sprite_datb_wide(0, 0);
+        d.output_pixel_color(43, 10) // hstart(20) + 23
+    };
+    assert_eq!(
+        make(32),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "32-px sprite shows the bit-8 pixel 23 columns past hstart"
+    );
+    assert_eq!(
+        make(16),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "16-px sprite cannot reach that column"
+    );
+}
+
+#[test]
 fn every_sprite_datb_write_lands_through_write_word() {
     // #468: the Denise sprite-register decode must reach SPR7DATB at
     // $17E. The range previously ended at $17C, so sprite 7's B-plane
