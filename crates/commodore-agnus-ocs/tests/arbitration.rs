@@ -227,6 +227,45 @@ fn bitplane_dma_claims_slots_in_the_fetch_window() {
 }
 
 #[test]
+fn aga_lowres_eight_planes_fill_the_two_idle_slots() {
+    // #99: in AGA lowres with 8 planes, the two slots OCS/ECS leave idle
+    // (positions 0 and 4 of the 8-CCK group) carry BPL7 and BPL8.
+    let mut a = agnus_with_dmacon(DMAEN | BPLEN);
+    a.max_bitplanes = 8; // AGA Alice
+    a.bplcon0 = 0x0010; // BPU = 8 (BPU3 = BPLCON0 bit 4), lores
+    a.ddfstrt = 0x0038;
+    a.ddfstop = 0x00D0;
+    assert_eq!(a.num_bitplanes(), 8);
+
+    at_hpos(&mut a, 0x38); // pos 0 — BPL7 (idle on OCS/ECS)
+    assert_eq!(a.current_slot(), SlotOwner::Bitplane(6));
+    at_hpos(&mut a, 0x3C); // pos 4 — BPL8 (idle on OCS/ECS)
+    assert_eq!(a.current_slot(), SlotOwner::Bitplane(7));
+    at_hpos(&mut a, 0x3F); // pos 7 — BPL1 still loads last
+    assert_eq!(a.current_slot(), SlotOwner::Bitplane(0));
+}
+
+#[test]
+fn aga_lowres_six_planes_leave_slots_0_and_4_idle() {
+    // The AGA table is a strict superset: with ≤6 planes the `< num_bpl`
+    // filter drops BPL7/BPL8, so positions 0 and 4 stay free exactly as on
+    // OCS/ECS — AGA at 6 planes fetches identically to the OCS table.
+    let mut a = agnus_with_dmacon(DMAEN | BPLEN);
+    a.max_bitplanes = 8; // AGA, but only 6 planes active
+    a.bplcon0 = 0x6000; // BPU = 6, lores
+    a.ddfstrt = 0x0038;
+    a.ddfstop = 0x00D0;
+    assert_eq!(a.num_bitplanes(), 6);
+
+    at_hpos(&mut a, 0x38); // pos 0 — BPL7 filtered out → not a bitplane slot
+    assert_ne!(a.current_slot(), SlotOwner::Bitplane(6));
+    at_hpos(&mut a, 0x3C); // pos 4 — BPL8 filtered out
+    assert_ne!(a.current_slot(), SlotOwner::Bitplane(7));
+    at_hpos(&mut a, 0x39); // pos 1 — BPL4 (plane 3) present at 6 planes
+    assert_eq!(a.current_slot(), SlotOwner::Bitplane(3));
+}
+
+#[test]
 fn num_bitplanes_clamps_to_six_for_ocs() {
     let mut a = Agnus::new();
     a.bplcon0 = 0x7000; // BPU = 7, invalid on OCS

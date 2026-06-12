@@ -163,6 +163,26 @@ pub const LOWRES_DDF_TO_PLANE: [Option<u8>; 8] = [
     Some(0), // 7: BPL1 (triggers shift register load)
 ];
 
+/// AGA (Alice) lowres fetch order. Identical to [`LOWRES_DDF_TO_PLANE`]
+/// except the two slots OCS/ECS leave idle (positions 0 and 4) carry
+/// BPL7 and BPL8 — the extra two planes that let AGA show 256 colours in
+/// lowres. Because every shared position matches the OCS table and the
+/// fetch loop filters slots to `p < num_bitplanes`, selecting this table
+/// for any AGA screen is byte-identical to the OCS table at ≤6 planes and
+/// only adds BPL7/BPL8 when they are actually enabled. Lives here (not in
+/// `commodore-agnus-aga`) so the shared fetch loop can reach it; the AGA
+/// crate re-exports it.
+pub const LOWRES_DDF_TO_PLANE_AGA: [Option<u8>; 8] = [
+    Some(6), // 0: BPL7 (idle in OCS/ECS)
+    Some(3), // 1: BPL4
+    Some(5), // 2: BPL6
+    Some(1), // 3: BPL2
+    Some(7), // 4: BPL8 (idle in OCS/ECS)
+    Some(2), // 5: BPL3
+    Some(4), // 6: BPL5
+    Some(0), // 7: BPL1 (triggers shift register load)
+];
+
 /// Hires bitplane fetch order within a 4-CCK group.
 ///
 /// Plane 0 (BPL1) remains last so Denise can trigger a shift-load on the
@@ -1529,6 +1549,12 @@ impl Agnus {
                             let pos_in_group = ((self.hpos - self.ddfstrt) % group_len) as usize;
                             let plane_slot = if hires {
                                 HIRES_DDF_TO_PLANE[pos_in_group]
+                            } else if self.max_bitplanes > 6 {
+                                // AGA lowres fills the two idle slots with
+                                // BPL7/BPL8 (#99). Identical to the OCS table
+                                // for planes 0-5; the `< num_bpl` filter below
+                                // drops BPL7/BPL8 when fewer planes are active.
+                                LOWRES_DDF_TO_PLANE_AGA[pos_in_group]
                             } else {
                                 LOWRES_DDF_TO_PLANE[pos_in_group]
                             };

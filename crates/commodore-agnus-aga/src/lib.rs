@@ -33,23 +33,9 @@ pub use commodore_agnus_ecs::{
     BEAMCON0_HARDDIS, BEAMCON0_HSYTRUE, BEAMCON0_LOLDIS, BEAMCON0_LPENDIS, BEAMCON0_PAL,
     BEAMCON0_VARBEAMEN, BEAMCON0_VARCSYEN, BEAMCON0_VARHSYEN, BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN,
     BEAMCON0_VSYTRUE, BlitterDmaOp, CckBusPlan, Copper, CopperState, HIRES_DDF_TO_PLANE,
-    LOWRES_DDF_TO_PLANE, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy,
-    SlotOwner,
+    LOWRES_DDF_TO_PLANE, LOWRES_DDF_TO_PLANE_AGA, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME,
+    PaulaReturnProgressPolicy, SlotOwner,
 };
-
-/// AGA lowres bitplane fetch order: the two slots OCS / ECS leave
-/// idle (positions 0 and 4 in the 8-CCK fetch group) carry BPL7 and
-/// BPL8 respectively in AGA mode.
-pub const LOWRES_DDF_TO_PLANE_AGA: [Option<u8>; 8] = [
-    Some(6), // 0: BPL7 (free in OCS/ECS)
-    Some(3), // 1: BPL4
-    Some(5), // 2: BPL6
-    Some(1), // 3: BPL2
-    Some(7), // 4: BPL8 (free in OCS/ECS)
-    Some(2), // 5: BPL3
-    Some(4), // 6: BPL5
-    Some(0), // 7: BPL1 (triggers shift register load)
-];
 
 /// AGA Alice — wraps `AgnusEcs` with the FMODE register and AGA-only
 /// bus arbitration extensions.
