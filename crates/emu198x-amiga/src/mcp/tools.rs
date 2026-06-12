@@ -1927,6 +1927,13 @@ fn tool_insert_media(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolEr
         .get("change_pending")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+    // Default read-only: archive media must not be writable unless the
+    // caller opts in (disk-save-write-back.md). A SAVE then lands in the
+    // sidecar via `save_disk`, never the source.
+    let writable = args
+        .get("writable")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let entry_hint = args.get("entry").and_then(Value::as_str);
     let path_buf = PathBuf::from(path);
     let (bytes, source_label) = load_media_bytes(&path_buf, entry_hint)?;
@@ -1934,13 +1941,15 @@ fn tool_insert_media(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolEr
         "adf" => {
             let adf = Adf::from_bytes(bytes)
                 .map_err(|err| ToolError::Execution(format!("parse ADF: {err:?}")))?;
-            s.live_mut().insert_floppy0(adf, change_pending);
+            s.live_mut()
+                .insert_floppy0_writable(adf, change_pending, writable);
             Ok(json!({
                 "inserted": true,
                 "kind": "adf",
                 "path": path_buf.display().to_string(),
                 "source": source_label,
                 "change_pending": change_pending,
+                "writable": writable,
                 "has_disk": s.live().drive().has_disk(),
             }))
         }
@@ -2463,7 +2472,9 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
             "kind": {"type": "string", "enum": ["adf"], "default": "adf",
                      "description": "Media kind. Only `adf` is wired today; `hdf`/`ipf` reserved."},
             "change_pending": {"type": "boolean", "default": true,
-                               "description": "Use insert_adf_with_change_pending so KS sees a disk-change event."}
+                               "description": "Use insert_adf_with_change_pending so KS sees a disk-change event."},
+            "writable": {"type": "boolean", "default": false,
+                         "description": "Mount writable so the guest can SAVE. Default false: archive media mounts read-only (rejects SAVE with DSKPROT). A SAVE to a writable mount persists via save_disk (sidecar by default)."}
         }
     });
     let save_disk_schema = json!({

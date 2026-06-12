@@ -226,7 +226,16 @@ pub trait AmigaLiveAccess {
 
     // ---------- media ----------
 
-    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool);
+    /// Canonical DF0 mount. `writable = false` mounts read-only — an
+    /// archive that reports `/DSKPROT` and authentically rejects a SAVE
+    /// (#97); see `knowledge/decisions/disk-save-write-back.md`.
+    fn insert_floppy0_writable(&mut self, adf: Adf, change_pending: bool, writable: bool);
+
+    /// Insert DF0 writable (the common case) — delegates to
+    /// `insert_floppy0_writable`.
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
+        self.insert_floppy0_writable(adf, change_pending, true);
+    }
     fn eject_floppy0(&mut self);
 
     /// Decode DF0's current in-memory image back to ADF bytes so the
@@ -452,12 +461,8 @@ impl AmigaLiveAccess for AmigaOcs {
         None
     }
 
-    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
-        if change_pending {
-            self.insert_adf_with_change_pending(adf);
-        } else {
-            self.insert_adf(adf);
-        }
+    fn insert_floppy0_writable(&mut self, adf: Adf, change_pending: bool, writable: bool) {
+        self.mount_adf(adf, change_pending, writable);
     }
 
     fn eject_floppy0(&mut self) {
@@ -639,12 +644,8 @@ impl AmigaLiveAccess for AmigaEcs {
         None
     }
 
-    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
-        if change_pending {
-            self.insert_adf_with_change_pending(adf);
-        } else {
-            self.insert_adf(adf);
-        }
+    fn insert_floppy0_writable(&mut self, adf: Adf, change_pending: bool, writable: bool) {
+        self.mount_adf(adf, change_pending, writable);
     }
 
     fn eject_floppy0(&mut self) {
@@ -833,12 +834,8 @@ impl AmigaLiveAccess for AmigaA1200 {
         })
     }
 
-    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
-        if change_pending {
-            self.insert_adf_with_change_pending(adf);
-        } else {
-            self.insert_adf(adf);
-        }
+    fn insert_floppy0_writable(&mut self, adf: Adf, change_pending: bool, writable: bool) {
+        self.mount_adf(adf, change_pending, writable);
     }
 
     fn eject_floppy0(&mut self) {
@@ -1161,11 +1158,20 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
         }
     }
 
-    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
+    fn insert_floppy0_writable(&mut self, adf: Adf, change_pending: bool, writable: bool) {
         match self {
-            Self::Ocs(rt) => rt.machine_mut().insert_floppy0(adf, change_pending),
-            Self::Ecs(rt) => rt.machine_mut().insert_floppy0(adf, change_pending),
-            Self::Aga(rt) => rt.machine_mut().insert_floppy0(adf, change_pending),
+            Self::Ocs(rt) => {
+                rt.machine_mut()
+                    .insert_floppy0_writable(adf, change_pending, writable)
+            }
+            Self::Ecs(rt) => {
+                rt.machine_mut()
+                    .insert_floppy0_writable(adf, change_pending, writable)
+            }
+            Self::Aga(rt) => {
+                rt.machine_mut()
+                    .insert_floppy0_writable(adf, change_pending, writable)
+            }
         }
     }
 

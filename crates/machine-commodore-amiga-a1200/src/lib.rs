@@ -874,31 +874,35 @@ impl AmigaA1200 {
         &self.drive
     }
 
-    /// Insert an ADF image into DF0 and acknowledge the change so
+    /// Canonical DF0 mount. `change_pending = true` leaves `/DSKCHANGE`
+    /// pending (a "newly inserted" disk); `false` acknowledges it ("disk
+    /// ready"). `writable = false` mounts read-only — an archive that
+    /// reports `/DSKPROT` and rejects a SAVE (#97). The three `insert_adf*`
+    /// helpers are thin presets over this.
+    pub fn mount_adf(&mut self, adf: Adf, change_pending: bool, writable: bool) {
+        self.drive.insert_disk_writable(adf, writable);
+        if !change_pending {
+            self.drive.acknowledge_disk_change();
+        }
+        self.refresh_cia_a_external_inputs();
+    }
+
+    /// Insert an ADF into DF0, writable, acknowledging the change so
     /// Kickstart sees "disk ready" rather than "newly inserted".
     pub fn insert_adf(&mut self, adf: Adf) {
-        self.drive.insert_disk(adf);
-        self.drive.acknowledge_disk_change();
-        self.refresh_cia_a_external_inputs();
+        self.mount_adf(adf, false, true);
     }
 
     /// Insert an ADF into DF0 with an explicit writability (archives
-    /// mount read-only) and acknowledge the change. A read-only mount
-    /// reports /DSKPROT and rejects a SAVE (#97).
+    /// mount read-only), acknowledging the change (#97).
     pub fn insert_adf_writable(&mut self, adf: Adf, writable: bool) {
-        self.drive.insert_disk_writable(adf, writable);
-        self.drive.acknowledge_disk_change();
-        self.refresh_cia_a_external_inputs();
+        self.mount_adf(adf, false, writable);
     }
 
-    /// Insert an ADF image into DF0 but leave `/DSKCHANGE` pending.
-    ///
-    /// This is useful for probes that want to compare "disk already
-    /// present at power-on" against "newly inserted disk still awaiting
-    /// acknowledgement" without changing the default boot behavior.
+    /// Insert an ADF into DF0, writable, but leave `/DSKCHANGE` pending
+    /// (a "newly inserted" disk still awaiting acknowledgement).
     pub fn insert_adf_with_change_pending(&mut self, adf: Adf) {
-        self.drive.insert_disk(adf);
-        self.refresh_cia_a_external_inputs();
+        self.mount_adf(adf, true, true);
     }
 
     /// Eject the disk from DF0.
