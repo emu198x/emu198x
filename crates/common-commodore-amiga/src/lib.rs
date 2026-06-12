@@ -14,6 +14,7 @@
 //! pattern. See Seam 1 of
 //! `knowledge/decisions/amiga-full-family-architecture-review.md`.
 
+pub mod board;
 pub mod cia;
 pub mod copper;
 pub mod denise;
@@ -21,4 +22,5 @@ pub mod denise_chip;
 pub mod memory;
 pub mod rtc;
 
+pub use board::{BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, ChipRamBus, TICKS_PER_CCK};
 pub use denise_chip::DeniseChip;

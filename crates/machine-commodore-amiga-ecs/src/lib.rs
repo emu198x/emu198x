@@ -8,6 +8,9 @@
 
 mod agnus;
 mod denise;
+use common_commodore_amiga::board::{
+    BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, ChipRamBus, TICKS_PER_CCK,
+};
 use common_commodore_amiga::{cia, copper, memory, rtc};
 
 pub use agnus::{
@@ -35,17 +38,6 @@ pub use rtc::RTC_BASE;
 use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode};
 
-/// `BlitterBus` adaptor over chip RAM. The blitter sees chip RAM only,
-/// via Agnus DMA, and addresses wrap at the 2 MiB chip-RAM boundary.
-struct ChipRamBus<'a>(&'a mut Memory);
-impl commodore_agnus_ocs::BlitterBus for ChipRamBus<'_> {
-    fn read_word(&mut self, addr: u32) -> u16 {
-        self.0.read_chip_ram_word(addr)
-    }
-    fn write_word(&mut self, addr: u32, val: u16) {
-        self.0.write_word(addr & 0x001F_FFFE, val);
-    }
-}
 use motorola_68000::cpu::State;
 use rtc::Msm6242Rtc;
 
@@ -170,54 +162,13 @@ fn decode_cia_b_prb_for_df0(prb: u8) -> (bool, bool, bool, bool, bool) {
     (step, dir_inward, side_upper, sel_df0, motor_on)
 }
 
-/// CIA E-clock divider: real CIA E-clock runs at master/40 = 0.71 MHz.
-/// Our primary tick unit is master/4 (= 68000 CPU clock = lores pixel
-/// rate), so CIAs fire once every 10 ticks. Confirmed by HRM register
-/// map: "CIAA timer A (.709379 MHz PAL)" = master/40 exactly.
-const CIA_E_CLOCK_DIVISOR: u64 = 10;
 const DEBUG_RTC_LOG_LIMIT: usize = 4096;
 
-/// One CPU bus cycle decoded into chip-select-friendly fields.
-///
-/// Snapshotted out of `cpu.state.BusCycle` once per servicing pass so
-/// chip-select handlers can operate on plain values instead of holding
-/// a borrow on `&mut self.cpu`. `data` is `0` for reads.
-#[derive(Clone, Copy)]
-struct BusTransaction {
-    addr: u32,
-    is_read: bool,
-    is_word: bool,
-    data: u16,
-}
+// `ChipRamBus`, `BusTransaction`, `BusResponse`, `TICKS_PER_CCK`, and
+// `CIA_E_CLOCK_DIVISOR` are shared board glue, relocated to
+// `common_commodore_amiga::board` (#34) and imported above.
 
-/// What a chip-select arm produced for one [`BusTransaction`].
-///
-/// `Byte` and `Word` describe what the chip drove on the data lines;
-/// the dispatcher applies the byte-lane extraction rule once.
-/// `WriteAck` is the write-side equivalent — the chip absorbed the
-/// write and the dispatcher returns `Ready(0)`.
-///
-/// Every reachable cycle ultimately gets handled (Memory's fallback
-/// always claims the cycle, returning chip RAM, slow RAM, ROM, or
-/// floating-bus from `last_bus_value`), so a "no chip drove anything"
-/// variant is unreachable in this model.
-#[derive(Clone, Copy)]
-enum BusResponse {
-    /// Chip drove an 8-bit value. Always returned in the low 8 bits.
-    Byte(u8),
-    /// Chip drove a 16-bit value. For byte reads the dispatcher
-    /// extracts the byte lane: even address (UDS) → high byte, odd
-    /// (LDS) → low byte, both delivered in the low 8 bits.
-    Word(u16),
-    /// Write completed; bus_status becomes `Ready(0)`.
-    WriteAck,
-}
-
-/// Ticks per Agnus colour clock. A CCK (HRM beam-coordinate unit) is
-/// two master/4 ticks — one tick per lores pixel.
-const TICKS_PER_CCK: u64 = 2;
-
-/// Amiga (OCS) machine.
+/// Amiga (ECS) machine.
 pub struct AmigaEcs {
     cpu: Cpu68000,
     memory: Memory,
