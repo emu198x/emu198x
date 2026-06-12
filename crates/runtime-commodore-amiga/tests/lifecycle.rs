@@ -568,14 +568,17 @@ fn ntsc_profile_advertises_ntsc_region_and_ntsc_clock_rate() {
     use emu198x_shell::Region;
     use runtime_commodore_amiga::A500_NTSC_CCK_HZ;
 
+    // The advertised clock is the system-tick rate (2 ticks per colour
+    // clock), not the colour clock itself — it must match the unit
+    // `native_frame_ticks` counts. See `profile_for`'s doc comment (#470).
     let profile = profile_for(Model::A500OcsNtsc);
     assert_eq!(profile.region, Region::Ntsc);
-    assert_eq!(profile.clock.rate.numerator_hz, A500_NTSC_CCK_HZ);
+    assert_eq!(profile.clock.rate.numerator_hz, A500_NTSC_CCK_HZ * 2);
     assert_eq!(profile.clock.rate.denominator_hz, 1);
 
     let pal = profile_for(Model::A500OcsPal);
     assert_eq!(pal.region, Region::Pal);
-    assert_ne!(pal.clock.rate.numerator_hz, A500_NTSC_CCK_HZ);
+    assert_ne!(pal.clock.rate.numerator_hz, A500_NTSC_CCK_HZ * 2);
 }
 
 #[test]
@@ -691,7 +694,7 @@ fn ecs_profile_advertises_ecs_pal_region_and_clock() {
     use runtime_commodore_amiga::A500_PAL_CCK_HZ;
     let profile = profile_for(Model::A500PlusEcsPal);
     assert_eq!(profile.region, Region::Pal);
-    assert_eq!(profile.clock.rate.numerator_hz, A500_PAL_CCK_HZ);
+    assert_eq!(profile.clock.rate.numerator_hz, A500_PAL_CCK_HZ * 2);
     assert!(profile.display_name.contains("ECS"));
     assert!(profile.profile_id.as_str().contains("ecs-pal"));
 }
@@ -702,7 +705,24 @@ fn ecs_profile_advertises_ecs_ntsc_region_and_clock() {
     use runtime_commodore_amiga::A500_NTSC_CCK_HZ;
     let profile = profile_for(Model::A500PlusEcsNtsc);
     assert_eq!(profile.region, Region::Ntsc);
-    assert_eq!(profile.clock.rate.numerator_hz, A500_NTSC_CCK_HZ);
+    assert_eq!(profile.clock.rate.numerator_hz, A500_NTSC_CCK_HZ * 2);
     assert!(profile.display_name.contains("ECS"));
     assert!(profile.profile_id.as_str().contains("ecs-ntsc"));
+}
+
+/// #470 regression: the profile clock and the session frame-tick unit must
+/// agree, so the recording frame rate derives to the field rate (50 Hz PAL,
+/// 60 Hz NTSC). A clock advertised in colour clocks (half the tick rate)
+/// computed to 25/30 fps, which then halved the recording's frame count via
+/// the `-shortest` audio mux — freezing 50 Hz double-buffered content.
+#[test]
+fn profile_clock_derives_field_rate_recording_fps() {
+    use emu198x_shell::compute_fps;
+    use runtime_commodore_amiga::{A500_NTSC_FRAME_TICKS, A500_PAL_FRAME_TICKS};
+
+    let pal = profile_for(Model::A500OcsPal);
+    assert_eq!(compute_fps(pal.clock.rate, A500_PAL_FRAME_TICKS), 50);
+
+    let ntsc = profile_for(Model::A500OcsNtsc);
+    assert_eq!(compute_fps(ntsc.clock.rate, A500_NTSC_FRAME_TICKS), 60);
 }

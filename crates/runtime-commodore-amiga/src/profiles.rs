@@ -313,8 +313,18 @@ pub fn profiles() -> Vec<MachineProfile> {
 ///
 /// PAL and NTSC variants of the same hardware share firmware, media
 /// slots, capabilities, and family — they differ in `region`,
-/// `clock`, and the descriptive strings. NTSC variants advertise the
-/// 3.579545 MHz colour-clock rate; PAL advertises 3.546895 MHz.
+/// `clock`, and the descriptive strings. The advertised `clock` is the
+/// emulator's *system-tick* rate — two ticks per Agnus colour clock, so
+/// 7.159090 MHz on NTSC and 7.093790 MHz on PAL (the stock 68000 clock).
+/// It is deliberately the tick rate, not the 3.5 MHz colour clock: the
+/// session derives the recording frame rate as `clock.rate /
+/// native_frame_ticks`, and `native_frame_ticks` is counted in ticks
+/// (`A500_PAL_FRAME_TICKS = CCKS * 2`). Advertising the colour clock here
+/// would halve the computed fps (25 instead of 50) and, via the
+/// `-shortest` audio mux, truncate recordings to half their frames — the
+/// double-buffer "freeze" of issue #470. Every other core follows the same
+/// convention (Spectrum advertises its 14 MHz master cycle, not the 3.5 MHz
+/// CPU clock).
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
     let release_year = match model {
@@ -351,6 +361,10 @@ pub fn profile_for(model: Model) -> MachineProfile {
     } else {
         A500_PAL_CCK_HZ
     };
+    // System tick = two ticks per colour clock (see `TICKS_PER_CCK`); this
+    // is the unit `native_frame_ticks` counts, so it is the rate the
+    // recording-fps derivation needs. See the `profile_for` doc comment.
+    let tick_hz = cck_hz.saturating_mul(2);
     MachineProfile {
         machine_id: MachineId::from("commodore-amiga"),
         profile_id: ProfileId::from(model.profile_id()),
@@ -371,7 +385,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             Model::A2000OcsPal => "Amiga 2000 OCS PAL — 68000 + Fat Agnus 8372A + OCS Denise + Paula, 1 MiB chip RAM, Kickstart 1.3 / 2.04, Zorro-II slots. Catalogued as the Rev 6.x form factor; A2000A (early Agnus 8371, 512 KiB chip) is reachable via `AmigaOcsRuntime::with_ram_config` without a separate model entry.".into(),
             Model::A2000OcsNtsc => "Amiga 2000 OCS NTSC — same chip stack as the A2000 PAL, NTSC Agnus.".into(),
         },
-        clock: ClockDesc::new("cck", ClockRate::from_hz(cck_hz)),
+        clock: ClockDesc::new("system-tick", ClockRate::from_hz(tick_hz)),
         firmware: vec![FirmwareRequirement::new(firmware_id, firmware_name, false)],
         media_slots: vec![MediaSlot::new(
             "floppy-0",
