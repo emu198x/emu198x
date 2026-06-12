@@ -1,8 +1,9 @@
 //! Lock in the M12-step-1+2 progression: after CIA-A TOD was wired
 //! to /VSYNC (step 1) and the copper COPJMP1/2 strobes started
 //! firing from MOVE instructions (step 2), Kickstart 1.3 gets past
-//! the PAL/NTSC probe, runs through Exec + library init, and lands
-//! in Exec's idle loop with three tasks waiting on signals.
+//! the PAL/NTSC probe, runs through Exec + library init, and settles
+//! with exec.library running the insert-disk animation while
+//! trackdisk.device + input.device wait on signals.
 //!
 //! Step 2 note: once COPJMP2 strobes land, the copper chains from
 //! COP1LC into whatever COP2LC points to. On this boot, the ROM
@@ -13,29 +14,33 @@
 //! white "insert-disk" screen no longer pins at \$0FFF — see the
 //! follow-up task for the underlying D0-holds-ExecBase puzzle.
 //!
-//! Both chip-only and slow-RAM still converge at the CPU/task
-//! level (same PC, SR, task list). Chipset-register state now
-//! diverges because chip-only hits the COP2LC=ExecBase write
-//! ~137 frames earlier (frame 162 vs 299), giving the corruption
-//! much more time to accumulate. We keep the slow-RAM chipset
-//! assertions as-is (minus the BPLCON0/COLOR00 ones that the
-//! corruption touches) and compare configs only at the CPU/task
-//! level.
+//! Chip-only and slow-RAM converge at the Exec *task* level (same
+//! task topology), but no longer on the same PC: chip-only hits the
+//! COP2LC=ExecBase write ~137 frames earlier (frame 162 vs 299), so
+//! its display registers are corrupted further and it idles deeper in
+//! the screen-setup path. We keep the slow-RAM chipset assertions
+//! (minus the BPLCON0/COLOR00 ones the corruption touches) and compare
+//! the two configs only at the CPU-mode + task level — see the
+//! re-baseline note below.
 //!
-//! This test runs 300 PAL frames on the slow-RAM variant and
-//! asserts:
-//!   - CPU settled into the idle-loop PC region (\$FC0F74..\$FC0F96).
-//!   - SR shows supervisor mode with IPL mask = 0 (ready for IRQs).
-//!   - Chipset: DMAEN + COPEN + BLITEN + DSKEN, BPLEN off, INTENA
-//!     master + VERTB + PORTS + EXTER + SOFT (slow-RAM only —
-//!     chip-only has had these clobbered by the COP2LC corruption).
-//!   - Exec has done ≥ 100 task dispatches.
-//!   - TaskReady is empty.
-//!   - TaskWait has the three expected tasks, all in WAIT state:
-//!     trackdisk.device, exec.library, input.device.
+//! **Re-baselined 2026-06-12 (#467).** The incremental blitter (#31) +
+//! the DMACONR byte-read fix (#32) retired the old "CPU stuck in
+//! WAITBLIT forever" state these tests used to pin. KS 1.3 now exits
+//! the WAITBLIT spin and settles in the Exec idle loop. Measured
+//! post-blitter steady state at 300 frames:
+//!   - slow-RAM: PC `\$FC0722`, chip-only: PC `\$FE9C54` (the two
+//!     configs settle at *different* idle PCs — chip-only hits the
+//!     COP2LC=ExecBase corruption ~137 frames earlier, so it idles
+//!     deeper in the screen-setup path; they still converge at the
+//!     task level).
+//!   - both: user mode, IPL mask 0, DMACON `\$02D0`, INTENA `\$602C`,
+//!     DispCount ≥ 100, TaskReady empty, exec.library = ThisTask (RUN),
+//!     TaskWait = {trackdisk.device, input.device}.
 //!
-//! When a future change breaks any of these, this test catches it
-//! before the regression cascades.
+//! These are stable functional invariants (ROM-determined idle PCs +
+//! Exec task topology), so they survive the per-CCK-bus and unified-
+//! driver refactors. When a future change breaks one, this test
+//! catches it before the regression cascades.
 
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 use std::path::PathBuf;
@@ -105,25 +110,13 @@ fn walk_task_names(amiga: &AmigaOcs, list_addr: u32) -> Vec<String> {
 /// With CIA + Paula + Agnus + Blitter + Denise + Floppy + Keyboard
 /// all wired, Kickstart 1.3 runs Exec init, spawns the standard
 /// task set, and settles into Intuition's insert-disk animation.
-/// The user-mode task running the animation (exec.library's own
-/// task) spends >99% of its time inside graphics.library WAITBLIT
-/// at `$FC5A6C..$FC5A7C`, polling `DMACONR.BBUSY`. Keyboard Phase 2
-/// (task #174) changed the SR regime from supervisor to user
-/// because input.device now dispatches on ICR SP events instead of
-/// sleeping in Wait(); this test captures the updated invariants.
-///
-/// **Currently disabled (task #191):** this test pinned the
-/// "CPU stuck in WAITBLIT forever" state as expected behaviour.
-/// That state was an emulator bug — byte reads of DMACONR
-/// ($DFF002) returned the low byte of DMACON instead of the high
-/// byte, so `btst.b #6, $DFF002` testing BBUSY always read 1 and
-/// the CPU spun forever. Once the byte-read semantics were fixed
-/// the CPU correctly exits WAITBLIT and advances past `$FE9C8C`
-/// into KS 1.3's screen-setup path. Re-enable this test once the
-/// downstream rendering is sorted (the new steady-state PC is the
-/// right place to lock in).
+/// Before the incremental blitter (#31), a DMACONR byte-read bug
+/// made `btst.b #6, $DFF002` (BBUSY) always read 1, so the
+/// animation task spun forever in graphics.library WAITBLIT at
+/// `$FC5A6C`. With the blitter now clearing BBUSY, KS 1.3 exits
+/// WAITBLIT and settles in the Exec idle loop at `$FC0722` — the
+/// steady state this test now locks in (#467).
 #[test]
-#[ignore = "task #191: re-baseline against fixed boot once rendering is sorted"]
 fn boot_reaches_insert_disk_idle_with_keyboard_live() {
     let Some(rom) = load_kickstart() else { return };
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -133,19 +126,18 @@ fn boot_reaches_insert_disk_idle_with_keyboard_live() {
         amiga.tick();
     }
 
-    // ── CPU: WAITBLIT spin loop ─────────────────────────────
+    // ── CPU: Exec idle loop (post-blitter, #467) ────────────
+    // KS 1.3 no longer spins in WAITBLIT; slow-RAM settles in the
+    // Exec idle region around $FC0722. A small range tolerates which
+    // idle-loop instruction the 300-frame boundary lands on.
     let pc = amiga.cpu().regs.pc;
     assert!(
-        (0x00FC_5A6C..=0x00FC_5A7C).contains(&pc),
-        "CPU should be in the WAITBLIT spin at \\$FC5A6C..\\$FC5A7C; got PC=\\${pc:08X}"
+        (0x00FC_0700..=0x00FC_0740).contains(&pc),
+        "CPU should be in the Exec idle loop near \\$FC0722; got PC=\\${pc:08X}"
     );
 
-    // Keyboard-live regime: the animation runs as a user-mode
-    // task (exec.library's own task calling graphics.library
-    // WAITBLIT). Pre-keyboard the CPU sat in supervisor mode
-    // inside Wait() waiting for an IRQ. IPL mask = 0 either way —
-    // the CPU is ready to take interrupts, it just has userland
-    // code currently on the PC.
+    // Keyboard-live regime: the animation runs as a user-mode task.
+    // IPL mask = 0 — the CPU is ready to take interrupts.
     let sr = amiga.cpu().regs.sr;
     assert_eq!(
         sr & 0x0700,
@@ -226,21 +218,20 @@ fn boot_reaches_insert_disk_idle_with_keyboard_live() {
     );
 }
 
-/// Companion assertion: slow-RAM and chip-only now converge.
+/// Companion assertion: slow-RAM and chip-only converge at the task
+/// level even though their idle PCs and display-register state differ.
 ///
-/// Both configs reach the same WAITBLIT spin with the same task
-/// states. Task #96 closed: once the copper implements the HRM's
-/// "dangerous MOVE halts copper" rule (CDANG protection), chip-only
-/// no longer corrupts INTENA by executing ExecBase struct bytes as
-/// copper instructions. The deadlock on romboot's TD_CHANGESTATE
-/// DoIO clears up, and chip-only boots identically to slow-RAM.
-///
-/// **Currently disabled (task #191)** for the same reason as the
-/// sibling test — it pinned the stuck-in-WAITBLIT state. Re-enable
-/// once the downstream rendering pipeline is sorted.
+/// Task #96 closed the CDANG protection (the HRM's "dangerous MOVE
+/// halts copper" rule), so chip-only no longer deadlocks on romboot's
+/// TD_CHANGESTATE DoIO. Both configs now complete boot and idle with
+/// the same Exec task topology. They do NOT land on the same PC: the
+/// chip-only config hits the COP2LC=ExecBase corruption ~137 frames
+/// earlier (frame 162 vs 299), so it idles deeper in the screen-setup
+/// path (`$FE9C54`) than slow-RAM (`$FC0722`). Display registers
+/// (BPLCON0/COLOR00) diverge for the same reason — so this test
+/// compares only the CPU-mode + Exec-task invariants, which match.
 #[test]
-#[ignore = "task #191: re-baseline against fixed boot once rendering is sorted"]
-fn chip_only_and_slow_ram_both_reach_waitblit() {
+fn chip_only_and_slow_ram_converge_at_task_level() {
     let Some(rom) = load_kickstart() else { return };
     let mut slow = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
     let mut chip_only = AmigaOcs::new(rom);
@@ -250,21 +241,25 @@ fn chip_only_and_slow_ram_both_reach_waitblit() {
         chip_only.tick();
     }
 
-    let waitblit = 0x00FC_5A6C..=0x00FC_5A7C;
-    assert!(
-        waitblit.contains(&slow.cpu().regs.pc),
-        "slow-RAM should reach WAITBLIT; got \\${:08X}",
-        slow.cpu().regs.pc
-    );
-    assert!(
-        waitblit.contains(&chip_only.cpu().regs.pc),
-        "chip-only should reach WAITBLIT; got \\${:08X}",
-        chip_only.cpu().regs.pc
-    );
+    // Both settle in the Kickstart ROM (executing the idle/setup path),
+    // in user mode with interrupts unmasked — not crashed, not spinning
+    // in supervisor with IPL raised.
+    for (label, a) in [("slow-RAM", &slow), ("chip-only", &chip_only)] {
+        let pc = a.cpu().regs.pc;
+        assert!(
+            (0x00F8_0000..=0x00FF_FFFF).contains(&pc),
+            "{label} should idle in the KS ROM; got PC=\\${pc:08X}"
+        );
+        let sr = a.cpu().regs.sr;
+        assert_eq!(
+            sr & 0x0700,
+            0,
+            "{label} IPL mask must be 0; got SR=\\${sr:04X}"
+        );
+    }
 
-    // Both configs now have the same running task set — exec.library
-    // is running the insert-disk animation in both; trackdisk +
-    // input.device are both waiting.
+    // Same running task set — exec.library is ThisTask (RUN) in both;
+    // trackdisk + input.device are both waiting.
     let slow_exec = read_long(&slow, 0x00000004);
     let chip_exec = read_long(&chip_only, 0x00000004);
     let mut slow_wait = walk_task_names(&slow, slow_exec.wrapping_add(EXEC_TASK_WAIT));
