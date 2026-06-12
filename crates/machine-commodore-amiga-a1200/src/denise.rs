@@ -2,10 +2,12 @@
 //! wrapper in `common_commodore_amiga::denise`. Concrete chip is
 //! [`commodore_denise_aga::DeniseAga`] (Lisa).
 //!
-//! All shared helpers (`DmaClaim`, `dma_claim`, etc.) re-exported
-//! from the substrate for callers that import via `crate::denise::*`.
+//! Shared helpers (`ddf_window`, etc.) re-exported from the substrate
+//! for callers that import via `crate::denise::*`. The per-CCK
+//! `dma_claim` arbitration is now invoked from the shared `AmigaDriver`
+//! body, not here.
 
 use commodore_denise_aga::DeniseAga;
-pub use common_commodore_amiga::denise::{FB_HEIGHT, FB_WIDTH, dma_claim};
+pub use common_commodore_amiga::denise::{FB_HEIGHT, FB_WIDTH};
 
 pub type Denise = common_commodore_amiga::denise::Denise<DeniseAga>;
