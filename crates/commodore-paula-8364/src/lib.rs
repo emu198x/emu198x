@@ -1215,6 +1215,41 @@ impl Paula8364 {
         Some(word)
     }
 
+    /// Drive the disk-*write* DMA state machine forward one slot — the
+    /// chip-RAM → drive direction, the mirror of [`tick_disk_dma_slot`].
+    ///
+    /// The machine fetches the next word from chip RAM at DSKPT and
+    /// passes it here; the returned `Some(word)` is what the machine
+    /// then hands to the drive's write path (`note_write_mfm_word`),
+    /// after which it increments DSKPT. Returns `None` when no write
+    /// transfer is in flight (idle, or a read transfer — which
+    /// [`tick_disk_dma_slot`] owns).
+    ///
+    /// Decrements `disk_dma_words_remaining` and raises DSKBLK (via
+    /// [`complete_disk_dma`]) when the transfer reaches zero. WORDSYNC
+    /// does not gate writes — it is a read-only sync-search feature
+    /// (`write_dsklen` only arms `disk_dma_wordsync_waiting` for reads).
+    pub fn tick_disk_write_dma_slot(&mut self, word: u16) -> Option<u16> {
+        if self.disk_dma_words_remaining == 0 || !self.disk_dma_is_write {
+            return None;
+        }
+        self.disk_dma_words_remaining = self.disk_dma_words_remaining.saturating_sub(1);
+        if self.disk_dma_words_remaining == 0 {
+            self.complete_disk_dma();
+        }
+        Some(word)
+    }
+
+    /// Whether a disk *write* DMA transfer is in flight, i.e. the
+    /// machine should be pulling words from chip RAM at DSKPT and
+    /// feeding them to the drive. Idle and read transfers return
+    /// `false`. The write analogue of the read path's
+    /// `drive.read_data_available()` gate.
+    #[must_use]
+    pub fn disk_dma_write_active(&self) -> bool {
+        self.disk_dma_is_write && self.disk_dma_words_remaining > 0
+    }
+
     /// Read DSKBYTR with its documented side effect: DSKBYT clears.
     pub fn read_dskbytr(&mut self, dmacon: u16) -> u16 {
         let value = self.peek_dskbytr(dmacon);
@@ -1497,6 +1532,47 @@ impl Paula8364 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disk_write_dma_consumes_words_then_raises_dskblk() {
+        let mut p = Paula8364::new();
+        // Arm a 2-word WRITE transfer: DSKLEN double-write with the
+        // WRITE bit + DMAEN + length 2.
+        let dsklen = bits::DSKLEN_DMAEN | bits::DSKLEN_WRITE | 2;
+        p.write_dsklen(dsklen);
+        p.write_dsklen(dsklen);
+        assert!(
+            p.disk_dma_write_active(),
+            "write transfer should be in flight"
+        );
+
+        // The write slot returns each word for the machine to feed the
+        // drive, and counts down. The read slot must NOT drive a write.
+        assert_eq!(
+            p.tick_disk_dma_slot(0xFFFF),
+            None,
+            "read slot ignores a write transfer"
+        );
+        assert_eq!(p.tick_disk_write_dma_slot(0x1234), Some(0x1234));
+        assert!(p.disk_dma_write_active(), "still one word to go");
+        assert_eq!(
+            p.intreq() & bits::INT_DSKBLK,
+            0,
+            "DSKBLK not raised mid-transfer"
+        );
+
+        // Final word completes the transfer and raises DSKBLK.
+        assert_eq!(p.tick_disk_write_dma_slot(0x5678), Some(0x5678));
+        assert!(!p.disk_dma_write_active(), "transfer drained");
+        assert_eq!(
+            p.intreq() & bits::INT_DSKBLK,
+            bits::INT_DSKBLK,
+            "DSKBLK raised on completion"
+        );
+
+        // Drained: further calls yield nothing.
+        assert_eq!(p.tick_disk_write_dma_slot(0x9ABC), None);
+    }
 
     #[test]
     fn audio_registers_round_trip_per_channel_via_typed_api() {
