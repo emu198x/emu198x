@@ -12,14 +12,17 @@ complete, the 8520s and AutoConfig fast-RAM are done.
 What holds the Amiga back is **not the chips — it's integration and a few large
 facades.** Three honest caveats the "boots Workbench 3.1" headline conceals:
 
-1. **AGA renders as 12-bit.** The defining AGA features — the 256-colour 24-bit
-   palette, HAM8, 32/64-px wide sprites — are *stored but never displayed*. AGA
-   today is an ECS machine that happens to boot the 3.1 desktop. Real AGA
-   software won't look right.
-2. **The Blitter runs in zero cycles.** It executes synchronously on the BLTSIZE
-   write rather than per DMA slot, so blitter *timing* (BBUSY, bus contention,
-   blitter-nasty) is unmodelled — demos and timing-sensitive games diverge. The
-   correct incremental scheduler exists and is tested, but is wired into no machine.
+1. **AGA colour now renders; geometry lags.** The 256-colour 24-bit palette (#93),
+   HAM8 (#94), the BPLCON4 BPLAM bitplane XOR (#96) and 32/64-px wide sprites
+   (#95/#99) are decoded **and displayed**. What still lags: the lowres 8-plane
+   DDF→plane mapping (#99's second half) and AGA superhires. AGA is no longer "an
+   ECS machine that boots 3.1" — deep colour modes look right; some high-plane
+   geometry doesn't yet.
+2. **The Blitter is incremental but drains on observation.** The per-slot scheduler
+   is wired into all three machines (#31) with BBUSY/BZERO readback (#32) and
+   Copper BFD=0 sync (#33); a synchronous `run_blit_to_completion` drain remains
+   only as a fallback when the CPU observes a mid-blit result. True per-slot bus
+   contention (blitter-nasty, CPU stalls) is still approximate.
 3. **You can't save a disk or boot a hard drive.** Floppy *read* is solid; disk
    *write-back* is built at the drive layer but unwired, and there is no hardfile/
    HDF/IDE path at all (Gayle is a stub).
@@ -78,26 +81,30 @@ overstate the AGA render path — see the gaps below for ground truth.
 
 ## Not implemented / accuracy gaps
 
-### AGA video is a facade (the biggest single gap)
+### AGA video: colour done, high-plane geometry remaining
 
-OCS Denise is ~95% pixel-exact and ECS ~90%, but **AGA/Lisa is ~40%**: the 24-bit
-256-entry palette, HAM8, wide sprites (32/64px), the BPLCON4 BPLAM bitplane XOR,
-and superhires are all *decoded and stored but never rendered* — the board display
-path resolves every variant through the OCS 12-bit palette. The recent "AGA
-Workbench palette fix" was a 68020 EA-decode bug and the "FMODE wide fetch" was the
-bitplane FIFO; neither touched Denise colour output. The two Large items —
-**24-bit palette render** and **HAM8** — unlock the bulk of real AGA software.
+OCS Denise is ~95% pixel-exact and ECS ~90%. AGA/Lisa has closed the big colour
+gaps: the 24-bit 256-entry banked palette (#93), HAM8 with 24-bit chaining (#94),
+the BPLCON4 BPLAM bitplane XOR (#96), and 32/64-px wide sprites — display *and*
+DMA fetch (#95/#99) — all render through the AGA path now, not the OCS 12-bit
+palette. The AGA Denise bitplane ceiling was raised to 8 so deep modes compose.
+Remaining AGA-render gaps: the **lowres 8-plane DDF→plane mapping** (#99's second
+half) and **AGA superhires**. These are narrower than the old "everything is a
+facade" framing — most real AGA *colour* software now looks right.
 
 ### The chipset is pre-cycle-exact (integration debt)
 
-- **Synchronous Blitter** — `run_blit_to_completion()` on the BLTSIZE write; the
-  tested incremental per-slot scheduler is wired into no machine. No BBUSY, no
-  BZERO readback → blitter-polling and collision-via-BZERO get wrong answers.
+- **Blitter: incremental, with a synchronous drain fallback** — the per-slot
+  scheduler now runs in all three machines (#31); DMACONR returns BBUSY/BZERO
+  (#32) so blitter-polling and collision-via-BZERO read correctly, and the Copper
+  honours BFD=0 blitter-wait (#33). A `run_blit_to_completion` drain still fires
+  when the CPU observes a result mid-blit, so true per-slot bus contention
+  (blitter-nasty, exact CPU stalls) is still approximate, not yet cycle-exact.
 - **Two parallel DMA slot tables** — Agnus's `cck_bus_plan` and Denise's
   `dma_claim` independently re-derive the bitplane window, with an even-vs-odd
   copper-slot polarity disagreement. The single-bus-per-cck refactor unifies them.
-- **Copper↔Blitter WAIT (BFD=0) sync** absent — currently masked only because the
-  blitter is instantaneous.
+- **Copper↔Blitter WAIT (BFD=0) sync** now implemented (#33): a Copper WAIT with
+  BFD=0 blocks until the blitter goes idle.
 - **68020 timing** uses the 68000's 4-clock model (no 020 3-clock/pipeline/cache),
   overstating A1200 cycle counts.
 - Three machine crates each re-implement the ~1500-line per-CCK tick loop — the

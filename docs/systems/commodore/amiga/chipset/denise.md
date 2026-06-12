@@ -79,13 +79,21 @@ each line. HAM6 produces 4096 apparent colours (12-bit RGB) but with
 characteristic fringing on colour transitions.
 
 **HAM8 (AGA, 8 planes):**
-Same control bit encoding but with 6 data bits instead of 4:
-- Bits 7-6 = 00: Set colour from palette[bits 5-0] (64-entry subset)
-- Bits 7-6 = 01/10/11: Modify component using 6 bits (placed in high 6 bits
-  of the 8-bit component, low 2 bits from the previous value)
+Unlike HAM6, the control bits are the **low** two bits and the data is the
+**high** six bits (confirmed against Minimig-AGA `denise_hamgenerator.v` and
+WinUAE `decode_ham_pixel_aga` — *not* bits 7-6, as is sometimes documented):
+- Bits 1-0 = 00: Set colour from the 24-bit palette[bits 7-2] (64-entry subset)
+- Bits 1-0 = 01: Modify blue — keep R and G, set B's high 6 bits from bits 7-2
+- Bits 1-0 = 10: Modify red — keep G and B, set R's high 6 bits from bits 7-2
+- Bits 1-0 = 11: Modify green — keep R and B, set G's high 6 bits from bits 7-2
 
-HAM8 produces 262144 apparent colours (18-bit effective) with much less visible
-fringing than HAM6.
+A modified component takes its high 6 bits from the pixel and **holds the low
+2 bits from the previous pixel's same channel**. The hold register resets to
+COLOR00 at the start of each line. HAM8 produces 262144 apparent colours
+(18-bit effective) with much less visible fringing than HAM6.
+
+Implemented in `commodore-denise-aga` `resolve_color_argb` (#94); 8-plane
+composition required raising the AGA Denise's bitplane ceiling to 8.
 
 ### AGA 24-bit Palette
 

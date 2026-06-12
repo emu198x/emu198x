@@ -17,9 +17,10 @@
 //!   resolve through `palette_24` for 8-bit-per-channel colour.
 //! - **Wide sprite emit** — done (#95): FMODE feeds the OCS shifter's
 //!   `spr_width` (16 / 32 / 64 px).
-//! - **HAM8 chaining** — pending (#94): HAM still resolves 12-bit (HAM6).
-//! - **BPLAM bitplane XOR** — pending (#96): BPLCON4 sprite XOR is wired,
-//!   the bitplane-index XOR is not.
+//! - **HAM8 chaining** — done (#94): 8-plane HAM resolves to a 24-bit
+//!   pixel with low-2-bit channel hold; HAM6/EHB stay on the 12-bit path.
+//! - **BPLAM bitplane XOR** — done (#96): BPLCON4 bits 15..8 XOR the
+//!   playfield colour index before the palette lookup.
 //!
 //! KS 3.x boot reads DENISEID + writes BPLCON3 / BPLCON4 / FMODE during
 //! init; the writes land in AGA-specific state and the reads return the
@@ -93,8 +94,15 @@ impl DeniseAga {
     /// sprite width at the AGA default of 16 pixels.
     #[must_use]
     pub fn new() -> Self {
+        let mut inner = InnerDeniseEcs::new();
+        // Lisa drives up to 8 bitplanes (vs ECS/OCS 6). The OCS core's
+        // `num_bitplanes()` only honours the AGA BPU3 bit (BPLCON0 bit 4)
+        // when `max_bitplanes > 6`, and 8-plane modes (HAM8, deep CLUT)
+        // only compose all planes when this is raised. ECS/OCS Denise
+        // stay at 6.
+        inner.as_inner_mut().max_bitplanes = 8;
         Self {
-            inner: InnerDeniseEcs::new(),
+            inner,
             bplcon4: 0,
             palette_24: [0; PALETTE_ENTRIES_24],
             ham_prev_rgb24: 0,
@@ -106,6 +114,9 @@ impl DeniseAga {
     /// state across; AGA register state starts at the reset defaults.
     #[must_use]
     pub fn from_ecs(inner: InnerDeniseEcs) -> Self {
+        let mut inner = inner;
+        // Promotion to Lisa raises the bitplane ceiling to 8 (see `new`).
+        inner.as_inner_mut().max_bitplanes = 8;
         Self {
             inner,
             bplcon4: 0,
@@ -238,7 +249,7 @@ impl From<DeniseAga> for InnerDeniseEcs {
 
 // ── DeniseChip impl ───────────────────────────────────────────────
 // Stage A: delegate everything to the ECS layer. AGA-specific
-// behaviour (24-bit palette resolution, HAM8 chaining, BPLCON4 XOR,
+// behaviour (24-bit palette resolution, HAM8 chaining done, BPLCON4 XOR,
 // wide sprite emit) is added incrementally as catalogue entries
 // surface the requirement.
 
@@ -307,6 +318,10 @@ impl DeniseChip for DeniseAga {
 
     fn begin_beam_line(&mut self) {
         self.inner.as_inner_mut().begin_beam_line();
+        // HAM8 holds a 24-bit running colour across the line; reset it to
+        // the AGA background (COLOR00) at the start of each scanline, the
+        // same way the OCS layer resets its 12-bit HAM hold register.
+        self.ham_prev_rgb24 = self.palette_24[0] & 0x00FF_FFFF;
     }
 
     fn output_pixel_with_beam_and_playfield_gate(
@@ -349,17 +364,64 @@ impl DeniseChip for DeniseAga {
         self.inner.resolve_color_rgb12(color_idx)
     }
 
-    /// Resolve to a final ARGB8888 pixel through the AGA 24-bit palette
-    /// for normal indexed modes (#93). HAM and EHB derive their colours
-    /// from the 12-bit palette rather than the indexed 24-bit table, so
-    /// they stay on the 12-bit path (HAM8 is #94).
+    /// Resolve to a final ARGB8888 pixel through the AGA 24-bit palette.
+    ///
+    /// - **Normal indexed** (#93): `palette_24[idx]` (8-bit-per-channel).
+    /// - **HAM8** (#94): 8-plane hold-and-modify, resolved to a full
+    ///   24-bit pixel — see below.
+    /// - **HAM6 / EHB**: derive their colour from the 12-bit palette
+    ///   (4-bit channels, nibble-replicated to 8 bits), so they stay on
+    ///   the existing 12-bit path.
     fn resolve_color_argb(&mut self, color_idx: u8) -> u32 {
         let ocs = self.inner.as_inner();
         let bplcon0 = ocs.bplcon0;
         let ham = bplcon0 & 0x0800 != 0;
         let dual_playfield = bplcon0 & 0x0400 != 0;
         let planes = ocs.num_bitplanes();
-        // HAM (≥5 planes) and EHB (6 planes, no HAM) derive their colour
+
+        // HAM8: hold-and-modify with 8 bitplanes resolves to a 24-bit
+        // pixel. Unlike HAM6, the control select is the LOW two bits and
+        // the data is the HIGH six bits. control=00 reads a 24-bit colour
+        // register (bank 0, entries 0..63); a modify replaces the top six
+        // bits of one 8-bit channel and HOLDS that channel's low two bits
+        // from the previous pixel. Confirmed against two references:
+        // Minimig-AGA `denise_hamgenerator.v` (control `select_r[1:0]`,
+        // data `select_r[7:2]`) and WinUAE/fs-uae `decode_ham_pixel_aga`
+        // (control `pv & 0x3`, modify `pix & 0xFC`).
+        //
+        // `color_idx` already has the BPLCON4 BPLAM XOR applied upstream
+        // in `compose_playfield_pixel` (#96), so control + data are taken
+        // post-XOR (Minimig's behaviour). WinUAE XORs only the control and
+        // colour-register index, taking modify data from the raw pixel —
+        // the two diverge only when BPLAM is non-zero in HAM8, which real
+        // software effectively never does.
+        if ham && !dual_playfield && planes == 8 {
+            let control = color_idx & 0x03;
+            let data6 = u32::from(color_idx >> 2);
+            let prev = self.ham_prev_rgb24 & 0x00FF_FFFF;
+            let rgb = match control {
+                0b00 => self.palette_24[data6 as usize] & 0x00FF_FFFF,
+                0b01 => {
+                    // modify blue
+                    let blue = (data6 << 2) | (prev & 0x03);
+                    (prev & 0x00FF_FF00) | blue
+                }
+                0b10 => {
+                    // modify red
+                    let red = (data6 << 2) | ((prev >> 16) & 0x03);
+                    (prev & 0x0000_FFFF) | (red << 16)
+                }
+                _ => {
+                    // 0b11: modify green
+                    let green = (data6 << 2) | ((prev >> 8) & 0x03);
+                    (prev & 0x00FF_00FF) | (green << 8)
+                }
+            };
+            self.ham_prev_rgb24 = rgb;
+            return 0xFF00_0000 | rgb;
+        }
+
+        // HAM6 (≥5 planes) and EHB (6 planes, no HAM) derive their colour
         // from the 12-bit palette rather than the 24-bit indexed table.
         let derived_mode = !dual_playfield && ((ham && planes >= 5) || (!ham && planes == 6));
         if derived_mode {
@@ -465,17 +527,78 @@ mod tests {
     }
 
     #[test]
-    fn ham_mode_keeps_the_12bit_path() {
-        // HAM derives colours from the 12-bit palette, not the indexed
-        // 24-bit table, so palette_24 must NOT be consulted (HAM8 = #94).
+    fn ham6_mode_keeps_the_12bit_path() {
+        // HAM6 (≤6 planes) derives colours from the 12-bit palette, not
+        // the indexed 24-bit table, so palette_24 must NOT be consulted.
         let mut denise = DeniseAga::new();
         denise.set_bplcon0(0x5000 | 0x0800); // BPU=5 + HAM (bit 11)
         denise.palette_24[1] = 0x0012_3456; // would show if 24-bit path were used
         assert_ne!(
             denise.resolve_color_argb(1),
             0xFF12_3456,
-            "HAM mode must not resolve through the 24-bit palette"
+            "HAM6 mode must not resolve through the 24-bit palette"
         );
+    }
+
+    #[test]
+    fn aga_denise_supports_eight_bitplanes() {
+        // Lisa composes up to 8 planes; the OCS BPU3 bit (BPLCON0 bit 4)
+        // is only honoured when max_bitplanes > 6, which DeniseAga raises.
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x0010); // BPU=8 (bit 4), lores, no HAM
+        assert_eq!(denise.as_inner().as_inner().num_bitplanes(), 8);
+    }
+
+    #[test]
+    fn ham8_control00_reads_24bit_color_register() {
+        // #94: HAM8 control=00 loads a full 24-bit colour register. The
+        // control select is the LOW two bits, the data is the HIGH six —
+        // so register 5 is addressed by idx = 5 << 2.
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x0800 | 0x0010); // HAM + BPU=8
+        denise.palette_24[5] = 0x0012_3456;
+        assert_eq!(denise.resolve_color_argb(0x14), 0xFF12_3456);
+    }
+
+    #[test]
+    fn ham8_modify_replaces_top6_holds_low2_and_other_channels() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x0800 | 0x0010); // HAM + BPU=8
+        denise.palette_24[1] = 0x00FF_8043; // R=$FF G=$80 B=$43
+
+        // Seed the hold register: control=00, data6=1 → idx 0x04.
+        assert_eq!(denise.resolve_color_argb(0x04), 0xFFFF_8043);
+
+        // Modify blue (control=01, data6=$2A): new B = ($2A<<2)|($43&3)
+        // = $A8|$3 = $AB; red and green held.
+        assert_eq!(denise.resolve_color_argb((0x2A << 2) | 0x01), 0xFFFF_80AB);
+
+        // Re-seed, modify red (control=10, data6=$15): new R =
+        // ($15<<2)|($FF&3) = $54|$3 = $57; green and blue held.
+        denise.resolve_color_argb(0x04);
+        assert_eq!(denise.resolve_color_argb((0x15 << 2) | 0x02), 0xFF57_8043);
+
+        // Re-seed, modify green (control=11, data6=$10): new G =
+        // ($10<<2)|($80&3) = $40|$0 = $40; red and blue held.
+        denise.resolve_color_argb(0x04);
+        assert_eq!(denise.resolve_color_argb((0x10 << 2) | 0x03), 0xFFFF_4043);
+    }
+
+    #[test]
+    fn ham8_line_start_resets_hold_to_color00() {
+        // The HAM hold register starts each scanline at COLOR00, not at
+        // whatever colour the previous line ended on.
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x0800 | 0x0010); // HAM + BPU=8
+        denise.palette_24[0] = 0x0011_2233; // background
+        denise.palette_24[1] = 0x00FF_FFFF;
+        denise.resolve_color_argb(0x04); // pollute hold = $FFFFFF
+
+        denise.begin_beam_line();
+
+        // Modify blue from background (control=01, data6=0 → idx 0x01):
+        // new B = (0<<2)|($33&3) = 3; red+green from COLOR00.
+        assert_eq!(denise.resolve_color_argb(0x01), 0xFF11_2203);
     }
 
     #[test]
