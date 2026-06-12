@@ -1866,6 +1866,9 @@ impl AmigaDriver for AmigaOcs {
     fn agnus_mut(&mut self) -> &mut Agnus {
         &mut self.agnus
     }
+    fn copper(&self) -> &Copper {
+        &self.copper
+    }
     fn copper_mut(&mut self) -> &mut Copper {
         &mut self.copper
     }

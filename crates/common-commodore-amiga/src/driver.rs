@@ -66,6 +66,7 @@ pub trait AmigaDriver {
 
     fn agnus(&self) -> &Agnus;
     fn agnus_mut(&mut self) -> &mut Agnus;
+    fn copper(&self) -> &Copper;
     fn copper_mut(&mut self) -> &mut Copper;
     fn paula(&self) -> &Paula8364;
     fn paula_mut(&mut self) -> &mut Paula8364;
@@ -209,6 +210,13 @@ pub trait AmigaDriver {
             // cells Agnus allocates to it (#30). Computed before the
             // copper's own MOVE dispatch so a same-CCK DMACON write
             // can't retroactively change this cell's grant.
+            //
+            // Reset the copper's per-CCK bus-usage flag every CCK
+            // (whether or not the copper runs): the copper sets it only
+            // when it actually fetches, and the CPU arbitration below
+            // reads it so a parked/throttled copper yields its granted
+            // cell to the CPU.
+            self.copper_mut().bus_used_this_cck = false;
             let copper_slot_granted = self.agnus().cck_bus_plan().copper_dma_slot_granted;
             if self.agnus().dmacon & 0x0280 == 0x0280 {
                 // Route copper MOVEs through the same custom-register
@@ -408,15 +416,26 @@ pub trait AmigaDriver {
         // Chip-RAM bus arbitration: Agnus owns the chip-RAM bus during
         // DMA slots; CPU chip-RAM accesses stall to the next cell Agnus
         // leaves to the CPU. The single slot authority (`current_slot`,
-        // #30) now decides this for *every* owner — refresh, disk,
-        // audio, sprite, bitplane, and copper — not just bitplane DMA
-        // as the retired `dma_claim` did. Reads with OVL on land in ROM
-        // (not contended); writes always hit chip RAM (OVL only gates
-        // reads); non-chip-RAM accesses (CIA / custom / slow / ROM /
-        // unmapped) bypass arbitration.
+        // #30) decides this for every fixed owner — refresh, disk,
+        // audio, sprite, bitplane — not just bitplane DMA as the
+        // retired `dma_claim` did. The copper is special: Agnus grants
+        // it *every* even free cell, but a parked (WAIT) or throttled
+        // copper does not actually drive the bus, so those cells fall
+        // through to the CPU (matching real Agnus / vAmiga's busOwner).
+        // We therefore stall on a copper-granted cell only when the
+        // copper truly fetched it this CCK (`bus_used_this_cck`).
+        // Reads with OVL on land in ROM (not contended); writes always
+        // hit chip RAM (OVL only gates reads); non-chip-RAM accesses
+        // (CIA / custom / slow / ROM / unmapped) bypass arbitration.
         let addr24 = addr & 0xFF_FFFF;
         let is_chip_ram_access = addr24 < 0x20_0000 && (!is_read || !self.memory().overlay());
-        if is_chip_ram_access && self.agnus().current_slot() != SlotOwner::Cpu {
+        let slot = self.agnus().current_slot();
+        let dma_holds_bus = match slot {
+            SlotOwner::Cpu => false,
+            SlotOwner::Copper => self.copper().bus_used_this_cck,
+            _ => true,
+        };
+        if is_chip_ram_access && dma_holds_bus {
             self.cpu_base_mut().bus_status = BusStatus::Wait;
             return;
         }

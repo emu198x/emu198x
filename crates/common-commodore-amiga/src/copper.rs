@@ -85,6 +85,15 @@ pub struct Copper {
     /// space). Power-on default is 0, which matches the KS 1.3 boot
     /// path. Set via the $DFF02E write at the custom-register bus.
     pub cdang: bool,
+    /// `true` when the copper actually drove a chip-RAM fetch on the
+    /// most recent `tick_cck`. Agnus grants the copper every even free
+    /// cell when COPEN is set, but a parked (WAIT) or throttled copper
+    /// does not consume the bus — those cells fall through to the CPU.
+    /// The driver resets this each CCK and reads it for CPU chip-bus
+    /// arbitration (#30). Not part of the architectural state; skipped
+    /// on snapshot so it stays a transient per-CCK signal.
+    #[serde(skip)]
+    pub bus_used_this_cck: bool,
 }
 
 impl Copper {
@@ -221,7 +230,10 @@ impl Copper {
 
         // Fetch instruction pair from chip RAM. Copper accesses are
         // always chip-RAM-only, via Agnus DMA; each fetch drives the
-        // chip bus so the floating-bus residue tracks it.
+        // chip bus so the floating-bus residue tracks it. This is the
+        // one place the copper consumes a bus cell — record it so the
+        // CPU stalls only for cells the copper actually took (#30).
+        self.bus_used_this_cck = true;
         let word1 = memory.read_chip_ram_word(self.pc);
         let word2 = memory.read_chip_ram_word(self.pc.wrapping_add(2));
         self.pc = self.pc.wrapping_add(4);
