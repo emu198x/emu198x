@@ -12,12 +12,12 @@ complete, the 8520s and AutoConfig fast-RAM are done.
 What holds the Amiga back is **not the chips — it's integration and a few large
 facades.** Three honest caveats the "boots Workbench 3.1" headline conceals:
 
-1. **AGA colour now renders; geometry lags.** The 256-colour 24-bit palette (#93),
-   HAM8 (#94), the BPLCON4 BPLAM bitplane XOR (#96) and 32/64-px wide sprites
-   (#95/#99) are decoded **and displayed**. What still lags: the lowres 8-plane
-   DDF→plane mapping (#99's second half) and AGA superhires. AGA is no longer "an
-   ECS machine that boots 3.1" — deep colour modes look right; some high-plane
-   geometry doesn't yet.
+1. **AGA colour and deep modes now render.** The 256-colour 24-bit palette (#93),
+   HAM8 (#94), the BPLCON4 BPLAM bitplane XOR (#96), 32/64-px wide sprites — display
+   *and* DMA fetch (#95/#99) — and 8-plane lowres bitplane fetch (#99) are decoded
+   **and displayed**. AGA is no longer "an ECS machine that boots 3.1": real AGA
+   colour software looks right. The one known render-bandwidth gap is **superhires
+   (SHRES)**, whose DMA fetch is still modelled as hires (#469) — a niche mode.
 2. **The Blitter is incremental but drains on observation.** The per-slot scheduler
    is wired into all three machines (#31) with BBUSY/BZERO readback (#32) and
    Copper BFD=0 sync (#33); a synchronous `run_blit_to_completion` drain remains
@@ -33,9 +33,10 @@ two in-flight refactors (single-bus-per-cck, unified-driver) *are* the critical
 path to a cycle-exact chipset.
 
 Deep per-chip and per-Kickstart notes live in [`chipset/`](chipset/) and
-[`kickstart/`](kickstart/). Note that some chipset subdocs (esp.
-[`chipset/denise.md`](chipset/denise.md)) currently read as an optimistic spec and
-overstate the AGA render path — see the gaps below for ground truth.
+[`kickstart/`](kickstart/). The AGA render path described in
+[`chipset/denise.md`](chipset/denise.md) is now largely real (24-bit palette, HAM8,
+wide sprites, BPLAM XOR all landed); the one outstanding render gap is superhires
+DMA bandwidth (#469) — see the gaps below.
 
 ## What works
 
@@ -81,16 +82,20 @@ overstate the AGA render path — see the gaps below for ground truth.
 
 ## Not implemented / accuracy gaps
 
-### AGA video: colour done, high-plane geometry remaining
+### AGA video: colour + deep modes done, superhires bandwidth remaining
 
-OCS Denise is ~95% pixel-exact and ECS ~90%. AGA/Lisa has closed the big colour
-gaps: the 24-bit 256-entry banked palette (#93), HAM8 with 24-bit chaining (#94),
-the BPLCON4 BPLAM bitplane XOR (#96), and 32/64-px wide sprites — display *and*
-DMA fetch (#95/#99) — all render through the AGA path now, not the OCS 12-bit
-palette. The AGA Denise bitplane ceiling was raised to 8 so deep modes compose.
-Remaining AGA-render gaps: the **lowres 8-plane DDF→plane mapping** (#99's second
-half) and **AGA superhires**. These are narrower than the old "everything is a
-facade" framing — most real AGA *colour* software now looks right.
+OCS Denise is ~95% pixel-exact and ECS ~90%. AGA/Lisa has closed the colour and
+deep-mode gaps: the 24-bit 256-entry banked palette (#93), HAM8 with 24-bit
+chaining (#94), the BPLCON4 BPLAM bitplane XOR (#96), 32/64-px wide sprites —
+display *and* DMA fetch (#95/#99) — and 8-plane lowres bitplane fetch (#99) all
+render through the AGA path now, not the OCS 12-bit palette. The AGA Denise
+bitplane ceiling was raised to 8 so deep modes compose, and Agnus fills the two
+idle lowres fetch slots with BPL7/BPL8. The one remaining AGA-render gap is
+**superhires (SHRES)**: the Denise shifter handles 4 source-pixels/output and
+colour resolves correctly, but the Agnus DMA fetch models SHRES as hires, so a
+superhires screen is fed half the plane bandwidth it needs (#469). Niche mode;
+far narrower than the old "everything is a facade" framing — real AGA *colour*
+software now looks right.
 
 ### The chipset is pre-cycle-exact (integration debt)
 
