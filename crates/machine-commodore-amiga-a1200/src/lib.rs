@@ -17,9 +17,8 @@
 
 mod agnus;
 mod denise;
-use common_commodore_amiga::board::{
-    BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, ChipRamBus, TICKS_PER_CCK,
-};
+use common_commodore_amiga::board::{BusResponse, BusTransaction, ChipRamBus, TICKS_PER_CCK};
+use common_commodore_amiga::driver::AmigaDriver;
 use common_commodore_amiga::{cia, copper, memory, rtc};
 
 pub use agnus::{
@@ -44,9 +43,6 @@ pub use memory::{CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE, Memory};
 pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
 pub use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
 pub use rtc::RTC_BASE;
-
-use motorola_68000::bus::{BusStatus, FunctionCode};
-use motorola_68000::cpu::State;
 
 use motorola_68020::Cpu68020;
 use rtc::Msm6242Rtc;
@@ -1589,357 +1585,12 @@ impl AmigaA1200 {
     /// bitplane fetch, shift-register reload) fire on alternate ticks
     /// (`cck_phase == 0`). Per-tick events (CPU clock, lores pixel
     /// output, CIA E-clock divisor, CPU bus service) fire every tick.
+    /// One machine tick. The per-CCK body is the shared
+    /// [`AmigaDriver::tick`]; this inherent method delegates so the many
+    /// existing `AmigaA1200::tick` callers (tests, the `AmigaMachine`
+    /// impl, MCP) keep working unchanged.
     pub fn tick(&mut self) {
-        let phase = self.cck_phase;
-
-        // ── CCK-granular events (phase 0 only) ───────────────────
-        if phase == 0 {
-            // Advance the beam.
-            self.agnus.tick_cck();
-
-            // CIA-B TOD pin is wired to /HSYNC on the real Amiga, so it
-            // ticks once per scanline. tick_cck() wraps hpos to 0 at each
-            // line start, so that edge is one /HSYNC.
-            if self.agnus.hpos == 0 {
-                self.cia_b.tod_pulse();
-            }
-
-            // Paula-style latch of Agnus's /VERTB level signal:
-            // - On the rising edge (beam enters blanking window) we
-            //   fire the copper restart — real Agnus reloads the
-            //   copper PC from COP1LC at the start of every VBL.
-            // - While the level stays high AND INTREQ.VERTB is
-            //   clear, re-latch the bit. This models the subtle
-            //   "handler clears INTREQ.VERTB mid-blanking" case —
-            //   real hardware re-asserts because /VERTB is still
-            //   high; a cleared-once-only pulse model would miss it.
-            let vertb_level = self.agnus.vertb_level();
-            let rising_edge = vertb_level && !self.prev_vertb_level;
-            if rising_edge {
-                // Copper restarts from COP1LC on every VBL edge.
-                self.copper.jump1();
-                // CIA-A TOD pin is wired to /VSYNC on real Amiga, so
-                // it ticks once per VBL edge.
-                self.cia_a.tod_pulse();
-            }
-            if vertb_level && (self.paula.intreq() & IntSource::Vertb.mask()) == 0 {
-                self.paula.raise(IntSource::Vertb);
-            }
-            self.prev_vertb_level = vertb_level;
-
-            // Copper runs when DMACON.COPEN (bit 7) AND DMAEN (bit 9)
-            // are both set. Agnus arbitrates the chip bus; pass the
-            // current CCK's claim so the copper yields to bitplane
-            // DMA.
-            let claim = denise::dma_claim(
-                self.agnus.hpos,
-                self.agnus.dmacon,
-                self.agnus.bplcon0,
-                self.agnus.ddfstrt,
-                self.agnus.ddfstop,
-            );
-            if self.agnus.dmacon & 0x0280 == 0x0280 {
-                // Route copper MOVEs through the same custom-register
-                // dispatch the CPU uses. The copper can legitimately
-                // write any register (bitplane pointers, DMACON,
-                // INTENA, sprite pointers, DDF/DIW, modulos, etc.);
-                // routing only through Denise would silently drop
-                // the non-Denise ones.
-                let vpos = self.agnus.vpos;
-                let hpos = self.agnus.hpos;
-                // BFD=0 copper WAITs block on the live blitter (#33).
-                let blitter_busy = self.agnus.blitter_busy;
-                if let Some((reg, val)) =
-                    self.copper
-                        .tick_cck(&self.memory, vpos, hpos, claim, blitter_busy)
-                {
-                    self.debug_copper_move_log.push((
-                        self.tick_count / TICKS_PER_CCK,
-                        vpos,
-                        hpos,
-                        reg,
-                        val,
-                    ));
-                    self.dispatch_custom_write(reg, val);
-                }
-            }
-
-            // ── Paula audio engine — one step per CCK ────────────────
-            // Audio DMA slot arbitration is Agnus's job now; we pull
-            // the plan for this CCK and extract the audio grant. Paula
-            // also needs the raw DMACON value for its master+channel
-            // enable gates.
-            let bus_plan = self.agnus.cck_bus_plan();
-
-            // ── Blitter DMA — one op per granted CCK (#31). The blit
-            // consumes real chip cycles and contends for the bus; BBUSY
-            // (DMACONR bit 14) stays set until it drains. INT_BLIT fires
-            // on the CCK that drains the last op.
-            if bus_plan.blitter_dma_progress_granted {
-                let mut bus = ChipRamBus(&mut self.memory);
-                if self.agnus.tick_blitter_dma(&mut bus) {
-                    self.paula.raise(IntSource::Blit);
-                }
-            }
-
-            let slot = bus_plan.audio_dma_service_channel;
-            let dmacon = self.agnus.dmacon;
-            // Move the memory borrow outside the closure so the
-            // closure only borrows the Memory, not all of Self.
-            let memory = &self.memory;
-            self.paula
-                .tick_audio_cck(dmacon, slot, true, |addr| memory.read_chip_ram_byte(addr));
-
-            // ── Sprite DMA — fetch the control/data words from chip RAM
-            // at the sprite pointers and deliver them to Denise. Agnus
-            // owns the per-sprite control/data state machine; the machine
-            // reads chip RAM and routes the word to the matching SPRxPOS/
-            // CTL/DATA/DATB register (the same path a CPU/copper write
-            // takes). gap #162.
-            if let Some(channel) = bus_plan.sprite_dma_service_channel {
-                let second_word = (self.agnus.hpos.wrapping_sub(0x0B) & 1) == 1;
-                // FMODE widens the sprite data fetch to 1/2/4 words (#99).
-                let width = self.agnus.spr_fetch_width();
-                let fetched = self.agnus.service_sprite_dma_cyc(
-                    channel as usize,
-                    second_word,
-                    width,
-                    |addr| memory.read_chip_ram_word(addr),
-                );
-                if let Some((is_control, value)) = fetched {
-                    let channel = channel as usize;
-                    if is_control {
-                        // SPRxPOS / SPRxCTL — 16-bit, via the unified dispatch.
-                        let reg = 0x140 + (channel as u16) * 8 + if second_word { 2 } else { 0 };
-                        self.denise.write_word(reg, value as u16);
-                    } else if second_word {
-                        // SPRxDATB — full FMODE width into the serial shifter.
-                        self.denise.ocs.write_sprite_datb_wide(channel, value);
-                    } else {
-                        // SPRxDATA — full FMODE width into the serial shifter.
-                        self.denise.ocs.write_sprite_data_wide(channel, value);
-                    }
-                }
-            }
-
-            // ── Paula disk engine — DSKBYTR byte-pacing + WORDEQUAL
-            // delay. Ticked once per CCK; no-op until a drive has
-            // delivered a word via `tick_disk_dma_slot`. Paula owns
-            // the DMA arm flip-flop, the word countdown, the WORDSYNC
-            // gate, and the DSKBLK interrupt; the machine layer is
-            // glue around those primitives.
-            self.paula.tick_disk_cck();
-
-            // ── Floppy track-read path ──────────────────────────
-            // With drive selected, motor spinning, disk present, and
-            // Paula expecting data, feed MFM words word-by-word at
-            // the disk byte rate.
-            if self.paula.disk_dma_write_active() {
-                // Disk WRITE DMA (a Workbench SAVE): pull words from chip
-                // RAM to the drive at the disk byte rate (#97).
-                if self.track_pacer == 0 {
-                    self.feed_next_write_word();
-                    self.track_pacer = self.disk_word_cck_interval();
-                } else {
-                    self.track_pacer = self.track_pacer.saturating_sub(1);
-                }
-            } else if self.drive.read_data_available() {
-                if self.track_pacer == 0 {
-                    self.feed_next_mfm_word();
-                    self.track_pacer = self.disk_word_cck_interval();
-                } else {
-                    self.track_pacer = self.track_pacer.saturating_sub(1);
-                }
-            } else {
-                self.track_pacer = 0;
-            }
-        }
-
-        // ── Per-tick: Denise pixel + fetch/reload at phase 0 ────
-        self.denise.tick(
-            phase,
-            self.agnus.vpos,
-            self.agnus.hpos,
-            self.agnus.dmacon,
-            &mut self.agnus,
-            &self.memory,
-        );
-
-        // ── CIA E-clock: every 10 master/4 ticks = master/40 ────
-        self.e_clock_phase += 1;
-        if self.e_clock_phase >= CIA_E_CLOCK_DIVISOR {
-            self.e_clock_phase = 0;
-            self.cia_a.phi2_pulse();
-            self.cia_b.phi2_pulse();
-
-            // Floppy drive runs at E-clock rate (same rate as CIA
-            // internal ticks). CIA-B PRB updates the control pins on
-            // writes; the E-clock phase advances the mechanical drive
-            // state and feeds status back onto CIA-A PRA.
-            //
-            // CIA-B FLAG is wired to the floppy /INDEX pulse on the Amiga;
-            // the drive emits one index pulse per revolution.
-            if self.drive.tick() {
-                self.cia_b.flag_falling_edge();
-            }
-            self.refresh_cia_a_external_inputs();
-
-            // Keyboard controller — detect CIA-A CRA bit 6 (SPMODE)
-            // rising edge as the host handshake, then tick the state
-            // machine and inject the next serial byte (if any).
-            const CRA_SPMODE: u8 = 0x40;
-            let spmode = self.cia_a.cra() & CRA_SPMODE != 0;
-            if spmode && !self.prev_cia_a_spmode {
-                self.keyboard.handshake();
-            }
-            self.prev_cia_a_spmode = spmode;
-            if let Some(byte) = self.keyboard.tick() {
-                self.cia_a.receive_serial_byte(byte);
-            }
-        }
-
-        // ── Paula edge-latch of CIA /IRQ lines ──────────────────
-        // CIA::irq_pending is now level-sensitive (asserted while
-        // any unmasked ICR flag is set). Paula's interrupt input
-        // uses a rising-edge detector, so we only set the INTREQ
-        // bit on the transition from low to high. A handler that
-        // clears INTREQ.PORTS / INTREQ.EXTER without reading the
-        // CIA ICR will *not* trigger another interrupt until the
-        // CIA line first goes low and then high again — matching
-        // real hardware.
-        let cia_a_irq = self.cia_a.irq_active();
-        if cia_a_irq && !self.prev_cia_a_irq {
-            self.paula.raise(IntSource::Ports);
-        }
-        self.prev_cia_a_irq = cia_a_irq;
-
-        let cia_b_irq = self.cia_b.irq_active();
-        if cia_b_irq && !self.prev_cia_b_irq {
-            self.paula.raise(IntSource::Exter);
-        }
-        self.prev_cia_b_irq = cia_b_irq;
-
-        // ── CPU: every master/4 tick = every CPU clock ──────────
-        self.service_cpu_bus();
-        self.cpu.ipl = self.paula.compute_ipl();
-        self.cpu.tick();
-
-        self.tick_count += 1;
-        self.cck_phase ^= 1;
-    }
-
-    fn service_cpu_bus(&mut self) {
-        // Snapshot the bus-cycle parameters out of the CPU state so we
-        // can mutate self.memory and other chips without borrowing the
-        // CPU mutably across helper boundaries.
-        let bus_info = match &self.cpu.state {
-            State::BusCycle {
-                addr,
-                fc,
-                is_read,
-                is_word,
-                data,
-                cycle_count,
-                ..
-            } => Some((*addr, *fc, *is_read, *is_word, *data, *cycle_count)),
-            _ => None,
-        };
-        let Some((addr, fc, is_read, is_word, data, cycle_count)) = bus_info else {
-            return;
-        };
-
-        // 68000 bus cycle is 4 CCKs (S0-S7). DTACK is sampled at S4 =
-        // cycle 2. Complete the bus cycle on the first poll at or after
-        // cycle 2 and hold the result steady.
-        if cycle_count < 2 {
-            self.cpu.bus_status = BusStatus::Wait;
-            return;
-        }
-        if matches!(self.cpu.bus_status, BusStatus::Ready(_) | BusStatus::Error) {
-            return;
-        }
-
-        // Chip-RAM bus arbitration: Agnus owns the chip-RAM bus during
-        // DMA slots; CPU chip-RAM accesses stall to the next free CCK.
-        // Reads with OVL on land in ROM (not contended); writes always
-        // hit chip RAM (OVL only gates reads); non-chip-RAM accesses
-        // (CIA / custom / slow / ROM / unmapped) bypass arbitration.
-        let addr24 = addr & 0xFF_FFFF;
-        let is_chip_ram_access = addr24 < 0x20_0000 && (!is_read || !self.memory.overlay());
-        if is_chip_ram_access
-            && !denise::dma_claim(
-                self.agnus.hpos,
-                self.agnus.dmacon,
-                self.agnus.bplcon0,
-                self.agnus.ddfstrt,
-                self.agnus.ddfstop,
-            )
-            .is_free()
-        {
-            self.cpu.bus_status = BusStatus::Wait;
-            return;
-        }
-
-        // Autovectored interrupts: the chipset drives /VPA during
-        // InterruptAck and the CPU computes vector = 24 + IPL.
-        if fc == FunctionCode::InterruptAck {
-            let ipl = self.cpu.ipl & 0x07;
-            self.cpu.bus_status = BusStatus::Ready(24 + u16::from(ipl));
-            return;
-        }
-
-        let tx = BusTransaction {
-            addr: addr24,
-            is_read,
-            is_word,
-            data: data.unwrap_or(0),
-        };
-
-        let response = self
-            .dispatch_cia_a(&tx)
-            .or_else(|| self.dispatch_cia_b(&tx))
-            .or_else(|| self.dispatch_gayle(&tx))
-            .or_else(|| self.dispatch_rtc(&tx))
-            .or_else(|| self.dispatch_autoconfig(&tx))
-            .or_else(|| self.dispatch_fast_ram(&tx))
-            .or_else(|| self.dispatch_custom_register(&tx))
-            .unwrap_or_else(|| self.dispatch_memory(&tx));
-
-        self.apply_bus_response(&tx, response);
-    }
-
-    /// Apply one chip-select response to the CPU bus, applying the
-    /// canonical lane-extraction rule once. `Byte` always lands in the
-    /// low 8 bits; `Word` is byte-extracted by address parity for byte
-    /// reads. Latches floating-bus state on every cycle.
-    fn apply_bus_response(&mut self, tx: &BusTransaction, response: BusResponse) {
-        if !tx.is_read {
-            // Writes ack with Ready(0); the chip-arm handlers updated
-            // chip state and the floating-bus latch already.
-            self.memory.set_last_bus_value(tx.data);
-            self.cpu.bus_status = BusStatus::Ready(0);
-            return;
-        }
-        let val = match response {
-            BusResponse::Byte(b) => u16::from(b),
-            BusResponse::Word(w) => {
-                if tx.is_word {
-                    w
-                } else if tx.addr & 1 == 0 {
-                    (w >> 8) & 0xFF
-                } else {
-                    w & 0xFF
-                }
-            }
-            BusResponse::WriteAck => 0, // unreachable on reads
-        };
-        // Latch the chip's bus output for the next floating-bus read.
-        match response {
-            BusResponse::Word(w) => self.memory.set_last_bus_value(w),
-            BusResponse::Byte(b) => self.memory.set_last_bus_value(u16::from(b)),
-            BusResponse::WriteAck => {}
-        }
-        self.cpu.bus_status = BusStatus::Ready(val);
+        <Self as AmigaDriver>::tick(self);
     }
 
     /// CIA-A is wired to the low data byte (D0-D7) at `$BFExxx`. The
@@ -2290,5 +1941,203 @@ impl AmigaA1200 {
         self.debug_watch_addr = None;
         self.debug_watch_writes.clear();
         self.debug_rtc_log.clear();
+    }
+}
+
+// The shared per-CCK driver (#34). The AGA variant differs from OCS/ECS
+// in three places, all carried here: `AgnusAga` Derefs (two steps, via
+// `AgnusEcs`) to the base `Agnus`; the CPU is a `Cpu68020` (whose own
+// `tick()` runs in `tick_cpu_with_ipl`, while its shared bus-protocol
+// fields are reached through the Deref base in `cpu_base`); and the
+// bus-dispatch chain carries the extra Gayle arm. The AGA render
+// differences live inside Lisa / the custom-register write path, not in
+// the per-CCK loop.
+impl AmigaDriver for AmigaA1200 {
+    fn agnus(&self) -> &Agnus {
+        &self.agnus
+    }
+    fn agnus_mut(&mut self) -> &mut Agnus {
+        &mut self.agnus
+    }
+    fn copper_mut(&mut self) -> &mut Copper {
+        &mut self.copper
+    }
+    fn paula(&self) -> &Paula8364 {
+        &self.paula
+    }
+    fn paula_mut(&mut self) -> &mut Paula8364 {
+        &mut self.paula
+    }
+    fn cia_a(&self) -> &Cia {
+        &self.cia_a
+    }
+    fn cia_a_mut(&mut self) -> &mut Cia {
+        &mut self.cia_a
+    }
+    fn cia_b(&self) -> &Cia {
+        &self.cia_b
+    }
+    fn cia_b_mut(&mut self) -> &mut Cia {
+        &mut self.cia_b
+    }
+    fn drive(&self) -> &AmigaFloppyDrive {
+        &self.drive
+    }
+    fn drive_mut(&mut self) -> &mut AmigaFloppyDrive {
+        &mut self.drive
+    }
+    fn keyboard_mut(&mut self) -> &mut AmigaKeyboard {
+        &mut self.keyboard
+    }
+    fn memory(&self) -> &Memory {
+        &self.memory
+    }
+    fn memory_mut(&mut self) -> &mut Memory {
+        &mut self.memory
+    }
+    fn cpu_base(&self) -> &motorola_68000::Cpu68000 {
+        // Cpu68020 → Cpu68010 → Cpu68000: the shared bus-protocol view.
+        &self.cpu
+    }
+    fn cpu_base_mut(&mut self) -> &mut motorola_68000::Cpu68000 {
+        &mut self.cpu
+    }
+
+    fn copper_tick_cck(
+        &mut self,
+        vpos: u16,
+        hpos: u16,
+        claim: common_commodore_amiga::denise::DmaClaim,
+        blitter_busy: bool,
+    ) -> Option<(u16, u16)> {
+        self.copper
+            .tick_cck(&self.memory, vpos, hpos, claim, blitter_busy)
+    }
+
+    fn blitter_dma_step(&mut self) -> bool {
+        let mut bus = ChipRamBus(&mut self.memory);
+        self.agnus.tick_blitter_dma(&mut bus)
+    }
+
+    fn audio_tick_cck(&mut self, dmacon: u16, slot: Option<u8>) {
+        let memory = &self.memory;
+        self.paula
+            .tick_audio_cck(dmacon, slot, true, |addr| memory.read_chip_ram_byte(addr));
+    }
+
+    fn service_sprite_dma(&mut self, channel: u8, second_word: bool, width: u8) {
+        let memory = &self.memory;
+        let fetched =
+            self.agnus
+                .service_sprite_dma_cyc(channel as usize, second_word, width, |addr| {
+                    memory.read_chip_ram_word(addr)
+                });
+        if let Some((is_control, value)) = fetched {
+            let channel = channel as usize;
+            if is_control {
+                let reg = 0x140 + (channel as u16) * 8 + if second_word { 2 } else { 0 };
+                self.denise.write_word(reg, value as u16);
+            } else if second_word {
+                self.denise.ocs.write_sprite_datb_wide(channel, value);
+            } else {
+                self.denise.ocs.write_sprite_data_wide(channel, value);
+            }
+        }
+    }
+
+    fn denise_tick(&mut self, phase: u8) {
+        let vpos = self.agnus.vpos;
+        let hpos = self.agnus.hpos;
+        let dmacon = self.agnus.dmacon;
+        self.denise
+            .tick(phase, vpos, hpos, dmacon, &mut self.agnus, &self.memory);
+    }
+
+    fn cck_phase(&self) -> u8 {
+        self.cck_phase
+    }
+    fn set_cck_phase(&mut self, value: u8) {
+        self.cck_phase = value;
+    }
+    fn prev_vertb_level(&self) -> bool {
+        self.prev_vertb_level
+    }
+    fn set_prev_vertb_level(&mut self, value: bool) {
+        self.prev_vertb_level = value;
+    }
+    fn prev_cia_a_spmode(&self) -> bool {
+        self.prev_cia_a_spmode
+    }
+    fn set_prev_cia_a_spmode(&mut self, value: bool) {
+        self.prev_cia_a_spmode = value;
+    }
+    fn prev_cia_a_irq(&self) -> bool {
+        self.prev_cia_a_irq
+    }
+    fn set_prev_cia_a_irq(&mut self, value: bool) {
+        self.prev_cia_a_irq = value;
+    }
+    fn prev_cia_b_irq(&self) -> bool {
+        self.prev_cia_b_irq
+    }
+    fn set_prev_cia_b_irq(&mut self, value: bool) {
+        self.prev_cia_b_irq = value;
+    }
+    fn e_clock_phase(&self) -> u64 {
+        self.e_clock_phase
+    }
+    fn set_e_clock_phase(&mut self, value: u64) {
+        self.e_clock_phase = value;
+    }
+    fn track_pacer(&self) -> u16 {
+        self.track_pacer
+    }
+    fn set_track_pacer(&mut self, value: u16) {
+        self.track_pacer = value;
+    }
+    fn tick_count(&self) -> u64 {
+        self.tick_count
+    }
+    fn set_tick_count(&mut self, value: u64) {
+        self.tick_count = value;
+    }
+    fn push_copper_move_log(&mut self, entry: common_commodore_amiga::driver::CopperMoveLogEntry) {
+        self.debug_copper_move_log.push(entry);
+    }
+
+    fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
+        AmigaA1200::dispatch_custom_write(self, offset, val);
+    }
+    fn feed_next_write_word(&mut self) {
+        AmigaA1200::feed_next_write_word(self);
+    }
+    fn feed_next_mfm_word(&mut self) {
+        AmigaA1200::feed_next_mfm_word(self);
+    }
+    fn disk_word_cck_interval(&self) -> u16 {
+        AmigaA1200::disk_word_cck_interval(self)
+    }
+    fn refresh_cia_a_external_inputs(&mut self) {
+        AmigaA1200::refresh_cia_a_external_inputs(self);
+    }
+
+    fn tick_cpu_with_ipl(&mut self) {
+        // The A1200's own Cpu68020 tick — *not* routed through the Deref
+        // base, so the future per-variant 68020 bus timing is unaffected.
+        self.cpu.ipl = self.paula.compute_ipl();
+        self.cpu.tick();
+    }
+
+    fn dispatch_bus(&mut self, tx: &BusTransaction) -> BusResponse {
+        // AGA-only: the Gayle arm (IDE + control registers) sits between
+        // the CIA pair and the RTC, matching the original inline chain.
+        self.dispatch_cia_a(tx)
+            .or_else(|| self.dispatch_cia_b(tx))
+            .or_else(|| self.dispatch_gayle(tx))
+            .or_else(|| self.dispatch_rtc(tx))
+            .or_else(|| self.dispatch_autoconfig(tx))
+            .or_else(|| self.dispatch_fast_ram(tx))
+            .or_else(|| self.dispatch_custom_register(tx))
+            .unwrap_or_else(|| self.dispatch_memory(tx))
     }
 }
