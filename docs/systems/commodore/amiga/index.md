@@ -24,9 +24,11 @@ facades.** Three honest caveats the "boots Workbench 3.1" headline conceals:
    Copper BFD=0 sync (#33); a synchronous `run_blit_to_completion` drain remains
    only as a fallback when the CPU observes a mid-blit result. True per-slot bus
    contention (blitter-nasty, CPU stalls) is still approximate.
-3. **You can't save a disk or boot a hard drive.** Floppy *read* is solid; disk
-   *write-back* is built at the drive layer but unwired, and there is no hardfile/
-   HDF/IDE path at all (Gayle is a stub).
+3. **You can boot and save floppies, but not boot a hard drive.** Floppy read
+   *and* write-back work (#97 — write-DMA → DSKBLK → MFM decode → `save_adf`, with
+   a writable-mount flag and write-protect sense), so a Workbench SAVE to DF0
+   persists. What's still missing is any hardfile/HDF/IDE path (Gayle is a stub),
+   so A600/A1200 can't boot from hard disk.
 
 This is an encouraging shape: most of the remaining work is **wiring and
 integrating already-built, already-tested pieces** — not novel chip research. The
@@ -79,8 +81,9 @@ sprites, BPLAM XOR, 8-plane lowres and superhires fetch all landed (#93/#94/#96/
   (chip queries, Exec/Kickstart introspection, task control, tracing, framebuffer
   dump, model swap) over a unified `HeadlessSession`. The driver replatform is
   **complete**.
-- **Media (read)** — DF0 `ADF` (incl. inside `.zip`); screenshots, audio capture,
-  scripted input.
+- **Media (read + floppy save)** — DF0 `ADF` (incl. inside `.zip`), with write-back
+  to a sidecar via the `save_disk` tool (writable-mount + write-protect aware, #97);
+  screenshots, audio capture, scripted input.
 
 ## Not implemented / accuracy gaps
 
@@ -117,13 +120,14 @@ correct, so it is not a visible gap. This is a different world from the old
 - Three machine crates each re-implement the ~1500-line per-CCK tick loop — the
   unified-driver refactor merges them so the above lands once, not three times.
 
-### Storage: no save, no hard disk
+### Storage: floppy save works; no hard disk
 
-- **Disk write-back unwired** — the MFM-encode-and-persist mechanism is built and
-  unit-passes in the floppy crate (`flush_write_capture` → `save_adf`) but has zero
-  callers; the write-side DMA never fires DSKBLK and there's no runtime flush
-  surface. The Amiga is not yet on the `disk-save-write-back` parity list the C64
-  completed 2026-06-08. **A Workbench SAVE is silently lost.**
+- **Floppy write-back done (#97)** — the write-side DMA fires DSKBLK, the captured
+  MFM is decoded and persisted through `flush_write_capture` → `save_adf`, and the
+  runtime exposes a `save_disk` flush surface (sidecar by default) gated by a
+  writable-mount flag with `/DSKPROT` write-protect sense. A Workbench SAVE to DF0
+  persists; round-trip is unit-tested. The Amiga is now on the
+  `disk-save-write-back` parity list alongside the C64.
 - **No hard disk** — `commodore-gayle` is an explicit "no IDE drive" stub; no HDF/
   hardfile, RDB, FFS, SCSI, or IDE. A600/A1200 cannot boot from hard disk. (The
   full donor IDE path is harvestable from `Emu198x-Oldest/`.)
