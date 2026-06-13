@@ -572,6 +572,23 @@ pub fn catalogue(cpu_type: u32) -> Vec<InstructionDef> {
         min_cpu: m68020,
     });
 
+    // PACK / UNPK register forms (Dy,Dx,#adj). Opcode bakes D0,D0; the
+    // adjustment is the (random) extension word. M68000PRM § 6.2.27.
+    defs.push(InstructionDef {
+        name: "PACK",
+        opcode: 0x8140, // PACK D0,D0,#<adj>
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: m68020,
+    });
+    defs.push(InstructionDef {
+        name: "UNPK",
+        opcode: 0x8180, // UNPK D0,D0,#<adj>
+        ext_words: 1,
+        setup: InstructionSetup::RandExt1,
+        min_cpu: m68020,
+    });
+
     // Bitfield instructions (register mode, Dn)
     // Opcode format: 1110_1xxx_11_000_rrr (EA mode=000 for Dn, reg in bits 2-0)
     // Extension word encodes offset/width and optional Dn destination.

@@ -10,6 +10,12 @@
 # Adapted from Emu198x-Oldest/crates/m68k-test-gen (frozen donor); it
 # uses Musashi as the reference oracle and emits Tom Harte-format
 # MessagePack fixtures the motorola-680x0 `tom_harte` harnesses consume.
+#
+# Run its tests single-threaded — the Musashi binding uses a process-wide
+# global memory (its C callbacks have nowhere else to read/write), so
+# parallel tests race across modules:
+#
+#   cargo test --manifest-path tools/m68k-test-gen/Cargo.toml -- --test-threads=1
 [package]
 name = "m68k-test-gen"
 description = "Test vector generator for Motorola 680x0 CPUs using Musashi as reference"

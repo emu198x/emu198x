@@ -25,6 +25,10 @@ struct CliArgs {
     count: usize,
     instruction_name: Option<String>,
     all: bool,
+    /// Explicit output directory (overrides the per-CPU default). Use
+    /// this to write into the canonical corpus, e.g.
+    /// `--out ~/Projects/198x/assets/test-suites/m68k-generated/m68020/v1`.
+    out_dir: Option<String>,
 }
 
 fn print_usage() {
@@ -48,7 +52,10 @@ fn main() {
         }
     };
 
-    let output_dir = output_dir_for_cpu(&cli.cpu_name);
+    let output_dir = cli
+        .out_dir
+        .clone()
+        .map_or_else(|| output_dir_for_cpu(&cli.cpu_name), PathBuf::from);
     fs::create_dir_all(&output_dir).expect("failed to create output directory");
 
     if cli.all {
@@ -150,6 +157,7 @@ fn parse_args_from(args: &[String]) -> Result<Option<CliArgs>, String> {
         count: 2500,
         instruction_name: None,
         all: false,
+        out_dir: None,
     };
 
     let mut i = 1;
@@ -183,6 +191,14 @@ fn parse_args_from(args: &[String]) -> Result<Option<CliArgs>, String> {
             }
             "--all" => {
                 cli.all = true;
+            }
+            "--out" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .filter(|value| !value.starts_with("--"))
+                    .ok_or_else(|| "--out requires a value".to_string())?;
+                cli.out_dir = Some(value.clone());
             }
             "--help" | "-h" => return Ok(None),
             other => return Err(format!("Unknown argument: {other}")),
