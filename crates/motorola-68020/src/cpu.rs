@@ -200,6 +200,15 @@ pub fn decode_68020_opcode(cpu: &mut Cpu68000, opcode: u16) -> bool {
         return execute_bf(cpu, opcode);
     }
 
+    // PACK ($8140) / UNPK ($8180): the core routes these here. Bit 3
+    // selects register (0) or memory predecrement (1) operands.
+    if (opcode & 0xF1F0) == 0x8140 {
+        return execute_pack(cpu, opcode);
+    }
+    if (opcode & 0xF1F0) == 0x8180 {
+        return execute_unpk(cpu, opcode);
+    }
+
     // TRAPcc ($50F8 / $50FA / $50FC + cc): the core routes the Scc
     // sub-encoding mode 111 / reg ≥ 2 here. Reg 2/3/4 select the
     // word-operand / long-operand / no-operand forms.
@@ -283,6 +292,48 @@ fn execute_trapcc(cpu: &mut Cpu68000, opcode: u16) -> bool {
         let next_pc = cpu.instr_start_pc.wrapping_add(2 + operand_words * 2);
         cpu.begin_group1_exception(7, next_pc);
     }
+    true
+}
+
+/// PACK (`$8140` + adjustment word): take the 16-bit source, add the
+/// immediate adjustment, then pack the two BCD digits at bits [11:8]
+/// and [3:0] into one byte. M68000PRM § 6.2.27. No flags affected.
+///
+/// Register form (`Dy,Dx`) only for now; the rare `-(Ay),-(Ax)` memory
+/// form (bit 3 set) needs the predecrement byte pipeline and is a noted
+/// follow-up — it takes ILLEGAL until then.
+fn execute_pack(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    if opcode & 0x08 != 0 {
+        // Memory predecrement form — deferred. TODO(#114): implement
+        // the -(Ay),-(Ax) byte pipeline (two reads → pack → one write).
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    }
+    let adj = cpu.consume_irc();
+    let src_reg = (opcode & 7) as usize;
+    let dst_reg = ((opcode >> 9) & 7) as usize;
+    let src = (cpu.regs.d[src_reg] as u16).wrapping_add(adj);
+    let packed = (((src & 0x0F00) >> 4) | (src & 0x000F)) as u8;
+    cpu.regs.d[dst_reg] = (cpu.regs.d[dst_reg] & 0xFFFF_FF00) | u32::from(packed);
+    true
+}
+
+/// UNPK (`$8180` + adjustment word): take the source byte, spread its
+/// two nibbles to bits [11:8] and [3:0], then add the immediate
+/// adjustment. M68000PRM § 6.2.27. No flags affected. Register form
+/// (`Dy,Dx`) only; the memory form is a noted follow-up (see PACK).
+fn execute_unpk(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    if opcode & 0x08 != 0 {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    }
+    let adj = cpu.consume_irc();
+    let src_reg = (opcode & 7) as usize;
+    let dst_reg = ((opcode >> 9) & 7) as usize;
+    let src = (cpu.regs.d[src_reg] & 0xFF) as u16;
+    let unpacked = ((src & 0x00F0) << 4) | (src & 0x000F);
+    let result = unpacked.wrapping_add(adj);
+    cpu.regs.d[dst_reg] = (cpu.regs.d[dst_reg] & 0xFFFF_0000) | u32::from(result);
     true
 }
 

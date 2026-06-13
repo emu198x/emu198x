@@ -263,6 +263,19 @@ impl Cpu68000 {
             }
         }
 
+        // --- PACK / UNPK (0x8140 / 0x8180) — 68020+ only ---
+        // These sit in the OR (0x8xxx) opmode-5/6 space with EA mode
+        // bits that the general OR decode below would otherwise treat
+        // as an (illegal) OR in the Dn→EA direction. Intercept them
+        // first and route to the variant hook; the 68000/68010 take
+        // ILLEGAL (no hook), which is the correct behaviour there.
+        if (opcode & 0xF1F0) == 0x8140 || (opcode & 0xF1F0) == 0x8180 {
+            if !self.try_variant_decode(opcode) {
+                self.begin_group1_exception(4, self.instr_start_pc);
+            }
+            return;
+        }
+
         // --- ADD/SUB/CMP/EOR/AND/OR (general register-EA form) ---
         // 0xBxxx: CMP (opmodes 0-2), EOR (opmodes 4-6), CMPA (3/7).
         if matches!(opcode & 0xF000, 0xD000 | 0x9000 | 0xB000 | 0xC000 | 0x8000) {
