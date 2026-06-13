@@ -240,6 +240,21 @@ pub fn decode_68020_opcode(cpu: &mut Cpu68000, opcode: u16) -> bool {
         return execute_cas(cpu, opcode);
     }
 
+    // CALLM / RTM ($06C0-$06FF): the 68020 module-call mechanism
+    // (descriptor-based call/return with external access-control
+    // hardware). Deliberately unimplemented — take the illegal-
+    // instruction exception, matching WinUAE, Musashi, and the 68030+
+    // (which dropped these opcodes entirely). No oracle exists to
+    // validate a faithful implementation against, no Amiga software uses
+    // them, and Type-1 module calls need access-control hardware no Amiga
+    // has. See knowledge/decisions/callm-rtm-illegal.md. (These already
+    // fall through to the illegal path; this arm makes the choice
+    // explicit and is pinned by tests/callm_rtm.rs.)
+    if (opcode & 0xFFC0) == 0x06C0 {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    }
+
     // MOVEC ($4E7A / $4E7B): intercepted at the 68020 layer so the
     // 68020-additional control registers (CACR / CAAR / MSP / ISP)
     // resolve before falling through to the 68010 hook for the
