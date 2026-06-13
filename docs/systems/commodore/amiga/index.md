@@ -133,9 +133,10 @@ correct, so it is not a visible gap. This is a different world from the old
 ### Audio + I/O fidelity
 
 - **Resampling is sample-and-hold** — the analog output filter chain (RC + LED +
-  HP) is implemented, and host-rate sampling of the period-stepped DAC already
-  aliases like the hardware. The open nicety (#38) is vAmiga-style timestamped
-  interpolation; the 6-bit volume scaling itself is already exact.
+  HP) is implemented, host-rate sampling of the period-stepped DAC already aliases
+  like the hardware, and the 6-bit volume DAC is an exact linear multiply (all
+  verified, #38). vAmiga-style timestamped interpolation is a deliberate non-goal:
+  sample-and-hold matches Paula's character and avoids smoothing the aliasing away.
 - **Serial is a register husk** — no baud timing, no host transport (blocks the
   AmiTCP/Miami internet path and the Rachel netplay goal).
 - **POT analog ramp** is a stub (digital mouse buttons work); **mouse** uses a
