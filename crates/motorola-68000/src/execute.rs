@@ -293,7 +293,11 @@ impl Cpu68000 {
     }
 
     /// Dispatch an ALU operation and update flags.
-    pub(crate) fn exec_alu(&mut self, op: AluOp, src: u32, dst: u32, size: Size) -> u32 {
+    ///
+    /// Public so variant crates can reuse the exact, heavily-tested flag
+    /// semantics — notably `AluOp::Cmp`, which 68020 CAS needs (subtract
+    /// flags with X preserved).
+    pub fn exec_alu(&mut self, op: AluOp, src: u32, dst: u32, size: Size) -> u32 {
         let mask = size.mask();
         let s = src & mask;
         let d = dst & mask;

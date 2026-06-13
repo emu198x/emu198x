@@ -263,6 +263,15 @@ pub const TAG_V_CHK2_LOWER: u8 = 114;
 /// (leaving N/V/X), and on CHK2 trap vector 6 if out of bounds.
 pub const TAG_V_CHK2_UPPER: u8 = 115;
 
+/// 68020+ CAS: the destination operand has been read from `[EA]` into
+/// `self.data`. Compare it with Dc (subtract flags, X preserved); on
+/// equal, queue the write of Du to `[EA]`; on not-equal, load the read
+/// value into Dc.
+pub const TAG_V_CAS_COMPARE: u8 = 116;
+/// 68020+ CAS: the conditional write of Du to `[EA]` has completed —
+/// end the instruction.
+pub const TAG_V_CAS_WRITE_DONE: u8 = 117;
+
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum State {
@@ -1299,7 +1308,10 @@ impl Cpu68000 {
     }
 
     /// Queue write micro-ops for the given size at the current EA address.
-    pub(crate) fn queue_write_ops(&mut self, size: Size) {
+    ///
+    /// Public so variant crates can stage a memory write-back (e.g. 68020
+    /// CAS writing the update register on a successful compare).
+    pub fn queue_write_ops(&mut self, size: Size) {
         match size {
             Size::Byte => self.micro_ops.push(MicroOp::WriteByte),
             Size::Word => self.micro_ops.push(MicroOp::WriteWord),

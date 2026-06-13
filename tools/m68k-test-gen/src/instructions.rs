@@ -647,6 +647,28 @@ pub fn catalogue(cpu_type: u32) -> Vec<InstructionDef> {
         });
     }
 
+    // CAS ($0AC0/$0CC0/$0EC0 + ss). Layout: opcode, spec word (Dc in
+    // bits 2-0, Du in bits 8-6), then EA ext words. Reads the destination
+    // at [EA], compares with Dc; on equal writes Du back, else loads the
+    // read value into Dc. Flags = dest - Dc (CMP semantics). With random
+    // registers the compare almost always mismatches, so the corpus
+    // mainly exercises the flag + Dc-load + write-suppressed path; the
+    // equal/write path is covered by hand tests. (A0) form only.
+    // M68000PRM § 6.2.3.
+    for &(name, opcode, size) in &[
+        ("CAS.b_ind", 0x0AD0u16, 1u8), // CAS.B (A0)
+        ("CAS.w_ind", 0x0CD0, 2),
+        ("CAS.l_ind", 0x0ED0, 4),
+    ] {
+        defs.push(InstructionDef {
+            name,
+            opcode,
+            ext_words: 1,
+            setup: InstructionSetup::ImmMemoryEA { imm_words: 1, size },
+            min_cpu: m68020,
+        });
+    }
+
     // PACK / UNPK register forms (Dy,Dx,#adj). Opcode bakes D0,D0; the
     // adjustment is the (random) extension word. M68000PRM § 6.2.27.
     defs.push(InstructionDef {

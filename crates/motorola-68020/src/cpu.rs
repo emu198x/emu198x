@@ -225,6 +225,16 @@ pub fn decode_68020_opcode(cpu: &mut Cpu68000, opcode: u16) -> bool {
         return execute_chk2_cmp2(cpu, opcode);
     }
 
+    // CAS (`0000 1ss0 11 mmmrrr` + ext word): atomic compare-and-swap.
+    // ss in bits 10-9 (01=byte, 10=word, 11=long); opcode bit 11 = 1
+    // separates it from CHK2/CMP2 (bit 11 = 0). CAS.B/W arrive via the
+    // size-3 immediate-group routing, CAS.L via the core's $0EC0 arm.
+    // The CAS2 encoding (EA = 111 100, immediate) shares this mask and
+    // is handled separately (deferred).
+    if (opcode & 0xF9C0) == 0x08C0 {
+        return execute_cas(cpu, opcode);
+    }
+
     // MOVEC ($4E7A / $4E7B): intercepted at the 68020 layer so the
     // 68020-additional control registers (CACR / CAAR / MSP / ISP)
     // resolve before falling through to the 68010 hook for the
@@ -503,6 +513,88 @@ fn sign_extend(masked: u32, size: motorola_68000::alu::Size) -> i32 {
         motorola_68000::alu::Size::Byte => masked as u8 as i8 as i32,
         motorola_68000::alu::Size::Word => masked as u16 as i16 as i32,
         motorola_68000::alu::Size::Long => masked as i32,
+    }
+}
+
+/// CAS (`0000 1ss0 11 mmmrrr` + extension word): atomic compare-and-swap.
+/// Reads the destination at the effective address, compares it with the
+/// compare register Dc (extension bits 2-0), and:
+///
+/// - if equal: writes the update register Du (extension bits 8-6) back
+///   to the effective address;
+/// - if not equal: loads the read value into Dc.
+///
+/// Flags are the result of the comparison `dest - Dc` (subtract flags,
+/// X preserved — the same as CMP). M68000PRM § 6.2.3.
+///
+/// Only memory alterable modes are valid; the immediate EA (`111 100`)
+/// is the CAS2 marker and is deferred. Other invalid modes take ILLEGAL.
+fn execute_cas(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let size = match (opcode >> 9) & 3 {
+        1 => motorola_68000::alu::Size::Byte,
+        2 => motorola_68000::alu::Size::Word,
+        3 => motorola_68000::alu::Size::Long,
+        _ => {
+            cpu.begin_group1_exception(4, cpu.instr_start_pc);
+            return true;
+        }
+    };
+    let ext = cpu.consume_irc();
+    let ea_mode = ((opcode >> 3) & 7) as u8;
+    let ea_reg = (opcode & 7) as u8;
+
+    // CAS2 marker (immediate EA) — deferred. Memory alterable modes only:
+    // (An), (An)+, -(An), (d16,An), (d8,An,Xn), abs.
+    let alterable = match ea_mode {
+        2..=6 => true,
+        7 => matches!(ea_reg, 0 | 1),
+        _ => false,
+    };
+    if !alterable {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    }
+
+    cpu.variant_ext_word = ext;
+    cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+    cpu.size = size;
+    cpu.in_followup = true;
+    cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+    cpu.continue_instruction();
+    true
+}
+
+/// Finish CAS once the destination has been read into `self.data`.
+/// Computes the comparison flags, then either writes Du back (equal) or
+/// loads the read value into Dc (not equal). Returns `true` when a write
+/// was queued (the caller must not end the instruction yet).
+fn finish_cas(cpu: &mut Cpu68000) -> bool {
+    let ext = cpu.variant_ext_word;
+    let size = cpu.size;
+    let dc = (ext & 7) as usize;
+    let du = ((ext >> 6) & 7) as usize;
+    let dest = cpu.data;
+    let compare = cpu.regs.d[dc];
+
+    // Flags = dest - Dc, with X preserved (CMP semantics).
+    cpu.exec_alu(motorola_68000::cpu::AluOp::Cmp, compare, dest, size);
+
+    if cpu.regs.sr & Z != 0 {
+        // Equal: write Du back to [EA]. `cpu.addr` still holds the EA;
+        // the write micro-ops mask `cpu.data` to size.
+        cpu.data = cpu.regs.d[du];
+        cpu.followup_tag = TAG_V_CAS_WRITE_DONE;
+        cpu.queue_write_ops(size);
+        cpu.micro_ops.push(MicroOp::Execute);
+        true
+    } else {
+        // Not equal: load the read value's low `size` bits into Dc.
+        cpu.regs.d[dc] = match size {
+            motorola_68000::alu::Size::Byte => (compare & 0xFFFF_FF00) | (dest & 0xFF),
+            motorola_68000::alu::Size::Word => (compare & 0xFFFF_0000) | (dest & 0xFFFF),
+            motorola_68000::alu::Size::Long => dest,
+        };
+        false
     }
 }
 
@@ -1043,8 +1135,8 @@ fn execute_bf(cpu: &mut Cpu68000, opcode: u16) -> bool {
 
 use motorola_68000::cpu::{
     TAG_BF_MEM_EA_ABSLONG_LO, TAG_BF_MEM_EA_RESOLVE, TAG_BF_MEM_EXEC, TAG_BF_MEM_READ,
-    TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER,
-    TAG_V_MULDIV_MEM_EXEC,
+    TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_CAS_COMPARE, TAG_V_CAS_WRITE_DONE,
+    TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
@@ -1227,6 +1319,31 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
             if cpu.exc_vector.is_none() {
                 cpu.in_followup = false;
             }
+            true
+        }
+        // CAS: the EA pipeline has resolved the destination address and
+        // reached TAG_FETCH_SRC_DATA. CAS opcodes are bit 11 = 1 of the
+        // size-3 immediate group ($08C0 mask); the guard separates them
+        // from CHK2/CMP2 (bit 11 = 0). Read the destination operand, then
+        // compare-and-swap at TAG_V_CAS_COMPARE.
+        TAG_FETCH_SRC_DATA if (cpu.ir & 0xF9C0) == 0x08C0 => {
+            cpu.followup_tag = TAG_V_CAS_COMPARE;
+            cpu.queue_read_ops(cpu.size);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_V_CAS_COMPARE => {
+            // `finish_cas` returns true when it queued the Du write-back
+            // (instruction continues to TAG_V_CAS_WRITE_DONE); false when
+            // the compare failed and Dc was loaded (instruction ends).
+            if !finish_cas(cpu) {
+                cpu.in_followup = false;
+            }
+            true
+        }
+        TAG_V_CAS_WRITE_DONE => {
+            cpu.in_followup = false;
+            cpu.followup_tag = 0;
             true
         }
         TAG_V_MULDIV_MEM_EXEC => {
