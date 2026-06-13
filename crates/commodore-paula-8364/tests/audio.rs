@@ -55,6 +55,50 @@ fn audio_register_writes_to_missing_channel_are_dropped_safely() {
 }
 
 // ────────────────────────────────────────────────────────────────
+// 6-bit volume DAC (#38)
+// ────────────────────────────────────────────────────────────────
+
+#[test]
+fn channel_volume_scales_output_linearly_across_the_6_bit_range() {
+    // Paula's volume is a clean 6-bit multiply (0..64), not a coarse PWM
+    // approximation: the mixed output is linearly proportional to
+    // AUDxVOL and saturates at 64 — the same `sample * audvol` model
+    // vAmiga and WinUAE use. This is the "6-bit volume" half of #38;
+    // the period-driven sample-and-hold resampling (the other half) is
+    // exercised by `audx_per_below_minimum_clamps_byte_duration_*`.
+    fn output_at_volume(vol: u16) -> f32 {
+        let mut p = Paula8364::new();
+        p.write_audio(0, AudioField::LcHi, 0);
+        p.write_audio(0, AudioField::LcLo, 0x1000);
+        p.write_audio(0, AudioField::Len, 1);
+        p.write_audio(0, AudioField::Vol, vol);
+        let sample = |_: u32| 0x7F; // +127 in both bytes
+        // Drive past the DMA startup waits until playback begins.
+        for _ in 0..8 {
+            p.tick_audio_cck(DMA_MASTER | DMA_AUD0, Some(0), sample);
+        }
+        p.mix_audio_stereo().0 // channel 0 → left
+    }
+
+    let full = output_at_volume(64);
+    let half = output_at_volume(32);
+    let zero = output_at_volume(0);
+    let over = output_at_volume(80); // > 64 clamps to 64
+
+    assert!(full > 0.4, "full volume produces output; got {full}");
+    assert!(zero.abs() < 1e-6, "zero volume is silent; got {zero}");
+    assert!(
+        (half / full - 0.5).abs() < 0.02,
+        "volume 32 is half of volume 64; got ratio {}",
+        half / full
+    );
+    assert!(
+        (over - full).abs() < 1e-6,
+        "volume above 64 clamps to 64; over={over} full={full}"
+    );
+}
+
+// ────────────────────────────────────────────────────────────────
 // AUDxPER minimum period clamp
 // ────────────────────────────────────────────────────────────────
 
