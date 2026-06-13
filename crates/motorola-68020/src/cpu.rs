@@ -349,28 +349,47 @@ fn execute_unpk(cpu: &mut Cpu68000, opcode: u16) -> bool {
 //   bits 2-0: Dh  — high register (64-bit form) or remainder
 //                   register when Dh ≠ Dl on 32-bit DIVx.L
 
-/// Read the source operand for MULL / DIVL. Today only Dn-source
-/// (mode 0) is implemented — memory EAs need the multi-step
-/// continuation pipeline and are deferred to a later phase.
-fn read_mull_divl_source(cpu: &Cpu68000, opcode: u16) -> Option<u32> {
-    let ea_mode = (opcode >> 3) & 7;
-    let ea_reg = (opcode & 7) as usize;
-    if ea_mode != 0 {
-        return None;
+/// Begin a memory-source MUL.L / DIV.L. The spec word (`ext`) is
+/// already consumed; stash it and fetch the 32-bit source operand
+/// through the shared `TAG_FETCH_SRC_*` EA pipeline. The variant
+/// continue hook reclaims `TAG_FETCH_SRC_DATA` (queues the long read)
+/// and finishes at `TAG_V_MULDIV_MEM_EXEC`. Immediate source
+/// (`#<data>`) is not handled here — it has no EA address for the
+/// long read — and takes ILLEGAL pending a follow-up.
+fn begin_muldiv_mem_source(cpu: &mut Cpu68000, opcode: u16, ext: u16) -> bool {
+    let ea_mode = ((opcode >> 3) & 7) as u8;
+    let ea_reg = (opcode & 7) as u8;
+    // Immediate (mode 7 / reg 4) — deferred.
+    if ea_mode == 7 && ea_reg == 4 {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
     }
-    Some(cpu.regs.d[ea_reg])
+    cpu.variant_ext_word = ext;
+    cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+    cpu.size = motorola_68000::alu::Size::Long;
+    cpu.in_followup = true;
+    cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+    cpu.continue_instruction();
+    true
 }
 
 /// MULU.L / MULS.L. 32×32 multiply, with 32-bit or 64-bit result
 /// depending on bit 10 of the extension word.
 fn execute_mull(cpu: &mut Cpu68000, opcode: u16) -> bool {
-    let Some(src) = read_mull_divl_source(cpu, opcode) else {
-        // Memory EA — defer.
-        cpu.begin_group1_exception(4, cpu.instr_start_pc);
-        return true;
-    };
-
     let ext = cpu.consume_irc();
+    if (opcode >> 3) & 7 == 0 {
+        // Register source — compute immediately.
+        compute_mull(cpu, ext, cpu.regs.d[(opcode & 7) as usize]);
+        return true;
+    }
+    // Memory source — fetch the operand, then compute at the
+    // continuation (TAG_V_MULDIV_MEM_EXEC).
+    begin_muldiv_mem_source(cpu, opcode, ext)
+}
+
+/// 64-bit MUL.L core. `ext` is the spec word (Dl / Dh / signed / size);
+/// `src` is the 32-bit multiplier operand (register or memory).
+fn compute_mull(cpu: &mut Cpu68000, ext: u16, src: u32) {
     let dl = ((ext >> 12) & 7) as usize;
     let dh = (ext & 7) as usize;
     let signed = (ext & 0x0800) != 0;
@@ -432,7 +451,6 @@ fn execute_mull(cpu: &mut Cpu68000, opcode: u16) -> bool {
     }
 
     cpu.regs.sr = sr;
-    true
 }
 
 /// DIVU.L / DIVS.L. Three forms (M68000PRM § 6.2.7):
@@ -448,23 +466,35 @@ fn execute_mull(cpu: &mut Cpu68000, opcode: u16) -> bool {
 /// (quotient doesn't fit in 32 bits) sets V and leaves Dq / Dr
 /// untouched.
 fn execute_divl(cpu: &mut Cpu68000, opcode: u16) -> bool {
-    let Some(src) = read_mull_divl_source(cpu, opcode) else {
-        cpu.begin_group1_exception(4, cpu.instr_start_pc);
-        return true;
-    };
-
     let ext = cpu.consume_irc();
+    if (opcode >> 3) & 7 == 0 {
+        // Register source — the instruction is 4 bytes, so the
+        // divide-by-zero trap stacks instr_start + 4.
+        compute_divl(
+            cpu,
+            ext,
+            cpu.regs.d[(opcode & 7) as usize],
+            cpu.instr_start_pc.wrapping_add(4),
+        );
+        return true;
+    }
+    begin_muldiv_mem_source(cpu, opcode, ext)
+}
+
+/// 64-bit DIV.L core. `ext` is the spec word; `src` the divisor;
+/// `next_pc` the address past the whole instruction (stacked on a
+/// divide-by-zero trap — it varies with the source mode's extension
+/// words, so the caller computes it).
+fn compute_divl(cpu: &mut Cpu68000, ext: u16, src: u32, next_pc: u32) {
     let dq = ((ext >> 12) & 7) as usize;
     let dr = (ext & 7) as usize;
     let signed = (ext & 0x0800) != 0;
     let wide = (ext & 0x0400) != 0;
 
-    // Divide-by-zero: the 68020 next-PC for a divide-by-zero trap is
-    // the address *past* the DIVL instruction (DIVL is a 4-byte
-    // instruction: opcode word + extension word).
+    // Divide-by-zero: stack the address past the whole instruction.
     if src == 0 {
-        cpu.begin_group1_exception(5, cpu.instr_start_pc.wrapping_add(4));
-        return true;
+        cpu.begin_group1_exception(5, next_pc);
+        return;
     }
 
     let dq_val = cpu.regs.d[dq];
@@ -508,7 +538,7 @@ fn execute_divl(cpu: &mut Cpu68000, opcode: u16) -> bool {
         // cleared", but the hardware (and Musashi) preserve all
         // three. The destination registers are also unchanged.
         cpu.regs.sr |= V;
-        return true;
+        return;
     }
 
     // Write remainder to Dr first, then quotient to Dq. If Dq == Dr
@@ -525,7 +555,6 @@ fn execute_divl(cpu: &mut Cpu68000, opcode: u16) -> bool {
         sr |= N;
     }
     cpu.regs.sr = sr;
-    true
 }
 
 // ─── MOVEC — 68020 control-register extensions ────────────────────
@@ -881,7 +910,7 @@ fn execute_bf(cpu: &mut Cpu68000, opcode: u16) -> bool {
 
 use motorola_68000::cpu::{
     TAG_BF_MEM_EA_ABSLONG_LO, TAG_BF_MEM_EA_RESOLVE, TAG_BF_MEM_EXEC, TAG_BF_MEM_READ,
-    TAG_BF_MEM_WRITE,
+    TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
@@ -1023,6 +1052,39 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
         }
         TAG_BF_MEM_WRITE => {
             handle_bf_mem_write(cpu);
+            true
+        }
+        // Memory-source MUL.L / DIV.L: the core's EA pipeline has
+        // resolved the source EA and reached TAG_FETCH_SRC_DATA. Only
+        // MUL.L / DIV.L ($4C00 / $4C40) reach this tag via the variant
+        // path (register-source forms compute synchronously at decode),
+        // so the opcode guard uniquely identifies the case. Queue the
+        // long operand read, then finish at TAG_V_MULDIV_MEM_EXEC.
+        TAG_FETCH_SRC_DATA if (cpu.ir & 0xFF80) == 0x4C00 => {
+            cpu.followup_tag = TAG_V_MULDIV_MEM_EXEC;
+            cpu.queue_read_ops(motorola_68000::alu::Size::Long);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_V_MULDIV_MEM_EXEC => {
+            let src = cpu.data;
+            let ext = cpu.variant_ext_word;
+            if (cpu.ir & 0xFFC0) == 0x4C00 {
+                compute_mull(cpu, ext, src);
+            } else {
+                // DIV.L: the instruction length depends on the source
+                // mode's extension words; next_pc = opcode + spec word +
+                // EA extension words.
+                let ea_ext = cpu.src_mode.map_or(0, |m| u32::from(m.ext_word_count()));
+                let next_pc = cpu.instr_start_pc.wrapping_add(4 + ea_ext * 2);
+                compute_divl(cpu, ext, src, next_pc);
+            }
+            // End the instruction — unless a divide-by-zero trap was
+            // raised, in which case `begin_group1_exception` owns
+            // in_followup and the queued exception sequence.
+            if cpu.exc_vector.is_none() {
+                cpu.in_followup = false;
+            }
             true
         }
         _ => continue_68010_opcode(cpu),

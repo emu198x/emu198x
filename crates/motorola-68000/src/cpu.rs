@@ -248,6 +248,12 @@ pub const TAG_EA_FF_AFTER_BD: u8 = 111;
 /// hand off to the source/destination data fetch.
 pub const TAG_EA_FF_INDIRECT_DONE: u8 = 112;
 
+/// 68020+ memory-source MUL.L / DIV.L: the long source operand has been
+/// read into `self.data` (via the shared `TAG_FETCH_SRC_*` EA pipeline,
+/// reclaimed by the variant continue hook). The handler runs the 64-bit
+/// multiply / divide using `variant_ext_word` (the stashed spec word).
+pub const TAG_V_MULDIV_MEM_EXEC: u8 = 113;
+
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum State {
@@ -619,6 +625,13 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub variant_icache: Option<crate::icache::ICache>,
 
+    /// Scratch slot for a variant instruction's primary extension word,
+    /// stashed across a memory-operand fetch. Used by 68020 memory-source
+    /// MUL.L / DIV.L (and future mem-operand instructions): the spec word
+    /// is read at decode, then the source operand is fetched through the
+    /// shared EA pipeline; the continuation re-reads the spec from here.
+    pub variant_ext_word: u16,
+
     /// When set, indexed and computed effective-address calculations
     /// cost the 68020's clocks instead of the 68000 model's flat 2-clock
     /// approximation. The figures are the M68020UM § 8.2.3 "Calculate
@@ -834,6 +847,7 @@ impl Cpu68000 {
             variant_constant_shift_timing: false,
             variant_icache: None,
             variant_um_ea_calc_timing: false,
+            variant_ext_word: 0,
             ae_fmt_a_step: 0,
             ae_frame_pc: 0,
             rte_fmta_step: 0,
@@ -1262,7 +1276,9 @@ impl Cpu68000 {
     }
 
     /// Queue read micro-ops for the given size at the current EA address.
-    pub(crate) fn queue_read_ops(&mut self, size: Size) {
+    /// Public so variant crates can fetch a memory operand through the
+    /// shared pipeline (e.g. the 68020 memory-source MUL.L / DIV.L).
+    pub fn queue_read_ops(&mut self, size: Size) {
         match size {
             Size::Byte => self.micro_ops.push(MicroOp::ReadByte),
             Size::Word => self.micro_ops.push(MicroOp::ReadWord),
