@@ -550,6 +550,26 @@ pub fn catalogue(cpu_type: u32) -> Vec<InstructionDef> {
         min_cpu: m68020,
     });
 
+    // TRAPcc no-operand forms ($5xFC, reg=4). Random SR exercises both
+    // the trap (vector 7) and fall-through paths. TRAPT always traps,
+    // TRAPF never, TRAPNE/TRAPEQ depend on Z. M68000PRM § 6.2.40.
+    for &(name, opcode) in &[
+        ("TRAPT", 0x50FCu16),
+        ("TRAPF", 0x51FC),
+        ("TRAPNE", 0x56FC),
+        ("TRAPEQ", 0x57FC),
+        ("TRAPCC", 0x54FC),
+        ("TRAPMI", 0x5BFC),
+    ] {
+        defs.push(InstructionDef {
+            name,
+            opcode,
+            ext_words: 0,
+            setup: InstructionSetup::Fixed,
+            min_cpu: m68020,
+        });
+    }
+
     // MULL: 32×32 multiply (register mode, D0 × D1)
     // Opcode $4C00 + extension word with register encoding.
     // Extension word: bit 11 = signed, bits 14-12 = Dh (64-bit hi), bits 2-0 = Dl
