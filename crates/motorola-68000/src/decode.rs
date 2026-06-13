@@ -26,11 +26,11 @@ use crate::cpu::{
     TAG_EXC_FETCH_VECTOR, TAG_EXC_FINISH, TAG_EXC_STACK_FORMAT, TAG_EXC_STACK_INSTR_ADDR_HI,
     TAG_EXC_STACK_INSTR_ADDR_LO, TAG_EXC_STACK_PC_HI, TAG_EXC_STACK_PC_LO, TAG_EXC_STACK_SR,
     TAG_EXECUTE, TAG_FETCH_DST_DATA, TAG_FETCH_DST_EA, TAG_FETCH_SRC_DATA, TAG_FETCH_SRC_EA,
-    TAG_JSR_EXECUTE, TAG_LINK_DISP, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA, TAG_MOVEM_STORE,
-    TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_FMT2_HI, TAG_RTE_READ_FMT2_LO,
-    TAG_RTE_READ_FMTA_STEP, TAG_RTE_READ_FORMAT, TAG_RTE_READ_PC_HI, TAG_RTE_READ_PC_LO,
-    TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO, TAG_RTS_PC_HI,
-    TAG_RTS_PC_LO, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
+    TAG_JSR_EXECUTE, TAG_LINK_DISP, TAG_LONG_BRANCH_LO, TAG_MOVEM_NEXT, TAG_MOVEM_RESOLVE_EA,
+    TAG_MOVEM_STORE, TAG_MOVEP_TRANSFER, TAG_MULDIV_EXECUTE, TAG_RTE_READ_FMT2_HI,
+    TAG_RTE_READ_FMT2_LO, TAG_RTE_READ_FMTA_STEP, TAG_RTE_READ_FORMAT, TAG_RTE_READ_PC_HI,
+    TAG_RTE_READ_PC_LO, TAG_RTE_READ_SR, TAG_RTR_READ_CCR, TAG_RTR_READ_PC_HI, TAG_RTR_READ_PC_LO,
+    TAG_RTS_PC_HI, TAG_RTS_PC_LO, TAG_STOP_WAIT, TAG_UNLK_POP_HI, TAG_UNLK_POP_LO, TAG_WRITEBACK,
 };
 use crate::microcode::MicroOp;
 
@@ -263,6 +263,19 @@ impl Cpu68000 {
             }
         }
 
+        // --- PACK / UNPK (0x8140 / 0x8180) — 68020+ only ---
+        // These sit in the OR (0x8xxx) opmode-5/6 space with EA mode
+        // bits that the general OR decode below would otherwise treat
+        // as an (illegal) OR in the Dn→EA direction. Intercept them
+        // first and route to the variant hook; the 68000/68010 take
+        // ILLEGAL (no hook), which is the correct behaviour there.
+        if (opcode & 0xF1F0) == 0x8140 || (opcode & 0xF1F0) == 0x8180 {
+            if !self.try_variant_decode(opcode) {
+                self.begin_group1_exception(4, self.instr_start_pc);
+            }
+            return;
+        }
+
         // --- ADD/SUB/CMP/EOR/AND/OR (general register-EA form) ---
         // 0xBxxx: CMP (opmodes 0-2), EOR (opmodes 4-6), CMPA (3/7).
         if matches!(opcode & 0xF000, 0xD000 | 0x9000 | 0xB000 | 0xC000 | 0x8000) {
@@ -346,9 +359,21 @@ impl Cpu68000 {
                     self.micro_ops.push(MicroOp::Execute);
                     return;
                 } else {
-                    // Scc: set byte to 0xFF or 0x00 based on condition
                     let ea_mode_bits = ((opcode >> 3) & 7) as u8;
                     let ea_reg = (opcode & 7) as u8;
+                    // Mode 111 with reg ≥ 2 (PC-relative / immediate) is
+                    // not a data-alterable Scc destination — that
+                    // encoding is the 68020 TRAPcc (reg 2/3/4) or
+                    // illegal. Route it to the variant hook, which
+                    // implements TRAPcc on the 68020+ and takes ILLEGAL
+                    // on the 68000/68010.
+                    if ea_mode_bits == 7 && ea_reg >= 2 {
+                        if !self.try_variant_decode(opcode) {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                        }
+                        return;
+                    }
+                    // Scc: set byte to 0xFF or 0x00 based on condition
                     self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
                     self.size = Size::Byte;
                     self.in_followup = true;
@@ -727,6 +752,28 @@ impl Cpu68000 {
             let cond = ((opcode >> 8) & 0x0F) as u8;
             let disp8 = (opcode & 0xFF) as i8;
             self.in_followup = true;
+
+            // 68020+ 32-bit displacement form ($FF in the 8-bit field).
+            // On the 68000/68010 $FF is a normal 8-bit branch with
+            // displacement −1, so this is gated on the variant flag. The
+            // high displacement word is already prefetched in `irc`; the
+            // low word is fetched next, then combined at
+            // TAG_LONG_BRANCH_LO. M68000PRM § 6.2.2 / 4.
+            if self.variant_long_branch && (opcode & 0xFF) == 0xFF {
+                if cond == 1 {
+                    // BSR.L: push the return address (past the 6-byte
+                    // instruction) first, then gather the displacement.
+                    self.data = self.instr_start_pc.wrapping_add(6);
+                    self.micro_ops.push(MicroOp::PushLongHi);
+                    self.micro_ops.push(MicroOp::PushLongLo);
+                }
+                // Stash the high word; fetch the low word into `irc`.
+                self.src_val = u32::from(self.irc) << 16;
+                self.micro_ops.push(MicroOp::FetchIRC);
+                self.followup_tag = TAG_LONG_BRANCH_LO;
+                self.micro_ops.push(MicroOp::Execute);
+                return;
+            }
 
             if cond == 1 {
                 // BSR: push return PC, then branch
@@ -1747,6 +1794,35 @@ impl Cpu68000 {
                 self.micro_ops.clear();
                 self.micro_ops.push(MicroOp::FetchIRC);
                 self.micro_ops.push(MicroOp::PromoteIRC);
+                self.in_followup = false;
+            }
+
+            TAG_LONG_BRANCH_LO => {
+                // Combine the stashed high word (in `src_val`'s upper
+                // half) with the low word just prefetched into `irc`.
+                // The displacement is relative to instr_start + 2 (the
+                // address of the first displacement word), the same base
+                // as the 8/16-bit forms.
+                let disp = (self.src_val | u32::from(self.irc)) as i32;
+                let cond = ((self.ir >> 8) & 0x0F) as u8;
+                let target = self
+                    .instr_start_pc
+                    .wrapping_add(2)
+                    .wrapping_add(disp as u32);
+                // cond == 1 is BSR.L (always branches; the return push
+                // was queued at decode). Otherwise BRA.L (cond 0) / Bcc.L
+                // honour the condition.
+                if cond == 1 || self.check_condition(cond) {
+                    self.regs.pc = target;
+                    self.next_fetch_addr = target;
+                    self.micro_ops.clear();
+                    self.micro_ops.push(MicroOp::FetchIRC);
+                    self.micro_ops.push(MicroOp::PromoteIRC);
+                } else {
+                    // Not taken: advance the prefetch past the low
+                    // displacement word to the next instruction.
+                    self.micro_ops.push(MicroOp::FetchIRC);
+                }
                 self.in_followup = false;
             }
 

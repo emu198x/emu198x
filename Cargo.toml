@@ -196,6 +196,12 @@ members = [
     "crates/zilog-z80-ctc",
 ]
 
+# Standalone dev tool that compiles Musashi (C) in its build.rs. Kept
+# out of the workspace so `cargo build/clippy --workspace` (and CI,
+# notably the Windows runner) never tries to build the C dependency.
+# Build/run it explicitly via its own manifest path.
+exclude = ["tools/m68k-test-gen"]
+
 [workspace.package]
 edition = "2024"
 version = "0.2.0"

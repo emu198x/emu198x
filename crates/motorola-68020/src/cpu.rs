@@ -104,6 +104,11 @@ impl Cpu68020 {
         // (d8,An,Xn) = 4, full-format base+index = 6, predecrement = 2
         // (#41 Phase 4). The 68000/68010 keep the flat 2.
         self.inner.variant_um_ea_calc_timing = true;
+
+        // Bcc/BSR/BRA decode the 32-bit displacement form ($FF in the
+        // 8-bit field). On the 68000/68010 that is a normal 8-bit branch
+        // with displacement −1, so it must be a core flag (#114).
+        self.inner.variant_long_branch = true;
     }
 
     /// Borrow the wrapped 68010 core.
@@ -200,6 +205,56 @@ pub fn decode_68020_opcode(cpu: &mut Cpu68000, opcode: u16) -> bool {
         return execute_bf(cpu, opcode);
     }
 
+    // PACK ($8140) / UNPK ($8180): the core routes these here. Bit 3
+    // selects register (0) or memory predecrement (1) operands.
+    if (opcode & 0xF1F0) == 0x8140 {
+        return execute_pack(cpu, opcode);
+    }
+    if (opcode & 0xF1F0) == 0x8180 {
+        return execute_unpk(cpu, opcode);
+    }
+
+    // TRAPcc ($50F8 / $50FA / $50FC + cc): the core routes the Scc
+    // sub-encoding mode 111 / reg ≥ 2 here. Reg 2/3/4 select the
+    // word-operand / long-operand / no-operand forms.
+    if (opcode & 0xF0F8) == 0x50F8 {
+        return execute_trapcc(cpu, opcode);
+    }
+
+    // CHK2 / CMP2 (`0000 0ss0 11 mmmrrr`): the core routes the size-3
+    // immediate group's `11` sub-encoding here. Bit 11 of the *extension*
+    // word selects CHK2 (1) vs CMP2 (0); the opcode's bit 11 is 0 — which
+    // separates this from CAS (`0000 1ss0 11 …`, bit 11 = 1) that shares
+    // the same routing. ss in bits 10-9 is the operand size.
+    if (opcode & 0xF9C0) == 0x00C0 {
+        return execute_chk2_cmp2(cpu, opcode);
+    }
+
+    // CAS (`0000 1ss0 11 mmmrrr` + ext word): atomic compare-and-swap.
+    // ss in bits 10-9 (01=byte, 10=word, 11=long); opcode bit 11 = 1
+    // separates it from CHK2/CMP2 (bit 11 = 0). CAS.B/W arrive via the
+    // size-3 immediate-group routing, CAS.L via the core's $0EC0 arm.
+    // The CAS2 encoding (EA = 111 100, immediate) shares this mask and
+    // is handled separately (deferred).
+    if (opcode & 0xF9C0) == 0x08C0 {
+        return execute_cas(cpu, opcode);
+    }
+
+    // CALLM / RTM ($06C0-$06FF): the 68020 module-call mechanism
+    // (descriptor-based call/return with external access-control
+    // hardware). Deliberately unimplemented — take the illegal-
+    // instruction exception, matching WinUAE, Musashi, and the 68030+
+    // (which dropped these opcodes entirely). No oracle exists to
+    // validate a faithful implementation against, no Amiga software uses
+    // them, and Type-1 module calls need access-control hardware no Amiga
+    // has. See knowledge/decisions/callm-rtm-illegal.md. (These already
+    // fall through to the illegal path; this arm makes the choice
+    // explicit and is pinned by tests/callm_rtm.rs.)
+    if (opcode & 0xFFC0) == 0x06C0 {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    }
+
     // MOVEC ($4E7A / $4E7B): intercepted at the 68020 layer so the
     // 68020-additional control registers (CACR / CAAR / MSP / ISP)
     // resolve before falling through to the 68010 hook for the
@@ -236,6 +291,91 @@ fn execute_extb_l(cpu: &mut Cpu68000, opcode: u16) -> bool {
     true
 }
 
+/// TRAPcc (`$50F8` / `$50FA` / `$50FC` + cc): conditionally take the
+/// TRAPcc exception (vector 7) based on the condition field in bits
+/// 11-8. The optional operand is *not* used as data — it follows the
+/// opcode purely so the trap handler can find it via the stacked PC —
+/// so the instruction only steps the prefetch past it. 68020+ only;
+/// M68000PRM § 6.2.40. The reg field selects the operand size:
+///
+///   reg 2 (`$50FA`): one word operand
+///   reg 3 (`$50FB`→`$50FC`-1): one long operand  ← encoded as reg 3
+///   reg 4 (`$50FC`): no operand
+///
+/// Reg 5/6/7 are not defined for TRAPcc and take ILLEGAL.
+fn execute_trapcc(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let operand_words: u32 = match opcode & 7 {
+        2 => 1, // TRAPcc.W — one extension word
+        3 => 2, // TRAPcc.L — two extension words
+        4 => 0, // TRAPcc   — no operand
+        _ => {
+            cpu.begin_group1_exception(4, cpu.instr_start_pc);
+            return true;
+        }
+    };
+
+    // Step the prefetch past the operand words. Each `consume_irc`
+    // queues one FetchIRC; the values are discarded (the operand is not
+    // data). On the not-taken path this leaves IRC pointing at the next
+    // instruction; on the taken path `begin_group1_exception` clears
+    // the queue, so the skip is harmless.
+    for _ in 0..operand_words {
+        cpu.consume_irc();
+    }
+
+    let cond = ((opcode >> 8) & 0x0F) as u8;
+    if cpu.check_condition(cond) {
+        // Stacked PC points past the whole instruction (opcode +
+        // operand). The Format-$2 frame also captures instr_start_pc as
+        // the Instruction Address (handled in begin_group1_exception).
+        let next_pc = cpu.instr_start_pc.wrapping_add(2 + operand_words * 2);
+        cpu.begin_group1_exception(7, next_pc);
+    }
+    true
+}
+
+/// PACK (`$8140` + adjustment word): take the 16-bit source, add the
+/// immediate adjustment, then pack the two BCD digits at bits [11:8]
+/// and [3:0] into one byte. M68000PRM § 6.2.27. No flags affected.
+///
+/// Register form (`Dy,Dx`) only for now; the rare `-(Ay),-(Ax)` memory
+/// form (bit 3 set) needs the predecrement byte pipeline and is a noted
+/// follow-up — it takes ILLEGAL until then.
+fn execute_pack(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    if opcode & 0x08 != 0 {
+        // Memory predecrement form — deferred. TODO(#114): implement
+        // the -(Ay),-(Ax) byte pipeline (two reads → pack → one write).
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    }
+    let adj = cpu.consume_irc();
+    let src_reg = (opcode & 7) as usize;
+    let dst_reg = ((opcode >> 9) & 7) as usize;
+    let src = (cpu.regs.d[src_reg] as u16).wrapping_add(adj);
+    let packed = (((src & 0x0F00) >> 4) | (src & 0x000F)) as u8;
+    cpu.regs.d[dst_reg] = (cpu.regs.d[dst_reg] & 0xFFFF_FF00) | u32::from(packed);
+    true
+}
+
+/// UNPK (`$8180` + adjustment word): take the source byte, spread its
+/// two nibbles to bits [11:8] and [3:0], then add the immediate
+/// adjustment. M68000PRM § 6.2.27. No flags affected. Register form
+/// (`Dy,Dx`) only; the memory form is a noted follow-up (see PACK).
+fn execute_unpk(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    if opcode & 0x08 != 0 {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    }
+    let adj = cpu.consume_irc();
+    let src_reg = (opcode & 7) as usize;
+    let dst_reg = ((opcode >> 9) & 7) as usize;
+    let src = (cpu.regs.d[src_reg] & 0xFF) as u16;
+    let unpacked = ((src & 0x00F0) << 4) | (src & 0x000F);
+    let result = unpacked.wrapping_add(adj);
+    cpu.regs.d[dst_reg] = (cpu.regs.d[dst_reg] & 0xFFFF_0000) | u32::from(result);
+    true
+}
+
 // ─── MULL / DIVL helpers ───────────────────────────────────────────
 //
 // Extension word format (M68000PRM § 6.2.5 / 6.2.7):
@@ -248,28 +388,358 @@ fn execute_extb_l(cpu: &mut Cpu68000, opcode: u16) -> bool {
 //   bits 2-0: Dh  — high register (64-bit form) or remainder
 //                   register when Dh ≠ Dl on 32-bit DIVx.L
 
-/// Read the source operand for MULL / DIVL. Today only Dn-source
-/// (mode 0) is implemented — memory EAs need the multi-step
-/// continuation pipeline and are deferred to a later phase.
-fn read_mull_divl_source(cpu: &Cpu68000, opcode: u16) -> Option<u32> {
-    let ea_mode = (opcode >> 3) & 7;
-    let ea_reg = (opcode & 7) as usize;
-    if ea_mode != 0 {
-        return None;
+/// Begin a memory-source MUL.L / DIV.L. The spec word (`ext`) is
+/// already consumed; stash it and fetch the 32-bit source operand
+/// through the shared `TAG_FETCH_SRC_*` EA pipeline. The variant
+/// continue hook reclaims `TAG_FETCH_SRC_DATA` (queues the long read)
+/// and finishes at `TAG_V_MULDIV_MEM_EXEC`. Immediate source
+/// (`#<data>`) is not handled here — it has no EA address for the
+/// long read — and takes ILLEGAL pending a follow-up.
+fn begin_muldiv_mem_source(cpu: &mut Cpu68000, opcode: u16, ext: u16) -> bool {
+    let ea_mode = ((opcode >> 3) & 7) as u8;
+    let ea_reg = (opcode & 7) as u8;
+    // Immediate (mode 7 / reg 4) — deferred.
+    if ea_mode == 7 && ea_reg == 4 {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
     }
-    Some(cpu.regs.d[ea_reg])
+    cpu.variant_ext_word = ext;
+    cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+    cpu.size = motorola_68000::alu::Size::Long;
+    cpu.in_followup = true;
+    cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+    cpu.continue_instruction();
+    true
+}
+
+/// CHK2 / CMP2 (`0000 0ss0 11 mmmrrr` + extension word). Compares a
+/// register against a pair of bounds held in memory at the effective
+/// address: the lower bound at `[EA]` and the upper at `[EA + size]`.
+/// The extension word holds bit 15 = D/A (register file), bits 14-12 =
+/// register number, bit 11 = CHK2 (1) / CMP2 (0).
+///
+/// CMP2 only sets the flags; CHK2 additionally traps vector 6 when the
+/// register is out of bounds. Both reads happen through the shared
+/// memory-operand pipeline: this sets up the EA fetch, the core reaches
+/// `TAG_FETCH_SRC_DATA`, and the continue hook chains the two bound
+/// reads (`TAG_V_CHK2_LOWER` → `TAG_V_CHK2_UPPER`) before computing.
+///
+/// Only control addressing modes are valid (M68000PRM § 6.2.2); other
+/// modes take ILLEGAL.
+fn execute_chk2_cmp2(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let Some(size) = motorola_68000::alu::Size::from_bits((opcode >> 9) as u8) else {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    };
+    let ext = cpu.consume_irc();
+    let ea_mode = ((opcode >> 3) & 7) as u8;
+    let ea_reg = (opcode & 7) as u8;
+
+    // Control modes only: (An), (d16,An), (d8,An,Xn), abs, (d16,PC),
+    // (d8,PC,Xn). Reject Dn / An / (An)+ / -(An) / immediate.
+    let control = match ea_mode {
+        2 | 5 | 6 => true,
+        7 => matches!(ea_reg, 0..=3),
+        _ => false,
+    };
+    if !control {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    }
+
+    cpu.variant_ext_word = ext;
+    cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+    cpu.size = size;
+    cpu.in_followup = true;
+    cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+    cpu.continue_instruction();
+    true
+}
+
+/// Finish CHK2 / CMP2 once both bounds have been read. `src_val` holds
+/// the raw lower bound, `self.data` the raw upper bound, and
+/// `variant_ext_word` the spec word. Sets Z and C (leaving N/V/X), and
+/// on CHK2 traps vector 6 when the register is out of bounds.
+///
+/// Matches Musashi (`m68k_in.c`): the compare value is the register
+/// masked to the operand size, sign-extended only for data registers —
+/// address registers keep the masked (zero-extended) value, Musashi's
+/// quirk. The bounds are always read as signed. Z is set when the
+/// register equals either bound; C marks out-of-range, handling the
+/// `lower > upper` (wrapped range) case.
+fn compute_chk2_cmp2(cpu: &mut Cpu68000) {
+    let ext = cpu.variant_ext_word;
+    let size = cpu.size;
+    let reg_idx = ((ext >> 12) & 0x0F) as usize;
+    let is_chk2 = (ext & 0x0800) != 0;
+    let is_addr = (ext & 0x8000) != 0;
+
+    let raw_reg = if is_addr {
+        cpu.regs.a(reg_idx & 7)
+    } else {
+        cpu.regs.d[reg_idx & 7]
+    };
+
+    // Compare value: mask to size, then sign-extend for data registers
+    // only (Musashi leaves An zero-extended).
+    let masked = raw_reg & size_mask(size);
+    let compare: i32 = if is_addr {
+        masked as i32
+    } else {
+        sign_extend(masked, size)
+    };
+
+    let lower = sign_extend(cpu.src_val & size_mask(size), size);
+    let upper = sign_extend(cpu.data & size_mask(size), size);
+
+    let z = compare == lower || compare == upper;
+    // Musashi guards this with `lower <= upper ? … : …`, but both ternary
+    // branches reduce to the same expression by commutativity of `||`
+    // (`m68k_in.c` chk2cmp2) — so out-of-range is simply "below the lower
+    // bound or above the upper bound", with no special wrapped-range case.
+    let c = compare < lower || compare > upper;
+
+    let mut sr = cpu.regs.sr & !(Z | C);
+    if z {
+        sr |= Z;
+    }
+    if c {
+        sr |= C;
+    }
+    cpu.regs.sr = sr;
+
+    // CHK2 traps vector 6 (CHK/CHK2) when out of bounds. next_pc is the
+    // address past the whole instruction: opcode + spec word + EA
+    // extension words.
+    if is_chk2 && c {
+        let ea_ext = cpu.src_mode.map_or(0, |m| u32::from(m.ext_word_count()));
+        let next_pc = cpu.instr_start_pc.wrapping_add(4 + ea_ext * 2);
+        cpu.begin_group1_exception(6, next_pc);
+    }
+}
+
+/// Size mask for a value: 0xFF / 0xFFFF / 0xFFFFFFFF.
+fn size_mask(size: motorola_68000::alu::Size) -> u32 {
+    match size {
+        motorola_68000::alu::Size::Byte => 0xFF,
+        motorola_68000::alu::Size::Word => 0xFFFF,
+        motorola_68000::alu::Size::Long => 0xFFFF_FFFF,
+    }
+}
+
+/// Sign-extend a size-masked value to a signed 32-bit integer.
+fn sign_extend(masked: u32, size: motorola_68000::alu::Size) -> i32 {
+    match size {
+        motorola_68000::alu::Size::Byte => masked as u8 as i8 as i32,
+        motorola_68000::alu::Size::Word => masked as u16 as i16 as i32,
+        motorola_68000::alu::Size::Long => masked as i32,
+    }
+}
+
+/// CAS (`0000 1ss0 11 mmmrrr` + extension word): atomic compare-and-swap.
+/// Reads the destination at the effective address, compares it with the
+/// compare register Dc (extension bits 2-0), and:
+///
+/// - if equal: writes the update register Du (extension bits 8-6) back
+///   to the effective address;
+/// - if not equal: loads the read value into Dc.
+///
+/// Flags are the result of the comparison `dest - Dc` (subtract flags,
+/// X preserved — the same as CMP). M68000PRM § 6.2.3.
+///
+/// Only memory alterable modes are valid; the immediate EA (`111 100`)
+/// is the CAS2 marker and is deferred. Other invalid modes take ILLEGAL.
+fn execute_cas(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let ea_mode = ((opcode >> 3) & 7) as u8;
+    let ea_reg = (opcode & 7) as u8;
+
+    // The immediate EA (`111 100`) is the CAS2 marker, not a real EA —
+    // route the dual-address form before consuming the extension word
+    // (CAS2 gathers a 32-bit spec from both following words).
+    if ea_mode == 7 && ea_reg == 4 {
+        return execute_cas2(cpu, opcode);
+    }
+
+    let size = match (opcode >> 9) & 3 {
+        1 => motorola_68000::alu::Size::Byte,
+        2 => motorola_68000::alu::Size::Word,
+        3 => motorola_68000::alu::Size::Long,
+        _ => {
+            cpu.begin_group1_exception(4, cpu.instr_start_pc);
+            return true;
+        }
+    };
+    let ext = cpu.consume_irc();
+
+    // Memory alterable modes only: (An), (An)+, -(An), (d16,An),
+    // (d8,An,Xn), abs.
+    let alterable = match ea_mode {
+        2..=6 => true,
+        7 => matches!(ea_reg, 0 | 1),
+        _ => false,
+    };
+    if !alterable {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    }
+
+    cpu.variant_ext_word = ext;
+    cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+    cpu.size = size;
+    cpu.in_followup = true;
+    cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+    cpu.continue_instruction();
+    true
+}
+
+/// Index the data/address register file by a 4-bit field (0-7 = D0-D7,
+/// 8-15 = A0-A7), matching Musashi's `REG_DA`.
+fn reg_da(cpu: &Cpu68000, idx: u32) -> u32 {
+    let idx = (idx & 15) as usize;
+    if idx < 8 {
+        cpu.regs.d[idx]
+    } else {
+        cpu.regs.a(idx - 8)
+    }
+}
+
+/// CAS2 (`$0CFC` / `$0EFC` + two extension words): dual-address atomic
+/// compare-and-swap. Two register-held pointers Rn1/Rn2 address the
+/// destinations; each is compared with its compare register Dc1/Dc2.
+/// If *both* match, Du1/Du2 are written back; otherwise both read values
+/// are loaded into Dc1/Dc2. M68000PRM § 6.2.4.
+///
+/// The 32-bit spec word (both extension words) packs, per 16-bit half:
+/// bit 15 = D/A of Rn, bits 14-12 = Rn number, bits 8-6 = Du, bits 2-0 =
+/// Dc. The high half describes operand 1, the low half operand 2.
+///
+/// The flags reflect the operand-1 comparison, or operand-2's if
+/// operand 1 matched (Musashi `m68k_in.c` cas2). Word/long only.
+fn execute_cas2(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let size = match (opcode >> 9) & 3 {
+        2 => motorola_68000::alu::Size::Word,
+        3 => motorola_68000::alu::Size::Long,
+        _ => {
+            cpu.begin_group1_exception(4, cpu.instr_start_pc);
+            return true;
+        }
+    };
+    cpu.size = size;
+    // Extension word 1 is prefetched in `irc`; stash it in the high half
+    // of `src_val` and fetch extension word 2.
+    cpu.src_val = u32::from(cpu.irc) << 16;
+    cpu.in_followup = true;
+    cpu.micro_ops.push(MicroOp::FetchIRC);
+    cpu.followup_tag = TAG_V_CAS2_GATHER;
+    cpu.micro_ops.push(MicroOp::Execute);
+    true
+}
+
+/// Compute the CAS2 result once both destinations are read. Sets the
+/// comparison flags and returns `true` when both compares matched (the
+/// caller must write Du1/Du2 back); on a mismatch it loads both read
+/// values into Dc1/Dc2 here and returns `false`.
+fn finish_cas2(cpu: &mut Cpu68000, word2: u32, dest1: u32, dest2: u32) -> bool {
+    let size = cpu.size;
+    let dc1 = ((word2 >> 16) & 7) as usize;
+    let dc2 = (word2 & 7) as usize;
+    let cmp = motorola_68000::cpu::AluOp::Cmp;
+
+    // Flags from dest1 - Dc1; if equal, recompute from dest2 - Dc2 (so
+    // the final flags reflect operand 2 when operand 1 matched).
+    cpu.exec_alu(cmp, cpu.regs.d[dc1], dest1, size);
+    let both_eq = if cpu.regs.sr & Z != 0 {
+        cpu.exec_alu(cmp, cpu.regs.d[dc2], dest2, size);
+        cpu.regs.sr & Z != 0
+    } else {
+        false
+    };
+
+    if both_eq {
+        return true;
+    }
+
+    // Mismatch: load both read values into the compare registers. The
+    // sign-extend-vs-preserve choice uses the operand's Rn D/A bit
+    // (bit 31 for operand 1, bit 15 for operand 2) — Musashi's quirk.
+    load_cas2_compare(cpu, dc1, dest1, size, word2 & 0x8000_0000 != 0);
+    load_cas2_compare(cpu, dc2, dest2, size, word2 & 0x0000_8000 != 0);
+    false
+}
+
+/// Load a CAS2 read value into a compare data register on a mismatch.
+/// Long replaces the whole register; word either sign-extends (when the
+/// operand's Rn D/A bit is set) or replaces just the low word.
+fn load_cas2_compare(
+    cpu: &mut Cpu68000,
+    dc: usize,
+    dest: u32,
+    size: motorola_68000::alu::Size,
+    da: bool,
+) {
+    match size {
+        motorola_68000::alu::Size::Long => cpu.regs.d[dc] = dest,
+        _ => {
+            cpu.regs.d[dc] = if da {
+                dest as u16 as i16 as i32 as u32
+            } else {
+                (cpu.regs.d[dc] & 0xFFFF_0000) | (dest & 0xFFFF)
+            };
+        }
+    }
+}
+
+/// Finish CAS once the destination has been read into `self.data`.
+/// Computes the comparison flags, then either writes Du back (equal) or
+/// loads the read value into Dc (not equal). Returns `true` when a write
+/// was queued (the caller must not end the instruction yet).
+fn finish_cas(cpu: &mut Cpu68000) -> bool {
+    let ext = cpu.variant_ext_word;
+    let size = cpu.size;
+    let dc = (ext & 7) as usize;
+    let du = ((ext >> 6) & 7) as usize;
+    let dest = cpu.data;
+    let compare = cpu.regs.d[dc];
+
+    // Flags = dest - Dc, with X preserved (CMP semantics).
+    cpu.exec_alu(motorola_68000::cpu::AluOp::Cmp, compare, dest, size);
+
+    if cpu.regs.sr & Z != 0 {
+        // Equal: write Du back to [EA]. `cpu.addr` still holds the EA;
+        // the write micro-ops mask `cpu.data` to size.
+        cpu.data = cpu.regs.d[du];
+        cpu.followup_tag = TAG_V_CAS_WRITE_DONE;
+        cpu.queue_write_ops(size);
+        cpu.micro_ops.push(MicroOp::Execute);
+        true
+    } else {
+        // Not equal: load the read value's low `size` bits into Dc.
+        cpu.regs.d[dc] = match size {
+            motorola_68000::alu::Size::Byte => (compare & 0xFFFF_FF00) | (dest & 0xFF),
+            motorola_68000::alu::Size::Word => (compare & 0xFFFF_0000) | (dest & 0xFFFF),
+            motorola_68000::alu::Size::Long => dest,
+        };
+        false
+    }
 }
 
 /// MULU.L / MULS.L. 32×32 multiply, with 32-bit or 64-bit result
 /// depending on bit 10 of the extension word.
 fn execute_mull(cpu: &mut Cpu68000, opcode: u16) -> bool {
-    let Some(src) = read_mull_divl_source(cpu, opcode) else {
-        // Memory EA — defer.
-        cpu.begin_group1_exception(4, cpu.instr_start_pc);
-        return true;
-    };
-
     let ext = cpu.consume_irc();
+    if (opcode >> 3) & 7 == 0 {
+        // Register source — compute immediately.
+        compute_mull(cpu, ext, cpu.regs.d[(opcode & 7) as usize]);
+        return true;
+    }
+    // Memory source — fetch the operand, then compute at the
+    // continuation (TAG_V_MULDIV_MEM_EXEC).
+    begin_muldiv_mem_source(cpu, opcode, ext)
+}
+
+/// 64-bit MUL.L core. `ext` is the spec word (Dl / Dh / signed / size);
+/// `src` is the 32-bit multiplier operand (register or memory).
+fn compute_mull(cpu: &mut Cpu68000, ext: u16, src: u32) {
     let dl = ((ext >> 12) & 7) as usize;
     let dh = (ext & 7) as usize;
     let signed = (ext & 0x0800) != 0;
@@ -331,7 +801,6 @@ fn execute_mull(cpu: &mut Cpu68000, opcode: u16) -> bool {
     }
 
     cpu.regs.sr = sr;
-    true
 }
 
 /// DIVU.L / DIVS.L. Three forms (M68000PRM § 6.2.7):
@@ -347,23 +816,35 @@ fn execute_mull(cpu: &mut Cpu68000, opcode: u16) -> bool {
 /// (quotient doesn't fit in 32 bits) sets V and leaves Dq / Dr
 /// untouched.
 fn execute_divl(cpu: &mut Cpu68000, opcode: u16) -> bool {
-    let Some(src) = read_mull_divl_source(cpu, opcode) else {
-        cpu.begin_group1_exception(4, cpu.instr_start_pc);
-        return true;
-    };
-
     let ext = cpu.consume_irc();
+    if (opcode >> 3) & 7 == 0 {
+        // Register source — the instruction is 4 bytes, so the
+        // divide-by-zero trap stacks instr_start + 4.
+        compute_divl(
+            cpu,
+            ext,
+            cpu.regs.d[(opcode & 7) as usize],
+            cpu.instr_start_pc.wrapping_add(4),
+        );
+        return true;
+    }
+    begin_muldiv_mem_source(cpu, opcode, ext)
+}
+
+/// 64-bit DIV.L core. `ext` is the spec word; `src` the divisor;
+/// `next_pc` the address past the whole instruction (stacked on a
+/// divide-by-zero trap — it varies with the source mode's extension
+/// words, so the caller computes it).
+fn compute_divl(cpu: &mut Cpu68000, ext: u16, src: u32, next_pc: u32) {
     let dq = ((ext >> 12) & 7) as usize;
     let dr = (ext & 7) as usize;
     let signed = (ext & 0x0800) != 0;
     let wide = (ext & 0x0400) != 0;
 
-    // Divide-by-zero: the 68020 next-PC for a divide-by-zero trap is
-    // the address *past* the DIVL instruction (DIVL is a 4-byte
-    // instruction: opcode word + extension word).
+    // Divide-by-zero: stack the address past the whole instruction.
     if src == 0 {
-        cpu.begin_group1_exception(5, cpu.instr_start_pc.wrapping_add(4));
-        return true;
+        cpu.begin_group1_exception(5, next_pc);
+        return;
     }
 
     let dq_val = cpu.regs.d[dq];
@@ -407,7 +888,7 @@ fn execute_divl(cpu: &mut Cpu68000, opcode: u16) -> bool {
         // cleared", but the hardware (and Musashi) preserve all
         // three. The destination registers are also unchanged.
         cpu.regs.sr |= V;
-        return true;
+        return;
     }
 
     // Write remainder to Dr first, then quotient to Dq. If Dq == Dr
@@ -424,7 +905,6 @@ fn execute_divl(cpu: &mut Cpu68000, opcode: u16) -> bool {
         sr |= N;
     }
     cpu.regs.sr = sr;
-    true
 }
 
 // ─── MOVEC — 68020 control-register extensions ────────────────────
@@ -780,7 +1260,9 @@ fn execute_bf(cpu: &mut Cpu68000, opcode: u16) -> bool {
 
 use motorola_68000::cpu::{
     TAG_BF_MEM_EA_ABSLONG_LO, TAG_BF_MEM_EA_RESOLVE, TAG_BF_MEM_EXEC, TAG_BF_MEM_READ,
-    TAG_BF_MEM_WRITE,
+    TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_CAS_COMPARE, TAG_V_CAS_WRITE_DONE,
+    TAG_V_CAS2_COMPUTE, TAG_V_CAS2_GATHER, TAG_V_CAS2_READ2, TAG_V_CAS2_WRITE_DONE,
+    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
@@ -922,6 +1404,150 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
         }
         TAG_BF_MEM_WRITE => {
             handle_bf_mem_write(cpu);
+            true
+        }
+        // Memory-source MUL.L / DIV.L: the core's EA pipeline has
+        // resolved the source EA and reached TAG_FETCH_SRC_DATA. Only
+        // MUL.L / DIV.L ($4C00 / $4C40) reach this tag via the variant
+        // path (register-source forms compute synchronously at decode),
+        // so the opcode guard uniquely identifies the case. Queue the
+        // long operand read, then finish at TAG_V_MULDIV_MEM_EXEC.
+        TAG_FETCH_SRC_DATA if (cpu.ir & 0xFF80) == 0x4C00 => {
+            cpu.followup_tag = TAG_V_MULDIV_MEM_EXEC;
+            cpu.queue_read_ops(motorola_68000::alu::Size::Long);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        // CHK2 / CMP2: the core's EA pipeline has resolved the
+        // bounds-tuple base (`cpu.addr`) and reached TAG_FETCH_SRC_DATA.
+        // Only CHK2/CMP2 ($00C0-style, bit 11 = 0) reach this tag with
+        // this opcode shape. Read the lower bound, chain to the upper.
+        TAG_FETCH_SRC_DATA if (cpu.ir & 0xF9C0) == 0x00C0 => {
+            cpu.followup_tag = TAG_V_CHK2_LOWER;
+            cpu.queue_read_ops(cpu.size);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_V_CHK2_LOWER => {
+            // Lower bound is in `cpu.data`; stash it, then read the
+            // upper bound at EA + size.
+            cpu.src_val = cpu.data;
+            cpu.addr = cpu.addr.wrapping_add(cpu.size.bytes());
+            cpu.followup_tag = TAG_V_CHK2_UPPER;
+            cpu.queue_read_ops(cpu.size);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_V_CHK2_UPPER => {
+            compute_chk2_cmp2(cpu);
+            // End the instruction — unless CHK2 raised a vector-6 trap,
+            // in which case `begin_group1_exception` owns in_followup.
+            if cpu.exc_vector.is_none() {
+                cpu.in_followup = false;
+            }
+            true
+        }
+        // CAS: the EA pipeline has resolved the destination address and
+        // reached TAG_FETCH_SRC_DATA. CAS opcodes are bit 11 = 1 of the
+        // size-3 immediate group ($08C0 mask); the guard separates them
+        // from CHK2/CMP2 (bit 11 = 0). Read the destination operand, then
+        // compare-and-swap at TAG_V_CAS_COMPARE.
+        TAG_FETCH_SRC_DATA if (cpu.ir & 0xF9C0) == 0x08C0 => {
+            cpu.followup_tag = TAG_V_CAS_COMPARE;
+            cpu.queue_read_ops(cpu.size);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_V_CAS_COMPARE => {
+            // `finish_cas` returns true when it queued the Du write-back
+            // (instruction continues to TAG_V_CAS_WRITE_DONE); false when
+            // the compare failed and Dc was loaded (instruction ends).
+            if !finish_cas(cpu) {
+                cpu.in_followup = false;
+            }
+            true
+        }
+        TAG_V_CAS_WRITE_DONE => {
+            cpu.in_followup = false;
+            cpu.followup_tag = 0;
+            true
+        }
+        // CAS2: extension word 2 is now in `irc`. Complete the 32-bit
+        // spec, advance the prefetch past it, then read the first
+        // destination at [Rn1].
+        TAG_V_CAS2_GATHER => {
+            cpu.src_val |= u32::from(cpu.irc);
+            cpu.micro_ops.push(MicroOp::FetchIRC);
+            let word2 = cpu.src_val;
+            cpu.addr = reg_da(cpu, word2 >> 28);
+            cpu.followup_tag = TAG_V_CAS2_READ2;
+            cpu.queue_read_ops(cpu.size);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_V_CAS2_READ2 => {
+            // dest1 read; stash it and read the second destination at
+            // [Rn2].
+            cpu.dst_val = cpu.data;
+            let word2 = cpu.src_val;
+            cpu.addr = reg_da(cpu, word2 >> 12);
+            cpu.followup_tag = TAG_V_CAS2_COMPUTE;
+            cpu.queue_read_ops(cpu.size);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_V_CAS2_COMPUTE => {
+            let word2 = cpu.src_val;
+            let dest1 = cpu.dst_val;
+            let dest2 = cpu.data;
+            if finish_cas2(cpu, word2, dest1, dest2) {
+                // Both matched: write Du1 to [Rn1], then Du2 to [Rn2].
+                let du1 = ((word2 >> 22) & 7) as usize;
+                cpu.addr = reg_da(cpu, word2 >> 28);
+                cpu.data = cpu.regs.d[du1];
+                cpu.followup_tag = TAG_V_CAS2_WRITE2;
+                cpu.queue_write_ops(cpu.size);
+                cpu.micro_ops.push(MicroOp::Execute);
+            } else {
+                // Mismatch: compare registers already loaded; end.
+                cpu.in_followup = false;
+            }
+            true
+        }
+        TAG_V_CAS2_WRITE2 => {
+            let word2 = cpu.src_val;
+            let du2 = ((word2 >> 6) & 7) as usize;
+            cpu.addr = reg_da(cpu, word2 >> 12);
+            cpu.data = cpu.regs.d[du2];
+            cpu.followup_tag = TAG_V_CAS2_WRITE_DONE;
+            cpu.queue_write_ops(cpu.size);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_V_CAS2_WRITE_DONE => {
+            cpu.in_followup = false;
+            cpu.followup_tag = 0;
+            true
+        }
+        TAG_V_MULDIV_MEM_EXEC => {
+            let src = cpu.data;
+            let ext = cpu.variant_ext_word;
+            if (cpu.ir & 0xFFC0) == 0x4C00 {
+                compute_mull(cpu, ext, src);
+            } else {
+                // DIV.L: the instruction length depends on the source
+                // mode's extension words; next_pc = opcode + spec word +
+                // EA extension words.
+                let ea_ext = cpu.src_mode.map_or(0, |m| u32::from(m.ext_word_count()));
+                let next_pc = cpu.instr_start_pc.wrapping_add(4 + ea_ext * 2);
+                compute_divl(cpu, ext, src, next_pc);
+            }
+            // End the instruction — unless a divide-by-zero trap was
+            // raised, in which case `begin_group1_exception` owns
+            // in_followup and the queued exception sequence.
+            if cpu.exc_vector.is_none() {
+                cpu.in_followup = false;
+            }
             true
         }
         _ => continue_68010_opcode(cpu),
@@ -1227,6 +1853,7 @@ mod tests {
         assert!(restored.variant_six_word_frame);
         assert!(restored.variant_musashi_bcd_v);
         assert!(restored.variant_musashi_div_overflow);
+        assert!(restored.variant_long_branch);
     }
 
     #[test]

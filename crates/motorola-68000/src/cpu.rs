@@ -86,6 +86,10 @@ pub const TAG_JSR_EXECUTE: u8 = 33;
 pub const TAG_JSR_JUMP: u8 = 43;
 /// BSR: branch to subroutine.
 pub const TAG_BSR_EXECUTE: u8 = 34;
+/// 68020+ Bcc.L / BSR.L / BRA.L: the high displacement word has been
+/// stashed in `src_val`'s upper half and the low word prefetched into
+/// `irc`; combine them into the 32-bit displacement and branch.
+pub const TAG_LONG_BRANCH_LO: u8 = 118;
 
 // RTS follow-ups
 /// RTS: pop PC high word.
@@ -247,6 +251,45 @@ pub const TAG_EA_FF_AFTER_BD: u8 = 111;
 /// `self.data`; apply post-indexing and the outer displacement, then
 /// hand off to the source/destination data fetch.
 pub const TAG_EA_FF_INDIRECT_DONE: u8 = 112;
+
+/// 68020+ memory-source MUL.L / DIV.L: the long source operand has been
+/// read into `self.data` (via the shared `TAG_FETCH_SRC_*` EA pipeline,
+/// reclaimed by the variant continue hook). The handler runs the 64-bit
+/// multiply / divide using `variant_ext_word` (the stashed spec word).
+pub const TAG_V_MULDIV_MEM_EXEC: u8 = 113;
+
+/// 68020+ CHK2 / CMP2: EA (bounds-tuple base) resolved; the lower bound
+/// has been read into `self.data`. Stash it, then read the upper bound
+/// at EA + size.
+pub const TAG_V_CHK2_LOWER: u8 = 114;
+/// 68020+ CHK2 / CMP2: both bounds are in (`src_val` = lower,
+/// `self.data` = upper). Compare the register against them, set Z/C
+/// (leaving N/V/X), and on CHK2 trap vector 6 if out of bounds.
+pub const TAG_V_CHK2_UPPER: u8 = 115;
+
+/// 68020+ CAS: the destination operand has been read from `[EA]` into
+/// `self.data`. Compare it with Dc (subtract flags, X preserved); on
+/// equal, queue the write of Du to `[EA]`; on not-equal, load the read
+/// value into Dc.
+pub const TAG_V_CAS_COMPARE: u8 = 116;
+/// 68020+ CAS: the conditional write of Du to `[EA]` has completed —
+/// end the instruction.
+pub const TAG_V_CAS_WRITE_DONE: u8 = 117;
+
+/// 68020+ CAS2: both extension words have been gathered into `src_val`;
+/// read the first destination at `[Rn1]`.
+pub const TAG_V_CAS2_GATHER: u8 = 119;
+/// 68020+ CAS2: the first destination is in `dst_val`; read the second
+/// destination at `[Rn2]`.
+pub const TAG_V_CAS2_READ2: u8 = 120;
+/// 68020+ CAS2: both destinations are read (`dst_val` = dest1,
+/// `self.data` = dest2). Compare each against Dc1/Dc2; on a double match
+/// queue the Du1 write, otherwise load both read values into Dc1/Dc2.
+pub const TAG_V_CAS2_COMPUTE: u8 = 121;
+/// 68020+ CAS2: Du1 has been written to `[Rn1]`; write Du2 to `[Rn2]`.
+pub const TAG_V_CAS2_WRITE2: u8 = 122;
+/// 68020+ CAS2: both writes have completed — end the instruction.
+pub const TAG_V_CAS2_WRITE_DONE: u8 = 123;
 
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
@@ -619,6 +662,13 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub variant_icache: Option<crate::icache::ICache>,
 
+    /// Scratch slot for a variant instruction's primary extension word,
+    /// stashed across a memory-operand fetch. Used by 68020 memory-source
+    /// MUL.L / DIV.L (and future mem-operand instructions): the spec word
+    /// is read at decode, then the source operand is fetched through the
+    /// shared EA pipeline; the continuation re-reads the spec from here.
+    pub variant_ext_word: u16,
+
     /// When set, indexed and computed effective-address calculations
     /// cost the 68020's clocks instead of the 68000 model's flat 2-clock
     /// approximation. The figures are the M68020UM § 8.2.3 "Calculate
@@ -631,6 +681,15 @@ pub struct Cpu68000 {
     /// sets it `true`. Timing only — the computed address is identical.
     /// See the 68k cycle-timing plan (#41) Phase 4.
     pub variant_um_ea_calc_timing: bool,
+
+    /// When set, the `Bcc`/`BSR`/`BRA` family decodes the 68020+ 32-bit
+    /// displacement form (8-bit displacement field == `$FF`). On the
+    /// 68000/68010 that encoding is a normal 8-bit branch with
+    /// displacement −1, so this must be a core flag, not a variant
+    /// decode-hook fallback (the opcode is never illegal). Default
+    /// `false`; the 68020+ wrapper sets it `true`.
+    #[serde(skip)]
+    pub variant_long_branch: bool,
 
     /// Step counter for the 11-step Format `$A` push sequence.
     /// Consulted by `TAG_AE_FMT_A_STEP`.
@@ -834,6 +893,8 @@ impl Cpu68000 {
             variant_constant_shift_timing: false,
             variant_icache: None,
             variant_um_ea_calc_timing: false,
+            variant_long_branch: false,
+            variant_ext_word: 0,
             ae_fmt_a_step: 0,
             ae_frame_pc: 0,
             rte_fmta_step: 0,
@@ -1262,7 +1323,9 @@ impl Cpu68000 {
     }
 
     /// Queue read micro-ops for the given size at the current EA address.
-    pub(crate) fn queue_read_ops(&mut self, size: Size) {
+    /// Public so variant crates can fetch a memory operand through the
+    /// shared pipeline (e.g. the 68020 memory-source MUL.L / DIV.L).
+    pub fn queue_read_ops(&mut self, size: Size) {
         match size {
             Size::Byte => self.micro_ops.push(MicroOp::ReadByte),
             Size::Word => self.micro_ops.push(MicroOp::ReadWord),
@@ -1274,7 +1337,10 @@ impl Cpu68000 {
     }
 
     /// Queue write micro-ops for the given size at the current EA address.
-    pub(crate) fn queue_write_ops(&mut self, size: Size) {
+    ///
+    /// Public so variant crates can stage a memory write-back (e.g. 68020
+    /// CAS writing the update register on a successful compare).
+    pub fn queue_write_ops(&mut self, size: Size) {
         match size {
             Size::Byte => self.micro_ops.push(MicroOp::WriteByte),
             Size::Word => self.micro_ops.push(MicroOp::WriteWord),
