@@ -33,6 +33,8 @@ pub mod decode;
 pub mod disasm;
 pub mod ea;
 pub mod execute;
+pub mod icache;
 
 pub use cpu::Cpu68000;
+pub use icache::ICache;
 pub use motorola_68k_common::{CpuCapabilities, CpuModel, TimingClass};
