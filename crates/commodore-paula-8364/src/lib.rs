@@ -137,9 +137,6 @@ pub mod bits {
     /// HRM minimum playback period — below this the DMA slot cannot
     /// deliver in time. Writes below 124 are preserved for read-back.
     pub const AUDIO_MIN_PERIOD_CCK: u16 = 124;
-    /// Colour-clocks from audio-DMA-slot service to word visible to
-    /// the playback engine (HRM/WinUAE — modelled as a constant).
-    pub const AUDIO_DMA_RETURN_LATENCY_CCK: u8 = 14;
     pub const DISK_BYTE_CCK_FAST: u8 = 14;
     pub const DISK_BYTE_CCK_SLOW: u8 = 28;
 }
@@ -414,6 +411,28 @@ impl AudioOutputEvent {
     }
 }
 
+/// Paula's per-channel audio DMA state machine (HRM ch. 5 / vAmiga
+/// `StateMachine.cpp`). The HRM encodes states as 3-bit codes; vAmiga
+/// uses five (`000/001/010/011/101`). We model the *startup* sequence
+/// explicitly — `Idle`/`WaitWord1`/`WaitWord2` — and collapse the
+/// steady-state output codes `010`/`011` into `Playing`, where the
+/// existing period-counter + hi/lo byte stepping already reproduces
+/// the `010↔011` loop. `next_byte_is_hi` distinguishes the two within
+/// `Playing`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+enum AudioState {
+    /// `000` — DMA off. Idle, or CPU-driven AUDxDAT playback.
+    #[default]
+    Idle,
+    /// `001` — DMA enabled; word 1 requested, awaiting its arrival.
+    WaitWord1,
+    /// `101` — word 1 arrived (a dummy fetch, discarded); word 2
+    /// requested, awaiting it.
+    WaitWord2,
+    /// `010`/`011` — actively producing audio.
+    Playing,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 struct AudioChannel {
     lc: u32,
@@ -428,11 +447,10 @@ struct AudioChannel {
     next_byte_is_hi: bool,
     period_counter: u16,
     output_sample: i8,
+    state: AudioState,
     dma_active: bool,
     dma_enabled_prev: bool,
     dma_requests_pending: u8,
-    dma_return_countdown: u8,
-    dma_return_word: Option<u16>,
 }
 
 impl Default for AudioChannel {
@@ -450,11 +468,10 @@ impl Default for AudioChannel {
             next_byte_is_hi: true,
             period_counter: AUDIO_MIN_PERIOD_CCK,
             output_sample: 0,
+            state: AudioState::Idle,
             dma_active: false,
             dma_enabled_prev: false,
             dma_requests_pending: 0,
-            dma_return_countdown: 0,
-            dma_return_word: None,
         }
     }
 }
@@ -472,41 +489,39 @@ impl AudioChannel {
         }
     }
 
+    /// `000 → 001`: DMA enabled while idle. Reload the length counter,
+    /// point at the start of the sample, and request the first DMA word
+    /// (`AUDxDR`). No interrupt fires here — the DMA-enable edge raises
+    /// none. The first `AUDxIR` fires when word 1 arrives (`001 → 101`).
+    /// The period counter is *not* loaded yet; that happens when the
+    /// real sample word lands (`101 → 010`).
     fn start_dma(&mut self) {
         self.ptr = self.lc & 0x00FF_FFFE;
         self.words_remaining = self.programmed_length_words();
         self.current_word = None;
         self.next_word = None;
         self.next_byte_is_hi = true;
-        self.period_counter = self.effective_period();
         self.dma_active = true;
-        // Seed two requests so current+next fill quickly while still
-        // routing the actual fetches through audio DMA slots.
-        self.dma_requests_pending = 2;
-        self.dma_return_countdown = 0;
-        self.dma_return_word = None;
+        self.state = AudioState::WaitWord1;
+        self.dma_requests_pending = 1;
     }
 
     fn stop_dma(&mut self) {
         self.dma_active = false;
+        self.state = AudioState::Idle;
         self.current_word = None;
         self.next_word = None;
         self.next_byte_is_hi = true;
         self.dma_requests_pending = 0;
-        self.dma_return_countdown = 0;
-        self.dma_return_word = None;
     }
 
-    fn sync_dma_enable(&mut self, enabled: bool) -> bool {
-        let mut block_started = false;
+    fn sync_dma_enable(&mut self, enabled: bool) {
         if enabled && !self.dma_enabled_prev {
             self.start_dma();
-            block_started = true;
         } else if !enabled && self.dma_enabled_prev {
             self.stop_dma();
         }
         self.dma_enabled_prev = enabled;
-        block_started
     }
 
     fn write_dat(&mut self, val: u16) {
@@ -575,34 +590,58 @@ impl AudioChannel {
         }
     }
 
-    fn service_dma_slot<F>(&mut self, read_chip_byte: F) -> Option<bool>
+    /// Service this channel's granted audio DMA slot. The word arrives
+    /// the colour-clock Agnus grants the slot — that latency *is* the
+    /// real bus latency, scheduled by the single-slot authority (#30) at
+    /// hpos 0x0D/0F/11/13. There is no separate post-fetch countdown.
+    ///
+    /// The fetch advances the startup state machine and returns `true`
+    /// when an audio interrupt should be raised this CCK.
+    fn service_dma_slot<F>(&mut self, read_chip_byte: F) -> bool
     where
         F: FnMut(u32) -> u8,
     {
         if self.dma_requests_pending == 0 {
-            return None;
+            return false;
         }
-        if self.dma_return_word.is_some() {
-            return None;
-        }
-        let (word, wrapped) = self.fetch_dma_word(read_chip_byte)?;
+        let Some((word, wrapped)) = self.fetch_dma_word(read_chip_byte) else {
+            return false;
+        };
         self.dma_requests_pending = self.dma_requests_pending.saturating_sub(1);
-        self.dma_return_word = Some(word);
-        self.dma_return_countdown = AUDIO_DMA_RETURN_LATENCY_CCK;
-        Some(wrapped)
-    }
 
-    fn tick_dma_return(&mut self, return_progress_this_cck: bool) {
-        if self.dma_return_word.is_none() {
-            return;
-        }
-        if return_progress_this_cck && self.dma_return_countdown > 0 {
-            self.dma_return_countdown -= 1;
-        }
-        if self.dma_return_countdown == 0
-            && let Some(word) = self.dma_return_word.take()
-        {
-            self.push_dma_word(word);
+        match self.state {
+            AudioState::WaitWord1 => {
+                // 001 → 101: word 1 is a dummy fetch. Discard the data,
+                // reset the location pointer (AUDxDSR), request word 2,
+                // and raise the startup interrupt (the CPU uses it to
+                // swap double-buffer pointers).
+                self.ptr = self.lc & 0x00FF_FFFE;
+                self.words_remaining = self.programmed_length_words();
+                self.state = AudioState::WaitWord2;
+                self.dma_requests_pending = self.dma_requests_pending.saturating_add(1);
+                true
+            }
+            AudioState::WaitWord2 => {
+                // 101 → 010: the real first sample word. Load the period
+                // counter and volume context, request the next word, and
+                // output the high byte immediately (penhi). The period
+                // counter then times the high → low byte step.
+                self.period_counter = self.effective_period();
+                self.current_word = Some(word);
+                self.output_sample = (word >> 8) as u8 as i8;
+                self.next_byte_is_hi = false;
+                self.state = AudioState::Playing;
+                self.dma_requests_pending = self.dma_requests_pending.saturating_add(1);
+                false
+            }
+            AudioState::Playing => {
+                // Steady state: top the 2-deep buffer up as it drains.
+                // `wrapped` reports a length-counter wrap (loop point) —
+                // that raises the per-buffer interrupt.
+                self.push_dma_word(word);
+                wrapped
+            }
+            AudioState::Idle => false,
         }
     }
 
@@ -953,15 +992,12 @@ impl Paula8364 {
     /// `dmacon` is the current Agnus DMACON value; Paula reads
     /// DMAEN (bit 9) and AUDx (bits 0-3) to gate DMA.
     /// `audio_dma_slot`, if `Some(ch)`, indicates this CCK is channel
-    /// `ch`'s dedicated DMA slot — Paula may service a fetch request.
-    /// `return_progress_this_cck` lets the machine stall DMA-return
-    /// pacing during bus contention (pass `true` under normal bus
-    /// conditions).
+    /// `ch`'s dedicated DMA slot — Paula services a pending fetch and
+    /// the word arrives this CCK (the slot grant *is* the bus latency).
     pub fn tick_audio_cck<F>(
         &mut self,
         dmacon: u16,
         audio_dma_slot: Option<u8>,
-        return_progress_this_cck: bool,
         mut read_chip_byte: F,
     ) where
         F: FnMut(u32) -> u8,
@@ -969,21 +1005,25 @@ impl Paula8364 {
         let mut irq_mask: u16 = 0;
         for (index, channel) in self.audio.iter_mut().enumerate() {
             let dma_enabled = (dmacon & DMA_MASTER) != 0 && (dmacon & DMA_AUD[index]) != 0;
-            if channel.sync_dma_enable(dma_enabled) {
-                irq_mask |= INT_AUD0 << index;
-            }
-            channel.tick_dma_return(return_progress_this_cck);
+            channel.sync_dma_enable(dma_enabled);
         }
 
         if let Some(ch_u8) = audio_dma_slot
             && let Some(ch) = self.audio.get_mut(ch_u8 as usize)
-            && ch.service_dma_slot(&mut read_chip_byte) == Some(true)
+            && ch.service_dma_slot(&mut read_chip_byte)
         {
             irq_mask |= INT_AUD0 << ch_u8;
         }
 
         let mut output_events = [None; 4];
         for (index, channel) in self.audio.iter_mut().enumerate() {
+            // Skip the playback engine during the DMA startup waits
+            // (001/101) — no output until the real sample word lands.
+            // Non-DMA (CPU AUDxDAT) playback runs in `Idle` and is not
+            // skipped.
+            if channel.dma_active && channel.state != AudioState::Playing {
+                continue;
+            }
             let combined_attach = (self.adkcon & ADKCON_USE_PER[index]) != 0
                 && (self.adkcon & ADKCON_USE_VOL[index]) != 0;
             let event = channel.tick_output(combined_attach);
