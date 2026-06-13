@@ -103,7 +103,7 @@ impl DeniseAga {
         inner.as_inner_mut().max_bitplanes = 8;
         Self {
             inner,
-            bplcon4: 0,
+            bplcon4: 0x0011,
             palette_24: [0; PALETTE_ENTRIES_24],
             ham_prev_rgb24: 0,
             spr_width: 16,
@@ -119,7 +119,7 @@ impl DeniseAga {
         inner.as_inner_mut().max_bitplanes = 8;
         Self {
             inner,
-            bplcon4: 0,
+            bplcon4: 0x0011,
             palette_24: [0; PALETTE_ENTRIES_24],
             ham_prev_rgb24: 0,
             spr_width: 16,
@@ -480,7 +480,9 @@ mod tests {
     #[test]
     fn new_starts_with_aga_register_defaults() {
         let denise = DeniseAga::new();
-        assert_eq!(denise.bplcon4, 0);
+        // BPLCON4 resets to $0011 (Minimig denise.v): ESPRM/OSPRM = 1 so
+        // sprites default to the OCS $10–$1F colour range, BPLAM = 0.
+        assert_eq!(denise.bplcon4, 0x0011);
         assert_eq!(denise.spr_width, 16);
         assert_eq!(denise.ham_prev_rgb24, 0);
         assert!(denise.palette_24.iter().all(|&c| c == 0));

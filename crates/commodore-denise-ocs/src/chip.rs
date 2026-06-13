@@ -50,6 +50,13 @@ pub struct DeniseOcs {
     pub bplcon0: u16,
     pub bplcon1: u16,
     pub bplcon2: u16,
+    /// BPLCON4 ($10C): bits 15-8 BPLAM (bitplane colour XOR), bits 7-4
+    /// ESPRM (even-sprite colour base), bits 3-0 OSPRM (odd-sprite
+    /// base). Resets to `$0011` per Minimig `denise.v` — the ESPRM/OSPRM
+    /// nibbles default to 1 so sprites land in the OCS `$10–$1F` colour
+    /// range, and BPLAM is 0 (no XOR). OCS leaves this at the reset value
+    /// (it has no BPLCON4 register, but the sprite base is hardwired to
+    /// the same `$1x` range); AGA software repoints it.
     pub bplcon4: u16,
     pub clxcon: u16,
     pub clxdat: u16,
@@ -166,7 +173,7 @@ impl DeniseOcs {
             bplcon0: 0,
             bplcon1: 0,
             bplcon2: 0,
-            bplcon4: 0,
+            bplcon4: 0x0011,
             clxcon: 0,
             clxdat: 0,
             spr_pos: [0; 8],
@@ -643,10 +650,12 @@ impl DeniseOcs {
                 if code == 0 {
                     continue;
                 }
-                // BPLCON4 ESPRM (bits 3-0) XOR against upper nybble of the
-                // colour index for even sprites (attached pair uses even base).
-                let esprm = (self.bplcon4 & 0x0F) as usize;
-                let idx = (16 + code) ^ (esprm << 4);
+                // Attached pair colour index = {OSPRM[3:0], odd[1:0],
+                // even[1:0]} (Minimig `denise.v`): the OSPRM nibble
+                // (BPLCON4 bits 3-0) supplies the high nibble, the 4 data
+                // bits the low. Resets to 1 → the OCS $1x range.
+                let osprm = (self.bplcon4 & 0x0F) as usize;
+                let idx = (osprm << 4) | code;
                 return Some(SpritePixel {
                     palette_idx: idx,
                     sprite_group: pair / 2,
@@ -657,16 +666,19 @@ impl DeniseOcs {
             if code == 0 {
                 continue;
             }
-            let base = 16 + (sprite / 2) * 4;
-            // BPLCON4 OSPRM (bits 7-4) for odd sprites, ESPRM (bits 3-0) for
-            // even sprites. Each XORs against the upper nybble (bank select)
-            // of the sprite colour index.
+            // Non-attached colour index = {sprm[3:0], pair[1:0], code[1:0]}
+            // (Minimig `denise.v`). The high nibble comes from BPLCON4 —
+            // ESPRM (bits 7-4) for even sprites, OSPRM (bits 3-0) for odd —
+            // and REPLACES the colour-table bank rather than XOR-ing a
+            // fixed base. BPLCON4 resets to $0011, so the default high
+            // nibble is 1 (the OCS COLOR17.. range); AGA software repoints
+            // each pair into any 16-colour block of the 256-entry table.
             let sprm = if sprite & 1 == 1 {
-                ((self.bplcon4 >> 4) & 0x0F) as usize
+                (self.bplcon4 & 0x0F) as usize // OSPRM — odd sprites
             } else {
-                (self.bplcon4 & 0x0F) as usize
+                ((self.bplcon4 >> 4) & 0x0F) as usize // ESPRM — even sprites
             };
-            let idx = (base + usize::from(code)) ^ (sprm << 4);
+            let idx = (sprm << 4) | ((sprite / 2) << 2) | usize::from(code);
             return Some(SpritePixel {
                 palette_idx: idx,
                 sprite_group: sprite / 2,
@@ -816,10 +828,11 @@ impl DeniseOcs {
 
         // BPLCON4 BPLAM (bits 15-8): XOR the playfield colour index just
         // before the palette lookup, matching WinUAE
-        // (`pix ^ bplcon4_denise_xor_val`). AGA-only — `bplcon4` is 0 on
-        // OCS/ECS, so this is a no-op there. It affects the *colour* only:
-        // playfield priority (`front_playfield`) and collision both key off
-        // the raw plane bits, not this index (#96).
+        // (`pix ^ bplcon4_denise_xor_val`). AGA-only — BPLAM is 0 in the
+        // BPLCON4 reset value ($0011, whose set bits are the sprite ESPRM/
+        // OSPRM nibbles), so this is a no-op on OCS/ECS. It affects the
+        // *colour* only: playfield priority (`front_playfield`) and
+        // collision both key off the raw plane bits, not this index (#96).
         pf.visible_color_idx ^= ((self.bplcon4 >> 8) & 0xFF) as usize;
         pf
     }
