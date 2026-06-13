@@ -6,41 +6,36 @@
 //! trackdisk.device + input.device wait on signals.
 //!
 //! Step 2 note: once COPJMP2 strobes land, the copper chains from
-//! COP1LC into whatever COP2LC points to. On this boot, the ROM
-//! briefly writes ExecBase into COP2LC near the end of frame 299
-//! (`MOVE.L D0, \$84(A0)` at \$FC6D6C with D0 transiently holding
-//! ExecBase). The copper then executes ExecBase's bytes as copper
-//! instructions and stomps BPLCON0 / COLOR00 / etc. That's why the
-//! white "insert-disk" screen no longer pins at \$0FFF — see the
-//! follow-up task for the underlying D0-holds-ExecBase puzzle.
+//! COP1LC into whatever COP2LC points to. KS 1.3 settles the copper on
+//! a valid display list (COP2LC = `\$00B888` on this boot) and renders
+//! the white "insert-disk" screen (COLOR00 `\$0FFF`, BPLCON0 `\$0302`).
 //!
-//! Chip-only and slow-RAM converge at the Exec *task* level (same
-//! task topology), but no longer on the same PC: chip-only hits the
-//! COP2LC=ExecBase write ~137 frames earlier (frame 162 vs 299), so
-//! its display registers are corrupted further and it idles deeper in
-//! the screen-setup path. We keep the slow-RAM chipset assertions
-//! (minus the BPLCON0/COLOR00 ones the corruption touches) and compare
-//! the two configs only at the CPU-mode + task level — see the
-//! re-baseline note below.
+//! **Steady state (verified 2026-06-12, #30 Phase 2).** Both RAM
+//! configs boot WB 1.3 to an *identical, healthy* insert-disk screen —
+//! framebuffer ≈430k/442k non-black pixels over 4 clean colours (black,
+//! `\$7777CC`, `\$BBBBBB`, `\$FFFFFF`); copper running a real list, not
+//! `stopped`, COLOR00/BPLCON0 stable. (An earlier note here described a
+//! "COP2LC=ExecBase corruption" stomping the display — that is stale:
+//! the ROM only writes ExecBase to COP2LC *transiently* (~frame 115),
+//! then overwrites it with the real list; the display is never
+//! corrupted under the current chipset.)
 //!
-//! **Re-baselined 2026-06-12 (#467).** The incremental blitter (#31) +
-//! the DMACONR byte-read fix (#32) retired the old "CPU stuck in
-//! WAITBLIT forever" state these tests used to pin. KS 1.3 now exits
-//! the WAITBLIT spin and settles in the Exec idle loop. Measured
-//! post-blitter steady state at 300 frames:
-//!   - slow-RAM: PC `\$FC0722`, chip-only: PC `\$FE9C54` (the two
-//!     configs settle at *different* idle PCs — chip-only hits the
-//!     COP2LC=ExecBase corruption ~137 frames earlier, so it idles
-//!     deeper in the screen-setup path; they still converge at the
-//!     task level).
-//!   - both: user mode, IPL mask 0, DMACON `\$02D0`, INTENA `\$602C`,
+//! Once booted, the CPU spends each 50 Hz frame mostly in the Exec idle
+//! loop (`\$FC0700..\$FC0740`, user mode, IPL 0), dipping into the VBL /
+//! insert-disk animation handler (`\$FE9xxx` in ROM + the task code in
+//! slow RAM) and returning. Sampling the PC at a *single* instant is
+//! therefore phase-fragile — which phase a fixed frame count lands in
+//! moved when #30 installed the hardware-correct DMA slot timing. So
+//! the test advances until the CPU is actually in the idle loop before
+//! snapshotting the steady-state invariants:
+//!   - user mode, IPL mask 0, DMACON `\$02D0`, INTENA `\$602C`,
 //!     DispCount ≥ 100, TaskReady empty, exec.library = ThisTask (RUN),
 //!     TaskWait = {trackdisk.device, input.device}.
 //!
-//! These are stable functional invariants (ROM-determined idle PCs +
-//! Exec task topology), so they survive the per-CCK-bus and unified-
-//! driver refactors. When a future change breaks one, this test
-//! catches it before the regression cascades.
+//! These are stable functional invariants (Exec task topology + a
+//! reachable idle loop), robust to the per-CCK-bus, unified-driver, and
+//! slot-allocation refactors. When a future change breaks one, this
+//! test catches it before the regression cascades.
 
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 use std::path::PathBuf;
@@ -114,8 +109,9 @@ fn walk_task_names(amiga: &AmigaOcs, list_addr: u32) -> Vec<String> {
 /// made `btst.b #6, $DFF002` (BBUSY) always read 1, so the
 /// animation task spun forever in graphics.library WAITBLIT at
 /// `$FC5A6C`. With the blitter now clearing BBUSY, KS 1.3 exits
-/// WAITBLIT and settles in the Exec idle loop at `$FC0722` — the
-/// steady state this test now locks in (#467).
+/// WAITBLIT and reaches the Exec idle loop at `$FC0722`, dipping into
+/// the VBL animation handler each frame — the steady state this test
+/// locks in.
 #[test]
 fn boot_reaches_insert_disk_idle_with_keyboard_live() {
     let Some(rom) = load_kickstart() else { return };
@@ -126,28 +122,51 @@ fn boot_reaches_insert_disk_idle_with_keyboard_live() {
         amiga.tick();
     }
 
-    // ── CPU: Exec idle loop (post-blitter, #467) ────────────
-    // KS 1.3 no longer spins in WAITBLIT; slow-RAM settles in the
-    // Exec idle region around $FC0722. A small range tolerates which
-    // idle-loop instruction the 300-frame boundary lands on.
-    let pc = amiga.cpu().regs.pc;
+    // ── CPU: reach the user-mode Exec idle loop ─────────────
+    // KS 1.3 alternates each frame between the user-mode Exec idle loop
+    // ($FC0700..$FC0740, IPL 0) and the supervisor VBL / insert-disk
+    // animation handler. A single-instant snapshot is phase-fragile —
+    // the hardware-correct #30 slot timing changed which phase a fixed
+    // frame count lands in, and a frame-aligned sample is biased toward
+    // the VBL window (supervisor). The boot itself is unchanged: the
+    // user-mode idle state is hit ~6 of every 48 sub-frame samples.
+    // Step sub-frame until the CPU is in the idle loop in USER mode with
+    // IPL 0 — the genuine settled state — then snapshot the invariants.
+    let sub_frame = (PAL_FRAME_TICKS / 8).max(1);
+    let is_user_idle = |a: &AmigaOcs| {
+        let pc = a.cpu().regs.pc;
+        let sr = a.cpu().regs.sr;
+        (0x00FC_0700..=0x00FC_0740).contains(&pc) && (sr & 0x2700) == 0
+    };
+    let mut reached_idle = is_user_idle(&amiga);
+    for _ in 0..160 {
+        if reached_idle {
+            break;
+        }
+        for _ in 0..sub_frame {
+            amiga.tick();
+        }
+        reached_idle = is_user_idle(&amiga);
+    }
+    let sr = amiga.cpu().regs.sr;
     assert!(
-        (0x00FC_0700..=0x00FC_0740).contains(&pc),
-        "CPU should be in the Exec idle loop near \\$FC0722; got PC=\\${pc:08X}"
+        reached_idle,
+        "CPU should settle in the user-mode Exec idle loop near \\$FC0722 \
+         (IPL 0); last PC=\\${:08X} SR=\\${sr:04X}",
+        amiga.cpu().regs.pc
     );
 
-    // Keyboard-live regime: the animation runs as a user-mode task.
-    // IPL mask = 0 — the CPU is ready to take interrupts.
-    let sr = amiga.cpu().regs.sr;
+    // Confirm the settled state explicitly (true by construction —
+    // documents the invariant the search locked onto).
     assert_eq!(
         sr & 0x0700,
         0x0000,
-        "IPL mask must be 0 (taking interrupts); got SR=\\${sr:04X}"
+        "IPL mask must be 0; got SR=\\${sr:04X}"
     );
     assert_eq!(
         sr & 0x2000,
         0x0000,
-        "CPU should be in user mode after keyboard made input.device dispatchable; got SR=\\${sr:04X}"
+        "CPU must be in user mode; got SR=\\${sr:04X}"
     );
 
     // ── Chipset: same steady-state as pre-keyboard ──────────
@@ -223,13 +242,11 @@ fn boot_reaches_insert_disk_idle_with_keyboard_live() {
 ///
 /// Task #96 closed the CDANG protection (the HRM's "dangerous MOVE
 /// halts copper" rule), so chip-only no longer deadlocks on romboot's
-/// TD_CHANGESTATE DoIO. Both configs now complete boot and idle with
-/// the same Exec task topology. They do NOT land on the same PC: the
-/// chip-only config hits the COP2LC=ExecBase corruption ~137 frames
-/// earlier (frame 162 vs 299), so it idles deeper in the screen-setup
-/// path (`$FE9C54`) than slow-RAM (`$FC0722`). Display registers
-/// (BPLCON0/COLOR00) diverge for the same reason — so this test
-/// compares only the CPU-mode + Exec-task invariants, which match.
+/// TD_CHANGESTATE DoIO. Both configs complete boot, render the same
+/// healthy insert-disk screen, and idle with the same Exec task
+/// topology. The exact PC at any instant depends on the idle-loop ↔
+/// VBL-handler phase (see the sibling test), so this test compares the
+/// configs only at the CPU-mode + Exec-task level, which is stable.
 #[test]
 fn chip_only_and_slow_ram_converge_at_task_level() {
     let Some(rom) = load_kickstart() else { return };

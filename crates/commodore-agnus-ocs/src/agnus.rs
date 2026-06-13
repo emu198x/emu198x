@@ -1491,155 +1491,137 @@ impl Agnus {
 
     /// Determine who owns the current CCK slot.
     pub fn current_slot(&self) -> SlotOwner {
-        match self.hpos {
-            // Fixed slots
-            0x01..=0x03 | 0x1B => SlotOwner::Refresh,
-            0x04..=0x06 => {
-                if self.dma_enabled(0x0010) {
-                    SlotOwner::Disk
-                } else {
-                    SlotOwner::Cpu
-                }
-            }
-            0x07 => {
-                if self.dma_enabled(0x0001) {
-                    SlotOwner::Audio(0)
-                } else {
-                    SlotOwner::Cpu
-                }
-            }
-            0x08 => {
-                if self.dma_enabled(0x0002) {
-                    SlotOwner::Audio(1)
-                } else {
-                    SlotOwner::Cpu
-                }
-            }
-            0x09 => {
-                if self.dma_enabled(0x0004) {
-                    SlotOwner::Audio(2)
-                } else {
-                    SlotOwner::Cpu
-                }
-            }
-            0x0A => {
-                if self.dma_enabled(0x0008) {
-                    SlotOwner::Audio(3)
-                } else {
-                    SlotOwner::Cpu
-                }
-            }
-            0x0B..=0x1A => {
-                if self.dma_enabled(0x0020) {
-                    SlotOwner::Sprite(((self.hpos - 0x0B) / 2) as u8)
-                } else {
-                    SlotOwner::Cpu
-                }
-            }
+        // Hardware-correct OCS PAL DMA time-slot allocation (vAmiga
+        // `SequencerDas.cpp` + Minimig `agnus.v` priority chain). Every
+        // fixed chipset slot sits on an ODD hpos; the CPU gets the even
+        // gaps plus any odd slot no channel claimed; the copper takes the
+        // even FREE cells. Priority on a contended cell:
+        //   disk > refresh > audio > bitplane > sprite > copper > cpu
+        // (blitter contention is layered onto the Cpu slots in
+        // `cck_bus_plan`). #30; see
+        // `docs/plans/2026-06-12-amiga-single-bus-rewrite-30.md`.
+        let hpos = self.hpos;
+        let eol_refresh = if self.lol { 0xE3 } else { 0xE2 };
 
-            // Variable slots (Bitplane, Copper, CPU)
-            0x1C..=0xE2 => {
-                // Bitplane DMA: the OCS/ECS fetch sequencer runs in
-                // indivisible 8-CCK "fetchunit" blocks (matching WinUAE).
-                //
-                // WinUAE uses a ddf_stopping state machine (0→1→2):
-                //   - DDFSTOP match while fetching → ddf_stopping = 1
-                //   - End of current fetchunit block → ddf_stopping = 2
-                //   - End of next fetchunit block → DMA stops
-                //
-                // This means the fetch window always completes the block
-                // containing DDFSTOP *plus* one more full block after it.
-                // For DDFSTRT=$40, DDFSTOP=$D0 hires: 19 blocks ($40–$D7),
-                // fetching 38 BPL1 words (76 bytes).
-                let num_bpl = self.num_bitplanes();
-                let hires = (self.bplcon0 & 0x8000) != 0;
-                let shres = (self.bplcon0 & 0x0040) != 0;
-                let fetch_width = self.bpl_fetch_width();
-                let bitplane = if self.dma_enabled(0x0100)
-                    && num_bpl > 0
-                    && self.hpos >= self.ddfstrt
-                {
-                    if fetch_width <= 1 {
-                        // OCS / ECS / AGA 16-bit cadence. SuperHires (ECS+)
-                        // halves the group to 2 CCKs; lores/hires unchanged.
-                        let group_len = if shres {
-                            2
-                        } else if hires {
-                            4
-                        } else {
-                            8
-                        };
-                        let fetchunit: u32 = 8;
-                        let ddf_span = u32::from(self.ddfstop.saturating_sub(self.ddfstrt));
-                        let blocks = ddf_span.div_ceil(fetchunit) + 1;
-                        let fetch_window_end = u32::from(self.ddfstrt) + blocks * fetchunit - 1;
-                        if u32::from(self.hpos) <= fetch_window_end {
-                            let pos_in_group = ((self.hpos - self.ddfstrt) % group_len) as usize;
-                            let plane_slot = if shres {
-                                // SuperHires at 16-bit fetch — 2 planes / 4
-                                // colours (#469). BPL3+ are not fetched (the
-                                // 2-slot group caps it, matching real SHRES).
-                                SHRES_DDF_TO_PLANE[pos_in_group]
-                            } else if hires {
-                                HIRES_DDF_TO_PLANE[pos_in_group]
-                            } else if self.max_bitplanes > 6 {
-                                // AGA lowres fills the two idle slots with
-                                // BPL7/BPL8 (#99). Identical to the OCS table
-                                // for planes 0-5; the `< num_bpl` filter below
-                                // drops BPL7/BPL8 when fewer planes are active.
-                                LOWRES_DDF_TO_PLANE_AGA[pos_in_group]
-                            } else {
-                                LOWRES_DDF_TO_PLANE[pos_in_group]
-                            };
-                            plane_slot.filter(|&p| p < num_bpl)
-                        } else {
-                            None
-                        }
+        // Disk D0/D1/D2 (DSKEN) — highest priority.
+        if self.dma_enabled(0x0010) && matches!(hpos, 0x07 | 0x09 | 0x0B) {
+            return SlotOwner::Disk;
+        }
+        // Memory refresh — 0x01/0x03/0x05 + end-of-line. Unconditional.
+        if matches!(hpos, 0x01 | 0x03 | 0x05) || hpos == eol_refresh {
+            return SlotOwner::Refresh;
+        }
+        // Audio A0–A3 (per-channel DMACON enable).
+        match hpos {
+            0x0D if self.dma_enabled(0x0001) => return SlotOwner::Audio(0),
+            0x0F if self.dma_enabled(0x0002) => return SlotOwner::Audio(1),
+            0x11 if self.dma_enabled(0x0004) => return SlotOwner::Audio(2),
+            0x13 if self.dma_enabled(0x0008) => return SlotOwner::Audio(3),
+            _ => {}
+        }
+        // Bitplane (DDF-gated) — priority above sprite on a DDF∩sprite
+        // overlap (only with a very low DDFSTRT). Fetch grid unchanged.
+        if let Some(plane) = self.bitplane_slot_at() {
+            return SlotOwner::Bitplane(plane);
+        }
+        // Sprites 0–7 at 0x15..0x33 (odd cells), SPREN.
+        if self.dma_enabled(0x0020) && (0x15..=0x33).contains(&hpos) && !hpos.is_multiple_of(2) {
+            return SlotOwner::Sprite(((hpos - 0x15) / 4) as u8);
+        }
+        // Copper — even FREE cells, COPEN, excluding the E0 blocked cell.
+        if self.dma_enabled(0x0080) && hpos.is_multiple_of(2) && hpos != 0xE0 {
+            return SlotOwner::Copper;
+        }
+        // CPU gets every remaining cell.
+        SlotOwner::Cpu
+    }
+
+    /// Bitplane DMA owner for the current `hpos`, or `None` if no plane
+    /// is fetched this cell. DDF-gated; the fetch-unit -> plane tables are
+    /// the validated, vAmiga-identical grids (unchanged by #30).
+    fn bitplane_slot_at(&self) -> Option<u8> {
+        let num_bpl = self.num_bitplanes();
+        let hires = (self.bplcon0 & 0x8000) != 0;
+        let shres = (self.bplcon0 & 0x0040) != 0;
+        let fetch_width = self.bpl_fetch_width();
+        // DDFSTRT/DDFSTOP align to the fetch boundary: the hardware
+        // ignores the low DDF bits. OCS masks $FC (4-CCK lores
+        // granularity); ECS/AGA mask $FE (2-CCK, the finer step SHRES
+        // needs). agnus_id >= $2000 selects ECS and later. #30 Phase 4.
+        let ddf_mask: u16 = if self.agnus_id >= 0x2000 {
+            0x00FE
+        } else {
+            0x00FC
+        };
+        let ddfstrt = self.ddfstrt & ddf_mask;
+        let ddfstop = self.ddfstop & ddf_mask;
+        if self.dma_enabled(0x0100) && num_bpl > 0 && self.hpos >= ddfstrt {
+            if fetch_width <= 1 {
+                // OCS / ECS / AGA 16-bit cadence. SuperHires (ECS+)
+                // halves the group to 2 CCKs; lores/hires unchanged.
+                let group_len = if shres {
+                    2
+                } else if hires {
+                    4
+                } else {
+                    8
+                };
+                let fetchunit: u32 = 8;
+                let ddf_span = u32::from(ddfstop.saturating_sub(ddfstrt));
+                let blocks = ddf_span.div_ceil(fetchunit) + 1;
+                let fetch_window_end = u32::from(ddfstrt) + blocks * fetchunit - 1;
+                if u32::from(self.hpos) <= fetch_window_end {
+                    let pos_in_group = ((self.hpos - ddfstrt) % group_len) as usize;
+                    let plane_slot = if shres {
+                        // SuperHires at 16-bit fetch — 2 planes / 4
+                        // colours (#469). BPL3+ are not fetched (the
+                        // 2-slot group caps it, matching real SHRES).
+                        SHRES_DDF_TO_PLANE[pos_in_group]
+                    } else if hires {
+                        HIRES_DDF_TO_PLANE[pos_in_group]
+                    } else if self.max_bitplanes > 6 {
+                        // AGA lowres fills the two idle slots with
+                        // BPL7/BPL8 (#99). Identical to the OCS table
+                        // for planes 0-5; the `< num_bpl` filter below
+                        // drops BPL7/BPL8 when fewer planes are active.
+                        LOWRES_DDF_TO_PLANE_AGA[pos_in_group]
                     } else {
-                        // AGA wide fetch (FMODE > 0). For every width > 1,
-                        // fetchunit == fetchstart, so each fetchunit block holds
-                        // exactly one plane access per active plane, each access
-                        // transferring `fetch_width` words. The DDFSTOP-rounding
-                        // "complete the block plus one more" rule (div_ceil + 1)
-                        // is the same as the 16-bit path.
-                        let (fetchunit, fetchstart) = fetch_cadence(fetch_width, hires, shres);
-                        let ddf_span = u32::from(self.ddfstop.saturating_sub(self.ddfstrt));
-                        let blocks = ddf_span.div_ceil(fetchunit) + 1;
-                        let fetch_window_end = u32::from(self.ddfstrt) + blocks * fetchunit - 1;
-                        if u32::from(self.hpos) <= fetch_window_end {
-                            let pos = ((u32::from(self.hpos) - u32::from(self.ddfstrt))
-                                % fetchstart) as usize;
-                            // The 8-entry WIDE order covers planes 0..7 only
-                            // when the group is >= 8 CCKs (FMODE>0 lores/hires,
-                            // and SHRES@FMODE2). SHRES@FMODE1 shrinks the group
-                            // to 4 CCKs / 4 planes (#469) — the wide order does
-                            // not nest, so reuse the 4-slot hires order, whose
-                            // plane set is exactly planes 0..3 with BPL1 last.
-                            let plane_slot = match fetchstart {
-                                4 => HIRES_DDF_TO_PLANE.get(pos).copied().flatten(),
-                                _ => WIDE_FETCH_PLANE_ORDER.get(pos).copied().flatten(),
-                            };
-                            plane_slot.filter(|&p| p < num_bpl)
-                        } else {
-                            None
-                        }
-                    }
+                        LOWRES_DDF_TO_PLANE[pos_in_group]
+                    };
+                    plane_slot.filter(|&p| p < num_bpl)
                 } else {
                     None
-                };
-                if let Some(plane) = bitplane {
-                    return SlotOwner::Bitplane(plane);
                 }
-
-                // Copper
-                if self.dma_enabled(0x0080) && self.hpos.is_multiple_of(2) {
-                    return SlotOwner::Copper;
+            } else {
+                // AGA wide fetch (FMODE > 0). For every width > 1,
+                // fetchunit == fetchstart, so each fetchunit block holds
+                // exactly one plane access per active plane, each access
+                // transferring `fetch_width` words. The DDFSTOP-rounding
+                // "complete the block plus one more" rule (div_ceil + 1)
+                // is the same as the 16-bit path.
+                let (fetchunit, fetchstart) = fetch_cadence(fetch_width, hires, shres);
+                let ddf_span = u32::from(ddfstop.saturating_sub(ddfstrt));
+                let blocks = ddf_span.div_ceil(fetchunit) + 1;
+                let fetch_window_end = u32::from(ddfstrt) + blocks * fetchunit - 1;
+                if u32::from(self.hpos) <= fetch_window_end {
+                    let pos = ((u32::from(self.hpos) - u32::from(ddfstrt)) % fetchstart) as usize;
+                    // The 8-entry WIDE order covers planes 0..7 only
+                    // when the group is >= 8 CCKs (FMODE>0 lores/hires,
+                    // and SHRES@FMODE2). SHRES@FMODE1 shrinks the group
+                    // to 4 CCKs / 4 planes (#469) — the wide order does
+                    // not nest, so reuse the 4-slot hires order, whose
+                    // plane set is exactly planes 0..3 with BPL1 last.
+                    let plane_slot = match fetchstart {
+                        4 => HIRES_DDF_TO_PLANE.get(pos).copied().flatten(),
+                        _ => WIDE_FETCH_PLANE_ORDER.get(pos).copied().flatten(),
+                    };
+                    plane_slot.filter(|&p| p < num_bpl)
+                } else {
+                    None
                 }
-
-                SlotOwner::Cpu
             }
-
-            _ => SlotOwner::Cpu,
+        } else {
+            None
         }
     }
 
@@ -2010,10 +1992,61 @@ mod tests {
         assert_eq!(bitplane_grants(&mut agnus, 1), 38, "BPL2 accesses/line");
     }
 
+    /// The whole-line bitplane plane map (which plane, if any, each
+    /// hpos fetches) — the fetch grid `bitplane_slot_at` produces.
+    fn plane_map(agnus: &mut Agnus) -> Vec<Option<u8>> {
+        (0u16..=0xE2)
+            .map(|h| {
+                agnus.hpos = h;
+                match agnus.current_slot() {
+                    SlotOwner::Bitplane(p) => Some(p),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ddf_strt_aligns_to_fetch_boundary_per_variant() {
+        // OCS ignores DDFSTRT's low 2 bits ($FC, 4-CCK lores boundary):
+        // an unaligned $3A produces exactly the same fetch grid as $38.
+        let mut aligned = Agnus::new(); // OCS, agnus_id = $1000
+        aligned.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        aligned.bplcon0 = 0x6000; // lores, 6 planes
+        aligned.ddfstrt = 0x38;
+        aligned.ddfstop = 0xD0;
+
+        let mut unaligned = Agnus::new();
+        unaligned.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        unaligned.bplcon0 = 0x6000;
+        unaligned.ddfstrt = 0x3A; // masks to $38 on OCS
+        unaligned.ddfstop = 0xD0;
+        assert_eq!(
+            plane_map(&mut aligned),
+            plane_map(&mut unaligned),
+            "OCS masks DDFSTRT to $FC — $3A behaves as $38",
+        );
+
+        // ECS/AGA mask only the low bit ($FE, 2-CCK), the granularity
+        // SuperHires needs: $3A stays $3A, shifting the grid vs OCS's
+        // aligned-down $38.
+        let mut ecs = Agnus::new();
+        ecs.agnus_id = 0x2000; // ECS discriminator
+        ecs.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        ecs.bplcon0 = 0x6000;
+        ecs.ddfstrt = 0x3A;
+        ecs.ddfstop = 0xD0;
+        assert_ne!(
+            plane_map(&mut ecs),
+            plane_map(&mut aligned),
+            "ECS masks $FE — $3A is not aligned down to $38",
+        );
+    }
+
     #[test]
     fn cck_bus_plan_reports_audio_service_grant() {
         let mut agnus = Agnus::new();
-        agnus.hpos = 0x07;
+        agnus.hpos = 0x0D;
         agnus.dmacon = DMACON_DMAEN | DMACON_AUD0EN;
 
         let plan = agnus.cck_bus_plan();
@@ -2100,10 +2133,12 @@ mod tests {
     #[test]
     fn cck_bus_plan_reports_cpu_chip_bus_grant_on_free_slot() {
         let mut agnus = Agnus::new();
-        agnus.hpos = 0x00; // free slot outside fixed/variable DMA windows
+        agnus.hpos = 0x35; // odd cell after sprites (0x33), before DDF (0x38):
+        // no chipset claimant, and copper takes only even
+        // cells, so this is a genuine CPU slot.
         agnus.dmacon = DMACON_DMAEN | DMACON_COPEN | DMACON_BPLEN;
         agnus.bplcon0 = 1 << 12;
-        agnus.ddfstrt = 0x1C;
+        agnus.ddfstrt = 0x38;
         agnus.ddfstop = 0xD8;
         agnus.blitter_busy = false;
 
@@ -2227,7 +2262,7 @@ mod tests {
     #[test]
     fn cck_bus_plan_reports_disk_service_grant() {
         let mut agnus = Agnus::new();
-        agnus.hpos = 0x04;
+        agnus.hpos = 0x07;
         agnus.dmacon = DMACON_DMAEN | 0x0010; // DSKEN
 
         let plan = agnus.cck_bus_plan();
@@ -2244,7 +2279,7 @@ mod tests {
     #[test]
     fn cck_bus_plan_reports_sprite_service_grant() {
         let mut agnus = Agnus::new();
-        agnus.hpos = 0x0B; // first sprite DMA slot pair => sprite 0
+        agnus.hpos = 0x15; // first sprite DMA slot => sprite 0
         agnus.dmacon = DMACON_DMAEN | 0x0020; // SPREN
 
         let plan = agnus.cck_bus_plan();
