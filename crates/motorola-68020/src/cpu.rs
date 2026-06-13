@@ -83,6 +83,12 @@ impl Cpu68020 {
         // vec-2/3 handler reads at Format-$A field offsets (SR at
         // SP+0, PC at SP+2, F/V at SP+6, ...). M68000PRM § 8.6.4.
         self.inner.variant_format_a_group0 = true;
+        // ── Timing (TimingClass::M68020) — see the 68k cycle-timing
+        // plan (#41/#110/#111). The 68020 uses a 3-clock minimum bus
+        // cycle (vs the 68000's 4) and a barrel shifter that completes
+        // in constant time regardless of shift count.
+        self.inner.variant_min_bus_clocks = 3;
+        self.inner.variant_constant_shift_timing = true;
     }
 
     /// Borrow the wrapped 68010 core.

@@ -705,9 +705,16 @@ impl Cpu68000 {
 
                 self.perform_shift(reg, count, direction as u8, shift_type, size);
 
-                // 68000: 6+2n (byte/word), 8+2n (long).
+                // 68000: 6+2n (byte/word), 8+2n (long) — the internal
+                // delay scales with the shift count. The 68020+ barrel
+                // shifter completes in constant time regardless of
+                // count, so drop the per-count term on those variants.
                 let base = if size == Size::Long { 4u8 } else { 2u8 };
-                let delay = base + (count as u8) * 2;
+                let delay = if self.variant_constant_shift_timing {
+                    base
+                } else {
+                    base + (count as u8) * 2
+                };
                 if delay > 0 {
                     self.micro_ops.push(MicroOp::Internal(delay));
                 }

@@ -591,6 +591,19 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub variant_format_a_group0: bool,
 
+    /// Minimum bus-cycle length in CPU clocks. The 68000/68010 use a
+    /// 4-clock minimum (S0–S7); the 68020/68030 use 3. Chip RAM still
+    /// stretches via `BusStatus::Wait` regardless, so this only sets
+    /// the fast-memory access floor. Wrappers set it from their
+    /// `TimingClass`; see the 68k cycle-timing plan (#41/#110/#111).
+    pub variant_min_bus_clocks: u8,
+
+    /// When set, the barrel-shifter instructions (LSL/LSR/ASL/ASR/
+    /// ROL/ROR/ROXL/ROXR) cost a constant internal delay regardless of
+    /// shift count — the 68020+ behaviour — instead of the 68000's
+    /// `2 + 2·count` clocks.
+    pub variant_constant_shift_timing: bool,
+
     /// Step counter for the 11-step Format `$A` push sequence.
     /// Consulted by `TAG_AE_FMT_A_STEP`.
     #[serde(skip)]
@@ -789,6 +802,8 @@ impl Cpu68000 {
             variant_musashi_div_overflow: false,
             variant_extended_sr_writes: false,
             variant_format_a_group0: false,
+            variant_min_bus_clocks: 4,
+            variant_constant_shift_timing: false,
             ae_fmt_a_step: 0,
             ae_frame_pc: 0,
             rte_fmta_step: 0,
@@ -972,8 +987,9 @@ impl Cpu68000 {
         }
 
         // --- Advance current state ---
-        // The 68000 uses 4-clock minimum bus cycles (S0-S7).
-        let min_bus = 4u8;
+        // 4-clock minimum bus cycle (S0-S7) on the 68000/68010; the
+        // 68020+ wrapper lowers this to 3 via its TimingClass.
+        let min_bus = self.variant_min_bus_clocks;
         match &mut self.state {
             State::Idle => {}
             State::Internal { cycles } => {
