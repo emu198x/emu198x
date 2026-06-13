@@ -619,15 +619,18 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub variant_icache: Option<crate::icache::ICache>,
 
-    /// When set, the address-calculation dead time the sequential
-    /// 68000 model inserts after an extension-word fetch (the 2-clock
-    /// `Internal` delays for indexed and predecrement effective-address
-    /// modes) is dropped — the 68020's three-stage pipeline overlaps
-    /// that calculation with the next fetch/decode, so it costs no
-    /// observable clocks. Default `false` (68000/68010 keep the delay);
-    /// the 68020+ wrapper sets it `true`. Affects timing only, never
-    /// the computed address. See the 68k cycle-timing plan (#41) Phase 4.
-    pub variant_pipeline_no_ext_delay: bool,
+    /// When set, indexed and computed effective-address calculations
+    /// cost the 68020's clocks instead of the 68000 model's flat 2-clock
+    /// approximation. The figures are the M68020UM § 8.2.3 "Calculate
+    /// Effective Address" Cache-Case column — the no-overlap case our
+    /// sequential engine targets (the manual's Best Case assumes
+    /// cross-instruction pipeline overlap, which this model does not
+    /// represent): brief `(d8,An,Xn)`/`(d8,PC,Xn)` = 4, full-format
+    /// base+index `(An,Xn*scale)` = 6, predecrement `-(An)` = 2.
+    /// Default `false` (68000/68010 keep the flat 2); the 68020+ wrapper
+    /// sets it `true`. Timing only — the computed address is identical.
+    /// See the 68k cycle-timing plan (#41) Phase 4.
+    pub variant_um_ea_calc_timing: bool,
 
     /// Step counter for the 11-step Format `$A` push sequence.
     /// Consulted by `TAG_AE_FMT_A_STEP`.
@@ -830,7 +833,7 @@ impl Cpu68000 {
             variant_min_bus_clocks: 4,
             variant_constant_shift_timing: false,
             variant_icache: None,
-            variant_pipeline_no_ext_delay: false,
+            variant_um_ea_calc_timing: false,
             ae_fmt_a_step: 0,
             ae_frame_pc: 0,
             rte_fmta_step: 0,
