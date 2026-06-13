@@ -276,6 +276,21 @@ pub const TAG_V_CAS_COMPARE: u8 = 116;
 /// end the instruction.
 pub const TAG_V_CAS_WRITE_DONE: u8 = 117;
 
+/// 68020+ CAS2: both extension words have been gathered into `src_val`;
+/// read the first destination at `[Rn1]`.
+pub const TAG_V_CAS2_GATHER: u8 = 119;
+/// 68020+ CAS2: the first destination is in `dst_val`; read the second
+/// destination at `[Rn2]`.
+pub const TAG_V_CAS2_READ2: u8 = 120;
+/// 68020+ CAS2: both destinations are read (`dst_val` = dest1,
+/// `self.data` = dest2). Compare each against Dc1/Dc2; on a double match
+/// queue the Du1 write, otherwise load both read values into Dc1/Dc2.
+pub const TAG_V_CAS2_COMPUTE: u8 = 121;
+/// 68020+ CAS2: Du1 has been written to `[Rn1]`; write Du2 to `[Rn2]`.
+pub const TAG_V_CAS2_WRITE2: u8 = 122;
+/// 68020+ CAS2: both writes have completed — end the instruction.
+pub const TAG_V_CAS2_WRITE_DONE: u8 = 123;
+
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum State {

@@ -144,6 +144,14 @@ fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: 
         seed_ea_data(info, &d, &a, STACK_TOP, rng);
     }
 
+    // CAS2: force the two pointer registers (chosen by the spec word) to
+    // even data addresses and seed the two destinations, so neither read
+    // nor write hits an odd address (an address error the single-stepped
+    // reference never reaches).
+    if matches!(def.setup, InstructionSetup::Cas2) {
+        cas2_fixup(&mut d, &mut a, rng);
+    }
+
     // Set CPU type and load registers into Musashi
     musashi::set_cpu_type(cpu_type);
     musashi::pulse_reset();
@@ -295,6 +303,24 @@ fn encode_instruction(
             let disp = target.wrapping_sub(pc.wrapping_add(2));
             memory::poke_word(pc.wrapping_add(2), (disp >> 16) as u16);
             memory::poke_word(pc.wrapping_add(4), disp as u16);
+            None
+        }
+        InstructionSetup::Cas2 => {
+            // Random 32-bit spec word (two extension words). The pointer
+            // registers it selects are forced to even data addresses by
+            // cas2_fixup() after register randomisation. Avoid selecting
+            // A7 as a pointer (the fixup's register arrays cover A0-A6;
+            // A7 is the stack pointer) by clearing the D/A bit when the
+            // Rn nibble would be 15 — that remaps A7 to D7.
+            let mut spec: u32 = rng.random();
+            if (spec >> 28) & 0xF == 0xF {
+                spec &= !(1 << 31);
+            }
+            if (spec >> 12) & 0xF == 0xF {
+                spec &= !(1 << 15);
+            }
+            memory::poke_word(pc.wrapping_add(2), (spec >> 16) as u16);
+            memory::poke_word(pc.wrapping_add(4), spec as u16);
             None
         }
         InstructionSetup::Movem { size } => {
@@ -602,6 +628,43 @@ fn ensure_even_ea(info: &MemoryEAInfo, d: &mut [u32; 8], a: &mut [u32; 7], ssp: 
 /// register values. Seeding makes address-computation bugs detectable:
 /// if the CPU computes a different EA, it reads zero instead of the
 /// seeded value, causing a mismatch.
+/// Force the two CAS2 pointer registers (selected by the spec word's Rn
+/// fields) to even data addresses and seed both destinations with random
+/// data. The spec word is read back from the two extension words poked at
+/// CODE_BASE + 2. A7 is never selected (masked out in encode_instruction).
+fn cas2_fixup(d: &mut [u32; 8], a: &mut [u32; 7], rng: &mut impl Rng) {
+    let word2 = (u32::from(memory::peek(CODE_BASE + 2)) << 24)
+        | (u32::from(memory::peek(CODE_BASE + 3)) << 16)
+        | (u32::from(memory::peek(CODE_BASE + 4)) << 8)
+        | u32::from(memory::peek(CODE_BASE + 5));
+    let rn1 = ((word2 >> 28) & 0xF) as usize;
+    let rn2 = ((word2 >> 12) & 0xF) as usize;
+
+    let ea1 = random_data_addr(rng) & !1;
+    // Same register → same address (one register holds one value).
+    let ea2 = if rn1 == rn2 {
+        ea1
+    } else {
+        random_data_addr(rng) & !1
+    };
+    set_reg_da(d, a, rn1, ea1);
+    set_reg_da(d, a, rn2, ea2);
+
+    // Seed both destinations (a long covers the word case too).
+    memory::poke_long(ea1, rng.random());
+    memory::poke_long(ea2, rng.random());
+}
+
+/// Set a data/address register by 4-bit index (0-7 = D0-D7, 8-14 =
+/// A0-A6). A7 (15) is never passed (masked in the spec word).
+fn set_reg_da(d: &mut [u32; 8], a: &mut [u32; 7], idx: usize, val: u32) {
+    if idx < 8 {
+        d[idx] = val;
+    } else {
+        a[idx - 8] = val;
+    }
+}
+
 fn seed_ea_data(info: &MemoryEAInfo, d: &[u32; 8], a: &[u32; 7], ssp: u32, rng: &mut impl Rng) {
     let Some(ea) = compute_ea(info, d, a, ssp) else {
         return;

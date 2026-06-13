@@ -49,6 +49,10 @@ pub enum InstructionSetup {
     /// 68020 32-bit displacement branch (Bcc.L / BSR.L / BRA.L): a random
     /// even-target displacement in the two words after the opcode.
     LongBranch,
+    /// 68020 CAS2: a random 32-bit spec word in the two words after the
+    /// opcode. The generator forces the two pointer registers (selected by
+    /// the spec's Rn fields) to even data addresses after randomisation.
+    Cas2,
 }
 
 const M68K: u32 = musashi::M68K_CPU_TYPE_68000;
@@ -690,6 +694,23 @@ pub fn catalogue(cpu_type: u32) -> Vec<InstructionDef> {
             opcode,
             ext_words: 2,
             setup: InstructionSetup::LongBranch,
+            min_cpu: m68020,
+        });
+    }
+
+    // CAS2 ($0CFC word / $0EFC long + 32-bit spec). Dual-address atomic
+    // compare-and-swap. The random spec picks the two pointer registers
+    // (forced even by the Cas2 fixup), the compare/update registers, and
+    // the D/A sign-extend bits. With random compare registers the double
+    // match is essentially never hit, so the corpus exercises the dual
+    // read + flag computation + Dc-load path; the write-back is covered by
+    // hand tests. M68000PRM § 6.2.4.
+    for &(name, opcode) in &[("CAS2.w", 0x0CFCu16), ("CAS2.l", 0x0EFC)] {
+        defs.push(InstructionDef {
+            name,
+            opcode,
+            ext_words: 2,
+            setup: InstructionSetup::Cas2,
             min_cpu: m68020,
         });
     }

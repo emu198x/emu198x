@@ -535,6 +535,16 @@ fn sign_extend(masked: u32, size: motorola_68000::alu::Size) -> i32 {
 /// Only memory alterable modes are valid; the immediate EA (`111 100`)
 /// is the CAS2 marker and is deferred. Other invalid modes take ILLEGAL.
 fn execute_cas(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let ea_mode = ((opcode >> 3) & 7) as u8;
+    let ea_reg = (opcode & 7) as u8;
+
+    // The immediate EA (`111 100`) is the CAS2 marker, not a real EA —
+    // route the dual-address form before consuming the extension word
+    // (CAS2 gathers a 32-bit spec from both following words).
+    if ea_mode == 7 && ea_reg == 4 {
+        return execute_cas2(cpu, opcode);
+    }
+
     let size = match (opcode >> 9) & 3 {
         1 => motorola_68000::alu::Size::Byte,
         2 => motorola_68000::alu::Size::Word,
@@ -545,11 +555,9 @@ fn execute_cas(cpu: &mut Cpu68000, opcode: u16) -> bool {
         }
     };
     let ext = cpu.consume_irc();
-    let ea_mode = ((opcode >> 3) & 7) as u8;
-    let ea_reg = (opcode & 7) as u8;
 
-    // CAS2 marker (immediate EA) — deferred. Memory alterable modes only:
-    // (An), (An)+, -(An), (d16,An), (d8,An,Xn), abs.
+    // Memory alterable modes only: (An), (An)+, -(An), (d16,An),
+    // (d8,An,Xn), abs.
     let alterable = match ea_mode {
         2..=6 => true,
         7 => matches!(ea_reg, 0 | 1),
@@ -567,6 +575,103 @@ fn execute_cas(cpu: &mut Cpu68000, opcode: u16) -> bool {
     cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
     cpu.continue_instruction();
     true
+}
+
+/// Index the data/address register file by a 4-bit field (0-7 = D0-D7,
+/// 8-15 = A0-A7), matching Musashi's `REG_DA`.
+fn reg_da(cpu: &Cpu68000, idx: u32) -> u32 {
+    let idx = (idx & 15) as usize;
+    if idx < 8 {
+        cpu.regs.d[idx]
+    } else {
+        cpu.regs.a(idx - 8)
+    }
+}
+
+/// CAS2 (`$0CFC` / `$0EFC` + two extension words): dual-address atomic
+/// compare-and-swap. Two register-held pointers Rn1/Rn2 address the
+/// destinations; each is compared with its compare register Dc1/Dc2.
+/// If *both* match, Du1/Du2 are written back; otherwise both read values
+/// are loaded into Dc1/Dc2. M68000PRM § 6.2.4.
+///
+/// The 32-bit spec word (both extension words) packs, per 16-bit half:
+/// bit 15 = D/A of Rn, bits 14-12 = Rn number, bits 8-6 = Du, bits 2-0 =
+/// Dc. The high half describes operand 1, the low half operand 2.
+///
+/// The flags reflect the operand-1 comparison, or operand-2's if
+/// operand 1 matched (Musashi `m68k_in.c` cas2). Word/long only.
+fn execute_cas2(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let size = match (opcode >> 9) & 3 {
+        2 => motorola_68000::alu::Size::Word,
+        3 => motorola_68000::alu::Size::Long,
+        _ => {
+            cpu.begin_group1_exception(4, cpu.instr_start_pc);
+            return true;
+        }
+    };
+    cpu.size = size;
+    // Extension word 1 is prefetched in `irc`; stash it in the high half
+    // of `src_val` and fetch extension word 2.
+    cpu.src_val = u32::from(cpu.irc) << 16;
+    cpu.in_followup = true;
+    cpu.micro_ops.push(MicroOp::FetchIRC);
+    cpu.followup_tag = TAG_V_CAS2_GATHER;
+    cpu.micro_ops.push(MicroOp::Execute);
+    true
+}
+
+/// Compute the CAS2 result once both destinations are read. Sets the
+/// comparison flags and returns `true` when both compares matched (the
+/// caller must write Du1/Du2 back); on a mismatch it loads both read
+/// values into Dc1/Dc2 here and returns `false`.
+fn finish_cas2(cpu: &mut Cpu68000, word2: u32, dest1: u32, dest2: u32) -> bool {
+    let size = cpu.size;
+    let dc1 = ((word2 >> 16) & 7) as usize;
+    let dc2 = (word2 & 7) as usize;
+    let cmp = motorola_68000::cpu::AluOp::Cmp;
+
+    // Flags from dest1 - Dc1; if equal, recompute from dest2 - Dc2 (so
+    // the final flags reflect operand 2 when operand 1 matched).
+    cpu.exec_alu(cmp, cpu.regs.d[dc1], dest1, size);
+    let both_eq = if cpu.regs.sr & Z != 0 {
+        cpu.exec_alu(cmp, cpu.regs.d[dc2], dest2, size);
+        cpu.regs.sr & Z != 0
+    } else {
+        false
+    };
+
+    if both_eq {
+        return true;
+    }
+
+    // Mismatch: load both read values into the compare registers. The
+    // sign-extend-vs-preserve choice uses the operand's Rn D/A bit
+    // (bit 31 for operand 1, bit 15 for operand 2) — Musashi's quirk.
+    load_cas2_compare(cpu, dc1, dest1, size, word2 & 0x8000_0000 != 0);
+    load_cas2_compare(cpu, dc2, dest2, size, word2 & 0x0000_8000 != 0);
+    false
+}
+
+/// Load a CAS2 read value into a compare data register on a mismatch.
+/// Long replaces the whole register; word either sign-extends (when the
+/// operand's Rn D/A bit is set) or replaces just the low word.
+fn load_cas2_compare(
+    cpu: &mut Cpu68000,
+    dc: usize,
+    dest: u32,
+    size: motorola_68000::alu::Size,
+    da: bool,
+) {
+    match size {
+        motorola_68000::alu::Size::Long => cpu.regs.d[dc] = dest,
+        _ => {
+            cpu.regs.d[dc] = if da {
+                dest as u16 as i16 as i32 as u32
+            } else {
+                (cpu.regs.d[dc] & 0xFFFF_0000) | (dest & 0xFFFF)
+            };
+        }
+    }
 }
 
 /// Finish CAS once the destination has been read into `self.data`.
@@ -1141,7 +1246,8 @@ fn execute_bf(cpu: &mut Cpu68000, opcode: u16) -> bool {
 use motorola_68000::cpu::{
     TAG_BF_MEM_EA_ABSLONG_LO, TAG_BF_MEM_EA_RESOLVE, TAG_BF_MEM_EXEC, TAG_BF_MEM_READ,
     TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_CAS_COMPARE, TAG_V_CAS_WRITE_DONE,
-    TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_MULDIV_MEM_EXEC,
+    TAG_V_CAS2_COMPUTE, TAG_V_CAS2_GATHER, TAG_V_CAS2_READ2, TAG_V_CAS2_WRITE_DONE,
+    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
@@ -1347,6 +1453,63 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
             true
         }
         TAG_V_CAS_WRITE_DONE => {
+            cpu.in_followup = false;
+            cpu.followup_tag = 0;
+            true
+        }
+        // CAS2: extension word 2 is now in `irc`. Complete the 32-bit
+        // spec, advance the prefetch past it, then read the first
+        // destination at [Rn1].
+        TAG_V_CAS2_GATHER => {
+            cpu.src_val |= u32::from(cpu.irc);
+            cpu.micro_ops.push(MicroOp::FetchIRC);
+            let word2 = cpu.src_val;
+            cpu.addr = reg_da(cpu, word2 >> 28);
+            cpu.followup_tag = TAG_V_CAS2_READ2;
+            cpu.queue_read_ops(cpu.size);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_V_CAS2_READ2 => {
+            // dest1 read; stash it and read the second destination at
+            // [Rn2].
+            cpu.dst_val = cpu.data;
+            let word2 = cpu.src_val;
+            cpu.addr = reg_da(cpu, word2 >> 12);
+            cpu.followup_tag = TAG_V_CAS2_COMPUTE;
+            cpu.queue_read_ops(cpu.size);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_V_CAS2_COMPUTE => {
+            let word2 = cpu.src_val;
+            let dest1 = cpu.dst_val;
+            let dest2 = cpu.data;
+            if finish_cas2(cpu, word2, dest1, dest2) {
+                // Both matched: write Du1 to [Rn1], then Du2 to [Rn2].
+                let du1 = ((word2 >> 22) & 7) as usize;
+                cpu.addr = reg_da(cpu, word2 >> 28);
+                cpu.data = cpu.regs.d[du1];
+                cpu.followup_tag = TAG_V_CAS2_WRITE2;
+                cpu.queue_write_ops(cpu.size);
+                cpu.micro_ops.push(MicroOp::Execute);
+            } else {
+                // Mismatch: compare registers already loaded; end.
+                cpu.in_followup = false;
+            }
+            true
+        }
+        TAG_V_CAS2_WRITE2 => {
+            let word2 = cpu.src_val;
+            let du2 = ((word2 >> 6) & 7) as usize;
+            cpu.addr = reg_da(cpu, word2 >> 12);
+            cpu.data = cpu.regs.d[du2];
+            cpu.followup_tag = TAG_V_CAS2_WRITE_DONE;
+            cpu.queue_write_ops(cpu.size);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_V_CAS2_WRITE_DONE => {
             cpu.in_followup = false;
             cpu.followup_tag = 0;
             true
