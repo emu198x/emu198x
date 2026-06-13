@@ -200,6 +200,13 @@ pub fn decode_68020_opcode(cpu: &mut Cpu68000, opcode: u16) -> bool {
         return execute_bf(cpu, opcode);
     }
 
+    // TRAPcc ($50F8 / $50FA / $50FC + cc): the core routes the Scc
+    // sub-encoding mode 111 / reg ≥ 2 here. Reg 2/3/4 select the
+    // word-operand / long-operand / no-operand forms.
+    if (opcode & 0xF0F8) == 0x50F8 {
+        return execute_trapcc(cpu, opcode);
+    }
+
     // MOVEC ($4E7A / $4E7B): intercepted at the 68020 layer so the
     // 68020-additional control registers (CACR / CAAR / MSP / ISP)
     // resolve before falling through to the 68010 hook for the
@@ -233,6 +240,49 @@ fn execute_extb_l(cpu: &mut Cpu68000, opcode: u16) -> bool {
         sr |= N;
     }
     cpu.regs.sr = sr;
+    true
+}
+
+/// TRAPcc (`$50F8` / `$50FA` / `$50FC` + cc): conditionally take the
+/// TRAPcc exception (vector 7) based on the condition field in bits
+/// 11-8. The optional operand is *not* used as data — it follows the
+/// opcode purely so the trap handler can find it via the stacked PC —
+/// so the instruction only steps the prefetch past it. 68020+ only;
+/// M68000PRM § 6.2.40. The reg field selects the operand size:
+///
+///   reg 2 (`$50FA`): one word operand
+///   reg 3 (`$50FB`→`$50FC`-1): one long operand  ← encoded as reg 3
+///   reg 4 (`$50FC`): no operand
+///
+/// Reg 5/6/7 are not defined for TRAPcc and take ILLEGAL.
+fn execute_trapcc(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let operand_words: u32 = match opcode & 7 {
+        2 => 1, // TRAPcc.W — one extension word
+        3 => 2, // TRAPcc.L — two extension words
+        4 => 0, // TRAPcc   — no operand
+        _ => {
+            cpu.begin_group1_exception(4, cpu.instr_start_pc);
+            return true;
+        }
+    };
+
+    // Step the prefetch past the operand words. Each `consume_irc`
+    // queues one FetchIRC; the values are discarded (the operand is not
+    // data). On the not-taken path this leaves IRC pointing at the next
+    // instruction; on the taken path `begin_group1_exception` clears
+    // the queue, so the skip is harmless.
+    for _ in 0..operand_words {
+        cpu.consume_irc();
+    }
+
+    let cond = ((opcode >> 8) & 0x0F) as u8;
+    if cpu.check_condition(cond) {
+        // Stacked PC points past the whole instruction (opcode +
+        // operand). The Format-$2 frame also captures instr_start_pc as
+        // the Instruction Address (handled in begin_group1_exception).
+        let next_pc = cpu.instr_start_pc.wrapping_add(2 + operand_words * 2);
+        cpu.begin_group1_exception(7, next_pc);
+    }
     true
 }
 

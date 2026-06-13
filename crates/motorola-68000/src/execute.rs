@@ -946,7 +946,9 @@ impl Cpu68000 {
     }
 
     /// Evaluate a condition code (0-15) against the current SR flags.
-    pub(crate) fn check_condition(&self, cond: u8) -> bool {
+    /// Public so variant crates (e.g. the 68020's TRAPcc / Bcc.L /
+    /// coprocessor cc instructions) can reuse the same predicate.
+    pub fn check_condition(&self, cond: u8) -> bool {
         use crate::flags::{C, N, V, Z};
         let sr = self.regs.sr;
         let n = sr & N != 0;

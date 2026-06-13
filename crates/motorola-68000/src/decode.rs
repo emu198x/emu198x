@@ -346,9 +346,21 @@ impl Cpu68000 {
                     self.micro_ops.push(MicroOp::Execute);
                     return;
                 } else {
-                    // Scc: set byte to 0xFF or 0x00 based on condition
                     let ea_mode_bits = ((opcode >> 3) & 7) as u8;
                     let ea_reg = (opcode & 7) as u8;
+                    // Mode 111 with reg ≥ 2 (PC-relative / immediate) is
+                    // not a data-alterable Scc destination — that
+                    // encoding is the 68020 TRAPcc (reg 2/3/4) or
+                    // illegal. Route it to the variant hook, which
+                    // implements TRAPcc on the 68020+ and takes ILLEGAL
+                    // on the 68000/68010.
+                    if ea_mode_bits == 7 && ea_reg >= 2 {
+                        if !self.try_variant_decode(opcode) {
+                            self.begin_group1_exception(4, self.instr_start_pc);
+                        }
+                        return;
+                    }
+                    // Scc: set byte to 0xFF or 0x00 based on condition
                     self.dst_mode = AddrMode::decode(ea_mode_bits, ea_reg);
                     self.size = Size::Byte;
                     self.in_followup = true;
