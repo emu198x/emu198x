@@ -97,6 +97,12 @@ impl Cpu68020 {
         // it via MOVEC. Rebuilt empty here on every construct/deserialize
         // — a cold cache is transparent. See `motorola_68000::icache`.
         self.inner.variant_icache = Some(motorola_68000::ICache::new());
+        // The 68020's three-stage pipeline overlaps effective-address
+        // calculation with the next instruction fetch/decode, so the
+        // 2-clock dead time the sequential 68000 spends on indexed and
+        // predecrement EA calculation costs no observable clocks. Drop
+        // it (#41 Phase 4). The 68000/68010 keep the delay.
+        self.inner.variant_pipeline_no_ext_delay = true;
     }
 
     /// Borrow the wrapped 68010 core.

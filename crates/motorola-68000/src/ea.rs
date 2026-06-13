@@ -19,6 +19,19 @@ use crate::cpu::{
 use crate::microcode::MicroOp;
 
 impl Cpu68000 {
+    /// Push the internal dead time the sequential 68000 spends
+    /// calculating an indexed or predecrement effective address after
+    /// the extension-word fetch. The 68020's pipeline overlaps this
+    /// calculation with the next fetch/decode, so when
+    /// `variant_pipeline_no_ext_delay` is set the delay is dropped
+    /// entirely (#41 Phase 4). Timing only — the computed address is
+    /// identical either way.
+    fn push_ea_calc_delay(&mut self, clocks: u8) {
+        if !self.variant_pipeline_no_ext_delay && clocks > 0 {
+            self.micro_ops.push(MicroOp::Internal(clocks));
+        }
+    }
+
     /// Begin effective address calculation for an addressing mode.
     ///
     /// Returns `true` if the EA is fully resolved (address in `self.addr`),
@@ -74,10 +87,7 @@ impl Cpu68000 {
                 self.addr = self.regs.a(r as usize).wrapping_sub(decrement);
                 self.regs.set_a(r as usize, self.addr);
                 self.ae_undo_reg = Some((r, decrement, false, !is_src));
-                let d: u8 = 2;
-                if d > 0 {
-                    self.micro_ops.push(MicroOp::Internal(d));
-                }
+                self.push_ea_calc_delay(2);
                 true
             }
 
@@ -171,10 +181,7 @@ impl Cpu68000 {
                 self.addr = base
                     .wrapping_add(disp as u32)
                     .wrapping_add(idx.wrapping_mul(scale));
-                let d: u8 = 2;
-                if d > 0 {
-                    self.micro_ops.push(MicroOp::Internal(d));
-                }
+                self.push_ea_calc_delay(2);
                 true
             }
 
@@ -212,10 +219,7 @@ impl Cpu68000 {
                 self.addr = base
                     .wrapping_add(disp as u32)
                     .wrapping_add(idx.wrapping_mul(scale));
-                let d: u8 = 2;
-                if d > 0 {
-                    self.micro_ops.push(MicroOp::Internal(d));
-                }
+                self.push_ea_calc_delay(2);
                 true
             } // All modes handled — DataReg/AddrReg/Immediate are instant,
               // all memory modes compute an address above.
@@ -272,9 +276,10 @@ impl Cpu68000 {
         let indirect = ext & 0x0003 != 0;
 
         if bd_words == 0 && !indirect {
-            // Synchronous: EA = base + scaled index.
+            // Synchronous: EA = base + scaled index. Same pipelined
+            // dead time as the brief indexed mode above.
             self.addr = base.wrapping_add(regd);
-            self.micro_ops.push(MicroOp::Internal(2));
+            self.push_ea_calc_delay(2);
             return true;
         }
 
