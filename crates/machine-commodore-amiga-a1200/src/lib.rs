@@ -2025,7 +2025,7 @@ impl AmigaDriver for AmigaA1200 {
     fn audio_tick_cck(&mut self, dmacon: u16, slot: Option<u8>) {
         let memory = &self.memory;
         self.paula
-            .tick_audio_cck(dmacon, slot, true, |addr| memory.read_chip_ram_byte(addr));
+            .tick_audio_cck(dmacon, slot, |addr| memory.read_chip_ram_byte(addr));
     }
 
     fn service_sprite_dma(&mut self, channel: u8, second_word: bool, width: u8) {
