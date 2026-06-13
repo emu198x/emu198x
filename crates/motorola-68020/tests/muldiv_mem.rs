@@ -150,7 +150,7 @@ fn muls_l_memory_source_signed() {
 fn mulu_l_64bit_wide_memory_source() {
     // Wide form (bit 10): Dh:Dl gets the full 64-bit product.
     // D0=0x1_0000, (A0)=0x1_0000 → product 0x1_0000_0000 → Dl=0, Dh=1.
-    let op = [0x4C10u16, 0x0400 | (0 << 12) | 1]; // Dl=0, wide, Dh=1
+    let op = [0x4C10u16, 0x0400 | 1]; // spec: Dl=0 (bits 14-12), wide (bit 10), Dh=1
     let r = run(&op, 0x0001_0000, |cpu| cpu.regs.d[0] = 0x0001_0000);
     assert_eq!(r.d[0], 0x0000_0000, "Dl = low 32 bits");
     assert_eq!(r.d[1], 0x0000_0001, "Dh = high 32 bits");
@@ -167,7 +167,7 @@ fn divu_l_memory_source_unsigned() {
 fn divu_l_memory_source_quotient_and_remainder() {
     // DIVUL.L (A0),D1:D0 : Dq=0, Dr=1 → quotient→D0, remainder→D1.
     // 43 / 6 = 7 rem 1.
-    let op = [0x4C50u16, (0 << 12) | 1]; // Dq=0, Dr=1, unsigned, 32-bit
+    let op = [0x4C50u16, 1]; // spec: Dq=0 (bits 14-12), Dr=1, unsigned, 32-bit
     let r = run(&op, 6, |cpu| cpu.regs.d[0] = 43);
     assert_eq!(r.d[0], 7, "quotient → Dq");
     assert_eq!(r.d[1], 1, "remainder → Dr");

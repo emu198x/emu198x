@@ -254,6 +254,15 @@ pub const TAG_EA_FF_INDIRECT_DONE: u8 = 112;
 /// multiply / divide using `variant_ext_word` (the stashed spec word).
 pub const TAG_V_MULDIV_MEM_EXEC: u8 = 113;
 
+/// 68020+ CHK2 / CMP2: EA (bounds-tuple base) resolved; the lower bound
+/// has been read into `self.data`. Stash it, then read the upper bound
+/// at EA + size.
+pub const TAG_V_CHK2_LOWER: u8 = 114;
+/// 68020+ CHK2 / CMP2: both bounds are in (`src_val` = lower,
+/// `self.data` = upper). Compare the register against them, set Z/C
+/// (leaving N/V/X), and on CHK2 trap vector 6 if out of bounds.
+pub const TAG_V_CHK2_UPPER: u8 = 115;
+
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum State {

@@ -216,6 +216,15 @@ pub fn decode_68020_opcode(cpu: &mut Cpu68000, opcode: u16) -> bool {
         return execute_trapcc(cpu, opcode);
     }
 
+    // CHK2 / CMP2 (`0000 0ss0 11 mmmrrr`): the core routes the size-3
+    // immediate group's `11` sub-encoding here. Bit 11 of the *extension*
+    // word selects CHK2 (1) vs CMP2 (0); the opcode's bit 11 is 0 — which
+    // separates this from CAS (`0000 1ss0 11 …`, bit 11 = 1) that shares
+    // the same routing. ss in bits 10-9 is the operand size.
+    if (opcode & 0xF9C0) == 0x00C0 {
+        return execute_chk2_cmp2(cpu, opcode);
+    }
+
     // MOVEC ($4E7A / $4E7B): intercepted at the 68020 layer so the
     // 68020-additional control registers (CACR / CAAR / MSP / ISP)
     // resolve before falling through to the 68010 hook for the
@@ -371,6 +380,130 @@ fn begin_muldiv_mem_source(cpu: &mut Cpu68000, opcode: u16, ext: u16) -> bool {
     cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
     cpu.continue_instruction();
     true
+}
+
+/// CHK2 / CMP2 (`0000 0ss0 11 mmmrrr` + extension word). Compares a
+/// register against a pair of bounds held in memory at the effective
+/// address: the lower bound at `[EA]` and the upper at `[EA + size]`.
+/// The extension word holds bit 15 = D/A (register file), bits 14-12 =
+/// register number, bit 11 = CHK2 (1) / CMP2 (0).
+///
+/// CMP2 only sets the flags; CHK2 additionally traps vector 6 when the
+/// register is out of bounds. Both reads happen through the shared
+/// memory-operand pipeline: this sets up the EA fetch, the core reaches
+/// `TAG_FETCH_SRC_DATA`, and the continue hook chains the two bound
+/// reads (`TAG_V_CHK2_LOWER` → `TAG_V_CHK2_UPPER`) before computing.
+///
+/// Only control addressing modes are valid (M68000PRM § 6.2.2); other
+/// modes take ILLEGAL.
+fn execute_chk2_cmp2(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let Some(size) = motorola_68000::alu::Size::from_bits((opcode >> 9) as u8) else {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    };
+    let ext = cpu.consume_irc();
+    let ea_mode = ((opcode >> 3) & 7) as u8;
+    let ea_reg = (opcode & 7) as u8;
+
+    // Control modes only: (An), (d16,An), (d8,An,Xn), abs, (d16,PC),
+    // (d8,PC,Xn). Reject Dn / An / (An)+ / -(An) / immediate.
+    let control = match ea_mode {
+        2 | 5 | 6 => true,
+        7 => matches!(ea_reg, 0..=3),
+        _ => false,
+    };
+    if !control {
+        cpu.begin_group1_exception(4, cpu.instr_start_pc);
+        return true;
+    }
+
+    cpu.variant_ext_word = ext;
+    cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+    cpu.size = size;
+    cpu.in_followup = true;
+    cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+    cpu.continue_instruction();
+    true
+}
+
+/// Finish CHK2 / CMP2 once both bounds have been read. `src_val` holds
+/// the raw lower bound, `self.data` the raw upper bound, and
+/// `variant_ext_word` the spec word. Sets Z and C (leaving N/V/X), and
+/// on CHK2 traps vector 6 when the register is out of bounds.
+///
+/// Matches Musashi (`m68k_in.c`): the compare value is the register
+/// masked to the operand size, sign-extended only for data registers —
+/// address registers keep the masked (zero-extended) value, Musashi's
+/// quirk. The bounds are always read as signed. Z is set when the
+/// register equals either bound; C marks out-of-range, handling the
+/// `lower > upper` (wrapped range) case.
+fn compute_chk2_cmp2(cpu: &mut Cpu68000) {
+    let ext = cpu.variant_ext_word;
+    let size = cpu.size;
+    let reg_idx = ((ext >> 12) & 0x0F) as usize;
+    let is_chk2 = (ext & 0x0800) != 0;
+    let is_addr = (ext & 0x8000) != 0;
+
+    let raw_reg = if is_addr {
+        cpu.regs.a(reg_idx & 7)
+    } else {
+        cpu.regs.d[reg_idx & 7]
+    };
+
+    // Compare value: mask to size, then sign-extend for data registers
+    // only (Musashi leaves An zero-extended).
+    let masked = raw_reg & size_mask(size);
+    let compare: i32 = if is_addr {
+        masked as i32
+    } else {
+        sign_extend(masked, size)
+    };
+
+    let lower = sign_extend(cpu.src_val & size_mask(size), size);
+    let upper = sign_extend(cpu.data & size_mask(size), size);
+
+    let z = compare == lower || compare == upper;
+    // Musashi guards this with `lower <= upper ? … : …`, but both ternary
+    // branches reduce to the same expression by commutativity of `||`
+    // (`m68k_in.c` chk2cmp2) — so out-of-range is simply "below the lower
+    // bound or above the upper bound", with no special wrapped-range case.
+    let c = compare < lower || compare > upper;
+
+    let mut sr = cpu.regs.sr & !(Z | C);
+    if z {
+        sr |= Z;
+    }
+    if c {
+        sr |= C;
+    }
+    cpu.regs.sr = sr;
+
+    // CHK2 traps vector 6 (CHK/CHK2) when out of bounds. next_pc is the
+    // address past the whole instruction: opcode + spec word + EA
+    // extension words.
+    if is_chk2 && c {
+        let ea_ext = cpu.src_mode.map_or(0, |m| u32::from(m.ext_word_count()));
+        let next_pc = cpu.instr_start_pc.wrapping_add(4 + ea_ext * 2);
+        cpu.begin_group1_exception(6, next_pc);
+    }
+}
+
+/// Size mask for a value: 0xFF / 0xFFFF / 0xFFFFFFFF.
+fn size_mask(size: motorola_68000::alu::Size) -> u32 {
+    match size {
+        motorola_68000::alu::Size::Byte => 0xFF,
+        motorola_68000::alu::Size::Word => 0xFFFF,
+        motorola_68000::alu::Size::Long => 0xFFFF_FFFF,
+    }
+}
+
+/// Sign-extend a size-masked value to a signed 32-bit integer.
+fn sign_extend(masked: u32, size: motorola_68000::alu::Size) -> i32 {
+    match size {
+        motorola_68000::alu::Size::Byte => masked as u8 as i8 as i32,
+        motorola_68000::alu::Size::Word => masked as u16 as i16 as i32,
+        motorola_68000::alu::Size::Long => masked as i32,
+    }
 }
 
 /// MULU.L / MULS.L. 32×32 multiply, with 32-bit or 64-bit result
@@ -910,7 +1043,8 @@ fn execute_bf(cpu: &mut Cpu68000, opcode: u16) -> bool {
 
 use motorola_68000::cpu::{
     TAG_BF_MEM_EA_ABSLONG_LO, TAG_BF_MEM_EA_RESOLVE, TAG_BF_MEM_EXEC, TAG_BF_MEM_READ,
-    TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_MULDIV_MEM_EXEC,
+    TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER,
+    TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
@@ -1064,6 +1198,35 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
             cpu.followup_tag = TAG_V_MULDIV_MEM_EXEC;
             cpu.queue_read_ops(motorola_68000::alu::Size::Long);
             cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        // CHK2 / CMP2: the core's EA pipeline has resolved the
+        // bounds-tuple base (`cpu.addr`) and reached TAG_FETCH_SRC_DATA.
+        // Only CHK2/CMP2 ($00C0-style, bit 11 = 0) reach this tag with
+        // this opcode shape. Read the lower bound, chain to the upper.
+        TAG_FETCH_SRC_DATA if (cpu.ir & 0xF9C0) == 0x00C0 => {
+            cpu.followup_tag = TAG_V_CHK2_LOWER;
+            cpu.queue_read_ops(cpu.size);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_V_CHK2_LOWER => {
+            // Lower bound is in `cpu.data`; stash it, then read the
+            // upper bound at EA + size.
+            cpu.src_val = cpu.data;
+            cpu.addr = cpu.addr.wrapping_add(cpu.size.bytes());
+            cpu.followup_tag = TAG_V_CHK2_UPPER;
+            cpu.queue_read_ops(cpu.size);
+            cpu.micro_ops.push(MicroOp::Execute);
+            true
+        }
+        TAG_V_CHK2_UPPER => {
+            compute_chk2_cmp2(cpu);
+            // End the instruction — unless CHK2 raised a vector-6 trap,
+            // in which case `begin_group1_exception` owns in_followup.
+            if cpu.exc_vector.is_none() {
+                cpu.in_followup = false;
+            }
             true
         }
         TAG_V_MULDIV_MEM_EXEC => {
