@@ -46,6 +46,9 @@ pub enum InstructionSetup {
     ImmMemoryEA { imm_words: u8, size: u8 },
     /// MOVEM: register mask at pc+2, then EA ext words at pc+4.
     Movem { size: u8 },
+    /// 68020 32-bit displacement branch (Bcc.L / BSR.L / BRA.L): a random
+    /// even-target displacement in the two words after the opcode.
+    LongBranch,
 }
 
 const M68K: u32 = musashi::M68K_CPU_TYPE_68000;
@@ -665,6 +668,28 @@ pub fn catalogue(cpu_type: u32) -> Vec<InstructionDef> {
             opcode,
             ext_words: 1,
             setup: InstructionSetup::ImmMemoryEA { imm_words: 1, size },
+            min_cpu: m68020,
+        });
+    }
+
+    // Bcc.L / BSR.L / BRA.L ($6xFF + 32-bit displacement). The 8-bit
+    // field $FF selects the 68020 long-displacement form. BRA.L always
+    // branches; BSR.L pushes the return address (past the 6-byte
+    // instruction); Bcc.L honours the condition against the random SR.
+    // M68000PRM § 6.2.2 / 4. The shared condition logic is already
+    // validated by the 68000 Bcc corpus; these exercise the 32-bit gather
+    // + target + prefetch refill + BSR push.
+    for &(name, opcode) in &[
+        ("BRA.l", 0x60FFu16),
+        ("BSR.l", 0x61FF),
+        ("BEQ.l", 0x67FF),
+        ("BNE.l", 0x66FF),
+    ] {
+        defs.push(InstructionDef {
+            name,
+            opcode,
+            ext_words: 2,
+            setup: InstructionSetup::LongBranch,
             min_cpu: m68020,
         });
     }

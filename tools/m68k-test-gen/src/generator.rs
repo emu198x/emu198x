@@ -284,6 +284,19 @@ fn encode_instruction(
                 cpu_type,
             })
         }
+        InstructionSetup::LongBranch => {
+            // 68020 32-bit displacement branch. Pick a random EVEN target
+            // in range so the post-branch prefetch fetch lands on an even
+            // address — an odd target is an address error the
+            // single-stepped Musashi reference never reaches. The
+            // displacement is relative to pc + 2 (the first displacement
+            // word) and is written into the two words after the opcode.
+            let target = rng.random_range(0x0000_0100u32..0x00FF_0000) & !1;
+            let disp = target.wrapping_sub(pc.wrapping_add(2));
+            memory::poke_word(pc.wrapping_add(2), (disp >> 16) as u16);
+            memory::poke_word(pc.wrapping_add(4), disp as u16);
+            None
+        }
         InstructionSetup::Movem { size } => {
             // Register mask at pc+2
             let mask: u16 = rng.random();

@@ -86,6 +86,10 @@ pub const TAG_JSR_EXECUTE: u8 = 33;
 pub const TAG_JSR_JUMP: u8 = 43;
 /// BSR: branch to subroutine.
 pub const TAG_BSR_EXECUTE: u8 = 34;
+/// 68020+ Bcc.L / BSR.L / BRA.L: the high displacement word has been
+/// stashed in `src_val`'s upper half and the low word prefetched into
+/// `irc`; combine them into the 32-bit displacement and branch.
+pub const TAG_LONG_BRANCH_LO: u8 = 118;
 
 // RTS follow-ups
 /// RTS: pop PC high word.
@@ -663,6 +667,15 @@ pub struct Cpu68000 {
     /// See the 68k cycle-timing plan (#41) Phase 4.
     pub variant_um_ea_calc_timing: bool,
 
+    /// When set, the `Bcc`/`BSR`/`BRA` family decodes the 68020+ 32-bit
+    /// displacement form (8-bit displacement field == `$FF`). On the
+    /// 68000/68010 that encoding is a normal 8-bit branch with
+    /// displacement −1, so this must be a core flag, not a variant
+    /// decode-hook fallback (the opcode is never illegal). Default
+    /// `false`; the 68020+ wrapper sets it `true`.
+    #[serde(skip)]
+    pub variant_long_branch: bool,
+
     /// Step counter for the 11-step Format `$A` push sequence.
     /// Consulted by `TAG_AE_FMT_A_STEP`.
     #[serde(skip)]
@@ -865,6 +878,7 @@ impl Cpu68000 {
             variant_constant_shift_timing: false,
             variant_icache: None,
             variant_um_ea_calc_timing: false,
+            variant_long_branch: false,
             variant_ext_word: 0,
             ae_fmt_a_step: 0,
             ae_frame_pc: 0,

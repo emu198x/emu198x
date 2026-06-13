@@ -104,6 +104,11 @@ impl Cpu68020 {
         // (d8,An,Xn) = 4, full-format base+index = 6, predecrement = 2
         // (#41 Phase 4). The 68000/68010 keep the flat 2.
         self.inner.variant_um_ea_calc_timing = true;
+
+        // Bcc/BSR/BRA decode the 32-bit displacement form ($FF in the
+        // 8-bit field). On the 68000/68010 that is a normal 8-bit branch
+        // with displacement −1, so it must be a core flag (#114).
+        self.inner.variant_long_branch = true;
     }
 
     /// Borrow the wrapped 68010 core.
@@ -1670,6 +1675,7 @@ mod tests {
         assert!(restored.variant_six_word_frame);
         assert!(restored.variant_musashi_bcd_v);
         assert!(restored.variant_musashi_div_overflow);
+        assert!(restored.variant_long_branch);
     }
 
     #[test]
