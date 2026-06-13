@@ -143,14 +143,11 @@ correct, so it is not a visible gap. This is a different world from the old
   sample-and-hold matches Paula's character and avoids smoothing the aliasing away.
 - **Serial is a register husk** — no baud timing, no host transport (blocks the
   AmiTCP/Miami internet path and the Rachel netplay goal).
-- **POT analog ramp** is a stub (digital mouse buttons work); **mouse** uses a
-  position-delta counter, not true Gray-code quadrature.
-
-### Two small correctness bugs
-
-- **CIA-B FLAG (disk index)** — `drive.tick()` returns the index pulse but it's
-  discarded; trackdisk index-sync sees no interrupt.
-- **CIA-B TOD** is never pulsed (real hardware counts the disk index there).
+- **POT analog ramp** is a stub (#101) — digital mouse/joystick buttons work, but
+  the RC-charge ramp for paddles/proportional controllers isn't modelled. The mouse
+  uses a position-delta counter (the full JOYxDAT accumulator every program reads by
+  diffing); true Gray-code quadrature is a deliberate non-goal, since only demos
+  polling the raw quadrature lines at sub-read granularity would ever tell.
 
 ### Dormant modules (only matter for A3000/A4000)
 
