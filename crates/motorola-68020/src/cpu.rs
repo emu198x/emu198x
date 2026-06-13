@@ -83,6 +83,27 @@ impl Cpu68020 {
         // vec-2/3 handler reads at Format-$A field offsets (SR at
         // SP+0, PC at SP+2, F/V at SP+6, ...). M68000PRM § 8.6.4.
         self.inner.variant_format_a_group0 = true;
+        // ── Timing (TimingClass::M68020) — see the 68k cycle-timing
+        // plan (#41/#110/#111). The 68020 uses a 3-clock minimum bus
+        // cycle (vs the 68000's 4) and a barrel shifter that completes
+        // in constant time regardless of shift count.
+        self.inner.variant_min_bus_clocks = 3;
+        self.inner.variant_constant_shift_timing = true;
+        // The 68020 has a 256-byte on-chip instruction cache (64
+        // direct-mapped long-word entries). A program-space prefetch
+        // that hits skips the external bus cycle, so cached code does
+        // not contend with Agnus for chip RAM. The cache starts
+        // disabled (CACR.E = 0, like real hardware); Kickstart enables
+        // it via MOVEC. Rebuilt empty here on every construct/deserialize
+        // — a cold cache is transparent. See `motorola_68000::icache`.
+        self.inner.variant_icache = Some(motorola_68000::ICache::new());
+        // Indexed and computed effective-address calculations cost the
+        // 68020's clocks (M68020UM § 8.2.3 Calculate EA, Cache Case —
+        // the no-overlap column our sequential engine targets) instead
+        // of the 68000 model's flat 2-clock approximation: brief
+        // (d8,An,Xn) = 4, full-format base+index = 6, predecrement = 2
+        // (#41 Phase 4). The 68000/68010 keep the flat 2.
+        self.inner.variant_um_ea_calc_timing = true;
     }
 
     /// Borrow the wrapped 68010 core.
@@ -474,13 +495,30 @@ fn read_68020_cr(cpu: &Cpu68000, ext: u16) -> Option<u32> {
 fn write_68020_cr(cpu: &mut Cpu68000, ext: u16, value: u32) -> bool {
     match ext & 0x0FFF {
         0x002 => {
-            // 68020 CACR mask: bits 0-3 (EI / FI / CI / CD).
+            // 68020 CACR mask: bits 0-3 (E / F / CE / C).
+            //   bit 0 E  — enable instruction cache
+            //   bit 1 F  — freeze (serve hits, suppress fills)
+            //   bit 2 CE — clear entry (the CAAR-indexed line)
+            //   bit 3 C  — clear cache (all entries)
             // Higher variants (68030, 68040) widen this; matching
             // Musashi exactly would mean per-variant masks, but
             // the m68k-test-gen corpus generates random values and
             // the 68020 / 68030 mask differs only in upper bits
             // that the corpus doesn't exercise meaningfully.
             cpu.regs.cacr = value & 0x0f;
+            // C and CE are momentary actions that fire on the write.
+            // We keep them in the stored value (the corpus round-trips
+            // `value & 0x0f`) but act on them here. CE selects the line
+            // by CAAR.
+            let caar = cpu.regs.caar;
+            if let Some(cache) = cpu.variant_icache.as_mut() {
+                if value & 0x08 != 0 {
+                    cache.clear();
+                }
+                if value & 0x04 != 0 {
+                    cache.clear_entry(caar);
+                }
+            }
             true
         }
         0x802 => {

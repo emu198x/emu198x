@@ -19,6 +19,24 @@ use crate::cpu::{
 use crate::microcode::MicroOp;
 
 impl Cpu68000 {
+    /// Push the internal clocks spent calculating an indexed,
+    /// predecrement, or computed effective address. The 68000 model uses
+    /// a flat 2-clock approximation; when `variant_um_ea_calc_timing` is
+    /// set (68020+), `clocks_020` applies instead — the M68020UM § 8.2.3
+    /// "Calculate Effective Address" Cache-Case figure for the
+    /// no-overlap model this engine targets (#41 Phase 4). Timing only;
+    /// the computed address is identical either way.
+    fn push_ea_calc_delay(&mut self, clocks_020: u8) {
+        let clocks = if self.variant_um_ea_calc_timing {
+            clocks_020
+        } else {
+            2
+        };
+        if clocks > 0 {
+            self.micro_ops.push(MicroOp::Internal(clocks));
+        }
+    }
+
     /// Begin effective address calculation for an addressing mode.
     ///
     /// Returns `true` if the EA is fully resolved (address in `self.addr`),
@@ -74,10 +92,10 @@ impl Cpu68000 {
                 self.addr = self.regs.a(r as usize).wrapping_sub(decrement);
                 self.regs.set_a(r as usize, self.addr);
                 self.ae_undo_reg = Some((r, decrement, false, !is_src));
-                let d: u8 = 2;
-                if d > 0 {
-                    self.micro_ops.push(MicroOp::Internal(d));
-                }
+                // -(An): M68020UM § 8.2.3 Calculate EA CC = 2 (no overlap
+                // benefit — same in every UM column, and the 68000 model
+                // also uses 2).
+                self.push_ea_calc_delay(2);
                 true
             }
 
@@ -171,10 +189,8 @@ impl Cpu68000 {
                 self.addr = base
                     .wrapping_add(disp as u32)
                     .wrapping_add(idx.wrapping_mul(scale));
-                let d: u8 = 2;
-                if d > 0 {
-                    self.micro_ops.push(MicroOp::Internal(d));
-                }
+                // Brief (d8,An,Xn): M68020UM § 8.2.3 Calculate EA CC = 4.
+                self.push_ea_calc_delay(4);
                 true
             }
 
@@ -212,10 +228,8 @@ impl Cpu68000 {
                 self.addr = base
                     .wrapping_add(disp as u32)
                     .wrapping_add(idx.wrapping_mul(scale));
-                let d: u8 = 2;
-                if d > 0 {
-                    self.micro_ops.push(MicroOp::Internal(d));
-                }
+                // Brief (d8,PC,Xn): M68020UM § 8.2.3 Calculate EA CC = 4.
+                self.push_ea_calc_delay(4);
                 true
             } // All modes handled — DataReg/AddrReg/Immediate are instant,
               // all memory modes compute an address above.
@@ -272,9 +286,12 @@ impl Cpu68000 {
         let indirect = ext & 0x0003 != 0;
 
         if bd_words == 0 && !indirect {
-            // Synchronous: EA = base + scaled index.
+            // Synchronous: EA = base + scaled index. This is the
+            // full-format base+index "(B)" form — M68020UM § 8.2.3
+            // Calculate EA CC = 6 (2 more than the brief (d8,An,Xn),
+            // for the full extension-word decode). 68020-only path.
             self.addr = base.wrapping_add(regd);
-            self.micro_ops.push(MicroOp::Internal(2));
+            self.push_ea_calc_delay(6);
             return true;
         }
 

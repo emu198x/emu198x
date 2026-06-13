@@ -591,6 +591,47 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub variant_format_a_group0: bool,
 
+    /// Minimum bus-cycle length in CPU clocks. The 68000/68010 use a
+    /// 4-clock minimum (S0–S7); the 68020/68030 use 3. Chip RAM still
+    /// stretches via `BusStatus::Wait` regardless, so this only sets
+    /// the fast-memory access floor. Wrappers set it from their
+    /// `TimingClass`; see the 68k cycle-timing plan (#41/#110/#111).
+    pub variant_min_bus_clocks: u8,
+
+    /// When set, the barrel-shifter instructions (LSL/LSR/ASL/ASR/
+    /// ROL/ROR/ROXL/ROXR) cost a constant internal delay regardless of
+    /// shift count — the 68020+ behaviour — instead of the 68000's
+    /// `2 + 2·count` clocks.
+    pub variant_constant_shift_timing: bool,
+
+    /// On-chip instruction cache (68020+). `None` on the 68000/68010
+    /// (no cache); the 68020+ wrapper installs `Some(ICache::new())` in
+    /// `install_variant_hooks`. A program-space prefetch ([`FetchIRC`])
+    /// that hits self-serves the word with no external bus cycle, so
+    /// cached code does not contend with the chip-RAM DMA grid — the
+    /// real Amiga benefit, not merely a clock saving. Gated at runtime
+    /// on CACR.E (enable) / CACR.F (freeze). `#[serde(skip)]`: rebuilt
+    /// empty on deserialize, which is transparent (a cold cache always
+    /// misses to the bus). See `icache.rs` and the 68k cycle-timing
+    /// plan (#41/#110/#111).
+    ///
+    /// [`FetchIRC`]: crate::microcode::MicroOp::FetchIRC
+    #[serde(skip)]
+    pub variant_icache: Option<crate::icache::ICache>,
+
+    /// When set, indexed and computed effective-address calculations
+    /// cost the 68020's clocks instead of the 68000 model's flat 2-clock
+    /// approximation. The figures are the M68020UM § 8.2.3 "Calculate
+    /// Effective Address" Cache-Case column — the no-overlap case our
+    /// sequential engine targets (the manual's Best Case assumes
+    /// cross-instruction pipeline overlap, which this model does not
+    /// represent): brief `(d8,An,Xn)`/`(d8,PC,Xn)` = 4, full-format
+    /// base+index `(An,Xn*scale)` = 6, predecrement `-(An)` = 2.
+    /// Default `false` (68000/68010 keep the flat 2); the 68020+ wrapper
+    /// sets it `true`. Timing only — the computed address is identical.
+    /// See the 68k cycle-timing plan (#41) Phase 4.
+    pub variant_um_ea_calc_timing: bool,
+
     /// Step counter for the 11-step Format `$A` push sequence.
     /// Consulted by `TAG_AE_FMT_A_STEP`.
     #[serde(skip)]
@@ -789,6 +830,10 @@ impl Cpu68000 {
             variant_musashi_div_overflow: false,
             variant_extended_sr_writes: false,
             variant_format_a_group0: false,
+            variant_min_bus_clocks: 4,
+            variant_constant_shift_timing: false,
+            variant_icache: None,
+            variant_um_ea_calc_timing: false,
             ae_fmt_a_step: 0,
             ae_frame_pc: 0,
             rte_fmta_step: 0,
@@ -972,8 +1017,9 @@ impl Cpu68000 {
         }
 
         // --- Advance current state ---
-        // The 68000 uses 4-clock minimum bus cycles (S0-S7).
-        let min_bus = 4u8;
+        // 4-clock minimum bus cycle (S0-S7) on the 68000/68010; the
+        // 68020+ wrapper lowers this to 3 via its TimingClass.
+        let min_bus = self.variant_min_bus_clocks;
         match &mut self.state {
             State::Idle => {}
             State::Internal { cycles } => {
@@ -1243,8 +1289,39 @@ impl Cpu68000 {
     ///
     /// Push ops decrement SP before computing the write address.
     /// Pop ops increment SP after the read address is computed.
+    ///
+    /// One op does not enter `BusCycle`: a [`MicroOp::FetchIRC`] that
+    /// hits the 68020+ instruction cache self-serves the word and
+    /// returns a 1-clock `State::Internal` instead, so cached code
+    /// neither stalls for the bus nor contends with chip-RAM DMA. The
+    /// hit path is gated on `variant_icache` being present (68020+ only)
+    /// and CACR.E (enable); everything else is unchanged.
     fn initiate_bus_cycle(&mut self, op: MicroOp) -> State {
         let is_sup = self.regs.is_supervisor();
+
+        // 68020+ instruction-cache hit: self-serve the prefetch word
+        // with no external bus cycle. `lookup` borrows `variant_icache`
+        // only for the call, so the borrow ends before we update fetch
+        // state. The served value is byte-identical to a bus fetch —
+        // only the cycle is elided — so architectural state is unchanged.
+        if matches!(op, MicroOp::FetchIRC) && self.regs.cacr & 0x01 != 0 {
+            let addr = self.next_fetch_addr;
+            let hit = self
+                .variant_icache
+                .as_ref()
+                .and_then(|cache| cache.lookup(addr, is_sup));
+            if let Some(word) = hit {
+                // Mirror finish_bus_cycle's FetchIRC bookkeeping.
+                self.irc = word;
+                self.irc_addr = addr;
+                self.next_fetch_addr = addr.wrapping_add(2);
+                self.regs.pc = self.next_fetch_addr;
+                // A cache hit costs ~1 internal clock vs the 3-clock
+                // (020) external bus cycle.
+                return State::Internal { cycles: 1 };
+            }
+        }
+
         let fc_prog = if is_sup {
             FunctionCode::SupervisorProgram
         } else {
@@ -1361,11 +1438,26 @@ impl Cpu68000 {
     fn finish_bus_cycle(&mut self, op: MicroOp, read_data: u16) {
         match op {
             MicroOp::FetchIRC => {
+                let fetched_addr = self.next_fetch_addr;
                 self.irc = read_data;
-                self.irc_addr = self.next_fetch_addr;
-                self.next_fetch_addr = self.next_fetch_addr.wrapping_add(2);
+                self.irc_addr = fetched_addr;
+                self.next_fetch_addr = fetched_addr.wrapping_add(2);
                 // PC tracks the fetch address (like real 68000)
                 self.regs.pc = self.next_fetch_addr;
+                // 68020+ instruction-cache fill on miss: cache the
+                // just-fetched program word so a re-fetch (loops — the
+                // hot path) self-serves with no bus cycle. Gated on
+                // CACR.E (enable) and !CACR.F (freeze suppresses fills
+                // but still allows hits). FC2 = the supervisor bit of
+                // the program-space function code.
+                let enabled = self.regs.cacr & 0x01 != 0;
+                let frozen = self.regs.cacr & 0x02 != 0;
+                if enabled && !frozen {
+                    let fc2 = self.regs.is_supervisor();
+                    if let Some(cache) = self.variant_icache.as_mut() {
+                        cache.fill(fetched_addr, fc2, read_data);
+                    }
+                }
             }
             // Byte/word reads: store the 16-bit value
             MicroOp::ReadByte | MicroOp::ReadWord | MicroOp::PopWord => {
