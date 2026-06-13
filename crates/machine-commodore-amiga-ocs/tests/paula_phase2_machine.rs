@@ -183,7 +183,7 @@ fn program_aud0_one_word_block(amiga: &mut AmigaOcs) {
 }
 
 #[test]
-fn audio_dma_enable_rising_edge_raises_aud0_irq_within_one_cck() {
+fn audio_dma_enable_raises_aud0_irq_after_dma_start() {
     let mut amiga = AmigaOcs::new(zero_rom());
     // Pre-enable INTENA so we can see the IRQ flow but mask the master
     // enable so the CPU doesn't actually service.
@@ -191,15 +191,26 @@ fn audio_dma_enable_rising_edge_raises_aud0_irq_within_one_cck() {
 
     program_aud0_one_word_block(&mut amiga);
 
-    // Tick one CCK — Paula sees DMAEN rising and raises INT_AUD0.
-    // (Tick loop pulses Paula once per CCK at phase 0.)
-    amiga.tick(); // phase 0
-    amiga.tick(); // phase 1
+    // Since #39 the audio DMA start is a state machine with bus latency:
+    // enabling DMAEN+AUDxEN arms the channel, then the first AUD0 DMA
+    // slot (hpos 0x0E on a line) fetches the one-word block, which on a
+    // length-1 block reloads the pointer from AUD0LC and latches
+    // INT_AUD0. So the IRQ follows the DMA-start sequence rather than
+    // firing within one CCK of the register write. Run a few lines —
+    // well past the first slot + return latency — until it latches.
+    let mut latched = false;
+    for _ in 0..(machine_commodore_amiga_ocs::PAL_LINE_TICKS as u32 * 4) {
+        amiga.tick();
+        if amiga.paula().intreq() & (1 << 7) != 0 {
+            latched = true;
+            break;
+        }
+    }
 
-    assert_ne!(
-        amiga.paula().intreq() & (1 << 7),
-        0,
-        "INT_AUD0 must latch on the DMA-enable rising edge"
+    assert!(
+        latched,
+        "INT_AUD0 must latch once the audio DMA start sequence fetches \
+         the first (length-1) block"
     );
 }
 

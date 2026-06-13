@@ -1,11 +1,16 @@
 //! Phase 2 machine-level integration tests for the blitter.
 //!
 //! Closes tasks #142–#147: the blitter register bus, register
-//! dispatch, run-to-completion on BLTSIZE write, and INT_BLIT on
-//! completion. Per-slot contention pacing is deferred to a future
-//! task (#147 refinement) — the current model runs blits
-//! synchronously, which matches the Amiga semantics CPU code expects
-//! (BBUSY clears before the next instruction).
+//! dispatch, run-to-completion, and INT_BLIT on completion.
+//!
+//! Since #31 the blitter is **incremental**: writing BLTSIZE arms the
+//! scheduler, and the blit drains one DMA op per granted CCK in the
+//! tick loop (BBUSY stays set in DMACONR until it finishes) rather than
+//! completing on the register write. Progress is granted only when
+//! blitter DMA is enabled (DMACON DMAEN + BLTEN) and a bus slot is free,
+//! so each test enables blitter DMA and then ticks the machine until the
+//! blit raises INT_BLIT. (The earlier synchronous-completion model these
+//! tests first assumed predated #31.)
 
 use machine_commodore_amiga_ocs::{AmigaOcs, IntSource};
 
@@ -24,10 +29,30 @@ fn disable_ovl(amiga: &mut AmigaOcs) {
     assert!(!amiga.memory().overlay());
 }
 
+/// Enable blitter DMA: DMACON master DMAEN (bit 9) + BLTEN (bit 6). The
+/// incremental scheduler is granted bus slots only when both are set.
+fn enable_blitter_dma(amiga: &mut AmigaOcs) {
+    amiga.poke_word(0x00DF_F096, 0x8000 | 0x0200 | 0x0040); // SET DMAEN|BLTEN
+}
+
+/// Tick until the in-flight blit drains and raises INT_BLIT. Bounded so
+/// a genuine never-completing blit fails loudly rather than hanging — a
+/// 1–2 word blit needs only a handful of CCKs, far under this budget.
+fn run_blit_to_completion(amiga: &mut AmigaOcs) {
+    for _ in 0..100_000 {
+        if amiga.intreq() & IntSource::Blit.mask() != 0 {
+            return;
+        }
+        amiga.tick();
+    }
+    panic!("blit did not raise INT_BLIT within the tick budget");
+}
+
 #[test]
 fn bltsize_write_drives_a_one_word_copy_to_completion() {
     let mut amiga = AmigaOcs::new(zero_rom());
     disable_ovl(&mut amiga);
+    enable_blitter_dma(&mut amiga);
     amiga.poke_word(0x0000_1000, 0xCAFE);
 
     // Program BLTCON0 = USEA+USED + minterm $F0 (D = A).
@@ -42,11 +67,12 @@ fn bltsize_write_drives_a_one_word_copy_to_completion() {
     amiga.poke_word(0x00DF_F052, 0x1000); // BLTAPTL
     amiga.poke_word(0x00DF_F054, 0x0000); // BLTDPTH
     amiga.poke_word(0x00DF_F056, 0x2000); // BLTDPTL
-    // BLTSIZE = 1 row × 1 word — writing this triggers the blit.
+    // BLTSIZE = 1 row × 1 word — writing this arms the blit.
     amiga.poke_word(0x00DF_F058, (1 << 6) | 1);
 
-    // After the synchronous completion model, the destination holds
-    // the copied word and INT_BLIT is pending.
+    run_blit_to_completion(&mut amiga);
+
+    // The destination holds the copied word and INT_BLIT is pending.
     assert_eq!(amiga.read_word(0x0000_2000), 0xCAFE);
     assert_ne!(
         amiga.intreq() & IntSource::Blit.mask(),
@@ -59,13 +85,15 @@ fn bltsize_write_drives_a_one_word_copy_to_completion() {
 fn bltsize_write_raises_blit_ipl_3_when_enabled() {
     let mut amiga = AmigaOcs::new(zero_rom());
     amiga.poke_word(0x00DF_F09A, 0xC040); // SET INTEN + BLIT
+    enable_blitter_dma(&mut amiga);
     // Smallest valid blit: D-only, 1×1.
     amiga.poke_word(0x00DF_F040, 0x0100); // USED only, lf=0
     amiga.poke_word(0x00DF_F054, 0x0000);
     amiga.poke_word(0x00DF_F056, 0x3000);
     amiga.poke_word(0x00DF_F058, (1 << 6) | 1);
 
-    // Blit has completed synchronously; one tick settles the IPL.
+    run_blit_to_completion(&mut amiga);
+    // One more tick settles the IPL from the now-pending INT_BLIT.
     amiga.tick();
     assert_eq!(amiga.cpu().ipl, 3, "INT_BLIT → IPL 3 per HRM");
 }
@@ -74,6 +102,7 @@ fn bltsize_write_raises_blit_ipl_3_when_enabled() {
 fn two_row_two_word_copy_exercises_amod_and_dmod_paths() {
     let mut amiga = AmigaOcs::new(zero_rom());
     disable_ovl(&mut amiga);
+    enable_blitter_dma(&mut amiga);
     // Source: 4 words at $1000..=$1006.
     for (i, w) in [0x1111u16, 0x2222, 0x3333, 0x4444].into_iter().enumerate() {
         amiga.poke_word(0x0000_1000 + (i as u32) * 2, w);
@@ -91,6 +120,8 @@ fn two_row_two_word_copy_exercises_amod_and_dmod_paths() {
     amiga.poke_word(0x00DF_F064, 0); // BLTAMOD
     amiga.poke_word(0x00DF_F066, 0); // BLTDMOD
     amiga.poke_word(0x00DF_F058, (2 << 6) | 2);
+
+    run_blit_to_completion(&mut amiga);
 
     for (i, expected) in [0x1111u16, 0x2222, 0x3333, 0x4444].into_iter().enumerate() {
         assert_eq!(
