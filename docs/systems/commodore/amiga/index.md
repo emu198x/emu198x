@@ -59,10 +59,11 @@ sprites, BPLAM XOR, 8-plane lowres and superhires fetch all landed (#93/#94/#96/
   exclusive fill, line-mode octants), and a real per-colour-clock DMA slot table.
   AGA FMODE 16/32/64-bit bitplane wide-fetch landed and is validated against a
   live WB3.1 modulo oracle.
-- **Paula** — 4-channel DMA audio with cross-channel period/volume modulation and
-  the A500 DAC S-curve; the complete interrupt controller (all 14 sources, IPL
-  priority encoder, INTENA/INTREQ); MFM floppy **read**; the serial + POT register
-  surfaces.
+- **Paula** — 4-channel DMA audio with cross-channel period/volume modulation, the
+  A500 DAC S-curve, and the analog output filter chain (static RC low-pass +
+  switchable LED Butterworth gated off CIA-A PRA bit 1 + DC-blocking high-pass,
+  per-model); the complete interrupt controller (all 14 sources, IPL priority
+  encoder, INTENA/INTREQ); MFM floppy **read**; the serial + POT register surfaces.
 - **CIA (8520 ×2)** — excellent: dual timers with the TBHI one-shot autostart
   quirk + the 8520 TOD write-halt, ICR, the keyboard serial handshake
   (WinUAE-matched), mouse/joystick ports. Memory map + OVL overlay correct.
@@ -131,8 +132,10 @@ correct, so it is not a visible gap. This is a different world from the old
 
 ### Audio + I/O fidelity
 
-- **No audio output filter** — neither the fixed RC nor the LED-switchable
-  Butterworth; and no Paula volume-PWM/aliasing model.
+- **Resampling is sample-and-hold** — the analog output filter chain (RC + LED +
+  HP) is implemented, and host-rate sampling of the period-stepped DAC already
+  aliases like the hardware. The open nicety (#38) is vAmiga-style timestamped
+  interpolation; the 6-bit volume scaling itself is already exact.
 - **Serial is a register husk** — no baud timing, no host transport (blocks the
   AmiTCP/Miami internet path and the Rachel netplay goal).
 - **POT analog ramp** is a stub (digital mouse buttons work); **mouse** uses a

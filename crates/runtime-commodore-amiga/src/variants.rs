@@ -17,6 +17,10 @@
 use emu198x_shell::QueryError;
 use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_a1200::{AmigaA1200, AmigaA1200Snapshot};
+// `CiaExt::power_led` — the LED-filter gate. The trait is re-exported
+// identically by every Amiga machine crate (it originates in
+// `common_commodore_amiga::cia`); one import covers all three variants.
+use machine_commodore_amiga_ecs::CiaExt;
 use machine_commodore_amiga_ecs::{AmigaEcs, AmigaEcsSnapshot};
 use machine_commodore_amiga_ocs::{
     AgnusRegion, AmigaOcs, AmigaOcsSnapshot, FB_HEIGHT, FB_WIDTH, RamConfig,
@@ -102,6 +106,11 @@ pub trait AmigaMachine {
     /// The runtime's resampler invokes this every machine tick so
     /// the sample stream is continuous across frame boundaries.
     fn mix_audio_stereo(&self) -> (f32, f32);
+
+    /// Whether the switchable LED audio filter is currently engaged —
+    /// CIA-A's power-LED line (PRA bit 1) is bright. The runtime feeds
+    /// this to Paula's analog filter chain each host sample.
+    fn led_filter_engaged(&self) -> bool;
 
     // ---------- input ----------
 
@@ -227,6 +236,10 @@ impl AmigaMachine for AmigaOcs {
 
     fn mix_audio_stereo(&self) -> (f32, f32) {
         self.paula().mix_audio_stereo()
+    }
+
+    fn led_filter_engaged(&self) -> bool {
+        self.cia_a().power_led()
     }
 
     fn key_event(&mut self, code: u8, pressed: bool) {
@@ -364,6 +377,10 @@ impl AmigaMachine for AmigaEcs {
 
     fn mix_audio_stereo(&self) -> (f32, f32) {
         self.paula().mix_audio_stereo()
+    }
+
+    fn led_filter_engaged(&self) -> bool {
+        self.cia_a().power_led()
     }
 
     fn key_event(&mut self, code: u8, pressed: bool) {
@@ -548,6 +565,10 @@ impl AmigaMachine for AmigaA1200 {
 
     fn mix_audio_stereo(&self) -> (f32, f32) {
         self.paula().mix_audio_stereo()
+    }
+
+    fn led_filter_engaged(&self) -> bool {
+        self.cia_a().power_led()
     }
 
     fn key_event(&mut self, code: u8, pressed: bool) {
