@@ -5,7 +5,7 @@
 //! internal precision (covers Single/Double exactly, approximates
 //! Extended's 64-bit mantissa with 53 bits).
 
-use motorola_68k_common::registers::Registers;
+use crate::registers::Registers;
 use serde::{Deserialize, Serialize};
 
 // --- FP data formats ---
