@@ -592,6 +592,25 @@ pub fn catalogue(cpu_type: u32) -> Vec<InstructionDef> {
         min_cpu: m68020,
     });
 
+    // MUL.L / DIV.L memory-source forms. Layout: opcode, spec word
+    // (Dl/Dh/signed/size — the random "immediate" word here), then the
+    // EA extension words. Read a long operand. A few EA modes for
+    // coverage; a random divisor exercises DIV.L divide-by-zero too.
+    for &(name, opcode) in &[
+        ("MULL_ind", 0x4C10u16),    // MUL.L (A0),...
+        ("MULL_d16", 0x4C28),       // MUL.L (d16,A0),...
+        ("DIVL_ind", 0x4C50),       // DIV.L (A0),...
+        ("DIVL_d16", 0x4C68),       // DIV.L (d16,A0),...
+    ] {
+        defs.push(InstructionDef {
+            name,
+            opcode,
+            ext_words: 1,
+            setup: InstructionSetup::ImmMemoryEA { imm_words: 1, size: 4 },
+            min_cpu: m68020,
+        });
+    }
+
     // PACK / UNPK register forms (Dy,Dx,#adj). Opcode bakes D0,D0; the
     // adjustment is the (random) extension word. M68000PRM § 6.2.27.
     defs.push(InstructionDef {
