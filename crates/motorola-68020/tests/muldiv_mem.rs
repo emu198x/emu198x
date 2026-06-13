@@ -194,3 +194,68 @@ fn divl_d16_an_source_divide_by_zero_pc_accounts_for_ext_word() {
     let r = run(&op, 0, |cpu| cpu.regs.d[0] = 42);
     assert_eq!(r.vector_pc, Some(0x0000_3000));
 }
+
+#[test]
+fn divl_d16_nonzero_displacement_reads_the_right_operand() {
+    // DIV.L (4,A0),D0 : divisor lives at A0+4, NOT A0. Isolates whether
+    // the (d16,An) operand fetch honours the displacement. 42 / 6 = 7.
+    let op = [0x4C68u16, 0x0000, 0x0004]; // DIVU.L (d16,A0),D0 ; d16=4
+    let mut cpu = Cpu68020::new();
+    let mut mem = Mem::new();
+    for (i, w) in op.iter().enumerate() {
+        mem.write_word(PC + (i as u32) * 2, *w);
+    }
+    for k in 0..3 {
+        mem.write_word(PC + (op.len() as u32 + k) * 2, 0x4E71);
+    }
+    mem.write_long(EA + 4, 6); // divisor at A0+4
+    mem.write_long(EA, 0); // A0+0 holds 0 (would div-by-zero if mis-read)
+    cpu.regs.sr |= 0x2000;
+    cpu.regs.a[0] = EA;
+    cpu.regs.d[0] = 42;
+    cpu.regs.ssp = 0x0000_8000;
+    cpu.regs.set_active_sp(0x0000_8000);
+    cpu.regs.pc = PC + 4;
+    cpu.setup_prefetch(op[0], op[1]);
+    let start = cpu.instruction_starts;
+    for _ in 0..400 {
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.instruction_starts > start {
+            break;
+        }
+    }
+    assert_eq!(cpu.regs.d[0], 7, "must read divisor from A0+4, not A0");
+}
+
+#[test]
+fn divl_d16_odd_an_plus_odd_disp_reads_even_ea() {
+    // Generator evens the EA by toggling An's bit 0, so An can be odd
+    // with an odd d16 summing to an even EA. A0=0x2001, d16=-1 → EA 0x2000.
+    let op = [0x4C68u16, 0x0000, 0xFFFF]; // DIVU.L (d16,A0),D0 ; d16=-1
+    let mut cpu = Cpu68020::new();
+    let mut mem = Mem::new();
+    for (i, w) in op.iter().enumerate() {
+        mem.write_word(PC + (i as u32) * 2, *w);
+    }
+    for k in 0..3 {
+        mem.write_word(PC + (op.len() as u32 + k) * 2, 0x4E71);
+    }
+    mem.write_long(0x0000_2000, 6); // divisor at EA = 0x2001 + (-1)
+    cpu.regs.sr |= 0x2000;
+    cpu.regs.a[0] = 0x0000_2001; // odd
+    cpu.regs.d[0] = 42;
+    cpu.regs.ssp = 0x0000_8000;
+    cpu.regs.set_active_sp(0x0000_8000);
+    cpu.regs.pc = PC + 4;
+    cpu.setup_prefetch(op[0], op[1]);
+    let start = cpu.instruction_starts;
+    for _ in 0..400 {
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.instruction_starts > start {
+            break;
+        }
+    }
+    assert_eq!(cpu.regs.d[0], 7, "EA = 0x2001 + (-1) = 0x2000");
+}
