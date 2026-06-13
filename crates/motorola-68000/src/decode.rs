@@ -1194,14 +1194,22 @@ impl Cpu68000 {
             return;
         }
         if (opcode & 0xF000) == 0xF000 {
-            // F-line: F-line emulator trap (vector 11).
+            // F-line: coprocessor / extension space.
             //
-            // The 68000 has no FPU coprocessor interface, no on-die MMU,
-            // and no MOVE16 / CINV / CPUSH instructions. Every F-line
-            // opcode is unimplemented and traps. The 68020+ uses this
-            // space for cpID-1 FPU coprocessor calls; the 68030 PMMU
-            // and 68040 MOVE16/CINV/CPUSH/PFLUSH/PTEST live here too.
-            self.begin_group1_exception(11, self.instr_start_pc);
+            // The 68000 / 68010 / 68EC020 (no coprocessor fitted) have no
+            // FPU interface, no on-die MMU, and no MOVE16 / CINV / CPUSH —
+            // every F-line opcode is unimplemented and takes the F-line
+            // emulator trap (vector 11). The 68020+ uses this space for
+            // cpID-1 FPU coprocessor calls (68881/2); the 68030 PMMU and
+            // 68040 MOVE16/CINV/CPUSH/PFLUSH/PTEST live here too.
+            //
+            // Offer it to the variant decode hook first; fall back to the
+            // vector-11 trap when no variant claims it (the hook chain
+            // returns false for unrecognised F-line opcodes, so the
+            // 68000/010 and an FPU-less 020 keep trapping unchanged).
+            if !self.try_variant_decode(opcode) {
+                self.begin_group1_exception(11, self.instr_start_pc);
+            }
             return;
         }
 
