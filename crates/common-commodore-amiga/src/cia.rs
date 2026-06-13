@@ -24,6 +24,14 @@ pub trait CiaExt {
     /// 0 is an output; input state floats high (`true`) — matching
     /// the pull-up behaviour the 8520 chip presents to the pin.
     fn ovl(&self) -> bool;
+
+    /// Power-LED output — CIA-A PRA bit 1, **active low**. Returns
+    /// `true` when the LED is bright (bit clear), which is also when
+    /// the switchable audio LED filter is engaged. Computed from the
+    /// latched PRA bit only when DDRA bit 1 is an output; an input pin
+    /// floats high (LED dim, filter off), matching the 8520 pull-up —
+    /// the same convention as [`CiaExt::ovl`].
+    fn power_led(&self) -> bool;
 }
 
 impl CiaExt for Cia {
@@ -34,6 +42,15 @@ impl CiaExt for Cia {
         } else {
             true
         }
+    }
+
+    fn power_led(&self) -> bool {
+        let pin_high = if self.ddr_a() & 0x02 != 0 {
+            self.port_a_latch() & 0x02 != 0
+        } else {
+            true
+        };
+        !pin_high
     }
 }
 
@@ -107,5 +124,22 @@ mod tests {
         assert!(!cia.ovl());
         cia.write(0x00, 0x01); // PRA bit 0 = 1
         assert!(cia.ovl());
+    }
+
+    #[test]
+    fn power_led_off_when_ddra_input() {
+        let cia = Cia::new();
+        // DDRA = 0 (input), PRA bit 1 floats high → LED dim, filter off.
+        assert!(!cia.power_led());
+    }
+
+    #[test]
+    fn power_led_is_active_low_when_ddra_output() {
+        let mut cia = Cia::new();
+        cia.write(0x02, 0x02); // DDRA bit 1 = output
+        cia.write(0x00, 0x00); // PRA bit 1 = 0 → LED bright, filter on
+        assert!(cia.power_led());
+        cia.write(0x00, 0x02); // PRA bit 1 = 1 → LED dim, filter off
+        assert!(!cia.power_led());
     }
 }

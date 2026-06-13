@@ -88,6 +88,10 @@ pub struct AmigaRuntime<M: AmigaMachine> {
     /// tools and captured by `tick_traced`. See [`crate::cpu_trace`].
     /// `pub(crate)` for the same disjoint-borrow reason as `machine`.
     pub(crate) cpu_trace: crate::cpu_trace::CpuTrace,
+    /// Paula's analog output filter chain (RC low-pass + switchable LED
+    /// filter + DC-blocking high-pass), applied to each host sample.
+    /// Configured from `model`; transient IIR state, not snapshotted.
+    audio_filter: crate::audio_filter::AmigaAudioFilter,
 }
 
 // =====================================================================
@@ -276,9 +280,14 @@ impl<M: AmigaMachine + AmigaLiveAccess> AmigaRuntime<M> {
 
         while self.audio_sample_accumulator >= self.tick_hz {
             self.audio_sample_accumulator -= self.tick_hz;
-            let (left, right) = self.machine.mix_audio_stereo();
-            self.audio_buffer.push(left);
-            self.audio_buffer.push(right);
+            let led_bright = self.machine.led_filter_engaged();
+            let (mut left, mut right) = self.machine.mix_audio_stereo();
+            // Paula's analog output filter chain. The LED filter's
+            // resonant peak can boost slightly past unity, so clamp
+            // after filtering as the line driver would.
+            self.audio_filter.apply(&mut left, &mut right, led_bright);
+            self.audio_buffer.push(left.clamp(-1.0, 1.0));
+            self.audio_buffer.push(right.clamp(-1.0, 1.0));
         }
     }
 }
@@ -485,6 +494,7 @@ impl AmigaRuntime<AmigaOcs> {
             audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame(tick_hz)),
             tick_hz,
             cpu_trace: crate::cpu_trace::CpuTrace::default(),
+            audio_filter: crate::audio_filter::AmigaAudioFilter::for_model(model),
         };
         runtime.update_rgba_framebuffer();
         Ok(runtime)
@@ -588,6 +598,7 @@ impl AmigaRuntime<AmigaEcs> {
             audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame(tick_hz)),
             tick_hz,
             cpu_trace: crate::cpu_trace::CpuTrace::default(),
+            audio_filter: crate::audio_filter::AmigaAudioFilter::for_model(model),
         };
         runtime.update_rgba_framebuffer();
         Ok(runtime)
@@ -695,6 +706,7 @@ impl AmigaRuntime<AmigaA1200> {
             audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame(tick_hz)),
             tick_hz,
             cpu_trace: crate::cpu_trace::CpuTrace::default(),
+            audio_filter: crate::audio_filter::AmigaAudioFilter::for_model(model),
         };
         runtime.update_rgba_framebuffer();
         Ok(runtime)

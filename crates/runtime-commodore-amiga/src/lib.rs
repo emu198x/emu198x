@@ -1,6 +1,7 @@
 //! Commodore Amiga family metadata and runtime surface.
 
 pub mod amiga_model;
+mod audio_filter;
 mod cpu_trace;
 mod debug;
 mod input;
