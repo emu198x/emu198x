@@ -751,7 +751,6 @@ fn decode_fpu_fline(cpu: &mut Cpu68000, opcode: u16) -> bool {
 /// (vector-11 trap) until their ports / the EA chain land. Decoded per
 /// Musashi `fpgen_rm_reg`.
 fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
-    use motorola_68k_common::registers::FpReg;
     use motorola_68k_common::softfloat::{self, RoundingMode};
 
     // Peek the extension word without advancing the prefetch, so a
@@ -788,25 +787,45 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
         opmode &= !0x40;
     }
 
-    // Wired: register-to-register (R/M = 0) FMOVE/FABS/FNEG/FTST plus the
-    // arithmetic ops backed by the SoftFloat `floatx80` port —
-    // FADD/FSUB/FMUL/FDIV/FSQRT/FCMP/FINT/FINTRZ. External/FMOVECR
-    // operands (R/M = 1) and the transcendentals decline (vector-11 trap)
-    // until the EA chain / those backends land.
-    if rm != 0
-        || !matches!(
-            opmode,
-            0x00 | 0x18 | 0x1A | 0x3A | 0x22 | 0x28 | 0x23 | 0x20 | 0x04 | 0x38 | 0x01 | 0x03
-        )
-    {
+    // Only these opmodes are backed by the SoftFloat `floatx80` port —
+    // FMOVE/FABS/FNEG/FTST/FADD/FSUB/FMUL/FDIV/FSQRT/FCMP/FINT/FINTRZ. The
+    // transcendentals and modulo/scale ops decline (vector-11 trap) until
+    // their backends land.
+    if !matches!(
+        opmode,
+        0x00 | 0x18 | 0x1A | 0x3A | 0x22 | 0x28 | 0x23 | 0x20 | 0x04 | 0x38 | 0x01 | 0x03
+    ) {
         return false;
     }
 
-    // Committed to handling it: now consume the extension word.
-    let _ = cpu.consume_irc();
-    let src = ((w2 >> 10) & 7) as usize;
-    let dst = ((w2 >> 7) & 7) as usize;
-    let source = cpu.regs.fp[src];
+    if rm == 0 {
+        // Register-to-register: the source is an Fpn. Consume the extension
+        // word and run synchronously.
+        let _ = cpu.consume_irc();
+        let src = ((w2 >> 10) & 7) as usize;
+        let dst = ((w2 >> 7) & 7) as usize;
+        let source = cpu.regs.fp[src];
+        apply_fp_opmode(cpu, opmode, source, dst, mode);
+        return true;
+    }
+
+    // R/M = 1: the source is a memory operand fetched via the EA.
+    begin_fp_memory(cpu, opmode)
+}
+
+/// Apply an FPU opmode with `source` as the (already-loaded) source
+/// operand and `dst` as the destination Fpn, then set the condition
+/// codes. Shared by the register-to-register and memory-operand paths.
+/// Decoded per Musashi `fpgen_rm_reg`.
+fn apply_fp_opmode(
+    cpu: &mut Cpu68000,
+    opmode: u16,
+    source: motorola_68k_common::registers::FpReg,
+    dst: usize,
+    mode: motorola_68k_common::softfloat::RoundingMode,
+) {
+    use motorola_68k_common::registers::FpReg;
+    use motorola_68k_common::softfloat;
 
     match opmode {
         0x00 => cpu.regs.fp[dst] = source,          // FMOVE
@@ -866,21 +885,121 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
                 let res = softfloat::floatx80_sub(80, mode, dst_v, source);
                 motorola_68k_common::fpu::set_condition_codes(&mut cpu.regs, res);
             }
-            return true;
+            return;
         }
-        _ => unreachable!("opmode filtered above"),
+        _ => return, // opmode filtered by the caller
     }
 
     // The writing ops report their condition codes from the destination;
-    // FTST reports from the (unwritten) source. FCMP returned above with
-    // its own codes.
+    // FTST reports from the (unwritten) source. FCMP returned above.
     let cc_value = if opmode == 0x3A {
         source
     } else {
         cpu.regs.fp[dst]
     };
     motorola_68k_common::fpu::set_condition_codes(&mut cpu.regs, cc_value);
+}
+
+/// Begin an FPU memory-source operand fetch (cpGEN R/M = 1). The FP
+/// extension word selects the operand format (and hence its byte size);
+/// the opcode's EA field selects the address. Only the instant addressing
+/// modes — `(An)`, `(An)+`, `-(An)` — are wired so far; they compute the
+/// base address synchronously and kick off a byte-at-a-time read chain
+/// (auto-increment/decrement steps by the operand size). Other modes and
+/// the packed-decimal format decline (vector-11 trap) until a later step.
+///
+/// All decline checks happen before any state mutation, so a declined op
+/// leaves the prefetch and registers untouched for the core's trap path.
+fn begin_fp_memory(cpu: &mut Cpu68000, opmode: u16) -> bool {
+    let w2 = cpu.irc;
+    let format = ((w2 >> 10) & 7) as u8;
+    let bytes_total: u8 = match format {
+        6 => 1,            // Byte integer
+        4 => 2,            // Word integer
+        0 | 1 => 4,        // Long integer / Single
+        5 => 8,            // Double
+        2 => 12,           // Extended
+        _ => return false, // Packed-decimal (3) not supported yet
+    };
+    let ea_mode = ((cpu.ir >> 3) & 7) as u8;
+    if !matches!(ea_mode, 2..=4) {
+        return false; // only (An) / (An)+ / -(An) for now
+    }
+
+    // Committed: consume the FP extension word and resolve the base
+    // address (applying the auto-increment/decrement by operand size).
+    let _ = cpu.consume_irc();
+    let ea_reg = (cpu.ir & 7) as usize;
+    let step = u32::from(bytes_total);
+    let base = match ea_mode {
+        2 => cpu.regs.a(ea_reg),
+        3 => {
+            let a = cpu.regs.a(ea_reg);
+            cpu.regs.set_a(ea_reg, a.wrapping_add(step));
+            a
+        }
+        _ => {
+            let a = cpu.regs.a(ea_reg).wrapping_sub(step);
+            cpu.regs.set_a(ea_reg, a);
+            a
+        }
+    };
+
+    cpu.fp_mem_buf = 0;
+    cpu.fp_mem_bytes_total = bytes_total;
+    cpu.fp_mem_bytes_done = 0;
+    cpu.fp_mem_format = format;
+    cpu.fp_mem_opmode = opmode as u8;
+    cpu.fp_mem_dst = ((w2 >> 7) & 7) as u8;
+    cpu.addr = base;
+    cpu.in_followup = true;
+    cpu.followup_tag = TAG_V_FP_MEM_READ;
+    cpu.micro_ops.push(MicroOp::ReadByte);
+    cpu.micro_ops.push(MicroOp::Execute);
     true
+}
+
+/// `TAG_V_FP_MEM_READ`: a byte of the FP memory operand has been read into
+/// `cpu.data`. Accumulate it big-endian and either queue the next byte or
+/// hand off to `TAG_V_FP_MEM_EXEC`.
+fn handle_fp_mem_read(cpu: &mut Cpu68000) {
+    cpu.fp_mem_buf = (cpu.fp_mem_buf << 8) | u128::from(cpu.data & 0xFF);
+    cpu.fp_mem_bytes_done += 1;
+    if cpu.fp_mem_bytes_done < cpu.fp_mem_bytes_total {
+        cpu.addr = cpu.addr.wrapping_add(1);
+        cpu.micro_ops.push(MicroOp::ReadByte);
+        cpu.micro_ops.push(MicroOp::Execute);
+    } else {
+        cpu.followup_tag = TAG_V_FP_MEM_EXEC;
+        cpu.micro_ops.push(MicroOp::Execute);
+    }
+}
+
+/// `TAG_V_FP_MEM_EXEC`: the whole operand is in `fp_mem_buf` (big-endian
+/// in the low bytes). Convert it to a `floatx80` by its format and apply
+/// the stashed opmode, exactly as the register-to-register path would.
+fn handle_fp_mem_exec(cpu: &mut Cpu68000) {
+    use motorola_68k_common::registers::FpReg;
+    use motorola_68k_common::softfloat::{self, RoundingMode};
+
+    let buf = cpu.fp_mem_buf;
+    let source = match cpu.fp_mem_format {
+        0 => softfloat::int32_to_floatx80(buf as u32 as i32), // Long
+        1 => softfloat::float32_to_floatx80(buf as u32),      // Single
+        // Extended: 12 bytes — high word (sign+exp) is bytes 0-1, the
+        // 16-bit pad word (bytes 2-3) is ignored, the 64-bit mantissa is
+        // bytes 4-11.
+        2 => FpReg::new(((buf >> 80) & 0xFFFF) as u16, buf as u64),
+        4 => softfloat::int32_to_floatx80(i32::from(buf as u16 as i16)), // Word
+        5 => softfloat::float64_to_floatx80(buf as u64),                 // Double
+        6 => softfloat::int32_to_floatx80(i32::from(buf as u8 as i8)),   // Byte
+        _ => FpReg::ZERO,
+    };
+    let mode = RoundingMode::from_fpcr_bits(cpu.regs.fpcr_rounding_mode());
+    let opmode = u16::from(cpu.fp_mem_opmode);
+    let dst = cpu.fp_mem_dst as usize;
+    apply_fp_opmode(cpu, opmode, source, dst, mode);
+    cpu.in_followup = false;
 }
 
 /// FBcc.W (cpID-1 op-class 2): branch on an FPU condition with a 16-bit
@@ -1480,7 +1599,8 @@ use motorola_68000::cpu::{
     TAG_BF_MEM_EA_ABSLONG_LO, TAG_BF_MEM_EA_RESOLVE, TAG_BF_MEM_EXEC, TAG_BF_MEM_READ,
     TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_CAS_COMPARE, TAG_V_CAS_WRITE_DONE,
     TAG_V_CAS2_COMPUTE, TAG_V_CAS2_GATHER, TAG_V_CAS2_READ2, TAG_V_CAS2_WRITE_DONE,
-    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_MULDIV_MEM_EXEC,
+    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_FP_MEM_EXEC, TAG_V_FP_MEM_READ,
+    TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
@@ -1622,6 +1742,14 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
         }
         TAG_BF_MEM_WRITE => {
             handle_bf_mem_write(cpu);
+            true
+        }
+        TAG_V_FP_MEM_READ => {
+            handle_fp_mem_read(cpu);
+            true
+        }
+        TAG_V_FP_MEM_EXEC => {
+            handle_fp_mem_exec(cpu);
             true
         }
         // Memory-source MUL.L / DIV.L: the core's EA pipeline has

@@ -291,6 +291,13 @@ pub const TAG_V_CAS2_WRITE2: u8 = 122;
 /// 68020+ CAS2: both writes have completed — end the instruction.
 pub const TAG_V_CAS2_WRITE_DONE: u8 = 123;
 
+/// 68881/2 FPU memory source operand: a byte of the operand has been
+/// read; accumulate it and either queue the next byte or run the op.
+pub const TAG_V_FP_MEM_READ: u8 = 124;
+/// 68881/2 FPU memory source operand: all bytes are in `fp_mem_buf` —
+/// decode the FP format, build the `floatx80`, and apply the opmode.
+pub const TAG_V_FP_MEM_EXEC: u8 = 125;
+
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum State {
@@ -803,6 +810,32 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub bf_byte_disp: i32,
 
+    // ─── 68881/2 FPU memory-operand pipeline (mid-instruction) ───
+    // Like the bit-field memory state above, these are transient
+    // working registers for a memory source operand and are not
+    // preserved across snapshots.
+    /// Operand bytes accumulated big-endian (first byte read in the
+    /// most-significant position). Holds up to 12 bytes (extended).
+    #[serde(skip)]
+    pub fp_mem_buf: u128,
+    /// Total bytes the operand spans (1/2/4/8/12, per the FP format).
+    #[serde(skip)]
+    pub fp_mem_bytes_total: u8,
+    /// Bytes already read into `fp_mem_buf`.
+    #[serde(skip)]
+    pub fp_mem_bytes_done: u8,
+    /// FP source-format specifier (0=Long 1=Single 2=Extended 4=Word
+    /// 5=Double 6=Byte) from the extension word's bits 12-10.
+    #[serde(skip)]
+    pub fp_mem_format: u8,
+    /// The FP opmode (bits 6-0 of the extension word) to apply once the
+    /// operand is loaded.
+    #[serde(skip)]
+    pub fp_mem_opmode: u8,
+    /// Destination Fpn (extension-word bits 9-7).
+    #[serde(skip)]
+    pub fp_mem_dst: u8,
+
     /// Variant continuation hook: gives a wrapping variant a chance
     /// to dispatch follow-up tags that the 68000 doesn't know about.
     ///
@@ -924,6 +957,12 @@ impl Cpu68000 {
             bf_ea_mode: 0,
             bf_ea_reg: 0,
             bf_byte_disp: 0,
+            fp_mem_buf: 0,
+            fp_mem_bytes_total: 0,
+            fp_mem_bytes_done: 0,
+            fp_mem_format: 0,
+            fp_mem_opmode: 0,
+            fp_mem_dst: 0,
             variant_continue_hook: None,
             variant_pending_disp: 0,
         }

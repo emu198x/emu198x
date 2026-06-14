@@ -86,6 +86,7 @@ fn service_bus(cpu: &mut Cpu68020, mem: &mut Mem) {
 struct Out {
     fp: [FpReg; 8],
     fpsr: u32,
+    a: [u32; 7],
 }
 
 /// cpGEN reg-to-reg extension word: R/M = 0, source/dest Fpn, opmode.
@@ -123,6 +124,7 @@ fn run_raw(w2: u16, seed: impl FnOnce(&mut Cpu68020)) -> Out {
             return Out {
                 fp: cpu.regs.fp,
                 fpsr: cpu.regs.fpsr,
+                a: cpu.regs.a,
             };
         }
     }
@@ -133,6 +135,55 @@ fn run_raw(w2: u16, seed: impl FnOnce(&mut Cpu68020)) -> Out {
 /// ROM offset.
 fn fmovecr_ext(dst: u16, offset: u16) -> u16 {
     0x4000 | (7 << 10) | (dst << 7) | offset
+}
+
+/// Memory-source extension word: R/M = 1, format specifier, dest Fpn,
+/// opmode.
+fn mem_ext(format: u16, dst: u16, opmode: u16) -> u16 {
+    0x4000 | (format << 10) | (dst << 7) | opmode
+}
+
+/// Run a cpGEN op with a memory source: `opcode` carries the EA bits,
+/// `w2` the FP extension word, `a` the address-register values, and
+/// `bytes` the big-endian operand placed at `0x2000`.
+fn run_mem(
+    opcode: u16,
+    w2: u16,
+    areg: usize,
+    addr: u32,
+    bytes: &[u8],
+    seed: impl FnOnce(&mut Cpu68020),
+) -> Out {
+    let mut cpu = Cpu68020::new();
+    let mut mem = Mem::new();
+    mem.write_word(PC, opcode);
+    mem.write_word(PC + 2, w2);
+    for (i, &b) in bytes.iter().enumerate() {
+        mem.bytes.insert((addr + i as u32) & 0x00FF_FFFF, b);
+    }
+
+    cpu.set_fpu_present(true);
+    cpu.regs.sr |= 0x2000;
+    cpu.regs.ssp = 0x0000_8000;
+    cpu.regs.set_active_sp(0x0000_8000);
+    cpu.regs.set_a(areg, addr);
+    seed(&mut cpu);
+    cpu.regs.pc = PC + 4;
+    cpu.setup_prefetch(opcode, w2);
+
+    let start = cpu.instruction_starts;
+    for _ in 0..400 {
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.instruction_starts > start {
+            return Out {
+                fp: cpu.regs.fp,
+                fpsr: cpu.regs.fpsr,
+                a: cpu.regs.a,
+            };
+        }
+    }
+    panic!("FP memory op did not complete");
 }
 
 #[test]
@@ -423,4 +474,154 @@ fn fmovecr_unlisted_offset_reads_zero() {
     // An unpopulated ROM slot reads +0.0, matching Musashi's default.
     let r = run_raw(fmovecr_ext(2, 0x01), |cpu| cpu.regs.fp[2] = NEG_ONE);
     assert_eq!(r.fp[2], POS_ZERO, "unlisted offset → +0.0");
+}
+
+// --- Memory-source operands (R/M = 1) via the EA-fetch pipeline.
+// Opcode $F210 = cpGEN, EA = (A0). Each format widens to floatx80. ---
+
+const DATA: u32 = 0x0000_2000;
+
+#[test]
+fn fmove_long_memory_to_fp() {
+    // FMOVE.L (A0),FP0 — big-endian 32-bit integer 5 → 5.0.
+    let r = run_mem(
+        0xF210,
+        mem_ext(0, 0, 0x00),
+        0,
+        DATA,
+        &[0x00, 0x00, 0x00, 0x05],
+        |_| {},
+    );
+    assert_eq!(r.fp[0], int_fx(5), "FMOVE.L 5 → 5.0");
+}
+
+#[test]
+fn fmove_single_memory_to_fp() {
+    // FMOVE.S (A0),FP0 — 0x3F800000 = 1.0f → 1.0.
+    let r = run_mem(
+        0xF210,
+        mem_ext(1, 0, 0x00),
+        0,
+        DATA,
+        &[0x3F, 0x80, 0x00, 0x00],
+        |_| {},
+    );
+    assert_eq!(r.fp[0], POS_ONE, "FMOVE.S 1.0f → 1.0");
+}
+
+#[test]
+fn fmove_double_memory_to_fp() {
+    // FMOVE.D (A0),FP0 — 0x3FF0000000000000 = 1.0 → 1.0.
+    let r = run_mem(
+        0xF210,
+        mem_ext(5, 0, 0x00),
+        0,
+        DATA,
+        &[0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        |_| {},
+    );
+    assert_eq!(r.fp[0], POS_ONE, "FMOVE.D 1.0 → 1.0");
+}
+
+#[test]
+fn fmove_extended_memory_to_fp() {
+    // FMOVE.X (A0),FP0 — 96-bit extended 2.0: high 0x4000, pad 0x0000,
+    // mantissa 0x8000000000000000.
+    let r = run_mem(
+        0xF210,
+        mem_ext(2, 0, 0x00),
+        0,
+        DATA,
+        &[
+            0x40, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ],
+        |_| {},
+    );
+    assert_eq!(r.fp[0], POS_TWO, "FMOVE.X 2.0 → 2.0");
+}
+
+#[test]
+fn fmove_word_memory_sign_extends() {
+    // FMOVE.W (A0),FP0 — 0xFFFF = −1 → −1.0.
+    let r = run_mem(0xF210, mem_ext(4, 0, 0x00), 0, DATA, &[0xFF, 0xFF], |_| {});
+    assert_eq!(r.fp[0], NEG_ONE, "FMOVE.W −1 → −1.0");
+}
+
+#[test]
+fn fmove_byte_memory_sign_extends() {
+    // FMOVE.B (A0),FP0 — 0x07 = 7 → 7.0.
+    let r = run_mem(0xF210, mem_ext(6, 0, 0x00), 0, DATA, &[0x07], |_| {});
+    assert_eq!(r.fp[0], int_fx(7), "FMOVE.B 7 → 7.0");
+}
+
+#[test]
+fn fadd_long_memory_operand() {
+    // FADD.L (A0),FP0 with FP0 = 1.0, mem = 2 → 3.0.
+    let r = run_mem(
+        0xF210,
+        mem_ext(0, 0, 0x22),
+        0,
+        DATA,
+        &[0x00, 0x00, 0x00, 0x02],
+        |cpu| {
+            cpu.regs.fp[0] = POS_ONE;
+        },
+    );
+    assert_eq!(r.fp[0], POS_THREE, "1.0 + (mem) 2 = 3.0");
+}
+
+#[test]
+fn fmove_single_postincrement_advances_areg() {
+    // FMOVE.S (A0)+,FP0 — opcode $F218 (mode 3). A0 advances by 4.
+    let r = run_mem(
+        0xF218,
+        mem_ext(1, 0, 0x00),
+        0,
+        DATA,
+        &[0x3F, 0x80, 0x00, 0x00],
+        |_| {},
+    );
+    assert_eq!(r.fp[0], POS_ONE);
+    assert_eq!(r.a[0], DATA + 4, "(A0)+ steps by the 4-byte single size");
+}
+
+#[test]
+fn fmove_long_predecrement_steps_back() {
+    // FMOVE.L -(A0),FP0 — opcode $F220 (mode 4). A0 starts at DATA+4,
+    // pre-decrements by 4 to DATA, reads 5.
+    let r = run_mem(
+        0xF220,
+        mem_ext(0, 0, 0x00),
+        0,
+        DATA,
+        &[0x00, 0x00, 0x00, 0x05],
+        |cpu| {
+            cpu.regs.set_a(0, DATA + 4);
+        },
+    );
+    assert_eq!(r.fp[0], int_fx(5));
+    assert_eq!(r.a[0], DATA, "-(A0) steps back by the 4-byte long size");
+}
+
+#[test]
+fn fmove_extended_postincrement_steps_by_12() {
+    // FMOVE.X (A0)+,FP0 — A0 advances by the 12-byte extended size.
+    let r = run_mem(
+        0xF218,
+        mem_ext(2, 0, 0x00),
+        0,
+        DATA,
+        &[
+            0x40, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ],
+        |_| {},
+    );
+    assert_eq!(r.fp[0], POS_TWO);
+    assert_eq!(r.a[0], DATA + 12, "(A0)+ steps by 12 for extended");
+}
+
+/// `n.0` for a small integer, via the exact int→extended path.
+fn int_fx(n: i32) -> FpReg {
+    use motorola_68k_common::softfloat::int32_to_floatx80;
+    int32_to_floatx80(n)
 }
