@@ -607,6 +607,215 @@ pub fn floatx80_sub(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
     }
 }
 
+// --- Multiplication / division (softfloat.c) ---
+
+/// The default extended-precision NaN (`floatx80_default_nan`).
+const DEFAULT_NAN: FpReg = FpReg::new(0xFFFF, 0xFFFF_FFFF_FFFF_FFFF);
+
+/// `mul64To128`: full 64×64→128 product as (high, low). The exact 128-bit
+/// product is bit-identical to SoftFloat's 32-bit-limb decomposition.
+#[must_use]
+fn mul64_to_128(a: u64, b: u64) -> (u64, u64) {
+    let p = u128::from(a) * u128::from(b);
+    ((p >> 64) as u64, p as u64)
+}
+
+/// `add128`: add the 128-bit values (`a0`,`a1`) and (`b0`,`b1`) modulo
+/// 2^128.
+#[must_use]
+fn add128(a0: u64, a1: u64, b0: u64, b1: u64) -> (u64, u64) {
+    let z1 = a1.wrapping_add(b1);
+    let z0 = a0.wrapping_add(b0).wrapping_add(u64::from(z1 < a1));
+    (z0, z1)
+}
+
+/// `shift128Right`: shift the 128-bit value (`a0`,`a1`) right by `count`,
+/// dropping bits shifted off (no jamming). Faithful to SoftFloat — its
+/// `count >= 64` arm collapses to zero (only `count == 1` is exercised by
+/// `floatx80_div`).
+#[must_use]
+fn shift128_right(a0: u64, a1: u64, count: i32) -> (u64, u64) {
+    if count == 0 {
+        (a0, a1)
+    } else if count < 64 {
+        let c = count as u32;
+        let neg = ((-count) & 63) as u32;
+        ((a0 >> c), (a0 << neg) | (a1 >> c))
+    } else {
+        (0, 0)
+    }
+}
+
+/// `estimateDiv128To64`: estimate the quotient of the 128-bit dividend
+/// (`a0`,`a1`) by the 64-bit divisor `b` (which must be normalized, i.e.
+/// have its MSB set). The estimate is exact or one too large.
+#[must_use]
+fn estimate_div128_to_64(a0: u64, a1: u64, b: u64) -> u64 {
+    if b <= a0 {
+        return 0xFFFF_FFFF_FFFF_FFFF;
+    }
+    let b0 = b >> 32;
+    let mut z = if b0 << 32 <= a0 {
+        0xFFFF_FFFF_0000_0000
+    } else {
+        (a0 / b0).wrapping_shl(32)
+    };
+    let (term0, term1) = mul64_to_128(b, z);
+    let (mut rem0, mut rem1) = sub128(a0, a1, term0, term1);
+    while (rem0 as i64) < 0 {
+        z = z.wrapping_sub(0x1_0000_0000);
+        let b1 = b.wrapping_shl(32);
+        let r = add128(rem0, rem1, b0, b1);
+        rem0 = r.0;
+        rem1 = r.1;
+    }
+    let rem0 = (rem0 << 32) | (rem1 >> 32);
+    z |= if b0 << 32 <= rem0 {
+        0xFFFF_FFFF
+    } else {
+        rem0 / b0
+    };
+    z
+}
+
+/// `floatx80_mul`: multiply two extended-precision values.
+#[must_use]
+pub fn floatx80_mul(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> FpReg {
+    let mut a_sig = frac(a);
+    let mut a_exp = exp(a);
+    let a_sign = sign(a);
+    let mut b_sig = frac(b);
+    let mut b_exp = exp(b);
+    let b_sign = sign(b);
+    let z_sign = a_sign ^ b_sign;
+
+    if a_exp == 0x7FFF {
+        if a_sig.wrapping_shl(1) != 0 || (b_exp == 0x7FFF && b_sig.wrapping_shl(1) != 0) {
+            return propagate_floatx80_nan(a, b);
+        }
+        if (b_exp as u64 | b_sig) == 0 {
+            return DEFAULT_NAN; // inf × 0 — TODO(FPSR): invalid.
+        }
+        return pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000);
+    }
+    if b_exp == 0x7FFF {
+        if b_sig.wrapping_shl(1) != 0 {
+            return propagate_floatx80_nan(a, b);
+        }
+        if (a_exp as u64 | a_sig) == 0 {
+            return DEFAULT_NAN; // 0 × inf — TODO(FPSR): invalid.
+        }
+        return pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000);
+    }
+    if a_exp == 0 {
+        if a_sig == 0 {
+            return pack(z_sign, 0, 0);
+        }
+        let (e, s) = normalize_floatx80_subnormal(a_sig);
+        a_exp = e;
+        a_sig = s;
+    }
+    if b_exp == 0 {
+        if b_sig == 0 {
+            return pack(z_sign, 0, 0);
+        }
+        let (e, s) = normalize_floatx80_subnormal(b_sig);
+        b_exp = e;
+        b_sig = s;
+    }
+    let mut z_exp = a_exp + b_exp - 0x3FFE;
+    let (mut z_sig0, mut z_sig1) = mul64_to_128(a_sig, b_sig);
+    if (z_sig0 as i64) > 0 {
+        let (s0, s1) = short_shift128_left(z_sig0, z_sig1, 1);
+        z_sig0 = s0;
+        z_sig1 = s1;
+        z_exp -= 1;
+    }
+    round_and_pack_floatx80(precision, mode, z_sign, z_exp, z_sig0, z_sig1)
+}
+
+/// `floatx80_div`: divide `a` by `b` at extended precision.
+#[must_use]
+pub fn floatx80_div(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> FpReg {
+    let mut a_sig = frac(a);
+    let mut a_exp = exp(a);
+    let a_sign = sign(a);
+    let mut b_sig = frac(b);
+    let mut b_exp = exp(b);
+    let b_sign = sign(b);
+    let z_sign = a_sign ^ b_sign;
+
+    if a_exp == 0x7FFF {
+        if a_sig.wrapping_shl(1) != 0 {
+            return propagate_floatx80_nan(a, b);
+        }
+        if b_exp == 0x7FFF {
+            if b_sig.wrapping_shl(1) != 0 {
+                return propagate_floatx80_nan(a, b);
+            }
+            return DEFAULT_NAN; // inf / inf — TODO(FPSR): invalid.
+        }
+        return pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000); // inf / finite
+    }
+    if b_exp == 0x7FFF {
+        if b_sig.wrapping_shl(1) != 0 {
+            return propagate_floatx80_nan(a, b);
+        }
+        return pack(z_sign, 0, 0); // finite / inf = 0
+    }
+    if b_exp == 0 {
+        if b_sig == 0 {
+            if (a_exp as u64 | a_sig) == 0 {
+                return DEFAULT_NAN; // 0 / 0 — TODO(FPSR): invalid.
+            }
+            // TODO(FPSR): float_raise(divbyzero).
+            return pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000); // x / 0 = inf
+        }
+        let (e, s) = normalize_floatx80_subnormal(b_sig);
+        b_exp = e;
+        b_sig = s;
+    }
+    if a_exp == 0 {
+        if a_sig == 0 {
+            return pack(z_sign, 0, 0);
+        }
+        let (e, s) = normalize_floatx80_subnormal(a_sig);
+        a_exp = e;
+        a_sig = s;
+    }
+    let mut z_exp = a_exp - b_exp + 0x3FFE;
+    let mut rem1 = 0u64;
+    if b_sig <= a_sig {
+        let (s0, s1) = shift128_right(a_sig, 0, 1);
+        a_sig = s0;
+        rem1 = s1;
+        z_exp += 1;
+    }
+    let mut z_sig0 = estimate_div128_to_64(a_sig, rem1, b_sig);
+    let (term0, term1) = mul64_to_128(b_sig, z_sig0);
+    let (mut rem0, mut rem1) = sub128(a_sig, rem1, term0, term1);
+    while (rem0 as i64) < 0 {
+        z_sig0 = z_sig0.wrapping_sub(1);
+        let r = add128(rem0, rem1, 0, b_sig);
+        rem0 = r.0;
+        rem1 = r.1;
+    }
+    let mut z_sig1 = estimate_div128_to_64(rem1, 0, b_sig);
+    if z_sig1.wrapping_shl(1) <= 8 {
+        let (term1, term2) = mul64_to_128(b_sig, z_sig1);
+        let (r1, mut rem2) = sub128(rem1, 0, term1, term2);
+        rem1 = r1;
+        while (rem1 as i64) < 0 {
+            z_sig1 = z_sig1.wrapping_sub(1);
+            let r = add128(rem1, rem2, 0, b_sig);
+            rem1 = r.0;
+            rem2 = r.1;
+        }
+        z_sig1 |= u64::from((rem1 | rem2) != 0);
+    }
+    round_and_pack_floatx80(precision, mode, z_sign, z_exp, z_sig0, z_sig1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -846,5 +1055,107 @@ mod tests {
         assert_eq!(RoundingMode::from_fpcr_bits(1), RoundingMode::Zero);
         assert_eq!(RoundingMode::from_fpcr_bits(2), RoundingMode::Down);
         assert_eq!(RoundingMode::from_fpcr_bits(3), RoundingMode::Up);
+    }
+
+    // --- Exact-value mul/div (powers of two and small integers stay exact). ---
+
+    #[test]
+    fn mul_two_times_three_is_six() {
+        assert_eq!(floatx80_mul(P80, RN, fx(2), fx(3)), fx(6));
+    }
+
+    #[test]
+    fn mul_is_commutative_on_exact_values() {
+        assert_eq!(
+            floatx80_mul(P80, RN, fx(7), fx(3)),
+            floatx80_mul(P80, RN, fx(3), fx(7))
+        );
+        assert_eq!(floatx80_mul(P80, RN, fx(7), fx(3)), fx(21));
+    }
+
+    #[test]
+    fn mul_sign_rules() {
+        assert_eq!(floatx80_mul(P80, RN, fx(-2), fx(3)), fx(-6));
+        assert_eq!(floatx80_mul(P80, RN, fx(-2), fx(-3)), fx(6));
+    }
+
+    #[test]
+    fn mul_by_zero_is_zero() {
+        assert_eq!(
+            floatx80_mul(P80, RN, fx(5), FpReg::new(0, 0)),
+            FpReg::new(0, 0)
+        );
+        // Negative × +0 → −0 (sign is the xor).
+        assert_eq!(
+            floatx80_mul(P80, RN, fx(-5), FpReg::new(0, 0)),
+            FpReg::new(0x8000, 0)
+        );
+    }
+
+    #[test]
+    fn mul_one_is_identity() {
+        assert_eq!(floatx80_mul(P80, RN, fx(42), fx(1)), fx(42));
+    }
+
+    #[test]
+    fn div_ten_by_two_is_five() {
+        assert_eq!(floatx80_div(P80, RN, fx(10), fx(2)), fx(5));
+    }
+
+    #[test]
+    fn div_by_one_is_identity() {
+        assert_eq!(floatx80_div(P80, RN, fx(42), fx(1)), fx(42));
+    }
+
+    #[test]
+    fn div_sign_rules() {
+        assert_eq!(floatx80_div(P80, RN, fx(-10), fx(2)), fx(-5));
+        assert_eq!(floatx80_div(P80, RN, fx(-10), fx(-2)), fx(5));
+    }
+
+    #[test]
+    fn div_self_is_one() {
+        assert_eq!(floatx80_div(P80, RN, fx(7), fx(7)), fx(1));
+    }
+
+    #[test]
+    fn div_by_zero_is_infinity() {
+        // x / 0 = ±inf (value path; the divbyzero flag is deferred).
+        assert_eq!(
+            floatx80_div(P80, RN, fx(1), FpReg::new(0, 0)),
+            FpReg::new(0x7FFF, 0x8000_0000_0000_0000)
+        );
+        assert_eq!(
+            floatx80_div(P80, RN, fx(-1), FpReg::new(0, 0)),
+            FpReg::new(0xFFFF, 0x8000_0000_0000_0000)
+        );
+    }
+
+    #[test]
+    fn div_zero_by_zero_is_default_nan() {
+        assert_eq!(
+            floatx80_div(P80, RN, FpReg::new(0, 0), FpReg::new(0, 0)),
+            FpReg::new(0xFFFF, 0xFFFF_FFFF_FFFF_FFFF)
+        );
+    }
+
+    #[test]
+    fn div_three_halves_rounds_to_nearest() {
+        // 3 / 2 = 1.5 exactly: 1.1b × 2^0 → exp 0x3FFF, sig 0xC000…
+        assert_eq!(
+            floatx80_div(P80, RN, fx(3), fx(2)),
+            FpReg::new(0x3FFF, 0xC000_0000_0000_0000)
+        );
+    }
+
+    #[test]
+    fn mul_div_round_trip_on_inexact_value() {
+        // (1 / 3) * 3 is NOT exactly 1 (1/3 is inexact), but the result is
+        // deterministic and must match Musashi — covered by the C diff
+        // harness. Here we just pin that division then multiply is stable.
+        let third = floatx80_div(P80, RN, fx(1), fx(3));
+        let back = floatx80_mul(P80, RN, third, fx(3));
+        // 0.999… rounds back to exactly 1.0 under round-to-nearest.
+        assert_eq!(back, fx(1));
     }
 }
