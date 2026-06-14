@@ -691,6 +691,18 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub variant_long_branch: bool,
 
+    /// When set, F-line (`$Fxxx`) coprocessor-ID-1 opcodes are decoded as
+    /// 68881/68882 FPU instructions instead of taking the vector-11
+    /// F-line emulator trap. The FPU is an *attached coprocessor*, not a
+    /// CPU feature: a 68EC020 (A1200/CD32) has no coprocessor interface,
+    /// and a full 68020 with no 68881 fitted also traps F-line (the
+    /// handler can soft-emulate). So this is gated per *machine*, not per
+    /// CPU model — default `false` (trap), set `true` by machines with an
+    /// FPU. Not `#[serde(skip)]`: it's machine configuration that must
+    /// survive save/load (a plain bool, unlike the hook function
+    /// pointers the other flags carry).
+    pub variant_fpu_present: bool,
+
     /// Step counter for the 11-step Format `$A` push sequence.
     /// Consulted by `TAG_AE_FMT_A_STEP`.
     #[serde(skip)]
@@ -894,6 +906,7 @@ impl Cpu68000 {
             variant_icache: None,
             variant_um_ea_calc_timing: false,
             variant_long_branch: false,
+            variant_fpu_present: false,
             variant_ext_word: 0,
             ae_fmt_a_step: 0,
             ae_frame_pc: 0,

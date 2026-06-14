@@ -1,10 +1,13 @@
-//! F-line ($Fxxx) dispatch — 68020 (#112, step 1).
+//! F-line ($Fxxx) dispatch + FBcc.W / FNOP — 68020 (#112, steps 1-2).
 //!
-//! The core now offers F-line opcodes to the variant decode hook before
-//! falling back to the vector-11 F-line emulator trap. No FPU arm is
-//! wired yet, so every F-line opcode is still *unclaimed* and must trap
-//! vector 11 — exactly as before. These tests pin that fallback so it
-//! survives the FPU work that builds on this route.
+//! Two behaviours are pinned here:
+//!
+//! 1. **No FPU (default):** every F-line opcode takes the vector-11
+//!    F-line emulator trap — the 68000/68010 and the 68EC020 (A1200/
+//!    CD32, no coprocessor) behaviour. Protects the route's fallback.
+//! 2. **FPU present:** cpID-1 op-class-2 (cpBcc.W) executes — FBcc.W
+//!    branches on the FPSR condition; FNOP (FBF.W, never) falls through.
+//!    Target = instr_start + 2 + disp, matching Musashi's `fbcc16`.
 
 #![allow(clippy::unwrap_used)]
 
@@ -28,18 +31,22 @@ impl Mem {
             bytes: HashMap::new(),
         }
     }
-    fn read_byte(&self, a: u32) -> u8 {
-        *self.bytes.get(&(a & 0x00FF_FFFF)).unwrap_or(&0)
-    }
+    // Unprogrammed memory reads as NOP ($4E71) so fall-through and branch
+    // targets land on a valid instruction.
     fn read_word(&self, a: u32) -> u16 {
-        (u16::from(self.read_byte(a)) << 8) | u16::from(self.read_byte(a.wrapping_add(1)))
+        let a = a & 0x00FF_FFFF;
+        match (self.bytes.get(&a), self.bytes.get(&(a.wrapping_add(1)))) {
+            (None, None) => 0x4E71,
+            (hi, lo) => (u16::from(*hi.unwrap_or(&0)) << 8) | u16::from(*lo.unwrap_or(&0)),
+        }
     }
-    fn write_byte(&mut self, a: u32, v: u8) {
-        self.bytes.insert(a & 0x00FF_FFFF, v);
+    fn read_byte(&self, a: u32) -> u8 {
+        (self.read_word(a) >> 8) as u8
     }
     fn write_word(&mut self, a: u32, v: u16) {
-        self.write_byte(a, (v >> 8) as u8);
-        self.write_byte(a.wrapping_add(1), v as u8);
+        self.bytes.insert(a & 0x00FF_FFFF, (v >> 8) as u8);
+        self.bytes
+            .insert((a.wrapping_add(1)) & 0x00FF_FFFF, v as u8);
     }
     fn write_long(&mut self, a: u32, v: u32) {
         self.write_word(a, (v >> 16) as u16);
@@ -70,7 +77,7 @@ fn service_bus(cpu: &mut Cpu68020, mem: &mut Mem) {
                 if *is_word {
                     mem.write_word(*addr, v);
                 } else {
-                    mem.write_byte(*addr, v as u8);
+                    mem.bytes.insert(*addr & 0x00FF_FFFF, v as u8);
                 }
                 cpu.bus_status = BusStatus::Ready(0);
             }
@@ -82,9 +89,15 @@ fn service_bus(cpu: &mut Cpu68020, mem: &mut Mem) {
     }
 }
 
-/// Run one opcode (plus extension words) and report whether it vectored
-/// to the vector-11 (F-line emulator) handler.
-fn vectors_to_fline_handler(opcode: u16, ext_words: &[u16]) -> bool {
+struct Out {
+    next_instr_pc: u32,
+    vectored: bool,
+}
+
+/// Run one F-line opcode (+ extension words). `fpu` enables the FPU; with
+/// it off, the vector-11 fallback is exercised. `fpsr` seeds the FP
+/// condition codes for FBcc tests.
+fn run(opcode: u16, ext_words: &[u16], fpu: bool, fpsr: u32) -> Out {
     let mut cpu = Cpu68020::new();
     let mut mem = Mem::new();
 
@@ -97,6 +110,8 @@ fn vectors_to_fline_handler(opcode: u16, ext_words: &[u16]) -> bool {
         mem.write_word(PC + 2 + (i as u32) * 2, *w);
     }
 
+    cpu.set_fpu_present(fpu);
+    cpu.regs.fpsr = fpsr;
     cpu.regs.sr |= 0x2000; // supervisor
     cpu.regs.ssp = INITIAL_SSP;
     cpu.regs.set_active_sp(INITIAL_SSP);
@@ -108,33 +123,91 @@ fn vectors_to_fline_handler(opcode: u16, ext_words: &[u16]) -> bool {
         service_bus(&mut cpu, &mut mem);
         cpu.tick();
         if cpu.instruction_starts > start {
-            return cpu.instr_start_pc == HANDLER;
+            return Out {
+                next_instr_pc: cpu.instr_start_pc,
+                vectored: cpu.instr_start_pc == HANDLER,
+            };
         }
     }
     panic!("instruction did not complete");
 }
 
+// --- No FPU: F-line traps vector 11 ---
+
 #[test]
-fn unclaimed_fpu_general_opcode_traps_vector_11() {
-    // $F200 = cpID 1 (FPU), cpGEN. No FPU arm yet → vector 11.
-    assert!(vectors_to_fline_handler(0xF200, &[0x0000]));
+fn fpu_general_opcode_traps_vector_11_without_fpu() {
+    // $F200 = cpID 1, cpGEN. No FPU → vector 11.
+    assert!(run(0xF200, &[0x0000], false, 0).vectored);
 }
 
 #[test]
-fn unclaimed_fline_low_cpid_traps_vector_11() {
-    // $F080 = cpID 0, cpGEN — never an FPU op → vector 11.
-    assert!(vectors_to_fline_handler(0xF080, &[0x0000]));
+fn low_cpid_traps_vector_11_even_with_fpu() {
+    // $F080 = cpID 0 — never an FPU op → vector 11 regardless of FPU.
+    assert!(run(0xF080, &[0x0000], true, 0).vectored);
 }
 
 #[test]
-fn unclaimed_fline_max_opcode_traps_vector_11() {
-    assert!(vectors_to_fline_handler(0xFFFF, &[]));
+fn fnop_traps_vector_11_without_fpu() {
+    // FNOP ($F280 $0000) with no FPU attached → vector 11.
+    assert!(run(0xF280, &[0x0000], false, 0).vectored);
 }
 
 #[test]
-fn fnop_traps_vector_11_until_fpu_wired() {
-    // $F280 $0000 = FNOP (cpID 1, cpGEN, command word 0). Currently
-    // unclaimed → vector 11; this test will flip to "executes" once the
-    // FPU arm lands.
-    assert!(vectors_to_fline_handler(0xF280, &[0x0000]));
+fn unimplemented_fpu_class_traps_vector_11() {
+    // $F200 = cpID 1, cpGEN — not wired yet → still vector 11 even with
+    // an FPU. (Flips when cpGEN lands in a later step.)
+    assert!(run(0xF200, &[0x0000], true, 0).vectored);
+}
+
+// --- FPU present: FBcc.W / FNOP execute ---
+
+#[test]
+fn fnop_executes_with_fpu() {
+    // FNOP = FBF.W (condition F, never) with zero displacement. Falls
+    // through to the next instruction (past the 4-byte FNOP) — no trap.
+    let r = run(0xF280, &[0x0000], true, 0);
+    assert!(!r.vectored, "FNOP must not trap when an FPU is present");
+    assert_eq!(r.next_instr_pc, PC + 4, "FNOP falls through to instr+4");
+}
+
+#[test]
+fn fbf_w_with_displacement_falls_through() {
+    // FBF.W (never taken) with a non-zero displacement still falls
+    // through — the displacement is skipped, not branched to.
+    let r = run(0xF280, &[0x0040], true, 0);
+    assert!(!r.vectored);
+    assert_eq!(r.next_instr_pc, PC + 4, "not taken → past the disp word");
+}
+
+#[test]
+fn fbt_w_always_branches() {
+    // FBT.W ($F28F, condition T) → always taken. Target = instr+2+disp.
+    let r = run(0xF28F, &[0x0040], true, 0);
+    assert_eq!(
+        r.next_instr_pc,
+        PC + 2 + 0x40,
+        "FBT.W branches to instr+2+disp"
+    );
+}
+
+#[test]
+fn fbt_w_negative_displacement() {
+    let r = run(0xF28F, &[0xFFF0], true, 0); // disp = -16
+    assert_eq!(r.next_instr_pc, (PC + 2).wrapping_sub(16));
+}
+
+#[test]
+fn fbeq_w_taken_when_fpsr_z_set() {
+    // FBEQ.W ($F281, condition EQ = Z). FPSR Z is bit 26 (cc nibble bit 2
+    // at bits 27-24). With Z set → taken.
+    let r = run(0xF281, &[0x0040], true, 1 << 26);
+    assert_eq!(r.next_instr_pc, PC + 2 + 0x40, "Z set → FBEQ taken");
+}
+
+#[test]
+fn fbeq_w_not_taken_when_fpsr_z_clear() {
+    // FBEQ.W with Z clear → not taken → falls through.
+    let r = run(0xF281, &[0x0040], true, 0);
+    assert!(!r.vectored);
+    assert_eq!(r.next_instr_pc, PC + 4, "Z clear → FBEQ falls through");
 }

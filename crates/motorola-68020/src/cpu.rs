@@ -111,6 +111,17 @@ impl Cpu68020 {
         self.inner.variant_long_branch = true;
     }
 
+    /// Configure whether a 68881/68882 FPU coprocessor is attached.
+    ///
+    /// The FPU is a *machine* property, not a CPU-model one: a full
+    /// 68020 with no 68881 fitted, and the 68EC020 (A1200/CD32) which
+    /// has no coprocessor interface, both take the vector-11 F-line trap.
+    /// Default is no FPU; a machine that wires one calls this with
+    /// `true`. When unset, all `$Fxxx` opcodes trap as before.
+    pub fn set_fpu_present(&mut self, present: bool) {
+        self.inner.variant_fpu_present = present;
+    }
+
     /// Borrow the wrapped 68010 core.
     #[must_use]
     pub const fn as_inner(&self) -> &Cpu68010 {
@@ -253,6 +264,16 @@ pub fn decode_68020_opcode(cpu: &mut Cpu68000, opcode: u16) -> bool {
     if (opcode & 0xFFC0) == 0x06C0 {
         cpu.begin_group1_exception(4, cpu.instr_start_pc);
         return true;
+    }
+
+    // F-line ($Fxxx): coprocessor space. The core routes the whole
+    // $Fxxx range here (ahead of its vector-11 fallback). Only cpID-1
+    // (68881/2 FPU) on an FPU-equipped machine is claimed; everything
+    // else declines (returns false) so the core takes the vector-11
+    // F-line emulator trap — correct for the 68EC020 (A1200/CD32) and a
+    // full 020 with no FPU fitted.
+    if (opcode & 0xF000) == 0xF000 {
+        return decode_fpu_fline(cpu, opcode);
     }
 
     // MOVEC ($4E7A / $4E7B): intercepted at the 68020 layer so the
@@ -687,6 +708,55 @@ fn load_cas2_compare(
             };
         }
     }
+}
+
+/// Decode an F-line ($Fxxx) coprocessor opcode. Only cpID-1 (the
+/// 68881/68882 FPU) on an FPU-equipped machine is claimed; any other
+/// coprocessor ID, or an FPU-less machine, returns `false` so the core
+/// takes the vector-11 F-line emulator trap.
+///
+/// The opcode layout is `1111 ccc ttt mmmrrr`: ccc = coprocessor ID
+/// (bits 11-9), ttt = operation class (bits 8-6), mmmrrr = EA / further
+/// encoding. FPU classes: 0 = cpGEN (FADD/FMOVE/…), 1 = cpScc, 2 =
+/// cpBcc.W, 3 = cpBcc.L, 4 = cpSAVE, 5 = cpRESTORE.
+fn decode_fpu_fline(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let cp_id = (opcode >> 9) & 7;
+    if cp_id != 1 || !cpu.variant_fpu_present {
+        return false;
+    }
+    match (opcode >> 6) & 7 {
+        // cpBcc.W: branch on FP condition, 16-bit displacement. Covers
+        // FNOP (FBF.W with a zero displacement).
+        2 => execute_fbcc_w(cpu, opcode),
+        // cpGEN (0), cpScc (1), cpBcc.L (3), cpSAVE (4), cpRESTORE (5)
+        // are not wired yet — decline so they take the vector-11 trap
+        // until implemented in the following steps.
+        _ => false,
+    }
+}
+
+/// FBcc.W (cpID-1 op-class 2): branch on an FPU condition with a 16-bit
+/// displacement. The 6-bit condition is in the opcode's low bits and is
+/// evaluated against the FPSR condition codes; a taken branch targets
+/// `instr_start + 2 + disp` (the displacement-word address), matching
+/// the integer Bcc.W and Musashi's `fbcc16`. FNOP is the `FBF.W` (never)
+/// special case with a zero displacement.
+fn execute_fbcc_w(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let condition = (opcode & 0x3F) as u8;
+    let disp = i32::from(cpu.irc as i16) as u32;
+    if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
+        let target = cpu.instr_start_pc.wrapping_add(2).wrapping_add(disp);
+        cpu.regs.pc = target;
+        cpu.next_fetch_addr = target;
+        cpu.micro_ops.clear();
+        cpu.micro_ops.push(MicroOp::FetchIRC);
+        cpu.micro_ops.push(MicroOp::PromoteIRC);
+    } else {
+        // Not taken: advance the prefetch past the displacement word to
+        // the next instruction.
+        cpu.micro_ops.push(MicroOp::FetchIRC);
+    }
+    true
 }
 
 /// Finish CAS once the destination has been read into `self.data`.
