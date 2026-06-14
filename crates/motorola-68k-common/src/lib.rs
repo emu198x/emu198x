@@ -49,5 +49,6 @@ pub mod fpu;
 pub mod microcode;
 pub mod model;
 pub mod registers;
+pub mod softfloat;
 
 pub use model::{CpuCapabilities, CpuModel, TimingClass};
