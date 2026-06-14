@@ -210,3 +210,74 @@ fn fmove_infinity_sets_i_flag() {
     assert_eq!(r.fp[2], POS_INF);
     assert_ne!(r.fpsr & FPCC_I, 0);
 }
+
+// --- FADD / FSUB (opmode 0x22 / 0x28), via the SoftFloat floatx80 port.
+// `run` computes dst = dst <op> src, mirroring Musashi's
+// `floatx80_add(REG_FP[dst], source)`. Default FPCR → round-to-nearest. ---
+
+const POS_TWO: FpReg = FpReg::new(0x4000, 0x8000_0000_0000_0000);
+const POS_THREE: FpReg = FpReg::new(0x4000, 0xC000_0000_0000_0000);
+
+#[test]
+fn fadd_one_plus_one_is_two() {
+    // FADD FP1,FP2 with FP2 = 1.0, FP1 = 1.0 → FP2 = 2.0.
+    let r = run(0x22, 1, 2, |cpu| {
+        cpu.regs.fp[1] = POS_ONE;
+        cpu.regs.fp[2] = POS_ONE;
+    });
+    assert_eq!(r.fp[2], POS_TWO, "1.0 + 1.0 = 2.0");
+    assert_eq!(r.fpsr & FPCC_N, 0);
+    assert_eq!(r.fpsr & FPCC_Z, 0);
+}
+
+#[test]
+fn fadd_two_plus_one_is_three() {
+    let r = run(0x22, 1, 2, |cpu| {
+        cpu.regs.fp[1] = POS_ONE;
+        cpu.regs.fp[2] = POS_TWO;
+    });
+    assert_eq!(r.fp[2], POS_THREE, "2.0 + 1.0 = 3.0");
+}
+
+#[test]
+fn fsub_three_minus_one_is_two() {
+    // FSUB FP1,FP2 with FP2 = 3.0, FP1 = 1.0 → FP2 = 3.0 − 1.0 = 2.0.
+    let r = run(0x28, 1, 2, |cpu| {
+        cpu.regs.fp[1] = POS_ONE;
+        cpu.regs.fp[2] = POS_THREE;
+    });
+    assert_eq!(r.fp[2], POS_TWO, "3.0 − 1.0 = 2.0");
+}
+
+#[test]
+fn fsub_equal_is_zero() {
+    // FSUB FP1,FP2 with FP2 = FP1 = 1.0 → +0.0, Z set.
+    let r = run(0x28, 1, 2, |cpu| {
+        cpu.regs.fp[1] = POS_ONE;
+        cpu.regs.fp[2] = POS_ONE;
+    });
+    assert_eq!(r.fp[2], POS_ZERO, "1.0 − 1.0 = +0.0");
+    assert_ne!(r.fpsr & FPCC_Z, 0, "zero result → Z set");
+}
+
+#[test]
+fn fadd_negates_to_negative_result() {
+    // FADD FP1,FP2 with FP2 = 1.0, FP1 = −3.0 → 1.0 + (−3.0) = −2.0.
+    let r = run(0x22, 1, 2, |cpu| {
+        cpu.regs.fp[1] = FpReg::new(0xC000, 0xC000_0000_0000_0000); // −3.0
+        cpu.regs.fp[2] = POS_ONE;
+    });
+    assert_eq!(r.fp[2], FpReg::new(0xC000, 0x8000_0000_0000_0000), "= −2.0");
+    assert_ne!(r.fpsr & FPCC_N, 0, "negative result → N set");
+}
+
+#[test]
+fn fsadd_prefix_normalises_to_fadd() {
+    // FSADD (opmode 0x62 = FADD | single-prefix bit 0x40) must decode to
+    // FADD at extended precision, matching Musashi's opmode stripping.
+    let r = run(0x62, 1, 2, |cpu| {
+        cpu.regs.fp[1] = POS_ONE;
+        cpu.regs.fp[2] = POS_ONE;
+    });
+    assert_eq!(r.fp[2], POS_TWO, "FSADD strips to FADD → 2.0");
+}

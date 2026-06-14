@@ -744,22 +744,36 @@ fn decode_fpu_fline(cpu: &mut Cpu68000, opcode: u16) -> bool {
 /// source register (R/M = 0) or the source format (R/M = 1); bits 9-7 are
 /// the destination Fpn; bits 6-0 are the opmode (the operation).
 ///
-/// Only the register-to-register non-arithmetic ops are wired so far —
-/// FMOVE, FABS, FNEG, FTST — which need no float-math backend. Arithmetic
-/// (FADD/FSUB/FMUL/FDIV/FCMP/FSQRT/…) and external/FMOVECR operands
-/// decline (vector-11 trap) until the later steps land. Decoded per
+/// The register-to-register non-arithmetic ops (FMOVE/FABS/FNEG/FTST,
+/// pure bit ops) and the first arithmetic pair (FADD/FSUB, via the
+/// SoftFloat `floatx80` port) are wired. The remaining arithmetic
+/// (FMUL/FDIV/FCMP/FSQRT/FINT/…) and external/FMOVECR operands decline
+/// (vector-11 trap) until their ports / the EA chain land. Decoded per
 /// Musashi `fpgen_rm_reg`.
 fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
     // Peek the extension word without advancing the prefetch, so a
     // declined op leaves no side effect for the core's vector-11 path.
     let w2 = cpu.irc;
     let rm = (w2 >> 14) & 1;
-    let opmode = w2 & 0x7F;
+    let mut opmode = w2 & 0x7F;
 
-    // Only register-to-register (R/M = 0) FMOVE/FABS/FNEG/FTST are wired.
-    // External/FMOVECR operands (R/M = 1) and the arithmetic opmodes
-    // decline (vector-11 trap) until later steps.
-    if rm != 0 || !matches!(opmode, 0x00 | 0x18 | 0x1A | 0x3A) {
+    // 68040 rounding-precision prefix (Musashi `fpgen_rm_reg`): the
+    // FSxxx/FDxxx forms encode single/double rounding in opmode bits 6
+    // and 2. Strip them to recover the base opmode. Musashi computes the
+    // precision these select but never applies it — it always rounds the
+    // `floatx80` op at the default extended precision (80) — so to stay
+    // bit-exact with the oracle we do the same and use the bits only to
+    // normalise the opmode.
+    if opmode & 0x44 == 0x44 {
+        opmode &= !0x44;
+    } else if opmode & 0x40 != 0 {
+        opmode &= !0x40;
+    }
+
+    // Wired: register-to-register (R/M = 0) FMOVE/FABS/FNEG/FTST and
+    // FADD/FSUB. External/FMOVECR operands (R/M = 1) and the rest of the
+    // arithmetic opmodes decline (vector-11 trap) until later steps.
+    if rm != 0 || !matches!(opmode, 0x00 | 0x18 | 0x1A | 0x3A | 0x22 | 0x28) {
         return false;
     }
 
@@ -774,13 +788,24 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
         0x18 => cpu.regs.fp[dst] = source.abs(),    // FABS
         0x1A => cpu.regs.fp[dst] = source.negate(), // FNEG
         0x3A => {}                                  // FTST — flags only
+        0x22 | 0x28 => {
+            // FADD / FSUB: dst = dst op source, at extended precision with
+            // the FPCR rounding mode, matching Musashi's `floatx80_add` /
+            // `floatx80_sub` (`REG_FP[dst]` is the first operand).
+            use motorola_68k_common::softfloat::{self, RoundingMode};
+            let mode = RoundingMode::from_fpcr_bits(cpu.regs.fpcr_rounding_mode());
+            let a = cpu.regs.fp[dst];
+            cpu.regs.fp[dst] = if opmode == 0x22 {
+                softfloat::floatx80_add(80, mode, a, source)
+            } else {
+                softfloat::floatx80_sub(80, mode, a, source)
+            };
+        }
         _ => unreachable!("opmode filtered above"),
     }
 
-    // FMOVE/FABS/FNEG set the condition codes from the destination; FTST
-    // sets them from the (unwritten) source. In all four cases the value
-    // whose codes we report is now in `fp[dst]` for the writers, or
-    // `source` for FTST.
+    // FMOVE/FABS/FNEG/FADD/FSUB set the condition codes from the
+    // destination; FTST sets them from the (unwritten) source.
     let cc_value = if opmode == 0x3A {
         source
     } else {
