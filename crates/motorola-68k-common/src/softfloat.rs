@@ -1049,6 +1049,86 @@ pub fn floatx80_to_int32_round_to_zero(a: FpReg) -> i32 {
     z
 }
 
+// --- IEEE single / double → extended (softfloat.c) ---
+
+/// `commonNaNToFloatx80` fused with the float32/64→commonNaN extraction:
+/// build the extended-precision NaN from a sign and the canonical NaN's
+/// high 64 fraction bits. (The signaling-NaN `float_raise(invalid)` is a
+/// deferred side effect — TODO(FPSR).)
+#[must_use]
+fn common_nan_to_floatx80(sign: bool, common_high: u64) -> FpReg {
+    let low = 0xC000_0000_0000_0000 | (common_high >> 1);
+    let high = ((sign as u16) << 15) | 0x7FFF;
+    FpReg::new(high, low)
+}
+
+/// `normalizeFloat32Subnormal`: normalize a 23-bit subnormal significand.
+#[must_use]
+fn normalize_float32_subnormal(a_sig: u32) -> (i32, u32) {
+    let shift_count = a_sig.leading_zeros() as i32 - 8;
+    (1 - shift_count, a_sig << shift_count)
+}
+
+/// `float32_to_floatx80`: widen an IEEE single (raw 32-bit bit pattern) to
+/// extended precision. Exact — single fits in extended with no rounding.
+#[must_use]
+pub fn float32_to_floatx80(a: u32) -> FpReg {
+    let mut a_sig = a & 0x007F_FFFF;
+    let mut a_exp = ((a >> 23) & 0xFF) as i32;
+    let a_sign = (a >> 31) != 0;
+    if a_exp == 0xFF {
+        if a_sig != 0 {
+            return common_nan_to_floatx80(a_sign, u64::from(a) << 41);
+        }
+        return pack(a_sign, 0x7FFF, 0x8000_0000_0000_0000);
+    }
+    if a_exp == 0 {
+        if a_sig == 0 {
+            return pack(a_sign, 0, 0);
+        }
+        let (e, s) = normalize_float32_subnormal(a_sig);
+        a_exp = e;
+        a_sig = s;
+    }
+    a_sig |= 0x0080_0000;
+    pack(a_sign, a_exp + 0x3F80, u64::from(a_sig) << 40)
+}
+
+/// `normalizeFloat64Subnormal`: normalize a 52-bit subnormal significand.
+#[must_use]
+fn normalize_float64_subnormal(a_sig: u64) -> (i32, u64) {
+    let shift_count = a_sig.leading_zeros() as i32 - 11;
+    (1 - shift_count, a_sig << shift_count)
+}
+
+/// `float64_to_floatx80`: widen an IEEE double (raw 64-bit bit pattern) to
+/// extended precision. Exact — double fits in extended with no rounding.
+#[must_use]
+pub fn float64_to_floatx80(a: u64) -> FpReg {
+    let mut a_sig = a & 0x000F_FFFF_FFFF_FFFF;
+    let mut a_exp = ((a >> 52) & 0x7FF) as i32;
+    let a_sign = (a >> 63) != 0;
+    if a_exp == 0x7FF {
+        if a_sig != 0 {
+            return common_nan_to_floatx80(a_sign, a << 12);
+        }
+        return pack(a_sign, 0x7FFF, 0x8000_0000_0000_0000);
+    }
+    if a_exp == 0 {
+        if a_sig == 0 {
+            return pack(a_sign, 0, 0);
+        }
+        let (e, s) = normalize_float64_subnormal(a_sig);
+        a_exp = e;
+        a_sig = s;
+    }
+    pack(
+        a_sign,
+        a_exp + 0x3C00,
+        (a_sig | 0x0010_0000_0000_0000) << 11,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1493,5 +1573,58 @@ mod tests {
         let neg_big = FpReg::new(0xC027, 0x8000_0000_0000_0000); // −2^40
         assert_eq!(floatx80_to_int32_round_to_zero(big), i32::MAX);
         assert_eq!(floatx80_to_int32_round_to_zero(neg_big), i32::MIN);
+    }
+
+    // --- IEEE single / double → extended (exact widening). ---
+
+    #[test]
+    fn float32_widens_exactly() {
+        // +1.0f = 0x3F800000 → 1.0 extended.
+        assert_eq!(float32_to_floatx80(0x3F80_0000), fx(1));
+        // −1.0f, +2.0f, +0.0f, −0.0f.
+        assert_eq!(float32_to_floatx80(0xBF80_0000), fx(-1));
+        assert_eq!(float32_to_floatx80(0x4000_0000), fx(2));
+        assert_eq!(float32_to_floatx80(0x0000_0000), FpReg::new(0, 0));
+        assert_eq!(float32_to_floatx80(0x8000_0000), FpReg::new(0x8000, 0));
+    }
+
+    #[test]
+    fn float32_infinity_and_nan() {
+        assert_eq!(
+            float32_to_floatx80(0x7F80_0000),
+            FpReg::new(0x7FFF, 0x8000_0000_0000_0000)
+        );
+        // A quiet NaN widens to a NaN (max exp, non-zero fraction).
+        let nan = float32_to_floatx80(0x7FC0_0000);
+        assert!(nan.is_nan());
+    }
+
+    #[test]
+    fn float64_widens_exactly() {
+        // +1.0 = 0x3FF0000000000000 → 1.0 extended.
+        assert_eq!(float64_to_floatx80(0x3FF0_0000_0000_0000), fx(1));
+        assert_eq!(float64_to_floatx80(0xBFF0_0000_0000_0000), fx(-1));
+        assert_eq!(float64_to_floatx80(0x4000_0000_0000_0000), fx(2));
+        assert_eq!(float64_to_floatx80(0), FpReg::new(0, 0));
+        assert_eq!(
+            float64_to_floatx80(0x8000_0000_0000_0000),
+            FpReg::new(0x8000, 0)
+        );
+    }
+
+    #[test]
+    fn float64_infinity_and_nan() {
+        assert_eq!(
+            float64_to_floatx80(0x7FF0_0000_0000_0000),
+            FpReg::new(0x7FFF, 0x8000_0000_0000_0000)
+        );
+        assert!(float64_to_floatx80(0x7FF8_0000_0000_0000).is_nan());
+    }
+
+    #[test]
+    fn float_widening_round_trips_through_arithmetic() {
+        // 0.5f + 0.5f = 1.0 — exercises the widened operand in the adder.
+        let half = float32_to_floatx80(0x3F00_0000); // 0.5f
+        assert_eq!(floatx80_add(P80, RN, half, half), fx(1));
     }
 }
