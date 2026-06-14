@@ -60,6 +60,98 @@ pub const fn frac(a: FpReg) -> u64 {
     a.low
 }
 
+// --- Bit-manipulation helpers (softfloat-macros) ---
+//
+// These mirror SoftFloat's shift routines exactly. The C relies on the
+// host shift instruction masking the count (x86 SHL/SHR mask to the
+// register width), so `<<`/`>>` by the register width is a no-op there;
+// the ports use `wrapping_shl`/`wrapping_shr` to reproduce that on every
+// platform (Rust's plain `<<`/`>>` would panic). All other shifts are
+// already guarded to `< 64` by the surrounding branch, matching the C.
+
+/// `shift64RightJamming`: shift `a` right by `count`, OR-ing any bits
+/// shifted off into the LSB (sticky bit).
+#[must_use]
+pub fn shift64_right_jamming(a: u64, count: i32) -> u64 {
+    if count == 0 {
+        a
+    } else if count < 64 {
+        let c = count as u32;
+        (a >> c) | u64::from(a.wrapping_shl(c.wrapping_neg() & 63) != 0)
+    } else {
+        u64::from(a != 0)
+    }
+}
+
+/// `shift64ExtraRightJamming`: shift the 128-bit value (`a0`,`a1`) right
+/// by `count`, returning the top 64 bits and a jammed extra 64 bits.
+#[must_use]
+pub fn shift64_extra_right_jamming(a0: u64, a1: u64, count: i32) -> (u64, u64) {
+    if count == 0 {
+        (a0, a1)
+    } else if count < 64 {
+        let c = count as u32;
+        let neg = c.wrapping_neg() & 63;
+        let z1 = a0.wrapping_shl(neg) | u64::from(a1 != 0);
+        (a0 >> c, z1)
+    } else {
+        let z1 = if count == 64 {
+            a0 | u64::from(a1 != 0)
+        } else {
+            u64::from((a0 | a1) != 0)
+        };
+        (0, z1)
+    }
+}
+
+/// `shift128RightJamming`: shift the 128-bit value (`a0`,`a1`) right by
+/// `count`, jamming bits shifted off into the LSB.
+#[must_use]
+pub fn shift128_right_jamming(a0: u64, a1: u64, count: i32) -> (u64, u64) {
+    let neg = (count as u32).wrapping_neg() & 63;
+    if count == 0 {
+        (a0, a1)
+    } else if count < 64 {
+        let c = count as u32;
+        let z1 = a0.wrapping_shl(neg) | (a1 >> c) | u64::from(a1.wrapping_shl(neg) != 0);
+        (a0 >> c, z1)
+    } else {
+        let z1 = if count == 64 {
+            a0 | u64::from(a1 != 0)
+        } else if count < 128 {
+            let c = (count & 63) as u32;
+            (a0 >> c) | u64::from((a0.wrapping_shl(neg) | a1) != 0)
+        } else {
+            u64::from((a0 | a1) != 0)
+        };
+        (0, z1)
+    }
+}
+
+/// `shortShift128Left`: shift the 128-bit value (`a0`,`a1`) left by
+/// `count` (0..63).
+#[must_use]
+pub fn short_shift128_left(a0: u64, a1: u64, count: i32) -> (u64, u64) {
+    let c = count as u32;
+    let z1 = a1.wrapping_shl(c);
+    let z0 = if count == 0 {
+        a0
+    } else {
+        (a0 << c) | (a1 >> ((-count) as u32 & 63))
+    };
+    (z0, z1)
+}
+
+/// `normalizeFloatx80Subnormal`: normalize a subnormal significand,
+/// returning `(exponent, significand)`. The caller passes a non-zero
+/// `a_sig` in normal use; `wrapping_shl` keeps the zero case panic-free
+/// and matches the host (count masked → no shift).
+#[must_use]
+pub fn normalize_floatx80_subnormal(a_sig: u64) -> (i32, u64) {
+    let shift_count = a_sig.leading_zeros() as i32;
+    (1 - shift_count, a_sig.wrapping_shl(shift_count as u32))
+}
+
 /// Convert a 32-bit signed integer to extended precision
 /// (`int32_to_floatx80`). Exact for all `i32` — the value fits in the
 /// 64-bit significand, so no rounding occurs.
@@ -146,5 +238,63 @@ mod tests {
         assert!(sign(v));
         assert_eq!(exp(v), 0x4002);
         assert_eq!(frac(v), 0xA000_0000_0000_0000);
+    }
+
+    #[test]
+    fn shift64_right_jamming_basics() {
+        assert_eq!(shift64_right_jamming(0xFF, 0), 0xFF);
+        // 0x10 >> 1 = 0x8, nothing shifted off.
+        assert_eq!(shift64_right_jamming(0x10, 1), 0x8);
+        // 0x11 >> 1 = 0x8, low bit shifted off → jammed back to LSB.
+        assert_eq!(shift64_right_jamming(0x11, 1), 0x9);
+    }
+
+    #[test]
+    fn shift64_right_jamming_large_counts() {
+        assert_eq!(shift64_right_jamming(1, 64), 1);
+        assert_eq!(shift64_right_jamming(0, 64), 0);
+        assert_eq!(shift64_right_jamming(0xDEAD, 100), 1);
+        // The top bit shifted right by 63: result 1, nothing jammed.
+        assert_eq!(shift64_right_jamming(0x8000_0000_0000_0000, 63), 1);
+    }
+
+    #[test]
+    fn shift64_extra_right_jamming_by_one() {
+        // The "shiftRight1" step in addFloatx80Sigs.
+        let (z0, z1) = shift64_extra_right_jamming(0x8000_0000_0000_0000, 0, 1);
+        assert_eq!(z0, 0x4000_0000_0000_0000);
+        assert_eq!(z1, 0);
+    }
+
+    #[test]
+    fn shift64_extra_right_jamming_count_64() {
+        let (z0, z1) = shift64_extra_right_jamming(0xFF, 0x10, 64);
+        assert_eq!(z0, 0);
+        assert_eq!(z1, 0xFF | 1); // a0 | (a1 != 0)
+    }
+
+    #[test]
+    fn normalize_subnormal_brings_msb_to_bit63() {
+        let (exp, sig) = normalize_floatx80_subnormal(0x4000_0000_0000_0000);
+        assert_eq!(exp, 0);
+        assert_eq!(sig, 0x8000_0000_0000_0000);
+
+        let (exp, sig) = normalize_floatx80_subnormal(1);
+        assert_eq!(exp, 1 - 63);
+        assert_eq!(sig, 0x8000_0000_0000_0000);
+    }
+
+    #[test]
+    fn short_shift128_left_by_one() {
+        let (z0, z1) = short_shift128_left(0x1, 0x8000_0000_0000_0000, 1);
+        assert_eq!(z0, 3); // (1<<1) | (top bit of a1)
+        assert_eq!(z1, 0);
+    }
+
+    #[test]
+    fn shift128_right_jamming_count_64() {
+        let (z0, z1) = shift128_right_jamming(0xABCD, 0x1, 64);
+        assert_eq!(z0, 0);
+        assert_eq!(z1, 0xABCD | 1);
     }
 }
