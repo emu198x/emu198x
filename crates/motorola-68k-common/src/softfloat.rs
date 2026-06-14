@@ -1129,6 +1129,50 @@ pub fn float64_to_floatx80(a: u64) -> FpReg {
     )
 }
 
+// --- FMOVECR constant ROM (m68kfpu.c) ---
+
+/// IEEE-double bit pattern of `1e256`, the seed for the high powers of ten.
+const TEN_TO_256: u64 = 0x7515_4FDD_7F73_BF3C;
+
+/// `FMOVECR #ccc`: the 68881/2 on-chip constant ROM. Returns the
+/// extended-precision constant at ROM offset `offset` (the low 7 bits of
+/// the FP extension word). Built exactly as Musashi's `fpgen_rm_reg`
+/// FMOVECR case: literal `floatx80` patterns for the named constants,
+/// `int32_to_floatx80` for the small integer powers, `float64_to_floatx80`
+/// of the `1eN` double bit patterns for 10^8…10^256, and repeated
+/// `floatx80_mul` squaring (under the given rounding mode) for the higher
+/// powers. Unlisted offsets read as +0.0, matching the oracle's default.
+#[must_use]
+pub fn fmovecr(mode: RoundingMode, offset: u8) -> FpReg {
+    let ten256 = || float64_to_floatx80(TEN_TO_256);
+    let sq = |v: FpReg| floatx80_mul(80, mode, v, v);
+    match offset {
+        0x00 => FpReg::new(0x4000, 0xC90F_DAA2_2168_C235), // pi
+        0x0B => FpReg::new(0x3FFD, 0x9A20_9A84_FBCF_F798), // log10(2)
+        0x0C => FpReg::new(0x4000, 0xADF8_5458_A2BB_4A9B), // e
+        0x0D => FpReg::new(0x3FFF, 0xB8AA_3B29_5C17_F0BC), // log2(e)
+        0x0E => FpReg::new(0x3FFD, 0xDE5B_D8A9_3728_7195), // log10(e)
+        0x0F => int32_to_floatx80(0),                      // 0.0
+        0x30 => FpReg::new(0x3FFE, 0xB172_17F7_D1CF_79AC), // ln(2)
+        0x31 => FpReg::new(0x4000, 0x935D_8DDD_AAA8_AC17), // ln(10)
+        0x32 => int32_to_floatx80(1),                      // 1
+        0x33 => int32_to_floatx80(10),                     // 10^1
+        0x34 => int32_to_floatx80(100),                    // 10^2
+        0x35 => int32_to_floatx80(10000),                  // 10^4
+        0x36 => float64_to_floatx80(0x4197_D784_0000_0000), // 10^8
+        0x37 => float64_to_floatx80(0x4341_C379_37E0_8000), // 10^16
+        0x38 => float64_to_floatx80(0x4693_B8B5_B505_6E17), // 10^32
+        0x39 => float64_to_floatx80(0x4D38_4F03_E93F_F9F5), // 10^64
+        0x3A => float64_to_floatx80(0x5A82_7748_F930_1D32), // 10^128
+        0x3B => float64_to_floatx80(TEN_TO_256),           // 10^256
+        0x3C => sq(ten256()),                              // 10^512
+        0x3D => sq(sq(ten256())),                          // 10^1024
+        0x3E => sq(sq(sq(ten256()))),                      // 10^2048
+        0x3F => sq(sq(sq(sq(ten256())))),                  // 10^4096
+        _ => int32_to_floatx80(0),                         // default → +0.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

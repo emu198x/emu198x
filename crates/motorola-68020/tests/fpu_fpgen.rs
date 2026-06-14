@@ -95,10 +95,15 @@ fn ext(src: u16, dst: u16, opmode: u16) -> u16 {
 
 /// Run one cpGEN reg-to-reg op with the FP register file seeded by `seed`.
 fn run(opmode: u16, src: u16, dst: u16, seed: impl FnOnce(&mut Cpu68020)) -> Out {
+    run_raw(ext(src, dst, opmode), seed)
+}
+
+/// Run one cpGEN op with a fully-specified extension word (for forms that
+/// set the R/M bit, e.g. FMOVECR).
+fn run_raw(w2: u16, seed: impl FnOnce(&mut Cpu68020)) -> Out {
     let mut cpu = Cpu68020::new();
     let mut mem = Mem::new();
     let opcode = 0xF200; // cpID 1, op-class 0, EA bits unused for reg-to-reg
-    let w2 = ext(src, dst, opmode);
     mem.write_word(PC, opcode);
     mem.write_word(PC + 2, w2);
 
@@ -122,6 +127,12 @@ fn run(opmode: u16, src: u16, dst: u16, seed: impl FnOnce(&mut Cpu68020)) -> Out
         }
     }
     panic!("FP op did not complete");
+}
+
+/// FMOVECR extension word: R/M = 1, source specifier 7, dest Fpn, 7-bit
+/// ROM offset.
+fn fmovecr_ext(dst: u16, offset: u16) -> u16 {
+    0x4000 | (7 << 10) | (dst << 7) | offset
 }
 
 #[test]
@@ -372,4 +383,44 @@ fn fsqrt_of_negative_sets_nan() {
     // √(−1) → default NaN → NAN code set.
     let r = run(0x04, 1, 2, |cpu| cpu.regs.fp[1] = NEG_ONE);
     assert_ne!(r.fpsr & FPCC_NAN, 0, "√(−1) → NaN");
+}
+
+// --- FMOVECR (R/M = 1, src = 7): on-chip constant ROM load. ---
+
+#[test]
+fn fmovecr_loads_one() {
+    // FMOVECR #$32,FP3 → FP3 = 1.0.
+    let r = run_raw(fmovecr_ext(3, 0x32), |_| {});
+    assert_eq!(r.fp[3], POS_ONE, "ROM offset 0x32 = 1.0");
+    assert_eq!(r.fpsr & FPCC_Z, 0);
+    assert_eq!(r.fpsr & FPCC_N, 0);
+}
+
+#[test]
+fn fmovecr_loads_pi() {
+    // FMOVECR #$00,FP0 → FP0 = π (0x4000:C90FDAA22168C235).
+    let r = run_raw(fmovecr_ext(0, 0x00), |_| {});
+    assert_eq!(r.fp[0], FpReg::new(0x4000, 0xC90F_DAA2_2168_C235), "π");
+}
+
+#[test]
+fn fmovecr_loads_zero_sets_z() {
+    // FMOVECR #$0F,FP5 → FP5 = +0.0 → Z set.
+    let r = run_raw(fmovecr_ext(5, 0x0F), |cpu| cpu.regs.fp[5] = NEG_ONE);
+    assert_eq!(r.fp[5], POS_ZERO, "ROM offset 0x0F = 0.0");
+    assert_ne!(r.fpsr & FPCC_Z, 0, "zero constant → Z set");
+}
+
+#[test]
+fn fmovecr_loads_ten() {
+    // FMOVECR #$33,FP1 → FP1 = 10.0 (= int32_to_floatx80(10)).
+    let r = run_raw(fmovecr_ext(1, 0x33), |_| {});
+    assert_eq!(r.fp[1], FpReg::new(0x4002, 0xA000_0000_0000_0000), "10.0");
+}
+
+#[test]
+fn fmovecr_unlisted_offset_reads_zero() {
+    // An unpopulated ROM slot reads +0.0, matching Musashi's default.
+    let r = run_raw(fmovecr_ext(2, 0x01), |cpu| cpu.regs.fp[2] = NEG_ONE);
+    assert_eq!(r.fp[2], POS_ZERO, "unlisted offset → +0.0");
 }

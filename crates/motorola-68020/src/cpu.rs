@@ -758,6 +758,21 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
     // declined op leaves no side effect for the core's vector-11 path.
     let w2 = cpu.irc;
     let rm = (w2 >> 14) & 1;
+    let mode = RoundingMode::from_fpcr_bits(cpu.regs.fpcr_rounding_mode());
+
+    // FMOVECR (R/M = 1, source specifier 7): load a constant from the
+    // 68881/2 on-chip ROM into the destination Fpn. The low 7 bits select
+    // the ROM entry (they are NOT an opmode here), so this is handled
+    // before the opmode decode and needs no EA fetch.
+    if rm == 1 && (w2 >> 10) & 7 == 7 {
+        let _ = cpu.consume_irc();
+        let dst = ((w2 >> 7) & 7) as usize;
+        let v = softfloat::fmovecr(mode, (w2 & 0x7F) as u8);
+        cpu.regs.fp[dst] = v;
+        motorola_68k_common::fpu::set_condition_codes(&mut cpu.regs, v);
+        return true;
+    }
+
     let mut opmode = w2 & 0x7F;
 
     // 68040 rounding-precision prefix (Musashi `fpgen_rm_reg`): the
@@ -792,7 +807,6 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
     let src = ((w2 >> 10) & 7) as usize;
     let dst = ((w2 >> 7) & 7) as usize;
     let source = cpu.regs.fp[src];
-    let mode = RoundingMode::from_fpcr_bits(cpu.regs.fpcr_rounding_mode());
 
     match opmode {
         0x00 => cpu.regs.fp[dst] = source,          // FMOVE
