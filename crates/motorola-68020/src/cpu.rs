@@ -751,6 +751,9 @@ fn decode_fpu_fline(cpu: &mut Cpu68000, opcode: u16) -> bool {
 /// (vector-11 trap) until their ports / the EA chain land. Decoded per
 /// Musashi `fpgen_rm_reg`.
 fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
+    use motorola_68k_common::registers::FpReg;
+    use motorola_68k_common::softfloat::{self, RoundingMode};
+
     // Peek the extension word without advancing the prefetch, so a
     // declined op leaves no side effect for the core's vector-11 path.
     let w2 = cpu.irc;
@@ -770,10 +773,17 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
         opmode &= !0x40;
     }
 
-    // Wired: register-to-register (R/M = 0) FMOVE/FABS/FNEG/FTST and
-    // FADD/FSUB. External/FMOVECR operands (R/M = 1) and the rest of the
-    // arithmetic opmodes decline (vector-11 trap) until later steps.
-    if rm != 0 || !matches!(opmode, 0x00 | 0x18 | 0x1A | 0x3A | 0x22 | 0x28) {
+    // Wired: register-to-register (R/M = 0) FMOVE/FABS/FNEG/FTST plus the
+    // arithmetic ops backed by the SoftFloat `floatx80` port —
+    // FADD/FSUB/FMUL/FDIV/FSQRT/FCMP/FINT/FINTRZ. External/FMOVECR
+    // operands (R/M = 1) and the transcendentals decline (vector-11 trap)
+    // until the EA chain / those backends land.
+    if rm != 0
+        || !matches!(
+            opmode,
+            0x00 | 0x18 | 0x1A | 0x3A | 0x22 | 0x28 | 0x23 | 0x20 | 0x04 | 0x38 | 0x01 | 0x03
+        )
+    {
         return false;
     }
 
@@ -782,30 +792,74 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
     let src = ((w2 >> 10) & 7) as usize;
     let dst = ((w2 >> 7) & 7) as usize;
     let source = cpu.regs.fp[src];
+    let mode = RoundingMode::from_fpcr_bits(cpu.regs.fpcr_rounding_mode());
 
     match opmode {
         0x00 => cpu.regs.fp[dst] = source,          // FMOVE
         0x18 => cpu.regs.fp[dst] = source.abs(),    // FABS
         0x1A => cpu.regs.fp[dst] = source.negate(), // FNEG
         0x3A => {}                                  // FTST — flags only
-        0x22 | 0x28 => {
-            // FADD / FSUB: dst = dst op source, at extended precision with
-            // the FPCR rounding mode, matching Musashi's `floatx80_add` /
-            // `floatx80_sub` (`REG_FP[dst]` is the first operand).
-            use motorola_68k_common::softfloat::{self, RoundingMode};
-            let mode = RoundingMode::from_fpcr_bits(cpu.regs.fpcr_rounding_mode());
-            let a = cpu.regs.fp[dst];
-            cpu.regs.fp[dst] = if opmode == 0x22 {
-                softfloat::floatx80_add(80, mode, a, source)
-            } else {
-                softfloat::floatx80_sub(80, mode, a, source)
+        // Binary ops: dst = dst op source (Musashi passes REG_FP[dst]
+        // first), at extended precision with the FPCR rounding mode.
+        0x22 => cpu.regs.fp[dst] = softfloat::floatx80_add(80, mode, cpu.regs.fp[dst], source),
+        0x28 => cpu.regs.fp[dst] = softfloat::floatx80_sub(80, mode, cpu.regs.fp[dst], source),
+        0x23 => cpu.regs.fp[dst] = softfloat::floatx80_mul(80, mode, cpu.regs.fp[dst], source),
+        0x20 => cpu.regs.fp[dst] = softfloat::floatx80_div(80, mode, cpu.regs.fp[dst], source),
+        // Unary ops on the source, written to dst.
+        0x04 => cpu.regs.fp[dst] = softfloat::floatx80_sqrt(80, mode, source), // FSQRT
+        0x01 => {
+            // FINT: round source to an integer (per the FPCR mode) and back.
+            let n = softfloat::floatx80_to_int32(mode, source);
+            cpu.regs.fp[dst] = softfloat::int32_to_floatx80(n);
+        }
+        0x03 => {
+            // FINTRZ: round-to-zero variant, independent of the FPCR mode.
+            let n = softfloat::floatx80_to_int32_round_to_zero(source);
+            cpu.regs.fp[dst] = softfloat::int32_to_floatx80(n);
+        }
+        0x38 => {
+            // FCMP: set condition codes from dst − source without writing a
+            // register. Musashi special-cases infinities (when neither
+            // operand is a NaN) to avoid an inf − inf invalid result.
+            let dst_v = cpu.regs.fp[dst];
+            let inf_sign = |v: FpReg| -> i32 {
+                if v.is_infinite() {
+                    if v.is_negative() { -1 } else { 1 }
+                } else {
+                    0
+                }
             };
+            let d = inf_sign(dst_v);
+            let s = inf_sign(source);
+            if !dst_v.is_nan() && !source.is_nan() && (d != 0 || s != 0) {
+                let (mut n, mut z) = (false, false);
+                if s < 0 {
+                    if d < 0 {
+                        n = true;
+                        z = true;
+                    }
+                } else if s > 0 {
+                    if d > 0 {
+                        z = true;
+                    } else {
+                        n = true;
+                    }
+                } else if d < 0 {
+                    n = true;
+                }
+                cpu.regs.set_fpsr_cc(n, z, false, false);
+            } else {
+                let res = softfloat::floatx80_sub(80, mode, dst_v, source);
+                motorola_68k_common::fpu::set_condition_codes(&mut cpu.regs, res);
+            }
+            return true;
         }
         _ => unreachable!("opmode filtered above"),
     }
 
-    // FMOVE/FABS/FNEG/FADD/FSUB set the condition codes from the
-    // destination; FTST sets them from the (unwritten) source.
+    // The writing ops report their condition codes from the destination;
+    // FTST reports from the (unwritten) source. FCMP returned above with
+    // its own codes.
     let cc_value = if opmode == 0x3A {
         source
     } else {

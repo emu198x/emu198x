@@ -154,13 +154,13 @@ fn fnop_traps_vector_11_without_fpu() {
 
 #[test]
 fn unimplemented_fpu_arithmetic_traps_vector_11() {
-    // $F200 = cpID 1, cpGEN; extension word $0023 = FMUL (reg-to-reg,
-    // opmode 0x23). FADD/FSUB now execute via the SoftFloat port, but the
-    // remaining arithmetic opmodes (FMUL/FDIV/FCMP/FSQRT/…) are not wired
-    // yet, so they still decline → vector 11. (FADD/FSUB and the
-    // reg-to-reg FMOVE/FABS/FNEG/FTST opmodes DO execute now — see
+    // $F200 = cpID 1, cpGEN; extension word $0021 = FMOD (reg-to-reg,
+    // opmode 0x21). The core arithmetic (FADD/FSUB/FMUL/FDIV/FSQRT/FCMP/
+    // FINT/FINTRZ) now executes via the SoftFloat port, but FMOD and the
+    // other modulo/scale/transcendental opmodes are not wired yet, so they
+    // still decline → vector 11. (The wired ops DO execute now — see
     // tests/fpu_fpgen.rs.)
-    assert!(run(0xF200, &[0x0023], true, 0).vectored);
+    assert!(run(0xF200, &[0x0021], true, 0).vectored);
 }
 
 #[test]

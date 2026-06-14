@@ -281,3 +281,95 @@ fn fsadd_prefix_normalises_to_fadd() {
     });
     assert_eq!(r.fp[2], POS_TWO, "FSADD strips to FADD → 2.0");
 }
+
+// --- FMUL / FDIV / FSQRT / FINT / FINTRZ / FCMP (the rest of the wired
+// arithmetic, via the SoftFloat floatx80 port). ---
+
+const POS_SIX: FpReg = FpReg::new(0x4001, 0xC000_0000_0000_0000); // 6.0
+const POS_FOUR: FpReg = FpReg::new(0x4001, 0x8000_0000_0000_0000); // 4.0
+const POS_FIVE: FpReg = FpReg::new(0x4001, 0xA000_0000_0000_0000); // 5.0
+const POS_TEN: FpReg = FpReg::new(0x4002, 0xA000_0000_0000_0000); // 10.0
+
+#[test]
+fn fmul_two_times_three_is_six() {
+    let r = run(0x23, 1, 2, |cpu| {
+        cpu.regs.fp[1] = POS_THREE;
+        cpu.regs.fp[2] = POS_TWO;
+    });
+    assert_eq!(r.fp[2], POS_SIX, "2.0 × 3.0 = 6.0");
+}
+
+#[test]
+fn fdiv_ten_by_two_is_five() {
+    let r = run(0x20, 1, 2, |cpu| {
+        cpu.regs.fp[1] = POS_TWO;
+        cpu.regs.fp[2] = POS_TEN;
+    });
+    assert_eq!(r.fp[2], POS_FIVE, "10.0 / 2.0 = 5.0");
+}
+
+#[test]
+fn fsqrt_of_four_is_two() {
+    // FSQRT is unary on the source → dst.
+    let r = run(0x04, 1, 2, |cpu| {
+        cpu.regs.fp[1] = POS_FOUR;
+        cpu.regs.fp[2] = NEG_ONE; // overwritten
+    });
+    assert_eq!(r.fp[2], POS_TWO, "√4 = 2.0");
+    assert_eq!(r.fpsr & FPCC_N, 0);
+}
+
+#[test]
+fn fint_rounds_to_nearest_integer() {
+    // FINT of 2.5 → 2.0 (round-to-nearest-even, default FPCR).
+    let two_point_five = FpReg::new(0x4000, 0xA000_0000_0000_0000);
+    let r = run(0x01, 1, 2, |cpu| cpu.regs.fp[1] = two_point_five);
+    assert_eq!(r.fp[2], POS_TWO, "FINT 2.5 → 2.0");
+}
+
+#[test]
+fn fintrz_truncates_toward_zero() {
+    // FINTRZ of 2.5 → 2.0 regardless of FPCR mode.
+    let two_point_five = FpReg::new(0x4000, 0xA000_0000_0000_0000);
+    let r = run(0x03, 1, 2, |cpu| cpu.regs.fp[1] = two_point_five);
+    assert_eq!(r.fp[2], POS_TWO, "FINTRZ 2.5 → 2.0");
+}
+
+#[test]
+fn fcmp_sets_codes_without_writing() {
+    // FCMP FP1,FP2 with FP2 = 1.0, FP1 = 1.0 → equal → Z set, dst kept.
+    let r = run(0x38, 1, 2, |cpu| {
+        cpu.regs.fp[1] = POS_ONE;
+        cpu.regs.fp[2] = POS_ONE;
+    });
+    assert_ne!(r.fpsr & FPCC_Z, 0, "1.0 vs 1.0 → equal → Z set");
+    assert_eq!(r.fp[2], POS_ONE, "FCMP must not write the destination");
+}
+
+#[test]
+fn fcmp_less_than_sets_negative() {
+    // FCMP FP1,FP2 with FP2 = 1.0, FP1 = 2.0 → 1.0 − 2.0 < 0 → N set.
+    let r = run(0x38, 1, 2, |cpu| {
+        cpu.regs.fp[1] = POS_TWO;
+        cpu.regs.fp[2] = POS_ONE;
+    });
+    assert_ne!(r.fpsr & FPCC_N, 0, "dst < source → N set");
+    assert_eq!(r.fpsr & FPCC_Z, 0);
+}
+
+#[test]
+fn fcmp_infinities_equal_sets_n_and_z() {
+    // FCMP +inf,+inf → equal via the inf special path → Z set.
+    let r = run(0x38, 1, 2, |cpu| {
+        cpu.regs.fp[1] = POS_INF;
+        cpu.regs.fp[2] = POS_INF;
+    });
+    assert_ne!(r.fpsr & FPCC_Z, 0, "+inf vs +inf → equal → Z set");
+}
+
+#[test]
+fn fsqrt_of_negative_sets_nan() {
+    // √(−1) → default NaN → NAN code set.
+    let r = run(0x04, 1, 2, |cpu| cpu.regs.fp[1] = NEG_ONE);
+    assert_ne!(r.fpsr & FPCC_NAN, 0, "√(−1) → NaN");
+}
