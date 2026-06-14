@@ -816,6 +816,151 @@ pub fn floatx80_div(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
     round_and_pack_floatx80(precision, mode, z_sign, z_exp, z_sig0, z_sig1)
 }
 
+// --- Square root (softfloat.c) ---
+
+/// `sub192`: subtract the 192-bit value (`b0`,`b1`,`b2`) from
+/// (`a0`,`a1`,`a2`) modulo 2^192.
+#[must_use]
+fn sub192(a0: u64, a1: u64, a2: u64, b0: u64, b1: u64, b2: u64) -> (u64, u64, u64) {
+    let z2 = a2.wrapping_sub(b2);
+    let borrow1 = u64::from(a2 < b2);
+    let z1 = a1.wrapping_sub(b1);
+    let borrow0 = u64::from(a1 < b1);
+    let mut z0 = a0.wrapping_sub(b0);
+    z0 = z0.wrapping_sub(u64::from(z1 < borrow1));
+    let z1 = z1.wrapping_sub(borrow1);
+    z0 = z0.wrapping_sub(borrow0);
+    (z0, z1, z2)
+}
+
+/// `add192`: add the 192-bit values (`a0`,`a1`,`a2`) and (`b0`,`b1`,`b2`)
+/// modulo 2^192.
+#[must_use]
+fn add192(a0: u64, a1: u64, a2: u64, b0: u64, b1: u64, b2: u64) -> (u64, u64, u64) {
+    let z2 = a2.wrapping_add(b2);
+    let carry1 = u64::from(z2 < a2);
+    let mut z1 = a1.wrapping_add(b1);
+    let carry0 = u64::from(z1 < a1);
+    let mut z0 = a0.wrapping_add(b0);
+    z1 = z1.wrapping_add(carry1);
+    z0 = z0.wrapping_add(u64::from(z1 < carry1));
+    z0 = z0.wrapping_add(carry0);
+    (z0, z1, z2)
+}
+
+/// `estimateSqrt32`: estimate the square root of a 32-bit fraction `a`
+/// scaled by `aExp`'s parity, to ~30 bits. Used to seed the `floatx80`
+/// Newton iteration. Faithful to SoftFloat's lookup-and-divide method.
+#[must_use]
+fn estimate_sqrt32(a_exp: i32, mut a: u32) -> u32 {
+    const ODD: [u16; 16] = [
+        0x0004, 0x0022, 0x005D, 0x00B1, 0x011D, 0x019F, 0x0236, 0x02E0, 0x039C, 0x0468, 0x0545,
+        0x0631, 0x072B, 0x0832, 0x0946, 0x0A67,
+    ];
+    const EVEN: [u16; 16] = [
+        0x0A2D, 0x08AF, 0x075A, 0x0629, 0x051A, 0x0429, 0x0356, 0x029E, 0x0200, 0x0179, 0x0109,
+        0x00AF, 0x0068, 0x0034, 0x0012, 0x0002,
+    ];
+    let index = ((a >> 27) & 15) as usize;
+    let z;
+    if a_exp & 1 != 0 {
+        let t = 0x4000_u32
+            .wrapping_add(a >> 17)
+            .wrapping_sub(u32::from(ODD[index]));
+        z = (a / t).wrapping_shl(14).wrapping_add(t.wrapping_shl(15));
+        a >>= 1;
+    } else {
+        let mut t = 0x8000_u32
+            .wrapping_add(a >> 17)
+            .wrapping_sub(u32::from(EVEN[index]));
+        t = (a / t).wrapping_add(t);
+        t = if 0x20000 <= t {
+            0xFFFF_8000
+        } else {
+            t.wrapping_shl(15)
+        };
+        if t <= a {
+            return ((a as i32) >> 1) as u32;
+        }
+        z = t;
+    }
+    (((u64::from(a) << 31) / u64::from(z)) as u32).wrapping_add(z >> 1)
+}
+
+/// `floatx80_sqrt`: extended-precision square root.
+#[must_use]
+pub fn floatx80_sqrt(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let mut a_sig0 = frac(a);
+    let mut a_exp = exp(a);
+    let a_sign = sign(a);
+
+    if a_exp == 0x7FFF {
+        if a_sig0.wrapping_shl(1) != 0 {
+            return propagate_floatx80_nan(a, a);
+        }
+        if !a_sign {
+            return a; // +inf
+        }
+        return DEFAULT_NAN; // sqrt(−inf) — TODO(FPSR): invalid.
+    }
+    if a_sign {
+        if (a_exp as u64 | a_sig0) == 0 {
+            return a; // sqrt(−0) = −0
+        }
+        return DEFAULT_NAN; // sqrt(negative) — TODO(FPSR): invalid.
+    }
+    if a_exp == 0 {
+        if a_sig0 == 0 {
+            return pack(false, 0, 0); // sqrt(+0) = +0
+        }
+        let (e, s) = normalize_floatx80_subnormal(a_sig0);
+        a_exp = e;
+        a_sig0 = s;
+    }
+    let z_exp = ((a_exp - 0x3FFF) >> 1) + 0x3FFF;
+    let mut z_sig0 = u64::from(estimate_sqrt32(a_exp, (a_sig0 >> 32) as u32));
+    let (s0, a_sig1) = shift128_right(a_sig0, 0, 2 + (a_exp & 1));
+    a_sig0 = s0;
+    z_sig0 = estimate_div128_to_64(a_sig0, a_sig1, z_sig0 << 32).wrapping_add(z_sig0 << 30);
+    let mut double_z_sig0 = z_sig0.wrapping_shl(1);
+    let (term0, term1) = mul64_to_128(z_sig0, z_sig0);
+    let (mut rem0, mut rem1) = sub128(a_sig0, a_sig1, term0, term1);
+    while (rem0 as i64) < 0 {
+        z_sig0 = z_sig0.wrapping_sub(1);
+        double_z_sig0 = double_z_sig0.wrapping_sub(2);
+        let r = add128(rem0, rem1, z_sig0 >> 63, double_z_sig0 | 1);
+        rem0 = r.0;
+        rem1 = r.1;
+    }
+    let mut z_sig1 = estimate_div128_to_64(rem1, 0, double_z_sig0);
+    if (z_sig1 & 0x3FFF_FFFF_FFFF_FFFF) <= 5 {
+        if z_sig1 == 0 {
+            z_sig1 = 1;
+        }
+        let (term1, term2) = mul64_to_128(double_z_sig0, z_sig1);
+        let (r1, mut rem2) = sub128(rem1, 0, term1, term2);
+        rem1 = r1;
+        let (term2b, term3) = mul64_to_128(z_sig1, z_sig1);
+        let (r1b, r2, mut rem3) = sub192(rem1, rem2, 0, 0, term2b, term3);
+        rem1 = r1b;
+        rem2 = r2;
+        while (rem1 as i64) < 0 {
+            z_sig1 = z_sig1.wrapping_sub(1);
+            let (t2, mut t3) = short_shift128_left(0, z_sig1, 1);
+            t3 |= 1;
+            let t2 = t2 | double_z_sig0;
+            let r = add192(rem1, rem2, rem3, 0, t2, t3);
+            rem1 = r.0;
+            rem2 = r.1;
+            rem3 = r.2;
+        }
+        z_sig1 |= u64::from((rem1 | rem2 | rem3) != 0);
+    }
+    let (s0b, z_sig1b) = short_shift128_left(0, z_sig1, 1);
+    z_sig0 = s0b | double_z_sig0;
+    round_and_pack_floatx80(precision, mode, false, z_exp, z_sig0, z_sig1b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1157,5 +1302,54 @@ mod tests {
         let back = floatx80_mul(P80, RN, third, fx(3));
         // 0.999… rounds back to exactly 1.0 under round-to-nearest.
         assert_eq!(back, fx(1));
+    }
+
+    // --- Square root (perfect squares stay exact; special cases match). ---
+
+    #[test]
+    fn sqrt_of_perfect_squares() {
+        assert_eq!(floatx80_sqrt(P80, RN, fx(4)), fx(2));
+        assert_eq!(floatx80_sqrt(P80, RN, fx(9)), fx(3));
+        assert_eq!(floatx80_sqrt(P80, RN, fx(16)), fx(4));
+        assert_eq!(floatx80_sqrt(P80, RN, fx(144)), fx(12));
+    }
+
+    #[test]
+    fn sqrt_of_one_is_one() {
+        assert_eq!(floatx80_sqrt(P80, RN, fx(1)), fx(1));
+    }
+
+    #[test]
+    fn sqrt_of_zero_is_zero() {
+        assert_eq!(floatx80_sqrt(P80, RN, FpReg::new(0, 0)), FpReg::new(0, 0));
+        // sqrt(−0) = −0.
+        assert_eq!(
+            floatx80_sqrt(P80, RN, FpReg::new(0x8000, 0)),
+            FpReg::new(0x8000, 0)
+        );
+    }
+
+    #[test]
+    fn sqrt_of_negative_is_default_nan() {
+        assert_eq!(
+            floatx80_sqrt(P80, RN, fx(-4)),
+            FpReg::new(0xFFFF, 0xFFFF_FFFF_FFFF_FFFF)
+        );
+    }
+
+    #[test]
+    fn sqrt_of_positive_infinity_is_infinity() {
+        let inf = FpReg::new(0x7FFF, 0x8000_0000_0000_0000);
+        assert_eq!(floatx80_sqrt(P80, RN, inf), inf);
+    }
+
+    #[test]
+    fn sqrt_of_two_is_known_irrational() {
+        // √2 = 1.41421356… → the exact round-to-nearest extended value
+        // (cross-checked against Musashi via the C diff harness).
+        assert_eq!(
+            floatx80_sqrt(P80, RN, fx(2)),
+            FpReg::new(0x3FFF, 0xB504_F333_F9DE_6484)
+        );
     }
 }
