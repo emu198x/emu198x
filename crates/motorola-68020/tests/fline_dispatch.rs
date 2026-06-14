@@ -153,10 +153,20 @@ fn fnop_traps_vector_11_without_fpu() {
 }
 
 #[test]
-fn unimplemented_fpu_class_traps_vector_11() {
-    // $F200 = cpID 1, cpGEN — not wired yet → still vector 11 even with
-    // an FPU. (Flips when cpGEN lands in a later step.)
-    assert!(run(0xF200, &[0x0000], true, 0).vectored);
+fn unimplemented_fpu_arithmetic_traps_vector_11() {
+    // $F200 = cpID 1, cpGEN; extension word $0022 = FADD (reg-to-reg,
+    // opmode 0x22). The arithmetic opmodes are not wired yet (they need
+    // the 80-bit float backend), so they still decline → vector 11.
+    // (The reg-to-reg FMOVE/FABS/FNEG/FTST opmodes DO execute now — see
+    // tests/fpu_fpgen.rs.)
+    assert!(run(0xF200, &[0x0022], true, 0).vectored);
+}
+
+#[test]
+fn unimplemented_fpu_memory_operand_traps_vector_11() {
+    // cpGEN with R/M = 1 (external/memory source, ext bit 14 set) needs
+    // the EA operand chain — not wired yet → vector 11.
+    assert!(run(0xF200, &[0x4000], true, 0).vectored);
 }
 
 // --- FPU present: FBcc.W / FNOP execute ---

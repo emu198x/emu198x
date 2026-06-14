@@ -5,7 +5,7 @@
 //! internal precision (covers Single/Double exactly, approximates
 //! Extended's 64-bit mantissa with 53 bits).
 
-use crate::registers::Registers;
+use crate::registers::{FpReg, Registers};
 use serde::{Deserialize, Serialize};
 
 // --- FP data formats ---
@@ -325,6 +325,20 @@ pub fn set_fpcc(regs: &mut Registers, val: f64) {
     let i = val.is_infinite();
     let nan = val.is_nan();
     regs.set_fpsr_cc(n, z, i, nan);
+}
+
+/// Set the FPSR condition codes (N/Z/I/NAN) from an 80-bit result,
+/// replicating Musashi's `SET_CONDITION_CODES`. N is the raw sign bit —
+/// set even for −0 and −NaN, unlike the f64 [`set_fpcc`] above (the FPU
+/// reports sign directly). This is the setter the 68020+ FPU dispatch
+/// uses.
+pub fn set_condition_codes(regs: &mut Registers, value: FpReg) {
+    regs.set_fpsr_cc(
+        value.is_negative(),
+        value.is_zero(),
+        value.is_infinite(),
+        value.is_nan(),
+    );
 }
 
 // --- FPU condition testing ---

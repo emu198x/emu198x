@@ -725,14 +725,69 @@ fn decode_fpu_fline(cpu: &mut Cpu68000, opcode: u16) -> bool {
         return false;
     }
     match (opcode >> 6) & 7 {
+        // cpGEN: the arithmetic/move class (FMOVE/FABS/FNEG/FTST/… + the
+        // arithmetic ops). The reg-to-reg non-arithmetic subset is wired;
+        // arithmetic and memory operands decline for now.
+        0 => execute_fpgen(cpu),
         // cpBcc.W: branch on FP condition, 16-bit displacement. Covers
         // FNOP (FBF.W with a zero displacement).
         2 => execute_fbcc_w(cpu, opcode),
-        // cpGEN (0), cpScc (1), cpBcc.L (3), cpSAVE (4), cpRESTORE (5)
-        // are not wired yet — decline so they take the vector-11 trap
-        // until implemented in the following steps.
+        // cpScc (1), cpBcc.L (3), cpSAVE (4), cpRESTORE (5) are not wired
+        // yet — decline so they take the vector-11 trap until implemented.
         _ => false,
     }
+}
+
+/// cpGEN (cpID-1 op-class 0): the FPU general instruction. The extension
+/// word selects the operation. Bit 14 (R/M) chooses a register source
+/// (0) or an external source via the EA / FMOVECR (1). Bits 12-10 are the
+/// source register (R/M = 0) or the source format (R/M = 1); bits 9-7 are
+/// the destination Fpn; bits 6-0 are the opmode (the operation).
+///
+/// Only the register-to-register non-arithmetic ops are wired so far —
+/// FMOVE, FABS, FNEG, FTST — which need no float-math backend. Arithmetic
+/// (FADD/FSUB/FMUL/FDIV/FCMP/FSQRT/…) and external/FMOVECR operands
+/// decline (vector-11 trap) until the later steps land. Decoded per
+/// Musashi `fpgen_rm_reg`.
+fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
+    // Peek the extension word without advancing the prefetch, so a
+    // declined op leaves no side effect for the core's vector-11 path.
+    let w2 = cpu.irc;
+    let rm = (w2 >> 14) & 1;
+    let opmode = w2 & 0x7F;
+
+    // Only register-to-register (R/M = 0) FMOVE/FABS/FNEG/FTST are wired.
+    // External/FMOVECR operands (R/M = 1) and the arithmetic opmodes
+    // decline (vector-11 trap) until later steps.
+    if rm != 0 || !matches!(opmode, 0x00 | 0x18 | 0x1A | 0x3A) {
+        return false;
+    }
+
+    // Committed to handling it: now consume the extension word.
+    let _ = cpu.consume_irc();
+    let src = ((w2 >> 10) & 7) as usize;
+    let dst = ((w2 >> 7) & 7) as usize;
+    let source = cpu.regs.fp[src];
+
+    match opmode {
+        0x00 => cpu.regs.fp[dst] = source,          // FMOVE
+        0x18 => cpu.regs.fp[dst] = source.abs(),    // FABS
+        0x1A => cpu.regs.fp[dst] = source.negate(), // FNEG
+        0x3A => {}                                  // FTST — flags only
+        _ => unreachable!("opmode filtered above"),
+    }
+
+    // FMOVE/FABS/FNEG set the condition codes from the destination; FTST
+    // sets them from the (unwritten) source. In all four cases the value
+    // whose codes we report is now in `fp[dst]` for the writers, or
+    // `source` for FTST.
+    let cc_value = if opmode == 0x3A {
+        source
+    } else {
+        cpu.regs.fp[dst]
+    };
+    motorola_68k_common::fpu::set_condition_codes(&mut cpu.regs, cc_value);
+    true
 }
 
 /// FBcc.W (cpID-1 op-class 2): branch on an FPU condition with a 16-bit

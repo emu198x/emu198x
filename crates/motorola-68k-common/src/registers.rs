@@ -9,20 +9,76 @@
 
 use serde::{Deserialize, Serialize};
 
-/// FPU register value — wraps f64 with bit-exact Eq for emulation.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct FpReg(pub f64);
+/// FPU register value — a true 80-bit extended-precision float, stored
+/// as Motorola/Intel `floatx80`: `high` holds the sign (bit 15) and the
+/// 15-bit biased exponent (bits 14-0); `low` holds the 64-bit mantissa
+/// including the explicit integer bit (bit 63). This matches Musashi's
+/// `floatx80` layout exactly so register state is bit-comparable.
+///
+/// The arithmetic backend that operates on this representation is wired
+/// incrementally (#112); the move/abs/neg/test ops need only these bit
+/// fields, no float library.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FpReg {
+    /// Sign (bit 15) + 15-bit biased exponent (bits 14-0).
+    pub high: u16,
+    /// 64-bit mantissa with explicit integer bit (bit 63).
+    pub low: u64,
+}
 
 impl FpReg {
-    pub const ZERO: Self = Self(0.0);
-}
+    /// Positive zero (`+0.0`): exponent and mantissa all clear.
+    pub const ZERO: Self = Self { high: 0, low: 0 };
 
-impl PartialEq for FpReg {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.to_bits() == other.0.to_bits()
+    /// Construct from the raw 80-bit fields.
+    #[must_use]
+    pub const fn new(high: u16, low: u64) -> Self {
+        Self { high, low }
+    }
+
+    /// True when the sign bit is set.
+    #[must_use]
+    pub const fn is_negative(self) -> bool {
+        self.high & 0x8000 != 0
+    }
+
+    /// True for ±0 (exponent and mantissa fraction both zero), matching
+    /// Musashi's `SET_CONDITION_CODES` zero test (`(low << 1) == 0`).
+    #[must_use]
+    pub const fn is_zero(self) -> bool {
+        (self.high & 0x7FFF) == 0 && (self.low << 1) == 0
+    }
+
+    /// True for ±infinity (max exponent, zero fraction).
+    #[must_use]
+    pub const fn is_infinite(self) -> bool {
+        (self.high & 0x7FFF) == 0x7FFF && (self.low << 1) == 0
+    }
+
+    /// True for NaN (max exponent, non-zero fraction).
+    #[must_use]
+    pub const fn is_nan(self) -> bool {
+        (self.high & 0x7FFF) == 0x7FFF && (self.low << 1) != 0
+    }
+
+    /// Absolute value — clear the sign bit (FABS).
+    #[must_use]
+    pub const fn abs(self) -> Self {
+        Self {
+            high: self.high & 0x7FFF,
+            low: self.low,
+        }
+    }
+
+    /// Negate — flip the sign bit (FNEG).
+    #[must_use]
+    pub const fn negate(self) -> Self {
+        Self {
+            high: self.high ^ 0x8000,
+            low: self.low,
+        }
     }
 }
-impl Eq for FpReg {}
 
 /// 68000 CPU register set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
