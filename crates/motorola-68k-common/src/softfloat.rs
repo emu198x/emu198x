@@ -961,6 +961,94 @@ pub fn floatx80_sqrt(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
     round_and_pack_floatx80(precision, mode, false, z_exp, z_sig0, z_sig1b)
 }
 
+// --- Conversion to 32-bit integer (softfloat.c) ---
+
+/// `roundAndPackInt32`: round the unsigned 64-bit magnitude `abs_z` (with
+/// 7 guard bits in its low bits) to a signed 32-bit integer under
+/// `mode`, saturating on overflow. Value-only; the inexact/invalid flags
+/// are deferred (TODO(FPSR)).
+#[must_use]
+fn round_and_pack_int32(mode: RoundingMode, z_sign: bool, abs_z: u64) -> i32 {
+    let round_nearest_even = mode == RoundingMode::NearestEven;
+    let mut round_increment: u64 = 0x40;
+    if !round_nearest_even {
+        if mode == RoundingMode::Zero {
+            round_increment = 0;
+        } else {
+            round_increment = 0x7F;
+            if z_sign {
+                if mode == RoundingMode::Up {
+                    round_increment = 0;
+                }
+            } else if mode == RoundingMode::Down {
+                round_increment = 0;
+            }
+        }
+    }
+    let round_bits = abs_z & 0x7F;
+    let mut abs_z = abs_z.wrapping_add(round_increment) >> 7;
+    abs_z &= !u64::from((round_bits ^ 0x40) == 0 && round_nearest_even);
+    let mut z = abs_z as i32;
+    if z_sign {
+        z = z.wrapping_neg();
+    }
+    if (abs_z >> 32) != 0 || (z != 0 && ((z < 0) != z_sign)) {
+        // TODO(FPSR): float_raise(invalid).
+        return if z_sign { i32::MIN } else { i32::MAX };
+    }
+    // TODO(FPSR): inexact if round_bits.
+    z
+}
+
+/// `floatx80_to_int32`: convert to a signed 32-bit integer, rounding per
+/// `mode` (used by FINT / FMOVE.L Fpn,Dn).
+#[must_use]
+pub fn floatx80_to_int32(mode: RoundingMode, a: FpReg) -> i32 {
+    let mut a_sig = frac(a);
+    let a_exp = exp(a);
+    let mut a_sign = sign(a);
+    if a_exp == 0x7FFF && a_sig.wrapping_shl(1) != 0 {
+        a_sign = false;
+    }
+    let mut shift_count = 0x4037 - a_exp;
+    if shift_count <= 0 {
+        shift_count = 1;
+    }
+    a_sig = shift64_right_jamming(a_sig, shift_count);
+    round_and_pack_int32(mode, a_sign, a_sig)
+}
+
+/// `floatx80_to_int32_round_to_zero`: convert to a signed 32-bit integer,
+/// truncating toward zero regardless of the FPCR mode (FINTRZ / the
+/// integer-part ops). Saturates on overflow.
+#[must_use]
+pub fn floatx80_to_int32_round_to_zero(a: FpReg) -> i32 {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    let mut a_sign = sign(a);
+    if 0x401E < a_exp {
+        if a_exp == 0x7FFF && a_sig.wrapping_shl(1) != 0 {
+            a_sign = false;
+        }
+        // TODO(FPSR): float_raise(invalid).
+        return if a_sign { i32::MIN } else { i32::MAX };
+    } else if a_exp < 0x3FFF {
+        // TODO(FPSR): inexact if a_exp != 0 || a_sig != 0.
+        return 0;
+    }
+    let shift_count = 0x403E - a_exp;
+    let mut z = (a_sig >> shift_count) as i32;
+    if a_sign {
+        z = z.wrapping_neg();
+    }
+    if (z < 0) != a_sign {
+        // TODO(FPSR): float_raise(invalid).
+        return if a_sign { i32::MIN } else { i32::MAX };
+    }
+    // TODO(FPSR): inexact if (a_sig << shift_count) != a_sig (lost bits).
+    z
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1351,5 +1439,59 @@ mod tests {
             floatx80_sqrt(P80, RN, fx(2)),
             FpReg::new(0x3FFF, 0xB504_F333_F9DE_6484)
         );
+    }
+
+    // --- Conversion to int32 (FINT / FINTRZ). ---
+
+    #[test]
+    fn to_int32_exact_integers() {
+        assert_eq!(floatx80_to_int32(RN, fx(0)), 0);
+        assert_eq!(floatx80_to_int32(RN, fx(42)), 42);
+        assert_eq!(floatx80_to_int32(RN, fx(-42)), -42);
+        assert_eq!(floatx80_to_int32(RN, fx(i32::MAX)), i32::MAX);
+        assert_eq!(floatx80_to_int32(RN, fx(i32::MIN)), i32::MIN);
+    }
+
+    #[test]
+    fn to_int32_rounds_to_nearest_even() {
+        // 2.5 → 2 (ties to even), 3.5 → 4, 1.5 → 2.
+        let two_point_five = FpReg::new(0x4000, 0xA000_0000_0000_0000);
+        let three_point_five = FpReg::new(0x4000, 0xE000_0000_0000_0000);
+        let one_point_five = FpReg::new(0x3FFF, 0xC000_0000_0000_0000);
+        assert_eq!(floatx80_to_int32(RN, two_point_five), 2);
+        assert_eq!(floatx80_to_int32(RN, three_point_five), 4);
+        assert_eq!(floatx80_to_int32(RN, one_point_five), 2);
+    }
+
+    #[test]
+    fn to_int32_round_to_zero_truncates() {
+        let two_point_five = FpReg::new(0x4000, 0xA000_0000_0000_0000);
+        let neg_two_point_five = FpReg::new(0xC000, 0xA000_0000_0000_0000);
+        assert_eq!(floatx80_to_int32_round_to_zero(two_point_five), 2);
+        assert_eq!(floatx80_to_int32_round_to_zero(neg_two_point_five), -2);
+        // 0.9375 truncates to 0.
+        assert_eq!(
+            floatx80_to_int32_round_to_zero(FpReg::new(0x3FFE, 0xF000_0000_0000_0000)),
+            0
+        );
+    }
+
+    #[test]
+    fn to_int32_round_modes_differ() {
+        // 2.5: nearest-even → 2, toward-zero → 2, down → 2, up → 3.
+        let v = FpReg::new(0x4000, 0xA000_0000_0000_0000);
+        assert_eq!(floatx80_to_int32(RoundingMode::NearestEven, v), 2);
+        assert_eq!(floatx80_to_int32(RoundingMode::Zero, v), 2);
+        assert_eq!(floatx80_to_int32(RoundingMode::Down, v), 2);
+        assert_eq!(floatx80_to_int32(RoundingMode::Up, v), 3);
+    }
+
+    #[test]
+    fn to_int32_round_to_zero_saturates_on_overflow() {
+        // 2^40 overflows int32 → saturate to MAX / MIN.
+        let big = FpReg::new(0x4027, 0x8000_0000_0000_0000); // +2^40
+        let neg_big = FpReg::new(0xC027, 0x8000_0000_0000_0000); // −2^40
+        assert_eq!(floatx80_to_int32_round_to_zero(big), i32::MAX);
+        assert_eq!(floatx80_to_int32_round_to_zero(neg_big), i32::MIN);
     }
 }
