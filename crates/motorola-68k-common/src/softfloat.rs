@@ -1129,6 +1129,178 @@ pub fn float64_to_floatx80(a: u64) -> FpReg {
     )
 }
 
+// --- extended → IEEE single / double (softfloat.c) ---
+
+/// `shift32RightJamming`: 32-bit right shift with a sticky bit.
+#[must_use]
+fn shift32_right_jamming(a: u32, count: i32) -> u32 {
+    if count == 0 {
+        a
+    } else if count < 32 {
+        let c = count as u32;
+        (a >> c) | u32::from(a.wrapping_shl(c.wrapping_neg() & 31) != 0)
+    } else {
+        u32::from(a != 0)
+    }
+}
+
+/// `packFloat32`: assemble a single-precision bit pattern.
+#[must_use]
+fn pack_float32(z_sign: bool, z_exp: i32, z_sig: u32) -> u32 {
+    ((z_sign as u32) << 31)
+        .wrapping_add((z_exp as u32) << 23)
+        .wrapping_add(z_sig)
+}
+
+/// `packFloat64`: assemble a double-precision bit pattern.
+#[must_use]
+fn pack_float64(z_sign: bool, z_exp: i32, z_sig: u64) -> u64 {
+    ((z_sign as u64) << 63)
+        .wrapping_add((z_exp as u64) << 52)
+        .wrapping_add(z_sig)
+}
+
+/// The extended-precision NaN `a` reduced to a single-precision NaN
+/// (fused `commonNaNToFloat32(floatx80ToCommonNaN(a))`).
+#[must_use]
+fn floatx80_nan_to_float32(a: FpReg) -> u32 {
+    let sign = u32::from((a.high >> 15) & 1);
+    let common_high = a.low << 1;
+    (sign << 31) | 0x7FC0_0000 | (common_high >> 41) as u32
+}
+
+/// The extended-precision NaN `a` reduced to a double-precision NaN.
+#[must_use]
+fn floatx80_nan_to_float64(a: FpReg) -> u64 {
+    let sign = u64::from((a.high >> 15) & 1);
+    let common_high = a.low << 1;
+    (sign << 63) | 0x7FF8_0000_0000_0000 | (common_high >> 12)
+}
+
+/// `roundAndPackFloat32`: round a 32-bit significand (7 guard bits) to
+/// single precision under `mode`. Value-only (FPSR side effects deferred).
+#[must_use]
+fn round_and_pack_float32(mode: RoundingMode, z_sign: bool, mut z_exp: i32, mut z_sig: u32) -> u32 {
+    let round_nearest_even = mode == RoundingMode::NearestEven;
+    let mut round_increment: u32 = 0x40;
+    if !round_nearest_even {
+        if mode == RoundingMode::Zero {
+            round_increment = 0;
+        } else {
+            round_increment = 0x7F;
+            if z_sign {
+                if mode == RoundingMode::Up {
+                    round_increment = 0;
+                }
+            } else if mode == RoundingMode::Down {
+                round_increment = 0;
+            }
+        }
+    }
+    let mut round_bits = z_sig & 0x7F;
+    if z_exp as u16 >= 0xFD {
+        if z_exp > 0xFD || (z_exp == 0xFD && (z_sig.wrapping_add(round_increment) as i32) < 0) {
+            // TODO(FPSR): float_raise(overflow | inexact).
+            return pack_float32(z_sign, 0xFF, 0).wrapping_sub(u32::from(round_increment == 0));
+        }
+        if z_exp < 0 {
+            z_sig = shift32_right_jamming(z_sig, -z_exp);
+            z_exp = 0;
+            round_bits = z_sig & 0x7F;
+            // TODO(FPSR): underflow.
+        }
+    }
+    // TODO(FPSR): inexact if round_bits.
+    z_sig = z_sig.wrapping_add(round_increment) >> 7;
+    z_sig &= !u32::from((round_bits ^ 0x40) == 0 && round_nearest_even);
+    if z_sig == 0 {
+        z_exp = 0;
+    }
+    pack_float32(z_sign, z_exp, z_sig)
+}
+
+/// `roundAndPackFloat64`: round a 64-bit significand (10 guard bits) to
+/// double precision under `mode`. Value-only.
+#[must_use]
+fn round_and_pack_float64(mode: RoundingMode, z_sign: bool, mut z_exp: i32, mut z_sig: u64) -> u64 {
+    let round_nearest_even = mode == RoundingMode::NearestEven;
+    let mut round_increment: u64 = 0x200;
+    if !round_nearest_even {
+        if mode == RoundingMode::Zero {
+            round_increment = 0;
+        } else {
+            round_increment = 0x3FF;
+            if z_sign {
+                if mode == RoundingMode::Up {
+                    round_increment = 0;
+                }
+            } else if mode == RoundingMode::Down {
+                round_increment = 0;
+            }
+        }
+    }
+    let mut round_bits = z_sig & 0x3FF;
+    if z_exp as u16 >= 0x7FD {
+        if z_exp > 0x7FD || (z_exp == 0x7FD && (z_sig.wrapping_add(round_increment) as i64) < 0) {
+            // TODO(FPSR): float_raise(overflow | inexact).
+            return pack_float64(z_sign, 0x7FF, 0).wrapping_sub(u64::from(round_increment == 0));
+        }
+        if z_exp < 0 {
+            z_sig = shift64_right_jamming(z_sig, -z_exp);
+            z_exp = 0;
+            round_bits = z_sig & 0x3FF;
+            // TODO(FPSR): underflow.
+        }
+    }
+    // TODO(FPSR): inexact if round_bits.
+    z_sig = z_sig.wrapping_add(round_increment) >> 10;
+    z_sig &= !u64::from((round_bits ^ 0x200) == 0 && round_nearest_even);
+    if z_sig == 0 {
+        z_exp = 0;
+    }
+    pack_float64(z_sign, z_exp, z_sig)
+}
+
+/// `floatx80_to_float32`: narrow an extended value to an IEEE single
+/// (raw 32-bit bit pattern), rounding per `mode`.
+#[must_use]
+pub fn floatx80_to_float32(mode: RoundingMode, a: FpReg) -> u32 {
+    let mut a_sig = frac(a);
+    let mut a_exp = exp(a);
+    let a_sign = sign(a);
+    if a_exp == 0x7FFF {
+        if a_sig.wrapping_shl(1) != 0 {
+            return floatx80_nan_to_float32(a);
+        }
+        return pack_float32(a_sign, 0xFF, 0);
+    }
+    a_sig = shift64_right_jamming(a_sig, 33);
+    if a_exp != 0 || a_sig != 0 {
+        a_exp -= 0x3F81;
+    }
+    round_and_pack_float32(mode, a_sign, a_exp, a_sig as u32)
+}
+
+/// `floatx80_to_float64`: narrow an extended value to an IEEE double
+/// (raw 64-bit bit pattern), rounding per `mode`.
+#[must_use]
+pub fn floatx80_to_float64(mode: RoundingMode, a: FpReg) -> u64 {
+    let a_sig = frac(a);
+    let mut a_exp = exp(a);
+    let a_sign = sign(a);
+    if a_exp == 0x7FFF {
+        if a_sig.wrapping_shl(1) != 0 {
+            return floatx80_nan_to_float64(a);
+        }
+        return pack_float64(a_sign, 0x7FF, 0);
+    }
+    let z_sig = shift64_right_jamming(a_sig, 1);
+    if a_exp != 0 || a_sig != 0 {
+        a_exp -= 0x3C01;
+    }
+    round_and_pack_float64(mode, a_sign, a_exp, z_sig)
+}
+
 // --- FMOVECR constant ROM (m68kfpu.c) ---
 
 /// IEEE-double bit pattern of `1e256`, the seed for the high powers of ten.
@@ -1670,5 +1842,56 @@ mod tests {
         // 0.5f + 0.5f = 1.0 — exercises the widened operand in the adder.
         let half = float32_to_floatx80(0x3F00_0000); // 0.5f
         assert_eq!(floatx80_add(P80, RN, half, half), fx(1));
+    }
+
+    // --- extended → IEEE single / double (narrowing for memory stores). ---
+
+    #[test]
+    fn to_float32_exact_values() {
+        assert_eq!(floatx80_to_float32(RN, fx(1)), 0x3F80_0000); // 1.0f
+        assert_eq!(floatx80_to_float32(RN, fx(-1)), 0xBF80_0000);
+        assert_eq!(floatx80_to_float32(RN, fx(2)), 0x4000_0000);
+        assert_eq!(floatx80_to_float32(RN, FpReg::new(0, 0)), 0x0000_0000);
+        assert_eq!(floatx80_to_float32(RN, FpReg::new(0x8000, 0)), 0x8000_0000);
+    }
+
+    #[test]
+    fn to_float32_infinity_and_nan() {
+        let inf = FpReg::new(0x7FFF, 0x8000_0000_0000_0000);
+        assert_eq!(floatx80_to_float32(RN, inf), 0x7F80_0000);
+        let nan = FpReg::new(0x7FFF, 0xC000_0000_0000_0000);
+        assert_eq!(floatx80_to_float32(RN, nan) & 0x7F80_0000, 0x7F80_0000);
+        assert_ne!(floatx80_to_float32(RN, nan) & 0x007F_FFFF, 0);
+    }
+
+    #[test]
+    fn to_float64_exact_values() {
+        assert_eq!(floatx80_to_float64(RN, fx(1)), 0x3FF0_0000_0000_0000);
+        assert_eq!(floatx80_to_float64(RN, fx(-2)), 0xC000_0000_0000_0000);
+        assert_eq!(floatx80_to_float64(RN, FpReg::new(0, 0)), 0);
+    }
+
+    #[test]
+    fn narrowing_round_trips_for_representable_values() {
+        // Values exactly representable in single/double widen-then-narrow
+        // back to the same bit pattern.
+        for bits in [0x3F80_0000_u32, 0xC080_0000, 0x4049_0FDB] {
+            assert_eq!(floatx80_to_float32(RN, float32_to_floatx80(bits)), bits);
+        }
+        for bits in [0x3FF0_0000_0000_0000_u64, 0x4009_21FB_5444_2D18] {
+            assert_eq!(floatx80_to_float64(RN, float64_to_floatx80(bits)), bits);
+        }
+    }
+
+    #[test]
+    fn to_float32_rounds_per_mode() {
+        // π in extended → single. Round-to-nearest vs toward-zero differ in
+        // the last bit (cross-checked against Musashi via the C harness).
+        let pi = FpReg::new(0x4000, 0xC90F_DAA2_2168_C235);
+        assert_eq!(
+            floatx80_to_float32(RoundingMode::NearestEven, pi),
+            0x4049_0FDB
+        );
+        assert_eq!(floatx80_to_float32(RoundingMode::Zero, pi), 0x4049_0FDA);
     }
 }
