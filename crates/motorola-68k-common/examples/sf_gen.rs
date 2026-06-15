@@ -114,6 +114,15 @@ fn main() {
                 let z = sf::float64_to_floatx80(al);
                 (z.high, z.low)
             }
+            // 11/12: single-precision-rounded mul/div — FSGLMUL / FSGLDIV.
+            11 => {
+                let z = sf::floatx80_mul(32, mode, a, b);
+                (z.high, z.low)
+            }
+            12 => {
+                let z = sf::floatx80_div(32, mode, a, b);
+                (z.high, z.low)
+            }
             _ => (0, 0),
         };
         let flags = sf::take_exception_flags();

@@ -3,13 +3,15 @@
  * where the C (value, flags) differ from the Rust columns. Exit nonzero on
  * any mismatch. op: 0=add 1=sub 2=mul 3=div 4=sqrt(a) 5=floatx80_to_int32
  * 6=floatx80_to_float32 7=floatx80_to_float64 8=int32_to_floatx80(a_low)
- * 9=float32_to_floatx80(a_low) 10=float64_to_floatx80(a_low). */
+ * 9=float32_to_floatx80(a_low) 10=float64_to_floatx80(a_low)
+ * 11=floatx80_mul@single (FSGLMUL) 12=floatx80_div@single (FSGLDIV). */
 #include "m68kcpu.h"
 #include <stdio.h>
 #include <stdlib.h>
 
 extern int8 float_rounding_mode;
 extern int8 float_exception_flags;
+extern int8 floatx80_rounding_precision;
 
 int main(void) {
     unsigned int ah, bh, mode, op;
@@ -35,6 +37,9 @@ int main(void) {
             case 8: { z = int32_to_floatx80((sint32)(unsigned int)al); c_hi = z.high; c_lo = z.low; break; }
             case 9: { z = float32_to_floatx80((float32)(unsigned int)al); c_hi = z.high; c_lo = z.low; break; }
             case 10:{ z = float64_to_floatx80((float64)al); c_hi = z.high; c_lo = z.low; break; }
+            /* 11/12: single-precision-rounded mul/div (FSGLMUL/FSGLDIV). */
+            case 11:{ floatx80_rounding_precision = 32; z = floatx80_mul(a, b); floatx80_rounding_precision = 80; c_hi = z.high; c_lo = z.low; break; }
+            case 12:{ floatx80_rounding_precision = 32; z = floatx80_div(a, b); floatx80_rounding_precision = 80; c_hi = z.high; c_lo = z.low; break; }
             default: break;
         }
         unsigned long long c_flags = (unsigned char)float_exception_flags;

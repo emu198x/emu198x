@@ -1463,3 +1463,45 @@ fn signaling_nan_operand_sets_snan_not_operr() {
     assert_eq!(exc(r.fpsr), 0x40, "EXC = SNAN");
     assert_eq!(aexc(r.fpsr), 0x80, "AEXC = IOP");
 }
+
+// --- FSGLMUL / FSGLDIV (#486, Phase 1) ---------------------------------
+//
+// Single-precision-rounded multiply/divide: like FMUL/FDIV but the result is
+// rounded to single precision (kept in extended format), so the low 40
+// mantissa bits are clear. Bit-exact vs softfloat.c at precision 32 (C-diff,
+// 200k vectors). Not corpus-validatable: Musashi's FSGLMUL/FSGLDIV are a
+// host-float round-trip hack, not the IEEE single-rounded result.
+
+#[test]
+fn fsglmul_rounds_result_to_single_precision() {
+    use motorola_68k_common::softfloat::{RoundingMode::NearestEven, floatx80_mul};
+    let pi = FpReg::new(0x4000, 0xC90F_DAA2_2168_C235);
+    let r = run(0x27, 0, 1, |cpu| {
+        cpu.regs.fp[0] = pi;
+        cpu.regs.fp[1] = ONE;
+    });
+    assert_eq!(
+        r.fp[1].low & 0x0000_00FF_FFFF_FFFF,
+        0,
+        "FSGLMUL result is representable in single precision"
+    );
+    // dst (1.0) * src (pi), rounded to single.
+    assert_eq!(r.fp[1], floatx80_mul(32, NearestEven, ONE, pi));
+}
+
+#[test]
+fn fsgldiv_rounds_result_to_single_precision() {
+    use motorola_68k_common::softfloat::{RoundingMode::NearestEven, floatx80_div};
+    let three = FpReg::new(0x4000, 0xC000_0000_0000_0000); // 3.0
+    let r = run(0x24, 0, 1, |cpu| {
+        cpu.regs.fp[0] = three;
+        cpu.regs.fp[1] = ONE;
+    });
+    assert_eq!(
+        r.fp[1].low & 0x0000_00FF_FFFF_FFFF,
+        0,
+        "FSGLDIV result is representable in single precision"
+    );
+    // dst (1.0) / src (3.0), rounded to single.
+    assert_eq!(r.fp[1], floatx80_div(32, NearestEven, ONE, three));
+}

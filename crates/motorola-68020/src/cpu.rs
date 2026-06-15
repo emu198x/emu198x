@@ -811,7 +811,19 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
     // their backends land.
     if !matches!(
         opmode,
-        0x00 | 0x18 | 0x1A | 0x3A | 0x22 | 0x28 | 0x23 | 0x20 | 0x04 | 0x38 | 0x01 | 0x03
+        0x00 | 0x18
+            | 0x1A
+            | 0x3A
+            | 0x22
+            | 0x28
+            | 0x23
+            | 0x20
+            | 0x04
+            | 0x38
+            | 0x01
+            | 0x03
+            | 0x24
+            | 0x27
     ) {
         return false;
     }
@@ -857,6 +869,10 @@ fn apply_fp_opmode(
         0x28 => cpu.regs.fp[dst] = softfloat::floatx80_sub(80, mode, cpu.regs.fp[dst], source),
         0x23 => cpu.regs.fp[dst] = softfloat::floatx80_mul(80, mode, cpu.regs.fp[dst], source),
         0x20 => cpu.regs.fp[dst] = softfloat::floatx80_div(80, mode, cpu.regs.fp[dst], source),
+        // FSGLMUL/FSGLDIV: like FMUL/FDIV but the result is rounded to single
+        // precision (kept in extended format).
+        0x27 => cpu.regs.fp[dst] = softfloat::floatx80_mul(32, mode, cpu.regs.fp[dst], source),
+        0x24 => cpu.regs.fp[dst] = softfloat::floatx80_div(32, mode, cpu.regs.fp[dst], source),
         // Unary ops on the source, written to dst.
         0x04 => cpu.regs.fp[dst] = softfloat::floatx80_sqrt(80, mode, source), // FSQRT
         0x01 => {
