@@ -174,6 +174,17 @@ fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: 
         musashi::set_reg(musashi::M68K_REG_CAAR, 0);
     }
 
+    // Musashi keeps FP register state across resets, so clear it for a
+    // deterministic baseline. FP instructions seed their own operands on
+    // top of this; integer instructions leave it zero (and the zero state
+    // is omitted from the fixture by `skip_serializing_if`).
+    for i in 0..8 {
+        musashi::set_fpr(i, 0, 0);
+    }
+    musashi::set_fpcr(0);
+    musashi::set_fpsr(0);
+    musashi::set_fpiar(0);
+
     // Capture initial state
     let initial = capture_state(cpu_type);
 
@@ -383,6 +394,11 @@ fn capture_state(cpu_type: u32) -> CpuState {
 
     let ram = memory::snapshot_tracked();
 
+    let mut fp = [(0u16, 0u64); 8];
+    for (i, slot) in fp.iter_mut().enumerate() {
+        *slot = musashi::get_fpr(i);
+    }
+
     CpuState {
         d,
         a,
@@ -401,6 +417,10 @@ fn capture_state(cpu_type: u32) -> CpuState {
         vbr,
         cacr,
         caar,
+        fp,
+        fpcr: musashi::get_fpcr(),
+        fpsr: musashi::get_fpsr(),
+        fpiar: musashi::get_fpiar(),
     }
 }
 
