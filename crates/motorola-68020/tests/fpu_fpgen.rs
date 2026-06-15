@@ -832,6 +832,84 @@ fn store_ext(format: u16, src: u16, kfactor: u16) -> u16 {
     0x6000 | (format << 10) | (src << 7) | kfactor
 }
 
+/// Run a store whose destination EA needs extension words (placed after
+/// the FP extension word). Returns the final memory + registers.
+fn run_store_ea(
+    opcode: u16,
+    w2: u16,
+    ea_words: &[u16],
+    seed: impl FnOnce(&mut Cpu68020),
+) -> (Out, Mem) {
+    let mut cpu = Cpu68020::new();
+    let mut mem = Mem::new();
+    mem.write_word(PC, opcode);
+    mem.write_word(PC + 2, w2);
+    for (i, &w) in ea_words.iter().enumerate() {
+        mem.write_word(PC + 4 + (i as u32) * 2, w);
+    }
+
+    cpu.set_fpu_present(true);
+    cpu.regs.sr |= 0x2000;
+    cpu.regs.ssp = 0x0000_8000;
+    cpu.regs.set_active_sp(0x0000_8000);
+    seed(&mut cpu);
+    cpu.regs.pc = PC + 4;
+    cpu.setup_prefetch(opcode, w2);
+
+    let start = cpu.instruction_starts;
+    for _ in 0..400 {
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.instruction_starts > start {
+            let out = Out {
+                fp: cpu.regs.fp,
+                fpsr: cpu.regs.fpsr,
+                a: cpu.regs.a,
+            };
+            return (out, mem);
+        }
+    }
+    panic!("FP store-EA did not complete");
+}
+
+#[test]
+fn fmove_store_long_to_d16_an() {
+    // FMOVE.L FP0,$0010(A0) — opcode $F228 (mode 5, A0). A0 = 0x1FF0,
+    // disp +0x0010 → EA 0x2000. FP0 = 5.
+    let (_r, mem) = run_store_ea(0xF228, store_ext(0, 0, 0), &[0x0010], |cpu| {
+        cpu.regs.set_a(0, 0x0000_1FF0);
+        cpu.regs.fp[0] = int_fx(5);
+    });
+    assert_eq!(read_bytes(&mem, 0x0000_2000, 4), [0x00, 0x00, 0x00, 0x05]);
+}
+
+#[test]
+fn fmove_store_double_to_abs_short() {
+    // FMOVE.D FP1,($2000).W — opcode $F238 (mode 7, reg 0). FP1 = 2.0.
+    let (_r, mem) = run_store_ea(0xF238, store_ext(5, 1, 0), &[0x2000], |cpu| {
+        cpu.regs.fp[1] = POS_TWO;
+    });
+    assert_eq!(
+        read_bytes(&mem, 0x0000_2000, 8),
+        [0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    );
+}
+
+#[test]
+fn fmove_store_extended_to_d16_an() {
+    // FMOVE.X FP0,$0000(A1) — a 12-byte store via a displacement EA.
+    let (_r, mem) = run_store_ea(0xF229, store_ext(2, 0, 0), &[0x0000], |cpu| {
+        cpu.regs.set_a(1, 0x0000_2000);
+        cpu.regs.fp[0] = POS_TWO;
+    });
+    assert_eq!(
+        read_bytes(&mem, 0x0000_2000, 12),
+        [
+            0x40, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        ]
+    );
+}
+
 #[test]
 fn fmove_store_long_to_memory() {
     // FMOVE.L FP0,(A0) with FP0 = 5.0 → big-endian 5 at (A0). Opcode

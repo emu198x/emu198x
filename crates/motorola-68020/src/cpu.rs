@@ -1076,8 +1076,17 @@ fn begin_fp_store(cpu: &mut Cpu68000, mode: motorola_68k_common::softfloat::Roun
         _ => return false, // Packed-decimal (3 / 7) not supported yet
     };
     let ea_mode = ((cpu.ir >> 3) & 7) as u8;
-    if !matches!(ea_mode, 2..=4) {
-        return false; // only (An) / (An)+ / -(An) for now
+    let ea_reg_bits = (cpu.ir & 7) as u8;
+    // Stores target alterable memory: the auto-increment modes plus the
+    // static modes (d16(An), indexed, abs). PC-relative and immediate are
+    // not valid store destinations.
+    let static_mode = match ea_mode {
+        5 | 6 => true,
+        7 => matches!(ea_reg_bits, 0 | 1),
+        _ => false,
+    };
+    if !matches!(ea_mode, 2..=4) && !static_mode {
+        return false;
     }
 
     // Committed: consume the FP extension word and narrow the source Fpn
@@ -1097,7 +1106,23 @@ fn begin_fp_store(cpu: &mut Cpu68000, mode: motorola_68k_common::softfloat::Roun
         _ => 0,
     };
 
-    let ea_reg = (cpu.ir & 7) as usize;
+    cpu.fp_mem_buf = buf;
+    cpu.fp_mem_bytes_total = bytes_total;
+
+    if static_mode {
+        // Resolve the destination address via the core EA machinery, then
+        // start the write at TAG_FETCH_SRC_DATA (fp_mem_store = true).
+        cpu.fp_mem_pending = true;
+        cpu.fp_mem_store = true;
+        cpu.size = motorola_68000::alu::Size::Long;
+        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg_bits);
+        cpu.in_followup = true;
+        cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+        cpu.micro_ops.push(MicroOp::Execute);
+        return true;
+    }
+
+    let ea_reg = ea_reg_bits as usize;
     let step = u32::from(bytes_total);
     let base = match ea_mode {
         2 => cpu.regs.a(ea_reg),
@@ -1112,19 +1137,22 @@ fn begin_fp_store(cpu: &mut Cpu68000, mode: motorola_68k_common::softfloat::Roun
             a
         }
     };
-
-    cpu.fp_mem_buf = buf;
-    cpu.fp_mem_bytes_total = bytes_total;
-    cpu.fp_mem_bytes_done = 0;
     cpu.addr = base;
     cpu.in_followup = true;
-    // Write the most-significant operand byte first.
-    let shift = 8 * u32::from(bytes_total - 1);
-    cpu.data = ((buf >> shift) & 0xFF) as u32;
+    start_fp_write(cpu);
+    true
+}
+
+/// Kick off the byte-at-a-time store. The operand (`fp_mem_buf`),
+/// `fp_mem_bytes_total`, and the base address (`addr`) must already be
+/// set; shared by the auto-increment and EA-resolved store paths.
+fn start_fp_write(cpu: &mut Cpu68000) {
+    cpu.fp_mem_bytes_done = 0;
+    let shift = 8 * u32::from(cpu.fp_mem_bytes_total - 1);
+    cpu.data = ((cpu.fp_mem_buf >> shift) & 0xFF) as u32;
     cpu.followup_tag = TAG_V_FP_MEM_WRITE;
     cpu.micro_ops.push(MicroOp::WriteByte);
     cpu.micro_ops.push(MicroOp::Execute);
-    true
 }
 
 /// `TAG_V_FP_MEM_WRITE`: a byte of the store operand has been written.
@@ -2001,11 +2029,16 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
         }
         // An FPU memory operand using a static addressing mode: the core's
         // EA machinery has resolved the address into `addr`. Take over and
-        // read the operand bytes ourselves (the core's data fetch only
-        // knows B/W/L, but we need 1/2/4/8/12).
+        // read/write the operand bytes ourselves (the core's data fetch
+        // only knows B/W/L, but we need 1/2/4/8/12).
         TAG_FETCH_SRC_DATA if cpu.fp_mem_pending => {
             cpu.fp_mem_pending = false;
-            start_fp_read(cpu);
+            if cpu.fp_mem_store {
+                cpu.fp_mem_store = false;
+                start_fp_write(cpu);
+            } else {
+                start_fp_read(cpu);
+            }
             true
         }
         // Memory-source MUL.L / DIV.L: the core's EA pipeline has

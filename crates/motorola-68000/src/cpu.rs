@@ -848,6 +848,11 @@ pub struct Cpu68000 {
     /// the resolved `addr` instead of running the core's data fetch.
     #[serde(skip)]
     pub fp_mem_pending: bool,
+    /// When an FPU memory operand is resolved via `calc_ea_start`, selects
+    /// the direction: `true` = store (write the operand from `fp_mem_buf`),
+    /// `false` = load (read into `fp_mem_buf`).
+    #[serde(skip)]
+    pub fp_mem_store: bool,
 
     /// Variant continuation hook: gives a wrapping variant a chance
     /// to dispatch follow-up tags that the 68000 doesn't know about.
@@ -977,6 +982,7 @@ impl Cpu68000 {
             fp_mem_opmode: 0,
             fp_mem_dst: 0,
             fp_mem_pending: false,
+            fp_mem_store: false,
             variant_continue_hook: None,
             variant_pending_disp: 0,
         }
