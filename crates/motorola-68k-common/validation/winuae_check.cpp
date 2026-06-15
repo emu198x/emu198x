@@ -8,15 +8,9 @@
  * float_exception_flags bit layout from our 2b-derived port, so flags are
  * validated against softfloat.c (run.sh) and by unit test, not here.
  *
- * Bit-exact against WinUAE today: 0=add 1=sub 2=mul 3=div 4=sqrt 20=getexp
- * 21=getman 22=scale.
- *
- * Diagnostic ops still diverging, pending follow-up work:
- *   11=sglmul 12=sgldiv — our FSGLMUL/FSGLDIV use mul/div@single, but the
- *     68881/2 uses dedicated floatx80_sglmul/sgldiv (round operands to single
- *     first); port those to close it.
- *   5=to_int32 9=float32_to 10=float64_to — conversion NaN/saturation paths
- *     still on the generic-Berkeley behaviour. */
+ * Bit-exact against WinUAE: 0=add 1=sub 2=mul 3=div 4=sqrt 5=to_int32 6=to_f32
+ * 7=to_f64 8=int32_to 9=float32_to 10=float64_to 11=sglmul 12=sgldiv 20=getexp
+ * 21=getman 22=scale. (FREM/FMOD + the transcendentals are the remaining ops.) */
 #include <cstdint>
 #include <cstdio>
 #include "softfloat/softfloat.h"

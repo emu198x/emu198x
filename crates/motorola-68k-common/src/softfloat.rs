@@ -498,6 +498,93 @@ pub fn round_and_pack_floatx80(
     pack(z_sign, z_exp, z_sig0)
 }
 
+/// `roundSigAndPackFloatx80` (SOFTFLOAT_68K): the rounding tail used by
+/// FSGLMUL/FSGLDIV. A simpler single/double-precision rounder than
+/// [`round_and_pack_floatx80`] — extended precision delegates straight back to
+/// it. The 68881/2 always detects tininess before rounding, so any result with
+/// exponent < 0 underflows.
+#[must_use]
+fn round_sig_and_pack_floatx80(
+    rounding_precision: i32,
+    rounding_mode: RoundingMode,
+    z_sign: bool,
+    mut z_exp: i32,
+    mut z_sig0: u64,
+    z_sig1: u64,
+) -> FpReg {
+    let round_nearest_even = rounding_mode == RoundingMode::NearestEven;
+    let (mut round_increment, mut round_mask) = if rounding_precision == 32 {
+        (0x0000_0080_0000_0000_u64, 0x0000_00FF_FFFF_FFFF_u64)
+    } else if rounding_precision == 64 {
+        (0x0000_0000_0000_0400_u64, 0x0000_0000_0000_07FF_u64)
+    } else {
+        return round_and_pack_floatx80(80, rounding_mode, z_sign, z_exp, z_sig0, z_sig1);
+    };
+    z_sig0 |= u64::from(z_sig1 != 0);
+    if !round_nearest_even {
+        if rounding_mode == RoundingMode::Zero {
+            round_increment = 0;
+        } else {
+            round_increment = round_mask;
+            if z_sign {
+                if rounding_mode == RoundingMode::Up {
+                    round_increment = 0;
+                }
+            } else if rounding_mode == RoundingMode::Down {
+                round_increment = 0;
+            }
+        }
+    }
+    let mut round_bits = z_sig0 & round_mask;
+    if (z_exp as u32) >= 0x7FFE {
+        if 0x7FFE < z_exp || (z_exp == 0x7FFE && z_sig0.wrapping_add(round_increment) < z_sig0) {
+            float_raise(flag::OVERFLOW);
+            if z_sig0 & round_mask != 0 {
+                float_raise(flag::INEXACT);
+            }
+            if rounding_mode == RoundingMode::Zero
+                || (z_sign && rounding_mode == RoundingMode::Up)
+                || (!z_sign && rounding_mode == RoundingMode::Down)
+            {
+                return pack(z_sign, 0x7FFE, 0xFFFF_FFFF_FFFF_FFFF);
+            }
+            return pack(z_sign, 0x7FFF, 0); // 68k infinity
+        }
+        if z_exp < 0 {
+            float_raise(flag::UNDERFLOW);
+            z_sig0 = shift64_right_jamming(z_sig0, -z_exp);
+            z_exp = 0;
+            round_bits = z_sig0 & round_mask;
+            if round_bits != 0 {
+                float_raise(flag::INEXACT);
+            }
+            z_sig0 = z_sig0.wrapping_add(round_increment);
+            if round_nearest_even && round_bits == round_increment {
+                round_mask |= round_increment << 1;
+            }
+            z_sig0 &= !round_mask;
+            return pack(z_sign, z_exp, z_sig0);
+        }
+    }
+    if round_bits != 0 {
+        float_raise(flag::INEXACT);
+    }
+    z_sig0 = z_sig0.wrapping_add(round_increment);
+    if z_sig0 < round_increment {
+        z_exp += 1;
+        z_sig0 = 0x8000_0000_0000_0000;
+    }
+    round_increment = round_mask + 1;
+    if round_nearest_even && round_bits << 1 == round_increment {
+        round_mask |= round_increment;
+    }
+    z_sig0 &= !round_mask;
+    if z_sig0 == 0 {
+        z_exp = 0;
+    }
+    pack(z_sign, z_exp, z_sig0)
+}
+
 /// `normalizeRoundAndPackFloatx80`: like [`round_and_pack_floatx80`] but the
 /// input significand need not be normalized.
 #[must_use]
@@ -868,9 +955,80 @@ pub fn floatx80_mul(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
     round_and_pack_floatx80(precision, mode, z_sign, z_exp, z_sig0, z_sig1)
 }
 
-/// `floatx80_div`: divide `a` by `b` at extended precision.
+/// `floatx80_sglmul` (FSGLMUL): multiply with both operands first truncated to
+/// single-precision significands and the product rounded to single precision
+/// (kept in extended format). Distinct from `floatx80_mul` at single precision,
+/// which does not pre-truncate the operands.
 #[must_use]
-pub fn floatx80_div(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> FpReg {
+pub fn floatx80_sglmul(mode: RoundingMode, a: FpReg, b: FpReg) -> FpReg {
+    let mut a_sig = frac(a);
+    let mut a_exp = exp(a);
+    let a_sign = sign(a);
+    let mut b_sig = frac(b);
+    let mut b_exp = exp(b);
+    let b_sign = sign(b);
+    let z_sign = a_sign ^ b_sign;
+
+    if a_exp == 0x7FFF {
+        if a_sig.wrapping_shl(1) != 0 || (b_exp == 0x7FFF && b_sig.wrapping_shl(1) != 0) {
+            return propagate_floatx80_nan(a, b);
+        }
+        if (b_exp as u64 | b_sig) == 0 {
+            float_raise(flag::INVALID); // inf × 0
+            return DEFAULT_NAN;
+        }
+        return pack(z_sign, 0x7FFF, a_sig);
+    }
+    if b_exp == 0x7FFF {
+        if b_sig.wrapping_shl(1) != 0 {
+            return propagate_floatx80_nan(a, b);
+        }
+        if (a_exp as u64 | a_sig) == 0 {
+            float_raise(flag::INVALID); // 0 × inf
+            return DEFAULT_NAN;
+        }
+        return pack(z_sign, 0x7FFF, b_sig);
+    }
+    if a_exp == 0 {
+        if a_sig == 0 {
+            return pack(z_sign, 0, 0);
+        }
+        let (e, s) = normalize_floatx80_subnormal(a_sig);
+        a_exp = e;
+        a_sig = s;
+    }
+    if b_exp == 0 {
+        if b_sig == 0 {
+            return pack(z_sign, 0, 0);
+        }
+        let (e, s) = normalize_floatx80_subnormal(b_sig);
+        b_exp = e;
+        b_sig = s;
+    }
+    // Truncate each operand's significand to single precision (24 bits).
+    a_sig &= 0xFFFF_FF00_0000_0000;
+    b_sig &= 0xFFFF_FF00_0000_0000;
+    let mut z_exp = a_exp + b_exp - 0x3FFE;
+    let (mut z_sig0, mut z_sig1) = mul64_to_128(a_sig, b_sig);
+    if (z_sig0 as i64) > 0 {
+        let (s0, s1) = short_shift128_left(z_sig0, z_sig1, 1);
+        z_sig0 = s0;
+        z_sig1 = s1;
+        z_exp -= 1;
+    }
+    round_sig_and_pack_floatx80(32, mode, z_sign, z_exp, z_sig0, z_sig1)
+}
+
+/// Outcome of the shared division core: either a finished special-case value,
+/// or the unrounded quotient significand to feed a precision-specific rounder.
+enum DivSigs {
+    Done(FpReg),
+    Round(bool, i32, u64, u64),
+}
+
+/// The division special-cases + significand estimate, shared by
+/// [`floatx80_div`] (extended rounding) and [`floatx80_sgldiv`] (single).
+fn floatx80_div_sigs(a: FpReg, b: FpReg) -> DivSigs {
     let mut a_sig = frac(a);
     let mut a_exp = exp(a);
     let a_sign = sign(a);
@@ -881,32 +1039,32 @@ pub fn floatx80_div(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
 
     if a_exp == 0x7FFF {
         if a_sig.wrapping_shl(1) != 0 {
-            return propagate_floatx80_nan(a, b);
+            return DivSigs::Done(propagate_floatx80_nan(a, b));
         }
         if b_exp == 0x7FFF {
             if b_sig.wrapping_shl(1) != 0 {
-                return propagate_floatx80_nan(a, b);
+                return DivSigs::Done(propagate_floatx80_nan(a, b));
             }
             float_raise(flag::INVALID); // inf / inf
-            return DEFAULT_NAN;
+            return DivSigs::Done(DEFAULT_NAN);
         }
         // 68881/2: inf_clear_intbit clear → keep a's significand.
-        return pack(z_sign, 0x7FFF, a_sig); // inf / finite
+        return DivSigs::Done(pack(z_sign, 0x7FFF, a_sig)); // inf / finite
     }
     if b_exp == 0x7FFF {
         if b_sig.wrapping_shl(1) != 0 {
-            return propagate_floatx80_nan(a, b);
+            return DivSigs::Done(propagate_floatx80_nan(a, b));
         }
-        return pack(z_sign, 0, 0); // finite / inf = 0
+        return DivSigs::Done(pack(z_sign, 0, 0)); // finite / inf = 0
     }
     if b_exp == 0 {
         if b_sig == 0 {
             if (a_exp as u64 | a_sig) == 0 {
                 float_raise(flag::INVALID); // 0 / 0
-                return DEFAULT_NAN;
+                return DivSigs::Done(DEFAULT_NAN);
             }
             float_raise(flag::DIVBYZERO);
-            return pack(z_sign, 0x7FFF, 0); // x / 0 = ∞ (68k: integer bit clear)
+            return DivSigs::Done(pack(z_sign, 0x7FFF, 0)); // x / 0 = ∞ (int bit clear)
         }
         let (e, s) = normalize_floatx80_subnormal(b_sig);
         b_exp = e;
@@ -914,7 +1072,7 @@ pub fn floatx80_div(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
     }
     if a_exp == 0 {
         if a_sig == 0 {
-            return pack(z_sign, 0, 0);
+            return DivSigs::Done(pack(z_sign, 0, 0));
         }
         let (e, s) = normalize_floatx80_subnormal(a_sig);
         a_exp = e;
@@ -950,7 +1108,27 @@ pub fn floatx80_div(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
         }
         z_sig1 |= u64::from((rem1 | rem2) != 0);
     }
-    round_and_pack_floatx80(precision, mode, z_sign, z_exp, z_sig0, z_sig1)
+    DivSigs::Round(z_sign, z_exp, z_sig0, z_sig1)
+}
+
+/// `floatx80_div`: divide `a` by `b` at extended precision.
+#[must_use]
+pub fn floatx80_div(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> FpReg {
+    match floatx80_div_sigs(a, b) {
+        DivSigs::Done(z) => z,
+        DivSigs::Round(s, e, s0, s1) => round_and_pack_floatx80(precision, mode, s, e, s0, s1),
+    }
+}
+
+/// `floatx80_sgldiv` (FSGLDIV): divide `a` by `b` with the quotient rounded to
+/// single precision (kept in extended format). The full extended division is
+/// performed; only the final rounding differs from [`floatx80_div`].
+#[must_use]
+pub fn floatx80_sgldiv(mode: RoundingMode, a: FpReg, b: FpReg) -> FpReg {
+    match floatx80_div_sigs(a, b) {
+        DivSigs::Done(z) => z,
+        DivSigs::Round(s, e, s0, s1) => round_sig_and_pack_floatx80(32, mode, s, e, s0, s1),
+    }
 }
 
 // --- Square root (softfloat.c) ---
@@ -1984,6 +2162,36 @@ mod tests {
         let back = floatx80_mul(P80, RN, third, fx(3));
         // 0.999… rounds back to exactly 1.0 under round-to-nearest.
         assert_eq!(back, fx(1));
+    }
+
+    // --- FSGLMUL / FSGLDIV (single-precision multiply / divide). ---
+
+    #[test]
+    fn sglmul_exact_small_values() {
+        // Small integers fit in single precision, so the truncation and
+        // single-precision rounding are no-ops: 2 × 3 = 6, sign rules hold.
+        assert_eq!(floatx80_sglmul(RN, fx(2), fx(3)), fx(6));
+        assert_eq!(floatx80_sglmul(RN, fx(-2), fx(3)), fx(-6));
+        assert_eq!(
+            floatx80_sglmul(RN, fx(5), FpReg::new(0, 0)),
+            FpReg::new(0, 0)
+        );
+    }
+
+    #[test]
+    fn sgldiv_exact_small_values() {
+        assert_eq!(floatx80_sgldiv(RN, fx(6), fx(2)), fx(3));
+        assert_eq!(floatx80_sgldiv(RN, fx(-6), fx(2)), fx(-3));
+    }
+
+    #[test]
+    fn sglmul_truncates_operands_to_single() {
+        // An operand with bits below single precision is truncated before the
+        // multiply, so FSGLMUL by 1.0 returns the single-rounded operand, not
+        // the full extended value.
+        let extra = FpReg::new(0x3FFF, 0x8000_0000_0000_00FF); // 1.0 + tiny tail
+        let single = floatx80_sglmul(RN, extra, fx(1));
+        assert_eq!(single, fx(1), "low bits below single precision are dropped");
     }
 
     // --- Square root (perfect squares stay exact; special cases match). ---

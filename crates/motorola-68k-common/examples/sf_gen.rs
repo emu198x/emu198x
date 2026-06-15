@@ -114,13 +114,13 @@ fn main() {
                 let z = sf::float64_to_floatx80(al);
                 (z.high, z.low)
             }
-            // 11/12: single-precision-rounded mul/div — FSGLMUL / FSGLDIV.
+            // 11/12: FSGLMUL / FSGLDIV — dedicated single-precision paths.
             11 => {
-                let z = sf::floatx80_mul(32, mode, a, b);
+                let z = sf::floatx80_sglmul(mode, a, b);
                 (z.high, z.low)
             }
             12 => {
-                let z = sf::floatx80_div(32, mode, a, b);
+                let z = sf::floatx80_sgldiv(mode, a, b);
                 (z.high, z.low)
             }
             // 20/21/22: FGETEXP / FGETMAN / FSCALE — WinUAE softfloat oracle.

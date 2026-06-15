@@ -872,10 +872,11 @@ fn apply_fp_opmode(
         0x28 => cpu.regs.fp[dst] = softfloat::floatx80_sub(80, mode, cpu.regs.fp[dst], source),
         0x23 => cpu.regs.fp[dst] = softfloat::floatx80_mul(80, mode, cpu.regs.fp[dst], source),
         0x20 => cpu.regs.fp[dst] = softfloat::floatx80_div(80, mode, cpu.regs.fp[dst], source),
-        // FSGLMUL/FSGLDIV: like FMUL/FDIV but the result is rounded to single
-        // precision (kept in extended format).
-        0x27 => cpu.regs.fp[dst] = softfloat::floatx80_mul(32, mode, cpu.regs.fp[dst], source),
-        0x24 => cpu.regs.fp[dst] = softfloat::floatx80_div(32, mode, cpu.regs.fp[dst], source),
+        // FSGLMUL/FSGLDIV: single-precision multiply/divide. FSGLMUL also
+        // truncates its operands to single precision first (dedicated paths,
+        // not FMUL/FDIV at single rounding).
+        0x27 => cpu.regs.fp[dst] = softfloat::floatx80_sglmul(mode, cpu.regs.fp[dst], source),
+        0x24 => cpu.regs.fp[dst] = softfloat::floatx80_sgldiv(mode, cpu.regs.fp[dst], source),
         // Unary ops on the source, written to dst.
         0x04 => cpu.regs.fp[dst] = softfloat::floatx80_sqrt(80, mode, source), // FSQRT
         0x1E => cpu.regs.fp[dst] = softfloat::floatx80_getexp(source),         // FGETEXP
