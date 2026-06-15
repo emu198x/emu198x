@@ -198,7 +198,10 @@ fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: 
         // Condition instructions read the FPSR condition-code byte (bits
         // 27-24: N/Z/I/NAN); seed a random nibble so every predicate branch
         // is exercised regardless of which value classes were seeded.
-        if matches!(def.setup, InstructionSetup::FpScc) {
+        if matches!(
+            def.setup,
+            InstructionSetup::FpScc | InstructionSetup::FpBcc { .. }
+        ) {
             musashi::set_fpsr(rng.random_range(0..16u32) << 24);
         }
 
@@ -485,6 +488,27 @@ fn encode_instruction(
             // Musashi oracle fatalerrors on them rather than masking bit 5.
             let cond: u16 = rng.random_range(0..0x20);
             memory::poke_word(pc.wrapping_add(2), cond);
+            None
+        }
+        InstructionSetup::FpBcc { long } => {
+            // The FP predicate lives in the opcode's low 6 bits (0x00-0x1F,
+            // as for FScc). Re-poke the opcode with it OR-ed in, then the
+            // displacement to an in-range, even target so neither the taken
+            // prefetch nor the 24-bit address wrap diverges from the oracle.
+            let cond: u16 = rng.random_range(0..0x20);
+            memory::poke_word(pc, def.opcode | cond);
+            if long {
+                let target = rng.random_range(0x0000_0100u32..0x00FF_0000) & !1;
+                let disp = target.wrapping_sub(pc.wrapping_add(2));
+                memory::poke_word(pc.wrapping_add(2), (disp >> 16) as u16);
+                memory::poke_word(pc.wrapping_add(4), disp as u16);
+            } else {
+                // 16-bit displacement: keep the target near the instruction
+                // and positive (no high-byte wrap).
+                let target = rng.random_range(0x0000_0100u32..0x0000_8000) & !1;
+                let disp = target.wrapping_sub(pc.wrapping_add(2)) as u16;
+                memory::poke_word(pc.wrapping_add(2), disp);
+            }
             None
         }
         InstructionSetup::FpGenImm { opmode, format } => {

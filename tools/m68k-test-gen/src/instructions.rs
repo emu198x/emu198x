@@ -95,6 +95,11 @@ pub enum InstructionSetup {
     /// the predicate; the generator randomises both predicate and the FPSR
     /// condition codes to exercise every branch of `fpu::test_condition`.
     FpScc,
+    /// 68881/2 FBcc — FP conditional branch. `long` selects the 32-bit
+    /// displacement form (op-class 3, $F2C0) over the 16-bit one (op-class
+    /// 2, $F280). The predicate is in the opcode's low 6 bits; the generator
+    /// randomises predicate, FPSR codes and an in-range even branch target.
+    FpBcc { long: bool },
 }
 
 impl InstructionDef {
@@ -111,6 +116,7 @@ impl InstructionDef {
                 | InstructionSetup::FpGenImm { .. }
                 | InstructionSetup::FpStoreMemMode { .. }
                 | InstructionSetup::FpScc
+                | InstructionSetup::FpBcc { .. }
         )
     }
 }
@@ -1103,6 +1109,24 @@ pub fn fp_catalogue(_cpu_type: u32) -> Vec<InstructionDef> {
         opcode: 0xF240, // op-class 1 (bits 8-6 = 001), EA mode 0 reg 0 → D0
         ext_words: 1,
         setup: InstructionSetup::FpScc,
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    });
+
+    // FBcc.W / FBcc.L — FP conditional branch: predicate gather + branch
+    // displacement + target. The opcode condition is filled in by the
+    // generator; ext_words is the displacement length (1 word / 2 words).
+    defs.push(InstructionDef {
+        name: "FBcc.W",
+        opcode: 0xF280, // op-class 2; condition OR-ed in by the generator
+        ext_words: 1,
+        setup: InstructionSetup::FpBcc { long: false },
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    });
+    defs.push(InstructionDef {
+        name: "FBcc.L",
+        opcode: 0xF2C0, // op-class 3
+        ext_words: 2,
+        setup: InstructionSetup::FpBcc { long: true },
         min_cpu: musashi::M68K_CPU_TYPE_68020,
     });
 
