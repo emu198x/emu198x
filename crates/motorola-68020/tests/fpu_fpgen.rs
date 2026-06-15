@@ -250,6 +250,37 @@ fn fseq_follows_fpsr_z() {
 }
 
 #[test]
+fn fscc_true_to_memory() {
+    // FST (A0) → byte $FF at (A0). Opcode $F250 (op-class 1, mode 2).
+    let (_r, mem) = run_store(0xF250, 0x000F, |cpu| cpu.regs.set_a(0, DATA));
+    assert_eq!(read_bytes(&mem, DATA, 1), [0xFF]);
+}
+
+#[test]
+fn fscc_false_to_memory() {
+    // FSF (A0) → byte $00.
+    let (_r, mem) = run_store(0xF250, 0x0000, |cpu| cpu.regs.set_a(0, DATA));
+    assert_eq!(read_bytes(&mem, DATA, 1), [0x00]);
+}
+
+#[test]
+fn fscc_to_memory_postincrement() {
+    // FST (A0)+ ($F258) → $FF, A0 advances by 1.
+    let (r, mem) = run_store(0xF258, 0x000F, |cpu| cpu.regs.set_a(0, DATA));
+    assert_eq!(read_bytes(&mem, DATA, 1), [0xFF]);
+    assert_eq!(r.a[0], DATA + 1, "(A0)+ steps by 1 for a byte store");
+}
+
+#[test]
+fn fscc_to_d16_an() {
+    // FST $0010(A0) ($F268) → $FF at A0 + 0x10. A0 = 0x1FF0 → 0x2000.
+    let (_r, mem) = run_store_ea(0xF268, 0x000F, &[0x0010], |cpu| {
+        cpu.regs.set_a(0, 0x0000_1FF0);
+    });
+    assert_eq!(read_bytes(&mem, 0x0000_2000, 1), [0xFF]);
+}
+
+#[test]
 fn fmove_dn_to_fpsr_and_fpiar() {
     let r = run_ctrl(0xF201, ctrl_ext(0, 2), |cpu| cpu.regs.d[1] = 0x0F00_0000);
     assert_eq!(r.fpsr, 0x0F00_0000, "D1 → FPSR");

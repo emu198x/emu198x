@@ -1262,25 +1262,68 @@ fn handle_fbcc_l(cpu: &mut Cpu68000) {
 
 /// FScc (cpID-1 op-class 1): set a byte integer to all-ones if the FP
 /// condition holds, else all-zeros. The condition is the low 6 bits of
-/// the extension word. Only the register-direct form (`FScc Dn`, EA mode
-/// 0) is wired — the most common case and the only one beyond `d16(An)`
-/// that Musashi's `fscc` implements. The same op-class also encodes
-/// FDBcc (EA mode 1) and FTRAPcc (EA mode 7, regs 2-4); those and the
-/// memory forms decline (vector-11 trap) for now.
+/// the extension word. The destination is a byte-alterable EA: `Dn`
+/// (mode 0), `(An)`/`(An)+`/`-(An)`, `d16(An)`/indexed, or absolute —
+/// the memory forms reuse the store byte-pipeline. The same op-class
+/// encodes FDBcc (EA mode 1) and FTRAPcc (EA mode 7, regs 2-4); those and
+/// the non-alterable EAs decline (vector-11 trap).
 fn execute_fscc(cpu: &mut Cpu68000, opcode: u16) -> bool {
-    let ea_mode = (opcode >> 3) & 7;
-    if ea_mode != 0 {
-        return false;
+    let ea_mode = ((opcode >> 3) & 7) as u8;
+    let ea_reg = (opcode & 7) as u8;
+    let static_mode = match ea_mode {
+        5 | 6 => true,
+        7 => matches!(ea_reg, 0 | 1),
+        _ => false,
+    };
+    let memory = matches!(ea_mode, 2..=4) || static_mode;
+    if ea_mode != 0 && !memory {
+        return false; // Dn or a byte-alterable memory EA only
     }
+
     let condition = (cpu.irc & 0x3F) as u8;
     let _ = cpu.consume_irc();
-    let reg = (opcode & 7) as usize;
     let byte = if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
-        0xFF
+        0xFF_u32
     } else {
         0x00
     };
-    cpu.regs.d[reg] = (cpu.regs.d[reg] & 0xFFFF_FF00) | byte;
+
+    if ea_mode == 0 {
+        let reg = ea_reg as usize;
+        cpu.regs.d[reg] = (cpu.regs.d[reg] & 0xFFFF_FF00) | byte;
+        return true;
+    }
+
+    // Memory destination: a single-byte store of the condition byte,
+    // reusing the FP store pipeline (fp_mem_buf / start_fp_write).
+    cpu.fp_mem_buf = u128::from(byte);
+    cpu.fp_mem_bytes_total = 1;
+    cpu.in_followup = true;
+    if static_mode {
+        cpu.fp_mem_pending = true;
+        cpu.fp_mem_store = true;
+        cpu.size = motorola_68000::alu::Size::Byte;
+        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+        cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+        cpu.micro_ops.push(MicroOp::Execute);
+        return true;
+    }
+    let reg = ea_reg as usize;
+    let base = match ea_mode {
+        2 => cpu.regs.a(reg),
+        3 => {
+            let a = cpu.regs.a(reg);
+            cpu.regs.set_a(reg, a.wrapping_add(1));
+            a
+        }
+        _ => {
+            let a = cpu.regs.a(reg).wrapping_sub(1);
+            cpu.regs.set_a(reg, a);
+            a
+        }
+    };
+    cpu.addr = base;
+    start_fp_write(cpu);
     true
 }
 
