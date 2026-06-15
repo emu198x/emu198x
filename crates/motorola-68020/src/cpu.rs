@@ -823,6 +823,7 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
         let src = ((w2 >> 10) & 7) as usize;
         let dst = ((w2 >> 7) & 7) as usize;
         let source = cpu.regs.fp[src];
+        softfloat::clear_exception_flags();
         apply_fp_opmode(cpu, opmode, source, dst, mode);
         return true;
     }
@@ -903,6 +904,7 @@ fn apply_fp_opmode(
                 let res = softfloat::floatx80_sub(80, mode, dst_v, source);
                 motorola_68k_common::fpu::set_condition_codes(&mut cpu.regs, res);
             }
+            motorola_68k_common::fpu::apply_exceptions(&mut cpu.regs);
             return;
         }
         _ => return, // opmode filtered by the caller
@@ -916,6 +918,10 @@ fn apply_fp_opmode(
         cpu.regs.fp[dst]
     };
     motorola_68k_common::fpu::set_condition_codes(&mut cpu.regs, cc_value);
+    // Fold the IEEE exceptions this operation raised (including any operand
+    // format conversion done before this call) into the FPSR. The caller
+    // cleared the accumulator before the operation.
+    motorola_68k_common::fpu::apply_exceptions(&mut cpu.regs);
 }
 
 /// Begin an FPU memory-source operand fetch (cpGEN R/M = 1). The FP
@@ -1091,6 +1097,10 @@ fn handle_fp_mem_exec(cpu: &mut Cpu68000) {
         return;
     }
 
+    // Clear the IEEE exception accumulator before the operand conversion so
+    // a signalling-NaN widen (SNAN) is captured alongside the opmode's flags;
+    // apply_fp_opmode folds them into the FPSR at the end.
+    softfloat::clear_exception_flags();
     let buf = cpu.fp_mem_buf;
     let source = match cpu.fp_mem_format {
         0 => softfloat::int32_to_floatx80(buf as u32 as i32), // Long
@@ -1151,6 +1161,10 @@ fn begin_fp_store(cpu: &mut Cpu68000, mode: motorola_68k_common::softfloat::Roun
     let _ = cpu.consume_irc();
     let src = ((w2 >> 7) & 7) as usize;
     let v = cpu.regs.fp[src];
+    // Narrowing a register to the store format raises IEEE exceptions
+    // (overflow/underflow/inexact, or invalid on an out-of-range integer or
+    // a signalling NaN). Extended store is exact. Fold them into the FPSR.
+    softfloat::clear_exception_flags();
     let buf: u128 = match format {
         0 => u128::from(softfloat::floatx80_to_int32(mode, v) as u32),
         1 => u128::from(softfloat::floatx80_to_float32(mode, v)),
@@ -1162,6 +1176,7 @@ fn begin_fp_store(cpu: &mut Cpu68000, mode: motorola_68k_common::softfloat::Roun
         6 => u128::from(softfloat::floatx80_to_int32(mode, v) as u8),
         _ => 0,
     };
+    motorola_68k_common::fpu::apply_exceptions(&mut cpu.regs);
 
     cpu.fp_mem_buf = buf;
     cpu.fp_mem_bytes_total = bytes_total;

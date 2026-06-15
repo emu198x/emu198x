@@ -90,30 +90,52 @@ pub mod flag {
 
 thread_local! {
     static EXCEPTION_FLAGS: core::cell::Cell<u8> = const { core::cell::Cell::new(0) };
+    // True when a signalling NaN was an *input* to the operation. SoftFloat
+    // collapses signalling-NaN and operational invalids into the one
+    // `invalid` flag; the 68881/2 splits them into SNAN vs OPERR, so we track
+    // the signalling-input cause separately. It is NOT part of the
+    // softfloat-compatible flag byte, so the C-diff oracle is unaffected.
+    static SIGNALING_INPUT: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
 }
 
-/// Clear the accumulated exception flags. Call before an operation whose
+/// Clear the accumulated exception state. Call before an operation whose
 /// flags you intend to read.
 pub fn clear_exception_flags() {
     EXCEPTION_FLAGS.with(|f| f.set(0));
+    SIGNALING_INPUT.with(|f| f.set(false));
 }
 
-/// Read the accumulated exception flags and clear them (`float_exception_flags`
-/// snapshot + reset).
+/// Read the accumulated exception flags without clearing them
+/// (`float_exception_flags` snapshot).
 #[must_use]
 pub fn exception_flags() -> u8 {
     EXCEPTION_FLAGS.with(core::cell::Cell::get)
 }
 
-/// Read and clear the accumulated exception flags in one step.
+/// Read and clear the accumulated exception flags in one step. (Does not
+/// touch the signalling-input marker; the next `clear` resets it.)
 #[must_use]
 pub fn take_exception_flags() -> u8 {
     EXCEPTION_FLAGS.with(|f| f.replace(0))
 }
 
+/// Whether a signalling NaN was an input to the operation since the last
+/// `clear_exception_flags`. Distinguishes the 68881/2 SNAN cause from OPERR.
+#[must_use]
+pub fn signaling_nan_input() -> bool {
+    SIGNALING_INPUT.with(core::cell::Cell::get)
+}
+
 /// Accumulate exception flags (`float_raise`). Internal to the port.
 fn float_raise(flags: u8) {
     EXCEPTION_FLAGS.with(|f| f.set(f.get() | flags));
+}
+
+/// Raise `invalid` for a signalling-NaN *input*, also recording the
+/// signalling-NaN cause so the FPU layer can set SNAN rather than OPERR.
+fn raise_signaling_nan() {
+    float_raise(flag::INVALID);
+    SIGNALING_INPUT.with(|f| f.set(true));
 }
 
 /// Pack a sign, 15-bit exponent, and 64-bit significand into a
@@ -289,7 +311,7 @@ fn propagate_floatx80_nan(mut a: FpReg, mut b: FpReg) -> FpReg {
     a.low |= 0xC000_0000_0000_0000;
     b.low |= 0xC000_0000_0000_0000;
     if a_is_signaling || b_is_signaling {
-        float_raise(flag::INVALID);
+        raise_signaling_nan();
     }
     if a_is_nan {
         if a_is_signaling && b_is_nan { b } else { a }
@@ -1184,7 +1206,7 @@ pub fn float32_to_floatx80(a: u32) -> FpReg {
     if a_exp == 0xFF {
         if a_sig != 0 {
             if float32_is_signaling_nan(a) {
-                float_raise(flag::INVALID);
+                raise_signaling_nan();
             }
             return common_nan_to_floatx80(a_sign, u64::from(a) << 41);
         }
@@ -1219,7 +1241,7 @@ pub fn float64_to_floatx80(a: u64) -> FpReg {
     if a_exp == 0x7FF {
         if a_sig != 0 {
             if float64_is_signaling_nan(a) {
-                float_raise(flag::INVALID);
+                raise_signaling_nan();
             }
             return common_nan_to_floatx80(a_sign, a << 12);
         }
@@ -1276,7 +1298,7 @@ fn pack_float64(z_sign: bool, z_exp: i32, z_sig: u64) -> u64 {
 #[must_use]
 fn floatx80_nan_to_float32(a: FpReg) -> u32 {
     if is_signaling_nan(a) {
-        float_raise(flag::INVALID);
+        raise_signaling_nan();
     }
     let sign = u32::from((a.high >> 15) & 1);
     let common_high = a.low << 1;
@@ -1287,7 +1309,7 @@ fn floatx80_nan_to_float32(a: FpReg) -> u32 {
 #[must_use]
 fn floatx80_nan_to_float64(a: FpReg) -> u64 {
     if is_signaling_nan(a) {
-        float_raise(flag::INVALID);
+        raise_signaling_nan();
     }
     let sign = u64::from((a.high >> 15) & 1);
     let common_high = a.low << 1;

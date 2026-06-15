@@ -1390,3 +1390,76 @@ fn fmovem_empty_list_is_noop() {
     let (r, _mem) = run_store(0xF220, 0xE000, |cpu| cpu.regs.set_a(0, 0x0000_2000));
     assert_eq!(r.a[0], 0x0000_2000, "empty list → A0 unchanged");
 }
+
+// --- FPSR exception bytes (#112, step 5c) ------------------------------
+//
+// The arithmetic raises IEEE exceptions through the SoftFloat port (its flag
+// computation is validated bit-for-bit against softfloat.c by the common
+// crate's C-diff). These check the flag → FPSR EXC/AEXC mapping + the core
+// wiring end-to-end, which the Musashi corpus cannot (Musashi never sets the
+// FPSR exception bytes). EXC byte = (fpsr >> 8) & 0xFF, AEXC = fpsr & 0xFF.
+
+fn exc(fpsr: u32) -> u8 {
+    ((fpsr >> 8) & 0xFF) as u8
+}
+fn aexc(fpsr: u32) -> u8 {
+    (fpsr & 0xFF) as u8
+}
+
+const ONE: FpReg = FpReg::new(0x3FFF, 0x8000_0000_0000_0000);
+const HUGE: FpReg = FpReg::new(0x7FFE, 0xFFFF_FFFF_FFFF_FFFF);
+
+#[test]
+fn exact_add_sets_no_exceptions() {
+    let r = run(0x22, 0, 1, |cpu| {
+        cpu.regs.fp[0] = ONE;
+        cpu.regs.fp[1] = ONE;
+    });
+    assert_eq!(exc(r.fpsr), 0, "1+1 raises no exceptions");
+    assert_eq!(aexc(r.fpsr), 0);
+}
+
+#[test]
+fn overflow_sets_ovfl_and_inex2() {
+    // HUGE + HUGE overflows: EXC OVFL(0x10) | INEX2(0x02); AEXC OVFL(0x40) |
+    // INEX(0x08).
+    let r = run(0x22, 0, 1, |cpu| {
+        cpu.regs.fp[0] = HUGE;
+        cpu.regs.fp[1] = HUGE;
+    });
+    assert_eq!(exc(r.fpsr), 0x12, "EXC = OVFL | INEX2");
+    assert_eq!(aexc(r.fpsr), 0x48, "AEXC = OVFL | INEX");
+}
+
+#[test]
+fn divide_by_zero_sets_dz() {
+    // dst / src = 1 / 0 (FDIV computes dst op source).
+    let r = run(0x20, 0, 1, |cpu| {
+        cpu.regs.fp[0] = FpReg::new(0, 0); // source = 0
+        cpu.regs.fp[1] = ONE; // dst = 1
+    });
+    assert_eq!(exc(r.fpsr), 0x04, "EXC = DZ");
+    assert_eq!(aexc(r.fpsr), 0x10, "AEXC = DZ");
+}
+
+#[test]
+fn sqrt_of_negative_sets_operr_not_snan() {
+    // sqrt(-1): an operational invalid → OPERR(0x20), not SNAN.
+    let r = run(0x04, 0, 1, |cpu| {
+        cpu.regs.fp[0] = FpReg::new(0xBFFF, 0x8000_0000_0000_0000); // -1.0
+    });
+    assert_eq!(exc(r.fpsr), 0x20, "EXC = OPERR");
+    assert_eq!(aexc(r.fpsr), 0x80, "AEXC = IOP");
+}
+
+#[test]
+fn signaling_nan_operand_sets_snan_not_operr() {
+    // A signalling-NaN input → SNAN(0x40), distinct from OPERR.
+    let snan = FpReg::new(0x7FFF, 0x8000_0000_0000_0001); // integer bit set, quiet bit clear
+    let r = run(0x22, 0, 1, |cpu| {
+        cpu.regs.fp[0] = snan;
+        cpu.regs.fp[1] = ONE;
+    });
+    assert_eq!(exc(r.fpsr), 0x40, "EXC = SNAN");
+    assert_eq!(aexc(r.fpsr), 0x80, "AEXC = IOP");
+}

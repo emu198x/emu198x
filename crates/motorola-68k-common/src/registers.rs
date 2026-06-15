@@ -225,6 +225,40 @@ impl Registers {
             | if nan { 0x0100_0000 } else { 0 };
     }
 
+    /// Apply an operation's exception-status byte to the FPSR. The EXC byte
+    /// (bits 15-8: BSUN/SNAN/OPERR/OVFL/UNFL/DZ/INEX2/INEX1) reflects the
+    /// most recent operation and is *replaced*; the derived accrued-exception
+    /// byte (bits 7-0) *accumulates* (sticky), per the M68881 UM.
+    pub fn set_fpsr_exceptions(&mut self, exc: u8) {
+        self.fpsr = (self.fpsr & !0x0000_FF00) | (u32::from(exc) << 8);
+        self.fpsr |= u32::from(Self::aexc_from_exc(exc));
+    }
+
+    /// Derive the accrued-exception byte (AEXC, FPSR bits 7-0) from an
+    /// exception-status byte, per M68881 UM Table 6-3. EXC byte bit
+    /// positions: BSUN=7 SNAN=6 OPERR=5 OVFL=4 UNFL=3 DZ=2 INEX2=1 INEX1=0.
+    #[must_use]
+    const fn aexc_from_exc(exc: u8) -> u8 {
+        let bsun = exc & 0x80 != 0;
+        let snan = exc & 0x40 != 0;
+        let operr = exc & 0x20 != 0;
+        let ovfl = exc & 0x10 != 0;
+        let unfl = exc & 0x08 != 0;
+        let dz = exc & 0x04 != 0;
+        let inex2 = exc & 0x02 != 0;
+        let inex1 = exc & 0x01 != 0;
+        let iop = bsun || snan || operr; // AEXC IOP   (bit 7)
+        let a_ovfl = ovfl; //                  OVFL  (bit 6)
+        let a_unfl = unfl && inex2; //          UNFL  (bit 5)
+        let a_dz = dz; //                       DZ    (bit 4)
+        let a_inex = inex1 || inex2 || ovfl; // INEX  (bit 3)
+        ((iop as u8) << 7)
+            | ((a_ovfl as u8) << 6)
+            | ((a_unfl as u8) << 5)
+            | ((a_dz as u8) << 4)
+            | ((a_inex as u8) << 3)
+    }
+
     /// Get address register by index (0-7).
     /// A7 returns the active stack pointer based on supervisor mode.
     #[must_use]
