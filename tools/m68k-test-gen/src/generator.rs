@@ -392,6 +392,17 @@ fn encode_instruction(
             memory::poke_word(pc.wrapping_add(2), ext);
             None
         }
+        InstructionSetup::FpMoveCr => {
+            // cpGEN ext word: R/M=1 (bit 14) | src-spec 7 (bits 12-10) |
+            // dst(3) | ROM offset(7). The low 7 bits are the ROM offset, not
+            // an opmode. Cover the documented constant bands (0x00-0x0E pi/
+            // logs/e, 0x30-0x3F powers of ten) and the zero-filled gaps.
+            let dst: u16 = rng.random_range(0..8);
+            let offset: u16 = rng.random_range(0..0x40);
+            let ext = 0x4000 | (7 << 10) | (dst << 7) | offset;
+            memory::poke_word(pc.wrapping_add(2), ext);
+            None
+        }
         InstructionSetup::Movem { size } => {
             // Register mask at pc+2
             let mask: u16 = rng.random();

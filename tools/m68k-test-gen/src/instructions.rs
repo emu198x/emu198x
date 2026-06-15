@@ -70,6 +70,11 @@ pub enum InstructionSetup {
     /// generator points A0 at an even data address; the store writes the
     /// `format`-narrowed FPn there. Validates floatx80 → float32/64/int.
     FpStoreMem { format: u8 },
+    /// 68881/2 FMOVECR (load on-chip ROM constant into FPn). cpGEN with
+    /// R/M=1 (bit 14) and source-specifier 7 (bits 12-10); ext word
+    /// `0 | R/M=1 | 0 | 111 | dst(3) | offset(7)`. The generator picks a
+    /// random ROM offset and dst.
+    FpMoveCr,
 }
 
 impl InstructionDef {
@@ -81,6 +86,7 @@ impl InstructionDef {
             InstructionSetup::FpGenReg { .. }
                 | InstructionSetup::FpGenMem { .. }
                 | InstructionSetup::FpStoreMem { .. }
+                | InstructionSetup::FpMoveCr
         )
     }
 }
@@ -978,6 +984,15 @@ pub fn fp_catalogue(_cpu_type: u32) -> Vec<InstructionDef> {
     ] {
         defs.push(fpstore_mem(name, format));
     }
+
+    // FMOVECR — load a constant from the on-chip ROM (random offset/dst).
+    defs.push(InstructionDef {
+        name: "FMOVECR",
+        opcode: 0xF200, // cpGEN, no EA (source is the ROM)
+        ext_words: 1,
+        setup: InstructionSetup::FpMoveCr,
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    });
 
     defs
 }
