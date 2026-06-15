@@ -16,6 +16,41 @@ strongest oracle available for each piece.
 This plan resolves the one question that decides how far "full" can go:
 **what does bit-exact mean for the transcendentals?** (Section 2.)
 
+## Decisions (resolved 2026-06-15)
+
+Research into the vendored emulators settled the open decisions:
+
+- **D1 — Transcendental reference → Andreas Grabher's softfloat FPSP**, as
+  shipped in **WinUAE** (`emulators/amiga/WinUAE/softfloat/softfloat_fpsp.cpp`,
+  also used by the Previous NeXT emulator). It implements all 19
+  transcendentals + packed-decimal (`softfloat_decimal.cpp`) + the FSxxx
+  precision handling, is built on SoftFloat 2a (the same family as our 2b
+  port, on the exact `floatx80` primitives we already have), and was
+  **validated against real 68881/68882/68040/68060 silicon** by Toni Wilen
+  and Andreas Grabher. So "bit-exact" for transcendentals means
+  **WinUAE/Previous-equivalence**, which *is* the hardware-validated gold
+  standard. We do **not** port raw Motorola 68k FPSP assembly.
+- **D2 — Licensing → settled.** Grabher's code is dual-licensed SoftFloat-2a
+  + BSD, both GPL-2.0-or-later compatible (WinUAE is GPL and ships it; our
+  existing `softfloat.rs` is the same posture). Port with attribution. No
+  Motorola-FPSP entanglement.
+- **D3 — Timing → inline with each phase.** Cycle counts land *with* each
+  instruction group as it is implemented (cycle-accurate from the start),
+  not retrofitted in a late phase. Phase 9 becomes the shared timing-model +
+  cycle-table reference that each phase feeds, not a deferred catch-up.
+- **D1/Phase 10 — Real-silicon validation → optional confirmation.** Faithful
+  C-diff against WinUAE's softfloat inherits its hardware validation, so our
+  own silicon/FPGA capture is a nice-to-have, kept low-priority.
+- **D4 — 68881 vs 68882 → one result path + a model flag.** Results are
+  identical; a `68881`/`68882` config flag selects the FSAVE frame size
+  (Phase 5) and the timing/concurrency model (per-phase timing). No separate
+  result path.
+
+The consequence: the transcendentals (Phase 7), packed-decimal (Phase 4),
+and FSxxx precision (Phase 2) all become **transliterations of Grabher's
+softfloat onto our existing Rust `floatx80` port** — the same proven
+"port + C-diff against the C reference" method used for `softfloat.c`.
+
 ## Source-of-truth hierarchy
 
 1. This plan (for sequencing and scope).
@@ -73,10 +108,10 @@ Done and validated on this branch (steps 1–5c):
   silicon 68881 in the last bits is (a) not what the spec promises and (b)
   only verifiable with real-hardware capture. See Section 3.3 and Phase 7.
 
-**Decision needed (D1):** accept **FPSP-equivalence** as the transcendental
-target (recommended — it is the de-facto-correct 68k FPU answer and fully
-reproducible), or additionally pursue **real-68881-silicon vectors** as a
-gold-standard validation pass (Phase 10, hardware-gated).
+**Resolved (D1, 2026-06-15):** the target is **WinUAE/Previous-equivalence**
+via Grabher's softfloat FPSP — which is itself silicon-validated, so this
+gives hardware-grade accuracy reproducibly, without our own silicon capture.
+See the Decisions section above.
 
 ## 3. Validation strategy (oracle per layer)
 
@@ -84,8 +119,8 @@ gold-standard validation pass (Phase 10, hardware-gated).
 |------|--------|--------|------------|
 | A | Vendored `softfloat.c` (C-diff harness) | All IEEE arithmetic + conversions + exception flags | Yes |
 | B | Musashi 68040 single-step corpus | Anything Musashi implements (note: its transcendentals are host `libm`, *not* a bit-exact oracle) | Yes for arith; no for transcendentals |
-| C | **68040 FPSP** reference build (to vendor) | Transcendentals, FSxxx/FDxxx precision rounding, denormal handling | Yes vs FPSP |
-| D | Real 68881/68882 silicon or FPGA (AC68080) vectors | Everything, gold standard | Yes vs that chip |
+| C | **WinUAE softfloat** (Grabher's FPSP, already vendored) compiled standalone | Transcendentals, packed-decimal, FSxxx precision | Yes vs WinUAE (itself hardware-validated) |
+| D | Real 68881/68882 silicon or FPGA (AC68080) vectors | Everything, gold standard | Yes vs that chip (optional, D1) |
 
 ### 3.1 Reuse the existing harnesses
 The SoftFloat C-diff pattern (`validation/run.sh` + `examples/sf_gen.rs` +
@@ -99,13 +134,17 @@ FREM, FSUB/FCMP/FTST. It `fatalerror`s on everything else (FSCALE, FGETMAN,
 all other transcendentals, FDBcc/FTRAPcc, dynamic FMOVEM, packed). It never
 sets the FPSR exception bytes.
 
-### 3.3 Obtaining the FPSP
-The 68040 FPSP is Motorola/Freescale source, freely redistributed (NetBSD
-`sys/arch/m68k/fpsp/`, Linux `arch/m68k/fpsp040/`). Vendor it under
-`emulators/cpu-libs/` (reference-implementations layer) with provenance, the
-same way Musashi's SoftFloat is vendored. **Licence check required (D2)** —
-confirm GPL-2.0-or-later compatibility before vendoring (the project is
-GPL-2.0-or-later; the Linux FPSP is GPL).
+### 3.3 The FPSP reference is already vendored (WinUAE)
+No new vendoring or obtaining is needed. WinUAE
+(`emulators/amiga/WinUAE/softfloat/`) ships Andreas Grabher's softfloat
+extension — `softfloat_fpsp.cpp` (2409 LoC, 19 transcendentals),
+`softfloat_decimal.cpp` (492 LoC, packed-decimal), `softfloat_fpsp_tables.h`
+(528 LoC). It is built on the same `floatx80` primitives our port already has
+(`floatx80_add`/`mul`/`sub`/`div`/`round_and_pack`/`propagateFloatx80NaN`), so
+each function transliterates onto our Rust port. To validate, compile WinUAE's
+`softfloat/` standalone (the same way `validation/run.sh` compiles
+`softfloat.c`) and C-diff our Rust output against it. SoftFloat-2a + BSD,
+GPL-2.0-or-later compatible — attribution retained, same as the existing port.
 
 ## 4. Phases
 
@@ -131,7 +170,9 @@ byte — currently unused).
 opmode FSxxx/FDxxx prefix (currently *stripped and ignored* to match Musashi).
 **Approach:** the rounding core (`round_and_pack_floatx80`) already takes a
 precision argument and implements 32/64; thread the real precision from FPCR
-(and the opmode prefix) instead of hard-coding 80.
+(and the opmode prefix) instead of hard-coding 80. (Grabher's softfloat uses
+exactly this `floatx80_rounding_precision` field, so it lines up with the
+Phase 7 port.)
 **Oracle:** SoftFloat C-diff (Musashi does not apply precision → would
 diverge; the corpus must keep precision = extended). Unit tests per mode.
 **Risk:** medium — this is a deliberate divergence *from* the Musashi corpus;
@@ -155,15 +196,17 @@ reuse the existing group-1/2 exception plumbing.
 ### Phase 4 — Packed-decimal format (FMOVE.P) (M)
 **Scope:** format 3 load and store, including the k-factor (static and
 dynamic) controlling output digit count (UM §6.4 / §4.x).
-**Approach:** 96-bit packed-BCD ↔ floatx80 conversion. The old f64 `fpu.rs`
-has `decode_packed_bcd`/`encode_packed_bcd` as a starting point, but the
-80-bit path + k-factor formatting + rounding need fresh work.
-**Oracle:** spec + unit tests (Musashi `fatalerror`s; real-HW vectors ideal).
+**Approach:** transliterate WinUAE's `softfloat_decimal.cpp` (Grabher's
+96-bit packed-BCD ↔ floatx80 + k-factor) onto our port.
+**Oracle:** WinUAE softfloat C-diff (same harness as the transcendentals);
+spec + unit tests.
 **Risk:** medium — BCD rounding and the k-factor edge cases are fiddly.
 
 ### Phase 5 — FSAVE / FRESTORE state frames (M)
 **Scope:** op-classes 4/5; save/restore the FPU internal state frame
-(NULL / IDLE / BUSY formats; 68881 vs 68882 frame sizes differ). Privileged.
+(NULL / IDLE / BUSY formats). Privileged. **Per D4, the `68881`/`68882` model
+flag selects the frame size** — the one place the results-identical chips
+diverge.
 **Approach:** model the minimal internal-state frame the UM defines; a
 non-exceptional FPU saves a NULL or IDLE frame. Needed for AmigaOS
 FPU-aware task switching.
@@ -183,23 +226,23 @@ plus the integer DBcc/TRAPcc mechanics; add BSUN per Phase 3.
 **Scope:** the ~18 functions: FSIN, FCOS, FTAN, FASIN, FACOS, FATAN, FSINH,
 FCOSH, FTANH, FATANH, FETOX, FETOXM1, FTWOTOX, FTENTOX, FLOGN, FLOGNP1,
 FLOG10, FLOG2, plus FSINCOS (0x30–0x37, dual-result).
-**Approach:** port the **68040 FPSP** algorithm per function (`ssin.sa`,
-`scos.sa`, `satan.sa`, `setox.sa`, `slogn.sa`, …) to Rust `floatx80`. These
-are argument-reduction + polynomial approximations, not silicon ROM dumps, so
-they port cleanly. Sub-phase by family:
+**Approach (D1/D2 resolved):** transliterate **Grabher's
+`softfloat_fpsp.cpp`** (the `floatx80_sin`/`cos`/`etox`/`logn`/… functions)
+onto our Rust `floatx80` port + the `softfloat_fpsp_tables.h` constants. These
+are argument-reduction + polynomial approximations built on the primitives we
+already have. Sub-phase by family:
   - 7a. exp/log family (FETOX, FETOXM1, FTWOTOX, FTENTOX, FLOGN, FLOGNP1,
         FLOG10, FLOG2).
   - 7b. trig family (FSIN, FCOS, FTAN, FSINCOS).
   - 7c. inverse trig (FASIN, FACOS, FATAN).
   - 7d. hyperbolic (FSINH, FCOSH, FTANH, FATANH).
-**Oracle:** build the FPSP reference (compile the `.sa` sources, or a C port
-such as the one in the Previous emulator) and C-diff each function — the same
-harness pattern as SoftFloat. **This is the only bit-exact oracle for these.**
-FSIN/FCOS additionally cross-checked against Musashi (libm) for sanity, not
-bit-exactness.
-**Risk:** high effort, but each function is self-contained and independently
-validatable. The hard part is the one-time FPSP build + harness; after that,
-porting is mechanical. Depends on D1/D2 (FPSP licence + target).
+**Oracle:** compile WinUAE's `softfloat/` standalone and C-diff each function
+(same harness as `softfloat.c`). Bit-exact vs WinUAE = hardware-grade accuracy
+(WinUAE was silicon-validated). No longer blocked.
+**Risk:** XL effort, but each function is self-contained and independently
+validatable; the foundation (the floatx80 primitives) is already proven to
+match the SoftFloat family by the existing C-diff (0 mismatches over 2.2M
+vectors).
 
 ### Phase 8 — Pseudo-encodings & edge cases (S–M)
 **Scope:** unnormal, pseudo-infinity, pseudo-NaN, pseudo-zero handling
@@ -208,16 +251,17 @@ input normalisation paths.
 **Oracle:** FPSP / spec + targeted vectors.
 **Risk:** low individually, but easy to miss; drive from a UM-derived checklist.
 
-### Phase 9 — FP cycle timing (M–L)
-**Scope:** coprocessor-dialog timing — the 020 stalls during cpGEN; each
-opcode has a cycle range (UM cycle tables). Model the FPU op latency the way
-#41 modelled integer timing.
-**Oracle:** UM cycle tables; cross-check against real-HW timing traces if
-available.
-**Risk:** medium — timing is observable but rarely depended on by software;
-lower priority than functional completeness.
+### Phase 9 — FP cycle-timing model (cross-cutting; D3 = inline)
+**Scope:** the shared timing infrastructure — the cpGEN stall model (the 020
+stalls during a coprocessor op) + the MC68881UM cycle tables + the
+68881/68882 timing flag (D4). **Per D3, the actual cycle counts land inline
+with each phase** as its opcodes are implemented (cycle-accurate from the
+start, the way #41 did integer timing); this phase is the shared model + the
+reference tables + a coverage tracker, not a deferred catch-up.
+**Oracle:** UM cycle tables; cross-check vs real-HW timing traces if available.
+**Risk:** medium — observable but rarely depended on by software.
 
-### Phase 10 — Real-hardware / FPGA validation pass (L, hardware-gated)
+### Phase 10 — Real-hardware / FPGA validation pass (L, optional — D1)
 **Scope:** capture vectors from a real 68881/68882 (or the AC68080 FPGA, per
 the project's long-term scope) and diff the *entire* implementation — the
 gold-standard accuracy check, especially for transcendentals where FPSP and
@@ -259,14 +303,14 @@ real Amiga software than non-extended FPCR precision or packed BCD.)
   FPSP decisions; a short `knowledge/decisions/fpu-transcendental-oracle.md`
   records D1/D2.
 
-## 7. Open decisions
+## 7. Decisions — all resolved (2026-06-15)
 
-- **D1 — Transcendental target.** FPSP-equivalence (recommended) vs additional
-  real-silicon validation. Determines whether Phase 10 is in scope.
-- **D2 — FPSP licensing/vendoring.** Confirm GPL-2.0-or-later compatibility;
-  choose the source tree (NetBSD vs Linux fpsp040) and vendor location.
-- **D3 — Timing depth (Phase 9).** Model FPU op latency now, or defer until a
-  consumer needs it? (Most software doesn't depend on exact FP timing.)
-- **D4 — 68881 vs 68882 fidelity.** The 68882 pipelines/concurrently executes;
-  do we model the difference, or treat both as the 68881 functionally
-  (results identical; only timing/concurrency differ)?
+- **D1 — Transcendental reference → Grabher's softfloat FPSP (WinUAE/Previous),
+  already vendored.** Bit-exact vs WinUAE = hardware-grade. Real-silicon
+  validation (Phase 10) kept as optional confirmation, low-priority.
+- **D2 — Licensing → settled.** SoftFloat-2a + BSD, GPL-2.0-or-later
+  compatible; no Motorola FPSP needed.
+- **D3 — Timing → inline with each phase** (cycle-accurate from the start);
+  Phase 9 is the shared model + tables + coverage tracker.
+- **D4 — 68881 vs 68882 → one result path + a model flag** (frame size in
+  Phase 5; timing/concurrency per-phase + Phase 9).
