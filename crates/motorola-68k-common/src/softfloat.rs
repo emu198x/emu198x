@@ -676,7 +676,7 @@ fn sub_floatx80_sigs(
             return propagate_floatx80_nan(a, b);
         }
         float_raise(flag::INVALID); // inf − inf
-        return FpReg::new(0xFFFF, 0xFFFF_FFFF_FFFF_FFFF);
+        return DEFAULT_NAN;
     }
     if a_exp == 0 {
         a_exp = 1;
@@ -722,8 +722,13 @@ pub fn floatx80_sub(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
 
 // --- Multiplication / division (softfloat.c) ---
 
-/// The default extended-precision NaN (`floatx80_default_nan`).
-const DEFAULT_NAN: FpReg = FpReg::new(0xFFFF, 0xFFFF_FFFF_FFFF_FFFF);
+/// The default extended-precision NaN created by the FPCP for an invalid
+/// operation. The MC68881/2 user's manual (§3.2.5) specifies an all-ones
+/// mantissa; the silicon — and the silicon-validated WinUAE/Previous
+/// SoftFloat — produces a **clear** sign bit, i.e. `$7FFF_FFFFFFFFFFFFFFFF`.
+/// This deliberately differs from Berkeley/Musashi SoftFloat's generic
+/// `$FFFF_…` (sign set), which is not what a real 68881/2 returns.
+const DEFAULT_NAN: FpReg = FpReg::new(0x7FFF, 0xFFFF_FFFF_FFFF_FFFF);
 
 /// `mul64To128`: full 64×64→128 product as (high, low). The exact 128-bit
 /// product is bit-identical to SoftFloat's 32-bit-limb decomposition.
@@ -1078,6 +1083,128 @@ pub fn floatx80_sqrt(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
     let (s0b, z_sig1b) = short_shift128_left(0, z_sig1, 1);
     z_sig0 = s0b | double_z_sig0;
     round_and_pack_floatx80(precision, mode, false, z_exp, z_sig0, z_sig1b)
+}
+
+// --- FPSP exponent / mantissa / scale (WinUAE softfloat, Andreas Grabher) ---
+//
+// Ported from WinUAE's `softfloat.cpp` (`floatx80_getman`/`getexp`/`scale`),
+// the silicon-validated 68881/2 reference.
+//
+// `floatx80_getman` is bit-exact against that source (validated by the C-diff
+// harness `validation/run_fpsp.sh`). `floatx80_getexp` and `floatx80_scale`
+// are bit-exact only for normal operands: on denormal inputs they need the
+// 68k `-shiftCount` subnormal exponent, and `scale` also the SOFTFLOAT_68K
+// infinity encoding ($7FFF:0) and denormal-result retention — all of which
+// require re-basing the shared `floatx80` core (currently the generic-Berkeley
+// lineage, matching Musashi) onto SOFTFLOAT_68K. Until then only FGETMAN is
+// wired into the core; FGETEXP/FSCALE decline.
+
+/// `propagateFloatx80NaNOneArg`: quiet a single NaN operand (set the quiet
+/// bit), raising invalid (SNAN) if it was signalling.
+#[must_use]
+fn propagate_floatx80_nan_one_arg(mut a: FpReg) -> FpReg {
+    if is_signaling_nan(a) {
+        raise_signaling_nan();
+    }
+    a.low |= 0x4000_0000_0000_0000;
+    a
+}
+
+/// `floatx80_getman` (FGETMAN): the mantissa of `a` as a value in `[1, 2)`.
+#[must_use]
+pub fn floatx80_getman(a: FpReg) -> FpReg {
+    let mut a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+    if a_exp == 0x7FFF {
+        if a_sig.wrapping_shl(1) != 0 {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        float_raise(flag::INVALID);
+        return DEFAULT_NAN;
+    }
+    if a_exp == 0 {
+        if a_sig == 0 {
+            return pack(a_sign, 0, 0);
+        }
+        // Only the normalized significand matters; the exponent is replaced.
+        let (_, s) = normalize_floatx80_subnormal(a_sig);
+        a_sig = s;
+    }
+    pack(a_sign, 0x3FFF, a_sig)
+}
+
+/// `floatx80_getexp` (FGETEXP): the unbiased exponent of `a` as an integer
+/// floating-point value.
+#[must_use]
+pub fn floatx80_getexp(a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let mut a_exp = exp(a);
+    let a_sign = sign(a);
+    if a_exp == 0x7FFF {
+        if a_sig.wrapping_shl(1) != 0 {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        float_raise(flag::INVALID);
+        return DEFAULT_NAN;
+    }
+    if a_exp == 0 {
+        if a_sig == 0 {
+            return pack(a_sign, 0, 0);
+        }
+        // Only the normalized exponent matters for the result.
+        let (e, _) = normalize_floatx80_subnormal(a_sig);
+        a_exp = e;
+    }
+    int32_to_floatx80(a_exp - 0x3FFF)
+}
+
+/// `floatx80_scale` (FSCALE): scale `a` by 2 raised to the truncated integer
+/// value of `b`.
+#[must_use]
+pub fn floatx80_scale(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> FpReg {
+    let mut a_sig = frac(a);
+    let mut a_exp = exp(a);
+    let a_sign = sign(a);
+    let b_sig = frac(b);
+    let b_exp = exp(b);
+    let b_sign = sign(b);
+
+    if b_exp == 0x7FFF {
+        if b_sig.wrapping_shl(1) != 0 || (a_exp == 0x7FFF && a_sig.wrapping_shl(1) != 0) {
+            return propagate_floatx80_nan(a, b);
+        }
+        float_raise(flag::INVALID);
+        return DEFAULT_NAN;
+    }
+    if a_exp == 0x7FFF {
+        if a_sig.wrapping_shl(1) != 0 {
+            return propagate_floatx80_nan(a, b);
+        }
+        return a;
+    }
+    if a_exp == 0 {
+        if a_sig == 0 {
+            return pack(a_sign, 0, 0);
+        }
+        if b_exp < 0x3FFF {
+            return normalize_round_and_pack_floatx80(precision, mode, a_sign, a_exp, a_sig, 0);
+        }
+        let (e, s) = normalize_floatx80_subnormal(a_sig);
+        a_exp = e;
+        a_sig = s;
+    }
+    if b_exp < 0x3FFF {
+        return round_and_pack_floatx80(precision, mode, a_sign, a_exp, a_sig, 0);
+    }
+    if 0x400F < b_exp {
+        a_exp = if b_sign { -0x6001 } else { 0xE000 };
+        return round_and_pack_floatx80(precision, mode, a_sign, a_exp, a_sig, 0);
+    }
+    let shift_count = 0x403E - b_exp;
+    let b_int = (b_sig.wrapping_shr(shift_count as u32)) as i32;
+    a_exp = if b_sign { a_exp - b_int } else { a_exp + b_int };
+    round_and_pack_floatx80(precision, mode, a_sign, a_exp, a_sig, 0)
 }
 
 // --- Conversion to 32-bit integer (softfloat.c) ---
@@ -1723,7 +1850,7 @@ mod tests {
         // +inf − +inf = default NaN.
         assert_eq!(
             floatx80_sub(P80, RN, inf, inf),
-            FpReg::new(0xFFFF, 0xFFFF_FFFF_FFFF_FFFF)
+            FpReg::new(0x7FFF, 0xFFFF_FFFF_FFFF_FFFF)
         );
     }
 
@@ -1813,7 +1940,7 @@ mod tests {
     fn div_zero_by_zero_is_default_nan() {
         assert_eq!(
             floatx80_div(P80, RN, FpReg::new(0, 0), FpReg::new(0, 0)),
-            FpReg::new(0xFFFF, 0xFFFF_FFFF_FFFF_FFFF)
+            FpReg::new(0x7FFF, 0xFFFF_FFFF_FFFF_FFFF)
         );
     }
 
@@ -1866,7 +1993,7 @@ mod tests {
     fn sqrt_of_negative_is_default_nan() {
         assert_eq!(
             floatx80_sqrt(P80, RN, fx(-4)),
-            FpReg::new(0xFFFF, 0xFFFF_FFFF_FFFF_FFFF)
+            FpReg::new(0x7FFF, 0xFFFF_FFFF_FFFF_FFFF)
         );
     }
 
@@ -1883,6 +2010,60 @@ mod tests {
         assert_eq!(
             floatx80_sqrt(P80, RN, fx(2)),
             FpReg::new(0x3FFF, 0xB504_F333_F9DE_6484)
+        );
+    }
+
+    // --- FGETMAN / FGETEXP (FPSP exponent/mantissa). ---
+
+    #[test]
+    fn getman_extracts_mantissa_in_one_two_range() {
+        // 6.0 = 1.5 × 2^2 → mantissa 1.5.
+        assert_eq!(
+            floatx80_getman(fx(6)),
+            FpReg::new(0x3FFF, 0xC000_0000_0000_0000)
+        );
+        // 1.0 → mantissa 1.0.
+        assert_eq!(
+            floatx80_getman(fx(1)),
+            FpReg::new(0x3FFF, 0x8000_0000_0000_0000)
+        );
+        // Sign of the source is preserved.
+        assert_eq!(
+            floatx80_getman(fx(-6)),
+            FpReg::new(0xBFFF, 0xC000_0000_0000_0000)
+        );
+    }
+
+    #[test]
+    fn getman_of_zero_is_zero() {
+        assert_eq!(floatx80_getman(fx(0)), FpReg::new(0, 0));
+        assert_eq!(
+            floatx80_getman(FpReg::new(0x8000, 0)),
+            FpReg::new(0x8000, 0)
+        );
+    }
+
+    #[test]
+    fn getman_of_infinity_is_invalid_default_nan() {
+        clear_exception_flags();
+        let inf = FpReg::new(0x7FFF, 0x8000_0000_0000_0000);
+        assert_eq!(floatx80_getman(inf), DEFAULT_NAN);
+        assert_eq!(exception_flags() & flag::INVALID, flag::INVALID);
+    }
+
+    #[test]
+    fn getexp_returns_unbiased_exponent_for_normals() {
+        // 6.0 = 1.5 × 2^2 → exponent 2.0.
+        assert_eq!(
+            floatx80_getexp(fx(6)),
+            FpReg::new(0x4000, 0x8000_0000_0000_0000)
+        );
+        // 1.0 → exponent 0.0.
+        assert_eq!(floatx80_getexp(fx(1)), FpReg::new(0, 0));
+        // 8.0 = 1.0 × 2^3 → exponent 3.0.
+        assert_eq!(
+            floatx80_getexp(fx(8)),
+            FpReg::new(0x4000, 0xC000_0000_0000_0000)
         );
     }
 

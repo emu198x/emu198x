@@ -716,6 +716,21 @@ fn fsqrt_of_negative_sets_nan() {
     assert_ne!(r.fpsr & FPCC_NAN, 0, "√(−1) → NaN");
 }
 
+#[test]
+fn fgetman_extracts_mantissa() {
+    // FGETMAN (opmode 0x1F) is unary on the source → dst. 6.0 = 1.5 × 2^2,
+    // so the mantissa in [1.0, 2.0) is 1.5.
+    let six = FpReg::new(0x4001, 0xC000_0000_0000_0000);
+    let one_point_five = FpReg::new(0x3FFF, 0xC000_0000_0000_0000);
+    let r = run(0x1F, 1, 2, |cpu| {
+        cpu.regs.fp[1] = six;
+        cpu.regs.fp[2] = NEG_ONE; // overwritten
+    });
+    assert_eq!(r.fp[2], one_point_five, "FGETMAN 6.0 → 1.5");
+    assert_eq!(r.fpsr & FPCC_N, 0);
+    assert_eq!(r.fpsr & FPCC_NAN, 0);
+}
+
 // --- FMOVECR (R/M = 1, src = 7): on-chip constant ROM load. ---
 
 #[test]

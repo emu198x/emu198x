@@ -123,6 +123,19 @@ fn main() {
                 let z = sf::floatx80_div(32, mode, a, b);
                 (z.high, z.low)
             }
+            // 20/21/22: FGETEXP / FGETMAN / FSCALE — WinUAE softfloat oracle.
+            20 => {
+                let z = sf::floatx80_getexp(a);
+                (z.high, z.low)
+            }
+            21 => {
+                let z = sf::floatx80_getman(a);
+                (z.high, z.low)
+            }
+            22 => {
+                let z = sf::floatx80_scale(80, mode, a, b);
+                (z.high, z.low)
+            }
             _ => (0, 0),
         };
         let flags = sf::take_exception_flags();

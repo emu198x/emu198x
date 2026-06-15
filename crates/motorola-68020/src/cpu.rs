@@ -806,9 +806,10 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
     }
 
     // Only these opmodes are backed by the SoftFloat `floatx80` port —
-    // FMOVE/FABS/FNEG/FTST/FADD/FSUB/FMUL/FDIV/FSQRT/FCMP/FINT/FINTRZ. The
-    // transcendentals and modulo/scale ops decline (vector-11 trap) until
-    // their backends land.
+    // FMOVE/FABS/FNEG/FTST/FADD/FSUB/FMUL/FDIV/FSQRT/FCMP/FINT/FINTRZ/FGETMAN.
+    // The transcendentals and the remaining modulo/scale/getexp ops decline
+    // (vector-11 trap) until their backends land (FGETEXP/FSCALE await the
+    // SOFTFLOAT_68K denormal/infinity re-base; see softfloat.rs).
     if !matches!(
         opmode,
         0x00 | 0x18
@@ -819,6 +820,7 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
             | 0x23
             | 0x20
             | 0x04
+            | 0x1F
             | 0x38
             | 0x01
             | 0x03
@@ -875,6 +877,7 @@ fn apply_fp_opmode(
         0x24 => cpu.regs.fp[dst] = softfloat::floatx80_div(32, mode, cpu.regs.fp[dst], source),
         // Unary ops on the source, written to dst.
         0x04 => cpu.regs.fp[dst] = softfloat::floatx80_sqrt(80, mode, source), // FSQRT
+        0x1F => cpu.regs.fp[dst] = softfloat::floatx80_getman(source),         // FGETMAN
         0x01 => {
             // FINT: round source to an integer (per the FPCR mode) and back.
             let n = softfloat::floatx80_to_int32(mode, source);

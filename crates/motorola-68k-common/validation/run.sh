@@ -25,6 +25,14 @@ mkdir -p "$build/softfloat"
 cp "$sf"/softfloat.c "$sf"/softfloat.h "$sf"/softfloat-specialize \
    "$sf"/softfloat-macros "$sf"/mamesf.h "$sf"/milieu.h "$build/softfloat/"
 
+# Berkeley/Musashi SoftFloat uses a generic floatx80 default NaN with the sign
+# bit set ($FFFF_…). A real 68881/2 — and our port — clears the sign bit
+# ($7FFF_…, per the MC68881UM and the silicon-validated WinUAE/Previous
+# SoftFloat). Correct the oracle's constant so this differential stays a
+# hardware-accuracy check, not a known-divergence false alarm.
+gsed -i 's/#define floatx80_default_nan_high 0xFFFF/#define floatx80_default_nan_high 0x7FFF/' \
+  "$build/softfloat/softfloat-specialize"
+
 # Stub the m68kcpu.h softfloat.c expects (base integer types + INLINE).
 cat > "$build/m68kcpu.h" <<'EOF'
 #ifndef SF_STUB_M68KCPU_H

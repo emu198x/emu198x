@@ -260,9 +260,21 @@ fn compare_final(cpu: &Cpu68020, mem: &SparseMem, final_state: &CpuState) -> Vec
     let mut v = Vec::new();
 
     // FP data registers — the heart of the comparison.
+    //
+    // The Musashi oracle emits Berkeley SoftFloat's generic created-NaN
+    // ($FFFF_FFFFFFFFFFFFFFFF, sign set); a real 68881/2 — and our port —
+    // clears the sign bit ($7FFF_FFFFFFFFFFFFFFFF, per the MC68881UM and the
+    // silicon-validated WinUAE/Previous SoftFloat). Treat the two encodings of
+    // the default NaN as equal so this hardware-accuracy fix does not read as a
+    // corpus regression.
+    const HW_DEFAULT_NAN: (u16, u64) = (0x7FFF, 0xFFFF_FFFF_FFFF_FFFF);
+    const MUSASHI_DEFAULT_NAN: (u16, u64) = (0xFFFF, 0xFFFF_FFFF_FFFF_FFFF);
     for i in 0..8 {
         let got = cpu.regs.fp[i];
         let (eh, el) = final_state.fp[i];
+        if (got.high, got.low) == HW_DEFAULT_NAN && (eh, el) == MUSASHI_DEFAULT_NAN {
+            continue;
+        }
         if got.high != eh || got.low != el {
             v.push(Mismatch {
                 field: format!("fp{i}"),
