@@ -21,3 +21,8 @@ knowledge/tests/
 
 # Vale synced package
 .vale/
+
+# Generated 68881/2 FP validation corpus (large; regenerate with
+# `m68k-test-gen --fp --all`). Small debug subsets elsewhere under
+# test-data/ are still tracked intentionally.
+/test-data/m68k-68040-fpu/

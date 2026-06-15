@@ -185,6 +185,13 @@ fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: 
     musashi::set_fpsr(0);
     musashi::set_fpiar(0);
 
+    // FP instructions seed all eight FP registers with random operands on
+    // top of the cleared baseline. FPCR stays 0 (round-to-nearest, extended
+    // precision) for this corpus.
+    if def.is_fp() {
+        seed_fp_operands(rng);
+    }
+
     // Capture initial state
     let initial = capture_state(cpu_type);
 
@@ -334,6 +341,16 @@ fn encode_instruction(
             memory::poke_word(pc.wrapping_add(4), spec as u16);
             None
         }
+        InstructionSetup::FpGenReg { opmode } => {
+            // cpGEN extension word: R/M=0 | 00 | src(3) | dst(3) | opmode(7).
+            // Random src/dst FP registers; all eight are seeded with random
+            // operands in generate_one, so any pairing is exercised.
+            let src: u16 = rng.random_range(0..8);
+            let dst: u16 = rng.random_range(0..8);
+            let ext = (src << 10) | (dst << 7) | u16::from(opmode);
+            memory::poke_word(pc.wrapping_add(2), ext);
+            None
+        }
         InstructionSetup::Movem { size } => {
             // Register mask at pc+2
             let mask: u16 = rng.random();
@@ -362,6 +379,34 @@ fn random_sr(rng: &mut impl Rng, _cpu_type: u32) -> u16 {
     let int_mask: u8 = rng.random_range(0..=7);
     // S=1, T=0, M=0 — supervisor mode, no trace
     0x2000 | (u16::from(int_mask) << 8) | u16::from(ccr)
+}
+
+/// Seed all eight Musashi FP registers with random operands.
+///
+/// This first corpus targets the finite-normal arithmetic + rounding +
+/// condition-code paths, so values are normalized finite (sign random,
+/// biased exponent within ~2^±64 of 1.0, full-random 64-bit mantissa with
+/// the explicit integer bit set), with an occasional ±0. Infinities, NaNs
+/// and denormals — which also exercise the deferred FPSR exception bits —
+/// are a follow-up once the finite path validates at 100%.
+fn seed_fp_operands(rng: &mut impl Rng) {
+    for i in 0..8 {
+        let (high, low) = random_fp_value(rng);
+        musashi::set_fpr(i, high, low);
+    }
+}
+
+/// Generate one random normalized-finite floatx80 `(high, low)` operand.
+fn random_fp_value(rng: &mut impl Rng) -> (u16, u64) {
+    let sign: u16 = if rng.random() { 0x8000 } else { 0 };
+    if rng.random_range(0..8u8) == 0 {
+        return (sign, 0); // ±0.0
+    }
+    // Exponent biased by 0x3FFF; keep within ±64 of 1.0 to stay clear of
+    // overflow/underflow extremes for this first pass.
+    let exp = rng.random_range((0x3FFFu16 - 64)..=(0x3FFFu16 + 64));
+    let mantissa = rng.random::<u64>() | 0x8000_0000_0000_0000;
+    (sign | exp, mantissa)
 }
 
 /// Capture current Musashi state.

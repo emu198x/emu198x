@@ -53,6 +53,19 @@ pub enum InstructionSetup {
     /// opcode. The generator forces the two pointer registers (selected by
     /// the spec's Rn fields) to even data addresses after randomisation.
     Cas2,
+    /// 68881/2 register-to-register FPgen (FADD FPm,FPn etc.). The opcode
+    /// is the cpGEN F-line word ($F200); the single extension word encodes
+    /// `R/M=0 | 00 | src(3) | dst(3) | opmode(7)`. The generator picks
+    /// random src/dst FP registers and seeds all eight with random operands.
+    FpGenReg { opmode: u8 },
+}
+
+impl InstructionDef {
+    /// True for floating-point instructions — the generator seeds FP
+    /// register operands (and FPCR) for these, not just integer state.
+    pub fn is_fp(&self) -> bool {
+        matches!(self.setup, InstructionSetup::FpGenReg { .. })
+    }
 }
 
 const M68K: u32 = musashi::M68K_CPU_TYPE_68000;
@@ -846,6 +859,48 @@ fn cpu_type_order(cpu_type: u32) -> u32 {
 /// Find an instruction definition by name.
 pub fn find(cpu_type: u32, name: &str) -> Option<InstructionDef> {
     catalogue(cpu_type)
+        .into_iter()
+        .find(|d| d.name.eq_ignore_ascii_case(name))
+}
+
+/// Helper for a 68881/2 register-to-register FPgen instruction.
+const fn fpgen(name: &'static str, opmode: u8) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode: 0xF200, // cpID=1, op-class 0 (cpGEN), EA mode/reg unused
+        ext_words: 1,
+        setup: InstructionSetup::FpGenReg { opmode },
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    }
+}
+
+/// Return the 68881/2 register-to-register FPgen catalogue.
+///
+/// Kept separate from `catalogue()` so the integer `--all` sweep stays
+/// integer-only; the FP corpus is generated explicitly (`--fp`). Opmodes
+/// from M68881 UM Table 4-11. Monadic ops (FMOVE/FABS/FNEG/FSQRT/FINT/
+/// FINTRZ/FTST) read the `src` FP register; dyadic ops (FADD/FSUB/FMUL/
+/// FDIV/FCMP) compute `dst = dst OP src`.
+pub fn fp_catalogue(_cpu_type: u32) -> Vec<InstructionDef> {
+    vec![
+        fpgen("FMOVE", 0x00),
+        fpgen("FINT", 0x01),
+        fpgen("FINTRZ", 0x03),
+        fpgen("FSQRT", 0x04),
+        fpgen("FABS", 0x18),
+        fpgen("FNEG", 0x1A),
+        fpgen("FDIV", 0x20),
+        fpgen("FADD", 0x22),
+        fpgen("FMUL", 0x23),
+        fpgen("FSUB", 0x28),
+        fpgen("FCMP", 0x38),
+        fpgen("FTST", 0x3A),
+    ]
+}
+
+/// Find a floating-point instruction definition by name.
+pub fn fp_find(cpu_type: u32, name: &str) -> Option<InstructionDef> {
+    fp_catalogue(cpu_type)
         .into_iter()
         .find(|d| d.name.eq_ignore_ascii_case(name))
 }

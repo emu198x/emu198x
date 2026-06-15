@@ -164,8 +164,7 @@ mod tests {
             file.tests[0].final_state.ram
         );
         assert_eq!(
-            decoded.tests[0].initial.fp,
-            file.tests[0].initial.fp,
+            decoded.tests[0].initial.fp, file.tests[0].initial.fp,
             "FP registers should round-trip"
         );
         assert_eq!(decoded.tests[0].initial.fpcr, 0x0030);
@@ -208,6 +207,50 @@ mod tests {
         assert_eq!(decoded.fpsr, 0);
         assert_eq!(decoded.fpiar, 0);
         assert_eq!(decoded.prefetch, state.prefetch);
+        assert_eq!(decoded.ram, state.ram);
+    }
+
+    /// Regression guard for the interior-hole bug: an FP test commonly has
+    /// `fpcr == 0` (skipped) while `fpsr != 0` (condition codes set), and
+    /// `msp == 0` (skipped) while `fp != 0`. With a positional array
+    /// encoding the skipped interior fields shift every later field and
+    /// corrupt the load. The production path serialises named maps
+    /// (`to_vec_named`), which keys by field name, so any combination of
+    /// omitted fields round-trips. This test pins that contract.
+    #[test]
+    fn named_map_encoding_survives_interior_skipped_fields() {
+        let state = CpuState {
+            d: [0; 8],
+            a: [0; 7],
+            usp: 0,
+            ssp: 0,
+            sr: 0x2000,
+            pc: 0x1000,
+            prefetch: [0xF200, 0x4E71],
+            ram: vec![(0x1000, 0xF2), (0x1001, 0x00)],
+            msp: 0,                                   // skipped
+            vbr: 0,                                   // skipped
+            cacr: 0,                                  // skipped
+            caar: 0,                                  // skipped
+            fp: [(0x4000, 0xC000_0000_0000_0000); 8], // present
+            fpcr: 0,                                  // skipped (interior)
+            fpsr: 0x0800_0000,                        // present — N bit set
+            fpiar: 0x0000_1004,                       // present
+        };
+
+        let encoded = rmp_serde::to_vec_named(&state).expect("serialisation should work");
+        let decoded: CpuState =
+            rmp_serde::from_slice(&encoded).expect("deserialisation should work");
+
+        assert_eq!(decoded.fp, state.fp, "fp must survive the interior hole");
+        assert_eq!(decoded.fpcr, 0);
+        assert_eq!(
+            decoded.fpsr, 0x0800_0000,
+            "fpsr must not absorb fpcr's slot"
+        );
+        assert_eq!(decoded.fpiar, 0x0000_1004);
+        assert_eq!(decoded.msp, 0);
+        assert_eq!(decoded.sr, 0x2000);
         assert_eq!(decoded.ram, state.ram);
     }
 }
