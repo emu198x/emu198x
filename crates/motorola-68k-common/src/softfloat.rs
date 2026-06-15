@@ -1262,9 +1262,20 @@ fn round_and_pack_int32(mode: RoundingMode, z_sign: bool, abs_z: u64) -> i32 {
 pub fn floatx80_to_int32(mode: RoundingMode, a: FpReg) -> i32 {
     let mut a_sig = frac(a);
     let a_exp = exp(a);
-    let mut a_sign = sign(a);
-    if a_exp == 0x7FFF && a_sig.wrapping_shl(1) != 0 {
-        a_sign = false;
+    let a_sign = sign(a);
+    if a_exp == 0x7FFF {
+        if a_sig.wrapping_shl(1) != 0 {
+            // 68k: NaN → quiet it (signaling raises invalid inside propagate;
+            // an already-quiet input raises invalid here), then return the high
+            // 32 bits of the resulting mantissa.
+            let q = propagate_floatx80_nan_one_arg(a);
+            if q.low == a_sig {
+                float_raise(flag::INVALID);
+            }
+            return (q.low >> 32) as i32;
+        }
+        float_raise(flag::INVALID); // infinity
+        return if a_sign { i32::MIN } else { i32::MAX };
     }
     let mut shift_count = 0x4037 - a_exp;
     if shift_count <= 0 {
@@ -1319,7 +1330,8 @@ pub fn floatx80_to_int32_round_to_zero(a: FpReg) -> i32 {
 /// deferred side effect — TODO(FPSR).)
 #[must_use]
 fn common_nan_to_floatx80(sign: bool, common_high: u64) -> FpReg {
-    let low = 0xC000_0000_0000_0000 | (common_high >> 1);
+    // 68k: quiet via bit 62 only; the integer bit (63) comes from the payload.
+    let low = 0x4000_0000_0000_0000 | (common_high >> 1);
     let high = ((sign as u16) << 15) | 0x7FFF;
     FpReg::new(high, low)
 }
@@ -1345,7 +1357,7 @@ pub fn float32_to_floatx80(a: u32) -> FpReg {
             }
             return common_nan_to_floatx80(a_sign, u64::from(a) << 41);
         }
-        return pack(a_sign, 0x7FFF, 0x8000_0000_0000_0000);
+        return pack(a_sign, 0x7FFF, 0); // 68k infinity: integer bit clear
     }
     if a_exp == 0 {
         if a_sig == 0 {
@@ -1380,7 +1392,7 @@ pub fn float64_to_floatx80(a: u64) -> FpReg {
             }
             return common_nan_to_floatx80(a_sign, a << 12);
         }
-        return pack(a_sign, 0x7FFF, 0x8000_0000_0000_0000);
+        return pack(a_sign, 0x7FFF, 0); // 68k infinity: integer bit clear
     }
     if a_exp == 0 {
         if a_sig == 0 {
@@ -2139,6 +2151,22 @@ mod tests {
         assert_eq!(floatx80_to_int32_round_to_zero(neg_big), i32::MIN);
     }
 
+    #[test]
+    fn to_int32_of_nan_returns_mantissa_high_bits() {
+        // 68k: floatx80_to_int32 of a NaN returns the high 32 bits of the
+        // (quieted) mantissa, raising invalid — not a saturated value.
+        let nan = FpReg::new(0x7FFF, 0xC000_0000_1234_5678);
+        assert_eq!(
+            flags_of(|| {
+                assert_eq!(floatx80_to_int32(RN, nan), 0xC000_0000u32 as i32);
+            }),
+            flag::INVALID
+        );
+        // ±infinity still saturates.
+        assert_eq!(floatx80_to_int32(RN, FpReg::new(0x7FFF, 0)), i32::MAX);
+        assert_eq!(floatx80_to_int32(RN, FpReg::new(0xFFFF, 0)), i32::MIN);
+    }
+
     // --- IEEE single / double → extended (exact widening). ---
 
     #[test]
@@ -2154,10 +2182,8 @@ mod tests {
 
     #[test]
     fn float32_infinity_and_nan() {
-        assert_eq!(
-            float32_to_floatx80(0x7F80_0000),
-            FpReg::new(0x7FFF, 0x8000_0000_0000_0000)
-        );
+        // 68k infinity: integer bit clear ($7FFF:0).
+        assert_eq!(float32_to_floatx80(0x7F80_0000), FpReg::new(0x7FFF, 0));
         // A quiet NaN widens to a NaN (max exp, non-zero fraction).
         let nan = float32_to_floatx80(0x7FC0_0000);
         assert!(nan.is_nan());
@@ -2178,9 +2204,10 @@ mod tests {
 
     #[test]
     fn float64_infinity_and_nan() {
+        // 68k infinity: integer bit clear ($7FFF:0).
         assert_eq!(
             float64_to_floatx80(0x7FF0_0000_0000_0000),
-            FpReg::new(0x7FFF, 0x8000_0000_0000_0000)
+            FpReg::new(0x7FFF, 0)
         );
         assert!(float64_to_floatx80(0x7FF8_0000_0000_0000).is_nan());
     }
