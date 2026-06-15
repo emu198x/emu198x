@@ -75,6 +75,11 @@ pub enum InstructionSetup {
     /// `0 | R/M=1 | 0 | 111 | dst(3) | offset(7)`. The generator picks a
     /// random ROM offset and dst.
     FpMoveCr,
+    /// 68881/2 memory-source FPgen via a non-`(An)` addressing mode:
+    /// `(A0)+` (ea_mode 3), `-(A0)` (4) or `d16(A0)` (5). Exercises the
+    /// auto-increment/decrement pointer step (by the format size) and the
+    /// static-EA path through `calc_ea_start`, which `(An)` does not.
+    FpGenMemMode { opmode: u8, format: u8, ea_mode: u8 },
 }
 
 impl InstructionDef {
@@ -87,6 +92,7 @@ impl InstructionDef {
                 | InstructionSetup::FpGenMem { .. }
                 | InstructionSetup::FpStoreMem { .. }
                 | InstructionSetup::FpMoveCr
+                | InstructionSetup::FpGenMemMode { .. }
         )
     }
 }
@@ -993,6 +999,36 @@ pub fn fp_catalogue(_cpu_type: u32) -> Vec<InstructionDef> {
         setup: InstructionSetup::FpMoveCr,
         min_cpu: musashi::M68K_CPU_TYPE_68020,
     });
+
+    // Non-(An) memory-source addressing modes. (A0)+ across all formats
+    // exercises the pointer step by each size (1/2/4/8/12) plus writeback;
+    // -(A0) the pre-decrement; d16(A0) the static-EA path via calc_ea_start.
+    for &(name, format, ea_mode) in &[
+        ("FADD.B_postinc", 6u8, 3u8),
+        ("FADD.W_postinc", 4, 3),
+        ("FADD.L_postinc", 0, 3),
+        ("FADD.S_postinc", 1, 3),
+        ("FADD.D_postinc", 5, 3),
+        ("FADD.X_postinc", 2, 3),
+        ("FADD.S_predec", 1, 4),
+        ("FADD.X_predec", 2, 4),
+        ("FADD.S_d16", 1, 5),
+        ("FADD.D_d16", 5, 5),
+        ("FADD.X_d16", 2, 5),
+    ] {
+        let ext_words = if ea_mode == 5 { 2 } else { 1 };
+        defs.push(InstructionDef {
+            name,
+            opcode: 0xF200 | (u16::from(ea_mode) << 3), // EA reg 0 → A0
+            ext_words,
+            setup: InstructionSetup::FpGenMemMode {
+                opmode: 0x22,
+                format,
+                ea_mode,
+            },
+            min_cpu: musashi::M68K_CPU_TYPE_68020,
+        });
+    }
 
     defs
 }

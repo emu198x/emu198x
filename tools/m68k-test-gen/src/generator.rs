@@ -210,6 +210,39 @@ fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: 
             let addr = random_data_addr(rng);
             musashi::set_reg(musashi::M68K_REG_A0, addr);
         }
+
+        // Non-(An) memory-source modes: set A0 (and the d16 word) so the
+        // computed EA lands on a seeded, even operand.
+        if let InstructionSetup::FpGenMemMode {
+            format, ea_mode, ..
+        } = def.setup
+        {
+            let size = fp_format_size(format);
+            match ea_mode {
+                3 => {
+                    // (A0)+: operand at A0, pointer steps forward by `size`.
+                    let addr = random_data_addr(rng);
+                    musashi::set_reg(musashi::M68K_REG_A0, addr);
+                    seed_fp_mem_operand(addr, format, rng);
+                }
+                4 => {
+                    // -(A0): A0 pre-decrements by `size`; operand is there.
+                    let addr = random_data_addr(rng);
+                    musashi::set_reg(musashi::M68K_REG_A0, addr);
+                    seed_fp_mem_operand(addr.wrapping_sub(size), format, rng);
+                }
+                _ => {
+                    // d16(A0): pick an even target, an even displacement, and
+                    // back-compute A0 so A0 + d16 == target.
+                    let target = random_data_addr(rng);
+                    let d16: i16 = rng.random::<i16>() & !1;
+                    let a0 = ((i64::from(target) - i64::from(d16)) as u32) & 0x00FF_FFFF;
+                    musashi::set_reg(musashi::M68K_REG_A0, a0);
+                    memory::poke_word(CODE_BASE + 4, d16 as u16);
+                    seed_fp_mem_operand(target, format, rng);
+                }
+            }
+        }
     }
 
     // Capture initial state
@@ -403,6 +436,15 @@ fn encode_instruction(
             memory::poke_word(pc.wrapping_add(2), ext);
             None
         }
+        InstructionSetup::FpGenMemMode { opmode, format, .. } => {
+            // Same memory-source ext word as (An); the EA mode lives in the
+            // opcode and the operand + any displacement are seeded in
+            // generate_one's FP block (it owns the register values).
+            let dst: u16 = rng.random_range(0..8);
+            let ext = 0x4000 | (u16::from(format) << 10) | (dst << 7) | u16::from(opmode);
+            memory::poke_word(pc.wrapping_add(2), ext);
+            None
+        }
         InstructionSetup::Movem { size } => {
             // Register mask at pc+2
             let mask: u16 = rng.random();
@@ -490,6 +532,17 @@ fn random_fp_value(rng: &mut impl Rng) -> (u16, u64) {
             let mantissa = (rng.random::<u64>() & !FX80_INT_BIT).max(1);
             (sign, mantissa)
         }
+    }
+}
+
+/// Byte size of an M68881 source-format operand in memory.
+fn fp_format_size(format: u8) -> u32 {
+    match format {
+        6 => 1,  // Byte integer
+        4 => 2,  // Word integer
+        2 => 12, // Extended
+        5 => 8,  // Double
+        _ => 4,  // Long integer (0) / Single (1)
     }
 }
 
