@@ -807,8 +807,8 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
 
     // Only these opmodes are backed by the SoftFloat `floatx80` port — FMOVE/
     // FABS/FNEG/FTST/FADD/FSUB/FMUL/FDIV/FSQRT/FCMP/FINT/FINTRZ/FGETEXP/FGETMAN/
-    // FSCALE. The transcendentals and the modulo (FMOD/FREM) ops decline
-    // (vector-11 trap) until their backends land.
+    // FSCALE/FMOD/FREM/FSGLMUL/FSGLDIV. The transcendentals decline (vector-11
+    // trap) until their backends land.
     if !matches!(
         opmode,
         0x00 | 0x18
@@ -821,6 +821,8 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
             | 0x04
             | 0x1E
             | 0x1F
+            | 0x21
+            | 0x25
             | 0x26
             | 0x38
             | 0x01
@@ -877,6 +879,17 @@ fn apply_fp_opmode(
         // not FMUL/FDIV at single rounding).
         0x27 => cpu.regs.fp[dst] = softfloat::floatx80_sglmul(mode, cpu.regs.fp[dst], source),
         0x24 => cpu.regs.fp[dst] = softfloat::floatx80_sgldiv(mode, cpu.regs.fp[dst], source),
+        // FMOD/FREM: dst = dst mod/rem source, and set the FPSR quotient byte.
+        0x21 => {
+            let r = softfloat::floatx80_mod(80, mode, cpu.regs.fp[dst], source);
+            cpu.regs.fp[dst] = r.value;
+            cpu.regs.set_fpsr_quotient(r.quotient, r.sign);
+        }
+        0x25 => {
+            let r = softfloat::floatx80_rem(80, mode, cpu.regs.fp[dst], source);
+            cpu.regs.fp[dst] = r.value;
+            cpu.regs.set_fpsr_quotient(r.quotient, r.sign);
+        }
         // Unary ops on the source, written to dst.
         0x04 => cpu.regs.fp[dst] = softfloat::floatx80_sqrt(80, mode, source), // FSQRT
         0x1E => cpu.regs.fp[dst] = softfloat::floatx80_getexp(source),         // FGETEXP

@@ -9,8 +9,10 @@
  * validated against softfloat.c (run.sh) and by unit test, not here.
  *
  * Bit-exact against WinUAE: 0=add 1=sub 2=mul 3=div 4=sqrt 5=to_int32 6=to_f32
- * 7=to_f64 8=int32_to 9=float32_to 10=float64_to 11=sglmul 12=sgldiv 20=getexp
- * 21=getman 22=scale. (FREM/FMOD + the transcendentals are the remaining ops.) */
+ * 7=to_f64 8=int32_to 9=float32_to 10=float64_to 11=sglmul 12=sgldiv 13=rem
+ * 14=mod 20=getexp 21=getman 22=scale. For rem/mod the flags column carries the
+ * FPSR quotient byte (sign<<7 | low 7 bits), compared alongside the value.
+ * (The transcendentals are the remaining ops.) */
 #include <cstdint>
 #include <cstdio>
 #include "softfloat/softfloat.h"
@@ -45,6 +47,7 @@ int main(void) {
         a.high = (uint16_t)ah; a.low = al;
         b.high = (uint16_t)bh; b.low = bl;
         unsigned int c_hi = 0; unsigned long long c_lo = 0;
+        unsigned long long c_qbyte = 0; int has_qbyte = 0;
         switch (op) {
             case 0:  z = floatx80_add(a, b, &st);    c_hi = z.high; c_lo = z.low; break;
             case 1:  z = floatx80_sub(a, b, &st);    c_hi = z.high; c_lo = z.low; break;
@@ -62,14 +65,24 @@ int main(void) {
             case 20: z = floatx80_getexp(a, &st);    c_hi = z.high; c_lo = z.low; break;
             case 21: z = floatx80_getman(a, &st);    c_hi = z.high; c_lo = z.low; break;
             case 22: z = floatx80_scale(a, b, &st);  c_hi = z.high; c_lo = z.low; break;
+            case 13: case 14: {
+                uint64_t q = 0; flag s = 0;
+                z = (op == 13) ? floatx80_rem(a, b, &q, &s, &st)
+                               : floatx80_mod(a, b, &q, &s, &st);
+                c_hi = z.high; c_lo = z.low;
+                c_qbyte = (q & 0x7F) | ((unsigned long long)(s ? 1 : 0) << 7);
+                has_qbyte = 1;
+                break;
+            }
             default: break;
         }
-        if (c_hi != r_hi || c_lo != r_lo) {
+        int bad = (c_hi != r_hi || c_lo != r_lo) || (has_qbyte && c_qbyte != r_flags);
+        if (bad) {
             mismatches++;
             if (mismatches <= 20)
                 printf("MISMATCH op=%u mode=%u a=%04x:%016llx b=%04x:%016llx | "
-                       "C=%04x:%016llx  RS=%04x:%016llx\n",
-                       op, mode, ah, al, bh, bl, c_hi, c_lo, r_hi, r_lo);
+                       "C=%04x:%016llx q=%02llx  RS=%04x:%016llx q=%02llx\n",
+                       op, mode, ah, al, bh, bl, c_hi, c_lo, c_qbyte, r_hi, r_lo, r_flags);
         }
     }
     fprintf(stderr, "total=%ld value-mismatches=%ld\n", total, mismatches);

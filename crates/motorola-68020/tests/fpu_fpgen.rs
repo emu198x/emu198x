@@ -1549,3 +1549,33 @@ fn fsgldiv_rounds_result_to_single_precision() {
     // dst (1.0) FSGLDIV src (3.0).
     assert_eq!(r.fp[1], floatx80_sgldiv(NearestEven, ONE, three));
 }
+
+// --- FMOD / FREM (#486, Phase 1) — value + FPSR quotient byte --------------
+
+#[test]
+fn fmod_truncates_quotient_and_sets_quotient_byte() {
+    // 5 FMOD 3: trunc(5/3) = 1, 5 − 1·3 = 2; quotient byte = 1 (sign 0).
+    let five = FpReg::new(0x4001, 0xA000_0000_0000_0000);
+    let three = FpReg::new(0x4000, 0xC000_0000_0000_0000);
+    let two = FpReg::new(0x4000, 0x8000_0000_0000_0000);
+    let r = run(0x21, 0, 1, |cpu| {
+        cpu.regs.fp[0] = three; // source
+        cpu.regs.fp[1] = five; // dst, reduced in place
+    });
+    assert_eq!(r.fp[1], two, "5 FMOD 3 = 2");
+    assert_eq!((r.fpsr >> 16) & 0xFF, 1, "FPSR quotient byte = 1");
+}
+
+#[test]
+fn frem_rounds_quotient_to_nearest_and_sets_quotient_byte() {
+    // 5 FREM 3: round(5/3) = 2, 5 − 2·3 = −1; quotient byte = 2 (sign 0).
+    let five = FpReg::new(0x4001, 0xA000_0000_0000_0000);
+    let three = FpReg::new(0x4000, 0xC000_0000_0000_0000);
+    let neg_one = FpReg::new(0xBFFF, 0x8000_0000_0000_0000);
+    let r = run(0x25, 0, 1, |cpu| {
+        cpu.regs.fp[0] = three;
+        cpu.regs.fp[1] = five;
+    });
+    assert_eq!(r.fp[1], neg_one, "5 FREM 3 = -1");
+    assert_eq!((r.fpsr >> 16) & 0xFF, 2, "FPSR quotient byte = 2");
+}

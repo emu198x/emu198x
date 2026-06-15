@@ -225,6 +225,13 @@ impl Registers {
             | if nan { 0x0100_0000 } else { 0 };
     }
 
+    /// Set the FPSR quotient byte (bits 23-16) from FREM / FMOD: bit 23 is the
+    /// sign of the quotient, bits 22-16 are its seven least-significant bits.
+    pub fn set_fpsr_quotient(&mut self, quotient: u64, sign: bool) {
+        let byte = ((u32::from(sign) << 7) | ((quotient as u32) & 0x7F)) << 16;
+        self.fpsr = (self.fpsr & !0x00FF_0000) | byte;
+    }
+
     /// Apply an operation's exception-status byte to the FPSR. The EXC byte
     /// (bits 15-8: BSUN/SNAN/OPERR/OVFL/UNFL/DZ/INEX2/INEX1) reflects the
     /// most recent operation and is *replaced*; the derived accrued-exception

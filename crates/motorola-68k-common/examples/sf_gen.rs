@@ -69,6 +69,10 @@ fn main() {
         let a = FpReg::new(ah, al);
         let b = FpReg::new(bh, bl);
         sf::clear_exception_flags();
+        // FREM/FMOD emit the FPSR quotient byte (sign<<7 | low 7 bits) in the
+        // flags column instead of the exception flags, so the harness validates
+        // the quotient too.
+        let mut q_byte: Option<u64> = None;
         let (rh, rl): (u16, u64) = match op {
             0 => {
                 let z = sf::floatx80_add(80, mode, a, b);
@@ -136,9 +140,20 @@ fn main() {
                 let z = sf::floatx80_scale(80, mode, a, b);
                 (z.high, z.low)
             }
+            // 13/14: FREM / FMOD — value + quotient byte in the flags column.
+            13 => {
+                let r = sf::floatx80_rem(80, mode, a, b);
+                q_byte = Some((r.quotient & 0x7F) | (u64::from(r.sign) << 7));
+                (r.value.high, r.value.low)
+            }
+            14 => {
+                let r = sf::floatx80_mod(80, mode, a, b);
+                q_byte = Some((r.quotient & 0x7F) | (u64::from(r.sign) << 7));
+                (r.value.high, r.value.low)
+            }
             _ => (0, 0),
         };
-        let flags = sf::take_exception_flags();
+        let flags = q_byte.unwrap_or_else(|| u64::from(sf::take_exception_flags()));
         out.push_str(&format!(
             "{ah:x} {al:x} {bh:x} {bl:x} {m:x} {op:x} {rh:x} {rl:x} {flags:x}\n"
         ));

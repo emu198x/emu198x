@@ -847,6 +847,24 @@ fn add128(a0: u64, a1: u64, b0: u64, b1: u64) -> (u64, u64) {
     (z0, z1)
 }
 
+/// `eq128`: the 128-bit values (`a0`,`a1`) and (`b0`,`b1`) are equal.
+#[must_use]
+fn eq128(a0: u64, a1: u64, b0: u64, b1: u64) -> bool {
+    a0 == b0 && a1 == b1
+}
+
+/// `le128`: (`a0`,`a1`) ≤ (`b0`,`b1`) as unsigned 128-bit values.
+#[must_use]
+fn le128(a0: u64, a1: u64, b0: u64, b1: u64) -> bool {
+    a0 < b0 || (a0 == b0 && a1 <= b1)
+}
+
+/// `lt128`: (`a0`,`a1`) < (`b0`,`b1`) as unsigned 128-bit values.
+#[must_use]
+fn lt128(a0: u64, a1: u64, b0: u64, b1: u64) -> bool {
+    a0 < b0 || (a0 == b0 && a1 < b1)
+}
+
 /// `shift128Right`: shift the 128-bit value (`a0`,`a1`) right by `count`,
 /// dropping bits shifted off (no jamming). Faithful to SoftFloat — its
 /// `count >= 64` arm collapses to zero (only `count == 1` is exercised by
@@ -1276,6 +1294,296 @@ pub fn floatx80_sqrt(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
     let (s0b, z_sig1b) = short_shift128_left(0, z_sig1, 1);
     z_sig0 = s0b | double_z_sig0;
     round_and_pack_floatx80(precision, mode, false, z_exp, z_sig0, z_sig1b)
+}
+
+// --- Remainder / modulo (FREM / FMOD, with the FPSR quotient byte) ---
+
+/// The result of FREM / FMOD: the reduced value plus the seven low quotient
+/// bits and the quotient sign, which the core writes into the FPSR quotient
+/// byte (bit 23 = `sign`, bits 22-16 = `quotient & 0x7F`).
+#[derive(Clone, Copy)]
+pub struct RemResult {
+    pub value: FpReg,
+    pub quotient: u64,
+    pub sign: bool,
+}
+
+/// `floatx80_rem` (FREM): the IEEE remainder of `a` ÷ `b` — `a − n·b` where `n`
+/// is the quotient rounded to the nearest integer.
+#[must_use]
+pub fn floatx80_rem(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> RemResult {
+    let mut a_sig0 = frac(a);
+    let mut a_exp = exp(a);
+    let a_sign = sign(a);
+    let mut b_sig = frac(b);
+    let mut b_exp = exp(b);
+    let b_sign = sign(b);
+
+    let nan = |v: FpReg| RemResult {
+        value: v,
+        quotient: 0,
+        sign: false,
+    };
+
+    if a_exp == 0x7FFF {
+        if a_sig0.wrapping_shl(1) != 0 || (b_exp == 0x7FFF && b_sig.wrapping_shl(1) != 0) {
+            return nan(propagate_floatx80_nan(a, b));
+        }
+        float_raise(flag::INVALID); // ∞ rem y
+        return nan(DEFAULT_NAN);
+    }
+    if b_exp == 0x7FFF {
+        if b_sig.wrapping_shl(1) != 0 {
+            return nan(propagate_floatx80_nan(a, b));
+        }
+        // y rem ∞ = y.
+        let value = normalize_round_and_pack_floatx80(precision, mode, a_sign, a_exp, a_sig0, 0);
+        return RemResult {
+            value,
+            quotient: 0,
+            sign: a_sign != b_sign,
+        };
+    }
+    if b_exp == 0 {
+        if b_sig == 0 {
+            float_raise(flag::INVALID); // y rem 0
+            return nan(DEFAULT_NAN);
+        }
+        let (e, s) = normalize_floatx80_subnormal(b_sig);
+        b_exp = e;
+        b_sig = s;
+    }
+    if a_exp == 0 {
+        if a_sig0 == 0 {
+            return RemResult {
+                value: a,
+                quotient: 0,
+                sign: a_sign != b_sign,
+            };
+        }
+        let (e, s) = normalize_floatx80_subnormal(a_sig0);
+        a_exp = e;
+        a_sig0 = s;
+    }
+    b_sig |= 0x8000_0000_0000_0000;
+    let mut z_sign = a_sign;
+    let mut exp_diff = a_exp - b_exp;
+    let sign = a_sign != b_sign;
+    let mut a_sig1 = 0u64;
+    if exp_diff < 0 {
+        if exp_diff < -1 {
+            return RemResult {
+                value: a,
+                quotient: 0,
+                sign,
+            };
+        }
+        let (s0, s1) = shift128_right(a_sig0, 0, 1);
+        a_sig0 = s0;
+        a_sig1 = s1;
+        exp_diff = 0;
+    }
+    let mut q_temp = u64::from(b_sig <= a_sig0);
+    if q_temp != 0 {
+        a_sig0 = a_sig0.wrapping_sub(b_sig);
+    }
+    let mut q = if exp_diff > 63 {
+        0
+    } else {
+        q_temp.wrapping_shl(exp_diff as u32)
+    };
+    exp_diff -= 64;
+    while 0 < exp_diff {
+        q_temp = estimate_div128_to_64(a_sig0, a_sig1, b_sig);
+        q_temp = q_temp.saturating_sub(2);
+        let (term0, term1) = mul64_to_128(b_sig, q_temp);
+        let (s0, s1) = sub128(a_sig0, a_sig1, term0, term1);
+        let (s0b, s1b) = short_shift128_left(s0, s1, 62);
+        a_sig0 = s0b;
+        a_sig1 = s1b;
+        q = if exp_diff > 63 {
+            0
+        } else {
+            q_temp.wrapping_shl(exp_diff as u32)
+        };
+        exp_diff -= 62;
+    }
+    exp_diff += 64;
+    let term0;
+    let term1;
+    if 0 < exp_diff {
+        q_temp = estimate_div128_to_64(a_sig0, a_sig1, b_sig);
+        q_temp = q_temp.saturating_sub(2);
+        q_temp >>= 64 - exp_diff;
+        let (t0, t1) = mul64_to_128(b_sig, q_temp << (64 - exp_diff));
+        let (s0, s1) = sub128(a_sig0, a_sig1, t0, t1);
+        a_sig0 = s0;
+        a_sig1 = s1;
+        let (bt0, bt1) = short_shift128_left(0, b_sig, 64 - exp_diff);
+        while le128(bt0, bt1, a_sig0, a_sig1) {
+            q_temp += 1;
+            let (s0c, s1c) = sub128(a_sig0, a_sig1, bt0, bt1);
+            a_sig0 = s0c;
+            a_sig1 = s1c;
+        }
+        q = q.wrapping_add(q_temp);
+        term0 = bt0;
+        term1 = bt1;
+    } else {
+        term1 = 0;
+        term0 = b_sig;
+    }
+    // Round the quotient to nearest: if the remainder is more than half of |b|
+    // (or exactly half with an odd quotient), take the complement.
+    let (alt0, alt1) = sub128(term0, term1, a_sig0, a_sig1);
+    if lt128(alt0, alt1, a_sig0, a_sig1) || (eq128(alt0, alt1, a_sig0, a_sig1) && (q_temp & 1) != 0)
+    {
+        a_sig0 = alt0;
+        a_sig1 = alt1;
+        z_sign = !z_sign;
+        q = q.wrapping_add(1);
+    }
+    let value = normalize_round_and_pack_floatx80(
+        precision,
+        mode,
+        z_sign,
+        b_exp + exp_diff,
+        a_sig0,
+        a_sig1,
+    );
+    RemResult {
+        value,
+        quotient: q,
+        sign,
+    }
+}
+
+/// `floatx80_mod` (FMOD): the modulo remainder of `a` ÷ `b` — like FREM but the
+/// quotient is truncated toward zero rather than rounded to nearest.
+#[must_use]
+pub fn floatx80_mod(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> RemResult {
+    let mut a_sig0 = frac(a);
+    let mut a_exp = exp(a);
+    let a_sign = sign(a);
+    let mut b_sig = frac(b);
+    let mut b_exp = exp(b);
+    let b_sign = sign(b);
+
+    let nan = |v: FpReg| RemResult {
+        value: v,
+        quotient: 0,
+        sign: false,
+    };
+
+    if a_exp == 0x7FFF {
+        if a_sig0.wrapping_shl(1) != 0 || (b_exp == 0x7FFF && b_sig.wrapping_shl(1) != 0) {
+            return nan(propagate_floatx80_nan(a, b));
+        }
+        float_raise(flag::INVALID);
+        return nan(DEFAULT_NAN);
+    }
+    if b_exp == 0x7FFF {
+        if b_sig.wrapping_shl(1) != 0 {
+            return nan(propagate_floatx80_nan(a, b));
+        }
+        let value = normalize_round_and_pack_floatx80(precision, mode, a_sign, a_exp, a_sig0, 0);
+        return RemResult {
+            value,
+            quotient: 0,
+            sign: a_sign != b_sign,
+        };
+    }
+    if b_exp == 0 {
+        if b_sig == 0 {
+            float_raise(flag::INVALID);
+            return nan(DEFAULT_NAN);
+        }
+        let (e, s) = normalize_floatx80_subnormal(b_sig);
+        b_exp = e;
+        b_sig = s;
+    }
+    if a_exp == 0 {
+        if a_sig0 == 0 {
+            return RemResult {
+                value: a,
+                quotient: 0,
+                sign: a_sign != b_sign,
+            };
+        }
+        let (e, s) = normalize_floatx80_subnormal(a_sig0);
+        a_exp = e;
+        a_sig0 = s;
+    }
+    b_sig |= 0x8000_0000_0000_0000;
+    let z_sign = a_sign;
+    let mut exp_diff = a_exp - b_exp;
+    let sign = a_sign != b_sign;
+    let mut a_sig1 = 0u64;
+    if exp_diff < 0 {
+        // |a| < |b| already — FMOD leaves a untouched (truncated quotient 0).
+        let value = round_and_pack_floatx80(precision, mode, a_sign, a_exp, a_sig0, 0);
+        return RemResult {
+            value,
+            quotient: 0,
+            sign,
+        };
+    }
+    let mut q_temp = u64::from(b_sig <= a_sig0);
+    if q_temp != 0 {
+        a_sig0 = a_sig0.wrapping_sub(b_sig);
+    }
+    let mut q = if exp_diff > 63 {
+        0
+    } else {
+        q_temp.wrapping_shl(exp_diff as u32)
+    };
+    exp_diff -= 64;
+    while 0 < exp_diff {
+        q_temp = estimate_div128_to_64(a_sig0, a_sig1, b_sig);
+        q_temp = q_temp.saturating_sub(2);
+        let (term0, term1) = mul64_to_128(b_sig, q_temp);
+        let (s0, s1) = sub128(a_sig0, a_sig1, term0, term1);
+        let (s0b, s1b) = short_shift128_left(s0, s1, 62);
+        a_sig0 = s0b;
+        a_sig1 = s1b;
+        q = if exp_diff > 63 {
+            0
+        } else {
+            q_temp.wrapping_shl(exp_diff as u32)
+        };
+        exp_diff -= 62;
+    }
+    exp_diff += 64;
+    if 0 < exp_diff {
+        q_temp = estimate_div128_to_64(a_sig0, a_sig1, b_sig);
+        q_temp = q_temp.saturating_sub(2);
+        q_temp >>= 64 - exp_diff;
+        let (t0, t1) = mul64_to_128(b_sig, q_temp << (64 - exp_diff));
+        let (s0, s1) = sub128(a_sig0, a_sig1, t0, t1);
+        a_sig0 = s0;
+        a_sig1 = s1;
+        let (bt0, bt1) = short_shift128_left(0, b_sig, 64 - exp_diff);
+        while le128(bt0, bt1, a_sig0, a_sig1) {
+            q_temp += 1;
+            let (s0c, s1c) = sub128(a_sig0, a_sig1, bt0, bt1);
+            a_sig0 = s0c;
+            a_sig1 = s1c;
+        }
+        q = q.wrapping_add(q_temp);
+    }
+    let value = normalize_round_and_pack_floatx80(
+        precision,
+        mode,
+        z_sign,
+        b_exp + exp_diff,
+        a_sig0,
+        a_sig1,
+    );
+    RemResult {
+        value,
+        quotient: q,
+        sign,
+    }
 }
 
 // --- FPSP exponent / mantissa / scale (WinUAE softfloat, Andreas Grabher) ---
@@ -2182,6 +2490,27 @@ mod tests {
     fn sgldiv_exact_small_values() {
         assert_eq!(floatx80_sgldiv(RN, fx(6), fx(2)), fx(3));
         assert_eq!(floatx80_sgldiv(RN, fx(-6), fx(2)), fx(-3));
+    }
+
+    #[test]
+    fn rem_rounds_quotient_to_nearest() {
+        // 5 rem 3: round(5/3) = 2 → 5 − 6 = −1, quotient 2.
+        let r = floatx80_rem(P80, RN, fx(5), fx(3));
+        assert_eq!(r.value, fx(-1));
+        assert_eq!(r.quotient & 0x7F, 2);
+        assert!(!r.sign);
+    }
+
+    #[test]
+    fn mod_truncates_quotient() {
+        // 5 mod 3: trunc(5/3) = 1 → 5 − 3 = 2, quotient 1.
+        let r = floatx80_mod(P80, RN, fx(5), fx(3));
+        assert_eq!(r.value, fx(2));
+        assert_eq!(r.quotient & 0x7F, 1);
+        assert!(!r.sign);
+        // Sign of the quotient tracks operand signs.
+        let r2 = floatx80_mod(P80, RN, fx(-5), fx(3));
+        assert!(r2.sign);
     }
 
     #[test]
