@@ -1064,6 +1064,26 @@ fn handle_fp_mem_exec(cpu: &mut Cpu68000) {
     use motorola_68k_common::registers::FpReg;
     use motorola_68k_common::softfloat::{self, RoundingMode};
 
+    // Control-register move (FMOVE.L ea,FPcr): the 0xFF format sentinel
+    // means the 32-bit operand goes to a control register (mask in
+    // fp_mem_dst), not an Fpn.
+    if cpu.fp_mem_format == 0xFF {
+        let value = cpu.fp_mem_buf as u32;
+        let mask = cpu.fp_mem_dst;
+        if mask & 4 != 0 {
+            cpu.regs.fpcr = value;
+        }
+        if mask & 2 != 0 {
+            cpu.regs.fpsr = value;
+        }
+        if mask & 1 != 0 {
+            cpu.regs.fpiar = value;
+        }
+        cpu.fp_mem_format = 0;
+        cpu.in_followup = false;
+        return;
+    }
+
     let buf = cpu.fp_mem_buf;
     let source = match cpu.fp_mem_format {
         0 => softfloat::int32_to_floatx80(buf as u32 as i32), // Long
@@ -1339,55 +1359,102 @@ fn execute_fscc(cpu: &mut Cpu68000, opcode: u16) -> bool {
 /// immediate EAs decline (vector-11 trap) until the EA chain is wired.
 fn execute_fmove_control(cpu: &mut Cpu68000, w2: u16) -> bool {
     let dir = (w2 >> 13) & 1;
-    let reg_mask = (w2 >> 10) & 7;
+    let reg_mask = ((w2 >> 10) & 7) as u8;
     let ea_mode = ((cpu.ir >> 3) & 7) as u8;
-    if !matches!(ea_mode, 0 | 1) {
-        return false; // register-direct only for now
-    }
+    let ea_reg = (cpu.ir & 7) as u8;
 
-    let _ = cpu.consume_irc();
-    let ea_reg = (cpu.ir & 7) as usize;
-
-    if dir == 0 {
-        // ea → control register(s). For a Dn/An source the same value
-        // feeds every selected register (only one is set in practice).
-        let value = if ea_mode == 0 {
-            cpu.regs.d[ea_reg]
-        } else {
-            cpu.regs.a(ea_reg)
-        };
-        if reg_mask & 4 != 0 {
-            cpu.regs.fpcr = value;
-        }
-        if reg_mask & 2 != 0 {
-            cpu.regs.fpsr = value;
-        }
-        if reg_mask & 1 != 0 {
-            cpu.regs.fpiar = value;
-        }
-    } else {
-        // control register → ea. Musashi writes FPCR, then FPSR, then
-        // FPIAR; for a register-direct destination the last selected one
-        // wins, so fold them in that order.
-        let mut value = None;
-        if reg_mask & 4 != 0 {
-            value = Some(cpu.regs.fpcr);
-        }
-        if reg_mask & 2 != 0 {
-            value = Some(cpu.regs.fpsr);
-        }
-        if reg_mask & 1 != 0 {
-            value = Some(cpu.regs.fpiar);
-        }
-        if let Some(value) = value {
-            if ea_mode == 0 {
-                cpu.regs.d[ea_reg] = value;
+    // Register-direct (Dn / An): the transfer is synchronous and carries
+    // whichever control register(s) the mask selects.
+    if matches!(ea_mode, 0 | 1) {
+        let _ = cpu.consume_irc();
+        let r = ea_reg as usize;
+        if dir == 0 {
+            // ea → control register(s). For a Dn/An source the same value
+            // feeds every selected register (only one is set in practice).
+            let value = if ea_mode == 0 {
+                cpu.regs.d[r]
             } else {
-                cpu.regs.set_a(ea_reg, value);
+                cpu.regs.a(r)
+            };
+            if reg_mask & 4 != 0 {
+                cpu.regs.fpcr = value;
+            }
+            if reg_mask & 2 != 0 {
+                cpu.regs.fpsr = value;
+            }
+            if reg_mask & 1 != 0 {
+                cpu.regs.fpiar = value;
+            }
+        } else {
+            // control register → ea (last selected wins for a register
+            // destination, per Musashi's FPCR/FPSR/FPIAR write order).
+            let value = control_reg_value(cpu, reg_mask);
+            if let Some(value) = value {
+                if ea_mode == 0 {
+                    cpu.regs.d[r] = value;
+                } else {
+                    cpu.regs.set_a(r, value);
+                }
             }
         }
+        return true;
+    }
+
+    // Memory: a single control register transferred as one 32-bit
+    // longword, instant addressing modes only ((An)/(An)+/-(An)). The
+    // multi-register and static-mode forms decline for now.
+    if reg_mask.count_ones() != 1 || !matches!(ea_mode, 2..=4) {
+        return false;
+    }
+    let _ = cpu.consume_irc();
+    let r = ea_reg as usize;
+    let step = 4u32;
+    let base = match ea_mode {
+        2 => cpu.regs.a(r),
+        3 => {
+            let a = cpu.regs.a(r);
+            cpu.regs.set_a(r, a.wrapping_add(step));
+            a
+        }
+        _ => {
+            let a = cpu.regs.a(r).wrapping_sub(step);
+            cpu.regs.set_a(r, a);
+            a
+        }
+    };
+    cpu.fp_mem_bytes_total = 4;
+    cpu.addr = base;
+    cpu.in_followup = true;
+    if dir == 1 {
+        // control register → memory: a plain 4-byte store.
+        cpu.fp_mem_buf = u128::from(control_reg_value(cpu, reg_mask).unwrap_or(0));
+        start_fp_write(cpu);
+    } else {
+        // memory → control register: read 4 bytes, then write the control
+        // register at TAG_V_FP_MEM_EXEC. The 0xFF format is a sentinel for
+        // "control move" so the exec writes a control register instead of
+        // an Fpn; the register mask rides in fp_mem_dst.
+        cpu.fp_mem_format = 0xFF;
+        cpu.fp_mem_dst = reg_mask;
+        start_fp_read(cpu);
     }
     true
+}
+
+/// The value of the (single) control register selected by `mask`, in
+/// Musashi's FPCR → FPSR → FPIAR fold order (last selected wins).
+fn control_reg_value(cpu: &Cpu68000, mask: u8) -> Option<u32> {
+    let mut value = None;
+    if mask & 4 != 0 {
+        value = Some(cpu.regs.fpcr);
+    }
+    if mask & 2 != 0 {
+        value = Some(cpu.regs.fpsr);
+    }
+    if mask & 1 != 0 {
+        value = Some(cpu.regs.fpiar);
+    }
+    value
 }
 
 /// Finish CAS once the destination has been read into `self.data`.

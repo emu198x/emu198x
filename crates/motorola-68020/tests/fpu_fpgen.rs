@@ -210,11 +210,106 @@ fn run_ctrl(opcode: u16, w2: u16, seed: impl FnOnce(&mut Cpu68020)) -> Ctrl {
     panic!("FMOVE control op did not complete");
 }
 
+/// Run a FMOVE ea → FPcr that loads from memory at `addr`, returning the
+/// control + data + address registers.
+fn run_ctrl_mem(
+    opcode: u16,
+    w2: u16,
+    addr: u32,
+    bytes: &[u8],
+    seed: impl FnOnce(&mut Cpu68020),
+) -> Ctrl {
+    let mut cpu = Cpu68020::new();
+    let mut mem = Mem::new();
+    mem.write_word(PC, opcode);
+    mem.write_word(PC + 2, w2);
+    for (i, &b) in bytes.iter().enumerate() {
+        mem.bytes.insert((addr + i as u32) & 0x00FF_FFFF, b);
+    }
+
+    cpu.set_fpu_present(true);
+    cpu.regs.sr |= 0x2000;
+    cpu.regs.ssp = 0x0000_8000;
+    cpu.regs.set_active_sp(0x0000_8000);
+    seed(&mut cpu);
+    cpu.regs.pc = PC + 4;
+    cpu.setup_prefetch(opcode, w2);
+
+    let start = cpu.instruction_starts;
+    for _ in 0..400 {
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.instruction_starts > start {
+            return Ctrl {
+                fpcr: cpu.regs.fpcr,
+                fpsr: cpu.regs.fpsr,
+                fpiar: cpu.regs.fpiar,
+                d: cpu.regs.d,
+                a: cpu.regs.a,
+            };
+        }
+    }
+    panic!("FMOVE control-mem op did not complete");
+}
+
 #[test]
 fn fmove_dn_to_fpcr() {
     // FMOVE.L D0,FPCR — opcode $F200 (D0), ea→reg, mask = FPCR.
     let r = run_ctrl(0xF200, ctrl_ext(0, 4), |cpu| cpu.regs.d[0] = 0x0000_0030);
     assert_eq!(r.fpcr, 0x0000_0030, "D0 → FPCR");
+}
+
+#[test]
+fn fmove_memory_to_fpcr() {
+    // FMOVE.L (A0),FPCR — opcode $F210 (A0), ea→reg, mask = FPCR.
+    let r = run_ctrl_mem(
+        0xF210,
+        ctrl_ext(0, 4),
+        DATA,
+        &[0x00, 0x00, 0x00, 0x30],
+        |cpu| {
+            cpu.regs.set_a(0, DATA);
+        },
+    );
+    assert_eq!(r.fpcr, 0x0000_0030, "(A0) → FPCR");
+}
+
+#[test]
+fn fmove_fpcr_to_memory() {
+    // FMOVE.L FPCR,(A0) → 4 bytes at (A0). reg→ea, mask = FPCR.
+    let (_r, mem) = run_store(0xF210, ctrl_ext(1, 4), |cpu| {
+        cpu.regs.set_a(0, DATA);
+        cpu.regs.fpcr = 0x0000_0030;
+    });
+    assert_eq!(read_bytes(&mem, DATA, 4), [0x00, 0x00, 0x00, 0x30]);
+}
+
+#[test]
+fn fmove_fpsr_postincrement_from_memory() {
+    // FMOVE.L (A0)+,FPSR — opcode $F218 (mode 3), ea→reg. A0 advances 4.
+    let r = run_ctrl_mem(
+        0xF218,
+        ctrl_ext(0, 2),
+        DATA,
+        &[0x0F, 0x00, 0x00, 0x00],
+        |cpu| {
+            cpu.regs.set_a(0, DATA);
+        },
+    );
+    assert_eq!(r.fpsr, 0x0F00_0000, "(A0)+ → FPSR");
+    assert_eq!(r.a[0], DATA + 4, "(A0)+ steps by 4");
+}
+
+#[test]
+fn fmove_fpiar_to_predecrement_memory() {
+    // FMOVE.L FPIAR,-(A0) — opcode $F220 (mode 4), reg→ea. A0 = DATA+4 →
+    // pre-decrements to DATA.
+    let (r, mem) = run_store(0xF220, ctrl_ext(1, 1), |cpu| {
+        cpu.regs.set_a(0, DATA + 4);
+        cpu.regs.fpiar = 0x0001_2340;
+    });
+    assert_eq!(r.a[0], DATA, "-(A0) steps back by 4");
+    assert_eq!(read_bytes(&mem, DATA, 4), [0x00, 0x01, 0x23, 0x40]);
 }
 
 // --- FScc Dn (op-class 1): set a byte on the FP condition ---
