@@ -85,6 +85,11 @@ pub enum InstructionSetup {
     /// `ceil(size/2)` words. Exercises the inline-read path
     /// (`TAG_V_FP_IMM_READ`), distinct from the EA fetch.
     FpGenImm { opmode: u8, format: u8 },
+    /// 68881/2 register-to-memory store via a non-`(An)` addressing mode:
+    /// `(A0)+` (3), `-(A0)` (4) or `d16(A0)` (5). Exercises the store
+    /// byte-pipeline with pointer writeback and the static-EA store path
+    /// through `calc_ea_start` (fp_mem_store), which `(An)` store does not.
+    FpStoreMemMode { format: u8, ea_mode: u8 },
 }
 
 impl InstructionDef {
@@ -99,6 +104,7 @@ impl InstructionDef {
                 | InstructionSetup::FpMoveCr
                 | InstructionSetup::FpGenMemMode { .. }
                 | InstructionSetup::FpGenImm { .. }
+                | InstructionSetup::FpStoreMemMode { .. }
         )
     }
 }
@@ -1055,6 +1061,31 @@ pub fn fp_catalogue(_cpu_type: u32) -> Vec<InstructionDef> {
                 opmode: 0x22,
                 format,
             },
+            min_cpu: musashi::M68K_CPU_TYPE_68020,
+        });
+    }
+
+    // Register-to-memory store via non-(An) modes: (A0)+ across formats
+    // (store byte-pipeline step + writeback), -(A0), and d16(A0) (the
+    // static-EA store path through calc_ea_start with fp_mem_store).
+    for &(name, format, ea_mode) in &[
+        ("FMOVE.B_store_postinc", 6u8, 3u8),
+        ("FMOVE.W_store_postinc", 4, 3),
+        ("FMOVE.L_store_postinc", 0, 3),
+        ("FMOVE.S_store_postinc", 1, 3),
+        ("FMOVE.D_store_postinc", 5, 3),
+        ("FMOVE.X_store_postinc", 2, 3),
+        ("FMOVE.S_store_predec", 1, 4),
+        ("FMOVE.X_store_predec", 2, 4),
+        ("FMOVE.S_store_d16", 1, 5),
+        ("FMOVE.D_store_d16", 5, 5),
+    ] {
+        let ext_words = if ea_mode == 5 { 2 } else { 1 };
+        defs.push(InstructionDef {
+            name,
+            opcode: 0xF200 | (u16::from(ea_mode) << 3), // EA reg 0 → A0
+            ext_words,
+            setup: InstructionSetup::FpStoreMemMode { format, ea_mode },
             min_cpu: musashi::M68K_CPU_TYPE_68020,
         });
     }

@@ -243,6 +243,23 @@ fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: 
                 }
             }
         }
+
+        // Non-(An) store modes: set A0 (and d16) so the store target is a
+        // clear, even address. No operand is seeded — the store writes it.
+        // The core/Musashi compute the post-inc/pre-dec step themselves.
+        if let InstructionSetup::FpStoreMemMode { ea_mode, .. } = def.setup {
+            if ea_mode == 5 {
+                // d16(A0): back-compute A0 so A0 + d16 == an even target.
+                let target = random_data_addr(rng);
+                let d16: i16 = rng.random::<i16>() & !1;
+                let a0 = ((i64::from(target) - i64::from(d16)) as u32) & 0x00FF_FFFF;
+                musashi::set_reg(musashi::M68K_REG_A0, a0);
+                memory::poke_word(CODE_BASE + 4, d16 as u16);
+            } else {
+                // (A0)+ / -(A0): A0 at an even data address.
+                musashi::set_reg(musashi::M68K_REG_A0, random_data_addr(rng));
+            }
+        }
     }
 
     // Capture initial state
@@ -442,6 +459,14 @@ fn encode_instruction(
             // generate_one's FP block (it owns the register values).
             let dst: u16 = rng.random_range(0..8);
             let ext = 0x4000 | (u16::from(format) << 10) | (dst << 7) | u16::from(opmode);
+            memory::poke_word(pc.wrapping_add(2), ext);
+            None
+        }
+        InstructionSetup::FpStoreMemMode { format, .. } => {
+            // Store ext word (sub-op 3); EA mode is in the opcode, the
+            // address + any displacement are set in generate_one's FP block.
+            let src: u16 = rng.random_range(0..8);
+            let ext = 0x6000 | (u16::from(format) << 10) | (src << 7);
             memory::poke_word(pc.wrapping_add(2), ext);
             None
         }
