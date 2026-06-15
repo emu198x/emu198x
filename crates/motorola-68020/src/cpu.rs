@@ -762,12 +762,13 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
 
     // cpGEN sub-op (Musashi `m68040_fpu_op0`), bits 15-13 of the extension
     // word: 0 = ALU FP,FP; 2 = ALU ea,FP (both `fpgen_rm_reg`); 3 = FMOVE
-    // FPn → ea (store); 4/5 = FMOVE(M) FPCR↔ea; 6/7 = FMOVEM list↔ea. The
-    // FMOVEM/FPCR forms aren't wired yet.
+    // FPn → ea (store); 4/5 = FMOVE FPCR/FPSR/FPIAR ↔ ea; 6/7 = FMOVEM
+    // register list ↔ ea (not wired yet).
     match (w2 >> 13) & 7 {
-        0 | 2 => {}                            // fall through to fpgen_rm_reg
-        3 => return begin_fp_store(cpu, mode), // FMOVE FPn → memory
-        _ => return false,                     // FMOVEM / FPCR — vector 11
+        0 | 2 => {}                                     // fall through to fpgen_rm_reg
+        3 => return begin_fp_store(cpu, mode),          // FMOVE FPn → memory
+        4 | 5 => return execute_fmove_control(cpu, w2), // FMOVE FPcr ↔ ea
+        _ => return false,                              // FMOVEM list — vector 11
     }
 
     let rm = (w2 >> 14) & 1;
@@ -1199,6 +1200,69 @@ fn handle_fbcc_l(cpu: &mut Cpu68000) {
         cpu.micro_ops.push(MicroOp::FetchIRC);
     }
     cpu.in_followup = false;
+}
+
+/// FMOVE FPCR/FPSR/FPIAR ↔ `<ea>` (cpGEN sub-op 4/5, Musashi
+/// `fmove_fpcr`). The extension word's register mask (bits 12-10) selects
+/// the control register(s): bit 2 = FPCR, bit 1 = FPSR, bit 0 = FPIAR;
+/// bit 13 (the sub-op's low bit) gives the direction (0 = ea → register,
+/// 1 = register → ea). Each transfer is a 32-bit longword.
+///
+/// Only the register-direct EA modes (Dn / An) are wired so far — the
+/// common `FMOVE.L D0,FPCR` / `FMOVE.L FPSR,D0` idioms, which need no
+/// memory access and carry exactly one control register. Memory and
+/// immediate EAs decline (vector-11 trap) until the EA chain is wired.
+fn execute_fmove_control(cpu: &mut Cpu68000, w2: u16) -> bool {
+    let dir = (w2 >> 13) & 1;
+    let reg_mask = (w2 >> 10) & 7;
+    let ea_mode = ((cpu.ir >> 3) & 7) as u8;
+    if !matches!(ea_mode, 0 | 1) {
+        return false; // register-direct only for now
+    }
+
+    let _ = cpu.consume_irc();
+    let ea_reg = (cpu.ir & 7) as usize;
+
+    if dir == 0 {
+        // ea → control register(s). For a Dn/An source the same value
+        // feeds every selected register (only one is set in practice).
+        let value = if ea_mode == 0 {
+            cpu.regs.d[ea_reg]
+        } else {
+            cpu.regs.a(ea_reg)
+        };
+        if reg_mask & 4 != 0 {
+            cpu.regs.fpcr = value;
+        }
+        if reg_mask & 2 != 0 {
+            cpu.regs.fpsr = value;
+        }
+        if reg_mask & 1 != 0 {
+            cpu.regs.fpiar = value;
+        }
+    } else {
+        // control register → ea. Musashi writes FPCR, then FPSR, then
+        // FPIAR; for a register-direct destination the last selected one
+        // wins, so fold them in that order.
+        let mut value = None;
+        if reg_mask & 4 != 0 {
+            value = Some(cpu.regs.fpcr);
+        }
+        if reg_mask & 2 != 0 {
+            value = Some(cpu.regs.fpsr);
+        }
+        if reg_mask & 1 != 0 {
+            value = Some(cpu.regs.fpiar);
+        }
+        if let Some(value) = value {
+            if ea_mode == 0 {
+                cpu.regs.d[ea_reg] = value;
+            } else {
+                cpu.regs.set_a(ea_reg, value);
+            }
+        }
+    }
+    true
 }
 
 /// Finish CAS once the destination has been read into `self.data`.

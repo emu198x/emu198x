@@ -162,6 +162,109 @@ fn mem_ext(format: u16, dst: u16, opmode: u16) -> u16 {
     0x4000 | (format << 10) | (dst << 7) | opmode
 }
 
+/// Control register set captured after a FMOVE FPcr ↔ ea.
+struct Ctrl {
+    fpcr: u32,
+    fpsr: u32,
+    fpiar: u32,
+    d: [u32; 8],
+    a: [u32; 7],
+}
+
+/// FMOVE-control extension word. `dir`: 0 = ea → reg (sub-op 4), 1 = reg →
+/// ea (sub-op 5). `reg_mask`: bit 2 = FPCR, bit 1 = FPSR, bit 0 = FPIAR.
+fn ctrl_ext(dir: u16, reg_mask: u16) -> u16 {
+    0x8000 | (dir << 13) | (reg_mask << 10)
+}
+
+/// Run a FMOVE FPcr ↔ ea op (opcode carries the EA bits) and return the
+/// control + data + address registers.
+fn run_ctrl(opcode: u16, w2: u16, seed: impl FnOnce(&mut Cpu68020)) -> Ctrl {
+    let mut cpu = Cpu68020::new();
+    let mut mem = Mem::new();
+    mem.write_word(PC, opcode);
+    mem.write_word(PC + 2, w2);
+
+    cpu.set_fpu_present(true);
+    cpu.regs.sr |= 0x2000;
+    cpu.regs.ssp = 0x0000_8000;
+    cpu.regs.set_active_sp(0x0000_8000);
+    seed(&mut cpu);
+    cpu.regs.pc = PC + 4;
+    cpu.setup_prefetch(opcode, w2);
+
+    let start = cpu.instruction_starts;
+    for _ in 0..400 {
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.instruction_starts > start {
+            return Ctrl {
+                fpcr: cpu.regs.fpcr,
+                fpsr: cpu.regs.fpsr,
+                fpiar: cpu.regs.fpiar,
+                d: cpu.regs.d,
+                a: cpu.regs.a,
+            };
+        }
+    }
+    panic!("FMOVE control op did not complete");
+}
+
+#[test]
+fn fmove_dn_to_fpcr() {
+    // FMOVE.L D0,FPCR — opcode $F200 (D0), ea→reg, mask = FPCR.
+    let r = run_ctrl(0xF200, ctrl_ext(0, 4), |cpu| cpu.regs.d[0] = 0x0000_0030);
+    assert_eq!(r.fpcr, 0x0000_0030, "D0 → FPCR");
+}
+
+#[test]
+fn fmove_dn_to_fpsr_and_fpiar() {
+    let r = run_ctrl(0xF201, ctrl_ext(0, 2), |cpu| cpu.regs.d[1] = 0x0F00_0000);
+    assert_eq!(r.fpsr, 0x0F00_0000, "D1 → FPSR");
+
+    let r = run_ctrl(0xF202, ctrl_ext(0, 1), |cpu| cpu.regs.d[2] = 0x0000_1000);
+    assert_eq!(r.fpiar, 0x0000_1000, "D2 → FPIAR");
+}
+
+#[test]
+fn fmove_fpcr_to_dn() {
+    // FMOVE.L FPCR,D3 — reg→ea, mask = FPCR.
+    let r = run_ctrl(0xF203, ctrl_ext(1, 4), |cpu| {
+        cpu.regs.fpcr = 0x0000_0020;
+        cpu.regs.d[3] = 0xDEAD_BEEF;
+    });
+    assert_eq!(r.d[3], 0x0000_0020, "FPCR → D3");
+}
+
+#[test]
+fn fmove_fpsr_to_dn() {
+    let r = run_ctrl(0xF204, ctrl_ext(1, 2), |cpu| {
+        cpu.regs.fpsr = 0x0800_0000; // some FPCC bits
+        cpu.regs.d[4] = 0;
+    });
+    assert_eq!(r.d[4], 0x0800_0000, "FPSR → D4");
+}
+
+#[test]
+fn fmove_control_to_an() {
+    // FMOVE.L FPIAR,A1 — reg→ea with An destination (mode 1, opcode
+    // $F209). FPIAR holds an instruction address.
+    let r = run_ctrl(0xF209, ctrl_ext(1, 1), |cpu| {
+        cpu.regs.fpiar = 0x0001_2340;
+        cpu.regs.set_a(1, 0);
+    });
+    assert_eq!(r.a[1], 0x0001_2340, "FPIAR → A1");
+}
+
+#[test]
+fn fmove_dn_to_fpcr_changes_rounding() {
+    // Writing FPCR sets the rounding mode used by subsequent ops. Mode
+    // bits are 5-4; 0x10 = toward zero. We only check the register lands;
+    // the rounding behaviour is covered by the softfloat tests.
+    let r = run_ctrl(0xF205, ctrl_ext(0, 4), |cpu| cpu.regs.d[5] = 0x0000_0010);
+    assert_eq!(r.fpcr & 0x30, 0x10, "FPCR MODE field = toward-zero");
+}
+
 /// Run a cpGEN op with a memory source: `opcode` carries the EA bits,
 /// `w2` the FP extension word, `a` the address-register values, and
 /// `bytes` the big-endian operand placed at `0x2000`.
