@@ -186,9 +186,13 @@ fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: 
     musashi::set_fpiar(0);
 
     // FP instructions seed all eight FP registers with random operands on
-    // top of the cleared baseline. FPCR stays 0 (round-to-nearest, extended
-    // precision) for this corpus.
+    // top of the cleared baseline, and pick a random rounding mode (FPCR
+    // bits 5-4: nearest/zero/down/up). Precision stays extended (bits 7-6
+    // = 0) — the 68881/2 core always computes in extended, matching the
+    // 68040 oracle when its FPCR precision is extended.
     if def.is_fp() {
+        let rmode: u32 = rng.random_range(0..4);
+        musashi::set_fpcr(rmode << 4);
         seed_fp_operands(rng);
     }
 
