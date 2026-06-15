@@ -717,6 +717,33 @@ fn fsqrt_of_negative_sets_nan() {
 }
 
 #[test]
+fn fgetexp_extracts_exponent() {
+    // FGETEXP (opmode 0x1E) is unary on the source → dst. 6.0 = 1.5 × 2^2 →
+    // exponent 2.0.
+    let six = FpReg::new(0x4001, 0xC000_0000_0000_0000);
+    let two = FpReg::new(0x4000, 0x8000_0000_0000_0000);
+    let r = run(0x1E, 1, 2, |cpu| {
+        cpu.regs.fp[1] = six;
+        cpu.regs.fp[2] = NEG_ONE; // overwritten
+    });
+    assert_eq!(r.fp[2], two, "FGETEXP 6.0 → 2.0");
+}
+
+#[test]
+fn fscale_scales_by_power_of_two() {
+    // FSCALE (opmode 0x26) computes dst × 2^(int part of source): 1.0 scaled
+    // by 3.0 → 8.0.
+    let one = FpReg::new(0x3FFF, 0x8000_0000_0000_0000);
+    let three = FpReg::new(0x4000, 0xC000_0000_0000_0000);
+    let eight = FpReg::new(0x4002, 0x8000_0000_0000_0000);
+    let r = run(0x26, 1, 2, |cpu| {
+        cpu.regs.fp[1] = three; // source = scale amount
+        cpu.regs.fp[2] = one; // dst = value scaled, in place
+    });
+    assert_eq!(r.fp[2], eight, "FSCALE 1.0 by 3 → 8.0");
+}
+
+#[test]
 fn fgetman_extracts_mantissa() {
     // FGETMAN (opmode 0x1F) is unary on the source → dst. 6.0 = 1.5 × 2^2,
     // so the mantissa in [1.0, 2.0) is 1.5.
@@ -1435,14 +1462,16 @@ fn exact_add_sets_no_exceptions() {
 }
 
 #[test]
-fn overflow_sets_ovfl_and_inex2() {
-    // HUGE + HUGE overflows: EXC OVFL(0x10) | INEX2(0x02); AEXC OVFL(0x40) |
-    // INEX(0x08).
+fn overflow_sets_ovfl() {
+    // HUGE + HUGE overflows. The 68881/2 raises OVFL unconditionally but
+    // INEX2 only when significand bits are discarded; 2×HUGE is exact, so
+    // EXC = OVFL(0x10) alone. AEXC.INEX still accrues from EXC.OVFL, so
+    // AEXC = OVFL(0x40) | INEX(0x08).
     let r = run(0x22, 0, 1, |cpu| {
         cpu.regs.fp[0] = HUGE;
         cpu.regs.fp[1] = HUGE;
     });
-    assert_eq!(exc(r.fpsr), 0x12, "EXC = OVFL | INEX2");
+    assert_eq!(exc(r.fpsr), 0x10, "EXC = OVFL");
     assert_eq!(aexc(r.fpsr), 0x48, "AEXC = OVFL | INEX");
 }
 

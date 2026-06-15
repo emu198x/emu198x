@@ -40,11 +40,11 @@ gsed -i 's/^void float_raise(uint8_t flags, float_status \*status);/\/* float_ra
 c++ -O2 -std=c++17 -Wno-nonportable-include-path -I"$build" \
   "$here/winuae_check.cpp" "$build/softfloat/softfloat.cpp" -o "$build/winuae_check"
 
-# Asserted (bit-exact today): FGETMAN. The other 68k ops (FGETEXP/FSCALE and
-# the basic arithmetic) still diverge from WinUAE pending the SOFTFLOAT_68K
-# re-base of the floatx80 core; inspect one by passing its op number as a
-# second arg (e.g. `./run_fpsp.sh 200000 20` to diagnose getexp).
-asserted=(21:getman)
+# Asserted (bit-exact against WinUAE): the basic arithmetic + FGETMAN. The
+# remaining ops (sglmul/sgldiv, getexp/scale wiring, the conversions) are still
+# in progress; inspect one by passing its op number as a second arg (e.g.
+# `./run_fpsp.sh 200000 20` to diagnose getexp).
+asserted=(0:add 1:sub 2:mul 3:div 4:sqrt 20:getexp 21:getman 22:scale)
 status=0
 for entry in "${asserted[@]}"; do
   op="${entry%%:*}"; name="${entry##*:}"

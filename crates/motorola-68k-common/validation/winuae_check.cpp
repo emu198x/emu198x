@@ -8,14 +8,15 @@
  * float_exception_flags bit layout from our 2b-derived port, so flags are
  * validated against softfloat.c (run.sh) and by unit test, not here.
  *
- * op: 21=floatx80_getman(a) (FGETMAN) — bit-exact today.
+ * Bit-exact against WinUAE today: 0=add 1=sub 2=mul 3=div 4=sqrt 20=getexp
+ * 21=getman 22=scale.
  *
- * Diagnostic ops for the pending SOFTFLOAT_68K re-base (these still diverge
- * from WinUAE because our floatx80 core is the generic-Berkeley lineage, which
- * differs from the 68881/2 on denormal-result retention, the infinity encoding
- * $7FFF:0 vs $7FFF:8000…, two-NaN propagation order, and the `-shiftCount`
- * subnormal exponent): 0=add 2=mul 20=getexp(a) (FGETEXP) 22=scale(a,b)
- * (FSCALE). */
+ * Diagnostic ops still diverging, pending follow-up work:
+ *   11=sglmul 12=sgldiv — our FSGLMUL/FSGLDIV use mul/div@single, but the
+ *     68881/2 uses dedicated floatx80_sglmul/sgldiv (round operands to single
+ *     first); port those to close it.
+ *   5=to_int32 9=float32_to 10=float64_to — conversion NaN/saturation paths
+ *     still on the generic-Berkeley behaviour. */
 #include <cstdint>
 #include <cstdio>
 #include "softfloat/softfloat.h"
@@ -27,10 +28,13 @@ int main(void) {
     long mismatches = 0, total = 0;
 
     /* WinUAE 68k float_status: tininess before rounding, extended precision,
-     * everything else default (matches fpp_softfloat.cpp::fp_set_mode). */
+     * and the 68881/2 special-case flags (fp_init_softfloat's `else` branch:
+     * addsub_swap_inf set, infinity_clear_intbit + cmp_signed_nan clear). The
+     * 68040 and 68060 differ here; #112 targets the 68881/2. */
     float_status st = {};
     st.float_detect_tininess = float_tininess_before_rounding;
     st.floatx80_rounding_precision = 80;
+    st.floatx80_special_flags = addsub_swap_inf;
 
     /* FPCR rounding bits (0=RN 1=RZ 2=RM 3=RP) -> WinUAE float_round_*. */
     static const signed char rmap[4] = {
@@ -49,7 +53,18 @@ int main(void) {
         unsigned int c_hi = 0; unsigned long long c_lo = 0;
         switch (op) {
             case 0:  z = floatx80_add(a, b, &st);    c_hi = z.high; c_lo = z.low; break;
+            case 1:  z = floatx80_sub(a, b, &st);    c_hi = z.high; c_lo = z.low; break;
             case 2:  z = floatx80_mul(a, b, &st);    c_hi = z.high; c_lo = z.low; break;
+            case 3:  z = floatx80_div(a, b, &st);    c_hi = z.high; c_lo = z.low; break;
+            case 4:  z = floatx80_sqrt(a, &st);      c_hi = z.high; c_lo = z.low; break;
+            case 5:  c_lo = (unsigned int)floatx80_to_int32(a, &st); break;
+            case 6:  c_lo = floatx80_to_float32(a, &st); break;
+            case 7:  c_lo = floatx80_to_float64(a, &st); break;
+            case 8:  z = int32_to_floatx80((int32_t)(unsigned int)al); c_hi = z.high; c_lo = z.low; break;
+            case 9:  z = float32_to_floatx80((float32)(unsigned int)al, &st); c_hi = z.high; c_lo = z.low; break;
+            case 10: z = float64_to_floatx80((float64)al, &st); c_hi = z.high; c_lo = z.low; break;
+            case 11: z = floatx80_sglmul(a, b, &st); c_hi = z.high; c_lo = z.low; break;
+            case 12: z = floatx80_sgldiv(a, b, &st); c_hi = z.high; c_lo = z.low; break;
             case 20: z = floatx80_getexp(a, &st);    c_hi = z.high; c_lo = z.low; break;
             case 21: z = floatx80_getman(a, &st);    c_hi = z.high; c_lo = z.low; break;
             case 22: z = floatx80_scale(a, b, &st);  c_hi = z.high; c_lo = z.low; break;

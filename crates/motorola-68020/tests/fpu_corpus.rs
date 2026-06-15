@@ -2,11 +2,15 @@
 //! oracle corpus.
 //!
 //! The fixtures come from `m68k-test-gen --fp`, which drives Musashi's
-//! on-chip 68040 FPU as the reference (the 020/030 coprocessor F-line
-//! traps as unimplemented in Musashi, but the 68040 FPU shares the same
-//! vendored Berkeley SoftFloat and identical encodings/opmodes for the
-//! basic ops, so it is a bit-exact oracle for our 68881/2 core — which we
-//! built by porting that same SoftFloat). See `knowledge/decisions/
+//! on-chip 68040 FPU as the reference. Musashi uses generic-Berkeley
+//! SoftFloat; our `floatx80` core is now the 68881/2's SOFTFLOAT_68K
+//! (re-based on WinUAE's silicon-validated port), so the two diverge on the
+//! 68k special-value encodings (created NaN/∞, denormal exponent/retention,
+//! NaN propagation). The authoritative FP-value oracle is therefore the
+//! WinUAE C-diff (`crates/motorola-68k-common/validation/run_fpsp.sh`); this
+//! corpus validates the rest of the instruction path (decode, operand fetch,
+//! FPSR CC, integer state) with the known created-value differences
+//! normalised in `compare_final`. See `knowledge/decisions/
 //! fpu-softfloat-port.md`.
 //!
 //! Each fixture covers one register-to-register FPgen instruction
@@ -261,18 +265,27 @@ fn compare_final(cpu: &Cpu68020, mem: &SparseMem, final_state: &CpuState) -> Vec
 
     // FP data registers — the heart of the comparison.
     //
-    // The Musashi oracle emits Berkeley SoftFloat's generic created-NaN
-    // ($FFFF_FFFFFFFFFFFFFFFF, sign set); a real 68881/2 — and our port —
-    // clears the sign bit ($7FFF_FFFFFFFFFFFFFFFF, per the MC68881UM and the
-    // silicon-validated WinUAE/Previous SoftFloat). Treat the two encodings of
-    // the default NaN as equal so this hardware-accuracy fix does not read as a
-    // corpus regression.
-    const HW_DEFAULT_NAN: (u16, u64) = (0x7FFF, 0xFFFF_FFFF_FFFF_FFFF);
-    const MUSASHI_DEFAULT_NAN: (u16, u64) = (0xFFFF, 0xFFFF_FFFF_FFFF_FFFF);
+    // The Musashi oracle is generic-Berkeley SoftFloat; our port is now the
+    // 68881/2's SOFTFLOAT_68K, so the two deliberately diverge on the 68k
+    // special-value encodings. The authoritative FP-value check is the WinUAE
+    // C-diff (`validation/run_fpsp.sh`); here we normalise the known created-
+    // value differences so this corpus still validates the instruction path
+    // (decode, operand fetch, FPSR CC, integer state advancement):
+    //   * created NaN: 68k clears the sign bit ($7FFF:FFFF…), Berkeley sets it.
+    //   * created ∞:   68k clears the integer bit ($7FFF:0 / $FFFF:0), Berkeley
+    //                  sets it ($7FFF:8000… / $FFFF:8000…).
+    let nan_equiv = |a: (u16, u64), b: (u16, u64)| {
+        a == (0x7FFF, 0xFFFF_FFFF_FFFF_FFFF) && b == (0xFFFF, 0xFFFF_FFFF_FFFF_FFFF)
+    };
+    let inf_equiv = |a: (u16, u64), b: (u16, u64)| {
+        (a.0 & 0x7FFF) == 0x7FFF && a.1 == 0 && a.0 == b.0 && b.1 == 0x8000_0000_0000_0000
+    };
     for i in 0..8 {
         let got = cpu.regs.fp[i];
         let (eh, el) = final_state.fp[i];
-        if (got.high, got.low) == HW_DEFAULT_NAN && (eh, el) == MUSASHI_DEFAULT_NAN {
+        let g = (got.high, got.low);
+        let e = (eh, el);
+        if nan_equiv(g, e) || inf_equiv(g, e) {
             continue;
         }
         if got.high != eh || got.low != el {

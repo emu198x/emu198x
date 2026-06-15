@@ -255,7 +255,10 @@ pub fn short_shift128_left(a0: u64, a1: u64, count: i32) -> (u64, u64) {
 #[must_use]
 pub fn normalize_floatx80_subnormal(a_sig: u64) -> (i32, u64) {
     let shift_count = a_sig.leading_zeros() as i32;
-    (1 - shift_count, a_sig.wrapping_shl(shift_count as u32))
+    // 68k (SOFTFLOAT_68K): `-shiftCount`, not Berkeley's generic `1 -
+    // shiftCount`. The extended-format denormal sits one binary exponent
+    // lower on the 68881/2 than the generic IEEE single/double convention.
+    (-shift_count, a_sig.wrapping_shl(shift_count as u32))
 }
 
 /// Convert a 32-bit signed integer to extended precision
@@ -306,18 +309,16 @@ fn float64_is_signaling_nan(a: u64) -> bool {
 fn propagate_floatx80_nan(mut a: FpReg, mut b: FpReg) -> FpReg {
     let a_is_nan = a.is_nan();
     let a_is_signaling = is_signaling_nan(a);
-    let b_is_nan = b.is_nan();
     let b_is_signaling = is_signaling_nan(b);
-    a.low |= 0xC000_0000_0000_0000;
-    b.low |= 0xC000_0000_0000_0000;
+    // 68k (SOFTFLOAT_68K): quiet by setting the quiet bit (62) only, leaving
+    // the explicit integer bit (63) untouched, and return operand A's NaN if
+    // A is a NaN (else B's). Generic Berkeley quiets bits 63+62 and favours B.
+    a.low |= 0x4000_0000_0000_0000;
+    b.low |= 0x4000_0000_0000_0000;
     if a_is_signaling || b_is_signaling {
         raise_signaling_nan();
     }
-    if a_is_nan {
-        if a_is_signaling && b_is_nan { b } else { a }
-    } else {
-        b
-    }
+    if a_is_nan { a } else { b }
 }
 
 // --- Rounding core (softfloat.c) ---
@@ -351,17 +352,23 @@ pub fn round_and_pack_floatx80(
 ) -> FpReg {
     let round_nearest_even = rounding_mode == RoundingMode::NearestEven;
 
-    // Common overflow tail. `round_mask` carries the precision (32/64) max
-    // finite significand; the precision-80 path jumps in with mask 0.
-    let overflow = |round_mask: u64| -> FpReg {
-        float_raise(flag::OVERFLOW | flag::INEXACT);
+    // Shared overflow tail (SOFTFLOAT_68K). `round_mask` carries the precision
+    // (32/64) max-finite significand mask (0 for extended). Raises OVERFLOW
+    // unconditionally and INEXACT only when significand bits are actually
+    // discarded; produces the 68k infinity ($7FFF:0, integer bit clear) or the
+    // correctly-signed largest finite under directed rounding.
+    let overflow = |round_mask: u64, sig0: u64, sig1: u64| -> FpReg {
+        float_raise(flag::OVERFLOW);
+        if (sig0 & round_mask) != 0 || sig1 != 0 {
+            float_raise(flag::INEXACT);
+        }
         if rounding_mode == RoundingMode::Zero
             || (z_sign && rounding_mode == RoundingMode::Up)
             || (!z_sign && rounding_mode == RoundingMode::Down)
         {
             return pack(z_sign, 0x7FFE, !round_mask);
         }
-        pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000)
+        pack(z_sign, 0x7FFF, 0) // 68k infinity: integer bit clear
     };
 
     if rounding_precision == 64 || rounding_precision == 32 {
@@ -386,28 +393,24 @@ pub fn round_and_pack_floatx80(
             }
         }
         let mut round_bits = z_sig0 & round_mask;
-        if (z_exp - 1) as u32 >= 0x7FFD {
+        if (z_exp as u32) >= 0x7FFE {
             if 0x7FFE < z_exp || (z_exp == 0x7FFE && z_sig0.wrapping_add(round_increment) < z_sig0)
             {
-                return overflow(round_mask);
+                return overflow(round_mask, z_sig0, z_sig1);
             }
-            if z_exp <= 0 {
-                // `is_tiny` uses the pre-shift significand (float_detect_
-                // tininess defaults to after-rounding, so that term is false).
-                let is_tiny = z_exp < 0 || z_sig0 <= z_sig0.wrapping_add(round_increment);
-                z_sig0 = shift64_right_jamming(z_sig0, 1 - z_exp);
+            if z_exp < 0 {
+                // The 68881/2 always detects tininess before rounding, so any
+                // result with exponent < 0 underflows.
+                float_raise(flag::UNDERFLOW);
+                z_sig0 = shift64_right_jamming(z_sig0, -z_exp);
                 z_exp = 0;
                 round_bits = z_sig0 & round_mask;
-                if is_tiny && round_bits != 0 {
-                    float_raise(flag::UNDERFLOW);
-                }
                 if round_bits != 0 {
                     float_raise(flag::INEXACT);
                 }
                 z_sig0 = z_sig0.wrapping_add(round_increment);
-                if (z_sig0 as i64) < 0 {
-                    z_exp = 1;
-                }
+                // 68k: no `if zSig0<0 zExp=1` renormalization — denormal
+                // results stay at exponent 0.
                 round_increment = round_mask + 1;
                 if round_nearest_even && round_bits << 1 == round_increment {
                     round_mask |= round_increment;
@@ -446,21 +449,18 @@ pub fn round_and_pack_floatx80(
             increment = rounding_mode == RoundingMode::Up && z_sig1 != 0;
         }
     }
-    if (z_exp - 1) as u32 >= 0x7FFD {
+    if (z_exp as u32) >= 0x7FFE {
         if 0x7FFE < z_exp || (z_exp == 0x7FFE && z_sig0 == 0xFFFF_FFFF_FFFF_FFFF && increment) {
-            return overflow(0);
+            return overflow(0, z_sig0, z_sig1);
         }
-        if z_exp <= 0 {
-            // `is_tiny` uses the pre-shift significand (detect-tininess is
-            // after-rounding by default, so that term is false).
-            let is_tiny = z_exp < 0 || !increment || z_sig0 < 0xFFFF_FFFF_FFFF_FFFF;
-            let (s0, s1) = shift64_extra_right_jamming(z_sig0, z_sig1, 1 - z_exp);
+        if z_exp < 0 {
+            // The 68881/2 always detects tininess before rounding: any result
+            // with exponent < 0 underflows.
+            float_raise(flag::UNDERFLOW);
+            let (s0, s1) = shift64_extra_right_jamming(z_sig0, z_sig1, -z_exp);
             z_sig0 = s0;
             let z_sig1 = s1;
             z_exp = 0;
-            if is_tiny && z_sig1 != 0 {
-                float_raise(flag::UNDERFLOW);
-            }
             if z_sig1 != 0 {
                 float_raise(flag::INEXACT);
             }
@@ -476,9 +476,7 @@ pub fn round_and_pack_floatx80(
                 if z_sig1.wrapping_shl(1) == 0 && round_nearest_even {
                     z_sig0 &= !1;
                 }
-                if (z_sig0 as i64) < 0 {
-                    z_exp = 1;
-                }
+                // 68k: no `if zSig0<0 zExp=1` renormalization.
             }
             return pack(z_sign, z_exp, z_sig0);
         }
@@ -563,63 +561,83 @@ fn add_floatx80_sigs(
     z_sign: bool,
 ) -> FpReg {
     let mut a_sig = frac(a);
-    let a_exp = exp(a);
+    let mut a_exp = exp(a);
     let mut b_sig = frac(b);
-    let b_exp = exp(b);
-    let mut exp_diff = a_exp - b_exp;
+    let mut b_exp = exp(b);
+    // 68k (SOFTFLOAT_68K): normalize denormal operands up front; a zero
+    // operand takes the sentinel exponent −64 so the magnitude comparison
+    // routes it through the zero special-cases below.
+    if a_exp == 0 {
+        if a_sig == 0 {
+            a_exp = -64;
+        } else {
+            let (e, s) = normalize_floatx80_subnormal(a_sig);
+            a_exp = e;
+            a_sig = s;
+        }
+    }
+    if b_exp == 0 {
+        if b_sig == 0 {
+            b_exp = -64;
+        } else {
+            let (e, s) = normalize_floatx80_subnormal(b_sig);
+            b_exp = e;
+            b_sig = s;
+        }
+    }
+    let exp_diff = a_exp - b_exp;
 
+    let z_exp;
+    let z_sig0;
+    let z_sig1;
     if 0 < exp_diff {
         if a_exp == 0x7FFF {
             if a_sig.wrapping_shl(1) != 0 {
                 return propagate_floatx80_nan(a, b);
             }
-            return a;
+            return a; // 68881/2: inf_clear_intbit clear → passthrough unchanged
         }
-        if b_exp == 0 {
-            exp_diff -= 1;
-        }
-        let (bs, z_sig1) = shift64_extra_right_jamming(b_sig, 0, exp_diff);
+        let (bs, s1) = shift64_extra_right_jamming(b_sig, 0, exp_diff);
         b_sig = bs;
-        let z_exp = a_exp;
-        let z_sig0 = a_sig.wrapping_add(b_sig);
-        if (z_sig0 as i64) < 0 {
-            return round_and_pack_floatx80(precision, mode, z_sign, z_exp, z_sig0, z_sig1);
-        }
-        return add_shift_right1_and_pack(precision, mode, z_sign, z_exp, z_sig0, z_sig1);
-    }
-    if exp_diff < 0 {
+        z_sig1 = s1;
+        z_exp = a_exp;
+    } else if exp_diff < 0 {
         if b_exp == 0x7FFF {
             if b_sig.wrapping_shl(1) != 0 {
                 return propagate_floatx80_nan(a, b);
             }
-            return pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000);
+            // 68881/2: inf_clear_intbit clear → keep b's significand.
+            return pack(z_sign, 0x7FFF, b_sig);
         }
-        if a_exp == 0 {
-            exp_diff += 1;
-        }
-        let (as_, z_sig1) = shift64_extra_right_jamming(a_sig, 0, -exp_diff);
+        let (as_, s1) = shift64_extra_right_jamming(a_sig, 0, -exp_diff);
         a_sig = as_;
-        let z_exp = b_exp;
-        let z_sig0 = a_sig.wrapping_add(b_sig);
-        if (z_sig0 as i64) < 0 {
-            return round_and_pack_floatx80(precision, mode, z_sign, z_exp, z_sig0, z_sig1);
+        z_sig1 = s1;
+        z_exp = b_exp;
+    } else {
+        // exp_diff == 0
+        if a_exp == 0x7FFF {
+            if (a_sig | b_sig).wrapping_shl(1) != 0 {
+                return propagate_floatx80_nan(a, b);
+            }
+            // 68881/2: faddsub_swap_inf set → ∞ + ∞ returns operand B.
+            return b;
         }
-        return add_shift_right1_and_pack(precision, mode, z_sign, z_exp, z_sig0, z_sig1);
-    }
-    // exp_diff == 0
-    if a_exp == 0x7FFF {
-        if (a_sig | b_sig).wrapping_shl(1) != 0 {
-            return propagate_floatx80_nan(a, b);
+        z_sig1 = 0;
+        z_sig0 = a_sig.wrapping_add(b_sig);
+        if a_sig == 0 && b_sig == 0 {
+            return pack(z_sign, 0, 0);
         }
-        return a;
+        if a_sig == 0 || b_sig == 0 {
+            return round_and_pack_floatx80(precision, mode, z_sign, a_exp, z_sig0, z_sig1);
+        }
+        // Two normalized significands always carry; shift right one place.
+        return add_shift_right1_and_pack(precision, mode, z_sign, a_exp, z_sig0, z_sig1);
     }
-    let z_sig1 = 0;
-    let z_sig0 = a_sig.wrapping_add(b_sig);
-    if a_exp == 0 {
-        let (e, s) = normalize_floatx80_subnormal(z_sig0);
-        return round_and_pack_floatx80(precision, mode, z_sign, e, s, z_sig1);
+    z_sig0 = a_sig.wrapping_add(b_sig);
+    if (z_sig0 as i64) < 0 {
+        return round_and_pack_floatx80(precision, mode, z_sign, z_exp, z_sig0, z_sig1);
     }
-    add_shift_right1_and_pack(precision, mode, z_sign, a_exp, z_sig0, z_sig1)
+    add_shift_right1_and_pack(precision, mode, z_sign, z_exp, z_sig0, z_sig1)
 }
 
 /// `subFloatx80Sigs`: subtract the absolute values of `a` and `b`, negating
@@ -633,10 +651,13 @@ fn sub_floatx80_sigs(
     z_sign: bool,
 ) -> FpReg {
     let mut a_sig = frac(a);
-    let mut a_exp = exp(a);
+    let a_exp = exp(a);
     let mut b_sig = frac(b);
-    let mut b_exp = exp(b);
-    let mut exp_diff = a_exp - b_exp;
+    let b_exp = exp(b);
+    // 68k (SOFTFLOAT_68K): no `bExp==0 → --expDiff` / `aExp==0 → ++expDiff` /
+    // `aExp==0 → aExp=bExp=1` adjustments; denormal operands flow straight
+    // through `normalizeRoundAndPackFloatx80`.
+    let exp_diff = a_exp - b_exp;
 
     if 0 < exp_diff {
         // aExpBigger
@@ -644,10 +665,8 @@ fn sub_floatx80_sigs(
             if a_sig.wrapping_shl(1) != 0 {
                 return propagate_floatx80_nan(a, b);
             }
+            // 68881/2: inf_clear_intbit is clear, so passthrough is unchanged.
             return a;
-        }
-        if b_exp == 0 {
-            exp_diff -= 1;
         }
         let (bs, z_sig1) = shift128_right_jamming(b_sig, 0, exp_diff);
         b_sig = bs;
@@ -660,10 +679,8 @@ fn sub_floatx80_sigs(
             if b_sig.wrapping_shl(1) != 0 {
                 return propagate_floatx80_nan(a, b);
             }
-            return pack(!z_sign, 0x7FFF, 0x8000_0000_0000_0000);
-        }
-        if a_exp == 0 {
-            exp_diff += 1;
+            // 68881/2: inf_clear_intbit clear → keep b's significand.
+            return pack(!z_sign, 0x7FFF, b_sig);
         }
         let (as_, z_sig1) = shift128_right_jamming(a_sig, 0, -exp_diff);
         a_sig = as_;
@@ -677,10 +694,6 @@ fn sub_floatx80_sigs(
         }
         float_raise(flag::INVALID); // inf − inf
         return DEFAULT_NAN;
-    }
-    if a_exp == 0 {
-        a_exp = 1;
-        b_exp = 1;
     }
     let z_sig1 = 0;
     if b_sig < a_sig {
@@ -815,7 +828,8 @@ pub fn floatx80_mul(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
             float_raise(flag::INVALID); // inf × 0
             return DEFAULT_NAN;
         }
-        return pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000);
+        // 68881/2: inf_clear_intbit clear → keep a's significand.
+        return pack(z_sign, 0x7FFF, a_sig);
     }
     if b_exp == 0x7FFF {
         if b_sig.wrapping_shl(1) != 0 {
@@ -825,7 +839,7 @@ pub fn floatx80_mul(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
             float_raise(flag::INVALID); // 0 × inf
             return DEFAULT_NAN;
         }
-        return pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000);
+        return pack(z_sign, 0x7FFF, b_sig);
     }
     if a_exp == 0 {
         if a_sig == 0 {
@@ -876,7 +890,8 @@ pub fn floatx80_div(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
             float_raise(flag::INVALID); // inf / inf
             return DEFAULT_NAN;
         }
-        return pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000); // inf / finite
+        // 68881/2: inf_clear_intbit clear → keep a's significand.
+        return pack(z_sign, 0x7FFF, a_sig); // inf / finite
     }
     if b_exp == 0x7FFF {
         if b_sig.wrapping_shl(1) != 0 {
@@ -891,7 +906,7 @@ pub fn floatx80_div(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
                 return DEFAULT_NAN;
             }
             float_raise(flag::DIVBYZERO);
-            return pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000); // x / 0 = inf
+            return pack(z_sign, 0x7FFF, 0); // x / 0 = ∞ (68k: integer bit clear)
         }
         let (e, s) = normalize_floatx80_subnormal(b_sig);
         b_exp = e;
@@ -1088,16 +1103,9 @@ pub fn floatx80_sqrt(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
 // --- FPSP exponent / mantissa / scale (WinUAE softfloat, Andreas Grabher) ---
 //
 // Ported from WinUAE's `softfloat.cpp` (`floatx80_getman`/`getexp`/`scale`),
-// the silicon-validated 68881/2 reference.
-//
-// `floatx80_getman` is bit-exact against that source (validated by the C-diff
-// harness `validation/run_fpsp.sh`). `floatx80_getexp` and `floatx80_scale`
-// are bit-exact only for normal operands: on denormal inputs they need the
-// 68k `-shiftCount` subnormal exponent, and `scale` also the SOFTFLOAT_68K
-// infinity encoding ($7FFF:0) and denormal-result retention — all of which
-// require re-basing the shared `floatx80` core (currently the generic-Berkeley
-// lineage, matching Musashi) onto SOFTFLOAT_68K. Until then only FGETMAN is
-// wired into the core; FGETEXP/FSCALE decline.
+// the silicon-validated 68881/2 reference. All three are bit-exact against
+// that source (the shared `floatx80` core now follows SOFTFLOAT_68K), validated
+// by the C-diff harness `validation/run_fpsp.sh`.
 
 /// `propagateFloatx80NaNOneArg`: quiet a single NaN operand (set the quiet
 /// bit), raising invalid (SNAN) if it was signalling.
@@ -1728,12 +1736,13 @@ mod tests {
 
     #[test]
     fn normalize_subnormal_brings_msb_to_bit63() {
+        // 68k convention: exponent is `-shiftCount`.
         let (exp, sig) = normalize_floatx80_subnormal(0x4000_0000_0000_0000);
-        assert_eq!(exp, 0);
+        assert_eq!(exp, -1);
         assert_eq!(sig, 0x8000_0000_0000_0000);
 
         let (exp, sig) = normalize_floatx80_subnormal(1);
-        assert_eq!(exp, 1 - 63);
+        assert_eq!(exp, -63);
         assert_eq!(sig, 0x8000_0000_0000_0000);
     }
 
@@ -1925,14 +1934,15 @@ mod tests {
 
     #[test]
     fn div_by_zero_is_infinity() {
-        // x / 0 = ±inf (value path; the divbyzero flag is deferred).
+        // x / 0 = ±inf. The 68881/2 creates the infinity with a clear integer
+        // bit ($7FFF:0), not the x87-style $7FFF:8000.
         assert_eq!(
             floatx80_div(P80, RN, fx(1), FpReg::new(0, 0)),
-            FpReg::new(0x7FFF, 0x8000_0000_0000_0000)
+            FpReg::new(0x7FFF, 0)
         );
         assert_eq!(
             floatx80_div(P80, RN, fx(-1), FpReg::new(0, 0)),
-            FpReg::new(0xFFFF, 0x8000_0000_0000_0000)
+            FpReg::new(0xFFFF, 0)
         );
     }
 
@@ -2065,6 +2075,14 @@ mod tests {
             floatx80_getexp(fx(8)),
             FpReg::new(0x4000, 0xC000_0000_0000_0000)
         );
+    }
+
+    #[test]
+    fn scale_multiplies_by_power_of_two() {
+        // FSCALE truncates the second operand and adds it to the exponent.
+        assert_eq!(floatx80_scale(P80, RN, fx(1), fx(2)), fx(4)); // 1 × 2^2
+        assert_eq!(floatx80_scale(P80, RN, fx(6), fx(-1)), fx(3)); // 6 × 2^-1
+        assert_eq!(floatx80_scale(P80, RN, fx(5), fx(0)), fx(5)); // unchanged
     }
 
     // --- Conversion to int32 (FINT / FINTRZ). ---
@@ -2271,13 +2289,16 @@ mod tests {
     }
 
     #[test]
-    fn overflow_raises_overflow_and_inexact() {
+    fn overflow_raises_overflow() {
+        // 68k: OVERFLOW is raised unconditionally, but INEXACT only when
+        // significand bits are actually discarded. huge + huge = exactly
+        // 2×huge — the mantissa is exact, so only OVERFLOW is set.
         let huge = FpReg::new(0x7FFE, 0xFFFF_FFFF_FFFF_FFFF);
         assert_eq!(
             flags_of(|| {
                 let _ = floatx80_add(80, RN, huge, huge);
             }),
-            flag::OVERFLOW | flag::INEXACT
+            flag::OVERFLOW
         );
     }
 

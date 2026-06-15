@@ -1,7 +1,7 @@
 // Generates random floatx80 test vectors, runs our SoftFloat port, and emits
 // `a_high a_low b_high b_low mode op rust_high rust_low rust_flags` (hex) for
-// the C harness to check against softfloat.c. Deterministic LCG so runs are
-// reproducible; op set chosen on argv[1].
+// `validation/winuae_check.cpp` to diff against WinUAE's silicon-validated
+// SOFTFLOAT_68K. Deterministic LCG so runs are reproducible; op set on argv[1].
 use motorola_68k_common::registers::FpReg;
 use motorola_68k_common::softfloat::{self as sf, RoundingMode};
 
