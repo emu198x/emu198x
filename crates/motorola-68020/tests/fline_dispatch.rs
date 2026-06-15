@@ -231,3 +231,54 @@ fn fbeq_w_not_taken_when_fpsr_z_clear() {
     assert!(!r.vectored);
     assert_eq!(r.next_instr_pc, PC + 4, "Z clear → FBEQ falls through");
 }
+
+// --- FBcc.L (op-class 3): 32-bit displacement ---
+
+#[test]
+fn fbt_l_always_branches() {
+    // FBT.L ($F2CF, condition T) with disp 0x00000040 → instr+2+disp.
+    let r = run(0xF2CF, &[0x0000, 0x0040], true, 0);
+    assert_eq!(
+        r.next_instr_pc,
+        PC + 2 + 0x40,
+        "FBT.L branches to instr+2+disp"
+    );
+}
+
+#[test]
+fn fbt_l_large_displacement() {
+    // A displacement that needs the full 32 bits: high word 0x0001.
+    let r = run(0xF2CF, &[0x0001, 0x0000], true, 0);
+    assert_eq!(
+        r.next_instr_pc,
+        PC + 2 + 0x0001_0000,
+        "32-bit disp resolves"
+    );
+}
+
+#[test]
+fn fbeq_l_taken_when_fpsr_z_set() {
+    // FBEQ.L ($F2C1, condition EQ = Z) with Z set → taken.
+    let r = run(0xF2C1, &[0x0000, 0x0040], true, 1 << 26);
+    assert_eq!(r.next_instr_pc, PC + 2 + 0x40, "Z set → FBEQ.L taken");
+}
+
+#[test]
+fn fbeq_l_not_taken_falls_through() {
+    // FBEQ.L with Z clear → not taken → falls through past both disp words
+    // to the next instruction (6 bytes: opcode + 2 displacement words).
+    let r = run(0xF2C1, &[0x0000, 0x0040], true, 0);
+    assert!(!r.vectored);
+    assert_eq!(
+        r.next_instr_pc,
+        PC + 6,
+        "Z clear → FBEQ.L falls through to instr+6"
+    );
+}
+
+#[test]
+fn fbt_l_negative_displacement() {
+    // disp = −16 as a 32-bit value: 0xFFFFFFF0.
+    let r = run(0xF2CF, &[0xFFFF, 0xFFF0], true, 0);
+    assert_eq!(r.next_instr_pc, (PC + 2).wrapping_sub(16));
+}

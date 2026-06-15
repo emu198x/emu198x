@@ -732,8 +732,10 @@ fn decode_fpu_fline(cpu: &mut Cpu68000, opcode: u16) -> bool {
         // cpBcc.W: branch on FP condition, 16-bit displacement. Covers
         // FNOP (FBF.W with a zero displacement).
         2 => execute_fbcc_w(cpu, opcode),
-        // cpScc (1), cpBcc.L (3), cpSAVE (4), cpRESTORE (5) are not wired
-        // yet — decline so they take the vector-11 trap until implemented.
+        // cpBcc.L: branch on FP condition, 32-bit displacement.
+        3 => execute_fbcc_l(cpu, opcode),
+        // cpScc (1), cpSAVE (4), cpRESTORE (5) are not wired yet — decline
+        // so they take the vector-11 trap until implemented.
         _ => false,
     }
 }
@@ -1162,6 +1164,41 @@ fn execute_fbcc_w(cpu: &mut Cpu68000, opcode: u16) -> bool {
         cpu.micro_ops.push(MicroOp::FetchIRC);
     }
     true
+}
+
+/// FBcc.L (cpID-1 op-class 3): branch on an FPU condition with a 32-bit
+/// displacement. The 6-bit condition is in the opcode's low bits; the
+/// high displacement word is already prefetched in `irc`, the low word is
+/// fetched next and combined at `TAG_V_FBCC_L` (mirrors the integer
+/// `Bcc.L` gather).
+fn execute_fbcc_l(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    cpu.variant_ext_word = opcode & 0x3F; // stash the condition
+    cpu.src_val = u32::from(cpu.irc) << 16; // high displacement word
+    cpu.in_followup = true;
+    cpu.followup_tag = motorola_68000::cpu::TAG_V_FBCC_L;
+    cpu.micro_ops.push(MicroOp::FetchIRC);
+    cpu.micro_ops.push(MicroOp::Execute);
+    true
+}
+
+/// `TAG_V_FBCC_L`: the low displacement word is now in `irc`. Combine it
+/// with the stashed high word and take the branch if the FP condition
+/// holds. The displacement is relative to `instr_start + 2` (the first
+/// displacement word), matching FBcc.W and the integer long branch.
+fn handle_fbcc_l(cpu: &mut Cpu68000) {
+    let disp = (cpu.src_val | u32::from(cpu.irc)) as i32;
+    let condition = (cpu.variant_ext_word & 0x3F) as u8;
+    if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
+        let target = cpu.instr_start_pc.wrapping_add(2).wrapping_add(disp as u32);
+        cpu.regs.pc = target;
+        cpu.next_fetch_addr = target;
+        cpu.micro_ops.clear();
+        cpu.micro_ops.push(MicroOp::FetchIRC);
+        cpu.micro_ops.push(MicroOp::PromoteIRC);
+    } else {
+        cpu.micro_ops.push(MicroOp::FetchIRC);
+    }
+    cpu.in_followup = false;
 }
 
 /// Finish CAS once the destination has been read into `self.data`.
@@ -1737,8 +1774,8 @@ use motorola_68000::cpu::{
     TAG_BF_MEM_EA_ABSLONG_LO, TAG_BF_MEM_EA_RESOLVE, TAG_BF_MEM_EXEC, TAG_BF_MEM_READ,
     TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_CAS_COMPARE, TAG_V_CAS_WRITE_DONE,
     TAG_V_CAS2_COMPUTE, TAG_V_CAS2_GATHER, TAG_V_CAS2_READ2, TAG_V_CAS2_WRITE_DONE,
-    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_FP_MEM_EXEC, TAG_V_FP_MEM_READ,
-    TAG_V_FP_MEM_WRITE, TAG_V_MULDIV_MEM_EXEC,
+    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_FBCC_L, TAG_V_FP_MEM_EXEC,
+    TAG_V_FP_MEM_READ, TAG_V_FP_MEM_WRITE, TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
@@ -1892,6 +1929,10 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
         }
         TAG_V_FP_MEM_WRITE => {
             handle_fp_mem_write(cpu);
+            true
+        }
+        TAG_V_FBCC_L => {
+            handle_fbcc_l(cpu);
             true
         }
         // An FPU memory operand using a static addressing mode: the core's
