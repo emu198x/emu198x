@@ -1314,3 +1314,79 @@ fn fmove_pc_relative_memory() {
     });
     assert_eq!(r.fp[0], int_fx(5), "(d16,PC) long 5 → 5.0");
 }
+
+// --- FMOVEM register list <-> memory (cpGEN sub-op 6/7) ---
+
+#[test]
+fn fmovem_store_predecrement() {
+    // FMOVEM FP0/FP1,-(A0) — reglist $03 (predec: bit i -> FPi). A0 =
+    // 0x2018; FP0 lands at A0-12 (0x200C), FP1 at A0-24 (0x2000); A0 -= 24.
+    let (r, mem) = run_store(0xF220, 0xE003, |cpu| {
+        cpu.regs.set_a(0, 0x0000_2018);
+        cpu.regs.fp[0] = POS_ONE;
+        cpu.regs.fp[1] = POS_TWO;
+    });
+    assert_eq!(
+        read_bytes(&mem, 0x0000_200C, 12),
+        [0x3F, 0xFF, 0, 0, 0x80, 0, 0, 0, 0, 0, 0, 0],
+        "FP0 (1.0) at A0-12"
+    );
+    assert_eq!(
+        read_bytes(&mem, 0x0000_2000, 12),
+        [0x40, 0x00, 0, 0, 0x80, 0, 0, 0, 0, 0, 0, 0],
+        "FP1 (2.0) at A0-24"
+    );
+    assert_eq!(r.a[0], 0x0000_2000, "A0 -= 24");
+}
+
+#[test]
+fn fmovem_load_postincrement() {
+    // FMOVEM (A0)+,<FP6,FP7> — reglist $03 (postinc: bit i -> FP[7-i], so
+    // bit 0 -> FP7, bit 1 -> FP6). FP7 reads from A0, FP6 from A0+12.
+    let mut bytes = vec![0x3F, 0xFF, 0, 0, 0x80, 0, 0, 0, 0, 0, 0, 0]; // 1.0 -> FP7
+    bytes.extend_from_slice(&[0x40, 0x00, 0, 0, 0x80, 0, 0, 0, 0, 0, 0, 0]); // 2.0 -> FP6
+    let r = run_mem(0xF218, 0xD003, 0, 0x0000_2000, &bytes, |_| {});
+    assert_eq!(r.fp[7], POS_ONE, "bit 0 -> FP7");
+    assert_eq!(r.fp[6], POS_TWO, "bit 1 -> FP6");
+    assert_eq!(r.a[0], 0x0000_2000 + 24, "A0 += 24");
+}
+
+#[test]
+fn fmovem_round_trip_all_registers() {
+    // Save FP0..FP7 with predecrement, then restore with postincrement,
+    // and confirm every register and the pointer round-trip exactly.
+    let vals: [FpReg; 8] = [
+        int_fx(1),
+        int_fx(2),
+        int_fx(3),
+        int_fx(4),
+        int_fx(5),
+        int_fx(6),
+        int_fx(7),
+        int_fx(8),
+    ];
+    // FMOVEM FP0-FP7,-(A0): reglist $FF, A0 = 0x2060 (= 0x2000 + 96).
+    let (r1, mem) = run_store(0xF220, 0xE0FF, |cpu| {
+        cpu.regs.set_a(0, 0x0000_2060);
+        for (i, v) in vals.iter().enumerate() {
+            cpu.regs.fp[i] = *v;
+        }
+    });
+    assert_eq!(r1.a[0], 0x0000_2000, "A0 -= 96 after storing 8 registers");
+
+    // Read the 96 stored bytes and restore: FMOVEM (A0)+,FP0-FP7 ($FF).
+    let stored = read_bytes(&mem, 0x0000_2000, 96);
+    let r2 = run_mem(0xF218, 0xD0FF, 0, 0x0000_2000, &stored, |_| {});
+    assert_eq!(r2.a[0], 0x0000_2060, "A0 += 96 after loading 8 registers");
+    for (i, v) in vals.iter().enumerate() {
+        assert_eq!(r2.fp[i], *v, "FP{i} round-trips");
+    }
+}
+
+#[test]
+fn fmovem_empty_list_is_noop() {
+    // FMOVEM with an empty register list transfers nothing and leaves the
+    // address register unchanged.
+    let (r, _mem) = run_store(0xF220, 0xE000, |cpu| cpu.regs.set_a(0, 0x0000_2000));
+    assert_eq!(r.a[0], 0x0000_2000, "empty list → A0 unchanged");
+}

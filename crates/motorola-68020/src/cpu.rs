@@ -771,7 +771,8 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
         0 | 2 => {}                                     // fall through to fpgen_rm_reg
         3 => return begin_fp_store(cpu, mode),          // FMOVE FPn → memory
         4 | 5 => return execute_fmove_control(cpu, w2), // FMOVE FPcr ↔ ea
-        _ => return false,                              // FMOVEM list — vector 11
+        6 | 7 => return begin_fmovem(cpu, w2),          // FMOVEM list ↔ ea
+        _ => return false,                              // sub-op 1: unused → vector 11
     }
 
     let rm = (w2 >> 14) & 1;
@@ -1036,7 +1037,13 @@ fn handle_fp_mem_read(cpu: &mut Cpu68000) {
         cpu.micro_ops.push(MicroOp::ReadByte);
         cpu.micro_ops.push(MicroOp::Execute);
     } else {
-        cpu.followup_tag = TAG_V_FP_MEM_EXEC;
+        // A FMOVEM register transfer hands back to its controller; a plain
+        // FMOVE operand goes to the format-parse exec.
+        cpu.followup_tag = if cpu.fp_movem_active {
+            TAG_V_FMOVEM_STEP
+        } else {
+            TAG_V_FP_MEM_EXEC
+        };
         cpu.micro_ops.push(MicroOp::Execute);
     }
 }
@@ -1215,9 +1222,99 @@ fn handle_fp_mem_write(cpu: &mut Cpu68000) {
         cpu.data = ((cpu.fp_mem_buf >> shift) & 0xFF) as u32;
         cpu.micro_ops.push(MicroOp::WriteByte);
         cpu.micro_ops.push(MicroOp::Execute);
+    } else if cpu.fp_movem_active {
+        // A FMOVEM register store hands back to its controller for the
+        // next register.
+        cpu.followup_tag = TAG_V_FMOVEM_STEP;
+        cpu.micro_ops.push(MicroOp::Execute);
     } else {
         cpu.in_followup = false;
         cpu.followup_tag = 0;
+    }
+}
+
+/// FMOVEM register list ↔ memory (cpGEN sub-op 6/7, Musashi `fmovem`).
+/// Each register is a 12-byte extended-format transfer. The two common
+/// idioms are wired: `FMOVEM <list>,-(An)` (static predecrement store —
+/// the prologue save) and `FMOVEM (An)+,<list>` (static postincrement
+/// load — the epilogue restore). The dynamic-list, control-addressing,
+/// and other combinations decline (vector-11 trap).
+///
+/// The register list is in the extension word's low byte. Predecrement
+/// stores `REG_FP[i]` for each set bit i = 0..7 (so the lowest-numbered
+/// register lands at the highest address); postincrement loads
+/// `REG_FP[7-i]` — the mirror order, so a save/restore pair round-trips.
+fn begin_fmovem(cpu: &mut Cpu68000, w2: u16) -> bool {
+    let dir = (w2 >> 13) & 1;
+    let w2_mode = (w2 >> 11) & 3;
+    let reglist = (w2 & 0xFF) as u8;
+    let ea_mode = ((cpu.ir >> 3) & 7) as u8;
+    let ea_reg = (cpu.ir & 7) as u8;
+
+    // dir 1 = registers → memory (predecrement, EA = -(An));
+    // dir 0 = memory → registers (postincrement, EA = (An)+).
+    let predec_store = dir == 1 && w2_mode == 0 && ea_mode == 4;
+    let postinc_load = dir == 0 && w2_mode == 2 && ea_mode == 3;
+    if !predec_store && !postinc_load {
+        return false;
+    }
+
+    let _ = cpu.consume_irc();
+    cpu.fp_movem_active = true;
+    cpu.fp_movem_store = predec_store;
+    cpu.fp_movem_list = reglist;
+    cpu.fp_movem_cur = 0xFF; // no register processed yet
+    cpu.fp_movem_an = cpu.regs.a(ea_reg as usize);
+    cpu.fp_movem_areg = ea_reg;
+    cpu.in_followup = true;
+    cpu.followup_tag = motorola_68000::cpu::TAG_V_FMOVEM_STEP;
+    cpu.micro_ops.push(MicroOp::Execute);
+    true
+}
+
+/// `TAG_V_FMOVEM_STEP`: process the register just transferred (for a load,
+/// unpack the 12 bytes into its Fpn), then start the next register's
+/// transfer or finish the instruction (writing the stepped pointer back
+/// to the An register).
+fn handle_fmovem_step(cpu: &mut Cpu68000) {
+    use motorola_68k_common::registers::FpReg;
+
+    // Unpack the register a load just read (extended: high word + 64-bit
+    // mantissa; the pad word is ignored). `cur == 0xFF` on the first call.
+    if cpu.fp_movem_cur != 0xFF && !cpu.fp_movem_store {
+        let reg = (7 - cpu.fp_movem_cur) as usize;
+        cpu.regs.fp[reg] = FpReg::new((cpu.fp_mem_buf >> 80) as u16, cpu.fp_mem_buf as u64);
+    }
+
+    if cpu.fp_movem_list == 0 {
+        // All registers done — commit the stepped pointer and finish.
+        cpu.regs.set_a(cpu.fp_movem_areg as usize, cpu.fp_movem_an);
+        cpu.fp_movem_active = false;
+        cpu.fp_movem_cur = 0xFF;
+        cpu.in_followup = false;
+        cpu.followup_tag = 0;
+        return;
+    }
+
+    // Take the lowest remaining register (matching Musashi's i = 0..7 loop).
+    let i = cpu.fp_movem_list.trailing_zeros() as u8;
+    cpu.fp_movem_list &= !(1 << i);
+    cpu.fp_movem_cur = i;
+    cpu.fp_mem_bytes_total = 12;
+
+    if cpu.fp_movem_store {
+        // Predecrement: step the pointer back, then write REG_FP[i].
+        cpu.fp_movem_an = cpu.fp_movem_an.wrapping_sub(12);
+        cpu.addr = cpu.fp_movem_an;
+        let v = cpu.regs.fp[i as usize];
+        cpu.fp_mem_buf = (u128::from(v.high) << 80) | u128::from(v.low);
+        start_fp_write(cpu);
+    } else {
+        // Postincrement: read at the pointer, then step it forward. The
+        // value is unpacked into REG_FP[7-i] on the next step.
+        cpu.addr = cpu.fp_movem_an;
+        cpu.fp_movem_an = cpu.fp_movem_an.wrapping_add(12);
+        start_fp_read(cpu);
     }
 }
 
@@ -2030,8 +2127,9 @@ use motorola_68000::cpu::{
     TAG_BF_MEM_EA_ABSLONG_LO, TAG_BF_MEM_EA_RESOLVE, TAG_BF_MEM_EXEC, TAG_BF_MEM_READ,
     TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_CAS_COMPARE, TAG_V_CAS_WRITE_DONE,
     TAG_V_CAS2_COMPUTE, TAG_V_CAS2_GATHER, TAG_V_CAS2_READ2, TAG_V_CAS2_WRITE_DONE,
-    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_FBCC_L, TAG_V_FP_IMM_READ,
-    TAG_V_FP_MEM_EXEC, TAG_V_FP_MEM_READ, TAG_V_FP_MEM_WRITE, TAG_V_MULDIV_MEM_EXEC,
+    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_FBCC_L, TAG_V_FMOVEM_STEP,
+    TAG_V_FP_IMM_READ, TAG_V_FP_MEM_EXEC, TAG_V_FP_MEM_READ, TAG_V_FP_MEM_WRITE,
+    TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
@@ -2189,6 +2287,10 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
         }
         TAG_V_FP_MEM_WRITE => {
             handle_fp_mem_write(cpu);
+            true
+        }
+        TAG_V_FMOVEM_STEP => {
+            handle_fmovem_step(cpu);
             true
         }
         TAG_V_FBCC_L => {

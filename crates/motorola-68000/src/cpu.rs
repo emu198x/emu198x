@@ -306,6 +306,9 @@ pub const TAG_V_FBCC_L: u8 = 127;
 /// 68881/2 FPU immediate source operand: an operand word has been
 /// prefetched; accumulate it and either read the next or run the op.
 pub const TAG_V_FP_IMM_READ: u8 = 128;
+/// 68881/2 FMOVEM: a register's 12 bytes have transferred; process it and
+/// either start the next register or finish.
+pub const TAG_V_FMOVEM_STEP: u8 = 129;
 
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
@@ -857,6 +860,31 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub fp_mem_store: bool,
 
+    // ─── 68881/2 FMOVEM register-list transfer (mid-instruction) ───
+    /// True while a FMOVEM is in flight (redirects the 12-byte transfer
+    /// completion to the FMOVEM controller instead of the FMOVE exec).
+    #[serde(skip)]
+    pub fp_movem_active: bool,
+    /// FMOVEM direction: `true` = registers → memory (predecrement),
+    /// `false` = memory → registers (postincrement).
+    #[serde(skip)]
+    pub fp_movem_store: bool,
+    /// Remaining register-list bits still to transfer (cleared as each is
+    /// processed, lowest bit first).
+    #[serde(skip)]
+    pub fp_movem_list: u8,
+    /// The register index (0..7) of the in-flight transfer; `0xFF` before
+    /// the first register.
+    #[serde(skip)]
+    pub fp_movem_cur: u8,
+    /// Working address pointer, stepped by 12 per register and written
+    /// back to the An register at the end.
+    #[serde(skip)]
+    pub fp_movem_an: u32,
+    /// The An register the pointer is written back to.
+    #[serde(skip)]
+    pub fp_movem_areg: u8,
+
     /// Variant continuation hook: gives a wrapping variant a chance
     /// to dispatch follow-up tags that the 68000 doesn't know about.
     ///
@@ -986,6 +1014,12 @@ impl Cpu68000 {
             fp_mem_dst: 0,
             fp_mem_pending: false,
             fp_mem_store: false,
+            fp_movem_active: false,
+            fp_movem_store: false,
+            fp_movem_list: 0,
+            fp_movem_cur: 0,
+            fp_movem_an: 0,
+            fp_movem_areg: 0,
             variant_continue_hook: None,
             variant_pending_disp: 0,
         }
