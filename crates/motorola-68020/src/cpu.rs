@@ -1399,6 +1399,9 @@ fn handle_fmovem_step(cpu: &mut Cpu68000) {
 fn execute_fbcc_w(cpu: &mut Cpu68000, opcode: u16) -> bool {
     let condition = (opcode & 0x3F) as u8;
     let disp = i32::from(cpu.irc as i16) as u32;
+    if motorola_68k_common::fpu::predicate_raises_bsun(condition, cpu.regs.fpsr) {
+        cpu.regs.set_fpsr_bsun();
+    }
     if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
         let target = cpu.instr_start_pc.wrapping_add(2).wrapping_add(disp);
         cpu.regs.pc = target;
@@ -1436,6 +1439,9 @@ fn execute_fbcc_l(cpu: &mut Cpu68000, opcode: u16) -> bool {
 fn handle_fbcc_l(cpu: &mut Cpu68000) {
     let disp = (cpu.src_val | u32::from(cpu.irc)) as i32;
     let condition = (cpu.variant_ext_word & 0x3F) as u8;
+    if motorola_68k_common::fpu::predicate_raises_bsun(condition, cpu.regs.fpsr) {
+        cpu.regs.set_fpsr_bsun();
+    }
     if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
         let target = cpu.instr_start_pc.wrapping_add(2).wrapping_add(disp as u32);
         cpu.regs.pc = target;
@@ -1459,6 +1465,15 @@ fn handle_fbcc_l(cpu: &mut Cpu68000) {
 fn execute_fscc(cpu: &mut Cpu68000, opcode: u16) -> bool {
     let ea_mode = ((opcode >> 3) & 7) as u8;
     let ea_reg = (opcode & 7) as u8;
+    // The op-class-1 encoding multiplexes FScc / FDBcc / FTRAPcc on the EA
+    // mode: mode 1 (the An field as a counter Dn) is FDBcc; mode 7 regs 2-4
+    // are FTRAPcc; otherwise it is FScc (Dn or a byte-alterable memory EA).
+    if ea_mode == 1 {
+        return execute_fdbcc(cpu, ea_reg);
+    }
+    if ea_mode == 7 && matches!(ea_reg, 2..=4) {
+        return execute_ftrapcc(cpu, ea_reg);
+    }
     let static_mode = match ea_mode {
         5 | 6 => true,
         7 => matches!(ea_reg, 0 | 1),
@@ -1471,6 +1486,9 @@ fn execute_fscc(cpu: &mut Cpu68000, opcode: u16) -> bool {
 
     let condition = (cpu.irc & 0x3F) as u8;
     let _ = cpu.consume_irc();
+    if motorola_68k_common::fpu::predicate_raises_bsun(condition, cpu.regs.fpsr) {
+        cpu.regs.set_fpsr_bsun();
+    }
     let byte = if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
         0xFF_u32
     } else {
@@ -1513,6 +1531,78 @@ fn execute_fscc(cpu: &mut Cpu68000, opcode: u16) -> bool {
     };
     cpu.addr = base;
     start_fp_write(cpu);
+    true
+}
+
+/// FDBcc (op-class 1, EA mode 1): test the FP condition; if false, decrement
+/// the low word of the counter `Dn` and branch unless it underflows to −1.
+/// The 16-bit displacement follows the condition word, so it is fetched
+/// asynchronously and the branch resolved at [`handle_fdbcc`].
+fn execute_fdbcc(cpu: &mut Cpu68000, counter_reg: u8) -> bool {
+    let condition = (cpu.irc & 0x3F) as u8;
+    // Stash the counter register and condition for the follow-up.
+    cpu.variant_ext_word = (u16::from(counter_reg) << 8) | u16::from(condition);
+    let _ = cpu.consume_irc(); // queue the displacement-word fetch into IRC
+    cpu.in_followup = true;
+    cpu.followup_tag = motorola_68000::cpu::TAG_V_FDBCC;
+    cpu.micro_ops.push(MicroOp::Execute);
+    true
+}
+
+/// `TAG_V_FDBCC`: the displacement word is now in `irc`. Per the MC68881UM the
+/// branch PC is the address of the displacement word (`instr_start + 4`).
+fn handle_fdbcc(cpu: &mut Cpu68000) {
+    let condition = (cpu.variant_ext_word & 0x3F) as u8;
+    let reg = ((cpu.variant_ext_word >> 8) & 7) as usize;
+    if motorola_68k_common::fpu::predicate_raises_bsun(condition, cpu.regs.fpsr) {
+        cpu.regs.set_fpsr_bsun();
+    }
+    let disp = i32::from(cpu.irc as i16) as u32;
+    if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
+        // Condition true → loop terminates; fall through past the displacement.
+        cpu.micro_ops.push(MicroOp::FetchIRC);
+    } else {
+        let dn = cpu.regs.d[reg];
+        let count = (dn as u16).wrapping_sub(1);
+        cpu.regs.d[reg] = (dn & 0xFFFF_0000) | u32::from(count);
+        if count != 0xFFFF {
+            let target = cpu.instr_start_pc.wrapping_add(4).wrapping_add(disp);
+            cpu.regs.pc = target;
+            cpu.next_fetch_addr = target;
+            cpu.micro_ops.clear();
+            cpu.micro_ops.push(MicroOp::FetchIRC);
+            cpu.micro_ops.push(MicroOp::PromoteIRC);
+        } else {
+            cpu.micro_ops.push(MicroOp::FetchIRC);
+        }
+    }
+    cpu.in_followup = false;
+}
+
+/// FTRAPcc (op-class 1, EA mode 7, regs 2-4): trap (vector 7) if the FP
+/// condition holds. `reg` selects the optional operand: 2 = word, 3 = long,
+/// 4 = none. The operand is discarded (like the integer TRAPcc); the
+/// condition is already in `irc`, so this resolves synchronously.
+fn execute_ftrapcc(cpu: &mut Cpu68000, reg: u8) -> bool {
+    let condition = (cpu.irc & 0x3F) as u8;
+    let operand_words: u32 = match reg {
+        2 => 1,
+        3 => 2,
+        _ => 0,
+    };
+    let _ = cpu.consume_irc(); // step past the condition word
+    for _ in 0..operand_words {
+        cpu.consume_irc(); // step past the discarded operand words
+    }
+    if motorola_68k_common::fpu::predicate_raises_bsun(condition, cpu.regs.fpsr) {
+        cpu.regs.set_fpsr_bsun();
+    }
+    if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
+        // Stacked PC points past the whole instruction (opcode + condition +
+        // operand). begin_group1_exception clears the prefetch queue.
+        let next_pc = cpu.instr_start_pc.wrapping_add(4 + operand_words * 2);
+        cpu.begin_group1_exception(7, next_pc);
+    }
     true
 }
 
@@ -2199,8 +2289,8 @@ use motorola_68000::cpu::{
     TAG_BF_MEM_EA_ABSLONG_LO, TAG_BF_MEM_EA_RESOLVE, TAG_BF_MEM_EXEC, TAG_BF_MEM_READ,
     TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_CAS_COMPARE, TAG_V_CAS_WRITE_DONE,
     TAG_V_CAS2_COMPUTE, TAG_V_CAS2_GATHER, TAG_V_CAS2_READ2, TAG_V_CAS2_WRITE_DONE,
-    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_FBCC_L, TAG_V_FMOVEM_STEP,
-    TAG_V_FP_IMM_READ, TAG_V_FP_MEM_EXEC, TAG_V_FP_MEM_READ, TAG_V_FP_MEM_WRITE,
+    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_FBCC_L, TAG_V_FDBCC,
+    TAG_V_FMOVEM_STEP, TAG_V_FP_IMM_READ, TAG_V_FP_MEM_EXEC, TAG_V_FP_MEM_READ, TAG_V_FP_MEM_WRITE,
     TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
@@ -2367,6 +2457,10 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
         }
         TAG_V_FBCC_L => {
             handle_fbcc_l(cpu);
+            true
+        }
+        TAG_V_FDBCC => {
+            handle_fdbcc(cpu);
             true
         }
         // An FPU memory operand using a static addressing mode: the core's

@@ -284,3 +284,112 @@ fn fbt_l_negative_displacement() {
     let r = run(0xF2CF, &[0xFFFF, 0xFFF0], true, 0);
     assert_eq!(r.next_instr_pc, (PC + 2).wrapping_sub(16));
 }
+
+// --- FDBcc / FTRAPcc / BSUN (#491; #488 BSUN flag) ---
+
+const TRAP7: u32 = 0x0000_4000;
+
+/// Run one F-line instruction with full seeding + CPU inspection. Installs the
+/// vector-7 (TRAPcc) and vector-11 (F-line) handlers; returns the CPU after the
+/// instruction completes.
+fn run_seeded(opcode: u16, ext_words: &[u16], seed: impl FnOnce(&mut Cpu68020)) -> Cpu68020 {
+    let mut cpu = Cpu68020::new();
+    let mut mem = Mem::new();
+    mem.write_long(11 * 4, HANDLER);
+    mem.write_word(HANDLER, 0x4E71);
+    mem.write_long(7 * 4, TRAP7);
+    mem.write_word(TRAP7, 0x4E71);
+    mem.write_word(PC, opcode);
+    for (i, w) in ext_words.iter().enumerate() {
+        mem.write_word(PC + 2 + (i as u32) * 2, *w);
+    }
+    cpu.set_fpu_present(true);
+    cpu.regs.sr |= 0x2000; // supervisor
+    cpu.regs.ssp = INITIAL_SSP;
+    cpu.regs.set_active_sp(INITIAL_SSP);
+    seed(&mut cpu);
+    cpu.regs.pc = PC + 4;
+    cpu.setup_prefetch(opcode, ext_words.first().copied().unwrap_or(0x4E71));
+    let start = cpu.instruction_starts;
+    for _ in 0..400 {
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.instruction_starts > start {
+            return cpu;
+        }
+    }
+    panic!("instruction did not complete");
+}
+
+// FDBcc D0 = $F248; condition word then 16-bit displacement.
+#[test]
+fn fdbcc_condition_false_decrements_and_branches() {
+    // FDBF D0 (condition F = always false) with D0.w = 5, disp = +4. F is
+    // false → decrement D0 to 4 and branch to instr_start + 4 + 4 = PC + 8.
+    let cpu = run_seeded(0xF248, &[0x0000, 0x0004], |c| c.regs.d[0] = 0x1234_0005);
+    assert_eq!(cpu.regs.d[0], 0x1234_0004, "D0.w decremented");
+    assert_eq!(cpu.instr_start_pc, PC + 8, "branch to disp-word + disp");
+}
+
+#[test]
+fn fdbcc_count_exhausted_falls_through() {
+    // FDBF D0 with D0.w = 0 → decrement to -1 (0xFFFF) → loop done, fall
+    // through past opcode+condition+disp (6 bytes).
+    let cpu = run_seeded(0xF248, &[0x0000, 0x0004], |c| c.regs.d[0] = 0x1234_0000);
+    assert_eq!(cpu.regs.d[0], 0x1234_FFFF, "D0.w underflowed to -1");
+    assert_eq!(cpu.instr_start_pc, PC + 6, "falls through to instr+6");
+}
+
+#[test]
+fn fdbcc_condition_true_falls_through_without_decrement() {
+    // FDBT D0 (condition T = always true) → no operation, D0 unchanged,
+    // fall through.
+    let cpu = run_seeded(0xF248, &[0x000F, 0x0004], |c| c.regs.d[0] = 0x1234_0005);
+    assert_eq!(
+        cpu.regs.d[0], 0x1234_0005,
+        "D0 unchanged when condition true"
+    );
+    assert_eq!(cpu.instr_start_pc, PC + 6, "falls through to instr+6");
+}
+
+// FTRAPcc (no operand) = $F27C; condition word follows.
+#[test]
+fn ftrapcc_condition_true_takes_vector_7() {
+    // FTRAPT (condition T) → trap, vector 7.
+    let cpu = run_seeded(0xF27C, &[0x000F], |_| {});
+    assert_eq!(cpu.instr_start_pc, TRAP7, "FTRAPT traps to vector 7");
+}
+
+#[test]
+fn ftrapcc_condition_false_falls_through() {
+    // FTRAPF (condition F) → no trap, fall through past opcode + condition.
+    let cpu = run_seeded(0xF27C, &[0x0000], |_| {});
+    assert_eq!(cpu.instr_start_pc, PC + 4, "falls through to instr+4");
+}
+
+// FTRAPcc.W = $F27A; condition word + one operand word.
+#[test]
+fn ftrapcc_word_operand_false_skips_operand() {
+    let cpu = run_seeded(0xF27A, &[0x0000, 0xDEAD], |_| {});
+    assert_eq!(cpu.instr_start_pc, PC + 6, "skips the operand word");
+}
+
+#[test]
+fn fbcc_nonaware_predicate_sets_bsun_on_nan() {
+    // FBGT.W ($F280 | 0x12) is an IEEE-nonaware predicate. With the NAN
+    // condition code set, it must set BSUN (FPSR bit 15) + AEXC IOP (bit 7).
+    let cpu = run_seeded(0xF292, &[0x0004], |c| c.regs.fpsr = 0x0100_0000); // NAN
+    assert_ne!(cpu.regs.fpsr & 0x0000_8000, 0, "BSUN set");
+    assert_ne!(cpu.regs.fpsr & 0x0000_0080, 0, "AEXC IOP set");
+}
+
+#[test]
+fn fbcc_aware_predicate_does_not_set_bsun() {
+    // FBOGT.W ($F280 | 0x02) is IEEE-aware → never sets BSUN, even with NAN.
+    let cpu = run_seeded(0xF282, &[0x0004], |c| c.regs.fpsr = 0x0100_0000);
+    assert_eq!(
+        cpu.regs.fpsr & 0x0000_8000,
+        0,
+        "BSUN not set for aware test"
+    );
+}

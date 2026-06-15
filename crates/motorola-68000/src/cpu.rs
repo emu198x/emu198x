@@ -310,6 +310,10 @@ pub const TAG_V_FP_IMM_READ: u8 = 128;
 /// either start the next register or finish.
 pub const TAG_V_FMOVEM_STEP: u8 = 129;
 
+/// 68881/2 FDBcc: the 16-bit displacement word has been fetched into `irc`;
+/// test the condition, decrement the counter, and branch or fall through.
+pub const TAG_V_FDBCC: u8 = 130;
+
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum State {

@@ -232,6 +232,14 @@ impl Registers {
         self.fpsr = (self.fpsr & !0x00FF_0000) | byte;
     }
 
+    /// Set the BSUN exception: the EXC byte's BSUN bit (FPSR bit 15) plus the
+    /// accrued IOP bit (bit 7). Used by FBcc/FScc/FDBcc/FTRAPcc when an
+    /// IEEE-nonaware predicate is taken with the NAN condition code set. The
+    /// other EXC bits are left untouched (BSUN is OR-ed in, not replaced).
+    pub fn set_fpsr_bsun(&mut self) {
+        self.fpsr |= 0x0000_8000 | 0x0000_0080;
+    }
+
     /// Apply an operation's exception-status byte to the FPSR. The EXC byte
     /// (bits 15-8: BSUN/SNAN/OPERR/OVFL/UNFL/DZ/INEX2/INEX1) reflects the
     /// most recent operation and is *replaced*; the derived accrued-exception

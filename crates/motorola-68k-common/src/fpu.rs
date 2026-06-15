@@ -418,12 +418,21 @@ pub fn test_condition(fpsr: u32, condition: u8) -> bool {
         _ => unreachable!(),
     };
 
-    // Conditions 0x10-0x1F are the same predicates but with BSUN signalling
-    // on NaN. We don't model BSUN exceptions, so the result is the same.
-    // The bit-4 flag only affects whether BSUN is raised, not the boolean result.
-    let _ = i; // suppress unused warning; I flag used for specific conditions above indirectly
+    // Conditions 0x10-0x1F are the same predicates but IEEE-nonaware: bit 4
+    // only governs whether BSUN is raised (see `predicate_raises_bsun`), not
+    // the boolean result.
+    let _ = i; // the I (infinity) flag is not used by any predicate
 
     result
+}
+
+/// Whether taking `condition` with the current `fpsr` must set the BSUN
+/// exception: an IEEE-nonaware predicate (bit 4 set) evaluated while the NAN
+/// condition code is set. Per MC68881UM §4.4 (the nonaware/aware test tables).
+#[must_use]
+pub fn predicate_raises_bsun(condition: u8, fpsr: u32) -> bool {
+    let nan = (fpsr >> 24) & 1 != 0;
+    (condition & 0x10) != 0 && nan
 }
 
 // --- FMOVECR ROM constants ---
