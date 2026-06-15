@@ -943,15 +943,17 @@ fn begin_fp_memory(cpu: &mut Cpu68000, opmode: u16) -> bool {
     };
     let ea_mode = ((cpu.ir >> 3) & 7) as u8;
     let ea_reg = (cpu.ir & 7) as u8;
-    // Modes we can fetch: (An)/(An)+/-(An) directly, plus the static
-    // address modes (d16(An), indexed, abs, PC-relative) via the core EA
-    // machinery. Dn/An-direct and immediate (7/4) decline for now.
+    // Modes we can fetch: (An)/(An)+/-(An) directly; the static address
+    // modes (d16(An), indexed, abs, PC-relative) via the core EA
+    // machinery; and immediate (#data, 7/4) from the instruction stream.
+    // Dn/An-direct aren't valid memory operands and decline.
     let static_mode = match ea_mode {
         5 | 6 => true,
         7 => matches!(ea_reg, 0..=3),
         _ => false,
     };
-    if !matches!(ea_mode, 2..=4) && !static_mode {
+    let immediate = ea_mode == 7 && ea_reg == 4;
+    if !matches!(ea_mode, 2..=4) && !static_mode && !immediate {
         return false;
     }
 
@@ -965,6 +967,15 @@ fn begin_fp_memory(cpu: &mut Cpu68000, opmode: u16) -> bool {
     cpu.fp_mem_opmode = opmode as u8;
     cpu.fp_mem_dst = ((w2 >> 7) & 7) as u8;
     cpu.in_followup = true;
+
+    if immediate {
+        // The operand follows the FP extension word inline, one or more
+        // words. The FP-ext-word FetchIRC refills IRC with the first
+        // operand word before TAG_V_FP_IMM_READ runs.
+        cpu.followup_tag = motorola_68000::cpu::TAG_V_FP_IMM_READ;
+        cpu.micro_ops.push(MicroOp::Execute);
+        return true;
+    }
 
     if static_mode {
         // Let the core resolve the EA (it may consume extension words and
@@ -1023,6 +1034,22 @@ fn handle_fp_mem_read(cpu: &mut Cpu68000) {
     if cpu.fp_mem_bytes_done < cpu.fp_mem_bytes_total {
         cpu.addr = cpu.addr.wrapping_add(1);
         cpu.micro_ops.push(MicroOp::ReadByte);
+        cpu.micro_ops.push(MicroOp::Execute);
+    } else {
+        cpu.followup_tag = TAG_V_FP_MEM_EXEC;
+        cpu.micro_ops.push(MicroOp::Execute);
+    }
+}
+
+/// `TAG_V_FP_IMM_READ`: an immediate operand word is in `irc`. Accumulate
+/// it (word-aligned, big-endian) and either read the next word or run the
+/// op. The operand spans `ceil(bytes_total / 2)` words: byte/word = 1,
+/// long/single = 2, double = 4, extended = 6.
+fn handle_fp_imm_read(cpu: &mut Cpu68000) {
+    cpu.fp_mem_buf = (cpu.fp_mem_buf << 16) | u128::from(cpu.irc);
+    cpu.fp_mem_bytes_done += 2;
+    let _ = cpu.consume_irc(); // advance the prefetch to the next word
+    if cpu.fp_mem_bytes_done < cpu.fp_mem_bytes_total {
         cpu.micro_ops.push(MicroOp::Execute);
     } else {
         cpu.followup_tag = TAG_V_FP_MEM_EXEC;
@@ -1893,8 +1920,8 @@ use motorola_68000::cpu::{
     TAG_BF_MEM_EA_ABSLONG_LO, TAG_BF_MEM_EA_RESOLVE, TAG_BF_MEM_EXEC, TAG_BF_MEM_READ,
     TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_CAS_COMPARE, TAG_V_CAS_WRITE_DONE,
     TAG_V_CAS2_COMPUTE, TAG_V_CAS2_GATHER, TAG_V_CAS2_READ2, TAG_V_CAS2_WRITE_DONE,
-    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_FBCC_L, TAG_V_FP_MEM_EXEC,
-    TAG_V_FP_MEM_READ, TAG_V_FP_MEM_WRITE, TAG_V_MULDIV_MEM_EXEC,
+    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_FBCC_L, TAG_V_FP_IMM_READ,
+    TAG_V_FP_MEM_EXEC, TAG_V_FP_MEM_READ, TAG_V_FP_MEM_WRITE, TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
@@ -2040,6 +2067,10 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
         }
         TAG_V_FP_MEM_READ => {
             handle_fp_mem_read(cpu);
+            true
+        }
+        TAG_V_FP_IMM_READ => {
+            handle_fp_imm_read(cpu);
             true
         }
         TAG_V_FP_MEM_EXEC => {

@@ -1115,6 +1115,68 @@ fn fmove_extended_abs_short_memory() {
     assert_eq!(r.fp[0], POS_TWO, "(0x2000).W extended 2.0 → 2.0");
 }
 
+// --- Immediate (#data) source operands: opcode $F23C (mode 7, reg 4).
+// The operand words follow the FP extension word inline. ---
+
+#[test]
+fn fmove_immediate_single() {
+    // FMOVE.S #1.0,FP0 — 0x3F800000.
+    let r = run_mem_ea(0xF23C, mem_ext(1, 0, 0x00), &[0x3F80, 0x0000], |_, _| {});
+    assert_eq!(r.fp[0], POS_ONE, "FMOVE.S #1.0f → 1.0");
+}
+
+#[test]
+fn fmove_immediate_long() {
+    // FMOVE.L #5,FP0.
+    let r = run_mem_ea(0xF23C, mem_ext(0, 0, 0x00), &[0x0000, 0x0005], |_, _| {});
+    assert_eq!(r.fp[0], int_fx(5), "FMOVE.L #5 → 5.0");
+}
+
+#[test]
+fn fmove_immediate_double() {
+    // FMOVE.D #2.0,FP0 — 0x4000000000000000 (4 words).
+    let r = run_mem_ea(
+        0xF23C,
+        mem_ext(5, 0, 0x00),
+        &[0x4000, 0x0000, 0x0000, 0x0000],
+        |_, _| {},
+    );
+    assert_eq!(r.fp[0], POS_TWO, "FMOVE.D #2.0 → 2.0");
+}
+
+#[test]
+fn fmove_immediate_extended() {
+    // FMOVE.X #2.0,FP0 — 6 words: high 0x4000, pad 0x0000, mantissa
+    // 0x8000000000000000.
+    let r = run_mem_ea(
+        0xF23C,
+        mem_ext(2, 0, 0x00),
+        &[0x4000, 0x0000, 0x8000, 0x0000, 0x0000, 0x0000],
+        |_, _| {},
+    );
+    assert_eq!(r.fp[0], POS_TWO, "FMOVE.X #2.0 → 2.0");
+}
+
+#[test]
+fn fmove_immediate_word_and_byte() {
+    // FMOVE.W #-1,FP0 (one word, 0xFFFF) → −1.0.
+    let r = run_mem_ea(0xF23C, mem_ext(4, 0, 0x00), &[0xFFFF], |_, _| {});
+    assert_eq!(r.fp[0], NEG_ONE, "FMOVE.W #-1 → −1.0");
+
+    // FMOVE.B #7,FP0 (one word, low byte 0x07) → 7.0.
+    let r = run_mem_ea(0xF23C, mem_ext(6, 0, 0x00), &[0x0007], |_, _| {});
+    assert_eq!(r.fp[0], int_fx(7), "FMOVE.B #7 → 7.0");
+}
+
+#[test]
+fn fadd_immediate_long_operand() {
+    // FADD.L #2,FP0 with FP0 = 1.0 → 3.0.
+    let r = run_mem_ea(0xF23C, mem_ext(0, 0, 0x22), &[0x0000, 0x0002], |cpu, _| {
+        cpu.regs.fp[0] = POS_ONE;
+    });
+    assert_eq!(r.fp[0], POS_THREE, "1.0 + #2 = 3.0");
+}
+
 #[test]
 fn fmove_pc_relative_memory() {
     // FMOVE.L (d16,PC),FP0 — opcode $F23A (mode 7, reg 2). The

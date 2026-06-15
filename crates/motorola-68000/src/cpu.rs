@@ -303,6 +303,9 @@ pub const TAG_V_FP_MEM_WRITE: u8 = 126;
 /// 68881/2 FBcc.L: the low displacement word has been prefetched; combine
 /// it with the stashed high word and resolve the branch.
 pub const TAG_V_FBCC_L: u8 = 127;
+/// 68881/2 FPU immediate source operand: an operand word has been
+/// prefetched; accumulate it and either read the next or run the op.
+pub const TAG_V_FP_IMM_READ: u8 = 128;
 
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
