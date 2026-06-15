@@ -194,6 +194,15 @@ fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: 
         let rmode: u32 = rng.random_range(0..4);
         musashi::set_fpcr(rmode << 4);
         seed_fp_operands(rng);
+
+        // Memory-source ops: point A0 at an even data address and seed a
+        // format-typed operand there (the in-register dst operand is one of
+        // the eight already seeded above).
+        if let InstructionSetup::FpGenMem { format, .. } = def.setup {
+            let addr = random_data_addr(rng);
+            musashi::set_reg(musashi::M68K_REG_A0, addr);
+            seed_fp_mem_operand(addr, format, rng);
+        }
     }
 
     // Capture initial state
@@ -355,6 +364,17 @@ fn encode_instruction(
             memory::poke_word(pc.wrapping_add(2), ext);
             None
         }
+        InstructionSetup::FpGenMem { opmode, format } => {
+            // cpGEN extension word: 0 | R/M=1 | 0 | format(3) | dst(3) |
+            // opmode(7). R/M is bit 14 (0x4000), NOT bit 15 — bit 15 and
+            // bit 13 must be zero or the sub-op decode (w2>>13 & 7) misroutes
+            // to FMOVE-control/FMOVEM. The source operand is seeded at (A0)
+            // in generate_one's FP block.
+            let dst: u16 = rng.random_range(0..8);
+            let ext = 0x4000 | (u16::from(format) << 10) | (dst << 7) | u16::from(opmode);
+            memory::poke_word(pc.wrapping_add(2), ext);
+            None
+        }
         InstructionSetup::Movem { size } => {
             // Register mask at pc+2
             let mask: u16 = rng.random();
@@ -442,6 +462,68 @@ fn random_fp_value(rng: &mut impl Rng) -> (u16, u64) {
             let mantissa = (rng.random::<u64>() & !FX80_INT_BIT).max(1);
             (sign, mantissa)
         }
+    }
+}
+
+/// Seed a `format`-typed source operand at `addr` (big-endian), for the
+/// memory-source FPgen ops. `format` is the M68881 source-specifier code.
+fn seed_fp_mem_operand(addr: u32, format: u8, rng: &mut impl Rng) {
+    match format {
+        0 => memory::poke_long(addr, rng.random()), // long integer
+        1 => memory::poke_long(addr, random_f32_bits(rng)), // single
+        2 => {
+            // Extended: 12 bytes — high word (sign+exp), reserved word (0),
+            // then the 64-bit mantissa.
+            let (high, low) = random_fp_value(rng);
+            memory::poke_word(addr, high);
+            memory::poke_word(addr + 2, 0);
+            memory::poke_long(addr + 4, (low >> 32) as u32);
+            memory::poke_long(addr + 8, low as u32);
+        }
+        4 => memory::poke_word(addr, rng.random()), // word integer
+        5 => {
+            // Double: 8 bytes.
+            let bits = random_f64_bits(rng);
+            memory::poke_long(addr, (bits >> 32) as u32);
+            memory::poke_long(addr + 4, bits as u32);
+        }
+        6 => memory::poke(addr, rng.random()), // byte integer
+        _ => {}
+    }
+}
+
+/// Random IEEE-754 single-precision bit pattern from a weighted mix of
+/// value classes (normal / ±0 / ±inf / NaN / subnormal).
+fn random_f32_bits(rng: &mut impl Rng) -> u32 {
+    let sign: u32 = if rng.random() { 0x8000_0000 } else { 0 };
+    match rng.random_range(0..100u8) {
+        0..55 => sign | (rng.random_range(1u32..=254) << 23) | (rng.random::<u32>() & 0x007F_FFFF),
+        55..68 => sign,
+        68..80 => sign | 0x7F80_0000,
+        80..92 => sign | 0x7F80_0000 | (rng.random::<u32>() & 0x007F_FFFF).max(1),
+        _ => sign | (rng.random::<u32>() & 0x007F_FFFF).max(1),
+    }
+}
+
+/// Random IEEE-754 double-precision bit pattern from a weighted mix of
+/// value classes (normal / ±0 / ±inf / NaN / subnormal).
+fn random_f64_bits(rng: &mut impl Rng) -> u64 {
+    let sign: u64 = if rng.random() {
+        0x8000_0000_0000_0000
+    } else {
+        0
+    };
+    match rng.random_range(0..100u8) {
+        0..55 => {
+            sign | (rng.random_range(1u64..=2046) << 52)
+                | (rng.random::<u64>() & 0x000F_FFFF_FFFF_FFFF)
+        }
+        55..68 => sign,
+        68..80 => sign | 0x7FF0_0000_0000_0000,
+        80..92 => {
+            sign | 0x7FF0_0000_0000_0000 | (rng.random::<u64>() & 0x000F_FFFF_FFFF_FFFF).max(1)
+        }
+        _ => sign | (rng.random::<u64>() & 0x000F_FFFF_FFFF_FFFF).max(1),
     }
 }
 

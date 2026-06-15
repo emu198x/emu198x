@@ -58,13 +58,23 @@ pub enum InstructionSetup {
     /// `R/M=0 | 00 | src(3) | dst(3) | opmode(7)`. The generator picks
     /// random src/dst FP registers and seeds all eight with random operands.
     FpGenReg { opmode: u8 },
+    /// 68881/2 memory-source FPgen (FADD.<fmt> (A0),FPn etc.). The opcode
+    /// is the cpGEN F-line word with EA = (A0) ($F210); the extension word
+    /// encodes `R/M=1 | format(3) | dst(3) | opmode(7)`. The generator
+    /// points A0 at an even data address and seeds a `format`-typed source
+    /// operand there. `format`: 0=Long 1=Single 2=Extended 4=Word 5=Double
+    /// 6=Byte (the source-specifier field of the M68881 ext word).
+    FpGenMem { opmode: u8, format: u8 },
 }
 
 impl InstructionDef {
     /// True for floating-point instructions — the generator seeds FP
     /// register operands (and FPCR) for these, not just integer state.
     pub fn is_fp(&self) -> bool {
-        matches!(self.setup, InstructionSetup::FpGenReg { .. })
+        matches!(
+            self.setup,
+            InstructionSetup::FpGenReg { .. } | InstructionSetup::FpGenMem { .. }
+        )
     }
 }
 
@@ -874,15 +884,32 @@ const fn fpgen(name: &'static str, opmode: u8) -> InstructionDef {
     }
 }
 
-/// Return the 68881/2 register-to-register FPgen catalogue.
+/// Helper for a 68881/2 memory-source FPgen instruction (EA = (A0)).
+const fn fpgen_mem(name: &'static str, opmode: u8, format: u8) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode: 0xF210, // cpGEN, EA mode 010 (An) reg 0 → (A0)
+        ext_words: 1,
+        setup: InstructionSetup::FpGenMem { opmode, format },
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    }
+}
+
+/// Return the 68881/2 FPgen catalogue (register-to-register + memory-source).
 ///
 /// Kept separate from `catalogue()` so the integer `--all` sweep stays
 /// integer-only; the FP corpus is generated explicitly (`--fp`). Opmodes
 /// from M68881 UM Table 4-11. Monadic ops (FMOVE/FABS/FNEG/FSQRT/FINT/
 /// FINTRZ/FTST) read the `src` FP register; dyadic ops (FADD/FSUB/FMUL/
 /// FDIV/FCMP) compute `dst = dst OP src`.
+///
+/// The memory-source entries cover every data format the source-specifier
+/// field selects — Long/Single/Extended/Word/Double/Byte — via FMOVE.<fmt>
+/// (pure widen-to-extended) and FADD.<fmt> (widen then arithmetic). They
+/// validate the format conversions and the FP memory-operand pipeline at
+/// scale. Packed-decimal (.P, format 3) is excluded — Musashi declines it.
 pub fn fp_catalogue(_cpu_type: u32) -> Vec<InstructionDef> {
-    vec![
+    let mut defs = vec![
         fpgen("FMOVE", 0x00),
         fpgen("FINT", 0x01),
         fpgen("FINTRZ", 0x03),
@@ -895,7 +922,32 @@ pub fn fp_catalogue(_cpu_type: u32) -> Vec<InstructionDef> {
         fpgen("FSUB", 0x28),
         fpgen("FCMP", 0x38),
         fpgen("FTST", 0x3A),
-    ]
+    ];
+
+    // Memory-source, one FMOVE (conversion only) + one FADD (convert + add)
+    // per source format. Format codes are the M68881 source-specifier field.
+    for &(suffix, format) in &[
+        ("L", 0u8), // long integer
+        ("S", 1),   // single
+        ("X", 2),   // extended
+        ("W", 4),   // word integer
+        ("D", 5),   // double
+        ("B", 6),   // byte integer
+    ] {
+        let (fmove, fadd) = match suffix {
+            "L" => ("FMOVE.L_mem", "FADD.L_mem"),
+            "S" => ("FMOVE.S_mem", "FADD.S_mem"),
+            "X" => ("FMOVE.X_mem", "FADD.X_mem"),
+            "W" => ("FMOVE.W_mem", "FADD.W_mem"),
+            "D" => ("FMOVE.D_mem", "FADD.D_mem"),
+            "B" => ("FMOVE.B_mem", "FADD.B_mem"),
+            _ => unreachable!(),
+        };
+        defs.push(fpgen_mem(fmove, 0x00, format));
+        defs.push(fpgen_mem(fadd, 0x22, format));
+    }
+
+    defs
 }
 
 /// Find a floating-point instruction definition by name.
