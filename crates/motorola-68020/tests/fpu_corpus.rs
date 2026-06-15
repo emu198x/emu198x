@@ -235,7 +235,9 @@ fn service_bus(cpu: &mut Cpu68020, mem: &mut SparseMem) {
 
 fn run_one_instruction(cpu: &mut Cpu68020, mem: &mut SparseMem) -> bool {
     let start_count = cpu.instruction_starts;
-    for _ in 0..400 {
+    // FMOVEM of 8 registers is ~96 byte bus cycles; give the slowest
+    // instruction ample headroom (other ops exit early on the start count).
+    for _ in 0..3000 {
         service_bus(cpu, mem);
         cpu.tick();
         if cpu.instruction_starts > start_count {

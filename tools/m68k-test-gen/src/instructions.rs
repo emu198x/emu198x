@@ -100,6 +100,12 @@ pub enum InstructionSetup {
     /// 2, $F280). The predicate is in the opcode's low 6 bits; the generator
     /// randomises predicate, FPSR codes and an in-range even branch target.
     FpBcc { long: bool },
+    /// 68881/2 FMOVEM register-list ↔ memory, the two idioms both the core
+    /// and the Musashi oracle implement: `store` = `FMOVEM <list>,-(A0)`
+    /// (predecrement store, ext word mode 0, writes FP[i]); else `FMOVEM
+    /// (A0)+,<list>` (postincrement load, mode 2, reads into FP[7-i]). The
+    /// generator randomises an 8-bit static register list.
+    FpMovem { store: bool },
 }
 
 impl InstructionDef {
@@ -117,6 +123,7 @@ impl InstructionDef {
                 | InstructionSetup::FpStoreMemMode { .. }
                 | InstructionSetup::FpScc
                 | InstructionSetup::FpBcc { .. }
+                | InstructionSetup::FpMovem { .. }
         )
     }
 }
@@ -1127,6 +1134,22 @@ pub fn fp_catalogue(_cpu_type: u32) -> Vec<InstructionDef> {
         opcode: 0xF2C0, // op-class 3
         ext_words: 2,
         setup: InstructionSetup::FpBcc { long: true },
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    });
+
+    // FMOVEM register list ↔ memory, the two oracle-supported idioms.
+    defs.push(InstructionDef {
+        name: "FMOVEM_predec_store",
+        opcode: 0xF220, // cpGEN, EA = -(A0) (mode 4 reg 0)
+        ext_words: 1,
+        setup: InstructionSetup::FpMovem { store: true },
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    });
+    defs.push(InstructionDef {
+        name: "FMOVEM_postinc_load",
+        opcode: 0xF218, // cpGEN, EA = (A0)+ (mode 3 reg 0)
+        ext_words: 1,
+        setup: InstructionSetup::FpMovem { store: false },
         min_cpu: musashi::M68K_CPU_TYPE_68020,
     });
 

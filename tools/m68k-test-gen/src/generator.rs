@@ -254,6 +254,27 @@ fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: 
             }
         }
 
+        // FMOVEM: point A0 at an even address with headroom both ways, and
+        // for the postinc load seed `count` 12-byte extended operands at A0.
+        if let InstructionSetup::FpMovem { store } = def.setup {
+            let reglist = memory::peek(CODE_BASE + 3); // low byte of ext word
+            let count = u32::from(reglist.count_ones());
+            // Mid-data-region base leaves ≥96 bytes below (predec store) and
+            // above (postinc load) without touching code/stack/vectors.
+            let a0 = rng.random_range(0x0014_0000u32..0x001C_0000) & !1;
+            musashi::set_reg(musashi::M68K_REG_A0, a0);
+            if !store {
+                for blk in 0..count {
+                    let addr = a0 + blk * 12;
+                    let (high, low) = random_fp_value(rng);
+                    memory::poke_word(addr, high);
+                    memory::poke_word(addr + 2, 0); // reserved word
+                    memory::poke_long(addr + 4, (low >> 32) as u32);
+                    memory::poke_long(addr + 8, low as u32);
+                }
+            }
+        }
+
         // Non-(An) store modes: set A0 (and d16) so the store target is a
         // clear, even address. No operand is seeded — the store writes it.
         // The core/Musashi compute the post-inc/pre-dec step themselves.
@@ -488,6 +509,15 @@ fn encode_instruction(
             // Musashi oracle fatalerrors on them rather than masking bit 5.
             let cond: u16 = rng.random_range(0..0x20);
             memory::poke_word(pc.wrapping_add(2), cond);
+            None
+        }
+        InstructionSetup::FpMovem { store } => {
+            // FMOVEM ext word: 11 | dir | mode(2) | 000 | reglist(8).
+            // Predec store: dir=1 mode=0 → 0xE000; postinc load: dir=0
+            // mode=2 → 0xD000. A random 8-bit static register list.
+            let reglist = u16::from(rng.random::<u8>());
+            let base: u16 = if store { 0xE000 } else { 0xD000 };
+            memory::poke_word(pc.wrapping_add(2), base | reglist);
             None
         }
         InstructionSetup::FpBcc { long } => {
