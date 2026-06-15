@@ -385,14 +385,14 @@ fn random_sr(rng: &mut impl Rng, _cpu_type: u32) -> u16 {
     0x2000 | (u16::from(int_mask) << 8) | u16::from(ccr)
 }
 
-/// Seed all eight Musashi FP registers with random operands.
-///
-/// This first corpus targets the finite-normal arithmetic + rounding +
-/// condition-code paths, so values are normalized finite (sign random,
-/// biased exponent within ~2^±64 of 1.0, full-random 64-bit mantissa with
-/// the explicit integer bit set), with an occasional ±0. Infinities, NaNs
-/// and denormals — which also exercise the deferred FPSR exception bits —
-/// are a follow-up once the finite path validates at 100%.
+/// Seed all eight Musashi FP registers with random operands drawn from a
+/// weighted mix of value classes (see `random_fp_value`): normal finite of
+/// moderate and wide magnitude, ±0, ±infinity, NaN (quiet and signalling),
+/// and subnormals. The wide-magnitude normals plus infinities and zeros
+/// exercise the overflow/underflow/NaN-propagation result *values*; the
+/// deferred FPSR exception bits those also raise are masked off by the
+/// harness, which compares only FP register values + the FPSR condition
+/// codes.
 fn seed_fp_operands(rng: &mut impl Rng) {
     for i in 0..8 {
         let (high, low) = random_fp_value(rng);
@@ -400,17 +400,49 @@ fn seed_fp_operands(rng: &mut impl Rng) {
     }
 }
 
-/// Generate one random normalized-finite floatx80 `(high, low)` operand.
+/// Bit 63 of a floatx80 mantissa: the explicit integer bit.
+const FX80_INT_BIT: u64 = 0x8000_0000_0000_0000;
+
+/// Generate one random floatx80 `(high, low)` operand from a weighted mix
+/// of value classes. Pseudo-encodings (unnormal / pseudo-NaN / pseudo-inf)
+/// are deliberately excluded — they are 80-bit-specific invalid forms the
+/// 68040 oracle and 68881/2 core may treat differently, and would muddy a
+/// value-level comparison.
 fn random_fp_value(rng: &mut impl Rng) -> (u16, u64) {
     let sign: u16 = if rng.random() { 0x8000 } else { 0 };
-    if rng.random_range(0..8u8) == 0 {
-        return (sign, 0); // ±0.0
+    match rng.random_range(0..100u8) {
+        // 0..40: moderate normal — exponent within ±64 of 1.0.
+        0..40 => {
+            let exp = rng.random_range((0x3FFFu16 - 64)..=(0x3FFFu16 + 64));
+            (sign | exp, rng.random::<u64>() | FX80_INT_BIT)
+        }
+        // 40..60: wide normal — full exponent range, to reach the
+        // overflow/underflow edges in mul/div/add.
+        40..60 => {
+            let exp = rng.random_range(0x0001u16..=0x7FFE);
+            (sign | exp, rng.random::<u64>() | FX80_INT_BIT)
+        }
+        // 60..70: ±0.0
+        60..70 => (sign, 0),
+        // 70..80: ±infinity (max exponent, fraction zero, integer bit set).
+        70..80 => (sign | 0x7FFF, FX80_INT_BIT),
+        // 80..92: NaN — quiet (bit 62 set) or signalling (bit 62 clear),
+        // always with a non-zero fraction and the integer bit set.
+        80..92 => {
+            let frac = (rng.random::<u64>() & 0x3FFF_FFFF_FFFF_FFFF).max(1);
+            let quiet = if rng.random() {
+                0x4000_0000_0000_0000
+            } else {
+                0
+            };
+            (sign | 0x7FFF, FX80_INT_BIT | quiet | frac)
+        }
+        // 92..100: subnormal — exponent zero, integer bit clear, non-zero.
+        _ => {
+            let mantissa = (rng.random::<u64>() & !FX80_INT_BIT).max(1);
+            (sign, mantissa)
+        }
     }
-    // Exponent biased by 0x3FFF; keep within ±64 of 1.0 to stay clear of
-    // overflow/underflow extremes for this first pass.
-    let exp = rng.random_range((0x3FFFu16 - 64)..=(0x3FFFu16 + 64));
-    let mantissa = rng.random::<u64>() | 0x8000_0000_0000_0000;
-    (sign | exp, mantissa)
 }
 
 /// Capture current Musashi state.
