@@ -61,6 +61,61 @@ impl RoundingMode {
     }
 }
 
+// --- Exception flags (softfloat `float_flag_*` / `float_exception_flags`) ---
+//
+// SoftFloat reports IEEE exceptions through a global `float_exception_flags`
+// that `float_raise` ORs into; the value-returning routines are otherwise
+// pure. This port mirrors that exactly with a thread-local accumulator —
+// matching the C structure keeps the transliteration faithful, so the flags
+// our routines raise are bit-identical to softfloat.c's (the validation
+// oracle). The 68881/2 FPU layer reads them after each operation and folds
+// them into the FPSR EXC/AEXC bytes. Each op is synchronous within a thread
+// (clear → compute → take), so the thread-local is race-free.
+
+/// SoftFloat exception flag bits (`float_flag_*` in softfloat.h).
+pub mod flag {
+    /// Invalid operation (`float_flag_invalid`).
+    pub const INVALID: u8 = 0x01;
+    /// Denormalised input (`float_flag_denormal`).
+    pub const DENORMAL: u8 = 0x02;
+    /// Divide by zero (`float_flag_divbyzero`).
+    pub const DIVBYZERO: u8 = 0x04;
+    /// Overflow (`float_flag_overflow`).
+    pub const OVERFLOW: u8 = 0x08;
+    /// Underflow (`float_flag_underflow`).
+    pub const UNDERFLOW: u8 = 0x10;
+    /// Inexact result (`float_flag_inexact`).
+    pub const INEXACT: u8 = 0x20;
+}
+
+thread_local! {
+    static EXCEPTION_FLAGS: core::cell::Cell<u8> = const { core::cell::Cell::new(0) };
+}
+
+/// Clear the accumulated exception flags. Call before an operation whose
+/// flags you intend to read.
+pub fn clear_exception_flags() {
+    EXCEPTION_FLAGS.with(|f| f.set(0));
+}
+
+/// Read the accumulated exception flags and clear them (`float_exception_flags`
+/// snapshot + reset).
+#[must_use]
+pub fn exception_flags() -> u8 {
+    EXCEPTION_FLAGS.with(core::cell::Cell::get)
+}
+
+/// Read and clear the accumulated exception flags in one step.
+#[must_use]
+pub fn take_exception_flags() -> u8 {
+    EXCEPTION_FLAGS.with(|f| f.replace(0))
+}
+
+/// Accumulate exception flags (`float_raise`). Internal to the port.
+fn float_raise(flags: u8) {
+    EXCEPTION_FLAGS.with(|f| f.set(f.get() | flags));
+}
+
 /// Pack a sign, 15-bit exponent, and 64-bit significand into a
 /// `floatx80` (`packFloatx80`).
 #[must_use]
@@ -207,6 +262,20 @@ fn is_signaling_nan(a: FpReg) -> bool {
     (a.high & 0x7FFF) == 0x7FFF && a_low.wrapping_shl(1) != 0 && a.low == a_low
 }
 
+/// `float32_is_signaling_nan`: max exponent, non-zero fraction, quiet bit
+/// (fraction MSB) clear.
+#[must_use]
+fn float32_is_signaling_nan(a: u32) -> bool {
+    ((a >> 22) & 0x1FF) == 0x1FE && (a & 0x003F_FFFF) != 0
+}
+
+/// `float64_is_signaling_nan`: max exponent, non-zero fraction, quiet bit
+/// clear.
+#[must_use]
+fn float64_is_signaling_nan(a: u64) -> bool {
+    ((a >> 51) & 0xFFF) == 0xFFE && (a & 0x0007_FFFF_FFFF_FFFF) != 0
+}
+
 /// `propagateFloatx80NaN`: given two values, one of which is a NaN, return
 /// the NaN result the 68881/2 would. The `float_raise(invalid)` on a
 /// signaling input is a side effect only (does not change the value) and is
@@ -216,10 +285,12 @@ fn propagate_floatx80_nan(mut a: FpReg, mut b: FpReg) -> FpReg {
     let a_is_nan = a.is_nan();
     let a_is_signaling = is_signaling_nan(a);
     let b_is_nan = b.is_nan();
-    // b_is_signaling only feeds the deferred float_raise — not computed.
+    let b_is_signaling = is_signaling_nan(b);
     a.low |= 0xC000_0000_0000_0000;
     b.low |= 0xC000_0000_0000_0000;
-    // TODO(FPSR): float_raise(invalid) if a_is_signaling | b_is_signaling.
+    if a_is_signaling || b_is_signaling {
+        float_raise(flag::INVALID);
+    }
     if a_is_nan {
         if a_is_signaling && b_is_nan { b } else { a }
     } else {
@@ -261,7 +332,7 @@ pub fn round_and_pack_floatx80(
     // Common overflow tail. `round_mask` carries the precision (32/64) max
     // finite significand; the precision-80 path jumps in with mask 0.
     let overflow = |round_mask: u64| -> FpReg {
-        // TODO(FPSR): float_raise(overflow | inexact).
+        float_raise(flag::OVERFLOW | flag::INEXACT);
         if rounding_mode == RoundingMode::Zero
             || (z_sign && rounding_mode == RoundingMode::Up)
             || (!z_sign && rounding_mode == RoundingMode::Down)
@@ -299,10 +370,18 @@ pub fn round_and_pack_floatx80(
                 return overflow(round_mask);
             }
             if z_exp <= 0 {
+                // `is_tiny` uses the pre-shift significand (float_detect_
+                // tininess defaults to after-rounding, so that term is false).
+                let is_tiny = z_exp < 0 || z_sig0 <= z_sig0.wrapping_add(round_increment);
                 z_sig0 = shift64_right_jamming(z_sig0, 1 - z_exp);
                 z_exp = 0;
                 round_bits = z_sig0 & round_mask;
-                // TODO(FPSR): underflow/inexact raises here.
+                if is_tiny && round_bits != 0 {
+                    float_raise(flag::UNDERFLOW);
+                }
+                if round_bits != 0 {
+                    float_raise(flag::INEXACT);
+                }
                 z_sig0 = z_sig0.wrapping_add(round_increment);
                 if (z_sig0 as i64) < 0 {
                     z_exp = 1;
@@ -315,7 +394,9 @@ pub fn round_and_pack_floatx80(
                 return pack(z_sign, z_exp, z_sig0);
             }
         }
-        // TODO(FPSR): inexact raise if round_bits.
+        if round_bits != 0 {
+            float_raise(flag::INEXACT);
+        }
         z_sig0 = z_sig0.wrapping_add(round_increment);
         if z_sig0 < round_increment {
             z_exp += 1;
@@ -348,11 +429,19 @@ pub fn round_and_pack_floatx80(
             return overflow(0);
         }
         if z_exp <= 0 {
+            // `is_tiny` uses the pre-shift significand (detect-tininess is
+            // after-rounding by default, so that term is false).
+            let is_tiny = z_exp < 0 || !increment || z_sig0 < 0xFFFF_FFFF_FFFF_FFFF;
             let (s0, s1) = shift64_extra_right_jamming(z_sig0, z_sig1, 1 - z_exp);
             z_sig0 = s0;
             let z_sig1 = s1;
             z_exp = 0;
-            // TODO(FPSR): underflow/inexact raises here.
+            if is_tiny && z_sig1 != 0 {
+                float_raise(flag::UNDERFLOW);
+            }
+            if z_sig1 != 0 {
+                float_raise(flag::INEXACT);
+            }
             if round_nearest_even {
                 increment = (z_sig1 as i64) < 0;
             } else if z_sign {
@@ -372,7 +461,9 @@ pub fn round_and_pack_floatx80(
             return pack(z_sign, z_exp, z_sig0);
         }
     }
-    // TODO(FPSR): inexact raise if z_sig1.
+    if z_sig1 != 0 {
+        float_raise(flag::INEXACT);
+    }
     if increment {
         z_sig0 = z_sig0.wrapping_add(1);
         if z_sig0 == 0 {
@@ -562,7 +653,7 @@ fn sub_floatx80_sigs(
         if (a_sig | b_sig).wrapping_shl(1) != 0 {
             return propagate_floatx80_nan(a, b);
         }
-        // TODO(FPSR): float_raise(invalid) — inf − inf.
+        float_raise(flag::INVALID); // inf − inf
         return FpReg::new(0xFFFF, 0xFFFF_FFFF_FFFF_FFFF);
     }
     if a_exp == 0 {
@@ -694,7 +785,8 @@ pub fn floatx80_mul(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
             return propagate_floatx80_nan(a, b);
         }
         if (b_exp as u64 | b_sig) == 0 {
-            return DEFAULT_NAN; // inf × 0 — TODO(FPSR): invalid.
+            float_raise(flag::INVALID); // inf × 0
+            return DEFAULT_NAN;
         }
         return pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000);
     }
@@ -703,7 +795,8 @@ pub fn floatx80_mul(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
             return propagate_floatx80_nan(a, b);
         }
         if (a_exp as u64 | a_sig) == 0 {
-            return DEFAULT_NAN; // 0 × inf — TODO(FPSR): invalid.
+            float_raise(flag::INVALID); // 0 × inf
+            return DEFAULT_NAN;
         }
         return pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000);
     }
@@ -753,7 +846,8 @@ pub fn floatx80_div(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
             if b_sig.wrapping_shl(1) != 0 {
                 return propagate_floatx80_nan(a, b);
             }
-            return DEFAULT_NAN; // inf / inf — TODO(FPSR): invalid.
+            float_raise(flag::INVALID); // inf / inf
+            return DEFAULT_NAN;
         }
         return pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000); // inf / finite
     }
@@ -766,9 +860,10 @@ pub fn floatx80_div(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
     if b_exp == 0 {
         if b_sig == 0 {
             if (a_exp as u64 | a_sig) == 0 {
-                return DEFAULT_NAN; // 0 / 0 — TODO(FPSR): invalid.
+                float_raise(flag::INVALID); // 0 / 0
+                return DEFAULT_NAN;
             }
-            // TODO(FPSR): float_raise(divbyzero).
+            float_raise(flag::DIVBYZERO);
             return pack(z_sign, 0x7FFF, 0x8000_0000_0000_0000); // x / 0 = inf
         }
         let (e, s) = normalize_floatx80_subnormal(b_sig);
@@ -901,13 +996,15 @@ pub fn floatx80_sqrt(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
         if !a_sign {
             return a; // +inf
         }
-        return DEFAULT_NAN; // sqrt(−inf) — TODO(FPSR): invalid.
+        float_raise(flag::INVALID); // sqrt(−inf)
+        return DEFAULT_NAN;
     }
     if a_sign {
         if (a_exp as u64 | a_sig0) == 0 {
             return a; // sqrt(−0) = −0
         }
-        return DEFAULT_NAN; // sqrt(negative) — TODO(FPSR): invalid.
+        float_raise(flag::INVALID); // sqrt(negative)
+        return DEFAULT_NAN;
     }
     if a_exp == 0 {
         if a_sig0 == 0 {
@@ -993,10 +1090,12 @@ fn round_and_pack_int32(mode: RoundingMode, z_sign: bool, abs_z: u64) -> i32 {
         z = z.wrapping_neg();
     }
     if (abs_z >> 32) != 0 || (z != 0 && ((z < 0) != z_sign)) {
-        // TODO(FPSR): float_raise(invalid).
+        float_raise(flag::INVALID);
         return if z_sign { i32::MIN } else { i32::MAX };
     }
-    // TODO(FPSR): inexact if round_bits.
+    if round_bits != 0 {
+        float_raise(flag::INEXACT);
+    }
     z
 }
 
@@ -1030,10 +1129,12 @@ pub fn floatx80_to_int32_round_to_zero(a: FpReg) -> i32 {
         if a_exp == 0x7FFF && a_sig.wrapping_shl(1) != 0 {
             a_sign = false;
         }
-        // TODO(FPSR): float_raise(invalid).
+        float_raise(flag::INVALID);
         return if a_sign { i32::MIN } else { i32::MAX };
     } else if a_exp < 0x3FFF {
-        // TODO(FPSR): inexact if a_exp != 0 || a_sig != 0.
+        if a_exp != 0 || a_sig != 0 {
+            float_raise(flag::INEXACT);
+        }
         return 0;
     }
     let shift_count = 0x403E - a_exp;
@@ -1042,10 +1143,14 @@ pub fn floatx80_to_int32_round_to_zero(a: FpReg) -> i32 {
         z = z.wrapping_neg();
     }
     if (z < 0) != a_sign {
-        // TODO(FPSR): float_raise(invalid).
+        float_raise(flag::INVALID);
         return if a_sign { i32::MIN } else { i32::MAX };
     }
-    // TODO(FPSR): inexact if (a_sig << shift_count) != a_sig (lost bits).
+    // Inexact when low bits were dropped (C compares the re-expanded value
+    // against the original significand).
+    if (a_sig >> shift_count) << shift_count != a_sig {
+        float_raise(flag::INEXACT);
+    }
     z
 }
 
@@ -1078,6 +1183,9 @@ pub fn float32_to_floatx80(a: u32) -> FpReg {
     let a_sign = (a >> 31) != 0;
     if a_exp == 0xFF {
         if a_sig != 0 {
+            if float32_is_signaling_nan(a) {
+                float_raise(flag::INVALID);
+            }
             return common_nan_to_floatx80(a_sign, u64::from(a) << 41);
         }
         return pack(a_sign, 0x7FFF, 0x8000_0000_0000_0000);
@@ -1110,6 +1218,9 @@ pub fn float64_to_floatx80(a: u64) -> FpReg {
     let a_sign = (a >> 63) != 0;
     if a_exp == 0x7FF {
         if a_sig != 0 {
+            if float64_is_signaling_nan(a) {
+                float_raise(flag::INVALID);
+            }
             return common_nan_to_floatx80(a_sign, a << 12);
         }
         return pack(a_sign, 0x7FFF, 0x8000_0000_0000_0000);
@@ -1164,6 +1275,9 @@ fn pack_float64(z_sign: bool, z_exp: i32, z_sig: u64) -> u64 {
 /// (fused `commonNaNToFloat32(floatx80ToCommonNaN(a))`).
 #[must_use]
 fn floatx80_nan_to_float32(a: FpReg) -> u32 {
+    if is_signaling_nan(a) {
+        float_raise(flag::INVALID);
+    }
     let sign = u32::from((a.high >> 15) & 1);
     let common_high = a.low << 1;
     (sign << 31) | 0x7FC0_0000 | (common_high >> 41) as u32
@@ -1172,6 +1286,9 @@ fn floatx80_nan_to_float32(a: FpReg) -> u32 {
 /// The extended-precision NaN `a` reduced to a double-precision NaN.
 #[must_use]
 fn floatx80_nan_to_float64(a: FpReg) -> u64 {
+    if is_signaling_nan(a) {
+        float_raise(flag::INVALID);
+    }
     let sign = u64::from((a.high >> 15) & 1);
     let common_high = a.low << 1;
     (sign << 63) | 0x7FF8_0000_0000_0000 | (common_high >> 12)
@@ -1200,17 +1317,22 @@ fn round_and_pack_float32(mode: RoundingMode, z_sign: bool, mut z_exp: i32, mut 
     let mut round_bits = z_sig & 0x7F;
     if z_exp as u16 >= 0xFD {
         if z_exp > 0xFD || (z_exp == 0xFD && (z_sig.wrapping_add(round_increment) as i32) < 0) {
-            // TODO(FPSR): float_raise(overflow | inexact).
+            float_raise(flag::OVERFLOW | flag::INEXACT);
             return pack_float32(z_sign, 0xFF, 0).wrapping_sub(u32::from(round_increment == 0));
         }
         if z_exp < 0 {
+            let is_tiny = z_exp < -1 || z_sig.wrapping_add(round_increment) < 0x8000_0000;
             z_sig = shift32_right_jamming(z_sig, -z_exp);
             z_exp = 0;
             round_bits = z_sig & 0x7F;
-            // TODO(FPSR): underflow.
+            if is_tiny && round_bits != 0 {
+                float_raise(flag::UNDERFLOW);
+            }
         }
     }
-    // TODO(FPSR): inexact if round_bits.
+    if round_bits != 0 {
+        float_raise(flag::INEXACT);
+    }
     z_sig = z_sig.wrapping_add(round_increment) >> 7;
     z_sig &= !u32::from((round_bits ^ 0x40) == 0 && round_nearest_even);
     if z_sig == 0 {
@@ -1242,17 +1364,22 @@ fn round_and_pack_float64(mode: RoundingMode, z_sign: bool, mut z_exp: i32, mut 
     let mut round_bits = z_sig & 0x3FF;
     if z_exp as u16 >= 0x7FD {
         if z_exp > 0x7FD || (z_exp == 0x7FD && (z_sig.wrapping_add(round_increment) as i64) < 0) {
-            // TODO(FPSR): float_raise(overflow | inexact).
+            float_raise(flag::OVERFLOW | flag::INEXACT);
             return pack_float64(z_sign, 0x7FF, 0).wrapping_sub(u64::from(round_increment == 0));
         }
         if z_exp < 0 {
+            let is_tiny = z_exp < -1 || z_sig.wrapping_add(round_increment) < 0x8000_0000_0000_0000;
             z_sig = shift64_right_jamming(z_sig, -z_exp);
             z_exp = 0;
             round_bits = z_sig & 0x3FF;
-            // TODO(FPSR): underflow.
+            if is_tiny && round_bits != 0 {
+                float_raise(flag::UNDERFLOW);
+            }
         }
     }
-    // TODO(FPSR): inexact if round_bits.
+    if round_bits != 0 {
+        float_raise(flag::INEXACT);
+    }
     z_sig = z_sig.wrapping_add(round_increment) >> 10;
     z_sig &= !u64::from((round_bits ^ 0x200) == 0 && round_nearest_even);
     if z_sig == 0 {
@@ -1893,5 +2020,138 @@ mod tests {
             0x4049_0FDB
         );
         assert_eq!(floatx80_to_float32(RoundingMode::Zero, pi), 0x4049_0FDA);
+    }
+
+    // --- Exception flags (the `float_raise` side, validated bit-for-bit
+    // against softfloat.c's float_exception_flags by the C-diff harness;
+    // see `examples/sf_gen.rs`). These pin the representative cases. ---
+
+    /// Run `op` with the flag accumulator cleared, returning its flags.
+    fn flags_of(op: impl FnOnce()) -> u8 {
+        clear_exception_flags();
+        op();
+        take_exception_flags()
+    }
+
+    const INF: FpReg = FpReg::new(0x7FFF, 0x8000_0000_0000_0000);
+
+    #[test]
+    fn exact_arithmetic_raises_no_flags() {
+        assert_eq!(
+            flags_of(|| {
+                let _ = floatx80_add(80, RN, fx(1), fx(1));
+            }),
+            0
+        );
+        assert_eq!(
+            flags_of(|| {
+                let _ = floatx80_mul(80, RN, fx(3), fx(4));
+            }),
+            0
+        );
+        assert_eq!(
+            flags_of(|| {
+                let _ = floatx80_sqrt(80, RN, fx(4));
+            }),
+            0
+        );
+    }
+
+    #[test]
+    fn inexact_division_raises_inexact() {
+        assert_eq!(
+            flags_of(|| {
+                let _ = floatx80_div(80, RN, fx(1), fx(3));
+            }),
+            flag::INEXACT
+        );
+    }
+
+    #[test]
+    fn overflow_raises_overflow_and_inexact() {
+        let huge = FpReg::new(0x7FFE, 0xFFFF_FFFF_FFFF_FFFF);
+        assert_eq!(
+            flags_of(|| {
+                let _ = floatx80_add(80, RN, huge, huge);
+            }),
+            flag::OVERFLOW | flag::INEXACT
+        );
+    }
+
+    #[test]
+    fn divide_by_zero_and_invalid_zero_over_zero() {
+        let zero = FpReg::new(0, 0);
+        assert_eq!(
+            flags_of(|| {
+                let _ = floatx80_div(80, RN, fx(1), zero);
+            }),
+            flag::DIVBYZERO
+        );
+        assert_eq!(
+            flags_of(|| {
+                let _ = floatx80_div(80, RN, zero, zero);
+            }),
+            flag::INVALID
+        );
+    }
+
+    #[test]
+    fn invalid_operations_raise_invalid() {
+        // inf − inf, inf × 0, sqrt(negative).
+        assert_eq!(
+            flags_of(|| {
+                let _ = floatx80_sub(80, RN, INF, INF);
+            }),
+            flag::INVALID
+        );
+        assert_eq!(
+            flags_of(|| {
+                let _ = floatx80_mul(80, RN, INF, FpReg::new(0, 0));
+            }),
+            flag::INVALID
+        );
+        assert_eq!(
+            flags_of(|| {
+                let _ = floatx80_sqrt(80, RN, fx(-1));
+            }),
+            flag::INVALID
+        );
+    }
+
+    #[test]
+    fn signaling_nan_input_raises_invalid_on_widen() {
+        // Single-precision signalling NaN (exp 0xFF, quiet bit clear).
+        assert_eq!(
+            flags_of(|| {
+                let _ = float32_to_floatx80(0x7FA0_0000);
+            }),
+            flag::INVALID
+        );
+        // Quiet NaN does not.
+        assert_eq!(
+            flags_of(|| {
+                let _ = float32_to_floatx80(0x7FC0_0000);
+            }),
+            0
+        );
+    }
+
+    #[test]
+    fn integer_conversion_overflow_raises_invalid() {
+        // 2^64-ish — far beyond i32 range.
+        let big = FpReg::new(0x403F, 0x8000_0000_0000_0000);
+        assert_eq!(
+            flags_of(|| {
+                let _ = floatx80_to_int32(RN, big);
+            }),
+            flag::INVALID
+        );
+        // A fractional value rounds inexactly.
+        assert_eq!(
+            flags_of(|| {
+                let _ = floatx80_to_int32(RN, FpReg::new(0x3FFF, 0xC000_0000_0000_0000));
+            }),
+            flag::INEXACT
+        );
     }
 }
