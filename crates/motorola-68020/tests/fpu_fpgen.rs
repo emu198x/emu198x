@@ -217,6 +217,38 @@ fn fmove_dn_to_fpcr() {
     assert_eq!(r.fpcr, 0x0000_0030, "D0 → FPCR");
 }
 
+// --- FScc Dn (op-class 1): set a byte on the FP condition ---
+
+#[test]
+fn fscc_true_sets_low_byte() {
+    // FST D0 (condition T = $0F) → D0 low byte all-ones, upper preserved.
+    let r = run_ctrl(0xF240, 0x000F, |cpu| cpu.regs.d[0] = 0x1234_5600);
+    assert_eq!(r.d[0], 0x1234_56FF, "FST sets the low byte to $FF");
+}
+
+#[test]
+fn fscc_false_clears_low_byte() {
+    // FSF D0 (condition F = $00) → D0 low byte cleared, upper preserved.
+    let r = run_ctrl(0xF240, 0x0000, |cpu| cpu.regs.d[0] = 0x1234_56FF);
+    assert_eq!(r.d[0], 0x1234_5600, "FSF clears the low byte");
+}
+
+#[test]
+fn fseq_follows_fpsr_z() {
+    // FSEQ D1 (condition EQ = $01) tracks FPSR Z.
+    let r = run_ctrl(0xF241, 0x0001, |cpu| {
+        cpu.regs.d[1] = 0;
+        cpu.regs.fpsr = 1 << 26; // Z set
+    });
+    assert_eq!(r.d[1] & 0xFF, 0xFF, "Z set → FSEQ true");
+
+    let r = run_ctrl(0xF241, 0x0001, |cpu| {
+        cpu.regs.d[1] = 0;
+        cpu.regs.fpsr = 0;
+    });
+    assert_eq!(r.d[1] & 0xFF, 0x00, "Z clear → FSEQ false");
+}
+
 #[test]
 fn fmove_dn_to_fpsr_and_fpiar() {
     let r = run_ctrl(0xF201, ctrl_ext(0, 2), |cpu| cpu.regs.d[1] = 0x0F00_0000);

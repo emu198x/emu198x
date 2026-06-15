@@ -734,8 +734,11 @@ fn decode_fpu_fline(cpu: &mut Cpu68000, opcode: u16) -> bool {
         2 => execute_fbcc_w(cpu, opcode),
         // cpBcc.L: branch on FP condition, 32-bit displacement.
         3 => execute_fbcc_l(cpu, opcode),
-        // cpScc (1), cpSAVE (4), cpRESTORE (5) are not wired yet — decline
-        // so they take the vector-11 trap until implemented.
+        // cpScc (1): set a byte on the FP condition (FScc; FDBcc/FTRAPcc
+        // share this class but are handled / declined inside).
+        1 => execute_fscc(cpu, opcode),
+        // cpSAVE (4), cpRESTORE (5) are not wired yet — decline so they
+        // take the vector-11 trap until implemented.
         _ => false,
     }
 }
@@ -1228,6 +1231,30 @@ fn handle_fbcc_l(cpu: &mut Cpu68000) {
         cpu.micro_ops.push(MicroOp::FetchIRC);
     }
     cpu.in_followup = false;
+}
+
+/// FScc (cpID-1 op-class 1): set a byte integer to all-ones if the FP
+/// condition holds, else all-zeros. The condition is the low 6 bits of
+/// the extension word. Only the register-direct form (`FScc Dn`, EA mode
+/// 0) is wired — the most common case and the only one beyond `d16(An)`
+/// that Musashi's `fscc` implements. The same op-class also encodes
+/// FDBcc (EA mode 1) and FTRAPcc (EA mode 7, regs 2-4); those and the
+/// memory forms decline (vector-11 trap) for now.
+fn execute_fscc(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let ea_mode = (opcode >> 3) & 7;
+    if ea_mode != 0 {
+        return false;
+    }
+    let condition = (cpu.irc & 0x3F) as u8;
+    let _ = cpu.consume_irc();
+    let reg = (opcode & 7) as usize;
+    let byte = if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
+        0xFF
+    } else {
+        0x00
+    };
+    cpu.regs.d[reg] = (cpu.regs.d[reg] & 0xFFFF_FF00) | byte;
+    true
 }
 
 /// FMOVE FPCR/FPSR/FPIAR ↔ `<ea>` (cpGEN sub-op 4/5, Musashi
