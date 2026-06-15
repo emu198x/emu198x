@@ -254,7 +254,7 @@ struct Mismatch {
     actual: String,
 }
 
-fn compare_final(cpu: &Cpu68020, final_state: &CpuState) -> Vec<Mismatch> {
+fn compare_final(cpu: &Cpu68020, mem: &SparseMem, final_state: &CpuState) -> Vec<Mismatch> {
     let mut v = Vec::new();
 
     // FP data registers — the heart of the comparison.
@@ -316,6 +316,18 @@ fn compare_final(cpu: &Cpu68020, final_state: &CpuState) -> Vec<Mismatch> {
         }
     }
 
+    // Memory the instruction wrote (FMOVE FPn → (An) stores).
+    for (addr, expected) in &final_state.ram {
+        let actual = mem.read_byte(*addr);
+        if actual != *expected {
+            v.push(Mismatch {
+                field: format!("mem[${addr:06X}]"),
+                expected: format!("${expected:02X}"),
+                actual: format!("${actual:02X}"),
+            });
+        }
+    }
+
     v
 }
 
@@ -361,7 +373,7 @@ fn run_fixture(path: &Path) -> Option<FixtureResult> {
             continue;
         }
 
-        let mismatches = compare_final(&cpu, &test.final_state);
+        let mismatches = compare_final(&cpu, &mem, &test.final_state);
         if mismatches.is_empty() {
             passed += 1;
         } else if first_fail.is_none() {

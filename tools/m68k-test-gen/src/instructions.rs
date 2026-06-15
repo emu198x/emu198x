@@ -65,6 +65,11 @@ pub enum InstructionSetup {
     /// operand there. `format`: 0=Long 1=Single 2=Extended 4=Word 5=Double
     /// 6=Byte (the source-specifier field of the M68881 ext word).
     FpGenMem { opmode: u8, format: u8 },
+    /// 68881/2 register-to-memory store (FMOVE.<fmt> FPn,(A0)). cpGEN
+    /// sub-op 3; ext word `011 | format(3) | src(3) | k-factor(7)`. The
+    /// generator points A0 at an even data address; the store writes the
+    /// `format`-narrowed FPn there. Validates floatx80 → float32/64/int.
+    FpStoreMem { format: u8 },
 }
 
 impl InstructionDef {
@@ -73,7 +78,9 @@ impl InstructionDef {
     pub fn is_fp(&self) -> bool {
         matches!(
             self.setup,
-            InstructionSetup::FpGenReg { .. } | InstructionSetup::FpGenMem { .. }
+            InstructionSetup::FpGenReg { .. }
+                | InstructionSetup::FpGenMem { .. }
+                | InstructionSetup::FpStoreMem { .. }
         )
     }
 }
@@ -895,6 +902,17 @@ const fn fpgen_mem(name: &'static str, opmode: u8, format: u8) -> InstructionDef
     }
 }
 
+/// Helper for a 68881/2 register-to-memory store (FMOVE.<fmt> FPn,(A0)).
+const fn fpstore_mem(name: &'static str, format: u8) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode: 0xF210, // cpGEN, EA mode 010 (An) reg 0 → (A0)
+        ext_words: 1,
+        setup: InstructionSetup::FpStoreMem { format },
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    }
+}
+
 /// Return the 68881/2 FPgen catalogue (register-to-register + memory-source).
 ///
 /// Kept separate from `catalogue()` so the integer `--all` sweep stays
@@ -945,6 +963,20 @@ pub fn fp_catalogue(_cpu_type: u32) -> Vec<InstructionDef> {
         };
         defs.push(fpgen_mem(fmove, 0x00, format));
         defs.push(fpgen_mem(fadd, 0x22, format));
+    }
+
+    // Register-to-memory store, one per destination format — validates the
+    // floatx80 → format narrowing (round_and_pack_float32/64, floatx80 →
+    // int32/16/8) and the store byte-pipeline.
+    for &(name, format) in &[
+        ("FMOVE.L_store", 0u8),
+        ("FMOVE.S_store", 1),
+        ("FMOVE.X_store", 2),
+        ("FMOVE.W_store", 4),
+        ("FMOVE.D_store", 5),
+        ("FMOVE.B_store", 6),
+    ] {
+        defs.push(fpstore_mem(name, format));
     }
 
     defs

@@ -203,6 +203,13 @@ fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: 
             musashi::set_reg(musashi::M68K_REG_A0, addr);
             seed_fp_mem_operand(addr, format, rng);
         }
+
+        // Store ops: point A0 at a clear even data address; the store writes
+        // the narrowed FPn there (captured into the fixture's final RAM).
+        if matches!(def.setup, InstructionSetup::FpStoreMem { .. }) {
+            let addr = random_data_addr(rng);
+            musashi::set_reg(musashi::M68K_REG_A0, addr);
+        }
     }
 
     // Capture initial state
@@ -372,6 +379,16 @@ fn encode_instruction(
             // in generate_one's FP block.
             let dst: u16 = rng.random_range(0..8);
             let ext = 0x4000 | (u16::from(format) << 10) | (dst << 7) | u16::from(opmode);
+            memory::poke_word(pc.wrapping_add(2), ext);
+            None
+        }
+        InstructionSetup::FpStoreMem { format } => {
+            // cpGEN store ext word: 011 | format(3) | src(3) | k-factor(7).
+            // k-factor is 0 for the non-packed formats. The source FPn is one
+            // of the eight seeded in generate_one; A0 is pointed at a clear
+            // even data address the store writes to.
+            let src: u16 = rng.random_range(0..8);
+            let ext = 0x6000 | (u16::from(format) << 10) | (src << 7);
             memory::poke_word(pc.wrapping_add(2), ext);
             None
         }
