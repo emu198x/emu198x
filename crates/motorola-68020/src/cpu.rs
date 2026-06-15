@@ -903,10 +903,13 @@ fn apply_fp_opmode(
 /// Begin an FPU memory-source operand fetch (cpGEN R/M = 1). The FP
 /// extension word selects the operand format (and hence its byte size);
 /// the opcode's EA field selects the address. Only the instant addressing
-/// modes — `(An)`, `(An)+`, `-(An)` — are wired so far; they compute the
-/// base address synchronously and kick off a byte-at-a-time read chain
-/// (auto-increment/decrement steps by the operand size). Other modes and
-/// the packed-decimal format decline (vector-11 trap) until a later step.
+/// modes — `(An)`, `(An)+`, `-(An)` — compute the base address
+/// synchronously (auto-increment/decrement by the operand size). The
+/// non-auto-increment modes — `d16(An)`, `(d8,An,Xn)` and the full 68020
+/// extension formats, AbsShort/Long, and PC-relative — are routed through
+/// the core's `calc_ea_start` and resumed at `TAG_FETCH_SRC_DATA`.
+/// Immediate (`#data`) and the packed-decimal format still decline
+/// (vector-11 trap) until a later step.
 ///
 /// All decline checks happen before any state mutation, so a declined op
 /// leaves the prefetch and registers untouched for the core's trap path.
@@ -922,14 +925,48 @@ fn begin_fp_memory(cpu: &mut Cpu68000, opmode: u16) -> bool {
         _ => return false, // Packed-decimal (3) not supported yet
     };
     let ea_mode = ((cpu.ir >> 3) & 7) as u8;
-    if !matches!(ea_mode, 2..=4) {
-        return false; // only (An) / (An)+ / -(An) for now
+    let ea_reg = (cpu.ir & 7) as u8;
+    // Modes we can fetch: (An)/(An)+/-(An) directly, plus the static
+    // address modes (d16(An), indexed, abs, PC-relative) via the core EA
+    // machinery. Dn/An-direct and immediate (7/4) decline for now.
+    let static_mode = match ea_mode {
+        5 | 6 => true,
+        7 => matches!(ea_reg, 0..=3),
+        _ => false,
+    };
+    if !matches!(ea_mode, 2..=4) && !static_mode {
+        return false;
     }
 
-    // Committed: consume the FP extension word and resolve the base
-    // address (applying the auto-increment/decrement by operand size).
+    // Committed: consume the FP extension word and stash the operand
+    // parameters before either path runs.
     let _ = cpu.consume_irc();
-    let ea_reg = (cpu.ir & 7) as usize;
+    cpu.fp_mem_buf = 0;
+    cpu.fp_mem_bytes_total = bytes_total;
+    cpu.fp_mem_bytes_done = 0;
+    cpu.fp_mem_format = format;
+    cpu.fp_mem_opmode = opmode as u8;
+    cpu.fp_mem_dst = ((w2 >> 7) & 7) as u8;
+    cpu.in_followup = true;
+
+    if static_mode {
+        // Let the core resolve the EA (it may consume extension words and
+        // span several Execute cycles). We resume at TAG_FETCH_SRC_DATA via
+        // the continue hook, where `addr` holds the resolved address.
+        // Queue an Execute (rather than calling continue_instruction now)
+        // so the FP extension word's FetchIRC refills IRC with the EA's
+        // first extension word before calc_ea_start reads it.
+        cpu.fp_mem_pending = true;
+        cpu.size = motorola_68000::alu::Size::Long; // unused by static modes
+        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+        cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+        cpu.micro_ops.push(MicroOp::Execute);
+        return true;
+    }
+
+    // Auto-increment/decrement modes: resolve the base address here,
+    // stepping the register by the operand size.
+    let ea_reg = ea_reg as usize;
     let step = u32::from(bytes_total);
     let base = match ea_mode {
         2 => cpu.regs.a(ea_reg),
@@ -944,19 +981,20 @@ fn begin_fp_memory(cpu: &mut Cpu68000, opmode: u16) -> bool {
             a
         }
     };
-
-    cpu.fp_mem_buf = 0;
-    cpu.fp_mem_bytes_total = bytes_total;
-    cpu.fp_mem_bytes_done = 0;
-    cpu.fp_mem_format = format;
-    cpu.fp_mem_opmode = opmode as u8;
-    cpu.fp_mem_dst = ((w2 >> 7) & 7) as u8;
     cpu.addr = base;
-    cpu.in_followup = true;
+    start_fp_read(cpu);
+    true
+}
+
+/// Kick off the byte-at-a-time operand read. The operand parameters and
+/// the base address (`addr`) must already be set; shared by the
+/// auto-increment modes and the `calc_ea_start`-resolved static modes.
+fn start_fp_read(cpu: &mut Cpu68000) {
+    cpu.fp_mem_buf = 0;
+    cpu.fp_mem_bytes_done = 0;
     cpu.followup_tag = TAG_V_FP_MEM_READ;
     cpu.micro_ops.push(MicroOp::ReadByte);
     cpu.micro_ops.push(MicroOp::Execute);
-    true
 }
 
 /// `TAG_V_FP_MEM_READ`: a byte of the FP memory operand has been read into
@@ -1750,6 +1788,15 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
         }
         TAG_V_FP_MEM_EXEC => {
             handle_fp_mem_exec(cpu);
+            true
+        }
+        // An FPU memory operand using a static addressing mode: the core's
+        // EA machinery has resolved the address into `addr`. Take over and
+        // read the operand bytes ourselves (the core's data fetch only
+        // knows B/W/L, but we need 1/2/4/8/12).
+        TAG_FETCH_SRC_DATA if cpu.fp_mem_pending => {
+            cpu.fp_mem_pending = false;
+            start_fp_read(cpu);
             true
         }
         // Memory-source MUL.L / DIV.L: the core's EA pipeline has

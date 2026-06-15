@@ -166,17 +166,17 @@ fn unimplemented_fpu_arithmetic_traps_vector_11() {
 #[test]
 fn fpu_memory_operand_invalid_mode_traps_vector_11() {
     // cpGEN R/M = 1 (ext bit 14) with EA = Dn (mode 0) is not a valid
-    // memory operand, so it declines → vector 11. The instant memory
-    // modes ((An)/(An)+/-(An)) DO execute now — see tests/fpu_fpgen.rs.
+    // memory operand, so it declines → vector 11. The memory modes
+    // ((An)/(An)+/-(An), d16(An), indexed, abs, PC-relative) DO execute
+    // now — see tests/fpu_fpgen.rs.
     assert!(run(0xF200, &[0x4000], true, 0).vectored);
 }
 
 #[test]
-fn fpu_memory_operand_indexed_mode_traps_vector_11() {
-    // cpGEN R/M = 1 with EA = (d8,A0,Xn) (mode 6, opcode $F230): the
-    // extension-word addressing modes aren't wired yet, so it declines →
-    // vector 11.
-    assert!(run(0xF230, &[0x4000], true, 0).vectored);
+fn fpu_memory_operand_immediate_mode_traps_vector_11() {
+    // cpGEN R/M = 1 with EA = #data (mode 7, reg 4, opcode $F23C):
+    // immediate operands aren't wired yet, so it declines → vector 11.
+    assert!(run(0xF23C, &[0x4000], true, 0).vectored);
 }
 
 // --- FPU present: FBcc.W / FNOP execute ---

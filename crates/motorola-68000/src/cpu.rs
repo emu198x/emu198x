@@ -835,6 +835,13 @@ pub struct Cpu68000 {
     /// Destination Fpn (extension-word bits 9-7).
     #[serde(skip)]
     pub fp_mem_dst: u8,
+    /// Set while an FPU memory operand is using the core's EA-resolution
+    /// machinery (`calc_ea_start`) for the non-auto-increment addressing
+    /// modes. Lets the 68020 continue hook recognise the shared
+    /// `TAG_FETCH_SRC_DATA` tag as ours and start the operand read from
+    /// the resolved `addr` instead of running the core's data fetch.
+    #[serde(skip)]
+    pub fp_mem_pending: bool,
 
     /// Variant continuation hook: gives a wrapping variant a chance
     /// to dispatch follow-up tags that the 68000 doesn't know about.
@@ -963,6 +970,7 @@ impl Cpu68000 {
             fp_mem_format: 0,
             fp_mem_opmode: 0,
             fp_mem_dst: 0,
+            fp_mem_pending: false,
             variant_continue_hook: None,
             variant_pending_disp: 0,
         }

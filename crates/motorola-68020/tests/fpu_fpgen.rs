@@ -625,3 +625,122 @@ fn int_fx(n: i32) -> FpReg {
     use motorola_68k_common::softfloat::int32_to_floatx80;
     int32_to_floatx80(n)
 }
+
+/// Run a cpGEN op whose EA needs extension words. `ea_words` are placed
+/// after the FP extension word; `setup` seeds registers and writes the
+/// operand bytes into memory.
+fn run_mem_ea(
+    opcode: u16,
+    w2: u16,
+    ea_words: &[u16],
+    setup: impl FnOnce(&mut Cpu68020, &mut Mem),
+) -> Out {
+    let mut cpu = Cpu68020::new();
+    let mut mem = Mem::new();
+    mem.write_word(PC, opcode);
+    mem.write_word(PC + 2, w2);
+    for (i, &w) in ea_words.iter().enumerate() {
+        mem.write_word(PC + 4 + (i as u32) * 2, w);
+    }
+
+    cpu.set_fpu_present(true);
+    cpu.regs.sr |= 0x2000;
+    cpu.regs.ssp = 0x0000_8000;
+    cpu.regs.set_active_sp(0x0000_8000);
+    setup(&mut cpu, &mut mem);
+    cpu.regs.pc = PC + 4;
+    cpu.setup_prefetch(opcode, w2);
+
+    let start = cpu.instruction_starts;
+    for _ in 0..400 {
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.instruction_starts > start {
+            return Out {
+                fp: cpu.regs.fp,
+                fpsr: cpu.regs.fpsr,
+                a: cpu.regs.a,
+            };
+        }
+    }
+    panic!("FP memory-EA op did not complete");
+}
+
+fn write_bytes(mem: &mut Mem, addr: u32, bytes: &[u8]) {
+    for (i, &b) in bytes.iter().enumerate() {
+        mem.bytes.insert((addr + i as u32) & 0x00FF_FFFF, b);
+    }
+}
+
+#[test]
+fn fmove_d16_an_memory() {
+    // FMOVE.S $0100(A0),FP0 — opcode $F228 (mode 5, A0). A0 = 0x1F00,
+    // disp +0x0100 → EA 0x2000. Operand 1.0f.
+    let r = run_mem_ea(0xF228, mem_ext(1, 0, 0x00), &[0x0100], |cpu, mem| {
+        cpu.regs.set_a(0, 0x0000_1F00);
+        write_bytes(mem, 0x0000_2000, &[0x3F, 0x80, 0x00, 0x00]);
+    });
+    assert_eq!(r.fp[0], POS_ONE, "$0100(A0) single 1.0f → 1.0");
+}
+
+#[test]
+fn fmove_d16_an_negative_disp() {
+    // FMOVE.L $FFF0(A0),FP0 — disp −16. A0 = 0x2010 → EA 0x2000. Operand 5.
+    let r = run_mem_ea(0xF228, mem_ext(0, 0, 0x00), &[0xFFF0], |cpu, mem| {
+        cpu.regs.set_a(0, 0x0000_2010);
+        write_bytes(mem, 0x0000_2000, &[0x00, 0x00, 0x00, 0x05]);
+    });
+    assert_eq!(r.fp[0], int_fx(5), "−16(A0) long 5 → 5.0");
+}
+
+#[test]
+fn fmove_abs_short_memory() {
+    // FMOVE.L ($2000).W,FP0 — opcode $F238 (mode 7, reg 0).
+    let r = run_mem_ea(0xF238, mem_ext(0, 0, 0x00), &[0x2000], |_cpu, mem| {
+        write_bytes(mem, 0x0000_2000, &[0x00, 0x00, 0x00, 0x05]);
+    });
+    assert_eq!(r.fp[0], int_fx(5), "(0x2000).W long 5 → 5.0");
+}
+
+#[test]
+fn fadd_d16_an_double_memory() {
+    // FADD.D $0000(A0),FP0 with FP0 = 1.0, mem = 2.0 → 3.0. Exercises an
+    // 8-byte operand at a displacement EA.
+    let r = run_mem_ea(0xF228, mem_ext(5, 0, 0x22), &[0x0000], |cpu, mem| {
+        cpu.regs.set_a(0, 0x0000_2000);
+        cpu.regs.fp[0] = POS_ONE;
+        write_bytes(
+            mem,
+            0x0000_2000,
+            &[0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+        );
+    });
+    assert_eq!(r.fp[0], POS_THREE, "1.0 + (mem.D) 2.0 = 3.0");
+}
+
+#[test]
+fn fmove_extended_abs_short_memory() {
+    // FMOVE.X ($2000).W,FP0 — a 12-byte operand via a static EA.
+    let r = run_mem_ea(0xF238, mem_ext(2, 0, 0x00), &[0x2000], |_cpu, mem| {
+        write_bytes(
+            mem,
+            0x0000_2000,
+            &[
+                0x40, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            ],
+        );
+    });
+    assert_eq!(r.fp[0], POS_TWO, "(0x2000).W extended 2.0 → 2.0");
+}
+
+#[test]
+fn fmove_pc_relative_memory() {
+    // FMOVE.L (d16,PC),FP0 — opcode $F23A (mode 7, reg 2). The
+    // displacement is relative to the extension-word address (PC+4 =
+    // 0x1004); d16 = 0x2000 − 0x1004 = 0x0FFC targets the constant at
+    // 0x2000. This is how compilers emit FP literals.
+    let r = run_mem_ea(0xF23A, mem_ext(0, 0, 0x00), &[0x0FFC], |_cpu, mem| {
+        write_bytes(mem, 0x0000_2000, &[0x00, 0x00, 0x00, 0x05]);
+    });
+    assert_eq!(r.fp[0], int_fx(5), "(d16,PC) long 5 → 5.0");
+}
