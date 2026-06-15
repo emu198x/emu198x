@@ -80,6 +80,11 @@ pub enum InstructionSetup {
     /// auto-increment/decrement pointer step (by the format size) and the
     /// static-EA path through `calc_ea_start`, which `(An)` does not.
     FpGenMemMode { opmode: u8, format: u8, ea_mode: u8 },
+    /// 68881/2 immediate-source FPgen (FADD.<fmt> #data,FPn). EA = `#data`
+    /// (mode 7 reg 4); the operand follows the FP extension word inline,
+    /// `ceil(size/2)` words. Exercises the inline-read path
+    /// (`TAG_V_FP_IMM_READ`), distinct from the EA fetch.
+    FpGenImm { opmode: u8, format: u8 },
 }
 
 impl InstructionDef {
@@ -93,6 +98,7 @@ impl InstructionDef {
                 | InstructionSetup::FpStoreMem { .. }
                 | InstructionSetup::FpMoveCr
                 | InstructionSetup::FpGenMemMode { .. }
+                | InstructionSetup::FpGenImm { .. }
         )
     }
 }
@@ -1025,6 +1031,29 @@ pub fn fp_catalogue(_cpu_type: u32) -> Vec<InstructionDef> {
                 opmode: 0x22,
                 format,
                 ea_mode,
+            },
+            min_cpu: musashi::M68K_CPU_TYPE_68020,
+        });
+    }
+
+    // Immediate-source: FADD.<fmt> #data,FPn. The operand follows the FP
+    // extension word inline (ceil(size/2) words: byte/word 1, long/single 2,
+    // double 4, extended 6).
+    for &(name, format, op_words) in &[
+        ("FADD.B_imm", 6u8, 1u8),
+        ("FADD.W_imm", 4, 1),
+        ("FADD.L_imm", 0, 2),
+        ("FADD.S_imm", 1, 2),
+        ("FADD.D_imm", 5, 4),
+        ("FADD.X_imm", 2, 6),
+    ] {
+        defs.push(InstructionDef {
+            name,
+            opcode: 0xF23C, // cpGEN, EA mode 7 reg 4 → #data
+            ext_words: 1 + op_words,
+            setup: InstructionSetup::FpGenImm {
+                opmode: 0x22,
+                format,
             },
             min_cpu: musashi::M68K_CPU_TYPE_68020,
         });

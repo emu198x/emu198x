@@ -445,6 +445,21 @@ fn encode_instruction(
             memory::poke_word(pc.wrapping_add(2), ext);
             None
         }
+        InstructionSetup::FpGenImm { opmode, format } => {
+            // R/M=1 ext word, then the immediate operand inline at pc+4.
+            let dst: u16 = rng.random_range(0..8);
+            let ext = 0x4000 | (u16::from(format) << 10) | (dst << 7) | u16::from(opmode);
+            memory::poke_word(pc.wrapping_add(2), ext);
+            if format == 6 {
+                // Byte: one word, value in the low 8 bits (high 8 = 0).
+                memory::poke_word(pc.wrapping_add(4), u16::from(rng.random::<u8>()));
+            } else {
+                // Single/long/word/double/extended share the big-endian
+                // in-memory layout the immediate stream uses.
+                seed_fp_mem_operand(pc.wrapping_add(4), format, rng);
+            }
+            None
+        }
         InstructionSetup::Movem { size } => {
             // Register mask at pc+2
             let mask: u16 = rng.random();
