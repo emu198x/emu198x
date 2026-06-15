@@ -60,6 +60,7 @@ fn service_bus(cpu: &mut Cpu68020, mem: &mut Mem) {
         addr,
         is_read,
         is_word,
+        data,
         cycle_count,
         ..
     } = &cpu.state
@@ -73,6 +74,13 @@ fn service_bus(cpu: &mut Cpu68020, mem: &mut Mem) {
                 };
                 cpu.bus_status = BusStatus::Ready(v);
             } else {
+                if let Some(d) = data {
+                    if *is_word {
+                        mem.write_word(*addr, *d);
+                    } else {
+                        mem.bytes.insert(*addr & 0x00FF_FFFF, (*d & 0xFF) as u8);
+                    }
+                }
                 cpu.bus_status = BusStatus::Ready(0);
             }
         } else {
@@ -81,6 +89,17 @@ fn service_bus(cpu: &mut Cpu68020, mem: &mut Mem) {
     } else {
         cpu.bus_status = BusStatus::Wait;
     }
+}
+
+/// Read `n` big-endian bytes back from memory.
+fn read_bytes(mem: &Mem, addr: u32, n: usize) -> Vec<u8> {
+    (0..n)
+        .map(|i| {
+            *mem.bytes
+                .get(&((addr + i as u32) & 0x00FF_FFFF))
+                .unwrap_or(&0)
+        })
+        .collect()
 }
 
 struct Out {
@@ -670,6 +689,156 @@ fn write_bytes(mem: &mut Mem, addr: u32, bytes: &[u8]) {
     for (i, &b) in bytes.iter().enumerate() {
         mem.bytes.insert((addr + i as u32) & 0x00FF_FFFF, b);
     }
+}
+
+/// Run a cpGEN store (FMOVE FPn → ea) and return the final memory + the
+/// register snapshot so the test can read back the written operand.
+fn run_store(opcode: u16, w2: u16, seed: impl FnOnce(&mut Cpu68020)) -> (Out, Mem) {
+    let mut cpu = Cpu68020::new();
+    let mut mem = Mem::new();
+    mem.write_word(PC, opcode);
+    mem.write_word(PC + 2, w2);
+
+    cpu.set_fpu_present(true);
+    cpu.regs.sr |= 0x2000;
+    cpu.regs.ssp = 0x0000_8000;
+    cpu.regs.set_active_sp(0x0000_8000);
+    seed(&mut cpu);
+    cpu.regs.pc = PC + 4;
+    cpu.setup_prefetch(opcode, w2);
+
+    let start = cpu.instruction_starts;
+    for _ in 0..400 {
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.instruction_starts > start {
+            let out = Out {
+                fp: cpu.regs.fp,
+                fpsr: cpu.regs.fpsr,
+                a: cpu.regs.a,
+            };
+            return (out, mem);
+        }
+    }
+    panic!("FP store did not complete");
+}
+
+/// FMOVE FPn → ea extension word: sub-op 3 (bits 15-13 = 011), dest
+/// format, source Fpn, k-factor (0 for non-packed).
+fn store_ext(format: u16, src: u16, kfactor: u16) -> u16 {
+    0x6000 | (format << 10) | (src << 7) | kfactor
+}
+
+#[test]
+fn fmove_store_long_to_memory() {
+    // FMOVE.L FP0,(A0) with FP0 = 5.0 → big-endian 5 at (A0). Opcode
+    // $F210 (mode 2, A0).
+    let (_r, mem) = run_store(0xF210, store_ext(0, 0, 0), |cpu| {
+        cpu.regs.set_a(0, DATA);
+        cpu.regs.fp[0] = int_fx(5);
+    });
+    assert_eq!(read_bytes(&mem, DATA, 4), [0x00, 0x00, 0x00, 0x05]);
+}
+
+#[test]
+fn fmove_store_single_to_memory() {
+    // FMOVE.S FP0,(A0) with FP0 = 1.0 → 0x3F800000.
+    let (_r, mem) = run_store(0xF210, store_ext(1, 0, 0), |cpu| {
+        cpu.regs.set_a(0, DATA);
+        cpu.regs.fp[0] = POS_ONE;
+    });
+    assert_eq!(read_bytes(&mem, DATA, 4), [0x3F, 0x80, 0x00, 0x00]);
+}
+
+#[test]
+fn fmove_store_double_to_memory() {
+    // FMOVE.D FP0,(A0) with FP0 = 2.0 → 0x4000000000000000.
+    let (_r, mem) = run_store(0xF210, store_ext(5, 0, 0), |cpu| {
+        cpu.regs.set_a(0, DATA);
+        cpu.regs.fp[0] = POS_TWO;
+    });
+    assert_eq!(
+        read_bytes(&mem, DATA, 8),
+        [0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    );
+}
+
+#[test]
+fn fmove_store_extended_to_memory() {
+    // FMOVE.X FP0,(A0) with FP0 = 2.0 → 96-bit extended (high 0x4000,
+    // pad 0x0000, mantissa 0x8000000000000000).
+    let (_r, mem) = run_store(0xF210, store_ext(2, 0, 0), |cpu| {
+        cpu.regs.set_a(0, DATA);
+        cpu.regs.fp[0] = POS_TWO;
+    });
+    assert_eq!(
+        read_bytes(&mem, DATA, 12),
+        [
+            0x40, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        ]
+    );
+}
+
+#[test]
+fn fmove_store_word_and_byte() {
+    // FMOVE.W FP0,(A0) with FP0 = −1 → 0xFFFF.
+    let (_r, mem) = run_store(0xF210, store_ext(4, 0, 0), |cpu| {
+        cpu.regs.set_a(0, DATA);
+        cpu.regs.fp[0] = NEG_ONE;
+    });
+    assert_eq!(read_bytes(&mem, DATA, 2), [0xFF, 0xFF]);
+
+    // FMOVE.B FP0,(A0) with FP0 = 7 → 0x07.
+    let (_r, mem) = run_store(0xF210, store_ext(6, 0, 0), |cpu| {
+        cpu.regs.set_a(0, DATA);
+        cpu.regs.fp[0] = int_fx(7);
+    });
+    assert_eq!(read_bytes(&mem, DATA, 1), [0x07]);
+}
+
+#[test]
+fn fmove_store_postincrement_steps_areg() {
+    // FMOVE.L FP0,(A0)+ — opcode $F218 (mode 3). A0 advances by 4.
+    let (r, mem) = run_store(0xF218, store_ext(0, 0, 0), |cpu| {
+        cpu.regs.set_a(0, DATA);
+        cpu.regs.fp[0] = int_fx(5);
+    });
+    assert_eq!(read_bytes(&mem, DATA, 4), [0x00, 0x00, 0x00, 0x05]);
+    assert_eq!(r.a[0], DATA + 4, "(A0)+ steps by 4 for a long store");
+}
+
+#[test]
+fn fmove_store_predecrement_extended_steps_back() {
+    // FMOVE.X FP0,-(A0) — opcode $F220 (mode 4). A0 starts at DATA+12,
+    // pre-decrements by 12 to DATA.
+    let (r, mem) = run_store(0xF220, store_ext(2, 0, 0), |cpu| {
+        cpu.regs.set_a(0, DATA + 12);
+        cpu.regs.fp[0] = POS_TWO;
+    });
+    assert_eq!(r.a[0], DATA, "-(A0) steps back by 12 for an extended store");
+    assert_eq!(
+        read_bytes(&mem, DATA, 2),
+        [0x40, 0x00],
+        "high word at the new base"
+    );
+}
+
+#[test]
+fn fmove_store_round_trips_through_load() {
+    // Store π as a double, load it back — exercises the narrowing/widening
+    // pair end to end.
+    let pi = FpReg::new(0x4000, 0xC90F_DAA2_2168_C235);
+    let (_r, mem) = run_store(0xF210, store_ext(5, 0, 0), |cpu| {
+        cpu.regs.set_a(0, DATA);
+        cpu.regs.fp[0] = pi;
+    });
+    let bytes = read_bytes(&mem, DATA, 8);
+    let mut arr = [0u8; 8];
+    arr.copy_from_slice(&bytes);
+    let r = run_mem(0xF210, mem_ext(5, 1, 0x00), 0, DATA, &arr, |_| {});
+    // π narrowed to double then widened back is π rounded to 53-bit
+    // mantissa — the canonical double value of π in extended form.
+    assert_eq!(r.fp[1].high, 0x4000, "exponent preserved");
 }
 
 #[test]

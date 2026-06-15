@@ -297,6 +297,9 @@ pub const TAG_V_FP_MEM_READ: u8 = 124;
 /// 68881/2 FPU memory source operand: all bytes are in `fp_mem_buf` —
 /// decode the FP format, build the `floatx80`, and apply the opmode.
 pub const TAG_V_FP_MEM_EXEC: u8 = 125;
+/// 68881/2 FPU memory destination (FMOVE FPn → ea): a byte of the operand
+/// has been written; step to the next byte or finish.
+pub const TAG_V_FP_MEM_WRITE: u8 = 126;
 
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]

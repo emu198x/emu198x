@@ -756,8 +756,19 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
     // Peek the extension word without advancing the prefetch, so a
     // declined op leaves no side effect for the core's vector-11 path.
     let w2 = cpu.irc;
-    let rm = (w2 >> 14) & 1;
     let mode = RoundingMode::from_fpcr_bits(cpu.regs.fpcr_rounding_mode());
+
+    // cpGEN sub-op (Musashi `m68040_fpu_op0`), bits 15-13 of the extension
+    // word: 0 = ALU FP,FP; 2 = ALU ea,FP (both `fpgen_rm_reg`); 3 = FMOVE
+    // FPn → ea (store); 4/5 = FMOVE(M) FPCR↔ea; 6/7 = FMOVEM list↔ea. The
+    // FMOVEM/FPCR forms aren't wired yet.
+    match (w2 >> 13) & 7 {
+        0 | 2 => {}                            // fall through to fpgen_rm_reg
+        3 => return begin_fp_store(cpu, mode), // FMOVE FPn → memory
+        _ => return false,                     // FMOVEM / FPCR — vector 11
+    }
+
+    let rm = (w2 >> 14) & 1;
 
     // FMOVECR (R/M = 1, source specifier 7): load a constant from the
     // 68881/2 on-chip ROM into the destination Fpn. The low 7 bits select
@@ -1038,6 +1049,95 @@ fn handle_fp_mem_exec(cpu: &mut Cpu68000) {
     let dst = cpu.fp_mem_dst as usize;
     apply_fp_opmode(cpu, opmode, source, dst, mode);
     cpu.in_followup = false;
+}
+
+/// Begin an FPU memory *store* (FMOVE FPn → `<ea>`, cpGEN sub-op 3). The
+/// extension word's destination-format field selects how the source Fpn
+/// is narrowed; the opcode's EA field selects the address. Only the
+/// instant addressing modes `(An)`/`(An)+`/`-(An)` are wired so far; the
+/// static modes and the packed-decimal formats decline (vector-11 trap)
+/// until a later step. FMOVE-to-memory sets no condition codes.
+///
+/// Decline checks run before any state mutation.
+fn begin_fp_store(cpu: &mut Cpu68000, mode: motorola_68k_common::softfloat::RoundingMode) -> bool {
+    use motorola_68k_common::softfloat;
+
+    let w2 = cpu.irc;
+    let format = ((w2 >> 10) & 7) as u8; // destination format
+    let bytes_total: u8 = match format {
+        6 => 1,            // Byte integer
+        4 => 2,            // Word integer
+        0 | 1 => 4,        // Long integer / Single
+        5 => 8,            // Double
+        2 => 12,           // Extended
+        _ => return false, // Packed-decimal (3 / 7) not supported yet
+    };
+    let ea_mode = ((cpu.ir >> 3) & 7) as u8;
+    if !matches!(ea_mode, 2..=4) {
+        return false; // only (An) / (An)+ / -(An) for now
+    }
+
+    // Committed: consume the FP extension word and narrow the source Fpn
+    // to the destination format, packed big-endian in the low bytes.
+    let _ = cpu.consume_irc();
+    let src = ((w2 >> 7) & 7) as usize;
+    let v = cpu.regs.fp[src];
+    let buf: u128 = match format {
+        0 => u128::from(softfloat::floatx80_to_int32(mode, v) as u32),
+        1 => u128::from(softfloat::floatx80_to_float32(mode, v)),
+        // Extended: high word (bytes 0-1), a zero pad word (bytes 2-3),
+        // then the 64-bit mantissa (bytes 4-11).
+        2 => (u128::from(v.high) << 80) | u128::from(v.low),
+        4 => u128::from(softfloat::floatx80_to_int32(mode, v) as u16),
+        5 => u128::from(softfloat::floatx80_to_float64(mode, v)),
+        6 => u128::from(softfloat::floatx80_to_int32(mode, v) as u8),
+        _ => 0,
+    };
+
+    let ea_reg = (cpu.ir & 7) as usize;
+    let step = u32::from(bytes_total);
+    let base = match ea_mode {
+        2 => cpu.regs.a(ea_reg),
+        3 => {
+            let a = cpu.regs.a(ea_reg);
+            cpu.regs.set_a(ea_reg, a.wrapping_add(step));
+            a
+        }
+        _ => {
+            let a = cpu.regs.a(ea_reg).wrapping_sub(step);
+            cpu.regs.set_a(ea_reg, a);
+            a
+        }
+    };
+
+    cpu.fp_mem_buf = buf;
+    cpu.fp_mem_bytes_total = bytes_total;
+    cpu.fp_mem_bytes_done = 0;
+    cpu.addr = base;
+    cpu.in_followup = true;
+    // Write the most-significant operand byte first.
+    let shift = 8 * u32::from(bytes_total - 1);
+    cpu.data = ((buf >> shift) & 0xFF) as u32;
+    cpu.followup_tag = TAG_V_FP_MEM_WRITE;
+    cpu.micro_ops.push(MicroOp::WriteByte);
+    cpu.micro_ops.push(MicroOp::Execute);
+    true
+}
+
+/// `TAG_V_FP_MEM_WRITE`: a byte of the store operand has been written.
+/// Advance to the next byte (big-endian) or finish the instruction.
+fn handle_fp_mem_write(cpu: &mut Cpu68000) {
+    cpu.fp_mem_bytes_done += 1;
+    if cpu.fp_mem_bytes_done < cpu.fp_mem_bytes_total {
+        cpu.addr = cpu.addr.wrapping_add(1);
+        let shift = 8 * u32::from(cpu.fp_mem_bytes_total - 1 - cpu.fp_mem_bytes_done);
+        cpu.data = ((cpu.fp_mem_buf >> shift) & 0xFF) as u32;
+        cpu.micro_ops.push(MicroOp::WriteByte);
+        cpu.micro_ops.push(MicroOp::Execute);
+    } else {
+        cpu.in_followup = false;
+        cpu.followup_tag = 0;
+    }
 }
 
 /// FBcc.W (cpID-1 op-class 2): branch on an FPU condition with a 16-bit
@@ -1638,7 +1738,7 @@ use motorola_68000::cpu::{
     TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_CAS_COMPARE, TAG_V_CAS_WRITE_DONE,
     TAG_V_CAS2_COMPUTE, TAG_V_CAS2_GATHER, TAG_V_CAS2_READ2, TAG_V_CAS2_WRITE_DONE,
     TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_FP_MEM_EXEC, TAG_V_FP_MEM_READ,
-    TAG_V_MULDIV_MEM_EXEC,
+    TAG_V_FP_MEM_WRITE, TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
@@ -1788,6 +1888,10 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
         }
         TAG_V_FP_MEM_EXEC => {
             handle_fp_mem_exec(cpu);
+            true
+        }
+        TAG_V_FP_MEM_WRITE => {
+            handle_fp_mem_write(cpu);
             true
         }
         // An FPU memory operand using a static addressing mode: the core's
