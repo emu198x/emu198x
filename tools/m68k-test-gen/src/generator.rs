@@ -195,6 +195,13 @@ fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: 
         musashi::set_fpcr(rmode << 4);
         seed_fp_operands(rng);
 
+        // Condition instructions read the FPSR condition-code byte (bits
+        // 27-24: N/Z/I/NAN); seed a random nibble so every predicate branch
+        // is exercised regardless of which value classes were seeded.
+        if matches!(def.setup, InstructionSetup::FpScc) {
+            musashi::set_fpsr(rng.random_range(0..16u32) << 24);
+        }
+
         // Memory-source ops: point A0 at an even data address and seed a
         // format-typed operand there (the in-register dst operand is one of
         // the eight already seeded above).
@@ -468,6 +475,16 @@ fn encode_instruction(
             let src: u16 = rng.random_range(0..8);
             let ext = 0x6000 | (u16::from(format) << 10) | (src << 7);
             memory::poke_word(pc.wrapping_add(2), ext);
+            None
+        }
+        InstructionSetup::FpScc => {
+            // FScc extension word: low 6 bits select the FP predicate. Use
+            // 0x00-0x1F only: those are every distinct predicate. The
+            // signalling variants 0x20-0x3F have the same boolean result
+            // (bit 5 only gates the BSUN exception, which we defer), and the
+            // Musashi oracle fatalerrors on them rather than masking bit 5.
+            let cond: u16 = rng.random_range(0..0x20);
+            memory::poke_word(pc.wrapping_add(2), cond);
             None
         }
         InstructionSetup::FpGenImm { opmode, format } => {

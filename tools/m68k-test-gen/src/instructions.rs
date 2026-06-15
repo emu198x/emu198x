@@ -90,6 +90,11 @@ pub enum InstructionSetup {
     /// byte-pipeline with pointer writeback and the static-EA store path
     /// through `calc_ea_start` (fp_mem_store), which `(An)` store does not.
     FpStoreMemMode { format: u8, ea_mode: u8 },
+    /// 68881/2 FScc Dn (op-class 1, register-direct): set Dn's low byte to
+    /// 0xFF/0x00 on an FP condition. The extension word's low 6 bits select
+    /// the predicate; the generator randomises both predicate and the FPSR
+    /// condition codes to exercise every branch of `fpu::test_condition`.
+    FpScc,
 }
 
 impl InstructionDef {
@@ -105,6 +110,7 @@ impl InstructionDef {
                 | InstructionSetup::FpGenMemMode { .. }
                 | InstructionSetup::FpGenImm { .. }
                 | InstructionSetup::FpStoreMemMode { .. }
+                | InstructionSetup::FpScc
         )
     }
 }
@@ -1089,6 +1095,16 @@ pub fn fp_catalogue(_cpu_type: u32) -> Vec<InstructionDef> {
             min_cpu: musashi::M68K_CPU_TYPE_68020,
         });
     }
+
+    // FScc D0 (op-class 1, EA = D0): predicate + FPSR condition codes both
+    // randomised, exercising every branch of fpu::test_condition.
+    defs.push(InstructionDef {
+        name: "FScc",
+        opcode: 0xF240, // op-class 1 (bits 8-6 = 001), EA mode 0 reg 0 → D0
+        ext_words: 1,
+        setup: InstructionSetup::FpScc,
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    });
 
     defs
 }
