@@ -140,6 +140,27 @@ fn main() {
                 let z = sf::floatx80_scale(80, mode, a, b);
                 (z.high, z.low)
             }
+            // 15-19: precision-rounded ops (FPCR/prefix single & double).
+            15 => {
+                let z = sf::floatx80_add(32, mode, a, b);
+                (z.high, z.low)
+            }
+            16 => {
+                let z = sf::floatx80_add(64, mode, a, b);
+                (z.high, z.low)
+            }
+            17 => {
+                let z = sf::floatx80_move(32, mode, a);
+                (z.high, z.low)
+            }
+            18 => {
+                let z = sf::floatx80_move(64, mode, a);
+                (z.high, z.low)
+            }
+            19 => {
+                let z = sf::floatx80_abs(32, mode, a);
+                (z.high, z.low)
+            }
             // 13/14: FREM / FMOD — value + quotient byte in the flags column.
             13 => {
                 let r = sf::floatx80_rem(80, mode, a, b);

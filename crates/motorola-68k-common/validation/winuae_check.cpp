@@ -10,8 +10,9 @@
  *
  * Bit-exact against WinUAE: 0=add 1=sub 2=mul 3=div 4=sqrt 5=to_int32 6=to_f32
  * 7=to_f64 8=int32_to 9=float32_to 10=float64_to 11=sglmul 12=sgldiv 13=rem
- * 14=mod 20=getexp 21=getman 22=scale. For rem/mod the flags column carries the
- * FPSR quotient byte (sign<<7 | low 7 bits), compared alongside the value.
+ * 14=mod 15=add@single 16=add@double 17=move@single 18=move@double 19=abs@single
+ * 20=getexp 21=getman 22=scale. For rem/mod the flags column carries the FPSR
+ * quotient byte (sign<<7 | low 7 bits), compared alongside the value.
  * (The transcendentals are the remaining ops.) */
 #include <cstdint>
 #include <cstdio>
@@ -62,6 +63,16 @@ int main(void) {
             case 10: z = float64_to_floatx80((float64)al, &st); c_hi = z.high; c_lo = z.low; break;
             case 11: z = floatx80_sglmul(a, b, &st); c_hi = z.high; c_lo = z.low; break;
             case 12: z = floatx80_sgldiv(a, b, &st); c_hi = z.high; c_lo = z.low; break;
+            case 15: st.floatx80_rounding_precision = 32; z = floatx80_add(a, b, &st);
+                     st.floatx80_rounding_precision = 80; c_hi = z.high; c_lo = z.low; break;
+            case 16: st.floatx80_rounding_precision = 64; z = floatx80_add(a, b, &st);
+                     st.floatx80_rounding_precision = 80; c_hi = z.high; c_lo = z.low; break;
+            case 17: st.floatx80_rounding_precision = 32; z = floatx80_move(a, &st);
+                     st.floatx80_rounding_precision = 80; c_hi = z.high; c_lo = z.low; break;
+            case 18: st.floatx80_rounding_precision = 64; z = floatx80_move(a, &st);
+                     st.floatx80_rounding_precision = 80; c_hi = z.high; c_lo = z.low; break;
+            case 19: st.floatx80_rounding_precision = 32; z = floatx80_abs(a, &st);
+                     st.floatx80_rounding_precision = 80; c_hi = z.high; c_lo = z.low; break;
             case 20: z = floatx80_getexp(a, &st);    c_hi = z.high; c_lo = z.low; break;
             case 21: z = floatx80_getman(a, &st);    c_hi = z.high; c_lo = z.low; break;
             case 22: z = floatx80_scale(a, b, &st);  c_hi = z.high; c_lo = z.low; break;

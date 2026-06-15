@@ -1579,3 +1579,50 @@ fn frem_rounds_quotient_to_nearest_and_sets_quotient_byte() {
     assert_eq!(r.fp[1], neg_one, "5 FREM 3 = -1");
     assert_eq!((r.fpsr >> 16) & 0xFF, 2, "FPSR quotient byte = 2");
 }
+
+// --- FPCR rounding precision + FSxxx/FDxxx prefix (#487) -------------------
+
+#[test]
+fn fadd_honours_fpcr_single_precision() {
+    use motorola_68k_common::softfloat::{RoundingMode::NearestEven, floatx80_add};
+    // FPCR rounding precision = single (bits 7-6 = 01). The sum rounds to
+    // single precision — its low 40 mantissa bits are clear.
+    let a = FpReg::new(0x4000, 0xC90F_DAA2_2168_C235);
+    let r = run(0x22, 0, 1, |cpu| {
+        cpu.regs.fpcr = 0x40; // single
+        cpu.regs.fp[0] = a;
+        cpu.regs.fp[1] = ONE;
+    });
+    assert_eq!(r.fp[1].low & 0x0000_00FF_FFFF_FFFF, 0, "single-rounded");
+    assert_eq!(r.fp[1], floatx80_add(32, NearestEven, ONE, a));
+}
+
+#[test]
+fn fmove_honours_fpcr_double_precision() {
+    use motorola_68k_common::softfloat::{RoundingMode::NearestEven, floatx80_move};
+    // FPCR rounding precision = double (bits 7-6 = 10): FMOVE rounds the
+    // source to double precision (low 11 mantissa bits clear).
+    let a = FpReg::new(0x4000, 0xC90F_DAA2_2168_C235);
+    let r = run(0x00, 0, 1, |cpu| {
+        cpu.regs.fpcr = 0x80; // double
+        cpu.regs.fp[0] = a;
+    });
+    assert_eq!(r.fp[1].low & 0x0000_0000_0000_07FF, 0, "double-rounded");
+    assert_eq!(r.fp[1], floatx80_move(64, NearestEven, a));
+}
+
+#[test]
+fn fsadd_prefix_forces_single_precision() {
+    // FSADD (opmode 0x22 | 0x44 = 0x66) forces single rounding even with the
+    // FPCR precision left at extended.
+    let a = FpReg::new(0x4000, 0xC90F_DAA2_2168_C235);
+    let r = run(0x66, 0, 1, |cpu| {
+        cpu.regs.fp[0] = a;
+        cpu.regs.fp[1] = ONE;
+    });
+    assert_eq!(
+        r.fp[1].low & 0x0000_00FF_FFFF_FFFF,
+        0,
+        "single-rounded via the FSxxx prefix"
+    );
+}

@@ -847,6 +847,10 @@ pub struct Cpu68000 {
     /// Destination Fpn (extension-word bits 9-7).
     #[serde(skip)]
     pub fp_mem_dst: u8,
+    /// Rounding precision (80/64/32) to apply once the operand is loaded —
+    /// the FSxxx/FDxxx opmode prefix override, or the FPCR precision field.
+    #[serde(skip)]
+    pub fp_mem_precision: i32,
     /// Set while an FPU memory operand is using the core's EA-resolution
     /// machinery (`calc_ea_start`) for the non-auto-increment addressing
     /// modes. Lets the 68020 continue hook recognise the shared
@@ -1012,6 +1016,7 @@ impl Cpu68000 {
             fp_mem_format: 0,
             fp_mem_opmode: 0,
             fp_mem_dst: 0,
+            fp_mem_precision: 80,
             fp_mem_pending: false,
             fp_mem_store: false,
             fp_movem_active: false,

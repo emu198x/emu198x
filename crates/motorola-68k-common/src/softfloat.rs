@@ -372,10 +372,22 @@ pub fn round_and_pack_floatx80(
     };
 
     if rounding_precision == 64 || rounding_precision == 32 {
-        let (mut round_increment, mut round_mask) = if rounding_precision == 64 {
-            (0x0000_0000_0000_0400_u64, 0x0000_0000_0000_07FF_u64)
+        // The single/double rounder clamps the *exponent* to the target range
+        // via `exp_offset` (single max = 0x7FFE−0x3F80 = 0x407E, min normal =
+        // 0x3F81), so a value beyond single/double range overflows to ∞ / the
+        // format max or underflows to its denormal — unlike the extended path.
+        let (mut round_increment, mut round_mask, exp_offset) = if rounding_precision == 64 {
+            (
+                0x0000_0000_0000_0400_u64,
+                0x0000_0000_0000_07FF_u64,
+                0x3C00_i32,
+            )
         } else {
-            (0x0000_0080_0000_0000_u64, 0x0000_00FF_FFFF_FFFF_u64)
+            (
+                0x0000_0080_0000_0000_u64,
+                0x0000_00FF_FFFF_FFFF_u64,
+                0x3F80_i32,
+            )
         };
         z_sig0 |= u64::from(z_sig1 != 0);
         if !round_nearest_even {
@@ -393,31 +405,39 @@ pub fn round_and_pack_floatx80(
             }
         }
         let mut round_bits = z_sig0 & round_mask;
-        if (z_exp as u32) >= 0x7FFE {
-            if 0x7FFE < z_exp || (z_exp == 0x7FFE && z_sig0.wrapping_add(round_increment) < z_sig0)
+        if (0x7FFE - exp_offset) < z_exp
+            || (z_exp == 0x7FFE - exp_offset && z_sig0.wrapping_add(round_increment) < z_sig0)
+        {
+            float_raise(flag::OVERFLOW);
+            if z_sig0 & round_mask != 0 {
+                float_raise(flag::INEXACT);
+            }
+            if rounding_mode == RoundingMode::Zero
+                || (z_sign && rounding_mode == RoundingMode::Up)
+                || (!z_sign && rounding_mode == RoundingMode::Down)
             {
-                return overflow(round_mask, z_sig0, z_sig1);
+                return pack(z_sign, 0x7FFE - exp_offset, !round_mask);
             }
-            if z_exp < 0 {
-                // The 68881/2 always detects tininess before rounding, so any
-                // result with exponent < 0 underflows.
-                float_raise(flag::UNDERFLOW);
-                z_sig0 = shift64_right_jamming(z_sig0, -z_exp);
-                z_exp = 0;
-                round_bits = z_sig0 & round_mask;
-                if round_bits != 0 {
-                    float_raise(flag::INEXACT);
-                }
-                z_sig0 = z_sig0.wrapping_add(round_increment);
-                // 68k: no `if zSig0<0 zExp=1` renormalization — denormal
-                // results stay at exponent 0.
-                round_increment = round_mask + 1;
-                if round_nearest_even && round_bits << 1 == round_increment {
-                    round_mask |= round_increment;
-                }
-                z_sig0 &= !round_mask;
-                return pack(z_sign, z_exp, z_sig0);
+            return pack(z_sign, 0x7FFF, 0); // 68k infinity
+        }
+        if z_exp < exp_offset + 1 {
+            // Below the format's minimum normal exponent → denormalize to the
+            // single/double min, rounding the mantissa. (Tininess before
+            // rounding, so underflow is unconditional here.)
+            float_raise(flag::UNDERFLOW);
+            z_sig0 = shift64_right_jamming(z_sig0, -(z_exp - (exp_offset + 1)));
+            z_exp = exp_offset + 1;
+            round_bits = z_sig0 & round_mask;
+            if round_bits != 0 {
+                float_raise(flag::INEXACT);
             }
+            z_sig0 = z_sig0.wrapping_add(round_increment);
+            round_increment = round_mask + 1;
+            if round_nearest_even && round_bits << 1 == round_increment {
+                round_mask |= round_increment;
+            }
+            z_sig0 &= !round_mask;
+            return pack(z_sign, z_exp, z_sig0);
         }
         if round_bits != 0 {
             float_raise(flag::INEXACT);
@@ -818,6 +838,76 @@ pub fn floatx80_sub(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> F
     } else {
         add_floatx80_sigs(precision, mode, a, b, a_sign)
     }
+}
+
+// --- FMOVE / FABS / FNEG, precision-aware (round the source to the rounding
+// precision; identity at extended precision for finite operands). ---
+
+/// `floatx80_move` (FMOVE): round `a` to `precision`.
+#[must_use]
+pub fn floatx80_move(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+    if a_exp == 0x7FFF {
+        if a_sig.wrapping_shl(1) != 0 {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        return a; // 68881/2: ∞ passthrough unchanged
+    }
+    if a_exp == 0 {
+        if a_sig == 0 {
+            return a;
+        }
+        return normalize_round_and_pack_floatx80(precision, mode, a_sign, a_exp, a_sig, 0);
+    }
+    round_and_pack_floatx80(precision, mode, a_sign, a_exp, a_sig, 0)
+}
+
+/// `floatx80_abs` (FABS): `|a|`, rounded to `precision`.
+#[must_use]
+pub fn floatx80_abs(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let mut a_sig = frac(a);
+    let mut a_exp = exp(a);
+    if a_exp == 0x7FFF {
+        if a_sig.wrapping_shl(1) != 0 {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        return pack(false, a_exp, a_sig); // +∞
+    }
+    if a_exp == 0 {
+        if a_sig == 0 {
+            return pack(false, 0, 0);
+        }
+        let (e, s) = normalize_floatx80_subnormal(a_sig);
+        a_exp = e;
+        a_sig = s;
+    }
+    round_and_pack_floatx80(precision, mode, false, a_exp, a_sig, 0)
+}
+
+/// `floatx80_neg` (FNEG): `−a`, rounded to `precision`.
+#[must_use]
+pub fn floatx80_neg(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let mut a_sig = frac(a);
+    let mut a_exp = exp(a);
+    let a_sign = sign(a);
+    if a_exp == 0x7FFF {
+        if a_sig.wrapping_shl(1) != 0 {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        return pack(!a_sign, a_exp, a_sig);
+    }
+    let neg = !a_sign;
+    if a_exp == 0 {
+        if a_sig == 0 {
+            return pack(neg, 0, 0);
+        }
+        let (e, s) = normalize_floatx80_subnormal(a_sig);
+        a_exp = e;
+        a_sig = s;
+    }
+    round_and_pack_floatx80(precision, mode, neg, a_exp, a_sig, 0)
 }
 
 // --- Multiplication / division (softfloat.c) ---
@@ -2490,6 +2580,36 @@ mod tests {
     fn sgldiv_exact_small_values() {
         assert_eq!(floatx80_sgldiv(RN, fx(6), fx(2)), fx(3));
         assert_eq!(floatx80_sgldiv(RN, fx(-6), fx(2)), fx(-3));
+    }
+
+    #[test]
+    fn move_abs_neg_at_extended_are_exact() {
+        let x = FpReg::new(0x4002, 0xA53F_0000_0000_0001);
+        assert_eq!(floatx80_move(P80, RN, x), x);
+        assert_eq!(
+            floatx80_abs(P80, RN, x),
+            FpReg::new(0x4002, 0xA53F_0000_0000_0001)
+        );
+        assert_eq!(
+            floatx80_neg(P80, RN, x),
+            FpReg::new(0xC002, 0xA53F_0000_0000_0001)
+        );
+        // Sign rules on zero.
+        assert_eq!(
+            floatx80_abs(P80, RN, FpReg::new(0x8000, 0)),
+            FpReg::new(0, 0)
+        );
+        assert_eq!(floatx80_neg(P80, RN, fx(0)), FpReg::new(0x8000, 0));
+    }
+
+    #[test]
+    fn move_at_single_clears_low_mantissa_bits() {
+        // A value with bits below single precision rounds (toward nearest);
+        // the low 40 mantissa bits end up clear.
+        let x = FpReg::new(0x3FFF, 0x8000_0000_0000_00FF);
+        let r = floatx80_move(32, RN, x);
+        assert_eq!(r.low & 0x0000_00FF_FFFF_FFFF, 0);
+        assert_eq!(r, fx(1)); // the tail rounds away
     }
 
     #[test]
