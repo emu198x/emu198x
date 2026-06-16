@@ -897,7 +897,15 @@ fn apply_fp_opmode(
         0x00 => cpu.regs.fp[dst] = softfloat::floatx80_move(precision, mode, source),
         0x18 => cpu.regs.fp[dst] = softfloat::floatx80_abs(precision, mode, source),
         0x1A => cpu.regs.fp[dst] = softfloat::floatx80_neg(precision, mode, source),
-        0x3A => {} // FTST — flags only
+        0x3A => {
+            // FTST sets condition codes only, but a signalling-NaN operand
+            // still raises the SNAN exception (like FMOVE/FABS/FNEG). Run the
+            // move at extended precision purely for that side effect on a NaN
+            // input — no rounding flags, result discarded.
+            if source.is_nan() {
+                let _ = softfloat::floatx80_move(80, mode, source);
+            }
+        }
         // Binary ops: dst = dst op source (Musashi passes REG_FP[dst] first),
         // at the selected rounding precision with the FPCR rounding mode.
         0x22 => {
@@ -982,6 +990,7 @@ fn apply_fp_opmode(
                 motorola_68k_common::fpu::set_condition_codes(&mut cpu.regs, res);
             }
             motorola_68k_common::fpu::apply_exceptions(&mut cpu.regs);
+            maybe_raise_fp_exception(cpu);
             return;
         }
         _ => return, // opmode filtered by the caller
@@ -999,6 +1008,44 @@ fn apply_fp_opmode(
     // format conversion done before this call) into the FPSR. The caller
     // cleared the accumulator before the operation.
     motorola_68k_common::fpu::apply_exceptions(&mut cpu.regs);
+    maybe_raise_fp_exception(cpu);
+}
+
+/// After an arithmetic FP instruction has folded its IEEE exceptions into the
+/// FPSR, latch FPIAR and arm a pending trap if an *enabled* exception (FPSR
+/// EXC ∧ FPCR enable) is now set. The trap is delivered at the instruction
+/// boundary (the core's `PromoteIRC` step) so the stacked PC points at the
+/// following instruction — the 68881 post-instruction model. FPIAR latches
+/// to the instruction address whenever any non-BSUN exception is enabled
+/// (WinUAE `maybe_set_fpiar`); the FP control / FMOVEM / FSAVE / FRESTORE
+/// instructions never reach here, so they correctly leave FPIAR alone.
+fn maybe_raise_fp_exception(cpu: &mut Cpu68000) {
+    if cpu.regs.fpcr & 0x0000_7F00 != 0 {
+        cpu.regs.fpiar = cpu.instr_start_pc;
+    }
+    if let Some(vector) =
+        motorola_68k_common::fpu::fp_exception_vector(cpu.regs.fpsr, cpu.regs.fpcr)
+    {
+        cpu.fp_exc_pending = Some(vector);
+    }
+}
+
+/// Set the FPSR BSUN flag for a taken IEEE-nonaware predicate and, if BSUN is
+/// enabled in FPCR (bit 15), deliver the trap (vector 48) immediately — a
+/// *pre-instruction* exception: the branch / set does NOT execute and the
+/// stacked PC is the conditional instruction itself (re-executed on RTE).
+/// Returns `true` if the trap was taken (the caller must abort). BSUN does
+/// not latch FPIAR. Mirrors WinUAE `fpsr_set_bsun`.
+fn raise_bsun_if_enabled(cpu: &mut Cpu68000, condition: u8) -> bool {
+    if !motorola_68k_common::fpu::predicate_raises_bsun(condition, cpu.regs.fpsr) {
+        return false;
+    }
+    cpu.regs.set_fpsr_bsun();
+    if cpu.regs.fpcr & 0x0000_8000 != 0 {
+        cpu.begin_group1_exception(48, cpu.instr_start_pc);
+        return true;
+    }
+    false
 }
 
 /// Begin an FPU memory-source operand fetch (cpGEN R/M = 1). The FP
@@ -1282,6 +1329,10 @@ fn begin_fp_store(cpu: &mut Cpu68000, mode: motorola_68k_common::softfloat::Roun
         _ => 0,
     };
     motorola_68k_common::fpu::apply_exceptions(&mut cpu.regs);
+    // FMOVE FPn→ea narrows the source: an overflow / inexact / out-of-range
+    // integer / signalling NaN can raise an enabled exception. Arm the trap
+    // (delivered after the store completes, at the instruction boundary).
+    maybe_raise_fp_exception(cpu);
 
     cpu.fp_mem_buf = buf;
     cpu.fp_mem_bytes_total = bytes_total;
@@ -1713,8 +1764,8 @@ fn handle_frestore_read(cpu: &mut Cpu68000) {
 fn execute_fbcc_w(cpu: &mut Cpu68000, opcode: u16) -> bool {
     let condition = (opcode & 0x3F) as u8;
     let disp = i32::from(cpu.irc as i16) as u32;
-    if motorola_68k_common::fpu::predicate_raises_bsun(condition, cpu.regs.fpsr) {
-        cpu.regs.set_fpsr_bsun();
+    if raise_bsun_if_enabled(cpu, condition) {
+        return true; // BSUN trap taken — the branch does not execute
     }
     if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
         let target = cpu.instr_start_pc.wrapping_add(2).wrapping_add(disp);
@@ -1753,8 +1804,8 @@ fn execute_fbcc_l(cpu: &mut Cpu68000, opcode: u16) -> bool {
 fn handle_fbcc_l(cpu: &mut Cpu68000) {
     let disp = (cpu.src_val | u32::from(cpu.irc)) as i32;
     let condition = (cpu.variant_ext_word & 0x3F) as u8;
-    if motorola_68k_common::fpu::predicate_raises_bsun(condition, cpu.regs.fpsr) {
-        cpu.regs.set_fpsr_bsun();
+    if raise_bsun_if_enabled(cpu, condition) {
+        return; // BSUN trap taken — begin_group1_exception owns the followup
     }
     if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
         let target = cpu.instr_start_pc.wrapping_add(2).wrapping_add(disp as u32);
@@ -1800,8 +1851,8 @@ fn execute_fscc(cpu: &mut Cpu68000, opcode: u16) -> bool {
 
     let condition = (cpu.irc & 0x3F) as u8;
     let _ = cpu.consume_irc();
-    if motorola_68k_common::fpu::predicate_raises_bsun(condition, cpu.regs.fpsr) {
-        cpu.regs.set_fpsr_bsun();
+    if raise_bsun_if_enabled(cpu, condition) {
+        return true; // BSUN trap taken — no byte is set
     }
     let byte = if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
         0xFF_u32
@@ -1868,8 +1919,8 @@ fn execute_fdbcc(cpu: &mut Cpu68000, counter_reg: u8) -> bool {
 fn handle_fdbcc(cpu: &mut Cpu68000) {
     let condition = (cpu.variant_ext_word & 0x3F) as u8;
     let reg = ((cpu.variant_ext_word >> 8) & 7) as usize;
-    if motorola_68k_common::fpu::predicate_raises_bsun(condition, cpu.regs.fpsr) {
-        cpu.regs.set_fpsr_bsun();
+    if raise_bsun_if_enabled(cpu, condition) {
+        return; // BSUN trap taken — the counter is not decremented
     }
     let disp = i32::from(cpu.irc as i16) as u32;
     if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
@@ -1908,8 +1959,8 @@ fn execute_ftrapcc(cpu: &mut Cpu68000, reg: u8) -> bool {
     for _ in 0..operand_words {
         cpu.consume_irc(); // step past the discarded operand words
     }
-    if motorola_68k_common::fpu::predicate_raises_bsun(condition, cpu.regs.fpsr) {
-        cpu.regs.set_fpsr_bsun();
+    if raise_bsun_if_enabled(cpu, condition) {
+        return true; // BSUN trap taken — the vector-7 trap is not evaluated
     }
     if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
         // Stacked PC points past the whole instruction (opcode + condition +

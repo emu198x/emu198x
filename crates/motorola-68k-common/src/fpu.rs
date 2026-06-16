@@ -383,6 +383,28 @@ pub fn apply_exceptions(regs: &mut Registers) {
     regs.set_fpsr_exceptions(exc);
 }
 
+/// Map the pending *enabled* FP exceptions — the FPSR exception-status byte
+/// AND the FPCR exception-enable byte, both at bits 15-8 — to the
+/// highest-priority exception vector (48-54), or `None` if no enabled
+/// exception is set. Priority high→low: BSUN, SNAN, OPERR, OVFL, UNFL, DZ,
+/// INEX2, INEX1 (WinUAE `fpsr_get_vector`). Used to deliver the FP
+/// arithmetic / BSUN traps.
+#[must_use]
+pub fn fp_exception_vector(fpsr: u32, fpcr: u32) -> Option<u8> {
+    let pending = ((fpsr >> 8) & (fpcr >> 8) & 0xFF) as u8;
+    if pending == 0 {
+        return None;
+    }
+    // Indexed by EXC-byte bit position: 0 = INEX1 … 7 = BSUN.
+    const VTABLE: [u8; 8] = [49, 49, 50, 51, 53, 52, 54, 48];
+    for bit in (0..8usize).rev() {
+        if pending & (1 << bit) != 0 {
+            return Some(VTABLE[bit]);
+        }
+    }
+    None
+}
+
 // --- FPU condition testing ---
 
 /// Test an FPU condition code against the current FPSR.

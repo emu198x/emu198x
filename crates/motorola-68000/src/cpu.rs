@@ -947,6 +947,15 @@ pub struct Cpu68000 {
     /// the end (only on the non-fault path).
     #[serde(skip)]
     pub fp_frame_postinc: bool,
+
+    /// A pending 68881/2 arithmetic-exception trap vector (48-54), armed by
+    /// an FP instruction that raised an *enabled* exception. Delivered at
+    /// the instruction boundary (the `PromoteIRC` step) so the stacked PC
+    /// points at the following instruction — the 68881 post-instruction
+    /// model. `None` when no FP trap is pending. Transient mid-dispatch
+    /// state, so `#[serde(skip)]`.
+    #[serde(skip)]
+    pub fp_exc_pending: Option<u8>,
     /// Set while an FSAVE/FRESTORE frame is using the core's EA-resolution
     /// machinery (`calc_ea_start`) for the control addressing modes. Lets the
     /// 68020 continue hook recognise the shared `TAG_FETCH_SRC_DATA` tag as
@@ -1104,6 +1113,7 @@ impl Cpu68000 {
             fp_frame_postinc: false,
             fp_frame_pending: false,
             fp_frame_store: false,
+            fp_exc_pending: None,
             variant_continue_hook: None,
             variant_pending_disp: 0,
         }
@@ -1355,12 +1365,21 @@ impl Cpu68000 {
             match op {
                 MicroOp::Execute => self.decode_and_execute(),
                 MicroOp::PromoteIRC => {
-                    // The 68000 samples interrupts at instruction boundaries.
-                    let ipl = self.ipl;
-                    if ipl > self.regs.interrupt_mask() || ipl == 7 {
-                        self.initiate_interrupt_exception(ipl);
+                    // A 68881/2 arithmetic exception raised by the just-retired
+                    // FP instruction is delivered here, before the next
+                    // instruction (and before interrupt sampling): `irc_addr`
+                    // is the following instruction's address — the stacked PC
+                    // for this post-instruction trap.
+                    if let Some(vector) = self.fp_exc_pending.take() {
+                        self.begin_group1_exception(vector, self.irc_addr);
                     } else {
-                        self.promote_pipeline();
+                        // The 68000 samples interrupts at instruction boundaries.
+                        let ipl = self.ipl;
+                        if ipl > self.regs.interrupt_mask() || ipl == 7 {
+                            self.initiate_interrupt_exception(ipl);
+                        } else {
+                            self.promote_pipeline();
+                        }
                     }
                 }
                 MicroOp::AssertReset => {
