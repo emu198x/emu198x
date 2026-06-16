@@ -824,7 +824,7 @@ fn diagnostic_mooneye_ppu_lcdon_write_timing_results() {
 fn construction_validates_header() {
     let rom = nop_rom();
     let (header, _) = GameBoy::from_rom(rom).unwrap();
-    assert_eq!(header.cart_type, CartType::RomOnly);
+    assert_eq!(header.cart_type, CartType::RomOnly { battery: false });
 }
 
 #[test]

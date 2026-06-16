@@ -33,22 +33,16 @@ pub use mbc5::Mbc5;
 /// Cartridge-type byte at ROM `$0147`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum CartType {
-    RomOnly,
+    /// `$00` (no RAM), `$08` (ROM+RAM), `$09` (ROM+RAM+BATTERY). No MBC;
+    /// any RAM is wired directly. `$09` carries a battery so its RAM is
+    /// persisted to the `.sav` sidecar.
+    RomOnly { battery: bool },
     /// `$01..=$03`. Flags carry RAM / battery presence.
-    Mbc1 {
-        ram: bool,
-        battery: bool,
-    },
+    Mbc1 { ram: bool, battery: bool },
     /// `$05..=$06`. MBC2 has internal 512×4-bit RAM.
-    Mbc2 {
-        battery: bool,
-    },
+    Mbc2 { battery: bool },
     /// `$0F..=$13`. RTC and battery are independent flags.
-    Mbc3 {
-        ram: bool,
-        battery: bool,
-        rtc: bool,
-    },
+    Mbc3 { ram: bool, battery: bool, rtc: bool },
     /// `$19..=$1E`.
     Mbc5 {
         ram: bool,
@@ -62,7 +56,7 @@ impl CartType {
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
-            Self::RomOnly => "ROM only",
+            Self::RomOnly { .. } => "ROM only",
             Self::Mbc1 { .. } => "MBC1",
             Self::Mbc2 { .. } => "MBC2",
             Self::Mbc3 { .. } => "MBC3",
@@ -75,8 +69,8 @@ impl CartType {
     #[must_use]
     pub const fn has_battery(self) -> bool {
         match self {
-            Self::RomOnly => false,
-            Self::Mbc1 { battery, .. }
+            Self::RomOnly { battery }
+            | Self::Mbc1 { battery, .. }
             | Self::Mbc2 { battery }
             | Self::Mbc3 { battery, .. }
             | Self::Mbc5 { battery, .. } => battery,
@@ -126,7 +120,7 @@ impl Cartridge {
         };
         let ram = vec![0xFF; ram_size];
         let mbc = match cart_type {
-            CartType::RomOnly => Mbc::None,
+            CartType::RomOnly { .. } => Mbc::None,
             CartType::Mbc1 { .. } => Mbc::Mbc1(Mbc1::new_for_rom(&rom)),
             CartType::Mbc2 { .. } => Mbc::Mbc2(Mbc2::new()),
             CartType::Mbc3 { rtc, .. } => Mbc::Mbc3(Mbc3::new(rtc)),
@@ -215,6 +209,20 @@ impl Cartridge {
             Mbc::Mbc3(m) => m.write_ram(&mut self.ram, addr, value),
             Mbc::Mbc5(m) => m.write_ram(&mut self.ram, addr, value),
         }
+    }
+
+    /// Advance the cartridge's real-time clock by `elapsed` real seconds.
+    /// Only MBC3-with-RTC carts have one; every other cartridge ignores it.
+    pub fn advance_rtc(&mut self, elapsed: u64) {
+        if let Mbc::Mbc3(m) = &mut self.mbc {
+            m.advance_seconds(elapsed);
+        }
+    }
+
+    /// Whether this cartridge carries a real-time clock (MBC3 + RTC).
+    #[must_use]
+    pub fn has_rtc(&self) -> bool {
+        matches!(self.cart_type, CartType::Mbc3 { rtc: true, .. })
     }
 
     fn ram_linear_read(&self, addr: u16) -> u8 {

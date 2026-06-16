@@ -88,7 +88,7 @@ fn parses_rom_only_cartridge_with_no_ram() {
         r[offset::TITLE..offset::TITLE + 4].copy_from_slice(b"TEST");
     });
     let header = CartridgeHeader::parse(&rom).unwrap();
-    assert_eq!(header.cart_type, CartType::RomOnly);
+    assert_eq!(header.cart_type, CartType::RomOnly { battery: false });
     assert_eq!(header.rom_size, 0x8000);
     assert_eq!(header.ram_size, 0);
     assert_eq!(header.title, "TEST");

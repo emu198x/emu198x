@@ -187,7 +187,7 @@ pub enum HeaderError {
 
 fn decode_cart_type(byte: u8) -> Result<CartType, HeaderError> {
     match byte {
-        0x00 => Ok(CartType::RomOnly),
+        0x00 => Ok(CartType::RomOnly { battery: false }),
         0x01 => Ok(CartType::Mbc1 {
             ram: false,
             battery: false,
@@ -202,13 +202,11 @@ fn decode_cart_type(byte: u8) -> Result<CartType, HeaderError> {
         }),
         0x05 => Ok(CartType::Mbc2 { battery: false }),
         0x06 => Ok(CartType::Mbc2 { battery: true }),
-        0x08 | 0x09 => {
-            // ROM+RAM (rare, 32 KiB ROMs with battery on $09). Treat
-            // as ROM-only for now — the cartridge wires RAM directly
-            // when we instantiate it. The ram-size byte still drives
-            // the RAM allocation.
-            Ok(CartType::RomOnly)
-        }
+        // ROM+RAM (rare, 32 KiB ROMs). No MBC — the cartridge wires RAM
+        // directly and the ram-size byte drives the allocation. $09 adds a
+        // battery, so its RAM persists to the `.sav` sidecar; $08 does not.
+        0x08 => Ok(CartType::RomOnly { battery: false }),
+        0x09 => Ok(CartType::RomOnly { battery: true }),
         0x0F => Ok(CartType::Mbc3 {
             ram: false,
             battery: true,

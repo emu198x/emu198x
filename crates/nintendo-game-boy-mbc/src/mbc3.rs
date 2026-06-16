@@ -149,6 +149,40 @@ impl Mbc3 {
         }
     }
 
+    /// Advance the live RTC by `elapsed` real seconds, carrying through
+    /// minutes / hours / days and honouring the halt bit (`$0C` bit 6). The
+    /// day counter is 9-bit (`day_low` + `$0C` bit 0); overflowing day 511
+    /// latches the day-carry bit (`$0C` bit 7), which stays set until software
+    /// clears it. Latched values are untouched — the game latches to read.
+    ///
+    /// Sub-counters are normalised mod 60 / 60 / 24; the chip's wrap-at-bit-
+    /// width behaviour for software-loaded out-of-range values (seconds 60-63
+    /// etc., as RTC3test exercises) is not modelled — every real game keeps
+    /// the fields in range.
+    pub fn advance_seconds(&mut self, elapsed: u64) {
+        if !self.has_rtc || self.rtc.day_high_ctrl & 0x40 != 0 {
+            return; // no RTC, or the clock is halted
+        }
+        let mut secs = u64::from(self.rtc.seconds & 0x3F) + elapsed;
+        let mut mins = u64::from(self.rtc.minutes & 0x3F) + secs / 60;
+        secs %= 60;
+        let mut hours = u64::from(self.rtc.hours & 0x1F) + mins / 60;
+        mins %= 60;
+        let mut days =
+            u64::from(self.rtc.day_low) | (u64::from(self.rtc.day_high_ctrl & 0x01) << 8);
+        days += hours / 24;
+        hours %= 24;
+        if days > 0x1FF {
+            self.rtc.day_high_ctrl |= 0x80; // day-counter carry, sticky
+            days %= 0x200;
+        }
+        self.rtc.seconds = secs as u8;
+        self.rtc.minutes = mins as u8;
+        self.rtc.hours = hours as u8;
+        self.rtc.day_low = (days & 0xFF) as u8;
+        self.rtc.day_high_ctrl = (self.rtc.day_high_ctrl & !0x01) | ((days >> 8) & 0x01) as u8;
+    }
+
     fn ram_offset(&self, ram: &[u8], addr: u16) -> Option<usize> {
         let bank_count = ram.len() / RAM_BANK_SIZE;
         if bank_count == 0 {

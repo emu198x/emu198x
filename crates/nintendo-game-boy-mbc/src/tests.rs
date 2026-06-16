@@ -36,7 +36,7 @@ fn install_mbc1m_logos(rom: &mut [u8]) {
 #[test]
 fn rom_only_reads_passthrough() {
     let rom = build_rom(2);
-    let cart = Cartridge::new(rom, CartType::RomOnly, 0);
+    let cart = Cartridge::new(rom, CartType::RomOnly { battery: false }, 0);
     assert_eq!(cart.read_rom(0x0000), 0x00);
     assert_eq!(cart.read_rom(0x4000), 0x01);
     assert_eq!(cart.read_rom(0x4001), 0x01 ^ 0x55);
@@ -45,16 +45,34 @@ fn rom_only_reads_passthrough() {
 #[test]
 fn rom_only_writes_have_no_effect() {
     let rom = build_rom(2);
-    let mut cart = Cartridge::new(rom, CartType::RomOnly, 0);
+    let mut cart = Cartridge::new(rom, CartType::RomOnly { battery: false }, 0);
     cart.write_rom(0x2000, 0xFF);
     assert_eq!(cart.read_rom(0x4000), 0x01, "no banking on ROM-only carts");
 }
 
 #[test]
 fn rom_only_with_ram_round_trips() {
-    let mut cart = Cartridge::new(build_rom(2), CartType::RomOnly, 0x2000);
+    let mut cart = Cartridge::new(build_rom(2), CartType::RomOnly { battery: false }, 0x2000);
     cart.write_ram(0xA000, 0x42);
     assert_eq!(cart.read_ram(0xA000), 0x42);
+}
+
+#[test]
+fn rom_ram_battery_09_is_persisted() {
+    // #322: a $09 (ROM+RAM+BATTERY) cart must report battery-backed RAM so
+    // the runtime flushes its external RAM to a .sav; $08 (no battery) is
+    // in-memory-only.
+    let with_battery = Cartridge::new(build_rom(2), CartType::RomOnly { battery: true }, 0x2000);
+    assert!(
+        with_battery.has_battery_backed_ram(),
+        "$09 cart should persist its RAM"
+    );
+
+    let no_battery = Cartridge::new(build_rom(2), CartType::RomOnly { battery: false }, 0x2000);
+    assert!(
+        !no_battery.has_battery_backed_ram(),
+        "$08 cart stays in-memory-only"
+    );
 }
 
 // -- MBC1 -------------------------------------------------------------
@@ -345,6 +363,72 @@ fn mbc3_rtc_register_round_trip() {
     cart.write_rom(0x6000, 0);
     cart.write_rom(0x6000, 1);
     assert_eq!(cart.read_ram(0xA000), 30);
+}
+
+/// Build an RTC-bearing MBC3 cart with RAM/RTC enabled and seed the five
+/// live RTC registers.
+fn mbc3_rtc_cart(secs: u8, mins: u8, hours: u8, day_low: u8, day_high_ctrl: u8) -> Cartridge {
+    let mut cart = Cartridge::new(
+        build_rom(2),
+        CartType::Mbc3 {
+            ram: true,
+            battery: true,
+            rtc: true,
+        },
+        0x2000,
+    );
+    cart.write_rom(0x0000, 0x0A); // enable RAM + RTC
+    for (reg, val) in [
+        (0x08, secs),
+        (0x09, mins),
+        (0x0A, hours),
+        (0x0B, day_low),
+        (0x0C, day_high_ctrl),
+    ] {
+        cart.write_rom(0x4000, reg);
+        cart.write_ram(0xA000, val);
+    }
+    cart
+}
+
+/// Latch and read one RTC register from a cart.
+fn read_rtc(cart: &mut Cartridge, reg: u8) -> u8 {
+    cart.write_rom(0x6000, 0);
+    cart.write_rom(0x6000, 1);
+    cart.write_rom(0x4000, reg);
+    cart.read_ram(0xA000)
+}
+
+#[test]
+fn mbc3_rtc_advances_with_carry() {
+    // #321: 23:59:59 on day 0, advance 1 s → 00:00:00 on day 1.
+    let mut cart = mbc3_rtc_cart(59, 59, 23, 0, 0);
+    cart.advance_rtc(1);
+    assert_eq!(read_rtc(&mut cart, 0x08), 0, "seconds");
+    assert_eq!(read_rtc(&mut cart, 0x09), 0, "minutes");
+    assert_eq!(read_rtc(&mut cart, 0x0A), 0, "hours");
+    assert_eq!(read_rtc(&mut cart, 0x0B), 1, "day low");
+}
+
+#[test]
+fn mbc3_rtc_halt_freezes_clock() {
+    // #321: halt bit ($0C bit 6) set → the clock does not advance.
+    let mut cart = mbc3_rtc_cart(0, 0, 0, 0, 0x40);
+    cart.advance_rtc(10_000);
+    assert_eq!(read_rtc(&mut cart, 0x08), 0, "seconds frozen while halted");
+    assert_eq!(read_rtc(&mut cart, 0x0B), 0, "day frozen while halted");
+}
+
+#[test]
+fn mbc3_rtc_day_overflow_sets_carry() {
+    // #321: advancing past day 511 wraps the 9-bit day counter and latches
+    // the sticky day-carry ($0C bit 7).
+    let mut cart = mbc3_rtc_cart(0, 0, 0, 0xFF, 0x01); // day 511, 00:00:00
+    cart.advance_rtc(86_400); // +1 day
+    assert_eq!(read_rtc(&mut cart, 0x0B), 0, "day low wraps to 0");
+    let ctrl = read_rtc(&mut cart, 0x0C);
+    assert_eq!(ctrl & 0x01, 0, "day high bit clears");
+    assert_eq!(ctrl & 0x80, 0x80, "day-carry latched");
 }
 
 #[test]
