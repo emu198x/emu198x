@@ -275,6 +275,27 @@ fn main() {
                 let z = fpsp::floatx80_log2(80, mode, a);
                 (z.high, z.low)
             }
+            38 => {
+                let z = fpsp::floatx80_sin(80, mode, a);
+                (z.high, z.low)
+            }
+            39 => {
+                let z = fpsp::floatx80_cos(80, mode, a);
+                (z.high, z.low)
+            }
+            40 => {
+                let z = fpsp::floatx80_tan(80, mode, a);
+                (z.high, z.low)
+            }
+            // 41/42: FSINCOS — sine output (41) and cosine output (42).
+            41 => {
+                let (s, _c) = fpsp::floatx80_sincos(80, mode, a);
+                (s.high, s.low)
+            }
+            42 => {
+                let (_s, c) = fpsp::floatx80_sincos(80, mode, a);
+                (c.high, c.low)
+            }
             _ => (0, 0),
         };
         let flags = q_byte.unwrap_or_else(|| u64::from(sf::take_exception_flags()));

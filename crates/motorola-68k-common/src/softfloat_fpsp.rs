@@ -20,7 +20,9 @@ use crate::softfloat::{
     self, RoundingMode, exp, flag, float_raise, frac, normalize_floatx80_subnormal, pack,
     propagate_floatx80_nan_one_arg, sign,
 };
-use crate::softfloat_fpsp_tables::{EXP_TBL, EXP_TBL2, EXP2_TBL, EXP2_TBL2, LOG_TBL};
+use crate::softfloat_fpsp_tables::{
+    EXP_TBL, EXP_TBL2, EXP2_TBL, EXP2_TBL2, LOG_TBL, PI_TBL, PI_TBL2,
+};
 
 const ONE_EXP: i32 = 0x3FFF;
 const ONE_SIG: u64 = 0x8000_0000_0000_0000;
@@ -780,5 +782,422 @@ pub fn floatx80_lognp1(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
         let twoz = add(z, z); // 2Z
         let denom = add(x, f32x(0x3F80_0000)); // 2 + Z
         log_cont2(precision, mode, twoz, denom)
+    }
+}
+
+// ─── Trigonometric (sin / cos / sincos) ─────────────────────────────────────
+
+/// `REDUCEX`: reduce a large argument (|X| ≥ 15π) modulo 2π, returning the
+/// integer octant count `n` and the reduced `R`. Mirrors the C `loop`.
+fn reducex(mut fp0: FpReg, compact: i32, a_sign: bool) -> (i32, FpReg) {
+    let mut fp1 = pack(false, 0, 0);
+    if compact == 0x7FFE_FFFF {
+        let twopi1 = pack(!a_sign, 0x7FFE, 0xC90F_DAA2_0000_0000);
+        let twopi2 = pack(!a_sign, 0x7FDC, 0x85A3_08D3_0000_0000);
+        fp0 = add(fp0, twopi1);
+        fp1 = fp0;
+        fp0 = add(fp0, twopi2);
+        fp1 = sub(fp1, fp0);
+        fp1 = add(fp1, twopi2);
+    }
+    loop {
+        let x_sign = sign(fp0);
+        let x_exp = exp(fp0) - 0x3FFF;
+        let (l, endflag) = if x_exp <= 28 {
+            (0, true)
+        } else {
+            (x_exp - 27, false)
+        };
+        let invtwopi = pack(false, 0x3FFE - l, 0xA2F9_836E_4E44_152A);
+        let twopi1 = pack(false, 0x3FFF + l, 0xC90F_DAA2_0000_0000);
+        let twopi2 = pack(false, 0x3FDD + l, 0x85A3_08D3_0000_0000);
+        let twoto63 = 0x5F00_0000u32 | if x_sign { 0x8000_0000 } else { 0 };
+
+        let mut fp2 = mul(fp0, invtwopi);
+        fp2 = add(fp2, f32x(twoto63));
+        fp2 = sub(fp2, f32x(twoto63)); // FP2 is N
+        let fp4n = mul(twopi1, fp2); // W = N*P1
+        let fp5 = mul(twopi2, fp2); // w = N*P2
+        let mut fp3 = add(fp4n, fp5); // P
+        let mut fp4 = sub(fp4n, fp3); // W-P
+        fp0 = sub(fp0, fp3); // A := R - P
+        fp4 = add(fp4, fp5); // p = (W-P)+w
+        fp3 = fp0; // A
+        fp1 = sub(fp1, fp4); // a := r - p
+        fp0 = add(fp0, fp1); // R := A+a
+        if endflag {
+            return (to_i32(fp2), fp0);
+        }
+        fp3 = sub(fp3, fp0); // A-R
+        fp1 = add(fp1, fp3); // r := (A-R)+a
+    }
+}
+
+/// `COSPOLY`: the cosine polynomial branch of the sin/cos kernel.
+fn cospoly(precision: i32, mode: RoundingMode, r: FpReg, n: i32, adjn: i32) -> FpReg {
+    let s = mul(r, r); // S
+    let t = mul(s, s); // T
+    let mut x_sign = sign(s);
+    let x_exp = exp(s);
+    let x_sig = frac(s);
+    let posneg1: u32 = if ((n + adjn) >> 1) & 1 != 0 {
+        x_sign = !x_sign;
+        0xBF80_0000 // -1
+    } else {
+        0x3F80_0000 // 1
+    };
+
+    let mut fp2 = mul(f64x(0x3D2A_C4D0_D601_1EE3), t); // TB8
+    let mut fp3 = mul(f64x(0xBDA9_396F_9F45_AC19), t); // TB7
+    fp2 = add(fp2, f64x(0x3E21_EED9_0612_C972)); // B6+TB8
+    fp3 = add(fp3, f64x(0xBE92_7E4F_B79D_9FCF)); // B5+TB7
+    fp2 = mul(fp2, t); // T(B6+TB8)
+    fp3 = mul(fp3, t); // T(B5+TB7)
+    fp2 = add(fp2, f64x(0x3EFA_01A0_1A01_D423)); // B4+T(B6+TB8)
+    fp3 = add(fp3, pack(true, 0x3FF5, 0xB60B_60B6_0B61_D438)); // B3+T(B5+TB7)
+    fp2 = mul(fp2, t); // T(B4+T(B6+TB8))
+    let mut fp1 = mul(t, fp3); // T(B3+T(B5+TB7))
+    fp2 = add(fp2, pack(false, 0x3FFA, 0xAAAA_AAAA_AAAA_AB5E)); // B2+T(B4+T(B6+TB8))
+    fp1 = add(fp1, f32x(0xBF00_0000)); // B1+T(B3+T(B5+TB7))
+    let mut fp0 = mul(s, fp2); // S(B2+T(B4+T(B6+TB8)))
+    fp0 = add(fp0, fp1);
+
+    let x = pack(x_sign, x_exp, x_sig);
+    fp0 = mul(fp0, x);
+    let res = softfloat::floatx80_add(precision, mode, fp0, f32x(posneg1));
+    float_raise(flag::INEXACT);
+    res
+}
+
+/// `SINPOLY`: the sine polynomial branch of the sin/cos kernel.
+fn sinpoly(precision: i32, mode: RoundingMode, r: FpReg, n: i32, adjn: i32) -> FpReg {
+    let mut x_sign = sign(r);
+    let x_exp = exp(r);
+    let x_sig = frac(r);
+    if ((n + adjn) >> 1) & 1 != 0 {
+        x_sign = !x_sign;
+    }
+
+    let s = mul(r, r); // S
+    let t = mul(s, s); // T
+    let mut fp3 = mul(f64x(0xBD6A_AA77_CCC9_94F5), t); // T*A7
+    let mut fp2 = mul(f64x(0x3DE6_1209_7AAE_8DA1), t); // T*A6
+    fp3 = add(fp3, f64x(0xBE5A_E645_2A11_8AE4)); // A5+T*A7
+    fp2 = add(fp2, f64x(0x3EC7_1DE3_A534_1531)); // A4+T*A6
+    fp3 = mul(fp3, t); // T(A5+TA7)
+    fp2 = mul(fp2, t); // T(A4+TA6)
+    fp3 = add(fp3, f64x(0xBF2A_01A0_1A01_8B59)); // A3+T(A5+TA7)
+    fp2 = add(fp2, pack(false, 0x3FF8, 0x8888_8888_8888_59AF)); // A2+T(A4+TA6)
+    let mut fp1 = mul(t, fp3); // T(A3+T(A5+TA7))
+    fp2 = mul(fp2, s); // S(A2+T(A4+TA6))
+    fp1 = add(fp1, pack(true, 0x3FFC, 0xAAAA_AAAA_AAAA_AA99)); // A1+T(A3+T(A5+TA7))
+    fp1 = add(fp1, fp2);
+
+    let x = pack(x_sign, x_exp, x_sig);
+    let mut fp0 = mul(s, x); // R'*S
+    fp0 = mul(fp0, fp1); // SIN(R')-R'
+    let res = softfloat::floatx80_add(precision, mode, fp0, x);
+    float_raise(flag::INEXACT);
+    res
+}
+
+/// Shared sin/cos kernel: argument-reduce `a` modulo π/2 (table) or 2π
+/// (REDUCEX for large args) and evaluate the sine (`adjn` = 0) or cosine
+/// (`adjn` = 1) polynomial. The NaN / zero special cases are handled by the
+/// public wrappers.
+fn sin_core(precision: i32, mode: RoundingMode, a: FpReg, adjn: i32) -> FpReg {
+    let compact = make_compact(exp(a), frac(a));
+    let (n, r) = if !(0x3FD7_8000..=0x4004_BC7E).contains(&compact) {
+        if compact > 0x3FFF_8000 {
+            reducex(a, compact, sign(a)) // |X| >= 15π
+        } else {
+            // SINSM: |X| < 2^(-40)
+            let res = if adjn != 0 {
+                // COSTINY: 1 - 2^(-126)
+                softfloat::floatx80_sub(precision, mode, f32x(0x3F80_0000), f32x(0x0080_0000))
+            } else {
+                // SINTINY: x
+                softfloat::floatx80_move(precision, mode, a)
+            };
+            float_raise(flag::INEXACT);
+            return res;
+        }
+    } else {
+        // Moderate: reduce modulo π/2 against the table.
+        let fp1 = mul(a, f64x(0x3FE4_5F30_6DC9_C883)); // X*2/PI
+        let n = to_i32(fp1);
+        let j = (32 + n) as usize;
+        let r = sub(sub(a, PI_TBL[j]), f32x(PI_TBL2[j])); // R = (X-Y1)-Y2
+        (n, r)
+    };
+
+    if (n + adjn) & 1 != 0 {
+        cospoly(precision, mode, r, n, adjn)
+    } else {
+        sinpoly(precision, mode, r, n, adjn)
+    }
+}
+
+/// `floatx80_sin` (FSIN): sine.
+#[must_use]
+pub fn floatx80_sin(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        float_raise(flag::INVALID); // sin(±inf) is invalid
+        return default_nan();
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(sign(a), 0, 0); // sin(±0) = ±0
+    }
+    sin_core(precision, mode, a, 0)
+}
+
+/// `floatx80_cos` (FCOS): cosine.
+#[must_use]
+pub fn floatx80_cos(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        float_raise(flag::INVALID); // cos(±inf) is invalid
+        return default_nan();
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(false, ONE_EXP, ONE_SIG); // cos(±0) = 1
+    }
+    sin_core(precision, mode, a, 1)
+}
+
+/// Reduce a moderate argument modulo π/2 against the table, returning the
+/// octant `n` and reduced `R` (shared by sin/cos and tan).
+fn reduce_moderate(a: FpReg) -> (i32, FpReg) {
+    let fp1 = mul(a, f64x(0x3FE4_5F30_6DC9_C883)); // X*2/PI
+    let n = to_i32(fp1);
+    let j = (32 + n) as usize;
+    (n, sub(sub(a, PI_TBL[j]), f32x(PI_TBL2[j]))) // R = (X-Y1)-Y2
+}
+
+/// `tancont`: the tangent rational-approximation tail. `n` (octant) selects
+/// the odd branch (tan = 1/−cot) or the even branch (tan = P/Q).
+fn tancont(precision: i32, mode: RoundingMode, r: FpReg, n: i32) -> FpReg {
+    let q4 = f64x(0x3EA0_B759_F50F_8688);
+    let p3 = f64x(0xBEF2_BAA5_A892_4F04);
+    let q3 = f64x(0xBF34_6F59_B39B_A65F);
+    let p2 = pack(false, 0x3FF6, 0xE073_D3FC_199C_4A00);
+    let q2 = pack(false, 0x3FF9, 0xD23C_D684_15D9_5FA1);
+    let p1 = pack(true, 0x3FFC, 0x8895_A6C5_FB42_3BCA);
+    let q1 = pack(true, 0x3FFD, 0xEEF5_7E0D_A84B_C8CE);
+    let one = f32x(0x3F80_0000);
+
+    let s = mul(r, r); // S = R*R
+    let mut fp3 = mul(q4, s); // SQ4
+    let mut fp2 = mul(p3, s); // SP3
+    fp3 = add(fp3, q3); // Q3+SQ4
+    fp2 = add(fp2, p2); // P2+SP3
+    fp3 = mul(fp3, s); // S(Q3+SQ4)
+    fp2 = mul(fp2, s); // S(P2+SP3)
+    fp3 = add(fp3, q2); // Q2+S(Q3+SQ4)
+    fp2 = add(fp2, p1); // P1+S(P2+SP3)
+    fp3 = mul(fp3, s); // S(Q2+S(Q3+SQ4))
+    fp2 = mul(fp2, s); // S(P1+S(P2+SP3))
+    fp3 = add(fp3, q1); // Q1+S(Q2+S(Q3+SQ4))
+    fp2 = mul(fp2, r); // RS(P1+S(P2+SP3))
+
+    let qpoly = add(mul(s, fp3), one); // 1 + S(Q1+…)
+    let ppoly = add(r, fp2); // R + RS(P1+…)
+
+    let res = if n & 1 != 0 {
+        // NODD: tan = (1+SQ) / −(R+RSP)
+        let den = pack(!sign(ppoly), exp(ppoly), frac(ppoly));
+        softfloat::floatx80_div(precision, mode, qpoly, den)
+    } else {
+        // NEVEN: tan = (R+RSP) / (1+SQ)
+        softfloat::floatx80_div(precision, mode, ppoly, qpoly)
+    };
+    float_raise(flag::INEXACT);
+    res
+}
+
+/// `floatx80_tan` (FTAN): tangent.
+#[must_use]
+pub fn floatx80_tan(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        float_raise(flag::INVALID);
+        return default_nan();
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(sign(a), 0, 0);
+    }
+
+    let compact = make_compact(a_exp, a_sig);
+    let (n, r) = if !(0x3FD7_8000..=0x4004_BC7E).contains(&compact) {
+        if compact > 0x3FFF_8000 {
+            reducex(a, compact, sign(a))
+        } else {
+            // tiny: tan(x) ≈ x
+            let res = softfloat::floatx80_move(precision, mode, a);
+            float_raise(flag::INEXACT);
+            return res;
+        }
+    } else {
+        reduce_moderate(a)
+    };
+    tancont(precision, mode, r, n)
+}
+
+/// `floatx80_sincos` (FSINCOS): returns `(sin, cos)` of `a`, computed with a
+/// single shared argument reduction and interleaved sine/cosine polynomials.
+#[must_use]
+pub fn floatx80_sincos(precision: i32, mode: RoundingMode, a: FpReg) -> (FpReg, FpReg) {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            let n = propagate_floatx80_nan_one_arg(a);
+            return (n, n);
+        }
+        float_raise(flag::INVALID);
+        let n = default_nan();
+        return (n, n);
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return (pack(sign(a), 0, 0), pack(false, ONE_EXP, ONE_SIG)); // (±0, 1)
+    }
+
+    let compact = make_compact(a_exp, a_sig);
+    let (n, r) = if !(0x3FD7_8000..=0x4004_BC7E).contains(&compact) {
+        if compact > 0x3FFF_8000 {
+            reducex(a, compact, sign(a))
+        } else {
+            // SCSM (tiny): cos = 1 - 2^(-126), sin = x
+            let cos =
+                softfloat::floatx80_sub(precision, mode, f32x(0x3F80_0000), f32x(0x0080_0000));
+            let sin = softfloat::floatx80_move(precision, mode, a);
+            float_raise(flag::INEXACT);
+            return (sin, cos);
+        }
+    } else {
+        reduce_moderate(a)
+    };
+
+    let n = n & 3; // k = N mod 4
+    if n & 1 != 0 {
+        // NODD
+        let j1 = n >> 1;
+        let j2 = j1 ^ (n & 1);
+        let mut r_sign = sign(r);
+        let r_exp = exp(r);
+        let r_sig = frac(r);
+        r_sign ^= j2 != 0;
+
+        let s = mul(r, r); // S = R*R
+        let mut fp1 = mul(f64x(0xBD6A_AA77_CCC9_94F5), s); // SA7
+        let mut fp2 = mul(f64x(0x3D2A_C4D0_D601_1EE3), s); // SB8
+        fp1 = add(fp1, f64x(0x3DE6_1209_7AAE_8DA1)); // A6+SA7
+        fp2 = add(fp2, f64x(0xBDA9_396F_9F45_AC19)); // B7+SB8
+        fp1 = mul(fp1, s);
+        fp2 = mul(fp2, s);
+        fp1 = add(fp1, f64x(0xBE5A_E645_2A11_8AE4)); // A5+S(A6+SA7)
+        fp2 = add(fp2, f64x(0x3E21_EED9_0612_C972)); // B6+S(B7+SB8)
+        fp1 = mul(fp1, s);
+        fp2 = mul(fp2, s);
+
+        let mut s_sign = sign(s);
+        let s_exp = exp(s);
+        let s_sig = frac(s);
+        s_sign ^= j1 != 0;
+        let posneg1 = 0x3F80_0000u32 | if j1 != 0 { 0x8000_0000 } else { 0 };
+
+        fp1 = add(fp1, f64x(0x3EC7_1DE3_A534_1531)); // A4+…
+        fp2 = add(fp2, f64x(0xBE92_7E4F_B79D_9FCF)); // B5+…
+        fp1 = mul(fp1, s);
+        fp2 = mul(fp2, s);
+        fp1 = add(fp1, f64x(0xBF2A_01A0_1A01_8B59)); // A3+…
+        fp2 = add(fp2, f64x(0x3EFA_01A0_1A01_D423)); // B4+…
+        fp1 = mul(fp1, s);
+        fp2 = mul(fp2, s);
+        fp1 = add(fp1, pack(false, 0x3FF8, 0x8888_8888_8888_59AF)); // A2+…
+        fp2 = add(fp2, pack(true, 0x3FF5, 0xB60B_60B6_0B61_D438)); // B3+…
+        fp1 = mul(fp1, s);
+        fp2 = mul(fp2, s);
+        fp1 = add(fp1, pack(true, 0x3FFC, 0xAAAA_AAAA_AAAA_AA99)); // A1+…
+        fp2 = add(fp2, pack(false, 0x3FFA, 0xAAAA_AAAA_AAAA_AB5E)); // B2+…
+        fp1 = mul(fp1, s); // S(A1+…)
+        let mut fp0 = mul(s, fp2); // S(B2+…)
+
+        let rr = pack(r_sign, r_exp, r_sig);
+        fp1 = mul(fp1, rr); // R'S(A1+…)
+        fp0 = add(fp0, f32x(0xBF00_0000)); // B1+S(B2…)
+        let ss = pack(s_sign, s_exp, s_sig);
+        fp0 = mul(fp0, ss); // S'(B1+…)
+
+        let cos = softfloat::floatx80_add(precision, mode, fp1, rr);
+        let sin = softfloat::floatx80_add(precision, mode, fp0, f32x(posneg1));
+        float_raise(flag::INEXACT);
+        (sin, cos)
+    } else {
+        // NEVEN
+        let j1 = n >> 1;
+        let mut r_sign = sign(r);
+        let r_exp = exp(r);
+        let r_sig = frac(r);
+        r_sign ^= j1 != 0;
+
+        let s = mul(r, r); // S = R*R
+        let mut fp1 = mul(f64x(0x3D2A_C4D0_D601_1EE3), s); // SB8
+        let mut fp2 = mul(f64x(0xBD6A_AA77_CCC9_94F5), s); // SA7
+
+        let mut s_sign = sign(s);
+        let s_exp = exp(s);
+        let s_sig = frac(s);
+        s_sign ^= j1 != 0;
+        let posneg1 = 0x3F80_0000u32 | if j1 != 0 { 0x8000_0000 } else { 0 };
+
+        fp1 = add(fp1, f64x(0xBDA9_396F_9F45_AC19)); // B7+SB8
+        fp2 = add(fp2, f64x(0x3DE6_1209_7AAE_8DA1)); // A6+SA7
+        fp1 = mul(fp1, s);
+        fp2 = mul(fp2, s);
+        fp1 = add(fp1, f64x(0x3E21_EED9_0612_C972)); // B6+S(B7+SB8)
+        fp2 = add(fp2, f64x(0xBE5A_E645_2A11_8AE4)); // A5+S(A6+SA7)
+        fp1 = mul(fp1, s);
+        fp2 = mul(fp2, s);
+        fp1 = add(fp1, f64x(0xBE92_7E4F_B79D_9FCF)); // B5+…
+        fp2 = add(fp2, f64x(0x3EC7_1DE3_A534_1531)); // A4+…
+        fp1 = mul(fp1, s);
+        fp2 = mul(fp2, s);
+        fp1 = add(fp1, f64x(0x3EFA_01A0_1A01_D423)); // B4+…
+        fp2 = add(fp2, f64x(0xBF2A_01A0_1A01_8B59)); // A3+…
+        fp1 = mul(fp1, s);
+        fp2 = mul(fp2, s);
+        fp1 = add(fp1, pack(true, 0x3FF5, 0xB60B_60B6_0B61_D438)); // B3+…
+        fp2 = add(fp2, pack(false, 0x3FF8, 0x8888_8888_8888_59AF)); // A2+…
+        fp1 = mul(fp1, s);
+        fp2 = mul(fp2, s);
+        fp1 = add(fp1, pack(false, 0x3FFA, 0xAAAA_AAAA_AAAA_AB5E)); // B2+…
+        fp2 = add(fp2, pack(true, 0x3FFC, 0xAAAA_AAAA_AAAA_AA99)); // A1+…
+        fp1 = mul(fp1, s); // S(B2+…)
+        let mut fp0 = mul(s, fp2); // S(A1+…)
+        fp1 = add(fp1, f32x(0xBF00_0000)); // B1+S(B2…)
+
+        let rr = pack(r_sign, r_exp, r_sig);
+        fp0 = mul(fp0, rr); // R'S(A1+…)
+        let ss = pack(s_sign, s_exp, s_sig);
+        fp1 = mul(fp1, ss); // S'(B1+…)
+
+        let cos = softfloat::floatx80_add(precision, mode, fp1, f32x(posneg1));
+        let sin = softfloat::floatx80_add(precision, mode, fp0, rr);
+        float_raise(flag::INEXACT);
+        (sin, cos)
     }
 }

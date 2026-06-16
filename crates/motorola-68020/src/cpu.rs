@@ -833,9 +833,10 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
     // Only these opmodes are backed by the SoftFloat `floatx80` port — the
     // arithmetic/move set (FMOVE/FABS/FNEG/FTST/FADD/FSUB/FMUL/FDIV/FSQRT/FCMP/
     // FINT/FINTRZ/FGETEXP/FGETMAN/FSCALE/FMOD/FREM/FSGLMUL/FSGLDIV) plus the
-    // FPSP exponential transcendentals (FETOXM1 0x08, FETOX 0x10, FTWOTOX 0x11,
-    // FTENTOX 0x12). The remaining transcendentals decline (vector-11 trap)
-    // until their backends land.
+    // FPSP transcendentals: exponentials (FETOXM1 0x08, FETOX 0x10, FTWOTOX
+    // 0x11, FTENTOX 0x12), logarithms (FLOGNP1 0x06, FLOGN 0x14, FLOG10 0x15,
+    // FLOG2 0x16), and trigonometric (FSIN 0x0E, FCOS 0x1D, FTAN 0x0F, and
+    // FSINCOS 0x30-0x37). Any unlisted opmode declines (vector-11 trap).
     if !matches!(
         opmode,
         0x00 | 0x18
@@ -864,6 +865,10 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
             | 0x14
             | 0x15
             | 0x16
+            | 0x0E
+            | 0x1D
+            | 0x0F
+            | 0x30..=0x37
     ) {
         return false;
     }
@@ -983,6 +988,29 @@ fn apply_fp_opmode(
         0x16 => {
             cpu.regs.fp[dst] =
                 motorola_68k_common::softfloat_fpsp::floatx80_log2(precision, mode, source)
+        }
+        // FPSP trigonometric.
+        0x0E => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_sin(precision, mode, source)
+        }
+        0x1D => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_cos(precision, mode, source)
+        }
+        0x0F => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_tan(precision, mode, source)
+        }
+        // FSINCOS (opmode 0110ccc): sine → dst FPn, cosine → FPc (low 3 bits).
+        // Cosine is stored first so that, when FPc == FPn, the sine result
+        // wins (M68000PRM § 6).
+        op if op & 0x78 == 0x30 => {
+            let c_reg = (op & 7) as usize;
+            let (s, c) =
+                motorola_68k_common::softfloat_fpsp::floatx80_sincos(precision, mode, source);
+            cpu.regs.fp[c_reg] = c;
+            cpu.regs.fp[dst] = s;
         }
         // FSCALE: scale dst by 2^(integer part of source), rounded to precision.
         0x26 => {

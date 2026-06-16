@@ -182,6 +182,11 @@ int main(void) {
             case 35: z = floatx80_lognp1(a, &st);  c_hi = z.high; c_lo = z.low; break;
             case 36: z = floatx80_log10(a, &st);   c_hi = z.high; c_lo = z.low; break;
             case 37: z = floatx80_log2(a, &st);    c_hi = z.high; c_lo = z.low; break;
+            case 38: z = floatx80_sin(a, &st);     c_hi = z.high; c_lo = z.low; break;
+            case 39: z = floatx80_cos(a, &st);     c_hi = z.high; c_lo = z.low; break;
+            case 40: z = floatx80_tan(a, &st);     c_hi = z.high; c_lo = z.low; break;
+            case 41: { floatx80 cc; z = floatx80_sincos(a, &cc, &st); c_hi = z.high; c_lo = z.low; break; }
+            case 42: { floatx80 cc; floatx80_sincos(a, &cc, &st); c_hi = cc.high; c_lo = cc.low; break; }
             default: break;
         }
         int bad = (c_hi != r_hi || c_lo != r_lo) || (has_qbyte && c_qbyte != r_flags);

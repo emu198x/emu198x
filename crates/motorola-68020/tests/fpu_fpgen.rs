@@ -1800,3 +1800,50 @@ fn flog2_of_eight_is_three() {
         "log2(8) = 3.0"
     );
 }
+
+// ─── FPSP trigonometric (#492) ────────────────────────────────────────────
+
+#[test]
+fn fsin_fcos_ftan_of_zero() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::{floatx80_cos, floatx80_sin, floatx80_tan};
+    // FSIN (0x0E): sin(0) = 0; FCOS (0x1D): cos(0) = 1; FTAN (0x0F): tan(0) = 0.
+    let r = run(0x0E, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "sin(0) = 0");
+    let r = run(0x1D, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], ONE, "cos(0) = 1");
+    let r = run(0x0F, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "tan(0) = 0");
+    // Dispatch matches the backend on a non-trivial value.
+    let half = FpReg::new(0x3FFE, 0x8000_0000_0000_0000); // 0.5
+    let r = run(0x0E, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_sin(80, NearestEven, half));
+    let r = run(0x1D, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_cos(80, NearestEven, half));
+    let r = run(0x0F, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_tan(80, NearestEven, half));
+}
+
+#[test]
+fn fsincos_writes_both_registers() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_sincos;
+    // FSINCOS (opmode 0110ccc): sine → FP1 (dst), cosine → FP2 (c). Use a
+    // raw extension word: R/M=0, src=0, dst=1, opmode = 0x32 (cos reg 2).
+    let half = FpReg::new(0x3FFE, 0x8000_0000_0000_0000); // 0.5
+    let r = run(0x32, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    let (s, c) = floatx80_sincos(80, NearestEven, half);
+    assert_eq!(r.fp[1], s, "sine → dst FP1");
+    assert_eq!(r.fp[2], c, "cosine → FP2");
+}
+
+#[test]
+fn fsincos_same_register_keeps_sine() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_sincos;
+    // When FPc == FPs (both reg 1: dst=1, opmode 0x31), the sine result wins.
+    let half = FpReg::new(0x3FFE, 0x8000_0000_0000_0000);
+    let r = run(0x31, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    let (s, _c) = floatx80_sincos(80, NearestEven, half);
+    assert_eq!(r.fp[1], s, "FPc == FPs → sine kept");
+}
