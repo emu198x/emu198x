@@ -489,8 +489,17 @@ impl Sweep {
     }
 
     /// Whether the sweep is muting the channel.
+    ///
+    /// The `target > $7FF` overflow-mute only applies when negate is **clear**.
+    /// With negate set the change amount is subtracted, so a real target can
+    /// never exceed the current period — and the one's/two's-complement
+    /// negation can underflow to a large value that must not be read as an
+    /// overflow. Gating the check on `!negate` is what lets the canonical
+    /// "disable the sweep" idiom (write $08 to $4001/$4005: negate set,
+    /// shift 0) keep the channel audible. Matches Mesen2 `SquareChannel::
+    /// IsMuted` (`_realPeriod < 8 || (!_sweepNegate && _target > 0x7FF)`).
     fn muting(&self, current_period: u16) -> bool {
-        current_period < 8 || self.target_period(current_period) > 0x7FF
+        current_period < 8 || (!self.negate && self.target_period(current_period) > 0x7FF)
     }
 
     /// Clock the sweep (called at half-frame rate). Returns new timer period.
@@ -2739,6 +2748,39 @@ mod tests {
         // duty pos starts at 0 with duty=0 → already silent unless we tick
         // the duty cycle around. But sweep muting overrides envelope/duty.
         assert_eq!(apu.pulse1.output(), 0, "muted pulse outputs 0");
+    }
+
+    #[test]
+    fn sweep_negate_disable_idiom_keeps_pulse1_audible() {
+        // Issue #472: the canonical "disable the sweep" write — $08 to $4001
+        // (negate set, shift 0) — must not mute the channel. Before the fix,
+        // pulse 1's one's-complement target wrapped to $FFFF and the >$7FF
+        // overflow-mute silenced a perfectly ordinary G4 tone. Exact repro
+        // from the bug report.
+        let mut apu = Apu::new();
+        apu.write(0x4015, 0x01); // enable pulse 1
+        apu.write(0x4000, 0xB8); // duty 50%, length halt, constant volume 8
+        apu.write(0x4001, 0x08); // sweep: negate set, shift 0 (the disable idiom)
+        apu.write(0x4002, 0x1C); // period low
+        apu.write(0x4003, 0x01); // period high 1 → timer_period 0x11C (~G4)
+
+        // negate is set, so the >$7FF overflow check does not apply and the
+        // in-range period (0x11C) must not be muted.
+        assert!(
+            !apu.pulse1.sweep.muting(apu.pulse1.timer_period),
+            "negate-set sweep must not mute an in-range period"
+        );
+
+        // And the channel must be audible across its duty cycle.
+        let mut peak = 0;
+        for pos in 0..8 {
+            apu.pulse1.duty_pos = pos;
+            peak = peak.max(apu.pulse1.output());
+        }
+        assert!(
+            peak > 0,
+            "pulse 1 should emit a non-zero sample, not silence"
+        );
     }
 
     #[test]
