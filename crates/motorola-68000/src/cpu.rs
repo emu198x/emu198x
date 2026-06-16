@@ -314,6 +314,15 @@ pub const TAG_V_FMOVEM_STEP: u8 = 129;
 /// test the condition, decrement the counter, and branch or fall through.
 pub const TAG_V_FDBCC: u8 = 130;
 
+/// 68881/2 FSAVE: a byte of the internal-state frame has been written;
+/// step to the next byte or finish.
+pub const TAG_V_FSAVE_WRITE: u8 = 131;
+/// 68881/2 FRESTORE: a byte of the internal-state frame has been read.
+/// The first four bytes are the frame id (version + size); once they are
+/// in, dispatch on the frame version (null reset / idle / format error)
+/// and consume any remaining frame bytes.
+pub const TAG_V_FRESTORE_READ: u8 = 132;
+
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum State {
@@ -346,6 +355,12 @@ pub enum AluOp {
     And,
     Or,
     Eor,
+}
+
+/// Default for the FSAVE/FRESTORE frame buffer (arrays longer than 32 do
+/// not implement `Default`, which `#[serde(skip)]` would otherwise need).
+fn default_fp_frame() -> [u8; 60] {
+    [0; 60]
 }
 
 /// Bit manipulation operation type.
@@ -726,6 +741,20 @@ pub struct Cpu68000 {
     /// pointers the other flags carry).
     pub variant_fpu_present: bool,
 
+    /// FPU coprocessor model: `false` = MC68881, `true` = MC68882. The two
+    /// share the same `fpu_version` ($1F) and behave identically for the
+    /// arithmetic core; only the FSAVE/FRESTORE internal-state frame size
+    /// differs (68881 = 28 bytes, 68882 = 60 bytes). Machine configuration —
+    /// not `#[serde(skip)]`. Default `false` (68881).
+    pub variant_fpu_is_68882: bool,
+
+    /// FPU internal state, as reported by FSAVE / consumed by FRESTORE:
+    /// `0` = null (reset — the power-on / post-`fpu_null` state), `1` = idle
+    /// (any 68881/2 FP instruction has executed since reset). Mirrors WinUAE
+    /// `regs.fpu_state`. Machine state that must survive save/load, so not
+    /// `#[serde(skip)]`. Default `0` (null).
+    pub variant_fpu_state: u8,
+
     /// Step counter for the 11-step Format `$A` push sequence.
     /// Consulted by `TAG_AE_FMT_A_STEP`.
     #[serde(skip)]
@@ -893,6 +922,42 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub fp_movem_areg: u8,
 
+    // ─── 68881/2 FSAVE / FRESTORE internal-state frame (mid-instruction) ───
+    /// The internal-state frame being streamed byte-at-a-time. Large enough
+    /// for the 68882's 60-byte idle frame; only the first four bytes (the
+    /// frame id) are inspected on FRESTORE.
+    #[serde(skip, default = "default_fp_frame")]
+    pub fp_frame: [u8; 60],
+    /// Total bytes the frame spans (4 for a null frame, 28 for a 68881 idle
+    /// frame, 60 for a 68882 idle frame). On FRESTORE this starts at 4 (the
+    /// frame id) and is revised once the frame version is known.
+    #[serde(skip)]
+    pub fp_frame_total: u8,
+    /// Bytes already streamed (read or written).
+    #[serde(skip)]
+    pub fp_frame_done: u8,
+    /// Base address the frame stream started from, used to write back the
+    /// postincrement pointer on FRESTORE.
+    #[serde(skip)]
+    pub fp_frame_an: u32,
+    /// The An register a FRESTORE postincrement pointer is written back to.
+    #[serde(skip)]
+    pub fp_frame_areg: u8,
+    /// FRESTORE used `(An)+` — write the consumed-byte count back to An at
+    /// the end (only on the non-fault path).
+    #[serde(skip)]
+    pub fp_frame_postinc: bool,
+    /// Set while an FSAVE/FRESTORE frame is using the core's EA-resolution
+    /// machinery (`calc_ea_start`) for the control addressing modes. Lets the
+    /// 68020 continue hook recognise the shared `TAG_FETCH_SRC_DATA` tag as
+    /// the frame stream and start it from the resolved `addr`.
+    #[serde(skip)]
+    pub fp_frame_pending: bool,
+    /// Frame-stream direction for the `calc_ea_start` path: `true` = FSAVE
+    /// (write the frame from `fp_frame`), `false` = FRESTORE (read into it).
+    #[serde(skip)]
+    pub fp_frame_store: bool,
+
     /// Variant continuation hook: gives a wrapping variant a chance
     /// to dispatch follow-up tags that the 68000 doesn't know about.
     ///
@@ -997,6 +1062,8 @@ impl Cpu68000 {
             variant_um_ea_calc_timing: false,
             variant_long_branch: false,
             variant_fpu_present: false,
+            variant_fpu_is_68882: false,
+            variant_fpu_state: 0,
             variant_ext_word: 0,
             ae_fmt_a_step: 0,
             ae_frame_pc: 0,
@@ -1029,6 +1096,14 @@ impl Cpu68000 {
             fp_movem_cur: 0,
             fp_movem_an: 0,
             fp_movem_areg: 0,
+            fp_frame: [0; 60],
+            fp_frame_total: 0,
+            fp_frame_done: 0,
+            fp_frame_an: 0,
+            fp_frame_areg: 0,
+            fp_frame_postinc: false,
+            fp_frame_pending: false,
+            fp_frame_store: false,
             variant_continue_hook: None,
             variant_pending_disp: 0,
         }

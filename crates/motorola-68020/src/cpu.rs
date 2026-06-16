@@ -122,6 +122,14 @@ impl Cpu68020 {
         self.inner.variant_fpu_present = present;
     }
 
+    /// Select the FPU coprocessor model: `false` = MC68881 (the default),
+    /// `true` = MC68882. The two are arithmetically identical; the choice
+    /// only affects the FSAVE/FRESTORE internal-state frame size (68881 =
+    /// 28 bytes, 68882 = 60 bytes). A machine wires whichever part it fits.
+    pub fn set_fpu_68882(&mut self, is_68882: bool) {
+        self.inner.variant_fpu_is_68882 = is_68882;
+    }
+
     /// Borrow the wrapped 68010 core.
     #[must_use]
     pub const fn as_inner(&self) -> &Cpu68010 {
@@ -724,7 +732,8 @@ fn decode_fpu_fline(cpu: &mut Cpu68000, opcode: u16) -> bool {
     if cp_id != 1 || !cpu.variant_fpu_present {
         return false;
     }
-    match (opcode >> 6) & 7 {
+    let op_class = (opcode >> 6) & 7;
+    let claimed = match op_class {
         // cpGEN: the arithmetic/move class (FMOVE/FABS/FNEG/FTST/… + the
         // arithmetic ops). The reg-to-reg non-arithmetic subset is wired;
         // arithmetic and memory operands decline for now.
@@ -737,10 +746,21 @@ fn decode_fpu_fline(cpu: &mut Cpu68000, opcode: u16) -> bool {
         // cpScc (1): set a byte on the FP condition (FScc; FDBcc/FTRAPcc
         // share this class but are handled / declined inside).
         1 => execute_fscc(cpu, opcode),
-        // cpSAVE (4), cpRESTORE (5) are not wired yet — decline so they
-        // take the vector-11 trap until implemented.
+        // cpSAVE (4): FSAVE — store the FPU's internal state to memory.
+        4 => begin_fsave(cpu, opcode),
+        // cpRESTORE (5) is not wired yet — decline so it takes the
+        // vector-11 trap until FRESTORE lands.
         _ => false,
+    };
+
+    // Any executed 68881/2 FP instruction (op-classes 0-3) takes the FPU
+    // out of the null (reset) state into the idle state — WinUAE
+    // `maybe_idle_state`. FSAVE (4) reports the state without changing it;
+    // FRESTORE (5) sets the state itself from the restored frame.
+    if claimed && matches!(op_class, 0..=3) {
+        cpu.variant_fpu_state = 1;
     }
+    claimed
 }
 
 /// cpGEN (cpID-1 op-class 0): the FPU general instruction. The extension
@@ -1415,6 +1435,139 @@ fn handle_fmovem_step(cpu: &mut Cpu68000) {
         cpu.addr = cpu.fp_movem_an;
         cpu.fp_movem_an = cpu.fp_movem_an.wrapping_add(12);
         start_fp_read(cpu);
+    }
+}
+
+// ─── FSAVE / FRESTORE (cpID-1 op-classes 4/5) ──────────────────────────
+//
+// FSAVE/FRESTORE move only the FPU's *internal* state to / from a memory
+// frame — the FP data registers, FPCR/FPSR/FPIAR are saved separately by
+// FMOVEM. For our synchronous core (no mid-instruction exception or busy
+// state) the frame is purely formal: the frame id, then for an idle frame
+// a fixed run of zeroed control/operand longwords plus the BIU flags. Two
+// models are supported (WinUAE `fpuop_save` / `fpuop_restore`, 6888x
+// branch): the MC68881 (28-byte idle frame) and the MC68882 (60-byte idle
+// frame). Both report `fpu_version` $1F; only the frame size differs.
+
+/// Build the FSAVE internal-state frame into `cpu.fp_frame`, returning the
+/// total byte count. A null frame (FPU never used since reset) is just the
+/// 4-byte frame id with a zero version byte; an idle frame carries the
+/// version byte plus zeroed condition/operand fields and the BIU flags.
+fn build_fsave_frame(cpu: &mut Cpu68000) -> u8 {
+    // Frame size byte (size − 4): $18 (68881) / $38 (68882).
+    let size_byte: u32 = if cpu.variant_fpu_is_68882 { 0x38 } else { 0x18 };
+    let mut lw: [u32; 15] = [0; 15];
+    let total: u8;
+
+    if cpu.variant_fpu_state == 0 {
+        // Null frame: version byte 0, only the 4-byte frame id is written.
+        lw[0] = size_byte << 16;
+        total = 4;
+    } else {
+        // Idle frame: version $1F. The BIU flags base is $540EFFFF; with no
+        // pending exception (our core never has one) bit 27 is set, giving
+        // $5C0EFFFF. The command/condition register, the three exceptional-
+        // operand longwords, the operand register, and (68882 only) the 8
+        // unused internal longwords are all zero for us.
+        lw[0] = (0x1F << 24) | (size_byte << 16);
+        if cpu.variant_fpu_is_68882 {
+            // 15 longwords: id, ccr, 8×unused, eo0, eo1, eo2, operand, biu.
+            lw[14] = 0x5C0E_FFFF;
+            total = 60;
+        } else {
+            // 7 longwords: id, ccr, eo0, eo1, eo2, operand, biu.
+            lw[6] = 0x5C0E_FFFF;
+            total = 28;
+        }
+    }
+
+    // Pack the longwords big-endian into the byte frame.
+    for (i, word) in lw.iter().enumerate() {
+        let base = i * 4;
+        cpu.fp_frame[base] = (word >> 24) as u8;
+        cpu.fp_frame[base + 1] = (word >> 16) as u8;
+        cpu.fp_frame[base + 2] = (word >> 8) as u8;
+        cpu.fp_frame[base + 3] = *word as u8;
+    }
+    total
+}
+
+/// FSAVE (cpID-1 op-class 4): write the FPU's internal-state frame to the
+/// effective address. The destination is control-alterable or `-(An)`
+/// (predecrement) — never postincrement, register-direct, PC-relative, or
+/// immediate. FSAVE does not change the FPU state it reports.
+///
+/// Decline checks run before any state mutation.
+fn begin_fsave(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let ea_mode = ((opcode >> 3) & 7) as u8;
+    let ea_reg = (opcode & 7) as u8;
+
+    // Control-alterable: (An), d16(An), (d8,An,Xn), abs.W, abs.L. Plus the
+    // predecrement -(An). Postincrement, Dn/An-direct, PC-relative, and
+    // immediate are not valid FSAVE destinations.
+    let predec = ea_mode == 4;
+    let direct = ea_mode == 2;
+    let static_mode = matches!(ea_mode, 5 | 6) || (ea_mode == 7 && matches!(ea_reg, 0 | 1));
+    if !predec && !direct && !static_mode {
+        return false;
+    }
+
+    // Committed: build the frame and stream it out. FSAVE has no FP
+    // extension word, so `irc` already holds the first EA extension word
+    // (or the next opcode for the register-indirect modes) — leave it.
+    let total = build_fsave_frame(cpu);
+    cpu.fp_frame_total = total;
+    cpu.fp_frame_done = 0;
+    cpu.in_followup = true;
+
+    if static_mode {
+        // Resolve the destination via the core EA machinery, then start the
+        // write at TAG_FETCH_SRC_DATA (fp_frame_pending + store).
+        cpu.fp_frame_pending = true;
+        cpu.fp_frame_store = true;
+        cpu.size = motorola_68000::alu::Size::Long;
+        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+        cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+        cpu.micro_ops.push(MicroOp::Execute);
+        return true;
+    }
+
+    let ea_reg = ea_reg as usize;
+    let base = if predec {
+        // Predecrement by the whole frame, write back the new pointer.
+        let a = cpu.regs.a(ea_reg).wrapping_sub(u32::from(total));
+        cpu.regs.set_a(ea_reg, a);
+        a
+    } else {
+        cpu.regs.a(ea_reg)
+    };
+    cpu.addr = base;
+    start_fsave_write(cpu);
+    true
+}
+
+/// Kick off the byte-at-a-time FSAVE frame write. `fp_frame`,
+/// `fp_frame_total`, and the base address (`addr`) must already be set.
+fn start_fsave_write(cpu: &mut Cpu68000) {
+    cpu.fp_frame_done = 0;
+    cpu.data = u32::from(cpu.fp_frame[0]);
+    cpu.followup_tag = TAG_V_FSAVE_WRITE;
+    cpu.micro_ops.push(MicroOp::WriteByte);
+    cpu.micro_ops.push(MicroOp::Execute);
+}
+
+/// `TAG_V_FSAVE_WRITE`: a frame byte has been written. Advance to the next
+/// byte (big-endian, ascending address) or finish the instruction.
+fn handle_fsave_write(cpu: &mut Cpu68000) {
+    cpu.fp_frame_done += 1;
+    if cpu.fp_frame_done < cpu.fp_frame_total {
+        cpu.addr = cpu.addr.wrapping_add(1);
+        cpu.data = u32::from(cpu.fp_frame[cpu.fp_frame_done as usize]);
+        cpu.micro_ops.push(MicroOp::WriteByte);
+        cpu.micro_ops.push(MicroOp::Execute);
+    } else {
+        cpu.in_followup = false;
+        cpu.followup_tag = 0;
     }
 }
 
@@ -2319,7 +2472,7 @@ use motorola_68000::cpu::{
     TAG_V_CAS2_COMPUTE, TAG_V_CAS2_GATHER, TAG_V_CAS2_READ2, TAG_V_CAS2_WRITE_DONE,
     TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_FBCC_L, TAG_V_FDBCC,
     TAG_V_FMOVEM_STEP, TAG_V_FP_IMM_READ, TAG_V_FP_MEM_EXEC, TAG_V_FP_MEM_READ, TAG_V_FP_MEM_WRITE,
-    TAG_V_MULDIV_MEM_EXEC,
+    TAG_V_FSAVE_WRITE, TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
@@ -2491,6 +2644,10 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
             handle_fdbcc(cpu);
             true
         }
+        TAG_V_FSAVE_WRITE => {
+            handle_fsave_write(cpu);
+            true
+        }
         // An FPU memory operand using a static addressing mode: the core's
         // EA machinery has resolved the address into `addr`. Take over and
         // read/write the operand bytes ourselves (the core's data fetch
@@ -2503,6 +2660,14 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
             } else {
                 start_fp_read(cpu);
             }
+            true
+        }
+        // FSAVE with a control addressing mode: the core's EA machinery has
+        // resolved the frame address into `addr`. Start the frame write.
+        TAG_FETCH_SRC_DATA if cpu.fp_frame_pending => {
+            cpu.fp_frame_pending = false;
+            cpu.fp_frame_store = false;
+            start_fsave_write(cpu);
             true
         }
         // Memory-source MUL.L / DIV.L: the core's EA pipeline has
