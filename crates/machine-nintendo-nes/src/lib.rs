@@ -204,9 +204,17 @@ impl Nes {
         let mut cpu = M6502::new_2a03();
         cpu.reset();
 
+        // Power-on: the PPU ignores PPUCTRL/MASK/SCROLL/ADDR writes for the
+        // first ~frame until it reaches the pre-render line (nesdev power-up
+        // state). Games wait for two VBLANKs before touching these, so the
+        // lockout is invisible to correct code and silently drops the writes
+        // of code that does not wait.
+        let mut ppu = Ppu::new();
+        ppu.arm_reset_write_lockout();
+
         Self {
             cpu,
-            ppu: Ppu::new(),
+            ppu,
             apu: Apu::new(),
             mapper,
             ram: [0; 2048],
@@ -246,6 +254,9 @@ impl Nes {
     pub fn soft_reset(&mut self) {
         self.cpu.reset();
         self.apu.soft_reset();
+        // Reset re-arms the PPU register write-lockout (Mesen arms it on both
+        // power-on and soft reset); the rest of the PPU keeps its state.
+        self.ppu.arm_reset_write_lockout();
         // DMA / DMC state is dropped on reset.
         self.sprite_dma_active = false;
         self.sprite_dma_counter = 0;
@@ -1151,9 +1162,11 @@ mod tests {
     #[test]
     fn ppu_nmi_routes_to_cpu() {
         let mut nes = nop_nes();
-        // Enable NMI in the PPU by writing $2000 bit 7.
-        // First, run through the reset bootstrap (7 CPU cycles = 21 dots).
-        for _ in 0..21 {
+        // Tick past the first frame so the post-reset PPU write-lockout
+        // (nesdev power-up state, #27) releases — a real game waits for two
+        // VBLANKs before enabling NMI for exactly this reason. This also
+        // carries the CPU past its 7-cycle reset bootstrap.
+        for _ in 0..90_000 {
             nes.tick();
         }
 

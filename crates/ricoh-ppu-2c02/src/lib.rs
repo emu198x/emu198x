@@ -207,6 +207,23 @@ pub struct Ppu {
     /// `knowledge/decisions/nes-cpu-cycle-multi-phase.md`.
     #[serde(default)]
     ppu_clock: u64,
+    /// Post-reset register write-lockout (nesdev "PPU power up state").
+    /// For roughly the first frame after a power-on or reset, the PPU
+    /// ignores writes to PPUCTRL/PPUMASK/PPUSCROLL/PPUADDR
+    /// (`$2000/$2001/$2005/$2006`); OAMADDR/OAMDATA/PPUDATA and all reads
+    /// work immediately. Released when the first pre-render scanline is
+    /// reached — Mesen `_allowFullPpuAccess`. A bare [`new`](Ppu::new) PPU
+    /// starts unlocked (so register-logic unit tests need no warm-up); the
+    /// machine arms the lockout on power-on / reset via
+    /// [`arm_reset_write_lockout`](Ppu::arm_reset_write_lockout).
+    #[serde(default = "default_true")]
+    allow_full_ppu_access: bool,
+}
+
+/// serde default for [`Ppu::allow_full_ppu_access`] — an unlocked PPU, so
+/// snapshots predating this field deserialize without re-arming the lockout.
+fn default_true() -> bool {
+    true
 }
 
 /// One PPU dot in internal master clock units. Mesen's NES uses
@@ -307,7 +324,16 @@ impl Ppu {
             prev_a12: false,
             pending_nmi_output: None,
             ppu_clock: 0,
+            allow_full_ppu_access: true,
         }
+    }
+
+    /// Arm the post-reset PPU register write-lockout. The machine calls this
+    /// on power-on and on (soft) reset; the PPU then ignores writes to
+    /// PPUCTRL/PPUMASK/PPUSCROLL/PPUADDR until it reaches the next pre-render
+    /// scanline (~1 frame). See [`allow_full_ppu_access`](Ppu::allow_full_ppu_access).
+    pub fn arm_reset_write_lockout(&mut self) {
+        self.allow_full_ppu_access = false;
     }
 
     // ════════════════════════════════════════════════════════════
@@ -395,6 +421,13 @@ impl Ppu {
         if self.dot > 340 {
             self.dot = 0;
             self.scanline += 1;
+            if self.scanline == self.pre_render_line {
+                // Entering the pre-render line ends the ~1-frame post-reset
+                // write-lockout (Mesen sets `_allowFullPpuAccess` here). The
+                // reset-initial pre-render pass is *placed* on this line
+                // rather than advanced into it, so it is correctly excluded.
+                self.allow_full_ppu_access = true;
+            }
             if self.scanline > self.pre_render_line {
                 self.scanline = 0;
                 self.frame_odd = !self.frame_odd;
@@ -1068,7 +1101,16 @@ impl Ppu {
         // register (per nesdev `ppu_open_bus` table — every cell
         // in the write row is `-`).
         self.refresh_open_bus(0xFF, val);
-        match reg & 0x07 {
+        let reg = reg & 0x07;
+        // Post-reset lockout: PPUCTRL/PPUMASK/PPUSCROLL/PPUADDR writes are
+        // dropped for ~1 frame after power-on/reset (the open-bus refresh
+        // above still happens — the write reaches the bus, just not the
+        // register). The PPUSCROLL/PPUADDR write toggle does not advance
+        // either, matching Mesen's early return before `_writeToggle`.
+        if !self.allow_full_ppu_access && matches!(reg, 0 | 1 | 5 | 6) {
+            return;
+        }
+        match reg {
             // $2000 - PPUCTRL
             0 => {
                 self.ctrl = val;
@@ -1847,6 +1889,45 @@ mod tests {
 
         ppu.cpu_write(0x2000, 0x80, &mut mapper);
         assert!(ppu.nmi, "NMI should be asserted on the $2000 write");
+    }
+
+    #[test]
+    fn reset_write_lockout_ignores_ctrl_mask_scroll_addr() {
+        // Issue #27: for ~1 frame after reset the PPU ignores writes to
+        // PPUCTRL/PPUMASK/PPUSCROLL/PPUADDR; OAMADDR and reads still work.
+        let mut mapper = dummy_mapper();
+        let mut ppu = Ppu::new();
+        ppu.arm_reset_write_lockout();
+
+        // While locked, these four are dropped — including the $2005/$2006
+        // write toggle, which must not advance.
+        ppu.cpu_write(0x2000, 0x80, &mut mapper);
+        ppu.cpu_write(0x2001, 0x1E, &mut mapper);
+        ppu.cpu_write(0x2005, 0x48, &mut mapper);
+        ppu.cpu_write(0x2006, 0x21, &mut mapper);
+        assert_eq!(ppu.ctrl, 0, "PPUCTRL write ignored during lockout");
+        assert_eq!(ppu.mask, 0, "PPUMASK write ignored during lockout");
+        assert_eq!(ppu.t, 0, "PPUSCROLL/PPUADDR write ignored during lockout");
+        assert!(!ppu.w, "write toggle must not advance during lockout");
+
+        // OAMADDR is not locked out.
+        ppu.cpu_write(0x2003, 0x42, &mut mapper);
+        assert_eq!(ppu.oam_addr, 0x42, "OAMADDR works during lockout");
+
+        // Tick until the pre-render line is reached (≈1 frame); the lockout
+        // then releases.
+        let mut guard = 0;
+        while !ppu.allow_full_ppu_access {
+            ppu.tick(&mut mapper);
+            guard += 1;
+            assert!(guard < 100_000, "lockout should release within a frame");
+        }
+
+        // Writes now take effect.
+        ppu.cpu_write(0x2000, 0x80, &mut mapper);
+        ppu.cpu_write(0x2001, 0x1E, &mut mapper);
+        assert_eq!(ppu.ctrl, 0x80, "PPUCTRL write applied after lockout");
+        assert_eq!(ppu.mask, 0x1E, "PPUMASK write applied after lockout");
     }
 
     // ─── Cov-5c wave 2: directed tests ─────────────────────────────
