@@ -17,9 +17,10 @@
 
 use crate::registers::FpReg;
 use crate::softfloat::{
-    self, RoundingMode, exp, flag, float_raise, frac, pack, propagate_floatx80_nan_one_arg, sign,
+    self, RoundingMode, exp, flag, float_raise, frac, normalize_floatx80_subnormal, pack,
+    propagate_floatx80_nan_one_arg, sign,
 };
-use crate::softfloat_fpsp_tables::{EXP_TBL, EXP_TBL2, EXP2_TBL, EXP2_TBL2};
+use crate::softfloat_fpsp_tables::{EXP_TBL, EXP_TBL2, EXP2_TBL, EXP2_TBL2, LOG_TBL};
 
 const ONE_EXP: i32 = 0x3FFF;
 const ONE_SIG: u64 = 0x8000_0000_0000_0000;
@@ -504,4 +505,280 @@ pub fn floatx80_tentox(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
     fp0 = mul(fp0, pack(false, 0x4000, 0x935D_8DDD_AAA8_AC17)); // R = (…) * LOG10
 
     exp2_poly_scale(precision, mode, fp0, fact1, fact2, adjfact)
+}
+
+// ─── Logarithms ─────────────────────────────────────────────────────────────
+
+/// The 68881/2 default (created) NaN — sign clear, max exponent, all-ones
+/// significand (WinUAE `floatx80_default_nan`).
+#[inline]
+fn default_nan() -> FpReg {
+    FpReg::new(0x7FFF, 0xFFFF_FFFF_FFFF_FFFF)
+}
+
+/// −∞ (WinUAE `packFloatx80(1, 0x7FFF, floatx80_default_infinity_low)` — the
+/// 68881/2 infinity has a zero significand / clear integer bit).
+#[inline]
+fn neg_inf() -> FpReg {
+    pack(true, 0x7FFF, 0)
+}
+
+/// Shared `LP1CONT1` body of `logn` / `lognp1`: given `ymf` = Y−F, the
+/// reduced fraction, `k_float` = the scale K as a float, and the table index
+/// `j`, evaluate the log polynomial and add K·log2. Final op at the caller's
+/// precision/mode.
+fn log_cont1(precision: i32, mode: RoundingMode, ymf: FpReg, k_float: FpReg, j: usize) -> FpReg {
+    let mut fp0 = mul(ymf, LOG_TBL[j]); // U = (Y-F)/F
+    let logof2 = pack(false, 0x3FFE, 0xB172_17F7_D1CF_79AC);
+    let klog2 = mul(k_float, logof2); // K*LOG2
+    let fp2v = mul(fp0, fp0); // V = U*U
+    let fp3 = fp2v;
+
+    let mut fp1 = mul(fp2v, f64x(0x3FC2_499A_B5E4_040B)); // V*A6
+    let mut fp2 = mul(fp2v, f64x(0xBFC5_55B5_848C_B7DB)); // V*A5
+    fp1 = add(fp1, f64x(0x3FC9_9999_987D_8730)); // A4 + V*A6
+    fp2 = add(fp2, f64x(0xBFCF_FFFF_FF6F_7E97)); // A3 + V*A5
+    fp1 = mul(fp1, fp3); // V*(A4+V*A6)
+    fp2 = mul(fp2, fp3); // V*(A3+V*A5)
+    fp1 = add(fp1, f64x(0x3FD5_5555_5555_55A4)); // A2 + V*(A4+V*A6)
+    fp2 = add(fp2, f64x(0xBFE0_0000_0000_0008)); // A1 + V*(A3+V*A5)
+    fp1 = mul(fp1, fp3); // V*(A2+V*(A4+V*A6))
+    fp2 = mul(fp2, fp3); // V*(A1+V*(A3+V*A5))
+    fp1 = mul(fp1, fp0); // U*V*(A2+V*(A4+V*A6))
+    fp0 = add(fp0, fp2); // U + V*(A1+V*(A3+V*A5))
+
+    fp1 = add(fp1, LOG_TBL[j + 1]); // LOG(F) + U*V*(A2+V*(A4+V*A6))
+    fp0 = add(fp0, fp1); // LOG(F) + LOG(1+U)
+
+    let r = softfloat::floatx80_add(precision, mode, fp0, klog2);
+    float_raise(flag::INEXACT);
+    r
+}
+
+/// Shared `LP1CONT2` body: `two_num` = 2·(X−1) (or 2Z), `denom` = X+1 (or
+/// 1+X). Computes U = two_num/denom and the odd-polynomial log. Final op at
+/// the caller's precision/mode.
+fn log_cont2(precision: i32, mode: RoundingMode, two_num: FpReg, denom: FpReg) -> FpReg {
+    let saveu = div(two_num, denom); // U
+    let mut fp0 = mul(saveu, saveu); // V = U*U
+    let mut fp1 = mul(fp0, fp0); // W = V*V
+
+    let mut fp3 = mul(f64x(0x3F17_5496_ADD7_DAD6), fp1); // W*B5
+    let mut fp2 = mul(f64x(0x3F3C_71C2_FE80_C7E0), fp1); // W*B4
+    fp3 = add(fp3, f64x(0x3F62_4924_928B_CCFF)); // B3 + W*B5
+    fp2 = add(fp2, f64x(0x3F89_9999_9999_95EC)); // B2 + W*B4
+    fp1 = mul(fp1, fp3); // W*(B3+W*B5)
+    fp2 = mul(fp2, fp0); // V*(B2+W*B4)
+    fp1 = add(fp1, f64x(0x3FB5_5555_5555_5555)); // B1 + W*(B3+W*B5)
+
+    fp0 = mul(fp0, saveu); // U*V
+    fp1 = add(fp1, fp2); // [B1+W*(B3+W*B5)] + [V*(B2+W*B4)]
+    fp0 = mul(fp0, fp1);
+
+    let r = softfloat::floatx80_add(precision, mode, fp0, saveu);
+    float_raise(flag::INEXACT);
+    r
+}
+
+/// `floatx80_logn` (FLOGN): natural logarithm.
+#[must_use]
+pub fn floatx80_logn(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let mut a_sig = frac(a);
+    let mut a_exp = exp(a);
+    let a_sign = sign(a);
+
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        if !a_sign {
+            return a;
+        }
+    }
+
+    let mut a = a;
+    let mut adjk = 0;
+    if a_exp == 0 {
+        if a_sig == 0 {
+            float_raise(flag::DIVBYZERO);
+            return neg_inf();
+        }
+        if a_sig & ONE_SIG == 0 {
+            // denormal: normalize and bias the eventual K by -100
+            let (e, s) = normalize_floatx80_subnormal(a_sig);
+            a_exp = e + 100;
+            a_sig = s;
+            adjk = -100;
+            a = pack(a_sign, a_exp, a_sig);
+        }
+    }
+    if a_sign {
+        float_raise(flag::INVALID);
+        return default_nan();
+    }
+
+    let compact = make_compact(a_exp, a_sig);
+    if !(0x3FFE_F07D..=0x3FFF_8841).contains(&compact) {
+        // |X-1| >= 1/16: argument reduction against the 1/F table
+        let k = (a_exp - 0x3FFF) + adjk;
+        let fsig = (a_sig & 0xFE00_0000_0000_0000) | 0x0100_0000_0000_0000;
+        let j = ((fsig >> 56) & 0x7E) as usize;
+        let f = pack(false, 0x3FFF, fsig); // F
+        let y = pack(false, 0x3FFF, a_sig); // Y
+        let ymf = sub(y, f); // Y - F
+        log_cont1(precision, mode, ymf, i32x(k), j)
+    } else {
+        // |X-1| < 1/16: the odd-polynomial path
+        let fp1 = sub(a, f32x(0x3F80_0000)); // X-1
+        let fp0 = add(a, f32x(0x3F80_0000)); // X+1
+        let fp1 = add(fp1, fp1); // 2(X-1)
+        log_cont2(precision, mode, fp1, fp0)
+    }
+}
+
+/// `floatx80_log10` (FLOG10): base-10 logarithm.
+#[must_use]
+pub fn floatx80_log10(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        if !a_sign {
+            return a;
+        }
+    }
+    if a_exp == 0 && a_sig == 0 {
+        float_raise(flag::DIVBYZERO);
+        return neg_inf();
+    }
+    if a_sign {
+        float_raise(flag::INVALID);
+        return default_nan();
+    }
+
+    let fp0 = floatx80_logn(80, RN, a);
+    let inv_l10 = pack(false, 0x3FFD, 0xDE5B_D8A9_3728_7195);
+    let r = softfloat::floatx80_mul(precision, mode, fp0, inv_l10); // LOGN(X)*INV_L10
+    float_raise(flag::INEXACT);
+    r
+}
+
+/// `floatx80_log2` (FLOG2): base-2 logarithm.
+#[must_use]
+pub fn floatx80_log2(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let mut a_sig = frac(a);
+    let mut a_exp = exp(a);
+    let a_sign = sign(a);
+
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        if !a_sign {
+            return a;
+        }
+    }
+    if a_exp == 0 {
+        if a_sig == 0 {
+            float_raise(flag::DIVBYZERO);
+            return neg_inf();
+        }
+        let (e, s) = normalize_floatx80_subnormal(a_sig);
+        a_exp = e;
+        a_sig = s;
+    }
+    if a_sign {
+        float_raise(flag::INVALID);
+        return default_nan();
+    }
+
+    let r = if a_sig == ONE_SIG {
+        // X is exactly 2^k
+        i32x(a_exp - 0x3FFF)
+    } else {
+        let fp0 = floatx80_logn(80, RN, a);
+        let inv_l2 = pack(false, 0x3FFF, 0xB8AA_3B29_5C17_F0BC);
+        softfloat::floatx80_mul(precision, mode, fp0, inv_l2) // LOGN(X)*INV_L2
+    };
+    float_raise(flag::INEXACT);
+    r
+}
+
+/// `floatx80_lognp1` (FLOGNP1): natural logarithm of 1 + x.
+#[must_use]
+pub fn floatx80_lognp1(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        if a_sign {
+            float_raise(flag::INVALID);
+            return default_nan();
+        }
+        return a;
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(a_sign, 0, 0); // ln(1±0) = ±0
+    }
+    if a_sign && a_exp >= ONE_EXP {
+        // x <= -1
+        if a_exp == ONE_EXP && a_sig == ONE_SIG {
+            float_raise(flag::DIVBYZERO); // ln(1 + -1) = ln(0) = -inf
+            return pack(a_sign, 0x7FFF, 0);
+        }
+        float_raise(flag::INVALID); // ln of a negative
+        return default_nan();
+    }
+    if a_exp < 0x3F99 || (a_exp == 0x3F99 && a_sig == ONE_SIG) {
+        // |x| below the threshold: ln(1+x) ≈ x
+        float_raise(flag::INEXACT);
+        return softfloat::floatx80_move(precision, mode, a);
+    }
+
+    // X = 1 + Z
+    let z = a;
+    let x = add(a, f32x(0x3F80_0000));
+    let x_exp = exp(x);
+    let x_sig = frac(x);
+    let compact = make_compact(x_exp, x_sig);
+
+    if !(0x3FFE_8000..=0x3FFF_C000).contains(&compact) {
+        // |X| < 1/2 or |X| > 3/2
+        let k = x_exp - 0x3FFF;
+        let fsig = (x_sig & 0xFE00_0000_0000_0000) | 0x0100_0000_0000_0000;
+        let j = ((fsig >> 56) & 0x7E) as usize;
+        let f = pack(false, 0x3FFF, fsig);
+        let y = pack(false, 0x3FFF, x_sig);
+        let ymf = sub(y, f);
+        log_cont1(precision, mode, ymf, i32x(k), j)
+    } else if !(0x3FFE_F07D..=0x3FFF_8841).contains(&compact) {
+        // LP1CARE: |X-1| in [1/16, …] but |X| near 1
+        let fsig = (x_sig & 0xFE00_0000_0000_0000) | 0x0100_0000_0000_0000;
+        let f = pack(false, 0x3FFF, fsig);
+        let j = ((fsig >> 56) & 0x7E) as usize;
+        let (ymf, k_float) = if compact >= 0x3FFF_8000 {
+            // KISZERO: 1+Z >= 1
+            let fp0 = sub(f32x(0x3F80_0000), f); // 1 - F
+            (add(fp0, z), pack(false, 0, 0)) // (1-F)+Z, K=0
+        } else {
+            // KISNEG: 1+Z < 1
+            let fp0 = sub(f32x(0x4000_0000), f); // 2 - F
+            let twoz = add(z, z); // 2Z
+            (add(fp0, twoz), pack(true, ONE_EXP, ONE_SIG)) // (2-F)+2Z, K=-1
+        };
+        log_cont1(precision, mode, ymf, k_float, j)
+    } else {
+        // LP1ONE16: |X-1| < 1/16
+        let twoz = add(z, z); // 2Z
+        let denom = add(x, f32x(0x3F80_0000)); // 2 + Z
+        log_cont2(precision, mode, twoz, denom)
+    }
 }

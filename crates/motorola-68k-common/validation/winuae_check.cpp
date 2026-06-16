@@ -178,6 +178,10 @@ int main(void) {
             case 31: z = floatx80_etoxm1(a, &st);  c_hi = z.high; c_lo = z.low; break;
             case 32: z = floatx80_twotox(a, &st);  c_hi = z.high; c_lo = z.low; break;
             case 33: z = floatx80_tentox(a, &st);  c_hi = z.high; c_lo = z.low; break;
+            case 34: z = floatx80_logn(a, &st);    c_hi = z.high; c_lo = z.low; break;
+            case 35: z = floatx80_lognp1(a, &st);  c_hi = z.high; c_lo = z.low; break;
+            case 36: z = floatx80_log10(a, &st);   c_hi = z.high; c_lo = z.low; break;
+            case 37: z = floatx80_log2(a, &st);    c_hi = z.high; c_lo = z.low; break;
             default: break;
         }
         int bad = (c_hi != r_hi || c_lo != r_lo) || (has_qbyte && c_qbyte != r_flags);

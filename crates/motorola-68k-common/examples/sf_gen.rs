@@ -259,6 +259,22 @@ fn main() {
                 let z = fpsp::floatx80_tentox(80, mode, a);
                 (z.high, z.low)
             }
+            34 => {
+                let z = fpsp::floatx80_logn(80, mode, a);
+                (z.high, z.low)
+            }
+            35 => {
+                let z = fpsp::floatx80_lognp1(80, mode, a);
+                (z.high, z.low)
+            }
+            36 => {
+                let z = fpsp::floatx80_log10(80, mode, a);
+                (z.high, z.low)
+            }
+            37 => {
+                let z = fpsp::floatx80_log2(80, mode, a);
+                (z.high, z.low)
+            }
             _ => (0, 0),
         };
         let flags = q_byte.unwrap_or_else(|| u64::from(sf::take_exception_flags()));

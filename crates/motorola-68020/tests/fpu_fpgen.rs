@@ -1749,3 +1749,54 @@ fn ftentox_of_known_values() {
     let r = run(0x12, 0, 1, |cpu| cpu.regs.fp[0] = two);
     assert_eq!(r.fp[1], floatx80_tentox(80, NearestEven, two));
 }
+
+// ─── FPSP logarithms (#492) ───────────────────────────────────────────────
+
+#[test]
+fn flogn_of_one_is_zero() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_logn;
+    // FLOGN (opmode 0x14): ln(1) = 0.
+    let r = run(0x14, 0, 1, |cpu| cpu.regs.fp[0] = ONE);
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "ln(1) = 0");
+    let e = FpReg::new(0x4000, 0xADF8_5458_A2BB_4A9A); // ~2.71828
+    let r = run(0x14, 0, 1, |cpu| cpu.regs.fp[0] = e);
+    assert_eq!(
+        r.fp[1],
+        floatx80_logn(80, NearestEven, e),
+        "FLOGN → floatx80_logn"
+    );
+}
+
+#[test]
+fn flognp1_of_zero_is_zero() {
+    use motorola_68k_common::softfloat_fpsp::floatx80_lognp1;
+    let _ = floatx80_lognp1; // referenced for the doc link
+    // FLOGNP1 (opmode 0x06): ln(1+0) = 0.
+    let r = run(0x06, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "ln(1+0) = 0");
+}
+
+#[test]
+fn flog10_of_hundred_is_two() {
+    // FLOG10 (opmode 0x15): log10(100) = 2.0.
+    let hundred = FpReg::new(0x4005, 0xC800_0000_0000_0000);
+    let r = run(0x15, 0, 1, |cpu| cpu.regs.fp[0] = hundred);
+    assert_eq!(
+        r.fp[1],
+        FpReg::new(0x4000, 0x8000_0000_0000_0000),
+        "log10(100) = 2.0"
+    );
+}
+
+#[test]
+fn flog2_of_eight_is_three() {
+    // FLOG2 (opmode 0x16): log2(8) = 3.0 (the exact 2^k path).
+    let eight = FpReg::new(0x4002, 0x8000_0000_0000_0000);
+    let r = run(0x16, 0, 1, |cpu| cpu.regs.fp[0] = eight);
+    assert_eq!(
+        r.fp[1],
+        FpReg::new(0x4000, 0xC000_0000_0000_0000),
+        "log2(8) = 3.0"
+    );
+}

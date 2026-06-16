@@ -57,7 +57,8 @@ asserted=(0:add 1:sub 2:mul 3:div 4:sqrt 5:to_int32 6:to_f32 7:to_f64 \
           8:int32_to 9:f32_to 10:f64_to 11:sglmul 12:sgldiv 13:rem 14:mod \
           15:add@s 16:add@d 17:move@s 18:move@d 19:abs@s \
           20:getexp 21:getman 22:scale 23:packst 24:packld \
-          30:etox 31:etoxm1 32:twotox 33:tentox)
+          30:etox 31:etoxm1 32:twotox 33:tentox \
+          34:logn 35:lognp1 36:log10 37:log2)
 status=0
 for entry in "${asserted[@]}"; do
   op="${entry%%:*}"; name="${entry##*:}"

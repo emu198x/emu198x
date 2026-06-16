@@ -860,6 +860,10 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
             | 0x10
             | 0x11
             | 0x12
+            | 0x06
+            | 0x14
+            | 0x15
+            | 0x16
     ) {
         return false;
     }
@@ -962,6 +966,23 @@ fn apply_fp_opmode(
         0x12 => {
             cpu.regs.fp[dst] =
                 motorola_68k_common::softfloat_fpsp::floatx80_tentox(precision, mode, source)
+        }
+        // FPSP logarithms.
+        0x14 => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_logn(precision, mode, source)
+        }
+        0x06 => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_lognp1(precision, mode, source)
+        }
+        0x15 => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_log10(precision, mode, source)
+        }
+        0x16 => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_log2(precision, mode, source)
         }
         // FSCALE: scale dst by 2^(integer part of source), rounded to precision.
         0x26 => {
