@@ -79,8 +79,9 @@ impl CartType {
 }
 
 /// Active MBC state. Each variant holds its own bank / enable /
-/// mode registers.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// mode registers. No `PartialEq`/`Eq`: the MBC3 RTC carries a wall-clock
+/// anchor (see [`Mbc3`]) for which structural equality is meaningless.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Mbc {
     None,
     Mbc1(Mbc1),
@@ -223,6 +224,26 @@ impl Cartridge {
     #[must_use]
     pub fn has_rtc(&self) -> bool {
         matches!(self.cart_type, CartType::Mbc3 { rtc: true, .. })
+    }
+
+    /// The cartridge's RTC `.sav` footer (live + latched registers + a
+    /// last-save timestamp), or `None` when there is no RTC. Appended after the
+    /// external RAM in the `.sav` sidecar.
+    pub fn rtc_save_footer(&mut self) -> Option<Vec<u8>> {
+        if let Mbc::Mbc3(m) = &mut self.mbc {
+            if m.has_rtc {
+                return Some(m.save_footer().to_vec());
+            }
+        }
+        None
+    }
+
+    /// Restore the RTC from a `.sav` footer and advance it by the real time
+    /// since the save was written. No-op without an RTC.
+    pub fn load_rtc_save_footer(&mut self, footer: &[u8]) {
+        if let Mbc::Mbc3(m) = &mut self.mbc {
+            m.load_footer(footer);
+        }
     }
 
     fn ram_linear_read(&self, addr: u16) -> u8 {

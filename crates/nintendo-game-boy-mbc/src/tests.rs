@@ -432,6 +432,45 @@ fn mbc3_rtc_day_overflow_sets_carry() {
 }
 
 #[test]
+fn mbc3_rtc_footer_round_trips() {
+    // #321: the .sav RTC footer carries the clock across a restart. Saving
+    // then immediately reloading (≈0 s elapsed) preserves the registers.
+    let mut cart = mbc3_rtc_cart(12, 34, 5, 200, 0x01); // 05:34:12, day 456
+    let footer = cart.rtc_save_footer().expect("RTC cart has a footer");
+
+    let mut restored = Cartridge::new(
+        build_rom(2),
+        CartType::Mbc3 {
+            ram: true,
+            battery: true,
+            rtc: true,
+        },
+        0x2000,
+    );
+    restored.write_rom(0x0000, 0x0A); // enable RAM/RTC
+    restored.load_rtc_save_footer(&footer);
+    assert_eq!(read_rtc(&mut restored, 0x08), 12, "seconds survive");
+    assert_eq!(read_rtc(&mut restored, 0x09), 34, "minutes survive");
+    assert_eq!(read_rtc(&mut restored, 0x0A), 5, "hours survive");
+    assert_eq!(read_rtc(&mut restored, 0x0B), 200, "day low survives");
+}
+
+#[test]
+fn mbc3_rtc_footer_ignored_without_rtc() {
+    // A non-RTC cart produces no footer and ignores one.
+    let mut cart = Cartridge::new(
+        build_rom(2),
+        CartType::Mbc1 {
+            ram: true,
+            battery: true,
+        },
+        0x2000,
+    );
+    assert!(cart.rtc_save_footer().is_none());
+    cart.load_rtc_save_footer(&[0u8; 48]); // no panic, no effect
+}
+
+#[test]
 fn mbc3_without_rtc_ignores_rtc_bank_selects() {
     let mut cart = Cartridge::new(
         build_rom(2),
