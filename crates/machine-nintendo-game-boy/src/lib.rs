@@ -159,6 +159,31 @@ pub struct GameBoy {
     oam_dma_pending_source_high: u8,
     #[serde(default)]
     oam_dma_pending_start_delay: u8,
+    /// The last byte the OAM DMA transferred — the value the CPU reads from a
+    /// bus-conflicting address while the DMA is running.
+    #[serde(default = "default_oam_dma_reg")]
+    oam_dma_last_byte: u8,
+}
+
+/// Which of the DMG's two memory buses an address sits on. OAM DMA blocks
+/// CPU access only to the bus it is currently reading from; the other bus,
+/// HRAM and the IO/IE registers stay accessible.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MemBus {
+    /// ROM, cartridge RAM, WRAM (+ echo).
+    External,
+    /// VRAM.
+    Video,
+    /// OAM, IO, HRAM, IE — never conflicts with OAM DMA.
+    None,
+}
+
+const fn mem_bus(addr: u16) -> MemBus {
+    match addr {
+        0x0000..=0x7FFF | 0xA000..=0xFDFF => MemBus::External,
+        0x8000..=0x9FFF => MemBus::Video,
+        _ => MemBus::None,
+    }
 }
 
 const fn default_oam_dma_reg() -> u8 {
@@ -214,6 +239,7 @@ impl GameBoy {
             oam_dma_start_delay: 0,
             oam_dma_pending_source_high: 0xFF,
             oam_dma_pending_start_delay: 0,
+            oam_dma_last_byte: 0xFF,
         }
     }
 
@@ -500,6 +526,7 @@ impl GameBoy {
                 let source = (u16::from(self.oam_dma_source_high) << 8) | offset;
                 let value = self.oam_dma_source_read(source);
                 self.oam[usize::from(self.oam_dma_index)] = value;
+                self.oam_dma_last_byte = value;
                 self.oam_dma_index = self.oam_dma_index.saturating_add(1);
             }
         }
@@ -518,6 +545,23 @@ impl GameBoy {
 
     fn oam_dma_active(&self) -> bool {
         self.oam_dma_start_delay == 0 && self.oam_dma_index < OAM_SIZE as u8
+    }
+
+    /// While an OAM DMA runs the CPU cannot use the bus the DMA is reading
+    /// from: a conflicting access returns the byte currently in flight. The
+    /// other bus, HRAM and the IO/IE registers stay accessible. Returns the
+    /// in-flight byte when `addr` conflicts, else `None`. Models SameBoy's
+    /// bus-aware `should_use_dma_conflict` (not a blanket non-HRAM block).
+    fn oam_dma_conflict(&self, addr: u16) -> Option<u8> {
+        if !self.oam_dma_active() {
+            return None;
+        }
+        let cpu_bus = mem_bus(addr);
+        if cpu_bus == MemBus::None {
+            return None; // HRAM / IO / IE / OAM — never on a DMA bus
+        }
+        let source = (u16::from(self.oam_dma_source_high) << 8) | u16::from(self.oam_dma_index);
+        (cpu_bus == mem_bus(source)).then_some(self.oam_dma_last_byte)
     }
 
     fn oam_dma_source_read(&self, addr: u16) -> u8 {
@@ -552,10 +596,21 @@ impl MemoryBus for GameBoy {
         // have side effects on real hardware (e.g. wave-RAM access
         // during CH3 playback). We delegate to a private read that
         // handles the cases that are pure plus the few that aren't.
+        //
+        // A CPU read of the bus an in-progress OAM DMA is using returns the
+        // in-flight DMA byte instead. The DMA's own source reads go through
+        // `bus_read` directly, so they are never gated here.
+        if let Some(byte) = self.oam_dma_conflict(addr) {
+            return byte;
+        }
         self.bus_read(addr)
     }
 
     fn write(&mut self, addr: u16, value: u8) {
+        // Writes to the OAM DMA's bus are dropped while it runs.
+        if self.oam_dma_conflict(addr).is_some() {
+            return;
+        }
         self.bus_write(addr, value);
     }
 }

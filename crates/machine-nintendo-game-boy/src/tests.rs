@@ -1452,3 +1452,42 @@ fn mealybug_dmg_ppu_ledger() {
         "mealybug DMG tests now pixel-perfect — add to PASSING: {newly_passing:?}"
     );
 }
+
+#[test]
+fn oam_dma_bus_conflict_is_bus_aware() {
+    // #318: while an OAM DMA runs the CPU can only access the bus the DMA is
+    // *not* using; a conflicting access returns the in-flight DMA byte. HRAM
+    // stays accessible on either bus.
+    use common_nintendo_game_boy::MemoryBus;
+    let mut gb = boot_machine(nop_rom());
+    gb.wram[0x100] = 0x11; // $C100 — external bus
+    gb.vram[0x000] = 0x22; // $8000 — video bus
+    gb.hram[0x00] = 0x33; // $FF80 — always accessible
+
+    // Simulate a DMA from WRAM (external bus), mid-transfer.
+    gb.oam_dma_source_high = 0xC0;
+    gb.oam_dma_index = 0x10;
+    gb.oam_dma_start_delay = 0;
+    gb.oam_dma_last_byte = 0xAB;
+    assert!(gb.oam_dma_active());
+
+    // External-bus reads conflict → in-flight byte; ROM ($0000) is external too.
+    assert_eq!(MemoryBus::read(&mut gb, 0xC100), 0xAB, "WRAM conflicts");
+    assert_eq!(MemoryBus::read(&mut gb, 0x0000), 0xAB, "ROM conflicts");
+    // Video bus does not conflict → real VRAM; HRAM always works.
+    assert_eq!(MemoryBus::read(&mut gb, 0x8000), 0x22, "VRAM free");
+    assert_eq!(MemoryBus::read(&mut gb, 0xFF80), 0x33, "HRAM free");
+    // A conflicting write is dropped.
+    MemoryBus::write(&mut gb, 0xC100, 0x99);
+    assert_eq!(gb.wram[0x100], 0x11, "conflicting write dropped");
+
+    // DMA from VRAM (video bus): now VRAM conflicts and the external bus is free.
+    gb.oam_dma_source_high = 0x80;
+    assert_eq!(MemoryBus::read(&mut gb, 0x8000), 0xAB, "VRAM conflicts");
+    assert_eq!(MemoryBus::read(&mut gb, 0xC100), 0x11, "WRAM free");
+
+    // DMA finished → no conflict anywhere.
+    gb.oam_dma_index = OAM_SIZE as u8;
+    assert!(!gb.oam_dma_active());
+    assert_eq!(MemoryBus::read(&mut gb, 0x8000), 0x22, "no DMA, real VRAM");
+}

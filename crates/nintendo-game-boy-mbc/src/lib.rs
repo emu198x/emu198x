@@ -230,10 +230,10 @@ impl Cartridge {
     /// last-save timestamp), or `None` when there is no RTC. Appended after the
     /// external RAM in the `.sav` sidecar.
     pub fn rtc_save_footer(&mut self) -> Option<Vec<u8>> {
-        if let Mbc::Mbc3(m) = &mut self.mbc {
-            if m.has_rtc {
-                return Some(m.save_footer().to_vec());
-            }
+        if let Mbc::Mbc3(m) = &mut self.mbc
+            && m.has_rtc
+        {
+            return Some(m.save_footer().to_vec());
         }
         None
     }
