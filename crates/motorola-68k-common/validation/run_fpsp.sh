@@ -27,7 +27,13 @@ build="$(mktemp -d)"
 trap 'rm -rf "$build"' EXIT
 mkdir -p "$build/softfloat"
 cp "$sf/softfloat.cpp" "$sf/softfloat.h" "$sf/softfloat-specialize.h" \
-   "$sf/SOFTFLOAT-MACROS.H" "$build/softfloat/"
+   "$sf/SOFTFLOAT-MACROS.H" "$sf/softfloat_decimal.cpp" "$build/softfloat/"
+
+# softfloat_decimal.cpp pulls in WinUAE's sysconfig.h / sysdeps.h purely for the
+# (compiled-out) decimal_log tracing. Drop those includes so it builds against
+# the standalone softfloat sources.
+gsed -i '/^#include "sysconfig.h"/d; /^#include "sysdeps.h"/d' \
+  "$build/softfloat/softfloat_decimal.cpp"
 
 # softfloat.h forward-declares float_raise(), but softfloat-specialize.h then
 # defines it `static inline` — a linkage clash in C++. Drop the forward decl
@@ -38,7 +44,8 @@ gsed -i 's/^void float_raise(uint8_t flags, float_status \*status);/\/* float_ra
 # Case-insensitive macOS resolves "softfloat-macros.h" -> SOFTFLOAT-MACROS.H
 # but warns; silence just that portability warning.
 c++ -O2 -std=c++17 -Wno-nonportable-include-path -I"$build" \
-  "$here/winuae_check.cpp" "$build/softfloat/softfloat.cpp" -o "$build/winuae_check"
+  "$here/winuae_check.cpp" "$build/softfloat/softfloat.cpp" \
+  "$build/softfloat/softfloat_decimal.cpp" -o "$build/winuae_check"
 
 # Asserted (bit-exact against WinUAE): all non-transcendental ops — arithmetic,
 # conversions, FSGLMUL/FSGLDIV, FGETEXP/FGETMAN/FSCALE, and FREM/FMOD (value +
@@ -47,7 +54,7 @@ c++ -O2 -std=c++17 -Wno-nonportable-include-path -I"$build" \
 asserted=(0:add 1:sub 2:mul 3:div 4:sqrt 5:to_int32 6:to_f32 7:to_f64 \
           8:int32_to 9:f32_to 10:f64_to 11:sglmul 12:sgldiv 13:rem 14:mod \
           15:add@s 16:add@d 17:move@s 18:move@d 19:abs@s \
-          20:getexp 21:getman 22:scale)
+          20:getexp 21:getman 22:scale 23:packst 24:packld)
 status=0
 for entry in "${asserted[@]}"; do
   op="${entry%%:*}"; name="${entry##*:}"

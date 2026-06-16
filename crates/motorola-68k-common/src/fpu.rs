@@ -345,8 +345,9 @@ pub fn set_condition_codes(regs: &mut Registers, value: FpReg) {
 /// SoftFloat flags raised by an operation plus whether a signalling NaN was
 /// an input. SoftFloat collapses signalling-NaN and operational invalids into
 /// the one `invalid` flag; the 68881/2 splits them — SNAN when a signalling
-/// NaN was an operand, OPERR otherwise. BSUN (FBcc/FScc unordered) and INEX1
-/// (packed-decimal input) are not produced by arithmetic and stay clear.
+/// NaN was an operand, OPERR otherwise. INEX1 is raised by the packed-decimal
+/// conversions (`float_flag_decimal`); BSUN (FBcc/FScc unordered) is set
+/// separately and stays clear here.
 #[must_use]
 pub const fn exc_byte_from_softfloat(flags: u8, signaling_input: bool) -> u8 {
     use crate::softfloat::flag;
@@ -357,13 +358,15 @@ pub const fn exc_byte_from_softfloat(flags: u8, signaling_input: bool) -> u8 {
     let unfl = flags & flag::UNDERFLOW != 0;
     let dz = flags & flag::DIVBYZERO != 0;
     let inex2 = flags & flag::INEXACT != 0;
-    // EXC byte: SNAN=6 OPERR=5 OVFL=4 UNFL=3 DZ=2 INEX2=1.
+    let inex1 = flags & flag::DECIMAL != 0;
+    // EXC byte: SNAN=6 OPERR=5 OVFL=4 UNFL=3 DZ=2 INEX2=1 INEX1=0.
     ((snan as u8) << 6)
         | ((operr as u8) << 5)
         | ((ovfl as u8) << 4)
         | ((unfl as u8) << 3)
         | ((dz as u8) << 2)
         | ((inex2 as u8) << 1)
+        | (inex1 as u8)
 }
 
 /// Fold the exceptions raised by the just-completed SoftFloat operation(s)

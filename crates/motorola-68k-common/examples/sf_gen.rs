@@ -55,6 +55,42 @@ fn mode_of(m: u64) -> RoundingMode {
     RoundingMode::from_fpcr_bits((m & 3) as u8)
 }
 
+/// Random 96-bit packed-decimal operand (three big-endian longwords), with a
+/// realistic digit mix plus occasional ±0 / ±∞ / NaN encodings so the
+/// special-case paths of `pack_decimal_to_floatx80` are exercised.
+fn rand_bcd(r: &mut Lcg) -> (u32, u32, u32) {
+    let sign = (r.next() & 1) as u32;
+    let class = r.next() % 100;
+    if class < 6 {
+        // ±0 (zero significand — exponent ignored).
+        return (sign << 31, 0, 0);
+    }
+    if class < 12 {
+        // ±∞ (exponent field 0x7FFF, zero packed fraction).
+        return ((sign << 31) | 0x7FFF_0000, 0, 0);
+    }
+    if class < 18 {
+        // NaN (exponent field 0x7FFF, non-zero fraction; copied bit for bit).
+        let hi = (r.next() & 0xFFFF) as u32;
+        return (
+            (sign << 31) | 0x7FFF_0000 | hi,
+            r.next() as u32,
+            r.next() as u32 | 1,
+        );
+    }
+    // Finite: random 3-digit exponent + sign, 1 integer + 16 fraction digits.
+    let exp_sign = (r.next() & 1) as u32;
+    let d = |r: &mut Lcg| (r.next() % 10) as u32; // one decimal digit
+    let pack_exp = (d(r) << 8) | (d(r) << 4) | d(r);
+    let pack_int = d(r);
+    let mut pack_frac: u64 = 0;
+    for i in 0..16 {
+        pack_frac |= u64::from(d(r)) << ((15 - i) * 4);
+    }
+    let wrd0 = (sign << 31) | (exp_sign << 30) | (pack_exp << 16) | pack_int;
+    (wrd0, (pack_frac >> 32) as u32, pack_frac as u32)
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let op: u32 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -62,6 +98,38 @@ fn main() {
     let mut r = Lcg(0x1234_5678_9ABC_DEF1 ^ ((op as u64) << 40));
     let mut out = String::with_capacity(1 << 20);
     for _ in 0..n {
+        // 23/24: packed-decimal FMOVE.P — bit-exact vs WinUAE's
+        // softfloat_decimal. These repurpose the columns: op 23 (store,
+        // floatx80 → 96-bit BCD) takes the value in `a` and the k-factor in
+        // `bl`, and emits wrd1:wrd2 in `rl` and wrd0 in the flags column; op 24
+        // (load, BCD → floatx80) takes the 96-bit BCD as wrd0 in `ah` and
+        // wrd1:wrd2 in `al`, and emits the floatx80 result in `rh:rl`.
+        if op == 23 {
+            let (ah, al) = rand_fx80(&mut r);
+            let m = r.next() % 4;
+            let mode = mode_of(m);
+            let kf = (r.next() % 128) as i32 - 64; // decoded k-factor, −64..63
+            sf::clear_exception_flags();
+            let wrd = sf::floatx80_to_pack_decimal(FpReg::new(ah, al), kf, mode);
+            let rl = (u64::from(wrd[1]) << 32) | u64::from(wrd[2]);
+            let bl = kf as i64 as u64;
+            out.push_str(&format!(
+                "{ah:x} {al:x} 0 {bl:x} {m:x} {op:x} 0 {rl:x} {w0:x}\n",
+                w0 = wrd[0]
+            ));
+            continue;
+        }
+        if op == 24 {
+            let (w0, w1, w2) = rand_bcd(&mut r);
+            let m = r.next() % 4;
+            let mode = mode_of(m);
+            let al = (u64::from(w1) << 32) | u64::from(w2);
+            sf::clear_exception_flags();
+            let z = sf::pack_decimal_to_floatx80([w0, w1, w2], mode);
+            let (rh, rl) = (z.high, z.low);
+            out.push_str(&format!("{w0:x} {al:x} 0 0 {m:x} {op:x} {rh:x} {rl:x} 0\n"));
+            continue;
+        }
         let (ah, al) = rand_fx80(&mut r);
         let (bh, bl) = rand_fx80(&mut r);
         let m = r.next() % 4;

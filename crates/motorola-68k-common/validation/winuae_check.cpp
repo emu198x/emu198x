@@ -18,6 +18,80 @@
 #include <cstdio>
 #include "softfloat/softfloat.h"
 
+/* WinUAE's packed-decimal BCD shuffle (fpp_softfloat.cpp fp_to_pack /
+ * fp_from_pack), reproduced standalone so the full 96-bit BCD ↔ floatx80 chain
+ * is validated, not just the softfloat_decimal core. */
+static floatx80 pack_to_fx80(uint32_t w0, uint32_t w1, uint32_t w2, float_status *st) {
+    floatx80 f;
+    if (((w0 >> 16) & 0x7fff) == 0x7fff) {       // inf / nan: copy bit for bit
+        f.high = (uint16_t)(w0 >> 16);
+        f.low = ((uint64_t)w1 << 32) | w2;
+        return f;
+    }
+    if (!(w0 & 0xf) && !w1 && !w2) {             // zero significand: keep sign
+        f.high = (uint16_t)((w0 & 0x80000000) >> 16);
+        f.low = 0;
+        return f;
+    }
+    uint32_t pack_exp = (w0 >> 16) & 0xFFF;
+    uint32_t pack_int = w0 & 0xF;
+    uint64_t pack_frac = ((uint64_t)w1 << 32) | w2;
+    uint32_t pack_se = (w0 >> 30) & 1;
+    uint32_t pack_sm = (w0 >> 31) & 1;
+    int32_t exp = 0;
+    for (int i = 0; i < 3; i++) { exp *= 10; exp += (pack_exp >> (8 - i * 4)) & 0xF; }
+    if (pack_se) exp = -exp;
+    exp -= 16;
+    if (exp < 0) { exp = -exp; pack_se = 1; }
+    int64_t mant = pack_int;
+    for (int i = 0; i < 16; i++) { mant *= 10; mant += (pack_frac >> (60 - i * 4)) & 0xF; }
+    f.high = exp & 0x3FFF;
+    f.high |= pack_se ? 0x4000 : 0;
+    f.high |= pack_sm ? 0x8000 : 0;
+    f.low = mant;
+    return floatdecimal_to_floatx80(f, st);
+}
+
+static void fx80_to_pack(floatx80 fx, int kfactor, uint32_t *wrd, float_status *st) {
+    floatx80 f = floatx80_to_floatdecimal(fx, &kfactor, st);
+    if ((f.high & 0x7FFF) == 0x7FFF) {
+        wrd[0] = (uint32_t)(f.high << 16);
+        wrd[1] = (uint32_t)(f.low >> 32);
+        wrd[2] = (uint32_t)f.low;
+        return;
+    }
+    uint32_t exponent = f.high & 0x3FFF;
+    uint64_t significand = f.low;
+    uint32_t pack_int = 0;
+    uint64_t pack_frac = 0;
+    int32_t len = kfactor; // SoftFloat returned the digit count in kfactor
+    while (len > 0) {
+        len--;
+        uint64_t digit = significand % 10;
+        significand /= 10;
+        if (len == 0) pack_int = (uint32_t)digit;
+        else pack_frac |= digit << (64 - len * 4);
+    }
+    uint32_t pack_exp = 0, pack_exp4 = 0;
+    len = 4;
+    while (len > 0) {
+        len--;
+        uint64_t digit = exponent % 10;
+        exponent /= 10;
+        if (len == 0) pack_exp4 = (uint32_t)digit;
+        else pack_exp |= digit << (12 - len * 4);
+    }
+    uint32_t pack_se = f.high & 0x4000;
+    uint32_t pack_sm = f.high & 0x8000;
+    wrd[0] = pack_exp << 16;
+    wrd[0] |= pack_exp4 << 12;
+    wrd[0] |= pack_int;
+    wrd[0] |= pack_se ? 0x40000000 : 0;
+    wrd[0] |= pack_sm ? 0x80000000 : 0;
+    wrd[1] = (uint32_t)(pack_frac >> 32);
+    wrd[2] = (uint32_t)(pack_frac & 0xffffffff);
+}
+
 int main(void) {
     unsigned int ah, bh, mode, op;
     unsigned long long al, bl, r_lo, r_flags;
@@ -83,6 +157,20 @@ int main(void) {
                 c_hi = z.high; c_lo = z.low;
                 c_qbyte = (q & 0x7F) | ((unsigned long long)(s ? 1 : 0) << 7);
                 has_qbyte = 1;
+                break;
+            }
+            case 23: { // FMOVE.P store: floatx80 -> 96-bit BCD; k-factor in bl
+                uint32_t wrd[3];
+                fx80_to_pack(a, (int32_t)bl, wrd, &st);
+                c_hi = 0;
+                c_lo = ((unsigned long long)wrd[1] << 32) | wrd[2];
+                c_qbyte = wrd[0];
+                has_qbyte = 1;
+                break;
+            }
+            case 24: { // FMOVE.P load: 96-bit BCD -> floatx80; wrd0=ah, wrd1:wrd2=al
+                z = pack_to_fx80(ah, (uint32_t)(al >> 32), (uint32_t)al, &st);
+                c_hi = z.high; c_lo = z.low;
                 break;
             }
             default: break;

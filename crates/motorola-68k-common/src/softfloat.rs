@@ -86,6 +86,10 @@ pub mod flag {
     pub const UNDERFLOW: u8 = 0x10;
     /// Inexact result (`float_flag_inexact`).
     pub const INEXACT: u8 = 0x20;
+    /// Inexact decimal conversion (`float_flag_decimal`) — raised by the
+    /// packed-decimal ↔ `floatx80` conversions when the decimal value cannot
+    /// be represented exactly. Maps to the 68881/2 FPSR INEX1 bit.
+    pub const DECIMAL: u8 = 0x80;
 }
 
 thread_local! {
@@ -2217,6 +2221,592 @@ pub fn fmovecr(mode: RoundingMode, offset: u8) -> FpReg {
     }
 }
 
+// --- Packed-decimal real conversion (softfloat_decimal.cpp) ---
+//
+// A faithful port of WinUAE's `softfloat_decimal.cpp` (Andreas Grabher /
+// Previous lineage), the silicon-validated 68881/2 packed-decimal converter.
+// These routines move between a `floatx80` and an *intermediate decimal*
+// representation — a `floatx80` whose 64-bit significand holds the decimal
+// significand as a plain integer (up to 17 digits) and whose 15-bit exponent
+// field holds the magnitude of the decimal power-of-ten (bit 14 = its sign).
+// The 96-bit BCD memory format is shuffled to/from that intermediate by
+// [`pack_decimal_to_floatx80`] / [`floatx80_to_pack_decimal`] below, mirroring
+// WinUAE's `fp_to_pack` / `fp_from_pack`.
+
+/// `mul128By64To192`: 128×64→192 product of (`a0`,`a1`)·`b`.
+#[must_use]
+fn mul128_by64_to_192(a0: u64, a1: u64, b: u64) -> (u64, u64, u64) {
+    let (z1, z2) = mul64_to_128(a1, b);
+    let (z0, more1) = mul64_to_128(a0, b);
+    let (z0, z1) = add128(z0, more1, 0, z1);
+    (z0, z1, z2)
+}
+
+/// `mul128To256`: 128×128→256 product of (`a0`,`a1`)·(`b0`,`b1`).
+#[must_use]
+fn mul128_to_256(a0: u64, a1: u64, b0: u64, b1: u64) -> (u64, u64, u64, u64) {
+    let (z2, z3) = mul64_to_128(a1, b1);
+    let (z1, more2) = mul64_to_128(a1, b0);
+    let (z1, z2) = add128(z1, more2, 0, z2);
+    let (z0, more1) = mul64_to_128(a0, b0);
+    let (z0, z1) = add128(z0, more1, 0, z1);
+    let (more1, more2) = mul64_to_128(a0, b1);
+    let (more1, z2) = add128(more1, more2, 0, z2);
+    let (z0, z1) = add128(z0, z1, 0, more1);
+    (z0, z1, z2, z3)
+}
+
+/// `round128to64`: round the 128-bit significand (`a_sig0`,`a_sig1`) to 64
+/// bits under `mode`, adjusting the exponent. Returns `(exp, sig0, 0)`.
+#[must_use]
+fn round128to64(
+    a_sign: bool,
+    a_exp: i32,
+    a_sig0: u64,
+    a_sig1: u64,
+    mode: RoundingMode,
+) -> (i32, u64, u64) {
+    let mut z_exp = a_exp;
+    let mut z_sig0 = a_sig0;
+    let z_sig1 = a_sig1;
+    let mut increment = (z_sig1 as i64) < 0;
+    match mode {
+        RoundingMode::NearestEven => {}
+        RoundingMode::Zero => increment = false,
+        RoundingMode::Down => increment = a_sign && z_sig1 != 0,
+        RoundingMode::Up => increment = !a_sign && z_sig1 != 0,
+    }
+    if increment {
+        z_sig0 = z_sig0.wrapping_add(1);
+        if z_sig0 == 0 {
+            z_exp += 1;
+            z_sig0 = 0x8000_0000_0000_0000;
+        } else if (z_sig1 << 1) == 0 && mode == RoundingMode::NearestEven {
+            z_sig0 &= !1;
+        }
+    } else if z_sig0 == 0 {
+        z_exp = 0;
+    }
+    (z_exp, z_sig0, 0)
+}
+
+/// `mul128by128round`: multiply (`a`) by (`b`) — both 128-bit fixed-point
+/// significands with biased exponents — rounding the product to 64 bits.
+#[must_use]
+fn mul128by128round(
+    a_exp: i32,
+    a_sig0: u64,
+    a_sig1: u64,
+    b_exp: i32,
+    b_sig0: u64,
+    b_sig1: u64,
+    mode: RoundingMode,
+) -> (i32, u64, u64) {
+    let (b_exp, b_sig0, b_sig1) = round128to64(false, b_exp, b_sig0, b_sig1, mode);
+    let mut z_exp = a_exp + b_exp - 0x3FFE;
+    let (mut z_sig0, mut z_sig1, z_sig2, z_sig3) = mul128_to_256(a_sig0, a_sig1, b_sig0, b_sig1);
+    z_sig1 |= u64::from((z_sig2 | z_sig3) != 0);
+    if (z_sig0 as i64) > 0 {
+        let (s0, s1) = short_shift128_left(z_sig0, z_sig1, 1);
+        z_sig0 = s0;
+        z_sig1 = s1;
+        z_exp -= 1;
+    }
+    round128to64(false, z_exp, z_sig0, z_sig1, mode)
+}
+
+/// `mul128by128`: multiply two 128-bit fixed-point significands (no rounding
+/// to 64 bits — the full 128-bit product significand is kept).
+#[must_use]
+fn mul128by128(
+    a_exp: i32,
+    a_sig0: u64,
+    a_sig1: u64,
+    b_exp: i32,
+    b_sig0: u64,
+    b_sig1: u64,
+) -> (i32, u64, u64) {
+    let mut z_exp = a_exp + b_exp - 0x3FFE;
+    let (mut z_sig0, mut z_sig1, z_sig2, z_sig3) = mul128_to_256(a_sig0, a_sig1, b_sig0, b_sig1);
+    z_sig1 |= u64::from((z_sig2 | z_sig3) != 0);
+    if (z_sig0 as i64) > 0 {
+        let (s0, s1) = short_shift128_left(z_sig0, z_sig1, 1);
+        z_sig0 = s0;
+        z_sig1 = s1;
+        z_exp -= 1;
+    }
+    (z_exp, z_sig0, z_sig1)
+}
+
+/// `div128by128`: divide (`a`) by (`b`), both 128-bit fixed-point
+/// significands with biased exponents.
+#[must_use]
+fn div128by128(
+    a_exp: i32,
+    a_sig0: u64,
+    a_sig1: u64,
+    b_exp: i32,
+    b_sig0: u64,
+    b_sig1: u64,
+) -> (i32, u64, u64) {
+    let mut z_exp = a_exp - b_exp + 0x3FFE;
+    let (mut a_sig0, mut a_sig1) = (a_sig0, a_sig1);
+    if le128(b_sig0, b_sig1, a_sig0, a_sig1) {
+        let (s0, s1) = shift128_right(a_sig0, a_sig1, 1);
+        a_sig0 = s0;
+        a_sig1 = s1;
+        z_exp += 1;
+    }
+    let mut z_sig0 = estimate_div128_to_64(a_sig0, a_sig1, b_sig0);
+    let (term0, term1, term2) = mul128_by64_to_192(b_sig0, b_sig1, z_sig0);
+    let (mut rem0, mut rem1, mut rem2) = sub192(a_sig0, a_sig1, 0, term0, term1, term2);
+    while (rem0 as i64) < 0 {
+        z_sig0 = z_sig0.wrapping_sub(1);
+        let (r0, r1, r2) = add192(rem0, rem1, rem2, 0, b_sig0, b_sig1);
+        rem0 = r0;
+        rem1 = r1;
+        rem2 = r2;
+    }
+    let mut z_sig1 = estimate_div128_to_64(rem1, rem2, b_sig0);
+    if (z_sig1 & 0x3FFF) <= 4 {
+        let (term1b, term2b, term3b) = mul128_by64_to_192(b_sig0, b_sig1, z_sig1);
+        let (mut rem1b, mut rem2b, mut rem3b) = sub192(rem1, rem2, 0, term1b, term2b, term3b);
+        while (rem1b as i64) < 0 {
+            z_sig1 = z_sig1.wrapping_sub(1);
+            let (r1, r2, r3) = add192(rem1b, rem2b, rem3b, 0, b_sig0, b_sig1);
+            rem1b = r1;
+            rem2b = r2;
+            rem3b = r3;
+        }
+        z_sig1 |= u64::from((rem1b | rem2b | rem3b) != 0);
+    }
+    (z_exp, z_sig0, z_sig1)
+}
+
+/// `tentoint128`: compute 10^`scale` as a 128-bit fixed-point significand.
+/// `m_sign`/`e_sign` (the significand and exponent signs of the value being
+/// scaled) bias the intermediate rounding mode exactly as the 68881/2 does so
+/// the round-trip is direction-stable.
+#[must_use]
+fn tentoint128(m_sign: bool, e_sign: bool, scale: i32, mode: RoundingMode) -> (i32, u64, u64) {
+    // The 68881/2 temporarily skews the rounding mode while building 10^scale
+    // so that decimal→binary and binary→decimal stay mutually consistent.
+    let inner = match mode {
+        RoundingMode::NearestEven => RoundingMode::NearestEven,
+        RoundingMode::Down => {
+            if m_sign != e_sign {
+                RoundingMode::Up
+            } else {
+                RoundingMode::Down
+            }
+        }
+        RoundingMode::Up => {
+            if m_sign != e_sign {
+                RoundingMode::Down
+            } else {
+                RoundingMode::Up
+            }
+        }
+        RoundingMode::Zero => {
+            if !e_sign {
+                RoundingMode::Down
+            } else {
+                RoundingMode::Up
+            }
+        }
+    };
+
+    let mut a_exp = 0x3FFF;
+    let mut a_sig0 = 0x8000_0000_0000_0000u64;
+    let mut a_sig1 = 0u64;
+    let mut m_exp = 0x4002;
+    let mut m_sig0 = 0xA000_0000_0000_0000u64;
+    let mut m_sig1 = 0u64;
+    let mut scale = scale;
+    while scale != 0 {
+        if scale & 1 != 0 {
+            let (e, s0, s1) = mul128by128round(a_exp, a_sig0, a_sig1, m_exp, m_sig0, m_sig1, inner);
+            a_exp = e;
+            a_sig0 = s0;
+            a_sig1 = s1;
+        }
+        let (e, s0, s1) = mul128by128(m_exp, m_sig0, m_sig1, m_exp, m_sig0, m_sig1);
+        m_exp = e;
+        m_sig0 = s0;
+        m_sig1 = s1;
+        scale >>= 1;
+    }
+    (a_exp, a_sig0, a_sig1)
+}
+
+/// `tentointdec`: compute 10^`scale` as a 64-bit decimal integer (wraps past
+/// 2^64 exactly as the C `uint64_t` arithmetic does — only the in-range
+/// result is consumed).
+#[must_use]
+fn tentointdec(scale: i32) -> i64 {
+    let mut dec_x: u64 = 1;
+    let mut dec_m: u64 = 10;
+    let mut scale = scale;
+    while scale != 0 {
+        if scale & 1 != 0 {
+            dec_x = dec_x.wrapping_mul(dec_m);
+        }
+        dec_m = dec_m.wrapping_mul(dec_m);
+        scale >>= 1;
+    }
+    dec_x as i64
+}
+
+/// `float128toint64`: round the 128-bit value to a 64-bit integer under
+/// `mode`, raising `inexact` if anything was discarded.
+#[must_use]
+fn float128toint64(z_sign: bool, z_exp: i32, z_sig0: u64, z_sig1: u64, mode: RoundingMode) -> i64 {
+    let (mut z_sig0, z_sig1) = shift128_right_jamming(z_sig0, z_sig1, 0x403E - z_exp);
+    let round_nearest_even = mode == RoundingMode::NearestEven;
+    let mut increment = (z_sig1 as i64) < 0;
+    if !round_nearest_even {
+        match mode {
+            RoundingMode::Zero => increment = false,
+            RoundingMode::Down => increment = z_sign && z_sig1 != 0,
+            RoundingMode::Up => increment = !z_sign && z_sig1 != 0,
+            RoundingMode::NearestEven => {}
+        }
+    }
+    if increment {
+        z_sig0 = z_sig0.wrapping_add(1);
+        if (z_sig1 << 1) == 0 && round_nearest_even {
+            z_sig0 &= !1;
+        }
+    }
+    if z_sig1 != 0 {
+        float_raise(flag::INEXACT);
+    }
+    z_sig0 as i64
+}
+
+/// `getDecimalExponent`: estimate the base-10 exponent of a `floatx80`, used
+/// to seed the binary→decimal digit count.
+#[must_use]
+fn get_decimal_exponent(a_exp: i32, a_sig: u64) -> i32 {
+    if a_sig == 0 || a_exp == 0x3FFF {
+        return 0;
+    }
+    if a_exp < 0 {
+        return -4932;
+    }
+    let mut a_sig = a_sig ^ 0x8000_0000_0000_0000;
+    let a_exp_unb = a_exp - 0x3FFF;
+    let z_sign = a_exp_unb < 0;
+    let a_exp_abs = if z_sign { -a_exp_unb } else { a_exp_unb };
+    let mut shift_count = 31 - (a_exp_abs as u32).leading_zeros() as i32;
+    let mut z_exp = 0x3FFF + shift_count;
+    let (mut z_sig0, mut z_sig1);
+    if shift_count < 0 {
+        let (s0, s1) = short_shift128_left(a_sig, 0, -shift_count);
+        z_sig0 = s0;
+        z_sig1 = s1;
+    } else {
+        let (s0, s1) = shift128_right(a_sig, 0, shift_count);
+        z_sig0 = s0;
+        z_sig1 = s1;
+        a_sig = (a_exp_abs as u64) << (63 - shift_count);
+        let (r0, r1) = if z_sign {
+            sub128(a_sig, 0, z_sig0, z_sig1)
+        } else {
+            add128(a_sig, 0, z_sig0, z_sig1)
+        };
+        z_sig0 = r0;
+        z_sig1 = r1;
+    }
+    shift_count = z_sig0.leading_zeros() as i32;
+    let (s0, s1) = short_shift128_left(z_sig0, z_sig1, shift_count);
+    z_sig0 = s0;
+    z_sig1 = s1;
+    z_exp -= shift_count;
+    // × log10(2) in 128-bit fixed point.
+    let (e, s0, s1) = mul128by128(
+        z_exp,
+        z_sig0,
+        z_sig1,
+        0x3FFD,
+        0x9A20_9A84_FBCF_F798,
+        0x8F89_59AC_0B7C_9178,
+    );
+    z_exp = e;
+    z_sig0 = s0;
+    z_sig1 = s1;
+    shift_count = 0x403E - z_exp;
+    let (s0, s1) = shift128_right_jamming(z_sig0, z_sig1, shift_count);
+    z_sig0 = s0;
+    z_sig1 = s1;
+    if (z_sig1 as i64) < 0 {
+        z_sig0 = z_sig0.wrapping_add(1);
+        if (z_sig1 << 1) == 0 {
+            z_sig0 &= !1;
+        }
+    }
+    if z_sign {
+        0u64.wrapping_sub(z_sig0) as i32
+    } else {
+        z_sig0 as i32
+    }
+}
+
+/// `floatdecimal_to_floatx80`: convert the intermediate decimal representation
+/// (significand digits in `frac`, decimal power-of-ten in the exponent field
+/// with bit 14 its sign) to a binary `floatx80`.
+#[must_use]
+pub fn floatdecimal_to_floatx80(a: FpReg, mode: RoundingMode) -> FpReg {
+    let dec_sign = sign(a);
+    let dec_exp_raw = exp(a);
+    let dec_sig = frac(a);
+
+    if dec_exp_raw == 0x7FFF {
+        return a;
+    }
+    if dec_exp_raw == 0 && dec_sig == 0 {
+        return a;
+    }
+
+    let dec_exp_sign = (dec_exp_raw >> 14) & 1 != 0;
+    let dec_exp = dec_exp_raw & 0x3FFF;
+
+    let shift_count = dec_sig.leading_zeros() as i32;
+    let z_exp = 0x403E - shift_count;
+    let z_sig0 = dec_sig.wrapping_shl(shift_count as u32);
+    let z_sig1 = 0u64;
+    let z_sign = dec_sign;
+
+    let (x_exp, x_sig0, x_sig1) = tentoint128(dec_sign, dec_exp_sign, dec_exp, mode);
+
+    let (z_exp, z_sig0, z_sig1) = if dec_exp_sign {
+        div128by128(z_exp, z_sig0, z_sig1, x_exp, x_sig0, x_sig1)
+    } else {
+        mul128by128(z_exp, z_sig0, z_sig1, x_exp, x_sig0, x_sig1)
+    };
+
+    if z_sig1 != 0 {
+        float_raise(flag::DECIMAL);
+    }
+    let (z_exp, z_sig0, _) = round128to64(z_sign, z_exp, z_sig0, z_sig1, mode);
+
+    pack(z_sign, z_exp, z_sig0)
+}
+
+/// `floatx80_to_floatdecimal`: convert a binary `floatx80` to the intermediate
+/// decimal representation. `k` is the k-factor on entry (a signed digit count,
+/// −64..17) and receives the actual significand-digit count (`len`, 1..17) on
+/// return — exactly the in/out contract WinUAE's `fp_from_pack` relies on.
+#[must_use]
+pub fn floatx80_to_floatdecimal(a: FpReg, k: &mut i32, mode: RoundingMode) -> FpReg {
+    let a_sign = sign(a);
+    let mut a_exp = exp(a);
+    let mut a_sig = frac(a);
+
+    if a_exp == 0x7FFF {
+        if (a_sig << 1) != 0 {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        return a;
+    }
+    if a_exp == 0 {
+        if a_sig == 0 {
+            return pack(a_sign, 0, 0);
+        }
+        let (e, s) = normalize_floatx80_subnormal(a_sig);
+        a_exp = e;
+        a_sig = s;
+    }
+
+    let mut kfactor = *k;
+    let mut ilog = get_decimal_exponent(a_exp, a_sig);
+    let mut ictr = false;
+    let mut len;
+    let dec_sig;
+
+    loop {
+        if kfactor > 0 {
+            if kfactor > 17 {
+                kfactor = 17;
+                float_raise(flag::INVALID);
+            }
+            len = kfactor;
+        } else {
+            // C: `if (len>17) len=17; if (len<1) len=1;` — order-equivalent to
+            // clamp(1, 17) since 17 ≥ 1.
+            len = (ilog + 1 - kfactor).clamp(1, 17);
+            if kfactor > ilog {
+                ilog = kfactor;
+            }
+        }
+
+        let mut lambda = false;
+        let mut iscale = ilog + 1 - len;
+        if iscale < 0 {
+            lambda = true;
+            iscale = -iscale;
+        }
+
+        let (x_exp, x_sig0, x_sig1) = tentoint128(lambda, false, iscale, mode);
+
+        let z_exp = a_exp;
+        let z_sig0 = a_sig;
+        let z_sig1 = 0u64;
+        let (z_exp, z_sig0, z_sig1) = if lambda {
+            mul128by128(z_exp, z_sig0, z_sig1, x_exp, x_sig0, x_sig1)
+        } else {
+            div128by128(z_exp, z_sig0, z_sig1, x_exp, x_sig0, x_sig1)
+        };
+
+        let candidate = float128toint64(a_sign, z_exp, z_sig0, z_sig1, mode);
+
+        if !ictr {
+            let dec_x = tentointdec(len - 1);
+            if candidate < dec_x {
+                ilog -= 1;
+                ictr = true;
+                continue;
+            }
+            if candidate > dec_x * 10 {
+                ilog += 1;
+                ictr = true;
+                continue;
+            }
+        }
+        dec_sig = candidate;
+        break;
+    }
+
+    let dec_sign = a_sign;
+    let mut dec_exp = if ilog < 0 { -ilog } else { ilog };
+    if dec_exp > 999 {
+        float_raise(flag::INVALID);
+    }
+    if ilog < 0 {
+        dec_exp |= 0x4000;
+    }
+
+    *k = len;
+    pack(dec_sign, dec_exp, dec_sig as u64)
+}
+
+/// Convert the 96-bit packed-decimal memory operand (three big-endian
+/// longwords `wrd[0..3]`, M68000PRM § 1.6) to a binary `floatx80`. Mirrors
+/// WinUAE's `fp_to_pack`: ±∞ / NaN / ±0 copy through the extended layout, and
+/// finite values are decoded into the intermediate decimal form and run
+/// through [`floatdecimal_to_floatx80`].
+#[must_use]
+pub fn pack_decimal_to_floatx80(wrd: [u32; 3], mode: RoundingMode) -> FpReg {
+    // Infinity (extended exponent, zero packed fraction) and NaNs copy bit for
+    // bit through the extended layout (high word, then the 64-bit mantissa).
+    if (wrd[0] >> 16) & 0x7FFF == 0x7FFF {
+        return FpReg::new(
+            (wrd[0] >> 16) as u16,
+            (u64::from(wrd[1]) << 32) | u64::from(wrd[2]),
+        );
+    }
+    // Zero significand: the exponent is irrelevant, keep only the sign.
+    if wrd[0] & 0xF == 0 && wrd[1] == 0 && wrd[2] == 0 {
+        return FpReg::new((wrd[0] >> 16) as u16 & 0x8000, 0);
+    }
+
+    let pack_exp = (wrd[0] >> 16) & 0xFFF; // three exponent digits
+    let pack_int = wrd[0] & 0xF; // integer digit
+    let pack_frac = (u64::from(wrd[1]) << 32) | u64::from(wrd[2]); // 16 fraction digits
+    let pack_se = (wrd[0] >> 30) & 1 != 0; // exponent sign
+    let pack_sm = (wrd[0] >> 31) & 1 != 0; // significand sign
+
+    let mut dec_exp: i32 = 0;
+    for i in 0..3 {
+        dec_exp *= 10;
+        dec_exp += ((pack_exp >> (8 - i * 4)) & 0xF) as i32;
+    }
+    if pack_se {
+        dec_exp = -dec_exp;
+    }
+    // The 17-digit significand is treated as an integer; shift the decimal
+    // point past the 16 fraction digits.
+    dec_exp -= 16;
+    let mut neg_exp = false;
+    if dec_exp < 0 {
+        dec_exp = -dec_exp;
+        neg_exp = true;
+    }
+
+    let mut mant: i64 = i64::from(pack_int);
+    for i in 0..16 {
+        mant *= 10;
+        mant += ((pack_frac >> (60 - i * 4)) & 0xF) as i64;
+    }
+
+    let high = (dec_exp as u16 & 0x3FFF)
+        | if neg_exp { 0x4000 } else { 0 }
+        | if pack_sm { 0x8000 } else { 0 };
+    floatdecimal_to_floatx80(FpReg::new(high, mant as u64), mode)
+}
+
+/// Convert a binary `floatx80` to the 96-bit packed-decimal memory operand
+/// under the requested `kfactor` (−64..17). Mirrors WinUAE's `fp_from_pack`:
+/// ∞ / NaN copy through the extended layout, finite values are formatted from
+/// the [`floatx80_to_floatdecimal`] intermediate into BCD digits.
+#[must_use]
+pub fn floatx80_to_pack_decimal(a: FpReg, kfactor: i32, mode: RoundingMode) -> [u32; 3] {
+    let mut kfactor = kfactor;
+    let f = floatx80_to_floatdecimal(a, &mut kfactor, mode);
+
+    if f.high & 0x7FFF == 0x7FFF {
+        // ∞ / NaN: bit-for-bit through the extended layout.
+        return [u32::from(f.high) << 16, (f.low >> 32) as u32, f.low as u32];
+    }
+
+    let exponent = u32::from(f.high) & 0x3FFF;
+    let significand = f.low;
+
+    // Extract `len` significand digits (LSB first): the last becomes the
+    // integer digit, the rest the fraction nibbles.
+    let mut pack_int: u32 = 0;
+    let mut pack_frac: u64 = 0;
+    let mut len = kfactor; // SoftFloat returned the digit count in kfactor.
+    let mut sig = significand;
+    while len > 0 {
+        len -= 1;
+        let digit = sig % 10;
+        sig /= 10;
+        if len == 0 {
+            pack_int = digit as u32;
+        } else {
+            pack_frac |= digit << (64 - len * 4);
+        }
+    }
+
+    // Extract the four exponent digits (LSB first); the fourth is the
+    // thousands digit (only non-zero for the ±inf/NaN encodings handled above).
+    let mut pack_exp: u32 = 0;
+    let mut pack_exp4: u32 = 0;
+    let mut len = 4;
+    let mut e = exponent;
+    while len > 0 {
+        len -= 1;
+        let digit = e % 10;
+        e /= 10;
+        if len == 0 {
+            pack_exp4 = digit;
+        } else {
+            pack_exp |= digit << (12 - len * 4);
+        }
+    }
+
+    let pack_se = f.high & 0x4000 != 0;
+    let pack_sm = f.high & 0x8000 != 0;
+
+    let wrd0 = (pack_exp << 16)
+        | (pack_exp4 << 12)
+        | pack_int
+        | if pack_se { 0x4000_0000 } else { 0 }
+        | if pack_sm { 0x8000_0000 } else { 0 };
+    [wrd0, (pack_frac >> 32) as u32, pack_frac as u32]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3061,5 +3651,65 @@ mod tests {
             }),
             flag::INEXACT
         );
+    }
+
+    // --- Packed-decimal conversion ---
+
+    #[test]
+    fn pack_decimal_specials_pass_through() {
+        // +0 / −0: zero significand keeps only the sign.
+        assert_eq!(pack_decimal_to_floatx80([0, 0, 0], RN), FpReg::new(0, 0));
+        assert_eq!(
+            pack_decimal_to_floatx80([0x8000_0000, 0, 0], RN),
+            FpReg::new(0x8000, 0)
+        );
+        // +∞ copies through the extended layout (exponent field 0x7FFF).
+        assert_eq!(
+            pack_decimal_to_floatx80([0x7FFF_0000, 0, 0], RN),
+            FpReg::new(0x7FFF, 0)
+        );
+        // NaN copies bit for bit.
+        let nan = pack_decimal_to_floatx80([0x7FFF_0000, 0xC000_0000, 0x0000_0001], RN);
+        assert_eq!(nan, FpReg::new(0x7FFF, 0xC000_0000_0000_0001));
+    }
+
+    #[test]
+    fn pack_decimal_decodes_one() {
+        // 1.0 = +1e+0: integer digit 1, zero fraction, exponent 0.
+        let one = pack_decimal_to_floatx80([0x0000_0001, 0, 0], RN);
+        assert_eq!(one, int32_to_floatx80(1));
+    }
+
+    #[test]
+    fn pack_decimal_round_trips_small_integers() {
+        // With the maximum 17-digit k-factor, exact integers survive a full
+        // binary → BCD → binary round trip unchanged.
+        for v in [1i32, 2, 7, 10, 100, 12_345, 1_000_000, -42, -987_654] {
+            let bin = int32_to_floatx80(v);
+            let bcd = floatx80_to_pack_decimal(bin, 17, RN);
+            let back = pack_decimal_to_floatx80(bcd, RN);
+            assert_eq!(back, bin, "round trip failed for {v}");
+        }
+    }
+
+    #[test]
+    fn pack_decimal_store_specials_pass_through() {
+        // ∞ stores back to the extended layout (exponent field 0x7FFF).
+        let inf = FpReg::new(0x7FFF, 0);
+        assert_eq!(floatx80_to_pack_decimal(inf, 17, RN), [0x7FFF_0000, 0, 0]);
+        // ±0 stores as a zero significand.
+        assert_eq!(
+            floatx80_to_pack_decimal(FpReg::new(0, 0), 5, RN)[1..],
+            [0, 0]
+        );
+    }
+
+    #[test]
+    fn pack_decimal_inexact_sets_decimal_flag() {
+        // 0.1 (1e−1) has no exact binary form → the conversion is inexact.
+        let raised = flags_of(|| {
+            let _ = pack_decimal_to_floatx80([0x4001_0001, 0, 0], RN);
+        });
+        assert_ne!(raised & flag::DECIMAL, 0, "expected INEX1/decimal flag");
     }
 }
