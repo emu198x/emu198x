@@ -1161,6 +1161,64 @@ fn fmove_store_extended_to_memory() {
 }
 
 #[test]
+fn fmove_load_packed_decimal() {
+    // FMOVE.P (A0),FP0 — 2.5 as a 96-bit packed-decimal real: significand
+    // 2.5 (integer digit 2, first fraction digit 5), exponent 0.
+    let bytes = [
+        0x00, 0x00, 0x00, 0x02, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+    let r = run_mem(0xF210, mem_ext(3, 0, 0), 0, DATA, &bytes, |_| {});
+    assert_eq!(r.fp[0], FpReg::new(0x4000, 0xA000_0000_0000_0000), "2.5");
+}
+
+#[test]
+fn fmove_store_packed_decimal_static_k() {
+    // FMOVE.P FP0,(A0){#17} — store 2.5 with the maximum 17-digit static
+    // k-factor, then decode the written BCD back: it must read as 2.5.
+    let two_point_five = FpReg::new(0x4000, 0xA000_0000_0000_0000);
+    let (_r, mem) = run_store(0xF210, store_ext(3, 0, 17), |cpu| {
+        cpu.regs.set_a(0, DATA);
+        cpu.regs.fp[0] = two_point_five;
+    });
+    let b = read_bytes(&mem, DATA, 12);
+    let wrd = [
+        u32::from_be_bytes([b[0], b[1], b[2], b[3]]),
+        u32::from_be_bytes([b[4], b[5], b[6], b[7]]),
+        u32::from_be_bytes([b[8], b[9], b[10], b[11]]),
+    ];
+    let back = motorola_68k_common::softfloat::pack_decimal_to_floatx80(
+        wrd,
+        motorola_68k_common::softfloat::RoundingMode::NearestEven,
+    );
+    assert_eq!(back, two_point_five, "stored BCD decodes back to 2.5");
+}
+
+#[test]
+fn fmove_store_packed_decimal_dynamic_k() {
+    // FMOVE.P FP0,(A0){D1} — dynamic k-factor (format 7, ext bits 6-4 = D1).
+    // D1 = 17 → same 17-digit BCD as the static case.
+    let two_point_five = FpReg::new(0x4000, 0xA000_0000_0000_0000);
+    // store (bits 15-13 = 011), format 7, source FP0 (bits 9-7 = 0), D1 (bits 6-4).
+    let w2 = 0x6000 | (7 << 10) | (1 << 4);
+    let (_r, mem) = run_store(0xF210, w2, |cpu| {
+        cpu.regs.set_a(0, DATA);
+        cpu.regs.d[1] = 17;
+        cpu.regs.fp[0] = two_point_five;
+    });
+    let b = read_bytes(&mem, DATA, 12);
+    let wrd = [
+        u32::from_be_bytes([b[0], b[1], b[2], b[3]]),
+        u32::from_be_bytes([b[4], b[5], b[6], b[7]]),
+        u32::from_be_bytes([b[8], b[9], b[10], b[11]]),
+    ];
+    let back = motorola_68k_common::softfloat::pack_decimal_to_floatx80(
+        wrd,
+        motorola_68k_common::softfloat::RoundingMode::NearestEven,
+    );
+    assert_eq!(back, two_point_five, "dynamic-k store decodes back to 2.5");
+}
+
+#[test]
 fn fmove_store_word_and_byte() {
     // FMOVE.W FP0,(A0) with FP0 = −1 → 0xFFFF.
     let (_r, mem) = run_store(0xF210, store_ext(4, 0, 0), |cpu| {

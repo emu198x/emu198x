@@ -988,9 +988,9 @@ fn apply_fp_opmode(
 /// synchronously (auto-increment/decrement by the operand size). The
 /// non-auto-increment modes — `d16(An)`, `(d8,An,Xn)` and the full 68020
 /// extension formats, AbsShort/Long, and PC-relative — are routed through
-/// the core's `calc_ea_start` and resumed at `TAG_FETCH_SRC_DATA`.
-/// Immediate (`#data`) and the packed-decimal format still decline
-/// (vector-11 trap) until a later step.
+/// the core's `calc_ea_start` and resumed at `TAG_FETCH_SRC_DATA`. All six
+/// source formats — including the 12-byte packed-decimal real (format 3) —
+/// and the immediate (`#data`) mode are handled.
 ///
 /// All decline checks happen before any state mutation, so a declined op
 /// leaves the prefetch and registers untouched for the core's trap path.
@@ -1002,8 +1002,8 @@ fn begin_fp_memory(cpu: &mut Cpu68000, opmode: u16) -> bool {
         4 => 2,            // Word integer
         0 | 1 => 4,        // Long integer / Single
         5 => 8,            // Double
-        2 => 12,           // Extended
-        _ => return false, // Packed-decimal (3) not supported yet
+        2 | 3 => 12,       // Extended / Packed-decimal
+        _ => return false, // (formats 0-6 cover every cpGEN source)
     };
     let ea_mode = ((cpu.ir >> 3) & 7) as u8;
     let ea_reg = (cpu.ir & 7) as u8;
@@ -1159,6 +1159,7 @@ fn handle_fp_mem_exec(cpu: &mut Cpu68000) {
     // apply_fp_opmode folds them into the FPSR at the end.
     softfloat::clear_exception_flags();
     let buf = cpu.fp_mem_buf;
+    let mode = RoundingMode::from_fpcr_bits(cpu.regs.fpcr_rounding_mode());
     let source = match cpu.fp_mem_format {
         0 => softfloat::int32_to_floatx80(buf as u32 as i32), // Long
         1 => softfloat::float32_to_floatx80(buf as u32),      // Single
@@ -1166,12 +1167,16 @@ fn handle_fp_mem_exec(cpu: &mut Cpu68000) {
         // 16-bit pad word (bytes 2-3) is ignored, the 64-bit mantissa is
         // bytes 4-11.
         2 => FpReg::new(((buf >> 80) & 0xFFFF) as u16, buf as u64),
+        // Packed-decimal: the 12 bytes are three big-endian longwords.
+        3 => softfloat::pack_decimal_to_floatx80(
+            [(buf >> 64) as u32, (buf >> 32) as u32, buf as u32],
+            mode,
+        ),
         4 => softfloat::int32_to_floatx80(i32::from(buf as u16 as i16)), // Word
         5 => softfloat::float64_to_floatx80(buf as u64),                 // Double
         6 => softfloat::int32_to_floatx80(i32::from(buf as u8 as i8)),   // Byte
         _ => FpReg::ZERO,
     };
-    let mode = RoundingMode::from_fpcr_bits(cpu.regs.fpcr_rounding_mode());
     let opmode = u16::from(cpu.fp_mem_opmode);
     let dst = cpu.fp_mem_dst as usize;
     apply_fp_opmode(cpu, opmode, source, dst, mode, cpu.fp_mem_precision);
@@ -1180,10 +1185,12 @@ fn handle_fp_mem_exec(cpu: &mut Cpu68000) {
 
 /// Begin an FPU memory *store* (FMOVE FPn → `<ea>`, cpGEN sub-op 3). The
 /// extension word's destination-format field selects how the source Fpn
-/// is narrowed; the opcode's EA field selects the address. Only the
-/// instant addressing modes `(An)`/`(An)+`/`-(An)` are wired so far; the
-/// static modes and the packed-decimal formats decline (vector-11 trap)
-/// until a later step. FMOVE-to-memory sets no condition codes.
+/// is narrowed; the opcode's EA field selects the address. All destination
+/// formats are handled, including the 12-byte packed-decimal real with both
+/// a static (format 3) and a dynamic (format 7, `P{Dn}`) k-factor, across
+/// the auto-increment and static (control) addressing modes. PC-relative and
+/// immediate are not valid store destinations. FMOVE-to-memory sets no
+/// condition codes.
 ///
 /// Decline checks run before any state mutation.
 fn begin_fp_store(cpu: &mut Cpu68000, mode: motorola_68k_common::softfloat::RoundingMode) -> bool {
@@ -1197,7 +1204,8 @@ fn begin_fp_store(cpu: &mut Cpu68000, mode: motorola_68k_common::softfloat::Roun
         0 | 1 => 4,        // Long integer / Single
         5 => 8,            // Double
         2 => 12,           // Extended
-        _ => return false, // Packed-decimal (3 / 7) not supported yet
+        3 | 7 => 12,       // Packed-decimal (static / dynamic k-factor)
+        _ => return false, // (formats 0-7 cover every cpGEN destination)
     };
     let ea_mode = ((cpu.ir >> 3) & 7) as u8;
     let ea_reg_bits = (cpu.ir & 7) as u8;
@@ -1221,6 +1229,21 @@ fn begin_fp_store(cpu: &mut Cpu68000, mode: motorola_68k_common::softfloat::Roun
     // Narrowing a register to the store format raises IEEE exceptions
     // (overflow/underflow/inexact, or invalid on an out-of-range integer or
     // a signalling NaN). Extended store is exact. Fold them into the FPSR.
+    // Packed-decimal k-factor (M68000PRM § 4.4): static (format 3) reads it
+    // from the command word's low 7 bits; dynamic (format 7) reads it from the
+    // Dn selected by ext-word bits 6-4. Mask to 7 bits and sign-extend bit 6.
+    let kfactor = {
+        let raw = if format == 7 {
+            cpu.regs.d[((w2 >> 4) & 7) as usize]
+        } else {
+            u32::from(w2)
+        };
+        let mut k = (raw & 0x7F) as i32;
+        if k & 0x40 != 0 {
+            k |= !0x3F;
+        }
+        k
+    };
     softfloat::clear_exception_flags();
     let buf: u128 = match format {
         0 => u128::from(softfloat::floatx80_to_int32(mode, v) as u32),
@@ -1228,6 +1251,11 @@ fn begin_fp_store(cpu: &mut Cpu68000, mode: motorola_68k_common::softfloat::Roun
         // Extended: high word (bytes 0-1), a zero pad word (bytes 2-3),
         // then the 64-bit mantissa (bytes 4-11).
         2 => (u128::from(v.high) << 80) | u128::from(v.low),
+        // Packed-decimal: three big-endian longwords.
+        3 | 7 => {
+            let wrd = softfloat::floatx80_to_pack_decimal(v, kfactor, mode);
+            (u128::from(wrd[0]) << 64) | (u128::from(wrd[1]) << 32) | u128::from(wrd[2])
+        }
         4 => u128::from(softfloat::floatx80_to_int32(mode, v) as u16),
         5 => u128::from(softfloat::floatx80_to_float64(mode, v)),
         6 => u128::from(softfloat::floatx80_to_int32(mode, v) as u8),

@@ -173,12 +173,11 @@ fn fpu_memory_operand_invalid_mode_traps_vector_11() {
 }
 
 #[test]
-fn fpu_packed_decimal_format_traps_vector_11() {
+fn fpu_packed_decimal_format_executes() {
     // cpGEN R/M = 1 with the packed-decimal format (3, ext bits 12-10 =
-    // 011 → $4C00) is not supported, so it declines → vector 11. The
-    // other formats and addressing modes (incl. immediate) execute now —
-    // see tests/fpu_fpgen.rs.
-    assert!(run(0xF23C, &[0x4C00], true, 0).vectored);
+    // 011 → $4C00) now executes (FMOVE.P #imm,FP0 reads the 12-byte BCD
+    // operand). Value-checked load/store coverage is in tests/fpu_fpgen.rs.
+    assert!(!run(0xF23C, &[0x4C00], true, 0).vectored);
 }
 
 // --- FPU present: FBcc.W / FNOP execute ---
