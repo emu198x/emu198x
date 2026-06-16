@@ -748,8 +748,8 @@ fn decode_fpu_fline(cpu: &mut Cpu68000, opcode: u16) -> bool {
         1 => execute_fscc(cpu, opcode),
         // cpSAVE (4): FSAVE — store the FPU's internal state to memory.
         4 => begin_fsave(cpu, opcode),
-        // cpRESTORE (5) is not wired yet — decline so it takes the
-        // vector-11 trap until FRESTORE lands.
+        // cpRESTORE (5): FRESTORE — reload the FPU's internal state.
+        5 => begin_frestore(cpu, opcode),
         _ => false,
     };
 
@@ -1568,6 +1568,139 @@ fn handle_fsave_write(cpu: &mut Cpu68000) {
     } else {
         cpu.in_followup = false;
         cpu.followup_tag = 0;
+    }
+}
+
+/// FRESTORE (cpID-1 op-class 5): reload the FPU's internal state from a
+/// memory frame. The source is control-addressing or `(An)+`
+/// (postincrement) — never predecrement, register-direct, or immediate.
+///
+/// The frame id (first longword) selects the action: a null frame (version
+/// byte 0) resets the FPU (`fpu_null`); an idle frame (version $1F, size
+/// $18 or $38) sets the state to idle and consumes the rest; any other
+/// version raises a format error (vector 14). Decline checks run before any
+/// state mutation.
+fn begin_frestore(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let ea_mode = ((opcode >> 3) & 7) as u8;
+    let ea_reg = (opcode & 7) as u8;
+
+    // Control addressing: (An), d16(An), (d8,An,Xn), abs.W, abs.L, and the
+    // PC-relative pair. Plus postincrement (An)+. Predecrement, Dn/An, and
+    // immediate are not valid FRESTORE sources.
+    let postinc = ea_mode == 3;
+    let direct = ea_mode == 2;
+    let static_mode = matches!(ea_mode, 5 | 6) || (ea_mode == 7 && matches!(ea_reg, 0..=3));
+    if !postinc && !direct && !static_mode {
+        return false;
+    }
+
+    cpu.fp_frame_done = 0;
+    cpu.fp_frame_total = 4; // read the frame id first; revised once it is in
+    cpu.fp_frame_postinc = postinc;
+    cpu.fp_frame_areg = ea_reg;
+    cpu.in_followup = true;
+
+    if static_mode {
+        cpu.fp_frame_pending = true;
+        cpu.fp_frame_store = false;
+        cpu.size = motorola_68000::alu::Size::Long;
+        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+        cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+        cpu.micro_ops.push(MicroOp::Execute);
+        return true;
+    }
+
+    cpu.addr = cpu.regs.a(ea_reg as usize);
+    start_frestore_read(cpu);
+    true
+}
+
+/// Kick off the byte-at-a-time FRESTORE frame read. The base address
+/// (`addr`) must already be set; it is stashed for the postincrement
+/// writeback.
+fn start_frestore_read(cpu: &mut Cpu68000) {
+    cpu.fp_frame_an = cpu.addr;
+    cpu.fp_frame_done = 0;
+    cpu.followup_tag = TAG_V_FRESTORE_READ;
+    cpu.micro_ops.push(MicroOp::ReadByte);
+    cpu.micro_ops.push(MicroOp::Execute);
+}
+
+/// Reset the FPU to its null (power-on) state — WinUAE `fpu_null`. FPCR /
+/// FPSR / FPIAR clear to zero and all eight FP data registers become the
+/// 68881/2 created NaN ($7FFF / $FFFFFFFFFFFFFFFF).
+fn fpu_null(cpu: &mut Cpu68000) {
+    use motorola_68k_common::registers::FpReg;
+    cpu.variant_fpu_state = 0;
+    cpu.regs.fpcr = 0;
+    cpu.regs.fpsr = 0;
+    cpu.regs.fpiar = 0;
+    for r in &mut cpu.regs.fp {
+        *r = FpReg::new(0x7FFF, 0xFFFF_FFFF_FFFF_FFFF);
+    }
+}
+
+/// Finish a FRESTORE: write back the postincrement pointer (consumed-byte
+/// count past the base) and clear the frame state.
+fn finish_frestore(cpu: &mut Cpu68000) {
+    if cpu.fp_frame_postinc {
+        let consumed = u32::from(cpu.fp_frame_done);
+        cpu.regs.set_a(
+            cpu.fp_frame_areg as usize,
+            cpu.fp_frame_an.wrapping_add(consumed),
+        );
+    }
+    cpu.fp_frame_pending = false;
+    cpu.fp_frame_postinc = false;
+    cpu.in_followup = false;
+    cpu.followup_tag = 0;
+}
+
+/// `TAG_V_FRESTORE_READ`: a frame byte is in `cpu.data`. The first four
+/// bytes are the frame id; once they are in, dispatch on the frame version.
+/// An idle frame revises `fp_frame_total` and keeps reading (discarding the
+/// body); a null frame resets the FPU; any other version raises a format
+/// error (vector 14).
+fn handle_frestore_read(cpu: &mut Cpu68000) {
+    if cpu.fp_frame_done < 4 {
+        cpu.fp_frame[cpu.fp_frame_done as usize] = (cpu.data & 0xFF) as u8;
+    }
+    cpu.fp_frame_done += 1;
+
+    // The frame id is complete (and not yet dispatched — only the id read
+    // leaves `fp_frame_total` at its initial 4).
+    if cpu.fp_frame_done == 4 && cpu.fp_frame_total == 4 {
+        let frame_version = cpu.fp_frame[0];
+        let size_byte = cpu.fp_frame[1];
+        if frame_version == 0x00 {
+            // Null frame: reset the FPU. Consumed exactly 4 bytes.
+            fpu_null(cpu);
+            finish_frestore(cpu);
+            return;
+        } else if frame_version == 0x1F && matches!(size_byte, 0x18 | 0x38) {
+            // Idle frame: 68881 ($18) or 68882 ($38). Total = size + 4.
+            cpu.variant_fpu_state = 1;
+            cpu.fp_frame_total = size_byte + 4;
+        } else {
+            // Any other version / size is a format error (vector 14). The
+            // postincrement pointer is *not* written back on a fault.
+            cpu.fp_frame_pending = false;
+            cpu.fp_frame_postinc = false;
+            cpu.in_followup = false;
+            cpu.micro_ops.clear();
+            cpu.begin_group1_exception(14, cpu.instr_start_pc);
+            return;
+        }
+    }
+
+    if cpu.fp_frame_done < cpu.fp_frame_total {
+        cpu.addr = cpu.addr.wrapping_add(1);
+        cpu.micro_ops.push(MicroOp::ReadByte);
+        cpu.micro_ops.push(MicroOp::Execute);
+    } else {
+        // Idle frame fully consumed (the body is discarded — our core holds
+        // no exception/operand state to restore).
+        finish_frestore(cpu);
     }
 }
 
@@ -2472,7 +2605,7 @@ use motorola_68000::cpu::{
     TAG_V_CAS2_COMPUTE, TAG_V_CAS2_GATHER, TAG_V_CAS2_READ2, TAG_V_CAS2_WRITE_DONE,
     TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_FBCC_L, TAG_V_FDBCC,
     TAG_V_FMOVEM_STEP, TAG_V_FP_IMM_READ, TAG_V_FP_MEM_EXEC, TAG_V_FP_MEM_READ, TAG_V_FP_MEM_WRITE,
-    TAG_V_FSAVE_WRITE, TAG_V_MULDIV_MEM_EXEC,
+    TAG_V_FRESTORE_READ, TAG_V_FSAVE_WRITE, TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
@@ -2648,6 +2781,10 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
             handle_fsave_write(cpu);
             true
         }
+        TAG_V_FRESTORE_READ => {
+            handle_frestore_read(cpu);
+            true
+        }
         // An FPU memory operand using a static addressing mode: the core's
         // EA machinery has resolved the address into `addr`. Take over and
         // read/write the operand bytes ourselves (the core's data fetch
@@ -2662,12 +2799,17 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
             }
             true
         }
-        // FSAVE with a control addressing mode: the core's EA machinery has
-        // resolved the frame address into `addr`. Start the frame write.
+        // FSAVE/FRESTORE with a control addressing mode: the core's EA
+        // machinery has resolved the frame address into `addr`. Start the
+        // frame stream from there (write for FSAVE, read for FRESTORE).
         TAG_FETCH_SRC_DATA if cpu.fp_frame_pending => {
             cpu.fp_frame_pending = false;
-            cpu.fp_frame_store = false;
-            start_fsave_write(cpu);
+            if cpu.fp_frame_store {
+                cpu.fp_frame_store = false;
+                start_fsave_write(cpu);
+            } else {
+                start_frestore_read(cpu);
+            }
             true
         }
         // Memory-source MUL.L / DIV.L: the core's EA pipeline has
