@@ -296,6 +296,34 @@ fn main() {
                 let (_s, c) = fpsp::floatx80_sincos(80, mode, a);
                 (c.high, c.low)
             }
+            43 => {
+                let z = fpsp::floatx80_atan(80, mode, a);
+                (z.high, z.low)
+            }
+            44 => {
+                let z = fpsp::floatx80_asin(80, mode, a);
+                (z.high, z.low)
+            }
+            45 => {
+                let z = fpsp::floatx80_acos(80, mode, a);
+                (z.high, z.low)
+            }
+            46 => {
+                let z = fpsp::floatx80_atanh(80, mode, a);
+                (z.high, z.low)
+            }
+            47 => {
+                let z = fpsp::floatx80_sinh(80, mode, a);
+                (z.high, z.low)
+            }
+            48 => {
+                let z = fpsp::floatx80_cosh(80, mode, a);
+                (z.high, z.low)
+            }
+            49 => {
+                let z = fpsp::floatx80_tanh(80, mode, a);
+                (z.high, z.low)
+            }
             _ => (0, 0),
         };
         let flags = q_byte.unwrap_or_else(|| u64::from(sf::take_exception_flags()));

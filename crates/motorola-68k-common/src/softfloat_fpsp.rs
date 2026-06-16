@@ -21,7 +21,7 @@ use crate::softfloat::{
     propagate_floatx80_nan_one_arg, sign,
 };
 use crate::softfloat_fpsp_tables::{
-    EXP_TBL, EXP_TBL2, EXP2_TBL, EXP2_TBL2, LOG_TBL, PI_TBL, PI_TBL2,
+    ATAN_TBL, EXP_TBL, EXP_TBL2, EXP2_TBL, EXP2_TBL2, LOG_TBL, PI_TBL, PI_TBL2,
 };
 
 const ONE_EXP: i32 = 0x3FFF;
@@ -46,7 +46,6 @@ fn sub(a: FpReg, b: FpReg) -> FpReg {
     softfloat::floatx80_sub(80, RN, a, b)
 }
 #[inline]
-#[allow(dead_code)] // used by the logarithm / inverse-trig families (later commits)
 fn div(a: FpReg, b: FpReg) -> FpReg {
     softfloat::floatx80_div(80, RN, a, b)
 }
@@ -1200,4 +1199,375 @@ pub fn floatx80_sincos(precision: i32, mode: RoundingMode, a: FpReg) -> (FpReg, 
         float_raise(flag::INEXACT);
         (sin, cos)
     }
+}
+
+// ─── Inverse-trigonometric / hyperbolic-arctan ──────────────────────────────
+
+const PI_SIG: u64 = 0xC90F_DAA2_2168_C235;
+const PIBY2_EXP: i32 = 0x3FFF;
+const PI_EXP: i32 = 0x4000;
+
+/// `floatx80_atan` (FATAN): arc tangent.
+#[must_use]
+pub fn floatx80_atan(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let mut a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        let pm = pack(a_sign, PIBY2_EXP, PI_SIG); // ±π/2
+        float_raise(flag::INEXACT);
+        return softfloat::floatx80_move(precision, mode, pm);
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(a_sign, 0, 0);
+    }
+
+    let compact = make_compact(a_exp, a_sig);
+
+    if !(0x3FFB_8000..=0x4002_FFFF).contains(&compact) {
+        if compact > 0x3FFF_8000 {
+            // |X| >= 16
+            if compact > 0x4063_8000 {
+                // |X| > 2^100: atan(X) ≈ ±π/2
+                let fp0 = pack(a_sign, PIBY2_EXP, PI_SIG);
+                let fp1 = pack(a_sign, 0x0001, ONE_SIG);
+                let r = softfloat::floatx80_sub(precision, mode, fp0, fp1);
+                float_raise(flag::INEXACT);
+                r
+            } else {
+                let fp1d = div(pack(true, ONE_EXP, ONE_SIG), a); // X' = -1/X
+                let xsave = fp1d;
+                let fp0 = mul(fp1d, fp1d); // Y = X'*X'
+                let z = mul(fp0, fp0); // Z = Y*Y
+                let mut fp3 = mul(f64x(0xBFB7_0BF3_9853_9E6A), z); // Z*C5
+                let mut fp2 = mul(f64x(0x3FBC_7187_962D_1D7D), z); // Z*C4
+                fp3 = add(fp3, f64x(0xBFC2_4924_8271_07B8)); // C3+Z*C5
+                fp2 = add(fp2, f64x(0x3FC9_9999_9996_263E)); // C2+Z*C4
+                let fp1 = mul(z, fp3); // Z*(C3+Z*C5)
+                let fp2 = mul(fp2, fp0); // Y*(C2+Z*C4)
+                let fp1 = add(fp1, f64x(0xBFD5_5555_5555_5536)); // C1+Z*(C3+Z*C5)
+                let fp0 = mul(fp0, xsave); // X'*Y
+                let fp1 = add(fp1, fp2); // [Y*(C2+Z*C4)]+[C1+Z*(C3+Z*C5)]
+                let fp0 = add(mul(fp0, fp1), xsave);
+                let r =
+                    softfloat::floatx80_add(precision, mode, fp0, pack(a_sign, PIBY2_EXP, PI_SIG));
+                float_raise(flag::INEXACT);
+                r
+            }
+        } else if compact < 0x3FD7_8000 {
+            // |X| < 2^(-40): atan(X) ≈ X
+            let r = softfloat::floatx80_move(precision, mode, a);
+            float_raise(flag::INEXACT);
+            r
+        } else {
+            // 2^(-40) <= |X| < 1/16
+            let xsave = a;
+            let fp0 = mul(a, a); // Y = X*X
+            let z = mul(fp0, fp0); // Z = Y*Y
+            let mut fp2 = mul(f64x(0x3FB3_4444_7F87_6989), z); // Z*B6
+            let mut fp3 = mul(f64x(0xBFB7_44EE_7FAF_45DB), z); // Z*B5
+            fp2 = add(fp2, f64x(0x3FBC_71C6_4694_0220)); // B4+Z*B6
+            fp3 = add(fp3, f64x(0xBFC2_4924_9218_72F9)); // B3+Z*B5
+            fp2 = mul(fp2, z); // Z*(B4+Z*B6)
+            let fp1 = mul(z, fp3); // Z*(B3+Z*B5)
+            fp2 = add(fp2, f64x(0x3FC9_9999_9999_8FA9)); // B2+Z*(B4+Z*B6)
+            let fp1 = add(fp1, f64x(0xBFD5_5555_5555_5555)); // B1+Z*(B3+Z*B5)
+            let fp2 = mul(fp2, fp0); // Y*(B2+Z*(B4+Z*B6))
+            let fp0 = mul(fp0, xsave); // X*Y
+            let fp1 = add(fp1, fp2);
+            let fp0 = mul(fp0, fp1); // X*Y*(…)
+            let r = softfloat::floatx80_add(precision, mode, fp0, xsave);
+            float_raise(flag::INEXACT);
+            r
+        }
+    } else {
+        // 1/16 <= |X| < 16: table reduction
+        a_sig &= 0xF800_0000_0000_0000;
+        a_sig |= 0x0400_0000_0000_0000;
+        let f = pack(a_sign, a_exp, a_sig); // F
+        let fp1xf = mul(a, f); // X*F
+        let fp0xmf = sub(a, f); // X-F
+        let denom = add(fp1xf, pack(false, ONE_EXP, ONE_SIG)); // 1 + X*F
+        let u = div(fp0xmf, denom); // U = (X-F)/(1+X*F)
+
+        let mut tbl_index = compact;
+        tbl_index &= 0x7FFF_0000;
+        tbl_index -= 0x3FFB_0000;
+        tbl_index >>= 1;
+        tbl_index += compact & 0x0000_7800;
+        tbl_index >>= 11;
+        let mut fp3 = ATAN_TBL[tbl_index as usize];
+        if a_sign {
+            fp3.high |= 0x8000; // ATAN(F), signed
+        }
+
+        let v = mul(u, u); // V = U*U
+        let mut fp2 = add(f64x(0xBFF6_687E_3149_87D8), v); // A3+V
+        fp2 = mul(fp2, v); // V*(A3+V)
+        let uv = mul(v, u); // U*V
+        fp2 = add(fp2, f64x(0x4002_AC69_34A2_6DB3)); // A2+V*(A3+V)
+        let uv = mul(uv, f64x(0xBFC2_476F_4E1D_A28E)); // A1*U*V
+        let poly = mul(uv, fp2); // A1*U*V*(A2+V*(A3+V))
+        let fp0 = add(u, poly); // ATAN(U)
+        let r = softfloat::floatx80_add(precision, mode, fp0, fp3); // ATAN(X)
+        float_raise(flag::INEXACT);
+        r
+    }
+}
+
+/// `floatx80_asin` (FASIN): arc sine.
+#[must_use]
+pub fn floatx80_asin(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+
+    if a_exp == 0x7FFF && sig_is_nan(a_sig) {
+        return propagate_floatx80_nan_one_arg(a);
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(a_sign, 0, 0);
+    }
+
+    let compact = make_compact(a_exp, a_sig);
+    if compact >= 0x3FFF_8000 {
+        // |X| >= 1
+        if a_exp == ONE_EXP && a_sig == ONE_SIG {
+            // |X| == 1: asin(±1) = ±π/2
+            float_raise(flag::INEXACT);
+            return softfloat::floatx80_move(precision, mode, pack(a_sign, PIBY2_EXP, PI_SIG));
+        }
+        float_raise(flag::INVALID); // |X| > 1
+        return default_nan();
+    }
+
+    let one = pack(false, ONE_EXP, ONE_SIG);
+    let fp1 = sub(one, a); // 1 - X
+    let fp2 = add(one, a); // 1 + X
+    let prod = mul(fp2, fp1); // (1+X)*(1-X)
+    let root = softfloat::floatx80_sqrt(80, RN, prod); // SQRT((1+X)*(1-X))
+    let fp0 = div(a, root); // X / SQRT(...)
+    let r = floatx80_atan(precision, mode, fp0); // ATAN(...)
+    float_raise(flag::INEXACT);
+    r
+}
+
+/// `floatx80_acos` (FACOS): arc cosine.
+#[must_use]
+pub fn floatx80_acos(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+
+    if a_exp == 0x7FFF && sig_is_nan(a_sig) {
+        return propagate_floatx80_nan_one_arg(a);
+    }
+    if a_exp == 0 && a_sig == 0 {
+        // acos(0) = π/2
+        float_raise(flag::INEXACT);
+        return softfloat::round_and_pack_floatx80(precision, mode, false, PIBY2_EXP, PI_SIG, 0);
+    }
+
+    let compact = make_compact(a_exp, a_sig);
+    if compact >= 0x3FFF_8000 {
+        // |X| >= 1
+        if a_exp == ONE_EXP && a_sig == ONE_SIG {
+            if a_sign {
+                // X == -1: acos(-1) = π
+                float_raise(flag::INEXACT);
+                return softfloat::floatx80_move(precision, mode, pack(false, PI_EXP, PI_SIG));
+            }
+            return pack(false, 0, 0); // acos(+1) = 0
+        }
+        float_raise(flag::INVALID); // |X| > 1
+        return default_nan();
+    }
+
+    let one = pack(false, ONE_EXP, ONE_SIG);
+    let fp1 = add(one, a); // 1 + X
+    let fp0 = sub(one, a); // 1 - X
+    let q = div(fp0, fp1); // (1-X)/(1+X)
+    let root = softfloat::floatx80_sqrt(80, RN, q); // SQRT(...)
+    let at = floatx80_atan(80, RN, root); // ATAN(SQRT(...))
+    let r = softfloat::floatx80_add(precision, mode, at, at); // 2 * ATAN(...)
+    float_raise(flag::INEXACT);
+    r
+}
+
+/// `floatx80_atanh` (FATANH): hyperbolic arc tangent.
+#[must_use]
+pub fn floatx80_atanh(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+
+    if a_exp == 0x7FFF && sig_is_nan(a_sig) {
+        return propagate_floatx80_nan_one_arg(a);
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(a_sign, 0, 0);
+    }
+
+    let compact = make_compact(a_exp, a_sig);
+    if compact >= 0x3FFF_8000 {
+        // |X| >= 1
+        if a_exp == ONE_EXP && a_sig == ONE_SIG {
+            float_raise(flag::DIVBYZERO); // atanh(±1) = ±inf
+            return pack(a_sign, 0x7FFF, 0);
+        }
+        float_raise(flag::INVALID); // |X| > 1
+        return default_nan();
+    }
+
+    let one = pack(false, ONE_EXP, ONE_SIG);
+    let half = pack(a_sign, 0x3FFE, ONE_SIG); // SIGN(X) * 1/2
+    let y = pack(false, a_exp, a_sig); // |X|
+    let neg_y = pack(true, a_exp, a_sig); // -|X|
+    let two_y = add(y, y); // 2|X|
+    let one_minus_y = add(neg_y, one); // 1 - |X|
+    let z = div(two_y, one_minus_y); // Z = 2Y/(1-Y)
+    let l = floatx80_lognp1(80, RN, z); // LOG1P(Z)
+    let r = softfloat::floatx80_mul(precision, mode, l, half); // SIGN(X)*(1/2)*LOG1P(Z)
+    float_raise(flag::INEXACT);
+    r
+}
+
+// ─── Hyperbolic (sinh / cosh / tanh) ─────────────────────────────────────────
+
+/// `floatx80_cosh` (FCOSH): hyperbolic cosine.
+#[must_use]
+pub fn floatx80_cosh(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        return pack(false, a_exp, a_sig); // cosh(±inf) = +inf
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(false, ONE_EXP, ONE_SIG); // cosh(0) = 1
+    }
+
+    let compact = make_compact(a_exp, a_sig);
+    if compact > 0x400C_B167 {
+        if compact > 0x400C_B2B3 {
+            let r = softfloat::round_and_pack_floatx80(precision, mode, false, 0x8000, ONE_SIG, 0);
+            float_raise(flag::INEXACT);
+            return r;
+        }
+        let mut fp0 = pack(false, a_exp, a_sig);
+        fp0 = sub(fp0, f64x(0x40C6_2D38_D3D6_4634)); // |X| - 16381 log2 (lead)
+        fp0 = sub(fp0, f64x(0x3D6F_90AE_B1E7_5CC7)); // … accurate
+        fp0 = floatx80_etox(80, RN, fp0);
+        let r = softfloat::floatx80_mul(precision, mode, fp0, pack(false, 0x7FFB, ONE_SIG));
+        float_raise(flag::INEXACT);
+        return r;
+    }
+
+    let mut fp0 = pack(false, a_exp, a_sig); // |X|
+    fp0 = floatx80_etox(80, RN, fp0); // EXP(|X|)
+    fp0 = mul(fp0, f32x(0x3F00_0000)); // (1/2)*EXP(|X|)
+    let fp1 = div(f32x(0x3E80_0000), fp0); // 1/(2*EXP(|X|))
+    let r = softfloat::floatx80_add(precision, mode, fp0, fp1);
+    float_raise(flag::INEXACT);
+    r
+}
+
+/// `floatx80_sinh` (FSINH): hyperbolic sine.
+#[must_use]
+pub fn floatx80_sinh(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        return a; // sinh(±inf) = ±inf
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(a_sign, 0, 0);
+    }
+
+    let compact = make_compact(a_exp, a_sig);
+    if compact > 0x400C_B167 {
+        if compact > 0x400C_B2B3 {
+            let r = softfloat::round_and_pack_floatx80(precision, mode, a_sign, 0x8000, a_sig, 0);
+            float_raise(flag::INEXACT);
+            return r;
+        }
+        let mut fp0 = softfloat::floatx80_abs(80, RN, a); // |X|
+        fp0 = sub(fp0, f64x(0x40C6_2D38_D3D6_4634));
+        fp0 = sub(fp0, f64x(0x3D6F_90AE_B1E7_5CC7));
+        fp0 = floatx80_etox(80, RN, fp0);
+        let r = softfloat::floatx80_mul(precision, mode, fp0, pack(a_sign, 0x7FFB, ONE_SIG));
+        float_raise(flag::INEXACT);
+        return r;
+    }
+
+    let yabs = softfloat::floatx80_abs(80, RN, a); // Y = |X|
+    let z = floatx80_etoxm1(80, RN, yabs); // Z = EXPM1(Y)
+    let onepz = add(z, f32x(0x3F80_0000)); // 1+Z
+    let fp0 = add(div(z, onepz), z); // Z/(1+Z) + Z
+    let fact = 0x3F00_0000u32 | if a_sign { 0x8000_0000 } else { 0 }; // ±1/2
+    let r = softfloat::floatx80_mul(precision, mode, fp0, f32x(fact));
+    float_raise(flag::INEXACT);
+    r
+}
+
+/// `floatx80_tanh` (FTANH): hyperbolic tangent.
+#[must_use]
+pub fn floatx80_tanh(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        return pack(a_sign, ONE_EXP, ONE_SIG); // tanh(±inf) = ±1
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(a_sign, 0, 0);
+    }
+
+    let compact = make_compact(a_exp, a_sig);
+    if !(0x3FD7_8000..=0x3FFF_DDCE).contains(&compact) {
+        if compact < 0x3FFF_8000 {
+            // TANHSM: tanh(X) ≈ X
+            let r = softfloat::floatx80_move(precision, mode, a);
+            float_raise(flag::INEXACT);
+            return r;
+        } else if compact > 0x4004_8AA1 {
+            // TANHHUGE: ±1 ∓ ε
+            let s = 0x3F80_0000u32 | if a_sign { 0x8000_0000 } else { 0 };
+            let eps = (s & 0x8000_0000) ^ 0x8080_0000;
+            let r = softfloat::floatx80_add(precision, mode, f32x(s), f32x(eps));
+            float_raise(flag::INEXACT);
+            return r;
+        } else {
+            let y = pack(false, a_exp + 1, a_sig); // Y = 2|X|
+            let mut fp0 = floatx80_etox(80, RN, y); // EXP(Y)
+            fp0 = add(fp0, f32x(0x3F80_0000)); // EXP(Y)+1
+            let sgn = if a_sign { 0x8000_0000u32 } else { 0 };
+            let fp1 = div(f32x(sgn ^ 0xC000_0000), fp0); // -SIGN(X)*2 / [EXP(Y)+1]
+            let r = softfloat::floatx80_add(precision, mode, fp1, f32x(sgn | 0x3F80_0000));
+            float_raise(flag::INEXACT);
+            return r;
+        }
+    }
+
+    // 2^(-40) < |X| < (5/2)log2
+    let y = pack(false, a_exp + 1, a_sig); // Y = 2|X|
+    let z = floatx80_etoxm1(80, RN, y); // Z = EXPM1(Y)
+    let zp2 = add(z, f32x(0x4000_0000)); // Z+2
+    let den = pack(sign(zp2) ^ a_sign, exp(zp2), frac(zp2));
+    let r = softfloat::floatx80_div(precision, mode, z, den);
+    float_raise(flag::INEXACT);
+    r
 }

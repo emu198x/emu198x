@@ -154,13 +154,11 @@ fn fnop_traps_vector_11_without_fpu() {
 
 #[test]
 fn unimplemented_fpu_arithmetic_traps_vector_11() {
-    // $F200 = cpID 1, cpGEN; extension word $000E = FSIN (reg-to-reg,
-    // opmode 0x0E). The non-transcendental ops (arithmetic + FMOD/FREM/
-    // FSCALE/FGETEXP/FGETMAN/FSGLMUL/FSGLDIV) now execute via the SoftFloat
-    // port, but the transcendentals are not wired yet, so they still
-    // decline → vector 11. (The wired ops DO execute now — see
-    // tests/fpu_fpgen.rs.)
-    assert!(run(0xF200, &[0x000E], true, 0).vectored);
+    // $F200 = cpID 1, cpGEN; extension word $0007 = opmode 0x07, an undefined
+    // (pseudo-)encoding. The full 68881/2 arithmetic + transcendental opmode
+    // set now executes via the SoftFloat / FPSP port, so only genuinely
+    // undefined opmodes still decline → vector 11.
+    assert!(run(0xF200, &[0x0007], true, 0).vectored);
 }
 
 #[test]

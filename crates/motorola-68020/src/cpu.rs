@@ -833,10 +833,13 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
     // Only these opmodes are backed by the SoftFloat `floatx80` port — the
     // arithmetic/move set (FMOVE/FABS/FNEG/FTST/FADD/FSUB/FMUL/FDIV/FSQRT/FCMP/
     // FINT/FINTRZ/FGETEXP/FGETMAN/FSCALE/FMOD/FREM/FSGLMUL/FSGLDIV) plus the
-    // FPSP transcendentals: exponentials (FETOXM1 0x08, FETOX 0x10, FTWOTOX
+    // FPSP transcendentals — exponentials (FETOXM1 0x08, FETOX 0x10, FTWOTOX
     // 0x11, FTENTOX 0x12), logarithms (FLOGNP1 0x06, FLOGN 0x14, FLOG10 0x15,
-    // FLOG2 0x16), and trigonometric (FSIN 0x0E, FCOS 0x1D, FTAN 0x0F, and
-    // FSINCOS 0x30-0x37). Any unlisted opmode declines (vector-11 trap).
+    // FLOG2 0x16), trigonometric (FSIN 0x0E, FCOS 0x1D, FTAN 0x0F, FSINCOS
+    // 0x30-0x37), inverse-trig (FATAN 0x0A, FASIN 0x0C, FACOS 0x1C, FATANH
+    // 0x0D), and hyperbolic (FSINH 0x02, FCOSH 0x19, FTANH 0x09). The full
+    // 68881/2 cpGEN set is now implemented; any unlisted opmode is a
+    // pseudo-encoding and declines (vector-11 trap).
     if !matches!(
         opmode,
         0x00 | 0x18
@@ -868,7 +871,7 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
             | 0x0E
             | 0x1D
             | 0x0F
-            | 0x30..=0x37
+            | 0x30..=0x37 | 0x0A | 0x0C | 0x1C | 0x0D | 0x02 | 0x19 | 0x09
     ) {
         return false;
     }
@@ -1011,6 +1014,36 @@ fn apply_fp_opmode(
                 motorola_68k_common::softfloat_fpsp::floatx80_sincos(precision, mode, source);
             cpu.regs.fp[c_reg] = c;
             cpu.regs.fp[dst] = s;
+        }
+        // FPSP inverse-trigonometric.
+        0x0A => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_atan(precision, mode, source)
+        }
+        0x0C => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_asin(precision, mode, source)
+        }
+        0x1C => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_acos(precision, mode, source)
+        }
+        0x0D => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_atanh(precision, mode, source)
+        }
+        // FPSP hyperbolic.
+        0x02 => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_sinh(precision, mode, source)
+        }
+        0x19 => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_cosh(precision, mode, source)
+        }
+        0x09 => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_tanh(precision, mode, source)
         }
         // FSCALE: scale dst by 2^(integer part of source), rounded to precision.
         0x26 => {

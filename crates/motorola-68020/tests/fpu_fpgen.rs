@@ -1847,3 +1847,57 @@ fn fsincos_same_register_keeps_sine() {
     let (s, _c) = floatx80_sincos(80, NearestEven, half);
     assert_eq!(r.fp[1], s, "FPc == FPs → sine kept");
 }
+
+// ─── FPSP inverse-trig + hyperbolic (#492) ────────────────────────────────
+
+#[test]
+fn fatan_fasin_facos_anchors() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::{floatx80_acos, floatx80_asin, floatx80_atan};
+    // atan(0)=0, asin(0)=0, acos(0)=π/2.
+    let r = run(0x0A, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "atan(0) = 0");
+    let r = run(0x0C, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "asin(0) = 0");
+    let r = run(0x1C, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(
+        r.fp[1],
+        FpReg::new(0x3FFF, 0xC90F_DAA2_2168_C235),
+        "acos(0) = π/2"
+    );
+    // Dispatch matches the backend on 0.5.
+    let half = FpReg::new(0x3FFE, 0x8000_0000_0000_0000);
+    let r = run(0x0A, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_atan(80, NearestEven, half));
+    let r = run(0x0C, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_asin(80, NearestEven, half));
+    let r = run(0x1C, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_acos(80, NearestEven, half));
+}
+
+#[test]
+fn fsinh_fcosh_ftanh_anchors() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::{
+        floatx80_atanh, floatx80_cosh, floatx80_sinh, floatx80_tanh,
+    };
+    // sinh(0)=0, cosh(0)=1, tanh(0)=0, atanh(0)=0.
+    let r = run(0x02, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "sinh(0) = 0");
+    let r = run(0x19, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], ONE, "cosh(0) = 1");
+    let r = run(0x09, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "tanh(0) = 0");
+    let r = run(0x0D, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "atanh(0) = 0");
+    // Dispatch matches the backend on 0.5.
+    let half = FpReg::new(0x3FFE, 0x8000_0000_0000_0000);
+    let r = run(0x02, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_sinh(80, NearestEven, half));
+    let r = run(0x19, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_cosh(80, NearestEven, half));
+    let r = run(0x09, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_tanh(80, NearestEven, half));
+    let r = run(0x0D, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_atanh(80, NearestEven, half));
+}
