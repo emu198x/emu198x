@@ -807,6 +807,8 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
         let v = softfloat::fmovecr(mode, (w2 & 0x7F) as u8);
         cpu.regs.fp[dst] = v;
         motorola_68k_common::fpu::set_condition_codes(&mut cpu.regs, v);
+        // FMOVECR internal time: 181 clocks (table 8-15) + interface overhead.
+        push_internal_cycles(cpu, 181 + u32::from(FP_OVERHEAD));
         return true;
     }
 
@@ -907,6 +909,95 @@ fn fp_prep(v: motorola_68k_common::registers::FpReg) -> motorola_68k_common::reg
     }
 }
 
+/// MC68881/2 arithmetic-calculation cycles for an FP opmode — the
+/// normalized-operand common case from MC68881UM tables 8-14 (dyadic) and
+/// 8-15 (monadic). Bounded UM-derived timing model (#494): the operand-class
+/// variation (the zero / infinity / NaN / denormal columns of each table), the
+/// large-argument REM reduction that FMOD / FREM / the trig family add for
+/// sources outside ±9, memory-operand input conversion, and the MC68882's
+/// instruction concurrency are all approximated away — every operand reduces
+/// to its normalized-source figure, and both the 68881 and the 68882 emit the
+/// same (non-overlapped) number because a synchronous core cannot represent the
+/// 68882's execution overlap. The fixed [`FP_OVERHEAD`] covers the rest of the
+/// interface time.
+fn fp_calc_cycles(opmode: u16) -> u16 {
+    match opmode & 0x7F {
+        // Move / sign-only ops (table 8-15: no real arithmetic calculation).
+        0x00 => 2,  // FMOVE FPm,FPn
+        0x18 => 4,  // FABS
+        0x1A => 4,  // FNEG
+        0x3A => 4,  // FTST
+        0x01 => 30, // FINT  (non-zero fraction)
+        0x03 => 30, // FINTRZ
+        0x04 => 76, // FSQRT
+        0x1E => 20, // FGETEXP
+        0x1F => 20, // FGETMAN
+        // Dyadic (table 8-14, normalized-operand base figure).
+        0x22 => 24, // FADD
+        0x28 => 24, // FSUB
+        0x23 => 46, // FMUL
+        0x20 => 78, // FDIV
+        0x24 => 44, // FSGLDIV
+        0x27 => 34, // FSGLMUL
+        0x38 => 8,  // FCMP
+        0x21 => 18, // FMOD  (quotient zero; the reduction loop is approximated)
+        0x25 => 18, // FREM  (quotient zero; the reduction loop is approximated)
+        0x26 => 16, // FSCALE (source exponent in 0..=15)
+        // FPSP transcendentals (table 8-15).
+        0x10 => 466,        // FETOX
+        0x08 => 514,        // FETOXM1
+        0x11 => 536,        // FTWOTOX
+        0x12 => 536,        // FTENTOX
+        0x14 => 494,        // FLOGN
+        0x06 => 540,        // FLOGNP1
+        0x15 => 550,        // FLOG10
+        0x16 => 550,        // FLOG2
+        0x0E => 360,        // FSIN
+        0x1D => 350,        // FCOS
+        0x0F => 442,        // FTAN
+        0x0A => 372,        // FATAN
+        0x0C => 550,        // FASIN
+        0x1C => 594,        // FACOS
+        0x0D => 662,        // FATANH
+        0x02 => 656,        // FSINH
+        0x19 => 576,        // FCOSH
+        0x09 => 630,        // FTANH
+        0x30..=0x37 => 420, // FSINCOS
+        _ => 0,
+    }
+}
+
+/// Fixed interface overhead added to every arithmetic FP op's calculation
+/// time: a representative sum of the cpGEN dispatch, the register-operand
+/// transfer, extended output conversion (18 clocks, table 8-16) and extended
+/// rounding (6 clocks, table 8-18). Bounded UM-derived model (#494) — the
+/// single / double rounding cost (24 clocks) and the per-format memory input
+/// conversion are folded into this one constant rather than computed per
+/// operand.
+const FP_OVERHEAD: u16 = 35;
+
+/// Queue `total` internal-delay clocks as `Internal` micro-ops. `Internal`
+/// caps each chunk at 255 clocks, so a transcendental's multi-hundred-clock
+/// delay is split across several ops.
+fn push_internal_cycles(cpu: &mut Cpu68000, mut total: u32) {
+    while total > 0 {
+        let chunk = total.min(255) as u8;
+        cpu.micro_ops.push(MicroOp::Internal(chunk));
+        total -= u32::from(chunk);
+    }
+}
+
+/// Queue the MC68881/2 internal execution delay for an arithmetic FP op. The
+/// delay is consumed before the instruction boundary (the core's `PromoteIRC`
+/// step), so a post-instruction FP trap fires only after the compute time has
+/// elapsed — the 68881 post-instruction exception model.
+fn push_fp_cycles(cpu: &mut Cpu68000, opmode: u16) {
+    push_internal_cycles(
+        cpu,
+        u32::from(fp_calc_cycles(opmode)) + u32::from(FP_OVERHEAD),
+    );
+}
+
 /// Apply an FPU opmode with `source` as the (already-loaded) source
 /// operand and `dst` as the destination Fpn, then set the condition
 /// codes. Shared by the register-to-register and memory-operand paths.
@@ -930,6 +1021,10 @@ fn apply_fp_opmode(
     // register is disturbed.
     let source = fp_prep(source);
     let dst_op = fp_prep(cpu.regs.fp[dst]);
+
+    // Queue this op's MC68881/2 internal execution delay (#494). Done before
+    // the match so it covers every opmode, including FCMP's early return.
+    push_fp_cycles(cpu, opmode);
 
     match opmode {
         // FMOVE/FABS/FNEG round the source to the rounding precision (identity

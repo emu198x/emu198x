@@ -136,7 +136,7 @@ fn run_raw(w2: u16, seed: impl FnOnce(&mut Cpu68020)) -> Out {
     cpu.setup_prefetch(opcode, w2);
 
     let start = cpu.instruction_starts;
-    for _ in 0..400 {
+    for _ in 0..1200 {
         service_bus(&mut cpu, &mut mem);
         cpu.tick();
         if cpu.instruction_starts > start {
@@ -194,7 +194,7 @@ fn run_ctrl(opcode: u16, w2: u16, seed: impl FnOnce(&mut Cpu68020)) -> Ctrl {
     cpu.setup_prefetch(opcode, w2);
 
     let start = cpu.instruction_starts;
-    for _ in 0..400 {
+    for _ in 0..1200 {
         service_bus(&mut cpu, &mut mem);
         cpu.tick();
         if cpu.instruction_starts > start {
@@ -236,7 +236,7 @@ fn run_ctrl_mem(
     cpu.setup_prefetch(opcode, w2);
 
     let start = cpu.instruction_starts;
-    for _ in 0..400 {
+    for _ in 0..1200 {
         service_bus(&mut cpu, &mut mem);
         cpu.tick();
         if cpu.instruction_starts > start {
@@ -452,7 +452,7 @@ fn run_mem(
     cpu.setup_prefetch(opcode, w2);
 
     let start = cpu.instruction_starts;
-    for _ in 0..400 {
+    for _ in 0..1200 {
         service_bus(&mut cpu, &mut mem);
         cpu.tick();
         if cpu.instruction_starts > start {
@@ -974,7 +974,7 @@ fn run_mem_ea(
     cpu.setup_prefetch(opcode, w2);
 
     let start = cpu.instruction_starts;
-    for _ in 0..400 {
+    for _ in 0..1200 {
         service_bus(&mut cpu, &mut mem);
         cpu.tick();
         if cpu.instruction_starts > start {
@@ -1011,7 +1011,7 @@ fn run_store(opcode: u16, w2: u16, seed: impl FnOnce(&mut Cpu68020)) -> (Out, Me
     cpu.setup_prefetch(opcode, w2);
 
     let start = cpu.instruction_starts;
-    for _ in 0..400 {
+    for _ in 0..1200 {
         service_bus(&mut cpu, &mut mem);
         cpu.tick();
         if cpu.instruction_starts > start {
@@ -1057,7 +1057,7 @@ fn run_store_ea(
     cpu.setup_prefetch(opcode, w2);
 
     let start = cpu.instruction_starts;
-    for _ in 0..400 {
+    for _ in 0..1200 {
         service_bus(&mut cpu, &mut mem);
         cpu.tick();
         if cpu.instruction_starts > start {
