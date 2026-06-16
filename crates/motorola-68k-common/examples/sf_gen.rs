@@ -22,21 +22,21 @@ impl Lcg {
 fn rand_fx80(r: &mut Lcg) -> (u16, u64) {
     let sign = (r.next() & 1) as u16;
     let class = r.next() % 100;
-    let (exp, low): (u16, u64) = if class < 45 {
+    let (exp, low): (u16, u64) = if class < 40 {
         // moderate normal
         let e = 0x3FFFu16
             .wrapping_add((r.next() % 129) as u16)
             .wrapping_sub(64);
         (e & 0x7FFF, r.next() | 0x8000_0000_0000_0000)
-    } else if class < 65 {
+    } else if class < 58 {
         // wide normal
         let e = (1 + (r.next() % 0x7FFD)) as u16;
         (e, r.next() | 0x8000_0000_0000_0000)
-    } else if class < 75 {
+    } else if class < 67 {
         (0, 0) // zero
-    } else if class < 83 {
+    } else if class < 74 {
         (0x7FFF, 0x8000_0000_0000_0000) // inf
-    } else if class < 92 {
+    } else if class < 82 {
         // nan (quiet/signalling)
         let frac = (r.next() & 0x3FFF_FFFF_FFFF_FFFF).max(1);
         let quiet = if r.next() & 1 == 0 {
@@ -45,11 +45,39 @@ fn rand_fx80(r: &mut Lcg) -> (u16, u64) {
             0
         };
         (0x7FFF, 0x8000_0000_0000_0000 | quiet | frac)
-    } else {
-        // subnormal
+    } else if class < 88 {
+        // subnormal (exp 0, integer bit clear, non-zero fraction)
         (0, (r.next() & 0x7FFF_FFFF_FFFF_FFFF).max(1))
+    } else {
+        // 80-bit-specific pseudo-encodings the 68881/2 treats specially (#493):
+        // unnormal, pseudo-denormal, pseudo-infinity, pseudo-NaN.
+        match r.next() % 4 {
+            // Unnormal: normal exponent range, integer bit CLEAR, non-zero.
+            0 => {
+                let e = (1 + (r.next() % 0x7FFD)) as u16;
+                (e, (r.next() & 0x7FFF_FFFF_FFFF_FFFF).max(1))
+            }
+            // Pseudo-denormal: exp 0 but integer bit SET.
+            1 => (0, r.next() | 0x8000_0000_0000_0000),
+            // Pseudo-infinity: max exp, integer bit CLEAR, zero fraction.
+            2 => (0x7FFF, 0),
+            // Pseudo-NaN: max exp, integer bit CLEAR, non-zero fraction.
+            _ => (0x7FFF, (r.next() & 0x7FFF_FFFF_FFFF_FFFF).max(1)),
+        }
     };
     ((sign << 15) | exp, low)
+}
+
+/// Mirror the 68881/2 operand-fetch normalisation (#493): an unnormal or
+/// denormal `floatx80` operand is renormalised before the op (WinUAE
+/// `normalize_or_fault_if_no_denormal_support` → `floatx80_normalize`). A
+/// no-op for normals / zero / inf / NaN / pseudo-encodings.
+fn prep(fx: FpReg) -> FpReg {
+    if sf::floatx80_is_unnormal(fx) || sf::floatx80_is_denormal(fx) {
+        sf::floatx80_normalize(fx)
+    } else {
+        fx
+    }
 }
 
 fn mode_of(m: u64) -> RoundingMode {
@@ -111,7 +139,7 @@ fn main() {
             let mode = mode_of(m);
             let kf = (r.next() % 128) as i32 - 64; // decoded k-factor, −64..63
             sf::clear_exception_flags();
-            let wrd = sf::floatx80_to_pack_decimal(FpReg::new(ah, al), kf, mode);
+            let wrd = sf::floatx80_to_pack_decimal(prep(FpReg::new(ah, al)), kf, mode);
             let rl = (u64::from(wrd[1]) << 32) | u64::from(wrd[2]);
             let bl = kf as i64 as u64;
             out.push_str(&format!(
@@ -135,8 +163,8 @@ fn main() {
         let (bh, bl) = rand_fx80(&mut r);
         let m = r.next() % 4;
         let mode = mode_of(m);
-        let a = FpReg::new(ah, al);
-        let b = FpReg::new(bh, bl);
+        let a = prep(FpReg::new(ah, al));
+        let b = prep(FpReg::new(bh, bl));
         sf::clear_exception_flags();
         // FREM/FMOD emit the FPSR quotient byte (sign<<7 | low 7 bits) in the
         // flags column instead of the exception flags, so the harness validates

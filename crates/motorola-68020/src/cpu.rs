@@ -894,6 +894,19 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
     begin_fp_memory(cpu, opmode)
 }
 
+/// Normalise an unnormal / denormal `floatx80` operand the way the 68881/2
+/// does at operand fetch (#493). Normals, zero, infinities, NaNs, and the
+/// pseudo-encodings (pseudo-denormal / -infinity / -NaN) pass through
+/// unchanged — only true unnormals are renormalised.
+fn fp_prep(v: motorola_68k_common::registers::FpReg) -> motorola_68k_common::registers::FpReg {
+    use motorola_68k_common::softfloat;
+    if softfloat::floatx80_is_unnormal(v) || softfloat::floatx80_is_denormal(v) {
+        softfloat::floatx80_normalize(v)
+    } else {
+        v
+    }
+}
+
 /// Apply an FPU opmode with `source` as the (already-loaded) source
 /// operand and `dst` as the destination Fpn, then set the condition
 /// codes. Shared by the register-to-register and memory-operand paths.
@@ -908,6 +921,15 @@ fn apply_fp_opmode(
 ) {
     use motorola_68k_common::registers::FpReg;
     use motorola_68k_common::softfloat;
+
+    // 68881/2 operand-fetch normalisation (#493): an unnormal or denormal
+    // floatx80 operand is renormalised before the operation (WinUAE
+    // `normalize_or_fault_if_no_denormal_support`). The source applies to every
+    // op; the destination operand (`dst_op`) feeds the dyadic ops — monadic ops
+    // overwrite the destination and FTST/FCMP read only what they need, so no
+    // register is disturbed.
+    let source = fp_prep(source);
+    let dst_op = fp_prep(cpu.regs.fp[dst]);
 
     match opmode {
         // FMOVE/FABS/FNEG round the source to the rounding precision (identity
@@ -927,30 +949,30 @@ fn apply_fp_opmode(
         // Binary ops: dst = dst op source (Musashi passes REG_FP[dst] first),
         // at the selected rounding precision with the FPCR rounding mode.
         0x22 => {
-            cpu.regs.fp[dst] = softfloat::floatx80_add(precision, mode, cpu.regs.fp[dst], source);
+            cpu.regs.fp[dst] = softfloat::floatx80_add(precision, mode, dst_op, source);
         }
         0x28 => {
-            cpu.regs.fp[dst] = softfloat::floatx80_sub(precision, mode, cpu.regs.fp[dst], source);
+            cpu.regs.fp[dst] = softfloat::floatx80_sub(precision, mode, dst_op, source);
         }
         0x23 => {
-            cpu.regs.fp[dst] = softfloat::floatx80_mul(precision, mode, cpu.regs.fp[dst], source);
+            cpu.regs.fp[dst] = softfloat::floatx80_mul(precision, mode, dst_op, source);
         }
         0x20 => {
-            cpu.regs.fp[dst] = softfloat::floatx80_div(precision, mode, cpu.regs.fp[dst], source);
+            cpu.regs.fp[dst] = softfloat::floatx80_div(precision, mode, dst_op, source);
         }
         // FSGLMUL/FSGLDIV: single-precision multiply/divide. FSGLMUL also
         // truncates its operands to single precision first (dedicated paths,
         // not FMUL/FDIV at single rounding); they ignore the FPCR precision.
-        0x27 => cpu.regs.fp[dst] = softfloat::floatx80_sglmul(mode, cpu.regs.fp[dst], source),
-        0x24 => cpu.regs.fp[dst] = softfloat::floatx80_sgldiv(mode, cpu.regs.fp[dst], source),
+        0x27 => cpu.regs.fp[dst] = softfloat::floatx80_sglmul(mode, dst_op, source),
+        0x24 => cpu.regs.fp[dst] = softfloat::floatx80_sgldiv(mode, dst_op, source),
         // FMOD/FREM: dst = dst mod/rem source, and set the FPSR quotient byte.
         0x21 => {
-            let r = softfloat::floatx80_mod(precision, mode, cpu.regs.fp[dst], source);
+            let r = softfloat::floatx80_mod(precision, mode, dst_op, source);
             cpu.regs.fp[dst] = r.value;
             cpu.regs.set_fpsr_quotient(r.quotient, r.sign);
         }
         0x25 => {
-            let r = softfloat::floatx80_rem(precision, mode, cpu.regs.fp[dst], source);
+            let r = softfloat::floatx80_rem(precision, mode, dst_op, source);
             cpu.regs.fp[dst] = r.value;
             cpu.regs.set_fpsr_quotient(r.quotient, r.sign);
         }
@@ -1047,7 +1069,7 @@ fn apply_fp_opmode(
         }
         // FSCALE: scale dst by 2^(integer part of source), rounded to precision.
         0x26 => {
-            cpu.regs.fp[dst] = softfloat::floatx80_scale(precision, mode, cpu.regs.fp[dst], source);
+            cpu.regs.fp[dst] = softfloat::floatx80_scale(precision, mode, dst_op, source);
         }
         0x01 => {
             // FINT: round source to an integer (per the FPCR mode) and back.
@@ -1063,7 +1085,7 @@ fn apply_fp_opmode(
             // FCMP: set condition codes from dst − source without writing a
             // register. Musashi special-cases infinities (when neither
             // operand is a NaN) to avoid an inf − inf invalid result.
-            let dst_v = cpu.regs.fp[dst];
+            let dst_v = dst_op;
             let inf_sign = |v: FpReg| -> i32 {
                 if v.is_infinite() {
                     if v.is_negative() { -1 } else { 1 }

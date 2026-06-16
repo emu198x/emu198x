@@ -266,6 +266,46 @@ pub fn normalize_floatx80_subnormal(a_sig: u64) -> (i32, u64) {
     (-shift_count, a_sig.wrapping_shl(shift_count as u32))
 }
 
+/// `floatx80_is_unnormal` (softfloat-specialize.h): a non-canonical extended
+/// value with a normal-range exponent but a clear explicit integer bit. The
+/// 68881/2 normalises these operands before use.
+#[must_use]
+pub fn floatx80_is_unnormal(a: FpReg) -> bool {
+    let e = exp(a);
+    e > 0 && e < 0x7FFF && frac(a) & 0x8000_0000_0000_0000 == 0
+}
+
+/// `floatx80_is_denormal` (softfloat-specialize.h): a true extended denormal —
+/// zero exponent, clear integer bit, non-zero fraction.
+#[must_use]
+pub fn floatx80_is_denormal(a: FpReg) -> bool {
+    exp(a) == 0 && frac(a) & 0x8000_0000_0000_0000 == 0 && frac(a).wrapping_shl(1) != 0
+}
+
+/// `floatx80_normalize` (softfloat.cpp): shift an unnormal's significand left
+/// until the integer bit is set, decrementing the exponent. Infinities, NaNs,
+/// and zero-exponent values are returned unchanged (the 68881/2 leaves
+/// denormals as-is; only unnormals are renormalised). An unnormal-zero (normal
+/// exponent, zero significand) collapses to a signed zero.
+#[must_use]
+pub fn floatx80_normalize(a: FpReg) -> FpReg {
+    let a_sign = sign(a);
+    let mut a_exp = exp(a);
+    let a_sig = frac(a);
+    if a_exp == 0x7FFF || a_exp == 0 {
+        return a;
+    }
+    if a_sig == 0 {
+        return pack(a_sign, 0, 0);
+    }
+    let mut shift_count = a_sig.leading_zeros() as i32;
+    if shift_count > a_exp {
+        shift_count = a_exp;
+    }
+    a_exp -= shift_count;
+    pack(a_sign, a_exp, a_sig.wrapping_shl(shift_count as u32))
+}
+
 /// Convert a 32-bit signed integer to extended precision
 /// (`int32_to_floatx80`). Exact for all `i32` — the value fits in the
 /// 64-bit significand, so no rounding occurs.
@@ -2815,6 +2855,51 @@ mod tests {
     #[test]
     fn int32_zero_is_positive_zero() {
         assert_eq!(int32_to_floatx80(0), FpReg::new(0, 0));
+    }
+
+    #[test]
+    fn pseudo_encoding_classification() {
+        // Unnormal: normal exponent, integer bit clear, non-zero.
+        assert!(floatx80_is_unnormal(FpReg::new(
+            0x4001,
+            0x4000_0000_0000_0000
+        )));
+        // Normal (integer bit set) is not unnormal.
+        assert!(!floatx80_is_unnormal(FpReg::new(
+            0x4001,
+            0x8000_0000_0000_0000
+        )));
+        // Denormal: zero exponent, integer bit clear, non-zero fraction.
+        assert!(floatx80_is_denormal(FpReg::new(0, 0x4000_0000_0000_0000)));
+        // Pseudo-denormal (exp 0, integer bit set) is neither unnormal nor denormal.
+        let pseudo_denorm = FpReg::new(0, 0x8000_0000_0000_0000);
+        assert!(!floatx80_is_unnormal(pseudo_denorm));
+        assert!(!floatx80_is_denormal(pseudo_denorm));
+        // Zero is neither.
+        assert!(!floatx80_is_unnormal(FpReg::new(0, 0)));
+        assert!(!floatx80_is_denormal(FpReg::new(0, 0)));
+    }
+
+    #[test]
+    fn normalize_shifts_unnormal_significand() {
+        // 0x4001:0x4000…0 (= 2.0, unnormal) normalises to 0x4000:0x8000…0.
+        assert_eq!(
+            floatx80_normalize(FpReg::new(0x4001, 0x4000_0000_0000_0000)),
+            FpReg::new(0x4000, 0x8000_0000_0000_0000)
+        );
+        // A normal value is unchanged.
+        let normal = FpReg::new(0x4000, 0x8000_0000_0000_0000);
+        assert_eq!(floatx80_normalize(normal), normal);
+        // An unnormal-zero (normal exponent, zero significand) collapses to ±0.
+        assert_eq!(floatx80_normalize(FpReg::new(0x4001, 0)), FpReg::new(0, 0));
+        assert_eq!(
+            floatx80_normalize(FpReg::new(0xC001, 0)),
+            FpReg::new(0x8000, 0)
+        );
+        // Infinities / zero-exponent values pass through (the integer-bit shift
+        // would be wrong for denormals — the 68881/2 leaves them be).
+        let inf = FpReg::new(0x7FFF, 0);
+        assert_eq!(floatx80_normalize(inf), inf);
     }
 
     #[test]

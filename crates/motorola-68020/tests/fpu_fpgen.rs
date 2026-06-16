@@ -1901,3 +1901,39 @@ fn fsinh_fcosh_ftanh_anchors() {
     let r = run(0x0D, 0, 1, |cpu| cpu.regs.fp[0] = half);
     assert_eq!(r.fp[1], floatx80_atanh(80, NearestEven, half));
 }
+
+// ─── Pseudo-encoding operand normalisation (#493) ─────────────────────────
+
+#[test]
+fn unnormal_source_is_normalised_before_op() {
+    use motorola_68k_common::softfloat::{
+        RoundingMode::NearestEven, floatx80_move, floatx80_normalize,
+    };
+    // An unnormal (normal exponent, integer bit clear): 0x4001:0x4000…0 = 2.0,
+    // whose normalised form is 0x4000:0x8000…0. FMOVE must emit the normalised
+    // value (the 68881/2 normalises operands at fetch).
+    let unnormal = FpReg::new(0x4001, 0x4000_0000_0000_0000);
+    let normalised = FpReg::new(0x4000, 0x8000_0000_0000_0000);
+    let r = run(0x00, 0, 1, |cpu| cpu.regs.fp[0] = unnormal);
+    assert_eq!(r.fp[1], normalised, "FMOVE normalises an unnormal source");
+    assert_eq!(
+        r.fp[1],
+        floatx80_move(80, NearestEven, floatx80_normalize(unnormal))
+    );
+}
+
+#[test]
+fn unnormal_destination_is_normalised_for_dyadic_op() {
+    // FADD with an unnormal destination + zero source: the result is the
+    // normalised destination value (0x4001:0x4000…0 = 2.0 → 0x4000:0x8000…0).
+    let unnormal = FpReg::new(0x4001, 0x4000_0000_0000_0000);
+    let r = run(0x22, 0, 1, |cpu| {
+        cpu.regs.fp[1] = unnormal; // dst
+        cpu.regs.fp[0] = FpReg::new(0, 0); // + 0.0
+    });
+    assert_eq!(
+        r.fp[1],
+        FpReg::new(0x4000, 0x8000_0000_0000_0000),
+        "dst normalised"
+    );
+}
