@@ -249,10 +249,13 @@ impl Sn76489 {
         }
         self.clock_divider = 0;
 
-        // Tick tone channels
+        // Tick tone channels. A period of 0 is treated as 1: reloading the
+        // counter with 0 would toggle the output every internal tick — an
+        // octave too high. On every SN76489 variant N=0 behaves as N=1 (it
+        // does not mute the channel). See psg-sn76489-reference §N=0.
         for ch in 0..3 {
             if self.tone_counter[ch] == 0 {
-                self.tone_counter[ch] = self.tone_period[ch];
+                self.tone_counter[ch] = self.tone_period[ch].max(1);
                 self.tone_output[ch] = !self.tone_output[ch];
             } else {
                 self.tone_counter[ch] -= 1;
@@ -265,7 +268,8 @@ impl Sn76489 {
             if self.noise_mode == 3 {
                 self.noise_period = self.tone_period[2];
             }
-            self.noise_counter = self.noise_period;
+            // Same N=0 → N=1 rule, including the mode-3 period slaved to tone 2.
+            self.noise_counter = self.noise_period.max(1);
 
             // Clock the noise LFSR (variant-dependent taps/width).
             self.step_noise_lfsr();
@@ -587,6 +591,57 @@ mod tests {
         assert!(
             average.abs() < 0.05,
             "expected DC-blocked output average near zero, got {average}"
+        );
+    }
+
+    #[test]
+    fn tone_period_zero_toggles_at_n_equals_one_rate() {
+        // #211: a period-0 tone must toggle at the N=1 rate (every 2 internal
+        // clocks = 32 tick() calls), not every internal clock (16 ticks, an
+        // octave too high) as it would if the counter reloaded to 0.
+        let mut psg = Sn76489::new(3_579_545, NoiseLfsr::Sega16);
+        psg.tone_period[0] = 0;
+        psg.tone_counter[0] = 0;
+
+        let mut last = psg.tone_output[0];
+        let mut intervals = Vec::new();
+        let mut since = 0u32;
+        for _ in 0..(16 * 12) {
+            psg.tick();
+            since += 1;
+            if psg.tone_output[0] != last {
+                intervals.push(since);
+                since = 0;
+                last = psg.tone_output[0];
+            }
+        }
+        // The first toggle reflects the initial counter; the steady-state
+        // toggles must all be 32 ticks apart (N=1), proving N=0 was clamped.
+        assert!(
+            intervals.len() >= 3,
+            "expected several toggles: {intervals:?}"
+        );
+        assert!(
+            intervals[1..].iter().all(|&i| i == 32),
+            "period-0 tone should toggle at the N=1 interval (32 ticks): {intervals:?}"
+        );
+    }
+
+    #[test]
+    fn noise_mode3_tone2_period_zero_clamps_to_one() {
+        // #211: noise slaved to tone 2 (mode 3) with a period-0 tone 2 must
+        // reload the noise counter to 1, not 0.
+        let mut psg = Sn76489::new(3_579_545, NoiseLfsr::Sega16);
+        psg.tone_period[2] = 0;
+        psg.noise_mode = 3;
+        psg.noise_period = 0;
+        psg.noise_counter = 0;
+        for _ in 0..16 {
+            psg.tick();
+        }
+        assert_eq!(
+            psg.noise_counter, 1,
+            "mode-3 noise with a period-0 tone 2 clamps the reload to 1"
         );
     }
 
