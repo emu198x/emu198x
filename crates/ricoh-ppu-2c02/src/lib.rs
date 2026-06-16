@@ -488,11 +488,19 @@ impl Ppu {
                 // OAM contents and sprite-0 detection track HW timing.
                 self.sprite_eval_cycle();
             }
-            if self.dot == 257 {
-                self.fetch_sprite_patterns(mapper);
-            }
             if self.dot >= 257 && self.dot <= 320 {
                 self.update_sprite_bus_address();
+                // Spread the pattern fetch across the window: load sprite
+                // `idx` at the 5th dot of its 8-dot slot (Mesen's case-4
+                // `LoadSpriteTileInfo` step) so each is fetched with that
+                // dot's CHR bank state, not all batched at dot 257. Slots
+                // beyond `sprite_count` are never read (see get_sprite_pixel).
+                if (self.dot - 257) % 8 == 4 {
+                    let idx = ((self.dot - 257) / 8) as usize;
+                    if idx < self.sprite_count as usize {
+                        self.load_sprite_pattern(idx, mapper);
+                    }
+                }
             }
             if self.dot >= 321 && self.dot <= 340 {
                 self.bg_fetch_cycle(mapper);
@@ -828,52 +836,64 @@ impl Ppu {
     /// `secondary_oam`; separating per-cycle pattern fetches is a
     /// follow-up that mostly affects MMC3 A12-edge timing, not the
     /// sprite results.
-    fn fetch_sprite_patterns(&mut self, mapper: &mut dyn Mapper) {
+    /// Load one secondary-OAM sprite slot's pattern bytes (plus attribute
+    /// and X) into the sprite shift registers. Reads CHR directly — the
+    /// per-dot A12 / bus address across the fetch window is driven separately
+    /// by [`update_sprite_bus_address`](Ppu::update_sprite_bus_address), so
+    /// this does not touch `bus_address`.
+    fn load_sprite_pattern(&mut self, i: usize, mapper: &mut dyn Mapper) {
         let sprite_height: u16 = if self.ctrl & 0x20 != 0 { 16 } else { 8 };
         let next_scanline = self.scanline;
+        let sprite_y = u16::from(self.secondary_oam[i * 4]);
+        let tile_index = self.secondary_oam[i * 4 + 1];
+        let attribs = self.secondary_oam[i * 4 + 2];
+        let sprite_x = self.secondary_oam[i * 4 + 3];
+
+        let flip_v = attribs & 0x80 != 0;
+        let mut row = next_scanline.wrapping_sub(sprite_y);
+
+        let (table, tile, sprite_row) = if sprite_height == 16 {
+            let table = u16::from(tile_index & 1) * 0x1000;
+            let tile = tile_index & 0xFE;
+            if flip_v {
+                row = 15 - row;
+            }
+            if row >= 8 {
+                (table, tile + 1, row - 8)
+            } else {
+                (table, tile, row)
+            }
+        } else {
+            let table = if self.ctrl & 0x08 != 0 { 0x1000u16 } else { 0 };
+            if flip_v {
+                row = 7 - row;
+            }
+            (table, tile_index, row)
+        };
+
+        let addr = table + u16::from(tile) * 16 + sprite_row;
+        let mut lo = mapper.chr_read(addr);
+        let mut hi = mapper.chr_read(addr + 8);
+
+        if attribs & 0x40 != 0 {
+            lo = flip_byte(lo);
+            hi = flip_byte(hi);
+        }
+
+        self.sprite_patterns_lo[i] = lo;
+        self.sprite_patterns_hi[i] = hi;
+        self.sprite_attribs[i] = attribs;
+        self.sprite_x_counters[i] = sprite_x;
+    }
+
+    /// Load every in-range sprite's pattern in one batch. Used by the
+    /// `evaluate_sprites` test helper; production spreads the equivalent
+    /// loads across dots 257-320 (see [`tick_visible`](Ppu::tick_visible)).
+    #[cfg(test)]
+    fn fetch_sprite_patterns(&mut self, mapper: &mut dyn Mapper) {
         for i in 0..8usize {
             if i < self.sprite_count as usize {
-                let sprite_y = u16::from(self.secondary_oam[i * 4]);
-                let tile_index = self.secondary_oam[i * 4 + 1];
-                let attribs = self.secondary_oam[i * 4 + 2];
-                let sprite_x = self.secondary_oam[i * 4 + 3];
-
-                let flip_v = attribs & 0x80 != 0;
-                let mut row = next_scanline.wrapping_sub(sprite_y);
-
-                let (table, tile, sprite_row) = if sprite_height == 16 {
-                    let table = u16::from(tile_index & 1) * 0x1000;
-                    let tile = tile_index & 0xFE;
-                    if flip_v {
-                        row = 15 - row;
-                    }
-                    if row >= 8 {
-                        (table, tile + 1, row - 8)
-                    } else {
-                        (table, tile, row)
-                    }
-                } else {
-                    let table = if self.ctrl & 0x08 != 0 { 0x1000u16 } else { 0 };
-                    if flip_v {
-                        row = 7 - row;
-                    }
-                    (table, tile_index, row)
-                };
-
-                let addr = table + u16::from(tile) * 16 + sprite_row;
-                self.bus_address = addr;
-                let mut lo = mapper.chr_read(addr);
-                let mut hi = mapper.chr_read(addr + 8);
-
-                if attribs & 0x40 != 0 {
-                    lo = flip_byte(lo);
-                    hi = flip_byte(hi);
-                }
-
-                self.sprite_patterns_lo[i] = lo;
-                self.sprite_patterns_hi[i] = hi;
-                self.sprite_attribs[i] = attribs;
-                self.sprite_x_counters[i] = sprite_x;
+                self.load_sprite_pattern(i, mapper);
             } else {
                 self.sprite_patterns_lo[i] = 0;
                 self.sprite_patterns_hi[i] = 0;
@@ -885,6 +905,12 @@ impl Ppu {
     /// (257-320). Each sprite takes 8 dots: 2 garbage NT, 2
     /// garbage attr, 2 pattern lo, 2 pattern hi.
     fn update_sprite_bus_address(&mut self) {
+        // "OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile
+        // loading interval) of the pre-render and visible scanlines" (nesdev
+        // PPU registers; Mesen `NesPpu::DrawPixel`). Only the rendering-enabled
+        // call sites reach here, matching the "when rendering" condition.
+        self.oam_addr = 0;
+
         let sprite_idx = ((self.dot - 257) / 8) as usize;
         let phase = (self.dot - 257) % 8;
 
@@ -1928,6 +1954,31 @@ mod tests {
         ppu.cpu_write(0x2001, 0x1E, &mut mapper);
         assert_eq!(ppu.ctrl, 0x80, "PPUCTRL write applied after lockout");
         assert_eq!(ppu.mask, 0x1E, "PPUMASK write applied after lockout");
+    }
+
+    #[test]
+    fn oamaddr_forced_to_zero_during_sprite_fetch() {
+        // Issue #28: OAMADDR is set to 0 throughout dots 257-320 (the sprite
+        // tile-loading interval) on every rendering scanline.
+        let mut mapper = dummy_mapper();
+        let mut ppu = Ppu::new();
+        ppu.mask = 0x18; // background + sprites enabled
+        ppu.oam_addr = 0x42;
+        ppu.scanline = 100;
+        ppu.dot = 257;
+        ppu.tick(&mut mapper);
+        assert_eq!(ppu.oam_addr, 0, "OAMADDR forced to 0 during sprite fetch");
+
+        // With rendering disabled the interval does not clear OAMADDR.
+        ppu.mask = 0;
+        ppu.oam_addr = 0x42;
+        ppu.scanline = 100;
+        ppu.dot = 280;
+        ppu.tick(&mut mapper);
+        assert_eq!(
+            ppu.oam_addr, 0x42,
+            "OAMADDR untouched when rendering is off"
+        );
     }
 
     // ─── Cov-5c wave 2: directed tests ─────────────────────────────
