@@ -47,7 +47,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         region: model.region(),
         support_tier: SupportTier::Boots,
         release_year: 1981,
-        summary: "Acorn BBC Micro Model B — 6502 + 6845 CRTC + Video ULA + 2× 6522 VIA + SN76489 + Intel 8271, 16 KB MOS ROM, 16 KB sideways ROM slots.".into(),
+        summary: "Acorn BBC Micro Model B — 6502 + 6845 CRTC + Video ULA + 2× 6522 VIA + SN76489, 16 KB MOS ROM, 16 KB sideways ROM slots.".into(),
         clock: ClockDesc::new("cpu-cycle", ClockRate::from_hz(2_000_000)),
         firmware: vec![FirmwareRequirement::new(
             MOS_FIRMWARE_ID,

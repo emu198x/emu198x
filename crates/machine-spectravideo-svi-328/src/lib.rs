@@ -41,18 +41,19 @@
 //!
 //! # I/O map
 //!
-//! | Port      | R/W   | Function                                   |
-//! |-----------|-------|--------------------------------------------|
-//! | `$80`     | r/w   | VDP data                                   |
-//! | `$81`     | r/w   | VDP control / status                       |
-//! | `$84-$87` | r/w   | PPI ports A / B / C / control              |
-//! | `$85`     | read  | Override: keyboard column for selected row |
-//! | `$88`     | write | PSG register select                        |
-//! | `$89`     | write | PSG register data                          |
-//! | `$88-$8B` | read  | PSG register read (`$8A` canonical)        |
-//! | `$90`     | write | Centronics printer data (stub)             |
-//! | `$91`     | r/w   | Printer strobe (write) / status (read $00) |
-//! | `$96-$97` | r/w   | Memory control (ROM/RAM/cart bank bits)    |
+//! | Port      | R/W   | Function                                      |
+//! |-----------|-------|-----------------------------------------------|
+//! | `$80`     | write | VDP data                                       |
+//! | `$81`     | write | VDP control                                    |
+//! | `$84`     | read  | VDP data                                       |
+//! | `$85`     | read  | VDP status (vblank ISR acknowledges here)      |
+//! | `$88`     | write | PSG register select                            |
+//! | `$8C`     | write | PSG register data (R15 bit 1 banks RAM in)     |
+//! | `$90`     | read  | PSG register data (R14 = both joysticks)       |
+//! | `$94-$97` | write | PPI ports A / B / C / control                  |
+//! | `$98`     | read  | PPI port A (paddles, fire buttons, cassette)   |
+//! | `$99`     | read  | PPI port B (keyboard column for selected row)  |
+//! | `$9A`     | read  | PPI port C                                     |
 //!
 //! # Keyboard
 //!
