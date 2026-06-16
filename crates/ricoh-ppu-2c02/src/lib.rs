@@ -207,6 +207,23 @@ pub struct Ppu {
     /// `knowledge/decisions/nes-cpu-cycle-multi-phase.md`.
     #[serde(default)]
     ppu_clock: u64,
+    /// Post-reset register write-lockout (nesdev "PPU power up state").
+    /// For roughly the first frame after a power-on or reset, the PPU
+    /// ignores writes to PPUCTRL/PPUMASK/PPUSCROLL/PPUADDR
+    /// (`$2000/$2001/$2005/$2006`); OAMADDR/OAMDATA/PPUDATA and all reads
+    /// work immediately. Released when the first pre-render scanline is
+    /// reached — Mesen `_allowFullPpuAccess`. A bare [`new`](Ppu::new) PPU
+    /// starts unlocked (so register-logic unit tests need no warm-up); the
+    /// machine arms the lockout on power-on / reset via
+    /// [`arm_reset_write_lockout`](Ppu::arm_reset_write_lockout).
+    #[serde(default = "default_true")]
+    allow_full_ppu_access: bool,
+}
+
+/// serde default for [`Ppu::allow_full_ppu_access`] — an unlocked PPU, so
+/// snapshots predating this field deserialize without re-arming the lockout.
+fn default_true() -> bool {
+    true
 }
 
 /// One PPU dot in internal master clock units. Mesen's NES uses
@@ -307,7 +324,16 @@ impl Ppu {
             prev_a12: false,
             pending_nmi_output: None,
             ppu_clock: 0,
+            allow_full_ppu_access: true,
         }
+    }
+
+    /// Arm the post-reset PPU register write-lockout. The machine calls this
+    /// on power-on and on (soft) reset; the PPU then ignores writes to
+    /// PPUCTRL/PPUMASK/PPUSCROLL/PPUADDR until it reaches the next pre-render
+    /// scanline (~1 frame). See [`allow_full_ppu_access`](Ppu::allow_full_ppu_access).
+    pub fn arm_reset_write_lockout(&mut self) {
+        self.allow_full_ppu_access = false;
     }
 
     // ════════════════════════════════════════════════════════════
@@ -395,6 +421,13 @@ impl Ppu {
         if self.dot > 340 {
             self.dot = 0;
             self.scanline += 1;
+            if self.scanline == self.pre_render_line {
+                // Entering the pre-render line ends the ~1-frame post-reset
+                // write-lockout (Mesen sets `_allowFullPpuAccess` here). The
+                // reset-initial pre-render pass is *placed* on this line
+                // rather than advanced into it, so it is correctly excluded.
+                self.allow_full_ppu_access = true;
+            }
             if self.scanline > self.pre_render_line {
                 self.scanline = 0;
                 self.frame_odd = !self.frame_odd;
@@ -455,11 +488,19 @@ impl Ppu {
                 // OAM contents and sprite-0 detection track HW timing.
                 self.sprite_eval_cycle();
             }
-            if self.dot == 257 {
-                self.fetch_sprite_patterns(mapper);
-            }
             if self.dot >= 257 && self.dot <= 320 {
                 self.update_sprite_bus_address();
+                // Spread the pattern fetch across the window: load sprite
+                // `idx` at the 5th dot of its 8-dot slot (Mesen's case-4
+                // `LoadSpriteTileInfo` step) so each is fetched with that
+                // dot's CHR bank state, not all batched at dot 257. Slots
+                // beyond `sprite_count` are never read (see get_sprite_pixel).
+                if (self.dot - 257) % 8 == 4 {
+                    let idx = ((self.dot - 257) / 8) as usize;
+                    if idx < self.sprite_count as usize {
+                        self.load_sprite_pattern(idx, mapper);
+                    }
+                }
             }
             if self.dot >= 321 && self.dot <= 340 {
                 self.bg_fetch_cycle(mapper);
@@ -795,52 +836,64 @@ impl Ppu {
     /// `secondary_oam`; separating per-cycle pattern fetches is a
     /// follow-up that mostly affects MMC3 A12-edge timing, not the
     /// sprite results.
-    fn fetch_sprite_patterns(&mut self, mapper: &mut dyn Mapper) {
+    /// Load one secondary-OAM sprite slot's pattern bytes (plus attribute
+    /// and X) into the sprite shift registers. Reads CHR directly — the
+    /// per-dot A12 / bus address across the fetch window is driven separately
+    /// by [`update_sprite_bus_address`](Ppu::update_sprite_bus_address), so
+    /// this does not touch `bus_address`.
+    fn load_sprite_pattern(&mut self, i: usize, mapper: &mut dyn Mapper) {
         let sprite_height: u16 = if self.ctrl & 0x20 != 0 { 16 } else { 8 };
         let next_scanline = self.scanline;
+        let sprite_y = u16::from(self.secondary_oam[i * 4]);
+        let tile_index = self.secondary_oam[i * 4 + 1];
+        let attribs = self.secondary_oam[i * 4 + 2];
+        let sprite_x = self.secondary_oam[i * 4 + 3];
+
+        let flip_v = attribs & 0x80 != 0;
+        let mut row = next_scanline.wrapping_sub(sprite_y);
+
+        let (table, tile, sprite_row) = if sprite_height == 16 {
+            let table = u16::from(tile_index & 1) * 0x1000;
+            let tile = tile_index & 0xFE;
+            if flip_v {
+                row = 15 - row;
+            }
+            if row >= 8 {
+                (table, tile + 1, row - 8)
+            } else {
+                (table, tile, row)
+            }
+        } else {
+            let table = if self.ctrl & 0x08 != 0 { 0x1000u16 } else { 0 };
+            if flip_v {
+                row = 7 - row;
+            }
+            (table, tile_index, row)
+        };
+
+        let addr = table + u16::from(tile) * 16 + sprite_row;
+        let mut lo = mapper.chr_read(addr);
+        let mut hi = mapper.chr_read(addr + 8);
+
+        if attribs & 0x40 != 0 {
+            lo = flip_byte(lo);
+            hi = flip_byte(hi);
+        }
+
+        self.sprite_patterns_lo[i] = lo;
+        self.sprite_patterns_hi[i] = hi;
+        self.sprite_attribs[i] = attribs;
+        self.sprite_x_counters[i] = sprite_x;
+    }
+
+    /// Load every in-range sprite's pattern in one batch. Used by the
+    /// `evaluate_sprites` test helper; production spreads the equivalent
+    /// loads across dots 257-320 (see [`tick_visible`](Ppu::tick_visible)).
+    #[cfg(test)]
+    fn fetch_sprite_patterns(&mut self, mapper: &mut dyn Mapper) {
         for i in 0..8usize {
             if i < self.sprite_count as usize {
-                let sprite_y = u16::from(self.secondary_oam[i * 4]);
-                let tile_index = self.secondary_oam[i * 4 + 1];
-                let attribs = self.secondary_oam[i * 4 + 2];
-                let sprite_x = self.secondary_oam[i * 4 + 3];
-
-                let flip_v = attribs & 0x80 != 0;
-                let mut row = next_scanline.wrapping_sub(sprite_y);
-
-                let (table, tile, sprite_row) = if sprite_height == 16 {
-                    let table = u16::from(tile_index & 1) * 0x1000;
-                    let tile = tile_index & 0xFE;
-                    if flip_v {
-                        row = 15 - row;
-                    }
-                    if row >= 8 {
-                        (table, tile + 1, row - 8)
-                    } else {
-                        (table, tile, row)
-                    }
-                } else {
-                    let table = if self.ctrl & 0x08 != 0 { 0x1000u16 } else { 0 };
-                    if flip_v {
-                        row = 7 - row;
-                    }
-                    (table, tile_index, row)
-                };
-
-                let addr = table + u16::from(tile) * 16 + sprite_row;
-                self.bus_address = addr;
-                let mut lo = mapper.chr_read(addr);
-                let mut hi = mapper.chr_read(addr + 8);
-
-                if attribs & 0x40 != 0 {
-                    lo = flip_byte(lo);
-                    hi = flip_byte(hi);
-                }
-
-                self.sprite_patterns_lo[i] = lo;
-                self.sprite_patterns_hi[i] = hi;
-                self.sprite_attribs[i] = attribs;
-                self.sprite_x_counters[i] = sprite_x;
+                self.load_sprite_pattern(i, mapper);
             } else {
                 self.sprite_patterns_lo[i] = 0;
                 self.sprite_patterns_hi[i] = 0;
@@ -852,6 +905,12 @@ impl Ppu {
     /// (257-320). Each sprite takes 8 dots: 2 garbage NT, 2
     /// garbage attr, 2 pattern lo, 2 pattern hi.
     fn update_sprite_bus_address(&mut self) {
+        // "OAMADDR is set to 0 during each of ticks 257-320 (the sprite tile
+        // loading interval) of the pre-render and visible scanlines" (nesdev
+        // PPU registers; Mesen `NesPpu::DrawPixel`). Only the rendering-enabled
+        // call sites reach here, matching the "when rendering" condition.
+        self.oam_addr = 0;
+
         let sprite_idx = ((self.dot - 257) / 8) as usize;
         let phase = (self.dot - 257) % 8;
 
@@ -1068,7 +1127,16 @@ impl Ppu {
         // register (per nesdev `ppu_open_bus` table — every cell
         // in the write row is `-`).
         self.refresh_open_bus(0xFF, val);
-        match reg & 0x07 {
+        let reg = reg & 0x07;
+        // Post-reset lockout: PPUCTRL/PPUMASK/PPUSCROLL/PPUADDR writes are
+        // dropped for ~1 frame after power-on/reset (the open-bus refresh
+        // above still happens — the write reaches the bus, just not the
+        // register). The PPUSCROLL/PPUADDR write toggle does not advance
+        // either, matching Mesen's early return before `_writeToggle`.
+        if !self.allow_full_ppu_access && matches!(reg, 0 | 1 | 5 | 6) {
+            return;
+        }
+        match reg {
             // $2000 - PPUCTRL
             0 => {
                 self.ctrl = val;
@@ -1847,6 +1915,70 @@ mod tests {
 
         ppu.cpu_write(0x2000, 0x80, &mut mapper);
         assert!(ppu.nmi, "NMI should be asserted on the $2000 write");
+    }
+
+    #[test]
+    fn reset_write_lockout_ignores_ctrl_mask_scroll_addr() {
+        // Issue #27: for ~1 frame after reset the PPU ignores writes to
+        // PPUCTRL/PPUMASK/PPUSCROLL/PPUADDR; OAMADDR and reads still work.
+        let mut mapper = dummy_mapper();
+        let mut ppu = Ppu::new();
+        ppu.arm_reset_write_lockout();
+
+        // While locked, these four are dropped — including the $2005/$2006
+        // write toggle, which must not advance.
+        ppu.cpu_write(0x2000, 0x80, &mut mapper);
+        ppu.cpu_write(0x2001, 0x1E, &mut mapper);
+        ppu.cpu_write(0x2005, 0x48, &mut mapper);
+        ppu.cpu_write(0x2006, 0x21, &mut mapper);
+        assert_eq!(ppu.ctrl, 0, "PPUCTRL write ignored during lockout");
+        assert_eq!(ppu.mask, 0, "PPUMASK write ignored during lockout");
+        assert_eq!(ppu.t, 0, "PPUSCROLL/PPUADDR write ignored during lockout");
+        assert!(!ppu.w, "write toggle must not advance during lockout");
+
+        // OAMADDR is not locked out.
+        ppu.cpu_write(0x2003, 0x42, &mut mapper);
+        assert_eq!(ppu.oam_addr, 0x42, "OAMADDR works during lockout");
+
+        // Tick until the pre-render line is reached (≈1 frame); the lockout
+        // then releases.
+        let mut guard = 0;
+        while !ppu.allow_full_ppu_access {
+            ppu.tick(&mut mapper);
+            guard += 1;
+            assert!(guard < 100_000, "lockout should release within a frame");
+        }
+
+        // Writes now take effect.
+        ppu.cpu_write(0x2000, 0x80, &mut mapper);
+        ppu.cpu_write(0x2001, 0x1E, &mut mapper);
+        assert_eq!(ppu.ctrl, 0x80, "PPUCTRL write applied after lockout");
+        assert_eq!(ppu.mask, 0x1E, "PPUMASK write applied after lockout");
+    }
+
+    #[test]
+    fn oamaddr_forced_to_zero_during_sprite_fetch() {
+        // Issue #28: OAMADDR is set to 0 throughout dots 257-320 (the sprite
+        // tile-loading interval) on every rendering scanline.
+        let mut mapper = dummy_mapper();
+        let mut ppu = Ppu::new();
+        ppu.mask = 0x18; // background + sprites enabled
+        ppu.oam_addr = 0x42;
+        ppu.scanline = 100;
+        ppu.dot = 257;
+        ppu.tick(&mut mapper);
+        assert_eq!(ppu.oam_addr, 0, "OAMADDR forced to 0 during sprite fetch");
+
+        // With rendering disabled the interval does not clear OAMADDR.
+        ppu.mask = 0;
+        ppu.oam_addr = 0x42;
+        ppu.scanline = 100;
+        ppu.dot = 280;
+        ppu.tick(&mut mapper);
+        assert_eq!(
+            ppu.oam_addr, 0x42,
+            "OAMADDR untouched when rendering is off"
+        );
     }
 
     // ─── Cov-5c wave 2: directed tests ─────────────────────────────
