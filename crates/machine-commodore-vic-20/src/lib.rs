@@ -19,8 +19,9 @@
 //!   [`vic::Vic6560`].
 //! - **RAM:** 5 KB total (1 KB zero page/stack + 4 KB main at `$1000`),
 //!   expandable to 32 KB
-//! - **ROMs:** 8 KB Kernal at `$E000`, 8 KB BASIC at `$A000`, 4 KB
-//!   character ROM at `$8000`
+//! - **ROMs:** 8 KB Kernal at `$E000`, 8 KB BASIC at `$C000`, 4 KB
+//!   character ROM at `$8000` (unlike the C64, BASIC is at `$C000`, not
+//!   `$A000` — `$A000-$BFFF` is the BLK5 cartridge block)
 //!
 //! The VIC chip lives in the dedicated [`mos_vic_i`] chip crate
 //! (text-mode video only; audio is stubbed). Two MOS 6522 VIAs handle

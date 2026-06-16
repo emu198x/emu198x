@@ -741,11 +741,16 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_rom_size() {
-        let bad = vec![0u8; 4097];
-        assert!(Atari800xl::new(None, None, Some(bad), Atari800xlRegion::Ntsc, false).is_ok());
-        let bad = vec![0u8; 32768];
-        assert!(Atari800xl::new(None, None, Some(bad), Atari800xlRegion::Ntsc, false).is_err());
+    fn accepts_up_to_8k_cart_but_rejects_oversize_rom() {
+        // Any 1..=8192-byte image is accepted as an 8 KB cartridge (per
+        // cartridge.rs's `1..=8192 => 0xA000` range), so 4097 bytes is fine;
+        // only an oversize (here 32 KB) ROM is rejected.
+        let small = vec![0u8; 4097];
+        assert!(Atari800xl::new(None, None, Some(small), Atari800xlRegion::Ntsc, false).is_ok());
+        let oversize = vec![0u8; 32768];
+        assert!(
+            Atari800xl::new(None, None, Some(oversize), Atari800xlRegion::Ntsc, false).is_err()
+        );
     }
 
     #[test]

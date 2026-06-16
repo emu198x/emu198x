@@ -4,8 +4,8 @@
 //! the second of four commits unlocking ColecoVision. Self-contained
 //! port with no external chip dependencies; pair-mate to
 //! [`ti-tms9918`](https://docs.rs/ti-tms9918) for the TMS9918-family
-//! machine stack. See `docs/status/outstanding-work.md` § ColecoVision
-//! for the accuracy backlog.
+//! machine stack. Per-machine accuracy backlogs are tracked in GitHub
+//! Issues by `system:` label (see `docs/status/outstanding-work.md`).
 //!
 //! The SN76489 (and pin-compatible variants SN76489A, SN76494, NCR8496,
 //! Sega PSG 315-5124) provides three square-wave tone channels and one
