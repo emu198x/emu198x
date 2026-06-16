@@ -121,6 +121,17 @@ int main(void) {
         floatx80 a, b, z;
         a.high = (uint16_t)ah; a.low = al;
         b.high = (uint16_t)bh; b.low = bl;
+        /* 68881/2 operand-fetch normalisation (#493): unnormal / denormal
+         * floatx80 operands are renormalised before the op, exactly as
+         * fpp.cpp's normalize_or_fault_if_no_denormal_support does. Ops that
+         * read the raw `al` bits (int32_to / float32_to / float64_to / the
+         * BCD load) are unaffected — they don't use these structs. */
+        #define FX_UNNORMAL(x) (((x).high & 0x7fff) > 0 && ((x).high & 0x7fff) < 0x7fff && \
+                                !((x).low & 0x8000000000000000ULL))
+        #define FX_DENORMAL(x) (((x).high & 0x7fff) == 0 && !((x).low & 0x8000000000000000ULL) && \
+                                ((x).low << 1))
+        if (FX_UNNORMAL(a) || FX_DENORMAL(a)) a = floatx80_normalize(a);
+        if (FX_UNNORMAL(b) || FX_DENORMAL(b)) b = floatx80_normalize(b);
         unsigned int c_hi = 0; unsigned long long c_lo = 0;
         unsigned long long c_qbyte = 0; int has_qbyte = 0;
         switch (op) {
