@@ -1,0 +1,507 @@
+//! MC68881/2 transcendental functions — a Rust port of WinUAE's
+//! `softfloat_fpsp.cpp` (Andreas Grabher / Previous, derived from Motorola's
+//! FPSP library). These are the `floatx80` transcendentals the 68881/2
+//! compute in microcode: the exponentials, logarithms, trigonometric,
+//! inverse-trigonometric, and hyperbolic functions.
+//!
+//! The algorithms are argument-reduction + polynomial / table evaluation
+//! built entirely on the base `floatx80` ops in [`crate::softfloat`]. WinUAE's
+//! `SET_PREC` / `RESET_PREC` force round-to-nearest at extended (80-bit)
+//! precision for every *internal* step, restoring the user's rounding
+//! precision and mode only for the *final* result-producing op. We mirror
+//! that exactly: the internal-op helpers below pin (80, nearest-even); each
+//! function threads the caller's `(precision, mode)` into its final op(s).
+//!
+//! Validated bit-exact against WinUAE's softfloat via
+//! `validation/run_fpsp.sh` (the same differential oracle the base ops use).
+
+use crate::registers::FpReg;
+use crate::softfloat::{
+    self, RoundingMode, exp, flag, float_raise, frac, pack, propagate_floatx80_nan_one_arg, sign,
+};
+use crate::softfloat_fpsp_tables::{EXP_TBL, EXP_TBL2, EXP2_TBL, EXP2_TBL2};
+
+const ONE_EXP: i32 = 0x3FFF;
+const ONE_SIG: u64 = 0x8000_0000_0000_0000;
+
+/// Round-to-nearest-even — the rounding mode every *internal* FPSP step uses
+/// (WinUAE `SET_PREC`).
+const RN: RoundingMode = RoundingMode::NearestEven;
+
+// Internal-op shorthands: extended precision, round-to-nearest. Each mirrors a
+// `floatx80_*(…, status)` call made between SET_PREC and RESET_PREC.
+#[inline]
+fn mul(a: FpReg, b: FpReg) -> FpReg {
+    softfloat::floatx80_mul(80, RN, a, b)
+}
+#[inline]
+fn add(a: FpReg, b: FpReg) -> FpReg {
+    softfloat::floatx80_add(80, RN, a, b)
+}
+#[inline]
+fn sub(a: FpReg, b: FpReg) -> FpReg {
+    softfloat::floatx80_sub(80, RN, a, b)
+}
+#[inline]
+#[allow(dead_code)] // used by the logarithm / inverse-trig families (later commits)
+fn div(a: FpReg, b: FpReg) -> FpReg {
+    softfloat::floatx80_div(80, RN, a, b)
+}
+#[inline]
+fn to_i32(a: FpReg) -> i32 {
+    softfloat::floatx80_to_int32(RN, a)
+}
+#[inline]
+fn i32x(n: i32) -> FpReg {
+    softfloat::int32_to_floatx80(n)
+}
+#[inline]
+fn f32x(bits: u32) -> FpReg {
+    softfloat::float32_to_floatx80(bits)
+}
+#[inline]
+fn f64x(bits: u64) -> FpReg {
+    softfloat::float64_to_floatx80(bits)
+}
+
+/// `floatx80_make_compact`: a sortable 32-bit key (exponent in the high word,
+/// the significand's top 16 bits in the low word) for the range tests.
+#[inline]
+fn make_compact(a_exp: i32, a_sig: u64) -> i32 {
+    (a_exp << 16) | (a_sig >> 48) as i32
+}
+
+/// True when `a` is a NaN (max exponent, non-zero significand beyond the
+/// integer bit). The caller has already checked `a_exp == 0x7FFF`.
+#[inline]
+fn sig_is_nan(a_sig: u64) -> bool {
+    a_sig.wrapping_shl(1) != 0
+}
+
+// ─── Exponentials ─────────────────────────────────────────────────────────
+
+/// Shared tail of `floatx80_etox` (the C `expcont1` label): `n` = round(64/log2
+/// · X), `m`/`m1` = biased scale exponents, `adjflag` selects the two-factor
+/// scaling for the near-overflow range. `x` is the original argument.
+fn etox_cont(
+    precision: i32,
+    mode: RoundingMode,
+    x: FpReg,
+    n: i32,
+    m: i32,
+    m1: i32,
+    adjflag: bool,
+) -> FpReg {
+    let j = (n & 0x3F) as usize;
+    let fp0n = i32x(n); // N as a float
+    let fp1 = x; // X
+
+    let mut fp0 = mul(fp0n, f32x(0xBC31_7218)); // N * L1   (L1 = lead(-log2/64))
+    let l2 = pack(false, 0x3FDC, 0x82E3_0865_4361_C4C6);
+    let fp2n = mul(fp0n, l2); // N * L2   (L1+L2 = -log2/64)
+    fp0 = add(fp0, fp1); // X + N*L1
+    fp0 = add(fp0, fp2n); // R
+
+    let fp1s = mul(fp0, fp0); // S = R*R
+    let mut fp2 = mul(f32x(0x3AB6_0B70), fp1s); // S*A5
+    let mut fp3 = mul(f32x(0x3C08_8895), fp1s); // S*A4
+    fp2 = add(fp2, f64x(0x3FA5_5555_5555_4431)); // A3 + S*A5
+    fp3 = add(fp3, f64x(0x3FC5_5555_5555_4018)); // A2 + S*A4
+    fp2 = mul(fp2, fp1s); // S*(A3+S*A5)
+    fp3 = mul(fp3, fp1s); // S*(A2+S*A4)
+    fp2 = add(fp2, f32x(0x3F00_0000)); // A1 + S*(A3+S*A5)
+    fp3 = mul(fp3, fp0); // R*S*(A2+S*A4)
+    fp2 = mul(fp2, fp1s); // S*(A1+S*(A3+S*A5))
+    fp0 = add(fp0, fp3); // R + R*S*(A2+S*A4)
+    fp0 = add(fp0, fp2); // EXP(R) - 1
+
+    let tbl = EXP_TBL[j];
+    fp0 = mul(fp0, tbl); // 2^(J/64)*(Exp(R)-1)
+    fp0 = add(fp0, f32x(EXP_TBL2[j])); // accurate 2^(J/64)
+    fp0 = add(fp0, tbl);
+
+    let scale = pack(false, m, ONE_SIG);
+    if adjflag {
+        fp0 = mul(fp0, pack(false, m1, ONE_SIG));
+    }
+
+    let r = softfloat::floatx80_mul(precision, mode, fp0, scale);
+    float_raise(flag::INEXACT);
+    r
+}
+
+/// `floatx80_etox` (FETOX): e^x.
+#[must_use]
+pub fn floatx80_etox(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        if a_sign {
+            return pack(false, 0, 0); // e^-inf = +0
+        }
+        return a; // e^+inf = +inf
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(false, ONE_EXP, ONE_SIG); // e^0 = 1
+    }
+
+    if a_exp >= 0x3FBE {
+        // |X| >= 2^(-65)
+        let compact = make_compact(a_exp, a_sig);
+        if compact < 0x400C_B167 {
+            // |X| < 16380 log2
+            let fp0 = mul(a, f32x(0x42B8_AA3B)); // 64/log2 * X
+            let n = to_i32(fp0);
+            let j = n & 0x3F;
+            let mut m = n / 64;
+            if n < 0 && j != 0 {
+                m -= 1;
+            }
+            m += 0x3FFF;
+            etox_cont(precision, mode, a, n, m, 0, false)
+        } else if compact > 0x400C_B27C {
+            // |X| >= 16480 log2 — under/overflow
+            let r = if a_sign {
+                softfloat::round_and_pack_floatx80(precision, mode, false, -0x1000, a_sig, 0)
+            } else {
+                softfloat::round_and_pack_floatx80(precision, mode, false, 0x8000, a_sig, 0)
+            };
+            float_raise(flag::INEXACT);
+            r
+        } else {
+            // 16380 log2 <= |X| < 16480 log2 — two-factor scaling
+            let fp0 = mul(a, f32x(0x42B8_AA3B));
+            let n = to_i32(fp0);
+            let j = n & 0x3F;
+            let mut k = n / 64;
+            if n < 0 && j != 0 {
+                k -= 1;
+            }
+            let mut m1 = k / 2;
+            if k < 0 && (k & 1) != 0 {
+                m1 -= 1;
+            }
+            let m = k - m1;
+            etox_cont(precision, mode, a, n, m + 0x3FFF, m1 + 0x3FFF, true)
+        }
+    } else {
+        // |X| < 2^(-65): e^x ≈ 1 + x
+        let r = softfloat::floatx80_add(precision, mode, a, f32x(0x3F80_0000));
+        float_raise(flag::INEXACT);
+        r
+    }
+}
+
+/// `floatx80_etoxm1` (FETOXM1): e^x − 1.
+#[must_use]
+pub fn floatx80_etoxm1(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        if a_sign {
+            return pack(true, ONE_EXP, ONE_SIG); // e^-inf - 1 = -1
+        }
+        return a;
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(a_sign, 0, 0); // e^±0 - 1 = ±0
+    }
+
+    if a_exp >= 0x3FFD {
+        // |X| >= 1/4
+        let compact = make_compact(a_exp, a_sig);
+        if compact <= 0x4004_C215 {
+            // |X| <= 70 log2
+            let fp0v = mul(a, f32x(0x42B8_AA3B)); // 64/log2 * X
+            let n = to_i32(fp0v);
+            let fp0n = i32x(n);
+            let j = (n & 0x3F) as usize;
+            let mut m = n / 64;
+            if n < 0 && (n & 0x3F) != 0 {
+                m -= 1;
+            }
+            let m1 = -m;
+
+            let fp2n = fp0n; // N
+            let mut fp0 = mul(fp0n, f32x(0xBC31_7218)); // N * L1
+            let l2 = pack(false, 0x3FDC, 0x82E3_0865_4361_C4C6);
+            let fp2 = mul(fp2n, l2); // N * L2
+            fp0 = add(fp0, a); // X + N*L1
+            fp0 = add(fp0, fp2); // R
+
+            let fp1 = mul(fp0, fp0); // S = R*R
+            let mut fp2 = mul(f32x(0x3950_097B), fp1); // S*A6
+            let mut fp3 = mul(f32x(0x3AB6_0B6A), fp1); // S*A5
+            fp2 = add(fp2, f64x(0x3F81_1111_1117_4385)); // A4 + S*A6
+            fp3 = add(fp3, f64x(0x3FA5_5555_5555_4F5A)); // A3 + S*A5
+            fp2 = mul(fp2, fp1); // S*(A4+S*A6)
+            fp3 = mul(fp3, fp1); // S*(A3+S*A5)
+            fp2 = add(fp2, f64x(0x3FC5_5555_5555_5555)); // A2 + S*(A4+S*A6)
+            fp3 = add(fp3, f32x(0x3F00_0000)); // A1 + S*(A3+S*A5)
+            fp2 = mul(fp2, fp1); // S*(A2+S*(A4+S*A6))
+            let fp1 = mul(fp1, fp3); // S*(A1+S*(A3+S*A5))
+            fp2 = mul(fp2, fp0); // R*S*(A2+S*(A4+S*A6))
+            fp0 = add(fp0, fp1); // R + S*(A1+S*(A3+S*A5))
+            fp0 = add(fp0, fp2); // EXP(R) - 1
+
+            fp0 = mul(fp0, EXP_TBL[j]); // 2^(J/64)*(Exp(R)-1)
+
+            let onebysc = pack(true, m1 + 0x3FFF, ONE_SIG); // -2^(-M)
+            if m >= 64 {
+                let fp1 = add(f32x(EXP_TBL2[j]), onebysc);
+                fp0 = add(fp0, fp1);
+                fp0 = add(fp0, EXP_TBL[j]);
+            } else if m < -3 {
+                fp0 = add(fp0, f32x(EXP_TBL2[j]));
+                fp0 = add(fp0, EXP_TBL[j]);
+                fp0 = add(fp0, onebysc);
+            } else {
+                let fp1 = add(EXP_TBL[j], onebysc);
+                fp0 = add(fp0, f32x(EXP_TBL2[j]));
+                fp0 = add(fp0, fp1);
+            }
+
+            let sc = pack(false, m + 0x3FFF, ONE_SIG);
+            let r = softfloat::floatx80_mul(precision, mode, fp0, sc);
+            float_raise(flag::INEXACT);
+            r
+        } else {
+            // |X| > 70 log2
+            if a_sign {
+                let r =
+                    softfloat::floatx80_add(precision, mode, f32x(0xBF80_0000), f32x(0x0080_0000)); // -1 + 2^(-126)
+                float_raise(flag::INEXACT);
+                r
+            } else {
+                floatx80_etox(precision, mode, a)
+            }
+        }
+    } else if a_exp >= 0x3FBE {
+        // 2^(-65) <= |X| < 1/4
+        let fp0 = mul(a, a); // S = X*X
+        let mut fp1 = mul(f32x(0x2F30_CAA8), fp0); // S*B12
+        let mut fp2 = f32x(0x310F_8290); // B11
+        fp1 = add(fp1, f32x(0x32D7_3220)); // B10
+        fp2 = mul(fp2, fp0);
+        fp1 = mul(fp1, fp0);
+        fp2 = add(fp2, f32x(0x3493_F281)); // B9
+        fp1 = add(fp1, f64x(0x3EC7_1DE3_A577_4682)); // B8
+        fp2 = mul(fp2, fp0);
+        fp1 = mul(fp1, fp0);
+        fp2 = add(fp2, f64x(0x3EFA_01A0_19D7_CB68)); // B7
+        fp1 = add(fp1, f64x(0x3F2A_01A0_1A01_9DF3)); // B6
+        fp2 = mul(fp2, fp0);
+        fp1 = mul(fp1, fp0);
+        fp2 = add(fp2, f64x(0x3F56_C16C_16C1_70E2)); // B5
+        fp1 = add(fp1, f64x(0x3F81_1111_1111_1111)); // B4
+        fp2 = mul(fp2, fp0);
+        fp1 = mul(fp1, fp0);
+        fp2 = add(fp2, f64x(0x3FA5_5555_5555_5555)); // B3
+        fp1 = add(fp1, pack(false, 0x3FFC, 0xAAAA_AAAA_AAAA_AAAB)); // B2
+        fp2 = mul(fp2, fp0);
+        fp1 = mul(fp1, fp0);
+
+        fp2 = mul(fp2, fp0);
+        fp1 = mul(fp1, a);
+
+        let fp0 = mul(fp0, f32x(0x3F00_0000)); // S*B1
+        let fp1 = add(fp1, fp2); // Q
+        let fp0 = add(fp0, fp1); // S*B1 + Q
+
+        let r = softfloat::floatx80_add(precision, mode, fp0, a);
+        float_raise(flag::INEXACT);
+        r
+    } else {
+        // |X| < 2^(-65)
+        let sc = pack(true, 1, ONE_SIG);
+        let r = if a_exp < 0x0033 {
+            // |X| < 2^(-16382)
+            let mut fp0 = mul(a, f64x(0x48B0_0000_0000_0000));
+            fp0 = add(fp0, sc);
+            softfloat::floatx80_mul(precision, mode, fp0, f64x(0x3730_0000_0000_0000))
+        } else {
+            softfloat::floatx80_add(precision, mode, a, sc)
+        };
+        float_raise(flag::INEXACT);
+        r
+    }
+}
+
+/// Shared tail of `floatx80_twotox` / `floatx80_tentox`: given the reduced
+/// `fp0` (= R) and the table indices, evaluate the exp polynomial and scale.
+/// `fact1`/`fact2`/`adjfact` are the precomputed scaling factors.
+fn exp2_poly_scale(
+    precision: i32,
+    mode: RoundingMode,
+    mut fp0: FpReg,
+    fact1: FpReg,
+    fact2: FpReg,
+    adjfact: FpReg,
+) -> FpReg {
+    let fp1 = mul(fp0, fp0); // S = R*R
+    let mut fp2 = mul(f64x(0x3F56_C16D_6F7B_D0B2), fp1); // S*A5
+    let mut fp3 = mul(f64x(0x3F81_1112_302C_712C), fp1); // S*A4
+    fp2 = add(fp2, f64x(0x3FA5_5555_5555_4CC1)); // A3 + S*A5
+    fp3 = add(fp3, f64x(0x3FC5_5555_5555_4A54)); // A2 + S*A4
+    fp2 = mul(fp2, fp1); // S*(A3+S*A5)
+    fp3 = mul(fp3, fp1); // S*(A2+S*A4)
+    fp2 = add(fp2, f64x(0x3FE0_0000_0000_0000)); // A1 + S*(A3+S*A5)
+    fp3 = mul(fp3, fp0); // R*S*(A2+S*A4)
+    fp2 = mul(fp2, fp1); // S*(A1+S*(A3+S*A5))
+    fp0 = add(fp0, fp3); // R + R*S*(A2+S*A4)
+    fp0 = add(fp0, fp2); // EXP(R) - 1
+
+    fp0 = mul(fp0, fact1);
+    fp0 = add(fp0, fact2);
+    fp0 = add(fp0, fact1);
+
+    let r = softfloat::floatx80_mul(precision, mode, fp0, adjfact);
+    float_raise(flag::INEXACT);
+    r
+}
+
+/// Build the `fact1`/`fact2` exp2 scaling factors from the table and the
+/// integer scale `m` (mirrors the `fact1.high += m` / `fact2` shuffle).
+fn exp2_factors(j: usize, m: i32) -> (FpReg, FpReg) {
+    let mut fact1 = EXP2_TBL[j];
+    fact1.high = (i32::from(fact1.high) + m) as u16;
+    let t2 = EXP2_TBL2[j];
+    let fact2 = FpReg::new(
+        ((t2 >> 16) as i32 + m) as u16,
+        (u64::from(t2 & 0xFFFF)) << 48,
+    );
+    (fact1, fact2)
+}
+
+/// `floatx80_twotox` (FTWOTOX): 2^x.
+#[must_use]
+pub fn floatx80_twotox(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        if a_sign {
+            return pack(false, 0, 0);
+        }
+        return a;
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(false, ONE_EXP, ONE_SIG);
+    }
+
+    let compact = make_compact(a_exp, a_sig);
+    if !(0x3FB9_8000..=0x400D_80C0).contains(&compact) {
+        // |X| > 16480 or |X| < 2^(-70)
+        if compact > 0x3FFF_8000 {
+            let r = if a_sign {
+                softfloat::round_and_pack_floatx80(precision, mode, false, -0x1000, a_sig, 0)
+            } else {
+                softfloat::round_and_pack_floatx80(precision, mode, false, 0x8000, a_sig, 0)
+            };
+            return r;
+        }
+        let r = softfloat::floatx80_add(precision, mode, a, f32x(0x3F80_0000)); // 1 + X
+        float_raise(flag::INEXACT);
+        return r;
+    }
+
+    // 2^(-70) <= |X| <= 16480
+    let fp1m = mul(a, f32x(0x4280_0000)); // X * 64
+    let n = to_i32(fp1m);
+    let fp1 = i32x(n);
+    let j = (n & 0x3F) as usize;
+    let mut l = n / 64;
+    if n < 0 && (n & 0x3F) != 0 {
+        l -= 1;
+    }
+    let mut m = l / 2;
+    if l < 0 && (l & 1) != 0 {
+        m -= 1;
+    }
+    let m1 = l - m + 0x3FFF;
+    let adjfact = pack(false, m1, ONE_SIG);
+    let (fact1, fact2) = exp2_factors(j, m);
+
+    let fp1 = mul(fp1, f32x(0x3C80_0000)); // (1/64)*N
+    let mut fp0 = sub(a, fp1); // X - (1/64)*INT(64 X)
+    fp0 = mul(fp0, pack(false, 0x3FFE, 0xB172_17F7_D1CF_79AC)); // R = (X-...) * LOG2
+
+    exp2_poly_scale(precision, mode, fp0, fact1, fact2, adjfact)
+}
+
+/// `floatx80_tentox` (FTENTOX): 10^x.
+#[must_use]
+pub fn floatx80_tentox(precision: i32, mode: RoundingMode, a: FpReg) -> FpReg {
+    let a_sig = frac(a);
+    let a_exp = exp(a);
+    let a_sign = sign(a);
+
+    if a_exp == 0x7FFF {
+        if sig_is_nan(a_sig) {
+            return propagate_floatx80_nan_one_arg(a);
+        }
+        if a_sign {
+            return pack(false, 0, 0);
+        }
+        return a;
+    }
+    if a_exp == 0 && a_sig == 0 {
+        return pack(false, ONE_EXP, ONE_SIG);
+    }
+
+    let compact = make_compact(a_exp, a_sig);
+    if !(0x3FB9_8000..=0x400B_9B07).contains(&compact) {
+        // |X| > 16480 LOG2/LOG10 or |X| < 2^(-70)
+        if compact > 0x3FFF_8000 {
+            let r = if a_sign {
+                softfloat::round_and_pack_floatx80(precision, mode, false, -0x1000, a_sig, 0)
+            } else {
+                softfloat::round_and_pack_floatx80(precision, mode, false, 0x8000, a_sig, 0)
+            };
+            return r;
+        }
+        let r = softfloat::floatx80_add(precision, mode, a, f32x(0x3F80_0000)); // 1 + X
+        float_raise(flag::INEXACT);
+        return r;
+    }
+
+    // 2^(-70) <= |X| <= 16480 LOG2/LOG10
+    let fp1m = mul(a, f64x(0x406A_934F_0979_A371)); // X*64*LOG10/LOG2
+    let n = to_i32(fp1m);
+    let fp1 = i32x(n);
+    let j = (n & 0x3F) as usize;
+    let mut l = n / 64;
+    if n < 0 && (n & 0x3F) != 0 {
+        l -= 1;
+    }
+    let mut m = l / 2;
+    if l < 0 && (l & 1) != 0 {
+        m -= 1;
+    }
+    let m1 = l - m + 0x3FFF;
+    let adjfact = pack(false, m1, ONE_SIG);
+    let (fact1, fact2) = exp2_factors(j, m);
+
+    let fp2n = fp1; // N
+    let fp1 = mul(fp1, f64x(0x3F73_4413_509F_8000)); // N*(LOG2/64LOG10)_LEAD
+    let fp2 = mul(fp2n, pack(true, 0x3FCD, 0xC021_9DC1_DA99_4FD2)); // N*(LOG2/64LOG10)_TRAIL
+    let mut fp0 = sub(a, fp1); // X - N L_LEAD
+    fp0 = sub(fp0, fp2); // X - N L_TRAIL
+    fp0 = mul(fp0, pack(false, 0x4000, 0x935D_8DDD_AAA8_AC17)); // R = (…) * LOG10
+
+    exp2_poly_scale(precision, mode, fp0, fact1, fact2, adjfact)
+}

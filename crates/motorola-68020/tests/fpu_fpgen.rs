@@ -1684,3 +1684,68 @@ fn fsadd_prefix_forces_single_precision() {
         "single-rounded via the FSxxx prefix"
     );
 }
+
+// ─── FPSP exponential transcendentals (#492) ──────────────────────────────
+//
+// The result values are validated bit-exact against WinUAE in
+// `validation/run_fpsp.sh`; these check the 020 cpGEN dispatch routes each
+// opmode to the right `softfloat_fpsp` function (and a known anchor value).
+
+#[test]
+fn fetox_of_zero_is_one() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_etox;
+    // FETOX (opmode 0x10): e^0 = 1.0.
+    let r = run(0x10, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], ONE, "e^0 = 1.0");
+    // And FETOX(1.0) matches the backend exactly.
+    let r = run(0x10, 0, 1, |cpu| cpu.regs.fp[0] = ONE);
+    assert_eq!(
+        r.fp[1],
+        floatx80_etox(80, NearestEven, ONE),
+        "FETOX → floatx80_etox"
+    );
+}
+
+#[test]
+fn fetoxm1_dispatches() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_etoxm1;
+    // FETOXM1 (opmode 0x08): e^0 - 1 = 0.
+    let r = run(0x08, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "e^0 - 1 = 0");
+    let r = run(0x08, 0, 1, |cpu| cpu.regs.fp[0] = ONE);
+    assert_eq!(r.fp[1], floatx80_etoxm1(80, NearestEven, ONE));
+}
+
+#[test]
+fn ftwotox_of_known_values() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_twotox;
+    // FTWOTOX (opmode 0x11): 2^3 = 8.0.
+    let three = FpReg::new(0x4000, 0xC000_0000_0000_0000);
+    let r = run(0x11, 0, 1, |cpu| cpu.regs.fp[0] = three);
+    assert_eq!(
+        r.fp[1],
+        FpReg::new(0x4002, 0x8000_0000_0000_0000),
+        "2^3 = 8.0"
+    );
+    let r = run(0x11, 0, 1, |cpu| cpu.regs.fp[0] = three);
+    assert_eq!(r.fp[1], floatx80_twotox(80, NearestEven, three));
+}
+
+#[test]
+fn ftentox_of_known_values() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_tentox;
+    // FTENTOX (opmode 0x12): 10^2 = 100.0.
+    let two = FpReg::new(0x4000, 0x8000_0000_0000_0000);
+    let r = run(0x12, 0, 1, |cpu| cpu.regs.fp[0] = two);
+    assert_eq!(
+        r.fp[1],
+        FpReg::new(0x4005, 0xC800_0000_0000_0000),
+        "10^2 = 100.0"
+    );
+    let r = run(0x12, 0, 1, |cpu| cpu.regs.fp[0] = two);
+    assert_eq!(r.fp[1], floatx80_tentox(80, NearestEven, two));
+}

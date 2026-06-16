@@ -830,10 +830,12 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
         _ => 80,
     });
 
-    // Only these opmodes are backed by the SoftFloat `floatx80` port — FMOVE/
-    // FABS/FNEG/FTST/FADD/FSUB/FMUL/FDIV/FSQRT/FCMP/FINT/FINTRZ/FGETEXP/FGETMAN/
-    // FSCALE/FMOD/FREM/FSGLMUL/FSGLDIV. The transcendentals decline (vector-11
-    // trap) until their backends land.
+    // Only these opmodes are backed by the SoftFloat `floatx80` port — the
+    // arithmetic/move set (FMOVE/FABS/FNEG/FTST/FADD/FSUB/FMUL/FDIV/FSQRT/FCMP/
+    // FINT/FINTRZ/FGETEXP/FGETMAN/FSCALE/FMOD/FREM/FSGLMUL/FSGLDIV) plus the
+    // FPSP exponential transcendentals (FETOXM1 0x08, FETOX 0x10, FTWOTOX 0x11,
+    // FTENTOX 0x12). The remaining transcendentals decline (vector-11 trap)
+    // until their backends land.
     if !matches!(
         opmode,
         0x00 | 0x18
@@ -854,6 +856,10 @@ fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
             | 0x03
             | 0x24
             | 0x27
+            | 0x08
+            | 0x10
+            | 0x11
+            | 0x12
     ) {
         return false;
     }
@@ -940,6 +946,23 @@ fn apply_fp_opmode(
         0x04 => cpu.regs.fp[dst] = softfloat::floatx80_sqrt(precision, mode, source), // FSQRT
         0x1E => cpu.regs.fp[dst] = softfloat::floatx80_getexp(source),                // FGETEXP
         0x1F => cpu.regs.fp[dst] = softfloat::floatx80_getman(source),                // FGETMAN
+        // FPSP exponential transcendentals (unary, source → dst).
+        0x10 => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_etox(precision, mode, source)
+        }
+        0x08 => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_etoxm1(precision, mode, source)
+        }
+        0x11 => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_twotox(precision, mode, source)
+        }
+        0x12 => {
+            cpu.regs.fp[dst] =
+                motorola_68k_common::softfloat_fpsp::floatx80_tentox(precision, mode, source)
+        }
         // FSCALE: scale dst by 2^(integer part of source), rounded to precision.
         0x26 => {
             cpu.regs.fp[dst] = softfloat::floatx80_scale(precision, mode, cpu.regs.fp[dst], source);

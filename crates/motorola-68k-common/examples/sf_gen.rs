@@ -4,6 +4,7 @@
 // SOFTFLOAT_68K. Deterministic LCG so runs are reproducible; op set on argv[1].
 use motorola_68k_common::registers::FpReg;
 use motorola_68k_common::softfloat::{self as sf, RoundingMode};
+use motorola_68k_common::softfloat_fpsp as fpsp;
 
 struct Lcg(u64);
 impl Lcg {
@@ -239,6 +240,24 @@ fn main() {
                 let r = sf::floatx80_mod(80, mode, a, b);
                 q_byte = Some((r.quotient & 0x7F) | (u64::from(r.sign) << 7));
                 (r.value.high, r.value.low)
+            }
+            // 30-47: the FPSP transcendentals (unary; operand in `a`), each
+            // computed at extended precision with the vector's rounding mode.
+            30 => {
+                let z = fpsp::floatx80_etox(80, mode, a);
+                (z.high, z.low)
+            }
+            31 => {
+                let z = fpsp::floatx80_etoxm1(80, mode, a);
+                (z.high, z.low)
+            }
+            32 => {
+                let z = fpsp::floatx80_twotox(80, mode, a);
+                (z.high, z.low)
+            }
+            33 => {
+                let z = fpsp::floatx80_tentox(80, mode, a);
+                (z.high, z.low)
             }
             _ => (0, 0),
         };
