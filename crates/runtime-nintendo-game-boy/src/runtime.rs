@@ -96,6 +96,22 @@ impl GameBoyRuntime {
             .is_some_and(|machine| machine.cartridge().has_battery_backed_ram())
     }
 
+    /// Whether the loaded cartridge carries a real-time clock (MBC3 + RTC).
+    #[must_use]
+    pub fn cartridge_has_rtc(&self) -> bool {
+        self.machine
+            .as_ref()
+            .is_some_and(|machine| machine.cartridge().has_rtc())
+    }
+
+    /// Whether anything should be written to the `.sav` sidecar — battery-backed
+    /// external RAM and/or an MBC3 RTC. (An `$0F` cart has a clock but no RAM,
+    /// yet its RTC still needs persisting.)
+    #[must_use]
+    pub fn has_persistent_cartridge_state(&self) -> bool {
+        self.has_battery_backed_ram() || self.cartridge_has_rtc()
+    }
+
     /// Returns the loaded cartridge's external RAM, if present.
     #[must_use]
     pub fn cartridge_ram(&self) -> Option<&[u8]> {
@@ -137,6 +153,59 @@ impl GameBoyRuntime {
         }
 
         ram.copy_from_slice(bytes);
+        Ok(())
+    }
+
+    /// The full battery-save image to write to the `.sav` sidecar: the external
+    /// RAM, followed by the MBC3 RTC footer when the cartridge has a clock.
+    /// `None` when there is nothing to persist. Prefer this over
+    /// [`cartridge_ram`](Self::cartridge_ram) so the RTC survives restarts.
+    #[must_use]
+    pub fn cartridge_save_image(&mut self) -> Option<Vec<u8>> {
+        let machine = self.machine.as_mut()?;
+        let cart = machine.cartridge_mut();
+        let ram = cart.ram().to_vec();
+        let footer = cart.rtc_save_footer();
+        if ram.is_empty() && footer.is_none() {
+            return None;
+        }
+        let mut image = ram;
+        if let Some(footer) = footer {
+            image.extend_from_slice(&footer);
+        }
+        Some(image)
+    }
+
+    /// Restore a battery-save image written by
+    /// [`cartridge_save_image`](Self::cartridge_save_image): the leading bytes
+    /// are external RAM, with an optional trailing RTC footer that also advances
+    /// the clock by the real time since the save. A footer-less image (length ==
+    /// RAM length) restores RAM only, so older `.sav` files still load.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MachineError::InvalidMedia`] when no cartridge is loaded or the
+    /// RAM portion does not match the cartridge's RAM size.
+    pub fn restore_cartridge_save_image(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
+        let machine = self
+            .machine
+            .as_mut()
+            .ok_or_else(|| MachineError::InvalidMedia {
+                slot: "cartridge".to_owned(),
+                reason: "no cartridge is loaded".to_owned(),
+            })?;
+        let ram_len = machine.cartridge().ram().len();
+        let (ram_bytes, footer) = bytes.split_at(ram_len.min(bytes.len()));
+        if !ram_bytes.is_empty() {
+            self.restore_cartridge_ram(ram_bytes)?;
+        }
+        if !footer.is_empty() {
+            self.machine
+                .as_mut()
+                .expect("machine checked above")
+                .cartridge_mut()
+                .load_rtc_save_footer(footer);
+        }
         Ok(())
     }
 

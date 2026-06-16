@@ -187,17 +187,19 @@ impl GameBoyRunner {
         Ok(runner)
     }
 
-    fn flush_battery_save(&self) -> Result<(), AppError> {
-        let Some(path) = &self.battery_save_path else {
+    fn flush_battery_save(&mut self) -> Result<(), AppError> {
+        let Some(path) = self.battery_save_path.clone() else {
             return Ok(());
         };
-        let Some(ram) = self.runtime.cartridge_ram() else {
-            return Ok(());
-        };
-        if !self.runtime.has_battery_backed_ram() {
+        if !self.runtime.has_persistent_cartridge_state() {
             return Ok(());
         }
-        std::fs::write(path, ram).map_err(|err| AppError::Setup {
+        // RAM + optional RTC footer (the footer stamps the current wall-clock
+        // so the clock keeps running across restarts).
+        let Some(image) = self.runtime.cartridge_save_image() else {
+            return Ok(());
+        };
+        std::fs::write(&path, image).map_err(|err| AppError::Setup {
             reason: format!("failed to write battery save {}: {err}", path.display()),
         })
     }
@@ -644,7 +646,7 @@ fn load_battery_save(
     path: &Path,
     explicit: bool,
 ) -> Result<(), AppError> {
-    if !runtime.has_battery_backed_ram() {
+    if !runtime.has_persistent_cartridge_state() {
         if explicit {
             return Err(AppError::Setup {
                 reason: "loaded cartridge does not have battery-backed RAM".to_owned(),
@@ -655,7 +657,7 @@ fn load_battery_save(
 
     match std::fs::read(path) {
         Ok(bytes) => runtime
-            .restore_cartridge_ram(&bytes)
+            .restore_cartridge_save_image(&bytes)
             .map_err(AppError::Machine),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(err) => Err(AppError::Setup {

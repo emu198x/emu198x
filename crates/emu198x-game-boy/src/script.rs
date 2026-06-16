@@ -322,7 +322,7 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
     }
 
     if let Some(path) = &battery_save_path {
-        write_battery_save(session.machine(), path)?;
+        write_battery_save(session.machine_mut(), path)?;
     }
 
     Ok(RunnerReport {
@@ -357,7 +357,7 @@ fn load_battery_save(
     path: &Path,
     explicit: bool,
 ) -> Result<(), String> {
-    if !runtime.has_battery_backed_ram() {
+    if !runtime.has_persistent_cartridge_state() {
         if explicit {
             return Err("loaded cartridge does not have battery-backed RAM".to_owned());
         }
@@ -366,7 +366,7 @@ fn load_battery_save(
 
     match std::fs::read(path) {
         Ok(bytes) => runtime
-            .restore_cartridge_ram(&bytes)
+            .restore_cartridge_save_image(&bytes)
             .map_err(|err| format!("failed to restore battery save {}: {err}", path.display())),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(err) => Err(format!(
@@ -376,14 +376,14 @@ fn load_battery_save(
     }
 }
 
-fn write_battery_save(runtime: &GameBoyRuntime, path: &Path) -> Result<(), String> {
-    if !runtime.has_battery_backed_ram() {
+fn write_battery_save(runtime: &mut GameBoyRuntime, path: &Path) -> Result<(), String> {
+    if !runtime.has_persistent_cartridge_state() {
         return Ok(());
     }
-    let Some(ram) = runtime.cartridge_ram() else {
+    let Some(image) = runtime.cartridge_save_image() else {
         return Ok(());
     };
-    std::fs::write(path, ram)
+    std::fs::write(path, image)
         .map_err(|err| format!("failed to write battery save {}: {err}", path.display()))
 }
 
