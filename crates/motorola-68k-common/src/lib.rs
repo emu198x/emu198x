@@ -50,5 +50,7 @@ pub mod microcode;
 pub mod model;
 pub mod registers;
 pub mod softfloat;
+pub mod softfloat_fpsp;
+mod softfloat_fpsp_tables;
 
 pub use model::{CpuCapabilities, CpuModel, TimingClass};

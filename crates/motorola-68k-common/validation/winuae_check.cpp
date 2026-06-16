@@ -173,6 +173,27 @@ int main(void) {
                 c_hi = z.high; c_lo = z.low;
                 break;
             }
+            // 30-47: the FPSP transcendentals (softfloat_fpsp.cpp).
+            case 30: z = floatx80_etox(a, &st);    c_hi = z.high; c_lo = z.low; break;
+            case 31: z = floatx80_etoxm1(a, &st);  c_hi = z.high; c_lo = z.low; break;
+            case 32: z = floatx80_twotox(a, &st);  c_hi = z.high; c_lo = z.low; break;
+            case 33: z = floatx80_tentox(a, &st);  c_hi = z.high; c_lo = z.low; break;
+            case 34: z = floatx80_logn(a, &st);    c_hi = z.high; c_lo = z.low; break;
+            case 35: z = floatx80_lognp1(a, &st);  c_hi = z.high; c_lo = z.low; break;
+            case 36: z = floatx80_log10(a, &st);   c_hi = z.high; c_lo = z.low; break;
+            case 37: z = floatx80_log2(a, &st);    c_hi = z.high; c_lo = z.low; break;
+            case 38: z = floatx80_sin(a, &st);     c_hi = z.high; c_lo = z.low; break;
+            case 39: z = floatx80_cos(a, &st);     c_hi = z.high; c_lo = z.low; break;
+            case 40: z = floatx80_tan(a, &st);     c_hi = z.high; c_lo = z.low; break;
+            case 41: { floatx80 cc; z = floatx80_sincos(a, &cc, &st); c_hi = z.high; c_lo = z.low; break; }
+            case 42: { floatx80 cc; floatx80_sincos(a, &cc, &st); c_hi = cc.high; c_lo = cc.low; break; }
+            case 43: z = floatx80_atan(a, &st);    c_hi = z.high; c_lo = z.low; break;
+            case 44: z = floatx80_asin(a, &st);    c_hi = z.high; c_lo = z.low; break;
+            case 45: z = floatx80_acos(a, &st);    c_hi = z.high; c_lo = z.low; break;
+            case 46: z = floatx80_atanh(a, &st);   c_hi = z.high; c_lo = z.low; break;
+            case 47: z = floatx80_sinh(a, &st);    c_hi = z.high; c_lo = z.low; break;
+            case 48: z = floatx80_cosh(a, &st);    c_hi = z.high; c_lo = z.low; break;
+            case 49: z = floatx80_tanh(a, &st);    c_hi = z.high; c_lo = z.low; break;
             default: break;
         }
         int bad = (c_hi != r_hi || c_lo != r_lo) || (has_qbyte && c_qbyte != r_flags);

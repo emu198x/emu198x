@@ -1684,3 +1684,220 @@ fn fsadd_prefix_forces_single_precision() {
         "single-rounded via the FSxxx prefix"
     );
 }
+
+// ─── FPSP exponential transcendentals (#492) ──────────────────────────────
+//
+// The result values are validated bit-exact against WinUAE in
+// `validation/run_fpsp.sh`; these check the 020 cpGEN dispatch routes each
+// opmode to the right `softfloat_fpsp` function (and a known anchor value).
+
+#[test]
+fn fetox_of_zero_is_one() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_etox;
+    // FETOX (opmode 0x10): e^0 = 1.0.
+    let r = run(0x10, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], ONE, "e^0 = 1.0");
+    // And FETOX(1.0) matches the backend exactly.
+    let r = run(0x10, 0, 1, |cpu| cpu.regs.fp[0] = ONE);
+    assert_eq!(
+        r.fp[1],
+        floatx80_etox(80, NearestEven, ONE),
+        "FETOX → floatx80_etox"
+    );
+}
+
+#[test]
+fn fetoxm1_dispatches() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_etoxm1;
+    // FETOXM1 (opmode 0x08): e^0 - 1 = 0.
+    let r = run(0x08, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "e^0 - 1 = 0");
+    let r = run(0x08, 0, 1, |cpu| cpu.regs.fp[0] = ONE);
+    assert_eq!(r.fp[1], floatx80_etoxm1(80, NearestEven, ONE));
+}
+
+#[test]
+fn ftwotox_of_known_values() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_twotox;
+    // FTWOTOX (opmode 0x11): 2^3 = 8.0.
+    let three = FpReg::new(0x4000, 0xC000_0000_0000_0000);
+    let r = run(0x11, 0, 1, |cpu| cpu.regs.fp[0] = three);
+    assert_eq!(
+        r.fp[1],
+        FpReg::new(0x4002, 0x8000_0000_0000_0000),
+        "2^3 = 8.0"
+    );
+    let r = run(0x11, 0, 1, |cpu| cpu.regs.fp[0] = three);
+    assert_eq!(r.fp[1], floatx80_twotox(80, NearestEven, three));
+}
+
+#[test]
+fn ftentox_of_known_values() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_tentox;
+    // FTENTOX (opmode 0x12): 10^2 = 100.0.
+    let two = FpReg::new(0x4000, 0x8000_0000_0000_0000);
+    let r = run(0x12, 0, 1, |cpu| cpu.regs.fp[0] = two);
+    assert_eq!(
+        r.fp[1],
+        FpReg::new(0x4005, 0xC800_0000_0000_0000),
+        "10^2 = 100.0"
+    );
+    let r = run(0x12, 0, 1, |cpu| cpu.regs.fp[0] = two);
+    assert_eq!(r.fp[1], floatx80_tentox(80, NearestEven, two));
+}
+
+// ─── FPSP logarithms (#492) ───────────────────────────────────────────────
+
+#[test]
+fn flogn_of_one_is_zero() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_logn;
+    // FLOGN (opmode 0x14): ln(1) = 0.
+    let r = run(0x14, 0, 1, |cpu| cpu.regs.fp[0] = ONE);
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "ln(1) = 0");
+    let e = FpReg::new(0x4000, 0xADF8_5458_A2BB_4A9A); // ~2.71828
+    let r = run(0x14, 0, 1, |cpu| cpu.regs.fp[0] = e);
+    assert_eq!(
+        r.fp[1],
+        floatx80_logn(80, NearestEven, e),
+        "FLOGN → floatx80_logn"
+    );
+}
+
+#[test]
+fn flognp1_of_zero_is_zero() {
+    use motorola_68k_common::softfloat_fpsp::floatx80_lognp1;
+    let _ = floatx80_lognp1; // referenced for the doc link
+    // FLOGNP1 (opmode 0x06): ln(1+0) = 0.
+    let r = run(0x06, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "ln(1+0) = 0");
+}
+
+#[test]
+fn flog10_of_hundred_is_two() {
+    // FLOG10 (opmode 0x15): log10(100) = 2.0.
+    let hundred = FpReg::new(0x4005, 0xC800_0000_0000_0000);
+    let r = run(0x15, 0, 1, |cpu| cpu.regs.fp[0] = hundred);
+    assert_eq!(
+        r.fp[1],
+        FpReg::new(0x4000, 0x8000_0000_0000_0000),
+        "log10(100) = 2.0"
+    );
+}
+
+#[test]
+fn flog2_of_eight_is_three() {
+    // FLOG2 (opmode 0x16): log2(8) = 3.0 (the exact 2^k path).
+    let eight = FpReg::new(0x4002, 0x8000_0000_0000_0000);
+    let r = run(0x16, 0, 1, |cpu| cpu.regs.fp[0] = eight);
+    assert_eq!(
+        r.fp[1],
+        FpReg::new(0x4000, 0xC000_0000_0000_0000),
+        "log2(8) = 3.0"
+    );
+}
+
+// ─── FPSP trigonometric (#492) ────────────────────────────────────────────
+
+#[test]
+fn fsin_fcos_ftan_of_zero() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::{floatx80_cos, floatx80_sin, floatx80_tan};
+    // FSIN (0x0E): sin(0) = 0; FCOS (0x1D): cos(0) = 1; FTAN (0x0F): tan(0) = 0.
+    let r = run(0x0E, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "sin(0) = 0");
+    let r = run(0x1D, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], ONE, "cos(0) = 1");
+    let r = run(0x0F, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "tan(0) = 0");
+    // Dispatch matches the backend on a non-trivial value.
+    let half = FpReg::new(0x3FFE, 0x8000_0000_0000_0000); // 0.5
+    let r = run(0x0E, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_sin(80, NearestEven, half));
+    let r = run(0x1D, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_cos(80, NearestEven, half));
+    let r = run(0x0F, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_tan(80, NearestEven, half));
+}
+
+#[test]
+fn fsincos_writes_both_registers() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_sincos;
+    // FSINCOS (opmode 0110ccc): sine → FP1 (dst), cosine → FP2 (c). Use a
+    // raw extension word: R/M=0, src=0, dst=1, opmode = 0x32 (cos reg 2).
+    let half = FpReg::new(0x3FFE, 0x8000_0000_0000_0000); // 0.5
+    let r = run(0x32, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    let (s, c) = floatx80_sincos(80, NearestEven, half);
+    assert_eq!(r.fp[1], s, "sine → dst FP1");
+    assert_eq!(r.fp[2], c, "cosine → FP2");
+}
+
+#[test]
+fn fsincos_same_register_keeps_sine() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::floatx80_sincos;
+    // When FPc == FPs (both reg 1: dst=1, opmode 0x31), the sine result wins.
+    let half = FpReg::new(0x3FFE, 0x8000_0000_0000_0000);
+    let r = run(0x31, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    let (s, _c) = floatx80_sincos(80, NearestEven, half);
+    assert_eq!(r.fp[1], s, "FPc == FPs → sine kept");
+}
+
+// ─── FPSP inverse-trig + hyperbolic (#492) ────────────────────────────────
+
+#[test]
+fn fatan_fasin_facos_anchors() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::{floatx80_acos, floatx80_asin, floatx80_atan};
+    // atan(0)=0, asin(0)=0, acos(0)=π/2.
+    let r = run(0x0A, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "atan(0) = 0");
+    let r = run(0x0C, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "asin(0) = 0");
+    let r = run(0x1C, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(
+        r.fp[1],
+        FpReg::new(0x3FFF, 0xC90F_DAA2_2168_C235),
+        "acos(0) = π/2"
+    );
+    // Dispatch matches the backend on 0.5.
+    let half = FpReg::new(0x3FFE, 0x8000_0000_0000_0000);
+    let r = run(0x0A, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_atan(80, NearestEven, half));
+    let r = run(0x0C, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_asin(80, NearestEven, half));
+    let r = run(0x1C, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_acos(80, NearestEven, half));
+}
+
+#[test]
+fn fsinh_fcosh_ftanh_anchors() {
+    use motorola_68k_common::softfloat::RoundingMode::NearestEven;
+    use motorola_68k_common::softfloat_fpsp::{
+        floatx80_atanh, floatx80_cosh, floatx80_sinh, floatx80_tanh,
+    };
+    // sinh(0)=0, cosh(0)=1, tanh(0)=0, atanh(0)=0.
+    let r = run(0x02, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "sinh(0) = 0");
+    let r = run(0x19, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], ONE, "cosh(0) = 1");
+    let r = run(0x09, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "tanh(0) = 0");
+    let r = run(0x0D, 0, 1, |cpu| cpu.regs.fp[0] = FpReg::new(0, 0));
+    assert_eq!(r.fp[1], FpReg::new(0, 0), "atanh(0) = 0");
+    // Dispatch matches the backend on 0.5.
+    let half = FpReg::new(0x3FFE, 0x8000_0000_0000_0000);
+    let r = run(0x02, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_sinh(80, NearestEven, half));
+    let r = run(0x19, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_cosh(80, NearestEven, half));
+    let r = run(0x09, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_tanh(80, NearestEven, half));
+    let r = run(0x0D, 0, 1, |cpu| cpu.regs.fp[0] = half);
+    assert_eq!(r.fp[1], floatx80_atanh(80, NearestEven, half));
+}

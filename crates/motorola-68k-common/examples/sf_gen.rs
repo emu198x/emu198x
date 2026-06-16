@@ -4,6 +4,7 @@
 // SOFTFLOAT_68K. Deterministic LCG so runs are reproducible; op set on argv[1].
 use motorola_68k_common::registers::FpReg;
 use motorola_68k_common::softfloat::{self as sf, RoundingMode};
+use motorola_68k_common::softfloat_fpsp as fpsp;
 
 struct Lcg(u64);
 impl Lcg {
@@ -239,6 +240,89 @@ fn main() {
                 let r = sf::floatx80_mod(80, mode, a, b);
                 q_byte = Some((r.quotient & 0x7F) | (u64::from(r.sign) << 7));
                 (r.value.high, r.value.low)
+            }
+            // 30-47: the FPSP transcendentals (unary; operand in `a`), each
+            // computed at extended precision with the vector's rounding mode.
+            30 => {
+                let z = fpsp::floatx80_etox(80, mode, a);
+                (z.high, z.low)
+            }
+            31 => {
+                let z = fpsp::floatx80_etoxm1(80, mode, a);
+                (z.high, z.low)
+            }
+            32 => {
+                let z = fpsp::floatx80_twotox(80, mode, a);
+                (z.high, z.low)
+            }
+            33 => {
+                let z = fpsp::floatx80_tentox(80, mode, a);
+                (z.high, z.low)
+            }
+            34 => {
+                let z = fpsp::floatx80_logn(80, mode, a);
+                (z.high, z.low)
+            }
+            35 => {
+                let z = fpsp::floatx80_lognp1(80, mode, a);
+                (z.high, z.low)
+            }
+            36 => {
+                let z = fpsp::floatx80_log10(80, mode, a);
+                (z.high, z.low)
+            }
+            37 => {
+                let z = fpsp::floatx80_log2(80, mode, a);
+                (z.high, z.low)
+            }
+            38 => {
+                let z = fpsp::floatx80_sin(80, mode, a);
+                (z.high, z.low)
+            }
+            39 => {
+                let z = fpsp::floatx80_cos(80, mode, a);
+                (z.high, z.low)
+            }
+            40 => {
+                let z = fpsp::floatx80_tan(80, mode, a);
+                (z.high, z.low)
+            }
+            // 41/42: FSINCOS — sine output (41) and cosine output (42).
+            41 => {
+                let (s, _c) = fpsp::floatx80_sincos(80, mode, a);
+                (s.high, s.low)
+            }
+            42 => {
+                let (_s, c) = fpsp::floatx80_sincos(80, mode, a);
+                (c.high, c.low)
+            }
+            43 => {
+                let z = fpsp::floatx80_atan(80, mode, a);
+                (z.high, z.low)
+            }
+            44 => {
+                let z = fpsp::floatx80_asin(80, mode, a);
+                (z.high, z.low)
+            }
+            45 => {
+                let z = fpsp::floatx80_acos(80, mode, a);
+                (z.high, z.low)
+            }
+            46 => {
+                let z = fpsp::floatx80_atanh(80, mode, a);
+                (z.high, z.low)
+            }
+            47 => {
+                let z = fpsp::floatx80_sinh(80, mode, a);
+                (z.high, z.low)
+            }
+            48 => {
+                let z = fpsp::floatx80_cosh(80, mode, a);
+                (z.high, z.low)
+            }
+            49 => {
+                let z = fpsp::floatx80_tanh(80, mode, a);
+                (z.high, z.low)
             }
             _ => (0, 0),
         };

@@ -130,8 +130,9 @@ pub fn signaling_nan_input() -> bool {
     SIGNALING_INPUT.with(core::cell::Cell::get)
 }
 
-/// Accumulate exception flags (`float_raise`). Internal to the port.
-fn float_raise(flags: u8) {
+/// Accumulate exception flags (`float_raise`). Internal to the port; also
+/// used by the FPSP transcendentals in [`crate::softfloat_fpsp`].
+pub(crate) fn float_raise(flags: u8) {
     EXCEPTION_FLAGS.with(|f| f.set(f.get() | flags));
 }
 
@@ -1690,7 +1691,7 @@ pub fn floatx80_mod(precision: i32, mode: RoundingMode, a: FpReg, b: FpReg) -> R
 /// `propagateFloatx80NaNOneArg`: quiet a single NaN operand (set the quiet
 /// bit), raising invalid (SNAN) if it was signalling.
 #[must_use]
-fn propagate_floatx80_nan_one_arg(mut a: FpReg) -> FpReg {
+pub(crate) fn propagate_floatx80_nan_one_arg(mut a: FpReg) -> FpReg {
     if is_signaling_nan(a) {
         raise_signaling_nan();
     }
