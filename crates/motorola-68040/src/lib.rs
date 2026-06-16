@@ -121,7 +121,12 @@
 //! actually diverges in behaviour.
 
 pub mod cpu;
-pub mod fpu;
+
+/// FPU support now lives in `motorola_68k_common::fpu` so the 68020 hook
+/// (which the 68040 wraps) can reach it without a circular dependency.
+/// Re-exported here so existing `motorola_68040::fpu::…` paths keep
+/// working.
+pub use motorola_68k_common::fpu;
 
 pub use cpu::Cpu68040;
 pub use motorola_68k_common::{CpuCapabilities, CpuModel, TimingClass};

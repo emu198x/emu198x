@@ -174,6 +174,125 @@ fn generate_one(def: &InstructionDef, cpu_type: u32, rng: &mut impl Rng, index: 
         musashi::set_reg(musashi::M68K_REG_CAAR, 0);
     }
 
+    // Musashi keeps FP register state across resets, so clear it for a
+    // deterministic baseline. FP instructions seed their own operands on
+    // top of this; integer instructions leave it zero (and the zero state
+    // is omitted from the fixture by `skip_serializing_if`).
+    for i in 0..8 {
+        musashi::set_fpr(i, 0, 0);
+    }
+    musashi::set_fpcr(0);
+    musashi::set_fpsr(0);
+    musashi::set_fpiar(0);
+
+    // FP instructions seed all eight FP registers with random operands on
+    // top of the cleared baseline, and pick a random rounding mode (FPCR
+    // bits 5-4: nearest/zero/down/up). Precision stays extended (bits 7-6
+    // = 0) — the 68881/2 core always computes in extended, matching the
+    // 68040 oracle when its FPCR precision is extended.
+    if def.is_fp() {
+        let rmode: u32 = rng.random_range(0..4);
+        musashi::set_fpcr(rmode << 4);
+        seed_fp_operands(rng);
+
+        // Condition instructions read the FPSR condition-code byte (bits
+        // 27-24: N/Z/I/NAN); seed a random nibble so every predicate branch
+        // is exercised regardless of which value classes were seeded.
+        if matches!(
+            def.setup,
+            InstructionSetup::FpScc | InstructionSetup::FpBcc { .. }
+        ) {
+            musashi::set_fpsr(rng.random_range(0..16u32) << 24);
+        }
+
+        // Memory-source ops: point A0 at an even data address and seed a
+        // format-typed operand there (the in-register dst operand is one of
+        // the eight already seeded above).
+        if let InstructionSetup::FpGenMem { format, .. } = def.setup {
+            let addr = random_data_addr(rng);
+            musashi::set_reg(musashi::M68K_REG_A0, addr);
+            seed_fp_mem_operand(addr, format, rng);
+        }
+
+        // Store ops: point A0 at a clear even data address; the store writes
+        // the narrowed FPn there (captured into the fixture's final RAM).
+        if matches!(def.setup, InstructionSetup::FpStoreMem { .. }) {
+            let addr = random_data_addr(rng);
+            musashi::set_reg(musashi::M68K_REG_A0, addr);
+        }
+
+        // Non-(An) memory-source modes: set A0 (and the d16 word) so the
+        // computed EA lands on a seeded, even operand.
+        if let InstructionSetup::FpGenMemMode {
+            format, ea_mode, ..
+        } = def.setup
+        {
+            let size = fp_format_size(format);
+            match ea_mode {
+                3 => {
+                    // (A0)+: operand at A0, pointer steps forward by `size`.
+                    let addr = random_data_addr(rng);
+                    musashi::set_reg(musashi::M68K_REG_A0, addr);
+                    seed_fp_mem_operand(addr, format, rng);
+                }
+                4 => {
+                    // -(A0): A0 pre-decrements by `size`; operand is there.
+                    let addr = random_data_addr(rng);
+                    musashi::set_reg(musashi::M68K_REG_A0, addr);
+                    seed_fp_mem_operand(addr.wrapping_sub(size), format, rng);
+                }
+                _ => {
+                    // d16(A0): pick an even target, an even displacement, and
+                    // back-compute A0 so A0 + d16 == target.
+                    let target = random_data_addr(rng);
+                    let d16: i16 = rng.random::<i16>() & !1;
+                    let a0 = ((i64::from(target) - i64::from(d16)) as u32) & 0x00FF_FFFF;
+                    musashi::set_reg(musashi::M68K_REG_A0, a0);
+                    memory::poke_word(CODE_BASE + 4, d16 as u16);
+                    seed_fp_mem_operand(target, format, rng);
+                }
+            }
+        }
+
+        // FMOVEM: point A0 at an even address with headroom both ways, and
+        // for the postinc load seed `count` 12-byte extended operands at A0.
+        if let InstructionSetup::FpMovem { store } = def.setup {
+            let reglist = memory::peek(CODE_BASE + 3); // low byte of ext word
+            let count = u32::from(reglist.count_ones());
+            // Mid-data-region base leaves ≥96 bytes below (predec store) and
+            // above (postinc load) without touching code/stack/vectors.
+            let a0 = rng.random_range(0x0014_0000u32..0x001C_0000) & !1;
+            musashi::set_reg(musashi::M68K_REG_A0, a0);
+            if !store {
+                for blk in 0..count {
+                    let addr = a0 + blk * 12;
+                    let (high, low) = random_fp_value(rng);
+                    memory::poke_word(addr, high);
+                    memory::poke_word(addr + 2, 0); // reserved word
+                    memory::poke_long(addr + 4, (low >> 32) as u32);
+                    memory::poke_long(addr + 8, low as u32);
+                }
+            }
+        }
+
+        // Non-(An) store modes: set A0 (and d16) so the store target is a
+        // clear, even address. No operand is seeded — the store writes it.
+        // The core/Musashi compute the post-inc/pre-dec step themselves.
+        if let InstructionSetup::FpStoreMemMode { ea_mode, .. } = def.setup {
+            if ea_mode == 5 {
+                // d16(A0): back-compute A0 so A0 + d16 == an even target.
+                let target = random_data_addr(rng);
+                let d16: i16 = rng.random::<i16>() & !1;
+                let a0 = ((i64::from(target) - i64::from(d16)) as u32) & 0x00FF_FFFF;
+                musashi::set_reg(musashi::M68K_REG_A0, a0);
+                memory::poke_word(CODE_BASE + 4, d16 as u16);
+            } else {
+                // (A0)+ / -(A0): A0 at an even data address.
+                musashi::set_reg(musashi::M68K_REG_A0, random_data_addr(rng));
+            }
+        }
+    }
+
     // Capture initial state
     let initial = capture_state(cpu_type);
 
@@ -323,6 +442,120 @@ fn encode_instruction(
             memory::poke_word(pc.wrapping_add(4), spec as u16);
             None
         }
+        InstructionSetup::FpGenReg { opmode } => {
+            // cpGEN extension word: R/M=0 | 00 | src(3) | dst(3) | opmode(7).
+            // Random src/dst FP registers; all eight are seeded with random
+            // operands in generate_one, so any pairing is exercised.
+            let src: u16 = rng.random_range(0..8);
+            let dst: u16 = rng.random_range(0..8);
+            let ext = (src << 10) | (dst << 7) | u16::from(opmode);
+            memory::poke_word(pc.wrapping_add(2), ext);
+            None
+        }
+        InstructionSetup::FpGenMem { opmode, format } => {
+            // cpGEN extension word: 0 | R/M=1 | 0 | format(3) | dst(3) |
+            // opmode(7). R/M is bit 14 (0x4000), NOT bit 15 — bit 15 and
+            // bit 13 must be zero or the sub-op decode (w2>>13 & 7) misroutes
+            // to FMOVE-control/FMOVEM. The source operand is seeded at (A0)
+            // in generate_one's FP block.
+            let dst: u16 = rng.random_range(0..8);
+            let ext = 0x4000 | (u16::from(format) << 10) | (dst << 7) | u16::from(opmode);
+            memory::poke_word(pc.wrapping_add(2), ext);
+            None
+        }
+        InstructionSetup::FpStoreMem { format } => {
+            // cpGEN store ext word: 011 | format(3) | src(3) | k-factor(7).
+            // k-factor is 0 for the non-packed formats. The source FPn is one
+            // of the eight seeded in generate_one; A0 is pointed at a clear
+            // even data address the store writes to.
+            let src: u16 = rng.random_range(0..8);
+            let ext = 0x6000 | (u16::from(format) << 10) | (src << 7);
+            memory::poke_word(pc.wrapping_add(2), ext);
+            None
+        }
+        InstructionSetup::FpMoveCr => {
+            // cpGEN ext word: R/M=1 (bit 14) | src-spec 7 (bits 12-10) |
+            // dst(3) | ROM offset(7). The low 7 bits are the ROM offset, not
+            // an opmode. Cover the documented constant bands (0x00-0x0E pi/
+            // logs/e, 0x30-0x3F powers of ten) and the zero-filled gaps.
+            let dst: u16 = rng.random_range(0..8);
+            let offset: u16 = rng.random_range(0..0x40);
+            let ext = 0x4000 | (7 << 10) | (dst << 7) | offset;
+            memory::poke_word(pc.wrapping_add(2), ext);
+            None
+        }
+        InstructionSetup::FpGenMemMode { opmode, format, .. } => {
+            // Same memory-source ext word as (An); the EA mode lives in the
+            // opcode and the operand + any displacement are seeded in
+            // generate_one's FP block (it owns the register values).
+            let dst: u16 = rng.random_range(0..8);
+            let ext = 0x4000 | (u16::from(format) << 10) | (dst << 7) | u16::from(opmode);
+            memory::poke_word(pc.wrapping_add(2), ext);
+            None
+        }
+        InstructionSetup::FpStoreMemMode { format, .. } => {
+            // Store ext word (sub-op 3); EA mode is in the opcode, the
+            // address + any displacement are set in generate_one's FP block.
+            let src: u16 = rng.random_range(0..8);
+            let ext = 0x6000 | (u16::from(format) << 10) | (src << 7);
+            memory::poke_word(pc.wrapping_add(2), ext);
+            None
+        }
+        InstructionSetup::FpScc => {
+            // FScc extension word: low 6 bits select the FP predicate. Use
+            // 0x00-0x1F only: those are every distinct predicate. The
+            // signalling variants 0x20-0x3F have the same boolean result
+            // (bit 5 only gates the BSUN exception, which we defer), and the
+            // Musashi oracle fatalerrors on them rather than masking bit 5.
+            let cond: u16 = rng.random_range(0..0x20);
+            memory::poke_word(pc.wrapping_add(2), cond);
+            None
+        }
+        InstructionSetup::FpMovem { store } => {
+            // FMOVEM ext word: 11 | dir | mode(2) | 000 | reglist(8).
+            // Predec store: dir=1 mode=0 → 0xE000; postinc load: dir=0
+            // mode=2 → 0xD000. A random 8-bit static register list.
+            let reglist = u16::from(rng.random::<u8>());
+            let base: u16 = if store { 0xE000 } else { 0xD000 };
+            memory::poke_word(pc.wrapping_add(2), base | reglist);
+            None
+        }
+        InstructionSetup::FpBcc { long } => {
+            // The FP predicate lives in the opcode's low 6 bits (0x00-0x1F,
+            // as for FScc). Re-poke the opcode with it OR-ed in, then the
+            // displacement to an in-range, even target so neither the taken
+            // prefetch nor the 24-bit address wrap diverges from the oracle.
+            let cond: u16 = rng.random_range(0..0x20);
+            memory::poke_word(pc, def.opcode | cond);
+            if long {
+                let target = rng.random_range(0x0000_0100u32..0x00FF_0000) & !1;
+                let disp = target.wrapping_sub(pc.wrapping_add(2));
+                memory::poke_word(pc.wrapping_add(2), (disp >> 16) as u16);
+                memory::poke_word(pc.wrapping_add(4), disp as u16);
+            } else {
+                // 16-bit displacement: keep the target near the instruction
+                // and positive (no high-byte wrap).
+                let target = rng.random_range(0x0000_0100u32..0x0000_8000) & !1;
+                let disp = target.wrapping_sub(pc.wrapping_add(2)) as u16;
+                memory::poke_word(pc.wrapping_add(2), disp);
+            }
+            None
+        }
+        InstructionSetup::FpGenImm { opmode, format } => {
+            // R/M=1 ext word, then the immediate operand inline at pc+4.
+            let dst: u16 = rng.random_range(0..8);
+            let ext = 0x4000 | (u16::from(format) << 10) | (dst << 7) | u16::from(opmode);
+            memory::poke_word(pc.wrapping_add(2), ext);
+            if format == 6 {
+                // Byte: one word, value in the low 8 bits (high 8 = 0).
+                memory::poke_word(pc.wrapping_add(4), u16::from(rng.random::<u8>()));
+            } else {
+                // Single/long/word/double/extended share the big-endian
+                // in-memory layout the immediate stream uses.
+                seed_fp_mem_operand(pc.wrapping_add(4), format, rng);
+            }
+            None
+        }
         InstructionSetup::Movem { size } => {
             // Register mask at pc+2
             let mask: u16 = rng.random();
@@ -351,6 +584,139 @@ fn random_sr(rng: &mut impl Rng, _cpu_type: u32) -> u16 {
     let int_mask: u8 = rng.random_range(0..=7);
     // S=1, T=0, M=0 — supervisor mode, no trace
     0x2000 | (u16::from(int_mask) << 8) | u16::from(ccr)
+}
+
+/// Seed all eight Musashi FP registers with random operands drawn from a
+/// weighted mix of value classes (see `random_fp_value`): normal finite of
+/// moderate and wide magnitude, ±0, ±infinity, NaN (quiet and signalling),
+/// and subnormals. The wide-magnitude normals plus infinities and zeros
+/// exercise the overflow/underflow/NaN-propagation result *values*; the
+/// deferred FPSR exception bits those also raise are masked off by the
+/// harness, which compares only FP register values + the FPSR condition
+/// codes.
+fn seed_fp_operands(rng: &mut impl Rng) {
+    for i in 0..8 {
+        let (high, low) = random_fp_value(rng);
+        musashi::set_fpr(i, high, low);
+    }
+}
+
+/// Bit 63 of a floatx80 mantissa: the explicit integer bit.
+const FX80_INT_BIT: u64 = 0x8000_0000_0000_0000;
+
+/// Generate one random floatx80 `(high, low)` operand from a weighted mix
+/// of value classes. Pseudo-encodings (unnormal / pseudo-NaN / pseudo-inf)
+/// are deliberately excluded — they are 80-bit-specific invalid forms the
+/// 68040 oracle and 68881/2 core may treat differently, and would muddy a
+/// value-level comparison.
+fn random_fp_value(rng: &mut impl Rng) -> (u16, u64) {
+    let sign: u16 = if rng.random() { 0x8000 } else { 0 };
+    match rng.random_range(0..100u8) {
+        // 0..40: moderate normal — exponent within ±64 of 1.0.
+        0..40 => {
+            let exp = rng.random_range((0x3FFFu16 - 64)..=(0x3FFFu16 + 64));
+            (sign | exp, rng.random::<u64>() | FX80_INT_BIT)
+        }
+        // 40..60: wide normal — full exponent range, to reach the
+        // overflow/underflow edges in mul/div/add.
+        40..60 => {
+            let exp = rng.random_range(0x0001u16..=0x7FFE);
+            (sign | exp, rng.random::<u64>() | FX80_INT_BIT)
+        }
+        // 60..70: ±0.0
+        60..70 => (sign, 0),
+        // 70..80: ±infinity (max exponent, fraction zero, integer bit set).
+        70..80 => (sign | 0x7FFF, FX80_INT_BIT),
+        // 80..92: NaN — quiet (bit 62 set) or signalling (bit 62 clear),
+        // always with a non-zero fraction and the integer bit set.
+        80..92 => {
+            let frac = (rng.random::<u64>() & 0x3FFF_FFFF_FFFF_FFFF).max(1);
+            let quiet = if rng.random() {
+                0x4000_0000_0000_0000
+            } else {
+                0
+            };
+            (sign | 0x7FFF, FX80_INT_BIT | quiet | frac)
+        }
+        // 92..100: subnormal — exponent zero, integer bit clear, non-zero.
+        _ => {
+            let mantissa = (rng.random::<u64>() & !FX80_INT_BIT).max(1);
+            (sign, mantissa)
+        }
+    }
+}
+
+/// Byte size of an M68881 source-format operand in memory.
+fn fp_format_size(format: u8) -> u32 {
+    match format {
+        6 => 1,  // Byte integer
+        4 => 2,  // Word integer
+        2 => 12, // Extended
+        5 => 8,  // Double
+        _ => 4,  // Long integer (0) / Single (1)
+    }
+}
+
+/// Seed a `format`-typed source operand at `addr` (big-endian), for the
+/// memory-source FPgen ops. `format` is the M68881 source-specifier code.
+fn seed_fp_mem_operand(addr: u32, format: u8, rng: &mut impl Rng) {
+    match format {
+        0 => memory::poke_long(addr, rng.random()), // long integer
+        1 => memory::poke_long(addr, random_f32_bits(rng)), // single
+        2 => {
+            // Extended: 12 bytes — high word (sign+exp), reserved word (0),
+            // then the 64-bit mantissa.
+            let (high, low) = random_fp_value(rng);
+            memory::poke_word(addr, high);
+            memory::poke_word(addr + 2, 0);
+            memory::poke_long(addr + 4, (low >> 32) as u32);
+            memory::poke_long(addr + 8, low as u32);
+        }
+        4 => memory::poke_word(addr, rng.random()), // word integer
+        5 => {
+            // Double: 8 bytes.
+            let bits = random_f64_bits(rng);
+            memory::poke_long(addr, (bits >> 32) as u32);
+            memory::poke_long(addr + 4, bits as u32);
+        }
+        6 => memory::poke(addr, rng.random()), // byte integer
+        _ => {}
+    }
+}
+
+/// Random IEEE-754 single-precision bit pattern from a weighted mix of
+/// value classes (normal / ±0 / ±inf / NaN / subnormal).
+fn random_f32_bits(rng: &mut impl Rng) -> u32 {
+    let sign: u32 = if rng.random() { 0x8000_0000 } else { 0 };
+    match rng.random_range(0..100u8) {
+        0..55 => sign | (rng.random_range(1u32..=254) << 23) | (rng.random::<u32>() & 0x007F_FFFF),
+        55..68 => sign,
+        68..80 => sign | 0x7F80_0000,
+        80..92 => sign | 0x7F80_0000 | (rng.random::<u32>() & 0x007F_FFFF).max(1),
+        _ => sign | (rng.random::<u32>() & 0x007F_FFFF).max(1),
+    }
+}
+
+/// Random IEEE-754 double-precision bit pattern from a weighted mix of
+/// value classes (normal / ±0 / ±inf / NaN / subnormal).
+fn random_f64_bits(rng: &mut impl Rng) -> u64 {
+    let sign: u64 = if rng.random() {
+        0x8000_0000_0000_0000
+    } else {
+        0
+    };
+    match rng.random_range(0..100u8) {
+        0..55 => {
+            sign | (rng.random_range(1u64..=2046) << 52)
+                | (rng.random::<u64>() & 0x000F_FFFF_FFFF_FFFF)
+        }
+        55..68 => sign,
+        68..80 => sign | 0x7FF0_0000_0000_0000,
+        80..92 => {
+            sign | 0x7FF0_0000_0000_0000 | (rng.random::<u64>() & 0x000F_FFFF_FFFF_FFFF).max(1)
+        }
+        _ => sign | (rng.random::<u64>() & 0x000F_FFFF_FFFF_FFFF).max(1),
+    }
 }
 
 /// Capture current Musashi state.
@@ -383,6 +749,11 @@ fn capture_state(cpu_type: u32) -> CpuState {
 
     let ram = memory::snapshot_tracked();
 
+    let mut fp = [(0u16, 0u64); 8];
+    for (i, slot) in fp.iter_mut().enumerate() {
+        *slot = musashi::get_fpr(i);
+    }
+
     CpuState {
         d,
         a,
@@ -401,6 +772,10 @@ fn capture_state(cpu_type: u32) -> CpuState {
         vbr,
         cacr,
         caar,
+        fp,
+        fpcr: musashi::get_fpcr(),
+        fpsr: musashi::get_fpsr(),
+        fpiar: musashi::get_fpiar(),
     }
 }
 

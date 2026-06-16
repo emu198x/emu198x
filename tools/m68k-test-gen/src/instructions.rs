@@ -53,6 +53,79 @@ pub enum InstructionSetup {
     /// opcode. The generator forces the two pointer registers (selected by
     /// the spec's Rn fields) to even data addresses after randomisation.
     Cas2,
+    /// 68881/2 register-to-register FPgen (FADD FPm,FPn etc.). The opcode
+    /// is the cpGEN F-line word ($F200); the single extension word encodes
+    /// `R/M=0 | 00 | src(3) | dst(3) | opmode(7)`. The generator picks
+    /// random src/dst FP registers and seeds all eight with random operands.
+    FpGenReg { opmode: u8 },
+    /// 68881/2 memory-source FPgen (FADD.<fmt> (A0),FPn etc.). The opcode
+    /// is the cpGEN F-line word with EA = (A0) ($F210); the extension word
+    /// encodes `R/M=1 | format(3) | dst(3) | opmode(7)`. The generator
+    /// points A0 at an even data address and seeds a `format`-typed source
+    /// operand there. `format`: 0=Long 1=Single 2=Extended 4=Word 5=Double
+    /// 6=Byte (the source-specifier field of the M68881 ext word).
+    FpGenMem { opmode: u8, format: u8 },
+    /// 68881/2 register-to-memory store (FMOVE.<fmt> FPn,(A0)). cpGEN
+    /// sub-op 3; ext word `011 | format(3) | src(3) | k-factor(7)`. The
+    /// generator points A0 at an even data address; the store writes the
+    /// `format`-narrowed FPn there. Validates floatx80 → float32/64/int.
+    FpStoreMem { format: u8 },
+    /// 68881/2 FMOVECR (load on-chip ROM constant into FPn). cpGEN with
+    /// R/M=1 (bit 14) and source-specifier 7 (bits 12-10); ext word
+    /// `0 | R/M=1 | 0 | 111 | dst(3) | offset(7)`. The generator picks a
+    /// random ROM offset and dst.
+    FpMoveCr,
+    /// 68881/2 memory-source FPgen via a non-`(An)` addressing mode:
+    /// `(A0)+` (ea_mode 3), `-(A0)` (4) or `d16(A0)` (5). Exercises the
+    /// auto-increment/decrement pointer step (by the format size) and the
+    /// static-EA path through `calc_ea_start`, which `(An)` does not.
+    FpGenMemMode { opmode: u8, format: u8, ea_mode: u8 },
+    /// 68881/2 immediate-source FPgen (FADD.<fmt> #data,FPn). EA = `#data`
+    /// (mode 7 reg 4); the operand follows the FP extension word inline,
+    /// `ceil(size/2)` words. Exercises the inline-read path
+    /// (`TAG_V_FP_IMM_READ`), distinct from the EA fetch.
+    FpGenImm { opmode: u8, format: u8 },
+    /// 68881/2 register-to-memory store via a non-`(An)` addressing mode:
+    /// `(A0)+` (3), `-(A0)` (4) or `d16(A0)` (5). Exercises the store
+    /// byte-pipeline with pointer writeback and the static-EA store path
+    /// through `calc_ea_start` (fp_mem_store), which `(An)` store does not.
+    FpStoreMemMode { format: u8, ea_mode: u8 },
+    /// 68881/2 FScc Dn (op-class 1, register-direct): set Dn's low byte to
+    /// 0xFF/0x00 on an FP condition. The extension word's low 6 bits select
+    /// the predicate; the generator randomises both predicate and the FPSR
+    /// condition codes to exercise every branch of `fpu::test_condition`.
+    FpScc,
+    /// 68881/2 FBcc — FP conditional branch. `long` selects the 32-bit
+    /// displacement form (op-class 3, $F2C0) over the 16-bit one (op-class
+    /// 2, $F280). The predicate is in the opcode's low 6 bits; the generator
+    /// randomises predicate, FPSR codes and an in-range even branch target.
+    FpBcc { long: bool },
+    /// 68881/2 FMOVEM register-list ↔ memory, the two idioms both the core
+    /// and the Musashi oracle implement: `store` = `FMOVEM <list>,-(A0)`
+    /// (predecrement store, ext word mode 0, writes FP[i]); else `FMOVEM
+    /// (A0)+,<list>` (postincrement load, mode 2, reads into FP[7-i]). The
+    /// generator randomises an 8-bit static register list.
+    FpMovem { store: bool },
+}
+
+impl InstructionDef {
+    /// True for floating-point instructions — the generator seeds FP
+    /// register operands (and FPCR) for these, not just integer state.
+    pub fn is_fp(&self) -> bool {
+        matches!(
+            self.setup,
+            InstructionSetup::FpGenReg { .. }
+                | InstructionSetup::FpGenMem { .. }
+                | InstructionSetup::FpStoreMem { .. }
+                | InstructionSetup::FpMoveCr
+                | InstructionSetup::FpGenMemMode { .. }
+                | InstructionSetup::FpGenImm { .. }
+                | InstructionSetup::FpStoreMemMode { .. }
+                | InstructionSetup::FpScc
+                | InstructionSetup::FpBcc { .. }
+                | InstructionSetup::FpMovem { .. }
+        )
+    }
 }
 
 const M68K: u32 = musashi::M68K_CPU_TYPE_68000;
@@ -846,6 +919,246 @@ fn cpu_type_order(cpu_type: u32) -> u32 {
 /// Find an instruction definition by name.
 pub fn find(cpu_type: u32, name: &str) -> Option<InstructionDef> {
     catalogue(cpu_type)
+        .into_iter()
+        .find(|d| d.name.eq_ignore_ascii_case(name))
+}
+
+/// Helper for a 68881/2 register-to-register FPgen instruction.
+const fn fpgen(name: &'static str, opmode: u8) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode: 0xF200, // cpID=1, op-class 0 (cpGEN), EA mode/reg unused
+        ext_words: 1,
+        setup: InstructionSetup::FpGenReg { opmode },
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    }
+}
+
+/// Helper for a 68881/2 memory-source FPgen instruction (EA = (A0)).
+const fn fpgen_mem(name: &'static str, opmode: u8, format: u8) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode: 0xF210, // cpGEN, EA mode 010 (An) reg 0 → (A0)
+        ext_words: 1,
+        setup: InstructionSetup::FpGenMem { opmode, format },
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    }
+}
+
+/// Helper for a 68881/2 register-to-memory store (FMOVE.<fmt> FPn,(A0)).
+const fn fpstore_mem(name: &'static str, format: u8) -> InstructionDef {
+    InstructionDef {
+        name,
+        opcode: 0xF210, // cpGEN, EA mode 010 (An) reg 0 → (A0)
+        ext_words: 1,
+        setup: InstructionSetup::FpStoreMem { format },
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    }
+}
+
+/// Return the 68881/2 FPgen catalogue (register-to-register + memory-source).
+///
+/// Kept separate from `catalogue()` so the integer `--all` sweep stays
+/// integer-only; the FP corpus is generated explicitly (`--fp`). Opmodes
+/// from M68881 UM Table 4-11. Monadic ops (FMOVE/FABS/FNEG/FSQRT/FINT/
+/// FINTRZ/FTST) read the `src` FP register; dyadic ops (FADD/FSUB/FMUL/
+/// FDIV/FCMP) compute `dst = dst OP src`.
+///
+/// The memory-source entries cover every data format the source-specifier
+/// field selects — Long/Single/Extended/Word/Double/Byte — via FMOVE.<fmt>
+/// (pure widen-to-extended) and FADD.<fmt> (widen then arithmetic). They
+/// validate the format conversions and the FP memory-operand pipeline at
+/// scale. Packed-decimal (.P, format 3) is excluded — Musashi declines it.
+pub fn fp_catalogue(_cpu_type: u32) -> Vec<InstructionDef> {
+    let mut defs = vec![
+        fpgen("FMOVE", 0x00),
+        fpgen("FINT", 0x01),
+        fpgen("FINTRZ", 0x03),
+        fpgen("FSQRT", 0x04),
+        fpgen("FABS", 0x18),
+        fpgen("FNEG", 0x1A),
+        fpgen("FDIV", 0x20),
+        fpgen("FADD", 0x22),
+        fpgen("FMUL", 0x23),
+        fpgen("FSUB", 0x28),
+        fpgen("FCMP", 0x38),
+        fpgen("FTST", 0x3A),
+    ];
+
+    // Memory-source, one FMOVE (conversion only) + one FADD (convert + add)
+    // per source format. Format codes are the M68881 source-specifier field.
+    for &(suffix, format) in &[
+        ("L", 0u8), // long integer
+        ("S", 1),   // single
+        ("X", 2),   // extended
+        ("W", 4),   // word integer
+        ("D", 5),   // double
+        ("B", 6),   // byte integer
+    ] {
+        let (fmove, fadd) = match suffix {
+            "L" => ("FMOVE.L_mem", "FADD.L_mem"),
+            "S" => ("FMOVE.S_mem", "FADD.S_mem"),
+            "X" => ("FMOVE.X_mem", "FADD.X_mem"),
+            "W" => ("FMOVE.W_mem", "FADD.W_mem"),
+            "D" => ("FMOVE.D_mem", "FADD.D_mem"),
+            "B" => ("FMOVE.B_mem", "FADD.B_mem"),
+            _ => unreachable!(),
+        };
+        defs.push(fpgen_mem(fmove, 0x00, format));
+        defs.push(fpgen_mem(fadd, 0x22, format));
+    }
+
+    // Register-to-memory store, one per destination format — validates the
+    // floatx80 → format narrowing (round_and_pack_float32/64, floatx80 →
+    // int32/16/8) and the store byte-pipeline.
+    for &(name, format) in &[
+        ("FMOVE.L_store", 0u8),
+        ("FMOVE.S_store", 1),
+        ("FMOVE.X_store", 2),
+        ("FMOVE.W_store", 4),
+        ("FMOVE.D_store", 5),
+        ("FMOVE.B_store", 6),
+    ] {
+        defs.push(fpstore_mem(name, format));
+    }
+
+    // FMOVECR — load a constant from the on-chip ROM (random offset/dst).
+    defs.push(InstructionDef {
+        name: "FMOVECR",
+        opcode: 0xF200, // cpGEN, no EA (source is the ROM)
+        ext_words: 1,
+        setup: InstructionSetup::FpMoveCr,
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    });
+
+    // Non-(An) memory-source addressing modes. (A0)+ across all formats
+    // exercises the pointer step by each size (1/2/4/8/12) plus writeback;
+    // -(A0) the pre-decrement; d16(A0) the static-EA path via calc_ea_start.
+    for &(name, format, ea_mode) in &[
+        ("FADD.B_postinc", 6u8, 3u8),
+        ("FADD.W_postinc", 4, 3),
+        ("FADD.L_postinc", 0, 3),
+        ("FADD.S_postinc", 1, 3),
+        ("FADD.D_postinc", 5, 3),
+        ("FADD.X_postinc", 2, 3),
+        ("FADD.S_predec", 1, 4),
+        ("FADD.X_predec", 2, 4),
+        ("FADD.S_d16", 1, 5),
+        ("FADD.D_d16", 5, 5),
+        ("FADD.X_d16", 2, 5),
+    ] {
+        let ext_words = if ea_mode == 5 { 2 } else { 1 };
+        defs.push(InstructionDef {
+            name,
+            opcode: 0xF200 | (u16::from(ea_mode) << 3), // EA reg 0 → A0
+            ext_words,
+            setup: InstructionSetup::FpGenMemMode {
+                opmode: 0x22,
+                format,
+                ea_mode,
+            },
+            min_cpu: musashi::M68K_CPU_TYPE_68020,
+        });
+    }
+
+    // Immediate-source: FADD.<fmt> #data,FPn. The operand follows the FP
+    // extension word inline (ceil(size/2) words: byte/word 1, long/single 2,
+    // double 4, extended 6).
+    for &(name, format, op_words) in &[
+        ("FADD.B_imm", 6u8, 1u8),
+        ("FADD.W_imm", 4, 1),
+        ("FADD.L_imm", 0, 2),
+        ("FADD.S_imm", 1, 2),
+        ("FADD.D_imm", 5, 4),
+        ("FADD.X_imm", 2, 6),
+    ] {
+        defs.push(InstructionDef {
+            name,
+            opcode: 0xF23C, // cpGEN, EA mode 7 reg 4 → #data
+            ext_words: 1 + op_words,
+            setup: InstructionSetup::FpGenImm {
+                opmode: 0x22,
+                format,
+            },
+            min_cpu: musashi::M68K_CPU_TYPE_68020,
+        });
+    }
+
+    // Register-to-memory store via non-(An) modes: (A0)+ across formats
+    // (store byte-pipeline step + writeback), -(A0), and d16(A0) (the
+    // static-EA store path through calc_ea_start with fp_mem_store).
+    for &(name, format, ea_mode) in &[
+        ("FMOVE.B_store_postinc", 6u8, 3u8),
+        ("FMOVE.W_store_postinc", 4, 3),
+        ("FMOVE.L_store_postinc", 0, 3),
+        ("FMOVE.S_store_postinc", 1, 3),
+        ("FMOVE.D_store_postinc", 5, 3),
+        ("FMOVE.X_store_postinc", 2, 3),
+        ("FMOVE.S_store_predec", 1, 4),
+        ("FMOVE.X_store_predec", 2, 4),
+        ("FMOVE.S_store_d16", 1, 5),
+        ("FMOVE.D_store_d16", 5, 5),
+    ] {
+        let ext_words = if ea_mode == 5 { 2 } else { 1 };
+        defs.push(InstructionDef {
+            name,
+            opcode: 0xF200 | (u16::from(ea_mode) << 3), // EA reg 0 → A0
+            ext_words,
+            setup: InstructionSetup::FpStoreMemMode { format, ea_mode },
+            min_cpu: musashi::M68K_CPU_TYPE_68020,
+        });
+    }
+
+    // FScc D0 (op-class 1, EA = D0): predicate + FPSR condition codes both
+    // randomised, exercising every branch of fpu::test_condition.
+    defs.push(InstructionDef {
+        name: "FScc",
+        opcode: 0xF240, // op-class 1 (bits 8-6 = 001), EA mode 0 reg 0 → D0
+        ext_words: 1,
+        setup: InstructionSetup::FpScc,
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    });
+
+    // FBcc.W / FBcc.L — FP conditional branch: predicate gather + branch
+    // displacement + target. The opcode condition is filled in by the
+    // generator; ext_words is the displacement length (1 word / 2 words).
+    defs.push(InstructionDef {
+        name: "FBcc.W",
+        opcode: 0xF280, // op-class 2; condition OR-ed in by the generator
+        ext_words: 1,
+        setup: InstructionSetup::FpBcc { long: false },
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    });
+    defs.push(InstructionDef {
+        name: "FBcc.L",
+        opcode: 0xF2C0, // op-class 3
+        ext_words: 2,
+        setup: InstructionSetup::FpBcc { long: true },
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    });
+
+    // FMOVEM register list ↔ memory, the two oracle-supported idioms.
+    defs.push(InstructionDef {
+        name: "FMOVEM_predec_store",
+        opcode: 0xF220, // cpGEN, EA = -(A0) (mode 4 reg 0)
+        ext_words: 1,
+        setup: InstructionSetup::FpMovem { store: true },
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    });
+    defs.push(InstructionDef {
+        name: "FMOVEM_postinc_load",
+        opcode: 0xF218, // cpGEN, EA = (A0)+ (mode 3 reg 0)
+        ext_words: 1,
+        setup: InstructionSetup::FpMovem { store: false },
+        min_cpu: musashi::M68K_CPU_TYPE_68020,
+    });
+
+    defs
+}
+
+/// Find a floating-point instruction definition by name.
+pub fn fp_find(cpu_type: u32, name: &str) -> Option<InstructionDef> {
+    fp_catalogue(cpu_type)
         .into_iter()
         .find(|d| d.name.eq_ignore_ascii_case(name))
 }

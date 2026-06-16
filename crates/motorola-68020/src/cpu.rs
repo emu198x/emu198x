@@ -111,6 +111,25 @@ impl Cpu68020 {
         self.inner.variant_long_branch = true;
     }
 
+    /// Configure whether a 68881/68882 FPU coprocessor is attached.
+    ///
+    /// The FPU is a *machine* property, not a CPU-model one: a full
+    /// 68020 with no 68881 fitted, and the 68EC020 (A1200/CD32) which
+    /// has no coprocessor interface, both take the vector-11 F-line trap.
+    /// Default is no FPU; a machine that wires one calls this with
+    /// `true`. When unset, all `$Fxxx` opcodes trap as before.
+    pub fn set_fpu_present(&mut self, present: bool) {
+        self.inner.variant_fpu_present = present;
+    }
+
+    /// Select the FPU coprocessor model: `false` = MC68881 (the default),
+    /// `true` = MC68882. The two are arithmetically identical; the choice
+    /// only affects the FSAVE/FRESTORE internal-state frame size (68881 =
+    /// 28 bytes, 68882 = 60 bytes). A machine wires whichever part it fits.
+    pub fn set_fpu_68882(&mut self, is_68882: bool) {
+        self.inner.variant_fpu_is_68882 = is_68882;
+    }
+
     /// Borrow the wrapped 68010 core.
     #[must_use]
     pub const fn as_inner(&self) -> &Cpu68010 {
@@ -253,6 +272,16 @@ pub fn decode_68020_opcode(cpu: &mut Cpu68000, opcode: u16) -> bool {
     if (opcode & 0xFFC0) == 0x06C0 {
         cpu.begin_group1_exception(4, cpu.instr_start_pc);
         return true;
+    }
+
+    // F-line ($Fxxx): coprocessor space. The core routes the whole
+    // $Fxxx range here (ahead of its vector-11 fallback). Only cpID-1
+    // (68881/2 FPU) on an FPU-equipped machine is claimed; everything
+    // else declines (returns false) so the core takes the vector-11
+    // F-line emulator trap — correct for the 68EC020 (A1200/CD32) and a
+    // full 020 with no FPU fitted.
+    if (opcode & 0xF000) == 0xF000 {
+        return decode_fpu_fline(cpu, opcode);
     }
 
     // MOVEC ($4E7A / $4E7B): intercepted at the 68020 layer so the
@@ -687,6 +716,1369 @@ fn load_cas2_compare(
             };
         }
     }
+}
+
+/// Decode an F-line ($Fxxx) coprocessor opcode. Only cpID-1 (the
+/// 68881/68882 FPU) on an FPU-equipped machine is claimed; any other
+/// coprocessor ID, or an FPU-less machine, returns `false` so the core
+/// takes the vector-11 F-line emulator trap.
+///
+/// The opcode layout is `1111 ccc ttt mmmrrr`: ccc = coprocessor ID
+/// (bits 11-9), ttt = operation class (bits 8-6), mmmrrr = EA / further
+/// encoding. FPU classes: 0 = cpGEN (FADD/FMOVE/…), 1 = cpScc, 2 =
+/// cpBcc.W, 3 = cpBcc.L, 4 = cpSAVE, 5 = cpRESTORE.
+fn decode_fpu_fline(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let cp_id = (opcode >> 9) & 7;
+    if cp_id != 1 || !cpu.variant_fpu_present {
+        return false;
+    }
+    let op_class = (opcode >> 6) & 7;
+    let claimed = match op_class {
+        // cpGEN: the arithmetic/move class (FMOVE/FABS/FNEG/FTST/… + the
+        // arithmetic ops). The reg-to-reg non-arithmetic subset is wired;
+        // arithmetic and memory operands decline for now.
+        0 => execute_fpgen(cpu),
+        // cpBcc.W: branch on FP condition, 16-bit displacement. Covers
+        // FNOP (FBF.W with a zero displacement).
+        2 => execute_fbcc_w(cpu, opcode),
+        // cpBcc.L: branch on FP condition, 32-bit displacement.
+        3 => execute_fbcc_l(cpu, opcode),
+        // cpScc (1): set a byte on the FP condition (FScc; FDBcc/FTRAPcc
+        // share this class but are handled / declined inside).
+        1 => execute_fscc(cpu, opcode),
+        // cpSAVE (4): FSAVE — store the FPU's internal state to memory.
+        4 => begin_fsave(cpu, opcode),
+        // cpRESTORE (5): FRESTORE — reload the FPU's internal state.
+        5 => begin_frestore(cpu, opcode),
+        _ => false,
+    };
+
+    // Any executed 68881/2 FP instruction (op-classes 0-3) takes the FPU
+    // out of the null (reset) state into the idle state — WinUAE
+    // `maybe_idle_state`. FSAVE (4) reports the state without changing it;
+    // FRESTORE (5) sets the state itself from the restored frame.
+    if claimed && matches!(op_class, 0..=3) {
+        cpu.variant_fpu_state = 1;
+    }
+    claimed
+}
+
+/// cpGEN (cpID-1 op-class 0): the FPU general instruction. The extension
+/// word selects the operation. Bit 14 (R/M) chooses a register source
+/// (0) or an external source via the EA / FMOVECR (1). Bits 12-10 are the
+/// source register (R/M = 0) or the source format (R/M = 1); bits 9-7 are
+/// the destination Fpn; bits 6-0 are the opmode (the operation).
+///
+/// The register-to-register non-arithmetic ops (FMOVE/FABS/FNEG/FTST,
+/// pure bit ops) and the first arithmetic pair (FADD/FSUB, via the
+/// SoftFloat `floatx80` port) are wired. The remaining arithmetic
+/// (FMUL/FDIV/FCMP/FSQRT/FINT/…) and external/FMOVECR operands decline
+/// (vector-11 trap) until their ports / the EA chain land. Decoded per
+/// Musashi `fpgen_rm_reg`.
+fn execute_fpgen(cpu: &mut Cpu68000) -> bool {
+    use motorola_68k_common::softfloat::{self, RoundingMode};
+
+    // Peek the extension word without advancing the prefetch, so a
+    // declined op leaves no side effect for the core's vector-11 path.
+    let w2 = cpu.irc;
+    let mode = RoundingMode::from_fpcr_bits(cpu.regs.fpcr_rounding_mode());
+
+    // cpGEN sub-op (Musashi `m68040_fpu_op0`), bits 15-13 of the extension
+    // word: 0 = ALU FP,FP; 2 = ALU ea,FP (both `fpgen_rm_reg`); 3 = FMOVE
+    // FPn → ea (store); 4/5 = FMOVE FPCR/FPSR/FPIAR ↔ ea; 6/7 = FMOVEM
+    // register list ↔ ea (not wired yet).
+    match (w2 >> 13) & 7 {
+        0 | 2 => {}                                     // fall through to fpgen_rm_reg
+        3 => return begin_fp_store(cpu, mode),          // FMOVE FPn → memory
+        4 | 5 => return execute_fmove_control(cpu, w2), // FMOVE FPcr ↔ ea
+        6 | 7 => return begin_fmovem(cpu, w2),          // FMOVEM list ↔ ea
+        _ => return false,                              // sub-op 1: unused → vector 11
+    }
+
+    let rm = (w2 >> 14) & 1;
+
+    // FMOVECR (R/M = 1, source specifier 7): load a constant from the
+    // 68881/2 on-chip ROM into the destination Fpn. The low 7 bits select
+    // the ROM entry (they are NOT an opmode here), so this is handled
+    // before the opmode decode and needs no EA fetch.
+    if rm == 1 && (w2 >> 10) & 7 == 7 {
+        let _ = cpu.consume_irc();
+        let dst = ((w2 >> 7) & 7) as usize;
+        let v = softfloat::fmovecr(mode, (w2 & 0x7F) as u8);
+        cpu.regs.fp[dst] = v;
+        motorola_68k_common::fpu::set_condition_codes(&mut cpu.regs, v);
+        return true;
+    }
+
+    let mut opmode = w2 & 0x7F;
+
+    // Rounding precision: the FSxxx/FDxxx opmode prefix (bits 6 and 2 encode
+    // single/double) overrides the FPCR rounding-precision field (bits 7-6).
+    // Strip the prefix bits to recover the base opmode.
+    let prefix_precision = if opmode & 0x44 == 0x44 {
+        opmode &= !0x44;
+        Some(32)
+    } else if opmode & 0x40 != 0 {
+        opmode &= !0x40;
+        Some(64)
+    } else {
+        None
+    };
+    let precision = prefix_precision.unwrap_or_else(|| match cpu.regs.fpcr_rounding_precision() {
+        1 => 32,
+        2 => 64,
+        _ => 80,
+    });
+
+    // Only these opmodes are backed by the SoftFloat `floatx80` port — FMOVE/
+    // FABS/FNEG/FTST/FADD/FSUB/FMUL/FDIV/FSQRT/FCMP/FINT/FINTRZ/FGETEXP/FGETMAN/
+    // FSCALE/FMOD/FREM/FSGLMUL/FSGLDIV. The transcendentals decline (vector-11
+    // trap) until their backends land.
+    if !matches!(
+        opmode,
+        0x00 | 0x18
+            | 0x1A
+            | 0x3A
+            | 0x22
+            | 0x28
+            | 0x23
+            | 0x20
+            | 0x04
+            | 0x1E
+            | 0x1F
+            | 0x21
+            | 0x25
+            | 0x26
+            | 0x38
+            | 0x01
+            | 0x03
+            | 0x24
+            | 0x27
+    ) {
+        return false;
+    }
+
+    if rm == 0 {
+        // Register-to-register: the source is an Fpn. Consume the extension
+        // word and run synchronously.
+        let _ = cpu.consume_irc();
+        let src = ((w2 >> 10) & 7) as usize;
+        let dst = ((w2 >> 7) & 7) as usize;
+        let source = cpu.regs.fp[src];
+        softfloat::clear_exception_flags();
+        apply_fp_opmode(cpu, opmode, source, dst, mode, precision);
+        return true;
+    }
+
+    // R/M = 1: the source is a memory operand fetched via the EA. Carry the
+    // rounding precision so `handle_fp_mem_exec` applies it once loaded.
+    cpu.fp_mem_precision = precision;
+    begin_fp_memory(cpu, opmode)
+}
+
+/// Apply an FPU opmode with `source` as the (already-loaded) source
+/// operand and `dst` as the destination Fpn, then set the condition
+/// codes. Shared by the register-to-register and memory-operand paths.
+/// Decoded per Musashi `fpgen_rm_reg`.
+fn apply_fp_opmode(
+    cpu: &mut Cpu68000,
+    opmode: u16,
+    source: motorola_68k_common::registers::FpReg,
+    dst: usize,
+    mode: motorola_68k_common::softfloat::RoundingMode,
+    precision: i32,
+) {
+    use motorola_68k_common::registers::FpReg;
+    use motorola_68k_common::softfloat;
+
+    match opmode {
+        // FMOVE/FABS/FNEG round the source to the rounding precision (identity
+        // at extended precision; single/double round per FPCR or the prefix).
+        0x00 => cpu.regs.fp[dst] = softfloat::floatx80_move(precision, mode, source),
+        0x18 => cpu.regs.fp[dst] = softfloat::floatx80_abs(precision, mode, source),
+        0x1A => cpu.regs.fp[dst] = softfloat::floatx80_neg(precision, mode, source),
+        0x3A => {
+            // FTST sets condition codes only, but a signalling-NaN operand
+            // still raises the SNAN exception (like FMOVE/FABS/FNEG). Run the
+            // move at extended precision purely for that side effect on a NaN
+            // input — no rounding flags, result discarded.
+            if source.is_nan() {
+                let _ = softfloat::floatx80_move(80, mode, source);
+            }
+        }
+        // Binary ops: dst = dst op source (Musashi passes REG_FP[dst] first),
+        // at the selected rounding precision with the FPCR rounding mode.
+        0x22 => {
+            cpu.regs.fp[dst] = softfloat::floatx80_add(precision, mode, cpu.regs.fp[dst], source);
+        }
+        0x28 => {
+            cpu.regs.fp[dst] = softfloat::floatx80_sub(precision, mode, cpu.regs.fp[dst], source);
+        }
+        0x23 => {
+            cpu.regs.fp[dst] = softfloat::floatx80_mul(precision, mode, cpu.regs.fp[dst], source);
+        }
+        0x20 => {
+            cpu.regs.fp[dst] = softfloat::floatx80_div(precision, mode, cpu.regs.fp[dst], source);
+        }
+        // FSGLMUL/FSGLDIV: single-precision multiply/divide. FSGLMUL also
+        // truncates its operands to single precision first (dedicated paths,
+        // not FMUL/FDIV at single rounding); they ignore the FPCR precision.
+        0x27 => cpu.regs.fp[dst] = softfloat::floatx80_sglmul(mode, cpu.regs.fp[dst], source),
+        0x24 => cpu.regs.fp[dst] = softfloat::floatx80_sgldiv(mode, cpu.regs.fp[dst], source),
+        // FMOD/FREM: dst = dst mod/rem source, and set the FPSR quotient byte.
+        0x21 => {
+            let r = softfloat::floatx80_mod(precision, mode, cpu.regs.fp[dst], source);
+            cpu.regs.fp[dst] = r.value;
+            cpu.regs.set_fpsr_quotient(r.quotient, r.sign);
+        }
+        0x25 => {
+            let r = softfloat::floatx80_rem(precision, mode, cpu.regs.fp[dst], source);
+            cpu.regs.fp[dst] = r.value;
+            cpu.regs.set_fpsr_quotient(r.quotient, r.sign);
+        }
+        // Unary ops on the source, written to dst.
+        0x04 => cpu.regs.fp[dst] = softfloat::floatx80_sqrt(precision, mode, source), // FSQRT
+        0x1E => cpu.regs.fp[dst] = softfloat::floatx80_getexp(source),                // FGETEXP
+        0x1F => cpu.regs.fp[dst] = softfloat::floatx80_getman(source),                // FGETMAN
+        // FSCALE: scale dst by 2^(integer part of source), rounded to precision.
+        0x26 => {
+            cpu.regs.fp[dst] = softfloat::floatx80_scale(precision, mode, cpu.regs.fp[dst], source);
+        }
+        0x01 => {
+            // FINT: round source to an integer (per the FPCR mode) and back.
+            let n = softfloat::floatx80_to_int32(mode, source);
+            cpu.regs.fp[dst] = softfloat::int32_to_floatx80(n);
+        }
+        0x03 => {
+            // FINTRZ: round-to-zero variant, independent of the FPCR mode.
+            let n = softfloat::floatx80_to_int32_round_to_zero(source);
+            cpu.regs.fp[dst] = softfloat::int32_to_floatx80(n);
+        }
+        0x38 => {
+            // FCMP: set condition codes from dst − source without writing a
+            // register. Musashi special-cases infinities (when neither
+            // operand is a NaN) to avoid an inf − inf invalid result.
+            let dst_v = cpu.regs.fp[dst];
+            let inf_sign = |v: FpReg| -> i32 {
+                if v.is_infinite() {
+                    if v.is_negative() { -1 } else { 1 }
+                } else {
+                    0
+                }
+            };
+            let d = inf_sign(dst_v);
+            let s = inf_sign(source);
+            if !dst_v.is_nan() && !source.is_nan() && (d != 0 || s != 0) {
+                let (mut n, mut z) = (false, false);
+                if s < 0 {
+                    if d < 0 {
+                        n = true;
+                        z = true;
+                    }
+                } else if s > 0 {
+                    if d > 0 {
+                        z = true;
+                    } else {
+                        n = true;
+                    }
+                } else if d < 0 {
+                    n = true;
+                }
+                cpu.regs.set_fpsr_cc(n, z, false, false);
+            } else {
+                let res = softfloat::floatx80_sub(80, mode, dst_v, source);
+                motorola_68k_common::fpu::set_condition_codes(&mut cpu.regs, res);
+            }
+            motorola_68k_common::fpu::apply_exceptions(&mut cpu.regs);
+            maybe_raise_fp_exception(cpu);
+            return;
+        }
+        _ => return, // opmode filtered by the caller
+    }
+
+    // The writing ops report their condition codes from the destination;
+    // FTST reports from the (unwritten) source. FCMP returned above.
+    let cc_value = if opmode == 0x3A {
+        source
+    } else {
+        cpu.regs.fp[dst]
+    };
+    motorola_68k_common::fpu::set_condition_codes(&mut cpu.regs, cc_value);
+    // Fold the IEEE exceptions this operation raised (including any operand
+    // format conversion done before this call) into the FPSR. The caller
+    // cleared the accumulator before the operation.
+    motorola_68k_common::fpu::apply_exceptions(&mut cpu.regs);
+    maybe_raise_fp_exception(cpu);
+}
+
+/// After an arithmetic FP instruction has folded its IEEE exceptions into the
+/// FPSR, latch FPIAR and arm a pending trap if an *enabled* exception (FPSR
+/// EXC ∧ FPCR enable) is now set. The trap is delivered at the instruction
+/// boundary (the core's `PromoteIRC` step) so the stacked PC points at the
+/// following instruction — the 68881 post-instruction model. FPIAR latches
+/// to the instruction address whenever any non-BSUN exception is enabled
+/// (WinUAE `maybe_set_fpiar`); the FP control / FMOVEM / FSAVE / FRESTORE
+/// instructions never reach here, so they correctly leave FPIAR alone.
+fn maybe_raise_fp_exception(cpu: &mut Cpu68000) {
+    if cpu.regs.fpcr & 0x0000_7F00 != 0 {
+        cpu.regs.fpiar = cpu.instr_start_pc;
+    }
+    if let Some(vector) =
+        motorola_68k_common::fpu::fp_exception_vector(cpu.regs.fpsr, cpu.regs.fpcr)
+    {
+        cpu.fp_exc_pending = Some(vector);
+    }
+}
+
+/// Set the FPSR BSUN flag for a taken IEEE-nonaware predicate and, if BSUN is
+/// enabled in FPCR (bit 15), deliver the trap (vector 48) immediately — a
+/// *pre-instruction* exception: the branch / set does NOT execute and the
+/// stacked PC is the conditional instruction itself (re-executed on RTE).
+/// Returns `true` if the trap was taken (the caller must abort). BSUN does
+/// not latch FPIAR. Mirrors WinUAE `fpsr_set_bsun`.
+fn raise_bsun_if_enabled(cpu: &mut Cpu68000, condition: u8) -> bool {
+    if !motorola_68k_common::fpu::predicate_raises_bsun(condition, cpu.regs.fpsr) {
+        return false;
+    }
+    cpu.regs.set_fpsr_bsun();
+    if cpu.regs.fpcr & 0x0000_8000 != 0 {
+        cpu.begin_group1_exception(48, cpu.instr_start_pc);
+        return true;
+    }
+    false
+}
+
+/// Begin an FPU memory-source operand fetch (cpGEN R/M = 1). The FP
+/// extension word selects the operand format (and hence its byte size);
+/// the opcode's EA field selects the address. Only the instant addressing
+/// modes — `(An)`, `(An)+`, `-(An)` — compute the base address
+/// synchronously (auto-increment/decrement by the operand size). The
+/// non-auto-increment modes — `d16(An)`, `(d8,An,Xn)` and the full 68020
+/// extension formats, AbsShort/Long, and PC-relative — are routed through
+/// the core's `calc_ea_start` and resumed at `TAG_FETCH_SRC_DATA`. All six
+/// source formats — including the 12-byte packed-decimal real (format 3) —
+/// and the immediate (`#data`) mode are handled.
+///
+/// All decline checks happen before any state mutation, so a declined op
+/// leaves the prefetch and registers untouched for the core's trap path.
+fn begin_fp_memory(cpu: &mut Cpu68000, opmode: u16) -> bool {
+    let w2 = cpu.irc;
+    let format = ((w2 >> 10) & 7) as u8;
+    let bytes_total: u8 = match format {
+        6 => 1,            // Byte integer
+        4 => 2,            // Word integer
+        0 | 1 => 4,        // Long integer / Single
+        5 => 8,            // Double
+        2 | 3 => 12,       // Extended / Packed-decimal
+        _ => return false, // (formats 0-6 cover every cpGEN source)
+    };
+    let ea_mode = ((cpu.ir >> 3) & 7) as u8;
+    let ea_reg = (cpu.ir & 7) as u8;
+    // Modes we can fetch: (An)/(An)+/-(An) directly; the static address
+    // modes (d16(An), indexed, abs, PC-relative) via the core EA
+    // machinery; and immediate (#data, 7/4) from the instruction stream.
+    // Dn/An-direct aren't valid memory operands and decline.
+    let static_mode = match ea_mode {
+        5 | 6 => true,
+        7 => matches!(ea_reg, 0..=3),
+        _ => false,
+    };
+    let immediate = ea_mode == 7 && ea_reg == 4;
+    if !matches!(ea_mode, 2..=4) && !static_mode && !immediate {
+        return false;
+    }
+
+    // Committed: consume the FP extension word and stash the operand
+    // parameters before either path runs.
+    let _ = cpu.consume_irc();
+    cpu.fp_mem_buf = 0;
+    cpu.fp_mem_bytes_total = bytes_total;
+    cpu.fp_mem_bytes_done = 0;
+    cpu.fp_mem_format = format;
+    cpu.fp_mem_opmode = opmode as u8;
+    cpu.fp_mem_dst = ((w2 >> 7) & 7) as u8;
+    cpu.in_followup = true;
+
+    if immediate {
+        // The operand follows the FP extension word inline, one or more
+        // words. The FP-ext-word FetchIRC refills IRC with the first
+        // operand word before TAG_V_FP_IMM_READ runs.
+        cpu.followup_tag = motorola_68000::cpu::TAG_V_FP_IMM_READ;
+        cpu.micro_ops.push(MicroOp::Execute);
+        return true;
+    }
+
+    if static_mode {
+        // Let the core resolve the EA (it may consume extension words and
+        // span several Execute cycles). We resume at TAG_FETCH_SRC_DATA via
+        // the continue hook, where `addr` holds the resolved address.
+        // Queue an Execute (rather than calling continue_instruction now)
+        // so the FP extension word's FetchIRC refills IRC with the EA's
+        // first extension word before calc_ea_start reads it.
+        cpu.fp_mem_pending = true;
+        cpu.size = motorola_68000::alu::Size::Long; // unused by static modes
+        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+        cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+        cpu.micro_ops.push(MicroOp::Execute);
+        return true;
+    }
+
+    // Auto-increment/decrement modes: resolve the base address here,
+    // stepping the register by the operand size.
+    let ea_reg = ea_reg as usize;
+    let step = u32::from(bytes_total);
+    let base = match ea_mode {
+        2 => cpu.regs.a(ea_reg),
+        3 => {
+            let a = cpu.regs.a(ea_reg);
+            cpu.regs.set_a(ea_reg, a.wrapping_add(step));
+            a
+        }
+        _ => {
+            let a = cpu.regs.a(ea_reg).wrapping_sub(step);
+            cpu.regs.set_a(ea_reg, a);
+            a
+        }
+    };
+    cpu.addr = base;
+    start_fp_read(cpu);
+    true
+}
+
+/// Kick off the byte-at-a-time operand read. The operand parameters and
+/// the base address (`addr`) must already be set; shared by the
+/// auto-increment modes and the `calc_ea_start`-resolved static modes.
+fn start_fp_read(cpu: &mut Cpu68000) {
+    cpu.fp_mem_buf = 0;
+    cpu.fp_mem_bytes_done = 0;
+    cpu.followup_tag = TAG_V_FP_MEM_READ;
+    cpu.micro_ops.push(MicroOp::ReadByte);
+    cpu.micro_ops.push(MicroOp::Execute);
+}
+
+/// `TAG_V_FP_MEM_READ`: a byte of the FP memory operand has been read into
+/// `cpu.data`. Accumulate it big-endian and either queue the next byte or
+/// hand off to `TAG_V_FP_MEM_EXEC`.
+fn handle_fp_mem_read(cpu: &mut Cpu68000) {
+    cpu.fp_mem_buf = (cpu.fp_mem_buf << 8) | u128::from(cpu.data & 0xFF);
+    cpu.fp_mem_bytes_done += 1;
+    if cpu.fp_mem_bytes_done < cpu.fp_mem_bytes_total {
+        cpu.addr = cpu.addr.wrapping_add(1);
+        cpu.micro_ops.push(MicroOp::ReadByte);
+        cpu.micro_ops.push(MicroOp::Execute);
+    } else {
+        // A FMOVEM register transfer hands back to its controller; a plain
+        // FMOVE operand goes to the format-parse exec.
+        cpu.followup_tag = if cpu.fp_movem_active {
+            TAG_V_FMOVEM_STEP
+        } else {
+            TAG_V_FP_MEM_EXEC
+        };
+        cpu.micro_ops.push(MicroOp::Execute);
+    }
+}
+
+/// `TAG_V_FP_IMM_READ`: an immediate operand word is in `irc`. Accumulate
+/// it (word-aligned, big-endian) and either read the next word or run the
+/// op. The operand spans `ceil(bytes_total / 2)` words: byte/word = 1,
+/// long/single = 2, double = 4, extended = 6.
+fn handle_fp_imm_read(cpu: &mut Cpu68000) {
+    cpu.fp_mem_buf = (cpu.fp_mem_buf << 16) | u128::from(cpu.irc);
+    cpu.fp_mem_bytes_done += 2;
+    let _ = cpu.consume_irc(); // advance the prefetch to the next word
+    if cpu.fp_mem_bytes_done < cpu.fp_mem_bytes_total {
+        cpu.micro_ops.push(MicroOp::Execute);
+    } else {
+        cpu.followup_tag = TAG_V_FP_MEM_EXEC;
+        cpu.micro_ops.push(MicroOp::Execute);
+    }
+}
+
+/// `TAG_V_FP_MEM_EXEC`: the whole operand is in `fp_mem_buf` (big-endian
+/// in the low bytes). Convert it to a `floatx80` by its format and apply
+/// the stashed opmode, exactly as the register-to-register path would.
+fn handle_fp_mem_exec(cpu: &mut Cpu68000) {
+    use motorola_68k_common::registers::FpReg;
+    use motorola_68k_common::softfloat::{self, RoundingMode};
+
+    // Control-register move (FMOVE.L ea,FPcr): the 0xFF format sentinel
+    // means the 32-bit operand goes to a control register (mask in
+    // fp_mem_dst), not an Fpn.
+    if cpu.fp_mem_format == 0xFF {
+        let value = cpu.fp_mem_buf as u32;
+        let mask = cpu.fp_mem_dst;
+        if mask & 4 != 0 {
+            cpu.regs.fpcr = value;
+        }
+        if mask & 2 != 0 {
+            cpu.regs.fpsr = value;
+        }
+        if mask & 1 != 0 {
+            cpu.regs.fpiar = value;
+        }
+        cpu.fp_mem_format = 0;
+        cpu.in_followup = false;
+        return;
+    }
+
+    // Clear the IEEE exception accumulator before the operand conversion so
+    // a signalling-NaN widen (SNAN) is captured alongside the opmode's flags;
+    // apply_fp_opmode folds them into the FPSR at the end.
+    softfloat::clear_exception_flags();
+    let buf = cpu.fp_mem_buf;
+    let mode = RoundingMode::from_fpcr_bits(cpu.regs.fpcr_rounding_mode());
+    let source = match cpu.fp_mem_format {
+        0 => softfloat::int32_to_floatx80(buf as u32 as i32), // Long
+        1 => softfloat::float32_to_floatx80(buf as u32),      // Single
+        // Extended: 12 bytes — high word (sign+exp) is bytes 0-1, the
+        // 16-bit pad word (bytes 2-3) is ignored, the 64-bit mantissa is
+        // bytes 4-11.
+        2 => FpReg::new(((buf >> 80) & 0xFFFF) as u16, buf as u64),
+        // Packed-decimal: the 12 bytes are three big-endian longwords.
+        3 => softfloat::pack_decimal_to_floatx80(
+            [(buf >> 64) as u32, (buf >> 32) as u32, buf as u32],
+            mode,
+        ),
+        4 => softfloat::int32_to_floatx80(i32::from(buf as u16 as i16)), // Word
+        5 => softfloat::float64_to_floatx80(buf as u64),                 // Double
+        6 => softfloat::int32_to_floatx80(i32::from(buf as u8 as i8)),   // Byte
+        _ => FpReg::ZERO,
+    };
+    let opmode = u16::from(cpu.fp_mem_opmode);
+    let dst = cpu.fp_mem_dst as usize;
+    apply_fp_opmode(cpu, opmode, source, dst, mode, cpu.fp_mem_precision);
+    cpu.in_followup = false;
+}
+
+/// Begin an FPU memory *store* (FMOVE FPn → `<ea>`, cpGEN sub-op 3). The
+/// extension word's destination-format field selects how the source Fpn
+/// is narrowed; the opcode's EA field selects the address. All destination
+/// formats are handled, including the 12-byte packed-decimal real with both
+/// a static (format 3) and a dynamic (format 7, `P{Dn}`) k-factor, across
+/// the auto-increment and static (control) addressing modes. PC-relative and
+/// immediate are not valid store destinations. FMOVE-to-memory sets no
+/// condition codes.
+///
+/// Decline checks run before any state mutation.
+fn begin_fp_store(cpu: &mut Cpu68000, mode: motorola_68k_common::softfloat::RoundingMode) -> bool {
+    use motorola_68k_common::softfloat;
+
+    let w2 = cpu.irc;
+    let format = ((w2 >> 10) & 7) as u8; // destination format
+    let bytes_total: u8 = match format {
+        6 => 1,            // Byte integer
+        4 => 2,            // Word integer
+        0 | 1 => 4,        // Long integer / Single
+        5 => 8,            // Double
+        2 => 12,           // Extended
+        3 | 7 => 12,       // Packed-decimal (static / dynamic k-factor)
+        _ => return false, // (formats 0-7 cover every cpGEN destination)
+    };
+    let ea_mode = ((cpu.ir >> 3) & 7) as u8;
+    let ea_reg_bits = (cpu.ir & 7) as u8;
+    // Stores target alterable memory: the auto-increment modes plus the
+    // static modes (d16(An), indexed, abs). PC-relative and immediate are
+    // not valid store destinations.
+    let static_mode = match ea_mode {
+        5 | 6 => true,
+        7 => matches!(ea_reg_bits, 0 | 1),
+        _ => false,
+    };
+    if !matches!(ea_mode, 2..=4) && !static_mode {
+        return false;
+    }
+
+    // Committed: consume the FP extension word and narrow the source Fpn
+    // to the destination format, packed big-endian in the low bytes.
+    let _ = cpu.consume_irc();
+    let src = ((w2 >> 7) & 7) as usize;
+    let v = cpu.regs.fp[src];
+    // Narrowing a register to the store format raises IEEE exceptions
+    // (overflow/underflow/inexact, or invalid on an out-of-range integer or
+    // a signalling NaN). Extended store is exact. Fold them into the FPSR.
+    // Packed-decimal k-factor (M68000PRM § 4.4): static (format 3) reads it
+    // from the command word's low 7 bits; dynamic (format 7) reads it from the
+    // Dn selected by ext-word bits 6-4. Mask to 7 bits and sign-extend bit 6.
+    let kfactor = {
+        let raw = if format == 7 {
+            cpu.regs.d[((w2 >> 4) & 7) as usize]
+        } else {
+            u32::from(w2)
+        };
+        let mut k = (raw & 0x7F) as i32;
+        if k & 0x40 != 0 {
+            k |= !0x3F;
+        }
+        k
+    };
+    softfloat::clear_exception_flags();
+    let buf: u128 = match format {
+        0 => u128::from(softfloat::floatx80_to_int32(mode, v) as u32),
+        1 => u128::from(softfloat::floatx80_to_float32(mode, v)),
+        // Extended: high word (bytes 0-1), a zero pad word (bytes 2-3),
+        // then the 64-bit mantissa (bytes 4-11).
+        2 => (u128::from(v.high) << 80) | u128::from(v.low),
+        // Packed-decimal: three big-endian longwords.
+        3 | 7 => {
+            let wrd = softfloat::floatx80_to_pack_decimal(v, kfactor, mode);
+            (u128::from(wrd[0]) << 64) | (u128::from(wrd[1]) << 32) | u128::from(wrd[2])
+        }
+        4 => u128::from(softfloat::floatx80_to_int32(mode, v) as u16),
+        5 => u128::from(softfloat::floatx80_to_float64(mode, v)),
+        6 => u128::from(softfloat::floatx80_to_int32(mode, v) as u8),
+        _ => 0,
+    };
+    motorola_68k_common::fpu::apply_exceptions(&mut cpu.regs);
+    // FMOVE FPn→ea narrows the source: an overflow / inexact / out-of-range
+    // integer / signalling NaN can raise an enabled exception. Arm the trap
+    // (delivered after the store completes, at the instruction boundary).
+    maybe_raise_fp_exception(cpu);
+
+    cpu.fp_mem_buf = buf;
+    cpu.fp_mem_bytes_total = bytes_total;
+
+    if static_mode {
+        // Resolve the destination address via the core EA machinery, then
+        // start the write at TAG_FETCH_SRC_DATA (fp_mem_store = true).
+        cpu.fp_mem_pending = true;
+        cpu.fp_mem_store = true;
+        cpu.size = motorola_68000::alu::Size::Long;
+        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg_bits);
+        cpu.in_followup = true;
+        cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+        cpu.micro_ops.push(MicroOp::Execute);
+        return true;
+    }
+
+    let ea_reg = ea_reg_bits as usize;
+    let step = u32::from(bytes_total);
+    let base = match ea_mode {
+        2 => cpu.regs.a(ea_reg),
+        3 => {
+            let a = cpu.regs.a(ea_reg);
+            cpu.regs.set_a(ea_reg, a.wrapping_add(step));
+            a
+        }
+        _ => {
+            let a = cpu.regs.a(ea_reg).wrapping_sub(step);
+            cpu.regs.set_a(ea_reg, a);
+            a
+        }
+    };
+    cpu.addr = base;
+    cpu.in_followup = true;
+    start_fp_write(cpu);
+    true
+}
+
+/// Kick off the byte-at-a-time store. The operand (`fp_mem_buf`),
+/// `fp_mem_bytes_total`, and the base address (`addr`) must already be
+/// set; shared by the auto-increment and EA-resolved store paths.
+fn start_fp_write(cpu: &mut Cpu68000) {
+    cpu.fp_mem_bytes_done = 0;
+    let shift = 8 * u32::from(cpu.fp_mem_bytes_total - 1);
+    cpu.data = ((cpu.fp_mem_buf >> shift) & 0xFF) as u32;
+    cpu.followup_tag = TAG_V_FP_MEM_WRITE;
+    cpu.micro_ops.push(MicroOp::WriteByte);
+    cpu.micro_ops.push(MicroOp::Execute);
+}
+
+/// `TAG_V_FP_MEM_WRITE`: a byte of the store operand has been written.
+/// Advance to the next byte (big-endian) or finish the instruction.
+fn handle_fp_mem_write(cpu: &mut Cpu68000) {
+    cpu.fp_mem_bytes_done += 1;
+    if cpu.fp_mem_bytes_done < cpu.fp_mem_bytes_total {
+        cpu.addr = cpu.addr.wrapping_add(1);
+        let shift = 8 * u32::from(cpu.fp_mem_bytes_total - 1 - cpu.fp_mem_bytes_done);
+        cpu.data = ((cpu.fp_mem_buf >> shift) & 0xFF) as u32;
+        cpu.micro_ops.push(MicroOp::WriteByte);
+        cpu.micro_ops.push(MicroOp::Execute);
+    } else if cpu.fp_movem_active {
+        // A FMOVEM register store hands back to its controller for the
+        // next register.
+        cpu.followup_tag = TAG_V_FMOVEM_STEP;
+        cpu.micro_ops.push(MicroOp::Execute);
+    } else {
+        cpu.in_followup = false;
+        cpu.followup_tag = 0;
+    }
+}
+
+/// FMOVEM register list ↔ memory (cpGEN sub-op 6/7, Musashi `fmovem`).
+/// Each register is a 12-byte extended-format transfer. The two common
+/// idioms are wired: `FMOVEM <list>,-(An)` (static predecrement store —
+/// the prologue save) and `FMOVEM (An)+,<list>` (static postincrement
+/// load — the epilogue restore). The dynamic-list, control-addressing,
+/// and other combinations decline (vector-11 trap).
+///
+/// The register list is in the extension word's low byte. Predecrement
+/// stores `REG_FP[i]` for each set bit i = 0..7 (so the lowest-numbered
+/// register lands at the highest address); postincrement loads
+/// `REG_FP[7-i]` — the mirror order, so a save/restore pair round-trips.
+fn begin_fmovem(cpu: &mut Cpu68000, w2: u16) -> bool {
+    let dir = (w2 >> 13) & 1;
+    let w2_mode = (w2 >> 11) & 3;
+    let reglist = (w2 & 0xFF) as u8;
+    let ea_mode = ((cpu.ir >> 3) & 7) as u8;
+    let ea_reg = (cpu.ir & 7) as u8;
+
+    // dir 1 = registers → memory (predecrement, EA = -(An));
+    // dir 0 = memory → registers (postincrement, EA = (An)+).
+    let predec_store = dir == 1 && w2_mode == 0 && ea_mode == 4;
+    let postinc_load = dir == 0 && w2_mode == 2 && ea_mode == 3;
+    if !predec_store && !postinc_load {
+        return false;
+    }
+
+    let _ = cpu.consume_irc();
+    cpu.fp_movem_active = true;
+    cpu.fp_movem_store = predec_store;
+    cpu.fp_movem_list = reglist;
+    cpu.fp_movem_cur = 0xFF; // no register processed yet
+    cpu.fp_movem_an = cpu.regs.a(ea_reg as usize);
+    cpu.fp_movem_areg = ea_reg;
+    cpu.in_followup = true;
+    cpu.followup_tag = motorola_68000::cpu::TAG_V_FMOVEM_STEP;
+    cpu.micro_ops.push(MicroOp::Execute);
+    true
+}
+
+/// `TAG_V_FMOVEM_STEP`: process the register just transferred (for a load,
+/// unpack the 12 bytes into its Fpn), then start the next register's
+/// transfer or finish the instruction (writing the stepped pointer back
+/// to the An register).
+fn handle_fmovem_step(cpu: &mut Cpu68000) {
+    use motorola_68k_common::registers::FpReg;
+
+    // Unpack the register a load just read (extended: high word + 64-bit
+    // mantissa; the pad word is ignored). `cur == 0xFF` on the first call.
+    if cpu.fp_movem_cur != 0xFF && !cpu.fp_movem_store {
+        let reg = (7 - cpu.fp_movem_cur) as usize;
+        cpu.regs.fp[reg] = FpReg::new((cpu.fp_mem_buf >> 80) as u16, cpu.fp_mem_buf as u64);
+    }
+
+    if cpu.fp_movem_list == 0 {
+        // All registers done — commit the stepped pointer and finish.
+        cpu.regs.set_a(cpu.fp_movem_areg as usize, cpu.fp_movem_an);
+        cpu.fp_movem_active = false;
+        cpu.fp_movem_cur = 0xFF;
+        cpu.in_followup = false;
+        cpu.followup_tag = 0;
+        return;
+    }
+
+    // Take the lowest remaining register (matching Musashi's i = 0..7 loop).
+    let i = cpu.fp_movem_list.trailing_zeros() as u8;
+    cpu.fp_movem_list &= !(1 << i);
+    cpu.fp_movem_cur = i;
+    cpu.fp_mem_bytes_total = 12;
+
+    if cpu.fp_movem_store {
+        // Predecrement: step the pointer back, then write REG_FP[i].
+        cpu.fp_movem_an = cpu.fp_movem_an.wrapping_sub(12);
+        cpu.addr = cpu.fp_movem_an;
+        let v = cpu.regs.fp[i as usize];
+        cpu.fp_mem_buf = (u128::from(v.high) << 80) | u128::from(v.low);
+        start_fp_write(cpu);
+    } else {
+        // Postincrement: read at the pointer, then step it forward. The
+        // value is unpacked into REG_FP[7-i] on the next step.
+        cpu.addr = cpu.fp_movem_an;
+        cpu.fp_movem_an = cpu.fp_movem_an.wrapping_add(12);
+        start_fp_read(cpu);
+    }
+}
+
+// ─── FSAVE / FRESTORE (cpID-1 op-classes 4/5) ──────────────────────────
+//
+// FSAVE/FRESTORE move only the FPU's *internal* state to / from a memory
+// frame — the FP data registers, FPCR/FPSR/FPIAR are saved separately by
+// FMOVEM. For our synchronous core (no mid-instruction exception or busy
+// state) the frame is purely formal: the frame id, then for an idle frame
+// a fixed run of zeroed control/operand longwords plus the BIU flags. Two
+// models are supported (WinUAE `fpuop_save` / `fpuop_restore`, 6888x
+// branch): the MC68881 (28-byte idle frame) and the MC68882 (60-byte idle
+// frame). Both report `fpu_version` $1F; only the frame size differs.
+
+/// Build the FSAVE internal-state frame into `cpu.fp_frame`, returning the
+/// total byte count. A null frame (FPU never used since reset) is just the
+/// 4-byte frame id with a zero version byte; an idle frame carries the
+/// version byte plus zeroed condition/operand fields and the BIU flags.
+fn build_fsave_frame(cpu: &mut Cpu68000) -> u8 {
+    // Frame size byte (size − 4): $18 (68881) / $38 (68882).
+    let size_byte: u32 = if cpu.variant_fpu_is_68882 { 0x38 } else { 0x18 };
+    let mut lw: [u32; 15] = [0; 15];
+    let total: u8;
+
+    if cpu.variant_fpu_state == 0 {
+        // Null frame: version byte 0, only the 4-byte frame id is written.
+        lw[0] = size_byte << 16;
+        total = 4;
+    } else {
+        // Idle frame: version $1F. The BIU flags base is $540EFFFF; with no
+        // pending exception (our core never has one) bit 27 is set, giving
+        // $5C0EFFFF. The command/condition register, the three exceptional-
+        // operand longwords, the operand register, and (68882 only) the 8
+        // unused internal longwords are all zero for us.
+        lw[0] = (0x1F << 24) | (size_byte << 16);
+        if cpu.variant_fpu_is_68882 {
+            // 15 longwords: id, ccr, 8×unused, eo0, eo1, eo2, operand, biu.
+            lw[14] = 0x5C0E_FFFF;
+            total = 60;
+        } else {
+            // 7 longwords: id, ccr, eo0, eo1, eo2, operand, biu.
+            lw[6] = 0x5C0E_FFFF;
+            total = 28;
+        }
+    }
+
+    // Pack the longwords big-endian into the byte frame.
+    for (i, word) in lw.iter().enumerate() {
+        let base = i * 4;
+        cpu.fp_frame[base] = (word >> 24) as u8;
+        cpu.fp_frame[base + 1] = (word >> 16) as u8;
+        cpu.fp_frame[base + 2] = (word >> 8) as u8;
+        cpu.fp_frame[base + 3] = *word as u8;
+    }
+    total
+}
+
+/// FSAVE (cpID-1 op-class 4): write the FPU's internal-state frame to the
+/// effective address. The destination is control-alterable or `-(An)`
+/// (predecrement) — never postincrement, register-direct, PC-relative, or
+/// immediate. FSAVE does not change the FPU state it reports.
+///
+/// Decline checks run before any state mutation.
+fn begin_fsave(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let ea_mode = ((opcode >> 3) & 7) as u8;
+    let ea_reg = (opcode & 7) as u8;
+
+    // Control-alterable: (An), d16(An), (d8,An,Xn), abs.W, abs.L. Plus the
+    // predecrement -(An). Postincrement, Dn/An-direct, PC-relative, and
+    // immediate are not valid FSAVE destinations.
+    let predec = ea_mode == 4;
+    let direct = ea_mode == 2;
+    let static_mode = matches!(ea_mode, 5 | 6) || (ea_mode == 7 && matches!(ea_reg, 0 | 1));
+    if !predec && !direct && !static_mode {
+        return false;
+    }
+
+    // Committed: build the frame and stream it out. FSAVE has no FP
+    // extension word, so `irc` already holds the first EA extension word
+    // (or the next opcode for the register-indirect modes) — leave it.
+    let total = build_fsave_frame(cpu);
+    cpu.fp_frame_total = total;
+    cpu.fp_frame_done = 0;
+    cpu.in_followup = true;
+
+    if static_mode {
+        // Resolve the destination via the core EA machinery, then start the
+        // write at TAG_FETCH_SRC_DATA (fp_frame_pending + store).
+        cpu.fp_frame_pending = true;
+        cpu.fp_frame_store = true;
+        cpu.size = motorola_68000::alu::Size::Long;
+        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+        cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+        cpu.micro_ops.push(MicroOp::Execute);
+        return true;
+    }
+
+    let ea_reg = ea_reg as usize;
+    let base = if predec {
+        // Predecrement by the whole frame, write back the new pointer.
+        let a = cpu.regs.a(ea_reg).wrapping_sub(u32::from(total));
+        cpu.regs.set_a(ea_reg, a);
+        a
+    } else {
+        cpu.regs.a(ea_reg)
+    };
+    cpu.addr = base;
+    start_fsave_write(cpu);
+    true
+}
+
+/// Kick off the byte-at-a-time FSAVE frame write. `fp_frame`,
+/// `fp_frame_total`, and the base address (`addr`) must already be set.
+fn start_fsave_write(cpu: &mut Cpu68000) {
+    cpu.fp_frame_done = 0;
+    cpu.data = u32::from(cpu.fp_frame[0]);
+    cpu.followup_tag = TAG_V_FSAVE_WRITE;
+    cpu.micro_ops.push(MicroOp::WriteByte);
+    cpu.micro_ops.push(MicroOp::Execute);
+}
+
+/// `TAG_V_FSAVE_WRITE`: a frame byte has been written. Advance to the next
+/// byte (big-endian, ascending address) or finish the instruction.
+fn handle_fsave_write(cpu: &mut Cpu68000) {
+    cpu.fp_frame_done += 1;
+    if cpu.fp_frame_done < cpu.fp_frame_total {
+        cpu.addr = cpu.addr.wrapping_add(1);
+        cpu.data = u32::from(cpu.fp_frame[cpu.fp_frame_done as usize]);
+        cpu.micro_ops.push(MicroOp::WriteByte);
+        cpu.micro_ops.push(MicroOp::Execute);
+    } else {
+        cpu.in_followup = false;
+        cpu.followup_tag = 0;
+    }
+}
+
+/// FRESTORE (cpID-1 op-class 5): reload the FPU's internal state from a
+/// memory frame. The source is control-addressing or `(An)+`
+/// (postincrement) — never predecrement, register-direct, or immediate.
+///
+/// The frame id (first longword) selects the action: a null frame (version
+/// byte 0) resets the FPU (`fpu_null`); an idle frame (version $1F, size
+/// $18 or $38) sets the state to idle and consumes the rest; any other
+/// version raises a format error (vector 14). Decline checks run before any
+/// state mutation.
+fn begin_frestore(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let ea_mode = ((opcode >> 3) & 7) as u8;
+    let ea_reg = (opcode & 7) as u8;
+
+    // Control addressing: (An), d16(An), (d8,An,Xn), abs.W, abs.L, and the
+    // PC-relative pair. Plus postincrement (An)+. Predecrement, Dn/An, and
+    // immediate are not valid FRESTORE sources.
+    let postinc = ea_mode == 3;
+    let direct = ea_mode == 2;
+    let static_mode = matches!(ea_mode, 5 | 6) || (ea_mode == 7 && matches!(ea_reg, 0..=3));
+    if !postinc && !direct && !static_mode {
+        return false;
+    }
+
+    cpu.fp_frame_done = 0;
+    cpu.fp_frame_total = 4; // read the frame id first; revised once it is in
+    cpu.fp_frame_postinc = postinc;
+    cpu.fp_frame_areg = ea_reg;
+    cpu.in_followup = true;
+
+    if static_mode {
+        cpu.fp_frame_pending = true;
+        cpu.fp_frame_store = false;
+        cpu.size = motorola_68000::alu::Size::Long;
+        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+        cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+        cpu.micro_ops.push(MicroOp::Execute);
+        return true;
+    }
+
+    cpu.addr = cpu.regs.a(ea_reg as usize);
+    start_frestore_read(cpu);
+    true
+}
+
+/// Kick off the byte-at-a-time FRESTORE frame read. The base address
+/// (`addr`) must already be set; it is stashed for the postincrement
+/// writeback.
+fn start_frestore_read(cpu: &mut Cpu68000) {
+    cpu.fp_frame_an = cpu.addr;
+    cpu.fp_frame_done = 0;
+    cpu.followup_tag = TAG_V_FRESTORE_READ;
+    cpu.micro_ops.push(MicroOp::ReadByte);
+    cpu.micro_ops.push(MicroOp::Execute);
+}
+
+/// Reset the FPU to its null (power-on) state — WinUAE `fpu_null`. FPCR /
+/// FPSR / FPIAR clear to zero and all eight FP data registers become the
+/// 68881/2 created NaN ($7FFF / $FFFFFFFFFFFFFFFF).
+fn fpu_null(cpu: &mut Cpu68000) {
+    use motorola_68k_common::registers::FpReg;
+    cpu.variant_fpu_state = 0;
+    cpu.regs.fpcr = 0;
+    cpu.regs.fpsr = 0;
+    cpu.regs.fpiar = 0;
+    for r in &mut cpu.regs.fp {
+        *r = FpReg::new(0x7FFF, 0xFFFF_FFFF_FFFF_FFFF);
+    }
+}
+
+/// Finish a FRESTORE: write back the postincrement pointer (consumed-byte
+/// count past the base) and clear the frame state.
+fn finish_frestore(cpu: &mut Cpu68000) {
+    if cpu.fp_frame_postinc {
+        let consumed = u32::from(cpu.fp_frame_done);
+        cpu.regs.set_a(
+            cpu.fp_frame_areg as usize,
+            cpu.fp_frame_an.wrapping_add(consumed),
+        );
+    }
+    cpu.fp_frame_pending = false;
+    cpu.fp_frame_postinc = false;
+    cpu.in_followup = false;
+    cpu.followup_tag = 0;
+}
+
+/// `TAG_V_FRESTORE_READ`: a frame byte is in `cpu.data`. The first four
+/// bytes are the frame id; once they are in, dispatch on the frame version.
+/// An idle frame revises `fp_frame_total` and keeps reading (discarding the
+/// body); a null frame resets the FPU; any other version raises a format
+/// error (vector 14).
+fn handle_frestore_read(cpu: &mut Cpu68000) {
+    if cpu.fp_frame_done < 4 {
+        cpu.fp_frame[cpu.fp_frame_done as usize] = (cpu.data & 0xFF) as u8;
+    }
+    cpu.fp_frame_done += 1;
+
+    // The frame id is complete (and not yet dispatched — only the id read
+    // leaves `fp_frame_total` at its initial 4).
+    if cpu.fp_frame_done == 4 && cpu.fp_frame_total == 4 {
+        let frame_version = cpu.fp_frame[0];
+        let size_byte = cpu.fp_frame[1];
+        if frame_version == 0x00 {
+            // Null frame: reset the FPU. Consumed exactly 4 bytes.
+            fpu_null(cpu);
+            finish_frestore(cpu);
+            return;
+        } else if frame_version == 0x1F && matches!(size_byte, 0x18 | 0x38) {
+            // Idle frame: 68881 ($18) or 68882 ($38). Total = size + 4.
+            cpu.variant_fpu_state = 1;
+            cpu.fp_frame_total = size_byte + 4;
+        } else {
+            // Any other version / size is a format error (vector 14). The
+            // postincrement pointer is *not* written back on a fault.
+            cpu.fp_frame_pending = false;
+            cpu.fp_frame_postinc = false;
+            cpu.in_followup = false;
+            cpu.micro_ops.clear();
+            cpu.begin_group1_exception(14, cpu.instr_start_pc);
+            return;
+        }
+    }
+
+    if cpu.fp_frame_done < cpu.fp_frame_total {
+        cpu.addr = cpu.addr.wrapping_add(1);
+        cpu.micro_ops.push(MicroOp::ReadByte);
+        cpu.micro_ops.push(MicroOp::Execute);
+    } else {
+        // Idle frame fully consumed (the body is discarded — our core holds
+        // no exception/operand state to restore).
+        finish_frestore(cpu);
+    }
+}
+
+/// FBcc.W (cpID-1 op-class 2): branch on an FPU condition with a 16-bit
+/// displacement. The 6-bit condition is in the opcode's low bits and is
+/// evaluated against the FPSR condition codes; a taken branch targets
+/// `instr_start + 2 + disp` (the displacement-word address), matching
+/// the integer Bcc.W and Musashi's `fbcc16`. FNOP is the `FBF.W` (never)
+/// special case with a zero displacement.
+fn execute_fbcc_w(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let condition = (opcode & 0x3F) as u8;
+    let disp = i32::from(cpu.irc as i16) as u32;
+    if raise_bsun_if_enabled(cpu, condition) {
+        return true; // BSUN trap taken — the branch does not execute
+    }
+    if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
+        let target = cpu.instr_start_pc.wrapping_add(2).wrapping_add(disp);
+        cpu.regs.pc = target;
+        cpu.next_fetch_addr = target;
+        cpu.micro_ops.clear();
+        cpu.micro_ops.push(MicroOp::FetchIRC);
+        cpu.micro_ops.push(MicroOp::PromoteIRC);
+    } else {
+        // Not taken: advance the prefetch past the displacement word to
+        // the next instruction.
+        cpu.micro_ops.push(MicroOp::FetchIRC);
+    }
+    true
+}
+
+/// FBcc.L (cpID-1 op-class 3): branch on an FPU condition with a 32-bit
+/// displacement. The 6-bit condition is in the opcode's low bits; the
+/// high displacement word is already prefetched in `irc`, the low word is
+/// fetched next and combined at `TAG_V_FBCC_L` (mirrors the integer
+/// `Bcc.L` gather).
+fn execute_fbcc_l(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    cpu.variant_ext_word = opcode & 0x3F; // stash the condition
+    cpu.src_val = u32::from(cpu.irc) << 16; // high displacement word
+    cpu.in_followup = true;
+    cpu.followup_tag = motorola_68000::cpu::TAG_V_FBCC_L;
+    cpu.micro_ops.push(MicroOp::FetchIRC);
+    cpu.micro_ops.push(MicroOp::Execute);
+    true
+}
+
+/// `TAG_V_FBCC_L`: the low displacement word is now in `irc`. Combine it
+/// with the stashed high word and take the branch if the FP condition
+/// holds. The displacement is relative to `instr_start + 2` (the first
+/// displacement word), matching FBcc.W and the integer long branch.
+fn handle_fbcc_l(cpu: &mut Cpu68000) {
+    let disp = (cpu.src_val | u32::from(cpu.irc)) as i32;
+    let condition = (cpu.variant_ext_word & 0x3F) as u8;
+    if raise_bsun_if_enabled(cpu, condition) {
+        return; // BSUN trap taken — begin_group1_exception owns the followup
+    }
+    if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
+        let target = cpu.instr_start_pc.wrapping_add(2).wrapping_add(disp as u32);
+        cpu.regs.pc = target;
+        cpu.next_fetch_addr = target;
+        cpu.micro_ops.clear();
+        cpu.micro_ops.push(MicroOp::FetchIRC);
+        cpu.micro_ops.push(MicroOp::PromoteIRC);
+    } else {
+        cpu.micro_ops.push(MicroOp::FetchIRC);
+    }
+    cpu.in_followup = false;
+}
+
+/// FScc (cpID-1 op-class 1): set a byte integer to all-ones if the FP
+/// condition holds, else all-zeros. The condition is the low 6 bits of
+/// the extension word. The destination is a byte-alterable EA: `Dn`
+/// (mode 0), `(An)`/`(An)+`/`-(An)`, `d16(An)`/indexed, or absolute —
+/// the memory forms reuse the store byte-pipeline. The same op-class
+/// encodes FDBcc (EA mode 1) and FTRAPcc (EA mode 7, regs 2-4); those and
+/// the non-alterable EAs decline (vector-11 trap).
+fn execute_fscc(cpu: &mut Cpu68000, opcode: u16) -> bool {
+    let ea_mode = ((opcode >> 3) & 7) as u8;
+    let ea_reg = (opcode & 7) as u8;
+    // The op-class-1 encoding multiplexes FScc / FDBcc / FTRAPcc on the EA
+    // mode: mode 1 (the An field as a counter Dn) is FDBcc; mode 7 regs 2-4
+    // are FTRAPcc; otherwise it is FScc (Dn or a byte-alterable memory EA).
+    if ea_mode == 1 {
+        return execute_fdbcc(cpu, ea_reg);
+    }
+    if ea_mode == 7 && matches!(ea_reg, 2..=4) {
+        return execute_ftrapcc(cpu, ea_reg);
+    }
+    let static_mode = match ea_mode {
+        5 | 6 => true,
+        7 => matches!(ea_reg, 0 | 1),
+        _ => false,
+    };
+    let memory = matches!(ea_mode, 2..=4) || static_mode;
+    if ea_mode != 0 && !memory {
+        return false; // Dn or a byte-alterable memory EA only
+    }
+
+    let condition = (cpu.irc & 0x3F) as u8;
+    let _ = cpu.consume_irc();
+    if raise_bsun_if_enabled(cpu, condition) {
+        return true; // BSUN trap taken — no byte is set
+    }
+    let byte = if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
+        0xFF_u32
+    } else {
+        0x00
+    };
+
+    if ea_mode == 0 {
+        let reg = ea_reg as usize;
+        cpu.regs.d[reg] = (cpu.regs.d[reg] & 0xFFFF_FF00) | byte;
+        return true;
+    }
+
+    // Memory destination: a single-byte store of the condition byte,
+    // reusing the FP store pipeline (fp_mem_buf / start_fp_write).
+    cpu.fp_mem_buf = u128::from(byte);
+    cpu.fp_mem_bytes_total = 1;
+    cpu.in_followup = true;
+    if static_mode {
+        cpu.fp_mem_pending = true;
+        cpu.fp_mem_store = true;
+        cpu.size = motorola_68000::alu::Size::Byte;
+        cpu.src_mode = motorola_68000::addressing::AddrMode::decode(ea_mode, ea_reg);
+        cpu.followup_tag = motorola_68000::cpu::TAG_FETCH_SRC_EA;
+        cpu.micro_ops.push(MicroOp::Execute);
+        return true;
+    }
+    let reg = ea_reg as usize;
+    let base = match ea_mode {
+        2 => cpu.regs.a(reg),
+        3 => {
+            let a = cpu.regs.a(reg);
+            cpu.regs.set_a(reg, a.wrapping_add(1));
+            a
+        }
+        _ => {
+            let a = cpu.regs.a(reg).wrapping_sub(1);
+            cpu.regs.set_a(reg, a);
+            a
+        }
+    };
+    cpu.addr = base;
+    start_fp_write(cpu);
+    true
+}
+
+/// FDBcc (op-class 1, EA mode 1): test the FP condition; if false, decrement
+/// the low word of the counter `Dn` and branch unless it underflows to −1.
+/// The 16-bit displacement follows the condition word, so it is fetched
+/// asynchronously and the branch resolved at [`handle_fdbcc`].
+fn execute_fdbcc(cpu: &mut Cpu68000, counter_reg: u8) -> bool {
+    let condition = (cpu.irc & 0x3F) as u8;
+    // Stash the counter register and condition for the follow-up.
+    cpu.variant_ext_word = (u16::from(counter_reg) << 8) | u16::from(condition);
+    let _ = cpu.consume_irc(); // queue the displacement-word fetch into IRC
+    cpu.in_followup = true;
+    cpu.followup_tag = motorola_68000::cpu::TAG_V_FDBCC;
+    cpu.micro_ops.push(MicroOp::Execute);
+    true
+}
+
+/// `TAG_V_FDBCC`: the displacement word is now in `irc`. Per the MC68881UM the
+/// branch PC is the address of the displacement word (`instr_start + 4`).
+fn handle_fdbcc(cpu: &mut Cpu68000) {
+    let condition = (cpu.variant_ext_word & 0x3F) as u8;
+    let reg = ((cpu.variant_ext_word >> 8) & 7) as usize;
+    if raise_bsun_if_enabled(cpu, condition) {
+        return; // BSUN trap taken — the counter is not decremented
+    }
+    let disp = i32::from(cpu.irc as i16) as u32;
+    if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
+        // Condition true → loop terminates; fall through past the displacement.
+        cpu.micro_ops.push(MicroOp::FetchIRC);
+    } else {
+        let dn = cpu.regs.d[reg];
+        let count = (dn as u16).wrapping_sub(1);
+        cpu.regs.d[reg] = (dn & 0xFFFF_0000) | u32::from(count);
+        if count != 0xFFFF {
+            let target = cpu.instr_start_pc.wrapping_add(4).wrapping_add(disp);
+            cpu.regs.pc = target;
+            cpu.next_fetch_addr = target;
+            cpu.micro_ops.clear();
+            cpu.micro_ops.push(MicroOp::FetchIRC);
+            cpu.micro_ops.push(MicroOp::PromoteIRC);
+        } else {
+            cpu.micro_ops.push(MicroOp::FetchIRC);
+        }
+    }
+    cpu.in_followup = false;
+}
+
+/// FTRAPcc (op-class 1, EA mode 7, regs 2-4): trap (vector 7) if the FP
+/// condition holds. `reg` selects the optional operand: 2 = word, 3 = long,
+/// 4 = none. The operand is discarded (like the integer TRAPcc); the
+/// condition is already in `irc`, so this resolves synchronously.
+fn execute_ftrapcc(cpu: &mut Cpu68000, reg: u8) -> bool {
+    let condition = (cpu.irc & 0x3F) as u8;
+    let operand_words: u32 = match reg {
+        2 => 1,
+        3 => 2,
+        _ => 0,
+    };
+    let _ = cpu.consume_irc(); // step past the condition word
+    for _ in 0..operand_words {
+        cpu.consume_irc(); // step past the discarded operand words
+    }
+    if raise_bsun_if_enabled(cpu, condition) {
+        return true; // BSUN trap taken — the vector-7 trap is not evaluated
+    }
+    if motorola_68k_common::fpu::test_condition(cpu.regs.fpsr, condition) {
+        // Stacked PC points past the whole instruction (opcode + condition +
+        // operand). begin_group1_exception clears the prefetch queue.
+        let next_pc = cpu.instr_start_pc.wrapping_add(4 + operand_words * 2);
+        cpu.begin_group1_exception(7, next_pc);
+    }
+    true
+}
+
+/// FMOVE FPCR/FPSR/FPIAR ↔ `<ea>` (cpGEN sub-op 4/5, Musashi
+/// `fmove_fpcr`). The extension word's register mask (bits 12-10) selects
+/// the control register(s): bit 2 = FPCR, bit 1 = FPSR, bit 0 = FPIAR;
+/// bit 13 (the sub-op's low bit) gives the direction (0 = ea → register,
+/// 1 = register → ea). Each transfer is a 32-bit longword.
+///
+/// Only the register-direct EA modes (Dn / An) are wired so far — the
+/// common `FMOVE.L D0,FPCR` / `FMOVE.L FPSR,D0` idioms, which need no
+/// memory access and carry exactly one control register. Memory and
+/// immediate EAs decline (vector-11 trap) until the EA chain is wired.
+fn execute_fmove_control(cpu: &mut Cpu68000, w2: u16) -> bool {
+    let dir = (w2 >> 13) & 1;
+    let reg_mask = ((w2 >> 10) & 7) as u8;
+    let ea_mode = ((cpu.ir >> 3) & 7) as u8;
+    let ea_reg = (cpu.ir & 7) as u8;
+
+    // Register-direct (Dn / An): the transfer is synchronous and carries
+    // whichever control register(s) the mask selects.
+    if matches!(ea_mode, 0 | 1) {
+        let _ = cpu.consume_irc();
+        let r = ea_reg as usize;
+        if dir == 0 {
+            // ea → control register(s). For a Dn/An source the same value
+            // feeds every selected register (only one is set in practice).
+            let value = if ea_mode == 0 {
+                cpu.regs.d[r]
+            } else {
+                cpu.regs.a(r)
+            };
+            if reg_mask & 4 != 0 {
+                cpu.regs.fpcr = value;
+            }
+            if reg_mask & 2 != 0 {
+                cpu.regs.fpsr = value;
+            }
+            if reg_mask & 1 != 0 {
+                cpu.regs.fpiar = value;
+            }
+        } else {
+            // control register → ea (last selected wins for a register
+            // destination, per Musashi's FPCR/FPSR/FPIAR write order).
+            let value = control_reg_value(cpu, reg_mask);
+            if let Some(value) = value {
+                if ea_mode == 0 {
+                    cpu.regs.d[r] = value;
+                } else {
+                    cpu.regs.set_a(r, value);
+                }
+            }
+        }
+        return true;
+    }
+
+    // Memory: a single control register transferred as one 32-bit
+    // longword, instant addressing modes only ((An)/(An)+/-(An)). The
+    // multi-register and static-mode forms decline for now.
+    if reg_mask.count_ones() != 1 || !matches!(ea_mode, 2..=4) {
+        return false;
+    }
+    let _ = cpu.consume_irc();
+    let r = ea_reg as usize;
+    let step = 4u32;
+    let base = match ea_mode {
+        2 => cpu.regs.a(r),
+        3 => {
+            let a = cpu.regs.a(r);
+            cpu.regs.set_a(r, a.wrapping_add(step));
+            a
+        }
+        _ => {
+            let a = cpu.regs.a(r).wrapping_sub(step);
+            cpu.regs.set_a(r, a);
+            a
+        }
+    };
+    cpu.fp_mem_bytes_total = 4;
+    cpu.addr = base;
+    cpu.in_followup = true;
+    if dir == 1 {
+        // control register → memory: a plain 4-byte store.
+        cpu.fp_mem_buf = u128::from(control_reg_value(cpu, reg_mask).unwrap_or(0));
+        start_fp_write(cpu);
+    } else {
+        // memory → control register: read 4 bytes, then write the control
+        // register at TAG_V_FP_MEM_EXEC. The 0xFF format is a sentinel for
+        // "control move" so the exec writes a control register instead of
+        // an Fpn; the register mask rides in fp_mem_dst.
+        cpu.fp_mem_format = 0xFF;
+        cpu.fp_mem_dst = reg_mask;
+        start_fp_read(cpu);
+    }
+    true
+}
+
+/// The value of the (single) control register selected by `mask`, in
+/// Musashi's FPCR → FPSR → FPIAR fold order (last selected wins).
+fn control_reg_value(cpu: &Cpu68000, mask: u8) -> Option<u32> {
+    let mut value = None;
+    if mask & 4 != 0 {
+        value = Some(cpu.regs.fpcr);
+    }
+    if mask & 2 != 0 {
+        value = Some(cpu.regs.fpsr);
+    }
+    if mask & 1 != 0 {
+        value = Some(cpu.regs.fpiar);
+    }
+    value
 }
 
 /// Finish CAS once the destination has been read into `self.data`.
@@ -1262,7 +2654,9 @@ use motorola_68000::cpu::{
     TAG_BF_MEM_EA_ABSLONG_LO, TAG_BF_MEM_EA_RESOLVE, TAG_BF_MEM_EXEC, TAG_BF_MEM_READ,
     TAG_BF_MEM_WRITE, TAG_FETCH_SRC_DATA, TAG_V_CAS_COMPARE, TAG_V_CAS_WRITE_DONE,
     TAG_V_CAS2_COMPUTE, TAG_V_CAS2_GATHER, TAG_V_CAS2_READ2, TAG_V_CAS2_WRITE_DONE,
-    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_MULDIV_MEM_EXEC,
+    TAG_V_CAS2_WRITE2, TAG_V_CHK2_LOWER, TAG_V_CHK2_UPPER, TAG_V_FBCC_L, TAG_V_FDBCC,
+    TAG_V_FMOVEM_STEP, TAG_V_FP_IMM_READ, TAG_V_FP_MEM_EXEC, TAG_V_FP_MEM_READ, TAG_V_FP_MEM_WRITE,
+    TAG_V_FRESTORE_READ, TAG_V_FSAVE_WRITE, TAG_V_MULDIV_MEM_EXEC,
 };
 use motorola_68000::microcode::MicroOp;
 use motorola_68010::continue_68010_opcode;
@@ -1404,6 +2798,69 @@ pub fn continue_68020_opcode(cpu: &mut Cpu68000) -> bool {
         }
         TAG_BF_MEM_WRITE => {
             handle_bf_mem_write(cpu);
+            true
+        }
+        TAG_V_FP_MEM_READ => {
+            handle_fp_mem_read(cpu);
+            true
+        }
+        TAG_V_FP_IMM_READ => {
+            handle_fp_imm_read(cpu);
+            true
+        }
+        TAG_V_FP_MEM_EXEC => {
+            handle_fp_mem_exec(cpu);
+            true
+        }
+        TAG_V_FP_MEM_WRITE => {
+            handle_fp_mem_write(cpu);
+            true
+        }
+        TAG_V_FMOVEM_STEP => {
+            handle_fmovem_step(cpu);
+            true
+        }
+        TAG_V_FBCC_L => {
+            handle_fbcc_l(cpu);
+            true
+        }
+        TAG_V_FDBCC => {
+            handle_fdbcc(cpu);
+            true
+        }
+        TAG_V_FSAVE_WRITE => {
+            handle_fsave_write(cpu);
+            true
+        }
+        TAG_V_FRESTORE_READ => {
+            handle_frestore_read(cpu);
+            true
+        }
+        // An FPU memory operand using a static addressing mode: the core's
+        // EA machinery has resolved the address into `addr`. Take over and
+        // read/write the operand bytes ourselves (the core's data fetch
+        // only knows B/W/L, but we need 1/2/4/8/12).
+        TAG_FETCH_SRC_DATA if cpu.fp_mem_pending => {
+            cpu.fp_mem_pending = false;
+            if cpu.fp_mem_store {
+                cpu.fp_mem_store = false;
+                start_fp_write(cpu);
+            } else {
+                start_fp_read(cpu);
+            }
+            true
+        }
+        // FSAVE/FRESTORE with a control addressing mode: the core's EA
+        // machinery has resolved the frame address into `addr`. Start the
+        // frame stream from there (write for FSAVE, read for FRESTORE).
+        TAG_FETCH_SRC_DATA if cpu.fp_frame_pending => {
+            cpu.fp_frame_pending = false;
+            if cpu.fp_frame_store {
+                cpu.fp_frame_store = false;
+                start_fsave_write(cpu);
+            } else {
+                start_frestore_read(cpu);
+            }
             true
         }
         // Memory-source MUL.L / DIV.L: the core's EA pipeline has

@@ -25,6 +25,9 @@ struct CliArgs {
     count: usize,
     instruction_name: Option<String>,
     all: bool,
+    /// Generate from the 68881/2 FPgen catalogue instead of the integer
+    /// catalogue. Keeps FP fixtures out of the integer `--all` sweep.
+    fp: bool,
     /// Explicit output directory (overrides the per-CPU default). Use
     /// this to write into the canonical corpus, e.g.
     /// `--out ~/Projects/198x/assets/test-suites/m68k-generated/m68020/v1`.
@@ -39,7 +42,7 @@ fn print_usage() {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    let cli = match parse_args_from(&args) {
+    let mut cli = match parse_args_from(&args) {
         Ok(Some(cli)) => cli,
         Ok(None) => {
             print_usage();
@@ -52,14 +55,35 @@ fn main() {
         }
     };
 
-    let output_dir = cli
-        .out_dir
-        .clone()
-        .map_or_else(|| output_dir_for_cpu(&cli.cpu_name), PathBuf::from);
+    if cli.fp {
+        // Musashi only emulates the FPU through its on-chip 68040 path; the
+        // 68881/2 coprocessor F-line traps as unimplemented on the 020/030.
+        // The 68040 FPU shares the vendored SoftFloat and uses identical
+        // encodings/opmodes for these basic ops, so it is a bit-exact oracle
+        // for the 68881/2 core. Force the oracle to the 68040 regardless of
+        // the requested --cpu.
+        cli.cpu_type = musashi::M68K_CPU_TYPE_68040;
+        cli.cpu_name = "68040".to_string();
+    }
+
+    let output_dir = cli.out_dir.clone().map_or_else(
+        || {
+            if cli.fp {
+                fp_output_dir_for_cpu(&cli.cpu_name)
+            } else {
+                output_dir_for_cpu(&cli.cpu_name)
+            }
+        },
+        PathBuf::from,
+    );
     fs::create_dir_all(&output_dir).expect("failed to create output directory");
 
     if cli.all {
-        let defs = instructions::catalogue(cli.cpu_type);
+        let defs = if cli.fp {
+            instructions::fp_catalogue(cli.cpu_type)
+        } else {
+            instructions::catalogue(cli.cpu_type)
+        };
         if defs.is_empty() {
             eprintln!("No instructions defined for CPU {}", cli.cpu_name);
             std::process::exit(1);
@@ -74,9 +98,18 @@ fn main() {
             generate_and_write(def, cli.cpu_type, &cli.cpu_name, cli.count, &output_dir);
         }
     } else if let Some(name) = &cli.instruction_name {
-        let def = instructions::find(cli.cpu_type, name).unwrap_or_else(|| {
+        let lookup = if cli.fp {
+            instructions::fp_find(cli.cpu_type, name)
+        } else {
+            instructions::find(cli.cpu_type, name)
+        };
+        let def = lookup.unwrap_or_else(|| {
             eprintln!("Unknown instruction: {name}");
-            let defs = instructions::catalogue(cli.cpu_type);
+            let defs = if cli.fp {
+                instructions::fp_catalogue(cli.cpu_type)
+            } else {
+                instructions::catalogue(cli.cpu_type)
+            };
             eprintln!("Available:");
             for d in &defs {
                 eprintln!("  {}", d.name);
@@ -106,7 +139,13 @@ fn generate_and_write(
     };
 
     let path = output_dir.join(format!("{}.msgpack", def.name));
-    let data = rmp_serde::to_vec(&file).expect("failed to serialise");
+    // Serialise structs as named maps, not positional arrays: fields with
+    // `skip_serializing_if` (msp/vbr/cacr/caar, fp/fpcr/fpsr/fpiar) can be
+    // zero in any combination, and an omitted *interior* field would shift
+    // every later field in an array encoding. Maps key by field name, so
+    // omission is safe. Old array-encoded fixtures still deserialise — rmp
+    // reads a struct from either representation.
+    let data = rmp_serde::to_vec_named(&file).expect("failed to serialise");
     fs::write(&path, &data).expect("failed to write file");
     println!("{} tests, {} bytes", file.tests.len(), data.len());
 }
@@ -133,6 +172,18 @@ fn output_dir_for_cpu(cpu_name: &str) -> PathBuf {
     }
 }
 
+/// Default output directory for the 68881/2 FP corpus — a sibling of the
+/// integer corpus so the two never mix.
+fn fp_output_dir_for_cpu(cpu_name: &str) -> PathBuf {
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("crates dir")
+        .parent()
+        .expect("workspace root")
+        .to_owned();
+    base.join(format!("test-data/m68k-{cpu_name}-fpu/v1"))
+}
+
 fn parse_cpu_type(cpu_name: &str) -> Result<u32, String> {
     match cpu_name {
         "68000" => Ok(musashi::M68K_CPU_TYPE_68000),
@@ -157,6 +208,7 @@ fn parse_args_from(args: &[String]) -> Result<Option<CliArgs>, String> {
         count: 2500,
         instruction_name: None,
         all: false,
+        fp: false,
         out_dir: None,
     };
 
@@ -191,6 +243,9 @@ fn parse_args_from(args: &[String]) -> Result<Option<CliArgs>, String> {
             }
             "--all" => {
                 cli.all = true;
+            }
+            "--fp" => {
+                cli.fp = true;
             }
             "--out" => {
                 i += 1;

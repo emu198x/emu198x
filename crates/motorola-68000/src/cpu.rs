@@ -291,6 +291,38 @@ pub const TAG_V_CAS2_WRITE2: u8 = 122;
 /// 68020+ CAS2: both writes have completed — end the instruction.
 pub const TAG_V_CAS2_WRITE_DONE: u8 = 123;
 
+/// 68881/2 FPU memory source operand: a byte of the operand has been
+/// read; accumulate it and either queue the next byte or run the op.
+pub const TAG_V_FP_MEM_READ: u8 = 124;
+/// 68881/2 FPU memory source operand: all bytes are in `fp_mem_buf` —
+/// decode the FP format, build the `floatx80`, and apply the opmode.
+pub const TAG_V_FP_MEM_EXEC: u8 = 125;
+/// 68881/2 FPU memory destination (FMOVE FPn → ea): a byte of the operand
+/// has been written; step to the next byte or finish.
+pub const TAG_V_FP_MEM_WRITE: u8 = 126;
+/// 68881/2 FBcc.L: the low displacement word has been prefetched; combine
+/// it with the stashed high word and resolve the branch.
+pub const TAG_V_FBCC_L: u8 = 127;
+/// 68881/2 FPU immediate source operand: an operand word has been
+/// prefetched; accumulate it and either read the next or run the op.
+pub const TAG_V_FP_IMM_READ: u8 = 128;
+/// 68881/2 FMOVEM: a register's 12 bytes have transferred; process it and
+/// either start the next register or finish.
+pub const TAG_V_FMOVEM_STEP: u8 = 129;
+
+/// 68881/2 FDBcc: the 16-bit displacement word has been fetched into `irc`;
+/// test the condition, decrement the counter, and branch or fall through.
+pub const TAG_V_FDBCC: u8 = 130;
+
+/// 68881/2 FSAVE: a byte of the internal-state frame has been written;
+/// step to the next byte or finish.
+pub const TAG_V_FSAVE_WRITE: u8 = 131;
+/// 68881/2 FRESTORE: a byte of the internal-state frame has been read.
+/// The first four bytes are the frame id (version + size); once they are
+/// in, dispatch on the frame version (null reset / idle / format error)
+/// and consume any remaining frame bytes.
+pub const TAG_V_FRESTORE_READ: u8 = 132;
+
 /// CPU state machine state.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum State {
@@ -323,6 +355,12 @@ pub enum AluOp {
     And,
     Or,
     Eor,
+}
+
+/// Default for the FSAVE/FRESTORE frame buffer (arrays longer than 32 do
+/// not implement `Default`, which `#[serde(skip)]` would otherwise need).
+fn default_fp_frame() -> [u8; 60] {
+    [0; 60]
 }
 
 /// Bit manipulation operation type.
@@ -691,6 +729,32 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub variant_long_branch: bool,
 
+    /// When set, F-line (`$Fxxx`) coprocessor-ID-1 opcodes are decoded as
+    /// 68881/68882 FPU instructions instead of taking the vector-11
+    /// F-line emulator trap. The FPU is an *attached coprocessor*, not a
+    /// CPU feature: a 68EC020 (A1200/CD32) has no coprocessor interface,
+    /// and a full 68020 with no 68881 fitted also traps F-line (the
+    /// handler can soft-emulate). So this is gated per *machine*, not per
+    /// CPU model — default `false` (trap), set `true` by machines with an
+    /// FPU. Not `#[serde(skip)]`: it's machine configuration that must
+    /// survive save/load (a plain bool, unlike the hook function
+    /// pointers the other flags carry).
+    pub variant_fpu_present: bool,
+
+    /// FPU coprocessor model: `false` = MC68881, `true` = MC68882. The two
+    /// share the same `fpu_version` ($1F) and behave identically for the
+    /// arithmetic core; only the FSAVE/FRESTORE internal-state frame size
+    /// differs (68881 = 28 bytes, 68882 = 60 bytes). Machine configuration —
+    /// not `#[serde(skip)]`. Default `false` (68881).
+    pub variant_fpu_is_68882: bool,
+
+    /// FPU internal state, as reported by FSAVE / consumed by FRESTORE:
+    /// `0` = null (reset — the power-on / post-`fpu_null` state), `1` = idle
+    /// (any 68881/2 FP instruction has executed since reset). Mirrors WinUAE
+    /// `regs.fpu_state`. Machine state that must survive save/load, so not
+    /// `#[serde(skip)]`. Default `0` (null).
+    pub variant_fpu_state: u8,
+
     /// Step counter for the 11-step Format `$A` push sequence.
     /// Consulted by `TAG_AE_FMT_A_STEP`.
     #[serde(skip)]
@@ -790,6 +854,118 @@ pub struct Cpu68000 {
     /// write of the base byte address.
     #[serde(skip)]
     pub bf_byte_disp: i32,
+
+    // ─── 68881/2 FPU memory-operand pipeline (mid-instruction) ───
+    // Like the bit-field memory state above, these are transient
+    // working registers for a memory source operand and are not
+    // preserved across snapshots.
+    /// Operand bytes accumulated big-endian (first byte read in the
+    /// most-significant position). Holds up to 12 bytes (extended).
+    #[serde(skip)]
+    pub fp_mem_buf: u128,
+    /// Total bytes the operand spans (1/2/4/8/12, per the FP format).
+    #[serde(skip)]
+    pub fp_mem_bytes_total: u8,
+    /// Bytes already read into `fp_mem_buf`.
+    #[serde(skip)]
+    pub fp_mem_bytes_done: u8,
+    /// FP source-format specifier (0=Long 1=Single 2=Extended 4=Word
+    /// 5=Double 6=Byte) from the extension word's bits 12-10.
+    #[serde(skip)]
+    pub fp_mem_format: u8,
+    /// The FP opmode (bits 6-0 of the extension word) to apply once the
+    /// operand is loaded.
+    #[serde(skip)]
+    pub fp_mem_opmode: u8,
+    /// Destination Fpn (extension-word bits 9-7).
+    #[serde(skip)]
+    pub fp_mem_dst: u8,
+    /// Rounding precision (80/64/32) to apply once the operand is loaded —
+    /// the FSxxx/FDxxx opmode prefix override, or the FPCR precision field.
+    #[serde(skip)]
+    pub fp_mem_precision: i32,
+    /// Set while an FPU memory operand is using the core's EA-resolution
+    /// machinery (`calc_ea_start`) for the non-auto-increment addressing
+    /// modes. Lets the 68020 continue hook recognise the shared
+    /// `TAG_FETCH_SRC_DATA` tag as ours and start the operand read from
+    /// the resolved `addr` instead of running the core's data fetch.
+    #[serde(skip)]
+    pub fp_mem_pending: bool,
+    /// When an FPU memory operand is resolved via `calc_ea_start`, selects
+    /// the direction: `true` = store (write the operand from `fp_mem_buf`),
+    /// `false` = load (read into `fp_mem_buf`).
+    #[serde(skip)]
+    pub fp_mem_store: bool,
+
+    // ─── 68881/2 FMOVEM register-list transfer (mid-instruction) ───
+    /// True while a FMOVEM is in flight (redirects the 12-byte transfer
+    /// completion to the FMOVEM controller instead of the FMOVE exec).
+    #[serde(skip)]
+    pub fp_movem_active: bool,
+    /// FMOVEM direction: `true` = registers → memory (predecrement),
+    /// `false` = memory → registers (postincrement).
+    #[serde(skip)]
+    pub fp_movem_store: bool,
+    /// Remaining register-list bits still to transfer (cleared as each is
+    /// processed, lowest bit first).
+    #[serde(skip)]
+    pub fp_movem_list: u8,
+    /// The register index (0..7) of the in-flight transfer; `0xFF` before
+    /// the first register.
+    #[serde(skip)]
+    pub fp_movem_cur: u8,
+    /// Working address pointer, stepped by 12 per register and written
+    /// back to the An register at the end.
+    #[serde(skip)]
+    pub fp_movem_an: u32,
+    /// The An register the pointer is written back to.
+    #[serde(skip)]
+    pub fp_movem_areg: u8,
+
+    // ─── 68881/2 FSAVE / FRESTORE internal-state frame (mid-instruction) ───
+    /// The internal-state frame being streamed byte-at-a-time. Large enough
+    /// for the 68882's 60-byte idle frame; only the first four bytes (the
+    /// frame id) are inspected on FRESTORE.
+    #[serde(skip, default = "default_fp_frame")]
+    pub fp_frame: [u8; 60],
+    /// Total bytes the frame spans (4 for a null frame, 28 for a 68881 idle
+    /// frame, 60 for a 68882 idle frame). On FRESTORE this starts at 4 (the
+    /// frame id) and is revised once the frame version is known.
+    #[serde(skip)]
+    pub fp_frame_total: u8,
+    /// Bytes already streamed (read or written).
+    #[serde(skip)]
+    pub fp_frame_done: u8,
+    /// Base address the frame stream started from, used to write back the
+    /// postincrement pointer on FRESTORE.
+    #[serde(skip)]
+    pub fp_frame_an: u32,
+    /// The An register a FRESTORE postincrement pointer is written back to.
+    #[serde(skip)]
+    pub fp_frame_areg: u8,
+    /// FRESTORE used `(An)+` — write the consumed-byte count back to An at
+    /// the end (only on the non-fault path).
+    #[serde(skip)]
+    pub fp_frame_postinc: bool,
+
+    /// A pending 68881/2 arithmetic-exception trap vector (48-54), armed by
+    /// an FP instruction that raised an *enabled* exception. Delivered at
+    /// the instruction boundary (the `PromoteIRC` step) so the stacked PC
+    /// points at the following instruction — the 68881 post-instruction
+    /// model. `None` when no FP trap is pending. Transient mid-dispatch
+    /// state, so `#[serde(skip)]`.
+    #[serde(skip)]
+    pub fp_exc_pending: Option<u8>,
+    /// Set while an FSAVE/FRESTORE frame is using the core's EA-resolution
+    /// machinery (`calc_ea_start`) for the control addressing modes. Lets the
+    /// 68020 continue hook recognise the shared `TAG_FETCH_SRC_DATA` tag as
+    /// the frame stream and start it from the resolved `addr`.
+    #[serde(skip)]
+    pub fp_frame_pending: bool,
+    /// Frame-stream direction for the `calc_ea_start` path: `true` = FSAVE
+    /// (write the frame from `fp_frame`), `false` = FRESTORE (read into it).
+    #[serde(skip)]
+    pub fp_frame_store: bool,
 
     /// Variant continuation hook: gives a wrapping variant a chance
     /// to dispatch follow-up tags that the 68000 doesn't know about.
@@ -894,6 +1070,9 @@ impl Cpu68000 {
             variant_icache: None,
             variant_um_ea_calc_timing: false,
             variant_long_branch: false,
+            variant_fpu_present: false,
+            variant_fpu_is_68882: false,
+            variant_fpu_state: 0,
             variant_ext_word: 0,
             ae_fmt_a_step: 0,
             ae_frame_pc: 0,
@@ -911,6 +1090,30 @@ impl Cpu68000 {
             bf_ea_mode: 0,
             bf_ea_reg: 0,
             bf_byte_disp: 0,
+            fp_mem_buf: 0,
+            fp_mem_bytes_total: 0,
+            fp_mem_bytes_done: 0,
+            fp_mem_format: 0,
+            fp_mem_opmode: 0,
+            fp_mem_dst: 0,
+            fp_mem_precision: 80,
+            fp_mem_pending: false,
+            fp_mem_store: false,
+            fp_movem_active: false,
+            fp_movem_store: false,
+            fp_movem_list: 0,
+            fp_movem_cur: 0,
+            fp_movem_an: 0,
+            fp_movem_areg: 0,
+            fp_frame: [0; 60],
+            fp_frame_total: 0,
+            fp_frame_done: 0,
+            fp_frame_an: 0,
+            fp_frame_areg: 0,
+            fp_frame_postinc: false,
+            fp_frame_pending: false,
+            fp_frame_store: false,
+            fp_exc_pending: None,
             variant_continue_hook: None,
             variant_pending_disp: 0,
         }
@@ -1162,12 +1365,21 @@ impl Cpu68000 {
             match op {
                 MicroOp::Execute => self.decode_and_execute(),
                 MicroOp::PromoteIRC => {
-                    // The 68000 samples interrupts at instruction boundaries.
-                    let ipl = self.ipl;
-                    if ipl > self.regs.interrupt_mask() || ipl == 7 {
-                        self.initiate_interrupt_exception(ipl);
+                    // A 68881/2 arithmetic exception raised by the just-retired
+                    // FP instruction is delivered here, before the next
+                    // instruction (and before interrupt sampling): `irc_addr`
+                    // is the following instruction's address — the stacked PC
+                    // for this post-instruction trap.
+                    if let Some(vector) = self.fp_exc_pending.take() {
+                        self.begin_group1_exception(vector, self.irc_addr);
                     } else {
-                        self.promote_pipeline();
+                        // The 68000 samples interrupts at instruction boundaries.
+                        let ipl = self.ipl;
+                        if ipl > self.regs.interrupt_mask() || ipl == 7 {
+                            self.initiate_interrupt_exception(ipl);
+                        } else {
+                            self.promote_pipeline();
+                        }
                     }
                 }
                 MicroOp::AssertReset => {

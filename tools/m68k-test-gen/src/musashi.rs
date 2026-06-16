@@ -44,6 +44,56 @@ unsafe extern "C" {
     pub fn m68k_end_timeslice();
     pub fn m68k_get_reg(context: *const (), reg: c_uint) -> c_uint;
     pub fn m68k_set_reg(reg: c_uint, value: c_uint);
+
+    // 68881/2 FPU accessors (testgen_fpu_access.c — Musashi keeps FP state
+    // internal, so these expose it for fixture generation).
+    fn testgen_set_fpr(i: i32, high: u16, low: u64);
+    fn testgen_get_fpr(i: i32, high: *mut u16, low: *mut u64);
+    fn testgen_set_fpcr(value: c_uint);
+    fn testgen_set_fpsr(value: c_uint);
+    fn testgen_set_fpiar(value: c_uint);
+    fn testgen_get_fpcr() -> c_uint;
+    fn testgen_get_fpsr() -> c_uint;
+    fn testgen_get_fpiar() -> c_uint;
+}
+
+/// Set FP data register `i` (0..7) to the extended `{high, low}` pattern.
+pub fn set_fpr(i: usize, high: u16, low: u64) {
+    unsafe { testgen_set_fpr(i as i32, high, low) }
+}
+
+/// Get FP data register `i` (0..7) as the extended `{high, low}` pattern.
+pub fn get_fpr(i: usize) -> (u16, u64) {
+    let mut high = 0u16;
+    let mut low = 0u64;
+    unsafe { testgen_get_fpr(i as i32, &mut high, &mut low) }
+    (high, low)
+}
+
+/// Set FPCR (also syncs SoftFloat's rounding-mode global).
+pub fn set_fpcr(value: u32) {
+    unsafe { testgen_set_fpcr(value) }
+}
+
+/// Set FPSR.
+pub fn set_fpsr(value: u32) {
+    unsafe { testgen_set_fpsr(value) }
+}
+
+/// Set FPIAR.
+pub fn set_fpiar(value: u32) {
+    unsafe { testgen_set_fpiar(value) }
+}
+
+/// Get FPCR / FPSR / FPIAR.
+pub fn get_fpcr() -> u32 {
+    unsafe { testgen_get_fpcr() }
+}
+pub fn get_fpsr() -> u32 {
+    unsafe { testgen_get_fpsr() }
+}
+pub fn get_fpiar() -> u32 {
+    unsafe { testgen_get_fpiar() }
 }
 
 /// Get a register value from the currently running Musashi instance.

@@ -9,20 +9,76 @@
 
 use serde::{Deserialize, Serialize};
 
-/// FPU register value — wraps f64 with bit-exact Eq for emulation.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct FpReg(pub f64);
+/// FPU register value — a true 80-bit extended-precision float, stored
+/// as Motorola/Intel `floatx80`: `high` holds the sign (bit 15) and the
+/// 15-bit biased exponent (bits 14-0); `low` holds the 64-bit mantissa
+/// including the explicit integer bit (bit 63). This matches Musashi's
+/// `floatx80` layout exactly so register state is bit-comparable.
+///
+/// The arithmetic backend that operates on this representation is wired
+/// incrementally (#112); the move/abs/neg/test ops need only these bit
+/// fields, no float library.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FpReg {
+    /// Sign (bit 15) + 15-bit biased exponent (bits 14-0).
+    pub high: u16,
+    /// 64-bit mantissa with explicit integer bit (bit 63).
+    pub low: u64,
+}
 
 impl FpReg {
-    pub const ZERO: Self = Self(0.0);
-}
+    /// Positive zero (`+0.0`): exponent and mantissa all clear.
+    pub const ZERO: Self = Self { high: 0, low: 0 };
 
-impl PartialEq for FpReg {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.to_bits() == other.0.to_bits()
+    /// Construct from the raw 80-bit fields.
+    #[must_use]
+    pub const fn new(high: u16, low: u64) -> Self {
+        Self { high, low }
+    }
+
+    /// True when the sign bit is set.
+    #[must_use]
+    pub const fn is_negative(self) -> bool {
+        self.high & 0x8000 != 0
+    }
+
+    /// True for ±0 (exponent and mantissa fraction both zero), matching
+    /// Musashi's `SET_CONDITION_CODES` zero test (`(low << 1) == 0`).
+    #[must_use]
+    pub const fn is_zero(self) -> bool {
+        (self.high & 0x7FFF) == 0 && (self.low << 1) == 0
+    }
+
+    /// True for ±infinity (max exponent, zero fraction).
+    #[must_use]
+    pub const fn is_infinite(self) -> bool {
+        (self.high & 0x7FFF) == 0x7FFF && (self.low << 1) == 0
+    }
+
+    /// True for NaN (max exponent, non-zero fraction).
+    #[must_use]
+    pub const fn is_nan(self) -> bool {
+        (self.high & 0x7FFF) == 0x7FFF && (self.low << 1) != 0
+    }
+
+    /// Absolute value — clear the sign bit (FABS).
+    #[must_use]
+    pub const fn abs(self) -> Self {
+        Self {
+            high: self.high & 0x7FFF,
+            low: self.low,
+        }
+    }
+
+    /// Negate — flip the sign bit (FNEG).
+    #[must_use]
+    pub const fn negate(self) -> Self {
+        Self {
+            high: self.high ^ 0x8000,
+            low: self.low,
+        }
     }
 }
-impl Eq for FpReg {}
 
 /// 68000 CPU register set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -167,6 +223,55 @@ impl Registers {
             | if z { 0x0400_0000 } else { 0 }
             | if i { 0x0200_0000 } else { 0 }
             | if nan { 0x0100_0000 } else { 0 };
+    }
+
+    /// Set the FPSR quotient byte (bits 23-16) from FREM / FMOD: bit 23 is the
+    /// sign of the quotient, bits 22-16 are its seven least-significant bits.
+    pub fn set_fpsr_quotient(&mut self, quotient: u64, sign: bool) {
+        let byte = ((u32::from(sign) << 7) | ((quotient as u32) & 0x7F)) << 16;
+        self.fpsr = (self.fpsr & !0x00FF_0000) | byte;
+    }
+
+    /// Set the BSUN exception: the EXC byte's BSUN bit (FPSR bit 15) plus the
+    /// accrued IOP bit (bit 7). Used by FBcc/FScc/FDBcc/FTRAPcc when an
+    /// IEEE-nonaware predicate is taken with the NAN condition code set. The
+    /// other EXC bits are left untouched (BSUN is OR-ed in, not replaced).
+    pub fn set_fpsr_bsun(&mut self) {
+        self.fpsr |= 0x0000_8000 | 0x0000_0080;
+    }
+
+    /// Apply an operation's exception-status byte to the FPSR. The EXC byte
+    /// (bits 15-8: BSUN/SNAN/OPERR/OVFL/UNFL/DZ/INEX2/INEX1) reflects the
+    /// most recent operation and is *replaced*; the derived accrued-exception
+    /// byte (bits 7-0) *accumulates* (sticky), per the M68881 UM.
+    pub fn set_fpsr_exceptions(&mut self, exc: u8) {
+        self.fpsr = (self.fpsr & !0x0000_FF00) | (u32::from(exc) << 8);
+        self.fpsr |= u32::from(Self::aexc_from_exc(exc));
+    }
+
+    /// Derive the accrued-exception byte (AEXC, FPSR bits 7-0) from an
+    /// exception-status byte, per M68881 UM Table 6-3. EXC byte bit
+    /// positions: BSUN=7 SNAN=6 OPERR=5 OVFL=4 UNFL=3 DZ=2 INEX2=1 INEX1=0.
+    #[must_use]
+    const fn aexc_from_exc(exc: u8) -> u8 {
+        let bsun = exc & 0x80 != 0;
+        let snan = exc & 0x40 != 0;
+        let operr = exc & 0x20 != 0;
+        let ovfl = exc & 0x10 != 0;
+        let unfl = exc & 0x08 != 0;
+        let dz = exc & 0x04 != 0;
+        let inex2 = exc & 0x02 != 0;
+        let inex1 = exc & 0x01 != 0;
+        let iop = bsun || snan || operr; // AEXC IOP   (bit 7)
+        let a_ovfl = ovfl; //                  OVFL  (bit 6)
+        let a_unfl = unfl && inex2; //          UNFL  (bit 5)
+        let a_dz = dz; //                       DZ    (bit 4)
+        let a_inex = inex1 || inex2 || ovfl; // INEX  (bit 3)
+        ((iop as u8) << 7)
+            | ((a_ovfl as u8) << 6)
+            | ((a_unfl as u8) << 5)
+            | ((a_dz as u8) << 4)
+            | ((a_inex as u8) << 3)
     }
 
     /// Get address register by index (0-7).

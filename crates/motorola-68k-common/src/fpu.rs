@@ -5,7 +5,7 @@
 //! internal precision (covers Single/Double exactly, approximates
 //! Extended's 64-bit mantissa with 53 bits).
 
-use motorola_68k_common::registers::Registers;
+use crate::registers::{FpReg, Registers};
 use serde::{Deserialize, Serialize};
 
 // --- FP data formats ---
@@ -327,6 +327,84 @@ pub fn set_fpcc(regs: &mut Registers, val: f64) {
     regs.set_fpsr_cc(n, z, i, nan);
 }
 
+/// Set the FPSR condition codes (N/Z/I/NAN) from an 80-bit result,
+/// replicating Musashi's `SET_CONDITION_CODES`. N is the raw sign bit —
+/// set even for −0 and −NaN, unlike the f64 [`set_fpcc`] above (the FPU
+/// reports sign directly). This is the setter the 68020+ FPU dispatch
+/// uses.
+pub fn set_condition_codes(regs: &mut Registers, value: FpReg) {
+    regs.set_fpsr_cc(
+        value.is_negative(),
+        value.is_zero(),
+        value.is_infinite(),
+        value.is_nan(),
+    );
+}
+
+/// Build the FPSR exception-status byte (bits 15-8 layout) from the
+/// SoftFloat flags raised by an operation plus whether a signalling NaN was
+/// an input. SoftFloat collapses signalling-NaN and operational invalids into
+/// the one `invalid` flag; the 68881/2 splits them — SNAN when a signalling
+/// NaN was an operand, OPERR otherwise. INEX1 is raised by the packed-decimal
+/// conversions (`float_flag_decimal`); BSUN (FBcc/FScc unordered) is set
+/// separately and stays clear here.
+#[must_use]
+pub const fn exc_byte_from_softfloat(flags: u8, signaling_input: bool) -> u8 {
+    use crate::softfloat::flag;
+    let invalid = flags & flag::INVALID != 0;
+    let snan = signaling_input;
+    let operr = invalid && !signaling_input;
+    let ovfl = flags & flag::OVERFLOW != 0;
+    let unfl = flags & flag::UNDERFLOW != 0;
+    let dz = flags & flag::DIVBYZERO != 0;
+    let inex2 = flags & flag::INEXACT != 0;
+    let inex1 = flags & flag::DECIMAL != 0;
+    // EXC byte: SNAN=6 OPERR=5 OVFL=4 UNFL=3 DZ=2 INEX2=1 INEX1=0.
+    ((snan as u8) << 6)
+        | ((operr as u8) << 5)
+        | ((ovfl as u8) << 4)
+        | ((unfl as u8) << 3)
+        | ((dz as u8) << 2)
+        | ((inex2 as u8) << 1)
+        | (inex1 as u8)
+}
+
+/// Fold the exceptions raised by the just-completed SoftFloat operation(s)
+/// into the FPSR. Reads the accumulated `float_exception_flags` and the
+/// signalling-NaN cause from the port, maps them to the EXC byte, and updates
+/// the FPSR EXC (replace) and AEXC (accumulate) bytes. Call once after the
+/// operation; the caller must `clear_exception_flags()` before it (covering
+/// any operand format conversion).
+pub fn apply_exceptions(regs: &mut Registers) {
+    let exc = exc_byte_from_softfloat(
+        crate::softfloat::exception_flags(),
+        crate::softfloat::signaling_nan_input(),
+    );
+    regs.set_fpsr_exceptions(exc);
+}
+
+/// Map the pending *enabled* FP exceptions — the FPSR exception-status byte
+/// AND the FPCR exception-enable byte, both at bits 15-8 — to the
+/// highest-priority exception vector (48-54), or `None` if no enabled
+/// exception is set. Priority high→low: BSUN, SNAN, OPERR, OVFL, UNFL, DZ,
+/// INEX2, INEX1 (WinUAE `fpsr_get_vector`). Used to deliver the FP
+/// arithmetic / BSUN traps.
+#[must_use]
+pub fn fp_exception_vector(fpsr: u32, fpcr: u32) -> Option<u8> {
+    let pending = ((fpsr >> 8) & (fpcr >> 8) & 0xFF) as u8;
+    if pending == 0 {
+        return None;
+    }
+    // Indexed by EXC-byte bit position: 0 = INEX1 … 7 = BSUN.
+    const VTABLE: [u8; 8] = [49, 49, 50, 51, 53, 52, 54, 48];
+    for bit in (0..8usize).rev() {
+        if pending & (1 << bit) != 0 {
+            return Some(VTABLE[bit]);
+        }
+    }
+    None
+}
+
 // --- FPU condition testing ---
 
 /// Test an FPU condition code against the current FPSR.
@@ -365,12 +443,21 @@ pub fn test_condition(fpsr: u32, condition: u8) -> bool {
         _ => unreachable!(),
     };
 
-    // Conditions 0x10-0x1F are the same predicates but with BSUN signalling
-    // on NaN. We don't model BSUN exceptions, so the result is the same.
-    // The bit-4 flag only affects whether BSUN is raised, not the boolean result.
-    let _ = i; // suppress unused warning; I flag used for specific conditions above indirectly
+    // Conditions 0x10-0x1F are the same predicates but IEEE-nonaware: bit 4
+    // only governs whether BSUN is raised (see `predicate_raises_bsun`), not
+    // the boolean result.
+    let _ = i; // the I (infinity) flag is not used by any predicate
 
     result
+}
+
+/// Whether taking `condition` with the current `fpsr` must set the BSUN
+/// exception: an IEEE-nonaware predicate (bit 4 set) evaluated while the NAN
+/// condition code is set. Per MC68881UM §4.4 (the nonaware/aware test tables).
+#[must_use]
+pub fn predicate_raises_bsun(condition: u8, fpsr: u32) -> bool {
+    let nan = (fpsr >> 24) & 1 != 0;
+    (condition & 0x10) != 0 && nan
 }
 
 // --- FMOVECR ROM constants ---
@@ -701,5 +788,41 @@ mod tests {
         let (s, c) = fsincos(0.0);
         assert!((s - 0.0).abs() < f64::EPSILON);
         assert!((c - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn exc_byte_maps_softfloat_flags() {
+        use crate::softfloat::flag;
+        // Operational invalid → OPERR (0x20); a signalling input → SNAN (0x40).
+        assert_eq!(exc_byte_from_softfloat(flag::INVALID, false), 0x20);
+        assert_eq!(exc_byte_from_softfloat(flag::INVALID, true), 0x40);
+        // Overflow always carries inexact → OVFL | INEX2.
+        assert_eq!(
+            exc_byte_from_softfloat(flag::OVERFLOW | flag::INEXACT, false),
+            0x12
+        );
+        assert_eq!(exc_byte_from_softfloat(flag::DIVBYZERO, false), 0x04);
+        assert_eq!(
+            exc_byte_from_softfloat(flag::UNDERFLOW | flag::INEXACT, false),
+            0x0A
+        );
+        assert_eq!(exc_byte_from_softfloat(0, false), 0x00);
+    }
+
+    #[test]
+    fn fpsr_exc_replaces_while_aexc_accumulates() {
+        let mut regs = Registers::new();
+        // Overflow op: EXC = OVFL | INEX2 (0x12); AEXC = OVFL | INEX (0x48).
+        regs.set_fpsr_exceptions(0x12);
+        assert_eq!((regs.fpsr >> 8) & 0xFF, 0x12);
+        assert_eq!(regs.fpsr & 0xFF, 0x48);
+        // A later inexact-only op replaces EXC but the AEXC overflow bit
+        // stays set (sticky), and INEX accrues.
+        regs.set_fpsr_exceptions(0x02);
+        assert_eq!((regs.fpsr >> 8) & 0xFF, 0x02, "EXC replaced");
+        assert_eq!(regs.fpsr & 0xFF, 0x48, "AEXC OVFL|INEX still set");
+        // A divide-by-zero then accrues DZ on top.
+        regs.set_fpsr_exceptions(0x04);
+        assert_eq!(regs.fpsr & 0xFF, 0x58, "AEXC gains DZ");
     }
 }

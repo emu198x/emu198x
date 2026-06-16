@@ -37,6 +37,7 @@ fn main() {
         .file(musashi_dir.join("m68kcpu.c"))
         .file(musashi_dir.join("m68kdasm.c"))
         .file(musashi_dir.join("m68kfpu.c"))
+        .file(musashi_dir.join("testgen_fpu_access.c"))
         .file(musashi_dir.join("softfloat/softfloat.c"))
         .file(out_dir.join("m68kops.c"))
         // Use our custom m68kconf.h from the musashi/ directory
