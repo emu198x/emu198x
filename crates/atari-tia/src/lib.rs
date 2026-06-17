@@ -77,8 +77,10 @@
 //! | $2B   | HMCLR   | Clear horizontal motion registers    |
 //! | $2C   | CXCLR   | Clear collision latches               |
 
+mod audio;
 mod palette;
 
+use audio::TiaAudio;
 pub use palette::{NTSC_PALETTE, PAL_PALETTE};
 
 /// Framebuffer width: 160 visible colour clocks per line.
@@ -295,6 +297,9 @@ pub struct Tia {
     frame_complete: bool,
     /// Whether we're in a VSYNC period.
     in_vsync: bool,
+
+    /// Two-channel audio (AUDC/AUDF/AUDV), clocked once per colour clock.
+    audio: TiaAudio,
 }
 
 impl Tia {
@@ -366,6 +371,7 @@ impl Tia {
             max_lines,
             frame_complete: false,
             in_vsync: false,
+            audio: TiaAudio::default(),
         }
     }
 
@@ -373,6 +379,10 @@ impl Tia {
     ///
     /// This is the master clock tick. The CPU ticks every 3rd colour clock.
     pub fn tick(&mut self) {
+        // Audio advances every colour clock (phase clocks fire at fixed
+        // positions within the scanline; see TiaAudio::tick).
+        self.audio.tick();
+
         let palette = match self.region {
             TiaRegion::Ntsc => &NTSC_PALETTE,
             TiaRegion::Pal => &PAL_PALETTE,
@@ -825,12 +835,8 @@ impl Tia {
             0x12 => self.pos_m0 = self.hpos.saturating_sub(HBLANK_CLOCKS), // RESM0
             0x13 => self.pos_m1 = self.hpos.saturating_sub(HBLANK_CLOCKS), // RESM1
             0x14 => self.pos_bl = self.hpos.saturating_sub(HBLANK_CLOCKS), // RESBL
-            0x15 => {}                              // AUDC0 (audio — future phase)
-            0x16 => {}                              // AUDC1
-            0x17 => {}                              // AUDF0
-            0x18 => {}                              // AUDF1
-            0x19 => {}                              // AUDV0
-            0x1A => {}                              // AUDV1
+            // AUDC0/1, AUDF0/1, AUDV0/1 — both audio channels.
+            0x15..=0x1A => self.audio.write(addr & 0x3F, value),
             0x1B => {
                 // GRP0
                 self.grp0_old = self.grp0;
@@ -968,6 +974,13 @@ impl Tia {
         let complete = self.frame_complete;
         self.frame_complete = false;
         complete
+    }
+
+    /// Drain the mono audio samples produced since the last call. Two samples
+    /// are emitted per scanline (≈31.4 kHz NTSC / ≈31.2 kHz PAL); the runtime
+    /// pushes them each frame and the host resamples to the output rate.
+    pub fn take_audio_samples(&mut self) -> Vec<f32> {
+        self.audio.take_samples()
     }
 
     /// Current horizontal position (0-227).

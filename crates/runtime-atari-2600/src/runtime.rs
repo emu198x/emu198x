@@ -1,9 +1,8 @@
 //! Runtime wrapper for the Atari 2600.
 //!
-//! The TIA does not yet expose a host-side audio buffer, so each frame
-//! emits an empty audio packet — sufficient to keep the audio sink alive
-//! for tests that care about latency / framing but not amplitude.
-//! Wiring real TIA AUD output is a follow-up on the chip crate.
+//! Each frame drains the TIA's two-channel audio (≈31.4 kHz NTSC / ≈31.2 kHz
+//! PAL) and pushes it at its native rate; the host resamples to the output
+//! device rate.
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
@@ -15,8 +14,6 @@ use machine_atari_2600::{Atari2600, Atari2600Region};
 use crate::input::{ControllerCache, apply_input_event};
 use crate::profiles::{Model, profile_for};
 use crate::snapshot;
-
-const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
 pub struct Atari2600Runtime {
     profile: MachineProfile,
@@ -184,11 +181,12 @@ impl MachineCore for Atari2600Runtime {
         }
 
         while self.time < target {
-            let ticks = self
-                .machine
-                .as_mut()
-                .expect("machine checked above")
-                .run_frame();
+            let machine = self.machine.as_mut().expect("machine checked above");
+            let ticks = machine.run_frame();
+            // Drain this frame's TIA audio before re-borrowing self for the
+            // framebuffer update.
+            let audio_samples = machine.take_audio_samples();
+            let sample_rate = machine.audio_sample_rate();
             self.time = self.time.saturating_add(ticks);
             self.update_rgba_framebuffer();
 
@@ -201,13 +199,11 @@ impl MachineCore for Atari2600Runtime {
                 pixels: &self.rgba_framebuffer,
             })?;
 
-            // TIA audio not yet wired — empty packet keeps the audio
-            // sink alive without misrepresenting amplitude.
             host.audio_sink.push_audio(AudioPacket {
                 timestamp: self.time,
-                sample_rate: AUDIO_SAMPLE_RATE,
+                sample_rate,
                 channels: 1,
-                samples: &[],
+                samples: &audio_samples,
             })?;
         }
 
