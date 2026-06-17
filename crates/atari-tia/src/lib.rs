@@ -100,6 +100,14 @@ pub const CLOCKS_PER_LINE: u16 = 228;
 /// Horizontal blank duration in colour clocks.
 pub const HBLANK_CLOCKS: u16 = 68;
 
+/// Colour-clock pipeline delay between a RESP/RESM/RESBL strobe and the
+/// object's reset position taking effect. The TIA does not latch the position
+/// at the beam's current clock — there is a small pipeline lag, commonly
+/// described as 5 clocks (TIA reference § Horizontal positioning, note 3). The
+/// exact value in the HBLANK region / under an active HMOVE is finer-grained
+/// and left approximate here.
+const RESX_PIPELINE_DELAY: u16 = 5;
+
 /// Paddle capacitor base charge time at zero pot resistance, in nanoseconds
 /// ×100. From the Atari7800 MiSTer paddle-LUT generator (`paddle_lut.c`).
 const PADDLE_BASE_TIME_NS100: u64 = 6_034_284;
@@ -790,6 +798,14 @@ impl Tia {
         }
     }
 
+    /// Visible-pixel column at which a RESx strobe lands the object: the beam's
+    /// current visible column plus the [`RESX_PIPELINE_DELAY`], wrapped to the
+    /// 160-pixel width. A strobe still inside HBLANK saturates near the left
+    /// edge rather than wrapping back onto the previous line.
+    fn resx_reset_position(&self) -> u16 {
+        (self.hpos + RESX_PIPELINE_DELAY).saturating_sub(HBLANK_CLOCKS) % 160
+    }
+
     /// Write a TIA register.
     ///
     /// Address is masked to 6 bits ($00-$3F).
@@ -825,23 +841,23 @@ impl Tia {
                 // RSYNC
                 self.hpos = 0;
             }
-            0x04 => self.nusiz0 = value,            // NUSIZ0
-            0x05 => self.nusiz1 = value,            // NUSIZ1
-            0x06 => self.colup0 = value,            // COLUP0
-            0x07 => self.colup1 = value,            // COLUP1
-            0x08 => self.colupf = value,            // COLUPF
-            0x09 => self.colubk = value,            // COLUBK
-            0x0A => self.ctrlpf = value,            // CTRLPF
-            0x0B => self.refp0 = value & 0x08 != 0, // REFP0
-            0x0C => self.refp1 = value & 0x08 != 0, // REFP1
-            0x0D => self.pf0 = value,               // PF0
-            0x0E => self.pf1 = value,               // PF1
-            0x0F => self.pf2 = value,               // PF2
-            0x10 => self.pos_p0 = self.hpos.saturating_sub(HBLANK_CLOCKS), // RESP0
-            0x11 => self.pos_p1 = self.hpos.saturating_sub(HBLANK_CLOCKS), // RESP1
-            0x12 => self.pos_m0 = self.hpos.saturating_sub(HBLANK_CLOCKS), // RESM0
-            0x13 => self.pos_m1 = self.hpos.saturating_sub(HBLANK_CLOCKS), // RESM1
-            0x14 => self.pos_bl = self.hpos.saturating_sub(HBLANK_CLOCKS), // RESBL
+            0x04 => self.nusiz0 = value,                      // NUSIZ0
+            0x05 => self.nusiz1 = value,                      // NUSIZ1
+            0x06 => self.colup0 = value,                      // COLUP0
+            0x07 => self.colup1 = value,                      // COLUP1
+            0x08 => self.colupf = value,                      // COLUPF
+            0x09 => self.colubk = value,                      // COLUBK
+            0x0A => self.ctrlpf = value,                      // CTRLPF
+            0x0B => self.refp0 = value & 0x08 != 0,           // REFP0
+            0x0C => self.refp1 = value & 0x08 != 0,           // REFP1
+            0x0D => self.pf0 = value,                         // PF0
+            0x0E => self.pf1 = value,                         // PF1
+            0x0F => self.pf2 = value,                         // PF2
+            0x10 => self.pos_p0 = self.resx_reset_position(), // RESP0
+            0x11 => self.pos_p1 = self.resx_reset_position(), // RESP1
+            0x12 => self.pos_m0 = self.resx_reset_position(), // RESM0
+            0x13 => self.pos_m1 = self.resx_reset_position(), // RESM1
+            0x14 => self.pos_bl = self.resx_reset_position(), // RESBL
             // AUDC0/1, AUDF0/1, AUDV0/1 — both audio channels.
             0x15..=0x1A => self.audio.write(addr & 0x3F, value),
             0x1B => {
@@ -1282,6 +1298,31 @@ mod tests {
             tia.vpos() <= 1,
             "VSYNC restarts the frame (vpos={})",
             tia.vpos()
+        );
+    }
+
+    #[test]
+    fn respx_strobe_applies_the_pipeline_delay() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        // Advance the beam into the visible region (hpos = 108 → column 40).
+        for _ in 0..(HBLANK_CLOCKS as usize + 40) {
+            tia.tick();
+        }
+        let column = tia.hpos() - HBLANK_CLOCKS;
+
+        // Each RESx strobe lands the object 5 colour clocks right of the beam,
+        // not exactly at it.
+        tia.write(0x10, 0); // RESP0
+        tia.write(0x14, 0); // RESBL
+        assert_eq!(
+            tia.pos_p0,
+            column + RESX_PIPELINE_DELAY,
+            "RESP0 delayed by 5"
+        );
+        assert_eq!(
+            tia.pos_bl,
+            column + RESX_PIPELINE_DELAY,
+            "RESBL delayed by 5"
         );
     }
 
