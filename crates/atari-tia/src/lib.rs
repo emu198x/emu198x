@@ -1222,20 +1222,28 @@ fn latched_inpt(enabled: bool, pressed: bool, prev: u8) -> u8 {
     }
 }
 
-/// Decode a 4-bit signed HMOVE value from the high nybble.
+/// Decode an HMxx register write into a position delta for [`apply_motion`].
 ///
-/// Bits 4-7 encode a 4-bit two's complement offset. Positive values move
-/// left (subtract from position), negative values move right (add to
-/// position). We negate so that positive result = move left in screen
-/// coordinates.
+/// Bits 7:4 are a signed 4-bit value (−8..+7). On real hardware a **positive**
+/// nybble moves the object **left**, a **negative** nybble moves it **right**
+/// (Stella sets `myHmmClocks = nybble ^ 8` and ticks the object that many extra
+/// times during HMOVE — more ticks advance its counter further, i.e. left).
+/// `apply_motion` treats a smaller position as further left, so we return the
+/// negated nybble:
 ///
-/// Examples: $00 = 0, $10 = -1, $70 = -7, $80 = +8, $F0 = +1.
+/// - `$70` (+7) → `-7` → left 7
+/// - `$10` (+1) → `-1` → left 1
+/// - `$80` (−8) → `+8` → right 8
+/// - `$F0` (−1) → `+1` → right 1
+///
+/// NB: the prose `tia-reference.md` table has this direction inverted; the
+/// convention here matches Stella and real hardware.
 fn decode_hmove(value: u8) -> i8 {
-    // Extract high nybble as 4-bit two's complement, then negate.
-    // Sign-extend from 4 bits: if bit 3 is set, OR with 0xF0.
+    // Sign-extend the high nybble from 4 bits, then negate so a positive
+    // (leftward) nybble subtracts from the position.
     let nibble = (value >> 4) & 0x0F;
     let signed = if nibble & 0x08 != 0 {
-        nibble as i8 | -16 // sign-extend: 0x08..0x0F → -8..-1
+        nibble as i8 | -16 // 0x08..0x0F → -8..-1
     } else {
         nibble as i8
     };
@@ -1493,16 +1501,26 @@ mod tests {
 
     #[test]
     fn hmove_decode() {
-        // $00 = no motion
-        assert_eq!(decode_hmove(0x00), 0);
-        // $10 = -1 (move right)
-        assert_eq!(decode_hmove(0x10), -1);
-        // $70 = -7
-        assert_eq!(decode_hmove(0x70), -7);
-        // $80 = +8 (max left)
-        assert_eq!(decode_hmove(0x80), 8);
-        // $F0 = +1 (move left)
-        assert_eq!(decode_hmove(0xF0), 1);
+        // A positive HM nybble moves the object LEFT, a negative nybble RIGHT
+        // (matches Stella / real hardware; the prose reference table is
+        // inverted). decode_hmove returns the delta for apply_motion, where a
+        // smaller position is further left.
+        assert_eq!(decode_hmove(0x00), 0); //  0  → no motion
+        assert_eq!(decode_hmove(0x10), -1); // +1 → left 1
+        assert_eq!(decode_hmove(0x70), -7); // +7 → left 7 (max left)
+        assert_eq!(decode_hmove(0x80), 8); // −8 → right 8 (max right)
+        assert_eq!(decode_hmove(0xF0), 1); // −1 → right 1
+    }
+
+    #[test]
+    fn hmove_direction_through_apply_motion() {
+        // The end-to-end direction: $70 shifts a sprite left, $80 right.
+        let start = 80;
+        assert_eq!(apply_motion(start, decode_hmove(0x70)), 73, "$70 → 7 left");
+        assert_eq!(apply_motion(start, decode_hmove(0x10)), 79, "$10 → 1 left");
+        assert_eq!(apply_motion(start, decode_hmove(0x80)), 88, "$80 → 8 right");
+        assert_eq!(apply_motion(start, decode_hmove(0xF0)), 81, "$F0 → 1 right");
+        assert_eq!(apply_motion(start, decode_hmove(0x00)), 80, "$00 → no move");
     }
 
     #[test]
