@@ -16,12 +16,15 @@ ROM image. Headless extended system. Z80 + TMS9918A + SN76489 + Z80 CTC.
   (`RELCPMH` CP/M mode), per MEMU `mem.c`.
 - **Joystick** (2026-06-05, `7d4b09c1`) — directions/fire merged into the
   keyboard sense matrix (ANDed in, per MAME `mtx_key_lo_r`).
+- **Keyboard matrix** (2026-06-17, #465) — the physical key→(column, sense-bit)
+  grid now matches the hardware (rebuilt from MAME `mtx.cpp`; the prior table was
+  a donor placeholder that typed `ABCDE` as `@uf11`). Letters, digits,
+  punctuation, modifiers, the four cursor keys (incl. the previously-missing
+  Down), the editing keypad, and F1-F8 all resolve to their real cells. Verified
+  end-to-end: typing `abcde 12345 print` renders `ABCDE 12345 PRINT`.
 
 ## Not implemented / accuracy gaps
 
-- **Keyboard matrix mapping** — the drive/sense *model* is correct (no-key +
-  country read verified), but the physical key→(column, sense-bit) grid still
-  needs aligning to MEMU `kbd2.c` for accurate typing.
 - **Cassette / Centronics** unwired. **Snapshot** + `.mtx`/`.run` load — deferred.
 - **No native window.**
 
@@ -36,7 +39,10 @@ ROM image. Headless extended system. Z80 + TMS9918A + SN76489 + Z80 CTC.
 - **DISPROVEN: "OS+BASIC ROM is enough."** A stock board carries OS+BASIC+**ASSEM**;
   the cold-start `RST $28 #$50` runs from the ASSEM ROM (paged subpage 1). With
   OS+BASIC only it hit `$FF` and reset-looped. Needs the 24K image.
-- **Verification target** — finish the keyboard grid vs `kbd2.c`.
+- **DISPROVEN (donor): the key→cell grid.** The placeholder laid keys out in a
+  tidy sequential 8×8 that bore no relation to the wiring — odd digits in
+  column 0, letters alphabetical — so the OS scan decoded the wrong character
+  for nearly every key. Rebuilt from MAME `mtx.cpp` (#465).
 
 ## Validated against
 
