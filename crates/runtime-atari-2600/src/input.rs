@@ -28,6 +28,8 @@ pub(crate) struct ControllerCache {
     pub(crate) joystick: u8,
     /// Active-low console-switch byte (reset / select / colour / etc.).
     pub(crate) switches: u8,
+    /// Driving-controller gray-code phase per port (0-3); see `drive_rotation`.
+    pub(crate) drive_index: [u8; 2],
 }
 
 impl Default for ControllerCache {
@@ -35,6 +37,7 @@ impl Default for ControllerCache {
         Self {
             joystick: 0xFF,
             switches: 0xFF,
+            drive_index: [0; 2],
         }
     }
 }
@@ -53,6 +56,13 @@ pub(crate) fn apply_input_event(
             if let Some(bit) = joystick_bit(name.as_ref(), *port) {
                 cache.joystick = toggle(cache.joystick, bit, *pressed);
                 machine.set_joystick_input(cache.joystick);
+            } else if let Some(step) = drive_rotation(name.as_ref()) {
+                // One gray-code notch per press; releases are ignored (the
+                // quadrature signal is edge-driven, not held).
+                if *pressed {
+                    cache.joystick = step_drive(cache, *port, step);
+                    machine.set_joystick_input(cache.joystick);
+                }
             } else if let Some(bit) = switch_bit(name.as_ref()) {
                 cache.switches = toggle(cache.switches, bit, *pressed);
                 machine.set_switch_input(cache.switches);
@@ -68,6 +78,11 @@ pub(crate) fn apply_input_event(
             if let Some(bit) = joystick_bit(&lower, 1) {
                 cache.joystick = toggle(cache.joystick, bit, *pressed);
                 machine.set_joystick_input(cache.joystick);
+            } else if let Some(step) = drive_rotation(&lower) {
+                if *pressed {
+                    cache.joystick = step_drive(cache, 1, step);
+                    machine.set_joystick_input(cache.joystick);
+                }
             } else if let Some(bit) = switch_bit(&lower) {
                 cache.switches = toggle(cache.switches, bit, *pressed);
                 machine.set_switch_input(cache.switches);
@@ -116,6 +131,45 @@ fn joystick_bit(name: &str, port: u8) -> Option<u8> {
     })
 }
 
+/// The driving controller (Indy 500) sends a two-bit gray code on the joystick
+/// up/down lines as the wheel turns. Stella's sequence (`Driving.cxx`):
+/// index 0→3 cycles `0x03, 0x01, 0x00, 0x02`, with bit 0 on the *up* pin and
+/// bit 1 on the *down* pin. The kernel tracks the rotation by watching that
+/// pair step through the sequence; direction is the order it steps in.
+const DRIVE_GRAY: [u8; 4] = [0x03, 0x01, 0x00, 0x02];
+
+/// Map a rotation-event name to a gray-code step: `+1` clockwise, `-1`
+/// counter-clockwise. Distinct from the joystick `left`/`right` names so a
+/// host can drive both a stick and a wheel without collision.
+fn drive_rotation(name: &str) -> Option<i8> {
+    Some(match name.to_ascii_lowercase().as_str() {
+        "cw" | "clockwise" | "drive_cw" => 1,
+        "ccw" | "counterclockwise" | "anticlockwise" | "drive_ccw" => -1,
+        _ => return None,
+    })
+}
+
+/// Advance the addressed port's gray-code phase by `step` and fold the new
+/// code onto the joystick byte's up/down bits, leaving the rest untouched.
+/// Returns the updated joystick byte (and stores the new phase in `cache`).
+fn step_drive(cache: &mut ControllerCache, port: u8, step: i8) -> u8 {
+    let idx = if port == 2 { 1 } else { 0 };
+    let phase = ((i16::from(cache.drive_index[idx]) + i16::from(step)).rem_euclid(4)) as u8;
+    cache.drive_index[idx] = phase;
+    let gray = DRIVE_GRAY[phase as usize];
+
+    // Up/down pins: bits 4/5 for port 1 (high nibble), 0/1 for port 2.
+    let (up_bit, down_bit) = if port == 2 { (0u8, 1u8) } else { (4u8, 5u8) };
+    let mut byte = cache.joystick & !((1 << up_bit) | (1 << down_bit));
+    if gray & 0x1 != 0 {
+        byte |= 1 << up_bit;
+    }
+    if gray & 0x2 != 0 {
+        byte |= 1 << down_bit;
+    }
+    byte
+}
+
 /// Whether `name` is a fire-button name. The 2600 joystick has a single
 /// button per port (read on INPT4/INPT5), so all the common aliases map to it.
 fn is_fire(name: &str) -> bool {
@@ -149,8 +203,8 @@ fn toggle(current: u8, bit: u8, pressed: bool) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        ControllerCache, InputEvent, apply_input_event, axis_to_pot8, is_fire, joystick_bit,
-        paddle_index,
+        ControllerCache, DRIVE_GRAY, InputEvent, apply_input_event, axis_to_pot8, drive_rotation,
+        is_fire, joystick_bit, paddle_index,
     };
     use machine_atari_2600::{Atari2600, Atari2600Region};
     use std::borrow::Cow;
@@ -222,6 +276,58 @@ mod tests {
         assert_eq!(paddle_index("x", 2), Some(2));
         assert_eq!(paddle_index("vertical", 2), Some(3));
         assert_eq!(paddle_index("throttle", 1), None);
+    }
+
+    fn rotate(port: u8, name: &'static str) -> InputEvent {
+        InputEvent::Button {
+            port,
+            name: Cow::Borrowed(name),
+            pressed: true,
+        }
+    }
+
+    #[test]
+    fn drive_rotation_names_map_to_direction() {
+        assert_eq!(drive_rotation("cw"), Some(1));
+        assert_eq!(drive_rotation("clockwise"), Some(1));
+        assert_eq!(drive_rotation("ccw"), Some(-1));
+        assert_eq!(drive_rotation("anticlockwise"), Some(-1));
+        assert_eq!(drive_rotation("up"), None);
+    }
+
+    #[test]
+    fn driving_controller_cycles_the_gray_code_on_port1() {
+        let mut m = trap_machine();
+        let mut cache = ControllerCache::default();
+
+        // Clockwise steps walk the gray sequence on the up/down pins (bits 4/5
+        // of SWCHA for port 1); the rest of the byte stays at its 0xFF rest.
+        for step in 1..=4u8 {
+            apply_input_event(&mut m, &mut cache, &rotate(1, "cw"));
+            let gray = DRIVE_GRAY[(step % 4) as usize];
+            let updown = (cache.joystick >> 4) & 0x03;
+            assert_eq!(updown, gray, "cw step {step} presents gray {gray:#04x}");
+            assert_eq!(cache.joystick & 0xC0, 0xC0, "left/right stay high");
+            assert_eq!(cache.joystick & 0x0F, 0x0F, "port 2 nibble untouched");
+        }
+    }
+
+    #[test]
+    fn driving_controller_reverses_on_counter_clockwise() {
+        let mut m = trap_machine();
+        let mut cache = ControllerCache::default();
+
+        // One step forward, one back, returns to the rest phase (index 0).
+        apply_input_event(&mut m, &mut cache, &rotate(2, "cw"));
+        apply_input_event(&mut m, &mut cache, &rotate(2, "ccw"));
+        assert_eq!(cache.drive_index[1], 0, "cw then ccw returns to phase 0");
+        // Port 2 up/down ride bits 0/1; phase 0 gray (0x03) is both high.
+        assert_eq!(
+            cache.joystick & 0x03,
+            0x03,
+            "rest phase reads both lines high"
+        );
+        assert_eq!(cache.joystick & 0xF0, 0xF0, "port 1 nibble untouched");
     }
 
     #[test]
