@@ -603,13 +603,11 @@ impl Tia {
             return false;
         }
 
+        // The player's copy layout AND its 2×/4× stretch are both selected by
+        // NUSIZ bits 2:0. Bits 5:4 are the MISSILE size (see `missile_pixel`)
+        // and have no bearing on the player — reading them here was dead,
+        // misleading code (#408).
         let size = nusiz & 0x07;
-        let width = match (nusiz >> 4) & 0x03 {
-            0 => 1, // 1x
-            1 => 2, // 2x
-            2 => 4, // 4x (quad)
-            _ => 1,
-        };
 
         // Check each copy position.
         let copies: &[(u16, bool)] = match size {
@@ -624,10 +622,12 @@ impl Tia {
             _ => &[(0, true)],
         };
 
+        // Double-size (0x05) draws each GRP bit 2 clocks wide, quad-size (0x07)
+        // 4 clocks; every other mode is 1×.
         let effective_width = match size {
             0x05 => 2,
             0x07 => 4,
-            _ => width.min(1),
+            _ => 1,
         };
 
         for &(offset, _) in copies {
@@ -1283,6 +1283,32 @@ mod tests {
             "VSYNC restarts the frame (vpos={})",
             tia.vpos()
         );
+    }
+
+    #[test]
+    fn player_width_comes_from_size_bits_and_ignores_missile_bits() {
+        let tia = Tia::new(TiaRegion::Ntsc);
+        let grp = 0x80; // only the leftmost GRP bit set
+        let pos = 0;
+
+        // Size 0 (one copy, 1×): the leftmost bit covers exactly one pixel.
+        assert!(tia.player_pixel(0, pos, grp, false, 0x00));
+        assert!(!tia.player_pixel(1, pos, grp, false, 0x00));
+
+        // Setting the MISSILE-size bits (5:4) must not widen the player.
+        assert!(tia.player_pixel(0, pos, grp, false, 0x30));
+        assert!(
+            !tia.player_pixel(1, pos, grp, false, 0x30),
+            "missile-size bits do not stretch the player"
+        );
+
+        // Double-size player (size 0x05): the leftmost bit is 2 clocks wide.
+        assert!(tia.player_pixel(1, pos, grp, false, 0x05));
+        assert!(!tia.player_pixel(2, pos, grp, false, 0x05));
+
+        // Quad-size player (size 0x07): 4 clocks wide.
+        assert!(tia.player_pixel(3, pos, grp, false, 0x07));
+        assert!(!tia.player_pixel(4, pos, grp, false, 0x07));
     }
 
     #[test]
