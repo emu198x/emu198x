@@ -155,6 +155,8 @@ impl Atari2600 {
 
     fn mem_read(&mut self, addr: u16) -> u8 {
         let addr = addr & 0x1FFF;
+        // Carts with hotspots outside the $1xxx window (UA) snoop the full bus.
+        self.cart.snoop(addr);
         let value = if addr & 0x1000 != 0 {
             self.cart.read(addr)
         } else if addr & 0x0080 == 0 {
@@ -172,6 +174,7 @@ impl Atari2600 {
     fn mem_write(&mut self, addr: u16, value: u8) {
         let addr = addr & 0x1FFF;
         self.data_bus = value;
+        self.cart.snoop(addr);
         if addr & 0x1000 != 0 {
             self.cart.write(addr, value);
         } else if addr & 0x0080 == 0 {
@@ -459,6 +462,29 @@ mod tests {
 
         sys.set_fire(1, false);
         assert_eq!(sys.tia().read(0x0C) & 0x80, 0x80, "p1 release → INPT4 high");
+    }
+
+    #[test]
+    fn ua_cart_switches_banks_via_bus_snoop() {
+        // 8K UA image: bank 0 = 0xA0, bank 1 = 0xA1, with a UA signature and a
+        // reset vector pointing into the cart.
+        let mut rom = vec![0u8; 8192];
+        rom[0..4096].fill(0xA0);
+        rom[4096..8192].fill(0xA1);
+        rom[0x20..0x23].copy_from_slice(&[0x8D, 0x40, 0x02]); // STA $240 → UA sig
+        rom[0x0FFC] = 0x00;
+        rom[0x0FFD] = 0x10;
+        let mut sys = Atari2600::new(rom, Atari2600Region::Ntsc).expect("UA");
+
+        // A bus read of $0240 (outside the cart window) is snooped → bank 1.
+        sys.mem_read(0x0240);
+        assert_eq!(sys.mem_read(0x1F00), 0xA1, "$0240 read snoop → bank 1");
+        sys.mem_read(0x0220);
+        assert_eq!(sys.mem_read(0x1F00), 0xA0, "$0220 read snoop → bank 0");
+
+        // The real Funky Fish access is a write (STA $240) — also snooped.
+        sys.mem_write(0x0240, 0x00);
+        assert_eq!(sys.mem_read(0x1F00), 0xA1, "STA $240 write snoop → bank 1");
     }
 
     #[test]
