@@ -11,6 +11,11 @@ AY-3-8910 + WD1770 floppy (`western-digital-wd1770` crate).
 - **Boot to MOS** (2026-06-04) with the MOS v1.2 ROM (8K, SHA-256 `401d…0ae1`).
 - **Keyboard** — AY-driven 8×8 matrix (row select on AY R14/port A, column read
   at `$20`), with a 50 Hz IM2 scan interrupt (2026-06-05). Types `HELLO`.
+- **Modifier keys** — SHIFT / CTRL / GRAPH (2026-06-17). These sit outside the
+  scanned matrix: the hardware reads them as bits 7/6/5 (active low) of the
+  `$20` status port. The input layer now routes the `shift`/`ctrl`/`graph` key
+  names (and aliases) to that register, so `press_key`/`press_keys` can hold a
+  modifier alongside a matrix key. (#464)
 - **WD1770 FDC** — now the standalone `western-digital-wd1770` crate (promoted
   from the inline stub, 2026-06-06). Full command set: Type I (restore/seek/
   step/step-in/step-out with the `u` track-update bit), Type II read/write sector

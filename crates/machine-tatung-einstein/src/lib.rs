@@ -539,6 +539,16 @@ impl Einstein {
         }
     }
 
+    /// Whether a modifier key is currently held. Mirrors [`set_modifier`] for
+    /// inspection and host-side input wiring; reads the active-low `$20` bits
+    /// 5-7 the MOS polls.
+    ///
+    /// [`set_modifier`]: Self::set_modifier
+    #[must_use]
+    pub fn modifier_held(&self, modifier: Modifier) -> bool {
+        self.extra_keys & (modifier as u8) == 0
+    }
+
     /// Set an analogue-joystick axis. `channel` 0-3 is joystick 1 X, joystick 1
     /// Y, joystick 2 X, joystick 2 Y; `value` is the 8-bit pot position
     /// (`0x80` = centre). Read back through the ADC0844 at `$38`. Out-of-range
