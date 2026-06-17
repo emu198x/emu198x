@@ -15,7 +15,7 @@
 //! mirror per port re-applies the whole stick via the machine's setters.
 
 use emu198x_shell::InputEvent;
-use machine_tatung_einstein::Einstein;
+use machine_tatung_einstein::{Einstein, Modifier};
 
 const POT_MIN: u8 = 0x00;
 const POT_CENTRE: u8 = 0x80;
@@ -142,7 +142,12 @@ pub(crate) fn apply_input_event(
 ) {
     match event {
         InputEvent::Key { name, pressed } => {
-            if let Some((row, col)) = key_to_matrix(name.as_ref()) {
+            // SHIFT/CTRL/GRAPH are not scanned matrix cells — the hardware reads
+            // them as bits 5-7 of the `$20` status port — so they route to the
+            // modifier register, not `key_to_matrix`.
+            if let Some(modifier) = key_to_modifier(name.as_ref()) {
+                machine.set_modifier(modifier, *pressed);
+            } else if let Some((row, col)) = key_to_matrix(name.as_ref()) {
                 if *pressed {
                     machine.press_key(row, col);
                 } else {
@@ -162,6 +167,19 @@ pub(crate) fn apply_input_event(
         }
         _ => {}
     }
+}
+
+/// Map a modifier key name to its [`Modifier`]. These keys are read on `$20`
+/// bits 5-7, separate from the AY-scanned 8×8 matrix, so they never appear in
+/// [`key_to_matrix`].
+#[must_use]
+fn key_to_modifier(name: &str) -> Option<Modifier> {
+    Some(match name.to_ascii_lowercase().as_str() {
+        "shift" | "lshift" | "rshift" => Modifier::Shift,
+        "ctrl" | "control" | "lctrl" | "rctrl" | "lcontrol" | "rcontrol" => Modifier::Control,
+        "graph" | "grph" => Modifier::Graph,
+        _ => return None,
+    })
 }
 
 #[must_use]
@@ -247,6 +265,49 @@ mod tests {
             name: Cow::Owned(name.to_owned()),
             pressed,
         }
+    }
+
+    fn key(name: &str, pressed: bool) -> InputEvent {
+        InputEvent::Key {
+            name: Cow::Owned(name.to_owned()),
+            pressed,
+        }
+    }
+
+    #[test]
+    fn modifier_keys_drive_the_status_register() {
+        let mut m = make_einstein();
+        let mut cache = ControllerCache::default();
+
+        // Idle: no modifier held.
+        assert!(!m.modifier_held(Modifier::Shift));
+
+        // SHIFT registers while held and clears on release.
+        apply_input_event(&mut m, &mut cache, &key("shift", true));
+        assert!(m.modifier_held(Modifier::Shift), "shift held");
+        apply_input_event(&mut m, &mut cache, &key("shift", false));
+        assert!(!m.modifier_held(Modifier::Shift), "shift released");
+
+        // CTRL and GRAPH resolve through their aliases too.
+        apply_input_event(&mut m, &mut cache, &key("control", true));
+        apply_input_event(&mut m, &mut cache, &key("grph", true));
+        assert!(m.modifier_held(Modifier::Control), "ctrl held");
+        assert!(m.modifier_held(Modifier::Graph), "graph held");
+    }
+
+    #[test]
+    fn modifiers_and_matrix_keys_route_to_disjoint_paths() {
+        // A modifier resolves to the status-port register and never to a matrix
+        // cell; a letter is the reverse. The two never collide.
+        assert_eq!(key_to_modifier("shift"), Some(Modifier::Shift));
+        assert_eq!(key_to_modifier("ctrl"), Some(Modifier::Control));
+        assert!(
+            key_to_matrix("shift").is_none(),
+            "shift is not a matrix cell"
+        );
+
+        assert!(key_to_modifier("a").is_none(), "'a' is not a modifier");
+        assert_eq!(key_to_matrix("a"), Some((6, 6)), "'a' is a matrix cell");
     }
 
     #[test]
