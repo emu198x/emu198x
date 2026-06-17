@@ -481,7 +481,9 @@ impl emu198x_shell::KeyboardTarget for SpectrumRuntimeKind {
     }
 
     fn key_names_hint(&self) -> &'static str {
-        "A-Z, 0-9, Space, Enter, CapsShift, SymbolShift"
+        "A-Z, 0-9, Space, Enter, CapsShift, SymbolShift; compound names \
+         Edit, CapsLock, TrueVideo, InvVideo, Up/Down/Left/Right, Graphics, \
+         Delete, Break, ExtendMode"
     }
 
     fn keys_for_char(&self, ch: char) -> Option<Vec<String>> {
@@ -512,6 +514,37 @@ impl emu198x_shell::KeyboardTarget for SpectrumRuntimeKind {
             inter_key_settle_frames: 1,
             repeat_settle_frames: 3,
             default_type_settle_frames: 10,
+        }
+    }
+
+    fn expand_named_key(&self, name: &str) -> Option<Vec<String>> {
+        // The Spectrum's 40-key keyboard has no dedicated cursor/Edit/video
+        // keys: those legends printed above the number row are CapsShift
+        // chords. Expose them as friendly single names so `press_key("Edit")`
+        // stands in for `press_keys ["CapsShift", "1"]`. Mapping per the
+        // Spectrum keyboard faceplate (CapsShift + 1-0 = Edit / Caps Lock /
+        // True Video / Inv Video / ← ↓ ↑ → / Graphics / Delete).
+        let caps = |second: &str| Some(vec!["CapsShift".to_owned(), second.to_owned()]);
+        // Normalise: drop whitespace/underscores, lower-case.
+        let key: String = name
+            .chars()
+            .filter(|c| !c.is_whitespace() && *c != '_')
+            .flat_map(char::to_lowercase)
+            .collect();
+        match key.as_str() {
+            "edit" => caps("1"),
+            "capslock" => caps("2"),
+            "truevideo" => caps("3"),
+            "invvideo" | "inversevideo" => caps("4"),
+            "left" | "arrowleft" | "cursorleft" => caps("5"),
+            "down" | "arrowdown" | "cursordown" => caps("6"),
+            "up" | "arrowup" | "cursorup" => caps("7"),
+            "right" | "arrowright" | "cursorright" => caps("8"),
+            "graph" | "graphics" => caps("9"),
+            "delete" | "del" | "backspace" => caps("0"),
+            "break" => caps("Space"),
+            "extend" | "extendmode" => caps("SymbolShift"),
+            _ => None,
         }
     }
 }
@@ -800,6 +833,28 @@ mod tests {
         assert_eq!(regs.sp, 0xFFFF);
         assert_eq!(regs.af, 0xFFFF);
         assert!(!kind.z80_halted());
+    }
+
+    #[test]
+    fn named_compound_keys_expand_to_capsshift_chords() {
+        use emu198x_shell::KeyboardTarget;
+        let kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+
+        let caps = |s: &str| Some(vec!["CapsShift".to_owned(), s.to_owned()]);
+        // The number-row legends, per the Spectrum faceplate.
+        assert_eq!(kind.expand_named_key("Edit"), caps("1"));
+        assert_eq!(kind.expand_named_key("True Video"), caps("3"));
+        assert_eq!(kind.expand_named_key("inv video"), caps("4"));
+        assert_eq!(kind.expand_named_key("graphics"), caps("9"));
+        assert_eq!(kind.expand_named_key("delete"), caps("0"));
+        // Cursor keys (CapsShift + 5-8) and the two non-digit chords.
+        assert_eq!(kind.expand_named_key("up"), caps("7"));
+        assert_eq!(kind.expand_named_key("ArrowRight"), caps("8"));
+        assert_eq!(kind.expand_named_key("Break"), caps("Space"));
+        assert_eq!(kind.expand_named_key("Extend Mode"), caps("SymbolShift"));
+        // A plain key is not a compound name — it stays a single keystroke.
+        assert_eq!(kind.expand_named_key("A"), None);
+        assert_eq!(kind.expand_named_key("CapsShift"), None);
     }
 
     #[test]
