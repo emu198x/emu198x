@@ -257,6 +257,18 @@ impl Atari2600 {
         self.tia.set_inpt_digital(line, Some(pressed));
     }
 
+    /// Set the Sega Genesis / Mega Drive pad's extra **C** button. The
+    /// three-button pad reads as an ordinary joystick (directions on SWCHA,
+    /// button B on INPT4/INPT5) plus a C button on the jack's INPT1 (left) /
+    /// INPT3 (right) line — wired *inverted* relative to the Booster-Grip:
+    /// pressed pulls the line to ground (reads low), released ties it to Vcc
+    /// (reads high), per Stella's `Genesis.cxx`. (Button A isn't readable on a
+    /// stock 2600.)
+    pub fn set_genesis_button_c(&mut self, port: u8, pressed: bool) {
+        let line = if port == 2 { 3 } else { 1 };
+        self.tia.set_inpt_digital(line, Some(!pressed));
+    }
+
     /// Press or release a key on the keypad controller attached to `port`
     /// (1 or 2). Attaching is implicit: the first event on a port installs a
     /// keypad there, which then drives that jack's INPT lines until
@@ -470,6 +482,21 @@ mod tests {
             0,
             "booster release → INPT1 low"
         );
+    }
+
+    #[test]
+    fn genesis_button_c_is_active_low_on_the_inpt_line() {
+        let mut sys = Atari2600::new(trap_rom(), Atari2600Region::Ntsc).expect("init");
+
+        // Inverted vs the booster: released = Vcc = high, pressed = ground = low.
+        sys.set_genesis_button_c(1, false);
+        assert_eq!(sys.tia().read(0x09) & 0x80, 0x80, "C released → INPT1 high");
+        sys.set_genesis_button_c(1, true);
+        assert_eq!(sys.tia().read(0x09) & 0x80, 0, "C pressed → INPT1 low");
+
+        // Port 2 lands on INPT3 ($0B).
+        sys.set_genesis_button_c(2, true);
+        assert_eq!(sys.tia().read(0x0B) & 0x80, 0, "p2 C pressed → INPT3 low");
     }
 
     #[test]
