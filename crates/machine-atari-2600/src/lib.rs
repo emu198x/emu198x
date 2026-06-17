@@ -178,6 +178,21 @@ impl Atari2600 {
         self.tia.framebuffer()
     }
 
+    /// Drain the TIA's mono audio samples produced since the last call.
+    pub fn take_audio_samples(&mut self) -> Vec<f32> {
+        self.tia.take_audio_samples()
+    }
+
+    /// Native audio sample rate: two TIA samples per scanline at the region's
+    /// nominal refresh (NTSC 262×2×60, PAL 312×2×50). The host resamples.
+    #[must_use]
+    pub fn audio_sample_rate(&self) -> u32 {
+        match self.region {
+            Atari2600Region::Ntsc => 31_440,
+            Atari2600Region::Pal => 31_200,
+        }
+    }
+
     /// Framebuffer width (TIA: 160).
     #[must_use]
     pub fn framebuffer_width(&self) -> u32 {
@@ -325,6 +340,28 @@ mod tests {
             0x80,
             "floating bits now low, D7 still driven"
         );
+    }
+
+    #[test]
+    fn audio_registers_drive_non_silent_output_end_to_end() {
+        let mut sys = Atari2600::new(trap_rom(), Atari2600Region::Ntsc).expect("init");
+
+        // Silent by default: a frame of the JMP-self kernel emits samples, all
+        // zero (volume 0).
+        sys.run_frame();
+        let silent = sys.take_audio_samples();
+        assert!(!silent.is_empty(), "a frame produces audio samples");
+        assert!(silent.iter().all(|&s| s == 0.0), "no volume → silence");
+
+        // Program a pure tone through the bus (AUDC0/AUDF0/AUDV0), run a frame,
+        // and confirm the channel now sounds.
+        sys.mem_write(0x15, 0x04); // AUDC0 = pure tone
+        sys.mem_write(0x17, 0x03); // AUDF0
+        sys.mem_write(0x19, 0x0F); // AUDV0 = full
+        sys.run_frame();
+        let tone = sys.take_audio_samples();
+        let max = tone.iter().cloned().fold(0.0_f32, f32::max);
+        assert!(max > 0.0, "a programmed tone produces audible output");
     }
 
     #[test]
