@@ -244,6 +244,19 @@ impl Atari2600 {
         }
     }
 
+    /// Set a CBS Booster-Grip extra button. The booster grip is a joystick
+    /// with two added buttons wired to the jack's paddle INPT lines: the
+    /// *booster* on INPT1 (left jack) / INPT3 (right), the *trigger* on INPT0 /
+    /// INPT2. Each connects its line to Vcc when pressed (reads high) and floats
+    /// it low when released (per Stella's `Booster.cxx`). `booster` selects the
+    /// booster button (`true`) or the trigger (`false`); the stick directions
+    /// and main fire button use the ordinary joystick paths.
+    pub fn set_booster_button(&mut self, port: u8, booster: bool, pressed: bool) {
+        let base = if port == 2 { 2 } else { 0 };
+        let line = base + u8::from(booster);
+        self.tia.set_inpt_digital(line, Some(pressed));
+    }
+
     /// Press or release a key on the keypad controller attached to `port`
     /// (1 or 2). Attaching is implicit: the first event on a port installs a
     /// keypad there, which then drives that jack's INPT lines until
@@ -434,6 +447,29 @@ mod tests {
 
         sys.set_fire(1, false);
         assert_eq!(sys.tia().read(0x0C) & 0x80, 0x80, "p1 release → INPT4 high");
+    }
+
+    #[test]
+    fn booster_grip_buttons_drive_the_paddle_inpt_lines() {
+        let mut sys = Atari2600::new(trap_rom(), Atari2600Region::Ntsc).expect("init");
+
+        // Port 1: booster → INPT1 ($09), trigger → INPT0 ($08). Pressed = Vcc
+        // = bit 7 high; released floats low.
+        sys.set_booster_button(1, true, true);
+        assert_eq!(sys.tia().read(0x09) & 0x80, 0x80, "booster → INPT1 high");
+        sys.set_booster_button(1, false, true);
+        assert_eq!(sys.tia().read(0x08) & 0x80, 0x80, "trigger → INPT0 high");
+
+        // Port 2 maps to INPT3 ($0B) / INPT2 ($0A).
+        sys.set_booster_button(2, true, true);
+        assert_eq!(sys.tia().read(0x0B) & 0x80, 0x80, "p2 booster → INPT3 high");
+
+        sys.set_booster_button(1, true, false);
+        assert_eq!(
+            sys.tia().read(0x09) & 0x80,
+            0,
+            "booster release → INPT1 low"
+        );
     }
 
     #[test]

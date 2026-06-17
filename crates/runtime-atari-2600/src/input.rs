@@ -65,6 +65,8 @@ pub(crate) fn apply_input_event(
                 }
             } else if let Some((row, col)) = keypad_cell(name.as_ref()) {
                 machine.set_keypad_key(*port, row, col, *pressed);
+            } else if let Some(is_booster) = booster_button(name.as_ref()) {
+                machine.set_booster_button(*port, is_booster, *pressed);
             } else if let Some(bit) = switch_bit(name.as_ref()) {
                 cache.switches = toggle(cache.switches, bit, *pressed);
                 machine.set_switch_input(cache.switches);
@@ -87,6 +89,8 @@ pub(crate) fn apply_input_event(
                 }
             } else if let Some((row, col)) = keypad_cell(&lower) {
                 machine.set_keypad_key(1, row, col, *pressed);
+            } else if let Some(is_booster) = booster_button(&lower) {
+                machine.set_booster_button(1, is_booster, *pressed);
             } else if let Some(bit) = switch_bit(&lower) {
                 cache.switches = toggle(cache.switches, bit, *pressed);
                 machine.set_switch_input(cache.switches);
@@ -200,6 +204,18 @@ fn keypad_cell(name: &str) -> Option<(u8, u8)> {
     })
 }
 
+/// Map a CBS Booster-Grip extra-button name to which button it is: `true` for
+/// the *booster* (INPT1/INPT3), `false` for the *trigger* (INPT0/INPT2). The
+/// trigger uses its own names rather than the `trigger` fire alias, which still
+/// means the main fire button on an ordinary stick.
+fn booster_button(name: &str) -> Option<bool> {
+    Some(match name.to_ascii_lowercase().as_str() {
+        "booster" | "boost" => true,
+        "boostertrigger" | "btrigger" | "trigger2" => false,
+        _ => return None,
+    })
+}
+
 /// Whether `name` is a fire-button name. The 2600 joystick has a single
 /// button per port (read on INPT4/INPT5), so all the common aliases map to it.
 fn is_fire(name: &str) -> bool {
@@ -233,8 +249,8 @@ fn toggle(current: u8, bit: u8, pressed: bool) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        ControllerCache, DRIVE_GRAY, InputEvent, apply_input_event, axis_to_pot8, drive_rotation,
-        is_fire, joystick_bit, keypad_cell, paddle_index,
+        ControllerCache, DRIVE_GRAY, InputEvent, apply_input_event, axis_to_pot8, booster_button,
+        drive_rotation, is_fire, joystick_bit, keypad_cell, paddle_index,
     };
     use machine_atari_2600::{Atari2600, Atari2600Region};
     use std::borrow::Cow;
@@ -398,6 +414,47 @@ mod tests {
             0,
             "keypad '6' grounds INPT4 when scanned"
         );
+    }
+
+    #[test]
+    fn booster_button_names_resolve_to_the_right_button() {
+        assert_eq!(booster_button("booster"), Some(true));
+        assert_eq!(booster_button("boost"), Some(true));
+        assert_eq!(booster_button("boostertrigger"), Some(false));
+        assert_eq!(booster_button("trigger2"), Some(false));
+        // The bare `trigger` stays the main-fire alias, not a booster button.
+        assert_eq!(booster_button("trigger"), None);
+        assert!(is_fire("trigger"));
+    }
+
+    #[test]
+    fn booster_buttons_drive_their_inpt_lines_end_to_end() {
+        let mut m = trap_machine();
+        let mut cache = ControllerCache::default();
+
+        let event = |name: &'static str, pressed| InputEvent::Button {
+            port: 1,
+            name: Cow::Borrowed(name),
+            pressed,
+        };
+
+        // Booster → INPT1 ($09), trigger → INPT0 ($08); pressed reads high.
+        apply_input_event(&mut m, &mut cache, &event("booster", true));
+        assert_eq!(
+            m.tia().read(0x09) & 0x80,
+            0x80,
+            "booster press → INPT1 high"
+        );
+        apply_input_event(&mut m, &mut cache, &event("trigger2", true));
+        assert_eq!(
+            m.tia().read(0x08) & 0x80,
+            0x80,
+            "trigger press → INPT0 high"
+        );
+
+        // Release floats the line low.
+        apply_input_event(&mut m, &mut cache, &event("booster", false));
+        assert_eq!(m.tia().read(0x09) & 0x80, 0, "booster release → INPT1 low");
     }
 
     #[test]
