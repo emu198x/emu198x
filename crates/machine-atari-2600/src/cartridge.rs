@@ -27,6 +27,9 @@ pub enum BankingScheme {
     /// plus 256 bytes of on-cart RAM — write port `$1000-$10FF`, read port
     /// `$1100-$11FF`.
     Fa,
+    /// EF: 64KB as sixteen 4KB banks, selected by hotspots `$1FE0-$1FEF`.
+    /// Pure address-decode (no RAM); the EFSC variant adds Superchip RAM.
+    Ef,
 }
 
 pub struct Cartridge {
@@ -59,6 +62,9 @@ impl Cartridge {
             12288 => (BankingScheme::Fa, 4096),
             16384 => (BankingScheme::F6, 4096),
             32768 => (BankingScheme::F4, 4096),
+            // 64 KB is EF (sixteen 4 KB banks). EFSC shares the size but adds
+            // Superchip RAM — deferred to the Superchip-overlay work.
+            65536 => (BankingScheme::Ef, 4096),
             other => return Err(format!("Unsupported ROM size: {other} bytes")),
         };
         let num_banks = data.len().checked_div(bank_size).unwrap_or(1);
@@ -191,6 +197,12 @@ impl Cartridge {
                 0x1FFA => self.bank = 2,
                 _ => {}
             },
+            // EF: sixteen banks across the $1FE0-$1FEF hotspot window.
+            BankingScheme::Ef => {
+                if (0x1FE0..=0x1FEF).contains(&addr) {
+                    self.bank = usize::from(addr - 0x1FE0);
+                }
+            }
         }
     }
 }
@@ -325,6 +337,43 @@ mod tests {
         // RAM survives a bank switch (it's separate from the ROM banks).
         cart.read(0x1FF8); // → bank 0
         assert_eq!(cart.read(0x1105), 0xAB, "RAM persists across banking");
+    }
+
+    /// Build a 64 KB EF image whose sixteen 4 KB banks are each filled with
+    /// the bank index.
+    fn banked_64k() -> Vec<u8> {
+        let mut rom = vec![0u8; 65536];
+        for bank in 0..16 {
+            rom[bank * 4096..(bank + 1) * 4096].fill(bank as u8);
+        }
+        rom
+    }
+
+    #[test]
+    fn detect_ef_rom() {
+        let cart = Cartridge::from_rom(&banked_64k()).expect("64K");
+        assert_eq!(cart.scheme(), BankingScheme::Ef);
+        assert_eq!(cart.bank(), 15, "power-on bank is the last (15)");
+    }
+
+    #[test]
+    fn ef_banks_switch_across_the_full_hotspot_window() {
+        let mut cart = Cartridge::from_rom(&banked_64k()).expect("EF");
+        assert_eq!(cart.read(0x1F00), 15, "starts in bank 15");
+        // Every hotspot $1FE0-$1FEF selects its bank 0-15.
+        for bank in 0..16u16 {
+            cart.read(0x1FE0 + bank);
+            assert_eq!(
+                cart.read(0x1F00),
+                bank as u8,
+                "$1F{:02X} → bank {bank}",
+                0xE0 + bank
+            );
+        }
+        // An address just outside the window leaves the bank alone.
+        cart.read(0x1FE5);
+        cart.read(0x1FDF);
+        assert_eq!(cart.read(0x1F00), 5, "$1FDF is not a hotspot");
     }
 
     #[test]
