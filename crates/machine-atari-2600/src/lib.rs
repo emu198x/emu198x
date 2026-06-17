@@ -85,6 +85,10 @@ pub struct Atari2600 {
     clocks_per_frame: u64,
     region: Atari2600Region,
     frame_count: u64,
+    /// Last value driven on the data bus. The TIA drives only D6/D7 on a read;
+    /// the lower bits float and retain whatever was last on the bus, so reads
+    /// of TIA registers merge these retained bits into D0-D5.
+    data_bus: u8,
 }
 
 impl Atari2600 {
@@ -105,6 +109,7 @@ impl Atari2600 {
             clocks_per_frame,
             region,
             frame_count: 0,
+            data_bus: 0,
         })
     }
 
@@ -141,17 +146,23 @@ impl Atari2600 {
 
     fn mem_read(&mut self, addr: u16) -> u8 {
         let addr = addr & 0x1FFF;
-        if addr & 0x1000 != 0 {
+        let value = if addr & 0x1000 != 0 {
             self.cart.read(addr)
         } else if addr & 0x0080 == 0 {
-            self.tia.read(addr as u8)
+            // The TIA drives only D6/D7; D0-D5 float and retain the last value
+            // on the data bus (merged from `data_bus`, which still holds the
+            // pre-read value at this point).
+            (self.tia.read(addr as u8) & 0xC0) | (self.data_bus & 0x3F)
         } else {
             self.riot.read(addr)
-        }
+        };
+        self.data_bus = value;
+        value
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
         let addr = addr & 0x1FFF;
+        self.data_bus = value;
         if addr & 0x1000 != 0 {
             self.cart.write(addr, value);
         } else if addr & 0x0080 == 0 {
@@ -292,6 +303,28 @@ mod tests {
         rom[0x0FFC] = 0x00;
         rom[0x0FFD] = 0x10;
         rom
+    }
+
+    #[test]
+    fn tia_reads_float_their_low_bits_to_the_data_bus() {
+        let mut sys = Atari2600::new(trap_rom(), Atari2600Region::Ntsc).expect("init");
+
+        // A write leaves its value on the data bus. INPT4 (default released)
+        // drives only D7; D0-D5 read back the retained bus bits.
+        sys.mem_write(0x06, 0xFF); // COLUP0 write → bus = 0xFF
+        assert_eq!(
+            sys.mem_read(0x0C),
+            0xBF,
+            "INPT4: D7 driven high, D0-D5 float to bus 0x3F"
+        );
+
+        // Drive the bus low and the floating bits follow.
+        sys.mem_write(0x06, 0x00); // bus = 0x00
+        assert_eq!(
+            sys.mem_read(0x0C),
+            0x80,
+            "floating bits now low, D7 still driven"
+        );
     }
 
     #[test]

@@ -796,7 +796,12 @@ impl Tia {
                 self.inpt5 = latched_inpt(self.inpt_latch, self.inpt5_pin, self.inpt5);
             }
             0x02 => {
-                // WSYNC
+                // WSYNC halts the CPU until the beam reaches the start of the
+                // next scanline (RDY released at the next SHB). This is a no-op
+                // only at the exact line-start boundary; in particular it still
+                // holds when strobed mid-HBLANK, which the common back-to-back
+                // `STA WSYNC` idiom relies on (cf. Stella TIA::onHalt, which
+                // advances `(H_CLOCKS - hctr) % H_CLOCKS`).
                 self.wsync_halt = true;
             }
             0x03 => {
