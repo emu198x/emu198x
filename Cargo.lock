@@ -177,6 +177,9 @@ version = "0.2.0"
 [[package]]
 name = "atari-tia"
 version = "0.2.0"
+dependencies = [
+ "png",
+]
 
 [[package]]
 name = "atomic-waker"
