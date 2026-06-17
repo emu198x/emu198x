@@ -43,6 +43,12 @@ pub enum BankingScheme {
     /// `$1800-$1FFF` is fixed to the last ROM segment. Up to 512KB ROM + 32KB
     /// RAM. Distinct from plain 3F, which has no RAM.
     ThreeE,
+    /// M-Network E7: 16KB in 2KB segments + 2KB RAM. The `$1000-$17FF` window
+    /// holds ROM bank 0-6 or a 1KB RAM bank (hotspots `$1FE0-$1FE7`, where
+    /// `$1FE7` selects RAM). A 256-byte RAM strip sits at `$1800-$19FF` (one of
+    /// four banks, hotspots `$1FE8-$1FEB`). `$1A00-$1FFF` is fixed to the last
+    /// ROM bank. Each RAM region splits into a low write port + high read port.
+    E7,
 }
 
 pub struct Cartridge {
@@ -62,6 +68,9 @@ pub struct Cartridge {
     three_e_rom_seg: usize,
     /// 3E only: RAM 1 KB bank in the window when RAM is active.
     three_e_ram_bank: usize,
+    /// E7 only: the 256-byte RAM bank (0-3) mapped at `$1800-$19FF`. The
+    /// `$1000-$17FF` window bank reuses `bank` (0-7; 7 = the 1 KB RAM).
+    e7_ram_bank: usize,
 }
 
 /// E0 slice size: 1 KB.
@@ -73,6 +82,13 @@ const THREE_E_SEG: usize = 2048;
 const THREE_E_RAM_BANK: usize = 1024;
 /// 3E RAM bank count (32 × 1 KB = 32 KB).
 const THREE_E_RAM_BANKS: usize = 32;
+
+/// E7 segment size: 2 KB. Segment 0 is `$1000-$17FF`, segment 1 `$1800-$1FFF`.
+const E7_SEG: usize = 2048;
+/// E7 segment-0 RAM bank size: 1 KB (write port low half, read port high half).
+const E7_WINDOW_RAM: usize = 1024;
+/// E7 fixed 256-byte RAM bank size (four banks at `$1800-$19FF`).
+const E7_STRIP_RAM: usize = 256;
 
 impl Cartridge {
     /// Parse a ROM and detect the banking scheme from its size.
@@ -99,6 +115,9 @@ impl Cartridge {
                 8192 => (BankingScheme::F8, 4096),
                 // 12 KB is unique to CBS RAM+ (FA) — three 4 KB banks + 256 B RAM.
                 12288 => (BankingScheme::Fa, 4096),
+                // 16 KB is shared with M-Network E7 (2 KB segments + RAM);
+                // detect it by signature ahead of the plain-F6 fallback.
+                16384 if is_probably_e7(data) => (BankingScheme::E7, E7_SEG),
                 16384 => (BankingScheme::F6, 4096),
                 32768 => (BankingScheme::F4, 4096),
                 // 64 KB is EF (sixteen 4 KB banks). EFSC shares the size but adds
@@ -114,13 +133,19 @@ impl Cartridge {
         // banks, so the last-bank default would misboot a real EF cart.
         let bank = match scheme {
             BankingScheme::Ef => 1,
-            // 3E uses the dedicated three_e_* state, not `bank`.
-            BankingScheme::Ua | BankingScheme::EconoBank | BankingScheme::ThreeE => 0,
+            // 3E uses the dedicated three_e_* state, not `bank`; UA/0840/E7
+            // power on at bank 0 (E7 = ROM bank 0 in its $1000 window).
+            BankingScheme::Ua
+            | BankingScheme::EconoBank
+            | BankingScheme::ThreeE
+            | BankingScheme::E7 => 0,
             _ => num_banks.saturating_sub(1),
         };
         let ram = match scheme {
             BankingScheme::Fa => vec![0u8; 256],
             BankingScheme::ThreeE => vec![0u8; THREE_E_RAM_BANKS * THREE_E_RAM_BANK],
+            // E7: 1 KB window RAM + 4 × 256 B strip = 2 KB.
+            BankingScheme::E7 => vec![0u8; E7_WINDOW_RAM + 4 * E7_STRIP_RAM],
             _ => Vec::new(),
         };
         Ok(Self {
@@ -137,6 +162,7 @@ impl Cartridge {
             three_e_ram_active: false,
             three_e_rom_seg: 0,
             three_e_ram_bank: 0,
+            e7_ram_bank: 0,
         })
     }
 
@@ -202,6 +228,38 @@ impl Cartridge {
                 .copied()
                 .unwrap_or(0);
         }
+        if self.scheme == BankingScheme::E7 {
+            let ram_bank_id = self.rom.len() / E7_SEG - 1; // 7 for 16 KB
+            // Segment 0 ($1000-$17FF): a ROM bank, or the 1 KB RAM when the
+            // window bank is the RAM id. Read and write ports both alias the
+            // same 1 KB (read port $1400-$17FF, write port $1000-$13FF).
+            if offset < E7_SEG {
+                if self.bank == ram_bank_id {
+                    return self
+                        .ram
+                        .get(offset & (E7_WINDOW_RAM - 1))
+                        .copied()
+                        .unwrap_or(0);
+                }
+                return self
+                    .rom
+                    .get(self.bank * E7_SEG + offset)
+                    .copied()
+                    .unwrap_or(0);
+            }
+            // The 256-byte RAM strip at $1800-$19FF (write $1800-$18FF, read
+            // $1900-$19FF — both alias the selected 256 B bank).
+            if (0x800..0xA00).contains(&offset) {
+                let cell = E7_WINDOW_RAM + self.e7_ram_bank * E7_STRIP_RAM + (offset & 0xFF);
+                return self.ram.get(cell).copied().unwrap_or(0);
+            }
+            // $1A00-$1FFF: fixed to the last ROM bank.
+            return self
+                .rom
+                .get(ram_bank_id * E7_SEG + (offset & (E7_SEG - 1)))
+                .copied()
+                .unwrap_or(0);
+        }
         if self.bank_size <= 2048 {
             self.rom[offset % self.rom.len()]
         } else {
@@ -227,6 +285,22 @@ impl Cartridge {
             let offset = (addr & 0x0FFF) as usize;
             if (THREE_E_RAM_BANK..THREE_E_SEG).contains(&offset) {
                 let cell = self.three_e_ram_bank * THREE_E_RAM_BANK + (offset - THREE_E_RAM_BANK);
+                if let Some(c) = self.ram.get_mut(cell) {
+                    *c = value;
+                }
+            }
+        }
+        if self.scheme == BankingScheme::E7 {
+            let offset = (addr & 0x0FFF) as usize;
+            let ram_bank_id = self.rom.len() / E7_SEG - 1;
+            if self.bank == ram_bank_id && offset < E7_WINDOW_RAM {
+                // 1 KB window RAM write port: $1000-$13FF.
+                if let Some(c) = self.ram.get_mut(offset) {
+                    *c = value;
+                }
+            } else if (0x800..0x900).contains(&offset) {
+                // 256-byte strip write port: $1800-$18FF.
+                let cell = E7_WINDOW_RAM + self.e7_ram_bank * E7_STRIP_RAM + (offset & 0xFF);
                 if let Some(c) = self.ram.get_mut(cell) {
                     *c = value;
                 }
@@ -342,6 +416,13 @@ impl Cartridge {
             // UA / 0840 switch on out-of-window addresses, handled in `snoop`;
             // 3E switches on writes to $3E/$3F, handled in `snoop_write`.
             BankingScheme::Ua | BankingScheme::EconoBank | BankingScheme::ThreeE => {}
+            // E7 (16K): $1FE0-$1FE7 select the $1000 window bank (7 = RAM),
+            // $1FE8-$1FEB select the 256-byte RAM strip bank.
+            BankingScheme::E7 => match addr {
+                0x1FE0..=0x1FE7 => self.bank = usize::from(addr & 0x0007),
+                0x1FE8..=0x1FEB => self.e7_ram_bank = usize::from(addr & 0x0003),
+                _ => {}
+            },
         }
     }
 }
@@ -425,6 +506,22 @@ fn is_probably_0840(rom: &[u8]) -> bool {
 /// Stella's `isProbably3E`.
 fn is_probably_3e(rom: &[u8]) -> bool {
     count_bytes(rom, &[0x85, 0x3E]) >= 1 && count_bytes(rom, &[0x85, 0x3F]) >= 2
+}
+
+/// Whether a 16 KB image is an M-Network E7 cart. Like the other ambiguous
+/// sizes, 16 KB is shared (with F6), so detection scans for the `$1FE0-$1FE7`
+/// hotspot-access signatures — ported from Stella's `isProbablyE7`.
+fn is_probably_e7(rom: &[u8]) -> bool {
+    const SIGNATURES: [[u8; 3]; 7] = [
+        [0xAD, 0xE2, 0xFF], // LDA $FFE2
+        [0xAD, 0xE5, 0xFF], // LDA $FFE5
+        [0xAD, 0xE5, 0x1F], // LDA $1FE5
+        [0xAD, 0xE7, 0x1F], // LDA $1FE7
+        [0x0C, 0xE7, 0x1F], // NOP $1FE7
+        [0x8D, 0xE7, 0xFF], // STA $FFE7
+        [0x8D, 0xE7, 0x1F], // STA $1FE7
+    ];
+    SIGNATURES.iter().any(|sig| count_bytes(rom, sig) >= 1)
 }
 
 #[cfg(test)]
@@ -704,6 +801,75 @@ mod tests {
         // Switching back to ROM restores the segment view.
         cart.snoop_write(0x003F, 1);
         assert_eq!(cart.read(0x1000), 1, "back to ROM segment 1");
+    }
+
+    /// Build a 16 KB E7 image: eight 2 KB ROM banks each filled with the bank
+    /// index, carrying an `STA $1FE7` E7 hotspot signature.
+    fn e7_rom() -> Vec<u8> {
+        let mut rom = vec![0u8; 16384];
+        for b in 0..8 {
+            rom[b * 2048..(b + 1) * 2048].fill(b as u8);
+        }
+        rom[0x30..0x33].copy_from_slice(&[0x8D, 0xE7, 0x1F]); // STA $1FE7
+        rom
+    }
+
+    #[test]
+    fn detect_e7_vs_f6() {
+        let cart = Cartridge::from_rom(&e7_rom()).expect("E7");
+        assert_eq!(cart.scheme(), BankingScheme::E7);
+        // Plain 16K with no E7 signature stays F6.
+        assert_eq!(
+            Cartridge::from_rom(&vec![0xEA; 16384])
+                .expect("F6")
+                .scheme(),
+            BankingScheme::F6
+        );
+    }
+
+    #[test]
+    fn e7_window_selects_rom_banks_and_fixes_the_tail() {
+        let mut cart = Cartridge::from_rom(&e7_rom()).expect("E7");
+        // Power-on: ROM bank 0 in the $1000 window; bank 7 fixed at $1A00-$1FFF.
+        assert_eq!(cart.read(0x1000), 0, "window starts at ROM bank 0");
+        assert_eq!(cart.read(0x1A00), 7, "$1A00 fixed to last ROM bank");
+
+        // $1FE3 selects ROM bank 3 into the window; the tail stays put.
+        cart.read(0x1FE3);
+        assert_eq!(cart.read(0x1000), 3, "$1FE3 → ROM bank 3 in window");
+        assert_eq!(cart.read(0x1A00), 7, "tail unchanged");
+    }
+
+    #[test]
+    fn e7_window_ram_uses_split_write_read_ports() {
+        let mut cart = Cartridge::from_rom(&e7_rom()).expect("E7");
+        // $1FE7 maps the 1 KB RAM into the window.
+        cart.read(0x1FE7);
+        // Write port is the low 1 KB ($1000-$13FF); read port the high ($1400-$17FF).
+        cart.write(0x1000, 0x11);
+        cart.write(0x13FF, 0x22);
+        assert_eq!(cart.read(0x1400), 0x11, "RAM cell 0 via read port $1400");
+        assert_eq!(cart.read(0x17FF), 0x22, "RAM cell 1023 via read port $17FF");
+
+        // Switching the window back to a ROM bank hides the RAM.
+        cart.read(0x1FE0);
+        assert_eq!(cart.read(0x1000), 0, "window back to ROM bank 0");
+    }
+
+    #[test]
+    fn e7_strip_ram_banks_switch_independently() {
+        let mut cart = Cartridge::from_rom(&e7_rom()).expect("E7");
+        // 256-byte strip at $1800-$19FF: write $1800-$18FF, read $1900-$19FF.
+        cart.read(0x1FE8); // strip bank 0
+        cart.write(0x1800, 0xAB);
+        assert_eq!(cart.read(0x1900), 0xAB, "strip bank 0 round-trips");
+
+        // A different strip bank is independent and survives the switch back.
+        cart.read(0x1FE9); // strip bank 1
+        cart.write(0x1800, 0xCD);
+        assert_eq!(cart.read(0x1900), 0xCD, "strip bank 1 is separate");
+        cart.read(0x1FE8);
+        assert_eq!(cart.read(0x1900), 0xAB, "strip bank 0 retained its byte");
     }
 
     #[test]
