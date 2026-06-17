@@ -30,6 +30,11 @@ pub enum BankingScheme {
     /// EF: 64KB as sixteen 4KB banks, selected by hotspots `$1FE0-$1FEF`.
     /// Pure address-decode (no RAM); the EFSC variant adds Superchip RAM.
     Ef,
+    /// UA Limited: 8KB, two 4KB banks. Unusually, the bank-select hotspots sit
+    /// *outside* the cart window — accessing `$0220` selects bank 0 and `$0240`
+    /// bank 1 (low TIA-mirror addresses the cart snoops off the bus). The
+    /// swapped-hotspot Digivision variant isn't modelled yet.
+    Ua,
 }
 
 pub struct Cartridge {
@@ -57,6 +62,9 @@ impl Cartridge {
             // scanning for an E0 hotspot-access signature (Stella's heuristic),
             // since both are the same length (#412).
             8192 if is_probably_e0(data) => (BankingScheme::E0, 4096),
+            // UA also shares the 8 KB size; detect it by its hotspot-access
+            // signature, ahead of the plain-F8 fallback.
+            8192 if is_probably_ua(data) => (BankingScheme::Ua, 4096),
             8192 => (BankingScheme::F8, 4096),
             // 12 KB is unique to CBS RAM+ (FA) — three 4 KB banks + 256 B RAM.
             12288 => (BankingScheme::Fa, 4096),
@@ -74,6 +82,7 @@ impl Cartridge {
         // banks, so the last-bank default would misboot a real EF cart.
         let bank = match scheme {
             BankingScheme::Ef => 1,
+            BankingScheme::Ua => 0,
             _ => num_banks.saturating_sub(1),
         };
         let ram = if scheme == BankingScheme::Fa {
@@ -152,6 +161,23 @@ impl Cartridge {
         }
     }
 
+    /// Snoop any bus access for schemes whose bank-select hotspots fall
+    /// *outside* the `$1000-$1FFF` cart window. UA watches low TIA-mirror
+    /// addresses (incomplete address decoding lets the cart see them), so the
+    /// machine forwards every access here. Window-hotspot schemes ignore it,
+    /// and their own switching stays in [`Self::read`]/[`Self::write`].
+    pub fn snoop(&mut self, addr: u16) {
+        if self.scheme == BankingScheme::Ua {
+            // `$0220` → bank 0, `$0240` → bank 1. The mask folds the address
+            // mirrors the real titles use (e.g. `$02C0`) onto these two cases.
+            match addr & 0x1260 {
+                0x0220 => self.bank = 0,
+                0x0240 => self.bank = 1,
+                _ => {}
+            }
+        }
+    }
+
     /// Current bank.
     #[must_use]
     pub fn bank(&self) -> usize {
@@ -210,6 +236,8 @@ impl Cartridge {
                     self.bank = usize::from(addr - 0x1FE0);
                 }
             }
+            // UA switches on out-of-window addresses, handled in `snoop`.
+            BankingScheme::Ua => {}
         }
     }
 }
@@ -243,6 +271,28 @@ fn is_probably_e0(rom: &[u8]) -> bool {
     SIGNATURES
         .iter()
         .any(|sig| rom.windows(sig.len()).any(|w| w == sig))
+}
+
+/// How many times `sig` occurs in `rom`.
+fn count_bytes(rom: &[u8], sig: &[u8]) -> usize {
+    rom.windows(sig.len()).filter(|w| *w == sig).count()
+}
+
+/// Whether an 8 KB image is a UA Limited cart. Like E0, it shares 8 KB with
+/// plain F8, so detection scans for the instruction signatures that access the
+/// `$0220`/`$0240` (and mirror) bankswitch hotspots — ported from Stella's
+/// `isProbablyUA`.
+fn is_probably_ua(rom: &[u8]) -> bool {
+    const SIGNATURES: [[u8; 3]; 7] = [
+        [0x8D, 0x40, 0x02], // STA $240 (Funky Fish, Pleiades)
+        [0xAD, 0x40, 0x02], // LDA $240
+        [0xBD, 0x1F, 0x02], // LDA $21F,X (Gingerbread Man)
+        [0x2C, 0xC0, 0x02], // BIT $2C0 (Time Pilot)
+        [0x8D, 0xC0, 0x02], // STA $2C0 (Fathom, Vanguard)
+        [0xAD, 0xC0, 0x02], // LDA $2C0 (Mickey)
+        [0x2C, 0xB0, 0x0F], // BIT $FB0 (Digivision Beamrider)
+    ];
+    SIGNATURES.iter().any(|sig| count_bytes(rom, sig) >= 1)
 }
 
 #[cfg(test)]
@@ -381,6 +431,48 @@ mod tests {
         cart.read(0x1FE5);
         cart.read(0x1FDF);
         assert_eq!(cart.read(0x1F00), 5, "$1FDF is not a hotspot");
+    }
+
+    /// Build an 8 KB UA image: bank 0 filled `0xA0`, bank 1 `0xA1`, carrying a
+    /// `STA $240` UA hotspot signature.
+    fn ua_rom() -> Vec<u8> {
+        let mut rom = vec![0u8; 8192];
+        rom[0..4096].fill(0xA0);
+        rom[4096..8192].fill(0xA1);
+        rom[0x20..0x23].copy_from_slice(&[0x8D, 0x40, 0x02]); // STA $240
+        rom
+    }
+
+    #[test]
+    fn detect_ua_vs_f8() {
+        // Plain 8K (no UA/E0 signature) stays F8.
+        assert_eq!(
+            Cartridge::from_rom(&vec![0xEA; 8192]).expect("F8").scheme(),
+            BankingScheme::F8
+        );
+        // 8K with a UA hotspot signature → UA, power-on bank 0.
+        let cart = Cartridge::from_rom(&ua_rom()).expect("UA");
+        assert_eq!(cart.scheme(), BankingScheme::Ua);
+        assert_eq!(cart.bank(), 0, "UA resets to bank 0 (Stella default)");
+    }
+
+    #[test]
+    fn ua_snoops_its_out_of_window_hotspots() {
+        let mut cart = Cartridge::from_rom(&ua_rom()).expect("UA");
+        assert_eq!(cart.read(0x1F00), 0xA0, "starts in bank 0");
+
+        cart.snoop(0x0240); // → bank 1
+        assert_eq!(cart.read(0x1F00), 0xA1, "$0240 → bank 1");
+        cart.snoop(0x0220); // → bank 0
+        assert_eq!(cart.read(0x1F00), 0xA0, "$0220 → bank 0");
+
+        // The address mirror real titles use ($02C0) folds onto the bank-1 case.
+        cart.snoop(0x02C0);
+        assert_eq!(cart.read(0x1F00), 0xA1, "$02C0 mirror → bank 1");
+
+        // An unrelated access leaves the bank alone.
+        cart.snoop(0x1F00);
+        assert_eq!(cart.read(0x1F00), 0xA1, "non-hotspot access is inert");
     }
 
     #[test]
