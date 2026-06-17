@@ -443,8 +443,15 @@ impl Tia {
             self.hmove_pending = false;
             self.vpos += 1;
 
-            // VSYNC detection: when VSYNC is deasserted, start new frame.
-            if self.in_vsync && !self.vsync {
+            // Start a new frame on VSYNC deassert (the normal path) or as a
+            // safety roll if a game never asserts VSYNC at all. A real display
+            // loses vertical sync and rolls rather than scanning forever; the
+            // cap sits well above any legitimate frame (2× the region's line
+            // count) so correctly-synced games reset via VSYNC long before it
+            // bites. Without the roll, `vpos` (a `u16` line counter) would
+            // climb unbounded and overflow on such a ROM.
+            let vsync_reset = self.in_vsync && !self.vsync;
+            if vsync_reset || self.vpos >= self.max_lines.saturating_mul(2) {
                 self.vpos = 0;
                 self.frame_complete = true;
             }
@@ -1232,6 +1239,46 @@ mod tests {
             tia.tick();
         }
         assert_eq!(tia.hpos(), 0);
+    }
+
+    #[test]
+    fn vpos_is_bounded_when_a_game_never_asserts_vsync() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        // Run several frames' worth of lines without ever writing VSYNC. The
+        // safety roll must keep vpos bounded (a real display rolls), so the
+        // u16 line counter never overflows.
+        for _ in 0..(262 * 5 * CLOCKS_PER_LINE as usize) {
+            tia.tick();
+        }
+        assert!(
+            tia.vpos() < 262 * 2,
+            "vpos rolls within 2× the frame height ({})",
+            tia.vpos()
+        );
+    }
+
+    #[test]
+    fn vsync_resets_vpos_before_the_safety_roll() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        // Advance a few lines, then a normal VSYNC pulse (assert, hold, clear)
+        // resets the frame well before the safety cap is reached.
+        for _ in 0..(20 * CLOCKS_PER_LINE as usize) {
+            tia.tick();
+        }
+        tia.write(0x00, 0x02); // VSYNC on
+        for _ in 0..(3 * CLOCKS_PER_LINE as usize) {
+            tia.tick();
+        }
+        tia.write(0x00, 0x00); // VSYNC off
+        // The deassert is detected at the next line boundary.
+        for _ in 0..CLOCKS_PER_LINE as usize {
+            tia.tick();
+        }
+        assert!(
+            tia.vpos() <= 1,
+            "VSYNC restarts the frame (vpos={})",
+            tia.vpos()
+        );
     }
 
     #[test]
