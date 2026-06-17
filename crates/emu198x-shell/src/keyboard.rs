@@ -62,6 +62,16 @@ pub trait KeyboardTarget {
 
     /// Frame timing tuned to this machine's keyboard scan.
     fn key_timing(&self) -> KeyTiming;
+
+    /// Expand a friendly compound-key name into the simultaneous chord that
+    /// produces it — e.g. the Spectrum `"Edit"` → `["CapsShift", "1"]`. This
+    /// lets `press_key("Edit")` stand in for the equivalent `press_keys` chord
+    /// on machines whose legends are shift combinations rather than dedicated
+    /// keys. Returns `None` for a name the machine drives as a single keystroke
+    /// (the common case), so the default recognises no compound names.
+    fn expand_named_key(&self, _name: &str) -> Option<Vec<String>> {
+        None
+    }
 }
 
 /// Conservative default keyboard timing, in frames — suits a 50/60 Hz

@@ -1387,30 +1387,41 @@ impl ScriptStep {
             // on every keyboard machine (RULES.md #30). Machines without a
             // keyboard fall back to the system-specific error.
             Self::PressKey { key, hold_frames } => {
-                let timing = {
+                // Resolve timing and any compound-key expansion under one borrow.
+                let (timing, chord) = {
                     let Some(kt) = session.machine().keyboard_target() else {
                         return Err(ScriptError::SystemSpecificStep { step: "press_key" });
                     };
-                    if !kt.key_name_is_valid(key) {
+                    // A friendly compound name (e.g. Spectrum `Edit`) expands to
+                    // a chord; otherwise the name must be a single valid key.
+                    let chord = kt.expand_named_key(key);
+                    if chord.is_none() && !kt.key_name_is_valid(key) {
                         return Err(ScriptError::InvalidStep {
                             step: "press_key",
                             reason: format!("unknown key `{key}` — valid: {}", kt.key_names_hint()),
                         });
                     }
-                    kt.key_timing()
+                    (kt.key_timing(), chord)
                 };
                 let hold = hold_frames
                     .unwrap_or(timing.default_hold_frames)
                     .clamp(1, timing.max_hold_frames);
-                session.queue_input(crate::host::InputEvent::Key {
-                    name: key.clone().into(),
-                    pressed: true,
-                });
+                // A plain key is a chord of one; a compound name presses its
+                // whole chord together and releases it in reverse.
+                let chord = chord.unwrap_or_else(|| vec![key.clone()]);
+                for k in &chord {
+                    session.queue_input(crate::host::InputEvent::Key {
+                        name: k.clone().into(),
+                        pressed: true,
+                    });
+                }
                 session.run_frames(hold)?;
-                session.queue_input(crate::host::InputEvent::Key {
-                    name: key.clone().into(),
-                    pressed: false,
-                });
+                for k in chord.iter().rev() {
+                    session.queue_input(crate::host::InputEvent::Key {
+                        name: k.clone().into(),
+                        pressed: false,
+                    });
+                }
                 if timing.press_settle_frames > 0 {
                     session.run_frames(timing.press_settle_frames)?;
                 }
@@ -1946,6 +1957,11 @@ mod tests {
                 default_type_settle_frames: 5,
             }
         }
+        // `Combo` is not a valid single key, so a successful press_key proves
+        // the compound-key expansion path ran.
+        fn expand_named_key(&self, name: &str) -> Option<Vec<String>> {
+            (name == "Combo").then(|| vec!["A".to_owned(), "B".to_owned()])
+        }
     }
 
     // A trivial watch surface: memory captures on poke (see `dbg_poke`); AY
@@ -2225,6 +2241,21 @@ mod tests {
         match invalid.execute_collect(&mut session) {
             Err(ScriptError::InvalidStep { step, .. }) => assert_eq!(step, "press_key"),
             other => panic!("expected InvalidStep, got {other:?}"),
+        }
+
+        // press_key with a compound name expands to a chord: `Combo` is not a
+        // valid single key, so success proves it routed through expansion.
+        match run(
+            &mut session,
+            ScriptStep::PressKey {
+                key: "Combo".to_owned(),
+                hold_frames: None,
+            },
+        )
+        .expect("compound name expands instead of erroring")
+        {
+            ScriptObservation::PressKey { key, .. } => assert_eq!(key, "Combo"),
+            other => panic!("expected PressKey, got {other:?}"),
         }
 
         // press_keys holds a chord of valid keys together.

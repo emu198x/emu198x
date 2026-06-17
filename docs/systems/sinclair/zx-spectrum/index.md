@@ -163,6 +163,10 @@ helpers (`runtime-sinclair-zx-spectrum`, re-exported at the crate root):
   autoload/BASIC helpers are 48K-only today.
 - **Symbols** needing SYMBOL SHIFT use `tap_symbol_combo` — `"` is SYMBOL SHIFT
   + `P`.
+- **Compound keys** (the number-row legends) have friendly names on `press_key`:
+  `Edit`, `CapsLock`, `TrueVideo`, `InvVideo`, `Up`/`Down`/`Left`/`Right`,
+  `Graphics`, `Delete`, `Break`, `ExtendMode` each expand to their `CapsShift`
+  chord, so `press_key("Edit")` == `press_keys ["CapsShift", "1"]` (#466).
 - **`SAVE` waits.** After `SAVE "x"` + ENTER the ROM prints "Start tape, then
   press any key." and blocks until a keypress — send one before expecting signal.
 - Worked example: `tests/tape_save_roundtrip.rs`.
