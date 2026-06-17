@@ -294,6 +294,11 @@ pub struct Tia {
     /// VBLANK bit 7 — when set, the INPT0-3 capacitors are grounded (dumped),
     /// so they read 0 and stop charging.
     paddle_dump: bool,
+    /// Digital override for INPT0-3, one per line. `Some(high)` forces the read
+    /// (bit 7 = `high`), bypassing the paddle capacitor model; `None` leaves the
+    /// analog pot path in charge. Driven by digital controllers — the keypad
+    /// ties INPT0/1 to ground or Vcc per its scanned matrix column.
+    inpt_digital: [Option<bool>; 4],
 
     // --- Framebuffer ---
     /// ARGB32 framebuffer.
@@ -375,6 +380,7 @@ impl Tia {
             paddle_pos: [0x80; 4],
             paddle_charge: [0; 4],
             paddle_dump: false,
+            inpt_digital: [None; 4],
             framebuffer: vec![0; fb_size],
             max_lines,
             frame_complete: false,
@@ -951,6 +957,11 @@ impl Tia {
     /// capacitor has charged past its position-dependent threshold, and clear
     /// while it is still charging or the dump is held.
     fn paddle_inpt(&self, index: usize) -> u8 {
+        if let Some(high) = self.inpt_digital[index] {
+            // A digital controller (keypad) drives the line directly; the pot
+            // capacitor path is bypassed.
+            return if high { 0x80 } else { 0x00 };
+        }
         if self.paddle_charge[index] >= paddle_threshold(self.paddle_pos[index]) {
             0x80
         } else {
@@ -964,6 +975,15 @@ impl Tia {
     pub fn set_paddle(&mut self, index: u8, value: u8) {
         if let Some(slot) = self.paddle_pos.get_mut(index as usize) {
             *slot = value;
+        }
+    }
+
+    /// Force INPT0-3 line `index` to a digital level (`Some(high)`), or release
+    /// it back to the paddle pot path (`None`). Used by digital controllers
+    /// (the keypad ties its column lines to ground/Vcc). Out-of-range ignored.
+    pub fn set_inpt_digital(&mut self, index: u8, level: Option<bool>) {
+        if let Some(slot) = self.inpt_digital.get_mut(index as usize) {
+            *slot = level;
         }
     }
 

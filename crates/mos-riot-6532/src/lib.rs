@@ -236,6 +236,16 @@ impl Riot6532 {
         self.read_port_b()
     }
 
+    /// The level a *controller* sees driven onto each port A pin: output pins
+    /// (DDR bit 1) present the output register's bit; input pins (DDR bit 0)
+    /// float and are pulled high by the controller. This is the row-scan drive
+    /// a keypad reads — distinct from [`Self::swcha`], which is what the CPU
+    /// reads back (input pins reflect the external joystick byte).
+    #[must_use]
+    pub fn port_a_drive(&self) -> u8 {
+        (self.port_a & self.ddr_a) | !self.ddr_a
+    }
+
     /// Set external input for port A.
     pub fn set_port_a_input(&mut self, value: u8) {
         self.input_a = value;

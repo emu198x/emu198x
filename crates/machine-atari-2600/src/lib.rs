@@ -43,8 +43,10 @@
 //! lines as the game wants.
 
 mod cartridge;
+mod keypad;
 
 pub use cartridge::{BankingScheme, Cartridge};
+use keypad::Keypad;
 
 use atari_tia::{CLOCKS_PER_LINE, Tia, TiaRegion};
 use mos_6502::M6502;
@@ -89,6 +91,9 @@ pub struct Atari2600 {
     /// the lower bits float and retain whatever was last on the bus, so reads
     /// of TIA registers merge these retained bits into D0-D5.
     data_bus: u8,
+    /// Optional keypad controller per jack (`[port 1, port 2]`). When present,
+    /// it drives that jack's INPT lines from its scanned matrix each cycle.
+    keypad: [Option<Keypad>; 2],
 }
 
 impl Atari2600 {
@@ -110,6 +115,7 @@ impl Atari2600 {
             region,
             frame_count: 0,
             data_bus: 0,
+            keypad: [None, None],
         })
     }
 
@@ -129,6 +135,9 @@ impl Atari2600 {
         self.tia.tick();
         // CPU + RIOT tick every 3rd colour clock.
         if self.master_clock.is_multiple_of(3) {
+            // Refresh any keypad's INPT drive from the current SWCHA row scan
+            // before the CPU can read it back.
+            self.update_keypads();
             if !self.tia.wsync_halt {
                 self.cpu.tick();
                 if self.cpu.rw {
@@ -232,6 +241,61 @@ impl Atari2600 {
             self.tia.set_inpt5(pressed);
         } else {
             self.tia.set_inpt4(pressed);
+        }
+    }
+
+    /// Press or release a key on the keypad controller attached to `port`
+    /// (1 or 2). Attaching is implicit: the first event on a port installs a
+    /// keypad there, which then drives that jack's INPT lines until
+    /// [`Self::detach_keypad`]. `row` is 0-3 (top→bottom), `col` 0-2
+    /// (left→right); see [`keypad`] for the matrix layout.
+    pub fn set_keypad_key(&mut self, port: u8, row: u8, col: u8, pressed: bool) {
+        let idx = usize::from(port == 2);
+        self.keypad[idx]
+            .get_or_insert_with(Keypad::default)
+            .set_key(row, col, pressed);
+    }
+
+    /// Remove the keypad from `port` (1 or 2), releasing its column lines back
+    /// to the paddle pot path.
+    pub fn detach_keypad(&mut self, port: u8) {
+        let idx = usize::from(port == 2);
+        if self.keypad[idx].take().is_some() {
+            let base = if idx == 1 { 2 } else { 0 };
+            self.tia.set_inpt_digital(base, None);
+            self.tia.set_inpt_digital(base + 1, None);
+        }
+    }
+
+    /// Drive each attached keypad's INPT lines from the live SWCHA row scan.
+    fn update_keypads(&mut self) {
+        if self.keypad[0].is_none() && self.keypad[1].is_none() {
+            return;
+        }
+        let drive = self.riot.port_a_drive();
+        for idx in 0..2 {
+            let Some(keypad) = self.keypad[idx] else {
+                continue;
+            };
+            // Port 1's rows ride SWCHA bits 4-7, port 2's bits 0-3.
+            let rows = if idx == 1 {
+                drive & 0x0F
+            } else {
+                (drive >> 4) & 0x0F
+            };
+            let gnd = keypad.columns_grounded(rows);
+            // Columns 0/1 → analog INPT lines (0/1 left jack, 2/3 right): a
+            // grounded column reads low (bit 7 = 0), otherwise high.
+            let base = if idx == 1 { 2 } else { 0 };
+            self.tia.set_inpt_digital(base, Some(!gnd[0]));
+            self.tia.set_inpt_digital(base + 1, Some(!gnd[1]));
+            // Column 2 → the digital fire line (INPT4 left / INPT5 right): a
+            // grounded column pulls it low, exactly like a fire press.
+            if idx == 1 {
+                self.tia.set_inpt5(gnd[2]);
+            } else {
+                self.tia.set_inpt4(gnd[2]);
+            }
         }
     }
 
@@ -370,6 +434,48 @@ mod tests {
 
         sys.set_fire(1, false);
         assert_eq!(sys.tia().read(0x0C) & 0x80, 0x80, "p1 release → INPT4 high");
+    }
+
+    #[test]
+    fn keypad_grounds_its_column_when_its_row_is_scanned() {
+        let mut sys = Atari2600::new(trap_rom(), Atari2600Region::Ntsc).expect("init");
+
+        // Keypad on port 1; press "6" (row 1, col 2 → reads on INPT4).
+        sys.set_keypad_key(1, 1, 2, true);
+
+        // Make SWCHA's high nibble outputs (SWACNT $281) and scan row 1 by
+        // driving its pin (bit 5) low, the other rows high.
+        sys.poke(0x281, 0xF0); // port 1 nibble = outputs
+        sys.poke(0x280, 0xD0); // bits 4,6,7 high, bit 5 (row 1) low
+        sys.step_instruction(); // a tick refreshes the keypad INPT drive
+
+        // Column 2 grounds → INPT4 reads low; columns 0/1 stay high.
+        assert_eq!(
+            sys.tia().read(0x0C) & 0x80,
+            0,
+            "row 1 scanned → '6' grounds INPT4"
+        );
+        assert_eq!(sys.tia().read(0x08) & 0x80, 0x80, "col 0 high");
+        assert_eq!(sys.tia().read(0x09) & 0x80, 0x80, "col 1 high");
+
+        // Scan a different row (row 0 low instead): "6" is not on it, so its
+        // column no longer grounds.
+        sys.poke(0x280, 0xE0); // bit 4 (row 0) low, bit 5 high
+        sys.step_instruction();
+        assert_eq!(
+            sys.tia().read(0x0C) & 0x80,
+            0x80,
+            "row 0 scanned → INPT4 released"
+        );
+
+        // Detaching hands INPT0/1 back to the pot path (and clears the override).
+        sys.detach_keypad(1);
+        sys.step_instruction();
+        assert_eq!(
+            sys.tia().read(0x08) & 0x80,
+            0,
+            "released line falls to the cold pot"
+        );
     }
 
     #[test]

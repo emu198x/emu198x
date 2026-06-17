@@ -63,6 +63,8 @@ pub(crate) fn apply_input_event(
                     cache.joystick = step_drive(cache, *port, step);
                     machine.set_joystick_input(cache.joystick);
                 }
+            } else if let Some((row, col)) = keypad_cell(name.as_ref()) {
+                machine.set_keypad_key(*port, row, col, *pressed);
             } else if let Some(bit) = switch_bit(name.as_ref()) {
                 cache.switches = toggle(cache.switches, bit, *pressed);
                 machine.set_switch_input(cache.switches);
@@ -83,6 +85,8 @@ pub(crate) fn apply_input_event(
                     cache.joystick = step_drive(cache, 1, step);
                     machine.set_joystick_input(cache.joystick);
                 }
+            } else if let Some((row, col)) = keypad_cell(&lower) {
+                machine.set_keypad_key(1, row, col, *pressed);
             } else if let Some(bit) = switch_bit(&lower) {
                 cache.switches = toggle(cache.switches, bit, *pressed);
                 machine.set_switch_input(cache.switches);
@@ -170,6 +174,32 @@ fn step_drive(cache: &mut ControllerCache, port: u8, step: i8) -> u8 {
     byte
 }
 
+/// Map a keypad-controller key name to its `(row, col)` matrix cell. Accepts a
+/// `keypad…`/`kp…` prefix on the key face: digits `0`-`9`, `star`/`*`, and
+/// `pound`/`hash`/`#`. The matrix layout is documented in
+/// `machine_atari_2600::keypad`.
+fn keypad_cell(name: &str) -> Option<(u8, u8)> {
+    let lower = name.to_ascii_lowercase();
+    let face = lower
+        .strip_prefix("keypad")
+        .or_else(|| lower.strip_prefix("kp"))?;
+    Some(match face {
+        "1" => (0, 0),
+        "2" => (0, 1),
+        "3" => (0, 2),
+        "4" => (1, 0),
+        "5" => (1, 1),
+        "6" => (1, 2),
+        "7" => (2, 0),
+        "8" => (2, 1),
+        "9" => (2, 2),
+        "star" | "asterisk" | "*" => (3, 0),
+        "0" => (3, 1),
+        "pound" | "hash" | "#" => (3, 2),
+        _ => return None,
+    })
+}
+
 /// Whether `name` is a fire-button name. The 2600 joystick has a single
 /// button per port (read on INPT4/INPT5), so all the common aliases map to it.
 fn is_fire(name: &str) -> bool {
@@ -204,7 +234,7 @@ fn toggle(current: u8, bit: u8, pressed: bool) -> u8 {
 mod tests {
     use super::{
         ControllerCache, DRIVE_GRAY, InputEvent, apply_input_event, axis_to_pot8, drive_rotation,
-        is_fire, joystick_bit, paddle_index,
+        is_fire, joystick_bit, keypad_cell, paddle_index,
     };
     use machine_atari_2600::{Atari2600, Atari2600Region};
     use std::borrow::Cow;
@@ -328,6 +358,46 @@ mod tests {
             "rest phase reads both lines high"
         );
         assert_eq!(cache.joystick & 0xF0, 0xF0, "port 1 nibble untouched");
+    }
+
+    #[test]
+    fn keypad_key_names_map_to_matrix_cells() {
+        // Face value → (row, col), with the keypad/kp prefix and symbol aliases.
+        assert_eq!(keypad_cell("keypad1"), Some((0, 0)));
+        assert_eq!(keypad_cell("kp3"), Some((0, 2)));
+        assert_eq!(keypad_cell("keypad5"), Some((1, 1)));
+        assert_eq!(keypad_cell("kp9"), Some((2, 2)));
+        assert_eq!(keypad_cell("keypadstar"), Some((3, 0)));
+        assert_eq!(keypad_cell("kp0"), Some((3, 1)));
+        assert_eq!(keypad_cell("keypadpound"), Some((3, 2)));
+        assert_eq!(keypad_cell("keypadhash"), Some((3, 2)));
+        // Bare names and joystick directions are not keypad keys.
+        assert_eq!(keypad_cell("1"), None);
+        assert_eq!(keypad_cell("up"), None);
+    }
+
+    #[test]
+    fn keypad_press_grounds_the_scanned_column_end_to_end() {
+        let mut m = trap_machine();
+        let mut cache = ControllerCache::default();
+
+        // Press keypad "6" on port 1 (row 1, col 2 → INPT4).
+        let press = InputEvent::Button {
+            port: 1,
+            name: Cow::Borrowed("keypad6"),
+            pressed: true,
+        };
+        apply_input_event(&mut m, &mut cache, &press);
+
+        // Scan row 1: SWCHA high nibble outputs, bit 5 low.
+        m.poke(0x281, 0xF0);
+        m.poke(0x280, 0xD0);
+        m.step_instruction();
+        assert_eq!(
+            m.tia().read(0x0C) & 0x80,
+            0,
+            "keypad '6' grounds INPT4 when scanned"
+        );
     }
 
     #[test]
