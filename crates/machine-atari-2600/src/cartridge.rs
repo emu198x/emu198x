@@ -23,6 +23,10 @@ pub enum BankingScheme {
     /// slices — slices 0/1/2 are independently switchable (hotspots `$1FE0-$1FE7`,
     /// `$1FE8-$1FEF`, `$1FF0-$1FF7`), slice 3 is fixed to bank 7.
     E0,
+    /// CBS RAM+ (FA): 12KB as three 4KB banks (hotspots `$1FF8`/`$1FF9`/`$1FFA`)
+    /// plus 256 bytes of on-cart RAM — write port `$1000-$10FF`, read port
+    /// `$1100-$11FF`.
+    Fa,
 }
 
 pub struct Cartridge {
@@ -33,6 +37,8 @@ pub struct Cartridge {
     /// E0 only: the bank mapped into each of the three switchable 1KB slices.
     /// Slice 3 is always bank 7, so it isn't tracked here.
     e0_segments: [usize; 3],
+    /// On-cart RAM (FA / CBS RAM+: 256 bytes). Empty for schemes without RAM.
+    ram: Vec<u8>,
 }
 
 /// E0 slice size: 1 KB.
@@ -49,12 +55,19 @@ impl Cartridge {
             // since both are the same length (#412).
             8192 if is_probably_e0(data) => (BankingScheme::E0, 4096),
             8192 => (BankingScheme::F8, 4096),
+            // 12 KB is unique to CBS RAM+ (FA) — three 4 KB banks + 256 B RAM.
+            12288 => (BankingScheme::Fa, 4096),
             16384 => (BankingScheme::F6, 4096),
             32768 => (BankingScheme::F4, 4096),
             other => return Err(format!("Unsupported ROM size: {other} bytes")),
         };
         let num_banks = data.len().checked_div(bank_size).unwrap_or(1);
         let bank = num_banks.saturating_sub(1);
+        let ram = if scheme == BankingScheme::Fa {
+            vec![0u8; 256]
+        } else {
+            Vec::new()
+        };
         Ok(Self {
             rom: data.to_vec(),
             scheme,
@@ -63,6 +76,7 @@ impl Cartridge {
             // E0 power-on slice mapping (Stella's default: 4/5/6); the cart's
             // own startup code reprograms the slices before drawing.
             e0_segments: [4, 5, 6],
+            ram,
         })
     }
 
@@ -91,6 +105,18 @@ impl Cartridge {
                 .copied()
                 .unwrap_or(0);
         }
+        if self.scheme == BankingScheme::Fa {
+            // The RAM read port ($1100-$11FF) overlays the bank window; the
+            // write port ($1000-$10FF) reads back ROM (undefined on hardware).
+            if (0x100..0x200).contains(&offset) {
+                return self.ram.get(offset - 0x100).copied().unwrap_or(0);
+            }
+            return self
+                .rom
+                .get(self.bank * self.bank_size + offset)
+                .copied()
+                .unwrap_or(0);
+        }
         if self.bank_size <= 2048 {
             self.rom[offset % self.rom.len()]
         } else {
@@ -99,9 +125,18 @@ impl Cartridge {
         }
     }
 
-    /// Write to cart space — used purely for hotspot detection.
-    pub fn write(&mut self, addr: u16, _value: u8) {
+    /// Write to cart space — fires hotspot detection and, on FA, stores to the
+    /// on-cart RAM through its write port (`$1000-$10FF`).
+    pub fn write(&mut self, addr: u16, value: u8) {
         self.check_hotspot(addr);
+        if self.scheme == BankingScheme::Fa {
+            let offset = (addr & 0x0FFF) as usize;
+            if offset < 0x100
+                && let Some(cell) = self.ram.get_mut(offset)
+            {
+                *cell = value;
+            }
+        }
     }
 
     /// Current bank.
@@ -148,6 +183,12 @@ impl Cartridge {
                 0x1FE0..=0x1FE7 => self.e0_segments[0] = usize::from(addr & 0x07),
                 0x1FE8..=0x1FEF => self.e0_segments[1] = usize::from(addr & 0x07),
                 0x1FF0..=0x1FF7 => self.e0_segments[2] = usize::from(addr & 0x07),
+                _ => {}
+            },
+            BankingScheme::Fa => match addr {
+                0x1FF8 => self.bank = 0,
+                0x1FF9 => self.bank = 1,
+                0x1FFA => self.bank = 2,
                 _ => {}
             },
         }
@@ -237,6 +278,53 @@ mod tests {
         cart.read(0x1FE0); // slice 0 → bank 0
         assert_eq!(cart.read(0x1000), 0, "slice 0 → bank 0");
         assert_eq!(cart.read(0x1400), 2, "slice 1 unchanged");
+    }
+
+    /// Build a 12 KB CBS RAM+ image whose three 4 KB banks are each filled
+    /// with the bank index.
+    fn banked_12k() -> Vec<u8> {
+        let mut rom = vec![0u8; 12288];
+        for bank in 0..3 {
+            rom[bank * 4096..(bank + 1) * 4096].fill(bank as u8);
+        }
+        rom
+    }
+
+    #[test]
+    fn detect_fa_rom() {
+        let cart = Cartridge::from_rom(&banked_12k()).expect("12K");
+        assert_eq!(cart.scheme(), BankingScheme::Fa);
+        assert_eq!(cart.bank(), 2, "power-on bank is the last (2)");
+    }
+
+    #[test]
+    fn fa_banks_switch_on_their_hotspots() {
+        let mut cart = Cartridge::from_rom(&banked_12k()).expect("FA");
+
+        // A plain ROM read (not a hotspot, not the RAM window) reflects the
+        // current bank's fill byte.
+        assert_eq!(cart.read(0x1F00), 2, "starts in bank 2");
+        cart.read(0x1FF8);
+        assert_eq!(cart.read(0x1F00), 0, "$1FF8 → bank 0");
+        cart.read(0x1FF9);
+        assert_eq!(cart.read(0x1F00), 1, "$1FF9 → bank 1");
+        cart.read(0x1FFA);
+        assert_eq!(cart.read(0x1F00), 2, "$1FFA → bank 2");
+    }
+
+    #[test]
+    fn fa_ram_round_trips_through_its_ports() {
+        let mut cart = Cartridge::from_rom(&banked_12k()).expect("FA");
+
+        // Write port $1000-$10FF in, read port $1100-$11FF out (same offset).
+        cart.write(0x1005, 0xAB);
+        cart.write(0x10FF, 0x42);
+        assert_eq!(cart.read(0x1105), 0xAB, "RAM offset 5 reads back");
+        assert_eq!(cart.read(0x11FF), 0x42, "RAM offset 255 reads back");
+
+        // RAM survives a bank switch (it's separate from the ROM banks).
+        cart.read(0x1FF8); // → bank 0
+        assert_eq!(cart.read(0x1105), 0xAB, "RAM persists across banking");
     }
 
     #[test]
