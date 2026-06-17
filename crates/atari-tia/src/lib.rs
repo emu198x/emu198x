@@ -845,24 +845,28 @@ impl Tia {
             // AUDC0/1, AUDF0/1, AUDV0/1 — both audio channels.
             0x15..=0x1A => self.audio.write(addr & 0x3F, value),
             0x1B => {
-                // GRP0
-                self.grp0_old = self.grp0;
+                // GRP0: store the new player-0 pattern, and latch player 1's
+                // delayed (old) pattern from its current new value. A GRP write
+                // shuffles the OTHER player's buffer, never its own — modelling
+                // it as "delay by one write" drifts (TIA ref note 7; Stella
+                // GRP0 → player0.grp + shuffleP1).
                 self.grp0 = value;
-                // Writing GRP0 copies GRP1 to old GRP1.
                 self.grp1_old = self.grp1;
             }
             0x1C => {
-                // GRP1
-                self.grp1_old = self.grp1;
+                // GRP1: store the new player-1 pattern, and latch player 0's
+                // delayed pattern. The ball's delayed (VDELBL) enable also
+                // latches here, not on the ENABL write (Stella GRP1 →
+                // player1.grp + shuffleP0 + shuffleBL).
                 self.grp1 = value;
-                // Writing GRP1 copies GRP0 to old GRP0.
                 self.grp0_old = self.grp0;
+                self.enabl_old = self.enabl;
             }
             0x1D => self.enam0 = value & 0x02 != 0, // ENAM0
             0x1E => self.enam1 = value & 0x02 != 0, // ENAM1
             0x1F => {
-                // ENABL
-                self.enabl_old = self.enabl;
+                // ENABL: store the new ball enable only. The delayed (old) copy
+                // used by VDELBL latches on the GRP1 write (see $1C above).
                 self.enabl = value & 0x02 != 0;
             }
             0x20 => self.hmp0 = decode_hmove(value), // HMP0
@@ -1279,6 +1283,57 @@ mod tests {
             "VSYNC restarts the frame (vpos={})",
             tia.vpos()
         );
+    }
+
+    #[test]
+    fn vdelp_latches_only_the_other_player_on_a_grp_write() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.write(0x25, 0x01); // VDELP0 on — displayed pattern is the delayed one.
+
+        // A GRP1 write latches player 0's delayed buffer to the current new P0.
+        tia.write(0x1B, 0x11); // GRP0 new = 0x11
+        tia.write(0x1C, 0x00); // GRP1 write → grp0_old = 0x11
+        assert_eq!(
+            tia.effective_grp0(),
+            0x11,
+            "GRP1 write latched player-0's delay buffer"
+        );
+
+        // Consecutive GRP0 writes must NOT advance player 0's own delay buffer
+        // (the "delay by one write" model the reference warns against). Under
+        // that bug, effective_grp0 would track the previous GRP0 (0xFF).
+        tia.write(0x1B, 0xFF);
+        tia.write(0x1B, 0xAA);
+        assert_eq!(
+            tia.effective_grp0(),
+            0x11,
+            "GRP0 writes leave player-0's own delay buffer untouched"
+        );
+
+        // Only the next GRP1 write latches it — to the current new P0 (0xAA).
+        tia.write(0x1C, 0x00);
+        assert_eq!(
+            tia.effective_grp0(),
+            0xAA,
+            "GRP1 write latches the delayed player-0 pattern"
+        );
+    }
+
+    #[test]
+    fn vdelbl_ball_enable_latches_on_a_grp1_write_not_on_enabl() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.write(0x27, 0x01); // VDELBL on.
+
+        // Enabling the ball sets the new value; the delayed copy must NOT move.
+        tia.write(0x1F, 0x02); // ENABL on
+        assert!(
+            !tia.enabl_old,
+            "ENABL write does not latch the delayed ball enable"
+        );
+
+        // The GRP1 write strobe is what latches the ball's delayed enable.
+        tia.write(0x1C, 0x00);
+        assert!(tia.enabl_old, "GRP1 write latches the delayed ball enable");
     }
 
     #[test]
