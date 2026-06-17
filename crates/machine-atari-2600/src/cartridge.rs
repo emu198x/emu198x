@@ -49,6 +49,10 @@ pub enum BankingScheme {
     /// four banks, hotspots `$1FE8-$1FEB`). `$1A00-$1FFF` is fixed to the last
     /// ROM bank. Each RAM region splits into a low write port + high read port.
     E7,
+    /// 3F (Tigervision): like 3E but ROM-only — a 2KB ROM segment in the
+    /// `$1000-$17FF` window (selected by storing the bank to any address
+    /// `$00-$3F`), with `$1800-$1FFF` fixed to the last segment.
+    ThreeF,
 }
 
 pub struct Cartridge {
@@ -93,13 +97,18 @@ const E7_STRIP_RAM: usize = 256;
 impl Cartridge {
     /// Parse a ROM and detect the banking scheme from its size.
     pub fn from_rom(data: &[u8]) -> Result<Self, String> {
-        // 3E (RAM+ROM) is size-agnostic — it's detected by signature ahead of
-        // the size-keyed schemes, and uses 2 KB ROM segments rather than the
-        // usual 4 KB banks.
-        let is_3e =
-            data.len() >= 8192 && data.len().is_multiple_of(THREE_E_SEG) && is_probably_3e(data);
+        // 3E and 3F are size-agnostic — detected by signature ahead of the
+        // size-keyed schemes, and use 2 KB ROM segments. Priority is E0 → 3E →
+        // 3F (3E's signature is a superset of 3F's), matching Stella; the E0
+        // gate keeps an 8 KB E0 cart out of the 3E/3F pre-checks.
+        let is_e0 = data.len() == 8192 && is_probably_e0(data);
+        let bankable_2k = !is_e0 && data.len() >= 8192 && data.len().is_multiple_of(THREE_E_SEG);
+        let is_3e = bankable_2k && is_probably_3e(data);
+        let is_3f = bankable_2k && !is_3e && is_probably_3f(data);
         let (scheme, bank_size) = if is_3e {
             (BankingScheme::ThreeE, THREE_E_SEG)
+        } else if is_3f {
+            (BankingScheme::ThreeF, THREE_E_SEG)
         } else {
             match data.len() {
                 0..=2048 => (BankingScheme::None, data.len()),
@@ -138,6 +147,7 @@ impl Cartridge {
             BankingScheme::Ua
             | BankingScheme::EconoBank
             | BankingScheme::ThreeE
+            | BankingScheme::ThreeF
             | BankingScheme::E7 => 0,
             _ => num_banks.saturating_sub(1),
         };
@@ -225,6 +235,23 @@ impl Cartridge {
             return self
                 .rom
                 .get(self.three_e_rom_seg * THREE_E_SEG + offset)
+                .copied()
+                .unwrap_or(0);
+        }
+        if self.scheme == BankingScheme::ThreeF {
+            // ROM-only: window ($1000-$17FF) = selected segment, $1800-$1FFF
+            // fixed to the last 2 KB segment.
+            if offset >= THREE_E_SEG {
+                let last = (self.rom.len() / THREE_E_SEG).saturating_sub(1);
+                return self
+                    .rom
+                    .get(last * THREE_E_SEG + (offset - THREE_E_SEG))
+                    .copied()
+                    .unwrap_or(0);
+            }
+            return self
+                .rom
+                .get(self.bank * THREE_E_SEG + offset)
                 .copied()
                 .unwrap_or(0);
         }
@@ -353,6 +380,11 @@ impl Cartridge {
                 _ => {}
             }
         }
+        // 3F (Tigervision): any write to $00-$3F stores the window ROM segment.
+        if self.scheme == BankingScheme::ThreeF && addr <= 0x003F {
+            let seg_count = (self.rom.len() / THREE_E_SEG).max(1);
+            self.bank = usize::from(value) % seg_count;
+        }
     }
 
     /// Current bank.
@@ -414,8 +446,11 @@ impl Cartridge {
                 }
             }
             // UA / 0840 switch on out-of-window addresses, handled in `snoop`;
-            // 3E switches on writes to $3E/$3F, handled in `snoop_write`.
-            BankingScheme::Ua | BankingScheme::EconoBank | BankingScheme::ThreeE => {}
+            // 3E/3F switch on writes to TIA-space addresses, in `snoop_write`.
+            BankingScheme::Ua
+            | BankingScheme::EconoBank
+            | BankingScheme::ThreeE
+            | BankingScheme::ThreeF => {}
             // E7 (16K): $1FE0-$1FE7 select the $1000 window bank (7 = RAM),
             // $1FE8-$1FEB select the 256-byte RAM strip bank.
             BankingScheme::E7 => match addr {
@@ -506,6 +541,13 @@ fn is_probably_0840(rom: &[u8]) -> bool {
 /// Stella's `isProbably3E`.
 fn is_probably_3e(rom: &[u8]) -> bool {
     count_bytes(rom, &[0x85, 0x3E]) >= 1 && count_bytes(rom, &[0x85, 0x3F]) >= 2
+}
+
+/// Whether an image is a 3F (Tigervision) cart — ROM-only banking by `STA $3F`,
+/// expected at least twice (≥ 2 banks). Per Stella's `isProbably3F`. Check this
+/// *after* 3E, whose signature is a superset.
+fn is_probably_3f(rom: &[u8]) -> bool {
+    count_bytes(rom, &[0x85, 0x3F]) >= 2
 }
 
 /// Whether a 16 KB image is an M-Network E7 cart. Like the other ambiguous
@@ -870,6 +912,55 @@ mod tests {
         assert_eq!(cart.read(0x1900), 0xCD, "strip bank 1 is separate");
         cart.read(0x1FE8);
         assert_eq!(cart.read(0x1900), 0xAB, "strip bank 0 retained its byte");
+    }
+
+    /// Build an 8 KB 3F image: four 2 KB ROM segments each filled with the
+    /// segment index, carrying `STA $3F` twice (and no `STA $3E`, so it's 3F
+    /// not 3E).
+    fn three_f_rom() -> Vec<u8> {
+        let mut rom = vec![0u8; 8192];
+        for seg in 0..4 {
+            rom[seg * 2048..(seg + 1) * 2048].fill(seg as u8);
+        }
+        rom[0x20..0x22].copy_from_slice(&[0x85, 0x3F]); // STA $3F
+        rom[0x22..0x24].copy_from_slice(&[0x85, 0x3F]); // ...again
+        rom
+    }
+
+    #[test]
+    fn detect_3f_after_3e_and_e0() {
+        let cart = Cartridge::from_rom(&three_f_rom()).expect("3F");
+        assert_eq!(cart.scheme(), BankingScheme::ThreeF);
+
+        // Adding an STA $3E makes it 3E (the superset signature wins).
+        let mut as_3e = three_f_rom();
+        as_3e[0x30..0x32].copy_from_slice(&[0x85, 0x3E]);
+        assert_eq!(
+            Cartridge::from_rom(&as_3e).expect("3E").scheme(),
+            BankingScheme::ThreeE
+        );
+    }
+
+    #[test]
+    fn three_f_window_switches_on_low_writes_with_fixed_tail() {
+        let mut cart = Cartridge::from_rom(&three_f_rom()).expect("3F");
+        assert_eq!(cart.read(0x1000), 0, "power-on window = segment 0");
+        assert_eq!(
+            cart.read(0x1800),
+            3,
+            "$1800-$1FFF fixed to last segment (3)"
+        );
+
+        // Any write to $00-$3F stores the window segment from the value.
+        cart.snoop_write(0x003F, 2);
+        assert_eq!(cart.read(0x1000), 2, "STA $3F,2 → segment 2 in window");
+        // Tigervision quirk: a write to *any* $00-$3F address switches too.
+        cart.snoop_write(0x0009, 1);
+        assert_eq!(cart.read(0x1000), 1, "write to $09 also switches (value 1)");
+        // The select wraps modulo the segment count, and the tail stays fixed.
+        cart.snoop_write(0x003F, 4 + 3);
+        assert_eq!(cart.read(0x1000), 3, "segment select wraps mod 4");
+        assert_eq!(cart.read(0x1800), 3, "fixed tail unchanged");
     }
 
     #[test]
