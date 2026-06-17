@@ -223,6 +223,18 @@ impl Atari2600 {
         self.tia.set_paddle(index, value);
     }
 
+    /// Set a joystick fire button (`pressed` = button down). Port 1 (the left
+    /// jack) drives INPT4, port 2 (the right jack) INPT5; out-of-range ports
+    /// clamp to the valid pair. The TIA applies its latch mode (VBLANK bit 6)
+    /// on top of this pin level.
+    pub fn set_fire(&mut self, port: u8, pressed: bool) {
+        if port == 2 {
+            self.tia.set_inpt5(pressed);
+        } else {
+            self.tia.set_inpt4(pressed);
+        }
+    }
+
     /// CPU reference.
     #[must_use]
     pub fn cpu(&self) -> &M6502 {
@@ -340,6 +352,24 @@ mod tests {
             0x80,
             "floating bits now low, D7 still driven"
         );
+    }
+
+    #[test]
+    fn set_fire_drives_the_right_inpt_line() {
+        let mut sys = Atari2600::new(trap_rom(), Atari2600Region::Ntsc).expect("init");
+        // Default released: INPT4/INPT5 bit 7 high.
+        assert_eq!(sys.tia().read(0x0C) & 0x80, 0x80);
+        assert_eq!(sys.tia().read(0x0D) & 0x80, 0x80);
+
+        // Port 1 → INPT4 ($0C), port 2 → INPT5 ($0D); pressed pulls bit 7 low.
+        sys.set_fire(1, true);
+        assert_eq!(sys.tia().read(0x0C) & 0x80, 0, "p1 fire → INPT4 low");
+        assert_eq!(sys.tia().read(0x0D) & 0x80, 0x80, "p2 untouched");
+        sys.set_fire(2, true);
+        assert_eq!(sys.tia().read(0x0D) & 0x80, 0, "p2 fire → INPT5 low");
+
+        sys.set_fire(1, false);
+        assert_eq!(sys.tia().read(0x0C) & 0x80, 0x80, "p1 release → INPT4 high");
     }
 
     #[test]

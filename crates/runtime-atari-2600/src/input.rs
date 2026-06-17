@@ -10,8 +10,9 @@
 //! per MAME's `a2600.cpp` `switch_A_r` (`joyport1 << 4`, `joyport2 & 0x0f`):
 //!   bit 4 = up (P1/port 1), 5 = down, 6 = left, 7 = right,
 //!   bit 0 = up (P2/port 2), 1 = down, 2 = left, 3 = right.
-//! Fire buttons live elsewhere (INPT4 / INPT5 on the TIA) and use the
-//! `fire` / `fire2` host names.
+//! Fire buttons live elsewhere (INPT4 / INPT5 on the TIA), not on the SWCHA
+//! byte: a `fire` button event routes to `Atari2600::set_fire` for its port
+//! (port 1 → INPT4, port 2 → INPT5).
 //!
 //! Paddles arrive as [`InputEvent::Axis`] and drive the TIA's INPT0-3
 //! capacitor-charge inputs: the left jack (port 1) carries paddles INPT0/INPT1,
@@ -55,9 +56,11 @@ pub(crate) fn apply_input_event(
             } else if let Some(bit) = switch_bit(name.as_ref()) {
                 cache.switches = toggle(cache.switches, bit, *pressed);
                 machine.set_switch_input(cache.switches);
+            } else if is_fire(name.as_ref()) {
+                // Fire is a TIA input (INPT4/INPT5), not part of the SWCHA
+                // joystick byte; route it straight to the addressed port.
+                machine.set_fire(*port, *pressed);
             }
-            // Fire buttons are not on the joystick byte — TIA inputs.
-            // Defer wiring until machine-atari-2600 exposes set_inpt4/5.
         }
         InputEvent::Key { name, pressed } => {
             // Default keyboard-as-pad → player 1.
@@ -68,6 +71,8 @@ pub(crate) fn apply_input_event(
             } else if let Some(bit) = switch_bit(&lower) {
                 cache.switches = toggle(cache.switches, bit, *pressed);
                 machine.set_switch_input(cache.switches);
+            } else if is_fire(&lower) {
+                machine.set_fire(1, *pressed);
             }
         }
         InputEvent::Axis { port, name, value } => {
@@ -111,6 +116,15 @@ fn joystick_bit(name: &str, port: u8) -> Option<u8> {
     })
 }
 
+/// Whether `name` is a fire-button name. The 2600 joystick has a single
+/// button per port (read on INPT4/INPT5), so all the common aliases map to it.
+fn is_fire(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "fire" | "fire1" | "trigger" | "button"
+    )
+}
+
 fn switch_bit(name: &str) -> Option<u8> {
     // RIOT switch byte: bit 0 = reset, 1 = select, 2 = colour/bw,
     // 3 = p0 difficulty, 4 = p1 difficulty (active-low).
@@ -134,7 +148,55 @@ fn toggle(current: u8, bit: u8, pressed: bool) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::{axis_to_pot8, joystick_bit, paddle_index};
+    use super::{
+        ControllerCache, InputEvent, apply_input_event, axis_to_pot8, is_fire, joystick_bit,
+        paddle_index,
+    };
+    use machine_atari_2600::{Atari2600, Atari2600Region};
+    use std::borrow::Cow;
+
+    fn trap_machine() -> Atari2600 {
+        // 4 KB cart whose reset vector jumps to a self-loop at $1000.
+        let mut rom = vec![0xEA_u8; 4096];
+        rom[0x0000] = 0x4C;
+        rom[0x0001] = 0x00;
+        rom[0x0002] = 0x10;
+        rom[0x0FFC] = 0x00;
+        rom[0x0FFD] = 0x10;
+        Atari2600::new(rom, Atari2600Region::Ntsc).expect("init")
+    }
+
+    fn fire(port: u8, pressed: bool) -> InputEvent {
+        InputEvent::Button {
+            port,
+            name: Cow::Borrowed("fire"),
+            pressed,
+        }
+    }
+
+    #[test]
+    fn fire_button_events_reach_inpt4_and_inpt5() {
+        let mut m = trap_machine();
+        let mut cache = ControllerCache::default();
+
+        // Port 1 fire → INPT4 ($0C); port 2 fire → INPT5 ($0D), active low.
+        apply_input_event(&mut m, &mut cache, &fire(1, true));
+        assert_eq!(m.tia().read(0x0C) & 0x80, 0, "p1 fire reaches INPT4");
+        apply_input_event(&mut m, &mut cache, &fire(2, true));
+        assert_eq!(m.tia().read(0x0D) & 0x80, 0, "p2 fire reaches INPT5");
+
+        // Release restores the line.
+        apply_input_event(&mut m, &mut cache, &fire(1, false));
+        assert_eq!(m.tia().read(0x0C) & 0x80, 0x80, "release restores INPT4");
+    }
+
+    #[test]
+    fn fire_aliases_are_recognised() {
+        for n in ["fire", "Fire", "fire1", "trigger", "button"] {
+            assert!(is_fire(n), "{n} is a fire name");
+        }
+        assert!(!is_fire("up"), "directions are not fire");
+    }
 
     #[test]
     fn joystick_nibbles_follow_swcha_player_assignment() {
