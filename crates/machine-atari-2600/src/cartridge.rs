@@ -28,7 +28,8 @@ pub enum BankingScheme {
     /// `$1100-$11FF`.
     Fa,
     /// EF: 64KB as sixteen 4KB banks, selected by hotspots `$1FE0-$1FEF`.
-    /// Pure address-decode (no RAM); the EFSC variant adds Superchip RAM.
+    /// Address-decode only; the EFSC variant adds the Superchip overlay (the
+    /// `superchip` flag), detected independently of the base scheme.
     Ef,
     /// UA Limited: 8KB, two 4KB banks. Unusually, the bank-select hotspots sit
     /// *outside* the cart window — accessing `$0220` selects bank 0 and `$0240`
@@ -75,6 +76,11 @@ pub struct Cartridge {
     /// E7 only: the 256-byte RAM bank (0-3) mapped at `$1800-$19FF`. The
     /// `$1000-$17FF` window bank reuses `bank` (0-7; 7 = the 1 KB RAM).
     e7_ram_bank: usize,
+    /// Superchip (SARA) overlay: 128 bytes of RAM at the bottom of the window
+    /// (write port `$1000-$107F`, read port `$1080-$10FF`), present in every
+    /// bank. Layered over F8/F6/F4/EF when detected; uses the first 128 bytes
+    /// of `ram`.
+    superchip: bool,
 }
 
 /// E0 slice size: 1 KB.
@@ -129,8 +135,8 @@ impl Cartridge {
                 16384 if is_probably_e7(data) => (BankingScheme::E7, E7_SEG),
                 16384 => (BankingScheme::F6, 4096),
                 32768 => (BankingScheme::F4, 4096),
-                // 64 KB is EF (sixteen 4 KB banks). EFSC shares the size but adds
-                // Superchip RAM — deferred to the Superchip-overlay work.
+                // 64 KB is EF (sixteen 4 KB banks); the EFSC variant's Superchip
+                // RAM is added by the overlay detection below.
                 65536 => (BankingScheme::Ef, 4096),
                 other => return Err(format!("Unsupported ROM size: {other} bytes")),
             }
@@ -151,11 +157,18 @@ impl Cartridge {
             | BankingScheme::E7 => 0,
             _ => num_banks.saturating_sub(1),
         };
+        // Superchip (SARA) is a 128-byte RAM overlay on the 4 KB-bank schemes,
+        // detected by the repeated-first-128-bytes padding in each bank.
+        let superchip = matches!(
+            scheme,
+            BankingScheme::F8 | BankingScheme::F6 | BankingScheme::F4 | BankingScheme::Ef
+        ) && is_probably_sc(data);
         let ram = match scheme {
             BankingScheme::Fa => vec![0u8; 256],
             BankingScheme::ThreeE => vec![0u8; THREE_E_RAM_BANKS * THREE_E_RAM_BANK],
             // E7: 1 KB window RAM + 4 × 256 B strip = 2 KB.
             BankingScheme::E7 => vec![0u8; E7_WINDOW_RAM + 4 * E7_STRIP_RAM],
+            _ if superchip => vec![0u8; 128],
             _ => Vec::new(),
         };
         Ok(Self {
@@ -173,6 +186,7 @@ impl Cartridge {
             three_e_rom_seg: 0,
             three_e_ram_bank: 0,
             e7_ram_bank: 0,
+            superchip,
         })
     }
 
@@ -186,6 +200,11 @@ impl Cartridge {
     /// The cart byte mapped at `addr`, with no bank-switch side effect.
     fn byte_at(&self, addr: u16) -> u8 {
         let offset = (addr & 0x0FFF) as usize;
+        // Superchip read port ($1080-$10FF) overlays every bank; reads of the
+        // write port ($1000-$107F) fall through to the (padding) ROM below.
+        if self.superchip && (0x80..0x100).contains(&offset) {
+            return self.ram.get(offset - 0x80).copied().unwrap_or(0);
+        }
         if self.scheme == BankingScheme::E0 {
             // Four 1KB slices: 0/1/2 follow their segment banks, slice 3 ($1C00-
             // $1FFF) is fixed to bank 7.
@@ -299,6 +318,15 @@ impl Cartridge {
     /// on-cart RAM through its write port (`$1000-$10FF`).
     pub fn write(&mut self, addr: u16, value: u8) {
         self.check_hotspot(addr);
+        if self.superchip {
+            // Superchip write port: $1000-$107F.
+            let offset = (addr & 0x0FFF) as usize;
+            if offset < 0x80
+                && let Some(c) = self.ram.get_mut(offset)
+            {
+                *c = value;
+            }
+        }
         if self.scheme == BankingScheme::Fa {
             let offset = (addr & 0x0FFF) as usize;
             if offset < 0x100
@@ -397,6 +425,12 @@ impl Cartridge {
     #[must_use]
     pub fn scheme(&self) -> BankingScheme {
         self.scheme
+    }
+
+    /// Whether a Superchip (SARA) 128-byte RAM overlay is present.
+    #[must_use]
+    pub fn has_superchip(&self) -> bool {
+        self.superchip
     }
 
     fn check_hotspot(&mut self, addr: u16) {
@@ -548,6 +582,18 @@ fn is_probably_3e(rom: &[u8]) -> bool {
 /// *after* 3E, whose signature is a superset.
 fn is_probably_3f(rom: &[u8]) -> bool {
     count_bytes(rom, &[0x85, 0x3F]) >= 2
+}
+
+/// Whether a 4 KB-bank image carries a Superchip (SARA) overlay. The 128-byte
+/// RAM occupies the first 256 bytes of each 4 KB bank, so authoring tools leave
+/// that area as the first 128 bytes repeated into the second 128 — Stella keys
+/// detection off exactly that (`isProbablySC`).
+fn is_probably_sc(rom: &[u8]) -> bool {
+    !rom.is_empty()
+        && rom.len().is_multiple_of(4096)
+        && rom
+            .chunks_exact(4096)
+            .all(|bank| bank[0..128] == bank[128..256])
 }
 
 /// Whether a 16 KB image is an M-Network E7 cart. Like the other ambiguous
@@ -961,6 +1007,57 @@ mod tests {
         cart.snoop_write(0x003F, 4 + 3);
         assert_eq!(cart.read(0x1000), 3, "segment select wraps mod 4");
         assert_eq!(cart.read(0x1800), 3, "fixed tail unchanged");
+    }
+
+    /// Build a 16 KB F6 image with the Superchip padding (first 128 bytes
+    /// repeated into the second 128) in every 4 KB bank, and the bank's fill
+    /// byte from $0100 up so bank reads are identifiable.
+    fn f6sc_rom() -> Vec<u8> {
+        let mut rom = vec![0u8; 16384];
+        for (b, bank) in rom.chunks_exact_mut(4096).enumerate() {
+            // First 256 bytes stay zero, so the first-128 == next-128 Superchip
+            // signature holds; the rest carries the bank index.
+            bank[256..].fill(b as u8);
+        }
+        rom
+    }
+
+    #[test]
+    fn detect_f6_superchip_overlay() {
+        let cart = Cartridge::from_rom(&f6sc_rom()).expect("F6SC");
+        assert_eq!(cart.scheme(), BankingScheme::F6, "base scheme is still F6");
+        assert!(cart.has_superchip(), "Superchip overlay detected");
+
+        // A plain F6 cart whose banks don't have the repeated padding: no SC.
+        let mut plain = vec![0xEA; 16384];
+        plain[0] = 0x01; // break the first-128 == second-128 equality
+        let cart = Cartridge::from_rom(&plain).expect("F6");
+        assert_eq!(cart.scheme(), BankingScheme::F6);
+        assert!(!cart.has_superchip(), "no overlay without the padding");
+    }
+
+    #[test]
+    fn superchip_ram_uses_split_write_read_ports() {
+        let mut cart = Cartridge::from_rom(&f6sc_rom()).expect("F6SC");
+        // Write port $1000-$107F (128 bytes), read port $1080-$10FF.
+        cart.write(0x1000, 0x7E);
+        cart.write(0x107F, 0x81);
+        assert_eq!(cart.read(0x1080), 0x7E, "RAM cell 0 via read port");
+        assert_eq!(cart.read(0x10FF), 0x81, "RAM cell 127 via read port");
+
+        // The RAM overlays every bank — survives a bank switch ($1FF7 → bank 1).
+        cart.read(0x1FF7);
+        assert_eq!(
+            cart.read(0x1080),
+            0x7E,
+            "Superchip RAM persists across banks"
+        );
+        // Above the RAM window, normal banked ROM shows through.
+        assert_eq!(
+            cart.read(0x1200),
+            1,
+            "ROM bank 1 visible past the RAM window"
+        );
     }
 
     #[test]
