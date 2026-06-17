@@ -93,6 +93,7 @@ pub(crate) fn apply_input_event(
 #[must_use]
 fn key_from_name(name: &str) -> Option<MtxKey> {
     Some(match name.to_ascii_lowercase().as_str() {
+        // Digits.
         "1" => MtxKey::N1,
         "2" => MtxKey::N2,
         "3" => MtxKey::N3,
@@ -103,33 +104,54 @@ fn key_from_name(name: &str) -> Option<MtxKey> {
         "8" => MtxKey::N8,
         "9" => MtxKey::N9,
         "0" => MtxKey::N0,
+        // Punctuation keys (unshifted legends). The MTX has no dedicated `=`,
+        // `'` or `#` key — those are shifted forms — so they are not listed.
         "-" | "minus" => MtxKey::Minus,
-        "=" | "equals" => MtxKey::Equal,
         "\\" | "backslash" => MtxKey::Backslash,
+        "^" | "caret" => MtxKey::Caret,
+        "@" | "at" => MtxKey::At,
         "[" | "leftbracket" => MtxKey::BracketLeft,
         "]" | "rightbracket" => MtxKey::BracketRight,
         ";" | "semicolon" => MtxKey::Semicolon,
-        "'" | "quote" | "apostrophe" => MtxKey::Quote,
+        ":" | "colon" => MtxKey::Colon,
         "," | "comma" => MtxKey::Comma,
         "." | "period" => MtxKey::Period,
         "/" | "slash" => MtxKey::Slash,
-        "pound" | "#" => MtxKey::Pound,
-        "delete" | "del" | "backspace" | "bs" => MtxKey::Delete,
-        "ctrl" | "control" | "lctrl" => MtxKey::CtrlLeft,
-        "shift" | "lshift" | "rshift" => MtxKey::Shift,
+        "_" | "underscore" => MtxKey::Underscore,
+        // Modifiers and editing.
+        "delete" | "del" => MtxKey::Delete,
+        "backspace" | "bs" => MtxKey::Backspace,
+        "ctrl" | "control" | "lctrl" => MtxKey::Ctrl,
+        "shift" | "lshift" => MtxKey::ShiftLeft,
+        "rshift" => MtxKey::ShiftRight,
         "enter" | "return" => MtxKey::Enter,
+        "linefeed" | "lf" => MtxKey::LineFeed,
         "escape" | "esc" => MtxKey::Escape,
         "tab" => MtxKey::Tab,
-        "caps" | "capslock" => MtxKey::CapsLock,
+        "caps" | "capslock" | "alphalock" => MtxKey::CapsLock,
         "space" | " " => MtxKey::Space,
+        // Cursor keys (numeric-keypad legends).
+        "left" | "arrowleft" => MtxKey::Left,
+        "right" | "arrowright" => MtxKey::Right,
+        "up" | "arrowup" => MtxKey::Up,
+        "down" | "arrowdown" => MtxKey::Down,
+        // Other numeric-keypad keys.
+        "home" => MtxKey::Home,
+        "insert" | "ins" => MtxKey::Insert,
+        "page" | "pagedown" => MtxKey::Page,
+        "break" => MtxKey::Break,
+        "eol" | "endofline" => MtxKey::EndOfLine,
+        "cls" | "keypadenter" | "kpenter" => MtxKey::KeypadEnter,
+        // Function keys.
         "f1" => MtxKey::F1,
         "f2" => MtxKey::F2,
         "f3" => MtxKey::F3,
         "f4" => MtxKey::F4,
         "f5" => MtxKey::F5,
-        "left" | "arrowleft" => MtxKey::Left,
-        "right" | "arrowright" => MtxKey::Right,
-        "up" | "arrowup" => MtxKey::Up,
+        "f6" => MtxKey::F6,
+        "f7" => MtxKey::F7,
+        "f8" => MtxKey::F8,
+        // Letters.
         "a" => MtxKey::A,
         "b" => MtxKey::B,
         "c" => MtxKey::C,
@@ -179,6 +201,60 @@ mod tests {
             name: Cow::Owned(name.to_owned()),
             pressed,
         }
+    }
+
+    fn key(name: &str, pressed: bool) -> InputEvent {
+        InputEvent::Key {
+            name: Cow::Owned(name.to_owned()),
+            pressed,
+        }
+    }
+
+    /// True when the key named `name` pulls sense `bit` of drive column `col`
+    /// low — i.e. it resolves to matrix cell `(col, bit)`. Bits 0-7 read on the
+    /// `$05` low byte, bits 8-9 on the `$06` high byte.
+    fn key_closes_cell(name: &str, col: usize, bit: u8) -> bool {
+        let mut m = make_mtx();
+        let mut cache = ControllerCache::default();
+        apply_input_event(&mut m, &mut cache, &key(name, true));
+        let (lo, hi) = m.sense(!(1 << col));
+        if bit < 8 {
+            lo & (1 << bit) == 0
+        } else {
+            hi & (1 << (bit - 8)) == 0
+        }
+    }
+
+    #[test]
+    fn key_names_close_their_real_hardware_matrix_cells() {
+        // Letters/digits/space/enter at their MAME-sourced positions; the bug
+        // was that these resolved to fabricated cells (typing ABCDE → @uf11).
+        assert!(key_closes_cell("a", 5, 0), "a → col5 bit0");
+        assert!(key_closes_cell("1", 0, 0), "1 → col0 bit0");
+        assert!(key_closes_cell("2", 1, 1), "2 → col1 bit1");
+        assert!(key_closes_cell("space", 7, 8), "space → col7 bit8 ($06)");
+        assert!(key_closes_cell("enter", 5, 6), "enter → col5 bit6");
+        assert!(key_closes_cell("tab", 2, 8), "tab → col2 bit8 ($06)");
+
+        // The cursor keys, including the previously-missing Down (#465).
+        assert!(key_closes_cell("up", 2, 7), "up → col2 bit7");
+        assert!(key_closes_cell("left", 3, 7), "left → col3 bit7");
+        assert!(key_closes_cell("right", 4, 7), "right → col4 bit7");
+        assert!(key_closes_cell("down", 6, 7), "down → col6 bit7");
+        assert!(
+            key_closes_cell("arrowdown", 6, 7),
+            "arrowdown alias → col6 bit7"
+        );
+    }
+
+    #[test]
+    fn releasing_a_key_restores_its_sense_line() {
+        let mut m = make_mtx();
+        let mut cache = ControllerCache::default();
+        apply_input_event(&mut m, &mut cache, &key("down", true));
+        assert_eq!(m.sense(!(1 << 6)).0 & 0x80, 0, "down held");
+        apply_input_event(&mut m, &mut cache, &key("down", false));
+        assert_eq!(m.sense(!(1 << 6)).0 & 0x80, 0x80, "down released");
     }
 
     #[test]
