@@ -35,6 +35,9 @@ pub enum BankingScheme {
     /// bank 1 (low TIA-mirror addresses the cart snoops off the bus). The
     /// swapped-hotspot Digivision variant isn't modelled yet.
     Ua,
+    /// 0840 "EconoBank": 8KB, two 4KB banks, switched by out-of-window
+    /// accesses — `$0800` selects bank 0, `$0840` bank 1 (snooped off the bus).
+    EconoBank,
 }
 
 pub struct Cartridge {
@@ -65,6 +68,7 @@ impl Cartridge {
             // UA also shares the 8 KB size; detect it by its hotspot-access
             // signature, ahead of the plain-F8 fallback.
             8192 if is_probably_ua(data) => (BankingScheme::Ua, 4096),
+            8192 if is_probably_0840(data) => (BankingScheme::EconoBank, 4096),
             8192 => (BankingScheme::F8, 4096),
             // 12 KB is unique to CBS RAM+ (FA) — three 4 KB banks + 256 B RAM.
             12288 => (BankingScheme::Fa, 4096),
@@ -82,7 +86,7 @@ impl Cartridge {
         // banks, so the last-bank default would misboot a real EF cart.
         let bank = match scheme {
             BankingScheme::Ef => 1,
-            BankingScheme::Ua => 0,
+            BankingScheme::Ua | BankingScheme::EconoBank => 0,
             _ => num_banks.saturating_sub(1),
         };
         let ram = if scheme == BankingScheme::Fa {
@@ -167,14 +171,21 @@ impl Cartridge {
     /// machine forwards every access here. Window-hotspot schemes ignore it,
     /// and their own switching stays in [`Self::read`]/[`Self::write`].
     pub fn snoop(&mut self, addr: u16) {
-        if self.scheme == BankingScheme::Ua {
-            // `$0220` → bank 0, `$0240` → bank 1. The mask folds the address
-            // mirrors the real titles use (e.g. `$02C0`) onto these two cases.
-            match addr & 0x1260 {
+        match self.scheme {
+            // UA: `$0220` → bank 0, `$0240` → bank 1. The mask folds the
+            // address mirrors the real titles use (e.g. `$02C0`) onto these.
+            BankingScheme::Ua => match addr & 0x1260 {
                 0x0220 => self.bank = 0,
                 0x0240 => self.bank = 1,
                 _ => {}
-            }
+            },
+            // 0840 EconoBank: `$0800` → bank 0, `$0840` → bank 1.
+            BankingScheme::EconoBank => match addr & 0x1840 {
+                0x0800 => self.bank = 0,
+                0x0840 => self.bank = 1,
+                _ => {}
+            },
+            _ => {}
         }
     }
 
@@ -236,8 +247,8 @@ impl Cartridge {
                     self.bank = usize::from(addr - 0x1FE0);
                 }
             }
-            // UA switches on out-of-window addresses, handled in `snoop`.
-            BankingScheme::Ua => {}
+            // UA / 0840 switch on out-of-window addresses, handled in `snoop`.
+            BankingScheme::Ua | BankingScheme::EconoBank => {}
         }
     }
 }
@@ -293,6 +304,26 @@ fn is_probably_ua(rom: &[u8]) -> bool {
         [0x2C, 0xB0, 0x0F], // BIT $FB0 (Digivision Beamrider)
     ];
     SIGNATURES.iter().any(|sig| count_bytes(rom, sig) >= 1)
+}
+
+/// Whether an 8 KB image is a 0840 "EconoBank" cart. It shares 8 KB with F8,
+/// so detection scans for the `$0800`/`$0840` hotspot-access signatures —
+/// which must appear *at least twice* to avoid false positives (Stella's
+/// `isProbably0840`).
+fn is_probably_0840(rom: &[u8]) -> bool {
+    const SIG3: [[u8; 3]; 3] = [
+        [0xAD, 0x00, 0x08], // LDA $0800
+        [0xAD, 0x40, 0x08], // LDA $0840
+        [0x2C, 0x00, 0x08], // BIT $0800
+    ];
+    if SIG3.iter().any(|sig| count_bytes(rom, sig) >= 2) {
+        return true;
+    }
+    const SIG4: [[u8; 4]; 2] = [
+        [0x0C, 0x00, 0x08, 0x4C], // NOP $0800; JMP
+        [0x0C, 0xFF, 0x0F, 0x4C], // NOP $0FFF; JMP
+    ];
+    SIG4.iter().any(|sig| count_bytes(rom, sig) >= 2)
 }
 
 #[cfg(test)]
@@ -473,6 +504,42 @@ mod tests {
         // An unrelated access leaves the bank alone.
         cart.snoop(0x1F00);
         assert_eq!(cart.read(0x1F00), 0xA1, "non-hotspot access is inert");
+    }
+
+    /// Build an 8 KB 0840 image: bank 0 `0xB0`, bank 1 `0xB1`, carrying two
+    /// `LDA $0800` hotspot signatures (the scheme needs the signature twice).
+    fn econobank_rom() -> Vec<u8> {
+        let mut rom = vec![0u8; 8192];
+        rom[0..4096].fill(0xB0);
+        rom[4096..8192].fill(0xB1);
+        rom[0x20..0x23].copy_from_slice(&[0xAD, 0x00, 0x08]); // LDA $0800
+        rom[0x40..0x43].copy_from_slice(&[0xAD, 0x00, 0x08]); // ...again
+        rom
+    }
+
+    #[test]
+    fn detect_0840_vs_f8() {
+        // A single signature copy is not enough — stays F8.
+        let mut once = vec![0xEA; 8192];
+        once[0x20..0x23].copy_from_slice(&[0xAD, 0x00, 0x08]);
+        assert_eq!(
+            Cartridge::from_rom(&once).expect("F8").scheme(),
+            BankingScheme::F8
+        );
+        // Two copies → 0840 EconoBank, power-on bank 0.
+        let cart = Cartridge::from_rom(&econobank_rom()).expect("0840");
+        assert_eq!(cart.scheme(), BankingScheme::EconoBank);
+        assert_eq!(cart.bank(), 0, "0840 resets to bank 0");
+    }
+
+    #[test]
+    fn econobank_snoops_its_out_of_window_hotspots() {
+        let mut cart = Cartridge::from_rom(&econobank_rom()).expect("0840");
+        assert_eq!(cart.read(0x1F00), 0xB0, "starts in bank 0");
+        cart.snoop(0x0840); // → bank 1
+        assert_eq!(cart.read(0x1F00), 0xB1, "$0840 → bank 1");
+        cart.snoop(0x0800); // → bank 0
+        assert_eq!(cart.read(0x1F00), 0xB0, "$0800 → bank 0");
     }
 
     #[test]
