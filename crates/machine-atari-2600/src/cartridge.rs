@@ -19,6 +19,10 @@ pub enum BankingScheme {
     F6,
     /// F4: 32KB, 8 banks. Hotspots `$1FF4-$1FFB`.
     F4,
+    /// Parker Brothers E0: 8KB as eight 1KB banks. The 4KB window is four 1KB
+    /// slices — slices 0/1/2 are independently switchable (hotspots `$1FE0-$1FE7`,
+    /// `$1FE8-$1FEF`, `$1FF0-$1FF7`), slice 3 is fixed to bank 7.
+    E0,
 }
 
 pub struct Cartridge {
@@ -26,7 +30,13 @@ pub struct Cartridge {
     scheme: BankingScheme,
     bank: usize,
     bank_size: usize,
+    /// E0 only: the bank mapped into each of the three switchable 1KB slices.
+    /// Slice 3 is always bank 7, so it isn't tracked here.
+    e0_segments: [usize; 3],
 }
+
+/// E0 slice size: 1 KB.
+const E0_SLICE: usize = 1024;
 
 impl Cartridge {
     /// Parse a ROM and detect the banking scheme from its size.
@@ -34,6 +44,10 @@ impl Cartridge {
         let (scheme, bank_size) = match data.len() {
             0..=2048 => (BankingScheme::None, data.len()),
             2049..=4096 => (BankingScheme::None, data.len()),
+            // 8 KB is ambiguous: plain F8 or Parker Brothers E0. Distinguish by
+            // scanning for an E0 hotspot-access signature (Stella's heuristic),
+            // since both are the same length (#412).
+            8192 if is_probably_e0(data) => (BankingScheme::E0, 4096),
             8192 => (BankingScheme::F8, 4096),
             16384 => (BankingScheme::F6, 4096),
             32768 => (BankingScheme::F4, 4096),
@@ -46,6 +60,9 @@ impl Cartridge {
             scheme,
             bank,
             bank_size,
+            // E0 power-on slice mapping (Stella's default: 4/5/6); the cart's
+            // own startup code reprograms the slices before drawing.
+            e0_segments: [4, 5, 6],
         })
     }
 
@@ -53,7 +70,27 @@ impl Cartridge {
     /// detection for bank switching).
     pub fn read(&mut self, addr: u16) -> u8 {
         self.check_hotspot(addr);
+        self.byte_at(addr)
+    }
+
+    /// The cart byte mapped at `addr`, with no bank-switch side effect.
+    fn byte_at(&self, addr: u16) -> u8 {
         let offset = (addr & 0x0FFF) as usize;
+        if self.scheme == BankingScheme::E0 {
+            // Four 1KB slices: 0/1/2 follow their segment banks, slice 3 ($1C00-
+            // $1FFF) is fixed to bank 7.
+            let (seg_bank, slice_off) = match offset {
+                0x000..=0x3FF => (self.e0_segments[0], offset),
+                0x400..=0x7FF => (self.e0_segments[1], offset - 0x400),
+                0x800..=0xBFF => (self.e0_segments[2], offset - 0x800),
+                _ => (7, offset - 0xC00),
+            };
+            return self
+                .rom
+                .get(seg_bank * E0_SLICE + slice_off)
+                .copied()
+                .unwrap_or(0);
+        }
         if self.bank_size <= 2048 {
             self.rom[offset % self.rom.len()]
         } else {
@@ -105,28 +142,102 @@ impl Cartridge {
                 0x1FFB => self.bank = 7,
                 _ => {}
             },
+            // E0: each switchable slice picks one of the eight 1KB banks from
+            // the low 3 bits of the hotspot address.
+            BankingScheme::E0 => match addr {
+                0x1FE0..=0x1FE7 => self.e0_segments[0] = usize::from(addr & 0x07),
+                0x1FE8..=0x1FEF => self.e0_segments[1] = usize::from(addr & 0x07),
+                0x1FF0..=0x1FF7 => self.e0_segments[2] = usize::from(addr & 0x07),
+                _ => {}
+            },
         }
     }
 }
 
 impl Cartridge {
-    /// Read ROM at the current bank with no bank-switch side effect (the
-    /// debugger's view; `read` checks hotspots and may switch banks).
+    /// Read ROM at the current bank/slice mapping with no bank-switch side
+    /// effect (the debugger's view; `read` checks hotspots and may switch).
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
-        let offset = (addr & 0x0FFF) as usize;
-        if self.bank_size <= 2048 {
-            self.rom[offset % self.rom.len()]
-        } else {
-            let idx = self.bank * self.bank_size + offset;
-            self.rom.get(idx).copied().unwrap_or(0)
-        }
+        self.byte_at(addr)
     }
+}
+
+/// Whether an 8 KB image is a Parker Brothers E0 cart rather than plain F8.
+///
+/// Both are 8 KB, so size alone can't tell them apart. E0 carts switch banks by
+/// accessing `$1FE0-$1FF9` with absolute addressing; scan for the known
+/// instruction signatures (ported from Stella's `isProbablyE0`, attributed to
+/// MESS) that catch the real E0 titles without false-positiving on F8.
+fn is_probably_e0(rom: &[u8]) -> bool {
+    const SIGNATURES: [[u8; 3]; 8] = [
+        [0x8D, 0xE0, 0x1F], // STA $1FE0
+        [0x8D, 0xE0, 0x5F], // STA $5FE0
+        [0x8D, 0xE9, 0xFF], // STA $FFE9
+        [0x0C, 0xE0, 0x1F], // NOP $1FE0
+        [0xAD, 0xE0, 0x1F], // LDA $1FE0
+        [0xAD, 0xE9, 0xFF], // LDA $FFE9
+        [0xAD, 0xED, 0xFF], // LDA $FFED
+        [0xAD, 0xF3, 0xBF], // LDA $BFF3
+    ];
+    SIGNATURES
+        .iter()
+        .any(|sig| rom.windows(sig.len()).any(|w| w == sig))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build an 8 KB image whose eight 1 KB banks are filled with the bank
+    /// index, optionally carrying an E0 signature so detection fires.
+    fn banked_8k(with_e0_sig: bool) -> Vec<u8> {
+        let mut rom = vec![0u8; 8192];
+        for bank in 0..8 {
+            rom[bank * 1024..(bank + 1) * 1024].fill(bank as u8);
+        }
+        if with_e0_sig {
+            // STA $FFE9 somewhere in the image (one of Stella's E0 signatures).
+            rom[0x10..0x13].copy_from_slice(&[0x8D, 0xE9, 0xFF]);
+        }
+        rom
+    }
+
+    #[test]
+    fn detect_e0_vs_f8_for_8k() {
+        // Plain 8K with no E0 signature → F8.
+        assert_eq!(
+            Cartridge::from_rom(&banked_8k(false)).expect("8K").scheme(),
+            BankingScheme::F8
+        );
+        // 8K carrying an E0 access signature → E0.
+        assert_eq!(
+            Cartridge::from_rom(&banked_8k(true)).expect("8K").scheme(),
+            BankingScheme::E0
+        );
+    }
+
+    #[test]
+    fn e0_slices_switch_independently_and_slice3_is_fixed() {
+        let mut cart = Cartridge::from_rom(&banked_8k(true)).expect("E0");
+
+        // Slice 3 ($1C00-$1FFF) is always bank 7.
+        assert_eq!(cart.read(0x1C00), 7);
+
+        // Each switchable slice selects its bank via its hotspot group.
+        cart.read(0x1FE3); // slice 0 → bank 3
+        cart.read(0x1FEA); // slice 1 → bank 2 ($1FEA & 7)
+        cart.read(0x1FF5); // slice 2 → bank 5
+        assert_eq!(cart.read(0x1000), 3, "slice 0 → bank 3");
+        assert_eq!(cart.read(0x1400), 2, "slice 1 → bank 2");
+        assert_eq!(cart.read(0x1800), 5, "slice 2 → bank 5");
+        assert_eq!(cart.read(0x1C00), 7, "slice 3 stays bank 7");
+
+        // Re-pointing one slice doesn't disturb the others.
+        cart.read(0x1FE0); // slice 0 → bank 0
+        assert_eq!(cart.read(0x1000), 0, "slice 0 → bank 0");
+        assert_eq!(cart.read(0x1400), 2, "slice 1 unchanged");
+    }
 
     #[test]
     fn detect_2k_rom() {
