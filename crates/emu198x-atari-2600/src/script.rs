@@ -23,7 +23,7 @@ Region:
 
 Capture:
     --screenshot PATH          write the last emitted frame as PNG
-    --audio-capture PATH       write emitted audio as WAV (currently silent)
+    --audio-capture PATH       write emitted audio as WAV
 
 Shared:
     --script PATH              execute shared JSON session steps
