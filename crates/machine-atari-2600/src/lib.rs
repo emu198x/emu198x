@@ -174,7 +174,8 @@ impl Atari2600 {
     fn mem_write(&mut self, addr: u16, value: u8) {
         let addr = addr & 0x1FFF;
         self.data_bus = value;
-        self.cart.snoop(addr);
+        // Writes can switch banks both by address (UA/0840) and by value (3E).
+        self.cart.snoop_write(addr, value);
         if addr & 0x1000 != 0 {
             self.cart.write(addr, value);
         } else if addr & 0x0080 == 0 {

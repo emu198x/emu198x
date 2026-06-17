@@ -38,6 +38,11 @@ pub enum BankingScheme {
     /// 0840 "EconoBank": 8KB, two 4KB banks, switched by out-of-window
     /// accesses — `$0800` selects bank 0, `$0840` bank 1 (snooped off the bus).
     EconoBank,
+    /// 3E (Tigervision-style + RAM): the `$1000-$17FF` half-window holds either
+    /// a 2KB ROM segment (selected by `STA $3F`) or a 1KB RAM bank (`STA $3E`);
+    /// `$1800-$1FFF` is fixed to the last ROM segment. Up to 512KB ROM + 32KB
+    /// RAM. Distinct from plain 3F, which has no RAM.
+    ThreeE,
 }
 
 pub struct Cartridge {
@@ -48,36 +53,59 @@ pub struct Cartridge {
     /// E0 only: the bank mapped into each of the three switchable 1KB slices.
     /// Slice 3 is always bank 7, so it isn't tracked here.
     e0_segments: [usize; 3],
-    /// On-cart RAM (FA / CBS RAM+: 256 bytes). Empty for schemes without RAM.
+    /// On-cart RAM. FA: 256 bytes; 3E: 32 KB (32 × 1 KB banks). Empty for
+    /// schemes without RAM.
     ram: Vec<u8>,
+    /// 3E only: the switchable window holds RAM (`true`) or ROM (`false`).
+    three_e_ram_active: bool,
+    /// 3E only: ROM 2 KB segment in the window when ROM is active.
+    three_e_rom_seg: usize,
+    /// 3E only: RAM 1 KB bank in the window when RAM is active.
+    three_e_ram_bank: usize,
 }
 
 /// E0 slice size: 1 KB.
 const E0_SLICE: usize = 1024;
 
+/// 3E ROM segment size: 2 KB (the switchable half-window).
+const THREE_E_SEG: usize = 2048;
+/// 3E RAM bank size: 1 KB.
+const THREE_E_RAM_BANK: usize = 1024;
+/// 3E RAM bank count (32 × 1 KB = 32 KB).
+const THREE_E_RAM_BANKS: usize = 32;
+
 impl Cartridge {
     /// Parse a ROM and detect the banking scheme from its size.
     pub fn from_rom(data: &[u8]) -> Result<Self, String> {
-        let (scheme, bank_size) = match data.len() {
-            0..=2048 => (BankingScheme::None, data.len()),
-            2049..=4096 => (BankingScheme::None, data.len()),
-            // 8 KB is ambiguous: plain F8 or Parker Brothers E0. Distinguish by
-            // scanning for an E0 hotspot-access signature (Stella's heuristic),
-            // since both are the same length (#412).
-            8192 if is_probably_e0(data) => (BankingScheme::E0, 4096),
-            // UA also shares the 8 KB size; detect it by its hotspot-access
-            // signature, ahead of the plain-F8 fallback.
-            8192 if is_probably_ua(data) => (BankingScheme::Ua, 4096),
-            8192 if is_probably_0840(data) => (BankingScheme::EconoBank, 4096),
-            8192 => (BankingScheme::F8, 4096),
-            // 12 KB is unique to CBS RAM+ (FA) — three 4 KB banks + 256 B RAM.
-            12288 => (BankingScheme::Fa, 4096),
-            16384 => (BankingScheme::F6, 4096),
-            32768 => (BankingScheme::F4, 4096),
-            // 64 KB is EF (sixteen 4 KB banks). EFSC shares the size but adds
-            // Superchip RAM — deferred to the Superchip-overlay work.
-            65536 => (BankingScheme::Ef, 4096),
-            other => return Err(format!("Unsupported ROM size: {other} bytes")),
+        // 3E (RAM+ROM) is size-agnostic — it's detected by signature ahead of
+        // the size-keyed schemes, and uses 2 KB ROM segments rather than the
+        // usual 4 KB banks.
+        let is_3e =
+            data.len() >= 8192 && data.len().is_multiple_of(THREE_E_SEG) && is_probably_3e(data);
+        let (scheme, bank_size) = if is_3e {
+            (BankingScheme::ThreeE, THREE_E_SEG)
+        } else {
+            match data.len() {
+                0..=2048 => (BankingScheme::None, data.len()),
+                2049..=4096 => (BankingScheme::None, data.len()),
+                // 8 KB is ambiguous: plain F8 or Parker Brothers E0. Distinguish by
+                // scanning for an E0 hotspot-access signature (Stella's heuristic),
+                // since both are the same length (#412).
+                8192 if is_probably_e0(data) => (BankingScheme::E0, 4096),
+                // UA also shares the 8 KB size; detect it by its hotspot-access
+                // signature, ahead of the plain-F8 fallback.
+                8192 if is_probably_ua(data) => (BankingScheme::Ua, 4096),
+                8192 if is_probably_0840(data) => (BankingScheme::EconoBank, 4096),
+                8192 => (BankingScheme::F8, 4096),
+                // 12 KB is unique to CBS RAM+ (FA) — three 4 KB banks + 256 B RAM.
+                12288 => (BankingScheme::Fa, 4096),
+                16384 => (BankingScheme::F6, 4096),
+                32768 => (BankingScheme::F4, 4096),
+                // 64 KB is EF (sixteen 4 KB banks). EFSC shares the size but adds
+                // Superchip RAM — deferred to the Superchip-overlay work.
+                65536 => (BankingScheme::Ef, 4096),
+                other => return Err(format!("Unsupported ROM size: {other} bytes")),
+            }
         };
         let num_banks = data.len().checked_div(bank_size).unwrap_or(1);
         // Power-on bank, per Stella's per-scheme `getStartBank`. Most multi-bank
@@ -86,13 +114,14 @@ impl Cartridge {
         // banks, so the last-bank default would misboot a real EF cart.
         let bank = match scheme {
             BankingScheme::Ef => 1,
-            BankingScheme::Ua | BankingScheme::EconoBank => 0,
+            // 3E uses the dedicated three_e_* state, not `bank`.
+            BankingScheme::Ua | BankingScheme::EconoBank | BankingScheme::ThreeE => 0,
             _ => num_banks.saturating_sub(1),
         };
-        let ram = if scheme == BankingScheme::Fa {
-            vec![0u8; 256]
-        } else {
-            Vec::new()
+        let ram = match scheme {
+            BankingScheme::Fa => vec![0u8; 256],
+            BankingScheme::ThreeE => vec![0u8; THREE_E_RAM_BANKS * THREE_E_RAM_BANK],
+            _ => Vec::new(),
         };
         Ok(Self {
             rom: data.to_vec(),
@@ -103,6 +132,11 @@ impl Cartridge {
             // own startup code reprograms the slices before drawing.
             e0_segments: [4, 5, 6],
             ram,
+            // 3E powers on with ROM segment 0 in the window (the reset vector
+            // lives in the fixed last segment, so this is just the default).
+            three_e_ram_active: false,
+            three_e_rom_seg: 0,
+            three_e_ram_bank: 0,
         })
     }
 
@@ -143,6 +177,31 @@ impl Cartridge {
                 .copied()
                 .unwrap_or(0);
         }
+        if self.scheme == BankingScheme::ThreeE {
+            let seg_count = self.rom.len() / THREE_E_SEG;
+            // $1800-$1FFF is fixed to the last 2 KB ROM segment.
+            if offset >= THREE_E_SEG {
+                let last = seg_count.saturating_sub(1);
+                return self
+                    .rom
+                    .get(last * THREE_E_SEG + (offset - THREE_E_SEG))
+                    .copied()
+                    .unwrap_or(0);
+            }
+            // $1000-$17FF: either a RAM bank or a ROM segment. A RAM bank is
+            // 1 KB read through the low half; the high half mirrors it (its
+            // write port is handled in `write`).
+            if self.three_e_ram_active {
+                let cell =
+                    self.three_e_ram_bank * THREE_E_RAM_BANK + (offset & (THREE_E_RAM_BANK - 1));
+                return self.ram.get(cell).copied().unwrap_or(0);
+            }
+            return self
+                .rom
+                .get(self.three_e_rom_seg * THREE_E_SEG + offset)
+                .copied()
+                .unwrap_or(0);
+        }
         if self.bank_size <= 2048 {
             self.rom[offset % self.rom.len()]
         } else {
@@ -161,6 +220,16 @@ impl Cartridge {
                 && let Some(cell) = self.ram.get_mut(offset)
             {
                 *cell = value;
+            }
+        }
+        if self.scheme == BankingScheme::ThreeE && self.three_e_ram_active {
+            // The RAM write port is the high 1 KB of the window ($1400-$17FF).
+            let offset = (addr & 0x0FFF) as usize;
+            if (THREE_E_RAM_BANK..THREE_E_SEG).contains(&offset) {
+                let cell = self.three_e_ram_bank * THREE_E_RAM_BANK + (offset - THREE_E_RAM_BANK);
+                if let Some(c) = self.ram.get_mut(cell) {
+                    *c = value;
+                }
             }
         }
     }
@@ -186,6 +255,29 @@ impl Cartridge {
                 _ => {}
             },
             _ => {}
+        }
+    }
+
+    /// Snoop a bus *write*. Covers the access-triggered schemes (UA/0840 also
+    /// switch on writes to their hotspots) plus 3E, whose bank-select uses the
+    /// written *value*: `STA $3F` maps ROM segment `value` into the window,
+    /// `STA $3E` maps RAM bank `value`. Hotspots are matched in the cart window
+    /// mask (`$3E`/`$3F`), per Stella's `Cartridge3E`.
+    pub fn snoop_write(&mut self, addr: u16, value: u8) {
+        self.snoop(addr);
+        if self.scheme == BankingScheme::ThreeE {
+            match addr & 0x0FFF {
+                0x3F => {
+                    let seg_count = (self.rom.len() / THREE_E_SEG).max(1);
+                    self.three_e_ram_active = false;
+                    self.three_e_rom_seg = usize::from(value) % seg_count;
+                }
+                0x3E => {
+                    self.three_e_ram_active = true;
+                    self.three_e_ram_bank = usize::from(value) % THREE_E_RAM_BANKS;
+                }
+                _ => {}
+            }
         }
     }
 
@@ -247,8 +339,9 @@ impl Cartridge {
                     self.bank = usize::from(addr - 0x1FE0);
                 }
             }
-            // UA / 0840 switch on out-of-window addresses, handled in `snoop`.
-            BankingScheme::Ua | BankingScheme::EconoBank => {}
+            // UA / 0840 switch on out-of-window addresses, handled in `snoop`;
+            // 3E switches on writes to $3E/$3F, handled in `snoop_write`.
+            BankingScheme::Ua | BankingScheme::EconoBank | BankingScheme::ThreeE => {}
         }
     }
 }
@@ -324,6 +417,14 @@ fn is_probably_0840(rom: &[u8]) -> bool {
         [0x0C, 0xFF, 0x0F, 0x4C], // NOP $0FFF; JMP
     ];
     SIG4.iter().any(|sig| count_bytes(rom, sig) >= 2)
+}
+
+/// Whether an image is a 3E (RAM+ROM) cart. Bank-select is by storing the bank
+/// number to `$3E` (RAM) / `$3F` (ROM); we expect `STA $3F` at least twice
+/// (there are at least two ROM segments) and at least one `STA $3E`, matching
+/// Stella's `isProbably3E`.
+fn is_probably_3e(rom: &[u8]) -> bool {
+    count_bytes(rom, &[0x85, 0x3E]) >= 1 && count_bytes(rom, &[0x85, 0x3F]) >= 2
 }
 
 #[cfg(test)]
@@ -540,6 +641,69 @@ mod tests {
         assert_eq!(cart.read(0x1F00), 0xB1, "$0840 → bank 1");
         cart.snoop(0x0800); // → bank 0
         assert_eq!(cart.read(0x1F00), 0xB0, "$0800 → bank 0");
+    }
+
+    /// Build a 32 KB 3E image: sixteen 2 KB ROM segments each filled with the
+    /// segment index, carrying the `STA $3E` + 2× `STA $3F` signature.
+    fn three_e_rom() -> Vec<u8> {
+        let mut rom = vec![0u8; 32768];
+        for seg in 0..16 {
+            rom[seg * 2048..(seg + 1) * 2048].fill(seg as u8);
+        }
+        // Signature: STA $3E once, STA $3F twice (placed in segment 0).
+        rom[0x10..0x12].copy_from_slice(&[0x85, 0x3E]);
+        rom[0x12..0x14].copy_from_slice(&[0x85, 0x3F]);
+        rom[0x14..0x16].copy_from_slice(&[0x85, 0x3F]);
+        rom
+    }
+
+    #[test]
+    fn detect_3e_by_signature() {
+        let cart = Cartridge::from_rom(&three_e_rom()).expect("3E");
+        assert_eq!(cart.scheme(), BankingScheme::ThreeE);
+        // A plain 32K cart with no 3E signature stays F4.
+        assert_eq!(
+            Cartridge::from_rom(&vec![0xEA; 32768])
+                .expect("F4")
+                .scheme(),
+            BankingScheme::F4
+        );
+    }
+
+    #[test]
+    fn three_e_rom_segment_window_and_fixed_tail() {
+        let mut cart = Cartridge::from_rom(&three_e_rom()).expect("3E");
+        // Power-on: segment 0 in the window, last segment (15) fixed at $1800.
+        assert_eq!(cart.read(0x1000), 0, "window holds ROM segment 0");
+        assert_eq!(cart.read(0x1800), 15, "$1800-$1FFF fixed to last segment");
+
+        // STA $3F with value 5 maps ROM segment 5 into the window.
+        cart.snoop_write(0x003F, 5);
+        assert_eq!(cart.read(0x1000), 5, "$3F → ROM segment 5 in window");
+        assert_eq!(cart.read(0x1800), 15, "fixed tail unchanged");
+
+        // The bank number wraps modulo the segment count (16 segments).
+        cart.snoop_write(0x003F, 16 + 3);
+        assert_eq!(cart.read(0x1000), 3, "segment select wraps mod 16");
+    }
+
+    #[test]
+    fn three_e_ram_bank_reads_and_writes() {
+        let mut cart = Cartridge::from_rom(&three_e_rom()).expect("3E");
+        // STA $3E with value 2 maps RAM bank 2 into the window.
+        cart.snoop_write(0x003E, 2);
+        // Write port is the high 1 KB ($1400-$17FF), read port the low ($1000-$13FF).
+        cart.write(0x1400, 0xC3);
+        cart.write(0x17FF, 0x5A);
+        assert_eq!(cart.read(0x1000), 0xC3, "RAM read port cell 0");
+        assert_eq!(cart.read(0x13FF), 0x5A, "RAM read port cell 1023");
+
+        // A different RAM bank is independent.
+        cart.snoop_write(0x003E, 3);
+        assert_eq!(cart.read(0x1000), 0, "RAM bank 3 starts clear");
+        // Switching back to ROM restores the segment view.
+        cart.snoop_write(0x003F, 1);
+        assert_eq!(cart.read(0x1000), 1, "back to ROM segment 1");
     }
 
     #[test]
