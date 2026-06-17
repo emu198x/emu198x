@@ -261,10 +261,17 @@ pub struct Tia {
     cxppmm: u8, // CXPPMM: P0-P1 (bit 7), M0-M1 (bit 6)
 
     // --- Input latches ---
-    /// INPT4: Player 0 fire button (bit 7, active low).
+    /// INPT4: Player 0 fire button read value (bit 7, active low).
     inpt4: u8,
-    /// INPT5: Player 1 fire button (bit 7, active low).
+    /// INPT5: Player 1 fire button read value (bit 7, active low).
     inpt5: u8,
+    /// Raw INPT4/INPT5 pin levels (`true` = button pressed = line low), kept
+    /// separate from the read value so latch mode can hold a release.
+    inpt4_pin: bool,
+    inpt5_pin: bool,
+    /// VBLANK bit 6: when set, INPT4/INPT5 latch a press low until the bit is
+    /// cleared (which re-opens the latch). When clear, the reads follow the pin.
+    inpt_latch: bool,
 
     // --- Paddle pots (INPT0-3) ---
     /// Paddle positions, one per INPT0-3 line (`0..=255`). Higher = more
@@ -349,6 +356,9 @@ impl Tia {
             cxppmm: 0,
             inpt4: 0x80,
             inpt5: 0x80,
+            inpt4_pin: false,
+            inpt5_pin: false,
+            inpt_latch: false,
             paddle_pos: [0x80; 4],
             paddle_charge: [0; 4],
             paddle_dump: false,
@@ -775,10 +785,15 @@ impl Tia {
             0x01 => {
                 // VBLANK
                 self.vblank = value & 0x02 != 0;
-                // Bit 7 dumps the INPT0-3 paddle capacitors to ground; bit 6
-                // enables the INPT4/5 fire-button latches (latch handling is
-                // elsewhere). Releasing the dump starts the caps charging.
+                // Bit 7 dumps the INPT0-3 paddle capacitors to ground; releasing
+                // the dump starts the caps charging.
                 self.paddle_dump = value & 0x80 != 0;
+                // Bit 6 enables the INPT4/INPT5 fire-button latches. Enabling
+                // captures a currently-held press; clearing re-opens the latch
+                // so the reads follow the pin again.
+                self.inpt_latch = value & 0x40 != 0;
+                self.inpt4 = latched_inpt(self.inpt_latch, self.inpt4_pin, self.inpt4);
+                self.inpt5 = latched_inpt(self.inpt_latch, self.inpt5_pin, self.inpt5);
             }
             0x02 => {
                 // WSYNC
@@ -963,13 +978,17 @@ impl Tia {
     }
 
     /// Set INPT4 (player 0 fire button). Active low: bit 7 = 0 when pressed.
+    /// In latch mode (VBLANK bit 6) a press is held until the latch re-opens.
     pub fn set_inpt4(&mut self, pressed: bool) {
-        self.inpt4 = if pressed { 0x00 } else { 0x80 };
+        self.inpt4_pin = pressed;
+        self.inpt4 = latched_inpt(self.inpt_latch, pressed, self.inpt4);
     }
 
     /// Set INPT5 (player 1 fire button). Active low: bit 7 = 0 when pressed.
+    /// In latch mode (VBLANK bit 6) a press is held until the latch re-opens.
     pub fn set_inpt5(&mut self, pressed: bool) {
-        self.inpt5 = if pressed { 0x00 } else { 0x80 };
+        self.inpt5_pin = pressed;
+        self.inpt5 = latched_inpt(self.inpt_latch, pressed, self.inpt5);
     }
 
     /// Serialize TIA register state for save states.
@@ -1040,6 +1059,9 @@ impl Tia {
         // Input latches
         data.push(self.inpt4);
         data.push(self.inpt5);
+        data.push(u8::from(self.inpt4_pin));
+        data.push(u8::from(self.inpt5_pin));
+        data.push(u8::from(self.inpt_latch));
         // Frame state
         data.push(u8::from(self.frame_complete));
         data.push(u8::from(self.in_vsync));
@@ -1128,9 +1150,30 @@ impl Tia {
         self.cxppmm = r8!();
         self.inpt4 = r8!();
         self.inpt5 = r8!();
+        self.inpt4_pin = r8!() != 0;
+        self.inpt5_pin = r8!() != 0;
+        self.inpt_latch = r8!() != 0;
         self.frame_complete = r8!() != 0;
         self.in_vsync = r8!() != 0;
         Ok(p)
+    }
+}
+
+/// The new INPT4/INPT5 read value (bit 7, active low) for a fire button.
+///
+/// Unlatched (`enabled == false`): the read follows the pin — `0x00` pressed,
+/// `0x80` released. Latched (`enabled == true`): a press pulls the value low
+/// and it holds there even after release; releasing the pin keeps the previous
+/// value. The latch re-opens (and so starts following the pin again) when
+/// VBLANK bit 6 is cleared. Per `reference/by-topic/tia/tia-reference.md` § Input.
+#[must_use]
+fn latched_inpt(enabled: bool, pressed: bool, prev: u8) -> u8 {
+    if pressed {
+        0x00
+    } else if enabled {
+        prev
+    } else {
+        0x80
     }
 }
 
@@ -1303,6 +1346,45 @@ mod tests {
         // Release fire
         tia.set_inpt4(false);
         assert_eq!(tia.read(0x0C), 0x80);
+    }
+
+    #[test]
+    fn inpt4_latch_mode_holds_a_press_until_the_latch_reopens() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        // Enable latch mode (VBLANK bit 6).
+        tia.write(0x01, 0x40);
+
+        // A momentary press latches low and holds after release.
+        tia.set_inpt4(true);
+        assert_eq!(tia.read(0x0C), 0x00, "press latches low");
+        tia.set_inpt4(false);
+        assert_eq!(tia.read(0x0C), 0x00, "release stays low while latched");
+
+        // Clearing VBLANK bit 6 re-opens the latch — the read follows the pin
+        // again (currently released → high).
+        tia.write(0x01, 0x00);
+        assert_eq!(tia.read(0x0C), 0x80, "clearing bit 6 re-opens the latch");
+    }
+
+    #[test]
+    fn inpt5_unlatched_follows_the_pin() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        // No latch (bit 6 clear): INPT5 tracks the pin both ways.
+        tia.set_inpt5(true);
+        assert_eq!(tia.read(0x0D), 0x00, "pressed → low");
+        tia.set_inpt5(false);
+        assert_eq!(tia.read(0x0D), 0x80, "released → high (no hold)");
+    }
+
+    #[test]
+    fn enabling_the_latch_captures_a_held_button() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        // Button held before the latch is armed.
+        tia.set_inpt4(true);
+        // Arming the latch captures the held press, so a later release holds.
+        tia.write(0x01, 0x40);
+        tia.set_inpt4(false);
+        assert_eq!(tia.read(0x0C), 0x00, "held press captured at arm time");
     }
 
     #[test]
