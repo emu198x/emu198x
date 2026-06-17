@@ -67,6 +67,8 @@ pub(crate) fn apply_input_event(
                 machine.set_keypad_key(*port, row, col, *pressed);
             } else if let Some(is_booster) = booster_button(name.as_ref()) {
                 machine.set_booster_button(*port, is_booster, *pressed);
+            } else if is_genesis_c(name.as_ref()) {
+                machine.set_genesis_button_c(*port, *pressed);
             } else if let Some(bit) = switch_bit(name.as_ref()) {
                 cache.switches = toggle(cache.switches, bit, *pressed);
                 machine.set_switch_input(cache.switches);
@@ -91,6 +93,8 @@ pub(crate) fn apply_input_event(
                 machine.set_keypad_key(1, row, col, *pressed);
             } else if let Some(is_booster) = booster_button(&lower) {
                 machine.set_booster_button(1, is_booster, *pressed);
+            } else if is_genesis_c(&lower) {
+                machine.set_genesis_button_c(1, *pressed);
             } else if let Some(bit) = switch_bit(&lower) {
                 cache.switches = toggle(cache.switches, bit, *pressed);
                 machine.set_switch_input(cache.switches);
@@ -216,6 +220,15 @@ fn booster_button(name: &str) -> Option<bool> {
     })
 }
 
+/// Whether `name` is the Genesis pad's extra **C** button. Button B is the
+/// ordinary fire (INPT4/INPT5); C reads on the jack's INPT1/INPT3 line.
+fn is_genesis_c(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "c" | "buttonc" | "cbutton" | "genesisc"
+    )
+}
+
 /// Whether `name` is a fire-button name. The 2600 joystick has a single
 /// button per port (read on INPT4/INPT5), so all the common aliases map to it.
 fn is_fire(name: &str) -> bool {
@@ -250,7 +263,7 @@ fn toggle(current: u8, bit: u8, pressed: bool) -> u8 {
 mod tests {
     use super::{
         ControllerCache, DRIVE_GRAY, InputEvent, apply_input_event, axis_to_pot8, booster_button,
-        drive_rotation, is_fire, joystick_bit, keypad_cell, paddle_index,
+        drive_rotation, is_fire, is_genesis_c, joystick_bit, keypad_cell, paddle_index,
     };
     use machine_atari_2600::{Atari2600, Atari2600Region};
     use std::borrow::Cow;
@@ -455,6 +468,28 @@ mod tests {
         // Release floats the line low.
         apply_input_event(&mut m, &mut cache, &event("booster", false));
         assert_eq!(m.tia().read(0x09) & 0x80, 0, "booster release → INPT1 low");
+    }
+
+    #[test]
+    fn genesis_c_button_is_recognised_and_active_low_end_to_end() {
+        for n in ["c", "buttonc", "cbutton", "genesisc"] {
+            assert!(is_genesis_c(n), "{n} is the Genesis C button");
+        }
+        assert!(!is_genesis_c("booster"), "booster is not Genesis C");
+
+        let mut m = trap_machine();
+        let mut cache = ControllerCache::default();
+        let event = |pressed| InputEvent::Button {
+            port: 1,
+            name: Cow::Borrowed("buttonc"),
+            pressed,
+        };
+
+        // Inverted: pressed pulls INPT1 low, released ties it high.
+        apply_input_event(&mut m, &mut cache, &event(true));
+        assert_eq!(m.tia().read(0x09) & 0x80, 0, "C press → INPT1 low");
+        apply_input_event(&mut m, &mut cache, &event(false));
+        assert_eq!(m.tia().read(0x09) & 0x80, 0x80, "C release → INPT1 high");
     }
 
     #[test]
