@@ -68,7 +68,14 @@ impl Cartridge {
             other => return Err(format!("Unsupported ROM size: {other} bytes")),
         };
         let num_banks = data.len().checked_div(bank_size).unwrap_or(1);
-        let bank = num_banks.saturating_sub(1);
+        // Power-on bank, per Stella's per-scheme `getStartBank`. Most multi-bank
+        // schemes (F8/F6/F4/FA) boot from the last bank, but EF explicitly
+        // resets to bank 1 — its reset vector isn't replicated across all 16
+        // banks, so the last-bank default would misboot a real EF cart.
+        let bank = match scheme {
+            BankingScheme::Ef => 1,
+            _ => num_banks.saturating_sub(1),
+        };
         let ram = if scheme == BankingScheme::Fa {
             vec![0u8; 256]
         } else {
@@ -353,13 +360,13 @@ mod tests {
     fn detect_ef_rom() {
         let cart = Cartridge::from_rom(&banked_64k()).expect("64K");
         assert_eq!(cart.scheme(), BankingScheme::Ef);
-        assert_eq!(cart.bank(), 15, "power-on bank is the last (15)");
+        assert_eq!(cart.bank(), 1, "EF resets to bank 1 (Stella getStartBank)");
     }
 
     #[test]
     fn ef_banks_switch_across_the_full_hotspot_window() {
         let mut cart = Cartridge::from_rom(&banked_64k()).expect("EF");
-        assert_eq!(cart.read(0x1F00), 15, "starts in bank 15");
+        assert_eq!(cart.read(0x1F00), 1, "EF resets to bank 1");
         // Every hotspot $1FE0-$1FEF selects its bank 0-15.
         for bank in 0..16u16 {
             cart.read(0x1FE0 + bank);
