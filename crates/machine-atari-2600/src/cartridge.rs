@@ -54,6 +54,11 @@ pub enum BankingScheme {
     /// `$1000-$17FF` window (selected by storing the bank to any address
     /// `$00-$3F`), with `$1800-$1FFF` fixed to the last segment.
     ThreeF,
+    /// Activision FE: 8KB, two 4KB banks with no conventional hotspots. The
+    /// bank is chosen by snooping the stack — an access to `$01FE` arms a probe,
+    /// and the *next* access's bus value selects the bank (`(value >> 5) ^ 7`).
+    /// Used by Robot Tank and Decathlon.
+    Fe,
 }
 
 pub struct Cartridge {
@@ -81,6 +86,9 @@ pub struct Cartridge {
     /// bank. Layered over F8/F6/F4/EF when detected; uses the first 128 bytes
     /// of `ram`.
     superchip: bool,
+    /// FE only: armed by an access to `$01FE`; the next access's bus value then
+    /// selects the bank.
+    fe_armed: bool,
 }
 
 /// E0 slice size: 1 KB.
@@ -126,6 +134,9 @@ impl Cartridge {
                 // UA also shares the 8 KB size; detect it by its hotspot-access
                 // signature, ahead of the plain-F8 fallback.
                 8192 if is_probably_ua(data) => (BankingScheme::Ua, 4096),
+                // Activision FE, gated off any F8-style signature (matching
+                // Stella's `isProbablyFE(image) && !f8`).
+                8192 if is_probably_fe(data) && !is_probably_f8(data) => (BankingScheme::Fe, 4096),
                 8192 if is_probably_0840(data) => (BankingScheme::EconoBank, 4096),
                 8192 => (BankingScheme::F8, 4096),
                 // 12 KB is unique to CBS RAM+ (FA) — three 4 KB banks + 256 B RAM.
@@ -154,7 +165,8 @@ impl Cartridge {
             | BankingScheme::EconoBank
             | BankingScheme::ThreeE
             | BankingScheme::ThreeF
-            | BankingScheme::E7 => 0,
+            | BankingScheme::E7
+            | BankingScheme::Fe => 0,
             _ => num_banks.saturating_sub(1),
         };
         // Superchip (SARA) is a 128-byte RAM overlay on the 4 KB-bank schemes,
@@ -187,6 +199,7 @@ impl Cartridge {
             three_e_ram_bank: 0,
             e7_ram_bank: 0,
             superchip,
+            fe_armed: false,
         })
     }
 
@@ -415,6 +428,23 @@ impl Cartridge {
         }
     }
 
+    /// Observe a bus access (post-value) for the Activision FE scheme: an
+    /// access to `$01FE` arms a probe, and the next access's bus `value`
+    /// selects the bank (`(value >> 5) ^ 0b111`). Called for every CPU access,
+    /// read or write; no-op for other schemes.
+    pub fn snoop_fe(&mut self, addr: u16, value: u8) {
+        if self.scheme != BankingScheme::Fe {
+            return;
+        }
+        if self.fe_armed {
+            let banks = (self.rom.len() / self.bank_size).max(1);
+            self.bank = usize::from((value >> 5) ^ 0b111) % banks;
+            self.fe_armed = false;
+        } else {
+            self.fe_armed = addr == 0x01FE;
+        }
+    }
+
     /// Current bank.
     #[must_use]
     pub fn bank(&self) -> usize {
@@ -485,6 +515,8 @@ impl Cartridge {
             | BankingScheme::EconoBank
             | BankingScheme::ThreeE
             | BankingScheme::ThreeF => {}
+            // FE switches via the stack-snoop probe in `snoop_fe`.
+            BankingScheme::Fe => {}
             // E7 (16K): $1FE0-$1FE7 select the $1000 window bank (7 = RAM),
             // $1FE8-$1FEB select the 256-byte RAM strip bank.
             BankingScheme::E7 => match addr {
@@ -582,6 +614,26 @@ fn is_probably_3e(rom: &[u8]) -> bool {
 /// *after* 3E, whose signature is a superset.
 fn is_probably_3f(rom: &[u8]) -> bool {
     count_bytes(rom, &[0x85, 0x3F]) >= 2
+}
+
+/// Whether an 8 KB image is an Activision FE cart. FE bankswitching always
+/// rides a `JSR $xxxx`; detection scans for the known per-game signatures,
+/// ported from Stella's `isProbablyFE`.
+fn is_probably_fe(rom: &[u8]) -> bool {
+    const SIGNATURES: [[u8; 5]; 5] = [
+        [0x20, 0x00, 0xD0, 0xC6, 0xC5], // JSR $D000; DEC $C5   Decathlon
+        [0x20, 0xC3, 0xF8, 0xA5, 0x82], // JSR $F8C3; LDA $82   Robot Tank
+        [0xD0, 0xFB, 0x20, 0x73, 0xFE], // BNE -5; JSR $FE73    Space Shuttle
+        [0xD0, 0xFB, 0x20, 0x68, 0xFE], // BNE -5; JSR $FE68    Space Shuttle (SECAM)
+        [0x20, 0x00, 0xF0, 0x84, 0xD6], // JSR $F000; STY $D6   Thwocker
+    ];
+    SIGNATURES.iter().any(|sig| count_bytes(rom, sig) >= 1)
+}
+
+/// Whether an image carries an F8-style hotspot signature (`STA $1FF9` /
+/// `STA $FFF9`). Used to keep an F8 cart out of the FE detection path.
+fn is_probably_f8(rom: &[u8]) -> bool {
+    count_bytes(rom, &[0x8D, 0xF9, 0x1F]) >= 1 || count_bytes(rom, &[0x8D, 0xF9, 0xFF]) >= 1
 }
 
 /// Whether a 4 KB-bank image carries a Superchip (SARA) overlay. The 128-byte
@@ -1058,6 +1110,51 @@ mod tests {
             1,
             "ROM bank 1 visible past the RAM window"
         );
+    }
+
+    /// Build an 8 KB Activision FE image: bank 0 = 0xE0, bank 1 = 0xE1, with a
+    /// JSR-based FE signature and no F8 signature.
+    fn fe_rom() -> Vec<u8> {
+        let mut rom = vec![0u8; 8192];
+        rom[0..4096].fill(0xE0);
+        rom[4096..8192].fill(0xE1);
+        rom[0x40..0x45].copy_from_slice(&[0x20, 0xC3, 0xF8, 0xA5, 0x82]); // Robot Tank
+        rom
+    }
+
+    #[test]
+    fn detect_fe_not_f8() {
+        let cart = Cartridge::from_rom(&fe_rom()).expect("FE");
+        assert_eq!(cart.scheme(), BankingScheme::Fe);
+        assert_eq!(cart.bank(), 0, "FE powers on at bank 0");
+
+        // An 8K image with both an FE and an F8 signature stays F8 (the !f8 gate).
+        let mut both = fe_rom();
+        both[0x80..0x83].copy_from_slice(&[0x8D, 0xF9, 0x1F]); // STA $1FF9
+        assert_eq!(
+            Cartridge::from_rom(&both).expect("F8").scheme(),
+            BankingScheme::F8
+        );
+    }
+
+    #[test]
+    fn fe_selects_bank_from_the_access_after_01fe() {
+        let mut cart = Cartridge::from_rom(&fe_rom()).expect("FE");
+        assert_eq!(cart.read(0x1000), 0xE0, "starts in bank 0");
+
+        // Arm with a $01FE access, then a $D0-valued access → bank 1.
+        cart.snoop_fe(0x01FE, 0x00);
+        cart.snoop_fe(0x1234, 0xD0);
+        assert_eq!(cart.read(0x1000), 0xE1, "value $D0 after $01FE → bank 1");
+
+        // Arm again, a $F0-valued access → bank 0.
+        cart.snoop_fe(0x01FE, 0x00);
+        cart.snoop_fe(0x1234, 0xF0);
+        assert_eq!(cart.read(0x1000), 0xE0, "value $F0 after $01FE → bank 0");
+
+        // A value access *not* preceded by $01FE leaves the bank alone.
+        cart.snoop_fe(0x1234, 0xD0);
+        assert_eq!(cart.read(0x1000), 0xE0, "lone access doesn't switch");
     }
 
     #[test]

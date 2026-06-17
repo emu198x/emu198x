@@ -168,6 +168,9 @@ impl Atari2600 {
             self.riot.read(addr)
         };
         self.data_bus = value;
+        // FE selects its bank from the value of the access *after* a $01FE
+        // touch, so it must see the read result.
+        self.cart.snoop_fe(addr, value);
         value
     }
 
@@ -176,6 +179,7 @@ impl Atari2600 {
         self.data_bus = value;
         // Writes can switch banks both by address (UA/0840) and by value (3E).
         self.cart.snoop_write(addr, value);
+        self.cart.snoop_fe(addr, value);
         if addr & 0x1000 != 0 {
             self.cart.write(addr, value);
         } else if addr & 0x0080 == 0 {
@@ -463,6 +467,28 @@ mod tests {
 
         sys.set_fire(1, false);
         assert_eq!(sys.tia().read(0x0C) & 0x80, 0x80, "p1 release → INPT4 high");
+    }
+
+    #[test]
+    fn fe_cart_switches_banks_from_the_stack_snoop() {
+        // 8K FE image: bank 0 = 0xE0, bank 1 = 0xE1, FE signature + reset vector.
+        let mut rom = vec![0u8; 8192];
+        rom[0..4096].fill(0xE0);
+        rom[4096..8192].fill(0xE1);
+        rom[0x40..0x45].copy_from_slice(&[0x20, 0xC3, 0xF8, 0xA5, 0x82]); // FE sig
+        rom[0x0FFC] = 0x00;
+        rom[0x0FFD] = 0x10;
+        let mut sys = Atari2600::new(rom, Atari2600Region::Ntsc).expect("FE");
+
+        // Arm with a bus access to $01FE, then a $D0-valued write → bank 1.
+        sys.mem_read(0x01FE);
+        sys.mem_write(0x0080, 0xD0);
+        assert_eq!(sys.mem_read(0x1000), 0xE1, "$01FE then value $D0 → bank 1");
+
+        // Arm again, a $F0-valued write → bank 0.
+        sys.mem_read(0x01FE);
+        sys.mem_write(0x0080, 0xF0);
+        assert_eq!(sys.mem_read(0x1000), 0xE0, "$01FE then value $F0 → bank 0");
     }
 
     #[test]
