@@ -213,7 +213,9 @@ fn archive_match_rules(kind: MediaKind) -> (&'static str, &'static [&'static str
         ),
         MediaKind::Cartridge => (
             "cartridge image",
-            &["bin", "crt", "dgn", "gb", "gbc", "md", "nes", "rom"],
+            &[
+                "a26", "a52", "a78", "bin", "crt", "dgn", "gb", "gbc", "md", "nes", "rom",
+            ],
         ),
         MediaKind::Optical => ("optical image", &["bin", "ccd", "chd", "cue", "img", "iso"]),
         MediaKind::Snapshot => ("snapshot image", &["pak", "pst", "sna", "szx", "z80"]),
@@ -270,6 +272,23 @@ mod tests {
 
         assert_eq!(loaded.bytes, b"ZXTape!\x1A\x01");
         assert_eq!(loaded.archive_member.as_deref(), Some("Manic Miner.tzx"));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn read_media_asset_extracts_a26_cartridge_from_zip() {
+        // TOSEC distributes Atari 2600 carts zipped with the `.a26` extension;
+        // the cartridge match rules must recognise it.
+        let path = temp_path("cart-a26.zip");
+        let zip = write_zip(&[("scans.txt", b"not a rom"), ("Combat.a26", &[0xEA; 2048])]);
+        fs::write(&path, zip).expect("zip test fixture should write");
+
+        let loaded = read_media_asset(&path, MediaKind::Cartridge)
+            .expect("zip cartridge asset should extract the .a26 member");
+
+        assert_eq!(loaded.bytes.len(), 2048);
+        assert_eq!(loaded.archive_member.as_deref(), Some("Combat.a26"));
 
         let _ = fs::remove_file(path);
     }
