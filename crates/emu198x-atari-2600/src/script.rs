@@ -1,6 +1,5 @@
 //! Headless Atari 2600 runner.
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -203,7 +202,11 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
 }
 
 fn load_cart_bytes(path: &Path) -> Result<Vec<u8>, String> {
-    fs::read(path).map_err(|err| format!("failed to read --cart {}: {err}", path.display()))
+    // Goes through the shell's media loader so a zipped cart (the TOSEC `.a26`
+    // distribution form) is expanded transparently; a raw file is read as-is.
+    emu198x_shell::asset::read_media_asset(path, emu198x_shell::MediaKind::Cartridge)
+        .map(|asset| asset.bytes)
+        .map_err(|err| format!("failed to read --cart {}: {err}", path.display()))
 }
 
 #[cfg(test)]
