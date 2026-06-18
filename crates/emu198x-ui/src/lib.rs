@@ -81,6 +81,15 @@ pub trait UiSystem {
     fn after_reset(&mut self, _runtime: &mut Self::Runtime) -> Result<(), MachineError> {
         Ok(())
     }
+
+    /// Optional human-readable status when the machine has wedged — e.g. the
+    /// CPU executed a JAM/stop-code (usually a bad ROM dump). Returned every
+    /// frame; the harness logs it once and appends it to the window title so a
+    /// hang reads as "CPU halted" instead of a silent grey screen. `None` means
+    /// running normally. Default: never reports a halt.
+    fn halt_status(&self, _runtime: &Self::Runtime) -> Option<String> {
+        None
+    }
 }
 
 /// Errors that can end a UI session.
@@ -155,6 +164,7 @@ struct App<S: UiSystem> {
     video: Option<WgpuVideoPresenter>,
     presentation: PresentationProfile,
     fatal_error: Option<UiError>,
+    halt_flagged: bool,
 }
 
 impl<S: UiSystem> App<S> {
@@ -180,6 +190,32 @@ impl<S: UiSystem> App<S> {
             video: None,
             presentation: PresentationProfile::for_filter(video),
             fatal_error: None,
+            halt_flagged: false,
+        }
+    }
+
+    /// Surface a machine halt (e.g. a CPU JAM) once: log it and append it to the
+    /// window title. Clears the flag (and restores the title) when the machine
+    /// resumes — e.g. after a reset.
+    fn update_halt_status(&mut self) {
+        match (
+            self.system.halt_status(&self.runner.runtime),
+            self.halt_flagged,
+        ) {
+            (Some(status), false) => {
+                eprintln!("warning: {status}");
+                if let Some(window) = &self.window {
+                    window.set_title(&format!("{} — {status}", self.system.window_title()));
+                }
+                self.halt_flagged = true;
+            }
+            (None, true) => {
+                if let Some(window) = &self.window {
+                    window.set_title(&self.system.window_title());
+                }
+                self.halt_flagged = false;
+            }
+            _ => {}
         }
     }
 
@@ -386,6 +422,7 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
                 return;
             }
         }
+        self.update_halt_status();
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_slice_at));
     }
 }

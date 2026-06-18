@@ -528,6 +528,23 @@ mod tests {
     }
 
     #[test]
+    fn jam_opcode_halts_the_cpu() {
+        // A 4K cart whose reset vector points at a JAM ($02) stop-code — the
+        // shape of a corrupted ROM dump. The CPU must halt (real silicon
+        // behaviour), which the UI/query layer surfaces instead of a silent
+        // grey screen.
+        let mut rom = vec![0u8; 4096];
+        rom[0x000] = 0x02; // JAM at $1000
+        rom[0x0FFC] = 0x00;
+        rom[0x0FFD] = 0x10; // reset vector → $1000
+        let mut sys = Atari2600::new(rom, Atari2600Region::Ntsc).expect("init");
+
+        assert!(!sys.cpu().halted, "a fresh CPU is running");
+        sys.run_frame();
+        assert!(sys.cpu().halted, "executing a JAM opcode halts the CPU");
+    }
+
+    #[test]
     fn booster_grip_buttons_drive_the_paddle_inpt_lines() {
         let mut sys = Atari2600::new(trap_rom(), Atari2600Region::Ntsc).expect("init");
 
