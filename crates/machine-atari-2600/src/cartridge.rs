@@ -59,6 +59,12 @@ pub enum BankingScheme {
     /// and the *next* access's bus value selects the bank (`(value >> 5) ^ 7`).
     /// Used by Robot Tank and Decathlon.
     Fe,
+    /// DPC (Pitfall II's coprocessor): F8-style 8KB program banking plus a 2KB
+    /// graphics ROM streamed through eight data fetchers, an LFSR, and three
+    /// music-mode fetchers. Registers at `$1000-$103F` (read) / `$1040-$107F`
+    /// (write); reads have side effects (clock the RNG, advance counters). The
+    /// music oscillator timing is added separately (#532).
+    Dpc,
 }
 
 pub struct Cartridge {
@@ -89,6 +95,16 @@ pub struct Cartridge {
     /// FE only: armed by an access to `$01FE`; the next access's bus value then
     /// selects the bank.
     fe_armed: bool,
+    /// DPC data-fetcher state (8 fetchers): top/bottom comparators, 11-bit
+    /// counters, and flag registers. Fetchers 5-7 can run in music mode.
+    dpc_tops: [u8; 8],
+    dpc_bottoms: [u8; 8],
+    dpc_counters: [u16; 8],
+    dpc_flags: [u8; 8],
+    /// DPC music mode for fetchers 5/6/7.
+    dpc_music_mode: [bool; 3],
+    /// DPC LFSR random-number register (must stay non-zero).
+    dpc_rng: u8,
 }
 
 /// E0 slice size: 1 KB.
@@ -108,6 +124,11 @@ const E7_WINDOW_RAM: usize = 1024;
 /// E7 fixed 256-byte RAM bank size (four banks at `$1800-$19FF`).
 const E7_STRIP_RAM: usize = 256;
 
+/// DPC: the 2KB graphics ROM follows the 8KB program in the image.
+const DPC_DISPLAY_OFFSET: usize = 8192;
+/// DPC graphics ROM size (2KB), also the data-fetcher counter span.
+const DPC_DISPLAY_SIZE: usize = 2048;
+
 impl Cartridge {
     /// Parse a ROM and detect the banking scheme from its size.
     pub fn from_rom(data: &[u8]) -> Result<Self, String> {
@@ -115,11 +136,18 @@ impl Cartridge {
         // size-keyed schemes, and use 2 KB ROM segments. Priority is E0 → 3E →
         // 3F (3E's signature is a superset of 3F's), matching Stella; the E0
         // gate keeps an 8 KB E0 cart out of the 3E/3F pre-checks.
-        let is_e0 = data.len() == 8192 && is_probably_e0(data);
-        let bankable_2k = !is_e0 && data.len() >= 8192 && data.len().is_multiple_of(THREE_E_SEG);
+        // DPC (Pitfall II) is ~10 KB (8 KB program + 2 KB graphics, optional
+        // padding); it's a distinct size with no other scheme, so detect it by
+        // size ahead of the 2 KB-multiple 3E/3F pre-check.
+        let is_dpc = (10240..=10496).contains(&data.len());
+        let is_e0 = !is_dpc && data.len() == 8192 && is_probably_e0(data);
+        let bankable_2k =
+            !is_dpc && !is_e0 && data.len() >= 8192 && data.len().is_multiple_of(THREE_E_SEG);
         let is_3e = bankable_2k && is_probably_3e(data);
         let is_3f = bankable_2k && !is_3e && is_probably_3f(data);
-        let (scheme, bank_size) = if is_3e {
+        let (scheme, bank_size) = if is_dpc {
+            (BankingScheme::Dpc, 4096)
+        } else if is_3e {
             (BankingScheme::ThreeE, THREE_E_SEG)
         } else if is_3f {
             (BankingScheme::ThreeF, THREE_E_SEG)
@@ -200,14 +228,95 @@ impl Cartridge {
             e7_ram_bank: 0,
             superchip,
             fe_armed: false,
+            dpc_tops: [0; 8],
+            dpc_bottoms: [0; 8],
+            dpc_counters: [0; 8],
+            dpc_flags: [0; 8],
+            dpc_music_mode: [false; 3],
+            dpc_rng: 1,
         })
     }
 
     /// Read a byte from the cart at `$1000-$1FFF` (also fires hotspot
     /// detection for bank switching).
     pub fn read(&mut self, addr: u16) -> u8 {
+        // DPC register reads have side effects (clock the RNG, advance fetcher
+        // counters), so they take a dedicated mutating path.
+        if self.scheme == BankingScheme::Dpc {
+            return self.dpc_read(addr);
+        }
         self.check_hotspot(addr);
         self.byte_at(addr)
+    }
+
+    /// DPC read: registers at `$1000-$103F` stream the graphics ROM through the
+    /// data fetchers / RNG (with side effects); `$1040-$1FFF` is program ROM.
+    fn dpc_read(&mut self, addr: u16) -> u8 {
+        self.check_hotspot(addr); // F8-style $1FF8/$1FF9 program banking
+        self.dpc_clock_rng();
+        let address = (addr & 0x0FFF) as usize;
+        if address >= 0x40 {
+            return self
+                .rom
+                .get(self.bank * 4096 + address)
+                .copied()
+                .unwrap_or(0);
+        }
+        let index = address & 0x07;
+        let function = (address >> 3) & 0x07;
+        // Refresh the fetcher's flag from its top/bottom comparators.
+        let low = (self.dpc_counters[index] & 0x00FF) as u8;
+        if low == self.dpc_tops[index] {
+            self.dpc_flags[index] = 0xFF;
+        } else if low == self.dpc_bottoms[index] {
+            self.dpc_flags[index] = 0x00;
+        }
+        let result = match function {
+            0x00 if index < 4 => self.dpc_rng,
+            0x00 => {
+                // Music amplitude from fetchers 5-7 (oscillator advance: #532).
+                const AMPLITUDES: [u8; 8] = [0x00, 0x04, 0x05, 0x09, 0x06, 0x0A, 0x0B, 0x0F];
+                let mut i = 0usize;
+                if self.dpc_music_mode[0] && self.dpc_flags[5] != 0 {
+                    i |= 0x01;
+                }
+                if self.dpc_music_mode[1] && self.dpc_flags[6] != 0 {
+                    i |= 0x02;
+                }
+                if self.dpc_music_mode[2] && self.dpc_flags[7] != 0 {
+                    i |= 0x04;
+                }
+                AMPLITUDES[i]
+            }
+            0x01 => self.dpc_display(index),
+            0x02 => self.dpc_display(index) & self.dpc_flags[index],
+            0x07 => self.dpc_flags[index],
+            _ => 0,
+        };
+        // Advance the counter unless this is a music-mode fetcher (5-7).
+        if index < 5 || !self.dpc_music_mode[index - 5] {
+            self.dpc_counters[index] = self.dpc_counters[index].wrapping_sub(1) & 0x07FF;
+        }
+        result
+    }
+
+    /// The graphics-ROM byte the data fetcher at `index` currently points to.
+    /// The 11-bit counter indexes the 2KB display ROM in reverse.
+    fn dpc_display(&self, index: usize) -> u8 {
+        let counter = (self.dpc_counters[index] & 0x07FF) as usize;
+        self.rom
+            .get(DPC_DISPLAY_OFFSET + (DPC_DISPLAY_SIZE - 1 - counter))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Clock the DPC's LFSR one step (the input bit is the NOT-XOR of bits
+    /// 7/5/4/3, via a lookup table; matches Stella).
+    fn dpc_clock_rng(&mut self) {
+        const F: [u8; 16] = [1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1];
+        let idx = usize::from((self.dpc_rng >> 3) & 0x07)
+            | if self.dpc_rng & 0x80 != 0 { 0x08 } else { 0x00 };
+        self.dpc_rng = (self.dpc_rng << 1) | F[idx];
     }
 
     /// The cart byte mapped at `addr`, with no bank-switch side effect.
@@ -217,6 +326,18 @@ impl Cartridge {
         // write port ($1000-$107F) fall through to the (padding) ROM below.
         if self.superchip && (0x80..0x100).contains(&offset) {
             return self.ram.get(offset - 0x80).copied().unwrap_or(0);
+        }
+        // DPC: side-effect-free peek (debugger view). Registers ($1000-$103F)
+        // can't be read without mutating, so report 0; the rest is program ROM.
+        if self.scheme == BankingScheme::Dpc {
+            if offset < 0x40 {
+                return 0;
+            }
+            return self
+                .rom
+                .get(self.bank * 4096 + offset)
+                .copied()
+                .unwrap_or(0);
         }
         if self.scheme == BankingScheme::E0 {
             // Four 1KB slices: 0/1/2 follow their segment banks, slice 3 ($1C00-
@@ -374,6 +495,43 @@ impl Cartridge {
                 }
             }
         }
+        // DPC: program the data fetchers via the write registers ($1040-$107F).
+        if self.scheme == BankingScheme::Dpc {
+            self.dpc_clock_rng();
+            let address = (addr & 0x0FFF) as usize;
+            if (0x40..0x80).contains(&address) {
+                let index = address & 0x07;
+                match (address >> 3) & 0x07 {
+                    // DFx top count (also clears the flag).
+                    0x00 => {
+                        self.dpc_tops[index] = value;
+                        self.dpc_flags[index] = 0x00;
+                    }
+                    // DFx bottom count.
+                    0x01 => self.dpc_bottoms[index] = value,
+                    // DFx counter low — a music-mode fetcher reloads from `top`.
+                    0x02 => {
+                        let lo = if index >= 5 && self.dpc_music_mode[index - 5] {
+                            u16::from(self.dpc_tops[index])
+                        } else {
+                            u16::from(value)
+                        };
+                        self.dpc_counters[index] = (self.dpc_counters[index] & 0x0700) | lo;
+                    }
+                    // DFx counter high (+ music-mode enable for fetchers 5-7).
+                    0x03 => {
+                        self.dpc_counters[index] =
+                            ((u16::from(value) & 0x07) << 8) | (self.dpc_counters[index] & 0x00FF);
+                        if index >= 5 {
+                            self.dpc_music_mode[index - 5] = value & 0x10 != 0;
+                        }
+                    }
+                    // RNG reset.
+                    0x06 => self.dpc_rng = 1,
+                    _ => {}
+                }
+            }
+        }
     }
 
     /// Snoop any bus access for schemes whose bank-select hotspots fall
@@ -522,6 +680,12 @@ impl Cartridge {
             BankingScheme::E7 => match addr {
                 0x1FE0..=0x1FE7 => self.bank = usize::from(addr & 0x0007),
                 0x1FE8..=0x1FEB => self.e7_ram_bank = usize::from(addr & 0x0003),
+                _ => {}
+            },
+            // DPC banks its 8 KB program F8-style ($1FF8/$1FF9).
+            BankingScheme::Dpc => match addr {
+                0x1FF8 => self.bank = 0,
+                0x1FF9 => self.bank = 1,
                 _ => {}
             },
         }
@@ -1155,6 +1319,63 @@ mod tests {
         // A value access *not* preceded by $01FE leaves the bank alone.
         cart.snoop_fe(0x1234, 0xD0);
         assert_eq!(cart.read(0x1000), 0xE0, "lone access doesn't switch");
+    }
+
+    /// Build a 10 KB DPC image (Pitfall II shape): 8 KB program with bank
+    /// markers at `$1080`, then a 2 KB graphics ROM filled `display[j] = j`.
+    fn dpc_rom() -> Vec<u8> {
+        let mut rom = vec![0u8; 10240];
+        rom[0x80] = 0xB0; // program bank 0, read at $1080
+        rom[4096 + 0x80] = 0xB1; // program bank 1, read at $1080
+        for (j, byte) in rom[8192..10240].iter_mut().enumerate() {
+            *byte = j as u8;
+        }
+        rom
+    }
+
+    #[test]
+    fn detect_dpc_by_size() {
+        let cart = Cartridge::from_rom(&dpc_rom()).expect("DPC");
+        assert_eq!(cart.scheme(), BankingScheme::Dpc);
+        assert_eq!(cart.bank(), 1, "DPC powers on at program bank 1 (F8-style)");
+    }
+
+    #[test]
+    fn dpc_program_banks_switch_f8_style() {
+        let mut cart = Cartridge::from_rom(&dpc_rom()).expect("DPC");
+        assert_eq!(cart.read(0x1080), 0xB1, "starts in bank 1");
+        cart.read(0x1FF8);
+        assert_eq!(cart.read(0x1080), 0xB0, "$1FF8 → bank 0");
+        cart.read(0x1FF9);
+        assert_eq!(cart.read(0x1080), 0xB1, "$1FF9 → bank 1");
+    }
+
+    #[test]
+    fn dpc_data_fetcher_streams_the_graphics_rom() {
+        let mut cart = Cartridge::from_rom(&dpc_rom()).expect("DPC");
+        // Point fetcher 0 at counter 2047 → display index 0. Write registers:
+        // counter-low = function 2 ($1050), counter-high = function 3 ($1058).
+        cart.write(0x1050, 0xFF);
+        cart.write(0x1058, 0x07); // counter = 0x7FF = 2047
+
+        // Reads via function 1 ($1008) return display[2047 - counter] and then
+        // decrement the counter, so the fetcher streams display[0], [1], [2]…
+        assert_eq!(cart.read(0x1008), 0, "display[0]");
+        assert_eq!(cart.read(0x1008), 1, "display[1] after decrement");
+        assert_eq!(cart.read(0x1008), 2, "display[2]");
+    }
+
+    #[test]
+    fn dpc_random_number_generator_advances_and_resets() {
+        let mut cart = Cartridge::from_rom(&dpc_rom()).expect("DPC");
+        // Function 0, index < 4 ($1000) reads the RNG (clocked on each access).
+        // From the reset state (1) the LFSR yields 3, then 7.
+        assert_eq!(cart.read(0x1000), 3, "first RNG step");
+        assert_eq!(cart.read(0x1000), 7, "second RNG step");
+
+        // RNG-reset register (function 6 → $1070) returns it to the seed.
+        cart.write(0x1070, 0x00);
+        assert_eq!(cart.read(0x1000), 3, "reset restarts the sequence");
     }
 
     #[test]
