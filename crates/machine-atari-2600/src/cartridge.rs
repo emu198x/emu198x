@@ -105,6 +105,13 @@ pub struct Cartridge {
     dpc_music_mode: [bool; 3],
     /// DPC LFSR random-number register (must stay non-zero).
     dpc_rng: u8,
+    /// DPC music oscillator: CPU cycles elapsed (driven by [`Self::tick`]), the
+    /// cycle of the last music update, the carried fractional OSC clock, and the
+    /// CPU clock rate (region-dependent, set by the machine).
+    dpc_cycle: u64,
+    dpc_audio_cycle: u64,
+    dpc_fractional: f64,
+    dpc_clock_rate: f64,
 }
 
 /// E0 slice size: 1 KB.
@@ -128,6 +135,9 @@ const E7_STRIP_RAM: usize = 256;
 const DPC_DISPLAY_OFFSET: usize = 8192;
 /// DPC graphics ROM size (2KB), also the data-fetcher counter span.
 const DPC_DISPLAY_SIZE: usize = 2048;
+/// DPC music oscillator frequency (Hz). Stella's default DPC "pitch"; the music
+/// fetchers advance at this rate relative to the CPU clock.
+const DPC_PITCH: f64 = 20_000.0;
 
 impl Cartridge {
     /// Parse a ROM and detect the banking scheme from its size.
@@ -234,6 +244,11 @@ impl Cartridge {
             dpc_flags: [0; 8],
             dpc_music_mode: [false; 3],
             dpc_rng: 1,
+            dpc_cycle: 0,
+            dpc_audio_cycle: 0,
+            dpc_fractional: 0.0,
+            // NTSC CPU clock by default; the machine overrides per region.
+            dpc_clock_rate: 1_193_182.0,
         })
     }
 
@@ -274,7 +289,9 @@ impl Cartridge {
         let result = match function {
             0x00 if index < 4 => self.dpc_rng,
             0x00 => {
-                // Music amplitude from fetchers 5-7 (oscillator advance: #532).
+                // Music amplitude from fetchers 5-7, after advancing the
+                // oscillator by the cycles elapsed since the last music read.
+                self.dpc_update_music();
                 const AMPLITUDES: [u8; 8] = [0x00, 0x04, 0x05, 0x09, 0x06, 0x0A, 0x0B, 0x0F];
                 let mut i = 0usize;
                 if self.dpc_music_mode[0] && self.dpc_flags[5] != 0 {
@@ -600,6 +617,56 @@ impl Cartridge {
             self.fe_armed = false;
         } else {
             self.fe_armed = addr == 0x01FE;
+        }
+    }
+
+    /// Advance the cart's CPU-cycle clock by one (driven by the machine each
+    /// CPU cycle). Only the DPC music oscillator uses it.
+    pub fn tick(&mut self) {
+        if self.scheme == BankingScheme::Dpc {
+            self.dpc_cycle = self.dpc_cycle.wrapping_add(1);
+        }
+    }
+
+    /// Set the CPU clock rate (Hz) the DPC music oscillator times against.
+    /// Region-dependent; the machine sets it after construction.
+    pub fn set_dpc_clock_rate(&mut self, hz: f64) {
+        self.dpc_clock_rate = hz;
+    }
+
+    /// Advance the DPC music-mode fetchers (5-7) by the OSC clocks elapsed
+    /// since the last update, deriving the count from the CPU cycles run and
+    /// the pitch/clock ratio. Called on each music-amplitude read.
+    fn dpc_update_music(&mut self) {
+        let cycles = self.dpc_cycle.wrapping_sub(self.dpc_audio_cycle);
+        self.dpc_audio_cycle = self.dpc_cycle;
+        let clocks = (DPC_PITCH * cycles as f64) / self.dpc_clock_rate + self.dpc_fractional;
+        let whole = clocks.floor();
+        self.dpc_fractional = clocks - whole;
+        let whole = whole as u32;
+        if whole == 0 {
+            return;
+        }
+        for x in 5..8 {
+            if !self.dpc_music_mode[x - 5] {
+                continue;
+            }
+            let top = u32::from(self.dpc_tops[x]) + 1;
+            let mut new_low = i32::from((self.dpc_counters[x] & 0x00FF) as u8);
+            if self.dpc_tops[x] != 0 {
+                new_low -= (whole % top) as i32;
+                if new_low < 0 {
+                    new_low += top as i32;
+                }
+            } else {
+                new_low = 0;
+            }
+            if new_low <= i32::from(self.dpc_bottoms[x]) {
+                self.dpc_flags[x] = 0x00;
+            } else if new_low <= i32::from(self.dpc_tops[x]) {
+                self.dpc_flags[x] = 0xFF;
+            }
+            self.dpc_counters[x] = (self.dpc_counters[x] & 0x0700) | (new_low as u16 & 0x00FF);
         }
     }
 
@@ -1376,6 +1443,35 @@ mod tests {
         // RNG-reset register (function 6 → $1070) returns it to the seed.
         cart.write(0x1070, 0x00);
         assert_eq!(cart.read(0x1000), 3, "reset restarts the sequence");
+    }
+
+    #[test]
+    fn dpc_music_fetcher_advances_with_elapsed_cycles() {
+        let mut cart = Cartridge::from_rom(&dpc_rom()).expect("DPC");
+        // One OSC clock per CPU cycle makes the timing deterministic.
+        cart.set_dpc_clock_rate(DPC_PITCH);
+
+        // Fetcher 5 in music mode: top 0x0A, counter low 0x08, bottom 0 — set
+        // the counter *before* enabling music mode (a music-mode counter-low
+        // write reloads from top instead).
+        cart.write(0x1045, 0x0A); // top (fetcher 5)
+        cart.write(0x1055, 0x08); // counter low
+        cart.write(0x105D, 0x10); // counter high 0 + music-mode enable
+
+        // No cycles elapsed yet: the flag is clear (top write cleared it), so
+        // the music amplitude read ($1005, function 0 / index 5) is 0.
+        assert_eq!(cart.read(0x1005), 0x00, "no elapsed cycles → amplitude 0");
+
+        // Advance 3 OSC clocks: counter 0x08 → 0x05, which sits between bottom
+        // and top, so fetcher 5's flag sets and voice 0 contributes (0x04).
+        for _ in 0..3 {
+            cart.tick();
+        }
+        assert_eq!(
+            cart.read(0x1005),
+            0x04,
+            "3 clocks → fetcher 5 flag set → 0x04"
+        );
     }
 
     #[test]
