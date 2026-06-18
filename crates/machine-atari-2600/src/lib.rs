@@ -73,6 +73,15 @@ impl Atari2600Region {
             Self::Pal => 312,
         }
     }
+
+    /// CPU clock (Hz): the TIA colour clock divided by 3. Used to time the DPC
+    /// music oscillator.
+    fn cpu_clock_hz(self) -> f64 {
+        match self {
+            Self::Ntsc => 3_579_545.0 / 3.0,
+            Self::Pal => 3_546_894.0 / 3.0,
+        }
+    }
 }
 
 /// Atari 2600 machine.
@@ -99,7 +108,8 @@ pub struct Atari2600 {
 impl Atari2600 {
     /// Create a new Atari 2600 with the given cart ROM and region.
     pub fn new(rom: Vec<u8>, region: Atari2600Region) -> Result<Self, String> {
-        let cart = Cartridge::from_rom(&rom)?;
+        let mut cart = Cartridge::from_rom(&rom)?;
+        cart.set_dpc_clock_rate(region.cpu_clock_hz());
         let mut cpu = M6502::new();
         cpu.reset();
         let tia = Tia::new(region.tia_region());
@@ -138,6 +148,9 @@ impl Atari2600 {
             // Refresh any keypad's INPT drive from the current SWCHA row scan
             // before the CPU can read it back.
             self.update_keypads();
+            // Advance the cart's CPU-cycle clock (DPC music oscillator). Time
+            // passes during a WSYNC halt, so this is outside the halt guard.
+            self.cart.tick();
             if !self.tia.wsync_halt {
                 self.cpu.tick();
                 if self.cpu.rw {
