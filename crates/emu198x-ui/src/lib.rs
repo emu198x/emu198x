@@ -57,13 +57,13 @@ pub trait UiSystem {
         3
     }
 
-    /// Pixel aspect ratio (pixel width ÷ height) of the framebuffer. `1.0` for
-    /// square pixels; > 1 for systems whose pixels are wider than tall (the
-    /// Atari 2600 ≈ 1.6). The harness sizes the window and the presenter scales
-    /// the picture by this, so it displays with its true proportions rather
-    /// than looking too narrow.
-    fn pixel_aspect_ratio(&self) -> f32 {
-        1.0
+    /// Target display aspect ratio (picture width ÷ height) the framebuffer
+    /// should fill — e.g. `Some(4.0 / 3.0)` for a system that drove a 4:3 TV.
+    /// The harness derives the pixel-stretch from this and the cropped
+    /// framebuffer dimensions, so the picture keeps its true proportions
+    /// whatever the scanline count. `None` ⇒ square pixels (no stretch).
+    fn display_aspect_ratio(&self) -> Option<f32> {
+        None
     }
 
     /// Input sub-slices per frame. Use `1` for runtimes that advance in whole
@@ -187,8 +187,10 @@ impl<S: UiSystem> App<S> {
         let slice_ticks = frame_ticks.div_ceil(u64::from(slices));
         let slice_duration =
             Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(slices));
-        let mut presentation = PresentationProfile::for_filter(video);
-        presentation.pixel_aspect_ratio = system.pixel_aspect_ratio();
+        // The pixel aspect ratio is derived from the system's target display
+        // aspect and the cropped framebuffer size once the window opens (see
+        // `create_window`); square pixels until then.
+        let presentation = PresentationProfile::for_filter(video);
         Self {
             system,
             runner,
@@ -251,8 +253,16 @@ impl<S: UiSystem> App<S> {
             return Ok(());
         }
         let (fb_width, fb_height) = self.system.framebuffer_size(&self.runner.runtime);
-        // Size the window for the pixel aspect ratio so non-square pixels show
-        // with their true proportions (the presenter stretches width to match).
+        // Derive the pixel aspect ratio from the system's target display aspect
+        // and the cropped framebuffer dimensions, so the picture fills its
+        // intended shape (e.g. 4:3) for whatever scanline count is shown. The
+        // presenter and the window size then stretch width to match.
+        self.presentation.pixel_aspect_ratio = match self.system.display_aspect_ratio() {
+            Some(aspect) if fb_width > 0 && fb_height > 0 => {
+                aspect * fb_height as f32 / fb_width as f32
+            }
+            _ => 1.0,
+        };
         let par = f64::from(self.presentation.pixel_aspect_ratio).max(f64::MIN_POSITIVE);
         let display_width = f64::from(fb_width) * par;
         let logical_width = display_width * f64::from(self.scale);
