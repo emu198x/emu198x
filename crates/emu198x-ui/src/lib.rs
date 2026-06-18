@@ -11,14 +11,17 @@
 //! This is the minimal first cut (no native menu, media UI, or save-state
 //! dialogs yet); those land as the existing runners migrate onto the harness.
 
+mod overlay;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
 use emu198x_shell::{
-    CapturedFrame, HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError,
-    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, ResetKind, RunResult,
+    CapturedFrame, HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError, MachineTime,
+    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, PixelFormat, ResetKind,
+    RunResult,
 };
 use thiserror::Error;
 use winit::application::ApplicationHandler;
@@ -164,7 +167,7 @@ struct App<S: UiSystem> {
     video: Option<WgpuVideoPresenter>,
     presentation: PresentationProfile,
     fatal_error: Option<UiError>,
-    halt_flagged: bool,
+    halt_message: Option<String>,
 }
 
 impl<S: UiSystem> App<S> {
@@ -190,32 +193,35 @@ impl<S: UiSystem> App<S> {
             video: None,
             presentation: PresentationProfile::for_filter(video),
             fatal_error: None,
-            halt_flagged: false,
+            halt_message: None,
         }
     }
 
-    /// Surface a machine halt (e.g. a CPU JAM) once: log it and append it to the
-    /// window title. Clears the flag (and restores the title) when the machine
-    /// resumes — e.g. after a reset.
+    /// Surface a machine halt (e.g. a CPU JAM). On the transition into a halt:
+    /// log it, append it to the window title, and (via [`Self::render`]) draw
+    /// the on-screen overlay. Clears again — restoring the title — when the
+    /// machine resumes, e.g. after a reset. Idempotent per state.
     fn update_halt_status(&mut self) {
-        match (
-            self.system.halt_status(&self.runner.runtime),
-            self.halt_flagged,
-        ) {
-            (Some(status), false) => {
-                eprintln!("warning: {status}");
+        let status = self.system.halt_status(&self.runner.runtime);
+        if status == self.halt_message {
+            return;
+        }
+        match &status {
+            Some(message) => {
+                eprintln!("warning: {message}");
                 if let Some(window) = &self.window {
-                    window.set_title(&format!("{} — {status}", self.system.window_title()));
+                    window.set_title(&format!("{} — {message}", self.system.window_title()));
                 }
-                self.halt_flagged = true;
             }
-            (None, true) => {
+            None => {
                 if let Some(window) = &self.window {
                     window.set_title(&self.system.window_title());
                 }
-                self.halt_flagged = false;
             }
-            _ => {}
+        }
+        self.halt_message = status;
+        if let Some(window) = &self.window {
+            window.request_redraw();
         }
     }
 
@@ -277,6 +283,25 @@ impl<S: UiSystem> App<S> {
     }
 
     fn render(&mut self) -> Result<(), UiError> {
+        // A halted machine draws the diagnostic overlay over the frozen frame
+        // instead of presenting it — so the cause is on-screen, not a mystery.
+        if let Some(message) = &self.halt_message {
+            let (width, height) = self.system.framebuffer_size(&self.runner.runtime);
+            let pixels = overlay::build_halt_overlay(width, height, message);
+            let frame = CapturedFrame {
+                timestamp: MachineTime::new(0),
+                format: PixelFormat::Rgba8888,
+                width,
+                height,
+                palette: None,
+                pixels,
+            };
+            if let Some(video) = self.video.as_mut() {
+                video.present(&frame, &self.presentation)?;
+            }
+            return Ok(());
+        }
+
         let (Some(frame), Some(video)) = (self.runner.frame(), self.video.as_mut()) else {
             return Ok(());
         };
