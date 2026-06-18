@@ -225,6 +225,27 @@ pub struct Tia {
     /// Vertical delay player 1 (VDELP1).
     vdelp1: bool,
 
+    // --- Player per-clock render pipeline (Stella counter model, #406 phase 1b) ---
+    // Indexed [0] = player 0, [1] = player 1. Like the ball, the counter advances
+    // once per *visible* colour clock and the pipeline is seeded from the
+    // canonical position (`pos_pN`) at the start of each visible line — and on a
+    // visible-region RESPx/HMOVE/NUSIZ strobe. Decode counter and render offset
+    // (−5) are picked so the first pixel of each copy lands at `pos + offset` for
+    // every NUSIZ size, reproducing the position-formula `player_pixel` output.
+    /// Player free-running render counters (0-159).
+    counter_p: [u16; 2],
+    /// Player render pipeline active — latched at a copy's decode counter.
+    p_is_rendering: [bool; 2],
+    /// Player render counters (Stella `myRenderCounter`, −5 at decode). The
+    /// pattern is sampled while this is at or past the divider trip point.
+    p_render_counter: [i8; 2],
+    /// Player graphics sample index (0-7) — which GRP bit the render is on.
+    p_sample_counter: [u8; 2],
+    /// Player display signal for the current colour clock (already includes the
+    /// GRP pattern bit), latched once per visible tick and shared by compose +
+    /// collisions.
+    p_signal: [bool; 2],
+
     // --- Missiles ---
     /// Missile 0 enable (ENAM0 bit 1).
     enam0: bool,
@@ -369,6 +390,11 @@ impl Tia {
             nusiz1: 0,
             vdelp0: false,
             vdelp1: false,
+            counter_p: [0; 2],
+            p_is_rendering: [false; 2],
+            p_render_counter: [0; 2],
+            p_sample_counter: [0; 2],
+            p_signal: [false; 2],
             enam0: false,
             enam1: false,
             pos_m0: 0,
@@ -440,8 +466,12 @@ impl Tia {
                 // computed from the pipeline state *before* it advances).
                 if pixel_x == 0 {
                     self.seed_ball(0);
+                    self.seed_player(0, 0);
+                    self.seed_player(1, 0);
                 }
                 self.ball_signal = self.ball_is_rendering && self.ball_render_counter >= 0;
+                self.p_signal[0] = self.player_signal(0);
+                self.p_signal[1] = self.player_signal(1);
 
                 let colour = if self.vblank {
                     0 // Black during VBLANK
@@ -460,8 +490,10 @@ impl Tia {
                     self.framebuffer[fb_idx] = argb;
                 }
 
-                // Advance the ball pipeline for the next colour clock.
+                // Advance the per-clock pipelines for the next colour clock.
                 self.advance_ball();
+                self.advance_player(0);
+                self.advance_player(1);
             } else {
                 // HBLANK region — black. During the 68-clock horizontal
                 // retrace the TIA holds its output in blanking, so a real
@@ -516,20 +548,8 @@ impl Tia {
     /// Evaluates playfield, players, missiles, ball, and applies priority.
     fn compose_pixel(&self, x: u16) -> u8 {
         let pf = self.playfield_bit(x);
-        let p0 = self.player_pixel(
-            x,
-            self.pos_p0,
-            self.effective_grp0(),
-            self.refp0,
-            self.nusiz0,
-        );
-        let p1 = self.player_pixel(
-            x,
-            self.pos_p1,
-            self.effective_grp1(),
-            self.refp1,
-            self.nusiz1,
-        );
+        let p0 = self.p_signal[0];
+        let p1 = self.p_signal[1];
         let m0 = self.missile_pixel(
             x,
             self.pos_m0,
@@ -648,7 +668,13 @@ impl Tia {
         }
     }
 
-    /// Check if a player sprite is active at pixel position x.
+    /// Reference (position-formula) player renderer: is a player sprite active
+    /// at pixel `x`? Since the #406 phase-1b rewrite, production rendering runs
+    /// through the per-clock pipeline (`player_signal`); this stays as the
+    /// executable spec that the pipeline is validated against
+    /// (`player_counter_model_matches_the_position_formula_everywhere`) and that
+    /// the NUSIZ-width test pins. Test-only.
+    #[cfg(test)]
     #[allow(clippy::unused_self)]
     fn player_pixel(&self, x: u16, pos: u16, grp: u8, reflect: bool, nusiz: u8) -> bool {
         if grp == 0 {
@@ -700,6 +726,132 @@ impl Tia {
         }
 
         false
+    }
+
+    /// Player `idx`'s canonical position, effective GRP (VDELP), reflect, and
+    /// NUSIZ — the register inputs the per-clock pipeline reads live each clock.
+    fn player_inputs(&self, idx: usize) -> (u16, u8, bool, u8) {
+        if idx == 0 {
+            (self.pos_p0, self.effective_grp0(), self.refp0, self.nusiz0)
+        } else {
+            (self.pos_p1, self.effective_grp1(), self.refp1, self.nusiz1)
+        }
+    }
+
+    /// Copy offsets and the size divider for a NUSIZ value (player bits 2:0).
+    /// Multi-copy modes are always 1× (divider 1); the 2×/4× stretch modes are
+    /// always a single copy.
+    fn player_copies(nusiz: u8) -> (&'static [u16], u16) {
+        match nusiz & 0x07 {
+            0x00 => (&[0], 1),
+            0x01 => (&[0, 16], 1),
+            0x02 => (&[0, 32], 1),
+            0x03 => (&[0, 16, 32], 1),
+            0x04 => (&[0, 64], 1),
+            0x05 => (&[0], 2),
+            0x06 => (&[0, 32, 64], 1),
+            0x07 => (&[0], 4),
+            _ => (&[0], 1),
+        }
+    }
+
+    /// The player's display signal for the current colour clock: rendering, at
+    /// or past the divider trip point, with the sampled GRP bit set. Reflection
+    /// chooses bit order (MSB-first normally, LSB-first when reflected), matching
+    /// `player_pixel`.
+    fn player_signal(&self, idx: usize) -> bool {
+        let (_, grp, reflect, nusiz) = self.player_inputs(idx);
+        let (_, divider) = Self::player_copies(nusiz);
+        let trip = if divider == 1 { 0 } else { 1 };
+        let rc = self.p_render_counter[idx];
+        let sc = self.p_sample_counter[idx];
+        if !self.p_is_rendering[idx] || rc < trip || sc > 7 {
+            return false;
+        }
+        let bit = if reflect {
+            grp & (1 << sc)
+        } else {
+            grp & (0x80 >> sc)
+        };
+        bit != 0
+    }
+
+    /// Seed player `idx`'s pipeline so that, run forward from visible column `x`,
+    /// it reproduces `player_pixel`'s output. The counter is phase-locked to the
+    /// position; a copy whose decode happened before `x` (carried from the
+    /// previous line, or wrapped past column 159) is recovered as an in-progress
+    /// render. See the field block and #406 phase 1b.
+    fn seed_player(&mut self, idx: usize, x: u16) {
+        let (pos, _, _, nusiz) = self.player_inputs(idx);
+        let pos = pos % 160;
+        let (copies, divider) = Self::player_copies(nusiz);
+        let trip = i32::from(if divider == 1 { 0u8 } else { 1 });
+        self.counter_p[idx] = (x + 160 - pos + 2) % 160;
+        self.p_is_rendering[idx] = false;
+        self.p_render_counter[idx] = 0;
+        self.p_sample_counter[idx] = 0;
+        // Render-window length in clocks since decode: the (6 + trip) ramp plus
+        // 8 samples × divider.
+        let last_dd = (6 + trip as u16) + 8 * divider - 1;
+        for &off in copies {
+            let s = (pos + off) % 160;
+            let dd = (x + 160 - s + 6 + trip as u16) % 160;
+            if dd >= 1 && dd <= last_dd {
+                let rc = i32::from(dd) - 6;
+                self.p_is_rendering[idx] = true;
+                self.p_render_counter[idx] = i8::try_from(rc).unwrap_or(0);
+                self.p_sample_counter[idx] = if rc < trip {
+                    0
+                } else {
+                    u8::try_from((rc - trip) / i32::from(divider)).unwrap_or(0)
+                };
+                break;
+            }
+        }
+    }
+
+    /// Re-seed player `idx` from its position when a RESPx/HMOVE/NUSIZ strobe
+    /// lands in the visible region, so the change takes effect on the next clock
+    /// (HBLANK strobes are picked up by the line-start seed).
+    fn reseed_player_if_visible(&mut self, idx: usize) {
+        if self.hpos >= HBLANK_CLOCKS {
+            self.seed_player(idx, self.hpos - HBLANK_CLOCKS);
+        }
+    }
+
+    /// Advance player `idx`'s pipeline by one visible colour clock (Stella
+    /// `Player::tick`, without the movement/divider-change/quirk paths). A copy's
+    /// decode counter is `(offset − 4 − trip) mod 160`, chosen so the first pixel
+    /// lands at `pos + offset` for every size. Call after the clock's signal is
+    /// latched.
+    fn advance_player(&mut self, idx: usize) {
+        let (_, _, _, nusiz) = self.player_inputs(idx);
+        let (copies, divider) = Self::player_copies(nusiz);
+        let trip = if divider == 1 { 0i8 } else { 1 };
+        let c = self.counter_p[idx];
+        let decoded = copies
+            .iter()
+            .any(|&off| c == (off + 160 - 4 - trip as u16) % 160);
+        if decoded {
+            self.p_is_rendering[idx] = true;
+            self.p_sample_counter[idx] = 0;
+            self.p_render_counter[idx] = -5;
+        } else if self.p_is_rendering[idx] {
+            self.p_render_counter[idx] += 1;
+            let rc = self.p_render_counter[idx];
+            let advance_sample = if divider == 1 {
+                rc > 0
+            } else {
+                rc > 1 && (((rc - 1) as u16) & (divider - 1)) == 0
+            };
+            if advance_sample {
+                self.p_sample_counter[idx] += 1;
+            }
+            if self.p_sample_counter[idx] > 7 {
+                self.p_is_rendering[idx] = false;
+            }
+        }
+        self.counter_p[idx] = (c + 1) % 160;
     }
 
     /// Check if a missile is active at pixel position x.
@@ -810,20 +962,8 @@ impl Tia {
     /// Update collision latches for the current pixel.
     fn update_collisions(&mut self, x: u16) {
         let pf = self.playfield_bit(x);
-        let p0 = self.player_pixel(
-            x,
-            self.pos_p0,
-            self.effective_grp0(),
-            self.refp0,
-            self.nusiz0,
-        );
-        let p1 = self.player_pixel(
-            x,
-            self.pos_p1,
-            self.effective_grp1(),
-            self.refp1,
-            self.nusiz1,
-        );
+        let p0 = self.p_signal[0];
+        let p1 = self.p_signal[1];
         let m0 = self.missile_pixel(
             x,
             self.pos_m0,
@@ -940,20 +1080,37 @@ impl Tia {
                 // RSYNC
                 self.hpos = 0;
             }
-            0x04 => self.nusiz0 = value,                      // NUSIZ0
-            0x05 => self.nusiz1 = value,                      // NUSIZ1
-            0x06 => self.colup0 = value,                      // COLUP0
-            0x07 => self.colup1 = value,                      // COLUP1
-            0x08 => self.colupf = value,                      // COLUPF
-            0x09 => self.colubk = value,                      // COLUBK
-            0x0A => self.ctrlpf = value,                      // CTRLPF
-            0x0B => self.refp0 = value & 0x08 != 0,           // REFP0
-            0x0C => self.refp1 = value & 0x08 != 0,           // REFP1
-            0x0D => self.pf0 = value,                         // PF0
-            0x0E => self.pf1 = value,                         // PF1
-            0x0F => self.pf2 = value,                         // PF2
-            0x10 => self.pos_p0 = self.resx_reset_position(), // RESP0
-            0x11 => self.pos_p1 = self.resx_reset_position(), // RESP1
+            0x04 => {
+                // NUSIZ0: copy layout / size for player 0. A change reshapes the
+                // render pipeline, so re-seed a visible-region write.
+                self.nusiz0 = value;
+                self.reseed_player_if_visible(0);
+            }
+            0x05 => {
+                self.nusiz1 = value;
+                self.reseed_player_if_visible(1);
+            }
+            0x06 => self.colup0 = value,            // COLUP0
+            0x07 => self.colup1 = value,            // COLUP1
+            0x08 => self.colupf = value,            // COLUPF
+            0x09 => self.colubk = value,            // COLUBK
+            0x0A => self.ctrlpf = value,            // CTRLPF
+            0x0B => self.refp0 = value & 0x08 != 0, // REFP0
+            0x0C => self.refp1 = value & 0x08 != 0, // REFP1
+            0x0D => self.pf0 = value,               // PF0
+            0x0E => self.pf1 = value,               // PF1
+            0x0F => self.pf2 = value,               // PF2
+            0x10 => {
+                // RESP0: reset player 0 position; re-seed a visible-region strobe
+                // so the new column takes effect immediately (HBLANK strobes are
+                // caught by the line-start seed).
+                self.pos_p0 = self.resx_reset_position();
+                self.reseed_player_if_visible(0);
+            }
+            0x11 => {
+                self.pos_p1 = self.resx_reset_position();
+                self.reseed_player_if_visible(1);
+            }
             0x12 => self.pos_m0 = self.resx_reset_position(), // RESM0
             0x13 => self.pos_m1 = self.resx_reset_position(), // RESM1
             0x14 => {
@@ -1005,6 +1162,8 @@ impl Tia {
                 // HMOVE
                 self.apply_hmove();
                 self.reseed_ball_if_visible();
+                self.reseed_player_if_visible(0);
+                self.reseed_player_if_visible(1);
                 self.hmove_pending = true;
             }
             0x2B => {
@@ -1906,6 +2065,51 @@ mod tests {
                     let on = (x as u16 + 160 - pos) % 160 < width;
                     let want = if on { fg } else { bg };
                     assert_eq!(px, want, "ctrlpf={ctrlpf:#04x} pos={pos} x={x}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn player_counter_model_matches_the_position_formula_everywhere() {
+        // Exhaustive output-equivalence guard for the #406 phase-1b player
+        // rewrite: across every NUSIZ size, both reflect states, a spread of GRP
+        // patterns, and every position, the counter-driven pipeline must paint
+        // exactly the columns the reference `player_pixel` formula does — checked
+        // on a *settled* line (line 1), since a render carried over the very
+        // first scanline has no predecessor line to decode it.
+        for nusiz in 0u8..8 {
+            for &reflect in &[false, true] {
+                for &grp in &[0xFFu8, 0x80, 0x01, 0xA5, 0x3C] {
+                    // A representative spread of positions incl. left-edge
+                    // straddle and right-edge wrap, kept small so the whole
+                    // sweep stays fast.
+                    for pos in [0u16, 1, 3, 5, 7, 20, 40, 80, 120, 150, 156, 159] {
+                        let mut tia = Tia::new(TiaRegion::Ntsc);
+                        tia.colubk = 0x00;
+                        tia.colup0 = 0x1E;
+                        tia.pos_p0 = pos;
+                        tia.grp0 = grp;
+                        tia.nusiz0 = nusiz;
+                        tia.refp0 = reflect;
+
+                        // Render two lines; assert the second (settled) one.
+                        for _ in 0..(2 * CLOCKS_PER_LINE) {
+                            tia.tick();
+                        }
+                        let base = FB_WIDTH as usize + HBLANK_CLOCKS as usize;
+                        let line = &tia.framebuffer()[base..base + 160];
+
+                        let (bg, fg) = (colour(0x00), colour(0x1E));
+                        for (x, &px) in line.iter().enumerate() {
+                            let on = tia.player_pixel(x as u16, pos, grp, reflect, nusiz);
+                            let want = if on { fg } else { bg };
+                            assert_eq!(
+                                px, want,
+                                "nusiz={nusiz:#04x} reflect={reflect} grp={grp:#04x} pos={pos} x={x}"
+                            );
+                        }
+                    }
                 }
             }
         }
