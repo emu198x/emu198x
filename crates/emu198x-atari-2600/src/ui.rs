@@ -72,6 +72,13 @@ impl UiSystem for Atari2600System {
         DEFAULT_SCALE
     }
 
+    // The 2600's 160 visible pixels span a 4:3 picture over ~192 active lines,
+    // so each pixel is ~1.6× wider than tall ((4/3) × 192/160). Without this the
+    // square-pixel framebuffer looks too narrow / vertically stretched.
+    fn pixel_aspect_ratio(&self) -> f32 {
+        1.6
+    }
+
     // The runtime advances in whole frames, so a sub-frame target would
     // overshoot — run exactly one frame per slice.
     fn input_slices_per_frame(&self) -> u32 {

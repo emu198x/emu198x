@@ -82,6 +82,11 @@ pub struct PresentationProfile {
     pub clear_color: wgpu::Color,
     /// GPU filter applied to the uploaded machine framebuffer.
     pub filter: VideoFilter,
+    /// Pixel aspect ratio (pixel width ÷ height) of the source framebuffer.
+    /// `1.0` for square pixels; e.g. ≈`1.6` for the Atari 2600, whose 160
+    /// pixels span a 4:3 picture. The presenter stretches width by this so the
+    /// image displays with its true proportions instead of looking too narrow.
+    pub pixel_aspect_ratio: f32,
 }
 
 impl Default for PresentationProfile {
@@ -90,6 +95,7 @@ impl Default for PresentationProfile {
             scaling: ScalingMode::Integer,
             clear_color: wgpu::Color::BLACK,
             filter: VideoFilter::Raw,
+            pixel_aspect_ratio: 1.0,
         }
     }
 }
@@ -507,6 +513,7 @@ impl WgpuVideoPresenter {
                 self.frame_width,
                 self.frame_height,
                 profile.scaling,
+                profile.pixel_aspect_ratio,
             );
             pass.set_viewport(
                 viewport.x,
@@ -660,6 +667,7 @@ fn viewport_for(
     frame_width: u32,
     frame_height: u32,
     scaling: ScalingMode,
+    pixel_aspect_ratio: f32,
 ) -> Viewport {
     if scaling == ScalingMode::Stretch || frame_width == 0 || frame_height == 0 {
         return Viewport {
@@ -670,11 +678,20 @@ fn viewport_for(
         };
     }
 
-    let x_scale = surface_width as f32 / frame_width as f32;
+    // Correct for non-square pixels: the framebuffer's effective display width
+    // is its pixel count times the pixel aspect ratio. Height stays integer-
+    // scaled; width follows the corrected aspect.
+    let par = if pixel_aspect_ratio > 0.0 {
+        pixel_aspect_ratio
+    } else {
+        1.0
+    };
+    let effective_width = frame_width as f32 * par;
+    let x_scale = surface_width as f32 / effective_width;
     let y_scale = surface_height as f32 / frame_height as f32;
     let scale = x_scale.min(y_scale);
     let scale = if scale >= 1.0 { scale.floor() } else { scale };
-    let width = frame_width as f32 * scale;
+    let width = effective_width * scale;
     let height = frame_height as f32 * scale;
 
     Viewport {
@@ -733,7 +750,7 @@ mod tests {
 
     #[test]
     fn integer_viewport_centres_with_whole_scale() {
-        let viewport = viewport_for(800, 600, 160, 144, ScalingMode::Integer);
+        let viewport = viewport_for(800, 600, 160, 144, ScalingMode::Integer, 1.0);
 
         assert_eq!(
             viewport,
@@ -747,8 +764,26 @@ mod tests {
     }
 
     #[test]
+    fn aspect_ratio_stretches_width_and_recentres() {
+        // 160×192 square pixels at PAR 1.6 ⇒ 256-wide effective image (4:3).
+        // In an 800×600 surface the limiting axis is height (600/192 = 3.125 →
+        // scale 3): width = 160·1.6·3 = 768, height = 192·3 = 576, centred.
+        let viewport = viewport_for(800, 600, 160, 192, ScalingMode::Integer, 1.6);
+
+        assert_eq!(
+            viewport,
+            Viewport {
+                x: 16.0,
+                y: 12.0,
+                width: 768.0,
+                height: 576.0,
+            }
+        );
+    }
+
+    #[test]
     fn small_integer_viewport_scales_fractionally_when_needed() {
-        let viewport = viewport_for(80, 80, 160, 144, ScalingMode::Integer);
+        let viewport = viewport_for(80, 80, 160, 144, ScalingMode::Integer, 1.0);
 
         assert_eq!(
             viewport,
