@@ -1663,4 +1663,139 @@ mod tests {
     fn pal_palette_has_128_entries() {
         assert_eq!(PAL_PALETTE.len(), 128);
     }
+
+    // --- Object-rendering regression lock-in (HMOVE per-clock port, #406) ---
+    //
+    // These capture the *current* position-formula rendering so the phased
+    // per-clock counter rewrite stays output-equivalent (phase 1) — they must
+    // remain green through it. Object state is set directly (same-module test)
+    // and one scanline is rendered; the 160 visible pixels are asserted.
+
+    /// Tick one full scanline from a line boundary and return its 160 visible
+    /// ARGB pixels. Call with a freshly-constructed (or line-aligned) TIA.
+    fn render_visible_line(tia: &mut Tia) -> Vec<u32> {
+        assert_eq!(tia.hpos(), 0, "must start at a line boundary");
+        let line = tia.vpos() as usize;
+        for _ in 0..CLOCKS_PER_LINE {
+            tia.tick();
+        }
+        let base = line * FB_WIDTH as usize + HBLANK_CLOCKS as usize;
+        tia.framebuffer()[base..base + 160].to_vec()
+    }
+
+    /// ARGB for a colour-register value (the palette folds bit 0).
+    fn colour(value: u8) -> u32 {
+        NTSC_PALETTE[(value >> 1) as usize]
+    }
+
+    #[test]
+    fn player_renders_eight_pixel_block_at_its_position() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.colubk = 0x00;
+        tia.colup0 = 0x1E;
+        tia.pos_p0 = 40;
+        tia.grp0 = 0xFF;
+        tia.nusiz0 = 0x00;
+
+        let line = render_visible_line(&mut tia);
+        let (bg, fg) = (colour(0x00), colour(0x1E));
+        for (x, &px) in line.iter().enumerate() {
+            let want = if (40..48).contains(&x) { fg } else { bg };
+            assert_eq!(px, want, "pixel {x}");
+        }
+    }
+
+    #[test]
+    fn player_nusiz_double_size_doubles_pixel_width() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.colubk = 0x00;
+        tia.colup0 = 0x1E;
+        tia.pos_p0 = 40;
+        tia.grp0 = 0xFF;
+        tia.nusiz0 = 0x05; // double width → 16px
+
+        let line = render_visible_line(&mut tia);
+        let (bg, fg) = (colour(0x00), colour(0x1E));
+        assert_eq!(line[39], bg);
+        for (x, px) in line.iter().enumerate().take(56).skip(40) {
+            assert_eq!(*px, fg, "double-width pixel {x}");
+        }
+        assert_eq!(line[56], bg);
+    }
+
+    #[test]
+    fn player_nusiz_two_close_copies() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.colubk = 0x00;
+        tia.colup0 = 0x1E;
+        tia.pos_p0 = 40;
+        tia.grp0 = 0xFF;
+        tia.nusiz0 = 0x01; // two copies, 16px apart (8px gap)
+
+        let line = render_visible_line(&mut tia);
+        let fg = colour(0x1E);
+        assert_eq!(line[40], fg, "first copy");
+        assert_eq!(line[47], fg);
+        assert_eq!(line[48], colour(0x00), "gap between copies");
+        assert_eq!(line[56], fg, "second copy at +16");
+        assert_eq!(line[63], fg);
+    }
+
+    #[test]
+    fn missile_width_from_nusiz_high_bits() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.colubk = 0x00;
+        tia.colup0 = 0x1E;
+        tia.pos_m0 = 50;
+        tia.enam0 = true;
+        tia.nusiz0 = 0x20; // missile width 4
+
+        let line = render_visible_line(&mut tia);
+        let (bg, fg) = (colour(0x00), colour(0x1E));
+        assert_eq!(line[49], bg);
+        for (x, px) in line.iter().enumerate().take(54).skip(50) {
+            assert_eq!(*px, fg, "missile pixel {x}");
+        }
+        assert_eq!(line[54], bg);
+    }
+
+    #[test]
+    fn ball_width_from_ctrlpf() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.colubk = 0x00;
+        tia.colupf = 0x1E; // ball uses the playfield colour
+        tia.pos_bl = 60;
+        tia.enabl = true;
+        tia.ctrlpf = 0x20; // ball width 4
+
+        let line = render_visible_line(&mut tia);
+        let (bg, fg) = (colour(0x00), colour(0x1E));
+        assert_eq!(line[59], bg);
+        for (x, px) in line.iter().enumerate().take(64).skip(60) {
+            assert_eq!(*px, fg, "ball pixel {x}");
+        }
+        assert_eq!(line[64], bg);
+    }
+
+    #[test]
+    fn hmove_blanks_the_first_eight_pixels_and_applies_net_motion() {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.colubk = 0x00;
+        tia.colup0 = 0x1E;
+        tia.pos_p0 = 12;
+        tia.grp0 = 0xFF;
+        tia.nusiz0 = 0x00;
+        tia.write(0x20, 0x40); // HMP0 = move left 4
+        tia.write(0x2A, 0x00); // HMOVE → pos 12 → 8, comb blanks x<8
+
+        let line = render_visible_line(&mut tia);
+        let (bg, fg) = (colour(0x00), colour(0x1E));
+        for (x, px) in line.iter().enumerate().take(8) {
+            assert_eq!(*px, bg, "HMOVE comb blanks pixel {x}");
+        }
+        for (x, px) in line.iter().enumerate().take(16).skip(8) {
+            assert_eq!(*px, fg, "player moved to 8..16, pixel {x}");
+        }
+        assert_eq!(line[16], bg);
+    }
 }
