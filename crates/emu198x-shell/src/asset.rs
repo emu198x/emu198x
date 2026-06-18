@@ -54,14 +54,32 @@ pub enum AssetLoadError {
         expected: &'static str,
     },
 
-    /// More than one suitable archive member was present.
-    #[error("archive {path} contains multiple loadable {expected} entries: {members:?}")]
+    /// More than one suitable archive member was present and none could be
+    /// chosen automatically. Select one by appending `#<name-or-index>` to the
+    /// path (e.g. `roms.zip#poleposc` or `roms.zip#2`).
+    #[error(
+        "archive {path} contains multiple loadable {expected} entries; \
+         select one with PATH#<name-or-index>: {members:?}"
+    )]
     AmbiguousArchiveMembers {
         /// Archive path on disk.
         path: PathBuf,
         /// Human-readable expected member description.
         expected: &'static str,
         /// Matching member paths inside the archive.
+        members: Vec<String>,
+    },
+
+    /// A `#<fragment>` selector matched no loadable member.
+    #[error("archive {path} has no {expected} matching '#{fragment}'; candidates: {members:?}")]
+    NoMemberMatchesFragment {
+        /// Archive path on disk.
+        path: PathBuf,
+        /// Human-readable expected member description.
+        expected: &'static str,
+        /// The selector fragment that matched nothing.
+        fragment: String,
+        /// The loadable member paths available to choose from.
         members: Vec<String>,
     },
 }
@@ -104,20 +122,41 @@ fn read_asset(
     expected: &'static str,
     extensions: &[&str],
 ) -> Result<LoadedAsset, AssetLoadError> {
-    if !is_zip_path(path) {
+    let (path, member) = split_member_fragment(path);
+    if !is_zip_path(&path) {
         return Ok(LoadedAsset {
-            bytes: fs::read(path)?,
+            bytes: fs::read(&path)?,
             archive_member: None,
         });
     }
 
-    read_zip_asset(path, expected, extensions)
+    read_zip_asset(&path, expected, extensions, member.as_deref())
+}
+
+/// Splits a trailing `#<fragment>` member selector off a `*.zip` path, e.g.
+/// `roms.zip#poleposc` → (`roms.zip`, `Some("poleposc")`). Only `.zip` bases
+/// are split, so ordinary paths containing `#` are left intact.
+fn split_member_fragment(path: &Path) -> (PathBuf, Option<String>) {
+    if let Some(text) = path.to_str()
+        && let Some(hash) = text.rfind('#')
+    {
+        let (base, fragment) = (&text[..hash], &text[hash + 1..]);
+        let base_is_zip = Path::new(base)
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"));
+        if base_is_zip && !fragment.is_empty() {
+            return (PathBuf::from(base), Some(fragment.to_owned()));
+        }
+    }
+    (path.to_path_buf(), None)
 }
 
 fn read_zip_asset(
     path: &Path,
     expected: &'static str,
     extensions: &[&str],
+    member: Option<&str>,
 ) -> Result<LoadedAsset, AssetLoadError> {
     let file = File::open(path)?;
     let mut archive = ZipArchive::new(file).map_err(|reason| AssetLoadError::InvalidZip {
@@ -151,25 +190,58 @@ fn read_zip_asset(
             path: path.to_path_buf(),
         });
     }
+    if matches.is_empty() {
+        return Err(AssetLoadError::NoMatchingArchiveMember {
+            path: path.to_path_buf(),
+            expected,
+        });
+    }
 
-    let (index, member) = match matches.len() {
-        0 => {
-            return Err(AssetLoadError::NoMatchingArchiveMember {
-                path: path.to_path_buf(),
-                expected,
-            });
+    // Deterministic order so a `#<index>` selector is stable; this also sorts a
+    // merged MAME set's root parent ahead of its `clonename/…` subdir clones.
+    matches.sort_by(|a, b| a.1.cmp(&b.1));
+    let names = || matches.iter().map(|(_, name)| name.clone()).collect();
+
+    let chosen = if let Some(fragment) = member {
+        match select_by_fragment(&matches, fragment) {
+            FragmentMatch::One(index) => index,
+            FragmentMatch::None => {
+                return Err(AssetLoadError::NoMemberMatchesFragment {
+                    path: path.to_path_buf(),
+                    expected,
+                    fragment: fragment.to_owned(),
+                    members: names(),
+                });
+            }
+            FragmentMatch::Ambiguous(members) => {
+                return Err(AssetLoadError::AmbiguousArchiveMembers {
+                    path: path.to_path_buf(),
+                    expected,
+                    members,
+                });
+            }
         }
-        1 => matches.swap_remove(0),
-        _ => {
-            let members = matches.into_iter().map(|(_, name)| name).collect();
-            return Err(AssetLoadError::AmbiguousArchiveMembers {
-                path: path.to_path_buf(),
-                expected,
-                members,
-            });
+    } else if matches.len() == 1 {
+        0
+    } else {
+        // No selector: prefer the single archive-root member (in a merged MAME
+        // set that is the parent; clones live in `clonename/…` subdirs).
+        let roots: Vec<usize> = (0..matches.len())
+            .filter(|&i| !matches[i].1.contains('/'))
+            .collect();
+        match roots.as_slice() {
+            [only] => *only,
+            _ => {
+                return Err(AssetLoadError::AmbiguousArchiveMembers {
+                    path: path.to_path_buf(),
+                    expected,
+                    members: names(),
+                });
+            }
         }
     };
 
+    let (index, member_name) = matches[chosen].clone();
     let mut entry = archive
         .by_index(index)
         .map_err(|reason| AssetLoadError::InvalidZip {
@@ -181,8 +253,41 @@ fn read_zip_asset(
 
     Ok(LoadedAsset {
         bytes,
-        archive_member: Some(member),
+        archive_member: Some(member_name),
     })
+}
+
+/// Outcome of resolving a `#<fragment>` selector against the matched members.
+enum FragmentMatch {
+    /// Exactly one member resolved, at this index into the sorted matches.
+    One(usize),
+    /// The fragment matched nothing.
+    None,
+    /// The fragment matched several members.
+    Ambiguous(Vec<String>),
+}
+
+/// Resolves a selector fragment: a bare integer is an index into the sorted
+/// matches; otherwise a case-insensitive substring of the member path (so a
+/// MAME clone's short name like `poleposc`, or a descriptive `tron`/`pal`,
+/// selects it).
+fn select_by_fragment(matches: &[(usize, String)], fragment: &str) -> FragmentMatch {
+    if let Ok(index) = fragment.parse::<usize>() {
+        return if index < matches.len() {
+            FragmentMatch::One(index)
+        } else {
+            FragmentMatch::None
+        };
+    }
+    let needle = fragment.to_ascii_lowercase();
+    let hits: Vec<usize> = (0..matches.len())
+        .filter(|&i| matches[i].1.to_ascii_lowercase().contains(&needle))
+        .collect();
+    match hits.as_slice() {
+        [] => FragmentMatch::None,
+        [one] => FragmentMatch::One(*one),
+        _ => FragmentMatch::Ambiguous(hits.iter().map(|&i| matches[i].1.clone()).collect()),
+    }
 }
 
 fn is_zip_path(path: &Path) -> bool {
@@ -334,6 +439,98 @@ mod tests {
 
         assert_eq!(loaded.bytes, vec![0x01, 0x02, 0x03]);
         assert_eq!(loaded.archive_member, None);
+
+        let _ = fs::remove_file(path);
+    }
+
+    /// A merged MAME software-list zip: the parent ROM at the archive root and
+    /// clones in `clonename/…` subdirs. Mirrors the real `a2600/polepos.zip`.
+    fn merged_software_list_zip() -> Vec<u8> {
+        write_zip(&[
+            ("pole position (cx2694).bin", &[0xA0; 32]),
+            ("polepos1/pole position [a].bin", &[0xA1; 32]),
+            ("poleposc/pole position (cce).bin", &[0xCC; 32]),
+            ("polepost/pole position (tron).bin", &[0x70; 32]),
+        ])
+    }
+
+    #[test]
+    fn merged_zip_loads_the_root_parent_by_default() {
+        let path = temp_path("merged.zip");
+        fs::write(&path, merged_software_list_zip()).expect("fixture writes");
+
+        let loaded = read_media_asset(&path, MediaKind::Cartridge)
+            .expect("the single root member (parent) loads with no selector");
+        assert_eq!(loaded.bytes[0], 0xA0);
+        assert_eq!(
+            loaded.archive_member.as_deref(),
+            Some("pole position (cx2694).bin")
+        );
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn member_fragment_selects_a_clone_by_short_name() {
+        let path = temp_path("merged-name.zip");
+        fs::write(&path, merged_software_list_zip()).expect("fixture writes");
+        let selector = PathBuf::from(format!("{}#poleposc", path.display()));
+
+        let loaded = read_media_asset(&selector, MediaKind::Cartridge)
+            .expect("clone subdir short name selects it");
+        assert_eq!(loaded.bytes[0], 0xCC);
+
+        // A descriptive substring works too.
+        let selector = PathBuf::from(format!("{}#tron", path.display()));
+        let loaded = read_media_asset(&selector, MediaKind::Cartridge)
+            .expect("descriptive substring selects");
+        assert_eq!(loaded.bytes[0], 0x70);
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn member_fragment_selects_by_index() {
+        let path = temp_path("merged-index.zip");
+        fs::write(&path, merged_software_list_zip()).expect("fixture writes");
+        // Sorted order puts the space-prefixed root parent first (#0).
+        let selector = PathBuf::from(format!("{}#0", path.display()));
+
+        let loaded = read_media_asset(&selector, MediaKind::Cartridge).expect("index selects");
+        assert_eq!(loaded.bytes[0], 0xA0);
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn member_fragment_miss_is_reported_with_candidates() {
+        let path = temp_path("merged-miss.zip");
+        fs::write(&path, merged_software_list_zip()).expect("fixture writes");
+        let selector = PathBuf::from(format!("{}#nonesuch", path.display()));
+
+        let error = read_media_asset(&selector, MediaKind::Cartridge)
+            .expect_err("a fragment matching nothing fails");
+        assert!(matches!(
+            error,
+            AssetLoadError::NoMemberMatchesFragment { .. }
+        ));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn multiple_root_members_stay_ambiguous() {
+        // Two members both at the archive root, no selector: nothing to prefer.
+        let path = temp_path("multi-root.zip");
+        let zip = write_zip(&[("a.bin", &[0x01; 16]), ("b.bin", &[0x02; 16])]);
+        fs::write(&path, zip).expect("fixture writes");
+
+        let error = read_media_asset(&path, MediaKind::Cartridge)
+            .expect_err("two root members are ambiguous");
+        assert!(matches!(
+            error,
+            AssetLoadError::AmbiguousArchiveMembers { .. }
+        ));
 
         let _ = fs::remove_file(path);
     }
