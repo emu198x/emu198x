@@ -206,9 +206,9 @@ pub enum VideoPresenterError {
         palette_len: usize,
     },
 
-    /// Rendering failed because the swapchain ran out of memory.
-    #[error("native video surface ran out of memory")]
-    SurfaceOutOfMemory,
+    /// The surface hit an unrecoverable error (e.g. a validation failure).
+    #[error("native video surface hit an unrecoverable error")]
+    SurfaceUnrecoverable,
 }
 
 /// Shared `wgpu` presenter for one native emulator window.
@@ -251,15 +251,14 @@ impl WgpuVideoPresenter {
             force_fallback_adapter: false,
             compatible_surface: Some(&surface),
         }))
-        .ok_or(VideoPresenterError::NoAdapter)?;
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
+        .map_err(|_| VideoPresenterError::NoAdapter)?;
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                 label: Some("emu198x-native-video device"),
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
-            },
-            None,
-        ))?;
+                ..Default::default()
+            }))?;
 
         let caps = surface.get_capabilities(&adapter);
         let format =
@@ -326,36 +325,39 @@ impl WgpuVideoPresenter {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("emu198x-native-video pipeline layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("emu198x-native-video pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
+            cache: None,
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("emu198x-native-video nearest sampler"),
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..wgpu::SamplerDescriptor::default()
         });
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -435,14 +437,14 @@ impl WgpuVideoPresenter {
         }
 
         self.queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &self.frame_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             rgba,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(frame.width.saturating_mul(4)),
                 rows_per_image: Some(frame.height),
@@ -458,14 +460,17 @@ impl WgpuVideoPresenter {
 
     fn render(&mut self, profile: &PresentationProfile) -> Result<(), VideoPresenterError> {
         let output = match self.surface.get_current_texture() {
-            Ok(output) => output,
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            wgpu::CurrentSurfaceTexture::Success(output)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(output) => output,
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                 self.surface.configure(&self.device, &self.config);
                 return Ok(());
             }
-            Err(wgpu::SurfaceError::Timeout) => return Ok(()),
-            Err(wgpu::SurfaceError::OutOfMemory) => {
-                return Err(VideoPresenterError::SurfaceOutOfMemory);
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(());
+            }
+            wgpu::CurrentSurfaceTexture::Validation => {
+                return Err(VideoPresenterError::SurfaceUnrecoverable);
             }
         };
         let uniforms = ShaderUniforms::new(profile.filter, self.frame_width, self.frame_height);
@@ -484,6 +489,7 @@ impl WgpuVideoPresenter {
                 label: Some("emu198x-native-video render pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
+                    depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(profile.clear_color),
@@ -493,6 +499,7 @@ impl WgpuVideoPresenter {
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
                 timestamp_writes: None,
+                multiview_mask: None,
             });
             let viewport = viewport_for(
                 self.config.width,
