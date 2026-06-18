@@ -115,6 +115,19 @@ impl UiSystem for Atari2600System {
             _ => return None,
         })
     }
+
+    /// Report a halted 6507 — a JAM/stop-code, almost always a corrupted ROM
+    /// dump (a bad bank decodes a stop-code that hangs the CPU). F12 resets to
+    /// clear it.
+    fn halt_status(&self, runtime: &Self::Runtime) -> Option<String> {
+        let cpu = runtime.machine()?.cpu();
+        cpu.halted.then(|| {
+            format!(
+                "CPU halted (JAM) at ${:04X} — likely a bad ROM dump",
+                cpu.regs.pc
+            )
+        })
+    }
 }
 
 /// Parsed interactive CLI.

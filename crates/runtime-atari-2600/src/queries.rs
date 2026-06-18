@@ -8,6 +8,7 @@ use crate::runtime::Atari2600Runtime;
 
 pub(crate) const VCS_QUERY_PATHS: &[&str] = &[
     "cartridge.loaded",
+    "cpu.halted",
     "cpu.pc",
     "input.inpt4",
     "input.inpt5",
@@ -51,6 +52,10 @@ impl SessionQueryProvider<Atari2600Runtime> for Atari2600SessionQueryProvider {
                 json!(machine.machine().map_or(0, Atari2600::master_clock))
             }
             "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
+            // A halted CPU means a JAM/stop-code was executed — usually a bad
+            // ROM dump. Surfaced so a hang reads as "CPU halted" not a mystery
+            // grey screen.
+            "cpu.halted" => json!(loaded(machine, path)?.cpu().halted),
             // Effective input registers — verify host input reached the chips.
             // SWCHA/SWCHB are active-low (a 0 bit means a pressed direction or
             // switch); INPT4/5 bit 7 clear means the corresponding fire button
