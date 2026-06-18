@@ -37,7 +37,9 @@ const USAGE: &str = "\
 Usage: emu198x-atari-2600 [OPTIONS] [CART]
 
 Options:
-    --cart PATH     cartridge ROM (.a26/.bin, or a zip containing one)
+    --cart PATH     cartridge ROM (.a26/.bin, or a .zip). A multi-entry zip
+                    (e.g. a merged MAME software list) loads its root parent;
+                    append #NAME or #INDEX to pick another, e.g. game.zip#poleposc
     --scale N       integer window scale, default 3
     --video MODE    raw | lcd | crt [default: raw]
     --region MODE   ntsc | pal [default: ntsc]
