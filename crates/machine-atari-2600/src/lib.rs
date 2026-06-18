@@ -250,6 +250,29 @@ impl Atari2600 {
         self.tia.framebuffer_height()
     }
 
+    /// First displayable scanline — the top of the visible window, skipping the
+    /// VSYNC + VBLANK lines. Region-specific; matches MAME's 2600 visible
+    /// rectangle (NTSC line 24, PAL line 32).
+    #[must_use]
+    pub fn visible_first_line(&self) -> u32 {
+        match self.region {
+            Atari2600Region::Ntsc => 24,
+            Atari2600Region::Pal => 32,
+        }
+    }
+
+    /// Height of the visible window (active picture + overscan border), the
+    /// region's displayable lines below [`Self::visible_first_line`]. Matches
+    /// MAME's 2600 visible rectangle (NTSC 224, PAL 260); the full frame
+    /// ([`Self::framebuffer_height`]) is taller by the VBLANK/retrace lines.
+    #[must_use]
+    pub fn visible_framebuffer_height(&self) -> u32 {
+        match self.region {
+            Atari2600Region::Ntsc => 224,
+            Atari2600Region::Pal => 260,
+        }
+    }
+
     /// Set RIOT port A input — joystick directions byte.
     pub fn set_joystick_input(&mut self, value: u8) {
         self.riot.set_port_a_input(value);

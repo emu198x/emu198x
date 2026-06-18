@@ -89,14 +89,15 @@ impl UiSystem for Atari2600System {
         runtime
             .machine()
             .map(|machine| {
-                // Visible width (160) — the runtime crops the HBLANK margin out
-                // of the frames it presents, so the window must match that.
+                // Visible window — the runtime crops the HBLANK margin and the
+                // VBLANK/overscan lines out of the frames it presents, so the
+                // window must match that cropped size, not the full raster.
                 (
                     machine.visible_framebuffer_width(),
-                    machine.framebuffer_height(),
+                    machine.visible_framebuffer_height(),
                 )
             })
-            .unwrap_or((160, NTSC_LINES as u32))
+            .unwrap_or((160, 224))
     }
 
     fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
