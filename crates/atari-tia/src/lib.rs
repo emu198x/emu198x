@@ -249,6 +249,27 @@ pub struct Tia {
     /// Vertical delay ball (VDELBL).
     vdelbl: bool,
 
+    // --- Ball per-clock render pipeline (Stella counter model, #406 phase 1b) ---
+    /// Ball free-running render counter (0-159). Advances once per *visible*
+    /// colour clock (Stella clocks objects only in the frame region, which is
+    /// what keeps the 160-wide counter phase-stable against the 228-clock line).
+    /// Phase 1b keeps `pos_bl` canonical and reseeds this from it at the start of
+    /// each visible line; Phase 2 makes it free-run across lines so the HMOVE
+    /// movement engine can inject extra ticks during the extended HBLANK.
+    counter_bl: u16,
+    /// Ball render pipeline active — latched when the counter hits the decode
+    /// value (156) or by the line-start seed for a render carried over the line
+    /// boundary. Cleared once the render counter passes the ball width.
+    ball_is_rendering: bool,
+    /// Ball render counter (Stella `myRenderCounter`, offset −4 at decode). The
+    /// display signal is active while this is in `[0, width)`.
+    ball_render_counter: i8,
+    /// Ball display signal (geometry only) for the current colour clock. Latched
+    /// once per visible tick from the render pipeline and shared by both
+    /// `compose_pixel` and `update_collisions`; the enable gate (ENABL/VDELBL)
+    /// is applied separately in `ball_pixel`.
+    ball_signal: bool,
+
     // --- Horizontal motion ---
     hmp0: i8,
     hmp1: i8,
@@ -358,6 +379,10 @@ impl Tia {
             enabl_old: false,
             pos_bl: 0,
             vdelbl: false,
+            counter_bl: 0,
+            ball_is_rendering: false,
+            ball_render_counter: 0,
+            ball_signal: false,
             hmp0: 0,
             hmp1: 0,
             hmm0: 0,
@@ -408,6 +433,16 @@ impl Tia {
             if self.hpos >= HBLANK_CLOCKS {
                 let pixel_x = self.hpos - HBLANK_CLOCKS;
 
+                // Reseed the ball's free-running counter from its canonical
+                // position at the start of the visible region (Phase 1b). Then
+                // latch this clock's geometry signal before compose/collisions
+                // read it, mirroring Stella's `Ball::tick` ordering (signal is
+                // computed from the pipeline state *before* it advances).
+                if pixel_x == 0 {
+                    self.seed_ball(0);
+                }
+                self.ball_signal = self.ball_is_rendering && self.ball_render_counter >= 0;
+
                 let colour = if self.vblank {
                     0 // Black during VBLANK
                 } else {
@@ -424,6 +459,9 @@ impl Tia {
                 if fb_idx < self.framebuffer.len() {
                     self.framebuffer[fb_idx] = argb;
                 }
+
+                // Advance the ball pipeline for the next colour clock.
+                self.advance_ball();
             } else {
                 // HBLANK region — black. During the 68-clock horizontal
                 // retrace the TIA holds its output in blanking, so a real
@@ -692,26 +730,81 @@ impl Tia {
     }
 
     /// Check if the ball is active at pixel position x.
-    fn ball_pixel(&self, x: u16) -> bool {
+    ///
+    /// The geometry comes from the per-clock render pipeline (`ball_signal`,
+    /// latched in `tick`); this only applies the ENABL/VDELBL enable gate. `x`
+    /// is unused now that rendering is counter-driven — it is kept so the
+    /// per-pixel call sites (compose + collisions) read identically.
+    fn ball_pixel(&self, _x: u16) -> bool {
         let enabled = if self.vdelbl {
             self.enabl_old
         } else {
             self.enabl
         };
-        if !enabled {
-            return false;
-        }
+        enabled && self.ball_signal
+    }
 
-        let width: u16 = match (self.ctrlpf >> 4) & 0x03 {
+    /// Ball width in colour clocks, from CTRLPF bits 5:4 (1/2/4/8).
+    fn ball_width(&self) -> u16 {
+        match (self.ctrlpf >> 4) & 0x03 {
             0 => 1,
             1 => 2,
             2 => 4,
             3 => 8,
             _ => 1,
-        };
+        }
+    }
 
-        let rel = (x + 160 - self.pos_bl) % 160;
-        rel < width
+    /// Seed the ball's free-running counter and render pipeline so that, run
+    /// forward from visible column `x`, it reproduces the position-formula
+    /// output: the leftmost pixel at `pos_bl`, `ball_width` clocks wide.
+    ///
+    /// Stella's ball decodes at counter 156 and offsets the render counter by
+    /// −4, so the display signal (render counter in `[0, width)`) lands at
+    /// columns `[pos_bl, pos_bl + width)` mod 160. Inverting that gives the
+    /// counter at column `x` as `(x − pos_bl + 1) mod 160`, and the render
+    /// pipeline state from the distance `d = (x − (pos_bl − 4)) mod 160` into
+    /// the `4 + width`-clock render window. A render that began on the previous
+    /// line (a sprite near the left edge, or one wrapping past column 159) is
+    /// recovered here as an already-active pipeline. See #406 phase 1b.
+    fn seed_ball(&mut self, x: u16) {
+        let pos = self.pos_bl % 160;
+        let w = self.ball_width();
+        self.counter_bl = (x + 160 - pos + 1) % 160;
+        let d = (x + 160 - pos + 4) % 160;
+        if d < 4 + w {
+            self.ball_is_rendering = true;
+            self.ball_render_counter = i8::try_from(i32::from(d) - 4).unwrap_or(0);
+        } else {
+            self.ball_is_rendering = false;
+            self.ball_render_counter = 0;
+        }
+    }
+
+    /// Re-seed the ball pipeline from `pos_bl` when a RESBL/HMOVE strobe lands
+    /// in the visible region, so the new column takes effect on the next clock
+    /// (the line-start seed handles strobes during HBLANK).
+    fn reseed_ball_if_visible(&mut self) {
+        if self.hpos >= HBLANK_CLOCKS {
+            self.seed_ball(self.hpos - HBLANK_CLOCKS);
+        }
+    }
+
+    /// Advance the ball's render pipeline and counter by one visible colour
+    /// clock (Stella `Ball::tick`, without the movement/starfield paths — those
+    /// arrive in later #406 phases). Call after the clock's signal is latched.
+    fn advance_ball(&mut self) {
+        let w = i8::try_from(self.ball_width()).unwrap_or(1);
+        if self.counter_bl == 156 {
+            self.ball_is_rendering = true;
+            self.ball_render_counter = -4;
+        } else if self.ball_is_rendering {
+            self.ball_render_counter += 1;
+            if self.ball_render_counter >= w {
+                self.ball_is_rendering = false;
+            }
+        }
+        self.counter_bl = (self.counter_bl + 1) % 160;
     }
 
     /// Update collision latches for the current pixel.
@@ -863,7 +956,14 @@ impl Tia {
             0x11 => self.pos_p1 = self.resx_reset_position(), // RESP1
             0x12 => self.pos_m0 = self.resx_reset_position(), // RESM0
             0x13 => self.pos_m1 = self.resx_reset_position(), // RESM1
-            0x14 => self.pos_bl = self.resx_reset_position(), // RESBL
+            0x14 => {
+                // RESBL: reset the ball position. A strobe inside the visible
+                // region must re-seed the live pipeline so the new column takes
+                // effect immediately, as the old per-pixel formula did; an
+                // HBLANK strobe is picked up by the line-start seed.
+                self.pos_bl = self.resx_reset_position();
+                self.reseed_ball_if_visible();
+            }
             // AUDC0/1, AUDF0/1, AUDV0/1 — both audio channels.
             0x15..=0x1A => self.audio.write(addr & 0x3F, value),
             0x1B => {
@@ -904,6 +1004,7 @@ impl Tia {
             0x2A => {
                 // HMOVE
                 self.apply_hmove();
+                self.reseed_ball_if_visible();
                 self.hmove_pending = true;
             }
             0x2B => {
@@ -1775,6 +1876,39 @@ mod tests {
             assert_eq!(*px, fg, "ball pixel {x}");
         }
         assert_eq!(line[64], bg);
+    }
+
+    #[test]
+    fn ball_counter_model_matches_the_position_formula_everywhere() {
+        // Exhaustive output-equivalence guard for the #406 phase-1b ball
+        // rewrite: for every position and width the counter-driven renderer
+        // must paint exactly the columns the old `(x - pos) mod 160 < width`
+        // formula did — including the left-edge straddle (pos < 4) and the
+        // right-edge wrap back onto the same line (pos + width > 160).
+        for &(ctrlpf, width) in &[(0x00u8, 1u16), (0x10, 2), (0x20, 4), (0x30, 8)] {
+            for pos in 0u16..160 {
+                let mut tia = Tia::new(TiaRegion::Ntsc);
+                tia.colubk = 0x00;
+                tia.colupf = 0x1E; // ball uses the playfield colour
+                tia.ctrlpf = ctrlpf;
+                tia.enabl = true;
+                tia.pos_bl = pos;
+
+                let prev_line = tia.vpos() as usize;
+                for _ in 0..CLOCKS_PER_LINE {
+                    tia.tick();
+                }
+                let base = prev_line * FB_WIDTH as usize + HBLANK_CLOCKS as usize;
+                let line = &tia.framebuffer()[base..base + 160];
+
+                let (bg, fg) = (colour(0x00), colour(0x1E));
+                for (x, &px) in line.iter().enumerate() {
+                    let on = (x as u16 + 160 - pos) % 160 < width;
+                    let want = if on { fg } else { bg };
+                    assert_eq!(px, want, "ctrlpf={ctrlpf:#04x} pos={pos} x={x}");
+                }
+            }
+        }
     }
 
     #[test]
