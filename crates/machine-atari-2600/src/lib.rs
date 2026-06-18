@@ -251,25 +251,25 @@ impl Atari2600 {
     }
 
     /// First displayable scanline — the top of the visible window, skipping the
-    /// VSYNC + VBLANK lines. Region-specific; matches MAME's 2600 visible
-    /// rectangle (NTSC line 24, PAL line 32).
+    /// VSYNC + VBLANK lines. Region-specific; matches Stella's TIA visible
+    /// window (`ystart` NTSC 23, PAL 32).
     #[must_use]
     pub fn visible_first_line(&self) -> u32 {
         match self.region {
-            Atari2600Region::Ntsc => 24,
+            Atari2600Region::Ntsc => 23,
             Atari2600Region::Pal => 32,
         }
     }
 
     /// Height of the visible window (active picture + overscan border), the
     /// region's displayable lines below [`Self::visible_first_line`]. Matches
-    /// MAME's 2600 visible rectangle (NTSC 224, PAL 260); the full frame
+    /// Stella's TIA base height (NTSC 228, PAL 274); the full frame
     /// ([`Self::framebuffer_height`]) is taller by the VBLANK/retrace lines.
     #[must_use]
     pub fn visible_framebuffer_height(&self) -> u32 {
         match self.region {
-            Atari2600Region::Ntsc => 224,
-            Atari2600Region::Pal => 260,
+            Atari2600Region::Ntsc => 228,
+            Atari2600Region::Pal => 274,
         }
     }
 
