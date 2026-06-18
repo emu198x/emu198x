@@ -57,6 +57,15 @@ pub trait UiSystem {
         3
     }
 
+    /// Pixel aspect ratio (pixel width ÷ height) of the framebuffer. `1.0` for
+    /// square pixels; > 1 for systems whose pixels are wider than tall (the
+    /// Atari 2600 ≈ 1.6). The harness sizes the window and the presenter scales
+    /// the picture by this, so it displays with its true proportions rather
+    /// than looking too narrow.
+    fn pixel_aspect_ratio(&self) -> f32 {
+        1.0
+    }
+
     /// Input sub-slices per frame. Use `1` for runtimes that advance in whole
     /// frames (so a sub-frame target would overshoot); higher values give
     /// finer input latency on runtimes that honour sub-frame targets.
@@ -178,6 +187,8 @@ impl<S: UiSystem> App<S> {
         let slice_ticks = frame_ticks.div_ceil(u64::from(slices));
         let slice_duration =
             Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(slices));
+        let mut presentation = PresentationProfile::for_filter(video);
+        presentation.pixel_aspect_ratio = system.pixel_aspect_ratio();
         Self {
             system,
             runner,
@@ -191,7 +202,7 @@ impl<S: UiSystem> App<S> {
             gamepads: NativeGamepadInput::new(),
             window: None,
             video: None,
-            presentation: PresentationProfile::for_filter(video),
+            presentation,
             fatal_error: None,
             halt_message: None,
         }
@@ -240,12 +251,16 @@ impl<S: UiSystem> App<S> {
             return Ok(());
         }
         let (fb_width, fb_height) = self.system.framebuffer_size(&self.runner.runtime);
-        let logical_width = f64::from(fb_width.saturating_mul(self.scale));
+        // Size the window for the pixel aspect ratio so non-square pixels show
+        // with their true proportions (the presenter stretches width to match).
+        let par = f64::from(self.presentation.pixel_aspect_ratio).max(f64::MIN_POSITIVE);
+        let display_width = f64::from(fb_width) * par;
+        let logical_width = display_width * f64::from(self.scale);
         let logical_height = f64::from(fb_height.saturating_mul(self.scale));
         let attributes = WindowAttributes::default()
             .with_title(self.system.window_title())
             .with_inner_size(LogicalSize::new(logical_width, logical_height))
-            .with_min_inner_size(LogicalSize::new(f64::from(fb_width), f64::from(fb_height)));
+            .with_min_inner_size(LogicalSize::new(display_width, f64::from(fb_height)));
         let window = Arc::new(event_loop.create_window(attributes)?);
         let video = WgpuVideoPresenter::new(window.clone(), fb_width, fb_height)?;
         self.window = Some(window);
