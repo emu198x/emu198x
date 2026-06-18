@@ -48,7 +48,7 @@ mod keypad;
 pub use cartridge::{BankingScheme, Cartridge};
 use keypad::Keypad;
 
-use atari_tia::{CLOCKS_PER_LINE, Tia, TiaRegion};
+use atari_tia::{ACTIVE_WIDTH, CLOCKS_PER_LINE, HBLANK_CLOCKS, Tia, TiaRegion};
 use mos_6502::M6502;
 use mos_riot_6532::Riot6532;
 
@@ -202,7 +202,9 @@ impl Atari2600 {
         }
     }
 
-    /// Framebuffer (160 × lines).
+    /// Full TIA raster (228 × lines): the visible 160-pixel picture preceded
+    /// by the 68-clock horizontal-blank margin. Use [`Self::visible_framebuffer_width`]
+    /// + [`Self::hblank_clocks`] to crop to the displayable region.
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         self.tia.framebuffer()
@@ -223,10 +225,23 @@ impl Atari2600 {
         }
     }
 
-    /// Framebuffer width (TIA: 160).
+    /// Full framebuffer width (228 = 68 HBLANK + 160 visible).
     #[must_use]
     pub fn framebuffer_width(&self) -> u32 {
         self.tia.framebuffer_width()
+    }
+
+    /// Width of the displayable picture (160), excluding the HBLANK margin.
+    #[must_use]
+    pub fn visible_framebuffer_width(&self) -> u32 {
+        ACTIVE_WIDTH
+    }
+
+    /// Leading horizontal-blank columns in each [`Self::framebuffer`] row (68)
+    /// — the always-black left margin to skip when displaying.
+    #[must_use]
+    pub fn hblank_clocks(&self) -> u32 {
+        u32::from(HBLANK_CLOCKS)
     }
 
     /// Framebuffer height (depends on TIA region).

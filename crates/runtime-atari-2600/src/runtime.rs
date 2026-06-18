@@ -107,11 +107,14 @@ impl Atari2600Runtime {
             slot: "cartridge-1".to_owned(),
             reason,
         })?;
-        let width = machine.framebuffer_width();
+        // Display the visible picture only: the TIA's framebuffer is the full
+        // 228-clock line, but the leading 68-clock HBLANK is always black and
+        // must not be shown (it would put a black band down the left edge and
+        // shove the picture right). Crop to the 160 visible columns.
         let height = machine.framebuffer_height();
-        self.rgba_width = width;
+        self.rgba_width = machine.visible_framebuffer_width();
         self.rgba_height = height;
-        self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
+        self.rgba_framebuffer = vec![0; (self.rgba_width * height * 4) as usize];
         self.machine = Some(machine);
         self.update_rgba_framebuffer();
         Ok(())
@@ -122,12 +125,21 @@ impl Atari2600Runtime {
             self.rgba_framebuffer.fill(0);
             return;
         };
-        for (index, &pixel) in machine.framebuffer().iter().enumerate() {
-            let base = index * 4;
-            self.rgba_framebuffer[base] = ((pixel >> 16) & 0xff) as u8;
-            self.rgba_framebuffer[base + 1] = ((pixel >> 8) & 0xff) as u8;
-            self.rgba_framebuffer[base + 2] = (pixel & 0xff) as u8;
-            self.rgba_framebuffer[base + 3] = ((pixel >> 24) & 0xff) as u8;
+        let source = machine.framebuffer();
+        let full_width = machine.framebuffer_width() as usize;
+        let hblank = machine.hblank_clocks() as usize;
+        let visible = self.rgba_width as usize;
+        let height = self.rgba_height as usize;
+        for y in 0..height {
+            let row = y * full_width + hblank;
+            for x in 0..visible {
+                let pixel = source[row + x];
+                let base = (y * visible + x) * 4;
+                self.rgba_framebuffer[base] = ((pixel >> 16) & 0xff) as u8;
+                self.rgba_framebuffer[base + 1] = ((pixel >> 8) & 0xff) as u8;
+                self.rgba_framebuffer[base + 2] = (pixel & 0xff) as u8;
+                self.rgba_framebuffer[base + 3] = ((pixel >> 24) & 0xff) as u8;
+            }
         }
     }
 }

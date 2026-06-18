@@ -79,7 +79,14 @@ impl UiSystem for Atari2600System {
     fn framebuffer_size(&self, runtime: &Self::Runtime) -> (u32, u32) {
         runtime
             .machine()
-            .map(|machine| (machine.framebuffer_width(), machine.framebuffer_height()))
+            .map(|machine| {
+                // Visible width (160) — the runtime crops the HBLANK margin out
+                // of the frames it presents, so the window must match that.
+                (
+                    machine.visible_framebuffer_width(),
+                    machine.framebuffer_height(),
+                )
+            })
             .unwrap_or((160, NTSC_LINES as u32))
     }
 
