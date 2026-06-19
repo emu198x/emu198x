@@ -1,6 +1,14 @@
 # Atari 2600 TIA — per-clock HMOVE port (#406)
 
-**Status:** Phase 3 complete. Phase 4 (verify Pole Position vs Stella) is next.
+**Status:** Phase 4 done — #406 closed. The per-clock HMOVE port is complete.
+
+Phase 4 verified the Pole Position sliver against the established Stella
+reference: it **persists** after the per-clock port, so it is *not* the HMOVE
+comb #406 fixed. Root-caused (see #581): the sliver is the HUD's missiles + ball,
+mis-positioned at the far left by (1) `resx_reset_position` clamping HBLANK RESx
+strobes to column 0, and (2) the score kernel's end-of-line HMOVE accumulation.
+Tracked as a separate residual in #581 (needs a Stella cycle-exact reference to
+fix); #406 stays correctly closed.
 
 Phase 3 is merged: the starfield width modulation (#578) — the Cosmic Ark
 twinkle, where a regular clock during movement modulates a moving ball/missile's
@@ -119,8 +127,16 @@ divisor 4, `Delay::hmove 6`, `Delay::hmp/hmm/hmbl/hmclr 2`.
    unchanged. Remaining: pixel-diff the starfield/quirks vs a Stella snapshot
    (GUI-driven), and wire a TIA-revision selector on the machine to
    `set_hmove_quirks` (needs a real game to validate against).
-4. **Verify the Pole Position sliver** vs Stella; close #406 or re-scope the
-   residual.
+4. **Verify the Pole Position sliver** vs Stella. ✅ Done. Extracted the NTSC
+   parent (md5 `a4ff39d513b993159911efe01ac12eba`) from the merged a2600 softlist
+   zip, drove the emulator to the race screen via a console-RESET input script,
+   and instrumented the TIA to capture the per-object draw mask + register-write
+   trace. **The sliver persists** and is *not* an HMOVE-comb artifact: it is the
+   HUD's missiles + ball, RESM/RESBL-strobed in HBLANK and moved by an end-of-line
+   HMOVE-accumulation kernel, landing ~2 columns too far left (our
+   `resx_reset_position` clamps HBLANK strobes to col 0; Stella's `resxCounter`
+   ≈ col 2). Re-scoped to #581 — needs a Stella cycle-exact reference to fix
+   safely. #406 (the HMOVE model) is complete and stays closed.
 
 ### Outstanding cross-checks (carried from phases 2–3)
 
