@@ -75,6 +75,32 @@ pub struct Riot6532 {
     post_underflow: bool,
 }
 
+/// Power-up value of the interval timer.
+///
+/// On real hardware the timer powers up to an **undefined** value, and both
+/// Stella (`myTimer = randGenerator().next() & 0xff`) and Gopher2600
+/// (`env.Random.Intn(0xff)`) seed it randomly. Resetting it to a fixed `0` is
+/// pathological: a game that polls the *free-running* timer for `INTIM == 0`
+/// without first loading an interval (Berzerk, H.E.R.O.) reaches the wait loop
+/// after the timer has already underflowed into 1×-rate mode, where the value
+/// it reads is held for only a single cycle. The poll loop's stride (8 cycles
+/// here, from a page-crossing `BNE`) then steps over that lone `0` forever and
+/// the game hangs. Any non-pathological power-up value leaves the timer in the
+/// slow divided countdown — where `0` is held for a full divider period — long
+/// enough for the loop to catch it.
+///
+/// We use a deterministic pseudo-random non-zero value (one LCG step from a
+/// fixed seed) so power-up is reproducible while still matching the silicon's
+/// "not zero" behaviour.
+const POWERUP_TIMER: u8 = {
+    let v = 0x2600_1977_u32
+        .wrapping_mul(1_664_525)
+        .wrapping_add(1_013_904_223)
+        >> 16;
+    let v = v as u8;
+    if v == 0 { 0xA5 } else { v }
+};
+
 impl Riot6532 {
     /// Create a new RIOT with all registers cleared.
     #[must_use]
@@ -87,7 +113,7 @@ impl Riot6532 {
             port_b: 0,
             ddr_b: 0,
             input_b: 0xFF,
-            timer: 0,
+            timer: POWERUP_TIMER,
             divider: 1024,
             prescaler: 1024,
             underflow: false,
