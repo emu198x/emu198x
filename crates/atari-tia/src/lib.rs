@@ -108,6 +108,16 @@ pub const HBLANK_CLOCKS: u16 = 68;
 /// and left approximate here.
 const RESX_PIPELINE_DELAY: u16 = 5;
 
+/// Colour clocks the HMOVE strobe is delayed before the movement engine starts
+/// (Stella `Delay::hmove`). The delay is why the strobe — which on real hardware
+/// is issued at the very start of a line's HBLANK — lands after that line's
+/// hctr-0 reset, so the extended HBLANK applies to the correct line.
+const DELAY_HMOVE: u8 = 6;
+
+/// Extra colour clocks the HMOVE comb holds the beam in HBLANK (the visible
+/// region starts 8 clocks later, at hctr 76 instead of 68).
+const HMOVE_COMB_CLOCKS: u16 = 8;
+
 /// Paddle capacitor base charge time at zero pot resistance, in nanoseconds
 /// ×100. From the Atari7800 MiSTer paddle-LUT generator (`paddle_lut.c`).
 const PADDLE_BASE_TIME_NS100: u64 = 6_034_284;
@@ -308,14 +318,31 @@ pub struct Tia {
     /// is applied separately in `ball_pixel`.
     ball_signal: bool,
 
-    // --- Horizontal motion ---
-    hmp0: i8,
-    hmp1: i8,
-    hmm0: i8,
-    hmm1: i8,
-    hmbl: i8,
-    /// HMOVE was triggered this line — blanks first 8 visible pixels.
-    hmove_pending: bool,
+    // --- Horizontal motion (HMOVE movement engine, #406 phase 2) ---
+    // Each object's HM register decoded as Stella's `hmmClocks = (value>>4) ^ 8`
+    // (0..15): the number of extra counter ticks injected during the extended
+    // HBLANK. Net leftward motion is `hmmClocks − 8` (8 = no motion). Indexed
+    // [0],[1] for the two players/missiles.
+    hmm_p: [u8; 2],
+    hmm_m: [u8; 2],
+    hmm_bl: u8,
+    /// Per-object "still moving" latch — true from an HMOVE strobe until the
+    /// object's movement clock reaches its `hmmClocks`.
+    moving_p: [bool; 2],
+    moving_m: [bool; 2],
+    moving_bl: bool,
+    /// Movement-engine clock (0..15+), incremented every 4th colour clock while
+    /// movement is in progress.
+    movement_clock: u8,
+    /// Any object still moving — gates the movement engine.
+    movement_active: bool,
+    /// Extended HBLANK: set by HMOVE, holds the beam in blanking for 8 extra
+    /// clocks (to hctr 75) so the first visible pixel is column 8 — the 8-pixel
+    /// HMOVE comb. Cleared at the start of each line.
+    extended_hblank: bool,
+    /// Colour clocks until a strobed HMOVE takes effect (Stella `Delay::hmove`
+    /// = 6). `None` when no HMOVE is pending.
+    hmove_delay: Option<u8>,
 
     // --- Collision latches ---
     /// 15 collision flags, packed into CXM0P..CXPPMM registers.
@@ -430,12 +457,17 @@ impl Tia {
             ball_is_rendering: false,
             ball_render_counter: 0,
             ball_signal: false,
-            hmp0: 0,
-            hmp1: 0,
-            hmm0: 0,
-            hmm1: 0,
-            hmbl: 0,
-            hmove_pending: false,
+            // HM registers default to 0 → hmmClocks = (0>>4)^8 = 8 = no motion.
+            hmm_p: [8; 2],
+            hmm_m: [8; 2],
+            hmm_bl: 8,
+            moving_p: [false; 2],
+            moving_m: [false; 2],
+            moving_bl: false,
+            movement_clock: 0,
+            movement_active: false,
+            extended_hblank: false,
+            hmove_delay: None,
             cxm0p: 0,
             cxm1p: 0,
             cxp0fb: 0,
@@ -477,6 +509,22 @@ impl Tia {
         // positions within the scanline; see TiaAudio::tick).
         self.audio.tick();
 
+        // A strobed HMOVE takes effect after a fixed delay; fire it before the
+        // movement engine runs this clock.
+        if let Some(d) = self.hmove_delay {
+            let next = d - 1;
+            if next == 0 {
+                self.fire_hmove();
+                self.hmove_delay = None;
+            } else {
+                self.hmove_delay = Some(next);
+            }
+        }
+
+        // The movement engine injects extra counter ticks (every 4th clock,
+        // during HBLANK) — this is how HMOVE moves objects now.
+        self.tick_movement();
+
         let palette = match self.region {
             TiaRegion::Ntsc => &NTSC_PALETTE,
             TiaRegion::Pal => &PAL_PALETTE,
@@ -485,7 +533,9 @@ impl Tia {
         if self.vpos < self.max_lines {
             let line_offset = self.vpos as usize * FB_WIDTH as usize;
             let fb_idx = line_offset + self.hpos as usize;
-            if self.hpos >= HBLANK_CLOCKS {
+            // Under an extended HBLANK the visible region starts 8 clocks late;
+            // those 8 columns render as HBLANK black — the HMOVE comb.
+            if self.hpos >= self.first_visible_hctr() {
                 let pixel_x = self.hpos - HBLANK_CLOCKS;
 
                 // Latch this clock's geometry signal before compose/collisions
@@ -552,7 +602,10 @@ impl Tia {
         if self.hpos >= CLOCKS_PER_LINE {
             self.hpos = 0;
             self.wsync_halt = false;
-            self.hmove_pending = false;
+            // A new line starts un-extended; re-sync each shadow position from
+            // its (possibly HMOVE-moved) free-running counter.
+            self.extended_hblank = false;
+            self.sync_position_shadows();
             self.vpos += 1;
 
             // Start a new frame on VSYNC deassert (the normal path) or as a
@@ -582,10 +635,8 @@ impl Tia {
         let m1 = self.missile_signal(1);
         let bl = self.ball_pixel(x);
 
-        // HMOVE blanking: first 8 pixels are black when HMOVE was triggered.
-        if self.hmove_pending && x < 8 {
-            return 0;
-        }
+        // (The HMOVE comb is now the extended HBLANK in `tick`, not a per-pixel
+        // blank here — see #406 phase 2.)
 
         // Update collision latches (conceptually — we do it in compose for simplicity).
         // In a real implementation these would be accumulated; since we're called
@@ -1251,31 +1302,27 @@ impl Tia {
                 // used by VDELBL latches on the GRP1 write (see $1C above).
                 self.enabl = value & 0x02 != 0;
             }
-            0x20 => self.hmp0 = decode_hmove(value), // HMP0
-            0x21 => self.hmp1 = decode_hmove(value), // HMP1
-            0x22 => self.hmm0 = decode_hmove(value), // HMM0
-            0x23 => self.hmm1 = decode_hmove(value), // HMM1
-            0x24 => self.hmbl = decode_hmove(value), // HMBL
-            0x25 => self.vdelp0 = value & 0x01 != 0, // VDELP0
-            0x26 => self.vdelp1 = value & 0x01 != 0, // VDELP1
-            0x27 => self.vdelbl = value & 0x01 != 0, // VDELBL
-            0x28 => self.resmp0 = value & 0x02 != 0, // RESMP0
-            0x29 => self.resmp1 = value & 0x02 != 0, // RESMP1
+            0x20 => self.hmm_p[0] = hmm_clocks(value), // HMP0
+            0x21 => self.hmm_p[1] = hmm_clocks(value), // HMP1
+            0x22 => self.hmm_m[0] = hmm_clocks(value), // HMM0
+            0x23 => self.hmm_m[1] = hmm_clocks(value), // HMM1
+            0x24 => self.hmm_bl = hmm_clocks(value),   // HMBL
+            0x25 => self.vdelp0 = value & 0x01 != 0,   // VDELP0
+            0x26 => self.vdelp1 = value & 0x01 != 0,   // VDELP1
+            0x27 => self.vdelbl = value & 0x01 != 0,   // VDELBL
+            0x28 => self.resmp0 = value & 0x02 != 0,   // RESMP0
+            0x29 => self.resmp1 = value & 0x02 != 0,   // RESMP1
             0x2A => {
-                // HMOVE: apply each object's horizontal motion to its shadow
-                // position and re-seed its free-running counter there. (Phase 2b
-                // replaces this instant offset with the movement engine.) The
-                // 8-pixel comb is still drawn by `hmove_pending`.
-                self.apply_hmove();
-                self.hmove_pending = true;
+                // HMOVE: arm the movement engine. Stella delays the strobe by 6
+                // colour clocks; the engine then injects each object's extra
+                // counter ticks during an extended HBLANK (the 8-pixel comb).
+                self.hmove_delay = Some(DELAY_HMOVE);
             }
             0x2B => {
-                // HMCLR
-                self.hmp0 = 0;
-                self.hmp1 = 0;
-                self.hmm0 = 0;
-                self.hmm1 = 0;
-                self.hmbl = 0;
+                // HMCLR: clear the HM registers (value 0 → hmmClocks 8 = no move).
+                self.hmm_p = [8; 2];
+                self.hmm_m = [8; 2];
+                self.hmm_bl = 8;
             }
             0x2C => {
                 // CXCLR
@@ -1350,14 +1397,84 @@ impl Tia {
         }
     }
 
-    /// Apply HMOVE offsets to all object positions, re-seeding each
-    /// free-running counter at its new shadow position.
-    fn apply_hmove(&mut self) {
-        self.set_player_position(0, apply_motion(self.pos_p0, self.hmp0));
-        self.set_player_position(1, apply_motion(self.pos_p1, self.hmp1));
-        self.set_missile_position(0, apply_motion(self.pos_m0, self.hmm0));
-        self.set_missile_position(1, apply_motion(self.pos_m1, self.hmm1));
-        self.set_ball_position(apply_motion(self.pos_bl, self.hmbl));
+    /// Fire a (delayed) HMOVE strobe: start the movement engine, extend the
+    /// HBLANK for the comb, and mark every object as moving.
+    fn fire_hmove(&mut self) {
+        self.movement_clock = 0;
+        self.movement_active = true;
+        self.extended_hblank = true;
+        self.moving_p = [true; 2];
+        self.moving_m = [true; 2];
+        self.moving_bl = true;
+    }
+
+    /// The first visible hctr this line: 8 clocks later under an extended HBLANK
+    /// (the HMOVE comb), otherwise the usual end of HBLANK.
+    fn first_visible_hctr(&self) -> u16 {
+        if self.extended_hblank {
+            HBLANK_CLOCKS + HMOVE_COMB_CLOCKS
+        } else {
+            HBLANK_CLOCKS
+        }
+    }
+
+    /// The movement engine. Once every 4th colour clock, while movement is in
+    /// progress, advance each still-moving object's counter by one extra tick
+    /// (only during HBLANK — Stella masks/merges injections that fall in the
+    /// visible region). An object stops when its movement clock reaches its
+    /// `hmmClocks`; movement ends when every object has stopped.
+    fn tick_movement(&mut self) {
+        if !self.movement_active || self.hpos & 0x03 != 0 {
+            return;
+        }
+        let clock = if self.movement_clock > 15 {
+            0
+        } else {
+            self.movement_clock
+        };
+        let hblank = self.hpos < self.first_visible_hctr();
+
+        if self.moving_bl {
+            if clock == self.hmm_bl {
+                self.moving_bl = false;
+            } else if hblank {
+                self.advance_ball();
+            }
+        }
+        for idx in 0..2 {
+            if self.moving_p[idx] {
+                if clock == self.hmm_p[idx] {
+                    self.moving_p[idx] = false;
+                } else if hblank {
+                    self.advance_player(idx);
+                }
+            }
+            if self.moving_m[idx] {
+                if clock == self.hmm_m[idx] {
+                    self.moving_m[idx] = false;
+                } else if hblank {
+                    self.advance_missile(idx);
+                }
+            }
+        }
+
+        self.movement_active =
+            self.moving_bl || self.moving_p.iter().any(|&m| m) || self.moving_m.iter().any(|&m| m);
+        self.movement_clock += 1;
+    }
+
+    /// Re-derive each `pos_*` shadow from its free-running counter at the start
+    /// of a line. The movement engine moves an object by injecting counter ticks
+    /// (not by writing the shadow), so the shadow must be re-synced or a later
+    /// re-seed (e.g. a NUSIZ write) would snap the object back. The inverse of
+    /// the per-object seed at column 0: ball/missile counter `(1 − pos)`,
+    /// player `(2 − pos)`.
+    fn sync_position_shadows(&mut self) {
+        self.pos_bl = (160 + 1 - self.counter_bl) % 160;
+        self.pos_p0 = (160 + 2 - self.counter_p[0]) % 160;
+        self.pos_p1 = (160 + 2 - self.counter_p[1]) % 160;
+        self.pos_m0 = (160 + 1 - self.counter_m[0]) % 160;
+        self.pos_m1 = (160 + 1 - self.counter_m[1]) % 160;
     }
 
     /// Reference to the framebuffer (ARGB32, 160 × `max_lines`).
@@ -1469,13 +1586,22 @@ impl Tia {
         data.push(u8::from(self.enabl_old));
         data.extend_from_slice(&self.pos_bl.to_le_bytes());
         data.push(u8::from(self.vdelbl));
-        // Horizontal motion
-        data.push(self.hmp0 as u8);
-        data.push(self.hmp1 as u8);
-        data.push(self.hmm0 as u8);
-        data.push(self.hmm1 as u8);
-        data.push(self.hmbl as u8);
-        data.push(u8::from(self.hmove_pending));
+        // Horizontal motion / movement engine
+        data.push(self.hmm_p[0]);
+        data.push(self.hmm_p[1]);
+        data.push(self.hmm_m[0]);
+        data.push(self.hmm_m[1]);
+        data.push(self.hmm_bl);
+        data.push(u8::from(self.moving_p[0]));
+        data.push(u8::from(self.moving_p[1]));
+        data.push(u8::from(self.moving_m[0]));
+        data.push(u8::from(self.moving_m[1]));
+        data.push(u8::from(self.moving_bl));
+        data.push(self.movement_clock);
+        data.push(u8::from(self.movement_active));
+        data.push(u8::from(self.extended_hblank));
+        data.push(self.hmove_delay.unwrap_or(0));
+        data.push(u8::from(self.hmove_delay.is_some()));
         // Collision latches
         data.push(self.cxm0p);
         data.push(self.cxm1p);
@@ -1563,12 +1689,25 @@ impl Tia {
         self.enabl_old = r8!() != 0;
         self.pos_bl = r16!();
         self.vdelbl = r8!() != 0;
-        self.hmp0 = r8!() as i8;
-        self.hmp1 = r8!() as i8;
-        self.hmm0 = r8!() as i8;
-        self.hmm1 = r8!() as i8;
-        self.hmbl = r8!() as i8;
-        self.hmove_pending = r8!() != 0;
+        self.hmm_p[0] = r8!();
+        self.hmm_p[1] = r8!();
+        self.hmm_m[0] = r8!();
+        self.hmm_m[1] = r8!();
+        self.hmm_bl = r8!();
+        self.moving_p[0] = r8!() != 0;
+        self.moving_p[1] = r8!() != 0;
+        self.moving_m[0] = r8!() != 0;
+        self.moving_m[1] = r8!() != 0;
+        self.moving_bl = r8!() != 0;
+        self.movement_clock = r8!();
+        self.movement_active = r8!() != 0;
+        self.extended_hblank = r8!() != 0;
+        let hmove_delay_val = r8!();
+        self.hmove_delay = if r8!() != 0 {
+            Some(hmove_delay_val)
+        } else {
+            None
+        };
         self.cxm0p = r8!();
         self.cxm1p = r8!();
         self.cxp0fb = r8!();
@@ -1613,22 +1752,27 @@ fn latched_inpt(enabled: bool, pressed: bool, prev: u8) -> u8 {
     }
 }
 
+/// Decode an HMxx register write into the movement engine's `hmmClocks`: the
+/// number of extra counter ticks injected during the extended HBLANK
+/// (`(value >> 4) ^ 0x08`, 0..15). Net leftward motion is `hmmClocks − 8`, so
+/// `$00` → 8 (no motion), `$70` → 15 (left 7), `$80` → 0 (right 8),
+/// `$F0` → 7 (right 1).
+fn hmm_clocks(value: u8) -> u8 {
+    (value >> 4) ^ 0x08
+}
+
 /// Decode an HMxx register write into a position delta for [`apply_motion`].
+/// Test-only since the movement engine replaced the instant offset — kept to
+/// document and cross-check the net motion (`-decode_hmove == hmmClocks - 8`).
 ///
-/// Bits 7:4 are a signed 4-bit value (−8..+7). On real hardware a **positive**
-/// nybble moves the object **left**, a **negative** nybble moves it **right**
-/// (Stella sets `myHmmClocks = nybble ^ 8` and ticks the object that many extra
-/// times during HMOVE — more ticks advance its counter further, i.e. left).
-/// `apply_motion` treats a smaller position as further left, so we return the
-/// negated nybble:
+/// Bits 7:4 are a signed 4-bit value (−8..+7). A **positive** nybble moves the
+/// object **left**, a **negative** nybble **right** (Stella / real hardware;
+/// the prose `tia-reference.md` table has this inverted). `apply_motion` treats
+/// a smaller position as further left, so we return the negated nybble:
 ///
 /// - `$70` (+7) → `-7` → left 7
-/// - `$10` (+1) → `-1` → left 1
 /// - `$80` (−8) → `+8` → right 8
-/// - `$F0` (−1) → `+1` → right 1
-///
-/// NB: the prose `tia-reference.md` table has this direction inverted; the
-/// convention here matches Stella and real hardware.
+#[cfg(test)]
 fn decode_hmove(value: u8) -> i8 {
     // Sign-extend the high nybble from 4 bits, then negate so a positive
     // (leftward) nybble subtracts from the position.
@@ -1652,7 +1796,9 @@ fn missile_width(nusiz: u8) -> u16 {
     }
 }
 
-/// Apply a motion offset to a position, wrapping within 0-159.
+/// Apply a motion offset to a position, wrapping within 0-159. Test-only — see
+/// [`decode_hmove`].
+#[cfg(test)]
 fn apply_motion(pos: u16, motion: i8) -> u16 {
     let new_pos = i32::from(pos) + i32::from(motion);
     ((new_pos % 160 + 160) % 160) as u16
@@ -2296,5 +2442,101 @@ mod tests {
             assert_eq!(*px, fg, "player moved to 8..16, pixel {x}");
         }
         assert_eq!(line[16], bg);
+    }
+
+    /// Leftmost lit column of a rendered line (the start of a solid sprite).
+    fn leftmost_lit(line: &[u32], fg: u32) -> Option<usize> {
+        line.iter().position(|&px| px == fg)
+    }
+
+    #[test]
+    fn hmove_engine_net_motion_matches_the_decode_table_for_every_hm_value() {
+        // The movement engine moves objects by injecting counter ticks during
+        // the extended HBLANK; the *net* in-HBLANK-HMOVE motion must still match
+        // the canonical table (`hmmClocks − 8` = `−decode_hmove`). Sweep all 16
+        // HM nibbles from a fixed start clear of the 8px comb, and check where a
+        // solid player lands.
+        let start = 80u16;
+        for nibble in 0u8..16 {
+            let value = nibble << 4;
+            let mut tia = Tia::new(TiaRegion::Ntsc);
+            tia.colubk = 0x00;
+            tia.colup0 = 0x1E;
+            tia.grp0 = 0xFF;
+            tia.nusiz0 = 0x00;
+            tia.set_player_position(0, start);
+            tia.write(0x20, value); // HMP0
+            tia.write(0x2A, 0x00); // HMOVE in HBLANK
+
+            let line = render_visible_line(&mut tia);
+            let want = apply_motion(start, decode_hmove(value));
+            assert_eq!(
+                leftmost_lit(&line, colour(0x1E)),
+                Some(want as usize),
+                "HMOVE {value:#04x}: player should land at {want}"
+            );
+        }
+    }
+
+    #[test]
+    fn hmove_motion_persists_on_the_following_line() {
+        // A single HMOVE shifts the free-running counter permanently: the object
+        // stays moved on later lines (no comb, no re-move) until the next
+        // HMOVE/RESPx — proving the counter free-runs and the shadow re-syncs.
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.colubk = 0x00;
+        tia.colup0 = 0x1E;
+        tia.grp0 = 0xFF;
+        tia.nusiz0 = 0x00;
+        tia.set_player_position(0, 80);
+        tia.write(0x20, 0x70); // HMP0 = left 7
+        tia.write(0x2A, 0x00); // HMOVE
+
+        let _hmove_line = render_visible_line(&mut tia);
+        let next_line = render_visible_line(&mut tia);
+        // 80 − 7 = 73, and the following line has no comb to blank it.
+        assert_eq!(leftmost_lit(&next_line, colour(0x1E)), Some(73));
+    }
+
+    #[test]
+    fn late_hmove_moves_less_than_a_full_hblank_hmove() {
+        // Regression baseline for *late* HMOVE (strobed in the visible region):
+        // the injections that fall outside HBLANK are masked, so the object
+        // moves less than the full `hmmClocks − 8`. This pins the engine's
+        // behaviour; the exact pixels still want a Stella 7.0 cross-check.
+        let strobe_at = HBLANK_CLOCKS + 30; // mid visible region
+
+        let mut full = Tia::new(TiaRegion::Ntsc);
+        full.colubk = 0x00;
+        full.colup0 = 0x1E;
+        full.grp0 = 0xFF;
+        full.set_player_position(0, 100);
+        full.write(0x20, 0x70); // left 7
+        full.write(0x2A, 0x00); // HMOVE in HBLANK → full move
+        let full_line = render_visible_line(&mut full);
+        let full_pos = leftmost_lit(&full_line, colour(0x1E)).expect("full HMOVE renders");
+
+        let mut late = Tia::new(TiaRegion::Ntsc);
+        late.colubk = 0x00;
+        late.colup0 = 0x1E;
+        late.grp0 = 0xFF;
+        late.set_player_position(0, 100);
+        late.write(0x20, 0x70);
+        for _ in 0..strobe_at {
+            late.tick();
+        }
+        late.write(0x2A, 0x00); // HMOVE mid-line → late, partially masked
+        for _ in 0..(CLOCKS_PER_LINE - strobe_at) {
+            late.tick();
+        }
+        // The next line shows the (smaller) net move the late strobe applied.
+        let late_line = render_visible_line(&mut late);
+        let late_pos = leftmost_lit(&late_line, colour(0x1E)).expect("late HMOVE renders");
+
+        assert_eq!(full_pos, 93, "full in-HBLANK HMOVE moves left 7");
+        assert!(
+            late_pos > full_pos,
+            "late HMOVE moves less than the full 7 (full={full_pos}, late={late_pos})"
+        );
     }
 }
