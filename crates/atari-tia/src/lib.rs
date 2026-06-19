@@ -380,7 +380,7 @@ impl Tia {
     pub fn new(region: TiaRegion) -> Self {
         let max_lines = region.lines_per_frame();
         let fb_size = FB_WIDTH as usize * max_lines as usize;
-        Self {
+        let mut tia = Self {
             region,
             hpos: 0,
             vpos: 0,
@@ -458,7 +458,15 @@ impl Tia {
             frame_complete: false,
             in_vsync: false,
             audio: TiaAudio::default(),
-        }
+        };
+        // Seed every free-running counter to position 0 so a never-positioned
+        // object behaves like the old `pos_*=0` default rather than drifting.
+        tia.set_ball_position(0);
+        tia.set_player_position(0, 0);
+        tia.set_player_position(1, 0);
+        tia.set_missile_position(0, 0);
+        tia.set_missile_position(1, 0);
+        tia
     }
 
     /// Advance the TIA by one colour clock.
@@ -480,18 +488,11 @@ impl Tia {
             if self.hpos >= HBLANK_CLOCKS {
                 let pixel_x = self.hpos - HBLANK_CLOCKS;
 
-                // Reseed the ball's free-running counter from its canonical
-                // position at the start of the visible region (Phase 1b). Then
-                // latch this clock's geometry signal before compose/collisions
+                // Latch this clock's geometry signal before compose/collisions
                 // read it, mirroring Stella's `Ball::tick` ordering (signal is
-                // computed from the pipeline state *before* it advances).
-                if pixel_x == 0 {
-                    self.seed_ball(0);
-                    self.seed_player(0, 0);
-                    self.seed_player(1, 0);
-                    self.seed_missile(0, 0);
-                    self.seed_missile(1, 0);
-                }
+                // computed from the pipeline state *before* it advances). The
+                // counters free-run across lines now (#406 phase 2) — they are
+                // seeded only by RESPx/HMOVE/position writes, not per line.
                 self.ball_signal = self.ball_is_rendering && self.ball_render_counter >= 0;
                 self.p_signal[0] = self.player_signal(0);
                 self.p_signal[1] = self.player_signal(1);
@@ -794,8 +795,8 @@ impl Tia {
     /// position; a copy whose decode happened before `x` (carried from the
     /// previous line, or wrapped past column 159) is recovered as an in-progress
     /// render. See the field block and #406 phase 1b.
-    fn seed_player(&mut self, idx: usize, x: u16) {
-        let (pos, _, _, nusiz) = self.player_inputs(idx);
+    fn seed_player(&mut self, idx: usize, pos: u16, x: u16) {
+        let (_, _, _, nusiz) = self.player_inputs(idx);
         let pos = pos % 160;
         let (copies, divider) = Self::player_copies(nusiz);
         let trip = i32::from(if divider == 1 { 0u8 } else { 1 });
@@ -823,13 +824,33 @@ impl Tia {
         }
     }
 
-    /// Re-seed player `idx` from its position when a RESPx/HMOVE/NUSIZ strobe
-    /// lands in the visible region, so the change takes effect on the next clock
-    /// (HBLANK strobes are picked up by the line-start seed).
-    fn reseed_player_if_visible(&mut self, idx: usize) {
-        if self.hpos >= HBLANK_CLOCKS {
-            self.seed_player(idx, self.hpos - HBLANK_CLOCKS);
+    /// The visible column the beam is about to render — where a position-setting
+    /// strobe takes effect. In HBLANK there is no current column, so the seed
+    /// targets column 0 (the start of the upcoming visible region).
+    fn seed_x(&self) -> u16 {
+        self.hpos.saturating_sub(HBLANK_CLOCKS)
+    }
+
+    /// Re-seed player `idx`'s pipeline from its shadow position (`pos_pN`) at the
+    /// current beam — used when a register change (RESPx/HMOVE/NUSIZ) must take
+    /// effect without moving the object. With the counters free-running (#406
+    /// phase 2) this is the only re-seed path; there is no per-line re-seed.
+    fn reseed_player(&mut self, idx: usize) {
+        let pos = if idx == 0 { self.pos_p0 } else { self.pos_p1 };
+        self.seed_player(idx, pos, self.seed_x());
+    }
+
+    /// Set player `idx`'s position: update the shadow and seed the pipeline at
+    /// the current beam. The shadow (`pos_pN`) stays the canonical position for
+    /// reads and save-state; the free-running counter is the rendering truth.
+    pub fn set_player_position(&mut self, idx: usize, pos: u16) {
+        let pos = pos % 160;
+        if idx == 0 {
+            self.pos_p0 = pos;
+        } else {
+            self.pos_p1 = pos;
         }
+        self.seed_player(idx, pos, self.seed_x());
     }
 
     /// Advance player `idx`'s pipeline by one visible colour clock (Stella
@@ -919,8 +940,8 @@ impl Tia {
     /// Seed missile `idx`'s pipeline from its position so that, run forward from
     /// visible column `x`, it reproduces `missile_pixel`'s geometry — identical
     /// in structure to [`Self::seed_ball`] (decode 156, render offset −4).
-    fn seed_missile(&mut self, idx: usize, x: u16) {
-        let (pos, _, w) = self.missile_inputs(idx);
+    fn seed_missile(&mut self, idx: usize, pos: u16, x: u16) {
+        let (_, _, w) = self.missile_inputs(idx);
         let pos = pos % 160;
         self.counter_m[idx] = (x + 160 - pos + 1) % 160;
         let d = (x + 160 - pos + 4) % 160;
@@ -933,12 +954,23 @@ impl Tia {
         }
     }
 
-    /// Re-seed missile `idx` when a RESMx/HMOVE strobe lands in the visible
-    /// region (HBLANK strobes are caught by the line-start seed).
-    fn reseed_missile_if_visible(&mut self, idx: usize) {
-        if self.hpos >= HBLANK_CLOCKS {
-            self.seed_missile(idx, self.hpos - HBLANK_CLOCKS);
+    /// Re-seed missile `idx`'s pipeline from its shadow position at the current
+    /// beam (free-running counters; no per-line re-seed — see [`Self::seed_x`]).
+    fn reseed_missile(&mut self, idx: usize) {
+        let pos = if idx == 0 { self.pos_m0 } else { self.pos_m1 };
+        self.seed_missile(idx, pos, self.seed_x());
+    }
+
+    /// Set missile `idx`'s position: update the shadow and seed the pipeline at
+    /// the current beam.
+    pub fn set_missile_position(&mut self, idx: usize, pos: u16) {
+        let pos = pos % 160;
+        if idx == 0 {
+            self.pos_m0 = pos;
+        } else {
+            self.pos_m1 = pos;
         }
+        self.seed_missile(idx, pos, self.seed_x());
     }
 
     /// Advance missile `idx`'s pipeline by one visible colour clock (Stella
@@ -997,8 +1029,8 @@ impl Tia {
     /// the `4 + width`-clock render window. A render that began on the previous
     /// line (a sprite near the left edge, or one wrapping past column 159) is
     /// recovered here as an already-active pipeline. See #406 phase 1b.
-    fn seed_ball(&mut self, x: u16) {
-        let pos = self.pos_bl % 160;
+    fn seed_ball(&mut self, pos: u16, x: u16) {
+        let pos = pos % 160;
         let w = self.ball_width();
         self.counter_bl = (x + 160 - pos + 1) % 160;
         let d = (x + 160 - pos + 4) % 160;
@@ -1011,13 +1043,17 @@ impl Tia {
         }
     }
 
-    /// Re-seed the ball pipeline from `pos_bl` when a RESBL/HMOVE strobe lands
-    /// in the visible region, so the new column takes effect on the next clock
-    /// (the line-start seed handles strobes during HBLANK).
-    fn reseed_ball_if_visible(&mut self) {
-        if self.hpos >= HBLANK_CLOCKS {
-            self.seed_ball(self.hpos - HBLANK_CLOCKS);
-        }
+    /// Re-seed the ball pipeline from its shadow position (`pos_bl`) at the
+    /// current beam (free-running counters; no per-line re-seed).
+    fn reseed_ball(&mut self) {
+        self.seed_ball(self.pos_bl, self.seed_x());
+    }
+
+    /// Set the ball's position: update the shadow and seed the pipeline at the
+    /// current beam.
+    pub fn set_ball_position(&mut self, pos: u16) {
+        self.pos_bl = pos % 160;
+        self.seed_ball(self.pos_bl, self.seed_x());
     }
 
     /// Advance the ball's render pipeline and counter by one visible colour
@@ -1146,13 +1182,13 @@ impl Tia {
             }
             0x04 => {
                 // NUSIZ0: copy layout / size for player 0. A change reshapes the
-                // render pipeline, so re-seed a visible-region write.
+                // render pipeline, so re-seed from the shadow position.
                 self.nusiz0 = value;
-                self.reseed_player_if_visible(0);
+                self.reseed_player(0);
             }
             0x05 => {
                 self.nusiz1 = value;
-                self.reseed_player_if_visible(1);
+                self.reseed_player(1);
             }
             0x06 => self.colup0 = value,            // COLUP0
             0x07 => self.colup1 = value,            // COLUP1
@@ -1165,32 +1201,28 @@ impl Tia {
             0x0E => self.pf1 = value,               // PF1
             0x0F => self.pf2 = value,               // PF2
             0x10 => {
-                // RESP0: reset player 0 position; re-seed a visible-region strobe
-                // so the new column takes effect immediately (HBLANK strobes are
-                // caught by the line-start seed).
-                self.pos_p0 = self.resx_reset_position();
-                self.reseed_player_if_visible(0);
+                // RESP0: reset player 0 to the strobe column (beam + pipeline
+                // delay), seeding the free-running counter there.
+                let pos = self.resx_reset_position();
+                self.set_player_position(0, pos);
             }
             0x11 => {
-                self.pos_p1 = self.resx_reset_position();
-                self.reseed_player_if_visible(1);
+                let pos = self.resx_reset_position();
+                self.set_player_position(1, pos);
             }
             0x12 => {
-                // RESM0: reset missile 0 position; re-seed a visible-region strobe.
-                self.pos_m0 = self.resx_reset_position();
-                self.reseed_missile_if_visible(0);
+                // RESM0: reset missile 0 to the strobe column.
+                let pos = self.resx_reset_position();
+                self.set_missile_position(0, pos);
             }
             0x13 => {
-                self.pos_m1 = self.resx_reset_position();
-                self.reseed_missile_if_visible(1);
+                let pos = self.resx_reset_position();
+                self.set_missile_position(1, pos);
             }
             0x14 => {
-                // RESBL: reset the ball position. A strobe inside the visible
-                // region must re-seed the live pipeline so the new column takes
-                // effect immediately, as the old per-pixel formula did; an
-                // HBLANK strobe is picked up by the line-start seed.
-                self.pos_bl = self.resx_reset_position();
-                self.reseed_ball_if_visible();
+                // RESBL: reset the ball to the strobe column.
+                let pos = self.resx_reset_position();
+                self.set_ball_position(pos);
             }
             // AUDC0/1, AUDF0/1, AUDV0/1 — both audio channels.
             0x15..=0x1A => self.audio.write(addr & 0x3F, value),
@@ -1230,13 +1262,11 @@ impl Tia {
             0x28 => self.resmp0 = value & 0x02 != 0, // RESMP0
             0x29 => self.resmp1 = value & 0x02 != 0, // RESMP1
             0x2A => {
-                // HMOVE
+                // HMOVE: apply each object's horizontal motion to its shadow
+                // position and re-seed its free-running counter there. (Phase 2b
+                // replaces this instant offset with the movement engine.) The
+                // 8-pixel comb is still drawn by `hmove_pending`.
                 self.apply_hmove();
-                self.reseed_ball_if_visible();
-                self.reseed_player_if_visible(0);
-                self.reseed_player_if_visible(1);
-                self.reseed_missile_if_visible(0);
-                self.reseed_missile_if_visible(1);
                 self.hmove_pending = true;
             }
             0x2B => {
@@ -1320,13 +1350,14 @@ impl Tia {
         }
     }
 
-    /// Apply HMOVE offsets to all object positions.
+    /// Apply HMOVE offsets to all object positions, re-seeding each
+    /// free-running counter at its new shadow position.
     fn apply_hmove(&mut self) {
-        self.pos_p0 = apply_motion(self.pos_p0, self.hmp0);
-        self.pos_p1 = apply_motion(self.pos_p1, self.hmp1);
-        self.pos_m0 = apply_motion(self.pos_m0, self.hmm0);
-        self.pos_m1 = apply_motion(self.pos_m1, self.hmm1);
-        self.pos_bl = apply_motion(self.pos_bl, self.hmbl);
+        self.set_player_position(0, apply_motion(self.pos_p0, self.hmp0));
+        self.set_player_position(1, apply_motion(self.pos_p1, self.hmp1));
+        self.set_missile_position(0, apply_motion(self.pos_m0, self.hmm0));
+        self.set_missile_position(1, apply_motion(self.pos_m1, self.hmm1));
+        self.set_ball_position(apply_motion(self.pos_bl, self.hmbl));
     }
 
     /// Reference to the framebuffer (ARGB32, 160 × `max_lines`).
@@ -1553,6 +1584,13 @@ impl Tia {
         self.inpt_latch = r8!() != 0;
         self.frame_complete = r8!() != 0;
         self.in_vsync = r8!() != 0;
+        // The render pipelines are derived, not serialized — re-seed each
+        // free-running counter from its restored shadow position.
+        self.reseed_ball();
+        self.reseed_player(0);
+        self.reseed_player(1);
+        self.reseed_missile(0);
+        self.reseed_missile(1);
         Ok(p)
     }
 }
@@ -2037,9 +2075,9 @@ mod tests {
         let mut tia = Tia::new(TiaRegion::Ntsc);
         tia.colubk = 0x00;
         tia.colup0 = 0x1E;
-        tia.pos_p0 = 40;
         tia.grp0 = 0xFF;
         tia.nusiz0 = 0x00;
+        tia.set_player_position(0, 40);
 
         let line = render_visible_line(&mut tia);
         let (bg, fg) = (colour(0x00), colour(0x1E));
@@ -2054,9 +2092,9 @@ mod tests {
         let mut tia = Tia::new(TiaRegion::Ntsc);
         tia.colubk = 0x00;
         tia.colup0 = 0x1E;
-        tia.pos_p0 = 40;
         tia.grp0 = 0xFF;
         tia.nusiz0 = 0x05; // double width → 16px
+        tia.set_player_position(0, 40);
 
         let line = render_visible_line(&mut tia);
         let (bg, fg) = (colour(0x00), colour(0x1E));
@@ -2072,9 +2110,9 @@ mod tests {
         let mut tia = Tia::new(TiaRegion::Ntsc);
         tia.colubk = 0x00;
         tia.colup0 = 0x1E;
-        tia.pos_p0 = 40;
         tia.grp0 = 0xFF;
         tia.nusiz0 = 0x01; // two copies, 16px apart (8px gap)
+        tia.set_player_position(0, 40);
 
         let line = render_visible_line(&mut tia);
         let fg = colour(0x1E);
@@ -2090,9 +2128,9 @@ mod tests {
         let mut tia = Tia::new(TiaRegion::Ntsc);
         tia.colubk = 0x00;
         tia.colup0 = 0x1E;
-        tia.pos_m0 = 50;
         tia.enam0 = true;
         tia.nusiz0 = 0x20; // missile width 4
+        tia.set_missile_position(0, 50);
 
         let line = render_visible_line(&mut tia);
         let (bg, fg) = (colour(0x00), colour(0x1E));
@@ -2108,9 +2146,9 @@ mod tests {
         let mut tia = Tia::new(TiaRegion::Ntsc);
         tia.colubk = 0x00;
         tia.colupf = 0x1E; // ball uses the playfield colour
-        tia.pos_bl = 60;
         tia.enabl = true;
         tia.ctrlpf = 0x20; // ball width 4
+        tia.set_ball_position(60);
 
         let line = render_visible_line(&mut tia);
         let (bg, fg) = (colour(0x00), colour(0x1E));
@@ -2135,7 +2173,7 @@ mod tests {
                 tia.colupf = 0x1E; // ball uses the playfield colour
                 tia.ctrlpf = ctrlpf;
                 tia.enabl = true;
-                tia.pos_bl = pos;
+                tia.set_ball_position(pos);
 
                 let prev_line = tia.vpos() as usize;
                 for _ in 0..CLOCKS_PER_LINE {
@@ -2172,10 +2210,10 @@ mod tests {
                         let mut tia = Tia::new(TiaRegion::Ntsc);
                         tia.colubk = 0x00;
                         tia.colup0 = 0x1E;
-                        tia.pos_p0 = pos;
                         tia.grp0 = grp;
                         tia.nusiz0 = nusiz;
                         tia.refp0 = reflect;
+                        tia.set_player_position(0, pos);
 
                         // Render two lines; assert the second (settled) one.
                         for _ in 0..(2 * CLOCKS_PER_LINE) {
@@ -2215,7 +2253,7 @@ mod tests {
                     tia.nusiz0 = nusiz;
                     tia.enam0 = true;
                     tia.resmp0 = locked;
-                    tia.pos_m0 = pos;
+                    tia.set_missile_position(0, pos);
 
                     let prev_line = tia.vpos() as usize;
                     for _ in 0..CLOCKS_PER_LINE {
@@ -2243,9 +2281,9 @@ mod tests {
         let mut tia = Tia::new(TiaRegion::Ntsc);
         tia.colubk = 0x00;
         tia.colup0 = 0x1E;
-        tia.pos_p0 = 12;
         tia.grp0 = 0xFF;
         tia.nusiz0 = 0x00;
+        tia.set_player_position(0, 12);
         tia.write(0x20, 0x40); // HMP0 = move left 4
         tia.write(0x2A, 0x00); // HMOVE → pos 12 → 8, comb blanks x<8
 
