@@ -689,17 +689,34 @@ impl Tia {
         // For now we just use the bits for rendering priority.
 
         let pf_priority = self.ctrlpf & 0x04 != 0;
-        let score_mode = self.ctrlpf & 0x02 != 0;
+        // Score mode (recolour the playfield from COLUP0/COLUP1) applies only
+        // when SCORE is set *and* PFP is clear: Stella gates it on
+        // `(CTRLPF & 0x06) == 0x02`. With playfield priority on, the playfield
+        // keeps COLUPF. Pole Position sets both bits (CTRLPF $3f) so its red
+        // speed bar is a COLUPF playfield, not a white score-mode one.
+        let score_mode = self.ctrlpf & 0x06 == 0x02;
+
+        // Score mode (CTRLPF bit 1) recolours only the *playfield* — the left
+        // half takes COLUP0, the right half COLUP1. The ball is never affected:
+        // it always uses COLUPF. Pole Position's HUD relies on this — its red
+        // speed bar is the ball (COLUPF) drawn over the white score-mode
+        // playfield. Resolve the ball before the playfield so it shows through.
+        let ball_colour = self.colupf;
+        let pf_colour = if score_mode && x < 80 {
+            self.colup0
+        } else if score_mode {
+            self.colup1
+        } else {
+            self.colupf
+        };
 
         if pf_priority {
             // Playfield/ball have priority over players/missiles.
-            if pf || bl {
-                if score_mode && x < 80 {
-                    return self.colup0;
-                } else if score_mode {
-                    return self.colup1;
-                }
-                return self.colupf;
+            if bl {
+                return ball_colour;
+            }
+            if pf {
+                return pf_colour;
             }
             if p0 || m0 {
                 return self.colup0;
@@ -715,13 +732,11 @@ impl Tia {
             if p1 || m1 {
                 return self.colup1;
             }
-            if pf || bl {
-                if score_mode && x < 80 {
-                    return self.colup0;
-                } else if score_mode {
-                    return self.colup1;
-                }
-                return self.colupf;
+            if bl {
+                return ball_colour;
+            }
+            if pf {
+                return pf_colour;
             }
         }
 
