@@ -44,9 +44,11 @@
 
 mod cartridge;
 mod keypad;
+mod supercharger;
 
 pub use cartridge::{BankingScheme, Cartridge};
 use keypad::Keypad;
+use supercharger::ArEffect;
 
 use atari_tia::{ACTIVE_WIDTH, CLOCKS_PER_LINE, HBLANK_CLOCKS, Tia, TiaRegion};
 use mos_6502::M6502;
@@ -103,6 +105,14 @@ pub struct Atari2600 {
     /// Optional keypad controller per jack (`[port 1, port 2]`). When present,
     /// it drives that jack's INPT lines from its scanned matrix each cycle.
     keypad: [Option<Keypad>; 2],
+    /// The previous bus address, for the distinct-access counter below.
+    last_address: u16,
+    /// Count of CPU bus accesses whose address differed from the prior one.
+    /// Only the Supercharger (AR) scheme consumes it — its control register
+    /// times RAM writes by counting *distinct* (address-changed) accesses, so a
+    /// run of same-address accesses must not tick it. Matches Stella's
+    /// `M6502::distinctAccesses`.
+    distinct_accesses: u32,
 }
 
 impl Atari2600 {
@@ -126,6 +136,8 @@ impl Atari2600 {
             frame_count: 0,
             data_bus: 0,
             keypad: [None, None],
+            last_address: 0,
+            distinct_accesses: 0,
         })
     }
 
@@ -167,11 +179,24 @@ impl Atari2600 {
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
+        // The distinct-access counter compares the *full* 16-bit CPU address,
+        // before the 13-bit bus mask — matching Stella's `M6502::peek`, which
+        // ticks on `address` and only then lets the System fold it to $1FFF.
+        self.tick_distinct_access(addr);
         let addr = addr & 0x1FFF;
         // Carts with hotspots outside the $1xxx window (UA) snoop the full bus.
         self.cart.snoop(addr);
         let value = if addr & 0x1000 != 0 {
-            self.cart.read(addr)
+            if self.cart.scheme() == BankingScheme::Supercharger {
+                // AR drives its control register + $1850 fast-load off the
+                // distinct-access count and RIOT $80 (the BIOS's load number).
+                let ram_80 = self.riot.ram()[0];
+                let (byte, effect) = self.cart.ar_read(addr, self.distinct_accesses, ram_80);
+                self.apply_ar_effect(effect);
+                byte
+            } else {
+                self.cart.read(addr)
+            }
         } else if addr & 0x0080 == 0 {
             // The TIA drives only D6/D7; D0-D5 float and retain the last value
             // on the data bus (merged from `data_bus`, which still holds the
@@ -188,17 +213,45 @@ impl Atari2600 {
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
+        self.tick_distinct_access(addr); // full address, see `mem_read`
         let addr = addr & 0x1FFF;
         self.data_bus = value;
         // Writes can switch banks both by address (UA/0840) and by value (3E).
         self.cart.snoop_write(addr, value);
         self.cart.snoop_fe(addr, value);
         if addr & 0x1000 != 0 {
-            self.cart.write(addr, value);
+            if self.cart.scheme() == BankingScheme::Supercharger {
+                // AR ignores the data value — the write value is the address.
+                let effect = self.cart.ar_write(addr, self.distinct_accesses);
+                self.apply_ar_effect(effect);
+            } else {
+                self.cart.write(addr, value);
+            }
         } else if addr & 0x0080 == 0 {
             self.tia.write(addr as u8, value);
         } else {
             self.riot.write(addr, value);
+        }
+    }
+
+    /// Tick the distinct-access counter when the bus address changes (the AR
+    /// scheme's write timing depends on it; a no-op for every other cart).
+    fn tick_distinct_access(&mut self, addr: u16) {
+        if addr != self.last_address {
+            self.distinct_accesses = self.distinct_accesses.wrapping_add(1);
+            self.last_address = addr;
+        }
+    }
+
+    /// Apply an effect the AR cart returned: stage its load parameters into the
+    /// RIOT RAM the dummy BIOS reads (`$fe`/`$ff`/`$80`). Other effects are
+    /// informational (the 2600 has no dirty-page tracking).
+    fn apply_ar_effect(&mut self, effect: ArEffect) {
+        if let ArEffect::RamPokes(pokes) = effect {
+            let ram = self.riot.ram_mut();
+            for (a, v) in pokes {
+                ram[(a & 0x7F) as usize] = v;
+            }
         }
     }
 

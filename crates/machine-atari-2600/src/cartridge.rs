@@ -8,6 +8,8 @@
 //! Adapted from `Emu198x-Oldest/crates/machine-atari-2600/src/cartridge.rs`
 //! (2026-06-01).
 
+use crate::supercharger::{ArEffect, Supercharger, is_supercharger};
+
 /// Cartridge banking scheme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BankingScheme {
@@ -65,6 +67,12 @@ pub enum BankingScheme {
     /// (write); reads have side effects (clock the RNG, advance counters). The
     /// music oscillator timing is added separately (#532).
     Dpc,
+    /// Starpath Supercharger (AR): a RAM-load tape peripheral, not a bankswitch
+    /// cart. The `.a26` image is `8448 × N` decoded tape loads; a dummy BIOS
+    /// fast-loads each into 6 KB of RAM behind a paging control register. The
+    /// AR state and load logic live in [`crate::supercharger`]; this scheme just
+    /// marks the cart as AR and delegates.
+    Supercharger,
 }
 
 pub struct Cartridge {
@@ -112,6 +120,11 @@ pub struct Cartridge {
     dpc_audio_cycle: u64,
     dpc_fractional: f64,
     dpc_clock_rate: f64,
+    /// Starpath Supercharger (AR) state — `Some` only for the AR scheme. Holds
+    /// its own 8 KB working image and load logic, driven via the machine's
+    /// distinct-access counter and RIOT RAM (the integration the other schemes
+    /// don't need).
+    supercharger: Option<Supercharger>,
 }
 
 /// E0 slice size: 1 KB.
@@ -149,13 +162,21 @@ impl Cartridge {
         // DPC (Pitfall II) is ~10 KB (8 KB program + 2 KB graphics, optional
         // padding); it's a distinct size with no other scheme, so detect it by
         // size ahead of the 2 KB-multiple 3E/3F pre-check.
-        let is_dpc = (10240..=10496).contains(&data.len());
+        // Starpath Supercharger (AR) is a tape-load peripheral, not a bankswitch
+        // cart: its image is 8448 × N decoded tape loads. The size is unique to
+        // AR, so detect it ahead of every size-keyed scheme.
+        let is_ar = is_supercharger(data.len());
+        let is_dpc = !is_ar && (10240..=10496).contains(&data.len());
         let is_e0 = !is_dpc && data.len() == 8192 && is_probably_e0(data);
         let bankable_2k =
             !is_dpc && !is_e0 && data.len() >= 8192 && data.len().is_multiple_of(THREE_E_SEG);
         let is_3e = bankable_2k && is_probably_3e(data);
         let is_3f = bankable_2k && !is_3e && is_probably_3f(data);
-        let (scheme, bank_size) = if is_dpc {
+        let (scheme, bank_size) = if is_ar {
+            // AR uses its own 2 KB-banked image (in `supercharger`); `bank_size`
+            // here is only a placeholder so the generic fields stay consistent.
+            (BankingScheme::Supercharger, 2048)
+        } else if is_dpc {
             (BankingScheme::Dpc, 4096)
         } else if is_3e {
             (BankingScheme::ThreeE, THREE_E_SEG)
@@ -204,7 +225,9 @@ impl Cartridge {
             | BankingScheme::ThreeE
             | BankingScheme::ThreeF
             | BankingScheme::E7
-            | BankingScheme::Fe => 0,
+            | BankingScheme::Fe
+            // AR ignores `bank` entirely (its mapping lives in `supercharger`).
+            | BankingScheme::Supercharger => 0,
             _ => num_banks.saturating_sub(1),
         };
         // Superchip (SARA) is a 128-byte RAM overlay on the 4 KB-bank schemes,
@@ -249,7 +272,29 @@ impl Cartridge {
             dpc_fractional: 0.0,
             // NTSC CPU clock by default; the machine overrides per region.
             dpc_clock_rate: 1_193_182.0,
+            supercharger: is_ar.then(|| Supercharger::new(data)),
         })
+    }
+
+    /// Starpath Supercharger (AR) read. Unlike the other schemes, AR needs the
+    /// machine's distinct-access counter and RIOT `$80`, and returns an effect
+    /// (the BIOS load pokes) for the machine to apply. The machine routes AR
+    /// here instead of [`Self::read`].
+    pub fn ar_read(&mut self, addr: u16, distinct_accesses: u32, ram_80: u8) -> (u8, ArEffect) {
+        match &mut self.supercharger {
+            Some(sc) => sc.read(addr, distinct_accesses, ram_80),
+            None => (self.byte_at(addr), ArEffect::None),
+        }
+    }
+
+    /// Starpath Supercharger (AR) write — runs the control/write hotspot
+    /// mechanism (the data value is ignored; AR takes its value from the
+    /// address). Returns any effect for the machine to apply.
+    pub fn ar_write(&mut self, addr: u16, distinct_accesses: u32) -> ArEffect {
+        match &mut self.supercharger {
+            Some(sc) => sc.write(addr, distinct_accesses),
+            None => ArEffect::None,
+        }
     }
 
     /// Read a byte from the cart at `$1000-$1FFF` (also fires hotspot
@@ -338,6 +383,12 @@ impl Cartridge {
 
     /// The cart byte mapped at `addr`, with no bank-switch side effect.
     fn byte_at(&self, addr: u16) -> u8 {
+        // AR keeps its own mapped image; the side-effecting read path (the
+        // $1850 fast-load + control hotspots) is driven by the machine, which
+        // has the distinct-access counter and RIOT RAM the scheme needs.
+        if let Some(sc) = &self.supercharger {
+            return sc.peek(addr);
+        }
         let offset = (addr & 0x0FFF) as usize;
         // Superchip read port ($1080-$10FF) overlays every bank; reads of the
         // write port ($1000-$107F) fall through to the (padding) ROM below.
@@ -670,10 +721,14 @@ impl Cartridge {
         }
     }
 
-    /// Current bank.
+    /// Current bank. For AR this is the low 5 bits of the bank-configuration
+    /// register (the debug view of its RAM/ROM paging).
     #[must_use]
     pub fn bank(&self) -> usize {
-        self.bank
+        match &self.supercharger {
+            Some(sc) => sc.current_bank(),
+            None => self.bank,
+        }
     }
 
     /// Banking scheme.
@@ -755,6 +810,9 @@ impl Cartridge {
                 0x1FF9 => self.bank = 1,
                 _ => {}
             },
+            // AR's control hotspots need the distinct-access counter, so they're
+            // driven through the machine's dedicated AR path, not here.
+            BankingScheme::Supercharger => {}
         }
     }
 }
@@ -1532,5 +1590,31 @@ mod tests {
         let mut cart = Cartridge::from_rom(&rom).expect("2K");
         assert_eq!(cart.read(0x1000), 0x42);
         assert_eq!(cart.read(0x1800), 0x42);
+    }
+
+    #[test]
+    fn detect_supercharger_by_size() {
+        // 8448 × N is unique to the Starpath Supercharger (AR).
+        for loads in 1..=4 {
+            let cart = Cartridge::from_rom(&vec![0u8; loads * 8448]).expect("AR");
+            assert_eq!(
+                cart.scheme(),
+                BankingScheme::Supercharger,
+                "{loads}-load image → AR"
+            );
+        }
+        // A debugger peek delegates to the dummy BIOS image: the entry vectors
+        // sit at the top of the upper (ROM) slot.
+        let cart = Cartridge::from_rom(&vec![0u8; 8448]).expect("AR");
+        assert_eq!(
+            [
+                cart.peek(0x1FFC),
+                cart.peek(0x1FFD),
+                cart.peek(0x1FFE),
+                cart.peek(0x1FFF)
+            ],
+            [0x0A, 0xF8, 0x0A, 0xF8],
+            "AR peek shows the dummy BIOS reset vector"
+        );
     }
 }
