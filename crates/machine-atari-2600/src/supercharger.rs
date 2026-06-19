@@ -336,24 +336,28 @@ const DUMMY_ROM: [u8; 294] = [
 mod tests {
     use super::*;
 
-    /// Build a synthetic single-load AR image with a valid header and 24 pages
-    /// (the full 6 KB), each page filled with its page index so the post-load
-    /// RAM layout is checkable. Page j maps to bank `j / 8`, page `j % 8`.
-    fn synthetic_single_load() -> Vec<u8> {
+    /// Build one synthetic AR load slot (`LOAD_SIZE` bytes) with a valid header
+    /// and 24 pages (the full 6 KB). Page j is 256 bytes all equal to
+    /// `base + j`, so the post-load RAM layout is checkable; page j maps to bank
+    /// `j / 8`, page `j % 8`. `load_num` is header[5] (the slot's load number)
+    /// and `next` is header[2] (the next-load number → RIOT `$80`).
+    fn synthetic_load(load_num: u8, base: u8, next: u8) -> Vec<u8> {
         let mut file = vec![0u8; LOAD_SIZE];
-        // 24 pages of body data: page j is 256 bytes all equal to j.
         for j in 0..24usize {
-            file[j * 256..(j + 1) * 256].fill(j as u8);
+            file[j * 256..(j + 1) * 256].fill(base.wrapping_add(j as u8));
         }
         let h = IMAGE_SIZE; // header offset
         file[h] = 0xAB; // header[0] → $fe (bank-switch byte)
         file[h + 1] = 0xCD; // header[1] → $ff (start address)
-        file[h + 2] = 0x01; // header[2] → $80 (next-load number)
+        file[h + 2] = next; // header[2] → $80 (next-load number)
         file[h + 3] = 24; // header[3] page count
-        file[h + 5] = 0; // header[5] this load's number
-        // header[0..8] must sum to 0x55. Current sum without header[7]:
-        // 0xAB+0xCD+0x01+24 = 401; header[7] = 0x55 - (401 & 0xff).
-        let partial = (0xABu32 + 0xCD + 0x01 + 24) as u8;
+        file[h + 5] = load_num; // header[5] this load's number
+        // header[0..8] must sum to 0x55 (header[4]/[6] stay 0).
+        let partial = 0xABu8
+            .wrapping_add(0xCD)
+            .wrapping_add(next)
+            .wrapping_add(24)
+            .wrapping_add(load_num);
         file[h + 7] = 0x55u8.wrapping_sub(partial);
         // Page descriptors + per-page checksums.
         for j in 0..24usize {
@@ -366,6 +370,11 @@ mod tests {
             file[h + 64 + j] = 0x55u8.wrapping_sub(desc);
         }
         file
+    }
+
+    /// A synthetic single-load image (load 0, pages 0..23, next-load 1).
+    fn synthetic_single_load() -> Vec<u8> {
+        synthetic_load(0, 0, 0x01)
     }
 
     #[test]
@@ -441,6 +450,36 @@ mod tests {
     fn load_into_ram_missing_load_is_none() {
         let mut sc = Supercharger::new(&synthetic_single_load());
         assert_eq!(sc.load_into_ram(0x42), ArEffect::None);
+    }
+
+    #[test]
+    fn multi_load_selects_the_slot_by_header_load_number() {
+        // Two loads: load 0 (pages from base 0x10, next-load 1) then load 1
+        // (pages from base 0x40, next-load 0). This is how multi-load games
+        // advance — the running game writes the next-load number to $80 and
+        // re-triggers $1850, and `load_into_ram` finds the matching slot.
+        let mut file = synthetic_load(0, 0x10, 0x01);
+        file.extend(synthetic_load(1, 0x40, 0x00));
+        let mut sc = Supercharger::new(&file);
+        assert_eq!(sc.num_loads, 2);
+
+        // Load 1 is selected by header[5] == 1 even though it's the second slot.
+        let effect = sc.load_into_ram(1);
+        assert_eq!(
+            effect,
+            ArEffect::RamPokes([(0xfe, 0xAB), (0xff, 0xCD), (0x80, 0x00)]),
+            "load 1's header drives the pokes (next-load 0)"
+        );
+        assert!(sc.last_load_ok);
+        assert_eq!(sc.image[0], 0x40, "load 1 page 0 = base 0x40");
+
+        // Switching back to load 0 re-maps its pages (base 0x10).
+        let effect0 = sc.load_into_ram(0);
+        assert_eq!(
+            effect0,
+            ArEffect::RamPokes([(0xfe, 0xAB), (0xff, 0xCD), (0x80, 0x01)])
+        );
+        assert_eq!(sc.image[0], 0x10, "load 0 page 0 = base 0x10");
     }
 
     #[test]

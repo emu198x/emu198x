@@ -1,7 +1,30 @@
 # Atari 2600 — Starpath Supercharger (AR) support (#546)
 
-**Status:** Planned, not started. Assets staged, design complete. Approach
-decided 2026-06-19: **fast-load now, tape-accurate later.**
+**Status:** Fast-load **built and booting** (2026-06-19) on branch
+`atari-2600-supercharger-546`. Phaser Patrol fast-loads and renders its ARCADIA
+title screen (pixel-verified headless). M1–M3 below are done; the tape-accurate
+path remains future work. Approach decided 2026-06-19: **fast-load now,
+tape-accurate later.**
+
+## As built (vs plan)
+
+- The plan's design transcribed faithfully; `supercharger.rs` matches Stella
+  `CartAR` (dummy BIOS verbatim, bank table, `load_into_ram`, hotspots). The
+  distinct-access counter ticks on the **full 16-bit** CPU address (not the
+  masked 13-bit), matching Stella `M6502::peek` — the AR RAM-write idiom's "+5"
+  timing depends on it.
+- **Surprise blocker (not in plan): a RIOT bug.** Phaser Patrol polls
+  `LDA $0285 (INSTAT); AND #$FE; BEQ` for free-running frame sync. Our 6532
+  wrongly cleared the timer-underflow flag on every INSTAT read, so the poll
+  destroyed the flag it waited on → one frame then hang. Real silicon (and
+  Stella `M6532::peek` case $05) clears only the PA7 flag on INSTAT; the timer
+  flag clears on an **INTIM ($0284)** read. Fixed in a separate commit; the
+  INTIM-polling games (Combat, Berzerk, H.E.R.O.) are unaffected.
+- **Multi-load (M3):** proven by a synthetic two-load unit test (slot selected
+  by `header[5]`, pages re-mapped on switch). No *binary* multi-load image is
+  staged — the staged protos (Phaser Patrol, Excalibur) are single-load and the
+  main multi-load releases are FLAC (tape path). Real-binary multi-load
+  verification waits on a staged `8448×N` image or the tape path.
 
 The Supercharger (Starpath/Arcadia, 1982) is not a bankswitch cartridge — it's a
 RAM-expansion peripheral that loads game code from cassette into 6 KB of RAM
