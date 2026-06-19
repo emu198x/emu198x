@@ -108,11 +108,17 @@ pub const HBLANK_CLOCKS: u16 = 68;
 /// and left approximate here.
 const RESX_PIPELINE_DELAY: u16 = 5;
 
-/// Colour clocks the HMOVE strobe is delayed before the movement engine starts
-/// (Stella `Delay::hmove`). The delay is why the strobe — which on real hardware
-/// is issued at the very start of a line's HBLANK — lands after that line's
-/// hctr-0 reset, so the extended HBLANK applies to the correct line.
-const DELAY_HMOVE: u8 = 6;
+/// Colour clocks the HMOVE strobe is delayed before the movement engine starts.
+/// The delay is why a strobe issued at the very start of a line's HBLANK lands
+/// after that line's hctr-0 reset, so the extended HBLANK applies to the correct
+/// line. It also sets the end-of-line boundary: a strobe whose fire lands before
+/// the HSync wrap has its comb-latch cleared by the wrap (comb suppressed — the
+/// "CPU cycle 74" trick); one clock later is an ordinary end-of-line HMOVE.
+/// Calibrated to 7 so that boundary matches hardware — an hpos-222 strobe stays
+/// normal — validated against Gopher2600 on the Pole Position HUD (#581). At 6
+/// it suppressed one clock too early and flung the HUD's missiles/ball to the
+/// left edge (the sliver).
+const DELAY_HMOVE: u8 = 7;
 
 /// Extra colour clocks the HMOVE comb holds the beam in HBLANK (the visible
 /// region starts 8 clocks later, at hctr 76 instead of 68).
@@ -2717,7 +2723,8 @@ mod tests {
     }
 
     /// Where a width-1 ball lands on the line *after* an HMOVE strobed at hpos
-    /// 222 (the CPU-cycle-74 trick), for one HMBL nibble. Ball starts at 30.
+    /// 221 (late enough that the HMOVE latch is set then cleared by the HSync
+    /// wrap — the CPU-cycle-74 trick), for one HMBL nibble. Ball starts at 30.
     fn ball_after_cycle74_hmove(nibble: u8) -> Option<usize> {
         let mut tia = Tia::new(TiaRegion::Ntsc);
         tia.colubk = 0x00;
@@ -2726,10 +2733,10 @@ mod tests {
         tia.enabl = true;
         tia.set_ball_position(30);
         tia.write(0x24, nibble << 4); // HMBL
-        while tia.hpos() != 222 {
+        while tia.hpos() != 221 {
             tia.tick();
         }
-        tia.write(0x2A, 0x00); // HMOVE on CPU cycle 74
+        tia.write(0x2A, 0x00); // HMOVE in the comb-suppressed window
         while tia.hpos() != 0 {
             tia.tick();
         }
@@ -2739,13 +2746,15 @@ mod tests {
 
     #[test]
     fn cycle74_late_hmove_moves_8_plus_value_left_without_comb() {
-        // Towers TIA Hardware Notes: an HMOVE strobed on the 74th CPU cycle
-        // (hpos ~222) clears the HMOVE latch as the HSync counter wraps, so the
-        // comb is suppressed and objects move the full hmmClocks LEFT — i.e.
-        // (8 + value) pixels, *not* the comb-offset `hmmClocks − 8`. This is the
-        // Pole Position HUD kernel (#581); cross-checked against Gopher2600.
-        // If the comb were wrongly applied, every result would sit 8px further
-        // right (30 − (hmm − 8)).
+        // Towers TIA Hardware Notes: an HMOVE strobed late enough that the
+        // latch is set then cleared by the HSync wrap (hpos 220–221 here)
+        // suppresses the comb, so objects move the full hmmClocks LEFT — i.e.
+        // (8 + value) pixels, *not* the comb-offset `hmmClocks − 8`. A strobe one
+        // clock later (hpos 222) is a *normal* end-of-line HMOVE (comb present) —
+        // that boundary is exactly what the Pole Position HUD relies on (#581),
+        // and getting it one clock early put the HUD's missiles/ball at the left
+        // edge (the sliver). Cross-checked against Gopher2600. If the comb were
+        // wrongly applied here, every result would sit 8px right (30 − (hmm − 8)).
         for nibble in 0u8..16 {
             let hmm = (nibble ^ 8) as usize; // hmmClocks = (8 + signed value)
             let want = 30 - hmm; // full left move, no comb
