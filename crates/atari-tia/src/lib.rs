@@ -260,6 +260,23 @@ pub struct Tia {
     /// Lock missile 1 to player 1 (RESMP1 bit 1).
     resmp1: bool,
 
+    // --- Missile per-clock render pipeline (Stella counter model, #406 phase 1b) ---
+    // Indexed [0] = missile 0, [1] = missile 1. Structurally the ball: a single
+    // copy, decode at counter 156, render offset −4, width from NUSIZ bits 5:4.
+    // Seeded from `pos_mN` at the start of each visible line and on a
+    // visible-region RESMx/HMOVE strobe. Enable (`enamN && !resmpN`) is applied
+    // at signal time, matching the position-formula `missile_pixel`.
+    /// Missile free-running render counters (0-159).
+    counter_m: [u16; 2],
+    /// Missile render pipelines active — latched at the decode counter (156).
+    m_is_rendering: [bool; 2],
+    /// Missile render counters (Stella `myRenderCounter`, −4 at decode); the
+    /// signal is active while this is in `[0, width)`.
+    m_render_counter: [i8; 2],
+    /// Missile display signal (geometry only) for the current colour clock,
+    /// latched once per visible tick and shared by compose + collisions.
+    m_signal: [bool; 2],
+
     // --- Ball ---
     /// Ball enable (ENABL bit 1).
     enabl: bool,
@@ -401,6 +418,10 @@ impl Tia {
             pos_m1: 0,
             resmp0: false,
             resmp1: false,
+            counter_m: [0; 2],
+            m_is_rendering: [false; 2],
+            m_render_counter: [0; 2],
+            m_signal: [false; 2],
             enabl: false,
             enabl_old: false,
             pos_bl: 0,
@@ -468,10 +489,14 @@ impl Tia {
                     self.seed_ball(0);
                     self.seed_player(0, 0);
                     self.seed_player(1, 0);
+                    self.seed_missile(0, 0);
+                    self.seed_missile(1, 0);
                 }
                 self.ball_signal = self.ball_is_rendering && self.ball_render_counter >= 0;
                 self.p_signal[0] = self.player_signal(0);
                 self.p_signal[1] = self.player_signal(1);
+                self.m_signal[0] = self.m_is_rendering[0] && self.m_render_counter[0] >= 0;
+                self.m_signal[1] = self.m_is_rendering[1] && self.m_render_counter[1] >= 0;
 
                 let colour = if self.vblank {
                     0 // Black during VBLANK
@@ -494,6 +519,8 @@ impl Tia {
                 self.advance_ball();
                 self.advance_player(0);
                 self.advance_player(1);
+                self.advance_missile(0);
+                self.advance_missile(1);
             } else {
                 // HBLANK region — black. During the 68-clock horizontal
                 // retrace the TIA holds its output in blanking, so a real
@@ -550,22 +577,8 @@ impl Tia {
         let pf = self.playfield_bit(x);
         let p0 = self.p_signal[0];
         let p1 = self.p_signal[1];
-        let m0 = self.missile_pixel(
-            x,
-            self.pos_m0,
-            self.enam0,
-            self.nusiz0,
-            self.resmp0,
-            self.pos_p0,
-        );
-        let m1 = self.missile_pixel(
-            x,
-            self.pos_m1,
-            self.enam1,
-            self.nusiz1,
-            self.resmp1,
-            self.pos_p1,
-        );
+        let m0 = self.missile_signal(0);
+        let m1 = self.missile_signal(1);
         let bl = self.ball_pixel(x);
 
         // HMOVE blanking: first 8 pixels are black when HMOVE was triggered.
@@ -854,7 +867,12 @@ impl Tia {
         self.counter_p[idx] = (c + 1) % 160;
     }
 
-    /// Check if a missile is active at pixel position x.
+    /// Reference (position-formula) missile renderer. Since the #406 phase-1b
+    /// rewrite, production rendering runs through the per-clock pipeline
+    /// (`missile_signal`); this stays as the executable spec the pipeline is
+    /// validated against. A locked (RESMP) missile reads off here — matching the
+    /// pre-rewrite behaviour, which Phase 1b must preserve. Test-only.
+    #[cfg(test)]
     #[allow(clippy::unused_self)]
     fn missile_pixel(
         &self,
@@ -869,16 +887,76 @@ impl Tia {
             return false;
         }
 
-        let width: u16 = match (nusiz >> 4) & 0x03 {
-            0 => 1,
-            1 => 2,
-            2 => 4,
-            3 => 8,
-            _ => 1,
-        };
-
         let rel = (x + 160 - pos) % 160;
-        rel < width
+        rel < missile_width(nusiz)
+    }
+
+    /// Missile `idx`'s position, enable (`enamN && !resmpN`), and width — the
+    /// register inputs the per-clock pipeline reads live each clock.
+    fn missile_inputs(&self, idx: usize) -> (u16, bool, u16) {
+        if idx == 0 {
+            (
+                self.pos_m0,
+                self.enam0 && !self.resmp0,
+                missile_width(self.nusiz0),
+            )
+        } else {
+            (
+                self.pos_m1,
+                self.enam1 && !self.resmp1,
+                missile_width(self.nusiz1),
+            )
+        }
+    }
+
+    /// Missile `idx`'s display signal for the current colour clock: rendering and
+    /// at or past the start of the window, gated by enable.
+    fn missile_signal(&self, idx: usize) -> bool {
+        let (_, enabled, _) = self.missile_inputs(idx);
+        enabled && self.m_is_rendering[idx] && self.m_render_counter[idx] >= 0
+    }
+
+    /// Seed missile `idx`'s pipeline from its position so that, run forward from
+    /// visible column `x`, it reproduces `missile_pixel`'s geometry — identical
+    /// in structure to [`Self::seed_ball`] (decode 156, render offset −4).
+    fn seed_missile(&mut self, idx: usize, x: u16) {
+        let (pos, _, w) = self.missile_inputs(idx);
+        let pos = pos % 160;
+        self.counter_m[idx] = (x + 160 - pos + 1) % 160;
+        let d = (x + 160 - pos + 4) % 160;
+        if d < 4 + w {
+            self.m_is_rendering[idx] = true;
+            self.m_render_counter[idx] = i8::try_from(i32::from(d) - 4).unwrap_or(0);
+        } else {
+            self.m_is_rendering[idx] = false;
+            self.m_render_counter[idx] = 0;
+        }
+    }
+
+    /// Re-seed missile `idx` when a RESMx/HMOVE strobe lands in the visible
+    /// region (HBLANK strobes are caught by the line-start seed).
+    fn reseed_missile_if_visible(&mut self, idx: usize) {
+        if self.hpos >= HBLANK_CLOCKS {
+            self.seed_missile(idx, self.hpos - HBLANK_CLOCKS);
+        }
+    }
+
+    /// Advance missile `idx`'s pipeline by one visible colour clock (Stella
+    /// `Missile::tick`, without the movement/starfield paths). Call after the
+    /// clock's signal is latched.
+    fn advance_missile(&mut self, idx: usize) {
+        let (_, _, w) = self.missile_inputs(idx);
+        let w = i8::try_from(w).unwrap_or(1);
+        if self.counter_m[idx] == 156 {
+            self.m_is_rendering[idx] = true;
+            self.m_render_counter[idx] = -4;
+        } else if self.m_is_rendering[idx] {
+            self.m_render_counter[idx] += 1;
+            if self.m_render_counter[idx] >= w {
+                self.m_is_rendering[idx] = false;
+            }
+        }
+        self.counter_m[idx] = (self.counter_m[idx] + 1) % 160;
     }
 
     /// Check if the ball is active at pixel position x.
@@ -964,22 +1042,8 @@ impl Tia {
         let pf = self.playfield_bit(x);
         let p0 = self.p_signal[0];
         let p1 = self.p_signal[1];
-        let m0 = self.missile_pixel(
-            x,
-            self.pos_m0,
-            self.enam0,
-            self.nusiz0,
-            self.resmp0,
-            self.pos_p0,
-        );
-        let m1 = self.missile_pixel(
-            x,
-            self.pos_m1,
-            self.enam1,
-            self.nusiz1,
-            self.resmp1,
-            self.pos_p1,
-        );
+        let m0 = self.missile_signal(0);
+        let m1 = self.missile_signal(1);
         let bl = self.ball_pixel(x);
 
         // M0-P1, M0-P0
@@ -1111,8 +1175,15 @@ impl Tia {
                 self.pos_p1 = self.resx_reset_position();
                 self.reseed_player_if_visible(1);
             }
-            0x12 => self.pos_m0 = self.resx_reset_position(), // RESM0
-            0x13 => self.pos_m1 = self.resx_reset_position(), // RESM1
+            0x12 => {
+                // RESM0: reset missile 0 position; re-seed a visible-region strobe.
+                self.pos_m0 = self.resx_reset_position();
+                self.reseed_missile_if_visible(0);
+            }
+            0x13 => {
+                self.pos_m1 = self.resx_reset_position();
+                self.reseed_missile_if_visible(1);
+            }
             0x14 => {
                 // RESBL: reset the ball position. A strobe inside the visible
                 // region must re-seed the live pipeline so the new column takes
@@ -1164,6 +1235,8 @@ impl Tia {
                 self.reseed_ball_if_visible();
                 self.reseed_player_if_visible(0);
                 self.reseed_player_if_visible(1);
+                self.reseed_missile_if_visible(0);
+                self.reseed_missile_if_visible(1);
                 self.hmove_pending = true;
             }
             0x2B => {
@@ -1528,6 +1601,17 @@ fn decode_hmove(value: u8) -> i8 {
         nibble as i8
     };
     -signed
+}
+
+/// Missile width in colour clocks from NUSIZ bits 5:4 (1/2/4/8).
+fn missile_width(nusiz: u8) -> u16 {
+    match (nusiz >> 4) & 0x03 {
+        0 => 1,
+        1 => 2,
+        2 => 4,
+        3 => 8,
+        _ => 1,
+    }
 }
 
 /// Apply a motion offset to a position, wrapping within 0-159.
@@ -2109,6 +2193,45 @@ mod tests {
                                 "nusiz={nusiz:#04x} reflect={reflect} grp={grp:#04x} pos={pos} x={x}"
                             );
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn missile_counter_model_matches_the_position_formula_everywhere() {
+        // Exhaustive output-equivalence guard for the #406 phase-1b missile
+        // rewrite: for every width, both lock states, and every position the
+        // counter-driven renderer must paint exactly the columns the reference
+        // `missile_pixel` formula does — including the left-edge straddle and the
+        // right-edge wrap back onto the same line.
+        for &(nusiz, _width) in &[(0x00u8, 1u16), (0x10, 2), (0x20, 4), (0x30, 8)] {
+            for &locked in &[false, true] {
+                for pos in 0u16..160 {
+                    let mut tia = Tia::new(TiaRegion::Ntsc);
+                    tia.colubk = 0x00;
+                    tia.colup0 = 0x1E; // missile 0 uses player 0's colour
+                    tia.nusiz0 = nusiz;
+                    tia.enam0 = true;
+                    tia.resmp0 = locked;
+                    tia.pos_m0 = pos;
+
+                    let prev_line = tia.vpos() as usize;
+                    for _ in 0..CLOCKS_PER_LINE {
+                        tia.tick();
+                    }
+                    let base = prev_line * FB_WIDTH as usize + HBLANK_CLOCKS as usize;
+                    let line = &tia.framebuffer()[base..base + 160];
+
+                    let (bg, fg) = (colour(0x00), colour(0x1E));
+                    for (x, &px) in line.iter().enumerate() {
+                        let on = tia.missile_pixel(x as u16, pos, true, nusiz, locked, 0);
+                        let want = if on { fg } else { bg };
+                        assert_eq!(
+                            px, want,
+                            "nusiz={nusiz:#04x} locked={locked} pos={pos} x={x}"
+                        );
                     }
                 }
             }
