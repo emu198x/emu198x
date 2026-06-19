@@ -2157,6 +2157,75 @@ mod tests {
     }
 
     #[test]
+    fn vdelp0_renders_the_delayed_pattern_not_the_new_one() {
+        // Output-level VDELP proof. The latch tests above assert internal
+        // state (`effective_grp0`); this asserts the delayed pattern actually
+        // reaches *pixels*. A state-only check can pass while nothing draws.
+        let colup0 = NTSC_PALETTE[0x44 >> 1];
+
+        // Position one player mid-line, render a clean following line, and
+        // count its COLUP0 pixels. `setup` programs the GRP/VDELP state.
+        fn lit_pixels(colup0: u32, setup: impl FnOnce(&mut Tia)) -> usize {
+            let mut tia = Tia::new(TiaRegion::Ntsc);
+            tia.write(0x01, 0x00); // VBLANK off
+            tia.write(0x09, 0x00); // COLUBK black
+            tia.write(0x06, 0x44); // COLUP0
+            tia.write(0x04, 0x00); // NUSIZ0 — one copy, 1× width (8 px)
+            setup(&mut tia);
+            // Line 0: strobe RESP0 at a fixed column, then finish the line.
+            for _ in 0..120 {
+                tia.tick();
+            }
+            tia.write(0x10, 0); // RESP0
+            for _ in 0..(CLOCKS_PER_LINE - 120) {
+                tia.tick();
+            }
+            // Line 1: the player holds its column, no strobe artifacts.
+            for _ in 0..CLOCKS_PER_LINE {
+                tia.tick();
+            }
+            let row1 = (FB_WIDTH as usize)..(2 * FB_WIDTH as usize);
+            tia.framebuffer()[row1]
+                .iter()
+                .filter(|&&p| p == colup0)
+                .count()
+        }
+
+        // Reference: VDELP0 off draws the new pattern directly.
+        let undelayed = lit_pixels(colup0, |tia| {
+            tia.write(0x25, 0x00); // VDELP0 off
+            tia.write(0x1B, 0xFF); // GRP0 = solid
+        });
+        assert!(undelayed > 0, "a solid player must draw some pixels");
+
+        // VDELP0 on, delayed copy latched solid, newest GRP0 empty → the
+        // *old* (solid) pattern must render, identical to the direct draw.
+        let delayed_solid = lit_pixels(colup0, |tia| {
+            tia.write(0x25, 0x01); // VDELP0 on
+            tia.write(0x1B, 0xFF); // GRP0 new = solid
+            tia.write(0x1C, 0x00); // GRP1 write → grp0_old = solid
+            tia.write(0x1B, 0x00); // GRP0 new = empty (must NOT show yet)
+        });
+        assert_eq!(
+            delayed_solid, undelayed,
+            "VDELP0 on must render the delayed solid pattern, not the new empty one"
+        );
+
+        // VDELP0 on, delayed copy latched empty, newest GRP0 solid → the new
+        // solid pattern must stay hidden until the next GRP1 latch.
+        let delayed_empty = lit_pixels(colup0, |tia| {
+            tia.write(0x25, 0x01); // VDELP0 on
+            tia.write(0x1B, 0x00); // GRP0 new = empty
+            tia.write(0x1C, 0x00); // GRP1 write → grp0_old = empty
+            tia.write(0x1B, 0xFF); // GRP0 new = solid (delayed, must NOT show)
+        });
+        assert_eq!(
+            delayed_empty, 0,
+            "VDELP0 on must hide the not-yet-latched new pattern"
+        );
+    }
+
+    #[test]
     fn wsync_flag_cleared_at_line_end() {
         let mut tia = Tia::new(TiaRegion::Ntsc);
         tia.write(0x02, 0); // WSYNC
