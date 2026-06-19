@@ -1,6 +1,13 @@
 # Atari 2600 TIA — per-clock HMOVE port (#406)
 
-**Status:** Phase 2 complete. Phase 3 (starfield + revision quirks) is next.
+**Status:** Phase 3 complete. Phase 4 (verify Pole Position vs Stella) is next.
+
+Phase 3 is merged: the starfield width modulation (#578) — the Cosmic Ark
+twinkle, where a regular clock during movement modulates a moving ball/missile's
+effective width — and multi-HMOVE-per-line plus the three TIA-revision quirks
+(#579: inverted phase clock, short-late HMOVE, late RESPx) behind `set_hmove_quirks`
+flags that default off (baseline unchanged). Each quirk is shown to change output
+only when enabled. Outstanding cross-checks below.
 
 Phases 1 and 2 are merged. Phase 1 (#571 ball, #572 players, #573 missiles) put
 every movable object on the per-clock counter model, output-equivalent. Phase 2
@@ -102,10 +109,27 @@ divisor 4, `Delay::hmove 6`, `Delay::hmp/hmm/hmbl/hmclr 2`.
    output is byte-for-byte identical (lock-in + oracle), late HMOVE is partially
    masked as on hardware. Remaining: pixel-diff late HMOVE vs a Stella snapshot
    (GUI-driven), and latch collisions in the comb region.
-3. **Starfield + multi-HMOVE/line + revision quirks** (inverted phase clock,
-   short-late-HMOVE, late-RESPx) — default the quirks off (baseline behaviour).
+3. **Starfield + multi-HMOVE/line + revision quirks.** ✅ Done (#578 starfield,
+   #579 multi-HMOVE + quirks). Ported Stella's ball/missile effective-width
+   modulation (a regular clock during movement keys the width off the movement
+   phase — `delta mod 4` for the ball, `(hclock+1) mod 4` for the missile), the
+   inverted-phase-clock / short-late-HMOVE / late-RESPx quirks behind
+   `set_hmove_quirks` (default off), and locked in multi-HMOVE-per-line. Each
+   quirk is shown to change output only when enabled; baseline byte-for-byte
+   unchanged. Remaining: pixel-diff the starfield/quirks vs a Stella snapshot
+   (GUI-driven), and wire a TIA-revision selector on the machine to
+   `set_hmove_quirks` (needs a real game to validate against).
 4. **Verify the Pole Position sliver** vs Stella; close #406 or re-scope the
    residual.
+
+### Outstanding cross-checks (carried from phases 2–3)
+
+These all need driving the Stella 7.0 GUI for a pixel reference, which this
+session could not do:
+- Late-HMOVE exact pixels (phase 2), the starfield, and the three quirks
+  (phase 3) — the tests pin current behaviour as regression baselines.
+- Collisions in the 8px comb region on an HMOVE line are not latched.
+- No machine wiring selects a TIA revision / calls `set_hmove_quirks` yet.
 
 ## Verification
 
