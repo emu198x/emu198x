@@ -353,6 +353,25 @@ pub struct Tia {
     /// = 6). `None` when no HMOVE is pending.
     hmove_delay: Option<u8>,
 
+    // --- HMOVE TIA-revision quirks (#406 phase 3, default off = baseline) ---
+    // These emulate idiosyncrasies of particular TIA revisions; with all three
+    // off the behaviour is the canonical one. See `set_hmove_quirks`.
+    /// Inverted movement clock phase: a movement tick outside HBLANK suppresses
+    /// the following ordinary tick (the phase shift behind e.g. the Cool Aid Man
+    /// bug on some Jr. models).
+    quirk_inverted_phase_clock: bool,
+    /// Short late HMOVE: a movement tick at hctr 0 is skipped.
+    quirk_short_late_hmove: bool,
+    /// Late RESPx: a RESPx strobed in HBLANK just as movement starts lands one
+    /// clock later.
+    quirk_late_respx: bool,
+    /// Per-object "movement tick outside HBLANK pending" latch for the inverted
+    /// phase clock quirk (Stella `myInvertedPhaseClock`). Set in the movement
+    /// engine, consumed (suppressing one tick) by the next `advance_*`.
+    inverted_phase_p: [bool; 2],
+    inverted_phase_m: [bool; 2],
+    inverted_phase_bl: bool,
+
     // --- Collision latches ---
     /// 15 collision flags, packed into CXM0P..CXPPMM registers.
     /// Bit layout matches hardware read registers.
@@ -480,6 +499,12 @@ impl Tia {
             movement_active: false,
             extended_hblank: false,
             hmove_delay: None,
+            quirk_inverted_phase_clock: false,
+            quirk_short_late_hmove: false,
+            quirk_late_respx: false,
+            inverted_phase_p: [false; 2],
+            inverted_phase_m: [false; 2],
+            inverted_phase_bl: false,
             cxm0p: 0,
             cxm1p: 0,
             cxp0fb: 0,
@@ -924,6 +949,10 @@ impl Tia {
     /// lands at `pos + offset` for every size. Call after the clock's signal is
     /// latched.
     fn advance_player(&mut self, idx: usize) {
+        if self.quirk_inverted_phase_clock && self.inverted_phase_p[idx] {
+            self.inverted_phase_p[idx] = false;
+            return;
+        }
         let (_, _, _, nusiz) = self.player_inputs(idx);
         let (copies, divider) = Self::player_copies(nusiz);
         let trip = if divider == 1 { 0i8 } else { 1 };
@@ -1046,6 +1075,10 @@ impl Tia {
     /// missile keys its width modulation off the beam phase `(hclock + 1) mod 4`
     /// at the first render-counter step (−1). Call after the signal is latched.
     fn advance_missile(&mut self, idx: usize, hclock: u16, is_regular: bool) {
+        if self.quirk_inverted_phase_clock && self.inverted_phase_m[idx] {
+            self.inverted_phase_m[idx] = false;
+            return;
+        }
         let (_, _, w) = self.missile_inputs(idx);
         let w = i8::try_from(w).unwrap_or(1);
         if self.counter_m[idx] == 156 && !self.resmp(idx) {
@@ -1171,6 +1204,10 @@ impl Tia {
     /// movement tick (mod 4) — case 2 hides it, case 3 widens it — which is how
     /// the Cosmic Ark stars are drawn. Call after the clock's signal is latched.
     fn advance_ball(&mut self, is_regular: bool) {
+        if self.quirk_inverted_phase_clock && self.inverted_phase_bl {
+            self.inverted_phase_bl = false;
+            return;
+        }
         let w = i8::try_from(self.ball_width()).unwrap_or(1);
         let starfield = self.moving_bl && is_regular;
         if self.counter_bl == 156 {
@@ -1334,26 +1371,27 @@ impl Tia {
             0x0F => self.pf2 = value,               // PF2
             0x10 => {
                 // RESP0: reset player 0 to the strobe column (beam + pipeline
-                // delay), seeding the free-running counter there.
-                let pos = self.resx_reset_position();
+                // delay, with the late-RESPx quirk applied), seeding the
+                // free-running counter there.
+                let pos = self.late_respx_adjust(self.resx_reset_position());
                 self.set_player_position(0, pos);
             }
             0x11 => {
-                let pos = self.resx_reset_position();
+                let pos = self.late_respx_adjust(self.resx_reset_position());
                 self.set_player_position(1, pos);
             }
             0x12 => {
                 // RESM0: reset missile 0 to the strobe column.
-                let pos = self.resx_reset_position();
+                let pos = self.late_respx_adjust(self.resx_reset_position());
                 self.set_missile_position(0, pos);
             }
             0x13 => {
-                let pos = self.resx_reset_position();
+                let pos = self.late_respx_adjust(self.resx_reset_position());
                 self.set_missile_position(1, pos);
             }
             0x14 => {
                 // RESBL: reset the ball to the strobe column.
-                let pos = self.resx_reset_position();
+                let pos = self.late_respx_adjust(self.resx_reset_position());
                 self.set_ball_position(pos);
             }
             // AUDC0/1, AUDF0/1, AUDV0/1 — both audio channels.
@@ -1478,6 +1516,38 @@ impl Tia {
         }
     }
 
+    /// Enable or disable the three HMOVE TIA-revision quirks (all default off,
+    /// which is the canonical baseline). A particular silicon revision turns on
+    /// some combination; wiring a revision selector to this is left to the
+    /// machine. See the quirk fields for what each does.
+    pub fn set_hmove_quirks(
+        &mut self,
+        inverted_phase_clock: bool,
+        short_late: bool,
+        late_respx: bool,
+    ) {
+        self.quirk_inverted_phase_clock = inverted_phase_clock;
+        self.quirk_short_late_hmove = short_late;
+        self.quirk_late_respx = late_respx;
+    }
+
+    /// Whether a RESPx strobed right now meets Stella's "late RESPx" condition:
+    /// in HBLANK with movement just started (`movement_clock == 0`).
+    fn late_respx_condition(&self) -> bool {
+        self.hpos < HBLANK_CLOCKS && self.movement_active && self.movement_clock == 0
+    }
+
+    /// Apply the late-RESPx quirk to a reset position if it is enabled and the
+    /// condition holds: the object lands one clock later (Stella shifts the reset
+    /// counter by −1, which is +1 in position terms).
+    fn late_respx_adjust(&self, pos: u16) -> u16 {
+        if self.quirk_late_respx && self.late_respx_condition() {
+            (pos + 1) % 160
+        } else {
+            pos
+        }
+    }
+
     /// Fire a (delayed) HMOVE strobe: start the movement engine, extend the
     /// HBLANK for the comb, and mark every object as moving.
     fn fire_hmove(&mut self) {
@@ -1519,26 +1589,40 @@ impl Tia {
         // tick — recorded every 4th clock while moving, like Stella.
         self.ball_last_movement_tick = self.counter_bl;
 
+        // Short-late-HMOVE quirk: a movement tick at hctr 0 is skipped.
+        let process = !self.quirk_short_late_hmove || hclock != 0;
+
         if self.moving_bl {
             if clock == self.hmm_bl {
                 self.moving_bl = false;
-            } else if hblank {
-                self.advance_ball(false);
+            } else if process {
+                if hblank {
+                    self.advance_ball(false);
+                }
+                // Inverted phase clock quirk: a movement tick outside HBLANK is
+                // latched to suppress the following ordinary tick.
+                self.inverted_phase_bl = !hblank;
             }
         }
         for idx in 0..2 {
             if self.moving_p[idx] {
                 if clock == self.hmm_p[idx] {
                     self.moving_p[idx] = false;
-                } else if hblank {
-                    self.advance_player(idx);
+                } else if process {
+                    if hblank {
+                        self.advance_player(idx);
+                    }
+                    self.inverted_phase_p[idx] = !hblank;
                 }
             }
             if self.moving_m[idx] {
                 if clock == self.hmm_m[idx] {
                     self.moving_m[idx] = false;
-                } else if hblank {
-                    self.advance_missile(idx, hclock, false);
+                } else if process {
+                    if hblank {
+                        self.advance_missile(idx, hclock, false);
+                    }
+                    self.inverted_phase_m[idx] = !hblank;
                 }
             }
         }
@@ -1687,6 +1771,10 @@ impl Tia {
         data.push(u8::from(self.extended_hblank));
         data.push(self.hmove_delay.unwrap_or(0));
         data.push(u8::from(self.hmove_delay.is_some()));
+        // HMOVE revision quirks (config)
+        data.push(u8::from(self.quirk_inverted_phase_clock));
+        data.push(u8::from(self.quirk_short_late_hmove));
+        data.push(u8::from(self.quirk_late_respx));
         // Collision latches
         data.push(self.cxm0p);
         data.push(self.cxm1p);
@@ -1793,6 +1881,9 @@ impl Tia {
         } else {
             None
         };
+        self.quirk_inverted_phase_clock = r8!() != 0;
+        self.quirk_short_late_hmove = r8!() != 0;
+        self.quirk_late_respx = r8!() != 0;
         self.cxm0p = r8!();
         self.cxm1p = r8!();
         self.cxp0fb = r8!();
@@ -2714,6 +2805,150 @@ mod tests {
             moving_missile_lit(40),
             vec![30, 31],
             "starfield widens the moving missile to 2px"
+        );
+    }
+
+    /// Lit columns of a ball, configurable HMOVE strobe column, optional second
+    /// strobe, and quirk flags — used to probe the phase-3 corner cases.
+    fn probe_ball(strobe: usize, second: Option<usize>, quirks: (bool, bool, bool)) -> Vec<usize> {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.colubk = 0x00;
+        tia.colupf = 0x1E;
+        tia.ctrlpf = 0x00;
+        tia.enabl = true;
+        tia.set_hmove_quirks(quirks.0, quirks.1, quirks.2);
+        tia.set_ball_position(80);
+        tia.write(0x24, 0x70); // HMBL left 7
+        let mut clk = 0usize;
+        let tick_to = |tia: &mut Tia, clk: &mut usize, target: usize| {
+            while *clk < target {
+                tia.tick();
+                *clk += 1;
+            }
+        };
+        tick_to(&mut tia, &mut clk, strobe);
+        tia.write(0x2A, 0x00);
+        if let Some(s) = second {
+            tick_to(&mut tia, &mut clk, s);
+            tia.write(0x2A, 0x00);
+        }
+        tick_to(&mut tia, &mut clk, CLOCKS_PER_LINE as usize);
+        let base = HBLANK_CLOCKS as usize;
+        tia.framebuffer()[base..base + 160]
+            .iter()
+            .enumerate()
+            .filter(|&(_, &p)| p == colour(0x1E))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    #[test]
+    fn multiple_hmoves_on_one_line_both_move_the_object() {
+        // A second HMOVE strobe on the same line restarts the movement engine, so
+        // the object moves further than a single strobe would. (Baseline, no
+        // quirks.)
+        let off = (false, false, false);
+        assert_eq!(probe_ball(0, None, off), vec![73], "single HMOVE: left 7");
+        assert_eq!(
+            probe_ball(0, Some(30), off),
+            vec![71],
+            "a second HMOVE moves the ball further left"
+        );
+    }
+
+    #[test]
+    fn inverted_phase_clock_quirk_changes_late_hmove() {
+        // The inverted-phase-clock quirk only bites when movement reaches the
+        // visible region (a late HMOVE), where it suppresses ordinary ticks —
+        // shifting the result. Off is the baseline. (Exact pixels want a Stella
+        // cross-check; this pins that the flag is wired and has an effect.)
+        assert_eq!(probe_ball(40, None, (false, false, false)), vec![81]);
+        assert_eq!(
+            probe_ball(40, None, (true, false, false)),
+            vec![89],
+            "inverted phase clock shifts the late-HMOVE landing"
+        );
+    }
+
+    /// Leftmost lit column after HMOVE (no net move) then a RESP0 `resp_at`
+    /// clocks later, with the late-RESPx quirk `late`.
+    fn respx_after_hmove(late: bool, resp_at: usize) -> Vec<usize> {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.colubk = 0x00;
+        tia.colup0 = 0x1E;
+        tia.grp0 = 0xFF;
+        tia.set_hmove_quirks(false, false, late);
+        tia.set_player_position(0, 80);
+        tia.write(0x2A, 0x00); // HMOVE — movement runs (clock 0 in early HBLANK)
+        for _ in 0..resp_at {
+            tia.tick();
+        }
+        tia.write(0x10, 0x00); // RESP0 while movement_clock == 0
+        for _ in 0..(CLOCKS_PER_LINE as usize - resp_at) {
+            tia.tick();
+        }
+        let base = HBLANK_CLOCKS as usize;
+        tia.framebuffer()[base..base + 160]
+            .iter()
+            .position(|&p| p == colour(0x1E))
+            .into_iter()
+            .collect()
+    }
+
+    #[test]
+    fn late_respx_quirk_shifts_the_reset_by_one() {
+        // With movement just started (clock 0) and the beam in HBLANK, the
+        // late-RESPx quirk lands the object one clock later. Here that lifts the
+        // ball's left edge out of the 8px comb so a pixel appears.
+        assert!(
+            respx_after_hmove(false, 7).is_empty(),
+            "baseline: reset lands inside the comb (hidden)"
+        );
+        assert_eq!(
+            respx_after_hmove(true, 7),
+            vec![8],
+            "late RESPx shifts +1, so one pixel clears the comb"
+        );
+    }
+
+    /// Lit columns of the line *after* a line-boundary-spanning HMOVE, with the
+    /// short-late quirk `sl` — the only setup where a movement tick lands at
+    /// hctr 0.
+    fn ball_after_boundary_hmove(sl: bool) -> Vec<usize> {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.colubk = 0x00;
+        tia.colupf = 0x1E;
+        tia.ctrlpf = 0x00;
+        tia.enabl = true;
+        tia.set_hmove_quirks(false, sl, false);
+        tia.set_ball_position(80);
+        tia.write(0x24, 0x70); // left 7
+        for _ in 0..220 {
+            tia.tick();
+        }
+        tia.write(0x2A, 0x00); // HMOVE late — movement spans into the next line
+        for _ in 0..(2 * CLOCKS_PER_LINE as usize - 220) {
+            tia.tick();
+        }
+        let base = FB_WIDTH as usize + HBLANK_CLOCKS as usize;
+        tia.framebuffer()[base..base + 160]
+            .iter()
+            .enumerate()
+            .filter(|&(_, &p)| p == colour(0x1E))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    #[test]
+    fn short_late_hmove_quirk_skips_the_hctr0_tick() {
+        // When a movement tick falls on hctr 0 (only possible once movement spans
+        // a line boundary), the short-late quirk skips it, so the object moves one
+        // clock less.
+        assert_eq!(ball_after_boundary_hmove(false), vec![65], "baseline");
+        assert_eq!(
+            ball_after_boundary_hmove(true),
+            vec![66],
+            "short-late skips the hctr-0 tick → one pixel less movement"
         );
     }
 }
