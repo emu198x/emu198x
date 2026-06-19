@@ -2716,6 +2716,47 @@ mod tests {
         );
     }
 
+    /// Where a width-1 ball lands on the line *after* an HMOVE strobed at hpos
+    /// 222 (the CPU-cycle-74 trick), for one HMBL nibble. Ball starts at 30.
+    fn ball_after_cycle74_hmove(nibble: u8) -> Option<usize> {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.colubk = 0x00;
+        tia.colupf = 0x1E;
+        tia.ctrlpf = 0x00; // width 1
+        tia.enabl = true;
+        tia.set_ball_position(30);
+        tia.write(0x24, nibble << 4); // HMBL
+        while tia.hpos() != 222 {
+            tia.tick();
+        }
+        tia.write(0x2A, 0x00); // HMOVE on CPU cycle 74
+        while tia.hpos() != 0 {
+            tia.tick();
+        }
+        let line = render_visible_line(&mut tia);
+        leftmost_lit(&line, colour(0x1E))
+    }
+
+    #[test]
+    fn cycle74_late_hmove_moves_8_plus_value_left_without_comb() {
+        // Towers TIA Hardware Notes: an HMOVE strobed on the 74th CPU cycle
+        // (hpos ~222) clears the HMOVE latch as the HSync counter wraps, so the
+        // comb is suppressed and objects move the full hmmClocks LEFT — i.e.
+        // (8 + value) pixels, *not* the comb-offset `hmmClocks − 8`. This is the
+        // Pole Position HUD kernel (#581); cross-checked against Gopher2600.
+        // If the comb were wrongly applied, every result would sit 8px further
+        // right (30 − (hmm − 8)).
+        for nibble in 0u8..16 {
+            let hmm = (nibble ^ 8) as usize; // hmmClocks = (8 + signed value)
+            let want = 30 - hmm; // full left move, no comb
+            assert_eq!(
+                ball_after_cycle74_hmove(nibble),
+                Some(want),
+                "HMBL nibble {nibble:#x}: cycle-74 HMOVE should move {hmm}px left to {want}"
+            );
+        }
+    }
+
     /// Lit columns of a moving ball: width-1 ball at 30, HMBL left-7, HMOVE
     /// strobed at colour clock `strobe` of the line, rendered and scanned.
     fn moving_ball_lit(strobe: usize) -> Vec<usize> {
