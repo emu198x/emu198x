@@ -1,6 +1,14 @@
 # Atari 2600 TIA — per-clock HMOVE port (#406)
 
-**Status:** Phase 0 (design). In progress.
+**Status:** Phase 1 complete. Phase 2 (movement engine) is next.
+
+Phase 1a (regression lock-in tests) and Phase 1b (per-clock counter rewrite,
+output-equivalent) are merged: every TIA movable object — ball (#571), both
+players (#572), both missiles (#573) — now renders through the per-clock
+counter model. The old position-formula renderers survive only as test-only
+reference specs, each pinned by an exhaustive position×config property test.
+HMOVE is still applied instantly as a position offset; the movement engine is
+Phase 2.
 
 Port Stella's per-color-clock object-counter model to close #406 — the
 HBLANK-aligned HMOVE model with no 8-clock beam injection. Decided 2026-06-18
@@ -64,11 +72,19 @@ divisor 4, `Delay::hmove 6`, `Delay::hmp/hmm/hmbl/hmclr 2`.
 
 ## Phase plan (one small PR each, Stella-verified)
 
-1. **Per-object counters (output-equivalent).** Replace the position-formula
-   render with free-running counters reset by RESPx, rendered at the decode
-   point. Lock the current rendering in with TIA-level pixel tests first, then
-   keep them green — this phase must not change any output. The riskiest phase
-   (touches all object rendering); de-risk with the regression tests.
+1. **Per-object counters (output-equivalent).** ✅ Done (#571 ball, #572
+   players, #573 missiles). Replaced the position-formula render with a per-clock
+   decode/render-counter pipeline per object, seeded from the canonical position
+   at the start of each visible line (and re-seeded on a visible-region
+   RESPx/HMOVE/NUSIZ strobe). Each object's pipeline reproduces its old
+   position-formula renderer byte-for-byte, proven by an exhaustive
+   position×config property test plus the phase-1a lock-in tests and the frame
+   oracle. The decode is pos-derived (counter `(off−4−trip) mod 160` for players)
+   so positioning matches the old model exactly, including double/quad size.
+   Implementation note: the counter advances only during the *visible* region
+   (160/line), which keeps its phase stable against the 228-clock line; the
+   per-line re-seed keeps `pos_*` canonical for now (Phase 2 makes it free-run so
+   the movement engine can inject HBLANK ticks).
 2. **Movement engine.** Replace `apply_motion` with the extra-clock injection +
    extended-HBLANK/comb. Normal HMOVE output stays identical (regression tests);
    late-HMOVE/comb now match Stella (new tests + pixel diff vs a Stella snapshot).
