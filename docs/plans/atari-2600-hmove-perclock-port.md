@@ -1,14 +1,20 @@
 # Atari 2600 TIA — per-clock HMOVE port (#406)
 
-**Status:** Phase 1 complete. Phase 2 (movement engine) is next.
+**Status:** Phase 2 complete. Phase 3 (starfield + revision quirks) is next.
 
-Phase 1a (regression lock-in tests) and Phase 1b (per-clock counter rewrite,
-output-equivalent) are merged: every TIA movable object — ball (#571), both
-players (#572), both missiles (#573) — now renders through the per-clock
-counter model. The old position-formula renderers survive only as test-only
-reference specs, each pinned by an exhaustive position×config property test.
-HMOVE is still applied instantly as a position offset; the movement engine is
-Phase 2.
+Phases 1 and 2 are merged. Phase 1 (#571 ball, #572 players, #573 missiles) put
+every movable object on the per-clock counter model, output-equivalent. Phase 2
+made the counters free-run (#575) and replaced the instant HMOVE offset with
+Stella's movement engine (#576): HMOVE injects extra counter ticks during an
+extended HBLANK (the 8px comb), giving the `hmmClocks − 8` net motion as an
+*emergent, persistent* result. Normal in-HBLANK HMOVE stays byte-for-byte
+identical (lock-in + oracle green); late HMOVE now produces hardware-correct
+partial motion. The old position-formula renderers and `apply_motion` survive
+only as test-only reference specs.
+
+Two items deferred out of Phase 2: exact late-HMOVE pixels still want a manual
+Stella 7.0 cross-check (GUI-driven), and collisions in the 8px comb region on an
+HMOVE line are not yet latched.
 
 Port Stella's per-color-clock object-counter model to close #406 — the
 HBLANK-aligned HMOVE model with no 8-clock beam injection. Decided 2026-06-18
@@ -85,9 +91,17 @@ divisor 4, `Delay::hmove 6`, `Delay::hmp/hmm/hmbl/hmclr 2`.
    (160/line), which keeps its phase stable against the 228-clock line; the
    per-line re-seed keeps `pos_*` canonical for now (Phase 2 makes it free-run so
    the movement engine can inject HBLANK ticks).
-2. **Movement engine.** Replace `apply_motion` with the extra-clock injection +
-   extended-HBLANK/comb. Normal HMOVE output stays identical (regression tests);
-   late-HMOVE/comb now match Stella (new tests + pixel diff vs a Stella snapshot).
+2. **Movement engine.** ✅ Done (#575 free-run foundation, #576 engine). Replaced
+   `apply_motion` with the per-clock injection + extended-HBLANK/comb. Two steps:
+   #575 made the counters free-run (counters canonical, `pos_*` a synced shadow
+   re-derived at each line start, no per-line re-seed); #576 added the engine —
+   per-object `hmmClocks` + `is_moving`, `tick_movement` every 4th clock injecting
+   one `advance_*` tick per still-moving object during HBLANK until
+   `clock == hmmClocks`, plus the 8-clock HBLANK extension (comb + the `−8`). Net
+   motion `hmmClocks − 8` is emergent and persists across lines; normal HMOVE
+   output is byte-for-byte identical (lock-in + oracle), late HMOVE is partially
+   masked as on hardware. Remaining: pixel-diff late HMOVE vs a Stella snapshot
+   (GUI-driven), and latch collisions in the comb region.
 3. **Starfield + multi-HMOVE/line + revision quirks** (inverted phase clock,
    short-late-HMOVE, late-RESPx) — default the quirks off (baseline behaviour).
 4. **Verify the Pole Position sliver** vs Stella; close #406 or re-scope the
