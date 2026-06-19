@@ -187,13 +187,14 @@ impl Riot6532 {
                 self.underflow = false;
                 self.timer
             }
-            // $285: INSTAT — Timer status
-            0x05 => {
-                let status = if self.underflow { 0x80 } else { 0 };
-                // Reading INSTAT clears the underflow flag.
-                self.underflow = false;
-                status
-            }
+            // $285: INSTAT — Timer status. Bit 7 = timer underflow, bit 6 =
+            // PA7 edge flag. Reading INSTAT clears ONLY the PA7 flag — it does
+            // NOT clear the timer underflow flag (that clears on an INTIM read
+            // or a timer write). Per Stella `M6532::peek` (`myInterruptFlag &=
+            // ~PA7Bit`). Games poll INSTAT for the underflow bit and expect it
+            // to persist across reads (Starpath Supercharger titles rely on
+            // this for their free-running frame sync).
+            0x05 => u8::from(self.underflow) << 7,
             _ => 0,
         }
     }
@@ -466,9 +467,24 @@ mod tests {
         let status = riot.read(0x0285);
         assert_eq!(status & 0x80, 0x80);
 
-        // Reading INSTAT clears the flag
+        // Reading INSTAT does NOT clear the timer flag (it clears only the PA7
+        // flag); the underflow bit persists across INSTAT reads. Per Stella
+        // `M6532::peek` ($05 clears PA7Bit only). Games poll INSTAT for the
+        // underflow and rely on it staying set.
         let status2 = riot.read(0x0285);
-        assert_eq!(status2 & 0x80, 0);
+        assert_eq!(
+            status2 & 0x80,
+            0x80,
+            "INSTAT read leaves the timer flag set"
+        );
+
+        // Reading INTIM ($284) is what clears the timer flag.
+        let _ = riot.read(0x0284);
+        assert_eq!(
+            riot.read(0x0285) & 0x80,
+            0,
+            "INTIM read cleared the timer flag"
+        );
     }
 
     #[test]
