@@ -286,6 +286,9 @@ pub struct Tia {
     /// Missile display signal (geometry only) for the current colour clock,
     /// latched once per visible tick and shared by compose + collisions.
     m_signal: [bool; 2],
+    /// Missile width used while moving — modulated by the starfield effect
+    /// (Stella `myEffectiveWidth`); equals the configured width otherwise.
+    m_effective_width: [i8; 2],
 
     // --- Ball ---
     /// Ball enable (ENABL bit 1).
@@ -317,6 +320,12 @@ pub struct Tia {
     /// `compose_pixel` and `update_collisions`; the enable gate (ENABL/VDELBL)
     /// is applied separately in `ball_pixel`.
     ball_signal: bool,
+    /// Counter value at the ball's last movement tick — the phase reference for
+    /// the starfield width modulation (Stella `myLastMovementTick`).
+    ball_last_movement_tick: u16,
+    /// Ball width used while moving — modulated by the starfield effect (Stella
+    /// `myEffectiveWidth`); equals the configured width otherwise.
+    ball_effective_width: i8,
 
     // --- Horizontal motion (HMOVE movement engine, #406 phase 2) ---
     // Each object's HM register decoded as Stella's `hmmClocks = (value>>4) ^ 8`
@@ -449,6 +458,7 @@ impl Tia {
             m_is_rendering: [false; 2],
             m_render_counter: [0; 2],
             m_signal: [false; 2],
+            m_effective_width: [1; 2],
             enabl: false,
             enabl_old: false,
             pos_bl: 0,
@@ -457,6 +467,8 @@ impl Tia {
             ball_is_rendering: false,
             ball_render_counter: 0,
             ball_signal: false,
+            ball_last_movement_tick: 0,
+            ball_effective_width: 1,
             // HM registers default to 0 → hmmClocks = (0>>4)^8 = 8 = no motion.
             hmm_p: [8; 2],
             hmm_m: [8; 2],
@@ -546,8 +558,8 @@ impl Tia {
                 self.ball_signal = self.ball_is_rendering && self.ball_render_counter >= 0;
                 self.p_signal[0] = self.player_signal(0);
                 self.p_signal[1] = self.player_signal(1);
-                self.m_signal[0] = self.m_is_rendering[0] && self.m_render_counter[0] >= 0;
-                self.m_signal[1] = self.m_is_rendering[1] && self.m_render_counter[1] >= 0;
+                self.m_signal[0] = self.missile_visible(0, self.hpos, true);
+                self.m_signal[1] = self.missile_visible(1, self.hpos, true);
 
                 let colour = if self.vblank {
                     0 // Black during VBLANK
@@ -566,12 +578,14 @@ impl Tia {
                     self.framebuffer[fb_idx] = argb;
                 }
 
-                // Advance the per-clock pipelines for the next colour clock.
-                self.advance_ball();
+                // Advance the per-clock pipelines for the next colour clock (a
+                // regular visible tick — `is_regular = true` — which is what
+                // drives the starfield modulation while an object is moving).
+                self.advance_ball(true);
                 self.advance_player(0);
                 self.advance_player(1);
-                self.advance_missile(0);
-                self.advance_missile(1);
+                self.advance_missile(0, self.hpos, true);
+                self.advance_missile(1, self.hpos, true);
             } else {
                 // HBLANK region — black. During the 68-clock horizontal
                 // retrace the TIA holds its output in blanking, so a real
@@ -981,11 +995,12 @@ impl Tia {
         }
     }
 
-    /// Missile `idx`'s display signal for the current colour clock: rendering and
-    /// at or past the start of the window, gated by enable.
+    /// Missile `idx`'s display signal for the current colour clock: the latched
+    /// geometry visibility (`m_signal`, includes the starfield case) gated by
+    /// enable.
     fn missile_signal(&self, idx: usize) -> bool {
         let (_, enabled, _) = self.missile_inputs(idx);
-        enabled && self.m_is_rendering[idx] && self.m_render_counter[idx] >= 0
+        enabled && self.m_signal[idx]
     }
 
     /// Seed missile `idx`'s pipeline from its position so that, run forward from
@@ -1024,22 +1039,63 @@ impl Tia {
         self.seed_missile(idx, pos, self.seed_x());
     }
 
-    /// Advance missile `idx`'s pipeline by one visible colour clock (Stella
-    /// `Missile::tick`, without the movement/starfield paths). Call after the
-    /// clock's signal is latched.
-    fn advance_missile(&mut self, idx: usize) {
+    /// Advance missile `idx`'s pipeline by one colour clock (Stella
+    /// `Missile::tick`). `is_regular` is true for an ordinary visible-clock tick,
+    /// false for a movement-engine injection. As with the ball, a regular tick
+    /// while the missile is still moving is the starfield effect — but the
+    /// missile keys its width modulation off the beam phase `(hclock + 1) mod 4`
+    /// at the first render-counter step (−1). Call after the signal is latched.
+    fn advance_missile(&mut self, idx: usize, hclock: u16, is_regular: bool) {
         let (_, _, w) = self.missile_inputs(idx);
         let w = i8::try_from(w).unwrap_or(1);
-        if self.counter_m[idx] == 156 {
+        if self.counter_m[idx] == 156 && !self.resmp(idx) {
             self.m_is_rendering[idx] = true;
             self.m_render_counter[idx] = -4;
         } else if self.m_is_rendering[idx] {
+            if self.m_render_counter[idx] == -1 {
+                if self.moving_m[idx] && is_regular {
+                    match (hclock + 1) % 4 {
+                        3 => {
+                            self.m_effective_width[idx] = if w == 1 { 2 } else { w };
+                            if w < 4 {
+                                self.m_render_counter[idx] += 1;
+                            }
+                        }
+                        2 => self.m_effective_width[idx] = 0,
+                        _ => self.m_effective_width[idx] = w,
+                    }
+                } else {
+                    self.m_effective_width[idx] = w;
+                }
+            }
             self.m_render_counter[idx] += 1;
-            if self.m_render_counter[idx] >= w {
+            let limit = if self.moving_m[idx] {
+                self.m_effective_width[idx]
+            } else {
+                w
+            };
+            if self.m_render_counter[idx] >= limit {
                 self.m_is_rendering[idx] = false;
             }
         }
         self.counter_m[idx] = (self.counter_m[idx] + 1) % 160;
+    }
+
+    /// RESMP (lock missile to player) state for missile `idx`.
+    fn resmp(&self, idx: usize) -> bool {
+        if idx == 0 { self.resmp0 } else { self.resmp1 }
+    }
+
+    /// Missile `idx`'s geometry visibility this clock, including the starfield
+    /// 1-pixel visibility special case (Stella `myIsVisible`): normally `render
+    /// counter ≥ 0`, but while moving a regular tick at render counter −1 with
+    /// width < 4 and beam phase `(hclock+1) mod 4 == 3` also shows.
+    fn missile_visible(&self, idx: usize, hclock: u16, is_regular: bool) -> bool {
+        let (_, _, w) = self.missile_inputs(idx);
+        let rc = self.m_render_counter[idx];
+        self.m_is_rendering[idx]
+            && (rc >= 0
+                || (self.moving_m[idx] && is_regular && rc == -1 && w < 4 && (hclock + 1) % 4 == 3))
     }
 
     /// Check if the ball is active at pixel position x.
@@ -1107,17 +1163,42 @@ impl Tia {
         self.seed_ball(self.pos_bl, self.seed_x());
     }
 
-    /// Advance the ball's render pipeline and counter by one visible colour
-    /// clock (Stella `Ball::tick`, without the movement/starfield paths — those
-    /// arrive in later #406 phases). Call after the clock's signal is latched.
-    fn advance_ball(&mut self) {
+    /// Advance the ball's render pipeline and counter by one colour clock
+    /// (Stella `Ball::tick`). `is_regular` is true for an ordinary visible-clock
+    /// tick, false for a movement-engine injection. A regular tick that lands
+    /// while the ball is still moving is the *starfield* effect: the ball's
+    /// effective width is modulated by the counter's phase against the last
+    /// movement tick (mod 4) — case 2 hides it, case 3 widens it — which is how
+    /// the Cosmic Ark stars are drawn. Call after the clock's signal is latched.
+    fn advance_ball(&mut self, is_regular: bool) {
         let w = i8::try_from(self.ball_width()).unwrap_or(1);
+        let starfield = self.moving_bl && is_regular;
         if self.counter_bl == 156 {
             self.ball_is_rendering = true;
             self.ball_render_counter = -4;
+            let delta = (self.counter_bl + 160 - self.ball_last_movement_tick) % 4;
+            if starfield && delta == 3 && w < 4 {
+                self.ball_render_counter += 1;
+            }
+            self.ball_effective_width = match delta {
+                3 => {
+                    if w == 1 {
+                        2
+                    } else {
+                        w
+                    }
+                }
+                2 => 0,
+                _ => w,
+            };
         } else if self.ball_is_rendering {
             self.ball_render_counter += 1;
-            if self.ball_render_counter >= w {
+            let limit = if starfield {
+                self.ball_effective_width
+            } else {
+                w
+            };
+            if self.ball_render_counter >= limit {
                 self.ball_is_rendering = false;
             }
         }
@@ -1433,12 +1514,16 @@ impl Tia {
             self.movement_clock
         };
         let hblank = self.hpos < self.first_visible_hctr();
+        let hclock = self.hpos;
+        // The ball keys its starfield phase off the counter at the last movement
+        // tick — recorded every 4th clock while moving, like Stella.
+        self.ball_last_movement_tick = self.counter_bl;
 
         if self.moving_bl {
             if clock == self.hmm_bl {
                 self.moving_bl = false;
             } else if hblank {
-                self.advance_ball();
+                self.advance_ball(false);
             }
         }
         for idx in 0..2 {
@@ -1453,7 +1538,7 @@ impl Tia {
                 if clock == self.hmm_m[idx] {
                     self.moving_m[idx] = false;
                 } else if hblank {
-                    self.advance_missile(idx);
+                    self.advance_missile(idx, hclock, false);
                 }
             }
         }
@@ -2537,6 +2622,98 @@ mod tests {
         assert!(
             late_pos > full_pos,
             "late HMOVE moves less than the full 7 (full={full_pos}, late={late_pos})"
+        );
+    }
+
+    /// Lit columns of a moving ball: width-1 ball at 30, HMBL left-7, HMOVE
+    /// strobed at colour clock `strobe` of the line, rendered and scanned.
+    fn moving_ball_lit(strobe: usize) -> Vec<usize> {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.colubk = 0x00;
+        tia.colupf = 0x1E;
+        tia.ctrlpf = 0x00; // ball width 1
+        tia.enabl = true;
+        tia.set_ball_position(30);
+        tia.write(0x24, 0x70); // HMBL = left 7
+        for _ in 0..strobe {
+            tia.tick();
+        }
+        tia.write(0x2A, 0x00); // HMOVE
+        for _ in 0..(CLOCKS_PER_LINE as usize - strobe) {
+            tia.tick();
+        }
+        let base = HBLANK_CLOCKS as usize;
+        tia.framebuffer()[base..base + 160]
+            .iter()
+            .enumerate()
+            .filter(|&(_, &p)| p == colour(0x1E))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    #[test]
+    fn starfield_modulates_a_moving_ball_width() {
+        // The starfield effect: when a regular (visible) clock lands while the
+        // ball is still moving — a late HMOVE — its effective width is modulated
+        // by the movement phase. Same ball + HMBL, only the strobe column moves.
+        // These pin the engine's behaviour; exact pixels still want a Stella 7.0
+        // cross-check (GUI-driven). See #406 phase 3.
+        assert_eq!(
+            moving_ball_lit(0),
+            vec![23],
+            "in-HBLANK HMOVE: clean 1px ball"
+        );
+        assert_eq!(
+            moving_ball_lit(30),
+            vec![27, 28],
+            "starfield widens the moving ball to 2px"
+        );
+        assert!(
+            moving_ball_lit(40).is_empty(),
+            "starfield hides the ball at this phase"
+        );
+    }
+
+    /// Lit columns of a moving missile: width-1 missile at 30, HMM0 left-7,
+    /// HMOVE strobed at colour clock `strobe`.
+    fn moving_missile_lit(strobe: usize) -> Vec<usize> {
+        let mut tia = Tia::new(TiaRegion::Ntsc);
+        tia.colubk = 0x00;
+        tia.colup0 = 0x1E;
+        tia.enam0 = true;
+        tia.nusiz0 = 0x00; // missile width 1
+        tia.set_missile_position(0, 30);
+        tia.write(0x22, 0x70); // HMM0 = left 7
+        for _ in 0..strobe {
+            tia.tick();
+        }
+        tia.write(0x2A, 0x00); // HMOVE
+        for _ in 0..(CLOCKS_PER_LINE as usize - strobe) {
+            tia.tick();
+        }
+        let base = HBLANK_CLOCKS as usize;
+        tia.framebuffer()[base..base + 160]
+            .iter()
+            .enumerate()
+            .filter(|&(_, &p)| p == colour(0x1E))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    #[test]
+    fn starfield_modulates_a_moving_missile_width() {
+        // The missile keys its starfield width off the beam phase `(hclock+1)%4`,
+        // so its modulation lands at a different strobe than the ball's. (This is
+        // the object Cosmic Ark actually uses for its stars.)
+        assert_eq!(
+            moving_missile_lit(0),
+            vec![23],
+            "in-HBLANK HMOVE: clean 1px missile"
+        );
+        assert_eq!(
+            moving_missile_lit(40),
+            vec![30, 31],
+            "starfield widens the moving missile to 2px"
         );
     }
 }
