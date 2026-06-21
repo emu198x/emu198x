@@ -20,11 +20,18 @@ tape-accurate later.**
   Stella `M6532::peek` case $05) clears only the PA7 flag on INSTAT; the timer
   flag clears on an **INTIM ($0284)** read. Fixed in a separate commit; the
   INTIM-polling games (Combat, Berzerk, H.E.R.O.) are unaffected.
-- **Multi-load (M3):** proven by a synthetic two-load unit test (slot selected
-  by `header[5]`, pages re-mapped on switch). No *binary* multi-load image is
-  staged — the staged protos (Phaser Patrol, Excalibur) are single-load and the
-  main multi-load releases are FLAC (tape path). Real-binary multi-load
-  verification waits on a staged `8448×N` image or the tape path.
+- **Multi-load (M3):** verified two ways. (1) A cart-level unit test: slot
+  selected by `header[5]`, pages re-mapped on switch. (2) A **machine-level**
+  test (`tests/supercharger_multiload.rs`) that hand-authors a faithful two-load
+  image and drives the full handshake — load 0 asks the BIOS for load 1
+  (`STA $FA; JMP $F800`), the BIOS re-enters via the `$1850` hotspot, load 1 is
+  selected and runs, painting a colour matched against a plain-4K reference (so
+  it's palette-agnostic and runs in CI with no media). A negative control
+  (load 0 paints red and never advances) confirms the advance is real, not an
+  artifact. No real-*binary* multi-load **game** exists locally: the MAME
+  softlist ships single-load protos + FLAC tapes, and no TOSEC 2600 ROM tree is
+  staged here. A real multi-load game still needs either a sourced `8448×N`
+  image or the tape path.
 
 The Supercharger (Starpath/Arcadia, 1982) is not a bankswitch cartridge — it's a
 RAM-expansion peripheral that loads game code from cassette into 6 KB of RAM
