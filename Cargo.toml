@@ -213,7 +213,7 @@ repository = "https://github.com/emu198x/emu198x"
 bytemuck = { version = "1.23", features = ["derive"] }
 cpal = "0.17"
 flate2 = "1"
-criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 gilrs = "0.11"
 # muda 0.19 gates its Linux GTK backend behind the `gtk` feature
 # (default-on upstream). We disable it because we don't yet wire native
