@@ -8,23 +8,20 @@ repository.workspace = true
 
 [features]
 # UI mode is on by default for interactive / dev builds. The headless
-# screenshot / smoke / Blargg pipeline builds with
-# `--no-default-features` to skip the heavy graphics stack (winit +
-# wgpu) — the `--script` and `--mcp` modes still work, only the default
-# UI path errors out at runtime with a "rebuild with --features ui"
-# message.
+# screenshot / smoke / Blargg pipeline builds with `--no-default-features`
+# to skip the shared `emu198x-ui` harness (winit + wgpu) — the `--script`
+# and `--mcp` modes still work, only the default UI path errors out at
+# runtime with a "rebuild with --features ui" message.
 default = ["ui"]
-ui = ["dep:emu198x-native-video", "dep:winit"]
+ui = ["dep:emu198x-ui"]
 
 [dependencies]
-emu198x-native-video = { path = "../emu198x-native-video", optional = true , version = "0.2.0" }
 emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+emu198x-ui = { path = "../emu198x-ui", version = "0.2.0", optional = true }
 machine-nintendo-nes = { path = "../machine-nintendo-nes", version = "0.2.0" }
 runtime-nintendo-nes = { path = "../runtime-nintendo-nes", version = "0.2.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror.workspace = true
-winit = { workspace = true, optional = true }
 
 [lints]
 workspace = true

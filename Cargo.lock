@@ -1082,14 +1082,12 @@ dependencies = [
 name = "emu198x-nes"
 version = "0.2.0"
 dependencies = [
- "emu198x-native-video",
  "emu198x-shell",
+ "emu198x-ui",
  "machine-nintendo-nes",
  "runtime-nintendo-nes",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
- "winit",
 ]
 
 [[package]]
