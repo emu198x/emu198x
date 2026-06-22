@@ -40,19 +40,34 @@ a screenshot artifact.
 | Commodore VIC-20 | `**** CBM BASIC V2 ****` / `READY.` |
 | Acorn Electron | `Acorn Electron` / `BASIC` / `>` |
 
-### Problems found (3)
+### Problems found (2)
 
 - **Sinclair ZX81** and **Sinclair ZX80** — instead of the near-blank screen +
   cursor a freshly booted machine shows, the lower ~⅔ of the screen is a stable
   checkerboard of a repeating glyph (unchanged at 600 frames). Identical on both
-  siblings, which share the ULA display generation. Looks like the area below
-  the collapsed display file is rendering RAM contents instead of blank — a
-  ZX80/81 display-generation accuracy bug. One fix likely covers both.
-- **Acorn BBC Micro** — prints the `BBC Computer 32K` banner and then stops; no
-  `BASIC` / `>` prompt even at 600 frames (~12 s), whereas the Electron (same
-  Acorn BASIC) reaches `BASIC` / `>` correctly. The MOS boots but the language
-  ROM (BASIC, best-effort installed into sideways bank 15) is not entered. Boot
-  stalls after the banner.
+  siblings, which share the ULA display generation. The area below the collapsed
+  display file rendered RAM contents instead of blank. **Fixed** in PR #624 — a
+  double-NEWLINE-advance in `render_display`. One fix covered both.
+
+### Re-investigated: BBC Micro — sweep false alarm (corrected 2026-06-22)
+
+The original sweep flagged the BBC as stalling at the `BBC Computer 32K` banner
+without entering BASIC. **That was a methodology error in the sweep, not a
+machine bug.** The headless `--screenshot` path does *not* auto-install a
+language ROM (the interactive UI best-effort installs BASIC into bank 15;
+headless callers pass `--sideways` explicitly). My capture ran the bare MOS with
+no language ROM, so it correctly showed only the banner.
+
+Re-run with `--sideways 15=basic.rom`, the BBC **boots into BASIC**: a
+PC-histogram + OSWRCH trace confirmed it enters bank 15, runs BASIC, and prints
+`BBC Computer 32K` + `BASIC`. The interactive UI (which installs BASIC) was fine
+all along.
+
+One **narrower** real issue remains: BASIC enters and prints its startup but
+never emits the `>` REPL prompt (OSWRCH stops after `BASIC\r\n\r\n`; the CPU
+loops inside BASIC near `$8ADC`). That needs BBC BASIC ROM-level tracing and is a
+separate, smaller follow-up — the machine boots and runs BASIC, it just doesn't
+present the interactive prompt yet.
 
 ### Needs a cartridge to verify (5)
 
@@ -69,9 +84,10 @@ These runners require `--cart` and can't boot to anything cartless:
 
 ## Follow-ups
 
-- ZX80/ZX81 lower-screen render (one bug, both machines).
-- BBC Micro BASIC-entry stall after the banner.
+- ~~ZX80/ZX81 lower-screen render~~ — **fixed** (PR #624).
+- BBC Micro `>` REPL prompt not emitted (boots + runs BASIC; needs BASIC ROM trace).
 - SMS: stage a commercial cart, retest; investigate Rachel-renders-black.
 - Stage carts for SG-1000 / 5200 / 7800 / Sord M5 and re-run.
 
-The 12 confirmed-good systems need no further boot work.
+The 12 confirmed-good systems — plus the BBC (boots BASIC) — need no further boot
+work; the ZX80/81 render is fixed.
