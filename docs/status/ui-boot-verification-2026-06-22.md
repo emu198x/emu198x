@@ -79,10 +79,14 @@ interrupt-bit semantics.
 
 These runners require `--cart` and can't boot to anything cartless:
 
-- **Sega Master System** — the only cart available locally (`rachel.sms`, the
-  Rachel build) renders **black** through 1200 frames. Can't tell core-vs-cart
-  without a commercial title to cross-check; flagged for follow-up. (Relevant to
-  the Rachel cross-platform goal — Rachel on the SMS core shows nothing.)
+- **Sega Master System — ✅ core verified working.** With a commercial cart
+  (Alex Kidd in Miracle World, US, from the full TOSEC at
+  `/Volumes/Data/Library/ROMs/TOSEC/Sega/Mark III & Master System/`) the SMS
+  boots straight to its title screen — VDP, mapper, and Z80 all good. So the
+  earlier **black** screen with `rachel.sms` is the **Rachel build**, not the
+  core (relevant to the Rachel cross-platform goal: investigate Rachel's SMS
+  image — mapper/header/entry — not our emulator). Reference now vendored:
+  Genesis Plus GX (`emulators/multi-system/genesis-plus-gx/`).
 - **Sega SG-1000**, **Atari 5200**, **Atari 7800**, **Sord M5** — no test
   cartridge staged. Cartless the M5 shows black (expected — cart-only); the
   others won't run without `--cart`. Verification deferred until carts are
@@ -93,8 +97,10 @@ These runners require `--cart` and can't boot to anything cartless:
 - ~~ZX80/ZX81 lower-screen render~~ — **fixed** (PR #624).
 - ~~BBC Micro `>` REPL prompt not emitted~~ — **fixed** (6850 ACIA model; was an
   interrupt storm from open-bus `$FE08` reads).
-- SMS: stage a commercial cart, retest; investigate Rachel-renders-black.
-- Stage carts for SG-1000 / 5200 / 7800 / Sord M5 and re-run.
+- ~~SMS: stage a commercial cart, retest~~ — **done, core verified** (Alex Kidd
+  boots). Remaining: investigate why the Rachel SMS *build* renders black.
+- Stage carts for SG-1000 / 5200 / 7800 / Sord M5 and re-run (the full TOSEC at
+  `/Volumes/Data/Library/ROMs/TOSEC/` has them; Genesis Plus GX covers SG-1000).
 
 The 12 confirmed-good systems — plus the BBC (boots BASIC) — need no further boot
 work; the ZX80/81 render is fixed.
