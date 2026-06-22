@@ -85,8 +85,22 @@ pub trait UiSystem {
     /// The host-control → (port, input-name) map shared by keyboard and gamepad.
     fn button_map(&self) -> &'static ButtonInputMap;
 
-    /// Translate a physical key to a host control, or `None` to ignore it.
-    fn map_key(&self, code: KeyCode) -> Option<HostControl>;
+    /// Translate a physical key to a host control (joystick / d-pad), or `None`
+    /// to ignore it. Used by consoles; home computers use [`Self::map_keys`].
+    fn map_key(&self, _code: KeyCode) -> Option<HostControl> {
+        None
+    }
+
+    /// Translate a physical key to one or more machine key *names* — the
+    /// keyboard path for home computers. Returning several names produces a
+    /// hardware combo from one host key (e.g. the Spectrum's cursor keys are
+    /// the membrane-wired `Caps`+`5`/`6`/`7`/`8`). When this returns `Some`, the
+    /// harness emits an `InputEvent::Key` for each name and does **not** route
+    /// the key through the button map. Default: no keyboard (a console — use
+    /// [`Self::map_key`] / [`Self::button_map`]).
+    fn map_keys(&self, _code: KeyCode) -> Option<&'static [&'static str]> {
+        None
+    }
 
     /// Hook run after a hard reset re-initialises the runtime (e.g. re-insert
     /// media for runtimes that drop it on reset). Default: nothing.
@@ -189,6 +203,7 @@ struct App<S: UiSystem> {
     next_slice_at: Instant,
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, HostControl>,
+    pressed_key_names: HashMap<KeyCode, &'static [&'static str]>,
     gamepads: NativeGamepadInput,
     window: Option<Arc<Window>>,
     video: Option<WgpuVideoPresenter>,
@@ -219,6 +234,7 @@ impl<S: UiSystem> App<S> {
             next_slice_at: Instant::now(),
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
+            pressed_key_names: HashMap::new(),
             gamepads: NativeGamepadInput::new(),
             window: None,
             video: None,
@@ -359,6 +375,23 @@ impl<S: UiSystem> App<S> {
     }
 
     fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
+        // Keyboard path (home computers): one host key → one or more machine key
+        // names, emitted as InputEvent::Key. Takes precedence over the joystick
+        // button map.
+        if let Some(names) = self.system.map_keys(code) {
+            if pressed {
+                if self.pressed_key_names.contains_key(&code) {
+                    return;
+                }
+                self.pressed_key_names.insert(code, names);
+                self.push_key_events(names, true);
+            } else if let Some(names) = self.pressed_key_names.remove(&code) {
+                self.push_key_events(names, false);
+            }
+            return;
+        }
+
+        // Joystick / d-pad path (consoles): host key → HostControl → button map.
         let map = self.system.button_map();
         if pressed {
             let Some(control) = self.system.map_key(code) else {
@@ -380,12 +413,27 @@ impl<S: UiSystem> App<S> {
         }
     }
 
+    /// Emit an `InputEvent::Key` for each machine key name in a host key's
+    /// mapping (multiple names form a hardware combo).
+    fn push_key_events(&mut self, names: &'static [&'static str], pressed: bool) {
+        for name in names {
+            self.pending_inputs.push(InputEvent::Key {
+                name: (*name).into(),
+                pressed,
+            });
+        }
+        self.next_slice_at = Instant::now();
+    }
+
     fn release_all_keys(&mut self) {
         let map = self.system.button_map();
         for control in std::mem::take(&mut self.pressed_keys).into_values() {
             if let Some(input) = map.event(control, false) {
                 self.pending_inputs.push(input);
             }
+        }
+        for names in std::mem::take(&mut self.pressed_key_names).into_values() {
+            self.push_key_events(names, false);
         }
         self.next_slice_at = Instant::now();
     }
