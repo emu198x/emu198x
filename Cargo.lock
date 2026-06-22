@@ -1183,6 +1183,7 @@ name = "emu198x-spectravideo-svi-328"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-ui",
  "machine-spectravideo-svi-328",
  "png",
  "runtime-spectravideo-svi-328",
