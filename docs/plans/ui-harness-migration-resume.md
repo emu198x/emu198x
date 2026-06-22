@@ -15,6 +15,16 @@ the canonical model; **one PR per system**; auto-merge each when CI is green.
   Option<&[&str]>`, multi-name combos, modelled on Spectrum `ui/input.rs`) +
   the **ZX81's first UI** (validator — simplest keyboard-only computer).
 - **#597** ZX80's first UI (sibling of ZX81).
+- **#600–#607** all of **list A** — the eight keyboard-only headless systems'
+  first UIs, each one PR on the proven recipe: Jupiter Ace (#600), Mattel
+  Aquarius (#601, keyboard + hand-controller — first dual-input consumer),
+  Oric-Atmos (#602), Memotech MTX (#603), Tatung Einstein (#604), Acorn Atom
+  (#605), Sord M5 (#606), Spectravideo SVI-328 (#607). Pattern settled across
+  these: keyboard via `map_keys` mirroring each runtime's key-name scheme; where
+  a machine's cursor keys are real matrix cells they type (Oric/MTX/SVI), and
+  the joystick is reached by a real gamepad through `button_map`; the machine's
+  own Escape stays unmapped because the harness owns Esc for quit. No harness
+  changes were needed for any of them.
 
 (Plus the unrelated Atari 2600 Supercharger work: #588, #593.)
 
@@ -60,12 +70,11 @@ ZX81 — see `crates/emu198x-sinclair-zx81/src/ui.rs` as the template):
 
 ## Ordered remaining work
 
-**A. Keyboard-only headless systems (mechanical, recipe above):**
+**A. Keyboard-only headless systems — ✅ DONE (#600–#607, all merged).**
 Jupiter Ace, Mattel Aquarius, Oric-Atmos, Memotech MTX, Tatung Einstein,
-Acorn Atom, Sord M5, Spectravideo SVI-328 — check each `runtime-*/src/input.rs`
-for the key scheme; some add a joystick (use `button_map` + `map_key` too).
+Acorn Atom, Sord M5, Spectravideo SVI-328. The whole category is on the harness.
 
-**B. Joystick-led / console-like headless systems (existing console path):**
+**B. Joystick-led / console-like headless systems (existing console path) — NEXT:**
 Sega Master System, Sega SG-1000, ColecoVision, Atari 5200, Atari 7800, MSX
 (keyboard + joystick), Commodore PET / VIC-20, Acorn BBC Micro / Electron.
 
