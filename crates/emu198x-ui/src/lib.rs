@@ -12,12 +12,16 @@
 //! existing runners migrate onto the harness), and save-states are a single
 //! quick-slot per machine rather than the menu-driven multi-slot UI to come.
 
+mod menu;
 mod overlay;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
+
+use menu::{AppCommand, AppMenu};
 
 use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
 use emu198x_shell::{
@@ -215,6 +219,14 @@ struct App<S: UiSystem> {
     presentation: PresentationProfile,
     fatal_error: Option<UiError>,
     halt_message: Option<String>,
+    /// Native menu bar (no-op stub on Linux). Owns the muda menu tree.
+    app_menu: AppMenu,
+    /// Set once the menu has been attached to the OS (in `resumed`).
+    menu_installed: bool,
+    /// Command channel shared by menu clicks and keyboard shortcuts; drained at
+    /// the frame boundary so an action never tears down state mid-frame.
+    command_tx: Sender<AppCommand>,
+    command_rx: Receiver<AppCommand>,
 }
 
 impl<S: UiSystem> App<S> {
@@ -229,6 +241,8 @@ impl<S: UiSystem> App<S> {
         // aspect and the cropped framebuffer size once the window opens (see
         // `create_window`); square pixels until then.
         let presentation = PresentationProfile::for_filter(video);
+        let app_menu = AppMenu::new(&system.window_title(), scale, video);
+        let (command_tx, command_rx) = channel();
         Self {
             system,
             runner,
@@ -247,6 +261,10 @@ impl<S: UiSystem> App<S> {
             presentation,
             fatal_error: None,
             halt_message: None,
+            app_menu,
+            menu_installed: false,
+            command_tx,
+            command_rx,
         }
     }
 
@@ -305,11 +323,9 @@ impl<S: UiSystem> App<S> {
         };
         let par = f64::from(self.presentation.pixel_aspect_ratio).max(f64::MIN_POSITIVE);
         let display_width = f64::from(fb_width) * par;
-        let logical_width = display_width * f64::from(self.scale);
-        let logical_height = f64::from(fb_height.saturating_mul(self.scale));
         let attributes = WindowAttributes::default()
             .with_title(self.system.window_title())
-            .with_inner_size(LogicalSize::new(logical_width, logical_height))
+            .with_inner_size(self.window_logical_size(self.scale))
             .with_min_inner_size(LogicalSize::new(display_width, f64::from(fb_height)));
         let window = Arc::new(event_loop.create_window(attributes)?);
         let video = WgpuVideoPresenter::new(window.clone(), fb_width, fb_height)?;
@@ -317,6 +333,20 @@ impl<S: UiSystem> App<S> {
         self.video = Some(video);
         self.next_slice_at = Instant::now();
         Ok(())
+    }
+
+    /// The logical window size for an integer `scale`: the cropped framebuffer
+    /// stretched by the derived pixel-aspect ratio (so the picture keeps its
+    /// 4:3-or-whatever shape) and then by `scale`. Used both at window creation
+    /// and by the View → Window Scale menu.
+    fn window_logical_size(&self, scale: u32) -> LogicalSize<f64> {
+        let (fb_width, fb_height) = self.system.framebuffer_size(&self.runner.runtime);
+        let par = f64::from(self.presentation.pixel_aspect_ratio).max(f64::MIN_POSITIVE);
+        let display_width = f64::from(fb_width) * par;
+        LogicalSize::new(
+            display_width * f64::from(scale),
+            f64::from(fb_height.saturating_mul(scale)),
+        )
     }
 
     fn window_id(&self) -> Option<WindowId> {
@@ -546,15 +576,15 @@ impl<S: UiSystem> App<S> {
         // Save-state chords. Gated on a host modifier (Cmd on macOS, Ctrl
         // elsewhere) so they never shadow the bare S / L keys the machine
         // keyboard uses, nor the F1-F10 function keys the home computers map.
+        // Routed through the command channel so the chord and the State menu
+        // run the identical handler.
         match state_chord_action(self.modifiers, code, pressed) {
             Some(StateAction::Save) => {
-                self.quick_save();
+                let _ = self.command_tx.send(AppCommand::QuickSave);
                 return true;
             }
             Some(StateAction::Load) => {
-                if let Err(err) = self.quick_load() {
-                    self.fail(event_loop, err);
-                }
+                let _ = self.command_tx.send(AppCommand::QuickLoad);
                 return true;
             }
             None => {}
@@ -566,9 +596,11 @@ impl<S: UiSystem> App<S> {
                 }
                 true
             }
+            // Reset goes through the same `AppCommand::Reset` the Machine menu
+            // emits, so menu and shortcut share one path.
             KeyCode::F12 => {
-                if pressed && let Err(err) = self.reset_machine() {
-                    self.fail(event_loop, err);
+                if pressed {
+                    let _ = self.command_tx.send(AppCommand::Reset);
                 }
                 true
             }
@@ -577,12 +609,63 @@ impl<S: UiSystem> App<S> {
                 .handle_key(&mut self.runner.runtime, code, pressed),
         }
     }
+
+    /// Process one queued [`AppCommand`] at the frame boundary, whatever its
+    /// source (menu click or keyboard shortcut).
+    fn handle_command(&mut self, event_loop: &ActiveEventLoop, command: AppCommand) {
+        match command {
+            AppCommand::Reset => {
+                if let Err(err) = self.reset_machine() {
+                    self.fail(event_loop, err);
+                }
+            }
+            AppCommand::QuickSave => self.quick_save(),
+            AppCommand::QuickLoad => {
+                if let Err(err) = self.quick_load() {
+                    self.fail(event_loop, err);
+                }
+            }
+            AppCommand::SetScale(scale) => self.set_window_scale(scale),
+            AppCommand::SetFilter(filter) => self.set_video_filter(filter),
+        }
+    }
+
+    /// Resize the window to an integer multiple of the native frame. The wgpu
+    /// surface follows via the resulting [`WindowEvent::Resized`].
+    fn set_window_scale(&mut self, scale: u32) {
+        self.scale = scale;
+        let size = self.window_logical_size(scale);
+        if let Some(window) = &self.window {
+            let _ = window.request_inner_size(size);
+            window.request_redraw();
+        }
+        self.app_menu.set_current_scale(scale);
+    }
+
+    /// Switch the post-framebuffer video filter, preserving the derived
+    /// pixel-aspect ratio (which `PresentationProfile::for_filter` resets).
+    fn set_video_filter(&mut self, filter: VideoFilter) {
+        let par = self.presentation.pixel_aspect_ratio;
+        self.presentation = PresentationProfile::for_filter(filter);
+        self.presentation.pixel_aspect_ratio = par;
+        self.app_menu.set_current_filter(filter);
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
 }
 
 impl<S: UiSystem> ApplicationHandler for App<S> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if let Err(err) = self.create_window(event_loop) {
             self.fail(event_loop, err);
+            return;
+        }
+        // Attach the native menu once the app is resumed (the macOS NSApp now
+        // exists). Idempotent via the flag, since `resumed` can fire again.
+        if !self.menu_installed {
+            self.app_menu.install();
+            self.menu_installed = true;
         }
     }
 
@@ -632,6 +715,20 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Translate native-menu clicks into commands on our channel. muda's
+        // receiver is a global crossbeam channel; non-Linux only.
+        #[cfg(not(target_os = "linux"))]
+        while let Ok(event) = muda::MenuEvent::receiver().try_recv() {
+            if let Some(command) = self.app_menu.command_for(&event.id) {
+                let _ = self.command_tx.send(command);
+            }
+        }
+        // Drain queued commands (menu + shortcuts) at the frame boundary, so an
+        // action never tears down state the current frame is using.
+        while let Ok(command) = self.command_rx.try_recv() {
+            self.handle_command(event_loop, command);
+        }
+
         match self.advance_machine() {
             Ok(true) => {
                 if let Some(window) = &self.window {
