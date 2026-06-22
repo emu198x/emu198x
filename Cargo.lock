@@ -1170,6 +1170,7 @@ name = "emu198x-sord-m5"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-ui",
  "machine-sord-m5",
  "png",
  "runtime-sord-m5",
