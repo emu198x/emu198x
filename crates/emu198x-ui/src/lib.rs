@@ -526,14 +526,16 @@ pub fn run<S: UiSystem>(
     event_loop.run_app(&mut app)?;
 
     // Teardown (e.g. flush battery RAM) runs whether the session ended cleanly
-    // or via a fatal error, so a crash still persists state — matching the
-    // bespoke runners' on-exit behaviour.
-    app.system
-        .on_exit(&mut app.runner.runtime)
-        .map_err(UiError::Teardown)?;
-
+    // or via a fatal error, so a crash still persists state. A fatal emulation
+    // error takes precedence over a teardown failure (the latter is then just
+    // logged), so the real cause isn't masked by a failed battery write.
+    let teardown = app.system.on_exit(&mut app.runner.runtime);
     if let Some(err) = app.take_error() {
+        if let Err(reason) = teardown {
+            eprintln!("error: teardown failed: {reason}");
+        }
         return Err(err);
     }
+    teardown.map_err(UiError::Teardown)?;
     Ok(())
 }

@@ -1013,13 +1013,11 @@ name = "emu198x-game-boy"
 version = "0.2.0"
 dependencies = [
  "common-nintendo-game-boy",
- "emu198x-native-video",
  "emu198x-shell",
+ "emu198x-ui",
  "runtime-nintendo-game-boy",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
- "winit",
 ]
 
 [[package]]
