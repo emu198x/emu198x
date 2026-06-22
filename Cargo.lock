@@ -974,6 +974,7 @@ name = "emu198x-commodore-pet"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-ui",
  "machine-commodore-pet",
  "png",
  "runtime-commodore-pet",
