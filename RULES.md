@@ -111,6 +111,10 @@ refuse. Roadmap tiers at [`product-roadmap.md`](knowledge/decisions/product-road
 
 31. **Brainstorm before implementation.** Do not jump straight to code. Use `/workflow:brainstorm` or `AskUserQuestion` to align on approach first. We burned an entire session retrofitting accuracy because we skipped planning — the cost of pausing to think is always lower than the cost of unwinding the wrong design.
 
+## Reference emulators
+
+32. **Never do accuracy or timing work on a system without a reference emulator.** A vendored, authoritative emulator under `198x/emulators/<system>/` is a *prerequisite* for changing chip/CPU/timing behaviour — not an optional cross-check. If none exists for the system in hand, **stop and clone one** (canonical, readable, licence-compatible; e.g. VICE for Commodore, b-em for the BBC, Stella for the 2600, Elkulator for the Electron) and record it in that system's `INDEX.md` before touching code. Reasoning the fix out from the datasheet and first principles is the last resort, for when no reference can be obtained at all. **Drift trigger:** if you're about to deduce a frame length, cycle count, register-bit meaning, or interrupt behaviour from the spec alone — STOP and consult the reference emulator. The pattern of wins is consistent (VICE gave the PET frame outright; b-em's `acia.c` fixed the BBC `>` prompt; Stella caught a bad 2600 WSYNC change).
+
 ## Knowledge
 
 Knowledge layer at `knowledge/` (decisions in `knowledge/decisions/`, index at `knowledge/index.md`). The SessionStart hook surfaces this content automatically. See [[project-knowledge-layer]] for capture conventions and [[kb-architecture]] for the three-layer model.

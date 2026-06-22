@@ -97,11 +97,20 @@ impl Pet {
             SCREEN_WIDTH_40
         };
         let mut crtc = Crtc6845::new();
-        // Standard PET CRTC register setups, taken from donor.
+        // PET CRTC register setup. This editor ROM does not reprogram the CRTC
+        // at boot (it powers up with these values), so they must give the real
+        // PET frame timing. The 40-column PAL frame is 64 cycles/line × 313
+        // lines = 20,032 cycles → 49.92 Hz at 1 MHz, per VICE (`src/pet/pet.h`
+        // PET_PAL_CYCLES_PER_LINE=64, PET_PAL_SCREEN_LINES=313); the CRTC line
+        // is R0+1 cycles, and 313 scanlines = (R4+1)×(R9+1) + R5 = 39×8 + 1.
+        // The donor values (R0=49, R4=31 → 50×260 = 13,000 cycles ≈ 77 Hz) ran
+        // the machine ~1.3× too fast. R6/R1 (25 rows × 40 cols displayed) and R9
+        // (8 scanlines/char) are unchanged, so the visible screen is identical;
+        // R2/R7 sync positions sit inside the wider totals.
         let regs: [u8; 14] = if screen_chars >= 80 {
             [99, 80, 82, 8, 31, 4, 25, 29, 0, 9, 0, 0, 0x10, 0x00]
         } else {
-            [49, 40, 41, 4, 31, 4, 25, 29, 0, 7, 0, 0, 0x10, 0x00]
+            [63, 40, 48, 4, 38, 1, 25, 34, 0, 7, 0, 0, 0x10, 0x00]
         };
         for (i, &v) in regs.iter().enumerate() {
             crtc.write_address(i as u8);
@@ -460,5 +469,21 @@ mod tests {
         let before = pet.mem_read(0xF000);
         pet.mem_write(0xF000, 0xFF);
         assert_eq!(pet.mem_read(0xF000), before);
+    }
+
+    #[test]
+    fn frame_is_pal_50hz_at_1mhz() {
+        // The 40-column PET frame must be 64 cycles/line × 313 lines = 20,032
+        // CPU cycles → 49.92 Hz at 1 MHz, per VICE (`src/pet/pet.h`). The donor
+        // CRTC values gave 50 × 260 = 13,000 (≈77 Hz), running ~1.3× too fast.
+        // The CRTC drives the frame independently of the CPU program, so this
+        // holds with the synthetic test ROMs.
+        let mut pet = make_pet();
+        pet.run_frame(); // sync to a frame boundary
+        let frame = pet.run_frame();
+        assert_eq!(
+            frame, 20_032,
+            "PET PAL frame must be 20,032 cycles (64 × 313); got {frame}"
+        );
     }
 }
