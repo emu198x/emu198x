@@ -25,8 +25,28 @@ the canonical model; **one PR per system**; auto-merge each when CI is green.
   the joystick is reached by a real gamepad through `button_map`; the machine's
   own Escape stays unmapped because the harness owns Esc for quit. No harness
   changes were needed for any of them.
+- **#609–#618** all of **list B** — the ten joystick-led / console-like headless
+  systems' first UIs: Sega Master System (#609), Sega SG-1000 (#610),
+  ColecoVision (#611), Atari 5200 (#612), Atari 7800 (#613), MSX (#614),
+  Commodore PET (#615), VIC-20 (#616), Acorn BBC Micro (#617), Acorn Electron
+  (#618). Patterns that settled: the pad goes through the console path
+  (`map_key` → `HostControl` → `button_map`) with arrows + Z/X; a single
+  console button (SMS/SG-1000 Pause, 7800/5200 Select/Reset/Pause, the Coleco /
+  5200 numeric keypad) is a *named key event* via `map_keys`, kept disjoint from
+  the pad host-keys so nothing double-routes; a `Region`/`Variant` field on the
+  System struct carries NTSC/PAL (and Game Gear) to pick model + frame budget +
+  refresh + display aspect + the per-machine Pause/Start name. Keyboard+joystick
+  machines (MSX/VIC-20) reuse the list-A rule (cursor keys type, joystick =
+  gamepad). The BBC best-effort installs BASIC into sideways bank 15 + the
+  SAA5050 font so it boots to a prompt. Still no harness changes needed.
 
 (Plus the unrelated Atari 2600 Supercharger work: #588, #593.)
+
+> **Boot-verification debt (deferred, agreed with Steve):** the per-system
+> smoke-launch only confirms "window opens and runs without error", not that the
+> machine boots to its expected screen. A framebuffer/screenshot sweep over all
+> of list A + B is owed once the native shells (list C) are tied in. See the
+> `feedback_smoke_launch_not_boot` memory note.
 
 ## The harness today (`crates/emu198x-ui/src/lib.rs`)
 
@@ -74,11 +94,13 @@ ZX81 — see `crates/emu198x-sinclair-zx81/src/ui.rs` as the template):
 Jupiter Ace, Mattel Aquarius, Oric-Atmos, Memotech MTX, Tatung Einstein,
 Acorn Atom, Sord M5, Spectravideo SVI-328. The whole category is on the harness.
 
-**B. Joystick-led / console-like headless systems (existing console path) — NEXT:**
-Sega Master System, Sega SG-1000, ColecoVision, Atari 5200, Atari 7800, MSX
-(keyboard + joystick), Commodore PET / VIC-20, Acorn BBC Micro / Electron.
+**B. Joystick-led / console-like headless systems — ✅ DONE (#609–#618, merged).**
+Sega Master System, Sega SG-1000, ColecoVision, Atari 5200, Atari 7800, MSX,
+Commodore PET / VIC-20, Acorn BBC Micro / Electron. The whole category is on the
+harness. Every headless runner now has a first UI; what remains (C/D) needs the
+harness itself to grow.
 
-**C. Harness capability lifts (substantial, lift from Spectrum `ui/`):**
+**C. Harness capability lifts (substantial, lift from Spectrum `ui/`) — NEXT; needs design input:**
 mouse/pointer input + stateful key-mode toggle (#552 remainder), native menu
 (#549, `menu.rs` + `AppCommand`, honour `knowledge/decisions/native-menu-shell.md`),
 media UI (#550), save-states (#551), live variant switching (#554,
