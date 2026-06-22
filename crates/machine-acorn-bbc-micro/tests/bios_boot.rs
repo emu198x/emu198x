@@ -92,6 +92,43 @@ fn os_boots_to_basic_banner() {
 }
 
 #[test]
+#[ignore = "needs BBC Micro MOS + BASIC ROMs — run with --ignored"]
+fn boots_to_basic_prompt() {
+    // Regression for the 6850 ACIA interrupt storm: open-bus $FE08 reads (0xFF,
+    // status bit 7 set) made the MOS service a phantom serial interrupt every
+    // IRQ and never clear the System VIA 100 Hz timer, starving BASIC before it
+    // printed its `>` prompt. With the ACIA modelled, BASIC reaches the prompt.
+    let (Some(os), Some(basic)) = (os_path(), basic_path()) else {
+        panic!("needs os.rom + basic.rom at ~/.emu198x/roms/acorn-bbc-micro/");
+    };
+    let mut sys = BbcMicro::new(fs::read(&os).expect("read OS"));
+    sys.insert_rom(15, fs::read(&basic).expect("read BASIC"));
+    for _ in 0..200 {
+        sys.run_frame();
+    }
+    let screen: String = (0x7C00u16..0x8000)
+        .map(|a| {
+            let c = sys.peek(a);
+            if (0x20..0x7f).contains(&c) {
+                c as char
+            } else {
+                ' '
+            }
+        })
+        .collect();
+    assert!(
+        screen.contains("BASIC"),
+        "expected BASIC startup text; got: {:?}",
+        screen.trim()
+    );
+    assert!(
+        screen.contains('>'),
+        "expected the BASIC `>` prompt (ACIA storm regression); got: {:?}",
+        screen.trim()
+    );
+}
+
+#[test]
 #[ignore = "needs BBC MOS + BASIC + SAA5050 ROMs — run with --ignored"]
 fn mode7_renders_the_banner() {
     let (Some(os), Some(basic), Some(font)) = (os_path(), basic_path(), font_path()) else {

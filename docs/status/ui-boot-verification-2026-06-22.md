@@ -63,11 +63,17 @@ PC-histogram + OSWRCH trace confirmed it enters bank 15, runs BASIC, and prints
 `BBC Computer 32K` + `BASIC`. The interactive UI (which installs BASIC) was fine
 all along.
 
-One **narrower** real issue remains: BASIC enters and prints its startup but
-never emits the `>` REPL prompt (OSWRCH stops after `BASIC\r\n\r\n`; the CPU
-loops inside BASIC near `$8ADC`). That needs BBC BASIC ROM-level tracing and is a
-separate, smaller follow-up — the machine boots and runs BASIC, it just doesn't
-present the interactive prompt yet.
+The narrower follow-up (BASIC entered but never emitted the `>` prompt) is now
+also **fixed**. Root cause: there was no 6850 ACIA model, so reads of the serial
+status register at `$FE08` returned open-bus `0xFF` — bit 7 set, which the MOS
+read as "the ACIA is interrupting". The IRQ handler serviced that phantom serial
+interrupt on every IRQ and never cleared the System VIA's 100 Hz timer, so the
+CPU IRQ stayed asserted continuously (an interrupt storm) and BASIC's foreground
+was starved at `$8ADD` before it could print `>`. Modelling the ACIA (idle =
+TDRE set, interrupt bit clear, faithful to b-em's `acia.c`) clears the storm; the
+BBC now boots to `BBC Computer 32K` / `BASIC` / `>`. Found with a PC histogram +
+OS-call trace + per-VIA IFR dump; the b-em reference confirmed the `$80` status
+interrupt-bit semantics.
 
 ### Needs a cartridge to verify (5)
 
@@ -85,7 +91,8 @@ These runners require `--cart` and can't boot to anything cartless:
 ## Follow-ups
 
 - ~~ZX80/ZX81 lower-screen render~~ — **fixed** (PR #624).
-- BBC Micro `>` REPL prompt not emitted (boots + runs BASIC; needs BASIC ROM trace).
+- ~~BBC Micro `>` REPL prompt not emitted~~ — **fixed** (6850 ACIA model; was an
+  interrupt storm from open-bus `$FE08` reads).
 - SMS: stage a commercial cart, retest; investigate Rachel-renders-black.
 - Stage carts for SG-1000 / 5200 / 7800 / Sord M5 and re-run.
 
