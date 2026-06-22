@@ -835,6 +835,7 @@ name = "emu198x-acorn-bbc-micro"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-ui",
  "machine-acorn-bbc-micro",
  "png",
  "runtime-acorn-bbc-micro",

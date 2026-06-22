@@ -1,12 +1,21 @@
 //! `emu198x-acorn-bbc-micro` — BBC Micro native binary.
+//!
+//! Three modes: UI (default), headless script, and MCP. `main.rs` is a tiny
+//! dispatcher; the modes live in `src/ui.rs`, `src/script.rs`, and `src/mcp.rs`.
+//! Building with `--no-default-features` drops the `ui` feature (winit + wgpu)
+//! for the headless screenshot / script pipeline.
 
 mod mcp;
 mod script;
+
+#[cfg(feature = "ui")]
+mod ui;
 
 use std::process;
 
 #[derive(Debug, PartialEq, Eq)]
 enum Mode {
+    Ui,
     Script,
     Mcp,
 }
@@ -14,14 +23,28 @@ enum Mode {
 fn detect_mode(args: &[String]) -> Mode {
     if args.iter().any(|a| a == "--mcp" || a == "--mcp-stdio") {
         Mode::Mcp
-    } else {
+    } else if args.iter().any(|a| is_script_flag(a)) {
         Mode::Script
+    } else {
+        Mode::Ui
     }
+}
+
+/// Flags only the headless runner understands. Their presence routes to script
+/// mode so existing invocations keep working; `--mos` is shared with the UI, so
+/// a bare `--mos mos.rom` opens the interactive window. `--sideways` (loading a
+/// sideways ROM) stays headless for now — the first UI just boots the MOS.
+fn is_script_flag(arg: &str) -> bool {
+    matches!(
+        arg,
+        "--script" | "--frames" | "--screenshot" | "--audio-capture" | "--headless" | "--sideways"
+    )
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match detect_mode(&args) {
+        Mode::Ui => run_ui(args),
         Mode::Script => script::run(args),
         Mode::Mcp => mcp::run(),
     };
@@ -31,13 +54,47 @@ fn main() {
     }
 }
 
+#[cfg(feature = "ui")]
+fn run_ui(args: Vec<String>) -> Result<(), String> {
+    ui::run(ui::parse_cli(args))
+}
+
+#[cfg(not(feature = "ui"))]
+fn run_ui(_args: Vec<String>) -> Result<(), String> {
+    Err("this binary was built without the `ui` feature; rebuild with `--features ui` for interactive mode, or use --script / --mcp instead".to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn detect_mode_defaults_to_script() {
-        assert_eq!(detect_mode(&[]), Mode::Script);
+    fn detect_mode_defaults_to_ui() {
+        assert_eq!(detect_mode(&[]), Mode::Ui);
+    }
+
+    #[test]
+    fn detect_mode_treats_bare_mos_as_ui() {
+        let args = vec!["--mos".to_owned(), "mos.rom".to_owned()];
+        assert_eq!(detect_mode(&args), Mode::Ui);
+    }
+
+    #[test]
+    fn detect_mode_recognises_script_via_automation_flags() {
+        for flag in [
+            "--script",
+            "--frames",
+            "--screenshot",
+            "--audio-capture",
+            "--sideways",
+        ] {
+            let args = vec!["--mos".to_owned(), "mos.rom".to_owned(), flag.to_owned()];
+            assert_eq!(
+                detect_mode(&args),
+                Mode::Script,
+                "flag {flag} should be script"
+            );
+        }
     }
 
     #[test]
