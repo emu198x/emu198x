@@ -42,11 +42,15 @@ the canonical model; **one PR per system**; auto-merge each when CI is green.
 
 (Plus the unrelated Atari 2600 Supercharger work: #588, #593.)
 
-> **Boot-verification debt (deferred, agreed with Steve):** the per-system
-> smoke-launch only confirms "window opens and runs without error", not that the
-> machine boots to its expected screen. A framebuffer/screenshot sweep over all
-> of list A + B is owed once the native shells (list C) are tied in. See the
-> `feedback_smoke_launch_not_boot` memory note.
+> **Boot-verification debt — ✅ DISCHARGED 2026-06-22.** Framebuffer sweep over
+> lists A + B via the headless `--screenshot` path; full results in
+> [`../status/ui-boot-verification-2026-06-22.md`](../status/ui-boot-verification-2026-06-22.md).
+> 12 systems confirmed booting to their expected screen. Three real faults
+> found that the smoke-launches missed: **ZX80 + ZX81** render a checkerboard in
+> the lower ⅔ instead of a blank screen (shared ULA display bug), and the **BBC
+> Micro** stalls at the `BBC Computer 32K` banner without entering BASIC. Five
+> cart-only consoles (SMS, SG-1000, Atari 5200/7800, Sord M5) need a cartridge
+> to verify — only `rachel.sms` was available and it renders black on the SMS.
 
 ## The harness today (`crates/emu198x-ui/src/lib.rs`)
 
