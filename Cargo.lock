@@ -847,6 +847,7 @@ name = "emu198x-acorn-electron"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-ui",
  "machine-acorn-electron",
  "png",
  "runtime-acorn-electron",
