@@ -1141,6 +1141,7 @@ name = "emu198x-sinclair-zx80"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-ui",
  "machine-sinclair-zx80",
  "png",
  "runtime-sinclair-zx80",
