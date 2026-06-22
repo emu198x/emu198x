@@ -45,7 +45,7 @@ Usage: emu198x-atari-5200 [OPTIONS]
 Options:
     --cart PATH     Atari 5200 cartridge ROM (required)
     --bios PATH     Atari 5200 BIOS ROM (2 KB); default
-                    ~/.emu198x/roms/atari-5200/bios.rom (or set EMU198X_A5200_BIOS)
+                    ~/.emu198x/roms/atari-5200/bios.rom or 5200.rom (or set EMU198X_A5200_BIOS)
     --region MODE   ntsc | pal [default: ntsc]
     --scale N       integer window scale, default 3
     --video MODE    raw | lcd | crt [default: raw]
@@ -218,6 +218,13 @@ pub fn run(cli: Cli) -> Result<(), String> {
         .or_else(default_bios_path)
         .and_then(|path| std::fs::read(path).ok())
         .unwrap_or_default();
+    if bios.is_empty() {
+        eprintln!(
+            "warning: no 5200 BIOS found (pass --bios PATH or stage bios.rom / \
+             5200.rom in ~/.emu198x/roms/atari-5200/); the screen will be blank \
+             without it."
+        );
+    }
     let runtime = Atari5200Runtime::new(cli.region.model(), cart, bios)
         .map_err(|err| format!("failed to construct runtime: {err}"))?;
 
@@ -279,8 +286,15 @@ fn default_bios_path() -> Option<PathBuf> {
     {
         return Some(PathBuf::from(path));
     }
-    let home = env::var("HOME").ok()?;
-    Some(PathBuf::from(home).join(".emu198x/roms/atari-5200/bios.rom"))
+    let dir = PathBuf::from(env::var("HOME").ok()?).join(".emu198x/roms/atari-5200");
+    // The 5200 BIOS is staged under either name in the wild; return the first
+    // that actually exists so a conventionally-named `5200.rom` is found (the
+    // 5200 shows a black screen without its BIOS, so a constructed-but-missing
+    // path is worse than useless).
+    ["bios.rom", "5200.rom"]
+        .into_iter()
+        .map(|name| dir.join(name))
+        .find(|p| p.exists())
 }
 
 fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
