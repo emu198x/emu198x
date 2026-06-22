@@ -306,6 +306,88 @@ fn mosaic_pattern(code: u8, font_row: usize, separated: bool) -> u16 {
     c
 }
 
+/// Motorola 6850 ACIA — the BBC's serial chip at SHEILA `$FE08`/`$FE09`
+/// (cassette + RS423). No serial peripheral is wired in this core, so the
+/// receiver never fills and the transmitter is always ready; the chip sits idle
+/// with TDRE set and asserts an interrupt only if the OS enables the transmit
+/// interrupt (it does not at the prompt). Modelled faithfully on b-em's
+/// `acia.c`: the status-register interrupt bit (`$80`) is *computed* from the
+/// rx/tx interrupt conditions, not stored.
+///
+/// This exists because the MOS IRQ handler reads `$FE08` to decide whether the
+/// ACIA interrupted; the previous `$FF` open-bus read set status bit 7, so the
+/// MOS serviced a phantom serial interrupt forever and never cleared the System
+/// VIA's 100 Hz timer — an interrupt storm that starved BASIC before it could
+/// print its `>` prompt.
+struct Mc6850 {
+    /// Control register (interrupt enables + word format + clock divide).
+    control: u8,
+    /// Receive-data-register-full — set when a byte has been received. Never set
+    /// here (no serial source), but tracked so a read clears it faithfully.
+    rx_full: bool,
+}
+
+impl Mc6850 {
+    const RDRF: u8 = 0x01; // receive data register full
+    const TDRE: u8 = 0x02; // transmit data register empty
+    const IRQ: u8 = 0x80; // interrupt request
+
+    fn new() -> Self {
+        Self {
+            control: 0,
+            rx_full: false,
+        }
+    }
+
+    /// Receive interrupt: RDRF set and RX interrupt enabled (control bit 7).
+    fn rx_int(&self) -> bool {
+        self.rx_full && (self.control & 0x80 != 0)
+    }
+
+    /// Transmit interrupt: TDRE set (always, here) and TX-interrupt mode
+    /// selected (control bits 6-5 == 01).
+    fn tx_int(&self) -> bool {
+        (self.control & 0x60) == 0x20
+    }
+
+    fn irq(&self) -> bool {
+        self.rx_int() || self.tx_int()
+    }
+
+    /// Status register: TDRE always set (transmitter idle/ready), RDRF if a byte
+    /// is waiting, IRQ computed from the rx/tx conditions.
+    fn status(&self) -> u8 {
+        let mut s = Self::TDRE;
+        if self.rx_full {
+            s |= Self::RDRF;
+        }
+        if self.irq() {
+            s |= Self::IRQ;
+        }
+        s
+    }
+
+    fn read(&mut self, addr: u16) -> u8 {
+        if addr & 1 == 0 {
+            self.status()
+        } else {
+            // Read receive data — clears RDRF (and the interrupt it caused).
+            self.rx_full = false;
+            0
+        }
+    }
+
+    fn write(&mut self, addr: u16, value: u8) {
+        if addr & 1 == 0 {
+            // Control register. Master reset (bits 0-1 = 11) just re-idles the
+            // chip; with no serial line there is nothing else to reset.
+            self.control = value;
+        }
+        // Transmit-data write (odd) completes instantly with nothing connected,
+        // so TDRE stays set — nothing to model.
+    }
+}
+
 /// BBC Micro Model B machine.
 pub struct BbcMicro {
     cpu: M6502,
@@ -340,6 +422,8 @@ pub struct BbcMicro {
     fire: [bool; 2],
     /// μPD7002 ADC — the analogue joystick X/Y axes (`$FEC0-$FEDF`).
     adc: Upd7002,
+    /// 6850 ACIA — cassette / RS423 serial at `$FE08`/`$FE09`.
+    acia: Mc6850,
 }
 
 impl BbcMicro {
@@ -370,6 +454,7 @@ impl BbcMicro {
             frame_count: 0,
             fire: [false; 2],
             adc: Upd7002::new(),
+            acia: Mc6850::new(),
         }
     }
 
@@ -473,7 +558,7 @@ impl BbcMicro {
                 self.system_via.set_cb1_level(false);
             }
         }
-        self.cpu.irq = self.system_via.irq || self.user_via.irq;
+        self.cpu.irq = self.system_via.irq || self.user_via.irq || self.acia.irq();
         self.master_ticks += cost;
         self.cpu_cycles += 1;
     }
@@ -539,6 +624,7 @@ impl BbcMicro {
             0xFE40..=0xFE4F => self.system_via.read((addr & 0x0F) as u8),
             0xFE60..=0xFE6F => self.user_via.read((addr & 0x0F) as u8),
             0xFEC0..=0xFEDF => self.adc.read((addr & 0x03) as u8),
+            0xFE08..=0xFE0F => self.acia.read(addr),
             0xFC00..=0xFEFF => 0xFF,
             0xC000..=0xFFFF => self
                 .mos_rom
@@ -555,6 +641,7 @@ impl BbcMicro {
             0xFE00..=0xFE07 if addr & 1 == 1 => self.crtc.write_data(value),
             0xFE20 => self.video_ula.write_control(value),
             0xFE21 => self.video_ula.write_palette(value),
+            0xFE08..=0xFE0F => self.acia.write(addr, value),
             0xFE30 => self.rom_bank = value & 0x0F,
             0xFE40..=0xFE4F => {
                 let reg = (addr & 0x0F) as u8;
@@ -1069,5 +1156,29 @@ mod tests {
         sys.mem_write(0xFE40, 0b0000_0000);
         // PSG sweep / mute behaviour is verified inside ti-sn76489;
         // here we just confirm the write path didn't panic.
+    }
+
+    #[test]
+    fn acia_idle_does_not_signal_an_interrupt() {
+        // The MOS IRQ handler reads $FE08 to decide whether the 6850 ACIA
+        // interrupted. An idle ACIA must report TDRE set and the interrupt bit
+        // ($80) CLEAR — the old open-bus $FF read set bit 7 and the MOS serviced
+        // a phantom serial interrupt forever, never clearing the System VIA
+        // timer (the storm that kept BASIC from printing `>`).
+        let mut sys = BbcMicro::new(trap_rom());
+        let status = sys.mem_read(0xFE08);
+        assert_eq!(status & 0x80, 0, "idle ACIA must not assert IRQ (bit 7)");
+        assert_eq!(
+            status & 0x02,
+            0x02,
+            "idle ACIA reports TDRE (ready to send)"
+        );
+        assert!(!sys.acia.irq(), "idle ACIA drives no CPU interrupt");
+
+        // Faithful detail: enabling the transmit interrupt (control bits 6-5 =
+        // 01) does make TDRE assert the interrupt, matching b-em.
+        sys.mem_write(0xFE08, 0x20);
+        assert!(sys.acia.irq(), "TX-interrupt mode + TDRE asserts IRQ");
+        assert_eq!(sys.mem_read(0xFE08) & 0x80, 0x80, "and shows in the status");
     }
 }
