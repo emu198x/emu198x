@@ -1212,6 +1212,7 @@ name = "emu198x-tatung-einstein"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-ui",
  "machine-tatung-einstein",
  "png",
  "runtime-tatung-einstein",
