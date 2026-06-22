@@ -1095,6 +1095,7 @@ name = "emu198x-oric-atmos"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-ui",
  "machine-oric-atmos",
  "png",
  "runtime-oric-atmos",
