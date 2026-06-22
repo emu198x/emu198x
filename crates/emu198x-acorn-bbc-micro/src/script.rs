@@ -9,7 +9,9 @@ use emu198x_shell::{HeadlessScript, HeadlessSession, MediaSet, ScriptObservation
 use runtime_acorn_bbc_micro::{BbcMicroRuntime, BbcMicroSessionQueryProvider, Model};
 use serde_json::json;
 
-const FRAME_TICKS_PAL: u64 = 2_000_000 / 50;
+// Keep <= the machine's run_frame() size, or the harness runs two machine
+// frames per displayed frame (~2x too fast). See docs/status/ui-boot-verification.
+const FRAME_TICKS_PAL: u64 = 39_936;
 const MOS_SIZE: usize = 16 * 1024;
 
 const USAGE: &str = "\

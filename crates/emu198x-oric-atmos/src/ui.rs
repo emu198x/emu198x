@@ -23,7 +23,9 @@ use runtime_oric_atmos::{Model, OricRuntime};
 const DEFAULT_SCALE: u32 = 3;
 /// 6502 @ 1 MHz, 50 Hz PAL → 20,000 cycles/frame, matching the headless
 /// runner's `FRAME_TICKS`.
-const FRAME_TICKS: u64 = 20_000;
+// Keep <= the machine's run_frame() size, or the harness runs two machine
+// frames per displayed frame (~2x too fast). See docs/status/ui-boot-verification.
+const FRAME_TICKS: u64 = 19_968;
 const PAL_FRAME_HZ: f64 = 50.0;
 const ROM_SIZE: usize = 16 * 1024;
 

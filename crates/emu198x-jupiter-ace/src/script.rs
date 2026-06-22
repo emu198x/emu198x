@@ -10,7 +10,9 @@ use runtime_jupiter_ace::{JupiterAceRuntime, JupiterAceSessionQueryProvider, Mod
 use serde_json::json;
 
 // Z80 @ 3.25 MHz, ~50 Hz PAL → ~65,000 t-states/frame.
-const FRAME_TICKS: u64 = 65_000;
+// Keep <= the machine's run_frame() size, or the harness runs two machine
+// frames per displayed frame (~2x too fast). See docs/status/ui-boot-verification.
+const FRAME_TICKS: u64 = 64_584;
 
 const USAGE: &str = "\
 Usage: emu198x-jupiter-ace [OPTIONS]

@@ -9,7 +9,9 @@ use emu198x_shell::{HeadlessScript, HeadlessSession, MediaSet, ScriptObservation
 use runtime_oric_atmos::{Model, OricRuntime, OricSessionQueryProvider};
 use serde_json::json;
 
-const FRAME_TICKS: u64 = 20_000;
+// Keep <= the machine's run_frame() size, or the harness runs two machine
+// frames per displayed frame (~2x too fast). See docs/status/ui-boot-verification.
+const FRAME_TICKS: u64 = 19_968;
 
 const USAGE: &str = "\
 Usage: emu198x-oric-atmos [OPTIONS]
