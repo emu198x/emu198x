@@ -52,10 +52,11 @@ ZX81 — see `crates/emu198x-sinclair-zx81/src/ui.rs` as the template):
 4. Verify: `cargo build -p <crate> --features ui` and `--no-default-features`;
    `cargo test -p <crate> --features ui`; `cargo clippy --all-targets --features
    ui -- -D warnings`; smoke-launch the window if a ROM is staged.
-5. Commit `feat(<sys>): add … first native UI (#460)`, push, PR, **let CI
-   register (~30 s) then `gh pr checks --watch` then `gh pr merge --merge
-   --delete-branch`**. NB: `--auto` and an immediate `--watch` both merge
-   *before* CI here (no required checks) — sleep first so the watch really waits.
+5. Commit `feat(<sys>): add … first native UI (#460)`, push, PR, then
+   `gh pr merge <branch> --auto --merge --delete-branch`. `main` requires the 5
+   CI checks (Format, Clippy, Build macos+windows, Coverage; set 2026-06-22), so
+   `--auto` queues and lands only when green. Don't make a path-skipping check
+   required — it would deadlock every merge.
 
 ## Ordered remaining work
 
