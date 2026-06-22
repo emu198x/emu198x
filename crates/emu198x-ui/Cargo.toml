@@ -12,5 +12,12 @@ emu198x-native-video = { path = "../emu198x-native-video", version = "0.2.0" }
 winit = { workspace = true }
 thiserror.workspace = true
 
+# The native menu (muda) is non-Linux only: its 0.19.x line with
+# `default-features = false` drops the GTK backend (which would reopen a
+# Dependabot alert and pull libgtk-3-dev). Linux gets the no-op stub menu in
+# `menu.rs`; the keyboard shortcuts cover every command regardless.
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+muda = { workspace = true }
+
 [lints]
 workspace = true

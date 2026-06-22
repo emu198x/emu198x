@@ -109,11 +109,23 @@ harness itself to grow.
   Gated on a host modifier so it never shadows the machines' bare S/L or
   F1-F10 keys. The menu-driven multi-slot / `.emu198xstate`-with-header file
   dialog (per `native-menu-shell.md` § State) is the later, menu-dependent cut.
-- Still to do, **needs design input**: native menu (#549, `menu.rs` +
-  `AppCommand`, honour `knowledge/decisions/native-menu-shell.md`) — the shell
-  that File/State/View hang off; media UI (#550, `rfd` + `load_media`);
-  mouse/pointer + stateful key-mode toggle (#552, mostly an Amiga/C64 need);
-  live variant switching (#554, `LiveRuntime` trait).
+- **native menu (#549) — ✅ FIRST CUT DONE.** `crates/emu198x-ui/src/menu.rs`
+  lifts the Spectrum `ui/menu.rs` muda pattern into the harness, generalised:
+  one `AppCommand` channel that **both** the menu and the keyboard shortcuts
+  feed (so they never drift — the decision doc's core invariant). Menus: **App**
+  (About/Quit, native `PredefinedMenuItem`), **Machine → Reset** (same
+  `AppCommand::Reset` as F12), **State → Save/Load** (same as the Cmd/Ctrl+S/L
+  chords), **View** (Window Scale 1–4× + Video Filter radios). muda is a
+  non-Linux target dep with a Linux no-op stub (mirrors Spectrum's gating);
+  `init_for_nsapp` runs once in `resumed`; menu events drained in
+  `about_to_wait` → channel → `handle_command` at the frame boundary. **Still
+  deferred** (need per-system contribution or new harness state): File → Open
+  media, Machine → variant switching. Windows menu attachment (`init_for_hwnd`)
+  is a TODO; Linux has no bar (shortcuts cover everything).
+- Still to do, **needs design input**: media UI (#550, `rfd` + `load_media`,
+  becomes the File menu's items); mouse/pointer + stateful key-mode toggle
+  (#552, mostly an Amiga/C64 need); live variant switching (#554, `LiveRuntime`
+  trait → the Machine menu's variant radio).
 
 **D. The remaining bespoke migrations (need the C capabilities):**
 Amiga (#557 — mouse, dual joystick ports, keyboard-joystick toggle, 5 models,
