@@ -20,7 +20,9 @@ use runtime_acorn_bbc_micro::{BbcMicroRuntime, Model};
 
 const DEFAULT_SCALE: u32 = 3;
 /// 6502 @ 2 MHz, 50 Hz → 40,000 cycles/frame, matching the headless runner.
-const FRAME_TICKS_PAL: u64 = 2_000_000 / 50;
+// Keep <= the machine's run_frame() size, or the harness runs two machine
+// frames per displayed frame (~2x too fast). See docs/status/ui-boot-verification.
+const FRAME_TICKS_PAL: u64 = 39_936;
 const PAL_FRAME_HZ: f64 = 50.0;
 const MOS_SIZE: usize = 16 * 1024;
 

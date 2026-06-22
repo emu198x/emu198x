@@ -18,7 +18,9 @@ use runtime_acorn_electron::{ElectronRuntime, Model};
 const DEFAULT_SCALE: u32 = 3;
 /// 6502A @ 2 MHz nominal, 50 Hz → 40,000 cycles/frame, matching the headless
 /// runner's `FRAME_TICKS_PAL`.
-const FRAME_TICKS_PAL: u64 = 40_000;
+// Keep <= the machine's run_frame() size, or the harness runs two machine
+// frames per displayed frame (~2x too fast). See docs/status/ui-boot-verification.
+const FRAME_TICKS_PAL: u64 = 39_936;
 const PAL_FRAME_HZ: f64 = 50.0;
 const ROM_SIZE: usize = 16 * 1024;
 
