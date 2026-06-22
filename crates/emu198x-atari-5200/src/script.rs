@@ -21,7 +21,7 @@ Cartridge (required):
 BIOS (optional):
     --bios PATH                Atari 5200 BIOS ROM (2 KB)
                                default: $EMU198X_A5200_BIOS, then
-                               ~/.emu198x/roms/atari-5200/bios.rom
+                               ~/.emu198x/roms/atari-5200/bios.rom or 5200.rom
 
 Region / timing:
     --region MODE              ntsc | pal [default: ntsc]
@@ -137,13 +137,13 @@ fn default_bios_path() -> Option<PathBuf> {
     {
         return Some(PathBuf::from(p));
     }
-    let home = env::var("HOME").ok()?;
-    let default = PathBuf::from(home).join(".emu198x/roms/atari-5200/bios.rom");
-    if default.exists() {
-        Some(default)
-    } else {
-        None
-    }
+    let dir = PathBuf::from(env::var("HOME").ok()?).join(".emu198x/roms/atari-5200");
+    // The 5200 BIOS ships under either name; return the first that exists so a
+    // conventionally-named `5200.rom` is found.
+    ["bios.rom", "5200.rom"]
+        .into_iter()
+        .map(|name| dir.join(name))
+        .find(|p| p.exists())
 }
 
 /// Headless entry point.
