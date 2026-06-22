@@ -985,6 +985,7 @@ name = "emu198x-commodore-vic-20"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-ui",
  "machine-commodore-vic-20",
  "png",
  "runtime-commodore-vic-20",
