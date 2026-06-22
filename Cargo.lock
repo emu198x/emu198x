@@ -1063,6 +1063,7 @@ name = "emu198x-msx"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-ui",
  "machine-msx",
  "png",
  "runtime-msx",
