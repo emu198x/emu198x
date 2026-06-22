@@ -75,7 +75,7 @@ BBC now boots to `BBC Computer 32K` / `BASIC` / `>`. Found with a PC histogram +
 OS-call trace + per-VIA IFR dump; the b-em reference confirmed the `$80` status
 interrupt-bit semantics.
 
-### Cart-only consoles — verified with TOSEC carts (4 of 5)
+### Cart-only consoles — verified with TOSEC carts (5 of 5)
 
 These runners require `--cart`. Tested against commercial titles from the full
 TOSEC at `/Volumes/Data/Library/ROMs/TOSEC/`:
@@ -93,8 +93,10 @@ TOSEC at `/Volumes/Data/Library/ROMs/TOSEC/`:
   difficulty menu. It was black until the runner's BIOS auto-resolution was
   fixed to find `5200.rom` (it only looked for `bios.rom`, and the optional BIOS
   failed silently → blank). Fixed in both UI + headless (PR #630).
-- **Sord M5 — ⏳ remaining.** Cart-only; cartless shows black (expected). Not yet
-  re-tested with a cart.
+- **Sord M5 — ✅.** Dig Dug (1982)(Namco) and Mappy (1983)(Namco) reach their
+  title screens (`© NAMCO`). No code change needed — the M5 boots its monitor
+  ROM first and only hands off to the cart after ~1,000 frames, so it reads as
+  black at the 300-frame sweep default but is fine given time.
 
 Reference now vendored: Genesis Plus GX (`emulators/multi-system/genesis-plus-gx/`),
 covering SMS, SG-1000 and Game Gear.
@@ -108,7 +110,9 @@ covering SMS, SG-1000 and Game Gear.
   boots). Remaining: investigate why the Rachel SMS *build* renders black.
 - ~~Stage carts for SG-1000 / 5200 / 7800 and re-run~~ — **done, all boot**
   (5200 needed the BIOS-resolution fix, PR #630).
-- Re-test **Sord M5** with a cart (the only cart-only console not yet verified).
+- ~~Re-test Sord M5 with a cart~~ — **done** (Dig Dug + Mappy boot).
 
-Every list-A/B system is now confirmed booting except the Sord M5 (untested with
-a cart). All render/timing/boot faults the sweep surfaced are fixed.
+**Every list-A/B system is confirmed booting**, and all render/timing/boot faults
+the sweep surfaced are fixed. The boot-verification sweep is complete; the only
+non-emulator follow-up is the Rachel SMS *build* (renders black on a verified-good
+SMS core — investigate the image, not the emulator).
