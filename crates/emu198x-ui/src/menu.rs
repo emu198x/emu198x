@@ -20,10 +20,12 @@
 
 #![cfg_attr(target_os = "linux", allow(dead_code))]
 
+use std::borrow::Cow;
 #[cfg(not(target_os = "linux"))]
 use std::collections::HashMap;
 
 use emu198x_native_video::VideoFilter;
+use emu198x_shell::{MediaKind, MediaSlot};
 #[cfg(not(target_os = "linux"))]
 use muda::{AboutMetadata, CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 
@@ -36,7 +38,7 @@ pub const FILTER_OPTIONS: &[VideoFilter] = &[VideoFilter::Raw, VideoFilter::Lcd,
 /// Commands the App processes at frame boundaries. Pushed by both menu clicks
 /// and keyboard shortcuts, so the two converge on one handler. Defined on every
 /// platform (the Linux stub menu emits none, but the shortcut path still does).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AppCommand {
     /// Hard-reset the machine (menu Machine → Reset, or the F12 shortcut).
     Reset,
@@ -48,6 +50,12 @@ pub enum AppCommand {
     SetScale(u32),
     /// Switch the post-framebuffer video filter.
     SetFilter(VideoFilter),
+    /// Open a file dialog and load the chosen image into the named media slot
+    /// (menu File → Open …). The slot/kind come from the machine's profile.
+    OpenMedia {
+        slot: Cow<'static, str>,
+        kind: MediaKind,
+    },
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -76,8 +84,14 @@ pub struct AppMenu {
 #[cfg(not(target_os = "linux"))]
 impl AppMenu {
     /// Build the menu bar for a window titled `title`, with `current_scale` /
-    /// `current_filter` initially checked in the View radios.
-    pub fn new(title: &str, current_scale: u32, current_filter: VideoFilter) -> Self {
+    /// `current_filter` initially checked in the View radios. A File menu is
+    /// added with one "Open …" item per media slot the machine declares.
+    pub fn new(
+        title: &str,
+        current_scale: u32,
+        current_filter: VideoFilter,
+        media_slots: &[MediaSlot],
+    ) -> Self {
         let root = Menu::new();
         let mut action_map = HashMap::new();
 
@@ -98,6 +112,25 @@ impl AppMenu {
                 &PredefinedMenuItem::quit(None),
             ])
             .expect("append app menu");
+
+        // File → one "Open …" per declared media slot. Built from the machine's
+        // profile, so a tapeless console gets no File menu and a disk machine
+        // gets the right slots — no per-system code.
+        let file_menu = (!media_slots.is_empty()).then(|| {
+            let file_menu = Submenu::new("File", true);
+            for slot in media_slots {
+                let item = MenuItem::new(format!("Open {}…", slot.display_name), true, None);
+                action_map.insert(
+                    item.id().clone(),
+                    AppCommand::OpenMedia {
+                        slot: slot.id.clone(),
+                        kind: slot.kind,
+                    },
+                );
+                file_menu.append(&item).expect("append file item");
+            }
+            file_menu
+        });
 
         // Machine → Reset.
         let machine_menu = Submenu::new("Machine", true);
@@ -142,6 +175,9 @@ impl AppMenu {
         }
 
         root.append(&app_menu).expect("append app submenu");
+        if let Some(file_menu) = &file_menu {
+            root.append(file_menu).expect("append file submenu");
+        }
         root.append(&machine_menu).expect("append machine submenu");
         root.append(&state_menu).expect("append state submenu");
         root.append(&view_menu).expect("append view submenu");
@@ -156,7 +192,7 @@ impl AppMenu {
 
     /// Look up the command a menu-event id maps to, if any.
     pub fn command_for(&self, id: &MenuId) -> Option<AppCommand> {
-        self.action_map.get(id).copied()
+        self.action_map.get(id).cloned()
     }
 
     /// Attach the menu to the process. macOS only for now; other platforms get
@@ -195,7 +231,12 @@ pub struct AppMenu;
 
 #[cfg(target_os = "linux")]
 impl AppMenu {
-    pub fn new(_title: &str, _current_scale: u32, _current_filter: VideoFilter) -> Self {
+    pub fn new(
+        _title: &str,
+        _current_scale: u32,
+        _current_filter: VideoFilter,
+        _media_slots: &[MediaSlot],
+    ) -> Self {
         Self
     }
 

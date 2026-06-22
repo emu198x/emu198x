@@ -6,11 +6,12 @@
 //! runner supplies a small [`UiSystem`] descriptor (its runtime, framebuffer
 //! size, frame timing, button map, and key map) and calls [`run`] to get a
 //! native window with `raw`/`lcd`/`crt` video filters, framed audio, gamepad
-//! input, Esc-quit / F12-reset, and Cmd/Ctrl+S / +L quick save-states.
+//! input, Esc-quit / F12-reset, Cmd/Ctrl+S / +L quick save-states, and a native
+//! menu bar (App / File / Machine / State / View; see [`menu`]).
 //!
-//! Still a first cut: no native menu or media UI yet (those land as the
-//! existing runners migrate onto the harness), and save-states are a single
-//! quick-slot per machine rather than the menu-driven multi-slot UI to come.
+//! The File menu's media open is built from each machine's declared media
+//! slots, so it needs no per-system code. Still to come for the menu: machine
+//! variant switching (a live-runtime trait) and multi-slot save-states.
 
 mod menu;
 mod overlay;
@@ -26,8 +27,8 @@ use menu::{AppCommand, AppMenu};
 use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
 use emu198x_shell::{
     CapturedFrame, HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError, MachineTime,
-    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, PixelFormat, ResetKind,
-    RunResult,
+    MediaImage, MediaKind, MediaSet, NativeAudioError, NativeAudioOutput, NativeGamepadInput,
+    NullTraceSink, PixelFormat, ResetKind, RunResult, read_media_asset,
 };
 use thiserror::Error;
 use winit::application::ApplicationHandler;
@@ -241,7 +242,12 @@ impl<S: UiSystem> App<S> {
         // aspect and the cropped framebuffer size once the window opens (see
         // `create_window`); square pixels until then.
         let presentation = PresentationProfile::for_filter(video);
-        let app_menu = AppMenu::new(&system.window_title(), scale, video);
+        let app_menu = AppMenu::new(
+            &system.window_title(),
+            scale,
+            video,
+            &runner.runtime.profile().media_slots,
+        );
         let (command_tx, command_rx) = channel();
         Self {
             system,
@@ -627,7 +633,55 @@ impl<S: UiSystem> App<S> {
             }
             AppCommand::SetScale(scale) => self.set_window_scale(scale),
             AppCommand::SetFilter(filter) => self.set_video_filter(filter),
+            AppCommand::OpenMedia { slot, kind } => {
+                if let Err(err) = self.open_media(&slot, kind) {
+                    self.fail(event_loop, err);
+                }
+            }
         }
+    }
+
+    /// File → Open: pop a native file picker filtered to the slot's media kind,
+    /// load the chosen image into the named slot via [`MachineCore::load_media`],
+    /// and refresh the picture. A cancelled dialog, an unreadable file, or a
+    /// rejected load is reported and ignored; only a genuine emulation error
+    /// from the refresh frame propagates. The dialog blocks the loop while open
+    /// — fine, since it's user-initiated and the machine simply pauses.
+    fn open_media(&mut self, slot: &str, kind: MediaKind) -> Result<(), UiError> {
+        let (label, extensions) = media_filter(kind);
+        let Some(path) = rfd::FileDialog::new()
+            .set_title(format!("Open {label}"))
+            .add_filter(label, extensions)
+            .add_filter("All files", &["*"])
+            .pick_file()
+        else {
+            return Ok(()); // user cancelled
+        };
+        let loaded = match read_media_asset(&path, kind) {
+            Ok(loaded) => loaded,
+            Err(err) => {
+                eprintln!("media: cannot read {}: {err}", path.display());
+                return Ok(());
+            }
+        };
+        let mut set = MediaSet::new();
+        set.push(MediaImage::new(slot.to_owned(), kind, &loaded.bytes));
+        if let Err(err) = self.runner.runtime.load_media(&set) {
+            eprintln!("media: {} rejected by the machine: {err}", path.display());
+            return Ok(());
+        }
+        // Fresh capture/audio, then one frame so the inserted media shows. Some
+        // cartridge machines need a Reset (Machine → Reset) to pick it up.
+        self.release_all_keys();
+        self.runner.frame_capture = LatestFrameCapture::default();
+        self.runner.audio_output.clear();
+        self.runner.last_run_result = None;
+        self.runner.run_ticks(&[], self.full_frame_ticks)?;
+        println!("media: loaded {} into slot \"{slot}\"", path.display());
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+        Ok(())
     }
 
     /// Resize the window to an integer multiple of the native frame. The wgpu
@@ -772,6 +826,31 @@ fn state_chord_action(
     }
 }
 
+/// File-dialog filter (label + extensions) for a media kind. Extensions are a
+/// generous superset across the family's machines; `MediaKind` is
+/// `#[non_exhaustive]`, so an unknown kind falls back to no extension filter.
+fn media_filter(kind: MediaKind) -> (&'static str, &'static [&'static str]) {
+    match kind {
+        MediaKind::Tape => ("Tape images", &["tap", "tzx", "cas", "t64", "tsx", "cdt"]),
+        MediaKind::Disk => (
+            "Disk images",
+            &[
+                "dsk", "adf", "d64", "trd", "img", "scl", "fdi", "do", "po", "st",
+            ],
+        ),
+        MediaKind::Cartridge => (
+            "Cartridge ROMs",
+            &[
+                "bin", "rom", "a26", "a52", "a78", "col", "sg", "nes", "crt", "car", "cart",
+            ],
+        ),
+        MediaKind::Optical => ("Disc images", &["iso", "cue", "chd"]),
+        MediaKind::Snapshot => ("Snapshots", &["sna", "z80", "szx", "sav", "vsf"]),
+        MediaKind::Program => ("Programs", &["prg", "bas", "p", "o", "com"]),
+        _ => ("Files", &[]),
+    }
+}
+
 /// The slot file name for a profile id: the id with any character that isn't
 /// ASCII-alphanumeric, `-`, or `_` replaced by `-`, plus a `.state` extension.
 /// Keeps the per-profile slot on a single predictable, filesystem-safe path.
@@ -870,6 +949,14 @@ mod tests {
         assert_eq!(slot_file_name("a/b"), "a-b.state");
         assert_eq!(slot_file_name("../evil"), "---evil.state");
         assert_eq!(slot_file_name("space here.v2"), "space-here-v2.state");
+    }
+
+    #[test]
+    fn media_filter_maps_kinds_to_extensions() {
+        assert_eq!(media_filter(MediaKind::Tape).0, "Tape images");
+        assert!(media_filter(MediaKind::Disk).1.contains(&"dsk"));
+        assert!(media_filter(MediaKind::Cartridge).1.contains(&"bin"));
+        assert!(media_filter(MediaKind::Snapshot).1.contains(&"sna"));
     }
 
     #[test]

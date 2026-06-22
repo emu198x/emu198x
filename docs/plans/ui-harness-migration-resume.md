@@ -119,11 +119,20 @@ harness itself to grow.
   non-Linux target dep with a Linux no-op stub (mirrors Spectrum's gating);
   `init_for_nsapp` runs once in `resumed`; menu events drained in
   `about_to_wait` → channel → `handle_command` at the frame boundary. **Still
-  deferred** (need per-system contribution or new harness state): File → Open
-  media, Machine → variant switching. Windows menu attachment (`init_for_hwnd`)
-  is a TODO; Linux has no bar (shortcuts cover everything).
-- Still to do, **needs design input**: media UI (#550, `rfd` + `load_media`,
-  becomes the File menu's items); mouse/pointer + stateful key-mode toggle
+  deferred** at that point: File → Open media (now done, below), Machine →
+  variant switching. Windows menu attachment (`init_for_hwnd`) is a TODO; Linux
+  has no bar (shortcuts cover everything).
+- **media UI (#550) — ✅ DONE.** The File menu's **Open …** items are built
+  generically from each machine's `profile().media_slots` — one item per slot,
+  filtered by the slot's `MediaKind` — so a tapeless console gets no File menu
+  and a disk machine gets the right slots, with **no per-system code**. A click
+  emits `AppCommand::OpenMedia { slot, kind }`; the handler opens an `rfd` file
+  picker, reads the image via `read_media_asset` (zip-aware), and inserts it
+  with the generic `MachineCore::load_media`. `rfd` builds cross-platform
+  (xdg-portal on Linux, no GTK) so it isn't target-gated, though the items are
+  only reachable where the menu exists (macOS today). Some cartridge machines
+  need a follow-up Machine → Reset to pick the new image up.
+- Still to do, **needs design input**: mouse/pointer + stateful key-mode toggle
   (#552, mostly an Amiga/C64 need); live variant switching (#554, `LiveRuntime`
   trait → the Machine menu's variant radio).
 
