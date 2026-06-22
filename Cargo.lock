@@ -1025,6 +1025,7 @@ name = "emu198x-jupiter-ace"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-ui",
  "machine-jupiter-ace",
  "png",
  "runtime-jupiter-ace",
