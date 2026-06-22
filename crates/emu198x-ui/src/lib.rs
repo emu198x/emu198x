@@ -94,6 +94,22 @@ pub trait UiSystem {
         Ok(())
     }
 
+    /// Hook for per-system key shortcuts beyond the harness's Esc/F12 — e.g.
+    /// audio-channel debug toggles. Called on key-down and key-up for any key
+    /// the harness doesn't itself own, *before* it's treated as a controller
+    /// button; return `true` to consume it (so it isn't also routed through the
+    /// button map). Default: owns no extra keys.
+    fn handle_key(&mut self, _runtime: &mut Self::Runtime, _code: KeyCode, _pressed: bool) -> bool {
+        false
+    }
+
+    /// Hook run once when the session ends (window closed or fatal error), for
+    /// teardown such as flushing battery-backed RAM to disk. An `Err` becomes a
+    /// [`UiError::Teardown`]. Default: nothing.
+    fn on_exit(&mut self, _runtime: &mut Self::Runtime) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Optional human-readable status when the machine has wedged — e.g. the
     /// CPU executed a JAM/stop-code (usually a bad ROM dump). Returned every
     /// frame; the harness logs it once and appends it to the window title so a
@@ -119,6 +135,8 @@ pub enum UiError {
     Audio(#[from] NativeAudioError),
     #[error("invalid --scale value {value}")]
     InvalidScale { value: u32 },
+    #[error("teardown failed: {0}")]
+    Teardown(String),
 }
 
 /// Drives a [`MachineCore`] runtime a frame (or sub-frame) at a time, capturing
@@ -385,28 +403,31 @@ impl<S: UiSystem> App<S> {
         Ok(())
     }
 
-    /// Returns `true` if the key was consumed as a UI shortcut.
+    /// Returns `true` if the key was consumed as a UI shortcut (harness Esc/F12
+    /// or a per-system [`UiSystem::handle_key`] shortcut), so it isn't also
+    /// routed through the button map.
     fn handle_shortcut(
         &mut self,
         event_loop: &ActiveEventLoop,
         code: KeyCode,
         pressed: bool,
     ) -> bool {
-        if !pressed {
-            return matches!(code, KeyCode::Escape | KeyCode::F12);
-        }
         match code {
             KeyCode::Escape => {
-                event_loop.exit();
+                if pressed {
+                    event_loop.exit();
+                }
                 true
             }
             KeyCode::F12 => {
-                if let Err(err) = self.reset_machine() {
+                if pressed && let Err(err) = self.reset_machine() {
                     self.fail(event_loop, err);
                 }
                 true
             }
-            _ => false,
+            _ => self
+                .system
+                .handle_key(&mut self.runner.runtime, code, pressed),
         }
     }
 }
@@ -503,6 +524,13 @@ pub fn run<S: UiSystem>(
     let mut app = App::new(system, runner, scale, video);
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
+
+    // Teardown (e.g. flush battery RAM) runs whether the session ended cleanly
+    // or via a fatal error, so a crash still persists state — matching the
+    // bespoke runners' on-exit behaviour.
+    app.system
+        .on_exit(&mut app.runner.runtime)
+        .map_err(UiError::Teardown)?;
 
     if let Some(err) = app.take_error() {
         return Err(err);
