@@ -75,22 +75,29 @@ BBC now boots to `BBC Computer 32K` / `BASIC` / `>`. Found with a PC histogram +
 OS-call trace + per-VIA IFR dump; the b-em reference confirmed the `$80` status
 interrupt-bit semantics.
 
-### Needs a cartridge to verify (5)
+### Cart-only consoles — verified with TOSEC carts (4 of 5)
 
-These runners require `--cart` and can't boot to anything cartless:
+These runners require `--cart`. Tested against commercial titles from the full
+TOSEC at `/Volumes/Data/Library/ROMs/TOSEC/`:
 
-- **Sega Master System — ✅ core verified working.** With a commercial cart
-  (Alex Kidd in Miracle World, US, from the full TOSEC at
-  `/Volumes/Data/Library/ROMs/TOSEC/Sega/Mark III & Master System/`) the SMS
-  boots straight to its title screen — VDP, mapper, and Z80 all good. So the
-  earlier **black** screen with `rachel.sms` is the **Rachel build**, not the
-  core (relevant to the Rachel cross-platform goal: investigate Rachel's SMS
-  image — mapper/header/entry — not our emulator). Reference now vendored:
-  Genesis Plus GX (`emulators/multi-system/genesis-plus-gx/`).
-- **Sega SG-1000**, **Atari 5200**, **Atari 7800**, **Sord M5** — no test
-  cartridge staged. Cartless the M5 shows black (expected — cart-only); the
-  others won't run without `--cart`. Verification deferred until carts are
-  staged.
+- **Sega Master System — ✅.** Alex Kidd in Miracle World (US) boots straight to
+  its title screen — VDP, mapper, Z80 all good. So the earlier **black** screen
+  with `rachel.sms` is the **Rachel build**, not the core (relevant to the Rachel
+  cross-platform goal: investigate Rachel's SMS image — mapper/header/entry —
+  not our emulator).
+- **Sega SG-1000 — ✅.** Congo Bongo (1983)(Sega) reaches its title screen
+  (`© SEGA 1983`).
+- **Atari 7800 — ✅.** Asteroids (1987)(Atari)(NTSC) reaches its title + starfield
+  (`COPYRIGHT ATARI 1984`); the `.a78` header is parsed.
+- **Atari 5200 — ✅ (after a fix).** Defender (1982)(Atari)(US) boots to its
+  difficulty menu. It was black until the runner's BIOS auto-resolution was
+  fixed to find `5200.rom` (it only looked for `bios.rom`, and the optional BIOS
+  failed silently → blank). Fixed in both UI + headless (PR #630).
+- **Sord M5 — ⏳ remaining.** Cart-only; cartless shows black (expected). Not yet
+  re-tested with a cart.
+
+Reference now vendored: Genesis Plus GX (`emulators/multi-system/genesis-plus-gx/`),
+covering SMS, SG-1000 and Game Gear.
 
 ## Follow-ups
 
@@ -99,8 +106,9 @@ These runners require `--cart` and can't boot to anything cartless:
   interrupt storm from open-bus `$FE08` reads).
 - ~~SMS: stage a commercial cart, retest~~ — **done, core verified** (Alex Kidd
   boots). Remaining: investigate why the Rachel SMS *build* renders black.
-- Stage carts for SG-1000 / 5200 / 7800 / Sord M5 and re-run (the full TOSEC at
-  `/Volumes/Data/Library/ROMs/TOSEC/` has them; Genesis Plus GX covers SG-1000).
+- ~~Stage carts for SG-1000 / 5200 / 7800 and re-run~~ — **done, all boot**
+  (5200 needed the BIOS-resolution fix, PR #630).
+- Re-test **Sord M5** with a cart (the only cart-only console not yet verified).
 
-The 12 confirmed-good systems — plus the BBC (boots BASIC) — need no further boot
-work; the ZX80/81 render is fixed.
+Every list-A/B system is now confirmed booting except the Sord M5 (untested with
+a cart). All render/timing/boot faults the sweep surfaced are fixed.
