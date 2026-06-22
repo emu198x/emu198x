@@ -100,11 +100,20 @@ Commodore PET / VIC-20, Acorn BBC Micro / Electron. The whole category is on the
 harness. Every headless runner now has a first UI; what remains (C/D) needs the
 harness itself to grow.
 
-**C. Harness capability lifts (substantial, lift from Spectrum `ui/`) — NEXT; needs design input:**
-mouse/pointer input + stateful key-mode toggle (#552 remainder), native menu
-(#549, `menu.rs` + `AppCommand`, honour `knowledge/decisions/native-menu-shell.md`),
-media UI (#550), save-states (#551), live variant switching (#554,
-`LiveRuntime` trait).
+**C. Harness capability lifts (substantial, lift from Spectrum `ui/`) — IN PROGRESS:**
+- **save-states (#551) — ✅ DONE.** Quick-slot in the harness: `Cmd/Ctrl+S`
+  quick-save, `Cmd/Ctrl+L` quick-load, one file per machine
+  (`<profile_id>.state`) under `$EMU198X_STATE_DIR` or `~/.emu198x/state`. Leans
+  entirely on the existing `MachineCore::snapshot()`/`restore()` (already in 30
+  runtimes) + `profile()`, so **every** system got it with no per-system code.
+  Gated on a host modifier so it never shadows the machines' bare S/L or
+  F1-F10 keys. The menu-driven multi-slot / `.emu198xstate`-with-header file
+  dialog (per `native-menu-shell.md` § State) is the later, menu-dependent cut.
+- Still to do, **needs design input**: native menu (#549, `menu.rs` +
+  `AppCommand`, honour `knowledge/decisions/native-menu-shell.md`) — the shell
+  that File/State/View hang off; media UI (#550, `rfd` + `load_media`);
+  mouse/pointer + stateful key-mode toggle (#552, mostly an Amiga/C64 need);
+  live variant switching (#554, `LiveRuntime` trait).
 
 **D. The remaining bespoke migrations (need the C capabilities):**
 Amiga (#557 — mouse, dual joystick ports, keyboard-joystick toggle, 5 models,

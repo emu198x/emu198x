@@ -6,14 +6,16 @@
 //! runner supplies a small [`UiSystem`] descriptor (its runtime, framebuffer
 //! size, frame timing, button map, and key map) and calls [`run`] to get a
 //! native window with `raw`/`lcd`/`crt` video filters, framed audio, gamepad
-//! input, and Esc-quit / F12-reset.
+//! input, Esc-quit / F12-reset, and Cmd/Ctrl+S / +L quick save-states.
 //!
-//! This is the minimal first cut (no native menu, media UI, or save-state
-//! dialogs yet); those land as the existing runners migrate onto the harness.
+//! Still a first cut: no native menu or media UI yet (those land as the
+//! existing runners migrate onto the harness), and save-states are a single
+//! quick-slot per machine rather than the menu-driven multi-slot UI to come.
 
 mod overlay;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -29,7 +31,7 @@ use winit::dpi::LogicalSize;
 use winit::error::{EventLoopError, OsError};
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::PhysicalKey;
+use winit::keyboard::{ModifiersState, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
 // Re-exported so a `UiSystem` impl can describe itself without depending on
@@ -204,6 +206,9 @@ struct App<S: UiSystem> {
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, HostControl>,
     pressed_key_names: HashMap<KeyCode, &'static [&'static str]>,
+    /// Held modifier keys, tracked so the save/load chords (Cmd/Ctrl+S / +L)
+    /// can be distinguished from the bare keys the machine keyboard uses.
+    modifiers: ModifiersState,
     gamepads: NativeGamepadInput,
     window: Option<Arc<Window>>,
     video: Option<WgpuVideoPresenter>,
@@ -235,6 +240,7 @@ impl<S: UiSystem> App<S> {
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
             pressed_key_names: HashMap::new(),
+            modifiers: ModifiersState::empty(),
             gamepads: NativeGamepadInput::new(),
             window: None,
             video: None,
@@ -451,15 +457,108 @@ impl<S: UiSystem> App<S> {
         Ok(())
     }
 
-    /// Returns `true` if the key was consumed as a UI shortcut (harness Esc/F12
-    /// or a per-system [`UiSystem::handle_key`] shortcut), so it isn't also
-    /// routed through the button map.
+    /// The quick-save slot file for the running machine: one file per concrete
+    /// profile (`<profile_id>.state`) under the state directory, so e.g. the
+    /// NTSC and PAL variants of a console don't share a slot. `None` if no
+    /// state directory can be resolved.
+    fn state_slot_path(&self) -> Option<PathBuf> {
+        let root = state_root()?;
+        let id = self.runner.runtime.profile().profile_id.as_str();
+        Some(root.join(slot_file_name(id)))
+    }
+
+    /// Quick-save: serialise the runtime via [`MachineCore::snapshot`] and write
+    /// it to the machine's slot file. Failures (a runtime that can't snapshot,
+    /// or an I/O error) are reported and otherwise ignored — a missing
+    /// save-state must never take the window down.
+    fn quick_save(&mut self) {
+        let bytes = match self.runner.runtime.snapshot() {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                eprintln!("save-state: this machine can't snapshot yet: {err}");
+                return;
+            }
+        };
+        let Some(path) = self.state_slot_path() else {
+            eprintln!("save-state: no state directory (set EMU198X_STATE_DIR or HOME)");
+            return;
+        };
+        if let Some(parent) = path.parent()
+            && let Err(err) = std::fs::create_dir_all(parent)
+        {
+            eprintln!("save-state: cannot create {}: {err}", parent.display());
+            return;
+        }
+        match std::fs::write(&path, &bytes) {
+            Ok(()) => println!(
+                "save-state: wrote {} ({} bytes)",
+                path.display(),
+                bytes.len()
+            ),
+            Err(err) => eprintln!("save-state: cannot write {}: {err}", path.display()),
+        }
+    }
+
+    /// Quick-load: read the machine's slot file and restore it via
+    /// [`MachineCore::restore`], then refresh the picture. A missing slot or a
+    /// rejected restore is reported, not fatal; only a genuine emulation error
+    /// from running the refresh frame propagates.
+    fn quick_load(&mut self) -> Result<(), UiError> {
+        let Some(path) = self.state_slot_path() else {
+            eprintln!("load-state: no state directory (set EMU198X_STATE_DIR or HOME)");
+            return Ok(());
+        };
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                eprintln!("load-state: no saved state at {} ({err})", path.display());
+                return Ok(());
+            }
+        };
+        if let Err(err) = self.runner.runtime.restore(&bytes) {
+            eprintln!(
+                "load-state: {} could not be restored: {err}",
+                path.display()
+            );
+            return Ok(());
+        }
+        // Drop held keys and stale capture/audio, then run one frame so the
+        // restored picture is on screen immediately.
+        self.release_all_keys();
+        self.runner.frame_capture = LatestFrameCapture::default();
+        self.runner.audio_output.clear();
+        self.runner.last_run_result = None;
+        self.runner.run_ticks(&[], self.full_frame_ticks)?;
+        println!("load-state: restored {}", path.display());
+        Ok(())
+    }
+
+    /// Returns `true` if the key was consumed as a UI shortcut (harness Esc/F12,
+    /// the Cmd/Ctrl+S / +L save-state chords, or a per-system
+    /// [`UiSystem::handle_key`] shortcut), so it isn't also routed to the
+    /// machine.
     fn handle_shortcut(
         &mut self,
         event_loop: &ActiveEventLoop,
         code: KeyCode,
         pressed: bool,
     ) -> bool {
+        // Save-state chords. Gated on a host modifier (Cmd on macOS, Ctrl
+        // elsewhere) so they never shadow the bare S / L keys the machine
+        // keyboard uses, nor the F1-F10 function keys the home computers map.
+        match state_chord_action(self.modifiers, code, pressed) {
+            Some(StateAction::Save) => {
+                self.quick_save();
+                return true;
+            }
+            Some(StateAction::Load) => {
+                if let Err(err) = self.quick_load() {
+                    self.fail(event_loop, err);
+                }
+                return true;
+            }
+            None => {}
+        }
         match code {
             KeyCode::Escape => {
                 if pressed {
@@ -498,7 +597,11 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
         }
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Focused(false) => self.release_all_keys(),
+            WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
+            WindowEvent::Focused(false) => {
+                self.modifiers = ModifiersState::empty();
+                self.release_all_keys();
+            }
             WindowEvent::Resized(size) => self.resize_surface(size.width, size.height),
             WindowEvent::ScaleFactorChanged { .. } => {
                 if let Some(window) = &self.window {
@@ -546,6 +649,65 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
     }
 }
 
+/// A save-state action a key event maps to, once the modifier gating is
+/// applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StateAction {
+    Save,
+    Load,
+}
+
+/// Decide whether a key event is a save-state chord. The chord fires only on
+/// key-*down* with Cmd (macOS) or Ctrl (elsewhere) held — never on a bare key,
+/// so the machine keyboard keeps its S / L and F-keys, and never on release.
+fn state_chord_action(
+    modifiers: ModifiersState,
+    code: KeyCode,
+    pressed: bool,
+) -> Option<StateAction> {
+    if !pressed || !(modifiers.super_key() || modifiers.control_key()) {
+        return None;
+    }
+    match code {
+        KeyCode::KeyS => Some(StateAction::Save),
+        KeyCode::KeyL => Some(StateAction::Load),
+        _ => None,
+    }
+}
+
+/// The slot file name for a profile id: the id with any character that isn't
+/// ASCII-alphanumeric, `-`, or `_` replaced by `-`, plus a `.state` extension.
+/// Keeps the per-profile slot on a single predictable, filesystem-safe path.
+fn slot_file_name(profile_id: &str) -> String {
+    let mut name: String = profile_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    name.push_str(".state");
+    name
+}
+
+/// Directory the quick-save slots live in: `$EMU198X_STATE_DIR` if set,
+/// otherwise `<home>/.emu198x/state`. `None` when neither the override nor a
+/// home directory can be resolved (in which case save-states are unavailable).
+fn state_root() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("EMU198X_STATE_DIR")
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir));
+    }
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|h| !h.is_empty())?;
+    Some(PathBuf::from(home).join(".emu198x/state"))
+}
+
 /// Open a native window for `system` driving `runtime`, and run the winit
 /// event loop until the window closes or a fatal error surfaces.
 ///
@@ -565,6 +727,9 @@ pub fn run<S: UiSystem>(
     if scale == 0 {
         return Err(UiError::InvalidScale { value: scale });
     }
+    // Harness-global controls every system shares, printed once so each runner's
+    // own per-machine controls line doesn't have to repeat them.
+    println!("Save-state: Cmd/Ctrl+S quick-save, Cmd/Ctrl+L quick-load (one slot per machine).");
     let mut runner = Runner::new(runtime)?;
     let frame_ticks = system.frame_ticks(&runner.runtime);
     runner.run_ticks(&[], frame_ticks)?;
@@ -586,4 +751,54 @@ pub fn run<S: UiSystem>(
     }
     teardown.map_err(UiError::Teardown)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slot_file_name_keeps_safe_chars_and_adds_extension() {
+        assert_eq!(
+            slot_file_name("sega-master-system-ntsc"),
+            "sega-master-system-ntsc.state"
+        );
+        assert_eq!(slot_file_name("zx_spectrum_48k"), "zx_spectrum_48k.state");
+    }
+
+    #[test]
+    fn slot_file_name_sanitises_path_and_other_separators() {
+        // Anything outside [A-Za-z0-9_-] becomes '-', so the slot can never
+        // escape the state directory or collide with path syntax.
+        assert_eq!(slot_file_name("a/b"), "a-b.state");
+        assert_eq!(slot_file_name("../evil"), "---evil.state");
+        assert_eq!(slot_file_name("space here.v2"), "space-here-v2.state");
+    }
+
+    #[test]
+    fn save_state_chord_requires_a_modifier_and_fires_on_press_only() {
+        let ctrl = ModifiersState::CONTROL;
+        let cmd = ModifiersState::SUPER;
+        let none = ModifiersState::empty();
+
+        // Cmd/Ctrl + S/L on key-down → the matching action.
+        assert_eq!(
+            state_chord_action(ctrl, KeyCode::KeyS, true),
+            Some(StateAction::Save)
+        );
+        assert_eq!(
+            state_chord_action(cmd, KeyCode::KeyL, true),
+            Some(StateAction::Load)
+        );
+
+        // Bare S / L (no modifier) stay with the machine keyboard.
+        assert_eq!(state_chord_action(none, KeyCode::KeyS, true), None);
+        assert_eq!(state_chord_action(none, KeyCode::KeyL, true), None);
+
+        // Release never fires (the press was already consumed).
+        assert_eq!(state_chord_action(ctrl, KeyCode::KeyS, false), None);
+
+        // Other modified keys are not chords — e.g. Ctrl+F5 stays free.
+        assert_eq!(state_chord_action(ctrl, KeyCode::F5, true), None);
+    }
 }
