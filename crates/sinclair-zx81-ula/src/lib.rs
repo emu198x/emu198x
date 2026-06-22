@@ -235,11 +235,22 @@ impl Zx81Ula {
         for row in 0..CHAR_ROWS {
             let fb_y_base = BORDER_TOP + (row as u32) * 8;
 
+            // Whether this row was terminated by a NEWLINE (collapsed/short row)
+            // rather than running the full 32 columns. The display file is
+            // variable-length: a blank row is a single NEWLINE, so on a freshly
+            // booted machine the file is mostly NEWLINEs. The col loop already
+            // advances `d_file` past the NEWLINE it breaks on, so the trailing
+            // skip below must NOT run again for those rows — doing so consumed
+            // two bytes per blank row and ran the pointer off the end of the
+            // display file, rendering RAM garbage in the lower screen.
+            let mut row_ended_on_newline = false;
+
             for col in 0..CHARS_PER_ROW {
                 let ch = read_mem(d_file);
                 d_file = d_file.wrapping_add(1);
 
                 if ch == NEWLINE {
+                    row_ended_on_newline = true;
                     // End of row — remaining columns are blank (spaces)
                     // Fill remaining columns with white
                     for fill_col in col..CHARS_PER_ROW {
@@ -298,11 +309,14 @@ impl Zx81Ula {
                 }
             }
 
-            // Skip the NEWLINE terminator if we consumed all 32 characters
-            // without hitting a NEWLINE
-            let next = read_mem(d_file);
-            if next == NEWLINE {
-                d_file = d_file.wrapping_add(1);
+            // Skip the NEWLINE terminator only if we consumed all 32 characters
+            // without hitting one (a full-width row). A row that already ended
+            // on a NEWLINE consumed it in the col loop above.
+            if !row_ended_on_newline {
+                let next = read_mem(d_file);
+                if next == NEWLINE {
+                    d_file = d_file.wrapping_add(1);
+                }
             }
         }
     }
@@ -341,6 +355,41 @@ mod tests {
         }
         assert!(ula.take_frame_complete());
         assert!(!ula.take_frame_complete());
+    }
+
+    #[test]
+    fn collapsed_display_file_renders_blank_not_garbage() {
+        // A freshly booted ZX80/ZX81 has a *collapsed* display file: one NEWLINE
+        // per row, no character bytes. Regression for the double-NEWLINE-advance
+        // bug that consumed two bytes per blank row, ran the pointer off the end
+        // of the display file, and rendered RAM garbage as a checkerboard in the
+        // lower screen.
+        let mut mem = [0u8; 0x10000];
+        let d_file: u16 = 0x4100;
+        mem[0x400C] = (d_file & 0xFF) as u8;
+        mem[0x400D] = (d_file >> 8) as u8;
+        // 1 leading NEWLINE + 24 row NEWLINEs = 25 collapsed (blank) rows.
+        for i in 0..25u16 {
+            mem[(d_file + i) as usize] = NEWLINE;
+        }
+        // Fill everything past the display file, and the character ROM, with a
+        // solid pattern so any stray read renders as black pixels we can detect.
+        for byte in mem.iter_mut().take(0x200) {
+            *byte = 0xFF;
+        }
+        for byte in mem.iter_mut().take(0x6000).skip(d_file as usize + 25) {
+            *byte = 0xFF;
+        }
+
+        let mut ula = Zx81Ula::new();
+        for _ in 0..TSTATES_PER_FRAME {
+            ula.tick(|addr| mem[addr as usize]);
+        }
+
+        assert!(
+            ula.framebuffer().iter().all(|&p| p == WHITE),
+            "a collapsed display file must render an all-white (blank) screen"
+        );
     }
 
     #[test]
