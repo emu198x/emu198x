@@ -1049,6 +1049,7 @@ name = "emu198x-memotech-mtx"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-ui",
  "machine-memotech-mtx",
  "png",
  "runtime-memotech-mtx",
