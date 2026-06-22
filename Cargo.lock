@@ -1238,6 +1238,8 @@ version = "0.2.0"
 dependencies = [
  "emu198x-native-video",
  "emu198x-shell",
+ "muda",
+ "rfd",
  "thiserror 2.0.18",
  "winit",
 ]

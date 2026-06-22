@@ -11,6 +11,9 @@ emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
 emu198x-native-video = { path = "../emu198x-native-video", version = "0.2.0" }
 winit = { workspace = true }
 thiserror.workspace = true
+# Native file dialogs for the File → Open menu. Builds cross-platform (its Linux
+# backend is xdg-desktop-portal, no GTK), so unlike muda it isn't target-gated.
+rfd = { workspace = true }
 
 # The native menu (muda) is non-Linux only: its 0.19.x line with
 # `default-features = false` drops the GTK backend (which would reopen a
