@@ -44,11 +44,6 @@ use std::process;
 use emu198x_shell::{MachineError, NativeAudioError};
 use thiserror::Error;
 
-#[cfg(feature = "ui")]
-use emu198x_native_video::VideoPresenterError;
-#[cfg(feature = "ui")]
-use winit::error::{EventLoopError, OsError};
-
 pub(crate) const USAGE: &str = "\
 Usage: emu198x-amiga [OPTIONS]
 
@@ -66,16 +61,15 @@ Options:
 
 Controls:
     Esc                  quit
-    F12                  hard reset
-    Numpad 1-4           toggle Paula channels 0-3
-    Numpad 5-8           cycle Paula channel 0-3 gain
-    Numpad 0             reset Paula channel controls
+    F12                  hard reset (keeps the inserted disk)
+    Cmd/Ctrl+S / +L      quick save / load state
     Mouse                port-1 Amiga mouse (JOY0DAT)
     Gamepad              port-2 Amiga joystick (JOY1DAT)
     Page Up              toggle arrow/space joystick mode for port 2
     A-Z, 0-9             Amiga keyboard
     Space, Enter, Tab    Amiga keyboard
     Backspace            Amiga keyboard
+    Machine menu         switch model live (A1000 / A500 family / A600 / A1200 / A2000)
 
 ROM directory resolution (first match wins):
     1. --rom-dir DIR
@@ -93,26 +87,14 @@ Examples:
     emu198x-amiga --model a1000 --kickstart a1000-bootstrap.rom --disk kick12.adf
 ";
 
-/// Top-level error shared by every mode. The winit / wgpu error arms are
-/// gated behind the `ui` feature so headless builds don't pull them in;
-/// the MCP and script paths only ever construct `Machine` / `Io` /
-/// `MissingRom` / `Setup`.
+/// Top-level error for the headless modes (script + MCP). The interactive UI
+/// mode runs on the shared `emu198x-ui` harness, which owns its own error type
+/// and surfaces failures as a `String`, so no UI-specific arms live here; the
+/// MCP and script paths construct `Machine` / `Io` / `MissingRom` / `Setup`.
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error(transparent)]
     Machine(#[from] MachineError),
-
-    #[cfg(feature = "ui")]
-    #[error(transparent)]
-    Video(#[from] VideoPresenterError),
-
-    #[cfg(feature = "ui")]
-    #[error(transparent)]
-    EventLoop(#[from] EventLoopError),
-
-    #[cfg(feature = "ui")]
-    #[error(transparent)]
-    Os(#[from] OsError),
 
     #[error("invalid --scale value {value}")]
     InvalidScale { value: u32 },
@@ -184,7 +166,7 @@ fn main() {
 #[cfg(feature = "ui")]
 fn run_ui(args: Vec<String>) -> Result<(), String> {
     let cli = ui::parse_cli(args);
-    ui::run(cli).map_err(|err| err.to_string())
+    ui::run(cli)
 }
 
 #[cfg(not(feature = "ui"))]

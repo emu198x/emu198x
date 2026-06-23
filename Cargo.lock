@@ -858,8 +858,8 @@ dependencies = [
 name = "emu198x-amiga"
 version = "0.2.0"
 dependencies = [
- "emu198x-native-video",
  "emu198x-shell",
+ "emu198x-ui",
  "machine-commodore-amiga-a1200",
  "mos-cia-8520",
  "motorola-68000",
@@ -868,7 +868,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "winit",
  "zip",
 ]
 
