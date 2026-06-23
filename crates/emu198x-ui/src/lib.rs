@@ -27,9 +27,10 @@ use menu::{AppCommand, AppMenu};
 
 use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
 use emu198x_shell::{
-    CapturedFrame, HostIo, InputEvent, LatestFrameCapture, MachineCore, MachineError, MachineTime,
-    MediaImage, MediaKind, MediaSet, NativeAudioError, NativeAudioOutput, NativeGamepadInput,
-    NullTraceSink, PixelFormat, ResetKind, RunResult, read_media_asset,
+    CapturedFrame, ControlCommand, HostIo, InputEvent, LatestFrameCapture, MachineCore,
+    MachineError, MachineTime, MediaImage, MediaKind, MediaSet, MediaTransportAction,
+    MediaTransportCommand, NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink,
+    PixelFormat, ResetKind, RunResult, read_media_asset,
 };
 use thiserror::Error;
 use winit::application::ApplicationHandler;
@@ -48,6 +49,9 @@ pub use winit::keyboard::KeyCode;
 
 const MAX_CATCH_UP_FRAMES: u32 = 4;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
+/// Frames per `about_to_wait` while fast-loading a tape (turbo): run unthrottled
+/// in bounded bursts so the loader races ahead but the window stays responsive.
+const MAX_TURBO_FRAMES: u32 = 32;
 
 /// A switchable machine variant for the Machine menu's variant radio. `id` is a
 /// stable string the system maps back to its model — the same id its script/MCP
@@ -176,6 +180,15 @@ pub trait UiSystem {
         None
     }
 
+    /// Whether a tape is currently playing — gates the harness's turbo
+    /// (fast-load) pacing, which only races ahead while a tape is actually
+    /// loading. A system with a tape queries its runtime here (e.g. the
+    /// `tape.playing` query or a machine accessor). Default: no tape, never
+    /// turbos.
+    fn tape_playing(&self, _runtime: &Self::Runtime) -> bool {
+        false
+    }
+
     /// Switch the live machine to `variant`, rebuilding it in place — the system
     /// owns firmware loading and the rebuild (e.g. `HeadlessSession::swap_machine`).
     /// The harness then re-paces from the new machine's timing and resets the
@@ -273,6 +286,9 @@ struct App<S: UiSystem> {
     presentation: PresentationProfile,
     fatal_error: Option<UiError>,
     halt_message: Option<String>,
+    /// Tape fast-load (turbo) armed by the user (F11 / Tape → Fast Load). Only
+    /// races ahead while [`UiSystem::tape_playing`] is also true.
+    turbo_armed: bool,
     /// Native menu bar (no-op stub on Linux). Owns the muda menu tree.
     app_menu: AppMenu,
     /// Set once the menu has been attached to the OS (in `resumed`).
@@ -324,6 +340,7 @@ impl<S: UiSystem> App<S> {
             presentation,
             fatal_error: None,
             halt_message: None,
+            turbo_armed: false,
             app_menu,
             menu_installed: false,
             command_tx,
@@ -419,6 +436,19 @@ impl<S: UiSystem> App<S> {
     fn advance_machine(&mut self) -> Result<bool, UiError> {
         self.gamepads
             .drain_events(self.system.button_map(), &mut self.pending_inputs);
+
+        // Turbo (fast-load): while a tape is playing and the user armed it, run
+        // unthrottled in a bounded burst so the loader races ahead. `about_to_wait`
+        // sets `Poll` in this state so bursts run back-to-back.
+        if self.turbo_active() {
+            let mut frame_completed = false;
+            for _ in 0..MAX_TURBO_FRAMES {
+                let inputs = std::mem::take(&mut self.pending_inputs);
+                frame_completed |= self.runner.run_ticks(&inputs, self.full_frame_ticks)?;
+            }
+            self.next_slice_at = Instant::now();
+            return Ok(frame_completed);
+        }
 
         if Instant::now() < self.next_slice_at {
             return Ok(false);
@@ -652,6 +682,30 @@ impl<S: UiSystem> App<S> {
             }
             None => {}
         }
+        // Tape transport: F9 play / F10 stop / F11 toggle fast-load — but only
+        // for a system that has a tape slot, and only for a key the system
+        // doesn't itself map (so non-tape machines, and tape machines that use
+        // F9-F11 as keys, keep them). Routed through the command channel so the
+        // Tape menu and these shortcuts share one handler.
+        if let Some(shortcut) = tape_transport_shortcut(code)
+            && self.system.map_keys(code).is_none()
+            && let Some(slot) = self.tape_slot()
+        {
+            if pressed {
+                let _ = self.command_tx.send(match shortcut {
+                    TapeShortcut::Play => AppCommand::MediaTransport {
+                        slot,
+                        action: MediaTransportAction::Start,
+                    },
+                    TapeShortcut::Stop => AppCommand::MediaTransport {
+                        slot,
+                        action: MediaTransportAction::Stop,
+                    },
+                    TapeShortcut::ToggleTurbo => AppCommand::ToggleTurbo,
+                });
+            }
+            return true;
+        }
         match code {
             KeyCode::Escape => {
                 if pressed {
@@ -700,7 +754,52 @@ impl<S: UiSystem> App<S> {
                     self.fail(event_loop, err);
                 }
             }
+            AppCommand::MediaTransport { slot, action } => self.media_transport(&slot, action),
+            AppCommand::ToggleTurbo => self.toggle_turbo(),
         }
+    }
+
+    /// The id of the machine's tape slot (the first `Tape`-kind media slot in
+    /// its profile), if any. Drives the transport shortcuts/menu and gates the
+    /// turbo pacing.
+    fn tape_slot(&self) -> Option<Cow<'static, str>> {
+        self.runner
+            .runtime
+            .profile()
+            .media_slots
+            .iter()
+            .find(|slot| slot.kind == MediaKind::Tape)
+            .map(|slot| slot.id.clone())
+    }
+
+    /// Whether to race the machine (turbo): the user armed fast-load and a tape
+    /// is actually playing.
+    fn turbo_active(&self) -> bool {
+        self.turbo_armed && self.system.tape_playing(&self.runner.runtime)
+    }
+
+    /// Tape → Play / Stop (or F9 / F10): issue a transport command to the slot.
+    /// A rejected command is logged, never fatal; the running pacing loop picks
+    /// up the new tape state on the next tick.
+    fn media_transport(&mut self, slot: &str, action: MediaTransportAction) {
+        let command =
+            ControlCommand::MediaTransport(MediaTransportCommand::new(slot.to_owned(), action));
+        if let Err(err) = self.runner.runtime.command(&command) {
+            eprintln!("transport: {action:?} on slot \"{slot}\" rejected: {err}");
+        }
+    }
+
+    /// Tape → Fast Load (or F11): arm/disarm turbo. It only races while a tape is
+    /// playing ([`Self::turbo_active`]); a fresh baseline keeps pacing smooth
+    /// when it turns off mid-load.
+    fn toggle_turbo(&mut self) {
+        self.turbo_armed = !self.turbo_armed;
+        self.next_slice_at = Instant::now();
+        self.app_menu.set_turbo_armed(self.turbo_armed);
+        println!(
+            "tape fast-load {}",
+            if self.turbo_armed { "armed" } else { "off" }
+        );
     }
 
     /// Recompute the per-frame pacing (slice ticks + wall-clock) from the current
@@ -918,7 +1017,33 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
             }
         }
         self.update_halt_status();
-        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_slice_at));
+        // While turbo-loading, poll back-to-back so the fast-load bursts run with
+        // no wait between them; otherwise wake at the next paced slice.
+        if self.turbo_active() {
+            event_loop.set_control_flow(ControlFlow::Poll);
+        } else {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_slice_at));
+        }
+    }
+}
+
+/// A tape-transport action a function key maps to (only honoured on a system
+/// that has a tape slot and doesn't itself use the key).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TapeShortcut {
+    Play,
+    Stop,
+    ToggleTurbo,
+}
+
+/// The tape-transport shortcut for a key, if any: F9 play, F10 stop, F11
+/// toggle fast-load — matching the Spectrum/C64 bespoke runners.
+fn tape_transport_shortcut(code: KeyCode) -> Option<TapeShortcut> {
+    match code {
+        KeyCode::F9 => Some(TapeShortcut::Play),
+        KeyCode::F10 => Some(TapeShortcut::Stop),
+        KeyCode::F11 => Some(TapeShortcut::ToggleTurbo),
+        _ => None,
     }
 }
 
@@ -1091,6 +1216,26 @@ mod tests {
             AppCommand::SwitchVariant(from_owned.id.clone()),
             AppCommand::SwitchVariant(Cow::Borrowed("zx-128k"))
         );
+    }
+
+    #[test]
+    fn tape_transport_shortcuts_match_the_bespoke_runners() {
+        // F9 play / F10 stop / F11 turbo — the Spectrum/C64 layout.
+        assert_eq!(
+            tape_transport_shortcut(KeyCode::F9),
+            Some(TapeShortcut::Play)
+        );
+        assert_eq!(
+            tape_transport_shortcut(KeyCode::F10),
+            Some(TapeShortcut::Stop)
+        );
+        assert_eq!(
+            tape_transport_shortcut(KeyCode::F11),
+            Some(TapeShortcut::ToggleTurbo)
+        );
+        // Other keys are not transport — they reach the machine (or other paths).
+        assert_eq!(tape_transport_shortcut(KeyCode::F8), None);
+        assert_eq!(tape_transport_shortcut(KeyCode::KeyL), None);
     }
 
     #[test]

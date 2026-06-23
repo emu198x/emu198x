@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use crate::VariantInfo;
 
 use emu198x_native_video::VideoFilter;
-use emu198x_shell::{MediaKind, MediaSlot};
+use emu198x_shell::{MediaKind, MediaSlot, MediaTransportAction};
 #[cfg(not(target_os = "linux"))]
 use muda::{AboutMetadata, CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 
@@ -61,6 +61,14 @@ pub enum AppCommand {
     /// Switch the live machine to the variant with this id (menu Machine →
     /// variant radio). The id round-trips through [`crate::UiSystem::switch_variant`].
     SwitchVariant(Cow<'static, str>),
+    /// Start/stop the transport for a media slot (menu Tape → Play / Stop, or
+    /// the F9 / F10 shortcuts).
+    MediaTransport {
+        slot: Cow<'static, str>,
+        action: MediaTransportAction,
+    },
+    /// Toggle tape fast-load / turbo (menu Tape → Fast Load, or F11).
+    ToggleTurbo,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -85,6 +93,9 @@ pub struct AppMenu {
     scale_items: Vec<(u32, CheckMenuItem)>,
     filter_items: Vec<(VideoFilter, CheckMenuItem)>,
     variant_items: Vec<(Cow<'static, str>, CheckMenuItem)>,
+    /// The Tape → Fast Load check item, kept so its tick can follow the turbo
+    /// state. `None` when the machine has no tape slot (no Tape menu).
+    turbo_item: Option<CheckMenuItem>,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -166,6 +177,41 @@ impl AppMenu {
         action_map.insert(reset_item.id().clone(), AppCommand::Reset);
         machine_menu.append(&reset_item).expect("append reset");
 
+        // Tape → Play / Stop / Fast Load, when the machine has a tape slot. The
+        // transport commands target that slot; the same AppCommands the F9/F10/F11
+        // shortcuts emit, so menu and keys share one path.
+        let tape_slot = media_slots
+            .iter()
+            .find(|slot| slot.kind == MediaKind::Tape)
+            .map(|slot| slot.id.clone());
+        let (tape_menu, turbo_item) = if let Some(slot) = tape_slot {
+            let tape_menu = Submenu::new("Tape", true);
+            let play = MenuItem::new("Play", true, None);
+            let stop = MenuItem::new("Stop", true, None);
+            action_map.insert(
+                play.id().clone(),
+                AppCommand::MediaTransport {
+                    slot: slot.clone(),
+                    action: MediaTransportAction::Start,
+                },
+            );
+            action_map.insert(
+                stop.id().clone(),
+                AppCommand::MediaTransport {
+                    slot,
+                    action: MediaTransportAction::Stop,
+                },
+            );
+            let fast = CheckMenuItem::new("Fast Load", true, false, None);
+            action_map.insert(fast.id().clone(), AppCommand::ToggleTurbo);
+            tape_menu
+                .append_items(&[&play, &stop, &PredefinedMenuItem::separator(), &fast])
+                .expect("append tape items");
+            (Some(tape_menu), Some(fast))
+        } else {
+            (None, None)
+        };
+
         // State → Save / Load (the quick-slot save-states).
         let state_menu = Submenu::new("State", true);
         let save_item = MenuItem::new("Save State", true, None);
@@ -207,6 +253,9 @@ impl AppMenu {
             root.append(file_menu).expect("append file submenu");
         }
         root.append(&machine_menu).expect("append machine submenu");
+        if let Some(tape_menu) = &tape_menu {
+            root.append(tape_menu).expect("append tape submenu");
+        }
         root.append(&state_menu).expect("append state submenu");
         root.append(&view_menu).expect("append view submenu");
 
@@ -216,6 +265,7 @@ impl AppMenu {
             scale_items,
             filter_items,
             variant_items,
+            turbo_item,
         }
     }
 
@@ -257,6 +307,14 @@ impl AppMenu {
             item.set_checked(option.as_ref() == id);
         }
     }
+
+    /// Tick/untick the Tape → Fast Load item to match the turbo state. No-op
+    /// when the machine has no tape menu.
+    pub fn set_turbo_armed(&self, armed: bool) {
+        if let Some(item) = &self.turbo_item {
+            item.set_checked(armed);
+        }
+    }
 }
 
 /// Linux stub: a no-op menu. muda isn't a Linux dependency (see the module
@@ -285,4 +343,6 @@ impl AppMenu {
     pub fn set_current_filter(&self, _filter: VideoFilter) {}
 
     pub fn set_current_variant(&self, _id: &str) {}
+
+    pub fn set_turbo_armed(&self, _armed: bool) {}
 }
