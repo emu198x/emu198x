@@ -276,6 +276,11 @@ ci = "github"
 installers = []
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 pr-run-mode = "plan"
+# Dependabot keeps the `actions/*` pins in the generated release.yml current
+# (e.g. checkout v6 -> v7 in #589). cargo-dist's own template lags those bumps,
+# so without this its `plan` check fails on every PR ("release.yml out of date").
+# `allow-dirty = ["ci"]` tells dist to accept the externally-maintained CI file.
+allow-dirty = ["ci"]
 
 # Linux build deps. cpal needs ALSA dev headers; gilrs needs libudev.
 # macOS and Windows pull native equivalents from the OS — no extra
