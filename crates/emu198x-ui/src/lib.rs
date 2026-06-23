@@ -47,6 +47,7 @@ pub use emu198x_native_video::VideoFilter;
 pub use emu198x_shell::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl,
 };
+pub use winit::event::MouseButton;
 pub use winit::keyboard::KeyCode;
 
 /// The empty axis map returned by [`UiSystem::axis_map`]'s default — a system
@@ -205,6 +206,26 @@ pub trait UiSystem {
         false
     }
 
+    /// The pointer device name (e.g. `"mouse-1"`) if this system has a mouse,
+    /// else `None` (default). `Some` opts the window into mouse capture: the
+    /// harness translates cursor motion into relative `InputEvent::PointerMotion`
+    /// deltas (in framebuffer coordinates) and clicks into
+    /// `InputEvent::PointerButton`, both tagged with this device name.
+    fn mouse_device(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// Name for a host mouse button, or `None` to ignore it. Only consulted when
+    /// [`Self::mouse_device`] is `Some`. Default: the standard three buttons.
+    fn map_mouse_button(&self, button: MouseButton) -> Option<&'static str> {
+        match button {
+            MouseButton::Left => Some("left"),
+            MouseButton::Right => Some("right"),
+            MouseButton::Middle => Some("middle"),
+            _ => None,
+        }
+    }
+
     /// File-picker filter for "Open State…", as `(label, extensions)`. `Some`
     /// adds a File → Open State… item (loading an arbitrary state/snapshot file,
     /// distinct from the fixed-slot quick-save); `None` (default) hides it. This
@@ -313,6 +334,12 @@ struct App<S: UiSystem> {
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, HostControl>,
     pressed_key_names: HashMap<KeyCode, &'static [&'static str]>,
+    /// Last cursor position in framebuffer coordinates, for relative mouse
+    /// deltas. `None` until the first motion (so the first event sets a baseline
+    /// without emitting a jump). Only used when the system has a mouse.
+    last_cursor_position: Option<(f64, f64)>,
+    /// Mouse buttons currently held, so they can be released on focus loss.
+    pressed_mouse_buttons: HashMap<MouseButton, &'static str>,
     /// Held modifier keys, tracked so the save/load chords (Cmd/Ctrl+S / +L)
     /// can be distinguished from the bare keys the machine keyboard uses.
     modifiers: ModifiersState,
@@ -371,6 +398,8 @@ impl<S: UiSystem> App<S> {
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
             pressed_key_names: HashMap::new(),
+            last_cursor_position: None,
+            pressed_mouse_buttons: HashMap::new(),
             modifiers: ModifiersState::empty(),
             gamepads: NativeGamepadInput::new(),
             window: None,
@@ -605,6 +634,90 @@ impl<S: UiSystem> App<S> {
         for names in std::mem::take(&mut self.pressed_key_names).into_values() {
             self.push_key_events(names, false);
         }
+        self.next_slice_at = Instant::now();
+    }
+
+    /// Convert a window cursor position to framebuffer coordinates, so mouse
+    /// deltas track the emulated screen resolution rather than the window scale.
+    fn cursor_to_frame_position(&self, x: f64, y: f64) -> (f64, f64) {
+        let (Some(window), (fb_w, fb_h)) = (
+            &self.window,
+            self.system.framebuffer_size(&self.runner.runtime),
+        ) else {
+            return (x, y);
+        };
+        let size = window.inner_size();
+        let width = f64::from(size.width.max(1));
+        let height = f64::from(size.height.max(1));
+        (x * f64::from(fb_w) / width, y * f64::from(fb_h) / height)
+    }
+
+    /// Emit a relative `PointerMotion` from an absolute cursor position (the
+    /// first event after focus just sets the baseline). No-op for a system with
+    /// no mouse.
+    fn queue_mouse_motion(&mut self, x: f64, y: f64) {
+        let Some(device) = self.system.mouse_device() else {
+            return;
+        };
+        let (fx, fy) = self.cursor_to_frame_position(x, y);
+        let Some((last_x, last_y)) = self.last_cursor_position.replace((fx, fy)) else {
+            return; // first sample: baseline only
+        };
+        let dx = (fx - last_x).round() as i32;
+        let dy = (fy - last_y).round() as i32;
+        if dx == 0 && dy == 0 {
+            return;
+        }
+        self.pending_inputs.push(InputEvent::PointerMotion {
+            device: device.into(),
+            dx,
+            dy,
+        });
+        self.next_slice_at = Instant::now();
+    }
+
+    /// Emit a `PointerButton` press/release, tracking held buttons so they can be
+    /// released on focus loss. No-op for a system with no mouse or an unmapped
+    /// button.
+    fn queue_mouse_button_state(&mut self, button: MouseButton, pressed: bool) {
+        let Some(device) = self.system.mouse_device() else {
+            return;
+        };
+        if pressed {
+            let Some(name) = self.system.map_mouse_button(button) else {
+                return;
+            };
+            if self.pressed_mouse_buttons.insert(button, name).is_some() {
+                return; // already held
+            }
+            self.pending_inputs.push(InputEvent::PointerButton {
+                device: device.into(),
+                button: name.into(),
+                pressed: true,
+            });
+            self.next_slice_at = Instant::now();
+        } else if let Some(name) = self.pressed_mouse_buttons.remove(&button) {
+            self.pending_inputs.push(InputEvent::PointerButton {
+                device: device.into(),
+                button: name.into(),
+                pressed: false,
+            });
+            self.next_slice_at = Instant::now();
+        }
+    }
+
+    fn release_all_mouse_buttons(&mut self) {
+        let Some(device) = self.system.mouse_device() else {
+            return;
+        };
+        for name in std::mem::take(&mut self.pressed_mouse_buttons).into_values() {
+            self.pending_inputs.push(InputEvent::PointerButton {
+                device: device.into(),
+                button: name.into(),
+                pressed: false,
+            });
+        }
+        self.last_cursor_position = None;
         self.next_slice_at = Instant::now();
     }
 
@@ -1037,6 +1150,13 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
             WindowEvent::Focused(false) => {
                 self.modifiers = ModifiersState::empty();
                 self.release_all_keys();
+                self.release_all_mouse_buttons();
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.queue_mouse_motion(position.x, position.y);
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                self.queue_mouse_button_state(button, state == ElementState::Pressed);
             }
             WindowEvent::Resized(size) => self.resize_surface(size.width, size.height),
             WindowEvent::ScaleFactorChanged { .. } => {
