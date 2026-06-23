@@ -913,6 +913,7 @@ name = "emu198x-atari-800xl"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-ui",
  "machine-atari-800xl",
  "png",
  "runtime-atari-800xl",
