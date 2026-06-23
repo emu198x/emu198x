@@ -1212,6 +1212,17 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
         Ok(())
     }
 
+    fn eject_disk_image(&mut self, slot: &str) -> Result<(), String> {
+        if !self.supports_disk_slot(slot) {
+            return Err(format!("unsupported disk slot `{slot}`"));
+        }
+        // Eject via the FDC field directly, mirroring `load_disk_image` (the
+        // `Plus3Marker` inherent `eject_disk` isn't reachable behind the
+        // generic `V`, but the slot guard proves the FDC is enabled).
+        self.fdc.eject_disk(0);
+        Ok(())
+    }
+
     fn read_byte(&self, addr: u16) -> u8 {
         self.memory.read(addr)
     }

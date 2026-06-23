@@ -827,6 +827,14 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         }
     }
 
+    fn eject_media(&mut self, slot: &str) -> Result<(), emu198x_shell::MachineError> {
+        match self {
+            Self::Ocs(rt) => rt.eject_media(slot),
+            Self::Ecs(rt) => rt.eject_media(slot),
+            Self::Aga(rt) => rt.eject_media(slot),
+        }
+    }
+
     fn run_until(
         &mut self,
         target: emu198x_shell::MachineTime,

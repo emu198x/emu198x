@@ -58,6 +58,10 @@ pub enum AppCommand {
         slot: Cow<'static, str>,
         kind: MediaKind,
     },
+    /// Eject whatever media occupies the named slot (menu File → Eject …). The
+    /// counterpart to [`Self::OpenMedia`]; the slot comes from the machine's
+    /// profile and is handed to [`emu198x_shell::MachineCore::eject_media`].
+    Eject { slot: Cow<'static, str> },
     /// Switch the live machine to the variant with this id (menu Machine →
     /// variant radio). The id round-trips through [`crate::UiSystem::switch_variant`].
     SwitchVariant(Cow<'static, str>),
@@ -72,6 +76,11 @@ pub enum AppCommand {
     /// Open a file dialog and load an arbitrary state/snapshot file
     /// (menu File → Open State…), parsed by the system itself.
     OpenState,
+
+    /// Open a save dialog and write the runtime's snapshot to the chosen path
+    /// (menu State → Save State As…). The counterpart to [`Self::QuickSave`],
+    /// which writes to the fixed per-machine slot.
+    SaveState,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -151,6 +160,18 @@ impl AppMenu {
                     },
                 );
                 file_menu.append(&item).expect("append file item");
+
+                // Eject sits right under its slot's Open item. The handler
+                // reports gracefully on a slot whose runtime has no eject wired,
+                // so every slot gets the item without per-system knowledge here.
+                let eject = MenuItem::new(format!("Eject {}", slot.display_name), true, None);
+                action_map.insert(
+                    eject.id().clone(),
+                    AppCommand::Eject {
+                        slot: slot.id.clone(),
+                    },
+                );
+                file_menu.append(&eject).expect("append eject item");
             }
             if state_open {
                 if !media_slots.is_empty() {
@@ -226,14 +247,22 @@ impl AppMenu {
             (None, None)
         };
 
-        // State → Save / Load (the quick-slot save-states).
+        // State → Save / Load (the quick-slot save-states) + Save State As…
+        // (a save dialog, the counterpart to File → Open State…).
         let state_menu = Submenu::new("State", true);
         let save_item = MenuItem::new("Save State", true, None);
         let load_item = MenuItem::new("Load State", true, None);
+        let save_as_item = MenuItem::new("Save State As…", true, None);
         action_map.insert(save_item.id().clone(), AppCommand::QuickSave);
         action_map.insert(load_item.id().clone(), AppCommand::QuickLoad);
+        action_map.insert(save_as_item.id().clone(), AppCommand::SaveState);
         state_menu
-            .append_items(&[&save_item, &load_item])
+            .append_items(&[
+                &save_item,
+                &load_item,
+                &PredefinedMenuItem::separator(),
+                &save_as_item,
+            ])
             .expect("append state items");
 
         // View → Window Scale radio + Video Filter radio.

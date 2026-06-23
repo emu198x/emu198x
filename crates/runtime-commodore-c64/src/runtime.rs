@@ -486,6 +486,30 @@ impl MachineCore for C64Runtime {
         Ok(())
     }
 
+    fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        match slot {
+            "drive-8" => {
+                let drive = self
+                    .drive8
+                    .as_mut()
+                    .ok_or_else(|| MachineError::MissingFirmware {
+                        id: "commodore-1541-dos-rom".to_owned(),
+                    })?;
+                drive.eject_disk();
+                Ok(())
+            }
+            // The datasette has no eject path on the C64 machine (it only
+            // loads/plays/stops a tape), so tape eject stays unsupported until
+            // an eject method exists on the core to surface here.
+            "tape-1" => Err(MachineError::UnsupportedOperation {
+                operation: "eject_media",
+            }),
+            _ => Err(MachineError::UnknownMediaSlot {
+                slot: slot.to_owned(),
+            }),
+        }
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,

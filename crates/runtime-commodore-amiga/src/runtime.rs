@@ -337,6 +337,17 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
         Ok(())
     }
 
+    fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        if slot != "floppy-0" {
+            return Err(MachineError::UnknownMediaSlot {
+                slot: slot.to_owned(),
+            });
+        }
+        self.machine.eject_floppy0();
+        self.clear_floppy0_bytes();
+        Ok(())
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,

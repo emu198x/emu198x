@@ -424,6 +424,10 @@ impl MachineCore for SpectrumRuntimeKind {
         match_kind!(self, |rt| rt.load_media(media))
     }
 
+    fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        match_kind!(self, |rt| rt.eject_media(slot))
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,

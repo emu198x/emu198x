@@ -903,6 +903,11 @@ impl<S: UiSystem> App<S> {
                     self.fail(event_loop, err);
                 }
             }
+            AppCommand::Eject { slot } => {
+                if let Err(err) = self.eject_media(&slot) {
+                    self.fail(event_loop, err);
+                }
+            }
             AppCommand::SwitchVariant(id) => {
                 if let Err(err) = self.switch_to_variant(&id) {
                     self.fail(event_loop, err);
@@ -915,6 +920,7 @@ impl<S: UiSystem> App<S> {
                     self.fail(event_loop, err);
                 }
             }
+            AppCommand::SaveState => self.save_state(),
         }
     }
 
@@ -948,6 +954,41 @@ impl<S: UiSystem> App<S> {
             window.request_redraw();
         }
         Ok(())
+    }
+
+    /// State → Save State As…: serialise via [`MachineCore::snapshot`], then pop
+    /// a native save dialog defaulted to the machine's slot name and write the
+    /// bytes there. The counterpart to [`Self::open_state`] / [`Self::quick_save`]
+    /// (which writes the fixed slot). Failures — a runtime that can't snapshot, a
+    /// cancelled dialog, an I/O error — are reported and otherwise ignored, never
+    /// fatal. The snapshot is taken before the dialog, so a machine that can't
+    /// snapshot reports immediately instead of popping a picker that can't be honoured.
+    fn save_state(&mut self) {
+        let bytes = match self.runner.runtime.snapshot() {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                eprintln!("save-state: this machine can't snapshot yet: {err}");
+                return;
+            }
+        };
+        let default_name = slot_file_name(self.runner.runtime.profile().profile_id.as_str());
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Save State")
+            .set_file_name(&default_name)
+            .add_filter("Save state", &["state"])
+            .add_filter("All files", &["*"])
+            .save_file()
+        else {
+            return; // user cancelled
+        };
+        match std::fs::write(&path, &bytes) {
+            Ok(()) => println!(
+                "save-state: wrote {} ({} bytes)",
+                path.display(),
+                bytes.len()
+            ),
+            Err(err) => eprintln!("save-state: cannot write {}: {err}", path.display()),
+        }
     }
 
     /// The id of the machine's tape slot (the first `Tape`-kind media slot in
@@ -1090,6 +1131,30 @@ impl<S: UiSystem> App<S> {
         self.runner.last_run_result = None;
         self.runner.run_ticks(&[], self.full_frame_ticks)?;
         println!("media: loaded {} into slot \"{slot}\"", path.display());
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+        Ok(())
+    }
+
+    /// File → Eject: eject whatever media occupies `slot` via
+    /// [`MachineCore::eject_media`], then refresh the picture. A runtime that
+    /// rejects the eject (empty slot, no eject wired for this slot, or an
+    /// unsupported machine) is reported and ignored — never fatal, mirroring
+    /// [`Self::media_transport`]. Only a genuine emulation error from the
+    /// refresh frame propagates.
+    fn eject_media(&mut self, slot: &str) -> Result<(), UiError> {
+        if let Err(err) = self.runner.runtime.eject_media(slot) {
+            eprintln!("media: eject of slot \"{slot}\" rejected: {err}");
+            return Ok(());
+        }
+        // Fresh capture/audio, then one frame so the now-empty slot shows.
+        self.release_all_keys();
+        self.runner.frame_capture = LatestFrameCapture::default();
+        self.runner.audio_output.clear();
+        self.runner.last_run_result = None;
+        self.runner.run_ticks(&[], self.full_frame_ticks)?;
+        println!("media: ejected slot \"{slot}\"");
         if let Some(window) = &self.window {
             window.request_redraw();
         }
