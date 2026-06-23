@@ -13,10 +13,10 @@ repository.workspace = true
 # wgpu) — `--script` and `--mcp` still work, only the default UI path
 # errors out at runtime with a "rebuild with --features ui" message.
 default = ["ui"]
-ui = ["dep:emu198x-native-video", "dep:winit"]
+ui = ["dep:emu198x-ui"]
 
 [dependencies]
-emu198x-native-video = { path = "../emu198x-native-video", optional = true , version = "0.2.0" }
+emu198x-ui = { path = "../emu198x-ui", version = "0.2.0", optional = true }
 emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
 machine-commodore-amiga-a1200 = { path = "../machine-commodore-amiga-a1200", version = "0.2.0" }
 mos-cia-8520 = { path = "../mos-cia-8520", version = "0.2.0" }
@@ -26,7 +26,6 @@ serde = { workspace = true }
 serde_json.workspace = true
 thiserror.workspace = true
 png = { workspace = true }
-winit = { workspace = true, optional = true }
 zip = { workspace = true }
 
 [lints]
