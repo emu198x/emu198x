@@ -151,6 +151,19 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
         Err("this machine has no disk interface".to_owned())
     }
 
+    /// Ejects the disk at the given media slot. Default: reports that the
+    /// machine has no disk interface. The counterpart to
+    /// [`load_disk_image`](Self::load_disk_image); variants with a real drive
+    /// surface their controller's existing eject.
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable reason if the machine has no disk interface or
+    /// the slot is unknown.
+    fn eject_disk_image(&mut self, _slot: &str) -> Result<(), String> {
+        Err("this machine has no disk interface".to_owned())
+    }
+
     // ─── Shared query surface ─────────────────────────────────────────
     //
     // The methods below are read-only accessors used by the generic
@@ -665,6 +678,29 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
             }
         }
         Ok(())
+    }
+
+    fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        // Disk eject on a disk-capable variant. On a tape-only variant the
+        // machine reports no disk interface, surfaced here as Unsupported so
+        // the harness handles it gracefully rather than panicking.
+        if self.machine.supports_disk_slot(slot) {
+            self.machine
+                .eject_disk_image(slot)
+                .map_err(|reason| MachineError::InvalidMedia {
+                    slot: slot.to_owned(),
+                    reason,
+                })?;
+            // Drop the snapshot cache entry so the ejected disk doesn't
+            // reappear on a restore.
+            self.disk_images.retain(|d| d.slot != slot);
+            return Ok(());
+        }
+        // The tape decoder has no eject path on the Spectrum machine (it
+        // loads/plays/stops a tape), so tape eject stays unsupported.
+        Err(MachineError::UnsupportedOperation {
+            operation: "eject_media",
+        })
     }
 
     fn run_until(

@@ -217,6 +217,21 @@ pub trait MachineCore {
     /// Returns an error if the machine rejects the media set.
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError>;
 
+    /// Eject whatever media occupies `slot` (the slot id from the machine's
+    /// profile, e.g. "floppy-0"/"drive-8"/"tape-1"). The counterpart to
+    /// [`Self::load_media`]. Default: unsupported (machines with no removable
+    /// media, or that haven't wired eject yet).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the machine has no ejectable media for `slot`, or
+    /// does not support eject at all.
+    fn eject_media(&mut self, _slot: &str) -> Result<(), MachineError> {
+        Err(MachineError::UnsupportedOperation {
+            operation: "eject_media",
+        })
+    }
+
     /// Runs the machine until the requested target time.
     ///
     /// # Errors

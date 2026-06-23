@@ -906,6 +906,32 @@ impl MachineCore for DragonRuntime {
         Ok(())
     }
 
+    fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        match slot {
+            "drive-1" => {
+                self.machine
+                    .eject_disk(0)
+                    .map_err(|reason| MachineError::InvalidMedia {
+                        slot: slot.to_owned(),
+                        reason: reason.to_string(),
+                    })?;
+                self.disk = None;
+                Ok(())
+            }
+            // The cassette and cartridge ports have no eject path on the Dragon
+            // machine (they load but don't surface a remove), so eject there
+            // stays unsupported until a core eject exists to surface.
+            "tape-1" | "cartridge-1" | "snapshot-1" | "program-1" => {
+                Err(MachineError::UnsupportedOperation {
+                    operation: "eject_media",
+                })
+            }
+            _ => Err(MachineError::UnknownMediaSlot {
+                slot: slot.to_owned(),
+            }),
+        }
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,

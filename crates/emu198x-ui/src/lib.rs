@@ -903,6 +903,11 @@ impl<S: UiSystem> App<S> {
                     self.fail(event_loop, err);
                 }
             }
+            AppCommand::Eject { slot } => {
+                if let Err(err) = self.eject_media(&slot) {
+                    self.fail(event_loop, err);
+                }
+            }
             AppCommand::SwitchVariant(id) => {
                 if let Err(err) = self.switch_to_variant(&id) {
                     self.fail(event_loop, err);
@@ -1126,6 +1131,30 @@ impl<S: UiSystem> App<S> {
         self.runner.last_run_result = None;
         self.runner.run_ticks(&[], self.full_frame_ticks)?;
         println!("media: loaded {} into slot \"{slot}\"", path.display());
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+        Ok(())
+    }
+
+    /// File → Eject: eject whatever media occupies `slot` via
+    /// [`MachineCore::eject_media`], then refresh the picture. A runtime that
+    /// rejects the eject (empty slot, no eject wired for this slot, or an
+    /// unsupported machine) is reported and ignored — never fatal, mirroring
+    /// [`Self::media_transport`]. Only a genuine emulation error from the
+    /// refresh frame propagates.
+    fn eject_media(&mut self, slot: &str) -> Result<(), UiError> {
+        if let Err(err) = self.runner.runtime.eject_media(slot) {
+            eprintln!("media: eject of slot \"{slot}\" rejected: {err}");
+            return Ok(());
+        }
+        // Fresh capture/audio, then one frame so the now-empty slot shows.
+        self.release_all_keys();
+        self.runner.frame_capture = LatestFrameCapture::default();
+        self.runner.audio_output.clear();
+        self.runner.last_run_result = None;
+        self.runner.run_ticks(&[], self.full_frame_ticks)?;
+        println!("media: ejected slot \"{slot}\"");
         if let Some(window) = &self.window {
             window.request_redraw();
         }
