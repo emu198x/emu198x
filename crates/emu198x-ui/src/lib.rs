@@ -44,8 +44,14 @@ use winit::window::{Window, WindowAttributes, WindowId};
 // Re-exported so a `UiSystem` impl can describe itself without depending on
 // winit / native-video / shell input types directly.
 pub use emu198x_native_video::VideoFilter;
-pub use emu198x_shell::{ButtonInputMap, ButtonTarget, HostControl};
+pub use emu198x_shell::{
+    AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl,
+};
 pub use winit::keyboard::KeyCode;
+
+/// The empty axis map returned by [`UiSystem::axis_map`]'s default — a system
+/// with no analogue inputs gets no axis routing.
+static EMPTY_AXIS_MAP: AxisInputMap = AxisInputMap::new(&[]);
 
 const MAX_CATCH_UP_FRAMES: u32 = 4;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
@@ -116,7 +122,17 @@ pub trait UiSystem {
     fn frame_duration(&self, runtime: &Self::Runtime) -> Duration;
 
     /// The host-control → (port, input-name) map shared by keyboard and gamepad.
+    /// A multi-variant system may return a different map per variant by matching
+    /// on its own current-variant state (e.g. the Spectrum's Kempston vs IF2
+    /// routing) — the harness calls this on the live system each drain.
     fn button_map(&self) -> &'static ButtonInputMap;
+
+    /// The gamepad analogue-axis → (port, axis-name) map (e.g. a stick driving
+    /// a joystick's horizontal/vertical). Default: no axes. Like
+    /// [`Self::button_map`], it may vary by the system's current variant.
+    fn axis_map(&self) -> &'static AxisInputMap {
+        &EMPTY_AXIS_MAP
+    }
 
     /// Translate a physical key to a host control (joystick / d-pad), or `None`
     /// to ignore it. Used by consoles; home computers use [`Self::map_keys`].
@@ -434,8 +450,11 @@ impl<S: UiSystem> App<S> {
     }
 
     fn advance_machine(&mut self) -> Result<bool, UiError> {
-        self.gamepads
-            .drain_events(self.system.button_map(), &mut self.pending_inputs);
+        self.gamepads.drain_events_with_axes(
+            self.system.button_map(),
+            self.system.axis_map(),
+            &mut self.pending_inputs,
+        );
 
         // Turbo (fast-load): while a tape is playing and the user armed it, run
         // unthrottled in a bounded burst so the loader races ahead. `about_to_wait`
