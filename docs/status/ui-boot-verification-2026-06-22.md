@@ -116,3 +116,37 @@ covering SMS, SG-1000 and Game Gear.
 the sweep surfaced are fixed. The boot-verification sweep is complete; the only
 non-emulator follow-up is the Rachel SMS *build* (renders black on a verified-good
 SMS core — investigate the image, not the emulator).
+
+## Harness-migrated bespoke systems — boot sweep (2026-06-23)
+
+After the four bespoke runners moved onto the `emu198x-ui` harness (Spectrum #638,
+Dragon #639, C64 #640, Amiga #642), each was re-verified — **not** by the
+window-opens smoke-launch the migrations used (that only proves "runs without
+crashing"), but by the deterministic frame-counted headless `save_screenshot`
+path, with the rendered frame inspected.
+
+| System | Reached | Frames to boot screen |
+|--------|---------|-----------------------|
+| Sinclair Spectrum 48K | `© 1982 Sinclair Research Ltd` | 89 |
+| Commodore 64 | `**** COMMODORE 64 BASIC V2 ****` / `64K RAM SYSTEM` | 109 |
+| Commodore Amiga (A500, Kickstart 1.3, no disk) | the insert-disk hand holding the *AMIGA Workbench V1.3* floppy | **~600** |
+| Dragon 32 | **unverified** — no Dragon ROM staged | — |
+
+**Method.** Spectrum / C64 via `--script` with a `wait_for_boot` + `save_screenshot`
+step; Amiga via `--frames N --screenshot` (a fixed budget, *not* `--wait-for-boot`).
+The runtimes are unchanged by the migrations, so a headless boot is what the
+harness UI displays.
+
+**Key lesson — boot budgets vary wildly; don't trust a flag or a wall-clock smoke.**
+The Amiga's `boot.detected` reason is `display-active`, which fires the instant
+the display turns on — a dark grey early-boot frame, ~hundreds of frames *before*
+the Kickstart insert-disk screen renders. A `--wait-for-boot` screenshot (or the
+5-second smoke-launch the migration used) "passes" on that blank frame. Only a
+**fixed ~600-frame** budget reaches the real screen. So per-system boot
+verification must use a frame-counted screenshot with a generous, per-machine
+budget and an *inspected* frame — never `display-active` alone, never wall-clock.
+
+**Open:** Dragon 32 is unverified — there is no Dragon ROM in `~/.emu198x/roms/`
+(its conventional path is `~/.emu198x/roms/dragon/dragon32.rom`) nor in the asset
+library. It is otherwise covered by its 74 passing crate tests + clean build.
+Stage a Dragon 32 BASIC ROM there to close this.
