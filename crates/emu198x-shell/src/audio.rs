@@ -21,7 +21,7 @@ pub enum NativeAudioError {
     DefaultOutputConfig {
         /// Underlying CPAL error.
         #[source]
-        source: cpal::DefaultStreamConfigError,
+        source: cpal::Error,
     },
 
     /// The host output sample format is not supported by the shared path.
@@ -36,7 +36,7 @@ pub enum NativeAudioError {
     BuildStream {
         /// Underlying CPAL error.
         #[source]
-        source: cpal::BuildStreamError,
+        source: cpal::Error,
     },
 
     /// Starting playback failed.
@@ -44,7 +44,7 @@ pub enum NativeAudioError {
     PlayStream {
         /// Underlying CPAL error.
         #[source]
-        source: cpal::PlayStreamError,
+        source: cpal::Error,
     },
 }
 
@@ -184,7 +184,10 @@ where
     let shared = Arc::clone(shared);
     device
         .build_output_stream(
-            config,
+            // cpal 0.18 takes the config by value; `StreamConfig` is `Copy`, so
+            // dereferencing copies it and leaves the caller's borrow intact (it
+            // still needs the sample rate / channel count afterwards).
+            *config,
             move |data: &mut [T], _| write_output_data(data, &shared),
             move |err| eprintln!("audio stream error: {err}"),
             None,
