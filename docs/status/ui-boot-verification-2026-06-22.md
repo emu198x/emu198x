@@ -130,10 +130,12 @@ path, with the rendered frame inspected.
 | Sinclair Spectrum 48K | `© 1982 Sinclair Research Ltd` | 89 |
 | Commodore 64 | `**** COMMODORE 64 BASIC V2 ****` / `64K RAM SYSTEM` | 109 |
 | Commodore Amiga (A500, Kickstart 1.3, no disk) | the insert-disk hand holding the *AMIGA Workbench V1.3* floppy | **~600** |
-| Dragon 32 | **unverified** — no Dragon ROM staged | — |
+| Dragon 32 | `(C) 1982 DRAGON DATA LTD` / `16K BASIC INTERPRETER 1.0` / `(C) 1982 BY MICROSOFT` / `OK` | ~168 (3M MC6809 cycles) |
 
 **Method.** Spectrum / C64 via `--script` with a `wait_for_boot` + `save_screenshot`
-step; Amiga via `--frames N --screenshot` (a fixed budget, *not* `--wait-for-boot`).
+step; Amiga via `--frames N --screenshot` (a fixed budget, *not* `--wait-for-boot`);
+Dragon via `--cycles N --screenshot` (its headless runner counts MC6809 bus cycles,
+not frames — default 100000 ≈ 5 frames, so a generous `--cycles 3000000` is needed).
 The runtimes are unchanged by the migrations, so a headless boot is what the
 harness UI displays.
 
@@ -146,7 +148,7 @@ the Kickstart insert-disk screen renders. A `--wait-for-boot` screenshot (or the
 verification must use a frame-counted screenshot with a generous, per-machine
 budget and an *inspected* frame — never `display-active` alone, never wall-clock.
 
-**Open:** Dragon 32 is unverified — there is no Dragon ROM in `~/.emu198x/roms/`
-(its conventional path is `~/.emu198x/roms/dragon/dragon32.rom`) nor in the asset
-library. It is otherwise covered by its 74 passing crate tests + clean build.
-Stage a Dragon 32 BASIC ROM there to close this.
+All four migrated systems are now visually confirmed booting. The Dragon 32 BASIC
+ROM was staged at `~/.emu198x/roms/dragon/dragon32.rom` from the TOSEC library
+(`Dragon Data/Dragon/Firmware/Dragon Data Dragon 32 BIOS (1982)` — 16 KB) to
+close the last gap.
