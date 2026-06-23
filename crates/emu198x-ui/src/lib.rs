@@ -16,6 +16,7 @@
 mod menu;
 mod overlay;
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -47,6 +48,27 @@ pub use winit::keyboard::KeyCode;
 
 const MAX_CATCH_UP_FRAMES: u32 = 4;
 const MAX_AUDIO_BUFFER_MS: u32 = 250;
+
+/// A switchable machine variant for the Machine menu's variant radio. `id` is a
+/// stable string the system maps back to its model — the same id its script/MCP
+/// `set_machine` accepts — and `label` is the human-readable menu text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VariantInfo {
+    /// Stable variant identifier (round-trips through [`UiSystem::switch_variant`]).
+    pub id: Cow<'static, str>,
+    /// Human-readable menu label.
+    pub label: Cow<'static, str>,
+}
+
+impl VariantInfo {
+    /// Build a [`VariantInfo`] from anything that converts into a `Cow`.
+    pub fn new(id: impl Into<Cow<'static, str>>, label: impl Into<Cow<'static, str>>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+        }
+    }
+}
 
 /// Per-system configuration the harness needs to host a machine in a window.
 ///
@@ -138,6 +160,37 @@ pub trait UiSystem {
     /// running normally. Default: never reports a halt.
     fn halt_status(&self, _runtime: &Self::Runtime) -> Option<String> {
         None
+    }
+
+    /// The machine variants this system can switch between live (the Machine
+    /// menu's variant radio). Empty (the default) ⇒ a single-variant system with
+    /// no variant menu. Each `id` is a stable string [`Self::switch_variant`]
+    /// accepts (matching the system's script/MCP `set_machine` id).
+    fn variants(&self) -> Vec<VariantInfo> {
+        Vec::new()
+    }
+
+    /// The id of the currently-running variant, for the menu radio check. `None`
+    /// ⇒ no variant is distinguished (the default, single-variant case).
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        None
+    }
+
+    /// Switch the live machine to `variant`, rebuilding it in place — the system
+    /// owns firmware loading and the rebuild (e.g. `HeadlessSession::swap_machine`).
+    /// The harness then re-paces from the new machine's timing and resets the
+    /// frame/audio capture; machine state and loaded media are not preserved
+    /// (matching a hardware variant change). Only ids from [`Self::variants`] are
+    /// passed. Default: unsupported (single-variant systems never reach here, as
+    /// they expose no variant menu).
+    fn switch_variant(
+        &mut self,
+        _runtime: &mut Self::Runtime,
+        _variant: &str,
+    ) -> Result<(), MachineError> {
+        Err(MachineError::UnsupportedOperation {
+            operation: "switch machine variant",
+        })
     }
 }
 
@@ -242,11 +295,15 @@ impl<S: UiSystem> App<S> {
         // aspect and the cropped framebuffer size once the window opens (see
         // `create_window`); square pixels until then.
         let presentation = PresentationProfile::for_filter(video);
+        let variants = system.variants();
+        let current_variant = system.current_variant();
         let app_menu = AppMenu::new(
             &system.window_title(),
             scale,
             video,
             &runner.runtime.profile().media_slots,
+            &variants,
+            current_variant.as_deref(),
         );
         let (command_tx, command_rx) = channel();
         Self {
@@ -638,7 +695,72 @@ impl<S: UiSystem> App<S> {
                     self.fail(event_loop, err);
                 }
             }
+            AppCommand::SwitchVariant(id) => {
+                if let Err(err) = self.switch_to_variant(&id) {
+                    self.fail(event_loop, err);
+                }
+            }
         }
+    }
+
+    /// Recompute the per-frame pacing (slice ticks + wall-clock) from the current
+    /// runtime's timing. Called after a variant switch, since frame length can
+    /// differ between variants (e.g. the Spectrum 48K's 69888 T-states vs the
+    /// 128K's 70908).
+    fn recompute_pacing(&mut self) {
+        let slices = self.system.input_slices_per_frame().max(1);
+        let frame_ticks = self.system.frame_ticks(&self.runner.runtime);
+        let frame_duration = self.system.frame_duration(&self.runner.runtime);
+        self.full_frame_ticks = frame_ticks;
+        self.slice_ticks = frame_ticks.div_ceil(u64::from(slices));
+        self.slice_duration =
+            Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(slices));
+        self.next_slice_at = Instant::now();
+    }
+
+    /// Machine → variant radio: rebuild the live machine as `variant` via the
+    /// system's [`UiSystem::switch_variant`], then re-pace and refresh the
+    /// picture. Runs between frames (the single-command-channel invariant), so it
+    /// never tears down a machine a frame is mid-render on. On failure the
+    /// running machine is untouched and the radio is pinned back to it; only a
+    /// genuine emulation error from the refresh frame is fatal.
+    fn switch_to_variant(&mut self, variant: &str) -> Result<(), UiError> {
+        let old_size = self.system.framebuffer_size(&self.runner.runtime);
+        if let Err(err) = self
+            .system
+            .switch_variant(&mut self.runner.runtime, variant)
+        {
+            eprintln!("machine: cannot switch to variant {variant}: {err}");
+            if let Some(current) = self.system.current_variant() {
+                self.app_menu.set_current_variant(&current);
+            }
+            return Ok(());
+        }
+        // Re-pace from the new machine's timing and drop stale input + capture.
+        self.recompute_pacing();
+        self.release_all_keys();
+        self.runner.frame_capture = LatestFrameCapture::default();
+        self.runner.audio_output.clear();
+        self.runner.last_run_result = None;
+        // The framebuffer size can differ between variants; rebuild the presenter
+        // and resize the window if so.
+        let new_size = self.system.framebuffer_size(&self.runner.runtime);
+        if new_size != old_size
+            && let Some(window) = &self.window
+        {
+            let (w, h) = new_size;
+            self.video = Some(WgpuVideoPresenter::new(window.clone(), w, h)?);
+            let _ = window.request_inner_size(self.window_logical_size(self.scale));
+        }
+        self.runner.run_ticks(&[], self.full_frame_ticks)?;
+        if let Some(current) = self.system.current_variant() {
+            self.app_menu.set_current_variant(&current);
+        }
+        if let Some(window) = &self.window {
+            window.set_title(&self.system.window_title());
+            window.request_redraw();
+        }
+        Ok(())
     }
 
     /// File → Open: pop a native file picker filtered to the slot's media kind,
@@ -949,6 +1071,26 @@ mod tests {
         assert_eq!(slot_file_name("a/b"), "a-b.state");
         assert_eq!(slot_file_name("../evil"), "---evil.state");
         assert_eq!(slot_file_name("space here.v2"), "space-here-v2.state");
+    }
+
+    #[test]
+    fn variant_info_accepts_static_and_owned_strings() {
+        // The constructor takes anything Into<Cow>, so a system can build the
+        // list from &'static labels or runtime-formatted Strings alike.
+        let from_static = VariantInfo::new("zx-48k", "ZX Spectrum 48K");
+        assert_eq!(from_static.id, "zx-48k");
+        assert_eq!(from_static.label, "ZX Spectrum 48K");
+
+        let from_owned =
+            VariantInfo::new(String::from("zx-128k"), format!("ZX Spectrum {}", "128K"));
+        assert_eq!(from_owned.id, "zx-128k");
+        assert_eq!(from_owned.label, "ZX Spectrum 128K");
+
+        // The id is what `AppCommand::SwitchVariant` carries back to the system.
+        assert_eq!(
+            AppCommand::SwitchVariant(from_owned.id.clone()),
+            AppCommand::SwitchVariant(Cow::Borrowed("zx-128k"))
+        );
     }
 
     #[test]
