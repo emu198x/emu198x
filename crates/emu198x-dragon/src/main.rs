@@ -91,7 +91,7 @@ fn main() {
 #[cfg(feature = "ui")]
 fn run_ui(args: Vec<String>) -> Result<(), String> {
     let cli = ui::parse_cli(args);
-    ui::run(cli).map_err(|err| err.to_string())
+    ui::run(cli)
 }
 
 #[cfg(not(feature = "ui"))]

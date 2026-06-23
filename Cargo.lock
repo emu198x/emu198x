@@ -1000,8 +1000,8 @@ dependencies = [
 name = "emu198x-dragon"
 version = "0.2.0"
 dependencies = [
- "emu198x-native-video",
  "emu198x-shell",
+ "emu198x-ui",
  "format-dragon-bin",
  "format-dragon-cas",
  "format-dragon-disk",
@@ -1013,7 +1013,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "winit",
  "zip",
 ]
 
@@ -1206,18 +1205,15 @@ name = "emu198x-spectrum"
 version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
- "emu198x-native-video",
  "emu198x-shell",
+ "emu198x-ui",
  "format-sinclair-zx-spectrum-bas",
  "format-sinclair-zx-spectrum-sna",
  "format-sinclair-zx-spectrum-z80",
- "muda",
- "rfd",
  "runtime-sinclair-zx-spectrum",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "winit",
  "zilog-z80",
 ]
 
