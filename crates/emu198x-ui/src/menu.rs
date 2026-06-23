@@ -24,6 +24,8 @@ use std::borrow::Cow;
 #[cfg(not(target_os = "linux"))]
 use std::collections::HashMap;
 
+use crate::VariantInfo;
+
 use emu198x_native_video::VideoFilter;
 use emu198x_shell::{MediaKind, MediaSlot};
 #[cfg(not(target_os = "linux"))]
@@ -56,6 +58,9 @@ pub enum AppCommand {
         slot: Cow<'static, str>,
         kind: MediaKind,
     },
+    /// Switch the live machine to the variant with this id (menu Machine →
+    /// variant radio). The id round-trips through [`crate::UiSystem::switch_variant`].
+    SwitchVariant(Cow<'static, str>),
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -79,6 +84,7 @@ pub struct AppMenu {
     action_map: HashMap<MenuId, AppCommand>,
     scale_items: Vec<(u32, CheckMenuItem)>,
     filter_items: Vec<(VideoFilter, CheckMenuItem)>,
+    variant_items: Vec<(Cow<'static, str>, CheckMenuItem)>,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -91,6 +97,8 @@ impl AppMenu {
         current_scale: u32,
         current_filter: VideoFilter,
         media_slots: &[MediaSlot],
+        variants: &[VariantInfo],
+        current_variant: Option<&str>,
     ) -> Self {
         let root = Menu::new();
         let mut action_map = HashMap::new();
@@ -132,8 +140,28 @@ impl AppMenu {
             file_menu
         });
 
-        // Machine → Reset.
+        // Machine → variant radio (when the system declares variants) + Reset.
         let machine_menu = Submenu::new("Machine", true);
+        let mut variant_items = Vec::new();
+        for variant in variants {
+            let item = CheckMenuItem::new(
+                variant.label.as_ref(),
+                true,
+                Some(variant.id.as_ref()) == current_variant,
+                None,
+            );
+            action_map.insert(
+                item.id().clone(),
+                AppCommand::SwitchVariant(variant.id.clone()),
+            );
+            machine_menu.append(&item).expect("append variant item");
+            variant_items.push((variant.id.clone(), item));
+        }
+        if !variant_items.is_empty() {
+            machine_menu
+                .append(&PredefinedMenuItem::separator())
+                .expect("append machine separator");
+        }
         let reset_item = MenuItem::new("Reset", true, None);
         action_map.insert(reset_item.id().clone(), AppCommand::Reset);
         machine_menu.append(&reset_item).expect("append reset");
@@ -187,6 +215,7 @@ impl AppMenu {
             action_map,
             scale_items,
             filter_items,
+            variant_items,
         }
     }
 
@@ -221,6 +250,13 @@ impl AppMenu {
             item.set_checked(*option == filter);
         }
     }
+
+    /// Refresh the Machine → variant radio so only the item for `id` is checked.
+    pub fn set_current_variant(&self, id: &str) {
+        for (option, item) in &self.variant_items {
+            item.set_checked(option.as_ref() == id);
+        }
+    }
 }
 
 /// Linux stub: a no-op menu. muda isn't a Linux dependency (see the module
@@ -236,6 +272,8 @@ impl AppMenu {
         _current_scale: u32,
         _current_filter: VideoFilter,
         _media_slots: &[MediaSlot],
+        _variants: &[VariantInfo],
+        _current_variant: Option<&str>,
     ) -> Self {
         Self
     }
@@ -245,4 +283,6 @@ impl AppMenu {
     pub fn set_current_scale(&self, _scale: u32) {}
 
     pub fn set_current_filter(&self, _filter: VideoFilter) {}
+
+    pub fn set_current_variant(&self, _id: &str) {}
 }
