@@ -91,6 +91,11 @@ pub struct Atari800xl {
     pokey: Pokey,
     pia: Pia6520,
     ram: Vec<u8>,
+    /// ANTIC's view of the address space: RAM with the OS / BASIC / self-test
+    /// ROM overlays baked in (the GR.0 character set lives at $E000 in the OS
+    /// ROM). Rebuilt each frame by [`Self::sync_antic_mem`]; ANTIC DMA reads
+    /// from here, never bare RAM.
+    antic_mem: Vec<u8>,
     os_rom: Option<Vec<u8>>,
     basic_rom: Option<Vec<u8>>,
     cart: Option<Cartridge>,
@@ -164,6 +169,7 @@ impl Atari800xl {
             pokey,
             pia,
             ram,
+            antic_mem: vec![0u8; 65536],
             os_rom,
             basic_rom,
             cart,
@@ -186,6 +192,9 @@ impl Atari800xl {
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         let target = start + self.clocks_per_frame;
+        // Refresh ANTIC's ROM-overlaid memory view for this frame so its DMA
+        // (notably the $E000 character set) reads the OS ROM, not bare RAM.
+        self.sync_antic_mem();
         // Paint the canonical TV-visible border (COLBK) at frame start.
         self.gtia.fill_border();
         while self.master_clock < target {
@@ -278,13 +287,75 @@ impl Atari800xl {
         }
     }
 
+    /// Rebuild ANTIC's view of memory: RAM with the currently banked-in ROM
+    /// overlays applied. ANTIC fetches the display list, screen data, P/M
+    /// graphics, and — critically — the GR.0 character set from this image.
+    /// The character set lives at $E000 inside the OS ROM, so bare RAM would
+    /// make every normal glyph fetch read 0 (a blank bitmap): only the
+    /// inverse-video cursor cell (`!0 = $FF`) would paint, which is exactly how
+    /// the bug presented. The overlay precedence mirrors [`Self::mem_read`]
+    /// (cart over BASIC at $A000-$BFFF). Mid-frame PORTB bank switches are not
+    /// reflected until the next frame; no 800XL display relies on that.
+    fn sync_antic_mem(&mut self) {
+        // Take the buffer so the ROM fields can be borrowed while we fill it.
+        let mut buf = std::mem::take(&mut self.antic_mem);
+        buf.copy_from_slice(&self.ram);
+
+        let portb = self.effective_portb();
+        let os_on = portb & 0x01 != 0;
+        let basic_on = portb & 0x02 == 0;
+        let self_test = portb & 0x80 == 0;
+
+        // Self-test RAM/ROM window $5000-$57FF maps to OS ROM $1000-$17FF.
+        if self_test
+            && os_on
+            && let Some(ref os) = self.os_rom
+        {
+            for (i, slot) in buf[0x5000..0x5800].iter_mut().enumerate() {
+                *slot = os.get(0x1000 + i).copied().unwrap_or(0xFF);
+            }
+        }
+        // Cartridge $8000-$BFFF (takes precedence over BASIC).
+        if let Some(ref cart) = self.cart {
+            for (i, slot) in buf[0x8000..=0xBFFF].iter_mut().enumerate() {
+                let addr = 0x8000 + i as u16;
+                if cart.covers(addr) {
+                    *slot = cart.read(addr);
+                }
+            }
+        }
+        // BASIC ROM $A000-$BFFF where no cartridge covers it.
+        if basic_on && let Some(ref basic) = self.basic_rom {
+            for (i, slot) in buf[0xA000..=0xBFFF].iter_mut().enumerate() {
+                let addr = 0xA000 + i as u16;
+                let covered = self.cart.as_ref().is_some_and(|c| c.covers(addr));
+                if !covered {
+                    *slot = basic.get(i).copied().unwrap_or(0xFF);
+                }
+            }
+        }
+        // OS ROM at $C000-$CFFF and $D800-$FFFF (the $D000-$D7FF I/O hole stays
+        // RAM — ANTIC never fetches display data from the register page).
+        if os_on && let Some(ref os) = self.os_rom {
+            for (i, slot) in buf[0xC000..0xD000].iter_mut().enumerate() {
+                *slot = os.get(i).copied().unwrap_or(0xFF);
+            }
+            for (i, slot) in buf[0xD800..=0xFFFF].iter_mut().enumerate() {
+                // $D800 is OS ROM offset $1800 ($D800 - $C000).
+                *slot = os.get(0x1800 + i).copied().unwrap_or(0xFF);
+            }
+        }
+
+        self.antic_mem = buf;
+    }
+
     /// Start a scan line: ANTIC fetches its display data and the GTIA begins
     /// beam compositing for it. Player/missile DMA and the DLI/VBI NMI are
     /// applied here, and the per-line DMA budget that gates the CPU is set.
     /// The actual pixels are composited incrementally as the beam advances
     /// (`composite_to_beam`), then finished with the PM overlay at line end.
     fn start_scan_line(&mut self) {
-        let result = self.antic.process_line(&self.ram);
+        let result = self.antic.process_line(&self.antic_mem);
         if result.pm_dma {
             for i in 0..4 {
                 self.gtia.write(0x0D + i as u8, result.player_data[i]);

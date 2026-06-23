@@ -94,6 +94,10 @@ fn basic_boot_programs_antic_and_gtia() {
         (32..4096).contains(&smallest),
         "expected a small cursor block (~64 px); rarest colour covers {smallest} px"
     );
+    // NOTE: this runs only 300 frames — before BASIC's SIO disk-boot timeout
+    // exhausts and "READY" prints (~600 frames). So the cursor block is the only
+    // foreground here; the glyph-rendering pixel guard lives in
+    // `boots_to_basic_ready`, which runs long enough for the text to appear.
 }
 
 /// "READY" screen codes (internal display codes, not ATASCII).
@@ -139,6 +143,27 @@ fn boots_to_basic_ready() {
     assert!(
         found,
         "BASIC's READY prompt was not found in screen RAM at ${screen:04X}"
+    );
+
+    // READY must also RENDER, not just sit in screen RAM. The cursor block alone
+    // is ~64 px (one 8x8 cell); "READY" + the cursor must paint well over that.
+    // Guards the GR.0 character-set fetch: ANTIC reads the font from $E000 in the
+    // OS ROM, so feeding it bare RAM blanked every normal glyph and left only the
+    // inverse-video cursor painting (~64 px) — invisible text with READY still in
+    // RAM, which the RAM check above happily passes. (assert output, not state.)
+    let fb = sys.framebuffer();
+    let mut counts: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    for &px in fb {
+        *counts.entry(px).or_insert(0) += 1;
+    }
+    let mut by_count: Vec<usize> = counts.values().copied().collect();
+    by_count.sort_unstable_by(|a, b| b.cmp(a));
+    let foreground: usize = by_count.iter().skip(2).sum();
+    assert!(
+        foreground > 100,
+        "READY is in screen RAM but only {foreground} foreground px rendered \
+         (a lone ~64 px cursor block) — GR.0 glyphs are not painting; ANTIC is \
+         not fetching the $E000 character set from the OS ROM"
     );
 }
 
