@@ -72,6 +72,11 @@ pub enum AppCommand {
     /// Open a file dialog and load an arbitrary state/snapshot file
     /// (menu File → Open State…), parsed by the system itself.
     OpenState,
+
+    /// Open a save dialog and write the runtime's snapshot to the chosen path
+    /// (menu State → Save State As…). The counterpart to [`Self::QuickSave`],
+    /// which writes to the fixed per-machine slot.
+    SaveState,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -226,14 +231,22 @@ impl AppMenu {
             (None, None)
         };
 
-        // State → Save / Load (the quick-slot save-states).
+        // State → Save / Load (the quick-slot save-states) + Save State As…
+        // (a save dialog, the counterpart to File → Open State…).
         let state_menu = Submenu::new("State", true);
         let save_item = MenuItem::new("Save State", true, None);
         let load_item = MenuItem::new("Load State", true, None);
+        let save_as_item = MenuItem::new("Save State As…", true, None);
         action_map.insert(save_item.id().clone(), AppCommand::QuickSave);
         action_map.insert(load_item.id().clone(), AppCommand::QuickLoad);
+        action_map.insert(save_as_item.id().clone(), AppCommand::SaveState);
         state_menu
-            .append_items(&[&save_item, &load_item])
+            .append_items(&[
+                &save_item,
+                &load_item,
+                &PredefinedMenuItem::separator(),
+                &save_as_item,
+            ])
             .expect("append state items");
 
         // View → Window Scale radio + Video Filter radio.

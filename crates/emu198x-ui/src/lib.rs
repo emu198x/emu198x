@@ -915,6 +915,7 @@ impl<S: UiSystem> App<S> {
                     self.fail(event_loop, err);
                 }
             }
+            AppCommand::SaveState => self.save_state(),
         }
     }
 
@@ -948,6 +949,41 @@ impl<S: UiSystem> App<S> {
             window.request_redraw();
         }
         Ok(())
+    }
+
+    /// State → Save State As…: serialise via [`MachineCore::snapshot`], then pop
+    /// a native save dialog defaulted to the machine's slot name and write the
+    /// bytes there. The counterpart to [`Self::open_state`] / [`Self::quick_save`]
+    /// (which writes the fixed slot). Failures — a runtime that can't snapshot, a
+    /// cancelled dialog, an I/O error — are reported and otherwise ignored, never
+    /// fatal. The snapshot is taken before the dialog, so a machine that can't
+    /// snapshot reports immediately instead of popping a picker that can't be honoured.
+    fn save_state(&mut self) {
+        let bytes = match self.runner.runtime.snapshot() {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                eprintln!("save-state: this machine can't snapshot yet: {err}");
+                return;
+            }
+        };
+        let default_name = slot_file_name(self.runner.runtime.profile().profile_id.as_str());
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Save State")
+            .set_file_name(&default_name)
+            .add_filter("Save state", &["state"])
+            .add_filter("All files", &["*"])
+            .save_file()
+        else {
+            return; // user cancelled
+        };
+        match std::fs::write(&path, &bytes) {
+            Ok(()) => println!(
+                "save-state: wrote {} ({} bytes)",
+                path.display(),
+                bytes.len()
+            ),
+            Err(err) => eprintln!("save-state: cannot write {}: {err}", path.display()),
+        }
     }
 
     /// The id of the machine's tape slot (the first `Tape`-kind media slot in
