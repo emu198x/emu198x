@@ -49,6 +49,9 @@ pub struct Ay3_8910 {
     noise_output: bool,
     /// 17-bit LFSR, taps at bits 0 and 3.
     noise_lfsr: u32,
+    /// `/2` prescale: the LFSR advances only every *other* noise-counter expiry,
+    /// giving `f_noise = f_clock/(16·NP)` (see [`Ay3_8910::tick`]).
+    noise_prescale: bool,
 
     // Envelope generator
     env_counter: u32,
@@ -56,6 +59,9 @@ pub struct Ay3_8910 {
     env_holding: bool,
     /// Current envelope output level (0-15).
     env_level: u8,
+    /// `/2` prescale: the envelope steps only every *other* env-counter expiry
+    /// (the AY-3-8910's `m_step = 2`; see [`Ay3_8910::tick`]).
+    env_prescale: bool,
 
     /// Internal clock prescaler (0-7). The AY divides its input clock
     /// by 8 before driving tone, noise, and envelope counters.
@@ -119,10 +125,12 @@ impl Ay3_8910 {
             noise_counter: 0,
             noise_output: false,
             noise_lfsr: 1, // Must be non-zero
+            noise_prescale: false,
             env_counter: 0,
             env_step: 0,
             env_holding: false,
             env_level: 0,
+            env_prescale: false,
             prescaler: 0,
             sample_accum: 0.0,
             sample_ticks: 0,
@@ -192,6 +200,7 @@ impl Ay3_8910 {
                 self.env_step = 0;
                 self.env_counter = 0;
                 self.env_holding = false;
+                self.env_prescale = false;
                 val & 0x0F
             }
             _ => val,
@@ -282,10 +291,17 @@ impl Ay3_8910 {
             if self.noise_counter == 0 {
                 let period = (self.regs[6] & 0x1F) as u16;
                 self.noise_counter = period.max(1);
-                // 17-bit LFSR: new bit = bit 0 XOR bit 3
-                let bit = (self.noise_lfsr ^ (self.noise_lfsr >> 3)) & 1;
-                self.noise_lfsr = (self.noise_lfsr >> 1) | (bit << 16);
-                self.noise_output = self.noise_lfsr & 1 != 0;
+                // The LFSR advances only every *other* counter expiry — a /2
+                // prescale giving f_noise = f_clock/(16·NP), per the GI datasheet
+                // and MAME's `m_prescale_noise` (ay8910.cpp). Clocking on every
+                // expiry (f_clock/(8·NP)) makes noise an octave too bright. (#153)
+                self.noise_prescale = !self.noise_prescale;
+                if self.noise_prescale {
+                    // 17-bit LFSR: new bit = bit 0 XOR bit 3
+                    let bit = (self.noise_lfsr ^ (self.noise_lfsr >> 3)) & 1;
+                    self.noise_lfsr = (self.noise_lfsr >> 1) | (bit << 16);
+                    self.noise_output = self.noise_lfsr & 1 != 0;
+                }
             }
             self.noise_counter -= 1;
 
@@ -294,7 +310,14 @@ impl Ay3_8910 {
                 if self.env_counter == 0 {
                     let period = self.envelope_period();
                     self.env_counter = period.max(1);
-                    self.advance_envelope();
+                    // The envelope steps only every *other* counter expiry — the
+                    // AY-3-8910's m_step = 2 (MAME ay8910.cpp), i.e. /256 per
+                    // 16-step cycle = /16 per step. Stepping on every expiry plays
+                    // every volume envelope an octave too fast. (#152)
+                    self.env_prescale = !self.env_prescale;
+                    if self.env_prescale {
+                        self.advance_envelope();
+                    }
                 }
                 self.env_counter -= 1;
             }
@@ -595,5 +618,74 @@ mod tests {
             0xBF,
             "input-mode read should return the board pull directly"
         );
+    }
+
+    /// Measure the steady-state input-clock interval between successive changes
+    /// of `value(&ay)`, ignoring the first (startup) gap. `ticks` must be long
+    /// enough to see several changes.
+    fn steady_state_gap<T: PartialEq + Copy>(
+        ay: &mut Ay3_8910,
+        ticks: usize,
+        mut value: impl FnMut(&Ay3_8910) -> T,
+    ) -> usize {
+        let mut last = value(ay);
+        let mut gaps = Vec::new();
+        let mut since = 0usize;
+        for _ in 0..ticks {
+            ay.tick();
+            since += 1;
+            let now = value(ay);
+            if now != last {
+                gaps.push(since);
+                since = 0;
+                last = now;
+            }
+        }
+        assert!(gaps.len() >= 3, "expected several changes, got {gaps:?}");
+        // Every steady-state gap must be identical.
+        for &g in &gaps[2..] {
+            assert_eq!(g, gaps[1], "non-uniform gaps: {gaps:?}");
+        }
+        gaps[1]
+    }
+
+    #[test]
+    fn noise_lfsr_advances_every_16_np_ticks() {
+        // #153: the noise LFSR advances at f_clock/(16·NP) — the /8 internal
+        // prescaler times a /2 noise prescale. Clocking it every 8·NP made noise
+        // an octave too bright. Confirm the rate scales as 16·NP, not 8·NP.
+        for np in [1u8, 3, 5] {
+            let mut ay = Ay3_8910::new(1_773_400, 44100, 882);
+            ay.select_register(6);
+            ay.write_data(np);
+            let gap = steady_state_gap(&mut ay, 64 * usize::from(np), |ay| ay.noise_lfsr);
+            assert_eq!(
+                gap,
+                16 * usize::from(np),
+                "noise should advance every 16·NP ticks (NP={np})"
+            );
+        }
+    }
+
+    #[test]
+    fn envelope_steps_every_16_ep_ticks() {
+        // #152: the envelope steps every 16·EP input clocks — the /8 prescaler
+        // times the AY-3-8910's m_step=2 /2 prescale. Stepping every 8·EP played
+        // every volume envelope an octave too fast.
+        for ep in [1u8, 2, 4] {
+            let mut ay = Ay3_8910::new(1_773_400, 44100, 882);
+            ay.select_register(11);
+            ay.write_data(ep); // envelope period fine
+            ay.select_register(12);
+            ay.write_data(0); // envelope period coarse → EP = ep
+            ay.select_register(13);
+            ay.write_data(0x08); // continuous ramp-down: steps forever, Continue=1
+            let gap = steady_state_gap(&mut ay, 64 * usize::from(ep), |ay| ay.env_level);
+            assert_eq!(
+                gap,
+                16 * usize::from(ep),
+                "envelope should step every 16·EP ticks (EP={ep})"
+            );
+        }
     }
 }
