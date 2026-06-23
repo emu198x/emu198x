@@ -18,7 +18,7 @@ mod overlay;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
@@ -205,6 +205,26 @@ pub trait UiSystem {
         false
     }
 
+    /// File-picker filter for "Open State…", as `(label, extensions)`. `Some`
+    /// adds a File → Open State… item (loading an arbitrary state/snapshot file,
+    /// distinct from the fixed-slot quick-save); `None` (default) hides it. This
+    /// is for *foreign* formats a system parses itself (e.g. the Spectrum's
+    /// `.sna`/`.z80`), which `load_media`'s tape/disk contract doesn't cover.
+    fn state_open_filter(&self) -> Option<(&'static str, &'static [&'static str])> {
+        None
+    }
+
+    /// Load an arbitrary state/snapshot file chosen via Open State…. The system
+    /// parses it (by extension) and applies it to the runtime. Only called when
+    /// [`Self::state_open_filter`] is `Some`. Default: unsupported.
+    fn load_state_file(
+        &mut self,
+        _runtime: &mut Self::Runtime,
+        _path: &Path,
+    ) -> Result<(), String> {
+        Err("this system cannot open state files".to_owned())
+    }
+
     /// Switch the live machine to `variant`, rebuilding it in place — the system
     /// owns firmware loading and the rebuild (e.g. `HeadlessSession::swap_machine`).
     /// The harness then re-paces from the new machine's timing and resets the
@@ -329,6 +349,7 @@ impl<S: UiSystem> App<S> {
         let presentation = PresentationProfile::for_filter(video);
         let variants = system.variants();
         let current_variant = system.current_variant();
+        let state_open = system.state_open_filter().is_some();
         let app_menu = AppMenu::new(
             &system.window_title(),
             scale,
@@ -336,6 +357,7 @@ impl<S: UiSystem> App<S> {
             &runner.runtime.profile().media_slots,
             &variants,
             current_variant.as_deref(),
+            state_open,
         );
         let (command_tx, command_rx) = channel();
         Self {
@@ -775,7 +797,44 @@ impl<S: UiSystem> App<S> {
             }
             AppCommand::MediaTransport { slot, action } => self.media_transport(&slot, action),
             AppCommand::ToggleTurbo => self.toggle_turbo(),
+            AppCommand::OpenState => {
+                if let Err(err) = self.open_state() {
+                    self.fail(event_loop, err);
+                }
+            }
         }
+    }
+
+    /// File → Open State…: pop a native picker filtered to the system's state
+    /// formats, hand the chosen file to [`UiSystem::load_state_file`], and
+    /// refresh the picture. A cancelled dialog or a rejected file is reported and
+    /// ignored; only a genuine emulation error from the refresh frame propagates.
+    fn open_state(&mut self) -> Result<(), UiError> {
+        let Some((label, extensions)) = self.system.state_open_filter() else {
+            return Ok(());
+        };
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Open State")
+            .add_filter(label, extensions)
+            .add_filter("All files", &["*"])
+            .pick_file()
+        else {
+            return Ok(()); // user cancelled
+        };
+        if let Err(err) = self.system.load_state_file(&mut self.runner.runtime, &path) {
+            eprintln!("state: cannot load {}: {err}", path.display());
+            return Ok(());
+        }
+        self.release_all_keys();
+        self.runner.frame_capture = LatestFrameCapture::default();
+        self.runner.audio_output.clear();
+        self.runner.last_run_result = None;
+        self.runner.run_ticks(&[], self.full_frame_ticks)?;
+        println!("state: loaded {}", path.display());
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+        Ok(())
     }
 
     /// The id of the machine's tape slot (the first `Tape`-kind media slot in

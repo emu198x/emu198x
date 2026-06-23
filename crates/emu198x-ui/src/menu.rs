@@ -69,6 +69,9 @@ pub enum AppCommand {
     },
     /// Toggle tape fast-load / turbo (menu Tape → Fast Load, or F11).
     ToggleTurbo,
+    /// Open a file dialog and load an arbitrary state/snapshot file
+    /// (menu File → Open State…), parsed by the system itself.
+    OpenState,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -110,6 +113,7 @@ impl AppMenu {
         media_slots: &[MediaSlot],
         variants: &[VariantInfo],
         current_variant: Option<&str>,
+        state_open: bool,
     ) -> Self {
         let root = Menu::new();
         let mut action_map = HashMap::new();
@@ -135,7 +139,7 @@ impl AppMenu {
         // File → one "Open …" per declared media slot. Built from the machine's
         // profile, so a tapeless console gets no File menu and a disk machine
         // gets the right slots — no per-system code.
-        let file_menu = (!media_slots.is_empty()).then(|| {
+        let file_menu = (!media_slots.is_empty() || state_open).then(|| {
             let file_menu = Submenu::new("File", true);
             for slot in media_slots {
                 let item = MenuItem::new(format!("Open {}…", slot.display_name), true, None);
@@ -147,6 +151,16 @@ impl AppMenu {
                     },
                 );
                 file_menu.append(&item).expect("append file item");
+            }
+            if state_open {
+                if !media_slots.is_empty() {
+                    file_menu
+                        .append(&PredefinedMenuItem::separator())
+                        .expect("append file separator");
+                }
+                let item = MenuItem::new("Open State…", true, None);
+                action_map.insert(item.id().clone(), AppCommand::OpenState);
+                file_menu.append(&item).expect("append open state");
             }
             file_menu
         });
@@ -332,6 +346,7 @@ impl AppMenu {
         _media_slots: &[MediaSlot],
         _variants: &[VariantInfo],
         _current_variant: Option<&str>,
+        _state_open: bool,
     ) -> Self {
         Self
     }
