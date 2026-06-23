@@ -143,8 +143,18 @@ harness itself to grow.
 **D. The remaining bespoke migrations (need the C capabilities):**
 Amiga (#557 — mouse, dual joystick ports, keyboard-joystick toggle, 5 models,
 DF0 ADF), C64 (#558 — tape/disk/dual-input/SID/multi-ROM), Dragon (#559 — axes,
-semantic keymap, tape autoload), then **Spectrum (#560, last)** — re-point it at
-the now-complete harness and delete its `ui/` module.
+semantic keymap, tape autoload), then **Spectrum (#560, last)**.
+
+**Spectrum (#560) — ✅ DONE (2026-06-23).** Migrated to the harness; the 2065-line
+`ui/` module is deleted, replaced by a single `src/ui.rs` (`UiSystem` over
+`SpectrumRuntimeKind`). Required four new harness capabilities first, each its
+own PR (zero-regression, decided with Steve): live variant switching (#634),
+tape transport + turbo (#635), gamepad analogue axes (#636), and a File → Open
+State… hook for `.sna`/`.z80` import (#637). All 13 variants switch live via the
+Machine menu; tape (F9/F10/turbo), +3 disk, snapshot import, and quick-save/load
+are preserved. **Dropped:** the per-channel audio toggles (Numpad 0/1/2,
+stderr-only) and the `EMU198X_FPS` counter — both intentional. The Amiga/C64/
+Dragon bespoke migrations (#557–#559) can now reuse these capabilities.
 
 ## Reference points
 

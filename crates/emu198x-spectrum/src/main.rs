@@ -1,25 +1,22 @@
 //! `emu198x-spectrum` — Spectrum SOLID native binary.
 //!
 //! One binary, three modes (UI default, script, MCP). `main.rs` is a
-//! tiny dispatcher; the modes live in `src/ui/`, `src/script/`,
-//! `src/mcp/`. Shared state: `src/machine.rs` (MachineKind, ROM
-//! resolver) and `src/live_machine.rs` (LiveSpectrumRuntime trait +
-//! per-variant `build_runtime` factory).
+//! tiny dispatcher; the modes live in `src/ui.rs`, `src/script/`,
+//! `src/mcp/`. Shared state: `src/machine.rs` (MachineKind, ROM resolver).
 //!
 //! See `docs/brainstorms/2026-05-08-track-1b-single-binary-brainstorm.md`
 //! for the design that drove this layout.
 //!
 //! # Cargo features
 //!
-//! - `ui` (default) — compiles in winit + wgpu + muda for the
-//!   interactive Machine / File / State / View menus and the framed
+//! - `ui` (default) — compiles in the shared `emu198x-ui` harness (winit +
+//!   wgpu + muda) for the interactive window, native menu, and framed
 //!   audio/video loop. Required for `--ui` mode.
 //! - Without `ui` — `--script` and `--mcp` modes still work; `--ui`
 //!   errors at runtime with a "rebuild with `--features ui`" message.
 //!   Code198x's headless screenshot/video pipeline uses this build to
 //!   skip the heavy graphics stack.
 
-mod live_machine;
 mod machine;
 mod mcp;
 mod portable_snapshot;
@@ -32,11 +29,6 @@ use std::process;
 
 use emu198x_shell::{AssetLoadError, MachineError, NativeAudioError, QueryError};
 use thiserror::Error;
-
-#[cfg(feature = "ui")]
-use emu198x_native_video::VideoPresenterError;
-#[cfg(feature = "ui")]
-use winit::error::{EventLoopError, OsError};
 
 use crate::machine::FirmwareError;
 
@@ -69,17 +61,11 @@ pub enum AppError {
     #[error(transparent)]
     Audio(#[from] NativeAudioError),
 
+    /// A failure surfaced by the shared `emu198x-ui` harness (window, video,
+    /// audio, or the runtime construction the UI does at startup), as a string.
     #[cfg(feature = "ui")]
-    #[error(transparent)]
-    Video(#[from] VideoPresenterError),
-
-    #[cfg(feature = "ui")]
-    #[error(transparent)]
-    EventLoop(#[from] EventLoopError),
-
-    #[cfg(feature = "ui")]
-    #[error(transparent)]
-    Os(#[from] OsError),
+    #[error("{0}")]
+    Ui(String),
 
     #[error("invalid --scale value {value}")]
     InvalidScale { value: u32 },
@@ -168,7 +154,7 @@ fn main() {
 #[cfg(feature = "ui")]
 fn run_ui(args: Vec<String>) -> Result<(), AppError> {
     let cli = ui::parse_cli(args);
-    ui::run(cli)
+    ui::run(cli).map_err(AppError::Ui)
 }
 
 #[cfg(not(feature = "ui"))]
