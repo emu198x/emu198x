@@ -8,36 +8,24 @@ repository.workspace = true
 [features]
 # UI mode is on by default for interactive / dev builds. Code198x's
 # headless screenshot/video pipeline builds with `--no-default-features`
-# to skip the heavy graphics stack (winit + wgpu + muda) — the
+# to skip the shared `emu198x-ui` harness (winit + wgpu + muda) — the
 # `--script` and `--mcp` modes still work, only `--ui` errors out at
 # runtime with a "rebuild with --features ui" message.
-#
-# muda is target-specific (non-Linux only) — its 0.19.x line does not
-# compile on Linux with default-features = false, and the Linux GTK
-# backend was intentionally disabled at the workspace dep level to
-# dodge a Dependabot alert (glib 0.18.x VariantStrIter unsoundness).
-# Linux gets a no-op stub menu implementation; menus aren't wired up
-# on Linux yet anyway (`init_for_gtk_window` is a track-1c TODO).
 default = ["ui"]
-ui = ["dep:emu198x-native-video", "dep:rfd", "dep:winit"]
+ui = ["dep:emu198x-ui"]
 
 [dependencies]
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.2.0" }
-emu198x-native-video = { path = "../emu198x-native-video", optional = true , version = "0.2.0" }
 emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+emu198x-ui = { path = "../emu198x-ui", version = "0.2.0", optional = true }
 format-sinclair-zx-spectrum-bas = { path = "../format-sinclair-zx-spectrum-bas", version = "0.2.0" }
 format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna", version = "0.2.0" }
 format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.2.0" }
-rfd = { workspace = true, optional = true }
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.2.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror.workspace = true
-winit = { workspace = true, optional = true }
 zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
-
-[target.'cfg(not(target_os = "linux"))'.dependencies]
-muda = { workspace = true }
 
 [lints]
 workspace = true
