@@ -6,8 +6,9 @@
 //!
 //! # Cargo features
 //!
-//! - `ui` (default) — compiles in winit + wgpu for the interactive
-//!   verifier window. Required for the default UI mode.
+//! - `ui` (default) — compiles in the shared `emu198x-ui` harness
+//!   (winit + wgpu + muda) for the interactive verifier window. Required
+//!   for the default UI mode.
 //! - Without `ui` (`--no-default-features`) — `--script` and `--mcp`
 //!   still work; the default UI path errors at runtime with a
 //!   "rebuild with `--features ui`" message. The headless
@@ -90,7 +91,7 @@ fn main() {
 #[cfg(feature = "ui")]
 fn run_ui(args: Vec<String>) -> Result<(), String> {
     let cli = ui::parse_cli(args);
-    ui::run(cli).map_err(|err| err.to_string())
+    ui::run(cli)
 }
 
 #[cfg(not(feature = "ui"))]

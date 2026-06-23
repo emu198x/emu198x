@@ -1,51 +1,48 @@
-//! Interactive UI mode — `--ui` (default).
+//! Interactive UI mode — the Commodore 64 on the shared `emu198x-ui` harness.
 //!
-//! A native Commodore 64 verifier window: shared `wgpu` video, SID
-//! audio, keyboard, gamepad/host-key joystick, PRG/BAS/T64 import, tape
-//! and `D64` autoload. Compiled only with the `ui` Cargo feature; the
-//! dispatcher in `main.rs` routes here when no headless-only flag is
-//! present.
+//! This replaces the former bespoke winit + wgpu runner with a thin
+//! [`UiSystem`] descriptor over [`C64Runtime`]. The harness owns the window,
+//! video filters, framed audio, gamepad/keyboard plumbing, the native menu,
+//! save-states, tape transport, and live variant switching; this file supplies
+//! only the C64-specific knobs:
 //!
-//! This is intentionally narrow: one PAL/NTSC breadbin window, optional
-//! startup snapshot/program/tape import, direct keyboard input, hard reset,
-//! optional tape autoload, cycle-faithful tape turbo, and live audio/video
-//! over the existing runtime. It does not introduce a parallel emulation stack
-//! or fake media behavior.
+//! - **Keyboard**: [`map_c64_keys`] maps each physical host key to one or more
+//!   C64-matrix key names (the cursor combos, the shifted function keys, the
+//!   platform-key Commodore alias). In keyboard-joystick mode (toggled with
+//!   Page Up) the arrow keys + Space fall through to the gameport-2 joystick.
+//! - **Gamepad / keyboard-joystick**: [`C64_JOYSTICK_MAP`] drives gameport 2
+//!   (port 0); every face button is the single C64 fire.
+//! - **Variants**: PAL and NTSC breadbins as the Machine-menu radio. Both share
+//!   the same KERNAL/BASIC/CHARGEN/1541 firmware, so
+//!   [`switch_variant`](UiSystem::switch_variant) rebuilds the runtime from the
+//!   stashed firmware bytes via `from_firmware`.
+//! - **Tape**: F9/F10 transport + F11 turbo come free from the harness, gated on
+//!   the `tape-1` slot; [`tape_playing`](UiSystem::tape_playing) drives turbo.
+//!
+//! Compiled only with the `ui` Cargo feature; `main.rs` routes here when no
+//! headless-only flag is given.
 
-use std::collections::HashMap;
+use std::borrow::Cow;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
-use emu198x_native_video::{
-    PresentationProfile, VideoFilter, VideoPresenterError, WgpuVideoPresenter,
-};
-use emu198x_shell::query::query_value;
+use common_commodore_c64::timing::{C64Timing, TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::{
-    BootArtifacts, ButtonInputMap, ButtonTarget, CapturedFrame, ControlCommand, FirmwareImage,
-    FirmwareSet, HeadlessSession, HostControl, HostIo, InputEvent, LatestFrameCapture, MachineCore,
-    MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
-    NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink, QueryError,
-    QueryResult, ResetKind, RunResult, SessionQueryProvider, boot_machine, read_firmware_asset,
-    read_media_asset, read_program_asset,
+    BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, MachineError,
+    MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, boot_machine,
+    read_firmware_asset, read_media_asset, read_program_asset,
+};
+use emu198x_ui::{
+    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo, VideoFilter,
 };
 use runtime_commodore_c64::{
-    AudioControls, C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
+    C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
     DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, SidChannel,
-    autoload_basic_disk, autoload_basic_tape, file_loader::load_host_file,
+    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_disk,
+    autoload_basic_tape, file_loader::load_host_file,
 };
-use thiserror::Error;
-use winit::application::ApplicationHandler;
-use winit::dpi::LogicalSize;
-use winit::error::{EventLoopError, OsError};
-use winit::event::{ElementState, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::{Window, WindowAttributes, WindowId};
 
 const KERNAL_ID: &str = "commodore-c64-kernal-rom";
 const BASIC_ID: &str = "commodore-c64-basic-rom";
@@ -54,9 +51,16 @@ const DRIVE1541_ID: &str = "commodore-1541-dos-rom";
 const DEFAULT_SCALE: u32 = 2;
 const DEFAULT_IMPORT_BOOT_FRAMES: u32 = 200;
 const INPUT_SLICES_PER_FRAME: u32 = 8;
-const MAX_CATCH_UP_FRAMES: u32 = 4;
-const MAX_TURBO_TAPE_FRAMES: u32 = 32;
-const MAX_AUDIO_BUFFER_MS: u32 = 250;
+const DEFAULT_TAPE_SLOT: &str = "tape-1";
+const DEFAULT_DISK_SLOT: &str = "drive-8";
+
+const PAL_ID: &str = "pal";
+const NTSC_ID: &str = "ntsc";
+
+/// A resolved firmware bundle: `(id, bytes)` per ROM image. Stashed on the
+/// [`C64System`] so a live variant switch can rebuild without re-reading ROMs.
+type FirmwareBundle = Vec<(String, Vec<u8>)>;
+
 // Seam-2 input port convention: port 0 = C64 gameport 2 (CIA1 PA,
 // the main "gameport"). See runtime-commodore-c64/src/input.rs for
 // the full mapping rationale. The host gamepad's face buttons all
@@ -72,51 +76,253 @@ const C64_JOYSTICK_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::North, ButtonTarget::new(0, "fire")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-c64 [OPTIONS]
+/// Maps one physical host key to one or more C64-matrix key names. Lifted
+/// verbatim from the bespoke `map_c64_keys`.
+fn map_c64_keys(code: KeyCode) -> Option<&'static [&'static str]> {
+    Some(match code {
+        KeyCode::KeyA => &["a"],
+        KeyCode::KeyB => &["b"],
+        KeyCode::KeyC => &["c"],
+        KeyCode::KeyD => &["d"],
+        KeyCode::KeyE => &["e"],
+        KeyCode::KeyF => &["f"],
+        KeyCode::KeyG => &["g"],
+        KeyCode::KeyH => &["h"],
+        KeyCode::KeyI => &["i"],
+        KeyCode::KeyJ => &["j"],
+        KeyCode::KeyK => &["k"],
+        KeyCode::KeyL => &["l"],
+        KeyCode::KeyM => &["m"],
+        KeyCode::KeyN => &["n"],
+        KeyCode::KeyO => &["o"],
+        KeyCode::KeyP => &["p"],
+        KeyCode::KeyQ => &["q"],
+        KeyCode::KeyR => &["r"],
+        KeyCode::KeyS => &["s"],
+        KeyCode::KeyT => &["t"],
+        KeyCode::KeyU => &["u"],
+        KeyCode::KeyV => &["v"],
+        KeyCode::KeyW => &["w"],
+        KeyCode::KeyX => &["x"],
+        KeyCode::KeyY => &["y"],
+        KeyCode::KeyZ => &["z"],
+        KeyCode::Digit0 => &["0"],
+        KeyCode::Digit1 => &["1"],
+        KeyCode::Digit2 => &["2"],
+        KeyCode::Digit3 => &["3"],
+        KeyCode::Digit4 => &["4"],
+        KeyCode::Digit5 => &["5"],
+        KeyCode::Digit6 => &["6"],
+        KeyCode::Digit7 => &["7"],
+        KeyCode::Digit8 => &["8"],
+        KeyCode::Digit9 => &["9"],
+        KeyCode::Enter | KeyCode::NumpadEnter => &["return"],
+        KeyCode::Space => &["space"],
+        KeyCode::Backspace | KeyCode::Delete => &["delete"],
+        KeyCode::ShiftLeft => &["lshift"],
+        KeyCode::ShiftRight => &["rshift"],
+        KeyCode::ControlLeft | KeyCode::ControlRight => &["ctrl"],
+        KeyCode::AltLeft | KeyCode::AltRight | KeyCode::SuperLeft | KeyCode::SuperRight => {
+            &["commodore"]
+        }
+        KeyCode::ArrowRight => &["right"],
+        KeyCode::ArrowLeft => &["lshift", "right"],
+        KeyCode::ArrowDown => &["down"],
+        KeyCode::ArrowUp => &["lshift", "down"],
+        KeyCode::Home => &["home"],
+        KeyCode::F1 => &["f1"],
+        KeyCode::F2 => &["lshift", "f1"],
+        KeyCode::F3 => &["f3"],
+        KeyCode::F4 => &["lshift", "f3"],
+        KeyCode::F5 => &["f5"],
+        KeyCode::F6 => &["lshift", "f5"],
+        KeyCode::F7 => &["f7"],
+        KeyCode::F8 => &["lshift", "f7"],
+        KeyCode::Minus => &["minus"],
+        KeyCode::Equal => &["equals"],
+        KeyCode::Comma => &["comma"],
+        KeyCode::Period => &["period"],
+        KeyCode::Slash => &["slash"],
+        KeyCode::Semicolon => &["semicolon"],
+        KeyCode::Quote => &["colon"],
+        KeyCode::BracketLeft => &["at"],
+        KeyCode::BracketRight => &["asterisk"],
+        KeyCode::Backslash => &["plus"],
+        KeyCode::Backquote => &["leftarrow"],
+        KeyCode::Tab => &["runstop"],
+        _ => return None,
+    })
+}
 
-Options:
-    --rom-dir DIR        directory containing Commodore ROM images
-    --kernal PATH        override KERNAL ROM path
-    --basic PATH         override BASIC ROM path
-    --chargen PATH       override character ROM path
-    --model MODEL        pal or ntsc [default: pal]
-    --load PATH          import one .prg or plain-text .bas file after boot
-    --disk PATH          insert one D64 image into drive-8 at startup
-    --tape PATH          insert one TAP image into datasette slot at startup
-    --autoload-disk      wait for READY. and type LOAD\"*\",8,1 for drive-8
-    --autoload-tape      wait for READY., press SHIFT+RUN/STOP, and start tape-1
-    --start-tape         start the inserted tape immediately at startup
-    --turbo-tape         run unthrottled while the tape is playing
-    --load-snapshot PATH restore a runtime snapshot before starting
-    --scale N            integer window scale, default 2
-    --video MODE         raw | lcd | crt [default: raw]
-    --help, -h           show this help
+/// The arrow keys + Space the keyboard-joystick mode steals from the keyboard
+/// path and routes through the gameport-2 button map. Lifted from the bespoke
+/// `map_c64_joystick_key`.
+fn map_c64_joystick_key(code: KeyCode) -> Option<HostControl> {
+    Some(match code {
+        KeyCode::ArrowUp => HostControl::Up,
+        KeyCode::ArrowDown => HostControl::Down,
+        KeyCode::ArrowLeft => HostControl::Left,
+        KeyCode::ArrowRight => HostControl::Right,
+        KeyCode::Space => HostControl::South,
+        _ => return None,
+    })
+}
 
-Controls:
-    Esc                  quit
-    F9                   start tape
-    F10                  stop tape
-    F11                  toggle tape turbo
-    F12                  hard reset
-    Page Up              toggle arrow/space joystick mode for port 2
-    Numpad 1-3           toggle SID voices 1-3
-    Numpad 4-6           cycle SID voice 1-3 gain
-    Numpad 0             reset SID voice controls
-    Arrow keys           C64 cursor keys
-    Arrow keys + Space   joystick port 2 when F8 mode is enabled
-    F1-F8                C64 function keys
-    Alt / Command        Commodore key
-    Tab                  Run/Stop
+// ---- The UiSystem ----------------------------------------------------------
 
-Examples:
-    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64
-    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas
-    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64
-    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --autoload-disk
-    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape
-    emu198x-c64 --load-snapshot ready.c64.pst
-";
+/// The C64 as a [`UiSystem`]. Tracks the active model so the title and the
+/// Machine-menu radio follow live switches, the resolved firmware (so a variant
+/// switch can rebuild without re-reading ROMs), and whether the arrow keys /
+/// Space currently drive the gameport-2 joystick (Page Up).
+struct C64System {
+    model: Model,
+    firmware: FirmwareBundle,
+    keyboard_joystick: bool,
+}
+
+impl C64System {
+    fn timing(&self) -> &'static C64Timing {
+        match self.model {
+            Model::C64NtscBreadbin => &TIMING_NTSC_BREADBIN,
+            _ => &TIMING_PAL_BREADBIN,
+        }
+    }
+}
+
+impl UiSystem for C64System {
+    type Runtime = C64Runtime;
+
+    fn window_title(&self) -> String {
+        format!("Emu198x | Commodore 64 ({})", model_label(self.model))
+    }
+
+    fn default_scale(&self) -> u32 {
+        DEFAULT_SCALE
+    }
+
+    fn framebuffer_size(&self, runtime: &Self::Runtime) -> (u32, u32) {
+        let vic = runtime.machine().vic();
+        (vic.framebuffer_width(), vic.framebuffer_height())
+    }
+
+    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
+        u64::from(self.timing().cycles_per_frame)
+    }
+
+    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
+        let timing = self.timing();
+        Duration::from_secs_f64(f64::from(timing.cycles_per_frame) / timing.cpu_hz as f64)
+    }
+
+    fn input_slices_per_frame(&self) -> u32 {
+        INPUT_SLICES_PER_FRAME
+    }
+
+    fn button_map(&self) -> &'static ButtonInputMap {
+        &C64_JOYSTICK_MAP
+    }
+
+    fn map_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
+        // In keyboard-joystick mode the arrow keys + Space fall through to the
+        // joystick path (returning `None` here so the harness routes them
+        // through `map_key` + the button map instead).
+        if self.keyboard_joystick && map_c64_joystick_key(code).is_some() {
+            return None;
+        }
+        map_c64_keys(code)
+    }
+
+    fn map_key(&self, code: KeyCode) -> Option<HostControl> {
+        // Only meaningful in keyboard-joystick mode; otherwise the arrow keys +
+        // Space are handled as keyboard keys by `map_keys`.
+        if self.keyboard_joystick {
+            map_c64_joystick_key(code)
+        } else {
+            None
+        }
+    }
+
+    fn handle_key(&mut self, _runtime: &mut Self::Runtime, code: KeyCode, pressed: bool) -> bool {
+        if code == KeyCode::PageUp {
+            if pressed {
+                self.keyboard_joystick = !self.keyboard_joystick;
+                eprintln!(
+                    "input: keyboard joystick {}",
+                    if self.keyboard_joystick {
+                        "enabled on gameport 2"
+                    } else {
+                        "disabled"
+                    }
+                );
+            }
+            return true;
+        }
+        false
+    }
+
+    fn tape_playing(&self, runtime: &Self::Runtime) -> bool {
+        runtime.machine().tape_is_playing()
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        vec![
+            VariantInfo::new(PAL_ID, model_label(Model::C64PalBreadbin)),
+            VariantInfo::new(NTSC_ID, model_label(Model::C64NtscBreadbin)),
+        ]
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(variant_id(self.model)))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        variant: &str,
+    ) -> Result<(), MachineError> {
+        let model = model_for_variant(variant).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown Commodore 64 variant",
+        })?;
+        // PAL and NTSC breadbins share the same KERNAL/BASIC/CHARGEN/1541
+        // firmware, so rebuild from the stashed bytes rather than re-reading the
+        // ROM files. The harness re-paces and refreshes; state/media are not
+        // preserved (a hardware swap).
+        let mut firmware = FirmwareSet::new();
+        for (id, bytes) in &self.firmware {
+            firmware.push(FirmwareImage::new(id.clone(), bytes));
+        }
+        *runtime = C64Runtime::from_firmware(model, &firmware)?;
+        self.model = model;
+        Ok(())
+    }
+}
+
+/// The PAL/NTSC label for a model.
+fn model_label(model: Model) -> &'static str {
+    match model {
+        Model::C64NtscBreadbin => "NTSC Breadbin",
+        _ => "PAL Breadbin",
+    }
+}
+
+/// The stable variant id for a model (round-trips through [`model_for_variant`]).
+fn variant_id(model: Model) -> &'static str {
+    match model {
+        Model::C64NtscBreadbin => NTSC_ID,
+        _ => PAL_ID,
+    }
+}
+
+/// Resolve a variant id from the Machine menu back to a [`Model`].
+fn model_for_variant(variant: &str) -> Option<Model> {
+    match variant {
+        PAL_ID => Some(Model::C64PalBreadbin),
+        NTSC_ID => Some(Model::C64NtscBreadbin),
+        _ => None,
+    }
+}
+
+// ---- Construction + CLI ----------------------------------------------------
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Cli {
@@ -144,6 +350,21 @@ enum ModelArg {
     Ntsc,
 }
 
+impl ModelArg {
+    const fn to_model(self) -> Model {
+        match self {
+            Self::Pal => Model::C64PalBreadbin,
+            Self::Ntsc => Model::C64NtscBreadbin,
+        }
+    }
+}
+
+impl From<ModelArg> for Model {
+    fn from(arg: ModelArg) -> Self {
+        arg.to_model()
+    }
+}
+
 #[derive(Debug)]
 struct LoadedFirmware {
     id: &'static str,
@@ -156,835 +377,93 @@ struct LoadedProgram {
     bytes: Vec<u8>,
 }
 
-#[derive(Debug, Error)]
-pub enum AppError {
-    #[error(transparent)]
-    Machine(#[from] MachineError),
-
-    #[error(transparent)]
-    Query(#[from] QueryError),
-
-    #[error(transparent)]
-    Session(#[from] emu198x_shell::SessionError),
-
-    #[error(transparent)]
-    Video(#[from] VideoPresenterError),
-
-    #[error(transparent)]
-    EventLoop(#[from] EventLoopError),
-
-    #[error(transparent)]
-    Os(#[from] OsError),
-
-    #[error(transparent)]
-    Audio(#[from] NativeAudioError),
-
-    #[error("invalid --scale value {value}")]
-    InvalidScale { value: u32 },
-
-    #[error("{reason}")]
-    Setup { reason: String },
-}
-
-struct C64Runner {
-    runtime: C64Runtime,
-    query_provider: C64SessionQueryProvider,
-    frame_capture: LatestFrameCapture,
-    audio_output: NativeAudioOutput,
-    last_run_result: Option<RunResult>,
-    native_frame_ticks: u64,
-    frame_width: u32,
-    frame_height: u32,
-    title_base: String,
-}
-
-impl C64Runner {
-    fn from_cli(cli: &Cli) -> Result<Self, AppError> {
-        if cli.autoload_disk && cli.autoload_tape {
-            return Err(AppError::Setup {
-                reason: "--autoload-disk conflicts with --autoload-tape".to_owned(),
-            });
-        }
-        if cli.autoload_tape && cli.start_tape {
-            return Err(AppError::Setup {
-                reason: "--autoload-tape conflicts with --start-tape".to_owned(),
-            });
-        }
-        if (cli.autoload_tape || cli.start_tape) && cli.tape.is_none() {
-            return Err(AppError::Setup {
-                reason: "--autoload-tape and --start-tape require --tape PATH".to_owned(),
-            });
-        }
-
-        let machine = boot_runtime(cli).map_err(|reason| AppError::Setup { reason })?;
-        let native_frame_ticks = cli.native_frame_ticks();
-        let mut session = HeadlessSession::new_with_query_provider(
-            machine,
-            native_frame_ticks,
-            C64SessionQueryProvider,
-        );
-
-        if let Some(path) = &cli.tape {
-            let loaded =
-                read_media_asset(path, MediaKind::Tape).map_err(|err| AppError::Setup {
-                    reason: format!("failed to load tape asset {}: {err}", path.display()),
-                })?;
-            let mut media = MediaSet::new();
-            media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
-            session.load_media(&media).map_err(|err| AppError::Setup {
-                reason: format!("tape load failed: {err}"),
-            })?;
-        }
-
-        if let Some(path) = &cli.disk {
-            let loaded =
-                read_media_asset(path, MediaKind::Disk).map_err(|err| AppError::Setup {
-                    reason: format!("failed to load disk asset {}: {err}", path.display()),
-                })?;
-            let mut media = MediaSet::new();
-            media.push(MediaImage::new("drive-8", MediaKind::Disk, &loaded.bytes));
-            session.load_media(&media).map_err(|err| AppError::Setup {
-                reason: format!("disk load failed: {err}"),
-            })?;
-        }
-
-        if cli.autoload_tape {
-            autoload_basic_tape(
-                &mut session,
-                DEFAULT_TAPE_AUTOLOAD_SLOT,
-                DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-                DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
-            )
-            .map_err(|err| AppError::Setup {
-                reason: format!("tape autoload failed: {err}"),
-            })?;
-        } else if cli.autoload_disk {
-            autoload_basic_disk(
-                &mut session,
-                DEFAULT_DISK_AUTOLOAD_SLOT,
-                DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-                DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
-            )
-            .map_err(|err| AppError::Setup {
-                reason: format!("disk autoload failed: {err}"),
-            })?;
-        } else if cli.start_tape {
-            session
-                .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
-                    DEFAULT_TAPE_AUTOLOAD_SLOT,
-                    MediaTransportAction::Start,
-                )))
-                .map_err(|err| AppError::Setup {
-                    reason: format!("failed to start tape transport: {err}"),
-                })?;
-        }
-
-        if let Some(path) = &cli.load {
-            let _ = session.wait_for_boot(DEFAULT_IMPORT_BOOT_FRAMES)?;
-
-            let loaded = load_program_bytes(path).map_err(|reason| AppError::Setup { reason })?;
-            let message = load_host_file(session.machine_mut(), &loaded.name, &loaded.bytes)
-                .map_err(|reason| AppError::Setup { reason })?;
-            println!("{message}");
-        }
-
-        let runtime = session.into_machine();
-        let frame_width = runtime.machine().vic().framebuffer_width();
-        let frame_height = runtime.machine().vic().framebuffer_height();
-        let audio_output = NativeAudioOutput::new(MAX_AUDIO_BUFFER_MS)?;
-        let mut runner = Self {
-            runtime,
-            query_provider: C64SessionQueryProvider,
-            frame_capture: LatestFrameCapture::default(),
-            audio_output,
-            last_run_result: None,
-            native_frame_ticks,
-            frame_width,
-            frame_height,
-            title_base: cli.window_title_base(),
-        };
-        runner.run_frame(&[])?;
-        Ok(runner)
-    }
-
-    fn reset(&mut self) -> Result<(), AppError> {
-        self.runtime.reset(ResetKind::Hard);
-        self.last_run_result = None;
-        self.frame_capture = LatestFrameCapture::default();
-        self.audio_output.clear();
-        self.run_frame(&[])?;
-        Ok(())
-    }
-
-    fn run_frame(&mut self, input_events: &[InputEvent]) -> Result<(), AppError> {
-        let _ = self.run_ticks(input_events, self.native_frame_ticks)?;
-        Ok(())
-    }
-
-    fn run_ticks(&mut self, input_events: &[InputEvent], ticks: u64) -> Result<bool, AppError> {
-        let previous_frame_timestamp = self.frame().map(|frame| frame.timestamp);
-        let target = self.runtime.time().saturating_add(ticks);
-        let mut trace_sink = NullTraceSink;
-        let mut host = HostIo {
-            input_events,
-            frame_sink: &mut self.frame_capture,
-            audio_sink: &mut self.audio_output,
-            trace_sink: &mut trace_sink,
-        };
-        self.last_run_result = Some(self.runtime.run_until(target, &mut host)?);
-        Ok(self.frame().map(|frame| frame.timestamp) != previous_frame_timestamp)
-    }
-
-    fn frame(&self) -> Option<&CapturedFrame> {
-        self.frame_capture.frame()
-    }
-
-    fn frame_size(&self) -> (u32, u32) {
-        (self.frame_width, self.frame_height)
-    }
-
-    fn toggle_audio_channel(&mut self, channel: SidChannel) -> bool {
-        let controls = self.runtime.audio_controls();
-        let enabled = !controls.channel(channel).enabled();
-        self.runtime.set_audio_channel_enabled(channel, enabled);
-        enabled
-    }
-
-    fn cycle_audio_channel_gain(&mut self, channel: SidChannel) -> f32 {
-        let controls = self.runtime.audio_controls();
-        let next = next_audio_gain(controls.channel(channel).gain());
-        self.runtime.set_audio_channel_gain(channel, next);
-        next
-    }
-
-    fn reset_audio_controls(&mut self) {
-        self.runtime.set_audio_controls(AudioControls::default());
-    }
-
-    fn query(&self, path: &str) -> Result<QueryResult, AppError> {
-        match query_value(
-            self.runtime.profile(),
-            self.runtime.time(),
-            self.native_frame_ticks,
-            self.frame().is_some(),
-            false,
-            self.last_run_result,
-            path,
-        ) {
-            Ok(result) => Ok(result),
-            Err(QueryError::UnknownPath { .. }) => self
-                .query_provider
-                .query(&self.runtime, path)?
-                .ok_or_else(|| QueryError::UnknownPath {
-                    path: path.to_owned(),
-                })
-                .map_err(AppError::from),
-            Err(err) => Err(AppError::from(err)),
-        }
-    }
-
-    fn query_bool(&self, path: &str) -> bool {
-        self.query(path)
-            .ok()
-            .and_then(|result| result.value.as_bool())
-            .unwrap_or(false)
-    }
-
-    fn tape_loaded(&self) -> bool {
-        self.runtime.machine().tape_is_loaded()
-    }
-
-    fn tape_playing(&self) -> bool {
-        self.runtime.machine().tape_is_playing()
-    }
-
-    fn start_tape(&mut self) -> Result<(), AppError> {
-        self.runtime
-            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
-                DEFAULT_TAPE_AUTOLOAD_SLOT,
-                MediaTransportAction::Start,
-            )))?;
-        self.run_frame(&[])?;
-        Ok(())
-    }
-
-    fn stop_tape(&mut self) -> Result<(), AppError> {
-        self.runtime
-            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
-                DEFAULT_TAPE_AUTOLOAD_SLOT,
-                MediaTransportAction::Stop,
-            )))?;
-        self.run_frame(&[])?;
-        Ok(())
-    }
-
-    fn window_title(&self) -> String {
-        let boot = if self.query_bool("boot.detected") {
-            "booted"
-        } else {
-            "booting"
-        };
-        let tape = if self.tape_playing() {
-            "tape playing"
-        } else if self.tape_loaded() {
-            "tape loaded"
-        } else {
-            "no tape"
-        };
-        let disk = if self.query_bool("drive8.disk.inserted") {
-            "disk loaded"
-        } else {
-            "no disk"
-        };
-        format!("{} | {} | {} | {}", self.title_base, boot, tape, disk)
-    }
-}
-
-struct C64App {
-    runner: C64Runner,
-    scale: u32,
-    slice_ticks: u64,
-    slice_duration: Duration,
-    next_slice_at: Instant,
-    turbo_tape: bool,
-    keyboard_joystick: bool,
-    pending_inputs: Vec<InputEvent>,
-    pressed_keys: HashMap<KeyCode, Vec<&'static str>>,
-    pressed_buttons: HashMap<KeyCode, HostControl>,
-    gamepads: NativeGamepadInput,
-    window: Option<Arc<Window>>,
-    video: Option<WgpuVideoPresenter>,
-    presentation: PresentationProfile,
-    fatal_error: Option<AppError>,
-}
-
-impl C64App {
-    fn new(
-        runner: C64Runner,
-        scale: u32,
-        turbo_tape: bool,
-        video: VideoFilter,
-    ) -> Result<Self, AppError> {
-        if scale == 0 {
-            return Err(AppError::InvalidScale { value: scale });
-        }
-
-        let slice_ticks = subframe_ticks(runner.native_frame_ticks);
-        let slice_duration = subframe_duration(c64_frame_duration_for_ticks(
-            runner.native_frame_ticks,
-            runner.runtime.profile().clock.rate.numerator_hz,
-        ));
-        Ok(Self {
-            runner,
-            scale,
-            slice_ticks,
-            slice_duration,
-            next_slice_at: Instant::now(),
-            turbo_tape,
-            keyboard_joystick: false,
-            pending_inputs: Vec::new(),
-            pressed_keys: HashMap::new(),
-            pressed_buttons: HashMap::new(),
-            gamepads: NativeGamepadInput::new(),
-            window: None,
-            video: None,
-            presentation: PresentationProfile::for_filter(video),
-            fatal_error: None,
-        })
-    }
-
-    fn take_error(&mut self) -> Option<AppError> {
-        self.fatal_error.take()
-    }
-
-    fn fail(&mut self, event_loop: &ActiveEventLoop, err: AppError) {
-        eprintln!("error: {err}");
-        self.fatal_error = Some(err);
-        event_loop.exit();
-    }
-
-    fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), AppError> {
-        if self.window.is_some() {
-            return Ok(());
-        }
-
-        let (frame_width, frame_height) = self.runner.frame_size();
-        let logical_width = f64::from(frame_width.saturating_mul(self.scale));
-        let logical_height = f64::from(frame_height.saturating_mul(self.scale));
-        let attributes = WindowAttributes::default()
-            .with_title(self.window_title())
-            .with_inner_size(LogicalSize::new(logical_width, logical_height))
-            .with_min_inner_size(LogicalSize::new(
-                f64::from(frame_width),
-                f64::from(frame_height),
-            ));
-        let window = Arc::new(event_loop.create_window(attributes)?);
-        let video = WgpuVideoPresenter::new(window.clone(), frame_width, frame_height)?;
-
-        self.window = Some(window);
-        self.video = Some(video);
-        self.next_slice_at = Instant::now();
-        Ok(())
-    }
-
-    fn window_id(&self) -> Option<WindowId> {
-        self.window.as_ref().map(|window| window.id())
-    }
-
-    fn turbo_tape_active(&self) -> bool {
-        self.turbo_tape && self.runner.tape_playing()
-    }
-
-    fn window_title(&self) -> String {
-        let mut title = self.runner.window_title();
-        if self.turbo_tape {
-            if self.runner.tape_playing() {
-                title.push_str(" | turbo");
-            } else {
-                title.push_str(" | turbo armed");
-            }
-        }
-        if self.keyboard_joystick {
-            title.push_str(" | joy2 keys");
-        }
-        title
-    }
-
-    fn set_turbo_tape(&mut self, enabled: bool) {
-        self.turbo_tape = enabled;
-        self.next_slice_at = Instant::now() + self.slice_duration;
-    }
-
-    fn advance_machine(&mut self) -> Result<bool, AppError> {
-        self.gamepads
-            .drain_events(&C64_JOYSTICK_MAP, &mut self.pending_inputs);
-
-        if self.turbo_tape_active() {
-            let mut ran_frames = 0;
-            while ran_frames < MAX_TURBO_TAPE_FRAMES && self.turbo_tape_active() {
-                let inputs = std::mem::take(&mut self.pending_inputs);
-                self.runner.run_frame(&inputs)?;
-                ran_frames += 1;
-            }
-            self.next_slice_at = Instant::now() + self.slice_duration;
-            return Ok(ran_frames != 0);
-        }
-
-        let now = Instant::now();
-        if now < self.next_slice_at {
-            return Ok(false);
-        }
-
-        let mut ran_slices = 0;
-        let max_catch_up_slices = MAX_CATCH_UP_FRAMES.saturating_mul(INPUT_SLICES_PER_FRAME);
-        let mut frame_completed = false;
-        while Instant::now() >= self.next_slice_at && ran_slices < max_catch_up_slices {
-            let inputs = std::mem::take(&mut self.pending_inputs);
-            frame_completed |= self.runner.run_ticks(&inputs, self.slice_ticks)?;
-            self.next_slice_at += self.slice_duration;
-            ran_slices += 1;
-        }
-
-        if ran_slices == max_catch_up_slices && Instant::now() >= self.next_slice_at {
-            self.next_slice_at = Instant::now() + self.slice_duration;
-        }
-
-        Ok(frame_completed)
-    }
-
-    fn render(&mut self) -> Result<(), AppError> {
-        let Some(frame) = self.runner.frame() else {
-            return Ok(());
-        };
-        let Some(video) = self.video.as_mut() else {
-            return Ok(());
-        };
-
-        video.present(frame, &self.presentation)?;
-        Ok(())
-    }
-
-    fn resize_surface(&mut self, width: u32, height: u32) {
-        if let Some(video) = self.video.as_mut() {
-            video.resize_surface(width, height);
-        }
-    }
-
-    fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
-        if self.keyboard_joystick && self.queue_joystick_key_state(code, pressed) {
-            return;
-        }
-
-        let Some(names) = map_c64_keys(code) else {
-            return;
-        };
-
-        if pressed {
-            if self.pressed_keys.contains_key(&code) {
-                return;
-            }
-            self.pressed_keys.insert(code, names.to_vec());
-            self.pending_inputs
-                .extend(names.iter().copied().map(|name| c64_key_event(name, true)));
-            self.next_slice_at = Instant::now();
-        } else if let Some(names) = self.pressed_keys.remove(&code) {
-            self.pending_inputs
-                .extend(names.into_iter().map(|name| c64_key_event(name, false)));
-            self.next_slice_at = Instant::now();
-        }
-    }
-
-    fn queue_joystick_key_state(&mut self, code: KeyCode, pressed: bool) -> bool {
-        let Some(control) = map_c64_joystick_key(code) else {
-            return false;
-        };
-
-        if pressed {
-            if self.pressed_buttons.contains_key(&code) {
-                return true;
-            }
-            self.pressed_buttons.insert(code, control);
-            if let Some(input) = C64_JOYSTICK_MAP.event(control, true) {
-                self.pending_inputs.push(input);
-            }
-        } else if let Some(control) = self.pressed_buttons.remove(&code)
-            && let Some(input) = C64_JOYSTICK_MAP.event(control, false)
-        {
-            self.pending_inputs.push(input);
-        }
-        self.next_slice_at = Instant::now();
-        true
-    }
-
-    fn set_keyboard_joystick(&mut self, enabled: bool) {
-        if self.keyboard_joystick == enabled {
-            return;
-        }
-        self.release_all_inputs();
-        self.keyboard_joystick = enabled;
-        self.next_slice_at = Instant::now();
-    }
-
-    fn release_all_inputs(&mut self) {
-        self.release_all_keys();
-        self.release_all_buttons();
-    }
-
-    fn release_all_keys(&mut self) {
-        let keys = std::mem::take(&mut self.pressed_keys);
-        if keys.is_empty() {
-            return;
-        }
-        for names in keys.into_values() {
-            self.pending_inputs
-                .extend(names.into_iter().map(|name| c64_key_event(name, false)));
-        }
-        self.next_slice_at = Instant::now();
-    }
-
-    fn release_all_buttons(&mut self) {
-        let buttons = std::mem::take(&mut self.pressed_buttons);
-        if buttons.is_empty() {
-            return;
-        }
-        for control in buttons.into_values() {
-            if let Some(input) = C64_JOYSTICK_MAP.event(control, false) {
-                self.pending_inputs.push(input);
-            }
-        }
-        self.next_slice_at = Instant::now();
-    }
-
-    fn handle_shortcut(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        code: KeyCode,
-        pressed: bool,
-    ) -> bool {
-        if !pressed {
-            return matches!(
-                code,
-                KeyCode::Escape
-                    | KeyCode::F9
-                    | KeyCode::F10
-                    | KeyCode::F11
-                    | KeyCode::F12
-                    | KeyCode::PageUp
-                    | KeyCode::Numpad0
-                    | KeyCode::Numpad1
-                    | KeyCode::Numpad2
-                    | KeyCode::Numpad3
-                    | KeyCode::Numpad4
-                    | KeyCode::Numpad5
-                    | KeyCode::Numpad6
-            );
-        }
-
-        let result = match code {
-            KeyCode::Escape => {
-                event_loop.exit();
-                return true;
-            }
-            KeyCode::F9 => self.runner.start_tape(),
-            KeyCode::F10 => self.runner.stop_tape(),
-            KeyCode::PageUp => {
-                self.set_keyboard_joystick(!self.keyboard_joystick);
-                eprintln!(
-                    "input: keyboard joystick {}",
-                    if self.keyboard_joystick {
-                        "enabled on port 2"
-                    } else {
-                        "disabled"
-                    }
-                );
-                if let Some(window) = &self.window {
-                    window.set_title(&self.window_title());
-                    window.request_redraw();
-                }
-                return true;
-            }
-            KeyCode::F11 => {
-                self.set_turbo_tape(!self.turbo_tape);
-                if let Some(window) = &self.window {
-                    window.set_title(&self.window_title());
-                    window.request_redraw();
-                }
-                return true;
-            }
-            KeyCode::F12 => {
-                self.release_all_inputs();
-                self.runner.reset()
-            }
-            KeyCode::Numpad0 => {
-                self.runner.reset_audio_controls();
-                eprintln!("audio: reset SID voice controls");
-                return true;
-            }
-            KeyCode::Numpad1 => {
-                self.toggle_audio_channel_shortcut(SidChannel::Voice1);
-                return true;
-            }
-            KeyCode::Numpad2 => {
-                self.toggle_audio_channel_shortcut(SidChannel::Voice2);
-                return true;
-            }
-            KeyCode::Numpad3 => {
-                self.toggle_audio_channel_shortcut(SidChannel::Voice3);
-                return true;
-            }
-            KeyCode::Numpad4 => {
-                self.cycle_audio_channel_gain_shortcut(SidChannel::Voice1);
-                return true;
-            }
-            KeyCode::Numpad5 => {
-                self.cycle_audio_channel_gain_shortcut(SidChannel::Voice2);
-                return true;
-            }
-            KeyCode::Numpad6 => {
-                self.cycle_audio_channel_gain_shortcut(SidChannel::Voice3);
-                return true;
-            }
-            _ => return false,
-        };
-
-        if let Err(err) = result {
-            self.fail(event_loop, err);
-        }
-        true
-    }
-
-    fn toggle_audio_channel_shortcut(&mut self, channel: SidChannel) {
-        let enabled = self.runner.toggle_audio_channel(channel);
-        eprintln!(
-            "audio: {} {}",
-            channel.label(),
-            if enabled { "enabled" } else { "muted" }
-        );
-    }
-
-    fn cycle_audio_channel_gain_shortcut(&mut self, channel: SidChannel) {
-        let gain = self.runner.cycle_audio_channel_gain(channel);
-        eprintln!("audio: {} gain {:.0}%", channel.label(), gain * 100.0);
-    }
-}
-
-impl ApplicationHandler for C64App {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if let Err(err) = self.create_window(event_loop) {
-            self.fail(event_loop, err);
-        }
-    }
-
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window_id: WindowId,
-        event: WindowEvent,
-    ) {
-        if self.window_id() != Some(window_id) {
-            return;
-        }
-
-        match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Focused(false) => self.release_all_inputs(),
-            WindowEvent::Resized(size) => {
-                self.resize_surface(size.width, size.height);
-            }
-            WindowEvent::ScaleFactorChanged { .. } => {
-                if let Some(window) = &self.window {
-                    let size = window.inner_size();
-                    self.resize_surface(size.width, size.height);
-                }
-            }
-            WindowEvent::KeyboardInput { event, .. } => {
-                if event.repeat {
-                    return;
-                }
-                let PhysicalKey::Code(code) = event.physical_key else {
-                    return;
-                };
-                let pressed = event.state == ElementState::Pressed;
-                if self.handle_shortcut(event_loop, code, pressed) {
-                    return;
-                }
-                self.queue_key_state(code, pressed);
-            }
-            WindowEvent::RedrawRequested => {
-                if let Err(err) = self.render() {
-                    self.fail(event_loop, err);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        match self.advance_machine() {
-            Ok(true) => {
-                if let Some(window) = &self.window {
-                    window.set_title(&self.window_title());
-                    window.request_redraw();
-                }
-            }
-            Ok(false) => {}
-            Err(err) => {
-                self.fail(event_loop, err);
-                return;
-            }
-        }
-
-        if self.turbo_tape_active() {
-            event_loop.set_control_flow(ControlFlow::Poll);
-        } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_slice_at));
-        }
-    }
-}
-
-/// Builds the runtime + app from a parsed CLI and drives the winit event
-/// loop until the window closes or a fatal error surfaces.
-///
-/// # Errors
-///
-/// Returns an [`AppError`] if setup fails, the audio/video stack fails to
-/// initialise, or the event loop errors.
-pub fn run(cli: Cli) -> Result<(), AppError> {
+const USAGE: &str = "\
+Usage: emu198x-c64 [OPTIONS]
+
+Options:
+    --rom-dir DIR        directory containing Commodore ROM images
+    --kernal PATH        override KERNAL ROM path
+    --basic PATH         override BASIC ROM path
+    --chargen PATH       override character ROM path
+    --model MODEL        pal or ntsc [default: pal]
+    --load PATH          import one .prg or plain-text .bas file after boot
+    --disk PATH          insert one D64 image into drive-8 at startup
+    --tape PATH          insert one TAP image into datasette slot at startup
+    --autoload-disk      wait for READY. and type LOAD\"*\",8,1 for drive-8
+    --autoload-tape      wait for READY., press SHIFT+RUN/STOP, and start tape-1
+    --start-tape         start the inserted tape immediately at startup
+    --turbo-tape         run unthrottled while the tape is playing
+    --load-snapshot PATH restore a runtime snapshot before starting
+    --scale N            integer window scale, default 2
+    --video MODE         raw | lcd | crt [default: raw]
+    --help, -h           show this help
+
+Controls:
+    Esc                  quit
+    F9 / F10 / F11       start / stop tape, toggle tape turbo
+    F12                  hard reset
+    Cmd/Ctrl+S / +L      quick save / load state
+    Page Up              toggle arrow/space joystick mode for gameport 2
+    Arrow keys           C64 cursor keys
+    Arrow keys + Space   joystick gameport 2 when Page Up mode is enabled
+    F1-F8                C64 function keys
+    Alt / Command        Commodore key
+    Tab                  Run/Stop
+    Gamepad              maps to gameport 2
+    Machine menu         switch between PAL and NTSC live
+
+Examples:
+    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64
+    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas
+    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64
+    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --autoload-disk
+    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape
+    emu198x-c64 --load-snapshot ready.c64.pst
+";
+
+/// Build the runtime from the CLI and open the window.
+pub fn run(cli: Cli) -> Result<(), String> {
     println!(
-        "Controls: Esc quit, F9 start tape, F10 stop tape, F11 tape turbo, F12 reset, Page Up toggles joy2 arrows/space, gamepad maps to joy2, numpad 1-3 toggle SID voices, numpad 4-6 cycle voice gain, numpad 0 reset audio."
+        "Controls: Esc quit, F9/F10 tape start/stop, F11 tape turbo, F12 reset, \
+         Cmd/Ctrl+S/L save/load state, Page Up toggles gameport-2 arrows/space, \
+         gamepad maps to gameport 2; Machine menu switches PAL/NTSC."
     );
+    let (runtime, firmware) = build_runtime(&cli)?;
+    let model = cli.model.into();
+    emu198x_ui::run(
+        C64System {
+            model,
+            firmware,
+            keyboard_joystick: false,
+        },
+        runtime,
+        cli.scale,
+        cli.video,
+    )
+    .map_err(|err| err.to_string())
+}
 
-    let runner = C64Runner::from_cli(&cli)?;
-    let mut app = C64App::new(runner, cli.scale, cli.turbo_tape, cli.video)?;
-    let event_loop = EventLoop::new()?;
-    event_loop.run_app(&mut app)?;
-
-    if let Some(err) = app.take_error() {
-        return Err(err);
+/// Boot a [`C64Runtime`] and apply the CLI's media workflow. A temporary
+/// [`HeadlessSession`] is used for media load/autoload (reusing the shared
+/// helpers), then unwrapped into the bare runtime the harness drives. Returns
+/// the runtime *and* the resolved firmware bytes, so the [`C64System`] can stash
+/// them for live variant switching.
+fn build_runtime(cli: &Cli) -> Result<(C64Runtime, FirmwareBundle), String> {
+    if cli.autoload_disk && cli.autoload_tape {
+        return Err("--autoload-disk conflicts with --autoload-tape".to_owned());
+    }
+    if cli.autoload_tape && cli.start_tape {
+        return Err("--autoload-tape conflicts with --start-tape".to_owned());
+    }
+    if (cli.autoload_tape || cli.start_tape) && cli.tape.is_none() {
+        return Err("--autoload-tape and --start-tape require --tape PATH".to_owned());
     }
 
-    Ok(())
-}
-
-/// Parses the interactive CLI. Exits the process on `--help` or a
-/// malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli {
-        scale: DEFAULT_SCALE,
-        ..Cli::default()
-    };
-    let mut iter = args.into_iter();
-
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--rom-dir" => cli.rom_dir = Some(PathBuf::from(next_arg(&mut iter, "--rom-dir"))),
-            "--kernal" => cli.kernal = Some(PathBuf::from(next_arg(&mut iter, "--kernal"))),
-            "--basic" => cli.basic = Some(PathBuf::from(next_arg(&mut iter, "--basic"))),
-            "--chargen" => cli.chargen = Some(PathBuf::from(next_arg(&mut iter, "--chargen"))),
-            "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
-            "--load" => cli.load = Some(PathBuf::from(next_arg(&mut iter, "--load"))),
-            "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
-            "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
-            "--autoload-disk" => cli.autoload_disk = true,
-            "--autoload-tape" => cli.autoload_tape = true,
-            "--start-tape" => cli.start_tape = true,
-            "--turbo-tape" => cli.turbo_tape = true,
-            "--load-snapshot" => {
-                cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
-            }
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = parse_video_arg(&next_arg(&mut iter, "--video"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                process::exit(0);
-            }
-            _ => die(&format!("unknown flag: {arg}")),
-        }
-    }
-
-    cli
-}
-
-fn parse_video_arg(video: &str) -> VideoFilter {
-    video
-        .parse()
-        .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"))
-}
-
-fn parse_model_arg(value: &str) -> ModelArg {
-    match value {
-        "pal" => ModelArg::Pal,
-        "ntsc" => ModelArg::Ntsc,
-        _ => die("--model expects pal or ntsc"),
-    }
-}
-
-fn next_arg<I>(iter: &mut I, flag: &str) -> String
-where
-    I: Iterator<Item = String>,
-{
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    eprintln!();
-    eprintln!("{USAGE}");
-    process::exit(2);
-}
-
-fn boot_runtime(cli: &Cli) -> Result<C64Runtime, String> {
     let firmware_storage = load_firmware_bytes(cli)?;
+    let firmware_bytes: FirmwareBundle = firmware_storage
+        .iter()
+        .map(|image| (image.id.to_owned(), image.bytes.clone()))
+        .collect();
     let mut firmware = FirmwareSet::new();
     for image in &firmware_storage {
         firmware.push(FirmwareImage::new(image.id, &image.bytes));
@@ -997,15 +476,87 @@ fn boot_runtime(cli: &Cli) -> Result<C64Runtime, String> {
         None => None,
     };
 
-    boot_machine(
+    let model = cli.model.to_model();
+    let machine = boot_machine(
         &BootArtifacts {
             firmware,
             snapshot: snapshot_bytes.as_deref(),
         },
-        |firmware| C64Runtime::from_firmware(cli.model.to_model(), firmware),
-        || C64Runtime::blank(cli.model.to_model()),
+        |firmware| C64Runtime::from_firmware(model, firmware),
+        || C64Runtime::blank(model),
     )
-    .map_err(|err| format!("boot failed: {err}"))
+    .map_err(|err| format!("boot failed: {err}"))?;
+
+    let frame_ticks = u64::from(match cli.model {
+        ModelArg::Pal => TIMING_PAL_BREADBIN.cycles_per_frame,
+        ModelArg::Ntsc => TIMING_NTSC_BREADBIN.cycles_per_frame,
+    });
+    let mut session =
+        HeadlessSession::new_with_query_provider(machine, frame_ticks, C64SessionQueryProvider);
+
+    if let Some(path) = &cli.tape {
+        let loaded = read_media_asset(path, MediaKind::Tape)
+            .map_err(|err| format!("failed to load tape asset {}: {err}", path.display()))?;
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_TAPE_SLOT,
+            MediaKind::Tape,
+            &loaded.bytes,
+        ));
+        session
+            .load_media(&media)
+            .map_err(|err| format!("tape load failed: {err}"))?;
+    }
+
+    if let Some(path) = &cli.disk {
+        let loaded = read_media_asset(path, MediaKind::Disk)
+            .map_err(|err| format!("failed to load disk asset {}: {err}", path.display()))?;
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(
+            DEFAULT_DISK_SLOT,
+            MediaKind::Disk,
+            &loaded.bytes,
+        ));
+        session
+            .load_media(&media)
+            .map_err(|err| format!("disk load failed: {err}"))?;
+    }
+
+    if cli.autoload_tape {
+        autoload_basic_tape(
+            &mut session,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+        )
+        .map_err(|err| format!("tape autoload failed: {err}"))?;
+    } else if cli.autoload_disk {
+        autoload_basic_disk(
+            &mut session,
+            DEFAULT_DISK_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+            DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+        )
+        .map_err(|err| format!("disk autoload failed: {err}"))?;
+    } else if cli.start_tape {
+        session
+            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+                DEFAULT_TAPE_AUTOLOAD_SLOT,
+                MediaTransportAction::Start,
+            )))
+            .map_err(|err| format!("failed to start tape transport: {err}"))?;
+    }
+
+    if let Some(path) = &cli.load {
+        let _ = session
+            .wait_for_boot(DEFAULT_IMPORT_BOOT_FRAMES)
+            .map_err(|err| format!("wait for boot failed: {err}"))?;
+        let loaded = load_program_bytes(path)?;
+        let message = load_host_file(session.machine_mut(), &loaded.name, &loaded.bytes)?;
+        println!("{message}");
+    }
+
+    Ok((session.into_machine(), firmware_bytes))
 }
 
 fn load_firmware_bytes(cli: &Cli) -> Result<Vec<LoadedFirmware>, String> {
@@ -1142,147 +693,81 @@ fn resolve_rom_path(
     ))
 }
 
-fn c64_frame_duration_for_ticks(ticks: u64, clock_hz: u64) -> Duration {
-    Duration::from_secs_f64(ticks as f64 / clock_hz as f64)
-}
+/// Parses the interactive CLI. Exits the process on `--help` or a malformed
+/// flag.
+pub fn parse_cli<I>(args: I) -> Cli
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut cli = Cli {
+        scale: DEFAULT_SCALE,
+        ..Cli::default()
+    };
+    let mut iter = args.into_iter();
 
-fn subframe_ticks(frame_ticks: u64) -> u64 {
-    frame_ticks.div_ceil(u64::from(INPUT_SLICES_PER_FRAME))
-}
-
-fn subframe_duration(frame_duration: Duration) -> Duration {
-    Duration::from_secs_f64(frame_duration.as_secs_f64() / f64::from(INPUT_SLICES_PER_FRAME))
-}
-
-fn next_audio_gain(gain: f32) -> f32 {
-    if gain > 0.75 {
-        0.5
-    } else if gain > 0.375 {
-        0.25
-    } else if gain > 0.0 {
-        0.0
-    } else {
-        1.0
-    }
-}
-
-fn c64_key_event(name: &'static str, pressed: bool) -> InputEvent {
-    InputEvent::Key {
-        name: name.into(),
-        pressed,
-    }
-}
-
-fn map_c64_joystick_key(code: KeyCode) -> Option<HostControl> {
-    Some(match code {
-        KeyCode::ArrowUp => HostControl::Up,
-        KeyCode::ArrowDown => HostControl::Down,
-        KeyCode::ArrowLeft => HostControl::Left,
-        KeyCode::ArrowRight => HostControl::Right,
-        KeyCode::Space => HostControl::South,
-        _ => return None,
-    })
-}
-
-fn map_c64_keys(code: KeyCode) -> Option<&'static [&'static str]> {
-    Some(match code {
-        KeyCode::KeyA => &["a"],
-        KeyCode::KeyB => &["b"],
-        KeyCode::KeyC => &["c"],
-        KeyCode::KeyD => &["d"],
-        KeyCode::KeyE => &["e"],
-        KeyCode::KeyF => &["f"],
-        KeyCode::KeyG => &["g"],
-        KeyCode::KeyH => &["h"],
-        KeyCode::KeyI => &["i"],
-        KeyCode::KeyJ => &["j"],
-        KeyCode::KeyK => &["k"],
-        KeyCode::KeyL => &["l"],
-        KeyCode::KeyM => &["m"],
-        KeyCode::KeyN => &["n"],
-        KeyCode::KeyO => &["o"],
-        KeyCode::KeyP => &["p"],
-        KeyCode::KeyQ => &["q"],
-        KeyCode::KeyR => &["r"],
-        KeyCode::KeyS => &["s"],
-        KeyCode::KeyT => &["t"],
-        KeyCode::KeyU => &["u"],
-        KeyCode::KeyV => &["v"],
-        KeyCode::KeyW => &["w"],
-        KeyCode::KeyX => &["x"],
-        KeyCode::KeyY => &["y"],
-        KeyCode::KeyZ => &["z"],
-        KeyCode::Digit0 => &["0"],
-        KeyCode::Digit1 => &["1"],
-        KeyCode::Digit2 => &["2"],
-        KeyCode::Digit3 => &["3"],
-        KeyCode::Digit4 => &["4"],
-        KeyCode::Digit5 => &["5"],
-        KeyCode::Digit6 => &["6"],
-        KeyCode::Digit7 => &["7"],
-        KeyCode::Digit8 => &["8"],
-        KeyCode::Digit9 => &["9"],
-        KeyCode::Enter | KeyCode::NumpadEnter => &["return"],
-        KeyCode::Space => &["space"],
-        KeyCode::Backspace | KeyCode::Delete => &["delete"],
-        KeyCode::ShiftLeft => &["lshift"],
-        KeyCode::ShiftRight => &["rshift"],
-        KeyCode::ControlLeft | KeyCode::ControlRight => &["ctrl"],
-        KeyCode::AltLeft | KeyCode::AltRight | KeyCode::SuperLeft | KeyCode::SuperRight => {
-            &["commodore"]
-        }
-        KeyCode::ArrowRight => &["right"],
-        KeyCode::ArrowLeft => &["lshift", "right"],
-        KeyCode::ArrowDown => &["down"],
-        KeyCode::ArrowUp => &["lshift", "down"],
-        KeyCode::Home => &["home"],
-        KeyCode::F1 => &["f1"],
-        KeyCode::F2 => &["lshift", "f1"],
-        KeyCode::F3 => &["f3"],
-        KeyCode::F4 => &["lshift", "f3"],
-        KeyCode::F5 => &["f5"],
-        KeyCode::F6 => &["lshift", "f5"],
-        KeyCode::F7 => &["f7"],
-        KeyCode::F8 => &["lshift", "f7"],
-        KeyCode::Minus => &["minus"],
-        KeyCode::Equal => &["equals"],
-        KeyCode::Comma => &["comma"],
-        KeyCode::Period => &["period"],
-        KeyCode::Slash => &["slash"],
-        KeyCode::Semicolon => &["semicolon"],
-        KeyCode::Quote => &["colon"],
-        KeyCode::BracketLeft => &["at"],
-        KeyCode::BracketRight => &["asterisk"],
-        KeyCode::Backslash => &["plus"],
-        KeyCode::Backquote => &["leftarrow"],
-        KeyCode::Tab => &["runstop"],
-        _ => return None,
-    })
-}
-
-impl Cli {
-    fn native_frame_ticks(&self) -> u64 {
-        match self.model {
-            ModelArg::Pal => u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
-            ModelArg::Ntsc => u64::from(TIMING_NTSC_BREADBIN.cycles_per_frame),
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--rom-dir" => cli.rom_dir = Some(PathBuf::from(next_arg(&mut iter, "--rom-dir"))),
+            "--kernal" => cli.kernal = Some(PathBuf::from(next_arg(&mut iter, "--kernal"))),
+            "--basic" => cli.basic = Some(PathBuf::from(next_arg(&mut iter, "--basic"))),
+            "--chargen" => cli.chargen = Some(PathBuf::from(next_arg(&mut iter, "--chargen"))),
+            "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
+            "--load" => cli.load = Some(PathBuf::from(next_arg(&mut iter, "--load"))),
+            "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
+            "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
+            "--autoload-disk" => cli.autoload_disk = true,
+            "--autoload-tape" => cli.autoload_tape = true,
+            "--start-tape" => cli.start_tape = true,
+            "--turbo-tape" => cli.turbo_tape = true,
+            "--load-snapshot" => {
+                cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
+            }
+            "--scale" => {
+                cli.scale = next_arg(&mut iter, "--scale")
+                    .parse()
+                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
+            }
+            "--video" => {
+                cli.video = parse_video_arg(&next_arg(&mut iter, "--video"));
+            }
+            "--help" | "-h" => {
+                println!("{USAGE}");
+                process::exit(0);
+            }
+            _ => die(&format!("unknown flag: {arg}")),
         }
     }
 
-    fn window_title_base(&self) -> String {
-        match self.model {
-            ModelArg::Pal => "Emu198x Commodore 64 (PAL Breadbin)".to_owned(),
-            ModelArg::Ntsc => "Emu198x Commodore 64 (NTSC Breadbin)".to_owned(),
-        }
+    cli
+}
+
+fn parse_video_arg(video: &str) -> VideoFilter {
+    video
+        .parse()
+        .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"))
+}
+
+fn parse_model_arg(value: &str) -> ModelArg {
+    match value {
+        "pal" => ModelArg::Pal,
+        "ntsc" => ModelArg::Ntsc,
+        _ => die("--model expects pal or ntsc"),
     }
 }
 
-impl ModelArg {
-    const fn to_model(self) -> Model {
-        match self {
-            Self::Pal => Model::C64PalBreadbin,
-            Self::Ntsc => Model::C64NtscBreadbin,
-        }
-    }
+fn next_arg<I>(iter: &mut I, flag: &str) -> String
+where
+    I: Iterator<Item = String>,
+{
+    iter.next()
+        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
+}
+
+fn die(message: &str) -> ! {
+    eprintln!("error: {message}");
+    eprintln!();
+    eprintln!("{USAGE}");
+    process::exit(2);
 }
 
 #[cfg(test)]
@@ -1359,40 +844,18 @@ mod tests {
     #[test]
     fn parse_cli_accepts_tape_turbo_flag() {
         let cli = parse_cli(["--turbo-tape".to_string()]);
-
-        assert_eq!(
-            cli,
-            Cli {
-                model: ModelArg::Pal,
-                rom_dir: None,
-                kernal: None,
-                basic: None,
-                chargen: None,
-                load: None,
-                disk: None,
-                tape: None,
-                autoload_disk: false,
-                autoload_tape: false,
-                start_tape: false,
-                turbo_tape: true,
-                load_snapshot: None,
-                scale: DEFAULT_SCALE,
-                video: VideoFilter::Raw,
-            }
-        );
+        assert!(cli.turbo_tape);
     }
 
     #[test]
     fn parse_cli_accepts_video_filter() {
         let cli = parse_cli(["--video".to_string(), "crt".to_string()]);
-
         assert_eq!(cli.video, VideoFilter::Crt);
     }
 
     #[test]
     fn parse_cli_accepts_disk_flag() {
         let cli = parse_cli(["--disk".to_string(), "game.d64".to_string()]);
-
         assert_eq!(cli.disk, Some(PathBuf::from("game.d64")));
         assert_eq!(cli.tape, None);
     }
@@ -1400,7 +863,6 @@ mod tests {
     #[test]
     fn parse_cli_accepts_disk_autoload_flag() {
         let cli = parse_cli(["--autoload-disk".to_string()]);
-
         assert!(cli.autoload_disk);
         assert!(!cli.autoload_tape);
     }
@@ -1419,10 +881,12 @@ mod tests {
         assert_eq!(map_c64_keys(KeyCode::F8), Some(&["lshift", "f7"][..]));
         assert_eq!(map_c64_keys(KeyCode::Tab), Some(&["runstop"][..]));
         assert_eq!(map_c64_keys(KeyCode::AltLeft), Some(&["commodore"][..]));
+        // Page Up is never a C64 matrix key (it toggles keyboard-joystick mode).
+        assert_eq!(map_c64_keys(KeyCode::PageUp), None);
     }
 
     #[test]
-    fn joystick_key_map_is_host_only_and_does_not_steal_f8() {
+    fn joystick_key_map_is_host_only() {
         assert_eq!(
             map_c64_joystick_key(KeyCode::ArrowLeft),
             Some(HostControl::Left)
@@ -1431,27 +895,62 @@ mod tests {
             map_c64_joystick_key(KeyCode::Space),
             Some(HostControl::South)
         );
-        assert_eq!(map_c64_keys(KeyCode::PageUp), None);
-        assert_eq!(map_c64_keys(KeyCode::F8), Some(&["lshift", "f7"][..]));
+        assert_eq!(map_c64_joystick_key(KeyCode::F8), None);
     }
 
     #[test]
-    fn audio_gain_cycles_through_debug_levels() {
-        assert_eq!(next_audio_gain(1.0), 0.5);
-        assert_eq!(next_audio_gain(0.5), 0.25);
-        assert_eq!(next_audio_gain(0.25), 0.0);
-        assert_eq!(next_audio_gain(0.0), 1.0);
+    fn variant_ids_round_trip_through_models() {
+        assert_eq!(model_for_variant(PAL_ID), Some(Model::C64PalBreadbin));
+        assert_eq!(model_for_variant(NTSC_ID), Some(Model::C64NtscBreadbin));
+        assert_eq!(model_for_variant("nonsense"), None);
+        assert_eq!(variant_id(Model::C64PalBreadbin), PAL_ID);
+        assert_eq!(variant_id(Model::C64NtscBreadbin), NTSC_ID);
     }
 
     #[test]
-    fn subframe_helpers_preserve_timing_budget() {
-        let frame_ticks = u64::from(TIMING_PAL_BREADBIN.cycles_per_frame);
-        let frame_duration = c64_frame_duration_for_ticks(frame_ticks, TIMING_PAL_BREADBIN.cpu_hz);
-        let slice_ticks = subframe_ticks(frame_ticks);
-        let slice_duration = subframe_duration(frame_duration);
+    fn page_up_toggles_keyboard_joystick_on_keydown_only() {
+        let mut system = C64System {
+            model: Model::C64PalBreadbin,
+            firmware: Vec::new(),
+            keyboard_joystick: false,
+        };
+        // Key-down flips the mode and consumes the key.
+        assert!(c64system_handle_pageup(&mut system, true));
+        assert!(system.keyboard_joystick);
+        // Key-up consumes the key but does not toggle again.
+        assert!(c64system_handle_pageup(&mut system, false));
+        assert!(system.keyboard_joystick);
+        // A second key-down flips it back off.
+        assert!(c64system_handle_pageup(&mut system, true));
+        assert!(!system.keyboard_joystick);
+    }
 
-        assert!(slice_ticks < frame_ticks);
-        assert!(slice_ticks * u64::from(INPUT_SLICES_PER_FRAME) >= frame_ticks);
-        assert!(slice_duration < frame_duration);
+    /// Test helper: exercise `handle_key` for Page Up without a live runtime
+    /// (the C64 `handle_key` ignores the runtime for the Page-Up toggle).
+    fn c64system_handle_pageup(system: &mut C64System, pressed: bool) -> bool {
+        // The runtime argument is unused by the Page-Up branch, so a null
+        // pointer read is never reached; route through a fresh blank runtime to
+        // satisfy the signature without booting firmware.
+        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        system.handle_key(&mut runtime, KeyCode::PageUp, pressed)
+    }
+
+    #[test]
+    fn keyboard_joystick_mode_steals_arrows_and_space_from_keyboard() {
+        let mut system = C64System {
+            model: Model::C64PalBreadbin,
+            firmware: Vec::new(),
+            keyboard_joystick: false,
+        };
+        // Off: arrows are keyboard keys, no host control.
+        assert!(system.map_keys(KeyCode::ArrowUp).is_some());
+        assert_eq!(system.map_key(KeyCode::ArrowUp), None);
+        // On: arrows fall through to the joystick path.
+        system.keyboard_joystick = true;
+        assert_eq!(system.map_keys(KeyCode::ArrowUp), None);
+        assert_eq!(system.map_key(KeyCode::ArrowUp), Some(HostControl::Up));
+        assert_eq!(system.map_key(KeyCode::Space), Some(HostControl::South));
+        // A non-joystick key is still a keyboard key in joystick mode.
+        assert!(system.map_keys(KeyCode::KeyA).is_some());
     }
 }

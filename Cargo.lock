@@ -925,13 +925,12 @@ name = "emu198x-c64"
 version = "0.2.0"
 dependencies = [
  "common-commodore-c64",
- "emu198x-native-video",
  "emu198x-shell",
+ "emu198x-ui",
  "runtime-commodore-c64",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "winit",
 ]
 
 [[package]]
