@@ -152,3 +152,38 @@ All four migrated systems are now visually confirmed booting. The Dragon 32 BASI
 ROM was staged at `~/.emu198x/roms/dragon/dragon32.rom` from the TOSEC library
 (`Dragon Data/Dragon/Firmware/Dragon Data Dragon 32 BIOS (1982)` — 16 KB) to
 close the last gap.
+
+## List-A/B re-sweep at generous budgets (2026-06-23)
+
+The original sweep above used a *fixed* 300-frame budget. The Amiga lesson —
+some machines need far longer to settle — prompted a re-check of the 15
+boot-to-BASIC/menu systems (the cart-only consoles were already re-verified with
+commercial carts). Each was captured at **150 and 900 frames** and the pair
+compared (non-background pixel count + byte-`cmp`); systems still changing after
+frame 150 were eyeballed at 900.
+
+**Result: every system reaches its correct final screen within a generous budget;
+no emulator faults. One documentation correction.**
+
+- **Settled by frame 150 (10)** — byte-identical at 900, matching the screens
+  recorded above: Jupiter Ace, Oric Atmos, Memotech MTX, Tatung Einstein, Acorn
+  Atom, ColecoVision, Commodore PET, ZX80, ZX81, BBC Micro (with
+  `--sideways 15=basic.rom`).
+- **Blank at 150, correct by ~300 (2)** — Mattel Aquarius (`BASIC` / `Press
+  RETURN key to start`) and MSX (`MSX BASIC version 1.0` / `Ok` + function-key
+  bar) draw nothing by frame 150 but are correct well before 300, so the original
+  sweep caught them right.
+- **Correction — Spectravideo SVI-328.** The original sweep recorded "SPECTRAVIDEO
+  boot splash" — that was a **mid-boot capture**: at 150 frames the splash fills
+  the screen, and only later does it clear to the real prompt. At 900 frames the
+  settled screen is `SV extended BASIC version 1.1` / `Copyright 1983 (C) by
+  Microsoft corp.` / `Ok` + a function-key bar. The machine was always fine; the
+  earlier *record* was premature.
+- **Cursor blink, not a fault (2)** — Commodore VIC-20 (64 px / 0.13% change) and
+  Acorn Electron (16 px / 0.01%) differ trivially between 150 and 900; same colour
+  count, same screen. The flashing cursor's phase, nothing more.
+
+**Reinforced lesson:** a fixed frame budget that is too short can capture a
+*splash* or a *blank* and read as the boot screen (the SVI-328 splash here; the
+Amiga's grey frame earlier). Use a generous per-machine budget and compare an
+early vs late frame — if they differ, the late one is the truth.
