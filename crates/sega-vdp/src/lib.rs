@@ -23,19 +23,22 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
+
 // ---------------------------------------------------------------------------
 // Region and variant
 // ---------------------------------------------------------------------------
 
 /// VDP region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VdpRegion {
     Ntsc,
     Pal,
 }
 
 /// VDP variant.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VdpVariant {
     /// SMS1 (315-5124): no 224/240-line modes, sprite zoom bug.
     Sms1,
@@ -69,10 +72,13 @@ pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 // ---------------------------------------------------------------------------
 
 /// Sega VDP.
+#[derive(Serialize, Deserialize)]
 pub struct SegaVdp {
     // VRAM: 16 KB
+    #[serde(with = "BigArray")]
     vram: [u8; 16384],
     // CRAM: 32 bytes (SMS) or 64 bytes (GG)
+    #[serde(with = "BigArray")]
     cram: [u8; 64],
     cram_latch: u8,
     is_game_gear: bool,
@@ -107,6 +113,7 @@ pub struct SegaVdp {
     /// Per-line sprite colour-index buffer (0 = no sprite pixel), evaluated at
     /// the start of each active line and overlaid per pixel. Transient — not
     /// part of the saved state.
+    #[serde(with = "BigArray")]
     sprite_buf: [u8; 256],
 
     /// Interrupt output (directly drives Z80 INT).
