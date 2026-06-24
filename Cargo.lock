@@ -2362,6 +2362,9 @@ dependencies = [
 name = "machine-sord-m5"
 version = "0.2.0"
 dependencies = [
+ "postcard",
+ "serde",
+ "serde-big-array",
  "ti-sn76489",
  "ti-tms9918",
  "zilog-z80",
@@ -5181,6 +5184,9 @@ dependencies = [
 [[package]]
 name = "zilog-z80-ctc"
 version = "0.2.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "zip"

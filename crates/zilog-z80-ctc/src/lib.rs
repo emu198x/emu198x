@@ -52,12 +52,14 @@
 //! in-service channel. The Z80 exports no RETI signal, so RETI detection is
 //! the host's responsibility.
 
+use serde::{Deserialize, Serialize};
+
 /// Number of channels in a single CTC.
 pub const NUM_CHANNELS: usize = 4;
 
 /// One CTC channel: control state, time constant, down-counter, prescaler,
 /// and the two daisy-chain interrupt latches.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Channel {
     /// D7 — interrupt enabled.
     int_enable: bool,
@@ -154,6 +156,7 @@ impl Channel {
 }
 
 /// A Zilog Z80 CTC.
+#[derive(Serialize, Deserialize)]
 pub struct Ctc {
     channels: [Channel; NUM_CHANNELS],
     /// Interrupt vector base (bits 7-3); bits 2-1 are filled per channel,
