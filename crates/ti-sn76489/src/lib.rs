@@ -26,10 +26,13 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
 
+use serde::{Deserialize, Serialize};
+
 /// Output sample rate.
 const SAMPLE_RATE: u32 = 48_000;
 
 /// SN76489 Programmable Sound Generator.
+#[derive(Serialize, Deserialize)]
 pub struct Sn76489 {
     // Tone channels 0-2
     tone_period: [u16; 3],
@@ -78,7 +81,7 @@ pub struct Sn76489 {
 /// the white-noise spectrum and the periodic-noise pitch.
 ///
 /// Source: <https://www.smspower.org/Development/SN76489>.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NoiseLfsr {
     /// 16-bit register, white-noise tap bits 0+3, feedback into bit 15 — Sega
     /// SMS / Game Gear / Mega Drive (315-5124).

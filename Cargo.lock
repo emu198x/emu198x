@@ -2255,6 +2255,9 @@ dependencies = [
 name = "machine-sega-sg-1000"
 version = "0.2.0"
 dependencies = [
+ "postcard",
+ "serde",
+ "serde-big-array",
  "ti-sn76489",
  "ti-tms9918",
  "zilog-z80",
@@ -4235,6 +4238,7 @@ name = "ti-tms9918"
 version = "0.2.0"
 dependencies = [
  "serde",
+ "serde-big-array",
 ]
 
 [[package]]

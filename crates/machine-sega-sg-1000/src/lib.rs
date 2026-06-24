@@ -51,6 +51,8 @@
 //! corresponds to one Z80 T-state; per iteration the phase counter
 //! advances by 3 and yields one VDP dot whenever it reaches 2.
 
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 use ti_sn76489::{NoiseLfsr, Sn76489};
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
@@ -71,14 +73,14 @@ const NTSC_PSG_CLOCK_HZ: u32 = 3_579_545;
 const PAL_PSG_CLOCK_HZ: u32 = 3_546_893;
 
 /// SG-1000 region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Sg1000Region {
     Ntsc,
     Pal,
 }
 
 /// SG-1000 controller — direction pad + two buttons.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct ControllerState {
     pub up: bool,
     pub down: bool,
@@ -128,11 +130,17 @@ pub struct IoEvent {
 }
 
 /// SG-1000 / SC-3000 machine.
+///
+/// Fully serialisable for save-states: the Z80, the TMS9918 VDP, the SN76489
+/// PSG, cart ROM, and RAM all carry live state. `io_trace` is a host-side debug
+/// buffer, not machine state, so it is skipped and defaults on restore.
+#[derive(Serialize, Deserialize)]
 pub struct Sg1000 {
     cpu: Z80,
     vdp: Tms9918,
     psg: Sn76489,
     cart_rom: Vec<u8>,
+    #[serde(with = "BigArray")]
     ram: [u8; 1024],
     controller1: ControllerState,
     controller2: ControllerState,
@@ -147,6 +155,7 @@ pub struct Sg1000 {
     /// Frame counter.
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
+    #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
 }
 
@@ -409,6 +418,31 @@ impl zilog_z80::Z80Stepper for Sg1000 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Save-state must capture LIVE machine state (Z80 + TMS9918 VDP + SN76489
+    /// PSG + RAM), not cold-boot from the cart. Serialise, advance (so the state
+    /// differs), then deserialise the first snapshot and confirm re-serialising
+    /// it is byte-identical — every stateful field across all three chips
+    /// round-trips, including the VDP's 16 KB VRAM.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = Sg1000::new(trap_cart(), Sg1000Region::Ntsc);
+        sys.run_frame();
+        sys.poke(0xC100, 0xA5); // a work-RAM byte to carry across the snapshot
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: Sg1000 = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
+    }
 
     fn trap_cart() -> Vec<u8> {
         // 48 KB cart full of NOPs with a JR -2 trap at $0008 — gives
