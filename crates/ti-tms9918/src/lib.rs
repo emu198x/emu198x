@@ -6,9 +6,16 @@
 //! tick model was dot-clocked but rendered each scanline as a batch at
 //! line-wrap; [`tick`](Tms9918::tick) now draws **one pixel per dot** at the
 //! moment it is scanned out, so a mid-line register write affects only the
-//! pixels drawn after it (beam-follows-the-registers). For a static frame
-//! the output is byte-identical to the old batch model — every pixel routes
-//! through the same `bg_pixel`/sprite logic.
+//! background pixels drawn after it (beam-follows-the-registers). For a static
+//! frame the output is byte-identical to the old batch model — every pixel
+//! routes through the same `bg_pixel`/sprite logic.
+//!
+//! **Sprite fidelity boundary:** sprites are evaluated once per line (at dot 0,
+//! in [`prepare_line_sprites`](Tms9918::prepare_line_sprites)), not per dot.
+//! This models the real chip, which fetches the line's sprite attributes and
+//! patterns during the *previous* line's horizontal blank — so a mid-line write
+//! to a sprite register or the sprite tables takes effect on the next line, as
+//! on hardware. Only background generation re-reads registers per dot. (#136)
 //!
 //! The TMS9918 family is a tile-and-sprite video chip with 16 KB of dedicated
 //! VRAM, accessed through two I/O ports (data and control). It supports four
@@ -676,6 +683,10 @@ impl Tms9918 {
 
         let mut sprites_on_line = 0u8;
         let mut sprite_line_buffer = [0u8; 256]; // Color index per pixel (0 = none)
+        // Pattern-presence buffer for coincidence detection, separate from the
+        // colour buffer: records every counted sprite's non-zero pattern bit
+        // regardless of colour, so transparent (colour-0) sprites still collide.
+        let mut coincidence_buffer = [false; 256];
         let mut collision = false;
 
         for sprite in 0..32 {
@@ -741,19 +752,19 @@ impl Tms9918 {
 
                 self.draw_sprite_row(
                     &mut sprite_line_buffer,
+                    &mut coincidence_buffer,
                     left_byte,
                     x,
                     color,
-                    magnify,
                     &mut collision,
                 );
                 let x2 = x + if magnify { 16 } else { 8 };
                 self.draw_sprite_row(
                     &mut sprite_line_buffer,
+                    &mut coincidence_buffer,
                     right_byte,
                     x2,
                     color,
-                    magnify,
                     &mut collision,
                 );
             } else {
@@ -761,10 +772,10 @@ impl Tms9918 {
                 let pattern_byte = self.vram[(spg_base + pattern_name * 8 + pattern_line) & 0x3FFF];
                 self.draw_sprite_row(
                     &mut sprite_line_buffer,
+                    &mut coincidence_buffer,
                     pattern_byte,
                     x,
                     color,
-                    magnify,
                     &mut collision,
                 );
             }
@@ -782,12 +793,15 @@ impl Tms9918 {
     fn draw_sprite_row(
         &self,
         buffer: &mut [u8; 256],
+        coincidence: &mut [bool; 256],
         pattern: u8,
         x: i16,
         color: usize,
-        magnify: bool,
         collision: &mut bool,
     ) {
+        // Magnify (×2) is a per-frame register bit, so read it live rather than
+        // threading it through every call site.
+        let magnify = self.regs[1] & 0x01 != 0;
         let step = if magnify { 2 } else { 1 };
         for bit in 0..8 {
             if pattern & (0x80 >> bit) == 0 {
@@ -799,9 +813,17 @@ impl Tms9918 {
                     continue;
                 }
                 let px = px as usize;
-                if buffer[px] != 0 {
+                // Coincidence (status bit 5) fires wherever two counted sprites'
+                // non-zero PATTERN bits overlap — independent of colour, so two
+                // transparent (colour-0) sprites still collide. (#134)
+                if coincidence[px] {
                     *collision = true;
-                } else if color != 0 {
+                }
+                coincidence[px] = true;
+                // Colour: the highest-priority (lowest-numbered, drawn-first)
+                // opaque sprite covering the pixel wins; transparent sprites
+                // contribute nothing to the picture.
+                if color != 0 && buffer[px] == 0 {
                     buffer[px] = color as u8;
                 }
             }
@@ -1067,6 +1089,68 @@ mod tests {
                 PALETTE[15],
                 "active pixel {x} should be white"
             );
+        }
+    }
+
+    #[test]
+    fn transparent_sprites_still_set_coincidence_flag() {
+        // #134: two overlapping colour-0 (transparent) sprites must set the
+        // coincidence flag (status bit 5 = 0x20). On the TMS9918 collision is
+        // pattern-based, not colour-based; the old single-colour-buffer logic
+        // never recorded a transparent sprite's pattern, so they never collided.
+        let mut vdp = Tms9918::new(VdpRegion::Ntsc);
+        vdp.regs[1] = 0x40; // display on, 8x8 sprites, no magnify, Graphics I
+        vdp.regs[5] = 0x70; // sprite attribute table base
+        vdp.regs[6] = 0x00; // sprite pattern generator base = 0x0000
+
+        // Solid 8x8 pattern at sprite pattern index 0.
+        for row in 0..8 {
+            vdp.vram[row] = 0xFF;
+        }
+
+        // Two transparent (colour 0) sprites overlapping horizontally on the
+        // same lines. Bytes per sprite: Y, X, pattern, attr (colour in low nibble).
+        let sat = vdp.sprite_attr_addr();
+        vdp.vram[sat] = 10;
+        vdp.vram[sat + 1] = 10;
+        vdp.vram[sat + 2] = 0;
+        vdp.vram[sat + 3] = 0;
+        vdp.vram[sat + 4] = 10;
+        vdp.vram[sat + 5] = 14;
+        vdp.vram[sat + 6] = 0;
+        vdp.vram[sat + 7] = 0;
+        vdp.vram[sat + 8] = 0xD0; // terminate sprite processing
+
+        vdp.status = 0;
+        vdp.evaluate_sprites(12); // a line within both sprites (Y+1 ..= Y+8)
+        assert_eq!(
+            vdp.status & 0x20,
+            0x20,
+            "two overlapping transparent sprites should set the coincidence flag"
+        );
+    }
+
+    #[test]
+    fn graphics_ii_colour_mask_form_matches_tile_mask_then_multiply() {
+        // #137: graphics_ii_pixel computes the colour-table offset as
+        // (effective*8 + row) & (color_mask*8 + 7). That is algebraically
+        // identical to the conventional (effective & color_mask)*8 + row for
+        // EVERY VR3 and every row 0..8 — `row` occupies exactly the low 3 bits
+        // that color_mask*8+7 sets, and effective<<3 the high bits color_mask*8
+        // masks. Proven exhaustively here, so the decomposition is verified, not
+        // a defect (the issue asked for verification across a VR3 sweep).
+        for vr3 in 0u16..=255 {
+            let color_mask = ((vr3 as usize & 0x7F) << 3) | 0x07;
+            for effective in [0usize, 1, 5, 31, 32, 100, 255, 256, 511, 767] {
+                for row in 0usize..8 {
+                    let code_form = (effective * 8 + row) & (color_mask * 8 + 7);
+                    let conventional = (effective & color_mask) * 8 + row;
+                    assert_eq!(
+                        code_form, conventional,
+                        "mismatch at vr3={vr3:#04x} effective={effective} row={row}"
+                    );
+                }
+            }
         }
     }
 }
