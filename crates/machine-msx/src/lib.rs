@@ -78,6 +78,7 @@
 
 use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use intel_8255::Ppi8255;
+use serde::{Deserialize, Serialize};
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
 
@@ -99,14 +100,14 @@ const AY_SAMPLE_RATE: u32 = 48_000;
 const AY_SAMPLES_PER_FRAME: usize = 1024;
 
 /// MSX video region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MsxRegion {
     Ntsc,
     Pal,
 }
 
 /// MegaROM cartridge mapper.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MapperType {
     /// Plain ROM (no banking), up to 32 KB at $4000-$BFFF (or
     /// $0000-$3FFF on smaller carts).
@@ -122,6 +123,7 @@ pub enum MapperType {
 }
 
 /// A cartridge slot containing ROM + mapper bank registers.
+#[derive(Serialize, Deserialize)]
 struct CartridgeSlot {
     rom: Vec<u8>,
     mapper: MapperType,
@@ -211,7 +213,6 @@ impl CartridgeSlot {
     }
 }
 
-/// MSX1 machine.
 /// One captured I/O port access, for the debug trace.
 #[derive(Debug, Clone, Copy)]
 pub struct IoEvent {
@@ -225,6 +226,14 @@ pub struct IoEvent {
     pub write: bool,
 }
 
+/// MSX1 machine.
+///
+/// Fully serialisable for save-states: the Z80, the TMS9918 VDP, the
+/// AY-3-8910 PSG, the 8255 PPI, ROM, RAM, slot/bank state, keyboard, and
+/// joystick state all carry live state. `io_trace` and `ay_watch` are
+/// host-side debug buffers, not machine state, so they are skipped and
+/// default on restore.
+#[derive(Serialize, Deserialize)]
 pub struct Msx {
     cpu: Z80,
     vdp: Tms9918,
@@ -244,10 +253,12 @@ pub struct Msx {
     psg_phase: u8,
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
+    #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
     /// When `Some`, every write to the PSG data port ($A1) is captured
     /// for the shared `watch_ay_*` tools. Host-side debug only, not part
     /// of the snapshot.
+    #[serde(skip)]
     ay_watch: Option<AyWriteWatch>,
     /// Active-low PSG port-A byte for each of the two joystick ports
     /// (`[0]` = port 1, `[1]` = port 2). The MSX reads the joystick through
@@ -665,6 +676,35 @@ mod tests {
         rom[0x0008] = 0x18;
         rom[0x0009] = 0xFE;
         rom
+    }
+
+    /// Save-state must capture LIVE machine state (Z80 + TMS9918 VDP +
+    /// AY-3-8910 PSG + 8255 PPI + RAM + slot/bank state), not cold-boot from
+    /// the ROM. Serialise, advance (so the state differs), then deserialise
+    /// the first snapshot and confirm re-serialising it is byte-identical —
+    /// every stateful field round-trips, including the VDP's 16 KB VRAM.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = Msx::new(trap_bios(), MsxRegion::Ntsc);
+        sys.run_frame();
+        // RAM lives in slot 3; at reset PPI port A = 0 selects slot 0 for
+        // every page, so route page 3 ($C000-$FFFF) to slot 3 before poking.
+        sys.ppi.write(0, 0b1100_0000); // page 3 → slot 3 (RAM)
+        sys.poke(0xC100, 0xA5); // a work-RAM byte to carry across the snapshot
+        assert_eq!(sys.peek(0xC100), 0xA5, "0xC100 is RAM and accepts the poke");
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: Msx = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 
     #[test]
