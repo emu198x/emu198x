@@ -975,7 +975,8 @@ impl Z80 {
             self.regs.iff2 = false;
             self.begin_new_instruction();
             self.walker.sequence = match self.regs.im {
-                0 | 1 => mcycle::SEQ_INT_IM1,
+                0 => mcycle::SEQ_INT_IM0,
+                1 => mcycle::SEQ_INT_IM1,
                 2 => mcycle::SEQ_INT_IM2,
                 _ => mcycle::SEQ_INT_IM1,
             };
