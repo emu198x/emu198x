@@ -77,6 +77,8 @@
 //! `docs/status/outstanding-work.md` § Sega Master System.
 
 use sega_vdp::{SegaVdp, VdpRegion, VdpVariant};
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 use ti_sn76489::{NoiseLfsr, Sn76489};
 use zilog_z80::{BusOp, Z80};
 
@@ -94,7 +96,7 @@ const NTSC_PSG_CLOCK_HZ: u32 = 3_579_545;
 const PAL_PSG_CLOCK_HZ: u32 = 3_546_893;
 
 /// SMS / Game Gear system variant.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SmsVariant {
     /// Sega Master System (NTSC — Japan / US / Brazil).
     SmsNtsc,
@@ -125,11 +127,18 @@ impl SmsVariant {
 }
 
 /// Sega Master System / Game Gear machine.
+///
+/// Fully serialisable for save-states: the Z80, the Sega VDP, the SN76489 PSG,
+/// cart ROM, RAM, mapper registers, and controller/pause lines all carry live
+/// state. `io_trace` is a host-side debug buffer, not machine state, so it is
+/// skipped and defaults on restore.
+#[derive(Serialize, Deserialize)]
 pub struct Sms {
     cpu: Z80,
     vdp: SegaVdp,
     psg: Sn76489,
     cart_rom: Vec<u8>,
+    #[serde(with = "BigArray")]
     ram: [u8; 8192],
     /// Sega mapper bank registers, shadowed from RAM writes at
     /// `$FFFC-$FFFF`.
@@ -151,6 +160,7 @@ pub struct Sms {
     vdp_phase: u32,
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
+    #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
 }
 
@@ -456,6 +466,31 @@ mod tests {
         cart[0x0008] = 0x18;
         cart[0x0009] = 0xFE;
         cart
+    }
+
+    /// Save-state must capture LIVE machine state (Z80 + Sega VDP + SN76489
+    /// PSG + RAM + mapper), not cold-boot from the cart. Serialise, advance (so
+    /// the state differs), then deserialise the first snapshot and confirm
+    /// re-serialising it is byte-identical — every stateful field across all
+    /// three chips round-trips, including the VDP's 16 KB VRAM.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
+        sys.run_frame();
+        sys.poke(0xC100, 0xA5); // a work-RAM byte to carry across the snapshot
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: Sms = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 
     #[test]

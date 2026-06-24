@@ -2249,7 +2249,10 @@ dependencies = [
 name = "machine-sega-master-system"
 version = "0.2.0"
 dependencies = [
+ "postcard",
  "sega-vdp",
+ "serde",
+ "serde-big-array",
  "ti-sn76489",
  "zilog-z80",
 ]
@@ -3980,6 +3983,10 @@ dependencies = [
 [[package]]
 name = "sega-vdp"
 version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
+]
 
 [[package]]
 name = "semver"
