@@ -332,12 +332,11 @@ impl Tms9918 {
     /// this is byte-identical to the previous scanline-batched model, because
     /// every pixel shares the same `bg_pixel`/sprite logic.
     pub fn tick(&mut self) -> bool {
-        // Frame start: paint the whole framebuffer with the current backdrop
-        // so the border regions (and the left/right columns of each active
-        // row) carry the backdrop colour; active pixels overwrite the
-        // 256 x 192 interior as they are drawn.
-        if self.scanline == 0 && self.dot == 0 {
-            self.fill_border();
+        // Start of each scanline: paint that line's border pixels from the live
+        // backdrop, so a mid-frame VR7 write splits the border on this frame.
+        // Active pixels overwrite the 256 x 192 interior as they are drawn.
+        if self.dot == 0 {
+            self.paint_border_for_scanline();
         }
 
         // Start of an active line: evaluate this line's sprites once (sets the
@@ -374,10 +373,8 @@ impl Tms9918 {
 
     /// Run for one complete scanline (342 dots). Returns true at frame end.
     pub fn tick_scanline(&mut self) -> bool {
-        // Paint the border at frame start (see `tick` for the rationale).
-        if self.scanline == 0 {
-            self.fill_border();
-        }
+        // Paint this line's border from the live backdrop (see `tick`).
+        self.paint_border_for_scanline();
 
         // Render if active.
         if self.scanline < 192 {
@@ -463,15 +460,47 @@ impl Tms9918 {
     // Scanline rendering
     // -----------------------------------------------------------------------
 
-    /// Fill the entire framebuffer with the current backdrop colour.
-    /// Called at frame start so the top and bottom border regions plus
-    /// the left and right columns of each active row carry the current
-    /// border colour. Mid-frame backdrop changes affect the *next*
-    /// frame's border — a v1 simplification; real hardware redraws
-    /// border pixel-by-pixel from the live register.
-    fn fill_border(&mut self) {
+    /// Paint the border (backdrop) pixels for the current scanline from the
+    /// **live** VR7 backdrop, so a mid-frame VR7 write splits the border on the
+    /// same frame (a horizontal raster split) rather than one frame late. (#135)
+    ///
+    /// Active-row interiors are drawn separately by `render_pixel` /
+    /// `render_scanline`; this paints the left/right backdrop columns of each
+    /// active row and the full width of the top/bottom border rows.
+    /// `fb_row = scanline + BORDER_TOP` unifies the active rows and the bottom
+    /// border; the top border (above the active area) is painted once as the
+    /// frame opens. Called at the start of each scanline by both tick paths.
+    fn paint_border_for_scanline(&mut self) {
         let backdrop = self.backdrop_color();
-        self.framebuffer.fill(backdrop);
+        let fbw = FB_WIDTH as usize;
+        let scan = self.scanline as usize;
+
+        // Top border: painted as the frame opens — it sits above the active
+        // area and is scanned before any mid-frame VR7 write.
+        if scan == 0 {
+            for px in &mut self.framebuffer[..BORDER_TOP as usize * fbw] {
+                *px = backdrop;
+            }
+        }
+
+        let active_h = ACTIVE_HEIGHT as usize;
+        if scan < active_h {
+            // Active row: the left and right backdrop columns only.
+            let row = (BORDER_TOP as usize + scan) * fbw;
+            for px in &mut self.framebuffer[row..row + BORDER_LEFT as usize] {
+                *px = backdrop;
+            }
+            let right = row + BORDER_LEFT as usize + ACTIVE_WIDTH as usize;
+            for px in &mut self.framebuffer[right..row + fbw] {
+                *px = backdrop;
+            }
+        } else if scan < active_h + BORDER_BOTTOM as usize {
+            // Bottom border row: the full width.
+            let row = (BORDER_TOP as usize + scan) * fbw;
+            for px in &mut self.framebuffer[row..row + fbw] {
+                *px = backdrop;
+            }
+        }
     }
 
     /// Render one full active scanline by drawing every pixel through the same
@@ -1152,5 +1181,36 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn mid_frame_backdrop_change_splits_the_border() {
+        // #135: a VR7 backdrop write partway down the frame must change the
+        // border from that scanline on (a horizontal raster split) — not only on
+        // the next frame. The old bulk frame-start fill captured VR7 once.
+        let mut vdp = Tms9918::new(VdpRegion::Ntsc);
+        vdp.regs[1] = 0x40; // display on
+        vdp.regs[7] = 0x01; // backdrop colour 1 for the top of the frame
+
+        // Run the top border + the first part of the active area at colour 1.
+        for _ in 0..100 {
+            vdp.tick_scanline();
+        }
+        // Switch the backdrop mid-frame, then finish the frame.
+        vdp.regs[7] = 0x02;
+        while !vdp.tick_scanline() {}
+
+        let fbw = FB_WIDTH as usize;
+        let top = vdp.framebuffer()[0]; // top border, painted before the switch
+        let bottom = vdp.framebuffer()[(FB_HEIGHT as usize - 1) * fbw]; // bottom border, after
+        assert_eq!(
+            top, PALETTE[1],
+            "top border should keep the pre-split backdrop"
+        );
+        assert_eq!(
+            bottom, PALETTE[2],
+            "bottom border should show the post-split backdrop"
+        );
+        assert_ne!(top, bottom, "a mid-frame VR7 write should split the border");
     }
 }
