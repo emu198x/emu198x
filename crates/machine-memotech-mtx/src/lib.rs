@@ -51,6 +51,7 @@ pub use input::MtxKey;
 pub use keyboard::KeyboardState;
 pub use ti_tms9918::Tms9918;
 
+use serde::{Deserialize, Serialize};
 use ti_sn76489::{NoiseLfsr, Sn76489};
 use ti_tms9918::VdpRegion;
 use zilog_z80::z80::{BusOp, Z80};
@@ -65,7 +66,7 @@ const CPU_CLOCK_HZ: u64 = 4_000_000;
 const VDP_INT_CTC_CHANNEL: u8 = 0;
 
 /// MTX model selector.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MtxModel {
     /// 32 KB RAM.
     Mtx500,
@@ -89,6 +90,7 @@ impl MtxModel {
 }
 
 /// Memotech MTX machine.
+#[derive(Serialize, Deserialize)]
 pub struct Mtx {
     cpu: Z80,
     rom: Vec<u8>,
@@ -113,6 +115,7 @@ pub struct Mtx {
     /// following `$4D` (RETI) can release the CTC daisy chain's in-service channel.
     prev_opcode_ed: bool,
     /// When `Some`, every I/O port access is appended here (debug trace).
+    #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
 }
 
@@ -484,6 +487,33 @@ mod tests {
     #[test]
     fn rom_size_validated() {
         assert!(Mtx::new(vec![0u8; 1024], MtxModel::Mtx500).is_err());
+    }
+
+    /// Save-state must capture LIVE machine state (Z80 + TMS9918 VDP + SN76489
+    /// PSG + Z80 CTC + RAM + keyboard), not cold-boot from the ROM. Serialise,
+    /// advance (so the state differs), then deserialise the first snapshot and
+    /// confirm re-serialising it is byte-identical — every stateful field across
+    /// all chips round-trips, including the VDP's 16 KB VRAM and the CTC channels.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = Mtx::new(trap_rom(), MtxModel::Mtx500).expect("init");
+        sys.run_frame();
+        // $C000-$FFFF is always RAM block 0 (the common page) in every paging
+        // mode, so this byte is guaranteed to land in RAM and carry across.
+        sys.poke(0xC000, 0xA5);
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: Mtx = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 
     #[test]
