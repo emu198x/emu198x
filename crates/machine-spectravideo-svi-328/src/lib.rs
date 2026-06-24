@@ -68,6 +68,7 @@
 
 use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use intel_8255::Ppi8255;
+use serde::{Deserialize, Serialize};
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
 
@@ -87,13 +88,19 @@ const AY_SAMPLES_PER_FRAME: usize = 1024;
 pub const NUM_KEY_ROWS: usize = 11;
 
 /// SVI-328 region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SviRegion {
     Ntsc,
     Pal,
 }
 
 /// Spectravideo SVI-328 machine.
+///
+/// Fully serialisable for save-states: the Z80, the TMS9918 VDP, the
+/// AY-3-8910 PSG, the 8255 PPI, ROM, RAM, banking, keyboard, and joystick
+/// state all carry live state. `io_trace` and `ay_watch` are host-side debug
+/// buffers, not machine state, so they are skipped and default on restore.
+#[derive(Serialize, Deserialize)]
 pub struct Svi328 {
     cpu: Z80,
     vdp: Tms9918,
@@ -128,10 +135,12 @@ pub struct Svi328 {
     psg_phase: u8,
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
+    #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
     /// When `Some`, every write to the PSG data port ($8C) is captured
     /// for the shared `watch_ay_*` tools. Host-side debug only, not
     /// part of the snapshot.
+    #[serde(skip)]
     ay_watch: Option<AyWriteWatch>,
 }
 
@@ -489,6 +498,32 @@ mod tests {
         rom[0x0008] = 0x18;
         rom[0x0009] = 0xFE;
         rom
+    }
+
+    /// Save-state must capture LIVE machine state (Z80 + TMS9918 VDP +
+    /// AY-3-8910 PSG + 8255 PPI + RAM + banking), not cold-boot from the ROM.
+    /// Serialise, advance (so the state differs), then deserialise the first
+    /// snapshot and confirm re-serialising it is byte-identical — every
+    /// stateful field round-trips, including the VDP's 16 KB VRAM.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        sys.run_frame();
+        sys.poke(0xC100, 0xA5); // a work-RAM byte to carry across the snapshot
+        assert_eq!(sys.peek(0xC100), 0xA5, "0xC100 is RAM and accepts the poke");
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: Svi328 = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 
     #[test]

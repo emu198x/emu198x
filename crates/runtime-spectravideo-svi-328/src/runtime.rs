@@ -127,24 +127,16 @@ impl Svi328Runtime {
         self.time = time;
     }
 
-    pub(crate) fn set_bios_bytes(&mut self, bytes: Option<Vec<u8>>) {
-        self.bios_bytes = bytes;
-    }
-
-    pub(crate) fn set_cart_bytes(&mut self, bytes: Option<Vec<u8>>) {
-        self.cart_bytes = bytes;
-    }
-
-    pub(crate) fn bios_bytes(&self) -> Option<&[u8]> {
-        self.bios_bytes.as_deref()
-    }
-
     pub(crate) fn cart_bytes(&self) -> Option<&[u8]> {
         self.cart_bytes.as_deref()
     }
 
-    pub(crate) fn rebuild_after_restore(&mut self) {
-        self.rebuild_machine();
+    /// Install a machine restored from a snapshot, re-deriving the host RGBA
+    /// framebuffer from its live state. Replaces the cold-boot rebuild on the
+    /// restore path so the resumed machine keeps its CPU/VDP/PSG/PPI/RAM state.
+    pub(crate) fn set_machine(&mut self, machine: Option<Svi328>) {
+        self.machine = machine;
+        self.update_rgba_framebuffer();
     }
 
     fn rebuild_machine(&mut self) {

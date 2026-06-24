@@ -12,7 +12,10 @@
 //! Port B = input (keyboard data), Port C = output (keyboard row +
 //! cassette + LED).
 
+use serde::{Deserialize, Serialize};
+
 /// Intel 8255 PPI.
+#[derive(Serialize, Deserialize)]
 pub struct Ppi8255 {
     /// Port A output latch.
     pub port_a: u8,
