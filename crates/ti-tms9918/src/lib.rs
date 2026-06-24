@@ -38,6 +38,9 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
+
 // ---------------------------------------------------------------------------
 // Color palette
 // ---------------------------------------------------------------------------
@@ -67,7 +70,7 @@ pub const PALETTE: [u32; 16] = [
 // ---------------------------------------------------------------------------
 
 /// VDP region — determines frame timing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VdpRegion {
     /// NTSC: 262 scanlines, ~59.94 Hz (TMS9918A / TMS9928A).
     Ntsc,
@@ -123,8 +126,10 @@ pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
 pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
 /// TMS9918 Video Display Processor.
+#[derive(Serialize, Deserialize)]
 pub struct Tms9918 {
     // VRAM
+    #[serde(with = "BigArray")]
     vram: [u8; 16384],
 
     // Control registers (VR0-VR7)
@@ -156,8 +161,9 @@ pub struct Tms9918 {
 
     /// Per-line sprite colour-index buffer (0 = no sprite pixel). Evaluated
     /// once at the start of each active line (dot 0) and overlaid per pixel
-    /// as the line is drawn. Transient — recomputed every line, so it is not
-    /// part of the saved state.
+    /// as the line is drawn. Transient — recomputed every line; carried in the
+    /// snapshot only because `[u8; 256]` has no `Default` to skip cleanly.
+    #[serde(with = "BigArray")]
     sprite_buf: [u8; 256],
 
     /// Whether an interrupt is being asserted (active-low INT pin).
