@@ -2166,6 +2166,8 @@ dependencies = [
 name = "machine-memotech-mtx"
 version = "0.2.0"
 dependencies = [
+ "postcard",
+ "serde",
  "ti-sn76489",
  "ti-tms9918",
  "zilog-z80",

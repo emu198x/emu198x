@@ -13,6 +13,7 @@ const COUNTRY_ENGLISH: u8 = 0x00;
 
 /// Keyboard matrix: eight drive columns, each with ten sense lines
 /// (bits 0-9). A clear bit means the key is held (active low).
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct KeyboardState {
     sense: [u16; 8],
     /// Joystick overlay, ANDed into the sense read. The MTX joysticks share
