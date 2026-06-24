@@ -69,6 +69,8 @@
 //! transcribed from MAME `bus/aquarius/mini.cpp`.
 
 use gi_ay_3_8910::{Ay3_8910, AyWriteRecord, AyWriteWatch};
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 use zilog_z80::{BusOp, Z80};
 
 /// Mini Expander AY-3-8910 clock: the Z80 clock divided by two
@@ -158,7 +160,7 @@ const PAL_TSTATES_PER_FRAME: u64 = DOTS_PER_LINE * PAL_LINES_PER_FRAME / 2;
 /// Video region: the Mattel US Aquarius is NTSC (~60 Hz); the European
 /// Radofin machine is PAL (~50 Hz). Same 3.579545 MHz CPU either way —
 /// only the scanline count and frame rate differ.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default, Serialize, Deserialize)]
 pub enum AquariusRegion {
     /// NTSC, 262 lines, ~59.7 Hz — the Mattel US machine.
     #[default]
@@ -191,6 +193,12 @@ const PALETTE: [u32; 16] = [
 ];
 
 /// Mattel Aquarius machine.
+///
+/// Fully serialisable for save-states: the CPU (Z80), AY PSG, all RAM/ROM
+/// (including the separate character-generator ROM, the cause of #308), and the
+/// framebuffer carry live state. `io_trace` and `ay_watch` are host-side debug
+/// buffers, not machine state, so they are skipped and default on restore.
+#[derive(Serialize, Deserialize)]
 pub struct Aquarius {
     cpu: Z80,
     rom: Vec<u8>,
@@ -199,8 +207,11 @@ pub struct Aquarius {
     /// ROM's upper 2 KB when absent (wrong, but keeps headless tests building
     /// without the separate char ROM).
     char_rom: Vec<u8>,
+    #[serde(with = "BigArray")]
     char_ram: [u8; 1024],
+    #[serde(with = "BigArray")]
     colour_ram: [u8; 1024],
+    #[serde(with = "BigArray")]
     spare_ram: [u8; 2048],
     expansion_ram: Vec<u8>,
     cart_rom: Vec<u8>,
@@ -215,6 +226,7 @@ pub struct Aquarius {
     tstates_per_frame: u64,
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
+    #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
     /// Mini Expander AY-3-8910. The controllers are read through its I/O
     /// ports; the tone generators are present but unconsumed.
@@ -225,6 +237,7 @@ pub struct Aquarius {
     /// When `Some`, every write to the PSG data port ($F6) is captured
     /// for the shared `watch_ay_*` tools. Host-side debug only, not
     /// part of the snapshot.
+    #[serde(skip)]
     ay_watch: Option<AyWriteWatch>,
 }
 
@@ -671,6 +684,29 @@ impl zilog_z80::Z80Stepper for Aquarius {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Save-state must capture LIVE machine state, not cold-boot from ROM.
+    /// Serialise, advance (so the state differs), then deserialise the first
+    /// snapshot and confirm re-serialising it is byte-identical — every stateful
+    /// field (incl. the big RAM arrays and the char-gen ROM, #308) round-trips.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = Aquarius::new(trap_rom(), 16, AquariusRegion::Ntsc);
+        sys.set_char_rom(vec![0xA5; 2048]); // the separate char ROM must survive
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: Aquarius = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
+    }
 
     fn trap_rom() -> Vec<u8> {
         // 8 KB ROM with NOPs, JR -2 trap at $0008, and a simple

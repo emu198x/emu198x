@@ -2148,6 +2148,9 @@ name = "machine-mattel-aquarius"
 version = "0.2.0"
 dependencies = [
  "gi-ay-3-8910",
+ "postcard",
+ "serde",
+ "serde-big-array",
  "zilog-z80",
 ]
 
