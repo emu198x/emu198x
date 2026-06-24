@@ -48,6 +48,8 @@
 //! which ran the VDP and wall-clock 1.5× too fast. Same model as the
 //! SG-1000 (identical TMS9918A + Z80 at the same clocks).
 
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 use ti_sn76489::{NoiseLfsr, Sn76489};
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
@@ -72,14 +74,14 @@ const NTSC_CPU_CYCLES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * 262;
 const PAL_CPU_CYCLES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * 313;
 
 /// ColecoVision region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CvRegion {
     Ntsc,
     Pal,
 }
 
 /// Numeric keypad keys (12-key keypad — 0-9, *, #).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum KeypadKey {
     K0,
     K1,
@@ -116,7 +118,7 @@ impl KeypadKey {
 }
 
 /// Controller state for one player.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct CvController {
     pub up: bool,
     pub down: bool,
@@ -165,12 +167,18 @@ impl CvController {
 }
 
 /// ColecoVision machine.
+///
+/// Fully serialisable for save-states: the Z80, the TMS9918 VDP, the SN76489
+/// PSG, BIOS, cart ROM, and RAM all carry live state. `io_trace` is a host-side
+/// debug buffer, not machine state, so it is skipped and defaults on restore.
+#[derive(Serialize, Deserialize)]
 pub struct ColecoVision {
     cpu: Z80,
     vdp: Tms9918,
     psg: Sn76489,
     bios: Vec<u8>,
     cart_rom: Vec<u8>,
+    #[serde(with = "BigArray")]
     ram: [u8; 1024],
     controller1: CvController,
     controller2: CvController,
@@ -188,6 +196,7 @@ pub struct ColecoVision {
     /// Frame counter.
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
+    #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
 }
 
@@ -468,6 +477,31 @@ mod tests {
         bios[0x0008] = 0x18;
         bios[0x0009] = 0xFE;
         bios
+    }
+
+    /// Save-state must capture LIVE machine state (Z80 + TMS9918 VDP + SN76489
+    /// PSG + RAM), not cold-boot from the BIOS/cart. Serialise, advance (so the
+    /// state differs), then deserialise the first snapshot and confirm
+    /// re-serialising it is byte-identical — every stateful field across all
+    /// three chips round-trips, including the VDP's 16 KB VRAM.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut cv = ColecoVision::new(empty_bios(), vec![], CvRegion::Ntsc);
+        cv.run_frame();
+        cv.poke(0x6100, 0xA5); // a work-RAM byte to carry across the snapshot
+        cv.run_frame();
+        let s1 = postcard::to_allocvec(&cv).expect("encode snapshot");
+
+        cv.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&cv).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: ColecoVision = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 
     #[test]

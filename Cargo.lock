@@ -2000,6 +2000,9 @@ dependencies = [
 name = "machine-coleco-colecovision"
 version = "0.2.0"
 dependencies = [
+ "postcard",
+ "serde",
+ "serde-big-array",
  "ti-sn76489",
  "ti-tms9918",
  "zilog-z80",
