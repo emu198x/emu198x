@@ -2140,6 +2140,8 @@ dependencies = [
 name = "machine-jupiter-ace"
 version = "0.2.0"
 dependencies = [
+ "postcard",
+ "serde",
  "zilog-z80",
 ]
 

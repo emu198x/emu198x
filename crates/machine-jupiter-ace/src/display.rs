@@ -74,6 +74,7 @@ const BLACK: u32 = 0xFF_00_00_00;
 ///
 /// Renders the character display to an ARGB32 framebuffer. The display reads
 /// video RAM and character RAM from the bus each frame during `render_frame()`.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Display {
     /// ARGB32 framebuffer (256x192).
     framebuffer: Vec<u32>,

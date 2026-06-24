@@ -42,9 +42,16 @@ pub use display::{Display, FB_HEIGHT, FB_WIDTH, TSTATES_PER_FRAME};
 pub use input::JupiterAceKey;
 pub use keyboard::KeyboardState;
 
+use serde::{Deserialize, Serialize};
 use zilog_z80::z80::{BusOp, Z80};
 
 /// Jupiter Ace machine.
+///
+/// Fully serialisable for save-states: the CPU (Z80), all RAM/ROM, and the
+/// display/keyboard carry live state. `audio_buffer` and `io_trace` are host-
+/// side debug/output buffers, not machine state, so they are skipped and
+/// default-initialised on restore.
+#[derive(Serialize, Deserialize)]
 pub struct JupiterAce {
     cpu: Z80,
     rom: Vec<u8>,
@@ -53,12 +60,14 @@ pub struct JupiterAce {
     ram: Vec<u8>,
     display: Display,
     keyboard: KeyboardState,
+    #[serde(skip)]
     audio_buffer: Vec<f32>,
     audio_accum: u64,
     audio_denom: u64,
     master_clock: u64,
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
+    #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
 }
 
@@ -302,6 +311,31 @@ impl zilog_z80::Z80Stepper for JupiterAce {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Save-state must capture LIVE machine state, not cold-boot from ROM.
+    /// Advance the machine, serialise, advance further (so the state differs),
+    /// then deserialise the first snapshot and confirm re-serialising it is
+    /// byte-identical — i.e. every stateful field round-trips. A bootstrap-only
+    /// snapshot would re-derive a fresh machine and fail the final equality.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut ace = JupiterAce::new(trap_rom(), 1024).expect("build machine");
+        ace.run_frame();
+        ace.poke(0x3000, 0xA5); // a base-RAM byte to carry across the snapshot
+        ace.run_frame();
+        let s1 = postcard::to_allocvec(&ace).expect("encode snapshot");
+
+        ace.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&ace).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: JupiterAce = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
+    }
 
     fn trap_rom() -> Vec<u8> {
         // DI ; HALT ; pad to 8 KB

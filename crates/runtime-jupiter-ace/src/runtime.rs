@@ -93,6 +93,21 @@ impl JupiterAceRuntime {
         self.machine.as_mut()
     }
 
+    /// Install a machine restored from a snapshot, re-deriving the host RGBA
+    /// framebuffer from its live state. Replaces the cold-boot rebuild on the
+    /// restore path so the resumed machine keeps its CPU/RAM/display state.
+    pub(crate) fn set_machine(&mut self, machine: Option<JupiterAce>) {
+        if let Some(machine) = &machine {
+            let width = machine.framebuffer_width();
+            let height = machine.framebuffer_height();
+            self.rgba_width = width;
+            self.rgba_height = height;
+            self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
+        }
+        self.machine = machine;
+        self.update_rgba_framebuffer();
+    }
+
     #[must_use]
     pub fn model(&self) -> Model {
         self.model
@@ -100,18 +115,6 @@ impl JupiterAceRuntime {
 
     pub(crate) fn set_time(&mut self, time: MachineTime) {
         self.time = time;
-    }
-
-    pub(crate) fn set_bios_bytes(&mut self, bytes: Option<Vec<u8>>) {
-        self.bios_bytes = bytes;
-    }
-
-    pub(crate) fn bios_bytes(&self) -> Option<&[u8]> {
-        self.bios_bytes.as_deref()
-    }
-
-    pub(crate) fn rebuild_after_restore(&mut self) -> Result<(), MachineError> {
-        self.rebuild_machine()
     }
 
     fn rebuild_machine(&mut self) -> Result<(), MachineError> {
