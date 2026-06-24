@@ -25,12 +25,13 @@
 pub mod watch;
 pub use watch::{AyWriteRecord, AyWriteWatch, DEFAULT_AY_WATCH_CAP};
 
-/// Logarithmic volume table for the AY-3-8910.
-/// 16 levels (0 = silent, 15 = maximum). The curve approximates
-/// the real chip's DAC output measured by various sources.
+/// Logarithmic volume table for the AY-3-8910 (0 = silent, 15 = maximum),
+/// the normalised general-AY DAC approximation from the primary reference
+/// (`reference/by-topic/psg-ay-3-8910`). Indices 12-14 previously diverged
+/// from that table (0.5704/0.6873/0.8482); reconciled to the reference. (#157)
 static VOLUME: [f32; 16] = [
     0.0000, 0.0137, 0.0205, 0.0291, 0.0423, 0.0618, 0.0847, 0.1369, 0.1691, 0.2647, 0.3527, 0.4499,
-    0.5704, 0.6873, 0.8482, 1.0000,
+    0.5765, 0.7258, 0.8819, 1.0000,
 ];
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -55,7 +56,10 @@ pub struct Ay3_8910 {
 
     // Envelope generator
     env_counter: u32,
-    env_step: u8,
+    /// Current ramp direction: `true` = rising (attack), `false` = falling
+    /// (decay). Seeded from R13 bit 2 on write and flipped on each wrap for the
+    /// alternating (triangle) shapes.
+    env_att: bool,
     env_holding: bool,
     /// Current envelope output level (0-15).
     env_level: u8,
@@ -127,7 +131,7 @@ impl Ay3_8910 {
             noise_lfsr: 1, // Must be non-zero
             noise_prescale: false,
             env_counter: 0,
-            env_step: 0,
+            env_att: false,
             env_holding: false,
             env_level: 0,
             env_prescale: false,
@@ -196,8 +200,11 @@ impl Ay3_8910 {
             7 => val,                // Mixer: all 8 bits
             8..=10 => val & 0x1F,    // Volume + envelope mode: 5 bits
             13 => {
-                // Writing to envelope shape resets the envelope
-                self.env_step = 0;
+                // Writing to envelope shape (re)starts the envelope at the start
+                // of its first ramp: direction from the Attack bit, level at that
+                // ramp's beginning (0 if rising, 15 if falling).
+                self.env_att = val & 0x04 != 0;
+                self.env_level = if self.env_att { 0 } else { 15 };
                 self.env_counter = 0;
                 self.env_holding = false;
                 self.env_prescale = false;
@@ -390,49 +397,54 @@ impl Ay3_8910 {
         (coarse << 8) | fine
     }
 
+    /// Advance the envelope one step. Faithful to the reference shape table
+    /// (`reference/by-topic/psg-ay-3-8910`) and XRoar's `ay891x.c`: the level
+    /// ramps in the current direction (`env_att`); on reaching an endpoint the
+    /// Continue/Hold/Alternate bits decide repeat, reverse (triangle), or hold.
+    /// Only called while not holding (gated in [`Ay3_8910::tick`]).
     fn advance_envelope(&mut self) {
         let shape = self.regs[13] & 0x0F;
         let cont = shape & 0x08 != 0;
-        let attack = shape & 0x04 != 0;
         let alternate = shape & 0x02 != 0;
         let hold = shape & 0x01 != 0;
 
-        self.env_step += 1;
-
-        if self.env_step >= 16 {
-            if cont {
-                if hold {
-                    // Hold at final value
-                    self.env_holding = true;
-                    self.env_step = 15;
-                    self.env_level = if attack ^ alternate { 0 } else { 15 };
-                } else if alternate {
-                    // Reverse direction
-                    self.env_step = 0;
-                    // The level computation handles the direction
-                } else {
-                    // Repeat
-                    self.env_step = 0;
-                }
+        if self.env_att {
+            if self.env_level >= 15 {
+                self.env_ramp_complete(cont, alternate, hold);
             } else {
-                // No continue: hold at 0
-                self.env_holding = true;
-                self.env_step = 15;
-                self.env_level = 0;
-                return;
+                self.env_level += 1;
             }
-        }
-
-        // Compute current envelope level
-        let step = self.env_step & 0x0F;
-        let cycle = (self.env_step / 16) & 1;
-        let direction_up = if alternate {
-            attack ^ (cycle != 0)
+        } else if self.env_level == 0 {
+            self.env_ramp_complete(cont, alternate, hold);
         } else {
-            attack
-        };
+            self.env_level -= 1;
+        }
+    }
 
-        self.env_level = if direction_up { step } else { 15 - step };
+    /// A ramp reached its endpoint. `Continue = 0` (shapes 0-7) always falls to
+    /// silence and holds — the reference's "fall and hold at 0", whichever way
+    /// the ramp ran. With `Continue = 1`: `Hold` ends the envelope at the
+    /// endpoint, flipped by `Alternate` (so shapes 11/13 hold at max); otherwise
+    /// `Alternate` reverses direction (triangle shapes 10/14) and neither bit
+    /// repeats the same ramp (sawtooth shapes 8/12).
+    fn env_ramp_complete(&mut self, cont: bool, alternate: bool, hold: bool) {
+        if !cont {
+            self.env_level = 0;
+            self.env_holding = true;
+            return;
+        }
+        if hold {
+            let endpoint = if self.env_att { 15 } else { 0 };
+            self.env_level = if alternate { 15 - endpoint } else { endpoint };
+            self.env_holding = true;
+            return;
+        }
+        if alternate {
+            self.env_att = !self.env_att;
+        } else {
+            // Repeat the same ramp from its start.
+            self.env_level = if self.env_att { 0 } else { 15 };
+        }
     }
 
     fn compute_output(&self) -> f32 {
@@ -687,5 +699,116 @@ mod tests {
                 "envelope should step every 16·EP ticks (EP={ep})"
             );
         }
+    }
+
+    /// The dedup-consecutive sequence of envelope levels a shape produces, one
+    /// entry per step (EP=1 so each step is a fixed interval), starting from the
+    /// level set by the R13 write.
+    fn envelope_level_sequence(shape: u8, ticks: usize) -> Vec<u8> {
+        let mut ay = Ay3_8910::new(1_773_400, 44100, 882);
+        ay.select_register(11);
+        ay.write_data(1); // envelope period fine = 1
+        ay.select_register(12);
+        ay.write_data(0);
+        ay.select_register(13);
+        ay.write_data(shape);
+        let mut seq = vec![ay.env_level];
+        for _ in 0..ticks {
+            ay.tick();
+            if *seq.last().unwrap() != ay.env_level {
+                seq.push(ay.env_level);
+            }
+        }
+        seq
+    }
+
+    #[test]
+    fn envelope_shape_10_makes_a_triangle() {
+        // #154: \/\/ — decay to 0, then *ramp* back up (not jump), proving the
+        // alternation survives. The old code reset the step each pass and decayed
+        // forever. Distinguish the triangle from the sawtooth (shape 8) by the
+        // step *after* hitting 0: a triangle rises to 1, a sawtooth jumps to 15.
+        let seq = envelope_level_sequence(0x0A, 1000);
+        assert_eq!(seq[0], 15, "shape 10 starts at max (decay first): {seq:?}");
+        let zero = seq.iter().position(|&l| l == 0).expect("should reach 0");
+        assert_eq!(
+            seq[zero + 1],
+            1,
+            "shape 10 should ramp up, not jump: {seq:?}"
+        );
+        assert!(
+            seq[zero..].contains(&15),
+            "shape 10 should climb back to 15: {seq:?}"
+        );
+    }
+
+    #[test]
+    fn envelope_shape_14_makes_a_triangle() {
+        // #154: /\/\ — attack to 15, then ramp back down.
+        let seq = envelope_level_sequence(0x0E, 1000);
+        assert_eq!(seq[0], 0, "shape 14 starts at 0 (attack first): {seq:?}");
+        let top = seq.iter().position(|&l| l == 15).expect("should reach 15");
+        assert_eq!(
+            seq[top + 1],
+            14,
+            "shape 14 should ramp down, not jump: {seq:?}"
+        );
+        assert!(
+            seq[top..].contains(&0),
+            "shape 14 should fall back to 0: {seq:?}"
+        );
+    }
+
+    #[test]
+    fn envelope_shapes_11_and_13_hold_at_max() {
+        // #155: \¯¯¯ and /¯¯¯ — one sweep, then hold at 15. The old inverted
+        // closed form held them at 0 (silence).
+        for shape in [0x0Bu8, 0x0D] {
+            let seq = envelope_level_sequence(shape, 1200);
+            assert_eq!(
+                *seq.last().unwrap(),
+                15,
+                "shape {shape:#04x} should hold at max: {seq:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn envelope_shapes_9_and_15_hold_at_zero() {
+        // The Continue+Hold counterparts that settle to silence.
+        for shape in [0x09u8, 0x0F] {
+            let seq = envelope_level_sequence(shape, 1200);
+            assert_eq!(
+                *seq.last().unwrap(),
+                0,
+                "shape {shape:#04x} should hold at 0: {seq:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn envelope_continue_zero_shapes_fall_and_hold_at_zero() {
+        // Continue=0 (shapes 0-7): a single ramp either way, then silence — the
+        // reference's "fall and hold at 0".
+        for shape in 0u8..8 {
+            let seq = envelope_level_sequence(shape, 1200);
+            assert_eq!(
+                *seq.last().unwrap(),
+                0,
+                "shape {shape:#04x} should hold at 0: {seq:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn envelope_shape_8_repeats_a_falling_sawtooth() {
+        // \\\\ — decay 15→0, jump back to 15, repeat (the alternate-free repeat).
+        let seq = envelope_level_sequence(0x08, 1000);
+        let zero = seq.iter().position(|&l| l == 0).expect("should reach 0");
+        assert_eq!(
+            seq[zero + 1],
+            15,
+            "shape 8 should jump back to 15, not ramp: {seq:?}"
+        );
     }
 }
