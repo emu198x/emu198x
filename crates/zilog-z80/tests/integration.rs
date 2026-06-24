@@ -2007,3 +2007,117 @@ fn nmi_jumps_to_0066() {
 
     assert_eq!(z80.regs.a(), 0x66); // NMI handler executed
 }
+
+/// #121: in IM 0 the interrupting device drives an opcode onto the bus during
+/// the ack; an `RST n` must vector to `n`, not the IM 1 fixed 0x0038. Drive
+/// `RST 10h` (0xD7) and assert the ISR at 0x0010 runs.
+#[test]
+fn interrupt_im0_executes_device_rst_vector() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    z80.regs.sp = 0xFFFE;
+    z80.regs.im = 0;
+
+    mem[0] = 0xFB; // EI
+    mem[1] = 0x00; // NOP (EI defers one instruction)
+    mem[2] = 0x76; // HALT
+
+    // ISR at the RST 10h vector: LD A, 0xBB; HALT.
+    mem[0x10] = 0x3E;
+    mem[0x11] = 0xBB;
+    mem[0x12] = 0x76;
+
+    // Get past EI + NOP into HALT.
+    let mut hc = 0u32;
+    while hc < 40 {
+        z80.tick();
+        if z80.mreq && z80.rd {
+            z80.data_in = mem[z80.addr as usize];
+        }
+        if z80.mreq && z80.wr {
+            mem[z80.addr as usize] = z80.data;
+        }
+        hc += 1;
+    }
+    assert!(z80.halt);
+
+    z80.irq = true;
+    let mut hc2 = 0u32;
+    while hc2 < 200 {
+        z80.tick();
+        if z80.mreq && z80.rd {
+            z80.data_in = mem[z80.addr as usize];
+        }
+        if z80.mreq && z80.wr {
+            mem[z80.addr as usize] = z80.data;
+        }
+        if z80.iorq && z80.m1 {
+            z80.data_in = 0xD7; // device drives RST 10h onto the bus
+        }
+        hc2 += 1;
+        if z80.halt && z80.regs.a() == 0xBB {
+            break;
+        }
+    }
+
+    assert_eq!(
+        z80.regs.a(),
+        0xBB,
+        "IM 0 should execute the device-driven RST 10h (vector 0x0010), not RST 38h"
+    );
+}
+
+/// #121 regression guard: an un-driven IM 0 ack bus reads 0xFF = `RST 38h`, so
+/// IM 0 with open bus must still behave like IM 1 (vector 0x0038).
+#[test]
+fn interrupt_im0_open_bus_is_rst_38() {
+    let mut z80 = Z80::new();
+    let mut mem = [0u8; 65536];
+    z80.regs.sp = 0xFFFE;
+    z80.regs.im = 0;
+
+    mem[0] = 0xFB; // EI
+    mem[1] = 0x00; // NOP
+    mem[2] = 0x76; // HALT
+    mem[0x38] = 0x3E; // ISR at RST 38h: LD A, 0xCC; HALT
+    mem[0x39] = 0xCC;
+    mem[0x3A] = 0x76;
+
+    let mut hc = 0u32;
+    while hc < 40 {
+        z80.tick();
+        if z80.mreq && z80.rd {
+            z80.data_in = mem[z80.addr as usize];
+        }
+        if z80.mreq && z80.wr {
+            mem[z80.addr as usize] = z80.data;
+        }
+        hc += 1;
+    }
+    assert!(z80.halt);
+
+    z80.irq = true;
+    let mut hc2 = 0u32;
+    while hc2 < 200 {
+        z80.tick();
+        if z80.mreq && z80.rd {
+            z80.data_in = mem[z80.addr as usize];
+        }
+        if z80.mreq && z80.wr {
+            mem[z80.addr as usize] = z80.data;
+        }
+        if z80.iorq && z80.m1 {
+            z80.data_in = 0xFF; // open bus
+        }
+        hc2 += 1;
+        if z80.halt && z80.regs.a() == 0xCC {
+            break;
+        }
+    }
+
+    assert_eq!(
+        z80.regs.a(),
+        0xCC,
+        "IM 0 open bus (0xFF) should vector to RST 38h"
+    );
+}

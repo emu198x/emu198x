@@ -39,11 +39,15 @@ pub(crate) fn execute(z80: &mut Z80) {
     // Check if this is an interrupt sequence (opcode = 0, prefix = None, walker has INT/NMI seq)
     if z80.walker.opcode == 0 && z80.walker.prefix == Prefix::None {
         let seq_ptr = z80.walker.sequence.as_ptr();
+        let im0_ptr = crate::mcycle::SEQ_INT_IM0.as_ptr();
         let im1_ptr = crate::mcycle::SEQ_INT_IM1.as_ptr();
         let im2_ptr = crate::mcycle::SEQ_INT_IM2.as_ptr();
         let nmi_ptr = crate::mcycle::SEQ_NMI.as_ptr();
 
-        if seq_ptr == im1_ptr {
+        if seq_ptr == im0_ptr {
+            execute_int_im0(z80);
+            return;
+        } else if seq_ptr == im1_ptr {
             execute_int_im1(z80);
             return;
         } else if seq_ptr == im2_ptr {
@@ -56,6 +60,27 @@ pub(crate) fn execute(z80: &mut Z80) {
     }
 
     execute_unprefixed(z80);
+}
+
+fn execute_int_im0(z80: &mut Z80) {
+    let exec_count = count_executes_before(z80.walker.sequence, z80.walker.step_idx);
+    if exec_count == 0 {
+        // In IM 0 the interrupting device drives an instruction onto the bus
+        // during the ack; `data_in` holds that byte. We model the `RST n` family
+        // — the realistic case, and an un-driven bus reads 0xFF = `RST 38h`.
+        // `RST n` is encoded `11_ttt_111`, vectoring to `ttt * 8`. Any other
+        // opcode (e.g. a multi-byte CALL) is unsupported and falls back to the
+        // IM 1 behaviour (RST 38h), which is also what an open bus yields.
+        let ack = z80.data_in;
+        let target = if ack & 0xC7 == 0xC7 {
+            (ack & 0x38) as u16
+        } else {
+            0x0038
+        };
+        z80.walker.staged.push_val = z80.regs.pc;
+        z80.regs.pc = target;
+        z80.regs.wz = target;
+    }
 }
 
 fn execute_int_im1(z80: &mut Z80) {
