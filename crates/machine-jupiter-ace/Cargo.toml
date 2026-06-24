@@ -8,6 +8,10 @@ repository.workspace = true
 
 [dependencies]
 zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
+serde = { workspace = true }
+
+[dev-dependencies]
+postcard = { workspace = true }
 
 [lints]
 workspace = true
