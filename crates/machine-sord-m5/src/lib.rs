@@ -73,6 +73,8 @@
 //! to one Z80 T-state; per iteration the phase counter advances by 3
 //! and yields one VDP dot whenever it reaches 2.
 
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 use ti_sn76489::{NoiseLfsr, Sn76489};
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
@@ -107,7 +109,7 @@ pub const NUM_KEY_ROWS: usize = 7;
 pub const VDP_INT_CTC_CHANNEL: u8 = 3;
 
 /// Sord M5 region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum M5Region {
     Ntsc,
     Pal,
@@ -127,6 +129,7 @@ pub struct IoEvent {
 }
 
 /// Sord M5 machine.
+#[derive(Serialize, Deserialize)]
 pub struct SordM5 {
     cpu: Z80,
     vdp: Tms9918,
@@ -134,6 +137,7 @@ pub struct SordM5 {
     rom: Vec<u8>,
     cart_rom: Vec<u8>,
     cart_ram: Vec<u8>,
+    #[serde(with = "BigArray")]
     ram: [u8; 4096],
     /// 7×8 keyboard matrix, active-high (1 = pressed). Each row Y0-Y6 is read
     /// directly at `$30`-`$36`; there is no row strobe (MAME `sord/m5.cpp`).
@@ -151,6 +155,7 @@ pub struct SordM5 {
     /// opcode stream.
     prev_opcode_ed: bool,
     /// When `Some`, every I/O port access is appended here (debug trace).
+    #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
     region: M5Region,
     cpu_tstates: u64,
@@ -584,6 +589,31 @@ mod tests {
         rom[0x0008] = 0x18;
         rom[0x0009] = 0xFE;
         rom
+    }
+
+    /// Save-state must capture LIVE machine state (Z80 + TMS9918 VDP + SN76489
+    /// PSG + Z80 CTC + RAM), not cold-boot from the ROM. Serialise, advance (so
+    /// the state differs), then deserialise the first snapshot and confirm
+    /// re-serialising it is byte-identical — every stateful field across all
+    /// chips round-trips, including the VDP's 16 KB VRAM and the CTC channels.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = SordM5::new(trap_rom(), vec![], M5Region::Ntsc);
+        sys.run_frame();
+        sys.poke(0x7100, 0xA5); // a system-RAM byte ($7000-$7FFF) to carry across
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: SordM5 = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 
     #[test]
