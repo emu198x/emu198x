@@ -103,16 +103,21 @@ impl AtomRuntime {
         self.time = time;
     }
 
-    pub(crate) fn set_bios_bytes(&mut self, bytes: Option<Vec<u8>>) {
-        self.bios_bytes = bytes;
-    }
-
-    pub(crate) fn bios_bytes(&self) -> Option<&[u8]> {
-        self.bios_bytes.as_deref()
-    }
-
-    pub(crate) fn rebuild_after_restore(&mut self) {
-        self.rebuild_machine();
+    /// Install a machine restored from a snapshot, re-deriving the host RGBA
+    /// framebuffer from its live state. Replaces the cold-boot rebuild on the
+    /// restore path so the resumed machine keeps its CPU/PPI/VDG/RAM state. The
+    /// framebuffer sizing mirrors `rebuild_machine` — `blank()` starts with an
+    /// empty buffer, so sizing it here is load-bearing (else the repaint panics).
+    pub(crate) fn set_machine(&mut self, machine: Option<AcornAtom>) {
+        if let Some(machine) = &machine {
+            let width = machine.framebuffer_width();
+            let height = machine.framebuffer_height();
+            self.rgba_width = width;
+            self.rgba_height = height;
+            self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
+        }
+        self.machine = machine;
+        self.update_rgba_framebuffer();
     }
 
     fn rebuild_machine(&mut self) {

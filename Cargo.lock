@@ -1941,6 +1941,9 @@ dependencies = [
  "intel-8255",
  "mos-6502",
  "motorola-vdg-6847",
+ "postcard",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
