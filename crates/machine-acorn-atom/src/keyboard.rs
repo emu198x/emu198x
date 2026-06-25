@@ -6,6 +6,7 @@
 //! column; the machine inverts them to the active-low port B value.
 
 /// Keyboard state: 10 rows x 6 columns.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct KeyboardState {
     /// Matrix state. `matrix[row]` has bit `col` set when pressed.
     matrix: [u8; 10],

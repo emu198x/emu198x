@@ -52,12 +52,16 @@ pub use vdg::{FB_HEIGHT, FB_WIDTH, Mc6847};
 
 use intel_8255::Ppi8255;
 use mos_6502::M6502;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 /// Acorn Atom machine.
+#[derive(Serialize, Deserialize)]
 pub struct AcornAtom {
     cpu: M6502,
     ram: Vec<u8>,
     ram_size: usize,
+    #[serde(with = "BigArray")]
     video_ram: [u8; 1024],
     rom: Vec<u8>,
     /// Intel 8255 PPI: port A drives the keyboard column (PA0-3) and the
@@ -308,6 +312,32 @@ mod tests {
         rom[0x3001] = 0x00;
         rom[0x3002] = 0xD0;
         rom
+    }
+
+    /// Save-state must capture LIVE machine state (6502 + PPI + MC6847 VDG +
+    /// RAM/video RAM), not cold-boot from ROM. Serialise, advance (so the state
+    /// differs), then deserialise the first snapshot and confirm re-serialising
+    /// it is byte-identical — every stateful field round-trips, including the
+    /// 1 KB video RAM and the VDG's last-scanned buffer.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        sys.run_frame();
+        sys.poke(0x0100, 0xA5); // a low-RAM byte to carry across the snapshot
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: AcornAtom = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
+        assert_eq!(restored.peek(0x0100), 0xA5, "poked RAM byte must survive");
     }
 
     #[test]

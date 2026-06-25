@@ -22,6 +22,8 @@ use motorola_vdg_6847::{
     TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_PIXELS,
     TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette, VdgControl, render_visible_argb_into,
 };
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 /// Framebuffer width (active 256 + 60 + 56 border = shared 372).
 pub const FB_WIDTH: u32 = TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32;
@@ -41,12 +43,14 @@ const ATOM_PALETTE: TextPalette = TextPalette {
 };
 
 /// MC6847 Video Display Generator (Atom wiring).
+#[derive(Serialize, Deserialize)]
 pub struct Mc6847 {
     framebuffer: Vec<u32>,
     /// VDG control register (A/G bit — Atom v1 only checks alpha vs
     /// graphics; CSS/INT_EXT/GM bits are stored but not honoured).
     pub control: u8,
     /// Cached last-frame video RAM contents, used by `render_frame`.
+    #[serde(with = "BigArray")]
     last_video_ram: [u8; 512],
     frame_complete: bool,
     scanline: u32,
