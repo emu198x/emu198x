@@ -2180,6 +2180,8 @@ version = "0.2.0"
 dependencies = [
  "gi-ay-3-8912",
  "intel-8255",
+ "postcard",
+ "serde",
  "ti-tms9918",
  "zilog-z80",
 ]

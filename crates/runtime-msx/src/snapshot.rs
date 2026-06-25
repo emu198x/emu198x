@@ -1,74 +1,43 @@
-//! Minimal snapshot envelope for the MSX1 runtime.
+//! Postcard-encoded snapshot envelope for the MSX1 runtime.
 //!
-//! `machine-msx` does not expose a deep chip-level snapshot today,
-//! so this implementation captures the bootstrap state (BIOS bytes,
-//! cartridges, region/model, time) — enough to replay from a known
-//! starting point. A full live snapshot (CPU/VDP/PSG/PPI/RAM) lands
-//! as a follow-up once `machine-msx` grows a `MsxSnapshot`.
+//! Serialises the **live machine** (Z80, TMS9918 VDP, AY-3-8910 PSG, 8255 PPI,
+//! ROM, RAM, and slot/bank state) so a restore resumes exactly, rather than the
+//! old bootstrap envelope that cold-booted from the BIOS/cart. Mirrors the
+//! SVI-328 / SG-1000 / Game Boy shape: a borrowing envelope for encode (no
+//! clone), an owning envelope for decode.
 
 use emu198x_shell::{MachineCore, MachineError, MachineTime};
-use machine_msx::MapperType;
+use machine_msx::Msx;
 use serde::{Deserialize, Serialize};
 
 use crate::runtime::MsxRuntime;
 
-const SNAPSHOT_VERSION: u16 = 1;
+const SNAPSHOT_VERSION: u16 = 2;
 
-#[derive(Serialize, Deserialize)]
-struct MsxRuntimeSnapshotV1 {
+/// Borrowing envelope used during encode — avoids cloning the live machine.
+#[derive(Serialize)]
+struct MsxRuntimeSnapshotRefV2<'a> {
+    version: u16,
+    time: u64,
+    model_id: &'a str,
+    machine: Option<&'a Msx>,
+}
+
+/// Owning envelope used during decode.
+#[derive(Deserialize)]
+struct MsxRuntimeSnapshotV2 {
     version: u16,
     time: u64,
     model_id: String,
-    bios_bytes: Option<Vec<u8>>,
-    cart1_bytes: Option<Vec<u8>>,
-    cart1_mapper: SerdeMapperType,
-    cart2_bytes: Option<Vec<u8>>,
-    cart2_mapper: SerdeMapperType,
-}
-
-#[derive(Clone, Copy, Serialize, Deserialize)]
-enum SerdeMapperType {
-    Plain,
-    Konami,
-    KonamiScc,
-    Ascii8,
-    Ascii16,
-}
-
-impl From<MapperType> for SerdeMapperType {
-    fn from(value: MapperType) -> Self {
-        match value {
-            MapperType::Plain => Self::Plain,
-            MapperType::Konami => Self::Konami,
-            MapperType::KonamiScc => Self::KonamiScc,
-            MapperType::Ascii8 => Self::Ascii8,
-            MapperType::Ascii16 => Self::Ascii16,
-        }
-    }
-}
-
-impl From<SerdeMapperType> for MapperType {
-    fn from(value: SerdeMapperType) -> Self {
-        match value {
-            SerdeMapperType::Plain => Self::Plain,
-            SerdeMapperType::Konami => Self::Konami,
-            SerdeMapperType::KonamiScc => Self::KonamiScc,
-            SerdeMapperType::Ascii8 => Self::Ascii8,
-            SerdeMapperType::Ascii16 => Self::Ascii16,
-        }
-    }
+    machine: Option<Msx>,
 }
 
 pub(crate) fn encode(runtime: &MsxRuntime) -> Result<Vec<u8>, MachineError> {
-    let snapshot = MsxRuntimeSnapshotV1 {
+    let snapshot = MsxRuntimeSnapshotRefV2 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
-        model_id: runtime.model().model_id().to_owned(),
-        bios_bytes: runtime.bios_bytes().map(<[u8]>::to_vec),
-        cart1_bytes: runtime.cart1_bytes().map(<[u8]>::to_vec),
-        cart1_mapper: runtime.cart1_mapper().into(),
-        cart2_bytes: runtime.cart2_bytes().map(<[u8]>::to_vec),
-        cart2_mapper: runtime.cart2_mapper().into(),
+        model_id: runtime.model().model_id(),
+        machine: runtime.machine(),
     };
     postcard::to_allocvec(&snapshot).map_err(|reason| MachineError::InvalidSnapshot {
         reason: format!("encode failed: {reason}"),
@@ -76,19 +45,57 @@ pub(crate) fn encode(runtime: &MsxRuntime) -> Result<Vec<u8>, MachineError> {
 }
 
 pub(crate) fn decode(runtime: &mut MsxRuntime, bytes: &[u8]) -> Result<(), MachineError> {
-    let snapshot: MsxRuntimeSnapshotV1 =
+    let snapshot: MsxRuntimeSnapshotV2 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
     if snapshot.version != SNAPSHOT_VERSION {
         return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported MSX snapshot version {}", snapshot.version),
+            reason: format!("unsupported snapshot version {}", snapshot.version),
+        });
+    }
+    if snapshot.model_id != runtime.model().model_id() {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!(
+                "snapshot model {} does not match runtime model {}",
+                snapshot.model_id,
+                runtime.model().model_id()
+            ),
         });
     }
     runtime.set_time(MachineTime::new(snapshot.time));
-    runtime.set_bios_bytes(snapshot.bios_bytes);
-    runtime.set_cart1(snapshot.cart1_bytes, snapshot.cart1_mapper.into());
-    runtime.set_cart2(snapshot.cart2_bytes, snapshot.cart2_mapper.into());
-    runtime.rebuild_after_restore();
+    runtime.set_machine(snapshot.machine);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MsxRuntimeSnapshotRefV2, decode};
+    use crate::profiles::Model;
+    use crate::runtime::MsxRuntime;
+    use emu198x_shell::MachineError;
+
+    /// A future-version envelope is rejected before any state is touched.
+    #[test]
+    fn decode_rejects_unsupported_version() {
+        let mut runtime = MsxRuntime::blank(Model::Msx1Ntsc);
+        let bytes = postcard::to_allocvec(&MsxRuntimeSnapshotRefV2 {
+            version: 999,
+            time: 0,
+            model_id: runtime.model().model_id(),
+            machine: None,
+        })
+        .expect("synthetic envelope should encode");
+
+        let err = decode(&mut runtime, &bytes).expect_err("future version should reject");
+        match err {
+            MachineError::InvalidSnapshot { reason } => {
+                assert!(
+                    reason.contains("unsupported snapshot version"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
 }

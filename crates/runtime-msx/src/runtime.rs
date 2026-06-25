@@ -144,59 +144,40 @@ impl MsxRuntime {
         self.model
     }
 
-    /// Raw BIOS image (when loaded).
-    #[must_use]
-    pub(crate) fn bios_bytes(&self) -> Option<&[u8]> {
-        self.bios_bytes.as_deref()
-    }
-
-    /// Cartridge slot 1 ROM image (when present).
+    /// Cartridge slot 1 ROM image (when present). Used by the session query
+    /// surface (`cartridge.cart1.loaded`).
     #[must_use]
     pub(crate) fn cart1_bytes(&self) -> Option<&[u8]> {
         self.cart1_bytes.as_deref()
     }
 
-    /// Cartridge slot 1 mapper.
-    #[must_use]
-    pub(crate) fn cart1_mapper(&self) -> MapperType {
-        self.cart1_mapper
-    }
-
-    /// Cartridge slot 2 ROM image (when present).
+    /// Cartridge slot 2 ROM image (when present). Used by the session query
+    /// surface (`cartridge.cart2.loaded`).
     #[must_use]
     pub(crate) fn cart2_bytes(&self) -> Option<&[u8]> {
         self.cart2_bytes.as_deref()
-    }
-
-    /// Cartridge slot 2 mapper.
-    #[must_use]
-    pub(crate) fn cart2_mapper(&self) -> MapperType {
-        self.cart2_mapper
     }
 
     pub(crate) fn set_time(&mut self, time: MachineTime) {
         self.time = time;
     }
 
-    pub(crate) fn set_bios_bytes(&mut self, bytes: Option<Vec<u8>>) {
-        self.bios_bytes = bytes;
-    }
-
-    pub(crate) fn set_cart1(&mut self, bytes: Option<Vec<u8>>, mapper: MapperType) {
-        self.cart1_bytes = bytes;
-        self.cart1_mapper = mapper;
-    }
-
-    pub(crate) fn set_cart2(&mut self, bytes: Option<Vec<u8>>, mapper: MapperType) {
-        self.cart2_bytes = bytes;
-        self.cart2_mapper = mapper;
-    }
-
-    /// Rebuild the wrapped Msx instance from the post-restore state.
-    /// Called by the snapshot decoder so the next frame draw sees the
-    /// post-snapshot contents instead of zeros.
-    pub(crate) fn rebuild_after_restore(&mut self) {
-        self.rebuild_machine();
+    /// Install a machine restored from a snapshot, re-deriving the host RGBA
+    /// framebuffer from its live state. Replaces the cold-boot rebuild on the
+    /// restore path so the resumed machine keeps its CPU/VDP/PSG/PPI/RAM and
+    /// slot/bank state. Sizes the RGBA buffer from the machine's framebuffer
+    /// dimensions exactly as `rebuild_machine` does, so `blank()`'s empty
+    /// buffer is grown before the first draw.
+    pub(crate) fn set_machine(&mut self, machine: Option<Msx>) {
+        if let Some(machine) = machine.as_ref() {
+            let width = machine.framebuffer_width();
+            let height = machine.framebuffer_height();
+            self.rgba_width = width;
+            self.rgba_height = height;
+            self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
+        }
+        self.machine = machine;
+        self.update_rgba_framebuffer();
     }
 
     /// Rebuild the wrapped Msx instance from the current BIOS +
