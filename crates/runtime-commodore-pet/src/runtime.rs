@@ -174,34 +174,21 @@ impl PetRuntime {
         self.time = time;
     }
 
-    pub(crate) fn set_rom_bytes(
-        &mut self,
-        kernal: Option<Vec<u8>>,
-        basic: Option<Vec<u8>>,
-        editor: Option<Vec<u8>>,
-        char_rom: Option<Vec<u8>>,
-    ) {
-        self.kernal_bytes = kernal;
-        self.basic_bytes = basic;
-        self.editor_bytes = editor;
-        self.char_bytes = char_rom;
-    }
-
-    pub(crate) fn kernal_bytes(&self) -> Option<&[u8]> {
-        self.kernal_bytes.as_deref()
-    }
-    pub(crate) fn basic_bytes(&self) -> Option<&[u8]> {
-        self.basic_bytes.as_deref()
-    }
-    pub(crate) fn editor_bytes(&self) -> Option<&[u8]> {
-        self.editor_bytes.as_deref()
-    }
-    pub(crate) fn char_bytes(&self) -> Option<&[u8]> {
-        self.char_bytes.as_deref()
-    }
-
-    pub(crate) fn rebuild_after_restore(&mut self) {
-        self.rebuild_machine();
+    /// Install a machine restored from a snapshot, re-deriving the host RGBA
+    /// framebuffer from its live state. Replaces the cold-boot rebuild on the
+    /// restore path so the resumed machine keeps its 6502/CRTC/PIA/VIA/RAM
+    /// state. Mirrors `rebuild_machine`'s rgba-buffer sizing exactly so
+    /// `update_rgba_framebuffer` cannot index out of bounds.
+    pub(crate) fn set_machine(&mut self, machine: Option<Pet>) {
+        if let Some(machine) = &machine {
+            let width = machine.framebuffer_width();
+            let height = machine.framebuffer_height();
+            self.rgba_width = width;
+            self.rgba_height = height;
+            self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
+        }
+        self.machine = machine;
+        self.update_rgba_framebuffer();
     }
 
     fn rebuild_machine(&mut self) {

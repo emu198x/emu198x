@@ -6,6 +6,7 @@
 //! (a low bit means the key is pressed).
 
 /// Keyboard state: 10 rows x 8 columns.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct KeyboardState {
     rows: [u8; 10],
 }
