@@ -11,6 +11,11 @@ mos-6502 = { path = "../mos-6502", version = "0.2.0" }
 mos-via-6522 = { path = "../mos-via-6522", version = "0.2.0" }
 motorola-6845 = { path = "../motorola-6845", version = "0.2.0" }
 ti-sn76489 = { path = "../ti-sn76489", version = "0.2.0" }
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+
+[dev-dependencies]
+postcard = { workspace = true }
 
 [lints]
 workspace = true

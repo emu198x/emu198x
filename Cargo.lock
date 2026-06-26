@@ -1950,6 +1950,9 @@ dependencies = [
  "mos-6502",
  "mos-via-6522",
  "motorola-6845",
+ "postcard",
+ "serde",
+ "serde-big-array",
  "ti-sn76489",
 ]
 
@@ -2585,6 +2588,9 @@ dependencies = [
 [[package]]
 name = "motorola-6845"
 version = "0.2.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "motorola-68k-common"

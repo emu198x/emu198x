@@ -17,7 +17,10 @@
 //! 18 registers (R0-R17): horizontal/vertical timing, sync positions,
 //! display start address, cursor position, and light pen latch.
 
+use serde::{Deserialize, Serialize};
+
 /// Motorola 6845 CRTC.
+#[derive(Serialize, Deserialize)]
 pub struct Crtc6845 {
     /// Selected register number (0-17).
     selected: u8,
