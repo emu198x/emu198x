@@ -82,16 +82,24 @@ impl Atari2600Runtime {
         self.time = time;
     }
 
-    pub(crate) fn set_cart_bytes(&mut self, bytes: Option<Vec<u8>>) {
-        self.cart_bytes = bytes;
-    }
-
     pub(crate) fn cart_bytes(&self) -> Option<&[u8]> {
         self.cart_bytes.as_deref()
     }
 
-    pub(crate) fn rebuild_after_restore(&mut self) -> Result<(), MachineError> {
-        self.rebuild_machine()
+    /// Install a machine restored from a snapshot, re-deriving the host RGBA
+    /// framebuffer from its live state. Replaces the cold-boot rebuild on the
+    /// restore path so the resumed machine keeps its CPU/TIA/RIOT/cart state.
+    /// The rgba sizing mirrors [`Self::rebuild_machine`] exactly (the visible
+    /// window, not the full raster) so a restore into a `blank()` runtime — whose
+    /// framebuffer Vec starts empty — does not panic on the repaint.
+    pub(crate) fn set_machine(&mut self, machine: Option<Atari2600>) {
+        if let Some(machine) = &machine {
+            self.rgba_width = machine.visible_framebuffer_width();
+            self.rgba_height = machine.visible_framebuffer_height();
+            self.rgba_framebuffer = vec![0; (self.rgba_width * self.rgba_height * 4) as usize];
+        }
+        self.machine = machine;
+        self.update_rgba_framebuffer();
     }
 
     fn rebuild_machine(&mut self) -> Result<(), MachineError> {

@@ -63,10 +63,12 @@ pub enum ArEffect {
 }
 
 /// The Supercharger's mapped state and 8 KB working image.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Supercharger {
     /// The raw `.a26` file: `num_loads` × `LOAD_SIZE` bytes.
     file: Vec<u8>,
     /// The 8 KB working set (6 KB RAM + 2 KB dummy-BIOS ROM).
+    #[serde(with = "serde_big_array::BigArray")]
     image: [u8; IMAGE_SIZE],
     /// Number of tape loads in `file`.
     num_loads: usize,

@@ -11,7 +11,7 @@
 use crate::supercharger::{ArEffect, Supercharger, is_supercharger};
 
 /// Cartridge banking scheme.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BankingScheme {
     /// 2KB or 4KB, no banking.
     None,
@@ -75,6 +75,7 @@ pub enum BankingScheme {
     Supercharger,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Cartridge {
     rom: Vec<u8>,
     scheme: BankingScheme,
