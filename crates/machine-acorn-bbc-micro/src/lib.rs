@@ -71,6 +71,8 @@
 use mos_6502::M6502;
 use mos_via_6522::Via6522;
 use motorola_6845::Crtc6845;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 use ti_sn76489::{NoiseLfsr, Sn76489};
 
 /// Framebuffer width (640 pixels — MODE 0 native).
@@ -90,6 +92,7 @@ const CYCLES_PER_LINE: u64 = 128;
 const SN76489_CLOCK_HZ: u32 = 4_000_000;
 
 /// Video ULA — palette + control register.
+#[derive(Serialize, Deserialize)]
 struct VideoUla {
     control: u8,
     palette: [u8; 16],
@@ -147,6 +150,7 @@ impl VideoUla {
 
 /// IC32 addressable latch — System VIA port B writes encode
 /// `address = value & 0x07` and `data = (value >> 3) & 1`.
+#[derive(Serialize, Deserialize)]
 struct AddressableLatch {
     bits: [bool; 8],
 }
@@ -186,6 +190,7 @@ const ADC_CONVERT_8BIT: u32 = 8_000;
 /// reference core: status byte = `completed_n | busy_n | value[11:10] | mode |
 /// flag | mux`; result high = `value[11:4]`, result low = `value[3:0] << 4`;
 /// conversion takes 10 ms (12-bit) or 4 ms (8-bit).
+#[derive(Serialize, Deserialize)]
 struct Upd7002 {
     /// 12-bit pot values for the four channels.
     channels: [u16; 4],
@@ -319,6 +324,7 @@ fn mosaic_pattern(code: u8, font_row: usize, separated: bool) -> u16 {
 /// MOS serviced a phantom serial interrupt forever and never cleared the System
 /// VIA's 100 Hz timer — an interrupt storm that starved BASIC before it could
 /// print its `>` prompt.
+#[derive(Serialize, Deserialize)]
 struct Mc6850 {
     /// Control register (interrupt enables + word format + clock divide).
     control: u8,
@@ -389,6 +395,7 @@ impl Mc6850 {
 }
 
 /// BBC Micro Model B machine.
+#[derive(Serialize, Deserialize)]
 pub struct BbcMicro {
     cpu: M6502,
     crtc: Crtc6845,
@@ -396,6 +403,7 @@ pub struct BbcMicro {
     system_via: Via6522,
     user_via: Via6522,
     psg: Sn76489,
+    #[serde(with = "BigArray")]
     ram: [u8; 32768],
     mos_rom: Vec<u8>,
     sideways_roms: Vec<Vec<u8>>,
@@ -950,6 +958,33 @@ mod tests {
         rom[0x3FFE] = 0x00;
         rom[0x3FFF] = 0xC0;
         rom
+    }
+
+    /// Save-state must capture LIVE machine state (6502, 6845 CRTC, Video ULA,
+    /// both 6522 VIAs, SN76489 PSG, 32 KB RAM, ADC, ACIA, latch), not cold-boot
+    /// from the MOS ROM. Serialise, advance (so the state differs), then
+    /// deserialise the first snapshot and confirm re-serialising it is
+    /// byte-identical: every stateful field across all chips round-trips,
+    /// including the 32 KB RAM via BigArray.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = BbcMicro::new(trap_rom());
+        sys.run_frame();
+        sys.poke(0x0100, 0xA5); // a low-RAM byte to carry across the snapshot
+        assert_eq!(sys.peek(0x0100), 0xA5, "poke lands in BBC main RAM");
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: BbcMicro = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 
     #[test]
