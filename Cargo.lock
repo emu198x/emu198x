@@ -169,11 +169,17 @@ name = "atari-antic"
 version = "0.2.0"
 dependencies = [
  "atari-gtia",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
 name = "atari-gtia"
 version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
+]
 
 [[package]]
 name = "atari-maria"
@@ -182,6 +188,10 @@ version = "0.2.0"
 [[package]]
 name = "atari-pokey"
 version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
+]
 
 [[package]]
 name = "atari-tia"
@@ -2006,6 +2016,8 @@ dependencies = [
  "atari-pokey",
  "mos-6502",
  "mos-pia-6520",
+ "postcard",
+ "serde",
 ]
 
 [[package]]

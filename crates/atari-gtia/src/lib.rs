@@ -11,6 +11,8 @@
 pub mod palette;
 
 use palette::NTSC_PALETTE;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -51,7 +53,7 @@ const NUM_MISSILES: usize = 4;
 
 /// ANTIC display mode, passed to GTIA so it knows how to interpret playfield
 /// pixel data.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnticMode {
     /// Blank scan line (no playfield data).
     Blank,
@@ -90,6 +92,7 @@ pub enum AnticMode {
 // ---------------------------------------------------------------------------
 
 /// Atari GTIA graphics chip.
+#[derive(Serialize, Deserialize)]
 pub struct Gtia {
     // -- Colour registers --
     colpm: [u8; 4], // COLPM0-3: player/missile colours
@@ -137,15 +140,16 @@ pub struct Gtia {
     // resolves those indices to colours using the *live* colour registers as
     // the beam reaches each pixel, so a mid-line COLBK/COLPF write changes only
     // the pixels drawn after it.
-    sl_visible: bool,                         // false when the line is off-screen
-    sl_fb_offset: usize,                      // framebuffer index of this line's first active pixel
-    sl_mode: AnticMode,                       // ANTIC mode for the line
-    sl_gtia_mode: u8,                         // PRIOR bits 6-7 (GTIA 9/10/11 modes)
-    sl_pf_width: u16,                         // playfield width in colour clocks
-    sl_pf_span: (usize, usize),               // active-x [start, end) the playfield occupies
+    sl_visible: bool,           // false when the line is off-screen
+    sl_fb_offset: usize,        // framebuffer index of this line's first active pixel
+    sl_mode: AnticMode,         // ANTIC mode for the line
+    sl_gtia_mode: u8,           // PRIOR bits 6-7 (GTIA 9/10/11 modes)
+    sl_pf_width: u16,           // playfield width in colour clocks
+    sl_pf_span: (usize, usize), // active-x [start, end) the playfield occupies
+    #[serde(with = "BigArray")]
     sl_line_buf: [u8; ACTIVE_WIDTH as usize], // per-pixel playfield colour-register indices
-    sl_playfield: Vec<u8>,                    // raw ANTIC playfield bytes (GTIA 9/10/11 resolve)
-    sl_x: usize,                              // compositing cursor: next active-x to draw
+    sl_playfield: Vec<u8>,      // raw ANTIC playfield bytes (GTIA 9/10/11 resolve)
+    sl_x: usize,                // compositing cursor: next active-x to draw
 
     // -- Framebuffer --
     framebuffer: Vec<u32>,

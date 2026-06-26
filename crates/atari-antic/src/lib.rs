@@ -13,6 +13,8 @@
 
 pub use atari_gtia::AnticMode;
 
+use serde::{Deserialize, Serialize};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -84,7 +86,7 @@ const VISIBLE_END: u16 = 248;
 // ---------------------------------------------------------------------------
 
 /// ANTIC region (NTSC vs PAL), controlling total lines per frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnticRegion {
     /// NTSC: 262 lines per frame.
     Ntsc,
@@ -281,6 +283,7 @@ fn playfield_width_cc(width_bits: u8) -> u16 {
 // ---------------------------------------------------------------------------
 
 /// Atari ANTIC display list processor.
+#[derive(Serialize, Deserialize)]
 pub struct Antic {
     // -- Write registers --
     dmactl: u8,

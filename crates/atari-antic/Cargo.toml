@@ -8,6 +8,8 @@ repository.workspace = true
 
 [dependencies]
 atari-gtia = { path = "../atari-gtia", version = "0.2.0" }
+serde = { workspace = true }
+serde-big-array = { workspace = true }
 
 [lints]
 workspace = true
