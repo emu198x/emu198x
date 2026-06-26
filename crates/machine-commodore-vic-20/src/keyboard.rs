@@ -4,6 +4,7 @@
 //! port B reads rows.
 
 /// Keyboard state: 8 rows x 8 columns.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct KeyboardState {
     /// Matrix state. `rows[row]` has bit `col` set when pressed.
     rows: [u8; 8],

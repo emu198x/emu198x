@@ -27,7 +27,10 @@ pub const BORDER_BOTTOM: u32 = 16;
 pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
 pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
+use serde::{Deserialize, Serialize};
+
 /// VIC 6560/6561 chip.
+#[derive(Serialize, Deserialize)]
 pub struct Vic6560 {
     /// ARGB32 framebuffer.
     framebuffer: Vec<u32>,

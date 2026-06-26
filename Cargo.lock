@@ -2140,6 +2140,9 @@ dependencies = [
  "mos-6502",
  "mos-via-6522",
  "mos-vic-i",
+ "postcard",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
@@ -2519,6 +2522,9 @@ dependencies = [
 [[package]]
 name = "mos-vic-i"
 version = "0.2.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "mos-vic-ii"

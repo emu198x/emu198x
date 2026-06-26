@@ -40,23 +40,34 @@ pub use mos_vic_i::{FB_HEIGHT, FB_WIDTH, Vic6560};
 
 use mos_6502::M6502;
 use mos_via_6522::Via6522;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 /// VIC-20 model selector.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Vic20Model {
     Pal,
     Ntsc,
 }
 
 /// VIC-20 machine.
+///
+/// Fully serialisable for save-states: the 6502, both 6522 VIAs, the VIC-I,
+/// the keyboard matrix, all RAM banks, colour RAM, and the ROMs carry live
+/// state so a restore resumes exactly.
+#[derive(Serialize, Deserialize)]
 pub struct Vic20 {
     cpu: M6502,
+    #[serde(with = "BigArray")]
     ram_low: [u8; 0x0400],
+    #[serde(with = "BigArray")]
     ram_exp_low: [u8; 0x0C00],
+    #[serde(with = "BigArray")]
     ram_main: [u8; 0x1000],
     ram_exp_high: Vec<u8>,
     has_exp_low: bool,
     exp_high_size: usize,
+    #[serde(with = "BigArray")]
     colour_ram: [u8; 0x0400],
     char_rom: Vec<u8>,
     basic_rom: Vec<u8>,
@@ -392,6 +403,32 @@ mod tests {
             Vic20Model::Pal,
             0,
         )
+    }
+
+    /// Save-state must capture LIVE machine state (6502 + both 6522 VIAs +
+    /// VIC-I + keyboard + all RAM banks + colour RAM + ROMs), not cold-boot
+    /// from the ROMs. Run a frame, poke a work-RAM byte, advance, serialise;
+    /// advance again and confirm the serialised state changed; then deserialise
+    /// the first snapshot and confirm re-serialising it is byte-identical.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = make_vic20();
+        sys.run_frame();
+        sys.poke(0x1000, 0xA5); // a main-RAM byte to carry across the snapshot
+        assert_eq!(sys.peek(0x1000), 0xA5);
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: Vic20 = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 
     #[test]
