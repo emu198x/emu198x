@@ -66,6 +66,8 @@
 //!   logical-to-physical colour entries
 
 use mos_6502::M6502;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 /// Framebuffer width (640 pixels; modes 1/4/6 render 320 doubled, modes
 /// 2/5 render 160 quadrupled).
@@ -133,6 +135,7 @@ fn decode_palette(pal_regs: &[u8; 8]) -> [u32; 16] {
     out
 }
 
+#[derive(Serialize, Deserialize)]
 struct ElectronUla {
     /// `$FE00` interrupt status: bit 0 master IRQ, 1 power-on reset,
     /// 2 display end (VBlank), 3 RTC, 4-6 cassette.
@@ -159,6 +162,9 @@ struct ElectronUla {
     sound_enabled: bool,
     /// Bresenham accumulator for 2 MHz → 48 kHz downsample.
     audio_accum: u64,
+    /// Host-side output buffer drained each frame; not machine state, so it is
+    /// skipped and defaults to an empty Vec on restore.
+    #[serde(skip)]
     audio_buffer: Vec<f32>,
     /// 14 columns × 4 rows, indexed `[column][row]`. `true` = pressed;
     /// `read_keyboard` returns the rows active-high, as the hardware does.
@@ -309,9 +315,16 @@ impl ElectronUla {
 }
 
 /// Acorn Electron machine.
+///
+/// Fully serialisable for save-states: the 6502, the ULA, RAM, the ROMs, and
+/// the rendered framebuffer all carry live state. The ULA's `audio_buffer` is a
+/// host-side output buffer, not machine state, so it is skipped and defaults on
+/// restore.
+#[derive(Serialize, Deserialize)]
 pub struct AcornElectron {
     cpu: M6502,
     ula: ElectronUla,
+    #[serde(with = "BigArray")]
     ram: [u8; 32768],
     os_rom: Vec<u8>,
     basic_rom: Vec<u8>,
@@ -763,6 +776,33 @@ mod tests {
         os[0x3FFB] = 0xC0;
         let basic = vec![0xFF; 0x4000];
         (os, basic)
+    }
+
+    /// Save-state must capture LIVE machine state (6502 + ULA + 32 KB RAM +
+    /// framebuffer), not cold-boot from the ROMs. Serialise, advance (so the
+    /// state differs), then deserialise the first snapshot and confirm
+    /// re-serialising it is byte-identical — every stateful field round-trips,
+    /// including the 32 KB RAM behind BigArray.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let (os, basic) = trap_roms();
+        let mut sys = AcornElectron::new(os, basic);
+        sys.run_frame();
+        sys.poke(0x4000, 0xA5); // a work-RAM byte to carry across the snapshot
+        assert_eq!(sys.peek(0x4000), 0xA5, "RAM should hold the poked byte");
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: AcornElectron = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 
     #[test]
