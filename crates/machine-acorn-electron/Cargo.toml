@@ -8,6 +8,11 @@ repository.workspace = true
 
 [dependencies]
 mos-6502 = { path = "../mos-6502", version = "0.2.0" }
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+
+[dev-dependencies]
+postcard = { workspace = true }
 
 [lints]
 workspace = true

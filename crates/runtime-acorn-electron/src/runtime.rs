@@ -126,21 +126,21 @@ impl ElectronRuntime {
         self.time = time;
     }
 
-    pub(crate) fn set_rom_bytes(&mut self, os: Option<Vec<u8>>, basic: Option<Vec<u8>>) {
-        self.os_bytes = os;
-        self.basic_bytes = basic;
-    }
-
-    pub(crate) fn os_bytes(&self) -> Option<&[u8]> {
-        self.os_bytes.as_deref()
-    }
-
-    pub(crate) fn basic_bytes(&self) -> Option<&[u8]> {
-        self.basic_bytes.as_deref()
-    }
-
-    pub(crate) fn rebuild_after_restore(&mut self) {
-        self.rebuild_machine();
+    /// Install a machine restored from a snapshot, re-deriving the host RGBA
+    /// framebuffer from its live state. Replaces the cold-boot rebuild on the
+    /// restore path so the resumed machine keeps its 6502 / ULA / RAM state.
+    /// Sizes `rgba_framebuffer` from the machine's framebuffer dimensions
+    /// exactly as `rebuild_machine` does before calling `update_rgba_framebuffer`.
+    pub(crate) fn set_machine(&mut self, machine: Option<AcornElectron>) {
+        if let Some(machine) = &machine {
+            let width = machine.framebuffer_width();
+            let height = machine.framebuffer_height();
+            self.rgba_width = width;
+            self.rgba_height = height;
+            self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
+        }
+        self.machine = machine;
+        self.update_rgba_framebuffer();
     }
 
     fn rebuild_machine(&mut self) {

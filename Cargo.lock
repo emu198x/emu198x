@@ -1961,6 +1961,9 @@ name = "machine-acorn-electron"
 version = "0.2.0"
 dependencies = [
  "mos-6502",
+ "postcard",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
