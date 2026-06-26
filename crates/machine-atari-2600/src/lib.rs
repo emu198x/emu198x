@@ -53,9 +53,10 @@ use supercharger::ArEffect;
 use atari_tia::{ACTIVE_WIDTH, CLOCKS_PER_LINE, HBLANK_CLOCKS, Tia, TiaRegion};
 use mos_6502::M6502;
 use mos_riot_6532::Riot6532;
+use serde::{Deserialize, Serialize};
 
 /// Atari 2600 region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Atari2600Region {
     Ntsc,
     Pal,
@@ -87,6 +88,11 @@ impl Atari2600Region {
 }
 
 /// Atari 2600 machine.
+///
+/// Fully serialisable for save-states: the 6507, the TIA, the RIOT, the
+/// cartridge (bankswitch + on-cart RAM + Supercharger image), and the
+/// machine-level bus state all carry live state across a snapshot.
+#[derive(Serialize, Deserialize)]
 pub struct Atari2600 {
     cpu: M6502,
     tia: Tia,
@@ -531,6 +537,36 @@ mod tests {
         rom[0x0FFC] = 0x00;
         rom[0x0FFD] = 0x10;
         rom
+    }
+
+    /// Save-state must capture LIVE machine state (6507 + TIA + RIOT + cart),
+    /// not cold-boot from the ROM. Serialise, advance (so the state differs),
+    /// then deserialise the first snapshot and confirm re-serialising it is
+    /// byte-identical — every stateful field across the CPU, TIA, RIOT, and
+    /// cartridge round-trips, and a poked RIOT-RAM byte survives.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = Atari2600::new(trap_rom(), Atari2600Region::Ntsc).expect("init");
+        sys.run_frame();
+        sys.poke(0x0080, 0xA5); // a RIOT work-RAM byte to carry across the snapshot
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: Atari2600 = postcard::from_bytes(&s1).expect("decode snapshot");
+        assert_eq!(
+            restored.riot().ram()[0],
+            0xA5,
+            "poked RIOT RAM byte survives the round-trip"
+        );
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 
     #[test]

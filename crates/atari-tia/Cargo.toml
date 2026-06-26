@@ -6,6 +6,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[dependencies]
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+
 [dev-dependencies]
 # Test-only: read/write the TIA frame-oracle golden PNGs (tests/tia_oracle.rs).
 # The shipped library stays dependency-free.

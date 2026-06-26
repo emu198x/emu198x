@@ -82,6 +82,7 @@ mod palette;
 
 use audio::TiaAudio;
 pub use palette::{NTSC_PALETTE, PAL_PALETTE};
+use serde::{Deserialize, Serialize};
 
 /// Framebuffer width: 160 visible colour clocks per line.
 /// Width of the visible playfield region (TIA renders `tile` + sprite +
@@ -145,7 +146,7 @@ fn paddle_threshold(pos: u8) -> u32 {
 }
 
 /// Video region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TiaRegion {
     /// NTSC: 262 lines, 3,579,545 Hz.
     Ntsc,
@@ -174,6 +175,7 @@ impl TiaRegion {
 }
 
 /// Atari TIA chip.
+#[derive(Serialize, Deserialize)]
 pub struct Tia {
     /// Video region.
     region: TiaRegion,

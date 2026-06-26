@@ -12,7 +12,7 @@
 //! 37/149 → `phase1`), so two output samples are produced per line.
 
 /// One TIA audio channel (AUDC/AUDF/AUDV + the two polynomial counters).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AudioChannel {
     audc: u8,
     audf: u8,
@@ -116,7 +116,7 @@ const MIX_ENTRIES: usize = 0x1F;
 
 /// Both TIA audio channels plus the colour-clock phase scheduler and the
 /// host-side mono sample buffer.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct TiaAudio {
     channel0: AudioChannel,
     channel1: AudioChannel,
@@ -129,6 +129,8 @@ pub(crate) struct TiaAudio {
     /// Non-linear mixing curve for the summed volume (`0..=0x1e` → `0.0..=1.0`).
     mixing_table: [f32; MIX_ENTRIES],
     /// Mono samples produced this run, drained by the runtime each frame.
+    /// Host-side drain buffer, not machine state — skipped from save-states.
+    #[serde(skip)]
     samples: Vec<f32>,
 }
 

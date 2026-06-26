@@ -188,6 +188,8 @@ name = "atari-tia"
 version = "0.2.0"
 dependencies = [
  "png",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
@@ -1976,6 +1978,9 @@ dependencies = [
  "atari-tia",
  "mos-6502",
  "mos-riot-6532",
+ "postcard",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
@@ -2504,6 +2509,10 @@ dependencies = [
 [[package]]
 name = "mos-riot-6532"
 version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
+]
 
 [[package]]
 name = "mos-sid-6581"

@@ -19,7 +19,7 @@
 //! how the kernel tells which key in the column is down.
 
 /// One keypad controller's pressed-key matrix.
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Keypad {
     /// `pressed[row][col]`, row 0-3 (top→bottom), col 0-2 (left→right).
     pressed: [[bool; 3]; 4],

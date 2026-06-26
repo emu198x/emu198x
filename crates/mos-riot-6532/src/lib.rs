@@ -44,9 +44,14 @@
 //! | $296  | W   | TIM64T | Set timer ÷64                  |
 //! | $297  | W   | T1024T | Set timer ÷1024                |
 
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
+
 /// MOS 6532 RIOT.
+#[derive(Serialize, Deserialize)]
 pub struct Riot6532 {
     /// 128 bytes of internal RAM.
+    #[serde(with = "BigArray")]
     ram: [u8; 128],
 
     /// Port A output register.
