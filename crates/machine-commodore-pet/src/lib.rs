@@ -42,6 +42,8 @@ use mos_6502::M6502;
 use mos_pia_6520::Pia6520;
 use mos_via_6522::Via6522;
 use motorola_6845::Crtc6845;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 pub const ACTIVE_WIDTH_40: u32 = 320;
 pub const ACTIVE_WIDTH_80: u32 = 640;
@@ -60,9 +62,12 @@ pub const SCREEN_WIDTH_80: u32 = ACTIVE_WIDTH_80 + BORDER_LEFT + BORDER_RIGHT;
 pub const SCREEN_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
 /// Commodore PET machine.
+#[derive(Serialize, Deserialize)]
 pub struct Pet {
     cpu: M6502,
+    #[serde(with = "BigArray")]
     ram: [u8; 0x8000],
+    #[serde(with = "BigArray")]
     video_ram: [u8; 0x0800],
     basic_rom: Vec<u8>,
     editor_rom: Vec<u8>,
@@ -469,6 +474,32 @@ mod tests {
         let before = pet.mem_read(0xF000);
         pet.mem_write(0xF000, 0xFF);
         assert_eq!(pet.mem_read(0xF000), before);
+    }
+
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut pet = make_pet();
+        pet.run_frame();
+        // PET RAM is $0000-$7FFF; poke a low address and confirm via the read
+        // path that it took.
+        pet.poke(0x0400, 0x5A);
+        assert_eq!(pet.mem_read(0x0400), 0x5A);
+
+        pet.run_frame();
+        let first = postcard::to_allocvec(&pet).expect("encode first");
+        pet.run_frame();
+        let second = postcard::to_allocvec(&pet).expect("encode second");
+        assert_ne!(
+            first, second,
+            "advancing a frame must change the serialised state"
+        );
+
+        let restored: Pet = postcard::from_bytes(&first).expect("decode first");
+        let reserialised = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            first, reserialised,
+            "restoring then re-serialising must be byte-identical"
+        );
     }
 
     #[test]

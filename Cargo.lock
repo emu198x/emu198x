@@ -2128,6 +2128,9 @@ dependencies = [
  "mos-pia-6520",
  "mos-via-6522",
  "motorola-6845",
+ "postcard",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]
@@ -2491,6 +2494,9 @@ dependencies = [
 [[package]]
 name = "mos-pia-6520"
 version = "0.2.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "mos-riot-6532"

@@ -21,7 +21,10 @@
 //! | $02  | 1        | ORB (Port B output / data)        |
 //! | $03  | —        | CRB (Control register B)          |
 
+use serde::{Deserialize, Serialize};
+
 /// MOS 6520/6821 Peripheral Interface Adapter.
+#[derive(Serialize, Deserialize)]
 pub struct Pia6520 {
     /// Port A output register.
     port_a: u8,
