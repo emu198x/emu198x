@@ -52,9 +52,10 @@ use atari_gtia::Gtia;
 use atari_pokey::Pokey;
 use mos_6502::M6502;
 use mos_pia_6520::Pia6520;
+use serde::{Deserialize, Serialize};
 
 /// Atari 800XL region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Atari800xlRegion {
     Ntsc,
     Pal,
@@ -84,6 +85,7 @@ impl Atari800xlRegion {
 }
 
 /// Atari 800XL machine.
+#[derive(Serialize, Deserialize)]
 pub struct Atari800xl {
     cpu: M6502,
     antic: Antic,
@@ -736,6 +738,38 @@ mod tests {
         rom[0x1FFE] = 0x00;
         rom[0x1FFF] = 0xA0;
         rom
+    }
+
+    /// Save-state must capture LIVE machine state (6502C + ANTIC + GTIA +
+    /// POKEY + PIA + 64 KB RAM), not cold-boot from ROM. Serialise, advance
+    /// (so the state differs), then deserialise the first snapshot and confirm
+    /// re-serialising it is byte-identical — every stateful field across all
+    /// chips round-trips, including the 64 KB RAM and the cartridge.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = Atari800xl::new(None, None, Some(trap_cart()), Atari800xlRegion::Ntsc, false)
+            .expect("init");
+        sys.run_frame();
+        sys.poke(0x0600, 0xA5); // a low work-RAM byte to carry across the snapshot
+        assert_eq!(sys.peek(0x0600), 0xA5, "poke landed in RAM");
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: Atari800xl = postcard::from_bytes(&s1).expect("decode snapshot");
+        assert_eq!(
+            restored.peek(0x0600),
+            0xA5,
+            "poked RAM byte survives restore"
+        );
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 
     #[test]

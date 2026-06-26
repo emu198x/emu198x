@@ -12,6 +12,10 @@ atari-gtia = { path = "../atari-gtia", version = "0.2.0" }
 atari-pokey = { path = "../atari-pokey", version = "0.2.0" }
 mos-6502 = { path = "../mos-6502", version = "0.2.0" }
 mos-pia-6520 = { path = "../mos-pia-6520", version = "0.2.0" }
+serde = { workspace = true }
+
+[dev-dependencies]
+postcard = { workspace = true }
 
 [lints]
 workspace = true

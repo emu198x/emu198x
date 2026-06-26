@@ -51,6 +51,8 @@
 
 #![allow(clippy::cast_precision_loss)]
 
+use serde::{Deserialize, Serialize};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -150,6 +152,7 @@ fn build_poly_table(bits: u32, tap_high: u32, tap_low: u32) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 /// One of four POKEY audio channels.
+#[derive(Serialize, Deserialize)]
 struct Channel {
     /// Frequency divider register (AUDF).
     audf: u8,
@@ -206,6 +209,7 @@ impl Channel {
 // ---------------------------------------------------------------------------
 
 /// Atari POKEY chip.
+#[derive(Serialize, Deserialize)]
 pub struct Pokey {
     /// CPU clock frequency (Hz), e.g. `1_789_772` for NTSC.
     /// Stored for diagnostics and future use (e.g. serial baud rate calculation).
@@ -279,27 +283,34 @@ pub struct Pokey {
     /// Divider for the 64 kHz / 15 kHz base clock.
     base_divider: u16,
 
-    // -- Audio output --
+    // -- Audio output (host-only sample drain — not chip state) --
     /// Accumulator for downsampling (mixed output).
+    #[serde(skip)]
     accumulator: f32,
 
     /// Per-channel accumulators for downsampling.
+    #[serde(skip)]
     channel_accumulators: [f32; 4],
 
     /// Number of CPU ticks accumulated.
+    #[serde(skip)]
     sample_count: u32,
 
     /// CPU ticks per output sample (fractional).
     ticks_per_sample: f32,
 
     /// Output sample buffer at 48 kHz.
+    #[serde(skip)]
     buffer: Vec<f32>,
 
     /// Per-channel output buffers at 48 kHz.
+    #[serde(skip)]
     channel_buffers: [Vec<f32>; 4],
 
     /// DC-blocking high-pass filter state.
+    #[serde(skip)]
     hp_prev_in: f32,
+    #[serde(skip)]
     hp_prev_out: f32,
 }
 

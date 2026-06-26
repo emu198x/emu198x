@@ -8,6 +8,7 @@
 //! - 8 KB: `$A000-$BFFF` (replaces the BASIC ROM window)
 //! - 16 KB: `$8000-$BFFF`
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Cartridge {
     rom: Vec<u8>,
     base: u16,

@@ -103,17 +103,23 @@ impl Atari800xlRuntime {
         self.time = time;
     }
 
-    pub(crate) fn set_state(
-        &mut self,
-        os: Option<Vec<u8>>,
-        basic: Option<Vec<u8>>,
-        cart: Option<Vec<u8>>,
-        basic_enabled: bool,
-    ) {
-        self.os_bytes = os;
-        self.basic_bytes = basic;
-        self.cart_bytes = cart;
-        self.basic_enabled = basic_enabled;
+    /// Install a machine restored from a snapshot, re-deriving the host RGBA
+    /// framebuffer from its live state. Replaces the cold-boot rebuild on the
+    /// restore path so the resumed machine keeps its CPU/ANTIC/GTIA/POKEY/PIA
+    /// and 64 KB RAM state. The framebuffer sizing mirrors `rebuild_machine`
+    /// exactly (same `framebuffer_width()` / `framebuffer_height()` getters)
+    /// so a runtime whose `blank()` starts with an empty framebuffer Vec does
+    /// not panic when the first frame paints.
+    pub(crate) fn set_machine(&mut self, machine: Option<Atari800xl>) {
+        if let Some(machine) = &machine {
+            let width = machine.framebuffer_width();
+            let height = machine.framebuffer_height();
+            self.rgba_width = width;
+            self.rgba_height = height;
+            self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
+        }
+        self.machine = machine;
+        self.update_rgba_framebuffer();
     }
 
     pub(crate) fn os_bytes(&self) -> Option<&[u8]> {
@@ -127,10 +133,6 @@ impl Atari800xlRuntime {
     }
     pub(crate) fn basic_enabled(&self) -> bool {
         self.basic_enabled
-    }
-
-    pub(crate) fn rebuild_after_restore(&mut self) -> Result<(), MachineError> {
-        self.rebuild_machine()
     }
 
     fn rebuild_machine(&mut self) -> Result<(), MachineError> {
