@@ -20,12 +20,15 @@
 //! The A78 header (128 bytes starting `01 49 87 01`) is detected and
 //! stripped automatically.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum BankingScheme {
     Flat { base: u16 },
     SuperGame,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Cartridge {
     rom: Vec<u8>,
     banking: BankingScheme,

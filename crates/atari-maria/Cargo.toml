@@ -10,5 +10,9 @@ repository.workspace = true
 name = "atari_maria"
 path = "src/lib.rs"
 
+[dependencies]
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+
 [lints]
 workspace = true

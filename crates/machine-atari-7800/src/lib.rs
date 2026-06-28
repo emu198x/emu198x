@@ -59,11 +59,13 @@ pub use tia_audio::TiaAudio;
 use atari_maria::{Maria, MariaRegion};
 use mos_6502::M6502;
 use mos_riot_6532::Riot6532;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 const COLOUR_CLOCKS_PER_LINE: u16 = 228;
 
 /// Atari 7800 region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Atari7800Region {
     Ntsc,
     Pal,
@@ -86,14 +88,18 @@ impl Atari7800Region {
 }
 
 /// Atari 7800 machine.
+#[derive(Serialize, Deserialize)]
 pub struct Atari7800 {
     cpu: M6502,
     maria: Maria,
     riot: Riot6532,
     tia_audio: TiaAudio,
     cart: Cartridge,
+    #[serde(with = "BigArray")]
     ram_zp: [u8; 192],
+    #[serde(with = "BigArray")]
     ram_stack: [u8; 192],
+    #[serde(with = "BigArray")]
     ram_main: [u8; 4096],
     region: Atari7800Region,
     master_clock: u64,
@@ -461,5 +467,36 @@ mod tests {
     #[test]
     fn rejects_oversized_rom() {
         assert!(Atari7800::new(vec![0u8; 256_000], Atari7800Region::Ntsc).is_err());
+    }
+
+    /// Save-state must capture LIVE machine state (6502C + MARIA + RIOT + TIA
+    /// audio + cart), not cold-boot from the ROM. Serialise, advance (so the
+    /// state differs), then deserialise the first snapshot and confirm
+    /// re-serialising it is byte-identical — every stateful field across the
+    /// CPU, MARIA, RIOT, TIA, and cartridge round-trips, and a poked RAM byte
+    /// survives.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = Atari7800::new(trap_rom_32k(), Atari7800Region::Ntsc).expect("init");
+        sys.run_frame();
+        sys.poke(0x0040, 0xA5); // a zero-page RAM byte to carry across the snapshot
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: Atari7800 = postcard::from_bytes(&s1).expect("decode snapshot");
+        assert_eq!(
+            restored.peek(0x0040),
+            0xA5,
+            "poked RAM byte survives the round-trip"
+        );
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 }
