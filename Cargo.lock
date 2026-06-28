@@ -4702,6 +4702,9 @@ dependencies = [
 [[package]]
 name = "western-digital-wd1770"
 version = "0.2.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "wgpu"

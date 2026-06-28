@@ -92,7 +92,7 @@ const INDEX_WIDTH: u32 = 400;
 /// Sectors are stored track-major, then side, then sector:
 /// `(((track * sides) + side) * sectors_per_track + (id - first_sector_id)) * sector_size`.
 /// This matches the common `.dsk`/raw layout for fixed-geometry CP/M disks.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Disk {
     data: Vec<u8>,
     tracks: usize,
@@ -204,7 +204,7 @@ fn sector_size_code(size: usize) -> u8 {
 
 /// What the active command is doing once it settles, so [`tick`](Wd1770::tick)
 /// knows how to finish it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 enum Pending {
     /// No data phase: settle to an idle Type-I status.
     #[default]
@@ -220,7 +220,7 @@ enum Pending {
 }
 
 /// Western Digital WD1770 floppy disk controller.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Wd1770 {
     // Software-visible registers.
     status: u8,
