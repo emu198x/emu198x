@@ -2253,6 +2253,9 @@ dependencies = [
  "gi-ay-3-8912",
  "mos-6502",
  "mos-via-6522",
+ "postcard",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]

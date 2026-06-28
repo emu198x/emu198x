@@ -85,6 +85,8 @@
 use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use mos_6502::M6502;
 use mos_via_6522::Via6522;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 /// Framebuffer width (240 pixels = 40 columns × 6 pixels per character).
 pub const FB_WIDTH: u32 = 240;
@@ -114,7 +116,7 @@ const ORIC_PALETTE: [u32; 8] = [
 ];
 
 /// Oric model variant.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OricModel {
     /// Oric-1 (1983): 48 KB RAM.
     Oric1,
@@ -124,7 +126,7 @@ pub enum OricModel {
 
 /// One IJK joystick's switch state (active-high here; inverted into the
 /// active-low port-A mask when read).
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 struct JoyState {
     up: bool,
     down: bool,
@@ -134,10 +136,17 @@ struct JoyState {
 }
 
 /// Oric machine.
+///
+/// Fully serialisable for save-states: the 6502, the VIA 6522, the AY-3-8910
+/// PSG, RAM, and the framebuffer all carry live state. `ay_watch` is a
+/// host-side debug capture, not machine state, so it is skipped and defaults
+/// to `None` on restore.
+#[derive(Serialize, Deserialize)]
 pub struct OricAtmos {
     cpu: M6502,
     via: Via6522,
     psg: Ay3_8912,
+    #[serde(with = "BigArray")]
     ram: [u8; 65536],
     rom: Vec<u8>,
     /// 8×8 keyboard matrix, active-low.
@@ -154,6 +163,7 @@ pub struct OricAtmos {
     /// When `Some`, every write to the AY data register (via the VIA's
     /// BDIR/BC1 handshake) is captured for the shared `watch_ay_*` tools.
     /// Host-side debug only, not part of the snapshot.
+    #[serde(skip)]
     ay_watch: Option<AyWriteWatch>,
 }
 
@@ -672,6 +682,32 @@ mod tests {
             sys.run_frame();
         }
         assert_eq!(sys.frame_count(), 30);
+    }
+
+    /// Save-state must capture LIVE machine state (6502 + VIA 6522 + AY-3-8910
+    /// PSG + 64 KB RAM + framebuffer), not cold-boot from the ROM. Serialise,
+    /// advance (so the state differs), then deserialise the first snapshot and
+    /// confirm re-serialising it is byte-identical — every stateful field
+    /// across all three chips and RAM round-trips.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        sys.run_frame();
+        sys.poke(0x0400, 0xA5); // a work-RAM byte to carry across the snapshot
+        assert_eq!(sys.peek(0x0400), 0xA5, "RAM accepts the poked byte");
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: OricAtmos = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 
     #[test]
