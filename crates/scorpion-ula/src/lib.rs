@@ -30,6 +30,18 @@ impl ScorpionUla {
     pub fn border_color(&self) -> u8 {
         self.engine.border
     }
+
+    /// Reinstall the timing config after a snapshot restore.
+    ///
+    /// `UlaEngine::config` is `#[serde(skip)]` and deserialises to the
+    /// 48K fallback. The Scorpion shares the 48K frame geometry, so this
+    /// is a structural mirror of the SOLID variants — it documents that
+    /// every variant reattaches explicitly rather than leaning on the
+    /// fallback, so the pattern doesn't silently break if the default
+    /// ever changes.
+    pub fn reattach_config(&mut self) {
+        self.engine.set_config(&ula_engine::CONFIG_48K);
+    }
 }
 
 impl Default for ScorpionUla {

@@ -125,6 +125,17 @@ impl ScorpionZS256 {
         self.speaker = SpeakerMixer::default();
     }
 
+    /// Reattach `&'static` references that don't survive serde's
+    /// `#[serde(skip)]` round-trip, and rehydrate the Z80 walker
+    /// sequence. Call once after restoring a postcard snapshot — the
+    /// runtime wires this through `after_restore`. The Scorpion shares
+    /// 48K timing, so the reattach is a structural mirror, but it keeps
+    /// every variant on the same explicit-reattach contract.
+    pub fn restore_volatile_refs(&mut self) {
+        self.z80.rehydrate_walker_sequence();
+        self.ula.reattach_config();
+    }
+
     /// Apply a parsed `.z80` snapshot. Scorpion uses 128K-style page-to-bank
     /// routing; only the first 8 banks are addressable through a snapshot.
     pub fn apply_snapshot(&mut self, snap: &Snapshot) {

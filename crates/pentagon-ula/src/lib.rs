@@ -34,6 +34,17 @@ impl PentagonUla {
     pub fn border_color(&self) -> u8 {
         self.engine.border
     }
+
+    /// Reinstall the Pentagon timing config after a snapshot restore.
+    ///
+    /// `UlaEngine::config` is `#[serde(skip)]` and deserialises to the
+    /// 48K fallback. The Pentagon's 320-line / no-contention timing
+    /// differs from the 48K, so a restore that skipped this would resume
+    /// with the wrong frame length and INT scanline. Mirrors the SOLID
+    /// variants' `reattach_config`.
+    pub fn reattach_config(&mut self) {
+        self.engine.set_config(&ula_engine::CONFIG_PENTAGON);
+    }
 }
 
 impl Default for PentagonUla {

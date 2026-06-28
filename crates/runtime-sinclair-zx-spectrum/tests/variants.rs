@@ -261,6 +261,81 @@ fn spectrum_128k_runtime_round_trips_through_snapshot() {
     assert_eq!(round_trip, bytes);
 }
 
+/// Regression: a restored Pentagon keeps its own ULA timing config, not
+/// the `CONFIG_48K` serde fallback. `UlaEngine::config` is
+/// `#[serde(skip)]` and deserialises to 48K; before the variant cores
+/// gained `restore_volatile_refs`, a restored Pentagon ran with 48K INT
+/// timing (scan 248) instead of its own (scan 256), so INT fired eight
+/// scanlines early. Asserts INT fires at the Pentagon scanline *after a
+/// restore* — would fail with the old `after_restore` that only
+/// rehydrated the Z80 walker. See
+/// `knowledge/decisions/spectrum-architecture-review.md` Seam 3.
+#[test]
+fn pentagon_restore_keeps_pentagon_ula_timing() {
+    use common_sinclair_zx_spectrum::ula_engine::CONFIG_PENTAGON;
+
+    let original = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+    let bytes = original
+        .snapshot()
+        .expect("Pentagon snapshot should encode");
+    let mut restored = Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new());
+    restored
+        .restore(&bytes)
+        .expect("Pentagon snapshot should restore");
+
+    // INT T-state from frame start = int_scan × (pixels_per_line / 2).
+    // Pentagon = 256 × 224; a 48K fallback would fire at 248 × 224.
+    let int_t =
+        u32::from(CONFIG_PENTAGON.int_scan) * (u32::from(CONFIG_PENTAGON.pixels_per_line) / 2);
+    restored.machine_mut().advance_tstates(int_t - 1);
+    assert!(
+        !restored.machine().z80.irq,
+        "INT must not fire before the Pentagon scanline after restore"
+    );
+    restored.machine_mut().advance_tstates(2);
+    assert!(
+        restored.machine().z80.irq,
+        "INT must fire at the Pentagon scanline after restore — a \
+         CONFIG_48K fallback would have fired ~8 scanlines earlier"
+    );
+}
+
+/// Regression: a restored NTSC TS2068 keeps `CONFIG_TS2068` (262 lines,
+/// INT scan 224), not the `CONFIG_48K` serde fallback (scan 248). Same
+/// root cause and contract as the Pentagon case above. Runs on a large
+/// stack like the other TS2068 tests — the hi-res framebuffer makes the
+/// machine too big for the default test-thread stack.
+#[test]
+fn ts2068_restore_keeps_ntsc_ula_timing() {
+    run_with_large_stack(|| {
+        use common_sinclair_zx_spectrum::ula_engine::CONFIG_TS2068;
+
+        let original =
+            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        let bytes = original.snapshot().expect("TS2068 snapshot should encode");
+        let mut restored =
+            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068));
+        restored
+            .restore(&bytes)
+            .expect("TS2068 snapshot should restore");
+
+        // TS2068 = 224 × 224; a 48K fallback would fire later, at 248 × 224.
+        let int_t =
+            u32::from(CONFIG_TS2068.int_scan) * (u32::from(CONFIG_TS2068.pixels_per_line) / 2);
+        restored.machine_mut().advance_tstates(int_t - 1);
+        assert!(
+            !restored.machine().z80.irq,
+            "INT must not fire before the TS2068 scanline after restore"
+        );
+        restored.machine_mut().advance_tstates(2);
+        assert!(
+            restored.machine().z80.irq,
+            "INT must fire at the NTSC TS2068 scanline after restore — a \
+             CONFIG_48K fallback would fire later"
+        );
+    });
+}
+
 #[test]
 fn spectrum_plus3_accepts_disk_slot_via_machine_core() {
     let mut runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
