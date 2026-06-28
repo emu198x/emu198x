@@ -1,8 +1,8 @@
 # Save-state rollout — resume plan
 
-**Status (2026-06-28): 21 of ~24 bootstrap systems converted to real live-state
-save-state.** Three heavyweights remain: **Spectrum, Amiga, Einstein.** This doc
-is the durable handoff so the remaining work doesn't need rediscovering.
+**Status (2026-06-28): 22 of ~24 bootstrap systems converted to real live-state
+save-state.** Two heavyweights remain: **Spectrum, Amiga.** This doc is the
+durable handoff so the remaining work doesn't need rediscovering.
 
 The binding pattern + rationale live in
 [`knowledge/decisions/savestate-live-machine-serde.md`](../../knowledge/decisions/savestate-live-machine-serde.md).
@@ -15,7 +15,7 @@ rom/cart bytes}` envelope whose `restore` **cold-booted** the machine, throwing
 away all live CPU/RAM/chip state. The fix: serialise the **live machine** via
 `serde` + `postcard`.
 
-## Done (PRs #655–675, all verified + merged/armed)
+## Done (PRs #655–675 + Einstein, all verified + merged/armed)
 
 | Track | Systems |
 |-------|---------|
@@ -26,11 +26,17 @@ away all live CPU/RAM/chip state. The fix: serialise the **live machine** via
 | Atari | 2600 #669, 800XL #670, 5200 #673, 7800 #674 |
 | Sinclair | ZX81 #672, ZX80 #675 |
 | Oric | Oric-Atmos #671 |
+| Tatung | Einstein (this PR) |
 
 **Shared chips now derive serde** (additive — new trait impls, no behaviour
 change): TMS9918, SN76489, Z80 CTC, Sega VDP, Intel 8255 PPI, Motorola 6845
 CRTC, MOS 6520 PIA, VIC-I, TIA (+ TiaAudio), RIOT/6532, ANTIC, GTIA, POKEY,
-MARIA, ZX81 ULA. (Z80, 6502, 6522, AY-3-8912 already did.)
+MARIA, ZX81 ULA, WD1770 (+ its Disk). (Z80, 6502, 6522, AY-3-8912 already did.)
+
+The **Einstein disk seam** was settled this way: the WD1770's `Disk` holds its
+backing bytes, which Write Sector mutates in place, so the disk **rides in the
+snapshot** — capturing the live machine has to capture a partially-written disk.
+That's the precedent for the next FDC-bearing system.
 
 ## Remaining
 
@@ -54,12 +60,6 @@ Agnus, Denise, Copper, Blitter, the 680x0 core (+ optional FPU/MMU state), 2× C
 (8520). Multiple models (A500 OCS … AGA). Expect BigArray on chip/slow/chip-RAM
 buffers, and careful `#[serde(skip)]` of host-only buffers. Scope this as a
 dedicated pass; verify a real WB boot round-trips (not just a synthetic test).
-
-### Einstein
-`machine-tatung-einstein`. Z80 + CTC ✅ + AY ✅ + WD1770 FDC. The wrinkle is the
-**disk-replay seam** — the FDC/disk state and any pending-IO. See
-`project_einstein_disk_boot` memory. Decide whether disk image bytes ride in the
-snapshot or stay external (other disk systems' precedent applies).
 
 ## The conversion recipe (per system)
 

@@ -105,16 +105,20 @@ impl EinsteinRuntime {
         self.time = time;
     }
 
-    pub(crate) fn set_rom_bytes(&mut self, bytes: Option<Vec<u8>>) {
-        self.rom_bytes = bytes;
-    }
-
-    pub(crate) fn rom_bytes(&self) -> Option<&[u8]> {
-        self.rom_bytes.as_deref()
-    }
-
-    pub(crate) fn rebuild_after_restore(&mut self) {
-        self.rebuild_machine();
+    /// Install a machine restored from a snapshot. Re-sizes the host RGBA
+    /// framebuffer from the restored machine's dimensions before repainting —
+    /// `blank()` starts with an empty buffer, so skipping this would panic on
+    /// the first repaint. Mirrors the sizing `rebuild_machine` does.
+    pub(crate) fn set_machine(&mut self, machine: Option<Einstein>) {
+        if let Some(machine) = &machine {
+            let width = machine.framebuffer_width();
+            let height = machine.framebuffer_height();
+            self.rgba_width = width;
+            self.rgba_height = height;
+            self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
+        }
+        self.machine = machine;
+        self.update_rgba_framebuffer();
     }
 
     fn rebuild_machine(&mut self) {
