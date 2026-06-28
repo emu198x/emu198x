@@ -88,12 +88,20 @@ impl Atari5200Runtime {
         self.time = time;
     }
 
-    pub(crate) fn set_cart_bytes(&mut self, bytes: Option<Vec<u8>>) {
-        self.cart_bytes = bytes;
-    }
-
-    pub(crate) fn set_bios_bytes(&mut self, bytes: Vec<u8>) {
-        self.bios_bytes = bytes;
+    /// Install a restored live machine and resize the host RGBA framebuffer from
+    /// its live state. Replaces the cold-boot rebuild on the restore path so the
+    /// resumed machine keeps its CPU/ANTIC/GTIA/POKEY/RAM state. Mirrors
+    /// [`Self::rebuild_machine`]'s framebuffer sizing exactly.
+    pub(crate) fn set_machine(&mut self, machine: Option<Atari5200>) {
+        if let Some(machine) = &machine {
+            let width = machine.framebuffer_width();
+            let height = machine.framebuffer_height();
+            self.rgba_width = width;
+            self.rgba_height = height;
+            self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
+        }
+        self.machine = machine;
+        self.update_rgba_framebuffer();
     }
 
     pub(crate) fn cart_bytes(&self) -> Option<&[u8]> {
@@ -102,10 +110,6 @@ impl Atari5200Runtime {
 
     pub(crate) fn bios_bytes(&self) -> &[u8] {
         &self.bios_bytes
-    }
-
-    pub(crate) fn rebuild_after_restore(&mut self) -> Result<(), MachineError> {
-        self.rebuild_machine()
     }
 
     fn rebuild_machine(&mut self) -> Result<(), MachineError> {

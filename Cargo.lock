@@ -2001,6 +2001,9 @@ dependencies = [
  "atari-gtia",
  "atari-pokey",
  "mos-6502",
+ "postcard",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]

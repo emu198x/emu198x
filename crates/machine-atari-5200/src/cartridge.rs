@@ -17,6 +17,9 @@
 //! Adapted from `Emu198x-Oldest/crates/machine-atari-5200/src/cartridge.rs`
 //! (port 2026-06-01); 16 KB two-chip decode added 2026-06-04.
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
 pub struct Cartridge {
     rom: Vec<u8>,
     base_addr: u16,

@@ -56,6 +56,28 @@ use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC, cpu_
 use atari_gtia::Gtia;
 use atari_pokey::Pokey;
 use mos_6502::M6502;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
+
+/// Serde adapter for `dma_mem: Box<[u8; 65536]>` — the live write-through DMA
+/// shadow ANTIC reads each line. Plain `BigArray` does not see through the
+/// `Box`, and `#[serde(skip)]` is wrong (the field is live state, not derivable
+/// — there is no `Default` for `Box<[u8; 65536]>` either). So we serialise the
+/// boxed array as a length-prefixed byte slice and rebuild the box on the way
+/// back.
+mod boxed_dma_mem {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    pub fn serialize<S: Serializer>(v: &[u8; 65536], s: S) -> Result<S::Ok, S::Error> {
+        // serialise as a byte slice (postcard encodes length-prefixed)
+        v.as_slice().serialize(s)
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Box<[u8; 65536]>, D::Error> {
+        let v: Vec<u8> = Vec::deserialize(d)?;
+        v.into_boxed_slice()
+            .try_into()
+            .map_err(|_| serde::de::Error::custom("dma_mem must be 65536 bytes"))
+    }
+}
 
 /// Joystick pot centre value (0-228 range — POKEY pots are 8-bit).
 pub const POT_CENTER: u8 = 114;
@@ -63,7 +85,7 @@ pub const POT_CENTER: u8 = 114;
 pub const POT_MAX: u8 = 228;
 
 /// Atari 5200 region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Atari5200Region {
     Ntsc,
     Pal,
@@ -93,12 +115,14 @@ impl Atari5200Region {
 }
 
 /// Atari 5200 machine.
+#[derive(Serialize, Deserialize)]
 pub struct Atari5200 {
     cpu: M6502,
     antic: Antic,
     gtia: Gtia,
     pokey: Pokey,
     cart: Cartridge,
+    #[serde(with = "BigArray")]
     ram: [u8; 16384],
     /// ANTIC's DMA view of the whole `$0000-$FFFF` map. Real ANTIC fetches
     /// its display list, screen data, character sets, and player/missile
@@ -107,6 +131,7 @@ pub struct Atari5200 {
     /// set (`$F800-$FFFF`) — not just RAM. We mirror RAM writes into here
     /// and bake the (immutable) cart + BIOS once at construction. The I/O
     /// gaps read `$FF` (open bus); ANTIC never DMAs from register space.
+    #[serde(with = "boxed_dma_mem")]
     dma_mem: Box<[u8; 65536]>,
     bios: Vec<u8>,
     region: Atari5200Region,
@@ -448,6 +473,47 @@ mod tests {
         rom[0x1FFE] = 0x00;
         rom[0x1FFF] = 0xA0;
         rom
+    }
+
+    /// Save-state must capture the LIVE machine state — CPU, ANTIC, GTIA,
+    /// POKEY, the 16 KB RAM, and the DMA shadow — not cold-boot from ROM.
+    /// Serialise, advance (so the state differs), then deserialise the first
+    /// snapshot and confirm re-serialising it is byte-identical: every stateful
+    /// field round-trips, including the RAM and the boxed `dma_mem`
+    /// write-through shadow.
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys =
+            Atari5200::new(trap_rom_8k(), Vec::new(), Atari5200Region::Ntsc).expect("init");
+        sys.run_frame();
+        // A low work-RAM byte ($0600 is inside the 16 KB RAM at $0000-$3FFF).
+        sys.poke(0x0600, 0xA5);
+        assert_eq!(sys.peek(0x0600), 0xA5, "poke landed in RAM");
+        // The write tracks into the DMA shadow too (mem_write mirrors RAM
+        // writes into dma_mem) — running a frame keeps it resident there.
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: Atari5200 = postcard::from_bytes(&s1).expect("decode snapshot");
+        assert_eq!(
+            restored.peek(0x0600),
+            0xA5,
+            "poked RAM byte survives restore"
+        );
+        // The boxed DMA shadow survives too: its $0600 slot tracks the RAM write.
+        assert_eq!(
+            restored.dma_mem[0x0600], 0xA5,
+            "dma_mem write-through shadow survives restore"
+        );
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
     }
 
     #[test]
