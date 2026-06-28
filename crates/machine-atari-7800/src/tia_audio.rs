@@ -11,7 +11,7 @@
 /// Controller button state, packed exactly as MAME's `a7800` `BUTTONS` port so
 /// the `INPT` read logic ports across directly: bit 0 = P2 button 2, bit 1 =
 /// P1 button 2, bit 2 = P2 button 1, bit 3 = P1 button 1 (active-high).
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct TiaAudio {
     pub audc0: u8,
     pub audc1: u8,

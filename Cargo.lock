@@ -184,6 +184,10 @@ dependencies = [
 [[package]]
 name = "atari-maria"
 version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde-big-array",
+]
 
 [[package]]
 name = "atari-pokey"
@@ -2013,6 +2017,9 @@ dependencies = [
  "atari-maria",
  "mos-6502",
  "mos-riot-6532",
+ "postcard",
+ "serde",
+ "serde-big-array",
 ]
 
 [[package]]

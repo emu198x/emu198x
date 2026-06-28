@@ -74,6 +74,9 @@ mod palette;
 
 pub use palette::{NTSC_PALETTE, PAL_PALETTE};
 
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
+
 /// Framebuffer width: 320 pixels (hires resolution).
 /// Active display area dimensions (the pixels MARIA actually draws
 /// through its DLL/DL pipeline).
@@ -125,7 +128,7 @@ const MAX_DMA_CYCLES_PER_LINE: u16 = 512;
 // ---------------------------------------------------------------------------
 
 /// NTSC or PAL region selection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MariaRegion {
     /// NTSC: 263 lines per frame, ~192 visible.
     Ntsc,
@@ -212,6 +215,7 @@ struct DlEntry {
 // ---------------------------------------------------------------------------
 
 /// Atari 7800 MARIA display processor.
+#[derive(Serialize, Deserialize)]
 pub struct Maria {
     // -- Registers ----------------------------------------------------------
     backgrnd: u8,
@@ -246,6 +250,7 @@ pub struct Maria {
 
     // -- Framebuffer --------------------------------------------------------
     framebuffer: Vec<u32>,
+    #[serde(with = "BigArray")]
     line_buffer: [u8; ACTIVE_WIDTH as usize],
 }
 
