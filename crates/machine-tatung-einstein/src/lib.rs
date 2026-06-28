@@ -76,6 +76,8 @@
 //! every other T-state for the CPU ÷ 2 = 2 MHz AY clock.
 
 use gi_ay_3_8910::{Ay3_8910, AyWriteRecord, AyWriteWatch};
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 use ti_tms9918::{Tms9918, VdpRegion};
 use western_digital_wd1770::{Disk, Wd1770};
 use zilog_z80::{BusOp, Z80};
@@ -97,7 +99,7 @@ const AY_SAMPLES_PER_FRAME: usize = 1024;
 pub const NUM_KEY_ROWS: usize = 8;
 
 /// Einstein region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EinsteinRegion {
     Ntsc,
     Pal,
@@ -121,7 +123,7 @@ pub enum Modifier {
 /// single-ended modes (`$04`-`$07`) read one channel; the differential and
 /// pseudo-differential modes combine a pair. Decode adapted from MAME's
 /// `adc0844` device; the 40 µs conversion is treated as instantaneous.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Adc0844 {
     /// Channel inputs `[joy1 X, joy1 Y, joy2 X, joy2 Y]`, 8-bit, centre `0x80`.
     channels: [u8; 4],
@@ -165,11 +167,18 @@ impl Adc0844 {
 }
 
 /// Tatung Einstein TC-01 machine.
+///
+/// CPU, VDP, PSG, FDC (with any inserted disks), RAM, ROM, and the keyboard /
+/// joystick / paging state all carry live state and serialise. `io_trace` and
+/// `ay_watch` are host-side debug buffers, not machine state, so they are
+/// skipped and default to disarmed on restore.
+#[derive(Serialize, Deserialize)]
 pub struct Einstein {
     cpu: Z80,
     vdp: Tms9918,
     psg: Ay3_8910,
     rom: Vec<u8>,
+    #[serde(with = "BigArray")]
     ram: [u8; 65536],
     /// `$0000-$1FFF` returns ROM at reset; any write to `$21` flips
     /// this `false` and exposes the 64 KB RAM across the full space.
@@ -203,10 +212,12 @@ pub struct Einstein {
     psg_phase: u8,
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
+    #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
     /// When `Some`, every write to the PSG data port ($03) is captured
     /// for the shared `watch_ay_*` tools. Host-side debug only, not
     /// part of the snapshot.
+    #[serde(skip)]
     ay_watch: Option<AyWriteWatch>,
 }
 
@@ -998,6 +1009,34 @@ mod tests {
             sys.io_read(0x18) & 0x01,
             0,
             "BUSY clears after the transfer"
+        );
+    }
+
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Pal);
+        // Give the FDC live state too: an inserted disk that a write dirties,
+        // so the snapshot has to carry the controller and its (modified) image.
+        sys.insert_disk(0, vec![0u8; 10 * 512], 10, 512, 1);
+        sys.run_frame();
+        sys.poke(0x4000, 0xA5); // a work-RAM byte to carry across the snapshot
+        sys.run_frame();
+        let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        sys.run_frame(); // advance past the snapshot point
+        let s2 = postcard::to_allocvec(&sys).expect("encode again");
+        assert_ne!(s1, s2, "running a frame should change the serialised state");
+
+        let restored: Einstein = postcard::from_bytes(&s1).expect("decode snapshot");
+        let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(
+            s1, s3,
+            "restore should reproduce the snapshot state exactly"
+        );
+        assert_eq!(
+            restored.peek(0x4000),
+            0xA5,
+            "poked RAM byte survives restore"
         );
     }
 
