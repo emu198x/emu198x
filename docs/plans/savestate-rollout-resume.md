@@ -1,11 +1,27 @@
 # Save-state rollout — resume plan
 
-**Status (2026-06-28): 23 of ~24 bootstrap systems converted to real live-state
-save-state.** One heavyweight remains: **Amiga.** The Spectrum turned out to be
-**already done** — it was converted on 2026-05-20 as Seam 3 of the Spectrum
-architecture review (commit `7ea8842`), under "Seam" terminology rather than the
-rollout's PR-numbered sequence, which is why it was miscounted as remaining. This
-doc is the durable handoff so the remaining work doesn't need rediscovering.
+**Status (2026-06-28): COMPLETE — all 28 runtimes serialise live state; zero
+bootstrap envelopes remain.** Verified by a fleet-wide audit of every
+`runtime-*` crate's `snapshot`/`restore` path (each deserialises a live machine,
+not a cold-boot-from-ROM envelope).
+
+The last "remaining" entries in this plan were stale, not unfinished:
+- **Einstein** was a genuine bootstrap envelope — converted this session
+  (PR #677): live machine + serde WD1770, disk rides in the snapshot.
+- **Spectrum** was **already done** — converted 2026-05-20 as Seam 3 of the
+  Spectrum architecture review (commit `7ea8842`), under "Seam" terminology
+  rather than the rollout's PR sequence, so it was miscounted. One deferred
+  residual (Pentagon/Scorpion/Timex ULA-config reattach on restore) was closed
+  this session (PR #679).
+- **Amiga** was **already done** — the snapshot round-trip discipline landed at
+  commit `09a265c` (postcard envelope, model + version validation, complete
+  per-variant chip-stack snapshots for OCS/ECS/A1200-AGA, disk re-mounted
+  separately). Tested by `runtime-commodore-amiga/tests/snapshot_roundtrip.rs`
+  (fixed-point + bit-identical forward-run + reject paths) plus a real
+  Workbench-1.3 snapshot round-trip boot test in the diagnostic harness.
+
+This doc is now a completion record rather than a resume plan; the recipe and
+gotchas below stay as reference for any future system added to the fleet.
 
 The binding pattern + rationale live in
 [`knowledge/decisions/savestate-live-machine-serde.md`](../../knowledge/decisions/savestate-live-machine-serde.md).
@@ -56,13 +72,15 @@ INT-timing regression tests. See
 
 ## Remaining
 
-### Amiga (largest — its own multi-chip effort)
-`machine-commodore-amiga` (bin-only — see
-`project_amiga_mcp_path_include_constraint` memory). Many stateful chips: Paula,
-Agnus, Denise, Copper, Blitter, the 680x0 core (+ optional FPU/MMU state), 2× CIA
-(8520). Multiple models (A500 OCS … AGA). Expect BigArray on chip/slow/chip-RAM
-buffers, and careful `#[serde(skip)]` of host-only buffers. Scope this as a
-dedicated pass; verify a real WB boot round-trips (not just a synthetic test).
+Nothing. The rollout is complete — see the status block above. The
+**Amiga** (the last entry once flagged here) was already done: per-variant
+chip-stack snapshots (Paula, Agnus, Denise, Copper, Blitter, the 680x0/68020
+core incl. FPU/MMU, 2× 8520 CIA) for OCS/ECS/A1200-AGA, model + version
+validation, disk re-mounted separately, and a real Workbench-1.3 boot
+round-trip in the diagnostic harness. Implementation: commit `09a265c`;
+discipline locked in
+[`../../knowledge/decisions/amiga-full-family-architecture-review.md`](../../knowledge/decisions/amiga-full-family-architecture-review.md)
+§ "Snapshot round-trip discipline".
 
 ## The conversion recipe (per system)
 
