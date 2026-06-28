@@ -182,6 +182,22 @@ impl TimexTS2068 {
         self.speaker = SpeakerMixer::default();
     }
 
+    /// Reattach `&'static` references that don't survive serde's
+    /// `#[serde(skip)]` round-trip, and rehydrate the Z80 walker
+    /// sequence. Call once after restoring a postcard snapshot — the
+    /// runtime wires this through `after_restore`. The NTSC TS2068 uses
+    /// `CONFIG_TS2068` (262 lines) and the PAL TC2068 the 48K config;
+    /// the model picks the config exactly as `new` does, so a restore
+    /// doesn't fall back to 48K timing on an NTSC machine.
+    pub fn restore_volatile_refs(&mut self) {
+        let config = match self.model {
+            TimexModel::TC2068 => &ula_engine::CONFIG_48K,
+            TimexModel::TS2068 => &ula_engine::CONFIG_TS2068,
+        };
+        self.z80.rehydrate_walker_sequence();
+        self.ula.reattach_config(config);
+    }
+
     /// Apply a parsed `.z80` snapshot. Treats the Timex as a stock 48K
     /// for snapshot purposes — the page-to-base map matches the 48K
     /// convention. AY state is not carried in `.z80` v2/v3 for Timex.
