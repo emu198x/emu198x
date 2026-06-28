@@ -126,6 +126,16 @@ impl Pentagon128 {
         self.speaker = SpeakerMixer::default();
     }
 
+    /// Reattach `&'static` references that don't survive serde's
+    /// `#[serde(skip)]` round-trip, and rehydrate the Z80 walker
+    /// sequence. Call once after restoring a postcard snapshot — the
+    /// runtime wires this through `after_restore`. Without the ULA
+    /// reattach the Pentagon's config falls back to 48K timing.
+    pub fn restore_volatile_refs(&mut self) {
+        self.z80.rehydrate_walker_sequence();
+        self.ula.reattach_config();
+    }
+
     /// Apply a parsed `.z80` snapshot. Pentagon shares the 128K page
     /// layout (8 banked RAM pages, `$7FFD` paging, AY register file) —
     /// it has no `$1FFD`.

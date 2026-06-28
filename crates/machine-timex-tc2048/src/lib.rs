@@ -27,6 +27,7 @@ use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH_HIRES, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
+use common_sinclair_zx_spectrum::ula_engine;
 use format_sinclair_zx_spectrum_snapshot::Snapshot;
 use peripheral_kempston_joystick::KempstonJoystick;
 use timex_scld::TimexScld;
@@ -119,6 +120,17 @@ impl TimexTC2048 {
         self.z80 = Z80::new();
         self.hc = 0;
         self.speaker = SpeakerMixer::default();
+    }
+
+    /// Reattach `&'static` references that don't survive serde's
+    /// `#[serde(skip)]` round-trip, and rehydrate the Z80 walker
+    /// sequence. Call once after restoring a postcard snapshot — the
+    /// runtime wires this through `after_restore`. The TC2048 runs the
+    /// 48K timing config; the SCLD is shared with the NTSC TS2068, so
+    /// the config is passed in explicitly.
+    pub fn restore_volatile_refs(&mut self) {
+        self.z80.rehydrate_walker_sequence();
+        self.ula.reattach_config(&ula_engine::CONFIG_48K);
     }
 
     /// Apply a parsed `.z80` snapshot. TC2048 shares the 48K's flat

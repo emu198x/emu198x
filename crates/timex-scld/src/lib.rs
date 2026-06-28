@@ -66,6 +66,18 @@ impl TimexScld {
     pub fn read_ff(&self) -> u8 {
         self.scld_reg
     }
+
+    /// Reinstall the timing config after a snapshot restore.
+    ///
+    /// `UlaEngine::config` is `#[serde(skip)]` and deserialises to the
+    /// 48K fallback. The SCLD serves both the PAL TC2048/TC2068
+    /// (`CONFIG_48K`) and the NTSC TS2068 (`CONFIG_TS2068`), which have
+    /// different frame geometry, so the caller — which knows the model —
+    /// supplies the config. The hi-res framebuffer width is a serialised
+    /// field and survives restore; only the config ref needs reattaching.
+    pub fn reattach_config(&mut self, config: &'static ula_engine::UlaConfig) {
+        self.engine.set_config(config);
+    }
 }
 
 impl Default for TimexScld {
