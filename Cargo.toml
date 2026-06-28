@@ -23,6 +23,7 @@ members = [
     "crates/emu198x-shell",
     "crates/emu198x-ui",
     "crates/ferranti-ula-6c001e",
+    "crates/format-acorn-uef",
     "crates/format-commodore-c64-bas",
     "crates/format-commodore-c64-d64",
     "crates/format-commodore-c64-prg",
