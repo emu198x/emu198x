@@ -24,6 +24,7 @@
 ///
 /// Each half-row byte uses bits 0-4 for keys (1 = pressed, for internal
 /// storage). The `read()` method inverts and masks for the port $FE protocol.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct KeyboardState {
     /// Half-row state. Index 0 = row 0 (Shift..V), etc.
     /// Bits 0-4: 1 = key pressed (inverted on read).
