@@ -1,8 +1,11 @@
 # Save-state rollout — resume plan
 
-**Status (2026-06-28): 22 of ~24 bootstrap systems converted to real live-state
-save-state.** Two heavyweights remain: **Spectrum, Amiga.** This doc is the
-durable handoff so the remaining work doesn't need rediscovering.
+**Status (2026-06-28): 23 of ~24 bootstrap systems converted to real live-state
+save-state.** One heavyweight remains: **Amiga.** The Spectrum turned out to be
+**already done** — it was converted on 2026-05-20 as Seam 3 of the Spectrum
+architecture review (commit `7ea8842`), under "Seam" terminology rather than the
+rollout's PR-numbered sequence, which is why it was miscounted as remaining. This
+doc is the durable handoff so the remaining work doesn't need rediscovering.
 
 The binding pattern + rationale live in
 [`knowledge/decisions/savestate-live-machine-serde.md`](../../knowledge/decisions/savestate-live-machine-serde.md).
@@ -26,7 +29,8 @@ away all live CPU/RAM/chip state. The fix: serialise the **live machine** via
 | Atari | 2600 #669, 800XL #670, 5200 #673, 7800 #674 |
 | Sinclair | ZX81 #672, ZX80 #675 |
 | Oric | Oric-Atmos #671 |
-| Tatung | Einstein (this PR) |
+| Tatung | Einstein #677 |
+| Sinclair (Spectrum) | 16K/48K/128K/+/+2/+2A/+2B/+3 + Pentagon/Scorpion/Timex TC2048/TS2068 — Seam 3, `7ea8842` (envelope v2, FDC disk-replay, serde-skip audit, `after_restore` contract) |
 
 **Shared chips now derive serde** (additive — new trait impls, no behaviour
 change): TMS9918, SN76489, Z80 CTC, Sega VDP, Intel 8255 PPI, Motorola 6845
@@ -38,20 +42,19 @@ backing bytes, which Write Sector mutates in place, so the disk **rides in the
 snapshot** — capturing the live machine has to capture a partially-written disk.
 That's the precedent for the next FDC-bearing system.
 
-## Remaining
+The **Spectrum** was the fleet's most thorough save-state work and predates this
+plan: a generic envelope over the live machine, an `after_restore` contract
+(Z80-walker rehydration + ULA `&'static UlaConfig` reattach), FDC disk-replay,
+and a compile-locked `serde_skip_audit` inventory. The plan's three feared "hard
+parts" (variants, tape, ULA) were already solved — tape is a serialised field,
+all 12 variants round-trip. The one residual the architecture review *deferred*
+(Pentagon/Scorpion/Timex didn't reattach their ULA config on restore, so they
+fell back to 48K timing) is **closed here**: those four cores gained
+`restore_volatile_refs` and their ULAs a `reattach_config`, with per-variant
+INT-timing regression tests. See
+[`../../knowledge/decisions/spectrum-architecture-review.md`](../../knowledge/decisions/spectrum-architecture-review.md).
 
-### Spectrum (highest value — launch system)
-`machine-sinclair-zx-spectrum` + the `common-sinclair-zx-spectrum*` crates.
-Z80 ✅ and AY-3-8912 ✅ already derive serde. The hard parts:
-- **13 live variants** (48/128/+2/+3/Pentagon/Scorpion/Timex…). Confirm the
-  variant/model is captured (the `model_id` guard already exists in the
-  envelope) and that `set_machine`/`swap_machine` interplay is sound — the
-  Spectrum has the richest runtime (live variant switching, see the UI harness
-  work).
-- **Tape state** — if the tape deck/transport holds position, it must serialise.
-- The ULA + contention state. Local types likely need derives; compiler-driven.
-- It has bespoke runtime structure (richest in the fleet) — do NOT assume the
-  SG-1000 runtime shape; read its `runtime.rs`/`snapshot.rs` first.
+## Remaining
 
 ### Amiga (largest — its own multi-chip effort)
 `machine-commodore-amiga` (bin-only — see
