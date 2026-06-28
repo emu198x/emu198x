@@ -40,9 +40,11 @@ pub use input::Zx81Key;
 pub use keyboard::KeyboardState;
 pub use sinclair_zx81_ula::{FB_HEIGHT, FB_WIDTH, Zx81Ula};
 
+use serde::{Deserialize, Serialize};
 use zilog_z80::z80::{BusOp, Z80};
 
 /// Sinclair ZX81 machine.
+#[derive(Serialize, Deserialize)]
 pub struct Zx81 {
     cpu: Z80,
     rom: Vec<u8>,
@@ -54,6 +56,7 @@ pub struct Zx81 {
     master_clock: u64,
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
+    #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
 }
 
@@ -309,6 +312,30 @@ mod tests {
         assert_eq!(sys.io_read(0xFDFE) & 0x01, 0x00);
         sys.release_key(Zx81Key::A);
         assert_eq!(sys.io_read(0xFDFE) & 0x01, 0x01);
+    }
+
+    #[test]
+    fn snapshot_round_trips_live_state() {
+        let mut sys = Zx81::new(trap_rom(), 1024).expect("init");
+        sys.run_frame();
+
+        // Write a RAM byte so the captured state is non-trivial. RAM is at
+        // $4000+ on the ZX81; confirm the write landed via the read path.
+        sys.poke(0x4000, 0x5A);
+        assert_eq!(sys.peek(0x4000), 0x5A);
+
+        let first = postcard::to_allocvec(&sys).expect("encode first");
+
+        // Advance and re-serialise — the master clock / frame count move on,
+        // so the two snapshots must differ.
+        sys.run_frame();
+        let second = postcard::to_allocvec(&sys).expect("encode second");
+        assert_ne!(first, second, "advancing a frame must change the snapshot");
+
+        // Restoring the first snapshot and re-encoding must be byte-identical.
+        let restored: Zx81 = postcard::from_bytes(&first).expect("decode first");
+        let reencoded = postcard::to_allocvec(&restored).expect("re-encode restored");
+        assert_eq!(first, reencoded, "round-trip must be byte-identical");
     }
 }
 

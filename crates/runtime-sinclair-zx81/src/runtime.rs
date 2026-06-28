@@ -115,24 +115,26 @@ impl Zx81Runtime {
         self.time = time;
     }
 
-    pub(crate) fn set_rom_bytes(&mut self, bytes: Option<Vec<u8>>) {
-        self.rom_bytes = bytes;
-    }
-
-    pub(crate) fn set_ram_bytes_internal(&mut self, bytes: usize) {
-        self.ram_bytes = bytes;
-    }
-
-    pub(crate) fn rom_bytes(&self) -> Option<&[u8]> {
-        self.rom_bytes.as_deref()
-    }
-
     pub(crate) fn ram_bytes(&self) -> usize {
         self.ram_bytes
     }
 
-    pub(crate) fn rebuild_after_restore(&mut self) -> Result<(), MachineError> {
-        self.rebuild_machine()
+    /// Install a machine restored from a snapshot, re-deriving the host RGBA
+    /// framebuffer from its live state. Replaces the cold-boot rebuild on the
+    /// restore path so the resumed machine keeps its CPU/ULA/RAM state.
+    ///
+    /// Mirrors `rebuild_machine`'s framebuffer sizing: the ZX81 framebuffer is
+    /// sized from the machine's width/height getters, so do the same here.
+    pub(crate) fn set_machine(&mut self, machine: Option<Zx81>) {
+        if let Some(machine) = &machine {
+            let width = machine.framebuffer_width();
+            let height = machine.framebuffer_height();
+            self.rgba_width = width;
+            self.rgba_height = height;
+            self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
+        }
+        self.machine = machine;
+        self.update_rgba_framebuffer();
     }
 
     fn rebuild_machine(&mut self) -> Result<(), MachineError> {

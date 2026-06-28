@@ -2396,6 +2396,8 @@ dependencies = [
 name = "machine-sinclair-zx81"
 version = "0.2.0"
 dependencies = [
+ "postcard",
+ "serde",
  "sinclair-zx81-ula",
  "zilog-z80",
 ]
@@ -4156,6 +4158,9 @@ dependencies = [
 [[package]]
 name = "sinclair-zx81-ula"
 version = "0.2.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "slab"

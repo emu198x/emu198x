@@ -28,6 +28,8 @@
 //! model the bus-stealing display mechanism or the character ROM overlay
 //! on the data bus.
 
+use serde::{Deserialize, Serialize};
+
 /// Framebuffer dimensions.
 ///
 /// 320x240 gives a 4:3 display with 32-pixel borders around the 256x192
@@ -72,6 +74,7 @@ const WHITE: u32 = 0xFFFF_FFFF;
 pub const PALETTE: [u32; 2] = [WHITE, BLACK];
 
 /// ZX81 ULA state.
+#[derive(Serialize, Deserialize)]
 pub struct Zx81Ula {
     /// Current T-state within the frame (0 .. TSTATES_PER_FRAME-1).
     tstate: u32,
