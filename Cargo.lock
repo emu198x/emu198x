@@ -523,6 +523,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-acorn-cassette"
+version = "0.2.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "common-commodore-amiga"
 version = "0.2.0"
 dependencies = [
@@ -1356,6 +1363,7 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 name = "format-acorn-uef"
 version = "0.2.0"
 dependencies = [
+ "common-acorn-cassette",
  "flate2",
  "serde",
  "thiserror 2.0.18",
@@ -1988,6 +1996,7 @@ dependencies = [
 name = "machine-acorn-electron"
 version = "0.2.0"
 dependencies = [
+ "common-acorn-cassette",
  "mos-6502",
  "postcard",
  "serde",
@@ -3629,7 +3638,9 @@ dependencies = [
 name = "runtime-acorn-electron"
 version = "0.2.0"
 dependencies = [
+ "common-acorn-cassette",
  "emu198x-shell",
+ "format-acorn-uef",
  "machine-acorn-electron",
  "postcard",
  "serde",

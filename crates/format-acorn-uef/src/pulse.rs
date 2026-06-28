@@ -1,50 +1,13 @@
-//! The machine-facing waveform produced by decoding a UEF tape.
+//! The decoded UEF tape.
 //!
-//! UEF stores Kansas-City-format audio: a `0` bit is one cycle of the base
-//! frequency (1200 Hz by default) and a `1` bit is two cycles at twice that
-//! frequency (2400 Hz). Carrier tone is a continuous run of the high frequency.
-//! Rather than emit raw PCM (as MAME does at a fixed 4800 Hz), the decoder emits
-//! a compact, clock-neutral stream of [`TapePulse`] spans measured in
-//! nanoseconds. Each Acorn machine samples this stream at its own clock and lets
-//! its cassette hardware recover the bits, exactly as real hardware does.
+//! The waveform itself is a [`TapePulse`] stream from the shared
+//! [`common_acorn_cassette`] crate; this module adds the UEF-specific container
+//! around it. Rather than emit raw PCM (as MAME does at a fixed 4800 Hz), the
+//! decoder produces a compact stream of pulse spans that each Acorn machine
+//! samples or demodulates at its own clock.
 
+use common_acorn_cassette::TapePulse;
 use serde::{Deserialize, Serialize};
-
-/// One span of the cassette waveform.
-///
-/// Durations are in nanoseconds so the stream is independent of any machine
-/// clock. A [`TapePulse::Cycles`] span is a square wave: each cycle holds the
-/// line low for `half_period_ns`, then high for `half_period_ns`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TapePulse {
-    /// `count` square-wave cycles with the given half-period. Carrier tone and
-    /// the tone bursts that encode each data bit are all expressed this way.
-    Cycles {
-        /// Half the period of one cycle, in nanoseconds.
-        half_period_ns: u32,
-        /// Number of whole cycles.
-        count: u32,
-    },
-    /// A flat gap with no carrier for `duration_ns` nanoseconds.
-    Gap {
-        /// Gap length in nanoseconds.
-        duration_ns: u32,
-    },
-}
-
-impl TapePulse {
-    /// Total duration of this span in nanoseconds.
-    #[must_use]
-    pub fn duration_ns(&self) -> u64 {
-        match *self {
-            TapePulse::Cycles {
-                half_period_ns,
-                count,
-            } => u64::from(half_period_ns) * 2 * u64::from(count),
-            TapePulse::Gap { duration_ns } => u64::from(duration_ns),
-        }
-    }
-}
 
 /// A decoded UEF tape: the waveform plus light diagnostics.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

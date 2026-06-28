@@ -24,9 +24,10 @@ mod decode;
 mod error;
 mod pulse;
 
+pub use common_acorn_cassette::TapePulse;
 pub use decode::parse;
 pub use error::UefError;
-pub use pulse::{TapePulse, UefTape};
+pub use pulse::UefTape;
 
 #[cfg(test)]
 mod tests {

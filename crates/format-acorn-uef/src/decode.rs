@@ -8,8 +8,10 @@ use std::io::Read;
 
 use flate2::read::GzDecoder;
 
+use common_acorn_cassette::TapePulse;
+
 use crate::error::UefError;
-use crate::pulse::{TapePulse, UefTape};
+use crate::pulse::UefTape;
 
 /// 10-byte signature every (decompressed) UEF image begins with: `UEF File!\0`.
 const MAGIC: [u8; 10] = [0x55, 0x45, 0x46, 0x20, 0x46, 0x69, 0x6c, 0x65, 0x21, 0x00];
