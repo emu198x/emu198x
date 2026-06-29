@@ -368,6 +368,129 @@ impl AcornAtom {
 mod tests {
     use super::*;
 
+    /// `*` (the COS command prefix) is SHIFT + the `:` key, probed against the
+    /// real MOS — not a dedicated key. Confirm SHIFT+Colon echoes `*` (0x2A).
+    #[test]
+    #[ignore = "needs the real Atom ROM"]
+    fn star_is_shift_colon_on_the_real_mos() {
+        let path = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
+            .join(".emu198x/roms/acorn-atom/atom.rom");
+        let rom = std::fs::read(&path).expect("real Atom ROM");
+        let mut sys = AcornAtom::new(rom, 0x0A00);
+        for _ in 0..120 {
+            sys.run_frame();
+        }
+        // The screen cell just after the prompt's last '>' (display code 0x3E).
+        let prompt = (0x8000u16..0x8200)
+            .rev()
+            .find(|&a| sys.peek(a) & 0x3f == 0x3e)
+            .map(|a| a + 1)
+            .expect("prompt on screen");
+
+        sys.press_key(AtomKey::Shift);
+        sys.press_key(AtomKey::Colon);
+        sys.run_frame();
+        sys.release_key(AtomKey::Colon);
+        sys.release_key(AtomKey::Shift);
+        for _ in 0..4 {
+            sys.run_frame();
+        }
+        assert_eq!(sys.peek(prompt), 0x2a, "SHIFT+Colon should type '*'");
+    }
+
+    /// DELETE — the (4,1) key — removes the char to the left and steps the
+    /// cursor back, probed against the real MOS.
+    #[test]
+    #[ignore = "needs the real Atom ROM"]
+    fn delete_removes_the_previous_char() {
+        let path = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
+            .join(".emu198x/roms/acorn-atom/atom.rom");
+        let rom = std::fs::read(&path).expect("real Atom ROM");
+        let mut sys = AcornAtom::new(rom, 0x0A00);
+        for _ in 0..120 {
+            sys.run_frame();
+        }
+        let prompt = (0x8000u16..0x8200)
+            .rev()
+            .find(|&a| sys.peek(a) & 0x3f == 0x3e)
+            .expect("prompt");
+        // Type "AB", then DELETE should remove the 'B'.
+        for k in [AtomKey::A, AtomKey::B] {
+            sys.press_key(k);
+            sys.run_frame();
+            sys.release_key(k);
+            for _ in 0..3 {
+                sys.run_frame();
+            }
+        }
+        assert_eq!(sys.peek(prompt + 2), 0x02, "'B' (display 0x02) typed");
+        sys.press_key(AtomKey::Delete);
+        sys.run_frame();
+        sys.release_key(AtomKey::Delete);
+        for _ in 0..3 {
+            sys.run_frame();
+        }
+        assert_ne!(sys.peek(prompt + 2), 0x02, "DELETE removed the 'B'");
+    }
+
+    /// The two bidirectional cursor keys move the edit cursor on the real MOS:
+    /// `CursorUpDown` up / SHIFT-down, `CursorLeftRight` right / SHIFT-left.
+    #[test]
+    #[ignore = "needs the real Atom ROM"]
+    fn cursor_keys_move_the_cursor() {
+        let path = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
+            .join(".emu198x/roms/acorn-atom/atom.rom");
+        let rom = std::fs::read(&path).expect("real Atom ROM");
+
+        // Cursor marker = the inverse cell (>= 0x80), as (row, col) on screen.
+        let cursor = |sys: &AcornAtom| -> (u16, u16) {
+            let a = (0x8000u16..0x8200)
+                .find(|&a| sys.peek(a) >= 0x80)
+                .expect("a cursor marker");
+            ((a - 0x8000) / 32, (a - 0x8000) % 32)
+        };
+        // Press a key (optionally with SHIFT) from a fresh prompt with "123"
+        // typed, returning the cursor delta (drow, dcol).
+        let delta = |key: AtomKey, shift: bool| -> (i32, i32) {
+            let mut sys = AcornAtom::new(rom.clone(), 0x0A00);
+            for _ in 0..120 {
+                sys.run_frame();
+            }
+            for k in [AtomKey::Num1, AtomKey::Num2, AtomKey::Num3] {
+                sys.press_key(k);
+                sys.run_frame();
+                sys.release_key(k);
+                for _ in 0..3 {
+                    sys.run_frame();
+                }
+            }
+            let (r0, c0) = cursor(&sys);
+            if shift {
+                sys.press_key(AtomKey::Shift);
+            }
+            sys.press_key(key);
+            sys.run_frame();
+            sys.release_key(key);
+            if shift {
+                sys.release_key(AtomKey::Shift);
+            }
+            for _ in 0..3 {
+                sys.run_frame();
+            }
+            let (r1, c1) = cursor(&sys);
+            (i32::from(r1) - i32::from(r0), i32::from(c1) - i32::from(c0))
+        };
+
+        assert_eq!(delta(AtomKey::CursorUpDown, false), (-1, 0), "up");
+        assert_eq!(delta(AtomKey::CursorUpDown, true), (1, 0), "shift = down");
+        assert_eq!(delta(AtomKey::CursorLeftRight, false), (0, 1), "right");
+        assert_eq!(
+            delta(AtomKey::CursorLeftRight, true),
+            (0, -1),
+            "shift = left"
+        );
+    }
+
     fn trap_rom() -> Vec<u8> {
         // 24 KB combined ROM. OS reset vector at $FFFC → $D000.
         let mut rom = vec![0xEAu8; 0x6000];

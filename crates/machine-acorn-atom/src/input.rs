@@ -13,8 +13,14 @@
 //! CTRL, bit 7 = SHIFT, "low when pressed"; cross-checked against Atomulator
 //! `8255.c` `read8255` case 1). [`AtomKey::Shift`] / [`AtomKey::Ctrl`] are
 //! handled separately from [`AtomKey::matrix`], which only covers the scanned
-//! keys. The Atom places its shifted symbols on the digit keys like a
-//! typewriter — e.g. `"` is SHIFT+2 — so SHIFT plus an existing key is enough.
+//! keys. The Atom places its symbols on shifted keys like a typewriter — e.g.
+//! `"` is SHIFT+2 and `*` (the COS prefix) is SHIFT+`:` — so SHIFT plus an
+//! existing key is enough; there are no dedicated symbol keys.
+//!
+//! The Atom has no arrow-key cluster: cursor editing uses two *bidirectional*
+//! keys ([`AtomKey::CursorUpDown`] and [`AtomKey::CursorLeftRight`]) whose
+//! SHIFT-reversed direction gives the other way, plus [`AtomKey::Delete`]. All
+//! were probed against the real MOS (see the `#[ignore]` tests).
 
 /// Logical key on the Acorn Atom keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -61,8 +67,19 @@ pub enum AtomKey {
     Period,
     Slash,
     At,
+    Minus,
+    LeftBracket,
+    RightBracket,
+    Backslash,
+    Caret,
     Return,
     Space,
+    /// DELETE — removes the char to the left (probed against the MOS).
+    Delete,
+    /// The ↑/↓ cursor key: unshifted moves up, SHIFT moves down.
+    CursorUpDown,
+    /// The →/← cursor key: unshifted moves right, SHIFT moves left.
+    CursorLeftRight,
     /// SHIFT — read on port B bit 7 (active-low), not in the scanned matrix.
     Shift,
     /// CTRL — read on port B bit 6 (active-low), not in the scanned matrix.
@@ -91,6 +108,7 @@ impl AtomKey {
             Self::Num1 => (2, 1),
             Self::Num0 => (3, 1),
             // col 2 — punctuation then digits 9..4
+            Self::Minus => (0, 2),
             Self::Comma => (1, 2),
             Self::Semicolon => (2, 2),
             Self::Colon => (3, 2),
@@ -132,9 +150,19 @@ impl AtomKey {
             Self::T => (7, 5),
             Self::S => (8, 5),
             Self::R => (9, 5),
+            // col 0 — bracket / symbol keys on PB0
+            Self::Caret => (5, 0),
+            Self::RightBracket => (6, 0),
+            Self::Backslash => (7, 0),
+            Self::LeftBracket => (8, 0),
             // control / editing
             Self::Return => (6, 1),
             Self::Space => (0, 0),
+            Self::Delete => (4, 1),
+            // The two bidirectional cursor keys (probed against the MOS): the
+            // SHIFT-reversed direction is supplied by the caller holding SHIFT.
+            Self::CursorUpDown => (2, 0),
+            Self::CursorLeftRight => (3, 0),
             // Modifiers are read on port B bits 6/7, not the scanned matrix.
             Self::Shift | Self::Ctrl => return None,
         };
