@@ -63,6 +63,11 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 ## Validated against
 
 - MAME `atom` romset; INS8255 PPI + VDG field-sync; boot + typing verified.
+- **CI** (#370): `keyboard_scan.rs` boots a hand-assembled synthetic ROM and has
+  the 6502 scan the 8255 keyboard — covering the boot+keyboard wiring without the
+  copyrighted MOS (which is never bundled; Tier 3 of `test-rom-policy`). The
+  real-MOS boot/keyboard/cassette/COPY tests stay `--ignored`, run locally with
+  `EMU198X_ATOM_ROM`.
 
 ## Timing & cycle-accuracy
 

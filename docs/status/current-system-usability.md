@@ -79,7 +79,7 @@ open items: [`outstanding-work.md`](outstanding-work.md).
 | Atari 7800 | `emu198x-atari-7800` | Cart accepts; BIOS-driven boot pending |
 | Tatung Einstein | `emu198x-tatung-einstein` | **Boots to MOS; keyboard types** (HELLO) — fixed I/O map + AY-port-B keyboard + IM2 interrupt (2026-06-05) |
 | Jupiter Ace | `emu198x-jupiter-ace` | **Boots to Forth; fully interactive** — types (`hello` on the bottom input line) and **executes** (ENTER runs the line: `hello` → `?hello` undefined-word error). Fixed the 50 Hz interrupt servicing (half-cycle Z80 driven 2×/T-state + held INT) + wired the matrix (2026-06-05). The steady inverse-block cursor is correct (a mode indicator, like the ZX81 family — not a flashing cursor) |
-| Acorn Atom | `emu198x-acorn-atom` | **Boots; keyboard types end-to-end** (`>PRINT3 → 3`) — correct INS8255 PPI + VDG field-sync, runtime input now wired (2026-06-05) |
+| Acorn Atom | `emu198x-acorn-atom` | **Boots; keyboard types end-to-end** (`>PRINT3 → 3`) — correct INS8255 PPI + VDG field-sync, runtime input now wired (2026-06-05). The boot+keyboard *wiring* is now exercised in CI by a synthetic-ROM test (`keyboard_scan.rs`, #370); the full real-MOS boot/keyboard tests stay `--ignored` (copyrighted MOS, run locally with `EMU198X_ATOM_ROM`) |
 | Spectravideo SVI-328 | `emu198x-spectravideo-svi-328` | **Boots to SV-BASIC `Ok`; keyboard types** (HELLO) — wired 8255 PPI matrix input (2026-06-05) |
 | Oric-1 / Atmos | `emu198x-oric-atmos` | **Boots to BASIC `Ready`; keyboard types** (`HELLO`, `RETURN` executes) — fixed the PB3-sense keyboard model + wired the 8×8 matrix input (2026-06-05) |
 
