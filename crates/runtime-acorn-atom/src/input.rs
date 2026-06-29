@@ -92,6 +92,7 @@ fn key_from_name(name: &str) -> Option<(AtomKey, bool)> {
         "right" | "cursorright" | "arrowright" => AtomKey::CursorLeftRight,
         "escape" | "esc" => AtomKey::Escape,
         "lock" | "capslock" | "shiftlock" => AtomKey::Lock,
+        "copy" => AtomKey::Copy,
         "shift" | "lshift" | "rshift" => AtomKey::Shift,
         "ctrl" | "control" | "lctrl" | "rctrl" => AtomKey::Ctrl,
         "rept" | "repeat" => AtomKey::Rept,
@@ -174,6 +175,7 @@ mod tests {
         assert_eq!(key_from_name("escape"), Some((AtomKey::Escape, false)));
         assert_eq!(key_from_name("lock"), Some((AtomKey::Lock, false)));
         assert_eq!(key_from_name("rept"), Some((AtomKey::Rept, false)));
+        assert_eq!(key_from_name("copy"), Some((AtomKey::Copy, false)));
     }
 
     #[test]

@@ -531,6 +531,65 @@ mod tests {
         );
     }
 
+    /// COPY reads the character under the copy cursor into the input. Type a
+    /// distinctive line, RETURN it, walk the copy cursor onto a known character,
+    /// press COPY, and confirm the MOS outputs that character (caught at OSWRCH,
+    /// $FFF4) — proving COPY is the (5,1) key, not a fixed control code.
+    #[test]
+    #[ignore = "needs the real Atom ROM"]
+    fn copy_reads_the_char_under_the_cursor() {
+        let path = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
+            .join(".emu198x/roms/acorn-atom/atom.rom");
+        let rom = std::fs::read(&path).expect("real Atom ROM");
+        let tap = |sys: &mut AcornAtom, k: AtomKey| {
+            sys.press_key(k);
+            sys.run_frame();
+            sys.release_key(k);
+            for _ in 0..3 {
+                sys.run_frame();
+            }
+        };
+        let mut sys = AcornAtom::new(rom, 0x0A00);
+        for _ in 0..120 {
+            sys.run_frame();
+        }
+        // Leave ">QQQQQ" on screen, then walk the copy cursor up onto the text.
+        for _ in 0..5 {
+            tap(&mut sys, AtomKey::Q);
+        }
+        tap(&mut sys, AtomKey::Return);
+        tap(&mut sys, AtomKey::CursorUpDown);
+        tap(&mut sys, AtomKey::CursorUpDown);
+        tap(&mut sys, AtomKey::CursorLeftRight);
+
+        // The copy cursor is the inverse cell (>= 0x80) up in the text area; read
+        // the character it sits on (display code -> ASCII).
+        let cursor = (0x8000u16..0x81e0)
+            .find(|&a| sys.peek(a) >= 0x80)
+            .expect("copy cursor on screen");
+        let display = sys.peek(cursor) & 0x3f;
+        let under = if display < 0x20 {
+            display + 0x40
+        } else {
+            display
+        };
+
+        sys.press_key(AtomKey::Copy);
+        let mut emitted = None;
+        for _ in 0..20000 {
+            sys.step_instruction();
+            if sys.cpu().regs.pc == 0xFFF4 {
+                emitted = Some(sys.cpu().regs.a);
+                break;
+            }
+        }
+        assert_eq!(
+            emitted,
+            Some(under),
+            "COPY outputs the character under the copy cursor"
+        );
+    }
+
     fn trap_rom() -> Vec<u8> {
         // 24 KB combined ROM. OS reset vector at $FFFC → $D000.
         let mut rom = vec![0xEAu8; 0x6000];
