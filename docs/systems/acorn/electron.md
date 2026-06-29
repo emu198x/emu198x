@@ -1,6 +1,6 @@
 # Acorn Electron
 
-## Status: Boots to BASIC `>`; keyboard types
+## Status: Boots to BASIC `>`; keyboard types; loads UEF cassette tapes
 
 Boots to `Acorn Electron` / `BASIC` / `>` and types (`PRINT 123` executes).
 Headless extended system. 6502 + the Electron's custom ULA (inline) — no new chip
@@ -21,6 +21,10 @@ crate.
   bit 4) and high-tone (bit 6) interrupts, gated by the `$FE07` motor relay.
   Tests `cassette_delivers_a_byte_and_raises_then_clears_the_interrupts`,
   `cassette_does_not_play_while_the_motor_is_off`, runtime `tests/cassette.rs`.
+  **Verified end to end against the real OS ROM**: `tests/tape_load.rs` boots the
+  genuine OS + BASIC ROMs, types `LOAD""`, and confirms the first BASIC file of
+  real game tapes (Thrust, E-Type) loads to `PAGE` (`&0E00`) byte-for-byte
+  matching the demodulated tape data (`#[ignore]`, needs ROMs + a UEF).
 - **ULA bus contention** (2026-06-08) — the CPU drops to **1 MHz on every RAM
   (`$0000-$7FFF`) and keyboard-paged-ROM access**, 2 MHz for ROM/OS/I/O. The
   frame is a fixed 312 × 128 master ticks at 2 MHz; the CPU fits a variable

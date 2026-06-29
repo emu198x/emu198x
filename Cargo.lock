@@ -1997,6 +1997,7 @@ name = "machine-acorn-electron"
 version = "0.2.0"
 dependencies = [
  "common-acorn-cassette",
+ "format-acorn-uef",
  "mos-6502",
  "postcard",
  "serde",
