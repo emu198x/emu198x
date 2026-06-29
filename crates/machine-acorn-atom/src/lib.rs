@@ -31,9 +31,10 @@
 //! - **Port A** (`$B000`): low nibble = the binary keyboard row index
 //!   (0-9) into the decoder; high nibble = the MC6847 mode bits.
 //! - **Port B** (`$B001`): the six keyboard column lines, active low.
-//! - **Port C** (`$B002`): bits 0-3 output (cassette / speaker / colour
-//!   set); bits 4-7 input — PC4 = 2.4 kHz cassette tone, PC7 = the VDG
-//!   vertical-blanking (field-sync) the MOS times its keyboard scan off.
+//! - **Port C** (`$B002`): bits 0-3 output (cassette out / speaker / colour
+//!   set CSS); bits 4-7 input — PC4 = the 2.4 kHz reference tone, PC5 =
+//!   cassette DATA in, PC7 = the VDG vertical-blank (field-sync) the MOS
+//!   times its keyboard scan off (Atom Technical Manual §25.5).
 //!
 //! Clock model: one master tick = one 6502 cycle (1 MHz). VDG ticks
 //! at the same rate. One PAL frame ≈ 71,136 ticks (228 × 312).
@@ -50,10 +51,14 @@ pub use input::AtomKey;
 pub use keyboard::KeyboardState;
 pub use vdg::{FB_HEIGHT, FB_WIDTH, Mc6847};
 
+use common_acorn_cassette::{CassetteReceiver, TapePulse};
 use intel_8255::Ppi8255;
 use mos_6502::M6502;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
+
+/// Nanoseconds per master tick — the Atom runs at 1 MHz, so one 6502 cycle.
+const NS_PER_TICK: u64 = 1000;
 
 /// Acorn Atom machine.
 #[derive(Serialize, Deserialize)]
@@ -72,6 +77,10 @@ pub struct AcornAtom {
     keyboard: KeyboardState,
     master_clock: u64,
     frame_count: u64,
+    /// Cassette waveform. The Atom has no serial receiver and no motor relay —
+    /// the COS bit-bangs the raw line level on PPI PC5 in software — so the tape
+    /// runs whenever one is loaded and the machine samples [`CassetteReceiver::level`].
+    cassette: CassetteReceiver,
 }
 
 impl AcornAtom {
@@ -95,7 +104,25 @@ impl AcornAtom {
             keyboard: KeyboardState::new(),
             master_clock: 0,
             frame_count: 0,
+            cassette: CassetteReceiver::new(),
         }
+    }
+
+    /// Loads a cassette tape from a decoded UEF pulse stream, rewound to the
+    /// start. The Atom has no motor relay, so the tape plays whenever loaded.
+    pub fn insert_tape(&mut self, pulses: Vec<TapePulse>) {
+        self.cassette.load(pulses);
+    }
+
+    /// Ejects the cassette tape.
+    pub fn eject_tape(&mut self) {
+        self.cassette.eject();
+    }
+
+    /// Returns `true` when a cassette tape is loaded.
+    #[must_use]
+    pub fn tape_loaded(&self) -> bool {
+        self.cassette.is_loaded()
     }
 
     pub fn run_frame(&mut self) -> u64 {
@@ -119,6 +146,9 @@ impl AcornAtom {
 
     fn tick(&mut self) {
         self.master_clock += 1;
+        // Advance the tape so PC5 reflects the current line level when the COS
+        // samples it this tick. No motor relay — it runs while loaded.
+        self.cassette.advance(NS_PER_TICK, &mut |_| {});
         let video_ram = &self.video_ram;
         self.vdg.tick(|addr| video_ram[(addr & 0x03FF) as usize]);
         // The Atom keyboard is polled, not interrupt-driven; the 8255 has no
@@ -148,13 +178,17 @@ impl AcornAtom {
             }
             0xB000..=0xB003 => {
                 self.update_keyboard();
-                // Port C inputs: PC4 = 2.4 kHz cassette tone, PC7 = the 6847
-                // field-sync (~50 Hz). The field sync is a brief vertical-
-                // blanking pulse once per ~20 ms field, not a square wave, so
-                // the MOS scans the matrix once per field rather than twice.
+                // Port C inputs (Atom Technical Manual §25.5 / Atomulator
+                // `8255.c`): PC7 = the 60 Hz field-sync (a vertical-blank pulse
+                // once per ~20 ms field — the MOS times its keyboard scan off
+                // it), PC5 = cassette DATA input, PC4 = the 2.4 kHz reference
+                // tone (crystal-derived, free-running).
                 let field_sync = (self.master_clock % 20_000) < 1_000;
-                let tone = (self.master_clock % 416) < 208;
-                let inputs = (u8::from(field_sync) << 7) | (u8::from(tone) << 4);
+                let tone_2400 = (self.master_clock % 416) < 208;
+                let cassette = self.cassette.is_loaded() && self.cassette.level();
+                let inputs = (u8::from(field_sync) << 7)
+                    | (u8::from(cassette) << 5)
+                    | (u8::from(tone_2400) << 4);
                 self.ppi.port_c = (self.ppi.port_c & 0x0F) | inputs;
                 self.ppi.read((addr - 0xB000) as u8)
             }
@@ -208,13 +242,23 @@ impl AcornAtom {
     }
 
     pub fn press_key(&mut self, key: AtomKey) {
-        let (row, col) = key.matrix();
-        self.keyboard.set_key(row, col, true);
+        self.set_key(key, true);
     }
 
     pub fn release_key(&mut self, key: AtomKey) {
-        let (row, col) = key.matrix();
-        self.keyboard.set_key(row, col, false);
+        self.set_key(key, false);
+    }
+
+    fn set_key(&mut self, key: AtomKey, pressed: bool) {
+        match key {
+            AtomKey::Shift => self.keyboard.set_shift(pressed),
+            AtomKey::Ctrl => self.keyboard.set_ctrl(pressed),
+            other => {
+                if let Some((row, col)) = other.matrix() {
+                    self.keyboard.set_key(row, col, pressed);
+                }
+            }
+        }
     }
 
     pub fn release_all_keys(&mut self) {
@@ -374,5 +418,68 @@ mod tests {
         let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
         sys.mem_write(0xF000, 0xFF);
         assert_eq!(sys.mem_read(0xF000), 0xEA);
+    }
+
+    #[test]
+    fn shift_and_ctrl_register_on_port_b() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        // Drive a column and read port B ($B001). Idle = all rows high (active-low).
+        sys.mem_write(0xB000, 0x01); // select column 1 (also clears the gfx nibble)
+        let idle = sys.mem_read(0xB001);
+        assert_eq!(idle & 0xC0, 0xC0, "SHIFT/CTRL idle high (not pressed)");
+
+        // SHIFT pulls port B bit 7 low; CTRL pulls bit 6 low — both regardless
+        // of the selected column.
+        sys.press_key(AtomKey::Shift);
+        sys.mem_write(0xB000, 0x01);
+        assert_eq!(sys.mem_read(0xB001) & 0x80, 0, "SHIFT held = PB7 low");
+        assert_eq!(sys.mem_read(0xB001) & 0x40, 0x40, "CTRL still high");
+
+        sys.press_key(AtomKey::Ctrl);
+        sys.mem_write(0xB000, 0x05); // a different column
+        assert_eq!(
+            sys.mem_read(0xB001) & 0xC0,
+            0,
+            "SHIFT+CTRL both low, any column"
+        );
+
+        sys.release_key(AtomKey::Shift);
+        sys.release_key(AtomKey::Ctrl);
+        sys.mem_write(0xB000, 0x01);
+        assert_eq!(
+            sys.mem_read(0xB001) & 0xC0,
+            0xC0,
+            "released = both high again"
+        );
+    }
+
+    #[test]
+    fn cassette_level_drives_pc5() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        // One long cycle: the line is low for 1 ms, then high for 1 ms. The tape
+        // advances one 1 µs tick per cycle, so 1500 ticks lands in the high half.
+        sys.insert_tape(vec![TapePulse::Cycles {
+            half_period_ns: 1_000_000,
+            count: 1,
+        }]);
+        assert!(sys.tape_loaded());
+
+        for _ in 0..500 {
+            sys.tick();
+        }
+        assert_eq!(
+            sys.mem_read(0xB002) & 0x20,
+            0,
+            "PC5 cassette-data low in the first half of the cycle"
+        );
+
+        for _ in 0..1000 {
+            sys.tick();
+        }
+        assert_eq!(
+            sys.mem_read(0xB002) & 0x20,
+            0x20,
+            "PC5 cassette-data high in the second half of the cycle"
+        );
     }
 }

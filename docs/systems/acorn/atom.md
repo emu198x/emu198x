@@ -1,6 +1,6 @@
 # Acorn Atom
 
-## Status: Boots to its prompt; keyboard types end-to-end
+## Status: Boots, types, and loads software from cassette
 
 Acorn's £120 self-build (1980), by the team that designed the BBC Micro. Boots to
 the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system.
@@ -12,12 +12,30 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   `atom` romset). `PRINT3 → 3` end-to-end.
 - **VDG** — `motorola-vdg-6847` (Atom text model); PIA port A column-select, port
   B row data.
+- **Keyboard SHIFT / CTRL** (2026-06-29, #372) — SHIFT and CTRL now register, on
+  port B bits 7 / 6, active-low, common to every column (Atom Technical Manual
+  §25.5; cross-checked against Atomulator). This makes shifted symbols typeable —
+  e.g. `"` is SHIFT+2. The dedicated `*` key is still unmapped (its matrix
+  position isn't in the manual or Atomulator's host-positional table).
+- **Cassette LOAD — verified end-to-end** (2026-06-29, #371) — a UEF tape decoded
+  by `format-acorn-uef` plays its raw waveform onto the 8255 **PC5** cassette-data
+  input (PC4 carries the free-running 2.4 kHz reference; the Atom has no serial
+  receiver and no motor relay — the COS bit-bangs the level in software, 300-baud
+  Kansas City). Uses the shared `common-acorn-cassette` crate's new
+  `CassetteReceiver::level()` sampler rather than the byte demodulator the
+  BBC/Electron use. **Proven OS-driven** (`tape_load.rs`, `#[ignore]`): booting the
+  real ROM, typing `LOAD"INSTRUCTIONS"` (the `"` via SHIFT+2), and playing the
+  Defender tape, the COS software-decodes PC5 and the program lands in RAM. This
+  confirmed path A — the COS times the raw waveform; no hardware demodulation
+  needed. `load_media` + reset re-mount also covered.
 
 ## Not implemented / accuracy gaps
 
 - **Graphics modes 1-5** — VDG renders text only; graphics modes show solid green
   (donor stub).
-- **Cassette / printer** unwired. **Snapshot** deferred. **No native window.**
+- **Cassette SAVE / printer** unwired. **No native window.**
+- **The `*` key** is unmapped (its matrix position isn't in the manual or
+  Atomulator), so COS `*`-commands can't be typed yet; BASIC `LOAD"…"` works.
 
 ## Known unknowns / disproven hypotheses
 

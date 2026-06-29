@@ -7,9 +7,14 @@
 //! bit. Every printable cell was probed against the real MOS ROM and
 //! transcribed below.
 //!
-//! Punctuation that the Atom places on a shifted key (`+ - * ( )` …) and
-//! the modifier / editing keys are not yet mapped; the unshifted keys
-//! cover typing and running BASIC.
+//! SHIFT and CTRL are not part of the scanned 6×10 matrix: they are read on
+//! port B bits 7 and 6 respectively, common to every column, active-low
+//! (Atom Technical Manual / *Atomic Theory and Practice* §25.5 — port B bit 6 =
+//! CTRL, bit 7 = SHIFT, "low when pressed"; cross-checked against Atomulator
+//! `8255.c` `read8255` case 1). [`AtomKey::Shift`] / [`AtomKey::Ctrl`] are
+//! handled separately from [`AtomKey::matrix`], which only covers the scanned
+//! keys. The Atom places its shifted symbols on the digit keys like a
+//! typewriter — e.g. `"` is SHIFT+2 — so SHIFT plus an existing key is enough.
 
 /// Logical key on the Acorn Atom keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,14 +63,28 @@ pub enum AtomKey {
     At,
     Return,
     Space,
+    /// SHIFT — read on port B bit 7 (active-low), not in the scanned matrix.
+    Shift,
+    /// CTRL — read on port B bit 6 (active-low), not in the scanned matrix.
+    Ctrl,
 }
 
 impl AtomKey {
+    /// Returns `true` for the modifier keys (SHIFT / CTRL), which are read on
+    /// port B bits 7 / 6 rather than the scanned matrix.
+    #[must_use]
+    pub const fn is_modifier(self) -> bool {
+        matches!(self, Self::Shift | Self::Ctrl)
+    }
+
     /// Return the `(row, col)` matrix position — `row` is the binary
     /// decoder index driven on 8255 port A, `col` the port B column bit.
+    ///
+    /// Returns `None` for the modifier keys ([`Self::Shift`] / [`Self::Ctrl`]),
+    /// which are not part of the scanned matrix.
     #[must_use]
-    pub const fn matrix(self) -> (usize, usize) {
-        match self {
+    pub const fn matrix(self) -> Option<(usize, usize)> {
+        let position = match self {
             // col 1 — digits 3 2 1 0
             Self::Num3 => (0, 1),
             Self::Num2 => (1, 1),
@@ -116,7 +135,10 @@ impl AtomKey {
             // control / editing
             Self::Return => (6, 1),
             Self::Space => (0, 0),
-        }
+            // Modifiers are read on port B bits 6/7, not the scanned matrix.
+            Self::Shift | Self::Ctrl => return None,
+        };
+        Some(position)
     }
 }
 
@@ -126,7 +148,16 @@ mod tests {
 
     #[test]
     fn key_matrix_valid() {
-        assert_eq!(AtomKey::A.matrix(), (6, 3));
-        assert_eq!(AtomKey::Return.matrix(), (6, 1));
+        assert_eq!(AtomKey::A.matrix(), Some((6, 3)));
+        assert_eq!(AtomKey::Return.matrix(), Some((6, 1)));
+    }
+
+    #[test]
+    fn modifiers_have_no_matrix_position() {
+        assert!(AtomKey::Shift.is_modifier());
+        assert!(AtomKey::Ctrl.is_modifier());
+        assert_eq!(AtomKey::Shift.matrix(), None);
+        assert_eq!(AtomKey::Ctrl.matrix(), None);
+        assert!(!AtomKey::A.is_modifier());
     }
 }

@@ -67,6 +67,8 @@ fn key_from_name(name: &str) -> Option<AtomKey> {
         "@" | "at" => AtomKey::At,
         "return" | "enter" => AtomKey::Return,
         "space" | " " => AtomKey::Space,
+        "shift" | "lshift" | "rshift" => AtomKey::Shift,
+        "ctrl" | "control" | "lctrl" | "rctrl" => AtomKey::Ctrl,
         _ => return None,
     })
 }
