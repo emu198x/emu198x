@@ -142,6 +142,50 @@ impl AcornAtom {
         self.cassette.is_loaded()
     }
 
+    /// Load a program image directly into memory at `load_address` (an `.atm`
+    /// quickload), optionally jumping to `exec_address` to run it.
+    ///
+    /// Writes to low RAM (`0x0000..ram_size`) or the 1 KB mirrored video RAM
+    /// (`0x8000-0x9FFF`). Returns `false` without loading if the image targets an
+    /// unwritable region (a low-RAM program past `ram_size`, or ROM / I/O space).
+    pub fn load_program(
+        &mut self,
+        load_address: u16,
+        payload: &[u8],
+        exec_address: u16,
+        autorun: bool,
+    ) -> bool {
+        let start = load_address as usize;
+        if load_address < 0x8000 {
+            // Low RAM: the whole image must fit the contiguous RAM model.
+            let Some(end) = start.checked_add(payload.len()) else {
+                return false;
+            };
+            if end > self.ram_size {
+                return false;
+            }
+            self.ram[start..end].copy_from_slice(payload);
+        } else if (0x8000..0xA000).contains(&load_address) {
+            // Video RAM is 1 KB, mirrored across $8000-$9FFF (as in `mem_write`).
+            for (i, &byte) in payload.iter().enumerate() {
+                self.video_ram[(start + i) & 0x03FF] = byte;
+            }
+        } else {
+            return false; // ROM / I/O — not loadable
+        }
+        if autorun {
+            // The opcode fetch is pipelined — at an instruction boundary the next
+            // opcode is already latched in `data_in` from the old PC. Reach a
+            // boundary, point PC at the entry, and re-prime `data_in` with the
+            // opcode there so the CPU's next decode runs the loaded program.
+            self.step_instruction();
+            self.cpu.regs.pc = exec_address;
+            self.cpu.data_in = self.mem_read(exec_address);
+            self.cpu.halted = false;
+        }
+        true
+    }
+
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         for _ in 0..200_000 {
@@ -588,6 +632,36 @@ mod tests {
             Some(under),
             "COPY outputs the character under the copy cursor"
         );
+    }
+
+    #[test]
+    fn load_program_injects_into_ram_and_autoruns() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        // LDA #$42 ; STA $80 ; JMP * (loop) — at $0200.
+        let program = [0xA9, 0x42, 0x85, 0x80, 0x4C, 0x04, 0x02];
+        assert!(sys.load_program(0x0200, &program, 0x0200, true));
+        assert_eq!(sys.peek(0x0200), 0xA9, "program bytes land in RAM");
+        for _ in 0..4 {
+            sys.run_frame();
+        }
+        assert_eq!(sys.peek(0x0080), 0x42, "auto-run executed the program");
+    }
+
+    #[test]
+    fn load_program_into_video_ram_mirrors() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        assert!(sys.load_program(0x8000, &[0x11, 0x22, 0x33], 0x8000, false));
+        assert_eq!(sys.peek(0x8000), 0x11);
+        assert_eq!(sys.peek(0x8002), 0x33);
+    }
+
+    #[test]
+    fn load_program_rejects_an_image_past_ram() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        // load $0900 + 0x200 bytes runs past ram_size 0x0A00.
+        assert!(!sys.load_program(0x0900, &[0u8; 0x200], 0x0900, false));
+        // ROM/I-O space is not loadable either.
+        assert!(!sys.load_program(0xD000, &[0u8; 4], 0xD000, false));
     }
 
     fn trap_rom() -> Vec<u8> {

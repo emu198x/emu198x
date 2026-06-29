@@ -31,6 +31,15 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   OSWRCH (it copies the character under the cursor rather than a fixed code, which
   is why behavioural probing couldn't see it). All verified by `#[ignore]` MOS
   tests.
+- **`.atm` program loading** (2026-06-29, #366) — the `format-acorn-atom-atm`
+  crate parses the Wouter Ras `.atm` header (16-byte name + LE load/exec/length)
+  and the runtime's `program-1` slot (`MediaKind::Program`) injects the body into
+  RAM at the load address, auto-running programs (exec in low RAM) and load-only
+  for screen images (exec in video RAM). `AtomFull` RAM bumped to a fully-expanded
+  32 KB so programs at `$2800+` fit. Verified in CI with a synthetic `.atm` that
+  loads + auto-runs, and against real archive files (`EMU198X_ATOM_ATM`). The
+  archive's binaries are `.atm`-format even without the extension (e.g. MENU loads
+  at `$2800`).
 - **Cassette LOAD — verified end-to-end** (2026-06-29, #371) — a UEF tape decoded
   by `format-acorn-uef` plays its raw waveform onto the 8255 **PC5** cassette-data
   input (PC4 carries the free-running 2.4 kHz reference; the Atom has no serial

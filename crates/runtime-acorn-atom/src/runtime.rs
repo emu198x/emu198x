@@ -186,6 +186,34 @@ impl MachineCore for AtomRuntime {
                     }
                     self.tape_pulses = Some(tape.pulses);
                 }
+                MediaKind::Program if slot == "program-1" => {
+                    let atm = format_acorn_atom_atm::parse(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: reason.to_string(),
+                        }
+                    })?;
+                    if let Some(machine) = self.machine.as_mut() {
+                        // Auto-run programs (exec in low RAM); load screen images
+                        // (exec in video RAM) without jumping into them.
+                        let autorun = atm.exec_address < 0x8000;
+                        if !machine.load_program(
+                            atm.load_address,
+                            &atm.payload,
+                            atm.exec_address,
+                            autorun,
+                        ) {
+                            return Err(MachineError::InvalidMedia {
+                                slot: slot.to_owned(),
+                                reason: format!(
+                                    "program at ${:04X} ({} bytes) does not fit in RAM",
+                                    atm.load_address,
+                                    atm.payload.len()
+                                ),
+                            });
+                        }
+                    }
+                }
                 _ => {
                     return Err(MachineError::UnknownMediaSlot {
                         slot: slot.to_owned(),

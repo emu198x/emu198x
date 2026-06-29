@@ -31,7 +31,7 @@ impl Model {
     pub const fn display_name(self) -> &'static str {
         match self {
             Self::AtomBase => "Acorn Atom (2.5 KB)",
-            Self::AtomFull => "Acorn Atom (12 KB)",
+            Self::AtomFull => "Acorn Atom (32 KB)",
         }
     }
 
@@ -44,7 +44,10 @@ impl Model {
     pub const fn ram_bytes(self) -> usize {
         match self {
             Self::AtomBase => 2560,
-            Self::AtomFull => 12 * 1024,
+            // Fully-expanded Atom: contiguous low RAM $0000-$7FFF (video is at
+            // $8000), enough for `.atm` programs that load into the text space at
+            // $2800+.
+            Self::AtomFull => 32 * 1024,
         }
     }
 }
@@ -66,20 +69,29 @@ pub fn profile_for(model: Model) -> MachineProfile {
         region: model.region(),
         support_tier: SupportTier::Boots,
         release_year: 1980,
-        summary: "Acorn Atom — 6502 + 24 KB combined ROM (BASIC1 + FP + BASIC2 + OS), 2.5 KB / 12 KB RAM, VDG 6847 display.".into(),
+        summary: "Acorn Atom — 6502 + 24 KB combined ROM (BASIC1 + FP + BASIC2 + OS), 2.5 KB / 32 KB RAM, VDG 6847 display.".into(),
         clock: ClockDesc::new("m6502-cycle", ClockRate::from_hz(1_000_000)),
         firmware: vec![FirmwareRequirement::new(
             BIOS_FIRMWARE_ID,
             "Acorn Atom combined ROM (24 KB)",
             false,
         )],
-        media_slots: vec![MediaSlot::new(
-            "tape-1",
-            "Cassette Tape",
-            MediaKind::Tape,
-            false,
-            WritebackPolicy::SidecarOnly,
-        )],
+        media_slots: vec![
+            MediaSlot::new(
+                "tape-1",
+                "Cassette Tape",
+                MediaKind::Tape,
+                false,
+                WritebackPolicy::SidecarOnly,
+            ),
+            MediaSlot::new(
+                "program-1",
+                "Program (.atm)",
+                MediaKind::Program,
+                false,
+                WritebackPolicy::SidecarOnly,
+            ),
+        ],
         capabilities: CapabilitySet::with_all([
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
