@@ -47,8 +47,17 @@ const ATOM_PALETTE: TextPalette = TextPalette {
 pub struct Mc6847 {
     framebuffer: Vec<u32>,
     /// VDG control register (A/G bit — Atom v1 only checks alpha vs
-    /// graphics; CSS/INT_EXT/GM bits are stored but not honoured).
+    /// graphics; INT_EXT/GM bits are stored but not honoured).
+    ///
+    /// This is the 8255 port-A byte: PA4-7 carry the MC6847 mode pins
+    /// (A/G, GM0-2). The keyboard column index (PA0-3) shares the byte but is
+    /// not a VDG signal.
     pub control: u8,
+    /// CSS — MC6847 colour-set select. Wired to 8255 **port C bit 3**, not
+    /// port A (Atom Technical Manual §25.5; Atomulator `8255.c`). The machine
+    /// updates this on a port-C write; render reads it, not `control` bit 3
+    /// (which is keyboard column PA3) — see #369.
+    pub css: bool,
     /// Cached last-frame video RAM contents, used by `render_frame`.
     #[serde(with = "BigArray")]
     last_video_ram: [u8; 512],
@@ -67,6 +76,7 @@ impl Mc6847 {
         Self {
             framebuffer: vec![ATOM_PALETTE.border; TEXT_VISIBLE_FRAMEBUFFER_PIXELS],
             control: 0,
+            css: false,
             last_video_ram: [0; 512],
             frame_complete: false,
             scanline: 0,
@@ -111,7 +121,9 @@ impl Mc6847 {
     fn render_frame(&mut self) {
         let control = VdgControl {
             graphics: self.control & 0x80 != 0,
-            css: self.control & 0x08 != 0,
+            // CSS comes from 8255 PC3, tracked separately — not control bit 3
+            // (PA3), which is a keyboard-scan line (#369).
+            css: self.css,
             int_ext: self.control & 0x10 != 0,
             gm: (self.control >> 4) & 0x07,
         };

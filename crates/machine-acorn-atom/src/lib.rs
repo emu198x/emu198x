@@ -221,7 +221,13 @@ impl AcornAtom {
                 self.ppi.write(0, value);
                 self.vdg.control = value;
             }
-            0xB001..=0xB003 => self.ppi.write((addr - 0xB000) as u8, value),
+            0xB001..=0xB003 => {
+                self.ppi.write((addr - 0xB000) as u8, value);
+                // CSS (MC6847 colour-set select) is on 8255 PC3, set by a port-C
+                // write or a BSR control-word write ($B003) — refresh the VDG
+                // from port C after either path (#369).
+                self.vdg.css = self.ppi.port_c & 0x08 != 0;
+            }
             _ => {}
         }
     }
@@ -451,6 +457,27 @@ mod tests {
             0xC0,
             "released = both high again"
         );
+    }
+
+    #[test]
+    fn css_comes_from_port_c_not_the_keyboard_column() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        // Driving keyboard column 0x0F (PA3 high) must NOT enable CSS — PA3 is a
+        // keyboard scan line, not the MC6847 colour-set select (#369).
+        sys.mem_write(0xB000, 0x0F);
+        assert!(!sys.vdg.css, "keyboard column PA3 must not drive CSS");
+
+        // A direct port-C write with bit 3 set enables CSS.
+        sys.mem_write(0xB002, 0x08);
+        assert!(sys.vdg.css, "PC3 high enables CSS");
+
+        // Clearing PC3 disables it again.
+        sys.mem_write(0xB002, 0x00);
+        assert!(!sys.vdg.css);
+
+        // The 8255 BSR control word ($B003) sets PC3 too: bit index 3, set bit.
+        sys.mem_write(0xB003, 0x07);
+        assert!(sys.vdg.css, "BSR set of PC3 enables CSS");
     }
 
     #[test]
