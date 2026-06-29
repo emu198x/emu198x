@@ -60,6 +60,22 @@ use serde_big_array::BigArray;
 /// Nanoseconds per master tick — the Atom runs at 1 MHz, so one 6502 cycle.
 const NS_PER_TICK: u64 = 1000;
 
+/// One PAL field in master ticks. The UK Atom's MC6847 runs PAL (312-line, see
+/// [`vdg`]), so the field rate is 50 Hz — one field every 20,000 ticks at 1 MHz.
+/// (The Technical Manual quotes the 6847's nominal 60 Hz figure; the UK machine
+/// is PAL. Tying this to the VDG's own frame counter is deferred to the
+/// graphics-mode timing work, #367 — the VDG line clock is not yet 1:1 here.)
+const FIELD_TICKS: u64 = 20_000;
+/// 8255 PC7 carries the 6847 field-sync (FS̄): HIGH through the 192 active
+/// display lines, LOW during vertical blanking/flyback (Atom Technical Manual /
+/// *Atomic Theory and Practice* §25.5 — "60 Hz sync signal, low during
+/// flyback"). 192 of the 312 PAL lines are active.
+const FIELD_ACTIVE_TICKS: u64 = FIELD_TICKS * 192 / 312;
+/// PC4 reference tone: 2.4 kHz divided from the 4 MHz crystal (÷1667). At a
+/// 1 MHz master clock one full cycle is ~416 ticks; the divider output is a 50%
+/// square wave (Technical Manual §62; *Atomic Theory and Practice* §19, §25.5).
+const TONE_PERIOD_TICKS: u64 = 1_000_000 / 2_400;
+
 /// Acorn Atom machine.
 #[derive(Serialize, Deserialize)]
 pub struct AcornAtom {
@@ -179,14 +195,13 @@ impl AcornAtom {
             0xB000..=0xB003 => {
                 self.update_keyboard();
                 // Port C inputs (Atom Technical Manual §25.5 / Atomulator
-                // `8255.c`): PC7 = the 60 Hz field-sync (a vertical-blank pulse
-                // once per ~20 ms field — the MOS times its keyboard scan off
-                // it), PC5 = cassette DATA input, PC4 = the 2.4 kHz reference
-                // tone (crystal-derived, free-running).
-                let field_sync = (self.master_clock % 20_000) < 1_000;
-                let tone_2400 = (self.master_clock % 416) < 208;
+                // `8255.c`): PC7 = the field-sync FS̄ (high during active video,
+                // low during flyback — the MOS times its keyboard scan off it),
+                // PC5 = cassette DATA input, PC4 = the 2.4 kHz reference tone.
+                let field_active = (self.master_clock % FIELD_TICKS) < FIELD_ACTIVE_TICKS;
+                let tone_2400 = (self.master_clock % TONE_PERIOD_TICKS) < TONE_PERIOD_TICKS / 2;
                 let cassette = self.cassette.is_loaded() && self.cassette.level();
-                let inputs = (u8::from(field_sync) << 7)
+                let inputs = (u8::from(field_active) << 7)
                     | (u8::from(cassette) << 5)
                     | (u8::from(tone_2400) << 4);
                 self.ppi.port_c = (self.ppi.port_c & 0x0F) | inputs;
@@ -456,6 +471,27 @@ mod tests {
             sys.mem_read(0xB001) & 0xC0,
             0xC0,
             "released = both high again"
+        );
+    }
+
+    #[test]
+    fn field_sync_is_high_during_active_video_low_in_flyback() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        // Sample PC7 across one full field (FS̄ depends only on master_clock).
+        let mut high = 0u64;
+        for _ in 0..FIELD_TICKS {
+            sys.tick();
+            if sys.mem_read(0xB002) & 0x80 != 0 {
+                high += 1;
+            }
+        }
+        // FS̄ is high through the 192 active lines of the 312-line PAL field
+        // (~61.5%) and low during the 120-line flyback (#373).
+        let ratio = high as f64 / FIELD_TICKS as f64;
+        assert!(
+            (ratio - 192.0 / 312.0).abs() < 0.02,
+            "field-sync duty was {ratio}, expected ~{}",
+            192.0 / 312.0
         );
     }
 

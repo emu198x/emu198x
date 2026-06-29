@@ -61,6 +61,13 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 
 - **Master clock & dividers** — 6502 at ~1 MHz; MC6847 VDG field-sync drives the
   display.
+- **Field-sync & cassette tone provenanced** (2026-06-29, #373) — PC7 field-sync
+  is a 50 Hz PAL field (192 active lines of 312), **high during active video and
+  low during flyback** per the Atom Technical Manual / *Atomic Theory and
+  Practice* §25.5 (the earlier approximation had the polarity inverted). PC4's
+  2.4 kHz reference is the 4 MHz crystal ÷1667, 50% duty. All three are now named
+  constants with citations; keyboard typing + cassette load are unaffected. Tying
+  the field to the VDG's own frame counter waits on the graphics-mode work (#367).
 - **Timing model realised** — relaxed: text-mode VDG render; graphics modes 1-5
   unimplemented (solid green).
 - **CPU timing** — 6502 cycle-accurate (§62).
