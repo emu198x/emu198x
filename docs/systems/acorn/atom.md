@@ -12,6 +12,11 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   `atom` romset). `PRINT3 → 3` end-to-end.
 - **VDG** — `motorola-vdg-6847` (Atom text model); PIA port A column-select, port
   B row data.
+- **CSS sourced from PC3** (2026-06-29, #369) — the MC6847 colour-set select now
+  reads 8255 **port C bit 3**, not port-A bit 3 (PA3), which is a keyboard-scan
+  line (Atom Technical Manual §25.5; Atomulator). Handles both the direct `$B002`
+  write and the BSR control-word path (`$B003`). Latent until graphics modes are
+  wired (#367), but the colour-set is now correct rather than reading the keyboard.
 - **Keyboard SHIFT / CTRL** (2026-06-29, #372) — SHIFT and CTRL now register, on
   port B bits 7 / 6, active-low, common to every column (Atom Technical Manual
   §25.5; cross-checked against Atomulator). This makes shifted symbols typeable —
