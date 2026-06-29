@@ -98,6 +98,22 @@ impl CassetteReceiver {
         self.span_idx >= self.pulses.len()
     }
 
+    /// The current cassette line level — the raw square-wave sample at the
+    /// playback position. For machines that bit-bang the waveform in software
+    /// (the Acorn Atom reads it on PPI PC4) rather than demodulating to bytes:
+    /// advance the receiver each tick, then sample this. Each cycle holds the
+    /// line low for its first half-period then high; gaps and the end of the
+    /// tape read low.
+    #[must_use]
+    pub fn level(&self) -> bool {
+        match self.pulses.get(self.span_idx) {
+            Some(&TapePulse::Cycles { half_period_ns, .. }) => {
+                self.elapsed_ns >= u64::from(half_period_ns)
+            }
+            _ => false,
+        }
+    }
+
     /// Rewinds to the start of the tape and resets the demodulator.
     fn rewind(&mut self) {
         self.span_idx = 0;

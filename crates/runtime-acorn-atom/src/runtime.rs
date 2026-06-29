@@ -1,9 +1,10 @@
 //! Runtime wrapper for the Acorn Atom.
 
+use common_acorn_cassette::TapePulse;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaSet, PixelFormat, ResetKind, RunResult,
-    StopReason,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
+    RunResult, StopReason,
 };
 use machine_acorn_atom::AcornAtom;
 
@@ -19,6 +20,9 @@ pub struct AtomRuntime {
     model: Model,
     machine: Option<AcornAtom>,
     bios_bytes: Option<Vec<u8>>,
+    /// The mounted cassette's decoded waveform, kept so it survives a reset's
+    /// machine rebuild (the tape stays in the deck across a reset).
+    tape_pulses: Option<Vec<TapePulse>>,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
@@ -33,6 +37,7 @@ impl AtomRuntime {
             model,
             machine: None,
             bios_bytes: None,
+            tape_pulses: None,
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
@@ -125,7 +130,11 @@ impl AtomRuntime {
             self.machine = None;
             return;
         };
-        let machine = AcornAtom::new(bios, self.model.ram_bytes());
+        let mut machine = AcornAtom::new(bios, self.model.ram_bytes());
+        // Re-mount the cassette so a reset doesn't eject the tape.
+        if let Some(pulses) = &self.tape_pulses {
+            machine.insert_tape(pulses.clone());
+        }
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
@@ -162,10 +171,27 @@ impl MachineCore for AtomRuntime {
         self.time = MachineTime::default();
     }
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
-        if let Some(first) = media.images.first() {
-            return Err(MachineError::UnknownMediaSlot {
-                slot: first.slot.as_ref().to_owned(),
-            });
+        for image in &media.images {
+            let slot = image.slot.as_ref();
+            match image.kind {
+                MediaKind::Tape if slot == "tape-1" => {
+                    let tape = format_acorn_uef::parse(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: reason.to_string(),
+                        }
+                    })?;
+                    if let Some(machine) = self.machine.as_mut() {
+                        machine.insert_tape(tape.pulses.clone());
+                    }
+                    self.tape_pulses = Some(tape.pulses);
+                }
+                _ => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
+            }
         }
         Ok(())
     }

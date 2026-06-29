@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.2.0" }
 mos-6502 = { path = "../mos-6502", version = "0.2.0" }
 intel-8255 = { path = "../intel-8255", version = "0.2.0" }
 motorola-vdg-6847 = { path = "../motorola-vdg-6847", version = "0.2.0" }
@@ -14,6 +15,7 @@ serde = { workspace = true }
 serde-big-array = { workspace = true }
 
 [dev-dependencies]
+format-acorn-uef = { path = "../format-acorn-uef", version = "0.2.0" }
 postcard = { workspace = true }
 
 [lints]

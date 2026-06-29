@@ -124,6 +124,30 @@ mod tests {
     }
 
     #[test]
+    fn level_tracks_the_square_wave() {
+        let mut receiver = CassetteReceiver::new();
+        // One cycle with a 1 µs half-period: low for the first half, high for
+        // the second.
+        receiver.load(vec![TapePulse::Cycles {
+            half_period_ns: 1000,
+            count: 1,
+        }]);
+        assert!(!receiver.level(), "each cycle starts low");
+        receiver.advance(500, &mut |_| {});
+        assert!(!receiver.level(), "still in the low half");
+        receiver.advance(600, &mut |_| {}); // 1100 ns in
+        assert!(receiver.level(), "now in the high half");
+        receiver.advance(1000, &mut |_| {}); // past the cycle
+        assert!(!receiver.level(), "end of tape reads low");
+    }
+
+    #[test]
+    fn level_is_low_with_no_tape() {
+        let receiver = CassetteReceiver::new();
+        assert!(!receiver.level());
+    }
+
+    #[test]
     fn eject_clears_the_tape() {
         let mut receiver = CassetteReceiver::new();
         receiver.load(tape(&[0xAA]));

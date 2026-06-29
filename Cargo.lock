@@ -1971,6 +1971,8 @@ checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
 name = "machine-acorn-atom"
 version = "0.2.0"
 dependencies = [
+ "common-acorn-cassette",
+ "format-acorn-uef",
  "intel-8255",
  "mos-6502",
  "motorola-vdg-6847",
@@ -3619,7 +3621,9 @@ dependencies = [
 name = "runtime-acorn-atom"
 version = "0.2.0"
 dependencies = [
+ "common-acorn-cassette",
  "emu198x-shell",
+ "format-acorn-uef",
  "machine-acorn-atom",
  "postcard",
  "serde",

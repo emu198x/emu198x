@@ -12,12 +12,33 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   `atom` romset). `PRINT3 → 3` end-to-end.
 - **VDG** — `motorola-vdg-6847` (Atom text model); PIA port A column-select, port
   B row data.
+- **Keyboard SHIFT / CTRL** (2026-06-29, #372) — SHIFT and CTRL now register, on
+  port B bits 7 / 6, active-low, common to every column (Atom Technical Manual
+  §25.5; cross-checked against Atomulator). This makes shifted symbols typeable —
+  e.g. `"` is SHIFT+2. The dedicated `*` key is still unmapped (its matrix
+  position isn't in the manual or Atomulator's host-positional table).
+- **Cassette LOAD — waveform path** (2026-06-29, #371) — a UEF tape decoded by
+  `format-acorn-uef` plays its raw waveform onto the 8255 **PC5** cassette-data
+  input (PC4 carries the free-running 2.4 kHz reference; the Atom has no serial
+  receiver and no motor relay — the COS bit-bangs the level in software, 300-baud
+  Kansas City). Uses the shared `common-acorn-cassette` crate's new
+  `CassetteReceiver::level()` sampler rather than the byte demodulator the
+  BBC/Electron use. Unit-tested (PC5 follows the tape level; `load_media` +
+  reset re-mount). **OS-driven load not yet verified** — see the gap below.
 
 ## Not implemented / accuracy gaps
 
 - **Graphics modes 1-5** — VDG renders text only; graphics modes show solid green
   (donor stub).
-- **Cassette / printer** unwired. **Snapshot** deferred. **No native window.**
+- **Cassette LOAD — OS-driven verification** — the PC5 waveform path is wired and
+  unit-tested, but a real COS load of an Atom tape is not yet confirmed
+  end-to-end. The bet (path A) is that the COS software-times the raw PC5
+  waveform; an attempt to `LOAD"INSTRUCTIONS"` from the Defender tape did not yet
+  land the program in RAM (the multi-key command typing was also flaky). Open:
+  whether PC5 needs the raw waveform or a partially-demodulated signal — to be
+  settled against the COS `CASIN` disassembly. The BBC/Electron were proven
+  byte-for-byte against real ROMs; the Atom is pending that.
+- **Cassette SAVE / printer** unwired. **No native window.**
 
 ## Known unknowns / disproven hypotheses
 
