@@ -1,6 +1,6 @@
 # Emu198x
 
-Multi-platform retro emulator (Rust workspace). One of two sibling projects under the `198x/` umbrella; see [`../CLAUDE.md`](../CLAUDE.md) for umbrella context and cross-project rules.
+Multi-platform retro emulator (Rust workspace). One of seven sibling projects under the `198x/` umbrella; see [`../CLAUDE.md`](../CLAUDE.md) for umbrella context and cross-project rules.
 
 ## Binding constraints
 
