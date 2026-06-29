@@ -1,6 +1,6 @@
 # Acorn Atom
 
-## Status: Boots, types, and loads software from cassette
+## Status: Boots, types, loads software, plays sound, and renders graphics
 
 Acorn's £120 self-build (1980), by the team that designed the BBC Micro. Boots to
 the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system.
@@ -10,8 +10,15 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 
 - **Boot to prompt** (2026-06-04) with the 24K combined ROM (assembled from MAME's
   `atom` romset). `PRINT3 → 3` end-to-end.
-- **VDG** — `motorola-vdg-6847` (Atom text model); PIA port A column-select, port
-  B row data.
+- **VDG** — `motorola-vdg-6847`; PIA port A column-select, port B row data.
+- **Graphics modes 1-5** (2026-06-29, #367) — all eight MC6847 modes render, not
+  just text. Port A **PA4 = A/G** and **PA5-7 = GM0-2** (MAME `atom.cpp`) now decode
+  into the shared crate's `VdgControl` (the old code read bit 7 for A/G, so every
+  graphics mode fell through to a flat field). Video RAM expanded 1 KB → **6 KB**
+  (`$8000-$97FF`) for the 256×192 modes; `$9800-$9FFF` is open bus. INT/EXT is tied
+  low (internal font). Verified by unit tests (A/G selection, GM bits, 6 KB read,
+  spatial pattern) and a headless screenshot — a graphics program drawing `$AA`
+  renders crisp vertical stripes, not solid green.
 - **CSS sourced from PC3** (2026-06-29, #369) — the MC6847 colour-set select now
   reads 8255 **port C bit 3**, not port-A bit 3 (PA3), which is a keyboard-scan
   line (Atom Technical Manual §25.5; Atomulator). Handles both the direct `$B002`
@@ -61,8 +68,8 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 
 ## Not implemented / accuracy gaps
 
-- **Graphics modes 1-5** — VDG renders text only; graphics modes show solid green
-  (donor stub).
+- **Beam-accurate VDG** — graphics render per-frame from a video-RAM snapshot, so
+  mid-frame mode/palette changes (split-screen effects) aren't yet honoured.
 - **Cassette SAVE / printer** unwired. **No native window.**
 
 ## Known unknowns / disproven hypotheses
@@ -74,7 +81,7 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   `abasic.ic20` low 4K → BASIC (`$C000`), high 4K → MOS (`$F000`),
   `afloat.ic21` → FP (`$D000`); `$A000` utility slot empty. Reset vector verified
   to resolve into MOS (`$FF3F`).
-- **Verification target** — VDG graphics modes 1-5.
+- **Verification target** — beam-accurate VDG (mid-frame mode changes).
 
 ## Validated against
 
@@ -96,8 +103,8 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   2.4 kHz reference is the 4 MHz crystal ÷1667, 50% duty. All three are now named
   constants with citations; keyboard typing + cassette load are unaffected. Tying
   the field to the VDG's own frame counter waits on the graphics-mode work (#367).
-- **Timing model realised** — relaxed: text-mode VDG render; graphics modes 1-5
-  unimplemented (solid green).
+- **Timing model realised** — relaxed: per-frame VDG render (text + all graphics
+  modes) from a video-RAM snapshot; not yet beam-accurate.
 - **CPU timing** — 6502 cycle-accurate (§62).
 - **Distance to full cycle-accuracy** — VDG graphics modes; beam-accurate VDG
   timing.

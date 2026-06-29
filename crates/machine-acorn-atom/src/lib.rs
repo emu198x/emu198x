@@ -1,4 +1,4 @@
-//! Acorn Atom (1980) — 6502 + MC6847 text-mode VDG + 6520 PIA.
+//! Acorn Atom (1980) — 6502 + MC6847 VDG + Intel 8255 PPI.
 //!
 //! Fresh-write against the workspace pin-driven bus pattern (RULES.md
 //! rule 6). The donor at `Emu198x-Oldest/crates/machine-acorn-atom/`
@@ -18,8 +18,9 @@
 //!   — Atom-specific variant with an embedded 64-glyph character
 //!   ROM (see [`vdg`])
 //! - **PPI:** Intel INS8255 at `$B000-$B003` (keyboard + cassette)
-//! - **RAM:** 2.5 KB base, expandable to 12 KB
-//! - **Video RAM:** 1 KB at `$8000-$83FF` (mirrored to `$9FFF`)
+//! - **RAM:** 2.5 KB base, expandable to a fully-expanded 32 KB
+//! - **Video RAM:** 6 KB at `$8000-$97FF` (512 bytes shown in text mode; the
+//!   graphics modes use the full 6 KB)
 //! - **ROM:** 24 KB combined — BASIC (split `$A000` + `$C000`),
 //!   FP at `$B004-$BFFF`, OS at `$D000-$FFFF`
 //!
@@ -40,9 +41,10 @@
 //! Clock model: one master tick = one 6502 cycle (1 MHz). VDG ticks
 //! at the same rate. One PAL frame ≈ 71,136 ticks (228 × 312).
 //!
-//! Scope of this port: text mode only. Graphics modes 1-4 (semi-
-//! graphics) and mode 5 (256 × 192 dot graphics) are stubbed in the
-//! VDG and tracked as follow-ups in `docs/status/outstanding-work.md`.
+//! All MC6847 modes render: text/semigraphics plus graphics modes 1-5,
+//! decoded from port A (PA4 = A/G, PA5-7 = GM0-2) through the shared
+//! crate's `VdgControl` (#367). The render is per-frame from a video-RAM
+//! snapshot, not yet beam-accurate.
 
 pub mod input;
 mod keyboard;
@@ -84,6 +86,11 @@ const AUDIO_SAMPLE_RATE: u64 = 48_000;
 /// 8255 PC2 is the loudspeaker bit (XOR-with-4 toggles it; *Atomic Theory and
 /// Practice* §19 — "exclusive-ORing #B002 with 4 changes the loudspeaker line").
 const SPEAKER_BIT: u8 = 0x04;
+/// Video RAM: 6 KB at `$8000-$97FF` — enough for the MC6847's highest-resolution
+/// graphics mode (256×192×1bpp = 6144 bytes). MAME's `atom` maps exactly this
+/// span; `$9800-$9FFF` is unmapped (open bus). The base machine displays only the
+/// first 512 bytes (32×16 text), but graphics modes 1-5 read the full 6 KB.
+const VIDEO_RAM_SIZE: usize = 6 * 1024;
 
 /// Acorn Atom machine.
 #[derive(Serialize, Deserialize)]
@@ -92,7 +99,7 @@ pub struct AcornAtom {
     ram: Vec<u8>,
     ram_size: usize,
     #[serde(with = "BigArray")]
-    video_ram: [u8; 1024],
+    video_ram: [u8; VIDEO_RAM_SIZE],
     rom: Vec<u8>,
     /// Intel 8255 PPI: port A drives the keyboard column (PA0-3) and the
     /// MC6847 mode bits (PA4-7); port B reads the six keyboard row lines;
@@ -131,7 +138,7 @@ impl AcornAtom {
             cpu,
             ram: vec![0; ram_size],
             ram_size,
-            video_ram: [0; 1024],
+            video_ram: [0; VIDEO_RAM_SIZE],
             rom,
             ppi: Ppi8255::new(),
             vdg: Mc6847::new(),
@@ -184,11 +191,16 @@ impl AcornAtom {
                 return false;
             }
             self.ram[start..end].copy_from_slice(payload);
-        } else if (0x8000..0xA000).contains(&load_address) {
-            // Video RAM is 1 KB, mirrored across $8000-$9FFF (as in `mem_write`).
-            for (i, &byte) in payload.iter().enumerate() {
-                self.video_ram[(start + i) & 0x03FF] = byte;
+        } else if (0x8000..0x9800).contains(&load_address) {
+            // Video RAM: 6 KB at $8000-$97FF.
+            let base = start - 0x8000;
+            let Some(end) = base.checked_add(payload.len()) else {
+                return false;
+            };
+            if end > self.video_ram.len() {
+                return false; // runs past the 6 KB video region
             }
+            self.video_ram[base..end].copy_from_slice(payload);
         } else {
             return false; // ROM / I/O — not loadable
         }
@@ -230,7 +242,8 @@ impl AcornAtom {
         // samples it this tick. No motor relay — it runs while loaded.
         self.cassette.advance(NS_PER_TICK, &mut |_| {});
         let video_ram = &self.video_ram;
-        self.vdg.tick(|addr| video_ram[(addr & 0x03FF) as usize]);
+        self.vdg
+            .tick(|addr| video_ram.get(addr as usize).copied().unwrap_or(0));
         // The Atom keyboard is polled, not interrupt-driven; the 8255 has no
         // interrupt line in Mode 0 and the donor models no other IRQ source.
         self.cpu.irq = false;
@@ -275,7 +288,8 @@ impl AcornAtom {
                     0xFF
                 }
             }
-            0x8000..=0x9FFF => self.video_ram[(addr & 0x03FF) as usize],
+            0x8000..=0x97FF => self.video_ram[(addr - 0x8000) as usize],
+            0x9800..=0x9FFF => 0xFF, // unmapped — open bus
             0xA000..=0xAFFF => {
                 let offset = (addr - 0xA000) as usize;
                 self.rom.get(offset).copied().unwrap_or(0xFF)
@@ -318,9 +332,10 @@ impl AcornAtom {
             0x0000..=0x7FFF if (addr as usize) < self.ram_size => {
                 self.ram[addr as usize] = value;
             }
-            0x8000..=0x9FFF => {
-                self.video_ram[(addr & 0x03FF) as usize] = value;
+            0x8000..=0x97FF => {
+                self.video_ram[(addr - 0x8000) as usize] = value;
             }
+            0x9800..=0x9FFF => {} // unmapped — writes ignored
             0xB000 => {
                 // Port A: low nibble selects the keyboard column, high nibble
                 // carries the MC6847 mode bits — latch both.
@@ -382,7 +397,8 @@ impl AcornAtom {
     pub fn peek_memory(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF if (addr as usize) < self.ram_size => self.ram[addr as usize],
-            0x8000..=0x9FFF => self.video_ram[(addr & 0x03FF) as usize],
+            0x8000..=0x97FF => self.video_ram[(addr - 0x8000) as usize],
+            0x9800..=0x9FFF => 0xFF,
             0xB000 => self.vdg.control,
             0xA000..=0xAFFF => self
                 .rom
@@ -691,11 +707,16 @@ mod tests {
     }
 
     #[test]
-    fn load_program_into_video_ram_mirrors() {
+    fn load_program_into_video_ram() {
         let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        // A screen image (e.g. a 6 KB graphics dump) loads into video RAM.
         assert!(sys.load_program(0x8000, &[0x11, 0x22, 0x33], 0x8000, false));
         assert_eq!(sys.peek(0x8000), 0x11);
         assert_eq!(sys.peek(0x8002), 0x33);
+        // A full 6 KB image fills $8000-$97FF; one byte past the end is rejected.
+        assert!(sys.load_program(0x8000, &[0xEE; 6144], 0x8000, false));
+        assert_eq!(sys.peek(0x97FF), 0xEE);
+        assert!(!sys.load_program(0x9700, &[0u8; 0x200], 0x9700, false));
     }
 
     #[test]
@@ -809,11 +830,64 @@ mod tests {
     }
 
     #[test]
-    fn video_ram_round_trips_and_mirrors() {
+    fn video_ram_is_6k_linear() {
         let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        // $8000-$97FF is 6 KB of linear RAM (graphics modes need it) — distinct
+        // locations, not the old 1 KB mirror.
         sys.mem_write(0x8000, 0xAB);
+        sys.mem_write(0x97FF, 0xCD); // top of video RAM
         assert_eq!(sys.mem_read(0x8000), 0xAB);
-        assert_eq!(sys.mem_read(0x8400), 0xAB);
+        assert_eq!(sys.mem_read(0x97FF), 0xCD);
+        assert_eq!(sys.mem_read(0x8400), 0x00, "$8400 no longer mirrors $8000");
+        // $9800-$9FFF is unmapped (open bus).
+        assert_eq!(sys.mem_read(0x9800), 0xFF);
+    }
+
+    /// Render a frame with the given port-A control byte and video-RAM fill, and
+    /// return the resulting framebuffer.
+    fn render_with(control: u8, fill: impl Fn(u16) -> u8) -> Vec<u32> {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        for addr in 0x8000u16..0x9800 {
+            sys.mem_write(addr, fill(addr));
+        }
+        sys.mem_write(0xB000, control);
+        sys.run_frame();
+        sys.framebuffer().to_vec()
+    }
+
+    #[test]
+    fn graphics_mode_is_selected_by_the_ag_bit() {
+        // Same video RAM, alpha (A/G=0) vs graphics (A/G = PA4 = $10). The two
+        // renders must differ — proving PA4 drives A/G. The old code read bit 7,
+        // so both came out as alpha and rendered an identical flat field (#367).
+        let alpha = render_with(0x00, |_| 0xFF);
+        let graphics = render_with(0x10, |_| 0xFF);
+        assert_ne!(alpha, graphics, "PA4 (A/G) must switch alpha vs graphics");
+    }
+
+    #[test]
+    fn graphics_mode_draws_a_spatial_pattern() {
+        // RG6 (A/G + GM=0b110), top half of video RAM lit, bottom half clear.
+        let control = 0x10 | (0b110 << 5);
+        let frame = render_with(control, |addr| if addr < 0x8C00 { 0xFF } else { 0x00 });
+        let distinct: std::collections::HashSet<u32> = frame.iter().copied().collect();
+        // Lit pixels, dark pixels, and the border = three colours; the old flat
+        // field would be at most two.
+        assert!(
+            distinct.len() >= 3,
+            "a half-lit graphics screen yields lit, dark, and border regions"
+        );
+    }
+
+    #[test]
+    fn graphics_modes_respond_to_video_ram() {
+        let control = 0x10 | (0b110 << 5);
+        let lit = render_with(control, |_| 0xFF);
+        let dark = render_with(control, |_| 0x00);
+        assert_ne!(
+            lit, dark,
+            "the graphics render must read the 6 KB video RAM"
+        );
     }
 
     #[test]
