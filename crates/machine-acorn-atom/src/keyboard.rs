@@ -19,6 +19,8 @@ pub struct KeyboardState {
     shift: bool,
     /// CTRL held (port B bit 6).
     ctrl: bool,
+    /// REPT held (port C bit 6 — read by the machine, not via [`read_row`]).
+    rept: bool,
 }
 
 /// Port B bit 7 — SHIFT.
@@ -40,6 +42,17 @@ impl KeyboardState {
     /// Set or clear CTRL (port B bit 6).
     pub fn set_ctrl(&mut self, pressed: bool) {
         self.ctrl = pressed;
+    }
+
+    /// Set or clear REPT (port C bit 6).
+    pub fn set_rept(&mut self, pressed: bool) {
+        self.rept = pressed;
+    }
+
+    /// Whether REPT is held (the machine folds this into port C bit 6).
+    #[must_use]
+    pub fn rept(&self) -> bool {
+        self.rept
     }
 
     /// Set or clear a key.
@@ -70,6 +83,7 @@ impl KeyboardState {
         self.matrix = [0; 10];
         self.shift = false;
         self.ctrl = false;
+        self.rept = false;
     }
 
     /// Raw matrix state.

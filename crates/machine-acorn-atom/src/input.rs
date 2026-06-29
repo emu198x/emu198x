@@ -19,8 +19,10 @@
 //!
 //! The Atom has no arrow-key cluster: cursor editing uses two *bidirectional*
 //! keys ([`AtomKey::CursorUpDown`] and [`AtomKey::CursorLeftRight`]) whose
-//! SHIFT-reversed direction gives the other way, plus [`AtomKey::Delete`]. All
-//! were probed against the real MOS (see the `#[ignore]` tests).
+//! SHIFT-reversed direction gives the other way, plus [`AtomKey::Delete`],
+//! [`AtomKey::Escape`] and [`AtomKey::Lock`] (shift-lock). [`AtomKey::Rept`]
+//! (auto-repeat) is read on port C bit 6, like SHIFT/CTRL on port B — handled
+//! as a modifier, not a matrix cell. All were probed against the real MOS.
 
 /// Logical key on the Acorn Atom keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -80,10 +82,17 @@ pub enum AtomKey {
     CursorUpDown,
     /// The →/← cursor key: unshifted moves right, SHIFT moves left.
     CursorLeftRight,
+    /// ESC — escapes the current line / breaks a running program.
+    Escape,
+    /// LOCK — shift-lock: letters come out shifted until pressed again.
+    Lock,
     /// SHIFT — read on port B bit 7 (active-low), not in the scanned matrix.
     Shift,
     /// CTRL — read on port B bit 6 (active-low), not in the scanned matrix.
     Ctrl,
+    /// REPT — auto-repeat. Read on port C bit 6 (active-low), not the scanned
+    /// matrix; held alongside another key to make it repeat.
+    Rept,
 }
 
 impl AtomKey {
@@ -91,7 +100,7 @@ impl AtomKey {
     /// port B bits 7 / 6 rather than the scanned matrix.
     #[must_use]
     pub const fn is_modifier(self) -> bool {
-        matches!(self, Self::Shift | Self::Ctrl)
+        matches!(self, Self::Shift | Self::Ctrl | Self::Rept)
     }
 
     /// Return the `(row, col)` matrix position — `row` is the binary
@@ -163,8 +172,11 @@ impl AtomKey {
             // SHIFT-reversed direction is supplied by the caller holding SHIFT.
             Self::CursorUpDown => (2, 0),
             Self::CursorLeftRight => (3, 0),
-            // Modifiers are read on port B bits 6/7, not the scanned matrix.
-            Self::Shift | Self::Ctrl => return None,
+            Self::Escape => (0, 5),
+            Self::Lock => (4, 0),
+            // Modifiers are read on port B bits 6/7 (SHIFT/CTRL) or port C bit 6
+            // (REPT), not the scanned matrix.
+            Self::Shift | Self::Ctrl | Self::Rept => return None,
         };
         Some(position)
     }
@@ -184,8 +196,18 @@ mod tests {
     fn modifiers_have_no_matrix_position() {
         assert!(AtomKey::Shift.is_modifier());
         assert!(AtomKey::Ctrl.is_modifier());
+        assert!(AtomKey::Rept.is_modifier());
         assert_eq!(AtomKey::Shift.matrix(), None);
         assert_eq!(AtomKey::Ctrl.matrix(), None);
+        assert_eq!(AtomKey::Rept.matrix(), None);
         assert!(!AtomKey::A.is_modifier());
+    }
+
+    #[test]
+    fn editing_keys_have_matrix_positions() {
+        assert_eq!(AtomKey::Escape.matrix(), Some((0, 5)));
+        assert_eq!(AtomKey::Lock.matrix(), Some((4, 0)));
+        assert_eq!(AtomKey::Delete.matrix(), Some((4, 1)));
+        assert!(!AtomKey::Lock.is_modifier());
     }
 }

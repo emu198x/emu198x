@@ -22,9 +22,12 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   and every key was probed against the real MOS. The Atom puts its symbols on
   shifted keys like a typewriter, so `*` (the COS command prefix) is **SHIFT+`:`**,
   `"` is SHIFT+2, `+` is SHIFT+`;`, etc. — the runtime input maps each symbol to
-  SHIFT+base. Also wired: the base keys `- [ ] \ ^`, DELETE, and the two
-  bidirectional cursor keys (↑/↓ and →/←, with SHIFT giving the reverse direction
-  — the Atom has no arrow-key cluster). All verified by `#[ignore]` MOS tests.
+  SHIFT+base. Also wired: the base keys `- [ ] \ ^`, DELETE, ESC, LOCK
+  (shift-lock), REPT (auto-repeat, on port C bit 6 — not the scanned matrix), and
+  the two bidirectional cursor keys (↑/↓ and →/←, with SHIFT giving the reverse
+  direction — the Atom has no arrow-key cluster). All verified by `#[ignore]` MOS
+  tests. Only the COPY key is still unmapped — its matrix cell wasn't
+  identifiable from prompt-line probing.
 - **Cassette LOAD — verified end-to-end** (2026-06-29, #371) — a UEF tape decoded
   by `format-acorn-uef` plays its raw waveform onto the 8255 **PC5** cassette-data
   input (PC4 carries the free-running 2.4 kHz reference; the Atom has no serial
@@ -42,9 +45,10 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 - **Graphics modes 1-5** — VDG renders text only; graphics modes show solid green
   (donor stub).
 - **Cassette SAVE / printer** unwired. **No native window.**
-- **Editing keys ESC / COPY / LOCK / REPT** not yet mapped (their matrix cells
-  weren't unambiguous from prompt-line probing). The cursor keys, DELETE, and all
-  printable/symbol keys are done; COS `*`-commands now type (`*` = SHIFT+`:`).
+- **The COPY key** is unmapped — its matrix cell wasn't identifiable from
+  prompt-line probing (it needs the Acorn copy-editor's copy-cursor interaction).
+  ESC, LOCK, REPT, DELETE, the cursor keys, and every printable/symbol key are
+  done. COPY duplicates the char under the copy cursor into the input line.
 
 ## Known unknowns / disproven hypotheses
 

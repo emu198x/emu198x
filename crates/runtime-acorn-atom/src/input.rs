@@ -89,8 +89,11 @@ fn key_from_name(name: &str) -> Option<(AtomKey, bool)> {
         // The unshifted directions of the two bidirectional cursor keys.
         "up" | "cursorup" | "arrowup" => AtomKey::CursorUpDown,
         "right" | "cursorright" | "arrowright" => AtomKey::CursorLeftRight,
+        "escape" | "esc" => AtomKey::Escape,
+        "lock" | "capslock" | "shiftlock" => AtomKey::Lock,
         "shift" | "lshift" | "rshift" => AtomKey::Shift,
         "ctrl" | "control" | "lctrl" | "rctrl" => AtomKey::Ctrl,
+        "rept" | "repeat" => AtomKey::Rept,
         // Symbols on shifted keys → SHIFT + base key (probed against the MOS).
         "*" | "asterisk" | "star" => return Some((AtomKey::Colon, true)),
         "+" | "plus" => return Some((AtomKey::Semicolon, true)),
@@ -163,6 +166,13 @@ mod tests {
             Some((AtomKey::CursorLeftRight, true))
         );
         assert_eq!(key_from_name("delete"), Some((AtomKey::Delete, false)));
+    }
+
+    #[test]
+    fn editing_keys_map() {
+        assert_eq!(key_from_name("escape"), Some((AtomKey::Escape, false)));
+        assert_eq!(key_from_name("lock"), Some((AtomKey::Lock, false)));
+        assert_eq!(key_from_name("rept"), Some((AtomKey::Rept, false)));
     }
 
     #[test]
