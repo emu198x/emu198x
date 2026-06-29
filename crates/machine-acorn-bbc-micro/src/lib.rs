@@ -68,12 +68,19 @@
 //! port B write. When bit 0 of the latch transitions low, the
 //! current ORA value is latched into the PSG.
 
+use common_acorn_cassette::{CassetteEvent, CassetteReceiver, TapePulse};
 use mos_6502::M6502;
 use mos_via_6522::Via6522;
 use motorola_6845::Crtc6845;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use ti_sn76489::{NoiseLfsr, Sn76489};
+
+/// Nanoseconds per 2 MHz master tick — the cassette receiver's time base.
+const NS_PER_MASTER_TICK: u64 = 500;
+
+/// Serial ULA (`$FE10`) bit 7: cassette motor relay (1 = motor on).
+const MOTOR_BIT: u8 = 0x80;
 
 /// Framebuffer width (640 pixels — MODE 0 native).
 pub const FB_WIDTH: u32 = 640;
@@ -328,9 +335,18 @@ fn mosaic_pattern(code: u8, font_row: usize, separated: bool) -> u16 {
 struct Mc6850 {
     /// Control register (interrupt enables + word format + clock divide).
     control: u8,
-    /// Receive-data-register-full — set when a byte has been received. Never set
-    /// here (no serial source), but tracked so a read clears it faithfully.
+    /// Receive-data-register-full — set when the cassette demodulator delivers a
+    /// byte; the read of the data register clears it.
     rx_full: bool,
+    /// The last byte the cassette demodulator delivered, returned by a read of
+    /// the data register (`$FE09`).
+    rx_data: u8,
+    /// Latched Data Carrier Detect. The cassette interface raises DCD once the
+    /// high-tone carrier has persisted; the BBC MOS uses it to know a block is
+    /// coming (the tape filing system will not leave "Searching" without it).
+    /// Surfaced as status bit 2, raises the IRQ with RX interrupts enabled, and
+    /// is cleared by reading the data register. Faithful to jsbeeb's `acia.js`.
+    dcd: bool,
 }
 
 impl Mc6850 {
@@ -338,16 +354,31 @@ impl Mc6850 {
     const TDRE: u8 = 0x02; // transmit data register empty
     const IRQ: u8 = 0x80; // interrupt request
 
+    const DCD: u8 = 0x04; // data carrier detect
+
     fn new() -> Self {
         Self {
             control: 0,
             rx_full: false,
+            rx_data: 0,
+            dcd: false,
         }
     }
 
     /// Receive interrupt: RDRF set and RX interrupt enabled (control bit 7).
     fn rx_int(&self) -> bool {
         self.rx_full && (self.control & 0x80 != 0)
+    }
+
+    /// Carrier-detect interrupt: DCD latched, gated by the RX interrupt enable.
+    fn dcd_int(&self) -> bool {
+        self.dcd && (self.control & 0x80 != 0)
+    }
+
+    /// Raise Data Carrier Detect — the cassette demodulator saw sustained
+    /// carrier tone.
+    fn set_carrier_detect(&mut self) {
+        self.dcd = true;
     }
 
     /// Transmit interrupt: TDRE set (always, here) and TX-interrupt mode
@@ -357,15 +388,18 @@ impl Mc6850 {
     }
 
     fn irq(&self) -> bool {
-        self.rx_int() || self.tx_int()
+        self.rx_int() || self.dcd_int() || self.tx_int()
     }
 
     /// Status register: TDRE always set (transmitter idle/ready), RDRF if a byte
-    /// is waiting, IRQ computed from the rx/tx conditions.
+    /// is waiting, DCD if carrier was detected, IRQ computed from the conditions.
     fn status(&self) -> u8 {
         let mut s = Self::TDRE;
         if self.rx_full {
             s |= Self::RDRF;
+        }
+        if self.dcd {
+            s |= Self::DCD;
         }
         if self.irq() {
             s |= Self::IRQ;
@@ -377,9 +411,11 @@ impl Mc6850 {
         if addr & 1 == 0 {
             self.status()
         } else {
-            // Read receive data — clears RDRF (and the interrupt it caused).
+            // Read receive data — clears RDRF and the latched DCD (and the
+            // interrupts they caused).
             self.rx_full = false;
-            0
+            self.dcd = false;
+            self.rx_data
         }
     }
 
@@ -432,6 +468,14 @@ pub struct BbcMicro {
     adc: Upd7002,
     /// 6850 ACIA — cassette / RS423 serial at `$FE08`/`$FE09`.
     acia: Mc6850,
+    /// Serial ULA register (`$FE10`): RX/TX baud select, RS423/cassette select,
+    /// and bit 7 the cassette motor relay. Write-only on hardware; we keep the
+    /// last value to gate the cassette on the motor bit.
+    serial_ula: u8,
+    /// Cassette demodulator. Advances at the 2 MHz master clock while the motor
+    /// relay (`$FE10` bit 7) is energised, delivering recovered bytes to the
+    /// ACIA's receive register and raising its RX interrupt.
+    cassette: CassetteReceiver,
 }
 
 impl BbcMicro {
@@ -463,7 +507,32 @@ impl BbcMicro {
             fire: [false; 2],
             adc: Upd7002::new(),
             acia: Mc6850::new(),
+            serial_ula: 0,
+            cassette: CassetteReceiver::new(),
         }
+    }
+
+    /// Loads a cassette tape from a decoded UEF pulse stream, rewound to the
+    /// start. The tape only advances while the motor relay is energised.
+    pub fn insert_tape(&mut self, pulses: Vec<TapePulse>) {
+        self.cassette.load(pulses);
+    }
+
+    /// Ejects the cassette tape.
+    pub fn eject_tape(&mut self) {
+        self.cassette.eject();
+    }
+
+    /// Returns `true` when a cassette tape is loaded.
+    #[must_use]
+    pub fn tape_loaded(&self) -> bool {
+        self.cassette.is_loaded()
+    }
+
+    /// Returns `true` when the cassette motor relay (`$FE10` bit 7) is on.
+    #[must_use]
+    pub fn cassette_motor_on(&self) -> bool {
+        self.serial_ula & MOTOR_BIT != 0
     }
 
     /// Set a joystick fire button (`port` 1 or 2, `true` = pressed). The switch
@@ -543,6 +612,7 @@ impl BbcMicro {
         // "key held" during its power-on scan and never reaches the CLI that
         // enables interrupts and prints the banner.
         self.update_keyboard_pa7();
+        self.update_keyboard_ca2();
         self.update_joystick_fire();
         self.cpu.tick();
         let cost = Self::access_master_ticks(self.cpu.addr);
@@ -566,9 +636,34 @@ impl BbcMicro {
                 self.system_via.set_cb1_level(false);
             }
         }
+        self.tick_cassette(cost);
         self.cpu.irq = self.system_via.irq || self.user_via.irq || self.acia.irq();
         self.master_ticks += cost;
         self.cpu_cycles += 1;
+    }
+
+    /// Advances the cassette demodulator by `cost` master ticks while the motor
+    /// relay is energised, delivering each recovered byte to the ACIA's receive
+    /// register and raising its RX-full flag (which the per-cycle IRQ fold then
+    /// turns into a CPU interrupt if the OS has enabled it). The 6850 has no
+    /// high-tone line — that is the serial ULA's job — so carrier edges are not
+    /// surfaced here.
+    fn tick_cassette(&mut self, cost: u64) {
+        if self.serial_ula & MOTOR_BIT == 0 {
+            return;
+        }
+        let ns = cost * NS_PER_MASTER_TICK;
+        // Disjoint borrows: the receiver drives the ACIA register it feeds.
+        let BbcMicro { cassette, acia, .. } = self;
+        cassette.advance(ns, &mut |event| match event {
+            CassetteEvent::ByteReady(byte) => {
+                acia.rx_data = byte;
+                acia.rx_full = true;
+            }
+            // Sustained carrier tone raises the ACIA's Data Carrier Detect, the
+            // signal the MOS tape filing system waits on before reading a block.
+            CassetteEvent::HighTone => acia.set_carrier_detect(),
+        });
     }
 
     /// Master ticks (2 MHz) a 6502 cycle accessing `addr` consumes — the
@@ -603,6 +698,23 @@ impl BbcMicro {
             .unwrap_or(false);
         let bit = if pressed { 0x80 } else { 0x00 };
         self.system_via.pa_in = (self.system_via.pa_in & 0x7F) | bit;
+    }
+
+    /// Drive the System VIA CA2 "key pressed" interrupt line that the MOS uses
+    /// to detect keystrokes. Faithful to jsbeeb's `SysVia.updateKeys`: when the
+    /// keyboard is auto-scanning (IC32 addressable-latch bit 3 set) CA2 goes
+    /// high if any key in rows 1-7 of any column is down; otherwise it reflects
+    /// the column the CPU is currently driving on PA0-3. Row 0 (SHIFT / CTRL)
+    /// never raises the interrupt, exactly as the hardware's keyboard scanner.
+    fn update_keyboard_ca2(&mut self) {
+        let pressed_in_column = |col: &[bool; 8]| col[1..8].iter().any(|&down| down);
+        let any_key = if self.latch.bits[3] {
+            self.keyboard.iter().any(pressed_in_column)
+        } else {
+            let col = (self.system_via.ora() & 0x0F) as usize;
+            self.keyboard.get(col).is_some_and(pressed_in_column)
+        };
+        self.system_via.set_ca2_level(any_key);
     }
 
     /// Merge the joystick fire buttons into System VIA port B: PB4 (joy 1) and
@@ -650,6 +762,8 @@ impl BbcMicro {
             0xFE20 => self.video_ula.write_control(value),
             0xFE21 => self.video_ula.write_palette(value),
             0xFE08..=0xFE0F => self.acia.write(addr, value),
+            // Serial ULA: RX/TX baud, RS423/cassette select, bit 7 motor relay.
+            0xFE10..=0xFE1F => self.serial_ula = value,
             0xFE30 => self.rom_bank = value & 0x0F,
             0xFE40..=0xFE4F => {
                 let reg = (addr & 0x0F) as u8;
@@ -1215,5 +1329,110 @@ mod tests {
         sys.mem_write(0xFE08, 0x20);
         assert!(sys.acia.irq(), "TX-interrupt mode + TDRE asserts IRQ");
         assert_eq!(sys.mem_read(0xFE08) & 0x80, 0x80, "and shows in the status");
+    }
+
+    // Kansas-City encoding for the cassette wiring tests.
+    const T_ZERO_HALF: u32 = 416_667;
+    const T_ONE_HALF: u32 = 208_333;
+
+    fn push_tape_byte(pulses: &mut Vec<TapePulse>, byte: u8) {
+        let mut push_bit = |set: bool| {
+            pulses.push(if set {
+                TapePulse::Cycles {
+                    half_period_ns: T_ONE_HALF,
+                    count: 2,
+                }
+            } else {
+                TapePulse::Cycles {
+                    half_period_ns: T_ZERO_HALF,
+                    count: 1,
+                }
+            });
+        };
+        push_bit(false); // start
+        for i in 0..8 {
+            push_bit((byte >> i) & 1 == 1);
+        }
+        push_bit(true); // stop
+    }
+
+    /// A long carrier leader then one framed byte.
+    fn carrier_then_byte(byte: u8) -> Vec<TapePulse> {
+        let mut pulses = vec![TapePulse::Cycles {
+            half_period_ns: T_ONE_HALF,
+            count: 256,
+        }];
+        push_tape_byte(&mut pulses, byte);
+        pulses
+    }
+
+    #[test]
+    fn cassette_does_not_play_while_the_motor_is_off() {
+        let mut sys = BbcMicro::new(trap_rom());
+        sys.insert_tape(carrier_then_byte(0xA5));
+        // The serial ULA motor bit ($FE10 bit 7) defaults off.
+        assert!(!sys.cassette_motor_on());
+        for _ in 0..10 {
+            sys.run_frame();
+        }
+        assert!(
+            !sys.acia.rx_full,
+            "no byte should arrive with the motor off"
+        );
+        assert!(sys.tape_loaded());
+    }
+
+    #[test]
+    fn cassette_byte_fills_the_acia_and_clears_on_read() {
+        let mut sys = BbcMicro::new(trap_rom());
+        sys.insert_tape(carrier_then_byte(0xA5));
+        sys.mem_write(0xFE08, 0x80); // ACIA control: enable RX interrupt (CR7)
+        sys.mem_write(0xFE10, 0x80); // serial ULA: motor on
+        assert!(sys.cassette_motor_on());
+
+        let mut arrived = false;
+        for _ in 0..12 {
+            sys.run_frame();
+            if sys.acia.rx_full {
+                arrived = true;
+                break;
+            }
+        }
+        assert!(arrived, "the ACIA never received a byte");
+        // RDRF + RX-int enable raises the ACIA interrupt and the status bit.
+        assert!(sys.acia.irq(), "received byte must assert the ACIA IRQ");
+        assert_eq!(sys.mem_read(0xFE08) & 0x01, 0x01, "status shows RDRF");
+        // Reading the data register ($FE09) returns the byte and clears RDRF.
+        assert_eq!(sys.mem_read(0xFE09), 0xA5);
+        assert!(!sys.acia.rx_full, "reading $FE09 clears RDRF");
+        assert!(!sys.acia.irq(), "and drops the interrupt");
+    }
+
+    #[test]
+    fn cassette_carrier_raises_dcd_and_clears_on_data_read() {
+        let mut sys = BbcMicro::new(trap_rom());
+        // A sustained carrier tone with no data.
+        sys.insert_tape(vec![TapePulse::Cycles {
+            half_period_ns: T_ONE_HALF,
+            count: 256,
+        }]);
+        sys.mem_write(0xFE08, 0x80); // ACIA control: enable RX interrupt
+        sys.mem_write(0xFE10, 0x80); // serial ULA: motor on
+
+        let mut dcd = false;
+        for _ in 0..6 {
+            sys.run_frame();
+            if sys.mem_read(0xFE08) & 0x04 != 0 {
+                dcd = true;
+                break;
+            }
+        }
+        // The MOS waits on Data Carrier Detect (status bit 2) before reading a
+        // tape block; sustained carrier must raise it and the interrupt.
+        assert!(dcd, "sustained carrier must raise DCD");
+        assert!(sys.acia.irq(), "DCD raises the ACIA interrupt");
+        // Reading the data register clears the latched DCD.
+        let _ = sys.mem_read(0xFE09);
+        assert_eq!(sys.mem_read(0xFE08) & 0x04, 0, "reading data clears DCD");
     }
 }

@@ -1983,6 +1983,8 @@ dependencies = [
 name = "machine-acorn-bbc-micro"
 version = "0.2.0"
 dependencies = [
+ "common-acorn-cassette",
+ "format-acorn-uef",
  "mos-6502",
  "mos-via-6522",
  "motorola-6845",
@@ -3628,7 +3630,9 @@ dependencies = [
 name = "runtime-acorn-bbc-micro"
 version = "0.2.0"
 dependencies = [
+ "common-acorn-cassette",
  "emu198x-shell",
+ "format-acorn-uef",
  "machine-acorn-bbc-micro",
  "postcard",
  "serde",
