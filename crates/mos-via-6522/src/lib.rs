@@ -397,6 +397,21 @@ impl Via6522 {
         self.update_pins();
     }
 
+    /// Drive the CA2 *input* level (e.g. the BBC keyboard "key pressed" line).
+    /// Raises the CA2 interrupt on the active edge the PCR selects. A no-op when
+    /// CA2 is configured as an output.
+    pub fn set_ca2_level(&mut self, level_high: bool) {
+        if self.ca2_is_output() {
+            return;
+        }
+        self.ca2 = level_high;
+        if self.edge_matches(self.prev_ca2, self.ca2, self.ca2_active_high()) {
+            self.raise_interrupt(IRQ_CA2);
+        }
+        self.prev_ca2 = self.ca2;
+        self.update_pins();
+    }
+
     #[must_use]
     pub fn peek(&self, reg: u8) -> u8 {
         match reg & 0x0F {
@@ -788,7 +803,7 @@ impl Default for Via6522 {
 
 #[cfg(test)]
 mod tests {
-    use super::{IRQ_CA1, IRQ_CB2, IRQ_SR, IRQ_T1, IRQ_T2, Via6522};
+    use super::{IRQ_CA1, IRQ_CA2, IRQ_CB2, IRQ_SR, IRQ_T1, IRQ_T2, Via6522};
 
     #[test]
     fn port_reads_mix_outputs_and_inputs() {
@@ -913,6 +928,33 @@ mod tests {
         via.set_ca1_level(true);
         assert_eq!(via.peek(0x0D) & IRQ_CA1, IRQ_CA1);
         assert!(via.irq);
+    }
+
+    #[test]
+    fn set_ca2_level_raises_interrupt_on_the_active_edge() {
+        let mut via = Via6522::new();
+        via.write(0x0E, 0x80 | IRQ_CA2); // enable CA2 interrupt
+        via.write(0x0C, 0x04); // PCR: CA2 input, positive edge
+
+        via.set_ca2_level(false);
+        assert_eq!(via.peek(0x0D) & IRQ_CA2, 0);
+
+        via.set_ca2_level(true);
+        assert_eq!(via.peek(0x0D) & IRQ_CA2, IRQ_CA2);
+        assert!(via.irq);
+    }
+
+    #[test]
+    fn set_ca2_level_is_inert_when_ca2_is_an_output() {
+        let mut via = Via6522::new();
+        via.write(0x0E, 0x80 | IRQ_CA2);
+        via.write(0x0C, 0x0C); // PCR: CA2 output (bit 3 set)
+        via.set_ca2_level(true);
+        assert_eq!(
+            via.peek(0x0D) & IRQ_CA2,
+            0,
+            "CA2 configured as an output ignores an input level"
+        );
     }
 
     #[test]
