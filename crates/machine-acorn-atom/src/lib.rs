@@ -77,6 +77,14 @@ const FIELD_ACTIVE_TICKS: u64 = FIELD_TICKS * 192 / 312;
 /// square wave (Technical Manual §62; *Atomic Theory and Practice* §19, §25.5).
 const TONE_PERIOD_TICKS: u64 = 1_000_000 / 2_400;
 
+/// Master clock: the 6502 runs at 1 MHz, one cycle per [`AcornAtom::tick`].
+const ATOM_CLOCK_HZ: u64 = 1_000_000;
+/// Audio output sample rate (matches the runtime's `AudioPacket` rate).
+const AUDIO_SAMPLE_RATE: u64 = 48_000;
+/// 8255 PC2 is the loudspeaker bit (XOR-with-4 toggles it; *Atomic Theory and
+/// Practice* §19 — "exclusive-ORing #B002 with 4 changes the loudspeaker line").
+const SPEAKER_BIT: u8 = 0x04;
+
 /// Acorn Atom machine.
 #[derive(Serialize, Deserialize)]
 pub struct AcornAtom {
@@ -98,12 +106,21 @@ pub struct AcornAtom {
     /// the COS bit-bangs the raw line level on PPI PC5 in software — so the tape
     /// runs whenever one is loaded and the machine samples [`CassetteReceiver::level`].
     cassette: CassetteReceiver,
+    /// 1-bit loudspeaker waveform, sampled from 8255 PC2 at the audio output rate.
+    /// Drained each frame by [`AcornAtom::take_audio_buffer`]; regenerated live, so
+    /// it is not part of the snapshot.
+    #[serde(skip)]
+    audio_buffer: Vec<f32>,
+    /// Fractional accumulator converting the 1 MHz master clock to the 48 kHz
+    /// output rate: one sample is emitted each time it crosses [`ATOM_CLOCK_HZ`].
+    audio_accum: u64,
 }
 
 impl AcornAtom {
     /// Create a new Atom. `rom` is the combined 24 KB BASIC + FP + OS
     /// blob (BASIC1 at offset 0, FP at $1000, BASIC2 at $2000, OS at
-    /// $3000). `ram_size` is 2560-12288 bytes.
+    /// $3000). `ram_size` is 2560-32768 bytes (a fully-expanded Atom fills
+    /// low RAM up to the video region at $8000).
     pub fn new(rom: Vec<u8>, ram_size: usize) -> Self {
         // Run the 6502 reset sequence so the first fetch comes from the MOS
         // reset vector ($FFFC); without it the CPU powers on at PC=$0000 and
@@ -122,6 +139,8 @@ impl AcornAtom {
             master_clock: 0,
             frame_count: 0,
             cassette: CassetteReceiver::new(),
+            audio_buffer: Vec::new(),
+            audio_accum: 0,
         }
     }
 
@@ -221,6 +240,30 @@ impl AcornAtom {
         } else {
             self.mem_write(self.cpu.addr, self.cpu.data);
         }
+        self.tick_audio();
+    }
+
+    /// Sample the 1-bit loudspeaker (8255 PC2) into the audio buffer, downsampling
+    /// the 1 MHz master clock to the 48 kHz output rate with a fractional
+    /// accumulator. A high PC2 drives the cone one way, low the other — so a
+    /// program toggling the bit makes a square-wave tone.
+    fn tick_audio(&mut self) {
+        self.audio_accum += AUDIO_SAMPLE_RATE;
+        if self.audio_accum >= ATOM_CLOCK_HZ {
+            self.audio_accum -= ATOM_CLOCK_HZ;
+            let sample = if self.ppi.port_c & SPEAKER_BIT != 0 {
+                0.5
+            } else {
+                -0.5
+            };
+            self.audio_buffer.push(sample);
+        }
+    }
+
+    /// Drain the speaker waveform accumulated since the last call (the runtime
+    /// pushes it into an `AudioPacket` each frame).
+    pub fn take_audio_buffer(&mut self) -> Vec<f32> {
+        std::mem::take(&mut self.audio_buffer)
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
@@ -662,6 +705,56 @@ mod tests {
         assert!(!sys.load_program(0x0900, &[0u8; 0x200], 0x0900, false));
         // ROM/I-O space is not loadable either.
         assert!(!sys.load_program(0xD000, &[0u8; 4], 0xD000, false));
+    }
+
+    #[test]
+    fn toggling_the_speaker_produces_a_waveform() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        // LDA $B002 ; EOR #$04 ; STA $B002 ; JMP $0200 — the canonical Atom beeper
+        // loop (XOR PC2 with 4), at $0200.
+        let toggler = [
+            0xAD, 0x02, 0xB0, // LDA $B002
+            0x49, 0x04, // EOR #$04
+            0x8D, 0x02, 0xB0, // STA $B002
+            0x4C, 0x00, 0x02, // JMP $0200
+        ];
+        sys.load_program(0x0200, &toggler, 0x0200, true);
+        sys.run_frame();
+
+        let audio = sys.take_audio_buffer();
+        assert!(!audio.is_empty(), "a frame yields audio samples");
+        assert!(
+            audio.iter().any(|&s| s > 0.0),
+            "speaker-high samples are present"
+        );
+        assert!(
+            audio.iter().any(|&s| s < 0.0),
+            "speaker-low samples are present"
+        );
+    }
+
+    #[test]
+    fn a_silent_machine_emits_a_constant_level() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        sys.run_frame();
+        let audio = sys.take_audio_buffer();
+        assert!(!audio.is_empty(), "samples are emitted even when silent");
+        // Nothing touches PC2, so every sample sits at the same DC level.
+        assert!(
+            audio.iter().all(|&s| (s - audio[0]).abs() < f32::EPSILON),
+            "an idle speaker produces no waveform"
+        );
+    }
+
+    #[test]
+    fn take_audio_buffer_drains() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        sys.run_frame();
+        assert!(!sys.take_audio_buffer().is_empty());
+        assert!(
+            sys.take_audio_buffer().is_empty(),
+            "draining twice yields nothing the second time"
+        );
     }
 
     fn trap_rom() -> Vec<u8> {
