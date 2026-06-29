@@ -33,8 +33,9 @@
 //! - **Port B** (`$B001`): the six keyboard column lines, active low.
 //! - **Port C** (`$B002`): bits 0-3 output (cassette out / speaker / colour
 //!   set CSS); bits 4-7 input — PC4 = the 2.4 kHz reference tone, PC5 =
-//!   cassette DATA in, PC7 = the VDG vertical-blank (field-sync) the MOS
-//!   times its keyboard scan off (Atom Technical Manual §25.5).
+//!   cassette DATA in, PC6 = the REPT key (active-low), PC7 = the VDG
+//!   vertical-blank (field-sync) the MOS times its keyboard scan off (Atom
+//!   Technical Manual §25.5).
 //!
 //! Clock model: one master tick = one 6502 cycle (1 MHz). VDG ticks
 //! at the same rate. One PAL frame ≈ 71,136 ticks (228 × 312).
@@ -197,11 +198,14 @@ impl AcornAtom {
                 // Port C inputs (Atom Technical Manual §25.5 / Atomulator
                 // `8255.c`): PC7 = the field-sync FS̄ (high during active video,
                 // low during flyback — the MOS times its keyboard scan off it),
-                // PC5 = cassette DATA input, PC4 = the 2.4 kHz reference tone.
+                // PC6 = REPT (active-low), PC5 = cassette DATA input, PC4 = the
+                // 2.4 kHz reference tone.
                 let field_active = (self.master_clock % FIELD_TICKS) < FIELD_ACTIVE_TICKS;
                 let tone_2400 = (self.master_clock % TONE_PERIOD_TICKS) < TONE_PERIOD_TICKS / 2;
                 let cassette = self.cassette.is_loaded() && self.cassette.level();
+                let rept_high = !self.keyboard.rept(); // active-low: 1 when not held
                 let inputs = (u8::from(field_active) << 7)
+                    | (u8::from(rept_high) << 6)
                     | (u8::from(cassette) << 5)
                     | (u8::from(tone_2400) << 4);
                 self.ppi.port_c = (self.ppi.port_c & 0x0F) | inputs;
@@ -274,6 +278,7 @@ impl AcornAtom {
         match key {
             AtomKey::Shift => self.keyboard.set_shift(pressed),
             AtomKey::Ctrl => self.keyboard.set_ctrl(pressed),
+            AtomKey::Rept => self.keyboard.set_rept(pressed),
             other => {
                 if let Some((row, col)) = other.matrix() {
                     self.keyboard.set_key(row, col, pressed);
@@ -491,6 +496,41 @@ mod tests {
         );
     }
 
+    /// LOCK is a shift-lock: after pressing it, letters come out shifted
+    /// (inverse video, display code 0x80+), probed against the real MOS.
+    #[test]
+    #[ignore = "needs the real Atom ROM"]
+    fn lock_shifts_following_letters() {
+        let path = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
+            .join(".emu198x/roms/acorn-atom/atom.rom");
+        let rom = std::fs::read(&path).expect("real Atom ROM");
+        let mut sys = AcornAtom::new(rom, 0x0A00);
+        for _ in 0..120 {
+            sys.run_frame();
+        }
+        let prompt = (0x8000u16..0x8200)
+            .rev()
+            .find(|&a| sys.peek(a) & 0x3f == 0x3e)
+            .expect("prompt");
+        sys.press_key(AtomKey::Lock);
+        sys.run_frame();
+        sys.release_key(AtomKey::Lock);
+        for _ in 0..3 {
+            sys.run_frame();
+        }
+        sys.press_key(AtomKey::A);
+        sys.run_frame();
+        sys.release_key(AtomKey::A);
+        for _ in 0..3 {
+            sys.run_frame();
+        }
+        assert_eq!(
+            sys.peek(prompt + 1),
+            0x81,
+            "LOCK makes 'A' come out shifted"
+        );
+    }
+
     fn trap_rom() -> Vec<u8> {
         // 24 KB combined ROM. OS reset vector at $FFFC → $D000.
         let mut rom = vec![0xEAu8; 0x6000];
@@ -616,6 +656,17 @@ mod tests {
             "field-sync duty was {ratio}, expected ~{}",
             192.0 / 312.0
         );
+    }
+
+    #[test]
+    fn rept_drives_port_c_bit_6_active_low() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        // REPT is on port C bit 6, active-low: high when not held.
+        assert_eq!(sys.mem_read(0xB002) & 0x40, 0x40, "REPT idle high");
+        sys.press_key(AtomKey::Rept);
+        assert_eq!(sys.mem_read(0xB002) & 0x40, 0, "REPT held = PC6 low");
+        sys.release_key(AtomKey::Rept);
+        assert_eq!(sys.mem_read(0xB002) & 0x40, 0x40, "released = high again");
     }
 
     #[test]
