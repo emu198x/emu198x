@@ -17,18 +17,20 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   line (Atom Technical Manual §25.5; Atomulator). Handles both the direct `$B002`
   write and the BSR control-word path (`$B003`). Latent until graphics modes are
   wired (#367), but the colour-set is now correct rather than reading the keyboard.
-- **Keyboard — full matrix** (2026-06-29, #372) — SHIFT and CTRL register on port
+- **Keyboard — all 62 keys** (2026-06-29, #372) — SHIFT and CTRL register on port
   B bits 7 / 6 (active-low, common to every column; Atom Technical Manual §25.5),
-  and every key was probed against the real MOS. The Atom puts its symbols on
+  and every key was mapped against the real MOS. The Atom puts its symbols on
   shifted keys like a typewriter, so `*` (the COS command prefix) is **SHIFT+`:`**,
   `"` is SHIFT+2, `+` is SHIFT+`;`, etc. — the runtime input maps each symbol to
   SHIFT+base. Also wired: the base keys `- [ ] \ ↑` (the Atom draws ASCII 0x5E as
-  an up-arrow, modern `^`), DELETE, ESC, LOCK
-  (shift-lock), REPT (auto-repeat, on port C bit 6 — not the scanned matrix), and
-  the two bidirectional cursor keys (↑/↓ and →/←, with SHIFT giving the reverse
-  direction — the Atom has no arrow-key cluster). All verified by `#[ignore]` MOS
-  tests. Only the COPY key is still unmapped — its matrix cell wasn't
-  identifiable from prompt-line probing.
+  an up-arrow, modern `^`), DELETE, ESC, LOCK (shift-lock), REPT (auto-repeat, on
+  port C bit 6 — not the scanned matrix), the two bidirectional cursor keys (↑/↓
+  and →/←, SHIFT reversing the direction — the Atom has no arrow-key cluster), and
+  **COPY** — the Acorn screen editor's key that reads the character under the copy
+  cursor into the input. COPY was found by tracing the code the MOS emits at
+  OSWRCH (it copies the character under the cursor rather than a fixed code, which
+  is why behavioural probing couldn't see it). All verified by `#[ignore]` MOS
+  tests.
 - **Cassette LOAD — verified end-to-end** (2026-06-29, #371) — a UEF tape decoded
   by `format-acorn-uef` plays its raw waveform onto the 8255 **PC5** cassette-data
   input (PC4 carries the free-running 2.4 kHz reference; the Atom has no serial
@@ -46,10 +48,6 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 - **Graphics modes 1-5** — VDG renders text only; graphics modes show solid green
   (donor stub).
 - **Cassette SAVE / printer** unwired. **No native window.**
-- **The COPY key** is unmapped — its matrix cell wasn't identifiable from
-  prompt-line probing (it needs the Acorn copy-editor's copy-cursor interaction).
-  ESC, LOCK, REPT, DELETE, the cursor keys, and every printable/symbol key are
-  done. COPY duplicates the char under the copy cursor into the input line.
 
 ## Known unknowns / disproven hypotheses
 

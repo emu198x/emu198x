@@ -19,10 +19,13 @@
 //!
 //! The Atom has no arrow-key cluster: cursor editing uses two *bidirectional*
 //! keys ([`AtomKey::CursorUpDown`] and [`AtomKey::CursorLeftRight`]) whose
-//! SHIFT-reversed direction gives the other way, plus [`AtomKey::Delete`],
-//! [`AtomKey::Escape`] and [`AtomKey::Lock`] (shift-lock). [`AtomKey::Rept`]
-//! (auto-repeat) is read on port C bit 6, like SHIFT/CTRL on port B — handled
-//! as a modifier, not a matrix cell. All were probed against the real MOS.
+//! SHIFT-reversed direction gives the other way. [`AtomKey::Copy`] then reads the
+//! character under that copy cursor into the input (the Acorn screen editor).
+//! Plus [`AtomKey::Delete`], [`AtomKey::Escape`] and [`AtomKey::Lock`]
+//! (shift-lock). [`AtomKey::Rept`] (auto-repeat) is read on port C bit 6, like
+//! SHIFT/CTRL on port B — handled as a modifier, not a matrix cell. The full
+//! keyboard was mapped against the real MOS (some keys, like COPY, by tracing the
+//! code the OS produces — see the `#[ignore]` tests).
 
 /// Logical key on the Acorn Atom keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -89,6 +92,9 @@ pub enum AtomKey {
     Escape,
     /// LOCK — shift-lock: letters come out shifted until pressed again.
     Lock,
+    /// COPY — the Acorn screen editor's copy key: reads the character under the
+    /// copy cursor (moved with the cursor keys) into the input line.
+    Copy,
     /// SHIFT — read on port B bit 7 (active-low), not in the scanned matrix.
     Shift,
     /// CTRL — read on port B bit 6 (active-low), not in the scanned matrix.
@@ -177,6 +183,7 @@ impl AtomKey {
             Self::CursorLeftRight => (3, 0),
             Self::Escape => (0, 5),
             Self::Lock => (4, 0),
+            Self::Copy => (5, 1),
             // Modifiers are read on port B bits 6/7 (SHIFT/CTRL) or port C bit 6
             // (REPT), not the scanned matrix.
             Self::Shift | Self::Ctrl | Self::Rept => return None,
