@@ -22,7 +22,8 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   and every key was probed against the real MOS. The Atom puts its symbols on
   shifted keys like a typewriter, so `*` (the COS command prefix) is **SHIFT+`:`**,
   `"` is SHIFT+2, `+` is SHIFT+`;`, etc. — the runtime input maps each symbol to
-  SHIFT+base. Also wired: the base keys `- [ ] \ ^`, DELETE, ESC, LOCK
+  SHIFT+base. Also wired: the base keys `- [ ] \ ↑` (the Atom draws ASCII 0x5E as
+  an up-arrow, modern `^`), DELETE, ESC, LOCK
   (shift-lock), REPT (auto-repeat, on port C bit 6 — not the scanned matrix), and
   the two bidirectional cursor keys (↑/↓ and →/←, with SHIFT giving the reverse
   direction — the Atom has no arrow-key cluster). All verified by `#[ignore]` MOS

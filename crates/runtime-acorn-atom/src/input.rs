@@ -82,7 +82,8 @@ fn key_from_name(name: &str) -> Option<(AtomKey, bool)> {
         "[" | "leftbracket" => AtomKey::LeftBracket,
         "]" | "rightbracket" => AtomKey::RightBracket,
         "\\" | "backslash" => AtomKey::Backslash,
-        "^" | "caret" => AtomKey::Caret,
+        // The Atom draws ASCII 0x5E as `↑`; modern keyboards type it as `^`.
+        "^" | "caret" | "uparrow" => AtomKey::UpArrow,
         "return" | "enter" => AtomKey::Return,
         "space" | " " => AtomKey::Space,
         "delete" | "backspace" | "del" => AtomKey::Delete,
@@ -138,7 +139,7 @@ mod tests {
         assert_eq!(key_from_name("["), Some((AtomKey::LeftBracket, false)));
         assert_eq!(key_from_name("]"), Some((AtomKey::RightBracket, false)));
         assert_eq!(key_from_name("\\"), Some((AtomKey::Backslash, false)));
-        assert_eq!(key_from_name("^"), Some((AtomKey::Caret, false)));
+        assert_eq!(key_from_name("^"), Some((AtomKey::UpArrow, false)));
     }
 
     #[test]

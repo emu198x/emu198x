@@ -73,7 +73,10 @@ pub enum AtomKey {
     LeftBracket,
     RightBracket,
     Backslash,
-    Caret,
+    /// The `↑` key — emits ASCII 0x5E. The Atom draws code 0x5E as an up-arrow
+    /// (the original ASCII-1963 glyph), which modern keyboards label `^` (caret).
+    /// A printable character key, distinct from the cursor-movement keys.
+    UpArrow,
     Return,
     Space,
     /// DELETE — removes the char to the left (probed against the MOS).
@@ -160,7 +163,7 @@ impl AtomKey {
             Self::S => (8, 5),
             Self::R => (9, 5),
             // col 0 — bracket / symbol keys on PB0
-            Self::Caret => (5, 0),
+            Self::UpArrow => (5, 0),
             Self::RightBracket => (6, 0),
             Self::Backslash => (7, 0),
             Self::LeftBracket => (8, 0),
