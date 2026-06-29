@@ -1,6 +1,6 @@
 # BBC Micro
 
-## Status: Boots and renders the MODE 7 banner (headless)
+## Status: Boots to BASIC; keyboard types; loads UEF cassette tapes
 
 A donor-extracted extended system with Capture + Script + MCP parity but no
 native window yet. With the SAA5050 teletext generator modelled (2026-06-04) it
@@ -15,13 +15,25 @@ boots and draws the MODE 7 `BBC Computer 32K` / `BASIC` banner. MOS 6502A +
   black background + the banner as white teletext pixels).
 - **Analogue joystick** — fire buttons on the System VIA, X/Y axes via a
   modelled μPD7002 ADC (channels 0/1 = joystick 1, 2/3 = joystick 2).
+- **Keyboard input** (2026-06-29) — typed keystrokes reach BASIC. The System VIA
+  CA2 "key pressed" interrupt is driven from the matrix per jsbeeb's
+  `updateKeys` (auto-scan on IC32 latch bit 3; rows 1-7 raise it, row 0 SHIFT/CTRL
+  do not), so the MOS scans and reads keys. `mos-via-6522` gained `set_ca2_level`.
+- **Cassette LOAD** (2026-06-29, #386) — UEF tape decoded by the shared
+  `common-acorn-cassette` Kansas-City receiver into bytes at the 6850 ACIA
+  (`$FE09`) with the RX-full interrupt, motor gated by the serial ULA (`$FE10`
+  bit 7), and the carrier raising the ACIA's **DCD** (the signal the MOS tape
+  filing system waits on — modelled per jsbeeb's `acia.js`). Verified end to end
+  against the real MOS + BASIC ROMs: `tests/tape_load.rs` types `LOAD""` and the
+  b-em `Welcome_B` tape's first BASIC file (`INTRO`) loads into RAM byte-for-byte
+  (`#[ignore]`, needs ROMs).
 - **Operational parity** — Capture (screenshot/WAV) + Script + MCP, per the
   2026-06-02 donor rollout.
 
 ## Not implemented / accuracy gaps
 
-- **Interactive prompt** — the banner renders; a typed `>` prompt / keyboard
-  round-trip to BASIC is not yet confirmed.
+- **Cassette SAVE** — `LOAD` works; the `$FE08`/`$FE10` transmit (tape write-back)
+  path is not modelled. The serial ULA stores only the motor bit; RS423 is unwired.
 - **6845 CRTC custom modes** — BBC's video ULA logic around the 6845 (MODE 0–6
   timing) not validated.
 - **SN76489 audio, 6522 VIA timers, DFS (.SSD/.DSD)** — present-or-planned, not
@@ -30,8 +42,10 @@ boots and draws the MODE 7 `BBC Computer 32K` / `BASIC` banner. MOS 6502A +
 
 ## Known unknowns / disproven hypotheses
 
-- **Open: how far past the banner does it boot?** MODE 7 draws the banner; the
-  gap to an interactive typed `>` prompt is scoped but unquantified.
+- **RESOLVED: boots to an interactive typed prompt.** Keyboard input reaches
+  BASIC and a real tape `LOAD""` completes (2026-06-29) — confirmed by booting the
+  real ROMs, typing, and watching `Searching → Loading INTRO 00` with the program
+  landing in RAM.
 - **Verification targets** — clock model (16 MHz ÷8/÷4 video-access), CRTC mode
   timings, and the video ULA behaviour are from secondary knowledge; confirm
   against the BBC Advanced User Guide / primary Acorn docs.

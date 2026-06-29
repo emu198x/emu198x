@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    ProfileId, Region, SupportTier, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -54,7 +54,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
             "BBC MOS ROM (16 KB)",
             false,
         )],
-        media_slots: vec![],
+        media_slots: vec![MediaSlot::new(
+            "tape-1",
+            "Cassette Tape",
+            MediaKind::Tape,
+            false,
+            WritebackPolicy::SidecarOnly,
+        )],
         capabilities: CapabilitySet::with_all([
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
