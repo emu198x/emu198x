@@ -8,7 +8,9 @@
 //! - per-master-clock `tick()` that advances scanline / frame timing
 //!   to drive `take_frame_complete()` (PAL: 312 lines × 228 ticks).
 //! - the green-phosphor `TextPalette` (Atom monitor aesthetic).
-//! - the $B000 control register (A/G bit only — Atom v1 is text-mode).
+//! - the $B000 control register (A/G + GM0-2 from port A; CSS from port C),
+//!   decoded into the shared crate's [`VdgControl`] so all eight MC6847 modes
+//!   render — text plus graphics modes 1-5.
 //! - a per-frame render that calls the shared
 //!   [`render_visible_argb_into`] at VBLANK so screenshots see a
 //!   clean frame.
@@ -35,6 +37,10 @@ const TOTAL_LINES: u32 = 312;
 /// Ticks per scanline for the Atom's MC6847.
 const TICKS_PER_LINE: u32 = 228;
 
+/// Video RAM the VDG can address: 6 KB ($8000-$97FF), enough for the MC6847's
+/// highest-resolution graphics mode (256×192×1bpp = 6144 bytes).
+const VIDEO_RAM_SIZE: usize = 6 * 1024;
+
 /// Atom green-phosphor text palette — green-on-black with green border.
 const ATOM_PALETTE: TextPalette = TextPalette {
     background: 0xFF00_2000,
@@ -46,21 +52,20 @@ const ATOM_PALETTE: TextPalette = TextPalette {
 #[derive(Serialize, Deserialize)]
 pub struct Mc6847 {
     framebuffer: Vec<u32>,
-    /// VDG control register (A/G bit — Atom v1 only checks alpha vs
-    /// graphics; INT_EXT/GM bits are stored but not honoured).
-    ///
-    /// This is the 8255 port-A byte: PA4-7 carry the MC6847 mode pins
-    /// (A/G, GM0-2). The keyboard column index (PA0-3) shares the byte but is
-    /// not a VDG signal.
+    /// VDG control register — the 8255 port-A byte. PA4 = A/G (alpha vs
+    /// graphics), PA5-7 = GM0-2 (the graphics-mode select); the keyboard column
+    /// index (PA0-3) shares the byte but is not a VDG signal (MAME `atom.cpp`:
+    /// "4 = A/G, 5 = GM0, 6 = GM1, 7 = GM2").
     pub control: u8,
     /// CSS — MC6847 colour-set select. Wired to 8255 **port C bit 3**, not
     /// port A (Atom Technical Manual §25.5; Atomulator `8255.c`). The machine
     /// updates this on a port-C write; render reads it, not `control` bit 3
     /// (which is keyboard column PA3) — see #369.
     pub css: bool,
-    /// Cached last-frame video RAM contents, used by `render_frame`.
+    /// Cached last-frame video RAM contents, used by `render_frame`. Sized for
+    /// the highest-resolution graphics mode (6 KB).
     #[serde(with = "BigArray")]
-    last_video_ram: [u8; 512],
+    last_video_ram: [u8; VIDEO_RAM_SIZE],
     frame_complete: bool,
     scanline: u32,
     pixel_x: u32,
@@ -77,7 +82,7 @@ impl Mc6847 {
             framebuffer: vec![ATOM_PALETTE.border; TEXT_VISIBLE_FRAMEBUFFER_PIXELS],
             control: 0,
             css: false,
-            last_video_ram: [0; 512],
+            last_video_ram: [0; VIDEO_RAM_SIZE],
             frame_complete: false,
             scanline: 0,
             pixel_x: 0,
@@ -93,8 +98,8 @@ impl Mc6847 {
         // end render sees the post-CPU contents without needing the
         // closure across the render boundary.
         if self.pixel_x == 0 && self.scanline == 0 {
-            for index in 0..512u16 {
-                self.last_video_ram[index as usize] = read_video_ram(index);
+            for index in 0..VIDEO_RAM_SIZE {
+                self.last_video_ram[index] = read_video_ram(index as u16);
             }
             self.needs_render = true;
         }
@@ -120,16 +125,19 @@ impl Mc6847 {
     /// via the shared MC6847 helper crate.
     fn render_frame(&mut self) {
         let control = VdgControl {
-            graphics: self.control & 0x80 != 0,
+            // 8255 port A: PA4 = A/G, PA5-7 = GM0-2 (MAME `atom.cpp`).
+            graphics: self.control & 0x10 != 0,
             // CSS comes from 8255 PC3, tracked separately — not control bit 3
             // (PA3), which is a keyboard-scan line (#369).
             css: self.css,
-            int_ext: self.control & 0x10 != 0,
-            gm: (self.control >> 4) & 0x07,
+            // The Atom ties INT/EXT low: alphanumerics use the MC6847's internal
+            // font, and semigraphics-4 is selected per character by the data bus.
+            int_ext: false,
+            gm: (self.control >> 5) & 0x07,
         };
         let video_ram = &self.last_video_ram;
         render_visible_argb_into(
-            |index| video_ram[index & 0x01FF],
+            |index| video_ram.get(index).copied().unwrap_or(0),
             control,
             ATOM_PALETTE.into(),
             &mut self.framebuffer,

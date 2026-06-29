@@ -32,7 +32,7 @@ Options:
     --rom PATH      24 KB combined ROM (BASIC1 + FP + BASIC2 + OS); default
                     ~/.emu198x/roms/acorn-atom/atom.rom
                     (or set EMU198X_ACORN_ATOM_ROM)
-    --ram-kb N      base RAM in KB (~2 / 12) [default: 2]
+    --ram-kb N      base RAM in KB (~2, or >=12 for a fully-expanded 32K) [default: 2]
     --scale N       integer window scale, default 3
     --video MODE    raw | lcd | crt [default: raw]
     --help, -h      show this help

@@ -20,7 +20,7 @@ ROM (required):
                                ~/.emu198x/roms/acorn-atom/atom.rom
 
 Hardware:
-    --ram-kb N                 base RAM in KB (~2 / 12) [default: 2]
+    --ram-kb N                 base RAM in KB (~2, or >=12 for a fully-expanded 32K) [default: 2]
     --frames N                 frames to run [default: 0]
 
 Capture:
