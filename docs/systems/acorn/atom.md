@@ -51,6 +51,13 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   Defender tape, the COS software-decodes PC5 and the program lands in RAM. This
   confirmed path A — the COS times the raw waveform; no hardware demodulation
   needed. `load_media` + reset re-mount also covered.
+- **1-bit speaker audio** (2026-06-29, #368) — the loudspeaker on 8255 **PC2**
+  (programs toggle it with `?#B002 EOR 4`; *Atomic Theory and Practice* §19) is
+  sampled each master tick into an `f32` waveform, downsampled 1 MHz → 48 kHz with
+  a fractional accumulator and drained into the runtime's `AudioPacket` (which had
+  been pushing an empty buffer). High PC2 = `+0.5`, low = `-0.5`. Verified in CI: a
+  toggler loaded as a `.atm` yields a non-empty waveform end-to-end (machine +
+  runtime tests).
 
 ## Not implemented / accuracy gaps
 

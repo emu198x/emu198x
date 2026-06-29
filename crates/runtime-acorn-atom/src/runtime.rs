@@ -252,12 +252,16 @@ impl MachineCore for AtomRuntime {
                 palette: None,
                 pixels: &self.rgba_framebuffer,
             })?;
-            // Atom audio (1-bit speaker via PIA) not yet exposed.
+            let audio = self
+                .machine
+                .as_mut()
+                .expect("machine checked above")
+                .take_audio_buffer();
             host.audio_sink.push_audio(AudioPacket {
                 timestamp: self.time,
                 sample_rate: AUDIO_SAMPLE_RATE,
                 channels: 1,
-                samples: &[],
+                samples: &audio,
             })?;
         }
         Ok(RunResult::new(self.time, StopReason::ReachedTarget))
