@@ -1,0 +1,16 @@
+[package]
+name = "format-acorn-uef"
+description = "UEF cassette tape parser for Acorn BBC Micro, Electron and Atom media"
+edition.workspace = true
+version = "0.2.0"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.2.0" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+flate2 = { workspace = true }
+
+[lints]
+workspace = true

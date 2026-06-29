@@ -1,6 +1,6 @@
 # Acorn Electron
 
-## Status: Boots to BASIC `>`; keyboard types
+## Status: Boots to BASIC `>`; keyboard types; loads UEF cassette tapes
 
 Boots to `Acorn Electron` / `BASIC` / `>` and types (`PRINT 123` executes).
 Headless extended system. 6502 + the Electron's custom ULA (inline) — no new chip
@@ -15,6 +15,16 @@ crate.
 - **Keyboard** — types into BASIC, read the accurate way: through the paged
   region (`$8000-$BFFF`, ROM slot 8/9), not `$FE00` (fix `5d4b1d87`; test
   `keyboard_reads_active_high_through_paged_rom`).
+- **Cassette LOAD** (2026-06-28, #394) — UEF tape (`format-acorn-uef`) decoded to
+  a clock-neutral pulse stream, demodulated by the shared `common-acorn-cassette`
+  Kansas-City receiver into bytes at `$FE04` with the receive-data-full (`$FE00`
+  bit 4) and high-tone (bit 6) interrupts, gated by the `$FE07` motor relay.
+  Tests `cassette_delivers_a_byte_and_raises_then_clears_the_interrupts`,
+  `cassette_does_not_play_while_the_motor_is_off`, runtime `tests/cassette.rs`.
+  **Verified end to end against the real OS ROM**: `tests/tape_load.rs` boots the
+  genuine OS + BASIC ROMs, types `LOAD""`, and confirms the first BASIC file of
+  real game tapes (Thrust, E-Type) loads to `PAGE` (`&0E00`) byte-for-byte
+  matching the demodulated tape data (`#[ignore]`, needs ROMs + a UEF).
 - **ULA bus contention** (2026-06-08) — the CPU drops to **1 MHz on every RAM
   (`$0000-$7FFF`) and keyboard-paged-ROM access**, 2 MHz for ROM/OS/I/O. The
   frame is a fixed 312 × 128 master ticks at 2 MHz; the CPU fits a variable
@@ -41,7 +51,8 @@ crate.
   (a documented MAME limitation too — `waitforramsync` over-halts those lines).
 - **Sideways ROM paging (`$FE05`)** — register stored but doesn't swap a paged-ROM
   array in; only BASIC visible.
-- **Cassette (`$FE04`)** write-stub. **Snapshot** deferred. **No native window.**
+- **Cassette SAVE** (`$FE04` write / tape write-back) still a stub (#401); LOAD
+  works (see "What works"). **No native window.**
 
 ## Known unknowns / disproven hypotheses
 

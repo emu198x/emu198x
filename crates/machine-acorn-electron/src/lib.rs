@@ -53,11 +53,14 @@
 //!
 //! # ULA registers
 //!
-//! - `$FE00` r: interrupt status (bit 7 high, bit 0 master IRQ) /
-//!   w: interrupt control (bits 2-6 enable each source). The keyboard
-//!   is read through paged ROM slots 8/9 ($8000-$BFFF), not here.
+//! - `$FE00` r: interrupt status (bit 7 high, bit 0 master IRQ; bit 4
+//!   cassette receive-data-full, bit 6 high-tone detect) / w: interrupt
+//!   control (bits 2-6 enable each source). The keyboard is read through
+//!   paged ROM slots 8/9 ($8000-$BFFF), not here.
 //! - `$FE02-$FE03` w: screen start address high/low (display fetch)
-//! - `$FE04` w: cassette data shift register (stub)
+//! - `$FE04` r: cassette receive-data register (the demodulated byte;
+//!   reading clears the receive-data-full interrupt). w: cassette
+//!   transmit (tape SAVE) — still a stub, see #401.
 //! - `$FE05` w: ROM page select + interrupt clears + NMI enable
 //! - `$FE06` w: counter / sound period low byte
 //! - `$FE07` w: misc control — display mode (bits 3-5), cassette
@@ -65,9 +68,21 @@
 //! - `$FE08-$FE0F` w: palette mapping — each register sets two
 //!   logical-to-physical colour entries
 
+use common_acorn_cassette::{CassetteEvent, CassetteReceiver, TapePulse};
 use mos_6502::M6502;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
+
+/// Nanoseconds per 2 MHz master tick — the cassette receiver's time base.
+const NS_PER_MASTER_TICK: u64 = 500;
+
+/// `$FE07` cassette motor relay bit.
+const MOTOR_BIT: u8 = 0x40;
+
+/// `$FE00` interrupt-status bits driven by the cassette: receive-data-full and
+/// high-tone detect.
+const RX_FULL_IRQ: u8 = 0x10;
+const HIGH_TONE_IRQ: u8 = 0x40;
 
 /// Framebuffer width (640 pixels; modes 1/4/6 render 320 doubled, modes
 /// 2/5 render 160 quadrupled).
@@ -169,6 +184,10 @@ struct ElectronUla {
     /// 14 columns × 4 rows, indexed `[column][row]`. `true` = pressed;
     /// `read_keyboard` returns the rows active-high, as the hardware does.
     keyboard: [[bool; 4]; 14],
+    /// `$FE04` cassette receive-data register: the last byte the cassette
+    /// demodulator delivered. Reading `$FE04` returns it and clears the
+    /// receive-data-full interrupt.
+    cassette_rx: u8,
 }
 
 impl ElectronUla {
@@ -191,6 +210,7 @@ impl ElectronUla {
             audio_accum: 0,
             audio_buffer: Vec::with_capacity(960),
             keyboard: [[false; 4]; 14],
+            cassette_rx: 0,
         }
     }
 
@@ -344,6 +364,10 @@ pub struct AcornElectron {
     frame_count: u64,
     /// Scanline currently being rendered.
     scanline: u16,
+    /// Cassette demodulator. Advances at the 2 MHz master clock while the motor
+    /// relay (`$FE07` bit 6) is energised, delivering recovered bytes to the
+    /// ULA's `$FE04` register and raising the cassette interrupts.
+    cassette: CassetteReceiver,
 }
 
 impl AcornElectron {
@@ -366,7 +390,31 @@ impl AcornElectron {
             frame_base: 0,
             frame_count: 0,
             scanline: 0,
+            cassette: CassetteReceiver::new(),
         }
+    }
+
+    /// Loads a cassette tape from a decoded UEF pulse stream, rewound to the
+    /// start. The tape only advances while the motor relay is energised.
+    pub fn insert_tape(&mut self, pulses: Vec<TapePulse>) {
+        self.cassette.load(pulses);
+    }
+
+    /// Ejects the cassette tape.
+    pub fn eject_tape(&mut self) {
+        self.cassette.eject();
+    }
+
+    /// Returns `true` when a cassette tape is loaded.
+    #[must_use]
+    pub fn tape_loaded(&self) -> bool {
+        self.cassette.is_loaded()
+    }
+
+    /// Returns `true` when the cassette motor relay (`$FE07` bit 6) is on.
+    #[must_use]
+    pub fn cassette_motor_on(&self) -> bool {
+        self.ula.misc_control & MOTOR_BIT != 0
     }
 
     /// Run one PAL frame (312 scanlines × 128 CPU cycles each).
@@ -413,8 +461,32 @@ impl AcornElectron {
         for _ in 0..cost {
             self.ula.tick_sound();
         }
+        self.tick_cassette(cost);
         self.master_ticks += cost;
         self.cpu_cycles += 1;
+    }
+
+    /// Advances the cassette demodulator by `cost` master ticks while the motor
+    /// relay is energised, folding any recovered byte / carrier edge into the
+    /// ULA's `$FE04` register and interrupt status.
+    fn tick_cassette(&mut self, cost: u64) {
+        if self.ula.misc_control & MOTOR_BIT == 0 {
+            return;
+        }
+        let ns = cost * NS_PER_MASTER_TICK;
+        // Disjoint borrows: the receiver drives the ULA registers it feeds.
+        let AcornElectron { cassette, ula, .. } = self;
+        cassette.advance(ns, &mut |event| match event {
+            CassetteEvent::ByteReady(byte) => {
+                ula.cassette_rx = byte;
+                ula.interrupt_status |= RX_FULL_IRQ;
+                ula.refresh_master_irq();
+            }
+            CassetteEvent::HighTone => {
+                ula.interrupt_status |= HIGH_TONE_IRQ;
+                ula.refresh_master_irq();
+            }
+        });
     }
 
     /// Master ticks (2 MHz) consumed by a 6502 cycle accessing `addr` —
@@ -509,6 +581,13 @@ impl AcornElectron {
                 // is NOT read here — it pages into $8000-$BFFF via ROM
                 // slots 8/9. (MAME `electron_ula` SHEILA $00 read.)
                 0x80 | self.ula.interrupt_status
+            }
+            // $FE04: cassette receive-data register. Reading returns the last
+            // demodulated byte and clears the receive-data-full interrupt.
+            0x04 => {
+                self.ula.interrupt_status &= !RX_FULL_IRQ;
+                self.ula.refresh_master_irq();
+                self.ula.cassette_rx
             }
             _ => 0xFF,
         }
@@ -1041,5 +1120,78 @@ mod tests {
         sys.ula_write(0xFE08, 0x11);
         // The ULA inverts on write.
         assert_eq!(sys.ula.pal_regs[0], 0xEE);
+    }
+
+    // Kansas-City encoding for the cassette wiring tests.
+    const T_ZERO_HALF: u32 = 416_667;
+    const T_ONE_HALF: u32 = 208_333;
+
+    fn push_tape_byte(pulses: &mut Vec<TapePulse>, byte: u8) {
+        let mut push_bit = |set: bool| {
+            pulses.push(if set {
+                TapePulse::Cycles {
+                    half_period_ns: T_ONE_HALF,
+                    count: 2,
+                }
+            } else {
+                TapePulse::Cycles {
+                    half_period_ns: T_ZERO_HALF,
+                    count: 1,
+                }
+            });
+        };
+        push_bit(false); // start
+        for i in 0..8 {
+            push_bit((byte >> i) & 1 == 1);
+        }
+        push_bit(true); // stop
+    }
+
+    /// A long carrier leader (trips high-tone detection) then one framed byte.
+    fn carrier_then_byte(byte: u8) -> Vec<TapePulse> {
+        let mut pulses = vec![TapePulse::Cycles {
+            half_period_ns: T_ONE_HALF,
+            count: 256,
+        }];
+        push_tape_byte(&mut pulses, byte);
+        pulses
+    }
+
+    #[test]
+    fn cassette_does_not_play_while_the_motor_is_off() {
+        let (os, basic) = trap_roms();
+        let mut sys = AcornElectron::new(os, basic);
+        sys.insert_tape(carrier_then_byte(0xA5));
+        // Motor relay ($FE07 bit 6) defaults off.
+        assert!(!sys.cassette_motor_on());
+        for _ in 0..10 {
+            sys.run_frame();
+        }
+        // No cassette interrupt is raised; the tape stays mounted at the start.
+        assert_eq!(sys.ula.interrupt_status & (RX_FULL_IRQ | HIGH_TONE_IRQ), 0);
+        assert!(sys.tape_loaded());
+    }
+
+    #[test]
+    fn cassette_delivers_a_byte_and_raises_then_clears_the_interrupts() {
+        let (os, basic) = trap_roms();
+        let mut sys = AcornElectron::new(os, basic);
+        sys.insert_tape(carrier_then_byte(0xA5));
+        sys.ula_write(0xFE07, MOTOR_BIT); // motor on
+        assert!(sys.cassette_motor_on());
+
+        let mut received = None;
+        for _ in 0..12 {
+            sys.run_frame();
+            if sys.ula.interrupt_status & RX_FULL_IRQ != 0 {
+                received = Some(sys.mem_read(0xFE04));
+                break;
+            }
+        }
+        assert_eq!(received, Some(0xA5));
+        // Reading $FE04 cleared the receive-data-full interrupt...
+        assert_eq!(sys.ula.interrupt_status & RX_FULL_IRQ, 0);
+        // ...and the carrier leader raised high-tone detect along the way.
+        assert!(sys.ula.interrupt_status & HIGH_TONE_IRQ != 0);
     }
 }

@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     # Active members
+    "crates/common-acorn-cassette",
     "crates/common-commodore-amiga",
     "crates/common-commodore-c64",
     "crates/common-commodore-iec",
@@ -23,6 +24,7 @@ members = [
     "crates/emu198x-shell",
     "crates/emu198x-ui",
     "crates/ferranti-ula-6c001e",
+    "crates/format-acorn-uef",
     "crates/format-commodore-c64-bas",
     "crates/format-commodore-c64-d64",
     "crates/format-commodore-c64-prg",
