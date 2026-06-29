@@ -1360,6 +1360,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
+name = "format-acorn-atom-atm"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "format-acorn-uef"
 version = "0.2.0"
 dependencies = [
@@ -3623,6 +3631,7 @@ version = "0.2.0"
 dependencies = [
  "common-acorn-cassette",
  "emu198x-shell",
+ "format-acorn-atom-atm",
  "format-acorn-uef",
  "machine-acorn-atom",
  "postcard",

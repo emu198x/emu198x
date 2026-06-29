@@ -1,0 +1,14 @@
+[package]
+name = "format-acorn-atom-atm"
+description = "Acorn Atom .atm program image parsing (Wouter Ras header + body)"
+edition.workspace = true
+version = "0.2.0"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
