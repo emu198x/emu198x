@@ -5,7 +5,7 @@ date: 2026-06-30
 system: docs/systems/commodore/c64.md
 parent_plan: docs/plans/2026-06-08-c64-100-percent-plan.md
 decision: knowledge/decisions/c64-architecture-review.md
-status: in-progress — Increments 1-3b landed (oracle, shadow counters, c-access + g-access via VC/RC; addressing now fully counter-driven, output-identical); Increment 4 (sprite per-cycle) next
+status: in-progress — Increments 1-4 landed (oracle, shadow counters, c-access + g-access via VC/RC, sprite p/s split; addressing fully counter-driven, all oracle tests pass with 0 ignored, output-identical); Increment 5 (trick validation) needs sourced test ROMs
 ---
 
 # C64 VIC-II VC/VCBASE/RC rewrite — incremental plan
@@ -147,11 +147,24 @@ frame hash changes, and forcing a re-capture would be churn. The version bump
 (and re-capture) now belongs to **Increment 5**, where a sourced trick test
 first demonstrates a real divergence and captures its golden under v2.
 
-### Increment 4 — sprite DMA / pointer per-cycle
+### Increment 4 — sprite p/s-access split across two cycles  ✅ landed
 
-Move sprite p-access / s-access onto the documented cycle slots end-to-end
-(partly present in `fetch_sprite_if_scheduled`), verified against the oracle.
-Sprite-crunch, Y-expansion, and `$D015`-change-mid-line edge cases.
+Split the batched sprite DMA fetch (pointer + 3 data bytes all on the p-access
+cycle) into the hardware two-cycle shape: **p-access + data byte 0** on the
+sprite's pointer cycle, **data bytes 1-2** on the next cycle. The data base is
+latched in `sprite_fetch_base` between the two cycles, which matters for sprite
+2 — its pair straddles the line boundary (engine cycle 62 then 0). The last
+ignored oracle test (`sprite0_data_access_spans_two_cycles`) flips green, so the
+whole harness now passes with **zero ignored** acceptance tests.
+
+**Output is bit-identical:** the same three bytes land in `sprite_data[i]`
+before the sprite is rendered on the next line — only the *cycle* the reads
+happen on changes. Full C64 suite + clippy green. Like the addressing work,
+the behavioural payoff (sprite-crunch, `$D015`-mid-line, sprite-pointer-fetch
+timing) is latent until trick content exercises it (Increment 5).
+
+Remaining sprite edge cases (sprite-crunch, Y-expansion DMA quirks) ride along
+with Increment 5's validation rather than being chased blind here.
 
 ### Increment 5 — demoscene-trick validation
 

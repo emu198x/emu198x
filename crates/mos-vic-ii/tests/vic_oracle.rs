@@ -287,12 +287,12 @@ fn colour_access_streams_one_per_cycle() {
     }
 }
 
-// ---- Increment 4: sprite p/s-access streaming (acceptance criterion) ----
-// Still ignored — the engine batches a sprite's pointer + 3 data bytes at its
-// p-access cycle. Flips green when the sprite fetch streams across two cycles.
+// ---- Increment 4: sprite p/s-access streaming (now live) ----
+// The sprite fetch streams across two cycles: pointer + data byte 0 on the
+// p-access cycle, data bytes 1-2 on the next. Was the rewrite's last ignored
+// acceptance test; passes now that the batched 4-reads-at-once fetch is split.
 
 #[test]
-#[ignore = "Increment 4: sprite p/s-access spans two cycles (ptr+1 byte, then 2 bytes)"]
 fn sprite0_data_access_spans_two_cycles() {
     let setup = |vic: &mut Vic| {
         text_mode(vic);

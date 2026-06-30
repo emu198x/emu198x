@@ -155,6 +155,10 @@ pub struct Vic {
     colour_row: [u8; 40],
     vic_bank: u8,
     sprite_data: [[u8; 3]; 8],
+    /// Sprite data-fetch base address, latched at each sprite's p-access so
+    /// the following cycle's s-access can read bytes 1 and 2 (the fetch spans
+    /// two cycles — see `fetch_sprite_if_scheduled`).
+    sprite_fetch_base: [u16; 8],
     sprite_active: [bool; 8],
     sprite_dma_active: [bool; 8],
     sprite_sprite_collision: u8,
@@ -232,6 +236,7 @@ impl Vic {
             colour_row: [0; 40],
             vic_bank: 0,
             sprite_data: [[0; 3]; 8],
+            sprite_fetch_base: [0; 8],
             sprite_active: [false; 8],
             sprite_dma_active: [false; 8],
             sprite_sprite_collision: 0,
@@ -475,90 +480,127 @@ impl Vic {
         self.colour_row[idx] = memory.read_colour(self.vc);
     }
 
-    /// Dispatch per-sprite p-access at the documented cycle position.
+    /// Dispatch the per-sprite DMA fetch, spread across two cycles like the
+    /// hardware: a p-access (pointer) plus the first data byte on the sprite's
+    /// pointer cycle, then the remaining two data bytes on the next cycle
+    /// (VICE `cycle_tab_pal` SprPtr/SprDma0-2, vicii-chip-model.c).
     ///
-    /// For PAL 63-cycle lines:
+    /// For PAL 63-cycle lines, per sprite, with the fetch targeting display
+    /// line L:
     ///
-    /// | sprite | p-access cycle | target line       |
-    /// |--------|----------------|-------------------|
-    /// |   0    | 58 (of line L-1) | L (next line)   |
-    /// |   1    | 60 (of line L-1) | L               |
-    /// |   2    | 62 (of line L-1) | L               |
-    /// |   3    |  1 (of line L)   | L (current)     |
-    /// |   4    |  3 (of line L)   | L               |
-    /// |   5    |  5 (of line L)   | L               |
-    /// |   6    |  7 (of line L)   | L               |
-    /// |   7    |  9 (of line L)   | L               |
+    /// | sprite | p-access + byte 0 | bytes 1-2 | target |
+    /// |--------|-------------------|-----------|--------|
+    /// |   0    | 58 (line L-1)     | 59        | L      |
+    /// |   1    | 60 (line L-1)     | 61        | L      |
+    /// |   2    | 62 (line L-1)     | 0 (line L)| L      |
+    /// |   3    |  1 (line L)       | 2         | L      |
+    /// |   4    |  3 (line L)       | 4         | L      |
+    /// |   5    |  5 (line L)       | 6         | L      |
+    /// |   6    |  7 (line L)       | 8         | L      |
+    /// |   7    |  9 (line L)       | 10        | L      |
     ///
-    /// All fetches target the same display line L, so sprites 0-2 use
-    /// `raster_line + 1` (wrapping at frame boundary) while sprites 3-7
-    /// use the current `raster_line`.
+    /// Sprites 0-2 fetch for `raster_line + 1`; sprites 3-7 for the current
+    /// line. Sprite 2's two cycles straddle the line boundary (62 then 0),
+    /// so the data base is latched in `sprite_fetch_base` between them.
     fn fetch_sprite_if_scheduled(&mut self, memory: &dyn VicMemory) {
-        let (sprite_index, next_line) = match self.raster_cycle {
-            58 => (0, true),
-            60 => (1, true),
-            62 => (2, true),
-            1 => (3, false),
-            3 => (4, false),
-            5 => (5, false),
-            7 => (6, false),
-            9 => (7, false),
-            _ => return,
-        };
-        let target_line = if next_line {
-            let lpf = self.lines_per_frame;
-            if self.raster_line + 1 >= lpf {
+        if let Some((i, next_line)) = Self::sprite_paccess_cycle(self.raster_cycle) {
+            let target_line = self.sprite_target_line(next_line);
+            self.sprite_paccess(memory, i, target_line);
+        }
+        if let Some(i) = Self::sprite_saccess_cycle(self.raster_cycle) {
+            self.sprite_saccess(memory, i);
+        }
+    }
+
+    /// The sprite whose p-access (pointer + data byte 0) falls on this cycle,
+    /// and whether it targets the next line.
+    const fn sprite_paccess_cycle(cycle: u8) -> Option<(usize, bool)> {
+        match cycle {
+            58 => Some((0, true)),
+            60 => Some((1, true)),
+            62 => Some((2, true)),
+            1 => Some((3, false)),
+            3 => Some((4, false)),
+            5 => Some((5, false)),
+            7 => Some((6, false)),
+            9 => Some((7, false)),
+            _ => None,
+        }
+    }
+
+    /// The sprite whose s-access (data bytes 1 and 2) falls on this cycle.
+    const fn sprite_saccess_cycle(cycle: u8) -> Option<usize> {
+        match cycle {
+            59 => Some(0),
+            61 => Some(1),
+            0 => Some(2),
+            2 => Some(3),
+            4 => Some(4),
+            6 => Some(5),
+            8 => Some(6),
+            10 => Some(7),
+            _ => None,
+        }
+    }
+
+    fn sprite_target_line(&self, next_line: bool) -> u16 {
+        if next_line {
+            if self.raster_line + 1 >= self.lines_per_frame {
                 0
             } else {
                 self.raster_line + 1
             }
         } else {
             self.raster_line
-        };
+        }
+    }
+
+    /// p-access: read the sprite pointer and the first data byte, latching the
+    /// data base for the following s-access. Marks the sprite active only when
+    /// its DMA covers `target_line`; otherwise no reads happen (matching the
+    /// engine's existing enable/Y-range gating).
+    fn sprite_paccess(&mut self, memory: &dyn VicMemory, i: usize, target_line: u16) {
+        self.sprite_active[i] = false;
+
         if target_line < self.first_visible_line || target_line >= self.last_visible_line {
             return;
         }
-        self.fetch_sprite_single(memory, sprite_index, target_line);
-    }
-
-    fn fetch_sprite_single(&mut self, memory: &dyn VicMemory, i: usize, target_line: u16) {
-        let sprite_enable = self.regs[0x15];
-        let y_expand = self.regs[0x17];
-        let screen_base = self.screen_base();
-
-        self.sprite_active[i] = false;
-
-        if sprite_enable & (1 << i) == 0 {
+        if self.regs[0x15] & (1 << i) == 0 {
             return;
         }
 
+        let y_expand = self.regs[0x17] & (1 << i) != 0;
         let sprite_y = u16::from(self.regs[1 + i * 2]);
-        let height = if y_expand & (1 << i) != 0 {
-            42u16
-        } else {
-            21u16
-        };
+        let height = if y_expand { 42u16 } else { 21u16 };
         let line_in_sprite = target_line.wrapping_sub(sprite_y);
         if line_in_sprite >= height {
             return;
         }
-
-        let data_line = if y_expand & (1 << i) != 0 {
+        let data_line = if y_expand {
             line_in_sprite / 2
         } else {
             line_in_sprite
         };
 
-        let ptr_addr = screen_base + 0x03F8 + i as u16;
+        let ptr_addr = self.screen_base() + 0x03F8 + i as u16;
         let sprite_ptr = memory.read_vram(self.vram_addr(ptr_addr));
-        self.last_bus_data = sprite_ptr;
-
         let data_base = u16::from(sprite_ptr) * 64 + data_line * 3;
+        self.sprite_fetch_base[i] = data_base;
         self.sprite_data[i][0] = memory.read_vram(self.vram_addr(data_base));
-        self.sprite_data[i][1] = memory.read_vram(self.vram_addr(data_base + 1));
-        self.sprite_data[i][2] = memory.read_vram(self.vram_addr(data_base + 2));
-        self.last_bus_data = self.sprite_data[i][2];
+        self.last_bus_data = self.sprite_data[i][0];
         self.sprite_active[i] = true;
+    }
+
+    /// s-access: read the sprite's remaining two data bytes from the base
+    /// latched by the p-access. Skipped when the p-access found no active DMA.
+    fn sprite_saccess(&mut self, memory: &dyn VicMemory, i: usize) {
+        if !self.sprite_active[i] {
+            return;
+        }
+        let base = self.sprite_fetch_base[i];
+        self.sprite_data[i][1] = memory.read_vram(self.vram_addr(base + 1));
+        self.sprite_data[i][2] = memory.read_vram(self.vram_addr(base + 2));
+        self.last_bus_data = self.sprite_data[i][2];
     }
 
     fn render_pixels(&mut self, memory: &dyn VicMemory) {
