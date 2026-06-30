@@ -85,10 +85,10 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 
 ## Not implemented / accuracy gaps
 
-- **Beam-accurate VDG** — graphics render per-frame from a video-RAM snapshot, so
-  mid-frame mode/palette changes (split-screen effects) aren't yet honoured.
-- **Printer** unwired. **No native window.** Cassette SAVE captures + writes UEF,
-  but a live COS `SAVE` to completion isn't yet driven (see "What works").
+- **Per-line VDG** — graphics render per-frame from a video-RAM snapshot, so
+  mid-frame mode/palette changes (split-screen effects) aren't yet honoured (#697).
+- **Printer** unwired (#699). Cassette SAVE captures + writes UEF, but a live COS
+  `SAVE` to completion isn't yet driven (#696; see "What works").
 
 ## Known unknowns / disproven hypotheses
 
@@ -130,7 +130,8 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 ## Tooling & drivability
 
 - **Script / MCP** — `--script` + `--mcp`.
-- **Native window** — headless only (extended tier).
+- **Native window** — yes, on the shared `emu198x-ui` harness (`--rom atom.rom`,
+  `--scale`, keyboard + screenshot/video/audio capture).
 - **Disassembler** — pending the Asm198x shared 6502 disassembler.
 
 ## Peripherals & connectivity
