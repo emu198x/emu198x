@@ -252,13 +252,12 @@ fn shadow_rc_counts_the_character_sub_row() {
     assert_eq!(eighth[20].rc, 7, "RC is 7 on the row's last raster");
 }
 
-// ---- Ignored tests: the rewrite's acceptance criteria (Increment 3/4) ----
-// These encode the canonical per-cycle fetch distribution. They fail today
-// because the engine batches its fetches (40 c-accesses at cycle 15, a
-// sprite's 4 reads at its p-access cycle). Remove `#[ignore]` as each lands.
+// ---- Increment 3: c-access streaming (now live) ----
+// The canonical per-cycle video-matrix fetch distribution. These were the
+// rewrite's acceptance criteria; they pass now that the engine streams one
+// c-access per badline cycle 15-54 instead of batching 40 at cycle 15.
 
 #[test]
-#[ignore = "Increment 3: c-access must stream one per cycle 15-54, not batch at 15"]
 fn c_access_streams_one_per_cycle() {
     let obs = capture_line(text_mode, BADLINE);
     for o in &obs {
@@ -274,7 +273,6 @@ fn c_access_streams_one_per_cycle() {
 }
 
 #[test]
-#[ignore = "Increment 3: colour read accompanies each c-access, cycles 15-54"]
 fn colour_access_streams_one_per_cycle() {
     let obs = capture_line(text_mode, BADLINE);
     for o in &obs {
@@ -288,6 +286,10 @@ fn colour_access_streams_one_per_cycle() {
         );
     }
 }
+
+// ---- Increment 4: sprite p/s-access streaming (acceptance criterion) ----
+// Still ignored — the engine batches a sprite's pointer + 3 data bytes at its
+// p-access cycle. Flips green when the sprite fetch streams across two cycles.
 
 #[test]
 #[ignore = "Increment 4: sprite p/s-access spans two cycles (ptr+1 byte, then 2 bytes)"]

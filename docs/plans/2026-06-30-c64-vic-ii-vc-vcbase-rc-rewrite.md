@@ -5,7 +5,7 @@ date: 2026-06-30
 system: docs/systems/commodore/c64.md
 parent_plan: docs/plans/2026-06-08-c64-100-percent-plan.md
 decision: knowledge/decisions/c64-architecture-review.md
-status: in-progress — Increments 1 (oracle, 40e3eafd) + 2 (shadow counters, c694a4db) landed; Increment 3 next
+status: in-progress — Increments 1 (oracle, 40e3eafd) + 2 (shadow counters, c694a4db) + 3 (c-access streaming) landed; Increment 3b (g-access via VC/RC) next
 ---
 
 # C64 VIC-II VC/VCBASE/RC rewrite — incremental plan
@@ -107,13 +107,35 @@ matrix addresses the geometry path uses (VC == base + column over the 40
 c-accesses; VCBASE == text_row × 40 per row; RC 0-7 per block). The counters
 do not yet drive fetches; `FRAME_ROUTING_VERSION` stays 1 (output unchanged).
 
-### Increment 3 — per-cycle c-access / g-access streaming  ← (next)
+### Increment 3 — per-cycle c-access streaming  ✅ landed
 
-Replace `fetch_screen_row` (batched, geometry) with per-cycle c-access (Phi2,
-badline only) into a 40-entry matrix line buffer indexed by VMLI, and g-access
-(Phi1) addressed via VC/RC. Render off the streamed data. **Bumps
-`FRAME_ROUTING_VERSION` → 2** and triggers a C64 catalogue re-capture (the
-Seam 4 oracle makes that fail loud). The Increment 1 ignored tests flip green.
+Replaced the batched, geometry-addressed `fetch_screen_row` with a per-cycle
+c-access: on a badline, each Phi2 cycle (15-54) reads one video-matrix code +
+colour into the matrix line buffer at VMLI, addressed by `screen_base + VC`.
+The two Increment-1 acceptance tests (c-access + colour stream one-per-cycle)
+flip green; the sprite one stays for Increment 4.
+
+**Output is bit-identical** for normal screens — `screen_base + VC` equals the
+old `screen_base + text_row*40 + col` (proven by Increment 2), so every C64
+render/golden/boot test passes unchanged. Because no captured frame hash
+changes, **`FRAME_ROUTING_VERSION` stays 1 and no re-capture is triggered** —
+the version bump moves to Increment 3b, which is where pixels can actually
+diverge. (One behavioural refinement: `last_bus_data` now tracks each c-access
+rather than the batch, marginally more correct for `$2F-$3F` open-bus reads;
+frame hashes capture pixels, not bus-read order, so unaffected.)
+
+### Increment 3b — g-access / render addressed via VC/RC  ← (next)
+
+Switch the g-access (character/bitmap fetch) and the renderer to address via
+VC/RC and read from the VMLI-indexed matrix buffer, replacing the remaining
+geometry (`char_row`/`text_row`) addressing. This is the half that **diverges
+from geometry under mid-line register writes** ($D011 YSCROLL, $D018, $D016) —
+i.e. it is the actual enabler for VSP/AGSP/FLI. It needs new oracle cases for
+those divergent scenarios *before* the switch (so the change is provable, not
+vibes), and it **bumps `FRAME_ROUTING_VERSION` → 2** with a forced C64
+catalogue re-capture (the Seam 4 oracle makes that fail loud). Split out from
+Increment 3 because, unlike the c-access streaming, it changes output and so
+deserves its own verification and the deliberate re-capture gate.
 
 ### Increment 4 — sprite DMA / pointer per-cycle
 

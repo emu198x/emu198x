@@ -282,9 +282,21 @@ impl Vic {
         self.cpu_stalled = badline_stall || sprite_stall;
         self.ba_low = self.compute_ba_low();
 
-        if self.is_badline && self.raster_cycle == 15 {
-            self.char_row = 0;
-            self.fetch_screen_row(memory);
+        // Stream the video-matrix c-access: one read per Phi2 cycle of a
+        // badline (cycles 15-54), into the matrix line buffer indexed by VMLI
+        // and addressed by VC. The per-cycle replacement for the archive's
+        // batched 40-read row fetch — same bytes (VC equals the geometry
+        // address, proven by the shadow-counter increment), hardware-correct
+        // timing. The Phi1 g-access in `render_pixels` already streamed per
+        // cycle, so this closes the c-access half of the addressing rewrite.
+        if self.is_badline {
+            if self.raster_cycle == 15 {
+                self.char_row = 0;
+                self.text_row = (self.raster_line - DISPLAY_START_LINE) / 8;
+            }
+            if (15..=54).contains(&self.raster_cycle) {
+                self.c_access(memory);
+            }
         }
 
         self.raster_cycle += 1;
@@ -456,18 +468,25 @@ impl Vic {
         }
     }
 
-    fn fetch_screen_row(&mut self, memory: &dyn VicMemory) {
-        let screen_base = self.screen_base();
-        let text_row = (self.raster_line - DISPLAY_START_LINE) / 8;
-        self.text_row = text_row;
-
-        for col in 0u16..40 {
-            let screen_addr = screen_base + text_row * 40 + col;
-            let byte = memory.read_vram(self.vram_addr(screen_addr));
-            self.screen_row[col as usize] = byte;
-            self.last_bus_data = byte;
-            self.colour_row[col as usize] = memory.read_colour(text_row * 40 + col);
+    /// Single video-matrix c-access for the current cycle: read the screen
+    /// code and colour nibble at VC into the matrix line buffer at VMLI.
+    ///
+    /// Streamed one-per-cycle across a badline's cycles 15-54 (replacing the
+    /// archive's batched 40-read row fetch). The screen address is
+    /// `screen_base + VC`, which equals the geometry path's
+    /// `screen_base + text_row*40 + col` — VMLI tracks the column and VC the
+    /// matrix offset, both proven against the geometry path in the
+    /// shadow-counter increment.
+    fn c_access(&mut self, memory: &dyn VicMemory) {
+        let idx = self.vmli as usize;
+        if idx >= self.screen_row.len() {
+            return;
         }
+        let addr = self.vram_addr(self.screen_base() + self.vc);
+        let byte = memory.read_vram(addr);
+        self.screen_row[idx] = byte;
+        self.last_bus_data = byte;
+        self.colour_row[idx] = memory.read_colour(self.vc);
     }
 
     /// Dispatch per-sprite p-access at the documented cycle position.
@@ -1619,7 +1638,13 @@ mod tests {
     #[test]
     fn ecm_text_selects_background() {
         let chargen = vec![0x00; 4096];
-        let memory = TestMemory::new(&chargen);
+        let mut memory = TestMemory::new(&chargen);
+        // Screen codes the streaming c-access reads from the matrix at $0400
+        // ($D018=0x14, text_row 0). ECM uses bits 7:6 to pick the background.
+        memory.ram_write(0x0400, 0x00);
+        memory.ram_write(0x0401, 0x40);
+        memory.ram_write(0x0402, 0x80);
+        memory.ram_write(0x0403, 0xC0);
         let mut vic = Vic::new(VicModel::Pal6569);
         vic.write(0x11, 0x5B);
         vic.write(0x18, 0x14);
@@ -1633,10 +1658,6 @@ mod tests {
         for _ in 0..past_fetch {
             tick_vic(&mut vic, &memory);
         }
-        vic.screen_row[0] = 0x00;
-        vic.screen_row[1] = 0x40;
-        vic.screen_row[2] = 0x80;
-        vic.screen_row[3] = 0xC0;
 
         tick_vic(&mut vic, &memory);
         let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
