@@ -800,11 +800,16 @@ fn decode_semigraphics6_beam_byte(
     palette: VdgPalette,
     pixels: &mut [u32; VDG_BEAM_BYTE_MAX_PIXELS],
 ) {
+    // SG6 colour. The MC6847 selects from C1,C0 = DD7,DD6 with CSS picking the set
+    // (MAME `mc6847.cpp`: index = (CSS ? 4 : 0) + ((data >> 6) & 0x03)). But on
+    // this VDG A/S is data bit 7, so any SG6 byte already has DD7=1 — only DD6
+    // varies, giving the upper two colours of each set: blue/red (CSS=0),
+    // magenta/orange (CSS=1). Verified against MAME (#161).
     let colour_index = match (control.css, raw & 0x40 != 0) {
-        (false, false) => 2,
-        (false, true) => 3,
-        (true, false) => 6,
-        (true, true) => 7,
+        (false, false) => 2, // C1C0=10 → blue
+        (false, true) => 3,  // C1C0=11 → red
+        (true, false) => 6,  // C1C0=10 → magenta
+        (true, true) => 7,   // C1C0=11 → orange
     };
     let colour = palette.colours[colour_index];
     let sub_y = line_y / 4;
@@ -893,11 +898,16 @@ fn render_semigraphics6_cell(
     palette: VdgPalette,
     framebuffer: &mut [u32],
 ) {
+    // SG6 colour. The MC6847 selects from C1,C0 = DD7,DD6 with CSS picking the set
+    // (MAME `mc6847.cpp`: index = (CSS ? 4 : 0) + ((data >> 6) & 0x03)). But on
+    // this VDG A/S is data bit 7, so any SG6 byte already has DD7=1 — only DD6
+    // varies, giving the upper two colours of each set: blue/red (CSS=0),
+    // magenta/orange (CSS=1). Verified against MAME (#161).
     let colour_index = match (control.css, raw & 0x40 != 0) {
-        (false, false) => 2,
-        (false, true) => 3,
-        (true, false) => 6,
-        (true, true) => 7,
+        (false, false) => 2, // C1C0=10 → blue
+        (false, true) => 3,  // C1C0=11 → red
+        (true, false) => 6,  // C1C0=10 → magenta
+        (true, true) => 7,   // C1C0=11 → orange
     };
     let colour = palette.colours[colour_index];
     for sub_y in 0..3 {
@@ -926,11 +936,16 @@ fn render_semigraphics6_cell_line(
     palette: VdgPalette,
     framebuffer: &mut [u32],
 ) {
+    // SG6 colour. The MC6847 selects from C1,C0 = DD7,DD6 with CSS picking the set
+    // (MAME `mc6847.cpp`: index = (CSS ? 4 : 0) + ((data >> 6) & 0x03)). But on
+    // this VDG A/S is data bit 7, so any SG6 byte already has DD7=1 — only DD6
+    // varies, giving the upper two colours of each set: blue/red (CSS=0),
+    // magenta/orange (CSS=1). Verified against MAME (#161).
     let colour_index = match (control.css, raw & 0x40 != 0) {
-        (false, false) => 2,
-        (false, true) => 3,
-        (true, false) => 6,
-        (true, true) => 7,
+        (false, false) => 2, // C1C0=10 → blue
+        (false, true) => 3,  // C1C0=11 → red
+        (true, false) => 6,  // C1C0=10 → magenta
+        (true, true) => 7,   // C1C0=11 → orange
     };
     let colour = palette.colours[colour_index];
     let sub_y = line_y / 4;
@@ -1486,6 +1501,32 @@ mod tests {
             TEXT_TOP_BORDER_LINES * TEXT_VISIBLE_FRAMEBUFFER_WIDTH + TEXT_LEFT_BORDER_PIXELS;
         assert_eq!(framebuffer[first_cell], DEFAULT_TEXT_BORDER);
         assert_eq!(framebuffer[first_cell + 4], DEFAULT_VDG_YELLOW);
+    }
+
+    #[test]
+    fn semigraphics6_colour_uses_dd6_and_css() {
+        // SG6 needs INT/EXT high; A/S is data bit 7, so every SG6 byte sets bit 7.
+        // DD7 is therefore consumed and only DD6 varies the colour — the upper two
+        // of each CSS set: blue/red (CSS=0), magenta/orange (CSS=1). Verifies #161.
+        let sg6 = |css: bool, dd6: bool| {
+            let byte = 0x80 | 0x3F | if dd6 { 0x40 } else { 0 }; // A/S + all dots + DD6
+            render_visible_argb(
+                move |index| if index == 0 { byte } else { 0 },
+                VdgControl {
+                    graphics: false,
+                    css,
+                    int_ext: true,
+                    gm: 0,
+                },
+                VdgPalette::default(),
+            )
+        };
+        let origin =
+            TEXT_TOP_BORDER_LINES * TEXT_VISIBLE_FRAMEBUFFER_WIDTH + TEXT_LEFT_BORDER_PIXELS;
+        assert_eq!(sg6(false, false)[origin], DEFAULT_VDG_BLUE);
+        assert_eq!(sg6(false, true)[origin], DEFAULT_VDG_RED);
+        assert_eq!(sg6(true, false)[origin], DEFAULT_VDG_MAGENTA);
+        assert_eq!(sg6(true, true)[origin], DEFAULT_VDG_ORANGE);
     }
 
     #[test]
