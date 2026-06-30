@@ -11,6 +11,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
+pub mod oracle;
 pub mod palette;
 
 use serde::{Deserialize, Serialize};
