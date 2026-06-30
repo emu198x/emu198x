@@ -107,13 +107,16 @@ impl AtomRuntime {
     /// PC0/PC1 output waveform; this demodulates it back to data blocks and writes
     /// a plain UEF (mirrors the Spectrum's `flush_tape_image` / C64 `save_disk`).
     pub fn flush_tape_image(&mut self) -> Option<Vec<u8>> {
+        // ~2 s of 2400 Hz carrier per block: a 256-cycle (107 ms) leader is too
+        // short for the COS to re-acquire on LOAD; this matches a real tape.
+        const LEADER_CYCLES: u16 = 4800;
         let machine = self.machine.as_mut()?;
         let pulses = machine.take_tape_output();
         let blocks = common_acorn_cassette::demodulate_blocks(pulses);
         if blocks.is_empty() {
             return None;
         }
-        Some(format_acorn_uef::encode_blocks(&blocks, 256))
+        Some(format_acorn_uef::encode_blocks(&blocks, LEADER_CYCLES))
     }
 
     #[must_use]

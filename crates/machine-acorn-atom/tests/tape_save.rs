@@ -167,3 +167,59 @@ fn os_saves_and_loads_a_program() {
         screen(&sys)
     );
 }
+
+#[test]
+#[ignore = "needs a real Atom ROM — run with --ignored"]
+fn os_saves_to_uef_then_loads_the_uef_back() {
+    use common_acorn_cassette::demodulate_blocks;
+    use format_acorn_uef::{encode_blocks, parse};
+
+    let mut sys = AcornAtom::new(rom(), 0x3000);
+    for _ in 0..120 {
+        sys.run_frame();
+    }
+
+    type_str(&mut sys, "10P.5\n");
+    let _ = sys.take_tape_output();
+
+    // SAVE, capturing the COS's 300-baud waveform.
+    type_str(&mut sys, "SAVE\"Z\"\n");
+    for _ in 0..10 {
+        sys.run_frame();
+    }
+    tap(&mut sys, AtomKey::Space);
+    for _ in 0..900 {
+        sys.run_frame();
+    }
+
+    // Demodulate to blocks and write a .uef, exactly as `--save-tape` does. A
+    // ~2 s carrier leader (4800 cycles) per block lets the COS re-acquire on LOAD.
+    let blocks = demodulate_blocks(sys.take_tape_output());
+    assert!(
+        blocks.iter().any(|b| b.contains(&b'Z')),
+        "the recovered blocks carry the filename Z: {blocks:02X?}"
+    );
+    let uef = encode_blocks(&blocks, 4800);
+
+    // LOAD that .uef back through the COS (parse -> waveform -> COS reads it).
+    type_str(&mut sys, "NEW\n");
+    type_str(&mut sys, "LOAD\"Z\"\n");
+    for _ in 0..6 {
+        sys.run_frame();
+    }
+    tap(&mut sys, AtomKey::Space); // PLAY TAPE
+    sys.insert_tape(parse(&uef).expect("written UEF parses").pulses);
+    for _ in 0..900 {
+        sys.run_frame();
+    }
+
+    type_str(&mut sys, "LIST\n");
+    for _ in 0..20 {
+        sys.run_frame();
+    }
+    assert!(
+        screen(&sys).contains("LIST 10P.5"),
+        "the SAVEd .uef LOADs back to the program; screen: {:?}",
+        screen(&sys)
+    );
+}

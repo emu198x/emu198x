@@ -63,18 +63,20 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   Defender tape, the COS software-decodes PC5 and the program lands in RAM. This
   confirmed path A — the COS times the raw waveform; no hardware demodulation
   needed. `load_media` + reset re-mount also covered.
-- **Cassette SAVE — round-trips through LOAD** (2026-06-30, #375 + #696) — the COS
-  bit-bangs `SAVE` onto 8255 **PC0/PC1**; the hardware gates the 2.4 kHz tone onto
-  the line (`level = pc0 && !(pc1 && !hz2400)`, MAME `atom.cpp`). The machine
-  captures that 300-baud waveform per tick into [`TapePulse`] cycles
-  (`take_tape_output`). **Proven OS-driven** (`tape_save.rs`, `#[ignore]`): boot a
-  real ROM, `SAVE"Z"`, `NEW`, `LOAD"Z"`, and `LIST` shows the program back. The
-  earlier MAME-assembled romset rejected `SAVE`/`*SAVE` at the command parser
-  (`ERROR 29` / `SYN? 135`); a real `Atom_Basic`+`FloatingPoint`+`Kernel` image
-  saves cleanly. The runtime also exposes `flush_tape_image()` + a `--save-tape`
-  flag that demodulate the capture to a UEF — but that byte-demodulator is still
-  1200-baud, so the `.uef` *file* isn't loadable yet (#703); the live waveform
-  round-trip is the verified path.
+- **Cassette SAVE — round-trips through LOAD and to a `.uef`** (2026-06-30, #375 +
+  #696 + #703) — the COS bit-bangs `SAVE` onto 8255 **PC0/PC1**; the hardware gates
+  the 2.4 kHz tone onto the line (`level = pc0 && !(pc1 && !hz2400)`, MAME
+  `atom.cpp`). The machine captures that **300-baud** waveform per tick into
+  [`TapePulse`] cycles (`take_tape_output`). **Proven OS-driven** (`tape_save.rs`,
+  `#[ignore]`): boot a real ROM, `SAVE"Z"`, `NEW`, `LOAD"Z"`, and `LIST` shows the
+  program back. The earlier MAME-assembled romset rejected `SAVE`/`*SAVE` at the
+  command parser (`ERROR 29` / `SYN? 135`); a real `Atom_Basic`+`FloatingPoint`+
+  `Kernel` image saves cleanly. `flush_tape_image()` / `--save-tape` then
+  demodulate the capture at 300 baud (`'1'` = 8 cycles @2400, `'0'` = 4 @1200;
+  `common-acorn-cassette::demodulate_blocks`) and write a UEF with a `&0117`=300
+  baud chunk and a ~2 s carrier leader per block — and a **second `#[ignore]` test
+  LOADs that `.uef` straight back through the COS**, so the saved file round-trips,
+  not just the live waveform.
 - **1-bit speaker audio** (2026-06-29, #368) — the loudspeaker on 8255 **PC2**
   (programs toggle it with `?#B002 EOR 4`; *Atomic Theory and Practice* §19) is
   sampled each master tick into an `f32` waveform, downsampled 1 MHz → 48 kHz with
@@ -87,9 +89,8 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 
 - **Per-line VDG** — graphics render per-frame from a video-RAM snapshot, so
   mid-frame mode/palette changes (split-screen effects) aren't yet honoured (#697).
-- **Printer** unwired (#699). Cassette SAVE round-trips through LOAD (the live
-  waveform), but the `--save-tape` `.uef` *file* still uses a 1200-baud
-  byte-demodulator, so the saved file isn't loadable yet (#703).
+- **Printer** unwired (#699). (Cassette SAVE now round-trips both through LOAD and
+  through a saved `.uef` — see "What works".)
 
 ## Known unknowns / disproven hypotheses
 
