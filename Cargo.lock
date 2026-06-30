@@ -1983,6 +1983,7 @@ dependencies = [
  "format-acorn-uef",
  "intel-8255",
  "mos-6502",
+ "mos-via-6522",
  "motorola-vdg-6847",
  "postcard",
  "serde",
