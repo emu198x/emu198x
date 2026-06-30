@@ -91,6 +91,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 false,
                 WritebackPolicy::SidecarOnly,
             ),
+            MediaSlot::new(
+                "rom-pack-1",
+                "Utility ROM ($A000)",
+                MediaKind::Cartridge,
+                false,
+                WritebackPolicy::SidecarOnly,
+            ),
         ],
         capabilities: CapabilitySet::with_all([
             known_capability("keyboard-input"),

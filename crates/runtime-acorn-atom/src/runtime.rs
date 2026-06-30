@@ -23,6 +23,8 @@ pub struct AtomRuntime {
     /// The mounted cassette's decoded waveform, kept so it survives a reset's
     /// machine rebuild (the tape stays in the deck across a reset).
     tape_pulses: Option<Vec<TapePulse>>,
+    /// The plugged `$A000` utility ROM, kept so it survives a reset's rebuild.
+    utility_rom: Option<Vec<u8>>,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
@@ -38,6 +40,7 @@ impl AtomRuntime {
             machine: None,
             bios_bytes: None,
             tape_pulses: None,
+            utility_rom: None,
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
@@ -135,6 +138,10 @@ impl AtomRuntime {
         if let Some(pulses) = &self.tape_pulses {
             machine.insert_tape(pulses.clone());
         }
+        // Re-plug the utility ROM so a reset keeps the toolkit in its slot.
+        if let Some(rom) = &self.utility_rom {
+            machine.insert_utility_rom(rom.clone());
+        }
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
@@ -213,6 +220,21 @@ impl MachineCore for AtomRuntime {
                             });
                         }
                     }
+                }
+                MediaKind::Cartridge if slot == "rom-pack-1" => {
+                    if image.bytes.len() > 0x1000 {
+                        return Err(MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: format!(
+                                "utility ROM is {} bytes; the $A000 slot is 4 KB",
+                                image.bytes.len()
+                            ),
+                        });
+                    }
+                    if let Some(machine) = self.machine.as_mut() {
+                        machine.insert_utility_rom(image.bytes.to_vec());
+                    }
+                    self.utility_rom = Some(image.bytes.to_vec());
                 }
                 _ => {
                     return Err(MachineError::UnknownMediaSlot {

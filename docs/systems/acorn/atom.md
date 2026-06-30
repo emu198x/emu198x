@@ -47,6 +47,11 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   loads + auto-runs, and against real archive files (`EMU198X_ATOM_ATM`). The
   archive's binaries are `.atm`-format even without the extension (e.g. MENU loads
   at `$2800`).
+- **Utility-ROM slot (`$A000`)** (2026-06-30, #376) — a pluggable `rom-pack-1`
+  media slot (`MediaKind::Cartridge`) pages a 4 KB toolkit / DOS ROM into the
+  `$A000-$AFFF` slot the combined ROM leaves empty; a plugged ROM shadows that
+  block and survives a reset. Real Atoms paged utility ROMs here. Over-4 KB images
+  are rejected; CI covers paging + reset-survival + the size guard.
 - **Cassette LOAD — verified end-to-end** (2026-06-29, #371) — a UEF tape decoded
   by `format-acorn-uef` plays its raw waveform onto the 8255 **PC5** cassette-data
   input (PC4 carries the free-running 2.4 kHz reference; the Atom has no serial
