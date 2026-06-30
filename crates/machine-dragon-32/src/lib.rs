@@ -5890,6 +5890,57 @@ mod tests {
     }
 
     #[test]
+    fn beam_renderer_applies_a_mid_line_ag_change_per_byte() {
+        // The A/G (alpha vs graphics) line is re-sampled per display byte, so a
+        // program that flips it part-way across a scanline renders graphics on the
+        // left and text on the right of the *same* line. CSS has its own pipeline
+        // tests above; this guards the A/G (and by extension GM/INT-EXT) path —
+        // #159, which claimed the renderer was only line-accurate.
+        fn active_row(before: u8, switch_to: Option<u8>) -> Vec<u32> {
+            let rom = rom_with_reset_vector(0x8000);
+            let mut machine = Dragon32::new(&rom);
+            machine.memory.sam.write(0xFFC9); // display base $0400
+            machine.memory.sync_vdg_display_base_from_sam();
+            for cell in machine.memory.ram[0x0400..0x0420].iter_mut() {
+                *cell = 0x55; // a byte that renders distinctly as graphics vs text
+            }
+            machine.memory.pia1.write(0x02, 0xF8); // PIA1 port B DDR
+            machine.memory.pia1.write(0x03, 0x04); // port B data selected
+            machine.memory.pia1.write(0x02, before);
+
+            let line = TEXT_TOP_BORDER_LINES;
+            let active_start = active_display_start_cycle(line);
+            machine.video.tick(&machine.memory, active_start, Some(0)); // -> byte 0
+            if let Some(after) = switch_to {
+                machine.video.tick(&machine.memory, 8 * 16, Some(1)); // ~8 bytes in
+                machine.memory.pia1.write(0x02, after);
+                machine.video.apply_vdg_control_change(&machine.memory);
+            }
+            machine.video.tick(&machine.memory, 600, Some(2)); // finish the line
+            let origin = line * TEXT_VISIBLE_FRAMEBUFFER_WIDTH + TEXT_LEFT_BORDER_PIXELS;
+            machine.video.frame()[origin..origin + 256].to_vec()
+        }
+
+        let all_graphics = active_row(0xE0, None); // CG6, CSS 0
+        let all_text = active_row(0x00, None); // alpha, CSS 0
+        let split = active_row(0xE0, Some(0x00)); // graphics, then alpha mid-line
+
+        // Sanity: the two modes really do render this byte differently.
+        assert_ne!(all_graphics[0..8], all_text[0..8]);
+
+        // The split scanline is graphics at byte 0 and text at byte 20 — one line,
+        // two modes, which only a per-byte (beam) renderer produces.
+        assert_eq!(&split[0..8], &all_graphics[0..8], "byte 0 stays graphics");
+        assert_eq!(
+            &split[160..168],
+            &all_text[160..168],
+            "byte 20 switched to text"
+        );
+        assert_ne!(split, all_graphics);
+        assert_ne!(split, all_text);
+    }
+
+    #[test]
     fn beam_renderer_latches_vram_before_pixels_are_displayed() {
         let rom = rom_with_reset_vector(0x8000);
         let mut machine = Dragon32::new(&rom);
