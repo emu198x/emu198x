@@ -63,6 +63,18 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   Defender tape, the COS software-decodes PC5 and the program lands in RAM. This
   confirmed path A — the COS times the raw waveform; no hardware demodulation
   needed. `load_media` + reset re-mount also covered.
+- **Cassette SAVE — write path** (2026-06-30, #375) — the COS bit-bangs `SAVE`
+  onto 8255 **PC0/PC1**; the hardware gates the 2.4 kHz tone onto the line
+  (`level = pc0 && !(pc1 && !hz2400)`, MAME `atom.cpp`). The machine captures that
+  waveform per tick, measuring half-periods into [`TapePulse`] cycles
+  (`take_tape_output`). `common-acorn-cassette::demodulate_blocks` recovers the
+  data blocks and `format-acorn-uef::encode_blocks` writes a plain UEF; the runtime
+  exposes `flush_tape_image()` and the headless runner a `--save-tape PATH` flag.
+  The full SAVE→LOAD data round-trip (capture → demodulate → UEF → parse →
+  demodulate → bytes intact) is proven in CI, plus carrier-capture and
+  block-segmentation unit tests. (Driving a live COS `SAVE` to completion is
+  pending: this ROM build rejects `*SAVE`/`SAVE` at the command parser — a COS
+  invocation question, separate from the write-path implementation.)
 - **1-bit speaker audio** (2026-06-29, #368) — the loudspeaker on 8255 **PC2**
   (programs toggle it with `?#B002 EOR 4`; *Atomic Theory and Practice* §19) is
   sampled each master tick into an `f32` waveform, downsampled 1 MHz → 48 kHz with
@@ -75,7 +87,8 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 
 - **Beam-accurate VDG** — graphics render per-frame from a video-RAM snapshot, so
   mid-frame mode/palette changes (split-screen effects) aren't yet honoured.
-- **Cassette SAVE / printer** unwired. **No native window.**
+- **Printer** unwired. **No native window.** Cassette SAVE captures + writes UEF,
+  but a live COS `SAVE` to completion isn't yet driven (see "What works").
 
 ## Known unknowns / disproven hypotheses
 

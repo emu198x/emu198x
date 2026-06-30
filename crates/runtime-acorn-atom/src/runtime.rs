@@ -102,6 +102,20 @@ impl AtomRuntime {
         self.machine.as_mut()
     }
 
+    /// Encode any cassette `SAVE` captured since the last call as a `.uef` image,
+    /// or `None` if nothing has been written. The machine captures the COS's
+    /// PC0/PC1 output waveform; this demodulates it back to data blocks and writes
+    /// a plain UEF (mirrors the Spectrum's `flush_tape_image` / C64 `save_disk`).
+    pub fn flush_tape_image(&mut self) -> Option<Vec<u8>> {
+        let machine = self.machine.as_mut()?;
+        let pulses = machine.take_tape_output();
+        let blocks = common_acorn_cassette::demodulate_blocks(pulses);
+        if blocks.is_empty() {
+            return None;
+        }
+        Some(format_acorn_uef::encode_blocks(&blocks, 256))
+    }
+
     #[must_use]
     pub fn model(&self) -> Model {
         self.model

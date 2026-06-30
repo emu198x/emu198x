@@ -92,6 +92,11 @@ const SPEAKER_BIT: u8 = 0x04;
 /// first 512 bytes (32×16 text), but graphics modes 1-5 read the full 6 KB.
 const VIDEO_RAM_SIZE: usize = 6 * 1024;
 
+/// A captured cassette-output half-period longer than this is treated as a gap
+/// (silence) rather than a tone cycle. The longest tone half-period is the
+/// 1200 Hz one at ~417 µs, so 1 ms cleanly separates carrier from gap.
+const TAPE_OUT_GAP_NS: u32 = 1_000_000;
+
 /// Acorn Atom machine.
 #[derive(Serialize, Deserialize)]
 pub struct AcornAtom {
@@ -125,6 +130,20 @@ pub struct AcornAtom {
     /// toolkit / DOS ROMs here; the combined ROM leaves the slot empty. When
     /// present this shadows the combined ROM's (empty) `$A000` block.
     utility_rom: Option<Vec<u8>>,
+    /// Captured cassette-output waveform (the COS bit-bangs `SAVE` onto PC0/PC1;
+    /// the hardware gates the 2.4 kHz tone — MAME `atom.cpp`:
+    /// `level = pc0 && !(pc1 && !hz2400)`). Half-periods are measured from the
+    /// output edges and paired into [`TapePulse`] cycles for [`take_tape_output`].
+    #[serde(skip)]
+    tape_out: Vec<TapePulse>,
+    /// The output level last tick, and how long it has been held (ns).
+    #[serde(skip)]
+    tape_out_level: bool,
+    #[serde(skip)]
+    tape_out_seg_ns: u32,
+    /// A measured half-period awaiting its partner to form one cycle.
+    #[serde(skip)]
+    tape_out_pending_half: Option<u32>,
 }
 
 impl AcornAtom {
@@ -153,6 +172,10 @@ impl AcornAtom {
             audio_buffer: Vec::new(),
             audio_accum: 0,
             utility_rom: None,
+            tape_out: Vec::new(),
+            tape_out_level: false,
+            tape_out_seg_ns: 0,
+            tape_out_pending_half: None,
         }
     }
 
@@ -276,6 +299,64 @@ impl AcornAtom {
             self.mem_write(self.cpu.addr, self.cpu.data);
         }
         self.tick_audio();
+        self.capture_tape_output();
+    }
+
+    /// Sample the cassette OUTPUT line this tick and accumulate it as a waveform.
+    ///
+    /// MAME `atom.cpp`: the output level is `pc0 && !(pc1 && !hz2400)` — PC0 is the
+    /// master enable, PC1 gates the free-running 2.4 kHz reference onto the line.
+    /// We track edges; each edge closes a half-period, which is paired with the
+    /// next into one [`TapePulse::Cycles`] (a long low run becomes a gap).
+    fn capture_tape_output(&mut self) {
+        let hz2400 = (self.master_clock % TONE_PERIOD_TICKS) < TONE_PERIOD_TICKS / 2;
+        let pc0 = self.ppi.port_c & 0x01 != 0;
+        let pc1 = self.ppi.port_c & 0x02 != 0;
+        // `pc0 && !(pc1 && !hz2400)` (MAME), De Morgan'd to satisfy clippy.
+        let level = pc0 && (!pc1 || hz2400);
+
+        if level == self.tape_out_level {
+            self.tape_out_seg_ns = self.tape_out_seg_ns.saturating_add(NS_PER_TICK as u32);
+            return;
+        }
+        // Edge: the line held `tape_out_level` for `tape_out_seg_ns`.
+        self.close_tape_half_period(self.tape_out_level, self.tape_out_seg_ns);
+        self.tape_out_level = level;
+        self.tape_out_seg_ns = NS_PER_TICK as u32;
+    }
+
+    /// Fold one completed output half-period into the captured pulse stream.
+    fn close_tape_half_period(&mut self, level: bool, duration_ns: u32) {
+        if duration_ns == 0 {
+            return;
+        }
+        if duration_ns >= TAPE_OUT_GAP_NS {
+            // A sustained level is silence, not carrier. Drop any half waiting for
+            // a partner and record a gap for a low run (a high DC run is ignored).
+            self.tape_out_pending_half = None;
+            if !level {
+                self.tape_out.push(TapePulse::Gap { duration_ns });
+            }
+            return;
+        }
+        match self.tape_out_pending_half.take() {
+            None => self.tape_out_pending_half = Some(duration_ns),
+            Some(first) => self.tape_out.push(TapePulse::Cycles {
+                half_period_ns: (first + duration_ns) / 2,
+                count: 1,
+            }),
+        }
+    }
+
+    /// Drain the cassette waveform written since the last call (the runtime
+    /// encodes it to a `.uef` for SAVE). Flushes the in-flight half-period first.
+    pub fn take_tape_output(&mut self) -> Vec<TapePulse> {
+        let level = self.tape_out_level;
+        let seg = self.tape_out_seg_ns;
+        self.close_tape_half_period(level, seg);
+        self.tape_out_seg_ns = 0;
+        self.tape_out_pending_half = None;
+        std::mem::take(&mut self.tape_out)
     }
 
     /// Sample the 1-bit loudspeaker (8255 PC2) into the audio buffer, downsampling
@@ -792,6 +873,56 @@ mod tests {
         assert!(
             audio.iter().all(|&s| (s - audio[0]).abs() < f32::EPSILON),
             "an idle speaker produces no waveform"
+        );
+    }
+
+    #[test]
+    fn cassette_output_captures_the_carrier_tone() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        // PC0 + PC1 high: the hardware gates the free-running 2.4 kHz reference
+        // onto the cassette line (a continuous carrier).
+        sys.mem_write(0xB002, 0x03);
+        sys.run_frame(); // ~20 ms of tone
+
+        let pulses = sys.take_tape_output();
+        let cycles: Vec<u32> = pulses
+            .iter()
+            .filter_map(|p| match p {
+                TapePulse::Cycles { half_period_ns, .. } => Some(*half_period_ns),
+                TapePulse::Gap { .. } => None,
+            })
+            .collect();
+        assert!(!cycles.is_empty(), "the carrier is captured as cycles");
+        // ~208 µs half-period — below the 312.5 µs threshold, so it demodulates
+        // as the 2400 Hz high tone (carrier), not 1200 Hz data.
+        assert!(
+            cycles.iter().all(|&h| h < 312_500),
+            "captured carrier classifies as 2400 Hz: {cycles:?}"
+        );
+
+        // And the demodulator recognises it as carrier.
+        let mut receiver = CassetteReceiver::new();
+        receiver.load(pulses);
+        let mut saw_carrier = false;
+        while !receiver.finished() {
+            receiver.advance(1000, &mut |event| {
+                if matches!(event, common_acorn_cassette::CassetteEvent::HighTone) {
+                    saw_carrier = true;
+                }
+            });
+        }
+        assert!(saw_carrier, "captured tone demodulates as a high tone");
+    }
+
+    #[test]
+    fn cassette_output_idle_is_silent() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        // PC0 low: the line stays low — no carrier, nothing meaningful captured.
+        sys.run_frame();
+        let pulses = sys.take_tape_output();
+        assert!(
+            pulses.iter().all(|p| matches!(p, TapePulse::Gap { .. })),
+            "an idle line yields no tone cycles"
         );
     }
 
