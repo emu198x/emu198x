@@ -86,7 +86,11 @@ fn type_str(sys: &mut AcornAtom, text: &str) {
             sys.press_key(AtomKey::Shift);
         }
         sys.press_key(key);
-        sys.run_frame();
+        // Hold for three 20 ms fields so the COS keyboard scan debounces the key
+        // across more than one scan (one field alone is a single scan and drops).
+        for _ in 0..3 {
+            sys.run_frame();
+        }
         sys.release_key(key);
         if shift {
             sys.release_key(AtomKey::Shift);

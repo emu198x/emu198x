@@ -38,13 +38,17 @@
 //!   vertical-blank (field-sync) the MOS times its keyboard scan off (Atom
 //!   Technical Manual §25.5).
 //!
-//! Clock model: one master tick = one 6502 cycle (1 MHz). VDG ticks
-//! at the same rate. One PAL frame ≈ 71,136 ticks (228 × 312).
+//! Clock model: one master tick = one 6502 cycle (1 MHz). One PAL field
+//! = 20,000 ticks (50 Hz); the VDG shares this clock — `tick` derives the
+//! active display line from `master_clock % FIELD_TICKS` so the scanline
+//! and PC7 field-sync run off one timebase (#697).
 //!
 //! All MC6847 modes render: text/semigraphics plus graphics modes 1-5,
 //! decoded from port A (PA4 = A/G, PA5-7 = GM0-2) through the shared
-//! crate's `VdgControl` (#367). The render is per-frame from a video-RAM
-//! snapshot, not yet beam-accurate.
+//! crate's `VdgControl` (#367). The render is **per-line** off the field
+//! clock (#697): each active line is drawn as the beam passes it with the
+//! current control/CSS and live video RAM, so a mid-field mode change —
+//! the classic split screen — renders two modes in one frame.
 
 pub mod input;
 mod keyboard;
@@ -66,8 +70,9 @@ const NS_PER_TICK: u64 = 1000;
 /// One PAL field in master ticks. The UK Atom's MC6847 runs PAL (312-line, see
 /// [`vdg`]), so the field rate is 50 Hz — one field every 20,000 ticks at 1 MHz.
 /// (The Technical Manual quotes the 6847's nominal 60 Hz figure; the UK machine
-/// is PAL. Tying this to the VDG's own frame counter is deferred to the
-/// graphics-mode timing work, #367 — the VDG line clock is not yet 1:1 here.)
+/// is PAL.) This is now the single VDG frame clock: `tick` derives the active
+/// display line from `master_clock % FIELD_TICKS` and the VDG renders per line
+/// off it (#697), so field-sync and the scanline share one timebase.
 const FIELD_TICKS: u64 = 20_000;
 /// 8255 PC7 carries the 6847 field-sync (FS̄): HIGH through the 192 active
 /// display lines, LOW during vertical blanking/flyback (Atom Technical Manual /
@@ -286,9 +291,21 @@ impl AcornAtom {
         // Advance the tape so PC5 reflects the current line level when the COS
         // samples it this tick. No motor relay — it runs while loaded.
         self.cassette.advance(NS_PER_TICK, &mut |_| {});
+        // Derive the active display line from the same 50 Hz field clock that
+        // drives PC7 field-sync, so the VDG scanline tracks the field a
+        // split-screen program races. PC7 is high for the first `FIELD_ACTIVE_TICKS`
+        // of each field (the 192 active lines); past that the beam is in the
+        // bottom border / flyback, so the line clamps to `ACTIVE_LINES`.
+        let field_pos = self.master_clock % FIELD_TICKS;
+        let active_line = if field_pos < FIELD_ACTIVE_TICKS {
+            (field_pos * u64::from(vdg::ACTIVE_LINES) / FIELD_ACTIVE_TICKS) as u32
+        } else {
+            vdg::ACTIVE_LINES
+        };
         let video_ram = &self.video_ram;
-        self.vdg
-            .tick(|addr| video_ram.get(addr as usize).copied().unwrap_or(0));
+        self.vdg.tick(active_line, |addr| {
+            video_ram.get(addr as usize).copied().unwrap_or(0)
+        });
         // The Atom keyboard is polled, not interrupt-driven; the 8255 has no
         // interrupt line in Mode 0 and the donor models no other IRQ source.
         self.cpu.irq = false;
@@ -882,7 +899,11 @@ mod tests {
         // PC0 + PC1 high: the hardware gates the free-running 2.4 kHz reference
         // onto the cassette line (a continuous carrier).
         sys.mem_write(0xB002, 0x03);
-        sys.run_frame(); // ~20 ms of tone
+        // Three 20 ms fields — ~144 cycles of 2400 Hz, well past the receiver's
+        // 64-cycle carrier-detection threshold.
+        for _ in 0..3 {
+            sys.run_frame();
+        }
 
         let pulses = sys.take_tape_output();
         let cycles: Vec<u32> = pulses

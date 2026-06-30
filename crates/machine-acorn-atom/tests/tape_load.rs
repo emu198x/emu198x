@@ -36,7 +36,11 @@ fn uef() -> Vec<u8> {
 
 fn tap(sys: &mut AcornAtom, key: AtomKey) {
     sys.press_key(key);
-    sys.run_frame();
+    // Hold for three 20 ms fields so the COS keyboard scan debounces the key
+    // across more than one scan (one field alone is a single scan and drops).
+    for _ in 0..3 {
+        sys.run_frame();
+    }
     sys.release_key(key);
     for _ in 0..3 {
         sys.run_frame();
@@ -47,7 +51,9 @@ fn tap(sys: &mut AcornAtom, key: AtomKey) {
 fn tap_quote(sys: &mut AcornAtom) {
     sys.press_key(AtomKey::Shift);
     sys.press_key(AtomKey::Num2);
-    sys.run_frame();
+    for _ in 0..3 {
+        sys.run_frame();
+    }
     sys.release_key(AtomKey::Num2);
     sys.release_key(AtomKey::Shift);
     for _ in 0..3 {
