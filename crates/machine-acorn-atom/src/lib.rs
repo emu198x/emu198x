@@ -45,10 +45,10 @@
 //!
 //! All MC6847 modes render: text/semigraphics plus graphics modes 1-5,
 //! decoded from port A (PA4 = A/G, PA5-7 = GM0-2) through the shared
-//! crate's `VdgControl` (#367). The render is **per-line** off the field
-//! clock (#697): each active line is drawn as the beam passes it with the
-//! current control/CSS and live video RAM, so a mid-field mode change —
-//! the classic split screen — renders two modes in one frame.
+//! crate's `VdgControl` (#367). The render is **per-byte** off the field
+//! clock (#697): each active display byte is drawn as the beam crosses it
+//! with the current control/CSS and live video RAM, so a mode change
+//! part-way across a line renders two modes within one scanline.
 
 pub mod input;
 mod keyboard;
@@ -291,19 +291,19 @@ impl AcornAtom {
         // Advance the tape so PC5 reflects the current line level when the COS
         // samples it this tick. No motor relay — it runs while loaded.
         self.cassette.advance(NS_PER_TICK, &mut |_| {});
-        // Derive the active display line from the same 50 Hz field clock that
-        // drives PC7 field-sync, so the VDG scanline tracks the field a
-        // split-screen program races. PC7 is high for the first `FIELD_ACTIVE_TICKS`
-        // of each field (the 192 active lines); past that the beam is in the
-        // bottom border / flyback, so the line clamps to `ACTIVE_LINES`.
+        // Derive the active beam dot (line × 256 + pixel) from the same 50 Hz
+        // field clock that drives PC7 field-sync, so the VDG tracks the field a
+        // beam-racing program races. PC7 is high for the first `FIELD_ACTIVE_TICKS`
+        // of each field (the active region); past that the beam is in the bottom
+        // border / flyback, so the dot clamps to `ACTIVE_DOTS`.
         let field_pos = self.master_clock % FIELD_TICKS;
-        let active_line = if field_pos < FIELD_ACTIVE_TICKS {
-            (field_pos * u64::from(vdg::ACTIVE_LINES) / FIELD_ACTIVE_TICKS) as u32
+        let active_dot = if field_pos < FIELD_ACTIVE_TICKS {
+            (field_pos * u64::from(vdg::ACTIVE_DOTS) / FIELD_ACTIVE_TICKS) as u32
         } else {
-            vdg::ACTIVE_LINES
+            vdg::ACTIVE_DOTS
         };
         let video_ram = &self.video_ram;
-        self.vdg.tick(active_line, |addr| {
+        self.vdg.tick(active_dot, |addr| {
             video_ram.get(addr as usize).copied().unwrap_or(0)
         });
         // The Atom keyboard is polled, not interrupt-driven; the 8255 has no

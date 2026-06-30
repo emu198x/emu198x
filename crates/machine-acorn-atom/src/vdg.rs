@@ -2,25 +2,26 @@
 //!
 //! Atom-specific thin wrapper around the shared [`motorola_vdg_6847`] helper
 //! crate. The shared crate owns the canonical MC6847 character ROM, mode decode,
-//! and per-line render; this wrapper keeps the Atom-specific bits:
+//! and beam-byte render; this wrapper keeps the Atom-specific bits:
 //!
-//! - a **per-line** render: the machine derives the active display line from the
+//! - a **per-byte** render: the machine derives the beam's *dot* position from the
 //!   50 Hz field clock that also drives PC7 field-sync, and [`Mc6847::tick`]
-//!   renders each active line as the beam passes it via the shared
-//!   [`render_visible_argb_line_into`], sampling the *current* control/CSS and
-//!   live video RAM. A program that switches mode part-way down the field — the
-//!   classic split screen — therefore renders two modes in one frame, where the
-//!   old whole-frame render (one control value, one VRAM snapshot at VBLANK) could
-//!   only show one. The static border is painted once and never redrawn.
+//!   renders each active display byte as the beam crosses it via the shared
+//!   [`decode_beam_byte`] + [`motorola_vdg_6847::VdgBeamByte::render_range_into`]
+//!   (the same primitives Dragon-32 uses), sampling the *current* control/CSS and
+//!   live video RAM. A program that switches mode part-way *across* a line — not
+//!   just between lines — therefore renders two modes within one scanline, where
+//!   the old whole-frame render (one control value, one VRAM snapshot at VBLANK)
+//!   could only show one. The static border is painted once and never redrawn.
 //! - the green-phosphor [`TextPalette`] (Atom monitor aesthetic).
 //! - the $B000 control register (A/G + GM0-2 from port A; CSS from port C),
 //!   decoded into the shared crate's [`VdgControl`] so all eight MC6847 modes
 //!   render — text plus graphics modes 1-5.
 
 use motorola_vdg_6847::{
-    TEXT_FRAMEBUFFER_HEIGHT, TEXT_TOP_BORDER_LINES, TEXT_VISIBLE_FRAMEBUFFER_HEIGHT,
-    TEXT_VISIBLE_FRAMEBUFFER_PIXELS, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette, VdgControl,
-    render_visible_argb_line_into,
+    TEXT_FRAMEBUFFER_HEIGHT, TEXT_FRAMEBUFFER_WIDTH, TEXT_TOP_BORDER_LINES,
+    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_PIXELS,
+    TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette, VdgControl, decode_beam_byte,
 };
 use serde::{Deserialize, Serialize};
 
@@ -28,9 +29,14 @@ use serde::{Deserialize, Serialize};
 pub const FB_WIDTH: u32 = TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32;
 /// Framebuffer height (active 192 + 25 + 26 border = shared 243).
 pub const FB_HEIGHT: u32 = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32;
-/// MC6847 active display lines — the shared crate's 192-line active region. The
-/// machine maps the field-active window onto `0..ACTIVE_LINES`.
+/// MC6847 active display lines — the shared crate's 192-line active region.
 pub const ACTIVE_LINES: u32 = TEXT_FRAMEBUFFER_HEIGHT as u32;
+/// Active display width in dots (pixels) — the bytes of a line, whatever the mode,
+/// always span this width.
+const ACTIVE_WIDTH: u32 = TEXT_FRAMEBUFFER_WIDTH as u32;
+/// Total active beam dots in a field (`192 × 256`). The machine maps the
+/// field-active window onto `0..ACTIVE_DOTS`; the VDG walks the beam across it.
+pub const ACTIVE_DOTS: u32 = ACTIVE_LINES * ACTIVE_WIDTH;
 
 /// Atom green-phosphor text palette — green-on-black with green border.
 const ATOM_PALETTE: TextPalette = TextPalette {
@@ -54,10 +60,14 @@ pub struct Mc6847 {
     /// (which is keyboard column PA3) — see #369.
     pub css: bool,
     frame_complete: bool,
-    /// Active display lines rendered so far this field (`0..=ACTIVE_LINES`); reset
-    /// to 0 when the field wraps. The gap between this and the new `active_line`
-    /// is the set of lines to render this tick.
-    last_active_line: u32,
+    /// Beam state: the active line being scanned, the next display byte to draw on
+    /// it, and that byte's left edge in active pixels. Reset to the top-left when
+    /// the field wraps. The gap between this and the new beam dot is the set of
+    /// bytes to render this tick.
+    beam_line: u32,
+    next_byte: usize,
+    active_x: usize,
+    last_dot: u32,
 }
 
 impl Mc6847 {
@@ -69,7 +79,10 @@ impl Mc6847 {
             control: 0,
             css: false,
             frame_complete: false,
-            last_active_line: 0,
+            beam_line: 0,
+            next_byte: 0,
+            active_x: 0,
+            last_dot: 0,
         }
     }
 
@@ -90,41 +103,76 @@ impl Mc6847 {
 
     /// Tick the VDG for one master clock.
     ///
-    /// `active_line` (`0..=ACTIVE_LINES`) is the MC6847 active display line the
-    /// beam is currently scanning, derived by the machine from the 50 Hz field
-    /// clock that also drives PC7 field-sync — so the VDG tracks the field a
-    /// split-screen program races. `ACTIVE_LINES` means the beam is past the
-    /// active region (in the bottom border / flyback).
+    /// `active_dot` (`0..=ACTIVE_DOTS`) is the active beam position — `line × 256 +
+    /// pixel` — derived by the machine from the 50 Hz field clock that also drives
+    /// PC7 field-sync, so the VDG tracks the field a beam-racing program races.
+    /// `ACTIVE_DOTS` means the beam is past the active region (bottom border /
+    /// flyback).
     ///
-    /// Every active line the beam has just left is rendered with the *current*
-    /// control/CSS and live video RAM, so a mid-field mode change splits the
-    /// frame. Returns `true` on the field wrap that completes a frame.
-    pub fn tick(&mut self, active_line: u32, read_video_ram: impl Fn(u16) -> u8) -> bool {
-        let active_line = active_line.min(ACTIVE_LINES);
+    /// Every display byte the beam has just crossed is rendered with the *current*
+    /// control/CSS and live video RAM, so a mid-line mode change splits the line.
+    /// Returns `true` on the field wrap that completes a frame.
+    pub fn tick(&mut self, active_dot: u32, read_video_ram: impl Fn(u16) -> u8) -> bool {
+        let active_dot = active_dot.min(ACTIVE_DOTS);
 
-        // The field wrapped back to the top: the frame in the buffer is complete.
-        if active_line < self.last_active_line {
+        // The field wrapped back to the top-left: the frame in the buffer is done.
+        if active_dot < self.last_dot {
             self.frame_complete = true;
-            self.last_active_line = 0;
+            self.beam_line = 0;
+            self.next_byte = 0;
+            self.active_x = 0;
         }
 
-        // Render each active line the beam has crossed since the last tick. The
-        // static border was painted at construction and is never redrawn.
-        if active_line > self.last_active_line {
-            let control = self.control_lines();
-            for line in self.last_active_line..active_line {
-                render_visible_argb_line_into(
-                    |index| read_video_ram(index as u16),
-                    control,
-                    ATOM_PALETTE.into(),
-                    &mut self.framebuffer,
-                    TEXT_TOP_BORDER_LINES + line as usize,
-                );
-            }
-            self.last_active_line = active_line;
-        }
-
+        self.render_up_to(active_dot, &read_video_ram);
+        self.last_dot = active_dot;
         self.frame_complete
+    }
+
+    /// Render every active display byte from the beam's current position up to
+    /// `active_dot`, advancing line by line. The static border was painted at
+    /// construction and is never redrawn.
+    fn render_up_to(&mut self, active_dot: u32, read_video_ram: &impl Fn(u16) -> u8) {
+        let control = self.control_lines();
+        let palette = ATOM_PALETTE.into();
+        while self.beam_line < ACTIVE_LINES {
+            let line_base = self.beam_line * ACTIVE_WIDTH;
+            // How far across this line the beam has reached (clamped to the line).
+            let reached = active_dot.saturating_sub(line_base).min(ACTIVE_WIDTH);
+            while (self.active_x as u32) < reached {
+                let line = self.beam_line as usize;
+                let byte = decode_beam_byte(
+                    |i| read_video_ram(i as u16),
+                    control,
+                    palette,
+                    line,
+                    self.next_byte,
+                );
+                let width = byte.width();
+                if width == 0 {
+                    // No further bytes in this mode; treat the line as filled.
+                    self.active_x = ACTIVE_WIDTH as usize;
+                    break;
+                }
+                let active_x = self.active_x;
+                byte.render_range_into(
+                    &mut self.framebuffer,
+                    TEXT_TOP_BORDER_LINES + line,
+                    active_x,
+                    0,
+                    width,
+                );
+                self.active_x += width;
+                self.next_byte += 1;
+            }
+            // Once the beam has passed this line's end, move to the next line.
+            if active_dot >= line_base + ACTIVE_WIDTH {
+                self.beam_line += 1;
+                self.next_byte = 0;
+                self.active_x = 0;
+            } else {
+                break;
+            }
+        }
     }
 
     /// Take the frame-complete flag.
@@ -162,16 +210,17 @@ impl Default for Mc6847 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use motorola_vdg_6847::render_visible_argb;
 
-    /// Drive a whole field through the VDG, optionally flipping the control byte
-    /// at `split` active line. `byte` supplies the video-RAM contents.
+    /// Drive a whole field through the VDG, flipping the control byte at active
+    /// beam dot `split`. `byte` supplies the video-RAM contents.
     fn render_field(vdg: &mut Mc6847, before: u8, after: u8, split: u32, byte: u8) {
         vdg.control = before;
-        for line in 0..=ACTIVE_LINES {
-            if line == split {
+        for dot in 0..=ACTIVE_DOTS {
+            if dot == split {
                 vdg.control = after;
             }
-            vdg.tick(line, |_| byte);
+            vdg.tick(dot, |_| byte);
         }
         vdg.tick(0, |_| byte); // field wrap -> frame complete
         assert!(vdg.take_frame_complete());
@@ -185,26 +234,59 @@ mod tests {
 
     #[test]
     fn a_static_field_renders_uniformly() {
-        // No mid-field change: every active row that shares content matches.
         let mut vdg = Mc6847::new();
-        render_field(&mut vdg, 0x10, 0x10, ACTIVE_LINES + 1, 0b1010_1010);
+        render_field(&mut vdg, 0x10, 0x10, ACTIVE_DOTS + 1, 0b1010_1010);
         assert_eq!(active_row(&vdg, 10), active_row(&vdg, 150));
     }
 
     #[test]
-    fn a_mid_field_mode_change_splits_the_frame() {
-        // Graphics for the top half, text for the bottom: the two halves of the
-        // one frame must differ — proof the render samples control per line.
+    fn a_static_field_matches_the_whole_frame_render() {
+        // The per-byte beam walk must produce exactly what the shared crate's
+        // whole-frame render does for an unchanging control.
         let mut vdg = Mc6847::new();
-        render_field(&mut vdg, 0x10, 0x00, 96, 0b1010_1010);
-        let top = active_row(&vdg, 40).to_vec();
-        let bottom = active_row(&vdg, 150).to_vec();
-        assert_ne!(top, bottom, "the split must render two different modes");
+        render_field(&mut vdg, 0x10, 0x10, ACTIVE_DOTS + 1, 0b1010_1010);
+        let control = vdg.control_lines();
+        let whole = render_visible_argb(|_| 0b1010_1010, control, ATOM_PALETTE.into());
+        assert_eq!(vdg.framebuffer(), whole.as_slice());
+    }
 
-        // And a line above the split matches a graphics-only render; a line below
-        // matches text — i.e. the boundary really is at the split.
+    #[test]
+    fn a_mid_field_mode_change_splits_between_lines() {
+        // Graphics for the top half, text for the bottom (split on a line edge):
+        // the two halves differ, and the above-split line matches all-graphics.
+        let mut vdg = Mc6847::new();
+        render_field(&mut vdg, 0x10, 0x00, 96 * ACTIVE_WIDTH, 0b1010_1010);
+        assert_ne!(active_row(&vdg, 40), active_row(&vdg, 150));
+
         let mut all_graphics = Mc6847::new();
-        render_field(&mut all_graphics, 0x10, 0x10, ACTIVE_LINES + 1, 0b1010_1010);
+        render_field(&mut all_graphics, 0x10, 0x10, ACTIVE_DOTS + 1, 0b1010_1010);
         assert_eq!(active_row(&vdg, 40), active_row(&all_graphics, 40));
+    }
+
+    #[test]
+    fn a_mid_line_mode_change_splits_within_one_line() {
+        // Flip mode half-way across line 100: that single scanline must be neither
+        // all-graphics nor all-text — only a per-byte render can do that.
+        let line = 100;
+        let split = line * ACTIVE_WIDTH + ACTIVE_WIDTH / 2;
+        let mut vdg = Mc6847::new();
+        render_field(&mut vdg, 0x10, 0x00, split, 0b1010_1010);
+        let split_row = active_row(&vdg, line).to_vec();
+
+        let mut all_graphics = Mc6847::new();
+        render_field(&mut all_graphics, 0x10, 0x10, ACTIVE_DOTS + 1, 0b1010_1010);
+        let mut all_text = Mc6847::new();
+        render_field(&mut all_text, 0x00, 0x00, ACTIVE_DOTS + 1, 0b1010_1010);
+
+        assert_ne!(
+            split_row.as_slice(),
+            active_row(&all_graphics, line),
+            "the right of the line switched to text"
+        );
+        assert_ne!(
+            split_row.as_slice(),
+            active_row(&all_text, line),
+            "the left of the line stayed graphics"
+        );
     }
 }
