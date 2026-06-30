@@ -5,7 +5,7 @@ date: 2026-06-30
 system: docs/systems/commodore/c64.md
 parent_plan: docs/plans/2026-06-08-c64-100-percent-plan.md
 decision: knowledge/decisions/c64-architecture-review.md
-status: in-progress — Increment 1 (oracle harness) underway
+status: in-progress — Increments 1 (oracle, 40e3eafd) + 2 (shadow counters, c694a4db) landed; Increment 3 next
 ---
 
 # C64 VIC-II VC/VCBASE/RC rewrite — incremental plan
@@ -70,7 +70,7 @@ convention is visible, not assumed.
 Each increment is one commit's worth of work, builds + tests green before the
 next, and is independently revertable.
 
-### Increment 1 — oracle harness  ← (current)
+### Increment 1 — oracle harness  ✅ landed (`40e3eafd`)
 
 Build the per-cycle comparator **before** touching the addressing, per the 100%
 plan's recommended sequence ("build alongside, not after"). **No engine
@@ -97,15 +97,17 @@ behaviour change.**
 engine, and the rewrite's target behaviour is encoded as ignored tests with
 explicit expected values.
 
-### Increment 2 — VC/VCBASE/RC/VMLI counter state (shadow)
+### Increment 2 — VC/VCBASE/RC/VMLI counter state (shadow)  ✅ landed (`c694a4db`)
 
-Introduce the counter chain as engine fields, advanced per Bauer §3.7.2 with
-the VICE update-flag cycles, running **in parallel** with the existing geometry
-addressing. The oracle asserts the shadow counters produce the same matrix
-addresses the geometry path uses on normal screens — but the counters do not
-yet drive fetches. No `FRAME_ROUTING_VERSION` bump (output unchanged).
+Introduced the counter chain as engine fields, advanced per the VICE rules
+(start-of-frame reset, UpdateVc cyc 14, UpdateRc cyc 58, badline-clears-idle,
+per-g-access VC/VMLI advance), running **in parallel** with the existing
+geometry addressing. The oracle proves the shadow counters produce the same
+matrix addresses the geometry path uses (VC == base + column over the 40
+c-accesses; VCBASE == text_row × 40 per row; RC 0-7 per block). The counters
+do not yet drive fetches; `FRAME_ROUTING_VERSION` stays 1 (output unchanged).
 
-### Increment 3 — per-cycle c-access / g-access streaming
+### Increment 3 — per-cycle c-access / g-access streaming  ← (next)
 
 Replace `fetch_screen_row` (batched, geometry) with per-cycle c-access (Phi2,
 badline only) into a 40-entry matrix line buffer indexed by VMLI, and g-access
