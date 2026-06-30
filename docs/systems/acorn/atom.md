@@ -1,6 +1,6 @@
 # Acorn Atom
 
-## Status: Boots, types, loads software, plays sound, and renders graphics
+## Status: Boots, types, loads + saves software, plays sound, and renders graphics
 
 Acorn's £120 self-build (1980), by the team that designed the BBC Micro. Boots to
 the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system.
@@ -63,18 +63,18 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   Defender tape, the COS software-decodes PC5 and the program lands in RAM. This
   confirmed path A — the COS times the raw waveform; no hardware demodulation
   needed. `load_media` + reset re-mount also covered.
-- **Cassette SAVE — write path** (2026-06-30, #375) — the COS bit-bangs `SAVE`
-  onto 8255 **PC0/PC1**; the hardware gates the 2.4 kHz tone onto the line
-  (`level = pc0 && !(pc1 && !hz2400)`, MAME `atom.cpp`). The machine captures that
-  waveform per tick, measuring half-periods into [`TapePulse`] cycles
-  (`take_tape_output`). `common-acorn-cassette::demodulate_blocks` recovers the
-  data blocks and `format-acorn-uef::encode_blocks` writes a plain UEF; the runtime
-  exposes `flush_tape_image()` and the headless runner a `--save-tape PATH` flag.
-  The full SAVE→LOAD data round-trip (capture → demodulate → UEF → parse →
-  demodulate → bytes intact) is proven in CI, plus carrier-capture and
-  block-segmentation unit tests. (Driving a live COS `SAVE` to completion is
-  pending: this ROM build rejects `*SAVE`/`SAVE` at the command parser — a COS
-  invocation question, separate from the write-path implementation.)
+- **Cassette SAVE — round-trips through LOAD** (2026-06-30, #375 + #696) — the COS
+  bit-bangs `SAVE` onto 8255 **PC0/PC1**; the hardware gates the 2.4 kHz tone onto
+  the line (`level = pc0 && !(pc1 && !hz2400)`, MAME `atom.cpp`). The machine
+  captures that 300-baud waveform per tick into [`TapePulse`] cycles
+  (`take_tape_output`). **Proven OS-driven** (`tape_save.rs`, `#[ignore]`): boot a
+  real ROM, `SAVE"Z"`, `NEW`, `LOAD"Z"`, and `LIST` shows the program back. The
+  earlier MAME-assembled romset rejected `SAVE`/`*SAVE` at the command parser
+  (`ERROR 29` / `SYN? 135`); a real `Atom_Basic`+`FloatingPoint`+`Kernel` image
+  saves cleanly. The runtime also exposes `flush_tape_image()` + a `--save-tape`
+  flag that demodulate the capture to a UEF — but that byte-demodulator is still
+  1200-baud, so the `.uef` *file* isn't loadable yet (#703); the live waveform
+  round-trip is the verified path.
 - **1-bit speaker audio** (2026-06-29, #368) — the loudspeaker on 8255 **PC2**
   (programs toggle it with `?#B002 EOR 4`; *Atomic Theory and Practice* §19) is
   sampled each master tick into an `f32` waveform, downsampled 1 MHz → 48 kHz with
@@ -87,8 +87,9 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 
 - **Per-line VDG** — graphics render per-frame from a video-RAM snapshot, so
   mid-frame mode/palette changes (split-screen effects) aren't yet honoured (#697).
-- **Printer** unwired (#699). Cassette SAVE captures + writes UEF, but a live COS
-  `SAVE` to completion isn't yet driven (#696; see "What works").
+- **Printer** unwired (#699). Cassette SAVE round-trips through LOAD (the live
+  waveform), but the `--save-tape` `.uef` *file* still uses a 1200-baud
+  byte-demodulator, so the saved file isn't loadable yet (#703).
 
 ## Known unknowns / disproven hypotheses
 
