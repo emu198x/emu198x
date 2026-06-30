@@ -19,6 +19,16 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   low (internal font). Verified by unit tests (A/G selection, GM bits, 6 KB read,
   spatial pattern) and a headless screenshot — a graphics program drawing `$AA`
   renders crisp vertical stripes, not solid green.
+- **Per-line VDG render** (2026-06-30, #697) — the VDG now renders **one active
+  line at a time** off the field clock instead of a whole-frame video-RAM snapshot
+  at VBLANK, via the shared crate's `render_visible_argb_line_into`. The machine
+  derives the active line from `master_clock % FIELD_TICKS`, so the scanline and
+  PC7 field-sync share one 50 Hz timebase (fixing the old 228-tick/line counter
+  that ran the VDG frame at ~14 Hz, 3.56× out of step with the field). Each line is
+  drawn with the *current* control/CSS and live video RAM, so a mid-field mode
+  change — the classic split screen — renders two modes in one frame. Unit tests
+  cover a uniform static field and a graphics/text split; the per-line path is in
+  the shared `motorola-vdg-6847` crate, so other MC6847 systems can use it.
 - **CSS sourced from PC3** (2026-06-29, #369) — the MC6847 colour-set select now
   reads 8255 **port C bit 3**, not port-A bit 3 (PA3), which is a keyboard-scan
   line (Atom Technical Manual §25.5; Atomulator). Handles both the direct `$B002`
@@ -87,10 +97,9 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
 
 ## Not implemented / accuracy gaps
 
-- **Per-line VDG** — graphics render per-frame from a video-RAM snapshot, so
-  mid-frame mode/palette changes (split-screen effects) aren't yet honoured (#697).
-- **Printer** unwired (#699). (Cassette SAVE now round-trips both through LOAD and
-  through a saved `.uef` — see "What works".)
+- **Printer** unwired (#699). (Per-line VDG render landed in #697, and cassette
+  SAVE now round-trips both through LOAD and through a saved `.uef` — see "What
+  works".)
 
 ## Known unknowns / disproven hypotheses
 
@@ -101,7 +110,9 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   `abasic.ic20` low 4K → BASIC (`$C000`), high 4K → MOS (`$F000`),
   `afloat.ic21` → FP (`$D000`); `$A000` utility slot empty. Reset vector verified
   to resolve into MOS (`$FF3F`).
-- **Verification target** — beam-accurate VDG (mid-frame mode changes).
+- **Verification target** — mid-frame mode changes now render per line (#697);
+  the remaining step to full beam-accuracy is per-*byte* (mid-line) granularity,
+  as Dragon-32 already does.
 
 ## Validated against
 
@@ -121,10 +132,14 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   low during flyback** per the Atom Technical Manual / *Atomic Theory and
   Practice* §25.5 (the earlier approximation had the polarity inverted). PC4's
   2.4 kHz reference is the 4 MHz crystal ÷1667, 50% duty. All three are now named
-  constants with citations; keyboard typing + cassette load are unaffected. Tying
-  the field to the VDG's own frame counter waits on the graphics-mode work (#367).
-- **Timing model realised** — relaxed: per-frame VDG render (text + all graphics
-  modes) from a video-RAM snapshot; not yet beam-accurate.
+  constants with citations; keyboard typing + cassette load are unaffected.
+- **One VDG/field timebase** (2026-06-30, #697) — the field clock is now the VDG
+  frame clock: `tick` derives the active display line from `master_clock %
+  FIELD_TICKS` and the VDG renders per line off it, replacing the old free
+  228-tick/line counter that ran the frame at ~14 Hz. Field-sync and the scanline
+  share one 50 Hz timebase, and `run_frame` is now one true field (~20,000 ticks).
+- **Timing model realised** — per-line VDG render (text + all graphics modes) off
+  the field clock; mid-field mode changes honoured, mid-line (per-byte) not yet.
 - **CPU timing** — 6502 cycle-accurate (§62).
 - **Distance to full cycle-accuracy** — VDG graphics modes; beam-accurate VDG
   timing.
