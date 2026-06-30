@@ -121,6 +121,10 @@ pub struct AcornAtom {
     /// Fractional accumulator converting the 1 MHz master clock to the 48 kHz
     /// output rate: one sample is emitted each time it crosses [`ATOM_CLOCK_HZ`].
     audio_accum: u64,
+    /// Optional utility ROM paged into the `$A000-$AFFF` slot. Real Atoms plugged
+    /// toolkit / DOS ROMs here; the combined ROM leaves the slot empty. When
+    /// present this shadows the combined ROM's (empty) `$A000` block.
+    utility_rom: Option<Vec<u8>>,
 }
 
 impl AcornAtom {
@@ -148,6 +152,7 @@ impl AcornAtom {
             cassette: CassetteReceiver::new(),
             audio_buffer: Vec::new(),
             audio_accum: 0,
+            utility_rom: None,
         }
     }
 
@@ -166,6 +171,23 @@ impl AcornAtom {
     #[must_use]
     pub fn tape_loaded(&self) -> bool {
         self.cassette.is_loaded()
+    }
+
+    /// Plug a utility / toolkit ROM into the `$A000-$AFFF` slot. Only the first
+    /// 4 KB is mapped; a shorter image reads `$FF` past its end.
+    pub fn insert_utility_rom(&mut self, rom: Vec<u8>) {
+        self.utility_rom = Some(rom);
+    }
+
+    /// Remove any plugged utility ROM, exposing the combined ROM's `$A000` block.
+    pub fn remove_utility_rom(&mut self) {
+        self.utility_rom = None;
+    }
+
+    /// Returns `true` when a utility ROM is plugged into the `$A000` slot.
+    #[must_use]
+    pub fn utility_rom_present(&self) -> bool {
+        self.utility_rom.is_some()
     }
 
     /// Load a program image directly into memory at `load_address` (an `.atm`
@@ -292,7 +314,11 @@ impl AcornAtom {
             0x9800..=0x9FFF => 0xFF, // unmapped — open bus
             0xA000..=0xAFFF => {
                 let offset = (addr - 0xA000) as usize;
-                self.rom.get(offset).copied().unwrap_or(0xFF)
+                // A plugged utility ROM shadows the combined ROM's $A000 block.
+                match &self.utility_rom {
+                    Some(rom) => rom.get(offset).copied().unwrap_or(0xFF),
+                    None => self.rom.get(offset).copied().unwrap_or(0xFF),
+                }
             }
             0xB000..=0xB003 => {
                 self.update_keyboard();
@@ -400,11 +426,13 @@ impl AcornAtom {
             0x8000..=0x97FF => self.video_ram[(addr - 0x8000) as usize],
             0x9800..=0x9FFF => 0xFF,
             0xB000 => self.vdg.control,
-            0xA000..=0xAFFF => self
-                .rom
-                .get((addr - 0xA000) as usize)
-                .copied()
-                .unwrap_or(0xFF),
+            0xA000..=0xAFFF => {
+                let offset = (addr - 0xA000) as usize;
+                match &self.utility_rom {
+                    Some(rom) => rom.get(offset).copied().unwrap_or(0xFF),
+                    None => self.rom.get(offset).copied().unwrap_or(0xFF),
+                }
+            }
             0xB004..=0xBFFF => self
                 .rom
                 .get(0x1000 + (addr - 0xB000) as usize)
@@ -887,6 +915,34 @@ mod tests {
         assert_ne!(
             lit, dark,
             "the graphics render must read the 6 KB video RAM"
+        );
+    }
+
+    #[test]
+    fn utility_rom_pages_into_the_a000_slot() {
+        let mut sys = AcornAtom::new(trap_rom(), 0x0A00);
+        // The combined trap ROM leaves $A000 empty (reads its NOP fill).
+        assert!(!sys.utility_rom_present());
+        let empty = sys.mem_read(0xA000);
+
+        // Plug a 4 KB utility ROM with a recognisable signature.
+        let mut pack = vec![0u8; 0x1000];
+        pack[0] = 0x4B; // 'K'
+        pack[0xFFF] = 0x99;
+        sys.insert_utility_rom(pack);
+        assert!(sys.utility_rom_present());
+        assert_eq!(sys.mem_read(0xA000), 0x4B, "utility ROM shadows $A000");
+        assert_eq!(sys.mem_read(0xAFFF), 0x99, "top of the 4 KB slot");
+        assert_eq!(sys.peek_memory(0xA000), 0x4B);
+
+        // A short image reads $FF past its end; removing it restores the combined ROM.
+        sys.insert_utility_rom(vec![0x01]);
+        assert_eq!(sys.mem_read(0xA001), 0xFF);
+        sys.remove_utility_rom();
+        assert_eq!(
+            sys.mem_read(0xA000),
+            empty,
+            "removal exposes the combined ROM"
         );
     }
 
