@@ -27,6 +27,7 @@ Capture:
     --screenshot PATH          write the last emitted frame as PNG
     --audio-capture PATH       write emitted audio as WAV (currently silent)
     --save-tape PATH           write any cassette SAVE captured during the run as a .uef
+    --save-print PATH          write any bytes sent to the Centronics printer
 
 Shared:
     --script PATH              execute shared JSON session steps
@@ -41,6 +42,7 @@ struct Cli {
     screenshot: Option<PathBuf>,
     audio_capture: Option<PathBuf>,
     save_tape: Option<PathBuf>,
+    save_print: Option<PathBuf>,
     script: Option<PathBuf>,
 }
 
@@ -53,6 +55,7 @@ impl Default for Cli {
             screenshot: None,
             audio_capture: None,
             save_tape: None,
+            save_print: None,
             script: None,
         }
     }
@@ -82,6 +85,9 @@ fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
             }
             "--save-tape" => {
                 cli.save_tape = Some(PathBuf::from(next_arg(&mut iter, "--save-tape")));
+            }
+            "--save-print" => {
+                cli.save_print = Some(PathBuf::from(next_arg(&mut iter, "--save-print")));
             }
             "--script" => cli.script = Some(PathBuf::from(next_arg(&mut iter, "--script"))),
             "--headless" => {}
@@ -151,7 +157,10 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         .ok_or_else(|| "--rom PATH is required".to_string())?;
     let rom = read_rom(&rom_path, "Atom", 24 * 1024)?;
 
-    if (cli.screenshot.is_some() || cli.audio_capture.is_some() || cli.save_tape.is_some())
+    if (cli.screenshot.is_some()
+        || cli.audio_capture.is_some()
+        || cli.save_tape.is_some()
+        || cli.save_print.is_some())
         && cli.frames == 0
         && cli.script.is_none()
     {
@@ -202,6 +211,14 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
             .flush_tape_image()
             .ok_or_else(|| "--save-tape: no cassette SAVE was captured".to_string())?;
         fs::write(path, &uef)
+            .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    }
+    if let Some(path) = &cli.save_print {
+        let bytes = session
+            .machine_mut()
+            .flush_printer_output()
+            .ok_or_else(|| "--save-print: nothing was sent to the printer".to_string())?;
+        fs::write(path, &bytes)
             .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
     }
 

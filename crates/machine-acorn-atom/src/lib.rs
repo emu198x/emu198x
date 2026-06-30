@@ -18,6 +18,8 @@
 //!   — Atom-specific variant with an embedded 64-glyph character
 //!   ROM (see [`vdg`])
 //! - **PPI:** Intel INS8255 at `$B000-$B003` (keyboard + cassette)
+//! - **VIA:** MOS 6522 at `$B800-$BBFF` (Centronics printer — port A data,
+//!   CA2 `/STROBE`; the Atom's only IRQ source)
 //! - **RAM:** 2.5 KB base, expandable to a fully-expanded 32 KB
 //! - **Video RAM:** 6 KB at `$8000-$97FF` (512 bytes shown in text mode; the
 //!   graphics modes use the full 6 KB)
@@ -61,6 +63,7 @@ pub use vdg::{FB_HEIGHT, FB_WIDTH, Mc6847};
 use common_acorn_cassette::{CassetteReceiver, TapePulse};
 use intel_8255::Ppi8255;
 use mos_6502::M6502;
+use mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
@@ -116,6 +119,16 @@ pub struct AcornAtom {
     /// port C handles cassette / speaker / 2.4 kHz.
     ppi: Ppi8255,
     vdg: Mc6847,
+    /// 6522 VIA at `$B800-$BBFF` (MAME `atom.cpp`, clocked at 4 MHz/4 = 1 MHz).
+    /// The base Atom wires a Centronics printer through it: port A = data byte,
+    /// CA2 = the `/STROBE` that latches each byte, CA1 = `/ACK`, PA7 = BUSY.
+    via: Via6522,
+    /// Previous VIA CA2 (`/STROBE`) output level, to catch the latching edge.
+    prev_strobe: bool,
+    /// Bytes the COS has strobed out to the Centronics printer. Drained by
+    /// [`AcornAtom::take_printer_output`]; regenerated live, so not snapshotted.
+    #[serde(skip)]
+    printer_output: Vec<u8>,
     keyboard: KeyboardState,
     master_clock: u64,
     frame_count: u64,
@@ -170,6 +183,9 @@ impl AcornAtom {
             rom,
             ppi: Ppi8255::new(),
             vdg: Mc6847::new(),
+            via: Via6522::new(),
+            prev_strobe: true, // CA2 /STROBE idles high
+            printer_output: Vec::new(),
             keyboard: KeyboardState::new(),
             master_clock: 0,
             frame_count: 0,
@@ -306,17 +322,34 @@ impl AcornAtom {
         self.vdg.tick(active_dot, |addr| {
             video_ram.get(addr as usize).copied().unwrap_or(0)
         });
-        // The Atom keyboard is polled, not interrupt-driven; the 8255 has no
-        // interrupt line in Mode 0 and the donor models no other IRQ source.
-        self.cpu.irq = false;
+        // The 8255 keyboard is polled, but the 6522 VIA can interrupt (printer
+        // /ACK on CA1, or its timers); it is the Atom's only IRQ source. An idle,
+        // unconfigured VIA never asserts, so this stays low until a program
+        // programs it.
+        self.via.tick();
+        self.cpu.irq = self.via.irq;
         self.cpu.tick();
         if self.cpu.rw {
             self.cpu.data_in = self.mem_read(self.cpu.addr);
         } else {
             self.mem_write(self.cpu.addr, self.cpu.data);
         }
+        // Latch a byte to the printer on the falling edge of CA2 (/STROBE): in
+        // pulse/handshake mode the VIA drops it for one cycle when the COS writes
+        // port A, which is exactly when the Centronics data is valid.
+        let strobe = self.via.ca2_out;
+        if self.prev_strobe && !strobe {
+            self.printer_output.push(self.via.port_a_drive_state());
+        }
+        self.prev_strobe = strobe;
         self.tick_audio();
         self.capture_tape_output();
+    }
+
+    /// Drain the bytes the COS has sent to the Centronics printer since the last
+    /// call (the runtime writes them to a file, mirroring `flush_tape_image`).
+    pub fn take_printer_output(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.printer_output)
     }
 
     /// Sample the cassette OUTPUT line this tick and accumulate it as a waveform.
@@ -436,6 +469,9 @@ impl AcornAtom {
                 self.ppi.port_c = (self.ppi.port_c & 0x0F) | inputs;
                 self.ppi.read((addr - 0xB000) as u8)
             }
+            // 6522 VIA (Centronics printer), 16 registers mirrored across the page
+            // (MAME `atom.cpp`: `b800-b80f` mirror `0x3f0`).
+            0xB800..=0xBBFF => self.via.read((addr & 0x0F) as u8),
             0xB004..=0xBFFF => {
                 let offset = 0x1000 + (addr - 0xB000) as usize;
                 self.rom.get(offset).copied().unwrap_or(0xFF)
@@ -473,6 +509,8 @@ impl AcornAtom {
                 // from port C after either path (#369).
                 self.vdg.css = self.ppi.port_c & 0x08 != 0;
             }
+            // 6522 VIA (Centronics printer) — see `mem_read` (MAME `atom.cpp`).
+            0xB800..=0xBBFF => self.via.write((addr & 0x0F) as u8, value),
             _ => {}
         }
     }
