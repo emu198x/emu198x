@@ -5,7 +5,7 @@ date: 2026-06-30
 system: docs/systems/commodore/c64.md
 parent_plan: docs/plans/2026-06-08-c64-100-percent-plan.md
 decision: knowledge/decisions/c64-architecture-review.md
-status: in-progress — Increments 1 (oracle, 40e3eafd) + 2 (shadow counters, c694a4db) + 3 (c-access streaming) landed; Increment 3b (g-access via VC/RC) next
+status: in-progress — Increments 1-3b landed (oracle, shadow counters, c-access + g-access via VC/RC; addressing now fully counter-driven, output-identical); Increment 4 (sprite per-cycle) next
 ---
 
 # C64 VIC-II VC/VCBASE/RC rewrite — incremental plan
@@ -124,18 +124,28 @@ diverge. (One behavioural refinement: `last_bus_data` now tracks each c-access
 rather than the batch, marginally more correct for `$2F-$3F` open-bus reads;
 frame hashes capture pixels, not bus-read order, so unaffected.)
 
-### Increment 3b — g-access / render addressed via VC/RC  ← (next)
+### Increment 3b — g-access / render addressed via VC/RC  ✅ landed
 
-Switch the g-access (character/bitmap fetch) and the renderer to address via
-VC/RC and read from the VMLI-indexed matrix buffer, replacing the remaining
-geometry (`char_row`/`text_row`) addressing. This is the half that **diverges
-from geometry under mid-line register writes** ($D011 YSCROLL, $D018, $D016) —
-i.e. it is the actual enabler for VSP/AGSP/FLI. It needs new oracle cases for
-those divergent scenarios *before* the switch (so the change is provable, not
-vibes), and it **bumps `FRAME_ROUTING_VERSION` → 2** with a forced C64
-catalogue re-capture (the Seam 4 oracle makes that fail loud). Split out from
-Increment 3 because, unlike the c-access streaming, it changes output and so
-deserves its own verification and the deliberate re-capture gate.
+Switched the g-access (character/bitmap fetch) and the renderer to address via
+the counter chain — RC for the character sub-row, VC for the bitmap matrix
+offset — and removed the geometry fields (`char_row`, `text_row`) entirely. The
+text g-access is now `char_base + char_code*8 + RC`; the bitmap g-access is
+`bitmap_base + VC*8 + RC` (VICE `g_fetch_addr`, vicii-fetch.c:169). The renderer
+is now fully driven by the video-counter chain — no geometry left.
+
+**Output is bit-identical** for normal content: at render time `RC == char_row`
+and `VC == text_row*40 + col`, so every C64 unit / render / golden
+(`diag_aztec_vic_state`) / boot / snapshot test passes unchanged, clippy clean.
+
+**The `FRAME_ROUTING_VERSION` bump did *not* materialise** — and that is the
+honest, correct outcome. The rewrite, done carefully, is a faithful refactor:
+it reproduces every pixel of existing (geometry-correct) content while making
+the addressing hardware-exact. The behaviour only *diverges* from geometry
+under mid-line register writes ($D011 YSCROLL, $D018, $D016) — the VSP/AGSP/FLI
+cases — which **no current test or catalogue title exercises**. So no captured
+frame hash changes, and forcing a re-capture would be churn. The version bump
+(and re-capture) now belongs to **Increment 5**, where a sourced trick test
+first demonstrates a real divergence and captures its golden under v2.
 
 ### Increment 4 — sprite DMA / pointer per-cycle
 

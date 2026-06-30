@@ -153,7 +153,6 @@ pub struct Vic {
     screen_row: [u8; 40],
     #[serde(with = "BigArray")]
     colour_row: [u8; 40],
-    char_row: u8,
     vic_bank: u8,
     sprite_data: [[u8; 3]; 8],
     sprite_active: [bool; 8],
@@ -162,7 +161,6 @@ pub struct Vic {
     sprite_bg_collision: u8,
     sprite_sprite_irq_latched: bool,
     sprite_bg_irq_latched: bool,
-    text_row: u16,
     xscroll_carry_pixels: [u32; 8],
     xscroll_carry_fg: u8,
     xscroll_latch: u8,
@@ -232,7 +230,6 @@ impl Vic {
             framebuffer: vec![0xFF00_0000; fb_size],
             screen_row: [0; 40],
             colour_row: [0; 40],
-            char_row: 0,
             vic_bank: 0,
             sprite_data: [[0; 3]; 8],
             sprite_active: [false; 8],
@@ -241,7 +238,6 @@ impl Vic {
             sprite_bg_collision: 0,
             sprite_sprite_irq_latched: false,
             sprite_bg_irq_latched: false,
-            text_row: 0,
             xscroll_carry_pixels: [0; 8],
             xscroll_carry_fg: 0,
             xscroll_latch: 0,
@@ -289,14 +285,8 @@ impl Vic {
         // address, proven by the shadow-counter increment), hardware-correct
         // timing. The Phi1 g-access in `render_pixels` already streamed per
         // cycle, so this closes the c-access half of the addressing rewrite.
-        if self.is_badline {
-            if self.raster_cycle == 15 {
-                self.char_row = 0;
-                self.text_row = (self.raster_line - DISPLAY_START_LINE) / 8;
-            }
-            if (15..=54).contains(&self.raster_cycle) {
-                self.c_access(memory);
-            }
+        if self.is_badline && (15..=54).contains(&self.raster_cycle) {
+            self.c_access(memory);
         }
 
         self.raster_cycle += 1;
@@ -309,10 +299,6 @@ impl Vic {
                 self.frame_complete = true;
                 self.den_latch = false;
                 self.lp_triggered = false;
-            }
-
-            if self.den_latch && (DISPLAY_START_LINE..0xFBu16).contains(&self.raster_line) {
-                self.char_row = (self.char_row + 1) & 7;
             }
         }
 
@@ -618,9 +604,9 @@ impl Vic {
                 let cell = if ecm && (bmm || mcm) {
                     CellPixels::solid(PALETTE[0])
                 } else if bmm && mcm {
-                    self.render_mcm_bitmap(col, char_code, colour_nybble, memory)
+                    self.render_mcm_bitmap(char_code, colour_nybble, memory)
                 } else if bmm {
-                    self.render_hires_bitmap(col, char_code, memory)
+                    self.render_hires_bitmap(char_code, memory)
                 } else if ecm {
                     self.render_ecm_text(char_code, colour_nybble, memory)
                 } else if mcm {
@@ -700,7 +686,7 @@ impl Vic {
         let bg_colour = PALETTE[(self.regs[0x21] & 0x0F) as usize];
         let fg_colour = PALETTE[(colour_nybble & 0x0F) as usize];
         let char_base = self.char_base();
-        let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.char_row);
+        let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.rc);
         let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
 
         let mut cell = CellPixels {
@@ -719,12 +705,14 @@ impl Vic {
         cell
     }
 
-    fn render_hires_bitmap(&self, col: usize, char_code: u8, memory: &dyn VicMemory) -> CellPixels {
+    fn render_hires_bitmap(&self, char_code: u8, memory: &dyn VicMemory) -> CellPixels {
         let fg_colour = PALETTE[((char_code >> 4) & 0x0F) as usize];
         let bg_colour = PALETTE[(char_code & 0x0F) as usize];
         let bitmap_base = self.bitmap_base();
-        let bitmap_addr =
-            bitmap_base + self.text_row * 40 * 8 + col as u16 * 8 + u16::from(self.char_row);
+        // g-access via the video counter: (VC << 3) | RC + bitmap base, the
+        // hardware addressing (VICE `g_fetch_addr`, vicii-fetch.c:169). VC at
+        // render equals text_row*40 + col, RC the character sub-row.
+        let bitmap_addr = bitmap_base + self.vc * 8 + u16::from(self.rc);
         let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
 
         let mut cell = CellPixels {
@@ -754,7 +742,7 @@ impl Vic {
         let fg_colour = PALETTE[(colour_nybble & 0x0F) as usize];
         let char_base = self.char_base();
         let effective_char = char_code & 0x3F;
-        let bitmap_addr = char_base + u16::from(effective_char) * 8 + u16::from(self.char_row);
+        let bitmap_addr = char_base + u16::from(effective_char) * 8 + u16::from(self.rc);
         let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
 
         let mut cell = CellPixels {
@@ -788,7 +776,7 @@ impl Vic {
         let bg2 = PALETTE[(self.regs[0x23] & 0x0F) as usize];
         let fg_colour = PALETTE[(colour_nybble & 0x07) as usize];
         let char_base = self.char_base();
-        let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.char_row);
+        let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.rc);
         let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
 
         let mut cell = CellPixels {
@@ -817,7 +805,6 @@ impl Vic {
 
     fn render_mcm_bitmap(
         &self,
-        col: usize,
         char_code: u8,
         colour_nybble: u8,
         memory: &dyn VicMemory,
@@ -827,8 +814,10 @@ impl Vic {
         let c10 = PALETTE[(char_code & 0x0F) as usize];
         let c11 = PALETTE[(colour_nybble & 0x0F) as usize];
         let bitmap_base = self.bitmap_base();
-        let bitmap_addr =
-            bitmap_base + self.text_row * 40 * 8 + col as u16 * 8 + u16::from(self.char_row);
+        // g-access via the video counter: (VC << 3) | RC + bitmap base, the
+        // hardware addressing (VICE `g_fetch_addr`, vicii-fetch.c:169). VC at
+        // render equals text_row*40 + col, RC the character sub-row.
+        let bitmap_addr = bitmap_base + self.vc * 8 + u16::from(self.rc);
         let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
 
         let mut cell = CellPixels {
@@ -1204,10 +1193,11 @@ impl Vic {
         self.raster_cycle
     }
 
-    /// Current character row within an 8-line character cell.
+    /// Current character row within an 8-line character cell — the VIC-II row
+    /// counter (RC), which drives the g-access sub-row addressing.
     #[must_use]
     pub const fn char_row(&self) -> u8 {
-        self.char_row
+        self.rc
     }
 
     /// Whether the current line is a bad line.
@@ -2283,8 +2273,8 @@ mod tests {
         // CSEL=1 so the main FF clears at cycle 16 (matches DISPLAY_START_CYCLE).
         vic.write(0x16, 0x08);
         let target_line = DISPLAY_START_LINE + 3;
-        // bitmap_addr = bitmap_base + text_row*40*8 + col*8 + char_row.
-        // text_row=0, col=0, char_row=0 (badline reset at cycle 15) → addr 0.
+        // bitmap_addr = bitmap_base + VC*8 + RC. VC=0 (column 0 of row 0),
+        // RC=0 (badline row) → addr 0.
         memory.ram_write(0, 0xF0);
         // Screen base = (0x14 >> 4) * 0x400 = 0x400. Column 0 → addr 0x400.
         memory.ram_write(0x400, 0x52); // fg=palette[5], bg=palette[2]
@@ -2319,7 +2309,7 @@ mod tests {
         vic.write(0x21, 0x02); // bg0 = 2
         // Bitmap at 0x0000, bytes=0b00_01_10_11 = 0x1B → pair colours (bg0, c01, c10, c11).
         let target_line = DISPLAY_START_LINE + 3;
-        // char_row=0 at cycle 15 of badline → bitmap addr 0.
+        // VC=0, RC=0 on the badline row → bitmap addr 0.
         memory.ram_write(0, 0x1B);
         // Screen base = 0x400. Column 0 → addr 0x400.
         memory.ram_write(0x400, 0x46); // c01=palette[4], c10=palette[6]
