@@ -181,6 +181,28 @@ pub struct Vic {
     /// cleared at left edge (only if vert FF is clear). When set, the
     /// current cycle paints border colour.
     border_main_ff: bool,
+
+    // --- Video-counter chain (VC/VCBASE/RC/VMLI) ---
+    //
+    // Shadow of the real VIC-II addressing chain, Increment 2 of the
+    // VC/VCBASE/RC rewrite (see
+    // `docs/plans/2026-06-30-c64-vic-ii-vc-vcbase-rc-rewrite.md`). Advanced
+    // per the canonical rules (ported from VICE `vicii-cycle.c:202-563` +
+    // `vicii-fetch.c:234-269`) but NOT yet driving fetches — the engine still
+    // addresses memory geometrically. These run in parallel so the rewrite's
+    // Increment 3 can swap the fetch addressing over once the counters are
+    // proven against the geometry path.
+    /// Video counter (10-bit) — the live video-matrix offset.
+    vc: u16,
+    /// Video counter base (10-bit) — latched from VC at each row end (RC==7).
+    vcbase: u16,
+    /// Row counter (3-bit) — the character sub-row (0-7) being displayed.
+    rc: u8,
+    /// Video matrix line index (0-39) — index into the matrix line buffer.
+    vmli: u8,
+    /// Idle state — gates the g-access VC/VMLI advance. Cleared by a badline,
+    /// set when RC passes 7. Starts idle (top border before the first row).
+    idle_state: bool,
 }
 
 impl Vic {
@@ -231,6 +253,11 @@ impl Vic {
             last_bus_data: 0,
             border_vert_ff: true,
             border_main_ff: true,
+            vc: 0,
+            vcbase: 0,
+            rc: 0,
+            vmli: 0,
+            idle_state: true,
         }
     }
 
@@ -248,6 +275,7 @@ impl Vic {
         self.update_border_flip_flops();
         self.render_pixels(memory);
         self.check_badline();
+        self.advance_video_counters();
 
         let badline_stall = self.is_badline && (15..=54).contains(&self.raster_cycle);
         let sprite_stall = self.is_sprite_dma_stealing();
@@ -299,6 +327,89 @@ impl Vic {
         self.is_badline = self.den_latch
             && (DISPLAY_START_LINE..DISPLAY_END_LINE).contains(&self.raster_line)
             && (self.raster_line & 7) == yscroll;
+    }
+
+    /// Advance the shadow VC/VCBASE/RC/VMLI chain for this cycle.
+    ///
+    /// Ported from VICE (`vicii-cycle.c` start-of-frame `:202-209`, UpdateVc
+    /// `:543-549`, UpdateRc `:553-563`, badline-clears-idle `:51-59`;
+    /// `vicii-fetch.c:267-269` for the g-access increment). Runs after
+    /// `check_badline` so `is_badline` reflects this line. Cycle numbers are
+    /// the engine's 0-based `raster_cycle`, which equals the canonical 1-based
+    /// number for 1..=62 (see `oracle::engine_to_canonical`); the relevant
+    /// events here (14, 16-55, 58) all fall in that range.
+    ///
+    /// **Shadow only** — nothing reads these counters yet; the geometry path
+    /// still drives fetches. Increment 3 swaps the addressing over.
+    fn advance_video_counters(&mut self) {
+        let c = self.raster_cycle;
+
+        // Start of frame: VC and VCBASE reset (VICE start_of_frame).
+        if self.raster_line == 0 && c == 0 {
+            self.vc = 0;
+            self.vcbase = 0;
+        }
+
+        // A badline takes the chip out of idle (VICE check_badline).
+        if self.is_badline {
+            self.idle_state = false;
+        }
+
+        // UpdateVc — canonical cycle 14: reload VC from VCBASE, clear VMLI,
+        // and (on a badline) reset the row counter.
+        if c == 14 {
+            self.vc = self.vcbase;
+            self.vmli = 0;
+            if self.is_badline {
+                self.rc = 0;
+            }
+        }
+
+        // g-access — canonical cycles 16-55: advance VC and VMLI once per
+        // displayed character, but only while displaying (not idle).
+        if (16..=55).contains(&c) && !self.idle_state {
+            self.vc = (self.vc + 1) & 0x03FF;
+            if self.vmli < 40 {
+                self.vmli += 1;
+            }
+        }
+
+        // UpdateRc — canonical cycle 58: at the end of an 8-row block latch
+        // VCBASE and go idle; otherwise step the row counter.
+        if c == 58 {
+            if self.rc == 7 {
+                self.idle_state = true;
+                self.vcbase = self.vc;
+            }
+            if !self.idle_state || self.is_badline {
+                self.rc = (self.rc + 1) & 0x07;
+                self.idle_state = false;
+            }
+        }
+    }
+
+    /// Shadow video counter (VC). See [`Vic::advance_video_counters`].
+    #[must_use]
+    pub const fn vc(&self) -> u16 {
+        self.vc
+    }
+
+    /// Shadow video counter base (VCBASE).
+    #[must_use]
+    pub const fn vcbase(&self) -> u16 {
+        self.vcbase
+    }
+
+    /// Shadow row counter (RC), 0-7.
+    #[must_use]
+    pub const fn rc(&self) -> u8 {
+        self.rc
+    }
+
+    /// Shadow video matrix line index (VMLI), 0-40.
+    #[must_use]
+    pub const fn vmli(&self) -> u8 {
+        self.vmli
     }
 
     /// Update border FFs per Bauer's vic-ii.txt rules.

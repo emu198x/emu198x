@@ -71,6 +71,9 @@ struct CycleObs {
     ba_low: bool,
     vram_reads: Vec<u16>,
     colour_reads: Vec<u16>,
+    vc: u16,
+    vcbase: u16,
+    rc: u8,
 }
 
 impl CycleObs {
@@ -103,6 +106,9 @@ fn capture_line(setup: impl Fn(&mut Vic), line: u16) -> Vec<CycleObs> {
                 ba_low: vic.ba_low,
                 vram_reads: mem.vram.borrow().clone(),
                 colour_reads: mem.colour.borrow().clone(),
+                vc: vic.vc(),
+                vcbase: vic.vcbase(),
+                rc: vic.rc(),
             });
         }
     }
@@ -186,6 +192,64 @@ fn sprite0_ba_lead_in_matches_canonical() {
     }
     // Sprite-0 lead-in is canonical cycles 55-59.
     assert_eq!(obs.iter().filter(|o| o.ba_low).count(), 5);
+}
+
+// ---- Increment 2: shadow VC/VCBASE/RC validated against the geometry path ----
+// The video-counter chain runs in parallel with the existing geometry
+// addressing but does not yet drive fetches. These prove the shadow counters
+// produce exactly the matrix addresses the geometry path uses, so Increment 3
+// can swap the addressing over with confidence. `obs[c]` indexes cycle `c`
+// directly — `capture_line` pushes all 63 cycles in order.
+
+fn text_row(line: u16) -> u16 {
+    (line - 0x30) / 8
+}
+
+#[test]
+fn shadow_vc_tracks_geometry_matrix_addresses_on_a_badline() {
+    let obs = capture_line(text_mode, BADLINE);
+    let base = text_row(BADLINE) * 40;
+    // On the 40 c-access cycles (canonical 15-54) VC walks the matrix row:
+    // base + column. This is exactly screen_base + text_row*40 + col offset
+    // the geometry path computes in `fetch_screen_row`.
+    for c in 15u8..=54 {
+        let col = u16::from(c - 15);
+        assert_eq!(
+            obs[c as usize].vc,
+            base + col,
+            "cycle {c}: VC should address matrix col {col} of row {}",
+            text_row(BADLINE)
+        );
+    }
+}
+
+#[test]
+fn shadow_vcbase_advances_one_row_per_character_block() {
+    // VCBASE during the c-access window is the row's matrix base; it must
+    // equal the geometry text_row * 40 for every visible character row.
+    for line in [0x30u16, 0x38, 0x40, 0x48, 0x80, 0xC0] {
+        let obs = capture_line(text_mode, line);
+        assert_eq!(
+            obs[15].vcbase,
+            text_row(line) * 40,
+            "line {line:#x}: VCBASE should be the base of row {}",
+            text_row(line)
+        );
+    }
+}
+
+#[test]
+fn shadow_rc_counts_the_character_sub_row() {
+    // RC resets to 0 on a badline (UpdateVc, cycle 14) and steps by one each
+    // subsequent raster of the 8-line character block.
+    let badline = capture_line(text_mode, BADLINE);
+    assert_eq!(badline[20].rc, 0, "RC is 0 on the badline (first) raster");
+
+    let second = capture_line(text_mode, BADLINE + 1);
+    assert_eq!(second[20].rc, 1, "RC is 1 on the row's second raster");
+
+    let eighth = capture_line(text_mode, BADLINE + 7);
+    assert_eq!(eighth[20].rc, 7, "RC is 7 on the row's last raster");
 }
 
 // ---- Ignored tests: the rewrite's acceptance criteria (Increment 3/4) ----
