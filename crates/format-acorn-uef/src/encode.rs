@@ -15,17 +15,20 @@ const INTER_BLOCK_GAP_UNITS: u16 = 720;
 
 /// Encode tape data blocks as a UEF image.
 ///
-/// Each block is a carrier-tone leader (`&0110`, `leader_cycles` 2400 Hz cycles —
-/// long enough to trip the receiver's carrier detection on load), the data
-/// (`&0100`), then a silent gap (`&0112`) before the next block. The result
-/// round-trips through [`crate::parse`].
+/// Opens with a baud-rate chunk (`&0117` = 300), then each block is a carrier-tone
+/// leader (`&0110`, `leader_cycles` 2400 Hz cycles — long enough to trip carrier
+/// detection on load), the data (`&0100`), then a silent gap (`&0112`) before the
+/// next block. The result round-trips through [`crate::parse`].
 ///
-/// The Atom records at a fixed 300 baud, so no baud-change chunk (`&0117`) is
-/// needed — the parser's default base rate already matches.
+/// The Atom records at **300 baud** (a `1` is 8 cycles of 2400 Hz, a `0` is 4 of
+/// 1200 Hz), so the baud chunk is essential: [`crate::parse`] defaults to 1200
+/// baud and would otherwise frame each byte four times too fast for the Atom COS.
 #[must_use]
 pub fn encode_blocks(blocks: &[Vec<u8>], leader_cycles: u16) -> Vec<u8> {
+    const ATOM_BAUD: u16 = 300;
     let mut image = MAGIC.to_vec();
     image.extend_from_slice(&[0x0a, 0x00]); // version 0.10
+    push_chunk(&mut image, 0x0117, &ATOM_BAUD.to_le_bytes());
     for block in blocks {
         push_chunk(&mut image, 0x0110, &leader_cycles.to_le_bytes());
         push_chunk(&mut image, 0x0100, block);
@@ -47,9 +50,10 @@ mod tests {
     use super::*;
     use common_acorn_cassette::{TapePulse, demodulate_blocks};
 
-    /// Frame bytes into a Kansas-City waveform the way the COS bit-bangs a SAVE:
-    /// a carrier leader, then each byte as start(0) + 8 data bits (LSB first) +
-    /// stop(1). Stands in for the machine's captured cassette output.
+    /// Frame bytes into a 300-baud Kansas-City waveform the way the COS bit-bangs
+    /// a SAVE: a carrier leader, then each byte as start(0) + 8 data bits (LSB
+    /// first) + stop(1), a `1` being 8 cycles of 2400 Hz and a `0` four of 1200 Hz.
+    /// Stands in for the machine's captured cassette output.
     fn captured_save(blocks: &[&[u8]]) -> Vec<TapePulse> {
         const ONE_HALF: u32 = 208_333; // 2400 Hz
         const ZERO_HALF: u32 = 416_667; // 1200 Hz
@@ -57,12 +61,12 @@ mod tests {
             pulses.push(if set {
                 TapePulse::Cycles {
                     half_period_ns: ONE_HALF,
-                    count: 2,
+                    count: 8,
                 }
             } else {
                 TapePulse::Cycles {
                     half_period_ns: ZERO_HALF,
-                    count: 1,
+                    count: 4,
                 }
             });
         };

@@ -13,33 +13,132 @@ mod receiver;
 pub use pulse::TapePulse;
 pub use receiver::{CassetteEvent, CassetteReceiver};
 
-/// Demodulate a captured cassette waveform into its data blocks.
+/// A 2400 Hz cycle's half-period is shorter than this; anything longer is the
+/// 1200 Hz tone. Halfway between 208 µs (2400 Hz) and 417 µs (1200 Hz).
+const TONE_THRESHOLD_NS: u32 = 312_500;
+/// 300-baud Kansas City: a `1` bit is 8 cycles of 2400 Hz, a `0` is 4 of 1200 Hz.
+const CYCLES_PER_ONE: u32 = 8;
+const CYCLES_PER_ZERO: u32 = 4;
+/// A high-tone run longer than any in-data run is a carrier leader (a block
+/// boundary), not data. The longest in-data run is a `&FF` byte: 8 data `1`s
+/// plus the stop bit = 9 high bits = 72 cycles, so anything past ~12 bits is
+/// unambiguously carrier.
+const CARRIER_MIN_CYCLES: u32 = 96;
+
+/// Demodulate a captured 300-baud Atom cassette `SAVE` waveform into data blocks.
 ///
-/// Runs the [`CassetteReceiver`] over `pulses` and splits the recovered bytes at
-/// each carrier leader ([`CassetteEvent::HighTone`]) — so a `SAVE` that writes
-/// several carrier-separated blocks comes back as one `Vec<u8>` per block, ready
-/// for a `.uef`/`.tap` writer. The inverse of playing a loaded tape.
+/// The Atom COS records Kansas-City at **300 baud**: each bit spans ~3.33 ms — a
+/// `1` is 8 cycles of 2400 Hz, a `0` is 4 cycles of 1200 Hz — framed start (0) +
+/// 8 data bits (LSB first) + stop (1), with a long carrier leader before each
+/// block. Tone runs are turned back into bits (`round(cycles / 8)` ones per high
+/// run, `round(cycles / 4)` zeros per low run, which absorbs ±1-cycle capture
+/// jitter), a leader or silence ends the current block, and each block's bits are
+/// reframed into bytes — one `Vec<u8>` per block, ready for a `.uef` writer.
+///
+/// Distinct from the 1200-baud [`CassetteReceiver`], which the BBC Micro and
+/// Electron ULAs use for LOAD; this is the Atom's SAVE-side inverse.
 #[must_use]
 pub fn demodulate_blocks(pulses: Vec<TapePulse>) -> Vec<Vec<u8>> {
-    let mut receiver = CassetteReceiver::new();
-    receiver.load(pulses);
     let mut blocks: Vec<Vec<u8>> = Vec::new();
-    let mut current: Vec<u8> = Vec::new();
-    while !receiver.finished() {
-        receiver.advance(1000, &mut |event| match event {
-            // A fresh carrier leader starts a new block; flush the previous one.
-            CassetteEvent::HighTone => {
-                if !current.is_empty() {
-                    blocks.push(std::mem::take(&mut current));
+    let mut bits: Vec<bool> = Vec::new();
+
+    for run in tone_runs(&pulses) {
+        let boundary = match run {
+            Run::Silence => true,
+            Run::Tone { high: true, cycles } if cycles >= CARRIER_MIN_CYCLES => true,
+            Run::Tone { high, cycles } => {
+                let per_bit = if high {
+                    CYCLES_PER_ONE
+                } else {
+                    CYCLES_PER_ZERO
+                };
+                for _ in 0..div_round(cycles, per_bit) {
+                    bits.push(high);
+                }
+                false
+            }
+        };
+        if boundary {
+            flush_block(&mut bits, &mut blocks);
+        }
+    }
+    flush_block(&mut bits, &mut blocks);
+    blocks
+}
+
+/// One merged stretch of the captured waveform: a same-tone cycle run or silence.
+enum Run {
+    Tone { high: bool, cycles: u32 },
+    Silence,
+}
+
+/// Collapse the pulse stream into tone runs, merging adjacent same-tone cycles so
+/// a whole carrier leader (or a multi-cycle bit) is one run.
+fn tone_runs(pulses: &[TapePulse]) -> Vec<Run> {
+    let mut runs: Vec<Run> = Vec::new();
+    for pulse in pulses {
+        match *pulse {
+            TapePulse::Cycles {
+                half_period_ns,
+                count,
+            } => {
+                let high = half_period_ns < TONE_THRESHOLD_NS;
+                match runs.last_mut() {
+                    Some(Run::Tone { high: last, cycles }) if *last == high => *cycles += count,
+                    _ => runs.push(Run::Tone {
+                        high,
+                        cycles: count,
+                    }),
                 }
             }
-            CassetteEvent::ByteReady(byte) => current.push(byte),
-        });
+            TapePulse::Gap { .. } => runs.push(Run::Silence),
+        }
     }
-    if !current.is_empty() {
-        blocks.push(current);
+    runs
+}
+
+/// Frame `bits` into bytes and, if any survive, push them as one block; clears
+/// `bits` either way.
+fn flush_block(bits: &mut Vec<bool>, blocks: &mut Vec<Vec<u8>>) {
+    let bytes = frame_bits(bits);
+    if !bytes.is_empty() {
+        blocks.push(bytes);
     }
-    blocks
+    bits.clear();
+}
+
+/// Frame a block's bit stream into bytes: skip to a start bit (0), read 8 data
+/// bits (LSB first), then consume the stop bit (1) if present — the final byte's
+/// stop is often swallowed by the trailing carrier, so it is optional.
+fn frame_bits(bits: &[bool]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut i = 0;
+    while i < bits.len() {
+        if bits[i] {
+            i += 1; // carrier tail or a stray stop bit; wait for a start bit
+            continue;
+        }
+        if i + 9 > bits.len() {
+            break; // not enough left for start + 8 data bits
+        }
+        let mut byte = 0u8;
+        for j in 0..8 {
+            if bits[i + 1 + j] {
+                byte |= 1 << j;
+            }
+        }
+        bytes.push(byte);
+        i += 9; // start + 8 data
+        if i < bits.len() && bits[i] {
+            i += 1; // stop bit
+        }
+    }
+    bytes
+}
+
+/// Divide rounding to the nearest integer — `round(n / d)`.
+fn div_round(n: u32, d: u32) -> u32 {
+    (n + d / 2) / d
 }
 
 #[cfg(test)]
@@ -48,17 +147,18 @@ mod block_tests {
 
     const ONE_HALF: u32 = 208_333;
 
+    // 300-baud framing: a `1` is 8 cycles of 2400 Hz, a `0` is 4 of 1200 Hz.
     fn push_byte(pulses: &mut Vec<TapePulse>, byte: u8) {
         let push_bit = |pulses: &mut Vec<TapePulse>, set: bool| {
             pulses.push(if set {
                 TapePulse::Cycles {
                     half_period_ns: ONE_HALF,
-                    count: 2,
+                    count: 8,
                 }
             } else {
                 TapePulse::Cycles {
                     half_period_ns: 416_667,
-                    count: 1,
+                    count: 4,
                 }
             });
         };
