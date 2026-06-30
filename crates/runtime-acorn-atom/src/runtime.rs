@@ -119,6 +119,17 @@ impl AtomRuntime {
         Some(format_acorn_uef::encode_blocks(&blocks, LEADER_CYCLES))
     }
 
+    /// Drain the bytes the COS has strobed to the Centronics printer (6522 VIA at
+    /// `$B800`) since the last call, or `None` if nothing was printed. The runtime
+    /// writes them to a file, mirroring `flush_tape_image`.
+    pub fn flush_printer_output(&mut self) -> Option<Vec<u8>> {
+        let bytes = self.machine.as_mut()?.take_printer_output();
+        if bytes.is_empty() {
+            return None;
+        }
+        Some(bytes)
+    }
+
     #[must_use]
     pub fn model(&self) -> Model {
         self.model

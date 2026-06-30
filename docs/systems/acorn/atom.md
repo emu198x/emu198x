@@ -96,12 +96,24 @@ the `ACORN ATOM` banner + `>` prompt; `PRINT3` → `3`. Headless extended system
   been pushing an empty buffer). High PC2 = `+0.5`, low = `-0.5`. Verified in CI: a
   toggler loaded as a `.atm` yields a non-empty waveform end-to-end (machine +
   runtime tests).
+- **Centronics printer** (2026-06-30, #699) — the base Atom's parallel printer
+  hangs off a **6522 VIA at `$B800-$BBFF`** (MAME `atom.cpp`): port A is the data
+  byte, CA2 is the `/STROBE` that latches it (CA1 = `/ACK`, PA7 = BUSY). The VIA
+  (shared `mos-via-6522` crate, as on the BBC/VIC-20/Oric) ticks each master clock
+  and is the Atom's only IRQ source; on the falling edge of CA2 the machine latches
+  `port_a_drive_state()` to a printer buffer drained by `take_printer_output()` /
+  the runtime's `flush_printer_output()` / `--save-print`. Proven in CI by
+  `printer.rs`: a synthetic ROM sets port A to outputs, puts CA2 in pulse mode, and
+  strobes two bytes that arrive at the printer — no copyrighted MOS needed.
 
 ## Not implemented / accuracy gaps
 
-- **Printer** unwired (#699). (Per-line VDG render landed in #697, and cassette
-  SAVE now round-trips both through LOAD and through a saved `.uef` — see "What
-  works".)
+- **COS-level print redirection** — the printer *hardware* is wired (#699) and a
+  program drives it directly (port A + CA2 strobe). The base COS has no
+  `PRINT`-to-printer path, though; that needed a printer utility ROM, so high-level
+  printing means driving the VIA (e.g. `?#B801=…`) or paging such a ROM into `$A000`.
+- **VDG sub-character timing** — mid-*byte* (intra-character) effects and exact
+  horizontal-blank geometry aren't modelled; per byte is the current granularity.
 
 ## Known unknowns / disproven hypotheses
 
