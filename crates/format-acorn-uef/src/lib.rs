@@ -21,11 +21,13 @@
 //! (Wilbert Pol, BSD-3-Clause).
 
 mod decode;
+mod encode;
 mod error;
 mod pulse;
 
 pub use common_acorn_cassette::TapePulse;
 pub use decode::parse;
+pub use encode::encode_blocks;
 pub use error::UefError;
 pub use pulse::UefTape;
 

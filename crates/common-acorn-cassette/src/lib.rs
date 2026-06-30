@@ -13,6 +13,100 @@ mod receiver;
 pub use pulse::TapePulse;
 pub use receiver::{CassetteEvent, CassetteReceiver};
 
+/// Demodulate a captured cassette waveform into its data blocks.
+///
+/// Runs the [`CassetteReceiver`] over `pulses` and splits the recovered bytes at
+/// each carrier leader ([`CassetteEvent::HighTone`]) — so a `SAVE` that writes
+/// several carrier-separated blocks comes back as one `Vec<u8>` per block, ready
+/// for a `.uef`/`.tap` writer. The inverse of playing a loaded tape.
+#[must_use]
+pub fn demodulate_blocks(pulses: Vec<TapePulse>) -> Vec<Vec<u8>> {
+    let mut receiver = CassetteReceiver::new();
+    receiver.load(pulses);
+    let mut blocks: Vec<Vec<u8>> = Vec::new();
+    let mut current: Vec<u8> = Vec::new();
+    while !receiver.finished() {
+        receiver.advance(1000, &mut |event| match event {
+            // A fresh carrier leader starts a new block; flush the previous one.
+            CassetteEvent::HighTone => {
+                if !current.is_empty() {
+                    blocks.push(std::mem::take(&mut current));
+                }
+            }
+            CassetteEvent::ByteReady(byte) => current.push(byte),
+        });
+    }
+    if !current.is_empty() {
+        blocks.push(current);
+    }
+    blocks
+}
+
+#[cfg(test)]
+mod block_tests {
+    use super::*;
+
+    const ONE_HALF: u32 = 208_333;
+
+    fn push_byte(pulses: &mut Vec<TapePulse>, byte: u8) {
+        let push_bit = |pulses: &mut Vec<TapePulse>, set: bool| {
+            pulses.push(if set {
+                TapePulse::Cycles {
+                    half_period_ns: ONE_HALF,
+                    count: 2,
+                }
+            } else {
+                TapePulse::Cycles {
+                    half_period_ns: 416_667,
+                    count: 1,
+                }
+            });
+        };
+        push_bit(pulses, false);
+        for i in 0..8 {
+            push_bit(pulses, (byte >> i) & 1 == 1);
+        }
+        push_bit(pulses, true);
+    }
+
+    fn block(bytes: &[u8]) -> Vec<TapePulse> {
+        let mut pulses = vec![TapePulse::Cycles {
+            half_period_ns: ONE_HALF,
+            count: 128,
+        }];
+        for &byte in bytes {
+            push_byte(&mut pulses, byte);
+        }
+        pulses
+    }
+
+    #[test]
+    fn one_carrier_one_block() {
+        assert_eq!(
+            demodulate_blocks(block(&[0x2A, 0x41])),
+            vec![vec![0x2A, 0x41]]
+        );
+    }
+
+    #[test]
+    fn each_carrier_leader_starts_a_new_block() {
+        let mut pulses = block(&[0x12, 0x34]);
+        pulses.push(TapePulse::Gap {
+            duration_ns: 5_000_000,
+        });
+        pulses.extend(block(&[0x56]));
+        assert_eq!(
+            demodulate_blocks(pulses),
+            vec![vec![0x12, 0x34], vec![0x56]]
+        );
+    }
+
+    #[test]
+    fn silence_yields_no_blocks() {
+        assert!(demodulate_blocks(vec![TapePulse::Gap { duration_ns: 1_000 }]).is_empty());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
