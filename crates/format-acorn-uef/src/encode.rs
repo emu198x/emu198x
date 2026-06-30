@@ -8,11 +8,20 @@
 /// UEF container magic (10 bytes, NUL-terminated).
 const MAGIC: &[u8] = b"UEF File!\0";
 
+/// Inter-block silence written after each block, as the integer-gap chunk
+/// (`&0112`) the parser reads. Its unit is the 1200 Hz base half-period, so
+/// 2400 ≈ 1 s; ~0.3 s separates blocks like a real tape and lets a loader resync.
+const INTER_BLOCK_GAP_UNITS: u16 = 720;
+
 /// Encode tape data blocks as a UEF image.
 ///
-/// `leader_cycles` is the length of each block's carrier tone, in 2400 Hz cycles
-/// — long enough to trip the receiver's carrier detection on load (a few hundred
-/// is ample). The result round-trips through [`crate::parse`].
+/// Each block is a carrier-tone leader (`&0110`, `leader_cycles` 2400 Hz cycles —
+/// long enough to trip the receiver's carrier detection on load), the data
+/// (`&0100`), then a silent gap (`&0112`) before the next block. The result
+/// round-trips through [`crate::parse`].
+///
+/// The Atom records at a fixed 300 baud, so no baud-change chunk (`&0117`) is
+/// needed — the parser's default base rate already matches.
 #[must_use]
 pub fn encode_blocks(blocks: &[Vec<u8>], leader_cycles: u16) -> Vec<u8> {
     let mut image = MAGIC.to_vec();
@@ -20,6 +29,7 @@ pub fn encode_blocks(blocks: &[Vec<u8>], leader_cycles: u16) -> Vec<u8> {
     for block in blocks {
         push_chunk(&mut image, 0x0110, &leader_cycles.to_le_bytes());
         push_chunk(&mut image, 0x0100, block);
+        push_chunk(&mut image, 0x0112, &INTER_BLOCK_GAP_UNITS.to_le_bytes());
     }
     image
 }
@@ -106,5 +116,19 @@ mod tests {
     fn output_carries_the_uef_magic() {
         let uef = encode_blocks(&[vec![0x01]], 16);
         assert!(uef.starts_with(b"UEF File!\0"));
+    }
+
+    #[test]
+    fn blocks_are_separated_by_gaps() {
+        // Each block is followed by a silent gap, so the parsed waveform carries a
+        // TapePulse::Gap between blocks (the timing structure a real tape has).
+        let uef = encode_blocks(&[vec![0x01], vec![0x02]], 256);
+        let gaps = crate::parse(&uef)
+            .expect("parses")
+            .pulses
+            .iter()
+            .filter(|p| matches!(p, TapePulse::Gap { .. }))
+            .count();
+        assert_eq!(gaps, 2, "one gap chunk per block");
     }
 }
