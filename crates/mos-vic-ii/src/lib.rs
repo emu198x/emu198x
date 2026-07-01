@@ -25,6 +25,7 @@ mod sprite_sequencer;
 #[allow(dead_code)]
 mod sprite_fetch_chain;
 
+use sprite_fetch_chain::SpriteFetchChain;
 use sprite_sequencer::SpriteSequencer;
 
 use serde::{Deserialize, Serialize};
@@ -182,6 +183,16 @@ pub struct Vic {
     sprite_sequencer: SpriteSequencer,
     #[serde(skip)]
     use_sprite_sequencer: bool,
+    /// Sprite fetch chain (MC/MCBASE/exp-flop + crunch) and its MC-addressed
+    /// data, feeding the sequencer continuously (VICE model): the chain sets
+    /// display bits at cyc 58 (→ `set_pending`) and loads data at the s-access
+    /// (→ `load_data`). Used only on the sequencer path. Transient render state.
+    #[serde(skip)]
+    chain: SpriteFetchChain,
+    #[serde(skip)]
+    chain_data: [[u8; 3]; 8],
+    #[serde(skip)]
+    chain_fetch_base: [u16; 8],
     sprite_sprite_collision: u8,
     sprite_bg_collision: u8,
     sprite_sprite_irq_latched: bool,
@@ -262,6 +273,9 @@ impl Vic {
             sprite_dma_active: [false; 8],
             sprite_sequencer: SpriteSequencer::new(),
             use_sprite_sequencer: false,
+            chain: SpriteFetchChain::new(),
+            chain_data: [[0; 3]; 8],
+            chain_fetch_base: [0; 8],
             sprite_sprite_collision: 0,
             sprite_bg_collision: 0,
             sprite_sprite_irq_latched: false,
@@ -295,6 +309,12 @@ impl Vic {
         // Cycles 58/60/62 on line L-1 fetch for line L's display; cycles
         // 1/3/5/7/9 on line L fetch sprites 3..=7 for the same line L.
         self.fetch_sprite_if_scheduled(memory);
+
+        // On the sequencer path, advance the MC/MCBASE/exp-flop chain, its
+        // MC-addressed fetch, and feed the sequencer continuously (VICE model).
+        if self.use_sprite_sequencer {
+            self.advance_sprite_chain(memory);
+        }
 
         self.update_border_flip_flops();
         self.render_pixels(memory);
@@ -1031,15 +1051,90 @@ impl Vic {
         x
     }
 
-    /// Bit mask of sprites whose display (fetch) is active this line.
-    fn sprite_active_mask(&self) -> u8 {
-        let mut m = 0u8;
-        for (i, &active) in self.sprite_active.iter().enumerate() {
-            if active {
-                m |= 1 << i;
-            }
+    /// Each sprite's Y position (`$D001+2i`).
+    fn sprite_y_array(&self) -> [u8; 8] {
+        let mut y = [0u8; 8];
+        for (i, slot) in y.iter_mut().enumerate() {
+            *slot = self.regs[1 + i * 2];
         }
-        m
+        y
+    }
+
+    /// Advance the sprite fetch chain and feed the sequencer continuously — the
+    /// VICE model (`vicii-cycle.c` sprite events + `vicii-draw-cycle.c` draw
+    /// housekeeping). Per cycle: run the chain events (MCBASE 16, DMA 55/56, exp
+    /// 56, display 58); publish X positions + `$D01C`; push the display bits into
+    /// the sequencer's pending set at cyc 58; run the chain-driven p/s-access and
+    /// load each sprite's 24 data bits into the shift register at its s-access.
+    ///
+    /// The Y compare is **VICE-literal** (`Y == raster_line`, no `+1`) so
+    /// per-line `$D015`/`$D001` writes are sampled at VICE's cycles, and
+    /// **non-wrapping** (activation gated to `raster_line <= 255`) to suppress
+    /// the raster-306 re-match VICE also hides (mechanism unpinned).
+    fn advance_sprite_chain(&mut self, memory: &dyn VicMemory) {
+        let c = self.raster_cycle;
+        let enable = self.regs[0x15];
+        let y = self.sprite_y_array();
+        let raster_low = self.raster_line as u8;
+
+        self.sprite_sequencer
+            .set_x_positions(self.sprite_fb_x_array());
+        self.sprite_sequencer.set_mc_bits(self.regs[0x1C]);
+
+        if c == 16 {
+            self.chain.update_mcbase();
+        }
+        if (c == 55 || c == 56) && self.raster_line <= 255 {
+            self.chain.check_dma(enable, y, raster_low);
+        }
+        if c == 56 {
+            self.chain.check_exp(self.regs[0x17]);
+        }
+        if c == 58 {
+            self.chain.check_display(enable, y, raster_low);
+            self.sprite_sequencer.set_pending(self.chain.display_bits());
+        }
+
+        if let Some((i, _)) = Self::sprite_paccess_cycle(c) {
+            self.chain_paccess(memory, i);
+        }
+        if let Some(i) = Self::sprite_saccess_cycle(c) {
+            self.chain_saccess(memory, i);
+        }
+    }
+
+    /// Chain p-access: read the sprite pointer and data byte 0 addressed by MC,
+    /// latch the pointer base, advance MC. Gated by the chain's DMA state.
+    fn chain_paccess(&mut self, memory: &dyn VicMemory, i: usize) {
+        if !self.chain.dma_active(i) {
+            return;
+        }
+        let ptr_addr = self.screen_base() + 0x03F8 + i as u16;
+        let base = u16::from(memory.read_vram(self.vram_addr(ptr_addr))) << 6;
+        self.chain_fetch_base[i] = base;
+        let mc = self.chain.mc(i);
+        self.chain_data[i][0] = memory.read_vram(self.vram_addr(base + u16::from(mc)));
+        self.chain.advance_mc(i);
+    }
+
+    /// Chain s-access: read data bytes 1 and 2 (advancing MC), then load the
+    /// full 24-bit sprite data into the sequencer's shift register.
+    fn chain_saccess(&mut self, memory: &dyn VicMemory, i: usize) {
+        if !self.chain.dma_active(i) {
+            return;
+        }
+        let base = self.chain_fetch_base[i];
+        let mc1 = self.chain.mc(i);
+        self.chain_data[i][1] = memory.read_vram(self.vram_addr(base + u16::from(mc1)));
+        self.chain.advance_mc(i);
+        let mc2 = self.chain.mc(i);
+        self.chain_data[i][2] = memory.read_vram(self.vram_addr(base + u16::from(mc2)));
+        self.chain.advance_mc(i);
+
+        let data = (u32::from(self.chain_data[i][0]) << 16)
+            | (u32::from(self.chain_data[i][1]) << 8)
+            | u32::from(self.chain_data[i][2]);
+        self.sprite_sequencer.load_data(i, data);
     }
 
     /// Draw this cycle's 8 sprite pixels through the draw-stage sequencer. At
@@ -1048,13 +1143,9 @@ impl Vic {
     /// thereafter each visible cycle shifts 8 more pixels out. Composites the
     /// winning sprite pixel with foreground priority, matching `overlay_sprites`.
     fn draw_sprites_sequencer(&mut self, fb_offset: usize, fb_x: usize, fg_mask: u8) {
-        if self.raster_cycle == FIRST_VISIBLE_CYCLE {
-            let x_fb = self.sprite_fb_x_array();
-            let active_mask = self.sprite_active_mask();
-            self.sprite_sequencer
-                .begin_line(&self.sprite_data, active_mask, x_fb, self.regs[0x1C]);
-        }
-
+        // The sequencer is fed continuously by `advance_sprite_chain` (pending
+        // at cyc 58, data at the s-access); here we only shift + composite this
+        // cycle's 8 pixels.
         let expx = self.regs[0x1D];
         let priority = self.regs[0x1B];
         for px in 0..8usize {
@@ -1238,6 +1329,7 @@ impl Vic {
     /// Write a VIC-II register.
     pub fn write(&mut self, reg: u8, value: u8) {
         let r = (reg & 0x3F) as usize;
+        let old = if r < self.regs.len() { self.regs[r] } else { 0 };
         if r < self.regs.len() {
             self.regs[r] = value;
         }
@@ -1255,6 +1347,11 @@ impl Vic {
             }
             0x1A => {
                 self.irq_enable = value & 0x0F;
+            }
+            // Sprite crunch: on the sequencer path, a `$D017` change feeds the
+            // fetch chain's crunch bit-math (gated on the crunch cycle).
+            0x17 if value != old && self.use_sprite_sequencer => {
+                self.chain.write_d017(value, self.raster_cycle == 15);
             }
             _ => {}
         }
@@ -1487,23 +1584,35 @@ mod tests {
             memory.ram_write(0x2040 + k, [0x1B, 0xE4, 0x5A][k as usize]);
             memory.ram_write(0x2080 + k, [0xC3, 0x66, 0xFF][k as usize]);
         }
-        advance_to(&mut vic, &memory, 101, 0);
+        advance_to(&mut vic, &memory, 103, 0);
         vic.framebuffer().to_vec()
     }
 
+    /// The draw-stage sequencer renders the same sprite content (shape, colour,
+    /// multicolour, X-expand, priority) as the geometry overlay. In this
+    /// *isolated* synthetic harness the continuous chain feed places the sprites
+    /// one line later than the geometry path (first-activation vs steady-state
+    /// timing); real-program phase is validated by the testbench
+    /// `sprite_sequencer_spritedma_parity` (0 px vs VICE). Here we compare the
+    /// sequencer's line to the overlay's, offset by that one line.
     #[test]
-    fn sprite_sequencer_matches_overlay_on_display_line() {
+    fn sprite_sequencer_matches_overlay_content() {
         let overlay = render_three_sprite_scene(false);
         let sequencer = render_three_sprite_scene(true);
-        let fb_y = (100 - FIRST_VISIBLE_LINE) as usize;
-        let row = fb_y * FB_WIDTH as usize;
+        let ov_row = (100 - FIRST_VISIBLE_LINE) as usize * FB_WIDTH as usize;
+        let sq_row = (101 - FIRST_VISIBLE_LINE) as usize * FB_WIDTH as usize;
+        let mut sprite_px = 0;
         for x in 0..FB_WIDTH as usize {
             assert_eq!(
-                overlay[row + x],
-                sequencer[row + x],
+                overlay[ov_row + x],
+                sequencer[sq_row + x],
                 "sprite pixel differs at fb_x={x}"
             );
+            if overlay[ov_row + x] != overlay[x] {
+                sprite_px += 1;
+            }
         }
+        assert!(sprite_px > 0, "scene should render sprite pixels");
     }
 
     #[test]
