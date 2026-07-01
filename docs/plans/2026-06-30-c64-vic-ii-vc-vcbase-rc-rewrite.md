@@ -5,7 +5,7 @@ date: 2026-06-30
 system: docs/systems/commodore/c64.md
 parent_plan: docs/plans/2026-06-08-c64-100-percent-plan.md
 decision: knowledge/decisions/c64-architecture-review.md
-status: in-progress — Increments 1-4 landed on branch c64-vic-ii-rewrite-oracle-harness (PR #711; addressing fully counter-driven, oracle passes 0 ignored, output-identical); Increment 5 pixel-oracle harness landed on c64-vicii-testbench-validation-inc5 (gfxfetch 99.33% vs VICE). Sprite sequencer port underway (2026-07-01): S1 draw sequencer + S2 flag-gated wiring (spritedma 0-px parity) + S4a fetch chain, all landed. S4b LANDED (f9901c0e) — chain-fed the sequencer via VICE's continuous model (VICE-literal no-+1, after 3 begin_line/+1 attempts failed). S5a/b LANDED (179667f9) — split into VICE's two-stage draw + per-pixel DMA halt: spritefetchbug 94.29→96.53%, spritedma held 99.998%. Full survey (3f3201bd): the sequencer is strictly better-or-equal to overlay on every category (bar −0.16% noise on sequencer-bug). All flag-gated (default still geometry). S3 (flip default) prerequisites left: sprite collisions on the sequencer path + golden re-bless. See Increment 5 § sprite sequencer.
+status: in-progress — Increments 1-4 landed on branch c64-vic-ii-rewrite-oracle-harness (PR #711; addressing fully counter-driven, oracle passes 0 ignored, output-identical); Increment 5 pixel-oracle harness landed on c64-vicii-testbench-validation-inc5 (gfxfetch 99.33% vs VICE). Sprite sequencer port underway (2026-07-01): S1 draw sequencer + S2 flag-gated wiring (spritedma 0-px parity) + S4a fetch chain, all landed. S4b LANDED (f9901c0e) — chain-fed the sequencer via VICE's continuous model (VICE-literal no-+1, after 3 begin_line/+1 attempts failed). S5a/b LANDED (179667f9) — split into VICE's two-stage draw + per-pixel DMA halt: spritefetchbug 94.29→96.53%, spritedma held 99.998%. Full survey (3f3201bd): the sequencer is strictly better-or-equal to overlay on every category (bar −0.16% noise on sequencer-bug). Collisions landed (4141dd4a) — sequencer path now functionally complete (render + $D01E/$D01F). All flag-gated (default still geometry). S3 (flip default) is the only step left: full golden pass with the flag on, re-bless, FRAME_ROUTING bump, flip. See Increment 5 § sprite sequencer.
 ---
 
 # C64 VIC-II VC/VCBASE/RC rewrite — incremental plan
@@ -483,14 +483,18 @@ So:
   sprite-in-**border** stripes; our composite skips border lines, and it may need
   the real frame-wrap. `spritefetchbug` residual 96.5 % — finer fetch/`$D01D`-at-
   px-6 timing. Both esoteric and program-specific.
-- **S3 (last) — switch the default** to the sequencer. The survey gate is
-  essentially met, but two prerequisites remain before flipping: **(1) sprite
-  collisions** — the sequencer path does not compute `$D01E`/`$D01F` (the
-  geometry `overlay_sprites` does; `draw_pixel` would need to return the coverage
-  mask, and the composite accumulate sprite-sprite + sprite-bg collisions);
-  **(2) C64 goldens** (`diag_aztec_vic_state`) re-run/re-bless + a
-  `FRAME_ROUTING_VERSION` bump if pixels move. Retire `overlay_sprites` once both
-  are done.
+- **Collisions ✅ LANDED (`4141dd4a`).** The sequencer path now computes
+  `$D01E`/`$D01F` like the geometry overlay: `draw_pixel` returns a `DrawnPixel
+  { winner, coverage }`, the draw stage stores the per-pixel coverage, and the
+  composite accumulates sprite-sprite (2+ sprites) + sprite-background (sprite
+  over foreground) collisions. Pixel-neutral (spritedma still 99.998 %); unit-
+  tested. **The sequencer path is now functionally complete** (render + collisions).
+- **S3 (last) — switch the default** to the sequencer. The survey gate is met and
+  collisions are done; the only remaining step is validation + the flip: run the
+  full C64 suite (goldens `diag_aztec_vic_state`, boot, snapshot) with the flag
+  **on**, re-bless any goldens whose pixels move, bump `FRAME_ROUTING_VERSION`,
+  flip the default, and retire `overlay_sprites`. This is a shipping-behaviour
+  change, so it wants the full golden pass before landing.
 
 This is larger than the VC/VCBASE rewrite and is tracked as its own increment
 series here.
