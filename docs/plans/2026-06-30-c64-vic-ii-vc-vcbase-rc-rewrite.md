@@ -340,11 +340,13 @@ step pins to specific rows. Ground truth against the geometry baseline:
 VICE draws sprites through a **separate draw-stage shift-register sequencer**
 (`vicii-draw-cycle.c:342` `draw_sprites`, `sbuf_reg` / `sprite_active_bits` /
 `sbuf_mc_flops` / `sbuf_expx_flops`) — the "delayed sprite sequencer" this doc
-referenced. That sequencer is what suppresses the frame-wrap phantom copy (VICE
-renders no sprite at lines 16-35 for a Y=50 sprite, matching our geometry model),
-and it is what the `spritefetchbug` / `sb_sprite_fetch` divergences turn on. Our
-engine has no equivalent — `overlay_sprites` draws directly from `sprite_data`
-at the sprite's X position. So:
+referenced. It is what the `spritefetchbug` / `sb_sprite_fetch` divergences turn
+on. (An earlier draft guessed this sequencer also *suppresses* the frame-wrap
+phantom copy — **S4b disproved that**: the sequencer draws whatever the chain's
+display bits activate, so the wrap survives. VICE's wrap behaviour is still
+unexplained and is the S4b prerequisite.) Our engine has no equivalent —
+`overlay_sprites` draws directly from `sprite_data` at the sprite's X position.
+So:
 
 - The MC/MCBASE/exp-flop **fetch** chain alone buys **at most the ~5 %
   `spritecrunch` gain**, and even that is entangled with the wrap.
@@ -379,14 +381,27 @@ at the sprite's X position. So:
   Produces per-line display bits + MC data offset; MCBASE==63 ends DMA; crunch
   corrupts MC so the sprite over-runs. Unit-tested (plain = 21 display lines,
   Y-expanded = 42, crunch changes height). Not wired; zero shipping change.
-- **S4b — wire the chain to feed the sequencer** (data load + display bits →
-  crunch height, DMA on/off), moving to VICE's continuous per-cycle `load_data`
-  at the s-access. **The hard part is here:** reconcile VICE's on-the-line
-  timing (`Y == raster & 0xFF`) with the engine's fetch-ahead p/s-access. The
-  earlier `+1` hack caused the frame-wrap copy; the sequencer's `pending`/shift
-  model should now suppress it, but that must be *verified* against `diff_by_row`
-  (sequencer-bug must not regress, spritecrunch must climb), flag-gated. Iterate
-  the phase against the oracle — do not assume it.
+- **S4b — wire the chain to feed the sequencer — attempted, reverted.** Wired
+  the chain (advance per-cycle + MC-addressed `chain_paccess`/`chain_saccess`)
+  to feed the sequencer's `begin_line` (display bits + data), flag-gated, with a
+  `+1` next-line phase so the fetch-ahead aligned. Measured on the oracle:
+  - `spritedma` **improved** 99.713 %→99.780 % (0-px vs overlay before, chain is
+    slightly closer to VICE) — the wiring is mechanically sound.
+  - `sequencer-bug` **regressed** (45→102 rows off): the framebuffer dump shows
+    the Y=50 sprites drawn in the **top/bottom border** (wrong vertical position
+    + the frame-wrap copy), identical to the earlier geometry-`+1` failure.
+  - `spritecrunch` **unchanged**: crunch still did not engage.
+
+  **Key finding — the earlier hypothesis is disproven.** The draw-stage
+  sequencer does **not** suppress the frame-wrap copy: `sprite_pending_bits`
+  comes straight from the chain's display bits, so whatever the chain activates,
+  the sequencer draws. Reverted the wiring (kept the S4a chain module + the
+  proven S2 path) rather than pile on phase-patches. **The frame-wrap is a hard
+  prerequisite, not a side effect** — the chain-feed cannot land until VICE's
+  actual wrap behaviour is understood: does VICE render the second (`Y & 0xFF`
+  re-match at raster ≈305) copy at all, and if not, what suppresses it? Resolve
+  that *first* (a focused investigation — run VICE, or find the sprite-Y-wrap
+  reference), then re-land the chain-feed. Do **not** re-attempt the wiring blind.
 - **S5 — close `spritefetchbug` / `sb_sprite_fetch`** (and the sprite-in-border
   stripes) per-row against the oracle, still flag-gated.
 - **S3 (last) — switch the default** to the sequencer only once it is *strictly
