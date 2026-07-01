@@ -13,6 +13,12 @@
 
 pub mod oracle;
 pub mod palette;
+// Draw-stage sprite sequencer — first increment of the sprite-sequencer port,
+// landed isolated and unit-tested before being wired into the renderer. Its API
+// is exercised only by its own tests until the wiring increment, so the
+// not-yet-used warning is expected and gated here deliberately.
+#[allow(dead_code)]
+mod sprite_sequencer;
 
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
