@@ -5,7 +5,7 @@ date: 2026-06-30
 system: docs/systems/commodore/c64.md
 parent_plan: docs/plans/2026-06-08-c64-100-percent-plan.md
 decision: knowledge/decisions/c64-architecture-review.md
-status: in-progress — Increments 1-4 landed on branch c64-vic-ii-rewrite-oracle-harness (PR #711; addressing fully counter-driven, oracle passes 0 ignored, output-identical); Increment 5 pixel-oracle harness landed on c64-vicii-testbench-validation-inc5 (gfxfetch 99.33% vs VICE). Sprite vertical chain attempted a 2nd time (2026-07-01, cleaner BA/render decomposition, unit-green) and rolled back again — net-negative on the survey: two blockers found (frame-wrap phantom copy regresses sequencer-bug; crunch never engaged → needs CPU/VIC cyc-15 write alignment first). See Increment 5 § Second attempt.
+status: in-progress — Increments 1-4 landed on branch c64-vic-ii-rewrite-oracle-harness (PR #711; addressing fully counter-driven, oracle passes 0 ignored, output-identical); Increment 5 pixel-oracle harness landed on c64-vicii-testbench-validation-inc5 (gfxfetch 99.33% vs VICE). Sprite vertical chain attempted a 2nd time (2026-07-01, cleaner BA/render decomposition, unit-green) and rolled back again — net-negative on the survey. Blockers are intrinsic to the chain, NOT a timing bug: a cycle-origin probe showed the write-phase is sound (dmadelay 100%), so "fix cycle-origin first" was wrong. Real blockers: frame-wrap phantom copy regresses sequencer-bug; mid-line $D017 expand toggles produce no rendered height change. Next: iterative testbench-driven chain development vs a per-sprite-height oracle. See Increment 5 § Second attempt.
 ---
 
 # C64 VIC-II VC/VCBASE/RC rewrite — incremental plan
@@ -283,21 +283,42 @@ back (uncommitted). Two concrete, sourced blockers — the real state of play:
 
 2. **The target sprite categories did not move at all** — `spritecrunch`
    (95.18 %), `spritefetchbug` (94.29 %), `sb_sprite_fetch` (76.28 %) came back
-   **byte-identical** to the geometry model. So the crunch bit-math
-   (`vicii-mem.c` d017_store, gated on cyc 15) **never engaged**. Most likely the
-   CPU-write-to-VIC access lands on a different `raster_cycle` than 15 — i.e.
-   this depends on the **unresolved CPU/VIC cycle-origin alignment** flagged in
-   the "Cycle-numbering note" above, not on the sprite chain itself. **The chain
-   cannot deliver crunch fidelity until that write-cycle alignment is verified.**
+   **byte-identical** to the geometry model. My first read was "the crunch
+   bit-math (`vicii-mem.c` d017_store, gated on cyc 15) never engaged because
+   the CPU write lands on the wrong `raster_cycle`" — pointing at a CPU/VIC
+   cycle-origin bug. **A follow-up probe (2026-07-01) disproved that.**
 
-**Net finding:** the chain is straightforward to implement correctly (unit-level
-green, clean decomposition), but on its own it is *not* the lever for the sprite
-survey categories. The two blockers above — (1) reconcile the frame-wrap copy
-against VICE's actual output, and (2) verify `$D017`-write lands on cyc 15 —
-are the real prerequisites, and (2) is really a CPU/VIC timing item shared with
-`vicii_timing`/`videomode`. Recommend tackling the cycle-origin alignment
-*first* (it gates crunch and likely several other 83-92 % categories at once),
-then re-land the chain on top of a verified timing base.
+**Cycle-origin probe — the write-phase is basically aligned, so it is NOT the
+lever.** Instrumenting `Vic::write` to log the `raster_cycle` each cycle-precise
+write is seen on:
+
+- The **tick order does pre-increment**: `machine.rs` tick runs `vic.tick()`
+  (which increments `raster_cycle` at the *end* of its work) *before* the CPU
+  write, so a write is attributed to the cycle the VIC is *about* to process,
+  one past the cycle it just rendered. Real, but small.
+- `dmadelay/test1-2a-03.prg` (**100 % match**) writes `$D011` YSCROLL across a
+  cycle sweep at line 47 (cyc 55/56/61/62/10) and reproduces VICE's badline
+  delay **exactly**. If the write-phase were grossly off, this could not be
+  100 %. So the CPU/VIC write alignment is *sound* for the badline mechanism.
+- `spritecrunch-3b-00`'s crunch write (`$D017 ← $00`, clearing expand) lands at
+  **cyc 17 on line 87, every line** — *not* the cyc-15 bit-math gate. So this
+  variant's half-height comes from **normal exp-flop timing**, not the special
+  cyc-15 corruption. The chain must reproduce it through the ordinary
+  MCBASE/exp-flop update, and it didn't (byte-identical) — meaning the chain's
+  mid-line-expand handling had no visible effect, a chain-internal issue.
+
+**Corrected net finding:** the chain is easy to implement correctly (unit-green,
+clean decomposition), but its blockers are **intrinsic to the chain**, not a
+global timing bug: (1) the frame-wrap phantom copy (regresses `sequencer-bug`),
+and (2) mid-line `$D017` expand toggles must actually change rendered sprite
+height through MCBASE/exp-flop (currently no visible effect). The right next
+step is **iterative, testbench-driven development of the chain against a
+per-sprite-height oracle** — start from the simplest sprite-height testbench
+case, get MC/MCBASE/exp-flop to move pixels there, resolve the frame-wrap copy
+against VICE's actual output, and only then widen. A blind faithful re-port is
+not enough; each sprite behaviour needs to be pinned to a specific reference
+image as it is closed. (The `+1`-phase decomposition and the exact VICE cycle
+map above are correct groundwork to build on.)
 
 ### Increment 6 — NTSC 6567 (optional, post-PAL)
 
