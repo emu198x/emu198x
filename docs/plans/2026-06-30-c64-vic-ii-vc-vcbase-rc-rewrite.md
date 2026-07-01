@@ -416,15 +416,32 @@ So:
     with the `SDMA` logging, or deeper `raster_line_emulate`/`first_displayed_line`
     archaeology).
 
-  **Practical path for the re-land (empirically justified):** our **geometry**
-  activation (absolute `Y..Y+height`, no `& 0xFF` wrap) already matches VICE for
-  these cases — that is exactly what the **S2 path** feeds the sequencer, and it
-  had 0-px parity + no wrap. So the re-land should feed the sequencer from a
-  **non-wrapping activation** and add **only** the crunch *downward extension*
-  (the S4a chain's MCBASE-corruption over-run, which happens within the first
-  activation, lines 86-125 — separate from the frame-wrap). Keep the wrap out
-  until VICE's suppression mechanism is pinned. Do **not** re-attempt the full
-  `& 0xFF` chain-feed blind.
+  **Non-wrapping re-land — attempted, reverted, and it exposed the real root
+  cause.** Re-wired the chain→sequencer with a **non-wrapping** activation
+  (gate `check_dma` to `next_line <= 255`, suppressing the raster-306 re-match).
+  Result:
+  - `spritedma` **99.974 %** (best yet — the chain is excellent for programs
+    with *stable* sprite registers).
+  - The non-wrap gate **removed the wrap** (framebuffer dump: clean border).
+  - **But `sequencer-bug` still regressed — and the dump showed the *main*
+    sprites missing entirely, not a wrap.** Probing the chain: at the `+1`
+    activation line (49) cyc 55, **`$D015 = 00000000`** — `sequencer-bug` toggles
+    sprite-enable *per line*. Geometry samples enable at the p-access (cyc 58,
+    where it is back to `0xFF`); the chain's **`+1` phase samples it one line
+    early at cyc 55**, catching the disabled window, so `check_dma` never fires
+    and no sprite displays.
+
+  **Decisive finding — the `+1` `begin_line` snapshot is the wrong model.** It
+  only works when sprite registers are stable across the line (spritedma). The
+  `+1` exists solely because `begin_line` snapshots at cyc 10 and needs the
+  display/data ready by then — forcing the chain a line early. The correct model
+  is VICE's **continuous, no-`+1`** one: **`set_pending(display_bits)` at cyc 58
+  and `load_data` at the s-access** (the `SpriteSequencer` already has both
+  methods, unused since S1), sampling enable at VICE's own cycles (55/56/58) so
+  per-line `$D015`/`$D001` writes are seen correctly. That is a genuine
+  re-architecture of the feed (drop `begin_line`), not a phase tweak — the next
+  increment. The frame-wrap suppression is *also* still open, but is now the
+  *second* problem behind the feed model.
 - **S5 — close `spritefetchbug` / `sb_sprite_fetch`** (and the sprite-in-border
   stripes) per-row against the oracle, still flag-gated.
 - **S3 (last) — switch the default** to the sequencer only once it is *strictly
