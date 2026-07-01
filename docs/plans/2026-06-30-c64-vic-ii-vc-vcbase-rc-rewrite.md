@@ -353,14 +353,32 @@ at the sprite's X position. So:
   subsystem replacing `overlay_sprites`, and the single biggest remaining piece
   of C64 VIC-II sprite accuracy.
 
-**Recommended shape when this is picked up:** treat the sprite sequencer as its
-own mini-rewrite with the same increment discipline — (1) oracle in place ✅;
-(2) port the draw-stage shift-register sequencer in *shadow* (assert it
-reproduces `overlay_sprites` for `spritedma`'s parity rows before switching the
-renderer over); (3) switch the renderer to the sequencer, holding `spritedma`
-≥99.78 % per-row; (4) add the MC/MCBASE fetch chain feeding it (crunch); (5)
-close `spritefetchbug` / `sb_sprite_fetch` per-row against the oracle. This is
-larger than the VC/VCBASE rewrite was and deserves its own plan section or file.
+**Increment shape — same discipline as the VC/VCBASE rewrite:**
+
+- **S1 — sequencer module, isolated + unit-tested ✅ (`34db6340`).**
+  `src/sprite_sequencer.rs`: a faithful port of VICE's draw-stage shift-register
+  pipeline (`draw_sprites`/`trigger_sprites`/`draw_sprites8`) — per-sprite 24-bit
+  shift register, X-triggered activation, hires/MC pixel extraction, X-expansion
+  + MC flip-flops, lower-number priority. Landed **not wired** (dead_code gated),
+  unit-tested (hires shift span, MC bit-pair latch, priority). Zero shipping
+  change.
+- **S2 — wire per-cycle behind a flag, prove parity.** Drive the sequencer each
+  cycle from `render_pixels` (feed X positions, `set_pending` at cyc 58,
+  `load_data` at the s-access, `set_mc_bits`/halt housekeeping), rendering into
+  the framebuffer *only when a flag is on*. Hold `spritedma` ≥99.78 % per-row on
+  `diff_by_row` and match `overlay_sprites` on the other parity categories
+  before flipping the default.
+- **S3 — switch the renderer** to the sequencer once parity holds; re-run the
+  full survey + C64 goldens; retire `overlay_sprites`.
+- **S4 — add the MC/MCBASE/exp-flop fetch chain** feeding the sequencer's data
+  load + display bits (crunch height, DMA on/off). The sequencer's own
+  `sprite_pending_bits`/shift model is what suppressed the frame-wrap copy, so
+  the chain can now be VICE-faithful without the earlier regression.
+- **S5 — close `spritefetchbug` / `sb_sprite_fetch`** (and the sprite-in-border
+  stripes) per-row against the oracle.
+
+This is larger than the VC/VCBASE rewrite and is tracked as its own increment
+series here.
 
 ### Increment 6 — NTSC 6567 (optional, post-PAL)
 
