@@ -46,6 +46,12 @@ fn roms_present() -> bool {
 /// Boot real ROMs, load a testbench `.prg` (relative to the testbench dir),
 /// RUN it, settle for `settle_frames`, and return the ARGB framebuffer.
 fn run_testprog(rel_prg: &str, settle_frames: u32) -> Vec<u32> {
+    run_testprog_opt(rel_prg, settle_frames, false)
+}
+
+/// As `run_testprog`, but `use_sequencer` selects the draw-stage sprite
+/// sequencer over the geometry renderer (sequencer-port validation).
+fn run_testprog_opt(rel_prg: &str, settle_frames: u32, use_sequencer: bool) -> Vec<u32> {
     let dir = testbench_dir().expect("testbench dir checked by caller");
     let prg = std::fs::read(dir.join(rel_prg)).expect("testbench .prg should read");
 
@@ -57,6 +63,12 @@ fn run_testprog(rel_prg: &str, settle_frames: u32) -> Vec<u32> {
         u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
         C64SessionQueryProvider,
     );
+    if use_sequencer {
+        session
+            .machine_mut()
+            .machine_mut()
+            .set_sprite_sequencer_enabled(true);
+    }
 
     // Boot to the READY prompt (real hardware ~2.5 s; 150 PAL frames = 3 s).
     session.run_frames(150).expect("boot should run");
@@ -408,6 +420,43 @@ fn row_match_fraction(fb: &[u32], reference: &RefImage, dx: u32, dy: u32, ry: u3
         }
     }
     matched as f64 / f64::from(reference.width)
+}
+
+/// Sequencer S2 parity gate: on `spritedma` (the parity anchor at 99.78 %), the
+/// draw-stage sequencer must render essentially identically to the geometry
+/// `overlay_sprites` — no per-row regression against VICE, and a near-identical
+/// framebuffer. Reports both so a real divergence is visible, not just gated.
+#[test]
+#[ignore = "sequencer S2: spritedma parity (sequencer vs overlay vs VICE)"]
+fn sprite_sequencer_spritedma_parity() {
+    if !roms_present() || testbench_dir().is_none() {
+        eprintln!("skip: C64 ROMs or testbench not staged");
+        return;
+    }
+    let dir = testbench_dir().expect("checked");
+    let reference = decode_reference_png(&dir.join("spritedma/references/d017-54.prg.png"));
+    let overlay = run_testprog_opt("spritedma/d017-54.prg", 60, false);
+    let sequencer = run_testprog_opt("spritedma/d017-54.prg", 60, true);
+
+    let m_overlay = match_fraction(&overlay, &reference, VICE_CROP_X, VICE_CROP_Y);
+    let m_seq = match_fraction(&sequencer, &reference, VICE_CROP_X, VICE_CROP_Y);
+    let diff_px = overlay
+        .iter()
+        .zip(sequencer.iter())
+        .filter(|(a, b)| a != b)
+        .count();
+    eprintln!(
+        "spritedma: overlay {:.3}% vs VICE, sequencer {:.3}% vs VICE, {diff_px} px differ",
+        m_overlay * 100.0,
+        m_seq * 100.0
+    );
+
+    assert!(
+        m_seq >= m_overlay - 0.0005,
+        "sequencer regressed spritedma vs VICE: {:.3}% < {:.3}%",
+        m_seq * 100.0,
+        m_overlay * 100.0
+    );
 }
 
 /// Per-scanline oracle for the sprite-chain rebuild. For the category named in

@@ -20,6 +20,8 @@ pub mod palette;
 #[allow(dead_code)]
 mod sprite_sequencer;
 
+use sprite_sequencer::SpriteSequencer;
+
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
@@ -167,6 +169,14 @@ pub struct Vic {
     sprite_fetch_base: [u16; 8],
     sprite_active: [bool; 8],
     sprite_dma_active: [bool; 8],
+    /// Draw-stage sprite sequencer (VICE shift-register pixel pipeline) and its
+    /// enable flag. While the flag is off (default) sprites render via the
+    /// geometry `overlay_sprites`; the flag drives the sequencer instead. Both
+    /// are transient render state, rebuilt each line, so they skip serialisation.
+    #[serde(skip)]
+    sprite_sequencer: SpriteSequencer,
+    #[serde(skip)]
+    use_sprite_sequencer: bool,
     sprite_sprite_collision: u8,
     sprite_bg_collision: u8,
     sprite_sprite_irq_latched: bool,
@@ -245,6 +255,8 @@ impl Vic {
             sprite_fetch_base: [0; 8],
             sprite_active: [false; 8],
             sprite_dma_active: [false; 8],
+            sprite_sequencer: SpriteSequencer::new(),
+            use_sprite_sequencer: false,
             sprite_sprite_collision: 0,
             sprite_bg_collision: 0,
             sprite_sprite_irq_latched: false,
@@ -713,7 +725,11 @@ impl Vic {
             fg_mask = 0;
         }
 
-        self.overlay_sprites(fb_offset, fb_x, fg_mask);
+        if self.use_sprite_sequencer {
+            self.draw_sprites_sequencer(fb_offset, fb_x, fg_mask);
+        } else {
+            self.overlay_sprites(fb_offset, fb_x, fg_mask);
+        }
 
         if self.sprite_sprite_collision != 0 && !self.sprite_sprite_irq_latched {
             self.sprite_sprite_irq_latched = true;
@@ -983,6 +999,76 @@ impl Vic {
                 }
 
                 self.framebuffer[idx] = sprite_colour[px][i];
+            }
+        }
+    }
+
+    /// Enable (or disable) the draw-stage sprite sequencer in place of the
+    /// geometry `overlay_sprites`. Off by default; used to validate the
+    /// sequencer against the geometry renderer before it becomes the default.
+    pub fn set_sprite_sequencer_enabled(&mut self, on: bool) {
+        self.use_sprite_sequencer = on;
+    }
+
+    /// Each sprite's leftmost framebuffer X (VIC X + the sprite-to-screen
+    /// offset, honouring the `$D010` high bits).
+    fn sprite_fb_x_array(&self) -> [i32; 8] {
+        let mut x = [0i32; 8];
+        for (i, slot) in x.iter_mut().enumerate() {
+            let sprite_x = u16::from(self.regs[i * 2])
+                | if self.regs[0x10] & (1 << i) != 0 {
+                    256
+                } else {
+                    0
+                };
+            *slot = i32::from(sprite_x) + i32::from(SPRITE_X_TO_FB);
+        }
+        x
+    }
+
+    /// Bit mask of sprites whose display (fetch) is active this line.
+    fn sprite_active_mask(&self) -> u8 {
+        let mut m = 0u8;
+        for (i, &active) in self.sprite_active.iter().enumerate() {
+            if active {
+                m |= 1 << i;
+            }
+        }
+        m
+    }
+
+    /// Draw this cycle's 8 sprite pixels through the draw-stage sequencer. At
+    /// the first visible cycle of the line the sequencer is loaded from this
+    /// line's fetched data (per-line model — see `SpriteSequencer::begin_line`);
+    /// thereafter each visible cycle shifts 8 more pixels out. Composites the
+    /// winning sprite pixel with foreground priority, matching `overlay_sprites`.
+    fn draw_sprites_sequencer(&mut self, fb_offset: usize, fb_x: usize, fg_mask: u8) {
+        if self.raster_cycle == FIRST_VISIBLE_CYCLE {
+            let x_fb = self.sprite_fb_x_array();
+            let active_mask = self.sprite_active_mask();
+            self.sprite_sequencer
+                .begin_line(&self.sprite_data, active_mask, x_fb, self.regs[0x1C]);
+        }
+
+        let expx = self.regs[0x1D];
+        let priority = self.regs[0x1B];
+        for px in 0..8usize {
+            let x = fb_x as i32 + px as i32;
+            let Some(sp) = self.sprite_sequencer.draw_pixel(x, expx) else {
+                continue;
+            };
+            let i = sp.sprite as usize;
+            if priority & (1 << i) != 0 && (fg_mask >> px) & 1 != 0 {
+                continue;
+            }
+            let colour = match sp.selector {
+                1 => PALETTE[(self.regs[0x25] & 0x0F) as usize],
+                3 => PALETTE[(self.regs[0x26] & 0x0F) as usize],
+                _ => PALETTE[(self.regs[0x27 + i] & 0x0F) as usize],
+            };
+            let idx = fb_offset + px;
+            if idx < self.framebuffer.len() {
+                self.framebuffer[idx] = colour;
             }
         }
     }
@@ -1361,6 +1447,58 @@ mod tests {
 
     fn fb_pixel(vic: &Vic, fb_x: usize, fb_y: usize) -> u32 {
         vic.framebuffer()[fb_y * FB_WIDTH as usize + fb_x]
+    }
+
+    /// Render one display line (100) carrying three sprites — a hires sprite, a
+    /// multicolour sprite, and an X-expanded sprite — and return the whole
+    /// framebuffer. `use_seq` selects the draw-stage sequencer over the geometry
+    /// `overlay_sprites`. Used to prove the two render identically (sequencer S2).
+    fn render_three_sprite_scene(use_seq: bool) -> Vec<u32> {
+        let (mut vic, mut memory) = make_vic_and_memory();
+        vic.set_sprite_sequencer_enabled(use_seq);
+        vic.write(0x11, 0x1B); // DEN + display on
+        vic.write(0x18, 0x14);
+        vic.write(0x15, 0x07); // enable sprites 0,1,2
+        vic.write(0x1C, 0x02); // sprite 1 multicolour
+        vic.write(0x1D, 0x04); // sprite 2 X-expanded
+        vic.write(0x25, 0x0A); // MC0
+        vic.write(0x26, 0x0D); // MC1
+        // Positions (all on line 100) and colours.
+        vic.write(0x01, 100);
+        vic.write(0x00, 180); // sprite 0 X
+        vic.write(0x27, 0x01);
+        vic.write(0x03, 100);
+        vic.write(0x02, 120); // sprite 1 X
+        vic.write(0x28, 0x03);
+        vic.write(0x05, 100);
+        vic.write(0x04, 60); // sprite 2 X
+        vic.write(0x29, 0x05);
+        // Sprite pointers → data blocks at $2000/$2040/$2080.
+        memory.ram_write(0x07F8, 0x80);
+        memory.ram_write(0x07F9, 0x81);
+        memory.ram_write(0x07FA, 0x82);
+        for k in 0..3u16 {
+            memory.ram_write(0x2000 + k, [0xFF, 0x99, 0x3C][k as usize]);
+            memory.ram_write(0x2040 + k, [0x1B, 0xE4, 0x5A][k as usize]);
+            memory.ram_write(0x2080 + k, [0xC3, 0x66, 0xFF][k as usize]);
+        }
+        advance_to(&mut vic, &memory, 101, 0);
+        vic.framebuffer().to_vec()
+    }
+
+    #[test]
+    fn sprite_sequencer_matches_overlay_on_display_line() {
+        let overlay = render_three_sprite_scene(false);
+        let sequencer = render_three_sprite_scene(true);
+        let fb_y = (100 - FIRST_VISIBLE_LINE) as usize;
+        let row = fb_y * FB_WIDTH as usize;
+        for x in 0..FB_WIDTH as usize {
+            assert_eq!(
+                overlay[row + x],
+                sequencer[row + x],
+                "sprite pixel differs at fb_x={x}"
+            );
+        }
     }
 
     #[test]

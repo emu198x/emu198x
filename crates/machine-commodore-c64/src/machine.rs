@@ -239,6 +239,12 @@ impl C64 {
         &self.vic
     }
 
+    /// Enable the draw-stage sprite sequencer in place of the geometry sprite
+    /// renderer. Validation aid for the sequencer port (off by default).
+    pub fn set_sprite_sequencer_enabled(&mut self, on: bool) {
+        self.vic.set_sprite_sequencer_enabled(on);
+    }
+
     /// CIA1 state.
     #[must_use]
     pub const fn cia1(&self) -> &Cia6526 {

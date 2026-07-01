@@ -55,6 +55,12 @@ pub(crate) struct SpriteSequencer {
     mc_bits: u8,
 }
 
+impl Default for SpriteSequencer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SpriteSequencer {
     pub(crate) fn new() -> Self {
         Self {
@@ -67,6 +73,38 @@ impl SpriteSequencer {
             expx_flops: 0,
             mc_flops: 0,
             mc_bits: 0,
+        }
+    }
+
+    /// Reset the sequencer for a new display line and load every sprite's data.
+    ///
+    /// This is the **per-line** driving model used while the sequencer is
+    /// proven against the geometry renderer (S2): the engine already fetches a
+    /// whole line of sprite data before the visible region, so at the first
+    /// visible cycle we load all eight shift registers, mark the active sprites
+    /// pending, and shift across the line. A later increment (S4/S5) replaces
+    /// this with VICE's continuous cross-line pipeline (per-cycle `load_data` at
+    /// the s-access) needed for the sprite-fetch edge cases.
+    ///
+    /// `data[i]` is the three fetched bytes; `active_mask` bit `i` is the
+    /// display bit; `x_fb[i]` is the sprite's framebuffer X; `mc_bits` is `$D01C`.
+    pub(crate) fn begin_line(
+        &mut self,
+        data: &[[u8; 3]; 8],
+        active_mask: u8,
+        x_fb: [i32; 8],
+        mc_bits: u8,
+    ) {
+        self.active = 0;
+        self.pending = active_mask;
+        self.halt = 0;
+        self.expx_flops = 0;
+        self.mc_flops = 0;
+        self.pixel_reg = [0; 8];
+        self.mc_bits = mc_bits;
+        self.x_pipe = x_fb;
+        for (reg, bytes) in self.shift_reg.iter_mut().zip(data.iter()) {
+            *reg = (u32::from(bytes[0]) << 16) | (u32::from(bytes[1]) << 8) | u32::from(bytes[2]);
         }
     }
 
