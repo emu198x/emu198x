@@ -396,12 +396,35 @@ So:
   sequencer does **not** suppress the frame-wrap copy: `sprite_pending_bits`
   comes straight from the chain's display bits, so whatever the chain activates,
   the sequencer draws. Reverted the wiring (kept the S4a chain module + the
-  proven S2 path) rather than pile on phase-patches. **The frame-wrap is a hard
-  prerequisite, not a side effect** — the chain-feed cannot land until VICE's
-  actual wrap behaviour is understood: does VICE render the second (`Y & 0xFF`
-  re-match at raster ≈305) copy at all, and if not, what suppresses it? Resolve
-  that *first* (a focused investigation — run VICE, or find the sprite-Y-wrap
-  reference), then re-land the chain-feed. Do **not** re-attempt the wiring blind.
+  proven S2 path) rather than pile on phase-patches.
+
+  **Frame-wrap investigated against real VICE (`x64sc` 3.10, installed via
+  brew; headless `SDL_VIDEODRIVER=dummy … -exitscreenshot`).** Reproduced the
+  `sequencer-bug` reference exactly (384×272). Established:
+  - VICE renders the Y=50 sprites **once**, inside the display (lines ~50-91),
+    with a **clean border** — no wrap copy at lines 16-35.
+  - **Not program behaviour:** probing our engine, `$D015` = `11111111` and
+    sprite 0 `Y` = 50 at raster 40/60/100/250/**305**/308 — sprites stay enabled
+    at Y=50 the whole frame, so the program does *not* disable/reposition them
+    around the wrap line.
+  - **Not a crop artifact:** the wrap's visible portion (raster 16-35 = ref-y
+    0-19) is inside the 272-line window and is clean.
+  - So VICE suppresses the `Y & 0xFF` re-match (raster ≈306) by a **VIC/VICE
+    mechanism**, still unpinned in source (`vicii-cycle.c` check_sprite_dma is
+    `Y == raster & 0xFF` and *does* re-match at 306; the suppression is
+    downstream and isn't exposed as a register, so it needs a VICE debug build
+    with the `SDMA` logging, or deeper `raster_line_emulate`/`first_displayed_line`
+    archaeology).
+
+  **Practical path for the re-land (empirically justified):** our **geometry**
+  activation (absolute `Y..Y+height`, no `& 0xFF` wrap) already matches VICE for
+  these cases — that is exactly what the **S2 path** feeds the sequencer, and it
+  had 0-px parity + no wrap. So the re-land should feed the sequencer from a
+  **non-wrapping activation** and add **only** the crunch *downward extension*
+  (the S4a chain's MCBASE-corruption over-run, which happens within the first
+  activation, lines 86-125 — separate from the frame-wrap). Keep the wrap out
+  until VICE's suppression mechanism is pinned. Do **not** re-attempt the full
+  `& 0xFF` chain-feed blind.
 - **S5 — close `spritefetchbug` / `sb_sprite_fetch`** (and the sprite-in-border
   stripes) per-row against the oracle, still flag-gated.
 - **S3 (last) — switch the default** to the sequencer only once it is *strictly
