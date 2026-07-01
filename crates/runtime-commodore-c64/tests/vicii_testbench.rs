@@ -294,7 +294,7 @@ fn dump_prg_framebuffer() {
         eprintln!("set VICII_DUMP_PRG=<category/name.prg>");
         return;
     };
-    let fb = run_testprog(&rel, 60);
+    let fb = run_testprog_opt(&rel, 60, std::env::var("VICII_SEQ").is_ok());
     write_framebuffer_png("/tmp/vicii_dump.png", &fb);
     eprintln!("wrote /tmp/vicii_dump.png for {rel}");
 }
@@ -483,10 +483,12 @@ fn diff_by_row() {
     };
     let dir = testbench_dir().expect("checked");
     let reference = decode_reference_png(&dir.join(refpng));
-    let fb = run_testprog(prg, 60);
+    // VICII_SEQ enables the draw-stage sprite sequencer (sequencer-port work).
+    let use_seq = std::env::var("VICII_SEQ").is_ok();
+    let fb = run_testprog_opt(prg, 60, use_seq);
 
     eprintln!(
-        "\n=== {cat}: reference rows below {:.0}% (ref-y → engine line {}+ref-y) ===",
+        "\n=== {cat} (sequencer={use_seq}): rows below {:.0}% (ref-y → engine line {}+ref-y) ===",
         thresh * 100.0,
         VICE_CROP_Y
     );
