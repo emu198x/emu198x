@@ -380,6 +380,7 @@ fn survey_testbench_categories() {
         return;
     }
     let dir = testbench_dir().expect("checked");
+    let use_seq = std::env::var("VICII_SEQ").is_ok();
     let mut rows: Vec<(f64, &str)> = Vec::new();
     for (label, prg, refpng) in SURVEY {
         let refpath = dir.join(refpng);
@@ -388,14 +389,14 @@ fn survey_testbench_categories() {
             continue;
         }
         let reference = decode_reference_png(&refpath);
-        let fb = run_testprog(prg, 60);
+        let fb = run_testprog_opt(prg, 60, use_seq);
         rows.push((
             match_fraction(&fb, &reference, VICE_CROP_X, VICE_CROP_Y),
             label,
         ));
     }
     rows.sort_by(|a, b| a.0.total_cmp(&b.0));
-    eprintln!("\n=== VICII testbench survey vs VICE 6569 (match %, worst first) ===");
+    eprintln!("\n=== VICII survey vs VICE 6569 (sequencer={use_seq}; match %, worst first) ===");
     for (m, label) in &rows {
         eprintln!("{:7.3}%  {label}", m * 100.0);
     }
