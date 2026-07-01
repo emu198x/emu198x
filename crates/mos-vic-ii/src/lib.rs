@@ -197,6 +197,10 @@ pub struct Vic {
     /// the per-cycle draw pass and composited by `render_pixels`.
     #[serde(skip)]
     sprite_cycle_px: [Option<SpritePixel>; 8],
+    /// This cycle's 8 sprite coverage masks (which sprites have a pixel), for
+    /// collision detection in the composite.
+    #[serde(skip)]
+    sprite_cycle_cov: [u8; 8],
     sprite_sprite_collision: u8,
     sprite_bg_collision: u8,
     sprite_sprite_irq_latched: bool,
@@ -281,6 +285,7 @@ impl Vic {
             chain_data: [[0; 3]; 8],
             chain_fetch_base: [0; 8],
             sprite_cycle_px: [None; 8],
+            sprite_cycle_cov: [0; 8],
             sprite_sprite_collision: 0,
             sprite_bg_collision: 0,
             sprite_sprite_irq_latched: false,
@@ -1152,9 +1157,11 @@ impl Vic {
                 }
                 _ => {}
             }
-            self.sprite_cycle_px[px] = self
+            let drawn = self
                 .sprite_sequencer
                 .draw_pixel(xpos_base + px as i32, expx);
+            self.sprite_cycle_px[px] = drawn.winner;
+            self.sprite_cycle_cov[px] = drawn.coverage;
         }
     }
 
@@ -1194,6 +1201,16 @@ impl Vic {
     fn draw_sprites_sequencer(&mut self, fb_offset: usize, fg_mask: u8) {
         let priority = self.regs[0x1B];
         for px in 0..8usize {
+            // Collisions: 2+ sprites here → sprite-sprite; any sprite over a
+            // foreground pixel → sprite-background (matching `overlay_sprites`).
+            let cov = self.sprite_cycle_cov[px];
+            if cov.count_ones() >= 2 {
+                self.sprite_sprite_collision |= cov;
+            }
+            if cov != 0 && (fg_mask >> px) & 1 != 0 {
+                self.sprite_bg_collision |= cov;
+            }
+
             let Some(sp) = self.sprite_cycle_px[px] else {
                 continue;
             };
@@ -1916,6 +1933,37 @@ mod tests {
         let collision = vic.read(0x1E);
         assert_eq!(collision & 0x03, 0x03);
         assert_eq!(vic.read(0x1E), 0x00);
+    }
+
+    /// The draw-stage sequencer path detects sprite-sprite collisions just like
+    /// the geometry overlay: two fully-overlapping sprites set both collision
+    /// bits in `$D01E`.
+    #[test]
+    fn sprite_sequencer_sets_sprite_sprite_collision() {
+        let (mut vic, mut memory) = make_vic_and_memory();
+        vic.set_sprite_sequencer_enabled(true);
+        vic.write(0x15, 0x03); // enable sprites 0, 1
+        vic.write(0x00, 172);
+        vic.write(0x01, 100); // sprite 0 at (172, 100)
+        vic.write(0x02, 172);
+        vic.write(0x03, 100); // sprite 1 at (172, 100) — fully overlapping
+        vic.write(0x27, 0x01);
+        vic.write(0x28, 0x02);
+        vic.write(0x18, 0x14);
+        vic.write(0x11, 0x1B);
+        memory.ram_write(0x07F8, 0x80);
+        memory.ram_write(0x07F9, 0x80);
+        memory.ram_write(0x2000, 0xFF);
+        memory.ram_write(0x2001, 0xFF);
+        memory.ram_write(0x2002, 0xFF);
+        // Render past the sprites' display line (sequencer places them one line
+        // later than geometry in this synthetic harness).
+        advance_to(&mut vic, &memory, 103, 0);
+        assert_eq!(
+            vic.peek(0x1E) & 0x03,
+            0x03,
+            "sequencer should flag both sprites collided"
+        );
     }
 
     #[test]

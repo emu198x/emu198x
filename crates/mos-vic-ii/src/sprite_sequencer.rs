@@ -15,9 +15,10 @@
 //! flip-flop halving the shift rate. Ported from VICE `draw_sprites`,
 //! `trigger_sprites`, `draw_sprites8` (`vicii-draw-cycle.c:304-533`).
 //!
-//! It is **not yet wired into `Vic`** — the first increment of the sequencer
-//! port lands it isolated and unit-tested against the pixel output the current
-//! renderer produces, before anything switches over. See the plan
+//! It is wired into `Vic` behind the `use_sprite_sequencer` flag (default off,
+//! geometry `overlay_sprites`). The chain stage (`advance_sprite_chain`) feeds
+//! it display bits + data; the draw stage (`run_sprite_draw_cycle`) drives it
+//! per cycle. See the plan
 //! `docs/plans/2026-06-30-c64-vic-ii-vc-vcbase-rc-rewrite.md`
 //! (Increment 5 § sprite sequencer).
 
@@ -28,6 +29,15 @@ pub(crate) struct SpritePixel {
     pub sprite: u8,
     /// Multicolour pixel selector, 1..=3 (0 is transparent and never emitted).
     pub selector: u8,
+}
+
+/// The result of drawing one beam pixel: the winning (front-most) sprite pixel
+/// to render, and the coverage mask of every sprite with a non-transparent
+/// pixel here (for collision detection).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DrawnPixel {
+    pub winner: Option<SpritePixel>,
+    pub coverage: u8,
 }
 
 /// Per-sprite draw-stage state. All eight sprites share the bit-mask registers;
@@ -73,38 +83,6 @@ impl SpriteSequencer {
             expx_flops: 0,
             mc_flops: 0,
             mc_bits: 0,
-        }
-    }
-
-    /// Reset the sequencer for a new display line and load every sprite's data.
-    ///
-    /// This is the **per-line** driving model used while the sequencer is
-    /// proven against the geometry renderer (S2): the engine already fetches a
-    /// whole line of sprite data before the visible region, so at the first
-    /// visible cycle we load all eight shift registers, mark the active sprites
-    /// pending, and shift across the line. A later increment (S4/S5) replaces
-    /// this with VICE's continuous cross-line pipeline (per-cycle `load_data` at
-    /// the s-access) needed for the sprite-fetch edge cases.
-    ///
-    /// `data[i]` is the three fetched bytes; `active_mask` bit `i` is the
-    /// display bit; `x_fb[i]` is the sprite's framebuffer X; `mc_bits` is `$D01C`.
-    pub(crate) fn begin_line(
-        &mut self,
-        data: &[[u8; 3]; 8],
-        active_mask: u8,
-        x_fb: [i32; 8],
-        mc_bits: u8,
-    ) {
-        self.active = 0;
-        self.pending = active_mask;
-        self.halt = 0;
-        self.expx_flops = 0;
-        self.mc_flops = 0;
-        self.pixel_reg = [0; 8];
-        self.mc_bits = mc_bits;
-        self.x_pipe = x_fb;
-        for (reg, bytes) in self.shift_reg.iter_mut().zip(data.iter()) {
-            *reg = (u32::from(bytes[0]) << 16) | (u32::from(bytes[1]) << 8) | u32::from(bytes[2]);
         }
     }
 
@@ -176,18 +154,19 @@ impl SpriteSequencer {
     }
 
     /// Draw one beam pixel: trigger at `xpos`, then shift/emit every active
-    /// sprite and return the highest-priority (lowest-numbered) sprite pixel,
-    /// or `None` if the beam is transparent here. `expx_bits` is `$D01D`.
+    /// sprite. Returns the highest-priority (lowest-numbered) sprite pixel to
+    /// render plus the coverage mask of every sprite with a pixel here (for
+    /// collisions). `expx_bits` is `$D01D`.
     ///
     /// Faithful to VICE `draw_sprites` (the per-sprite `for s = 7..0` loop) —
     /// pixel extraction, MC/expansion flip-flop handling, and shift order match.
-    pub(crate) fn draw_pixel(&mut self, xpos: i32, expx_bits: u8) -> Option<SpritePixel> {
+    pub(crate) fn draw_pixel(&mut self, xpos: i32, expx_bits: u8) -> DrawnPixel {
         self.trigger(xpos);
         if self.active == 0 {
-            return None;
+            return DrawnPixel::default();
         }
 
-        let mut winner: Option<SpritePixel> = None;
+        let mut out = DrawnPixel::default();
         for s in (0..8).rev() {
             let m = 1u8 << s;
             if self.active & m == 0 {
@@ -225,15 +204,16 @@ impl SpriteSequencer {
             }
 
             if self.pixel_reg[s] != 0 {
+                out.coverage |= m;
                 // Lower sprite numbers have priority; the reverse loop means the
                 // last writer (sprite 0) wins.
-                winner = Some(SpritePixel {
+                out.winner = Some(SpritePixel {
                     sprite: s as u8,
                     selector: self.pixel_reg[s],
                 });
             }
         }
-        winner
+        out
     }
 }
 
@@ -255,20 +235,21 @@ mod tests {
         seq.set_mc_bits(0x00);
 
         // Before X: transparent.
-        assert_eq!(seq.draw_pixel(x0 - 1, 0x00), None);
+        assert_eq!(seq.draw_pixel(x0 - 1, 0x00).winner, None);
 
         // Pixels 0 and 1 are set (selector 2 = sprite's own colour in hires).
         let p0 = seq.draw_pixel(x0, 0x00);
         assert_eq!(
-            p0,
+            p0.winner,
             Some(SpritePixel {
                 sprite: 0,
                 selector: 2
             })
         );
+        assert_eq!(p0.coverage, 0x01);
         let p1 = seq.draw_pixel(x0 + 1, 0x00);
         assert_eq!(
-            p1,
+            p1.winner,
             Some(SpritePixel {
                 sprite: 0,
                 selector: 2
@@ -278,13 +259,13 @@ mod tests {
         // Remaining 22 pixels are background (data bits 0) → transparent.
         for dx in 2..24 {
             assert_eq!(
-                seq.draw_pixel(x0 + dx, 0x00),
+                seq.draw_pixel(x0 + dx, 0x00).winner,
                 None,
                 "pixel {dx} should be blank"
             );
         }
         // After 24 pixels the register is empty; the sprite deactivates.
-        assert_eq!(seq.draw_pixel(x0 + 24, 0x00), None);
+        assert_eq!(seq.draw_pixel(x0 + 24, 0x00).winner, None);
     }
 
     /// A multicolour sprite consumes two data bits per pixel pair, so the same
@@ -300,11 +281,20 @@ mod tests {
         seq.set_mc_bits(0x01); // sprite 0 multicolour
 
         // First pair (two pixels) carry selector 1.
-        assert_eq!(seq.draw_pixel(x0, 0x00).map(|p| p.selector), Some(1));
-        assert_eq!(seq.draw_pixel(x0 + 1, 0x00).map(|p| p.selector), Some(1));
+        assert_eq!(seq.draw_pixel(x0, 0x00).winner.map(|p| p.selector), Some(1));
+        assert_eq!(
+            seq.draw_pixel(x0 + 1, 0x00).winner.map(|p| p.selector),
+            Some(1)
+        );
         // Second pair carries selector 2.
-        assert_eq!(seq.draw_pixel(x0 + 2, 0x00).map(|p| p.selector), Some(2));
-        assert_eq!(seq.draw_pixel(x0 + 3, 0x00).map(|p| p.selector), Some(2));
+        assert_eq!(
+            seq.draw_pixel(x0 + 2, 0x00).winner.map(|p| p.selector),
+            Some(2)
+        );
+        assert_eq!(
+            seq.draw_pixel(x0 + 3, 0x00).winner.map(|p| p.selector),
+            Some(2)
+        );
     }
 
     /// Lower-numbered sprites win when two overlap on the same pixel.
@@ -318,7 +308,9 @@ mod tests {
         seq.set_pending(0x03);
         seq.set_mc_bits(0x00);
 
-        // Both cover x0; sprite 0 wins.
-        assert_eq!(seq.draw_pixel(x0, 0x00).map(|p| p.sprite), Some(0));
+        // Both cover x0; sprite 0 wins, but both show in the coverage mask.
+        let d = seq.draw_pixel(x0, 0x00);
+        assert_eq!(d.winner.map(|p| p.sprite), Some(0));
+        assert_eq!(d.coverage, 0x03, "both sprites cover this pixel");
     }
 }
