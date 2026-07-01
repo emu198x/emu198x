@@ -5,7 +5,7 @@ date: 2026-06-30
 system: docs/systems/commodore/c64.md
 parent_plan: docs/plans/2026-06-08-c64-100-percent-plan.md
 decision: knowledge/decisions/c64-architecture-review.md
-status: in-progress — Increments 1-4 landed on branch c64-vic-ii-rewrite-oracle-harness (PR #711; addressing fully counter-driven, oracle passes 0 ignored, output-identical); Increment 5 pixel-oracle harness landed on c64-vicii-testbench-validation-inc5 (gfxfetch 99.33% vs VICE, residual under investigation)
+status: in-progress — Increments 1-4 landed on branch c64-vic-ii-rewrite-oracle-harness (PR #711; addressing fully counter-driven, oracle passes 0 ignored, output-identical); Increment 5 pixel-oracle harness landed on c64-vicii-testbench-validation-inc5 (gfxfetch 99.33% vs VICE). Sprite vertical chain attempted a 2nd time (2026-07-01, cleaner BA/render decomposition, unit-green) and rolled back again — net-negative on the survey: two blockers found (frame-wrap phantom copy regresses sequencer-bug; crunch never engaged → needs CPU/VIC cyc-15 write alignment first). See Increment 5 § Second attempt.
 ---
 
 # C64 VIC-II VC/VCBASE/RC rewrite — incremental plan
@@ -247,6 +247,57 @@ and the C64 goldens. Also needs rework of ~4 old-model unit tests
 `sprite_active`/`sprite_dma_active`/`data_line` internals. This is a clean,
 well-scoped first task for a fresh session — deferred from the current one
 under "roll back rather than thrash" rather than landed subtly-broken.
+
+##### Second attempt (2026-07-01) — re-ported with the `+1` fix, rolled back again
+
+Re-implemented the full chain with a cleaner **decomposition that avoided the
+prior 1-line regression entirely**: keep the BA/CPU-stall path
+(`evaluate_sprite_dma` → `sprite_dma_active`, cyc 55, current-line phase)
+**completely untouched**, and add the MC/MCBASE/exp-flop chain to drive **only**
+the render/data path (`sprite_paccess`/`sprite_saccess` read `(ptr<<6)+MC`;
+height/crunch from the chain). The two paths were *already* independently phased
+in the geometry model — that is why `each_sprite_steals_canonical_cycles` (BA,
+current-line) and `sprite_renders_at_correct_position` (render, fetch-ahead)
+coexisted. Applying the `+1` (`Y == next_display_line & 0xFF`) only to the
+render chain, **all 75 unit + 11 oracle tests stayed green with zero rework** —
+including the ~4 tests the first attempt feared, because `sprite_active` /
+`sprite_dma_active` were preserved. Clippy clean.
+
+**But the testbench survey showed the change is net-negative**, so it was rolled
+back (uncommitted). Two concrete, sourced blockers — the real state of play:
+
+1. **8-bit frame-wrap phantom activation regresses `sequencer-bug` 92.29 %→81.10 %.**
+   `sequencer-bug/bug.prg` runs 8 sprites at **Y=50, Y-expanded**. The chain's
+   `Y == raster & 0xFF` compare (faithful to VICE) matches Y=50 *twice* per
+   frame: once at the real position (renders 50-91) and once at raster ≈305,
+   whose `&0xFF` low byte is also 50 — re-activating the sprite to render
+   306-311 then **wrapping through lines 0-35 (top border)**. Those wrapped-copy
+   pixels fall inside the survey crop (our lines 16-35) and mismatch VICE's
+   reference, which shows the sprites only once. The **old geometry model used
+   absolute (non-wrapped) line ranges so it never drew the phantom copy** — i.e.
+   the geometry approximation was *closer to VICE's reference* here. Open
+   question for next time: does VICE actually suppress/clip this wrapped copy
+   (its reference PNG shows clean top border), or is the reference captured on a
+   frame before the wrap? Resolve against VICE before re-landing — a naive
+   faithful port makes this category *worse*, not better.
+
+2. **The target sprite categories did not move at all** — `spritecrunch`
+   (95.18 %), `spritefetchbug` (94.29 %), `sb_sprite_fetch` (76.28 %) came back
+   **byte-identical** to the geometry model. So the crunch bit-math
+   (`vicii-mem.c` d017_store, gated on cyc 15) **never engaged**. Most likely the
+   CPU-write-to-VIC access lands on a different `raster_cycle` than 15 — i.e.
+   this depends on the **unresolved CPU/VIC cycle-origin alignment** flagged in
+   the "Cycle-numbering note" above, not on the sprite chain itself. **The chain
+   cannot deliver crunch fidelity until that write-cycle alignment is verified.**
+
+**Net finding:** the chain is straightforward to implement correctly (unit-level
+green, clean decomposition), but on its own it is *not* the lever for the sprite
+survey categories. The two blockers above — (1) reconcile the frame-wrap copy
+against VICE's actual output, and (2) verify `$D017`-write lands on cyc 15 —
+are the real prerequisites, and (2) is really a CPU/VIC timing item shared with
+`vicii_timing`/`videomode`. Recommend tackling the cycle-origin alignment
+*first* (it gates crunch and likely several other 83-92 % categories at once),
+then re-land the chain on top of a verified timing base.
 
 ### Increment 6 — NTSC 6567 (optional, post-PAL)
 
