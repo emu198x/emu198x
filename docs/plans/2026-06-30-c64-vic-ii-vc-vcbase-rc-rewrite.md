@@ -213,6 +213,41 @@ turned into a gated regression test as it is closed. The version bump +
 catalogue re-capture land with whichever fix first changes a catalogue title's
 pixels.
 
+#### Sprite vertical chain (MC/MCBASE/exp-flop) — attempted, rolled back
+
+The sprite cluster (`spritecrunch` half-height, `spritefetchbug`,
+`sb_sprite_fetch`) traces to **one root cause**: our sprite model uses a
+simplified fixed height (`line_in_sprite < 21/42`) instead of the real
+per-sprite **MC / MCBASE / expansion-flip-flop** vertical chain. Sprite crunch
+*is* the expansion-flop timing, so it can't be reproduced without it.
+
+The VICE algorithm (extracted, `vicii-cycle.c` / `vicii-fetch.c`) is:
+- **check_sprite_dma** (cyc 55, 56): `enable & Y==raster&0xFF & DMA-off` → DMA
+  on, `MCBASE=0`, `exp_flop=1`.
+- **check_exp** (cyc 56): DMA-on & Y-expanded → `exp_flop ^= 1`.
+- **check_sprite_display** (cyc 58): `MC = MCBASE`; display bit set when
+  `DMA & enable & Y==raster` (persists until DMA off), cleared when DMA off.
+- **s-access:** read `(pointer<<6) + MC`, then `MC = (MC+1) & 63`.
+- **sprite_mcbase_update** (cyc 16): `if exp_flop { MCBASE = MC; if MCBASE==63
+  → DMA off }`.
+
+**Implemented in full and rolled back** (uncommitted) because it introduced a
+**1-line sprite-appearance regression**: `sprite_renders_at_correct_position`
+went black. Root cause of the regression: VICE turns DMA/display on when
+`Y == raster` and relies on a **separate delayed sprite sequencer** for the
+final pixel phase; our `overlay_sprites` draws immediately on the display-bit
+line, so the VICE-literal `Y==raster` compare renders sprites one line late.
+**Hypothesised fix for next session:** compare `Y == (raster_line + 1) & 0xFF`
+in `check_sprite_dma` + `check_sprite_display` to align the chain with our
+fetch-ahead + immediate-draw pipeline — then validate against
+`sprite_renders_at_correct_position`, the survey (`spritecrunch` should climb),
+and the C64 goldens. Also needs rework of ~4 old-model unit tests
+(`sprite_dma_y_expand_extends_height`, `sprite_fetch_happens_at_p_access_cycles`,
+`sprite_y_expand_fetch_uses_halved_data_line`) which assert on the removed
+`sprite_active`/`sprite_dma_active`/`data_line` internals. This is a clean,
+well-scoped first task for a fresh session — deferred from the current one
+under "roll back rather than thrash" rather than landed subtly-broken.
+
 ### Increment 6 — NTSC 6567 (optional, post-PAL)
 
 Encode the 65-cycle 6567R8 (and 64-cycle R56A) tables; extend the oracle and
