@@ -320,6 +320,48 @@ not enough; each sprite behaviour needs to be pinned to a specific reference
 image as it is closed. (The `+1`-phase decomposition and the exact VICE cycle
 map above are correct groundwork to build on.)
 
+#### Rebuild groundwork (2026-07-01) — per-scanline oracle + scope finding
+
+Built the per-scanline oracle (`diff_by_row` in `vicii_testbench.rs`, committed
+`4af1111c`): for a category it reports the match % of each reference row below a
+threshold, tagged with the engine raster line. This is the "build the comparator
+first" discipline that carried Increments 1-4, applied to sprites so each chain
+step pins to specific rows. Ground truth against the geometry baseline:
+
+| category | match | where it diverges | reading |
+|----------|------:|-------------------|---------|
+| `spritedma` | 99.78 % | lines 55-90, 96-98 % edge rows | **parity anchor** — basic sprites already correct |
+| `spritecrunch` | 95 % | lines 86-125, 81-95 % | the MC/MCBASE crunch-height case (~5 % available) |
+| `sequencer-bug` | 92 % | lines **92+**, 50 % | a **graphics-sequencer** issue *below* the Y=50 sprites — not sprites |
+| `spritefetchbug` | 94 % | periodic 30-50 % dips every ~10 lines | precise per-sprite fetch-bug behaviour |
+| `sb_sprite_fetch` | 76 % | 102 rows, 16-50 %, whole top region | fundamentally different image |
+
+**Scope finding — the fetch chain is necessary but nowhere near sufficient.**
+VICE draws sprites through a **separate draw-stage shift-register sequencer**
+(`vicii-draw-cycle.c:342` `draw_sprites`, `sbuf_reg` / `sprite_active_bits` /
+`sbuf_mc_flops` / `sbuf_expx_flops`) — the "delayed sprite sequencer" this doc
+referenced. That sequencer is what suppresses the frame-wrap phantom copy (VICE
+renders no sprite at lines 16-35 for a Y=50 sprite, matching our geometry model),
+and it is what the `spritefetchbug` / `sb_sprite_fetch` divergences turn on. Our
+engine has no equivalent — `overlay_sprites` draws directly from `sprite_data`
+at the sprite's X position. So:
+
+- The MC/MCBASE/exp-flop **fetch** chain alone buys **at most the ~5 %
+  `spritecrunch` gain**, and even that is entangled with the wrap.
+- The large wins (`sb_sprite_fetch` 76 %, `spritefetchbug` 94 %→) require
+  **porting VICE's draw-stage sprite sequencer** — a substantial, multi-increment
+  subsystem replacing `overlay_sprites`, and the single biggest remaining piece
+  of C64 VIC-II sprite accuracy.
+
+**Recommended shape when this is picked up:** treat the sprite sequencer as its
+own mini-rewrite with the same increment discipline — (1) oracle in place ✅;
+(2) port the draw-stage shift-register sequencer in *shadow* (assert it
+reproduces `overlay_sprites` for `spritedma`'s parity rows before switching the
+renderer over); (3) switch the renderer to the sequencer, holding `spritedma`
+≥99.78 % per-row; (4) add the MC/MCBASE fetch chain feeding it (crunch); (5)
+close `spritefetchbug` / `sb_sprite_fetch` per-row against the oracle. This is
+larger than the VC/VCBASE rewrite was and deserves its own plan section or file.
+
 ### Increment 6 — NTSC 6567 (optional, post-PAL)
 
 Encode the 65-cycle 6567R8 (and 64-cycle R56A) tables; extend the oracle and
