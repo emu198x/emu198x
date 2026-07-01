@@ -362,20 +362,30 @@ at the sprite's X position. So:
   + MC flip-flops, lower-number priority. Landed **not wired** (dead_code gated),
   unit-tested (hires shift span, MC bit-pair latch, priority). Zero shipping
   change.
-- **S2 — wire per-cycle behind a flag, prove parity.** Drive the sequencer each
-  cycle from `render_pixels` (feed X positions, `set_pending` at cyc 58,
-  `load_data` at the s-access, `set_mc_bits`/halt housekeeping), rendering into
-  the framebuffer *only when a flag is on*. Hold `spritedma` ≥99.78 % per-row on
-  `diff_by_row` and match `overlay_sprites` on the other parity categories
-  before flipping the default.
-- **S3 — switch the renderer** to the sequencer once parity holds; re-run the
-  full survey + C64 goldens; retire `overlay_sprites`.
+- **S2 — wire per-cycle behind a flag, prove parity ✅ (`1f36b89f`).** The
+  sequencer runs per-cycle from `render_pixels` when `use_sprite_sequencer` is
+  set (default off = geometry `overlay_sprites`, zero shipping change), using a
+  **per-line load model** (`begin_line` at the first visible cycle loads the
+  line's fetched data, then shifts 8 px/cycle). Parity proven: unit test renders
+  hires + MC + X-expand pixel-identical to overlay; on `spritedma` the sequencer
+  frame is **0 px different** from overlay (both 99.713 % vs VICE). Added the
+  `set_sprite_sequencer_enabled` machine/runtime pass-through + `run_testprog_opt`.
+  Known gaps deferred to S4/S5: per-line (not continuous cross-line) pipeline;
+  no left-of-visible trigger (sprites at `fb_x < 0`); collisions still via the
+  overlay path.
 - **S4 — add the MC/MCBASE/exp-flop fetch chain** feeding the sequencer's data
-  load + display bits (crunch height, DMA on/off). The sequencer's own
+  load + display bits (crunch height, DMA on/off) and move to VICE's continuous
+  per-cycle `load_data` at the s-access. The sequencer's own
   `sprite_pending_bits`/shift model is what suppressed the frame-wrap copy, so
-  the chain can now be VICE-faithful without the earlier regression.
+  the chain can now be VICE-faithful without the earlier regression. Validate
+  `spritecrunch` climbs on `diff_by_row`, flag-gated.
 - **S5 — close `spritefetchbug` / `sb_sprite_fetch`** (and the sprite-in-border
-  stripes) per-row against the oracle.
+  stripes) per-row against the oracle, still flag-gated.
+- **S3 (last) — switch the default** to the sequencer only once it is *strictly
+  better* than overlay across the whole survey + C64 goldens (not merely equal);
+  retire `overlay_sprites` and fold collisions into the sequencer path. Flipping
+  earlier would regress the edge categories the sequencer hasn't closed yet —
+  hence it moves after S4/S5.
 
 This is larger than the VC/VCBASE rewrite and is tracked as its own increment
 series here.
