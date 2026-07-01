@@ -5,7 +5,7 @@ date: 2026-06-30
 system: docs/systems/commodore/c64.md
 parent_plan: docs/plans/2026-06-08-c64-100-percent-plan.md
 decision: knowledge/decisions/c64-architecture-review.md
-status: in-progress — Increments 1-4 landed on branch c64-vic-ii-rewrite-oracle-harness (PR #711; addressing fully counter-driven, oracle passes 0 ignored, output-identical); Increment 5 pixel-oracle harness landed on c64-vicii-testbench-validation-inc5 (gfxfetch 99.33% vs VICE). Sprite sequencer port underway (2026-07-01): S1 draw sequencer + S2 flag-gated wiring (spritedma 0-px parity) + S4a fetch chain, all landed. S4b LANDED (f9901c0e) — chain-fed the sequencer via VICE's continuous model (set_pending at cyc 58 + load_data at s-access, VICE-literal no-+1, after 3 begin_line/+1 attempts failed): spritedma 99.998% (beats overlay), sequencer-bug no regression, spritecrunch/spritefetchbug improving, all flag-gated (default still geometry). Next: S5 (spritefetchbug/sb_sprite_fetch border+halt details) then S3 (flip default when strictly better). See Increment 5 § sprite sequencer.
+status: in-progress — Increments 1-4 landed on branch c64-vic-ii-rewrite-oracle-harness (PR #711; addressing fully counter-driven, oracle passes 0 ignored, output-identical); Increment 5 pixel-oracle harness landed on c64-vicii-testbench-validation-inc5 (gfxfetch 99.33% vs VICE). Sprite sequencer port underway (2026-07-01): S1 draw sequencer + S2 flag-gated wiring (spritedma 0-px parity) + S4a fetch chain, all landed. S4b LANDED (f9901c0e) — chain-fed the sequencer via VICE's continuous model (VICE-literal no-+1, after 3 begin_line/+1 attempts failed). S5a/b LANDED (179667f9) — split into VICE's two-stage draw + per-pixel DMA halt: spritefetchbug 94.29→96.53%, spritedma held 99.998%. Full survey (3f3201bd): the sequencer is strictly better-or-equal to overlay on every category (bar −0.16% noise on sequencer-bug). All flag-gated (default still geometry). S3 (flip default) prerequisites left: sprite collisions on the sequencer path + golden re-bless. See Increment 5 § sprite sequencer.
 ---
 
 # C64 VIC-II VC/VCBASE/RC rewrite — incremental plan
@@ -462,17 +462,35 @@ So:
   what S4b's landed continuous model did** — the prediction held.
 
   </details>
-- **S5 — close `spritefetchbug` / `sb_sprite_fetch`** (and the sprite-in-border
-  stripes) per-row against the oracle, still flag-gated. Now unblocked: the
-  sequencer is chain-fed and validated. `sb_sprite_fetch` (border stripes)
-  likely needs the sequencer running through the border cycles + the real
-  frame-wrap mechanism; `spritefetchbug` the per-cycle DMA halt/`sprite_halt`
-  details (`SpriteSequencer::set_halt`/`clear_halt`, unused since S1).
-- **S3 (last) — switch the default** to the sequencer only once it is *strictly
-  better* than overlay across the whole survey + C64 goldens (not merely equal);
-  retire `overlay_sprites` and fold collisions into the sequencer path. Flipping
-  earlier would regress the edge categories the sequencer hasn't closed yet —
-  hence it moves after S4/S5.
+- **S5a/b — two-stage draw model + DMA halt ✅ LANDED (`179667f9`).** Split the
+  sequencer path into VICE's two stages: `advance_sprite_chain` is the *chain*
+  stage (events + MC-addressed fetch into `chain_data`); `run_sprite_draw_cycle`
+  is the *draw* stage (`draw_sprites8`), running **every** cycle so the shift
+  register + DMA-halt housekeeping stay correct through the border. The draw
+  interleaves VICE's per-pixel housekeeping — deactivate on s-access (px 2), halt
+  on p-access (px 3), latch pending + load data on s-access (px 4), un-halt (px 7)
+  — so a sprite's shift **freezes during its own fetch** (`set_halt`/`clear_halt`/
+  `clear_active`, unused since S1). Parity-safe: **spritedma held 99.998 %**,
+  sequencer-bug/spritecrunch held, **spritefetchbug 94.29 %→96.53 %**.
+
+  **Full survey (`179667f9`+`3f3201bd`): the sequencer is now strictly
+  better-or-equal to overlay on every category** bar a −0.16 % noise dip on
+  sequencer-bug (its divergence is the non-sprite graphics sequencer). Gains:
+  spritefetchbug +2.24, vicii_timing +0.84, border +0.30, spritedma +0.29,
+  sb_sprite_fetch +0.24, spritecrunch +0.14.
+
+  **Remaining (diminishing returns):** `sb_sprite_fetch` 76 % — the black/yellow
+  sprite-in-**border** stripes; our composite skips border lines, and it may need
+  the real frame-wrap. `spritefetchbug` residual 96.5 % — finer fetch/`$D01D`-at-
+  px-6 timing. Both esoteric and program-specific.
+- **S3 (last) — switch the default** to the sequencer. The survey gate is
+  essentially met, but two prerequisites remain before flipping: **(1) sprite
+  collisions** — the sequencer path does not compute `$D01E`/`$D01F` (the
+  geometry `overlay_sprites` does; `draw_pixel` would need to return the coverage
+  mask, and the composite accumulate sprite-sprite + sprite-bg collisions);
+  **(2) C64 goldens** (`diag_aztec_vic_state`) re-run/re-bless + a
+  `FRAME_ROUTING_VERSION` bump if pixels move. Retire `overlay_sprites` once both
+  are done.
 
 This is larger than the VC/VCBASE rewrite and is tracked as its own increment
 series here.
