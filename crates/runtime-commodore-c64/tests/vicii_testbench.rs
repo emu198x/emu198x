@@ -268,3 +268,123 @@ fn gfxfetch_matches_vice_reference() {
         m * 100.0
     );
 }
+
+/// Diagnostic: dump one program's framebuffer to `/tmp/vicii_dump.png`. The
+/// program path (relative to the testbench dir) comes from `VICII_DUMP_PRG`.
+#[test]
+#[ignore = "diagnostic: dumps framebuffer for the VICII_DUMP_PRG program"]
+fn dump_prg_framebuffer() {
+    if !roms_present() || testbench_dir().is_none() {
+        eprintln!("skip: C64 ROMs or testbench not staged");
+        return;
+    }
+    let Ok(rel) = std::env::var("VICII_DUMP_PRG") else {
+        eprintln!("set VICII_DUMP_PRG=<category/name.prg>");
+        return;
+    };
+    let fb = run_testprog(&rel, 60);
+    write_framebuffer_png("/tmp/vicii_dump.png", &fb);
+    eprintln!("wrote /tmp/vicii_dump.png for {rel}");
+}
+
+/// Rewrite-relevant testbench categories: (label, program, reference PNG). One
+/// canonical PAL 6569 program per category, all with 384x272 references.
+const SURVEY: &[(&str, &str, &str)] = &[
+    (
+        "gfxfetch",
+        "gfxfetch/gfxfetch.prg",
+        "gfxfetch/references/gfxfetch.prg.png",
+    ),
+    (
+        "dmadelay",
+        "dmadelay/test1-2a-03.prg",
+        "dmadelay/references/test1-2a-03.prg.png",
+    ),
+    (
+        "colorfetchbug",
+        "colorfetchbug/bitmap.prg",
+        "colorfetchbug/references/bitmap.prg.png",
+    ),
+    (
+        "sequencer-bug",
+        "sequencer-bug/bug.prg",
+        "sequencer-bug/references/bug.prg.png",
+    ),
+    (
+        "greydot",
+        "greydot/greydot.prg",
+        "greydot/references/greydot.prg.png",
+    ),
+    (
+        "spritecrunch",
+        "spritecrunch/spritecrunch-3b-00.prg",
+        "spritecrunch/references/spritecrunch-3b-00.prg.png",
+    ),
+    (
+        "spritedma",
+        "spritedma/d017-54.prg",
+        "spritedma/references/d017-54.prg.png",
+    ),
+    (
+        "spritefetchbug",
+        "spritefetchbug/test-136-2a.prg",
+        "spritefetchbug/references/test-136-2a.prg.png",
+    ),
+    (
+        "sb_sprite_fetch",
+        "sb_sprite_fetch/sbsprf24-163.prg",
+        "sb_sprite_fetch/references/sbsprf24-163.prg.png",
+    ),
+    (
+        "vicii_timing",
+        "vicii_timing/vicii_reg_timing-a5.prg",
+        "vicii_timing/references/vicii_reg_timing-a5.prg.png",
+    ),
+    (
+        "videomode",
+        "videomode/rmwtest.prg",
+        "videomode/references/rmwtest.prg.png",
+    ),
+    (
+        "border",
+        "border/border-250.prg",
+        "border/references/border-250.prg.png",
+    ),
+    (
+        "screenpos",
+        "screenpos/screenpos.prg",
+        "screenpos/references/screenpos.prg.png",
+    ),
+];
+
+/// Breadth survey: run each category and report its match % against VICE
+/// (worst first). Reveals whether `gfxfetch`'s residual is isolated or a
+/// systematic sub-cycle offset. Not a pass/fail — a measurement dashboard.
+#[test]
+#[ignore = "survey aid: measures match % across VICII testbench categories"]
+fn survey_testbench_categories() {
+    if !roms_present() || testbench_dir().is_none() {
+        eprintln!("skip: C64 ROMs or testbench not staged");
+        return;
+    }
+    let dir = testbench_dir().expect("checked");
+    let mut rows: Vec<(f64, &str)> = Vec::new();
+    for (label, prg, refpng) in SURVEY {
+        let refpath = dir.join(refpng);
+        if !refpath.exists() {
+            eprintln!("{label:16} MISSING reference");
+            continue;
+        }
+        let reference = decode_reference_png(&refpath);
+        let fb = run_testprog(prg, 60);
+        rows.push((
+            match_fraction(&fb, &reference, VICE_CROP_X, VICE_CROP_Y),
+            label,
+        ));
+    }
+    rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+    eprintln!("\n=== VICII testbench survey vs VICE 6569 (match %, worst first) ===");
+    for (m, label) in &rows {
+        eprintln!("{:7.3}%  {label}", m * 100.0);
+    }
+}

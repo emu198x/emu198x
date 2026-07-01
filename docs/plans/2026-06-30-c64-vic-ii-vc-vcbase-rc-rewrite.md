@@ -177,15 +177,41 @@ VICE's PAL 6569 reference **by C64 colour index** (VICE's PNGs use a different
 palette, so raw RGB won't match). Crop alignment derived by calibration:
 our 416×312 → VICE's 384×272 at offset **(16, 16)**.
 
-**First result — `gfxfetch` (in-line graphics-fetch timing): 99.33% match,
-stable across settle time.** Locked as a regression floor. The residual ~0.7%
-is a genuine cycle-timing gap concentrated in the test region (a full-width
-raster stripe + the VSP test row) — the first concrete divergence the rewrite
-surfaces, and the thread the rest of Increment 5 pulls on. Categories still to
-wire: `dmadelay`, `vsp-tester`/`vspbug`, `spritecrunch`/`spritedma`, `flibug`,
-`vicii_timing`. Whichever first shows a divergence the *old* geometry path got
-wrong and the counter chain gets right is where the version bump + catalogue
-re-capture land.
+`gfxfetch` is locked as a 99.33% regression floor. A breadth survey
+(`survey_testbench_categories`) then measured 13 rewrite-relevant categories to
+reveal the *shape* of divergence rather than fixate on one test:
+
+| match | category | reading |
+|------:|----------|---------|
+| 100.00% | dmadelay | DMA-delay trick the rewrite enables — **exact** |
+| 99.99% | greydot | grey-dot bug — exact |
+| 99.71% | spritedma | sprite DMA on/off — near-exact |
+| 99.33% | gfxfetch | in-line fetch — small residual (locked floor) |
+| 95.18% | spritecrunch | sprite-crunch edge |
+| 94.29% | spritefetchbug | sprite fetch edge |
+| 92.29% | sequencer-bug | sequencer edge |
+| 92.09% | border | border timing |
+| 88.98% | videomode | mode switches |
+| 87.80% | screenpos | screen position |
+| 83.88% | vicii_timing | register-write timing |
+| 76.28% | sb_sprite_fetch | single/blank sprite fetch |
+| 18.10% | colorfetchbug | **unmodeled colour-fetch bug** (distinct quirk) |
+
+Findings: (1) the rewrite's **core is validated** — `dmadelay` exact, the
+DMA/fetch/grey-dot cluster all ≥99%. (2) The residuals are **spread, not
+uniform** → not one global sub-cycle offset; each is a specific behaviour at
+varying fidelity. (3) `colorfetchbug` (18%) is an outlier confirmed by
+framebuffer dump to be a *fundamentally different image* — the VIC-II
+colour-fetch bug is not modelled at all. That is a **distinct accuracy item**,
+not part of the VC/VCBASE/RC addressing rewrite; it should be tracked
+separately, not conflated with "the rewrite is incomplete".
+
+Remaining Increment 5 work is therefore a **prioritised set of targeted
+fidelity fixes** (worst-first: colour-fetch bug, `sb_sprite_fetch`,
+`vicii_timing` register-write delay, then the 88-95% edge cluster), each
+turned into a gated regression test as it is closed. The version bump +
+catalogue re-capture land with whichever fix first changes a catalogue title's
+pixels.
 
 ### Increment 6 — NTSC 6567 (optional, post-PAL)
 
