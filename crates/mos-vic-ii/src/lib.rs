@@ -19,6 +19,11 @@ pub mod palette;
 // not-yet-used warning is expected and gated here deliberately.
 #[allow(dead_code)]
 mod sprite_sequencer;
+// Sprite fetch chain (MC/MCBASE/exp-flop + crunch) — the addressing/height half
+// of the real sprite hardware, landed isolated + unit-tested (S4a) before being
+// wired to feed the sequencer (S4b). Exercised only by its own tests until then.
+#[allow(dead_code)]
+mod sprite_fetch_chain;
 
 use sprite_sequencer::SpriteSequencer;
 
