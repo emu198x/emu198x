@@ -388,3 +388,79 @@ fn survey_testbench_categories() {
         eprintln!("{:7.3}%  {label}", m * 100.0);
     }
 }
+
+/// Fraction of a single reference row (`ry`) whose C64 colour index matches our
+/// framebuffer when the reference is placed at (`dx`,`dy`).
+fn row_match_fraction(fb: &[u32], reference: &RefImage, dx: u32, dy: u32, ry: u32) -> f64 {
+    let mut matched = 0usize;
+    for rx in 0..reference.width {
+        let oi = ((dy + ry) * FB_WIDTH + (dx + rx)) as usize;
+        let px = fb[oi];
+        let ours = nearest_c64_index((px >> 16) as u8, (px >> 8) as u8, px as u8);
+        let ri = ((ry * reference.width + rx) * 3) as usize;
+        let theirs = nearest_c64_index(
+            reference.rgb[ri],
+            reference.rgb[ri + 1],
+            reference.rgb[ri + 2],
+        );
+        if ours == theirs {
+            matched += 1;
+        }
+    }
+    matched as f64 / f64::from(reference.width)
+}
+
+/// Per-scanline oracle for the sprite-chain rebuild. For the category named in
+/// `VICII_DIFF_CAT` (default `sequencer-bug`), print the match % of every
+/// reference row that falls below `VICII_DIFF_THRESH` (default 98 %), tagged
+/// with the engine raster line it maps to. This localises *where* a sprite (or
+/// any effect) diverges — height, position, a wrapped copy — so each chain step
+/// can be pinned to specific rows instead of one aggregate number.
+#[test]
+#[ignore = "oracle: per-scanline match % vs VICE for VICII_DIFF_CAT (sprite-chain rebuild)"]
+fn diff_by_row() {
+    if !roms_present() || testbench_dir().is_none() {
+        eprintln!("skip: C64 ROMs or testbench not staged");
+        return;
+    }
+    let cat = std::env::var("VICII_DIFF_CAT").unwrap_or_else(|_| "sequencer-bug".to_string());
+    let thresh: f64 = std::env::var("VICII_DIFF_THRESH")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.98);
+    let Some(&(_, prg, refpng)) = SURVEY.iter().find(|(l, _, _)| *l == cat) else {
+        eprintln!("unknown category {cat:?}; pick one from SURVEY");
+        return;
+    };
+    let dir = testbench_dir().expect("checked");
+    let reference = decode_reference_png(&dir.join(refpng));
+    let fb = run_testprog(prg, 60);
+
+    eprintln!(
+        "\n=== {cat}: reference rows below {:.0}% (ref-y → engine line {}+ref-y) ===",
+        thresh * 100.0,
+        VICE_CROP_Y
+    );
+    let mut worst = (1.0f64, 0u32);
+    let mut below = 0u32;
+    for ry in 0..reference.height {
+        let m = row_match_fraction(&fb, &reference, VICE_CROP_X, VICE_CROP_Y, ry);
+        if m < worst.0 {
+            worst = (m, ry);
+        }
+        if m < thresh {
+            below += 1;
+            eprintln!(
+                "  ref-y {ry:3} (line {:3}): {:6.2}%",
+                ry + VICE_CROP_Y,
+                m * 100.0
+            );
+        }
+    }
+    eprintln!(
+        "{below} of {} rows below threshold; worst = ref-y {} ({:.2}%)",
+        reference.height,
+        worst.1,
+        worst.0 * 100.0
+    );
+}
