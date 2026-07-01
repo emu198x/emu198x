@@ -5,7 +5,7 @@ date: 2026-06-30
 system: docs/systems/commodore/c64.md
 parent_plan: docs/plans/2026-06-08-c64-100-percent-plan.md
 decision: knowledge/decisions/c64-architecture-review.md
-status: in-progress — Increments 1-4 landed on branch c64-vic-ii-rewrite-oracle-harness (PR #711; addressing fully counter-driven, oracle passes 0 ignored, output-identical); Increment 5 pixel-oracle harness landed on c64-vicii-testbench-validation-inc5 (gfxfetch 99.33% vs VICE). Sprite sequencer port underway (2026-07-01): S1 draw sequencer + S2 flag-gated wiring (spritedma 0-px parity) + S4a fetch chain, all landed. S4b LANDED (f9901c0e) — chain-fed the sequencer via VICE's continuous model (VICE-literal no-+1, after 3 begin_line/+1 attempts failed). S5a/b LANDED (179667f9) — split into VICE's two-stage draw + per-pixel DMA halt: spritefetchbug 94.29→96.53%, spritedma held 99.998%. Full survey (3f3201bd): the sequencer is strictly better-or-equal to overlay on every category (bar −0.16% noise on sequencer-bug). Collisions landed (4141dd4a) — sequencer path now functionally complete (render + $D01E/$D01F). All flag-gated (default still geometry). S3 (flip default) is the only step left: full golden pass with the flag on, re-bless, FRAME_ROUTING bump, flip. See Increment 5 § sprite sequencer.
+status: in-progress — Increments 1-4 landed on branch c64-vic-ii-rewrite-oracle-harness (PR #711; addressing fully counter-driven, oracle passes 0 ignored, output-identical); Increment 5 pixel-oracle harness landed on c64-vicii-testbench-validation-inc5 (gfxfetch 99.33% vs VICE). Sprite sequencer port underway (2026-07-01): S1 draw sequencer + S2 flag-gated wiring (spritedma 0-px parity) + S4a fetch chain, all landed. S4b LANDED (f9901c0e) — chain-fed the sequencer via VICE's continuous model (VICE-literal no-+1, after 3 begin_line/+1 attempts failed). S5a/b LANDED (179667f9) — split into VICE's two-stage draw + per-pixel DMA halt: spritefetchbug 94.29→96.53%, spritedma held 99.998%. Full survey (3f3201bd): the sequencer is strictly better-or-equal to overlay on every category (bar −0.16% noise on sequencer-bug). Collisions landed (4141dd4a) — sequencer path functionally complete (render + $D01E/$D01F). **S3 LANDED (2026-07-01): sequencer is now the shipping default, FRAME_ROUTING_VERSION 1→2, all 7 C64 catalogue goldens re-blessed against real TOSEC media (catalogue run 7/7 PASS; release captures proven bit-identical to debug), non-media suite + clippy green.** `overlay_sprites` kept behind the now-non-default flag as a rollback net; its removal is the S3b follow-up. See Increment 5 § sprite sequencer.
 ---
 
 # C64 VIC-II VC/VCBASE/RC rewrite — incremental plan
@@ -489,12 +489,30 @@ So:
   composite accumulates sprite-sprite (2+ sprites) + sprite-background (sprite
   over foreground) collisions. Pixel-neutral (spritedma still 99.998 %); unit-
   tested. **The sequencer path is now functionally complete** (render + collisions).
-- **S3 (last) — switch the default** to the sequencer. The survey gate is met and
-  collisions are done; the only remaining step is validation + the flip: run the
-  full C64 suite (goldens `diag_aztec_vic_state`, boot, snapshot) with the flag
-  **on**, re-bless any goldens whose pixels move, bump `FRAME_ROUTING_VERSION`,
-  flip the default, and retire `overlay_sprites`. This is a shipping-behaviour
-  change, so it wants the full golden pass before landing.
+- **S3 — switch the default ✅ LANDED.** The sequencer is now the shipping
+  default (`use_sprite_sequencer: true`); `FRAME_ROUTING_VERSION` bumped 1→2.
+  Validated against the **real catalogue games** (media at
+  `EMU198X_CATALOGUE_MEDIA_ROOT=/Volumes/…/TOSEC`, release captures proven
+  bit-identical to debug — Rust keeps strict IEEE-754, no fast-math): all 7 C64
+  catalogue entries re-blessed and `catalogue run` **PASS 7/7**. boot-to-ready
+  (no sprites) is byte-unchanged; the six sprite-bearing titles re-hash on both
+  frame and (for collision-reading games) audio — a legitimate consequence of
+  the more-accurate sprite timing/collisions, confirmed by eyeballing the
+  Bruce Lee title + Thing on a Spring menu screenshots (both render correctly).
+  Non-media suite green: mos-vic-ii 83 lib + 11 oracle, machine + runtime debug
+  tests, clippy clean. The 5 overlay-model unit tests + 1 oracle fetch test are
+  pinned to `set_sprite_sequencer_enabled(false)` (they assert the geometry
+  renderer's immediate-draw timing; the sequencer's synthetic-harness +1-line
+  offset is covered by `sprite_sequencer_matches_overlay_content` + the
+  testbench). `overlay_sprites` is **kept behind the now-non-default flag** as a
+  cheap-rollback safety net — its removal (+ converting the pinned tests to
+  sequencer coverage) is the **remaining follow-up** (S3b, below).
+
+- **S3b (follow-up) — retire `overlay_sprites`.** Remove the geometry sprite mux
+  and the `use_sprite_sequencer` flag now that the sequencer ships by default,
+  and convert the 6 pinned overlay-path tests to drive the sequencer (asserting
+  its output directly, with the +1 synthetic-harness offset). Deferred from the
+  flip commit to keep that change focused and rollback cheap.
 
 This is larger than the VC/VCBASE rewrite and is tracked as its own increment
 series here.

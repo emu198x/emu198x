@@ -48,9 +48,14 @@ use palette::PALETTE;
 /// pre-Seam-1 VIC-II described in
 /// `knowledge/decisions/c64-architecture-review.md`.
 ///
-/// Bumps planned: Seam 1 will revisit BA/RDY cycle accounting and may
-/// adjust sprite DMA timing — that work bumps to v2.
-pub const FRAME_ROUTING_VERSION: u32 = 1;
+/// **Version 2** (2026-07-01): sprite rendering switched from the geometry
+/// `overlay_sprites` mux to the draw-stage shift-register **sprite sequencer**
+/// (VICE `draw_sprites` two-stage model — MC/MCBASE/exp-flop fetch chain +
+/// per-pixel DMA halt). Sprite pixels shift by sub-pixel timing and the
+/// fetch/crunch/fetch-bug edge cases now match VICE, so any catalogue frame
+/// carrying sprites re-hashes. See the sprite-sequencer increment in
+/// `docs/plans/2026-06-30-c64-vic-ii-vc-vcbase-rc-rewrite.md`.
+pub const FRAME_ROUTING_VERSION: u32 = 2;
 
 const PAL_FIRST_VISIBLE_LINE: u16 = 0;
 const PAL_LAST_VISIBLE_LINE: u16 = 312;
@@ -280,7 +285,7 @@ impl Vic {
             sprite_active: [false; 8],
             sprite_dma_active: [false; 8],
             sprite_sequencer: SpriteSequencer::new(),
-            use_sprite_sequencer: false,
+            use_sprite_sequencer: true,
             chain: SpriteFetchChain::new(),
             chain_data: [[0; 3]; 8],
             chain_fetch_base: [0; 8],
@@ -1851,6 +1856,11 @@ mod tests {
     #[test]
     fn sprite_renders_at_correct_position() {
         let (mut vic, mut memory) = make_vic_and_memory();
+        // Overlay-path regression: asserts the geometry renderer's immediate,
+        // same-line draw. The sequencer (now the default) draws the same
+        // content one line later in this synthetic first-activation harness —
+        // covered by `sprite_sequencer_matches_overlay_content` + the testbench.
+        vic.set_sprite_sequencer_enabled(false);
         vic.write(0x15, 0x01);
         vic.write(0x00, 172);
         vic.write(0x01, 100);
@@ -1908,6 +1918,9 @@ mod tests {
     #[test]
     fn sprite_sprite_collision_set_on_overlap() {
         let (mut vic, mut memory) = make_vic_and_memory();
+        // Overlay-path collision regression; the sequencer counterpart is
+        // `sprite_sequencer_sets_sprite_sprite_collision`.
+        vic.set_sprite_sequencer_enabled(false);
         vic.write(0x15, 0x03);
         vic.write(0x00, 172);
         vic.write(0x01, 100);
@@ -1976,6 +1989,8 @@ mod tests {
         };
         let mut memory = TestMemory::with_colour(&chargen, colour_ram);
         let mut vic = Vic::new(VicModel::Pal6569);
+        // Overlay-path sprite-background collision regression (immediate draw).
+        vic.set_sprite_sequencer_enabled(false);
         vic.write(0x15, 0x01);
         vic.write(0x11, 0x1B);
         vic.write(0x18, 0x14);
@@ -2786,6 +2801,8 @@ mod tests {
     fn sprite_x_high_bit_places_sprite_past_256() {
         // Set sprite 0 X to 256 + 4 = 260 via $D010 bit 0.
         let (mut vic, mut memory) = make_vic_and_memory();
+        // Overlay-path X-high-bit placement regression (immediate draw).
+        vic.set_sprite_sequencer_enabled(false);
         vic.write(0x15, 0x01);
         vic.write(0x00, 4); // low byte
         vic.write(0x10, 0x01); // high bit for sprite 0
@@ -2814,6 +2831,9 @@ mod tests {
     fn sprite_multicolor_renders_three_colours() {
         // MCM sprite: pairs select transparent / mc0 / sprite_col / mc1.
         let (mut vic, mut memory) = make_vic_and_memory();
+        // Overlay-path multicolour render regression (immediate draw). The
+        // sequencer's multicolour path is covered by the parity test's MC sprite.
+        vic.set_sprite_sequencer_enabled(false);
         vic.write(0x15, 0x01); // enable sprite 0
         vic.write(0x1C, 0x01); // sprite 0 multicolor
         vic.write(0x00, 172);

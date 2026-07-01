@@ -63,12 +63,13 @@ fn run_testprog_opt(rel_prg: &str, settle_frames: u32, use_sequencer: bool) -> V
         u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
         C64SessionQueryProvider,
     );
-    if use_sequencer {
-        session
-            .machine_mut()
-            .machine_mut()
-            .set_sprite_sequencer_enabled(true);
-    }
+    // Set the sprite-render path explicitly on both branches: the sequencer
+    // is now the shipping default, so the overlay A-side of the survey must
+    // force it off rather than rely on the constructor default.
+    session
+        .machine_mut()
+        .machine_mut()
+        .set_sprite_sequencer_enabled(use_sequencer);
 
     // Boot to the READY prompt (real hardware ~2.5 s; 150 PAL frames = 3 s).
     session.run_frames(150).expect("boot should run");
