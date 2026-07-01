@@ -373,12 +373,20 @@ at the sprite's X position. So:
   Known gaps deferred to S4/S5: per-line (not continuous cross-line) pipeline;
   no left-of-visible trigger (sprites at `fb_x < 0`); collisions still via the
   overlay path.
-- **S4 — add the MC/MCBASE/exp-flop fetch chain** feeding the sequencer's data
-  load + display bits (crunch height, DMA on/off) and move to VICE's continuous
-  per-cycle `load_data` at the s-access. The sequencer's own
-  `sprite_pending_bits`/shift model is what suppressed the frame-wrap copy, so
-  the chain can now be VICE-faithful without the earlier regression. Validate
-  `spritecrunch` climbs on `diff_by_row`, flag-gated.
+- **S4a — MC/MCBASE/exp-flop fetch chain, isolated + tested ✅ (`0437055d`).**
+  `src/sprite_fetch_chain.rs`: VICE `check_sprite_dma`/`check_exp`/
+  `check_sprite_display`/`sprite_mcbase_update` + the `$D017` crunch bit-math.
+  Produces per-line display bits + MC data offset; MCBASE==63 ends DMA; crunch
+  corrupts MC so the sprite over-runs. Unit-tested (plain = 21 display lines,
+  Y-expanded = 42, crunch changes height). Not wired; zero shipping change.
+- **S4b — wire the chain to feed the sequencer** (data load + display bits →
+  crunch height, DMA on/off), moving to VICE's continuous per-cycle `load_data`
+  at the s-access. **The hard part is here:** reconcile VICE's on-the-line
+  timing (`Y == raster & 0xFF`) with the engine's fetch-ahead p/s-access. The
+  earlier `+1` hack caused the frame-wrap copy; the sequencer's `pending`/shift
+  model should now suppress it, but that must be *verified* against `diff_by_row`
+  (sequencer-bug must not regress, spritecrunch must climb), flag-gated. Iterate
+  the phase against the oracle — do not assume it.
 - **S5 — close `spritefetchbug` / `sb_sprite_fetch`** (and the sprite-in-border
   stripes) per-row against the oracle, still flag-gated.
 - **S3 (last) — switch the default** to the sequencer only once it is *strictly
