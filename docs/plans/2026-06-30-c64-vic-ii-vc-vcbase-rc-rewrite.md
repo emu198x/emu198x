@@ -5,7 +5,7 @@ date: 2026-06-30
 system: docs/systems/commodore/c64.md
 parent_plan: docs/plans/2026-06-08-c64-100-percent-plan.md
 decision: knowledge/decisions/c64-architecture-review.md
-status: in-progress — Increments 1-4 landed on branch c64-vic-ii-rewrite-oracle-harness (PR #711; addressing fully counter-driven, oracle passes 0 ignored, output-identical); Increment 5 pixel-oracle harness landed on c64-vicii-testbench-validation-inc5 (gfxfetch 99.33% vs VICE). Sprite vertical chain attempted a 2nd time (2026-07-01, cleaner BA/render decomposition, unit-green) and rolled back again — net-negative on the survey. Blockers are intrinsic to the chain, NOT a timing bug: a cycle-origin probe showed the write-phase is sound (dmadelay 100%), so "fix cycle-origin first" was wrong. Real blockers: frame-wrap phantom copy regresses sequencer-bug; mid-line $D017 expand toggles produce no rendered height change. Next: iterative testbench-driven chain development vs a per-sprite-height oracle. See Increment 5 § Second attempt.
+status: in-progress — Increments 1-4 landed on branch c64-vic-ii-rewrite-oracle-harness (PR #711; addressing fully counter-driven, oracle passes 0 ignored, output-identical); Increment 5 pixel-oracle harness landed on c64-vicii-testbench-validation-inc5 (gfxfetch 99.33% vs VICE). Sprite sequencer port underway (2026-07-01): S1 draw sequencer + S2 flag-gated wiring (spritedma 0-px parity) + S4a fetch chain, all landed. S4b LANDED (f9901c0e) — chain-fed the sequencer via VICE's continuous model (set_pending at cyc 58 + load_data at s-access, VICE-literal no-+1, after 3 begin_line/+1 attempts failed): spritedma 99.998% (beats overlay), sequencer-bug no regression, spritecrunch/spritefetchbug improving, all flag-gated (default still geometry). Next: S5 (spritefetchbug/sb_sprite_fetch border+halt details) then S3 (flip default when strictly better). See Increment 5 § sprite sequencer.
 ---
 
 # C64 VIC-II VC/VCBASE/RC rewrite — incremental plan
@@ -381,7 +381,26 @@ So:
   Produces per-line display bits + MC data offset; MCBASE==63 ends DMA; crunch
   corrupts MC so the sprite over-runs. Unit-tested (plain = 21 display lines,
   Y-expanded = 42, crunch changes height). Not wired; zero shipping change.
-- **S4b — wire the chain to feed the sequencer — attempted, reverted.** Wired
+- **S4b — chain-feed the sequencer ✅ LANDED (`f9901c0e`, flag-gated).** The
+  fourth attempt worked, using VICE's **continuous** feed instead of the cyc-10
+  `begin_line` snapshot: per cycle the chain runs its sprite events + MC-addressed
+  p/s-access; **`set_pending(display_bits)` at cyc 58** and **`load_data` at each
+  s-access** feed the sequencer as VICE does. The Y compare is **VICE-literal
+  (no `+1`)** — the whole point, since the `+1` (which `begin_line` forced)
+  sampled `$D015` a line early and broke on per-line enable writes. Activation
+  gated to `raster <= 255` to suppress the raster-306 re-match. Measured vs VICE:
+  **spritedma 99.713 %→99.998 %** (0 rows below 98 %, beats overlay),
+  **sequencer-bug: no regression** (the former blocker), **spritecrunch 85→84
+  rows** (crunch engaging), **spritefetchbug worst row 29.95 %→66.41 %**,
+  `sb_sprite_fetch`/`videomode` unchanged. Default stays geometry overlay. Two
+  follow-ups: the isolated tick-only harness renders one line late
+  (first-activation vs steady-state — real-program phase is correct per the
+  testbench), and the frame-wrap suppression is a heuristic gate, not VICE's real
+  mechanism.
+
+  <details><summary>Prior three attempts (reverted) — kept for the record</summary>
+
+  **First `begin_line` + `+1` attempt, reverted.** Wired
   the chain (advance per-cycle + MC-addressed `chain_paccess`/`chain_saccess`)
   to feed the sequencer's `begin_line` (display bits + data), flag-gated, with a
   `+1` next-line phase so the fetch-ahead aligned. Measured on the oracle:
@@ -439,11 +458,16 @@ So:
   and `load_data` at the s-access** (the `SpriteSequencer` already has both
   methods, unused since S1), sampling enable at VICE's own cycles (55/56/58) so
   per-line `$D015`/`$D001` writes are seen correctly. That is a genuine
-  re-architecture of the feed (drop `begin_line`), not a phase tweak — the next
-  increment. The frame-wrap suppression is *also* still open, but is now the
-  *second* problem behind the feed model.
+  re-architecture of the feed (drop `begin_line`), not a phase tweak. **This is
+  what S4b's landed continuous model did** — the prediction held.
+
+  </details>
 - **S5 — close `spritefetchbug` / `sb_sprite_fetch`** (and the sprite-in-border
-  stripes) per-row against the oracle, still flag-gated.
+  stripes) per-row against the oracle, still flag-gated. Now unblocked: the
+  sequencer is chain-fed and validated. `sb_sprite_fetch` (border stripes)
+  likely needs the sequencer running through the border cycles + the real
+  frame-wrap mechanism; `spritefetchbug` the per-cycle DMA halt/`sprite_halt`
+  details (`SpriteSequencer::set_halt`/`clear_halt`, unused since S1).
 - **S3 (last) — switch the default** to the sequencer only once it is *strictly
   better* than overlay across the whole survey + C64 goldens (not merely equal);
   retire `overlay_sprites` and fold collisions into the sequencer path. Flipping
