@@ -5,7 +5,7 @@ date: 2026-06-30
 system: docs/systems/commodore/c64.md
 parent_plan: docs/plans/2026-06-08-c64-100-percent-plan.md
 decision: knowledge/decisions/c64-architecture-review.md
-status: in-progress — Increments 1-4 landed (oracle, shadow counters, c-access + g-access via VC/RC, sprite p/s split; addressing fully counter-driven, all oracle tests pass with 0 ignored, output-identical); Increment 5 (trick validation) needs sourced test ROMs
+status: in-progress — Increments 1-4 landed on branch c64-vic-ii-rewrite-oracle-harness (PR #711; addressing fully counter-driven, oracle passes 0 ignored, output-identical); Increment 5 pixel-oracle harness landed on c64-vicii-testbench-validation-inc5 (gfxfetch 99.33% vs VICE, residual under investigation)
 ---
 
 # C64 VIC-II VC/VCBASE/RC rewrite — incremental plan
@@ -166,11 +166,26 @@ timing) is latent until trick content exercises it (Increment 5).
 Remaining sprite edge cases (sprite-crunch, Y-expansion DMA quirks) ride along
 with Increment 5's validation rather than being chased blind here.
 
-### Increment 5 — demoscene-trick validation
+### Increment 5 — demoscene-trick validation  🚧 harness landed; validation in progress
 
-VSP/AGSP, FLI, DMA-delay, linecrunch — validated against the oracle and, where
-sourced, against VIC-II test programs (groepaz/Lorenz; not currently in-repo —
-sourcing tracked here).
+Pixel-oracle validation against the **VICE VICII testbench** (46 categories,
+per-chip-revision reference PNGs), staged external + env-gated at
+`~/.emu198x/test-suites/c64-vicii/` (from `vice-emu-code-r46155-testprogs.zip`).
+Harness: `crates/runtime-commodore-c64/tests/vicii_testbench.rs` — boots real
+ROMs, loads a test `.prg`, RUNs it, captures the framebuffer, and compares to
+VICE's PAL 6569 reference **by C64 colour index** (VICE's PNGs use a different
+palette, so raw RGB won't match). Crop alignment derived by calibration:
+our 416×312 → VICE's 384×272 at offset **(16, 16)**.
+
+**First result — `gfxfetch` (in-line graphics-fetch timing): 99.33% match,
+stable across settle time.** Locked as a regression floor. The residual ~0.7%
+is a genuine cycle-timing gap concentrated in the test region (a full-width
+raster stripe + the VSP test row) — the first concrete divergence the rewrite
+surfaces, and the thread the rest of Increment 5 pulls on. Categories still to
+wire: `dmadelay`, `vsp-tester`/`vspbug`, `spritecrunch`/`spritedma`, `flibug`,
+`vicii_timing`. Whichever first shows a divergence the *old* geometry path got
+wrong and the counter chain gets right is where the version bump + catalogue
+re-capture land.
 
 ### Increment 6 — NTSC 6567 (optional, post-PAL)
 

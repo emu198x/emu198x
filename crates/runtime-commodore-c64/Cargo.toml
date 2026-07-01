@@ -20,5 +20,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+mos-vic-ii = { path = "../mos-vic-ii", version = "0.2.0" }
+png = { workspace = true }
+
 [lints]
 workspace = true
