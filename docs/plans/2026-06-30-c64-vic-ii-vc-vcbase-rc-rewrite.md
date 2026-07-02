@@ -531,10 +531,27 @@ So:
 This is larger than the VC/VCBASE rewrite and is tracked as its own increment
 series here.
 
-### Increment 6 — NTSC 6567 (optional, post-PAL)
+### Increment 6 — NTSC 6567 🚧 6567R8 landed; R56A pending
 
-Encode the 65-cycle 6567R8 (and 64-cycle R56A) tables; extend the oracle and
-counter chain. PAL is canonical for the engineering bar; NTSC follows.
+The engine's sprite-region cycle schedule is now **per-model data** (`SpriteTiming`,
+selected by `VicModel`), sourced from VICE `cycle_tab_ntsc[]`. The c-access/g-access
+region and its counter events (UpdateVc cyc 14, UpdateMcBase 16, UpdateRc 58) are
+identical across models — only the sprite region shifts, because NTSC's two extra
+cycles fall there: sprites 0-3 p-access in the previous line's tail (59/61/63/0-wrap
+vs PAL's 0-2 at 58/60/62), and the DMA/display checks move one cycle later
+(`ChkSprDma` 55→56, `ChkSprDisp` 58→59). `sprite_paccess_cycle`/`saccess_cycle`,
+`evaluate_sprite_dma`, the chain `check_dma`/`check_exp`/`check_display`,
+`is_sprite_dma_stealing`, and `sprite_ba_low` all read the schedule; PAL stays
+**bit-identical** (unit suite + catalogue 7/7 unchanged).
+
+Oracle extended with the full `CANONICAL_NTSC[65]` table (transcribed from VICE) +
+self-consistency locks (40 c/40 g/5 refresh/8 p-access/24 s-access, badline window,
+counter-flag cycles) + the sprite-shift assertions. NTSC validated by unit tests
+(schedule data, per-model access-cycle resolution, a DMA-steal-at-NTSC-cycles
+behavioural test) since no NTSC golden PNGs exist. **Deferred:** the 64-cycle
+6567R56A variant (the parameterization now makes it a table + enum-arm addition) and
+NTSC framebuffer-geometry refinement (visible-cycle window / FB width — NTSC's extra
+right-edge cycles are currently cropped; a rendering-geometry item, not timing).
 
 ## Non-goals
 

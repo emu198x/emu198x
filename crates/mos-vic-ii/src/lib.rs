@@ -109,7 +109,75 @@ impl VicModel {
             Self::Ntsc6567 => 65,
         }
     }
+
+    /// The model's sprite-region cycle schedule. The c-access/g-access region
+    /// and its counter events (UpdateVc cyc 14, UpdateMcBase 16, UpdateRc 58)
+    /// are identical across models; only the sprite fetch/DMA region differs,
+    /// because NTSC's two extra cycles are inserted there.
+    const fn sprite_timing(self) -> SpriteTiming {
+        match self {
+            Self::Pal6569 => SPRITE_TIMING_PAL,
+            Self::Ntsc6567 => SPRITE_TIMING_NTSC,
+        }
+    }
 }
+
+/// Model-specific sprite cycle schedule, in engine 0-based `raster_cycle`
+/// values (VICE's 1-based cycle N maps to engine N, with the line's last cycle
+/// relabelled 0). Sourced from VICE `vicii-chip-model.c` `cycle_tab_pal` /
+/// `cycle_tab_ntsc`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+struct SpriteTiming {
+    /// Per sprite 0..7: the p-access cycle (pointer + data byte 0) and whether
+    /// it fetches for the next raster line (sprites whose p-access sits in the
+    /// previous line's tail). The s-access (data bytes 1-2) is the next cycle;
+    /// the BA lead-in is the three cycles before the p-access.
+    paccess: [(u8, bool); 8],
+    /// The two cycles the sprite-DMA check fires (VICE `ChkSprDma`). The first
+    /// is where the BA-path `evaluate_sprite_dma` runs.
+    chk_dma: [u8; 2],
+    /// Y-expansion flip-flop toggle cycle (VICE `ChkSprExp`).
+    chk_exp: u8,
+    /// Sprite display-bit latch cycle — `MC = MCBASE` (VICE `ChkSprDisp`).
+    chk_disp: u8,
+}
+
+/// PAL 6569: 63-cycle line. Sprites 0-2 p-access in the previous line's tail
+/// (58/60/62), sprites 3-7 on the current line (1/3/5/7/9).
+const SPRITE_TIMING_PAL: SpriteTiming = SpriteTiming {
+    paccess: [
+        (58, true),
+        (60, true),
+        (62, true),
+        (1, false),
+        (3, false),
+        (5, false),
+        (7, false),
+        (9, false),
+    ],
+    chk_dma: [55, 56],
+    chk_exp: 56,
+    chk_disp: 58,
+};
+
+/// NTSC 6567R8: 65-cycle line. The extra two cycles push the sprite region
+/// later — sprites 0-3 p-access in the previous line's tail (59/61/63/0-wrap),
+/// sprites 4-7 on the current line (2/4/6/8); DMA/display checks shift by one.
+const SPRITE_TIMING_NTSC: SpriteTiming = SpriteTiming {
+    paccess: [
+        (59, true),
+        (61, true),
+        (63, true),
+        (0, true),
+        (2, false),
+        (4, false),
+        (6, false),
+        (8, false),
+    ],
+    chk_dma: [56, 57],
+    chk_exp: 56,
+    chk_disp: 59,
+};
 
 struct CellPixels {
     colour: [u32; 8],
@@ -208,6 +276,8 @@ pub struct Vic {
     xscroll_latch: u8,
     lines_per_frame: u16,
     cycles_per_line: u8,
+    /// Model-specific sprite-region cycle schedule (PAL 6569 vs NTSC 6567).
+    timing: SpriteTiming,
     first_visible_line: u16,
     last_visible_line: u16,
     lp_triggered: bool,
@@ -289,6 +359,7 @@ impl Vic {
             xscroll_latch: 0,
             lines_per_frame: model.lines_per_frame(),
             cycles_per_line: model.cycles_per_line(),
+            timing: model.sprite_timing(),
             first_visible_line: first_vis,
             last_visible_line: last_vis,
             lp_triggered: false,
@@ -305,7 +376,7 @@ impl Vic {
 
     /// Tick the VIC-II for one `phi2` cycle.
     pub fn tick(&mut self, memory: &dyn VicMemory) -> bool {
-        if self.raster_cycle == 55 {
+        if self.raster_cycle == self.timing.chk_dma[0] {
             self.evaluate_sprite_dma();
         }
 
@@ -524,52 +595,28 @@ impl Vic {
     }
 
     /// The sprite whose p-access (pointer + data byte 0) falls on this cycle,
-    /// and whether it targets the next line. The chain fetch
-    /// (`chain_paccess`/`chain_saccess`) and the draw stage both key off this
-    /// per-sprite DMA schedule (VICE `cycle_tab_pal` SprPtr/SprDma0-2,
-    /// vicii-chip-model.c). For PAL 63-cycle lines, per sprite, targeting
-    /// display line L:
-    ///
-    /// | sprite | p-access + byte 0 | bytes 1-2 | target |
-    /// |--------|-------------------|-----------|--------|
-    /// |   0    | 58 (line L-1)     | 59        | L      |
-    /// |   1    | 60 (line L-1)     | 61        | L      |
-    /// |   2    | 62 (line L-1)     | 0 (line L)| L      |
-    /// |   3    |  1 (line L)       | 2         | L      |
-    /// |   4    |  3 (line L)       | 4         | L      |
-    /// |   5    |  5 (line L)       | 6         | L      |
-    /// |   6    |  7 (line L)       | 8         | L      |
-    /// |   7    |  9 (line L)       | 10        | L      |
-    ///
-    /// Sprites 0-2 fetch for `raster_line + 1`; sprites 3-7 for the current
-    /// line. Sprite 2's two cycles straddle the line boundary (62 then 0).
-    const fn sprite_paccess_cycle(cycle: u8) -> Option<(usize, bool)> {
-        match cycle {
-            58 => Some((0, true)),
-            60 => Some((1, true)),
-            62 => Some((2, true)),
-            1 => Some((3, false)),
-            3 => Some((4, false)),
-            5 => Some((5, false)),
-            7 => Some((6, false)),
-            9 => Some((7, false)),
-            _ => None,
-        }
+    /// and whether it targets the next line, per the model's sprite schedule
+    /// (`SpriteTiming::paccess`, VICE `cycle_tab_*` SprPtr/SprDma0). The chain
+    /// fetch (`chain_paccess`/`chain_saccess`) and the draw stage both key off
+    /// this. PAL: sprites 0-2 fetch in the previous line's tail (58/60/62) for
+    /// the next line, 3-7 on the current line (1/3/5/7/9). NTSC's two extra
+    /// cycles shift this (see `SPRITE_TIMING_NTSC`).
+    fn sprite_paccess_cycle(&self, cycle: u8) -> Option<(usize, bool)> {
+        self.timing
+            .paccess
+            .iter()
+            .position(|&(c, _)| c == cycle)
+            .map(|i| (i, self.timing.paccess[i].1))
     }
 
-    /// The sprite whose s-access (data bytes 1 and 2) falls on this cycle.
-    const fn sprite_saccess_cycle(cycle: u8) -> Option<usize> {
-        match cycle {
-            59 => Some(0),
-            61 => Some(1),
-            0 => Some(2),
-            2 => Some(3),
-            4 => Some(4),
-            6 => Some(5),
-            8 => Some(6),
-            10 => Some(7),
-            _ => None,
-        }
+    /// The sprite whose s-access (data bytes 1 and 2) falls on this cycle. The
+    /// s-access is always the cycle after the sprite's p-access.
+    fn sprite_saccess_cycle(&self, cycle: u8) -> Option<usize> {
+        let cpl = self.cycles_per_line;
+        self.timing
+            .paccess
+            .iter()
+            .position(|&(c, _)| (c + 1) % cpl == cycle)
     }
 
     fn render_pixels(&mut self, memory: &dyn VicMemory) {
@@ -898,20 +945,20 @@ impl Vic {
         if c == 16 {
             self.chain.update_mcbase();
         }
-        if (c == 55 || c == 56) && self.raster_line <= 255 {
+        if (c == self.timing.chk_dma[0] || c == self.timing.chk_dma[1]) && self.raster_line <= 255 {
             self.chain.check_dma(enable, y, raster_low);
         }
-        if c == 56 {
+        if c == self.timing.chk_exp {
             self.chain.check_exp(self.regs[0x17]);
         }
-        if c == 58 {
+        if c == self.timing.chk_disp {
             self.chain.check_display(enable, y, raster_low);
         }
 
-        if let Some((i, _)) = Self::sprite_paccess_cycle(c) {
+        if let Some((i, _)) = self.sprite_paccess_cycle(c) {
             self.chain_paccess(memory, i);
         }
-        if let Some(i) = Self::sprite_saccess_cycle(c) {
+        if let Some(i) = self.sprite_saccess_cycle(c) {
             self.chain_saccess(memory, i);
         }
     }
@@ -926,8 +973,8 @@ impl Vic {
     fn run_sprite_draw_cycle(&mut self) {
         let c = self.raster_cycle;
         let expx = self.regs[0x1D];
-        let dma0 = Self::sprite_paccess_cycle(c).map(|(i, _)| i);
-        let dma2 = Self::sprite_saccess_cycle(c);
+        let dma0 = self.sprite_paccess_cycle(c).map(|(i, _)| i);
+        let dma2 = self.sprite_saccess_cycle(c);
         let xpos_base = (i32::from(c) - i32::from(FIRST_VISIBLE_CYCLE)) * 8;
 
         self.sprite_sequencer
@@ -947,7 +994,7 @@ impl Vic {
                     }
                 }
                 4 => {
-                    if c == 58 {
+                    if c == self.timing.chk_disp {
                         self.sprite_sequencer.set_pending(self.chain.display_bits());
                     }
                     if let Some(i) = dma2 {
@@ -1065,14 +1112,14 @@ impl Vic {
 
     fn is_sprite_dma_stealing(&self) -> bool {
         let c = self.raster_cycle;
-        (self.sprite_dma_active[0] && (c == 58 || c == 59))
-            || (self.sprite_dma_active[1] && (c == 60 || c == 61))
-            || (self.sprite_dma_active[2] && (c == 62 || c == 0))
-            || (self.sprite_dma_active[3] && (c == 1 || c == 2))
-            || (self.sprite_dma_active[4] && (c == 3 || c == 4))
-            || (self.sprite_dma_active[5] && (c == 5 || c == 6))
-            || (self.sprite_dma_active[6] && (c == 7 || c == 8))
-            || (self.sprite_dma_active[7] && (c == 9 || c == 10))
+        let cpl = self.cycles_per_line;
+        // A sprite steals the bus on its p-access and s-access (the next
+        // cycle), per the model's schedule.
+        self.timing
+            .paccess
+            .iter()
+            .enumerate()
+            .any(|(i, &(p, _))| self.sprite_dma_active[i] && (c == p || c == (p + 1) % cpl))
     }
 
     fn compute_ba_low(&self) -> bool {
@@ -1086,21 +1133,20 @@ impl Vic {
     fn sprite_ba_low(&self) -> bool {
         let c = self.raster_cycle;
         let cpl = self.cycles_per_line;
-        for i in 0..8u8 {
-            if !self.sprite_dma_active[i as usize] {
-                continue;
+        // BA drops for the three cycles before a sprite's p-access through its
+        // s-access (a 5-cycle window), per the model's schedule.
+        self.timing.paccess.iter().enumerate().any(|(i, &(p, _))| {
+            if !self.sprite_dma_active[i] {
+                return false;
             }
-            let ba_start = (55u8.wrapping_add(2 * i)) % cpl;
-            let ba_end = (59u8.wrapping_add(2 * i)) % cpl;
+            let ba_start = (p + cpl - 3) % cpl;
+            let ba_end = (p + 1) % cpl;
             if ba_start <= ba_end {
-                if c >= ba_start && c <= ba_end {
-                    return true;
-                }
-            } else if c >= ba_start || c <= ba_end {
-                return true;
+                c >= ba_start && c <= ba_end
+            } else {
+                c >= ba_start || c <= ba_end
             }
-        }
-        false
+        })
     }
 
     fn screen_base(&self) -> u16 {
@@ -1403,10 +1449,23 @@ mod tests {
     }
 
     fn make_vic_and_memory() -> (Vic, TestMemory) {
+        make_vic_and_memory_model(VicModel::Pal6569)
+    }
+
+    fn make_vic_and_memory_model(model: VicModel) -> (Vic, TestMemory) {
         let chargen = vec![0xFF; 4096];
-        let vic = Vic::new(VicModel::Pal6569);
+        let vic = Vic::new(model);
         let memory = TestMemory::new(&chargen);
         (vic, memory)
+    }
+
+    /// Tick until the VIC reaches exactly (`line`, `cycle`). Model-agnostic
+    /// (unlike `advance_to`, which assumes PAL's cycle count); terminates within
+    /// one frame for any valid target.
+    fn advance_until(vic: &mut Vic, memory: &TestMemory, line: u16, cycle: u8) {
+        while vic.raster_line() != line || vic.raster_cycle() != cycle {
+            tick_vic(vic, memory);
+        }
     }
 
     fn tick_vic(vic: &mut Vic, mem: &TestMemory) -> bool {
@@ -2209,6 +2268,74 @@ mod tests {
     #[test]
     fn vic_model_default_is_pal() {
         assert_eq!(VicModel::default(), VicModel::Pal6569);
+    }
+
+    #[test]
+    fn ntsc_sprite_schedule_matches_6567r8() {
+        // VICE cycle_tab_ntsc SprPtr cycles (engine 0-based): sprites 0-3 in
+        // the previous line's tail (59/61/63/0-wrap), 4-7 on the current line
+        // (2/4/6/8); DMA/display checks shift +1 vs PAL.
+        let t = VicModel::Ntsc6567.sprite_timing();
+        assert_eq!(
+            t.paccess,
+            [
+                (59, true),
+                (61, true),
+                (63, true),
+                (0, true),
+                (2, false),
+                (4, false),
+                (6, false),
+                (8, false),
+            ]
+        );
+        assert_eq!(t.chk_dma, [56, 57]);
+        assert_eq!(t.chk_exp, 56);
+        assert_eq!(t.chk_disp, 59);
+    }
+
+    #[test]
+    fn ntsc_sprite_access_cycles_resolve_per_model() {
+        let ntsc = Vic::new(VicModel::Ntsc6567);
+        // Sprite 0 p-access at 59 (NTSC) not 58 (PAL); s-access the next cycle.
+        assert_eq!(ntsc.sprite_paccess_cycle(59), Some((0, true)));
+        assert_eq!(ntsc.sprite_saccess_cycle(60), Some(0));
+        // Sprite 3 straddles the line boundary (p-access at 0, s-access at 1).
+        assert_eq!(ntsc.sprite_paccess_cycle(0), Some((3, true)));
+        assert_eq!(ntsc.sprite_saccess_cycle(1), Some(3));
+        // Sprite 4 is first on the current line at cycle 2.
+        assert_eq!(ntsc.sprite_paccess_cycle(2), Some((4, false)));
+        // The PAL sprite-0 cycle (58) is not a p-access on NTSC.
+        assert_eq!(ntsc.sprite_paccess_cycle(58), None);
+
+        let pal = Vic::new(VicModel::Pal6569);
+        assert_eq!(pal.sprite_paccess_cycle(58), Some((0, true)));
+        assert_eq!(pal.sprite_paccess_cycle(59), None);
+    }
+
+    #[test]
+    fn ntsc_sprite_dma_steals_at_ntsc_cycles() {
+        // Enable sprite 0 at a Y that is DMA-active on line 60, then confirm it
+        // steals the bus on its NTSC p-access (59) + s-access (60), not the PAL
+        // cycle 58.
+        let (mut vic, memory) = make_vic_and_memory_model(VicModel::Ntsc6567);
+        vic.write(0x15, 0x01); // enable sprite 0
+        vic.write(0x01, 60); // sprite 0 Y = 60
+        // Wind just past line 60 cycle 56 (NTSC ChkSprDma[0], processed at the
+        // end of that cycle's tick) so DMA is evaluated.
+        advance_until(&mut vic, &memory, 60, 57);
+        assert!(vic.sprite_dma_active[0], "sprite 0 should be DMA-active");
+        // Cycle 58 is a steal on PAL but not NTSC (checked before 59, forward).
+        advance_until(&mut vic, &memory, 60, 58);
+        assert!(
+            !vic.is_sprite_dma_stealing(),
+            "cyc 58 is not a steal on NTSC (it is on PAL)"
+        );
+        advance_until(&mut vic, &memory, 60, 59);
+        assert!(
+            vic.is_sprite_dma_stealing(),
+            "steal on NTSC p-access cyc 59"
+        );
     }
 
     #[test]
