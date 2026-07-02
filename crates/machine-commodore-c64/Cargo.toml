@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 common-commodore-c64 = { path = "../common-commodore-c64", version = "0.2.0" }
 common-commodore-iec = { path = "../common-commodore-iec", version = "0.2.0" }
+format-commodore-c64-crt = { path = "../format-commodore-c64-crt", version = "0.2.0" }
 format-commodore-c64-prg = { path = "../format-commodore-c64-prg", version = "0.2.0" }
 format-commodore-c64-tap = { path = "../format-commodore-c64-tap", version = "0.2.0" }
 mos-6502 = { path = "../mos-6502", version = "0.2.0" }

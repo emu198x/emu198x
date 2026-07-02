@@ -24,6 +24,26 @@ pub enum MemoryInitError {
     },
 }
 
+/// An inserted cartridge's ROM banks + control-line state. ROML is the
+/// `$8000-$9FFF` image; ROMH is the second 8K, mapped at `$A000-$BFFF` (16K
+/// carts) or `$E000-$FFFF` (Ultimax). `exrom`/`game` are stored as "line
+/// asserted (low)".
+#[derive(Clone)]
+struct Cartridge {
+    exrom: bool,
+    game: bool,
+    roml: Option<Box<[u8; 0x2000]>>,
+    romh: Option<Box<[u8; 0x2000]>>,
+}
+
+impl Cartridge {
+    /// Ultimax mode: EXROM high (not asserted), GAME low (asserted) — ROMH sits
+    /// at `$E000` and the KERNAL/BASIC ROMs are hidden.
+    const fn ultimax(&self) -> bool {
+        !self.exrom && self.game
+    }
+}
+
 /// C64 memory subsystem.
 #[derive(Clone)]
 pub struct C64Memory {
@@ -34,6 +54,15 @@ pub struct C64Memory {
     colour_ram: [u8; COLOUR_RAM_SIZE],
     port_ddr: u8,
     port_data: u8,
+    cartridge: Option<Cartridge>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct CartridgeSnapshot {
+    exrom: bool,
+    game: bool,
+    roml: Option<Vec<u8>>,
+    romh: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -45,6 +74,8 @@ pub(crate) struct C64MemorySnapshot {
     colour_ram: Vec<u8>,
     port_ddr: u8,
     port_data: u8,
+    #[serde(default)]
+    cartridge: Option<CartridgeSnapshot>,
 }
 
 impl C64Memory {
@@ -66,7 +97,64 @@ impl C64Memory {
             colour_ram: [0; COLOUR_RAM_SIZE],
             port_ddr: 0x2F,
             port_data: 0x37,
+            cartridge: None,
         })
+    }
+
+    /// Inserts a cartridge, taking its ROML (`$8000`) and ROMH (`$A000`/`$E000`)
+    /// 8K images and its `EXROM`/`GAME` line state (both "asserted = low").
+    pub(crate) fn insert_cartridge(
+        &mut self,
+        exrom: bool,
+        game: bool,
+        roml: Option<Box<[u8; 0x2000]>>,
+        romh: Option<Box<[u8; 0x2000]>>,
+    ) {
+        self.cartridge = Some(Cartridge {
+            exrom,
+            game,
+            roml,
+            romh,
+        });
+    }
+
+    /// Removes any inserted cartridge.
+    pub(crate) fn remove_cartridge(&mut self) {
+        self.cartridge = None;
+    }
+
+    /// Cartridge ROM byte visible at `addr`, if a cartridge maps it under the
+    /// current banking, else `None`.
+    fn cartridge_read(&self, addr: u16) -> Option<u8> {
+        let cart = self.cartridge.as_ref()?;
+        match addr {
+            0x8000..=0x9FFF => {
+                let roml = cart.roml.as_ref()?;
+                // ROML is unconditionally visible in Ultimax; otherwise it needs
+                // LORAM + HIRAM (the standard 8K/16K cartridge window).
+                (cart.ultimax() || (self.loram() && self.hiram()))
+                    .then(|| roml[usize::from(addr - 0x8000)])
+            }
+            0xA000..=0xBFFF => {
+                // 16K carts (not Ultimax) place ROMH here, replacing BASIC.
+                let romh = cart.romh.as_ref()?;
+                (!cart.ultimax() && self.loram() && self.hiram())
+                    .then(|| romh[usize::from(addr - 0xA000)])
+            }
+            0xE000..=0xFFFF => {
+                // Ultimax carts place ROMH here, replacing the KERNAL.
+                let romh = cart.romh.as_ref()?;
+                cart.ultimax().then(|| romh[usize::from(addr - 0xE000)])
+            }
+            _ => None,
+        }
+    }
+
+    const fn cart_ultimax(&self) -> bool {
+        match &self.cartridge {
+            Some(cart) => cart.ultimax(),
+            None => false,
+        }
     }
 
     /// Rebuilds one memory subsystem from a previously captured snapshot.
@@ -101,6 +189,17 @@ impl C64Memory {
         memory.colour_ram.copy_from_slice(&snapshot.colour_ram);
         memory.port_ddr = snapshot.port_ddr;
         memory.port_data = snapshot.port_data;
+        if let Some(cart) = snapshot.cartridge {
+            let bank = |image: Option<Vec<u8>>| -> Result<Option<Box<[u8; 0x2000]>>, String> {
+                image
+                    .map(|bytes| {
+                        boxed_array_from_slice::<0x2000>("cartridge bank", &bytes)
+                            .map_err(|reason| reason.to_string())
+                    })
+                    .transpose()
+            };
+            memory.insert_cartridge(cart.exrom, cart.game, bank(cart.roml)?, bank(cart.romh)?);
+        }
         Ok(memory)
     }
 
@@ -115,6 +214,12 @@ impl C64Memory {
             colour_ram: self.colour_ram.to_vec(),
             port_ddr: self.port_ddr,
             port_data: self.port_data,
+            cartridge: self.cartridge.as_ref().map(|cart| CartridgeSnapshot {
+                exrom: cart.exrom,
+                game: cart.game,
+                roml: cart.roml.as_ref().map(|b| b.to_vec()),
+                romh: cart.romh.as_ref().map(|b| b.to_vec()),
+            }),
         }
     }
 
@@ -136,16 +241,18 @@ impl C64Memory {
         (self.port_data & self.port_ddr) | (PORT_PULLUPS & !self.port_ddr)
     }
 
-    /// Returns `true` when BASIC ROM is visible at `$A000-$BFFF`.
+    /// Returns `true` when BASIC ROM is visible at `$A000-$BFFF`. Hidden in
+    /// Ultimax mode.
     #[must_use]
     pub const fn basic_visible(&self) -> bool {
-        self.hiram() && self.loram()
+        self.hiram() && self.loram() && !self.cart_ultimax()
     }
 
-    /// Returns `true` when KERNAL ROM is visible at `$E000-$FFFF`.
+    /// Returns `true` when KERNAL ROM is visible at `$E000-$FFFF`. Hidden in
+    /// Ultimax mode (the cartridge's ROMH takes `$E000`).
     #[must_use]
     pub const fn kernal_visible(&self) -> bool {
-        self.hiram()
+        self.hiram() && !self.cart_ultimax()
     }
 
     /// Returns `true` when I/O is visible at `$D000-$DFFF`.
@@ -163,6 +270,13 @@ impl C64Memory {
     /// CPU-visible read with ROM overlays applied.
     #[must_use]
     pub fn cpu_read(&self, addr: u16) -> u8 {
+        // Cartridge ROM overlays the CPU map first (ROML $8000, ROMH $A000/$E000).
+        if addr >= 0x8000
+            && !(0xD000..=0xDFFF).contains(&addr)
+            && let Some(byte) = self.cartridge_read(addr)
+        {
+            return byte;
+        }
         match addr {
             0x0000 => self.port_ddr,
             0x0001 => self.effective_port(),
@@ -305,6 +419,67 @@ mod tests {
         assert_eq!(memory.cpu_read(0xA000), 0xBB);
         assert_eq!(memory.cpu_read(0xE000), 0xEE);
         assert!(memory.is_io_visible());
+    }
+
+    /// 8K cart: EXROM asserted, GAME not. ROML at $8000 when LORAM+HIRAM (the
+    /// default banking); BASIC/KERNAL still visible.
+    #[test]
+    fn cart_8k_maps_roml_at_8000() {
+        let mut memory = make_memory();
+        memory.insert_cartridge(true, false, Some(Box::new([0xA1; 0x2000])), None);
+        assert_eq!(memory.cpu_read(0x8000), 0xA1);
+        assert_eq!(memory.cpu_read(0x9FFF), 0xA1);
+        // BASIC + KERNAL unaffected by a plain 8K cart.
+        assert_eq!(memory.cpu_read(0xA000), 0xBB);
+        assert_eq!(memory.cpu_read(0xE000), 0xEE);
+        // With LORAM cleared the ROML window closes → RAM shows through.
+        memory.cpu_write(0x0000, 0xFF);
+        memory.cpu_write(0x0001, 0x36); // LORAM low
+        memory.ram_write(0x8000, 0x77);
+        assert_eq!(memory.cpu_read(0x8000), 0x77);
+    }
+
+    /// 16K cart: both lines asserted. ROML at $8000 + ROMH at $A000 (replacing
+    /// BASIC); KERNAL still visible.
+    #[test]
+    fn cart_16k_maps_roml_and_romh() {
+        let mut memory = make_memory();
+        memory.insert_cartridge(
+            true,
+            true,
+            Some(Box::new([0xA1; 0x2000])),
+            Some(Box::new([0xB2; 0x2000])),
+        );
+        assert_eq!(memory.cpu_read(0x8000), 0xA1);
+        assert_eq!(memory.cpu_read(0xA000), 0xB2); // ROMH, not BASIC (0xBB)
+        assert_eq!(memory.cpu_read(0xE000), 0xEE); // KERNAL untouched
+    }
+
+    /// Ultimax: EXROM high, GAME low. ROML at $8000 + ROMH at $E000 (replacing
+    /// KERNAL); BASIC + KERNAL are hidden.
+    #[test]
+    fn cart_ultimax_maps_romh_at_e000_and_hides_roms() {
+        let mut memory = make_memory();
+        memory.insert_cartridge(
+            false,
+            true,
+            Some(Box::new([0xA1; 0x2000])),
+            Some(Box::new([0xE7; 0x2000])),
+        );
+        assert_eq!(memory.cpu_read(0x8000), 0xA1);
+        assert_eq!(memory.cpu_read(0xE000), 0xE7); // ROMH, not KERNAL (0xEE)
+        assert!(!memory.kernal_visible());
+        assert!(!memory.basic_visible());
+    }
+
+    #[test]
+    fn cart_removed_restores_plain_map() {
+        let mut memory = make_memory();
+        memory.insert_cartridge(true, false, Some(Box::new([0xA1; 0x2000])), None);
+        memory.ram_write(0x8000, 0x55);
+        memory.remove_cartridge();
+        assert_eq!(memory.cpu_read(0x8000), 0x55); // RAM, no ROML overlay
+        assert_eq!(memory.cpu_read(0xE000), 0xEE);
     }
 
     #[test]

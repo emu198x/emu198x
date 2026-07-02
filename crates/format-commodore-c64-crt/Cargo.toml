@@ -1,0 +1,13 @@
+[package]
+name = "format-commodore-c64-crt"
+description = "Commodore 64 CRT cartridge-image parser"
+edition.workspace = true
+version = "0.2.0"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

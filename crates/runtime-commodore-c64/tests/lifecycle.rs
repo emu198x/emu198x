@@ -335,7 +335,7 @@ fn machine_core_load_media_rejects_unknown_slot() {
         .expect("blank C64 firmware should construct a runtime");
     let mut media = MediaSet::new();
     media.push(MediaImage::new(
-        "cartridge-1",
+        "cartridge-9",
         MediaKind::Cartridge,
         &[0x00],
     ));
@@ -345,7 +345,7 @@ fn machine_core_load_media_rejects_unknown_slot() {
         .expect_err("unknown media slot should be rejected");
     assert!(matches!(
         err,
-        MachineError::UnknownMediaSlot { ref slot } if slot == "cartridge-1"
+        MachineError::UnknownMediaSlot { ref slot } if slot == "cartridge-9"
     ));
 }
 

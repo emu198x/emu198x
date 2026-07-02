@@ -27,6 +27,7 @@ members = [
     "crates/format-acorn-atom-atm",
     "crates/format-acorn-uef",
     "crates/format-commodore-c64-bas",
+    "crates/format-commodore-c64-crt",
     "crates/format-commodore-c64-d64",
     "crates/format-commodore-c64-prg",
     "crates/format-commodore-c64-tap",

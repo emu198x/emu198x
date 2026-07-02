@@ -1393,6 +1393,13 @@ name = "format-commodore-c64-bas"
 version = "0.2.0"
 
 [[package]]
+name = "format-commodore-c64-crt"
+version = "0.2.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "format-commodore-c64-d64"
 version = "0.2.0"
 dependencies = [
@@ -2168,6 +2175,7 @@ version = "0.2.0"
 dependencies = [
  "common-commodore-c64",
  "common-commodore-iec",
+ "format-commodore-c64-crt",
  "format-commodore-c64-prg",
  "format-commodore-c64-tap",
  "machine-commodore-1541",
