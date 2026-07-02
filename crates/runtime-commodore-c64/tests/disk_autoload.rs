@@ -14,7 +14,7 @@ use emu198x_shell::{
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
     DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model,
-    autoload_basic_disk,
+    autoload_basic_disk, autoload_basic_disk_and_run,
 };
 use serde_json::json;
 
@@ -172,6 +172,53 @@ fn real_d64_autoload_bruce_lee_reaches_loading() {
         .wait_for_query_text_contains("screen.text.lines", "LOADING", 1_500)
         .expect("Bruce Lee disk autoload should reach LOADING");
     assert_eq!(loading.needle, "LOADING");
+}
+
+#[test]
+#[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+fn real_d64_autoload_and_run_bruce_lee_reaches_title() {
+    // The one-command path (`--autoload-run`): load, wait for the drive to
+    // idle, then type RUN — reaching the same title screen the manual
+    // LOAD-wait-RUN test asserts.
+    let firmware = local_rom_firmware_with_drive();
+    let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+        .expect("local ROMs should construct a C64 runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+        C64SessionQueryProvider,
+    );
+    let disk = read_media_asset(&local_bruce_lee_d64_zip(), MediaKind::Disk)
+        .expect("local Bruce Lee D64 archive should load");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        DEFAULT_DISK_AUTOLOAD_SLOT,
+        MediaKind::Disk,
+        &disk.bytes,
+    ));
+    session
+        .load_media(&media)
+        .expect("Bruce Lee D64 should mount into drive-8");
+
+    autoload_basic_disk_and_run(
+        &mut session,
+        DEFAULT_DISK_AUTOLOAD_SLOT,
+        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+        DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+    )
+    .expect("autoload-and-run should load Bruce Lee and type RUN");
+
+    // RUN kicks off the title-load stage; give it time to render.
+    session
+        .run_frames(1_800)
+        .expect("Bruce Lee should reach its title screen after RUN");
+
+    let title_lines = screen_text_lines(&session);
+    assert_eq!(
+        title_lines[0], "????\"QQQQ?????Q1????R????&???L??\"\"R1\"\"\"F",
+        "autoload-and-run should reach the Bruce Lee title screen: {:?}",
+        title_lines[0]
+    );
 }
 
 #[test]

@@ -246,6 +246,49 @@ pub fn autoload_basic_disk_with_trace_sink(
     })
 }
 
+/// Frames to wait for the drive motor to stop after a `LOAD` — the "load
+/// complete" signal for [`autoload_basic_disk_and_run`]. Generous: a full disk
+/// side is well under this.
+const DISK_LOAD_COMPLETE_FRAMES: u32 = 60_000;
+
+/// Runs [`autoload_basic_disk`], then waits for the load to finish and types
+/// `RUN` to start it — the one-command launch for programs that load and drop
+/// back to the BASIC `READY.` prompt (rather than autostarting).
+///
+/// "Load complete" is detected from the drive motor idling (game-independent):
+/// the motor is already spinning at `SEARCHING FOR`, so this waits for it to
+/// stop. If it has already stopped (a very fast load), `RUN` is typed straight
+/// away.
+///
+/// # Errors
+///
+/// Propagates the errors of [`autoload_basic_disk`], or a keypress/settle
+/// failure while typing `RUN`.
+pub fn autoload_basic_disk_and_run(
+    session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
+    slot: &str,
+    max_boot_frames: u32,
+    max_prompt_frames: u32,
+) -> Result<C64DiskAutoloadResult, C64AutoloadError> {
+    let mut trace_sink = NullTraceSink;
+    let result = autoload_basic_disk_with_trace_sink(
+        session,
+        slot,
+        max_boot_frames,
+        max_prompt_frames,
+        &mut trace_sink,
+    )?;
+
+    // Wait for the drive to finish (motor spins down). A timeout here just means
+    // the load is slow or already done — either way we go on to type RUN.
+    let _ = session.wait_for_query_bool("drive8.motor_on", false, DISK_LOAD_COMPLETE_FRAMES);
+
+    type_basic_command(session, "RUN", &mut trace_sink)?;
+    tap_key_chord(session, &["return"], &mut trace_sink)?;
+    session.run_frames_with_trace_sink(COMMAND_SETTLE_FRAMES, &mut trace_sink)?;
+    Ok(result)
+}
+
 fn tap_key_chord(
     session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
     keys: &[&'static str],
