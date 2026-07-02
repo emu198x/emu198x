@@ -296,17 +296,13 @@ fn colour_access_streams_one_per_cycle() {
 fn sprite0_data_access_spans_two_cycles() {
     let setup = |vic: &mut Vic| {
         text_mode(vic);
-        // Overlay-fetch acceptance (Increment 4): the two-cycle pointer/data
-        // split. The sequencer (now default) fetches via the MC-addressed
-        // chain, whose per-cycle access timing is validated by the VICII
-        // testbench (spritedma 99.998% vs VICE), not this oracle.
-        vic.set_sprite_sequencer_enabled(false);
         vic.write(0x15, 0x01);
         vic.write(0x01, 50);
     };
     let obs = capture_line(setup, NON_BADLINE);
-    // Canonical sprite 0: cycle 58 = p-access + s-byte 0 (2 reads);
-    // cycle 59 = s-bytes 1 and 2 (2 reads).
+    // The MC-addressed chain fetch spans two cycles like the hardware:
+    // cycle 58 = p-access (pointer) + data byte 0 (2 reads); cycle 59 =
+    // data bytes 1 and 2 (2 reads).
     let at = |c: u8| {
         obs.iter()
             .find(|o| o.cycle == c)

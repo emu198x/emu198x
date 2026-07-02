@@ -508,11 +508,25 @@ So:
   cheap-rollback safety net — its removal (+ converting the pinned tests to
   sequencer coverage) is the **remaining follow-up** (S3b, below).
 
-- **S3b (follow-up) — retire `overlay_sprites`.** Remove the geometry sprite mux
-  and the `use_sprite_sequencer` flag now that the sequencer ships by default,
-  and convert the 6 pinned overlay-path tests to drive the sequencer (asserting
-  its output directly, with the +1 synthetic-harness offset). Deferred from the
-  flip commit to keep that change focused and rollback cheap.
+- **S3b — retire `overlay_sprites` ✅ LANDED.** Removed the geometry sprite mux,
+  the `use_sprite_sequencer` flag + `set_sprite_sequencer_enabled`, and the
+  overlay-only fetch machinery (`fetch_sprite_if_scheduled`, `sprite_paccess`/
+  `sprite_saccess`, the `sprite_data`/`sprite_active`/`sprite_fetch_base`
+  fields). The sequencer is now the sole sprite path; the chain fetch is
+  unconditional. The independent BA/DMA-stall path (`evaluate_sprite_dma` →
+  `sprite_dma_active`) is untouched. **Open-bus neutrality:** the removed overlay
+  fetch was the only writer of `last_bus_data` from sprite bytes, so the chain
+  fetch (`chain_paccess`/`chain_saccess`) now mirrors it — and because the chain
+  reads the same steady-state bytes (MC = data_line×3 → base+MC = the overlay's
+  data_base), it is pixel-neutral: **catalogue re-run 7/7 PASS against the
+  unchanged S3 hashes, no drift.** Tests: the parity/A-B infrastructure (which
+  existed only to compare the two paths) is gone; the 6 pinned tests are
+  converted to drive the sequencer directly (render/collision tests assert the
+  +1-line first-activation output, incl. the multicolour test's exact per-pair
+  colours; the oracle fetch test now exercises the chain's 2+2-read split); two
+  overlay-model tests with no sequencer meaning were removed. The
+  `spritedma` parity test became a sequencer-vs-VICE ≥99.9 % floor gate.
+  mos-vic-ii 81 lib + 11 oracle green, machine + runtime green, clippy clean.
 
 This is larger than the VC/VCBASE rewrite and is tracked as its own increment
 series here.

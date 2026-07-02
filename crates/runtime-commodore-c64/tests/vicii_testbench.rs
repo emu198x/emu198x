@@ -44,14 +44,9 @@ fn roms_present() -> bool {
 }
 
 /// Boot real ROMs, load a testbench `.prg` (relative to the testbench dir),
-/// RUN it, settle for `settle_frames`, and return the ARGB framebuffer.
+/// RUN it, settle for `settle_frames`, and return the ARGB framebuffer. Sprites
+/// render through the draw-stage sequencer (the shipping default).
 fn run_testprog(rel_prg: &str, settle_frames: u32) -> Vec<u32> {
-    run_testprog_opt(rel_prg, settle_frames, false)
-}
-
-/// As `run_testprog`, but `use_sequencer` selects the draw-stage sprite
-/// sequencer over the geometry renderer (sequencer-port validation).
-fn run_testprog_opt(rel_prg: &str, settle_frames: u32, use_sequencer: bool) -> Vec<u32> {
     let dir = testbench_dir().expect("testbench dir checked by caller");
     let prg = std::fs::read(dir.join(rel_prg)).expect("testbench .prg should read");
 
@@ -63,13 +58,6 @@ fn run_testprog_opt(rel_prg: &str, settle_frames: u32, use_sequencer: bool) -> V
         u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
         C64SessionQueryProvider,
     );
-    // Set the sprite-render path explicitly on both branches: the sequencer
-    // is now the shipping default, so the overlay A-side of the survey must
-    // force it off rather than rely on the constructor default.
-    session
-        .machine_mut()
-        .machine_mut()
-        .set_sprite_sequencer_enabled(use_sequencer);
 
     // Boot to the READY prompt (real hardware ~2.5 s; 150 PAL frames = 3 s).
     session.run_frames(150).expect("boot should run");
@@ -295,7 +283,7 @@ fn dump_prg_framebuffer() {
         eprintln!("set VICII_DUMP_PRG=<category/name.prg>");
         return;
     };
-    let fb = run_testprog_opt(&rel, 60, std::env::var("VICII_SEQ").is_ok());
+    let fb = run_testprog(&rel, 60);
     write_framebuffer_png("/tmp/vicii_dump.png", &fb);
     eprintln!("wrote /tmp/vicii_dump.png for {rel}");
 }
@@ -381,7 +369,6 @@ fn survey_testbench_categories() {
         return;
     }
     let dir = testbench_dir().expect("checked");
-    let use_seq = std::env::var("VICII_SEQ").is_ok();
     let mut rows: Vec<(f64, &str)> = Vec::new();
     for (label, prg, refpng) in SURVEY {
         let refpath = dir.join(refpng);
@@ -390,14 +377,14 @@ fn survey_testbench_categories() {
             continue;
         }
         let reference = decode_reference_png(&refpath);
-        let fb = run_testprog_opt(prg, 60, use_seq);
+        let fb = run_testprog(prg, 60);
         rows.push((
             match_fraction(&fb, &reference, VICE_CROP_X, VICE_CROP_Y),
             label,
         ));
     }
     rows.sort_by(|a, b| a.0.total_cmp(&b.0));
-    eprintln!("\n=== VICII survey vs VICE 6569 (sequencer={use_seq}; match %, worst first) ===");
+    eprintln!("\n=== VICII survey vs VICE 6569 (match %, worst first) ===");
     for (m, label) in &rows {
         eprintln!("{:7.3}%  {label}", m * 100.0);
     }
@@ -424,12 +411,12 @@ fn row_match_fraction(fb: &[u32], reference: &RefImage, dx: u32, dy: u32, ry: u3
     matched as f64 / f64::from(reference.width)
 }
 
-/// Sequencer S2 parity gate: on `spritedma` (the parity anchor at 99.78 %), the
-/// draw-stage sequencer must render essentially identically to the geometry
-/// `overlay_sprites` — no per-row regression against VICE, and a near-identical
-/// framebuffer. Reports both so a real divergence is visible, not just gated.
+/// Sequencer regression floor: on `spritedma` (the sprite-render anchor) the
+/// draw-stage sequencer matches VICE's PAL 6569 reference to ≥99.9 % (it landed
+/// at 99.998 % when it became the default). Guards against a future sprite-path
+/// change silently regressing the anchor.
 #[test]
-#[ignore = "sequencer S2: spritedma parity (sequencer vs overlay vs VICE)"]
+#[ignore = "sequencer: spritedma floor vs VICE (requires ROMs + testbench)"]
 fn sprite_sequencer_spritedma_parity() {
     if !roms_present() || testbench_dir().is_none() {
         eprintln!("skip: C64 ROMs or testbench not staged");
@@ -437,27 +424,15 @@ fn sprite_sequencer_spritedma_parity() {
     }
     let dir = testbench_dir().expect("checked");
     let reference = decode_reference_png(&dir.join("spritedma/references/d017-54.prg.png"));
-    let overlay = run_testprog_opt("spritedma/d017-54.prg", 60, false);
-    let sequencer = run_testprog_opt("spritedma/d017-54.prg", 60, true);
+    let sequencer = run_testprog("spritedma/d017-54.prg", 60);
 
-    let m_overlay = match_fraction(&overlay, &reference, VICE_CROP_X, VICE_CROP_Y);
     let m_seq = match_fraction(&sequencer, &reference, VICE_CROP_X, VICE_CROP_Y);
-    let diff_px = overlay
-        .iter()
-        .zip(sequencer.iter())
-        .filter(|(a, b)| a != b)
-        .count();
-    eprintln!(
-        "spritedma: overlay {:.3}% vs VICE, sequencer {:.3}% vs VICE, {diff_px} px differ",
-        m_overlay * 100.0,
-        m_seq * 100.0
-    );
+    eprintln!("spritedma: sequencer {:.3}% vs VICE", m_seq * 100.0);
 
     assert!(
-        m_seq >= m_overlay - 0.0005,
-        "sequencer regressed spritedma vs VICE: {:.3}% < {:.3}%",
-        m_seq * 100.0,
-        m_overlay * 100.0
+        m_seq >= 0.999,
+        "sequencer regressed spritedma vs VICE: {:.3}% < 99.9%",
+        m_seq * 100.0
     );
 }
 
@@ -485,12 +460,10 @@ fn diff_by_row() {
     };
     let dir = testbench_dir().expect("checked");
     let reference = decode_reference_png(&dir.join(refpng));
-    // VICII_SEQ enables the draw-stage sprite sequencer (sequencer-port work).
-    let use_seq = std::env::var("VICII_SEQ").is_ok();
-    let fb = run_testprog_opt(prg, 60, use_seq);
+    let fb = run_testprog(prg, 60);
 
     eprintln!(
-        "\n=== {cat} (sequencer={use_seq}): rows below {:.0}% (ref-y → engine line {}+ref-y) ===",
+        "\n=== {cat}: rows below {:.0}% (ref-y → engine line {}+ref-y) ===",
         thresh * 100.0,
         VICE_CROP_Y
     );

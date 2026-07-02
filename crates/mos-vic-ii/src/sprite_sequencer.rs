@@ -1,10 +1,10 @@
 //! VIC-II draw-stage sprite sequencer — a faithful port of VICE's
 //! `vicii-draw-cycle.c` shift-register sprite pipeline.
 //!
-//! The engine's existing `overlay_sprites` draws each sprite directly from its
-//! fetched data at its X position. That is correct for ordinary sprites
-//! (`spritedma` scores 99.78 % against VICE) but cannot reproduce the pixel-
-//! timing edges — `spritecrunch`, `spritefetchbug`, `sb_sprite_fetch`, and the
+//! The retired `overlay_sprites` mux drew each sprite directly from its fetched
+//! data at its X position. That was correct for ordinary sprites (`spritedma`
+//! scored 99.78 % against VICE) but could not reproduce the pixel-timing edges
+//! — `spritecrunch`, `spritefetchbug`, `sb_sprite_fetch`, and the
 //! sprite-in-border stripes — because those turn on the real per-pixel shift
 //! register and its expansion / multicolour flip-flops.
 //!
@@ -15,10 +15,9 @@
 //! flip-flop halving the shift rate. Ported from VICE `draw_sprites`,
 //! `trigger_sprites`, `draw_sprites8` (`vicii-draw-cycle.c:304-533`).
 //!
-//! It is wired into `Vic` behind the `use_sprite_sequencer` flag (default off,
-//! geometry `overlay_sprites`). The chain stage (`advance_sprite_chain`) feeds
-//! it display bits + data; the draw stage (`run_sprite_draw_cycle`) drives it
-//! per cycle. See the plan
+//! It is the sole sprite render path in `Vic`. The chain stage
+//! (`advance_sprite_chain`) feeds it display bits + data; the draw stage
+//! (`run_sprite_draw_cycle`) drives it per cycle. See the plan
 //! `docs/plans/2026-06-30-c64-vic-ii-vc-vcbase-rc-rewrite.md`
 //! (Increment 5 § sprite sequencer).
 
