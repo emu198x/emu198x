@@ -587,6 +587,24 @@ impl C64 {
         self.memory.remove_cartridge();
     }
 
+    /// Attaches a GeoRAM RAM expansion of `size_kb` KiB (typically 512, 1024, or
+    /// 2048), zero-filled. Accessed through the `$DE00` window + `$DFFE`/`$DFFF`
+    /// bank registers.
+    pub fn attach_georam(&mut self, size_kb: usize) {
+        self.memory.attach_georam(size_kb);
+    }
+
+    /// Detaches any GeoRAM expansion.
+    pub fn detach_georam(&mut self) {
+        self.memory.detach_georam();
+    }
+
+    /// Whether a GeoRAM expansion is attached.
+    #[must_use]
+    pub fn has_georam(&self) -> bool {
+        self.memory.has_georam()
+    }
+
     /// Presses PLAY on the currently inserted datasette image.
     pub fn play_tape(&mut self) {
         self.datasette.play();
@@ -825,7 +843,7 @@ impl C64 {
                 }
             }
             0xDD00..=0xDDFF => self.cia2.read((addr & 0x0F) as u8),
-            0xDE00..=0xDFFF => 0xFF,
+            0xDE00..=0xDFFF => self.memory.georam_read(addr).unwrap_or(0xFF),
             _ => 0xFF,
         }
     }
@@ -843,7 +861,7 @@ impl C64 {
                 self.cia2.write((addr & 0x0F) as u8, value);
                 self.refresh_vic_bank();
             }
-            0xDE00..=0xDFFF => self.memory.cartridge_io_write(addr, value),
+            0xDE00..=0xDFFF => self.memory.expansion_io_write(addr, value),
             _ => {}
         }
     }
@@ -1088,6 +1106,76 @@ mod tests {
         // Clearing bit 7 re-enables it at the written bank (0).
         machine.cpu_write(0xDE00, 0x00);
         assert_eq!(machine.cpu_read(0x8000), 0xD0);
+    }
+
+    #[test]
+    fn georam_window_reads_and_writes_paged_ram() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.attach_georam(512);
+        assert!(machine.has_georam());
+
+        // Page 0, block 0: write through the $DE00 window, read it back.
+        machine.cpu_write(0xDE00, 0xAA);
+        machine.cpu_write(0xDE10, 0xBB);
+        assert_eq!(machine.cpu_read(0xDE00), 0xAA);
+        assert_eq!(machine.cpu_read(0xDE10), 0xBB);
+
+        // Select page 1 ($DFFE): a different 256-byte page, initially zero.
+        machine.cpu_write(0xDFFE, 0x01);
+        assert_eq!(machine.cpu_read(0xDE00), 0x00);
+        machine.cpu_write(0xDE00, 0xCC);
+        assert_eq!(machine.cpu_read(0xDE00), 0xCC);
+
+        // Select block 1 ($DFFF), page 0: another distinct region.
+        machine.cpu_write(0xDFFF, 0x01);
+        machine.cpu_write(0xDFFE, 0x00);
+        assert_eq!(machine.cpu_read(0xDE00), 0x00);
+        machine.cpu_write(0xDE00, 0xDD);
+        assert_eq!(machine.cpu_read(0xDE00), 0xDD);
+
+        // Back to page 0 / block 0: the original byte survives.
+        machine.cpu_write(0xDFFF, 0x00);
+        assert_eq!(machine.cpu_read(0xDE00), 0xAA);
+    }
+
+    #[test]
+    fn georam_block_register_masks_to_size() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.attach_georam(512); // 32 blocks → 5-bit block register
+        machine.cpu_write(0xDE00, 0x11); // block 0, page 0
+        // Writing block 0x20 wraps to 0 under the 0x1F mask, so the same cell.
+        machine.cpu_write(0xDFFF, 0x20);
+        assert_eq!(machine.cpu_read(0xDE00), 0x11);
+    }
+
+    #[test]
+    fn georam_survives_snapshot_roundtrip() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.attach_georam(512);
+        machine.cpu_write(0xDFFF, 0x02); // block 2
+        machine.cpu_write(0xDFFE, 0x03); // page 3
+        machine.cpu_write(0xDE05, 0x5A);
+
+        let snapshot = machine.snapshot_state();
+        let mut restored = stub_machine(C64Model::PalBreadbin);
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("snapshot should restore");
+
+        assert!(restored.has_georam());
+        // The selected block/page and the stored byte all survive.
+        assert_eq!(restored.cpu_read(0xDE05), 0x5A);
+    }
+
+    #[test]
+    fn georam_detach_restores_open_bus() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.attach_georam(512);
+        machine.cpu_write(0xDE00, 0x42);
+        machine.detach_georam();
+        assert!(!machine.has_georam());
+        // With no expansion, the I/O area reads back as open bus.
+        assert_eq!(machine.cpu_read(0xDE00), 0xFF);
     }
 
     #[test]

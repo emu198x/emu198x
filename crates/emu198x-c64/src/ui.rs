@@ -349,6 +349,7 @@ pub struct Cli {
     autoload_tape: bool,
     start_tape: bool,
     turbo_tape: bool,
+    georam_kb: Option<usize>,
     load_snapshot: Option<PathBuf>,
     scale: u32,
     video: VideoFilter,
@@ -410,6 +411,7 @@ Options:
     --autoload-tape      wait for READY., press SHIFT+RUN/STOP, and start tape-1
     --start-tape         start the inserted tape immediately at startup
     --turbo-tape         run unthrottled while the tape is playing
+    --georam KB          attach a GeoRAM RAM expansion (512, 1024, or 2048 KiB)
     --load-snapshot PATH restore a runtime snapshot before starting
     --scale N            integer window scale, default 2
     --video MODE         raw | lcd | crt [default: raw]
@@ -494,7 +496,7 @@ fn build_runtime(cli: &Cli) -> Result<(C64Runtime, FirmwareBundle), String> {
     };
 
     let model = cli.model.to_model();
-    let machine = boot_machine(
+    let mut machine = boot_machine(
         &BootArtifacts {
             firmware,
             snapshot: snapshot_bytes.as_deref(),
@@ -503,6 +505,12 @@ fn build_runtime(cli: &Cli) -> Result<(C64Runtime, FirmwareBundle), String> {
         || C64Runtime::blank(model),
     )
     .map_err(|err| format!("boot failed: {err}"))?;
+
+    // Attach a GeoRAM expansion only when requested, so a snapshot that
+    // restored its own GeoRAM is left intact when the flag is absent.
+    if let Some(kb) = cli.georam_kb {
+        machine.set_georam(Some(kb));
+    }
 
     let frame_ticks = u64::from(match cli.model {
         ModelArg::Pal | ModelArg::C64cPal => TIMING_PAL_BREADBIN.cycles_per_frame,
@@ -736,6 +744,7 @@ where
             "--autoload-tape" => cli.autoload_tape = true,
             "--start-tape" => cli.start_tape = true,
             "--turbo-tape" => cli.turbo_tape = true,
+            "--georam" => cli.georam_kb = Some(parse_georam_size(&next_arg(&mut iter, "--georam"))),
             "--load-snapshot" => {
                 cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
             }
@@ -762,6 +771,14 @@ fn parse_video_arg(video: &str) -> VideoFilter {
     video
         .parse()
         .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"))
+}
+
+/// Parse a `--georam` size in KiB. Accepts the standard 512/1024/2048 units.
+fn parse_georam_size(value: &str) -> usize {
+    match value.parse::<usize>() {
+        Ok(kb @ (512 | 1024 | 2048)) => kb,
+        _ => die("--georam expects a size in KiB: 512, 1024, or 2048"),
+    }
 }
 
 fn parse_model_arg(value: &str) -> ModelArg {
@@ -823,6 +840,7 @@ mod tests {
                 autoload_tape: false,
                 start_tape: false,
                 turbo_tape: false,
+                georam_kb: None,
                 load_snapshot: Some(PathBuf::from("ready.c64.pst")),
                 scale: 3,
                 video: VideoFilter::Raw,
@@ -853,6 +871,7 @@ mod tests {
                 autoload_tape: true,
                 start_tape: false,
                 turbo_tape: false,
+                georam_kb: None,
                 load_snapshot: None,
                 scale: DEFAULT_SCALE,
                 video: VideoFilter::Raw,
@@ -864,6 +883,13 @@ mod tests {
     fn parse_cli_accepts_tape_turbo_flag() {
         let cli = parse_cli(["--turbo-tape".to_string()]);
         assert!(cli.turbo_tape);
+    }
+
+    #[test]
+    fn parse_cli_accepts_georam_size() {
+        let cli = parse_cli(["--georam".to_string(), "512".to_string()]);
+        assert_eq!(cli.georam_kb, Some(512));
+        assert_eq!(parse_georam_size("2048"), 2048);
     }
 
     #[test]

@@ -321,6 +321,25 @@ fn machine_core_reset_rebuilds_runtime_state() {
 }
 
 #[test]
+fn set_georam_persists_across_reset() {
+    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+    assert!(!runtime.machine().has_georam());
+
+    runtime.set_georam(Some(512));
+    assert!(runtime.machine().has_georam());
+
+    // The expansion stays plugged in across a hard reset.
+    runtime.reset(ResetKind::Hard);
+    assert!(runtime.machine().has_georam());
+
+    runtime.set_georam(None);
+    assert!(!runtime.machine().has_georam());
+    runtime.reset(ResetKind::Hard);
+    assert!(!runtime.machine().has_georam());
+}
+
+#[test]
 fn machine_core_capabilities_match_profile() {
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");

@@ -72,6 +72,39 @@ impl Cartridge {
     }
 }
 
+/// A GeoRAM-style paged RAM expansion. The CPU sees a 256-byte window at
+/// `$DE00-$DEFF` into a much larger backing store, positioned by a block
+/// register (`$DFFF`, 16 KiB granularity) and a page register (`$DFFE`,
+/// 256-byte granularity within the block).
+#[derive(Clone)]
+struct GeoRam {
+    ram: Vec<u8>,
+    page: u8,
+    block: u8,
+}
+
+impl GeoRam {
+    fn new(size_bytes: usize) -> Self {
+        Self {
+            ram: vec![0; size_bytes.max(0x4000)],
+            page: 0,
+            block: 0,
+        }
+    }
+
+    /// Mask for the block register, derived from the backing size (one bit per
+    /// 16 KiB block; sizes are powers of two, so this is `blocks - 1`).
+    fn block_mask(&self) -> u8 {
+        let blocks = (self.ram.len() / 0x4000).max(1);
+        u8::try_from(blocks - 1).unwrap_or(0xFF)
+    }
+
+    /// Backing-store index for one `$DE00` window offset.
+    fn window_index(&self, offset: u8) -> usize {
+        (usize::from(self.block) << 14) | (usize::from(self.page) << 8) | usize::from(offset)
+    }
+}
+
 /// C64 memory subsystem.
 #[derive(Clone)]
 pub struct C64Memory {
@@ -83,6 +116,7 @@ pub struct C64Memory {
     port_ddr: u8,
     port_data: u8,
     cartridge: Option<Cartridge>,
+    georam: Option<GeoRam>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -114,6 +148,13 @@ const fn default_true() -> bool {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct GeoRamSnapshot {
+    ram: Vec<u8>,
+    page: u8,
+    block: u8,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct C64MemorySnapshot {
     ram: Vec<u8>,
     basic_rom: Vec<u8>,
@@ -124,6 +165,8 @@ pub(crate) struct C64MemorySnapshot {
     port_data: u8,
     #[serde(default)]
     cartridge: Option<CartridgeSnapshot>,
+    #[serde(default)]
+    georam: Option<GeoRamSnapshot>,
 }
 
 impl C64Memory {
@@ -146,6 +189,7 @@ impl C64Memory {
             port_ddr: 0x2F,
             port_data: 0x37,
             cartridge: None,
+            georam: None,
         })
     }
 
@@ -211,6 +255,72 @@ impl C64Memory {
                 cart.enabled = value & 0x80 == 0;
                 cart.current_bank = usize::from(value & 0x3F);
             }
+        }
+    }
+
+    /// Attaches a GeoRAM RAM expansion of `size_kb` KiB (rounded up to at least
+    /// one 16 KiB block), zero-filled. Replaces any previously attached unit.
+    pub(crate) fn attach_georam(&mut self, size_kb: usize) {
+        self.georam = Some(GeoRam::new(size_kb.saturating_mul(1024)));
+    }
+
+    /// Detaches any GeoRAM expansion.
+    pub(crate) fn detach_georam(&mut self) {
+        self.georam = None;
+    }
+
+    /// Whether a GeoRAM expansion is attached.
+    #[must_use]
+    pub(crate) fn has_georam(&self) -> bool {
+        self.georam.is_some()
+    }
+
+    /// GeoRAM byte visible at `addr` (the `$DE00-$DEFF` window), if a unit is
+    /// attached. The `$DFFE`/`$DFFF` registers are write-only, so this returns
+    /// `None` for them (the caller yields open-bus `$FF`).
+    pub(crate) fn georam_read(&self, addr: u16) -> Option<u8> {
+        let gr = self.georam.as_ref()?;
+        match addr {
+            0xDE00..=0xDEFF => {
+                let index = gr.window_index((addr - 0xDE00) as u8);
+                gr.ram.get(index).copied()
+            }
+            _ => None,
+        }
+    }
+
+    /// Applies a write to the GeoRAM I/O area. Returns `true` if a GeoRAM unit
+    /// handled it (the `$DE00` window or the `$DFFE`/`$DFFF` bank registers), so
+    /// the caller can fall through to cartridge I/O otherwise.
+    pub(crate) fn georam_write(&mut self, addr: u16, value: u8) -> bool {
+        let Some(gr) = self.georam.as_mut() else {
+            return false;
+        };
+        match addr {
+            0xDE00..=0xDEFF => {
+                let index = gr.window_index((addr - 0xDE00) as u8);
+                if let Some(slot) = gr.ram.get_mut(index) {
+                    *slot = value;
+                }
+                true
+            }
+            0xDFFE => {
+                gr.page = value & 0x3F;
+                true
+            }
+            0xDFFF => {
+                gr.block = value & gr.block_mask();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Routes a write to the expansion I/O area (`$DE00-$DFFF`): GeoRAM claims it
+    /// when attached, otherwise it drives a bank-switched cartridge's register.
+    pub(crate) fn expansion_io_write(&mut self, addr: u16, value: u8) {
+        if !self.georam_write(addr, value) {
+            self.cartridge_io_write(addr, value);
         }
     }
 
@@ -313,6 +423,13 @@ impl C64Memory {
                 enabled: cart.enabled,
             });
         }
+        if let Some(gr) = snapshot.georam {
+            memory.georam = Some(GeoRam {
+                ram: gr.ram,
+                page: gr.page,
+                block: gr.block,
+            });
+        }
         Ok(memory)
     }
 
@@ -347,6 +464,11 @@ impl C64Memory {
                         })
                         .collect(),
                 }
+            }),
+            georam: self.georam.as_ref().map(|gr| GeoRamSnapshot {
+                ram: gr.ram.clone(),
+                page: gr.page,
+                block: gr.block,
             }),
         }
     }
