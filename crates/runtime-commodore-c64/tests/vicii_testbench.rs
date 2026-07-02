@@ -17,7 +17,7 @@ mod common;
 use std::path::PathBuf;
 
 use common::local_rom_firmware;
-use common_commodore_c64::timing::TIMING_PAL_BREADBIN;
+use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::HeadlessSession;
 use mos_vic_ii::{FB_HEIGHT, FB_WIDTH};
 use runtime_commodore_c64::{
@@ -47,15 +47,30 @@ fn roms_present() -> bool {
 /// RUN it, settle for `settle_frames`, and return the ARGB framebuffer. Sprites
 /// render through the draw-stage sequencer (the shipping default).
 fn run_testprog(rel_prg: &str, settle_frames: u32) -> Vec<u32> {
+    run_testprog_on(
+        rel_prg,
+        settle_frames,
+        Model::C64PalBreadbin,
+        TIMING_PAL_BREADBIN.cycles_per_frame,
+    )
+}
+
+/// As `run_testprog`, but on an explicit model (PAL vs NTSC) + its frame length.
+fn run_testprog_on(
+    rel_prg: &str,
+    settle_frames: u32,
+    model: Model,
+    cycles_per_frame: u32,
+) -> Vec<u32> {
     let dir = testbench_dir().expect("testbench dir checked by caller");
     let prg = std::fs::read(dir.join(rel_prg)).expect("testbench .prg should read");
 
     let firmware = local_rom_firmware();
-    let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
-        .expect("real PAL C64 firmware should construct a runtime");
+    let runtime = C64Runtime::from_firmware(model, &firmware)
+        .expect("real C64 firmware should construct a runtime");
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
-        u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+        u64::from(cycles_per_frame),
         C64SessionQueryProvider,
     );
 
@@ -239,6 +254,135 @@ fn calibrate_gfxfetch_alignment() {
         .write_image_data(&diff)
         .expect("diff data");
     eprintln!("wrote /tmp/vicii_gfxfetch_diff.png (mismatches in magenta)");
+}
+
+/// Like `match_fraction`, but tolerant of a reference taller/wider than our
+/// framebuffer: reference pixels that fall outside our `fb` (given its
+/// `fb_width`×`fb_height`) count as mismatches. Lets the NTSC search run even
+/// though VICE's 247-line reference is taller than our 244-line NTSC buffer.
+fn match_fraction_bounded(
+    fb: &[u32],
+    fb_width: u32,
+    fb_height: u32,
+    reference: &RefImage,
+    dx: u32,
+    dy: u32,
+) -> f64 {
+    let mut matched = 0usize;
+    let total = (reference.width * reference.height) as usize;
+    for ry in 0..reference.height {
+        for rx in 0..reference.width {
+            let (ox, oy) = (dx + rx, dy + ry);
+            if ox >= fb_width || oy >= fb_height {
+                continue; // out of our window → mismatch
+            }
+            let px = fb[(oy * fb_width + ox) as usize];
+            let ours = nearest_c64_index((px >> 16) as u8, (px >> 8) as u8, px as u8);
+            let ri = ((ry * reference.width + rx) * 3) as usize;
+            let theirs = nearest_c64_index(
+                reference.rgb[ri],
+                reference.rgb[ri + 1],
+                reference.rgb[ri + 2],
+            );
+            if ours == theirs {
+                matched += 1;
+            }
+        }
+    }
+    matched as f64 / total as f64
+}
+
+/// Calibration: find the crop offset that best aligns our **NTSC 6567R8**
+/// `gfxfetch` output to VICE's 384x247 NTSC reference, and report it. VICE's
+/// NTSC window is the same 384px width as PAL but 247 lines tall (vs our 244),
+/// so this quantifies both the crop offset and the vertical-extent gap.
+#[test]
+#[ignore = "calibration aid: NTSC crop offset + match vs VICE 6567R8 reference"]
+fn calibrate_ntsc_gfxfetch_alignment() {
+    if !roms_present() || testbench_dir().is_none() {
+        eprintln!("skip: C64 ROMs or testbench not staged");
+        return;
+    }
+    let dir = testbench_dir().expect("checked");
+    let reference = decode_reference_png(&dir.join("gfxfetch/references/gfxfetch_ntsc.prg.png"));
+    eprintln!("NTSC reference {}x{}", reference.width, reference.height);
+
+    let fb = run_testprog_on(
+        "gfxfetch/gfxfetch_ntsc.prg",
+        60,
+        Model::C64NtscBreadbin,
+        TIMING_NTSC_BREADBIN.cycles_per_frame,
+    );
+    let fb_height = (fb.len() as u32) / FB_WIDTH;
+    eprintln!("our NTSC framebuffer {}x{}", FB_WIDTH, fb_height);
+
+    // Dump our raw NTSC framebuffer for eyeballing vs the reference.
+    {
+        let mut rgb = Vec::with_capacity(fb.len() * 3);
+        for &px in &fb {
+            rgb.extend_from_slice(&[(px >> 16) as u8, (px >> 8) as u8, px as u8]);
+        }
+        let file = std::fs::File::create("/tmp/vicii_ntsc_ours.png").expect("png");
+        let mut enc = png::Encoder::new(std::io::BufWriter::new(file), FB_WIDTH, fb_height);
+        enc.set_color(png::ColorType::Rgb);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header()
+            .expect("png header")
+            .write_image_data(&rgb)
+            .expect("png data");
+        eprintln!("wrote /tmp/vicii_ntsc_ours.png");
+    }
+
+    let max_dy = fb_height.saturating_sub(reference.height) + 24;
+    let mut best = (0.0f64, 0u32, 0u32);
+    for dy in 0..=max_dy {
+        for dx in 0..=(FB_WIDTH - reference.width) {
+            let m = match_fraction_bounded(&fb, FB_WIDTH, fb_height, &reference, dx, dy);
+            if m > best.0 {
+                best = (m, dx, dy);
+            }
+        }
+    }
+    eprintln!(
+        "best NTSC align dx={} dy={} match={:.3}%",
+        best.1,
+        best.2,
+        best.0 * 100.0
+    );
+}
+
+/// NTSC 6567R8 `gfxfetch` against VICE's 384x247 reference, at the calibrated
+/// crop (dx=16 — identical to PAL — dy=28). Locks NTSC content correctness as a
+/// regression floor.
+///
+/// Matches ~94.4% overall; on the non-wrapped rows that is ~99.3%, on par with
+/// the PAL floor (99.33%). The residual to 100% is **not** a rendering error:
+/// VICE's NTSC visible window wraps the frame boundary, so its last ~12
+/// reference rows are top-of-frame content that we render at the top of the
+/// full frame instead of the bottom of a cropped window. We render every raster
+/// line (like PAL) and leave cropping to the consumer.
+#[test]
+#[ignore = "requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-vicii"]
+fn ntsc_gfxfetch_matches_vice_reference() {
+    if !roms_present() || testbench_dir().is_none() {
+        eprintln!("skip: C64 ROMs or testbench not staged");
+        return;
+    }
+    let dir = testbench_dir().expect("checked");
+    let reference = decode_reference_png(&dir.join("gfxfetch/references/gfxfetch_ntsc.prg.png"));
+    let fb = run_testprog_on(
+        "gfxfetch/gfxfetch_ntsc.prg",
+        60,
+        Model::C64NtscBreadbin,
+        TIMING_NTSC_BREADBIN.cycles_per_frame,
+    );
+    let fb_height = (fb.len() as u32) / FB_WIDTH;
+    let m = match_fraction_bounded(&fb, FB_WIDTH, fb_height, &reference, 16, 28);
+    assert!(
+        m >= 0.94,
+        "NTSC gfxfetch regressed vs VICE 6567R8: {:.3}% < 94%",
+        m * 100.0
+    );
 }
 
 /// `gfxfetch` — the in-line graphics-fetch timing test — rendered against
