@@ -402,7 +402,8 @@ Options:
     --chargen PATH       override character ROM path
     --model MODEL        pal, ntsc, c64c-pal, or c64c-ntsc [default: pal]
                          (c64c models fit the MOS 8580 SID; breadbins the 6581)
-    --load PATH          import one .prg or plain-text .bas file after boot
+    --load PATH          import a program after boot: .prg, .bas, .t64, .d64,
+                         or .p00 (PC64 container)
     --disk PATH          insert one D64 image into drive-8 at startup
     --tape PATH          insert one TAP image into datasette slot at startup
     --autoload-disk      wait for READY. and type LOAD\"*\",8,1 for drive-8

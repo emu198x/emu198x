@@ -1407,6 +1407,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-commodore-c64-p00"
+version = "0.2.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "format-commodore-c64-prg"
 version = "0.2.0"
 
@@ -3758,6 +3765,7 @@ dependencies = [
  "emu198x-shell",
  "format-commodore-c64-bas",
  "format-commodore-c64-d64",
+ "format-commodore-c64-p00",
  "format-commodore-c64-t64",
  "machine-commodore-1541",
  "machine-commodore-c64",

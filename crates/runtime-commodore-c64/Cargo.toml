@@ -12,6 +12,7 @@ common-commodore-iec = { path = "../common-commodore-iec", version = "0.2.0" }
 emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
 format-commodore-c64-bas = { path = "../format-commodore-c64-bas", version = "0.2.0" }
 format-commodore-c64-d64 = { path = "../format-commodore-c64-d64", version = "0.2.0" }
+format-commodore-c64-p00 = { path = "../format-commodore-c64-p00", version = "0.2.0" }
 format-commodore-c64-t64 = { path = "../format-commodore-c64-t64", version = "0.2.0" }
 machine-commodore-c64 = { path = "../machine-commodore-c64", version = "0.2.0" }
 machine-commodore-1541 = { path = "../machine-commodore-1541", version = "0.2.0" }
