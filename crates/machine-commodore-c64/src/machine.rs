@@ -6,7 +6,7 @@ use format_commodore_c64_crt::{CrtCartridge, parse as parse_crt};
 use format_commodore_c64_tap::{TapParseError, TapSystem, parse_tap};
 use mos_6502::M6502;
 use mos_cia_6526::Cia6526;
-use mos_sid_6581::{AudioControls, Sid6581, SidChannel, SidModel};
+use mos_sid_6581::{AudioControls, Sid6581, SidChannel};
 use mos_vic_ii::{Vic, VicModel};
 
 use crate::config::{C64Config, C64Model};
@@ -201,12 +201,13 @@ impl C64 {
         cia2.write(0x00, 0x03);
 
         let vic_model = match config.model {
-            C64Model::PalBreadbin => VicModel::Pal6569,
-            C64Model::NtscBreadbin => VicModel::Ntsc6567,
+            C64Model::PalBreadbin | C64Model::PalC64c => VicModel::Pal6569,
+            C64Model::NtscBreadbin | C64Model::NtscC64c => VicModel::Ntsc6567,
         };
         let mut vic = Vic::new(vic_model);
         vic.set_bank(0);
-        let sid = Sid6581::new_with_model(timing.cpu_hz, AUDIO_SAMPLE_RATE, SidModel::Mos6581);
+        let sid =
+            Sid6581::new_with_model(timing.cpu_hz, AUDIO_SAMPLE_RATE, config.model.sid_model());
 
         let mut machine = Self {
             model: config.model,
@@ -949,6 +950,25 @@ mod tests {
         v.extend_from_slice(&(data.len() as u16).to_be_bytes());
         v.extend_from_slice(data);
         v
+    }
+
+    #[test]
+    fn c64c_model_constructs_with_the_8580_sid() {
+        use mos_sid_6581::SidModel;
+        let breadbin = stub_machine(C64Model::PalBreadbin);
+        assert_eq!(breadbin.sid().model, SidModel::Mos6581);
+
+        let mut kernal = [0xEA; 0x2000];
+        kernal[0x1FFC] = 0x00;
+        kernal[0x1FFD] = 0xE0;
+        let c64c = C64::new(C64Config {
+            model: C64Model::PalC64c,
+            kernal_rom: &kernal,
+            basic_rom: &[0xBB; 0x2000],
+            character_rom: &[0xCC; 0x1000],
+        })
+        .expect("C64C stub ROM sizes should be valid");
+        assert_eq!(c64c.sid().model, SidModel::Mos8580);
     }
 
     #[test]

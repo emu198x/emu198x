@@ -992,8 +992,8 @@ fn run_c64_entry(
         .map_err(|err| CatalogueError::Session(format!("C64 runtime: {err}")))?;
 
     let timing = match model {
-        C64Model::C64PalBreadbin => &TIMING_PAL_BREADBIN,
-        C64Model::C64NtscBreadbin => &TIMING_NTSC_BREADBIN,
+        C64Model::C64PalBreadbin | C64Model::C64cPal => &TIMING_PAL_BREADBIN,
+        C64Model::C64NtscBreadbin | C64Model::C64cNtsc => &TIMING_NTSC_BREADBIN,
     };
 
     let mut session = HeadlessSession::new_with_query_provider(

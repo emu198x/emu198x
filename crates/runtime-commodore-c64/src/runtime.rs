@@ -116,6 +116,8 @@ impl Model {
         match self {
             Self::C64PalBreadbin => C64Model::PalBreadbin,
             Self::C64NtscBreadbin => C64Model::NtscBreadbin,
+            Self::C64cPal => C64Model::PalC64c,
+            Self::C64cNtsc => C64Model::NtscC64c,
         }
     }
 }
