@@ -6,6 +6,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::SidModel;
 
+/// Filter-cutoff coefficient vs the 11-bit `fc` register (`$D415`/`$D416`),
+/// sampled at 32 evenly-spaced points and interpolated in [`cutoff_coefficient`].
+///
+/// Provenance: this is a hand-fitted, monotonic **approximation** of the 6581's
+/// cutoff-vs-`fc` response — chosen to give a plausible sweep shape — **not** a
+/// measured dataset. The authoritative reference is reSID's measured 6581 op-amp
+/// transfer function (`opamp_voltage_6581[]`, "measured on real chips", in the
+/// vendored VICE tree at `emulators/multi-system/vice/vice/src/resid/filter.cc`;
+/// the refined model lives in `.../lib/libresidfp/src/FilterModelConfig6581.cpp`).
+/// The 6581's true response is non-linear and voltage-dependent, so replacing
+/// this curve with the measured one is deliberately deferred to the
+/// nonlinear-filter work in issue #19; until then, treat the audible cutoff as
+/// approximate, not reSID-grade.
 const FC_6581_TABLE: [f32; 32] = [
     0.0020, 0.0020, 0.0020, 0.0022, 0.0030, 0.0055, 0.0100, 0.0165, 0.0250, 0.0360, 0.0480, 0.0600,
     0.0730, 0.0860, 0.0990, 0.1120, 0.1250, 0.1380, 0.1510, 0.1640, 0.1770, 0.1900, 0.2030, 0.2160,
@@ -75,6 +88,10 @@ impl Filter {
                 }
             }
             SidModel::Mos8580 => {
+                // The 8580's cutoff is far more linear than the 6581's, so a
+                // straight-line fit across the fc range is a fair first-order
+                // approximation. Like the 6581 curve above, this is a fit, not a
+                // measured dataset; the reSID-grade 8580 filter is issue #20.
                 let x = f32::from(self.cutoff) / 2047.0;
                 0.001 + x * 0.549
             }
