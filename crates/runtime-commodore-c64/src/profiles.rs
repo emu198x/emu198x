@@ -123,7 +123,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 "Datasette",
                 MediaKind::Tape,
                 false,
-                WritebackPolicy::InMemoryOnly,
+                WritebackPolicy::SidecarOnly,
             ),
             MediaSlot::new(
                 "drive-8",
@@ -218,6 +218,11 @@ mod tests {
         assert_eq!(profile.media_slots[2].kind, MediaKind::Cartridge);
         assert_eq!(
             profile.media_slots[1].writeback,
+            WritebackPolicy::SidecarOnly
+        );
+        // The datasette also flushes a SAVE to a sidecar `.tap`.
+        assert_eq!(
+            profile.media_slots[0].writeback,
             WritebackPolicy::SidecarOnly
         );
     }

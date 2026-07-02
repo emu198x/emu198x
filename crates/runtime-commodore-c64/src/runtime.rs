@@ -280,6 +280,14 @@ impl C64Runtime {
         self.drive8.as_ref()?.flush_image()
     }
 
+    /// Flushes the recorded SAVE tape to `.tap` bytes for the writable work
+    /// image, or `None` when no writable tape is mounted. Rides the same
+    /// write-back model as [`Self::flush_drive8_image`].
+    #[must_use]
+    pub fn flush_tape_image(&self) -> Option<Vec<u8>> {
+        self.machine.flush_tape_image()
+    }
+
     /// Returns the current runtime time in `phi2` cycles.
     #[must_use]
     pub const fn time(&self) -> MachineTime {
@@ -502,12 +510,18 @@ impl MachineCore for C64Runtime {
                         return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
                     }
 
-                    self.machine.load_tap_bytes(image.bytes).map_err(|reason| {
-                        MachineError::InvalidMedia {
-                            slot: image.slot.as_ref().to_owned(),
-                            reason,
-                        }
-                    })?;
+                    if image.writable {
+                        // A writable tape is a blank SAVE work image; the KERNAL
+                        // records onto it and it flushes to a `.tap` sidecar.
+                        self.machine.insert_blank_writable_tape();
+                    } else {
+                        self.machine.load_tap_bytes(image.bytes).map_err(|reason| {
+                            MachineError::InvalidMedia {
+                                slot: image.slot.as_ref().to_owned(),
+                                reason,
+                            }
+                        })?;
+                    }
                 }
                 "cartridge-1" => {
                     if image.kind != MediaKind::Cartridge {

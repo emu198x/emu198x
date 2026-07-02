@@ -14,6 +14,15 @@ pub(crate) struct Datasette {
     motor_delay_remaining: u32,
     next_pulse_index: usize,
     cycles_until_flux: Option<u32>,
+    /// The mounted tape can be recorded (a writable SAVE work image).
+    writable: bool,
+    /// Last-seen cassette WRITE line level (6510 port `$01` bit 3).
+    write_line: bool,
+    /// Cycles accumulated since the last recorded write-line edge.
+    record_cycles: u32,
+    /// Set once the first falling edge has been seen, so the leading gap before
+    /// the first pulse is not recorded.
+    recording_started: bool,
 }
 
 impl Datasette {
@@ -28,6 +37,10 @@ impl Datasette {
             motor_delay_remaining: 0,
             next_pulse_index: 0,
             cycles_until_flux: None,
+            writable: false,
+            write_line: true,
+            record_cycles: 0,
+            recording_started: false,
         }
     }
 
@@ -36,6 +49,55 @@ impl Datasette {
         self.play_pressed = false;
         self.next_pulse_index = 0;
         self.cycles_until_flux = None;
+        self.writable = false;
+        self.recording_started = false;
+        self.record_cycles = 0;
+    }
+
+    /// Mounts a blank, writable tape for recording a SAVE. The recorded pulse
+    /// stream is retrieved with [`Self::recorded_tap_image`].
+    pub fn insert_blank_writable_tape(&mut self, video: format_commodore_c64_tap::TapVideo) {
+        self.tape = Some(TapImage {
+            version: 1,
+            system: format_commodore_c64_tap::TapSystem::C64,
+            video,
+            pulses: Vec::new(),
+        });
+        self.play_pressed = false;
+        self.next_pulse_index = 0;
+        self.cycles_until_flux = None;
+        self.writable = true;
+        self.recording_started = false;
+        self.record_cycles = 0;
+    }
+
+    /// Returns the current tape image (including any recorded SAVE pulses) when a
+    /// writable tape is mounted, for flushing to a `.tap` sidecar file.
+    #[must_use]
+    pub fn recorded_tap_image(&self) -> Option<&TapImage> {
+        if self.writable {
+            self.tape.as_ref()
+        } else {
+            None
+        }
+    }
+
+    /// Feeds the current cassette WRITE line level (6510 port `$01` bit 3). While
+    /// recording, a falling edge closes the current pulse and appends its cycle
+    /// length to the tape.
+    pub fn set_write_line(&mut self, high: bool) {
+        let recording = self.writable && self.motor_running && self.play_pressed;
+        if recording && self.write_line && !high {
+            if self.recording_started {
+                if let Some(tape) = self.tape.as_mut() {
+                    tape.pulses.push(self.record_cycles.max(1));
+                }
+            } else {
+                self.recording_started = true;
+            }
+            self.record_cycles = 0;
+        }
+        self.write_line = high;
     }
 
     #[must_use]
@@ -118,6 +180,13 @@ impl Datasette {
             return false;
         }
 
+        // Recording a SAVE: accumulate cycles between write-line edges. No read
+        // flux is produced from a writable tape.
+        if self.writable {
+            self.record_cycles = self.record_cycles.saturating_add(1);
+            return false;
+        }
+
         let Some(tape) = &self.tape else {
             self.play_pressed = false;
             return false;
@@ -180,6 +249,39 @@ mod tests {
 
         assert!(!datasette.advance_phi2_cycle());
         assert!(!datasette.is_playing());
+    }
+
+    #[test]
+    fn records_write_line_pulses_into_a_writable_tape() {
+        let mut datasette = Datasette::new();
+        datasette.insert_blank_writable_tape(TapVideo::Pal);
+        datasette.play();
+        datasette.set_motor_on(true);
+        // Spin the motor up so recording is active.
+        for _ in 0..=MOTOR_DELAY_CYCLES {
+            let _ = datasette.advance_phi2_cycle();
+        }
+        assert!(datasette.motor_on());
+
+        // Baseline high, then a train of falling edges spaced by known intervals.
+        datasette.set_write_line(true);
+        let pulse = |datasette: &mut Datasette, cycles: u32| {
+            for _ in 0..cycles {
+                let _ = datasette.advance_phi2_cycle();
+            }
+            datasette.set_write_line(false);
+            datasette.set_write_line(true);
+        };
+        pulse(&mut datasette, 200); // first falling edge — starts recording
+        pulse(&mut datasette, 200); // records ~200
+        pulse(&mut datasette, 400); // records ~400
+
+        let tap = datasette
+            .recorded_tap_image()
+            .expect("writable tape should expose its recording");
+        assert_eq!(tap.pulses.len(), 2);
+        assert!((199..=201).contains(&tap.pulses[0]), "{:?}", tap.pulses);
+        assert!((399..=401).contains(&tap.pulses[1]), "{:?}", tap.pulses);
     }
 
     #[test]
