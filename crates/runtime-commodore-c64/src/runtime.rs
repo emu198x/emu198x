@@ -40,6 +40,9 @@ pub struct C64Runtime {
     /// rebuilds the machine from ROMs) can re-insert it, matching hardware where
     /// the cartridge stays in the port across a reset.
     cartridge_image: Option<Vec<u8>>,
+    /// Attached GeoRAM size in KiB, retained so a reset re-attaches the unit
+    /// (the expansion stays plugged in across a reset).
+    georam_kb: Option<usize>,
     iec_bus: IecBus,
     drive8_cycle_accum: u64,
     rgba_framebuffer: Vec<u8>,
@@ -166,6 +169,7 @@ impl C64Runtime {
             drive8_dos_rom,
             drive8,
             cartridge_image: None,
+            georam_kb: None,
             iec_bus,
             drive8_cycle_accum: 0,
             rgba_framebuffer,
@@ -347,7 +351,21 @@ impl C64Runtime {
                     reason,
                 })?;
         }
+        // The GeoRAM expansion likewise stays plugged in across a reset.
+        if let Some(size_kb) = self.georam_kb {
+            self.machine.attach_georam(size_kb);
+        }
         Ok(())
+    }
+
+    /// Attaches (`Some(size_kb)`) or detaches (`None`) a GeoRAM RAM expansion.
+    /// The unit is retained so a later reset re-attaches it.
+    pub fn set_georam(&mut self, size_kb: Option<usize>) {
+        self.georam_kb = size_kb;
+        match size_kb {
+            Some(kb) => self.machine.attach_georam(kb),
+            None => self.machine.detach_georam(),
+        }
     }
 
     /// Resync the RGBA framebuffer from the machine's native buffer. Named for
