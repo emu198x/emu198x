@@ -87,8 +87,10 @@ pub enum VicModel {
     /// PAL 6569: 312 lines, 63 cycles per line.
     #[default]
     Pal6569,
-    /// NTSC 6567: 263 lines, 65 cycles per line.
+    /// NTSC 6567R8: 263 lines, 65 cycles per line.
     Ntsc6567,
+    /// NTSC 6567R56A (early NTSC): 262 lines, 64 cycles per line.
+    Ntsc6567R56A,
 }
 
 impl VicModel {
@@ -98,6 +100,7 @@ impl VicModel {
         match self {
             Self::Pal6569 => 312,
             Self::Ntsc6567 => 263,
+            Self::Ntsc6567R56A => 262,
         }
     }
 
@@ -107,17 +110,19 @@ impl VicModel {
         match self {
             Self::Pal6569 => 63,
             Self::Ntsc6567 => 65,
+            Self::Ntsc6567R56A => 64,
         }
     }
 
     /// The model's sprite-region cycle schedule. The c-access/g-access region
     /// and its counter events (UpdateVc cyc 14, UpdateMcBase 16, UpdateRc 58)
     /// are identical across models; only the sprite fetch/DMA region differs,
-    /// because NTSC's two extra cycles are inserted there.
+    /// because the NTSC variants' extra cycles are inserted there.
     const fn sprite_timing(self) -> SpriteTiming {
         match self {
             Self::Pal6569 => SPRITE_TIMING_PAL,
             Self::Ntsc6567 => SPRITE_TIMING_NTSC,
+            Self::Ntsc6567R56A => SPRITE_TIMING_NTSC_R56A,
         }
     }
 }
@@ -177,6 +182,27 @@ const SPRITE_TIMING_NTSC: SpriteTiming = SpriteTiming {
     chk_dma: [56, 57],
     chk_exp: 56,
     chk_disp: 59,
+};
+
+/// NTSC 6567R56A (early NTSC): 64-cycle line. Sits between PAL and R8 — sprites
+/// 3-7 p-access on the current line as PAL (1/3/5/7/9), but sprites 0-2 shift
+/// one cycle later than PAL to 59/61/63, and the DMA check is at 56/57 (like
+/// R8) while the display latch stays at 58 (like PAL). Sourced from VICE
+/// `cycle_tab_ntsc_old`.
+const SPRITE_TIMING_NTSC_R56A: SpriteTiming = SpriteTiming {
+    paccess: [
+        (59, true),
+        (61, true),
+        (63, true),
+        (1, false),
+        (3, false),
+        (5, false),
+        (7, false),
+        (9, false),
+    ],
+    chk_dma: [56, 57],
+    chk_exp: 56,
+    chk_disp: 58,
 };
 
 struct CellPixels {
@@ -321,7 +347,11 @@ impl Vic {
     pub fn new(model: VicModel) -> Self {
         let (first_vis, last_vis) = match model {
             VicModel::Pal6569 => (PAL_FIRST_VISIBLE_LINE, PAL_LAST_VISIBLE_LINE),
-            VicModel::Ntsc6567 => (NTSC_FIRST_VISIBLE_LINE, NTSC_LAST_VISIBLE_LINE),
+            // Both NTSC variants share the visible-line window; R56A has one
+            // fewer total line but the same displayed region.
+            VicModel::Ntsc6567 | VicModel::Ntsc6567R56A => {
+                (NTSC_FIRST_VISIBLE_LINE, NTSC_LAST_VISIBLE_LINE)
+            }
         };
         let visible_lines = u32::from(last_vis - first_vis);
         let fb_size = FB_WIDTH as usize * visible_lines as usize;
@@ -2311,6 +2341,26 @@ mod tests {
         let pal = Vic::new(VicModel::Pal6569);
         assert_eq!(pal.sprite_paccess_cycle(58), Some((0, true)));
         assert_eq!(pal.sprite_paccess_cycle(59), None);
+    }
+
+    #[test]
+    fn ntsc_r56a_timings_and_schedule() {
+        assert_eq!(VicModel::Ntsc6567R56A.lines_per_frame(), 262);
+        assert_eq!(VicModel::Ntsc6567R56A.cycles_per_line(), 64);
+        let t = VicModel::Ntsc6567R56A.sprite_timing();
+        // Between PAL and R8: sprites 0-2 at 59/61/63 (PAL 58/60/62), but
+        // sprite 3 stays on the current line at cycle 1 (R8 wraps it to 0).
+        assert_eq!(t.paccess[0], (59, true));
+        assert_eq!(t.paccess[2], (63, true));
+        assert_eq!(t.paccess[3], (1, false));
+        assert_eq!(t.chk_dma, [56, 57]); // like R8
+        assert_eq!(t.chk_disp, 58); // like PAL
+
+        let vic = Vic::new(VicModel::Ntsc6567R56A);
+        assert_eq!(vic.sprite_paccess_cycle(59), Some((0, true)));
+        assert_eq!(vic.sprite_paccess_cycle(1), Some((3, false)));
+        // Sprite 2's s-access wraps to engine cycle 0 (VICE cycle 64).
+        assert_eq!(vic.sprite_saccess_cycle(0), Some(2));
     }
 
     #[test]

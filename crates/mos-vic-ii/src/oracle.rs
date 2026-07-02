@@ -302,6 +302,106 @@ pub const CANONICAL_NTSC: [CanonicalCycle; 65] = [
     cyc(65, SP(3), SD(3, 0), false, 0b0001_1000, 0),
 ];
 
+/// The canonical NTSC 6567R56A (early NTSC) per-cycle schedule, cycles 1..=64.
+///
+/// Transcribed from VICE `cycle_tab_ntsc_old[]` (`vicii-chip-model.c:437-566`).
+/// Between PAL and R8: the sprite wrap-around (cycles 1-10) and c/g-access
+/// region are identical to PAL, but the tail sprites 0-2 sit one cycle later
+/// (59/61/63 vs PAL 58/60/62), the DMA check is at 56/57 (like R8), and the
+/// display latch stays at 58 (like PAL).
+pub const CANONICAL_NTSC_OLD: [CanonicalCycle; 64] = [
+    // Sprite DMA wrap-around for sprites 3-7 (identical to PAL cycles 1-10).
+    cyc(1, SP(3), SD(3, 0), false, 0b0001_1000, 0),
+    cyc(2, SD(3, 1), SD(3, 2), false, 0b0011_1000, 0),
+    cyc(3, SP(4), SD(4, 0), false, 0b0011_0000, 0),
+    cyc(4, SD(4, 1), SD(4, 2), false, 0b0111_0000, 0),
+    cyc(5, SP(5), SD(5, 0), false, 0b0110_0000, 0),
+    cyc(6, SD(5, 1), SD(5, 2), false, 0b1110_0000, 0),
+    cyc(7, SP(6), SD(6, 0), false, 0b1100_0000, 0),
+    cyc(8, SD(6, 1), SD(6, 2), false, 0b1100_0000, 0),
+    cyc(9, SP(7), SD(7, 0), false, 0b1000_0000, 0),
+    cyc(10, SD(7, 1), SD(7, 2), false, 0b1000_0000, 0),
+    // DRAM refresh; BA drops at cycle 12 for badlines (3-cycle lead-in).
+    cyc(11, Refresh, NoAcc, false, 0, 0),
+    cyc(12, Refresh, NoAcc, true, 0, 0),
+    cyc(13, Refresh, NoAcc, true, 0, 0),
+    cyc(14, Refresh, NoAcc, true, 0, UPDATE_VC),
+    cyc(15, Refresh, FetchC, true, 0, CHK_SPR_CRUNCH),
+    // 40 c-accesses (Phi2, cycles 15-54) + 40 g-accesses (Phi1, cycles 16-55).
+    cyc(16, FetchG, FetchC, true, 0, UPDATE_MC_BASE),
+    cyc(17, FetchG, FetchC, true, 0, CHK_BRD_L1),
+    cyc(18, FetchG, FetchC, true, 0, CHK_BRD_L0),
+    cyc(19, FetchG, FetchC, true, 0, 0),
+    cyc(20, FetchG, FetchC, true, 0, 0),
+    cyc(21, FetchG, FetchC, true, 0, 0),
+    cyc(22, FetchG, FetchC, true, 0, 0),
+    cyc(23, FetchG, FetchC, true, 0, 0),
+    cyc(24, FetchG, FetchC, true, 0, 0),
+    cyc(25, FetchG, FetchC, true, 0, 0),
+    cyc(26, FetchG, FetchC, true, 0, 0),
+    cyc(27, FetchG, FetchC, true, 0, 0),
+    cyc(28, FetchG, FetchC, true, 0, 0),
+    cyc(29, FetchG, FetchC, true, 0, 0),
+    cyc(30, FetchG, FetchC, true, 0, 0),
+    cyc(31, FetchG, FetchC, true, 0, 0),
+    cyc(32, FetchG, FetchC, true, 0, 0),
+    cyc(33, FetchG, FetchC, true, 0, 0),
+    cyc(34, FetchG, FetchC, true, 0, 0),
+    cyc(35, FetchG, FetchC, true, 0, 0),
+    cyc(36, FetchG, FetchC, true, 0, 0),
+    cyc(37, FetchG, FetchC, true, 0, 0),
+    cyc(38, FetchG, FetchC, true, 0, 0),
+    cyc(39, FetchG, FetchC, true, 0, 0),
+    cyc(40, FetchG, FetchC, true, 0, 0),
+    cyc(41, FetchG, FetchC, true, 0, 0),
+    cyc(42, FetchG, FetchC, true, 0, 0),
+    cyc(43, FetchG, FetchC, true, 0, 0),
+    cyc(44, FetchG, FetchC, true, 0, 0),
+    cyc(45, FetchG, FetchC, true, 0, 0),
+    cyc(46, FetchG, FetchC, true, 0, 0),
+    cyc(47, FetchG, FetchC, true, 0, 0),
+    cyc(48, FetchG, FetchC, true, 0, 0),
+    cyc(49, FetchG, FetchC, true, 0, 0),
+    cyc(50, FetchG, FetchC, true, 0, 0),
+    cyc(51, FetchG, FetchC, true, 0, 0),
+    cyc(52, FetchG, FetchC, true, 0, 0),
+    cyc(53, FetchG, FetchC, true, 0, 0),
+    cyc(54, FetchG, FetchC, true, 0, 0),
+    // 40th g-access; then the sprite region (one cycle later than PAL).
+    cyc(55, FetchG, NoAcc, false, 0, 0),
+    cyc(
+        56,
+        Idle,
+        NoAcc,
+        false,
+        0b0000_0001,
+        CHK_SPR_DMA | CHK_BRD_R0 | CHK_SPR_EXP,
+    ),
+    cyc(
+        57,
+        Idle,
+        NoAcc,
+        false,
+        0b0000_0001,
+        CHK_SPR_DMA | CHK_BRD_R1,
+    ),
+    cyc(
+        58,
+        Idle,
+        NoAcc,
+        false,
+        0b0000_0011,
+        CHK_SPR_DISP | UPDATE_RC,
+    ),
+    // Sprite DMA for sprites 0-2 (this line, feeding the next).
+    cyc(59, SP(0), SD(0, 0), false, 0b0000_0011, 0),
+    cyc(60, SD(0, 1), SD(0, 2), false, 0b0000_0111, 0),
+    cyc(61, SP(1), SD(1, 0), false, 0b0000_0110, 0),
+    cyc(62, SD(1, 1), SD(1, 2), false, 0b0000_1110, 0),
+    cyc(63, SP(2), SD(2, 0), false, 0b0000_1100, 0),
+    cyc(64, SD(2, 1), SD(2, 2), false, 0b0001_1100, 0),
+];
+
 /// Map the engine's 0-based `raster_cycle` to the canonical 1-based cycle.
 ///
 /// The engine counts 0..=62 and reuses VICE's literal cycle numbers, treating
@@ -389,6 +489,34 @@ mod tests {
     #[test]
     fn ntsc_table_well_formed() {
         assert_table_well_formed(&CANONICAL_NTSC, 12..=54);
+    }
+
+    #[test]
+    fn ntsc_old_table_well_formed() {
+        assert_table_well_formed(&CANONICAL_NTSC_OLD, 12..=54);
+    }
+
+    #[test]
+    fn ntsc_old_sits_between_pal_and_r8() {
+        // R56A: DMA check at 56 (like R8), display latch at 58 (like PAL);
+        // sprite 0's p-access at 59 (PAL 58, R8 59) but sprite 3 stays on the
+        // current line at cycle 1 (like PAL, unlike R8's wrap to 65).
+        let first = |flag: u16| {
+            CANONICAL_NTSC_OLD
+                .iter()
+                .find(|c| c.flags & flag != 0)
+                .map(|c| c.cycle)
+        };
+        assert_eq!(first(CHK_SPR_DMA), Some(56));
+        assert_eq!(first(CHK_SPR_DISP), Some(58));
+        let ptr_cycle = |n: u8| {
+            CANONICAL_NTSC_OLD
+                .iter()
+                .find(|c| c.phi1 == SP(n))
+                .map(|c| c.cycle)
+        };
+        assert_eq!(ptr_cycle(0), Some(59));
+        assert_eq!(ptr_cycle(3), Some(1));
     }
 
     #[test]
