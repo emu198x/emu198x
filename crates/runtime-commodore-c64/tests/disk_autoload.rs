@@ -581,3 +581,78 @@ fn real_d64_autoload_bomb_jack_responds_to_port1_fire() {
     assert_eq!(session.machine().machine().vic_register(0x20) & 0x0F, 0);
     assert_eq!(session.machine().machine().vic_register(0x21) & 0x0F, 6);
 }
+
+/// Fastloader validation: Bomb Jack runs its own multi-stage disk loader (no
+/// manual RUN) after the `LOAD"*",8,1` autoload. Confirm the cycle-accurate
+/// 1541 sustains that loader — the head steps and a large run of bytes streams
+/// off the disk within a bounded window. This is the standing regression that
+/// the fast serial-transfer timing games rely on stays correct.
+#[test]
+#[ignore = "requires local C64 ROMs, 1541 ROM, and Bomb Jack D64 archive"]
+fn real_d64_fastloader_bomb_jack_streams_from_drive() {
+    let firmware = local_rom_firmware_with_drive();
+    let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
+        .expect("local ROMs should construct a C64 runtime");
+    let mut session = HeadlessSession::new_with_query_provider(
+        runtime,
+        u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
+        C64SessionQueryProvider,
+    );
+    let disk = read_media_asset(&local_bomb_jack_d64_zip(), MediaKind::Disk)
+        .expect("local Bomb Jack D64 archive should load");
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new(
+        DEFAULT_DISK_AUTOLOAD_SLOT,
+        MediaKind::Disk,
+        &disk.bytes,
+    ));
+    session
+        .load_media(&media)
+        .expect("Bomb Jack D64 should mount into drive-8");
+
+    autoload_basic_disk(
+        &mut session,
+        DEFAULT_DISK_AUTOLOAD_SLOT,
+        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+        DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+    )
+    .expect("disk autoload should reach SEARCHING FOR");
+
+    let bytes_before = drive_byte_events(&session);
+    let head_before = drive_head_position(&session);
+    // Let the game's own loader run for a few seconds of emulated time.
+    session
+        .run_frames(6_000)
+        .expect("Bomb Jack loader should advance the drive");
+    let bytes_after = drive_byte_events(&session);
+    let head_after = drive_head_position(&session);
+
+    let streamed = bytes_after.saturating_sub(bytes_before);
+    eprintln!("fastloader streamed {streamed} bytes; head {head_before} -> {head_after}");
+    assert_ne!(
+        head_after, head_before,
+        "the 1541 head should step while the fastloader reads"
+    );
+    assert!(
+        streamed > 1_000,
+        "Bomb Jack's fastloader should stream many bytes off the 1541, got {streamed}"
+    );
+}
+
+fn drive_byte_events(session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>) -> u64 {
+    session
+        .query("drive8.byte_ready_events")
+        .expect("byte_ready_events query should not fail")
+        .value
+        .as_u64()
+        .expect("byte_ready_events should be numeric")
+}
+
+fn drive_head_position(session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>) -> u64 {
+    session
+        .query("drive8.head_position")
+        .expect("head_position query should not fail")
+        .value
+        .as_u64()
+        .expect("head_position should be numeric")
+}
