@@ -532,8 +532,11 @@ fn real_d64_autoload_aztec_challenge_reaches_instruction_screen() {
         .run_frames(5_000)
         .expect("Aztec Challenge should reach the player-select screen after RUN");
     press_key(&mut session, "f1", 3);
+    // The instruction screen renders some frames after F1; how many depends on
+    // VIC-II badline cycle-stealing, so poll for its readable header rather than
+    // sampling at a fixed frame count (which drifts with any VIC-II timing work).
     session
-        .run_frames(2_000)
+        .wait_for_query_text_contains("screen.text.lines", "PLAYER 1", 12_000)
         .expect("Aztec Challenge should reach its instruction screen after F1");
 
     let lines = screen_text_lines(&session);
