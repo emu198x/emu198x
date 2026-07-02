@@ -30,6 +30,19 @@ use serde::{Deserialize, Serialize};
 /// the re-capture discipline this constant enforces.
 pub const AUDIO_ROUTING_VERSION: u32 = 1;
 
+/// Volume-register DC bias, in voice-output units, that the master volume
+/// nibble scales. Writes to `$D418` step this bias, so software plays 4-bit
+/// PCM "digis" through the volume register even with every voice silent. Set
+/// to one voice's full-scale span; a reSID-exact digi amplitude is deferred to
+/// the Tier C DAC-fidelity work. Only this term is AC-coupled (see
+/// [`Sid6581::volume_dc_highpass`]), so constant-volume voice output is byte-
+/// identical to the pre-digi mixer and existing captures stay valid.
+const VOLUME_DC: f32 = 2048.0;
+
+/// High-pass corner (Hz) that AC-couples the volume-DC path, matching the SID
+/// output stage's coupling (reSID's external filter high-passes near 16 Hz).
+const VOLUME_DC_HP_HZ: f32 = 16.0;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SidModel {
     #[default]
@@ -210,6 +223,11 @@ pub struct Sid6581 {
     output_sample_rate: u32,
     #[serde(default = "default_audio_controls")]
     audio_controls: AudioControls,
+    /// One-pole DC-blocker state for the `$D418` volume-DC (digi) path.
+    #[serde(default)]
+    volume_dc_hp_prev_in: f32,
+    #[serde(default)]
+    volume_dc_hp_prev_out: f32,
     #[serde(skip)]
     buffer: Vec<f32>,
     #[serde(skip)]
@@ -240,6 +258,8 @@ impl Sid6581 {
             cpu_freq: cpu_frequency,
             output_sample_rate,
             audio_controls: AudioControls::default(),
+            volume_dc_hp_prev_in: 0.0,
+            volume_dc_hp_prev_out: 0.0,
             buffer: Vec::with_capacity(output_sample_rate as usize / 50 + 1),
             channel_buffers: std::array::from_fn(|_| {
                 Vec::with_capacity(output_sample_rate as usize / 50 + 1)
@@ -439,7 +459,14 @@ impl Sid6581 {
 
         let filter_output = self.filter.clock(filtered_sum);
         let mixed = (filter_output + direct_sum) * f32::from(self.volume) / 15.0;
-        let normalised = mixed / 6144.0 * self.audio_controls.master_gain();
+        // $D418 volume-register digis: the master volume also scales a mixer DC
+        // bias, so writes to the volume nibble step the output even with silent
+        // voices. The steady bias is inaudible on real hardware (AC-coupled
+        // output stage), so we high-pass just this volume-DC term — leaving the
+        // constant-volume voice mix untouched — and add its transient in.
+        let volume_dc = VOLUME_DC * f32::from(self.volume) / 15.0;
+        let digi = self.volume_dc_highpass(volume_dc);
+        let normalised = (mixed + digi) / 6144.0 * self.audio_controls.master_gain();
 
         self.accumulator += normalised;
         for (index, sample) in voice_normalised.iter().copied().enumerate() {
@@ -457,6 +484,18 @@ impl Sid6581 {
             self.accumulator = 0.0;
             self.sample_count = 0;
         }
+    }
+
+    /// One-pole DC blocker on the `$D418` volume-DC path, clocked at the SID
+    /// tick rate. Constant input decays to zero, so a steady volume adds
+    /// nothing; only volume *changes* survive, which is exactly the digi.
+    fn volume_dc_highpass(&mut self, input: f32) -> f32 {
+        // R = 1 - 2*pi*fc/fs; fc ~16 Hz, fs = SID tick (CPU) rate.
+        let r = 1.0 - (std::f32::consts::TAU * VOLUME_DC_HP_HZ / self.cpu_freq as f32);
+        let output = input - self.volume_dc_hp_prev_in + r * self.volume_dc_hp_prev_out;
+        self.volume_dc_hp_prev_in = input;
+        self.volume_dc_hp_prev_out = output;
+        output
     }
 
     pub fn take_buffer(&mut self) -> Vec<f32> {
@@ -497,6 +536,40 @@ mod tests {
         assert!(!buffer.is_empty(), "should emit samples even in silence");
         for &sample in &buffer {
             assert!(sample.abs() < 1e-6, "expected silence, got {sample}");
+        }
+    }
+
+    #[test]
+    fn d418_volume_writes_produce_digi_output() {
+        // No voices gated: the only signal is a square wave played through the
+        // $D418 master-volume nibble — the classic volume-register digi.
+        let mut sid = Sid6581::new(985_248, 48_000);
+        for i in 0..48_000 {
+            sid.write(0x18, if (i / 20) % 2 == 0 { 0x00 } else { 0x0F });
+            sid.tick();
+        }
+        let buffer = sid.take_buffer();
+        assert!(!buffer.is_empty());
+        let rms = (buffer.iter().map(|s| s * s).sum::<f32>() / buffer.len() as f32).sqrt();
+        assert!(rms > 0.01, "expected audible digi output, got rms {rms}");
+    }
+
+    #[test]
+    fn constant_volume_adds_no_digi_after_settling() {
+        // A held volume with silent voices must decay to silence: the volume-DC
+        // path is AC-coupled, so it contributes nothing at steady state and the
+        // normal voice mix is left untouched (existing captures stay valid).
+        let mut sid = Sid6581::new(985_248, 48_000);
+        sid.write(0x18, 0x0F);
+        for _ in 0..200_000 {
+            sid.tick();
+        }
+        let buffer = sid.take_buffer();
+        for &sample in &buffer[buffer.len() / 2..] {
+            assert!(
+                sample.abs() < 1e-4,
+                "held volume should settle to silence, got {sample}"
+            );
         }
     }
 
@@ -679,11 +752,16 @@ mod tests {
     #[test]
     fn host_audio_controls_mute_voice_output_only() {
         let render_peak = |mut sid: Sid6581| -> f32 {
-            for _ in 0..40_000 {
+            for _ in 0..200_000 {
                 sid.tick();
             }
-            sid.take_buffer()
-                .into_iter()
+            // Skip the initial settling window: the one-off 0→15 volume write
+            // produces a brief (correct) $D418 click that the AC-coupled digi
+            // path decays away. This test measures steady-state voice output.
+            let buffer = sid.take_buffer();
+            buffer[buffer.len() / 2..]
+                .iter()
+                .copied()
                 .map(f32::abs)
                 .fold(0.0, f32::max)
         };
