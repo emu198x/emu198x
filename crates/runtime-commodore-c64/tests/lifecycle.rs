@@ -340,6 +340,22 @@ fn set_georam_persists_across_reset() {
 }
 
 #[test]
+fn set_reu_persists_across_reset() {
+    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+    assert!(!runtime.machine().has_reu());
+
+    runtime.set_reu(Some(256));
+    assert!(runtime.machine().has_reu());
+    runtime.reset(ResetKind::Hard);
+    assert!(runtime.machine().has_reu());
+
+    runtime.set_reu(None);
+    runtime.reset(ResetKind::Hard);
+    assert!(!runtime.machine().has_reu());
+}
+
+#[test]
 fn machine_core_capabilities_match_profile() {
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");
