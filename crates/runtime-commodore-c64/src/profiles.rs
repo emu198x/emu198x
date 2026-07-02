@@ -7,12 +7,19 @@ use emu198x_shell::{
 };
 
 /// Supported C64 models in the fresh workspace bootstrap.
+///
+/// The breadbin and C64C variants share timing and VIC-II; the C64C differs in
+/// carrying the MOS 8580 SID rather than the breadbin's 6581.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
-    /// Commodore 64 PAL breadbin.
+    /// Commodore 64 PAL breadbin (MOS 6581 SID).
     C64PalBreadbin,
-    /// Commodore 64 NTSC breadbin.
+    /// Commodore 64 NTSC breadbin (MOS 6581 SID).
     C64NtscBreadbin,
+    /// Commodore 64C PAL (MOS 8580 SID).
+    C64cPal,
+    /// Commodore 64C NTSC (MOS 8580 SID).
+    C64cNtsc,
 }
 
 impl Model {
@@ -22,6 +29,8 @@ impl Model {
         match self {
             Self::C64PalBreadbin => "commodore-c64-pal-breadbin",
             Self::C64NtscBreadbin => "commodore-c64-ntsc-breadbin",
+            Self::C64cPal => "commodore-c64c-pal",
+            Self::C64cNtsc => "commodore-c64c-ntsc",
         }
     }
 
@@ -37,6 +46,8 @@ impl Model {
         match self {
             Self::C64PalBreadbin => "Commodore 64 (PAL Breadbin)",
             Self::C64NtscBreadbin => "Commodore 64 (NTSC Breadbin)",
+            Self::C64cPal => "Commodore 64C (PAL)",
+            Self::C64cNtsc => "Commodore 64C (NTSC)",
         }
     }
 }
@@ -47,6 +58,8 @@ pub fn profiles() -> Vec<MachineProfile> {
     vec![
         profile_for(Model::C64PalBreadbin),
         profile_for(Model::C64NtscBreadbin),
+        profile_for(Model::C64cPal),
+        profile_for(Model::C64cNtsc),
     ]
 }
 
@@ -67,6 +80,20 @@ pub fn profile_for(model: Model) -> MachineProfile {
             "NTSC breadbin follow-on profile on the same live 6502/CIA/VIC-II/SID substrate. Fresh-workspace frame and audio execution plus runtime snapshot support exist; datasette transport is on the shared board path, but NTSC boot validation and software/media verification are still pending.",
             ClockRate::from_hz(TIMING_NTSC_BREADBIN.cpu_hz),
             1982,
+        ),
+        Model::C64cPal => (
+            Region::Pal,
+            SupportTier::Boots,
+            "PAL Commodore 64C: the same live 6502/CIA/VIC-II substrate as the PAL breadbin, fitted with the cost-reduced MOS 8580 SID (more linear filter, distinct combined-waveform behaviour). Boots real BASIC/KERNAL/CHARGEN ROMs to READY.; the shared datasette/disk/cartridge paths apply.",
+            ClockRate::from_hz(TIMING_PAL_BREADBIN.cpu_hz),
+            1986,
+        ),
+        Model::C64cNtsc => (
+            Region::Ntsc,
+            SupportTier::Research,
+            "NTSC Commodore 64C on the shared 6502/CIA/VIC-II substrate with the MOS 8580 SID. Fresh-workspace frame and audio execution plus snapshot support exist; NTSC boot and software/media verification are still pending, as for the NTSC breadbin.",
+            ClockRate::from_hz(TIMING_NTSC_BREADBIN.cpu_hz),
+            1986,
         ),
     };
 

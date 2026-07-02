@@ -56,6 +56,8 @@ const DEFAULT_DISK_SLOT: &str = "drive-8";
 
 const PAL_ID: &str = "pal";
 const NTSC_ID: &str = "ntsc";
+const C64C_PAL_ID: &str = "c64c-pal";
+const C64C_NTSC_ID: &str = "c64c-ntsc";
 
 /// A resolved firmware bundle: `(id, bytes)` per ROM image. Stashed on the
 /// [`C64System`] so a live variant switch can rebuild without re-reading ROMs.
@@ -183,8 +185,8 @@ struct C64System {
 impl C64System {
     fn timing(&self) -> &'static C64Timing {
         match self.model {
-            Model::C64NtscBreadbin => &TIMING_NTSC_BREADBIN,
-            _ => &TIMING_PAL_BREADBIN,
+            Model::C64NtscBreadbin | Model::C64cNtsc => &TIMING_NTSC_BREADBIN,
+            Model::C64PalBreadbin | Model::C64cPal => &TIMING_PAL_BREADBIN,
         }
     }
 }
@@ -268,6 +270,8 @@ impl UiSystem for C64System {
         vec![
             VariantInfo::new(PAL_ID, model_label(Model::C64PalBreadbin)),
             VariantInfo::new(NTSC_ID, model_label(Model::C64NtscBreadbin)),
+            VariantInfo::new(C64C_PAL_ID, model_label(Model::C64cPal)),
+            VariantInfo::new(C64C_NTSC_ID, model_label(Model::C64cNtsc)),
         ]
     }
 
@@ -283,9 +287,10 @@ impl UiSystem for C64System {
         let model = model_for_variant(variant).ok_or(MachineError::UnsupportedOperation {
             operation: "unknown Commodore 64 variant",
         })?;
-        // PAL and NTSC breadbins share the same KERNAL/BASIC/CHARGEN/1541
-        // firmware, so rebuild from the stashed bytes rather than re-reading the
-        // ROM files. The harness re-paces and refreshes; state/media are not
+        // All four variants (PAL/NTSC breadbin and C64C) share the same
+        // KERNAL/BASIC/CHARGEN/1541 firmware — they differ only in region and
+        // SID revision — so rebuild from the stashed bytes rather than re-reading
+        // the ROM files. The harness re-paces and refreshes; state/media are not
         // preserved (a hardware swap).
         let mut firmware = FirmwareSet::new();
         for (id, bytes) in &self.firmware {
@@ -297,19 +302,23 @@ impl UiSystem for C64System {
     }
 }
 
-/// The PAL/NTSC label for a model.
+/// The Machine-menu label for a model (region + SID revision).
 fn model_label(model: Model) -> &'static str {
     match model {
-        Model::C64NtscBreadbin => "NTSC Breadbin",
-        _ => "PAL Breadbin",
+        Model::C64PalBreadbin => "PAL Breadbin (6581)",
+        Model::C64NtscBreadbin => "NTSC Breadbin (6581)",
+        Model::C64cPal => "PAL C64C (8580)",
+        Model::C64cNtsc => "NTSC C64C (8580)",
     }
 }
 
 /// The stable variant id for a model (round-trips through [`model_for_variant`]).
 fn variant_id(model: Model) -> &'static str {
     match model {
+        Model::C64PalBreadbin => PAL_ID,
         Model::C64NtscBreadbin => NTSC_ID,
-        _ => PAL_ID,
+        Model::C64cPal => C64C_PAL_ID,
+        Model::C64cNtsc => C64C_NTSC_ID,
     }
 }
 
@@ -318,6 +327,8 @@ fn model_for_variant(variant: &str) -> Option<Model> {
     match variant {
         PAL_ID => Some(Model::C64PalBreadbin),
         NTSC_ID => Some(Model::C64NtscBreadbin),
+        C64C_PAL_ID => Some(Model::C64cPal),
+        C64C_NTSC_ID => Some(Model::C64cNtsc),
         _ => None,
     }
 }
@@ -348,6 +359,8 @@ enum ModelArg {
     #[default]
     Pal,
     Ntsc,
+    C64cPal,
+    C64cNtsc,
 }
 
 impl ModelArg {
@@ -355,6 +368,8 @@ impl ModelArg {
         match self {
             Self::Pal => Model::C64PalBreadbin,
             Self::Ntsc => Model::C64NtscBreadbin,
+            Self::C64cPal => Model::C64cPal,
+            Self::C64cNtsc => Model::C64cNtsc,
         }
     }
 }
@@ -385,7 +400,8 @@ Options:
     --kernal PATH        override KERNAL ROM path
     --basic PATH         override BASIC ROM path
     --chargen PATH       override character ROM path
-    --model MODEL        pal or ntsc [default: pal]
+    --model MODEL        pal, ntsc, c64c-pal, or c64c-ntsc [default: pal]
+                         (c64c models fit the MOS 8580 SID; breadbins the 6581)
     --load PATH          import one .prg or plain-text .bas file after boot
     --disk PATH          insert one D64 image into drive-8 at startup
     --tape PATH          insert one TAP image into datasette slot at startup
@@ -488,8 +504,8 @@ fn build_runtime(cli: &Cli) -> Result<(C64Runtime, FirmwareBundle), String> {
     .map_err(|err| format!("boot failed: {err}"))?;
 
     let frame_ticks = u64::from(match cli.model {
-        ModelArg::Pal => TIMING_PAL_BREADBIN.cycles_per_frame,
-        ModelArg::Ntsc => TIMING_NTSC_BREADBIN.cycles_per_frame,
+        ModelArg::Pal | ModelArg::C64cPal => TIMING_PAL_BREADBIN.cycles_per_frame,
+        ModelArg::Ntsc | ModelArg::C64cNtsc => TIMING_NTSC_BREADBIN.cycles_per_frame,
     });
     let mut session =
         HeadlessSession::new_with_query_provider(machine, frame_ticks, C64SessionQueryProvider);
@@ -751,7 +767,9 @@ fn parse_model_arg(value: &str) -> ModelArg {
     match value {
         "pal" => ModelArg::Pal,
         "ntsc" => ModelArg::Ntsc,
-        _ => die("--model expects pal or ntsc"),
+        "c64c-pal" | "c64c" => ModelArg::C64cPal,
+        "c64c-ntsc" => ModelArg::C64cNtsc,
+        _ => die("--model expects pal, ntsc, c64c-pal, or c64c-ntsc"),
     }
 }
 
@@ -900,11 +918,24 @@ mod tests {
 
     #[test]
     fn variant_ids_round_trip_through_models() {
-        assert_eq!(model_for_variant(PAL_ID), Some(Model::C64PalBreadbin));
-        assert_eq!(model_for_variant(NTSC_ID), Some(Model::C64NtscBreadbin));
+        for model in [
+            Model::C64PalBreadbin,
+            Model::C64NtscBreadbin,
+            Model::C64cPal,
+            Model::C64cNtsc,
+        ] {
+            assert_eq!(model_for_variant(variant_id(model)), Some(model));
+        }
         assert_eq!(model_for_variant("nonsense"), None);
-        assert_eq!(variant_id(Model::C64PalBreadbin), PAL_ID);
-        assert_eq!(variant_id(Model::C64NtscBreadbin), NTSC_ID);
+    }
+
+    #[test]
+    fn model_arg_parses_all_variants() {
+        assert_eq!(parse_model_arg("pal").to_model(), Model::C64PalBreadbin);
+        assert_eq!(parse_model_arg("ntsc").to_model(), Model::C64NtscBreadbin);
+        assert_eq!(parse_model_arg("c64c-pal").to_model(), Model::C64cPal);
+        assert_eq!(parse_model_arg("c64c").to_model(), Model::C64cPal);
+        assert_eq!(parse_model_arg("c64c-ntsc").to_model(), Model::C64cNtsc);
     }
 
     #[test]
