@@ -15,7 +15,7 @@ id = "c64"
 # re-capture instruction. See
 # knowledge/decisions/c64-architecture-review.md Seam 4.
 audio_routing_version = 1
-frame_routing_version = 1
+frame_routing_version = 2
 
 [[system.firmware]]
 variant = "pal"
@@ -88,13 +88,13 @@ press = "return"
 # Captures the canonical Bruce Lee playfield (mountains + temple +
 # Bruce Lee + the Ninja + the Yamo).
 wait_frames = 16000
-frame_hash = "xxh64:cc272bfe59fe5d0f"
+frame_hash = "xxh64:98fd84eeb617c09a"
 
 [entry.audio]
 # Captures the in-game SID music.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:0c1b42a7f3f5f7b5"
+hash = "xxh64:ea4002a300a2d00b"
 
 [[entry]]
 id = "aztec-challenge"
@@ -132,12 +132,12 @@ press = "return"
 # confirming the screen IS at player-select even though pixels
 # render with custom CHARGEN.
 wait_frames = 5000
-frame_hash = "xxh64:50ac92431d569e94"
+frame_hash = "xxh64:2c603ce4e24c3f4b"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:e0195795f803f884"
+hash = "xxh64:4157b0254b857738"
 
 [[entry]]
 id = "bomb-jack"
@@ -158,12 +158,12 @@ path = "commodore/c64/Games/Arcade/[D64]/Bomb Jack (1986)(Elite).zip"
 # with the scrolling credit "AND TO MARK COOKSEY FOR THE MUSIC".
 [entry.boot]
 wait_frames = 50000
-frame_hash = "xxh64:94f1025130cea9f9"
+frame_hash = "xxh64:ab97482eb1b0aa5d"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:5cc814ba5dfc85d7"
+hash = "xxh64:f069fde6b541e7a6"
 
 [[entry]]
 id = "thing-on-a-spring"
@@ -186,15 +186,14 @@ path = "commodore/c64/Games/Arcade/[TAP]/Thing on a Spring (1985)(Gremlin).zip"
 # screen (the test's 25000 captures a pre-menu state in the catalogue
 # context).
 wait_frames = 50000
-frame_hash = "xxh64:d759a955247befc9"
+frame_hash = "xxh64:e3a6cc012790ad9c"
 
 [entry.audio]
-# Audio is silent at this state — the menu's SID music either hasn't
-# started yet or doesn't play here. Same shared-hash caveat as the
-# C64 boot-to-READY entry.
+# Under the sprite sequencer (FRAME_ROUTING_VERSION 2) the menu's SID
+# music plays here — this window is no longer silent.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:2d2d7c5231ec57ab"
+hash = "xxh64:7ed8c2a9ed209344"
 
 [[entry]]
 id = "wizball"
@@ -229,14 +228,14 @@ press = "return"
 # state — captures the high-score table screen with the WIZBALL logo
 # and Hubbard's SID music looping.
 wait_frames = 16000
-frame_hash = "xxh64:7198001e82e55d1c"
+frame_hash = "xxh64:c440191a8a82f024"
 
 [entry.audio]
 # Captures the Rob Hubbard title-screen SID — first non-silent
 # audio assertion of any disk-loaded C64 entry.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:bd062d499a95f419"
+hash = "xxh64:5d64607a33917135"
 
 [[entry]]
 id = "monty-on-the-run"
@@ -258,11 +257,11 @@ path = "commodore/c64/Games/Arcade/[TAP]/Monty on the Run (1985)(Gremlin).zip"
 # Monty / High Scores header + score table + scrolling credits + the
 # "MONTY FREEDOM KIT" controls panel.
 wait_frames = 50000
-frame_hash = "xxh64:19ab24d6cc2121e3"
+frame_hash = "xxh64:c2244ec2282abe54"
 
 [entry.audio]
 # Captures Hubbard's "Monty on the Run" theme — first non-silent
 # audio assertion on a tape-loaded C64 entry.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:48d312528aed7a75"
+hash = "xxh64:c74f842c8210a508"

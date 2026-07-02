@@ -196,67 +196,48 @@ pub fn local_rom_firmware_with_drive() -> FirmwareSet<'static> {
     firmware
 }
 
-pub fn local_thinker_tap_zip() -> PathBuf {
+/// Root the C64 game-media paths resolve against. Honours
+/// `EMU198X_CATALOGUE_MEDIA_ROOT` (the same env var the catalogue CLI uses, so
+/// a mounted TOSEC tree works for both), falling back to the legacy
+/// `~/Projects/Emu198x-Unclean/Reference` layout.
+pub fn media_root() -> PathBuf {
+    if let Some(root) = std::env::var_os("EMU198X_CATALOGUE_MEDIA_ROOT") {
+        return PathBuf::from(root);
+    }
     PathBuf::from(
-        std::env::var("HOME").expect("HOME should be available for local C64 TAP tests"),
+        std::env::var("HOME").expect("HOME should be available for local C64 media tests"),
     )
-    .join(
-        "Projects/Emu198x-Unclean/Reference/commodore/c64/Educational/[TAP]/Thinker, The (1984)(Atlantis).zip",
-    )
+    .join("Projects/Emu198x-Unclean/Reference")
+}
+
+pub fn local_thinker_tap_zip() -> PathBuf {
+    media_root().join("commodore/c64/Educational/[TAP]/Thinker, The (1984)(Atlantis).zip")
 }
 
 pub fn local_thomas_tap_zip() -> PathBuf {
-    PathBuf::from(
-        std::env::var("HOME").expect("HOME should be available for local C64 TAP tests"),
-    )
-    .join(
-        "Projects/Emu198x-Unclean/Reference/commodore/c64/Educational/[TAP]/Thomas the Tank Engine (1990)(Alternative Software).zip",
+    media_root().join(
+        "commodore/c64/Educational/[TAP]/Thomas the Tank Engine (1990)(Alternative Software).zip",
     )
 }
 
 pub fn local_thing_on_a_spring_tap_zip() -> PathBuf {
-    PathBuf::from(
-        std::env::var("HOME").expect("HOME should be available for local C64 TAP tests"),
-    )
-    .join(
-        "Projects/Emu198x-Unclean/Reference/commodore/c64/Games/Arcade/[TAP]/Thing on a Spring (1985)(Gremlin).zip",
-    )
+    media_root().join("commodore/c64/Games/Arcade/[TAP]/Thing on a Spring (1985)(Gremlin).zip")
 }
 
 pub fn local_ghostbusters_tap_zip() -> PathBuf {
-    PathBuf::from(
-        std::env::var("HOME").expect("HOME should be available for local C64 TAP tests"),
-    )
-    .join(
-        "Projects/Emu198x-Unclean/Reference/commodore/c64/Games/Arcade/[TAP]/Ghostbusters (1984)(Activision).zip",
-    )
+    media_root().join("commodore/c64/Games/Arcade/[TAP]/Ghostbusters (1984)(Activision).zip")
 }
 
 pub fn local_bruce_lee_d64_zip() -> PathBuf {
-    PathBuf::from(
-        std::env::var("HOME").expect("HOME should be available for local C64 D64 tests"),
-    )
-    .join(
-        "Projects/Emu198x-Unclean/Reference/commodore/c64/Games/Arcade/[D64]/Bruce Lee (1984)(Datasoft).zip",
-    )
+    media_root().join("commodore/c64/Games/Arcade/[D64]/Bruce Lee (1984)(Datasoft).zip")
 }
 
 pub fn local_aztec_challenge_d64_zip() -> PathBuf {
-    PathBuf::from(
-        std::env::var("HOME").expect("HOME should be available for local C64 D64 tests"),
-    )
-    .join(
-        "Projects/Emu198x-Unclean/Reference/commodore/c64/Games/Arcade/[D64]/Aztec Challenge (1983)(Cosmi).zip",
-    )
+    media_root().join("commodore/c64/Games/Arcade/[D64]/Aztec Challenge (1983)(Cosmi).zip")
 }
 
 pub fn local_bomb_jack_d64_zip() -> PathBuf {
-    PathBuf::from(
-        std::env::var("HOME").expect("HOME should be available for local C64 D64 tests"),
-    )
-    .join(
-        "Projects/Emu198x-Unclean/Reference/commodore/c64/Games/Arcade/[D64]/Bomb Jack (1986)(Elite).zip",
-    )
+    media_root().join("commodore/c64/Games/Arcade/[D64]/Bomb Jack (1986)(Elite).zip")
 }
 
 pub fn screen_text_lines(

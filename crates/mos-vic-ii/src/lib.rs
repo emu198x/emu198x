@@ -13,6 +13,20 @@
 
 pub mod oracle;
 pub mod palette;
+// Draw-stage sprite sequencer — first increment of the sprite-sequencer port,
+// landed isolated and unit-tested before being wired into the renderer. Its API
+// is exercised only by its own tests until the wiring increment, so the
+// not-yet-used warning is expected and gated here deliberately.
+#[allow(dead_code)]
+mod sprite_sequencer;
+// Sprite fetch chain (MC/MCBASE/exp-flop + crunch) — the addressing/height half
+// of the real sprite hardware, landed isolated + unit-tested (S4a) before being
+// wired to feed the sequencer (S4b). Exercised only by its own tests until then.
+#[allow(dead_code)]
+mod sprite_fetch_chain;
+
+use sprite_fetch_chain::SpriteFetchChain;
+use sprite_sequencer::{SpritePixel, SpriteSequencer};
 
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -34,9 +48,14 @@ use palette::PALETTE;
 /// pre-Seam-1 VIC-II described in
 /// `knowledge/decisions/c64-architecture-review.md`.
 ///
-/// Bumps planned: Seam 1 will revisit BA/RDY cycle accounting and may
-/// adjust sprite DMA timing — that work bumps to v2.
-pub const FRAME_ROUTING_VERSION: u32 = 1;
+/// **Version 2** (2026-07-01): sprite rendering switched from the geometry
+/// `overlay_sprites` mux to the draw-stage shift-register **sprite sequencer**
+/// (VICE `draw_sprites` two-stage model — MC/MCBASE/exp-flop fetch chain +
+/// per-pixel DMA halt). Sprite pixels shift by sub-pixel timing and the
+/// fetch/crunch/fetch-bug edge cases now match VICE, so any catalogue frame
+/// carrying sprites re-hashes. See the sprite-sequencer increment in
+/// `docs/plans/2026-06-30-c64-vic-ii-vc-vcbase-rc-rewrite.md`.
+pub const FRAME_ROUTING_VERSION: u32 = 2;
 
 const PAL_FIRST_VISIBLE_LINE: u16 = 0;
 const PAL_LAST_VISIBLE_LINE: u16 = 312;
@@ -90,7 +109,75 @@ impl VicModel {
             Self::Ntsc6567 => 65,
         }
     }
+
+    /// The model's sprite-region cycle schedule. The c-access/g-access region
+    /// and its counter events (UpdateVc cyc 14, UpdateMcBase 16, UpdateRc 58)
+    /// are identical across models; only the sprite fetch/DMA region differs,
+    /// because NTSC's two extra cycles are inserted there.
+    const fn sprite_timing(self) -> SpriteTiming {
+        match self {
+            Self::Pal6569 => SPRITE_TIMING_PAL,
+            Self::Ntsc6567 => SPRITE_TIMING_NTSC,
+        }
+    }
 }
+
+/// Model-specific sprite cycle schedule, in engine 0-based `raster_cycle`
+/// values (VICE's 1-based cycle N maps to engine N, with the line's last cycle
+/// relabelled 0). Sourced from VICE `vicii-chip-model.c` `cycle_tab_pal` /
+/// `cycle_tab_ntsc`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+struct SpriteTiming {
+    /// Per sprite 0..7: the p-access cycle (pointer + data byte 0) and whether
+    /// it fetches for the next raster line (sprites whose p-access sits in the
+    /// previous line's tail). The s-access (data bytes 1-2) is the next cycle;
+    /// the BA lead-in is the three cycles before the p-access.
+    paccess: [(u8, bool); 8],
+    /// The two cycles the sprite-DMA check fires (VICE `ChkSprDma`). The first
+    /// is where the BA-path `evaluate_sprite_dma` runs.
+    chk_dma: [u8; 2],
+    /// Y-expansion flip-flop toggle cycle (VICE `ChkSprExp`).
+    chk_exp: u8,
+    /// Sprite display-bit latch cycle — `MC = MCBASE` (VICE `ChkSprDisp`).
+    chk_disp: u8,
+}
+
+/// PAL 6569: 63-cycle line. Sprites 0-2 p-access in the previous line's tail
+/// (58/60/62), sprites 3-7 on the current line (1/3/5/7/9).
+const SPRITE_TIMING_PAL: SpriteTiming = SpriteTiming {
+    paccess: [
+        (58, true),
+        (60, true),
+        (62, true),
+        (1, false),
+        (3, false),
+        (5, false),
+        (7, false),
+        (9, false),
+    ],
+    chk_dma: [55, 56],
+    chk_exp: 56,
+    chk_disp: 58,
+};
+
+/// NTSC 6567R8: 65-cycle line. The extra two cycles push the sprite region
+/// later — sprites 0-3 p-access in the previous line's tail (59/61/63/0-wrap),
+/// sprites 4-7 on the current line (2/4/6/8); DMA/display checks shift by one.
+const SPRITE_TIMING_NTSC: SpriteTiming = SpriteTiming {
+    paccess: [
+        (59, true),
+        (61, true),
+        (63, true),
+        (0, true),
+        (2, false),
+        (4, false),
+        (6, false),
+        (8, false),
+    ],
+    chk_dma: [56, 57],
+    chk_exp: 56,
+    chk_disp: 59,
+};
 
 struct CellPixels {
     colour: [u32; 8],
@@ -154,13 +241,32 @@ pub struct Vic {
     #[serde(with = "BigArray")]
     colour_row: [u8; 40],
     vic_bank: u8,
-    sprite_data: [[u8; 3]; 8],
-    /// Sprite data-fetch base address, latched at each sprite's p-access so
-    /// the following cycle's s-access can read bytes 1 and 2 (the fetch spans
-    /// two cycles — see `fetch_sprite_if_scheduled`).
-    sprite_fetch_base: [u16; 8],
-    sprite_active: [bool; 8],
+    /// Sprite DMA-active flags (the BA/CPU-stall path), set at cycle 55 by
+    /// `evaluate_sprite_dma`. Independent of the draw-stage sequencer.
     sprite_dma_active: [bool; 8],
+    /// Draw-stage sprite sequencer (VICE shift-register pixel pipeline). It is
+    /// the sole sprite render path; transient render state rebuilt each line,
+    /// so it skips serialisation.
+    #[serde(skip)]
+    sprite_sequencer: SpriteSequencer,
+    /// Sprite fetch chain (MC/MCBASE/exp-flop + crunch) and its MC-addressed
+    /// data, feeding the sequencer continuously (VICE model): the chain sets
+    /// display bits at cyc 58 (→ `set_pending`) and loads data at the s-access
+    /// (→ `load_data`). Used only on the sequencer path. Transient render state.
+    #[serde(skip)]
+    chain: SpriteFetchChain,
+    #[serde(skip)]
+    chain_data: [[u8; 3]; 8],
+    #[serde(skip)]
+    chain_fetch_base: [u16; 8],
+    /// This cycle's 8 raw sprite pixels (pre-foreground-priority), produced by
+    /// the per-cycle draw pass and composited by `render_pixels`.
+    #[serde(skip)]
+    sprite_cycle_px: [Option<SpritePixel>; 8],
+    /// This cycle's 8 sprite coverage masks (which sprites have a pixel), for
+    /// collision detection in the composite.
+    #[serde(skip)]
+    sprite_cycle_cov: [u8; 8],
     sprite_sprite_collision: u8,
     sprite_bg_collision: u8,
     sprite_sprite_irq_latched: bool,
@@ -170,6 +276,8 @@ pub struct Vic {
     xscroll_latch: u8,
     lines_per_frame: u16,
     cycles_per_line: u8,
+    /// Model-specific sprite-region cycle schedule (PAL 6569 vs NTSC 6567).
+    timing: SpriteTiming,
     first_visible_line: u16,
     last_visible_line: u16,
     lp_triggered: bool,
@@ -235,10 +343,13 @@ impl Vic {
             screen_row: [0; 40],
             colour_row: [0; 40],
             vic_bank: 0,
-            sprite_data: [[0; 3]; 8],
-            sprite_fetch_base: [0; 8],
-            sprite_active: [false; 8],
             sprite_dma_active: [false; 8],
+            sprite_sequencer: SpriteSequencer::new(),
+            chain: SpriteFetchChain::new(),
+            chain_data: [[0; 3]; 8],
+            chain_fetch_base: [0; 8],
+            sprite_cycle_px: [None; 8],
+            sprite_cycle_cov: [0; 8],
             sprite_sprite_collision: 0,
             sprite_bg_collision: 0,
             sprite_sprite_irq_latched: false,
@@ -248,6 +359,7 @@ impl Vic {
             xscroll_latch: 0,
             lines_per_frame: model.lines_per_frame(),
             cycles_per_line: model.cycles_per_line(),
+            timing: model.sprite_timing(),
             first_visible_line: first_vis,
             last_visible_line: last_vis,
             lp_triggered: false,
@@ -264,14 +376,16 @@ impl Vic {
 
     /// Tick the VIC-II for one `phi2` cycle.
     pub fn tick(&mut self, memory: &dyn VicMemory) -> bool {
-        if self.raster_cycle == 55 {
+        if self.raster_cycle == self.timing.chk_dma[0] {
             self.evaluate_sprite_dma();
         }
 
-        // Per-sprite p-access fetches at their documented cycle positions.
-        // Cycles 58/60/62 on line L-1 fetch for line L's display; cycles
-        // 1/3/5/7/9 on line L fetch sprites 3..=7 for the same line L.
-        self.fetch_sprite_if_scheduled(memory);
+        // Advance the MC/MCBASE/exp-flop chain + its MC-addressed fetch (chain
+        // stage), then run the draw stage for this cycle's 8 pixels. The draw
+        // runs every cycle (not just visible) so the shift register + DMA-halt
+        // housekeeping stay correct through the border.
+        self.advance_sprite_chain(memory);
+        self.run_sprite_draw_cycle();
 
         self.update_border_flip_flops();
         self.render_pixels(memory);
@@ -480,127 +594,29 @@ impl Vic {
         self.colour_row[idx] = memory.read_colour(self.vc);
     }
 
-    /// Dispatch the per-sprite DMA fetch, spread across two cycles like the
-    /// hardware: a p-access (pointer) plus the first data byte on the sprite's
-    /// pointer cycle, then the remaining two data bytes on the next cycle
-    /// (VICE `cycle_tab_pal` SprPtr/SprDma0-2, vicii-chip-model.c).
-    ///
-    /// For PAL 63-cycle lines, per sprite, with the fetch targeting display
-    /// line L:
-    ///
-    /// | sprite | p-access + byte 0 | bytes 1-2 | target |
-    /// |--------|-------------------|-----------|--------|
-    /// |   0    | 58 (line L-1)     | 59        | L      |
-    /// |   1    | 60 (line L-1)     | 61        | L      |
-    /// |   2    | 62 (line L-1)     | 0 (line L)| L      |
-    /// |   3    |  1 (line L)       | 2         | L      |
-    /// |   4    |  3 (line L)       | 4         | L      |
-    /// |   5    |  5 (line L)       | 6         | L      |
-    /// |   6    |  7 (line L)       | 8         | L      |
-    /// |   7    |  9 (line L)       | 10        | L      |
-    ///
-    /// Sprites 0-2 fetch for `raster_line + 1`; sprites 3-7 for the current
-    /// line. Sprite 2's two cycles straddle the line boundary (62 then 0),
-    /// so the data base is latched in `sprite_fetch_base` between them.
-    fn fetch_sprite_if_scheduled(&mut self, memory: &dyn VicMemory) {
-        if let Some((i, next_line)) = Self::sprite_paccess_cycle(self.raster_cycle) {
-            let target_line = self.sprite_target_line(next_line);
-            self.sprite_paccess(memory, i, target_line);
-        }
-        if let Some(i) = Self::sprite_saccess_cycle(self.raster_cycle) {
-            self.sprite_saccess(memory, i);
-        }
-    }
-
     /// The sprite whose p-access (pointer + data byte 0) falls on this cycle,
-    /// and whether it targets the next line.
-    const fn sprite_paccess_cycle(cycle: u8) -> Option<(usize, bool)> {
-        match cycle {
-            58 => Some((0, true)),
-            60 => Some((1, true)),
-            62 => Some((2, true)),
-            1 => Some((3, false)),
-            3 => Some((4, false)),
-            5 => Some((5, false)),
-            7 => Some((6, false)),
-            9 => Some((7, false)),
-            _ => None,
-        }
+    /// and whether it targets the next line, per the model's sprite schedule
+    /// (`SpriteTiming::paccess`, VICE `cycle_tab_*` SprPtr/SprDma0). The chain
+    /// fetch (`chain_paccess`/`chain_saccess`) and the draw stage both key off
+    /// this. PAL: sprites 0-2 fetch in the previous line's tail (58/60/62) for
+    /// the next line, 3-7 on the current line (1/3/5/7/9). NTSC's two extra
+    /// cycles shift this (see `SPRITE_TIMING_NTSC`).
+    fn sprite_paccess_cycle(&self, cycle: u8) -> Option<(usize, bool)> {
+        self.timing
+            .paccess
+            .iter()
+            .position(|&(c, _)| c == cycle)
+            .map(|i| (i, self.timing.paccess[i].1))
     }
 
-    /// The sprite whose s-access (data bytes 1 and 2) falls on this cycle.
-    const fn sprite_saccess_cycle(cycle: u8) -> Option<usize> {
-        match cycle {
-            59 => Some(0),
-            61 => Some(1),
-            0 => Some(2),
-            2 => Some(3),
-            4 => Some(4),
-            6 => Some(5),
-            8 => Some(6),
-            10 => Some(7),
-            _ => None,
-        }
-    }
-
-    fn sprite_target_line(&self, next_line: bool) -> u16 {
-        if next_line {
-            if self.raster_line + 1 >= self.lines_per_frame {
-                0
-            } else {
-                self.raster_line + 1
-            }
-        } else {
-            self.raster_line
-        }
-    }
-
-    /// p-access: read the sprite pointer and the first data byte, latching the
-    /// data base for the following s-access. Marks the sprite active only when
-    /// its DMA covers `target_line`; otherwise no reads happen (matching the
-    /// engine's existing enable/Y-range gating).
-    fn sprite_paccess(&mut self, memory: &dyn VicMemory, i: usize, target_line: u16) {
-        self.sprite_active[i] = false;
-
-        if target_line < self.first_visible_line || target_line >= self.last_visible_line {
-            return;
-        }
-        if self.regs[0x15] & (1 << i) == 0 {
-            return;
-        }
-
-        let y_expand = self.regs[0x17] & (1 << i) != 0;
-        let sprite_y = u16::from(self.regs[1 + i * 2]);
-        let height = if y_expand { 42u16 } else { 21u16 };
-        let line_in_sprite = target_line.wrapping_sub(sprite_y);
-        if line_in_sprite >= height {
-            return;
-        }
-        let data_line = if y_expand {
-            line_in_sprite / 2
-        } else {
-            line_in_sprite
-        };
-
-        let ptr_addr = self.screen_base() + 0x03F8 + i as u16;
-        let sprite_ptr = memory.read_vram(self.vram_addr(ptr_addr));
-        let data_base = u16::from(sprite_ptr) * 64 + data_line * 3;
-        self.sprite_fetch_base[i] = data_base;
-        self.sprite_data[i][0] = memory.read_vram(self.vram_addr(data_base));
-        self.last_bus_data = self.sprite_data[i][0];
-        self.sprite_active[i] = true;
-    }
-
-    /// s-access: read the sprite's remaining two data bytes from the base
-    /// latched by the p-access. Skipped when the p-access found no active DMA.
-    fn sprite_saccess(&mut self, memory: &dyn VicMemory, i: usize) {
-        if !self.sprite_active[i] {
-            return;
-        }
-        let base = self.sprite_fetch_base[i];
-        self.sprite_data[i][1] = memory.read_vram(self.vram_addr(base + 1));
-        self.sprite_data[i][2] = memory.read_vram(self.vram_addr(base + 2));
-        self.last_bus_data = self.sprite_data[i][2];
+    /// The sprite whose s-access (data bytes 1 and 2) falls on this cycle. The
+    /// s-access is always the cycle after the sprite's p-access.
+    fn sprite_saccess_cycle(&self, cycle: u8) -> Option<usize> {
+        let cpl = self.cycles_per_line;
+        self.timing
+            .paccess
+            .iter()
+            .position(|&(c, _)| (c + 1) % cpl == cycle)
     }
 
     fn render_pixels(&mut self, memory: &dyn VicMemory) {
@@ -707,7 +723,7 @@ impl Vic {
             fg_mask = 0;
         }
 
-        self.overlay_sprites(fb_offset, fb_x, fg_mask);
+        self.draw_sprites_sequencer(fb_offset, fg_mask);
 
         if self.sprite_sprite_collision != 0 && !self.sprite_sprite_irq_latched {
             self.sprite_sprite_irq_latched = true;
@@ -886,97 +902,189 @@ impl Vic {
         cell
     }
 
-    fn overlay_sprites(&mut self, fb_offset: usize, fb_x_start: usize, fg_mask: u8) {
-        let priority = self.regs[0x1B];
-        let x_expand = self.regs[0x1D];
-        let mcm_reg = self.regs[0x1C];
-        let mc0 = PALETTE[(self.regs[0x25] & 0x0F) as usize];
-        let mc1 = PALETTE[(self.regs[0x26] & 0x0F) as usize];
-        let mut sprite_coverage: [u8; 8] = [0; 8];
-        let mut sprite_colour: [[u32; 8]; 8] = [[0; 8]; 8];
-
-        for i in 0..8usize {
-            if !self.sprite_active[i] {
-                continue;
-            }
-
+    /// Each sprite's leftmost framebuffer X (VIC X + the sprite-to-screen
+    /// offset, honouring the `$D010` high bits).
+    fn sprite_fb_x_array(&self) -> [i32; 8] {
+        let mut x = [0i32; 8];
+        for (i, slot) in x.iter_mut().enumerate() {
             let sprite_x = u16::from(self.regs[i * 2])
                 | if self.regs[0x10] & (1 << i) != 0 {
                     256
                 } else {
                     0
                 };
-            let expanded_x = x_expand & (1 << i) != 0;
-            let is_mcm = mcm_reg & (1 << i) != 0;
-            let sprite_col = PALETTE[(self.regs[0x27 + i] & 0x0F) as usize];
-            let sprite_fb_x = i16::try_from(sprite_x).unwrap_or(0) + SPRITE_X_TO_FB;
-            let sprite_width: i16 = if expanded_x { 48 } else { 24 };
+            *slot = i32::from(sprite_x) + i32::from(SPRITE_X_TO_FB);
+        }
+        x
+    }
 
-            for px in 0..8usize {
-                let screen_px = fb_x_start as i16 + px as i16;
-                let pixel_in_sprite = screen_px - sprite_fb_x;
+    /// Each sprite's Y position (`$D001+2i`).
+    fn sprite_y_array(&self) -> [u8; 8] {
+        let mut y = [0u8; 8];
+        for (i, slot) in y.iter_mut().enumerate() {
+            *slot = self.regs[1 + i * 2];
+        }
+        y
+    }
 
-                if pixel_in_sprite < 0 || pixel_in_sprite >= sprite_width {
-                    continue;
-                }
+    /// Chain stage (VICE `vicii-cycle.c` sprite events): run MCBASE update
+    /// (cyc 16), DMA check (55/56), expansion check (56), and display check
+    /// (58), then the chain-driven MC-addressed p/s-access filling `chain_data`.
+    ///
+    /// The Y compare is **VICE-literal** (`Y == raster_line`, no `+1`) so
+    /// per-line `$D015`/`$D001` writes are sampled at VICE's cycles, and
+    /// **non-wrapping** (activation gated to `raster_line <= 255`) to suppress
+    /// the raster-306 re-match VICE also hides (mechanism unpinned). The draw
+    /// stage (`run_sprite_draw_cycle`) consumes the display bits + data.
+    fn advance_sprite_chain(&mut self, memory: &dyn VicMemory) {
+        let c = self.raster_cycle;
+        let enable = self.regs[0x15];
+        let y = self.sprite_y_array();
+        let raster_low = self.raster_line as u8;
 
-                let data_pos = if expanded_x {
-                    pixel_in_sprite / 2
-                } else {
-                    pixel_in_sprite
-                } as usize;
-
-                if is_mcm {
-                    let pair_idx = data_pos / 2;
-                    let byte_idx = pair_idx / 4;
-                    let shift = 6 - (pair_idx % 4) * 2;
-                    let bits = (self.sprite_data[i][byte_idx] >> shift) & 0x03;
-
-                    if bits != 0b00 {
-                        sprite_coverage[px] |= 1 << i;
-                        sprite_colour[px][i] = match bits {
-                            0b01 => mc0,
-                            0b10 => sprite_col,
-                            _ => mc1,
-                        };
-                    }
-                } else {
-                    let byte_idx = data_pos / 8;
-                    let bit_idx = 7 - (data_pos % 8);
-                    if self.sprite_data[i][byte_idx] & (1 << bit_idx) != 0 {
-                        sprite_coverage[px] |= 1 << i;
-                        sprite_colour[px][i] = sprite_col;
-                    }
-                }
-            }
+        if c == 16 {
+            self.chain.update_mcbase();
+        }
+        if (c == self.timing.chk_dma[0] || c == self.timing.chk_dma[1]) && self.raster_line <= 255 {
+            self.chain.check_dma(enable, y, raster_low);
+        }
+        if c == self.timing.chk_exp {
+            self.chain.check_exp(self.regs[0x17]);
+        }
+        if c == self.timing.chk_disp {
+            self.chain.check_display(enable, y, raster_low);
         }
 
-        for (px, &cov) in sprite_coverage.iter().enumerate() {
+        if let Some((i, _)) = self.sprite_paccess_cycle(c) {
+            self.chain_paccess(memory, i);
+        }
+        if let Some(i) = self.sprite_saccess_cycle(c) {
+            self.chain_saccess(memory, i);
+        }
+    }
+
+    /// Draw stage (VICE `vicii-draw-cycle.c` `draw_sprites8`): produce this
+    /// cycle's 8 raw sprite pixels into `sprite_cycle_px`, interleaving the
+    /// per-pixel DMA housekeeping — deactivate on the s-access (pixel 2), halt on
+    /// the p-access (pixel 3), latch pending + load data on the s-access
+    /// (pixel 4), un-halt on the s-access (pixel 7). Halted sprites freeze their
+    /// shift register (the sprite-fetch artifacts). Runs every cycle; the
+    /// foreground-priority composite happens in `render_pixels`.
+    fn run_sprite_draw_cycle(&mut self) {
+        let c = self.raster_cycle;
+        let expx = self.regs[0x1D];
+        let dma0 = self.sprite_paccess_cycle(c).map(|(i, _)| i);
+        let dma2 = self.sprite_saccess_cycle(c);
+        let xpos_base = (i32::from(c) - i32::from(FIRST_VISIBLE_CYCLE)) * 8;
+
+        self.sprite_sequencer
+            .set_x_positions(self.sprite_fb_x_array());
+        self.sprite_sequencer.set_mc_bits(self.regs[0x1C]);
+
+        for px in 0..8usize {
+            match px {
+                2 => {
+                    if let Some(i) = dma2 {
+                        self.sprite_sequencer.clear_active(i);
+                    }
+                }
+                3 => {
+                    if let Some(i) = dma0 {
+                        self.sprite_sequencer.set_halt(i);
+                    }
+                }
+                4 => {
+                    if c == self.timing.chk_disp {
+                        self.sprite_sequencer.set_pending(self.chain.display_bits());
+                    }
+                    if let Some(i) = dma2 {
+                        let d = self.chain_data[i];
+                        let data =
+                            (u32::from(d[0]) << 16) | (u32::from(d[1]) << 8) | u32::from(d[2]);
+                        self.sprite_sequencer.load_data(i, data);
+                    }
+                }
+                7 => {
+                    if let Some(i) = dma2 {
+                        self.sprite_sequencer.clear_halt(i);
+                    }
+                }
+                _ => {}
+            }
+            let drawn = self
+                .sprite_sequencer
+                .draw_pixel(xpos_base + px as i32, expx);
+            self.sprite_cycle_px[px] = drawn.winner;
+            self.sprite_cycle_cov[px] = drawn.coverage;
+        }
+    }
+
+    /// Chain p-access: read the sprite pointer and data byte 0 addressed by MC,
+    /// latch the pointer base, advance MC. Gated by the chain's DMA state.
+    fn chain_paccess(&mut self, memory: &dyn VicMemory, i: usize) {
+        if !self.chain.dma_active(i) {
+            return;
+        }
+        let ptr_addr = self.screen_base() + 0x03F8 + i as u16;
+        let base = u16::from(memory.read_vram(self.vram_addr(ptr_addr))) << 6;
+        self.chain_fetch_base[i] = base;
+        let mc = self.chain.mc(i);
+        self.chain_data[i][0] = memory.read_vram(self.vram_addr(base + u16::from(mc)));
+        // The sprite byte is the VIC's last bus access — drives open-bus reads
+        // ($2F-$3F). (Was set by the removed overlay fetch; the chain reads the
+        // same steady-state bytes, so this keeps open-bus behaviour.)
+        self.last_bus_data = self.chain_data[i][0];
+        self.chain.advance_mc(i);
+    }
+
+    /// Chain s-access: read data bytes 1 and 2 (advancing MC) into `chain_data`.
+    /// The draw stage loads them into the shift register at pixel 4 of this
+    /// cycle (VICE `update_sprite_data`).
+    fn chain_saccess(&mut self, memory: &dyn VicMemory, i: usize) {
+        if !self.chain.dma_active(i) {
+            return;
+        }
+        let base = self.chain_fetch_base[i];
+        let mc1 = self.chain.mc(i);
+        self.chain_data[i][1] = memory.read_vram(self.vram_addr(base + u16::from(mc1)));
+        self.chain.advance_mc(i);
+        let mc2 = self.chain.mc(i);
+        self.chain_data[i][2] = memory.read_vram(self.vram_addr(base + u16::from(mc2)));
+        self.last_bus_data = self.chain_data[i][2];
+        self.chain.advance_mc(i);
+    }
+
+    /// Composite this cycle's raw sprite pixels (produced by the draw stage,
+    /// `run_sprite_draw_cycle`) into the framebuffer, applying sprite-behind-
+    /// foreground priority (`$D01B` + `fg_mask`).
+    fn draw_sprites_sequencer(&mut self, fb_offset: usize, fg_mask: u8) {
+        let priority = self.regs[0x1B];
+        for px in 0..8usize {
+            // Collisions: 2+ sprites here → sprite-sprite ($D01E); any sprite
+            // over a foreground pixel → sprite-background ($D01F).
+            let cov = self.sprite_cycle_cov[px];
             if cov.count_ones() >= 2 {
                 self.sprite_sprite_collision |= cov;
             }
-            if cov != 0 && (fg_mask & (1 << px)) != 0 {
+            if cov != 0 && (fg_mask >> px) & 1 != 0 {
                 self.sprite_bg_collision |= cov;
             }
-        }
 
-        for px in 0..8usize {
-            let idx = fb_offset + px;
-            if idx >= self.framebuffer.len() {
+            let Some(sp) = self.sprite_cycle_px[px] else {
+                continue;
+            };
+            let i = sp.sprite as usize;
+            if priority & (1 << i) != 0 && (fg_mask >> px) & 1 != 0 {
                 continue;
             }
-
-            for i in (0..8usize).rev() {
-                if sprite_coverage[px] & (1 << i) == 0 {
-                    continue;
-                }
-
-                let behind_fg = priority & (1 << i) != 0;
-                if behind_fg && (fg_mask & (1 << px)) != 0 {
-                    continue;
-                }
-
-                self.framebuffer[idx] = sprite_colour[px][i];
+            let colour = match sp.selector {
+                1 => PALETTE[(self.regs[0x25] & 0x0F) as usize],
+                3 => PALETTE[(self.regs[0x26] & 0x0F) as usize],
+                _ => PALETTE[(self.regs[0x27 + i] & 0x0F) as usize],
+            };
+            let idx = fb_offset + px;
+            if idx < self.framebuffer.len() {
+                self.framebuffer[idx] = colour;
             }
         }
     }
@@ -1004,14 +1112,14 @@ impl Vic {
 
     fn is_sprite_dma_stealing(&self) -> bool {
         let c = self.raster_cycle;
-        (self.sprite_dma_active[0] && (c == 58 || c == 59))
-            || (self.sprite_dma_active[1] && (c == 60 || c == 61))
-            || (self.sprite_dma_active[2] && (c == 62 || c == 0))
-            || (self.sprite_dma_active[3] && (c == 1 || c == 2))
-            || (self.sprite_dma_active[4] && (c == 3 || c == 4))
-            || (self.sprite_dma_active[5] && (c == 5 || c == 6))
-            || (self.sprite_dma_active[6] && (c == 7 || c == 8))
-            || (self.sprite_dma_active[7] && (c == 9 || c == 10))
+        let cpl = self.cycles_per_line;
+        // A sprite steals the bus on its p-access and s-access (the next
+        // cycle), per the model's schedule.
+        self.timing
+            .paccess
+            .iter()
+            .enumerate()
+            .any(|(i, &(p, _))| self.sprite_dma_active[i] && (c == p || c == (p + 1) % cpl))
     }
 
     fn compute_ba_low(&self) -> bool {
@@ -1025,21 +1133,20 @@ impl Vic {
     fn sprite_ba_low(&self) -> bool {
         let c = self.raster_cycle;
         let cpl = self.cycles_per_line;
-        for i in 0..8u8 {
-            if !self.sprite_dma_active[i as usize] {
-                continue;
+        // BA drops for the three cycles before a sprite's p-access through its
+        // s-access (a 5-cycle window), per the model's schedule.
+        self.timing.paccess.iter().enumerate().any(|(i, &(p, _))| {
+            if !self.sprite_dma_active[i] {
+                return false;
             }
-            let ba_start = (55u8.wrapping_add(2 * i)) % cpl;
-            let ba_end = (59u8.wrapping_add(2 * i)) % cpl;
+            let ba_start = (p + cpl - 3) % cpl;
+            let ba_end = (p + 1) % cpl;
             if ba_start <= ba_end {
-                if c >= ba_start && c <= ba_end {
-                    return true;
-                }
-            } else if c >= ba_start || c <= ba_end {
-                return true;
+                c >= ba_start && c <= ba_end
+            } else {
+                c >= ba_start || c <= ba_end
             }
-        }
-        false
+        })
     }
 
     fn screen_base(&self) -> u16 {
@@ -1141,6 +1248,7 @@ impl Vic {
     /// Write a VIC-II register.
     pub fn write(&mut self, reg: u8, value: u8) {
         let r = (reg & 0x3F) as usize;
+        let old = if r < self.regs.len() { self.regs[r] } else { 0 };
         if r < self.regs.len() {
             self.regs[r] = value;
         }
@@ -1158,6 +1266,11 @@ impl Vic {
             }
             0x1A => {
                 self.irq_enable = value & 0x0F;
+            }
+            // Sprite crunch: a `$D017` change feeds the fetch chain's crunch
+            // bit-math (gated on the crunch cycle).
+            0x17 if value != old => {
+                self.chain.write_d017(value, self.raster_cycle == 15);
             }
             _ => {}
         }
@@ -1336,10 +1449,23 @@ mod tests {
     }
 
     fn make_vic_and_memory() -> (Vic, TestMemory) {
+        make_vic_and_memory_model(VicModel::Pal6569)
+    }
+
+    fn make_vic_and_memory_model(model: VicModel) -> (Vic, TestMemory) {
         let chargen = vec![0xFF; 4096];
-        let vic = Vic::new(VicModel::Pal6569);
+        let vic = Vic::new(model);
         let memory = TestMemory::new(&chargen);
         (vic, memory)
+    }
+
+    /// Tick until the VIC reaches exactly (`line`, `cycle`). Model-agnostic
+    /// (unlike `advance_to`, which assumes PAL's cycle count); terminates within
+    /// one frame for any valid target.
+    fn advance_until(vic: &mut Vic, memory: &TestMemory, line: u16, cycle: u8) {
+        while vic.raster_line() != line || vic.raster_cycle() != cycle {
+            tick_vic(vic, memory);
+        }
     }
 
     fn tick_vic(vic: &mut Vic, mem: &TestMemory) -> bool {
@@ -1355,6 +1481,61 @@ mod tests {
 
     fn fb_pixel(vic: &Vic, fb_x: usize, fb_y: usize) -> u32 {
         vic.framebuffer()[fb_y * FB_WIDTH as usize + fb_x]
+    }
+
+    /// Render one display line (100) carrying three sprites — a hires sprite, a
+    /// multicolour sprite, and an X-expanded sprite — through the draw-stage
+    /// sequencer, and return the whole framebuffer.
+    fn render_three_sprite_scene() -> Vec<u32> {
+        let (mut vic, mut memory) = make_vic_and_memory();
+        vic.write(0x11, 0x1B); // DEN + display on
+        vic.write(0x18, 0x14);
+        vic.write(0x15, 0x07); // enable sprites 0,1,2
+        vic.write(0x1C, 0x02); // sprite 1 multicolour
+        vic.write(0x1D, 0x04); // sprite 2 X-expanded
+        vic.write(0x25, 0x0A); // MC0
+        vic.write(0x26, 0x0D); // MC1
+        // Positions (all on line 100) and colours.
+        vic.write(0x01, 100);
+        vic.write(0x00, 180); // sprite 0 X
+        vic.write(0x27, 0x01);
+        vic.write(0x03, 100);
+        vic.write(0x02, 120); // sprite 1 X
+        vic.write(0x28, 0x03);
+        vic.write(0x05, 100);
+        vic.write(0x04, 60); // sprite 2 X
+        vic.write(0x29, 0x05);
+        // Sprite pointers → data blocks at $2000/$2040/$2080.
+        memory.ram_write(0x07F8, 0x80);
+        memory.ram_write(0x07F9, 0x81);
+        memory.ram_write(0x07FA, 0x82);
+        for k in 0..3u16 {
+            memory.ram_write(0x2000 + k, [0xFF, 0x99, 0x3C][k as usize]);
+            memory.ram_write(0x2040 + k, [0x1B, 0xE4, 0x5A][k as usize]);
+            memory.ram_write(0x2080 + k, [0xC3, 0x66, 0xFF][k as usize]);
+        }
+        advance_to(&mut vic, &memory, 103, 0);
+        vic.framebuffer().to_vec()
+    }
+
+    /// The draw-stage sequencer renders three coexisting sprites (hires +
+    /// multicolour + X-expanded) on one line. In this *isolated* synthetic
+    /// harness the continuous chain feed places the sprites one line later than
+    /// their Y register (first-activation vs steady-state timing); real-program
+    /// phase is validated by the testbench `sprite_sequencer_spritedma_parity`
+    /// (0 px vs VICE). Assert the scene draws sprite pixels on that line.
+    #[test]
+    fn sprite_sequencer_renders_three_sprite_scene() {
+        let fb = render_three_sprite_scene();
+        let sq_row = (101 - FIRST_VISIBLE_LINE) as usize * FB_WIDTH as usize;
+        let border = fb[0];
+        let sprite_px = (0..FB_WIDTH as usize)
+            .filter(|&x| fb[sq_row + x] != border)
+            .count();
+        assert!(
+            sprite_px > 0,
+            "scene should render sprite pixels on line 101"
+        );
     }
 
     #[test]
@@ -1543,7 +1724,11 @@ mod tests {
         memory.ram_write(0x2002, 0xFF);
         vic.write(0x11, 0x1B);
 
-        let target_line = 100u16;
+        // Sprite Y = 100; the draw-stage sequencer draws it one line later in
+        // this synthetic first-activation harness (line 101) — the +1 the
+        // testbench validates as correct steady-state phase. X = 172 →
+        // fb_x = 172 + 24 = 196.
+        let target_line = 101u16;
         let target_cycle = 35u8;
         let cycles_to_target =
             u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
@@ -1586,14 +1771,16 @@ mod tests {
         assert_eq!(vic.read(0x1E), 0x00);
     }
 
+    /// The draw-stage sequencer detects sprite-sprite collisions: two
+    /// fully-overlapping sprites set both collision bits in `$D01E`.
     #[test]
-    fn sprite_sprite_collision_set_on_overlap() {
+    fn sprite_sequencer_sets_sprite_sprite_collision() {
         let (mut vic, mut memory) = make_vic_and_memory();
-        vic.write(0x15, 0x03);
+        vic.write(0x15, 0x03); // enable sprites 0, 1
         vic.write(0x00, 172);
-        vic.write(0x01, 100);
+        vic.write(0x01, 100); // sprite 0 at (172, 100)
         vic.write(0x02, 172);
-        vic.write(0x03, 100);
+        vic.write(0x03, 100); // sprite 1 at (172, 100) — fully overlapping
         vic.write(0x27, 0x01);
         vic.write(0x28, 0x02);
         vic.write(0x18, 0x14);
@@ -1603,17 +1790,14 @@ mod tests {
         memory.ram_write(0x2000, 0xFF);
         memory.ram_write(0x2001, 0xFF);
         memory.ram_write(0x2002, 0xFF);
-
-        let target_line = 100u16;
-        let target_cycle = 35u8;
-        let total = u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
-        for _ in 0..=total {
-            tick_vic(&mut vic, &memory);
-        }
-
-        let collision = vic.read(0x1E);
-        assert_eq!(collision & 0x03, 0x03);
-        assert_eq!(vic.read(0x1E), 0x00);
+        // Render past the sprites' display line (sequencer places them one line
+        // later than geometry in this synthetic harness).
+        advance_to(&mut vic, &memory, 103, 0);
+        assert_eq!(
+            vic.peek(0x1E) & 0x03,
+            0x03,
+            "sequencer should flag both sprites collided"
+        );
     }
 
     #[test]
@@ -1637,8 +1821,11 @@ mod tests {
         memory.ram_write(0x2001, 0xFF);
         memory.ram_write(0x2002, 0xFF);
 
-        let target_line = 51u16;
-        let target_cycle = DISPLAY_START_CYCLE + 1;
+        // Sprite Y = 51 draws at line 52 (sequencer first-activation +1); tick
+        // past its pixels (X = 24 → fb_x 48 ≈ cycle 16) so the sprite-over-
+        // foreground collision registers in `$D01F`.
+        let target_line = 52u16;
+        let target_cycle = 40u8;
         let total = u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
         for _ in 0..=total {
             tick_vic(&mut vic, &memory);
@@ -2036,35 +2223,6 @@ mod tests {
     }
 
     #[test]
-    fn sprite_fetch_happens_at_p_access_cycles_not_batched() {
-        // Enable sprite 3 (p-access cycle 1) and sprite 0 (p-access
-        // cycle 58 of previous line). Verify that sprite 3 activates
-        // after running exactly one cycle into a line where it's
-        // on-screen, and that NO sprite activates at cycle 0 (the old
-        // batch-fetch cycle).
-        let (mut vic, memory) = make_vic_and_memory();
-        vic.write(0x15, 0x08); // enable sprite 3
-        vic.write(0x11, 0x1B); // DEN=1, RSEL=1
-        // Put sprite 3 at Y = line 100 so it's active on lines 100-120.
-        vic.write(0x07, 100); // sprite 3 Y register is at $D007
-        // Wind to cycle 0 of line 100.
-        advance_to(&mut vic, &memory, 100, 0);
-        // At this point sprite 3 should NOT yet be active (old batch
-        // fetch would have activated it here).
-        tick_vic(&mut vic, &memory); // cycle 0 — no fetch scheduled
-        assert!(
-            !vic.sprite_active[3],
-            "sprite 3 should not activate at cycle 0 anymore"
-        );
-        // cycle 1 is sprite 3's p-access.
-        tick_vic(&mut vic, &memory);
-        assert!(
-            vic.sprite_active[3],
-            "sprite 3 should activate at its p-access cycle 1"
-        );
-    }
-
-    #[test]
     fn naive_close_sets_vert_ff_at_line_247_rsel_zero() {
         // Control case: with RSEL=0 throughout, line 247 fires the
         // set-rule and the vert FF goes high as expected.
@@ -2110,6 +2268,74 @@ mod tests {
     #[test]
     fn vic_model_default_is_pal() {
         assert_eq!(VicModel::default(), VicModel::Pal6569);
+    }
+
+    #[test]
+    fn ntsc_sprite_schedule_matches_6567r8() {
+        // VICE cycle_tab_ntsc SprPtr cycles (engine 0-based): sprites 0-3 in
+        // the previous line's tail (59/61/63/0-wrap), 4-7 on the current line
+        // (2/4/6/8); DMA/display checks shift +1 vs PAL.
+        let t = VicModel::Ntsc6567.sprite_timing();
+        assert_eq!(
+            t.paccess,
+            [
+                (59, true),
+                (61, true),
+                (63, true),
+                (0, true),
+                (2, false),
+                (4, false),
+                (6, false),
+                (8, false),
+            ]
+        );
+        assert_eq!(t.chk_dma, [56, 57]);
+        assert_eq!(t.chk_exp, 56);
+        assert_eq!(t.chk_disp, 59);
+    }
+
+    #[test]
+    fn ntsc_sprite_access_cycles_resolve_per_model() {
+        let ntsc = Vic::new(VicModel::Ntsc6567);
+        // Sprite 0 p-access at 59 (NTSC) not 58 (PAL); s-access the next cycle.
+        assert_eq!(ntsc.sprite_paccess_cycle(59), Some((0, true)));
+        assert_eq!(ntsc.sprite_saccess_cycle(60), Some(0));
+        // Sprite 3 straddles the line boundary (p-access at 0, s-access at 1).
+        assert_eq!(ntsc.sprite_paccess_cycle(0), Some((3, true)));
+        assert_eq!(ntsc.sprite_saccess_cycle(1), Some(3));
+        // Sprite 4 is first on the current line at cycle 2.
+        assert_eq!(ntsc.sprite_paccess_cycle(2), Some((4, false)));
+        // The PAL sprite-0 cycle (58) is not a p-access on NTSC.
+        assert_eq!(ntsc.sprite_paccess_cycle(58), None);
+
+        let pal = Vic::new(VicModel::Pal6569);
+        assert_eq!(pal.sprite_paccess_cycle(58), Some((0, true)));
+        assert_eq!(pal.sprite_paccess_cycle(59), None);
+    }
+
+    #[test]
+    fn ntsc_sprite_dma_steals_at_ntsc_cycles() {
+        // Enable sprite 0 at a Y that is DMA-active on line 60, then confirm it
+        // steals the bus on its NTSC p-access (59) + s-access (60), not the PAL
+        // cycle 58.
+        let (mut vic, memory) = make_vic_and_memory_model(VicModel::Ntsc6567);
+        vic.write(0x15, 0x01); // enable sprite 0
+        vic.write(0x01, 60); // sprite 0 Y = 60
+        // Wind just past line 60 cycle 56 (NTSC ChkSprDma[0], processed at the
+        // end of that cycle's tick) so DMA is evaluated.
+        advance_until(&mut vic, &memory, 60, 57);
+        assert!(vic.sprite_dma_active[0], "sprite 0 should be DMA-active");
+        // Cycle 58 is a steal on PAL but not NTSC (checked before 59, forward).
+        advance_until(&mut vic, &memory, 60, 58);
+        assert!(
+            !vic.is_sprite_dma_stealing(),
+            "cyc 58 is not a steal on NTSC (it is on PAL)"
+        );
+        advance_until(&mut vic, &memory, 60, 59);
+        assert!(
+            vic.is_sprite_dma_stealing(),
+            "steal on NTSC p-access cyc 59"
+        );
     }
 
     #[test]
@@ -2449,7 +2675,8 @@ mod tests {
         memory.ram_write(0x2002, 0xFF);
         // sprite_fb_x = 260 + 24 = 284. Need a cycle that paints this fb_x.
         // fb_x = (cycle - 10) * 8. Cycle 45 paints fb_x 280..288 → covers 284.
-        let target_line = 100u16;
+        // Sprite Y = 100 draws at line 101 (sequencer first-activation +1).
+        let target_line = 101u16;
         let target_cycle = 45u8;
         let total = u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
         for _ in 0..=total {
@@ -2479,7 +2706,8 @@ mod tests {
         memory.ram_write(0x2001, 0x1B);
         memory.ram_write(0x2002, 0x1B);
         // sprite_fb_x = 172 + 24 = 196. Cycle 34 → fb_x 192..200. Cycle 35 → 200..208.
-        let target_line = 100u16;
+        // Sprite Y = 100 draws at line 101 (sequencer first-activation +1).
+        let target_line = 101u16;
         let target_cycle = 34u8;
         let total = u32::from(target_line) * u32::from(CYCLES_PER_LINE) + u32::from(target_cycle);
         for _ in 0..=total {
