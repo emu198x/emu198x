@@ -1,0 +1,13 @@
+[package]
+name = "format-commodore-c64-p00"
+description = "Commodore 64 P00 (PC64) container parser"
+edition.workspace = true
+version = "0.2.0"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

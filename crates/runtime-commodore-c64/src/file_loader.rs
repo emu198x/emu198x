@@ -4,9 +4,19 @@
 
 use format_commodore_c64_bas::tokenise;
 use format_commodore_c64_d64::extract_first_prg;
+use format_commodore_c64_p00::parse as parse_p00;
 use format_commodore_c64_t64::extract_first_program;
 
 use crate::C64Runtime;
+
+/// True for a PC64 program-container extension: `.p00`, `.p01`, … (type letter
+/// `p`, two-digit index). SEQ/USR/REL variants (`.s00`/`.u00`/`.r00`) are not
+/// runnable programs, so only the PRG series is imported here.
+fn is_pc64_program_extension(lower: &str) -> bool {
+    lower.rsplit_once('.').is_some_and(|(_, ext)| {
+        ext.len() == 3 && ext.starts_with('p') && ext[1..].bytes().all(|b| b.is_ascii_digit())
+    })
+}
 
 /// Loads one supported host-side file into the runtime.
 ///
@@ -15,6 +25,7 @@ use crate::C64Runtime;
 /// - `.bas`: tokenised to PRG bytes, then imported into RAM
 /// - `.t64`: first loadable archive entry extracted and imported into RAM
 /// - `.d64`: first PRG directory entry extracted and imported into RAM
+/// - `.p00` (and `.p01`, …): PC64 container body extracted and imported into RAM
 ///
 /// # Errors
 ///
@@ -63,8 +74,19 @@ pub fn load_host_file(machine: &mut C64Runtime, name: &str, data: &[u8]) -> Resu
         ));
     }
 
+    if is_pc64_program_extension(&lower) {
+        let file =
+            parse_p00(data).map_err(|err| format!("failed to parse P00 container: {err}"))?;
+        let load_addr = machine.load_prg_bytes(&file.prg_bytes())?;
+        return Ok(format!(
+            "Imported P00 file: {} from {name} ({} bytes, load address ${load_addr:04X})",
+            file.name,
+            file.data.len()
+        ));
+    }
+
     Err(format!(
-        "unrecognised file extension: {name}. Supported: .prg, .bas, .t64, .d64"
+        "unrecognised file extension: {name}. Supported: .prg, .bas, .t64, .d64, .p00"
     ))
 }
 
@@ -148,6 +170,43 @@ mod tests {
         assert_eq!(runtime.machine().memory().ram_read(0xC000), 0x11);
         assert_eq!(runtime.machine().memory().ram_read(0xC001), 0x22);
         assert_eq!(runtime.machine().memory().ram_read(0xC002), 0x33);
+    }
+
+    #[test]
+    fn imports_p00_container() {
+        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        // 26-byte PC64 header + PRG body (load address $C000 + three bytes).
+        let mut image = Vec::new();
+        image.extend_from_slice(b"C64File\0");
+        let mut name = [0u8; 16];
+        name[..4].copy_from_slice(b"DEMO");
+        image.extend_from_slice(&name);
+        image.push(0x00); // unused
+        image.push(0x00); // REL record size
+        image.extend_from_slice(&[0x00, 0xC0, 0x11, 0x22, 0x33]);
+
+        let msg = load_host_file(&mut runtime, "demo.p00", &image).expect("P00 should import");
+
+        assert!(msg.contains("Imported P00 file"));
+        assert_eq!(runtime.machine().memory().ram_read(0xC000), 0x11);
+        assert_eq!(runtime.machine().memory().ram_read(0xC001), 0x22);
+        assert_eq!(runtime.machine().memory().ram_read(0xC002), 0x33);
+    }
+
+    #[test]
+    fn imports_numbered_p00_extension() {
+        // The `.p01`, `.p02`, … variants dispatch through the same PC64 path.
+        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        let mut image = Vec::new();
+        image.extend_from_slice(b"C64File\0");
+        image.extend_from_slice(&[0u8; 16]);
+        image.push(0x00);
+        image.push(0x00);
+        image.extend_from_slice(&[0x00, 0xC0, 0x44]);
+
+        let msg = load_host_file(&mut runtime, "demo.p07", &image).expect("P07 should import");
+        assert!(msg.contains("Imported P00 file"));
+        assert_eq!(runtime.machine().memory().ram_read(0xC000), 0x44);
     }
 
     #[test]
