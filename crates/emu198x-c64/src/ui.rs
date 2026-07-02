@@ -351,6 +351,7 @@ pub struct Cli {
     start_tape: bool,
     turbo_tape: bool,
     georam_kb: Option<usize>,
+    reu_kb: Option<usize>,
     load_snapshot: Option<PathBuf>,
     scale: u32,
     video: VideoFilter,
@@ -414,6 +415,7 @@ Options:
     --start-tape         start the inserted tape immediately at startup
     --turbo-tape         run unthrottled while the tape is playing
     --georam KB          attach a GeoRAM RAM expansion (512, 1024, or 2048 KiB)
+    --reu KB             attach a 17xx REU RAM expansion (128, 256, or 512 KiB)
     --load-snapshot PATH restore a runtime snapshot before starting
     --scale N            integer window scale, default 2
     --video MODE         raw | lcd | crt [default: raw]
@@ -511,10 +513,13 @@ fn build_runtime(cli: &Cli) -> Result<(C64Runtime, FirmwareBundle), String> {
     )
     .map_err(|err| format!("boot failed: {err}"))?;
 
-    // Attach a GeoRAM expansion only when requested, so a snapshot that
-    // restored its own GeoRAM is left intact when the flag is absent.
+    // Attach expansions only when requested, so a snapshot that restored its
+    // own expansion RAM is left intact when the flag is absent.
     if let Some(kb) = cli.georam_kb {
         machine.set_georam(Some(kb));
+    }
+    if let Some(kb) = cli.reu_kb {
+        machine.set_reu(Some(kb));
     }
 
     let frame_ticks = u64::from(match cli.model {
@@ -756,6 +761,7 @@ where
             "--start-tape" => cli.start_tape = true,
             "--turbo-tape" => cli.turbo_tape = true,
             "--georam" => cli.georam_kb = Some(parse_georam_size(&next_arg(&mut iter, "--georam"))),
+            "--reu" => cli.reu_kb = Some(parse_reu_size(&next_arg(&mut iter, "--reu"))),
             "--load-snapshot" => {
                 cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
             }
@@ -789,6 +795,14 @@ fn parse_georam_size(value: &str) -> usize {
     match value.parse::<usize>() {
         Ok(kb @ (512 | 1024 | 2048)) => kb,
         _ => die("--georam expects a size in KiB: 512, 1024, or 2048"),
+    }
+}
+
+/// Parse a `--reu` size in KiB. Accepts the standard 128/256/512 REU units.
+fn parse_reu_size(value: &str) -> usize {
+    match value.parse::<usize>() {
+        Ok(kb @ (128 | 256 | 512)) => kb,
+        _ => die("--reu expects a size in KiB: 128, 256, or 512"),
     }
 }
 
@@ -853,6 +867,7 @@ mod tests {
                 start_tape: false,
                 turbo_tape: false,
                 georam_kb: None,
+                reu_kb: None,
                 load_snapshot: Some(PathBuf::from("ready.c64.pst")),
                 scale: 3,
                 video: VideoFilter::Raw,
@@ -885,6 +900,7 @@ mod tests {
                 start_tape: false,
                 turbo_tape: false,
                 georam_kb: None,
+                reu_kb: None,
                 load_snapshot: None,
                 scale: DEFAULT_SCALE,
                 video: VideoFilter::Raw,
@@ -903,6 +919,13 @@ mod tests {
         let cli = parse_cli(["--georam".to_string(), "512".to_string()]);
         assert_eq!(cli.georam_kb, Some(512));
         assert_eq!(parse_georam_size("2048"), 2048);
+    }
+
+    #[test]
+    fn parse_cli_accepts_reu_size() {
+        let cli = parse_cli(["--reu".to_string(), "512".to_string()]);
+        assert_eq!(cli.reu_kb, Some(512));
+        assert_eq!(parse_reu_size("128"), 128);
     }
 
     #[test]

@@ -43,6 +43,8 @@ pub struct C64Runtime {
     /// Attached GeoRAM size in KiB, retained so a reset re-attaches the unit
     /// (the expansion stays plugged in across a reset).
     georam_kb: Option<usize>,
+    /// Attached REU size in KiB, retained across a reset like `georam_kb`.
+    reu_kb: Option<usize>,
     iec_bus: IecBus,
     drive8_cycle_accum: u64,
     rgba_framebuffer: Vec<u8>,
@@ -170,6 +172,7 @@ impl C64Runtime {
             drive8,
             cartridge_image: None,
             georam_kb: None,
+            reu_kb: None,
             iec_bus,
             drive8_cycle_accum: 0,
             rgba_framebuffer,
@@ -355,6 +358,9 @@ impl C64Runtime {
         if let Some(size_kb) = self.georam_kb {
             self.machine.attach_georam(size_kb);
         }
+        if let Some(size_kb) = self.reu_kb {
+            self.machine.attach_reu(size_kb);
+        }
         Ok(())
     }
 
@@ -365,6 +371,16 @@ impl C64Runtime {
         match size_kb {
             Some(kb) => self.machine.attach_georam(kb),
             None => self.machine.detach_georam(),
+        }
+    }
+
+    /// Attaches (`Some(size_kb)`) or detaches (`None`) a 17xx REU. Retained so a
+    /// later reset re-attaches it.
+    pub fn set_reu(&mut self, size_kb: Option<usize>) {
+        self.reu_kb = size_kb;
+        match size_kb {
+            Some(kb) => self.machine.attach_reu(kb),
+            None => self.machine.detach_reu(),
         }
     }
 

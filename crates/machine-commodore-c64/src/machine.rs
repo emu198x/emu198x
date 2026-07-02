@@ -605,6 +605,23 @@ impl C64 {
         self.memory.has_georam()
     }
 
+    /// Attaches a 17xx REU of `size_kb` KiB (typically 128, 256, or 512),
+    /// zero-filled. The DMA controller responds at `$DF00-$DF0A`.
+    pub fn attach_reu(&mut self, size_kb: usize) {
+        self.memory.attach_reu(size_kb);
+    }
+
+    /// Detaches any REU.
+    pub fn detach_reu(&mut self) {
+        self.memory.detach_reu();
+    }
+
+    /// Whether a REU is attached.
+    #[must_use]
+    pub fn has_reu(&self) -> bool {
+        self.memory.has_reu()
+    }
+
     /// Presses PLAY on the currently inserted datasette image.
     pub fn play_tape(&mut self) {
         self.datasette.play();
@@ -629,7 +646,7 @@ impl C64 {
         self.cia2.tick();
         self.refresh_paddle_pots();
         self.refresh_vic_bank();
-        self.cpu.irq = self.vic.irq || self.cia1.irq;
+        self.cpu.irq = self.vic.irq || self.cia1.irq || self.memory.reu_irq();
         self.cpu.nmi = self.cia2.irq || self.restore_nmi;
         self.cpu.rdy = !self.vic.ba_low || !self.cpu.rw;
 
@@ -664,7 +681,7 @@ impl C64 {
         self.cia2.tick();
         self.refresh_paddle_pots();
         self.refresh_vic_bank();
-        self.cpu.irq = self.vic.irq || self.cia1.irq;
+        self.cpu.irq = self.vic.irq || self.cia1.irq || self.memory.reu_irq();
         self.cpu.nmi = self.cia2.irq || self.restore_nmi;
         self.cpu.rdy = !self.vic.ba_low || !self.cpu.rw;
 
@@ -795,6 +812,9 @@ impl C64 {
         if matches!(addr, 0x0000 | 0x0001) {
             self.refresh_datasette_port_lines();
         }
+        if addr == 0xFF00 {
+            self.memory.reu_ff00_write();
+        }
         if (0xD000..=0xDFFF).contains(&addr) && self.memory.is_io_visible() {
             self.io_write(addr, value);
         }
@@ -805,6 +825,9 @@ impl C64 {
         self.memory.cpu_write(addr, value);
         if matches!(addr, 0x0000 | 0x0001) {
             self.refresh_datasette_port_lines();
+        }
+        if addr == 0xFF00 {
+            self.memory.reu_ff00_write();
         }
         if (0xD000..=0xDFFF).contains(&addr) && self.memory.is_io_visible() {
             self.io_write(addr, value);
@@ -843,7 +866,11 @@ impl C64 {
                 }
             }
             0xDD00..=0xDDFF => self.cia2.read((addr & 0x0F) as u8),
-            0xDE00..=0xDFFF => self.memory.georam_read(addr).unwrap_or(0xFF),
+            0xDE00..=0xDFFF => self
+                .memory
+                .reu_read(addr)
+                .or_else(|| self.memory.georam_read(addr))
+                .unwrap_or(0xFF),
             _ => 0xFF,
         }
     }
@@ -1176,6 +1203,155 @@ mod tests {
         assert!(!machine.has_georam());
         // With no expansion, the I/O area reads back as open bus.
         assert_eq!(machine.cpu_read(0xDE00), 0xFF);
+    }
+
+    /// Program the REU transfer registers: C64 address, REU address, length.
+    fn program_reu(machine: &mut C64, c64: u16, reu: u32, len: u16) {
+        machine.cpu_write(0xDF02, (c64 & 0xFF) as u8);
+        machine.cpu_write(0xDF03, (c64 >> 8) as u8);
+        machine.cpu_write(0xDF04, (reu & 0xFF) as u8);
+        machine.cpu_write(0xDF05, ((reu >> 8) & 0xFF) as u8);
+        machine.cpu_write(0xDF06, ((reu >> 16) & 0xFF) as u8);
+        machine.cpu_write(0xDF07, (len & 0xFF) as u8);
+        machine.cpu_write(0xDF08, (len >> 8) as u8);
+    }
+
+    #[test]
+    fn reu_stash_and_fetch_round_trips_c64_ram() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.attach_reu(128);
+        assert!(machine.has_reu());
+
+        let payload = [0x11u8, 0x22, 0x33, 0x44];
+        for (i, &b) in payload.iter().enumerate() {
+            machine.cpu_write(0xC000 + i as u16, b);
+        }
+
+        // Stash C64 $C000..$C003 → REU $000000 (execute now, type 0).
+        program_reu(&mut machine, 0xC000, 0x000000, 4);
+        machine.cpu_write(0xDF01, 0x90);
+
+        // Wipe the C64 copy, then fetch it back from the REU (type 1).
+        for i in 0..4 {
+            machine.cpu_write(0xC000 + i, 0);
+        }
+        program_reu(&mut machine, 0xC000, 0x000000, 4);
+        machine.cpu_write(0xDF01, 0x91);
+
+        for (i, &b) in payload.iter().enumerate() {
+            assert_eq!(machine.cpu_read(0xC000 + i as u16), b);
+        }
+    }
+
+    #[test]
+    fn reu_transfer_waits_for_ff00_trigger() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.attach_reu(128);
+        machine.cpu_write(0xC000, 0xAB);
+
+        // Arm a stash with the FF00 trigger enabled (command bit4 clear).
+        program_reu(&mut machine, 0xC000, 0x000000, 1);
+        machine.cpu_write(0xDF01, 0x80);
+        // Nothing has transferred: end-of-block is clear.
+        assert_eq!(machine.cpu_read(0xDF00) & 0x40, 0);
+
+        // A write to $FF00 fires it; end-of-block is now set.
+        machine.cpu_write(0xFF00, 0x00);
+        assert_ne!(machine.cpu_read(0xDF00) & 0x40, 0);
+
+        // And the byte reached the REU: fetch it back.
+        machine.cpu_write(0xC000, 0);
+        program_reu(&mut machine, 0xC000, 0x000000, 1);
+        machine.cpu_write(0xDF01, 0x91);
+        assert_eq!(machine.cpu_read(0xC000), 0xAB);
+    }
+
+    #[test]
+    fn reu_autoload_restores_base_registers() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.attach_reu(128);
+        program_reu(&mut machine, 0xC000, 0x000005, 4);
+        // Execute now + autoload (bit5) + type 0.
+        machine.cpu_write(0xDF01, 0xB0);
+        // Autoload restores the programmed REU base (5), not the end value (9).
+        assert_eq!(machine.cpu_read(0xDF04), 0x05);
+    }
+
+    #[test]
+    fn reu_fixed_c64_address_reads_one_cell() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.attach_reu(128);
+        machine.cpu_write(0xC000, 0x5A);
+        // Fix the C64 address so every byte stashes from $C000.
+        machine.cpu_write(0xDF0A, 0x80);
+        program_reu(&mut machine, 0xC000, 0x000000, 4);
+        machine.cpu_write(0xDF01, 0x90);
+
+        // Fetch REU $0..$3 back into $C010.. and confirm all four are $5A.
+        machine.cpu_write(0xDF0A, 0x00);
+        program_reu(&mut machine, 0xC010, 0x000000, 4);
+        machine.cpu_write(0xDF01, 0x91);
+        for i in 0..4 {
+            assert_eq!(machine.cpu_read(0xC010 + i), 0x5A);
+        }
+    }
+
+    #[test]
+    fn reu_verify_flags_a_mismatch() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.attach_reu(128);
+        machine.cpu_write(0xC000, 0x01);
+        program_reu(&mut machine, 0xC000, 0x000000, 1);
+        machine.cpu_write(0xDF01, 0x90); // stash 0x01 to REU
+
+        // Change the C64 byte, then verify (type 3): mismatch sets the fault bit.
+        machine.cpu_write(0xC000, 0x02);
+        program_reu(&mut machine, 0xC000, 0x000000, 1);
+        machine.cpu_write(0xDF01, 0x93);
+        assert_ne!(machine.cpu_read(0xDF00) & 0x20, 0, "verify fault expected");
+    }
+
+    #[test]
+    fn reu_raises_irq_when_enabled_and_clears_on_status_read() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.attach_reu(128);
+        machine.cpu_write(0xC000, 0x77);
+        // Enable IRQ on end-of-block (mask bit7 + bit6).
+        machine.cpu_write(0xDF09, 0xC0);
+        program_reu(&mut machine, 0xC000, 0x000000, 1);
+        machine.cpu_write(0xDF01, 0x90);
+
+        // Status bit7 (IRQ pending) is set; reading the status clears it.
+        assert_ne!(machine.cpu_read(0xDF00) & 0x80, 0);
+        assert_eq!(machine.cpu_read(0xDF00) & 0x80, 0);
+    }
+
+    #[test]
+    fn reu_survives_snapshot_roundtrip() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.attach_reu(128);
+        for i in 0..4u16 {
+            machine.cpu_write(0xC000 + i, 0xE0 + i as u8);
+        }
+        program_reu(&mut machine, 0xC000, 0x001000, 4);
+        machine.cpu_write(0xDF01, 0x90); // stash into REU
+
+        let snapshot = machine.snapshot_state();
+        let mut restored = stub_machine(C64Model::PalBreadbin);
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("snapshot should restore");
+        assert!(restored.has_reu());
+
+        // Fetch the stashed block back from the restored REU RAM.
+        for i in 0..4 {
+            restored.cpu_write(0xC000 + i, 0);
+        }
+        program_reu(&mut restored, 0xC000, 0x001000, 4);
+        restored.cpu_write(0xDF01, 0x91);
+        for i in 0..4u16 {
+            assert_eq!(restored.cpu_read(0xC000 + i), 0xE0 + i as u8);
+        }
     }
 
     #[test]

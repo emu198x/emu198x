@@ -105,6 +105,76 @@ impl GeoRam {
     }
 }
 
+/// A 17xx-series RAM Expansion Unit: expansion RAM plus a DMA controller that
+/// moves blocks between C64 RAM and expansion RAM. The register block sits at
+/// `$DF00-$DF0A` (I/O-2). Transfers can start immediately or be armed to fire on
+/// the first write to `$FF00`.
+#[derive(Clone)]
+struct Reu {
+    ram: Vec<u8>,
+    /// `$DF00` status flags (bit7 IRQ, bit6 end-of-block, bit5 verify fault).
+    status: u8,
+    /// `$DF01` command (bit7 execute, bit5 autoload, bit4 FF00-trigger disabled,
+    /// bits1-0 transfer type).
+    command: u8,
+    /// Working transfer registers (advance during a transfer).
+    c64_addr: u16,
+    reu_addr: u32,
+    length: u16,
+    /// Shadow copies of the last-written base values, reloaded on autoload.
+    c64_base: u16,
+    reu_base: u32,
+    length_base: u16,
+    /// `$DF09` interrupt mask (bit7 enable, bit6 end-of-block, bit5 verify).
+    irq_mask: u8,
+    /// `$DF0A` address control (bit7 fix C64 address, bit6 fix REU address).
+    addr_control: u8,
+    /// A transfer armed with the execute bit but waiting for a `$FF00` write.
+    ff00_armed: bool,
+    /// Current `/IRQ` line state.
+    irq: bool,
+}
+
+impl Reu {
+    fn new(size_bytes: usize) -> Self {
+        Self {
+            ram: vec![0; size_bytes.max(0x20000)],
+            status: 0,
+            command: 0,
+            c64_addr: 0,
+            reu_addr: 0,
+            length: 0,
+            c64_base: 0,
+            reu_base: 0,
+            length_base: 0,
+            irq_mask: 0,
+            addr_control: 0,
+            ff00_armed: false,
+            irq: false,
+        }
+    }
+}
+
+/// Set the low byte of a working 16-bit REU register and its base shadow.
+fn set_lo(reg: &mut u16, value: u8, base: &mut u16) {
+    *reg = (*reg & 0xFF00) | u16::from(value);
+    *base = *reg;
+}
+
+/// Set the high byte of a working 16-bit REU register and its base shadow.
+fn set_hi(reg: &mut u16, value: u8, base: &mut u16) {
+    *reg = (*reg & 0x00FF) | (u16::from(value) << 8);
+    *base = *reg;
+}
+
+/// Set one byte of a working 24-bit REU register and its base shadow.
+fn set_u24_byte(reg: &mut u32, byte: u32, value: u8, base: &mut u32) {
+    let shift = byte * 8;
+    let mask = !(0xFFu32 << shift);
+    *reg = ((*reg & mask) | (u32::from(value) << shift)) & 0xFF_FFFF;
+    *base = *reg;
+}
+
 /// C64 memory subsystem.
 #[derive(Clone)]
 pub struct C64Memory {
@@ -117,6 +187,7 @@ pub struct C64Memory {
     port_data: u8,
     cartridge: Option<Cartridge>,
     georam: Option<GeoRam>,
+    reu: Option<Reu>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -155,6 +226,23 @@ pub(crate) struct GeoRamSnapshot {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct ReuSnapshot {
+    ram: Vec<u8>,
+    status: u8,
+    command: u8,
+    c64_addr: u16,
+    reu_addr: u32,
+    length: u16,
+    c64_base: u16,
+    reu_base: u32,
+    length_base: u16,
+    irq_mask: u8,
+    addr_control: u8,
+    ff00_armed: bool,
+    irq: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct C64MemorySnapshot {
     ram: Vec<u8>,
     basic_rom: Vec<u8>,
@@ -167,6 +255,8 @@ pub(crate) struct C64MemorySnapshot {
     cartridge: Option<CartridgeSnapshot>,
     #[serde(default)]
     georam: Option<GeoRamSnapshot>,
+    #[serde(default)]
+    reu: Option<ReuSnapshot>,
 }
 
 impl C64Memory {
@@ -190,6 +280,7 @@ impl C64Memory {
             port_data: 0x37,
             cartridge: None,
             georam: None,
+            reu: None,
         })
     }
 
@@ -316,11 +407,187 @@ impl C64Memory {
         }
     }
 
-    /// Routes a write to the expansion I/O area (`$DE00-$DFFF`): GeoRAM claims it
-    /// when attached, otherwise it drives a bank-switched cartridge's register.
+    /// Routes a write to the expansion I/O area (`$DE00-$DFFF`): the REU register
+    /// block (`$DF00-$DF0A`) wins, then GeoRAM, then a bank-switched cartridge.
     pub(crate) fn expansion_io_write(&mut self, addr: u16, value: u8) {
+        if self.reu_write(addr, value) {
+            return;
+        }
         if !self.georam_write(addr, value) {
             self.cartridge_io_write(addr, value);
+        }
+    }
+
+    /// Attaches a 17xx REU of `size_kb` KiB (typically 128, 256, or 512),
+    /// zero-filled. Replaces any previously attached unit.
+    pub(crate) fn attach_reu(&mut self, size_kb: usize) {
+        self.reu = Some(Reu::new(size_kb.saturating_mul(1024)));
+    }
+
+    /// Detaches any REU.
+    pub(crate) fn detach_reu(&mut self) {
+        self.reu = None;
+    }
+
+    /// Whether a REU is attached.
+    #[must_use]
+    pub(crate) fn has_reu(&self) -> bool {
+        self.reu.is_some()
+    }
+
+    /// Current REU `/IRQ` line state (asserted after an enabled transfer
+    /// completes until the status register is read).
+    #[must_use]
+    pub(crate) fn reu_irq(&self) -> bool {
+        self.reu.as_ref().is_some_and(|reu| reu.irq)
+    }
+
+    /// REU register byte at `addr` (`$DF00-$DF0A`), or `None` when no REU is
+    /// attached or `addr` is outside the register block.
+    pub(crate) fn reu_read(&mut self, addr: u16) -> Option<u8> {
+        let reu = self.reu.as_mut()?;
+        let value = match addr {
+            0xDF00 => {
+                // Reading the status register returns the flags plus the 256K+
+                // chip-present bit, then clears the flags and the IRQ line.
+                let value = reu.status | 0x10;
+                reu.status = 0;
+                reu.irq = false;
+                value
+            }
+            0xDF01 => reu.command,
+            0xDF02 => (reu.c64_addr & 0xFF) as u8,
+            0xDF03 => (reu.c64_addr >> 8) as u8,
+            0xDF04 => (reu.reu_addr & 0xFF) as u8,
+            0xDF05 => ((reu.reu_addr >> 8) & 0xFF) as u8,
+            0xDF06 => ((reu.reu_addr >> 16) & 0xFF) as u8 | 0xF8,
+            0xDF07 => (reu.length & 0xFF) as u8,
+            0xDF08 => (reu.length >> 8) as u8,
+            0xDF09 => reu.irq_mask | 0x1F,
+            0xDF0A => reu.addr_control | 0x3F,
+            _ => return None,
+        };
+        Some(value)
+    }
+
+    /// Applies a write to the REU register block (`$DF00-$DF0A`). Returns `true`
+    /// when a REU handled it. Writing the command register with the execute bit
+    /// either starts the transfer or arms it for the next `$FF00` write.
+    pub(crate) fn reu_write(&mut self, addr: u16, value: u8) -> bool {
+        if self.reu.is_none() || !(0xDF00..=0xDF0A).contains(&addr) {
+            return false;
+        }
+        let mut execute_now = false;
+        {
+            let reu = self.reu.as_mut().expect("REU present");
+            match addr {
+                0xDF00 => {} // status is read-only
+                0xDF01 => {
+                    reu.command = value;
+                    if value & 0x80 != 0 {
+                        if value & 0x10 != 0 {
+                            execute_now = true;
+                        } else {
+                            reu.ff00_armed = true;
+                        }
+                    }
+                }
+                0xDF02 => set_lo(&mut reu.c64_addr, value, &mut reu.c64_base),
+                0xDF03 => set_hi(&mut reu.c64_addr, value, &mut reu.c64_base),
+                0xDF04 => set_u24_byte(&mut reu.reu_addr, 0, value, &mut reu.reu_base),
+                0xDF05 => set_u24_byte(&mut reu.reu_addr, 1, value, &mut reu.reu_base),
+                0xDF06 => set_u24_byte(&mut reu.reu_addr, 2, value, &mut reu.reu_base),
+                0xDF07 => set_lo(&mut reu.length, value, &mut reu.length_base),
+                0xDF08 => set_hi(&mut reu.length, value, &mut reu.length_base),
+                0xDF09 => reu.irq_mask = value,
+                0xDF0A => reu.addr_control = value,
+                _ => {}
+            }
+        }
+        if execute_now {
+            self.reu_execute();
+        }
+        true
+    }
+
+    /// A CPU write to `$FF00` fires any REU transfer armed for the FF00 trigger.
+    pub(crate) fn reu_ff00_write(&mut self) {
+        if self.reu.as_ref().is_some_and(|reu| reu.ff00_armed) {
+            self.reu_execute();
+        }
+    }
+
+    /// Runs the pending REU transfer against C64 RAM.
+    fn reu_execute(&mut self) {
+        let Self {
+            ram,
+            reu: Some(reu),
+            ..
+        } = self
+        else {
+            return;
+        };
+        reu.ff00_armed = false;
+        let transfer = reu.command & 0x03;
+        let fix_c64 = reu.addr_control & 0x80 != 0;
+        let fix_reu = reu.addr_control & 0x40 != 0;
+        let count = if reu.length == 0 {
+            0x1_0000
+        } else {
+            usize::from(reu.length)
+        };
+        let reu_len = reu.ram.len();
+        let mut c64 = reu.c64_addr;
+        let mut ra = reu.reu_addr as usize;
+        let mut fault = false;
+
+        for _ in 0..count {
+            let ci = usize::from(c64);
+            let ri = ra % reu_len;
+            match transfer {
+                0 => reu.ram[ri] = ram[ci],
+                1 => ram[ci] = reu.ram[ri],
+                2 => std::mem::swap(&mut ram[ci], &mut reu.ram[ri]),
+                _ => {
+                    if ram[ci] != reu.ram[ri] {
+                        fault = true;
+                        break;
+                    }
+                }
+            }
+            if !fix_c64 {
+                c64 = c64.wrapping_add(1);
+            }
+            if !fix_reu {
+                ra = ra.wrapping_add(1);
+            }
+        }
+
+        // Autoload restores the programmed base values; otherwise the working
+        // registers hold where the transfer ended.
+        if reu.command & 0x20 != 0 {
+            reu.c64_addr = reu.c64_base;
+            reu.reu_addr = reu.reu_base;
+            reu.length = reu.length_base;
+        } else {
+            reu.c64_addr = c64;
+            reu.reu_addr = (ra as u32) & 0xFF_FFFF;
+            reu.length = 1;
+        }
+        reu.command &= !0x80;
+
+        // End-of-block (or a verify fault) sets the status + raises IRQ if the
+        // mask enables it.
+        if fault {
+            reu.status |= 0x20;
+        } else {
+            reu.status |= 0x40;
+        }
+        let irq_enabled = reu.irq_mask & 0x80 != 0
+            && ((!fault && reu.irq_mask & 0x40 != 0) || (fault && reu.irq_mask & 0x20 != 0));
+        if irq_enabled {
+            reu.status |= 0x80;
+            reu.irq = true;
         }
     }
 
@@ -430,6 +697,23 @@ impl C64Memory {
                 block: gr.block,
             });
         }
+        if let Some(r) = snapshot.reu {
+            memory.reu = Some(Reu {
+                ram: r.ram,
+                status: r.status,
+                command: r.command,
+                c64_addr: r.c64_addr,
+                reu_addr: r.reu_addr,
+                length: r.length,
+                c64_base: r.c64_base,
+                reu_base: r.reu_base,
+                length_base: r.length_base,
+                irq_mask: r.irq_mask,
+                addr_control: r.addr_control,
+                ff00_armed: r.ff00_armed,
+                irq: r.irq,
+            });
+        }
         Ok(memory)
     }
 
@@ -469,6 +753,21 @@ impl C64Memory {
                 ram: gr.ram.clone(),
                 page: gr.page,
                 block: gr.block,
+            }),
+            reu: self.reu.as_ref().map(|r| ReuSnapshot {
+                ram: r.ram.clone(),
+                status: r.status,
+                command: r.command,
+                c64_addr: r.c64_addr,
+                reu_addr: r.reu_addr,
+                length: r.length,
+                c64_base: r.c64_base,
+                reu_base: r.reu_base,
+                length_base: r.length_base,
+                irq_mask: r.irq_mask,
+                addr_control: r.addr_control,
+                ff00_armed: r.ff00_armed,
+                irq: r.irq,
             }),
         }
     }
