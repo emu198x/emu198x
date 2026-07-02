@@ -1,9 +1,13 @@
-//! C64 keyboard / joystick / paddle input mapping.
+//! C64 keyboard / joystick / paddle / 1351-mouse input mapping.
 //!
 //! Splits the keyboard-matrix lookup table out of `runtime.rs` so the
 //! 70+ key entries don't dominate the file. The matrix is the
 //! standard PAL breadbin layout (HRM Appendix C); shifted symbols
 //! land on the right keycap on a UK/US keyboard.
+//!
+//! `PointerMotion` / `PointerButton` events tagged `mouse-1` drive a
+//! 1351 proportional mouse when one is plugged in (see the runtime's
+//! `set_mouse_1351`); they are dropped otherwise.
 //!
 //! ## Joystick port convention (Seam 2)
 //!
@@ -45,8 +49,9 @@ use machine_commodore_c64::C64;
 /// "primary stick" alias (mirrors the Spectrum's port-0-is-default),
 /// which on the C64 is the main gameport — port 2.
 ///
-/// Returning `None` drops events on ports we don't model (mouse 1351,
-/// light pen — both post-October). Paddles share this port mapping.
+/// Returning `None` drops button/axis events on ports we don't model.
+/// Paddles share this port mapping. (The 1351 mouse rides the separate
+/// `PointerMotion`/`PointerButton` path, not this joystick/paddle map.)
 fn machine_port(input_port: u8) -> Option<u8> {
     match input_port {
         2 => Some(2), // Control Port 2 (CIA1 PA, $DC00) — the main gameport
@@ -76,8 +81,9 @@ fn canonical_control(name: &str) -> Option<&'static str> {
 
 /// Apply one host input event to the machine: keys land in the
 /// keyboard matrix, joystick buttons land on the named control of
-/// the named port. Other event kinds (mouse motion, etc.) are
-/// ignored — the C64 has no mouse input surface in this runtime.
+/// the named port, and — when a 1351 mouse is plugged in — pointer
+/// motion and buttons drive it. Pointer events are dropped when no
+/// mouse is attached.
 pub(crate) fn apply_input_event(machine: &mut C64, event: &InputEvent) {
     match event {
         InputEvent::Key { name, pressed } => {
@@ -86,6 +92,20 @@ pub(crate) fn apply_input_event(machine: &mut C64, event: &InputEvent) {
             } else if name.as_ref().eq_ignore_ascii_case("restore") {
                 // RESTORE is not on the matrix — it pulses the CPU /NMI.
                 machine.set_restore(*pressed);
+            }
+        }
+        InputEvent::PointerMotion { device, dx, dy } if device.as_ref() == "mouse-1" => {
+            if let Some(port) = attached_mouse_port(machine) {
+                machine.move_mouse_1351(port, *dx, *dy);
+            }
+        }
+        InputEvent::PointerButton {
+            device,
+            button,
+            pressed,
+        } if device.as_ref() == "mouse-1" => {
+            if let Some(port) = attached_mouse_port(machine) {
+                machine.set_mouse_1351_button(port, button.as_ref(), *pressed);
             }
         }
         InputEvent::Button {
@@ -115,6 +135,16 @@ pub(crate) fn apply_input_event(machine: &mut C64, event: &InputEvent) {
         }
         _ => {}
     }
+}
+
+/// The control port a 1351 mouse is plugged into, checking the case-labelled
+/// ports in order (1, then 2). The C64 wires a mouse to whichever port the
+/// user plugs it into; the host has a single pointer, so the first attached
+/// port receives its motion and buttons.
+fn attached_mouse_port(machine: &C64) -> Option<u8> {
+    [1, 2]
+        .into_iter()
+        .find(|&port| machine.has_mouse_1351(port))
 }
 
 /// Map an axis name to a paddle pot index: 0 = X (POTX), 1 = Y (POTY).
@@ -303,6 +333,52 @@ mod tests {
             name: Cow::Owned(name.to_string()),
             value,
         }
+    }
+
+    fn pointer_motion(device: &str, dx: i32, dy: i32) -> InputEvent {
+        InputEvent::PointerMotion {
+            device: Cow::Owned(device.to_string()),
+            dx,
+            dy,
+        }
+    }
+
+    fn pointer_button(device: &str, button: &str, pressed: bool) -> InputEvent {
+        InputEvent::PointerButton {
+            device: Cow::Owned(device.to_string()),
+            button: Cow::Owned(button.to_string()),
+            pressed,
+        }
+    }
+
+    #[test]
+    fn pointer_events_drive_an_attached_1351_mouse() {
+        let mut m = make_machine();
+        m.cpu_write(0xDC02, 0xFF); // CIA1 DDRA: PA6/PA7 outputs
+        m.attach_mouse_1351(2);
+        m.cpu_write(0xDC00, 0x80); // select control port 2
+
+        // Motion accumulates into the POT counters (POTX = (dx & 0x7f) + 0x40).
+        apply_input_event(&mut m, &pointer_motion("mouse-1", 5, 0));
+        assert_eq!(m.cpu_read(0xD419), 0x45, "pointer motion drives POTX");
+
+        // Left button pulls FIRE (bit 4) low on the main gameport.
+        apply_input_event(&mut m, &pointer_button("mouse-1", "left", true));
+        assert_eq!(m.cpu_read(0xDC00) & 0x10, 0x00, "left button → FIRE low");
+    }
+
+    #[test]
+    fn pointer_events_are_dropped_without_a_mouse() {
+        let mut m = make_machine();
+        m.cpu_write(0xDC02, 0xFF);
+        m.cpu_write(0xDC00, 0x80);
+        // No mouse attached — the pot stays open and nothing panics.
+        apply_input_event(&mut m, &pointer_motion("mouse-1", 5, 0));
+        assert_eq!(m.cpu_read(0xD419), 0xFF, "no mouse → POT line open");
+        // A foreign device id is ignored even with a mouse present.
+        m.attach_mouse_1351(2);
+        apply_input_event(&mut m, &pointer_motion("mouse-2", 9, 0));
+        assert_eq!(m.cpu_read(0xD419), 0x40, "unknown device leaves the mouse");
     }
 
     #[test]
