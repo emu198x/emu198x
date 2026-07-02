@@ -36,6 +36,10 @@ pub struct C64Runtime {
     character_rom: Vec<u8>,
     drive8_dos_rom: Option<Vec<u8>>,
     drive8: Option<Drive1541>,
+    /// Raw `.crt` image of the inserted cartridge, retained so a reset (which
+    /// rebuilds the machine from ROMs) can re-insert it, matching hardware where
+    /// the cartridge stays in the port across a reset.
+    cartridge_image: Option<Vec<u8>>,
     iec_bus: IecBus,
     drive8_cycle_accum: u64,
     rgba_framebuffer: Vec<u8>,
@@ -159,6 +163,7 @@ impl C64Runtime {
             character_rom,
             drive8_dos_rom,
             drive8,
+            cartridge_image: None,
             iec_bus,
             drive8_cycle_accum: 0,
             rgba_framebuffer,
@@ -330,6 +335,16 @@ impl C64Runtime {
         self.drive8 = build_drive(&self.drive8_dos_rom, &mut self.iec_bus)?;
         self.drive8_cycle_accum = 0;
         self.time = MachineTime::default();
+        // The cartridge stays in the port across a reset, so re-insert it into
+        // the freshly built machine before the KERNAL runs its cold start.
+        if let Some(image) = self.cartridge_image.as_deref() {
+            self.machine
+                .insert_crt_bytes(image)
+                .map_err(|reason| MachineError::InvalidMedia {
+                    slot: "cartridge-1".to_owned(),
+                    reason,
+                })?;
+        }
         Ok(())
     }
 
@@ -458,6 +473,20 @@ impl MachineCore for C64Runtime {
                         }
                     })?;
                 }
+                "cartridge-1" => {
+                    if image.kind != MediaKind::Cartridge {
+                        return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
+                    }
+                    self.machine
+                        .insert_crt_bytes(image.bytes)
+                        .map_err(|reason| MachineError::InvalidMedia {
+                            slot: image.slot.as_ref().to_owned(),
+                            reason,
+                        })?;
+                    // Retain the image so a later reset re-inserts it, and so the
+                    // KERNAL runs the cartridge cold-start on the next reset.
+                    self.cartridge_image = Some(image.bytes.to_vec());
+                }
                 "drive-8" => {
                     if image.kind != MediaKind::Disk {
                         return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
@@ -496,6 +525,11 @@ impl MachineCore for C64Runtime {
                         id: "commodore-1541-dos-rom".to_owned(),
                     })?;
                 drive.eject_disk();
+                Ok(())
+            }
+            "cartridge-1" => {
+                self.cartridge_image = None;
+                self.machine.remove_cartridge();
                 Ok(())
             }
             // The datasette has no eject path on the C64 machine (it only

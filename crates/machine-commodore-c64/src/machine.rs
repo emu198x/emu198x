@@ -2,6 +2,7 @@
 
 use common_commodore_c64::timing::C64Timing;
 use common_commodore_iec::IecBus;
+use format_commodore_c64_crt::{CrtCartridge, parse as parse_crt};
 use format_commodore_c64_tap::{TapParseError, TapSystem, parse_tap};
 use mos_6502::M6502;
 use mos_cia_6526::Cia6526;
@@ -132,6 +133,50 @@ fn parallel_paddle(t1: u8, t2: u8) -> u8 {
     }
     let r = (u16::from(t1) * u16::from(t2)) / (u16::from(t1) + u16::from(t2));
     u8::try_from(r.min(255)).unwrap_or(255)
+}
+
+/// One fixed 8K cartridge bank.
+type CartBank = Box<[u8; 0x2000]>;
+
+/// Pads or truncates a ROM image slice into one fixed 8K cartridge bank.
+fn to_bank(data: &[u8]) -> CartBank {
+    let mut bank = Box::new([0u8; 0x2000]);
+    let len = data.len().min(0x2000);
+    bank[..len].copy_from_slice(&data[..len]);
+    bank
+}
+
+/// Maps a generic (hardware type 0) cartridge's CHIP packets into the ROML
+/// (`$8000`) and ROMH (`$A000`/`$E000`) 8K banks the base PLA exposes.
+///
+/// The base machine only maps bank 0, so bank-switched carts collapse to their
+/// first bank. A single `$8000` chip of 16K is split across ROML and ROMH; two
+/// chips at `$8000` and `$A000`/`$E000` fill the banks directly.
+fn map_generic_cartridge(
+    cart: &CrtCartridge,
+) -> Result<(Option<CartBank>, Option<CartBank>), String> {
+    let mut roml = None;
+    let mut romh = None;
+    for chip in cart.chips.iter().filter(|chip| chip.bank == 0) {
+        match chip.load_address {
+            0x8000 => {
+                roml = Some(to_bank(&chip.data));
+                // A 16K image carried in one $8000 chip fills ROMH too.
+                if chip.data.len() > 0x2000 {
+                    romh = Some(to_bank(&chip.data[0x2000..]));
+                }
+            }
+            0xA000 | 0xE000 => romh = Some(to_bank(&chip.data)),
+            other => {
+                return Err(format!("unsupported cartridge load address ${other:04X}"));
+            }
+        }
+    }
+
+    if roml.is_none() && romh.is_none() {
+        return Err("cartridge has no ROM image for the mapped windows".to_owned());
+    }
+    Ok((roml, romh))
 }
 
 impl C64 {
@@ -453,6 +498,39 @@ impl C64 {
         self.datasette.load_tap(image);
         self.refresh_datasette_port_lines();
         Ok(())
+    }
+
+    /// Inserts one Commodore `.crt` cartridge image.
+    ///
+    /// Only generic ROM cartridges (hardware type 0) are mapped today: the
+    /// unbanked 8K/16K and Ultimax layouts the base PLA handles directly. The
+    /// caller resets the machine afterwards so the KERNAL runs the cartridge's
+    /// cold-start vector (or, for Ultimax, so `$FFFC` fetches from cartridge
+    /// ROMH).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the CRT image is malformed, uses an unsupported
+    /// hardware type, or carries no ROM image for the `$8000`/`$A000`/`$E000`
+    /// windows the base machine maps.
+    pub fn insert_crt_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
+        let cart = parse_crt(bytes).map_err(|reason| reason.to_string())?;
+        if cart.hardware_type != 0 {
+            return Err(format!(
+                "unsupported cartridge hardware type {}",
+                cart.hardware_type
+            ));
+        }
+
+        let (roml, romh) = map_generic_cartridge(&cart)?;
+        self.memory
+            .insert_cartridge(cart.exrom, cart.game, roml, romh);
+        Ok(())
+    }
+
+    /// Removes any inserted cartridge, restoring the plain RAM/ROM map.
+    pub fn remove_cartridge(&mut self) {
+        self.memory.remove_cartridge();
     }
 
     /// Presses PLAY on the currently inserted datasette image.
@@ -849,6 +927,91 @@ mod tests {
         rom[0x3FFC] = 0x00;
         rom[0x3FFD] = 0xC0;
         rom
+    }
+
+    /// Build a minimal generic CRT image: 64-byte header + one CHIP packet.
+    fn build_crt(exrom: u8, game: u8, load: u16, data: &[u8]) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(b"C64 CARTRIDGE   ");
+        v.extend_from_slice(&0x40u32.to_be_bytes()); // header length
+        v.extend_from_slice(&0x0100u16.to_be_bytes()); // version
+        v.extend_from_slice(&0u16.to_be_bytes()); // hardware type 0 (generic)
+        v.push(exrom);
+        v.push(game);
+        v.extend_from_slice(&[0u8; 6]); // reserved
+        v.extend_from_slice(&[0u8; 32]); // name
+        // CHIP packet.
+        v.extend_from_slice(b"CHIP");
+        v.extend_from_slice(&((0x10 + data.len()) as u32).to_be_bytes());
+        v.extend_from_slice(&0u16.to_be_bytes()); // ROM
+        v.extend_from_slice(&0u16.to_be_bytes()); // bank 0
+        v.extend_from_slice(&load.to_be_bytes());
+        v.extend_from_slice(&(data.len() as u16).to_be_bytes());
+        v.extend_from_slice(data);
+        v
+    }
+
+    #[test]
+    fn insert_8k_crt_maps_roml_at_8000() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let crt = build_crt(0, 1, 0x8000, &[0xA1; 0x2000]);
+        machine.insert_crt_bytes(&crt).expect("valid 8K CRT");
+        assert_eq!(machine.cpu_read(0x8000), 0xA1);
+        assert_eq!(machine.cpu_read(0x9FFF), 0xA1);
+        // BASIC ROM still visible above the 8K window.
+        assert_eq!(machine.cpu_read(0xA000), 0xBB);
+    }
+
+    #[test]
+    fn insert_16k_crt_splits_single_chip_across_roml_and_romh() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let mut image = vec![0xA1; 0x2000];
+        image.extend_from_slice(&[0xB2; 0x2000]);
+        let crt = build_crt(0, 0, 0x8000, &image);
+        machine.insert_crt_bytes(&crt).expect("valid 16K CRT");
+        assert_eq!(machine.cpu_read(0x8000), 0xA1);
+        // ROMH replaces BASIC at $A000 for a 16K cartridge.
+        assert_eq!(machine.cpu_read(0xA000), 0xB2);
+        assert_eq!(machine.cpu_read(0xBFFF), 0xB2);
+    }
+
+    #[test]
+    fn insert_ultimax_crt_maps_romh_at_e000_and_hides_kernal() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let mut crt = build_crt(1, 0, 0x8000, &[0xA1; 0x2000]);
+        // Add a second CHIP packet at $E000 for ROMH.
+        crt.extend_from_slice(b"CHIP");
+        crt.extend_from_slice(&((0x10 + 0x2000) as u32).to_be_bytes());
+        crt.extend_from_slice(&0u16.to_be_bytes());
+        crt.extend_from_slice(&0u16.to_be_bytes());
+        crt.extend_from_slice(&0xE000u16.to_be_bytes());
+        crt.extend_from_slice(&0x2000u16.to_be_bytes());
+        crt.extend_from_slice(&[0xE7; 0x2000]);
+        machine.insert_crt_bytes(&crt).expect("valid Ultimax CRT");
+        assert_eq!(machine.cpu_read(0x8000), 0xA1);
+        // ROMH replaces the KERNAL at $E000 under Ultimax.
+        assert_eq!(machine.cpu_read(0xE000), 0xE7);
+        assert_eq!(machine.cpu_read(0xFFFE), 0xE7);
+    }
+
+    #[test]
+    fn remove_cartridge_restores_plain_map() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let crt = build_crt(0, 1, 0x8000, &[0xA1; 0x2000]);
+        machine.insert_crt_bytes(&crt).expect("valid 8K CRT");
+        assert_eq!(machine.cpu_read(0x8000), 0xA1);
+        machine.remove_cartridge();
+        // With no cartridge and the default port, $8000 falls through to RAM.
+        assert_eq!(machine.cpu_read(0x8000), 0x00);
+    }
+
+    #[test]
+    fn insert_crt_rejects_non_generic_hardware_type() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let mut crt = build_crt(0, 1, 0x8000, &[0xA1; 0x2000]);
+        crt[0x16] = 0x00;
+        crt[0x17] = 0x20; // hardware type 32 (EasyFlash)
+        assert!(machine.insert_crt_bytes(&crt).is_err());
     }
 
     #[test]
