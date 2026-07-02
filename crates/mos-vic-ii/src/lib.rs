@@ -59,8 +59,14 @@ pub const FRAME_ROUTING_VERSION: u32 = 2;
 
 const PAL_FIRST_VISIBLE_LINE: u16 = 0;
 const PAL_LAST_VISIBLE_LINE: u16 = 312;
-const NTSC_FIRST_VISIBLE_LINE: u16 = 14;
-const NTSC_LAST_VISIBLE_LINE: u16 = 258;
+// Like PAL, NTSC renders the full frame (every raster line) and leaves cropping
+// to the consumer. Calibration against VICE's 6567R8 reference confirmed our
+// NTSC content is horizontally pixel-aligned (crop dx=16, same as PAL) and
+// matches ~99% on the overlapping rows; VICE's own 247-line visible window
+// wraps the frame boundary, which a single first..last range can't express, so
+// we render everything rather than pre-crop to an arbitrary sub-window.
+const NTSC_FIRST_VISIBLE_LINE: u16 = 0;
+const NTSC_LAST_VISIBLE_LINE: u16 = 263;
 const FIRST_VISIBLE_CYCLE: u8 = 10;
 const LAST_VISIBLE_CYCLE: u8 = 62;
 const VISIBLE_CYCLES: u8 = LAST_VISIBLE_CYCLE - FIRST_VISIBLE_CYCLE;
@@ -2391,8 +2397,8 @@ mod tests {
     #[test]
     fn ntsc_construction_uses_ntsc_visible_lines() {
         let vic = Vic::new(VicModel::Ntsc6567);
-        // NTSC visible window: 14..258 → 244 lines.
-        assert_eq!(vic.framebuffer_height(), 244);
+        // NTSC renders the full frame (0..263), like PAL — 263 lines.
+        assert_eq!(vic.framebuffer_height(), 263);
     }
 
     #[test]

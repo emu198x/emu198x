@@ -558,14 +558,24 @@ Both NTSC variants are validated by unit tests (schedule data, per-model access-
 resolution, a DMA-steal-at-NTSC-cycles behavioural test) since no NTSC golden PNGs
 exist.
 
-**Deferred — NTSC framebuffer geometry (deliberately not done).** NTSC's extra
-right-edge cycles are cropped by the PAL-sized visible window (`FB_WIDTH`/
-`FIRST_VISIBLE_CYCLE`..`LAST_VISIBLE_CYCLE`), so ~24 px of far-right *border* (no
-display content) is missing. Fixing it means making the framebuffer width a runtime,
-model-dependent value — but the *correct* NTSC visible-cycle boundaries can only be
-pinned by calibrating against an NTSC reference image (as the PAL crop offset was),
-and none exists in the testbench. Picking boundaries by guesswork would be less honest
-than the current all-content crop, so this waits for an NTSC reference to land first.
+**NTSC framebuffer geometry ✅ resolved via calibration.** Captured NTSC
+references with `x64sc -ntsc|-ntscold … -exitscreenshot` (12M cycles; 3M catches
+the boot screen) and calibrated our NTSC output against VICE's 384×247 6567R8
+reference by C64 colour index (new `calibrate_ntsc_gfxfetch_alignment`). Findings:
+- **Horizontal: pixel-exact — crop `dx=16`, identical to PAL.** VICE's NTSC
+  visible width is 384, same as PAL, so the earlier "right-edge crop" worry was
+  unfounded: those extra cycles are horizontal blanking VICE also excludes. **No
+  runtime FB-width change needed.**
+- **Vertical:** our NTSC window was an arbitrary 244-line crop (raster 14–258)
+  while PAL renders the *full* frame. Fixed the inconsistency — NTSC now renders
+  the full 263-line frame (`NTSC_FIRST/LAST_VISIBLE_LINE` = 0/263), so nothing is
+  pre-cropped. At the calibrated crop (dx=16, dy=28) we match VICE **~99.3% on the
+  non-wrapped rows** (on par with PAL's 99.33%); the remaining gap is VICE's own
+  visible window *wrapping the frame boundary* (its last ~12 rows are top-of-frame
+  content), which a single first..last range can't express and which is a
+  display-crop artifact, not a rendering error. Locked as the
+  `ntsc_gfxfetch_matches_vice_reference` regression floor. R56A reference
+  (`gfxfetch_ntscold.prg.png`) captured + staged (VICE shipped none).
 
 ## Non-goals
 
