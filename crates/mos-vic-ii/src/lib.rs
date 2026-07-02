@@ -11,6 +11,7 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
+pub mod oracle;
 pub mod palette;
 
 use serde::{Deserialize, Serialize};
@@ -152,16 +153,18 @@ pub struct Vic {
     screen_row: [u8; 40],
     #[serde(with = "BigArray")]
     colour_row: [u8; 40],
-    char_row: u8,
     vic_bank: u8,
     sprite_data: [[u8; 3]; 8],
+    /// Sprite data-fetch base address, latched at each sprite's p-access so
+    /// the following cycle's s-access can read bytes 1 and 2 (the fetch spans
+    /// two cycles — see `fetch_sprite_if_scheduled`).
+    sprite_fetch_base: [u16; 8],
     sprite_active: [bool; 8],
     sprite_dma_active: [bool; 8],
     sprite_sprite_collision: u8,
     sprite_bg_collision: u8,
     sprite_sprite_irq_latched: bool,
     sprite_bg_irq_latched: bool,
-    text_row: u16,
     xscroll_carry_pixels: [u32; 8],
     xscroll_carry_fg: u8,
     xscroll_latch: u8,
@@ -180,6 +183,28 @@ pub struct Vic {
     /// cleared at left edge (only if vert FF is clear). When set, the
     /// current cycle paints border colour.
     border_main_ff: bool,
+
+    // --- Video-counter chain (VC/VCBASE/RC/VMLI) ---
+    //
+    // Shadow of the real VIC-II addressing chain, Increment 2 of the
+    // VC/VCBASE/RC rewrite (see
+    // `docs/plans/2026-06-30-c64-vic-ii-vc-vcbase-rc-rewrite.md`). Advanced
+    // per the canonical rules (ported from VICE `vicii-cycle.c:202-563` +
+    // `vicii-fetch.c:234-269`) but NOT yet driving fetches — the engine still
+    // addresses memory geometrically. These run in parallel so the rewrite's
+    // Increment 3 can swap the fetch addressing over once the counters are
+    // proven against the geometry path.
+    /// Video counter (10-bit) — the live video-matrix offset.
+    vc: u16,
+    /// Video counter base (10-bit) — latched from VC at each row end (RC==7).
+    vcbase: u16,
+    /// Row counter (3-bit) — the character sub-row (0-7) being displayed.
+    rc: u8,
+    /// Video matrix line index (0-39) — index into the matrix line buffer.
+    vmli: u8,
+    /// Idle state — gates the g-access VC/VMLI advance. Cleared by a badline,
+    /// set when RC passes 7. Starts idle (top border before the first row).
+    idle_state: bool,
 }
 
 impl Vic {
@@ -209,16 +234,15 @@ impl Vic {
             framebuffer: vec![0xFF00_0000; fb_size],
             screen_row: [0; 40],
             colour_row: [0; 40],
-            char_row: 0,
             vic_bank: 0,
             sprite_data: [[0; 3]; 8],
+            sprite_fetch_base: [0; 8],
             sprite_active: [false; 8],
             sprite_dma_active: [false; 8],
             sprite_sprite_collision: 0,
             sprite_bg_collision: 0,
             sprite_sprite_irq_latched: false,
             sprite_bg_irq_latched: false,
-            text_row: 0,
             xscroll_carry_pixels: [0; 8],
             xscroll_carry_fg: 0,
             xscroll_latch: 0,
@@ -230,6 +254,11 @@ impl Vic {
             last_bus_data: 0,
             border_vert_ff: true,
             border_main_ff: true,
+            vc: 0,
+            vcbase: 0,
+            rc: 0,
+            vmli: 0,
+            idle_state: true,
         }
     }
 
@@ -247,15 +276,22 @@ impl Vic {
         self.update_border_flip_flops();
         self.render_pixels(memory);
         self.check_badline();
+        self.advance_video_counters();
 
         let badline_stall = self.is_badline && (15..=54).contains(&self.raster_cycle);
         let sprite_stall = self.is_sprite_dma_stealing();
         self.cpu_stalled = badline_stall || sprite_stall;
         self.ba_low = self.compute_ba_low();
 
-        if self.is_badline && self.raster_cycle == 15 {
-            self.char_row = 0;
-            self.fetch_screen_row(memory);
+        // Stream the video-matrix c-access: one read per Phi2 cycle of a
+        // badline (cycles 15-54), into the matrix line buffer indexed by VMLI
+        // and addressed by VC. The per-cycle replacement for the archive's
+        // batched 40-read row fetch — same bytes (VC equals the geometry
+        // address, proven by the shadow-counter increment), hardware-correct
+        // timing. The Phi1 g-access in `render_pixels` already streamed per
+        // cycle, so this closes the c-access half of the addressing rewrite.
+        if self.is_badline && (15..=54).contains(&self.raster_cycle) {
+            self.c_access(memory);
         }
 
         self.raster_cycle += 1;
@@ -268,10 +304,6 @@ impl Vic {
                 self.frame_complete = true;
                 self.den_latch = false;
                 self.lp_triggered = false;
-            }
-
-            if self.den_latch && (DISPLAY_START_LINE..0xFBu16).contains(&self.raster_line) {
-                self.char_row = (self.char_row + 1) & 7;
             }
         }
 
@@ -298,6 +330,89 @@ impl Vic {
         self.is_badline = self.den_latch
             && (DISPLAY_START_LINE..DISPLAY_END_LINE).contains(&self.raster_line)
             && (self.raster_line & 7) == yscroll;
+    }
+
+    /// Advance the shadow VC/VCBASE/RC/VMLI chain for this cycle.
+    ///
+    /// Ported from VICE (`vicii-cycle.c` start-of-frame `:202-209`, UpdateVc
+    /// `:543-549`, UpdateRc `:553-563`, badline-clears-idle `:51-59`;
+    /// `vicii-fetch.c:267-269` for the g-access increment). Runs after
+    /// `check_badline` so `is_badline` reflects this line. Cycle numbers are
+    /// the engine's 0-based `raster_cycle`, which equals the canonical 1-based
+    /// number for 1..=62 (see `oracle::engine_to_canonical`); the relevant
+    /// events here (14, 16-55, 58) all fall in that range.
+    ///
+    /// **Shadow only** — nothing reads these counters yet; the geometry path
+    /// still drives fetches. Increment 3 swaps the addressing over.
+    fn advance_video_counters(&mut self) {
+        let c = self.raster_cycle;
+
+        // Start of frame: VC and VCBASE reset (VICE start_of_frame).
+        if self.raster_line == 0 && c == 0 {
+            self.vc = 0;
+            self.vcbase = 0;
+        }
+
+        // A badline takes the chip out of idle (VICE check_badline).
+        if self.is_badline {
+            self.idle_state = false;
+        }
+
+        // UpdateVc — canonical cycle 14: reload VC from VCBASE, clear VMLI,
+        // and (on a badline) reset the row counter.
+        if c == 14 {
+            self.vc = self.vcbase;
+            self.vmli = 0;
+            if self.is_badline {
+                self.rc = 0;
+            }
+        }
+
+        // g-access — canonical cycles 16-55: advance VC and VMLI once per
+        // displayed character, but only while displaying (not idle).
+        if (16..=55).contains(&c) && !self.idle_state {
+            self.vc = (self.vc + 1) & 0x03FF;
+            if self.vmli < 40 {
+                self.vmli += 1;
+            }
+        }
+
+        // UpdateRc — canonical cycle 58: at the end of an 8-row block latch
+        // VCBASE and go idle; otherwise step the row counter.
+        if c == 58 {
+            if self.rc == 7 {
+                self.idle_state = true;
+                self.vcbase = self.vc;
+            }
+            if !self.idle_state || self.is_badline {
+                self.rc = (self.rc + 1) & 0x07;
+                self.idle_state = false;
+            }
+        }
+    }
+
+    /// Shadow video counter (VC). See [`Vic::advance_video_counters`].
+    #[must_use]
+    pub const fn vc(&self) -> u16 {
+        self.vc
+    }
+
+    /// Shadow video counter base (VCBASE).
+    #[must_use]
+    pub const fn vcbase(&self) -> u16 {
+        self.vcbase
+    }
+
+    /// Shadow row counter (RC), 0-7.
+    #[must_use]
+    pub const fn rc(&self) -> u8 {
+        self.rc
+    }
+
+    /// Shadow video matrix line index (VMLI), 0-40.
+    #[must_use]
+    pub const fn vmli(&self) -> u8 {
+        self.vmli
     }
 
     /// Update border FFs per Bauer's vic-ii.txt rules.
@@ -344,104 +459,148 @@ impl Vic {
         }
     }
 
-    fn fetch_screen_row(&mut self, memory: &dyn VicMemory) {
-        let screen_base = self.screen_base();
-        let text_row = (self.raster_line - DISPLAY_START_LINE) / 8;
-        self.text_row = text_row;
+    /// Single video-matrix c-access for the current cycle: read the screen
+    /// code and colour nibble at VC into the matrix line buffer at VMLI.
+    ///
+    /// Streamed one-per-cycle across a badline's cycles 15-54 (replacing the
+    /// archive's batched 40-read row fetch). The screen address is
+    /// `screen_base + VC`, which equals the geometry path's
+    /// `screen_base + text_row*40 + col` — VMLI tracks the column and VC the
+    /// matrix offset, both proven against the geometry path in the
+    /// shadow-counter increment.
+    fn c_access(&mut self, memory: &dyn VicMemory) {
+        let idx = self.vmli as usize;
+        if idx >= self.screen_row.len() {
+            return;
+        }
+        let addr = self.vram_addr(self.screen_base() + self.vc);
+        let byte = memory.read_vram(addr);
+        self.screen_row[idx] = byte;
+        self.last_bus_data = byte;
+        self.colour_row[idx] = memory.read_colour(self.vc);
+    }
 
-        for col in 0u16..40 {
-            let screen_addr = screen_base + text_row * 40 + col;
-            let byte = memory.read_vram(self.vram_addr(screen_addr));
-            self.screen_row[col as usize] = byte;
-            self.last_bus_data = byte;
-            self.colour_row[col as usize] = memory.read_colour(text_row * 40 + col);
+    /// Dispatch the per-sprite DMA fetch, spread across two cycles like the
+    /// hardware: a p-access (pointer) plus the first data byte on the sprite's
+    /// pointer cycle, then the remaining two data bytes on the next cycle
+    /// (VICE `cycle_tab_pal` SprPtr/SprDma0-2, vicii-chip-model.c).
+    ///
+    /// For PAL 63-cycle lines, per sprite, with the fetch targeting display
+    /// line L:
+    ///
+    /// | sprite | p-access + byte 0 | bytes 1-2 | target |
+    /// |--------|-------------------|-----------|--------|
+    /// |   0    | 58 (line L-1)     | 59        | L      |
+    /// |   1    | 60 (line L-1)     | 61        | L      |
+    /// |   2    | 62 (line L-1)     | 0 (line L)| L      |
+    /// |   3    |  1 (line L)       | 2         | L      |
+    /// |   4    |  3 (line L)       | 4         | L      |
+    /// |   5    |  5 (line L)       | 6         | L      |
+    /// |   6    |  7 (line L)       | 8         | L      |
+    /// |   7    |  9 (line L)       | 10        | L      |
+    ///
+    /// Sprites 0-2 fetch for `raster_line + 1`; sprites 3-7 for the current
+    /// line. Sprite 2's two cycles straddle the line boundary (62 then 0),
+    /// so the data base is latched in `sprite_fetch_base` between them.
+    fn fetch_sprite_if_scheduled(&mut self, memory: &dyn VicMemory) {
+        if let Some((i, next_line)) = Self::sprite_paccess_cycle(self.raster_cycle) {
+            let target_line = self.sprite_target_line(next_line);
+            self.sprite_paccess(memory, i, target_line);
+        }
+        if let Some(i) = Self::sprite_saccess_cycle(self.raster_cycle) {
+            self.sprite_saccess(memory, i);
         }
     }
 
-    /// Dispatch per-sprite p-access at the documented cycle position.
-    ///
-    /// For PAL 63-cycle lines:
-    ///
-    /// | sprite | p-access cycle | target line       |
-    /// |--------|----------------|-------------------|
-    /// |   0    | 58 (of line L-1) | L (next line)   |
-    /// |   1    | 60 (of line L-1) | L               |
-    /// |   2    | 62 (of line L-1) | L               |
-    /// |   3    |  1 (of line L)   | L (current)     |
-    /// |   4    |  3 (of line L)   | L               |
-    /// |   5    |  5 (of line L)   | L               |
-    /// |   6    |  7 (of line L)   | L               |
-    /// |   7    |  9 (of line L)   | L               |
-    ///
-    /// All fetches target the same display line L, so sprites 0-2 use
-    /// `raster_line + 1` (wrapping at frame boundary) while sprites 3-7
-    /// use the current `raster_line`.
-    fn fetch_sprite_if_scheduled(&mut self, memory: &dyn VicMemory) {
-        let (sprite_index, next_line) = match self.raster_cycle {
-            58 => (0, true),
-            60 => (1, true),
-            62 => (2, true),
-            1 => (3, false),
-            3 => (4, false),
-            5 => (5, false),
-            7 => (6, false),
-            9 => (7, false),
-            _ => return,
-        };
-        let target_line = if next_line {
-            let lpf = self.lines_per_frame;
-            if self.raster_line + 1 >= lpf {
+    /// The sprite whose p-access (pointer + data byte 0) falls on this cycle,
+    /// and whether it targets the next line.
+    const fn sprite_paccess_cycle(cycle: u8) -> Option<(usize, bool)> {
+        match cycle {
+            58 => Some((0, true)),
+            60 => Some((1, true)),
+            62 => Some((2, true)),
+            1 => Some((3, false)),
+            3 => Some((4, false)),
+            5 => Some((5, false)),
+            7 => Some((6, false)),
+            9 => Some((7, false)),
+            _ => None,
+        }
+    }
+
+    /// The sprite whose s-access (data bytes 1 and 2) falls on this cycle.
+    const fn sprite_saccess_cycle(cycle: u8) -> Option<usize> {
+        match cycle {
+            59 => Some(0),
+            61 => Some(1),
+            0 => Some(2),
+            2 => Some(3),
+            4 => Some(4),
+            6 => Some(5),
+            8 => Some(6),
+            10 => Some(7),
+            _ => None,
+        }
+    }
+
+    fn sprite_target_line(&self, next_line: bool) -> u16 {
+        if next_line {
+            if self.raster_line + 1 >= self.lines_per_frame {
                 0
             } else {
                 self.raster_line + 1
             }
         } else {
             self.raster_line
-        };
+        }
+    }
+
+    /// p-access: read the sprite pointer and the first data byte, latching the
+    /// data base for the following s-access. Marks the sprite active only when
+    /// its DMA covers `target_line`; otherwise no reads happen (matching the
+    /// engine's existing enable/Y-range gating).
+    fn sprite_paccess(&mut self, memory: &dyn VicMemory, i: usize, target_line: u16) {
+        self.sprite_active[i] = false;
+
         if target_line < self.first_visible_line || target_line >= self.last_visible_line {
             return;
         }
-        self.fetch_sprite_single(memory, sprite_index, target_line);
-    }
-
-    fn fetch_sprite_single(&mut self, memory: &dyn VicMemory, i: usize, target_line: u16) {
-        let sprite_enable = self.regs[0x15];
-        let y_expand = self.regs[0x17];
-        let screen_base = self.screen_base();
-
-        self.sprite_active[i] = false;
-
-        if sprite_enable & (1 << i) == 0 {
+        if self.regs[0x15] & (1 << i) == 0 {
             return;
         }
 
+        let y_expand = self.regs[0x17] & (1 << i) != 0;
         let sprite_y = u16::from(self.regs[1 + i * 2]);
-        let height = if y_expand & (1 << i) != 0 {
-            42u16
-        } else {
-            21u16
-        };
+        let height = if y_expand { 42u16 } else { 21u16 };
         let line_in_sprite = target_line.wrapping_sub(sprite_y);
         if line_in_sprite >= height {
             return;
         }
-
-        let data_line = if y_expand & (1 << i) != 0 {
+        let data_line = if y_expand {
             line_in_sprite / 2
         } else {
             line_in_sprite
         };
 
-        let ptr_addr = screen_base + 0x03F8 + i as u16;
+        let ptr_addr = self.screen_base() + 0x03F8 + i as u16;
         let sprite_ptr = memory.read_vram(self.vram_addr(ptr_addr));
-        self.last_bus_data = sprite_ptr;
-
         let data_base = u16::from(sprite_ptr) * 64 + data_line * 3;
+        self.sprite_fetch_base[i] = data_base;
         self.sprite_data[i][0] = memory.read_vram(self.vram_addr(data_base));
-        self.sprite_data[i][1] = memory.read_vram(self.vram_addr(data_base + 1));
-        self.sprite_data[i][2] = memory.read_vram(self.vram_addr(data_base + 2));
-        self.last_bus_data = self.sprite_data[i][2];
+        self.last_bus_data = self.sprite_data[i][0];
         self.sprite_active[i] = true;
+    }
+
+    /// s-access: read the sprite's remaining two data bytes from the base
+    /// latched by the p-access. Skipped when the p-access found no active DMA.
+    fn sprite_saccess(&mut self, memory: &dyn VicMemory, i: usize) {
+        if !self.sprite_active[i] {
+            return;
+        }
+        let base = self.sprite_fetch_base[i];
+        self.sprite_data[i][1] = memory.read_vram(self.vram_addr(base + 1));
+        self.sprite_data[i][2] = memory.read_vram(self.vram_addr(base + 2));
+        self.last_bus_data = self.sprite_data[i][2];
     }
 
     fn render_pixels(&mut self, memory: &dyn VicMemory) {
@@ -487,9 +646,9 @@ impl Vic {
                 let cell = if ecm && (bmm || mcm) {
                     CellPixels::solid(PALETTE[0])
                 } else if bmm && mcm {
-                    self.render_mcm_bitmap(col, char_code, colour_nybble, memory)
+                    self.render_mcm_bitmap(char_code, colour_nybble, memory)
                 } else if bmm {
-                    self.render_hires_bitmap(col, char_code, memory)
+                    self.render_hires_bitmap(char_code, memory)
                 } else if ecm {
                     self.render_ecm_text(char_code, colour_nybble, memory)
                 } else if mcm {
@@ -569,7 +728,7 @@ impl Vic {
         let bg_colour = PALETTE[(self.regs[0x21] & 0x0F) as usize];
         let fg_colour = PALETTE[(colour_nybble & 0x0F) as usize];
         let char_base = self.char_base();
-        let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.char_row);
+        let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.rc);
         let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
 
         let mut cell = CellPixels {
@@ -588,12 +747,14 @@ impl Vic {
         cell
     }
 
-    fn render_hires_bitmap(&self, col: usize, char_code: u8, memory: &dyn VicMemory) -> CellPixels {
+    fn render_hires_bitmap(&self, char_code: u8, memory: &dyn VicMemory) -> CellPixels {
         let fg_colour = PALETTE[((char_code >> 4) & 0x0F) as usize];
         let bg_colour = PALETTE[(char_code & 0x0F) as usize];
         let bitmap_base = self.bitmap_base();
-        let bitmap_addr =
-            bitmap_base + self.text_row * 40 * 8 + col as u16 * 8 + u16::from(self.char_row);
+        // g-access via the video counter: (VC << 3) | RC + bitmap base, the
+        // hardware addressing (VICE `g_fetch_addr`, vicii-fetch.c:169). VC at
+        // render equals text_row*40 + col, RC the character sub-row.
+        let bitmap_addr = bitmap_base + self.vc * 8 + u16::from(self.rc);
         let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
 
         let mut cell = CellPixels {
@@ -623,7 +784,7 @@ impl Vic {
         let fg_colour = PALETTE[(colour_nybble & 0x0F) as usize];
         let char_base = self.char_base();
         let effective_char = char_code & 0x3F;
-        let bitmap_addr = char_base + u16::from(effective_char) * 8 + u16::from(self.char_row);
+        let bitmap_addr = char_base + u16::from(effective_char) * 8 + u16::from(self.rc);
         let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
 
         let mut cell = CellPixels {
@@ -657,7 +818,7 @@ impl Vic {
         let bg2 = PALETTE[(self.regs[0x23] & 0x0F) as usize];
         let fg_colour = PALETTE[(colour_nybble & 0x07) as usize];
         let char_base = self.char_base();
-        let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.char_row);
+        let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.rc);
         let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
 
         let mut cell = CellPixels {
@@ -686,7 +847,6 @@ impl Vic {
 
     fn render_mcm_bitmap(
         &self,
-        col: usize,
         char_code: u8,
         colour_nybble: u8,
         memory: &dyn VicMemory,
@@ -696,8 +856,10 @@ impl Vic {
         let c10 = PALETTE[(char_code & 0x0F) as usize];
         let c11 = PALETTE[(colour_nybble & 0x0F) as usize];
         let bitmap_base = self.bitmap_base();
-        let bitmap_addr =
-            bitmap_base + self.text_row * 40 * 8 + col as u16 * 8 + u16::from(self.char_row);
+        // g-access via the video counter: (VC << 3) | RC + bitmap base, the
+        // hardware addressing (VICE `g_fetch_addr`, vicii-fetch.c:169). VC at
+        // render equals text_row*40 + col, RC the character sub-row.
+        let bitmap_addr = bitmap_base + self.vc * 8 + u16::from(self.rc);
         let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
 
         let mut cell = CellPixels {
@@ -1073,10 +1235,11 @@ impl Vic {
         self.raster_cycle
     }
 
-    /// Current character row within an 8-line character cell.
+    /// Current character row within an 8-line character cell — the VIC-II row
+    /// counter (RC), which drives the g-access sub-row addressing.
     #[must_use]
     pub const fn char_row(&self) -> u8 {
-        self.char_row
+        self.rc
     }
 
     /// Whether the current line is a bad line.
@@ -1507,7 +1670,13 @@ mod tests {
     #[test]
     fn ecm_text_selects_background() {
         let chargen = vec![0x00; 4096];
-        let memory = TestMemory::new(&chargen);
+        let mut memory = TestMemory::new(&chargen);
+        // Screen codes the streaming c-access reads from the matrix at $0400
+        // ($D018=0x14, text_row 0). ECM uses bits 7:6 to pick the background.
+        memory.ram_write(0x0400, 0x00);
+        memory.ram_write(0x0401, 0x40);
+        memory.ram_write(0x0402, 0x80);
+        memory.ram_write(0x0403, 0xC0);
         let mut vic = Vic::new(VicModel::Pal6569);
         vic.write(0x11, 0x5B);
         vic.write(0x18, 0x14);
@@ -1521,10 +1690,6 @@ mod tests {
         for _ in 0..past_fetch {
             tick_vic(&mut vic, &memory);
         }
-        vic.screen_row[0] = 0x00;
-        vic.screen_row[1] = 0x40;
-        vic.screen_row[2] = 0x80;
-        vic.screen_row[3] = 0xC0;
 
         tick_vic(&mut vic, &memory);
         let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
@@ -2150,8 +2315,8 @@ mod tests {
         // CSEL=1 so the main FF clears at cycle 16 (matches DISPLAY_START_CYCLE).
         vic.write(0x16, 0x08);
         let target_line = DISPLAY_START_LINE + 3;
-        // bitmap_addr = bitmap_base + text_row*40*8 + col*8 + char_row.
-        // text_row=0, col=0, char_row=0 (badline reset at cycle 15) → addr 0.
+        // bitmap_addr = bitmap_base + VC*8 + RC. VC=0 (column 0 of row 0),
+        // RC=0 (badline row) → addr 0.
         memory.ram_write(0, 0xF0);
         // Screen base = (0x14 >> 4) * 0x400 = 0x400. Column 0 → addr 0x400.
         memory.ram_write(0x400, 0x52); // fg=palette[5], bg=palette[2]
@@ -2186,7 +2351,7 @@ mod tests {
         vic.write(0x21, 0x02); // bg0 = 2
         // Bitmap at 0x0000, bytes=0b00_01_10_11 = 0x1B → pair colours (bg0, c01, c10, c11).
         let target_line = DISPLAY_START_LINE + 3;
-        // char_row=0 at cycle 15 of badline → bitmap addr 0.
+        // VC=0, RC=0 on the badline row → bitmap addr 0.
         memory.ram_write(0, 0x1B);
         // Screen base = 0x400. Column 0 → addr 0x400.
         memory.ram_write(0x400, 0x46); // c01=palette[4], c10=palette[6]
