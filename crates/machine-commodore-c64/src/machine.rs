@@ -3,7 +3,7 @@
 use common_commodore_c64::timing::C64Timing;
 use common_commodore_iec::IecBus;
 use format_commodore_c64_crt::{CrtCartridge, parse as parse_crt};
-use format_commodore_c64_tap::{TapParseError, TapSystem, parse_tap};
+use format_commodore_c64_tap::{TapParseError, TapSystem, TapVideo, encode_tap, parse_tap};
 use mos_6502::M6502;
 use mos_cia_6526::Cia6526;
 use mos_sid_6581::{AudioControls, Sid6581, SidChannel};
@@ -551,6 +551,25 @@ impl C64 {
         Ok(())
     }
 
+    /// Mounts a blank, writable tape so a KERNAL `SAVE` records onto it. The
+    /// recorded pulse stream is retrieved as a `.tap` image with
+    /// [`Self::flush_tape_image`].
+    pub fn insert_blank_writable_tape(&mut self) {
+        let video = match self.model {
+            C64Model::PalBreadbin | C64Model::PalC64c => TapVideo::Pal,
+            C64Model::NtscBreadbin | C64Model::NtscC64c => TapVideo::Ntsc,
+        };
+        self.datasette.insert_blank_writable_tape(video);
+        self.refresh_datasette_port_lines();
+    }
+
+    /// Encodes the recorded SAVE tape to `.tap` bytes, or `None` when no writable
+    /// tape is mounted.
+    #[must_use]
+    pub fn flush_tape_image(&self) -> Option<Vec<u8>> {
+        self.datasette.recorded_tap_image().map(encode_tap)
+    }
+
     /// Inserts one Commodore `.crt` cartridge image.
     ///
     /// Supports the generic unbanked types (hardware type 0 — plain 8K/16K and
@@ -944,6 +963,9 @@ impl C64 {
         let data = self.memory.port_data();
         let motor_on = (ddr & 0x20) != 0 && (data & 0x20) == 0;
         self.datasette.set_motor_on(motor_on);
+        // Cassette WRITE line = 6510 port bit 3 (the SAVE routine toggles it).
+        self.datasette
+            .set_write_line((self.memory.effective_port() & 0x08) != 0);
     }
 
     fn joystick_mut(&mut self, port: u8) -> Option<&mut JoystickState> {

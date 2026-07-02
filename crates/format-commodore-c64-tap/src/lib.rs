@@ -157,6 +157,18 @@ impl TapSystem {
             other => Self::Unknown(other),
         }
     }
+
+    const fn to_header(self) -> u8 {
+        match self {
+            Self::C64 => 0,
+            Self::Vic20 => 1,
+            Self::C16 => 2,
+            Self::Pet => 3,
+            Self::Cbm500 => 4,
+            Self::Cbm600 => 5,
+            Self::Unknown(value) => value,
+        }
+    }
 }
 
 impl TapVideo {
@@ -169,6 +181,44 @@ impl TapVideo {
             other => Self::Unknown(other),
         }
     }
+
+    const fn to_header(self) -> u8 {
+        match self {
+            Self::Pal => 0,
+            Self::Ntsc => 1,
+            Self::NtscOld => 2,
+            Self::PalN => 3,
+            Self::Unknown(value) => value,
+        }
+    }
+}
+
+/// Encodes a [`TapImage`] to `.tap` bytes (version 1, so long pulses use the
+/// three-byte extended form). The inverse of [`parse_tap`] for the pulse stream.
+#[must_use]
+pub fn encode_tap(image: &TapImage) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(image.pulses.len());
+    for &cycles in &image.pulses {
+        let quantised = cycles / 8;
+        if (1..=255).contains(&quantised) {
+            payload.push(quantised as u8);
+        } else {
+            // Extended pulse: 0x00 followed by the 24-bit cycle count.
+            payload.push(0x00);
+            let bytes = cycles.to_le_bytes();
+            payload.extend_from_slice(&bytes[..3]);
+        }
+    }
+
+    let mut out = Vec::with_capacity(TAP_HEADER_SIZE + payload.len());
+    out.extend_from_slice(TAP_MAGIC_C64);
+    out.push(1); // version 1
+    out.push(image.system.to_header());
+    out.push(image.video.to_header());
+    out.push(0); // reserved
+    out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    out.extend_from_slice(&payload);
+    out
 }
 
 const fn read_le_u24(bytes: &[u8]) -> u32 {
@@ -224,5 +274,22 @@ mod tests {
             parse_tap(&make_tap(1, &[0x00, 0x01, 0x02])),
             Err(TapParseError::TruncatedExtendedPulse)
         );
+    }
+
+    #[test]
+    fn encode_round_trips_short_and_extended_pulses() {
+        // A short pulse (fits in one byte) and a long one (needs the extended
+        // form) exercise both encoder branches.
+        let image = TapImage {
+            version: 1,
+            system: TapSystem::C64,
+            video: TapVideo::Pal,
+            pulses: vec![0x24 * 8, 0x0320, 0x30 * 8],
+        };
+        let bytes = encode_tap(&image);
+        let reparsed = parse_tap(&bytes).expect("encoded TAP should parse");
+        assert_eq!(reparsed.system, TapSystem::C64);
+        assert_eq!(reparsed.video, TapVideo::Pal);
+        assert_eq!(reparsed.pulses, image.pulses);
     }
 }
