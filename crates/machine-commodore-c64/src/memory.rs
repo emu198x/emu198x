@@ -24,16 +24,39 @@ pub enum MemoryInitError {
     },
 }
 
-/// An inserted cartridge's ROM banks + control-line state. ROML is the
-/// `$8000-$9FFF` image; ROMH is the second 8K, mapped at `$A000-$BFFF` (16K
-/// carts) or `$E000-$FFFF` (Ultimax). `exrom`/`game` are stored as "line
-/// asserted (low)".
+/// One 8K cartridge bank: ROML (the `$8000-$9FFF` image) and, for 16K/Ultimax
+/// banks, ROMH (`$A000-$BFFF` for 16K, `$E000-$FFFF` for Ultimax).
+#[derive(Clone)]
+pub(crate) struct CartBankPair {
+    pub(crate) roml: Option<Box<[u8; 0x2000]>>,
+    pub(crate) romh: Option<Box<[u8; 0x2000]>>,
+}
+
+/// Bank-switching scheme a cartridge drives through its `$DE00` I/O register.
+///
+/// Plain 8K/16K/Ultimax carts are [`CartBanking::None`]. The simple banked
+/// schemes select one of several 8K ROML banks by writing the `$DE00` register.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum CartBanking {
+    /// No banking — a single fixed bank (plain 8K/16K/Ultimax).
+    #[default]
+    None,
+    /// Ocean type 5: `bank = value & 0x3F`, always enabled.
+    Ocean,
+    /// Magic Desk type 19: `bank = value & 0x3F`; bit 7 set disables the cart
+    /// (EXROM floats high, so the `$8000` window shows RAM).
+    MagicDesk,
+}
+
 #[derive(Clone)]
 struct Cartridge {
     exrom: bool,
     game: bool,
-    roml: Option<Box<[u8; 0x2000]>>,
-    romh: Option<Box<[u8; 0x2000]>>,
+    banking: CartBanking,
+    banks: Vec<CartBankPair>,
+    current_bank: usize,
+    /// Whether the cartridge currently maps ROM (Magic Desk can disable itself).
+    enabled: bool,
 }
 
 impl Cartridge {
@@ -41,6 +64,11 @@ impl Cartridge {
     /// at `$E000` and the KERNAL/BASIC ROMs are hidden.
     const fn ultimax(&self) -> bool {
         !self.exrom && self.game
+    }
+
+    /// The currently selected bank, if in range.
+    fn active_bank(&self) -> Option<&CartBankPair> {
+        self.banks.get(self.current_bank)
     }
 }
 
@@ -58,11 +86,31 @@ pub struct C64Memory {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct CartBankSnapshot {
+    roml: Option<Vec<u8>>,
+    romh: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct CartridgeSnapshot {
     exrom: bool,
     game: bool,
+    // Bank 0's images, kept as bare fields so pre-banking snapshots still load.
     roml: Option<Vec<u8>>,
     romh: Option<Vec<u8>>,
+    #[serde(default)]
+    banking: CartBanking,
+    #[serde(default)]
+    current_bank: u32,
+    #[serde(default = "default_true")]
+    enabled: bool,
+    /// Banks 1.. (bank 0 lives in `roml`/`romh`).
+    #[serde(default)]
+    extra_banks: Vec<CartBankSnapshot>,
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -113,8 +161,29 @@ impl C64Memory {
         self.cartridge = Some(Cartridge {
             exrom,
             game,
-            roml,
-            romh,
+            banking: CartBanking::None,
+            banks: vec![CartBankPair { roml, romh }],
+            current_bank: 0,
+            enabled: true,
+        });
+    }
+
+    /// Inserts a simple bank-switched cartridge: several 8K banks selected by a
+    /// `$DE00` register. `banks[0]` is the power-on bank.
+    pub(crate) fn insert_banked_cartridge(
+        &mut self,
+        exrom: bool,
+        game: bool,
+        banking: CartBanking,
+        banks: Vec<CartBankPair>,
+    ) {
+        self.cartridge = Some(Cartridge {
+            exrom,
+            game,
+            banking,
+            banks,
+            current_bank: 0,
+            enabled: true,
         });
     }
 
@@ -123,13 +192,39 @@ impl C64Memory {
         self.cartridge = None;
     }
 
+    /// Applies a write to the cartridge I/O-1 area (`$DE00-$DEFF`), driving the
+    /// bank register of a simple bank-switched cartridge. A no-op for unbanked
+    /// carts and when no cartridge is inserted.
+    pub(crate) fn cartridge_io_write(&mut self, addr: u16, value: u8) {
+        if !(0xDE00..=0xDEFF).contains(&addr) {
+            return;
+        }
+        let Some(cart) = self.cartridge.as_mut() else {
+            return;
+        };
+        match cart.banking {
+            CartBanking::None => {}
+            CartBanking::Ocean => {
+                cart.current_bank = usize::from(value & 0x3F);
+            }
+            CartBanking::MagicDesk => {
+                cart.enabled = value & 0x80 == 0;
+                cart.current_bank = usize::from(value & 0x3F);
+            }
+        }
+    }
+
     /// Cartridge ROM byte visible at `addr`, if a cartridge maps it under the
     /// current banking, else `None`.
     fn cartridge_read(&self, addr: u16) -> Option<u8> {
         let cart = self.cartridge.as_ref()?;
+        if !cart.enabled {
+            return None;
+        }
+        let bank = cart.active_bank()?;
         match addr {
             0x8000..=0x9FFF => {
-                let roml = cart.roml.as_ref()?;
+                let roml = bank.roml.as_ref()?;
                 // ROML is unconditionally visible in Ultimax; otherwise it needs
                 // LORAM + HIRAM (the standard 8K/16K cartridge window).
                 (cart.ultimax() || (self.loram() && self.hiram()))
@@ -137,13 +232,13 @@ impl C64Memory {
             }
             0xA000..=0xBFFF => {
                 // 16K carts (not Ultimax) place ROMH here, replacing BASIC.
-                let romh = cart.romh.as_ref()?;
+                let romh = bank.romh.as_ref()?;
                 (!cart.ultimax() && self.loram() && self.hiram())
                     .then(|| romh[usize::from(addr - 0xA000)])
             }
             0xE000..=0xFFFF => {
                 // Ultimax carts place ROMH here, replacing the KERNAL.
-                let romh = cart.romh.as_ref()?;
+                let romh = bank.romh.as_ref()?;
                 cart.ultimax().then(|| romh[usize::from(addr - 0xE000)])
             }
             _ => None,
@@ -198,7 +293,25 @@ impl C64Memory {
                     })
                     .transpose()
             };
-            memory.insert_cartridge(cart.exrom, cart.game, bank(cart.roml)?, bank(cart.romh)?);
+            let mut banks = vec![CartBankPair {
+                roml: bank(cart.roml)?,
+                romh: bank(cart.romh)?,
+            }];
+            for extra in cart.extra_banks {
+                banks.push(CartBankPair {
+                    roml: bank(extra.roml)?,
+                    romh: bank(extra.romh)?,
+                });
+            }
+            let current_bank = cart.current_bank as usize;
+            memory.cartridge = Some(Cartridge {
+                exrom: cart.exrom,
+                game: cart.game,
+                banking: cart.banking,
+                banks,
+                current_bank,
+                enabled: cart.enabled,
+            });
         }
         Ok(memory)
     }
@@ -214,11 +327,26 @@ impl C64Memory {
             colour_ram: self.colour_ram.to_vec(),
             port_ddr: self.port_ddr,
             port_data: self.port_data,
-            cartridge: self.cartridge.as_ref().map(|cart| CartridgeSnapshot {
-                exrom: cart.exrom,
-                game: cart.game,
-                roml: cart.roml.as_ref().map(|b| b.to_vec()),
-                romh: cart.romh.as_ref().map(|b| b.to_vec()),
+            cartridge: self.cartridge.as_ref().map(|cart| {
+                let bank0 = cart.banks.first();
+                CartridgeSnapshot {
+                    exrom: cart.exrom,
+                    game: cart.game,
+                    roml: bank0.and_then(|b| b.roml.as_ref().map(|b| b.to_vec())),
+                    romh: bank0.and_then(|b| b.romh.as_ref().map(|b| b.to_vec())),
+                    banking: cart.banking,
+                    current_bank: cart.current_bank as u32,
+                    enabled: cart.enabled,
+                    extra_banks: cart
+                        .banks
+                        .iter()
+                        .skip(1)
+                        .map(|b| CartBankSnapshot {
+                            roml: b.roml.as_ref().map(|b| b.to_vec()),
+                            romh: b.romh.as_ref().map(|b| b.to_vec()),
+                        })
+                        .collect(),
+                }
             }),
         }
     }

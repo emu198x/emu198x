@@ -12,7 +12,7 @@ use mos_vic_ii::{Vic, VicModel};
 use crate::config::{C64Config, C64Model};
 use crate::datasette::Datasette;
 use crate::keyboard::KeyboardMatrix;
-use crate::memory::{C64Memory, C64MemorySnapshot, MemoryInitError};
+use crate::memory::{C64Memory, C64MemorySnapshot, CartBankPair, CartBanking, MemoryInitError};
 
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 const PORT_INPUT_PULLUPS: u8 = 0x37;
@@ -177,6 +177,56 @@ fn map_generic_cartridge(
         return Err("cartridge has no ROM image for the mapped windows".to_owned());
     }
     Ok((roml, romh))
+}
+
+/// The bank-switching scheme a cartridge hardware type drives, or `None` for the
+/// unbanked types the generic mapper handles. Returns an error for hardware
+/// types the base machine does not model.
+fn banking_for_hardware_type(hardware_type: u16) -> Result<Option<CartBanking>, String> {
+    match hardware_type {
+        0 => Ok(None),
+        5 => Ok(Some(CartBanking::Ocean)),
+        19 => Ok(Some(CartBanking::MagicDesk)),
+        other => Err(format!("unsupported cartridge hardware type {other}")),
+    }
+}
+
+/// Maps a simple bank-switched cartridge's CHIP packets into an indexed vector
+/// of 8K banks. Each CHIP's `bank` field selects the slot; `$8000` fills ROML
+/// (a 16K chip also fills that bank's ROMH), `$A000`/`$E000` fill ROMH.
+fn map_banked_cartridge(cart: &CrtCartridge) -> Result<Vec<CartBankPair>, String> {
+    let bank_count = cart
+        .chips
+        .iter()
+        .map(|chip| usize::from(chip.bank) + 1)
+        .max()
+        .unwrap_or(0);
+    if bank_count == 0 {
+        return Err("cartridge has no CHIP banks".to_owned());
+    }
+
+    let mut banks: Vec<CartBankPair> = (0..bank_count)
+        .map(|_| CartBankPair {
+            roml: None,
+            romh: None,
+        })
+        .collect();
+    for chip in &cart.chips {
+        let slot = &mut banks[usize::from(chip.bank)];
+        match chip.load_address {
+            0x8000 => {
+                slot.roml = Some(to_bank(&chip.data));
+                if chip.data.len() > 0x2000 {
+                    slot.romh = Some(to_bank(&chip.data[0x2000..]));
+                }
+            }
+            0xA000 | 0xE000 => slot.romh = Some(to_bank(&chip.data)),
+            other => {
+                return Err(format!("unsupported cartridge load address ${other:04X}"));
+            }
+        }
+    }
+    Ok(banks)
 }
 
 impl C64 {
@@ -503,11 +553,12 @@ impl C64 {
 
     /// Inserts one Commodore `.crt` cartridge image.
     ///
-    /// Only generic ROM cartridges (hardware type 0) are mapped today: the
-    /// unbanked 8K/16K and Ultimax layouts the base PLA handles directly. The
-    /// caller resets the machine afterwards so the KERNAL runs the cartridge's
-    /// cold-start vector (or, for Ultimax, so `$FFFC` fetches from cartridge
-    /// ROMH).
+    /// Supports the generic unbanked types (hardware type 0 — plain 8K/16K and
+    /// Ultimax) and the simple bank-switched types Ocean (5) and Magic Desk
+    /// (19), which select one of several 8K banks through a `$DE00` register.
+    /// The caller resets the machine afterwards so the KERNAL runs the
+    /// cartridge's cold-start vector (or, for Ultimax, so `$FFFC` fetches from
+    /// cartridge ROMH).
     ///
     /// # Errors
     ///
@@ -516,16 +567,18 @@ impl C64 {
     /// windows the base machine maps.
     pub fn insert_crt_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
         let cart = parse_crt(bytes).map_err(|reason| reason.to_string())?;
-        if cart.hardware_type != 0 {
-            return Err(format!(
-                "unsupported cartridge hardware type {}",
-                cart.hardware_type
-            ));
+        match banking_for_hardware_type(cart.hardware_type)? {
+            None => {
+                let (roml, romh) = map_generic_cartridge(&cart)?;
+                self.memory
+                    .insert_cartridge(cart.exrom, cart.game, roml, romh);
+            }
+            Some(banking) => {
+                let banks = map_banked_cartridge(&cart)?;
+                self.memory
+                    .insert_banked_cartridge(cart.exrom, cart.game, banking, banks);
+            }
         }
-
-        let (roml, romh) = map_generic_cartridge(&cart)?;
-        self.memory
-            .insert_cartridge(cart.exrom, cart.game, roml, romh);
         Ok(())
     }
 
@@ -790,7 +843,7 @@ impl C64 {
                 self.cia2.write((addr & 0x0F) as u8, value);
                 self.refresh_vic_bank();
             }
-            0xDE00..=0xDFFF => {}
+            0xDE00..=0xDFFF => self.memory.cartridge_io_write(addr, value),
             _ => {}
         }
     }
@@ -950,6 +1003,91 @@ mod tests {
         v.extend_from_slice(&(data.len() as u16).to_be_bytes());
         v.extend_from_slice(data);
         v
+    }
+
+    /// Build a bank-switched CRT: header with `hardware_type` + one `$8000`
+    /// CHIP packet per `(bank, data)` entry.
+    fn build_banked_crt(
+        hardware_type: u16,
+        exrom: u8,
+        game: u8,
+        banks: &[(u16, &[u8])],
+    ) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(b"C64 CARTRIDGE   ");
+        v.extend_from_slice(&0x40u32.to_be_bytes());
+        v.extend_from_slice(&0x0100u16.to_be_bytes());
+        v.extend_from_slice(&hardware_type.to_be_bytes());
+        v.push(exrom);
+        v.push(game);
+        v.extend_from_slice(&[0u8; 6]);
+        v.extend_from_slice(&[0u8; 32]);
+        for &(bank, data) in banks {
+            v.extend_from_slice(b"CHIP");
+            v.extend_from_slice(&((0x10 + data.len()) as u32).to_be_bytes());
+            v.extend_from_slice(&0u16.to_be_bytes()); // ROM
+            v.extend_from_slice(&bank.to_be_bytes());
+            v.extend_from_slice(&0x8000u16.to_be_bytes());
+            v.extend_from_slice(&(data.len() as u16).to_be_bytes());
+            v.extend_from_slice(data);
+        }
+        v
+    }
+
+    #[test]
+    fn ocean_cart_switches_banks_via_de00() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        // Ocean type 5: two 8K banks, distinguished by their fill byte.
+        let crt = build_banked_crt(5, 0, 1, &[(0, &[0xB0; 0x2000]), (1, &[0xB1; 0x2000])]);
+        machine.insert_crt_bytes(&crt).expect("valid Ocean CRT");
+
+        // Power-on bank 0 is visible at $8000.
+        assert_eq!(machine.cpu_read(0x8000), 0xB0);
+        // Writing the bank number to $DE00 selects bank 1.
+        machine.cpu_write(0xDE00, 0x01);
+        assert_eq!(machine.cpu_read(0x8000), 0xB1);
+        // Back to bank 0.
+        machine.cpu_write(0xDE00, 0x00);
+        assert_eq!(machine.cpu_read(0x8000), 0xB0);
+    }
+
+    #[test]
+    fn banked_cart_bank_survives_snapshot_roundtrip() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let crt = build_banked_crt(5, 0, 1, &[(0, &[0xB0; 0x2000]), (1, &[0xB1; 0x2000])]);
+        machine.insert_crt_bytes(&crt).expect("valid Ocean CRT");
+        machine.cpu_write(0xDE00, 0x01); // select bank 1
+        assert_eq!(machine.cpu_read(0x8000), 0xB1);
+
+        let snapshot = machine.snapshot_state();
+        let mut restored = stub_machine(C64Model::PalBreadbin);
+        restored
+            .restore_snapshot_state(snapshot)
+            .expect("snapshot should restore");
+
+        // The selected bank and both banks survive the round-trip.
+        assert_eq!(restored.cpu_read(0x8000), 0xB1);
+        restored.cpu_write(0xDE00, 0x00);
+        assert_eq!(restored.cpu_read(0x8000), 0xB0);
+    }
+
+    #[test]
+    fn magic_desk_cart_disables_via_de00_bit7() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let crt = build_banked_crt(19, 0, 1, &[(0, &[0xD0; 0x2000]), (1, &[0xD1; 0x2000])]);
+        machine
+            .insert_crt_bytes(&crt)
+            .expect("valid Magic Desk CRT");
+
+        assert_eq!(machine.cpu_read(0x8000), 0xD0);
+        machine.cpu_write(0xDE00, 0x01); // select bank 1
+        assert_eq!(machine.cpu_read(0x8000), 0xD1);
+        // Bit 7 set disables the cart: $8000 shows RAM (0x00 by default).
+        machine.cpu_write(0xDE00, 0x80);
+        assert_eq!(machine.cpu_read(0x8000), 0x00);
+        // Clearing bit 7 re-enables it at the written bank (0).
+        machine.cpu_write(0xDE00, 0x00);
+        assert_eq!(machine.cpu_read(0x8000), 0xD0);
     }
 
     #[test]
