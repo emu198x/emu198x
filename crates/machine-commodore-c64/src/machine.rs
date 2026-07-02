@@ -41,6 +41,12 @@ pub struct C64 {
     /// then routes the selected port to the SID POTX/POTY. See
     /// [`Self::refresh_paddle_pots`].
     paddles: [[u8; 2]; 2],
+    /// A 1351 proportional mouse per control port (index 0 = port 1, 1 =
+    /// port 2), `None` when nothing is plugged in. A plugged mouse overrides
+    /// that port's paddle pots and adds its two button lines. Host momentary
+    /// motion/buttons arrive through [`Self::move_mouse_1351`] /
+    /// [`Self::set_mouse_1351_button`].
+    mice: [Option<Mouse1351>; 2],
     phi2_cycles: u64,
     frame_count: u64,
 }
@@ -58,6 +64,8 @@ pub struct C64Snapshot {
     keyboard: KeyboardMatrix,
     joysticks: [JoystickState; 2],
     paddles: [[u8; 2]; 2],
+    #[serde(default)]
+    mice: [Option<Mouse1351>; 2],
     phi2_cycles: u64,
     frame_count: u64,
 }
@@ -100,6 +108,48 @@ impl JoystickState {
         }
         if self.fire {
             value &= !0x10;
+        }
+        value
+    }
+}
+
+/// A Commodore 1351 proportional mouse plugged into one control port.
+///
+/// The 1351 reports movement as *deltas on the analogue POT lines*, not as
+/// an absolute position: each axis is a free-running counter whose low 7 bits
+/// reach the SID pot register offset by `0x40`, so a read returns `0x40..=0xBF`
+/// (`mouse_get_1351_x` in VICE `mouse_1351.c`). Software reads the pot twice
+/// and sign-extends the 7-bit difference to recover the movement since the
+/// last read. The two buttons are digital lines shared with the joystick:
+/// left → FIRE (bit 4), right → UP (bit 0).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct Mouse1351 {
+    /// Free-running X/Y position counters. Only the low 7 bits are observable;
+    /// `i16` keeps a wide accumulation range so fast host motion wraps cleanly.
+    x: i16,
+    y: i16,
+    left: bool,
+    right: bool,
+}
+
+impl Mouse1351 {
+    /// The POT reading for one axis (0 = X, 1 = Y): the low 7 bits of the
+    /// running counter, offset by `0x40`. Matches VICE `mouse_get_1351_x/y`.
+    const fn pot(self, axis: usize) -> u8 {
+        let counter = if axis == 0 { self.x } else { self.y };
+        ((counter & 0x7F) as u8) + 0x40
+    }
+
+    /// Active-low digital-line mask for the two buttons, ANDed into the port:
+    /// left → FIRE (bit 4), right → UP (bit 0), per VICE
+    /// `mouse_1351_button_left/right`.
+    const fn digital_mask(self) -> u8 {
+        let mut value = 0xFF;
+        if self.left {
+            value &= !0x10;
+        }
+        if self.right {
+            value &= !0x01;
         }
         value
     }
@@ -272,6 +322,7 @@ impl C64 {
             restore_nmi: false,
             joysticks: [JoystickState::default(); 2],
             paddles: [[0xFF; 2]; 2],
+            mice: [None; 2],
             phi2_cycles: 0,
             frame_count: 0,
         };
@@ -401,6 +452,74 @@ impl C64 {
         *slot = value;
         self.refresh_paddle_pots();
         true
+    }
+
+    /// Plugs a 1351 proportional mouse into control port 1 or 2, centred with
+    /// both buttons released. Overrides that port's paddle pots while attached.
+    /// Returns `false` for an unknown port.
+    pub fn attach_mouse_1351(&mut self, port: u8) -> bool {
+        let Some(slot) = self.mouse_slot_mut(port) else {
+            return false;
+        };
+        *slot = Some(Mouse1351::default());
+        self.refresh_paddle_pots();
+        true
+    }
+
+    /// Unplugs the 1351 mouse from control port 1 or 2, returning that port's
+    /// paddle pots to the POT lines. Returns `false` for an unknown port.
+    pub fn detach_mouse_1351(&mut self, port: u8) -> bool {
+        let Some(slot) = self.mouse_slot_mut(port) else {
+            return false;
+        };
+        *slot = None;
+        self.refresh_paddle_pots();
+        true
+    }
+
+    /// Whether a 1351 mouse is plugged into control port 1 or 2.
+    #[must_use]
+    pub fn has_mouse_1351(&self, port: u8) -> bool {
+        matches!(port, 1 | 2) && self.mice[usize::from(port - 1)].is_some()
+    }
+
+    /// Accumulates a host mouse-motion delta into the 1351 on control port 1
+    /// or 2. The deltas move the free-running POT counters directly; the guest
+    /// reads the pots twice and diffs. Returns `false` if no mouse is plugged
+    /// into that port.
+    pub fn move_mouse_1351(&mut self, port: u8, dx: i32, dy: i32) -> bool {
+        let Some(Some(mouse)) = self.mouse_slot_mut(port) else {
+            return false;
+        };
+        mouse.x = mouse.x.wrapping_add(dx as i16);
+        mouse.y = mouse.y.wrapping_add(dy as i16);
+        self.refresh_paddle_pots();
+        true
+    }
+
+    /// Presses or releases a 1351 button (`"left"` or `"right"`) on control
+    /// port 1 or 2. Returns `false` for an unknown port, button, or an empty
+    /// port. The buttons surface on the joystick digital lines: left → FIRE,
+    /// right → UP.
+    pub fn set_mouse_1351_button(&mut self, port: u8, button: &str, pressed: bool) -> bool {
+        let Some(Some(mouse)) = self.mouse_slot_mut(port) else {
+            return false;
+        };
+        match button.to_ascii_lowercase().as_str() {
+            "left" | "fire" => mouse.left = pressed,
+            "right" => mouse.right = pressed,
+            _ => return false,
+        }
+        self.refresh_keyboard_scan();
+        true
+    }
+
+    fn mouse_slot_mut(&mut self, port: u8) -> Option<&mut Option<Mouse1351>> {
+        match port {
+            1 => Some(&mut self.mice[0]),
+            2 => Some(&mut self.mice[1]),
+            _ => None,
+        }
     }
 
     /// `phi2` cycles elapsed since construction.
@@ -763,6 +882,7 @@ impl C64 {
             keyboard: self.keyboard.clone(),
             joysticks: self.joysticks,
             paddles: self.paddles,
+            mice: self.mice,
             phi2_cycles: self.phi2_cycles,
             frame_count: self.frame_count,
         }
@@ -792,6 +912,7 @@ impl C64 {
         self.keyboard = snapshot.keyboard;
         self.joysticks = snapshot.joysticks;
         self.paddles = snapshot.paddles;
+        self.mice = snapshot.mice;
         self.phi2_cycles = snapshot.phi2_cycles;
         self.frame_count = snapshot.frame_count;
         self.refresh_keyboard_scan();
@@ -923,8 +1044,18 @@ impl C64 {
     /// [`select_paddle_pot`].
     fn refresh_paddle_pots(&mut self) {
         let mask = (self.cia1.port_a_drive_state() >> 6) & 0x03;
-        self.sid.potx = select_paddle_pot(mask, self.paddles[0][0], self.paddles[1][0]);
-        self.sid.poty = select_paddle_pot(mask, self.paddles[0][1], self.paddles[1][1]);
+        self.sid.potx = select_paddle_pot(mask, self.port_pot(0, 0), self.port_pot(1, 0));
+        self.sid.poty = select_paddle_pot(mask, self.port_pot(0, 1), self.port_pot(1, 1));
+    }
+
+    /// The POT reading a control port drives onto the SID line, before the
+    /// CIA #1 mux selects it. A plugged 1351 mouse overrides the paddle pot;
+    /// otherwise the paddle position stands (open line `0xFF` by default).
+    fn port_pot(&self, port_idx: usize, axis: usize) -> u8 {
+        match self.mice[port_idx] {
+            Some(mouse) => mouse.pot(axis),
+            None => self.paddles[port_idx][axis],
+        }
     }
 
     fn refresh_vic_bank(&mut self) {
@@ -977,11 +1108,15 @@ impl C64 {
     }
 
     fn joystick_input(&self, port: u8) -> u8 {
-        match port {
-            1 => self.joysticks[0].input_mask(),
-            2 => self.joysticks[1].input_mask(),
-            _ => 0xFF,
-        }
+        let idx = match port {
+            1 => 0,
+            2 => 1,
+            _ => return 0xFF,
+        };
+        // A 1351's buttons share the joystick digital lines, so fold its mask
+        // in alongside any joystick plugged into the same port.
+        let mouse_mask = self.mice[idx].map_or(0xFF, Mouse1351::digital_mask);
+        self.joysticks[idx].input_mask() & mouse_mask
     }
 
     fn cia1_port_a_read(&self) -> u8 {
@@ -1598,6 +1733,85 @@ mod tests {
         // An unknown port / axis is rejected.
         assert!(!machine.set_paddle(0, 0, 0x10));
         assert!(!machine.set_paddle(1, 2, 0x10));
+    }
+
+    #[test]
+    fn mouse_1351_pots_report_low_seven_bits_offset_by_0x40() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xDC02, 0xFF); // CIA1 DDRA: PA6/PA7 outputs
+        machine.cpu_write(0xDC00, 0x80); // select control port 2
+
+        assert!(machine.attach_mouse_1351(2));
+        // Centred at zero → (0 & 0x7f) + 0x40 = 0x40 on both axes.
+        assert_eq!(machine.cpu_read(0xD419), 0x40, "centred POTX");
+        assert_eq!(machine.cpu_read(0xD41A), 0x40, "centred POTY");
+
+        // A positive delta moves the running counter; only the low 7 bits
+        // reach the pot, offset by 0x40 (VICE mouse_get_1351_x).
+        assert!(machine.move_mouse_1351(2, 5, -3));
+        assert_eq!(machine.cpu_read(0xD419), 0x45, "POTX = (5 & 0x7f) + 0x40");
+        assert_eq!(
+            machine.cpu_read(0xD41A),
+            (((-3i16) & 0x7F) as u8) + 0x40,
+            "POTY wraps the signed counter into 7 bits"
+        );
+
+        // Past 7 bits the counter wraps, exactly as the guest's diff logic
+        // expects: 0x40 + 3 units of movement past a 128-count boundary.
+        assert!(machine.move_mouse_1351(2, 0x80 - 5, 0));
+        assert_eq!(machine.cpu_read(0xD419), 0x40, "POTX wraps at 128 counts");
+    }
+
+    #[test]
+    fn mouse_1351_overrides_only_its_own_ports_paddle() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xDC02, 0xFF);
+
+        machine.set_paddle(1, 0, 0xC8); // port 1 keeps its paddle
+        machine.set_paddle(2, 0, 0x90);
+        assert!(machine.attach_mouse_1351(2)); // port 2 gets a mouse
+
+        machine.cpu_write(0xDC00, 0x40); // select port 1 → paddle stands
+        assert_eq!(machine.cpu_read(0xD419), 0xC8, "port 1 paddle unaffected");
+
+        machine.cpu_write(0xDC00, 0x80); // select port 2 → mouse pot wins
+        assert_eq!(machine.cpu_read(0xD419), 0x40, "port 2 mouse centred");
+
+        // Unplugging restores the port-2 paddle position.
+        assert!(machine.detach_mouse_1351(2));
+        assert_eq!(machine.cpu_read(0xD419), 0x90, "port 2 paddle restored");
+    }
+
+    #[test]
+    fn mouse_1351_buttons_land_on_the_joystick_lines() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xDC02, 0xFF);
+        machine.cpu_write(0xDC00, 0xFF);
+        assert!(machine.attach_mouse_1351(2)); // control port 2 = CIA1 PA
+
+        // Left button → FIRE (bit 4) low on the main gameport.
+        assert!(machine.set_mouse_1351_button(2, "left", true));
+        assert_eq!(machine.cpu_read(0xDC00) & 0x10, 0x00, "left → FIRE low");
+        // Right button → UP (bit 0) low.
+        assert!(machine.set_mouse_1351_button(2, "right", true));
+        assert_eq!(machine.cpu_read(0xDC00) & 0x01, 0x00, "right → UP low");
+
+        machine.set_mouse_1351_button(2, "left", false);
+        assert_eq!(machine.cpu_read(0xDC00) & 0x10, 0x10, "FIRE released");
+    }
+
+    #[test]
+    fn mouse_1351_rejects_unknown_ports_and_empty_slots() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        assert!(!machine.attach_mouse_1351(0));
+        assert!(!machine.has_mouse_1351(2));
+        // No mouse plugged in → motion and buttons are rejected.
+        assert!(!machine.move_mouse_1351(1, 4, 4));
+        assert!(!machine.set_mouse_1351_button(1, "left", true));
+
+        assert!(machine.attach_mouse_1351(1));
+        assert!(machine.has_mouse_1351(1));
+        assert!(!machine.set_mouse_1351_button(1, "middle", true));
     }
 
     #[test]

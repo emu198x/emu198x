@@ -266,6 +266,14 @@ impl UiSystem for C64System {
         runtime.machine().tape_is_playing()
     }
 
+    /// Capture host mouse motion as `mouse-1` so a 1351 plugged in with
+    /// `--mouse-1351` is drivable from the window. When no mouse is attached
+    /// the runtime drops the events; the cursor is never grabbed, so
+    /// keyboard/joystick users are unaffected.
+    fn mouse_device(&self) -> Option<&'static str> {
+        Some("mouse-1")
+    }
+
     fn variants(&self) -> Vec<VariantInfo> {
         vec![
             VariantInfo::new(PAL_ID, model_label(Model::C64PalBreadbin)),
@@ -352,6 +360,7 @@ pub struct Cli {
     turbo_tape: bool,
     georam_kb: Option<usize>,
     reu_kb: Option<usize>,
+    mouse_1351_port: Option<u8>,
     load_snapshot: Option<PathBuf>,
     scale: u32,
     video: VideoFilter,
@@ -416,6 +425,7 @@ Options:
     --turbo-tape         run unthrottled while the tape is playing
     --georam KB          attach a GeoRAM RAM expansion (512, 1024, or 2048 KiB)
     --reu KB             attach a 17xx REU RAM expansion (128, 256, or 512 KiB)
+    --mouse-1351 PORT    plug a 1351 proportional mouse into control port 1 or 2
     --load-snapshot PATH restore a runtime snapshot before starting
     --scale N            integer window scale, default 2
     --video MODE         raw | lcd | crt [default: raw]
@@ -520,6 +530,9 @@ fn build_runtime(cli: &Cli) -> Result<(C64Runtime, FirmwareBundle), String> {
     }
     if let Some(kb) = cli.reu_kb {
         machine.set_reu(Some(kb));
+    }
+    if let Some(port) = cli.mouse_1351_port {
+        machine.set_mouse_1351(Some(port));
     }
 
     let frame_ticks = u64::from(match cli.model {
@@ -762,6 +775,9 @@ where
             "--turbo-tape" => cli.turbo_tape = true,
             "--georam" => cli.georam_kb = Some(parse_georam_size(&next_arg(&mut iter, "--georam"))),
             "--reu" => cli.reu_kb = Some(parse_reu_size(&next_arg(&mut iter, "--reu"))),
+            "--mouse-1351" => {
+                cli.mouse_1351_port = Some(parse_mouse_port(&next_arg(&mut iter, "--mouse-1351")));
+            }
             "--load-snapshot" => {
                 cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
             }
@@ -795,6 +811,14 @@ fn parse_georam_size(value: &str) -> usize {
     match value.parse::<usize>() {
         Ok(kb @ (512 | 1024 | 2048)) => kb,
         _ => die("--georam expects a size in KiB: 512, 1024, or 2048"),
+    }
+}
+
+/// Parse a `--mouse-1351` control-port number. The C64 has two control ports.
+fn parse_mouse_port(value: &str) -> u8 {
+    match value.parse::<u8>() {
+        Ok(port @ (1 | 2)) => port,
+        _ => die("--mouse-1351 expects a control port: 1 or 2"),
     }
 }
 
@@ -866,6 +890,7 @@ mod tests {
                 autoload_tape: false,
                 start_tape: false,
                 turbo_tape: false,
+                mouse_1351_port: None,
                 georam_kb: None,
                 reu_kb: None,
                 load_snapshot: Some(PathBuf::from("ready.c64.pst")),
@@ -899,6 +924,7 @@ mod tests {
                 autoload_tape: true,
                 start_tape: false,
                 turbo_tape: false,
+                mouse_1351_port: None,
                 georam_kb: None,
                 reu_kb: None,
                 load_snapshot: None,
@@ -926,6 +952,13 @@ mod tests {
         let cli = parse_cli(["--reu".to_string(), "512".to_string()]);
         assert_eq!(cli.reu_kb, Some(512));
         assert_eq!(parse_reu_size("128"), 128);
+    }
+
+    #[test]
+    fn parse_cli_accepts_mouse_1351_port() {
+        let cli = parse_cli(["--mouse-1351".to_string(), "1".to_string()]);
+        assert_eq!(cli.mouse_1351_port, Some(1));
+        assert_eq!(parse_mouse_port("2"), 2);
     }
 
     #[test]

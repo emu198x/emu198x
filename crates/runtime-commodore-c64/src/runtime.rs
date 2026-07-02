@@ -45,6 +45,10 @@ pub struct C64Runtime {
     georam_kb: Option<usize>,
     /// Attached REU size in KiB, retained across a reset like `georam_kb`.
     reu_kb: Option<usize>,
+    /// Control port a 1351 mouse is plugged into (1 or 2), retained across a
+    /// reset so the mouse stays plugged in — and so host pointer events know
+    /// which port to drive.
+    mouse_1351_port: Option<u8>,
     iec_bus: IecBus,
     drive8_cycle_accum: u64,
     rgba_framebuffer: Vec<u8>,
@@ -173,6 +177,7 @@ impl C64Runtime {
             cartridge_image: None,
             georam_kb: None,
             reu_kb: None,
+            mouse_1351_port: None,
             iec_bus,
             drive8_cycle_accum: 0,
             rgba_framebuffer,
@@ -369,6 +374,10 @@ impl C64Runtime {
         if let Some(size_kb) = self.reu_kb {
             self.machine.attach_reu(size_kb);
         }
+        // A 1351 mouse stays plugged into its control port across a reset.
+        if let Some(port) = self.mouse_1351_port {
+            self.machine.attach_mouse_1351(port);
+        }
         Ok(())
     }
 
@@ -390,6 +399,27 @@ impl C64Runtime {
             Some(kb) => self.machine.attach_reu(kb),
             None => self.machine.detach_reu(),
         }
+    }
+
+    /// Plugs a 1351 proportional mouse into control port `Some(1 | 2)`, or
+    /// unplugs it with `None`. Retained so a later reset re-attaches it, and so
+    /// host pointer events know which port to drive. An out-of-range port is
+    /// ignored.
+    pub fn set_mouse_1351(&mut self, port: Option<u8>) {
+        if let Some(current) = self.mouse_1351_port {
+            self.machine.detach_mouse_1351(current);
+        }
+        self.mouse_1351_port = match port {
+            Some(p) if self.machine.attach_mouse_1351(p) => Some(p),
+            _ => None,
+        };
+    }
+
+    /// The control port a 1351 mouse is plugged into, if any. Host pointer
+    /// events route here.
+    #[must_use]
+    pub fn mouse_1351_port(&self) -> Option<u8> {
+        self.mouse_1351_port
     }
 
     /// Resync the RGBA framebuffer from the machine's native buffer. Named for
