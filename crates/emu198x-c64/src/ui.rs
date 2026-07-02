@@ -41,7 +41,7 @@ use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
     DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
     DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_disk,
-    autoload_basic_tape, file_loader::load_host_file,
+    autoload_basic_disk_and_run, autoload_basic_tape, file_loader::load_host_file,
 };
 
 const KERNAL_ID: &str = "commodore-c64-kernal-rom";
@@ -346,6 +346,7 @@ pub struct Cli {
     disk: Option<PathBuf>,
     tape: Option<PathBuf>,
     autoload_disk: bool,
+    autoload_run: bool,
     autoload_tape: bool,
     start_tape: bool,
     turbo_tape: bool,
@@ -408,6 +409,7 @@ Options:
     --disk PATH          insert one D64 image into drive-8 at startup
     --tape PATH          insert one TAP image into datasette slot at startup
     --autoload-disk      wait for READY. and type LOAD\"*\",8,1 for drive-8
+    --autoload-run       after --autoload-disk loads, wait for it and type RUN
     --autoload-tape      wait for READY., press SHIFT+RUN/STOP, and start tape-1
     --start-tape         start the inserted tape immediately at startup
     --turbo-tape         run unthrottled while the tape is playing
@@ -470,6 +472,9 @@ pub fn run(cli: Cli) -> Result<(), String> {
 fn build_runtime(cli: &Cli) -> Result<(C64Runtime, FirmwareBundle), String> {
     if cli.autoload_disk && cli.autoload_tape {
         return Err("--autoload-disk conflicts with --autoload-tape".to_owned());
+    }
+    if cli.autoload_run && !cli.autoload_disk {
+        return Err("--autoload-run requires --autoload-disk".to_owned());
     }
     if cli.autoload_tape && cli.start_tape {
         return Err("--autoload-tape conflicts with --start-tape".to_owned());
@@ -556,7 +561,12 @@ fn build_runtime(cli: &Cli) -> Result<(C64Runtime, FirmwareBundle), String> {
         )
         .map_err(|err| format!("tape autoload failed: {err}"))?;
     } else if cli.autoload_disk {
-        autoload_basic_disk(
+        let autoload = if cli.autoload_run {
+            autoload_basic_disk_and_run
+        } else {
+            autoload_basic_disk
+        };
+        autoload(
             &mut session,
             DEFAULT_DISK_AUTOLOAD_SLOT,
             DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
@@ -741,6 +751,7 @@ where
             "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
             "--autoload-disk" => cli.autoload_disk = true,
+            "--autoload-run" => cli.autoload_run = true,
             "--autoload-tape" => cli.autoload_tape = true,
             "--start-tape" => cli.start_tape = true,
             "--turbo-tape" => cli.turbo_tape = true,
@@ -837,6 +848,7 @@ mod tests {
                 disk: None,
                 tape: None,
                 autoload_disk: false,
+                autoload_run: false,
                 autoload_tape: false,
                 start_tape: false,
                 turbo_tape: false,
@@ -868,6 +880,7 @@ mod tests {
                 disk: None,
                 tape: Some(PathBuf::from("game.tap")),
                 autoload_disk: false,
+                autoload_run: false,
                 autoload_tape: true,
                 start_tape: false,
                 turbo_tape: false,
@@ -890,6 +903,22 @@ mod tests {
         let cli = parse_cli(["--georam".to_string(), "512".to_string()]);
         assert_eq!(cli.georam_kb, Some(512));
         assert_eq!(parse_georam_size("2048"), 2048);
+    }
+
+    #[test]
+    fn parse_cli_accepts_autoload_run() {
+        let cli = parse_cli(["--autoload-disk".to_string(), "--autoload-run".to_string()]);
+        assert!(cli.autoload_disk);
+        assert!(cli.autoload_run);
+    }
+
+    #[test]
+    fn build_runtime_rejects_autoload_run_without_disk() {
+        let cli = parse_cli(["--autoload-run".to_string()]);
+        let err = build_runtime(&cli)
+            .map(|_| ())
+            .expect_err("autoload-run needs autoload-disk");
+        assert!(err.contains("--autoload-run requires --autoload-disk"));
     }
 
     #[test]
