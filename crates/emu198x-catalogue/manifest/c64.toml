@@ -356,3 +356,67 @@ frame_hash = "xxh64:b562e1cd4a4a3a34"
 from_frame = 60
 secs = 2.0
 hash = "xxh64:ce6e8e82de1a0a18"
+
+[[entry]]
+id = "final-cartridge-iii"
+title = "Final Cartridge III"
+year = 1987
+publisher = "Riska B.V. (H&P Computers)"
+variant = "pal"
+
+[entry.media]
+# CRT — a 64K freezer cartridge (hardware type 3): four 16K banks, a
+# single $DFFF control register, and a freeze button on /NMI. Present at
+# boot in 16K mode, it autostarts its own desktop, replacing the C64
+# startup screen. First freeze-cartridge entry in the catalogue.
+kind = "cartridge"
+slot = "cartridge-1"
+path = "commodore/c64/Applications/[CRT]/Final Cartridge III (1987-11)(Riska H&P).zip"
+
+[entry.boot]
+# No script: the cartridge boots straight to its own desktop from the
+# 16K ROM (ROML $8000 + ROMH $A000). Exercises 16K boot + autostart.
+wait_frames = 500
+frame_hash = "xxh64:72a37f5c3cbd6176"
+
+[entry.audio]
+# The idle desktop is deterministic near-silence; the hash asserts the
+# audio pipeline output, not musical content.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:2d2d7c5231ec57ab"
+
+[[entry]]
+id = "action-replay"
+title = "Action Replay v6.0 Professional"
+year = 1989
+publisher = "Datel Electronics"
+variant = "pal"
+
+[entry.media]
+# CRT — the Datel freezer (hardware type 1): 32K ROM in four 8K banks,
+# 8K onboard RAM, a $DE00 control register, and a freeze button on /NMI.
+# Boots transparently (the C64 reaches READY); pressing freeze latches
+# NMI and banks the cartridge into Ultimax, so its menu runs from ROM.
+kind = "cartridge"
+slot = "cartridge-1"
+
+path = "commodore/c64/Applications/[CRT]/Action Replay v6.0 Professional (1989)(Datel Electronics).zip"
+
+[[entry.script]]
+# Let the KERNAL reach READY, then press the freeze button: the Action
+# Replay menu takes over the screen.
+at_frame = 200
+press = "freeze"
+
+[entry.boot]
+# The capture lands on the Action Replay freezer menu — proof the freeze
+# button drove /NMI and the cartridge banked itself in over $8000/$E000.
+wait_frames = 500
+frame_hash = "xxh64:72943c01dbd9bd32"
+
+[entry.audio]
+# The idle freezer menu is deterministic near-silence.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:2d2d7c5231ec57ab"
