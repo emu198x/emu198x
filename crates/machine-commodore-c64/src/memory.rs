@@ -613,9 +613,10 @@ impl C64Memory {
             }
             0xA000..=0xBFFF => {
                 // 16K carts (not Ultimax) place ROMH here, replacing BASIC.
+                // The PLA maps it on HIRAM alone — LORAM only gates ROML
+                // (Prince of Persia EF's launcher runs with $01=$36).
                 let romh = bank.romh.as_ref()?;
-                (!cart.ultimax() && self.loram() && self.hiram())
-                    .then(|| romh[usize::from(addr - 0xA000)])
+                (!cart.ultimax() && self.hiram()).then(|| romh[usize::from(addr - 0xA000)])
             }
             0xE000..=0xFFFF => {
                 // Ultimax carts place ROMH here, replacing the KERNAL.
@@ -1010,6 +1011,30 @@ mod tests {
         assert_eq!(memory.cpu_read(0x8000), 0xA1);
         assert_eq!(memory.cpu_read(0xA000), 0xB2); // ROMH, not BASIC (0xBB)
         assert_eq!(memory.cpu_read(0xE000), 0xEE); // KERNAL untouched
+    }
+
+    /// 16K cart with LORAM low ($01=$36): the PLA keeps ROMH at $A000 on
+    /// HIRAM alone — only the ROML window closes (Prince of Persia EF's
+    /// launcher runs in exactly this configuration).
+    #[test]
+    fn cart_16k_keeps_romh_when_loram_low() {
+        let mut memory = make_memory();
+        memory.insert_cartridge(
+            true,
+            true,
+            Some(Box::new([0xA1; 0x2000])),
+            Some(Box::new([0xB2; 0x2000])),
+        );
+        memory.cpu_write(0x0000, 0xFF);
+        memory.cpu_write(0x0001, 0x36); // LORAM low, HIRAM high
+        memory.ram_write(0x8000, 0x77);
+        assert_eq!(memory.cpu_read(0x8000), 0x77); // ROML window closed
+        assert_eq!(memory.cpu_read(0xA000), 0xB2); // ROMH stays
+        assert_eq!(memory.cpu_read(0xE000), 0xEE); // KERNAL stays
+        // HIRAM low closes ROMH too.
+        memory.cpu_write(0x0001, 0x35);
+        memory.ram_write(0xA000, 0x66);
+        assert_eq!(memory.cpu_read(0xA000), 0x66);
     }
 
     /// Ultimax: EXROM high, GAME low. ROML at $8000 + ROMH at $E000 (replacing
