@@ -37,10 +37,19 @@ Anchor every session against one of:
   the residual accuracy/scope debt in
   [`docs/status/outstanding-work.md`](docs/status/outstanding-work.md). Still
   highest-value because it protects the shipped launch.
+- **Best-in-class campaign work** (added 2026-07-03) — the staged
+  reference-class campaigns (Spectrum → NES/GB → C64 → Amiga standing) per
+  the umbrella decision
+  [`../decisions/emu198x-best-in-class.md`](../decisions/emu198x-best-in-class.md)
+  and the programme plan
+  [`docs/plans/2026-07-03-best-in-class-programme.md`](docs/plans/2026-07-03-best-in-class-programme.md).
+  The priority lane once launch-hardening is satisfied; one campaign at a
+  time (Amiga standing excepted).
 - **Engineering-frontier work** — donor systems (CTC reuse into MTX/Einstein,
   awaiting-ROM boots, the "boots but black" sweep), C64/NES/Amiga catalogue
   progress, shared-infrastructure gaps (e.g. video-recording capture parity).
-  No October deadline; priority is impact, not a fixed order.
+  No October deadline; priority is impact, not a fixed order. Continues
+  alongside campaigns — two lanes, neither pauses the other.
 
 The old "name non-Spectrum work as deferred / don't jump ahead of Spectrum
 sequencing" rule is retired — its precondition (Spectrum SOLID) is satisfied.
