@@ -9,8 +9,11 @@ use mos_cia_6526::Cia6526;
 use mos_sid_6581::{AudioControls, Sid6581, SidChannel};
 use mos_vic_ii::{Vic, VicModel};
 
+use crate::action_replay::ActionReplay;
 use crate::config::{C64Config, C64Model};
 use crate::datasette::Datasette;
+use crate::final_cartridge3::FinalCartridge3;
+use crate::freeze_cart::FreezeCart;
 use crate::keyboard::KeyboardMatrix;
 use crate::memory::{C64Memory, C64MemorySnapshot, CartBankPair, CartBanking, MemoryInitError};
 
@@ -234,6 +237,44 @@ fn map_generic_cartridge(
         return Err("cartridge has no ROM image for the mapped windows".to_owned());
     }
     Ok((roml, romh))
+}
+
+/// Builds a freeze-button cartridge device from a CRT, or `None` when the
+/// hardware type is not a freeze cartridge (the caller falls through to the
+/// banked/generic mappers).
+fn freeze_cart_for_hardware_type(cart: &CrtCartridge) -> Result<Option<FreezeCart>, String> {
+    match cart.hardware_type {
+        1 => Ok(Some(FreezeCart::ActionReplay(ActionReplay::new(
+            concat_cart_banks(cart, 0x2000)?,
+        )))),
+        3 => Ok(Some(FreezeCart::FinalCartridge3(FinalCartridge3::new(
+            concat_cart_banks(cart, 0x4000)?,
+        )))),
+        _ => Ok(None),
+    }
+}
+
+/// Concatenates a cartridge's CHIP packets into one contiguous ROM image, each
+/// placed at `bank * bank_size`. Missing banks stay zero. Used by the freeze
+/// cartridges, whose banks are simple contiguous ROM (no ROML/ROMH split at
+/// the mapper — the device does its own windowing).
+fn concat_cart_banks(cart: &CrtCartridge, bank_size: usize) -> Result<Vec<u8>, String> {
+    let bank_count = cart
+        .chips
+        .iter()
+        .map(|chip| usize::from(chip.bank) + 1)
+        .max()
+        .unwrap_or(0);
+    if bank_count == 0 {
+        return Err("freeze cartridge has no CHIP banks".to_owned());
+    }
+    let mut rom = vec![0u8; bank_count * bank_size];
+    for chip in &cart.chips {
+        let base = usize::from(chip.bank) * bank_size;
+        let len = chip.data.len().min(bank_size);
+        rom[base..base + len].copy_from_slice(&chip.data[..len]);
+    }
+    Ok(rom)
 }
 
 /// The bank-switching scheme a cartridge hardware type drives, or `None` for the
@@ -465,6 +506,27 @@ impl C64 {
     /// Run/Stop down, the KERNAL NMI handler performs a warm reset.
     pub fn set_restore(&mut self, pressed: bool) {
         self.restore_nmi = pressed;
+    }
+
+    /// Press the freeze button on an inserted freeze cartridge (Action Replay,
+    /// Final Cartridge III). The press latches the cartridge's `/NMI` and banks
+    /// its ROM in; the cartridge holds the config until its handler releases it
+    /// through the control register. Ignored when no freeze cartridge is
+    /// present. Returns `true` when a freeze cartridge handled the press.
+    pub fn set_cart_freeze(&mut self, pressed: bool) -> bool {
+        if pressed {
+            self.memory.freeze_cart_button()
+        } else {
+            // Release is a no-op: the button only edges the config on press,
+            // and the NMI latch is cleared by the handler's register write.
+            self.memory.freeze_cart_registers().is_some()
+        }
+    }
+
+    /// Freeze-cartridge `(register, bank)` for debug/inspection surfaces.
+    #[must_use]
+    pub fn freeze_cart_registers(&self) -> Option<(u8, u8)> {
+        self.memory.freeze_cart_registers()
     }
 
     /// Sets one joystick control on controller port 1 or 2.
@@ -761,6 +823,10 @@ impl C64 {
             self.memory.insert_easyflash(low, high);
             return Ok(());
         }
+        if let Some(freeze) = freeze_cart_for_hardware_type(&cart)? {
+            self.memory.insert_freeze_cart(freeze);
+            return Ok(());
+        }
         match banking_for_hardware_type(cart.hardware_type)? {
             None => {
                 let (roml, romh) = map_generic_cartridge(&cart)?;
@@ -841,7 +907,7 @@ impl C64 {
         self.refresh_paddle_pots();
         self.refresh_vic_bank();
         self.cpu.irq = self.vic.irq || self.cia1.irq || self.memory.reu_irq();
-        self.cpu.nmi = self.cia2.irq || self.restore_nmi;
+        self.cpu.nmi = self.cia2.irq || self.restore_nmi || self.memory.freeze_cart_nmi();
         self.cpu.rdy = !self.vic.ba_low || !self.cpu.rw;
 
         if self.cpu.rdy {
@@ -877,7 +943,7 @@ impl C64 {
         self.refresh_paddle_pots();
         self.refresh_vic_bank();
         self.cpu.irq = self.vic.irq || self.cia1.irq || self.memory.reu_irq();
-        self.cpu.nmi = self.cia2.irq || self.restore_nmi;
+        self.cpu.nmi = self.cia2.irq || self.restore_nmi || self.memory.freeze_cart_nmi();
         self.cpu.rdy = !self.vic.ba_low || !self.cpu.rw;
 
         if self.cpu.rdy {
@@ -1018,6 +1084,7 @@ impl C64 {
         // chip's command state machine (the RAM underneath still takes the
         // byte, as for any ROM window).
         self.memory.easyflash_rom_write(addr, value);
+        self.memory.freeze_cart_rom_write(addr, value);
         self.memory.cpu_write(addr, value);
         if matches!(addr, 0x0000 | 0x0001) {
             self.refresh_datasette_port_lines();
@@ -1039,6 +1106,7 @@ impl C64 {
             return;
         }
         self.memory.easyflash_rom_write(addr, value);
+        self.memory.freeze_cart_rom_write(addr, value);
         self.memory.cpu_write(addr, value);
         if matches!(addr, 0x0000 | 0x0001) {
             self.refresh_datasette_port_lines();
@@ -1078,7 +1146,8 @@ impl C64 {
             0xDD00..=0xDDFF => self.cia2.read((addr & 0x0F) as u8),
             0xDE00..=0xDFFF => self
                 .memory
-                .easyflash_io2_read(addr)
+                .freeze_cart_io_read(addr)
+                .or_else(|| self.memory.easyflash_io2_read(addr))
                 .or_else(|| self.memory.reu_read(addr))
                 .or_else(|| self.memory.georam_read(addr))
                 .unwrap_or(0xFF),
@@ -1310,6 +1379,108 @@ mod tests {
             v.extend_from_slice(data);
         }
         v
+    }
+
+    /// Build a freeze-cartridge CRT: header with `hardware_type` + one CHIP
+    /// packet per bank at `$8000`, each `data.len()` bytes.
+    fn build_freeze_crt(hardware_type: u16, exrom: u8, game: u8, banks: &[&[u8]]) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(b"C64 CARTRIDGE   ");
+        v.extend_from_slice(&0x40u32.to_be_bytes());
+        v.extend_from_slice(&0x0100u16.to_be_bytes());
+        v.extend_from_slice(&hardware_type.to_be_bytes());
+        v.push(exrom);
+        v.push(game);
+        v.extend_from_slice(&[0u8; 6]);
+        v.extend_from_slice(&[0u8; 32]);
+        for (bank, data) in banks.iter().enumerate() {
+            v.extend_from_slice(b"CHIP");
+            v.extend_from_slice(&((0x10 + data.len()) as u32).to_be_bytes());
+            v.extend_from_slice(&0u16.to_be_bytes()); // ROM
+            v.extend_from_slice(&(bank as u16).to_be_bytes());
+            v.extend_from_slice(&0x8000u16.to_be_bytes());
+            v.extend_from_slice(&(data.len() as u16).to_be_bytes());
+            v.extend_from_slice(data);
+        }
+        v
+    }
+
+    #[test]
+    fn action_replay_freeze_asserts_nmi_and_banks_in() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        // 32K = four 8K banks. Bank 0 carries a marker at $8000 and an $E000
+        // vector byte (offset $1FFC within the bank).
+        let mut bank0 = vec![0u8; 0x2000];
+        bank0[0] = 0xA7; // $8000 marker
+        bank0[0x1FFC] = 0x5A; // Ultimax $FFFC vector low
+        let banks: Vec<&[u8]> = vec![&bank0, &[0u8; 0x2000], &[0u8; 0x2000], &[0u8; 0x2000]];
+        let crt = build_freeze_crt(1, 0, 0, &banks);
+        machine
+            .insert_crt_bytes(&crt)
+            .expect("Action Replay inserts");
+
+        // Boots in 8K GAME: ROML visible at $8000, KERNAL still at $E000.
+        assert_eq!(machine.cpu_read(0x8000), 0xA7);
+        let kernal_e000 = machine.cpu_read(0xE000);
+        assert_ne!(kernal_e000, 0x5A);
+
+        // No NMI idle.
+        machine.tick();
+        assert!(!machine.cpu().nmi);
+
+        // Freeze: NMI asserts and the cart flips to Ultimax, so its ROMH owns
+        // the $E000 vectors (the NMI handler runs from the cartridge).
+        machine.set_cart_freeze(true);
+        machine.tick();
+        assert!(machine.cpu().nmi, "freeze asserts /NMI");
+        assert_eq!(
+            machine.cpu_read(0xFFFC),
+            0x5A,
+            "vectors come from cart ROMH"
+        );
+
+        // The handler writes $DE00 with bit 6 set (release NMI) + mode 0 (8K):
+        // the NMI line drops and the KERNAL returns at $E000.
+        machine.cpu_write(0xDE00, 0x40);
+        machine.tick();
+        assert!(!machine.cpu().nmi, "register bit 6 releases the freeze NMI");
+        assert_eq!(machine.cpu_read(0xE000), kernal_e000);
+    }
+
+    #[test]
+    fn final_cartridge3_boots_16k_and_freezes_to_ultimax() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        // 64K = four 16K banks. Bank 0: ROML marker at $8000, ROMH marker at
+        // $A000 (offset $2000), and an $E000 vector byte (offset $3FFC).
+        let mut bank0 = vec![0u8; 0x4000];
+        bank0[0] = 0xF3; // $8000 (ROML)
+        bank0[0x2000] = 0xB3; // $A000 (ROMH)
+        bank0[0x3FFC] = 0x77; // Ultimax $FFFC vector low
+        let banks: Vec<&[u8]> = vec![&bank0, &[0u8; 0x4000], &[0u8; 0x4000], &[0u8; 0x4000]];
+        let crt = build_freeze_crt(3, 1, 1, &banks);
+        machine
+            .insert_crt_bytes(&crt)
+            .expect("Final Cartridge III inserts");
+
+        // Boots in 16K: ROML at $8000 + ROMH at $A000 (replacing BASIC).
+        assert_eq!(machine.cpu_read(0x8000), 0xF3);
+        assert_eq!(machine.cpu_read(0xA000), 0xB3);
+
+        // Freeze forces Ultimax: ROMH moves to $E000 and owns the vectors.
+        machine.set_cart_freeze(true);
+        machine.tick();
+        assert!(machine.cpu().nmi, "freeze asserts /NMI");
+        assert_eq!(
+            machine.cpu_read(0xFFFC),
+            0x77,
+            "vectors come from cart ROMH"
+        );
+
+        // $DFFF write: release NMI (bit 6), back to 16K (bits 5,4 = 0), bank 0.
+        machine.cpu_write(0xDFFF, 0x40);
+        machine.tick();
+        assert!(!machine.cpu().nmi, "register bit 6 releases the freeze NMI");
+        assert_eq!(machine.cpu_read(0xA000), 0xB3, "16K ROMH restored at $A000");
     }
 
     #[test]

@@ -8,10 +8,13 @@
 //! - live VIC-II raster, BA, IRQ, and framebuffer ownership
 //! - first datasette transport and pulse-to-FLAG integration
 
+mod action_replay;
 pub mod config;
 mod datasette;
 mod easyflash;
+mod final_cartridge3;
 mod flash040;
+mod freeze_cart;
 pub mod keyboard;
 pub mod machine;
 pub mod memory;

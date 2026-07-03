@@ -92,6 +92,10 @@ pub(crate) fn apply_input_event(machine: &mut C64, event: &InputEvent) {
             } else if name.as_ref().eq_ignore_ascii_case("restore") {
                 // RESTORE is not on the matrix — it pulses the CPU /NMI.
                 machine.set_restore(*pressed);
+            } else if name.as_ref().eq_ignore_ascii_case("freeze") {
+                // A freeze-cartridge button (Action Replay, Final Cartridge III)
+                // — also off-matrix, latching the cartridge's /NMI.
+                machine.set_cart_freeze(*pressed);
             }
         }
         InputEvent::PointerMotion { device, dx, dy } if device.as_ref() == "mouse-1" => {
@@ -245,8 +249,11 @@ fn c64_key_position(name: &str) -> Option<(u8, u8)> {
 /// curriculum author drives by hand).
 #[must_use]
 pub fn key_name_is_valid(name: &str) -> bool {
-    // RESTORE is a real key but lives on the /NMI line, not the matrix.
-    c64_key_position(name).is_some() || name.eq_ignore_ascii_case("restore")
+    // RESTORE and the cartridge FREEZE button are real keys but live on the
+    // /NMI line, not the matrix.
+    c64_key_position(name).is_some()
+        || name.eq_ignore_ascii_case("restore")
+        || name.eq_ignore_ascii_case("freeze")
 }
 
 /// C64 keycap names for the letters `A`–`Z`, indexed `0..26`.
