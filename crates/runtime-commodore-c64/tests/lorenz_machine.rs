@@ -7,14 +7,17 @@
 //! against the real `machine-commodore-c64` board (live CIA ×2, VIC-II, IRQ
 //! wiring, banking) so their pass/fail is *scored*, not hidden behind a skip.
 //!
-//! It is a **tracked ledger**, not a green-all gate. Today 12 of the 15
+//! It is a **tracked ledger**, not a green-all gate. Today 14 of the 15
 //! cases pass — the seven CIA-timer cases plus `irq`/`nmi` landed with the
-//! CIA cycle-delay pipeline (#17), and `mmu` with the PLA char-ROM /
-//! no-write-through-under-I/O fixes (#733). Only the tape traps
-//! (`trap16`/`trap17`) and the suite finaliser (`finish`) stay red: they
-//! need tape-side state this standalone harness doesn't set up. The ledger
-//! asserts the passing set does not regress and records the rest, so any
-//! future fix is a visible, closeable move into `EXPECTED_PASS`.
+//! CIA cycle-delay pipeline (#17), `mmu` with the PLA char-ROM /
+//! no-write-through-under-I/O fixes (#733), and `trap16`/`trap17` (the
+//! per-opcode sweeps executing at `$FFFE`/`$FFFF`) with the page-zero
+//! execution exemption plus the port-bit-5 pull-up fix. Only the suite
+//! finaliser (`finish`) stays red: it summarises a full chained run of
+//! every case, which this standalone per-case harness doesn't produce.
+//! The ledger asserts the passing set does not regress and records the
+//! rest, so any future fix is a visible, closeable move into
+//! `EXPECTED_PASS`.
 //!
 //! How each case runs:
 //!   1. Boot a real C64 to `READY.` once, then clone it per case (cheap; the
@@ -97,10 +100,10 @@ const HARDWARE_DEPENDENT: &[&str] = &[
     // 6510 MMU / banking — needs the real PLA, not a flat map.
     "mmu",
     "mmufetch",
-    // The last two KERNAL load-trap variants exercise tape-side timing.
+    // Per-opcode sweeps at $FFFE/$FFFF — PC wraps through the 6510 port.
     "trap16",
     "trap17",
-    // Final synthesiser that drives the KERNAL screen-clear.
+    // Suite finaliser — summarises a full chained run of every case.
     "finish",
 ];
 
@@ -108,8 +111,8 @@ const HARDWARE_DEPENDENT: &[&str] = &[
 /// ROMs + suite). The regression gate asserts these keep printing " - OK".
 ///
 /// The rest of [`HARDWARE_DEPENDENT`] stay red and are tracked, not asserted:
-///   - `trap16` / `trap17` (tape KERNAL load traps) and `finish` (the suite
-///     finaliser) need tape-side state this standalone harness doesn't set up.
+///   - `finish` (the suite finaliser) summarises a full chained run of every
+///     case, which this standalone per-case harness doesn't produce.
 const EXPECTED_PASS: &[&str] = &[
     // CIA cycle-delay pipeline (#17): timers, PB67 outputs, ICR/IRQ races.
     "cia1ta",
@@ -126,6 +129,12 @@ const EXPECTED_PASS: &[&str] = &[
     "cputiming",
     "mmu",
     "mmufetch",
+    // Per-opcode sweeps executing at $FFFE/$FFFF: PC wraps through the
+    // 6510 port at $0000/$0001, whose bytes become the operands. trap17
+    // additionally needs port bit 5 (cassette motor, no pull-up) to
+    // read 0 as an input.
+    "trap16",
+    "trap17",
 ];
 
 // ---- Harness --------------------------------------------------------------
@@ -138,8 +147,16 @@ struct Outcome {
     output: String,
 }
 
+/// Cases that legitimately execute through page zero: `trap16`/`trap17`
+/// place their opcode-under-test at `$FFFE`/`$FFFF`, so execution wraps the
+/// PC through `$0000`/`$0001` (the 6510 port registers, read as instruction
+/// bytes) into RTS stubs the test parks at `$0002`/`$0003`. For these the
+/// wild-`$0000`-fetch derail guard must be off — a zero-page fetch IS the
+/// test.
+const EXECUTES_THROUGH_PAGE_ZERO: &[&str] = &["trap16", "trap17"];
+
 /// Runs one Lorenz case against a freshly-cloned copy of the booted machine.
-fn run_case(booted: &C64, program: &[u8]) -> Result<Outcome, String> {
+fn run_case(booted: &C64, program: &[u8], allow_page_zero_exec: bool) -> Result<Outcome, String> {
     if program.len() < 2 {
         return Err("Lorenz test file too short for a load address".to_owned());
     }
@@ -196,7 +213,7 @@ fn run_case(booted: &C64, program: &[u8]) -> Result<Outcome, String> {
                         petscii(&output)
                     ));
                 }
-                0x0000 => {
+                0x0000 if !allow_page_zero_exec => {
                     return Err(format!("wild fetch at $0000; output: {}", petscii(&output)));
                 }
                 _ => {}
@@ -378,7 +395,11 @@ fn lorenz_machine_hardware_dependent_ledger() {
                 continue;
             }
         };
-        match run_case(&booted, &program) {
+        match run_case(
+            &booted,
+            &program,
+            EXECUTES_THROUGH_PAGE_ZERO.contains(&name),
+        ) {
             Ok(outcome) if outcome.passed => {
                 println!("  PASS  {name:<12} ({} cycles)", outcome.cycles);
                 passed.push(name);
@@ -407,7 +428,7 @@ fn lorenz_machine_hardware_dependent_ledger() {
         passed.len(),
         HARDWARE_DEPENDENT.len()
     );
-    println!("  still red (tracked — tape-trap loads + suite finaliser): {failed:?}");
+    println!("  still red (tracked — suite finaliser needs the full chain): {failed:?}");
 
     // Regression gate: every case we expect to pass today must still pass.
     let regressions: Vec<&str> = EXPECTED_PASS

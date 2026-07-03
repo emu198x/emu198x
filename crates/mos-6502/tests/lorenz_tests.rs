@@ -600,8 +600,9 @@ const KNOWN_HARDWARE_DEPENDENT: &[&str] = &[
     // 6510 MMU / banking — the harness has a flat memory map.
     "mmu",
     "mmufetch",
-    // Last two of the 17 KERNAL load-trap variants exercise
-    // tape-side timing the harness can't simulate.
+    // Last two of the 17 per-opcode sweeps place the opcode at
+    // $FFFE/$FFFF, wrapping the PC through the 6510 port at
+    // $0000/$0001 — needs the real machine, not a flat map.
     "trap16",
     "trap17",
     // Lorenz's `finish` is a final synthesizer that drives the
