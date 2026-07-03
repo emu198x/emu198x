@@ -1,9 +1,17 @@
 # Decision: WASM deferred — no system ships a WASM build until concrete demand
 
 **Date:** 2026-05-23
-**Status:** Locked. Resolves the WASM sequencing question that
+**Status:** SUPERSEDED IN PART, 2026-07-03 — see the Log. WASM is
+now strategic scope, **narrowly**: Code198x curriculum embeds
+running curriculum-owned code, on firmware-permission systems
+(Spectrum first), sequenced so it cannot displace launch-hardening
+before October. The deferral **stands** for everything else this
+record rejected — general demo pages, BYO-ROM play in the browser,
+and marketing the project "web-ready". Binding scope at
+[`../../../decisions/emu198x-best-in-class.md`](../../../decisions/emu198x-best-in-class.md).
+Originally: Locked. Resolves the WASM sequencing question that
 appeared in the post-October roadmap's open-questions list. The
-question was "which system ships first to WASM?"; the answer is
+question was "which system ships first to WASM?"; the answer was
 "none, until concrete demand surfaces."
 
 ## What this is
@@ -171,6 +179,35 @@ If I'm about to suggest any of these, stop and re-read this record.
   reasons apply.
 
 ## Log
+
+### 2026-07-03 — Superseded in part: curriculum embeds are in scope
+
+During the best-in-class strategy session
+([`../../../decisions/emu198x-best-in-class.md`](../../../decisions/emu198x-best-in-class.md)),
+WASM was named a strategic priority — then this record surfaced as a
+direct contradiction and was resolved explicitly rather than
+shadowed. Steve chose **supersede for curriculum embeds**:
+
+- **What changed:** the ROM-legality argument (§ The strongest
+  argument was killed by ROM legality) assumed embeds need
+  commercial game ROMs. Code198x lessons teach *writing* games —
+  the embed content is curriculum-owned assembly the learner just
+  built, which we can ship freely. And the October system's
+  firmware is Amstrad-permissioned for distribution with emulators.
+  For that specific case, the killer argument does not apply.
+- **What did not change:** the engineering-surface estimate (6–8
+  weeks MVP + maintenance) is accepted, not refuted. The deferral
+  stands for demo pages, BYO-ROM browser play, and "web-ready"
+  marketing. Firmware legality still excludes C64/Amiga embeds
+  (Cloanto/Kickstart) until separately resolved.
+- **New scope:** `emu198x-spectrum-web`-shaped work (this record's
+  § What happens if a trigger fires remains the right first cut),
+  a Code198x embed API, curriculum-owned content only. Sequenced
+  post-October-protection per the roadmap's amended drift trigger.
+
+Effectively, re-open trigger 1 ("a Code198x lesson UX that genuinely
+needs WASM") was judged fired by the live-machines-in-lessons
+framing once the content-legality rebuttal was on the table.
 
 ### 2026-05-23 — Decision locked
 

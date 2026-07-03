@@ -42,6 +42,45 @@ C64, NES, and Amiga continue as engineering bars. They progress in this priority
 - 6809 family: Dragon, CoCo, Vectrex
 - Long tail: Jupiter Ace, Aquarius, MTX, Sord M5, SVI-328, Einstein
 
+## Best-in-class ladder (added 2026-07-03)
+
+A new axis **on top of** the engineering bar, decided at umbrella level — see
+[`../../../decisions/emu198x-best-in-class.md`](../../../decisions/emu198x-best-in-class.md)
+and the programme plan at
+[`2026-07-03-best-in-class-programme.md`](../../docs/plans/2026-07-03-best-in-class-programme.md).
+
+The victory condition is **best consistent multi-system suite + reference-class
+depth on the four headliners, run as staged campaigns**, backed by three moats
+(agent-native tooling, embeddable published crates, browser reach).
+
+**Campaign order (reference-class depth, not catalogue completion):**
+
+1. **Spectrum** — launch anchor, deepest already, most beatable incumbent (Fuse)
+2. **NES / Game Boy** — public, finite canon; "provably equal to Mesen2/SameBoy" is a checklist
+3. **C64** — demo canon frame-accuracy is the loudest single claim available
+4. **Amiga** — standing multi-year campaign with staged claims (OCS demo canon → IPF originals → ECS/AGA parity), never one distant "matches WinUAE" goal
+
+This ladder does **not** reorder the engineering-bar catalogue priorities below
+(C64 → NES → Amiga): catalogue-passing is a prerequisite rung of each campaign,
+not a competitor to it. "Reference-class" is a public claim — same test canon
+green as the incumbent, same protected originals booting, evidenced by a
+published per-system dashboard.
+
+Supporting commitments: a **hardware-truth pipeline** (real machines + capture
+gear for campaign systems, measurements landing in the umbrella `reference/`
+library as a hardware-measured provenance layer), and **WASM as a strategic
+priority, scoped** — curriculum-owned code on firmware-permission systems,
+superseding-in-part [`wasm-sequencing.md`](wasm-sequencing.md) (see its Log),
+sequenced so it cannot displace Spectrum launch-hardening before Crash! Live
+(see amended drift trigger below).
+
+**Two lanes:** campaigns are the priority lane; the engineering frontier
+(donor systems, Tier B/C breadth) continues opportunistically per RULES.md
+session-start anchors. Neither pauses the other; the campaign dashboard is
+the stall detector. Licensing intent for the published-crates moat:
+[`crate-licensing-split.md`](crate-licensing-split.md). Docs-site canon:
+[`docs-site-canon.md`](docs-site-canon.md).
+
 ## Accuracy bar
 
 Same as Spectrum for every system. Non-negotiable. See [fresh start rationale](fresh-start-rationale.md).
@@ -101,7 +140,10 @@ Roadmaps drift through scope creep and reprioritization, not code patterns. If I
 - Adding a unified launcher (superseded 2026-05-23 — see [`no-unified-launcher.md`](no-unified-launcher.md); rejecting the launcher is now the binding decision)
 - Adding a `--launcher` mode to per-system binaries (same coupling cost, distributed across every binary)
 - Skipping the shared shell crate (`emu198x-shell`) and reimplementing per system
-- Adding a web version / mobile version / etc. before October
+- Adding a web version / mobile version / etc. before October — **amended
+  2026-07-03**: WASM is now strategic scope (see § Best-in-class ladder), but
+  the trigger's protective half stands — WASM work must not displace Spectrum
+  launch-hardening before Crash! Live. Reject *displacement*, not the target.
 
 **Phrases that signal drift:**
 
@@ -117,9 +159,23 @@ Roadmaps drift through scope creep and reprioritization, not code patterns. If I
 - [Fresh start rationale](fresh-start-rationale.md) — why accuracy is non-negotiable
 - [Crate naming](crate-naming.md) — how new crates should be named
 - [No unified launcher](no-unified-launcher.md) — the 2026-05-23 supersession of the launcher commitment
+- [Best-in-class decision (umbrella)](../../../decisions/emu198x-best-in-class.md) — victory condition, campaign staging, moats (2026-07-03)
 - [Brainstorm doc](../../docs/brainstorms/2026-04-05-accuracy-to-product-roadmap-brainstorm.md) — full discussion
 
 ## Log
+
+### 2026-07-03 — Best-in-class ladder added
+
+Following an eight-dimension codebase audit and a strategy session on standing
+shoulder-to-shoulder with WinUAE/VICE/Mesen2/Fuse, Steve decided the victory
+condition: best unified suite + staged reference-class campaigns
+(Spectrum → NES/GB → C64 → Amiga standing), hardware-truth investment for
+campaign systems, and WASM as sequenced strategic scope. Binding record at the
+umbrella: [`emu198x-best-in-class.md`](../../../decisions/emu198x-best-in-class.md).
+Programme detail:
+[`2026-07-03-best-in-class-programme.md`](../../docs/plans/2026-07-03-best-in-class-programme.md).
+The pre-October web-version drift trigger amended (reject displacement, not the
+target); engineering-bar order and October scope unchanged.
 
 ### 2026-05-23 — Launcher commitment retired
 
