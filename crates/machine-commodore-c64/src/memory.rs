@@ -1,6 +1,7 @@
 //! C64 memory subsystem with 6510-controlled banking.
 
 use crate::easyflash::EasyFlash;
+use crate::freeze_cart::FreezeCart;
 use format_commodore_c64_prg::RamAccess;
 use mos_vic_ii::VicMemory;
 use serde::{Deserialize, Serialize};
@@ -192,6 +193,7 @@ pub struct C64Memory {
     port_data: u8,
     cartridge: Option<Cartridge>,
     easyflash: Option<EasyFlash>,
+    freeze_cart: Option<FreezeCart>,
     georam: Option<GeoRam>,
     reu: Option<Reu>,
 }
@@ -263,6 +265,10 @@ pub(crate) struct C64MemorySnapshot {
     /// content, so the whole device serialises).
     #[serde(default)]
     easyflash: Option<EasyFlash>,
+    /// Full freeze-cartridge state (Action Replay RAM + latched registers, or
+    /// Final Cartridge III registers); the whole device serialises.
+    #[serde(default)]
+    freeze_cart: Option<FreezeCart>,
     #[serde(default)]
     georam: Option<GeoRamSnapshot>,
     #[serde(default)]
@@ -290,6 +296,7 @@ impl C64Memory {
             port_data: 0x37,
             cartridge: None,
             easyflash: None,
+            freeze_cart: None,
             georam: None,
             reu: None,
         })
@@ -337,13 +344,79 @@ impl C64Memory {
     pub(crate) fn remove_cartridge(&mut self) {
         self.cartridge = None;
         self.easyflash = None;
+        self.freeze_cart = None;
     }
 
     /// Inserts an EasyFlash cartridge from its two 512 KiB chip images.
     /// Replaces any other cartridge.
     pub(crate) fn insert_easyflash(&mut self, low: Vec<u8>, high: Vec<u8>) {
         self.cartridge = None;
+        self.freeze_cart = None;
         self.easyflash = Some(EasyFlash::new(low, high));
+    }
+
+    /// Inserts a freeze-button cartridge (Action Replay / Final Cartridge III),
+    /// replacing any other cartridge.
+    pub(crate) fn insert_freeze_cart(&mut self, cart: FreezeCart) {
+        self.cartridge = None;
+        self.easyflash = None;
+        self.freeze_cart = Some(cart);
+    }
+
+    /// Presses the freeze button on an inserted freeze cartridge. Returns
+    /// `false` when no freeze cartridge is present.
+    pub(crate) fn freeze_cart_button(&mut self) -> bool {
+        match self.freeze_cart.as_mut() {
+            Some(cart) => {
+                cart.freeze();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Whether an inserted freeze cartridge is currently asserting `/NMI`.
+    #[must_use]
+    pub(crate) fn freeze_cart_nmi(&self) -> bool {
+        self.freeze_cart
+            .as_ref()
+            .is_some_and(FreezeCart::nmi_asserted)
+    }
+
+    /// Freeze-cartridge `(register, bank)` pair, for debug surfaces.
+    #[must_use]
+    pub fn freeze_cart_registers(&self) -> Option<(u8, u8)> {
+        self.freeze_cart.as_ref().map(FreezeCart::registers)
+    }
+
+    /// Freeze-cartridge read for the `$DE00-$DFFF` expansion I/O windows, when
+    /// one is inserted.
+    pub(crate) fn freeze_cart_io_read(&self, addr: u16) -> Option<u8> {
+        let cart = self.freeze_cart.as_ref()?;
+        match addr {
+            0xDE00..=0xDEFF => Some(cart.io1_read(addr)),
+            0xDF00..=0xDFFF => Some(cart.io2_read(addr)),
+            _ => None,
+        }
+    }
+
+    /// Routes a ROM-window write to a freeze cartridge (Action Replay maps RAM
+    /// at ROML). Returns `true` when the cartridge claimed the window (the
+    /// write still falls through to RAM, as for any ROM window).
+    pub(crate) fn freeze_cart_rom_write(&mut self, addr: u16, value: u8) -> bool {
+        let (loram, hiram) = (self.loram(), self.hiram());
+        let Some(cart) = self.freeze_cart.as_mut() else {
+            return false;
+        };
+        let (exrom, game) = cart.lines();
+        let ultimax = game && !exrom;
+        match addr {
+            0x8000..=0x9FFF if ultimax || (exrom && loram && hiram) => {
+                cart.roml_store(addr, value);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// EasyFlash `(bank, control)` registers, for debug surfaces.
@@ -476,6 +549,14 @@ impl C64Memory {
     /// owns both windows when inserted; otherwise the REU register block
     /// (`$DF00-$DF0A`) wins, then GeoRAM, then a bank-switched cartridge.
     pub(crate) fn expansion_io_write(&mut self, addr: u16, value: u8) {
+        if let Some(cart) = self.freeze_cart.as_mut() {
+            match addr {
+                0xDE00..=0xDEFF => cart.io1_write(value),
+                0xDF00..=0xDFFF => cart.io2_write(addr, value),
+                _ => {}
+            }
+            return;
+        }
         if let Some(ef) = self.easyflash.as_mut() {
             match addr {
                 0xDE00..=0xDEFF => ef.io1_write(addr, value),
@@ -668,6 +749,21 @@ impl C64Memory {
     /// Cartridge ROM byte visible at `addr`, if a cartridge maps it under the
     /// current banking, else `None`.
     fn cartridge_read(&self, addr: u16) -> Option<u8> {
+        if let Some(cart) = self.freeze_cart.as_ref() {
+            let (exrom, game) = cart.lines();
+            let ultimax = game && !exrom;
+            return match addr {
+                0x8000..=0x9FFF if ultimax || (exrom && self.loram() && self.hiram()) => {
+                    Some(cart.roml_read(addr))
+                }
+                // 16K config: ROMH at $A000 maps on HIRAM alone.
+                0xA000..=0xBFFF if exrom && game && !ultimax && self.hiram() => {
+                    Some(cart.romh_read(addr))
+                }
+                0xE000..=0xFFFF if ultimax => Some(cart.romh_read(addr)),
+                _ => None,
+            };
+        }
         if let Some(ef) = self.easyflash.as_ref() {
             let (exrom, game) = ef.lines();
             let ultimax = game && !exrom;
@@ -714,6 +810,9 @@ impl C64Memory {
     }
 
     fn cart_ultimax(&self) -> bool {
+        if let Some(cart) = &self.freeze_cart {
+            return cart.ultimax();
+        }
         if let Some(ef) = &self.easyflash {
             return ef.ultimax();
         }
@@ -785,6 +884,7 @@ impl C64Memory {
             });
         }
         memory.easyflash = snapshot.easyflash;
+        memory.freeze_cart = snapshot.freeze_cart;
         if let Some(gr) = snapshot.georam {
             memory.georam = Some(GeoRam {
                 ram: gr.ram,
@@ -845,6 +945,7 @@ impl C64Memory {
                 }
             }),
             easyflash: self.easyflash.clone(),
+            freeze_cart: self.freeze_cart.clone(),
             georam: self.georam.as_ref().map(|gr| GeoRamSnapshot {
                 ram: gr.ram.clone(),
                 page: gr.page,
@@ -976,6 +1077,9 @@ impl C64Memory {
         if self.cart_ultimax() {
             if (0x3000..0x4000).contains(&offset) {
                 let romh_offset = (offset - 0x3000) + 0x1000;
+                if let Some(cart) = &self.freeze_cart {
+                    return cart.romh_peek(romh_offset as u16);
+                }
                 if let Some(ef) = &self.easyflash {
                     return ef.romh_peek(romh_offset as u16);
                 }
