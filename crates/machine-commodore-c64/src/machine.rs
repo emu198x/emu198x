@@ -15,7 +15,14 @@ use crate::keyboard::KeyboardMatrix;
 use crate::memory::{C64Memory, C64MemorySnapshot, CartBankPair, CartBanking, MemoryInitError};
 
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
-const PORT_INPUT_PULLUPS: u8 = 0x37;
+/// 6510 port bits that read high when configured as inputs. Bits 0-2
+/// (the PLA banking lines) and bit 4 (cassette sense, via the switch)
+/// have pull-ups; bit 5 (cassette motor) does NOT — as an input it
+/// reads 0 (Lorenz trap17 depends on it: with DDR=$03/data=$14 the
+/// port must read back $14, not $34; VICE models the same). Bits 6/7
+/// are unconnected and read 0 here (real silicon shows ~350ms charge
+/// decay of the last driven value, not yet modelled).
+const PORT_INPUT_PULLUPS: u8 = 0x17;
 
 /// Fresh-workspace C64 machine substrate.
 #[derive(Clone)]

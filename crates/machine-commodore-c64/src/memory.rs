@@ -10,7 +10,11 @@ const KERNAL_ROM_SIZE: usize = 0x2000;
 const CHARACTER_ROM_SIZE: usize = 0x1000;
 const RAM_SIZE: usize = 0x10000;
 const COLOUR_RAM_SIZE: usize = 0x0400;
-const PORT_PULLUPS: u8 = 0x37;
+/// 6510 port bits pulled high when configured as inputs: bits 0-2 (PLA
+/// banking) and bit 4 (cassette sense). Bit 5 (cassette motor) has no
+/// pull-up and reads 0 as an input — see `PORT_INPUT_PULLUPS` in
+/// `machine.rs` (Lorenz trap17).
+const PORT_PULLUPS: u8 = 0x17;
 
 /// Memory-construction errors.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
