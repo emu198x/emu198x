@@ -566,6 +566,13 @@ fn find_c64_kernal_rom_path_for_report() -> std::path::PathBuf {
 /// KERNAL-trap harness and PASS in a real C64 (per Lorenz's
 /// published expected results).
 ///
+/// These are no longer just "skips": the full-machine harness at
+/// `crates/runtime-commodore-c64/tests/lorenz_machine.rs` (issue #18)
+/// runs this exact set against the real board and scores each one.
+/// `cputiming` and `mmufetch` already pass there; the CIA-timer /
+/// `irq` / `nmi` cases await the CIA cycle-delay pipeline (#17), and
+/// `mmu` surfaced a distinct banking gap. Keep the two lists in sync.
+///
 /// The categories below are the natural sub-tasks for any future
 /// "make the C64 machine cycle-accurate" session: each name calls
 /// out exactly which feature it probes.
