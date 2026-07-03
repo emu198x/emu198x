@@ -7,13 +7,14 @@
 //! against the real `machine-commodore-c64` board (live CIA ×2, VIC-II, IRQ
 //! wiring, banking) so their pass/fail is *scored*, not hidden behind a skip.
 //!
-//! It is a **tracked ledger**, not a green-all gate. Today `cputiming` and
-//! `mmufetch` pass; the seven CIA-timer cases plus `irq` / `nmi` print a
-//! one-cycle-off register mismatch that needs the CIA cycle-delay pipeline
-//! (#17), `mmu` prints a distinct banking mismatch, and the tape traps /
-//! `finish` don't run standalone. The ledger asserts the passing set does not
-//! regress and records the rest, so landing #17 (etc.) is a visible, closeable
-//! move of a case from the red list to `EXPECTED_PASS`.
+//! It is a **tracked ledger**, not a green-all gate. Today 12 of the 15
+//! cases pass — the seven CIA-timer cases plus `irq`/`nmi` landed with the
+//! CIA cycle-delay pipeline (#17), and `mmu` with the PLA char-ROM /
+//! no-write-through-under-I/O fixes (#733). Only the tape traps
+//! (`trap16`/`trap17`) and the suite finaliser (`finish`) stay red: they
+//! need tape-side state this standalone harness doesn't set up. The ledger
+//! asserts the passing set does not regress and records the rest, so any
+//! future fix is a visible, closeable move into `EXPECTED_PASS`.
 //!
 //! How each case runs:
 //!   1. Boot a real C64 to `READY.` once, then clone it per case (cheap; the
@@ -107,10 +108,6 @@ const HARDWARE_DEPENDENT: &[&str] = &[
 /// ROMs + suite). The regression gate asserts these keep printing " - OK".
 ///
 /// The rest of [`HARDWARE_DEPENDENT`] stay red and are tracked, not asserted:
-///   - the seven CIA timer cases + `irq` + `nmi` print a one-cycle-off
-///     register mismatch — they need the CIA cycle-delay pipeline (#17);
-///   - `mmu` prints a banking mismatch (`$01` read-back), a genuine PLA gap
-///     distinct from #17 (its sibling `mmufetch` already passes);
 ///   - `trap16` / `trap17` (tape KERNAL load traps) and `finish` (the suite
 ///     finaliser) need tape-side state this standalone harness doesn't set up.
 const EXPECTED_PASS: &[&str] = &[
@@ -124,8 +121,10 @@ const EXPECTED_PASS: &[&str] = &[
     "cia2tb123",
     "irq",
     "nmi",
-    // CPU + banking timing.
+    // CPU + banking timing. `mmu` needs the PLA's char-ROM modes %001/%010
+    // and no-write-through-under-I/O (#733).
     "cputiming",
+    "mmu",
     "mmufetch",
 ];
 
@@ -408,7 +407,7 @@ fn lorenz_machine_hardware_dependent_ledger() {
         passed.len(),
         HARDWARE_DEPENDENT.len()
     );
-    println!("  still red (tracked — mmu banking readback, tape-trap loads): {failed:?}");
+    println!("  still red (tracked — tape-trap loads + suite finaliser): {failed:?}");
 
     // Regression gate: every case we expect to pass today must still pass.
     let regressions: Vec<&str> = EXPECTED_PASS

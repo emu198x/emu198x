@@ -74,6 +74,19 @@ pub struct M6502 {
     /// its boundary, so that case is (correctly) unaffected.
     #[serde(default)]
     pub(crate) branch_nmi_stage_skip: u8,
+    /// LXA (`$AB`) magic constant: `A = X = (A | magic) & imm`. Silicon-
+    /// batch dependent. NMOS 6502/6510 measure `$EE` (VICE's value —
+    /// "needs to be 0xee for wizball" — and the Lorenz `lxab` case,
+    /// measured on a real C64). The NES 2A03 behaves as the stable
+    /// `A = X = imm`, i.e. magic `$FF` (Mesen2's model, CRC-locked by
+    /// blargg's immediate instr_tests, which outrank Tom Harte for 2A03
+    /// per `knowledge/decisions/nes-test-oracle-priority.md`).
+    #[serde(default = "default_lxa_magic")]
+    pub(crate) lxa_magic: u8,
+}
+
+fn default_lxa_magic() -> u8 {
+    0xEE
 }
 
 impl M6502 {
@@ -113,6 +126,9 @@ impl M6502 {
             branch_irq_suppress: false,
             suppress_prev_nmi_stage: false,
             branch_nmi_stage_skip: 0,
+            // The 2A03's LXA is the stable A = X = imm (magic $FF);
+            // NMOS 6502/6510 silicon measures $EE (VICE / Lorenz).
+            lxa_magic: if decimal_enabled { 0xEE } else { 0xFF },
         }
     }
 

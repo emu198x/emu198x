@@ -30,15 +30,12 @@ const LIMIT_ENV: &str = "EMU198X_6502_LIMIT";
 /// An error whose label is in the allowlist is silently dropped for
 /// that opcode.
 ///
-/// **`0xAB` (LXA / ATX)** is silicon-batch dependent. Tom Harte's
-/// vectors codify the `(A | 0xEE) & data` model, while blargg's
-/// NES test ROMs CRC against Mesen2's stable `A = operand; X = A`
-/// model. Per `knowledge/decisions/nes-test-oracle-priority.md`
-/// (2026-06-01), NES-validated oracles win for 2A03 work — so the
-/// core matches Mesen, and Tom Harte's A/X/P disagreements on
-/// `0xAB` are documented here rather than fought through a
-/// magic-constant guess that would still differ from blargg.
-const ACCEPTED_TOM_HARTE_DISAGREEMENTS: &[(u8, &[&str])] = &[(0xAB, &["A", "X", "P"])];
+/// Currently empty: the historical `0xAB` (LXA / ATX) entry was
+/// resolved by making the magic constant a CPU-variant parameter
+/// (`lxa_magic`, #737) — the default NMOS core now matches Tom
+/// Harte's `(A | 0xEE) & data` vectors natively, while the 2A03
+/// constructor keeps blargg/Mesen2's stable `A = X = imm` model.
+const ACCEPTED_TOM_HARTE_DISAGREEMENTS: &[(u8, &[&str])] = &[];
 
 fn accepted_labels_for(opcode: u8) -> &'static [&'static str] {
     ACCEPTED_TOM_HARTE_DISAGREEMENTS

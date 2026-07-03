@@ -810,10 +810,14 @@ impl C64Memory {
         self.charen() && (self.hiram() || self.loram())
     }
 
-    /// Returns `true` when character ROM is visible to the CPU.
+    /// Returns `true` when character ROM is visible to the CPU. The PLA
+    /// maps char ROM at `$D000` for every mode with CHAREN low and at
+    /// least one of LORAM/HIRAM high (%001, %010, %011) — not just the
+    /// full-banking %011 (Lorenz `mmu` col-3 expectations; VICE
+    /// `c64mem.c` read table).
     #[must_use]
     pub const fn is_character_rom_visible_to_cpu(&self) -> bool {
-        !self.charen() && self.hiram() && self.loram()
+        !self.charen() && (self.hiram() || self.loram())
     }
 
     /// CPU-visible read with ROM overlays applied.

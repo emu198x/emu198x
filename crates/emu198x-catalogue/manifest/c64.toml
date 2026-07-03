@@ -87,9 +87,12 @@ press = "return"
 # CIA timers (#17), which stretched the load past the old 16000-frame
 # point; 20000 frames lands on the same target state with margin.
 # Captures the canonical Bruce Lee playfield (mountains + temple +
-# Bruce Lee + the Ninja + the Yamo).
+# Bruce Lee + the Ninja + the Yamo). Re-blessed for the LXA magic fix
+# (#737): the load/attract timeline shifted a little, so the demo
+# sprites sit at different positions at the capture frame; the audio
+# hash was unchanged by the fix.
 wait_frames = 20000
-frame_hash = "xxh64:6c1f01690c68008b"
+frame_hash = "xxh64:7f4376f4e93bbeb4"
 
 [entry.audio]
 # Captures the in-game SID music.
@@ -227,16 +230,19 @@ press = "return"
 [entry.boot]
 # After RUN, Wizball loads further and reaches its post-load attract
 # state — captures the high-score table screen with the WIZBALL logo
-# and Hubbard's SID music looping.
+# and Hubbard's SID music looping. Re-blessed for the LXA magic-constant
+# fix (#737): Wizball executes LXA (VICE: "needs to be 0xee for
+# wizball"), and the $EE model un-garbles the logo and "sensi soft"
+# lettering the previous bless had captured corrupted.
 wait_frames = 16000
-frame_hash = "xxh64:02869aa3052971f1"
+frame_hash = "xxh64:c44b183eb1b947d7"
 
 [entry.audio]
 # Captures the Rob Hubbard title-screen SID — first non-silent
 # audio assertion of any disk-loaded C64 entry.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c136f95487fc7893"
+hash = "xxh64:b3eb1c2aae329a3b"
 
 [[entry]]
 id = "monty-on-the-run"
