@@ -941,21 +941,16 @@ impl M6502 {
             }
             Operation::Lxa => {
                 // LXA (`$AB`, also known as ATX) is silicon-batch
-                // dependent — the magic constant differs across
-                // emulator references. Per
-                // `knowledge/decisions/nes-test-oracle-priority.md`
-                // (2026-06-01), blargg's NES test ROMs outrank
-                // Tom Harte for 2A03 work. blargg's `instr_test`
-                // CRC matches Mesen2's stable `A = operand;
-                // X = A` model — switching satisfies three blargg
-                // sub-tests (`instr_test-v3/02-immediate`,
-                // `instr_test-v5/02-immediate`,
-                // `nes_instr_test/03-immediate`). Tom Harte's
-                // `ab.json` regresses as a result; that opcode is
-                // allowlisted in `mos-6502`'s Tom Harte harness.
-                self.regs.a = data;
-                self.regs.x = data;
-                self.regs.set_nz(data);
+                // dependent: `A = X = (A | magic) & imm`, with the
+                // magic constant set per CPU variant (`lxa_magic`) —
+                // $EE on NMOS 6502/6510 (VICE / Lorenz `lxab` /
+                // Tom Harte), $FF on the 2A03, where it degenerates
+                // to the stable `A = X = imm` that blargg's
+                // immediate instr_tests CRC-lock via Mesen2.
+                let value = (self.regs.a | self.lxa_magic) & data;
+                self.regs.a = value;
+                self.regs.x = value;
+                self.regs.set_nz(value);
             }
             Operation::Las => {
                 let result = data & self.regs.sp;
