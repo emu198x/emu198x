@@ -147,6 +147,15 @@ pub struct Media {
     pub slot: String,
     /// Path relative to the catalogue media root.
     pub path: String,
+    /// Extra one-shot tape-motor spin-up delay in phi2 cycles, shifting
+    /// the whole tape timeline relative to the machine's frame-locked
+    /// boot sequence — i.e. *when within a frame the user pressed PLAY*.
+    /// Some loader/game combinations gate their IRQ timing off the
+    /// tape-start phase and lose a race at a handful of phases (Novaload
+    /// "Monty on the Run"); a small nudge here picks a phase the game
+    /// survives, exactly as a real user's PLAY press would.
+    #[serde(default)]
+    pub play_phase_cycles: u32,
 }
 
 /// Boot waypoint. After the system's setup phase completes (tape stops,
@@ -1023,6 +1032,12 @@ fn run_c64_entry(
                     .map_err(|err| CatalogueError::Session(format!("C64 LOADING wait: {err}")))?;
             }
             MediaKind::Tape => {
+                if media.play_phase_cycles > 0 {
+                    session
+                        .machine_mut()
+                        .machine_mut()
+                        .set_tape_play_phase_cycles(media.play_phase_cycles);
+                }
                 c64_autoload_basic_tape(
                     &mut session,
                     &media.slot,

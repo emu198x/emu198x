@@ -677,6 +677,13 @@ impl C64 {
         Ok(())
     }
 
+    /// Sets a one-shot extra tape-motor spin-up delay (phi2 cycles) for
+    /// the next motor start — the moment within a frame the user pressed
+    /// PLAY. Shifts the whole tape timeline for phase-sensitive loaders.
+    pub fn set_tape_play_phase_cycles(&mut self, cycles: u32) {
+        self.datasette.set_play_phase_cycles(cycles);
+    }
+
     /// Mounts a blank, writable tape so a KERNAL `SAVE` records onto it. The
     /// recorded pulse stream is retrieved as a `.tap` image with
     /// [`Self::flush_tape_image`].
