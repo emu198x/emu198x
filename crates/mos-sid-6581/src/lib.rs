@@ -4,6 +4,7 @@
 #![allow(clippy::cast_precision_loss)]
 
 mod combined_wave_tables;
+mod dac;
 mod envelope;
 mod filter;
 mod voice;
@@ -26,28 +27,46 @@ use serde::{Deserialize, Serialize};
 /// volume nibble from `$D418` bits 0-3. Host-side channel gating
 /// applied after the silicon mix.
 ///
+/// **Version 2** (2026-07-03, issue #64): voices pass through the reSID
+/// R-2R DAC model — the 6581's nonlinear waveform/envelope DACs and its
+/// `wave_zero` DC offset (near-ideal on the 8580) — and the whole mix is
+/// AC-coupled by an output high-pass. This replaces the linear
+/// `waveform − 2048` / `envelope ÷ 255` and folds the old split volume-DC
+/// digi into the one output high-pass. Every sample changes, so v1 hashes
+/// are invalid.
+///
 /// See `knowledge/decisions/c64-architecture-review.md` Seam 4 for
 /// the re-capture discipline this constant enforces.
-pub const AUDIO_ROUTING_VERSION: u32 = 1;
+pub const AUDIO_ROUTING_VERSION: u32 = 2;
 
-/// Volume-register DC bias, in voice-output units, that the master volume
-/// nibble scales. Writes to `$D418` step this bias, so software plays 4-bit
-/// PCM "digis" through the volume register even with every voice silent. Set
-/// to one voice's full-scale span; a reSID-exact digi amplitude is deferred to
-/// the Tier C DAC-fidelity work. Only this term is AC-coupled (see
-/// [`Sid6581::volume_dc_highpass`]), so constant-volume voice output is byte-
-/// identical to the pre-digi mixer and existing captures stay valid.
-const VOLUME_DC: f32 = 2048.0;
+/// Mixer DC bias, in DAC-output units, that the master volume nibble scales.
+/// With every voice silent (envelope 0), the voices contribute no DC, so this
+/// constant is what a `$D418` write steps — the classic 4-bit "digi". The
+/// output high-pass ([`Sid6581::output_highpass`]) removes its steady level and
+/// passes the write transient, exactly like the SID's AC-coupled output stage.
+/// reSID carries the analogous term as the filter mixer DC.
+const MIXER_DC: f32 = 2048.0;
 
-/// High-pass corner (Hz) that AC-couples the volume-DC path, matching the SID
+/// High-pass corner (Hz) that AC-couples the mixed SID output, matching the
 /// output stage's coupling (reSID's external filter high-passes near 16 Hz).
-const VOLUME_DC_HP_HZ: f32 = 16.0;
+/// Removes the `wave_zero` / mixer DC while passing volume-change transients.
+const OUTPUT_HP_HZ: f32 = 16.0;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SidModel {
     #[default]
     Mos6581,
     Mos8580,
+}
+
+impl SidModel {
+    /// Dense index for per-model lookup tables (matches reSID's `model_dac`).
+    const fn index(self) -> usize {
+        match self {
+            Self::Mos6581 => 0,
+            Self::Mos8580 => 1,
+        }
+    }
 }
 
 /// Host-side SID voice identifier.
@@ -223,11 +242,11 @@ pub struct Sid6581 {
     output_sample_rate: u32,
     #[serde(default = "default_audio_controls")]
     audio_controls: AudioControls,
-    /// One-pole DC-blocker state for the `$D418` volume-DC (digi) path.
+    /// One-pole DC-blocker state for the AC-coupled output stage.
     #[serde(default)]
-    volume_dc_hp_prev_in: f32,
+    output_hp_prev_in: f32,
     #[serde(default)]
-    volume_dc_hp_prev_out: f32,
+    output_hp_prev_out: f32,
     #[serde(skip)]
     buffer: Vec<f32>,
     #[serde(skip)]
@@ -258,8 +277,8 @@ impl Sid6581 {
             cpu_freq: cpu_frequency,
             output_sample_rate,
             audio_controls: AudioControls::default(),
-            volume_dc_hp_prev_in: 0.0,
-            volume_dc_hp_prev_out: 0.0,
+            output_hp_prev_in: 0.0,
+            output_hp_prev_out: 0.0,
             buffer: Vec::with_capacity(output_sample_rate as usize / 50 + 1),
             channel_buffers: std::array::from_fn(|_| {
                 Vec::with_capacity(output_sample_rate as usize / 50 + 1)
@@ -438,11 +457,20 @@ impl Sid6581 {
         let mut direct_sum = 0.0;
         let mut voice_normalised = [0.0_f32; 3];
 
+        let wave_dac = dac::wave_dac(self.model);
+        let env_dac = dac::env_dac(self.model);
+        let wave_zero = dac::wave_zero(self.model);
+
         for index in 0..3 {
             let waveform = self.voices[index].waveform_output(ring_mod_msb[index], self.model);
             let envelope = self.envelopes[index].level;
-            let centred = f32::from(waveform as i16 - 2048);
-            let raw_amplitude = centred * f32::from(envelope) / 255.0;
+            // reSID voice output: the 12-bit waveform and 8-bit envelope each
+            // pass through their (nonlinear on the 6581) DAC, then the envelope
+            // multiplies the waveform measured from its DC "zero". The DC that
+            // `wave_zero` leaves in the signal is removed by the output stage.
+            let wave_level = wave_dac[waveform as usize] - wave_zero;
+            let env_level = env_dac[usize::from(envelope)] / 255.0;
+            let raw_amplitude = wave_level * env_level;
             let amplitude = self.audio_controls.channels[index].apply(raw_amplitude);
             voice_normalised[index] = amplitude / 2048.0;
 
@@ -458,15 +486,13 @@ impl Sid6581 {
         }
 
         let filter_output = self.filter.clock(filtered_sum);
-        let mixed = (filter_output + direct_sum) * f32::from(self.volume) / 15.0;
-        // $D418 volume-register digis: the master volume also scales a mixer DC
-        // bias, so writes to the volume nibble step the output even with silent
-        // voices. The steady bias is inaudible on real hardware (AC-coupled
-        // output stage), so we high-pass just this volume-DC term — leaving the
-        // constant-volume voice mix untouched — and add its transient in.
-        let volume_dc = VOLUME_DC * f32::from(self.volume) / 15.0;
-        let digi = self.volume_dc_highpass(volume_dc);
-        let normalised = (mixed + digi) / 6144.0 * self.audio_controls.master_gain();
+        // The mixer sums the (DC-bearing) voices with a constant mixer DC, all
+        // scaled by the $D418 master volume. Silent voices contribute no DC, so
+        // the mixer DC is what a volume write steps — the 4-bit digi. The output
+        // high-pass then AC-couples the lot: the wave_zero / mixer DC decays to
+        // zero while volume-change transients pass, as the real output stage does.
+        let mixed = (filter_output + direct_sum + MIXER_DC) * f32::from(self.volume) / 15.0;
+        let normalised = self.output_highpass(mixed) / 6144.0 * self.audio_controls.master_gain();
 
         self.accumulator += normalised;
         for (index, sample) in voice_normalised.iter().copied().enumerate() {
@@ -486,15 +512,16 @@ impl Sid6581 {
         }
     }
 
-    /// One-pole DC blocker on the `$D418` volume-DC path, clocked at the SID
-    /// tick rate. Constant input decays to zero, so a steady volume adds
-    /// nothing; only volume *changes* survive, which is exactly the digi.
-    fn volume_dc_highpass(&mut self, input: f32) -> f32 {
+    /// One-pole DC blocker on the mixed SID output, clocked at the SID tick
+    /// rate — the AC-coupled output stage. A steady mix (including the
+    /// `wave_zero` and mixer DC) decays to zero; only *changes* survive, so
+    /// music passes and a `$D418` volume write steps through as a digi.
+    fn output_highpass(&mut self, input: f32) -> f32 {
         // R = 1 - 2*pi*fc/fs; fc ~16 Hz, fs = SID tick (CPU) rate.
-        let r = 1.0 - (std::f32::consts::TAU * VOLUME_DC_HP_HZ / self.cpu_freq as f32);
-        let output = input - self.volume_dc_hp_prev_in + r * self.volume_dc_hp_prev_out;
-        self.volume_dc_hp_prev_in = input;
-        self.volume_dc_hp_prev_out = output;
+        let r = 1.0 - (std::f32::consts::TAU * OUTPUT_HP_HZ / self.cpu_freq as f32);
+        let output = input - self.output_hp_prev_in + r * self.output_hp_prev_out;
+        self.output_hp_prev_in = input;
+        self.output_hp_prev_out = output;
         output
     }
 
