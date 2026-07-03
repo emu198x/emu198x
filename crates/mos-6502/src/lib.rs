@@ -63,6 +63,17 @@ pub struct M6502 {
     /// could run. Mirrors Mesen's `_prevNeedNmi = false` at the
     /// end of BRK (blargg `cpu_interrupts_v2/2-nmi_and_brk`).
     pub(crate) suppress_prev_nmi_stage: bool,
+    /// Countdown of `poll_nmi_edge` stagings to skip after a taken
+    /// branch: the branch poll gap defers NMI recognition too, so an
+    /// edge landing in the branch's last cycles is serviced after the
+    /// *next* instruction. VICE (`interrupt_check_nmi_delay`): "Branch
+    /// instructions delay IRQs and NMI by one cycle if branch is taken
+    /// with no page boundary crossing"; the Lorenz `nmi` case measures
+    /// it on the C64. Two skips span the branch's final cycle; a
+    /// page-crossed branch's extra dummy-read cycle restages before
+    /// its boundary, so that case is (correctly) unaffected.
+    #[serde(default)]
+    pub(crate) branch_nmi_stage_skip: u8,
 }
 
 impl M6502 {
@@ -101,6 +112,7 @@ impl M6502 {
             prev_pending_nmi: false,
             branch_irq_suppress: false,
             suppress_prev_nmi_stage: false,
+            branch_nmi_stage_skip: 0,
         }
     }
 
@@ -137,6 +149,7 @@ impl M6502 {
         self.prev_pending_nmi = false;
         self.branch_irq_suppress = false;
         self.suppress_prev_nmi_stage = false;
+        self.branch_nmi_stage_skip = 0;
     }
 
     #[must_use]
