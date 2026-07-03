@@ -23,6 +23,13 @@ pub(crate) struct Datasette {
     /// Set once the first falling edge has been seen, so the leading gap before
     /// the first pulse is not recorded.
     recording_started: bool,
+    /// One-shot extra spin-up delay applied to the next motor start,
+    /// modelling *when* the user pressed PLAY within a frame. Some
+    /// loaders gate a game's whole IRQ timeline off the tape-start
+    /// phase (Novaload "Monty on the Run" has an IRQ-window race that
+    /// a handful of phases lose); catalogue entries can nudge this.
+    #[serde(default)]
+    play_phase_cycles: u32,
 }
 
 impl Datasette {
@@ -41,6 +48,7 @@ impl Datasette {
             write_line: true,
             record_cycles: 0,
             recording_started: false,
+            play_phase_cycles: 0,
         }
     }
 
@@ -127,6 +135,14 @@ impl Datasette {
         self.cycles_until_flux = None;
     }
 
+    /// Sets a one-shot extra spin-up delay for the next motor start,
+    /// shifting the whole tape timeline (and any loader whose IRQ
+    /// timing derives from it) by that many cycles. Models pressing
+    /// PLAY at a different moment within the frame.
+    pub fn set_play_phase_cycles(&mut self, cycles: u32) {
+        self.play_phase_cycles = cycles;
+    }
+
     pub fn set_motor_on(&mut self, motor_on: bool) {
         self.motor_requested = motor_on;
 
@@ -136,7 +152,8 @@ impl Datasette {
                 self.motor_delay_remaining = 0;
             } else {
                 self.pending_motor_state = Some(true);
-                self.motor_delay_remaining = MOTOR_DELAY_CYCLES;
+                self.motor_delay_remaining =
+                    MOTOR_DELAY_CYCLES + std::mem::take(&mut self.play_phase_cycles);
             }
         } else if self.motor_running {
             self.pending_motor_state = Some(false);

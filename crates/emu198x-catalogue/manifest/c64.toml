@@ -83,18 +83,19 @@ press = "return"
 
 [entry.boot]
 # After RUN, the program loads further into memory and reaches its
-# title screen. ~16000 frames (≈5 minutes emulated time) is the safety
-# margin per the existing disk_autoload regression test.
+# title screen. The KERNAL serial loader runs through the cycle-exact
+# CIA timers (#17), which stretched the load past the old 16000-frame
+# point; 20000 frames lands on the same target state with margin.
 # Captures the canonical Bruce Lee playfield (mountains + temple +
 # Bruce Lee + the Ninja + the Yamo).
-wait_frames = 16000
-frame_hash = "xxh64:98fd84eeb617c09a"
+wait_frames = 20000
+frame_hash = "xxh64:6c1f01690c68008b"
 
 [entry.audio]
 # Captures the in-game SID music.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:5a2ebb5a5ebd6ab9"
+hash = "xxh64:154fa6dfa3fd36d5"
 
 [[entry]]
 id = "aztec-challenge"
@@ -132,12 +133,12 @@ press = "return"
 # confirming the screen IS at player-select even though pixels
 # render with custom CHARGEN.
 wait_frames = 5000
-frame_hash = "xxh64:2c603ce4e24c3f4b"
+frame_hash = "xxh64:e69c66d47c38fe97"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:e7aba269e49440e6"
+hash = "xxh64:9a8ab639d32c76d7"
 
 [[entry]]
 id = "bomb-jack"
@@ -163,7 +164,7 @@ frame_hash = "xxh64:ab97482eb1b0aa5d"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:89af5bf1bc500864"
+hash = "xxh64:e375068dddec4797"
 
 [[entry]]
 id = "thing-on-a-spring"
@@ -186,14 +187,14 @@ path = "commodore/c64/Games/Arcade/[TAP]/Thing on a Spring (1985)(Gremlin).zip"
 # screen (the test's 25000 captures a pre-menu state in the catalogue
 # context).
 wait_frames = 50000
-frame_hash = "xxh64:e3a6cc012790ad9c"
+frame_hash = "xxh64:76d04c00d01ea0d0"
 
 [entry.audio]
 # Under the sprite sequencer (FRAME_ROUTING_VERSION 2) the menu's SID
 # music plays here — this window is no longer silent.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:867bd69298adcb51"
+hash = "xxh64:ca42ce3ea5066000"
 
 [[entry]]
 id = "wizball"
@@ -228,14 +229,14 @@ press = "return"
 # state — captures the high-score table screen with the WIZBALL logo
 # and Hubbard's SID music looping.
 wait_frames = 16000
-frame_hash = "xxh64:c440191a8a82f024"
+frame_hash = "xxh64:02869aa3052971f1"
 
 [entry.audio]
 # Captures the Rob Hubbard title-screen SID — first non-silent
 # audio assertion of any disk-loaded C64 entry.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:bc411959dc1c120d"
+hash = "xxh64:c136f95487fc7893"
 
 [[entry]]
 id = "monty-on-the-run"
@@ -246,22 +247,36 @@ variant = "pal"
 
 [entry.media]
 # TAP — THE canonical Rob Hubbard SID showcase. The "Monty on the
-# Run" song is one of the most-arranged C64 tunes ever. Standard
-# Gremlin tape loader (no turbo-loader).
+# Run" song is one of the most-arranged C64 tunes ever. Novaload
+# turbo tape (the loader screen shows "NOVALOAD").
+#
+# play_phase_cycles: the game's attract mode has a genuine IRQ race —
+# an interrupt landing in its ROM-banked vector-update window reads a
+# torn $0314 and crashes to a warm start. Whether that happens is set
+# once, by the tape-start phase vs the raster (frame-locked after
+# load). The default phase under the cycle-exact CIA (#17) loses the
+# race; nudging PLAY by ~2700 cycles picks a surviving phase, as a
+# real user's PLAY press would. Verified: loads to the attract screen.
 kind = "tape"
 slot = "tape-1"
 path = "commodore/c64/Games/Arcade/[TAP]/Monty on the Run (1985)(Gremlin).zip"
+play_phase_cycles = 2688
 
 [entry.boot]
-# Standard Gremlin tape loader. Captures the post-load attract state:
+# Novaload turbo tape. Captures the post-load attract state:
 # Monty / High Scores header + score table + scrolling credits + the
-# "MONTY FREEDOM KIT" controls panel.
-wait_frames = 50000
-frame_hash = "xxh64:c2244ec2282abe54"
+# "MONTY FREEDOM KIT" controls panel. The loader's pulse thresholds
+# run through the cycle-exact CIA timers (#17), which stretched the
+# load past the old 50000-frame point. Re-blessed with the
+# play_phase_cycles nudge above; screenshot + non-silent audio
+# verified 2026-07-03.
+wait_frames = 62000
+frame_hash = "xxh64:d3547aa2257908ef"
 
 [entry.audio]
 # Captures Hubbard's "Monty on the Run" theme — first non-silent
-# audio assertion on a tape-loaded C64 entry.
+# audio assertion on a tape-loaded C64 entry (peak 11336 / RMS 3077
+# over the 2s window at the 2026-07-03 re-bless).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:4f52b04ac138ed22"
+hash = "xxh64:1d260595e427fc4f"

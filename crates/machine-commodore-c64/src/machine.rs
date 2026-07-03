@@ -677,6 +677,13 @@ impl C64 {
         Ok(())
     }
 
+    /// Sets a one-shot extra tape-motor spin-up delay (phi2 cycles) for
+    /// the next motor start — the moment within a frame the user pressed
+    /// PLAY. Shifts the whole tape timeline for phase-sensitive loaders.
+    pub fn set_tape_play_phase_cycles(&mut self, cycles: u32) {
+        self.datasette.set_play_phase_cycles(cycles);
+    }
+
     /// Mounts a blank, writable tape so a KERNAL `SAVE` records onto it. The
     /// recorded pulse stream is retrieved as a `.tap` image with
     /// [`Self::flush_tape_image`].
@@ -1131,7 +1138,12 @@ impl C64 {
     }
 
     fn cia1_port_b_read(&self) -> u8 {
-        self.cia1.port_b_drive_state() & self.keyboard.scan(self.cia1.pa) & self.joystick_input(1)
+        let byte = self.cia1.port_b_drive_state()
+            & self.keyboard.scan(self.cia1.pa)
+            & self.joystick_input(1);
+        // PB6/PB7 carry the timer outputs when enabled (CRA/CRB bit 1);
+        // they override the port/keyboard state for those bits.
+        self.cia1.timer_port_b_override(byte)
     }
 }
 
@@ -2043,7 +2055,12 @@ mod tests {
         machine.cpu_write(0xDC0D, 0x81);
         machine.cpu_write(0xDC0E, 0x01);
         assert!(!machine.cpu().irq);
-        machine.tick();
+        // 6526 pipeline: START takes two cycles to reach the counter, the
+        // latch-0 underflow lands on the third tick, and the /IRQ line
+        // follows the ICR flag one cycle later.
+        for _ in 0..4 {
+            machine.tick();
+        }
         assert!(machine.cia1().irq);
         assert!(machine.cpu().irq);
     }
@@ -2056,7 +2073,9 @@ mod tests {
         machine.cpu_write(0xDD0D, 0x81);
         machine.cpu_write(0xDD0E, 0x01);
         assert!(!machine.cpu().nmi);
-        machine.tick();
+        for _ in 0..4 {
+            machine.tick();
+        }
         assert!(machine.cia2().irq);
         assert!(machine.cpu().nmi);
     }

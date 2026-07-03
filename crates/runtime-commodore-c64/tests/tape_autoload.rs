@@ -334,8 +334,12 @@ fn real_tap_autoload_thing_on_a_spring_starts_after_space() {
         name: "space".into(),
         pressed: true,
     });
+    // Hold SPACE for a human-realistic duration. The game's own scan loop
+    // debounces across IRQ scans, so a 3-frame tap is phase-sensitive — it
+    // happened to register with the pre-pipeline CIA timing and stopped
+    // with the cycle-exact timers (#17). ~0.6 s is robust.
     session
-        .run_frames(3)
+        .run_frames(30)
         .expect("Thing on a Spring should advance with SPACE held");
     session.queue_input(InputEvent::Key {
         name: "space".into(),

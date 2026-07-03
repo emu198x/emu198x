@@ -152,6 +152,12 @@ impl M6502 {
             // for page-crossed taken branches, the following dummy-read
             // cycle re-latches IRQ normally.
             self.branch_irq_suppress = false;
+            // The poll gap covers NMI too (VICE interrupt_check_nmi_delay,
+            // Lorenz `nmi`): keep the edge FF out of the boundary latch
+            // through this cycle and the branch's final cycle. On a
+            // page-crossed branch the extra dummy-read cycle restages
+            // before the boundary, leaving that case unaffected.
+            self.branch_nmi_stage_skip = 2;
         } else {
             // Sample IRQ/NMI on every non-final cycle. The last sample
             // taken before done=true is the one from the penultimate
@@ -187,8 +193,18 @@ impl M6502 {
         // exactly one cycle.
         if self.suppress_prev_nmi_stage {
             self.suppress_prev_nmi_stage = false;
+        } else if self.branch_nmi_stage_skip == 1 {
+            // Taken-branch poll gap: skip exactly the staging at the end
+            // of the branch's final cycle (see `branch_nmi_stage_skip`).
+            // The countdown's first step (2 → 1, below) leaves the
+            // penultimate cycle's staging intact, so an edge from before
+            // the branch decision is still serviced at this boundary —
+            // only edges landing in the gap defer one instruction.
         } else {
             self.prev_pending_nmi = self.pending_nmi;
+        }
+        if self.branch_nmi_stage_skip > 0 {
+            self.branch_nmi_stage_skip -= 1;
         }
         if self.nmi && !self.nmi_prev {
             self.pending_nmi = true;

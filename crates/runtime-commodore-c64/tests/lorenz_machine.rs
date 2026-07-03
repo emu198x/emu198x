@@ -113,7 +113,21 @@ const HARDWARE_DEPENDENT: &[&str] = &[
 ///     distinct from #17 (its sibling `mmufetch` already passes);
 ///   - `trap16` / `trap17` (tape KERNAL load traps) and `finish` (the suite
 ///     finaliser) need tape-side state this standalone harness doesn't set up.
-const EXPECTED_PASS: &[&str] = &["cputiming", "mmufetch"];
+const EXPECTED_PASS: &[&str] = &[
+    // CIA cycle-delay pipeline (#17): timers, PB67 outputs, ICR/IRQ races.
+    "cia1ta",
+    "cia1tab",
+    "cia1tb",
+    "cia1tb123",
+    "cia2ta",
+    "cia2tb",
+    "cia2tb123",
+    "irq",
+    "nmi",
+    // CPU + banking timing.
+    "cputiming",
+    "mmufetch",
+];
 
 // ---- Harness --------------------------------------------------------------
 
@@ -215,8 +229,16 @@ fn write_vector(machine: &mut C64, addr: u16, value: u16) {
 }
 
 /// Advance to a clean instruction boundary, then redirect the CPU to `entry`
-/// with the register state the Lorenz suite expects (clean A/X/Y, SP=$FD,
-/// I set). The board banking ($01=$37) is already correct from boot.
+/// with the register state the Lorenz suite expects (clean A/X/Y, SP=$FD).
+/// The board banking ($01=$37) is already correct from boot.
+///
+/// The I flag is CLEAR: on real hardware the suite runs post-`RUN` with the
+/// KERNAL jiffy interrupt live, and the `irq`/`nmi` cases depend on it —
+/// their ICR-race preambles leave a pending CIA interrupt that the test's
+/// own handler acknowledges (`bit $DC0D`); with I set that leftover is never
+/// serviced and the next ICR read returns $81 where hardware reads $01.
+/// Cases that need quiet timing (`cputiming`, the `cia*` sweeps) do their
+/// own SEI, exactly as on hardware.
 fn seed_entry(machine: &mut C64, entry: u16) {
     for _ in 0..32 {
         if machine.cpu().instruction_complete() && machine.cpu().sync {
@@ -228,7 +250,7 @@ fn seed_entry(machine: &mut C64, entry: u16) {
     cpu.regs.pc = entry;
     cpu.addr = entry;
     cpu.regs.sp = 0xFD;
-    cpu.regs.p = 0x24; // I set, unused bit 5 set (the two always-on states)
+    cpu.regs.p = 0x20; // unused bit 5 set, I clear (jiffy IRQ live, as post-RUN)
     cpu.regs.a = 0;
     cpu.regs.x = 0;
     cpu.regs.y = 0;
@@ -386,7 +408,7 @@ fn lorenz_machine_hardware_dependent_ledger() {
         passed.len(),
         HARDWARE_DEPENDENT.len()
     );
-    println!("  still red (tracked — CIA pipeline #17, mmu banking, tape traps): {failed:?}");
+    println!("  still red (tracked — mmu banking readback, tape-trap loads): {failed:?}");
 
     // Regression gate: every case we expect to pass today must still pass.
     let regressions: Vec<&str> = EXPECTED_PASS
