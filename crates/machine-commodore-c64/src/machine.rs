@@ -962,33 +962,40 @@ impl C64 {
 
     /// CPU-visible write through banked memory and the current board I/O state.
     pub fn cpu_write(&mut self, addr: u16, value: u8) {
+        // With I/O mapped, a `$D000`-window write reaches ONLY the chip
+        // registers — unlike ROM windows there is no write-through to the
+        // RAM underneath (Lorenz `mmu`: RAM under `$D000` must keep its
+        // value across I/O-mode writes).
+        if (0xD000..=0xDFFF).contains(&addr) && self.memory.is_io_visible() {
+            self.io_write(addr, value);
+            return;
+        }
         self.memory.cpu_write(addr, value);
         if matches!(addr, 0x0000 | 0x0001) {
             self.refresh_datasette_port_lines();
         }
         if addr == 0xFF00 {
             self.memory.reu_ff00_write();
-        }
-        if (0xD000..=0xDFFF).contains(&addr) && self.memory.is_io_visible() {
-            self.io_write(addr, value);
         }
     }
 
     /// CPU-visible write through banked memory and one shared IEC bus.
     pub fn cpu_write_with_iec_bus(&mut self, addr: u16, value: u8, bus: &mut IecBus) {
-        self.memory.cpu_write(addr, value);
-        if matches!(addr, 0x0000 | 0x0001) {
-            self.refresh_datasette_port_lines();
-        }
-        if addr == 0xFF00 {
-            self.memory.reu_ff00_write();
-        }
+        // See `cpu_write`: I/O-window writes never reach the RAM under it.
         if (0xD000..=0xDFFF).contains(&addr) && self.memory.is_io_visible() {
             self.io_write(addr, value);
             if (0xDD00..=0xDDFF).contains(&addr) {
                 self.drive_iec_outputs(bus);
                 self.sync_iec_bus(bus);
             }
+            return;
+        }
+        self.memory.cpu_write(addr, value);
+        if matches!(addr, 0x0000 | 0x0001) {
+            self.refresh_datasette_port_lines();
+        }
+        if addr == 0xFF00 {
+            self.memory.reu_ff00_write();
         }
     }
 
@@ -1987,25 +1994,30 @@ mod tests {
     }
 
     #[test]
-    fn visible_io_writes_hit_vic_and_underlying_ram() {
+    fn visible_io_writes_hit_vic_but_not_underlying_ram() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
+        // Unlike ROM windows, the I/O window has no RAM write-through:
+        // the chip register takes the byte and the RAM underneath keeps
+        // its value (Lorenz `mmu`).
+        machine.memory.ram_write(0xD020, 0xAA);
         machine.cpu_write(0xD020, 0x06);
         assert_eq!(machine.vic_register(0x20) & 0x0F, 0x06);
-        assert_eq!(machine.memory().ram_read(0xD020), 0x06);
+        assert_eq!(machine.memory().ram_read(0xD020), 0xAA);
     }
 
     #[test]
-    fn visible_sid_io_writes_reach_live_sid_and_underlying_ram() {
+    fn visible_sid_io_writes_reach_live_sid_but_not_underlying_ram() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.memory.ram_write(0xD400, 0xAA);
         machine.cpu_write(0xD400, 0x34);
         machine.cpu_write(0xD401, 0x12);
         machine.cpu_write(0xD418, 0x0F);
 
         assert_eq!(machine.sid().voices[0].frequency, 0x1234);
         assert_eq!(machine.sid().volume, 0x0F);
-        assert_eq!(machine.memory().ram_read(0xD400), 0x34);
-        assert_eq!(machine.memory().ram_read(0xD401), 0x12);
-        assert_eq!(machine.memory().ram_read(0xD418), 0x0F);
+        assert_eq!(machine.memory().ram_read(0xD400), 0xAA);
+        assert_eq!(machine.memory().ram_read(0xD401), 0x00);
+        assert_eq!(machine.memory().ram_read(0xD418), 0x00);
     }
 
     #[test]
