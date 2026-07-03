@@ -14,7 +14,7 @@ id = "c64"
 # FRAME_ROUTING_VERSION (mos-vic-ii). Mismatch fails loud with a
 # re-capture instruction. See
 # knowledge/decisions/c64-architecture-review.md Seam 4.
-audio_routing_version = 2
+audio_routing_version = 3
 frame_routing_version = 2
 
 [[system.firmware]]
@@ -94,7 +94,7 @@ frame_hash = "xxh64:98fd84eeb617c09a"
 # Captures the in-game SID music.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:127221b4944e0c35"
+hash = "xxh64:5a2ebb5a5ebd6ab9"
 
 [[entry]]
 id = "aztec-challenge"
@@ -137,7 +137,7 @@ frame_hash = "xxh64:2c603ce4e24c3f4b"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:1059308b4777f7f6"
+hash = "xxh64:e7aba269e49440e6"
 
 [[entry]]
 id = "bomb-jack"
@@ -163,7 +163,7 @@ frame_hash = "xxh64:ab97482eb1b0aa5d"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:f68e7f466c810b5e"
+hash = "xxh64:89af5bf1bc500864"
 
 [[entry]]
 id = "thing-on-a-spring"
@@ -193,7 +193,7 @@ frame_hash = "xxh64:e3a6cc012790ad9c"
 # music plays here — this window is no longer silent.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:5d993e4879be38de"
+hash = "xxh64:867bd69298adcb51"
 
 [[entry]]
 id = "wizball"
@@ -235,7 +235,7 @@ frame_hash = "xxh64:c440191a8a82f024"
 # audio assertion of any disk-loaded C64 entry.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:f48afc5f4449fda5"
+hash = "xxh64:bc411959dc1c120d"
 
 [[entry]]
 id = "monty-on-the-run"
@@ -264,4 +264,4 @@ frame_hash = "xxh64:c2244ec2282abe54"
 # audio assertion on a tape-loaded C64 entry.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:b6f5af8068d92430"
+hash = "xxh64:4f52b04ac138ed22"
