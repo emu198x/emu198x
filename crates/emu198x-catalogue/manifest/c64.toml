@@ -286,3 +286,73 @@ frame_hash = "xxh64:d3547aa2257908ef"
 from_frame = 60
 secs = 2.0
 hash = "xxh64:1d260595e427fc4f"
+
+[[entry]]
+id = "prince-of-persia"
+title = "Prince of Persia"
+year = 2011
+publisher = "Andreas Varga"
+variant = "pal"
+
+[entry.media]
+# CRT — mrsid's native EasyFlash port, THE canonical EasyFlash release:
+# 1 MB of banked flash (hardware type 32), boots its own loader from the
+# cartridge in Ultimax mode. First cartridge entry in the catalogue.
+kind = "cartridge"
+slot = "cartridge-1"
+path = "commodore/c64/Games/Arcade/[CRT]/Prince of Persia (2011)(Andreas Varga)[cr Nostalgia][t +9][EasyFlash 2011-11-01].zip"
+
+[[entry.script]]
+# The Nostalgia menu highlights "load game"; RETURN starts it.
+at_frame = 600
+press = "return"
+# Walk the trainer screen: CR accepts each of the eight Y/N rows and
+# the starting-level selector, then the game starts.
+[[entry.script]]
+at_frame = 3000
+press = "n"
+[[entry.script]]
+at_frame = 3050
+press = "n"
+[[entry.script]]
+at_frame = 3100
+press = "n"
+[[entry.script]]
+at_frame = 3150
+press = "n"
+[[entry.script]]
+at_frame = 3200
+press = "n"
+[[entry.script]]
+at_frame = 3250
+press = "n"
+[[entry.script]]
+at_frame = 3300
+press = "n"
+[[entry.script]]
+at_frame = 3350
+press = "n"
+[[entry.script]]
+at_frame = 3400
+press = "n"
+[[entry.script]]
+# CR on the starting-level selector launches the game.
+at_frame = 3500
+press = "return"
+
+[entry.boot]
+# Boot straight from flash through the crack menu into the game: the
+# capture lands in-game on level 1 (dungeon, prince, guard). Exercises
+# the whole EasyFlash surface — Ultimax boot, bank register sweeps,
+# mode-register GAME/EXROM transitions, and the 16K ROMH-on-HIRAM PLA
+# rule its launcher depends on ($01=$36).
+wait_frames = 12000
+frame_hash = "xxh64:b562e1cd4a4a3a34"
+
+[entry.audio]
+# In-game with an idle prince is deterministic near-silence; the hash
+# asserts the audio pipeline output, not musical content (the intro
+# music plays before the boot waypoint).
+from_frame = 60
+secs = 2.0
+hash = "xxh64:ce6e8e82de1a0a18"

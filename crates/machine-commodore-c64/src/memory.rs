@@ -1,5 +1,6 @@
 //! C64 memory subsystem with 6510-controlled banking.
 
+use crate::easyflash::EasyFlash;
 use format_commodore_c64_prg::RamAccess;
 use mos_vic_ii::VicMemory;
 use serde::{Deserialize, Serialize};
@@ -190,6 +191,7 @@ pub struct C64Memory {
     port_ddr: u8,
     port_data: u8,
     cartridge: Option<Cartridge>,
+    easyflash: Option<EasyFlash>,
     georam: Option<GeoRam>,
     reu: Option<Reu>,
 }
@@ -257,6 +259,10 @@ pub(crate) struct C64MemorySnapshot {
     port_data: u8,
     #[serde(default)]
     cartridge: Option<CartridgeSnapshot>,
+    /// Full EasyFlash device state (the flash chips carry programmable
+    /// content, so the whole device serialises).
+    #[serde(default)]
+    easyflash: Option<EasyFlash>,
     #[serde(default)]
     georam: Option<GeoRamSnapshot>,
     #[serde(default)]
@@ -283,6 +289,7 @@ impl C64Memory {
             port_ddr: 0x2F,
             port_data: 0x37,
             cartridge: None,
+            easyflash: None,
             georam: None,
             reu: None,
         })
@@ -329,6 +336,60 @@ impl C64Memory {
     /// Removes any inserted cartridge.
     pub(crate) fn remove_cartridge(&mut self) {
         self.cartridge = None;
+        self.easyflash = None;
+    }
+
+    /// Inserts an EasyFlash cartridge from its two 512 KiB chip images.
+    /// Replaces any other cartridge.
+    pub(crate) fn insert_easyflash(&mut self, low: Vec<u8>, high: Vec<u8>) {
+        self.cartridge = None;
+        self.easyflash = Some(EasyFlash::new(low, high));
+    }
+
+    /// EasyFlash `(bank, control)` registers, for debug surfaces.
+    #[must_use]
+    pub fn easyflash_registers(&self) -> Option<(u8, u8)> {
+        self.easyflash.as_ref().map(|ef| ef.registers())
+    }
+
+    /// EasyFlash `$DF00-$DFFF` cartridge RAM byte, when mapped.
+    pub(crate) fn easyflash_io2_read(&self, addr: u16) -> Option<u8> {
+        let ef = self.easyflash.as_ref()?;
+        (0xDF00..=0xDFFF).contains(&addr).then(|| ef.io2_read(addr))
+    }
+
+    /// Routes a ROM-window write to the EasyFlash chips' command state
+    /// machines. Returns `true` when EasyFlash had the window mapped (the
+    /// write still falls through to RAM — the bus drives both).
+    pub(crate) fn easyflash_rom_write(&mut self, addr: u16, value: u8) -> bool {
+        let (loram, hiram) = (self.loram(), self.hiram());
+        let Some(ef) = self.easyflash.as_mut() else {
+            return false;
+        };
+        let (exrom, game) = ef.lines();
+        let ultimax = game && !exrom;
+        match addr {
+            0x8000..=0x9FFF if ultimax || (exrom && loram && hiram) => {
+                ef.roml_store(addr, value);
+                true
+            }
+            0xA000..=0xBFFF if exrom && game && !ultimax && hiram => {
+                ef.romh_store(addr, value);
+                true
+            }
+            0xE000..=0xFFFF if ultimax => {
+                ef.romh_store(addr, value);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// One phi2 cycle for the EasyFlash erase state machines.
+    pub(crate) fn tick_easyflash(&mut self) {
+        if let Some(ef) = self.easyflash.as_mut() {
+            ef.tick();
+        }
     }
 
     /// Applies a write to the cartridge I/O-1 area (`$DE00-$DEFF`), driving the
@@ -411,9 +472,18 @@ impl C64Memory {
         }
     }
 
-    /// Routes a write to the expansion I/O area (`$DE00-$DFFF`): the REU register
-    /// block (`$DF00-$DF0A`) wins, then GeoRAM, then a bank-switched cartridge.
+    /// Routes a write to the expansion I/O area (`$DE00-$DFFF`): EasyFlash
+    /// owns both windows when inserted; otherwise the REU register block
+    /// (`$DF00-$DF0A`) wins, then GeoRAM, then a bank-switched cartridge.
     pub(crate) fn expansion_io_write(&mut self, addr: u16, value: u8) {
+        if let Some(ef) = self.easyflash.as_mut() {
+            match addr {
+                0xDE00..=0xDEFF => ef.io1_write(addr, value),
+                0xDF00..=0xDFFF => ef.io2_write(addr, value),
+                _ => {}
+            }
+            return;
+        }
         if self.reu_write(addr, value) {
             return;
         }
@@ -598,6 +668,22 @@ impl C64Memory {
     /// Cartridge ROM byte visible at `addr`, if a cartridge maps it under the
     /// current banking, else `None`.
     fn cartridge_read(&self, addr: u16) -> Option<u8> {
+        if let Some(ef) = self.easyflash.as_ref() {
+            let (exrom, game) = ef.lines();
+            let ultimax = game && !exrom;
+            return match addr {
+                0x8000..=0x9FFF if ultimax || (exrom && self.loram() && self.hiram()) => {
+                    Some(ef.roml_read(addr))
+                }
+                // 16K config: the PLA maps ROMH at $A000 on HIRAM alone
+                // (LORAM only gates ROML), replacing BASIC.
+                0xA000..=0xBFFF if exrom && game && !ultimax && self.hiram() => {
+                    Some(ef.romh_read(addr))
+                }
+                0xE000..=0xFFFF if ultimax => Some(ef.romh_read(addr)),
+                _ => None,
+            };
+        }
         let cart = self.cartridge.as_ref()?;
         if !cart.enabled {
             return None;
@@ -613,9 +699,10 @@ impl C64Memory {
             }
             0xA000..=0xBFFF => {
                 // 16K carts (not Ultimax) place ROMH here, replacing BASIC.
+                // The PLA maps it on HIRAM alone — LORAM only gates ROML
+                // (Prince of Persia EF's launcher runs with $01=$36).
                 let romh = bank.romh.as_ref()?;
-                (!cart.ultimax() && self.loram() && self.hiram())
-                    .then(|| romh[usize::from(addr - 0xA000)])
+                (!cart.ultimax() && self.hiram()).then(|| romh[usize::from(addr - 0xA000)])
             }
             0xE000..=0xFFFF => {
                 // Ultimax carts place ROMH here, replacing the KERNAL.
@@ -626,7 +713,10 @@ impl C64Memory {
         }
     }
 
-    const fn cart_ultimax(&self) -> bool {
+    fn cart_ultimax(&self) -> bool {
+        if let Some(ef) = &self.easyflash {
+            return ef.ultimax();
+        }
         match &self.cartridge {
             Some(cart) => cart.ultimax(),
             None => false,
@@ -694,6 +784,7 @@ impl C64Memory {
                 enabled: cart.enabled,
             });
         }
+        memory.easyflash = snapshot.easyflash;
         if let Some(gr) = snapshot.georam {
             memory.georam = Some(GeoRam {
                 ram: gr.ram,
@@ -753,6 +844,7 @@ impl C64Memory {
                         .collect(),
                 }
             }),
+            easyflash: self.easyflash.clone(),
             georam: self.georam.as_ref().map(|gr| GeoRamSnapshot {
                 ram: gr.ram.clone(),
                 page: gr.page,
@@ -797,14 +889,14 @@ impl C64Memory {
     /// Returns `true` when BASIC ROM is visible at `$A000-$BFFF`. Hidden in
     /// Ultimax mode.
     #[must_use]
-    pub const fn basic_visible(&self) -> bool {
+    pub fn basic_visible(&self) -> bool {
         self.hiram() && self.loram() && !self.cart_ultimax()
     }
 
     /// Returns `true` when KERNAL ROM is visible at `$E000-$FFFF`. Hidden in
     /// Ultimax mode (the cartridge's ROMH takes `$E000`).
     #[must_use]
-    pub const fn kernal_visible(&self) -> bool {
+    pub fn kernal_visible(&self) -> bool {
         self.hiram() && !self.cart_ultimax()
     }
 
@@ -878,6 +970,27 @@ impl C64Memory {
     pub fn vic_read(&self, bank: u8, offset: u16) -> u8 {
         let bank = usize::from(bank & 0x03);
         let offset = usize::from(offset & 0x3FFF);
+        // Ultimax: the cartridge ROMH's upper half answers VIC fetches at
+        // `$3000-$3FFF` (mirroring CPU `$F000-$FFFF`), and the char ROM is
+        // not decoded at all.
+        if self.cart_ultimax() {
+            if (0x3000..0x4000).contains(&offset) {
+                let romh_offset = (offset - 0x3000) + 0x1000;
+                if let Some(ef) = &self.easyflash {
+                    return ef.romh_peek(romh_offset as u16);
+                }
+                if let Some(byte) = self
+                    .cartridge
+                    .as_ref()
+                    .and_then(Cartridge::active_bank)
+                    .and_then(|bank| bank.romh.as_ref())
+                    .map(|romh| romh[romh_offset])
+                {
+                    return byte;
+                }
+            }
+            return self.ram[(bank * 0x4000) + offset];
+        }
         if (bank == 0 || bank == 2) && (0x1000..0x2000).contains(&offset) {
             return self.character_rom[offset - 0x1000];
         }
@@ -1010,6 +1123,30 @@ mod tests {
         assert_eq!(memory.cpu_read(0x8000), 0xA1);
         assert_eq!(memory.cpu_read(0xA000), 0xB2); // ROMH, not BASIC (0xBB)
         assert_eq!(memory.cpu_read(0xE000), 0xEE); // KERNAL untouched
+    }
+
+    /// 16K cart with LORAM low ($01=$36): the PLA keeps ROMH at $A000 on
+    /// HIRAM alone — only the ROML window closes (Prince of Persia EF's
+    /// launcher runs in exactly this configuration).
+    #[test]
+    fn cart_16k_keeps_romh_when_loram_low() {
+        let mut memory = make_memory();
+        memory.insert_cartridge(
+            true,
+            true,
+            Some(Box::new([0xA1; 0x2000])),
+            Some(Box::new([0xB2; 0x2000])),
+        );
+        memory.cpu_write(0x0000, 0xFF);
+        memory.cpu_write(0x0001, 0x36); // LORAM low, HIRAM high
+        memory.ram_write(0x8000, 0x77);
+        assert_eq!(memory.cpu_read(0x8000), 0x77); // ROML window closed
+        assert_eq!(memory.cpu_read(0xA000), 0xB2); // ROMH stays
+        assert_eq!(memory.cpu_read(0xE000), 0xEE); // KERNAL stays
+        // HIRAM low closes ROMH too.
+        memory.cpu_write(0x0001, 0x35);
+        memory.ram_write(0xA000, 0x66);
+        assert_eq!(memory.cpu_read(0xA000), 0x66);
     }
 
     /// Ultimax: EXROM high, GAME low. ROML at $8000 + ROMH at $E000 (replacing
