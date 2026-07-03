@@ -1131,7 +1131,12 @@ impl C64 {
     }
 
     fn cia1_port_b_read(&self) -> u8 {
-        self.cia1.port_b_drive_state() & self.keyboard.scan(self.cia1.pa) & self.joystick_input(1)
+        let byte = self.cia1.port_b_drive_state()
+            & self.keyboard.scan(self.cia1.pa)
+            & self.joystick_input(1);
+        // PB6/PB7 carry the timer outputs when enabled (CRA/CRB bit 1);
+        // they override the port/keyboard state for those bits.
+        self.cia1.timer_port_b_override(byte)
     }
 }
 
@@ -2043,7 +2048,12 @@ mod tests {
         machine.cpu_write(0xDC0D, 0x81);
         machine.cpu_write(0xDC0E, 0x01);
         assert!(!machine.cpu().irq);
-        machine.tick();
+        // 6526 pipeline: START takes two cycles to reach the counter, the
+        // latch-0 underflow lands on the third tick, and the /IRQ line
+        // follows the ICR flag one cycle later.
+        for _ in 0..4 {
+            machine.tick();
+        }
         assert!(machine.cia1().irq);
         assert!(machine.cpu().irq);
     }
@@ -2056,7 +2066,9 @@ mod tests {
         machine.cpu_write(0xDD0D, 0x81);
         machine.cpu_write(0xDD0E, 0x01);
         assert!(!machine.cpu().nmi);
-        machine.tick();
+        for _ in 0..4 {
+            machine.tick();
+        }
         assert!(machine.cia2().irq);
         assert!(machine.cpu().nmi);
     }
