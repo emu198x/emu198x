@@ -12,6 +12,58 @@ Campaign order (staged, not parallel): **Spectrum → NES/Game Boy → C64 →
 Amiga (standing campaign)**. W1 is the floor for everything; W2–W6 are the
 programme.
 
+## Capacity and horizon (added 2026-07-03) — read this before treating the workstreams as a schedule
+
+Pace is **evenings and weekends**, in bursts. That fact governs how the rest of
+this document is read:
+
+- **This is a multi-year programme, and that is the honest framing.** The six
+  workstreams are an *ordering*, not a set of parallel tracks. At this pace,
+  attempting more than one campaign's worth of depth at a time is how the whole
+  thing stalls.
+- **Milestone-gated, not calendar-gated.** Do not attach dates to W2–W6. The
+  gate is "the previous rung is done," not "it is now month N." The one hard
+  calendar anchor remains external and unchanged: Spectrum SOLID for Crash!
+  Live, October 2026 — and that is launch-*hardening* of an already-met bar, not
+  new campaign depth.
+- **Near-term scope is deliberately small.** The only work in flight at any time
+  is: **W1 (the floor)** + **the Spectrum campaign** + **the three unblocking
+  prerequisites below**. NES/GB, C64, Amiga, hardware rigs (W3), flux media
+  (W5), WASM, and netplay are an *ordered backlog* — real, sequenced, and not
+  started until their rung is reached. The plan should never read as if they are
+  concurrently underway.
+- **Agents are the throughput multiplier, not a second developer.** They extend
+  what one person's evenings cover (the W4 compat sweep, regression loops,
+  research) — they do not add a parallel campaign's worth of independent
+  capacity, and they do not reduce the bus-factor (see
+  [`continuity-and-succession.md`](../../knowledge/decisions/continuity-and-succession.md)).
+
+Consequence for W3 (hardware-truth): capital and a genuinely new skillset (flux
+imaging, logic analysis) on an evenings-and-weekends budget means W3 starts
+**small and late** — one campaign system, one open measurement question at a
+time — and the crowdsource-captures-before-buying-rigs option in W3 below is the
+preferred first move, not a fallback.
+
+## Near-term unblocking prerequisites (scheduled 2026-07-03)
+
+Three load-bearing prerequisites are pulled out of "someday" into owned
+near-term work, because each silently caps a workstream if discovered late:
+
+1. **Resolve the `isa-disasm` git dependency** (unblocks all 63 crates behind
+   the embeddable-crates moat). Publish it from Asm198x or make it
+   dev-only/feature-gated. Cheap, one-time; do it before more crates accrete the
+   blocker. Feeds W6 publishing.
+2. **Add the CLA/DCO clause to CONTRIBUTING before the first crate publishes.**
+   An hour now; a real mess if an external PR lands on a dual-licensed crate
+   without the grant. Gate on this, not on "when publishing starts."
+   ([`crate-licensing-split.md`](../../knowledge/decisions/crate-licensing-split.md).)
+3. **Open ROM-legality outreach as a slow parallel track.** Start the
+   Cloanto/Kickstart conversation via the umbrella
+   `canonical-outreach-catalogue.md`; if it stalls, the fallback is a conscious
+   scope decision to keep browser/netplay on firmware-free systems (NES,
+   Spectrum, Game Boy). It gates two moats on the two flagship systems, so it
+   must not sit as an unowned external given.
+
 **Effort calibration (added same day):** the campaign apparatus below (rigs,
 flux, demo canon, dashboards) applies to **Tier A** systems only — those with
 a living reference-grade incumbent. Tier B (maintained-but-narrower incumbent,

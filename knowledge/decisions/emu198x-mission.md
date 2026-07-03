@@ -63,6 +63,19 @@ system, the system's macOS / Linux availability improves by one,
 and over time the gap shrinks for the systems that matter to the
 project's audience.
 
+**Clarified 2026-07-03 (near-term effort vs standing mission).** Gap-fill is a
+*standing* mission goal, not the near-term *effort* priority. The best-in-class
+programme ([`../../../decisions/emu198x-best-in-class.md`](../../../decisions/emu198x-best-in-class.md))
+leads with reference-class depth on the four headliners — which is where the
+living cross-platform incumbents already are, so it is not where the gap-fill
+mission is best served. That is a deliberate choice: the campaigns lead because
+of the Code198x launch anchor and prestige, and gap-fill is served *through* the
+frontier lane (the 22 extended systems, ordered by CPU-family adjacency to the
+active campaign) rather than by reprioritising ahead of the campaigns. So read
+"primary mission" here as *enduring why*, not *this-quarter where the effort
+goes*. The tension is named and resolved in the umbrella record's § "The mission
+tension, named."
+
 This goal has already shaped multiple decisions, even though it
 hasn't been named in any of them:
 
