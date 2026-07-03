@@ -10,6 +10,8 @@
 
 pub mod config;
 mod datasette;
+mod easyflash;
+mod flash040;
 pub mod keyboard;
 pub mod machine;
 pub mod memory;

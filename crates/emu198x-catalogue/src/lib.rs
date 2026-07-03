@@ -1051,6 +1051,11 @@ fn run_c64_entry(
                 // game's bootloader handles the rest. wait_frames in
                 // the entry covers the full load-to-menu duration.
             }
+            MediaKind::Cartridge => {
+                // Cartridges autostart from power-on (EasyFlash boots its
+                // menu in Ultimax before the KERNAL even runs); the entry's
+                // wait_frames covers the whole boot.
+            }
             other => {
                 return Err(CatalogueError::UnsupportedMediaKind(format!(
                     "c64: {other:?}"

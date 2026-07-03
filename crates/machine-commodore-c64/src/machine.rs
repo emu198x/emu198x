@@ -248,6 +248,36 @@ fn banking_for_hardware_type(hardware_type: u16) -> Result<Option<CartBanking>, 
     }
 }
 
+/// Maps an EasyFlash CRT's CHIP packets onto the two 512 KiB flash images.
+/// Each 8K chip fills bank `chip.bank` of the low (`$8000`) or high
+/// (`$A000`/`$E000`) chip; a 16K chip fills both halves of its bank. Banks
+/// with no CHIP packet stay `$FF` (erased flash).
+fn map_easyflash_cartridge(cart: &CrtCartridge) -> Result<(Vec<u8>, Vec<u8>), String> {
+    let mut low = vec![0xFF; 0x8_0000];
+    let mut high = vec![0xFF; 0x8_0000];
+    for chip in &cart.chips {
+        let bank = usize::from(chip.bank);
+        if bank >= 64 {
+            return Err(format!("EasyFlash CHIP bank {bank} out of range"));
+        }
+        let base = bank << 13;
+        match (chip.load_address, chip.data.len()) {
+            (0x8000, 0x2000) => low[base..base + 0x2000].copy_from_slice(&chip.data),
+            (0xA000 | 0xE000, 0x2000) => high[base..base + 0x2000].copy_from_slice(&chip.data),
+            (0x8000, 0x4000) => {
+                low[base..base + 0x2000].copy_from_slice(&chip.data[..0x2000]);
+                high[base..base + 0x2000].copy_from_slice(&chip.data[0x2000..]);
+            }
+            (addr, len) => {
+                return Err(format!(
+                    "EasyFlash CHIP at ${addr:04X} with {len} bytes is not a supported layout"
+                ));
+            }
+        }
+    }
+    Ok((low, high))
+}
+
 /// Maps a simple bank-switched cartridge's CHIP packets into an indexed vector
 /// of 8K banks. Each CHIP's `bank` field selects the slot; `$8000` fills ROML
 /// (a 16K chip also fills that bank's ROMH), `$A000`/`$E000` fill ROMH.
@@ -726,6 +756,11 @@ impl C64 {
     /// windows the base machine maps.
     pub fn insert_crt_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
         let cart = parse_crt(bytes).map_err(|reason| reason.to_string())?;
+        if cart.hardware_type == 32 {
+            let (low, high) = map_easyflash_cartridge(&cart)?;
+            self.memory.insert_easyflash(low, high);
+            return Ok(());
+        }
         match banking_for_hardware_type(cart.hardware_type)? {
             None => {
                 let (roml, romh) = map_generic_cartridge(&cart)?;
@@ -818,6 +853,7 @@ impl C64 {
             self.cpu.tick();
         }
         self.sid.tick();
+        self.memory.tick_easyflash();
 
         if self.vic.take_frame_complete() {
             self.frame_count = self.frame_count.saturating_add(1);
@@ -853,6 +889,7 @@ impl C64 {
             self.cpu.tick();
         }
         self.sid.tick();
+        self.memory.tick_easyflash();
 
         if self.vic.take_frame_complete() {
             self.frame_count = self.frame_count.saturating_add(1);
@@ -977,6 +1014,10 @@ impl C64 {
             self.io_write(addr, value);
             return;
         }
+        // EasyFlash: a write to a mapped ROM window also drives the flash
+        // chip's command state machine (the RAM underneath still takes the
+        // byte, as for any ROM window).
+        self.memory.easyflash_rom_write(addr, value);
         self.memory.cpu_write(addr, value);
         if matches!(addr, 0x0000 | 0x0001) {
             self.refresh_datasette_port_lines();
@@ -997,6 +1038,7 @@ impl C64 {
             }
             return;
         }
+        self.memory.easyflash_rom_write(addr, value);
         self.memory.cpu_write(addr, value);
         if matches!(addr, 0x0000 | 0x0001) {
             self.refresh_datasette_port_lines();
@@ -1036,7 +1078,8 @@ impl C64 {
             0xDD00..=0xDDFF => self.cia2.read((addr & 0x0F) as u8),
             0xDE00..=0xDFFF => self
                 .memory
-                .reu_read(addr)
+                .easyflash_io2_read(addr)
+                .or_else(|| self.memory.reu_read(addr))
                 .or_else(|| self.memory.georam_read(addr))
                 .unwrap_or(0xFF),
             _ => 0xFF,
@@ -1622,8 +1665,24 @@ mod tests {
         let mut machine = stub_machine(C64Model::PalBreadbin);
         let mut crt = build_crt(0, 1, 0x8000, &[0xA1; 0x2000]);
         crt[0x16] = 0x00;
-        crt[0x17] = 0x20; // hardware type 32 (EasyFlash)
+        crt[0x17] = 0x21; // hardware type 33 (unsupported)
         assert!(machine.insert_crt_bytes(&crt).is_err());
+    }
+
+    #[test]
+    fn insert_crt_accepts_easyflash_and_boots_ultimax() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let mut crt = build_crt(0, 1, 0x8000, &[0xA1; 0x2000]);
+        crt[0x16] = 0x00;
+        crt[0x17] = 0x20; // hardware type 32 (EasyFlash)
+        machine.insert_crt_bytes(&crt).expect("EasyFlash inserts");
+        // Boot state is Ultimax: ROMH (erased flash, $FF) owns $E000 and
+        // the ROML chip carries the inserted bank-0 image at $8000.
+        assert_eq!(machine.cpu_read(0xE000), 0xFF);
+        assert_eq!(machine.cpu_read(0x8000), 0xA1);
+        // Switching the mode register to "off" unmaps the windows.
+        machine.cpu_write(0xDE02, 0x04);
+        assert_ne!(machine.cpu_read(0xE000), 0xFF); // KERNAL is back
     }
 
     #[test]
