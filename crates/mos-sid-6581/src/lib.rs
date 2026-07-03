@@ -6,10 +6,15 @@
 mod combined_wave_tables;
 mod dac;
 mod envelope;
+mod external_filter;
 mod filter;
+mod filter_tables;
+#[cfg(test)]
+mod oracle_tests;
 mod voice;
 
 pub use envelope::{Envelope, Phase};
+pub use external_filter::ExternalFilter;
 pub use filter::Filter;
 pub use voice::Voice;
 
@@ -35,22 +40,19 @@ use serde::{Deserialize, Serialize};
 /// digi into the one output high-pass. Every sample changes, so v1 hashes
 /// are invalid.
 ///
+/// **Version 3** (2026-07-03, issues #19/#20): the reSID op-amp filter model
+/// (`filter8580new`) replaces the piecewise-linear state-variable filter for
+/// **both** models — measured op-amp transfer curves, Newton-Raphson-solved
+/// summer/mixer/resonance/volume ladders, EKV-modelled 6581 cutoff VCRs, and
+/// the 8580's parallel-NMOS cutoff DAC. Routing, `voice3off`, and the master
+/// volume now live in the filter/mixer stage (`$D417`/`$D418` semantics), and
+/// the ad-hoc output high-pass is replaced by reSID's external filter (the
+/// C64 board's 16 kHz low-pass + 16 Hz high-pass). Every sample changes, so
+/// v2 hashes are invalid.
+///
 /// See `knowledge/decisions/c64-architecture-review.md` Seam 4 for
 /// the re-capture discipline this constant enforces.
-pub const AUDIO_ROUTING_VERSION: u32 = 2;
-
-/// Mixer DC bias, in DAC-output units, that the master volume nibble scales.
-/// With every voice silent (envelope 0), the voices contribute no DC, so this
-/// constant is what a `$D418` write steps — the classic 4-bit "digi". The
-/// output high-pass ([`Sid6581::output_highpass`]) removes its steady level and
-/// passes the write transient, exactly like the SID's AC-coupled output stage.
-/// reSID carries the analogous term as the filter mixer DC.
-const MIXER_DC: f32 = 2048.0;
-
-/// High-pass corner (Hz) that AC-couples the mixed SID output, matching the
-/// output stage's coupling (reSID's external filter high-passes near 16 Hz).
-/// Removes the `wave_zero` / mixer DC while passing volume-change transients.
-const OUTPUT_HP_HZ: f32 = 16.0;
+pub const AUDIO_ROUTING_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SidModel {
@@ -230,7 +232,11 @@ pub struct Sid6581 {
     pub voices: [Voice; 3],
     pub envelopes: [Envelope; 3],
     pub filter: Filter,
+    /// Mirror of the `$D418` volume nibble (authoritative copy lives in
+    /// [`Filter`], which owns the volume DAC ladder).
     pub volume: u8,
+    /// Mirror of the `$D418` voice3off bit (authoritative copy lives in
+    /// [`Filter`]; it only silences an *unfiltered* voice 3, per hardware).
     pub voice3_off: bool,
     pub potx: u8,
     pub poty: u8,
@@ -242,11 +248,9 @@ pub struct Sid6581 {
     output_sample_rate: u32,
     #[serde(default = "default_audio_controls")]
     audio_controls: AudioControls,
-    /// One-pole DC-blocker state for the AC-coupled output stage.
+    /// The C64 board's output coupling (16 kHz low-pass + 16 Hz high-pass).
     #[serde(default)]
-    output_hp_prev_in: f32,
-    #[serde(default)]
-    output_hp_prev_out: f32,
+    ext_filter: ExternalFilter,
     #[serde(skip)]
     buffer: Vec<f32>,
     #[serde(skip)]
@@ -277,8 +281,7 @@ impl Sid6581 {
             cpu_freq: cpu_frequency,
             output_sample_rate,
             audio_controls: AudioControls::default(),
-            output_hp_prev_in: 0.0,
-            output_hp_prev_out: 0.0,
+            ext_filter: ExternalFilter::new(),
             buffer: Vec::with_capacity(output_sample_rate as usize / 50 + 1),
             channel_buffers: std::array::from_fn(|_| {
                 Vec::with_capacity(output_sample_rate as usize / 50 + 1)
@@ -397,21 +400,13 @@ impl Sid6581 {
                 self.envelopes[2].sustain = (value >> 4) & 0x0F;
                 self.envelopes[2].release = value & 0x0F;
             }
-            0x15 => {
-                self.filter.cutoff = (self.filter.cutoff & 0x07F8) | u16::from(value & 0x07);
-            }
-            0x16 => {
-                self.filter.cutoff = (self.filter.cutoff & 0x0007) | (u16::from(value) << 3);
-            }
-            0x17 => {
-                self.filter.resonance = (value >> 4) & 0x0F;
-                self.filter.routing = value & 0x07;
-                self.filter.ext_in = value & 0x08 != 0;
-            }
+            0x15 => self.filter.write_fc_lo(value),
+            0x16 => self.filter.write_fc_hi(value),
+            0x17 => self.filter.write_res_filt(value),
             0x18 => {
                 self.volume = value & 0x0F;
-                self.filter.mode = value & 0x70;
                 self.voice3_off = value & 0x80 != 0;
+                self.filter.write_mode_vol(value);
             }
             _ => {}
         }
@@ -453,8 +448,7 @@ impl Sid6581 {
             self.voices[1].msb(),
         ];
 
-        let mut filtered_sum = 0.0;
-        let mut direct_sum = 0.0;
+        let mut voice_values = [0_i32; 3];
         let mut voice_normalised = [0.0_f32; 3];
 
         let wave_dac = dac::wave_dac(self.model);
@@ -464,35 +458,28 @@ impl Sid6581 {
         for index in 0..3 {
             let waveform = self.voices[index].waveform_output(ring_mod_msb[index], self.model);
             let envelope = self.envelopes[index].level;
-            // reSID voice output: the 12-bit waveform and 8-bit envelope each
-            // pass through their (nonlinear on the 6581) DAC, then the envelope
-            // multiplies the waveform measured from its DC "zero". The DC that
-            // `wave_zero` leaves in the signal is removed by the output stage.
+            // reSID voice output (20 bits): the 12-bit waveform and 8-bit
+            // envelope each pass through their (nonlinear on the 6581) DAC,
+            // then the envelope multiplies the waveform measured from its DC
+            // "zero". The DC that `wave_zero` leaves in the signal rides into
+            // the filter/mixer and is removed by the board's output coupling.
             let wave_level = wave_dac[waveform as usize] - wave_zero;
-            let env_level = env_dac[usize::from(envelope)] / 255.0;
+            let env_level = env_dac[usize::from(envelope)];
             let raw_amplitude = wave_level * env_level;
             let amplitude = self.audio_controls.channels[index].apply(raw_amplitude);
-            voice_normalised[index] = amplitude / 2048.0;
-
-            if index == 2 && self.voice3_off {
-                continue;
-            }
-
-            if self.filter.voice_routed(index) {
-                filtered_sum += amplitude;
-            } else {
-                direct_sum += amplitude;
-            }
+            voice_normalised[index] = amplitude / (2048.0 * 255.0);
+            voice_values[index] = amplitude as i32;
         }
 
-        let filter_output = self.filter.clock(filtered_sum);
-        // The mixer sums the (DC-bearing) voices with a constant mixer DC, all
-        // scaled by the $D418 master volume. Silent voices contribute no DC, so
-        // the mixer DC is what a volume write steps — the 4-bit digi. The output
-        // high-pass then AC-couples the lot: the wave_zero / mixer DC decays to
-        // zero while volume-change transients pass, as the real output stage does.
-        let mixed = (filter_output + direct_sum + MIXER_DC) * f32::from(self.volume) / 15.0;
-        let normalised = self.output_highpass(mixed) / 6144.0 * self.audio_controls.master_gain();
+        // The op-amp filter owns routing, voice3off, the mixer, and the $D418
+        // master-volume ladder; the external filter is the C64 board's output
+        // coupling, which strips the operating-point DC and passes volume
+        // steps through as the classic 4-bit digi.
+        self.filter
+            .clock(voice_values[0], voice_values[1], voice_values[2]);
+        self.ext_filter.clock(self.filter.output());
+        let normalised =
+            self.ext_filter.output() as f32 / 32768.0 * self.audio_controls.master_gain();
 
         self.accumulator += normalised;
         for (index, sample) in voice_normalised.iter().copied().enumerate() {
@@ -510,19 +497,6 @@ impl Sid6581 {
             self.accumulator = 0.0;
             self.sample_count = 0;
         }
-    }
-
-    /// One-pole DC blocker on the mixed SID output, clocked at the SID tick
-    /// rate — the AC-coupled output stage. A steady mix (including the
-    /// `wave_zero` and mixer DC) decays to zero; only *changes* survive, so
-    /// music passes and a `$D418` volume write steps through as a digi.
-    fn output_highpass(&mut self, input: f32) -> f32 {
-        // R = 1 - 2*pi*fc/fs; fc ~16 Hz, fs = SID tick (CPU) rate.
-        let r = 1.0 - (std::f32::consts::TAU * OUTPUT_HP_HZ / self.cpu_freq as f32);
-        let output = input - self.output_hp_prev_in + r * self.output_hp_prev_out;
-        self.output_hp_prev_in = input;
-        self.output_hp_prev_out = output;
-        output
     }
 
     pub fn take_buffer(&mut self) -> Vec<f32> {
@@ -555,14 +529,18 @@ mod tests {
 
     #[test]
     fn silent_when_no_voices_active() {
+        // The op-amp model has a power-on DC operating point that the board's
+        // 16 Hz output coupling drains over ~100 ms (the real SID's power-on
+        // pop), so silence is asserted after settling. The residual floor is
+        // the voice-input dither (~a few output LSBs), far below audibility.
         let mut sid = Sid6581::new(985_248, 48_000);
-        for _ in 0..19_656 {
+        for _ in 0..300_000 {
             sid.tick();
         }
         let buffer = sid.take_buffer();
         assert!(!buffer.is_empty(), "should emit samples even in silence");
-        for &sample in &buffer {
-            assert!(sample.abs() < 1e-6, "expected silence, got {sample}");
+        for &sample in &buffer[buffer.len() / 2..] {
+            assert!(sample.abs() < 1e-3, "expected silence, got {sample}");
         }
     }
 
@@ -737,14 +715,19 @@ mod tests {
                 sid.write(0x18, 0x0F);
             }
 
+            // Let the power-on DC transient drain through the output coupling
+            // before measuring, then take the RMS of a settled window.
+            for _ in 0..300_000 {
+                sid.tick();
+            }
+            let _ = sid.take_buffer();
             for _ in 0..60_000 {
                 sid.tick();
             }
 
             let buffer = sid.take_buffer();
-            let settled = &buffer[200.min(buffer.len())..];
-            let sum_sq: f32 = settled.iter().map(|sample| sample * sample).sum();
-            (sum_sq / settled.len() as f32).sqrt()
+            let sum_sq: f32 = buffer.iter().map(|sample| sample * sample).sum();
+            (sum_sq / buffer.len() as f32).sqrt()
         };
 
         let direct_rms = run(false);

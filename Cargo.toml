@@ -264,6 +264,13 @@ unwrap_used = "deny"
 debug = "line-tables-only"
 split-debuginfo = "unpacked"
 
+# The SID op-amp filter builds ~5M Newton-Raphson-solved lookup-table entries
+# once per model at first use (reSID filter8580new model, issues #19/#20).
+# Unoptimized that costs the best part of a minute per test process; optimized
+# it's around a second. Debug assertions stay on — only codegen changes.
+[profile.dev.package.mos-sid-6581]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
