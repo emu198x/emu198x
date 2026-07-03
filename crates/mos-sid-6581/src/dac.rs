@@ -68,7 +68,11 @@ pub fn env_dac(model: SidModel) -> &'static [f32] {
 /// ladder. Direct port of reSID `build_dac_table`; `term` selects the 8580's
 /// terminated ladder (else the 6581's un-terminated one). Output is scaled so
 /// the all-bits-set input maps to `2^bits - 1`.
-fn build_dac_table(bits: usize, r2_div_r: f64, term: bool) -> Vec<f32> {
+///
+/// Kept at `f64` precision because the filter's cutoff DAC
+/// ([`crate::filter_tables`]) maps this through further `f64` scaling before
+/// rounding, exactly as reSID does.
+pub(crate) fn build_dac_table_f64(bits: usize, r2_div_r: f64, term: bool) -> Vec<f64> {
     let leakage = if term {
         MOSFET_LEAKAGE_8580
     } else {
@@ -122,8 +126,15 @@ fn build_dac_table(bits: usize, r2_div_r: f64, term: bool) -> Vec<f32> {
                 let bit_set = (i >> j) & 1 == 1;
                 vo += if bit_set { 1.0 } else { leakage } * v;
             }
-            (full_scale * vo) as f32
+            full_scale * vo
         })
+        .collect()
+}
+
+fn build_dac_table(bits: usize, r2_div_r: f64, term: bool) -> Vec<f32> {
+    build_dac_table_f64(bits, r2_div_r, term)
+        .into_iter()
+        .map(|v| v as f32)
         .collect()
 }
 
