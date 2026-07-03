@@ -344,6 +344,13 @@ impl C64 {
         &self.cpu
     }
 
+    /// Mutable CPU state, for test harnesses that seed registers / PC to jump
+    /// straight into a program (matches the `cpu_mut` hook the other machine
+    /// cores expose). Not used on the normal boot/run path.
+    pub fn cpu_mut(&mut self) -> &mut M6502 {
+        &mut self.cpu
+    }
+
     /// Side-effect-free debugger read of CPU-visible memory.
     ///
     /// Honors PLA banking via the memory subsystem but — unlike
