@@ -1407,6 +1407,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-commodore-c64-d81"
+version = "0.2.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "format-commodore-c64-p00"
 version = "0.2.0"
 dependencies = [
