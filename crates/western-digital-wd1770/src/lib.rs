@@ -220,7 +220,7 @@ enum Pending {
 }
 
 /// Western Digital WD1770 floppy disk controller.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Wd1770 {
     // Software-visible registers.
     status: u8,

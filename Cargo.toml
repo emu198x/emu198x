@@ -56,6 +56,7 @@ members = [
     "crates/machine-commodore-amiga-ecs",
     "crates/machine-commodore-c64",
     "crates/machine-commodore-1541",
+    "crates/machine-commodore-1581",
     "crates/machine-dragon-32",
     "crates/machine-nintendo-game-boy",
     "crates/machine-nintendo-nes",
