@@ -109,17 +109,28 @@ Two bugs fixed en route:
    `drive_data_or_fold` so each drive picks its fold. This got "device present"
    working (the drive now auto-ACKs ATN by pulling DATA low).
 
-Still open: the drive receives ATN-ACK (hardware) but its CPU never processes
-the ATN command sequence — `$87` (command-ready flag) and `$76` bit 0 (the ISR's
-FLAG/ATN-received bit) both stay clear, so the FLAG (ATN) interrupt is not being
-serviced. The drive spends ~79% of cycles in its IRQ handler ($DB08). Prime
-hypothesis: a CIA-level bug (an interrupt line that isn't cleared by the ICR
-read, or a timer firing that shouldn't) starves the drive's main loop so it
-never polls/services ATN. `IM_SDR` can't be the culprit (only set in SP *output*
-mode; the 1581 runs input mode). Next: instrument the drive's `cia.irq` / ICR
-across a LOAD to find which enabled interrupt is stuck asserted, and whether the
-FLAG edge is reaching the ICR at all. This is 8520-vs-6526 / IEC-timing
-territory — needs a focused CIA pass.
+Still open — localised to the FLAG-interrupt path:
+- **ATN reaches the drive** (confirmed with a temporary latch: PB7 goes low
+  during the LOAD). So bus propagation + `apply_drive_inputs` ATN fold are fine.
+- **ATN gets STUCK low** (~60M ticks = permanent after the command) — a
+  handshake deadlock: the C64 asserts ATN and holds it waiting for the drive to
+  receive the command; the drive never does, so neither side releases.
+- The drive's idle loop ($B105) is interrupt-driven for ATN: `$B108 BIT $76;
+  $B10C JMP $FF30` — it jumps to the ATN handler when `$76` bit 0 is set, which
+  the IRQ handler sets on a serviced FLAG interrupt. `$76` bit 0 never sets, so
+  **the FLAG (ATN) interrupt is not being serviced**, even though ATN reaches
+  PB7 and the DOS enabled FLAG in the ICR mask ($9A).
+
+So the bug is in the `cia.flag` → FLAG-edge → IM_FLAG → IRQ → `$76` bit 0 chain.
+Prime hypothesis: `apply_drive_inputs` sets `cia.flag` on every call — including
+inside `sync_iec_bus`, which does NOT run `cia.tick()`/`poll_flag` — so across
+the interleaved C64/drive sync pattern the FLAG falling edge may be set-and-
+cleared or mis-ordered relative to `poll_flag`, and the edge is lost. Next:
+a focused test that drives `cia.flag` through the exact sync/tick order and
+asserts `poll_flag` raises IM_FLAG once per ATN assertion; if that's the bug,
+latch the ATN level and only feed edges to the CIA on real drive ticks (or drive
+FLAG from a dedicated per-tick path, not from `sync_iec_bus`). This is the last
+mile.
 
 ## Reference anchors
 - VICE 1581: `src/drive/iec/{cia1581d,wd1770,memiec}.c`, `src/drive/iec/fdd.c` (geometry).
