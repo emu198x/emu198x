@@ -226,8 +226,14 @@ scrolls through the last N entries.
   whole design.
 - **No web frontend in MVP.** ROM-legality kills WASM embedding;
   no other compelling reason for HTML/CSS over native.
-- **No source-level mapping.** We don't have source for loaded
-  ROMs; this isn't gdb.
+- **No source-level mapping** *(in MVP; partly reopened 2026-07-04)*.
+  We don't have source for third-party ROMs, so for those this
+  isn't gdb — that stands. But for programs *we* assemble
+  (Code198x lessons, Forge198x, anything built with Asm198x), we
+  now do: Asm198x emits `dbg198x`, a debug-info sidecar (line map +
+  symbols + sections + address spaces). Source-level debugging for
+  our own programs is therefore back on the table — see § Forward
+  vision. Third-party-ROM debugging stays symbol-optional.
 - **No breakpoints, memory editing, or conditional pause in MVP.**
   Real Phase 2 work; require synchronous pause-at-condition
   semantics in every chip. Worth doing right rather than fast.
@@ -304,6 +310,50 @@ scrolls through the last N entries.
   in `knowledge/chips/` or `knowledge/systems/`. Decide when
   learner-mode lands, not now.
 
+## Forward vision (added 2026-07-04)
+
+Three connected capabilities that the existing architecture makes unusually
+cheap — captured now as direction, not committed scope. They share a spine: the
+emulator is deterministic (no RNG, no wall-clock in the sim path), it already
+plans a trace ring buffer, it exposes a scriptable MCP surface, and — new — it
+can consume `dbg198x` to know what the running bytes *mean*.
+
+- **Consume `dbg198x` for symbols and source** (the enabler for the other two).
+  When Wave 4's breakpoints and stepping land, build them to read `dbg198x`
+  (`symbol_at` / `addr_of` / `line_at`) rather than inventing a symbol format:
+  address→label disassembly, breakpoint-by-label, and source-anchored stepping
+  for any program we assembled. It is `serde`-only and authored in Asm198x —
+  see the umbrella
+  [`asm198x-and-shared-isa-spec.md`](../../../decisions/asm198x-and-shared-isa-spec.md)
+  § The debug-info layer. Wiring it into the shared `DebugTarget` tier lights it
+  up across all machines at once, and it directly serves Forge198x's dev loop.
+
+- **Execution-flow visualization — "a flow chart of how a game progresses."**
+  Two layers that combine: a *static* control-flow graph from the structured
+  disassembly (`isa-disasm`) annotated with `dbg198x` symbols (basic blocks,
+  branches, calls between *named* routines), and a *dynamic* overlay from the
+  trace ring buffer showing which paths *this* playthrough actually took and how
+  it moved between routines/states over time. The dynamic-over-static overlay is
+  the interesting artifact — "here is how the game flowed through its own code,
+  by name" — and it doubles as docs-site material (annotated inner-workings) and
+  an agent-native surface (an agent reasons over named flow, not hex). Feasible
+  here specifically because determinism makes the trace reproducible, `dbg198x`
+  supplies the names, and the MCP surface makes the whole thing scriptable.
+
+- **Source-anchored rewind.** Rewind is already cheap by construction —
+  determinism means a snapshot ring buffer + deterministic replay reconstructs
+  any earlier state exactly (the RZX-style replay generalised; see the rewind
+  planning note). `dbg198x` upgrades it from "rewind N frames" to "rewind to the
+  last time we were in `draw_sprite` / at `main.asm:214`" — time travel anchored
+  to source and symbols, not raw frame counts. Rewind + the flow chart are the
+  same feature from two angles: the chart shows where you've been and can go;
+  rewind takes you there.
+
+None of this is scheduled — it sits behind the Wave 4 breakpoint/stepping work
+and the umbrella best-in-class programme's near-term floor. Captured so the
+`dbg198x` seam and the determinism dividend are designed *for* rather than
+rediscovered later.
+
 ## Acceleration claim — concrete
 
 This decision pulls debugger work forward from the Phase C window
@@ -359,6 +409,21 @@ before continuing.
   is premature complexity.
 
 ## Log
+
+### 2026-07-04 — Forward vision added (dbg198x, flow chart, rewind)
+
+Asm198x grew a `dbg198x` debug-info crate (line map + symbols + sections +
+address spaces, NDJSON, serde-only) that names Emu198x as its consumer. Added
+§ Forward vision capturing three connected directions the existing architecture
+makes cheap: consume `dbg198x` for symbol/source-level debugging (rather than
+inventing a format); execution-flow visualization ("a flow chart of how a game
+progresses" — static CFG from `isa-disasm` + `dbg198x` names, overlaid with the
+dynamic trace); and source-anchored rewind (determinism makes rewind cheap;
+`dbg198x` anchors it to routines/lines instead of frame counts). The two
+early product thoughts (flow chart, rewind) are Steve's. Also amended the
+"No source-level mapping" NOT-doing item — it reopens for programs we assemble.
+Umbrella capture of the `dbg198x` layer is in
+[`asm198x-and-shared-isa-spec.md`](../../../decisions/asm198x-and-shared-isa-spec.md).
 
 ### 2026-05-23 — Decision locked
 
