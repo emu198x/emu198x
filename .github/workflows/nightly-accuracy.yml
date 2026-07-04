@@ -173,21 +173,20 @@ jobs:
       - name: Run Tom Harte 68000 full sweep
         run: cargo test --release -p motorola-68000 --test tom_harte -- --include-ignored --nocapture
 
-  # Wolfgang Lorenz — the only corpus here that also needs the C64 KERNAL, so
-  # the store's lorenz-6502 tarball must include kernal.rom. Kept as its own
-  # job to make the firmware dependency explicit rather than hidden in the
-  # matrix.
-  #
-  # DEFERRED (2026-07-04): the Lorenz suite isn't in the store yet — it needs
-  # the suite obtained and a decision on carrying the C64 KERNAL in the private
-  # tarball. Disabled with `if: false` so the nightly stays green rather than
-  # red on a missing asset. To re-enable once lorenz-6502.tar.zst is uploaded,
-  # restore the condition to: needs.preflight.outputs.configured == 'true'.
+  # Wolfgang Lorenz — its own job because it loads a C64 KERNAL into $E000-$FFFF.
+  # That KERNAL is a *synthetic, fully-free* one we author (not the commercial
+  # Cloanto ROM): the harness traps CHROUT and installs its own reset/IRQ
+  # vectors, so the only KERNAL code the suite ever executes is the interrupt
+  # handlers at $EA31/$FE66/NMI — the synthetic supplies compatible minimal
+  # handlers there. Verified 2026-07-04 to reproduce the real-KERNAL result on
+  # all 265 cases (250 pass / 15 hardware-dependent skips). The store's
+  # lorenz-6502 tarball carries the cases plus this synthetic kernal.rom; no
+  # commercial ROM touches CI. See test-data/commodore/c64/synthetic-kernal/.
   lorenz-6502:
     name: lorenz-6502
     runs-on: ubuntu-latest
     needs: preflight
-    if: false
+    if: needs.preflight.outputs.configured == 'true'
     timeout-minutes: 120
     steps:
       - name: Check out repository
@@ -221,8 +220,9 @@ jobs:
           grep ' lorenz-6502.tar.zst$' SHA256SUMS | sha256sum -c -
           tar --zstd -xf 'lorenz-6502.tar.zst'
           echo "EMU198X_6502_LORENZ_DIR=$(pwd)/lorenz-6502" >> "$GITHUB_ENV"
-          # The suite reads the KERNAL via the C64 ROM env var; the tarball
-          # ships it alongside the .prg cases.
+          # The suite reads a KERNAL via the C64 ROM env var; the tarball ships
+          # the synthetic free KERNAL (kernal.rom) alongside the cases — not a
+          # commercial ROM. See test-data/commodore/c64/synthetic-kernal/.
           echo "EMU198X_C64_KERNAL_ROM=$(pwd)/lorenz-6502/kernal.rom" >> "$GITHUB_ENV"
 
       - name: Run Wolfgang Lorenz 6502 suite
