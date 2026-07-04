@@ -65,32 +65,41 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `filter` narrows to the comprehensive sweep test. `--include-ignored`
+        # would otherwise also run the per-opcode helper tests (run_named_opcode
+        # etc.) that require an env var and panic when it is unset — those are
+        # for driving a single opcode by hand, not for CI.
         include:
           - name: harte-6502
             artifact: harte-6502
             crate: mos-6502
             test: single_step_tests
             env_var: EMU198X_6502_TOM_HARTE_DIR
+            filter: run_all
           - name: harte-z80
             artifact: harte-z80
             crate: zilog-z80
             test: single_step_tests
             env_var: EMU198X_Z80_TOM_HARTE_DIR
+            filter: run_all
           - name: sm83-tennant
             artifact: sm83
             crate: sharp-lr35902
             test: single_step_tests
             env_var: EMU198X_SM83_TENNANT_DIR
+            filter: run_all
           - name: dormann-6502
             artifact: dormann-6502
             crate: mos-6502
             test: dormann_tests
             env_var: EMU198X_6502_DORMANN_DIR
+            filter: ''
           - name: fuse-z80
             artifact: fuse-z80
             crate: zilog-z80
             test: z80_fuse
             env_var: EMU198X_FUSE_Z80_TESTS_DIR
+            filter: ''
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -126,7 +135,7 @@ jobs:
           echo "${{ matrix.env_var }}=$(pwd)/${{ matrix.artifact }}" >> "$GITHUB_ENV"
 
       - name: Run ${{ matrix.name }}
-        run: cargo test --release -p ${{ matrix.crate }} --test ${{ matrix.test }} -- --include-ignored --nocapture
+        run: cargo test --release -p ${{ matrix.crate }} --test ${{ matrix.test }} ${{ matrix.filter }} -- --include-ignored --nocapture
 
   # Tom Harte 68000 — the ~1,000,058-case sweep. Gigabytes and potentially
   # hours, so it gets its own job with a long timeout rather than sharing the
@@ -171,7 +180,7 @@ jobs:
           echo "EMU198X_68000_TOM_HARTE_ROOT=$(pwd)/harte-68000" >> "$GITHUB_ENV"
 
       - name: Run Tom Harte 68000 full sweep
-        run: cargo test --release -p motorola-68000 --test tom_harte -- --include-ignored --nocapture
+        run: cargo test --release -p motorola-68000 --test tom_harte harte_full_sweep -- --include-ignored --nocapture
 
   # Wolfgang Lorenz — its own job because it loads a C64 KERNAL into $E000-$FFFF.
   # That KERNAL is a *synthetic, fully-free* one we author (not the commercial
@@ -226,7 +235,7 @@ jobs:
           echo "EMU198X_C64_KERNAL_ROM=$(pwd)/lorenz-6502/kernal.rom" >> "$GITHUB_ENV"
 
       - name: Run Wolfgang Lorenz 6502 suite
-        run: cargo test --release -p mos-6502 --test lorenz_tests -- --include-ignored --nocapture
+        run: cargo test --release -p mos-6502 --test lorenz_tests run_lorenz_6502_cpu_suite -- --include-ignored --nocapture
 
   # Frank Cringle's ZEXDOC + ZEXALL Z80 exerciser. Own job (tens of minutes).
   # Previously ran hermetically from a checked-in corpus via zex.yml, on Z80
@@ -272,7 +281,9 @@ jobs:
           echo "EMU198X_ZEX_DIR=$(pwd)/zex" >> "$GITHUB_ENV"
 
       - name: Run ZEXDOC + ZEXALL
-        run: cargo test --release -p zilog-z80 --test zex_tests -- --include-ignored --nocapture
+        # --skip checkpoint drops run_zexdoc_checkpoint / run_zexall_checkpoint,
+        # which need EMU198X_ZEX_CHECKPOINT set and panic without it.
+        run: cargo test --release -p zilog-z80 --test zex_tests -- --include-ignored --skip checkpoint --nocapture
 
   # Patrik Rak's z80test exerciser (MIT). Runs on a full 48K Spectrum, so it
   # needs the free (Amstrad-permissioned) 48K ROM — the z80test tarball ships
@@ -302,6 +313,14 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: nightly-accuracy-z80test
+
+      - name: Install Linux build dependencies
+        # z80test compiles a full 48K Spectrum, which pulls in the host
+        # audio/input stack (cpal -> alsa, gilrs -> libudev). The pure-CPU
+        # jobs above don't need these. Mirrors the main ci.yml install.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev libudev-dev
 
       - name: Provision corpus + 48K ROM from store
         env:
