@@ -9,6 +9,7 @@ use emu198x_shell::{
     ResetKind, RunResult, StopReason, TraceEvent,
 };
 use machine_commodore_1541::{DRIVE1541_CPU_HZ, Drive1541, Drive1541Config};
+use machine_commodore_1581::{DRIVE1581_CPU_HZ, Drive1581, Drive1581Config};
 use machine_commodore_c64::{AudioControls, C64, C64Config, C64Model, SidChannel};
 use serde::Serialize;
 use serde_json::json;
@@ -21,6 +22,9 @@ const KERNAL_ROM_SIZE: usize = 0x2000;
 const BASIC_ROM_SIZE: usize = 0x2000;
 const CHARACTER_ROM_SIZE: usize = 0x1000;
 const DOS1541_ROM_SIZE: usize = 0x4000;
+const DOS1581_ROM_SIZE: usize = 0x8000;
+/// The 1581 coexists with the 1541 by taking IEC device 9 (jumper 1).
+const DRIVE_1581_DEVICE_NUMBER: u8 = 9;
 pub(crate) const SCREEN_RAM_BASE: u16 = 0x0400;
 pub(crate) const SCREEN_TEXT_WIDTH: usize = 40;
 pub(crate) const SCREEN_TEXT_HEIGHT: usize = 25;
@@ -36,6 +40,12 @@ pub struct C64Runtime {
     character_rom: Vec<u8>,
     drive8_dos_rom: Option<Vec<u8>>,
     drive8: Option<Drive1541>,
+    /// The 1581 DOS ROM, retained so a reset rebuilds the drive.
+    drive_1581_dos_rom: Option<Vec<u8>>,
+    /// A 1581 3.5" drive, when its DOS ROM is present. Coexists with the
+    /// 1541 as IEC device 9 (the 1541 keeps device 8), so both can be on the
+    /// bus at once.
+    drive_1581: Option<Drive1581>,
     /// Raw `.crt` image of the inserted cartridge, retained so a reset (which
     /// rebuilds the machine from ROMs) can re-insert it, matching hardware where
     /// the cartridge stays in the port across a reset.
@@ -51,6 +61,7 @@ pub struct C64Runtime {
     mouse_1351_port: Option<u8>,
     iec_bus: IecBus,
     drive8_cycle_accum: u64,
+    drive_1581_cycle_accum: u64,
     rgba_framebuffer: Vec<u8>,
     trace_vic_colour_writes: bool,
     trace_drive_rom_window: Option<(u16, u16)>,
@@ -174,12 +185,15 @@ impl C64Runtime {
             character_rom,
             drive8_dos_rom,
             drive8,
+            drive_1581_dos_rom: None,
+            drive_1581: None,
             cartridge_image: None,
             georam_kb: None,
             reu_kb: None,
             mouse_1351_port: None,
             iec_bus,
             drive8_cycle_accum: 0,
+            drive_1581_cycle_accum: 0,
             rgba_framebuffer,
             trace_vic_colour_writes: false,
             trace_drive_rom_window: None,
@@ -212,14 +226,29 @@ impl C64Runtime {
                 id: "commodore-c64-character-rom".to_owned(),
             })?;
         let drive8_dos_rom = firmware.bytes("commodore-1541-dos-rom").map(<[u8]>::to_vec);
+        let drive_1581_dos_rom = firmware.bytes("commodore-1581-dos-rom").map(<[u8]>::to_vec);
 
-        Self::new(
+        let mut runtime = Self::new(
             model,
             kernal.to_vec(),
             basic.to_vec(),
             character.to_vec(),
             drive8_dos_rom,
-        )
+        )?;
+        if let Some(rom) = drive_1581_dos_rom {
+            runtime.install_drive_1581(rom)?;
+        }
+        Ok(runtime)
+    }
+
+    /// Builds and attaches a 1581 drive from its 32 KB DOS ROM, retaining the
+    /// ROM so a reset rebuilds it. The 1581 always takes IEC device 9 so it
+    /// coexists with a 1541 on device 8; software addresses it as `,9`.
+    fn install_drive_1581(&mut self, rom: Vec<u8>) -> Result<(), MachineError> {
+        validate_rom_size("commodore-1581-dos-rom", &rom, DOS1581_ROM_SIZE)?;
+        self.drive_1581 = build_drive_1581(&rom, DRIVE_1581_DEVICE_NUMBER, &mut self.iec_bus)?;
+        self.drive_1581_dos_rom = Some(rom);
+        Ok(())
     }
 
     /// Creates a runtime backed by zero-filled ROMs.
@@ -277,6 +306,18 @@ impl C64Runtime {
         self.drive8.as_ref()
     }
 
+    /// The attached 1581 drive, when its DOS ROM is present.
+    #[must_use]
+    pub fn drive_1581(&self) -> Option<&Drive1581> {
+        self.drive_1581.as_ref()
+    }
+
+    /// The current 1581 disk image bytes, for a SAVE write-back.
+    #[must_use]
+    pub fn flush_drive_1581_image(&self) -> Option<Vec<u8>> {
+        self.drive_1581.as_ref()?.flush_image()
+    }
+
     /// Decodes drive 8's live GCR surface back into a `D64` image so the host
     /// can persist a SAVE. Returns `None` when no drive or disk is present.
     /// See `knowledge/decisions/disk-save-write-back.md`.
@@ -319,6 +360,12 @@ impl C64Runtime {
         self.drive8_cycle_accum
     }
 
+    /// 1581 cycle accumulator used by the snapshot envelope.
+    #[must_use]
+    pub(crate) fn drive_1581_cycle_accum(&self) -> u64 {
+        self.drive_1581_cycle_accum
+    }
+
     pub(crate) fn set_time(&mut self, time: MachineTime) {
         self.time = time;
     }
@@ -327,12 +374,20 @@ impl C64Runtime {
         self.drive8 = drive;
     }
 
+    pub(crate) fn set_drive_1581(&mut self, drive: Option<Drive1581>) {
+        self.drive_1581 = drive;
+    }
+
     pub(crate) fn set_iec_bus(&mut self, bus: IecBus) {
         self.iec_bus = bus;
     }
 
     pub(crate) fn set_drive8_cycle_accum(&mut self, accum: u64) {
         self.drive8_cycle_accum = accum;
+    }
+
+    pub(crate) fn set_drive_1581_cycle_accum(&mut self, accum: u64) {
+        self.drive_1581_cycle_accum = accum;
     }
 
     /// Imports one PRG byte stream into raw RAM and returns its load address.
@@ -356,6 +411,11 @@ impl C64Runtime {
         self.iec_bus = IecBus::new();
         self.drive8 = build_drive(&self.drive8_dos_rom, &mut self.iec_bus)?;
         self.drive8_cycle_accum = 0;
+        self.drive_1581 = match self.drive_1581_dos_rom.clone() {
+            Some(rom) => build_drive_1581(&rom, DRIVE_1581_DEVICE_NUMBER, &mut self.iec_bus)?,
+            None => None,
+        };
+        self.drive_1581_cycle_accum = 0;
         self.time = MachineTime::default();
         // The cartridge stays in the port across a reset, so re-insert it into
         // the freshly built machine before the KERNAL runs its cold start.
@@ -584,6 +644,23 @@ impl MachineCore for C64Runtime {
                             reason: reason.to_string(),
                         })?;
                 }
+                "drive-9" => {
+                    if image.kind != MediaKind::Disk {
+                        return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
+                    }
+                    let drive =
+                        self.drive_1581
+                            .as_mut()
+                            .ok_or_else(|| MachineError::MissingFirmware {
+                                id: "commodore-1581-dos-rom".to_owned(),
+                            })?;
+                    drive
+                        .load_d81_bytes_writable(image.bytes, image.writable)
+                        .map_err(|reason| MachineError::InvalidMedia {
+                            slot: image.slot.as_ref().to_owned(),
+                            reason: reason.to_string(),
+                        })?;
+                }
                 _ => {
                     return Err(MachineError::UnknownMediaSlot {
                         slot: image.slot.as_ref().to_owned(),
@@ -604,6 +681,16 @@ impl MachineCore for C64Runtime {
                     .ok_or_else(|| MachineError::MissingFirmware {
                         id: "commodore-1541-dos-rom".to_owned(),
                     })?;
+                drive.eject_disk();
+                Ok(())
+            }
+            "drive-9" => {
+                let drive =
+                    self.drive_1581
+                        .as_mut()
+                        .ok_or_else(|| MachineError::MissingFirmware {
+                            id: "commodore-1581-dos-rom".to_owned(),
+                        })?;
                 drive.eject_disk();
                 Ok(())
             }
@@ -637,20 +724,68 @@ impl MachineCore for C64Runtime {
         let mut prev_background = self.machine.vic_register(0x21) & 0x0F;
 
         while self.time < target {
-            let frame_complete = if let Some(drive8) = self.drive8.as_mut() {
-                let c64_hz = u128::from(self.machine.timing().cpu_hz);
-                let next_c64_tick = u128::from(self.machine.phi2_cycles().saturating_add(1))
-                    * u128::from(DRIVE1541_CPU_HZ);
-                let next_drive_tick = u128::from(drive8.cycles().saturating_add(1)) * c64_hz;
+            let any_drive = self.drive8.is_some() || self.drive_1581.is_some();
 
-                if next_drive_tick <= next_c64_tick {
-                    drive8.tick_with_iec_bus(&mut self.iec_bus);
-                    self.machine.sync_iec_bus(&mut self.iec_bus);
-                    continue;
+            // Advance whichever of the C64 and the attached drives is furthest
+            // behind in virtual time (cycles / clock-Hz), comparing by
+            // cross-multiplication to stay integer-exact. A drive tick does not
+            // advance the C64 clock, so it re-syncs the bus and `continue`s
+            // without touching `self.time` or the per-frame trace below.
+            if any_drive {
+                let c64_hz = u128::from(self.machine.timing().cpu_hz);
+                let mut best_next = u128::from(self.machine.phi2_cycles().saturating_add(1));
+                let mut best_hz = c64_hz;
+                let mut turn = DriveTurn::C64;
+                if let Some(drive8) = self.drive8.as_ref() {
+                    let next = u128::from(drive8.cycles().saturating_add(1));
+                    let hz = u128::from(DRIVE1541_CPU_HZ);
+                    if next * best_hz < best_next * hz {
+                        best_next = next;
+                        best_hz = hz;
+                        turn = DriveTurn::Drive8;
+                    }
+                }
+                if let Some(drive) = self.drive_1581.as_ref() {
+                    let next = u128::from(drive.cycles().saturating_add(1));
+                    let hz = u128::from(DRIVE1581_CPU_HZ);
+                    if next * best_hz < best_next * hz {
+                        turn = DriveTurn::Drive1581;
+                    }
                 }
 
+                match turn {
+                    DriveTurn::Drive8 => {
+                        if let Some(drive8) = self.drive8.as_mut() {
+                            drive8.tick_with_iec_bus(&mut self.iec_bus);
+                        }
+                        self.machine.sync_iec_bus(&mut self.iec_bus);
+                        if let Some(drive) = self.drive_1581.as_mut() {
+                            drive.sync_iec_bus(&mut self.iec_bus);
+                        }
+                        continue;
+                    }
+                    DriveTurn::Drive1581 => {
+                        if let Some(drive) = self.drive_1581.as_mut() {
+                            drive.tick_with_iec_bus(&mut self.iec_bus);
+                        }
+                        self.machine.sync_iec_bus(&mut self.iec_bus);
+                        if let Some(drive8) = self.drive8.as_mut() {
+                            drive8.sync_iec_bus(&mut self.iec_bus);
+                        }
+                        continue;
+                    }
+                    DriveTurn::C64 => {}
+                }
+            }
+
+            let frame_complete = if any_drive {
                 let frame_complete = self.machine.tick_with_iec_bus(&mut self.iec_bus);
-                drive8.sync_iec_bus(&mut self.iec_bus);
+                if let Some(drive8) = self.drive8.as_mut() {
+                    drive8.sync_iec_bus(&mut self.iec_bus);
+                }
+                if let Some(drive) = self.drive_1581.as_mut() {
+                    drive.sync_iec_bus(&mut self.iec_bus);
+                }
                 frame_complete
             } else {
                 self.machine.tick()
@@ -843,6 +978,14 @@ fn build_machine(
     })
 }
 
+/// Which device the interleaved scheduler advances this cycle — whichever is
+/// furthest behind in real (virtual) time.
+enum DriveTurn {
+    C64,
+    Drive8,
+    Drive1581,
+}
+
 fn build_drive(
     drive8_dos_rom: &Option<Vec<u8>>,
     iec_bus: &mut IecBus,
@@ -857,6 +1000,22 @@ fn build_drive(
             reason: reason.to_string(),
         }
     })?;
+    drive.sync_iec_bus(iec_bus);
+    Ok(Some(drive))
+}
+
+fn build_drive_1581(
+    rom: &[u8],
+    device_number: u8,
+    iec_bus: &mut IecBus,
+) -> Result<Option<Drive1581>, MachineError> {
+    let mut drive = Drive1581::new(Drive1581Config { dos_rom: rom }).map_err(|reason| {
+        MachineError::InvalidFirmware {
+            id: "commodore-1581-dos-rom".to_owned(),
+            reason: reason.to_string(),
+        }
+    })?;
+    drive.set_device_number(device_number);
     drive.sync_iec_bus(iec_bus);
     Ok(Some(drive))
 }

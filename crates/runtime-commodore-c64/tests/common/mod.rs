@@ -196,6 +196,30 @@ pub fn local_rom_firmware_with_drive() -> FirmwareSet<'static> {
     firmware
 }
 
+/// C64 ROMs plus BOTH drive DOS ROMs, so the 1541 (device 8) and 1581
+/// (device 9) coexist on the bus.
+pub fn local_rom_firmware_with_both_drives() -> FirmwareSet<'static> {
+    let rom_dir = PathBuf::from(
+        std::env::var("HOME").expect("HOME should be available for local C64 ROM tests"),
+    )
+    .join(".emu198x/roms/commodore-c64");
+    let drive_1581 = Box::leak(
+        fs::read(rom_dir.join("1581.rom"))
+            .expect("local 1581 DOS ROM should exist")
+            .into_boxed_slice(),
+    );
+
+    let mut firmware = local_rom_firmware_with_drive();
+    firmware.push(FirmwareImage::new("commodore-1581-dos-rom", drive_1581));
+    firmware
+}
+
+pub fn local_batman_d81_zip() -> PathBuf {
+    media_root().join(
+        "commodore/c64/Games/Arcade/[D81]/Batman - The Movie (1989)(Ocean)[cr Nostalgia][t +6][docs].zip",
+    )
+}
+
 /// Root the C64 game-media paths resolve against. Honours
 /// `EMU198X_CATALOGUE_MEDIA_ROOT` (the same env var the catalogue CLI uses, so
 /// a mounted TOSEC tree works for both), falling back to the legacy

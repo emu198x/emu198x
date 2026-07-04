@@ -116,6 +116,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 false,
             ),
             FirmwareRequirement::new("commodore-1541-dos-rom", "1541 DOS ROM", true),
+            FirmwareRequirement::new("commodore-1581-dos-rom", "1581 DOS ROM", true),
         ],
         media_slots: vec![
             MediaSlot::new(
@@ -128,6 +129,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
             MediaSlot::new(
                 "drive-8",
                 "Disk Drive 8",
+                MediaKind::Disk,
+                false,
+                WritebackPolicy::SidecarOnly,
+            ),
+            MediaSlot::new(
+                "drive-9",
+                "Disk Drive 9 (1581)",
                 MediaKind::Disk,
                 false,
                 WritebackPolicy::SidecarOnly,
@@ -195,12 +203,14 @@ mod tests {
                     "commodore-c64-kernal-rom",
                     "commodore-c64-character-rom",
                     "commodore-1541-dos-rom",
+                    "commodore-1581-dos-rom",
                 ]
             );
             assert!(!profile.firmware[0].optional);
             assert!(!profile.firmware[1].optional);
             assert!(!profile.firmware[2].optional);
             assert!(profile.firmware[3].optional);
+            assert!(profile.firmware[4].optional);
         }
     }
 
@@ -212,10 +222,11 @@ mod tests {
             .iter()
             .map(|slot| slot.id.as_ref())
             .collect();
-        assert_eq!(ids, vec!["tape-1", "drive-8", "cartridge-1"]);
+        assert_eq!(ids, vec!["tape-1", "drive-8", "drive-9", "cartridge-1"]);
         assert_eq!(profile.media_slots[0].kind, MediaKind::Tape);
         assert_eq!(profile.media_slots[1].kind, MediaKind::Disk);
-        assert_eq!(profile.media_slots[2].kind, MediaKind::Cartridge);
+        assert_eq!(profile.media_slots[2].kind, MediaKind::Disk);
+        assert_eq!(profile.media_slots[3].kind, MediaKind::Cartridge);
         assert_eq!(
             profile.media_slots[1].writeback,
             WritebackPolicy::SidecarOnly

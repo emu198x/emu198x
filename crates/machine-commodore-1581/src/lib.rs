@@ -144,6 +144,18 @@ impl Drive1581 {
         self.device_number
     }
 
+    /// Sets the IEC device number (8-11). The DOS reads it from the jumper
+    /// bits on CIA Port A at boot, so set this before ticking.
+    pub const fn set_device_number(&mut self, device_number: u8) {
+        self.device_number = device_number;
+    }
+
+    /// Whether a disk is currently mounted.
+    #[must_use]
+    pub const fn disk_inserted(&self) -> bool {
+        self.has_disk
+    }
+
     /// The WD177x status register (side-effect-free), for inspection.
     #[must_use]
     pub fn fdc_status(&self) -> u8 {
@@ -316,9 +328,11 @@ impl Drive1581 {
         }
         self.cia.pb_in = pb;
 
-        // Port A: PA7 disk-change (high = no change pending), low bits device
-        // jumpers. A statically mounted image reports "no change".
-        self.cia.pa_in = 0x80 | ((self.device_number.wrapping_sub(DEFAULT_DEVICE_NUMBER)) & 0x03);
+        // Port A: PA7 disk-change (high = no change pending), and the device
+        // number jumpers at bits 3-4 (VICE `read_ciapa`: `8 * (device - 8)`).
+        // A statically mounted image reports "no change".
+        let jumper = (self.device_number.wrapping_sub(DEFAULT_DEVICE_NUMBER) & 0x03) << 3;
+        self.cia.pa_in = 0x80 | jumper;
 
         // /ATN drives the CIA FLAG pin — a falling edge (ATN asserted) raises
         // the FLAG interrupt the DOS uses to enter its command handler.
