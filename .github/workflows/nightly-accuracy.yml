@@ -227,3 +227,95 @@ jobs:
 
       - name: Run Wolfgang Lorenz 6502 suite
         run: cargo test --release -p mos-6502 --test lorenz_tests -- --include-ignored --nocapture
+
+  # Frank Cringle's ZEXDOC + ZEXALL Z80 exerciser. Own job (tens of minutes).
+  # Previously ran hermetically from a checked-in corpus via zex.yml, on Z80
+  # changes; folded into this nightly for consistency with the other corpora
+  # (moved 2026-07-04). The .com corpus now lives in the store.
+  zex:
+    name: zex
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.configured == 'true'
+    timeout-minutes: 120
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-accuracy-zex
+
+      - name: Provision corpus from store
+        env:
+          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p corpora
+          cd corpora
+          gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
+            -p 'zex.tar.zst' -p 'SHA256SUMS'
+          grep ' zex.tar.zst$' SHA256SUMS | sha256sum -c -
+          tar --zstd -xf 'zex.tar.zst'
+          echo "EMU198X_ZEX_DIR=$(pwd)/zex" >> "$GITHUB_ENV"
+
+      - name: Run ZEXDOC + ZEXALL
+        run: cargo test --release -p zilog-z80 --test zex_tests -- --include-ignored --nocapture
+
+  # Patrik Rak's z80test exerciser (MIT). Runs on a full 48K Spectrum, so it
+  # needs the free (Amstrad-permissioned) 48K ROM — the z80test tarball ships
+  # it alongside the .tap corpus. Previously local-only; added to CI 2026-07-04.
+  z80test:
+    name: z80test
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.configured == 'true'
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-accuracy-z80test
+
+      - name: Provision corpus + 48K ROM from store
+        env:
+          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p corpora
+          cd corpora
+          gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
+            -p 'z80test.tar.zst' -p 'SHA256SUMS'
+          grep ' z80test.tar.zst$' SHA256SUMS | sha256sum -c -
+          tar --zstd -xf 'z80test.tar.zst'
+          echo "EMU198X_Z80TEST_DIR=$(pwd)/z80test" >> "$GITHUB_ENV"
+          echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
+
+      - name: Run z80test
+        run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test z80test -- --include-ignored --nocapture

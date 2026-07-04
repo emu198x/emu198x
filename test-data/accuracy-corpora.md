@@ -22,10 +22,15 @@ locally; the workflow uses the same env-var contract.
 | Klaus Dormann 6502 | `mos-6502` · `dormann_tests` | `EMU198X_6502_DORMANN_DIR` | github.com/Klaus2m5/6502_65C02_functional_tests | GPL-3.0 | no |
 | FUSE Z80 | `zilog-z80` · `z80_fuse` | `EMU198X_FUSE_Z80_TESTS_DIR` | FUSE emulator (`fuse-emulator-fuse/z80/tests`) | GPL-2.0-or-later | no |
 | Wolfgang Lorenz 6502 | `mos-6502` · `lorenz_tests` | `EMU198X_6502_LORENZ_DIR` | Wolfgang Lorenz C64 test suite (via VICE `bin/`) | freeware | no — uses a synthetic free KERNAL |
+| ZEXDOC + ZEXALL | `zilog-z80` · `zex_tests` | `EMU198X_ZEX_DIR` | Frank Cringle Z80 exerciser (`*.com`) | freeware | no |
+| z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | raxoft/z80test (`*.tap`) | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
 
-ZEXDOC/ZEXALL is **not** here: its `.com` corpus is checked into `test-data/zex/`
-and runs from its own hermetic [`zex.yml`](../.github/workflows/zex.yml). z80test
-is likewise a local-only survey today.
+**ZEX and z80test moved here 2026-07-04** for consistency — every external
+corpus now lives in the store and runs from this one nightly. ZEX previously ran
+hermetically from a checked-in corpus via a dedicated `zex.yml` (retired); its
+`.com` set stays available locally at `assets/test-suites/zex/` too. z80test
+runs Patrik Rak's exerciser on a full 48K Spectrum, so its tarball also carries
+the free Amstrad-permissioned 48K ROM.
 
 Directory layout each env var points at: the extracted corpus directory. The
 SingleStepTests and SM83 corpora are per-opcode JSON files (`ab.json` →
