@@ -121,16 +121,32 @@ Still open — localised to the FLAG-interrupt path:
   **the FLAG (ATN) interrupt is not being serviced**, even though ATN reaches
   PB7 and the DOS enabled FLAG in the ICR mask ($9A).
 
-So the bug is in the `cia.flag` → FLAG-edge → IM_FLAG → IRQ → `$76` bit 0 chain.
-Prime hypothesis: `apply_drive_inputs` sets `cia.flag` on every call — including
-inside `sync_iec_bus`, which does NOT run `cia.tick()`/`poll_flag` — so across
-the interleaved C64/drive sync pattern the FLAG falling edge may be set-and-
-cleared or mis-ordered relative to `poll_flag`, and the edge is lost. Next:
-a focused test that drives `cia.flag` through the exact sync/tick order and
-asserts `poll_flag` raises IM_FLAG once per ATN assertion; if that's the bug,
-latch the ATN level and only feed edges to the CIA on real drive ticks (or drive
-FLAG from a dedicated per-tick path, not from `sync_iec_bus`). This is the last
-mile.
+Deeper trace (temp ring buffer of pc + CIA Port B in/out, gated to fire after
+boot) shows the FLAG interrupt DOES fire — the drive actively runs its ATN
+handler ($AC5A), the $FF00 vector table, and the IRQ handler ($DAFD). So the
+FLAG path works; the deadlock is one layer down, in the CLK/DATA/ATNA handshake:
+
+1. **1541 coexistence interference (both-drives case).** With a 1541 (dev 8) +
+   1581 (dev 9) on the bus, during a `,9` LOAD the trace shows `DATA in` stuck
+   LOW. With the 1581 alone (`local_rom_firmware_with_1581_only`), `DATA in`
+   reads HIGH. So the **1541 holds DATA low** during the device-9 command
+   instead of un-listening — a real coexistence bug. (The 1541 loads fine
+   standalone.)
+
+2. **ATNA / DATA-ACK handshake (1581-only case).** Solo, the drive deadlocks in
+   a wait loop ($AE58) with ATN low, CLK low, DATA high. The ATN acknowledge is
+   software: the DOS sets ATNA (CIA PB4=1) to make the fold pull DATA low; at
+   the deadlock PB4=0, so the drive has RELEASED DATA while the C64 still waits
+   for the DATA-low ACK. CLK never toggles (C64 stuck before it clocks bits).
+   So the drive's ATNA/DATA-ACK sequencing (or its timing vs the C64's wait) is
+   off.
+
+Next-session plan: debug the 1581-only path first (simpler — no 1541). Compare
+the drive's ATN/CLK/DATA handshake cycle-by-cycle against VICE's `serial`/
+`iecbus` timing: verify ATNA (PB4) is asserted at the right moment and the fold
++ CIA FLAG/CLK edges line up with the C64 KERNAL's serial routine. Then fix the
+1541's un-listen (release DATA when not addressed) for coexistence. The FLAG
+interrupt, device number, and ATN-present fold are all confirmed working.
 
 ## Reference anchors
 - VICE 1581: `src/drive/iec/{cia1581d,wd1770,memiec}.c`, `src/drive/iec/fdd.c` (geometry).
