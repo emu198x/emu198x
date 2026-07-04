@@ -141,12 +141,35 @@ FLAG path works; the deadlock is one layer down, in the CLK/DATA/ATNA handshake:
    So the drive's ATNA/DATA-ACK sequencing (or its timing vs the C64's wait) is
    off.
 
-Next-session plan: debug the 1581-only path first (simpler — no 1541). Compare
-the drive's ATN/CLK/DATA handshake cycle-by-cycle against VICE's `serial`/
-`iecbus` timing: verify ATNA (PB4) is asserted at the right moment and the fold
-+ CIA FLAG/CLK edges line up with the C64 KERNAL's serial routine. Then fix the
-1541's un-listen (release DATA when not addressed) for coexistence. The FLAG
-interrupt, device number, and ATN-present fold are all confirmed working.
+Fresh-pass findings (2026-07-04, session 2) — narrowed further, both sides
+captured:
+- At the deadlock the **C64 has returned to the BASIC READY loop** ($E5CD) with
+  all lines released — it timed out (`?DEVICE NOT PRESENT`) and gave up. The
+  1581 is left stuck at $AE58 (`BIT $4001; BNE` = wait for DATA low) as a
+  would-be talker.
+- $AE53 `JSR $ACE8` = "clear PB1 (release software DATA), then wait for DATA
+  low" — the drive relies on the hardware ATN-ACK (ATNA/PB4 + ATN) to hold DATA
+  low after it releases the software assert.
+- During the ATN window the drive sees CLK toggle and ATN pulse, but **DATA
+  never goes low** — the drive never acknowledges ATN.
+- **1581-only: the drive makes ZERO writes to `$4001` (its serial output) during
+  the whole LOAD** — its ATN handler does not execute at all. At idle its Port B
+  output latch is `$80` → PB1/PB3/PB4/PB5 all 0, so ATNA=0 (no auto-ACK) and
+  DATA released. (With a 1541 present the handler DID run — the cases differ
+  because the 1541's DATA-hold changes what the 1581's idle loop sees. Tangled.)
+
+The two cases diverging + zero serial writes in the solo case say this is a
+subtle CIA/timing/state bug that ad-hoc probing keeps peeling without landing.
+**Recommended fix approach: get a cycle-exact reference.** Build VICE with a
+1581 + the same Batman D81, enable IEC/drive tracing (`-trace`/monitor), and
+capture the drive's `$4001` write sequence + ATN/CLK/DATA line states through a
+working LOAD command. Then match our drive's Port B writes and CIA FLAG/timer
+interrupt timing to that reference, cycle by cycle. Confirmed-good so far:
+device number, ATN-present DATA fold, and the FLAG interrupt (fires; drive
+reaches its ATN handler in the both-drives case). The gap is why the ATN
+handler doesn't drive the serial lines to complete the acknowledge/receive.
+Also still open: the 1541 un-listen (release DATA when not addressed) for
+coexistence.
 
 ## Reference anchors
 - VICE 1581: `src/drive/iec/{cia1581d,wd1770,memiec}.c`, `src/drive/iec/fdd.c` (geometry).
