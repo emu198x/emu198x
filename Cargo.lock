@@ -1407,6 +1407,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-commodore-c64-d81"
+version = "0.2.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "format-commodore-c64-p00"
 version = "0.2.0"
 dependencies = [
@@ -2103,6 +2110,19 @@ dependencies = [
  "mos-via-6522",
  "serde",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "machine-commodore-1581"
+version = "0.2.0"
+dependencies = [
+ "common-commodore-iec",
+ "format-commodore-c64-d81",
+ "mos-6502",
+ "mos-cia-6526",
+ "serde",
+ "thiserror 2.0.18",
+ "western-digital-wd1770",
 ]
 
 [[package]]
@@ -3768,6 +3788,7 @@ dependencies = [
  "format-commodore-c64-p00",
  "format-commodore-c64-t64",
  "machine-commodore-1541",
+ "machine-commodore-1581",
  "machine-commodore-c64",
  "mos-vic-ii",
  "png",

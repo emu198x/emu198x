@@ -25,6 +25,12 @@ pub struct IecBus {
     drive_data: [u8; DRIVE_COUNT],
     #[serde(default)]
     drive_active: [bool; DRIVE_COUNT],
+    /// Per-drive DATA-line fold. The 1541 (VIA `via1d1541`) folds the drive's
+    /// DATA contribution as `~data ^ cpu_bus`; the 1581 (CIA `cia1581d`) folds
+    /// it as `data | cpu_bus`. They share this bus, so each drive records which
+    /// hardware fold it uses. `false` = 1541 (the default).
+    #[serde(default)]
+    drive_data_or_fold: [bool; DRIVE_COUNT],
     drive_port: u8,
 }
 
@@ -38,6 +44,7 @@ impl IecBus {
             drive_bus: [0xFF; DRIVE_COUNT],
             drive_data: [0xFF; DRIVE_COUNT],
             drive_active: [false; DRIVE_COUNT],
+            drive_data_or_fold: [false; DRIVE_COUNT],
             drive_port: DRIVE_READ_DATA | DRIVE_READ_CLOCK | DRIVE_READ_ATN,
         };
         bus.recompute_ports();
@@ -59,6 +66,17 @@ impl IecBus {
 
     /// Updates one 1541-style drive bus contribution from VIA1 Port B.
     pub fn write_drive_port_b(&mut self, drive_number: u8, port_b: u8) {
+        self.write_drive_port_b_folded(drive_number, port_b, false);
+    }
+
+    /// Updates one 1581-style drive bus contribution from its 8520 CIA Port B.
+    /// The 1581's DATA-line fold differs from the 1541's (VICE `cia1581d`), so
+    /// this records the alternate fold for the ATN-acknowledge path.
+    pub fn write_drive_port_b_1581(&mut self, drive_number: u8, port_b: u8) {
+        self.write_drive_port_b_folded(drive_number, port_b, true);
+    }
+
+    fn write_drive_port_b_folded(&mut self, drive_number: u8, port_b: u8, or_fold: bool) {
         let Some(index) = Self::drive_index(drive_number) else {
             return;
         };
@@ -66,6 +84,7 @@ impl IecBus {
         let data = !port_b;
         self.drive_data[index] = data;
         self.drive_active[index] = true;
+        self.drive_data_or_fold[index] = or_fold;
         self.recompute_drive_bus_entry(index);
         self.recompute_ports();
     }
@@ -127,8 +146,16 @@ impl IecBus {
 
     fn recompute_drive_bus_entry(&mut self, index: usize) {
         let data = self.drive_data[index];
-        self.drive_bus[index] = ((data << 3) & CPU_READ_CLOCK)
-            | ((data << 6) & (((!data) ^ self.cpu_bus) << 3) & CPU_READ_DATA);
+        // The DATA-line middle term differs by drive hardware: the 1541 folds
+        // `~data ^ cpu_bus`, the 1581 folds `data | cpu_bus` (VICE
+        // `via1d1541` vs `cia1581d`). The ATN acknowledge depends on it.
+        let data_mid = if self.drive_data_or_fold[index] {
+            data | self.cpu_bus
+        } else {
+            (!data) ^ self.cpu_bus
+        };
+        self.drive_bus[index] =
+            ((data << 3) & CPU_READ_CLOCK) | ((data << 6) & (data_mid << 3) & CPU_READ_DATA);
     }
 }
 

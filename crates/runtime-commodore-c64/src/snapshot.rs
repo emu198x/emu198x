@@ -8,6 +8,7 @@
 use common_commodore_iec::IecBus;
 use emu198x_shell::{MachineError, MachineTime};
 use machine_commodore_1541::{Drive1541, Drive1541Snapshot};
+use machine_commodore_1581::{Drive1581, Drive1581Snapshot};
 use machine_commodore_c64::C64Snapshot;
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +29,10 @@ struct SnapshotEnvelopeV1 {
     drive8: Option<Drive1541Snapshot>,
     iec_bus: IecBus,
     drive8_cycle_accum: u64,
+    #[serde(default)]
+    drive_1581: Option<Drive1581Snapshot>,
+    #[serde(default)]
+    drive_1581_cycle_accum: u64,
 }
 
 /// Encode a runtime as postcard bytes. Caller-side error type is
@@ -41,6 +46,8 @@ pub(crate) fn encode(runtime: &C64Runtime) -> Result<Vec<u8>, MachineError> {
         drive8: runtime.drive8().map(Drive1541::snapshot_state),
         iec_bus: runtime.iec_bus().clone(),
         drive8_cycle_accum: runtime.drive8_cycle_accum(),
+        drive_1581: runtime.drive_1581().map(Drive1581::snapshot_state),
+        drive_1581_cycle_accum: runtime.drive_1581_cycle_accum(),
     })
     .map_err(|reason| MachineError::InvalidSnapshot {
         reason: format!("encode failed: {reason}"),
@@ -82,8 +89,15 @@ pub(crate) fn decode(runtime: &mut C64Runtime, bytes: &[u8]) -> Result<(), Machi
         .transpose()
         .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
     runtime.set_drive8(drive);
+    let drive_1581 = snapshot
+        .drive_1581
+        .map(Drive1581::from_snapshot)
+        .transpose()
+        .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
+    runtime.set_drive_1581(drive_1581);
     runtime.set_iec_bus(snapshot.iec_bus);
     runtime.set_drive8_cycle_accum(snapshot.drive8_cycle_accum);
+    runtime.set_drive_1581_cycle_accum(snapshot.drive_1581_cycle_accum);
     runtime.set_time(snapshot.time);
     Ok(())
 }

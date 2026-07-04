@@ -29,6 +29,10 @@ const COMMAND_SETTLE_FRAMES: u32 = 6;
 const PRESS_PLAY_PROMPT: &str = "PRESS PLAY ON TAPE";
 const SEARCHING_FOR_PROMPT: &str = "SEARCHING FOR";
 const DISK_AUTOLOAD_COMMAND: &str = "LOAD\"*\",8,1";
+/// The 1581 coexists on IEC device 9, so its autoload addresses `,9`.
+const DISK_1581_AUTOLOAD_COMMAND: &str = "LOAD\"*\",9,1";
+/// Media slot the 1581 (device 9) is attached to.
+pub const DEFAULT_DISK_1581_AUTOLOAD_SLOT: &str = "drive-9";
 
 /// Result returned after the standard C64 tape autoload command has been
 /// entered and datasette transport has started.
@@ -237,6 +241,58 @@ pub fn autoload_basic_disk_with_trace_sink(
         SEARCHING_FOR_PROMPT,
         max_prompt_frames,
         trace_sink,
+    )?;
+
+    Ok(C64DiskAutoloadResult {
+        slot: slot.to_owned(),
+        boot,
+        reached: search.reached,
+    })
+}
+
+/// Waits for the KERNAL to boot, types `LOAD"*",9,1`, and waits for the
+/// 1581 (device 9) to acknowledge with `SEARCHING FOR`. The 1581 counterpart
+/// of [`autoload_basic_disk`].
+///
+/// # Errors
+///
+/// Returns an error if the slot is wrong, the drive or disk is missing, or the
+/// boot/prompt waits time out.
+pub fn autoload_basic_disk_1581(
+    session: &mut HeadlessSession<C64Runtime, impl SessionQueryProvider<C64Runtime>>,
+    slot: &str,
+    max_boot_frames: u32,
+    max_prompt_frames: u32,
+) -> Result<C64DiskAutoloadResult, C64AutoloadError> {
+    if slot != DEFAULT_DISK_1581_AUTOLOAD_SLOT {
+        return Err(C64AutoloadError::UnsupportedSlot {
+            expected: DEFAULT_DISK_1581_AUTOLOAD_SLOT,
+            actual: slot.to_owned(),
+        });
+    }
+
+    let drive = session
+        .machine()
+        .drive_1581()
+        .ok_or_else(|| C64AutoloadError::MissingDrive {
+            slot: slot.to_owned(),
+        })?;
+    if !drive.disk_inserted() {
+        return Err(C64AutoloadError::MissingDisk {
+            slot: slot.to_owned(),
+        });
+    }
+
+    let mut trace_sink = NullTraceSink;
+    let boot = session.wait_for_boot_with_trace_sink(max_boot_frames, &mut trace_sink)?;
+    type_basic_command(session, DISK_1581_AUTOLOAD_COMMAND, &mut trace_sink)?;
+    tap_key_chord(session, &["return"], &mut trace_sink)?;
+    session.run_frames_with_trace_sink(COMMAND_SETTLE_FRAMES, &mut trace_sink)?;
+    let search = session.wait_for_query_text_contains_with_trace_sink(
+        "screen.text.lines",
+        SEARCHING_FOR_PROMPT,
+        max_prompt_frames,
+        &mut trace_sink,
     )?;
 
     Ok(C64DiskAutoloadResult {
