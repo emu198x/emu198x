@@ -340,6 +340,28 @@ can consume `dbg198x` to know what the running bytes *mean*.
   here specifically because determinism makes the trace reproducible, `dbg198x`
   supplies the names, and the MCP surface makes the whole thing scriptable.
 
+- **Flow recovery for games we *didn't* write** (the third-party mirror of the
+  above — no `dbg198x`, no source). Recovering structure from a stranger's ROM
+  is hard *statically* (you can't tell code from data, resolve `JMP ($xxxx)` /
+  jump tables / RTS-dispatch, or follow bank switches by staring at bytes). But
+  we don't have to do it statically: a cycle-accurate, deterministic,
+  instrumented engine turns it into **dynamic trace-driven recovery**, which
+  sidesteps all of those — every executed byte is provably code, every taken
+  edge is observed not inferred, and the live bank config is already tracked
+  (the trace records `(bank, addr)`, the same address-space model `dbg198x`
+  defines). Proven prior art: Mesen's Code/Data Logger does the code-vs-data
+  half by watching execution. Two limits, and the two things that turn them into
+  our advantage: (1) *dynamic tracing is sound but incomplete* — it only sees
+  paths that ran — so use the **agent fleet as the coverage engine** (the W4
+  compat pipeline pointed at coverage: agents exploring, deterministic traces
+  merged); (2) *it recovers structure without names* (`sub_C123`, not "sprite
+  multiplexer") — so annotate flow by **which hardware each block touches** (a
+  block writing `$D400–$D418` is SID → music; one reached only from the IRQ
+  vector is the raster routine). Chip-awareness gives semantics a bare
+  disassembler can't. The honest line: *flow chart of a playthrough* is
+  tractable and uniquely cheap here; *complete named reverse-engineering* stays
+  hard and human-in-the-loop.
+
 - **Source-anchored rewind.** Rewind is already cheap by construction —
   determinism means a snapshot ring buffer + deterministic replay reconstructs
   any earlier state exactly (the RZX-style replay generalised; see the rewind
