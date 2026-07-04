@@ -509,9 +509,14 @@ fn wb13_boot_state_checkpoints() -> Result<(), Box<dyn Error>> {
     // Verify cksum for ALL 11 syncs in the DMA buffer.
     println!("  cksum check across all 11 syncs in DMA buffer:");
     for sync_byte_off in &pair_starts {
+        // A sync detected in the first 4 bytes of the buffer leaves the
+        // preceding gap wrapped below zero (gap_pos ~ u32::MAX). info_pos and
+        // cksum_pos are semantically sync+4 and sync+0x2C, both valid small
+        // offsets — wrapping_add recovers them from the wrapped gap_pos
+        // (modular arithmetic) instead of panicking on overflow.
         let gap_pos = (*sync_byte_off).wrapping_sub(4);
-        let info_pos = gap_pos + 8;
-        let cksum_pos = gap_pos + 0x30;
+        let info_pos = gap_pos.wrapping_add(8);
+        let cksum_pos = gap_pos.wrapping_add(0x30);
         let mut info_label = [0u32; 10];
         for i in 0..10u32 {
             let mut w = 0u32;
