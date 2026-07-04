@@ -343,7 +343,7 @@ impl Drive1581 {
     /// CIA Port B output state (DATA-out PB1, CLK-out PB3, ATNA PB4), matching
     /// the 1541's VIA1 Port B convention `write_drive_port_b` expects.
     fn drive_iec_outputs(&mut self, bus: &mut IecBus) {
-        bus.write_drive_port_b(self.device_number, self.cia.port_b_drive_state());
+        bus.write_drive_port_b_1581(self.device_number, self.cia.port_b_drive_state());
     }
 
     /// Captures the full drive state for snapshotting.

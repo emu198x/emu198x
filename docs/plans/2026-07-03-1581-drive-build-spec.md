@@ -97,22 +97,29 @@ is wired into a generalised 3-way tick interleave (C64 + 1541 + 1581, scheduled
 by virtual time), snapshots, and has a `LOAD"*",9,1` autoload path. **No 1541
 regression** — Bruce Lee D64 still reaches LOADING with the new scheduler.
 
-**Remaining: the C64→1581 serial LOAD handshake.** A real `LOAD"*",9,1` returns
-`?DEVICE NOT PRESENT` — the 1581 boots to its DOS idle loop ($B158 with the C64
-present; $ABF8 standalone) but does not acknowledge the C64's ATN by pulling
-DATA low. Diagnostic findings:
-- Device-number jumper WAS a bug, now fixed: VICE `read_ciapa` puts the jumpers
-  at `8 * (device-8)` = **bits 3-4**, not bits 0-1. Without this the drive read
-  itself as device 8 and ignored device-9 ATN. Fixed in `apply_drive_inputs`.
-- The bus fold matches VICE's `store_ciapb` exactly (same formula as our
-  `IecBus::write_drive_port_b`), so the DATA/CLK output path is right.
-- The drive spends ~79% of cycles in its timer IRQ handler ($DB08) — a possibly
-  suspicious rate; check whether an interrupt storm (Timer A = $0006 underflows
-  every 7 cycles) is starving the ATN poll, and whether the FLAG (ATN-edge)
-  interrupt path + the ATN-ACK (idle-loop poll at $B158 → handler pulling DATA)
-  actually fire. Next: a drive-level test that boots to idle, asserts ATN on a
-  bare IecBus, and checks the drive pulls DATA low — isolating the ACK from all
-  C64/timing variables.
+**Remaining: the C64→1581 serial LOAD command transfer.** A real `LOAD"*",9,1`
+now reaches `SEARCHING FOR *` and stays there (no longer `?DEVICE NOT PRESENT`).
+Two bugs fixed en route:
+1. **Device-number jumper**: VICE `read_ciapa` puts the jumpers at `8*(device-8)`
+   = **bits 3-4**, not bits 0-1. Fixed in `apply_drive_inputs`.
+2. **ATN-acknowledge DATA fold**: the 1541 (`via1d1541`) folds the drive's DATA
+   contribution as `~data ^ cpu_bus`, but the 1581 (`cia1581d`) folds it as
+   `data | cpu_bus` — a genuinely different per-drive hardware fold. Our shared
+   `IecBus` only did the 1541 form. Added `write_drive_port_b_1581` +
+   `drive_data_or_fold` so each drive picks its fold. This got "device present"
+   working (the drive now auto-ACKs ATN by pulling DATA low).
+
+Still open: the drive receives ATN-ACK (hardware) but its CPU never processes
+the ATN command sequence — `$87` (command-ready flag) and `$76` bit 0 (the ISR's
+FLAG/ATN-received bit) both stay clear, so the FLAG (ATN) interrupt is not being
+serviced. The drive spends ~79% of cycles in its IRQ handler ($DB08). Prime
+hypothesis: a CIA-level bug (an interrupt line that isn't cleared by the ICR
+read, or a timer firing that shouldn't) starves the drive's main loop so it
+never polls/services ATN. `IM_SDR` can't be the culprit (only set in SP *output*
+mode; the 1581 runs input mode). Next: instrument the drive's `cia.irq` / ICR
+across a LOAD to find which enabled interrupt is stuck asserted, and whether the
+FLAG edge is reaching the ICR at all. This is 8520-vs-6526 / IEC-timing
+territory — needs a focused CIA pass.
 
 ## Reference anchors
 - VICE 1581: `src/drive/iec/{cia1581d,wd1770,memiec}.c`, `src/drive/iec/fdd.c` (geometry).
