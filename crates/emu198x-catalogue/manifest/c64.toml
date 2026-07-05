@@ -29,6 +29,19 @@ files = [
     { id = "commodore-1541-dos-rom",      path = "commodore-c64/1541.rom" },
 ]
 
+# Same PAL breadbin, but with the 1581 3.5" drive's DOS ROM instead of the
+# 1541's. Entries on this variant attach a 1581 on IEC device 9 (slot
+# "drive-9") for D81 media. Kept a separate variant so D64/TAP entries on the
+# plain "pal" set keep their captured hashes untouched.
+[[system.firmware]]
+variant = "pal-1581"
+files = [
+    { id = "commodore-c64-kernal-rom",    path = "commodore-c64/kernal.rom" },
+    { id = "commodore-c64-basic-rom",     path = "commodore-c64/basic.rom" },
+    { id = "commodore-c64-character-rom", path = "commodore-c64/chargen.rom" },
+    { id = "commodore-1581-dos-rom",      path = "commodore-c64/1581.rom" },
+]
+
 [[entry]]
 id = "boot-to-ready"
 title = "C64 KERNAL boot to READY"
@@ -417,6 +430,34 @@ frame_hash = "xxh64:72943c01dbd9bd32"
 
 [entry.audio]
 # The idle freezer menu is deterministic near-silence.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:2d2d7c5231ec57ab"
+
+[[entry]]
+id = "empire-1581-load"
+title = "Empire (1581 D81 load)"
+year = 1987
+publisher = "Blakemore, Cleve"
+variant = "pal-1581"
+
+# First 1581 catalogue entry: proves the C64->1581 serial LOAD works end to
+# end (issue #69). LOAD"*",9,1 drives IEC device 9. The disk is a C128 title,
+# so this validates the serial LOAD path reaching "LOADING" rather than
+# running the game (C128 programs don't run on a stock C64).
+[entry.media]
+kind = "disk"
+slot = "drive-9"
+path = "commodore/c128/Games/[D81]/Empire 128 - Enhanced (1987-10)(Blakemore, Cleve)[h Binary Legens][80column].zip"
+
+[entry.boot]
+# Autoload waits for "LOADING"; this waypoint then captures the load in
+# progress -- directory found, first bytes streaming over the serial bus.
+wait_frames = 400
+frame_hash = "xxh64:ddf021e5ba3b9aa4"
+
+[entry.audio]
+# Silent serial load.
 from_frame = 60
 secs = 2.0
 hash = "xxh64:2d2d7c5231ec57ab"
