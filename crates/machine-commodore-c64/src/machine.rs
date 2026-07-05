@@ -1207,10 +1207,20 @@ impl C64 {
     }
 
     fn drive_iec_outputs(&self, bus: &mut IecBus) {
-        // The C64 serial bus lines on CIA2 Port A are active-low. VICE feeds
-        // the IEC layer with `~(PRA | ~DDRA)`, not the mixed port-drive state
-        // directly.
-        bus.write_cpu_port_a(!self.cia2.port_a_drive_state());
+        // The C64 drives ATN/CLK/DATA through 7406 open-collector inverters: a
+        // line is pulled low only for a bit the CIA is actively driving HIGH
+        // (DDRA=1 and PRA=1); an input pin (DDRA=0) or a bit driven low leaves
+        // the line released. That is `!(PRA & DDRA)`.
+        //
+        // NB: this is identical to `!port_a_drive_state()` (== `!((PRA & DDRA)
+        // | ~DDRA)`) for every bit configured as an *output*, so the 1541 path
+        // — which sets DDRA before touching the bus — is unchanged. It differs
+        // only for input pins, where the old form wrongly asserted the line.
+        // During the KERNAL reset window (before IOINIT sets DDRA=$3F) CIA2's
+        // ATN pin is an input; the old form asserted a spurious ATN falling
+        // edge that latched the 1581's CIA FLAG and steered its DOS into the
+        // serial handler instead of the idle job loop (VICE sees no such edge).
+        bus.write_cpu_port_a(!(self.cia2.port_a_latch() & self.cia2.ddr_a()));
     }
 
     fn cpu_port_read(&self) -> u8 {
@@ -2097,6 +2107,44 @@ mod tests {
 
         assert_eq!(machine.cia2.port_a_drive_state(), 0xC0);
         assert_eq!(bus.drive_port() & 0x85, 0x85);
+    }
+
+    #[test]
+    fn cia2_iec_input_pins_release_the_bus() {
+        // During the KERNAL reset window CIA2's IEC pins are still inputs
+        // (DDRA=$03 selects only the VIC-bank bits as outputs). An input pin
+        // must not pull its line low: the C64 drives ATN/CLK/DATA through 7406
+        // open-collector inverters, so a line goes low only for a bit actively
+        // driven HIGH (DDRA=1 & PRA=1). Asserting a spurious ATN here latched
+        // the 1581's CIA FLAG and steered its DOS off the idle loop.
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let mut bus = IecBus::new();
+
+        // ATN (PA3), CLK (PA4), DATA (PA5) are inputs; PRA bits set but ignored.
+        machine.cpu_write(0xDD02, 0x03);
+        machine.cpu_write(0xDD00, 0x3F);
+        machine.sync_iec_bus(&mut bus);
+        machine.drive_iec_outputs(&mut bus);
+
+        assert!(
+            bus.drive_atn_high(),
+            "an input ATN pin must leave the line released"
+        );
+        assert_eq!(
+            bus.drive_port() & 0x85,
+            0x85,
+            "input CLK/DATA pins must also stay released"
+        );
+
+        // And a pin driven high (DDRA=1 & PRA=1) still pulls its line low —
+        // the fix must be identical to the old form for output pins.
+        machine.cpu_write(0xDD02, 0x38); // ATN/CLK/DATA outputs
+        machine.cpu_write(0xDD00, 0x08); // drive ATN (PA3) high -> line low
+        machine.drive_iec_outputs(&mut bus);
+        assert!(
+            !bus.drive_atn_high(),
+            "an actively-driven ATN output must pull the line low"
+        );
     }
 
     fn make_tap(payload: &[u8]) -> Vec<u8> {
