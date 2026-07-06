@@ -14,7 +14,7 @@ id = "c64"
 # FRAME_ROUTING_VERSION (mos-vic-ii). Mismatch fails loud with a
 # re-capture instruction. See
 # knowledge/decisions/c64-architecture-review.md Seam 4.
-audio_routing_version = 3
+audio_routing_version = 4
 frame_routing_version = 2
 
 [[system.firmware]]
@@ -77,7 +77,7 @@ frame_hash = "xxh64:78b237c0b923ded5"
 # C64 boots silent — no music, no sound effects.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:2d2d7c5231ec57ab"
+hash = "xxh64:e45531b9387b986f"
 
 [[entry]]
 id = "bruce-lee"
@@ -114,17 +114,18 @@ press = "return"
 # point; 20000 frames lands on the same target state with margin.
 # Captures the canonical Bruce Lee playfield (mountains + temple +
 # Bruce Lee + the Ninja + the Yamo). Re-blessed for the LXA magic fix
-# (#737): the load/attract timeline shifted a little, so the demo
-# sprites sit at different positions at the capture frame; the audio
-# hash was unchanged by the fix.
+# (#737); again for the CIA TOD fix (#762), which shifts the TOD-driven
+# attract so the demo sprites sit at different positions at the capture
+# frame (screenshot-verified as the same canonical playfield); and the
+# audio hash for AUDIO_ROUTING_VERSION 4 (#763).
 wait_frames = 20000
-frame_hash = "xxh64:7f4376f4e93bbeb4"
+frame_hash = "xxh64:e0ff7f47c0d722c0"
 
 [entry.audio]
 # Captures the in-game SID music.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:154fa6dfa3fd36d5"
+hash = "xxh64:9fe3cacaa9ee4efc"
 
 [[entry]]
 id = "aztec-challenge"
@@ -167,7 +168,7 @@ frame_hash = "xxh64:e69c66d47c38fe97"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:9a8ab639d32c76d7"
+hash = "xxh64:62177f8ed59627d0"
 
 [[entry]]
 id = "bomb-jack"
@@ -186,14 +187,18 @@ path = "commodore/c64/Games/Arcade/[D64]/Bomb Jack (1986)(Elite).zip"
 # Captures the canonical "BOMB JACK / OFFICIALLY LICENSED CBM 64
 # VERSION / COPYRIGHT ELITE SYSTEMS LTD 1986 / PRESS FIRE TO PLAY"
 # with the scrolling credit "AND TO MARK COOKSEY FOR THE MUSIC".
+# Re-blessed for the CIA TOD fix (#762), which shifts the TOD-driven
+# title/scroll state at the capture frame (screenshot-verified as the
+# same canonical title), and the audio hash for
+# AUDIO_ROUTING_VERSION 4 (#763).
 [entry.boot]
 wait_frames = 50000
-frame_hash = "xxh64:ab97482eb1b0aa5d"
+frame_hash = "xxh64:59cbde0e3e4589d8"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:e375068dddec4797"
+hash = "xxh64:33d7fa712e883c33"
 
 [[entry]]
 id = "thing-on-a-spring"
@@ -223,7 +228,7 @@ frame_hash = "xxh64:76d04c00d01ea0d0"
 # music plays here — this window is no longer silent.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:ca42ce3ea5066000"
+hash = "xxh64:71161668fc91de12"
 
 [[entry]]
 id = "wizball"
@@ -259,16 +264,19 @@ press = "return"
 # and Hubbard's SID music looping. Re-blessed for the LXA magic-constant
 # fix (#737): Wizball executes LXA (VICE: "needs to be 0xee for
 # wizball"), and the $EE model un-garbles the logo and "sensi soft"
-# lettering the previous bless had captured corrupted.
+# lettering the previous bless had captured corrupted. Re-blessed again
+# for the CIA TOD fix (#762), which shifts the attract state at the
+# capture frame (screenshot-verified as the same high-score/logo
+# screen), and the audio hash for AUDIO_ROUTING_VERSION 4 (#763).
 wait_frames = 16000
-frame_hash = "xxh64:c44b183eb1b947d7"
+frame_hash = "xxh64:6e834fb4e51ec3d6"
 
 [entry.audio]
 # Captures the Rob Hubbard title-screen SID — first non-silent
 # audio assertion of any disk-loaded C64 entry.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:b3eb1c2aae329a3b"
+hash = "xxh64:37b46f77b3452a77"
 
 [[entry]]
 id = "monty-on-the-run"
@@ -311,7 +319,7 @@ frame_hash = "xxh64:d3547aa2257908ef"
 # over the 2s window at the 2026-07-03 re-bless).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:1d260595e427fc4f"
+hash = "xxh64:58fd2f915df63ee1"
 
 [[entry]]
 id = "prince-of-persia"
@@ -381,7 +389,7 @@ frame_hash = "xxh64:b562e1cd4a4a3a34"
 # music plays before the boot waypoint).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:ce6e8e82de1a0a18"
+hash = "xxh64:7422993a23696560"
 
 [[entry]]
 id = "final-cartridge-iii"
@@ -410,7 +418,7 @@ frame_hash = "xxh64:72a37f5c3cbd6176"
 # audio pipeline output, not musical content.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:2d2d7c5231ec57ab"
+hash = "xxh64:8d457b26c922563e"
 
 [[entry]]
 id = "action-replay"
@@ -445,7 +453,7 @@ frame_hash = "xxh64:72943c01dbd9bd32"
 # The idle freezer menu is deterministic near-silence.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:2d2d7c5231ec57ab"
+hash = "xxh64:8d457b26c922563e"
 
 [[entry]]
 id = "empire-1581-load"
@@ -473,7 +481,7 @@ frame_hash = "xxh64:ddf021e5ba3b9aa4"
 # Silent serial load.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:2d2d7c5231ec57ab"
+hash = "xxh64:e45531b9387b986f"
 
 [[entry]]
 id = "bruce-lee-1571"
@@ -521,7 +529,7 @@ frame_hash = "xxh64:bc99c5b7a536f896"
 # frame hash above is the load proof for this drive-validation entry.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:2d2d7c5231ec57ab"
+hash = "xxh64:e45531b9387b986f"
 
 [[entry]]
 id = "bomb-jack-2-g64"
@@ -555,4 +563,4 @@ frame_hash = "xxh64:d4fe806e709b5f00"
 # Samples the title screen, where Mark Cooksey's SID tune is playing.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:86d77138198f71ce"
+hash = "xxh64:36fa7201d0a1bd33"
