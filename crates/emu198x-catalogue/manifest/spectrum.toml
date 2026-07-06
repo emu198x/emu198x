@@ -5,7 +5,7 @@
 # additional entries land per the staged rollout in the decision doc.
 #
 # Frame and audio paths are resolved against:
-#   EMU198X_CATALOGUE_MEDIA_ROOT     (default: ~/Projects/Emu198x-Unclean/Reference)
+#   EMU198X_CATALOGUE_MEDIA_ROOT     (default: /Volumes/Data/Library/ROMs/TOSEC)
 #   EMU198X_CATALOGUE_FIRMWARE_ROOT  (default: ~/.emu198x/roms)
 
 [system]

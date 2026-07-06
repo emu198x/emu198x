@@ -220,16 +220,20 @@ pub fn autoload_basic_disk_with_trace_sink(
         });
     }
 
-    let drive = session
-        .machine()
-        .drive8()
-        .ok_or_else(|| C64AutoloadError::MissingDrive {
-            slot: slot.to_owned(),
-        })?;
-    if !drive.disk_inserted() {
-        return Err(C64AutoloadError::MissingDisk {
-            slot: slot.to_owned(),
-        });
+    // Device 8 may hold a 1541 or a 1571 (both take `LOAD"*",8,1`); check disk
+    // presence model-agnostically rather than through the 1541-only accessor.
+    match session.machine().port_disk_inserted(8) {
+        None => {
+            return Err(C64AutoloadError::MissingDrive {
+                slot: slot.to_owned(),
+            });
+        }
+        Some(false) => {
+            return Err(C64AutoloadError::MissingDisk {
+                slot: slot.to_owned(),
+            });
+        }
+        Some(true) => {}
     }
 
     let boot = session.wait_for_boot_with_trace_sink(max_boot_frames, trace_sink)?;

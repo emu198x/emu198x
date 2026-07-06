@@ -184,6 +184,16 @@ impl IecDrive {
         }
     }
 
+    /// Whether a disk is currently inserted, whatever the model.
+    #[must_use]
+    pub(crate) fn disk_inserted(&self) -> bool {
+        match self {
+            Self::C1541(d) => d.disk_inserted(),
+            Self::C1571(d) => d.disk_inserted(),
+            Self::C1581(d) => d.disk_inserted(),
+        }
+    }
+
     /// Ejects any inserted disk.
     pub(crate) fn eject_disk(&mut self) {
         match self {

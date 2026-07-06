@@ -29,8 +29,9 @@ use runtime_commodore_amiga::{
     Model as AmigaModel,
 };
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_1581_AUTOLOAD_SLOT, Model as C64Model,
-    autoload_basic_disk, autoload_basic_disk_1581, autoload_basic_tape as c64_autoload_basic_tape,
+    C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_1581_AUTOLOAD_SLOT,
+    DriveKind as C64DriveKind, Model as C64Model, autoload_basic_disk, autoload_basic_disk_1581,
+    autoload_basic_tape as c64_autoload_basic_tape,
 };
 use runtime_nintendo_nes::{Model as NesModel, NesRuntime, NesSessionQueryProvider};
 use runtime_sinclair_zx_spectrum::{
@@ -970,10 +971,11 @@ fn run_c64_entry(
     firmware_root: &Path,
 ) -> Result<RunResult, CatalogueError> {
     let model = match entry.variant.as_str() {
-        // `pal-1581` is electrically the PAL breadbin; the suffix only selects a
-        // firmware set that swaps the 1541 DOS ROM for the 1581's, so drive-9
-        // D81 entries attach a 1581 without disturbing the shared `pal` set.
-        "pal" | "pal-1581" => C64Model::C64PalBreadbin,
+        // `pal-1581` and `pal-1571` are electrically the PAL breadbin; the suffix
+        // only selects a firmware set that swaps the 1541 DOS ROM for the other
+        // drive's, so drive entries attach that drive without disturbing the
+        // shared `pal` set. The 1571 additionally takes device 8 (see below).
+        "pal" | "pal-1581" | "pal-1571" => C64Model::C64PalBreadbin,
         "ntsc" => C64Model::C64NtscBreadbin,
         other => return Err(CatalogueError::UnsupportedVariant(other.into())),
     };
@@ -1000,8 +1002,17 @@ fn run_c64_entry(
         firmware_set.push(FirmwareImage::new(spec.id.clone(), bytes));
     }
 
-    let runtime = C64Runtime::from_firmware(model, &firmware_set)
+    let mut runtime = C64Runtime::from_firmware(model, &firmware_set)
         .map_err(|err| CatalogueError::Session(format!("C64 runtime: {err}")))?;
+
+    // The `pal-1571` firmware set carries the 1571 DOS ROM but no 1541, so
+    // device 8 is empty after construction. Put a 1571 on device 8 so a
+    // `drive-8` D71/D64 entry loads through it with the standard `LOAD"*",8,1`.
+    if entry.variant == "pal-1571" {
+        runtime
+            .set_port_drive(8, Some(C64DriveKind::C1571))
+            .map_err(|err| CatalogueError::Session(format!("C64 1571 attach: {err}")))?;
+    }
 
     let timing = match model {
         C64Model::C64PalBreadbin | C64Model::C64cPal => &TIMING_PAL_BREADBIN,

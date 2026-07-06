@@ -314,6 +314,15 @@ impl C64Runtime {
         self.drives[port].as_ref().map(IecDrive::kind)
     }
 
+    /// Whether the drive on IEC device `device` (8–11) has a disk inserted,
+    /// whatever the model. `None` when the port is empty or out of range. The
+    /// disk-autoload paths use this instead of a model-specific accessor.
+    #[must_use]
+    pub fn port_disk_inserted(&self, device: u8) -> Option<bool> {
+        let port = port_index(device)?;
+        self.drives[port].as_ref().map(IecDrive::disk_inserted)
+    }
+
     /// Builds one drive of `kind` for `device` from the retained DOS ROM,
     /// syncing it onto the IEC bus. Errors when that model's ROM is absent.
     fn make_port_drive(&mut self, kind: DriveKind, device: u8) -> Result<IecDrive, MachineError> {
