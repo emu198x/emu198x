@@ -13,7 +13,8 @@
 //! - **Gamepad / keyboard-joystick**: [`C64_JOYSTICK_MAP`] drives gameport 2
 //!   (port 0); every face button is the single C64 fire.
 //! - **Variants**: PAL and NTSC breadbins as the Machine-menu radio. Both share
-//!   the same KERNAL/BASIC/CHARGEN/1541 firmware, so
+//!   the same firmware — KERNAL/BASIC/CHARGEN plus the drive DOS ROMs (1541,
+//!   and the optional 1571/1581 when present) — so
 //!   [`switch_variant`](UiSystem::switch_variant) rebuilds the runtime from the
 //!   stashed firmware bytes via `from_firmware`.
 //! - **Tape**: F9/F10 transport + F11 turbo come free from the harness, gated on
@@ -48,6 +49,8 @@ const KERNAL_ID: &str = "commodore-c64-kernal-rom";
 const BASIC_ID: &str = "commodore-c64-basic-rom";
 const CHARACTER_ID: &str = "commodore-c64-character-rom";
 const DRIVE1541_ID: &str = "commodore-1541-dos-rom";
+const DRIVE1571_ID: &str = "commodore-1571-dos-rom";
+const DRIVE1581_ID: &str = "commodore-1581-dos-rom";
 const DEFAULT_SCALE: u32 = 2;
 const DEFAULT_IMPORT_BOOT_FRAMES: u32 = 200;
 const INPUT_SLICES_PER_FRAME: u32 = 8;
@@ -295,10 +298,11 @@ impl UiSystem for C64System {
         let model = model_for_variant(variant).ok_or(MachineError::UnsupportedOperation {
             operation: "unknown Commodore 64 variant",
         })?;
-        // All four variants (PAL/NTSC breadbin and C64C) share the same
-        // KERNAL/BASIC/CHARGEN/1541 firmware — they differ only in region and
-        // SID revision — so rebuild from the stashed bytes rather than re-reading
-        // the ROM files. The harness re-paces and refreshes; state/media are not
+        // All four variants (PAL/NTSC breadbin and C64C) share the same firmware
+        // — KERNAL/BASIC/CHARGEN plus whatever drive DOS ROMs were loaded (1541,
+        // and the optional 1571/1581) — differing only in region and SID
+        // revision, so rebuild from the stashed bytes rather than re-reading the
+        // ROM files. The harness re-paces and refreshes; state/media are not
         // preserved (a hardware swap).
         let mut firmware = FirmwareSet::new();
         for (id, bytes) in &self.firmware {
@@ -647,6 +651,26 @@ fn load_firmware_bytes(cli: &Cli) -> Result<Vec<LoadedFirmware>, String> {
                 &["1541.rom", "dos1541.rom", "c1541.rom"],
             )?,
         ),
+        // The 1571 and 1581 DOS ROMs are optional: loaded when present so the
+        // per-port drive selector can offer those models, absent otherwise
+        // (`resolve_rom_path` returns `None`, and the profile marks both
+        // optional). No CLI override — they live beside the 1541 in the ROM dir.
+        (
+            DRIVE1571_ID,
+            resolve_rom_path(
+                None,
+                rom_dir.as_deref(),
+                &["1571.rom", "dos1571.rom", "c1571.rom"],
+            )?,
+        ),
+        (
+            DRIVE1581_ID,
+            resolve_rom_path(
+                None,
+                rom_dir.as_deref(),
+                &["1581.rom", "dos1581.rom", "c1581.rom"],
+            )?,
+        ),
     ];
 
     entries
@@ -975,6 +999,34 @@ mod tests {
             .map(|_| ())
             .expect_err("autoload-run needs autoload-disk");
         assert!(err.contains("--autoload-run requires --autoload-disk"));
+    }
+
+    /// The native firmware loader picks up the optional 1571 and 1581 DOS ROMs
+    /// when present, so the per-port drive selector can offer those models. This
+    /// is the enabling piece for the native-UI drive-type chooser: without the
+    /// ROMs retained, `set_port_drive` would reject 1571/1581 as MissingFirmware.
+    #[test]
+    #[ignore = "requires local C64 + 1541/1571/1581 DOS ROMs at ~/.emu198x/roms/commodore-c64/"]
+    fn build_runtime_loads_the_optional_1571_and_1581_dos_roms() {
+        use runtime_commodore_c64::DriveKind;
+
+        let rom_dir = format!(
+            "{}/.emu198x/roms/commodore-c64",
+            std::env::var("HOME").expect("HOME set")
+        );
+        let cli = parse_cli(["--rom-dir".to_string(), rom_dir]);
+        let (mut runtime, _firmware) =
+            build_runtime(&cli).expect("build a runtime from the local ROM directory");
+
+        // The ROMs were retained iff selecting those models on a port succeeds.
+        runtime
+            .set_port_drive(10, Some(DriveKind::C1571))
+            .expect("1571 DOS ROM should have been loaded");
+        runtime
+            .set_port_drive(11, Some(DriveKind::C1581))
+            .expect("1581 DOS ROM should have been loaded");
+        assert_eq!(runtime.port_drive_kind(10), Some(DriveKind::C1571));
+        assert_eq!(runtime.port_drive_kind(11), Some(DriveKind::C1581));
     }
 
     #[test]
