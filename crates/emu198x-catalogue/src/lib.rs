@@ -29,8 +29,8 @@ use runtime_commodore_amiga::{
     Model as AmigaModel,
 };
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, Model as C64Model, autoload_basic_disk,
-    autoload_basic_tape as c64_autoload_basic_tape,
+    C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_1581_AUTOLOAD_SLOT, Model as C64Model,
+    autoload_basic_disk, autoload_basic_disk_1581, autoload_basic_tape as c64_autoload_basic_tape,
 };
 use runtime_nintendo_nes::{Model as NesModel, NesRuntime, NesSessionQueryProvider};
 use runtime_sinclair_zx_spectrum::{
@@ -970,7 +970,10 @@ fn run_c64_entry(
     firmware_root: &Path,
 ) -> Result<RunResult, CatalogueError> {
     let model = match entry.variant.as_str() {
-        "pal" => C64Model::C64PalBreadbin,
+        // `pal-1581` is electrically the PAL breadbin; the suffix only selects a
+        // firmware set that swaps the 1541 DOS ROM for the 1581's, so drive-9
+        // D81 entries attach a 1581 without disturbing the shared `pal` set.
+        "pal" | "pal-1581" => C64Model::C64PalBreadbin,
         "ntsc" => C64Model::C64NtscBreadbin,
         other => return Err(CatalogueError::UnsupportedVariant(other.into())),
     };
@@ -1015,13 +1018,28 @@ fn run_c64_entry(
         let media_kind = load_media_spec(&mut session, media, media_root)?;
         match media_kind {
             MediaKind::Disk => {
-                autoload_basic_disk(
-                    &mut session,
-                    &media.slot,
-                    DEFAULT_C64_BOOT_FRAMES,
-                    DEFAULT_C64_DISK_PROMPT_FRAMES,
-                )
-                .map_err(|err| CatalogueError::Session(format!("C64 disk autoload: {err}")))?;
+                // The 1581 sits on IEC device 9 (slot `drive-9`) and needs
+                // LOAD"*",9,1; the 1541 on device 8 (`drive-8`) uses ,8,1.
+                // Route by slot so a D81 entry drives the 1581.
+                if media.slot == DEFAULT_DISK_1581_AUTOLOAD_SLOT {
+                    autoload_basic_disk_1581(
+                        &mut session,
+                        &media.slot,
+                        DEFAULT_C64_BOOT_FRAMES,
+                        DEFAULT_C64_DISK_PROMPT_FRAMES,
+                    )
+                    .map_err(|err| {
+                        CatalogueError::Session(format!("C64 1581 disk autoload: {err}"))
+                    })?;
+                } else {
+                    autoload_basic_disk(
+                        &mut session,
+                        &media.slot,
+                        DEFAULT_C64_BOOT_FRAMES,
+                        DEFAULT_C64_DISK_PROMPT_FRAMES,
+                    )
+                    .map_err(|err| CatalogueError::Session(format!("C64 disk autoload: {err}")))?;
+                }
                 // Match the existing disk_autoload regression tests:
                 // wait dynamically for "LOADING" text after SEARCHING
                 // FOR. The catalogue script's at_frame is then "frames
