@@ -2125,6 +2125,7 @@ version = "0.2.0"
 dependencies = [
  "common-commodore-iec",
  "format-commodore-c64-d64",
+ "format-commodore-c64-d71",
  "mos-6502",
  "mos-cia-6526",
  "mos-via-6522",

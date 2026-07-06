@@ -16,6 +16,10 @@ use common_commodore_iec::IecBus;
 use format_commodore_c64_d64::{
     D64FileType, D64ParseError, parse_directory, read_sector, sectors_in_track, write_sector,
 };
+use format_commodore_c64_d71::{
+    D71ParseError, parse_directory as parse_directory_d71, read_sector as read_sector_d71,
+    sectors_in_track as sectors_in_track_d71,
+};
 use mos_6502::{M6502, registers::FLAG_V};
 use mos_cia_6526::Cia6526;
 use mos_via_6522::Via6522;
@@ -63,6 +67,9 @@ pub struct Drive1571 {
     device_number: u8,
     head_position: u8,
     stepper_phase: u8,
+    /// Which physical disk side the head reads (0 or 1), selected by VIA1 PA
+    /// bit 2. 0 for a single-sided D64.
+    side: u8,
     motor_on: bool,
     activity_led: bool,
     density_code: u8,
@@ -107,6 +114,7 @@ pub struct Drive1571Snapshot {
     device_number: u8,
     head_position: u8,
     stepper_phase: u8,
+    side: u8,
     motor_on: bool,
     activity_led: bool,
     density_code: u8,
@@ -128,7 +136,11 @@ pub struct Drive1571Snapshot {
 
 #[derive(Clone, Default)]
 struct Drive1571TrackData {
+    /// GCR-encoded half-tracks for physical side 0 (1541-compatible surface).
     tracks: Vec<Vec<u8>>,
+    /// GCR-encoded half-tracks for physical side 1 (the 1571's second head);
+    /// empty for a single-sided D64. Selected by VIA1 PA bit 2.
+    tracks_side1: Vec<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -197,6 +209,8 @@ pub enum Drive1571InitError {
 pub enum Drive1571MediaError {
     #[error("invalid D64 media: {0}")]
     InvalidD64(#[from] D64ParseError),
+    #[error("invalid D71 media: {0}")]
+    InvalidD71(#[from] D71ParseError),
 }
 
 impl Drive1571 {
@@ -232,6 +246,7 @@ impl Drive1571 {
             device_number: DEFAULT_DEVICE_NUMBER,
             head_position: INITIAL_HEAD_POSITION,
             stepper_phase: 0x03,
+            side: 0,
             motor_on: false,
             activity_led: false,
             density_code: 0,
@@ -400,6 +415,34 @@ impl Drive1571 {
         Ok(())
     }
 
+    /// Loads one decoded double-sided `D71` image into the drive,
+    /// **write-protected** — the 1571's native format.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `D71` image is malformed.
+    pub fn load_d71_bytes(&mut self, bytes: &[u8]) -> Result<(), Drive1571MediaError> {
+        let directory = parse_directory_d71(bytes)?;
+        self.track_data = Some(build_track_data_d71(bytes)?);
+        self.disk = Some(Drive1571Disk {
+            image_bytes: bytes.to_vec(),
+            disk_name: directory.disk_name,
+            disk_id: directory.disk_id,
+            write_protected: true,
+            directory_entries: directory
+                .entries
+                .into_iter()
+                .map(|entry| Drive1571DirectoryEntry {
+                    name: entry.name,
+                    file_type: d71_file_type_name(entry.file_type).to_owned(),
+                    blocks: entry.blocks,
+                })
+                .collect(),
+        });
+        self.reset_rotation_state();
+        Ok(())
+    }
+
     /// Decodes the live GCR track surface back into a `D64` image.
     ///
     /// A SAVE lands GCR on the rotating surface in write mode; this turns the
@@ -413,8 +456,10 @@ impl Drive1571 {
         let track_data = self.track_data.as_ref()?;
         let mut image = disk.image_bytes.clone();
 
+        // Side-0 write-back only for now; double-sided D71 SAVE is deferred
+        // (archive images mount read-only, so this path is not yet exercised).
         for track in 1..=35u8 {
-            let Some(raw) = track_data.track_bytes(track * 2) else {
+            let Some(raw) = track_data.track_bytes(track * 2, 0) else {
                 continue;
             };
             let Ok(sectors) = sectors_in_track(track) else {
@@ -450,6 +495,7 @@ impl Drive1571 {
             device_number: self.device_number,
             head_position: self.head_position,
             stepper_phase: self.stepper_phase,
+            side: self.side,
             motor_on: self.motor_on,
             activity_led: self.activity_led,
             density_code: self.density_code,
@@ -503,6 +549,7 @@ impl Drive1571 {
         self.device_number = snapshot.device_number;
         self.head_position = snapshot.head_position;
         self.stepper_phase = snapshot.stepper_phase;
+        self.side = snapshot.side;
         self.motor_on = snapshot.motor_on;
         self.activity_led = snapshot.activity_led;
         self.density_code = snapshot.density_code;
@@ -564,6 +611,7 @@ impl Drive1571 {
             device_number: snapshot.device_number,
             head_position: snapshot.head_position,
             stepper_phase: snapshot.stepper_phase,
+            side: snapshot.side,
             motor_on: snapshot.motor_on,
             activity_led: snapshot.activity_led,
             density_code: snapshot.density_code,
@@ -808,6 +856,12 @@ impl Drive1571 {
 
         self.normalize_head_offset();
         self.stepper_phase = new_stepper_position;
+
+        // The 1571 selects the physical side with VIA1 PA bit 2 (VICE
+        // via1d1541.c `store_pra`: `glue1571_side_set((byte >> 2) & 1)`). Read
+        // the raw output latch, not the drive state — at reset DDRA=0 folds the
+        // pins high, which would wrongly select side 1.
+        self.side = (self.via1.port_a_output() >> 2) & 1;
     }
 
     fn read_without_iec_bus(&mut self, addr: u16) -> u8 {
@@ -1186,10 +1240,11 @@ impl Drive1571 {
             let bit = (self.write_shift >> 7) & 0x01;
             let offset = self.gcr_head_offset;
             let head = self.head_position;
+            let side = self.side;
             if let Some(track) = self
                 .track_data
                 .as_mut()
-                .and_then(|data| data.track_bytes_mut(head))
+                .and_then(|data| data.track_bytes_mut(head, side))
             {
                 let byte_index = offset / 8;
                 let bit_index = 7 - (offset & 0x07);
@@ -1228,7 +1283,9 @@ impl Drive1571 {
         if !self.selected_internal_drive_present() {
             return None;
         }
-        self.track_data.as_ref()?.track_bytes(self.head_position)
+        self.track_data
+            .as_ref()?
+            .track_bytes(self.head_position, self.side)
     }
 
     fn selected_internal_drive(&self) -> u8 {
@@ -1265,15 +1322,25 @@ impl Drive1571 {
 }
 
 impl Drive1571TrackData {
-    fn track_bytes(&self, head_position: u8) -> Option<&[u8]> {
+    fn track_bytes(&self, head_position: u8, side: u8) -> Option<&[u8]> {
         let slot = track_slot_index(head_position)?;
-        let track = self.tracks.get(slot)?;
+        let surface = if side == 1 {
+            &self.tracks_side1
+        } else {
+            &self.tracks
+        };
+        let track = surface.get(slot)?;
         if track.is_empty() { None } else { Some(track) }
     }
 
-    fn track_bytes_mut(&mut self, head_position: u8) -> Option<&mut [u8]> {
+    fn track_bytes_mut(&mut self, head_position: u8, side: u8) -> Option<&mut [u8]> {
         let slot = track_slot_index(head_position)?;
-        let track = self.tracks.get_mut(slot)?;
+        let surface = if side == 1 {
+            &mut self.tracks_side1
+        } else {
+            &mut self.tracks
+        };
+        let track = surface.get_mut(slot)?;
         if track.is_empty() {
             None
         } else {
@@ -1282,10 +1349,8 @@ impl Drive1571TrackData {
     }
 }
 
-fn rebuild_track_data(
-    disk: Option<&Drive1571Disk>,
-) -> Result<Option<Drive1571TrackData>, D64ParseError> {
-    disk.map(|disk| build_track_data(disk.image_bytes()))
+fn rebuild_track_data(disk: Option<&Drive1571Disk>) -> Result<Option<Drive1571TrackData>, String> {
+    disk.map(|disk| build_track_data_any(disk.image_bytes()))
         .transpose()
 }
 
@@ -1334,7 +1399,82 @@ fn build_track_data(bytes: &[u8]) -> Result<Drive1571TrackData, D64ParseError> {
         tracks[slot] = raw;
     }
 
-    Ok(Drive1571TrackData { tracks })
+    Ok(Drive1571TrackData {
+        tracks,
+        tracks_side1: Vec::new(),
+    })
+}
+
+/// Dispatches to the D64 (single-sided) or D71 (double-sided) GCR builder by
+/// image size, unifying their error types for the snapshot-rebuild path.
+fn build_track_data_any(bytes: &[u8]) -> Result<Drive1571TrackData, String> {
+    match bytes.len() {
+        349_696 | 351_062 => build_track_data_d71(bytes).map_err(|err| err.to_string()),
+        _ => build_track_data(bytes).map_err(|err| err.to_string()),
+    }
+}
+
+/// Builds the double-sided GCR surface for a D71: side 0 holds D71 logical
+/// tracks 1-35, side 1 holds tracks 36-70 at the same physical head positions.
+/// The GCR sector headers keep the D71 logical track number (36-70 on side 1),
+/// which is what the 1571 DOS searches for after `glue1571_side_set`.
+fn build_track_data_d71(bytes: &[u8]) -> Result<Drive1571TrackData, D71ParseError> {
+    let bam = read_sector_d71(bytes, 18, 0)?;
+    let id1 = bam[0xA2];
+    let id2 = bam[0xA3];
+    let mut tracks = vec![Vec::new(); TRACK_SLOT_COUNT];
+    let mut tracks_side1 = vec![Vec::new(); TRACK_SLOT_COUNT];
+
+    for side in 0..2u8 {
+        let mut track_offset = 0usize;
+        for physical in 1..=35u8 {
+            let logical = physical + side * 35;
+            let zone = speed_zone_for_track(physical);
+            let track_size = RAW_TRACK_SIZE_BY_ZONE[usize::from(zone)];
+            let sectors = usize::from(sectors_in_track_d71(logical)?);
+            let sector_size = SECTOR_GCR_SIZE_WITH_HEADER
+                + HEADER_GAP_SIZE
+                + GAP_SIZE_BY_ZONE[usize::from(zone)]
+                + (SYNC_SIZE * 2);
+            let gap_size = GAP_SIZE_BY_ZONE[usize::from(zone)];
+            let mut temp = vec![0x55; track_size];
+
+            for sector in 0..sectors {
+                let offset = sector * sector_size;
+                encode_sector_to_gcr(
+                    read_sector_d71(bytes, logical, sector as u8)?,
+                    &mut temp[offset..offset + sector_size],
+                    GcrHeader {
+                        sector: sector as u8,
+                        track: logical,
+                        id2,
+                        id1,
+                    },
+                    gap_size,
+                );
+            }
+
+            track_offset += (sectors * sector_size).saturating_sub(gap_size);
+            track_offset += (track_size * 100) / 270;
+            track_offset %= track_size;
+
+            let mut raw = vec![0x55; track_size];
+            raw[track_offset..].copy_from_slice(&temp[..track_size - track_offset]);
+            raw[..track_offset].copy_from_slice(&temp[track_size - track_offset..]);
+
+            let slot = usize::from((physical * 2) - 2);
+            if side == 1 {
+                tracks_side1[slot] = raw;
+            } else {
+                tracks[slot] = raw;
+            }
+        }
+    }
+
+    Ok(Drive1571TrackData {
+        tracks,
+        tracks_side1,
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -1546,12 +1686,24 @@ const fn d64_file_type_name(kind: D64FileType) -> &'static str {
     }
 }
 
+const fn d71_file_type_name(kind: format_commodore_c64_d71::D71FileType) -> &'static str {
+    use format_commodore_c64_d71::D71FileType;
+    match kind {
+        D71FileType::Del => "DEL",
+        D71FileType::Seq => "SEQ",
+        D71FileType::Prg => "PRG",
+        D71FileType::Usr => "USR",
+        D71FileType::Rel => "REL",
+        D71FileType::Unknown(_) => "UNKNOWN",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         DEFAULT_DEVICE_NUMBER, Drive1571, Drive1571Config, Drive1571InitError, Drive1571TrackData,
         IO_TRACE_LIMIT, MAX_HEAD_POSITION, RAM_SIZE, ROM_SIZE, TRACK_SLOT_COUNT, build_track_data,
-        d64_file_type_name, gcr_read_sector_from_raw_track, track_slot_index,
+        build_track_data_d71, d64_file_type_name, gcr_read_sector_from_raw_track, track_slot_index,
     };
     use common_commodore_iec::IecBus;
     use format_commodore_c64_d64::{D64FileType, read_sector};
@@ -1959,7 +2111,7 @@ mod tests {
             .track_data
             .as_ref()
             .expect("track data present")
-            .track_bytes(2)
+            .track_bytes(2, 0)
             .expect("track 1 present");
         assert_eq!(raw[1], 0xAB, "the latch byte should land on the surface");
     }
@@ -1978,7 +2130,7 @@ mod tests {
             .track_data
             .as_ref()
             .expect("track data present")
-            .track_bytes(2)
+            .track_bytes(2, 0)
             .expect("track 1 present")
             .to_vec();
 
@@ -1993,7 +2145,7 @@ mod tests {
             .track_data
             .as_ref()
             .expect("track data present")
-            .track_bytes(2)
+            .track_bytes(2, 0)
             .expect("track 1 present");
         assert_eq!(after, before.as_slice(), "a protected disk must not change");
     }
@@ -2050,7 +2202,7 @@ mod tests {
         let bytes = synthetic_d64();
         let track_data = build_track_data(&bytes).expect("synthetic D64 should build GCR data");
         let raw_track = track_data
-            .track_bytes(2)
+            .track_bytes(2, 0)
             .expect("track 1 should be present");
         let sector = gcr_read_sector_from_raw_track(raw_track, 0)
             .expect("raw GCR track should decode sector 0");
@@ -2202,6 +2354,7 @@ mod tests {
         machine.poke(0x1C0C, 0x22); // PCR: CB2 high = read mode
         machine.track_data = Some(Drive1571TrackData {
             tracks: vec![vec![0xFF]; TRACK_SLOT_COUNT],
+            tracks_side1: Vec::new(),
         });
         machine.head_position = 2;
         machine.last_read_data = 0x01FF;
@@ -2227,6 +2380,7 @@ mod tests {
 
         machine.track_data = Some(Drive1571TrackData {
             tracks: vec![vec![0x80]; TRACK_SLOT_COUNT],
+            tracks_side1: Vec::new(),
         });
         machine.head_position = 2;
         machine.gcr_head_offset = 0;
@@ -2322,6 +2476,38 @@ mod tests {
         assert_eq!(d64_file_type_name(D64FileType::Usr), "USR");
         assert_eq!(d64_file_type_name(D64FileType::Rel), "REL");
         assert_eq!(d64_file_type_name(D64FileType::Unknown(7)), "UNKNOWN");
+    }
+
+    #[test]
+    fn d71_builds_both_sides_and_side1_gcr_round_trips() {
+        // A blank but correctly-sized D71 with a distinct sector on side 1
+        // (logical track 40 = physical track 5, second surface).
+        let mut d71 = vec![0u8; 349_696];
+        let mut sector = [0u8; 256];
+        sector[0] = 0xC7;
+        sector[1] = 0x5A;
+        sector[255] = 0x3E;
+        format_commodore_c64_d71::write_sector(&mut d71, 40, 0, &sector)
+            .expect("write side-1 sector");
+
+        let td = build_track_data_d71(&d71).expect("D71 builds double-sided GCR");
+
+        // Side 0, track 18 (head_position 36) and side 1, track 40 (physical
+        // track 5, head_position 10) are both populated.
+        assert!(td.track_bytes(36, 0).is_some(), "side 0 built");
+        let side1 = td.track_bytes(10, 1).expect("side 1 track 40 built");
+
+        // The side-1 GCR decodes back to the original sector bytes — the header
+        // (logical track 40) and data survive the round trip.
+        let decoded = gcr_read_sector_from_raw_track(side1, 0).expect("decode side-1 sector 0");
+        assert_eq!(decoded[0], 0xC7);
+        assert_eq!(decoded[1], 0x5A);
+        assert_eq!(decoded[255], 0x3E);
+
+        // The same physical head position on side 0 is a different (blank) sector.
+        let side0 = td.track_bytes(10, 0).expect("side 0 track 5 built");
+        let decoded0 = gcr_read_sector_from_raw_track(side0, 0).expect("decode side-0 sector 0");
+        assert_eq!(decoded0[0], 0x00);
     }
 
     #[test]
@@ -2826,6 +3012,7 @@ mod tests {
         // Single-byte track: 8 bits total, so wrapping happens predictably.
         machine.track_data = Some(Drive1571TrackData {
             tracks: vec![vec![0x00]; TRACK_SLOT_COUNT],
+            tracks_side1: Vec::new(),
         });
         machine.head_position = 2;
         // Place head at the last bit of the track; the next rotation must wrap to 0.
@@ -2860,10 +3047,10 @@ mod tests {
         let track_data = build_track_data(&bytes).expect("synthetic D64 should build GCR data");
 
         // Out of range head position -> None.
-        assert!(track_data.track_bytes(1).is_none());
+        assert!(track_data.track_bytes(1, 0).is_none());
 
         // Even with a built dataset, an odd halftrack slot stays empty -> None.
-        assert!(track_data.track_bytes(3).is_none());
+        assert!(track_data.track_bytes(3, 0).is_none());
     }
 
     // ----- snapshot/restore covering restore_snapshot_state -----
