@@ -214,6 +214,26 @@ pub fn local_rom_firmware_with_both_drives() -> FirmwareSet<'static> {
     firmware
 }
 
+/// C64 ROMs plus ALL THREE drive DOS ROMs (1541, 1571, 1581), so the user can
+/// select any model on any IEC port. The default layout still places the 1541
+/// on device 8 and the 1581 on device 9; the 1571 ROM is retained for
+/// `set_port_drive`.
+pub fn local_rom_firmware_with_all_drives() -> FirmwareSet<'static> {
+    let rom_dir = PathBuf::from(
+        std::env::var("HOME").expect("HOME should be available for local C64 ROM tests"),
+    )
+    .join(".emu198x/roms/commodore-c64");
+    let drive_1571 = Box::leak(
+        fs::read(rom_dir.join("1571.rom"))
+            .expect("local 1571 DOS ROM should exist")
+            .into_boxed_slice(),
+    );
+
+    let mut firmware = local_rom_firmware_with_both_drives();
+    firmware.push(FirmwareImage::new("commodore-1571-dos-rom", drive_1571));
+    firmware
+}
+
 /// C64 ROMs plus ONLY the 1581 DOS ROM (no 1541), so the 1581 is the sole
 /// drive on the bus.
 pub fn local_rom_firmware_with_1581_only() -> FirmwareSet<'static> {

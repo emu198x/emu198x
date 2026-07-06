@@ -116,6 +116,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 false,
             ),
             FirmwareRequirement::new("commodore-1541-dos-rom", "1541 DOS ROM", true),
+            FirmwareRequirement::new("commodore-1571-dos-rom", "1571 DOS ROM", true),
             FirmwareRequirement::new("commodore-1581-dos-rom", "1581 DOS ROM", true),
         ],
         media_slots: vec![
@@ -203,6 +204,7 @@ mod tests {
                     "commodore-c64-kernal-rom",
                     "commodore-c64-character-rom",
                     "commodore-1541-dos-rom",
+                    "commodore-1571-dos-rom",
                     "commodore-1581-dos-rom",
                 ]
             );
@@ -211,6 +213,7 @@ mod tests {
             assert!(!profile.firmware[2].optional);
             assert!(profile.firmware[3].optional);
             assert!(profile.firmware[4].optional);
+            assert!(profile.firmware[5].optional);
         }
     }
 

@@ -3810,6 +3810,7 @@ dependencies = [
  "format-commodore-c64-p00",
  "format-commodore-c64-t64",
  "machine-commodore-1541",
+ "machine-commodore-1571",
  "machine-commodore-1581",
  "machine-commodore-c64",
  "mos-vic-ii",
