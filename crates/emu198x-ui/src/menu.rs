@@ -24,12 +24,23 @@ use std::borrow::Cow;
 #[cfg(not(target_os = "linux"))]
 use std::collections::HashMap;
 
-use crate::VariantInfo;
+use crate::{DrivePortInfo, VariantInfo};
 
 use emu198x_native_video::VideoFilter;
 use emu198x_shell::{MediaKind, MediaSlot, MediaTransportAction};
 #[cfg(not(target_os = "linux"))]
 use muda::{AboutMetadata, CheckMenuItem, Menu, MenuId, MenuItem, PredefinedMenuItem, Submenu};
+
+/// The dynamic Machine-menu model: the variant radio and the per-port drive
+/// radios, bundled so [`AppMenu::new`] takes one machine-config argument.
+pub struct MachineMenu<'a> {
+    /// Switchable machine variants (empty ⇒ no variant radio).
+    pub variants: &'a [VariantInfo],
+    /// The currently-running variant's id, for the radio check.
+    pub current_variant: Option<&'a str>,
+    /// Configurable drive ports (empty ⇒ no Drives menu).
+    pub drive_ports: &'a [DrivePortInfo],
+}
 
 /// Window-scale values offered in the View menu's radio group.
 pub const SCALE_OPTIONS: &[u32] = &[1, 2, 3, 4];
@@ -65,6 +76,12 @@ pub enum AppCommand {
     /// Switch the live machine to the variant with this id (menu Machine →
     /// variant radio). The id round-trips through [`crate::UiSystem::switch_variant`].
     SwitchVariant(Cow<'static, str>),
+    /// Set the drive model on a device port (menu Machine → Drives → Device N
+    /// radio). The `kind_id` round-trips through [`crate::UiSystem::set_port_drive`].
+    SetPortDrive {
+        device: u8,
+        kind_id: Cow<'static, str>,
+    },
     /// Start/stop the transport for a media slot (menu Tape → Play / Stop, or
     /// the F9 / F10 shortcuts).
     MediaTransport {
@@ -105,6 +122,9 @@ pub struct AppMenu {
     scale_items: Vec<(u32, CheckMenuItem)>,
     filter_items: Vec<(VideoFilter, CheckMenuItem)>,
     variant_items: Vec<(Cow<'static, str>, CheckMenuItem)>,
+    /// (device, option id, item) for each Machine → Drives radio, kept so a
+    /// selection can re-check the right item per port.
+    port_drive_items: Vec<(u8, Cow<'static, str>, CheckMenuItem)>,
     /// The Tape → Fast Load check item, kept so its tick can follow the turbo
     /// state. `None` when the machine has no tape slot (no Tape menu).
     turbo_item: Option<CheckMenuItem>,
@@ -120,10 +140,14 @@ impl AppMenu {
         current_scale: u32,
         current_filter: VideoFilter,
         media_slots: &[MediaSlot],
-        variants: &[VariantInfo],
-        current_variant: Option<&str>,
+        machine: &MachineMenu<'_>,
         state_open: bool,
     ) -> Self {
+        let MachineMenu {
+            variants,
+            current_variant,
+            drive_ports,
+        } = *machine;
         let root = Menu::new();
         let mut action_map = HashMap::new();
 
@@ -203,7 +227,40 @@ impl AppMenu {
             machine_menu.append(&item).expect("append variant item");
             variant_items.push((variant.id.clone(), item));
         }
-        if !variant_items.is_empty() {
+
+        // Machine → Drives → Device N radios (when the system has swappable
+        // drive ports). Each port is a submenu of model radios; unavailable
+        // models (firmware absent) are shown disabled.
+        let mut port_drive_items = Vec::new();
+        if !drive_ports.is_empty() {
+            let drives_menu = Submenu::new("Drives", true);
+            for port in drive_ports {
+                let port_menu = Submenu::new(port.label.as_ref(), true);
+                for option in &port.options {
+                    let item = CheckMenuItem::new(
+                        option.label.as_ref(),
+                        option.available,
+                        option.id == port.current,
+                        None,
+                    );
+                    action_map.insert(
+                        item.id().clone(),
+                        AppCommand::SetPortDrive {
+                            device: port.device,
+                            kind_id: option.id.clone(),
+                        },
+                    );
+                    port_menu.append(&item).expect("append port drive item");
+                    port_drive_items.push((port.device, option.id.clone(), item));
+                }
+                drives_menu.append(&port_menu).expect("append port submenu");
+            }
+            machine_menu
+                .append(&drives_menu)
+                .expect("append drives submenu");
+        }
+
+        if !variant_items.is_empty() || !port_drive_items.is_empty() {
             machine_menu
                 .append(&PredefinedMenuItem::separator())
                 .expect("append machine separator");
@@ -308,6 +365,7 @@ impl AppMenu {
             scale_items,
             filter_items,
             variant_items,
+            port_drive_items,
             turbo_item,
         }
     }
@@ -351,6 +409,15 @@ impl AppMenu {
         }
     }
 
+    /// Refresh one device port's drive radios so only `kind_id` is checked.
+    pub fn set_current_port_drive(&self, device: u8, kind_id: &str) {
+        for (item_device, option, item) in &self.port_drive_items {
+            if *item_device == device {
+                item.set_checked(option.as_ref() == kind_id);
+            }
+        }
+    }
+
     /// Tick/untick the Tape → Fast Load item to match the turbo state. No-op
     /// when the machine has no tape menu.
     pub fn set_turbo_armed(&self, armed: bool) {
@@ -373,8 +440,7 @@ impl AppMenu {
         _current_scale: u32,
         _current_filter: VideoFilter,
         _media_slots: &[MediaSlot],
-        _variants: &[VariantInfo],
-        _current_variant: Option<&str>,
+        _machine: &MachineMenu<'_>,
         _state_open: bool,
     ) -> Self {
         Self
@@ -387,6 +453,8 @@ impl AppMenu {
     pub fn set_current_filter(&self, _filter: VideoFilter) {}
 
     pub fn set_current_variant(&self, _id: &str) {}
+
+    pub fn set_current_port_drive(&self, _device: u8, _kind_id: &str) {}
 
     pub fn set_turbo_armed(&self, _armed: bool) {}
 }

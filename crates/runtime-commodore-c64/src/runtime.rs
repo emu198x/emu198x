@@ -314,6 +314,18 @@ impl C64Runtime {
         self.drives[port].as_ref().map(IecDrive::kind)
     }
 
+    /// Whether a drive `kind` can be selected — i.e. its DOS ROM was supplied at
+    /// construction, so [`Self::set_port_drive`] would accept it. A UI drive
+    /// selector greys out the models this returns `false` for.
+    #[must_use]
+    pub fn drive_kind_available(&self, kind: DriveKind) -> bool {
+        match kind {
+            DriveKind::C1541 => self.dos_rom_1541.is_some(),
+            DriveKind::C1571 => self.dos_rom_1571.is_some(),
+            DriveKind::C1581 => self.dos_rom_1581.is_some(),
+        }
+    }
+
     /// Whether the drive on IEC device `device` (8–11) has a disk inserted,
     /// whatever the model. `None` when the port is empty or out of range. The
     /// disk-autoload paths use this instead of a model-specific accessor.
