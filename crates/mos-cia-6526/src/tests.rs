@@ -294,14 +294,42 @@ fn port_b_reads_external_through_input_bits() {
     assert_eq!(cia.read(0x01) & 0x02, 0x00);
 }
 
+// The TOD pin is fed the mains frequency (50 Hz PAL / 60 Hz NTSC); the
+// CIA divides that input by 5 or 6 (CRA bit 7) down to a 10 Hz tenths
+// counter. These two tests pin the /5 and /6 stages — the regression
+// they guard is the tenths advancing at the raw mains rate (5-6x fast).
 #[test]
-fn tod_counts_at_pal_50hz() {
-    let mut cia = Cia6526::new();
-    cia.write(0x0B, 0x00);
-    cia.write(0x0A, 0x00);
-    cia.write(0x09, 0x00);
-    cia.write(0x08, 0x00);
+fn tod_tenths_tick_at_10hz_in_50hz_mode() {
+    // PAL mains tick every 19_705 phi2 cycles; 50 Hz input / 5 = 10 Hz,
+    // so a tenth is 5 mains ticks = 98_525 cycles.
+    let mut cia = Cia6526::new_with_tod_dividers(19_705, 16_421);
+    cia.write(0x0E, 0x80); // CRA bit 7 = 1 → 50 Hz TOD input
+    cia.write(0x08, 0x00); // set tenths = 0 and start the clock
+    // One mains-tick period must NOT advance the tenths (the /5 was the
+    // missing stage that made it tick here).
     for _ in 0..19_705 {
+        cia.tick();
+    }
+    assert_eq!(cia.tod[0], 0, "tenths advanced at the 50 Hz mains rate");
+    // Four more mains ticks complete the 10 Hz period → one tenth.
+    for _ in 0..(19_705 * 4) {
+        cia.tick();
+    }
+    assert_eq!(cia.tod[0], 1);
+}
+
+#[test]
+fn tod_tenths_tick_at_10hz_in_60hz_mode() {
+    // NTSC mains tick every 17_045 phi2 cycles; 60 Hz input / 6 = 10 Hz,
+    // so a tenth is 6 mains ticks.
+    let mut cia = Cia6526::new_with_tod_dividers(19_705, 17_045);
+    cia.write(0x0E, 0x00); // CRA bit 7 = 0 → 60 Hz TOD input
+    cia.write(0x08, 0x00);
+    for _ in 0..(17_045 * 5) {
+        cia.tick();
+    }
+    assert_eq!(cia.tod[0], 0, "tenths advanced before the 6th mains tick");
+    for _ in 0..17_045 {
         cia.tick();
     }
     assert_eq!(cia.tod[0], 1);
