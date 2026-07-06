@@ -202,6 +202,52 @@ pub fn parse(bytes: &[u8]) -> Result<G64Image, G64ParseError> {
     })
 }
 
+/// Serialises a [`G64Image`] back into a G64 byte stream — the inverse of
+/// [`parse`], for write-back after a fastloader/formatter lays new GCR on the
+/// surface. Uses constant per-track speed zones (a per-byte speed block is never
+/// emitted). The `max_track_length` field is honoured, but raised to fit the
+/// longest track if a written track outgrew it.
+#[must_use]
+pub fn write(image: &G64Image) -> Vec<u8> {
+    let num_half = image.half_tracks.len();
+    let max_track_length = image
+        .half_tracks
+        .iter()
+        .flatten()
+        .map(|track| track.gcr.len())
+        .max()
+        .unwrap_or(0)
+        .max(usize::from(image.max_track_length)) as u16;
+
+    let mut buf = Vec::new();
+    buf.extend_from_slice(G64_SIGNATURE);
+    buf.push(image.version);
+    buf.push(num_half as u8);
+    buf.extend_from_slice(&max_track_length.to_le_bytes());
+
+    // Track data lands after the two `num_half` × u32 tables.
+    let data_base = HEADER_LEN + num_half * 4 + num_half * 4;
+    let mut offsets = vec![0u32; num_half];
+    let mut speeds = vec![0u32; num_half];
+    let mut data = Vec::new();
+    for (slot, track) in image.half_tracks.iter().enumerate() {
+        if let Some(track) = track {
+            offsets[slot] = (data_base + data.len()) as u32;
+            speeds[slot] = u32::from(track.speed_zone);
+            data.extend_from_slice(&(track.gcr.len() as u16).to_le_bytes());
+            data.extend_from_slice(&track.gcr);
+        }
+    }
+    for off in &offsets {
+        buf.extend_from_slice(&off.to_le_bytes());
+    }
+    for speed in &speeds {
+        buf.extend_from_slice(&speed.to_le_bytes());
+    }
+    buf.extend_from_slice(&data);
+    buf
+}
+
 /// The standard C64 speed zone for the physical track at half-track slot
 /// `slot` (slot 0 = track 1). Tracks 1–17 → 3, 18–24 → 2, 25–30 → 1, 31+ → 0.
 #[must_use]
@@ -343,6 +389,27 @@ mod tests {
                 .speed_zone,
             3
         );
+    }
+
+    #[test]
+    fn write_round_trips_through_parse() {
+        let original = G64Image {
+            version: 0,
+            max_track_length: 7928,
+            half_tracks: vec![
+                Some(G64Track {
+                    gcr: vec![0xFF, 0x52, 0x54, 0x00, 0x00],
+                    speed_zone: 3,
+                }),
+                None,
+                Some(G64Track {
+                    gcr: vec![0xAA; 40],
+                    speed_zone: 1,
+                }),
+            ],
+        };
+        let bytes = write(&original);
+        assert_eq!(parse(&bytes).expect("re-parses"), original);
     }
 
     #[test]
