@@ -3816,6 +3816,7 @@ dependencies = [
  "emu198x-shell",
  "format-commodore-c64-bas",
  "format-commodore-c64-d64",
+ "format-commodore-c64-g64",
  "format-commodore-c64-p00",
  "format-commodore-c64-t64",
  "machine-commodore-1541",

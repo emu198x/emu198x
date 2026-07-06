@@ -11,6 +11,7 @@
 //! CPU-bus trait (see `RULES.md`).
 
 use common_commodore_iec::IecBus;
+use format_commodore_c64_g64::{G64_SIGNATURE, G71_SIGNATURE};
 use machine_commodore_1541::{Drive1541, Drive1541Config, Drive1541Snapshot};
 use machine_commodore_1571::{Drive1571, Drive1571Config, Drive1571Snapshot};
 use machine_commodore_1581::{Drive1581, Drive1581Config, Drive1581Snapshot};
@@ -158,15 +159,25 @@ impl IecDrive {
         }
     }
 
-    /// Loads a disk image, dispatching to the drive's native format. A 1571
-    /// takes a `D71` (double-sided) or a `D64` (single-sided); the others take
-    /// their one format.
+    /// Loads a disk image, dispatching to the drive's native format. A `G64`
+    /// raw-GCR image (detected by signature) loads read-only into a 1541 or
+    /// 1571; a 1571 also takes a `D71` (double-sided) or `D64`; the others take
+    /// their one sector format.
     ///
     /// # Errors
     ///
-    /// Returns the format parser's error message when the bytes do not match.
+    /// Returns the format parser's error message when the bytes do not match, or
+    /// when a `G64` is offered to the 1581 (which has no GCR mechanism).
     pub(crate) fn load_disk(&mut self, bytes: &[u8], writable: bool) -> Result<(), String> {
+        let is_g64 = bytes.starts_with(G64_SIGNATURE) || bytes.starts_with(G71_SIGNATURE);
         match self {
+            Self::C1541(d) if is_g64 => d.load_g64_bytes(bytes).map_err(|e| e.to_string()),
+            Self::C1571(d) if is_g64 => d.load_g64_bytes(bytes).map_err(|e| e.to_string()),
+            Self::C1581(_) if is_g64 => Err(
+                "G64 raw-GCR images are not supported on the 1581 (it has no GCR \
+                     mechanism); use a 1541 or 1571"
+                    .to_owned(),
+            ),
             Self::C1541(d) => d
                 .load_d64_bytes_writable(bytes, writable)
                 .map_err(|e| e.to_string()),
@@ -259,4 +270,60 @@ impl IecDrive {
 /// Whether a byte length is a standard `D71` image (a 1571 double-sided disk).
 const fn is_d71_length(len: usize) -> bool {
     matches!(len, D71_STANDARD_SIZE | D71_STANDARD_WITH_ERROR_INFO_SIZE)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A minimal valid G64 with a short raw-GCR stream on track 1 (slot 0).
+    fn minimal_g64() -> Vec<u8> {
+        let num_half = 84usize;
+        let mut buf = Vec::new();
+        buf.extend_from_slice(G64_SIGNATURE);
+        buf.push(0);
+        buf.push(num_half as u8);
+        buf.extend_from_slice(&7928u16.to_le_bytes());
+        let data_base = 12 + num_half * 8;
+        let mut offsets = vec![0u32; num_half];
+        let mut speeds = vec![0u32; num_half];
+        offsets[0] = data_base as u32;
+        speeds[0] = 3;
+        for o in &offsets {
+            buf.extend_from_slice(&o.to_le_bytes());
+        }
+        for s in &speeds {
+            buf.extend_from_slice(&s.to_le_bytes());
+        }
+        buf.extend_from_slice(&64u16.to_le_bytes());
+        buf.extend_from_slice(&[0x55u8; 64]);
+        buf
+    }
+
+    #[test]
+    fn load_disk_routes_g64_to_gcr_drives_and_rejects_the_1581() {
+        let mut bus = IecBus::new();
+        let g64 = minimal_g64();
+
+        for kind in [DriveKind::C1541, DriveKind::C1571] {
+            // The 1541 DOS ROM is 16 KB, the 1571's is 32 KB.
+            let rom_bytes = match kind {
+                DriveKind::C1541 => vec![0xEAu8; 0x4000],
+                _ => vec![0xEAu8; 0x8000],
+            };
+            let mut drive =
+                IecDrive::build(kind, &rom_bytes, 8, &mut bus).expect("stub ROM builds a drive");
+            drive
+                .load_disk(&g64, false)
+                .expect("G64 loads into a GCR drive");
+            assert!(drive.disk_inserted());
+            assert!(drive.flush_image().is_none(), "G64 is read-only");
+        }
+
+        // The 1581 has no GCR mechanism, so a G64 is rejected there.
+        let rom_1581 = vec![0xEAu8; 0x8000];
+        let mut d1581 =
+            IecDrive::build(DriveKind::C1581, &rom_1581, 9, &mut bus).expect("stub 1581 builds");
+        assert!(d1581.load_disk(&g64, false).is_err());
+    }
 }
