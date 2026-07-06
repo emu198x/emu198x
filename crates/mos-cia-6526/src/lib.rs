@@ -126,6 +126,13 @@ pub struct Cia6526 {
     /// Phi2 cycles per 10 Hz tick at 60 Hz input (CRA7 = 0).
     tod_divider_60hz: u32,
     tod_counter: u32,
+    /// Mains-tick ring counter for the /5 (50 Hz) or /6 (60 Hz)
+    /// pre-divider from the TOD input down to the 10 Hz tenths counter
+    /// (CRA bit 7 selects which). `#[serde(default)]` so pre-prescaler
+    /// snapshots still load (starts a fresh ring, worst case one tenth
+    /// of jitter on the first tick after restore).
+    #[serde(default)]
+    tod_tick_counter: u8,
     prev_flag: bool,
     shift_register: u8,
     shift_count: u8,
@@ -185,6 +192,7 @@ impl Cia6526 {
             tod_divider_50hz,
             tod_divider_60hz,
             tod_counter: 0,
+            tod_tick_counter: 0,
             prev_flag: true,
             shift_register: 0,
             shift_count: 0,
@@ -417,6 +425,7 @@ impl Cia6526 {
                     self.tod[0] = value & 0x0F;
                     self.tod_halted = false;
                     self.tod_counter = 0;
+                    self.tod_tick_counter = 0;
                 }
             }
             0x09 => {
@@ -650,6 +659,18 @@ impl Cia6526 {
             return;
         }
         self.tod_counter = 0;
+
+        // CRA bit 7 (TODIN) selects the CIA's internal /5 (50 Hz) or
+        // /6 (60 Hz) pre-divider from the mains input down to the 10 Hz
+        // tenths counter. Advance the clock only once every 5 or 6 mains
+        // ticks — without this stage the TOD ran at the 50/60 Hz mains
+        // rate, i.e. 5-6x too fast.
+        let prescale: u8 = if self.cra & 0x80 != 0 { 5 } else { 6 };
+        self.tod_tick_counter += 1;
+        if self.tod_tick_counter < prescale {
+            return;
+        }
+        self.tod_tick_counter = 0;
 
         self.tod[0] = (self.tod[0] + 1) & 0x0F;
         if self.tod[0] < 10 {
