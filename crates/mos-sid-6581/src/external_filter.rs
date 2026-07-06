@@ -56,3 +56,48 @@ impl ExternalFilter {
         (self.vlp - self.vhp) >> 11
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dc_input_is_ac_coupled_toward_zero() {
+        // The 16 Hz high-pass drains a constant input. 1e6 cycles is ~1 s at
+        // the 1 MHz clock — many high-pass time constants — so the output
+        // settles to near zero.
+        let mut f = ExternalFilter::new();
+        for _ in 0..1_000_000 {
+            f.clock(10_000);
+        }
+        assert!(
+            f.output().abs() < 100,
+            "DC should be blocked, got {}",
+            f.output()
+        );
+    }
+
+    #[test]
+    fn a_step_passes_through_before_it_decays() {
+        // Immediately after a step the low-pass has not yet charged, so the
+        // output is still near zero; it rises then decays. Assert the mid
+        // transient is non-zero (the coupling passes AC).
+        let mut f = ExternalFilter::new();
+        let mut peak = 0;
+        for _ in 0..20_000 {
+            f.clock(20_000);
+            peak = peak.max(f.output().abs());
+        }
+        assert!(peak > 0, "an AC transient must pass the coupling");
+    }
+
+    #[test]
+    fn reset_zeros_the_state() {
+        let mut f = ExternalFilter::new();
+        for _ in 0..1000 {
+            f.clock(20_000);
+        }
+        f.reset();
+        assert_eq!(f.output(), 0);
+    }
+}

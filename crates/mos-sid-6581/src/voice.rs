@@ -175,3 +175,119 @@ impl Default for Voice {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Control-register waveform-select bits (control >> 4).
+    const TRI: u8 = 0x10;
+    const SAW: u8 = 0x20;
+    const PULSE: u8 = 0x40;
+    const NOISE: u8 = 0x80;
+    const RING: u8 = 0x04;
+    const TEST: u8 = 0x08;
+
+    #[test]
+    fn sawtooth_is_the_upper_12_accumulator_bits() {
+        let mut v = Voice::new();
+        v.control = SAW;
+        v.accumulator = 0x00AB_C000;
+        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0xABC);
+    }
+
+    #[test]
+    fn pulse_is_high_below_the_pulse_width_and_low_above() {
+        let mut v = Voice::new();
+        v.control = PULSE;
+        v.pulse_width = 0x800;
+        v.accumulator = 0x0040_0000; // acc12 = 0x400 < 0x800
+        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x0FFF);
+        v.accumulator = 0x00C0_0000; // acc12 = 0xC00 >= 0x800
+        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x0000);
+    }
+
+    #[test]
+    fn no_waveform_selected_outputs_zero() {
+        let v = Voice::new();
+        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0);
+    }
+
+    #[test]
+    fn test_bit_holds_pulse_high_and_resets_the_oscillator() {
+        let mut v = Voice::new();
+        v.control = PULSE | TEST;
+        v.accumulator = 0x00C0_0000; // would read low without TEST
+        v.noise_lfsr = 0x0000_1234;
+        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x0FFF);
+        v.clock_accumulator();
+        assert_eq!(v.accumulator, 0, "TEST zeros the accumulator");
+        assert_eq!(v.noise_lfsr, NOISE_LFSR_SEED, "TEST reseeds the noise LFSR");
+    }
+
+    #[test]
+    fn ring_mod_folds_the_triangle_on_the_source_msb() {
+        let mut v = Voice::new();
+        v.control = TRI | RING;
+        v.accumulator = 0; // unfolded triangle = 0
+        let no_fold = v.waveform_output(false, SidModel::Mos6581);
+        let fold = v.waveform_output(true, SidModel::Mos6581);
+        assert_eq!(no_fold, 0x000);
+        assert_eq!(fold, 0xFFF, "source MSB folds the triangle");
+    }
+
+    #[test]
+    fn hard_sync_zeros_the_accumulator_only_on_the_source_rising_edge() {
+        let mut v = Voice::new();
+        v.accumulator = 0x0012_3456;
+        v.apply_sync(true, true); // no rising edge
+        assert_eq!(v.accumulator, 0x0012_3456);
+        v.apply_sync(false, true); // rising edge
+        assert_eq!(v.accumulator, 0);
+    }
+
+    #[test]
+    fn combined_tri_saw_uses_the_6581_sampled_table() {
+        let mut v = Voice::new();
+        v.control = TRI | SAW;
+        v.accumulator = 0x0055_5000;
+        let idx = ((v.accumulator >> 12) & 0x0FFF) as usize;
+        assert_eq!(
+            v.waveform_output(false, SidModel::Mos6581),
+            COMBINED_TRI_SAW_6581[idx],
+            "6581 combined waveform reads the sampled ROM table, not a bitwise AND"
+        );
+    }
+
+    #[test]
+    fn noise_lfsr_advances_only_on_the_bit19_rising_edge() {
+        let mut v = Voice::new();
+        v.frequency = 1;
+        v.accumulator = 0x0008_0000; // bit19 set, prev (acc-1) clear → rising
+        let before = v.noise_lfsr;
+        v.clock_noise();
+        assert_ne!(v.noise_lfsr, before, "LFSR clocks on the rising edge");
+        v.accumulator = 0x0008_0002; // bit19 stays set → no edge
+        let held = v.noise_lfsr;
+        v.clock_noise();
+        assert_eq!(v.noise_lfsr, held, "no clock without an edge");
+    }
+
+    #[test]
+    fn msb_reflects_accumulator_bit_23() {
+        let mut v = Voice::new();
+        v.accumulator = 0x0080_0000;
+        assert!(v.msb());
+        v.accumulator = 0x007F_FFFF;
+        assert!(!v.msb());
+    }
+
+    #[test]
+    fn noise_waveform_selects_lfsr_bits() {
+        let mut v = Voice::new();
+        v.control = NOISE;
+        v.noise_lfsr = NOISE_LFSR_SEED; // all ones → all sampled bits set
+        // Sampled into output bits 11..=4, so 0xFF0.
+        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0xFF0);
+    }
+}
