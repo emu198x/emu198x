@@ -4,7 +4,7 @@
 # and named SID showcases. Cartridges deferred until subsystem lands.
 #
 # Media paths resolve against:
-#   EMU198X_CATALOGUE_MEDIA_ROOT     (default: ~/Projects/Emu198x-Unclean/Reference)
+#   EMU198X_CATALOGUE_MEDIA_ROOT     (default: /Volumes/Data/Library/ROMs/TOSEC)
 #   EMU198X_CATALOGUE_FIRMWARE_ROOT  (default: ~/.emu198x/roms)
 
 [system]
@@ -40,6 +40,19 @@ files = [
     { id = "commodore-c64-basic-rom",     path = "commodore-c64/basic.rom" },
     { id = "commodore-c64-character-rom", path = "commodore-c64/chargen.rom" },
     { id = "commodore-1581-dos-rom",      path = "commodore-c64/1581.rom" },
+]
+
+# Same PAL breadbin, but with the 1571 5.25" drive's DOS ROM. The runner puts a
+# 1571 on IEC device 8 (slot "drive-8") for this variant, so D71/D64 entries
+# load through it with the standard LOAD"*",8,1. Separate variant so the plain
+# "pal" set's captured hashes stay untouched.
+[[system.firmware]]
+variant = "pal-1571"
+files = [
+    { id = "commodore-c64-kernal-rom",    path = "commodore-c64/kernal.rom" },
+    { id = "commodore-c64-basic-rom",     path = "commodore-c64/basic.rom" },
+    { id = "commodore-c64-character-rom", path = "commodore-c64/chargen.rom" },
+    { id = "commodore-1571-dos-rom",      path = "commodore-c64/1571.rom" },
 ]
 
 [[entry]]
@@ -458,6 +471,54 @@ frame_hash = "xxh64:ddf021e5ba3b9aa4"
 
 [entry.audio]
 # Silent serial load.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:2d2d7c5231ec57ab"
+
+[[entry]]
+id = "bruce-lee-1571"
+title = "Bruce Lee (1571 load)"
+year = 1984
+publisher = "Datasoft"
+variant = "pal-1571"
+
+# The 1571 counterpart of the `bruce-lee` entry: the same D64 game, but loaded
+# through a 1571 on IEC device 8 (in 1541-compatible mode) rather than a 1541.
+# There is no C128 core yet, so this verifies the 1571 drive machinery — the
+# C64->1571 serial LOAD path (issue #69) — by running a real game to its title
+# screen. LOAD"*",8,1 + RUN, exactly like the 1541 entry.
+[entry.media]
+kind = "disk"
+slot = "drive-8"
+path = "commodore/c64/Games/Arcade/[D64]/Bruce Lee (1984)(Datasoft).zip"
+
+[[entry.script]]
+at_frame = 2400
+press = "r"
+[[entry.script]]
+at_frame = 2403
+press = "u"
+[[entry.script]]
+at_frame = 2406
+press = "n"
+[[entry.script]]
+at_frame = 2409
+press = "return"
+
+[entry.boot]
+# Same load-to-title timeline as the 1541 entry, captured fresh because the
+# 1571 drives the serial load. Verified against a saved screenshot: the Bruce
+# Lee title screen (portrait + credits). The hash differs from the 1541 entry's
+# because the 1571's load timing lands the attract/title at a slightly different
+# point.
+wait_frames = 20000
+frame_hash = "xxh64:bc99c5b7a536f896"
+
+[entry.audio]
+# `from_frame` counts from the boot waypoint, so this samples the title screen.
+# The 1571's shifted timeline lands this 2s window on a silent stretch of the
+# title (the same digital-silence hash the 1581 serial-load entry captures); the
+# frame hash above is the load proof for this drive-validation entry.
 from_frame = 60
 secs = 2.0
 hash = "xxh64:2d2d7c5231ec57ab"

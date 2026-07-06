@@ -7,47 +7,42 @@
 
 use common_commodore_iec::IecBus;
 use emu198x_shell::{MachineError, MachineTime};
-use machine_commodore_1541::{Drive1541, Drive1541Snapshot};
-use machine_commodore_1581::{Drive1581, Drive1581Snapshot};
 use machine_commodore_c64::C64Snapshot;
 use serde::{Deserialize, Serialize};
 
+use crate::drives::IecDriveSnapshot;
 use crate::runtime::C64Runtime;
 
-const SNAPSHOT_VERSION: u32 = 1;
+/// Version 2 moved from the fixed 1541-plus-1581 pair to a per-port array of
+/// model-tagged drive snapshots (IEC devices 8–11), so a snapshot records
+/// whichever drive the user chose on each port.
+const SNAPSHOT_VERSION: u32 = 2;
 
-/// Persistable C64 runtime envelope. Wraps the machine's chip
-/// snapshot with the surrounding runtime context (model identifier,
-/// time, the live IEC bus state, the optional 1541 drive snapshot,
-/// and the drive's cycle-accumulator phase).
+/// Persistable C64 runtime envelope. Wraps the machine's chip snapshot with the
+/// surrounding runtime context (model identifier, time, the live IEC bus state,
+/// the per-port drive snapshots, and each port's cycle-accumulator phase).
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV1 {
+struct SnapshotEnvelopeV2 {
     version: u32,
     profile_id: String,
     time: MachineTime,
     machine: C64Snapshot,
-    drive8: Option<Drive1541Snapshot>,
+    drives: [Option<IecDriveSnapshot>; 4],
+    drive_cycle_accum: [u64; 4],
     iec_bus: IecBus,
-    drive8_cycle_accum: u64,
-    #[serde(default)]
-    drive_1581: Option<Drive1581Snapshot>,
-    #[serde(default)]
-    drive_1581_cycle_accum: u64,
 }
 
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
 pub(crate) fn encode(runtime: &C64Runtime) -> Result<Vec<u8>, MachineError> {
-    postcard::to_allocvec(&SnapshotEnvelopeV1 {
+    postcard::to_allocvec(&SnapshotEnvelopeV2 {
         version: SNAPSHOT_VERSION,
         profile_id: runtime.profile().profile_id.as_str().to_owned(),
         time: runtime.time(),
         machine: runtime.machine().snapshot_state(),
-        drive8: runtime.drive8().map(Drive1541::snapshot_state),
+        drives: runtime.drives_snapshot(),
+        drive_cycle_accum: runtime.drive_cycle_accum_all(),
         iec_bus: runtime.iec_bus().clone(),
-        drive8_cycle_accum: runtime.drive8_cycle_accum(),
-        drive_1581: runtime.drive_1581().map(Drive1581::snapshot_state),
-        drive_1581_cycle_accum: runtime.drive_1581_cycle_accum(),
     })
     .map_err(|reason| MachineError::InvalidSnapshot {
         reason: format!("encode failed: {reason}"),
@@ -55,10 +50,10 @@ pub(crate) fn encode(runtime: &C64Runtime) -> Result<Vec<u8>, MachineError> {
 }
 
 /// Decode postcard bytes into a runtime. Validates the version and
-/// the profile identifier; restores the machine state, the optional
-/// drive, the IEC bus, and the time stamp atomically.
+/// the profile identifier; restores the machine state, the per-port
+/// drives, the IEC bus, and the time stamp atomically.
 pub(crate) fn decode(runtime: &mut C64Runtime, bytes: &[u8]) -> Result<(), MachineError> {
-    let snapshot: SnapshotEnvelopeV1 =
+    let snapshot: SnapshotEnvelopeV2 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
@@ -83,21 +78,11 @@ pub(crate) fn decode(runtime: &mut C64Runtime, bytes: &[u8]) -> Result<(), Machi
         .machine_mut()
         .restore_snapshot_state(snapshot.machine)
         .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
-    let drive = snapshot
-        .drive8
-        .map(Drive1541::from_snapshot)
-        .transpose()
+    runtime
+        .restore_drives(snapshot.drives)
         .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
-    runtime.set_drive8(drive);
-    let drive_1581 = snapshot
-        .drive_1581
-        .map(Drive1581::from_snapshot)
-        .transpose()
-        .map_err(|reason| MachineError::InvalidSnapshot { reason })?;
-    runtime.set_drive_1581(drive_1581);
     runtime.set_iec_bus(snapshot.iec_bus);
-    runtime.set_drive8_cycle_accum(snapshot.drive8_cycle_accum);
-    runtime.set_drive_1581_cycle_accum(snapshot.drive_1581_cycle_accum);
+    runtime.set_drive_cycle_accum_all(snapshot.drive_cycle_accum);
     runtime.set_time(snapshot.time);
     Ok(())
 }

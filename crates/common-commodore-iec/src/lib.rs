@@ -76,6 +76,21 @@ impl IecBus {
         self.write_drive_port_b_folded(drive_number, port_b, true);
     }
 
+    /// Removes a drive from the bus, releasing its lines high. Call this when a
+    /// port is emptied — otherwise the drive's last low pull on CLOCK/DATA stays
+    /// folded into every other device's view and jams the whole serial bus.
+    pub fn release_drive(&mut self, drive_number: u8) {
+        let Some(index) = Self::drive_index(drive_number) else {
+            return;
+        };
+
+        self.drive_bus[index] = 0xFF;
+        self.drive_data[index] = 0xFF;
+        self.drive_active[index] = false;
+        self.drive_data_or_fold[index] = false;
+        self.recompute_ports();
+    }
+
     fn write_drive_port_b_folded(&mut self, drive_number: u8, port_b: u8, or_fold: bool) {
         let Some(index) = Self::drive_index(drive_number) else {
             return;
@@ -206,6 +221,22 @@ mod tests {
 
         assert_eq!(bus.cpu_port() & CPU_READ_DATA, 0x00);
         assert_eq!(bus.cpu_port() & CPU_READ_CLOCK, CPU_READ_CLOCK);
+    }
+
+    #[test]
+    fn releasing_a_drive_frees_the_lines_it_held_low() {
+        let mut bus = IecBus::new();
+
+        // Drive 8 pulls DATA low; the CPU sees DATA low.
+        bus.write_drive_port_b(8, 0xF7);
+        assert_eq!(bus.cpu_port() & CPU_READ_DATA, 0x00);
+
+        // Removing drive 8 must release its lines so the CPU sees DATA high
+        // again — otherwise the stale low pull jams the shared serial bus for
+        // every other device (the per-port drive-swap regression).
+        bus.release_drive(8);
+        assert_eq!(bus.cpu_port() & CPU_READ_DATA, CPU_READ_DATA);
+        assert_eq!(bus.drive_bus(8), Some(0xFF));
     }
 
     #[test]

@@ -130,10 +130,10 @@ fn runtime_rejects_drive_media_without_attached_1541() {
 
     let err = runtime
         .load_media(&media)
-        .expect_err("drive-8 should require an attached 1541 ROM");
+        .expect_err("drive-8 should require an attached drive");
     assert!(matches!(
         err,
-        MachineError::MissingFirmware { ref id } if id == "commodore-1541-dos-rom"
+        MachineError::MissingFirmware { ref id } if id == "drive on IEC device 8"
     ));
 }
 

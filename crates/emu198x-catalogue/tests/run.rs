@@ -7,7 +7,7 @@
 //!     cargo test -p emu198x-catalogue -- --ignored --nocapture
 //!
 //! Resolves media and firmware against:
-//!     EMU198X_CATALOGUE_MEDIA_ROOT     (default: ~/Projects/Emu198x-Unclean/Reference)
+//!     EMU198X_CATALOGUE_MEDIA_ROOT     (default: /Volumes/Data/Library/ROMs/TOSEC)
 //!     EMU198X_CATALOGUE_FIRMWARE_ROOT  (default: ~/.emu198x/roms)
 
 use std::env;
@@ -24,12 +24,7 @@ fn manifest_dir() -> PathBuf {
 fn media_root() -> PathBuf {
     env::var_os("EMU198X_CATALOGUE_MEDIA_ROOT")
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            home()
-                .join("Projects")
-                .join("Emu198x-Unclean")
-                .join("Reference")
-        })
+        .unwrap_or_else(|| PathBuf::from("/Volumes/Data/Library/ROMs/TOSEC"))
 }
 
 fn firmware_root() -> PathBuf {

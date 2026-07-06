@@ -305,6 +305,12 @@ impl Drive1571 {
         self.device_number
     }
 
+    /// Sets the IEC device number (8-11). The drive derives its bus address
+    /// from this on every tick, so it takes effect immediately.
+    pub const fn set_device_number(&mut self, device_number: u8) {
+        self.device_number = device_number;
+    }
+
     #[must_use]
     pub const fn head_position(&self) -> u8 {
         self.head_position
