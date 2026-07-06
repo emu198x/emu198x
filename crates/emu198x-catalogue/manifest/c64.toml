@@ -522,3 +522,37 @@ frame_hash = "xxh64:bc99c5b7a536f896"
 from_frame = 60
 secs = 2.0
 hash = "xxh64:2d2d7c5231ec57ab"
+
+[[entry]]
+id = "bomb-jack-2-g64"
+title = "Bomb Jack II (G64 raw-GCR)"
+year = 1986
+publisher = "Elite"
+variant = "pal"
+
+# The catalogue's raw-GCR preservation showcase (issue #73). Every other disk
+# entry here is a D64 -- decoded sectors. This is a G64: the raw GCR bit-stream
+# of a protected original, custom sync marks and all, the format that preserves
+# copy-protection D64 throws away. It loads through the same 1541 on device 8
+# (LOAD"*",8,1), autodetected by the "GCR-1541" signature, so this entry
+# exercises the whole raw-GCR read path end to end -- the first non-D64 disk in
+# the catalogue.
+[entry.media]
+kind = "disk"
+slot = "drive-8"
+path = "commodore/c64/Games/Arcade/[G64]/Bomb Jack 2 (1986)(Elite).zip"
+
+[entry.boot]
+# Bomb Jack II self-runs from its multi-stage loader straight to the title
+# screen -- no RUN, same shape as the D64 Bomb Jack entry. Screenshot-verified:
+# the "BOMB JACK II" logo, the Cooksey/Trueman/Holmes credits, the
+# keyboard/joystick + 1/2-player menu, and the Elite logo -- all loaded from the
+# raw GCR bit-stream.
+wait_frames = 50000
+frame_hash = "xxh64:d4fe806e709b5f00"
+
+[entry.audio]
+# Samples the title screen, where Mark Cooksey's SID tune is playing.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:86d77138198f71ce"
