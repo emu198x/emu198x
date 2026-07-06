@@ -16,6 +16,7 @@ use common_commodore_iec::IecBus;
 use format_commodore_c64_d64::{
     D64FileType, D64ParseError, parse_directory, read_sector, sectors_in_track, write_sector,
 };
+use format_commodore_c64_g64::{G64Image, G64ParseError};
 use mos_6502::{M6502, registers::FLAG_V};
 use mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
@@ -129,6 +130,19 @@ pub struct Drive1541IoWriteEvent {
     pub value: u8,
 }
 
+/// How a mounted disk's `image_bytes` are encoded — decoded sectors (`D64`) or
+/// a raw-GCR track image (`G64`). Governs how the live track surface is (re)built
+/// and whether it can be flushed back to a host image.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Drive1541ImageFormat {
+    /// A decoded `D64` sector image (the surface is GCR-encoded on mount).
+    #[default]
+    D64,
+    /// A raw-GCR `G64` image (the surface is the file's bytes verbatim,
+    /// preserving copy protection). Read-only in v1.
+    G64,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Drive1541Disk {
     image_bytes: Vec<u8>,
@@ -136,6 +150,10 @@ pub struct Drive1541Disk {
     disk_id: String,
     write_protected: bool,
     directory_entries: Vec<Drive1541DirectoryEntry>,
+    /// Encoding of `image_bytes`. Defaults to `D64` so pre-G64 snapshots restore
+    /// unchanged.
+    #[serde(default)]
+    image_format: Drive1541ImageFormat,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -187,6 +205,8 @@ pub enum Drive1541InitError {
 pub enum Drive1541MediaError {
     #[error("invalid D64 media: {0}")]
     InvalidD64(#[from] D64ParseError),
+    #[error("invalid G64 media: {0}")]
+    InvalidG64(#[from] G64ParseError),
 }
 
 impl Drive1541 {
@@ -379,6 +399,34 @@ impl Drive1541 {
                     blocks: entry.blocks,
                 })
                 .collect(),
+            image_format: Drive1541ImageFormat::D64,
+        });
+        self.reset_rotation_state();
+        Ok(())
+    }
+
+    /// Loads a raw-GCR `G64` image — the surface the drive head reads is the
+    /// file's bytes verbatim, so copy-protection tricks the `D64` layer cannot
+    /// represent (custom sync, non-standard sectors, fat/half-tracks, extra
+    /// tracks, density) survive. Read-only in v1: the disk mounts write-protected
+    /// and [`flush_image`](Self::flush_image) yields `None`, so the host image is
+    /// never modified.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `G64` image is malformed.
+    pub fn load_g64_bytes(&mut self, bytes: &[u8]) -> Result<(), Drive1541MediaError> {
+        let image = format_commodore_c64_g64::parse(bytes)?;
+        self.track_data = Some(build_track_data_from_g64(&image));
+        self.disk = Some(Drive1541Disk {
+            image_bytes: bytes.to_vec(),
+            // A G64 carries no decoded directory; the on-disk one is reached by
+            // the DOS reading track 18 like any other. Leave the metadata blank.
+            disk_name: String::new(),
+            disk_id: String::new(),
+            write_protected: true,
+            directory_entries: Vec::new(),
+            image_format: Drive1541ImageFormat::G64,
         });
         self.reset_rotation_state();
         Ok(())
@@ -394,6 +442,11 @@ impl Drive1541 {
     #[must_use]
     pub fn flush_image(&self) -> Option<Vec<u8>> {
         let disk = self.disk.as_ref()?;
+        // G64 is read-only in v1: there is no sector layout to decode back to,
+        // and the disk mounts write-protected, so nothing to persist.
+        if disk.image_format == Drive1541ImageFormat::G64 {
+            return None;
+        }
         let track_data = self.track_data.as_ref()?;
         let mut image = disk.image_bytes.clone();
 
@@ -1248,9 +1301,28 @@ impl Drive1541TrackData {
 
 fn rebuild_track_data(
     disk: Option<&Drive1541Disk>,
-) -> Result<Option<Drive1541TrackData>, D64ParseError> {
-    disk.map(|disk| build_track_data(disk.image_bytes()))
-        .transpose()
+) -> Result<Option<Drive1541TrackData>, Drive1541MediaError> {
+    disk.map(|disk| match disk.image_format {
+        Drive1541ImageFormat::D64 => Ok(build_track_data(disk.image_bytes())?),
+        Drive1541ImageFormat::G64 => {
+            let image = format_commodore_c64_g64::parse(disk.image_bytes())?;
+            Ok(build_track_data_from_g64(&image))
+        }
+    })
+    .transpose()
+}
+
+/// Builds the live track surface directly from a parsed `G64`: each half-track's
+/// raw GCR drops into the matching slot (the G64 half-track index is the drive's
+/// own slot index). Half-tracks beyond the drive's reachable range are dropped.
+fn build_track_data_from_g64(image: &G64Image) -> Drive1541TrackData {
+    let mut tracks = vec![Vec::new(); TRACK_SLOT_COUNT];
+    for (slot, track) in image.half_tracks.iter().enumerate().take(TRACK_SLOT_COUNT) {
+        if let Some(track) = track {
+            tracks[slot] = track.gcr.clone();
+        }
+    }
+    Drive1541TrackData { tracks }
 }
 
 fn build_track_data(bytes: &[u8]) -> Result<Drive1541TrackData, D64ParseError> {
@@ -1522,6 +1594,73 @@ mod tests {
 
     const D64_STANDARD_SIZE: usize = 174_848;
     const D64_SECTOR_SIZE: usize = 256;
+
+    /// Builds a minimal valid G64 (84 half-tracks) with raw GCR on the given
+    /// slots. `slot` is the drive half-track index (0 = track 1, head pos 2).
+    fn minimal_g64(slot_tracks: &[(usize, Vec<u8>)]) -> Vec<u8> {
+        let num_half = 84usize;
+        let max_len = 7928u16;
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"GCR-1541");
+        buf.push(0);
+        buf.push(num_half as u8);
+        buf.extend_from_slice(&max_len.to_le_bytes());
+        let data_base = 12 + num_half * 4 + num_half * 4;
+        let mut offsets = vec![0u32; num_half];
+        let mut speeds = vec![0u32; num_half];
+        let mut data = Vec::new();
+        for (slot, gcr) in slot_tracks {
+            offsets[*slot] = (data_base + data.len()) as u32;
+            speeds[*slot] = 3;
+            data.extend_from_slice(&(gcr.len() as u16).to_le_bytes());
+            data.extend_from_slice(gcr);
+        }
+        for o in &offsets {
+            buf.extend_from_slice(&o.to_le_bytes());
+        }
+        for s in &speeds {
+            buf.extend_from_slice(&s.to_le_bytes());
+        }
+        buf.extend_from_slice(&data);
+        buf
+    }
+
+    #[test]
+    fn load_g64_fills_slots_read_only_and_survives_snapshot() {
+        // A distinctive non-standard-length GCR stream on track 1 (slot 0).
+        let pattern: Vec<u8> = (0..300u16).map(|i| (i % 256) as u8).collect();
+        let g64 = minimal_g64(&[(0, pattern.clone())]);
+
+        let rom = make_rom(&[], 0xEB22);
+        let mut drive = Drive1541::new(Drive1541Config { dos_rom: &rom[..] }).expect("valid ROM");
+        drive.load_g64_bytes(&g64).expect("valid G64 mounts");
+
+        assert!(drive.disk_inserted(), "G64 disk should be inserted");
+        assert!(
+            drive.flush_image().is_none(),
+            "G64 is read-only in v1: no flush image"
+        );
+        // The raw GCR lands verbatim in slot 0 (head position 2), at its exact
+        // non-standard length — the head wraps at gcr.len().
+        let track = drive
+            .track_data
+            .as_ref()
+            .expect("track data")
+            .track_bytes(2);
+        assert_eq!(track, Some(&pattern[..]));
+
+        // A snapshot re-parses the G64 on restore (no D64 to rebuild from), so
+        // the raw surface is identical.
+        let restored = Drive1541::from_snapshot(drive.snapshot_state()).expect("snapshot restores");
+        assert_eq!(
+            restored
+                .track_data
+                .as_ref()
+                .expect("track data")
+                .track_bytes(2),
+            Some(&pattern[..])
+        );
+    }
 
     fn make_rom(program: &[(u16, &[u8])], reset_vector: u16) -> [u8; ROM_SIZE] {
         let mut rom = [0xEA; ROM_SIZE];

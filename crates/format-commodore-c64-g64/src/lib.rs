@@ -66,7 +66,7 @@ pub struct G64Image {
 }
 
 /// Errors from [`parse`].
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum G64ParseError {
     /// The image is shorter than the header or a declared table/track.
     #[error("G64 image is truncated: needed {needed} bytes at offset {offset}, image is {len}")]
