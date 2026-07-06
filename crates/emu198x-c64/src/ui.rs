@@ -17,6 +17,10 @@
 //!   and the optional 1571/1581 when present) — so
 //!   [`switch_variant`](UiSystem::switch_variant) rebuilds the runtime from the
 //!   stashed firmware bytes via `from_firmware`.
+//! - **Drives**: [`drive_ports`](UiSystem::drive_ports) /
+//!   [`set_port_drive`](UiSystem::set_port_drive) back the Machine → Drives menu,
+//!   letting the user pick a 1541/1571/1581 (or none) per IEC device 8–11.
+//!   Models whose DOS ROM was not loaded show disabled.
 //! - **Tape**: F9/F10 transport + F11 turbo come free from the harness, gated on
 //!   the `tape-1` slot; [`tape_playing`](UiSystem::tape_playing) drives turbo.
 //!
@@ -36,13 +40,15 @@ use emu198x_shell::{
     read_firmware_asset, read_media_asset, read_program_asset,
 };
 use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo, VideoFilter,
+    ButtonInputMap, ButtonTarget, DriveOption, DrivePortInfo, HostControl, KeyCode, UiSystem,
+    VariantInfo, VideoFilter,
 };
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
     DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_disk,
-    autoload_basic_disk_and_run, autoload_basic_tape, file_loader::load_host_file,
+    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, DriveKind, Model,
+    autoload_basic_disk, autoload_basic_disk_and_run, autoload_basic_tape,
+    file_loader::load_host_file,
 };
 
 const KERNAL_ID: &str = "commodore-c64-kernal-rom";
@@ -311,6 +317,71 @@ impl UiSystem for C64System {
         *runtime = C64Runtime::from_firmware(model, &firmware)?;
         self.model = model;
         Ok(())
+    }
+
+    fn drive_ports(&self, runtime: &Self::Runtime) -> Vec<DrivePortInfo> {
+        // The C64 IEC bus carries devices 8–11; each can hold a 1541, 1571, or
+        // 1581 (or be empty). Availability follows the loaded DOS ROMs.
+        (8u8..=11)
+            .map(|device| DrivePortInfo {
+                device,
+                label: Cow::Owned(format!("Device {device}")),
+                options: vec![
+                    DriveOption {
+                        id: Cow::Borrowed("none"),
+                        label: Cow::Borrowed("Empty"),
+                        available: true,
+                    },
+                    drive_option(runtime, DriveKind::C1541, "1541"),
+                    drive_option(runtime, DriveKind::C1571, "1571"),
+                    drive_option(runtime, DriveKind::C1581, "1581"),
+                ],
+                current: Cow::Borrowed(drive_kind_id(runtime.port_drive_kind(device))),
+            })
+            .collect()
+    }
+
+    fn set_port_drive(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        device: u8,
+        kind_id: &str,
+    ) -> Result<(), MachineError> {
+        let kind = drive_kind_for_id(kind_id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown drive model",
+        })?;
+        runtime.set_port_drive(device, kind)
+    }
+}
+
+/// The Drives-menu option id for a drive model (or `"none"` for an empty port).
+fn drive_kind_id(kind: Option<DriveKind>) -> &'static str {
+    match kind {
+        None => "none",
+        Some(DriveKind::C1541) => "1541",
+        Some(DriveKind::C1571) => "1571",
+        Some(DriveKind::C1581) => "1581",
+    }
+}
+
+/// Parse a Drives-menu option id into a drive selection. The outer `None` is an
+/// unknown id; the inner `None` is the empty-port choice.
+fn drive_kind_for_id(id: &str) -> Option<Option<DriveKind>> {
+    match id {
+        "none" => Some(None),
+        "1541" => Some(Some(DriveKind::C1541)),
+        "1571" => Some(Some(DriveKind::C1571)),
+        "1581" => Some(Some(DriveKind::C1581)),
+        _ => None,
+    }
+}
+
+/// A Drives menu option for `kind`, disabled when its DOS ROM was not loaded.
+fn drive_option(runtime: &C64Runtime, kind: DriveKind, id: &'static str) -> DriveOption {
+    DriveOption {
+        id: Cow::Borrowed(id),
+        label: Cow::Borrowed(id),
+        available: runtime.drive_kind_available(kind),
     }
 }
 
@@ -1147,5 +1218,65 @@ mod tests {
         assert_eq!(system.map_key(KeyCode::Space), Some(HostControl::South));
         // A non-joystick key is still a keyboard key in joystick mode.
         assert!(system.map_keys(KeyCode::KeyA).is_some());
+    }
+
+    fn blank_system() -> C64System {
+        C64System {
+            model: Model::C64PalBreadbin,
+            firmware: Vec::new(),
+            keyboard_joystick: false,
+        }
+    }
+
+    #[test]
+    fn drive_kind_ids_round_trip() {
+        for kind in [
+            None,
+            Some(DriveKind::C1541),
+            Some(DriveKind::C1571),
+            Some(DriveKind::C1581),
+        ] {
+            assert_eq!(drive_kind_for_id(drive_kind_id(kind)), Some(kind));
+        }
+        assert_eq!(drive_kind_for_id("bogus"), None);
+    }
+
+    #[test]
+    fn drive_ports_describes_all_four_iec_devices() {
+        // A blank runtime has no drive DOS ROMs, so every model is unavailable
+        // and every port is empty — the descriptor still lists all four devices.
+        let system = blank_system();
+        let runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        let ports = system.drive_ports(&runtime);
+
+        assert_eq!(ports.len(), 4);
+        for (index, port) in ports.iter().enumerate() {
+            assert_eq!(port.device, 8 + index as u8);
+            assert_eq!(port.current, "none");
+            let ids: Vec<&str> = port.options.iter().map(|o| o.id.as_ref()).collect();
+            assert_eq!(ids, ["none", "1541", "1571", "1581"]);
+            // "Empty" is always selectable; the models need their ROMs.
+            assert!(port.options[0].available);
+            assert!(port.options[1..].iter().all(|o| !o.available));
+        }
+    }
+
+    #[test]
+    fn set_port_drive_clears_maps_and_rejects_unknown_ids() {
+        let mut system = blank_system();
+        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+
+        // "none" empties a port and needs no firmware.
+        assert!(system.set_port_drive(&mut runtime, 8, "none").is_ok());
+        // A model whose ROM is absent is rejected (blank runtime has none).
+        assert!(matches!(
+            system.set_port_drive(&mut runtime, 8, "1541"),
+            Err(MachineError::MissingFirmware { .. })
+        ));
+        // An unrecognised id is rejected before touching the runtime.
+        assert!(matches!(
+            system.set_port_drive(&mut runtime, 8, "bogus"),
+            Err(MachineError::UnsupportedOperation { .. })
+        ));
     }
 }
