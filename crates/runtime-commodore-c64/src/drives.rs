@@ -171,8 +171,12 @@ impl IecDrive {
     pub(crate) fn load_disk(&mut self, bytes: &[u8], writable: bool) -> Result<(), String> {
         let is_g64 = bytes.starts_with(G64_SIGNATURE) || bytes.starts_with(G71_SIGNATURE);
         match self {
-            Self::C1541(d) if is_g64 => d.load_g64_bytes(bytes).map_err(|e| e.to_string()),
-            Self::C1571(d) if is_g64 => d.load_g64_bytes(bytes).map_err(|e| e.to_string()),
+            Self::C1541(d) if is_g64 => d
+                .load_g64_bytes_writable(bytes, writable)
+                .map_err(|e| e.to_string()),
+            Self::C1571(d) if is_g64 => d
+                .load_g64_bytes_writable(bytes, writable)
+                .map_err(|e| e.to_string()),
             Self::C1581(_) if is_g64 => Err(
                 "G64 raw-GCR images are not supported on the 1581 (it has no GCR \
                      mechanism); use a 1541 or 1571"
