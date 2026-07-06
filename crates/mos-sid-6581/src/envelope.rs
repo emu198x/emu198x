@@ -167,3 +167,70 @@ impl Default for Envelope {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gate_rising_enters_attack_and_climbs() {
+        let mut e = Envelope::new();
+        e.attack = 0; // fastest rate
+        for _ in 0..200 {
+            e.clock(true);
+        }
+        assert!(e.level > 0, "attack climbs from zero");
+        assert!(matches!(e.phase, Phase::Attack | Phase::Decay));
+    }
+
+    #[test]
+    fn full_cycle_climbs_to_peak_holds_sustain_then_releases_to_zero() {
+        let mut e = Envelope::new();
+        e.attack = 0;
+        e.decay = 0;
+        e.sustain = 0x0A; // sustain level 0xAA
+        e.release = 0;
+        for _ in 0..100_000 {
+            e.clock(true);
+        }
+        assert_eq!(e.phase, Phase::Sustain);
+        assert_eq!(e.level, 0xAA, "decay settles at the sustain level");
+        for _ in 0..500_000 {
+            e.clock(false);
+        }
+        assert_eq!(e.phase, Phase::Release);
+        assert_eq!(e.level, 0, "release falls to silence");
+    }
+
+    #[test]
+    fn gate_low_before_peak_releases_from_the_current_level() {
+        let mut e = Envelope::new();
+        e.attack = 0;
+        e.release = 0;
+        for _ in 0..200 {
+            e.clock(true);
+        }
+        let peak = e.level;
+        assert!(peak > 0 && peak < 0xFF);
+        e.clock(false);
+        assert_eq!(e.phase, Phase::Release, "gate low releases mid-attack");
+    }
+
+    #[test]
+    fn sustain_levels_are_the_nibble_repeated() {
+        for n in 0..16u8 {
+            assert_eq!(SUSTAIN_LEVELS[usize::from(n)], n * 0x11);
+        }
+    }
+
+    #[test]
+    fn rate_periods_increase_with_the_rate_nibble() {
+        for i in 1..16 {
+            assert!(
+                RATE_COUNTER_PERIODS[i] > RATE_COUNTER_PERIODS[i - 1],
+                "rate {i} must be slower than {}",
+                i - 1
+            );
+        }
+    }
+}
