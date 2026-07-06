@@ -552,6 +552,13 @@ impl Via6522 {
         (self.ora & self.ddra) | !self.ddra
     }
 
+    /// The raw Port A output latch (ORA), independent of DDRA. The 1571 reads
+    /// its side-select off this latch bit regardless of the pin direction.
+    #[must_use]
+    pub fn port_a_output(&self) -> u8 {
+        self.ora
+    }
+
     #[must_use]
     pub fn port_b_drive_state(&self) -> u8 {
         (self.port_b_output() & self.ddrb) | !self.ddrb
