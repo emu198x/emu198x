@@ -1,0 +1,20 @@
+[package]
+name = "machine-commodore-1571"
+description = "Commodore 1571 disk-drive machine substrate"
+edition.workspace = true
+version = "0.2.0"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+common-commodore-iec = { path = "../common-commodore-iec", version = "0.2.0" }
+format-commodore-c64-d64 = { path = "../format-commodore-c64-d64", version = "0.2.0" }
+mos-6502 = { path = "../mos-6502", version = "0.2.0" }
+mos-via-6522 = { path = "../mos-via-6522", version = "0.2.0" }
+mos-cia-6526 = { path = "../mos-cia-6526", version = "0.2.0" }
+western-digital-wd1770 = { path = "../western-digital-wd1770", version = "0.2.0" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
