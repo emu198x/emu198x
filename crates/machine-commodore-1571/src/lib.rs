@@ -20,6 +20,7 @@ use format_commodore_c64_d71::{
     D71ParseError, parse_directory as parse_directory_d71, read_sector as read_sector_d71,
     sectors_in_track as sectors_in_track_d71,
 };
+use format_commodore_c64_g64::{G64_SIGNATURE, G64Image, G64ParseError};
 use mos_6502::{M6502, registers::FLAG_V};
 use mos_cia_6526::Cia6526;
 use mos_via_6522::Via6522;
@@ -211,6 +212,8 @@ pub enum Drive1571MediaError {
     InvalidD64(#[from] D64ParseError),
     #[error("invalid D71 media: {0}")]
     InvalidD71(#[from] D71ParseError),
+    #[error("invalid G64 media: {0}")]
+    InvalidG64(#[from] G64ParseError),
 }
 
 impl Drive1571 {
@@ -449,16 +452,42 @@ impl Drive1571 {
         Ok(())
     }
 
+    /// Loads a raw-GCR `G64` image (single-sided). The surface the head reads is
+    /// the file's bytes verbatim, so copy-protection tricks the D64/D71 layers
+    /// cannot represent survive. Read-only in v1: mounts write-protected, and
+    /// [`flush_image`](Self::flush_image) yields `None`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `G64` image is malformed.
+    pub fn load_g64_bytes(&mut self, bytes: &[u8]) -> Result<(), Drive1571MediaError> {
+        let image = format_commodore_c64_g64::parse(bytes)?;
+        self.track_data = Some(build_track_data_from_g64(&image));
+        self.disk = Some(Drive1571Disk {
+            image_bytes: bytes.to_vec(),
+            disk_name: String::new(),
+            disk_id: String::new(),
+            write_protected: true,
+            directory_entries: Vec::new(),
+        });
+        self.reset_rotation_state();
+        Ok(())
+    }
+
     /// Decodes the live GCR track surface back into a `D64` image.
     ///
     /// A SAVE lands GCR on the rotating surface in write mode; this turns the
     /// whole surface back into 256-byte sectors so the host can persist it.
     /// Unwritten tracks round-trip to their original bytes, so decoding the
     /// entire disk is safe; a track that fails to decode keeps its prior bytes.
-    /// Returns `None` when no disk is mounted.
+    /// Returns `None` when no disk is mounted, or for a read-only G64.
     #[must_use]
     pub fn flush_image(&self) -> Option<Vec<u8>> {
         let disk = self.disk.as_ref()?;
+        // G64 is read-only in v1: no sector layout to decode back to.
+        if disk.image_bytes.starts_with(G64_SIGNATURE) {
+            return None;
+        }
         let track_data = self.track_data.as_ref()?;
         let mut image = disk.image_bytes.clone();
 
@@ -1411,12 +1440,34 @@ fn build_track_data(bytes: &[u8]) -> Result<Drive1571TrackData, D64ParseError> {
     })
 }
 
-/// Dispatches to the D64 (single-sided) or D71 (double-sided) GCR builder by
-/// image size, unifying their error types for the snapshot-rebuild path.
+/// Dispatches to the D64 (single-sided), D71 (double-sided), or G64 (raw-GCR)
+/// builder, unifying their error types for the snapshot-rebuild path. G64 is
+/// detected by signature; D64 and D71 by image size.
 fn build_track_data_any(bytes: &[u8]) -> Result<Drive1571TrackData, String> {
+    if bytes.starts_with(G64_SIGNATURE) {
+        return format_commodore_c64_g64::parse(bytes)
+            .map(|image| build_track_data_from_g64(&image))
+            .map_err(|err| err.to_string());
+    }
     match bytes.len() {
         349_696 | 351_062 => build_track_data_d71(bytes).map_err(|err| err.to_string()),
         _ => build_track_data(bytes).map_err(|err| err.to_string()),
+    }
+}
+
+/// Builds the single-sided GCR surface from a parsed `G64`: each half-track's
+/// raw GCR drops into the matching side-0 slot. Side 1 stays empty (a G64 is
+/// single-sided; a double-sided original would be a G71, not yet supported).
+fn build_track_data_from_g64(image: &G64Image) -> Drive1571TrackData {
+    let mut tracks = vec![Vec::new(); TRACK_SLOT_COUNT];
+    for (slot, track) in image.half_tracks.iter().enumerate().take(TRACK_SLOT_COUNT) {
+        if let Some(track) = track {
+            tracks[slot] = track.gcr.clone();
+        }
+    }
+    Drive1571TrackData {
+        tracks,
+        tracks_side1: Vec::new(),
     }
 }
 
@@ -1716,6 +1767,59 @@ mod tests {
 
     const D64_STANDARD_SIZE: usize = 174_848;
     const D64_SECTOR_SIZE: usize = 256;
+
+    /// Builds a minimal valid G64 (84 half-tracks) with raw GCR on the given
+    /// slots (`slot` is the drive half-track index; 0 = track 1, head pos 2).
+    fn minimal_g64(slot_tracks: &[(usize, Vec<u8>)]) -> Vec<u8> {
+        let num_half = 84usize;
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"GCR-1541");
+        buf.push(0);
+        buf.push(num_half as u8);
+        buf.extend_from_slice(&7928u16.to_le_bytes());
+        let data_base = 12 + num_half * 4 + num_half * 4;
+        let mut offsets = vec![0u32; num_half];
+        let mut speeds = vec![0u32; num_half];
+        let mut data = Vec::new();
+        for (slot, gcr) in slot_tracks {
+            offsets[*slot] = (data_base + data.len()) as u32;
+            speeds[*slot] = 3;
+            data.extend_from_slice(&(gcr.len() as u16).to_le_bytes());
+            data.extend_from_slice(gcr);
+        }
+        for o in &offsets {
+            buf.extend_from_slice(&o.to_le_bytes());
+        }
+        for s in &speeds {
+            buf.extend_from_slice(&s.to_le_bytes());
+        }
+        buf.extend_from_slice(&data);
+        buf
+    }
+
+    #[test]
+    fn load_g64_fills_side0_read_only_and_survives_snapshot() {
+        let pattern: Vec<u8> = (0..300u16).map(|i| (i % 256) as u8).collect();
+        let g64 = minimal_g64(&[(0, pattern.clone())]);
+
+        let rom = make_rom(&[], 0xEB22);
+        let mut drive = Drive1571::new(Drive1571Config { dos_rom: &rom }).expect("valid ROM");
+        drive.load_g64_bytes(&g64).expect("valid G64 mounts");
+
+        assert!(drive.disk_inserted());
+        assert!(drive.flush_image().is_none(), "G64 is read-only in v1");
+        // Slot 0 (head 2) on side 0 holds the raw GCR at its exact length.
+        assert_eq!(
+            drive.track_data.as_ref().expect("td").track_bytes(2, 0),
+            Some(&pattern[..])
+        );
+
+        let restored = Drive1571::from_snapshot(drive.snapshot_state()).expect("snapshot restores");
+        assert_eq!(
+            restored.track_data.as_ref().expect("td").track_bytes(2, 0),
+            Some(&pattern[..])
+        );
+    }
 
     fn make_rom(program: &[(u16, &[u8])], reset_vector: u16) -> [u8; ROM_SIZE] {
         let mut rom = [0xEA; ROM_SIZE];
