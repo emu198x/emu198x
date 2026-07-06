@@ -31,6 +31,7 @@ members = [
     "crates/format-commodore-c64-d64",
     "crates/format-commodore-c64-d71",
     "crates/format-commodore-c64-d81",
+    "crates/format-commodore-c64-g64",
     "crates/format-commodore-c64-p00",
     "crates/format-commodore-c64-prg",
     "crates/format-commodore-c64-tap",
