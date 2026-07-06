@@ -1421,6 +1421,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-commodore-c64-g64"
+version = "0.2.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "format-commodore-c64-p00"
 version = "0.2.0"
 dependencies = [
@@ -2113,6 +2120,7 @@ version = "0.2.0"
 dependencies = [
  "common-commodore-iec",
  "format-commodore-c64-d64",
+ "format-commodore-c64-g64",
  "mos-6502",
  "mos-via-6522",
  "serde",
@@ -2126,6 +2134,7 @@ dependencies = [
  "common-commodore-iec",
  "format-commodore-c64-d64",
  "format-commodore-c64-d71",
+ "format-commodore-c64-g64",
  "mos-6502",
  "mos-cia-6526",
  "mos-via-6522",
@@ -3807,6 +3816,7 @@ dependencies = [
  "emu198x-shell",
  "format-commodore-c64-bas",
  "format-commodore-c64-d64",
+ "format-commodore-c64-g64",
  "format-commodore-c64-p00",
  "format-commodore-c64-t64",
  "machine-commodore-1541",

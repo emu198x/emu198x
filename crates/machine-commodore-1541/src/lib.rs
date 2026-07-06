@@ -16,6 +16,7 @@ use common_commodore_iec::IecBus;
 use format_commodore_c64_d64::{
     D64FileType, D64ParseError, parse_directory, read_sector, sectors_in_track, write_sector,
 };
+use format_commodore_c64_g64::{G64Image, G64ParseError};
 use mos_6502::{M6502, registers::FLAG_V};
 use mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
@@ -36,6 +37,8 @@ const HEADER_GAP_SIZE: usize = 9;
 const SYNC_SIZE: usize = 5;
 const SECTOR_GCR_SIZE_WITH_HEADER: usize = 335;
 const TRACK_SLOT_COUNT: usize = (MAX_HEAD_POSITION as usize) - 1;
+/// Non-zero seed for the weak-bit LFSR so it never starts in a degenerate state.
+const WEAK_BIT_SEED: u32 = 0x2545_F491;
 const IO_TRACE_LIMIT: usize = 2048;
 const ROTATION_REF_CYCLES_PER_CPU_CYCLE: u64 = 16;
 const BUS_READ_DELAY_REF_CYCLES: u64 = 14;
@@ -63,6 +66,11 @@ pub struct Drive1541 {
     gcr_head_offset: usize,
     last_read_data: u16,
     bit_counter: u8,
+    /// LFSR/LCG state feeding weak-bit reads: over a `0x00` (no-flux) GCR byte
+    /// the head picks up random flux, so each revolution reads differently.
+    /// A G64 copy-protection check reads such an area twice and requires the
+    /// bytes to differ. Advances only while reading a weak byte.
+    weak_bit_lfsr: u32,
     /// Which bit of the write serialiser the head emits next, MSB first.
     /// Transient write-mode state; not snapshotted.
     write_bit_index: u8,
@@ -105,6 +113,8 @@ pub struct Drive1541Snapshot {
     gcr_head_offset: usize,
     last_read_data: u16,
     bit_counter: u8,
+    #[serde(default)]
+    weak_bit_lfsr: u32,
     sync_active: bool,
     byte_ready_level: bool,
     byte_ready_edge: bool,
@@ -129,6 +139,19 @@ pub struct Drive1541IoWriteEvent {
     pub value: u8,
 }
 
+/// How a mounted disk's `image_bytes` are encoded — decoded sectors (`D64`) or
+/// a raw-GCR track image (`G64`). Governs how the live track surface is (re)built
+/// and whether it can be flushed back to a host image.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Drive1541ImageFormat {
+    /// A decoded `D64` sector image (the surface is GCR-encoded on mount).
+    #[default]
+    D64,
+    /// A raw-GCR `G64` image (the surface is the file's bytes verbatim,
+    /// preserving copy protection). Read-only in v1.
+    G64,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Drive1541Disk {
     image_bytes: Vec<u8>,
@@ -136,6 +159,10 @@ pub struct Drive1541Disk {
     disk_id: String,
     write_protected: bool,
     directory_entries: Vec<Drive1541DirectoryEntry>,
+    /// Encoding of `image_bytes`. Defaults to `D64` so pre-G64 snapshots restore
+    /// unchanged.
+    #[serde(default)]
+    image_format: Drive1541ImageFormat,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -187,6 +214,8 @@ pub enum Drive1541InitError {
 pub enum Drive1541MediaError {
     #[error("invalid D64 media: {0}")]
     InvalidD64(#[from] D64ParseError),
+    #[error("invalid G64 media: {0}")]
+    InvalidG64(#[from] G64ParseError),
 }
 
 impl Drive1541 {
@@ -228,6 +257,7 @@ impl Drive1541 {
             gcr_head_offset: 0,
             last_read_data: 0,
             bit_counter: 0,
+            weak_bit_lfsr: WEAK_BIT_SEED,
             write_bit_index: 0,
             write_shift: 0,
             sync_active: false,
@@ -379,6 +409,49 @@ impl Drive1541 {
                     blocks: entry.blocks,
                 })
                 .collect(),
+            image_format: Drive1541ImageFormat::D64,
+        });
+        self.reset_rotation_state();
+        Ok(())
+    }
+
+    /// Loads a raw-GCR `G64` image read-only — the surface the drive head reads
+    /// is the file's bytes verbatim, so copy-protection tricks the `D64` layer
+    /// cannot represent (custom sync, non-standard sectors, fat/half-tracks,
+    /// extra tracks, density, weak bits) survive. Mount writable with
+    /// [`load_g64_bytes_writable`](Self::load_g64_bytes_writable) for a work disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `G64` image is malformed.
+    pub fn load_g64_bytes(&mut self, bytes: &[u8]) -> Result<(), Drive1541MediaError> {
+        self.load_g64_bytes_writable(bytes, false)
+    }
+
+    /// Loads a raw-GCR `G64` image, choosing whether the drive may write to it.
+    /// `writable == true` clears the write-protect tab so a fastloader/formatter
+    /// SAVE can lay new GCR on the surface; [`flush_image`](Self::flush_image)
+    /// then re-serialises the modified surface back to `G64` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `G64` image is malformed.
+    pub fn load_g64_bytes_writable(
+        &mut self,
+        bytes: &[u8],
+        writable: bool,
+    ) -> Result<(), Drive1541MediaError> {
+        let image = format_commodore_c64_g64::parse(bytes)?;
+        self.track_data = Some(build_track_data_from_g64(&image));
+        self.disk = Some(Drive1541Disk {
+            image_bytes: bytes.to_vec(),
+            // A G64 carries no decoded directory; the on-disk one is reached by
+            // the DOS reading track 18 like any other. Leave the metadata blank.
+            disk_name: String::new(),
+            disk_id: String::new(),
+            write_protected: !writable,
+            directory_entries: Vec::new(),
+            image_format: Drive1541ImageFormat::G64,
         });
         self.reset_rotation_state();
         Ok(())
@@ -394,6 +467,11 @@ impl Drive1541 {
     #[must_use]
     pub fn flush_image(&self) -> Option<Vec<u8>> {
         let disk = self.disk.as_ref()?;
+        // A G64 has no sector layout to decode back to; re-serialise the live raw
+        // GCR surface (with the mounted image's speed zones) straight to G64.
+        if disk.image_format == Drive1541ImageFormat::G64 {
+            return self.flush_g64_image(disk);
+        }
         let track_data = self.track_data.as_ref()?;
         let mut image = disk.image_bytes.clone();
 
@@ -412,6 +490,28 @@ impl Drive1541 {
         }
 
         Some(image)
+    }
+
+    /// Re-serialises the live raw-GCR surface of a mounted `G64` back to `G64`
+    /// bytes: the mounted image supplies version/speed/geometry, and each
+    /// present slot's GCR is replaced with the live surface (a written track
+    /// diverges from the original; unwritten ones reproduce it).
+    fn flush_g64_image(&self, disk: &Drive1541Disk) -> Option<Vec<u8>> {
+        // Only a writable work disk persists; a read-only original (the common
+        // protected case) has nothing to write back.
+        if disk.write_protected {
+            return None;
+        }
+        let track_data = self.track_data.as_ref()?;
+        let mut image = format_commodore_c64_g64::parse(&disk.image_bytes).ok()?;
+        for (slot, half_track) in image.half_tracks.iter_mut().enumerate() {
+            if let (Some(half_track), Some(live)) = (half_track, track_data.tracks.get(slot))
+                && !live.is_empty()
+            {
+                half_track.gcr.clone_from(live);
+            }
+        }
+        Some(format_commodore_c64_g64::write(&image))
     }
 
     pub fn eject_disk(&mut self) {
@@ -440,6 +540,7 @@ impl Drive1541 {
             gcr_head_offset: self.gcr_head_offset,
             last_read_data: self.last_read_data,
             bit_counter: self.bit_counter,
+            weak_bit_lfsr: self.weak_bit_lfsr,
             sync_active: self.sync_active,
             byte_ready_level: self.byte_ready_level,
             byte_ready_edge: self.byte_ready_edge,
@@ -491,6 +592,7 @@ impl Drive1541 {
         self.gcr_head_offset = snapshot.gcr_head_offset;
         self.last_read_data = snapshot.last_read_data;
         self.bit_counter = snapshot.bit_counter;
+        self.weak_bit_lfsr = snapshot.weak_bit_lfsr;
         self.sync_active = snapshot.sync_active;
         self.byte_ready_level = snapshot.byte_ready_level;
         self.byte_ready_edge = snapshot.byte_ready_edge;
@@ -550,6 +652,7 @@ impl Drive1541 {
             gcr_head_offset: snapshot.gcr_head_offset,
             last_read_data: snapshot.last_read_data,
             bit_counter: snapshot.bit_counter,
+            weak_bit_lfsr: snapshot.weak_bit_lfsr,
             write_bit_index: 0,
             write_shift: 0,
             sync_active: snapshot.sync_active,
@@ -1107,7 +1210,7 @@ impl Drive1541 {
         self.write_bit_index = 0;
         self.write_shift = self.gcr_write_value;
 
-        let bit = self.current_track_bit(self.gcr_head_offset);
+        let bit = self.next_read_bit(self.gcr_head_offset);
 
         self.last_read_data = ((self.last_read_data << 1) | u16::from(bit)) & 0x03FF;
         let sync_now = self.last_read_data == 0x03FF;
@@ -1171,6 +1274,30 @@ impl Drive1541 {
             self.write_shift = self.gcr_write_value;
             self.schedule_byte_ready(self.rotation_ref_phase.saturating_sub(1));
         }
+    }
+
+    /// Reads the next surface bit, substituting random flux over a weak byte.
+    ///
+    /// A `0x00` GCR byte cannot occur in valid GCR (no code has eight zero bits),
+    /// so on a real disk it marks an unformatted/no-flux area. The read head
+    /// picks up noise there, differing every revolution — which is exactly what a
+    /// copy-protection weak-bit check reads twice and requires to differ. The
+    /// LFSR advances per weak bit, so consecutive passes read differently, while
+    /// ordinary (non-zero) GCR reads back bit-exact.
+    fn next_read_bit(&mut self, bit_offset: usize) -> u8 {
+        if self.current_track_byte(bit_offset) == Some(0) {
+            self.weak_bit_lfsr = self
+                .weak_bit_lfsr
+                .wrapping_mul(1_664_525)
+                .wrapping_add(1_013_904_223);
+            return (self.weak_bit_lfsr >> 31) as u8;
+        }
+        self.current_track_bit(bit_offset)
+    }
+
+    fn current_track_byte(&self, bit_offset: usize) -> Option<u8> {
+        self.current_track_bytes()
+            .and_then(|track| track.get(bit_offset / 8).copied())
     }
 
     fn current_track_bit(&self, bit_offset: usize) -> u8 {
@@ -1248,9 +1375,28 @@ impl Drive1541TrackData {
 
 fn rebuild_track_data(
     disk: Option<&Drive1541Disk>,
-) -> Result<Option<Drive1541TrackData>, D64ParseError> {
-    disk.map(|disk| build_track_data(disk.image_bytes()))
-        .transpose()
+) -> Result<Option<Drive1541TrackData>, Drive1541MediaError> {
+    disk.map(|disk| match disk.image_format {
+        Drive1541ImageFormat::D64 => Ok(build_track_data(disk.image_bytes())?),
+        Drive1541ImageFormat::G64 => {
+            let image = format_commodore_c64_g64::parse(disk.image_bytes())?;
+            Ok(build_track_data_from_g64(&image))
+        }
+    })
+    .transpose()
+}
+
+/// Builds the live track surface directly from a parsed `G64`: each half-track's
+/// raw GCR drops into the matching slot (the G64 half-track index is the drive's
+/// own slot index). Half-tracks beyond the drive's reachable range are dropped.
+fn build_track_data_from_g64(image: &G64Image) -> Drive1541TrackData {
+    let mut tracks = vec![Vec::new(); TRACK_SLOT_COUNT];
+    for (slot, track) in image.half_tracks.iter().enumerate().take(TRACK_SLOT_COUNT) {
+        if let Some(track) = track {
+            tracks[slot] = track.gcr.clone();
+        }
+    }
+    Drive1541TrackData { tracks }
 }
 
 fn build_track_data(bytes: &[u8]) -> Result<Drive1541TrackData, D64ParseError> {
@@ -1522,6 +1668,120 @@ mod tests {
 
     const D64_STANDARD_SIZE: usize = 174_848;
     const D64_SECTOR_SIZE: usize = 256;
+
+    /// Builds a minimal valid G64 (84 half-tracks) with raw GCR on the given
+    /// slots. `slot` is the drive half-track index (0 = track 1, head pos 2).
+    fn minimal_g64(slot_tracks: &[(usize, Vec<u8>)]) -> Vec<u8> {
+        let num_half = 84usize;
+        let max_len = 7928u16;
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"GCR-1541");
+        buf.push(0);
+        buf.push(num_half as u8);
+        buf.extend_from_slice(&max_len.to_le_bytes());
+        let data_base = 12 + num_half * 4 + num_half * 4;
+        let mut offsets = vec![0u32; num_half];
+        let mut speeds = vec![0u32; num_half];
+        let mut data = Vec::new();
+        for (slot, gcr) in slot_tracks {
+            offsets[*slot] = (data_base + data.len()) as u32;
+            speeds[*slot] = 3;
+            data.extend_from_slice(&(gcr.len() as u16).to_le_bytes());
+            data.extend_from_slice(gcr);
+        }
+        for o in &offsets {
+            buf.extend_from_slice(&o.to_le_bytes());
+        }
+        for s in &speeds {
+            buf.extend_from_slice(&s.to_le_bytes());
+        }
+        buf.extend_from_slice(&data);
+        buf
+    }
+
+    #[test]
+    fn load_g64_fills_slots_read_only_and_survives_snapshot() {
+        // A distinctive non-standard-length GCR stream on track 1 (slot 0).
+        let pattern: Vec<u8> = (0..300u16).map(|i| (i % 256) as u8).collect();
+        let g64 = minimal_g64(&[(0, pattern.clone())]);
+
+        let rom = make_rom(&[], 0xEB22);
+        let mut drive = Drive1541::new(Drive1541Config { dos_rom: &rom[..] }).expect("valid ROM");
+        drive.load_g64_bytes(&g64).expect("valid G64 mounts");
+
+        assert!(drive.disk_inserted(), "G64 disk should be inserted");
+        assert!(
+            drive.flush_image().is_none(),
+            "a read-only G64 mount has nothing to flush"
+        );
+        // The raw GCR lands verbatim in slot 0 (head position 2), at its exact
+        // non-standard length — the head wraps at gcr.len().
+        let track = drive
+            .track_data
+            .as_ref()
+            .expect("track data")
+            .track_bytes(2);
+        assert_eq!(track, Some(&pattern[..]));
+
+        // A snapshot re-parses the G64 on restore (no D64 to rebuild from), so
+        // the raw surface is identical.
+        let restored = Drive1541::from_snapshot(drive.snapshot_state()).expect("snapshot restores");
+        assert_eq!(
+            restored
+                .track_data
+                .as_ref()
+                .expect("track data")
+                .track_bytes(2),
+            Some(&pattern[..])
+        );
+    }
+
+    #[test]
+    fn weak_zero_bytes_read_as_random_flux() {
+        // A track that is all 0x00 GCR — a fully weak (no-flux) region. Valid
+        // GCR never contains 0x00, so this is unambiguously a weak marker.
+        let g64 = minimal_g64(&[(0, vec![0x00u8; 16])]);
+        let rom = make_rom(&[], 0xEB22);
+        let mut drive = Drive1541::new(Drive1541Config { dos_rom: &rom[..] }).expect("valid ROM");
+        drive.load_g64_bytes(&g64).expect("valid G64 mounts");
+        drive.head_position = 2; // track 1 (slot 0)
+
+        // Read 128 bits over the weak region. A plain 0x00 read would be all
+        // zeros; weak flux gives a 0/1 mix, so both values must appear — this is
+        // what makes a two-read copy-protection weak-bit check see differing data.
+        let ones: u32 = (0..128usize)
+            .map(|offset| u32::from(drive.next_read_bit(offset)))
+            .sum();
+        assert!(
+            (20..108).contains(&ones),
+            "weak reads should be a 0/1 mix, got {ones}/128 ones"
+        );
+    }
+
+    #[test]
+    fn writable_g64_flushes_the_modified_surface_back_to_g64() {
+        use format_commodore_c64_g64::parse as parse_g64;
+
+        let original: Vec<u8> = vec![0x55u8; 200];
+        let g64 = minimal_g64(&[(0, original.clone())]);
+        let rom = make_rom(&[], 0xEB22);
+        let mut drive = Drive1541::new(Drive1541Config { dos_rom: &rom[..] }).expect("valid ROM");
+        drive
+            .load_g64_bytes_writable(&g64, true)
+            .expect("writable G64 mounts");
+
+        // Overwrite track 1's live surface (as a fastloader SAVE would).
+        let written: Vec<u8> = (0..200u16).map(|i| (i % 256) as u8).collect();
+        drive.track_data.as_mut().expect("track data").tracks[0].copy_from_slice(&written);
+
+        // Flush re-serialises the modified surface; re-parsing recovers it.
+        let flushed = drive.flush_image().expect("writable G64 flushes");
+        let reparsed = parse_g64(&flushed).expect("flushed G64 re-parses");
+        assert_eq!(
+            reparsed.half_tracks[0].as_ref().expect("track 1").gcr,
+            written
+        );
+    }
 
     fn make_rom(program: &[(u16, &[u8])], reset_vector: u16) -> [u8; ROM_SIZE] {
         let mut rom = [0xEA; ROM_SIZE];

@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 common-commodore-iec = { path = "../common-commodore-iec", version = "0.2.0" }
 format-commodore-c64-d64 = { path = "../format-commodore-c64-d64", version = "0.2.0" }
+format-commodore-c64-g64 = { path = "../format-commodore-c64-g64", version = "0.2.0" }
 mos-6502 = { path = "../mos-6502", version = "0.2.0" }
 mos-via-6522 = { path = "../mos-via-6522", version = "0.2.0" }
 serde = { workspace = true }
