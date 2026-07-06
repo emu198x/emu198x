@@ -295,7 +295,12 @@ impl C64Runtime {
         })?;
         self.drives[port] = match kind {
             Some(kind) => Some(self.make_port_drive(kind, device)?),
-            None => None,
+            None => {
+                // Release the emptied port's lines, or its last low pull on
+                // CLOCK/DATA stays folded into the shared bus and jams it.
+                self.iec_bus.release_drive(device);
+                None
+            }
         };
         self.drive_cycle_accum[port] = 0;
         Ok(())
