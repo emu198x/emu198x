@@ -50,9 +50,15 @@ use serde::{Deserialize, Serialize};
 /// C64 board's 16 kHz low-pass + 16 Hz high-pass). Every sample changes, so
 /// v2 hashes are invalid.
 ///
+/// **Version 4** (2026-07-06, issue #763): the output decimator now carries
+/// its Bresenham remainder, so the stream is emitted at exactly
+/// `output_sample_rate` instead of `cpu_freq / ceil(cpu_freq/rate)` (PAL:
+/// 46,916 Hz for a 48,000 Hz stream, ~2.3% sharp). The sample count per
+/// capture window changes, so v3 hashes are invalid.
+///
 /// See `knowledge/decisions/c64-architecture-review.md` Seam 4 for
 /// the re-capture discipline this constant enforces.
-pub const AUDIO_ROUTING_VERSION: u32 = 3;
+pub const AUDIO_ROUTING_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SidModel {
@@ -243,7 +249,13 @@ pub struct Sid6581 {
     accumulator: f32,
     channel_accumulators: [f32; 3],
     sample_count: u32,
-    ticks_per_sample: f32,
+    /// Bresenham decimation accumulator: `+= output_sample_rate` each tick,
+    /// emit a sample when it crosses `cpu_freq`, then subtract `cpu_freq` to
+    /// carry the remainder. Integer, so the long-run output rate is exactly
+    /// `output_sample_rate` with no drift. `#[serde(default)]` — old snapshots
+    /// (which stored a float `ticks_per_sample`) restore with a fresh phase.
+    #[serde(default)]
+    sample_error: u64,
     cpu_freq: u64,
     output_sample_rate: u32,
     #[serde(default = "default_audio_controls")]
@@ -277,7 +289,7 @@ impl Sid6581 {
             accumulator: 0.0,
             channel_accumulators: [0.0; 3],
             sample_count: 0,
-            ticks_per_sample: cpu_frequency as f32 / output_sample_rate as f32,
+            sample_error: 0,
             cpu_freq: cpu_frequency,
             output_sample_rate,
             audio_controls: AudioControls::default(),
@@ -487,7 +499,14 @@ impl Sid6581 {
         }
         self.sample_count += 1;
 
-        if self.sample_count as f32 >= self.ticks_per_sample {
+        // Integer Bresenham decimation: emit output_sample_rate samples per
+        // cpu_freq input ticks, carrying the remainder. The window is 20 or 21
+        // ticks (PAL: 985248/48000 = 20.526) and averages out to exactly the
+        // target rate. The previous code reset the counter to 0 with no carry,
+        // so it always used 21 ticks -> 46,916 Hz for a 48,000 Hz stream.
+        self.sample_error += u64::from(self.output_sample_rate);
+        if self.sample_error >= self.cpu_freq {
+            self.sample_error -= self.cpu_freq;
             let count = self.sample_count as f32;
             self.buffer.push(self.accumulator / count);
             for index in 0..3 {
@@ -526,6 +545,31 @@ impl Sid6581 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decimator_emits_the_advertised_sample_rate() {
+        // One second of phi2 ticks must yield ~output_sample_rate samples.
+        // Regression for #763: without the Bresenham remainder carry the
+        // decimator reset its counter to 0 and always used ceil(cpu/rate)
+        // ticks per sample, emitting 985248/21 = 46,916 Hz for a 48 kHz
+        // stream (every tune ~2.3% sharp).
+        for &(cpu, rate) in &[
+            (985_248u64, 48_000u32),
+            (1_022_727, 48_000),
+            (985_248, 44_100),
+        ] {
+            let mut sid = Sid6581::new(cpu, rate);
+            for _ in 0..cpu {
+                sid.tick();
+            }
+            let n = sid.take_buffer().len() as i64;
+            let diff = (n - i64::from(rate)).abs();
+            assert!(
+                diff <= 1,
+                "cpu {cpu} rate {rate}: emitted {n} samples/sec, expected ~{rate}"
+            );
+        }
+    }
 
     #[test]
     fn silent_when_no_voices_active() {
