@@ -26,3 +26,9 @@ knowledge/tests/
 # `m68k-test-gen --fp --all`). Small debug subsets elsewhere under
 # test-data/ are still tracked intentionally.
 /test-data/m68k-68040-fpu/
+
+# Vendored third-party reference emulators (Layer 5 reference-implementations,
+# grouped by-system with hand-written INDEX.md entry points). Large local-only
+# checkout — never committed; read freely for implementation precedent. See the
+# umbrella CLAUDE.md "emulators/" entry.
+emulators/

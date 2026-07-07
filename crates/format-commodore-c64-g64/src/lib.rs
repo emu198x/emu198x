@@ -202,27 +202,61 @@ pub fn parse(bytes: &[u8]) -> Result<G64Image, G64ParseError> {
     })
 }
 
+/// Errors from [`write`].
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum G64WriteError {
+    /// More half-tracks than the single-byte count field can represent.
+    #[error("too many half-tracks: {count} (max 84)")]
+    TooManyHalfTracks {
+        /// The offending half-track count.
+        count: usize,
+    },
+    /// A track longer than the 16-bit track-length field can hold.
+    #[error("track at slot {slot} is {length} bytes, over the 65535-byte G64 track maximum")]
+    TrackTooLong {
+        /// The half-track slot whose GCR overflowed.
+        slot: usize,
+        /// The offending track length in bytes.
+        length: usize,
+    },
+}
+
 /// Serialises a [`G64Image`] back into a G64 byte stream — the inverse of
 /// [`parse`], for write-back after a fastloader/formatter lays new GCR on the
 /// surface. Uses constant per-track speed zones (a per-byte speed block is never
 /// emitted). The `max_track_length` field is honoured, but raised to fit the
 /// longest track if a written track outgrew it.
-#[must_use]
-pub fn write(image: &G64Image) -> Vec<u8> {
+///
+/// # Errors
+///
+/// Returns [`G64WriteError`] when the image cannot be represented on disk: more
+/// than [`MAX_HALF_TRACKS`] half-tracks, or a track longer than the 16-bit
+/// length field. Both are unreachable for a valid C64 disk but would otherwise
+/// serialise a corrupt offset/length table.
+pub fn write(image: &G64Image) -> Result<Vec<u8>, G64WriteError> {
     let num_half = image.half_tracks.len();
-    let max_track_length = image
+    let num_half_u8 = u8::try_from(num_half)
+        .ok()
+        .filter(|&n| usize::from(n) <= MAX_HALF_TRACKS)
+        .ok_or(G64WriteError::TooManyHalfTracks { count: num_half })?;
+
+    let longest = image
         .half_tracks
         .iter()
         .flatten()
         .map(|track| track.gcr.len())
         .max()
         .unwrap_or(0)
-        .max(usize::from(image.max_track_length)) as u16;
+        .max(usize::from(image.max_track_length));
+    let max_track_length = u16::try_from(longest).map_err(|_| G64WriteError::TrackTooLong {
+        slot: 0,
+        length: longest,
+    })?;
 
     let mut buf = Vec::new();
     buf.extend_from_slice(G64_SIGNATURE);
     buf.push(image.version);
-    buf.push(num_half as u8);
+    buf.push(num_half_u8);
     buf.extend_from_slice(&max_track_length.to_le_bytes());
 
     // Track data lands after the two `num_half` × u32 tables.
@@ -234,7 +268,12 @@ pub fn write(image: &G64Image) -> Vec<u8> {
         if let Some(track) = track {
             offsets[slot] = (data_base + data.len()) as u32;
             speeds[slot] = u32::from(track.speed_zone);
-            data.extend_from_slice(&(track.gcr.len() as u16).to_le_bytes());
+            let track_len =
+                u16::try_from(track.gcr.len()).map_err(|_| G64WriteError::TrackTooLong {
+                    slot,
+                    length: track.gcr.len(),
+                })?;
+            data.extend_from_slice(&track_len.to_le_bytes());
             data.extend_from_slice(&track.gcr);
         }
     }
@@ -245,7 +284,7 @@ pub fn write(image: &G64Image) -> Vec<u8> {
         buf.extend_from_slice(&speed.to_le_bytes());
     }
     buf.extend_from_slice(&data);
-    buf
+    Ok(buf)
 }
 
 /// The standard C64 speed zone for the physical track at half-track slot
@@ -408,8 +447,42 @@ mod tests {
                 }),
             ],
         };
-        let bytes = write(&original);
+        let bytes = write(&original).expect("a valid image serialises");
         assert_eq!(parse(&bytes).expect("re-parses"), original);
+    }
+
+    #[test]
+    fn write_rejects_an_over_long_track() {
+        let image = G64Image {
+            version: 0,
+            max_track_length: 7928,
+            half_tracks: vec![Some(G64Track {
+                gcr: vec![0x55; 0x1_0000], // 65536 bytes — one past the u16 field
+                speed_zone: 3,
+            })],
+        };
+        assert_eq!(
+            write(&image),
+            Err(G64WriteError::TrackTooLong {
+                slot: 0,
+                length: 0x1_0000,
+            }),
+        );
+    }
+
+    #[test]
+    fn write_rejects_too_many_half_tracks() {
+        let image = G64Image {
+            version: 0,
+            max_track_length: 0,
+            half_tracks: vec![None; MAX_HALF_TRACKS + 1],
+        };
+        assert_eq!(
+            write(&image),
+            Err(G64WriteError::TooManyHalfTracks {
+                count: MAX_HALF_TRACKS + 1,
+            }),
+        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! C64 model selection and construction inputs.
 
 use common_commodore_c64::timing::{C64Timing, TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
+use mos_cia_6526::CiaModel;
 use mos_sid_6581::SidModel;
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +41,17 @@ impl C64Model {
             Self::PalC64c | Self::NtscC64c => SidModel::Mos8580,
         }
     }
+
+    /// Returns the CIA revision fitted to this machine model. The breadbin
+    /// ships the original 6526; the cost-reduced C64C board carries the
+    /// 8521/6526A, whose interrupt path raises `/IRQ` a cycle earlier.
+    #[must_use]
+    pub const fn cia_model(self) -> CiaModel {
+        match self {
+            Self::PalBreadbin | Self::NtscBreadbin => CiaModel::Mos6526,
+            Self::PalC64c | Self::NtscC64c => CiaModel::Mos6526A,
+        }
+    }
 }
 
 /// Construction inputs for the C64 machine substrate.
@@ -65,6 +77,14 @@ mod tests {
         assert_eq!(C64Model::NtscBreadbin.sid_model(), SidModel::Mos6581);
         assert_eq!(C64Model::PalC64c.sid_model(), SidModel::Mos8580);
         assert_eq!(C64Model::NtscC64c.sid_model(), SidModel::Mos8580);
+    }
+
+    #[test]
+    fn breadbins_fit_the_6526_and_c64c_fits_the_6526a() {
+        assert_eq!(C64Model::PalBreadbin.cia_model(), CiaModel::Mos6526);
+        assert_eq!(C64Model::NtscBreadbin.cia_model(), CiaModel::Mos6526);
+        assert_eq!(C64Model::PalC64c.cia_model(), CiaModel::Mos6526A);
+        assert_eq!(C64Model::NtscC64c.cia_model(), CiaModel::Mos6526A);
     }
 
     #[test]

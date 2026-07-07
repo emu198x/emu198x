@@ -210,10 +210,13 @@ impl Drive1581 {
         self.has_disk = false;
     }
 
-    /// The current disk image bytes if one is mounted (for write-back).
+    /// The current disk image bytes if a *writable* disk is mounted, for
+    /// write-back. A read-only original has nothing to write back, so this
+    /// returns `None` — the same "nothing to flush" contract the 1541/1571 G64
+    /// flush uses.
     #[must_use]
     pub fn flush_image(&self) -> Option<Vec<u8>> {
-        if !self.has_disk {
+        if !self.has_disk || self.write_protected {
             return None;
         }
         self.fdc.disk(0).map(|disk| disk.data().to_vec())
@@ -496,9 +499,22 @@ mod tests {
     fn mounts_valid_d81_and_flushes() {
         let mut drive = drive();
         let image = vec![0u8; D81_IMAGE_SIZE];
-        drive.load_d81_bytes(&image).expect("valid D81 mounts");
+        // A writable mount flushes its bytes back.
+        drive
+            .load_d81_bytes_writable(&image, true)
+            .expect("valid D81 mounts");
         assert_eq!(drive.flush_image().map(|v| v.len()), Some(D81_IMAGE_SIZE));
         drive.eject_disk();
+        assert!(drive.flush_image().is_none());
+    }
+
+    #[test]
+    fn write_protected_disk_has_nothing_to_flush() {
+        let mut drive = drive();
+        let image = vec![0u8; D81_IMAGE_SIZE];
+        // `load_d81_bytes` mounts read-only; a protected original has no
+        // write-back, matching the 1541/1571 G64 flush contract.
+        drive.load_d81_bytes(&image).expect("valid D81 mounts");
         assert!(drive.flush_image().is_none());
     }
 

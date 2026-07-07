@@ -369,12 +369,15 @@ impl C64 {
         cpu.reset();
         let timing = config.model.timing();
 
+        let cia_model = config.model.cia_model();
         let mut cia1 = Cia6526::new_with_tod(timing.cia_tod_divider);
+        cia1.set_model(cia_model);
         cia1.write(0x02, 0xFF);
         cia1.write(0x03, 0x00);
         cia1.write(0x00, 0xFF);
 
         let mut cia2 = Cia6526::new_with_tod(timing.cia_tod_divider);
+        cia2.set_model(cia_model);
         cia2.write(0x02, 0x03);
         cia2.write(0x00, 0x03);
 
@@ -1796,6 +1799,19 @@ mod tests {
     }
 
     #[test]
+    fn c64c_model_selects_the_6526a_cia_on_both_chips() {
+        use mos_cia_6526::CiaModel;
+
+        let breadbin = stub_machine(C64Model::PalBreadbin);
+        assert_eq!(breadbin.cia1().model(), CiaModel::Mos6526);
+        assert_eq!(breadbin.cia2().model(), CiaModel::Mos6526);
+
+        let c64c = stub_machine(C64Model::PalC64c);
+        assert_eq!(c64c.cia1().model(), CiaModel::Mos6526A);
+        assert_eq!(c64c.cia2().model(), CiaModel::Mos6526A);
+    }
+
+    #[test]
     fn insert_8k_crt_maps_roml_at_8000() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
         let crt = build_crt(0, 1, 0x8000, &[0xA1; 0x2000]);
@@ -2126,6 +2142,52 @@ mod tests {
         let value = machine.cpu_read(0xD800);
         assert_eq!(value & 0x0F, 0x0A, "low nibble is the stored colour");
         assert_eq!(value & 0xF0, 0xB0, "high nibble is the VIC open bus");
+    }
+
+    /// A `$DD00` bank switch reaches the VIC's fetches on the next VIC cycle,
+    /// not one φ2 later: the CPU-write path refreshes the VIC bank the same
+    /// cycle (before the following tick's `vic.tick`), so the very next badline
+    /// c-access reads the newly-selected bank. Observed through the open-bus
+    /// register `$2F`, which returns the last byte the VIC fetched.
+    #[test]
+    fn dd00_bank_switch_reaches_vic_fetch_on_the_next_badline() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        // DEN on so badlines run; screen matrix at $0400 within the bank.
+        machine.cpu_write(0xD011, 0x1B);
+        machine.cpu_write(0xD018, 0x14);
+        // Fill the bank-0 screen matrix ($0400) and the bank-1 screen matrix
+        // ($4400) with distinct bytes so a c-access reveals which bank the VIC
+        // fetched from, whatever VC happens to be.
+        for offset in 0..0x0400u16 {
+            machine.cpu_write(0x0400 + offset, 0xAA);
+            machine.cpu_write(0x4400 + offset, 0x55);
+        }
+
+        // Bank 0 by default (CIA2 PA = 3). Run past the first badline (line 51,
+        // c-access cycles 15-54) and confirm the fetch came from bank 0.
+        let ticks_to = |line: u16, cycle: u8| u32::from(line) * 63 + u32::from(cycle);
+        for _ in 0..ticks_to(51, 55) {
+            machine.tick();
+        }
+        assert_eq!(
+            machine.vic().peek(0x2F),
+            0xAA,
+            "before the switch the VIC fetches from bank 0",
+        );
+
+        // Select bank 1 (PA low bits = 2 → bank = !2 & 3 = 1), then run to the
+        // next badline (line 59). The fetch must now come from bank 1.
+        machine.cpu_write(0xDD02, 0x03);
+        machine.cpu_write(0xDD00, 0x02);
+        assert_eq!(machine.vic_bank(), 1, "the write selects bank 1 at once");
+        for _ in 0..ticks_to(59, 55) - ticks_to(51, 55) {
+            machine.tick();
+        }
+        assert_eq!(
+            machine.vic().peek(0x2F),
+            0x55,
+            "the $DD00 switch reached the VIC's fetch on the next badline",
+        );
     }
 
     #[test]
