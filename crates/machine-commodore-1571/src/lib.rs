@@ -13,19 +13,20 @@
 //! DOS ROM needs for honest disk reads.
 
 use common_commodore_drive_gcr::{
-    GcrHeader, HEADER_GAP_SIZE, MAX_HEAD_POSITION, SECTOR_GCR_SIZE_WITH_HEADER, SYNC_SIZE,
-    TRACK_SLOT_COUNT, encode_sector_to_gcr, gcr_read_sector_from_raw_track, speed_zone_for_track,
-    track_slot_index,
+    DriveImageFormat, GAP_SIZE_BY_ZONE, GcrHeader, HEADER_GAP_SIZE, MAX_HEAD_POSITION,
+    RAW_TRACK_SIZE_BY_ZONE, SECTOR_GCR_SIZE_WITH_HEADER, SYNC_SIZE, TRACK_SLOT_COUNT,
+    build_gcr_tracks_from_d64, build_gcr_tracks_from_g64, encode_sector_to_gcr,
+    gcr_read_sector_from_raw_track, speed_zone_for_track, track_slot_index,
 };
 use common_commodore_iec::IecBus;
 use format_commodore_c64_d64::{
-    D64FileType, D64ParseError, parse_directory, read_sector, sectors_in_track, write_sector,
+    D64FileType, D64ParseError, parse_directory, sectors_in_track, write_sector,
 };
 use format_commodore_c64_d71::{
     D71ParseError, parse_directory as parse_directory_d71, read_sector as read_sector_d71,
     sectors_in_track as sectors_in_track_d71,
 };
-use format_commodore_c64_g64::{G64_SIGNATURE, G64Image, G64ParseError};
+use format_commodore_c64_g64::{G64Image, G64ParseError};
 use mos_6502::{M6502, registers::FLAG_V};
 use mos_cia_6526::Cia6526;
 use mos_via_6522::Via6522;
@@ -38,8 +39,6 @@ const ROM_SIZE: usize = 0x8000;
 const DEFAULT_DEVICE_NUMBER: u8 = 8;
 const INITIAL_HEAD_POSITION: u8 = 36;
 const READ_BITS_PER_SECOND_BY_ZONE: [u64; 4] = [250_000, 266_667, 285_714, 307_692];
-const RAW_TRACK_SIZE_BY_ZONE: [usize; 4] = [6_250, 6_666, 7_142, 7_692];
-const GAP_SIZE_BY_ZONE: [usize; 4] = [9, 12, 17, 8];
 /// Non-zero seed for the weak-bit LFSR so it never starts in a degenerate state.
 const WEAK_BIT_SEED: u32 = 0x2545_F491;
 const IO_TRACE_LIMIT: usize = 2048;
@@ -164,6 +163,10 @@ pub struct Drive1571Disk {
     disk_id: String,
     write_protected: bool,
     directory_entries: Vec<Drive1571DirectoryEntry>,
+    /// Encoding of `image_bytes`, set at mount so the rebuild/flush paths never
+    /// re-sniff the bytes. Defaults to `D64` so pre-format snapshots restore.
+    #[serde(default)]
+    image_format: DriveImageFormat,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -425,6 +428,7 @@ impl Drive1571 {
                     blocks: entry.blocks,
                 })
                 .collect(),
+            image_format: DriveImageFormat::D64,
         });
         self.reset_rotation_state();
         Ok(())
@@ -453,6 +457,7 @@ impl Drive1571 {
                     blocks: entry.blocks,
                 })
                 .collect(),
+            image_format: DriveImageFormat::D71,
         });
         self.reset_rotation_state();
         Ok(())
@@ -490,6 +495,7 @@ impl Drive1571 {
             disk_id: String::new(),
             write_protected: !writable,
             directory_entries: Vec::new(),
+            image_format: DriveImageFormat::G64,
         });
         self.reset_rotation_state();
         Ok(())
@@ -507,7 +513,7 @@ impl Drive1571 {
         let disk = self.disk.as_ref()?;
         // A G64 has no sector layout to decode back to; re-serialise the live raw
         // GCR surface straight to G64 (only when mounted writable).
-        if disk.image_bytes.starts_with(G64_SIGNATURE) {
+        if disk.image_format == DriveImageFormat::G64 {
             return self.flush_g64_image(disk);
         }
         let track_data = self.track_data.as_ref()?;
@@ -1457,89 +1463,32 @@ impl Drive1571TrackData {
     }
 }
 
-fn rebuild_track_data(disk: Option<&Drive1571Disk>) -> Result<Option<Drive1571TrackData>, String> {
-    disk.map(|disk| build_track_data_any(disk.image_bytes()))
-        .transpose()
+fn rebuild_track_data(
+    disk: Option<&Drive1571Disk>,
+) -> Result<Option<Drive1571TrackData>, Drive1571MediaError> {
+    disk.map(|disk| match disk.image_format {
+        DriveImageFormat::D64 => build_track_data(disk.image_bytes()).map_err(Into::into),
+        DriveImageFormat::D71 => build_track_data_d71(disk.image_bytes()).map_err(Into::into),
+        DriveImageFormat::G64 => format_commodore_c64_g64::parse(disk.image_bytes())
+            .map(|image| build_track_data_from_g64(&image))
+            .map_err(Into::into),
+    })
+    .transpose()
 }
 
 fn build_track_data(bytes: &[u8]) -> Result<Drive1571TrackData, D64ParseError> {
-    let bam = read_sector(bytes, 18, 0)?;
-    let id1 = bam[0xA2];
-    let id2 = bam[0xA3];
-    let mut tracks = vec![Vec::new(); TRACK_SLOT_COUNT];
-    let mut track_offset = 0usize;
-
-    for track in 1..=35u8 {
-        let zone = speed_zone_for_track(track);
-        let track_size = RAW_TRACK_SIZE_BY_ZONE[usize::from(zone)];
-        let sectors = usize::from(sectors_in_track(track)?);
-        let sector_size = SECTOR_GCR_SIZE_WITH_HEADER
-            + HEADER_GAP_SIZE
-            + GAP_SIZE_BY_ZONE[usize::from(zone)]
-            + (SYNC_SIZE * 2);
-        let mut temp = vec![0x55; track_size];
-        let gap_size = GAP_SIZE_BY_ZONE[usize::from(zone)];
-
-        for sector in 0..sectors {
-            let offset = sector * sector_size;
-            encode_sector_to_gcr(
-                read_sector(bytes, track, sector as u8)?,
-                &mut temp[offset..offset + sector_size],
-                GcrHeader {
-                    sector: sector as u8,
-                    track,
-                    id2,
-                    id1,
-                },
-                gap_size,
-            );
-        }
-
-        track_offset += (sectors * sector_size).saturating_sub(gap_size);
-        track_offset += (track_size * 100) / 270;
-        track_offset %= track_size;
-
-        let mut raw = vec![0x55; track_size];
-        raw[track_offset..].copy_from_slice(&temp[..track_size - track_offset]);
-        raw[..track_offset].copy_from_slice(&temp[track_size - track_offset..]);
-
-        let slot = usize::from((track * 2) - 2);
-        tracks[slot] = raw;
-    }
-
     Ok(Drive1571TrackData {
-        tracks,
+        tracks: build_gcr_tracks_from_d64(bytes)?,
         tracks_side1: Vec::new(),
     })
 }
 
-/// Dispatches to the D64 (single-sided), D71 (double-sided), or G64 (raw-GCR)
-/// builder, unifying their error types for the snapshot-rebuild path. G64 is
-/// detected by signature; D64 and D71 by image size.
-fn build_track_data_any(bytes: &[u8]) -> Result<Drive1571TrackData, String> {
-    if bytes.starts_with(G64_SIGNATURE) {
-        return format_commodore_c64_g64::parse(bytes)
-            .map(|image| build_track_data_from_g64(&image))
-            .map_err(|err| err.to_string());
-    }
-    match bytes.len() {
-        349_696 | 351_062 => build_track_data_d71(bytes).map_err(|err| err.to_string()),
-        _ => build_track_data(bytes).map_err(|err| err.to_string()),
-    }
-}
-
-/// Builds the single-sided GCR surface from a parsed `G64`: each half-track's
-/// raw GCR drops into the matching side-0 slot. Side 1 stays empty (a G64 is
-/// single-sided; a double-sided original would be a G71, not yet supported).
+/// Builds the single-sided GCR surface from a parsed `G64`: side 0 is the file's
+/// half-tracks verbatim, side 1 stays empty (a G64 is single-sided; a
+/// double-sided original would be a G71, not yet supported).
 fn build_track_data_from_g64(image: &G64Image) -> Drive1571TrackData {
-    let mut tracks = vec![Vec::new(); TRACK_SLOT_COUNT];
-    for (slot, track) in image.half_tracks.iter().enumerate().take(TRACK_SLOT_COUNT) {
-        if let Some(track) = track {
-            tracks[slot] = track.gcr.clone();
-        }
-    }
     Drive1571TrackData {
-        tracks,
+        tracks: build_gcr_tracks_from_g64(image),
         tracks_side1: Vec::new(),
     }
 }

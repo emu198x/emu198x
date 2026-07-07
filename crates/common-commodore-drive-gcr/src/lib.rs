@@ -14,6 +14,25 @@
 //! A later step parameterises geometry so other Commodore GCR drives (4040,
 //! 8050, 1551) can reuse this codec with a different track layout.
 
+use format_commodore_c64_d64::{D64ParseError, read_sector, sectors_in_track};
+use format_commodore_c64_g64::G64Image;
+use serde::{Deserialize, Serialize};
+
+/// How a mounted disk's bytes are encoded, so the drive tracks the format
+/// once (at mount) rather than re-sniffing it on every rebuild/flush. Shared by
+/// the 1541 (D64/G64) and 1571 (D64/G64/D71).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DriveImageFormat {
+    /// A decoded sector image (the surface is GCR-encoded on mount).
+    #[default]
+    D64,
+    /// A raw-GCR image (the surface is the file's bytes verbatim, preserving
+    /// copy protection). Read-only in v1.
+    G64,
+    /// A decoded double-sided sector image (1571 only).
+    D71,
+}
+
 /// GCR 4-to-5 encoding table: a 4-bit nibble maps to a 5-bit GCR code with no
 /// more than two consecutive zero bits, so the bitstream is self-clocking.
 pub const GCR_CONVERSION_TABLE: [u8; 16] = [
@@ -38,6 +57,10 @@ pub const SECTOR_GCR_SIZE_WITH_HEADER: usize = 335;
 pub const MAX_HEAD_POSITION: u8 = 84;
 /// The number of addressable track slots (head positions 2..=`MAX_HEAD_POSITION`).
 pub const TRACK_SLOT_COUNT: usize = (MAX_HEAD_POSITION as usize) - 1;
+/// Raw GCR bytes per revolution for each of the four speed zones (1541/1571).
+pub const RAW_TRACK_SIZE_BY_ZONE: [usize; 4] = [6_250, 6_666, 7_142, 7_692];
+/// Inter-sector gap in bytes for each speed zone.
+pub const GAP_SIZE_BY_ZONE: [usize; 4] = [9, 12, 17, 8];
 
 /// The header fields written before a sector's data block: sector/track address
 /// and the two-byte disk ID.
@@ -251,6 +274,77 @@ pub fn gcr_read_sector_from_raw_track(raw: &[u8], sector: u8) -> Option<[u8; 256
 
         search = sync.wrapping_add(1) % total_bits;
     }
+}
+
+/// Builds the live GCR track surface (one physical side) from a decoded D64
+/// image: tracks 1–35 are GCR-encoded sector-by-sector and rotated to a stable
+/// start offset, landing in their half-track slots. Returns the per-slot raw
+/// GCR (`TRACK_SLOT_COUNT` slots; unreachable slots stay empty).
+///
+/// # Errors
+///
+/// Propagates a [`D64ParseError`] if the BAM or any sector can't be read.
+pub fn build_gcr_tracks_from_d64(bytes: &[u8]) -> Result<Vec<Vec<u8>>, D64ParseError> {
+    let bam = read_sector(bytes, 18, 0)?;
+    let id1 = bam[0xA2];
+    let id2 = bam[0xA3];
+    let mut tracks = vec![Vec::new(); TRACK_SLOT_COUNT];
+    let mut track_offset = 0usize;
+
+    for track in 1..=35u8 {
+        let zone = speed_zone_for_track(track);
+        let track_size = RAW_TRACK_SIZE_BY_ZONE[usize::from(zone)];
+        let sectors = usize::from(sectors_in_track(track)?);
+        let sector_size = SECTOR_GCR_SIZE_WITH_HEADER
+            + HEADER_GAP_SIZE
+            + GAP_SIZE_BY_ZONE[usize::from(zone)]
+            + (SYNC_SIZE * 2);
+        let mut temp = vec![0x55; track_size];
+        let gap_size = GAP_SIZE_BY_ZONE[usize::from(zone)];
+
+        for sector in 0..sectors {
+            let offset = sector * sector_size;
+            encode_sector_to_gcr(
+                read_sector(bytes, track, sector as u8)?,
+                &mut temp[offset..offset + sector_size],
+                GcrHeader {
+                    sector: sector as u8,
+                    track,
+                    id2,
+                    id1,
+                },
+                gap_size,
+            );
+        }
+
+        track_offset += (sectors * sector_size).saturating_sub(gap_size);
+        track_offset += (track_size * 100) / 270;
+        track_offset %= track_size;
+
+        let mut raw = vec![0x55; track_size];
+        raw[track_offset..].copy_from_slice(&temp[..track_size - track_offset]);
+        raw[..track_offset].copy_from_slice(&temp[track_size - track_offset..]);
+
+        let slot = usize::from((track * 2) - 2);
+        tracks[slot] = raw;
+    }
+
+    Ok(tracks)
+}
+
+/// Builds the live GCR track surface (one physical side) from a parsed G64: each
+/// half-track's raw GCR drops into the matching slot verbatim (the G64
+/// half-track index is the drive's own slot index). Slots beyond the drive's
+/// reachable range are dropped.
+#[must_use]
+pub fn build_gcr_tracks_from_g64(image: &G64Image) -> Vec<Vec<u8>> {
+    let mut tracks = vec![Vec::new(); TRACK_SLOT_COUNT];
+    for (slot, track) in image.half_tracks.iter().enumerate().take(TRACK_SLOT_COUNT) {
+        if let Some(track) = track {
+            tracks[slot] = track.gcr.clone();
+        }
+    }
+    tracks
 }
 
 #[cfg(test)]

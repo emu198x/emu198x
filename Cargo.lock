@@ -551,6 +551,11 @@ version = "0.2.0"
 [[package]]
 name = "common-commodore-drive-gcr"
 version = "0.2.0"
+dependencies = [
+ "format-commodore-c64-d64",
+ "format-commodore-c64-g64",
+ "serde",
+]
 
 [[package]]
 name = "common-commodore-iec"
