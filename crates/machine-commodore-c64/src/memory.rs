@@ -629,12 +629,14 @@ impl C64Memory {
     /// when a REU handled it. Writing the command register with the execute bit
     /// either starts the transfer or arms it for the next `$FF00` write.
     pub(crate) fn reu_write(&mut self, addr: u16, value: u8) -> bool {
-        if self.reu.is_none() || !(0xDF00..=0xDF0A).contains(&addr) {
+        if !(0xDF00..=0xDF0A).contains(&addr) {
             return false;
         }
         let mut execute_now = false;
         {
-            let reu = self.reu.as_mut().expect("REU present");
+            let Some(reu) = self.reu.as_mut() else {
+                return false;
+            };
             match addr {
                 0xDF00 => {} // status is read-only
                 0xDF01 => {
