@@ -10,5 +10,10 @@ format-commodore-c64-d64 = { path = "../format-commodore-c64-d64", version = "0.
 format-commodore-c64-g64 = { path = "../format-commodore-c64-g64", version = "0.2.0" }
 serde = { workspace = true }
 
+[features]
+# Low-level rotation-engine state access for the drive crates' white-box tests.
+# Never enabled in production builds — the drives turn it on as a dev-dependency.
+test-support = []
+
 [lints]
 workspace = true

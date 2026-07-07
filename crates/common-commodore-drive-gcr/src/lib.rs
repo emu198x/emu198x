@@ -18,6 +18,10 @@ use format_commodore_c64_d64::{D64ParseError, read_sector, sectors_in_track};
 use format_commodore_c64_g64::G64Image;
 use serde::{Deserialize, Serialize};
 
+mod engine;
+
+pub use engine::{DriveGeometry, GcrRotationEngine, GcrSurface, RotationContext, RotationState};
+
 /// How a mounted disk's bytes are encoded, so the drive tracks the format
 /// once (at mount) rather than re-sniffing it on every rebuild/flush. Shared by
 /// the 1541 (D64/G64) and 1571 (D64/G64/D71).
