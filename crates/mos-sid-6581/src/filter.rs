@@ -213,9 +213,17 @@ impl Filter {
     pub fn clock(&mut self, voice1: i32, voice2: i32, voice3: i32) {
         let t = tables(self.model);
 
-        self.v1 = ((voice1 * t.voice_scale_s14 + self.dither()) >> 18) + t.voice_dc;
-        self.v2 = ((voice2 * t.voice_scale_s14 + self.dither()) >> 18) + t.voice_dc;
-        self.v3 = ((voice3 * t.voice_scale_s14 + self.dither()) >> 18) + t.voice_dc;
+        // Widen the scale multiply to i64: |voice| reaches ~816k and the scale
+        // is 2442, so the i32 product overflows past ~879k. Real audio stays
+        // just under, but the public clock() API accepts any i32. For every
+        // non-overflowing input this is bit-identical to a plain i32 multiply.
+        let scale = i64::from(t.voice_scale_s14);
+        self.v1 =
+            ((i64::from(voice1) * scale + i64::from(self.dither())) >> 18) as i32 + t.voice_dc;
+        self.v2 =
+            ((i64::from(voice2) * scale + i64::from(self.dither())) >> 18) as i32 + t.voice_dc;
+        self.v3 =
+            ((i64::from(voice3) * scale + i64::from(self.dither())) >> 18) as i32 + t.voice_dc;
 
         // Sum the inputs routed into the filter.
         let mut vi = 0i32;
@@ -535,5 +543,15 @@ mod tests {
             swing_at(0x0F) > swing_at(0x00),
             "volume 15 must swing more than volume 0"
         );
+    }
+
+    #[test]
+    fn clock_does_not_overflow_on_extreme_voice_values() {
+        // Regression for #785: a voice past ~879k overflowed the i32 scale
+        // multiply (debug panic). The public clock() API accepts any i32.
+        let mut f = Filter::new(SidModel::Mos6581);
+        f.write_mode_vol(0x0F);
+        f.clock(i32::MAX, i32::MIN, 0); // must not panic
+        let _ = f.output();
     }
 }
