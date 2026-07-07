@@ -37,6 +37,18 @@ const LIMIT_ENV: &str = "EMU198X_6502_LIMIT";
 /// constructor keeps blargg/Mesen2's stable `A = X = imm` model.
 const ACCEPTED_TOM_HARTE_DISAGREEMENTS: &[(u8, &[&str])] = &[];
 
+/// Undocumented JAM/KIL opcodes (low nibble 2, no valid operation) wedge the
+/// processor until RESET. Tom Harte models the jammed address bus cycling the
+/// interrupt vectors (`$FFFE`/`$FFFF`); this core parks the bus on the
+/// post-fetch address instead. The wedge is terminal and no software depends on
+/// the floating-bus addresses during it, so the per-cycle bus-trace check
+/// (`cycleN.*`) is waived for these opcodes — their final state (halted,
+/// registers unchanged) still matches. Tightening the jammed bus to Tom Harte's
+/// exact sequence belongs with the JAM behaviour work in #780.
+const JAM_OPCODES: [u8; 12] = [
+    0x02, 0x12, 0x22, 0x32, 0x42, 0x52, 0x62, 0x72, 0x92, 0xB2, 0xD2, 0xF2,
+];
+
 fn accepted_labels_for(opcode: u8) -> &'static [&'static str] {
     ACCEPTED_TOM_HARTE_DISAGREEMENTS
         .iter()
@@ -46,14 +58,17 @@ fn accepted_labels_for(opcode: u8) -> &'static [&'static str] {
 
 fn filter_errors(opcode: u8, errors: Vec<String>) -> Vec<String> {
     let allowed = accepted_labels_for(opcode);
-    if allowed.is_empty() {
-        return errors;
-    }
+    let waive_bus_trace = JAM_OPCODES.contains(&opcode);
     errors
         .into_iter()
         .filter(|err| {
             let label = err.split(':').next().unwrap_or("");
-            !allowed.contains(&label)
+            if allowed.contains(&label) {
+                return false;
+            }
+            // JAM opcodes: the terminal-wedge bus trace is a documented
+            // don't-care; keep every non-cycle (final-state) check.
+            !(waive_bus_trace && label.starts_with("cycle"))
         })
         .collect()
 }
@@ -148,16 +163,43 @@ fn run_test(test: &TestCase) -> Vec<String> {
 
     setup_cpu(&mut cpu, &test.initial, &mem);
 
-    for _ in 0..test.cycles.len() {
+    let mut errors = Vec::new();
+    for (i, &(exp_addr, exp_data, ref kind)) in test.cycles.iter().enumerate() {
+        // The CPU presents cycle i's bus operation on its pins before the
+        // machine services it. Assert the address, direction, and (on writes)
+        // the data driven match Tom Harte's per-cycle trace — the bus-accuracy
+        // dimension the final register/RAM comparison is blind to (dummy-read
+        // address, RMW double-write target, JMP-indirect fetch order, etc.).
+        let want_read = kind != "write";
+        if cpu.addr != exp_addr {
+            errors.push(format!(
+                "cycle{i}.addr: got {:#06X}, expected {exp_addr:#06X}",
+                cpu.addr
+            ));
+        }
+        if cpu.rw != want_read {
+            errors.push(format!(
+                "cycle{i}.rw: got {}, expected {kind}",
+                if cpu.rw { "read" } else { "write" }
+            ));
+        }
+
         if cpu.rw {
             cpu.data_in = mem[cpu.addr as usize];
         } else {
+            if cpu.data != exp_data {
+                errors.push(format!(
+                    "cycle{i}.data: got {:#04X}, expected {exp_data:#04X}",
+                    cpu.data
+                ));
+            }
             mem[cpu.addr as usize] = cpu.data;
         }
         cpu.tick();
     }
 
-    check_cpu(&cpu, &test.final_state, &mem)
+    errors.extend(check_cpu(&cpu, &test.final_state, &mem));
+    errors
 }
 
 fn run_opcode_tests(path: &Path) -> (usize, usize, Vec<String>) {
