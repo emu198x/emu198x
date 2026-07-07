@@ -1137,7 +1137,12 @@ impl C64 {
                 }
                 self.sid.read(reg)
             }
-            0xD800..=0xDBFF => self.memory.colour_ram_read(addr - 0xD800),
+            // Colour RAM is 4-bit static RAM: the low nibble is the stored
+            // colour, the high nibble is open bus — the last byte the VIC-II
+            // drove. Copy-protection / hardware-detection routines read it.
+            0xD800..=0xDBFF => {
+                self.memory.colour_ram_read(addr - 0xD800) | (self.vic.last_bus_data() & 0xF0)
+            }
             0xDC00..=0xDCFF => {
                 self.refresh_keyboard_scan();
                 match addr & 0x0F {
@@ -1540,13 +1545,16 @@ mod tests {
         machine
             .insert_crt_bytes(&crt)
             .expect("valid Magic Desk CRT");
+        // Known value in the RAM under the ROML window so the disabled-cart
+        // read is deterministic regardless of the power-on RAM pattern.
+        machine.memory.ram_write(0x8000, 0x55);
 
         assert_eq!(machine.cpu_read(0x8000), 0xD0);
         machine.cpu_write(0xDE00, 0x01); // select bank 1
         assert_eq!(machine.cpu_read(0x8000), 0xD1);
-        // Bit 7 set disables the cart: $8000 shows RAM (0x00 by default).
+        // Bit 7 set disables the cart: $8000 shows the RAM underneath.
         machine.cpu_write(0xDE00, 0x80);
-        assert_eq!(machine.cpu_read(0x8000), 0x00);
+        assert_eq!(machine.cpu_read(0x8000), 0x55);
         // Clearing bit 7 re-enables it at the written bank (0).
         machine.cpu_write(0xDE00, 0x00);
         assert_eq!(machine.cpu_read(0x8000), 0xD0);
@@ -1851,10 +1859,11 @@ mod tests {
         let mut machine = stub_machine(C64Model::PalBreadbin);
         let crt = build_crt(0, 1, 0x8000, &[0xA1; 0x2000]);
         machine.insert_crt_bytes(&crt).expect("valid 8K CRT");
+        machine.memory.ram_write(0x8000, 0x55);
         assert_eq!(machine.cpu_read(0x8000), 0xA1);
         machine.remove_cartridge();
         // With no cartridge and the default port, $8000 falls through to RAM.
-        assert_eq!(machine.cpu_read(0x8000), 0x00);
+        assert_eq!(machine.cpu_read(0x8000), 0x55);
     }
 
     #[test]
@@ -2111,6 +2120,30 @@ mod tests {
         assert_eq!(machine.vic_bank(), 2);
     }
 
+    /// Colour RAM is 4-bit static RAM: a `$D800-$DBFF` read returns the stored
+    /// colour in the low nibble and open bus — the last byte the VIC-II drove —
+    /// in the high nibble, not zero.
+    #[test]
+    fn colour_ram_read_exposes_vic_open_bus_in_upper_nibble() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xD011, 0x1B); // DEN on → badlines → c-access
+        machine.cpu_write(0xD018, 0x14); // screen matrix at $0400
+        // Fill the screen matrix so the VIC's c-access drives a known byte.
+        for offset in 0..0x0400u16 {
+            machine.cpu_write(0x0400 + offset, 0xBB);
+        }
+        machine.cpu_write(0xD800, 0x0A); // stored colour nibble
+        // Run past the first badline (line 51) so the VIC's last fetch is a
+        // c-access of 0xBB.
+        for _ in 0..(51 * 63 + 55) {
+            machine.tick();
+        }
+        assert_eq!(machine.vic().last_bus_data(), 0xBB, "VIC drove 0xBB");
+        let value = machine.cpu_read(0xD800);
+        assert_eq!(value & 0x0F, 0x0A, "low nibble is the stored colour");
+        assert_eq!(value & 0xF0, 0xB0, "high nibble is the VIC open bus");
+    }
+
     /// A `$DD00` bank switch reaches the VIC's fetches on the next VIC cycle,
     /// not one φ2 later: the CPU-write path refreshes the VIC bank the same
     /// cycle (before the following tick's `vic.tick`), so the very next badline
@@ -2355,7 +2388,12 @@ mod tests {
     #[test]
     fn visible_sid_io_writes_reach_live_sid_but_not_underlying_ram() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
+        // Seed the RAM under the SID window with known values so we can prove
+        // the I/O writes leave it untouched (regardless of the power-on RAM
+        // pattern).
         machine.memory.ram_write(0xD400, 0xAA);
+        machine.memory.ram_write(0xD401, 0xBB);
+        machine.memory.ram_write(0xD418, 0xCC);
         machine.cpu_write(0xD400, 0x34);
         machine.cpu_write(0xD401, 0x12);
         machine.cpu_write(0xD418, 0x0F);
@@ -2363,8 +2401,8 @@ mod tests {
         assert_eq!(machine.sid().voices[0].frequency, 0x1234);
         assert_eq!(machine.sid().volume, 0x0F);
         assert_eq!(machine.memory().ram_read(0xD400), 0xAA);
-        assert_eq!(machine.memory().ram_read(0xD401), 0x00);
-        assert_eq!(machine.memory().ram_read(0xD418), 0x00);
+        assert_eq!(machine.memory().ram_read(0xD401), 0xBB);
+        assert_eq!(machine.memory().ram_read(0xD418), 0xCC);
     }
 
     #[test]

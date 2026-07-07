@@ -12,6 +12,21 @@ const KERNAL_ROM_SIZE: usize = 0x2000;
 const CHARACTER_ROM_SIZE: usize = 0x1000;
 const RAM_SIZE: usize = 0x10000;
 const COLOUR_RAM_SIZE: usize = 0x0400;
+
+/// Power-on RAM contents: a cold C64 does not come up zeroed but in a
+/// repeating pattern. Modelled on VICE `ram_init` with the C64 defaults
+/// (start value `$FF`, inverted every 128 bytes): 128 bytes `$FF` then 128
+/// bytes `$00`, repeating across all 64 KiB. A handful of games and intros
+/// read RAM before initialising it and depend on this.
+fn power_on_ram() -> Box<[u8; RAM_SIZE]> {
+    let mut ram = Box::new([0u8; RAM_SIZE]);
+    for (offset, byte) in ram.iter_mut().enumerate() {
+        if (offset / 128) & 1 == 0 {
+            *byte = 0xFF;
+        }
+    }
+    ram
+}
 /// 6510 port bits pulled high when configured as inputs: bits 0-2 (PLA
 /// banking) and bit 4 (cassette sense). Bit 5 (cassette motor) has no
 /// pull-up and reads 0 as an input — see `PORT_INPUT_PULLUPS` in
@@ -287,7 +302,7 @@ impl C64Memory {
         character_rom: &[u8],
     ) -> Result<Self, MemoryInitError> {
         Ok(Self {
-            ram: Box::new([0; RAM_SIZE]),
+            ram: power_on_ram(),
             basic_rom: boxed_array_from_slice("BASIC", basic_rom)?,
             kernal_rom: boxed_array_from_slice("KERNAL", kernal_rom)?,
             character_rom: boxed_array_from_slice("character", character_rom)?,
@@ -629,12 +644,14 @@ impl C64Memory {
     /// when a REU handled it. Writing the command register with the execute bit
     /// either starts the transfer or arms it for the next `$FF00` write.
     pub(crate) fn reu_write(&mut self, addr: u16, value: u8) -> bool {
-        if self.reu.is_none() || !(0xDF00..=0xDF0A).contains(&addr) {
+        if !(0xDF00..=0xDF0A).contains(&addr) {
             return false;
         }
         let mut execute_now = false;
         {
-            let reu = self.reu.as_mut().expect("REU present");
+            let Some(reu) = self.reu.as_mut() else {
+                return false;
+            };
             match addr {
                 0xDF00 => {} // status is read-only
                 0xDF01 => {
@@ -1341,6 +1358,18 @@ mod tests {
         memory.colour_ram_write(1, 0xFF);
         assert_eq!(memory.colour_ram_read(0), 0x0F);
         assert_eq!(memory.colour_ram_read(1), 0x0F);
+    }
+
+    #[test]
+    fn power_on_ram_holds_the_vice_pattern() {
+        let memory = make_memory();
+        // 128 bytes $FF, then 128 bytes $00, repeating across all 64 KiB.
+        assert_eq!(memory.ram_read(0x0000), 0xFF);
+        assert_eq!(memory.ram_read(0x007F), 0xFF);
+        assert_eq!(memory.ram_read(0x0080), 0x00);
+        assert_eq!(memory.ram_read(0x00FF), 0x00);
+        assert_eq!(memory.ram_read(0x0100), 0xFF);
+        assert_eq!(memory.ram_read(0xFFFF), 0x00);
     }
 
     #[test]

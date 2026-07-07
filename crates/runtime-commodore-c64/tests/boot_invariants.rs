@@ -184,18 +184,23 @@ fn six510_io_port_banking_changes_active_rom() -> Result<(), Box<dyn Error>> {
         "$E000 with $01=$37 should read KERNAL ROM (0xEA)"
     );
 
+    // Seed the RAM under the ROM windows with known values so the all-RAM
+    // read is deterministic regardless of the power-on RAM pattern (writes
+    // through a ROM window fall through to the RAM underneath).
+    machine.cpu_write(0xA000, 0x11);
+    machine.cpu_write(0xE000, 0x22);
+
     // Switch to $01 = $30: all RAM (no ROMs visible).
     machine.cpu_write(0x0001, 0x30);
-    // RAM at $A000 has never been touched — defaults to 0x00.
     assert_eq!(
         machine.cpu_read(0xA000),
-        0x00,
-        "$A000 with $01=$30 should read RAM (0x00, no BASIC ROM)"
+        0x11,
+        "$A000 with $01=$30 should read the RAM underneath, not BASIC ROM"
     );
     assert_eq!(
         machine.cpu_read(0xE000),
-        0x00,
-        "$E000 with $01=$30 should read RAM (0x00, no KERNAL ROM)"
+        0x22,
+        "$E000 with $01=$30 should read the RAM underneath, not KERNAL ROM"
     );
     Ok(())
 }

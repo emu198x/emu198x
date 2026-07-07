@@ -473,3 +473,34 @@ fn novaload_pulse_measurement_loop() {
         "long gap must read TA-hi < $80, got {long2:02X}"
     );
 }
+
+/// SP output mode shifts the serial data register out one bit per two Timer A
+/// underflows and raises the SDR interrupt (`$DD0D`/`$DC0D` bit 3) once all
+/// eight bits have gone. Covers the previously-untested `IM_SDR` source.
+#[test]
+fn sp_output_mode_raises_the_sdr_interrupt_after_eight_bits() {
+    let mut cia = Cia6526::new();
+    cia.write(0x0D, 0x88); // enable the SDR interrupt (bit 3)
+    cia.write(0x0C, 0xA5); // load the shift register
+    cia.write(0x04, 2); // Timer A latch low
+    cia.write(0x05, 0); // Timer A latch high
+    cia.write(0x0E, 0x41); // CRA: SP output (bit 6) + start Timer A (bit 0)
+
+    let mut raised = false;
+    for _ in 0..400 {
+        cia.tick();
+        if cia.irq {
+            raised = true;
+            break;
+        }
+    }
+    assert!(
+        raised,
+        "the SDR interrupt should raise /IRQ after 8 output shifts"
+    );
+    assert_ne!(
+        cia.icr_status() & 0x08,
+        0,
+        "the SDR flag (bit 3) is the interrupt source"
+    );
+}

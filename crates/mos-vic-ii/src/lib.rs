@@ -1395,6 +1395,14 @@ impl Vic {
         u32::from(self.last_visible_line - self.first_visible_line)
     }
 
+    /// The last byte the VIC-II drove onto the data bus (its most recent
+    /// fetch). Feeds open-bus reads: the upper nibble of a `$D800-$DBFF`
+    /// colour-RAM read, and the unmapped registers `$2F-$3F`.
+    #[must_use]
+    pub const fn last_bus_data(&self) -> u8 {
+        self.last_bus_data
+    }
+
     /// Check and clear the frame-complete flag.
     pub fn take_frame_complete(&mut self) -> bool {
         let complete = self.frame_complete;
