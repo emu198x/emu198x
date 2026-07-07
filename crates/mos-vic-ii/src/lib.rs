@@ -299,6 +299,12 @@ pub struct Vic {
     /// collision detection in the composite.
     #[serde(skip)]
     sprite_cycle_cov: [u8; 8],
+    /// This cycle's graphics foreground mask (8 bits), latched by
+    /// `render_pixels` for the collision pass. Zero off the display window, so
+    /// sprite-background collisions only register over real foreground while
+    /// sprite-sprite collisions still register everywhere.
+    #[serde(skip)]
+    gfx_fg_mask: u8,
     sprite_sprite_collision: u8,
     sprite_bg_collision: u8,
     sprite_sprite_irq_latched: bool,
@@ -386,6 +392,7 @@ impl Vic {
             chain_fetch_base: [0; 8],
             sprite_cycle_px: [None; 8],
             sprite_cycle_cov: [0; 8],
+            gfx_fg_mask: 0,
             sprite_sprite_collision: 0,
             sprite_bg_collision: 0,
             sprite_sprite_irq_latched: false,
@@ -425,6 +432,7 @@ impl Vic {
 
         self.update_border_flip_flops();
         self.render_pixels(memory);
+        self.accumulate_sprite_collisions();
         self.check_badline();
         self.advance_video_counters();
 
@@ -656,6 +664,10 @@ impl Vic {
     }
 
     fn render_pixels(&mut self, memory: &dyn VicMemory) {
+        // Cleared every cycle so the collision pass sees no foreground off the
+        // display window (borders, retrace); render_pixels re-latches it below
+        // only where graphics data is actually shifted out.
+        self.gfx_fg_mask = 0;
         if self.raster_line < self.first_visible_line || self.raster_line >= self.last_visible_line
         {
             return;
@@ -759,7 +771,32 @@ impl Vic {
             fg_mask = 0;
         }
 
+        // Latch this cycle's foreground mask for the every-cycle collision
+        // pass, then composite the sprite pixels into the framebuffer. The
+        // collision accumulation itself lives in `accumulate_sprite_collisions`
+        // (called from `tick`) so it runs in the border too.
+        self.gfx_fg_mask = fg_mask;
         self.draw_sprites_sequencer(fb_offset, fg_mask);
+    }
+
+    /// Accumulate sprite-sprite (`$D01E`) and sprite-background (`$D01F`)
+    /// collisions from this cycle's sprite coverage, and raise the collision
+    /// IRQs on the first hit. Runs every cycle — including the border and
+    /// retrace — because the draw stage shifts sprite pixels out everywhere,
+    /// and hardware detects collisions wherever that happens, not only inside
+    /// the visible window. `gfx_fg_mask` is zero off the display window, so
+    /// only sprite-sprite collisions register there.
+    fn accumulate_sprite_collisions(&mut self) {
+        let fg_mask = self.gfx_fg_mask;
+        for px in 0..8usize {
+            let cov = self.sprite_cycle_cov[px];
+            if cov.count_ones() >= 2 {
+                self.sprite_sprite_collision |= cov;
+            }
+            if cov != 0 && (fg_mask >> px) & 1 != 0 {
+                self.sprite_bg_collision |= cov;
+            }
+        }
 
         if self.sprite_sprite_collision != 0 && !self.sprite_sprite_irq_latched {
             self.sprite_sprite_irq_latched = true;
@@ -1096,16 +1133,9 @@ impl Vic {
     fn draw_sprites_sequencer(&mut self, fb_offset: usize, fg_mask: u8) {
         let priority = self.regs[0x1B];
         for px in 0..8usize {
-            // Collisions: 2+ sprites here → sprite-sprite ($D01E); any sprite
-            // over a foreground pixel → sprite-background ($D01F).
-            let cov = self.sprite_cycle_cov[px];
-            if cov.count_ones() >= 2 {
-                self.sprite_sprite_collision |= cov;
-            }
-            if cov != 0 && (fg_mask >> px) & 1 != 0 {
-                self.sprite_bg_collision |= cov;
-            }
-
+            // Collision accumulation runs every cycle in
+            // `accumulate_sprite_collisions`; this pass only composites the
+            // visible pixels, honouring sprite-behind-foreground priority.
             let Some(sp) = self.sprite_cycle_px[px] else {
                 continue;
             };
@@ -1869,6 +1899,38 @@ mod tests {
 
         let collision = vic.read(0x1F);
         assert_ne!(collision & 0x01, 0x00);
+    }
+
+    /// Sprites overlapping in the deep horizontal border still collide.
+    /// A sprite at X = 392 draws at framebuffer X 416 — cycle 62, which
+    /// `render_pixels` treats as off-window (`LAST_VISIBLE_CYCLE = 62`).
+    /// The draw stage shifts the pixels out there regardless, so the
+    /// sprite-sprite collision must still register in `$D01E`. Hardware
+    /// detects collisions wherever sprite data is shifted, not only on-screen.
+    #[test]
+    fn sprite_sprite_collision_registers_in_the_border() {
+        let (mut vic, mut memory) = make_vic_and_memory();
+        vic.write(0x15, 0x03); // enable sprites 0, 1
+        vic.write(0x00, 136); // sprite 0 low X
+        vic.write(0x02, 136); // sprite 1 low X
+        vic.write(0x10, 0x03); // $D010 high X bit for 0 and 1 → X = 392
+        vic.write(0x01, 100);
+        vic.write(0x03, 100); // both at Y = 100, fully overlapping
+        vic.write(0x27, 0x01);
+        vic.write(0x28, 0x02);
+        vic.write(0x18, 0x14);
+        vic.write(0x11, 0x1B);
+        memory.ram_write(0x07F8, 0x80);
+        memory.ram_write(0x07F9, 0x80);
+        memory.ram_write(0x2000, 0xFF);
+        memory.ram_write(0x2001, 0xFF);
+        memory.ram_write(0x2002, 0xFF);
+        advance_to(&mut vic, &memory, 105, 0);
+        assert_eq!(
+            vic.peek(0x1E) & 0x03,
+            0x03,
+            "sprites colliding in the border should still set $D01E",
+        );
     }
 
     #[test]
