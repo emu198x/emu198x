@@ -24,7 +24,7 @@ use format_commodore_c64_d64::{
 };
 use format_commodore_c64_d71::{
     D71ParseError, parse_directory as parse_directory_d71, read_sector as read_sector_d71,
-    sectors_in_track as sectors_in_track_d71,
+    sectors_in_track as sectors_in_track_d71, write_sector as write_sector_d71,
 };
 use format_commodore_c64_g64::G64ParseError;
 use mos_6502::{M6502, registers::FLAG_V};
@@ -372,19 +372,37 @@ impl Drive1571 {
     }
 
     /// Loads one decoded double-sided `D71` image into the drive,
-    /// **write-protected** — the 1571's native format.
+    /// **write-protected** — the 1571's native format. Mount writable with
+    /// [`load_d71_bytes_writable`](Self::load_d71_bytes_writable) for a work disk.
     ///
     /// # Errors
     ///
     /// Returns an error if the `D71` image is malformed.
     pub fn load_d71_bytes(&mut self, bytes: &[u8]) -> Result<(), Drive1571MediaError> {
+        self.load_d71_bytes_writable(bytes, false)
+    }
+
+    /// Loads a decoded double-sided `D71`, choosing whether the drive may write
+    /// to it. `writable == true` lets a SAVE lay GCR onto *either* physical side
+    /// of the rotating surface; [`flush_image`](Self::flush_image) then decodes
+    /// both sides (logical tracks 1-70) back to `D71` bytes for the host to
+    /// persist. `writable == false` mounts the archive read-only.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `D71` image is malformed.
+    pub fn load_d71_bytes_writable(
+        &mut self,
+        bytes: &[u8],
+        writable: bool,
+    ) -> Result<(), Drive1571MediaError> {
         let directory = parse_directory_d71(bytes)?;
         self.engine.set_surface(build_track_data_d71(bytes)?);
         self.disk = Some(Drive1571Disk {
             image_bytes: bytes.to_vec(),
             disk_name: directory.disk_name,
             disk_id: directory.disk_id,
-            write_protected: true,
+            write_protected: !writable,
             directory_entries: directory
                 .entries
                 .into_iter()
@@ -448,22 +466,21 @@ impl Drive1571 {
     #[must_use]
     pub fn flush_image(&self) -> Option<Vec<u8>> {
         let disk = self.disk.as_ref()?;
-        // A G64 has no sector layout to decode back to; re-serialise the live raw
-        // GCR surface straight to G64 (only when mounted writable).
-        if disk.image_format == DriveImageFormat::G64 {
-            return self.flush_g64_image(disk);
+        match disk.image_format {
+            // A G64 has no sector layout to decode back to; re-serialise the live
+            // raw GCR surface straight to G64 (only when mounted writable).
+            DriveImageFormat::G64 => self.flush_g64_image(disk),
+            DriveImageFormat::D71 => Some(self.flush_d71_image(disk)),
+            DriveImageFormat::D64 => Some(self.flush_d64_image(disk)),
         }
+    }
+
+    /// Decodes the single-sided side-0 surface (logical tracks 1-35) back into
+    /// the mounted `D64` image. Unwritten tracks round-trip to their original
+    /// bytes, so decoding the whole disk is safe.
+    fn flush_d64_image(&self, disk: &Drive1571Disk) -> Vec<u8> {
         let surface = self.engine.surface();
         let mut image = disk.image_bytes.clone();
-
-        // Side-0 write-back only. This is safe today: every D71 mounts
-        // read-only (`load_d71_bytes` hardcodes `write_protected: true`), so an
-        // unwritten disk round-trips byte-for-byte and side 1 is never dirtied.
-        // A writable double-sided D71 would silently lose side-1 writes here —
-        // adding one needs (a) a `load_d71_bytes_writable` variant and (b) a
-        // side-1 pass over tracks 36-70 via `track_bytes(_, 1)` +
-        // `format_commodore_c64_d71::write_sector`. Deferred to #781.3, which
-        // the now-sided surface enables.
         for track in 1..=35u8 {
             let Some(raw) = surface.track_bytes(track * 2, 0) else {
                 continue;
@@ -477,8 +494,36 @@ impl Drive1571 {
                 }
             }
         }
+        image
+    }
 
-        Some(image)
+    /// Decodes *both* physical sides back into the mounted `D71` image: logical
+    /// tracks 1-35 live on side 0, 36-70 on side 1, each at the same physical
+    /// head position on its own head. A SAVE that stepped to side 1 (VIA1 PA
+    /// bit 2) now persists (#781.3). Unwritten tracks round-trip to their
+    /// original bytes.
+    fn flush_d71_image(&self, disk: &Drive1571Disk) -> Vec<u8> {
+        let surface = self.engine.surface();
+        let mut image = disk.image_bytes.clone();
+        for logical in 1..=70u8 {
+            let (physical, side) = if logical <= 35 {
+                (logical, 0)
+            } else {
+                (logical - 35, 1)
+            };
+            let Some(raw) = surface.track_bytes(physical * 2, side) else {
+                continue;
+            };
+            let Ok(sectors) = sectors_in_track_d71(logical) else {
+                continue;
+            };
+            for sector in 0..sectors {
+                if let Some(data) = gcr_read_sector_from_raw_track(raw, sector) {
+                    let _ = write_sector_d71(&mut image, logical, sector, &data);
+                }
+            }
+        }
+        image
     }
 
     /// Re-serialises the live raw-GCR surface of a mounted `G64` back to `G64`
@@ -2190,6 +2235,80 @@ mod tests {
         let side0 = td.track_bytes(10, 0).expect("side 0 track 5 built");
         let decoded0 = gcr_read_sector_from_raw_track(side0, 0).expect("decode side-0 sector 0");
         assert_eq!(decoded0[0], 0x00);
+    }
+
+    #[test]
+    fn writable_d71_flushes_side1_writes_back() {
+        // Base D71 with side-1 logical track 40, sector 0 = pattern A.
+        let mut base = vec![0u8; 349_696];
+        let mut pattern_a = [0u8; 256];
+        pattern_a[0] = 0xAA;
+        pattern_a[255] = 0x11;
+        format_commodore_c64_d71::write_sector(&mut base, 40, 0, &pattern_a)
+            .expect("seed side-1 sector");
+
+        let rom = make_rom(&[(0x8000, &[0xEA])], 0x8000);
+        let mut machine =
+            Drive1571::new(Drive1571Config { dos_rom: &rom }).expect("valid 1571 ROM");
+        machine
+            .load_d71_bytes_writable(&base, true)
+            .expect("writable D71 mounts");
+
+        // Re-encode the same side-1 track with a different sector (as a SAVE that
+        // stepped to side 1 would lay down) and drop that GCR onto the live
+        // surface's side 1 — logical track 40 sits at physical head position 10.
+        let mut modified = base.clone();
+        let mut pattern_b = [0u8; 256];
+        pattern_b[0] = 0xBB;
+        pattern_b[1] = 0xCC;
+        pattern_b[255] = 0x22;
+        format_commodore_c64_d71::write_sector(&mut modified, 40, 0, &pattern_b)
+            .expect("re-encode side-1 sector");
+        let new_gcr = build_track_data_d71(&modified)
+            .expect("build modified surface")
+            .track_bytes(10, 1)
+            .expect("side-1 track present")
+            .to_vec();
+        machine
+            .engine
+            .surface_mut()
+            .track_bytes_mut(10, 1)
+            .expect("side-1 track is writable")
+            .copy_from_slice(&new_gcr);
+
+        // The flush decodes both sides; the side-1 write now persists (#781.3).
+        let flushed = machine.flush_image().expect("writable D71 flushes");
+        let sector = format_commodore_c64_d71::read_sector(&flushed, 40, 0)
+            .expect("read flushed side-1 sector");
+        assert_eq!(sector[0], 0xBB);
+        assert_eq!(sector[1], 0xCC);
+        assert_eq!(sector[255], 0x22);
+
+        // Side 0 (logical track 18) is untouched and round-trips to its blank
+        // original — the side-1 pass did not disturb side 0.
+        let side0 = format_commodore_c64_d71::read_sector(&flushed, 18, 0)
+            .expect("read flushed side-0 sector");
+        assert_eq!(side0[0], 0x00);
+    }
+
+    #[test]
+    fn read_only_d71_flush_round_trips_unchanged() {
+        // The D64->D71 writer split must not perturb a read-only mount: an
+        // unwritten disk flushes back byte-for-byte.
+        let mut d71 = vec![0u8; 349_696];
+        let mut sector = [0u8; 256];
+        sector[0] = 0x7E;
+        sector[128] = 0x42;
+        format_commodore_c64_d71::write_sector(&mut d71, 40, 0, &sector)
+            .expect("seed side-1 sector");
+
+        let rom = make_rom(&[(0x8000, &[0xEA])], 0x8000);
+        let mut machine =
+            Drive1571::new(Drive1571Config { dos_rom: &rom }).expect("valid 1571 ROM");
+        machine.load_d71_bytes(&d71).expect("read-only D71 mounts");
+
+        let flushed = machine.flush_image().expect("D71 flushes");
+        assert_eq!(flushed, d71, "an unwritten D71 round-trips byte-for-byte");
     }
 
     #[test]

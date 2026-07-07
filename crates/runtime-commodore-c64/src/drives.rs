@@ -187,7 +187,8 @@ impl IecDrive {
                 .map_err(|e| e.to_string()),
             Self::C1571(d) => {
                 if is_d71_length(bytes.len()) {
-                    d.load_d71_bytes(bytes).map_err(|e| e.to_string())
+                    d.load_d71_bytes_writable(bytes, writable)
+                        .map_err(|e| e.to_string())
                 } else {
                     d.load_d64_bytes_writable(bytes, writable)
                         .map_err(|e| e.to_string())
