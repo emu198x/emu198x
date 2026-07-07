@@ -77,7 +77,7 @@ refuse. Roadmap tiers at [`product-roadmap.md`](knowledge/decisions/product-road
 
 9. ULA as trait — one implementation per variant. No parameterisation across families.
 10. UlaEngine holds shared rendering. Contention is variant-specific, lives in the wrapper.
-11. The ULA renders to a palette-indexed `u8` framebuffer. RGBA conversion is a separate stage.
+11. The ULA renders to a palette-indexed `u8` framebuffer. RGBA conversion is a separate stage. This is a ULA-family choice (and the Game Boy PPU shares it), **not** a fleet-wide pipeline rule — most video chips, including the VIC-II, VIC-I, NES PPU, TMS9918, Sega VDP and the Atari chips, render straight to ARGB32. See [`knowledge/decisions/framebuffer-pixel-format.md`](knowledge/decisions/framebuffer-pixel-format.md) for the convention and why per-chip choice is fine.
 
 ## Memory
 
