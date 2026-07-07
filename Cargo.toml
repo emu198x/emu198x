@@ -7,6 +7,7 @@ members = [
     "crates/common-commodore-c64",
     "crates/common-commodore-drive-gcr",
     "crates/common-commodore-iec",
+    "crates/common-commodore-iec-drive",
     "crates/common-nintendo-game-boy",
     "crates/amstrad-ula-40077",
     "crates/beta-disk-interface",

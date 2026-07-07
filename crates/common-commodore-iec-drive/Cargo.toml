@@ -1,0 +1,15 @@
+[package]
+name = "common-commodore-iec-drive"
+version = "0.2.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.2.0" }
+common-commodore-iec = { path = "../common-commodore-iec", version = "0.2.0" }
+mos-6502 = { path = "../mos-6502", version = "0.2.0" }
+mos-via-6522 = { path = "../mos-via-6522", version = "0.2.0" }
+
+[lints]
+workspace = true

@@ -17,6 +17,7 @@ use common_commodore_drive_gcr::{
     gcr_read_sector_from_raw_track,
 };
 use common_commodore_iec::IecBus;
+use common_commodore_iec_drive::{BoardState, IecDriveBoard};
 use format_commodore_c64_d64::{
     D64FileType, D64ParseError, parse_directory, sectors_in_track, write_sector,
 };
@@ -28,7 +29,6 @@ use thiserror::Error;
 
 const RAM_SIZE: usize = 0x0800;
 const ROM_SIZE: usize = 0x4000;
-const DEFAULT_DEVICE_NUMBER: u8 = 8;
 const INITIAL_HEAD_POSITION: u8 = 36;
 const IO_TRACE_LIMIT: usize = 2048;
 
@@ -37,13 +37,11 @@ pub const DRIVE1541_CPU_HZ: u64 = 1_000_000;
 
 #[derive(Clone)]
 pub struct Drive1541 {
-    cpu: M6502,
-    via1: Via6522,
-    via2: Via6522,
-    ram: [u8; RAM_SIZE],
+    /// The shared IEC drive board: 6502 + VIA1 + VIA2 + 2KB RAM + device number
+    /// and the byte-identical drive-side IEC/VIA glue (hoisted in #806).
+    board: IecDriveBoard,
     rom: [u8; ROM_SIZE],
     disk: Option<Drive1541Disk>,
-    device_number: u8,
     activity_led: bool,
     /// The shared GCR rotation/serialiser engine and its live track surface.
     /// The 1541 is single-sided, so every access uses side 0.
@@ -178,17 +176,10 @@ impl Drive1541 {
         let mut rom = [0u8; ROM_SIZE];
         rom.copy_from_slice(config.dos_rom);
 
-        let mut cpu = M6502::new();
-        cpu.reset();
-
         Ok(Self {
-            cpu,
-            via1: Via6522::new(),
-            via2: Via6522::new(),
-            ram: [0; RAM_SIZE],
+            board: IecDriveBoard::new(),
             rom,
             disk: None,
-            device_number: DEFAULT_DEVICE_NUMBER,
             activity_led: false,
             engine: GcrRotationEngine::new(DriveGeometry::COMMODORE_GCR, INITIAL_HEAD_POSITION),
             recent_io_writes: Vec::new(),
@@ -198,17 +189,17 @@ impl Drive1541 {
 
     #[must_use]
     pub fn cpu(&self) -> &M6502 {
-        &self.cpu
+        self.board.cpu()
     }
 
     #[must_use]
     pub const fn via1(&self) -> &Via6522 {
-        &self.via1
+        self.board.via1()
     }
 
     #[must_use]
     pub const fn via2(&self) -> &Via6522 {
-        &self.via2
+        self.board.via2()
     }
 
     #[must_use]
@@ -218,13 +209,13 @@ impl Drive1541 {
 
     #[must_use]
     pub const fn device_number(&self) -> u8 {
-        self.device_number
+        self.board.device_number()
     }
 
     /// Sets the IEC device number (8-11). The drive derives its bus address
     /// from this on every tick, so it takes effect immediately.
     pub const fn set_device_number(&mut self, device_number: u8) {
-        self.device_number = device_number;
+        self.board.set_device_number(device_number);
     }
 
     #[must_use]
@@ -449,14 +440,15 @@ impl Drive1541 {
     #[must_use]
     pub fn snapshot_state(&self) -> Drive1541Snapshot {
         let rotation = self.engine.state();
+        let board = self.board.state();
         Drive1541Snapshot {
-            cpu: self.cpu.clone(),
-            via1: self.via1.clone(),
-            via2: self.via2.clone(),
-            ram: self.ram.to_vec(),
+            cpu: board.cpu,
+            via1: board.via1,
+            via2: board.via2,
+            ram: board.ram.to_vec(),
             rom: self.rom.to_vec(),
             disk: self.disk.clone(),
-            device_number: self.device_number,
+            device_number: board.device_number,
             head_position: rotation.head_position,
             stepper_phase: rotation.stepper_phase,
             motor_on: rotation.motor_on,
@@ -501,10 +493,8 @@ impl Drive1541 {
         }
 
         let rotation = rotation_state_from_snapshot(&snapshot);
-        self.cpu = snapshot.cpu;
-        self.via1 = snapshot.via1;
-        self.via2 = snapshot.via2;
-        self.ram.copy_from_slice(&snapshot.ram);
+        self.board
+            .restore_state(board_state_from_snapshot(&snapshot));
         self.rom.copy_from_slice(&snapshot.rom);
         self.disk = snapshot.disk;
         match rebuild_surface(self.disk.as_ref())
@@ -513,7 +503,6 @@ impl Drive1541 {
             Some(surface) => self.engine.set_surface(surface),
             None => self.engine.clear_surface(),
         }
-        self.device_number = snapshot.device_number;
         self.activity_led = snapshot.activity_led;
         self.engine.restore_state(rotation);
         self.recent_io_writes.clear();
@@ -543,9 +532,6 @@ impl Drive1541 {
             ));
         }
 
-        let mut ram = [0u8; RAM_SIZE];
-        ram.copy_from_slice(&snapshot.ram);
-
         let mut rom = [0u8; ROM_SIZE];
         rom.copy_from_slice(&snapshot.rom);
 
@@ -553,14 +539,13 @@ impl Drive1541 {
             GcrRotationEngine::new(DriveGeometry::COMMODORE_GCR, INITIAL_HEAD_POSITION);
         engine.restore_state(rotation_state_from_snapshot(&snapshot));
 
+        let mut board = IecDriveBoard::new();
+        board.restore_state(board_state_from_snapshot(&snapshot));
+
         Ok(Self {
-            cpu: snapshot.cpu,
-            via1: snapshot.via1,
-            via2: snapshot.via2,
-            ram,
+            board,
             rom,
             disk: snapshot.disk,
-            device_number: snapshot.device_number,
             activity_led: snapshot.activity_led,
             engine,
             recent_io_writes: Vec::new(),
@@ -582,13 +567,13 @@ impl Drive1541 {
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)],
+            0x0000..=0x17FF => self.board.ram()[usize::from(addr & 0x07FF)],
             0x1800..=0x18FF if (addr & 0x0F) == 0x00 => self.via1_port_b_read(None),
             0x1800..=0x18FF if matches!(addr & 0x0F, 0x01 | 0x0F) => self.via1_port_a_read(),
-            0x1800..=0x18FF => self.via1.peek((addr & 0x0F) as u8),
+            0x1800..=0x18FF => self.board.via1().peek((addr & 0x0F) as u8),
             0x1C00..=0x1CFF if (addr & 0x0F) == 0x00 => self.via2_port_b_read(),
             0x1C00..=0x1CFF if matches!(addr & 0x0F, 0x01 | 0x0F) => self.via2_port_a_read(),
-            0x1C00..=0x1CFF => self.via2.peek((addr & 0x0F) as u8),
+            0x1C00..=0x1CFF => self.board.via2().peek((addr & 0x0F) as u8),
             0xC000..=0xFFFF => self.rom[usize::from(addr - 0xC000)],
             _ => 0xFF,
         }
@@ -596,14 +581,14 @@ impl Drive1541 {
 
     pub fn poke(&mut self, addr: u16, value: u8) {
         match addr {
-            0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)] = value,
+            0x0000..=0x17FF => self.board.ram_mut()[usize::from(addr & 0x07FF)] = value,
             0x1800..=0x18FF => {
-                self.via1.write((addr & 0x0F) as u8, value);
+                self.board.via1_mut().write((addr & 0x0F) as u8, value);
                 self.record_io_write(addr, value);
             }
             0x1C00..=0x1CFF => {
                 let reg = (addr & 0x0F) as u8;
-                self.via2.write(reg, value);
+                self.board.via2_mut().write(reg, value);
                 self.after_via2_write(reg, value);
                 self.record_io_write(addr, value);
             }
@@ -614,21 +599,25 @@ impl Drive1541 {
 
     pub fn tick(&mut self) -> bool {
         self.apply_drive_inputs(None);
-        self.cpu.irq = self.via1.irq || self.via2.irq;
+        let irq = self.board.via1().irq || self.board.via2().irq;
+        self.board.cpu_mut().irq = irq;
 
-        if self.cpu.rw {
-            self.cpu.data_in = self.read_without_iec_bus(self.cpu.addr);
+        let addr = self.board.cpu().addr;
+        if self.board.cpu().rw {
+            let value = self.read_without_iec_bus(addr);
+            self.board.cpu_mut().data_in = value;
         } else {
-            self.write_without_iec_bus(self.cpu.addr, self.cpu.data);
+            let data = self.board.cpu().data;
+            self.write_without_iec_bus(addr, data);
         }
 
         self.apply_byte_ready_overflow();
-        self.cpu.so = true;
-        let completed = self.cpu.tick();
-        self.cpu.so = true;
+        self.board.cpu_mut().so = true;
+        let completed = self.board.cpu_mut().tick();
+        self.board.cpu_mut().so = true;
         self.apply_drive_inputs(None);
-        self.via1.tick();
-        self.via2.tick();
+        self.board.via1_mut().tick();
+        self.board.via2_mut().tick();
         self.refresh_drive_mechanics();
         self.cycles += 1;
         self.finish_cycle_rotation();
@@ -638,21 +627,25 @@ impl Drive1541 {
 
     pub fn tick_with_iec_bus(&mut self, bus: &mut IecBus) -> bool {
         self.apply_drive_inputs(Some(bus));
-        self.cpu.irq = self.via1.irq || self.via2.irq;
+        let irq = self.board.via1().irq || self.board.via2().irq;
+        self.board.cpu_mut().irq = irq;
 
-        if self.cpu.rw {
-            self.cpu.data_in = self.read_with_iec_bus(self.cpu.addr, bus);
+        let addr = self.board.cpu().addr;
+        if self.board.cpu().rw {
+            let value = self.read_with_iec_bus(addr, bus);
+            self.board.cpu_mut().data_in = value;
         } else {
-            self.write_with_iec_bus(self.cpu.addr, self.cpu.data, bus);
+            let data = self.board.cpu().data;
+            self.write_with_iec_bus(addr, data, bus);
         }
 
         self.apply_byte_ready_overflow();
-        self.cpu.so = true;
-        let completed = self.cpu.tick();
-        self.cpu.so = true;
+        self.board.cpu_mut().so = true;
+        let completed = self.board.cpu_mut().tick();
+        self.board.cpu_mut().so = true;
         self.apply_drive_inputs(Some(bus));
-        self.via1.tick();
-        self.via2.tick();
+        self.board.via1_mut().tick();
+        self.board.via2_mut().tick();
         self.refresh_drive_mechanics();
         self.cycles += 1;
         self.finish_cycle_rotation();
@@ -663,13 +656,13 @@ impl Drive1541 {
     #[must_use]
     pub fn peek_with_iec_bus(&self, addr: u16, bus: &IecBus) -> u8 {
         match addr {
-            0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)],
+            0x0000..=0x17FF => self.board.ram()[usize::from(addr & 0x07FF)],
             0x1800..=0x18FF if (addr & 0x0F) == 0x00 => self.via1_port_b_read(Some(bus)),
             0x1800..=0x18FF if matches!(addr & 0x0F, 0x01 | 0x0F) => self.via1_port_a_read(),
-            0x1800..=0x18FF => self.via1.peek((addr & 0x0F) as u8),
+            0x1800..=0x18FF => self.board.via1().peek((addr & 0x0F) as u8),
             0x1C00..=0x1CFF if (addr & 0x0F) == 0x00 => self.via2_port_b_read(),
             0x1C00..=0x1CFF if matches!(addr & 0x0F, 0x01 | 0x0F) => self.via2_port_a_read(),
-            0x1C00..=0x1CFF => self.via2.peek((addr & 0x0F) as u8),
+            0x1C00..=0x1CFF => self.board.via2().peek((addr & 0x0F) as u8),
             0xC000..=0xFFFF => self.rom[usize::from(addr - 0xC000)],
             _ => 0xFF,
         }
@@ -677,28 +670,28 @@ impl Drive1541 {
 
     pub fn read_with_iec_bus(&mut self, addr: u16, bus: &IecBus) -> u8 {
         match addr {
-            0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)],
+            0x0000..=0x17FF => self.board.ram()[usize::from(addr & 0x07FF)],
             0x1800..=0x18FF if (addr & 0x0F) == 0x00 => {
                 let value = self.via1_port_b_read(Some(bus));
-                self.via1.read_port_b_with_value(value)
+                self.board.via1_mut().read_port_b_with_value(value)
             }
             0x1800..=0x18FF if matches!(addr & 0x0F, 0x01 | 0x0F) => {
                 let value = self.via1_port_a_read();
-                self.via1.read_port_a_with_value(value)
+                self.board.via1_mut().read_port_a_with_value(value)
             }
-            0x1800..=0x18FF => self.via1.read((addr & 0x0F) as u8),
+            0x1800..=0x18FF => self.board.via1_mut().read((addr & 0x0F) as u8),
             0x1C00..=0x1CFF if (addr & 0x0F) == 0x00 => {
                 self.rotate_disk_bus_read();
                 let value = self.via2_port_b_read();
-                self.via2.read_port_b_with_value(value)
+                self.board.via2_mut().read_port_b_with_value(value)
             }
             0x1C00..=0x1CFF if matches!(addr & 0x0F, 0x01 | 0x0F) => {
                 self.rotate_disk_bus_read();
                 let value = self.via2_port_a_read();
                 self.engine.clear_byte_ready_level();
-                self.via2.read_port_a_with_value(value)
+                self.board.via2_mut().read_port_a_with_value(value)
             }
-            0x1C00..=0x1CFF => self.via2.read((addr & 0x0F) as u8),
+            0x1C00..=0x1CFF => self.board.via2_mut().read((addr & 0x0F) as u8),
             0xC000..=0xFFFF => self.rom[usize::from(addr - 0xC000)],
             _ => 0xFF,
         }
@@ -706,15 +699,15 @@ impl Drive1541 {
 
     pub fn write_with_iec_bus(&mut self, addr: u16, value: u8, bus: &mut IecBus) {
         match addr {
-            0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)] = value,
+            0x0000..=0x17FF => self.board.ram_mut()[usize::from(addr & 0x07FF)] = value,
             0x1800..=0x18FF => {
-                self.via1.write((addr & 0x0F) as u8, value);
+                self.board.via1_mut().write((addr & 0x0F) as u8, value);
                 self.record_io_write(addr, value);
-                self.drive_iec_outputs(bus);
+                self.board.drive_iec_outputs(bus);
             }
             0x1C00..=0x1CFF => {
                 let reg = (addr & 0x0F) as u8;
-                self.via2.write(reg, value);
+                self.board.via2_mut().write(reg, value);
                 self.after_via2_write(reg, value);
                 self.record_io_write(addr, value);
             }
@@ -727,27 +720,15 @@ impl Drive1541 {
         self.apply_drive_inputs(Some(bus));
     }
 
-    fn drive_iec_outputs(&self, bus: &mut IecBus) {
-        // VICE stores the 1541 IEC contribution from the VIA1 Port B mixed
-        // output state (`PRB | ~DDRB`), so input-configured bits release the
-        // open-collector lines high immediately when DDR changes.
-        bus.write_drive_port_b(self.device_number, self.via1.port_b_drive_state());
-    }
-
     fn apply_drive_inputs(&mut self, bus: Option<&IecBus>) {
-        self.via1.pa_in = self.via1_port_a_input();
-        self.via1.pb_in = self.via1_port_b_input(bus);
-        // The 1541 serial glue presents IEC ATN to VIA1 CA1 inverted: ATN low
-        // becomes a CA1 rising edge, matching VICE's `viacore_signal(...,
-        // VIA_SIG_CA1, VIA_SIG_RISE)` path for 1541-style drives.
-        self.via1.set_ca1_level(!self.bus_atn_high(bus));
-        self.via2.pa_in = self.via2_port_a_input();
-        self.via2.pb_in = self.via2_port_b_input();
-        self.via2.ca1 = self.byte_ready_not_asserted();
+        let present = self.selected_internal_drive_present();
+        let write_protected = self.selected_disk_write_protected();
+        self.board
+            .apply_drive_inputs(&self.engine, bus, present, write_protected);
     }
 
     fn refresh_drive_mechanics(&mut self) {
-        let port_b = self.via2.port_b_drive_state();
+        let port_b = self.board.via2().port_b_drive_state();
         self.activity_led = port_b & 0x08 != 0;
         let present = self.selected_internal_drive_present();
         self.engine.apply_mechanics(port_b, present, 0);
@@ -755,28 +736,28 @@ impl Drive1541 {
 
     fn read_without_iec_bus(&mut self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)],
+            0x0000..=0x17FF => self.board.ram()[usize::from(addr & 0x07FF)],
             0x1800..=0x18FF if (addr & 0x0F) == 0x00 => {
                 let value = self.via1_port_b_read(None);
-                self.via1.read_port_b_with_value(value)
+                self.board.via1_mut().read_port_b_with_value(value)
             }
             0x1800..=0x18FF if matches!(addr & 0x0F, 0x01 | 0x0F) => {
                 let value = self.via1_port_a_read();
-                self.via1.read_port_a_with_value(value)
+                self.board.via1_mut().read_port_a_with_value(value)
             }
-            0x1800..=0x18FF => self.via1.read((addr & 0x0F) as u8),
+            0x1800..=0x18FF => self.board.via1_mut().read((addr & 0x0F) as u8),
             0x1C00..=0x1CFF if (addr & 0x0F) == 0x00 => {
                 self.rotate_disk_bus_read();
                 let value = self.via2_port_b_read();
-                self.via2.read_port_b_with_value(value)
+                self.board.via2_mut().read_port_b_with_value(value)
             }
             0x1C00..=0x1CFF if matches!(addr & 0x0F, 0x01 | 0x0F) => {
                 self.rotate_disk_bus_read();
                 let value = self.via2_port_a_read();
                 self.engine.clear_byte_ready_level();
-                self.via2.read_port_a_with_value(value)
+                self.board.via2_mut().read_port_a_with_value(value)
             }
-            0x1C00..=0x1CFF => self.via2.read((addr & 0x0F) as u8),
+            0x1C00..=0x1CFF => self.board.via2_mut().read((addr & 0x0F) as u8),
             0xC000..=0xFFFF => self.rom[usize::from(addr - 0xC000)],
             _ => 0xFF,
         }
@@ -784,14 +765,14 @@ impl Drive1541 {
 
     fn write_without_iec_bus(&mut self, addr: u16, value: u8) {
         match addr {
-            0x0000..=0x17FF => self.ram[usize::from(addr & 0x07FF)] = value,
+            0x0000..=0x17FF => self.board.ram_mut()[usize::from(addr & 0x07FF)] = value,
             0x1800..=0x18FF => {
-                self.via1.write((addr & 0x0F) as u8, value);
+                self.board.via1_mut().write((addr & 0x0F) as u8, value);
                 self.record_io_write(addr, value);
             }
             0x1C00..=0x1CFF => {
                 let reg = (addr & 0x0F) as u8;
-                self.via2.write(reg, value);
+                self.board.via2_mut().write(reg, value);
                 self.after_via2_write(reg, value);
                 self.record_io_write(addr, value);
             }
@@ -801,81 +782,35 @@ impl Drive1541 {
     }
 
     fn via1_port_a_read(&self) -> u8 {
-        self.via1.compose_port_a_read(self.via1_port_a_input())
+        self.board.via1_port_a_read()
     }
 
     fn via1_port_b_read(&self, bus: Option<&IecBus>) -> u8 {
-        (((self.via1.orb() & 0x1A) | self.via1_bus_port(bus)) ^ 0x85)
-            | (self.device_select_bits() << 5)
+        self.board.via1_port_b_read(bus)
     }
 
     fn via2_port_a_read(&self) -> u8 {
-        self.via2.compose_port_a_read(self.via2_port_a_input())
+        self.board
+            .via2()
+            .compose_port_a_read(self.via2_port_a_input())
     }
 
     fn via2_port_b_read(&self) -> u8 {
-        self.via2.compose_port_b_read(self.via2_port_b_input())
-    }
-
-    fn via1_port_a_input(&self) -> u8 {
-        // On a plain 1541, VIA1 Port A is not the track-zero/byte-ready status
-        // port used by the dual-drive DOS heritage. VICE models it as pulled
-        // high unless parallel-cable hardware is active, which we do not yet
-        // emulate here.
-        0xFF
-    }
-
-    fn via1_port_b_input(&self, bus: Option<&IecBus>) -> u8 {
-        self.via1_bus_port(bus)
+        self.board
+            .via2()
+            .compose_port_b_read(self.via2_port_b_input())
     }
 
     fn via2_port_a_input(&self) -> u8 {
-        if self.selected_internal_drive_present() {
-            self.engine.gcr_read()
-        } else {
-            0
-        }
+        self.board
+            .via2_port_a_input(&self.engine, self.selected_internal_drive_present())
     }
 
     fn via2_port_b_input(&self) -> u8 {
-        let mut value = 0x6F;
-        if self.sync_not_detected() {
-            value |= 0x80;
-        }
-        if self.write_protect_not_asserted() {
-            value |= 0x10;
-        }
-        value
-    }
-
-    fn device_select_bits(&self) -> u8 {
-        self.device_number.saturating_sub(DEFAULT_DEVICE_NUMBER) & 0x03
-    }
-
-    fn via1_bus_port(&self, bus: Option<&IecBus>) -> u8 {
-        let mut value = 0;
-        if self.bus_data_high(bus) {
-            value |= 0x01;
-        }
-        if self.bus_clock_high(bus) {
-            value |= 0x04;
-        }
-        if self.bus_atn_high(bus) {
-            value |= 0x80;
-        }
-        value
-    }
-
-    fn bus_atn_high(&self, bus: Option<&IecBus>) -> bool {
-        bus.is_none_or(IecBus::drive_atn_high)
-    }
-
-    fn bus_clock_high(&self, bus: Option<&IecBus>) -> bool {
-        bus.is_none_or(|bus| bus.drive_port() & 0x04 != 0)
-    }
-
-    fn bus_data_high(&self, bus: Option<&IecBus>) -> bool {
-        bus.is_none_or(|bus| bus.drive_port() & 0x01 != 0)
+        let present = self.selected_internal_drive_present();
+        let write_protected = self.selected_disk_write_protected();
+        self.board
+            .via2_port_b_input(&self.engine, present, write_protected)
     }
 
     fn after_via2_write(&mut self, reg: u8, value: u8) {
@@ -896,38 +831,24 @@ impl Drive1541 {
         }
     }
 
-    fn byte_ready_not_asserted(&self) -> bool {
-        !(self.byte_ready_active()
-            && (self.engine.byte_ready_level() || self.engine.byte_ready_edge()))
-    }
-
     fn apply_byte_ready_overflow(&mut self) {
         if self.engine.byte_ready_edge() && self.byte_ready_active() {
-            self.cpu.regs.set_flag(FLAG_V, true);
+            self.board.cpu_mut().regs.set_flag(FLAG_V, true);
             self.engine.clear_byte_ready_edge();
         }
     }
 
     fn sync_not_detected(&self) -> bool {
-        !self.is_read_mode() || !self.engine.sync_active()
+        self.board.sync_not_detected(&self.engine)
     }
 
-    fn write_protect_not_asserted(&self) -> bool {
-        // The write-protect photocell reads "not protected" whenever light
-        // reaches it: through a writable disk's notch, AND through an empty
-        // drive (no media to block the beam). Only a write-protect tab — a
-        // mounted, protected disk — asserts the line. Reporting an empty drive
-        // as *protected* would make mounting a writable disk a phantom WP
-        // transition, which the DOS reads as a disk change and uses to slam
-        // every open channel shut (ROM $F9AD sets $1C → $EC54 JSR $D313) —
-        // breaking a SAVE onto a disk inserted after power-up. Matches VICE
-        // drive-writeprotect.c ("No disk in drive, write protection is off").
-        if !self.selected_internal_drive_present() {
-            return true;
-        }
+    /// Whether the mounted image on the selected drive is write-protected. An
+    /// empty drive reports `false` — the write-protect photocell sees light and
+    /// reads "not protected" (see the board's `via2_port_b_input`).
+    fn selected_disk_write_protected(&self) -> bool {
         self.disk
             .as_ref()
-            .is_none_or(|disk| !disk.write_protected())
+            .is_some_and(Drive1541Disk::write_protected)
     }
 
     fn reset_rotation_state(&mut self) {
@@ -1009,7 +930,7 @@ impl Drive1541 {
         }
         self.recent_io_writes.push(Drive1541IoWriteEvent {
             cycle: self.cycles,
-            pc: self.cpu.regs.pc,
+            pc: self.board.cpu().regs.pc,
             addr,
             value,
         });
@@ -1028,7 +949,7 @@ impl Drive1541 {
     }
 
     fn selected_internal_drive(&self) -> u8 {
-        self.ram[0x007F] & 0x01
+        self.board.ram()[0x007F] & 0x01
     }
 
     fn selected_internal_drive_present(&self) -> bool {
@@ -1036,27 +957,11 @@ impl Drive1541 {
     }
 
     fn is_read_mode(&self) -> bool {
-        self.cb2_line_high()
+        self.board.is_read_mode()
     }
 
     fn byte_ready_active(&self) -> bool {
-        self.ca2_line_high()
-    }
-
-    fn ca2_line_high(&self) -> bool {
-        if self.via2.ca2_drive {
-            self.via2.ca2_out
-        } else {
-            self.via2.peek(0x0C) & 0x02 != 0
-        }
-    }
-
-    fn cb2_line_high(&self) -> bool {
-        if self.via2.cb2_drive {
-            self.via2.cb2_out
-        } else {
-            self.via2.peek(0x0C) & 0x20 != 0
-        }
+        self.board.byte_ready_active()
     }
 }
 
@@ -1073,6 +978,22 @@ fn rebuild_surface(
         DriveImageFormat::D71 => Err(Drive1541MediaError::UnsupportedFormat),
     })
     .transpose()
+}
+
+/// Maps a serialized snapshot's board fields into the board's transfer struct.
+/// Kept beside the snapshot methods so the field set stays in lockstep with
+/// [`Drive1541Snapshot`]. Callers validate the RAM size before calling — the
+/// `copy_from_slice` assumes a `RAM_SIZE`-length `ram`.
+fn board_state_from_snapshot(snapshot: &Drive1541Snapshot) -> BoardState {
+    let mut ram = [0u8; RAM_SIZE];
+    ram.copy_from_slice(&snapshot.ram);
+    BoardState {
+        cpu: snapshot.cpu.clone(),
+        via1: snapshot.via1.clone(),
+        via2: snapshot.via2.clone(),
+        ram,
+        device_number: snapshot.device_number,
+    }
 }
 
 /// Maps a serialized snapshot's persistent rotation fields into the engine's
@@ -1121,13 +1042,14 @@ const fn d64_file_type_name(kind: D64FileType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_DEVICE_NUMBER, Drive1541, Drive1541Config, Drive1541InitError, IO_TRACE_LIMIT,
-        RAM_SIZE, ROM_SIZE, build_track_data, d64_file_type_name, gcr_read_sector_from_raw_track,
+        Drive1541, Drive1541Config, Drive1541InitError, IO_TRACE_LIMIT, RAM_SIZE, ROM_SIZE,
+        build_track_data, d64_file_type_name, gcr_read_sector_from_raw_track,
     };
     use common_commodore_drive_gcr::{
         GcrSurface, MAX_HEAD_POSITION, TRACK_SLOT_COUNT, track_slot_index,
     };
     use common_commodore_iec::IecBus;
+    use common_commodore_iec_drive::DEFAULT_DEVICE_NUMBER;
     use format_commodore_c64_d64::{D64FileType, read_sector};
 
     const D64_STANDARD_SIZE: usize = 174_848;
@@ -1865,13 +1787,14 @@ mod tests {
 
         machine.poke(0x1C0C, 0x22);
         machine
-            .cpu
+            .board
+            .cpu_mut()
             .regs
             .set_flag(mos_6502::registers::FLAG_V, false);
         machine.engine.set_byte_ready_edge(true);
         machine.apply_byte_ready_overflow();
 
-        assert!(machine.cpu.regs.overflow());
+        assert!(machine.board.cpu().regs.overflow());
         assert!(!machine.engine.byte_ready_edge());
     }
 
