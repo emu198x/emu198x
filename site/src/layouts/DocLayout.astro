@@ -1,0 +1,124 @@
+---
+import BaseLayout from './BaseLayout.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<BaseLayout title={title} description={description}>
+  <main class="doc-shell container">
+    <aside class="doc-nav" aria-label="Documentation sections">
+      <a href="/docs/changelog/">Changelog</a>
+      <a href="/docs/status/current-system-usability/">Usability Matrix</a>
+      <a href="/docs/systems/">Fleet Index</a>
+      <a href="/docs/features/mcp/">MCP</a>
+      <a href="/docs/features/scripting/">Scripting</a>
+      <a href="/docs/features/capture/">Capture</a>
+      <a href="/docs/features/observability/">Observability</a>
+    </aside>
+    <article class="doc-content">
+      <slot />
+    </article>
+  </main>
+</BaseLayout>
+
+<style>
+  .doc-shell {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 3rem;
+    padding-top: 3rem;
+  }
+
+  .doc-nav {
+    position: sticky;
+    top: 90px;
+    display: flex;
+    height: fit-content;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .doc-nav a {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    border-radius: 6px;
+    padding: 0 0.75rem;
+    color: var(--ink-muted);
+    font-size: 0.93rem;
+    font-weight: 620;
+    text-decoration: none;
+  }
+
+  .doc-content {
+    min-width: 0;
+    max-width: 860px;
+  }
+
+  .doc-content :global(h1) {
+    margin: 0 0 1rem;
+    color: var(--ink);
+    font-size: clamp(2.1rem, 6vw, 4.2rem);
+    line-height: 0.98;
+  }
+
+  .doc-content :global(h2) {
+    margin-top: 2.4rem;
+    padding-top: 0.4rem;
+    color: var(--ink);
+    font-size: 1.55rem;
+  }
+
+  .doc-content :global(h3) {
+    margin-top: 1.8rem;
+    color: var(--ink);
+  }
+
+  .doc-content :global(p),
+  .doc-content :global(li) {
+    font-size: 1.02rem;
+    line-height: 1.7;
+  }
+
+  .doc-content :global(blockquote) {
+    margin: 1.5rem 0;
+    border-left: 4px solid var(--accent);
+    padding-left: 1rem;
+    color: var(--ink-muted);
+  }
+
+  .doc-content :global(.data-footnote-backref) {
+    font-size: 0.85rem;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .doc-nav a:hover {
+      background: rgba(11, 110, 105, 0.08);
+      color: var(--accent-strong);
+    }
+  }
+
+  @media (max-width: 860px) {
+    .doc-shell {
+      display: block;
+      padding-top: 2rem;
+    }
+
+    .doc-nav {
+      position: static;
+      flex-direction: row;
+      overflow-x: auto;
+      margin-bottom: 2rem;
+      padding-bottom: 0.4rem;
+    }
+
+    .doc-nav a {
+      white-space: nowrap;
+    }
+  }
+</style>

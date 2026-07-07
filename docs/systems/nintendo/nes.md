@@ -167,7 +167,6 @@ Run with `cargo test -p machine-nintendo-nes --test <file> -- --ignored`.
 
 ## Road to 100%
 
-The full tiered breakdown — bugs first (MMC5 read routing, `.sav`), then library
-coverage (MMC2/4, GxROM, PAL, Zapper/Four Score), then the cycle-exact core
-finish, then expansion-audio + FDS breadth — is in
-[`docs/plans/2026-06-08-nes-100-percent-plan.md`](../../plans/2026-06-08-nes-100-percent-plan.md).
+The remaining work is tiered: bugs first (MMC5 read routing, `.sav`), then
+library coverage (MMC2/4, GxROM, PAL, Zapper/Four Score), then the cycle-exact
+core finish, then expansion-audio + FDS breadth.

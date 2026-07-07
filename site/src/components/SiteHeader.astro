@@ -1,0 +1,103 @@
+---
+const nav = [
+  { href: '/accuracy/', label: 'Accuracy' },
+  { href: '/systems/', label: 'Systems' },
+  { href: '/docs/status/current-system-usability/', label: 'Status' },
+  { href: '/docs/features/mcp/', label: 'MCP' },
+  { href: '/docs/', label: 'Docs' },
+];
+---
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="/" aria-label="Emu198x home">
+      <span class="mark" aria-hidden="true">E</span>
+      <span>Emu198x</span>
+    </a>
+    <nav aria-label="Primary navigation">
+      {nav.map((item) => <a href={item.href}>{item.label}</a>)}
+    </nav>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    border-bottom: 1px solid var(--line);
+    background: rgba(248, 247, 242, 0.92);
+    backdrop-filter: blur(14px);
+  }
+
+  .header-inner {
+    display: flex;
+    min-height: 64px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .brand {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    gap: 0.65rem;
+    color: var(--ink);
+    font-weight: 760;
+    text-decoration: none;
+  }
+
+  .mark {
+    display: inline-grid;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border-radius: 6px;
+    background: var(--ink);
+    color: var(--paper-strong);
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+  }
+
+  nav {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    overflow-x: auto;
+  }
+
+  nav a {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    border-radius: 6px;
+    padding: 0 0.72rem;
+    color: var(--ink-muted);
+    font-size: 0.94rem;
+    font-weight: 620;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    nav a:hover {
+      background: rgba(11, 110, 105, 0.08);
+      color: var(--accent-strong);
+    }
+  }
+
+  @media (max-width: 680px) {
+    .header-inner {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 0.2rem;
+      padding-block: 0.55rem;
+    }
+
+    nav {
+      width: 100%;
+      padding-bottom: 0.1rem;
+    }
+  }
+</style>

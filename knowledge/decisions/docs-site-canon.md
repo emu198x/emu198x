@@ -11,7 +11,7 @@ built from it as-is. Companion to
 
 ## The decision
 
-The public docs site is built with **mdBook** from three tracked bodies:
+The public docs site is built with **Astro** from three tracked bodies:
 
 1. **`docs/systems/`** — the per-system status/inner-workings pages (already
    excellent and current; the site's spine).
@@ -30,6 +30,13 @@ prioritised by campaign order — not as a standalone big-bang migration.
 `knowledge/` remains the private working layer for everything not yet
 promoted; that layer's gitignore stance is unchanged.
 
+Astro is the public product surface because Emu198x needs more than a generated
+manual: campaign dashboards, system matrices, compatibility tables, and evidence
+pages need first-class layouts while long-form docs still come from Markdown.
+This also keeps the stack aligned with the Code Like It's 198x public site
+(`https://code198x.com`) rather than creating a second web toolchain for the
+family.
+
 Supporting work (part of the site skeleton, from the audit):
 
 - Rewrite the two stub on-ramp docs (`docs/architecture.md`,
@@ -42,6 +49,7 @@ Supporting work (part of the site skeleton, from the audit):
   pages (and crate `//!` docs) that currently violate this.
 - The site hosts the per-system accuracy dashboards (W2) and the compat
   database (W4), generated from nightly CI artifacts (static, no service).
+  Generated pages land as static Astro data/pages, not a runtime service.
 
 ## What this is NOT
 
@@ -68,4 +76,5 @@ Supporting work (part of the site skeleton, from the audit):
 
 | Date | Event |
 |------|-------|
-| 2026-07-03 | Captured. Decided in the best-in-class strategy session: mdBook; site body = docs/systems + decisions + promoted curated distillation subset; provenance review mandatory; promotion rides campaign order; private copy deleted at promotion. |
+| 2026-07-07 | Revised implementation choice from mdBook to Astro. Reason: the public site must carry campaign dashboards and product-facing system matrices, and Code Like It's 198x (`code198x.com`) already standardises the family on Astro for public web work. Source bodies, provenance review, promotion discipline, and private-knowledge boundary unchanged. |
+| 2026-07-03 | Captured. Initial strategy-session call: mdBook; site body = docs/systems + decisions + promoted curated distillation subset; provenance review mandatory; promotion rides campaign order; private copy deleted at promotion. |

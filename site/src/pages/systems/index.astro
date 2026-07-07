@@ -1,0 +1,94 @@
+---
+import BaseLayout from '@layouts/BaseLayout.astro';
+
+const primary = [
+  ['ZX Spectrum', 'Playable, 11 variants', 'Window + Capture + Script + MCP'],
+  ['Commodore 64', 'Fully functional verifier shell', 'Window + Capture + Script + MCP'],
+  ['Nintendo NES', 'SMB renders; 135/155 sweep', 'Window + Capture + Script + MCP'],
+  ['Commodore Amiga', 'Workbench 3.1 boots', 'Window + Capture + Script + MCP'],
+  ['Nintendo Game Boy', 'DMG verifier', 'Window + Capture + Script + MCP'],
+  ['Dragon 32', 'Boots BASIC', 'Window + Capture + Script + MCP'],
+];
+
+const extended = [
+  ['Atari 800XL', 'BASIC READY; types'],
+  ['MSX1', 'MSX BASIC prompt'],
+  ['Sega Master System', 'Alex Kidd title'],
+  ['Commodore VIC-20', 'READY; PRG autoload'],
+  ['Tatung Einstein', 'MOS prompt; types'],
+  ['Oric Atmos', 'BASIC Ready; types'],
+];
+---
+
+<BaseLayout title="System Matrix" description="Current Emu198x system support matrix.">
+  <main class="container systems">
+    <header>
+      <p class="eyebrow">Fleet status</p>
+      <h1>System matrix</h1>
+      <p>
+        Emu198x separates support into capability surfaces. Primary systems have
+        native windows; extended systems are headless but scriptable and
+        MCP-driven. Accuracy progress is tracked separately for every supported
+        system.
+      </p>
+    </header>
+
+    <section class="panel">
+      <h2>Primary systems</h2>
+      <table>
+        <thead><tr><th>System</th><th>Boot today</th><th>Surface</th></tr></thead>
+        <tbody>
+          {primary.map(([system, boot, surface]) => <tr><td>{system}</td><td>{boot}</td><td>{surface}</td></tr>)}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>Extended examples</h2>
+      <table>
+        <thead><tr><th>System</th><th>Boot today</th><th>Surface</th></tr></thead>
+        <tbody>
+          {extended.map(([system, boot]) => <tr><td>{system}</td><td>{boot}</td><td>Capture + Script + MCP</td></tr>)}
+        </tbody>
+      </table>
+      <p>
+        The full fleet index is available in the mirrored{' '}
+        <a href="/docs/systems/">system docs</a>; the fleet-wide evidence view is
+        on <a href="/accuracy/">Accuracy progress</a>.
+      </p>
+    </section>
+  </main>
+</BaseLayout>
+
+<style>
+  .systems {
+    padding-top: 4rem;
+  }
+
+  header {
+    max-width: 840px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(3rem, 8vw, 6rem);
+    line-height: 0.92;
+  }
+
+  header p:last-child {
+    font-size: 1.25rem;
+    line-height: 1.55;
+  }
+
+  .panel {
+    margin-top: 2rem;
+    border-radius: var(--radius);
+    padding: clamp(1rem, 3vw, 1.5rem);
+    background: var(--panel);
+    box-shadow: inset 0 0 0 1px var(--line), var(--shadow-sm);
+  }
+
+  h2 {
+    margin-top: 0;
+  }
+</style>

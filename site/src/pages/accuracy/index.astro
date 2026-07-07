@@ -1,0 +1,450 @@
+---
+import BaseLayout from '@layouts/BaseLayout.astro';
+
+const systems = [
+  {
+    group: 'Primary',
+    name: 'ZX Spectrum',
+    status: 'Strong',
+    progress: 86,
+    evidence: 'Z80 oracles green; 262/262 runtime tests; 8/8 boot goldens',
+    next: 'Strict Spectron PNG comparison; Scorpion screen rendering',
+    href: '/docs/systems/sinclair/zx-spectrum/',
+  },
+  {
+    group: 'Primary',
+    name: 'Commodore 64',
+    status: 'Strong',
+    progress: 78,
+    evidence: 'Tom Harte 100%; Dormann pass; Lorenz 250/265; 71/71 active runtime tests',
+    next: 'Wire gated D64/TAP software-autoload archive tests',
+    href: '/docs/systems/commodore/c64/',
+  },
+  {
+    group: 'Primary',
+    name: 'Nintendo NES',
+    status: 'Strong',
+    progress: 76,
+    evidence: 'nestest 8991/8991; 155-ROM sweep at 135 pass / 5 fail / 15 visual',
+    next: '01-implied CRC probe; OAMDMA + DMC DMA interleave',
+    href: '/docs/systems/nintendo/nes/',
+  },
+  {
+    group: 'Primary',
+    name: 'Commodore Amiga',
+    status: 'Strong',
+    progress: 72,
+    evidence: '68000 Tom Harte 100%; 68010/68020 Musashi 100%; Workbench 3.1 boots',
+    next: 'Broader OCS/ECS/AGA software validation and automated WB smoke',
+    href: '/docs/systems/commodore/amiga/',
+  },
+  {
+    group: 'Primary',
+    name: 'Nintendo Game Boy',
+    status: 'Good',
+    progress: 68,
+    evidence: '49,600 SM83 single-step tests pass; native DMG verifier',
+    next: 'LCD presentation tuning and broader real-game smoke coverage',
+    href: '/docs/systems/nintendo/game-boy/',
+  },
+  {
+    group: 'Primary',
+    name: 'Dragon 32',
+    status: 'Good',
+    progress: 60,
+    evidence: 'BASIC boot; CAS media; PAK snapshots; DragonDOS sector reads started',
+    next: 'Real DragonDOS ROM + VDK software smokes',
+    href: '/docs/systems/dragon/',
+  },
+  {
+    group: 'Extended',
+    name: 'Atari 800XL',
+    status: 'Operational',
+    progress: 56,
+    evidence: 'BASIC READY; keyboard typing; ANTIC/GTIA/POKEY/PIA queries',
+    next: 'Native verifier window and deeper software corpus',
+    href: '/docs/systems/atari/800xl/',
+  },
+  {
+    group: 'Extended',
+    name: 'MSX1',
+    status: 'Operational',
+    progress: 50,
+    evidence: 'MSX BASIC prompt; per-dot VDP path',
+    next: 'Native window and broader cart/disk validation',
+    href: '/docs/systems/msx/',
+  },
+  {
+    group: 'Extended',
+    name: 'Sega Master System',
+    status: 'Operational',
+    progress: 48,
+    evidence: 'Alex Kidd reaches title screen; Mode 4 path active',
+    next: 'Native window and mapper/software sweep',
+    href: '/docs/systems/sega/master-system/',
+  },
+  {
+    group: 'Extended',
+    name: 'Sord M5',
+    status: 'Operational',
+    progress: 48,
+    evidence: 'Boots through Z80 CTC; BASIC-I Ready; Dig Dug renders',
+    next: 'Native window and expanded cartridge/software tests',
+    href: '/docs/systems/sord/m5/',
+  },
+  {
+    group: 'Extended',
+    name: 'Tatung Einstein',
+    status: 'Operational',
+    progress: 45,
+    evidence: 'MOS prompt; keyboard types; WD1770 crate landed',
+    next: 'Source CP/M or Xtal DOS disk image for disk-boot verification',
+    href: '/docs/systems/tatung/einstein/',
+  },
+  {
+    group: 'Extended',
+    name: 'Commodore VIC-20',
+    status: 'Operational',
+    progress: 44,
+    evidence: 'BASIC READY; keyboard wired; PRG path',
+    next: 'Native window and VIC-I audio/video breadth',
+    href: '/docs/systems/commodore/vic-20/',
+  },
+  {
+    group: 'Extended',
+    name: 'Commodore PET',
+    status: 'Operational',
+    progress: 44,
+    evidence: 'BASIC READY; keyboard wired; CRTC path',
+    next: 'Native window and model/software sweep',
+    href: '/docs/systems/commodore/pet/',
+  },
+  {
+    group: 'Extended',
+    name: 'Acorn Electron',
+    status: 'Operational',
+    progress: 43,
+    evidence: 'BASIC prompt; keyboard executes PRINT path',
+    next: 'Native window and software/media validation',
+    href: '/docs/systems/acorn/electron/',
+  },
+  {
+    group: 'Extended',
+    name: 'Oric Atmos',
+    status: 'Operational',
+    progress: 43,
+    evidence: 'BASIC Ready; keyboard types and executes',
+    next: 'Native window and tape/software validation',
+    href: '/docs/systems/oric/atmos/',
+  },
+  {
+    group: 'Extended',
+    name: 'Memotech MTX',
+    status: 'Operational',
+    progress: 42,
+    evidence: 'BASIC Ready; ROM image completed via MEMU reference',
+    next: 'Native window and disk/software validation',
+    href: '/docs/systems/memotech/mtx/',
+  },
+  {
+    group: 'Extended',
+    name: 'Spectravideo SVI-328',
+    status: 'Operational',
+    progress: 42,
+    evidence: 'SV-BASIC Ok; keyboard wired through 8255 PPI',
+    next: 'Native window and software validation',
+    href: '/docs/systems/spectravideo/svi-328/',
+  },
+  {
+    group: 'Extended',
+    name: 'ColecoVision',
+    status: 'Boots',
+    progress: 38,
+    evidence: 'BIOS rainbow logo and prompt render',
+    next: 'Native window and cartridge sweep',
+    href: '/docs/systems/coleco/colecovision/',
+  },
+  {
+    group: 'Extended',
+    name: 'Sega SG-1000',
+    status: 'Boots',
+    progress: 38,
+    evidence: 'Othello Multivision title renders',
+    next: 'Native window and cartridge sweep',
+    href: '/docs/systems/sega/sg-1000/',
+  },
+  {
+    group: 'Extended',
+    name: 'Atari 2600',
+    status: 'Boots',
+    progress: 38,
+    evidence: 'Combat playfield renders; pixel-level TIA path',
+    next: 'Native window and cartridge compatibility pass',
+    href: '/docs/systems/atari/2600/',
+  },
+  {
+    group: 'Extended',
+    name: 'Atari 5200',
+    status: 'Boots',
+    progress: 34,
+    evidence: 'Pac-Man menu with partial render',
+    next: 'Complete shared Atari video/software validation',
+    href: '/docs/systems/atari/5200/',
+  },
+  {
+    group: 'Extended',
+    name: 'Atari 7800',
+    status: 'Boots',
+    progress: 32,
+    evidence: 'Cartridge accepts; MARIA path exists',
+    next: 'BIOS-driven boot and software validation',
+    href: '/docs/systems/atari/7800/',
+  },
+  {
+    group: 'Extended',
+    name: 'Jupiter Ace',
+    status: 'Operational',
+    progress: 40,
+    evidence: 'Forth prompt interactive; commands execute',
+    next: 'Native window and target Rachel readiness work',
+    href: '/docs/systems/jupiter/ace/',
+  },
+  {
+    group: 'Extended',
+    name: 'Acorn Atom',
+    status: 'Operational',
+    progress: 40,
+    evidence: 'Prompt types end-to-end; synthetic keyboard test in CI',
+    next: 'Native window and full MOS local harness',
+    href: '/docs/systems/acorn/atom/',
+  },
+  {
+    group: 'Extended',
+    name: 'ZX81',
+    status: 'Boots',
+    progress: 32,
+    evidence: 'Boot screen renders',
+    next: 'Tighter NMI/HALT timing and software validation',
+    href: '/docs/systems/sinclair/zx81/',
+  },
+  {
+    group: 'Extended',
+    name: 'ZX80',
+    status: 'Boots',
+    progress: 28,
+    evidence: 'FAST-mode boot screen',
+    next: 'SLOW-mode render and software validation',
+    href: '/docs/systems/sinclair/zx80/',
+  },
+  {
+    group: 'Extended',
+    name: 'Mattel Aquarius',
+    status: 'Boots',
+    progress: 34,
+    evidence: 'Microsoft BASIC title and cartridges render',
+    next: 'Native window and software validation',
+    href: '/docs/systems/mattel/aquarius/',
+  },
+  {
+    group: 'Extended',
+    name: 'Acorn BBC Micro',
+    status: 'Boots',
+    progress: 36,
+    evidence: 'MODE 7 banner renders; 1 MHz bus contention path',
+    next: 'SAA5050/BASIC II completeness and native window',
+    href: '/docs/systems/acorn/bbc-micro/',
+  },
+];
+
+const totals = {
+  primary: systems.filter((system) => system.group === 'Primary').length,
+  extended: systems.filter((system) => system.group === 'Extended').length,
+  average: Math.round(systems.reduce((sum, system) => sum + system.progress, 0) / systems.length),
+};
+---
+
+<BaseLayout title="Accuracy Progress" description="Fleet-wide Emu198x accuracy progress across supported systems.">
+  <main class="container accuracy">
+    <header>
+      <p class="eyebrow">Fleet-wide evidence</p>
+      <h1>Accuracy progress</h1>
+      <p>
+        Every supported system is fair game here. The table summarises current
+        public evidence: working surfaces, verification coverage, known gaps,
+        and the next area of accuracy work.
+      </p>
+    </header>
+
+    <section class="stat-grid" aria-label="Fleet accuracy summary">
+      <div class="stat"><strong>{totals.primary}</strong><span>primary systems</span></div>
+      <div class="stat"><strong>{totals.extended}</strong><span>extended systems</span></div>
+      <div class="stat"><strong>{totals.average}%</strong><span>average maturity score</span></div>
+      <div class="stat"><strong>All</strong><span>supported systems tracked</span></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Progress table</p>
+          <h2>Current evidence by system</h2>
+        </div>
+        <a href="/docs/status/current-system-usability/">Source status matrix</a>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>System</th>
+              <th>Tier</th>
+              <th>Status</th>
+              <th>Progress</th>
+              <th>Evidence</th>
+              <th>Next step</th>
+            </tr>
+          </thead>
+          <tbody>
+            {systems.map((system) => (
+              <tr>
+                <td><a href={system.href}>{system.name}</a></td>
+                <td>{system.group}</td>
+                <td><span class="status">{system.status}</span></td>
+                <td>
+                  <div class="meter" aria-label={`${system.name} accuracy progress ${system.progress}%`}>
+                    <span style={`width: ${system.progress}%`}></span>
+                  </div>
+                  <span class="percent">{system.progress}%</span>
+                </td>
+                <td>{system.evidence}</td>
+                <td>{system.next}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="notes">
+      <h2>How to read this</h2>
+      <p>
+        A high number means the system has stronger public evidence today:
+        CPU oracles, runtime tests, boot goldens, representative software,
+        and repeatable automation. It does not mean the machine is finished.
+      </p>
+      <p>
+        The score is a summary of visible evidence, not a compatibility
+        guarantee. Follow the system links for the detail behind each row.
+      </p>
+    </section>
+  </main>
+</BaseLayout>
+
+<style>
+  .accuracy {
+    padding-top: 4rem;
+  }
+
+  header {
+    max-width: 900px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(3.2rem, 9vw, 7rem);
+    line-height: 0.9;
+  }
+
+  header p:last-child {
+    font-size: clamp(1.1rem, 2vw, 1.4rem);
+    line-height: 1.58;
+  }
+
+  .stat-grid {
+    margin-top: 2rem;
+  }
+
+  .panel,
+  .notes {
+    margin-top: 2rem;
+    border-radius: var(--radius);
+    padding: clamp(1rem, 3vw, 1.5rem);
+    background: var(--panel);
+    box-shadow: inset 0 0 0 1px var(--line), var(--shadow-sm);
+  }
+
+  .panel-heading {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .panel-heading h2,
+  .notes h2 {
+    margin: 0;
+  }
+
+  .panel-heading a {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    font-weight: 650;
+    white-space: nowrap;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  td:first-child,
+  th:first-child {
+    min-width: 170px;
+  }
+
+  td:nth-child(5),
+  td:nth-child(6) {
+    min-width: 280px;
+  }
+
+  .status {
+    display: inline-flex;
+    min-height: 1.8rem;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0 0.65rem;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+
+  .meter {
+    width: 120px;
+    height: 0.55rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(23, 27, 33, 0.1);
+  }
+
+  .meter span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);
+  }
+
+  .percent {
+    display: inline-block;
+    margin-top: 0.35rem;
+    color: var(--ink-muted);
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 760px) {
+    .panel-heading {
+      align-items: start;
+      flex-direction: column;
+    }
+  }
+</style>

@@ -1,0 +1,30 @@
+---
+import DocLayout from '@layouts/DocLayout.astro';
+
+export async function getStaticPaths() {
+  const pages = import.meta.glob('../../content/docs/**/*.{md,mdx}');
+
+  return Object.keys(pages).filter((path) => !path.endsWith('/README.md')).map((path) => {
+    const slug = path
+      .replace('../../content/docs/', '')
+      .replace(/\.(md|mdx)$/, '')
+      .replace(/(^|\/)(index|README)$/, '$1')
+      .replace(/\/$/, '');
+
+    return {
+      params: { slug },
+      props: { loader: pages[path] },
+    };
+  });
+}
+
+const { loader } = Astro.props;
+const module = await loader();
+const { Content, frontmatter = {} } = module;
+const title = frontmatter.title ?? 'Emu198x Docs';
+const description = frontmatter.description ?? 'Public Emu198x documentation.';
+---
+
+<DocLayout title={title} description={description}>
+  <Content />
+</DocLayout>

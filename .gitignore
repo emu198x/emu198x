@@ -5,6 +5,12 @@ docs/Reference/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
+# Astro public site build outputs and generated Markdown mirror.
+site/dist/
+site/.astro/
+site/node_modules/
+site/src/content/docs/
+
 # Local-only working knowledge base. Only knowledge/decisions/ ships
 # publicly — the rest is LLM-curated working notes (chips/systems/
 # concepts/amiga/log.md) that stays out of the public repo.

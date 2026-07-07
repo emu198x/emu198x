@@ -9,9 +9,7 @@ and US **Timex** machines (TC2048, TC2068, TS2068), which are at varying
 completeness. Tape both **LOADs and SAVEs**; +3/Beta disks **read** (write is not
 yet implemented). The remaining distance to a fully complete Spectrum line is
 concentrated in three buckets — **disk-write + format breadth**, **the clones**,
-and **the peripheral catalogue** — plus a few accuracy edges. The full roadmap
-and effort estimate live in
-[`docs/plans/2026-06-08-spectrum-100-percent-plan.md`](../../../plans/2026-06-08-spectrum-100-percent-plan.md).
+and **the peripheral catalogue** — plus a few accuracy edges.
 
 ## What works
 

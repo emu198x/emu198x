@@ -1,58 +1,99 @@
 # MCP Integration
 
-> **Partially implemented.** Core tools (`boot`, `reset`, `run_frames`,
-> `screenshot`, `audio_capture`, input control, `query`, `query_paths`,
-> `query_memory`, `poke`, and media insertion where supported) work across the
-> current runnable packages. Save states, breakpoint conditions, push events,
-> and richer typed query helpers are not implemented yet.
+MCP is the agent and automation surface for Emu198x. It lets a tool boot a
+machine, run frames, press keys, capture output, and inspect chip state without
+knowing each machine's internal timing loop.
 
-## Overview
+The important mental model:
 
-Each emulator exposes an MCP (Model Context Protocol) server that allows Claude and other AI tools to interact with the running system.
+- the emulator core remains hardware-specific
+- the MCP server is a thin control and inspection adapter
+- observability is path-based, so tools can discover what a machine exposes
 
-## Current Tooling Shape
+## What works today
 
-The live MCP servers expose a small common core and use path-based observability
-instead of separate `query_registers`, `query_video`, and `query_audio` calls.
+Core tools are live across the current runnable packages:
 
-- `query`
-  Fetches one observable value by path, for example `cpu.pc`,
-  `agnus.beamcon0`, `vic.line`, or `ppu.scanline`.
-- `query_paths`
-  Lists the available observable paths, optionally filtered by prefix such as
-  `cpu.`, `agnus.`, `denise.mode.`, `vic.`, or `ppu.`.
-- `query_memory`
-  Reads raw memory ranges when structured observability is not enough.
+| Need | Use |
+| --- | --- |
+| Boot or reset a machine | `boot`, `reset` |
+| Advance execution | `run_frames`, `run_until_pc`, `run_until_mem_change` where supported |
+| Capture output | `screenshot`, `audio_capture` |
+| Drive input | keyboard, joystick, and media tools where supported |
+| Inspect state | `query_paths`, `query`, `query_memory` |
+| Patch memory | `poke` |
 
-The tool list below still describes the broader long-term MCP surface we want.
+Not all planned tools are implemented yet. Save states, breakpoint conditions,
+push events, and richer typed helpers are still future work.
 
-For the current Spectrum runner, the future `get_screen_text` and
-`boot_detected` helpers can already be synthesized through `query`:
+## The query model
 
-- `screen.text.rows`, `screen.text.cols`, and `screen.text.lines`
-- `boot.detected`, `boot.reason`, and `boot.row`
+The stable pattern is:
 
-The current Spectrum implementation derives text rows by matching the bitmap
-screen against the resident ROM font. That is suitable for ROM text screens and
-automation hooks such as boot detection; it is not a generic OCR layer for
-arbitrary graphics output. The 48K ROM copyright glyph is normalized to Unicode
-`©` so the exported text stays one cell wide.
+1. Ask the machine what it can expose with `query_paths`.
+2. Pick a concrete path.
+3. Read that value with `query`.
 
-### Recommended Query Flow
+Use narrow prefixes so the response stays useful:
 
-For agents and external tooling, the stable pattern is:
+```json
+{"jsonrpc":"2.0","id":1,"method":"query_paths","params":{"prefix":"cpu."}}
+{"jsonrpc":"2.0","id":2,"method":"query","params":{"path":"cpu.pc"}}
+```
 
-1. call `query_paths` with a narrow prefix such as `cpu.`, `vic.`, `ppu.`,
-   `agnus.`, or `denise.mode.`
-2. select the concrete path you need from the returned list
-3. call `query` with that path
+Common prefixes include:
 
-Example:
+| Prefix | Typical meaning |
+| --- | --- |
+| `cpu.` | CPU registers, program counter, instruction state |
+| `screen.` | Text extraction or screen-derived helpers where available |
+| `boot.` | Boot detection helpers where available |
+| `vic.` | C64 VIC-II state |
+| `ppu.` | NES PPU state |
+| `agnus.` | Amiga Agnus state |
+| `denise.` | Amiga Denise display state |
+
+For raw memory, use `query_memory` instead of `query`.
+
+```json
+{"jsonrpc":"2.0","id":3,"method":"query_memory","params":{"address":49152,"length":16}}
+```
+
+## Common flows
+
+### Check whether a machine has booted
+
+On machines that expose boot helpers, read:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"query","params":{"path":"boot.detected"}}
+{"jsonrpc":"2.0","id":2,"method":"query","params":{"path":"boot.reason"}}
+```
+
+For the Spectrum runner, text extraction is derived from the bitmap screen using
+the resident ROM font. It is useful for ROM text screens and automation hooks;
+it is not general-purpose OCR for arbitrary graphics.
+
+### Inspect chip state
+
+Discover paths under the chip prefix:
 
 ```json
 {"jsonrpc":"2.0","id":1,"method":"query_paths","params":{"prefix":"agnus."}}
 {"jsonrpc":"2.0","id":2,"method":"query","params":{"path":"agnus.beamcon0"}}
 ```
+
+### Run to a condition
+
+Use the system-specific execution helpers when available:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"run_until_pc","params":{"pc":49152}}
+{"jsonrpc":"2.0","id":2,"method":"run_until_mem_change","params":{"address":1024,"length":40}}
+```
+
+These tools are useful for compatibility sweeps because they let an agent wait
+for real machine state instead of sleeping for an arbitrary number of frames.
 
 ## Architecture
 
@@ -70,7 +111,11 @@ Example:
 
 The MCP server is a thin translation layer. It does not contain emulation logic.
 
-## Tools
+## Tool reference
+
+The reference below includes the live core and the broader long-term surface.
+When a tool is not yet implemented for a system, prefer the path-based `query`
+flow above.
 
 ### System Control
 

@@ -1,0 +1,58 @@
+---
+import BaseLayout from '@layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="Docs" description="Public Emu198x documentation index.">
+  <main class="container docs-index">
+    <p class="eyebrow">Public docs</p>
+    <h1>Documentation</h1>
+    <div class="link-grid">
+      <a href="/docs/changelog/">Changelog</a>
+      <a href="/docs/status/current-system-usability/">Current usability matrix</a>
+      <a href="/accuracy/">Accuracy progress</a>
+      <a href="/docs/systems/">Fleet index</a>
+      <a href="/docs/features/mcp/">MCP integration</a>
+      <a href="/docs/features/scripting/">Scripting</a>
+      <a href="/docs/features/capture/">Capture</a>
+      <a href="/docs/features/observability/">Observability</a>
+    </div>
+  </main>
+</BaseLayout>
+
+<style>
+  .docs-index {
+    padding-top: 4rem;
+  }
+
+  h1 {
+    margin: 0 0 2rem;
+    font-size: clamp(3rem, 8vw, 6rem);
+    line-height: 0.92;
+  }
+
+  .link-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 0.8rem;
+  }
+
+  .link-grid a {
+    display: flex;
+    min-height: 76px;
+    align-items: center;
+    border-radius: var(--radius);
+    padding: 1rem;
+    background: var(--panel);
+    color: var(--ink);
+    font-weight: 700;
+    text-decoration: none;
+    box-shadow: inset 0 0 0 1px var(--line), var(--shadow-sm);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .link-grid a:hover {
+      color: var(--accent-strong);
+      box-shadow: inset 0 0 0 1px var(--accent), var(--shadow-sm);
+    }
+  }
+</style>

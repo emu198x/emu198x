@@ -1,0 +1,47 @@
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <p>Emu198x is part of the 198x family. The teaching site is <a href="https://code198x.com">Code Like It's 198x</a>.</p>
+    <a href="https://github.com/emu198x/emu198x">GitHub</a>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    margin-top: 5rem;
+    border-top: 1px solid var(--line);
+    padding: 2rem 0 calc(2rem + env(safe-area-inset-bottom));
+    background: var(--paper-strong);
+  }
+
+  .footer-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  p {
+    max-width: 720px;
+    margin: 0;
+    font-size: 0.94rem;
+  }
+
+  .footer-inner > a {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    color: var(--ink);
+    font-weight: 650;
+  }
+
+  p a {
+    font-weight: 650;
+  }
+
+  @media (max-width: 680px) {
+    .footer-inner {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+  }
+</style>

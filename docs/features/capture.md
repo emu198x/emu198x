@@ -1,9 +1,7 @@
 # Capture
 
-> **Design spec with partial implementation.** Capture works today through the
-> per-system runners plus MCP or script methods. Shell snippets labeled
-> `Planned unified CLI` show the intended UX for a future wrapper command; that
-> command does not exist today.
+> **Partially implemented.** Capture works today through per-system runners
+> plus MCP or script methods.
 
 ## Overview
 
@@ -22,18 +20,12 @@ in [mcp.md](mcp.md).
 | WAV capture           | `audio_capture` via script or MCP                    |
 | Video or AV recording | `start_recording` / `stop_recording` via MCP/script  |
 
-All remaining shell snippets in this file use the planned unified CLI form
-rather than the current runner commands.
-
 ## Screenshots
 
-### Planned Unified CLI
+### Current Paths
 
-```bash
-emu198x-cli -s c64 screenshot output.png
-emu198x-cli -s c64 screenshot --format bmp output.bmp
-emu198x-cli -s c64 screenshot --scale 2 output.png
-```
+Use `screenshot` from script or MCP. Per-system runners expose the same capture
+surface through their headless mode.
 
 ### Formats
 
@@ -69,21 +61,10 @@ let png_bytes = emulator.screenshot_png_scaled(2)?;
 
 ## Video Recording
 
-### Planned Unified CLI
+### Current Paths
 
-```bash
-# Start recording
-emu198x-cli -s c64 record start output.mp4
-
-# Stop recording
-emu198x-cli -s c64 record stop
-
-# Record specific duration
-emu198x-cli -s c64 \
-  record start output.mp4 \
-  run --frames 600 \
-  record stop
-```
+Use `start_recording`, `run_frames`, and `stop_recording` through script or
+MCP.
 
 ### Formats
 
@@ -136,15 +117,10 @@ emulator.stop_recording()?;
 
 ## Audio Capture
 
-### Planned Unified CLI
+### Current Paths
 
-```bash
-# Standalone audio
-emu198x-cli -s c64 audio-capture output.wav
-
-# With video
-emu198x-cli -s c64 record start output.mp4 --audio
-```
+Use `audio_capture` for standalone WAV output, or enable audio on a recording
+session through script or MCP.
 
 ### Formats
 

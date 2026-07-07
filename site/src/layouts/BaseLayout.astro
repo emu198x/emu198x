@@ -1,0 +1,32 @@
+---
+import SiteFooter from '@components/SiteFooter.astro';
+import SiteHeader from '@components/SiteHeader.astro';
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = 'Emu198x',
+  description = 'Public documentation for the Emu198x multi-system emulator suite.',
+} = Astro.props;
+
+const pageTitle = title === 'Emu198x' ? title : `${title} - Emu198x`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <SiteHeader />
+    <slot />
+    <SiteFooter />
+  </body>
+</html>
