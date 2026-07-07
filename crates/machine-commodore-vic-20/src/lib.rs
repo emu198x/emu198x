@@ -24,7 +24,8 @@
 //!   `$A000` — `$A000-$BFFF` is the BLK5 cartridge block)
 //!
 //! The VIC chip lives in the dedicated [`mos_vic_i`] chip crate
-//! (text-mode video only; audio is stubbed). Two MOS 6522 VIAs handle
+//! (text-mode video plus the three-tone + noise sound sources). Two MOS
+//! 6522 VIAs handle
 //! I/O: VIA #1 at `$9110-$911F` (RESTORE key → NMI, user port) and
 //! VIA #2 at `$9120-$912F` (keyboard scan + Timer 1 → the 60 Hz system
 //! IRQ that drives the KERNAL keyboard/jiffy handler). The keyboard
@@ -374,6 +375,13 @@ impl Vic20 {
     #[must_use]
     pub fn vic(&self) -> &Vic6560 {
         &self.vic
+    }
+
+    /// Drains the VIC's host-rate audio samples produced since the last call
+    /// (mono f32). The runtime pumps these into the host audio sink each frame.
+    #[must_use]
+    pub fn take_vic_audio(&mut self) -> Vec<f32> {
+        self.vic.take_audio()
     }
 
     #[must_use]
