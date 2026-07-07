@@ -549,6 +549,10 @@ name = "common-commodore-c64"
 version = "0.2.0"
 
 [[package]]
+name = "common-commodore-drive-gcr"
+version = "0.2.0"
+
+[[package]]
 name = "common-commodore-iec"
 version = "0.2.0"
 dependencies = [
@@ -2118,6 +2122,7 @@ dependencies = [
 name = "machine-commodore-1541"
 version = "0.2.0"
 dependencies = [
+ "common-commodore-drive-gcr",
  "common-commodore-iec",
  "format-commodore-c64-d64",
  "format-commodore-c64-g64",
@@ -2131,6 +2136,7 @@ dependencies = [
 name = "machine-commodore-1571"
 version = "0.2.0"
 dependencies = [
+ "common-commodore-drive-gcr",
  "common-commodore-iec",
  "format-commodore-c64-d64",
  "format-commodore-c64-d71",
