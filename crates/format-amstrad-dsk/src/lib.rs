@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn parses_standard_dsk() {
         let data = build_minimal_dsk();
-        let image = parse(&data).unwrap();
+        let image = parse(&data).expect("the DSK fixture parses");
         assert_eq!(image.sides, 1);
         assert_eq!(image.tracks_per_side, 1);
         assert_eq!(image.tracks[0].len(), 1);
@@ -272,8 +272,8 @@ mod tests {
     #[test]
     fn lookup_by_sector_id() {
         let data = build_minimal_dsk();
-        let image = parse(&data).unwrap();
-        let s = image.sector(0, 0, 5).unwrap();
+        let image = parse(&data).expect("the DSK fixture parses");
+        let s = image.sector(0, 0, 5).expect("sector 5 is present");
         assert_eq!(s.id, 5);
         assert_eq!(s.data[0], 5);
     }
@@ -323,14 +323,20 @@ mod tests {
             buf[off] = id;
         }
 
-        let image = parse(&buf).unwrap();
+        let image = parse(&buf).expect("the DSK fixture parses");
         let track = &image.tracks[0][0];
         // Physical order matches the SIL.
         assert_eq!(track.sectors[0].id, 0xC3);
         assert_eq!(track.sectors[1].id, 0xC1);
         assert_eq!(track.sectors[2].id, 0xC2);
         // Lookup by ID hits the right sector.
-        assert_eq!(image.sector(0, 0, 0xC1).unwrap().data[0], 0xC1);
+        assert_eq!(
+            image
+                .sector(0, 0, 0xC1)
+                .expect("sector 0xC1 is present")
+                .data[0],
+            0xC1
+        );
     }
 
     /// EDSK protection tracks (Tetris's track 12, for instance) list

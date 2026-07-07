@@ -10,3 +10,6 @@ repository.workspace = true
 format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines", version = "0.2.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
+
+[lints]
+workspace = true

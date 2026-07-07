@@ -15,3 +15,6 @@ peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", versi
 scorpion-ula = { path = "../scorpion-ula", version = "0.2.0" }
 serde = { workspace = true }
 zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
+
+[lints]
+workspace = true

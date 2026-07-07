@@ -823,7 +823,9 @@ impl Upd765a {
                 self.result_buf.clear();
                 if let Some(drive) = (0..4).find(|d| self.seek_pending[*d].is_some()) {
                     // Drain one pending seek interrupt.
-                    let st0 = self.seek_pending[drive].take().unwrap();
+                    let st0 = self.seek_pending[drive]
+                        .take()
+                        .expect("the find above matched seek_pending[drive].is_some()");
                     self.st0 = st0;
                     self.result_buf.push(st0);
                     self.result_buf.push(self.track[drive]);

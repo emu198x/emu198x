@@ -281,7 +281,7 @@ mod tests {
     fn decompress_simple() {
         // ED ED 03 42 = repeat 0x42 three times
         let data = vec![0xED, 0xED, 0x03, 0x42];
-        let out = decompress_page(&data).unwrap();
+        let out = decompress_page(&data).expect("the page decompresses");
         assert_eq!(out[0], 0x42);
         assert_eq!(out[1], 0x42);
         assert_eq!(out[2], 0x42);
@@ -298,7 +298,7 @@ mod tests {
         data[7] = 0x80; // PC high = $8000 (non-zero = v1)
         data[12] = 0x00; // Byte 12: not compressed
 
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.pc, 0x8000);
         assert_eq!(snap.model, SnapshotModel::Spectrum48K);
         assert_eq!(snap.pages.len(), 3);
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn parse_z80_rejects_short_buffer() {
         let data = vec![0u8; 29];
-        let err = parse_z80(&data).unwrap_err();
+        let err = parse_z80(&data).expect_err("the malformed z80 fixture is rejected");
         assert!(err.contains("too short"));
     }
 
@@ -362,7 +362,7 @@ mod tests {
         // IM=2
         data[29] = 0x02;
 
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.af, 0x1234);
         assert_eq!(snap.bc, 0x5678);
         assert_eq!(snap.hl, 0x9ABC);
@@ -394,7 +394,7 @@ mod tests {
         let mut data = v1_header();
         data[12] = 0xFF;
         data.extend(vec![0u8; 49152]);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         // byte=1: bit0 -> R bit7 = 1; bits1-3 -> border = 0; bit5 -> compressed = 0
         assert_eq!(snap.r, 0x80);
         assert_eq!(snap.border, 0);
@@ -405,7 +405,7 @@ mod tests {
         let mut data = v1_header();
         // Only 100 bytes of body — well short of 49152.
         data.extend(vec![0u8; 100]);
-        let err = parse_z80(&data).unwrap_err();
+        let err = parse_z80(&data).expect_err("the malformed z80 fixture is rejected");
         assert!(err.contains("too short"));
     }
 
@@ -417,7 +417,7 @@ mod tests {
         data[12] = 0x20; // compressed flag (bit5)
         // body: ED ED 04 AA  then end marker 00 ED ED 00
         data.extend(vec![0xED, 0xED, 0x04, 0xAA, 0x00, 0xED, 0xED, 0x00]);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         // First four bytes of $4000-$7FFF (page 8) come from the RLE.
         let page8 = &snap.pages[0].1;
         assert_eq!(&page8[..4], &[0xAA, 0xAA, 0xAA, 0xAA]);
@@ -431,7 +431,7 @@ mod tests {
         data[12] = 0x20;
         // Two literal bytes then end marker.
         data.extend(vec![0x12, 0x34, 0x00, 0xED, 0xED, 0x00]);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         let page8 = &snap.pages[0].1;
         assert_eq!(page8[0], 0x12);
         assert_eq!(page8[1], 0x34);
@@ -445,7 +445,7 @@ mod tests {
         let mut data = vec![0u8; 31];
         data[6] = 0;
         data[7] = 0;
-        let err = parse_z80(&data).unwrap_err();
+        let err = parse_z80(&data).expect_err("the malformed z80 fixture is rejected");
         assert!(err.contains("v2/v3 header"));
     }
 
@@ -455,7 +455,7 @@ mod tests {
         // but short of the extension itself.
         let mut data = vec![0u8; 34];
         data[30] = 23;
-        let err = parse_z80(&data).unwrap_err();
+        let err = parse_z80(&data).expect_err("the malformed z80 fixture is rejected");
         assert!(err.contains("extended header"));
     }
 
@@ -470,7 +470,7 @@ mod tests {
         let mut data = vec![0u8; 32];
         data[6] = 0;
         data[7] = 0;
-        let err = parse_z80(&data).unwrap_err();
+        let err = parse_z80(&data).expect_err("the malformed z80 fixture is rejected");
         assert!(err.contains("v2/v3 header"), "got {err:?}");
     }
 
@@ -485,7 +485,7 @@ mod tests {
     fn v3_header_54_byte_extension_does_not_read_past_buffer() {
         let data = v2_header(54, 0);
         assert_eq!(data.len(), 86, "test fixture sanity");
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.port_1ffd, 0);
     }
 
@@ -493,7 +493,7 @@ mod tests {
     fn v2_header_23_byte_extension_parses_48k_default() {
         // ext_len = 23, hw_mode = 0 → 48K
         let data = v2_header(23, 0);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::Spectrum48K);
         // ay_register stays 0 (ext_len < 25), ay_regs all zeros.
         assert_eq!(snap.ay_register, 0);
@@ -505,84 +505,84 @@ mod tests {
     #[test]
     fn v2_hw_mode_1_is_48k_with_if1() {
         let data = v2_header(23, 1);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::Spectrum48K);
     }
 
     #[test]
     fn v2_hw_mode_2_samram_treated_as_48k() {
         let data = v2_header(23, 2);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::Spectrum48K);
     }
 
     #[test]
     fn v2_hw_mode_3_is_128k() {
         let data = v2_header(23, 3);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::Spectrum128K);
     }
 
     #[test]
     fn v2_hw_mode_4_is_128k_with_if1() {
         let data = v2_header(23, 4);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::Spectrum128K);
     }
 
     #[test]
     fn v2_hw_mode_unknown_falls_back_to_48k() {
         let data = v2_header(23, 99);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::Spectrum48K);
     }
 
     #[test]
     fn v3_hw_mode_5_is_plus2_returning_128k_alias() {
         let data = v2_header(55, 5);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::Spectrum128K);
     }
 
     #[test]
     fn v3_hw_mode_6_is_plus2a() {
         let data = v2_header(55, 6);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::SpectrumPlus2A);
     }
 
     #[test]
     fn v3_hw_mode_7_is_plus2a() {
         let data = v2_header(55, 7);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::SpectrumPlus2A);
     }
 
     #[test]
     fn v3_hw_mode_9_is_pentagon() {
         let data = v2_header(55, 9);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::Pentagon128);
     }
 
     #[test]
     fn v3_hw_mode_10_is_scorpion() {
         let data = v2_header(55, 10);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::Scorpion256);
     }
 
     #[test]
     fn v3_hw_mode_12_is_plus2() {
         let data = v2_header(55, 12);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::SpectrumPlus2);
     }
 
     #[test]
     fn v3_hw_mode_13_is_plus2a() {
         let data = v2_header(55, 13);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.model, SnapshotModel::SpectrumPlus2A);
     }
 
@@ -591,7 +591,7 @@ mod tests {
         // ext_len=25 → ay_register at offset 38 is decoded; ay_regs not.
         let mut data = v2_header(25, 0);
         data[38] = 0x07;
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.ay_register, 0x07);
         assert_eq!(snap.ay_regs, [0; 16]);
     }
@@ -615,7 +615,7 @@ mod tests {
         // port_1ffd at offset 86
         data[86] = 0xC3;
 
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.pc, 0x1234);
         assert_eq!(snap.port_7ffd, 0x10);
         assert_eq!(snap.ay_register, 0x05);
@@ -638,7 +638,7 @@ mod tests {
         payload[0] = 0x42;
         payload[16383] = 0xC3;
         data.extend(&payload);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.pages.len(), 1);
         assert_eq!(snap.pages[0].0, 8);
         assert_eq!(snap.pages[0].1[0], 0x42);
@@ -655,7 +655,7 @@ mod tests {
         data.push(8);
         // Only 100 bytes of payload, not 16384.
         data.extend(vec![0u8; 100]);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.pages.len(), 0);
     }
 
@@ -669,7 +669,7 @@ mod tests {
         data.push(0);
         data.push(8);
         data.extend(&body);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.pages.len(), 1);
         let page = &snap.pages[0].1;
         assert_eq!(page[0], 0xAA);
@@ -686,7 +686,7 @@ mod tests {
         data.push(0);
         data.push(8);
         data.extend(vec![0u8; 50]);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.pages.len(), 0);
     }
 
@@ -705,7 +705,7 @@ mod tests {
         data.push(0);
         data.push(5);
         data.extend(&b2);
-        let snap = parse_z80(&data).unwrap();
+        let snap = parse_z80(&data).expect("the z80 fixture parses");
         assert_eq!(snap.pages.len(), 2);
         assert_eq!(snap.pages[0].0, 8);
         assert_eq!(snap.pages[0].1[0], 0x11);
@@ -721,7 +721,7 @@ mod tests {
     #[test]
     fn decompress_page_literal_only_pads_to_16k() {
         let data = vec![0x12, 0x34, 0x56];
-        let out = decompress_page(&data).unwrap();
+        let out = decompress_page(&data).expect("the page decompresses");
         assert_eq!(out.len(), 16384);
         assert_eq!(out[0], 0x12);
         assert_eq!(out[1], 0x34);
@@ -739,7 +739,7 @@ mod tests {
         for _ in 0..100 {
             data.extend_from_slice(&[0xED, 0xED, 0xFF, 0x42]);
         }
-        let out = decompress_page(&data).unwrap();
+        let out = decompress_page(&data).expect("the page decompresses");
         assert_eq!(out.len(), 16384);
         assert_eq!(out[0], 0x42);
         assert_eq!(out[16383], 0x42);
@@ -750,7 +750,7 @@ mod tests {
         // ED ED at the very end without count/value bytes — the i+3<len
         // guard fails, so each byte is taken literally.
         let data = vec![0xED, 0xED];
-        let out = decompress_page(&data).unwrap();
+        let out = decompress_page(&data).expect("the page decompresses");
         assert_eq!(out[0], 0xED);
         assert_eq!(out[1], 0xED);
     }
@@ -759,7 +759,7 @@ mod tests {
     fn decompress_v1_recognises_end_marker_and_pads() {
         // 00 ED ED 00 = end marker; rest of buffer fills with zeros.
         let data = vec![0x12, 0x34, 0x00, 0xED, 0xED, 0x00, 0x99, 0x99];
-        let out = decompress_v1(&data).unwrap();
+        let out = decompress_v1(&data).expect("the v1 body decompresses");
         assert_eq!(out.len(), 49152);
         assert_eq!(out[0], 0x12);
         assert_eq!(out[1], 0x34);
@@ -775,7 +775,7 @@ mod tests {
             0x88, // literal
             0x00, 0xED, 0xED, 0x00, // end marker
         ];
-        let out = decompress_v1(&data).unwrap();
+        let out = decompress_v1(&data).expect("the v1 body decompresses");
         assert_eq!(&out[..6], &[0x77, 0x77, 0x77, 0x77, 0x77, 0x88]);
     }
 }
