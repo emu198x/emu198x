@@ -256,6 +256,7 @@ impl WgpuVideoPresenter {
             power_preference: wgpu::PowerPreference::LowPower,
             force_fallback_adapter: false,
             compatible_surface: Some(&surface),
+            apply_limit_buckets: false,
         }))
         .map_err(|_| VideoPresenterError::NoAdapter)?;
         let (device, queue) =
@@ -285,6 +286,7 @@ impl WgpuVideoPresenter {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width,
             height,
             present_mode,
@@ -528,7 +530,7 @@ impl WgpuVideoPresenter {
             pass.draw(0..6, 0..1);
         }
         self.queue.submit(Some(encoder.finish()));
-        output.present();
+        self.queue.present(output);
         Ok(())
     }
 }
