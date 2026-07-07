@@ -83,9 +83,21 @@ pub struct M6502 {
     /// per `knowledge/decisions/nes-test-oracle-priority.md`).
     #[serde(default = "default_lxa_magic")]
     pub(crate) lxa_magic: u8,
+    /// ANE (`$8B`) magic constant: `A = (A | magic) & X & imm`. The same
+    /// unstable-magic class as `lxa_magic`, so it takes the same per-variant
+    /// values: `$EE` on the NMOS 6502/6510 (Tom Harte locks this), `$FF` on the
+    /// 2A03 by analogy with LXA's Mesen2-stabilised form (ANE is immediate, so
+    /// no repo test independently pins the 2A03 value, and no NES software uses
+    /// it — revisit against a Mesen2 immediate oracle if one is ever added).
+    #[serde(default = "default_ane_magic")]
+    pub(crate) ane_magic: u8,
 }
 
 fn default_lxa_magic() -> u8 {
+    0xEE
+}
+
+fn default_ane_magic() -> u8 {
     0xEE
 }
 
@@ -127,8 +139,10 @@ impl M6502 {
             suppress_prev_nmi_stage: false,
             branch_nmi_stage_skip: 0,
             // The 2A03's LXA is the stable A = X = imm (magic $FF);
-            // NMOS 6502/6510 silicon measures $EE (VICE / Lorenz).
+            // NMOS 6502/6510 silicon measures $EE (VICE / Lorenz). ANE is the
+            // same class and takes the same per-variant magic.
             lxa_magic: if decimal_enabled { 0xEE } else { 0xFF },
+            ane_magic: if decimal_enabled { 0xEE } else { 0xFF },
         }
     }
 
@@ -846,5 +860,33 @@ mod tests {
         // PC must not have advanced past the JAM into the LDA.
         assert_eq!(fixture.cpu.regs.pc, pc_after_jam);
         assert_ne!(fixture.cpu.regs.a, 0x42);
+    }
+
+    #[test]
+    fn jam_ignores_nmi_and_irq_until_reset() {
+        let mut fixture = Fixture::with_program(0x0400, &[0x02]); // JAM
+        fixture.boot();
+        fixture.run_one(); // execute the JAM
+        assert!(fixture.cpu.halted, "JAM should halt the CPU");
+        let pc_after_jam = fixture.cpu.regs.pc;
+
+        // Force a pending NMI edge and an unmasked IRQ. A jammed 6502 wedges
+        // until RESET — it services neither, so nothing should vector.
+        fixture.cpu.prev_pending_nmi = true;
+        fixture.cpu.pending_nmi = true;
+        fixture.cpu.pending_irq_line = true;
+        fixture.cpu.pending_i_mask = false;
+        for _ in 0..16 {
+            fixture.step();
+        }
+        assert!(fixture.cpu.halted, "the wedge survives NMI and IRQ");
+        assert_eq!(
+            fixture.cpu.regs.pc, pc_after_jam,
+            "a jammed CPU must not vector an interrupt"
+        );
+
+        // Only RESET recovers it.
+        fixture.cpu.reset();
+        assert!(!fixture.cpu.halted, "RESET clears the wedge");
     }
 }

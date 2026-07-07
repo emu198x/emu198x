@@ -3,8 +3,6 @@ use crate::cycle::{self, AddrMode, OpCategory, Operation};
 use crate::registers::*;
 
 impl M6502 {
-    const ANE_MAGIC: u8 = 0xEE;
-
     pub fn tick(&mut self) -> bool {
         // RDY pin: if external hardware (e.g. VIC-II during a bad line)
         // holds RDY low during a read cycle, the NMOS 6502 stalls with
@@ -50,6 +48,14 @@ impl M6502 {
         // penultimate cycle — giving CLI/SEI/PLP their one-instruction
         // delay for free.
         if self.cs.cycle == 0 {
+            // A JAM/KIL opcode wedges the CPU until RESET — it does not service
+            // NMI or IRQ, so check `halted` before the interrupt vectors. (RESET
+            // clears `halted` in reset().)
+            if self.halted {
+                self.schedule_read(self.regs.pc);
+                return true;
+            }
+
             if self.prev_pending_nmi {
                 self.pending_nmi = false;
                 self.cs.opcode = 0x00;
@@ -89,11 +95,6 @@ impl M6502 {
                 return false;
             }
 
-            if self.halted {
-                self.schedule_read(self.regs.pc);
-                return true;
-            }
-
             let opcode = self.data_in;
             self.regs.pc = self.regs.pc.wrapping_add(1);
             self.cs.opcode = opcode;
@@ -113,7 +114,15 @@ impl M6502 {
 
         let info = match self.cs.info {
             Some(info) => info,
-            None => unreachable!("6502 instruction cycle without decoded opcode"),
+            // A mid-instruction cycle with no decoded opcode is an internal
+            // invariant break that should never happen — recover to an
+            // instruction boundary rather than panic in a library core
+            // (RULES.md Rule 19).
+            None => {
+                self.cs.cycle = 0;
+                self.schedule_read(self.regs.pc);
+                return true;
+            }
         };
 
         let done = match info.addr_mode {
@@ -936,7 +945,9 @@ impl M6502 {
                 self.regs.set_flag(FLAG_C, ax >= data);
             }
             Operation::Ane => {
-                self.regs.a = (self.regs.a | Self::ANE_MAGIC) & self.regs.x & data;
+                // ANE (`$8B`, also XAA) is the same unstable-magic class as LXA:
+                // `A = (A | magic) & X & imm`, magic set per CPU variant.
+                self.regs.a = (self.regs.a | self.ane_magic) & self.regs.x & data;
                 self.regs.set_nz(self.regs.a);
             }
             Operation::Lxa => {
