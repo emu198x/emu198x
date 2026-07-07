@@ -2,9 +2,8 @@
 //!
 //! The VIC-20 needs three ROMs at construction (KERNAL, BASIC, char ROM).
 //! The runtime defers construction until all three arrive via
-//! `set_roms` / `from_firmware`. The VIC chip's audio output is not
-//! yet routed through a host buffer; the runtime emits empty audio
-//! packets per frame.
+//! `set_roms` / `from_firmware`. Each frame it drains the VIC's three-tone +
+//! noise audio and pumps it into the host audio sink.
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
@@ -309,11 +308,11 @@ impl MachineCore for Vic20Runtime {
         }
 
         while self.time < target {
-            let ticks = self
-                .machine
-                .as_mut()
-                .expect("machine checked above")
-                .run_frame();
+            let machine = self.machine.as_mut().expect("machine checked above");
+            let ticks = machine.run_frame();
+            // Drain the VIC's audio for the frame just run before releasing the
+            // machine borrow for the framebuffer conversion below.
+            let audio = machine.take_vic_audio();
             self.time = self.time.saturating_add(ticks);
             self.update_rgba_framebuffer();
 
@@ -326,12 +325,11 @@ impl MachineCore for Vic20Runtime {
                 pixels: &self.rgba_framebuffer,
             })?;
 
-            // VIC audio not yet routed.
             host.audio_sink.push_audio(AudioPacket {
                 timestamp: self.time,
                 sample_rate: AUDIO_SAMPLE_RATE,
                 channels: 1,
-                samples: &[],
+                samples: &audio,
             })?;
         }
 
