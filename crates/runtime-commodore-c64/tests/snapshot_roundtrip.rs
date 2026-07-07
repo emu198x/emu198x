@@ -135,6 +135,38 @@ fn snapshot_round_trip_preserves_attached_drive_state() {
 }
 
 #[test]
+fn snapshot_round_trip_preserves_ram_expansion_and_mouse_bookkeeping() {
+    // Regression: the runtime-level "stays plugged in across a reset"
+    // bookkeeping (REU/GeoRAM sizes, the 1351 mouse port, the cartridge image)
+    // was not in the snapshot envelope, so a restored snapshot dropped it on
+    // the next reset. A REU in the expansion port and a mouse in a control port
+    // are independent, so both can be attached at once.
+    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+    runtime.set_reu(Some(512));
+    runtime.set_mouse_1351(Some(1));
+    assert_eq!(runtime.reu_kb(), Some(512));
+    assert_eq!(runtime.mouse_1351_port(), Some(1));
+
+    let snapshot = runtime.snapshot().expect("runtime should snapshot");
+    let mut restored = C64Runtime::blank(Model::C64PalBreadbin);
+    restored
+        .restore(&snapshot)
+        .expect("snapshot restore should succeed");
+
+    assert_eq!(
+        restored.reu_kb(),
+        Some(512),
+        "REU size must survive restore so a reset re-attaches it"
+    );
+    assert_eq!(
+        restored.mouse_1351_port(),
+        Some(1),
+        "1351 mouse port must survive restore"
+    );
+}
+
+#[test]
 fn restore_rejects_corrupt_postcard_bytes() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");

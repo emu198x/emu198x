@@ -599,6 +599,44 @@ impl C64Runtime {
         self.mouse_1351_port
     }
 
+    /// Attached GeoRAM size in KiB, if any. Retained across a reset.
+    #[must_use]
+    pub fn georam_kb(&self) -> Option<usize> {
+        self.georam_kb
+    }
+
+    /// Attached REU size in KiB, if any. Retained across a reset.
+    #[must_use]
+    pub fn reu_kb(&self) -> Option<usize> {
+        self.reu_kb
+    }
+
+    /// Raw `.crt` bytes of the inserted cartridge, if any. Retained across a
+    /// reset (and captured into a snapshot so a restore survives the next one).
+    pub(crate) fn cartridge_image_bytes(&self) -> Option<&[u8]> {
+        self.cartridge_image.as_deref()
+    }
+
+    /// Restore the runtime-level expansion bookkeeping from a snapshot — the
+    /// cartridge image and the GeoRAM/REU sizes and 1351-mouse port a reset
+    /// rebuilds the machine from. Deliberately does NOT touch the machine: the
+    /// machine's own snapshot already carries the live cartridge/expansion
+    /// state, so re-attaching here would reinitialise the restored expansion
+    /// RAM. Without this, a restored snapshot lost its cartridge and expansions
+    /// on the next reset (the fields defaulted to `None`).
+    pub(crate) fn restore_expansions(
+        &mut self,
+        cartridge_image: Option<Vec<u8>>,
+        georam_kb: Option<usize>,
+        reu_kb: Option<usize>,
+        mouse_1351_port: Option<u8>,
+    ) {
+        self.cartridge_image = cartridge_image;
+        self.georam_kb = georam_kb;
+        self.reu_kb = reu_kb;
+        self.mouse_1351_port = mouse_1351_port;
+    }
+
     /// Resync the RGBA framebuffer from the machine's native buffer. Named for
     /// the debug-target macros, which call it after a poke/step.
     fn update_rgba_framebuffer(&mut self) {
