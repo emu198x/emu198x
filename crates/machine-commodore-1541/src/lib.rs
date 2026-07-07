@@ -511,7 +511,10 @@ impl Drive1541 {
                 half_track.gcr.clone_from(live);
             }
         }
-        Some(format_commodore_c64_g64::write(&image))
+        // A track that can't be represented (over-long / too many half-tracks)
+        // yields no write-back rather than a corrupt image — unreachable for a
+        // valid C64 surface.
+        format_commodore_c64_g64::write(&image).ok()
     }
 
     pub fn eject_disk(&mut self) {

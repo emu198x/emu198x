@@ -516,8 +516,14 @@ impl Drive1571 {
         let track_data = self.track_data.as_ref()?;
         let mut image = disk.image_bytes.clone();
 
-        // Side-0 write-back only for now; double-sided D71 SAVE is deferred
-        // (archive images mount read-only, so this path is not yet exercised).
+        // Side-0 write-back only. This is safe today: every D71 mounts
+        // read-only (`load_d71_bytes` hardcodes `write_protected: true`), so an
+        // unwritten disk round-trips byte-for-byte and side 1 is never dirtied.
+        // A writable double-sided D71 would silently lose side-1 writes here —
+        // adding one needs (a) a `load_d71_bytes_writable` variant and (b) a
+        // side-1 pass over tracks 36-70 via `track_bytes(_, 1)` +
+        // `format_commodore_c64_d71::write_sector`. Deferred to the #764
+        // drive-core unification, which restructures this GCR/flush path.
         for track in 1..=35u8 {
             let Some(raw) = track_data.track_bytes(track * 2, 0) else {
                 continue;
@@ -552,7 +558,9 @@ impl Drive1571 {
                 half_track.gcr.clone_from(live);
             }
         }
-        Some(format_commodore_c64_g64::write(&image))
+        // A track that can't be represented yields no write-back rather than a
+        // corrupt image — unreachable for a valid C64 surface.
+        format_commodore_c64_g64::write(&image).ok()
     }
 
     pub fn eject_disk(&mut self) {

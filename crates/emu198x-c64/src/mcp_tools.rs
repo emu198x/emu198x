@@ -1,4 +1,5 @@
-//! C64-specific MCP tools: `load_basic_program`, `save_disk`, `set_port_drive`.
+//! C64-specific MCP tools: `load_basic_program`, `save_disk`, `save_disk9`,
+//! `save_tape`, `set_port_drive`.
 //!
 //! The shared `register_common_tools` covers the machine-agnostic surface
 //! (run frames, query, media, capture, reset, …). The BASIC-authoring pair
@@ -135,7 +136,7 @@ impl Tool<C64Session> for SaveDiskTool {
     }
 
     fn description(&self) -> &str {
-        "Persist drive 8's disk: decode the live 1541 surface back into a .d64 and write it to `path`. The disk must have been mounted with load_media writable=true (archive disks stay read-only)."
+        "Persist drive 8's disk: write the live drive surface to `path` in its native format — a decoded .d64, or a raw-GCR .g64 when a G64 was mounted. The disk must have been mounted with load_media writable=true (archive disks stay read-only)."
     }
 
     fn input_schema(&self) -> Value {
@@ -151,14 +152,128 @@ impl Tool<C64Session> for SaveDiskTool {
     fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
         let path = required_str(&arguments, "path")?;
         let bytes = session.machine().flush_drive8_image().ok_or_else(|| {
-            ToolError::Execution("save_disk: no disk mounted in drive 8".to_owned())
+            ToolError::Execution(
+                "save_disk: no writable disk mounted in drive 8 (mount with writable=true)"
+                    .to_owned(),
+            )
         })?;
+        let format = disk_image_format(&bytes);
+        reject_disk_extension_mismatch("save_disk", path, format)?;
         let len = bytes.len();
         std::fs::write(path, &bytes).map_err(|err| {
             ToolError::Execution(format!("save_disk: failed to write {path}: {err}"))
         })?;
 
-        let body = json!({ "kind": "save_disk", "path": path, "bytes": len }).to_string();
+        let body = json!({ "kind": "save_disk", "path": path, "format": format, "bytes": len })
+            .to_string();
+        Ok(ToolResponse::success_text(body))
+    }
+}
+
+/// The on-disk format of flushed drive bytes: `"g64"` for a raw-GCR surface
+/// (the G64 signature), otherwise the decoded sector format `"d64"`.
+fn disk_image_format(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(b"GCR-1541") {
+        "g64"
+    } else {
+        "d64"
+    }
+}
+
+/// Reject a save whose target path carries a disk extension that contradicts
+/// the actual format, so a raw-GCR surface is never written to a `.d64` path
+/// (or vice versa) under a mislabel. A non-disk / absent extension is left to
+/// the caller.
+fn reject_disk_extension_mismatch(tool: &str, path: &str, format: &str) -> Result<(), ToolError> {
+    if let Some(ext) = std::path::Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+    {
+        let ext = ext.to_ascii_lowercase();
+        if (ext == "d64" || ext == "g64") && ext != format {
+            return Err(ToolError::Execution(format!(
+                "{tool}: the drive holds a {format} surface; save it to a .{format} path, not {path}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// `save_disk9` — persist the 1581 disk on device 9 (`.d81`), mirroring
+/// `save_disk` for the device-8 drive.
+struct SaveDisk9Tool;
+
+impl Tool<C64Session> for SaveDisk9Tool {
+    fn name(&self) -> &str {
+        "save_disk9"
+    }
+
+    fn description(&self) -> &str {
+        "Persist the 1581 disk on device 9: write its live surface to `path` as a .d81. The disk must have been mounted writable (a read-only original has nothing to write back)."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+            },
+            "required": ["path"],
+        })
+    }
+
+    fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
+        let path = required_str(&arguments, "path")?;
+        let bytes = session.machine().flush_drive_1581_image().ok_or_else(|| {
+            ToolError::Execution(
+                "save_disk9: no writable 1581 disk on device 9 (mount with writable=true)"
+                    .to_owned(),
+            )
+        })?;
+        let len = bytes.len();
+        std::fs::write(path, &bytes).map_err(|err| {
+            ToolError::Execution(format!("save_disk9: failed to write {path}: {err}"))
+        })?;
+
+        let body = json!({ "kind": "save_disk9", "path": path, "bytes": len }).to_string();
+        Ok(ToolResponse::success_text(body))
+    }
+}
+
+/// `save_tape` — persist the recorded SAVE tape (`.tap`) laid onto a writable
+/// datasette work image, riding the same write-back model as `save_disk`.
+struct SaveTapeTool;
+
+impl Tool<C64Session> for SaveTapeTool {
+    fn name(&self) -> &str {
+        "save_tape"
+    }
+
+    fn description(&self) -> &str {
+        "Persist the datasette tape: write the recorded SAVE pulses to `path` as a .tap. Requires a writable tape (a read-only original has nothing to write back)."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+            },
+            "required": ["path"],
+        })
+    }
+
+    fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
+        let path = required_str(&arguments, "path")?;
+        let bytes = session.machine().flush_tape_image().ok_or_else(|| {
+            ToolError::Execution("save_tape: no writable tape mounted".to_owned())
+        })?;
+        let len = bytes.len();
+        std::fs::write(path, &bytes).map_err(|err| {
+            ToolError::Execution(format!("save_tape: failed to write {path}: {err}"))
+        })?;
+
+        let body = json!({ "kind": "save_tape", "path": path, "bytes": len }).to_string();
         Ok(ToolResponse::success_text(body))
     }
 }
@@ -224,6 +339,8 @@ impl Tool<C64Session> for SetPortDriveTool {
 pub fn register_c64_tools(registry: &mut ToolRegistry<C64Session>) {
     registry.register(Box::new(LoadBasicProgramTool));
     registry.register(Box::new(SaveDiskTool));
+    registry.register(Box::new(SaveDisk9Tool));
+    registry.register(Box::new(SaveTapeTool));
     registry.register(Box::new(SetPortDriveTool));
 }
 
@@ -277,6 +394,8 @@ mod tests {
             "press_key",
             "type_string",
             "save_disk",
+            "save_disk9",
+            "save_tape",
             "set_port_drive",
         ] {
             assert!(
@@ -284,6 +403,22 @@ mod tests {
                 "C64 tool `{name}` was not registered"
             );
         }
+    }
+
+    #[test]
+    fn disk_format_detection_and_extension_guard() {
+        use super::{disk_image_format, reject_disk_extension_mismatch};
+
+        assert_eq!(disk_image_format(b"GCR-1541\0\0\0\0"), "g64");
+        assert_eq!(disk_image_format(&[0u8; 16]), "d64");
+
+        // A matching or unknown extension is accepted; a contradicting disk
+        // extension is rejected so a G64 surface is never mislabelled as .d64.
+        assert!(reject_disk_extension_mismatch("save_disk", "work.d64", "d64").is_ok());
+        assert!(reject_disk_extension_mismatch("save_disk", "work.g64", "g64").is_ok());
+        assert!(reject_disk_extension_mismatch("save_disk", "work.bin", "g64").is_ok());
+        assert!(reject_disk_extension_mismatch("save_disk", "work.d64", "g64").is_err());
+        assert!(reject_disk_extension_mismatch("save_disk", "work.g64", "d64").is_err());
     }
 
     #[test]
