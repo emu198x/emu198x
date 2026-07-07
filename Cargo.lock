@@ -2116,6 +2116,7 @@ version = "0.2.0"
 dependencies = [
  "common-commodore-drive-gcr",
  "common-commodore-iec",
+ "common-commodore-iec-drive",
  "format-commodore-c64-d64",
  "format-commodore-c64-d71",
  "format-commodore-c64-g64",
