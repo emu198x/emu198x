@@ -5,6 +5,7 @@ members = [
     "crates/common-acorn-cassette",
     "crates/common-commodore-amiga",
     "crates/common-commodore-c64",
+    "crates/common-commodore-drive-gcr",
     "crates/common-commodore-iec",
     "crates/common-nintendo-game-boy",
     "crates/amstrad-ula-40077",
