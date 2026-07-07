@@ -1134,7 +1134,12 @@ impl C64 {
                 }
                 self.sid.read(reg)
             }
-            0xD800..=0xDBFF => self.memory.colour_ram_read(addr - 0xD800),
+            // Colour RAM is 4-bit static RAM: the low nibble is the stored
+            // colour, the high nibble is open bus — the last byte the VIC-II
+            // drove. Copy-protection / hardware-detection routines read it.
+            0xD800..=0xDBFF => {
+                self.memory.colour_ram_read(addr - 0xD800) | (self.vic.last_bus_data() & 0xF0)
+            }
             0xDC00..=0xDCFF => {
                 self.refresh_keyboard_scan();
                 match addr & 0x0F {
@@ -2093,6 +2098,30 @@ mod tests {
         machine.cpu_write(0xDD02, 0x03);
         machine.cpu_write(0xDD00, 0x01);
         assert_eq!(machine.vic_bank(), 2);
+    }
+
+    /// Colour RAM is 4-bit static RAM: a `$D800-$DBFF` read returns the stored
+    /// colour in the low nibble and open bus — the last byte the VIC-II drove —
+    /// in the high nibble, not zero.
+    #[test]
+    fn colour_ram_read_exposes_vic_open_bus_in_upper_nibble() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xD011, 0x1B); // DEN on → badlines → c-access
+        machine.cpu_write(0xD018, 0x14); // screen matrix at $0400
+        // Fill the screen matrix so the VIC's c-access drives a known byte.
+        for offset in 0..0x0400u16 {
+            machine.cpu_write(0x0400 + offset, 0xBB);
+        }
+        machine.cpu_write(0xD800, 0x0A); // stored colour nibble
+        // Run past the first badline (line 51) so the VIC's last fetch is a
+        // c-access of 0xBB.
+        for _ in 0..(51 * 63 + 55) {
+            machine.tick();
+        }
+        assert_eq!(machine.vic().last_bus_data(), 0xBB, "VIC drove 0xBB");
+        let value = machine.cpu_read(0xD800);
+        assert_eq!(value & 0x0F, 0x0A, "low nibble is the stored colour");
+        assert_eq!(value & 0xF0, 0xB0, "high nibble is the VIC open bus");
     }
 
     #[test]
