@@ -14,6 +14,7 @@
 //! inputs, byte-ready→CA1) are threaded the engine/disk state by the drive — see
 //! the plan's board↔engine coupling contract — and land here in a later step.
 
+use common_commodore_drive_gcr::GcrRotationEngine;
 use common_commodore_iec::IecBus;
 use mos_6502::M6502;
 use mos_via_6522::Via6522;
@@ -205,6 +206,88 @@ impl IecDriveBoard {
     #[must_use]
     pub fn byte_ready_active(&self) -> bool {
         self.ca2_line_high()
+    }
+
+    // ---- VIA2 status lines (engine-coupled) ----
+    //
+    // These reach the rotation engine and the mounted disk, which the board does
+    // not own. Mirroring #764's `RotationContext`, the drive threads the engine
+    // by ref plus the small drive-computed inputs (`present`, `write_protected`)
+    // it derives from the selected drive and the mounted image.
+
+    /// VIA2 Port A input: the GCR read byte the head is over, or `0` when the
+    /// selected drive is absent (the dual-drive DOS heritage reads the alternate
+    /// unit's data port low).
+    #[must_use]
+    pub const fn via2_port_a_input(&self, engine: &GcrRotationEngine, present: bool) -> u8 {
+        if present { engine.gcr_read() } else { 0 }
+    }
+
+    /// VIA2 Port B input: the drive-status lines. SYNC (PB7) reads high when no
+    /// sync is under the head; write-protect (PB4) reads high when the photocell
+    /// sees light — through a writable disk's notch *or* an empty drive. Only a
+    /// mounted, write-protected disk pulls PB4 low. Reporting an empty drive as
+    /// protected would make mounting a writable disk a phantom WP transition,
+    /// which the DOS reads as a disk change and uses to slam every open channel
+    /// shut (breaking a SAVE onto a disk inserted after power-up). Matches VICE
+    /// drive-writeprotect.c ("No disk in drive, write protection is off").
+    #[must_use]
+    pub fn via2_port_b_input(
+        &self,
+        engine: &GcrRotationEngine,
+        present: bool,
+        write_protected: bool,
+    ) -> u8 {
+        let mut value = 0x6F;
+        if self.sync_not_detected(engine) {
+            value |= 0x80;
+        }
+        if !present || !write_protected {
+            value |= 0x10;
+        }
+        value
+    }
+
+    /// No sync mark is under the head — true in write mode, or when the engine
+    /// reports the head is not over a sync region.
+    #[must_use]
+    pub fn sync_not_detected(&self, engine: &GcrRotationEngine) -> bool {
+        !self.is_read_mode() || !engine.sync_active()
+    }
+
+    /// VIA2 CA1 is de-asserted (high) unless byte-ready is enabled *and* the
+    /// engine has an assembled byte pending (level or fresh edge).
+    #[must_use]
+    pub fn byte_ready_not_asserted(&self, engine: &GcrRotationEngine) -> bool {
+        !(self.byte_ready_active() && (engine.byte_ready_level() || engine.byte_ready_edge()))
+    }
+
+    /// Drives the VIA input pins for one settle pass: VIA1 from the IEC bus
+    /// (engine-free) and VIA2 from the rotation engine plus the drive-computed
+    /// `present`/`write_protected` inputs. The 1571's side latch and the
+    /// mechanics refresh stay in the drive — they touch the drive's own devices.
+    pub fn apply_drive_inputs(
+        &mut self,
+        engine: &GcrRotationEngine,
+        bus: Option<&IecBus>,
+        present: bool,
+        write_protected: bool,
+    ) {
+        let pa_in = self.via1_port_a_input();
+        let pb_in = self.via1_port_b_input(bus);
+        // The 1541 serial glue presents IEC ATN to VIA1 CA1 inverted: ATN low
+        // becomes a CA1 rising edge, matching VICE's `viacore_signal(...,
+        // VIA_SIG_CA1, VIA_SIG_RISE)` path for 1541-style drives.
+        let atn_high = self.bus_atn_high(bus);
+        self.via1.pa_in = pa_in;
+        self.via1.pb_in = pb_in;
+        self.via1.set_ca1_level(!atn_high);
+        let via2_pa_in = self.via2_port_a_input(engine, present);
+        let via2_pb_in = self.via2_port_b_input(engine, present, write_protected);
+        let via2_ca1 = self.byte_ready_not_asserted(engine);
+        self.via2.pa_in = via2_pa_in;
+        self.via2.pb_in = via2_pb_in;
+        self.via2.ca1 = via2_ca1;
     }
 }
 

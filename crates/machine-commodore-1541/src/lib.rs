@@ -727,21 +727,10 @@ impl Drive1541 {
     }
 
     fn apply_drive_inputs(&mut self, bus: Option<&IecBus>) {
-        let pa_in = self.board.via1_port_a_input();
-        let pb_in = self.board.via1_port_b_input(bus);
-        // The 1541 serial glue presents IEC ATN to VIA1 CA1 inverted: ATN low
-        // becomes a CA1 rising edge, matching VICE's `viacore_signal(...,
-        // VIA_SIG_CA1, VIA_SIG_RISE)` path for 1541-style drives.
-        let atn_high = self.board.bus_atn_high(bus);
-        self.board.via1_mut().pa_in = pa_in;
-        self.board.via1_mut().pb_in = pb_in;
-        self.board.via1_mut().set_ca1_level(!atn_high);
-        let via2_pa_in = self.via2_port_a_input();
-        let via2_pb_in = self.via2_port_b_input();
-        let via2_ca1 = self.byte_ready_not_asserted();
-        self.board.via2_mut().pa_in = via2_pa_in;
-        self.board.via2_mut().pb_in = via2_pb_in;
-        self.board.via2_mut().ca1 = via2_ca1;
+        let present = self.selected_internal_drive_present();
+        let write_protected = self.selected_disk_write_protected();
+        self.board
+            .apply_drive_inputs(&self.engine, bus, present, write_protected);
     }
 
     fn refresh_drive_mechanics(&mut self) {
@@ -819,22 +808,15 @@ impl Drive1541 {
     }
 
     fn via2_port_a_input(&self) -> u8 {
-        if self.selected_internal_drive_present() {
-            self.engine.gcr_read()
-        } else {
-            0
-        }
+        self.board
+            .via2_port_a_input(&self.engine, self.selected_internal_drive_present())
     }
 
     fn via2_port_b_input(&self) -> u8 {
-        let mut value = 0x6F;
-        if self.sync_not_detected() {
-            value |= 0x80;
-        }
-        if self.write_protect_not_asserted() {
-            value |= 0x10;
-        }
-        value
+        let present = self.selected_internal_drive_present();
+        let write_protected = self.selected_disk_write_protected();
+        self.board
+            .via2_port_b_input(&self.engine, present, write_protected)
     }
 
     fn after_via2_write(&mut self, reg: u8, value: u8) {
@@ -855,11 +837,6 @@ impl Drive1541 {
         }
     }
 
-    fn byte_ready_not_asserted(&self) -> bool {
-        !(self.byte_ready_active()
-            && (self.engine.byte_ready_level() || self.engine.byte_ready_edge()))
-    }
-
     fn apply_byte_ready_overflow(&mut self) {
         if self.engine.byte_ready_edge() && self.byte_ready_active() {
             self.board.cpu_mut().regs.set_flag(FLAG_V, true);
@@ -868,25 +845,16 @@ impl Drive1541 {
     }
 
     fn sync_not_detected(&self) -> bool {
-        !self.is_read_mode() || !self.engine.sync_active()
+        self.board.sync_not_detected(&self.engine)
     }
 
-    fn write_protect_not_asserted(&self) -> bool {
-        // The write-protect photocell reads "not protected" whenever light
-        // reaches it: through a writable disk's notch, AND through an empty
-        // drive (no media to block the beam). Only a write-protect tab — a
-        // mounted, protected disk — asserts the line. Reporting an empty drive
-        // as *protected* would make mounting a writable disk a phantom WP
-        // transition, which the DOS reads as a disk change and uses to slam
-        // every open channel shut (ROM $F9AD sets $1C → $EC54 JSR $D313) —
-        // breaking a SAVE onto a disk inserted after power-up. Matches VICE
-        // drive-writeprotect.c ("No disk in drive, write protection is off").
-        if !self.selected_internal_drive_present() {
-            return true;
-        }
+    /// Whether the mounted image on the selected drive is write-protected. An
+    /// empty drive reports `false` — the write-protect photocell sees light and
+    /// reads "not protected" (see the board's `via2_port_b_input`).
+    fn selected_disk_write_protected(&self) -> bool {
         self.disk
             .as_ref()
-            .is_none_or(|disk| !disk.write_protected())
+            .is_some_and(Drive1541Disk::write_protected)
     }
 
     fn reset_rotation_state(&mut self) {

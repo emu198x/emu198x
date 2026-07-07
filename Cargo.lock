@@ -568,6 +568,7 @@ dependencies = [
 name = "common-commodore-iec-drive"
 version = "0.2.0"
 dependencies = [
+ "common-commodore-drive-gcr",
  "common-commodore-iec",
  "mos-6502",
  "mos-via-6522",
