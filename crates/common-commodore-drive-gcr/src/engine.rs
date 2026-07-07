@@ -17,7 +17,10 @@
 use format_commodore_c64_d64::D64ParseError;
 use format_commodore_c64_g64::G64Image;
 
-use crate::{build_gcr_tracks_from_d64, build_gcr_tracks_from_g64, track_slot_index};
+use crate::{
+    GAP_SIZE_BY_ZONE, MAX_HEAD_POSITION, RAW_TRACK_SIZE_BY_ZONE, build_gcr_tracks_from_d64,
+    build_gcr_tracks_from_g64, track_slot_index,
+};
 
 /// Reference clock sub-cycles per drive CPU cycle. The rotation budget is
 /// tracked at 16× the 1 MHz drive clock so a byte's read/write edges land on a
@@ -51,12 +54,15 @@ pub struct DriveGeometry {
 
 impl DriveGeometry {
     /// The standard Commodore 5.25" GCR geometry shared by the 1541 and 1571:
-    /// 35 tracks across four speed zones, 84 half-track head positions.
+    /// 35 tracks across four speed zones, 84 half-track head positions. The
+    /// raw-track/gap/head-position values are sourced from the module constants
+    /// the track builders use, so the geometry has a single source of truth even
+    /// though the builders read the constants directly for now.
     pub const COMMODORE_GCR: Self = Self {
         read_bits_per_second_by_zone: [250_000, 266_667, 285_714, 307_692],
-        raw_track_size_by_zone: [6_250, 6_666, 7_142, 7_692],
-        gap_size_by_zone: [9, 12, 17, 8],
-        max_head_position: 84,
+        raw_track_size_by_zone: RAW_TRACK_SIZE_BY_ZONE,
+        gap_size_by_zone: GAP_SIZE_BY_ZONE,
+        max_head_position: MAX_HEAD_POSITION,
     };
 
     /// The number of addressable track slots (head positions
