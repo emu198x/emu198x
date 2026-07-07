@@ -432,6 +432,11 @@ pub struct Cli {
     autoload_run: bool,
     autoload_tape: bool,
     start_tape: bool,
+    /// Accepted for CLI compatibility with the rest of the fleet, but not a
+    /// startup switch: tape fast-load (turbo) is a runtime toggle (F11) shared by
+    /// every harness system via [`emu198x_ui`], not an initial state. Arming it
+    /// from the CLI would mean a new parameter on the shared `emu198x_ui::run`
+    /// (all 28 callers) — deliberately declined here, matching the Spectrum.
     turbo_tape: bool,
     georam_kb: Option<usize>,
     reu_kb: Option<usize>,
@@ -497,7 +502,7 @@ Options:
     --autoload-run       after --autoload-disk loads, wait for it and type RUN
     --autoload-tape      wait for READY., press SHIFT+RUN/STOP, and start tape-1
     --start-tape         start the inserted tape immediately at startup
-    --turbo-tape         run unthrottled while the tape is playing
+    --turbo-tape         (accepted; arm tape fast-load in the UI with F11)
     --georam KB          attach a GeoRAM RAM expansion (512, 1024, or 2048 KiB)
     --reu KB             attach a 17xx REU RAM expansion (128, 256, or 512 KiB)
     --mouse-1351 PORT    plug a 1351 proportional mouse into control port 1 or 2
