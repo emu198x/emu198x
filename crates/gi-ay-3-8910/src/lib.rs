@@ -715,7 +715,7 @@ mod tests {
         let mut seq = vec![ay.env_level];
         for _ in 0..ticks {
             ay.tick();
-            if *seq.last().unwrap() != ay.env_level {
+            if *seq.last().expect("the sequence is non-empty") != ay.env_level {
                 seq.push(ay.env_level);
             }
         }
@@ -766,7 +766,7 @@ mod tests {
         for shape in [0x0Bu8, 0x0D] {
             let seq = envelope_level_sequence(shape, 1200);
             assert_eq!(
-                *seq.last().unwrap(),
+                *seq.last().expect("the sequence is non-empty"),
                 15,
                 "shape {shape:#04x} should hold at max: {seq:?}"
             );
@@ -779,7 +779,7 @@ mod tests {
         for shape in [0x09u8, 0x0F] {
             let seq = envelope_level_sequence(shape, 1200);
             assert_eq!(
-                *seq.last().unwrap(),
+                *seq.last().expect("the sequence is non-empty"),
                 0,
                 "shape {shape:#04x} should hold at 0: {seq:?}"
             );
@@ -793,7 +793,7 @@ mod tests {
         for shape in 0u8..8 {
             let seq = envelope_level_sequence(shape, 1200);
             assert_eq!(
-                *seq.last().unwrap(),
+                *seq.last().expect("the sequence is non-empty"),
                 0,
                 "shape {shape:#04x} should hold at 0: {seq:?}"
             );

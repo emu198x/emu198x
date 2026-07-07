@@ -162,7 +162,7 @@ mod tests {
         data[27 + 0x4000] = 0x00; // PC low
         data[27 + 0x4001] = 0x60; // PC high
 
-        let snap = parse_sna(&data).unwrap();
+        let snap = parse_sna(&data).expect("the sna fixture parses");
         assert_eq!(snap.pc, 0x6000);
         assert_eq!(snap.sp, 0x8002); // SP adjusted +2
         assert_eq!(snap.i, 0x3F);
@@ -174,7 +174,7 @@ mod tests {
     #[test]
     fn parse_sna_rejects_short_buffer() {
         let data = vec![0u8; 49178];
-        let err = parse_sna(&data).unwrap_err();
+        let err = parse_sna(&data).expect_err("the malformed sna fixture is rejected");
         assert!(err.contains("too short"));
     }
 
@@ -226,7 +226,7 @@ mod tests {
         data[27 + 2] = 0xCD;
         data[27 + 3] = 0xAB;
 
-        let snap = parse_sna(&data).unwrap();
+        let snap = parse_sna(&data).expect("the sna fixture parses");
         assert_eq!(snap.i, 0x12);
         assert_eq!(snap.hl_alt, 0x3344);
         assert_eq!(snap.de_alt, 0x5566);
@@ -283,7 +283,7 @@ mod tests {
             data[49183 + i * 16384] = 0xB0 | b;
         }
 
-        let snap = parse_sna(&data).unwrap();
+        let snap = parse_sna(&data).expect("the sna fixture parses");
         assert_eq!(snap.model, SnapshotModel::Spectrum128K);
         assert_eq!(snap.pc, 0x5678);
         assert_eq!(snap.port_7ffd, 0b0000_0100);
@@ -309,7 +309,7 @@ mod tests {
         // loop breaks once it runs out of data, but parse still succeeds
         // with a partial page list.
         let data = vec![0u8; 49179 + 4 + 16384];
-        let snap = parse_sna(&data).unwrap();
+        let snap = parse_sna(&data).expect("the sna fixture parses");
         // 3 from 48K block + 1 successful trailing read + break.
         assert_eq!(snap.pages.len(), 4);
     }
