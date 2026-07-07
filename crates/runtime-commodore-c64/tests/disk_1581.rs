@@ -7,8 +7,11 @@
 //!
 //! Coverage today: the 1581 attaches, coexists with a 1541, mounts a D81, and
 //! boots the real DOS ROM to its serial idle loop over the interleaved bus.
-//! The C64→1581 serial LOAD handshake (the ATN acknowledge) is still WIP — the
-//! KERNAL currently reports `?DEVICE NOT PRESENT`; see
+//! The C64→1581 serial LOAD handshake (the ATN acknowledge) works — it was
+//! fixed by the 1581's `data | cpu_bus` DATA fold in `common-commodore-iec`
+//! (`write_drive_port_b_1581`, distinct from the 1541's `~data ^ cpu_bus`) —
+//! and is asserted end to end by the `empire-1581-load` catalogue entry, which
+//! drives `LOAD"*",9,1` to LOADING over the bus. Background:
 //! `docs/plans/2026-07-03-1581-drive-build-spec.md`.
 
 mod common;
