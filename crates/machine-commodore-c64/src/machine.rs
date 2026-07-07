@@ -369,12 +369,15 @@ impl C64 {
         cpu.reset();
         let timing = config.model.timing();
 
+        let cia_model = config.model.cia_model();
         let mut cia1 = Cia6526::new_with_tod(timing.cia_tod_divider);
+        cia1.set_model(cia_model);
         cia1.write(0x02, 0xFF);
         cia1.write(0x03, 0x00);
         cia1.write(0x00, 0xFF);
 
         let mut cia2 = Cia6526::new_with_tod(timing.cia_tod_divider);
+        cia2.set_model(cia_model);
         cia2.write(0x02, 0x03);
         cia2.write(0x00, 0x03);
 
@@ -1207,10 +1210,20 @@ impl C64 {
     }
 
     fn drive_iec_outputs(&self, bus: &mut IecBus) {
-        // The C64 serial bus lines on CIA2 Port A are active-low. VICE feeds
-        // the IEC layer with `~(PRA | ~DDRA)`, not the mixed port-drive state
-        // directly.
-        bus.write_cpu_port_a(!self.cia2.port_a_drive_state());
+        // The C64 drives ATN/CLK/DATA through 7406 open-collector inverters: a
+        // line is pulled low only for a bit the CIA is actively driving HIGH
+        // (DDRA=1 and PRA=1); an input pin (DDRA=0) or a bit driven low leaves
+        // the line released. That is `!(PRA & DDRA)`.
+        //
+        // NB: this is identical to `!port_a_drive_state()` (== `!((PRA & DDRA)
+        // | ~DDRA)`) for every bit configured as an *output*, so the 1541 path
+        // — which sets DDRA before touching the bus — is unchanged. It differs
+        // only for input pins, where the old form wrongly asserted the line.
+        // During the KERNAL reset window (before IOINIT sets DDRA=$3F) CIA2's
+        // ATN pin is an input; the old form asserted a spurious ATN falling
+        // edge that latched the 1581's CIA FLAG and steered its DOS into the
+        // serial handler instead of the idle job loop (VICE sees no such edge).
+        bus.write_cpu_port_a(!(self.cia2.port_a_latch() & self.cia2.ddr_a()));
     }
 
     fn cpu_port_read(&self) -> u8 {
@@ -1778,6 +1791,19 @@ mod tests {
     }
 
     #[test]
+    fn c64c_model_selects_the_6526a_cia_on_both_chips() {
+        use mos_cia_6526::CiaModel;
+
+        let breadbin = stub_machine(C64Model::PalBreadbin);
+        assert_eq!(breadbin.cia1().model(), CiaModel::Mos6526);
+        assert_eq!(breadbin.cia2().model(), CiaModel::Mos6526);
+
+        let c64c = stub_machine(C64Model::PalC64c);
+        assert_eq!(c64c.cia1().model(), CiaModel::Mos6526A);
+        assert_eq!(c64c.cia2().model(), CiaModel::Mos6526A);
+    }
+
+    #[test]
     fn insert_8k_crt_maps_roml_at_8000() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
         let crt = build_crt(0, 1, 0x8000, &[0xA1; 0x2000]);
@@ -2085,6 +2111,52 @@ mod tests {
         assert_eq!(machine.vic_bank(), 2);
     }
 
+    /// A `$DD00` bank switch reaches the VIC's fetches on the next VIC cycle,
+    /// not one φ2 later: the CPU-write path refreshes the VIC bank the same
+    /// cycle (before the following tick's `vic.tick`), so the very next badline
+    /// c-access reads the newly-selected bank. Observed through the open-bus
+    /// register `$2F`, which returns the last byte the VIC fetched.
+    #[test]
+    fn dd00_bank_switch_reaches_vic_fetch_on_the_next_badline() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        // DEN on so badlines run; screen matrix at $0400 within the bank.
+        machine.cpu_write(0xD011, 0x1B);
+        machine.cpu_write(0xD018, 0x14);
+        // Fill the bank-0 screen matrix ($0400) and the bank-1 screen matrix
+        // ($4400) with distinct bytes so a c-access reveals which bank the VIC
+        // fetched from, whatever VC happens to be.
+        for offset in 0..0x0400u16 {
+            machine.cpu_write(0x0400 + offset, 0xAA);
+            machine.cpu_write(0x4400 + offset, 0x55);
+        }
+
+        // Bank 0 by default (CIA2 PA = 3). Run past the first badline (line 51,
+        // c-access cycles 15-54) and confirm the fetch came from bank 0.
+        let ticks_to = |line: u16, cycle: u8| u32::from(line) * 63 + u32::from(cycle);
+        for _ in 0..ticks_to(51, 55) {
+            machine.tick();
+        }
+        assert_eq!(
+            machine.vic().peek(0x2F),
+            0xAA,
+            "before the switch the VIC fetches from bank 0",
+        );
+
+        // Select bank 1 (PA low bits = 2 → bank = !2 & 3 = 1), then run to the
+        // next badline (line 59). The fetch must now come from bank 1.
+        machine.cpu_write(0xDD02, 0x03);
+        machine.cpu_write(0xDD00, 0x02);
+        assert_eq!(machine.vic_bank(), 1, "the write selects bank 1 at once");
+        for _ in 0..ticks_to(59, 55) - ticks_to(51, 55) {
+            machine.tick();
+        }
+        assert_eq!(
+            machine.vic().peek(0x2F),
+            0x55,
+            "the $DD00 switch reached the VIC's fetch on the next badline",
+        );
+    }
+
     #[test]
     fn cia2_iec_outputs_use_port_drive_state() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
@@ -2097,6 +2169,44 @@ mod tests {
 
         assert_eq!(machine.cia2.port_a_drive_state(), 0xC0);
         assert_eq!(bus.drive_port() & 0x85, 0x85);
+    }
+
+    #[test]
+    fn cia2_iec_input_pins_release_the_bus() {
+        // During the KERNAL reset window CIA2's IEC pins are still inputs
+        // (DDRA=$03 selects only the VIC-bank bits as outputs). An input pin
+        // must not pull its line low: the C64 drives ATN/CLK/DATA through 7406
+        // open-collector inverters, so a line goes low only for a bit actively
+        // driven HIGH (DDRA=1 & PRA=1). Asserting a spurious ATN here latched
+        // the 1581's CIA FLAG and steered its DOS off the idle loop.
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let mut bus = IecBus::new();
+
+        // ATN (PA3), CLK (PA4), DATA (PA5) are inputs; PRA bits set but ignored.
+        machine.cpu_write(0xDD02, 0x03);
+        machine.cpu_write(0xDD00, 0x3F);
+        machine.sync_iec_bus(&mut bus);
+        machine.drive_iec_outputs(&mut bus);
+
+        assert!(
+            bus.drive_atn_high(),
+            "an input ATN pin must leave the line released"
+        );
+        assert_eq!(
+            bus.drive_port() & 0x85,
+            0x85,
+            "input CLK/DATA pins must also stay released"
+        );
+
+        // And a pin driven high (DDRA=1 & PRA=1) still pulls its line low —
+        // the fix must be identical to the old form for output pins.
+        machine.cpu_write(0xDD02, 0x38); // ATN/CLK/DATA outputs
+        machine.cpu_write(0xDD00, 0x08); // drive ATN (PA3) high -> line low
+        machine.drive_iec_outputs(&mut bus);
+        assert!(
+            !bus.drive_atn_high(),
+            "an actively-driven ATN output must pull the line low"
+        );
     }
 
     fn make_tap(payload: &[u8]) -> Vec<u8> {

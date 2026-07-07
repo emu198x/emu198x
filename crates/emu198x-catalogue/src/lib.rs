@@ -29,7 +29,8 @@ use runtime_commodore_amiga::{
     Model as AmigaModel,
 };
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, Model as C64Model, autoload_basic_disk,
+    C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_1581_AUTOLOAD_SLOT,
+    DriveKind as C64DriveKind, Model as C64Model, autoload_basic_disk, autoload_basic_disk_1581,
     autoload_basic_tape as c64_autoload_basic_tape,
 };
 use runtime_nintendo_nes::{Model as NesModel, NesRuntime, NesSessionQueryProvider};
@@ -970,7 +971,11 @@ fn run_c64_entry(
     firmware_root: &Path,
 ) -> Result<RunResult, CatalogueError> {
     let model = match entry.variant.as_str() {
-        "pal" => C64Model::C64PalBreadbin,
+        // `pal-1581` and `pal-1571` are electrically the PAL breadbin; the suffix
+        // only selects a firmware set that swaps the 1541 DOS ROM for the other
+        // drive's, so drive entries attach that drive without disturbing the
+        // shared `pal` set. The 1571 additionally takes device 8 (see below).
+        "pal" | "pal-1581" | "pal-1571" => C64Model::C64PalBreadbin,
         "ntsc" => C64Model::C64NtscBreadbin,
         other => return Err(CatalogueError::UnsupportedVariant(other.into())),
     };
@@ -997,8 +1002,17 @@ fn run_c64_entry(
         firmware_set.push(FirmwareImage::new(spec.id.clone(), bytes));
     }
 
-    let runtime = C64Runtime::from_firmware(model, &firmware_set)
+    let mut runtime = C64Runtime::from_firmware(model, &firmware_set)
         .map_err(|err| CatalogueError::Session(format!("C64 runtime: {err}")))?;
+
+    // The `pal-1571` firmware set carries the 1571 DOS ROM but no 1541, so
+    // device 8 is empty after construction. Put a 1571 on device 8 so a
+    // `drive-8` D71/D64 entry loads through it with the standard `LOAD"*",8,1`.
+    if entry.variant == "pal-1571" {
+        runtime
+            .set_port_drive(8, Some(C64DriveKind::C1571))
+            .map_err(|err| CatalogueError::Session(format!("C64 1571 attach: {err}")))?;
+    }
 
     let timing = match model {
         C64Model::C64PalBreadbin | C64Model::C64cPal => &TIMING_PAL_BREADBIN,
@@ -1015,13 +1029,28 @@ fn run_c64_entry(
         let media_kind = load_media_spec(&mut session, media, media_root)?;
         match media_kind {
             MediaKind::Disk => {
-                autoload_basic_disk(
-                    &mut session,
-                    &media.slot,
-                    DEFAULT_C64_BOOT_FRAMES,
-                    DEFAULT_C64_DISK_PROMPT_FRAMES,
-                )
-                .map_err(|err| CatalogueError::Session(format!("C64 disk autoload: {err}")))?;
+                // The 1581 sits on IEC device 9 (slot `drive-9`) and needs
+                // LOAD"*",9,1; the 1541 on device 8 (`drive-8`) uses ,8,1.
+                // Route by slot so a D81 entry drives the 1581.
+                if media.slot == DEFAULT_DISK_1581_AUTOLOAD_SLOT {
+                    autoload_basic_disk_1581(
+                        &mut session,
+                        &media.slot,
+                        DEFAULT_C64_BOOT_FRAMES,
+                        DEFAULT_C64_DISK_PROMPT_FRAMES,
+                    )
+                    .map_err(|err| {
+                        CatalogueError::Session(format!("C64 1581 disk autoload: {err}"))
+                    })?;
+                } else {
+                    autoload_basic_disk(
+                        &mut session,
+                        &media.slot,
+                        DEFAULT_C64_BOOT_FRAMES,
+                        DEFAULT_C64_DISK_PROMPT_FRAMES,
+                    )
+                    .map_err(|err| CatalogueError::Session(format!("C64 disk autoload: {err}")))?;
+                }
                 // Match the existing disk_autoload regression tests:
                 // wait dynamically for "LOADING" text after SEARCHING
                 // FOR. The catalogue script's at_frame is then "frames

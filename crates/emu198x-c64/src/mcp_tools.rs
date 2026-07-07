@@ -1,23 +1,65 @@
-//! C64-specific MCP tools: `load_basic_program`, `save_disk`.
+//! C64-specific MCP tools: `load_basic_program`, `save_disk`, `save_disk9`,
+//! `save_tape`, `set_port_drive`.
 //!
 //! The shared `register_common_tools` covers the machine-agnostic surface
-//! (run frames, query, media, capture, reset, …). These three carry the
-//! BASIC-authoring flow the Code198x curriculum pipeline depends on, and
-//! mirror the Spectrum binary's bespoke tools so the captured output shape
-//! is identical across platforms. Each builds the shared
-//! [`ScriptObservation`] variant and serialises it as the tool's JSON-text
-//! result, exactly as the shell's generic `ScriptStepTool` does.
+//! (run frames, query, media, capture, reset, …). The BASIC-authoring pair
+//! (`load_basic_program` + `save_disk`) carries the flow the Code198x
+//! curriculum pipeline depends on, mirroring the Spectrum binary's bespoke
+//! tools so the captured output shape is identical across platforms;
+//! `set_port_drive` exposes the runtime's per-port IEC drive selector.
+//! Each serialises its result as JSON text, like the shell's generic
+//! `ScriptStepTool`.
 
 use emu198x_shell::HeadlessSession;
 use emu198x_shell::ScriptObservation;
 use emu198x_shell::mcp::{Tool, ToolError, ToolRegistry, ToolResponse};
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, DEFAULT_BASIC_LOADER_BOOT_FRAMES, load_basic_source,
+    C64Runtime, C64SessionQueryProvider, DEFAULT_BASIC_LOADER_BOOT_FRAMES, DriveKind,
+    load_basic_source,
 };
 use serde_json::{Value, json};
 
 /// The C64 MCP session type — the context all C64 tools run against.
 pub type C64Session = HeadlessSession<C64Runtime, C64SessionQueryProvider>;
+
+/// The IEC device numbers the C64 serial bus carries.
+const IEC_DEVICES: [u8; 4] = [8, 9, 10, 11];
+
+/// The catalogue label for a drive model, used in tool JSON.
+const fn drive_kind_label(kind: DriveKind) -> &'static str {
+    match kind {
+        DriveKind::C1541 => "1541",
+        DriveKind::C1571 => "1571",
+        DriveKind::C1581 => "1581",
+    }
+}
+
+/// Parses a drive-model label. `"none"`/`""` map to `None` (empty the port).
+fn parse_drive_kind(label: &str) -> Result<Option<DriveKind>, ToolError> {
+    match label {
+        "1541" => Ok(Some(DriveKind::C1541)),
+        "1571" => Ok(Some(DriveKind::C1571)),
+        "1581" => Ok(Some(DriveKind::C1581)),
+        "none" | "" => Ok(None),
+        other => Err(ToolError::InvalidArguments(format!(
+            "`kind` must be one of 1541, 1571, 1581, none (got `{other}`)"
+        ))),
+    }
+}
+
+/// The current model on each IEC device, as a JSON object keyed by device
+/// number (value `null` for an empty port).
+fn port_map(session: &C64Session) -> Value {
+    let mut map = serde_json::Map::new();
+    for device in IEC_DEVICES {
+        let label = session
+            .machine()
+            .port_drive_kind(device)
+            .map(drive_kind_label);
+        map.insert(device.to_string(), json!(label));
+    }
+    Value::Object(map)
+}
 
 fn observation_response(observation: &ScriptObservation) -> Result<ToolResponse, ToolError> {
     let body = serde_json::to_string(observation)
@@ -94,7 +136,7 @@ impl Tool<C64Session> for SaveDiskTool {
     }
 
     fn description(&self) -> &str {
-        "Persist drive 8's disk: decode the live 1541 surface back into a .d64 and write it to `path`. The disk must have been mounted with load_media writable=true (archive disks stay read-only)."
+        "Persist drive 8's disk: write the live drive surface to `path` in its native format — a decoded .d64, or a raw-GCR .g64 when a G64 was mounted. The disk must have been mounted with load_media writable=true (archive disks stay read-only)."
     }
 
     fn input_schema(&self) -> Value {
@@ -110,32 +152,203 @@ impl Tool<C64Session> for SaveDiskTool {
     fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
         let path = required_str(&arguments, "path")?;
         let bytes = session.machine().flush_drive8_image().ok_or_else(|| {
-            ToolError::Execution("save_disk: no disk mounted in drive 8".to_owned())
+            ToolError::Execution(
+                "save_disk: no writable disk mounted in drive 8 (mount with writable=true)"
+                    .to_owned(),
+            )
         })?;
+        let format = disk_image_format(&bytes);
+        reject_disk_extension_mismatch("save_disk", path, format)?;
         let len = bytes.len();
         std::fs::write(path, &bytes).map_err(|err| {
             ToolError::Execution(format!("save_disk: failed to write {path}: {err}"))
         })?;
 
-        let body = json!({ "kind": "save_disk", "path": path, "bytes": len }).to_string();
+        let body = json!({ "kind": "save_disk", "path": path, "format": format, "bytes": len })
+            .to_string();
         Ok(ToolResponse::success_text(body))
     }
 }
 
-/// Registers the C64-specific BASIC-authoring tools on the registry, after
-/// the shared `register_common_tools`. `press_key` / `type_string` now come
-/// from the shared keyboard tier (`register_keyboard_tools`, registered in
-/// `mcp.rs`) over the C64's `KeyboardTarget` impl. RULES.md #30.
+/// The on-disk format of flushed drive bytes: `"g64"` for a raw-GCR surface
+/// (the G64 signature), otherwise the decoded sector format `"d64"`.
+fn disk_image_format(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(b"GCR-1541") {
+        "g64"
+    } else {
+        "d64"
+    }
+}
+
+/// Reject a save whose target path carries a disk extension that contradicts
+/// the actual format, so a raw-GCR surface is never written to a `.d64` path
+/// (or vice versa) under a mislabel. A non-disk / absent extension is left to
+/// the caller.
+fn reject_disk_extension_mismatch(tool: &str, path: &str, format: &str) -> Result<(), ToolError> {
+    if let Some(ext) = std::path::Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+    {
+        let ext = ext.to_ascii_lowercase();
+        if (ext == "d64" || ext == "g64") && ext != format {
+            return Err(ToolError::Execution(format!(
+                "{tool}: the drive holds a {format} surface; save it to a .{format} path, not {path}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// `save_disk9` — persist the 1581 disk on device 9 (`.d81`), mirroring
+/// `save_disk` for the device-8 drive.
+struct SaveDisk9Tool;
+
+impl Tool<C64Session> for SaveDisk9Tool {
+    fn name(&self) -> &str {
+        "save_disk9"
+    }
+
+    fn description(&self) -> &str {
+        "Persist the 1581 disk on device 9: write its live surface to `path` as a .d81. The disk must have been mounted writable (a read-only original has nothing to write back)."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+            },
+            "required": ["path"],
+        })
+    }
+
+    fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
+        let path = required_str(&arguments, "path")?;
+        let bytes = session.machine().flush_drive_1581_image().ok_or_else(|| {
+            ToolError::Execution(
+                "save_disk9: no writable 1581 disk on device 9 (mount with writable=true)"
+                    .to_owned(),
+            )
+        })?;
+        let len = bytes.len();
+        std::fs::write(path, &bytes).map_err(|err| {
+            ToolError::Execution(format!("save_disk9: failed to write {path}: {err}"))
+        })?;
+
+        let body = json!({ "kind": "save_disk9", "path": path, "bytes": len }).to_string();
+        Ok(ToolResponse::success_text(body))
+    }
+}
+
+/// `save_tape` — persist the recorded SAVE tape (`.tap`) laid onto a writable
+/// datasette work image, riding the same write-back model as `save_disk`.
+struct SaveTapeTool;
+
+impl Tool<C64Session> for SaveTapeTool {
+    fn name(&self) -> &str {
+        "save_tape"
+    }
+
+    fn description(&self) -> &str {
+        "Persist the datasette tape: write the recorded SAVE pulses to `path` as a .tap. Requires a writable tape (a read-only original has nothing to write back)."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+            },
+            "required": ["path"],
+        })
+    }
+
+    fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
+        let path = required_str(&arguments, "path")?;
+        let bytes = session.machine().flush_tape_image().ok_or_else(|| {
+            ToolError::Execution("save_tape: no writable tape mounted".to_owned())
+        })?;
+        let len = bytes.len();
+        std::fs::write(path, &bytes).map_err(|err| {
+            ToolError::Execution(format!("save_tape: failed to write {path}: {err}"))
+        })?;
+
+        let body = json!({ "kind": "save_tape", "path": path, "bytes": len }).to_string();
+        Ok(ToolResponse::success_text(body))
+    }
+}
+
+/// `set_port_drive` — choose the disk-drive model on an IEC device (8–11), or
+/// empty the port. The C64 serial bus carries devices 8–11 and each port can
+/// hold a 1541, 1571, or 1581; this is the live per-port selector. The chosen
+/// model's DOS ROM must have been supplied at startup.
+struct SetPortDriveTool;
+
+impl Tool<C64Session> for SetPortDriveTool {
+    fn name(&self) -> &str {
+        "set_port_drive"
+    }
+
+    fn description(&self) -> &str {
+        "Choose the disk-drive model on an IEC device (8-11): `kind` is 1541, 1571, 1581, or none (empty the port). The model's DOS ROM must be present. Returns the resulting port map."
+    }
+
+    fn input_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "device": {"type": "integer", "minimum": 8, "maximum": 11},
+                "kind": {"type": "string", "enum": ["1541", "1571", "1581", "none"]},
+            },
+            "required": ["device", "kind"],
+        })
+    }
+
+    fn call(&self, arguments: Value, session: &mut C64Session) -> Result<ToolResponse, ToolError> {
+        let device = arguments
+            .get("device")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| {
+                ToolError::InvalidArguments("`device` (integer 8-11) is required".into())
+            })?;
+        let device = u8::try_from(device).map_err(|_| {
+            ToolError::InvalidArguments(format!("`device` {device} out of range (8-11)"))
+        })?;
+        let kind = parse_drive_kind(required_str(&arguments, "kind")?)?;
+
+        session
+            .machine_mut()
+            .set_port_drive(device, kind)
+            .map_err(|err| ToolError::Execution(format!("set_port_drive: {err}")))?;
+
+        let body = json!({
+            "kind": "set_port_drive",
+            "device": device,
+            "drive": kind.map(drive_kind_label),
+            "ports": port_map(session),
+        })
+        .to_string();
+        Ok(ToolResponse::success_text(body))
+    }
+}
+
+/// Registers the C64-specific tools on the registry, after the shared
+/// `register_common_tools`. `press_key` / `type_string` now come from the
+/// shared keyboard tier (`register_keyboard_tools`, registered in `mcp.rs`)
+/// over the C64's `KeyboardTarget` impl. RULES.md #30.
 pub fn register_c64_tools(registry: &mut ToolRegistry<C64Session>) {
     registry.register(Box::new(LoadBasicProgramTool));
     registry.register(Box::new(SaveDiskTool));
+    registry.register(Box::new(SaveDisk9Tool));
+    registry.register(Box::new(SaveTapeTool));
+    registry.register(Box::new(SetPortDriveTool));
 }
 
 #[cfg(test)]
 mod tests {
-    use super::register_c64_tools;
+    use super::{SetPortDriveTool, register_c64_tools};
     use emu198x_shell::HeadlessSession;
-    use emu198x_shell::mcp::{JsonRpcId, JsonRpcRequest, Server, ServerInfo};
+    use emu198x_shell::mcp::{JsonRpcId, JsonRpcRequest, Server, ServerInfo, Tool, ToolContent};
     use emu198x_shell::mcp_tools::{register_common_tools, register_keyboard_tools};
     use runtime_commodore_c64::{C64Runtime, C64SessionQueryProvider, Model};
     use serde_json::{Value, json};
@@ -145,6 +358,28 @@ mod tests {
     fn stub_session() -> C64Session {
         let runtime = C64Runtime::blank(Model::C64PalBreadbin);
         HeadlessSession::new_with_query_provider(runtime, 1, C64SessionQueryProvider)
+    }
+
+    /// A session whose runtime has a (stub) 1541 DOS ROM on device 8 — enough
+    /// to exercise the port selector's success path without real firmware.
+    fn stub_session_with_1541() -> C64Session {
+        let runtime = C64Runtime::new(
+            Model::C64PalBreadbin,
+            vec![0; 0x2000],
+            vec![0; 0x2000],
+            vec![0; 0x1000],
+            Some(vec![0xEA; 0x4000]),
+        )
+        .expect("stub ROMs (incl. a 1541 DOS ROM) construct a runtime");
+        HeadlessSession::new_with_query_provider(runtime, 1, C64SessionQueryProvider)
+    }
+
+    fn response_json(resp: &emu198x_shell::mcp::ToolResponse) -> Value {
+        match &resp.content[0] {
+            ToolContent::Text { text } => {
+                serde_json::from_str(text).expect("tool response is JSON text")
+            }
+        }
     }
 
     #[test]
@@ -159,12 +394,76 @@ mod tests {
             "press_key",
             "type_string",
             "save_disk",
+            "save_disk9",
+            "save_tape",
+            "set_port_drive",
         ] {
             assert!(
                 server.registry().get(name).is_some(),
                 "C64 tool `{name}` was not registered"
             );
         }
+    }
+
+    #[test]
+    fn disk_format_detection_and_extension_guard() {
+        use super::{disk_image_format, reject_disk_extension_mismatch};
+
+        assert_eq!(disk_image_format(b"GCR-1541\0\0\0\0"), "g64");
+        assert_eq!(disk_image_format(&[0u8; 16]), "d64");
+
+        // A matching or unknown extension is accepted; a contradicting disk
+        // extension is rejected so a G64 surface is never mislabelled as .d64.
+        assert!(reject_disk_extension_mismatch("save_disk", "work.d64", "d64").is_ok());
+        assert!(reject_disk_extension_mismatch("save_disk", "work.g64", "g64").is_ok());
+        assert!(reject_disk_extension_mismatch("save_disk", "work.bin", "g64").is_ok());
+        assert!(reject_disk_extension_mismatch("save_disk", "work.d64", "g64").is_err());
+        assert!(reject_disk_extension_mismatch("save_disk", "work.g64", "d64").is_err());
+    }
+
+    #[test]
+    fn set_port_drive_tool_reports_the_default_layout() {
+        let tool = SetPortDriveTool;
+        let mut session = stub_session_with_1541();
+
+        // Clearing device 8 empties the only occupied port; the returned map
+        // shows every device null.
+        let resp = tool
+            .call(json!({"device": 8, "kind": "none"}), &mut session)
+            .expect("clear device 8");
+        let body = response_json(&resp);
+        assert_eq!(body["device"], 8);
+        assert!(body["drive"].is_null());
+        assert!(body["ports"]["8"].is_null());
+        assert!(body["ports"]["11"].is_null());
+
+        // Putting the 1541 back on device 8 shows in the map.
+        let resp = tool
+            .call(json!({"device": 8, "kind": "1541"}), &mut session)
+            .expect("restore the 1541 on device 8");
+        assert_eq!(response_json(&resp)["ports"]["8"], "1541");
+    }
+
+    #[test]
+    fn set_port_drive_tool_rejects_bad_input_and_missing_roms() {
+        let tool = SetPortDriveTool;
+        let mut session = stub_session_with_1541();
+
+        // Out-of-range device.
+        assert!(
+            tool.call(json!({"device": 12, "kind": "none"}), &mut session)
+                .is_err()
+        );
+        // Unknown model label.
+        assert!(
+            tool.call(json!({"device": 8, "kind": "9999"}), &mut session)
+                .is_err()
+        );
+        // A model whose DOS ROM was never supplied (only the 1541 ROM exists).
+        assert!(
+            tool.call(json!({"device": 9, "kind": "1571"}), &mut session)
+                .is_err()
+        );
     }
 
     #[test]
@@ -197,6 +496,7 @@ mod tests {
             "load_basic_program",
             "press_key",
             "type_string",
+            "set_port_drive",
             "run_frames",
             "query",
             "save_screenshot",

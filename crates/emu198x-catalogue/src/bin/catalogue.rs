@@ -22,7 +22,7 @@ Usage:
     catalogue run [--entry <id>] [--manifest PATH]
 
 Resolves media and firmware against:
-    EMU198X_CATALOGUE_MEDIA_ROOT     (default: ~/Projects/Emu198x-Unclean/Reference)
+    EMU198X_CATALOGUE_MEDIA_ROOT     (default: /Volumes/Data/Library/ROMs/TOSEC)
     EMU198X_CATALOGUE_FIRMWARE_ROOT  (default: ~/.emu198x/roms)
 ";
 
@@ -100,14 +100,12 @@ fn default_manifest_path() -> PathBuf {
 }
 
 fn media_root() -> PathBuf {
+    // Default to the Time Capsule TOSEC library. The manifest's relative paths
+    // (`commodore/c64/Games/...`) match TOSEC's layout bar casing, which resolves
+    // on the case-insensitive volume. Override with EMU198X_CATALOGUE_MEDIA_ROOT.
     env::var_os("EMU198X_CATALOGUE_MEDIA_ROOT")
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            dirs_home()
-                .join("Projects")
-                .join("Emu198x-Unclean")
-                .join("Reference")
-        })
+        .unwrap_or_else(|| PathBuf::from("/Volumes/Data/Library/ROMs/TOSEC"))
 }
 
 fn firmware_root() -> PathBuf {

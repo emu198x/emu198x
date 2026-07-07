@@ -549,6 +549,15 @@ name = "common-commodore-c64"
 version = "0.2.0"
 
 [[package]]
+name = "common-commodore-drive-gcr"
+version = "0.2.0"
+dependencies = [
+ "format-commodore-c64-d64",
+ "format-commodore-c64-g64",
+ "serde",
+]
+
+[[package]]
 name = "common-commodore-iec"
 version = "0.2.0"
 dependencies = [
@@ -1401,7 +1410,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-commodore-c64-d71"
+version = "0.2.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "format-commodore-c64-d81"
+version = "0.2.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "format-commodore-c64-g64"
 version = "0.2.0"
 dependencies = [
  "thiserror 2.0.18",
@@ -2066,12 +2089,31 @@ dependencies = [
 name = "machine-commodore-1541"
 version = "0.2.0"
 dependencies = [
+ "common-commodore-drive-gcr",
  "common-commodore-iec",
  "format-commodore-c64-d64",
+ "format-commodore-c64-g64",
  "mos-6502",
  "mos-via-6522",
  "serde",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "machine-commodore-1571"
+version = "0.2.0"
+dependencies = [
+ "common-commodore-drive-gcr",
+ "common-commodore-iec",
+ "format-commodore-c64-d64",
+ "format-commodore-c64-d71",
+ "format-commodore-c64-g64",
+ "mos-6502",
+ "mos-cia-6526",
+ "mos-via-6522",
+ "serde",
+ "thiserror 2.0.18",
+ "western-digital-wd1770",
 ]
 
 [[package]]
@@ -3783,9 +3825,11 @@ dependencies = [
  "emu198x-shell",
  "format-commodore-c64-bas",
  "format-commodore-c64-d64",
+ "format-commodore-c64-g64",
  "format-commodore-c64-p00",
  "format-commodore-c64-t64",
  "machine-commodore-1541",
+ "machine-commodore-1571",
  "machine-commodore-1581",
  "machine-commodore-c64",
  "mos-vic-ii",

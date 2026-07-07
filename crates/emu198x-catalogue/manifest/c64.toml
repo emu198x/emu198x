@@ -4,7 +4,7 @@
 # and named SID showcases. Cartridges deferred until subsystem lands.
 #
 # Media paths resolve against:
-#   EMU198X_CATALOGUE_MEDIA_ROOT     (default: ~/Projects/Emu198x-Unclean/Reference)
+#   EMU198X_CATALOGUE_MEDIA_ROOT     (default: /Volumes/Data/Library/ROMs/TOSEC)
 #   EMU198X_CATALOGUE_FIRMWARE_ROOT  (default: ~/.emu198x/roms)
 
 [system]
@@ -14,7 +14,7 @@ id = "c64"
 # FRAME_ROUTING_VERSION (mos-vic-ii). Mismatch fails loud with a
 # re-capture instruction. See
 # knowledge/decisions/c64-architecture-review.md Seam 4.
-audio_routing_version = 3
+audio_routing_version = 4
 frame_routing_version = 2
 
 [[system.firmware]]
@@ -27,6 +27,32 @@ files = [
     # always so the same firmware list works for boot-to-READY and
     # disk-loaded entries on the same variant.
     { id = "commodore-1541-dos-rom",      path = "commodore-c64/1541.rom" },
+]
+
+# Same PAL breadbin, but with the 1581 3.5" drive's DOS ROM instead of the
+# 1541's. Entries on this variant attach a 1581 on IEC device 9 (slot
+# "drive-9") for D81 media. Kept a separate variant so D64/TAP entries on the
+# plain "pal" set keep their captured hashes untouched.
+[[system.firmware]]
+variant = "pal-1581"
+files = [
+    { id = "commodore-c64-kernal-rom",    path = "commodore-c64/kernal.rom" },
+    { id = "commodore-c64-basic-rom",     path = "commodore-c64/basic.rom" },
+    { id = "commodore-c64-character-rom", path = "commodore-c64/chargen.rom" },
+    { id = "commodore-1581-dos-rom",      path = "commodore-c64/1581.rom" },
+]
+
+# Same PAL breadbin, but with the 1571 5.25" drive's DOS ROM. The runner puts a
+# 1571 on IEC device 8 (slot "drive-8") for this variant, so D71/D64 entries
+# load through it with the standard LOAD"*",8,1. Separate variant so the plain
+# "pal" set's captured hashes stay untouched.
+[[system.firmware]]
+variant = "pal-1571"
+files = [
+    { id = "commodore-c64-kernal-rom",    path = "commodore-c64/kernal.rom" },
+    { id = "commodore-c64-basic-rom",     path = "commodore-c64/basic.rom" },
+    { id = "commodore-c64-character-rom", path = "commodore-c64/chargen.rom" },
+    { id = "commodore-1571-dos-rom",      path = "commodore-c64/1571.rom" },
 ]
 
 [[entry]]
@@ -51,7 +77,7 @@ frame_hash = "xxh64:78b237c0b923ded5"
 # C64 boots silent — no music, no sound effects.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:2d2d7c5231ec57ab"
+hash = "xxh64:e45531b9387b986f"
 
 [[entry]]
 id = "bruce-lee"
@@ -88,17 +114,18 @@ press = "return"
 # point; 20000 frames lands on the same target state with margin.
 # Captures the canonical Bruce Lee playfield (mountains + temple +
 # Bruce Lee + the Ninja + the Yamo). Re-blessed for the LXA magic fix
-# (#737): the load/attract timeline shifted a little, so the demo
-# sprites sit at different positions at the capture frame; the audio
-# hash was unchanged by the fix.
+# (#737); again for the CIA TOD fix (#762), which shifts the TOD-driven
+# attract so the demo sprites sit at different positions at the capture
+# frame (screenshot-verified as the same canonical playfield); and the
+# audio hash for AUDIO_ROUTING_VERSION 4 (#763).
 wait_frames = 20000
-frame_hash = "xxh64:7f4376f4e93bbeb4"
+frame_hash = "xxh64:e0ff7f47c0d722c0"
 
 [entry.audio]
 # Captures the in-game SID music.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:154fa6dfa3fd36d5"
+hash = "xxh64:9fe3cacaa9ee4efc"
 
 [[entry]]
 id = "aztec-challenge"
@@ -141,7 +168,7 @@ frame_hash = "xxh64:e69c66d47c38fe97"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:9a8ab639d32c76d7"
+hash = "xxh64:62177f8ed59627d0"
 
 [[entry]]
 id = "bomb-jack"
@@ -160,14 +187,18 @@ path = "commodore/c64/Games/Arcade/[D64]/Bomb Jack (1986)(Elite).zip"
 # Captures the canonical "BOMB JACK / OFFICIALLY LICENSED CBM 64
 # VERSION / COPYRIGHT ELITE SYSTEMS LTD 1986 / PRESS FIRE TO PLAY"
 # with the scrolling credit "AND TO MARK COOKSEY FOR THE MUSIC".
+# Re-blessed for the CIA TOD fix (#762), which shifts the TOD-driven
+# title/scroll state at the capture frame (screenshot-verified as the
+# same canonical title), and the audio hash for
+# AUDIO_ROUTING_VERSION 4 (#763).
 [entry.boot]
 wait_frames = 50000
-frame_hash = "xxh64:ab97482eb1b0aa5d"
+frame_hash = "xxh64:59cbde0e3e4589d8"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:e375068dddec4797"
+hash = "xxh64:33d7fa712e883c33"
 
 [[entry]]
 id = "thing-on-a-spring"
@@ -197,7 +228,7 @@ frame_hash = "xxh64:76d04c00d01ea0d0"
 # music plays here — this window is no longer silent.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:ca42ce3ea5066000"
+hash = "xxh64:71161668fc91de12"
 
 [[entry]]
 id = "wizball"
@@ -233,16 +264,19 @@ press = "return"
 # and Hubbard's SID music looping. Re-blessed for the LXA magic-constant
 # fix (#737): Wizball executes LXA (VICE: "needs to be 0xee for
 # wizball"), and the $EE model un-garbles the logo and "sensi soft"
-# lettering the previous bless had captured corrupted.
+# lettering the previous bless had captured corrupted. Re-blessed again
+# for the CIA TOD fix (#762), which shifts the attract state at the
+# capture frame (screenshot-verified as the same high-score/logo
+# screen), and the audio hash for AUDIO_ROUTING_VERSION 4 (#763).
 wait_frames = 16000
-frame_hash = "xxh64:c44b183eb1b947d7"
+frame_hash = "xxh64:6e834fb4e51ec3d6"
 
 [entry.audio]
 # Captures the Rob Hubbard title-screen SID — first non-silent
 # audio assertion of any disk-loaded C64 entry.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:b3eb1c2aae329a3b"
+hash = "xxh64:37b46f77b3452a77"
 
 [[entry]]
 id = "monty-on-the-run"
@@ -285,7 +319,7 @@ frame_hash = "xxh64:d3547aa2257908ef"
 # over the 2s window at the 2026-07-03 re-bless).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:1d260595e427fc4f"
+hash = "xxh64:58fd2f915df63ee1"
 
 [[entry]]
 id = "prince-of-persia"
@@ -355,7 +389,7 @@ frame_hash = "xxh64:b562e1cd4a4a3a34"
 # music plays before the boot waypoint).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:ce6e8e82de1a0a18"
+hash = "xxh64:7422993a23696560"
 
 [[entry]]
 id = "final-cartridge-iii"
@@ -384,7 +418,7 @@ frame_hash = "xxh64:72a37f5c3cbd6176"
 # audio pipeline output, not musical content.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:2d2d7c5231ec57ab"
+hash = "xxh64:8d457b26c922563e"
 
 [[entry]]
 id = "action-replay"
@@ -419,4 +453,114 @@ frame_hash = "xxh64:72943c01dbd9bd32"
 # The idle freezer menu is deterministic near-silence.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:2d2d7c5231ec57ab"
+hash = "xxh64:8d457b26c922563e"
+
+[[entry]]
+id = "empire-1581-load"
+title = "Empire (1581 D81 load)"
+year = 1987
+publisher = "Blakemore, Cleve"
+variant = "pal-1581"
+
+# First 1581 catalogue entry: proves the C64->1581 serial LOAD works end to
+# end (issue #69). LOAD"*",9,1 drives IEC device 9. The disk is a C128 title,
+# so this validates the serial LOAD path reaching "LOADING" rather than
+# running the game (C128 programs don't run on a stock C64).
+[entry.media]
+kind = "disk"
+slot = "drive-9"
+path = "commodore/c128/Games/[D81]/Empire 128 - Enhanced (1987-10)(Blakemore, Cleve)[h Binary Legens][80column].zip"
+
+[entry.boot]
+# Autoload waits for "LOADING"; this waypoint then captures the load in
+# progress -- directory found, first bytes streaming over the serial bus.
+wait_frames = 400
+frame_hash = "xxh64:ddf021e5ba3b9aa4"
+
+[entry.audio]
+# Silent serial load.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:e45531b9387b986f"
+
+[[entry]]
+id = "bruce-lee-1571"
+title = "Bruce Lee (1571 load)"
+year = 1984
+publisher = "Datasoft"
+variant = "pal-1571"
+
+# The 1571 counterpart of the `bruce-lee` entry: the same D64 game, but loaded
+# through a 1571 on IEC device 8 (in 1541-compatible mode) rather than a 1541.
+# There is no C128 core yet, so this verifies the 1571 drive machinery — the
+# C64->1571 serial LOAD path (issue #69) — by running a real game to its title
+# screen. LOAD"*",8,1 + RUN, exactly like the 1541 entry.
+[entry.media]
+kind = "disk"
+slot = "drive-8"
+path = "commodore/c64/Games/Arcade/[D64]/Bruce Lee (1984)(Datasoft).zip"
+
+[[entry.script]]
+at_frame = 2400
+press = "r"
+[[entry.script]]
+at_frame = 2403
+press = "u"
+[[entry.script]]
+at_frame = 2406
+press = "n"
+[[entry.script]]
+at_frame = 2409
+press = "return"
+
+[entry.boot]
+# Same load-to-title timeline as the 1541 entry, captured fresh because the
+# 1571 drives the serial load. Verified against a saved screenshot: the Bruce
+# Lee title screen (portrait + credits). The hash differs from the 1541 entry's
+# because the 1571's load timing lands the attract/title at a slightly different
+# point.
+wait_frames = 20000
+frame_hash = "xxh64:bc99c5b7a536f896"
+
+[entry.audio]
+# `from_frame` counts from the boot waypoint, so this samples the title screen.
+# The 1571's shifted timeline lands this 2s window on a silent stretch of the
+# title (the same digital-silence hash the 1581 serial-load entry captures); the
+# frame hash above is the load proof for this drive-validation entry.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:e45531b9387b986f"
+
+[[entry]]
+id = "bomb-jack-2-g64"
+title = "Bomb Jack II (G64 raw-GCR)"
+year = 1986
+publisher = "Elite"
+variant = "pal"
+
+# The catalogue's raw-GCR preservation showcase (issue #73). Every other disk
+# entry here is a D64 -- decoded sectors. This is a G64: the raw GCR bit-stream
+# of a protected original, custom sync marks and all, the format that preserves
+# copy-protection D64 throws away. It loads through the same 1541 on device 8
+# (LOAD"*",8,1), autodetected by the "GCR-1541" signature, so this entry
+# exercises the whole raw-GCR read path end to end -- the first non-D64 disk in
+# the catalogue.
+[entry.media]
+kind = "disk"
+slot = "drive-8"
+path = "commodore/c64/Games/Arcade/[G64]/Bomb Jack 2 (1986)(Elite).zip"
+
+[entry.boot]
+# Bomb Jack II self-runs from its multi-stage loader straight to the title
+# screen -- no RUN, same shape as the D64 Bomb Jack entry. Screenshot-verified:
+# the "BOMB JACK II" logo, the Cooksey/Trueman/Holmes credits, the
+# keyboard/joystick + 1/2-player menu, and the Elite logo -- all loaded from the
+# raw GCR bit-stream.
+wait_frames = 50000
+frame_hash = "xxh64:d4fe806e709b5f00"
+
+[entry.audio]
+# Samples the title screen, where Mark Cooksey's SID tune is playing.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:36fa7201d0a1bd33"

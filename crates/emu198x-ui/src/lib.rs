@@ -81,6 +81,34 @@ impl VariantInfo {
     }
 }
 
+/// One selectable drive model for a configurable device port (the Machine →
+/// Drives radios). `id` round-trips through [`UiSystem::set_port_drive`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DriveOption {
+    /// Stable model identifier (e.g. `"none"`, `"1541"`).
+    pub id: Cow<'static, str>,
+    /// Human-readable menu label.
+    pub label: Cow<'static, str>,
+    /// Whether this model can currently be selected (its firmware is present).
+    /// A `false` option is shown disabled so the user sees why it is unavailable.
+    pub available: bool,
+}
+
+/// One configurable device port and the drive models it can hold (the Machine →
+/// Drives submenu). Systems without swappable drives return no ports (default),
+/// so no Drives menu appears.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DrivePortInfo {
+    /// The device number this port answers to (e.g. an IEC device 8–11).
+    pub device: u8,
+    /// Human-readable port label (e.g. `"Device 8"`).
+    pub label: Cow<'static, str>,
+    /// The models offered for this port, in menu order.
+    pub options: Vec<DriveOption>,
+    /// The `id` of the currently-selected option, for the radio check.
+    pub current: Cow<'static, str>,
+}
+
 /// Per-system configuration the harness needs to host a machine in a window.
 ///
 /// The runner builds its runtime (CLI parsing, cartridge/media loading) and
@@ -262,6 +290,30 @@ pub trait UiSystem {
             operation: "switch machine variant",
         })
     }
+
+    /// The configurable device ports and their drive-model options (the Machine
+    /// → Drives menu). Read from the runtime so the current selection and each
+    /// model's availability reflect live state. Empty (the default) ⇒ no Drives
+    /// menu.
+    fn drive_ports(&self, _runtime: &Self::Runtime) -> Vec<DrivePortInfo> {
+        Vec::new()
+    }
+
+    /// Set the drive model on `device` to the option `kind_id` (from
+    /// [`Self::drive_ports`]), applying it to the live runtime. Unlike a variant
+    /// switch this does not rebuild the machine or change timing — it swaps a
+    /// drive on the bus — so the harness only refreshes the radio afterwards.
+    /// Default: unsupported (systems with no drive ports never reach here).
+    fn set_port_drive(
+        &mut self,
+        _runtime: &mut Self::Runtime,
+        _device: u8,
+        _kind_id: &str,
+    ) -> Result<(), MachineError> {
+        Err(MachineError::UnsupportedOperation {
+            operation: "set port drive",
+        })
+    }
 }
 
 /// Errors that can end a UI session.
@@ -376,14 +428,18 @@ impl<S: UiSystem> App<S> {
         let presentation = PresentationProfile::for_filter(video);
         let variants = system.variants();
         let current_variant = system.current_variant();
+        let drive_ports = system.drive_ports(&runner.runtime);
         let state_open = system.state_open_filter().is_some();
         let app_menu = AppMenu::new(
             &system.window_title(),
             scale,
             video,
             &runner.runtime.profile().media_slots,
-            &variants,
-            current_variant.as_deref(),
+            &crate::menu::MachineMenu {
+                variants: &variants,
+                current_variant: current_variant.as_deref(),
+                drive_ports: &drive_ports,
+            },
             state_open,
         );
         let (command_tx, command_rx) = channel();
@@ -806,6 +862,8 @@ impl<S: UiSystem> App<S> {
         self.runner.audio_output.clear();
         self.runner.last_run_result = None;
         self.runner.run_ticks(&[], self.full_frame_ticks)?;
+        // A restored snapshot can carry a different drive layout.
+        self.refresh_all_port_drives();
         println!("load-state: restored {}", path.display());
         Ok(())
     }
@@ -913,6 +971,7 @@ impl<S: UiSystem> App<S> {
                     self.fail(event_loop, err);
                 }
             }
+            AppCommand::SetPortDrive { device, kind_id } => self.set_port_drive(device, &kind_id),
             AppCommand::MediaTransport { slot, action } => self.media_transport(&slot, action),
             AppCommand::ToggleTurbo => self.toggle_turbo(),
             AppCommand::OpenState => {
@@ -949,6 +1008,8 @@ impl<S: UiSystem> App<S> {
         self.runner.audio_output.clear();
         self.runner.last_run_result = None;
         self.runner.run_ticks(&[], self.full_frame_ticks)?;
+        // A loaded state can carry a different drive layout.
+        self.refresh_all_port_drives();
         println!("state: loaded {}", path.display());
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -1032,6 +1093,44 @@ impl<S: UiSystem> App<S> {
             "tape fast-load {}",
             if self.turbo_armed { "armed" } else { "off" }
         );
+    }
+
+    /// Machine → Drives radio: set the drive model on `device` via the system's
+    /// [`UiSystem::set_port_drive`], then re-check the radio from the runtime's
+    /// actual post-change state. Unlike a variant switch this swaps a drive on
+    /// the bus without rebuilding the machine, so there is no re-pacing or
+    /// framebuffer change — a non-fatal action, run between frames like the
+    /// others. On error the running machine is untouched and the re-read pins the
+    /// radio back to the unchanged selection.
+    fn set_port_drive(&mut self, device: u8, kind_id: &str) {
+        if let Err(err) = self
+            .system
+            .set_port_drive(&mut self.runner.runtime, device, kind_id)
+        {
+            eprintln!("machine: cannot set device {device} drive to {kind_id}: {err}");
+        }
+        self.refresh_port_drive(device);
+    }
+
+    /// Re-check `device`'s Drives radio from the runtime's live selection.
+    fn refresh_port_drive(&mut self, device: u8) {
+        if let Some(port) = self
+            .system
+            .drive_ports(&self.runner.runtime)
+            .into_iter()
+            .find(|port| port.device == device)
+        {
+            self.app_menu.set_current_port_drive(device, &port.current);
+        }
+    }
+
+    /// Re-check every Drives radio from the runtime — used after a state load,
+    /// which can change the whole port layout.
+    fn refresh_all_port_drives(&mut self) {
+        for port in self.system.drive_ports(&self.runner.runtime) {
+            self.app_menu
+                .set_current_port_drive(port.device, &port.current);
+        }
     }
 
     /// Recompute the per-frame pacing (slice ticks + wall-clock) from the current

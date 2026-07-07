@@ -2,6 +2,7 @@
 
 mod autoload;
 mod basic_loader;
+mod drives;
 pub mod file_loader;
 mod input;
 mod profiles;
@@ -22,6 +23,7 @@ pub use basic_loader::{
     DEFAULT_BASIC_LOADER_BOOT_FRAMES, LoadBasicError, LoadBasicResult, load_basic_program,
     load_basic_source,
 };
+pub use drives::{DriveKind, IecDrive};
 pub use input::{key_name_is_valid, keys_for_char};
 pub use machine_commodore_c64::{AudioControls, SidChannel};
 pub use profiles::{Model, profile_for, profiles};

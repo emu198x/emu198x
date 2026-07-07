@@ -110,15 +110,19 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
     Ok(())
 }
 
-/// Seam 5 waypoint: C64 snapshot envelope version is locked at 1.
+/// Seam 5 waypoint: C64 snapshot envelope version is locked at 3.
 ///
 /// Postcard varint-encodes the leading `version: u32` field as a
 /// single byte (for value ≤ 127). A silent bump would change the
 /// first byte and break replay compatibility with previously-captured
 /// snapshots. Catches a regression where someone bumps the constant
-/// without an explicit decision.
+/// without an explicit decision. Bumped to 2 when the fixed
+/// 1541-plus-1581 pair became a per-port drive array (devices 8–11), and
+/// to 3 when the runtime-level expansion bookkeeping (cartridge image,
+/// GeoRAM/REU sizes, 1351-mouse port) joined the envelope so a restored
+/// snapshot keeps them across a reset.
 #[test]
-fn snapshot_envelope_version_is_locked_at_v1() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_locked_at_v3() -> Result<(), Box<dyn Error>> {
     let runtime = C64Runtime::new(
         Model::C64PalBreadbin,
         vec![0; KERNAL_SIZE],
@@ -129,8 +133,8 @@ fn snapshot_envelope_version_is_locked_at_v1() -> Result<(), Box<dyn Error>> {
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must have a non-empty envelope");
     assert_eq!(
-        bytes[0], 1,
-        "C64 snapshot envelope version should be 1 (got {})",
+        bytes[0], 3,
+        "C64 snapshot envelope version should be 3 (got {})",
         bytes[0]
     );
     Ok(())

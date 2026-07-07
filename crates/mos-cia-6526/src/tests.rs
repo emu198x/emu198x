@@ -66,6 +66,38 @@ fn irq_line_rises_one_cycle_after_the_flag() {
     assert!(cia.irq);
 }
 
+/// The 6526A ("new CIA", fitted to the C64C) raises `/IRQ` in the underflow
+/// cycle itself, one cycle earlier than the old 6526's delayed raise. Both
+/// share the same flag-set timing; only the IR/line path differs (see
+/// `run_ifr_cycle`). This is the single observable behaviour that makes the
+/// `Mos6526A` model worth selecting for the C64C.
+#[test]
+fn new_cia_raises_irq_one_cycle_before_the_old_cia() {
+    fn ticks_until_irq(model: CiaModel) -> u32 {
+        let mut cia = Cia6526::new();
+        cia.set_model(model);
+        cia.write(0x0D, 0x81); // enable TA interrupt
+        cia.write(0x04, 4);
+        cia.write(0x05, 0);
+        cia.write(0x0E, 0x01); // start timer A
+        let mut ticks = 0;
+        while !cia.irq {
+            cia.tick();
+            ticks += 1;
+            assert!(ticks < 20, "/IRQ never raised for {model:?}");
+        }
+        ticks
+    }
+
+    let old = ticks_until_irq(CiaModel::Mos6526);
+    let new = ticks_until_irq(CiaModel::Mos6526A);
+    assert_eq!(
+        new + 1,
+        old,
+        "6526A should raise /IRQ one cycle before the 6526 (old={old}, new={new})"
+    );
+}
+
 #[test]
 fn timer_a_oneshot_stops_after_underflow() {
     let mut cia = Cia6526::new();
@@ -294,14 +326,42 @@ fn port_b_reads_external_through_input_bits() {
     assert_eq!(cia.read(0x01) & 0x02, 0x00);
 }
 
+// The TOD pin is fed the mains frequency (50 Hz PAL / 60 Hz NTSC); the
+// CIA divides that input by 5 or 6 (CRA bit 7) down to a 10 Hz tenths
+// counter. These two tests pin the /5 and /6 stages — the regression
+// they guard is the tenths advancing at the raw mains rate (5-6x fast).
 #[test]
-fn tod_counts_at_pal_50hz() {
-    let mut cia = Cia6526::new();
-    cia.write(0x0B, 0x00);
-    cia.write(0x0A, 0x00);
-    cia.write(0x09, 0x00);
-    cia.write(0x08, 0x00);
+fn tod_tenths_tick_at_10hz_in_50hz_mode() {
+    // PAL mains tick every 19_705 phi2 cycles; 50 Hz input / 5 = 10 Hz,
+    // so a tenth is 5 mains ticks = 98_525 cycles.
+    let mut cia = Cia6526::new_with_tod_dividers(19_705, 16_421);
+    cia.write(0x0E, 0x80); // CRA bit 7 = 1 → 50 Hz TOD input
+    cia.write(0x08, 0x00); // set tenths = 0 and start the clock
+    // One mains-tick period must NOT advance the tenths (the /5 was the
+    // missing stage that made it tick here).
     for _ in 0..19_705 {
+        cia.tick();
+    }
+    assert_eq!(cia.tod[0], 0, "tenths advanced at the 50 Hz mains rate");
+    // Four more mains ticks complete the 10 Hz period → one tenth.
+    for _ in 0..(19_705 * 4) {
+        cia.tick();
+    }
+    assert_eq!(cia.tod[0], 1);
+}
+
+#[test]
+fn tod_tenths_tick_at_10hz_in_60hz_mode() {
+    // NTSC mains tick every 17_045 phi2 cycles; 60 Hz input / 6 = 10 Hz,
+    // so a tenth is 6 mains ticks.
+    let mut cia = Cia6526::new_with_tod_dividers(19_705, 17_045);
+    cia.write(0x0E, 0x00); // CRA bit 7 = 0 → 60 Hz TOD input
+    cia.write(0x08, 0x00);
+    for _ in 0..(17_045 * 5) {
+        cia.tick();
+    }
+    assert_eq!(cia.tod[0], 0, "tenths advanced before the 6th mains tick");
+    for _ in 0..17_045 {
         cia.tick();
     }
     assert_eq!(cia.tod[0], 1);

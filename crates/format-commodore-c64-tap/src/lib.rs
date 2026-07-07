@@ -118,6 +118,10 @@ pub fn parse_tap(bytes: &[u8]) -> Result<TapImage, TapParseError> {
 
         let pulse_cycles = if value == 0 {
             if version == 0 {
+                // TAP v0 has no long-pulse encoding: a 0 byte just means the
+                // pulse ran past the 255*8-cycle maximum, exact length lost.
+                // Approximate with 256*8, matching VICE (`tap.c`: v0 zero →
+                // `pulse_length = 256`, i.e. 256 byte-units = 2048 cycles).
                 256 * 8
             } else {
                 if index + 3 > payload.len() {

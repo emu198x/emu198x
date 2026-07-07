@@ -210,10 +210,13 @@ impl Drive1581 {
         self.has_disk = false;
     }
 
-    /// The current disk image bytes if one is mounted (for write-back).
+    /// The current disk image bytes if a *writable* disk is mounted, for
+    /// write-back. A read-only original has nothing to write back, so this
+    /// returns `None` — the same "nothing to flush" contract the 1541/1571 G64
+    /// flush uses.
     #[must_use]
     pub fn flush_image(&self) -> Option<Vec<u8>> {
-        if !self.has_disk {
+        if !self.has_disk || self.write_protected {
             return None;
         }
         self.fdc.disk(0).map(|disk| disk.data().to_vec())
@@ -313,15 +316,21 @@ impl Drive1581 {
         let drive_port = bus.map_or(0x85, IecBus::drive_port);
         let atn_high = bus.is_none_or(IecBus::drive_atn_high);
 
+        // The 1581 reads its three IEC input lines INVERTED. VICE
+        // `cia1581d.c::read_ciapb` builds the port then `^ 0x85`, flipping
+        // DATA-in (PB0), CLK-in (PB2) and ATN-in (PB7): the CPU sees a
+        // RELEASED line as 0 and an ASSERTED line as 1 — the opposite of the
+        // raw bus level. (The CIA FLAG below is driven from the ATN *edge*, not
+        // this level, so it keeps its own polarity.)
         let mut pb = 0xFF;
-        if drive_port & 0x01 == 0 {
-            pb &= !0x01; // DATA in low
+        if drive_port & 0x01 != 0 {
+            pb &= !0x01; // DATA-in released -> PB0 = 0
         }
-        if drive_port & 0x04 == 0 {
-            pb &= !0x04; // CLK in low
+        if drive_port & 0x04 != 0 {
+            pb &= !0x04; // CLK-in released -> PB2 = 0
         }
-        if !atn_high {
-            pb &= !0x80; // ATN in low
+        if atn_high {
+            pb &= !0x80; // ATN-in released -> PB7 = 0
         }
         if self.write_protected {
             pb &= !0x40; // WP sense: read-only clears PB6
@@ -490,9 +499,22 @@ mod tests {
     fn mounts_valid_d81_and_flushes() {
         let mut drive = drive();
         let image = vec![0u8; D81_IMAGE_SIZE];
-        drive.load_d81_bytes(&image).expect("valid D81 mounts");
+        // A writable mount flushes its bytes back.
+        drive
+            .load_d81_bytes_writable(&image, true)
+            .expect("valid D81 mounts");
         assert_eq!(drive.flush_image().map(|v| v.len()), Some(D81_IMAGE_SIZE));
         drive.eject_disk();
+        assert!(drive.flush_image().is_none());
+    }
+
+    #[test]
+    fn write_protected_disk_has_nothing_to_flush() {
+        let mut drive = drive();
+        let image = vec![0u8; D81_IMAGE_SIZE];
+        // `load_d81_bytes` mounts read-only; a protected original has no
+        // write-back, matching the 1541/1571 G64 flush contract.
+        drive.load_d81_bytes(&image).expect("valid D81 mounts");
         assert!(drive.flush_image().is_none());
     }
 
@@ -506,5 +528,33 @@ mod tests {
         let restored = Drive1581::from_snapshot(snap).expect("restore");
         assert_eq!(restored.cycles(), drive.cycles());
         assert_eq!(restored.cpu().regs.pc, drive.cpu().regs.pc);
+    }
+
+    #[test]
+    fn iec_input_lines_read_inverted_like_vice() {
+        // The 1581 reads DATA-in (PB0), CLK-in (PB2) and ATN-in (PB7) INVERTED
+        // vs the raw bus level — VICE `cia1581d.c::read_ciapb` XORs the port with
+        // 0x85. A RELEASED line reads 0; an ASSERTED line reads 1. Reading them
+        // straight makes the DOS's `$AD21` ATN poll (`BPL` on PB7) take the wrong
+        // branch at boot and stall the serial handler instead of idling.
+        let mut drive = drive();
+
+        // Fresh bus = all three lines released high.
+        let mut bus = IecBus::new();
+        drive.sync_iec_bus(&mut bus);
+        assert_eq!(
+            drive.cia().pb_in & 0x85,
+            0x00,
+            "released DATA/CLK/ATN must read as 0 at PB0/PB2/PB7"
+        );
+
+        // C64 pulls all three lines low (port A bit for each output = 0).
+        bus.write_cpu_port_a(0x00);
+        drive.sync_iec_bus(&mut bus);
+        assert_eq!(
+            drive.cia().pb_in & 0x85,
+            0x85,
+            "asserted DATA/CLK/ATN must read as 1 at PB0/PB2/PB7"
+        );
     }
 }

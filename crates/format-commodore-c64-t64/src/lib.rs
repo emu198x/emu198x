@@ -47,10 +47,6 @@ pub enum T64ParseError {
     #[error("T64 entry data extends beyond the image")]
     TruncatedEntryData,
 
-    /// One entry advertises an invalid address range.
-    #[error("T64 entry has an invalid address range ${start:04X}-${end:04X}")]
-    InvalidAddressRange { start: u16, end: u16 },
-
     /// No loadable entries were present.
     #[error("T64 image does not contain any loadable program entries")]
     NoLoadableEntries,
@@ -69,7 +65,7 @@ pub fn extract_first_program(bytes: &[u8]) -> Result<T64Program, T64ParseError> 
         if base + ENTRY_LEN > bytes.len() {
             break;
         }
-        if let Some(program) = parse_entry(bytes, base)? {
+        if let Some(program) = parse_entry(bytes, base, used_entries)? {
             return Ok(program);
         }
     }
@@ -82,9 +78,11 @@ pub fn extract_first_program(bytes: &[u8]) -> Result<T64Program, T64ParseError> 
 ///
 /// # Errors
 ///
-/// Returns an error if the container header is malformed, an entry advertises
-/// an invalid range, or an entry's payload extends past the image. Returns
-/// [`T64ParseError::NoLoadableEntries`] if no type-1 entries are present.
+/// Returns an error if the container header is malformed or an entry's payload
+/// extends past the image. An entry with a wrong/zero end address has its
+/// length recovered rather than rejected. Returns
+/// [`T64ParseError::NoLoadableEntries`] if no loadable type-1 entries are
+/// present.
 pub fn extract_programs(bytes: &[u8]) -> Result<Vec<T64Program>, T64ParseError> {
     let used_entries = validate_header(bytes)?;
     let mut programs = Vec::new();
@@ -93,7 +91,7 @@ pub fn extract_programs(bytes: &[u8]) -> Result<Vec<T64Program>, T64ParseError> 
         if base + ENTRY_LEN > bytes.len() {
             break;
         }
-        if let Some(program) = parse_entry(bytes, base)? {
+        if let Some(program) = parse_entry(bytes, base, used_entries)? {
             programs.push(program);
         }
     }
@@ -117,22 +115,44 @@ fn validate_header(bytes: &[u8]) -> Result<usize, T64ParseError> {
     Ok(u16::from_le_bytes([bytes[0x24], bytes[0x25]]) as usize)
 }
 
+/// The byte offset at which the payload of the entry loaded from `data_offset`
+/// must stop: the smallest data offset of any other loadable entry that starts
+/// later in the image, or the image end. Used to recover the length of an entry
+/// whose recorded end address is wrong.
+fn payload_boundary(bytes: &[u8], used_entries: usize, data_offset: usize) -> usize {
+    let mut boundary = bytes.len();
+    for index in 0..used_entries {
+        let base = HEADER_LEN + index * ENTRY_LEN;
+        if base + ENTRY_LEN > bytes.len() || bytes[base] != 1 {
+            continue;
+        }
+        let offset = u32::from_le_bytes([
+            bytes[base + 8],
+            bytes[base + 9],
+            bytes[base + 10],
+            bytes[base + 11],
+        ]) as usize;
+        if offset > data_offset && offset < boundary {
+            boundary = offset;
+        }
+    }
+    boundary
+}
+
 /// Parse one directory entry at `base`. Returns `Ok(None)` for a non-program
-/// (type != 1) entry, `Ok(Some(_))` for a loadable one, or an error if the
-/// entry is malformed.
-fn parse_entry(bytes: &[u8], base: usize) -> Result<Option<T64Program>, T64ParseError> {
+/// (type != 1) or empty entry, `Ok(Some(_))` for a loadable one, or an error if
+/// the entry's payload offset points outside the image.
+fn parse_entry(
+    bytes: &[u8],
+    base: usize,
+    used_entries: usize,
+) -> Result<Option<T64Program>, T64ParseError> {
     if bytes[base] != 1 {
         return Ok(None);
     }
 
     let start_address = u16::from_le_bytes([bytes[base + 2], bytes[base + 3]]);
-    let end_address = u16::from_le_bytes([bytes[base + 4], bytes[base + 5]]);
-    if end_address <= start_address {
-        return Err(T64ParseError::InvalidAddressRange {
-            start: start_address,
-            end: end_address,
-        });
-    }
+    let recorded_end = u16::from_le_bytes([bytes[base + 4], bytes[base + 5]]);
 
     let data_offset = u32::from_le_bytes([
         bytes[base + 8],
@@ -140,7 +160,23 @@ fn parse_entry(bytes: &[u8], base: usize) -> Result<Option<T64Program>, T64Parse
         bytes[base + 10],
         bytes[base + 11],
     ]) as usize;
-    let data_len = usize::from(end_address - start_address);
+    if data_offset > bytes.len() {
+        return Err(T64ParseError::TruncatedEntryData);
+    }
+
+    // Many T64 writers record a wrong or zero end address (commonly on the last
+    // entry). When the recorded range is invalid, recover the payload length
+    // from the next entry's data offset or the image end — matching VICE —
+    // rather than rejecting the whole container.
+    let data_len = if recorded_end > start_address {
+        usize::from(recorded_end - start_address)
+    } else {
+        payload_boundary(bytes, used_entries, data_offset).saturating_sub(data_offset)
+    };
+    if data_len == 0 {
+        return Ok(None);
+    }
+
     let data_end = data_offset
         .checked_add(data_len)
         .ok_or(T64ParseError::TruncatedEntryData)?;
@@ -148,6 +184,8 @@ fn parse_entry(bytes: &[u8], base: usize) -> Result<Option<T64Program>, T64Parse
         return Err(T64ParseError::TruncatedEntryData);
     }
 
+    // A recovered entry needs a consistent end address; clamp so it fits u16.
+    let end_address = start_address.saturating_add(u16::try_from(data_len).unwrap_or(u16::MAX));
     let name = decode_name(&bytes[base + 0x10..base + 0x20]);
     Ok(Some(T64Program {
         name,
@@ -244,6 +282,45 @@ mod tests {
             extract_first_program(&image).expect("first entry").name,
             "FIRST"
         );
+    }
+
+    #[test]
+    fn recovers_entry_with_bad_end_address_from_the_next_offset() {
+        // Entry 0's recorded end == start (a common T64-writer bug). Its length
+        // must be recovered from entry 1's data offset, and the container must
+        // still yield both entries instead of erroring out.
+        let mut image = make_t64_two_entries();
+        image[0x44..0x46].copy_from_slice(&0x0801u16.to_le_bytes()); // end == start
+
+        let programs = extract_programs(&image).expect("a bad end must not fail the container");
+        assert_eq!(programs.len(), 2);
+        assert_eq!(programs[0].name, "FIRST");
+        assert_eq!(
+            programs[0].data,
+            vec![0xAA, 0xBB],
+            "length recovered from the next entry's offset"
+        );
+        assert_eq!(programs[0].end_address, 0x0803);
+        assert_eq!(programs[1].name, "SECOND");
+    }
+
+    #[test]
+    fn recovers_single_bad_last_entry_to_the_image_end() {
+        // A single entry whose recorded end is zero recovers its payload to EOF.
+        let mut image = vec![0; 0x303];
+        image[..19].copy_from_slice(b"C64 tape image file");
+        image[0x24..0x26].copy_from_slice(&1u16.to_le_bytes());
+        image[0x40] = 1;
+        image[0x42..0x44].copy_from_slice(&0x0801u16.to_le_bytes());
+        image[0x44..0x46].copy_from_slice(&0u16.to_le_bytes()); // end = 0 (bad)
+        image[0x48..0x4C].copy_from_slice(&0x300u32.to_le_bytes());
+        image[0x50..0x54].copy_from_slice(b"LAST");
+        image[0x300..0x303].copy_from_slice(&[0xDE, 0xAD, 0xBE]);
+
+        let program = extract_first_program(&image).expect("a bad-end entry recovers to EOF");
+        assert_eq!(program.name, "LAST");
+        assert_eq!(program.data, vec![0xDE, 0xAD, 0xBE]);
+        assert_eq!(program.end_address, 0x0804);
     }
 
     #[test]

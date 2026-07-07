@@ -213,9 +213,17 @@ impl Filter {
     pub fn clock(&mut self, voice1: i32, voice2: i32, voice3: i32) {
         let t = tables(self.model);
 
-        self.v1 = ((voice1 * t.voice_scale_s14 + self.dither()) >> 18) + t.voice_dc;
-        self.v2 = ((voice2 * t.voice_scale_s14 + self.dither()) >> 18) + t.voice_dc;
-        self.v3 = ((voice3 * t.voice_scale_s14 + self.dither()) >> 18) + t.voice_dc;
+        // Widen the scale multiply to i64: |voice| reaches ~816k and the scale
+        // is 2442, so the i32 product overflows past ~879k. Real audio stays
+        // just under, but the public clock() API accepts any i32. For every
+        // non-overflowing input this is bit-identical to a plain i32 multiply.
+        let scale = i64::from(t.voice_scale_s14);
+        self.v1 =
+            ((i64::from(voice1) * scale + i64::from(self.dither())) >> 18) as i32 + t.voice_dc;
+        self.v2 =
+            ((i64::from(voice2) * scale + i64::from(self.dither())) >> 18) as i32 + t.voice_dc;
+        self.v3 =
+            ((i64::from(voice3) * scale + i64::from(self.dither())) >> 18) as i32 + t.voice_dc;
 
         // Sum the inputs routed into the filter.
         let mut vi = 0i32;
@@ -464,4 +472,86 @@ fn solve_integrate_8580(
 
     // Return vo.
     *vx + (*vc >> 14)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cutoff_register_writes_pack_the_11_bit_value() {
+        let mut f = Filter::new(SidModel::Mos6581);
+        f.write_fc_hi(0xFF);
+        f.write_fc_lo(0x05);
+        assert_eq!(f.cutoff(), (0xFF << 3) | 0x05);
+    }
+
+    #[test]
+    fn res_filt_write_splits_resonance_and_routing() {
+        let mut f = Filter::new(SidModel::Mos6581);
+        f.write_res_filt(0x35); // resonance 3, routing 0b0101
+        assert_eq!(f.resonance(), 0x3);
+        assert_eq!(f.routing(), 0x5);
+        assert!(f.voice_routed(0));
+        assert!(!f.voice_routed(1));
+        assert!(f.voice_routed(2));
+    }
+
+    #[test]
+    fn mode_vol_write_splits_mode_and_volume() {
+        let mut f = Filter::new(SidModel::Mos6581);
+        f.write_mode_vol(0x9F); // mode 0x90 (incl. voice3off), volume 0x0F
+        assert_eq!(f.mode(), 0x90);
+        assert_eq!(f.volume(), 0x0F);
+    }
+
+    #[test]
+    fn reset_clears_the_registers() {
+        let mut f = Filter::new(SidModel::Mos6581);
+        f.write_fc_hi(0xFF);
+        f.write_res_filt(0xFF);
+        f.write_mode_vol(0xFF);
+        f.reset();
+        assert_eq!(f.cutoff(), 0);
+        assert_eq!(f.resonance(), 0);
+        assert_eq!(f.routing(), 0);
+        assert_eq!(f.volume(), 0);
+        assert!(!f.voice_routed(0));
+    }
+
+    #[test]
+    fn master_volume_attenuates_the_output() {
+        // Peak-to-peak swing of an AC square input must shrink as the master
+        // volume drops (voices routed straight to the mixer, not the filter).
+        let swing_at = |vol: u8| {
+            let mut f = Filter::new(SidModel::Mos6581);
+            f.write_res_filt(0x00);
+            f.write_mode_vol(vol);
+            let (mut lo, mut hi) = (i32::MAX, i32::MIN);
+            for i in 0..4000 {
+                // Within the real voice-value range (|v| * voice_scale_s14
+                // 2442 must fit i32; loud voices reach a few hundred thousand).
+                let s = if (i / 50) % 2 == 0 { 500_000 } else { -500_000 };
+                f.clock(s, 0, 0);
+                let o = i32::from(f.output());
+                lo = lo.min(o);
+                hi = hi.max(o);
+            }
+            i64::from(hi - lo)
+        };
+        assert!(
+            swing_at(0x0F) > swing_at(0x00),
+            "volume 15 must swing more than volume 0"
+        );
+    }
+
+    #[test]
+    fn clock_does_not_overflow_on_extreme_voice_values() {
+        // Regression for #785: a voice past ~879k overflowed the i32 scale
+        // multiply (debug panic). The public clock() API accepts any i32.
+        let mut f = Filter::new(SidModel::Mos6581);
+        f.write_mode_vol(0x0F);
+        f.clock(i32::MAX, i32::MIN, 0); // must not panic
+        let _ = f.output();
+    }
 }
