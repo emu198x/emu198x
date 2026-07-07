@@ -1604,6 +1604,86 @@ mod tests {
         );
     }
 
+    /// A deterministic full PAL frame rendered entirely from `TestMemory` — no
+    /// ROMs, no CPU — exercising the render paths the audit flagged: standard
+    /// text mode, the border flip-flops, palette mapping (border / background /
+    /// foreground / sprite), and the draw-stage sprite sequencer.
+    fn render_golden_scene() -> Vec<u32> {
+        // Char 1's glyph is $AA (1010_1010) on every row, so each cell
+        // alternates foreground and background pixels left to right.
+        let mut chargen = vec![0xFFu8; 4096];
+        for row in &mut chargen[8..16] {
+            *row = 0xAA;
+        }
+        let mut memory = TestMemory::with_colour(&chargen, vec![0x01; 1024]); // white fg
+        let mut vic = Vic::new(VicModel::Pal6569);
+
+        vic.write(0x11, 0x1B); // DEN on, standard text mode, RSEL
+        vic.write(0x16, 0x08); // CSEL, XSCROLL 0
+        vic.write(0x18, 0x14); // screen matrix $0400, char base $1000 (char ROM)
+        vic.write(0x20, 0x0E); // border light blue
+        vic.write(0x21, 0x06); // background blue
+
+        // The whole screen matrix is char 1.
+        for offset in 0..0x0400u16 {
+            memory.ram_write(0x0400 + offset, 0x01);
+        }
+
+        // One solid hires sprite so the mux is exercised.
+        vic.write(0x15, 0x01); // enable sprite 0
+        vic.write(0x00, 100); // X
+        vic.write(0x01, 80); // Y
+        vic.write(0x27, 0x03); // sprite colour cyan
+        memory.ram_write(0x07F8, 0x80); // pointer → $2000
+        for k in 0..63u16 {
+            memory.ram_write(0x2000 + k, 0xFF);
+        }
+
+        advance_to(&mut vic, &memory, 311, 62); // a full PAL frame
+        vic.framebuffer().to_vec()
+    }
+
+    fn fnv1a_u32(data: &[u32]) -> u64 {
+        let mut hash = 0xcbf2_9ce4_8422_2325u64;
+        for &word in data {
+            for byte in word.to_le_bytes() {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        hash
+    }
+
+    /// Render-accuracy regression floor (#768): a hermetic golden frame that
+    /// runs in **default** CI, unlike the ROM-gated VICE-parity testbench. It
+    /// locks the VIC-II's rendered output for a scene covering text-mode
+    /// dispatch, the border flip-flops, palette mapping, and the sprite
+    /// sequencer, so a regression to any of them fails loudly instead of
+    /// slipping through. If this fails after an *intentional* VIC-II change,
+    /// re-bless `GOLDEN_FRAME_HASH` (and bump `FRAME_ROUTING_VERSION` if
+    /// catalogue frames move).
+    #[test]
+    fn render_accuracy_floor_locks_a_golden_frame() {
+        const GOLDEN_FRAME_HASH: u64 = 0x0fe7_18f9_1ddb_3dfd;
+
+        let fb = render_golden_scene();
+        assert_eq!(fb.len(), (FB_WIDTH * FB_HEIGHT) as usize, "full PAL frame");
+
+        // Named pixel-parity checks aid diagnosis; the hash is the full floor.
+        let px = |x: usize, y: usize| fb[y * FB_WIDTH as usize + x];
+        assert_eq!(px(0, 0), PALETTE[0x0E], "top-left is border colour");
+        // Display starts at cycle 16 → fb_x 48. Char $AA: pixel 0 (bit 7) is
+        // foreground, pixel 1 (bit 6) is background.
+        assert_eq!(px(48, 80), PALETTE[0x01], "char foreground pixel");
+        assert_eq!(px(49, 80), PALETTE[0x06], "char background pixel");
+
+        let hash = fnv1a_u32(&fb);
+        assert_eq!(
+            hash, GOLDEN_FRAME_HASH,
+            "VIC-II render drifted; re-bless if intentional. got {hash:#018x}"
+        );
+    }
+
     #[test]
     fn initial_state() {
         let mut vic = Vic::new(VicModel::Pal6569);
