@@ -66,6 +66,38 @@ fn irq_line_rises_one_cycle_after_the_flag() {
     assert!(cia.irq);
 }
 
+/// The 6526A ("new CIA", fitted to the C64C) raises `/IRQ` in the underflow
+/// cycle itself, one cycle earlier than the old 6526's delayed raise. Both
+/// share the same flag-set timing; only the IR/line path differs (see
+/// `run_ifr_cycle`). This is the single observable behaviour that makes the
+/// `Mos6526A` model worth selecting for the C64C.
+#[test]
+fn new_cia_raises_irq_one_cycle_before_the_old_cia() {
+    fn ticks_until_irq(model: CiaModel) -> u32 {
+        let mut cia = Cia6526::new();
+        cia.set_model(model);
+        cia.write(0x0D, 0x81); // enable TA interrupt
+        cia.write(0x04, 4);
+        cia.write(0x05, 0);
+        cia.write(0x0E, 0x01); // start timer A
+        let mut ticks = 0;
+        while !cia.irq {
+            cia.tick();
+            ticks += 1;
+            assert!(ticks < 20, "/IRQ never raised for {model:?}");
+        }
+        ticks
+    }
+
+    let old = ticks_until_irq(CiaModel::Mos6526);
+    let new = ticks_until_irq(CiaModel::Mos6526A);
+    assert_eq!(
+        new + 1,
+        old,
+        "6526A should raise /IRQ one cycle before the 6526 (old={old}, new={new})"
+    );
+}
+
 #[test]
 fn timer_a_oneshot_stops_after_underflow() {
     let mut cia = Cia6526::new();

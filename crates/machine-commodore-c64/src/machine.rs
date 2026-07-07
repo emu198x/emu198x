@@ -369,12 +369,15 @@ impl C64 {
         cpu.reset();
         let timing = config.model.timing();
 
+        let cia_model = config.model.cia_model();
         let mut cia1 = Cia6526::new_with_tod(timing.cia_tod_divider);
+        cia1.set_model(cia_model);
         cia1.write(0x02, 0xFF);
         cia1.write(0x03, 0x00);
         cia1.write(0x00, 0xFF);
 
         let mut cia2 = Cia6526::new_with_tod(timing.cia_tod_divider);
+        cia2.set_model(cia_model);
         cia2.write(0x02, 0x03);
         cia2.write(0x00, 0x03);
 
@@ -1785,6 +1788,19 @@ mod tests {
         })
         .expect("C64C stub ROM sizes should be valid");
         assert_eq!(c64c.sid().model, SidModel::Mos8580);
+    }
+
+    #[test]
+    fn c64c_model_selects_the_6526a_cia_on_both_chips() {
+        use mos_cia_6526::CiaModel;
+
+        let breadbin = stub_machine(C64Model::PalBreadbin);
+        assert_eq!(breadbin.cia1().model(), CiaModel::Mos6526);
+        assert_eq!(breadbin.cia2().model(), CiaModel::Mos6526);
+
+        let c64c = stub_machine(C64Model::PalC64c);
+        assert_eq!(c64c.cia1().model(), CiaModel::Mos6526A);
+        assert_eq!(c64c.cia2().model(), CiaModel::Mos6526A);
     }
 
     #[test]
