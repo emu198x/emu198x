@@ -252,4 +252,44 @@ mod tests {
         let updated_drive_bus = bus.drive_bus(8).expect("drive-8 should exist");
         assert_ne!(initial_drive_bus, updated_drive_bus);
     }
+
+    #[test]
+    fn the_1581_data_fold_differs_from_the_1541_fold() {
+        // The 1581 acknowledges ATN with a `data | cpu_bus` DATA fold, where the
+        // 1541 uses `~data ^ cpu_bus` (VICE cia1581d vs via1d1541). For the same
+        // CPU bus state and drive Port B, the two folds must produce different
+        // bus contributions — the ATN-acknowledge path whose absence produced
+        // the "?DEVICE NOT PRESENT" class of failure before it was fixed.
+        let mut as_1541 = IecBus::new();
+        as_1541.write_cpu_port_a(0xF7);
+        as_1541.write_drive_port_b(8, 0x05);
+
+        let mut as_1581 = IecBus::new();
+        as_1581.write_cpu_port_a(0xF7);
+        as_1581.write_drive_port_b_1581(8, 0x05);
+
+        assert_ne!(
+            as_1541.drive_bus(8).expect("1541-folded drive"),
+            as_1581.drive_bus(8).expect("1581-folded drive"),
+            "the 1581 OR-fold must diverge from the 1541 XOR fold"
+        );
+    }
+
+    #[test]
+    fn the_1581_or_fold_releases_data_when_the_cpu_drives_it_high() {
+        // With the OR fold, a drive holding DATA low (data bit set) still lets
+        // the line float high wherever the CPU already drives that bit high —
+        // the acknowledge. Contrast the release-frees test above, which uses the
+        // 1541 fold. A drive on device 9 folded the 1581 way, then released,
+        // returns its contribution to all-high.
+        let mut bus = IecBus::new();
+        bus.write_drive_port_b_1581(9, 0xF7);
+        let held = bus.drive_bus(9).expect("1581 drive on device 9");
+        bus.release_drive(9);
+        assert_eq!(bus.drive_bus(9), Some(0xFF));
+        assert_ne!(
+            held, 0xFF,
+            "the drive was pulling a line low before release"
+        );
+    }
 }
