@@ -35,6 +35,19 @@ pub struct IecDriveBoard {
     device_number: u8,
 }
 
+/// The board's persistent state as a transfer struct, mirroring the rotation
+/// engine's `RotationState`. The drive flattens these fields into its own
+/// `Snapshot` (preserving its exact postcard layout) rather than serialising the
+/// board directly — this DTO just moves them across the crate boundary.
+#[derive(Clone)]
+pub struct BoardState {
+    pub cpu: M6502,
+    pub via1: Via6522,
+    pub via2: Via6522,
+    pub ram: [u8; RAM_SIZE],
+    pub device_number: u8,
+}
+
 impl IecDriveBoard {
     /// Constructs a powered-on board (CPU reset, VIAs cleared, RAM zeroed) at the
     /// default device number.
@@ -97,6 +110,27 @@ impl IecDriveBoard {
     /// this on every tick, so it takes effect immediately.
     pub const fn set_device_number(&mut self, device_number: u8) {
         self.device_number = device_number;
+    }
+
+    /// Captures the board's persistent state for a snapshot.
+    #[must_use]
+    pub fn state(&self) -> BoardState {
+        BoardState {
+            cpu: self.cpu.clone(),
+            via1: self.via1.clone(),
+            via2: self.via2.clone(),
+            ram: self.ram,
+            device_number: self.device_number,
+        }
+    }
+
+    /// Restores the board's persistent state from a snapshot.
+    pub fn restore_state(&mut self, state: BoardState) {
+        self.cpu = state.cpu;
+        self.via1 = state.via1;
+        self.via2 = state.via2;
+        self.ram = state.ram;
+        self.device_number = state.device_number;
     }
 
     // ---- VIA1 / IEC serial glue (engine-free) ----

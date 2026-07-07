@@ -17,7 +17,7 @@ use common_commodore_drive_gcr::{
     gcr_read_sector_from_raw_track,
 };
 use common_commodore_iec::IecBus;
-use common_commodore_iec_drive::IecDriveBoard;
+use common_commodore_iec_drive::{BoardState, IecDriveBoard};
 use format_commodore_c64_d64::{
     D64FileType, D64ParseError, parse_directory, sectors_in_track, write_sector,
 };
@@ -440,14 +440,15 @@ impl Drive1541 {
     #[must_use]
     pub fn snapshot_state(&self) -> Drive1541Snapshot {
         let rotation = self.engine.state();
+        let board = self.board.state();
         Drive1541Snapshot {
-            cpu: self.board.cpu().clone(),
-            via1: self.board.via1().clone(),
-            via2: self.board.via2().clone(),
-            ram: self.board.ram().to_vec(),
+            cpu: board.cpu,
+            via1: board.via1,
+            via2: board.via2,
+            ram: board.ram.to_vec(),
             rom: self.rom.to_vec(),
             disk: self.disk.clone(),
-            device_number: self.board.device_number(),
+            device_number: board.device_number,
             head_position: rotation.head_position,
             stepper_phase: rotation.stepper_phase,
             motor_on: rotation.motor_on,
@@ -492,10 +493,8 @@ impl Drive1541 {
         }
 
         let rotation = rotation_state_from_snapshot(&snapshot);
-        *self.board.cpu_mut() = snapshot.cpu;
-        *self.board.via1_mut() = snapshot.via1;
-        *self.board.via2_mut() = snapshot.via2;
-        self.board.ram_mut().copy_from_slice(&snapshot.ram);
+        self.board
+            .restore_state(board_state_from_snapshot(&snapshot));
         self.rom.copy_from_slice(&snapshot.rom);
         self.disk = snapshot.disk;
         match rebuild_surface(self.disk.as_ref())
@@ -504,7 +503,6 @@ impl Drive1541 {
             Some(surface) => self.engine.set_surface(surface),
             None => self.engine.clear_surface(),
         }
-        self.board.set_device_number(snapshot.device_number);
         self.activity_led = snapshot.activity_led;
         self.engine.restore_state(rotation);
         self.recent_io_writes.clear();
@@ -542,11 +540,7 @@ impl Drive1541 {
         engine.restore_state(rotation_state_from_snapshot(&snapshot));
 
         let mut board = IecDriveBoard::new();
-        *board.cpu_mut() = snapshot.cpu;
-        *board.via1_mut() = snapshot.via1;
-        *board.via2_mut() = snapshot.via2;
-        board.ram_mut().copy_from_slice(&snapshot.ram);
-        board.set_device_number(snapshot.device_number);
+        board.restore_state(board_state_from_snapshot(&snapshot));
 
         Ok(Self {
             board,
@@ -984,6 +978,22 @@ fn rebuild_surface(
         DriveImageFormat::D71 => Err(Drive1541MediaError::UnsupportedFormat),
     })
     .transpose()
+}
+
+/// Maps a serialized snapshot's board fields into the board's transfer struct.
+/// Kept beside the snapshot methods so the field set stays in lockstep with
+/// [`Drive1541Snapshot`]. Callers validate the RAM size before calling — the
+/// `copy_from_slice` assumes a `RAM_SIZE`-length `ram`.
+fn board_state_from_snapshot(snapshot: &Drive1541Snapshot) -> BoardState {
+    let mut ram = [0u8; RAM_SIZE];
+    ram.copy_from_slice(&snapshot.ram);
+    BoardState {
+        cpu: snapshot.cpu.clone(),
+        via1: snapshot.via1.clone(),
+        via2: snapshot.via2.clone(),
+        ram,
+        device_number: snapshot.device_number,
+    }
 }
 
 /// Maps a serialized snapshot's persistent rotation fields into the engine's
