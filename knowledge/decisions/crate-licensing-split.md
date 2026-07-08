@@ -1,8 +1,14 @@
 # Decision: Crate licensing — dual-license clean-room crates at publish time
 
 **Date:** 2026-07-03
-**Status:** Active. Records publishing *intent*; no relicense happens until a
-crate's provenance audit passes. Companion to
+**Status:** **Superseded 2026-07-08 — GPL-2.0-or-later, all crates, all the
+way.** Licensing was relitigated: no dual-licensing, no clean-room carve-out
+at publish time. Publishing to crates.io (when it happens) is as
+GPL-2.0-or-later. The publish-time provenance-audit machinery this record
+defined is retired with it; provenance documentation per RULES.md rule 27
+continues regardless. See the 2026-07-08 log entry for the rationale; the
+body below is retained as the historical record of the dual-license intent.
+Was companion to
 [`versioning-strategy.md`](versioning-strategy.md) (lockstep by default, carve
 out at publish time) and the umbrella
 [`emu198x-best-in-class.md`](../../../decisions/emu198x-best-in-class.md)
@@ -90,3 +96,4 @@ CONTRIBUTING when publishing starts).
 |------|-------|
 | 2026-07-03 | Captured. Decided in the best-in-class strategy session (see umbrella record): dual-license clean-room crates at publish time, ported crates and app tier stay GPL, per-crate provenance audit mandatory, cleanest crates publish first. |
 | 2026-07-03 | Rationale corrected same day (Steve): the GPL workspace default was never a burden — it was chosen deliberately to make non-clean-room ports frictionless, including planned asset lifts (FS-UAE drive noises). Framing adjusted: dual-licensing is a narrow reach tool, not an escape from copyleft; GPL binds assets as well as code. |
+| 2026-07-08 | **Superseded (Steve): GPL-2.0-or-later everywhere, dual-licensing dropped.** The decision is entirely because we're sourcing algorithms (and soon the FS-UAE drive sounds) from other emulators which are already GPL-2.0-or-later, and it's not worth the risk of legal hassle to try to use them under a different licence — which means the GPL is meeting its goals. The 2026-07-03 rationale-correction row above already carried the seed of this: the GPL default was deliberate; the reach carve-out didn't survive contact with the porting reality. First affected consumer decision: the tape master's tokeniser reuse (umbrella `tape-framing-vs-mastering.md`), corrected same day. |
