@@ -1,6 +1,6 @@
-name: Tag releases
+name: Tag release
 
-# Interim per-machine tagging.
+# Interim suite tagging.
 #
 # release-plz's git_only flow is currently blocked upstream: it runs
 # `cargo package`, which cannot resolve the unpublished external git
@@ -8,14 +8,14 @@ name: Tag releases
 # fix is release-plz/release-plz#2789 ("fall back to source-dir
 # comparison when cargo package fails"), which is not yet merged.
 #
-# Until it ships, this workflow does the one thing release-plz can't:
-# it reads each machine binary's version from its Cargo.toml and creates
-# the `<package>-v<version>` tag that cargo-dist (release.yml) builds
-# from. Versions are bumped by hand in the meantime.
+# Until it ships, this workflow does the one thing release-plz can't: it reads
+# the workspace package version from Cargo.toml and creates one suite tag,
+# `v<version>`. cargo-dist builds every distable emulator binary with that
+# version into the single public GitHub Release for the suite.
 #
-# To release a machine: bump its `version` in `crates/<machine>/Cargo.toml`,
-# merge to main, and this workflow tags it. Existing tags are left alone,
-# so it is safe to run on every push.
+# To release the suite: bump the workspace package version and the emulator
+# binary package versions together, merge to main, and this workflow tags the
+# merge. Existing suite tags are left alone, so it is safe to run on every push.
 #
 # When release-plz#2789 lands: bump release-plz/action in release-plz.yml,
 # re-enable that workflow's `push` trigger, and delete this file. See
@@ -35,7 +35,7 @@ concurrency:
 
 jobs:
   tag:
-    name: Tag machine releases from Cargo.toml
+    name: Tag suite release from Cargo.toml
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -47,36 +47,54 @@ jobs:
           # trigger other workflows.
           token: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Create per-machine tags
+      - name: Create suite tag
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # The machine binaries that get tagged are exactly the
-          # [[package]] entries in release-plz.toml (the same list
-          # release-plz would tag). Read their names from there.
-          created=0
-          while IFS= read -r name; do
-            [ -n "$name" ] || continue
-            manifest="crates/${name}/Cargo.toml"
-            if [ ! -f "$manifest" ]; then
-              echo "::warning::no manifest for ${name} at ${manifest}; skipping"
-              continue
+          version=$(
+            awk '
+              /^\[workspace.package\]/ { in_workspace_package = 1; next }
+              /^\[/ { in_workspace_package = 0 }
+              in_workspace_package && /^version = / {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            ' Cargo.toml
+          )
+
+          if [ -z "$version" ]; then
+            echo "::error::no workspace package version found in Cargo.toml"
+            exit 1
+          fi
+
+          mismatches=0
+          for manifest in crates/emu198x-*/Cargo.toml; do
+            name=$(awk -F'"' '/^name = / { print $2; exit }' "$manifest")
+            case "$name" in
+              emu198x-catalogue|emu198x-native-video|emu198x-shell|emu198x-ui)
+                continue
+                ;;
+            esac
+
+            package_version=$(awk -F'"' '/^version = / { print $2; exit }' "$manifest")
+            if [ "$package_version" != "$version" ]; then
+              echo "::error::${name} is ${package_version}, expected suite version ${version}"
+              mismatches=$((mismatches + 1))
             fi
-            version=$(grep -m1 -E '^version = ' "$manifest" | sed -E 's/^version = "(.*)"$/\1/')
-            if [ -z "$version" ]; then
-              echo "::warning::no version found in ${manifest}; skipping"
-              continue
-            fi
-            tag="${name}-v${version}"
-            if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
-              echo "exists: ${tag}"
-            else
-              echo "creating: ${tag}"
-              git tag "${tag}"
-              git push origin "${tag}"
-              created=$((created + 1))
-            fi
-          done < <(grep -E '^name = ' release-plz.toml | sed -E 's/^name = "(.*)"$/\1/')
-          echo "Created ${created} new tag(s)."
+          done
+
+          if [ "$mismatches" -ne 0 ]; then
+            exit 1
+          fi
+
+          tag="v${version}"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "exists: ${tag}"
+          else
+            echo "creating: ${tag}"
+            git tag "${tag}"
+            git push origin "${tag}"
+          fi

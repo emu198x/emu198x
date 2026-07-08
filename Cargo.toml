@@ -284,11 +284,10 @@ codegen-units = 1
 
 # cargo-dist release configuration. The generated workflow lives at
 # .github/workflows/release.yml; regenerate with `dist generate` after
-# editing this section. A `v*` tag push triggers a build of the six
-# native verifier shells (emu198x-{spectrum,c64,amiga,dragon,game-boy,nes})
-# across four targets and attaches the archives to a GitHub Release.
-# The catalogue tool opts out
-# of the release via `dist = false` in its own Cargo.toml.
+# editing this section. A suite `v*` tag push triggers a build of every
+# distable emulator binary at that version across four targets and attaches the
+# archives to a single GitHub Release. The catalogue tool opts out of the
+# release via `dist = false` in its own Cargo.toml.
 [workspace.metadata.dist]
 cargo-dist-version = "0.32.0"
 ci = "github"

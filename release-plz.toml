@@ -1,157 +1,17 @@
-# release-plz configuration — INDEPENDENT per-machine versioning.
+# release-plz configuration — suite releases.
 #
-# Each machine binary is versioned, tagged, and released on its own cadence
-# (a Z80 fix bumps only the Z80-using machines, not the 6502 ones). Library
-# crates (chips, CPUs, runtimes) are versioned for the dependency graph but
-# never tagged or released — they ship inside the machine binaries.
+# Public GitHub Releases are versioned as the Emu198x suite: one `vX.Y.Z`
+# release contains every current distable emulator binary for all configured
+# desktop targets. Individual machine crates can still exist as separate Cargo
+# packages internally, but they must not produce separate public GitHub
+# Releases.
 #
-# A merged release PR creates per-machine tags `emu198x-<machine>-vX.Y.Z`,
-# each firing cargo-dist (release.yml) to build that machine's binary.
-# See the umbrella project-skeleton-standard decision (Emu independent versioning).
+# release-plz is paused here; tag-releases.yml creates the suite `vX.Y.Z` tag
+# from the workspace package version until release-plz can run cleanly again.
 
 [workspace]
 publish = false              # nothing goes to crates.io
 git_release_enable = false   # cargo-dist owns the GitHub Release
-git_tag_enable = false       # default: libraries are not tagged/released
+git_tag_enable = false       # tag-releases.yml owns the suite tag while release-plz is paused
 git_only = true              # baseline from git tags, not the registry
 changelog_update = true
-
-[[package]]
-name = "emu198x-acorn-atom"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-acorn-bbc-micro"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-acorn-electron"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-amiga"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-atari-2600"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-atari-5200"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-atari-7800"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-atari-800xl"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-c64"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-colecovision"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-commodore-pet"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-commodore-vic-20"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-dragon"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-game-boy"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-jupiter-ace"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-mattel-aquarius"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-memotech-mtx"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-msx"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-nes"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-oric-atmos"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-sega-master-system"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-sega-sg-1000"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-sinclair-zx80"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-sinclair-zx81"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-sord-m5"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-spectravideo-svi-328"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-spectrum"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
-
-[[package]]
-name = "emu198x-tatung-einstein"
-git_tag_enable = true
-git_tag_name = "{{ package }}-v{{ version }}"
