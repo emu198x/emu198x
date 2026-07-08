@@ -11,7 +11,12 @@ built from it as-is. Companion to
 
 ## The decision
 
-The public docs site is built with **Astro** from three tracked bodies:
+The public docs site is built with **Astro** in
+[`emu198x/emu198x.github.io`](https://github.com/emu198x/emu198x.github.io).
+This repository is the content source; the website repository owns the
+presentation, GitHub Pages workflow, and generated search index.
+
+The site consumes three tracked bodies:
 
 1. **`docs/systems/`** — the per-system status/inner-workings pages (already
    excellent and current; the site's spine).
@@ -76,5 +81,6 @@ Supporting work (part of the site skeleton, from the audit):
 
 | Date | Event |
 |------|-------|
+| 2026-07-08 | Moved implementation to the separate org Pages repository `emu198x/emu198x.github.io`; `emu198x/emu198x` remains the content source, not the deployed site application. |
 | 2026-07-07 | Revised implementation choice from mdBook to Astro. Reason: the public site must carry campaign dashboards and product-facing system matrices, and Code Like It's 198x (`code198x.com`) already standardises the family on Astro for public web work. Source bodies, provenance review, promotion discipline, and private-knowledge boundary unchanged. |
 | 2026-07-03 | Captured. Initial strategy-session call: mdBook; site body = docs/systems + decisions + promoted curated distillation subset; provenance review mandatory; promotion rides campaign order; private copy deleted at promotion. |
