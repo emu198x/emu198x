@@ -1,7 +1,8 @@
 [package]
 name = "machine-atari-7800"
 description = "Atari 7800 ProSystem machine wiring — 6502C 'Sally' + MARIA + RIOT + TIA audio"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

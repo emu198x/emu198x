@@ -2,7 +2,8 @@
 name = "timex-scld"
 description = "Timex SCLD (Semi-Custom Logic Device) — TC2048 / TC2068 / TS2068"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

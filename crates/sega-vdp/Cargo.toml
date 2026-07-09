@@ -1,7 +1,8 @@
 [package]
 name = "sega-vdp"
 description = "Sega Master System / Game Gear VDP (315-5124 / 315-5246)"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

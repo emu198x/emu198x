@@ -2,7 +2,8 @@
 name = "pentagon-ula"
 description = "Pentagon ULA — Russian Spectrum clone, no contention, 14.336 MHz crystal"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

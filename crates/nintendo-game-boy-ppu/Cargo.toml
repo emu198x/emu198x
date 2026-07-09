@@ -2,7 +2,8 @@
 name = "nintendo-game-boy-ppu"
 description = "Game Boy DMG PPU — pixel FIFO, BG/window/sprite compositing, 160×144 output"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

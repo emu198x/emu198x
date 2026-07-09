@@ -2,7 +2,8 @@
 name = "format-sinclair-zx-spectrum-tzx"
 description = "TZX tape format parser for Sinclair ZX Spectrum media"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

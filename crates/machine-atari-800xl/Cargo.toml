@@ -1,7 +1,8 @@
 [package]
 name = "machine-atari-800xl"
 description = "Atari 800XL machine wiring — 6502C 'Sally' + ANTIC + GTIA + POKEY + PIA-6520"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

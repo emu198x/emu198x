@@ -2,7 +2,8 @@
 name = "format-nintendo-game-boy-cartridge"
 description = "Game Boy cartridge header parser + Cartridge construction"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

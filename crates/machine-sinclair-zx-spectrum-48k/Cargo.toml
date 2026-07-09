@@ -2,7 +2,8 @@
 name = "machine-sinclair-zx-spectrum-48k"
 description = "ZX Spectrum 48K machine state and $FE I/O surface"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

@@ -1,7 +1,8 @@
 [package]
 name = "machine-commodore-pet"
 description = "Commodore PET (1977/79) — 6502 + 6845 CRTC + 6520 PIA + 6522 VIA"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

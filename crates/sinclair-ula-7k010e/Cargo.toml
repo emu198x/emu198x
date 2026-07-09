@@ -2,7 +2,8 @@
 name = "sinclair-ula-7k010e"
 description = "Sinclair 7K010E ULA — the 128K and +2 ZX Spectrum's custom chip"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

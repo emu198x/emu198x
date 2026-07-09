@@ -2,7 +2,8 @@
 name = "amstrad-ula-40077"
 description = "Amstrad 40077 gate array — the +2A/+2B/+3 ZX Spectrum's custom chip"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

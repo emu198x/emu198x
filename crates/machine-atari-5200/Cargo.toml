@@ -1,7 +1,8 @@
 [package]
 name = "machine-atari-5200"
 description = "Atari 5200 SuperSystem machine wiring — 6502 'Sally' + ANTIC + GTIA + POKEY"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

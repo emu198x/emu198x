@@ -1,7 +1,8 @@
 [package]
 name = "emu198x-jupiter-ace"
 description = "Jupiter Ace headless runner with shell-backed script + MCP parity — Z80A + 8 KB Forth ROM"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

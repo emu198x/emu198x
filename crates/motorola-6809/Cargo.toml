@@ -2,7 +2,8 @@
 name = "motorola-6809"
 description = "Motorola MC6809 CPU with a bus-facing state model"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

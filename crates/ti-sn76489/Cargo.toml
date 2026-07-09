@@ -1,7 +1,8 @@
 [package]
 name = "ti-sn76489"
 description = "Texas Instruments SN76489 Programmable Sound Generator"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

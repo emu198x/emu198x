@@ -1,7 +1,8 @@
 [package]
 name = "atari-pokey"
 description = "Atari POKEY sound + I/O chip — Atari 5200, 7800, 800XL, 130XE"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

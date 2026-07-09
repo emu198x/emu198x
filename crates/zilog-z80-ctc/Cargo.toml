@@ -1,7 +1,8 @@
 [package]
 name = "zilog-z80-ctc"
 description = "Zilog Z80 CTC (Z8430) Counter/Timer Circuit — Sord M5, MSX, Memotech MTX, Tatung Einstein"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

@@ -2,7 +2,8 @@
 name = "scorpion-ula"
 description = "Scorpion ZS-256 ULA — Russian extended Spectrum, no contention, 48K-style geometry"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

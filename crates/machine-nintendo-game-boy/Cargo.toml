@@ -2,7 +2,8 @@
 name = "machine-nintendo-game-boy"
 description = "Nintendo Game Boy (DMG) machine — composes the CPU, PPU, APU, timer, MBC and DMG-side I/O"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

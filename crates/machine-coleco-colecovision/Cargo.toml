@@ -1,7 +1,8 @@
 [package]
 name = "machine-coleco-colecovision"
 description = "ColecoVision machine wiring — Z80 + TMS9918A + SN76489AN"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

@@ -2,7 +2,8 @@
 name = "machine-timex-tc2048"
 description = "Timex TC2048 — 48K Spectrum-compatible with the SCLD chip (8 video modes, full I/O decode)"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

@@ -2,7 +2,8 @@
 name = "commodore-agnus-ocs"
 description = "Commodore Agnus OCS — DMA controller, beam generator, copper coprocessor. Per-CCK (colour clock) DMA slot allocation matching real hardware arbitration."
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

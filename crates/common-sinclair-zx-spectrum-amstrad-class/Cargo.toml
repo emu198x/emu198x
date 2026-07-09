@@ -2,7 +2,8 @@
 name = "common-sinclair-zx-spectrum-amstrad-class"
 description = "Shared composition for Amstrad-built Spectrum variants (+2A, +2B, +3)"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

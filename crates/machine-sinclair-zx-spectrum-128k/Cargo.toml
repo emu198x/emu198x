@@ -2,7 +2,8 @@
 name = "machine-sinclair-zx-spectrum-128k"
 description = "ZX Spectrum 128K machine — thin wrapper over the 128K-class core"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

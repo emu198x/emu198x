@@ -1,7 +1,8 @@
 [package]
 name = "motorola-6845"
 description = "Motorola 6845 CRT Controller (CRTC)"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

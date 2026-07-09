@@ -2,7 +2,8 @@
 name = "gi-ay-3-8910"
 description = "General Instrument AY-3-8910 PSG — 3-channel sound + two 8-bit I/O ports (A and B)"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

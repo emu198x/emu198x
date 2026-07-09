@@ -2,7 +2,8 @@
 name = "commodore-gayle"
 description = "Commodore Gayle gate array — IDE task-file registers, four Gayle control registers, and (when wired) the A1200/A600 PCMCIA slot. Stage A: bare control-register I/O + no-drive IDE defaults, no PCMCIA. IDE drive and PCMCIA support land alongside the first catalogue entry that needs hard-disk or expansion-card boot."
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

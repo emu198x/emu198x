@@ -2,7 +2,8 @@
 name = "common-sinclair-zx-spectrum-128k-class"
 description = "Shared composition for 128K-class Spectrum variants (128K, +2)"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

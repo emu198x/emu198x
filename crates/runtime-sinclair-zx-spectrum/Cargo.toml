@@ -2,7 +2,8 @@
 name = "runtime-sinclair-zx-spectrum"
 description = "Sinclair ZX Spectrum runtime metadata and future family runtime layer"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

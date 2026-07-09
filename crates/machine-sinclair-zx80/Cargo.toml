@@ -1,7 +1,8 @@
 [package]
 name = "machine-sinclair-zx80"
 description = "Sinclair ZX80 (1980) — Z80A + 4 KB ROM + ZX81 ULA (NMI deferred)"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

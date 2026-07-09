@@ -1,7 +1,8 @@
 [package]
 name = "machine-jupiter-ace"
 description = "Jupiter Ace (Jupiter Cantab, 1982) — Z80A + 8 KB Forth ROM + character display"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

@@ -2,7 +2,8 @@
 name = "machine-nintendo-nes"
 description = "NES machine wiring — master-clock-driven tick loop, PPU every dot, CPU every 3rd dot. Ties the 2A03 CPU, 2C02 PPU, and cartridge mapper together with internal RAM, OAMDMA, and controller I/O."
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

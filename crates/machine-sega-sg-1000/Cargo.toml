@@ -1,7 +1,8 @@
 [package]
 name = "machine-sega-sg-1000"
 description = "Sega SG-1000 / SC-3000 machine wiring — Z80 + TMS9918A + SN76489A"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

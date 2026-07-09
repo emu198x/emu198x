@@ -1,7 +1,8 @@
 [package]
 name = "mos-pia-6520"
 description = "MOS 6520 / Motorola 6821 Peripheral Interface Adapter"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

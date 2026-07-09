@@ -1,7 +1,8 @@
 [package]
 name = "machine-spectravideo-svi-328"
 description = "Spectravideo SVI-328 machine wiring — Z80 + TMS9918A + AY-3-8910 + 8255 PPI"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

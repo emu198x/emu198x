@@ -1,7 +1,8 @@
 [package]
 name = "machine-acorn-bbc-micro"
 description = "BBC Micro Model B machine wiring — 6502 + 6845 CRTC + Video ULA + 2x VIA + SN76489"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

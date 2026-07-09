@@ -1,7 +1,8 @@
 [package]
 name = "atari-tia"
 description = "Atari TIA (Television Interface Adaptor) — Atari 2600, 7800"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

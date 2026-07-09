@@ -2,7 +2,8 @@
 name = "ricoh-ppu-2c02"
 description = "Ricoh 2C02 PPU — dot-level NES picture processing unit. One tick() = one PPU dot. Background tile pipeline, sprite evaluation with hardware overflow bug, loopy scroll registers, NMI timing with 2-dot pipeline delay, odd-frame skip."
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

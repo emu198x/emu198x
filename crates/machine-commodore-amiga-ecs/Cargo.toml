@@ -2,7 +2,8 @@
 name = "machine-commodore-amiga-ecs"
 description = "Commodore Amiga (ECS chipset) — A500+ (Kickstart 2.04). Parallel of machine-commodore-amiga-ocs with ECS Agnus 8375 + ECS Denise 8373 swapped in. A600 / A2000B / A3000 land later (Gayle / Ramsey / Fat Gary chip ports pending)."
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

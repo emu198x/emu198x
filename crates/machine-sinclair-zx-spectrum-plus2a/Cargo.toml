@@ -2,7 +2,8 @@
 name = "machine-sinclair-zx-spectrum-plus2a"
 description = "ZX Spectrum +2A — thin wrapper over the Amstrad-class core"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

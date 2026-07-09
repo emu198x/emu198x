@@ -2,7 +2,8 @@
 name = "mos-sid-6581"
 description = "MOS 6581 / 8580 SID (Sound Interface Device) with three voices, ADSR envelopes, multi-mode filter, and downsampled audio output"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

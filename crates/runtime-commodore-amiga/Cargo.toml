@@ -2,7 +2,8 @@
 name = "runtime-commodore-amiga"
 description = "Commodore Amiga runtime surface — bridges machine-commodore-amiga-ocs with the emu198x-shell MachineCore trait."
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

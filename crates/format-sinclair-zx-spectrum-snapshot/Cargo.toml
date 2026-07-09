@@ -2,7 +2,8 @@
 name = "format-sinclair-zx-spectrum-snapshot"
 description = "Shared snapshot types for ZX Spectrum format parsers (.z80, .sna, future formats)"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

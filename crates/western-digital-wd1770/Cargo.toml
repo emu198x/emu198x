@@ -1,7 +1,8 @@
 [package]
 name = "western-digital-wd1770"
 description = "Western Digital WD1770 floppy disk controller — Tatung Einstein (and the WD177x/179x family)"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

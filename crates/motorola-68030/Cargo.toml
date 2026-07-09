@@ -2,7 +2,8 @@
 name = "motorola-68030"
 description = "Motorola 68030 CPU — adds the on-chip MMU (PMMU/ATC), data cache, and burst fill on top of the 68020. Skeleton crate: re-exports the shared 68k core with a 68030-specific type alias and surfaces the MMU types. Not exercised by any active machine today."
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

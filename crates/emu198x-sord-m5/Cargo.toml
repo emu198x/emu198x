@@ -1,7 +1,8 @@
 [package]
 name = "emu198x-sord-m5"
 description = "Sord M5 headless runner with shell-backed script + MCP parity — Z80 + TMS9918A + SN76489A"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

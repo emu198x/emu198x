@@ -1,7 +1,8 @@
 [package]
 name = "machine-atari-2600"
 description = "Atari 2600 (VCS) machine wiring — 6507 + TIA + RIOT-6532"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

@@ -1,7 +1,8 @@
 [package]
 name = "machine-oric-atmos"
 description = "Oric-1 / Atmos machine wiring — 6502 + custom ULA + VIA-6522 + AY-3-8910"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

@@ -2,7 +2,8 @@
 name = "nintendo-game-boy-mbc"
 description = "Game Boy memory bank controllers (MBC1 / MBC3 / MBC5 + ROM-only)"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

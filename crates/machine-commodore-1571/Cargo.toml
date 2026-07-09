@@ -2,7 +2,8 @@
 name = "machine-commodore-1571"
 description = "Commodore 1571 disk-drive machine substrate"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

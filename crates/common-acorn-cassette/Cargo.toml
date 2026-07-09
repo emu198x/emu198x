@@ -2,7 +2,8 @@
 name = "common-acorn-cassette"
 description = "Shared Kansas-City cassette waveform and demodulator for Acorn machines (BBC Micro, Electron)"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

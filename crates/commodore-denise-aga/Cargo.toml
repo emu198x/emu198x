@@ -2,7 +2,8 @@
 name = "commodore-denise-aga"
 description = "Commodore Lisa (AGA Denise) — thin wrapper over commodore-denise-ecs that adds the 24-bit / 256-entry palette, HAM8, BPLCON4 (bitplane XOR + sprite bank), and FMODE-driven wide sprite handling. Used by AGA machines (A1200, A4000, CD32)."
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

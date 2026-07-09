@@ -1,7 +1,8 @@
 [package]
 name = "machine-acorn-atom"
 description = "Acorn Atom (1980) — 6502 + MC6847 text-mode VDG + 8255 PPI"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

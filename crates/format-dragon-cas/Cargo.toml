@@ -2,7 +2,8 @@
 name = "format-dragon-cas"
 description = "Dragon 32 CAS cassette image parsing"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

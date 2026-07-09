@@ -2,7 +2,8 @@
 name = "machine-timex-ts2068"
 description = "Timex TC2068 / TS2068 — SCLD + DOCK/EXROM paging + AY on ports $F5/$F6"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

@@ -1,7 +1,8 @@
 [package]
 name = "machine-sega-master-system"
 description = "Sega Master System / Game Gear machine wiring — Z80 + Sega VDP + SN76489A"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

@@ -1,7 +1,8 @@
 [package]
 name = "emu198x-ui"
 description = "Shared native UI harness (winit + wgpu video + audio + input) for Emu198x runners"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

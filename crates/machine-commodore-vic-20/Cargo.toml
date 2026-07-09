@@ -1,7 +1,8 @@
 [package]
 name = "machine-commodore-vic-20"
 description = "Commodore VIC-20 (1981) — 6502 + MOS VIC-I (6560/6561) + character/screen RAM"
-version = "0.2.0"
+version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

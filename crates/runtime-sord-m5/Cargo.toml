@@ -2,7 +2,8 @@
 name = "runtime-sord-m5"
 description = "Sord M5 family metadata and headless runtime wrapper"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 

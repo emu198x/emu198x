@@ -2,7 +2,8 @@
 name = "format-amstrad-dsk"
 description = "DSK and EDSK floppy image parser — used by the Amstrad CPC and ZX Spectrum +3"
 edition.workspace = true
-version = "0.2.0"
+version.workspace = true
+publish = false
 license.workspace = true
 repository.workspace = true
 
