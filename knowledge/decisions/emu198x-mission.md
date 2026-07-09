@@ -3,7 +3,7 @@
 **Date:** 2026-05-23
 **Status:** Locked. Captures what's been implicit since the project's
 inception. Companion to
-[`../../../decisions/sibling-project-coordination.md`](../../../decisions/sibling-project-coordination.md)
+[`../../../../decisions/sibling-project-coordination.md`](../../../../decisions/sibling-project-coordination.md)
 (umbrella) which covers the Code198x ↔ Emu198x relationship; this
 record covers Emu198x's own mission.
 
@@ -65,7 +65,7 @@ project's audience.
 
 **Clarified 2026-07-03 (near-term effort vs standing mission).** Gap-fill is a
 *standing* mission goal, not the near-term *effort* priority. The best-in-class
-programme ([`../../../decisions/emu198x-best-in-class.md`](../../../decisions/emu198x-best-in-class.md))
+programme ([`../../../../decisions/emu198x-best-in-class.md`](../../../../decisions/emu198x-best-in-class.md))
 leads with reference-class depth on the four headliners — which is where the
 living cross-platform incumbents already are, so it is not where the gap-fill
 mission is best served. That is a deliberate choice: the campaigns lead because
@@ -136,7 +136,7 @@ cross-platform-fill is a swing input when an opportunity surfaces.
 
 ## Independence from Code198x
 
-Per [`../../../decisions/sibling-project-coordination.md`](../../../decisions/sibling-project-coordination.md):
+Per [`../../../../decisions/sibling-project-coordination.md`](../../../../decisions/sibling-project-coordination.md):
 
 - Code198x and Emu198x are sibling projects with independent
   missions.
@@ -229,6 +229,6 @@ beyond Code198x. None of these are new behaviour; the record
 makes them legible.
 
 Companion record at
-[`../../../decisions/sibling-project-coordination.md`](../../../decisions/sibling-project-coordination.md)
+[`../../../../decisions/sibling-project-coordination.md`](../../../../decisions/sibling-project-coordination.md)
 covers the Code198x ↔ Emu198x relationship from the umbrella
 side.

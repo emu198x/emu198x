@@ -11,7 +11,7 @@ body below is retained as the historical record of the dual-license intent.
 Was companion to
 [`versioning-strategy.md`](versioning-strategy.md) (lockstep by default, carve
 out at publish time) and the umbrella
-[`emu198x-best-in-class.md`](../../../decisions/emu198x-best-in-class.md)
+[`emu198x-best-in-class.md`](../../../../decisions/emu198x-best-in-class.md)
 (embeddable components as a moat).
 
 ## The decision

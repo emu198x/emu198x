@@ -28,7 +28,7 @@
 
 3. **Formats.** TAP, TZX, SNA, Z80 across all eight in-scope variants; DSK/EDSK on +3. TR-DOS and DOCK formats defer with Pentagon and Timex respectively.
 
-4. **Pipeline.** `emu198x-spectrum` is the single binary for the Spectrum family, with three modes: `--ui` (default, native interactive), `--script` (headless capture), `--mcp` (MCP server). Byte-stable output for the same input. For every Code198x curriculum unit with an associated screenshot or video per Code198x's [Definition of Done](../../../Code198x/docs/decisions/commercial-bar-revamp.md#definition-of-done-per-unit), the pipeline succeeds reliably.
+4. **Pipeline.** `emu198x-spectrum` is the single binary for the Spectrum family, with three modes: `--ui` (default, native interactive), `--script` (headless capture), `--mcp` (MCP server). Byte-stable output for the same input. For every Code198x curriculum unit with an associated screenshot or video per Code198x's [Definition of Done](../../../../Code198x/docs/decisions/commercial-bar-revamp.md#definition-of-done-per-unit), the pipeline succeeds reliably.
 
 5. **MCP.** Spectrum MCP server functional and exercised by at least one Code198x skill.
 
@@ -189,4 +189,4 @@ Catalogue drift comes dressed as scope creep or "while I'm in here" tidying. If 
 - [Save state format](save-state-format.md) — adjacent test-infrastructure decision; postcard snapshots already have round-trip proofs
 - [Runtime internal shape](runtime-internal-shape.md) — the per-runtime four-module shape the catalogue harness consumes
 - [Phase 1 inventory + Phase 2 plan](../log.md) — the gap analysis the catalogue addresses
-- [Code198x October launch spec](../../../Code198x/docs/decisions/october-2026-launch-spec.md) — the cross-project Spectrum-only October scope this decision aligns with
+- [Code198x October launch spec](../../../../Code198x/docs/decisions/october-2026-launch-spec.md) — the cross-project Spectrum-only October scope this decision aligns with

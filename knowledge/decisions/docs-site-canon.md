@@ -6,7 +6,7 @@ the site's best "inner workings" material (`knowledge/chips/`,
 `knowledge/systems/`) is deliberately gitignored, so no public site can be
 built from it as-is. Companion to
 [`per-system-status-docs.md`](per-system-status-docs.md) and the umbrella
-[`emu198x-best-in-class.md`](../../../decisions/emu198x-best-in-class.md)
+[`emu198x-best-in-class.md`](../../../../decisions/emu198x-best-in-class.md)
 (the site hosts the W2 dashboards and W4 compat DB).
 
 ## The decision

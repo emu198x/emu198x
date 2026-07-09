@@ -324,7 +324,7 @@ can consume `dbg198x` to know what the running bytes *mean*.
   address→label disassembly, breakpoint-by-label, and source-anchored stepping
   for any program we assembled. It is `serde`-only and authored in Asm198x —
   see the umbrella
-  [`asm198x-and-shared-isa-spec.md`](../../../decisions/asm198x-and-shared-isa-spec.md)
+  [`asm198x-and-shared-isa-spec.md`](../../../../decisions/asm198x-and-shared-isa-spec.md)
   § The debug-info layer. Wiring it into the shared `DebugTarget` tier lights it
   up across all machines at once, and it directly serves Forge198x's dev loop.
 
@@ -445,7 +445,7 @@ dynamic trace); and source-anchored rewind (determinism makes rewind cheap;
 early product thoughts (flow chart, rewind) are Steve's. Also amended the
 "No source-level mapping" NOT-doing item — it reopens for programs we assemble.
 Umbrella capture of the `dbg198x` layer is in
-[`asm198x-and-shared-isa-spec.md`](../../../decisions/asm198x-and-shared-isa-spec.md).
+[`asm198x-and-shared-isa-spec.md`](../../../../decisions/asm198x-and-shared-isa-spec.md).
 
 ### 2026-05-23 — Decision locked
 

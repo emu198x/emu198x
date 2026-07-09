@@ -15,7 +15,7 @@ why specific architectural choices were made. Most "shouldn't we just…"
 questions are answered there. If you find yourself wanting to relitigate one,
 open an issue rather than a PR.
 
-The umbrella context lives at [`../CLAUDE.md`](../CLAUDE.md) for contributors
+The umbrella context lives at [`../../CLAUDE.md`](../../CLAUDE.md) for contributors
 who clone the wider 198x umbrella. Read it if you're touching anything that
 interacts with the shared hardware reference layer.
 

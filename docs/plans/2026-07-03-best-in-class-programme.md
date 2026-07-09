@@ -1,7 +1,7 @@
 # Best-in-class programme — six workstreams
 
 **Date:** 2026-07-03.
-**Binding decision:** [`198x/decisions/emu198x-best-in-class.md`](../../../decisions/emu198x-best-in-class.md).
+**Binding decision:** [`198x/decisions/emu198x-best-in-class.md`](../../../../decisions/emu198x-best-in-class.md).
 **Roadmap hook:** [`product-roadmap.md § Best-in-class ladder`](../../knowledge/decisions/product-roadmap.md).
 **Origin:** the 2026-07-03 eight-dimension codebase audit plus the strategy
 session that followed. This plan turns the decided victory condition — best

@@ -10,7 +10,7 @@ labels: enhancement, system-request
 ## Why
 
 (Context — curriculum, personal interest, filling a regional or
-form-factor gap. The project's [five scope axes](../../../CLAUDE.md) cover
+form-factor gap. The project's [five scope axes](../../../../CLAUDE.md) cover
 period, cultural/geographic, tier, form factor, and distribution context;
 mention any that apply.)
 

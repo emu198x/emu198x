@@ -39,7 +39,7 @@ docs/systems/sinclair/zx-spectrum/index.md   (the variants share one tree)
   status pages link down into it for depth; they do not duplicate it.
 - **`knowledge/decisions/`** holds binding architectural choices. Link to the
   relevant ones; don't restate them.
-- The umbrella reference library (`../../reference/`, `../../syntheses/`) is the
+- The umbrella reference library (`../../../../reference/`, `../../../../syntheses/`) is the
   source of hardware truth. Cite it for facts.
 
 The division of labour: `knowledge/systems/` answers *"how does this chip behave?"*;
