@@ -16,6 +16,7 @@ git_tag_enable = false       # tag-releases.yml owns the suite tag
 git_tag_name = "v{{ version }}"
 git_only = false             # enabled only for shipping emulator packages
 changelog_update = false     # the Spectrum package aggregates the suite changelog
+release_commits = '^(feat|fix)(\([^)]*\))?!?:'
 
 [[package]]
 name = "emu198x-acorn-atom"
