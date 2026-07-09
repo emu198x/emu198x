@@ -6,13 +6,13 @@
 # packages internally, but they must not produce separate public GitHub
 # Releases.
 #
-# release-plz prepares the suite release PR. tag-releases.yml creates the
-# suite `vX.Y.Z` tag after that PR is merged.
+# The release workflow creates the suite `vX.Y.Z` tag after a release PR is
+# merged, then release-plz prepares the next suite release PR.
 
 [workspace]
 publish = false              # nothing goes to crates.io
 git_release_enable = false   # cargo-dist owns the GitHub Release
-git_tag_enable = false       # tag-releases.yml owns the suite tag
+git_tag_enable = false       # the release workflow owns the suite tag
 git_tag_name = "v{{ version }}"
 git_only = false             # enabled only for shipping emulator packages
 changelog_update = false     # the Spectrum package aggregates the suite changelog

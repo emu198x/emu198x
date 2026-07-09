@@ -1,11 +1,11 @@
-name: Release-plz
+name: Maintain release
 
 # release-plz/release-plz#2789 fixes the git_only comparison failure caused by
 # the unpublished external `isa-disasm` dependency. Pin the exact reviewed
 # commit while the upstream PR remains unmerged.
 #
-# Keep tag-releases.yml: release-plz owns version/changelog PRs, while that
-# workflow owns the single suite tag consumed by cargo-dist.
+# This workflow creates the single suite tag consumed by cargo-dist, then asks
+# release-plz to open or update the next version/changelog PR.
 on:
   push:
     branches:
@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: release-plz-${{ github.ref }}
+  group: maintain-release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -38,9 +38,11 @@ jobs:
           # App token) with workflow-trigger rights.
           token: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Wait for current suite tag
+      - name: Create suite tag
         run: |
           set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
           version=$(
             awk '
@@ -53,19 +55,44 @@ jobs:
               }
             ' Cargo.toml
           )
-          tag="v${version}"
 
-          for attempt in $(seq 1 24); do
-            if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
-              git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
-              exit 0
+          if [ -z "$version" ]; then
+            echo "::error::no workspace package version found in Cargo.toml"
+            exit 1
+          fi
+
+          mismatches=0
+          for manifest in crates/emu198x-*/Cargo.toml; do
+            name=$(awk -F'"' '/^name = / { print $2; exit }' "$manifest")
+            case "$name" in
+              emu198x-catalogue|emu198x-native-video|emu198x-shell|emu198x-ui)
+                continue
+                ;;
+            esac
+
+            if grep -q '^version\.workspace = true$' "$manifest"; then
+              package_version=$version
+            else
+              package_version=$(awk -F'"' '/^version = / { print $2; exit }' "$manifest")
             fi
-            echo "waiting for tag ${tag} (${attempt}/24)"
-            sleep 5
+            if [ "$package_version" != "$version" ]; then
+              echo "::error::${name} is ${package_version}, expected suite version ${version}"
+              mismatches=$((mismatches + 1))
+            fi
           done
 
-          echo "::error::suite tag ${tag} was not created within two minutes"
-          exit 1
+          if [ "$mismatches" -ne 0 ]; then
+            exit 1
+          fi
+
+          tag="v${version}"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "exists: ${tag}"
+          else
+            echo "creating: ${tag}"
+            git tag "${tag}"
+            git push origin "${tag}"
+          fi
 
       - name: Read pinned toolchain
         id: toolchain
