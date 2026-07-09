@@ -1,18 +1,15 @@
 name: Release-plz
 
-# TRIAL — manual-dispatch only.
-#
 # release-plz/release-plz#2789 fixes the git_only comparison failure caused by
 # the unpublished external `isa-disasm` dependency. Pin the exact reviewed
 # commit while the upstream PR remains unmerged.
 #
-# Once the trial release PR is verified, restore the push trigger. Keep
-# tag-releases.yml: release-plz owns version/changelog PRs, while that workflow
-# owns the single suite tag consumed by cargo-dist.
+# Keep tag-releases.yml: release-plz owns version/changelog PRs, while that
+# workflow owns the single suite tag consumed by cargo-dist.
 on:
-  # push:
-  #   branches:
-  #     - main
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
@@ -60,12 +57,11 @@ jobs:
           sudo apt-get install -y pkg-config libasound2-dev libudev-dev
 
       - name: Install pinned release-plz
-        run: |
-          cargo install \
-            --git https://github.com/structured-world/release-plz \
-            --rev e8ca8da97dc8f472820a67eece651604887b1c7d \
-            --locked \
-            release-plz
+        uses: baptiste0928/cargo-install@v3.4.0
+        with:
+          crate: release-plz
+          git: https://github.com/structured-world/release-plz
+          commit: e8ca8da97dc8f472820a67eece651604887b1c7d
 
       - name: Run release-plz (open/update release PR)
         run: release-plz release-pr
