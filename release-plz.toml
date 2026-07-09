@@ -6,12 +6,156 @@
 # packages internally, but they must not produce separate public GitHub
 # Releases.
 #
-# release-plz is paused here; tag-releases.yml creates the suite `vX.Y.Z` tag
-# from the workspace package version until release-plz can run cleanly again.
+# release-plz prepares the suite release PR. tag-releases.yml creates the
+# suite `vX.Y.Z` tag after that PR is merged.
 
 [workspace]
 publish = false              # nothing goes to crates.io
 git_release_enable = false   # cargo-dist owns the GitHub Release
-git_tag_enable = false       # tag-releases.yml owns the suite tag while release-plz is paused
-git_only = true              # baseline from git tags, not the registry
+git_tag_enable = false       # tag-releases.yml owns the suite tag
+git_tag_name = "v{{ version }}"
+git_only = false             # enabled only for shipping emulator packages
+changelog_update = false     # the Spectrum package aggregates the suite changelog
+
+[[package]]
+name = "emu198x-acorn-atom"
+git_only = true
+
+[[package]]
+name = "emu198x-acorn-bbc-micro"
+git_only = true
+
+[[package]]
+name = "emu198x-acorn-electron"
+git_only = true
+
+[[package]]
+name = "emu198x-amiga"
+git_only = true
+
+[[package]]
+name = "emu198x-atari-2600"
+git_only = true
+
+[[package]]
+name = "emu198x-atari-5200"
+git_only = true
+
+[[package]]
+name = "emu198x-atari-7800"
+git_only = true
+
+[[package]]
+name = "emu198x-atari-800xl"
+git_only = true
+
+[[package]]
+name = "emu198x-c64"
+git_only = true
+
+[[package]]
+name = "emu198x-colecovision"
+git_only = true
+
+[[package]]
+name = "emu198x-commodore-pet"
+git_only = true
+
+[[package]]
+name = "emu198x-commodore-vic-20"
+git_only = true
+
+[[package]]
+name = "emu198x-dragon"
+git_only = true
+
+[[package]]
+name = "emu198x-game-boy"
+git_only = true
+
+[[package]]
+name = "emu198x-jupiter-ace"
+git_only = true
+
+[[package]]
+name = "emu198x-mattel-aquarius"
+git_only = true
+
+[[package]]
+name = "emu198x-memotech-mtx"
+git_only = true
+
+[[package]]
+name = "emu198x-msx"
+git_only = true
+
+[[package]]
+name = "emu198x-nes"
+git_only = true
+
+[[package]]
+name = "emu198x-oric-atmos"
+git_only = true
+
+[[package]]
+name = "emu198x-sega-master-system"
+git_only = true
+
+[[package]]
+name = "emu198x-sega-sg-1000"
+git_only = true
+
+[[package]]
+name = "emu198x-sinclair-zx80"
+git_only = true
+
+[[package]]
+name = "emu198x-sinclair-zx81"
+git_only = true
+
+[[package]]
+name = "emu198x-sord-m5"
+git_only = true
+
+[[package]]
+name = "emu198x-spectravideo-svi-328"
+git_only = true
+
+[[package]]
+name = "emu198x-spectrum"
+git_only = true
 changelog_update = true
+changelog_path = "./CHANGELOG.md"
+changelog_include = [
+    "emu198x-acorn-atom",
+    "emu198x-acorn-bbc-micro",
+    "emu198x-acorn-electron",
+    "emu198x-amiga",
+    "emu198x-atari-2600",
+    "emu198x-atari-5200",
+    "emu198x-atari-7800",
+    "emu198x-atari-800xl",
+    "emu198x-c64",
+    "emu198x-colecovision",
+    "emu198x-commodore-pet",
+    "emu198x-commodore-vic-20",
+    "emu198x-dragon",
+    "emu198x-game-boy",
+    "emu198x-jupiter-ace",
+    "emu198x-mattel-aquarius",
+    "emu198x-memotech-mtx",
+    "emu198x-msx",
+    "emu198x-nes",
+    "emu198x-oric-atmos",
+    "emu198x-sega-master-system",
+    "emu198x-sega-sg-1000",
+    "emu198x-sinclair-zx80",
+    "emu198x-sinclair-zx81",
+    "emu198x-sord-m5",
+    "emu198x-spectravideo-svi-328",
+    "emu198x-tatung-einstein",
+]
+
+[[package]]
+name = "emu198x-tatung-einstein"
+git_only = true

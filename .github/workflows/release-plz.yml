@@ -1,18 +1,14 @@
 name: Release-plz
 
-# PAUSED — manual-dispatch only.
+# TRIAL — manual-dispatch only.
 #
-# release-plz's git_only flow currently fails here: `cargo package`
-# cannot resolve the unpublished external git dependency `isa-disasm`
-# (asm198x), so "determine next versions" errors out. The fix is
-# release-plz/release-plz#2789 (source-dir fallback), not yet merged.
-# Until it ships, the per-machine tags are created by tag-releases.yml
-# from the versions in each Cargo.toml.
+# release-plz/release-plz#2789 fixes the git_only comparison failure caused by
+# the unpublished external `isa-disasm` dependency. Pin the exact reviewed
+# commit while the upstream PR remains unmerged.
 #
-# To re-enable: once #2789 is released, bump the release-plz/action
-# version below, restore the `push` trigger (replace `workflow_dispatch`
-# with the commented block), and delete tag-releases.yml. Tracking issue:
-# release-plz/release-plz#2595.
+# Once the trial release PR is verified, restore the push trigger. Keep
+# tag-releases.yml: release-plz owns version/changelog PRs, while that workflow
+# owns the single suite tag consumed by cargo-dist.
 on:
   # push:
   #   branches:
@@ -63,19 +59,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libasound2-dev libudev-dev
 
-      - name: Run release-plz (open/update release PR)
-        uses: release-plz/action@v0.5
-        with:
-          command: release-pr
-        env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Install pinned release-plz
+        run: |
+          cargo install \
+            --git https://github.com/structured-world/release-plz \
+            --rev e8ca8da97dc8f472820a67eece651604887b1c7d \
+            --locked \
+            release-plz
 
-      - name: Run release-plz (tag merged releases)
-        # Without this step, merging a release PR bumps the versions but never
-        # tags — so cargo-dist's release.yml never fires. The PAT (not
-        # GITHUB_TOKEN) is what lets these tag pushes trigger release.yml.
-        uses: release-plz/action@v0.5
-        with:
-          command: release
+      - name: Run release-plz (open/update release PR)
+        run: release-plz release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
