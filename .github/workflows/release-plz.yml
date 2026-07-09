@@ -38,6 +38,35 @@ jobs:
           # App token) with workflow-trigger rights.
           token: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
 
+      - name: Wait for current suite tag
+        run: |
+          set -euo pipefail
+
+          version=$(
+            awk '
+              /^\[workspace.package\]/ { in_workspace_package = 1; next }
+              /^\[/ { in_workspace_package = 0 }
+              in_workspace_package && /^version = / {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            ' Cargo.toml
+          )
+          tag="v${version}"
+
+          for attempt in $(seq 1 24); do
+            if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+              git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
+              exit 0
+            fi
+            echo "waiting for tag ${tag} (${attempt}/24)"
+            sleep 5
+          done
+
+          echo "::error::suite tag ${tag} was not created within two minutes"
+          exit 1
+
       - name: Read pinned toolchain
         id: toolchain
         run: |
