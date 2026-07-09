@@ -1,16 +1,14 @@
 # Status
 
-This path is retained as a stub.
+Use this page as the status router for Emu198x.
 
-The previous status dashboard has been archived because it mixed useful context
-with outdated claims about implementation completeness.
+Current operational sources:
 
-Use instead:
+- [current system usability matrix](status/current-system-usability.md) — authoritative per-system surfaces and boot state.
+- [outstanding work](status/outstanding-work.md) — cross-system remaining work.
+- [testing policy](testing-policy.md) — verification standards.
 
-- [current system usability matrix](status/current-system-usability.md)
+Planning and historical context:
+
 - [coherent development plan](plans/2026-04-12-emulator-suite-coherent-development-plan.md)
-- [testing policy](testing-policy.md)
-
-Archived copy:
-
 - [archived status](archive/status-and-roadmaps/status.md)
