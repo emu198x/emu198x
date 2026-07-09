@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "plan: Commodore VIC-20 to 100% — VIC-I video/audio depth, media loading, system breadth"
 type: plan

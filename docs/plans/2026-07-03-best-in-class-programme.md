@@ -1,5 +1,8 @@
 # Best-in-class programme — six workstreams
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 **Date:** 2026-07-03.
 **Binding decision:** [`198x/decisions/emu198x-best-in-class.md`](../../../../decisions/emu198x-best-in-class.md).
 **Roadmap hook:** [`product-roadmap.md § Best-in-class ladder`](../../knowledge/decisions/product-roadmap.md).

@@ -1,5 +1,8 @@
 # Issue backlog — tiered groupings (2026-06-23)
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 A leverage-ordered map of the **382 open issues** into groupings worth tackling
 as a unit, so the backlog is approached by *theme* (one chip fix that helps many
 systems; one systemic pattern repeated across the fleet) rather than one-issue-

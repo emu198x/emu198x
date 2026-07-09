@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "plan: Commodore Amiga to 100% — honesty tier, cycle-exact chipset, I/O fidelity, mass storage, the new-machine tail"
 type: plan

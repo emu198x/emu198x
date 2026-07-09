@@ -1,5 +1,8 @@
 # Status
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 Current support snapshot for the four primary systems and the project-wide
 tooling surface. This is a dashboard, not a roadmap.
 

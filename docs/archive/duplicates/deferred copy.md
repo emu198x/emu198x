@@ -1,5 +1,8 @@
 # Deferred Work
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 Cross-cutting items not specific to any single system. For per-system status and remaining work, see `docs/systems/`.
 
 ---

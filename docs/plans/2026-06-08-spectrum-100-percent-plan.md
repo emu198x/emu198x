@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "plan: ZX Spectrum line to 100% — accuracy, storage, clones, peripherals"
 type: plan

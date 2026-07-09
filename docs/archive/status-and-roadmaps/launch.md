@@ -1,5 +1,8 @@
 # Emu198x Launch and Productisation Strategy
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 ## 1. Core positioning
 
 Emu198x is not competing with RetroArch on game playing. RetroArch already does that well enough for most people, and "more accurate" is not a compelling pitch for casual users.

@@ -1,5 +1,8 @@
 # Adding a New System to Emu198x
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 A step-by-step guide for adding a new emulated system. Follow this
 checklist to get a system from zero to fully integrated with all
 features: unified app, debugger, save states, rewind, audio

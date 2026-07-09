@@ -1,5 +1,8 @@
 # Archived Solution Notes
 
+> Archived solution note. Do not treat status claims here as current. Current state lives in the relevant source, tests, and decisions.
+
+
 This directory is for resolved notes that no longer need to live in the active
 `docs/solutions/` tree.
 

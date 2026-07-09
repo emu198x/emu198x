@@ -1,3 +1,5 @@
+> Archived solution note. Do not treat status claims here as current. Current state lives in the relevant source, tests, and decisions.
+
 ---
 category: logic-errors
 module: motorola-68000

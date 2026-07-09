@@ -1,5 +1,8 @@
 # C64-family audit remediation plan
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 **Created:** 2026-07-06 · **Scope:** GitHub issues #762–#781 (the 2026-07-06 C64-family audit) · **Goal:** close all 20, in a dependency-aware order that keeps every accuracy fix verifiable and avoids double-work.
 
 ## Bottom line

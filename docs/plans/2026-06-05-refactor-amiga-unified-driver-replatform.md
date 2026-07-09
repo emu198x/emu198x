@@ -1,5 +1,8 @@
 # Plan: Unified driver surface — fold Amiga onto the shared session + 68000 debug
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 **Date:** 2026-06-05
 **Type:** Refactor (flagship). Owner-approved override of
 [`knowledge/decisions/debug-surface-tiers.md`](../../knowledge/decisions/debug-surface-tiers.md)

@@ -1,5 +1,8 @@
 # Screenshot oracle policy — design spec
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 **Date:** 2026-07-08
 **Status:** Design approved (brainstormed in the 198x umbrella session);
 implementation belongs to the Emu198x session.

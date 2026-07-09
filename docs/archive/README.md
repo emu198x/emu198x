@@ -1,5 +1,8 @@
 # Docs Archive
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 This folder holds documentation that is still worth keeping, but should not be
 treated as active source-of-truth material.
 

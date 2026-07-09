@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "plan: ColecoVision to 100% — megacart breadth, live snapshot, shared-chip accuracy, peripherals"
 type: plan

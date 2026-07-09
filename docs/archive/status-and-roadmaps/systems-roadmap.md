@@ -1,5 +1,8 @@
 # Systems Roadmap
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 What each target system needs, in implementation order. Each system reuses the shared infrastructure (clock tree, scheduler, audio mixer, tape transport, capture pipeline, MCP, config, rewind). The work is primarily CPU cores and system-specific hardware chips.
 
 ---

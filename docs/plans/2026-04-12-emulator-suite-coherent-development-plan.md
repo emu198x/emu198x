@@ -1,5 +1,8 @@
 # Emulator Suite Coherent Development Plan
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 **Status:** Working plan  
 **Date:** 2026-04-12
 

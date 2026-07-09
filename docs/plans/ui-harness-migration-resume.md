@@ -1,5 +1,8 @@
 # emu198x-ui harness — migration + new-UI resume plan
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 **Status as of 2026-06-22.** Bringing every runner onto the shared
 `emu198x-ui` harness (tracking #561) **and** giving the ~21 headless-only
 systems their first native UI (#460). Decision (Steve): do the migrations and

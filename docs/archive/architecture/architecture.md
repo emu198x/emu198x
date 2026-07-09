@@ -1,5 +1,8 @@
 # Emu198x Architecture
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 ## 1. Core ambition
 
 Build a cycle-accurate multi-system emulator covering every 8-bit and 16-bit platform, including all model variants, regional variants, period hardware extensions, accelerator cards, and modern recreations (Spectrum Next, MEGA65, Commander X16), with:

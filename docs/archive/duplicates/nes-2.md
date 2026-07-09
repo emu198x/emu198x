@@ -1,5 +1,8 @@
 # NES / Famicom
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 ## Overview
 
 | Property | Value                                      |

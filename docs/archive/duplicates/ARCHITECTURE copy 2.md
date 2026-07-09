@@ -1,5 +1,8 @@
 # Architecture
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 14,000 lines of Rust across 21 crates. ULA-drives model: the chipset owns the clock, the CPU is a passive signal-level state machine.
 
 ## Run Loop

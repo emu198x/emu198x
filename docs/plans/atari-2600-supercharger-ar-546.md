@@ -1,5 +1,8 @@
 # Atari 2600 — Starpath Supercharger (AR) support (#546)
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 **Status:** Fast-load **built and booting** (2026-06-19) on branch
 `atari-2600-supercharger-546`. Phaser Patrol fast-loads and renders its ARCADIA
 title screen (pixel-verified headless). M1–M3 below are done; the tape-accurate

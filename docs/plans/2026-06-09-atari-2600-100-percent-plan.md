@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "plan: Atari 2600 (VCS) to 100% — audio from silence, TIA cycle-exactness, peripherals and the cartridge long tail"
 type: plan

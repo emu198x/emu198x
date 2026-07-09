@@ -1,5 +1,8 @@
 # Emu198x Reference Catalogue
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 This is the living catalogue of reference material for emu198x development. Each entry corresponds to a reference in `refs/manifest.toml`. Entries marked ✅ are acquired and cached on disk. Entries marked ⬜ are identified but not yet acquired.
 
 This file is committed to the repository. The actual PDF/document files in `refs/` are `.gitignore`d (copyrighted material is not redistributable).

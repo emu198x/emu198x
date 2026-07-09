@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "plan: Dragon 32 to 100% — a near-finished core, an artifact-colour long pole, and a preservation tail"
 type: plan

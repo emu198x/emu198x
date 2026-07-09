@@ -1,5 +1,8 @@
 # Inventory
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 Architecture notes and crate inventory for the current codebase. This is
 reference material, not the active-work list.
 

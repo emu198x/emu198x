@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "plan: Nintendo Game Boy to 100% — the PPU mid-scanline long pole, CGB breadth, and preservation tail"
 type: plan

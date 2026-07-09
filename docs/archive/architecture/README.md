@@ -1,5 +1,8 @@
 # Archived Architecture Docs
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 These files capture earlier architecture guidance that was useful during prior
 passes but is no longer the active design baseline.
 

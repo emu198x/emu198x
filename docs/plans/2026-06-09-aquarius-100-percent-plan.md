@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "plan: Mattel Aquarius to 100% — char-ROM firmware, media formats, audio routing, display fidelity"
 type: plan

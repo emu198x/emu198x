@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "plan: MSX1 to 100% — system timing, media breadth, peripherals, and the shared-chip long poles"
 type: plan

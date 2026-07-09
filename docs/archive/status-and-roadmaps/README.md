@@ -1,5 +1,8 @@
 # Archived Status And Roadmaps
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 These files describe earlier project state, roadmaps, inventories, launch
 thinking, and deferred-work lists.
 

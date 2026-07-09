@@ -1,5 +1,8 @@
 # Roadmap
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 Active work for the four primary systems: Spectrum, C64, NES, and Amiga.
 Priorities here are ordered by leverage, not by date.
 

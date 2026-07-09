@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "plan: Nintendo Entertainment System to 100% — bugs, library breadth, cycle-exact finish, expansion audio"
 type: plan

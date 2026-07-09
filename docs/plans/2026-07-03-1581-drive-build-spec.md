@@ -1,5 +1,8 @@
 # 1581 drive — build spec (slices 2 & 3)
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 Resumption spec for the Commodore 1581 drive (#69). Slice 1 (the
 `format-commodore-c64-d81` crate) is done and green. This captures the
 research (VICE 3.10 + our existing plumbing) so slices 2–3 execute fast.

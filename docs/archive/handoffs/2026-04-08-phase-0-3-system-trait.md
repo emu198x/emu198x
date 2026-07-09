@@ -1,5 +1,8 @@
 # Handoff: Phase 0.3 — System trait in `emu198x-shell`
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 Written 2026-04-08 at the close of Phase 0.11. Phase 0.11 banked the
 SDL3 + SDL_GPU + naga migration in three commits (`2cfee9a`, `6cfd084`,
 `c19ab97`). Workspace is green, no in-flight work.

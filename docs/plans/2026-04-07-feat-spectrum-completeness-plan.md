@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "feat: Spectrum completeness — architecture hardening, persistence, peripherals, accuracy, debugger"
 type: feat

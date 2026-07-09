@@ -1,5 +1,8 @@
 # Full MC68881/MC68882 FPU Implementation Plan
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 **Status:** Working plan
 **Date:** 2026-06-15
 **Issue:** #112 (Amiga 68881/2 FPU F-line dispatch + wiring)

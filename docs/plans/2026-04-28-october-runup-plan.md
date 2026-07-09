@@ -1,5 +1,8 @@
 # October Run-Up Plan
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 **Status:** Working plan
 **Date:** 2026-04-28
 **Supersedes:** nothing — this is a tactical follow-up to [`2026-04-12-emulator-suite-coherent-development-plan.md`](2026-04-12-emulator-suite-coherent-development-plan.md), not a replacement for it.

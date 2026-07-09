@@ -1,5 +1,8 @@
 # Emu198x — Claude Code Project Instructions
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 ## What this project is
 
 Emu198x is a cycle-accurate multi-system emulator targeting every 8-bit and 16-bit platform. It is written in Rust. The architecture is documented comprehensively in `docs/architecture.md` (the authoritative reference — read it before any implementation work). Supporting documents are `docs/launch.md` (productisation strategy) and `docs/references.md` (reference material catalogue).

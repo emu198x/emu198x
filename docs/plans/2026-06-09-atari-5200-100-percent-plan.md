@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "plan: Atari 5200 SuperSystem to 100% — shared-chip accuracy, cart breadth, snapshot, peripherals"
 type: plan

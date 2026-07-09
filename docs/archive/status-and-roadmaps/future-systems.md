@@ -1,5 +1,8 @@
 # Future Systems
 
+> Archived document. Do not treat status claims here as current. Current state lives in `../../status/` and binding rules/decisions.
+
+
 Systems beyond the four primaries (Spectrum, C64, NES, Amiga). **Not in scope**
 until all primary systems are complete. Structure code so they remain possible,
 but bias new work toward reusable chip crates and family leverage rather than

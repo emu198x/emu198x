@@ -1,5 +1,8 @@
 # 1571 drive — build spec (C64-mode D71 LOAD first)
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 **Status:** planning / awaiting decision confirmation (2026-07-06).
 **Issue:** #69 (covers both 1571 and 1581; the 1581 is done — PRs #747/#750/#751,
 plus the D81 catalogue entry #753). This spec is the 1571 half.

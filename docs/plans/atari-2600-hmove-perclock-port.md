@@ -1,5 +1,8 @@
 # Atari 2600 TIA — per-clock HMOVE port (#406)
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 **Status:** Phase 4 done — #406 closed. The per-clock HMOVE port is complete.
 
 Phase 4 verified the Pole Position sliver against the established Stella

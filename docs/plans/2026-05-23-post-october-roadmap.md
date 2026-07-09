@@ -1,5 +1,8 @@
 # Post-October Roadmap and Feature Gap Analysis
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 **Status:** Working plan
 **Date:** 2026-05-23
 **Supersedes:** nothing. Complementary to

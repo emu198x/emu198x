@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "plan: Oric-1 / Atmos to 100% — AY-via-VIA correctness, ULA rendering depth, media + timing breadth"
 type: plan

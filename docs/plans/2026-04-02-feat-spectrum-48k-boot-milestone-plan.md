@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "feat: Spectrum 48K boot milestone — cycle-accurate from empty repo to copyright message"
 type: feat

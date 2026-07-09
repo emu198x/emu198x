@@ -1,3 +1,5 @@
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
 ---
 title: "plan: Acorn BBC Micro Model B to 100% — video accuracy, disk preservation, system audio fidelity"
 type: plan

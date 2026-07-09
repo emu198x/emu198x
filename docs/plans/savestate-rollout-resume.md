@@ -1,5 +1,8 @@
 # Save-state rollout — resume plan
 
+> Planning document. Do not treat status claims here as current unless they match `../status/current-system-usability.md`, `../status/outstanding-work.md`, and `../../RULES.md`.
+
+
 **Status (2026-06-28): COMPLETE — all 28 runtimes serialise live state; zero
 bootstrap envelopes remain.** Verified by a fleet-wide audit of every
 `runtime-*` crate's `snapshot`/`restore` path (each deserialises a live machine,
