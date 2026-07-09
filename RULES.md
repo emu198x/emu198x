@@ -12,50 +12,13 @@ Full layered model, citation direction, and drift triggers at [`../../decisions/
 
 ## Session start
 
-Before writing any code, state in the conversation what this session serves —
-Spectrum launch-hardening, or engineering-frontier work (see below).
+Before writing code, state what lane the session serves:
 
-**Spectrum SOLID — engineering bar MET (2026-06-03).** The October-public goal's
-criteria (full list at [`october-catalogue.md`](knowledge/decisions/october-catalogue.md#october-bar-definition)
-— 8 in-scope variants (16K, 48K, Spectrum+, 128K, +2, +2A, +2B, +3); 10 catalogue
-entries per variant; single `emu198x-spectrum` binary with `--ui`/`--script`/`--mcp`;
-MCP server functional; pipeline tied to every Code198x curriculum unit's
-screenshot/video) are met. The *Crash! Live* public launch is still October; the
-Spectrum is ready ahead of it.
+- **Spectrum launch-hardening** — regression gates, validation, capture reliability, and any residual accuracy/scope debt in [`docs/status/outstanding-work.md`](docs/status/outstanding-work.md).
+- **Best-in-class campaign work** — staged reference-class campaigns per [`../../decisions/emu198x-best-in-class.md`](../../decisions/emu198x-best-in-class.md) and [`docs/plans/2026-07-03-best-in-class-programme.md`](docs/plans/2026-07-03-best-in-class-programme.md).
+- **Engineering-frontier work** — additional systems, catalogue progress, shared infrastructure, validation corpus work, and cross-machine improvements.
 
-**The Spectrum sequencing gate is therefore cleared.** Non-Spectrum / donor /
-engineering-bar work is no longer "deferred behind Spectrum" or held to "only
-after Spectrum SOLID is closer to done" — it is the active engineering frontier.
-The four headline systems (Spectrum, C64, NES, Amiga) all have catalogue
-manifests; the broader donor extractions progress on the engineering bar without
-an October deadline.
-
-Anchor every session against one of:
-
-- **Spectrum launch-hardening** — keeping the met bar met: regression gates,
-  real-hardware validation, capture/Code198x-curriculum pipeline reliability,
-  the residual accuracy/scope debt in
-  [`docs/status/outstanding-work.md`](docs/status/outstanding-work.md). Still
-  highest-value because it protects the shipped launch.
-- **Best-in-class campaign work** (added 2026-07-03) — the staged
-  reference-class campaigns (Spectrum → NES/GB → C64 → Amiga standing) per
-  the umbrella decision
-  [`../../decisions/emu198x-best-in-class.md`](../../decisions/emu198x-best-in-class.md)
-  and the programme plan
-  [`docs/plans/2026-07-03-best-in-class-programme.md`](docs/plans/2026-07-03-best-in-class-programme.md).
-  The priority lane once launch-hardening is satisfied; one campaign at a
-  time (Amiga standing excepted).
-- **Engineering-frontier work** — donor systems (CTC reuse into MTX/Einstein,
-  awaiting-ROM boots, the "boots but black" sweep), C64/NES/Amiga catalogue
-  progress, shared-infrastructure gaps (e.g. video-recording capture parity).
-  No October deadline; priority is impact, not a fixed order. Continues
-  alongside campaigns — two lanes, neither pauses the other.
-
-The old "name non-Spectrum work as deferred / don't jump ahead of Spectrum
-sequencing" rule is retired — its precondition (Spectrum SOLID) is satisfied.
-Still flag genuinely out-of-roadmap work (Wave 2+ systems, accuracy work past
-what manifests assert) and ask before expanding scope; the rule is to flag, not
-refuse. Roadmap tiers at [`product-roadmap.md`](knowledge/decisions/product-roadmap.md).
+Flag genuinely out-of-roadmap work before expanding scope. Roadmap tiers live at [`knowledge/decisions/product-roadmap.md`](knowledge/decisions/product-roadmap.md).
 
 ## Clock
 
