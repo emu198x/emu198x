@@ -22,8 +22,11 @@ use common_sinclair_zx_spectrum::snapshot::{
 };
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
-use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_128K};
+use common_sinclair_zx_spectrum::timing::{
+    FramePosition, SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_128K,
+};
 use common_sinclair_zx_spectrum::ula::Ula;
+use common_sinclair_zx_spectrum::ula_engine::floating_bus_byte;
 use gi_ay_3_8912::Ay3_8912;
 use peripheral_kempston_joystick::KempstonJoystick;
 use sinclair_ula_7k010e::SinclairUla;
@@ -89,6 +92,11 @@ pub struct Spectrum128kClassCore<V: Class128kVariant> {
 }
 
 impl<V: Class128kVariant> Spectrum128kClassCore<V> {
+    #[inline(always)]
+    fn frame_position(&self) -> FramePosition {
+        FramePosition::new(self.hc, &TIMING_128K)
+    }
+
     #[must_use]
     pub fn new() -> Self {
         let cpu_hz = (TIMING_128K.master_hz / u64::from(TIMING_128K.cpu_divisor)) as u32;
@@ -335,8 +343,25 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         } else if port & 0xC002 == 0xC000 {
             // AY register read ($FFFD).
             self.ay.read_data()
+        } else if port == 0x001F {
+            // An unattached Kempston port floats high, independent of the
+            // ULA's display-bus phase.
+            0xFF
         } else {
-            self.ula.floating_bus()
+            // The 128K odd-port bus sample is three T-states ahead of the
+            // ULA table coordinate. The origin is the first contention
+            // T-state established by the Fuse/Spectron reference model.
+            const LIVE_BUS_ORIGIN: u32 = 14_363;
+            const SAMPLE_LEAD: u32 = 3;
+            let frame_tstate =
+                (self.frame_position().tstate(&TIMING_128K) + LIVE_BUS_ORIGIN + SAMPLE_LEAD)
+                    % TIMING_128K.tstates_per_frame;
+            floating_bus_byte(
+                frame_tstate,
+                14_364,
+                TIMING_128K.tstates_per_line,
+                &self.memory,
+            )
         }
     }
 
@@ -346,7 +371,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             let beeper = data & 0x10 != 0;
             if beeper != self.speaker.beeper {
                 self.speaker.beeper = beeper;
-                let tstate = self.hc / 4;
+                let tstate = self.frame_position().tstate(&TIMING_128K);
                 self.audio.set_level(tstate, self.speaker.level());
             }
             // MIC (bit 3) carries the tape SAVE signal.
@@ -462,13 +487,13 @@ impl<V: Class128kVariant> SpectrumDriver for Spectrum128kClassCore<V> {
     fn on_tstate(&mut self, hc: u32) {
         self.tape.advance_tstates(1);
         self.recorder.advance(1);
-        if hc % 8 == 2 {
+        let tstate = TIMING_128K.hc_to_tstates(hc);
+        if tstate & 1 == 0 {
             self.ay.tick();
         }
         let ear = self.tape.ear_level();
         if ear != self.speaker.ear {
             self.speaker.ear = ear;
-            let tstate = hc / 4;
             self.audio.set_level(tstate, self.speaker.level());
         }
     }
