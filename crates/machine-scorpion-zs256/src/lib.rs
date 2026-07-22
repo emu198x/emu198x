@@ -210,7 +210,11 @@ impl ScorpionZS256 {
             let beeper = data & 0x10 != 0;
             if beeper != self.speaker.beeper {
                 self.speaker.beeper = beeper;
-                let tstate = self.hc / 4;
+                let tstate = common_sinclair_zx_spectrum::timing::FramePosition::new(
+                    self.hc,
+                    &TIMING_SCORPION,
+                )
+                .tstate(&TIMING_SCORPION);
                 self.audio.set_level(tstate, self.speaker.level());
             }
             // MIC (bit 3) carries the tape SAVE signal.
