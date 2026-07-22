@@ -186,7 +186,7 @@ pub trait SpectrumDriver {
     /// - `end_frame_ula`
     /// - Correct `hc` overshoot (`hc -= frame_hc`).
     fn run_frame(&mut self) {
-        let frame_hc = self.frame_hc();
+        let frame_hc = self.frame_timing().halfcycles_per_frame;
 
         while self.hc() < frame_hc {
             self.tick_one_halfcycle();
