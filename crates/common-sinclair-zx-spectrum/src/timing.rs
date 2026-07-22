@@ -64,15 +64,15 @@ pub const CONTENTION_PATTERN_48K: [u8; 8] = [6, 5, 4, 3, 2, 1, 0, 0];
 pub struct FrameTiming {
     /// Master crystal frequency in Hz.
     pub master_hz: u64,
-    /// Half-cycles per CPU T-state.
+    /// Master-clock ticks per CPU T-state.
     pub cpu_divisor: u32,
     /// T-states per scanline.
     pub tstates_per_line: u32,
-    /// Half-cycles per scanline.
+    /// Master-clock ticks per scanline.
     pub halfcycles_per_line: u32,
     /// Total scanlines per frame.
     pub lines_per_frame: u32,
-    /// Total half-cycles per frame.
+    /// Total master-clock ticks per frame.
     pub halfcycles_per_frame: u32,
     /// Total T-states per frame.
     pub tstates_per_frame: u32,
@@ -104,6 +104,51 @@ pub struct FrameTiming {
     pub interrupt_start_tstate: u32,
     /// INT duration in T-states.
     pub interrupt_length_tstates: u32,
+}
+
+/// A position within a machine's master-clock frame.
+///
+/// This is the migration seam for replacing anonymous `hc` counters. The
+/// value is always normalised to `0..timing.halfcycles_per_frame`; conversion
+/// to T-states is deliberately explicit because divide-by-five machines have
+/// master ticks that do not land on CPU edges.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FramePosition {
+    halfcycles: u32,
+}
+
+impl FramePosition {
+    #[must_use]
+    pub const fn new(halfcycles: u32, timing: &FrameTiming) -> Self {
+        Self {
+            halfcycles: halfcycles % timing.halfcycles_per_frame,
+        }
+    }
+
+    #[must_use]
+    pub const fn halfcycles(self) -> u32 {
+        self.halfcycles
+    }
+
+    #[must_use]
+    pub const fn tstate(self, timing: &FrameTiming) -> u32 {
+        timing.hc_to_tstates(self.halfcycles)
+    }
+
+    #[must_use]
+    pub const fn line(self, timing: &FrameTiming) -> u32 {
+        self.tstate(timing) / timing.tstates_per_line
+    }
+
+    #[must_use]
+    pub const fn tstate_in_line(self, timing: &FrameTiming) -> u32 {
+        self.tstate(timing) % timing.tstates_per_line
+    }
+
+    #[must_use]
+    pub const fn advance(self, halfcycles: u32, timing: &FrameTiming) -> Self {
+        Self::new(self.halfcycles.wrapping_add(halfcycles), timing)
+    }
 }
 
 /// ZX Spectrum 48K (Ferranti 6C001E ULA, PAL).
@@ -162,7 +207,7 @@ pub const TIMING_128K: FrameTiming = FrameTiming {
     contention_phase: 1,
     contention_tstates_per_line: 128,
     interrupt_start_tstate: 0,
-    interrupt_length_tstates: 32,
+    interrupt_length_tstates: 36,
 };
 
 /// Pentagon 128 (Russian Spectrum clone, no contention).
@@ -231,11 +276,9 @@ pub const TIMING_SCORPION: FrameTiming = FrameTiming {
 /// `timings_frame_amstrad_asic` has the identical border/screen/retrace
 /// breakdown to the 128K's `timings_frame_ferranti_7c` (H 24/128/24/52,
 /// V 48/192/48/23), so aliasing the display geometry to the 128K's is
-/// correct. The only real deltas are the contention pattern + the
-/// MREQ-only behaviour, both modelled below. (FUSE records a shorter
-/// INT pulse for the ASIC — 32 vs the 128K's 36 — but `interrupt_length_
-/// tstates` is documentary-only here; the actual IRQ is driven by
-/// `feed_irq`, not this field.)
+/// correct. The real deltas are the contention pattern, MREQ-only
+/// behaviour and shorter INT pulse: 32 T-states versus the Sinclair
+/// 128K's 36. The matching `UlaConfig` values drive the live IRQ line.
 pub const TIMING_PLUS2A: FrameTiming = FrameTiming {
     master_hz: MASTER_HZ_128K,
     cpu_divisor: 5,
@@ -261,13 +304,13 @@ pub const TIMING_PLUS2A: FrameTiming = FrameTiming {
 };
 
 impl FrameTiming {
-    /// Converts a T-state count to half-cycles.
+    /// Converts a T-state count to master-clock counter units.
     #[must_use]
     pub const fn tstates_to_hc(&self, tstates: u32) -> u32 {
         tstates * self.cpu_divisor
     }
 
-    /// Converts half-cycles to T-states, rounding down.
+    /// Converts master-clock counter units to T-states, rounding down.
     #[must_use]
     pub const fn hc_to_tstates(&self, hc: u32) -> u32 {
         hc / self.cpu_divisor
@@ -308,6 +351,7 @@ mod tests {
         assert_eq!(TIMING_128K.halfcycles_per_frame, 354_540);
         assert_eq!(TIMING_128K.contention_start_tstate, 14_361);
         assert_eq!(TIMING_128K.contention_phase, 1);
+        assert_eq!(TIMING_128K.interrupt_length_tstates, 36);
     }
 
     #[test]
@@ -328,6 +372,21 @@ mod tests {
         assert_eq!(TIMING_48K.tstates_to_hc(224), 896);
         assert_eq!(TIMING_48K.hc_to_tstates(896), 224);
         assert_eq!(TIMING_48K.tstate_to_line_pos(224), (1, 0));
+    }
+
+    #[test]
+    fn frame_position_normalises_and_reports_geometry() {
+        let pos = FramePosition::new(TIMING_128K.halfcycles_per_frame + 1200, &TIMING_128K);
+        assert_eq!(pos.halfcycles(), 1200);
+        assert_eq!(pos.tstate(&TIMING_128K), 240);
+        assert_eq!(pos.line(&TIMING_128K), 1);
+        assert_eq!(pos.tstate_in_line(&TIMING_128K), 12);
+    }
+
+    #[test]
+    fn frame_position_advance_wraps_at_frame_boundary() {
+        let pos = FramePosition::new(TIMING_48K.halfcycles_per_frame - 2, &TIMING_48K);
+        assert_eq!(pos.advance(4, &TIMING_48K).halfcycles(), 2);
     }
 
     /// Issue #11: the +2A/+3 (Amstrad 40077/40078 ASIC) shares the 128K's
@@ -366,6 +425,11 @@ mod tests {
         // pattern, phase 0 (vs the 128K's phase 1).
         assert_eq!(TIMING_PLUS2A.contention_pattern, CONTENTION_PATTERN_PLUS2A);
         assert_eq!(TIMING_PLUS2A.contention_phase, 0);
+        assert_eq!(TIMING_PLUS2A.interrupt_length_tstates, 32);
+        assert_ne!(
+            TIMING_PLUS2A.interrupt_length_tstates,
+            TIMING_128K.interrupt_length_tstates
+        );
         assert_ne!(
             TIMING_PLUS2A.contention_pattern,
             TIMING_128K.contention_pattern
