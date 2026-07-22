@@ -371,7 +371,11 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             let beeper = data & 0x10 != 0;
             if beeper != self.speaker.beeper {
                 self.speaker.beeper = beeper;
-                let tstate = TIMING_PLUS2A.hc_to_tstates(self.hc);
+                let tstate = common_sinclair_zx_spectrum::timing::FramePosition::new(
+                    self.hc,
+                    &TIMING_PLUS2A,
+                )
+                .tstate(&TIMING_PLUS2A);
                 self.audio.set_level(tstate, self.speaker.level());
             }
             // MIC (bit 3) carries the tape SAVE signal.
