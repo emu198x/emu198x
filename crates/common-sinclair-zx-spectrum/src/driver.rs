@@ -249,7 +249,7 @@ pub trait SpectrumDriver {
 
     /// Advance the machine by an exact number of CPU T-states.
     fn advance_tstates(&mut self, tstates: u32) {
-        self.advance_halfcycles(tstates * self.halfcycles_per_tstate());
+        self.advance_halfcycles(tstates * self.frame_timing().cpu_divisor);
     }
 }
 
