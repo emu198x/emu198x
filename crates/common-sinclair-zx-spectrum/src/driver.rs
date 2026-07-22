@@ -68,22 +68,6 @@ pub trait SpectrumDriver {
     /// overshoot when the loop exits.
     fn hc_mut(&mut self) -> &mut u32;
 
-    /// Total master-clock ticks in one frame for this machine's ULA.
-    ///
-    /// Differs per variant:
-    /// - 48K / Scorpion / TC2048 / TC2068: `224 × 312 × 4 = 279_552`
-    /// - TS2068: `224 × 264 × 4 = 236_544` (US NTSC)
-    /// - 128K / +2 / +2A / +2B / +3: `228 × 311 × 5 = 354_540`
-    /// - Pentagon: `224 × 320 × 4 = 286_720`
-    fn frame_hc(&self) -> u32;
-
-    /// Master-clock ticks per CPU T-state — `4` on every variant whose master
-    /// crystal is divided down to the 3.5 MHz Z80, and `5` on the 128K
-    /// family whose 17.7 MHz crystal divides by 5. Used by
-    /// `advance_tstates` to translate caller-friendly T-state counts
-    /// into the counter units the loop runs in.
-    fn halfcycles_per_tstate(&self) -> u32;
-
     /// Does this machine have ULA contention?
     ///
     /// Default `true` — stock Sinclair and Amstrad ULAs gate the
@@ -297,14 +281,6 @@ mod tests {
 
         fn hc_mut(&mut self) -> &mut u32 {
             &mut self.hc
-        }
-
-        fn frame_hc(&self) -> u32 {
-            self.divisor * 4
-        }
-
-        fn halfcycles_per_tstate(&self) -> u32 {
-            self.divisor
         }
 
         fn tick_ula(&mut self) {

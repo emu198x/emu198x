@@ -450,15 +450,6 @@ impl<V: Class128kVariant> SpectrumDriver for Spectrum128kClassCore<V> {
         &mut self.hc
     }
     #[inline(always)]
-    fn frame_hc(&self) -> u32 {
-        TIMING_128K.halfcycles_per_frame
-    }
-    #[inline(always)]
-    fn halfcycles_per_tstate(&self) -> u32 {
-        TIMING_128K.cpu_divisor
-    }
-
-    #[inline(always)]
     fn tick_ula(&mut self) {
         self.ula.tick(
             &self.memory,

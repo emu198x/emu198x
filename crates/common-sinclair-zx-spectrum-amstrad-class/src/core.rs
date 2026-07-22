@@ -472,15 +472,6 @@ impl<V: AmstradVariant> SpectrumDriver for SpectrumAmstradClassCore<V> {
         &mut self.hc
     }
     #[inline(always)]
-    fn frame_hc(&self) -> u32 {
-        TIMING_PLUS2A.halfcycles_per_frame
-    }
-    #[inline(always)]
-    fn halfcycles_per_tstate(&self) -> u32 {
-        TIMING_PLUS2A.cpu_divisor
-    }
-
-    #[inline(always)]
     fn tick_ula(&mut self) {
         self.ula.tick(
             &self.memory,

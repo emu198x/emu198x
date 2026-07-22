@@ -282,15 +282,6 @@ impl SpectrumDriver for TimexTC2048 {
         &mut self.hc
     }
     #[inline(always)]
-    fn frame_hc(&self) -> u32 {
-        TIMING_48K.halfcycles_per_frame
-    }
-    #[inline(always)]
-    fn halfcycles_per_tstate(&self) -> u32 {
-        TIMING_48K.cpu_divisor
-    }
-
-    #[inline(always)]
     fn tick_ula(&mut self) {
         self.ula.tick(
             &self.memory,

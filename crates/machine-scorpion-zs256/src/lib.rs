@@ -294,15 +294,6 @@ impl SpectrumDriver for ScorpionZS256 {
     fn hc_mut(&mut self) -> &mut u32 {
         &mut self.hc
     }
-    #[inline(always)]
-    fn frame_hc(&self) -> u32 {
-        TIMING_SCORPION.halfcycles_per_frame
-    }
-    #[inline(always)]
-    fn halfcycles_per_tstate(&self) -> u32 {
-        TIMING_SCORPION.cpu_divisor
-    }
-
     /// Scorpion has no memory contention.
     #[inline(always)]
     fn contended(&self) -> bool {
