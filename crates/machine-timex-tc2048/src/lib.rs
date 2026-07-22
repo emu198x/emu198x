@@ -270,6 +270,9 @@ impl Default for TimexTC2048 {
 }
 
 impl SpectrumDriver for TimexTC2048 {
+    fn frame_timing(&self) -> &common_sinclair_zx_spectrum::timing::FrameTiming {
+        &TIMING_48K
+    }
     #[inline(always)]
     fn hc(&self) -> u32 {
         self.hc

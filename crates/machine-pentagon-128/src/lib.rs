@@ -286,6 +286,9 @@ impl Default for Pentagon128 {
 }
 
 impl SpectrumDriver for Pentagon128 {
+    fn frame_timing(&self) -> &common_sinclair_zx_spectrum::timing::FrameTiming {
+        &TIMING_PENTAGON
+    }
     #[inline(always)]
     fn hc(&self) -> u32 {
         self.hc

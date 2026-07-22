@@ -283,6 +283,9 @@ impl Default for ScorpionZS256 {
 }
 
 impl SpectrumDriver for ScorpionZS256 {
+    fn frame_timing(&self) -> &common_sinclair_zx_spectrum::timing::FrameTiming {
+        &TIMING_SCORPION
+    }
     #[inline(always)]
     fn hc(&self) -> u32 {
         self.hc

@@ -337,6 +337,9 @@ impl TimexTS2068 {
 }
 
 impl SpectrumDriver for TimexTS2068 {
+    fn frame_timing(&self) -> &FrameTiming {
+        self.timing()
+    }
     #[inline(always)]
     fn hc(&self) -> u32 {
         self.hc
