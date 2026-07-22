@@ -756,4 +756,13 @@ mod tests {
         m.set_audio_controls(controls);
         assert!((m.audio_controls().master_gain() - 0.42).abs() < 1e-6);
     }
+
+    #[test]
+    fn frame_position_survives_machine_serialization() {
+        let mut machine = SpectrumPlus2A::new();
+        machine.advance_halfcycles(137);
+        let bytes = serde_json::to_vec(&machine).expect("serialize +2A machine");
+        let restored: SpectrumPlus2A = serde_json::from_slice(&bytes).expect("restore +2A machine");
+        assert_eq!(machine.frame_position(), restored.frame_position());
+    }
 }
