@@ -25,7 +25,7 @@ use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::{Snapshot, apply_48k_pages, apply_z80_registers};
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
-use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
+use common_sinclair_zx_spectrum::timing::{FramePosition, SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
 use common_sinclair_zx_spectrum::ula::Ula;
 use ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
 use peripheral_kempston_joystick::KempstonJoystick;
@@ -287,8 +287,13 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
 
     /// Returns the current T-state position within the frame.
     #[must_use]
-    pub const fn tstate_in_frame(&self) -> u32 {
-        TIMING_48K.hc_to_tstates(self.hc)
+    pub fn tstate_in_frame(&self) -> u32 {
+        self.frame_position().tstate(&TIMING_48K)
+    }
+
+    #[inline(always)]
+    fn frame_position(&self) -> FramePosition {
+        FramePosition::new(self.hc, &TIMING_48K)
     }
 
     /// Returns the keyboard matrix.
