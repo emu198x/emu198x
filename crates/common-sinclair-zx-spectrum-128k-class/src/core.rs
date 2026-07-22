@@ -694,4 +694,13 @@ mod tests {
         m.set_audio_channel_gain(SpeakerChannel::Speaker, 0.25);
         assert!((m.audio_controls().channel(SpeakerChannel::Speaker).gain() - 0.25).abs() < 1e-6,);
     }
+
+    #[test]
+    fn frame_position_survives_machine_serialization() {
+        let mut machine = Spectrum128K::new();
+        machine.advance_halfcycles(137);
+        let bytes = serde_json::to_vec(&machine).expect("serialize 128K machine");
+        let restored: Spectrum128K = serde_json::from_slice(&bytes).expect("restore 128K machine");
+        assert_eq!(machine.frame_position(), restored.frame_position());
+    }
 }

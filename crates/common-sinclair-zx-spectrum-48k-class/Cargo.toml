@@ -16,3 +16,6 @@ zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+serde_json = { workspace = true }

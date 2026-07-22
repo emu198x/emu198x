@@ -1148,4 +1148,13 @@ mod tests {
         let machine = Spectrum48k::new();
         assert_eq!(machine.audio_sample_rate(), AUDIO_SAMPLE_RATE);
     }
+
+    #[test]
+    fn frame_position_survives_machine_serialization() {
+        let mut machine = Spectrum48k::new();
+        machine.advance_halfcycles(137);
+        let bytes = serde_json::to_vec(&machine).expect("serialize 48K machine");
+        let restored: Spectrum48k = serde_json::from_slice(&bytes).expect("restore 48K machine");
+        assert_eq!(machine.frame_position(), restored.frame_position());
+    }
 }
