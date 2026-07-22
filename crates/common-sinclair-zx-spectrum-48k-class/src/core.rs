@@ -1156,5 +1156,9 @@ mod tests {
         let bytes = serde_json::to_vec(&machine).expect("serialize 48K machine");
         let restored: Spectrum48k = serde_json::from_slice(&bytes).expect("restore 48K machine");
         assert_eq!(machine.frame_position(), restored.frame_position());
+        machine.advance_halfcycles(23);
+        let mut restored = restored;
+        restored.advance_halfcycles(23);
+        assert_eq!(machine.frame_position(), restored.frame_position());
     }
 }
