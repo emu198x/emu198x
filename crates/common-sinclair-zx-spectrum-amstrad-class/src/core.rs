@@ -769,4 +769,17 @@ mod tests {
         restored.advance_halfcycles(23);
         assert_eq!(machine.frame_position(), restored.frame_position());
     }
+
+    #[test]
+    fn frame_position_snapshot_round_trip_wraps_cleanly() {
+        let mut machine = SpectrumPlus2A::new();
+        machine.advance_halfcycles(TIMING_PLUS2A.halfcycles_per_frame - 4);
+        let bytes = serde_json::to_vec(&machine).expect("serialize near frame boundary");
+        let mut restored: SpectrumPlus2A =
+            serde_json::from_slice(&bytes).expect("restore near frame boundary");
+        machine.advance_halfcycles(9);
+        restored.advance_halfcycles(9);
+        assert_eq!(machine.frame_position(), restored.frame_position());
+        assert_eq!(machine.frame_position().halfcycles(), 5);
+    }
 }
