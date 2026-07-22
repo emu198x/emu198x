@@ -27,7 +27,8 @@ use common_sinclair_zx_spectrum::snapshot::{
 };
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
-use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_PLUS2A};
+use common_sinclair_zx_spectrum::timing::{FrameTiming, TIMING_PLUS2A};
+use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use common_sinclair_zx_spectrum::ula::Ula;
 use gi_ay_3_8912::Ay3_8912;
 use nec_upd765a::Upd765a;
@@ -370,7 +371,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             let beeper = data & 0x10 != 0;
             if beeper != self.speaker.beeper {
                 self.speaker.beeper = beeper;
-                let tstate = self.hc / 4;
+                let tstate = TIMING_PLUS2A.hc_to_tstates(self.hc);
                 self.audio.set_level(tstate, self.speaker.level());
             }
             // MIC (bit 3) carries the tape SAVE signal.
@@ -459,6 +460,9 @@ impl SpectrumAmstradClassCore<Plus3Marker> {
 }
 
 impl<V: AmstradVariant> SpectrumDriver for SpectrumAmstradClassCore<V> {
+    fn frame_timing(&self) -> &FrameTiming {
+        &TIMING_PLUS2A
+    }
     #[inline(always)]
     fn hc(&self) -> u32 {
         self.hc
@@ -508,14 +512,16 @@ impl<V: AmstradVariant> SpectrumDriver for SpectrumAmstradClassCore<V> {
     fn on_tstate(&mut self, hc: u32) {
         self.tape.advance_tstates(1);
         self.recorder.advance(1);
-        if hc % 8 == 2 {
+        let tstate = TIMING_PLUS2A.hc_to_tstates(hc);
+        if tstate & 1 == 0 {
             self.ay.tick();
         }
+        // Peripheral timestamps remain in the driver's master-clock
+        // counter units; call frequency is once per CPU T-state.
         self.fdc.tick(hc);
         let ear = self.tape.ear_level();
         if ear != self.speaker.ear {
             self.speaker.ear = ear;
-            let tstate = hc / 4;
             self.audio.set_level(tstate, self.speaker.level());
         }
     }

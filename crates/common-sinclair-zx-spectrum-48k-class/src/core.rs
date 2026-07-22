@@ -25,7 +25,9 @@ use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::{Snapshot, apply_48k_pages, apply_z80_registers};
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
-use common_sinclair_zx_spectrum::timing::{FramePosition, SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K};
+use common_sinclair_zx_spectrum::timing::{
+    FramePosition, FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K,
+};
 use common_sinclair_zx_spectrum::ula::Ula;
 use ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
 use peripheral_kempston_joystick::KempstonJoystick;
@@ -562,6 +564,9 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
 }
 
 impl<M: MemoryBus, V: Variant48kClass> SpectrumDriver for SpectrumMachineCore<M, V> {
+    fn frame_timing(&self) -> &FrameTiming {
+        &TIMING_48K
+    }
     #[inline(always)]
     fn hc(&self) -> u32 {
         self.hc

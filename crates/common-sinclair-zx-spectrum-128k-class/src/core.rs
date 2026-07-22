@@ -23,7 +23,7 @@ use common_sinclair_zx_spectrum::snapshot::{
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{
-    FramePosition, SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_128K,
+    FramePosition, FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_128K,
 };
 use common_sinclair_zx_spectrum::ula::Ula;
 use common_sinclair_zx_spectrum::ula_engine::floating_bus_byte;
@@ -438,6 +438,9 @@ impl<V: Class128kVariant> Default for Spectrum128kClassCore<V> {
 }
 
 impl<V: Class128kVariant> SpectrumDriver for Spectrum128kClassCore<V> {
+    fn frame_timing(&self) -> &FrameTiming {
+        &TIMING_128K
+    }
     #[inline(always)]
     fn hc(&self) -> u32 {
         self.hc
