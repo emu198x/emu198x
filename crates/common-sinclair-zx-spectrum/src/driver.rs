@@ -202,7 +202,8 @@ pub trait SpectrumDriver {
     /// number of half-cycles (timing tests, single-step tools) use
     /// this in a loop and handle frame wrap themselves.
     fn tick_one_halfcycle(&mut self) {
-        let hc = self.hc();
+        let position = self.frame_position();
+        let hc = position.halfcycles();
         let divisor = self.halfcycles_per_tstate();
         debug_assert!(
             divisor >= 2,
@@ -255,6 +256,7 @@ pub trait SpectrumDriver {
 #[cfg(test)]
 mod tests {
     use super::SpectrumDriver;
+    use crate::timing::{FrameTiming, TIMING_48K, TIMING_128K};
 
     struct CountingDriver {
         hc: u32,
@@ -281,6 +283,14 @@ mod tests {
     }
 
     impl SpectrumDriver for CountingDriver {
+        fn frame_timing(&self) -> &FrameTiming {
+            if self.divisor == TIMING_128K.cpu_divisor {
+                &TIMING_128K
+            } else {
+                &TIMING_48K
+            }
+        }
+
         fn hc(&self) -> u32 {
             self.hc
         }
