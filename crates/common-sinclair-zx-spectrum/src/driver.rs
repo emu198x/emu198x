@@ -204,7 +204,7 @@ pub trait SpectrumDriver {
     fn tick_one_halfcycle(&mut self) {
         let position = self.frame_position();
         let hc = position.halfcycles();
-        let divisor = self.halfcycles_per_tstate();
+        let divisor = self.frame_timing().cpu_divisor;
         debug_assert!(
             divisor >= 2,
             "CPU divisor must provide two half-cycle phases"
@@ -256,7 +256,7 @@ pub trait SpectrumDriver {
 #[cfg(test)]
 mod tests {
     use super::SpectrumDriver;
-    use crate::timing::{FrameTiming, TIMING_48K, TIMING_128K};
+    use crate::timing::{FramePosition, FrameTiming, TIMING_48K, TIMING_128K};
 
     struct CountingDriver {
         hc: u32,
