@@ -487,10 +487,10 @@ impl<V: Class128kVariant> SpectrumDriver for Spectrum128kClassCore<V> {
     }
 
     #[inline(always)]
-    fn on_tstate(&mut self, hc: u32) {
+    fn on_tstate(&mut self, position: common_sinclair_zx_spectrum::timing::FramePosition) {
         self.tape.advance_tstates(1);
         self.recorder.advance(1);
-        let tstate = TIMING_128K.hc_to_tstates(hc);
+        let tstate = position.tstate(&TIMING_128K);
         if tstate & 1 == 0 {
             self.ay.tick();
         }

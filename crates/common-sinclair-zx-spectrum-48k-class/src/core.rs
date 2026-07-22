@@ -613,7 +613,7 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumDriver for SpectrumMachineCore<M,
     }
 
     #[inline(always)]
-    fn on_tstate(&mut self, _hc: u32) {
+    fn on_tstate(&mut self, _position: common_sinclair_zx_spectrum::timing::FramePosition) {
         self.tape.advance_tstates(1);
         self.recorder.advance(1);
         self.sync_ear_level();

@@ -141,7 +141,7 @@ pub trait SpectrumDriver {
     ///     self.audio.set_level(tstate, self.speaker_level());
     /// }
     /// ```
-    fn on_tstate(&mut self, hc: u32);
+    fn on_tstate(&mut self, position: FramePosition);
 
     /// Per-T-state hook for future peripherals (Beta disk polling,
     /// µPD765A rotation, mouse delta accumulation, …). Called from
@@ -225,7 +225,7 @@ pub trait SpectrumDriver {
             self.feed_irq();
 
             if phase == second_halfcycle_phase {
-                self.on_tstate(hc);
+                self.on_tstate(position);
                 self.tick_peripherals();
             }
         }
@@ -319,8 +319,8 @@ mod tests {
             self.irq_feeds += 1;
         }
 
-        fn on_tstate(&mut self, hc: u32) {
-            self.tstate_ticks.push(hc);
+        fn on_tstate(&mut self, position: FramePosition) {
+            self.tstate_ticks.push(position.halfcycles());
         }
 
         fn tick_peripherals(&mut self) {

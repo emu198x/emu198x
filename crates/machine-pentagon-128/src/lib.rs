@@ -336,16 +336,16 @@ impl SpectrumDriver for Pentagon128 {
     }
 
     #[inline(always)]
-    fn on_tstate(&mut self, hc: u32) {
+    fn on_tstate(&mut self, position: common_sinclair_zx_spectrum::timing::FramePosition) {
         self.tape.advance_tstates(1);
         self.recorder.advance(1);
-        if hc % 8 == 2 {
+        if position.halfcycles() % 8 == 2 {
             self.ay.tick();
         }
         let ear = self.tape.ear_level();
         if ear != self.speaker.ear {
             self.speaker.ear = ear;
-            let tstate = hc / 4;
+            let tstate = position.tstate(&TIMING_PENTAGON);
             self.audio.set_level(tstate, self.speaker.level());
         }
     }

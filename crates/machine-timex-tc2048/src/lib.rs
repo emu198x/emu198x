@@ -319,7 +319,7 @@ impl SpectrumDriver for TimexTC2048 {
     }
 
     #[inline(always)]
-    fn on_tstate(&mut self, _hc: u32) {
+    fn on_tstate(&mut self, _position: common_sinclair_zx_spectrum::timing::FramePosition) {
         self.tape.advance_tstates(1);
         self.recorder.advance(1);
         let ear = self.tape.ear_level();

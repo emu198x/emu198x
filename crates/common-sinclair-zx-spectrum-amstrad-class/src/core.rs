@@ -509,16 +509,16 @@ impl<V: AmstradVariant> SpectrumDriver for SpectrumAmstradClassCore<V> {
     }
 
     #[inline(always)]
-    fn on_tstate(&mut self, hc: u32) {
+    fn on_tstate(&mut self, position: common_sinclair_zx_spectrum::timing::FramePosition) {
         self.tape.advance_tstates(1);
         self.recorder.advance(1);
-        let tstate = TIMING_PLUS2A.hc_to_tstates(hc);
+        let tstate = position.tstate(&TIMING_PLUS2A);
         if tstate & 1 == 0 {
             self.ay.tick();
         }
         // Peripheral timestamps remain in the driver's master-clock
         // counter units; call frequency is once per CPU T-state.
-        self.fdc.tick(hc);
+        self.fdc.tick(position.halfcycles());
         let ear = self.tape.ear_level();
         if ear != self.speaker.ear {
             self.speaker.ear = ear;
