@@ -37,6 +37,12 @@ fn home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
+fn spectrum_tzx_root() -> PathBuf {
+    env::var_os("EMU198X_SPECTRUM_TZX_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".emu198x/test-data/spectrum-system-tests/tosec"))
+}
+
 fn dump_window(
     session: &HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
     label: &str,
@@ -93,9 +99,7 @@ fn dump_speedlock7_loader_ram() {
     let tzx_file = env::var("SPEEDLOCK7_TZX").unwrap_or_else(|_| {
         "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip".to_owned()
     });
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(&tzx_file);
+    let tzx_path = spectrum_tzx_root().join(&tzx_file);
 
     eprintln!("=== Tracing {tzx_file} ===");
     if !firmware_root.exists() {
@@ -276,9 +280,7 @@ fn dump_speedlock7_loader_ram() {
 fn find_feb3_write_in_green_beret() {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_file = "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip";
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_file);
+    let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
         return;
     }
@@ -429,9 +431,7 @@ fn measure_block7_to_fill_timing() {
 
 fn measure_one(label: &str, tzx_relative_path: &str) {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_relative_path);
+    let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
         return;
     }
@@ -527,9 +527,7 @@ fn measure_fill_duration() {
 
 fn measure_fill_one(label: &str, tzx_relative_path: &str) {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_relative_path);
+    let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
         return;
     }
@@ -773,9 +771,7 @@ fn measure_byte_decoder_loop_cost() {
 
 fn time_byte_decoder(label: &str, tzx_relative_path: &str) {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_relative_path);
+    let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
         return;
     }
@@ -905,14 +901,13 @@ fn probe_green_beret_alternates() {
             "Green Beret (1986)(Erbe)(ES)(en)[re-release].zip",
         ),
     ];
-    let tzx_root = home().join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]");
+    let tzx_root = spectrum_tzx_root();
     for (label, file) in tzx_files {
         probe_one_loader_status(label, file);
     }
 
     // Compilations live elsewhere in the tree; build absolute paths.
-    let comp_root = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Compilations/Games/[TZX]");
+    let comp_root = spectrum_tzx_root();
     let compilations: &[(&str, &str)] = &[
         (
             "Konami's Coin-Op Hits (1986)",
@@ -1038,9 +1033,7 @@ fn probe_near_outliers() {
 
 fn probe_one_loader_status(label: &str, tzx_relative_path: &str) {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_relative_path);
+    let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
         eprintln!("[skip {label}]");
         return;
@@ -1109,8 +1102,7 @@ fn probe_one_loader_status(label: &str, tzx_relative_path: &str) {
 #[test]
 #[ignore = "diagnostic — dump ALL Green Beret spans"]
 fn dump_green_beret_spans() {
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
+    let tzx_path = spectrum_tzx_root()
         .join("ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip");
     if !tzx_path.exists() {
         return;
@@ -1146,7 +1138,7 @@ fn dump_green_beret_spans() {
 #[test]
 #[ignore = "diagnostic — survey block-7 pause across all Speedlock-7 TZXs"]
 fn survey_speedlock7_pauses() {
-    let tzx_root = home().join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]");
+    let tzx_root = spectrum_tzx_root();
     if !tzx_root.exists() {
         eprintln!("TZX root not present; skipping");
         return;
@@ -1244,9 +1236,7 @@ fn green_beret_with_extended_pause() {
     // the bug is purely timing.
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_file = "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip";
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_file);
+    let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
         return;
     }
@@ -1329,9 +1319,7 @@ fn green_beret_with_extended_pause() {
 fn check_90ef_writes_in_green_beret() {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_file = "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip";
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_file);
+    let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
         return;
     }
@@ -1536,9 +1524,7 @@ fn trace_hl_at_checksum_check() {
 
 fn log_hl_at_fe9d(label: &str, tzx_relative_path: &str) {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_relative_path);
+    let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
         return;
     }
@@ -1660,9 +1646,7 @@ fn trace_op_wolf_wipe_fire() {
 /// resolution.
 fn log_speedlock7_verifier_hits(label: &str, tzx_relative_path: &str, max_frames: u32) {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_relative_path);
+    let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
         return;
     }
@@ -1825,9 +1809,7 @@ fn trace_speedlock7_byte_decoder_b_values() {
     // sequence the chip sees, without needing to disassemble FUSE.
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_file = "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip";
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_file);
+    let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
         return;
     }
@@ -2136,9 +2118,7 @@ fn sample_border_color_through_loader() {
     // the loop is timing out (no edges seen).
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_file = "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip";
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_file);
+    let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
         return;
     }
@@ -2219,9 +2199,7 @@ fn sample_border_color_through_loader() {
 /// expected outcome (the title is a known separate investigation).
 fn check_speedlock_loader_alive(label: &str, tzx_relative_path: &str) -> Result<(), String> {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_relative_path);
+    let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
         eprintln!("[skip {label}] firmware or TZX missing");
         return Ok(());
@@ -2317,9 +2295,7 @@ fn probe_green_beret_tape_and_pc_evolution() {
 
 fn probe_tape_and_pc(label: &str, tzx_relative_path: &str) {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_relative_path);
+    let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
         return;
     }
@@ -2439,9 +2415,7 @@ fn dump_speedlock2_head_over_heels_tape_state() {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_file =
         "ARCADE COLLECTION 12 - Head over Heels (1990)(Hit Squad, The)(48K-128K)[SpeedLock 2].zip";
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_file);
+    let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
         return;
     }
@@ -2538,9 +2512,7 @@ fn dump_speedlock2_head_over_heels_loader_bytes() {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_file =
         "ARCADE COLLECTION 12 - Head over Heels (1990)(Hit Squad, The)(48K-128K)[SpeedLock 2].zip";
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_file);
+    let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
         return;
     }
@@ -2615,9 +2587,7 @@ fn dump_speedlock7_tzx_span_widths_around_57050() {
     // PILOT-width pulses Speedlock's bit-shift hash expects, or
     // whether all spans in this region are data-width.
     let tzx_file = "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip";
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_file);
+    let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !tzx_path.exists() {
         return;
     }
@@ -2672,9 +2642,7 @@ fn dump_speedlock7_decrypted_loader() {
     // to find the decryption window; this one captures it.
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_file = "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip";
-    let tzx_path = home()
-        .join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[TZX]")
-        .join(tzx_file);
+    let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
         eprintln!("[skip] firmware or TZX missing");
         return;
