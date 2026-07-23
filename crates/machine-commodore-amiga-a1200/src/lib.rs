@@ -1190,6 +1190,9 @@ impl AmigaA1200 {
     /// Dispatch a custom-register word write to the right submodule.
     /// Shared between `poke_word` and the CPU bus servicer.
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
+        if self.agnus.write_timing_register(offset, val) {
+            return;
+        }
         let intena_before = self.paula.intena();
         match offset {
             0x080 => {
@@ -1942,14 +1945,11 @@ impl AmigaA1200 {
     }
 }
 
-// The shared per-CCK driver (#34). The AGA variant differs from OCS/ECS
-// in three places, all carried here: `AgnusAga` Derefs (two steps, via
-// `AgnusEcs`) to the base `Agnus`; the CPU is a `Cpu68020` (whose own
-// `tick()` runs in `tick_cpu_with_ipl`, while its shared bus-protocol
-// fields are reached through the Deref base in `cpu_base`); and the
-// bus-dispatch chain carries the extra Gayle arm. The AGA render
-// differences live inside Lisa / the custom-register write path, not in
-// the per-CCK loop.
+// The shared per-CCK driver (#34). Common Agnus state is exposed
+// through the OCS base, while behavior inherited from ECS resolves on
+// concrete Alice before coercion. The CPU is a `Cpu68020` (whose own
+// `tick()` runs in `tick_cpu_with_ipl`) and the bus-dispatch chain
+// carries the extra Gayle arm.
 impl AmigaDriver for AmigaA1200 {
     fn agnus(&self) -> &Agnus {
         &self.agnus
@@ -2104,6 +2104,10 @@ impl AmigaDriver for AmigaA1200 {
     }
     fn push_copper_move_log(&mut self, entry: common_commodore_amiga::driver::CopperMoveLogEntry) {
         self.debug_copper_move_log.push(entry);
+    }
+
+    fn advance_agnus_cck(&mut self) {
+        self.agnus.tick_cck();
     }
 
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {

@@ -449,6 +449,30 @@ impl AgnusEcs {
         self.diwhigh_written = true;
     }
 
+    /// Route one ECS programmable timing-register write.
+    ///
+    /// Returns `true` when `offset` names a register owned by this
+    /// wrapper. Unsupported ECS/AGA extension registers remain
+    /// unhandled so the machine can route them to another chip.
+    pub fn write_timing_register(&mut self, offset: u16, val: u16) -> bool {
+        match offset {
+            0x1C0 => self.write_htotal(val),
+            0x1C2 => self.write_hsstop(val),
+            0x1C4 => self.write_hbstrt(val),
+            0x1C6 => self.write_hbstop(val),
+            0x1C8 => self.write_vtotal(val),
+            0x1CA => self.write_vsstop(val),
+            0x1CC => self.write_vbstrt(val),
+            0x1CE => self.write_vbstop(val),
+            0x1DC => self.write_beamcon0(val),
+            0x1DE => self.write_hsstrt(val),
+            0x1E0 => self.write_vsstrt(val),
+            0x1E4 => self.write_diwhigh(val),
+            _ => return false,
+        }
+        true
+    }
+
     #[must_use]
     pub const fn varbeamen_enabled(&self) -> bool {
         (self.beamcon0 & BEAMCON0_VARBEAMEN) != 0
@@ -802,6 +826,23 @@ mod tests {
         assert!(agnus.diwhigh_written());
         assert_eq!(agnus.diwstrt, 0);
         assert_eq!(agnus.diwstop, 0);
+    }
+
+    #[test]
+    fn timing_register_dispatch_routes_supported_offsets() {
+        let mut agnus = AgnusEcs::new();
+
+        assert!(agnus.write_timing_register(0x1C0, 0x0033));
+        assert!(agnus.write_timing_register(0x1C8, 0x0123));
+        assert!(agnus.write_timing_register(0x1DC, BEAMCON0_VARBEAMEN));
+        assert!(agnus.write_timing_register(0x1E4, 0x0101));
+        assert!(!agnus.write_timing_register(0x1E2, 0x0044));
+
+        assert_eq!(agnus.htotal(), 0x0033);
+        assert_eq!(agnus.vtotal(), 0x0123);
+        assert!(agnus.varbeamen_enabled());
+        assert_eq!(agnus.diwhigh(), 0x0101);
+        assert!(agnus.diwhigh_written());
     }
 
     #[test]

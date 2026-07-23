@@ -2017,6 +2017,10 @@ impl AmigaDriver for AmigaOcs {
         self.debug_copper_move_log.push(entry);
     }
 
+    fn advance_agnus_cck(&mut self) {
+        self.agnus.tick_cck();
+    }
+
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
         AmigaOcs::dispatch_custom_write(self, offset, val);
     }

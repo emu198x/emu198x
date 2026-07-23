@@ -1114,6 +1114,9 @@ impl AmigaEcs {
     /// Dispatch a custom-register word write to the right submodule.
     /// Shared between `poke_word` and the CPU bus servicer.
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
+        if self.agnus.write_timing_register(offset, val) {
+            return;
+        }
         let intena_before = self.paula.intena();
         match offset {
             0x080 => {
@@ -1819,11 +1822,10 @@ impl AmigaEcs {
     }
 }
 
-// The shared per-CCK driver (#34). Mechanically identical to the OCS
-// impl: `AgnusEcs` Derefs to the base `Agnus`, so the base-typed
-// accessors coerce; the ECS chip differences (BEAMCON0, BPLCON3,
-// programmable sync) live inside the chip and the custom-register write
-// path, not here. No Gayle arm; stock Cpu68000.
+// The shared per-CCK driver (#34). Common Agnus state is exposed
+// through base-typed accessors, while behavior that ECS overrides
+// resolves through concrete helpers before coercion. No Gayle arm;
+// stock Cpu68000.
 impl AmigaDriver for AmigaEcs {
     fn agnus(&self) -> &Agnus {
         &self.agnus
@@ -1977,6 +1979,10 @@ impl AmigaDriver for AmigaEcs {
     }
     fn push_copper_move_log(&mut self, entry: common_commodore_amiga::driver::CopperMoveLogEntry) {
         self.debug_copper_move_log.push(entry);
+    }
+
+    fn advance_agnus_cck(&mut self) {
+        self.agnus.tick_cck();
     }
 
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {

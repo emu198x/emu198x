@@ -8,12 +8,10 @@
 //!
 //! ## How the three variants plug in
 //!
-//! The driver reaches the chips through accessor methods that return the
-//! **base OCS chip types** (`Agnus`, `Denise`, `Paula8364`, …). The ECS
-//! and AGA wrappers (`AgnusEcs`, `AgnusAga`, the `Cpu68020`) `Deref` to
-//! those bases, so a single body drives all three with no associated
-//! types or chip-abstraction trait — exactly how the per-crate bodies
-//! resolved before this refactor.
+//! The driver reaches common chip state through accessor methods that
+//! return the **base OCS chip types** (`Agnus`, `Denise`,
+//! `Paula8364`, …). The ECS and AGA wrappers (`AgnusEcs`,
+//! `AgnusAga`, the `Cpu68020`) `Deref` to those bases.
 //!
 //! Three kinds of method make that work:
 //!
@@ -26,11 +24,12 @@
 //!   reads chip RAM while taking `&mut Agnus`). The split borrow happens
 //!   inside the per-impl method, where the concrete struct's fields are
 //!   visible; the shared body just calls it.
-//! * **Variant helpers** (`dispatch_custom_write`, `dispatch_bus`, …) —
-//!   the genuinely per-variant seam: the custom-register write path (ECS
-//!   / AGA extension registers), the CPU bus-dispatch chain (the A1200's
-//!   extra Gayle arm), and the CPU `tick()` (each variant ticks its own
-//!   68000 / 68020, not the Deref base).
+//! * **Variant helpers** (`advance_agnus_cck`,
+//!   `dispatch_custom_write`, `dispatch_bus`, …) — behavior that can
+//!   be overridden by a chip wrapper must resolve on the concrete
+//!   variant before any base-type coercion. This includes programmable
+//!   beam advancement, the custom-register write path, the A1200's
+//!   extra Gayle arm, and each variant's own CPU `tick()`.
 //!
 //! `service_cpu_bus` and `apply_bus_response` are likewise default
 //! methods; only `dispatch_bus` (the chip-select `or_else` chain) stays
@@ -143,6 +142,10 @@ pub trait AmigaDriver {
 
     // ---------- per-variant helpers ----------
 
+    /// Advance the concrete Agnus/Alice variant by one CCK. This must
+    /// resolve before coercion to the OCS base so ECS programmable beam
+    /// timing remains active.
+    fn advance_agnus_cck(&mut self);
     /// Route a custom-register write (`$DFFxxx`) to the owning chip. The
     /// ECS / AGA variants extend this with their extra registers, so it
     /// is per-variant.
@@ -171,7 +174,7 @@ pub trait AmigaDriver {
         // ── CCK-granular events (phase 0 only) ───────────────────
         if phase == 0 {
             // Advance the beam.
-            self.agnus_mut().tick_cck();
+            self.advance_agnus_cck();
 
             // CIA-B TICK is wired to /HSYNC. Agnus exposes the current
             // fixed-sync, counter-visible approximation after the raw
