@@ -18,7 +18,7 @@ fn a1200_machine_uses_programmed_beam_totals() {
     // Alice inherits the ECS programmable beam counter registers.
     amiga.poke_word(0x00DF_F1C0, 3);
     amiga.poke_word(0x00DF_F1C8, 1);
-    amiga.poke_word(0x00DF_F1DC, 0x0080);
+    amiga.poke_word(0x00DF_F1DC, 0x00A0); // VARBEAMEN | PAL
 
     for _ in 0..8 {
         amiga.tick();
@@ -37,7 +37,7 @@ fn a1200_snapshot_preserves_explicit_zero_beam_totals() {
     let mut amiga = AmigaA1200::new(parked_cpu_rom());
     amiga.poke_word(0x00DF_F1C0, 0);
     amiga.poke_word(0x00DF_F1C8, 0);
-    amiga.poke_word(0x00DF_F1DC, 0x0080);
+    amiga.poke_word(0x00DF_F1DC, 0x00A0); // VARBEAMEN | PAL
 
     let bytes = postcard::to_allocvec(&amiga.snapshot_state()).expect("serialize snapshot");
     let snapshot: AmigaA1200Snapshot = postcard::from_bytes(&bytes).expect("deserialize snapshot");

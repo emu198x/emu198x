@@ -116,7 +116,7 @@ impl AgnusEcs {
         let default_vtotal = inner.lines_per_frame - 1;
         Self {
             inner,
-            beamcon0: 0,
+            beamcon0: BEAMCON0_PAL,
             htotal: default_htotal,
             hsstop: 0,
             vtotal: default_vtotal,
@@ -149,9 +149,13 @@ impl AgnusEcs {
         // claimed physical reset values for the write-only latches.
         let default_htotal = inner.current_line_ccks() - 1;
         let default_vtotal = inner.lines_per_frame - 1;
+        let beamcon0 = match inner.region {
+            commodore_agnus_ocs::AgnusRegion::Pal => BEAMCON0_PAL,
+            commodore_agnus_ocs::AgnusRegion::Ntsc => 0,
+        };
         Self {
             inner,
-            beamcon0: 0,
+            beamcon0,
             htotal: default_htotal,
             hsstop: 0,
             vtotal: default_vtotal,
@@ -246,7 +250,7 @@ impl AgnusEcs {
             return;
         }
 
-        let line_ccks = self.htotal_highest_count() + 1;
+        let line_ccks = self.htotal_highest_count() + 1 + u16::from(self.inner.lol);
         let short_field_lines = self.vtotal_highest_line() + 1;
         self.inner
             .tick_cck_with_timing(line_ccks, short_field_lines);
@@ -303,22 +307,26 @@ impl AgnusEcs {
         self.beamcon0
     }
 
-    /// Set the BEAMCON0 PAL bit to match the system's video standard.
-    ///
-    /// On real ECS/AGA hardware, BEAMCON0 resets with the PAL bit set for PAL
-    /// systems and clear for NTSC. `graphics.library` reads this bit during
-    /// init to detect the video standard.
+    /// Set the effective BEAMCON0 PAL mode while preserving all other
+    /// control bits. Construction uses the wrapped chip's region; guest
+    /// writes reach [`Self::write_beamcon0`] instead.
     pub fn set_pal_mode(&mut self, pal: bool) {
         if pal {
-            self.beamcon0 = BEAMCON0_PAL;
+            self.beamcon0 |= BEAMCON0_PAL;
         } else {
-            self.beamcon0 = 0;
+            self.beamcon0 &= !BEAMCON0_PAL;
         }
+        self.sync_lol_toggle();
     }
 
-    /// Store ECS `BEAMCON0` for later timing/beam model work.
+    /// Store ECS `BEAMCON0` and apply its PAL/LOLDIS line-toggle controls.
     pub fn write_beamcon0(&mut self, val: u16) {
         self.beamcon0 = val;
+        self.sync_lol_toggle();
+    }
+
+    fn sync_lol_toggle(&mut self) {
+        self.inner.lol_toggle = (self.beamcon0 & (BEAMCON0_PAL | BEAMCON0_LOLDIS)) == 0;
     }
 
     #[must_use]
@@ -686,9 +694,9 @@ impl From<AgnusEcs> for InnerAgnusOcs {
 mod tests {
     use super::{
         AgnusEcs, BEAMCON0_BLANKEN, BEAMCON0_CSCBEN, BEAMCON0_CSYTRUE, BEAMCON0_HARDDIS,
-        BEAMCON0_HSYTRUE, BEAMCON0_VARBEAMEN, BEAMCON0_VARCSYEN, BEAMCON0_VARHSYEN,
-        BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN, BEAMCON0_VSYTRUE, PAL_CCKS_PER_LINE,
-        PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy, SlotOwner,
+        BEAMCON0_HSYTRUE, BEAMCON0_LOLDIS, BEAMCON0_PAL, BEAMCON0_VARBEAMEN, BEAMCON0_VARCSYEN,
+        BEAMCON0_VARHSYEN, BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN, BEAMCON0_VSYTRUE,
+        PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy, SlotOwner,
     };
 
     fn tick_programmed_line(agnus: &mut AgnusEcs) {
@@ -760,9 +768,37 @@ mod tests {
     }
 
     #[test]
+    fn effective_beamcon0_pal_default_matches_wrapped_region() {
+        let pal = AgnusEcs::new();
+        assert_eq!(pal.beamcon0() & BEAMCON0_PAL, BEAMCON0_PAL);
+        assert!(!pal.lol_toggle);
+
+        let ntsc = AgnusEcs::from_ocs(commodore_agnus_ocs::Agnus::new_with_region(
+            commodore_agnus_ocs::AgnusRegion::Ntsc,
+        ));
+        assert_eq!(ntsc.beamcon0() & BEAMCON0_PAL, 0);
+        assert!(ntsc.lol_toggle);
+    }
+
+    #[test]
+    fn set_pal_mode_preserves_other_beamcon0_bits() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN | BEAMCON0_LOLDIS);
+
+        agnus.set_pal_mode(true);
+        assert_eq!(
+            agnus.beamcon0(),
+            BEAMCON0_VARBEAMEN | BEAMCON0_LOLDIS | BEAMCON0_PAL
+        );
+
+        agnus.set_pal_mode(false);
+        assert_eq!(agnus.beamcon0(), BEAMCON0_VARBEAMEN | BEAMCON0_LOLDIS);
+    }
+
+    #[test]
     fn ecs_register_latches_are_independent_of_ocs_core_state() {
         let mut agnus = AgnusEcs::new();
-        assert_eq!(agnus.beamcon0(), 0);
+        assert_eq!(agnus.beamcon0(), BEAMCON0_PAL);
         assert_eq!(agnus.htotal(), PAL_CCKS_PER_LINE - 1);
         assert_eq!(agnus.hsstop(), 0);
         assert_eq!(agnus.vtotal(), PAL_LINES_PER_FRAME - 1);
@@ -867,7 +903,7 @@ mod tests {
         let mut agnus = AgnusEcs::new();
         agnus.write_htotal(3);
         agnus.write_vtotal(1);
-        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN | BEAMCON0_PAL);
 
         // hpos counts 0..3 then wraps and advances vpos.
         for expected_h in [1u16, 2, 3] {
@@ -891,7 +927,7 @@ mod tests {
     #[test]
     fn varbeamen_distinguishes_explicit_zero_totals_from_unwritten_defaults() {
         let mut agnus = AgnusEcs::new();
-        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN | BEAMCON0_PAL);
 
         // Unwritten timing registers retain the region defaults.
         agnus.tick_cck();
@@ -912,7 +948,7 @@ mod tests {
         let mut agnus = AgnusEcs::new();
         agnus.write_htotal(1); // Two CCKs per line.
         agnus.write_vtotal(1); // Short field is VTOTAL + 1 = 2 lines.
-        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN | BEAMCON0_PAL);
         agnus.bplcon0 = 0x0004; // LACE
 
         // LOF starts set, so the first field is the long field:
@@ -943,7 +979,7 @@ mod tests {
         let mut agnus = AgnusEcs::new();
         agnus.write_htotal(1);
         agnus.write_vtotal(27); // 28-line field; final line is 27.
-        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN | BEAMCON0_PAL);
         agnus.dmacon = 0x0220; // DMAEN | SPREN
         agnus.poke_sprite_pos(0, 26 << 8);
         agnus.poke_sprite_ctl(0, 40 << 8);
@@ -967,7 +1003,7 @@ mod tests {
         let mut agnus = AgnusEcs::new();
         agnus.write_htotal(1);
         agnus.write_vtotal(27); // 28-line short field, 29-line long field.
-        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN | BEAMCON0_PAL);
         agnus.bplcon0 = 0x0004; // LACE; LOF starts on the long field.
         agnus.dmacon = 0x0220; // DMAEN | SPREN
         agnus.poke_sprite_pos(0, 26 << 8);
@@ -1015,10 +1051,86 @@ mod tests {
         agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
 
         for expected_lol in [true, false] {
-            tick_programmed_line(&mut agnus);
+            let line_ccks = agnus.htotal_highest_count() + 1 + u16::from(agnus.lol);
+            for _ in 0..line_ccks {
+                agnus.tick_cck();
+            }
             assert_eq!(agnus.hpos, 0);
             assert_eq!(agnus.lol, expected_lol);
         }
+    }
+
+    #[test]
+    fn varbeamen_ntsc_alternates_short_and_long_programmed_lines() {
+        let mut agnus = AgnusEcs::from_ocs(commodore_agnus_ocs::Agnus::new_with_region(
+            commodore_agnus_ocs::AgnusRegion::Ntsc,
+        ));
+        agnus.write_htotal(1); // Two CCK short line, three CCK long line.
+        agnus.write_vtotal(7);
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+
+        for _ in 0..2 {
+            agnus.tick_cck();
+        }
+        assert_eq!((agnus.vpos, agnus.hpos), (1, 0));
+        assert!(agnus.lol);
+
+        for _ in 0..2 {
+            agnus.tick_cck();
+        }
+        assert_eq!(
+            (agnus.vpos, agnus.hpos),
+            (1, 2),
+            "long line has one extra CCK"
+        );
+        agnus.tick_cck();
+        assert_eq!((agnus.vpos, agnus.hpos), (2, 0));
+        assert!(!agnus.lol);
+    }
+
+    #[test]
+    fn pal_and_loldis_each_disable_long_line_toggle() {
+        for disable_bit in [BEAMCON0_PAL, BEAMCON0_LOLDIS] {
+            let mut agnus = AgnusEcs::from_ocs(commodore_agnus_ocs::Agnus::new_with_region(
+                commodore_agnus_ocs::AgnusRegion::Ntsc,
+            ));
+            agnus.write_beamcon0(disable_bit);
+
+            for _ in 0..PAL_CCKS_PER_LINE {
+                agnus.tick_cck();
+            }
+            assert_eq!((agnus.vpos, agnus.hpos), (1, 0));
+            assert!(
+                !agnus.lol,
+                "BEAMCON0 bit {disable_bit:#06x} forces short lines"
+            );
+        }
+    }
+
+    #[test]
+    fn loldis_finishes_current_long_line_then_forces_short_lines() {
+        let mut agnus = AgnusEcs::from_ocs(commodore_agnus_ocs::Agnus::new_with_region(
+            commodore_agnus_ocs::AgnusRegion::Ntsc,
+        ));
+        agnus.write_htotal(1);
+        agnus.write_vtotal(7);
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+        tick_programmed_line(&mut agnus);
+        assert!(agnus.lol);
+
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN | BEAMCON0_LOLDIS);
+        for _ in 0..2 {
+            agnus.tick_cck();
+        }
+        assert_eq!((agnus.vpos, agnus.hpos), (1, 2));
+        assert!(agnus.lol);
+
+        agnus.tick_cck();
+        assert_eq!((agnus.vpos, agnus.hpos), (2, 0));
+        assert!(!agnus.lol);
+        tick_programmed_line(&mut agnus);
+        assert_eq!((agnus.vpos, agnus.hpos), (3, 0));
+        assert!(!agnus.lol);
     }
 
     #[test]

@@ -19,7 +19,7 @@ fn ecs_machine_uses_programmed_beam_totals() {
     // BEAMCON0.VARBEAMEN selects the programmable counters.
     amiga.poke_word(0x00DF_F1C0, 3);
     amiga.poke_word(0x00DF_F1C8, 1);
-    amiga.poke_word(0x00DF_F1DC, 0x0080);
+    amiga.poke_word(0x00DF_F1DC, 0x00A0); // VARBEAMEN | PAL
 
     for _ in 0..8 {
         amiga.tick();
@@ -31,4 +31,29 @@ fn ecs_machine_uses_programmed_beam_totals() {
     }
     assert_eq!((amiga.agnus().vpos, amiga.agnus().hpos), (0, 0));
     assert_eq!(amiga.agnus().vbl_count, 1);
+}
+
+#[test]
+fn ecs_machine_uses_programmed_ntsc_short_and_long_lines() {
+    let mut amiga = AmigaEcs::new(parked_cpu_rom());
+    amiga.poke_word(0x00DF_F1C0, 1); // Two CCK short line.
+    amiga.poke_word(0x00DF_F1C8, 7);
+    amiga.poke_word(0x00DF_F1DC, 0x0080); // VARBEAMEN, PAL clear.
+
+    for _ in 0..4 {
+        amiga.tick();
+    }
+    assert_eq!((amiga.agnus().vpos, amiga.agnus().hpos), (1, 0));
+    assert!(amiga.agnus().lol);
+
+    for _ in 0..4 {
+        amiga.tick();
+    }
+    assert_eq!((amiga.agnus().vpos, amiga.agnus().hpos), (1, 2));
+
+    for _ in 0..2 {
+        amiga.tick();
+    }
+    assert_eq!((amiga.agnus().vpos, amiga.agnus().hpos), (2, 0));
+    assert!(!amiga.agnus().lol);
 }

@@ -1344,6 +1344,8 @@ impl Agnus {
             // so the flipflop stays at 0 (every line is 227).
             if self.lol_toggle {
                 self.lol = !self.lol;
+            } else {
+                self.lol = false;
             }
             self.vpos += 1;
             // Interlace: long frame has one extra line (313 PAL, 263 NTSC).
