@@ -1896,6 +1896,28 @@ impl Agnus {
     pub fn vertb_level(&self) -> bool {
         self.vpos < VBL_END_LINE
     }
+
+    /// Whether the current fixed-sync beam position is the
+    /// counter-visible CIA-A TOD event.
+    ///
+    /// The A500 feeds active-low `/VSYNC` directly to CIA-A `TICK`,
+    /// whose counter advances after the input rises at sync end. The
+    /// current CIA model has no pin synchroniser, so this folds the
+    /// measured delay into one visible event at horizontal position
+    /// 84. PAL sync ends on line 5; NTSC sync ends on line 6.
+    ///
+    /// This is a fixed-sync approximation. Field-dependent sync phase,
+    /// the CIA's internal delay, and ECS/AGA programmable sync remain
+    /// separate future work.
+    #[must_use]
+    pub fn fixed_sync_cia_a_tod_event(&self) -> bool {
+        const COUNTER_VISIBLE_HPOS: u16 = 84;
+        let line = match self.region {
+            AgnusRegion::Pal => 5,
+            AgnusRegion::Ntsc => 6,
+        };
+        self.vpos == line && self.hpos == COUNTER_VISIBLE_HPOS
+    }
 }
 
 /// Last line of the vertical blanking interval (inclusive of lines

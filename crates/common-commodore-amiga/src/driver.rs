@@ -163,8 +163,8 @@ pub trait AmigaDriver {
     // ---------- the shared body (provided) ----------
 
     /// One machine tick (master / 4 = half-CCK). The unified per-CCK
-    /// loop: VERTB latch → copper → blitter / audio / sprite DMA → disk
-    /// → Denise pixel → CIA E-clock → CIA /IRQ latch → CPU bus + tick.
+    /// loop: beam events → copper → blitter / audio / sprite DMA → disk
+    /// → Denise pixel → CIA E-clock → CIA /IRQ inputs → CPU bus + tick.
     fn tick(&mut self) {
         let phase = self.cck_phase();
 
@@ -180,21 +180,25 @@ pub trait AmigaDriver {
                 self.cia_b_mut().tod_pulse();
             }
 
+            // CIA-A TICK is wired to /VSYNC rather than VERTB. Until
+            // the sync waveform and 8520 input delay are modelled
+            // independently, Agnus exposes the fixed-sync,
+            // counter-visible event.
+            if self.agnus().fixed_sync_cia_a_tod_event() {
+                self.cia_a_mut().tod_pulse();
+            }
+
             // Raster-line-zero event. The VERTB request is generated
             // once when the beam enters the vertical-blank interval;
             // the interval itself is not a level-sensitive interrupt
             // input. The same frame-start transition restarts the
-            // copper from COP1LC and supplies the current coarse
-            // CIA-A TOD pulse.
+            // copper from COP1LC.
             let vertb_level = self.agnus().vertb_level();
             let rising_edge = vertb_level && !self.prev_vertb_level();
             if rising_edge {
                 self.paula_mut().raise(IntSource::Vertb);
                 // Copper restarts from COP1LC on every VBL edge.
                 self.copper_mut().jump1();
-                // CIA-A TOD pin is wired to /VSYNC on real Amiga, so
-                // it ticks once per VBL edge.
-                self.cia_a_mut().tod_pulse();
             }
             self.set_prev_vertb_level(vertb_level);
 

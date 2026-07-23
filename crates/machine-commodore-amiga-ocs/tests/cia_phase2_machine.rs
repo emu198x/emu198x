@@ -258,7 +258,7 @@ fn cia_b_flag_pin_falling_edge_latches_icr_and_drives_exter() {
 #[test]
 fn tod_alarm_fires_during_a_long_real_kickstart_run() {
     // Phase-3-lite smoke test: run the real Kickstart, seed TOD + alarm
-    // deterministically, and confirm VBL → TOD pulse → alarm latch
+    // deterministically, and confirm VSYNC → TOD pulse → alarm latch
     // end-to-end on top of a real boot. We can't rely on TOD counting
     // from reset because Kickstart halts it during timer.device init
     // (HRM-correct: any TODHI/TODMID write halts the counter; only
@@ -283,7 +283,7 @@ fn tod_alarm_fires_during_a_long_real_kickstart_run() {
     let _ = amiga.cia_a_mut().read(0x0D); // clear any pending ICR
     amiga.cia_a_mut().write(0x0D, 0x84); // enable ICR.ALARM mask (bit 2)
 
-    // Run 20 frames — 20 VBLs pulse TOD 20 times → exceeds the $10
+    // Run 20 frames — 20 VSYNC pulses advance TOD 20 times → exceeds the $10
     // match. Alarm flag must latch before the window closes.
     for _ in 0..(20 * PAL_FRAME_TICKS) {
         amiga.tick();
@@ -292,7 +292,7 @@ fn tod_alarm_fires_during_a_long_real_kickstart_run() {
         }
     }
     panic!(
-        "CIA-A TOD alarm should have latched ICR.ALARM within 20 VBLs; \
+        "CIA-A TOD alarm should have latched ICR.ALARM within 20 frames; \
          current TOD=${:06X}",
         amiga.cia_a().tod_counter()
     );

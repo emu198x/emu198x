@@ -99,6 +99,25 @@ fn walk_task_names(amiga: &AmigaOcs, list_addr: u32) -> Vec<String> {
     names
 }
 
+fn is_user_idle(amiga: &AmigaOcs) -> bool {
+    let pc = amiga.cpu().regs.pc;
+    let sr = amiga.cpu().regs.sr;
+    (0x00FC_0700..=0x00FC_0740).contains(&pc) && (sr & 0x2700) == 0
+}
+
+fn advance_to_user_idle(amiga: &mut AmigaOcs) -> bool {
+    let sub_frame = (PAL_FRAME_TICKS / 8).max(1);
+    for _ in 0..160 {
+        if is_user_idle(amiga) {
+            return true;
+        }
+        for _ in 0..sub_frame {
+            amiga.tick();
+        }
+    }
+    is_user_idle(amiga)
+}
+
 /// Task #180 — cross-cutting boot scenario: Kickstart 1.3 reaches
 /// the post-keyboard steady-state idle.
 ///
@@ -132,22 +151,7 @@ fn boot_reaches_insert_disk_idle_with_keyboard_live() {
     // user-mode idle state is hit ~6 of every 48 sub-frame samples.
     // Step sub-frame until the CPU is in the idle loop in USER mode with
     // IPL 0 — the genuine settled state — then snapshot the invariants.
-    let sub_frame = (PAL_FRAME_TICKS / 8).max(1);
-    let is_user_idle = |a: &AmigaOcs| {
-        let pc = a.cpu().regs.pc;
-        let sr = a.cpu().regs.sr;
-        (0x00FC_0700..=0x00FC_0740).contains(&pc) && (sr & 0x2700) == 0
-    };
-    let mut reached_idle = is_user_idle(&amiga);
-    for _ in 0..160 {
-        if reached_idle {
-            break;
-        }
-        for _ in 0..sub_frame {
-            amiga.tick();
-        }
-        reached_idle = is_user_idle(&amiga);
-    }
+    let reached_idle = advance_to_user_idle(&mut amiga);
     let sr = amiga.cpu().regs.sr;
     assert!(
         reached_idle,
@@ -258,13 +262,20 @@ fn chip_only_and_slow_ram_converge_at_task_level() {
         chip_only.tick();
     }
 
-    // Both settle in the Kickstart ROM (executing the idle/setup path),
-    // in user mode with interrupts unmasked — not crashed, not spinning
-    // in supervisor with IPL raised.
-    for (label, a) in [("slow-RAM", &slow), ("chip-only", &chip_only)] {
+    // A frame-boundary sample can land inside the VBL handler. Advance
+    // each configuration independently until its user-mode Exec idle
+    // loop is observable, then compare the stable task-level state.
+    for (label, a) in [("slow-RAM", &mut slow), ("chip-only", &mut chip_only)] {
+        assert!(
+            advance_to_user_idle(a),
+            "{label} should reach the user-mode Exec idle loop; \
+             last PC=\\${:08X} SR=\\${:04X}",
+            a.cpu().regs.pc,
+            a.cpu().regs.sr
+        );
         let pc = a.cpu().regs.pc;
         assert!(
-            (0x00F8_0000..=0x00FF_FFFF).contains(&pc),
+            (0x00FC_0700..=0x00FC_0740).contains(&pc),
             "{label} should idle in the KS ROM; got PC=\\${pc:08X}"
         );
         let sr = a.cpu().regs.sr;

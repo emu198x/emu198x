@@ -629,8 +629,8 @@ impl AmigaA1200 {
             // Initialise as `true` because at reset the beam is at
             // vpos=0 (inside the VBL window), so the level signal is
             // already high. A `false` initial value would fake a
-            // rising edge on the first tick and spuriously fire TOD
-            // / copper-restart before the first real VBL.
+            // rising edge on the first tick and spuriously fire VERTB
+            // and the copper restart before the first real frame.
             prev_vertb_level: true,
             prev_cia_a_irq: false,
             prev_cia_b_irq: false,
