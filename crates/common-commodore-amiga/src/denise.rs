@@ -28,6 +28,13 @@ use crate::memory::Memory;
 pub const FB_WIDTH: u32 = 768;
 pub const FB_HEIGHT: u32 = 576;
 
+/// One Agnus-granted bitplane transfer for the current CCK.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BitplaneDmaFetch {
+    pub plane: u8,
+    pub width_words: u8,
+}
+
 /// Decode a DIWSTRT/DIWSTOP register pair into the effective vertical
 /// display window `[vstart, vstop)` in absolute line numbers.
 ///
@@ -164,12 +171,13 @@ impl<C: DeniseChip> Denise<C> {
     pub fn tick(
         &mut self,
         phase: u8,
-        vpos: u16,
-        hpos: u16,
-        dmacon: u16,
+        bitplane_dma_fetch: Option<BitplaneDmaFetch>,
         agnus: &mut commodore_agnus_ocs::Agnus,
         memory: &Memory,
     ) {
+        let vpos = agnus.vpos;
+        let hpos = agnus.hpos;
+        let dmacon = agnus.dmacon;
         let (vstart, vstop) = diw_vertical_window(agnus.diwstrt, agnus.diwstop);
         let (ddf_start, _) = ddf_window(agnus.ddfstrt, agnus.ddfstop);
 
@@ -194,10 +202,10 @@ impl<C: DeniseChip> Denise<C> {
             // Bitplane fetch — follow Agnus's live DMA grant.
             if in_visible_line
                 && bpl_dma_on
-                && let Some(plane_u8) = agnus.cck_bus_plan().bitplane_dma_fetch_plane
+                && let Some(fetch) = bitplane_dma_fetch
             {
-                let plane = plane_u8 as usize;
-                let width = u32::from(agnus.bpl_fetch_width());
+                let plane = fetch.plane as usize;
+                let width = u32::from(fetch.width_words);
                 let addr = agnus.bpl_pt[plane];
                 // First word feeds the normal shift-register load path.
                 let word = memory.read_chip_ram_word(addr);
@@ -421,6 +429,7 @@ mod tests {
         agnus.diwstrt = 0x2C81;
         agnus.diwstop = 0x2CC1;
         agnus.fmode = 0x0003;
+        agnus.vpos = 100;
         agnus.bpl_pt[0] = 0x2000;
         agnus.bpl_pt[1] = 0x3000;
         let (bpl0, bpl1) = (agnus.bpl_pt[0], agnus.bpl_pt[1]);
@@ -432,7 +441,17 @@ mod tests {
         // stop before wrapping to hpos 0 again so no modulo is applied.
         for h in 0u16..=0xE2 {
             agnus.hpos = h;
-            denise.tick(0, 100, h, agnus.dmacon, &mut agnus, &mem);
+            let plan = agnus.cck_bus_plan();
+            let width = agnus.bpl_fetch_width();
+            denise.tick(
+                0,
+                plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
+                    plane,
+                    width_words: width,
+                }),
+                &mut agnus,
+                &mem,
+            );
         }
 
         assert_eq!(agnus.bpl_pt[0] - bpl0, 88, "BPL1 bytes/line (44 words)");
@@ -453,6 +472,7 @@ mod tests {
         agnus.ddfstop = 0xD0;
         agnus.diwstrt = 0x2C81;
         agnus.diwstop = 0x2CC1;
+        agnus.vpos = 100;
         agnus.bpl_pt[0] = 0x2000;
         agnus.bpl_pt[1] = 0x3000;
         let (bpl0, bpl1) = (agnus.bpl_pt[0], agnus.bpl_pt[1]);
@@ -462,7 +482,17 @@ mod tests {
 
         for h in 0u16..=0xE2 {
             agnus.hpos = h;
-            denise.tick(0, 100, h, agnus.dmacon, &mut agnus, &mem);
+            let plan = agnus.cck_bus_plan();
+            let width = agnus.bpl_fetch_width();
+            denise.tick(
+                0,
+                plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
+                    plane,
+                    width_words: width,
+                }),
+                &mut agnus,
+                &mem,
+            );
         }
 
         assert_eq!(agnus.bpl_pt[0] - bpl0, 76, "BPL1 bytes/line (38 words)");

@@ -43,7 +43,7 @@ use crate::board::{BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, TICKS_PER_C
 use crate::cia::Cia;
 use crate::copper::Copper;
 use crate::memory::Memory;
-use commodore_agnus_ocs::{Agnus, SlotOwner};
+use commodore_agnus_ocs::{Agnus, CckBusPlan, SlotOwner};
 use commodore_paula_8364::{IntSource, Paula8364};
 use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode};
@@ -113,12 +113,13 @@ pub trait AmigaDriver {
     /// serial shifter). Encapsulates the `&mut agnus` + `&memory` fetch
     /// split borrow *and* the `&mut denise` write, so the variant-typed
     /// `Denise<C>` never appears in the shared trait surface.
-    fn service_sprite_dma(&mut self, channel: u8, second_word: bool, width: u8);
+    fn service_sprite_dma(&mut self, channel: u8, second_word: bool);
 
     /// Tick Denise for this sub-CCK phase. Encapsulates the simultaneous
-    /// `&mut denise`, `&mut agnus`, and `&memory` split borrow; reads
-    /// vpos/hpos/dmacon from Agnus internally.
-    fn denise_tick(&mut self, phase: u8);
+    /// `&mut denise`, `&mut agnus`, and `&memory` split borrow. The
+    /// bitplane grant comes from the post-Copper concrete Agnus plan so
+    /// Denise cannot silently recompute it through the OCS base view.
+    fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>);
 
     // ---------- per-tick scalar bookkeeping ----------
 
@@ -146,6 +147,10 @@ pub trait AmigaDriver {
     /// resolve before coercion to the OCS base so ECS programmable beam
     /// timing remains active.
     fn advance_agnus_cck(&mut self);
+    /// Compute the concrete Agnus/Alice bus plan for the current CCK.
+    /// ECS vertical display-window gating and future variant arbitration
+    /// must resolve before coercion to the OCS base.
+    fn agnus_bus_plan(&self) -> CckBusPlan;
     /// Route a custom-register write (`$DFFxxx`) to the owning chip. The
     /// ECS / AGA variants extend this with their extra registers, so it
     /// is per-variant.
@@ -170,6 +175,7 @@ pub trait AmigaDriver {
     /// → Denise pixel → CIA E-clock → CIA /IRQ inputs → CPU bus + tick.
     fn tick(&mut self) {
         let phase = self.cck_phase();
+        let mut bitplane_dma_fetch_plane = None;
 
         // ── CCK-granular events (phase 0 only) ───────────────────
         if phase == 0 {
@@ -225,7 +231,7 @@ pub trait AmigaDriver {
             // reads it so a parked/throttled copper yields its granted
             // cell to the CPU.
             self.copper_mut().bus_used_this_cck = false;
-            let copper_slot_granted = self.agnus().cck_bus_plan().copper_dma_slot_granted;
+            let copper_slot_granted = self.agnus_bus_plan().copper_dma_slot_granted;
             if self.agnus().dmacon & 0x0280 == 0x0280 {
                 // Route copper MOVEs through the same custom-register
                 // dispatch the CPU uses. The copper can legitimately
@@ -251,7 +257,8 @@ pub trait AmigaDriver {
             // the plan for this CCK and extract the audio grant. Paula
             // also needs the raw DMACON value for its master+channel
             // enable gates.
-            let bus_plan = self.agnus().cck_bus_plan();
+            let bus_plan = self.agnus_bus_plan();
+            bitplane_dma_fetch_plane = bus_plan.bitplane_dma_fetch_plane;
 
             // ── Blitter DMA — one op per granted CCK (#31). A blit now
             // consumes real chip cycles and contends for the bus rather
@@ -277,9 +284,7 @@ pub trait AmigaDriver {
                 // word = ((hpos - 0x15) / 2) & 1 (#30). Word 0 is the
                 // control pair (SPRxPOS/CTL), word 1 the data pair.
                 let second_word = ((self.agnus().hpos.wrapping_sub(0x15)) / 2) & 1 == 1;
-                // FMODE widens the sprite data fetch to 1/2/4 words (#99).
-                let width = self.agnus().spr_fetch_width();
-                self.service_sprite_dma(channel, second_word, width);
+                self.service_sprite_dma(channel, second_word);
             }
 
             // ── Paula disk engine — DSKBYTR byte-pacing + WORDEQUAL
@@ -319,7 +324,7 @@ pub trait AmigaDriver {
         }
 
         // ── Per-tick: Denise pixel + fetch/reload at phase 0 ────
-        self.denise_tick(phase);
+        self.denise_tick(phase, bitplane_dma_fetch_plane);
 
         // ── CIA E-clock: every 10 master/4 ticks = master/40 ────
         self.set_e_clock_phase(self.e_clock_phase() + 1);
@@ -420,24 +425,24 @@ pub trait AmigaDriver {
         }
 
         // Chip-RAM bus arbitration: Agnus owns the chip-RAM bus during
-        // DMA slots; CPU chip-RAM accesses stall to the next cell Agnus
-        // leaves to the CPU. The single slot authority (`current_slot`,
-        // #30) decides this for every fixed owner — refresh, disk,
-        // audio, sprite, bitplane — not just bitplane DMA as the
-        // retired `dma_claim` did. The copper is special: Agnus grants
-        // it *every* even free cell, but a parked (WAIT) or throttled
-        // copper does not actually drive the bus, so those cells fall
-        // through to the CPU (matching real Agnus / vAmiga's busOwner).
-        // We therefore stall on a copper-granted cell only when the
-        // copper truly fetched it this CCK (`bus_used_this_cck`).
+        // DMA slots; CPU chip-RAM accesses stall to the next cell the
+        // concrete chipset plan leaves to the CPU. The plan's explicit
+        // CPU grant includes blitter-nasty ownership, which raw
+        // `slot_owner == Cpu` does not. The copper is special: Agnus
+        // grants it every even free cell, but a parked (WAIT) or
+        // throttled copper does not actually drive the bus, so those
+        // cells fall through to the CPU (matching real Agnus /
+        // vAmiga's busOwner). We therefore stall on a copper-granted
+        // cell only when the copper truly fetched it this CCK
+        // (`bus_used_this_cck`).
         // Reads with OVL on land in ROM (not contended); writes always
         // hit chip RAM (OVL only gates reads); non-chip-RAM accesses
         // (CIA / custom / slow / ROM / unmapped) bypass arbitration.
         let addr24 = addr & 0xFF_FFFF;
         let is_chip_ram_access = addr24 < 0x20_0000 && (!is_read || !self.memory().overlay());
-        let slot = self.agnus().current_slot();
-        let dma_holds_bus = match slot {
-            SlotOwner::Cpu => false,
+        let bus_plan = self.agnus_bus_plan();
+        let dma_holds_bus = match bus_plan.slot_owner {
+            SlotOwner::Cpu => !bus_plan.cpu_chip_bus_granted,
             SlotOwner::Copper => self.copper().bus_used_this_cck,
             _ => true,
         };

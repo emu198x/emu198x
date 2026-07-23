@@ -2026,7 +2026,8 @@ impl AmigaDriver for AmigaA1200 {
             .tick_audio_cck(dmacon, slot, |addr| memory.read_chip_ram_byte(addr));
     }
 
-    fn service_sprite_dma(&mut self, channel: u8, second_word: bool, width: u8) {
+    fn service_sprite_dma(&mut self, channel: u8, second_word: bool) {
+        let width = self.agnus.spr_fetch_width();
         let memory = &self.memory;
         let fetched =
             self.agnus
@@ -2046,12 +2047,12 @@ impl AmigaDriver for AmigaA1200 {
         }
     }
 
-    fn denise_tick(&mut self, phase: u8) {
-        let vpos = self.agnus.vpos;
-        let hpos = self.agnus.hpos;
-        let dmacon = self.agnus.dmacon;
+    fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
+        let width_words = self.agnus.bpl_fetch_width();
+        let bitplane_dma_fetch =
+            bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });
         self.denise
-            .tick(phase, vpos, hpos, dmacon, &mut self.agnus, &self.memory);
+            .tick(phase, bitplane_dma_fetch, &mut self.agnus, &self.memory);
     }
 
     fn cck_phase(&self) -> u8 {
@@ -2110,6 +2111,10 @@ impl AmigaDriver for AmigaA1200 {
         self.agnus.tick_cck();
     }
 
+    fn agnus_bus_plan(&self) -> CckBusPlan {
+        self.agnus.cck_bus_plan()
+    }
+
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
         AmigaA1200::dispatch_custom_write(self, offset, val);
     }
@@ -2144,5 +2149,47 @@ impl AmigaDriver for AmigaA1200 {
             .or_else(|| self.dispatch_fast_ram(tx))
             .or_else(|| self.dispatch_custom_register(tx))
             .unwrap_or_else(|| self.dispatch_memory(tx))
+    }
+}
+
+#[cfg(test)]
+mod bus_plan_dispatch_tests {
+    use super::*;
+    use motorola_68000::bus::{BusStatus, FunctionCode};
+    use motorola_68000::cpu::State;
+    use motorola_68000::microcode::MicroOp;
+
+    #[test]
+    fn concrete_alice_plan_releases_demoted_bitplane_slot_to_cpu() {
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        amiga.agnus.vpos = 0x0020;
+        amiga.agnus.hpos = 0x0023;
+        amiga.agnus.dmacon = 0x0300; // DMAEN | BPLEN
+        amiga.agnus.bplcon0 = 0x1000; // one bitplane
+        amiga.agnus.ddfstrt = 0x001C;
+        amiga.agnus.ddfstop = 0x001C;
+        amiga.agnus.diwstrt = 0x1010;
+        amiga.agnus.diwstop = 0xA020;
+        amiga.agnus.write_diwhigh(0x0101);
+
+        let plan = amiga.agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Cpu);
+        assert!(plan.cpu_chip_bus_granted);
+
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: 0x0000_1000,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0x5AA5),
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+
+        <AmigaA1200 as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
+        assert_eq!(amiga.memory.read_chip_ram_word(0x1000), 0x5AA5);
     }
 }

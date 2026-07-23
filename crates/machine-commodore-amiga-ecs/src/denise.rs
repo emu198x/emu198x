@@ -8,6 +8,6 @@
 //! and is consumed from the shared `AmigaDriver` body, not here.
 
 use commodore_denise_ecs::DeniseEcs;
-pub use common_commodore_amiga::denise::{FB_HEIGHT, FB_WIDTH};
+pub use common_commodore_amiga::denise::{BitplaneDmaFetch, FB_HEIGHT, FB_WIDTH};
 
 pub type Denise = common_commodore_amiga::denise::Denise<DeniseEcs>;

@@ -9,7 +9,7 @@
 //! shared `AmigaDriver` body, not here.
 
 use commodore_denise_ocs::DeniseOcs;
-pub use common_commodore_amiga::denise::{FB_HEIGHT, FB_WIDTH};
+pub use common_commodore_amiga::denise::{BitplaneDmaFetch, FB_HEIGHT, FB_WIDTH};
 
 pub type Denise = common_commodore_amiga::denise::Denise<DeniseOcs>;
 
@@ -40,7 +40,17 @@ mod tests {
 
         for hpos in 0..=0x00E2 {
             agnus.hpos = hpos;
-            denise.tick(0, agnus.vpos, hpos, agnus.dmacon, &mut agnus, &memory);
+            let plan = agnus.cck_bus_plan();
+            let width = agnus.bpl_fetch_width();
+            denise.tick(
+                0,
+                plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
+                    plane,
+                    width_words: width,
+                }),
+                &mut agnus,
+                &memory,
+            );
         }
 
         assert_eq!(
@@ -74,8 +84,18 @@ mod tests {
 
         for hpos in 0..=0x00E2 {
             agnus.hpos = hpos;
-            denise.tick(0, agnus.vpos, hpos, agnus.dmacon, &mut agnus, &memory);
-            denise.tick(1, agnus.vpos, hpos, agnus.dmacon, &mut agnus, &memory);
+            let plan = agnus.cck_bus_plan();
+            let width = agnus.bpl_fetch_width();
+            denise.tick(
+                0,
+                plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
+                    plane,
+                    width_words: width,
+                }),
+                &mut agnus,
+                &memory,
+            );
+            denise.tick(1, None, &mut agnus, &memory);
         }
 
         assert_eq!(

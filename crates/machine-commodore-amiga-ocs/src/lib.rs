@@ -1934,7 +1934,8 @@ impl AmigaDriver for AmigaOcs {
             .tick_audio_cck(dmacon, slot, |addr| memory.read_chip_ram_byte(addr));
     }
 
-    fn service_sprite_dma(&mut self, channel: u8, second_word: bool, width: u8) {
+    fn service_sprite_dma(&mut self, channel: u8, second_word: bool) {
+        let width = self.agnus.spr_fetch_width();
         let memory = &self.memory;
         let fetched =
             self.agnus
@@ -1957,12 +1958,12 @@ impl AmigaDriver for AmigaOcs {
         }
     }
 
-    fn denise_tick(&mut self, phase: u8) {
-        let vpos = self.agnus.vpos;
-        let hpos = self.agnus.hpos;
-        let dmacon = self.agnus.dmacon;
+    fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
+        let width_words = self.agnus.bpl_fetch_width();
+        let bitplane_dma_fetch =
+            bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });
         self.denise
-            .tick(phase, vpos, hpos, dmacon, &mut self.agnus, &self.memory);
+            .tick(phase, bitplane_dma_fetch, &mut self.agnus, &self.memory);
     }
 
     fn cck_phase(&self) -> u8 {
@@ -2019,6 +2020,10 @@ impl AmigaDriver for AmigaOcs {
 
     fn advance_agnus_cck(&mut self) {
         self.agnus.tick_cck();
+    }
+
+    fn agnus_bus_plan(&self) -> CckBusPlan {
+        self.agnus.cck_bus_plan()
     }
 
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
