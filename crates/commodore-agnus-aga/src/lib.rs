@@ -54,16 +54,17 @@ impl AgnusAga {
     /// fetches, matching OCS / ECS behaviour until KS writes FMODE).
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            inner: InnerAgnusEcs::new(),
-            fmode: 0,
-        }
+        let mut inner = InnerAgnusEcs::new();
+        inner.max_bitplanes = 8;
+        Self { inner, fmode: 0 }
     }
 
     /// Promote an existing ECS Agnus to AGA Alice. Carries inner state
-    /// across; FMODE starts at 0.
+    /// across, raises the hardware bitplane capacity to eight, and starts
+    /// FMODE at 0.
     #[must_use]
-    pub fn from_ecs(inner: InnerAgnusEcs) -> Self {
+    pub fn from_ecs(mut inner: InnerAgnusEcs) -> Self {
+        inner.max_bitplanes = 8;
         Self { inner, fmode: 0 }
     }
 
@@ -135,7 +136,7 @@ impl From<AgnusAga> for InnerAgnusEcs {
 
 #[cfg(test)]
 mod tests {
-    use super::AgnusAga;
+    use super::{AgnusAga, InnerAgnusEcs};
 
     #[test]
     fn new_starts_with_fmode_cleared() {
@@ -164,13 +165,33 @@ mod tests {
     }
 
     #[test]
+    fn new_supports_eight_bitplanes() {
+        let mut agnus = AgnusAga::new();
+        agnus.bplcon0 = 0x0010; // BPU3 selects eight planes on AGA.
+
+        assert_eq!(agnus.max_bitplanes, 8);
+        assert_eq!(agnus.num_bitplanes(), 8);
+    }
+
+    #[test]
+    fn from_ecs_promotes_bitplane_capacity_to_eight() {
+        let mut ecs = InnerAgnusEcs::new();
+        ecs.max_bitplanes = 6;
+
+        let mut agnus = AgnusAga::from_ecs(ecs);
+        agnus.bplcon0 = 0x0010;
+
+        assert_eq!(agnus.max_bitplanes, 8);
+        assert_eq!(agnus.num_bitplanes(), 8);
+    }
+
+    #[test]
     fn deref_exposes_inner_ecs_registers() {
         let mut agnus = AgnusAga::new();
         // The wrapped ECS Agnus carries dmacon / bplcon0 / max_bitplanes
         // through to OCS Agnus. Deref should let us reach them.
         agnus.dmacon = 0x0200;
         agnus.bplcon0 = 0x0010;
-        agnus.max_bitplanes = 8;
         assert_eq!(agnus.dmacon, 0x0200);
         assert_eq!(agnus.bplcon0, 0x0010);
         assert_eq!(agnus.max_bitplanes, 8);

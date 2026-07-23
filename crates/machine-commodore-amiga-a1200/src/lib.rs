@@ -2160,6 +2160,35 @@ mod bus_plan_dispatch_tests {
     use motorola_68000::microcode::MicroOp;
 
     #[test]
+    fn constructed_alice_schedules_all_eight_lowres_bitplanes() {
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        amiga.agnus.vpos = 0x0020;
+
+        // Program the display through the guest-visible custom-register
+        // path. BPU3 (BPLCON0 bit 4) extends the AGA plane count to eight.
+        amiga.poke_word(0x00DF_F096, 0x8300); // SETCLR | DMAEN | BPLEN
+        amiga.poke_word(0x00DF_F100, 0x0010); // BPU = 8, lowres
+        amiga.poke_word(0x00DF_F08E, 0x1010);
+        amiga.poke_word(0x00DF_F090, 0xA020);
+        amiga.poke_word(0x00DF_F092, 0x0038);
+        amiga.poke_word(0x00DF_F094, 0x00D0);
+
+        assert_eq!(amiga.agnus.max_bitplanes, 8);
+        assert_eq!(amiga.agnus.num_bitplanes(), 8);
+
+        amiga.agnus.hpos = 0x0038;
+        assert_eq!(
+            amiga.agnus.cck_bus_plan().slot_owner,
+            SlotOwner::Bitplane(6)
+        );
+        amiga.agnus.hpos = 0x003C;
+        assert_eq!(
+            amiga.agnus.cck_bus_plan().slot_owner,
+            SlotOwner::Bitplane(7)
+        );
+    }
+
+    #[test]
     fn concrete_alice_plan_releases_demoted_bitplane_slot_to_cpu() {
         let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
         amiga.agnus.vpos = 0x0020;
