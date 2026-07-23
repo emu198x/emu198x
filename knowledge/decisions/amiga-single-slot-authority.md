@@ -77,6 +77,8 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   Once a sprite performs a fetch, its transient bus-use record keeps both
   master/4 phases of that CCK unavailable to the CPU even if the fetch
   changes the state from which a fresh plan would be derived.
+  The comparator and fixed PAL/NTSC reset rules are defined in
+  [Amiga sprite DMA lifecycle](amiga-sprite-dma-lifecycle.md).
 - ECS/AGA pass their DIWHIGH-aware vertical eligibility into the same complete
   priority calculation. A suppressed bitplane request therefore falls through
   to sprite, copper, blitter or CPU as appropriate; AGA wide-fetch + SHRES grids

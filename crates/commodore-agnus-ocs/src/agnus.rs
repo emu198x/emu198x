@@ -1377,40 +1377,48 @@ impl Agnus {
     }
 
     /// Per-line sprite-DMA update — run once as the beam enters each new
-    /// display line. Activates a sprite when the beam reaches its VSTART
-    /// and deactivates at VSTOP; on the vertical-blank end line it forces
-    /// every sprite's VSTOP to that line so the next slots refetch the
-    /// control words, re-priming VSTART/VSTOP from the (copper-reloaded)
-    /// pointers for the new frame. Mirrors vAmiga `updateSpriteDMA`
-    /// (Agnus.cpp:658-680).
+    /// display line. Outside vertical blank it activates a sprite when
+    /// the beam reaches VSTART and deactivates it at VSTOP. Comparator
+    /// state evolves independently of SPREN; that bit gates the resulting
+    /// bus request in slot arbitration.
     fn update_sprite_dma(&mut self, frame_lines: u16) {
-        if !self.dma_enabled(0x0020) {
-            return;
-        }
         let v = self.vpos;
-        if v == VBL_END_LINE {
-            for s in 0..8 {
-                self.spr_vstop[s] = VBL_END_LINE;
-            }
-            return;
-        }
         if v + 1 >= frame_lines {
             for s in 0..8 {
                 self.spr_dma_on[s] = false;
             }
             return;
         }
-        if v < VBL_END_LINE {
+        for s in 0..8 {
+            self.update_sprite_dma_comparator(s);
+        }
+    }
+
+    /// Fixed vertical-blank end and sprite control-refetch boundary:
+    /// line 25 on PAL and line 20 on NTSC. Ordinary sprite data activity
+    /// starts on the following line.
+    #[must_use]
+    pub const fn fixed_vblank_end_line(&self) -> u16 {
+        match self.region {
+            AgnusRegion::Pal => PAL_VBL_END_LINE,
+            AgnusRegion::Ntsc => NTSC_VBL_END_LINE,
+        }
+    }
+
+    fn update_sprite_dma_comparator(&mut self, channel: usize) {
+        if channel >= self.spr_dma_on.len() || self.vpos < self.fixed_vblank_end_line() {
             return;
         }
-        for s in 0..8 {
-            if v == self.spr_vstart[s] {
-                self.spr_dma_on[s] = true;
-            }
-            if v == self.spr_vstop[s] {
-                self.spr_dma_on[s] = false;
-            }
+        if self.vpos == self.fixed_vblank_end_line() || self.vpos == self.spr_vstop[channel] {
+            self.spr_dma_on[channel] = false;
+        } else if self.vpos == self.spr_vstart[channel] {
+            self.spr_dma_on[channel] = true;
         }
+    }
+
+    fn sprite_control_fetch_due(&self, channel: usize) -> bool {
+        channel < self.spr_vstop.len()
+            && (self.vpos == self.fixed_vblank_end_line() || self.vpos == self.spr_vstop[channel])
     }
 
     /// Whether `channel` has a control- or data-fetch request on the
@@ -1419,8 +1427,8 @@ impl Agnus {
     /// planning and service.
     fn sprite_dma_cycle_requested(&self, channel: usize) -> bool {
         channel < self.spr_dma_on.len()
-            && self.vpos >= VBL_END_LINE
-            && (self.vpos == self.spr_vstop[channel] || self.spr_dma_on[channel])
+            && self.vpos >= self.fixed_vblank_end_line()
+            && (self.sprite_control_fetch_due(channel) || self.spr_dma_on[channel])
     }
 
     /// Start a new CCK with no recorded sprite bus use.
@@ -1459,7 +1467,7 @@ impl Agnus {
             return None;
         }
         self.sprite_bus_used_this_cck = true;
-        if self.vpos == self.spr_vstop[channel] {
+        if self.sprite_control_fetch_due(channel) {
             // Control fetch (SPRxPOS / SPRxCTL): always a single word —
             // FMODE widens the data fetch, not the control words.
             self.spr_dma_on[channel] = false;
@@ -1515,6 +1523,7 @@ impl Agnus {
     /// Latch VSTART low 8 bits from a fetched SPRxPOS word (bits 15-8).
     fn latch_sprite_pos(&mut self, channel: usize, pos: u16) {
         self.spr_vstart[channel] = (self.spr_vstart[channel] & 0x0100) | (pos >> 8);
+        self.update_sprite_dma_comparator(channel);
     }
 
     /// Latch VSTOP (CTL bits 15-8) plus VSTART[8] (CTL bit 2) and
@@ -1523,6 +1532,7 @@ impl Agnus {
     fn latch_sprite_ctl(&mut self, channel: usize, ctl: u16) {
         self.spr_vstart[channel] = (self.spr_vstart[channel] & 0x00FF) | ((ctl & 0x0004) << 6);
         self.spr_vstop[channel] = (ctl >> 8) | ((ctl & 0x0002) << 7);
+        self.update_sprite_dma_comparator(channel);
     }
 
     /// Test/diagnostic accessors for the sprite-DMA state machine.
@@ -1988,7 +1998,7 @@ impl Agnus {
     /// not itself a level-sensitive interrupt input.
     #[must_use]
     pub fn vertb_level(&self) -> bool {
-        self.vpos < VBL_END_LINE
+        self.vpos < self.fixed_vblank_end_line()
     }
 
     /// Whether the current fixed-sync beam position issues the
@@ -2047,10 +2057,12 @@ impl Agnus {
     }
 }
 
-/// Last line of the vertical blanking interval (inclusive of lines
-/// 0..24 — HRM standard PAL). Exposed so machine callers don't
-/// hard-code the boundary.
-pub const VBL_END_LINE: u16 = 25;
+/// Fixed PAL vertical-blank end and sprite control-refetch boundary.
+pub const PAL_VBL_END_LINE: u16 = 25;
+/// Fixed NTSC vertical-blank end and sprite control-refetch boundary.
+pub const NTSC_VBL_END_LINE: u16 = 20;
+/// Backward-compatible PAL boundary alias.
+pub const VBL_END_LINE: u16 = PAL_VBL_END_LINE;
 
 impl Default for Agnus {
     fn default() -> Self {
@@ -2675,6 +2687,29 @@ mod tests {
     }
 
     #[test]
+    fn dma_control_latches_reevaluate_the_current_line() {
+        let mut agnus = sprite_dma_agnus();
+        agnus.vpos = 40;
+        agnus.spr_vstop[0] = 40;
+
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, false, 1, |_| 0x2800),
+            Some((true, 0x2800))
+        );
+        assert!(!agnus.sprite_dma_on(0));
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, true, 1, |_| 0x3C00),
+            Some((true, 0x3C00))
+        );
+        assert_eq!(agnus.spr_vstart[0], 40);
+        assert_eq!(agnus.spr_vstop[0], 60);
+        assert!(
+            agnus.sprite_dma_on(0),
+            "new VSTART matching the current line activates after CTL latches"
+        );
+    }
+
+    #[test]
     fn sprite_data_fetch_when_active() {
         let mut agnus = sprite_dma_agnus();
         agnus.spr_pt[1] = 0x2000;
@@ -2741,18 +2776,29 @@ mod tests {
     }
 
     #[test]
-    fn update_sprite_dma_reset_line_forces_control_refetch() {
-        let mut agnus = sprite_dma_agnus();
-        for s in 0..8 {
-            agnus.spr_vstop[s] = 999;
-        }
-        agnus.vpos = VBL_END_LINE;
-        agnus.update_sprite_dma(PAL_LINES_PER_FRAME);
-        for s in 0..8 {
+    fn regional_reset_line_requests_control_without_overwriting_vstop() {
+        for (region, reset_line, frame_lines) in [
+            (AgnusRegion::Pal, 25, PAL_LINES_PER_FRAME),
+            (AgnusRegion::Ntsc, 20, NTSC_LINES_PER_FRAME),
+        ] {
+            let mut agnus = Agnus::new_with_region(region);
+            agnus.dmacon = DMACON_DMAEN | 0x0020; // DMAEN | SPREN
+            agnus.hpos = 0x15;
+            agnus.vpos = reset_line;
+            agnus.spr_pt[0] = 0x1000;
+            agnus.spr_vstop[0] = 99;
+
+            agnus.update_sprite_dma(frame_lines);
+
             assert_eq!(
-                agnus.sprite_vstop(s),
-                VBL_END_LINE,
-                "reset line forces a VSTOP refetch"
+                agnus.sprite_vstop(0),
+                99,
+                "the reset event must not manufacture a VSTOP match"
+            );
+            assert_eq!(agnus.current_slot(), SlotOwner::Sprite(0));
+            assert_eq!(
+                agnus.service_sprite_dma_cyc(0, false, 1, |_| 0x4000),
+                Some((true, 0x4000))
             );
         }
     }
@@ -2768,25 +2814,29 @@ mod tests {
     }
 
     #[test]
-    fn active_sprite_request_starts_at_the_pal_control_refetch_line() {
-        let mut agnus = sprite_dma_agnus();
-        agnus.hpos = 0x15;
-        agnus.spr_pt[0] = 0x1000;
-        agnus.spr_vstop[0] = 50;
-        agnus.spr_dma_on[0] = true;
+    fn regional_reset_line_precedes_active_data_and_blank_suppression() {
+        for (region, reset_line) in [(AgnusRegion::Pal, 25), (AgnusRegion::Ntsc, 20)] {
+            let mut agnus = Agnus::new_with_region(region);
+            agnus.dmacon = DMACON_DMAEN | 0x0020; // DMAEN | SPREN
+            agnus.hpos = 0x15;
+            agnus.spr_pt[0] = 0x1000;
+            agnus.spr_vstop[0] = 50;
+            agnus.spr_dma_on[0] = true;
 
-        agnus.vpos = VBL_END_LINE - 1;
-        assert_eq!(agnus.current_slot(), SlotOwner::Cpu);
-        assert_eq!(agnus.service_sprite_dma_cyc(0, false, 1, |_| 0xBEEF), None);
-        assert_eq!(agnus.spr_pt[0], 0x1000);
+            agnus.vpos = reset_line - 1;
+            assert_eq!(agnus.current_slot(), SlotOwner::Cpu);
+            assert_eq!(agnus.service_sprite_dma_cyc(0, false, 1, |_| 0xBEEF), None);
+            assert_eq!(agnus.spr_pt[0], 0x1000);
 
-        agnus.vpos = VBL_END_LINE;
-        assert_eq!(agnus.current_slot(), SlotOwner::Sprite(0));
-        assert_eq!(
-            agnus.service_sprite_dma_cyc(0, false, 1, |_| 0xBEEF),
-            Some((false, 0xBEEF))
-        );
-        assert_eq!(agnus.spr_pt[0], 0x1002);
+            agnus.vpos = reset_line;
+            assert_eq!(agnus.current_slot(), SlotOwner::Sprite(0));
+            assert_eq!(
+                agnus.service_sprite_dma_cyc(0, false, 1, |_| 0xBEEF),
+                Some((true, 0xBEEF)),
+                "the regional reset event fetches control, not stale data"
+            );
+            assert_eq!(agnus.spr_pt[0], 0x1002);
+        }
     }
 
     #[test]
@@ -2831,12 +2881,106 @@ mod tests {
     }
 
     #[test]
-    fn sprite_update_is_noop_without_spren() {
+    fn sprite_comparators_evolve_while_spren_only_gates_bus_requests() {
         let mut agnus = Agnus::new();
         agnus.dmacon = 0x0200; // DMAEN but no SPREN
         agnus.spr_vstart[0] = 40;
+        agnus.spr_vstop[0] = 60;
+        agnus.hpos = 0x15;
         agnus.vpos = 40;
         agnus.update_sprite_dma(PAL_LINES_PER_FRAME);
-        assert!(!agnus.sprite_dma_on(0), "no sprite DMA without SPREN");
+        assert!(
+            agnus.sprite_dma_on(0),
+            "VSTART records latent active state without SPREN"
+        );
+        assert_eq!(
+            agnus.current_slot(),
+            SlotOwner::Cpu,
+            "SPREN still gates the bus request"
+        );
+
+        agnus.dmacon |= 0x0020;
+        agnus.vpos = 41;
+        assert_eq!(
+            agnus.current_slot(),
+            SlotOwner::Sprite(0),
+            "enabling SPREN between VSTART and VSTOP exposes the data request"
+        );
+
+        agnus.dmacon &= !0x0020;
+        agnus.vpos = 60;
+        agnus.update_sprite_dma(PAL_LINES_PER_FRAME);
+        assert!(
+            !agnus.sprite_dma_on(0),
+            "VSTOP clears latent active state without SPREN"
+        );
+    }
+
+    #[test]
+    fn sprite_active_state_clears_at_field_end_without_spren() {
+        for region in [AgnusRegion::Pal, AgnusRegion::Ntsc] {
+            let mut agnus = Agnus::new_with_region(region);
+            agnus.dmacon = DMACON_DMAEN;
+            agnus.spr_dma_on[0] = true;
+            agnus.vpos = agnus.lines_per_frame - 2;
+            agnus.hpos = agnus.current_line_ccks() - 1;
+
+            agnus.tick_cck();
+
+            assert_eq!(agnus.vpos, agnus.lines_per_frame - 1);
+            assert!(!agnus.sprite_dma_on(0));
+        }
+    }
+
+    #[test]
+    fn equal_vstart_vstop_remains_inactive() {
+        let mut agnus = sprite_dma_agnus();
+        agnus.spr_vstart[0] = 40;
+        agnus.spr_vstop[0] = 40;
+        agnus.spr_dma_on[0] = true;
+        agnus.vpos = 40;
+
+        agnus.update_sprite_dma(PAL_LINES_PER_FRAME);
+
+        assert!(!agnus.sprite_dma_on(0), "VSTOP must take precedence");
+    }
+
+    #[test]
+    fn direct_sprite_latches_reevaluate_state_outside_but_not_inside_blank() {
+        let mut agnus = Agnus::new();
+        agnus.spr_vstop[0] = 60;
+
+        agnus.vpos = 10;
+        agnus.poke_sprite_pos(0, 10 << 8);
+        assert!(
+            !agnus.sprite_dma_on(0),
+            "a VSTART match inside fixed vertical blank is ignored"
+        );
+
+        agnus.vpos = 40;
+        agnus.poke_sprite_pos(0, 40 << 8);
+        assert!(
+            agnus.sprite_dma_on(0),
+            "a direct VSTART match outside blank activates latent state"
+        );
+
+        agnus.poke_sprite_ctl(0, 40 << 8);
+        assert_eq!(agnus.spr_vstart[0], 40);
+        assert_eq!(agnus.spr_vstop[0], 40);
+        assert!(
+            !agnus.sprite_dma_on(0),
+            "a matching direct VSTOP takes precedence and deactivates"
+        );
+    }
+
+    #[test]
+    fn fixed_vertical_blank_level_ends_at_the_regional_boundary() {
+        for (region, end_line) in [(AgnusRegion::Pal, 25), (AgnusRegion::Ntsc, 20)] {
+            let mut agnus = Agnus::new_with_region(region);
+            agnus.vpos = end_line - 1;
+            assert!(agnus.vertb_level());
+            agnus.vpos = end_line;
+            assert!(!agnus.vertb_level());
+        }
     }
 }

@@ -9,7 +9,7 @@
 //! desynced the control/data stream, so DMA-driven sprites (including
 //! the Workbench mouse pointer) never displayed.
 
-use machine_commodore_amiga_ocs::AmigaOcs;
+use machine_commodore_amiga_ocs::{AmigaOcs, RamConfig};
 
 /// A minimal ROM whose reset vector parks the CPU in an infinite
 /// `BRA.S *` self-loop, so it never executes the blank ROM as garbage
@@ -70,6 +70,36 @@ fn dma_sprite_control_words_are_fetched_and_sprite_activates() {
     assert!(
         amiga.agnus().spr_pt[0] > 0x2004,
         "SPR0PT advanced past the control words as data was fetched"
+    );
+}
+
+#[test]
+fn ntsc_sprite_control_fetches_on_line_20_and_data_starts_on_line_21() {
+    let mut amiga = AmigaOcs::with_ram_config_ntsc(parked_cpu_rom(), RamConfig::bare());
+
+    amiga.poke_word(0x2000, 0x1500); // POS: VSTART = 21
+    amiga.poke_word(0x2002, 0x1E00); // CTL: VSTOP = 30
+    amiga.poke_word(0x2004, 0xFFFF); // first DATA word
+    amiga.poke_word(0x2006, 0x0000); // first DATB word
+    amiga.poke_word(0x00DF_F120, 0x0000);
+    amiga.poke_word(0x00DF_F122, 0x2000);
+    amiga.poke_word(0x00DF_F096, 0x8000 | 0x0200 | 0x0020);
+
+    let mut guard = 0;
+    while amiga.agnus().vpos < 22 && guard < 4_000_000 {
+        amiga.tick();
+        guard += 1;
+    }
+
+    assert_eq!(amiga.agnus().sprite_vstart(0), 21);
+    assert_eq!(amiga.agnus().sprite_vstop(0), 30);
+    assert!(
+        amiga.agnus().sprite_dma_on(0),
+        "the first NTSC data line activates at VSTART 21"
+    );
+    assert!(
+        amiga.agnus().spr_pt[0] > 0x2004,
+        "line-20 control and line-21 data fetches advance SPR0PT"
     );
 }
 
