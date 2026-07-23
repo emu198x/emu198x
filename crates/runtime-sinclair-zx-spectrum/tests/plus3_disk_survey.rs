@@ -38,7 +38,9 @@ fn home() -> PathBuf {
 }
 
 fn dsk_root() -> PathBuf {
-    home().join("Projects/Emu198x-Unclean/Reference/sinclair/spectrum/Games/[DSK]")
+    env::var_os("EMU198X_SPECTRUM_DSK_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".emu198x/test-data/spectrum-system-tests/tosec-dsk"))
 }
 
 /// (catalogue-id, display name, DSK filename relative to dsk_root)
