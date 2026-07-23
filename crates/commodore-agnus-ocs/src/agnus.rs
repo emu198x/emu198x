@@ -1312,8 +1312,32 @@ impl Agnus {
 
     /// Tick one CCK (8 crystal ticks).
     pub fn tick_cck(&mut self) {
+        self.tick_cck_with_timing(self.current_line_ccks(), self.lines_per_frame);
+    }
+
+    /// Tick one CCK using the selected line and short-field totals.
+    ///
+    /// `line_ccks` is the number of horizontal counter positions in one
+    /// line. `short_field_lines` is the non-interlaced or interlaced
+    /// short-field length; a long interlaced field adds one line. Keeping
+    /// the boundary lifecycle here lets ECS/AGA programmable totals select
+    /// different counter limits without bypassing LOF/LOL, VBL accounting,
+    /// or per-line sprite DMA state.
+    ///
+    /// This method is public only so chipset wrapper crates can reuse the
+    /// OCS boundary lifecycle. Callers must pass totals in `1..u16::MAX`.
+    #[doc(hidden)]
+    pub fn tick_cck_with_timing(&mut self, line_ccks: u16, short_field_lines: u16) {
+        debug_assert!(
+            line_ccks > 0 && line_ccks < u16::MAX,
+            "line total must fit the beam counter"
+        );
+        debug_assert!(
+            short_field_lines > 0 && short_field_lines < u16::MAX,
+            "field total must leave room for the interlace extension"
+        );
         self.hpos += 1;
-        if self.hpos >= self.current_line_ccks() {
+        if self.hpos >= line_ccks {
             self.hpos = 0;
             // End-of-line: toggle the long-line flipflop on regions
             // that alternate (NTSC default). PAL has lol_toggle=false
@@ -1325,9 +1349,9 @@ impl Agnus {
             // Interlace: long frame has one extra line (313 PAL, 263 NTSC).
             let interlace = (self.bplcon0 & 0x0004) != 0;
             let frame_lines = if interlace && self.lof {
-                self.lines_per_frame + 1
+                short_field_lines + 1
             } else {
-                self.lines_per_frame
+                short_field_lines
             };
             if self.vpos >= frame_lines {
                 self.vpos = 0;
@@ -1339,7 +1363,7 @@ impl Agnus {
             // New display line: run the per-line sprite-DMA update
             // (VSTART activation, VSTOP deactivation, top-of-frame
             // control-refetch priming). gap #162.
-            self.update_sprite_dma();
+            self.update_sprite_dma(frame_lines);
         }
     }
 
@@ -1350,7 +1374,7 @@ impl Agnus {
     /// control words, re-priming VSTART/VSTOP from the (copper-reloaded)
     /// pointers for the new frame. Mirrors vAmiga `updateSpriteDMA`
     /// (Agnus.cpp:658-680).
-    fn update_sprite_dma(&mut self) {
+    fn update_sprite_dma(&mut self, frame_lines: u16) {
         if !self.dma_enabled(0x0020) {
             return;
         }
@@ -1361,7 +1385,7 @@ impl Agnus {
             }
             return;
         }
-        if v + 1 >= self.lines_per_frame {
+        if v + 1 >= frame_lines {
             for s in 0..8 {
                 self.spr_dma_on[s] = false;
             }
@@ -2639,16 +2663,16 @@ mod tests {
         agnus.spr_vstart[0] = 40;
         agnus.spr_vstop[0] = 60;
         agnus.vpos = 39;
-        agnus.update_sprite_dma();
+        agnus.update_sprite_dma(PAL_LINES_PER_FRAME);
         assert!(!agnus.sprite_dma_on(0));
         agnus.vpos = 40;
-        agnus.update_sprite_dma();
+        agnus.update_sprite_dma(PAL_LINES_PER_FRAME);
         assert!(agnus.sprite_dma_on(0), "activates at VSTART");
         agnus.vpos = 50;
-        agnus.update_sprite_dma();
+        agnus.update_sprite_dma(PAL_LINES_PER_FRAME);
         assert!(agnus.sprite_dma_on(0), "stays on between");
         agnus.vpos = 60;
-        agnus.update_sprite_dma();
+        agnus.update_sprite_dma(PAL_LINES_PER_FRAME);
         assert!(!agnus.sprite_dma_on(0), "deactivates at VSTOP");
     }
 
@@ -2659,7 +2683,7 @@ mod tests {
             agnus.spr_vstop[s] = 999;
         }
         agnus.vpos = VBL_END_LINE;
-        agnus.update_sprite_dma();
+        agnus.update_sprite_dma(PAL_LINES_PER_FRAME);
         for s in 0..8 {
             assert_eq!(
                 agnus.sprite_vstop(s),
@@ -2726,7 +2750,7 @@ mod tests {
         agnus.dmacon = 0x0200; // DMAEN but no SPREN
         agnus.spr_vstart[0] = 40;
         agnus.vpos = 40;
-        agnus.update_sprite_dma();
+        agnus.update_sprite_dma(PAL_LINES_PER_FRAME);
         assert!(!agnus.sprite_dma_on(0), "no sprite DMA without SPREN");
     }
 }

@@ -68,8 +68,10 @@ pub struct SyncPinLevels {
 pub struct AgnusEcs {
     inner: InnerAgnusOcs,
     beamcon0: u16,
+    /// Effective reset default: standard-region highest horizontal count.
     htotal: u16,
     hsstop: u16,
+    /// Effective reset default: standard-region short-field reset line.
     vtotal: u16,
     vsstop: u16,
     hbstrt: u16,
@@ -105,12 +107,19 @@ impl AgnusEcs {
         // Override the OCS-inherited agnus_id with the ECS 8375 PAL
         // identifier. Stored pre-shifted into VPOSR bits 14-8.
         inner.agnus_id = 0x2000;
+        // Seed the programmable-total shadows with the effective standard
+        // timing. Commodore documents the counter limits but not the
+        // write-only latches' silicon reset contents; this preserves normal
+        // timing if VARBEAMEN is enabled before either total is written,
+        // while leaving an explicit write of zero meaningful.
+        let default_htotal = inner.current_line_ccks() - 1;
+        let default_vtotal = inner.lines_per_frame - 1;
         Self {
             inner,
             beamcon0: 0,
-            htotal: 0,
+            htotal: default_htotal,
             hsstop: 0,
-            vtotal: 0,
+            vtotal: default_vtotal,
             vsstop: 0,
             hbstrt: 0,
             hbstop: 0,
@@ -136,12 +145,16 @@ impl AgnusEcs {
             commodore_agnus_ocs::AgnusRegion::Pal => 0x2000,
             commodore_agnus_ocs::AgnusRegion::Ntsc => 0x3000,
         };
+        // See `new`: these are effective emulator defaults rather than
+        // claimed physical reset values for the write-only latches.
+        let default_htotal = inner.current_line_ccks() - 1;
+        let default_vtotal = inner.lines_per_frame - 1;
         Self {
             inner,
             beamcon0: 0,
-            htotal: 0,
+            htotal: default_htotal,
             hsstop: 0,
-            vtotal: 0,
+            vtotal: default_vtotal,
             vsstop: 0,
             hbstrt: 0,
             hbstop: 0,
@@ -233,14 +246,10 @@ impl AgnusEcs {
             return;
         }
 
-        self.inner.hpos = self.inner.hpos.wrapping_add(1);
-        if self.inner.hpos > self.htotal_highest_count() {
-            self.inner.hpos = 0;
-            self.inner.vpos = self.inner.vpos.wrapping_add(1);
-            if self.inner.vpos > self.vtotal_highest_line() {
-                self.inner.vpos = 0;
-            }
-        }
+        let line_ccks = self.htotal_highest_count() + 1;
+        let short_field_lines = self.vtotal_highest_line() + 1;
+        self.inner
+            .tick_cck_with_timing(line_ccks, short_field_lines);
     }
 
     fn bitplane_dma_vertical_active(&self) -> bool {
@@ -637,21 +646,13 @@ impl AgnusEcs {
     }
 
     fn htotal_highest_count(&self) -> u16 {
-        if self.htotal == 0 {
-            PAL_CCKS_PER_LINE - 1
-        } else {
-            // Coarse ECS model: treat the low 9 bits as the highest hpos count
-            // in the emulator's current CCK-based beam units.
-            self.htotal & 0x01FF
-        }
+        // Coarse ECS model: treat the low 9 bits as the highest hpos count
+        // in the emulator's current CCK-based beam units.
+        self.htotal & 0x01FF
     }
 
     fn vtotal_highest_line(&self) -> u16 {
-        if self.vtotal == 0 {
-            self.inner.lines_per_frame - 1
-        } else {
-            self.vtotal & 0x07FF
-        }
+        self.vtotal & 0x07FF
     }
 }
 
@@ -686,9 +687,15 @@ mod tests {
     use super::{
         AgnusEcs, BEAMCON0_BLANKEN, BEAMCON0_CSCBEN, BEAMCON0_CSYTRUE, BEAMCON0_HARDDIS,
         BEAMCON0_HSYTRUE, BEAMCON0_VARBEAMEN, BEAMCON0_VARCSYEN, BEAMCON0_VARHSYEN,
-        BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN, BEAMCON0_VSYTRUE, PaulaReturnProgressPolicy,
-        SlotOwner,
+        BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN, BEAMCON0_VSYTRUE, PAL_CCKS_PER_LINE,
+        PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy, SlotOwner,
     };
+
+    fn tick_programmed_line(agnus: &mut AgnusEcs) {
+        for _ in 0..=agnus.htotal_highest_count() {
+            agnus.tick_cck();
+        }
+    }
 
     /// BLTCON0L is a byte-write port — only the low byte updates,
     /// the high byte of BLTCON0 (shift amount + channel enables)
@@ -756,9 +763,9 @@ mod tests {
     fn ecs_register_latches_are_independent_of_ocs_core_state() {
         let mut agnus = AgnusEcs::new();
         assert_eq!(agnus.beamcon0(), 0);
-        assert_eq!(agnus.htotal(), 0);
+        assert_eq!(agnus.htotal(), PAL_CCKS_PER_LINE - 1);
         assert_eq!(agnus.hsstop(), 0);
-        assert_eq!(agnus.vtotal(), 0);
+        assert_eq!(agnus.vtotal(), PAL_LINES_PER_FRAME - 1);
         assert_eq!(agnus.vsstop(), 0);
         assert_eq!(agnus.hbstrt(), 0);
         assert_eq!(agnus.hbstop(), 0);
@@ -878,6 +885,140 @@ mod tests {
         }
         assert_eq!(agnus.hpos, 0);
         assert_eq!(agnus.vpos, 0);
+        assert_eq!(agnus.vbl_count, 1);
+    }
+
+    #[test]
+    fn varbeamen_distinguishes_explicit_zero_totals_from_unwritten_defaults() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+
+        // Unwritten timing registers retain the region defaults.
+        agnus.tick_cck();
+        assert_eq!((agnus.vpos, agnus.hpos), (0, 1));
+
+        // Zero is nevertheless a valid programmed highest count: one
+        // horizontal position in a one-line field.
+        agnus.hpos = 0;
+        agnus.write_htotal(0);
+        agnus.write_vtotal(0);
+        agnus.tick_cck();
+        assert_eq!((agnus.vpos, agnus.hpos), (0, 0));
+        assert_eq!(agnus.vbl_count, 1);
+    }
+
+    #[test]
+    fn varbeamen_preserves_interlace_field_lengths_and_lof() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_htotal(1); // Two CCKs per line.
+        agnus.write_vtotal(1); // Short field is VTOTAL + 1 = 2 lines.
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+        agnus.bplcon0 = 0x0004; // LACE
+
+        // LOF starts set, so the first field is the long field:
+        // VTOTAL + 2 = 3 lines.
+        for _ in 0..2 {
+            tick_programmed_line(&mut agnus);
+        }
+        assert_eq!(agnus.vpos, 2);
+        assert_eq!(agnus.vbl_count, 0);
+        assert!(agnus.lof);
+
+        tick_programmed_line(&mut agnus);
+        assert_eq!(agnus.vpos, 0);
+        assert_eq!(agnus.vbl_count, 1);
+        assert!(!agnus.lof);
+
+        // The following short field contains exactly VTOTAL + 1 lines.
+        tick_programmed_line(&mut agnus);
+        assert_eq!(agnus.vpos, 1);
+        tick_programmed_line(&mut agnus);
+        assert_eq!(agnus.vpos, 0);
+        assert_eq!(agnus.vbl_count, 2);
+        assert!(agnus.lof);
+    }
+
+    #[test]
+    fn varbeamen_runs_sprite_lifecycle_against_programmed_field_length() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_htotal(1);
+        agnus.write_vtotal(27); // 28-line field; final line is 27.
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.poke_sprite_pos(0, 26 << 8);
+        agnus.poke_sprite_ctl(0, 40 << 8);
+
+        for _ in 0..26 {
+            tick_programmed_line(&mut agnus);
+        }
+        assert_eq!(agnus.vpos, 26);
+        assert!(agnus.sprite_dma_on(0), "sprite activates at VSTART");
+
+        tick_programmed_line(&mut agnus);
+        assert_eq!(agnus.vpos, 27);
+        assert!(
+            !agnus.sprite_dma_on(0),
+            "sprite shuts down on the programmed final line"
+        );
+    }
+
+    #[test]
+    fn varbeamen_sprite_shutdown_tracks_long_and_short_interlace_fields() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_htotal(1);
+        agnus.write_vtotal(27); // 28-line short field, 29-line long field.
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+        agnus.bplcon0 = 0x0004; // LACE; LOF starts on the long field.
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.poke_sprite_pos(0, 26 << 8);
+        agnus.poke_sprite_ctl(0, 40 << 8);
+
+        for _ in 0..26 {
+            tick_programmed_line(&mut agnus);
+        }
+        assert!(agnus.sprite_dma_on(0));
+        tick_programmed_line(&mut agnus);
+        assert_eq!(agnus.vpos, 27);
+        assert!(
+            agnus.sprite_dma_on(0),
+            "long field keeps the sprite active on its penultimate line"
+        );
+        tick_programmed_line(&mut agnus);
+        assert_eq!(agnus.vpos, 28);
+        assert!(
+            !agnus.sprite_dma_on(0),
+            "long field shuts the sprite down on its extra final line"
+        );
+        tick_programmed_line(&mut agnus);
+        assert_eq!(agnus.vpos, 0);
+        assert!(!agnus.lof);
+
+        for _ in 0..26 {
+            tick_programmed_line(&mut agnus);
+        }
+        assert!(agnus.sprite_dma_on(0));
+        tick_programmed_line(&mut agnus);
+        assert_eq!(agnus.vpos, 27);
+        assert!(
+            !agnus.sprite_dma_on(0),
+            "short field shuts the sprite down one line earlier"
+        );
+    }
+
+    #[test]
+    fn varbeamen_preserves_ntsc_long_line_state_transition() {
+        let mut agnus = AgnusEcs::from_ocs(commodore_agnus_ocs::Agnus::new_with_region(
+            commodore_agnus_ocs::AgnusRegion::Ntsc,
+        ));
+        agnus.write_htotal(1);
+        agnus.write_vtotal(3);
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+
+        for expected_lol in [true, false] {
+            tick_programmed_line(&mut agnus);
+            assert_eq!(agnus.hpos, 0);
+            assert_eq!(agnus.lol, expected_lol);
+        }
     }
 
     #[test]

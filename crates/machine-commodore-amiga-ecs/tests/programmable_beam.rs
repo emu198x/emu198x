@@ -30,4 +30,5 @@ fn ecs_machine_uses_programmed_beam_totals() {
         amiga.tick();
     }
     assert_eq!((amiga.agnus().vpos, amiga.agnus().hpos), (0, 0));
+    assert_eq!(amiga.agnus().vbl_count, 1);
 }

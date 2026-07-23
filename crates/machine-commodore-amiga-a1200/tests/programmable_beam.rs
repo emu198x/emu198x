@@ -1,6 +1,6 @@
 //! Alice programmable beam timing through the A1200 register bus.
 
-use machine_commodore_amiga_a1200::AmigaA1200;
+use machine_commodore_amiga_a1200::{AmigaA1200, AmigaA1200Snapshot};
 
 fn parked_cpu_rom() -> Vec<u8> {
     let mut rom = vec![0u8; 256 * 1024];
@@ -29,4 +29,25 @@ fn a1200_machine_uses_programmed_beam_totals() {
         amiga.tick();
     }
     assert_eq!((amiga.agnus().vpos, amiga.agnus().hpos), (0, 0));
+    assert_eq!(amiga.agnus().vbl_count, 1);
+}
+
+#[test]
+fn a1200_snapshot_preserves_explicit_zero_beam_totals() {
+    let mut amiga = AmigaA1200::new(parked_cpu_rom());
+    amiga.poke_word(0x00DF_F1C0, 0);
+    amiga.poke_word(0x00DF_F1C8, 0);
+    amiga.poke_word(0x00DF_F1DC, 0x0080);
+
+    let bytes = postcard::to_allocvec(&amiga.snapshot_state()).expect("serialize snapshot");
+    let snapshot: AmigaA1200Snapshot = postcard::from_bytes(&bytes).expect("deserialize snapshot");
+    let mut restored = AmigaA1200::new(parked_cpu_rom());
+    restored.restore_snapshot_state(snapshot);
+
+    let starting_vbl = restored.agnus().vbl_count;
+    for _ in 0..2 {
+        restored.tick();
+    }
+    assert_eq!((restored.agnus().vpos, restored.agnus().hpos), (0, 0));
+    assert_eq!(restored.agnus().vbl_count, starting_vbl + 1);
 }
