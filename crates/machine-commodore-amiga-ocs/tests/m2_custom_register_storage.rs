@@ -45,7 +45,7 @@ fn boot_clears_intena_intreq_dmacon_then_sets_bplcon0_color00() {
 
     // After the clear-all writes ($7FFF with bit 15 = 0 = clear),
     // these registers should be zero — except INTREQ, which may
-    // have re-latched VERTB by the time we sample (M6 fires VBL
+    // have latched VERTB by the time we sample (M6 fires VBL
     // every PAL frame regardless of whether the boot has installed
     // a handler). Mask VERTB out of the INTREQ check.
     assert_eq!(

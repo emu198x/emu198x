@@ -288,10 +288,9 @@ pub struct AmigaOcs {
     /// Sub-CCK phase: 0 at the first tick of a CCK (fetch/reload
     /// events fire here), 1 at the second tick. Flips each tick.
     cck_phase: u8,
-    /// Paula's latched state of Agnus's `/VERTB` level signal. Used
-    /// to detect rising edges — INTREQ.VERTB is re-latched whenever
-    /// the CPU clears it and the beam is still inside the blanking
-    /// window.
+    /// Previous vertical-blank interval state. The transition into
+    /// blanking generates the once-per-frame `VERTB` request and the
+    /// other frame-start events.
     prev_vertb_level: bool,
     /// Paula's latched state of the CIA-A `/IRQ` line (level-
     /// sensitive on the CIA, edge-latched on Paula). Set to true

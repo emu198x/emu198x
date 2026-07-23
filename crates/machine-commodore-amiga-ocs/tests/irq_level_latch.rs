@@ -1,15 +1,11 @@
-//! Level-sensitive interrupt inputs + Paula edge latches.
+//! Interrupt-source latching boundaries.
 //!
-//! Two scenarios this covers, both previously "conservative/latent"
-//! gaps:
+//! Two scenarios are kept separate:
 //!
-//! 1. VBL re-latch. Agnus drives `/VERTB` high for the whole
-//!    vertical blanking interval (vpos 0..VBL_END_LINE). Paula
-//!    edge-latches the rising edge into INTREQ.VERTB. If a VBL
-//!    handler clears INTREQ.VERTB while blanking is still active,
-//!    the bit re-latches on the next tick — real hardware sees the
-//!    level still high and the edge detector wasn't reset because
-//!    the input never went low.
+//! 1. `VERTB` is a once-per-frame request at raster line zero. After
+//!    software clears `INTREQ.VERTB`, the request stays clear until
+//!    the next frame start; the vertical-blank interval is not itself
+//!    a level-sensitive interrupt input.
 //!
 //! 2. CIA /IRQ re-latch suppression. CIA::irq_pending is
 //!    level-sensitive (true while any unmasked ICR flag is set).
@@ -20,7 +16,7 @@
 //!    new latch. Our previous edge-in-CIA model incorrectly
 //!    re-latched; this test pins the Paula-edge behaviour.
 
-use machine_commodore_amiga_ocs::AmigaOcs;
+use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS, PAL_LINE_TICKS};
 
 fn put_w(buf: &mut [u8], at: usize, val: u16) {
     buf[at] = (val >> 8) as u8;
@@ -90,39 +86,56 @@ fn run_until_parked(amiga: &mut AmigaOcs, max_ticks: u64) -> bool {
     false
 }
 
-/// VBL re-latch: after the CPU clears INTREQ.VERTB during the
-/// blanking window, the bit re-asserts because Agnus's /VERTB level
-/// is still high.
+fn run_to_next_frame_start(amiga: &mut AmigaOcs) {
+    let target = amiga.agnus().vbl_count + 1;
+    for _ in 0..=PAL_FRAME_TICKS {
+        if amiga.agnus().vbl_count == target {
+            return;
+        }
+        amiga.tick();
+    }
+    assert_eq!(
+        amiga.agnus().vbl_count,
+        target,
+        "beam should reach the next frame start"
+    );
+}
+
+/// Clearing `VERTB` during vertical blank must hold until line zero of
+/// the next frame.
 #[test]
-fn vbl_intreq_relatches_when_cleared_mid_blanking() {
+fn vertb_request_stays_clear_until_next_frame_start() {
     let mut amiga = AmigaOcs::new(rom_with_boot(&[]));
 
-    // Tick until we're firmly inside blanking (vpos = 5, well before
-    // VBL_END_LINE = 25). One PAL line is 454 ticks; 5 lines = 2270.
-    for _ in 0..2270 {
-        amiga.tick();
-    }
-    // Expect INTREQ.VERTB set by the latch.
+    // Arrange: enter line zero through a real frame wrap and observe
+    // the once-per-frame request.
+    run_to_next_frame_start(&mut amiga);
     assert_ne!(
         amiga.intreq() & 0x0020,
         0,
-        "INTREQ.VERTB should be latched during blanking"
+        "line zero should latch INTREQ.VERTB"
     );
 
-    // Clear INTREQ.VERTB as a handler would (write $0020 with bit
-    // 15 = 0 → CLEAR semantics).
+    // Act: acknowledge it, then advance to line five while still
+    // inside the PAL vertical-blank interval.
     amiga.poke_word(0x00DF_F09C, 0x0020);
     assert_eq!(amiga.intreq() & 0x0020, 0, "INTREQ.VERTB cleared by poke");
-
-    // Advance a few more ticks — still inside blanking — and expect
-    // the bit to re-latch on the next CCK boundary.
-    for _ in 0..8 {
+    for _ in 0..(5 * u64::from(PAL_LINE_TICKS)) {
         amiga.tick();
     }
+
+    // Assert: vertical blank does not reassert the request. The next
+    // frame start does.
+    assert_eq!(
+        amiga.intreq() & 0x0020,
+        0,
+        "VERTB must remain clear after acknowledgement"
+    );
+    run_to_next_frame_start(&mut amiga);
     assert_ne!(
         amiga.intreq() & 0x0020,
         0,
-        "INTREQ.VERTB should re-latch while still inside blanking"
+        "next line zero should latch VERTB"
     );
 }
 

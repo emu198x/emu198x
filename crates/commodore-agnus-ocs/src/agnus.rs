@@ -1887,9 +1887,11 @@ impl Agnus {
         v
     }
 
-    /// Level-sensitive /VERTB signal — high while the beam sits inside
-    /// the vertical blanking interval. Paula edge-latches this to set
-    /// INTREQ.VERTB.
+    /// Whether the beam is inside the fixed vertical-blank interval.
+    ///
+    /// The machine detects the transition into this interval to
+    /// generate the once-per-frame `VERTB` request. This predicate is
+    /// not itself a level-sensitive interrupt input.
     #[must_use]
     pub fn vertb_level(&self) -> bool {
         self.vpos < VBL_END_LINE
