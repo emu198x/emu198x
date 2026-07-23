@@ -26,7 +26,7 @@
 //!   - Bitplane DMA also needs BPLCON0.BPU > 0 and hpos within the
 //!     DDF fetch window.
 
-use commodore_agnus_ocs::{Agnus, SlotOwner};
+use commodore_agnus_ocs::{Agnus, PaulaReturnProgressPolicy, SlotOwner};
 
 /// DMACON bits used by this test file.
 const DMAEN: u16 = 0x0200;
@@ -165,7 +165,9 @@ fn audio_channel_disabled_individually_yields_cpu() {
 fn sprite_slots_map_channel_to_hpos_pairs() {
     // vAmiga: sprite n words at 0x15+4n (first) and 0x17+4n (second).
     let mut a = agnus_with_dmacon(DMAEN | SPREN);
+    a.vpos = 30;
     for ch in 0u8..8 {
+        a.poke_sprite_ctl(ch as usize, 30 << 8);
         let base = 0x15 + u16::from(ch) * 4;
         at_hpos(&mut a, base);
         assert_eq!(
@@ -187,6 +189,35 @@ fn sprite_slots_map_channel_to_hpos_pairs() {
 fn sprite_slots_fall_back_to_cpu_without_spren() {
     let mut a = agnus_with_dmacon(DMAEN);
     at_hpos(&mut a, 0x15);
+    assert_eq!(a.current_slot(), SlotOwner::Cpu);
+}
+
+#[test]
+fn idle_sprite_opportunity_falls_back_to_cpu_even_with_copper_enabled() {
+    for dmacon in [DMAEN | SPREN, DMAEN | SPREN | COPEN] {
+        let mut a = agnus_with_dmacon(dmacon);
+        a.vpos = 30;
+        a.poke_sprite_ctl(0, 50 << 8);
+        at_hpos(&mut a, 0x15);
+
+        let plan = a.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Cpu);
+        assert_eq!(plan.sprite_dma_service_channel, None);
+        assert!(!plan.copper_dma_slot_granted);
+        assert!(plan.cpu_chip_bus_granted);
+        assert_eq!(
+            plan.paula_return_progress_policy,
+            PaulaReturnProgressPolicy::Advance
+        );
+    }
+}
+
+#[test]
+fn sprite_opportunity_during_vertical_blank_falls_back_to_cpu() {
+    let mut a = agnus_with_dmacon(DMAEN | SPREN);
+    a.vpos = 0;
+    at_hpos(&mut a, 0x15);
+
     assert_eq!(a.current_slot(), SlotOwner::Cpu);
 }
 
@@ -412,6 +443,8 @@ fn bus_plan_echoes_slot_grants_by_category() {
     a.bplcon0 = 0x1000;
     a.ddfstrt = 0x38;
     a.ddfstop = 0xD0;
+    a.vpos = 30;
+    a.poke_sprite_ctl(0, 30 << 8);
 
     at_hpos(&mut a, 0x07);
     assert!(a.cck_bus_plan().disk_dma_slot_granted);

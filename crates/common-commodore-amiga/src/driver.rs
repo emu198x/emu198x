@@ -179,6 +179,10 @@ pub trait AmigaDriver {
 
         // ── CCK-granular events (phase 0 only) ───────────────────
         if phase == 0 {
+            // Per-CCK bus-use observations remain valid across both
+            // master/4 phases. Clear them only as a new CCK begins.
+            self.agnus_mut().reset_sprite_bus_usage();
+
             // Advance the beam.
             self.advance_agnus_cck();
 
@@ -441,11 +445,16 @@ pub trait AmigaDriver {
         let addr24 = addr & 0xFF_FFFF;
         let is_chip_ram_access = addr24 < 0x20_0000 && (!is_read || !self.memory().overlay());
         let bus_plan = self.agnus_bus_plan();
-        let dma_holds_bus = match bus_plan.slot_owner {
-            SlotOwner::Cpu => !bus_plan.cpu_chip_bus_granted,
-            SlotOwner::Copper => self.copper().bus_used_this_cck,
-            _ => true,
-        };
+        // A sprite control fetch can latch a new VSTOP and make a fresh
+        // plan no longer show the request that consumed this CCK. Keep
+        // actual sprite use authoritative until the next CCK rather than
+        // retroactively granting the same bus cell to the CPU.
+        let dma_holds_bus = self.agnus().sprite_bus_used_this_cck()
+            || match bus_plan.slot_owner {
+                SlotOwner::Cpu => !bus_plan.cpu_chip_bus_granted,
+                SlotOwner::Copper => self.copper().bus_used_this_cck,
+                _ => true,
+            };
         if is_chip_ram_access && dma_holds_bus {
             self.cpu_base_mut().bus_status = BusStatus::Wait;
             return;

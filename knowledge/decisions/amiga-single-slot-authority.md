@@ -15,7 +15,10 @@ Minimig `agnus.v` priority chain):
 
 - Fixed chipset slots on **odd** hpos, gated by DMACON:
   refresh `0x01/03/05` + EOL; disk `0x07/09/0B`; audio `0x0D/0F/11/13`;
-  sprites `0x15..0x33` (`n=(hpos-0x15)/4`, word `((hpos-0x15)/2)&1`).
+  sprite opportunities `0x15..0x33` (`n=(hpos-0x15)/4`, word
+  `((hpos-0x15)/2)&1`). A sprite claims its pair only when it requests a
+  control or data fetch; an idle opportunity falls through the priority
+  chain.
 - Bitplane: DDF-gated, the vAmiga-identical fetch-unit→plane grids;
   DDFSTRT/DDFSTOP masked `$FC` on OCS, `$FE` on ECS/AGA (`agnus_id >=
   $2000`).
@@ -31,6 +34,12 @@ every even free cell when COPEN is set and cannot see a parked WAIT — so
 the CPU gate keys off `Copper::bus_used_this_cck`, set only at the
 copper's real chip-RAM fetch. This mirrors vAmiga's `busOwner`, which a
 waiting copper never sets.
+
+A state-sensitive grant remains authoritative for the whole CCK. Servicing
+sprite DMA can latch a new VSTOP during the second control-word fetch, but
+that state change cannot retroactively give the already-consumed cell to the
+CPU. Agnus therefore records actual sprite bus use until the next CCK as well
+as exposing the newly computed plan.
 
 ## Why
 
@@ -62,6 +71,12 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
 - OCS bitplane vertical eligibility is part of the Agnus plan rather than a
   Denise-side fetch gate. This prevents inactive display DMA from ghost-owning
   the bus outside the display window.
+- Sprite control/data request state is likewise part of the Agnus plan.
+  `SPREN` exposes the scheduled opportunities but does not make an idle
+  channel own them; unused cells remain available to the blitter or CPU.
+  Once a sprite performs a fetch, its transient bus-use record keeps both
+  master/4 phases of that CCK unavailable to the CPU even if the fetch
+  changes the state from which a fresh plan would be derived.
 - ECS/AGA pass their DIWHIGH-aware vertical eligibility into the same complete
   priority calculation. A suppressed bitplane request therefore falls through
   to sprite, copper, blitter or CPU as appropriate; AGA wide-fetch + SHRES grids
@@ -86,6 +101,10 @@ If I catch myself proposing any of these, stop and re-read the "Why".
 - Using raw DDFSTRT/DDFSTOP for the fetch grid without the per-variant
   `$FC`/`$FE` mask.
 - A fixed-slot map that packs channels onto consecutive hpos.
+- Treating `SPREN + sprite hpos` as sufficient ownership without checking
+  whether that sprite requests control or data DMA on the current line.
+- Recomputing `cck_bus_plan()` after a state-mutating DMA service and using
+  the new result to retroactively grant the same CCK to the CPU.
 
 **Phrases that signal drift:**
 
@@ -95,3 +114,4 @@ If I catch myself proposing any of these, stop and re-read the "Why".
 - "Bitplane DMA only claims even cells, so the CPU is fine on odd."
 - "Let Denise compute its own DDF fetch window."
 - "current_slot already says Copper, so stall the CPU."
+- "SPREN reserves every sprite slot whether or not the channel fetches."

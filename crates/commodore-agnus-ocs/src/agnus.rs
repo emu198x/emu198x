@@ -454,6 +454,12 @@ pub struct Agnus {
     spr_vstart: [u16; 8],
     spr_vstop: [u16; 8],
     spr_dma_on: [bool; 8],
+    /// Transient record that sprite DMA drove the chip bus during the
+    /// current CCK. A second control-word fetch can change VSTOP and make
+    /// a newly computed plan look idle; CPU arbitration must still honour
+    /// the original use for both master/4 phases of that CCK.
+    #[serde(skip)]
+    sprite_bus_used_this_cck: bool,
 
     // Disk pointer
     pub dsk_pt: u32,
@@ -557,6 +563,7 @@ impl Agnus {
             spr_vstart: [0; 8],
             spr_vstop: [0; 8],
             spr_dma_on: [false; 8],
+            sprite_bus_used_this_cck: false,
             dsk_pt: 0,
             fmode: 0,
             lof: true,
@@ -1406,6 +1413,27 @@ impl Agnus {
         }
     }
 
+    /// Whether `channel` has a control- or data-fetch request on the
+    /// current line. SPREN is deliberately handled by slot arbitration;
+    /// this predicate describes the per-channel request state shared by
+    /// planning and service.
+    fn sprite_dma_cycle_requested(&self, channel: usize) -> bool {
+        channel < self.spr_dma_on.len()
+            && self.vpos >= VBL_END_LINE
+            && (self.vpos == self.spr_vstop[channel] || self.spr_dma_on[channel])
+    }
+
+    /// Start a new CCK with no recorded sprite bus use.
+    pub fn reset_sprite_bus_usage(&mut self) {
+        self.sprite_bus_used_this_cck = false;
+    }
+
+    /// Whether a sprite fetch has driven the chip bus during this CCK.
+    #[must_use]
+    pub fn sprite_bus_used_this_cck(&self) -> bool {
+        self.sprite_bus_used_this_cck
+    }
+
     /// Service one sprite-DMA bus cycle for `channel` (gap #162). Called
     /// by the machine when Agnus has granted this CCK's slot to a sprite;
     /// `second_word` selects the second of the channel's two per-line
@@ -1425,16 +1453,12 @@ impl Agnus {
         width: u8,
         mut read: impl FnMut(u32) -> u16,
     ) -> Option<(bool, u64)> {
-        if channel >= 8 {
+        // Sprite DMA is suppressed during vertical blank, and an idle
+        // channel does not consume its scheduled bus opportunity.
+        if !self.sprite_dma_cycle_requested(channel) {
             return None;
         }
-        // Sprite DMA is suppressed during vertical blank; fetching starts
-        // at the reset line (the first control fetch of the frame), so a
-        // sprite whose VSTOP still sits at its power-on 0 does not fetch
-        // spuriously on line 0. Mirrors vAmiga's `!inVBlankArea` gate.
-        if self.vpos < VBL_END_LINE {
-            return None;
-        }
+        self.sprite_bus_used_this_cck = true;
         if self.vpos == self.spr_vstop[channel] {
             // Control fetch (SPRxPOS / SPRxCTL): always a single word —
             // FMODE widens the data fetch, not the control words.
@@ -1576,9 +1600,14 @@ impl Agnus {
         if bitplane_vertical_active && let Some(plane) = self.bitplane_slot_at() {
             return SlotOwner::Bitplane(plane);
         }
-        // Sprites 0–7 at 0x15..0x33 (odd cells), SPREN.
+        // Sprites 0–7 at 0x15..0x33 (odd cells). SPREN makes the
+        // opportunities available, but a channel claims its pair only
+        // while requesting a control or data fetch.
         if self.dma_enabled(0x0020) && (0x15..=0x33).contains(&hpos) && !hpos.is_multiple_of(2) {
-            return SlotOwner::Sprite(((hpos - 0x15) / 4) as u8);
+            let channel = ((hpos - 0x15) / 4) as usize;
+            if self.sprite_dma_cycle_requested(channel) {
+                return SlotOwner::Sprite(channel as u8);
+            }
         }
         // Copper — even FREE cells, COPEN, excluding the E0 blocked cell.
         if self.dma_enabled(0x0080) && hpos.is_multiple_of(2) && hpos != 0xE0 {
@@ -2448,7 +2477,9 @@ mod tests {
     fn cck_bus_plan_reports_sprite_service_grant() {
         let mut agnus = Agnus::new();
         agnus.hpos = 0x15; // first sprite DMA slot => sprite 0
+        agnus.vpos = 30;
         agnus.dmacon = DMACON_DMAEN | 0x0020; // SPREN
+        agnus.spr_vstop[0] = 30; // control-word request
 
         let plan = agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Sprite(0));
@@ -2459,6 +2490,37 @@ mod tests {
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::Stall
         );
+    }
+
+    #[test]
+    fn active_sprite_requests_its_scheduled_slot() {
+        let mut agnus = Agnus::new();
+        agnus.hpos = 0x15;
+        agnus.vpos = 30;
+        agnus.dmacon = DMACON_DMAEN | 0x0020; // SPREN
+        agnus.spr_vstop[0] = 50;
+        agnus.spr_dma_on[0] = true;
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Sprite(0));
+        assert_eq!(plan.sprite_dma_service_channel, Some(0));
+    }
+
+    #[test]
+    fn idle_sprite_opportunity_allows_nasty_blitter_progress() {
+        let mut agnus = Agnus::new();
+        agnus.hpos = 0x15;
+        agnus.vpos = 30;
+        agnus.dmacon = DMACON_DMAEN | 0x0020 | 0x0040 | 0x0400; // SPREN | BLTEN | BLTPRI
+        agnus.spr_vstop[0] = 50;
+        agnus.blitter_busy = true;
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Cpu);
+        assert_eq!(plan.sprite_dma_service_channel, None);
+        assert!(plan.blitter_dma_progress_granted);
+        assert!(plan.blitter_chip_bus_granted);
+        assert!(!plan.cpu_chip_bus_granted);
     }
 
     // ---------- region + line-length alternation ----------
@@ -2703,6 +2765,28 @@ mod tests {
         agnus.spr_vstop[0] = 0; // would control-fetch if not VB-suppressed
         assert_eq!(agnus.service_sprite_dma_cyc(0, false, 1, |_| 0xBEEF), None);
         assert_eq!(agnus.spr_pt[0], 0x1000, "no fetch in vertical blank");
+    }
+
+    #[test]
+    fn active_sprite_request_starts_at_the_pal_control_refetch_line() {
+        let mut agnus = sprite_dma_agnus();
+        agnus.hpos = 0x15;
+        agnus.spr_pt[0] = 0x1000;
+        agnus.spr_vstop[0] = 50;
+        agnus.spr_dma_on[0] = true;
+
+        agnus.vpos = VBL_END_LINE - 1;
+        assert_eq!(agnus.current_slot(), SlotOwner::Cpu);
+        assert_eq!(agnus.service_sprite_dma_cyc(0, false, 1, |_| 0xBEEF), None);
+        assert_eq!(agnus.spr_pt[0], 0x1000);
+
+        agnus.vpos = VBL_END_LINE;
+        assert_eq!(agnus.current_slot(), SlotOwner::Sprite(0));
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, false, 1, |_| 0xBEEF),
+            Some((false, 0xBEEF))
+        );
+        assert_eq!(agnus.spr_pt[0], 0x1002);
     }
 
     #[test]

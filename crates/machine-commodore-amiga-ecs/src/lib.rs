@@ -2072,6 +2072,77 @@ mod bus_plan_dispatch_tests {
     }
 
     #[test]
+    fn concrete_ecs_plan_releases_idle_sprite_opportunity_to_cpu() {
+        let mut amiga = machine();
+        amiga.agnus.vpos = 30;
+        amiga.agnus.hpos = 0x15;
+        amiga.agnus.dmacon = 0x0220; // DMAEN | SPREN
+        amiga.agnus.poke_sprite_ctl(0, 50 << 8);
+
+        let plan = amiga.agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Cpu);
+        assert_eq!(plan.sprite_dma_service_channel, None);
+        assert!(plan.cpu_chip_bus_granted);
+
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: 0x0000_1000,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0xC33C),
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+
+        <AmigaEcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
+        assert_eq!(amiga.memory.read_chip_ram_word(0x1000), 0xC33C);
+    }
+
+    #[test]
+    fn sprite_control_fetch_keeps_the_cpu_stalled_for_the_whole_cck() {
+        let mut amiga = machine();
+        amiga.agnus.vpos = 30;
+        amiga.agnus.hpos = 0x16; // phase-0 beam advance enters SPR0's second cell
+        amiga.agnus.dmacon = 0x0220; // DMAEN | SPREN
+        amiga.agnus.poke_sprite_ctl(0, 30 << 8);
+        amiga.agnus.spr_pt[0] = 0x0000_2000;
+        amiga.poke_word(0x0000_2000, 50 << 8); // fetched SPR0CTL changes VSTOP
+        amiga.cck_phase = 0;
+
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: 0x0000_1000,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0x5AA5),
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+
+        amiga.tick();
+
+        assert_eq!(amiga.agnus.hpos, 0x17);
+        assert_eq!(amiga.agnus.spr_pt[0], 0x0000_2002);
+        assert_eq!(amiga.agnus.sprite_vstop(0), 50);
+        assert_eq!(
+            amiga.agnus.cck_bus_plan().slot_owner,
+            SlotOwner::Cpu,
+            "the fetched control word makes a fresh plan look idle"
+        );
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x1000), 0);
+
+        // The second master/4 phase is still part of the same CCK.
+        amiga.tick();
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x1000), 0);
+    }
+
+    #[test]
     fn concrete_plan_stalls_cpu_when_blitter_nasty_takes_free_slot() {
         let mut amiga = machine();
         amiga.agnus.hpos = 0x0035;
