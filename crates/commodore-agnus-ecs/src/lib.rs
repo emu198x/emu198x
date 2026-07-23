@@ -278,43 +278,14 @@ impl AgnusEcs {
     /// Agnus slot grant decisions to the machine.
     #[must_use]
     pub fn cck_bus_plan(&self) -> CckBusPlan {
-        let mut plan = self.inner.cck_bus_plan();
-        if plan.bitplane_dma_fetch_plane.is_none() || self.bitplane_dma_vertical_active() {
-            return plan;
-        }
+        self.inner
+            .cck_bus_plan_with_bitplane_vertical_active(self.bitplane_dma_vertical_active())
+    }
 
-        // Outside the vertical display window, bitplane DMA does not consume
-        // the variable slot. Re-run the post-bitplane fallback for this slot:
-        // copper on even CCKs when enabled, otherwise CPU.
-        let slot_owner = if self.inner.dma_enabled(0x0080) && self.inner.hpos.is_multiple_of(2) {
-            SlotOwner::Copper
-        } else {
-            SlotOwner::Cpu
-        };
-        let copper_dma_slot_granted = matches!(slot_owner, SlotOwner::Copper);
-        let blitter_dma_progress_granted = matches!(slot_owner, SlotOwner::Cpu)
-            && self.inner.blitter_busy
-            && self.inner.dma_enabled(0x0040);
-        let blitter_chip_bus_granted =
-            blitter_dma_progress_granted && self.inner.blitter_nasty_active();
-        let cpu_chip_bus_granted =
-            matches!(slot_owner, SlotOwner::Cpu) && !blitter_chip_bus_granted;
-        let paula_return_progress_policy = match slot_owner {
-            SlotOwner::Copper => PaulaReturnProgressPolicy::CopperFetchConditional,
-            SlotOwner::Cpu => PaulaReturnProgressPolicy::Advance,
-            _ => {
-                unreachable!("bitplane vertical gating only rewrites variable slots to Copper/CPU")
-            }
-        };
-
-        plan.slot_owner = slot_owner;
-        plan.bitplane_dma_fetch_plane = None;
-        plan.copper_dma_slot_granted = copper_dma_slot_granted;
-        plan.cpu_chip_bus_granted = cpu_chip_bus_granted;
-        plan.blitter_chip_bus_granted = blitter_chip_bus_granted;
-        plan.blitter_dma_progress_granted = blitter_dma_progress_granted;
-        plan.paula_return_progress_policy = paula_return_progress_policy;
-        plan
+    /// ECS-aware owner for callers that need only the raw slot identity.
+    #[must_use]
+    pub fn current_slot(&self) -> SlotOwner {
+        self.cck_bus_plan().slot_owner
     }
 
     /// ECS `BEAMCON0` latch (register semantics are not fully modeled yet).
@@ -973,6 +944,46 @@ mod tests {
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::Advance
         );
+    }
+
+    #[test]
+    fn diwhigh_demoted_bitplane_slot_falls_through_to_requesting_sprite() {
+        let mut agnus = AgnusEcs::new();
+        agnus.hpos = 0x23; // BPL1 and sprite 3 overlap
+        agnus.vpos = 0x0020;
+        agnus.dmacon = 0x0320; // DMAEN | BPLEN | SPREN
+        agnus.bplcon0 = 1 << 12;
+        agnus.ddfstrt = 0x1C;
+        agnus.ddfstop = 0x1C;
+        agnus.diwstrt = 0x1010;
+        agnus.diwstop = 0xA020;
+        agnus.poke_sprite_ctl(3, 0x2000); // VSTOP=$20: control fetch requested
+
+        assert_eq!(agnus.cck_bus_plan().slot_owner, SlotOwner::Bitplane(0));
+
+        agnus.write_diwhigh(0x0101);
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Sprite(3));
+        assert_eq!(plan.sprite_dma_service_channel, Some(3));
+        assert_eq!(plan.bitplane_dma_fetch_plane, None);
+    }
+
+    #[test]
+    fn diwhigh_can_promote_bitplane_slot_outside_legacy_window() {
+        let mut agnus = AgnusEcs::new();
+        agnus.hpos = 0x23;
+        agnus.vpos = 0x0120;
+        agnus.dmacon = 0x0300;
+        agnus.bplcon0 = 1 << 12;
+        agnus.ddfstrt = 0x1C;
+        agnus.ddfstop = 0x1C;
+        agnus.diwstrt = 0x1010;
+        agnus.diwstop = 0xA020;
+        agnus.write_diwhigh(0x0101);
+
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Bitplane(0));
+        assert_eq!(plan.bitplane_dma_fetch_plane, Some(0));
     }
 
     #[test]

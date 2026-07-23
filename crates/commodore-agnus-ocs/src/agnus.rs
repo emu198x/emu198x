@@ -1489,8 +1489,34 @@ impl Agnus {
         self.spr_dma_on[channel]
     }
 
+    /// Whether OCS bitplane DMA is vertically active at the current beam line.
+    fn bitplane_dma_vertical_active(&self) -> bool {
+        let vstart = (self.diwstrt >> 8) & 0x00FF;
+        let stop_low = (self.diwstop >> 8) & 0x00FF;
+        let vstop = if stop_low & 0x0080 != 0 {
+            stop_low
+        } else {
+            stop_low | 0x0100
+        };
+        if vstart == vstop {
+            return false;
+        }
+        if vstart < vstop {
+            self.vpos >= vstart && self.vpos < vstop
+        } else {
+            self.vpos >= vstart || self.vpos < vstop
+        }
+    }
+
     /// Determine who owns the current CCK slot.
     pub fn current_slot(&self) -> SlotOwner {
+        self.current_slot_with_bitplane_vertical_active(self.bitplane_dma_vertical_active())
+    }
+
+    fn current_slot_with_bitplane_vertical_active(
+        &self,
+        bitplane_vertical_active: bool,
+    ) -> SlotOwner {
         // Hardware-correct OCS PAL DMA time-slot allocation (vAmiga
         // `SequencerDas.cpp` + Minimig `agnus.v` priority chain). Every
         // fixed chipset slot sits on an ODD hpos; the CPU gets the even
@@ -1521,7 +1547,7 @@ impl Agnus {
         }
         // Bitplane (DDF-gated) — priority above sprite on a DDF∩sprite
         // overlap (only with a very low DDFSTRT). Fetch grid unchanged.
-        if let Some(plane) = self.bitplane_slot_at() {
+        if bitplane_vertical_active && let Some(plane) = self.bitplane_slot_at() {
             return SlotOwner::Bitplane(plane);
         }
         // Sprites 0–7 at 0x15..0x33 (odd cells), SPREN.
@@ -1627,7 +1653,20 @@ impl Agnus {
 
     /// Compute the machine-facing Agnus bus-arbitration plan for this CCK.
     pub fn cck_bus_plan(&self) -> CckBusPlan {
-        let slot_owner = self.current_slot();
+        self.cck_bus_plan_with_bitplane_vertical_active(self.bitplane_dma_vertical_active())
+    }
+
+    /// Build a complete plan using a chipset-variant vertical bitplane
+    /// eligibility decision.
+    ///
+    /// ECS and AGA wrappers use this seam so their extended DIW decode
+    /// participates in the normal priority chain instead of mutating an
+    /// OCS plan after bitplane arbitration.
+    pub fn cck_bus_plan_with_bitplane_vertical_active(
+        &self,
+        bitplane_vertical_active: bool,
+    ) -> CckBusPlan {
+        let slot_owner = self.current_slot_with_bitplane_vertical_active(bitplane_vertical_active);
         let disk_dma_slot_granted = matches!(slot_owner, SlotOwner::Disk);
         let sprite_dma_service_channel = match slot_owner {
             SlotOwner::Sprite(channel) => Some(channel),
@@ -2167,6 +2206,52 @@ mod tests {
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::Stall
         );
+    }
+
+    fn configure_early_bitplane_sprite_overlap(agnus: &mut Agnus) {
+        agnus.hpos = 0x23; // BPL1 and sprite 3 overlap
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        agnus.bplcon0 = 1 << 12;
+        agnus.ddfstrt = 0x1C;
+        agnus.ddfstop = 0x1C;
+        agnus.diwstrt = 0x3010;
+        agnus.diwstop = 0xA020;
+    }
+
+    #[test]
+    fn bitplane_slot_is_released_outside_ocs_vertical_window() {
+        let mut agnus = Agnus::new();
+        configure_early_bitplane_sprite_overlap(&mut agnus);
+
+        agnus.vpos = 0x20;
+        let outside = agnus.cck_bus_plan();
+        assert_eq!(outside.slot_owner, SlotOwner::Cpu);
+        assert_eq!(outside.bitplane_dma_fetch_plane, None);
+        assert!(outside.cpu_chip_bus_granted);
+
+        agnus.vpos = 0x30;
+        let inside = agnus.cck_bus_plan();
+        assert_eq!(inside.slot_owner, SlotOwner::Bitplane(0));
+        assert_eq!(inside.bitplane_dma_fetch_plane, Some(0));
+    }
+
+    #[test]
+    fn requesting_sprite_inherits_vertically_inactive_bitplane_slot() {
+        let mut agnus = Agnus::new();
+        configure_early_bitplane_sprite_overlap(&mut agnus);
+        agnus.dmacon |= 0x0020; // SPREN
+        agnus.spr_vstop[3] = 0x20; // sprite 3 requests its control words
+
+        agnus.vpos = 0x20;
+        let outside = agnus.cck_bus_plan();
+        assert_eq!(outside.slot_owner, SlotOwner::Sprite(3));
+        assert_eq!(outside.sprite_dma_service_channel, Some(3));
+        assert_eq!(outside.bitplane_dma_fetch_plane, None);
+
+        agnus.vpos = 0x30;
+        let inside = agnus.cck_bus_plan();
+        assert_eq!(inside.slot_owner, SlotOwner::Bitplane(0));
+        assert_eq!(inside.sprite_dma_service_channel, None);
     }
 
     #[test]

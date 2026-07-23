@@ -57,11 +57,15 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   arbitration, no parallel fetch logic.
 - The driver passes `copper_slot_granted` (from `cck_bus_plan`) into
   `Copper::tick_cck`; the copper no longer computes its own parity.
-- `service_cpu_bus` stalls when `current_slot()` is a fixed channel, or a
-  copper cell the copper truly fetched.
-- ECS/AGA: `AgnusEcs::cck_bus_plan` wraps the base plan and only re-derives
-  vertically-gated bitplane cells to copper/CPU; AGA wide-fetch + SHRES
-  grids live in the shared `bitplane_slot_at`.
+- `service_cpu_bus` consumes the plan's explicit CPU grant, including
+  blitter-nasty ownership, while preserving the parked-Copper fallthrough.
+- OCS bitplane vertical eligibility is part of the Agnus plan rather than a
+  Denise-side fetch gate. This prevents inactive display DMA from ghost-owning
+  the bus outside the display window.
+- ECS/AGA pass their DIWHIGH-aware vertical eligibility into the same complete
+  priority calculation. A suppressed bitplane request therefore falls through
+  to sprite, copper, blitter or CPU as appropriate; AGA wide-fetch + SHRES grids
+  remain in the shared `bitplane_slot_at`.
 - Golden timing shifts (e.g. the WB1.3 free-memory counter) are boot-state
   variation, not render bugs; the desktop/boot screens stay pixel-correct.
 

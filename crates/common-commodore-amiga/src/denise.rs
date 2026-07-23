@@ -199,11 +199,10 @@ impl<C: DeniseChip> Denise<C> {
 
         // ── CCK-boundary events (phase 0 only) ──────────────────
         if phase == 0 {
-            // Bitplane fetch — follow Agnus's live DMA grant.
-            if in_visible_line
-                && bpl_dma_on
-                && let Some(fetch) = bitplane_dma_fetch
-            {
+            // Bitplane fetch — the concrete Agnus/Alice grant already
+            // incorporates DMA enable, DDF cadence, and its variant's
+            // vertical display-window decode.
+            if let Some(fetch) = bitplane_dma_fetch {
                 let plane = fetch.plane as usize;
                 let width = u32::from(fetch.width_words);
                 let addr = agnus.bpl_pt[plane];

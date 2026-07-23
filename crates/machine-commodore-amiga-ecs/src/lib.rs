@@ -2113,6 +2113,46 @@ mod bus_plan_dispatch_tests {
     }
 
     #[test]
+    fn concrete_ecs_plan_fetches_inside_diwhigh_extended_window() {
+        let mut amiga = machine();
+        amiga.agnus.vpos = 0x0120;
+        amiga.agnus.hpos = 0x0023;
+        amiga.agnus.dmacon = 0x0300;
+        amiga.agnus.bplcon0 = 0x1000;
+        amiga.agnus.ddfstrt = 0x001C;
+        amiga.agnus.ddfstop = 0x001C;
+        amiga.agnus.diwstrt = 0x1010;
+        amiga.agnus.diwstop = 0xA020;
+        amiga.agnus.write_diwhigh(0x0101);
+        amiga.agnus.bpl_pt[0] = 0x0002_0000;
+
+        let plan = amiga.agnus.cck_bus_plan();
+        assert_eq!(plan.bitplane_dma_fetch_plane, Some(0));
+        <AmigaEcs as AmigaDriver>::denise_tick(&mut amiga, 0, plan.bitplane_dma_fetch_plane);
+
+        assert_eq!(amiga.agnus.bpl_pt[0], 0x0002_0002);
+    }
+
+    #[test]
+    fn concrete_ecs_plan_services_sprite_after_bitplane_demotion() {
+        let mut amiga = machine();
+        configure_diwhigh_demoted_bitplane_slot(&mut amiga);
+        amiga.agnus.dmacon |= 0x0020; // SPREN
+        amiga.agnus.poke_sprite_ctl(3, 0x2000); // VSTOP=$20
+        amiga.agnus.spr_pt[3] = 0x0002_0000;
+        amiga.agnus.bpl_pt[0] = 0x0003_0000;
+        amiga.poke_word(0x0002_0000, 0x2000);
+        amiga.agnus.hpos = 0x0022;
+        amiga.cck_phase = 0;
+
+        amiga.tick();
+
+        assert_eq!(amiga.agnus.hpos, 0x0023);
+        assert_eq!(amiga.agnus.spr_pt[3], 0x0002_0002);
+        assert_eq!(amiga.agnus.bpl_pt[0], 0x0003_0000);
+    }
+
+    #[test]
     fn concrete_ecs_plan_allows_blitter_progress_on_demoted_slot() {
         let mut amiga = machine();
         let dst = 0x0003_0000;
