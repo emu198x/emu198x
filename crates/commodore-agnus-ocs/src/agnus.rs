@@ -1918,6 +1918,23 @@ impl Agnus {
         };
         self.vpos == line && self.hpos == COUNTER_VISIBLE_HPOS
     }
+
+    /// Whether the current fixed-sync beam position is the
+    /// counter-visible CIA-B TOD event.
+    ///
+    /// The A500 feeds active-low `/HSYNC` directly to CIA-B `TICK`.
+    /// The raw sync pulse ends earlier in the line, but the current
+    /// CIA model has no input synchroniser. Horizontal position
+    /// `$66` folds the measured CIA delay into one visible update.
+    ///
+    /// As with [`Self::fixed_sync_cia_a_tod_event`], this is an
+    /// approximation until the sync waveform and CIA input delay are
+    /// represented separately.
+    #[must_use]
+    pub fn fixed_sync_cia_b_tod_event(&self) -> bool {
+        const COUNTER_VISIBLE_HPOS: u16 = 0x66;
+        self.hpos == COUNTER_VISIBLE_HPOS
+    }
 }
 
 /// Last line of the vertical blanking interval (inclusive of lines

@@ -173,10 +173,10 @@ pub trait AmigaDriver {
             // Advance the beam.
             self.agnus_mut().tick_cck();
 
-            // CIA-B TOD pin is wired to /HSYNC on the real Amiga, so it
-            // ticks once per scanline. tick_cck() wraps hpos to 0 at each
-            // line start, so that edge is one /HSYNC.
-            if self.agnus().hpos == 0 {
+            // CIA-B TICK is wired to /HSYNC. Agnus exposes the current
+            // fixed-sync, counter-visible approximation after the raw
+            // sync edge and CIA input delay.
+            if self.agnus().fixed_sync_cia_b_tod_event() {
                 self.cia_b_mut().tod_pulse();
             }
 
