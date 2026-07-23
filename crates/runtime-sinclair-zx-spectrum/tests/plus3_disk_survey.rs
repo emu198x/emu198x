@@ -157,7 +157,11 @@ fn survey_plus3_disk_titles() {
     );
 
     let dsk_root = dsk_root();
+    let only_id = env::var("EMU198X_PLUS3_DSK_ID").ok();
     for (id, label, dsk_file) in survey_titles() {
+        if only_id.as_deref().is_some_and(|wanted| wanted != id) {
+            continue;
+        }
         let dsk_path = dsk_root.join(dsk_file);
         if !dsk_path.exists() {
             eprintln!("[skip] {id} — DSK not found at {dsk_path:?}");
