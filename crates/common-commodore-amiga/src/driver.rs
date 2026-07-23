@@ -340,23 +340,21 @@ pub trait AmigaDriver {
             }
         }
 
-        // ── Paula edge-latch of CIA /IRQ lines ──────────────────
-        // CIA::irq_pending is now level-sensitive (asserted while
-        // any unmasked ICR flag is set). Paula's interrupt input
-        // uses a rising-edge detector, so we only set the INTREQ
-        // bit on the transition from low to high. A handler that
-        // clears INTREQ.PORTS / INTREQ.EXTER without reading the
-        // CIA ICR will *not* trigger another interrupt until the
-        // CIA line first goes low and then high again — matching
-        // real hardware.
+        // ── Paula's level-sensitive CIA interrupt inputs ─────────
+        // The CIA and expansion interrupt outputs share the active-
+        // low INT2* and INT6* inputs. While either CIA holds its line
+        // active, Paula must keep or make the corresponding request
+        // visible. Clearing INTREQ alone therefore only has a bounded
+        // effect; reading the CIA ICR releases the CIA contribution.
+        // Exact Paula sampling phase is not yet modelled.
         let cia_a_irq = self.cia_a().irq_active();
-        if cia_a_irq && !self.prev_cia_a_irq() {
+        if cia_a_irq {
             self.paula_mut().raise(IntSource::Ports);
         }
         self.set_prev_cia_a_irq(cia_a_irq);
 
         let cia_b_irq = self.cia_b().irq_active();
-        if cia_b_irq && !self.prev_cia_b_irq() {
+        if cia_b_irq {
             self.paula_mut().raise(IntSource::Exter);
         }
         self.set_prev_cia_b_irq(cia_b_irq);

@@ -292,11 +292,10 @@ pub struct AmigaOcs {
     /// blanking generates the once-per-frame `VERTB` request and the
     /// other frame-start events.
     prev_vertb_level: bool,
-    /// Paula's latched state of the CIA-A `/IRQ` line (level-
-    /// sensitive on the CIA, edge-latched on Paula). Set to true
-    /// when CIA-A has any unmasked ICR flag active.
+    /// Last sampled CIA-A interrupt-input state. Retained in machine
+    /// snapshots; Paula request generation is level-sensitive.
     prev_cia_a_irq: bool,
-    /// Same for CIA-B.
+    /// Last sampled CIA-B interrupt-input state.
     prev_cia_b_irq: bool,
     e_clock_phase: u64,
     /// Diagnostic: count of unique custom-register read offsets seen

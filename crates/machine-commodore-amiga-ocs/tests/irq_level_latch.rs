@@ -7,14 +7,10 @@
 //!    the next frame start; the vertical-blank interval is not itself
 //!    a level-sensitive interrupt input.
 //!
-//! 2. CIA /IRQ re-latch suppression. CIA::irq_pending is
-//!    level-sensitive (true while any unmasked ICR flag is set).
-//!    Paula uses rising-edge detection to latch INTREQ.PORTS /
-//!    INTREQ.EXTER. A handler that clears INTREQ.PORTS without
-//!    reading the CIA ICR *should not* retrigger an interrupt: the
-//!    CIA line stays low (flag still set), so no rising edge, so no
-//!    new latch. Our previous edge-in-CIA model incorrectly
-//!    re-latched; this test pins the Paula-edge behaviour.
+//! 2. CIA interrupt inputs are level-sensitive. `PORTS` and `EXTER`
+//!    reassert after software clears them if the corresponding CIA
+//!    still holds its shared active-low interrupt input asserted.
+//!    Reading the CIA ICR releases the input and prevents reassertion.
 
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS, PAL_LINE_TICKS};
 
@@ -63,27 +59,6 @@ fn rom_with_boot(configure: &[u16]) -> Vec<u8> {
     put_w(&mut rom, at, 0x60FE);
 
     rom
-}
-
-/// Run the Amiga until it reaches the spin loop at $FC01xx.
-/// Returns false if PC never parked inside that range.
-fn run_until_parked(amiga: &mut AmigaOcs, max_ticks: u64) -> bool {
-    let mut last_pc = 0u32;
-    let mut same_pc_count = 0u64;
-    for _ in 0..max_ticks {
-        amiga.tick();
-        let pc = amiga.cpu().regs.pc;
-        if pc == last_pc {
-            same_pc_count += 1;
-            if same_pc_count > 4 {
-                return true;
-            }
-        } else {
-            same_pc_count = 0;
-            last_pc = pc;
-        }
-    }
-    false
 }
 
 fn run_to_next_frame_start(amiga: &mut AmigaOcs) {
@@ -167,56 +142,82 @@ fn vbl_intreq_stays_cleared_outside_blanking() {
     );
 }
 
-/// CIA /IRQ Paula edge latch: clearing INTREQ.PORTS without reading
-/// the CIA's ICR must NOT cause the bit to reappear, because the CIA
-/// line is still low (level sensitive), so Paula sees no new edge.
-#[test]
-fn cia_a_intreq_does_not_relatch_without_icr_read() {
-    // Arm CIA-A Timer A to fire continuously, enable its ICR mask.
-    let config = [
-        // MOVE.B #$81, $00BFED01  — ICR write: SET timer-A enable.
-        0x13FC, 0x0081, 0x00BF, 0xED01,
-        // MOVE.B #$02, $00BFE401  — Timer A latch low = 2
-        0x13FC, 0x0002, 0x00BF, 0xE401,
-        // MOVE.B #$00, $00BFE501  — Timer A latch high = 0
-        0x13FC, 0x0000, 0x00BF, 0xE501,
-        // MOVE.B #$01, $00BFEE01  — CRA: START, continuous mode
-        0x13FC, 0x0001, 0x00BF, 0xEE01,
-    ];
-    let mut amiga = AmigaOcs::new(rom_with_boot(&config));
-
-    // Let boot complete and CIA fire at least once.
-    assert!(run_until_parked(&mut amiga, 200_000));
-
-    // Run extra ticks to guarantee at least one CIA underflow edge
-    // has been latched into INTREQ.PORTS.
-    let mut latched = false;
-    for _ in 0..1000 {
-        amiga.tick();
-        if amiga.intreq() & 0x0008 != 0 {
-            latched = true;
-            break;
+fn tick_until_request(amiga: &mut AmigaOcs, mask: u16) {
+    for _ in 0..20 {
+        if amiga.intreq() & mask != 0 {
+            return;
         }
+        amiga.tick();
     }
-    assert!(
-        latched,
-        "INTREQ.PORTS should latch on first CIA-A /IRQ edge"
+    assert_ne!(
+        amiga.intreq() & mask,
+        0,
+        "active interrupt input should set its Paula request"
     );
+}
 
-    // Now clear INTREQ.PORTS WITHOUT reading the CIA ICR. The CIA
-    // flag stays set, so /IRQ stays low, so no new rising edge.
+/// `PORTS` must reassert while CIA-A continues to hold `INT2*` low.
+#[test]
+fn cia_a_ports_reasserts_while_interrupt_input_remains_active() {
+    let mut amiga = AmigaOcs::new(rom_with_boot(&[]));
+    amiga.poke_byte(0x00BF_ED01, 0x88);
+    amiga.cia_a_mut().receive_serial_byte(0x5A);
+    tick_until_request(&mut amiga, 0x0008);
+
     amiga.poke_word(0x00DF_F09C, 0x0008);
-    assert_eq!(amiga.intreq() & 0x0008, 0, "INTREQ.PORTS cleared by poke");
+    tick_until_request(&mut amiga, 0x0008);
+}
 
-    // Tick a bunch. INTREQ.PORTS must stay cleared until something
-    // resets the CIA edge (e.g. handler reads ICR, or flag is
-    // otherwise dismissed).
-    for _ in 0..2000 {
+/// Reading CIA-A ICR releases `INT2*`, so `PORTS` must stay clear.
+#[test]
+fn cia_a_icr_read_prevents_ports_reassertion() {
+    let mut amiga = AmigaOcs::new(rom_with_boot(&[]));
+    amiga.poke_byte(0x00BF_ED01, 0x88);
+    amiga.cia_a_mut().receive_serial_byte(0x5A);
+    tick_until_request(&mut amiga, 0x0008);
+
+    let _ = amiga.cia_a_mut().read(0x0D);
+    assert!(!amiga.cia_a().irq_active(), "ICR read should release INT2*");
+    amiga.poke_word(0x00DF_F09C, 0x0008);
+    for _ in 0..20 {
         amiga.tick();
     }
     assert_eq!(
         amiga.intreq() & 0x0008,
         0,
-        "INTREQ.PORTS must not relatch — CIA line never went high"
+        "released INT2* must not reassert PORTS"
+    );
+}
+
+/// `EXTER` must reassert while CIA-B continues to hold `INT6*` low.
+#[test]
+fn cia_b_exter_reasserts_while_interrupt_input_remains_active() {
+    let mut amiga = AmigaOcs::new(rom_with_boot(&[]));
+    amiga.poke_byte(0x00BF_DD00, 0x90);
+    amiga.cia_b_mut().flag_falling_edge();
+    tick_until_request(&mut amiga, 0x2000);
+
+    amiga.poke_word(0x00DF_F09C, 0x2000);
+    tick_until_request(&mut amiga, 0x2000);
+}
+
+/// Reading CIA-B ICR releases `INT6*`, so `EXTER` must stay clear.
+#[test]
+fn cia_b_icr_read_prevents_exter_reassertion() {
+    let mut amiga = AmigaOcs::new(rom_with_boot(&[]));
+    amiga.poke_byte(0x00BF_DD00, 0x90);
+    amiga.cia_b_mut().flag_falling_edge();
+    tick_until_request(&mut amiga, 0x2000);
+
+    let _ = amiga.cia_b_mut().read(0x0D);
+    assert!(!amiga.cia_b().irq_active(), "ICR read should release INT6*");
+    amiga.poke_word(0x00DF_F09C, 0x2000);
+    for _ in 0..20 {
+        amiga.tick();
+    }
+    assert_eq!(
+        amiga.intreq() & 0x2000,
+        0,
+        "released INT6* must not reassert EXTER"
     );
 }

@@ -91,7 +91,7 @@ fn cia_a_timer_b_underflow_sets_intreq_ports() {
     // Timer B variant of the IRQ-chain test. This is the path
     // timer.device's UNIT_MICROHZ uses: CIA-A Timer B in one-shot
     // mode, ICR mask bit 1 (TB) set. When the underflow happens,
-    // CIA /IRQ → Paula edge-latch → INTREQ.PORTS.
+    // CIA /IRQ → Paula level-sensitive input → INTREQ.PORTS.
     //
     // If this test passes, our CIA→Paula→INTREQ chain is correct
     // and the MICROHZ-never-fires problem is entirely in what the

@@ -4,7 +4,7 @@
 //! chipset into Paula without behavioural regression. The chip-level
 //! behaviour is covered in `crates/commodore-paula-8364-archive/tests/`;
 //! these tests exercise the *wiring* through the Amiga custom-register
-//! bus, the 68000 IPL line, and the CIA→Paula edge latches.
+//! bus, the 68000 IPL line, and the CIA→Paula interrupt inputs.
 
 use machine_commodore_amiga_ocs::{AmigaOcs, AudioField, IntSource};
 
@@ -52,13 +52,14 @@ fn intena_clear_of_one_source_leaves_master_untouched() {
     assert_eq!(amiga.intena(), 0x4000, "master-enable must persist");
 }
 
-// ─── CIA /IRQ edges reach Paula's INTREQ ──────────────────────────
+// ─── CIA /IRQ inputs reach Paula's INTREQ ─────────────────────────
 
 #[test]
-fn cia_a_irq_edge_sets_intreq_ports() {
+fn cia_a_active_irq_sets_intreq_ports() {
     let mut amiga = AmigaOcs::new(zero_rom());
     // Enable ICR.SP mask on CIA-A and inject a serial byte — that
-    // raises CIA-A /IRQ level-sensitively. Paula edge-latches.
+    // raises CIA-A /IRQ level-sensitively. Paula sets PORTS while
+    // that shared interrupt input remains active.
     amiga.poke_byte(0x00BF_ED01, 0x88); // ICR mask SET | SP bit
     amiga.cia_a_mut().receive_serial_byte(0);
     for _ in 0..20 {

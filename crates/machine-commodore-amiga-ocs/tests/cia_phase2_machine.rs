@@ -81,14 +81,14 @@ fn cia_a_pra_reads_eb_on_reset_for_empty_drive_sense() {
 fn cia_a_sdr_receive_raises_sp_and_paula_ports_intreq() {
     // CIA-A SP pin is wired to keyboard in the Amiga; SDR-received
     // latches ICR bit 3 (SP). With ICR mask bit 3 set, /IRQ asserts.
-    // Paula rising-edge-latches CIA-A /IRQ into INTREQ.PORTS (bit 3).
+    // Paula maps active CIA-A /IRQ onto INTREQ.PORTS (bit 3).
     let mut amiga = AmigaOcs::new(zero_rom());
     // Enable ICR.SP mask (bit 7 = SET, bit 3 = SP).
     amiga.poke_byte(0x00BF_ED01, 0x88);
     // Receive a byte on the shift register.
     amiga.cia_a_mut().receive_serial_byte(0x5A);
-    // Step enough master/4 ticks to let the E-clock Paula-edge-latch
-    // fire (one E-clock = 10 ticks).
+    // Step enough master/4 ticks for the shared driver to sample the
+    // active interrupt input.
     for _ in 0..20 {
         amiga.tick();
     }
@@ -237,8 +237,8 @@ fn cia_b_prb_output_drives_pin_read_back() {
 #[test]
 fn cia_b_flag_pin_falling_edge_latches_icr_and_drives_exter() {
     // FLAG on CIA-B is the floppy index pulse. A negative edge latches
-    // ICR bit 4 (FLG). With the ICR mask set, CIA-B /IRQ asserts, and
-    // Paula edge-latches it into INTREQ.EXTER (bit 13).
+    // ICR bit 4 (FLG). With the ICR mask set, CIA-B /IRQ asserts and
+    // Paula exposes it through INTREQ.EXTER (bit 13).
     let mut amiga = AmigaOcs::new(zero_rom());
     // Enable ICR.FLG mask on CIA-B (bit 7 = SET, bit 4 = FLG).
     amiga.poke_byte(0x00BF_DD00, 0x90);
