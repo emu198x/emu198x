@@ -188,19 +188,25 @@ pub trait AmigaDriver {
                 self.cia_a_mut().tod_pulse();
             }
 
-            // Raster-line-zero event. The VERTB request is generated
+            // Raster-line-zero VERTB event. The request is generated
             // once when the beam enters the vertical-blank interval;
             // the interval itself is not a level-sensitive interrupt
-            // input. The same frame-start transition restarts the
-            // copper from COP1LC.
+            // input.
             let vertb_level = self.agnus().vertb_level();
             let rising_edge = vertb_level && !self.prev_vertb_level();
             if rising_edge {
                 self.paula_mut().raise(IntSource::Vertb);
-                // Copper restarts from COP1LC on every VBL edge.
-                self.copper_mut().jump1();
             }
             self.set_prev_vertb_level(vertb_level);
+
+            // The automatic COP1LC strobe is a separate Agnus event,
+            // even though fixed-sync Amiga hardware places it at the
+            // same line-zero boundary as VERTB. Keeping the predicates
+            // separate prevents later VSYNC/TOD timing work from
+            // moving the Copper restart with the CIA event.
+            if self.agnus().fixed_sync_copper_restart_event() {
+                self.copper_mut().jump1();
+            }
 
             // Copper runs when DMACON.COPEN (bit 7) AND DMAEN (bit 9)
             // are both set. Agnus arbitrates the chip bus; pass the

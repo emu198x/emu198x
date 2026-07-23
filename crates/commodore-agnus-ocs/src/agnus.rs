@@ -1897,6 +1897,22 @@ impl Agnus {
         self.vpos < VBL_END_LINE
     }
 
+    /// Whether the current fixed-sync beam position issues the
+    /// automatic Copper `COP1LC` restart strobe.
+    ///
+    /// On fixed-sync Amiga hardware this occurs at the frame boundary,
+    /// when the beam enters line zero. It is a separate Agnus event from
+    /// Paula's `VERTB` request even though both share the same raster
+    /// boundary.
+    ///
+    /// This predicate identifies the functional strobe position. The
+    /// subsequent internal Copper pointer-load pipeline is not yet
+    /// represented separately.
+    #[must_use]
+    pub fn fixed_sync_copper_restart_event(&self) -> bool {
+        self.vpos == 0 && self.hpos == 0
+    }
+
     /// Whether the current fixed-sync beam position is the
     /// counter-visible CIA-A TOD event.
     ///

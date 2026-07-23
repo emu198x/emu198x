@@ -226,8 +226,8 @@ pub struct AmigaEcs {
     /// events fire here), 1 at the second tick. Flips each tick.
     cck_phase: u8,
     /// Previous vertical-blank interval state. The transition into
-    /// blanking generates the once-per-frame `VERTB` request and the
-    /// other frame-start events.
+    /// blanking generates the once-per-frame `VERTB` request. Other
+    /// frame-start events use their own beam predicates.
     prev_vertb_level: bool,
     /// Last sampled CIA-A interrupt-input state. Retained in machine
     /// snapshots; Paula request generation is level-sensitive.
@@ -564,7 +564,7 @@ impl AmigaEcs {
             // vpos=0 (inside the VBL window), so the level signal is
             // already high. A `false` initial value would fake a
             // rising edge on the first tick and spuriously fire VERTB
-            // and the copper restart before the first real frame.
+            // before the first real frame.
             prev_vertb_level: true,
             prev_cia_a_irq: false,
             prev_cia_b_irq: false,
