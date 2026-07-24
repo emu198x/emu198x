@@ -20,6 +20,19 @@ mod tests {
 
     const DMACON_BPL: u16 = 0x0300;
 
+    fn observe_ddf_start(agnus: &mut commodore_agnus_ocs::Agnus) {
+        let mask = if agnus.agnus_id >= 0x2000 {
+            0x00FE
+        } else {
+            0x00FC
+        };
+        let start = agnus.ddfstrt & mask;
+        assert!(start > 0, "test helper requires a non-zero DDFSTRT");
+        agnus.hpos = start - 1;
+        agnus.tick_cck();
+        assert_eq!(agnus.ddf_start_match(), Some(start));
+    }
+
     #[test]
     fn hires_two_plane_line_fetches_forty_words_per_plane() {
         let mut denise = Denise::new();
@@ -37,6 +50,7 @@ mod tests {
         agnus.bpl2mod = 0;
         agnus.bpl_pt[0] = 0x0000_0100;
         agnus.bpl_pt[1] = 0x0000_0200;
+        observe_ddf_start(&mut agnus);
 
         for hpos in 0..=0x00E2 {
             agnus.hpos = hpos;
@@ -83,6 +97,7 @@ mod tests {
         agnus.bpl1mod = 0;
         agnus.bpl2mod = 0;
         agnus.bpl_pt[0] = 0x0000_0100;
+        observe_ddf_start(&mut agnus);
 
         for hpos in 0..=0x00E2 {
             agnus.hpos = hpos;
@@ -124,6 +139,8 @@ mod tests {
         agnus.diwstop = 0xE0C1;
         let vertical_diw_active = agnus.vertical_diw_active();
         assert!(vertical_diw_active);
+        observe_ddf_start(&mut agnus);
+        agnus.hpos = 0x0040;
 
         denise.write_word(0x0180, 0x0000);
         denise.write_word(0x0182, 0x0FFF);

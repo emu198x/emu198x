@@ -181,7 +181,7 @@ impl<C: DeniseChip> Denise<C> {
         let hpos = agnus.hpos;
         let dmacon = agnus.dmacon;
         let (vstart, _) = diw_vertical_window(agnus.diwstrt, agnus.diwstop);
-        let (ddf_start, _) = ddf_window(agnus.ddfstrt, agnus.ddfstop);
+        let ddf_start = agnus.ddf_start_match();
 
         let in_visible_line = vertical_diw_active;
         let bpl_dma_on = dmacon & 0x0300 == 0x0300;
@@ -272,10 +272,9 @@ impl<C: DeniseChip> Denise<C> {
             let fb_y = u32::from(vpos - VIEWPORT_V_START_LINE) * 2;
             let fb_x_lores = u32::from(hpos - VIEWPORT_H_START_CCK) * 2 + u32::from(phase);
 
-            let pipeline_x = if hpos >= ddf_start {
-                u32::from(hpos - ddf_start) * 2 + u32::from(phase)
-            } else {
-                0
+            let pipeline_x = match ddf_start {
+                Some(start) if hpos >= start => u32::from(hpos - start) * 2 + u32::from(phase),
+                _ => 0,
             };
             let pipeline_y = u32::from(vpos.saturating_sub(vstart)) * 2;
 
@@ -381,6 +380,19 @@ pub(crate) fn rgb12_to_argb(c12: u16) -> u32 {
 mod tests {
     use super::*;
 
+    fn observe_ddf_start(agnus: &mut commodore_agnus_ocs::Agnus) {
+        let mask = if agnus.agnus_id >= 0x2000 {
+            0x00FE
+        } else {
+            0x00FC
+        };
+        let start = agnus.ddfstrt & mask;
+        assert!(start > 0, "test helper requires a non-zero DDFSTRT");
+        agnus.hpos = start - 1;
+        agnus.tick_cck();
+        assert_eq!(agnus.ddf_start_match(), Some(start));
+    }
+
     #[test]
     fn rgb12_conversion() {
         assert_eq!(rgb12_to_argb(0x0FFF), 0xFFFF_FFFF);
@@ -422,6 +434,7 @@ mod tests {
         // end-of-line modulo. (Driven by Agnus FMODE, so the OCS chip
         // exercises the same fetch-loop path the AGA chip uses.)
         let mut agnus = Agnus::new();
+        agnus.agnus_id = 0x2300;
         agnus.max_bitplanes = 8;
         agnus.dmacon = 0x0300; // DMAEN | BPLEN
         agnus.bplcon0 = 0xA302; // HIRES + 2 planes
@@ -437,6 +450,7 @@ mod tests {
 
         let mem = Memory::new(vec![0u8; 0x4_0000]);
         let mut denise = Denise::<DeniseOcs>::new();
+        observe_ddf_start(&mut agnus);
 
         // Sweep one whole line (vpos inside the 44..300 DIW window);
         // stop before wrapping to hpos 0 again so no modulo is applied.
@@ -482,6 +496,7 @@ mod tests {
 
         let mem = Memory::new(vec![0u8; 0x4_0000]);
         let mut denise = Denise::<DeniseOcs>::new();
+        observe_ddf_start(&mut agnus);
 
         for h in 0u16..=0xE2 {
             agnus.hpos = h;
@@ -502,6 +517,77 @@ mod tests {
 
         assert_eq!(agnus.bpl_pt[0] - bpl0, 76, "BPL1 bytes/line (38 words)");
         assert_eq!(agnus.bpl_pt[1] - bpl1, 76, "BPL2 bytes/line (38 words)");
+    }
+
+    #[test]
+    fn ddfstrt_rewrite_after_match_does_not_rephase_pixels() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let mut matched = Agnus::new();
+        matched.agnus_id = 0x2000;
+        matched.dmacon = 0x0300; // DMAEN | BPLEN
+        matched.bplcon0 = 0x1000; // lowres, one bitplane
+        matched.ddfstrt = 0x0038;
+        matched.ddfstop = 0x0060;
+        matched.diwstrt = 0x2C81;
+        matched.diwstop = 0x2CC1;
+        matched.vpos = 0x0030;
+        matched.bpl_pt[0] = 0x0000_1000;
+
+        let mut memory = Memory::new(vec![0u8; 256 * 1024]);
+        for word in 0..32u32 {
+            memory.write_word(
+                0x0000_1000 + word * 2,
+                (word as u16).wrapping_mul(0x9E37) ^ 0xA55A,
+            );
+        }
+
+        observe_ddf_start(&mut matched);
+        let mut rewritten = matched.clone();
+        rewritten.write_ddfstrt(0x0080);
+
+        let mut reference = Denise::<DeniseOcs>::new();
+        let mut after_write = Denise::<DeniseOcs>::new();
+        reference.ocs.set_palette(1, 0xFFF);
+        after_write.ocs.set_palette(1, 0xFFF);
+
+        for hpos in 0x0038u16..=0x0070 {
+            matched.hpos = hpos;
+            rewritten.hpos = hpos;
+            let reference_fetch = matched
+                .cck_bus_plan()
+                .bitplane_dma_fetch_plane
+                .map(|plane| BitplaneDmaFetch {
+                    plane,
+                    width_words: 1,
+                });
+            let rewritten_fetch = rewritten
+                .cck_bus_plan()
+                .bitplane_dma_fetch_plane
+                .map(|plane| BitplaneDmaFetch {
+                    plane,
+                    width_words: 1,
+                });
+
+            reference.tick(0, reference_fetch, true, &mut matched, &memory);
+            after_write.tick(0, rewritten_fetch, true, &mut rewritten, &memory);
+            reference.tick(1, None, true, &mut matched, &memory);
+            after_write.tick(1, None, true, &mut rewritten, &memory);
+        }
+
+        assert_eq!(matched.ddf_start_match(), Some(0x0038));
+        assert_eq!(rewritten.ddf_start_match(), Some(0x0038));
+        assert_eq!(matched.bpl_pt[0], rewritten.bpl_pt[0]);
+        assert!(
+            reference.framebuffer().contains(&0xFFFF_FFFF),
+            "the fixture must render foreground pixels",
+        );
+        assert_eq!(
+            reference.framebuffer(),
+            after_write.framebuffer(),
+            "the live DDFSTRT register must not move an active pixel pipeline",
+        );
     }
 
     #[test]
@@ -534,6 +620,7 @@ mod tests {
         denise.ocs.set_palette(1, 0xF00);
         denise.ocs.set_palette(2, 0x0F0);
         denise.ocs.set_palette(3, 0x00F);
+        observe_ddf_start(&mut agnus);
 
         for vpos in 0x002Cu16..0x0030 {
             agnus.vpos = vpos;

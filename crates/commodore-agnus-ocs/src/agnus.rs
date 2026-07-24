@@ -476,6 +476,9 @@ pub struct Agnus {
     pub bpl_pt: [u32; 8],
     pub ddfstrt: u16,
     pub ddfstop: u16,
+    /// Current line's observed DDFSTRT comparator and frozen fetch-phase
+    /// origin. `None` means the comparator has not matched this line.
+    ddf_start_match: Option<u16>,
 
     // Blitter Registers
     pub bltcon0: u16,
@@ -608,6 +611,7 @@ impl Agnus {
             bpl_pt: [0; 8],
             ddfstrt: 0,
             ddfstop: 0,
+            ddf_start_match: None,
             bltcon0: 0,
             bltcon1: 0,
             bltsize: 0,
@@ -1496,6 +1500,7 @@ impl Agnus {
         self.hpos += 1;
         if self.hpos >= line_ccks {
             self.hpos = 0;
+            self.ddf_start_match = None;
             // End-of-line: toggle the long-line flipflop on regions
             // that alternate (NTSC default). PAL has lol_toggle=false
             // so the flipflop stays at 0 (every line is 227).
@@ -1524,6 +1529,7 @@ impl Agnus {
             // control-refetch priming). gap #162.
             self.update_sprite_dma_with_vertical_timing(frame_lines, sprite_timing);
         }
+        self.evaluate_ddf_start_comparator();
     }
 
     /// Per-line sprite-DMA update — run once as the beam enters each new
@@ -1811,6 +1817,40 @@ impl Agnus {
         }
     }
 
+    const fn ddf_mask(&self) -> u16 {
+        if self.agnus_id >= 0x2000 {
+            0x00FE
+        } else {
+            0x00FC
+        }
+    }
+
+    fn evaluate_ddf_start_comparator(&mut self) {
+        if self.ddf_start_match.is_some() {
+            return;
+        }
+        let ddfstrt = self.ddfstrt & self.ddf_mask();
+        if self.hpos != ddfstrt {
+            return;
+        }
+
+        // Early OCS starts the sequencer only when display DMA is enabled
+        // inside the vertical display window. Fat Agnus, ECS and Alice
+        // retain the comparator match independently and apply those gates
+        // when arbitration consumes it.
+        let enhanced = self.agnus_id >= 0x2000;
+        if enhanced || (self.dma_enabled(0x0100) && self.vertical_diw_active()) {
+            self.ddf_start_match = Some(ddfstrt);
+        }
+    }
+
+    /// Current line's observed DDFSTRT comparator and frozen fetch-phase
+    /// origin.
+    #[must_use]
+    pub const fn ddf_start_match(&self) -> Option<u16> {
+        self.ddf_start_match
+    }
+
     /// Determine who owns the current CCK slot.
     pub fn current_slot(&self) -> SlotOwner {
         self.current_slot_with_vertical_timing(
@@ -1886,12 +1926,8 @@ impl Agnus {
         // ignores the low DDF bits. OCS masks $FC (4-CCK lores
         // granularity); ECS/AGA mask $FE (2-CCK, the finer step SHRES
         // needs). agnus_id >= $2000 selects ECS and later. #30 Phase 4.
-        let ddf_mask: u16 = if self.agnus_id >= 0x2000 {
-            0x00FE
-        } else {
-            0x00FC
-        };
-        let ddfstrt = self.ddfstrt & ddf_mask;
+        let ddf_mask = self.ddf_mask();
+        let ddfstrt = self.ddf_start_match?;
         let ddfstop = self.ddfstop & ddf_mask;
         if self.dma_enabled(0x0100) && num_bpl > 0 && self.hpos >= ddfstrt {
             if fetch_width <= 1 {
@@ -2368,8 +2404,22 @@ mod tests {
         assert_eq!(fetch_cadence(4, true, true), (8, 8));
     }
 
+    fn observe_ddf_start_for_test(agnus: &mut Agnus) {
+        if agnus.agnus_id < 0x2000 {
+            agnus.vpos = 0x0030;
+            agnus.diwstrt = 0x2C81;
+            agnus.diwstop = 0x2CC1;
+        }
+        let start = agnus.ddfstrt & agnus.ddf_mask();
+        assert!(start > 0, "test helper requires a non-zero DDFSTRT");
+        agnus.hpos = start - 1;
+        agnus.tick_cck();
+        assert_eq!(agnus.ddf_start_match(), Some(start));
+    }
+
     /// Count bitplane DMA grants for one plane across a whole scan line.
     fn bitplane_grants(agnus: &mut Agnus, plane: u8) -> usize {
+        observe_ddf_start_for_test(agnus);
         let mut count = 0;
         for h in 0u16..=0xE2 {
             agnus.hpos = h;
@@ -2390,6 +2440,7 @@ mod tests {
         // that is 11 plane accesses per line. The wide-fetch loop turns
         // each access into 4 words, giving the 44 the modulo demands.
         let mut agnus = Agnus::new();
+        agnus.agnus_id = 0x2300;
         agnus.max_bitplanes = 8; // AGA
         agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN;
         agnus.bplcon0 = 0xA302; // HIRES + 2 planes
@@ -2423,6 +2474,7 @@ mod tests {
     /// The whole-line bitplane plane map (which plane, if any, each
     /// hpos fetches) — the fetch grid `bitplane_slot_at` produces.
     fn plane_map(agnus: &mut Agnus) -> Vec<Option<u8>> {
+        observe_ddf_start_for_test(agnus);
         (0u16..=0xE2)
             .map(|h| {
                 agnus.hpos = h;
@@ -2468,6 +2520,139 @@ mod tests {
             plane_map(&mut ecs),
             plane_map(&mut aligned),
             "ECS masks $FE — $3A is not aligned down to $38",
+        );
+    }
+
+    fn configured_hires_ddf(start: u16) -> Agnus {
+        let mut agnus = Agnus::new();
+        agnus.vpos = 0x0030;
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        agnus.bplcon0 = 0xC000; // hires, four bitplanes
+        agnus.write_ddfstrt(start);
+        agnus.write_ddfstop(0x00D0);
+        agnus.diwstrt = 0x2C81;
+        agnus.diwstop = 0x2CC1;
+        agnus
+    }
+
+    fn tick_to_hpos(agnus: &mut Agnus, target: u16) {
+        while agnus.hpos != target {
+            agnus.tick_cck();
+        }
+    }
+
+    #[test]
+    fn ddfstrt_write_at_or_behind_beam_cannot_create_a_line_match() {
+        for replacement in [0x0038, 0x0040] {
+            let mut agnus = configured_hires_ddf(0x0080);
+            agnus.hpos = 0x003F;
+            agnus.tick_cck();
+            assert_eq!(agnus.hpos, 0x0040);
+
+            agnus.write_ddfstrt(replacement);
+            tick_to_hpos(&mut agnus, 0x0043);
+
+            assert_eq!(agnus.ddf_start_match(), None);
+            assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
+        }
+    }
+
+    #[test]
+    fn future_ddfstrt_write_matches_at_the_new_comparator() {
+        let mut agnus = configured_hires_ddf(0x0080);
+        agnus.hpos = 0x003F;
+        agnus.tick_cck();
+        agnus.write_ddfstrt(0x0048);
+
+        tick_to_hpos(&mut agnus, 0x0047);
+        assert_eq!(agnus.ddf_start_match(), None);
+        assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
+
+        agnus.tick_cck();
+        assert_eq!(agnus.hpos, 0x0048);
+        assert_eq!(agnus.ddf_start_match(), Some(0x0048));
+        assert_eq!(
+            agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            Some(3),
+            "the first hires slot fetches BPL4"
+        );
+    }
+
+    #[test]
+    fn matched_ddfstrt_freezes_the_current_line_fetch_phase() {
+        let mut agnus = configured_hires_ddf(0x0038);
+        agnus.hpos = 0x0037;
+        agnus.tick_cck();
+        assert_eq!(agnus.ddf_start_match(), Some(0x0038));
+
+        agnus.write_ddfstrt(0x0080);
+        tick_to_hpos(&mut agnus, 0x003F);
+
+        assert_eq!(agnus.ddf_start_match(), Some(0x0038));
+        assert_eq!(
+            agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            Some(0),
+            "a later register write cannot rephase an active line"
+        );
+    }
+
+    #[test]
+    fn ddf_start_match_resets_and_observes_the_rewritten_value_next_line() {
+        let mut agnus = configured_hires_ddf(0x0038);
+        agnus.hpos = 0x0037;
+        agnus.tick_cck();
+        agnus.write_ddfstrt(0x0040);
+        assert_eq!(agnus.ddf_start_match(), Some(0x0038));
+
+        agnus.hpos = agnus.current_line_ccks() - 1;
+        agnus.tick_cck();
+        assert_eq!(agnus.hpos, 0);
+        assert_eq!(agnus.ddf_start_match(), None);
+
+        agnus.hpos = 0x003F;
+        agnus.tick_cck();
+        assert_eq!(agnus.ddf_start_match(), Some(0x0040));
+    }
+
+    #[test]
+    fn early_ocs_requires_dma_at_match_but_enhanced_agnus_retains_it() {
+        let mut ocs = configured_hires_ddf(0x0038);
+        ocs.dmacon = 0;
+        ocs.hpos = 0x0037;
+        ocs.tick_cck();
+        assert_eq!(ocs.ddf_start_match(), None);
+        ocs.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        ocs.hpos = 0x003F;
+        assert_eq!(ocs.cck_bus_plan().bitplane_dma_fetch_plane, None);
+
+        let mut ecs = configured_hires_ddf(0x0038);
+        ecs.agnus_id = 0x2000;
+        ecs.dmacon = 0;
+        ecs.hpos = 0x0037;
+        ecs.tick_cck();
+        assert_eq!(ecs.ddf_start_match(), Some(0x0038));
+        ecs.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        ecs.hpos = 0x003F;
+        assert_eq!(ecs.cck_bus_plan().bitplane_dma_fetch_plane, Some(0));
+    }
+
+    #[test]
+    fn early_ocs_requires_the_vertical_window_at_ddf_start_match() {
+        let mut agnus = configured_hires_ddf(0x0038);
+        agnus.vpos = 0x0010;
+        assert!(!agnus.vertical_diw_active());
+
+        agnus.hpos = 0x0037;
+        agnus.tick_cck();
+        assert_eq!(agnus.ddf_start_match(), None);
+
+        agnus.vpos = 0x0030;
+        assert!(agnus.vertical_diw_active());
+        agnus.hpos = 0x003F;
+        assert_eq!(
+            agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            None,
+            "entering the display window cannot replay a missed comparator",
         );
     }
 
@@ -2518,11 +2703,12 @@ mod tests {
     #[test]
     fn cck_bus_plan_reports_bitplane_grant_and_stall_policy() {
         let mut agnus = Agnus::new();
-        agnus.hpos = 0x23; // ddfstrt + 7 => BPL1 slot in lowres fetch group
         agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN | DMACON_COPEN;
         agnus.bplcon0 = 1 << 12; // 1 bitplane enabled
         agnus.ddfstrt = 0x1C;
         agnus.ddfstop = 0x1C;
+        observe_ddf_start_for_test(&mut agnus);
+        agnus.hpos = 0x23; // ddfstrt + 7 => BPL1 slot in lowres fetch group
 
         let plan = agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Bitplane(0));
@@ -2562,6 +2748,9 @@ mod tests {
         assert!(outside.cpu_chip_bus_granted);
 
         agnus.vpos = 0x30;
+        agnus.hpos = 0x1B;
+        agnus.tick_cck();
+        agnus.hpos = 0x23;
         let inside = agnus.cck_bus_plan();
         assert_eq!(inside.slot_owner, SlotOwner::Bitplane(0));
         assert_eq!(inside.bitplane_dma_fetch_plane, Some(0));
@@ -2581,6 +2770,9 @@ mod tests {
         assert_eq!(outside.bitplane_dma_fetch_plane, None);
 
         agnus.vpos = 0x30;
+        agnus.hpos = 0x1B;
+        agnus.tick_cck();
+        agnus.hpos = 0x23;
         let inside = agnus.cck_bus_plan();
         assert_eq!(inside.slot_owner, SlotOwner::Bitplane(0));
         assert_eq!(inside.sprite_dma_service_channel, None);
@@ -2589,11 +2781,12 @@ mod tests {
     #[test]
     fn cck_bus_plan_reports_hires_bitplane_grant_at_group_end() {
         let mut agnus = Agnus::new();
-        agnus.hpos = 0x43; // ddfstrt + 3 => BPL1 slot in hires fetch group
         agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN | DMACON_COPEN;
         agnus.bplcon0 = 0x8000 | (1 << 12); // HIRES + 1 bitplane
         agnus.ddfstrt = 0x40;
         agnus.ddfstop = 0x40;
+        observe_ddf_start_for_test(&mut agnus);
+        agnus.hpos = 0x43; // ddfstrt + 3 => BPL1 slot in hires fetch group
 
         let plan = agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Bitplane(0));

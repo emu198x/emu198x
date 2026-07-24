@@ -281,4 +281,33 @@ mod tests {
             "the AGA bootstrap list programs a one-line display window",
         );
     }
+
+    #[test]
+    fn alice_wide_fetch_keeps_the_matched_ddf_start_phase() {
+        let mut alice = AgnusAga::new();
+        alice.dmacon = 0x0300; // DMAEN | BPLEN
+        alice.bplcon0 = 0xA000; // hires, two bitplanes
+        alice.write_ddfstrt(0x0038);
+        alice.write_ddfstop(0x00D0);
+        alice.write_diwstrt(0x2C81);
+        alice.write_diwstop(0x2CC1);
+        alice.fmode = 0x0003;
+        alice.as_inner_mut().fmode = 0x0003;
+        tick_to_line(&mut alice, 0x0030);
+        assert!(alice.vertical_diw_active());
+
+        alice.hpos = 0x0037;
+        alice.tick_cck();
+        assert_eq!(alice.ddf_start_match(), Some(0x0038));
+
+        alice.write_ddfstrt(0x0080);
+        alice.hpos = 0x003F;
+
+        assert_eq!(alice.ddf_start_match(), Some(0x0038));
+        assert_eq!(
+            alice.cck_bus_plan().bitplane_dma_fetch_plane,
+            Some(0),
+            "the final active slot in Alice's wide-fetch group remains BPL1",
+        );
+    }
 }

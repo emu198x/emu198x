@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Start and phase each line's bitplane fetches from a serialized
+  DDFSTRT comparator match instead of the live register value, so
+  current or past writes cannot retroactively create DMA
+- Require bitplane DMA and an active vertical display window when
+  early OCS Agnus observes the DDFSTRT comparator
 - Derive sprite control and data requests from one shared regional
   vertical-timing path, preserving current-CCK bus ownership in snapshots
 - Select early-OCS nine-bit or Fat Agnus 8372A ten-bit sprite vertical

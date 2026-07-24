@@ -208,10 +208,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 3, and confirm the version-mismatch arm fires with a
+/// field back to 4, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV4` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 4` that byte is `0x04`.
+/// of a `SnapshotEnvelopeV5` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 5` that byte is `0x05`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch (rather than the postcard-parse-error branch above).
@@ -220,15 +220,15 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 4,
-        "postcard varint for SNAPSHOT_VERSION = 4 should be 0x04"
+        bytes[0], 5,
+        "postcard varint for SNAPSHOT_VERSION = 5 should be 0x05"
     );
-    bytes[0] = 3;
+    bytes[0] = 4;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-3 snapshot should be rejected before payload decode");
+        .expect_err("version-4 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("version")),
         "expected version-mismatch reason, got {err:?}"

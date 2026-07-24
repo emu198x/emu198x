@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Apply Copper DDFSTRT writes only to unreached comparator events,
+  preventing writes at or behind the beam from starting the current line
 - Preserve the ECS `DIWHIGH` vertical window when gating rendered output
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-commodore-amiga-ecs-v0.2.0) - 2026-06-04

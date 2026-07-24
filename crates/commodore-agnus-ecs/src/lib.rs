@@ -907,6 +907,19 @@ mod tests {
         agnus.evaluate_vertical_diw_comparators(vpos);
     }
 
+    fn observe_ddf_start(agnus: &mut AgnusEcs) {
+        let mask = if agnus.agnus_id >= 0x2000 {
+            0x00FE
+        } else {
+            0x00FC
+        };
+        let start = agnus.ddfstrt & mask;
+        assert!(start > 0, "test helper requires a non-zero DDFSTRT");
+        agnus.hpos = start - 1;
+        agnus.tick_cck();
+        assert_eq!(agnus.ddf_start_match(), Some(start));
+    }
+
     /// BLTCON0L is a byte-write port — only the low byte updates,
     /// the high byte of BLTCON0 (shift amount + channel enables)
     /// must remain untouched. KS 2.x relies on this to change LF
@@ -1491,6 +1504,8 @@ mod tests {
         agnus.write_diwhigh(0x2100);
         assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
         enter_vertical_line(&mut agnus, 0x002C);
+        observe_ddf_start(&mut agnus);
+        agnus.hpos = 0x0039;
         assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, Some(1),);
     }
 
@@ -1597,6 +1612,8 @@ mod tests {
         agnus.write_diwstrt(0x2010);
         agnus.write_diwstop(0xA020);
         enter_vertical_line(&mut agnus, 0x0020);
+        observe_ddf_start(&mut agnus);
+        agnus.hpos = 0x0023;
 
         let plan = agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Bitplane(0));
@@ -1654,6 +1671,8 @@ mod tests {
         agnus.write_diwstop(0xA020);
         agnus.write_diwhigh(0x0101);
         enter_vertical_line(&mut agnus, 0x0110);
+        observe_ddf_start(&mut agnus);
+        agnus.hpos = 0x0023;
         agnus.vpos = 0x0120;
 
         let plan = agnus.cck_bus_plan();

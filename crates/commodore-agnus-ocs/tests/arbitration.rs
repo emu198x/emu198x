@@ -51,6 +51,24 @@ fn at_hpos(agnus: &mut Agnus, hpos: u16) {
     agnus.hpos = hpos;
 }
 
+fn observe_ddf_start(agnus: &mut Agnus) {
+    if agnus.agnus_id < 0x2000 && !agnus.vertical_diw_active() {
+        agnus.vpos = 0x0030;
+        agnus.diwstrt = 0x2C81;
+        agnus.diwstop = 0x2CC1;
+    }
+    let mask = if agnus.agnus_id >= 0x2000 {
+        0x00FE
+    } else {
+        0x00FC
+    };
+    let start = agnus.ddfstrt & mask;
+    assert!(start > 0, "test helper requires a non-zero DDFSTRT");
+    agnus.hpos = start - 1;
+    agnus.tick_cck();
+    assert_eq!(agnus.ddf_start_match(), Some(start));
+}
+
 // ────────────────────────────────────────────────────────────────
 // Fixed-slot table
 // ────────────────────────────────────────────────────────────────
@@ -229,6 +247,7 @@ fn program_standard_lowres(a: &mut Agnus) {
     a.bplcon0 = 0x3000; // BPU = 3 (3 planes)
     a.ddfstrt = 0x0038; // canonical LORES DDFSTRT
     a.ddfstop = 0x00D0; // canonical LORES DDFSTOP
+    observe_ddf_start(a);
 }
 
 #[test]
@@ -249,6 +268,7 @@ fn no_bitplane_fetch_when_bplcon0_bpu_is_zero() {
     a.bplcon0 = 0x0000; // BPU = 0
     a.ddfstrt = 0x0038;
     a.ddfstop = 0x00D0;
+    observe_ddf_start(&mut a);
     at_hpos(&mut a, 0x40);
     // Even slot inside DDF window — but with no planes, slot is CPU
     // (or copper if COPEN).
@@ -278,11 +298,13 @@ fn aga_lowres_eight_planes_fill_the_two_idle_slots() {
     // #99: in AGA lowres with 8 planes, the two slots OCS/ECS leave idle
     // (positions 0 and 4 of the 8-CCK group) carry BPL7 and BPL8.
     let mut a = agnus_with_dmacon(DMAEN | BPLEN);
+    a.agnus_id = 0x2300;
     a.max_bitplanes = 8; // AGA Alice
     a.bplcon0 = 0x0010; // BPU = 8 (BPU3 = BPLCON0 bit 4), lores
     a.ddfstrt = 0x0038;
     a.ddfstop = 0x00D0;
     assert_eq!(a.num_bitplanes(), 8);
+    observe_ddf_start(&mut a);
 
     at_hpos(&mut a, 0x38); // pos 0 — BPL7 (idle on OCS/ECS)
     assert_eq!(a.current_slot(), SlotOwner::Bitplane(6));
@@ -298,11 +320,13 @@ fn aga_lowres_six_planes_leave_slots_0_and_4_idle() {
     // filter drops BPL7/BPL8, so positions 0 and 4 stay free exactly as on
     // OCS/ECS — AGA at 6 planes fetches identically to the OCS table.
     let mut a = agnus_with_dmacon(DMAEN | BPLEN);
+    a.agnus_id = 0x2300;
     a.max_bitplanes = 8; // AGA, but only 6 planes active
     a.bplcon0 = 0x6000; // BPU = 6, lores
     a.ddfstrt = 0x0038;
     a.ddfstop = 0x00D0;
     assert_eq!(a.num_bitplanes(), 6);
+    observe_ddf_start(&mut a);
 
     at_hpos(&mut a, 0x38); // pos 0 — BPL7 filtered out → not a bitplane slot
     assert_ne!(a.current_slot(), SlotOwner::Bitplane(6));
@@ -319,10 +343,12 @@ fn shres_fmode0_fetches_bpl1_bpl2_every_two_ccks() {
     // the fix this fell through to the lores 8-CCK group and starved the
     // (4 source-pixels/output) SHRES shifter.
     let mut a = agnus_with_dmacon(DMAEN | BPLEN);
+    a.agnus_id = 0x2000;
     a.bplcon0 = 0x2040; // BPU=2 + SHRES (bit 6), not hires
     a.ddfstrt = 0x0038;
     a.ddfstop = 0x00D0;
     assert_eq!(a.num_bitplanes(), 2);
+    observe_ddf_start(&mut a);
 
     at_hpos(&mut a, 0x38); // group pos 0 — BPL2
     assert_eq!(a.current_slot(), SlotOwner::Bitplane(1));
@@ -340,12 +366,14 @@ fn shres_fmode1_four_planes_cover_bpl1_through_bpl4() {
     // fetchstart 4. The 8-entry wide order does not nest to 4 slots, so the
     // fetch reuses the 4-slot hires order — its plane set is exactly 0..3.
     let mut a = agnus_with_dmacon(DMAEN | BPLEN);
+    a.agnus_id = 0x2300;
     a.max_bitplanes = 8; // AGA
     a.fmode = 0x0001; // 32-bit fetch
     a.bplcon0 = 0x4040; // BPU=4 + SHRES
     a.ddfstrt = 0x0038;
     a.ddfstop = 0x00D0;
     assert_eq!(a.num_bitplanes(), 4);
+    observe_ddf_start(&mut a);
 
     let planes: Vec<_> = (0x38u16..0x3C)
         .map(|h| {
@@ -370,12 +398,14 @@ fn shres_fmode2_eight_planes_cover_bpl1_through_bpl8() {
     // #469: SuperHires at 64-bit fetch (FMODE=2) is 8 planes / 256 colours,
     // fetchstart 8 — the existing wide order already covers planes 0..7.
     let mut a = agnus_with_dmacon(DMAEN | BPLEN);
+    a.agnus_id = 0x2300;
     a.max_bitplanes = 8; // AGA
     a.fmode = 0x0003; // 64-bit fetch
     a.bplcon0 = 0x0050; // BPU=8 (bit 4) + SHRES (bit 6)
     a.ddfstrt = 0x0038;
     a.ddfstop = 0x00D0;
     assert_eq!(a.num_bitplanes(), 8);
+    observe_ddf_start(&mut a);
 
     let mut seen = std::collections::BTreeSet::new();
     for h in 0x38u16..0x40 {
@@ -444,7 +474,10 @@ fn bus_plan_echoes_slot_grants_by_category() {
     a.ddfstrt = 0x38;
     a.ddfstop = 0xD0;
     a.vpos = 30;
+    a.diwstrt = 0x1E81;
+    a.diwstop = 0xA0C1;
     a.poke_sprite_ctl(0, 30 << 8);
+    observe_ddf_start(&mut a);
 
     at_hpos(&mut a, 0x07);
     assert!(a.cck_bus_plan().disk_dma_slot_granted);

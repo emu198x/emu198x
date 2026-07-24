@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 5 so the current-line
+  DDFSTRT comparator match and frozen fetch origin survive save and
+  restore; version 4 is rejected
 - Bump Amiga postcard snapshots to version 4 so the hidden ECS/AGA
   vertical display-window latch survives save and restore; version 3
   is rejected

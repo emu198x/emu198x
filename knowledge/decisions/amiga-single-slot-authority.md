@@ -71,6 +71,23 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
 - OCS bitplane vertical eligibility is part of the Agnus plan rather than a
   Denise-side fetch gate. This prevents inactive display DMA from ghost-owning
   the bus outside the display window.
+- DDFSTRT is an edge, not a continuously reconstructed range boundary. On
+  each line Agnus records the first matching masked comparator value and uses
+  it as the immutable fetch-phase origin for both arbitration and Denise.
+  The match resets at horizontal position zero and is evaluated when the beam
+  enters a CCK, before a Copper MOVE can alter the register in that CCK.
+  A write at or behind the beam therefore cannot start the line
+  retroactively; a write to an unreached position can still match; a write
+  after a match cannot rephase an active fetch sequence. Early OCS records
+  the match only while bitplane DMA and its vertical display window are
+  active. Fat Agnus, ECS Agnus and Alice retain the match independently and
+  apply those gates when arbitration consumes it. The match is serialized
+  because it cannot be reconstructed from the current registers and beam
+  position.
+  This is the DDFSTRT comparator and phase seam, not a complete DDF
+  sequencer. DDFSTOP edge state, final-fetch-unit behaviour, hardware fetch
+  limits, equal-boundary behaviour, eligibility changes after a start and
+  multiple enhanced-chipset fetch regions remain separate accuracy work.
 - Sprite control/data request state is likewise part of the Agnus plan.
   `SPREN` exposes the scheduled opportunities but does not make an idle
   channel own them; unused cells remain available to the blitter or CPU.
@@ -115,6 +132,9 @@ If I catch myself proposing any of these, stop and re-read the "Why".
   `bitplane_slot_at`.
 - Using raw DDFSTRT/DDFSTOP for the fetch grid without the per-variant
   `$FC`/`$FE` mask.
+- Starting a bitplane sequence from `hpos >= live DDFSTRT`, or phasing
+  Denise from the live DDFSTRT value after Agnus has already observed the
+  line's comparator.
 - A fixed-slot map that packs channels onto consecutive hpos.
 - Treating `SPREN + sprite hpos` as sufficient ownership without checking
   whether that sprite requests control or data DMA on the current line.
@@ -133,5 +153,6 @@ If I catch myself proposing any of these, stop and re-read the "Why".
 - "Just check `dma_claim` for the CPU stall."
 - "Bitplane DMA only claims even cells, so the CPU is fine on odd."
 - "Let Denise compute its own DDF fetch window."
+- "The beam is past DDFSTRT, so DMA must already be active."
 - "current_slot already says Copper, so stall the CPU."
 - "SPREN reserves every sprite slot whether or not the channel fetches."

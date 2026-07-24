@@ -2165,6 +2165,14 @@ mod bus_plan_dispatch_tests {
     use motorola_68000::cpu::State;
     use motorola_68000::microcode::MicroOp;
 
+    fn observe_ddf_start(amiga: &mut AmigaA1200) {
+        let start = amiga.agnus.ddfstrt & 0x00FE;
+        assert!(start > 0, "test helper requires a non-zero DDFSTRT");
+        amiga.agnus.hpos = start - 1;
+        amiga.agnus.tick_cck();
+        assert_eq!(amiga.agnus.ddf_start_match(), Some(start));
+    }
+
     #[test]
     fn constructed_alice_schedules_all_eight_lowres_bitplanes() {
         let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
@@ -2182,7 +2190,7 @@ mod bus_plan_dispatch_tests {
         assert_eq!(amiga.agnus.max_bitplanes, 8);
         assert_eq!(amiga.agnus.num_bitplanes(), 8);
 
-        amiga.agnus.hpos = 0x0038;
+        observe_ddf_start(&mut amiga);
         assert_eq!(
             amiga.agnus.cck_bus_plan().slot_owner,
             SlotOwner::Bitplane(6)
@@ -2343,6 +2351,43 @@ mod bus_plan_dispatch_tests {
     }
 
     #[test]
+    fn snapshot_preserves_current_line_ddf_start_origin() {
+        let rom = vec![0; 512 * 1024];
+        let mut amiga = AmigaA1200::new(rom.clone());
+        amiga.agnus.vpos = 0x0020;
+        amiga.agnus.dmacon = 0x0300;
+        amiga.agnus.bplcon0 = 0x9000; // hires, one bitplane
+        amiga.agnus.write_ddfstrt(0x0038);
+        amiga.agnus.write_ddfstop(0x00D0);
+        amiga.agnus.write_diwstrt(0x2010);
+        amiga.agnus.write_diwstop(0xA020);
+        amiga.agnus.bpl_pt[0] = 0x0000_2000;
+        observe_ddf_start(&mut amiga);
+
+        amiga.agnus.write_ddfstrt(0x0080);
+        while amiga.agnus.hpos < 0x003F {
+            amiga.agnus.tick_cck();
+        }
+        assert_eq!(amiga.agnus.ddf_start_match(), Some(0x0038));
+        assert_eq!(amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane, Some(0));
+        amiga.cck_phase = 1;
+
+        let bytes = postcard::to_allocvec(&amiga.snapshot_state()).expect("serialize snapshot");
+        let snapshot: AmigaA1200Snapshot =
+            postcard::from_bytes(&bytes).expect("deserialize snapshot");
+        let mut restored = AmigaA1200::new(rom);
+        restored.restore_snapshot_state(snapshot);
+
+        assert_eq!(restored.agnus.hpos, 0x003F);
+        assert_eq!(restored.agnus.ddfstrt, 0x0080);
+        assert_eq!(restored.agnus.ddf_start_match(), Some(0x0038));
+        let fetch = restored.agnus.cck_bus_plan().bitplane_dma_fetch_plane;
+        assert_eq!(fetch, Some(0));
+        <AmigaA1200 as AmigaDriver>::denise_tick(&mut restored, 0, fetch);
+        assert_eq!(restored.agnus.bpl_pt[0], 0x0000_2002);
+    }
+
+    #[test]
     fn concrete_alice_plan_releases_demoted_bitplane_slot_to_cpu() {
         let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
         amiga.agnus.vpos = 0x0020;
@@ -2354,6 +2399,8 @@ mod bus_plan_dispatch_tests {
         amiga.agnus.diwstrt = 0x1010;
         amiga.agnus.diwstop = 0xA020;
         amiga.agnus.write_diwhigh(0x0101);
+        observe_ddf_start(&mut amiga);
+        amiga.agnus.hpos = 0x0023;
 
         let plan = amiga.agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Cpu);
@@ -2385,7 +2432,6 @@ mod bus_plan_dispatch_tests {
         amiga.agnus.write_diwhigh(0x0000); // VSTART=VSTOP=$02C; stop wins
         assert!(!amiga.agnus.vertical_diw_active());
 
-        amiga.agnus.hpos = 0x0040;
         amiga.agnus.dmacon = 0x0300;
         amiga.agnus.ddfstrt = 0x0038;
         amiga.agnus.ddfstop = 0x00D0;
@@ -2393,6 +2439,8 @@ mod bus_plan_dispatch_tests {
         amiga.denise.write_word(0x0180, 0x000F);
         amiga.denise.write_word(0x0182, 0x0F00);
         amiga.denise.write_word(0x0110, 0x8000);
+        observe_ddf_start(&mut amiga);
+        amiga.agnus.hpos = 0x0040;
 
         <AmigaA1200 as AmigaDriver>::denise_tick(&mut amiga, 1, None);
 

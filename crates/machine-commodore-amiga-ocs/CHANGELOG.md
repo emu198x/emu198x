@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve each line's DDFSTRT comparator match through OCS and mixed
+  Fat Agnus arbitration and rendering
 - Pass the installed Agnus revision's vertical display-window state to
   Denise output, including OCS wrapping and Fat Agnus extended windows
 - Route base display-window writes through the installed Agnus

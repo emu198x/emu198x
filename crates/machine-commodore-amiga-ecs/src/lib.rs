@@ -2045,9 +2045,16 @@ mod bus_plan_dispatch_tests {
         AmigaEcs::new(vec![0; 512 * 1024])
     }
 
+    fn observe_ddf_start(amiga: &mut AmigaEcs) {
+        let start = amiga.agnus.ddfstrt & 0x00FE;
+        assert!(start > 0, "test helper requires a non-zero DDFSTRT");
+        amiga.agnus.hpos = start - 1;
+        amiga.agnus.tick_cck();
+        assert_eq!(amiga.agnus.ddf_start_match(), Some(start));
+    }
+
     fn configure_diwhigh_demoted_bitplane_slot(amiga: &mut AmigaEcs) {
         amiga.agnus.vpos = 0x0020;
-        amiga.agnus.hpos = 0x0023;
         amiga.agnus.dmacon = 0x0300; // DMAEN | BPLEN
         amiga.agnus.bplcon0 = 0x1000; // one bitplane
         amiga.agnus.ddfstrt = 0x001C;
@@ -2055,6 +2062,8 @@ mod bus_plan_dispatch_tests {
         amiga.agnus.diwstrt = 0x1010;
         amiga.agnus.diwstop = 0xA020;
         amiga.agnus.write_diwhigh(0x0101);
+        observe_ddf_start(amiga);
+        amiga.agnus.hpos = 0x0023;
 
         let plan = amiga.agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Cpu);
@@ -2081,6 +2090,70 @@ mod bus_plan_dispatch_tests {
 
         assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
         assert_eq!(amiga.memory.read_chip_ram_word(0x1000), 0xA55A);
+    }
+
+    fn machine_after_copper_ddfstrt_move(replacement: u16) -> AmigaEcs {
+        let mut amiga = machine();
+        amiga.agnus.vpos = 0x0020;
+        amiga.agnus.dmacon = 0x0380; // DMAEN | BPLEN | COPEN
+        amiga.agnus.bplcon0 = 0xC000; // hires, four bitplanes
+        amiga.agnus.write_ddfstrt(0x0080);
+        amiga.agnus.write_ddfstop(0x00D0);
+        amiga.agnus.write_diwstrt(0x2010);
+        amiga.agnus.write_diwstop(0xA020);
+        amiga.agnus.bpl_pt = [0x2000, 0x3000, 0x4000, 0x5000, 0, 0, 0, 0];
+
+        amiga.poke_word(0x0000_1000, 0x0092);
+        amiga.poke_word(0x0000_1002, replacement);
+        amiga.copper.pc = 0x0000_1000;
+        amiga.copper.cck_phase = 1;
+        amiga.agnus.hpos = 0x003F;
+        amiga.cck_phase = 0;
+
+        amiga.tick();
+
+        assert!(matches!(
+            amiga.debug_copper_move_log.last(),
+            Some(&(_, 0x0020, 0x0040, 0x0092, value)) if value == replacement
+        ));
+        amiga
+    }
+
+    #[test]
+    fn copper_ddfstrt_write_cannot_retroactively_start_current_line_dma() {
+        for replacement in [0x0038, 0x0040] {
+            let amiga = machine_after_copper_ddfstrt_move(replacement);
+            assert_eq!(
+                amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+                None,
+                "DDFSTRT={replacement:#06x} missed its current-line comparator"
+            );
+            assert_eq!(
+                amiga.agnus.bpl_pt,
+                [0x2000, 0x3000, 0x4000, 0x5000, 0, 0, 0, 0],
+                "a missed DDFSTRT comparator cannot fetch a bitplane"
+            );
+        }
+    }
+
+    #[test]
+    fn copper_can_reschedule_an_unreached_future_ddfstrt_comparator() {
+        let mut amiga = machine_after_copper_ddfstrt_move(0x0048);
+        assert_eq!(amiga.agnus.ddf_start_match(), None);
+        assert_eq!(amiga.agnus.bpl_pt[3], 0x0000_5000);
+
+        while amiga.agnus.hpos < 0x0047 {
+            amiga.agnus.tick_cck();
+            assert_eq!(amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
+        }
+        amiga.agnus.tick_cck();
+
+        assert_eq!(amiga.agnus.hpos, 0x0048);
+        assert_eq!(amiga.agnus.ddf_start_match(), Some(0x0048));
+        let fetch = amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane;
+        assert_eq!(fetch, Some(3));
+        <AmigaEcs as AmigaDriver>::denise_tick(&mut amiga, 0, fetch);
+        assert_eq!(amiga.agnus.bpl_pt[3], 0x0000_5002);
     }
 
     #[test]
@@ -2233,6 +2306,8 @@ mod bus_plan_dispatch_tests {
         amiga.agnus.write_diwhigh(0x0101);
         amiga.agnus.vpos = 0x0120;
         amiga.agnus.bpl_pt[0] = 0x0002_0000;
+        observe_ddf_start(&mut amiga);
+        amiga.agnus.hpos = 0x0023;
 
         let plan = amiga.agnus.cck_bus_plan();
         assert_eq!(plan.bitplane_dma_fetch_plane, Some(0));
@@ -2259,6 +2334,8 @@ mod bus_plan_dispatch_tests {
         amiga.denise.write_word(0x0180, 0x0000);
         amiga.denise.write_word(0x0182, 0x0FFF);
         amiga.denise.write_word(0x0110, 0x8000);
+        observe_ddf_start(&mut amiga);
+        amiga.agnus.hpos = 0x0038;
 
         <AmigaEcs as AmigaDriver>::denise_tick(&mut amiga, 1, None);
 
