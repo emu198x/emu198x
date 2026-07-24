@@ -136,7 +136,21 @@ impl From<AgnusAga> for InnerAgnusEcs {
 
 #[cfg(test)]
 mod tests {
-    use super::{AgnusAga, BEAMCON0_PAL, BEAMCON0_VARVBEN, InnerAgnusEcs, SlotOwner};
+    use super::{
+        AgnusAga, BEAMCON0_PAL, BEAMCON0_VARVBEN, InnerAgnusEcs, PAL_CCKS_PER_LINE,
+        PAL_LINES_PER_FRAME, SlotOwner,
+    };
+
+    fn tick_to_line(agnus: &mut InnerAgnusEcs, target: u16) {
+        let one_field = usize::from(PAL_CCKS_PER_LINE) * (usize::from(PAL_LINES_PER_FRAME) + 1);
+        for _ in 0..one_field {
+            if agnus.vpos == target {
+                return;
+            }
+            agnus.tick_cck();
+        }
+        panic!("beam did not reach line {target:#05x} within one PAL field");
+    }
 
     #[test]
     fn new_starts_with_fmode_cleared() {
@@ -227,5 +241,44 @@ mod tests {
 
         assert_eq!(agnus.sprite_vstart(0), 0x301);
         assert_eq!(agnus.sprite_vstop(0), 0x102);
+    }
+
+    #[test]
+    fn alice_diwhigh_uses_three_vertical_extension_bits() {
+        let mut alice = AgnusAga::new();
+        alice.write_diwstrt(0x2010);
+        alice.write_diwstop(0x3020);
+        alice.write_diwhigh(0x0008);
+        tick_to_line(&mut alice, 0x0020);
+        assert!(
+            alice.vertical_diw_active(),
+            "Alice ignores DIWHIGH VSTART bit 11, so VSTART is $020",
+        );
+
+        let mut ecs = InnerAgnusEcs::new();
+        ecs.write_diwstrt(0x2010);
+        ecs.write_diwstop(0x3020);
+        ecs.write_diwhigh(0x0008);
+        tick_to_line(&mut ecs, 0x0020);
+        assert!(
+            !ecs.vertical_diw_active(),
+            "ECS Agnus exposes the undocumented VSTART bit 11",
+        );
+    }
+
+    #[test]
+    fn alice_explicit_zero_diwhigh_closes_the_bootstrap_window_on_line_two() {
+        let mut alice = AgnusAga::new();
+        alice.write_diwstrt(0x0181);
+        alice.write_diwstop(0x0281);
+        alice.write_diwhigh(0x0000);
+
+        tick_to_line(&mut alice, 0x0001);
+        assert!(alice.vertical_diw_active());
+        tick_to_line(&mut alice, 0x0002);
+        assert!(
+            !alice.vertical_diw_active(),
+            "the AGA bootstrap list programs a one-line display window",
+        );
     }
 }

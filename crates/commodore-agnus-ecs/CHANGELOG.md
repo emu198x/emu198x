@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Drive ECS bitplane vertical eligibility from a serialized
+  VSTART/VSTOP display-window latch, so unreachable `DIWHIGH` starts
+  cannot open DMA and comparator writes cannot reconstruct live state
+- Treat an explicit `DIWHIGH=$0000` as direct high-bit decoding rather
+  than falling back to the legacy implicit VSTOP bit
 - Drive sprite blanking and control refetch from the edge-driven
   `VBSTRT`/`VBSTOP` state selected by `BEAMCON0.VARVBEN`
 - Keep untouched programmable blank comparators unarmed when other

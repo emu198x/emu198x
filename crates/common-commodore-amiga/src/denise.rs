@@ -497,4 +497,66 @@ mod tests {
         assert_eq!(agnus.bpl_pt[0] - bpl0, 76, "BPL1 bytes/line (38 words)");
         assert_eq!(agnus.bpl_pt[1] - bpl1, 76, "BPL2 bytes/line (38 words)");
     }
+
+    #[test]
+    fn hires_overfetch_keeps_identical_plane_streams_pixel_aligned() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let mut agnus = Agnus::new();
+        agnus.agnus_id = 0x2000;
+        agnus.dmacon = 0x0300;
+        agnus.bplcon0 = 0xA302; // HIRES + 2 planes + COLOR
+        agnus.ddfstrt = 0x0038;
+        agnus.ddfstop = 0x00D8;
+        agnus.diwstrt = 0x2C81;
+        agnus.diwstop = 0x2CC1;
+        agnus.bpl1mod = -4;
+        agnus.bpl2mod = -4;
+        agnus.bpl_pt[0] = 0x0000_1000;
+        agnus.bpl_pt[1] = 0x0000_2000;
+
+        let mut mem = Memory::new(vec![0u8; 256 * 1024]);
+        for word in 0..176u32 {
+            let value = (word as u16).wrapping_mul(0x9E37) ^ 0xA55A;
+            mem.write_word(0x0000_1000 + word * 2, value);
+            mem.write_word(0x0000_2000 + word * 2, value);
+        }
+
+        let mut denise = Denise::<DeniseOcs>::new();
+        denise.ocs.set_palette(0, 0x000);
+        denise.ocs.set_palette(1, 0xF00);
+        denise.ocs.set_palette(2, 0x0F0);
+        denise.ocs.set_palette(3, 0x00F);
+
+        for vpos in 0x002Cu16..0x0030 {
+            agnus.vpos = vpos;
+            for hpos in 0u16..=0x00E2 {
+                agnus.hpos = hpos;
+                let plan = agnus.cck_bus_plan();
+                denise.tick(
+                    0,
+                    plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
+                        plane,
+                        width_words: 1,
+                    }),
+                    &mut agnus,
+                    &mem,
+                );
+                denise.tick(1, None, &mut agnus, &mem);
+            }
+        }
+
+        for vpos in 0x002Cu16..0x0030 {
+            let row = usize::from(vpos - 0x19) * 2;
+            let first_visible = row * FB_WIDTH as usize + 82;
+            let visible = &denise.framebuffer[first_visible..first_visible + 640];
+            assert!(
+                visible
+                    .iter()
+                    .all(|pixel| matches!(*pixel, 0xFF00_0000 | 0xFF00_00FF)),
+                "identical BPL1/BPL2 data must remain aligned on line {vpos}",
+            );
+        }
+    }
 }

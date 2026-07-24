@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Route base display-window writes through the installed Agnus
+  revision so Fat Agnus updates its extended vertical-DIW latch
 - Select Fat Agnus 8372A explicitly for matching OCS-shaped profiles,
   expose its identity, enhanced sprite comparators, extended blitter
   registers, DIWHIGH DMA gating and programmable timing/blanking, and

@@ -2168,7 +2168,7 @@ mod bus_plan_dispatch_tests {
         // path. BPU3 (BPLCON0 bit 4) extends the AGA plane count to eight.
         amiga.poke_word(0x00DF_F096, 0x8300); // SETCLR | DMAEN | BPLEN
         amiga.poke_word(0x00DF_F100, 0x0010); // BPU = 8, lowres
-        amiga.poke_word(0x00DF_F08E, 0x1010);
+        amiga.poke_word(0x00DF_F08E, 0x2010); // VSTART matches current line
         amiga.poke_word(0x00DF_F090, 0xA020);
         amiga.poke_word(0x00DF_F092, 0x0038);
         amiga.poke_word(0x00DF_F094, 0x00D0);

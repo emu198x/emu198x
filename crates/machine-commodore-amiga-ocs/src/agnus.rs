@@ -115,6 +115,20 @@ impl InstalledAgnus {
         }
     }
 
+    pub(crate) fn write_diwstrt(&mut self, val: u16) {
+        match self {
+            Self::EarlyOcs(agnus) => agnus.write_diwstrt(val),
+            Self::Fat8372A(agnus) => agnus.write_diwstrt(val),
+        }
+    }
+
+    pub(crate) fn write_diwstop(&mut self, val: u16) {
+        match self {
+            Self::EarlyOcs(agnus) => agnus.write_diwstop(val),
+            Self::Fat8372A(agnus) => agnus.write_diwstop(val),
+        }
+    }
+
     /// Route one programmable-timing register to Fat Agnus.
     ///
     /// Early OCS Agnus does not decode this register block.

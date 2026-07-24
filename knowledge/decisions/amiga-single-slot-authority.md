@@ -82,7 +82,18 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
 - ECS/AGA pass their DIWHIGH-aware vertical eligibility into the same complete
   priority calculation. A suppressed bitplane request therefore falls through
   to sprite, copper, blitter or CPU as appropriate; AGA wide-fetch + SHRES grids
-  remain in the shared `bitplane_slot_at`.
+  remain in the shared `bitplane_slot_at`. ECS/AGA vertical eligibility is a
+  serialized comparator-driven latch: VSTART opens it, VSTOP or the fixed hard
+  vertical-blank start event closes it, and stop takes precedence. Register
+  writes change future comparator events rather than reconstructing live state
+  from the current beam position. An unreachable VSTART therefore cannot open
+  DMA merely because its numeric value is greater than VSTOP. Minimig's
+  `agnus_bitplanedma`, vAmiga's sequencer and WinUAE's `vdiwstate` independently
+  implement this as a set/clear latch rather than a circular range. Base
+  DIWSTRT or DIWSTOP writes return decoding to the legacy implicit VSTOP high
+  bit. Any subsequent DIWHIGH write, including zero, selects explicit high
+  bits. Alice exposes V10..V8; ECS Agnus additionally exposes the undocumented
+  V11 modelled by WinUAE.
 - Golden timing shifts (e.g. the WB1.3 free-memory counter) are boot-state
   variation, not render bugs; the desktop/boot screens stay pixel-correct.
 
@@ -107,6 +118,9 @@ If I catch myself proposing any of these, stop and re-read the "Why".
   whether that sprite requests control or data DMA on the current line.
 - Recomputing `cck_bus_plan()` after a state-mutating DMA service and using
   the new result to retroactively grant the same CCK to the CPU.
+- Reconstructing ECS/AGA vertical bitplane eligibility as a range comparison
+  over VSTART, VSTOP and the current beam position instead of preserving the
+  comparator-driven latch.
 
 **Phrases that signal drift:**
 

@@ -6,7 +6,9 @@
 
 use std::ops::{Deref, DerefMut};
 
-use commodore_agnus_ocs::{NTSC_VBL_END_LINE, PAL_VBL_END_LINE, SpriteDmaVerticalTiming};
+use commodore_agnus_ocs::{
+    NTSC_VBL_END_LINE, PAL_VBL_END_LINE, SpriteDmaVerticalTiming, bits::BPLCON0_LACE,
+};
 
 pub use commodore_agnus_ocs::Agnus as InnerAgnusOcs;
 pub use commodore_agnus_ocs::{
@@ -99,6 +101,10 @@ pub struct AgnusEcs {
     vsstrt: u16,
     diwhigh: u16,
     diwhigh_written: bool,
+    /// Hidden vertical display-window latch. VSTART/VSTOP and the hard
+    /// vertical-blank start event change this state on comparator events;
+    /// register writes do not reconstruct it from the current beam position.
+    vertical_diw_active: bool,
     /// ECS BLTSIZV ($05C) shadow — extended vertical blit size in
     /// lines (15 bits). Latched on write; consumed by the next
     /// BLTSIZH-triggered blit. KS 2.x / 3.x uses this for any blit
@@ -150,6 +156,7 @@ impl AgnusEcs {
             vsstrt: 0,
             diwhigh: 0,
             diwhigh_written: false,
+            vertical_diw_active: false,
             bltsizv: 0,
             bltsizh: 0,
         }
@@ -193,6 +200,7 @@ impl AgnusEcs {
             vsstrt: 0,
             diwhigh: 0,
             diwhigh_written: false,
+            vertical_diw_active: false,
             bltsizv: 0,
             bltsizh: 0,
         }
@@ -299,6 +307,61 @@ impl AgnusEcs {
         }
     }
 
+    fn bitplane_vertical_bounds(&self) -> (u16, u16) {
+        if self.diwhigh_written {
+            // An explicit DIWHIGH write selects direct high-bit decoding even
+            // when the value is zero. Alice exposes V10..V8; ECS Agnus also
+            // exposes the undocumented V11 modelled by WinUAE.
+            let high_mask = if self.inner.max_bitplanes > 6 {
+                0x0007
+            } else {
+                0x000F
+            };
+            let vstart = ((self.diwhigh & high_mask) << 8) | ((self.inner.diwstrt >> 8) & 0x00FF);
+            let vstop =
+                (((self.diwhigh >> 8) & high_mask) << 8) | ((self.inner.diwstop >> 8) & 0x00FF);
+            (vstart, vstop)
+        } else {
+            // Legacy OCS-style implicit V8 behavior until DIWHIGH is written.
+            let vstart = (self.inner.diwstrt >> 8) & 0x00FF; // V8 = 0
+            let stop_low = (self.inner.diwstop >> 8) & 0x00FF;
+            let stop_v8 = ((!((stop_low >> 7) & 0x1)) & 0x1) << 8; // V8 != V7
+            let vstop = stop_v8 | stop_low;
+            (vstart, vstop)
+        }
+    }
+
+    fn hard_vertical_diw_boundary_disabled(&self) -> bool {
+        self.varbeamen_enabled() || self.varvben_enabled() || self.harddis_enabled()
+    }
+
+    fn fixed_vertical_blank_start_event(&self, vpos: u16) -> bool {
+        vpos == self.current_field_lines() - 1
+    }
+
+    fn evaluate_vertical_diw_comparators(&mut self, vpos: u16) {
+        let force_off = !self.hard_vertical_diw_boundary_disabled()
+            && self.fixed_vertical_blank_start_event(vpos);
+        let (vstart, vstop) = self.bitplane_vertical_bounds();
+        let start = vpos == vstart && !force_off;
+        let stop = vpos == vstop || force_off;
+
+        // Stop has precedence. Equal comparators therefore keep the window
+        // closed, and a VSTART match on the hard vertical-blank start event
+        // cannot open it.
+        if start && !stop {
+            self.vertical_diw_active = true;
+        } else if stop {
+            self.vertical_diw_active = false;
+        }
+    }
+
+    /// Current hidden vertical display-window latch used by bitplane DMA.
+    #[must_use]
+    pub const fn vertical_diw_active(&self) -> bool {
+        self.vertical_diw_active
+    }
+
     /// Current hidden programmed vertical-blank latch.
     #[must_use]
     pub const fn programmed_vblank_active(&self) -> bool {
@@ -321,13 +384,14 @@ impl AgnusEcs {
         let (line_ccks, short_field_lines) = if self.varbeamen_enabled() {
             (
                 self.htotal_highest_count() + 1 + u16::from(self.inner.lol),
-                self.vtotal_highest_line() + 1,
+                self.short_field_lines(),
             )
         } else {
-            (self.inner.current_line_ccks(), self.inner.lines_per_frame)
+            (self.inner.current_line_ccks(), self.short_field_lines())
         };
         if let Some(vpos) = self.inner.next_cck_line_entry(line_ccks, short_field_lines) {
             self.enter_programmed_vertical_line(vpos);
+            self.evaluate_vertical_diw_comparators(vpos);
         }
         let sprite_timing = self.sprite_dma_vertical_timing();
         self.inner.tick_cck_with_timing_and_sprite_vertical_timing(
@@ -337,34 +401,21 @@ impl AgnusEcs {
         );
     }
 
+    fn short_field_lines(&self) -> u16 {
+        if self.varbeamen_enabled() {
+            self.vtotal_highest_line() + 1
+        } else {
+            self.inner.lines_per_frame
+        }
+    }
+
+    fn current_field_lines(&self) -> u16 {
+        self.short_field_lines()
+            + u16::from((self.inner.bplcon0 & BPLCON0_LACE) != 0 && self.inner.lof)
+    }
+
     fn bitplane_dma_vertical_active(&self) -> bool {
-        let (vstart, vstop) = if self.diwhigh_written && self.diwhigh != 0 {
-            // WinUAE models ECS Agnus with an undocumented extra DIWHIGH
-            // vertical bit (V11), so ECS uses 4 high bits for VSTART/VSTOP.
-            // When DIWHIGH is $0000, all extension bits are zero — fall back
-            // to OCS implicit V8 (KS 3.1 A3000 writes DIWHIGH=$0000 to reset
-            // the extended bits without collapsing the display window).
-            let vstart = ((self.diwhigh & 0x000F) << 8) | ((self.inner.diwstrt >> 8) & 0x00FF);
-            let vstop =
-                (((self.diwhigh >> 8) & 0x000F) << 8) | ((self.inner.diwstop >> 8) & 0x00FF);
-            (vstart, vstop)
-        } else {
-            // Legacy OCS-style implicit V8 behavior until DIWHIGH is written.
-            let vstart = (self.inner.diwstrt >> 8) & 0x00FF; // V8 = 0
-            let stop_low = (self.inner.diwstop >> 8) & 0x00FF;
-            let stop_v8 = ((!((stop_low >> 7) & 0x1)) & 0x1) << 8; // V8 != V7
-            let vstop = stop_v8 | stop_low;
-            (vstart, vstop)
-        };
-        if vstart == vstop {
-            return false;
-        }
-        let vpos = self.inner.vpos;
-        if vstart < vstop {
-            vpos >= vstart && vpos < vstop
-        } else {
-            vpos >= vstart || vpos < vstop
-        }
+        self.vertical_diw_active
     }
 
     /// ECS-aware bus plan that applies vertical bitplane DMA gating from the
@@ -433,12 +484,14 @@ impl AgnusEcs {
             self.beamcon0 &= !BEAMCON0_PAL;
         }
         self.sync_lol_toggle();
+        self.evaluate_vertical_diw_comparators(self.inner.vpos);
     }
 
     /// Store ECS `BEAMCON0` and apply its PAL/LOLDIS line-toggle controls.
     pub fn write_beamcon0(&mut self, val: u16) {
         self.beamcon0 = val;
         self.sync_lol_toggle();
+        self.evaluate_vertical_diw_comparators(self.inner.vpos);
     }
 
     fn sync_lol_toggle(&mut self) {
@@ -546,16 +599,35 @@ impl AgnusEcs {
         self.diwhigh
     }
 
-    /// Whether `DIWHIGH` has been explicitly written since reset.
+    /// Whether vertical display-window decoding currently uses explicit
+    /// `DIWHIGH` extension bits rather than the legacy implicit-high-bit rule.
     #[must_use]
     pub const fn diwhigh_written(&self) -> bool {
         self.diwhigh_written
     }
 
-    /// Store ECS `DIWHIGH` for later extended DIW timing/composition work.
+    /// Write base display-window start and return vertical decoding to the
+    /// legacy implicit-high-bit rule until `DIWHIGH` is written again.
+    pub fn write_diwstrt(&mut self, val: u16) {
+        self.inner.write_diwstrt(val);
+        self.diwhigh_written = false;
+        self.evaluate_vertical_diw_comparators(self.inner.vpos);
+    }
+
+    /// Write base display-window stop and return vertical decoding to the
+    /// legacy implicit-high-bit rule until `DIWHIGH` is written again.
+    pub fn write_diwstop(&mut self, val: u16) {
+        self.inner.write_diwstop(val);
+        self.diwhigh_written = false;
+        self.evaluate_vertical_diw_comparators(self.inner.vpos);
+    }
+
+    /// Store ECS `DIWHIGH` and evaluate only comparator events at the current
+    /// line. The existing vertical-DIW latch is otherwise preserved.
     pub fn write_diwhigh(&mut self, val: u16) {
         self.diwhigh = val;
         self.diwhigh_written = true;
+        self.evaluate_vertical_diw_comparators(self.inner.vpos);
     }
 
     /// Route one ECS programmable timing-register write.
@@ -819,7 +891,7 @@ mod tests {
     use super::{
         AgnusEcs, BEAMCON0_BLANKEN, BEAMCON0_CSCBEN, BEAMCON0_CSYTRUE, BEAMCON0_HARDDIS,
         BEAMCON0_HSYTRUE, BEAMCON0_LOLDIS, BEAMCON0_PAL, BEAMCON0_VARBEAMEN, BEAMCON0_VARCSYEN,
-        BEAMCON0_VARHSYEN, BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN, BEAMCON0_VSYTRUE,
+        BEAMCON0_VARHSYEN, BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN, BEAMCON0_VSYTRUE, BPLCON0_LACE,
         PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy, SlotOwner,
         UNWRITTEN_VERTICAL_BLANK_EDGE,
     };
@@ -828,6 +900,11 @@ mod tests {
         for _ in 0..=agnus.htotal_highest_count() {
             agnus.tick_cck();
         }
+    }
+
+    fn enter_vertical_line(agnus: &mut AgnusEcs, vpos: u16) {
+        agnus.vpos = vpos;
+        agnus.evaluate_vertical_diw_comparators(vpos);
     }
 
     /// BLTCON0L is a byte-write port — only the low byte updates,
@@ -1261,35 +1338,251 @@ mod tests {
     #[test]
     fn diwhigh_switches_vertical_dma_decode_from_legacy_to_explicit_high_bits() {
         let mut agnus = AgnusEcs::new();
-        agnus.diwstrt = 0x1010;
-        agnus.diwstop = 0xA020;
+        agnus.write_diwstrt(0x2010);
+        agnus.write_diwstop(0xA020);
 
-        agnus.vpos = 0x0020;
+        enter_vertical_line(&mut agnus, 0x0020);
         assert!(agnus.bitplane_dma_vertical_active());
-        agnus.vpos = 0x0120;
+        enter_vertical_line(&mut agnus, 0x00A0);
         assert!(!agnus.bitplane_dma_vertical_active());
 
         agnus.write_diwhigh(0x0101);
 
-        agnus.vpos = 0x0020;
-        assert!(!agnus.bitplane_dma_vertical_active());
-        agnus.vpos = 0x0120;
+        enter_vertical_line(&mut agnus, 0x0120);
         assert!(agnus.bitplane_dma_vertical_active());
+        enter_vertical_line(&mut agnus, 0x01A0);
+        assert!(!agnus.bitplane_dma_vertical_active());
     }
 
     #[test]
-    fn diwhigh_vertical_dma_window_wraps_across_frame_zero() {
+    fn explicit_zero_diwhigh_uses_direct_vertical_stop_bits() {
+        let mut unwritten = AgnusEcs::new();
+        unwritten.write_diwstrt(0x0110);
+        unwritten.write_diwstop(0x0220);
+
+        enter_vertical_line(&mut unwritten, 0x0001);
+        enter_vertical_line(&mut unwritten, 0x0002);
+        assert!(
+            unwritten.bitplane_dma_vertical_active(),
+            "without DIWHIGH, legacy decoding makes VSTOP=$102",
+        );
+        enter_vertical_line(&mut unwritten, 0x0102);
+        assert!(!unwritten.bitplane_dma_vertical_active());
+
         let mut agnus = AgnusEcs::new();
-        agnus.diwstrt = 0xF010;
-        agnus.diwstop = 0x1020;
+        agnus.write_diwstrt(0x0110);
+        agnus.write_diwstop(0x0220);
+        agnus.write_diwhigh(0x0000);
+
+        enter_vertical_line(&mut agnus, 0x0001);
+        assert!(agnus.bitplane_dma_vertical_active());
+        enter_vertical_line(&mut agnus, 0x0002);
+        assert!(
+            !agnus.bitplane_dma_vertical_active(),
+            "an explicit zero DIWHIGH makes VSTOP=$002, not legacy $102",
+        );
+    }
+
+    #[test]
+    fn hard_vertical_blank_closes_vertical_diw_before_frame_zero() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_diwstrt(0x2C10);
+        agnus.write_diwstop(0x1020);
+        agnus.write_diwhigh(0x0001);
+
+        enter_vertical_line(&mut agnus, 0x012C);
+        assert!(agnus.bitplane_dma_vertical_active());
+
+        enter_vertical_line(&mut agnus, PAL_LINES_PER_FRAME - 1);
+        assert!(
+            !agnus.bitplane_dma_vertical_active(),
+            "hard vertical blank starts on the final fixed-timing line",
+        );
+        enter_vertical_line(&mut agnus, 0x0000);
+        assert!(
+            !agnus.bitplane_dma_vertical_active(),
+            "vertical DIW remains closed after the field wraps",
+        );
+        enter_vertical_line(&mut agnus, 0x0005);
+        assert!(!agnus.bitplane_dma_vertical_active());
+    }
+
+    #[test]
+    fn interlace_long_field_moves_hard_blank_to_the_extra_line() {
+        let mut agnus = AgnusEcs::new();
+        agnus.bplcon0 = BPLCON0_LACE;
+        agnus.lof = true;
+        agnus.write_diwstrt(0x2C10);
+        agnus.write_diwstop(0x1020);
+        agnus.write_diwhigh(0x0001);
+
+        enter_vertical_line(&mut agnus, 0x012C);
+        enter_vertical_line(&mut agnus, PAL_LINES_PER_FRAME - 1);
+        assert!(
+            agnus.vertical_diw_active(),
+            "the penultimate line remains outside hard blank in a long field",
+        );
+        enter_vertical_line(&mut agnus, PAL_LINES_PER_FRAME);
+        assert!(
+            !agnus.vertical_diw_active(),
+            "the interlace extension is the long field's hard-blank line",
+        );
+
+        agnus.lof = false;
+        enter_vertical_line(&mut agnus, 0x012C);
+        enter_vertical_line(&mut agnus, PAL_LINES_PER_FRAME - 1);
+        assert!(
+            !agnus.vertical_diw_active(),
+            "the short field still blanks on its ordinary final line",
+        );
+    }
+
+    #[test]
+    fn programmed_vtotal_can_make_extended_diwhigh_start_reachable() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_diwstrt(0x2010);
+        agnus.write_diwstop(0x1020);
+        agnus.write_diwhigh(0x0003); // VSTART=$320, VSTOP=$010
+
+        assert!(
+            !agnus.bitplane_dma_vertical_active(),
+            "VSTART=$320 is unreachable with the standard PAL total",
+        );
+
+        agnus.write_vtotal(0x03FF);
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN | BEAMCON0_PAL);
+        enter_vertical_line(&mut agnus, 0x0320);
+        assert!(agnus.bitplane_dma_vertical_active());
+        enter_vertical_line(&mut agnus, 0x0005);
+        assert!(
+            agnus.bitplane_dma_vertical_active(),
+            "VARBEAMEN disables the fixed hard-blank boundary",
+        );
+        enter_vertical_line(&mut agnus, 0x0010);
+        assert!(!agnus.bitplane_dma_vertical_active());
+    }
+
+    #[test]
+    fn unreachable_diwhigh_start_keeps_bitplane_dma_closed() {
+        let mut agnus = AgnusEcs::new();
+        agnus.hpos = 0x39; // DDFSTRT + 1 => BPL2 in a hires fetch group
+        agnus.vpos = 0x002B;
+        agnus.dmacon = 0x0300; // DMAEN | BPLEN
+        agnus.bplcon0 = 0xA302; // HIRES + 2 bitplanes + COLOR
+        agnus.ddfstrt = 0x0038;
+        agnus.ddfstop = 0x00D8;
+        agnus.write_diwstrt(0x2C81);
+        agnus.write_diwstop(0x2CC1);
+
+        // graphics.library uses this value while replacing a Copper
+        // display list. VSTART decodes to $F2C, beyond the PAL field,
+        // so its comparator cannot open the DMA window. Treating the
+        // ordered pair as a stateless wrapping range would incorrectly
+        // grant a partial line before the replacement pointers settle.
+        agnus.write_diwhigh(0x00FF);
+        assert_eq!(
+            agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            None,
+            "an unreachable VSTART comparator must leave the window closed",
+        );
+
+        // Restoring the normal ECS extension re-establishes the
+        // $02C..$12C window: line $02B remains closed and line $02C opens.
+        agnus.write_diwhigh(0x2100);
+        assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
+        enter_vertical_line(&mut agnus, 0x002C);
+        assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, Some(1),);
+    }
+
+    #[test]
+    fn diwhigh_write_preserves_an_already_open_vertical_diw_latch() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_diwstrt(0x2C81);
+        agnus.write_diwstop(0x2CC1);
+        agnus.write_diwhigh(0x2100);
+        enter_vertical_line(&mut agnus, 0x002C);
+        assert!(agnus.vertical_diw_active());
+
+        agnus.vpos = 0x0064;
+        agnus.write_diwhigh(0x00FF);
+        assert!(
+            agnus.vertical_diw_active(),
+            "changing comparators must not reconstruct an open latch from position",
+        );
+
+        enter_vertical_line(&mut agnus, PAL_LINES_PER_FRAME - 1);
+        assert!(
+            !agnus.vertical_diw_active(),
+            "fixed vertical-blank start must still close the open latch",
+        );
+        enter_vertical_line(&mut agnus, 0x0000);
+        assert!(!agnus.vertical_diw_active());
+    }
+
+    #[test]
+    fn equal_vertical_diw_comparators_leave_latch_closed() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_diwstrt(0x2C81);
+        agnus.write_diwstop(0x2CC1);
         agnus.write_diwhigh(0x0101);
 
-        agnus.vpos = 0x01F5;
-        assert!(agnus.bitplane_dma_vertical_active());
-        agnus.vpos = 0x0005;
-        assert!(agnus.bitplane_dma_vertical_active());
-        agnus.vpos = 0x0150;
-        assert!(!agnus.bitplane_dma_vertical_active());
+        enter_vertical_line(&mut agnus, 0x012C);
+        assert!(!agnus.vertical_diw_active());
+    }
+
+    #[test]
+    fn base_diw_write_returns_vertical_decode_to_implicit_high_bits() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_diwhigh(0x2100);
+        assert!(agnus.diwhigh_written());
+
+        agnus.write_diwstrt(0x2C81);
+        assert!(!agnus.diwhigh_written());
+
+        agnus.write_diwhigh(0x2100);
+        agnus.write_diwstop(0x2CC1);
+        assert!(!agnus.diwhigh_written());
+    }
+
+    #[test]
+    fn top_of_field_vstart_can_reopen_after_hard_blank_start_event() {
+        let mut pal = AgnusEcs::new();
+        pal.write_diwstrt(0x1481);
+        pal.write_diwstop(0x64C1);
+        enter_vertical_line(&mut pal, 20);
+        assert!(
+            pal.vertical_diw_active(),
+            "hard blank is a close event, not a level gate over early PAL lines",
+        );
+
+        let mut ntsc = AgnusEcs::from_ocs(commodore_agnus_ocs::Agnus::new_with_region(
+            commodore_agnus_ocs::AgnusRegion::Ntsc,
+        ));
+        ntsc.write_diwstrt(0x1481);
+        ntsc.write_diwstop(0x64C1);
+        enter_vertical_line(&mut ntsc, 20);
+        assert!(
+            ntsc.vertical_diw_active(),
+            "the same event-driven rule applies to NTSC top-of-field lines",
+        );
+    }
+
+    #[test]
+    fn programmable_vertical_modes_disable_fixed_hard_blank() {
+        for mode in [BEAMCON0_VARBEAMEN, BEAMCON0_VARVBEN, BEAMCON0_HARDDIS] {
+            let mut agnus = AgnusEcs::new();
+            agnus.vpos = PAL_LINES_PER_FRAME - 1;
+            agnus.write_diwstrt(0x3710);
+            agnus.write_diwstop(0x1020);
+            agnus.write_diwhigh(0x0001); // VSTART=$137, the PAL final line.
+            assert!(!agnus.vertical_diw_active());
+
+            agnus.write_beamcon0(BEAMCON0_PAL | mode);
+            assert!(
+                agnus.vertical_diw_active(),
+                "BEAMCON0 mode {mode:#06x} should disable the fixed boundary",
+            );
+        }
     }
 
     #[test]
@@ -1301,8 +1594,9 @@ mod tests {
         agnus.bplcon0 = 1 << 12; // 1 bitplane enabled
         agnus.ddfstrt = 0x1C;
         agnus.ddfstop = 0x1C;
-        agnus.diwstrt = 0x1010;
-        agnus.diwstop = 0xA020;
+        agnus.write_diwstrt(0x2010);
+        agnus.write_diwstop(0xA020);
+        enter_vertical_line(&mut agnus, 0x0020);
 
         let plan = agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Bitplane(0));
@@ -1312,6 +1606,9 @@ mod tests {
             PaulaReturnProgressPolicy::Stall
         );
 
+        enter_vertical_line(&mut agnus, PAL_LINES_PER_FRAME - 1);
+        enter_vertical_line(&mut agnus, 0x0000);
+        agnus.vpos = 0x0020;
         agnus.write_diwhigh(0x0101);
 
         let plan = agnus.cck_bus_plan();
@@ -1333,11 +1630,9 @@ mod tests {
         agnus.bplcon0 = 1 << 12;
         agnus.ddfstrt = 0x1C;
         agnus.ddfstop = 0x1C;
-        agnus.diwstrt = 0x1010;
-        agnus.diwstop = 0xA020;
+        agnus.write_diwstrt(0x1010);
+        agnus.write_diwstop(0xA020);
         agnus.poke_sprite_ctl(3, 0x2000); // VSTOP=$20: control fetch requested
-
-        assert_eq!(agnus.cck_bus_plan().slot_owner, SlotOwner::Bitplane(0));
 
         agnus.write_diwhigh(0x0101);
         let plan = agnus.cck_bus_plan();
@@ -1355,9 +1650,11 @@ mod tests {
         agnus.bplcon0 = 1 << 12;
         agnus.ddfstrt = 0x1C;
         agnus.ddfstop = 0x1C;
-        agnus.diwstrt = 0x1010;
-        agnus.diwstop = 0xA020;
+        agnus.write_diwstrt(0x1010);
+        agnus.write_diwstop(0xA020);
         agnus.write_diwhigh(0x0101);
+        enter_vertical_line(&mut agnus, 0x0110);
+        agnus.vpos = 0x0120;
 
         let plan = agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Bitplane(0));

@@ -28,7 +28,7 @@ use emu198x_shell::{
     NullFrameSink, NullTraceSink,
 };
 use format_commodore_amiga_adf::ADF_SIZE_DD;
-use runtime_commodore_amiga::{AmigaOcsRuntime, Model};
+use runtime_commodore_amiga::{AmigaEcsRuntime, AmigaOcsRuntime, Model};
 
 fn blank_kickstart() -> Vec<u8> {
     let mut kickstart = vec![0u8; 256 * 1024];
@@ -162,6 +162,31 @@ fn a2000_fat_agnus_snapshot_round_trips_extension_state() -> Result<(), Box<dyn 
 }
 
 #[test]
+fn ecs_vertical_diw_latch_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    original.machine_mut().poke_word(0x00DF_F090, 0x10C1);
+    original.machine_mut().poke_word(0x00DF_F08E, 0x0081);
+    original.machine_mut().poke_word(0x00DF_F1E4, 0x0000);
+    original.machine_mut().poke_word(0x00DF_F1DC, 0x00A0);
+    assert!(
+        original.machine().agnus_ecs().vertical_diw_active(),
+        "a line-zero VSTART comparator should open the vertical-DIW latch",
+    );
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    restored.restore(&snapshot)?;
+
+    assert!(restored.machine().agnus_ecs().vertical_diw_active());
+    assert_eq!(
+        snapshot,
+        restored.snapshot()?,
+        "the hidden vertical-DIW latch must be byte-stable through postcard",
+    );
+    Ok(())
+}
+
+#[test]
 fn restore_rejects_wrong_model() -> Result<(), Box<dyn Error>> {
     let original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let snapshot = original.snapshot()?;
@@ -183,10 +208,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 2, and confirm the version-mismatch arm fires with a
+/// field back to 3, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV3` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 3` that byte is `0x03`.
+/// of a `SnapshotEnvelopeV4` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 4` that byte is `0x04`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch (rather than the postcard-parse-error branch above).
@@ -195,15 +220,15 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 3,
-        "postcard varint for SNAPSHOT_VERSION = 3 should be 0x03"
+        bytes[0], 4,
+        "postcard varint for SNAPSHOT_VERSION = 4 should be 0x04"
     );
-    bytes[0] = 2;
+    bytes[0] = 3;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-2 snapshot should be rejected before payload decode");
+        .expect_err("version-3 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("version")),
         "expected version-mismatch reason, got {err:?}"

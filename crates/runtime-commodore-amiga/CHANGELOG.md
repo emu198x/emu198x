@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 4 so the hidden ECS/AGA
+  vertical display-window latch survives save and restore; version 3
+  is rejected
 - Bump Amiga postcard snapshots to version 3 so OCS-shaped machine
   snapshots preserve whether early Agnus or Fat Agnus 8372A is installed,
   including the latter's ECS extension-register state; version 2 is rejected

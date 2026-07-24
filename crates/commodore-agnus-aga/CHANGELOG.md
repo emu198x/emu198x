@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Inherit ECS programmable vertical-blank timing for Alice sprite DMA
 - Inherit the enhanced ten-bit sprite vertical comparators
+- Limit Alice `DIWHIGH` vertical extensions to V10..V8 while retaining
+  the ECS Agnus V11 extension on ECS machines
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-agnus-aga-v0.2.0) - 2026-06-04
 

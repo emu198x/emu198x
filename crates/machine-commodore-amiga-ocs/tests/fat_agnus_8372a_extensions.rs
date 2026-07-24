@@ -287,6 +287,82 @@ fn fat_agnus_diwhigh_gates_bitplane_dma_in_the_mixed_machine() {
 }
 
 #[test]
+fn fat_agnus_diwstrt_write_returns_mixed_machine_to_legacy_vertical_decode() {
+    const BITPLANE: u32 = 0x0002_0000;
+
+    let mut fat = fat_agnus_machine();
+    fat.poke_word(DIWSTRT, 0x2010);
+    fat.poke_word(DIWSTOP, 0xA020);
+    fat.poke_word(DDFSTRT, 0x001C);
+    fat.poke_word(DDFSTOP, 0x001C);
+    fat.poke_word(BPLCON0, 0x1000);
+    fat.poke_word(BPL1PTH, (BITPLANE >> 16) as u16);
+    fat.poke_word(BPL1PTL, BITPLANE as u16);
+    fat.poke_word(DIWHIGH, 0x0101); // Extended VSTART=$120.
+    fat.poke_word(DMACON, 0x8300);
+
+    let mut guard = 0;
+    while fat.agnus().vpos < 0x20 && guard < 100_000 {
+        fat.tick();
+        guard += 1;
+    }
+    assert!(guard < 100_000, "beam did not reach line $20");
+    assert_eq!(fat.agnus().bpl_pt[0], BITPLANE);
+
+    // A base DIW write clears DIWHIGH's explicit extension state. Because
+    // VSTART now matches the current line, the event opens vertical DIW
+    // before this line's DDF slots arrive.
+    fat.poke_word(DIWSTRT, 0x2010);
+    for _ in 0..1_000 {
+        if fat.agnus().bpl_pt[0] > BITPLANE {
+            break;
+        }
+        fat.tick();
+    }
+    assert!(
+        fat.agnus().bpl_pt[0] > BITPLANE,
+        "mixed-machine DIWSTRT must reach the installed Fat Agnus wrapper",
+    );
+}
+
+#[test]
+fn fat_agnus_diwstop_write_closes_mixed_machine_vertical_latch() {
+    const BITPLANE: u32 = 0x0002_0000;
+
+    let mut fat = fat_agnus_machine();
+    fat.poke_word(DIWSTRT, 0x2010);
+    fat.poke_word(DIWSTOP, 0xA020);
+    fat.poke_word(DDFSTRT, 0x001C);
+    fat.poke_word(DDFSTOP, 0x001C);
+    fat.poke_word(BPLCON0, 0x1000);
+    fat.poke_word(BPL1PTH, (BITPLANE >> 16) as u16);
+    fat.poke_word(BPL1PTL, BITPLANE as u16);
+    fat.poke_word(DIWHIGH, 0x0201); // VSTART=$120, VSTOP=$2A0.
+    fat.poke_word(DMACON, 0x8300);
+
+    let mut guard = 0;
+    while fat.agnus().vpos < 0x120 && guard < 250_000 {
+        fat.tick();
+        guard += 1;
+    }
+    assert!(guard < 250_000, "beam did not reach line $120");
+    assert_eq!(fat.agnus().bpl_pt[0], BITPLANE);
+
+    // With implicit V8 restored, DIWSTOP=$20 decodes as $120 and matches
+    // the current line. The stop event must close the already-open latch
+    // before this line's fetch window.
+    fat.poke_word(DIWSTOP, 0x2020);
+    for _ in 0..1_000 {
+        fat.tick();
+    }
+    assert_eq!(
+        fat.agnus().bpl_pt[0],
+        BITPLANE,
+        "mixed-machine DIWSTOP must close the installed Fat Agnus latch",
+    );
+}
+
+#[test]
 fn fat_agnus_programmed_vbstop_drives_sprite_control_fetch() {
     const SPRITE: u32 = 0x0000_2000;
 

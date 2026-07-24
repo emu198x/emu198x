@@ -358,9 +358,9 @@ fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal() -> Result<(), Box<dy
 ///
 /// Catches regression: disk DMA + MFM decode + autoconfig + trackdisk
 /// path on the ECS chip stack — the single most expensive ECS
-/// regression to reproduce by hand. Window is 50M ticks (insert-disk)
-/// plus 25M (Workbench load) for 75M total, generous for the longer
-/// KS 2.04 cold-boot path.
+/// regression to reproduce by hand. The 250M-tick window reaches a
+/// stable post-boot display-list state where bitplane pointer alignment
+/// can also be checked.
 #[test]
 #[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick204.rom and ~/.emu198x/media/commodore-amiga/workbench-2.04.adf"]
 fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
@@ -413,6 +413,20 @@ fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
     assert!(
         steps > 200,
         "KS 2.04 should issue hundreds of step pulses while loading WB 2.04 (got {steps})"
+    );
+    let agnus = runtime.machine().agnus();
+    // The active KeyMap screen is 640 pixels (80 bytes) wide across
+    // 256 display lines, so adjacent plane streams remain $5000 apart.
+    const WB204_PLANE_SPAN: u32 = 80 * 256;
+    assert_eq!(
+        agnus.num_bitplanes(),
+        2,
+        "the Workbench waypoint should use two bitplanes",
+    );
+    assert_eq!(
+        agnus.bpl_pt[1].wrapping_sub(agnus.bpl_pt[0]),
+        WB204_PLANE_SPAN,
+        "the two equal-sized Workbench planes must remain one plane span apart",
     );
     Ok(())
 }

@@ -612,6 +612,12 @@ impl AmigaEcs {
         &self.agnus
     }
 
+    /// Read-only access to the ECS wrapper and its extension state.
+    #[must_use]
+    pub const fn agnus_ecs(&self) -> &AgnusEcs {
+        &self.agnus
+    }
+
     /// Active video region — PAL or NTSC. Drives runtime frame timing
     /// and is exposed to the runtime layer so query callers and the
     /// `AmigaMachine` impl can ask the machine which region it's
@@ -2210,7 +2216,7 @@ mod bus_plan_dispatch_tests {
     #[test]
     fn concrete_ecs_plan_fetches_inside_diwhigh_extended_window() {
         let mut amiga = machine();
-        amiga.agnus.vpos = 0x0120;
+        amiga.agnus.vpos = 0x0110;
         amiga.agnus.hpos = 0x0023;
         amiga.agnus.dmacon = 0x0300;
         amiga.agnus.bplcon0 = 0x1000;
@@ -2219,6 +2225,7 @@ mod bus_plan_dispatch_tests {
         amiga.agnus.diwstrt = 0x1010;
         amiga.agnus.diwstop = 0xA020;
         amiga.agnus.write_diwhigh(0x0101);
+        amiga.agnus.vpos = 0x0120;
         amiga.agnus.bpl_pt[0] = 0x0002_0000;
 
         let plan = amiga.agnus.cck_bus_plan();
