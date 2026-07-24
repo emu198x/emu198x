@@ -89,13 +89,21 @@ evidence does not establish physical aliasing above line `$3FF`, so the
 implementation follows WinUAE's exact comparison rather than inferring
 modulo-1024 behaviour from Minimig's ten-bit comparator input.
 
-The current mixed 8372A + OCS Denise machine path implements the
-8372A identity, chip-RAM ceiling and shared-core sprite comparator
-behaviour. Its remaining ECS Agnus register surface is incomplete.
-The passing Kickstart 2.04 insert-disk waypoint does not establish
-Workbench 2.04 compatibility; V36 software can detect enhanced Agnus
-and use ECS big-blit or programmable-timing registers. That register
-routing is a separate implementation task, not a hardware distinction.
+The mixed 8372A + OCS Denise machine path composes the ECS Agnus
+extension layer with OCS Denise. It therefore implements the 8372A
+identity, chip-RAM ceiling, ten-bit sprite comparators, extended blit
+registers, DIWHIGH display-DMA gating and the currently modelled
+programmable timing and blanking registers. The ECS Agnus extension
+layer remains incomplete beyond that implemented surface.
+
+The ROM-gated A2000 regression now boots Kickstart and Workbench 2.04,
+observes more than 200 drive steps, records guest writes to `BLTSIZH`
+and finishes with a non-trivial framebuffer while OCS Denise continues
+to report `$FFFF` at `DENISEID`. A headless capture at the same waypoint
+shows a coherent AmigaDOS keymap-selection screen. This is a software
+compatibility waypoint, not a pixel-accuracy golden; an independently
+sourced reference capture is still required before the image can become
+a trusted golden.
 
 Programmable blanking for sync outputs, VERTB, CIA timing and Copper
 restart is separate from this sprite-DMA decision.
@@ -172,8 +180,10 @@ not asserted as manufacturer-documented power-on behaviour.
   event generator itself has historical state that cannot be recovered
   from registers and beam position. ECS and AGA snapshots preserve the
   vertical-accessed flag, blank-active latch and line-held edge events.
-- The Amiga runtime postcard schema is version 2. Version-1 snapshots
-  are rejected rather than migrated.
+- The Amiga runtime postcard schema is version 3. Version-2 snapshots
+  are rejected rather than migrated because the OCS-shaped machine now
+  serializes its installed early or Fat Agnus revision and the Fat Agnus
+  wrapper's live extension-register state.
 - The per-request `SpriteDmaVerticalTiming` value remains transient.
   It also carries the nine- or ten-bit comparator capability selected
   by the Agnus identity; the already-serialized `agnus_id` and `u16`

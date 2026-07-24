@@ -417,6 +417,97 @@ fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Waypoint: the same KS/WB 2.04 media boots on the mixed A2000B chip
+/// stack and actually exercises Fat Agnus's extended blitter registers
+/// while retaining OCS Denise.
+///
+/// This is stronger than the insert-disk waypoint above: it proves the
+/// disk path, the V36 enhanced-Agnus branch and a non-trivial final
+/// framebuffer all survive together.
+#[test]
+#[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick204.rom and ~/.emu198x/media/commodore-amiga/workbench-2.04.adf"]
+fn workbench_204_reaches_desktop_a2000_fat_agnus_pal() -> Result<(), Box<dyn Error>> {
+    use std::collections::HashSet;
+
+    use emu198x_shell::{MediaImage, MediaKind, MediaSet};
+
+    let Some(rom_dir) = home_rom_dir() else {
+        eprintln!("skip: no Amiga ROM dir");
+        return Ok(());
+    };
+    let Some(media_dir) = home_media_dir() else {
+        eprintln!("skip: no Amiga media dir");
+        return Ok(());
+    };
+    let kickstart_path = rom_dir.join("kick204.rom");
+    let adf_path = media_dir.join("workbench-2.04.adf");
+    if !kickstart_path.exists() || !adf_path.exists() {
+        eprintln!("skip: missing kickstart or workbench ADF");
+        return Ok(());
+    }
+
+    let firmware = std::fs::read(&kickstart_path)?;
+    let adf = std::fs::read(&adf_path)?;
+    let mut runtime = AmigaOcsRuntime::new(Model::A2000OcsPal, firmware)?;
+    assert!(runtime.machine().uses_fat_agnus_8372a());
+    assert_eq!(runtime.machine().read_word(0x00DF_F07C), 0xFFFF);
+
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("floppy-0", MediaKind::Disk, &adf));
+    runtime.load_media(&media)?;
+
+    let mut host = null_host();
+    runtime.run_until(MachineTime::new(250_000_000), &mut host)?;
+
+    let provider = runtime_commodore_amiga::AmigaSessionQueryProvider;
+    use emu198x_shell::SessionQueryProvider;
+    let detected = provider
+        .query(&runtime, "boot.detected")?
+        .expect("boot.detected should be available")
+        .value;
+    let steps = provider
+        .query(&runtime, "disk.step_events")?
+        .expect("disk.step_events should be available")
+        .value
+        .as_u64()
+        .expect("step_events is a number");
+    let extended_blit_writes = runtime
+        .machine()
+        .debug_custom_write_log
+        .iter()
+        .filter(|entry| entry.3 == 0x05E)
+        .count();
+    let framebuffer = runtime.machine().denise().framebuffer();
+    let non_black = framebuffer
+        .iter()
+        .filter(|pixel| (**pixel & 0x00FF_FFFF) != 0)
+        .count();
+    let unique_rgb: HashSet<u32> = framebuffer
+        .iter()
+        .map(|pixel| pixel & 0x00FF_FFFF)
+        .collect();
+
+    assert_eq!(
+        detected,
+        serde_json::Value::Bool(true),
+        "Workbench 2.04 should leave a visible post-boot display"
+    );
+    assert!(
+        steps > 200,
+        "KS 2.04 should issue hundreds of step pulses while loading WB 2.04 (got {steps})"
+    );
+    assert!(
+        extended_blit_writes > 0,
+        "V36 should exercise Fat Agnus BLTSIZH while drawing the desktop"
+    );
+    assert!(
+        non_black > 1_000 && unique_rgb.len() >= 4,
+        "Workbench framebuffer should be non-trivial (non_black={non_black}, unique_rgb={})",
+        unique_rgb.len()
+    );
+    Ok(())
+}
+
 /// Diagnostic: disassemble the KS 2.04 boot path from $F800D2.
 /// Reusable for inspecting any region of any KS ROM — bump the
 /// `pc`/`end` pair to walk further, or change the ROM file path

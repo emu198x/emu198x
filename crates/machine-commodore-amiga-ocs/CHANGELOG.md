@@ -10,8 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Select Fat Agnus 8372A explicitly for matching OCS-shaped profiles,
-  expose its identity and enhanced sprite comparators, and enforce
-  each Agnus revision's chip-RAM ceiling
+  expose its identity, enhanced sprite comparators, extended blitter
+  registers, DIWHIGH DMA gating and programmable timing/blanking, and
+  enforce each Agnus revision's chip-RAM ceiling while retaining OCS Denise
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-commodore-amiga-ocs-v0.2.0) - 2026-06-04
 

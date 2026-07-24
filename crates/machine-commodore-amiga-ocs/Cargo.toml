@@ -13,6 +13,7 @@ motorola-68000 = { path = "../motorola-68000", version = "0.2.0" }
 mos-cia-8520 = { path = "../mos-cia-8520", version = "0.2.0" }
 commodore-paula-8364 = { path = "../commodore-paula-8364", version = "0.2.0" }
 commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.2.0" }
+commodore-agnus-ecs = { path = "../commodore-agnus-ecs", version = "0.2.0" }
 commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.2.0" }
 peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy", version = "0.2.0" }
 peripheral-commodore-amiga-keyboard = { path = "../peripheral-commodore-amiga-keyboard", version = "0.2.0" }

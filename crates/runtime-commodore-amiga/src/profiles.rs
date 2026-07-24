@@ -63,8 +63,9 @@ pub enum Model {
     /// RAM, OCS Denise, 68000 CPU, Zorro-II slots and Kickstart 1.3 /
     /// 2.04. Backed by `AmigaOcs` because the mixed stack retains the
     /// OCS Denise shape. A2000 Rev A (early Agnus 8371, 512 KiB chip)
-    /// is reachable via `AmigaOcsRuntime::with_ram_config(...,
-    /// RamConfig::bare())` without a separate catalogue entry.
+    /// does not yet have a distinct runtime catalogue entry; the raw
+    /// `AmigaOcs::with_ram_config` constructor can select that early
+    /// chip without attaching A2000 runtime identity.
     A2000OcsPal,
     /// A2000 OCS NTSC.
     A2000OcsNtsc,
@@ -395,8 +396,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
             Model::A1200AgaNtsc => "Amiga 1200 AGA NTSC — 68EC020 + Alice/Lisa chipset + Gayle, 2 MiB chip RAM. NTSC boot validation pending; PAL Agnus path is the active target.".into(),
             Model::A600EcsPal => "Amiga 600 ECS PAL — 68000 + ECS Agnus 8375 / Denise 8373 + Gayle (IDE + PCMCIA decode), 1 MiB chip RAM, Kickstart 2.05. Shares the ECS chip stack with the A500+; A600 form factor and Gayle-driven IDE distinguish it.".into(),
             Model::A600EcsNtsc => "Amiga 600 ECS NTSC — same chip stack as the A600 PAL, NTSC Agnus.".into(),
-            Model::A2000OcsPal => "Amiga 2000 mixed PAL — 68000 + ECS Fat Agnus 8372A + OCS Denise + Paula, configured for 1 MiB chip RAM, Kickstart 1.3 / 2.04 and Zorro-II slots. The current 8372A path covers identity, RAM ceiling and shared sprite comparators; its remaining ECS Agnus register surface is still incomplete. A2000A (early Agnus 8371, 512 KiB chip) is reachable via `AmigaOcsRuntime::with_ram_config` without a separate model entry.".into(),
-            Model::A2000OcsNtsc => "Amiga 2000 mixed NTSC — the same ECS Fat Agnus 8372A + OCS Denise stack as the PAL profile, with NTSC beam timing; the remaining ECS Agnus register surface is still incomplete.".into(),
+            Model::A2000OcsPal => "Amiga 2000 mixed PAL — 68000 + ECS Fat Agnus 8372A + OCS Denise + Paula, configured for 1 MiB chip RAM, Kickstart 1.3 / 2.04 and Zorro-II slots. The 8372A path covers identity, RAM ceiling, ten-bit sprite comparators, extended blits, DIWHIGH display-DMA gating and the currently modelled programmable timing registers; additional ECS Agnus behavior remains incomplete. A2000A (early Agnus 8371, 512 KiB chip) does not yet have a distinct runtime model; only the raw `AmigaOcs::with_ram_config` machine constructor can currently select the early chip without A2000 identity.".into(),
+            Model::A2000OcsNtsc => "Amiga 2000 mixed NTSC — the same ECS Fat Agnus 8372A + OCS Denise stack as the PAL profile, with NTSC beam timing and the currently modelled 8372A extension registers; additional ECS Agnus behavior remains incomplete.".into(),
         },
         clock: ClockDesc::new("system-tick", ClockRate::from_hz(tick_hz)),
         firmware: vec![FirmwareRequirement::new(firmware_id, firmware_name, false)],

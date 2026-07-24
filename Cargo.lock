@@ -2196,6 +2196,7 @@ dependencies = [
 name = "machine-commodore-amiga-ocs"
 version = "0.2.0"
 dependencies = [
+ "commodore-agnus-ecs",
  "commodore-agnus-ocs",
  "commodore-amiga-autoconfig",
  "commodore-denise-ocs",

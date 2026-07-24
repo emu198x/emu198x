@@ -15,7 +15,7 @@
 use std::error::Error;
 use std::path::PathBuf;
 
-use runtime_commodore_amiga::{AmigaOcsRuntime, Model, RamConfig};
+use runtime_commodore_amiga::{AmigaEcsRuntime, AmigaOcsRuntime, Model, RamConfig};
 
 fn blank_kickstart() -> Vec<u8> {
     let mut kickstart = vec![0u8; 256 * 1024];
@@ -66,7 +66,7 @@ fn a501_trapdoor_preset_installs_slow_ram() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn a500_plus_preset_installs_1m_chip() -> Result<(), Box<dyn Error>> {
-    let rt = AmigaOcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    let rt = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
     assert_eq!(rt.ram_config(), RamConfig::a500_plus());
     assert_eq!(rt.machine().memory().chip_ram_size(), 1024 * 1024);
     assert_eq!(rt.machine().memory().slow_ram_size(), 0);

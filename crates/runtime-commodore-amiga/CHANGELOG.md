@@ -9,14 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 3 so OCS-shaped machine
+  snapshots preserve whether early Agnus or Fat Agnus 8372A is installed,
+  including the latter's ECS extension-register state; version 2 is rejected
 - Bump Amiga postcard snapshots to version 2 for serialized programmable
   vertical-blank and current-CCK sprite-arbitration state; version 1 is rejected
 
 ### Fixed
 
 - Preserve OCS-shaped A2000 and maxed-A500 profiles while selecting
-  their installed Fat Agnus 8372A identity, RAM ceiling and sprite
-  comparators explicitly, independently from RAM size and OCS Denise
+  their installed Fat Agnus 8372A identity, RAM ceiling, sprite
+  comparators, programmable timing and large-blit registers explicitly,
+  independently from RAM size and OCS Denise
+- Boot Kickstart and Workbench 2.04 through the mixed A2000B chip stack,
+  including V36 extended-blitter writes, without upgrading OCS Denise
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/runtime-commodore-amiga-v0.2.0) - 2026-06-04
 

@@ -415,11 +415,11 @@ fn blank_constructor_builds_a1000_runtime() {
 }
 
 #[test]
-fn blank_constructor_builds_every_a500_variant() {
+fn blank_constructor_builds_every_ocs_shaped_pal_variant() {
     for model in [
         Model::A500OcsPalA501,
-        Model::A500PlusEcsPal,
         Model::A500OcsPalMaxed,
+        Model::A2000OcsPal,
     ] {
         let runtime = AmigaOcsRuntime::blank(model);
         assert_eq!(runtime.model(), model);
@@ -559,8 +559,8 @@ fn blank_constructor_builds_every_ntsc_variant() {
     let _ = AmigaOcsRuntime::blank(Model::A1000OcsNtsc);
     let _ = AmigaOcsRuntime::blank(Model::A500OcsNtsc);
     let _ = AmigaOcsRuntime::blank(Model::A500OcsNtscA501);
-    let _ = AmigaOcsRuntime::blank(Model::A500PlusEcsNtsc);
     let _ = AmigaOcsRuntime::blank(Model::A500OcsNtscMaxed);
+    let _ = AmigaOcsRuntime::blank(Model::A2000OcsNtsc);
 }
 
 #[test]

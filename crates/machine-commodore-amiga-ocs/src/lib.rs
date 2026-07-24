@@ -8,6 +8,7 @@
 
 mod agnus;
 mod denise;
+use agnus::{ExtendedBlitterWrite, InstalledAgnus};
 use common_commodore_amiga::board::{BusResponse, BusTransaction, ChipRamBus, TICKS_PER_CCK};
 use common_commodore_amiga::driver::AmigaDriver;
 use common_commodore_amiga::{cia, copper, memory, rtc};
@@ -281,7 +282,7 @@ pub struct AmigaOcs {
     port1_left_button_pressed: bool,
     /// Digital joystick state for controller port 1.
     joystick1: JoystickState,
-    agnus: Agnus,
+    agnus: InstalledAgnus,
     copper: Copper,
     denise: Denise,
     tick_count: u64,
@@ -420,7 +421,7 @@ pub struct AmigaOcsSnapshot {
     port0_left_button_pressed: bool,
     port1_left_button_pressed: bool,
     joystick1: JoystickState,
-    agnus: Agnus,
+    agnus: InstalledAgnus,
     copper: Copper,
     denise: Denise,
     tick_count: u64,
@@ -536,9 +537,9 @@ impl AmigaOcs {
             cfg.slow_kb as usize * 1024,
         );
         let agnus = if fat_agnus {
-            Agnus::new_fat_agnus_with_region(region)
+            InstalledAgnus::fat_8372a(region)
         } else {
-            Agnus::new_with_region(region)
+            InstalledAgnus::early_ocs(region)
         };
         Self::with_memory_config(memory, cfg, true, agnus)
     }
@@ -578,14 +579,14 @@ impl AmigaOcs {
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
-        Self::with_memory_config(memory, cfg, true, Agnus::new_with_region(region))
+        Self::with_memory_config(memory, cfg, true, InstalledAgnus::early_ocs(region))
     }
 
     fn with_memory_config(
         memory: Memory,
         cfg: RamConfig,
         slow_ram_decode: bool,
-        agnus: Agnus,
+        agnus: InstalledAgnus,
     ) -> Self {
         // Autoconfig only supports the eight Zorro-II sizes; other
         // (still-valid) fast_kb values are rounded down to the nearest
@@ -703,7 +704,16 @@ impl AmigaOcs {
     /// Read-only Agnus access.
     #[must_use]
     pub fn agnus(&self) -> &Agnus {
-        &self.agnus
+        self.agnus.base()
+    }
+
+    /// Whether this OCS-shaped machine has Fat Agnus 8372A installed.
+    ///
+    /// This is a board-level silicon choice, independent of the installed
+    /// chip-RAM amount. Denise remains OCS when this returns `true`.
+    #[must_use]
+    pub const fn uses_fat_agnus_8372a(&self) -> bool {
+        self.agnus.is_fat_8372a()
     }
 
     /// Active video region — PAL or NTSC. Drives runtime frame timing
@@ -1159,6 +1169,19 @@ impl AmigaOcs {
         }
     }
 
+    /// Serialize a blitter-register write against an in-flight blit.
+    ///
+    /// Real Agnus stalls the CPU-side write until the current blit is
+    /// complete. Draining here preserves the ordering while the emulator's
+    /// CPU bus remains transaction-based.
+    fn drain_blit_if_busy(&mut self) {
+        if self.agnus.blitter_busy {
+            let mut bus = ChipRamBus(&mut self.memory);
+            self.agnus.run_blit_to_completion(&mut bus);
+            self.paula.raise(IntSource::Blit);
+        }
+    }
+
     /// Convenience: current BPLCON0 value.
     #[must_use]
     pub fn bplcon0(&self) -> u16 {
@@ -1200,6 +1223,9 @@ impl AmigaOcs {
     /// Dispatch a custom-register word write to the right submodule.
     /// Shared between `poke_word` and the CPU bus servicer.
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
+        if self.agnus.write_timing_register(offset, val) {
+            return;
+        }
         let intena_before = self.paula.intena();
         match offset {
             0x080 => {
@@ -1279,6 +1305,31 @@ impl AmigaOcs {
                 self.joy1_x = (self.joy1_x & 0x03) | ((val as u8) & 0xFC);
                 self.joy1_y = (self.joy1_y & 0x03) | (((val >> 8) as u8) & 0xFC);
             }
+            // Fat Agnus 8372A owns the ECS large-blit extension trio even
+            // when paired with OCS Denise. Early OCS falls through to the
+            // legacy blitter-register range below, where these offsets are
+            // intentionally ignored.
+            0x05A | 0x05C | 0x05E if self.agnus.is_fat_8372a() => {
+                self.drain_blit_if_busy();
+                let result = self
+                    .agnus
+                    .write_extended_blitter_register(offset, val)
+                    .expect("Fat Agnus must decode the ECS blitter extension");
+                if result == ExtendedBlitterWrite::Started {
+                    self.debug_blit_starts += 1;
+                    self.debug_blit_log.push((
+                        self.tick_count / TICKS_PER_CCK,
+                        self.cpu.regs.pc,
+                        self.agnus.bltcon0,
+                        self.agnus.bltcon1,
+                        self.agnus.blt_apt,
+                        self.agnus.blt_bpt,
+                        self.agnus.blt_cpt,
+                        self.agnus.blt_dpt,
+                        self.agnus.bltsize,
+                    ));
+                }
+            }
             // Agnus-owned blitter registers. BLTSIZE ($058) fires
             // `start_blit` inside `write_blitter_register`, arming the
             // incremental scheduler; the blit then drains one DMA op per
@@ -1293,11 +1344,7 @@ impl AmigaOcs {
             // still sees the first blit complete rather than have it
             // aborted by the next `start_blit`.
             0x040..=0x074 => {
-                if self.agnus.blitter_busy {
-                    let mut bus = ChipRamBus(&mut self.memory);
-                    self.agnus.run_blit_to_completion(&mut bus);
-                    self.paula.raise(IntSource::Blit);
-                }
+                self.drain_blit_if_busy();
                 if self.agnus.write_blitter_register(offset, val) && offset == 0x058 {
                     self.debug_blit_starts += 1;
                     self.debug_blit_log.push((
@@ -1889,10 +1936,10 @@ impl AmigaOcs {
 // variant-specific helpers (no Gayle arm; stock Cpu68000).
 impl AmigaDriver for AmigaOcs {
     fn agnus(&self) -> &Agnus {
-        &self.agnus
+        self.agnus.base()
     }
     fn agnus_mut(&mut self) -> &mut Agnus {
-        &mut self.agnus
+        self.agnus.base_mut()
     }
     fn copper(&self) -> &Copper {
         &self.copper
@@ -1992,8 +2039,12 @@ impl AmigaDriver for AmigaOcs {
         let width_words = self.agnus.bpl_fetch_width();
         let bitplane_dma_fetch =
             bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });
-        self.denise
-            .tick(phase, bitplane_dma_fetch, &mut self.agnus, &self.memory);
+        self.denise.tick(
+            phase,
+            bitplane_dma_fetch,
+            self.agnus.base_mut(),
+            &self.memory,
+        );
     }
 
     fn cck_phase(&self) -> u8 {

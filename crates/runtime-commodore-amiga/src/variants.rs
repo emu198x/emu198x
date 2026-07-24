@@ -195,7 +195,7 @@ impl AmigaMachine for AmigaOcs {
 
     fn rebuild(&mut self, firmware: &[u8], metadata: &Self::SnapshotMetadata) {
         let region = self.region();
-        let fat_agnus = self.agnus().agnus_id >= 0x2000;
+        let fat_agnus = self.uses_fat_agnus_8372a();
         // Two OCS construction paths sit behind one trait method.
         // The 64 KiB image is unambiguously an A1000 bootstrap ROM
         // (the only valid size at that length); 256/512 KiB images
@@ -1129,11 +1129,16 @@ mod tests {
             0x2000,
             "the OCS-shaped A2000 still carries Fat Agnus 8372A"
         );
+        assert!(runtime.machine().uses_fat_agnus_8372a());
         runtime.reset(ResetKind::Hard);
         assert_eq!(
             runtime.machine().agnus().agnus_id,
             0x2000,
             "hard reset must preserve the model's explicit Agnus revision"
+        );
+        assert!(
+            runtime.machine().uses_fat_agnus_8372a(),
+            "hard reset must preserve the concrete Fat Agnus extension layer"
         );
     }
 }

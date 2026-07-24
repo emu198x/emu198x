@@ -100,7 +100,7 @@ fn snapshot_then_restore_yields_bit_identical_forward_run() -> Result<(), Box<dy
 
     // Run both runtimes forward by the same amount of machine time
     // and expect their snapshots to remain byte-equal afterwards.
-    let target = MachineTime::new(32_000 + 8_000);
+    let target = original.time().saturating_add(8_000);
     let mut host_a = null_host();
     original.run_until(target, &mut host_a)?;
     let mut host_b = null_host();
@@ -122,11 +122,51 @@ fn snapshot_then_restore_yields_bit_identical_forward_run() -> Result<(), Box<dy
 }
 
 #[test]
+fn a2000_fat_agnus_snapshot_round_trips_extension_state() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaOcsRuntime::new(Model::A2000OcsPal, blank_kickstart())?;
+    assert!(original.machine().uses_fat_agnus_8372a());
+
+    // Populate wrapper-only state rather than proving only that the inner
+    // OCS Agnus serializes. HTOTAL/VTOTAL/BEAMCON0 drive the concrete ECS
+    // clock path; BLTSIZV remains sticky for a later BLTSIZH start.
+    original.machine_mut().poke_word(0x00DF_F1C0, 3);
+    original.machine_mut().poke_word(0x00DF_F1C8, 1);
+    original.machine_mut().poke_word(0x00DF_F1DC, 0x00A0);
+    original.machine_mut().poke_word(0x00DF_F05C, 2);
+    let mut host = null_host();
+    original.run_until(MachineTime::new(64), &mut host)?;
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A2000OcsPal, blank_kickstart())?;
+    restored.restore(&snapshot)?;
+
+    assert!(restored.machine().uses_fat_agnus_8372a());
+    assert_eq!(restored.machine().read_word(0x00DF_F07C), 0xFFFF);
+    assert_eq!(
+        snapshot,
+        restored.snapshot()?,
+        "Fat Agnus wrapper state must be byte-stable through postcard"
+    );
+
+    let target = original.time().saturating_add(64);
+    let mut host_a = null_host();
+    original.run_until(target, &mut host_a)?;
+    let mut host_b = null_host();
+    restored.run_until(target, &mut host_b)?;
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "programmed Fat Agnus timing must remain deterministic after restore"
+    );
+    Ok(())
+}
+
+#[test]
 fn restore_rejects_wrong_model() -> Result<(), Box<dyn Error>> {
     let original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let snapshot = original.snapshot()?;
 
-    let mut other_model = AmigaOcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    let mut other_model = AmigaOcsRuntime::new(Model::A500OcsPalA501, blank_kickstart())?;
     let result = other_model.restore(&snapshot);
     assert!(result.is_err(), "restoring across models should fail");
     Ok(())
@@ -143,10 +183,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 1, and confirm the version-mismatch arm fires with a
+/// field back to 2, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV2` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 2` that byte is `0x02`.
+/// of a `SnapshotEnvelopeV3` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 3` that byte is `0x03`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch (rather than the postcard-parse-error branch above).
@@ -155,15 +195,15 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 2,
-        "postcard varint for SNAPSHOT_VERSION = 2 should be 0x02"
+        bytes[0], 3,
+        "postcard varint for SNAPSHOT_VERSION = 3 should be 0x03"
     );
-    bytes[0] = 1;
+    bytes[0] = 2;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-1 snapshot should be rejected before payload decode");
+        .expect_err("version-2 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("version")),
         "expected version-mismatch reason, got {err:?}"

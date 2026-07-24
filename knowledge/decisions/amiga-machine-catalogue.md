@@ -47,8 +47,11 @@ enum AmigaRuntimeKind {
 **Fat Agnus 8372A goes under Ocs.** The 1 MB chip-RAM Fat Agnus is
 paired with OCS Denise, so the chip-stack *shape* remains OCS.
 Its Agnus-side revision capabilities—including the wider chip-RAM
-address space and ten-bit sprite vertical comparators—are explicit
-configuration rather than properties inferred from installed RAM.
+address space, ten-bit sprite vertical comparators, extended blits and
+programmable timing—are explicit configuration rather than properties
+inferred from installed RAM. The machine composes the existing ECS
+Agnus extension layer with OCS Denise; it does not duplicate those
+register handlers or promote the complete chip stack to ECS.
 The model catalogue distinguishes
 `A500::REV_C_PAL` (256 KB chip, pre-Fat-Agnus) from `A500::REV_G_PAL`
 (1 MB chip, Fat-Agnus 8372A) — but both run on `OcsCore`.
