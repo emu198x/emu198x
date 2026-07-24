@@ -6,6 +6,8 @@
 
 use std::ops::{Deref, DerefMut};
 
+use commodore_agnus_ocs::{NTSC_VBL_END_LINE, PAL_VBL_END_LINE, SpriteDmaVerticalTiming};
+
 pub use commodore_agnus_ocs::Agnus as InnerAgnusOcs;
 pub use commodore_agnus_ocs::{
     BlitterDmaOp, CckBusPlan, Copper, CopperState, HIRES_DDF_TO_PLANE, LOWRES_DDF_TO_PLANE,
@@ -50,6 +52,11 @@ pub const BEAMCON0_LPENDIS: u16 = 0x2000;
 /// Bit 14: disable hardwired horizontal/vertical blanking.
 pub const BEAMCON0_HARDDIS: u16 = 0x4000;
 
+// WinUAE seeds the write-only programmable blank comparators to $FFFF on a
+// hard reset. Keep that value out of the 11-bit comparison domain so writing
+// another vertical-timing register cannot accidentally arm a blank edge.
+const UNWRITTEN_VERTICAL_BLANK_EDGE: u16 = u16::MAX;
+
 /// Reported sync and blank output pin levels from the ECS sync generator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SyncPinLevels {
@@ -78,6 +85,16 @@ pub struct AgnusEcs {
     hbstop: u16,
     vbstrt: u16,
     vbstop: u16,
+    /// Whether any programmable vertical timing register has been written.
+    /// Until then the emulator does not claim a physical reset value for the
+    /// write-only comparator latches.
+    programmed_vertical_accessed: bool,
+    /// Hidden programmed vertical-blank latch. It follows VBSTRT/VBSTOP
+    /// line-entry events independently of `BEAMCON0.VARVBEN`.
+    programmed_vblank_active: bool,
+    /// One-line programmed vertical-blank edge pulses.
+    programmed_vblank_start_event: bool,
+    programmed_vblank_stop_event: bool,
     hsstrt: u16,
     vsstrt: u16,
     diwhigh: u16,
@@ -123,8 +140,12 @@ impl AgnusEcs {
             vsstop: 0,
             hbstrt: 0,
             hbstop: 0,
-            vbstrt: 0,
-            vbstop: 0,
+            vbstrt: UNWRITTEN_VERTICAL_BLANK_EDGE,
+            vbstop: UNWRITTEN_VERTICAL_BLANK_EDGE,
+            programmed_vertical_accessed: false,
+            programmed_vblank_active: false,
+            programmed_vblank_start_event: false,
+            programmed_vblank_stop_event: false,
             hsstrt: 0,
             vsstrt: 0,
             diwhigh: 0,
@@ -162,8 +183,12 @@ impl AgnusEcs {
             vsstop: 0,
             hbstrt: 0,
             hbstop: 0,
-            vbstrt: 0,
-            vbstop: 0,
+            vbstrt: UNWRITTEN_VERTICAL_BLANK_EDGE,
+            vbstop: UNWRITTEN_VERTICAL_BLANK_EDGE,
+            programmed_vertical_accessed: false,
+            programmed_vblank_active: false,
+            programmed_vblank_start_event: false,
+            programmed_vblank_stop_event: false,
             hsstrt: 0,
             vsstrt: 0,
             diwhigh: 0,
@@ -238,6 +263,53 @@ impl AgnusEcs {
         self.inner
     }
 
+    fn sprite_dma_vertical_timing(&self) -> SpriteDmaVerticalTiming {
+        if self.varvben_enabled() {
+            SpriteDmaVerticalTiming::programmed(
+                self.programmed_vblank_active,
+                self.programmed_vblank_stop_event,
+            )
+        } else {
+            let blank_stop = if (self.beamcon0 & BEAMCON0_PAL) != 0 {
+                PAL_VBL_END_LINE
+            } else {
+                NTSC_VBL_END_LINE
+            };
+            SpriteDmaVerticalTiming::fixed(blank_stop)
+        }
+    }
+
+    fn enter_programmed_vertical_line(&mut self, vpos: u16) {
+        self.programmed_vblank_start_event = false;
+        self.programmed_vblank_stop_event = false;
+        if !self.programmed_vertical_accessed {
+            return;
+        }
+
+        // Start precedes stop. Equal comparators therefore describe an
+        // empty blank level while still producing both one-line events.
+        if self.vbstrt != UNWRITTEN_VERTICAL_BLANK_EDGE && vpos == (self.vbstrt & 0x07FF) {
+            self.programmed_vblank_active = true;
+            self.programmed_vblank_start_event = true;
+        }
+        if self.vbstop != UNWRITTEN_VERTICAL_BLANK_EDGE && vpos == (self.vbstop & 0x07FF) {
+            self.programmed_vblank_active = false;
+            self.programmed_vblank_stop_event = true;
+        }
+    }
+
+    /// Current hidden programmed vertical-blank latch.
+    #[must_use]
+    pub const fn programmed_vblank_active(&self) -> bool {
+        self.programmed_vblank_active
+    }
+
+    /// Whether the current line carries the programmed `VBSTOP` event.
+    #[must_use]
+    pub const fn programmed_vblank_stop_event(&self) -> bool {
+        self.programmed_vblank_stop_event
+    }
+
     /// Tick one CCK, applying ECS programmable beam wrap limits when
     /// `BEAMCON0.VARBEAMEN` is enabled.
     ///
@@ -245,15 +317,23 @@ impl AgnusEcs {
     /// existing beam units (CCKs and raster lines), not a full ECS sync/blank
     /// generator implementation.
     pub fn tick_cck(&mut self) {
-        if !self.varbeamen_enabled() {
-            self.inner.tick_cck();
-            return;
+        let (line_ccks, short_field_lines) = if self.varbeamen_enabled() {
+            (
+                self.htotal_highest_count() + 1 + u16::from(self.inner.lol),
+                self.vtotal_highest_line() + 1,
+            )
+        } else {
+            (self.inner.current_line_ccks(), self.inner.lines_per_frame)
+        };
+        if let Some(vpos) = self.inner.next_cck_line_entry(line_ccks, short_field_lines) {
+            self.enter_programmed_vertical_line(vpos);
         }
-
-        let line_ccks = self.htotal_highest_count() + 1 + u16::from(self.inner.lol);
-        let short_field_lines = self.vtotal_highest_line() + 1;
-        self.inner
-            .tick_cck_with_timing(line_ccks, short_field_lines);
+        let sprite_timing = self.sprite_dma_vertical_timing();
+        self.inner.tick_cck_with_timing_and_sprite_vertical_timing(
+            line_ccks,
+            short_field_lines,
+            sprite_timing,
+        );
     }
 
     fn bitplane_dma_vertical_active(&self) -> bool {
@@ -291,14 +371,49 @@ impl AgnusEcs {
     /// Agnus slot grant decisions to the machine.
     #[must_use]
     pub fn cck_bus_plan(&self) -> CckBusPlan {
-        self.inner
-            .cck_bus_plan_with_bitplane_vertical_active(self.bitplane_dma_vertical_active())
+        self.inner.cck_bus_plan_with_vertical_timing(
+            self.bitplane_dma_vertical_active(),
+            self.sprite_dma_vertical_timing(),
+        )
     }
 
     /// ECS-aware owner for callers that need only the raw slot identity.
     #[must_use]
     pub fn current_slot(&self) -> SlotOwner {
         self.cck_bus_plan().slot_owner
+    }
+
+    /// Service one sprite-DMA cycle using the selected fixed or programmed
+    /// vertical blank boundary.
+    pub fn service_sprite_dma_cyc(
+        &mut self,
+        channel: usize,
+        second_word: bool,
+        width: u8,
+        read: impl FnMut(u32) -> u16,
+    ) -> Option<(bool, u64)> {
+        let sprite_timing = self.sprite_dma_vertical_timing();
+        self.inner.service_sprite_dma_cyc_with_vertical_timing(
+            channel,
+            second_word,
+            width,
+            sprite_timing,
+            read,
+        )
+    }
+
+    /// Apply a direct `SPRxPOS` write through the selected vertical timing.
+    pub fn poke_sprite_pos(&mut self, channel: usize, val: u16) {
+        let sprite_timing = self.sprite_dma_vertical_timing();
+        self.inner
+            .poke_sprite_pos_with_vertical_timing(channel, val, sprite_timing);
+    }
+
+    /// Apply a direct `SPRxCTL` write through the selected vertical timing.
+    pub fn poke_sprite_ctl(&mut self, channel: usize, val: u16) {
+        let sprite_timing = self.sprite_dma_vertical_timing();
+        self.inner
+            .poke_sprite_ctl_with_vertical_timing(channel, val, sprite_timing);
     }
 
     /// ECS `BEAMCON0` latch (register semantics are not fully modeled yet).
@@ -354,6 +469,7 @@ impl AgnusEcs {
 
     pub fn write_vtotal(&mut self, val: u16) {
         self.vtotal = val;
+        self.programmed_vertical_accessed = true;
     }
 
     #[must_use]
@@ -363,6 +479,7 @@ impl AgnusEcs {
 
     pub fn write_vsstop(&mut self, val: u16) {
         self.vsstop = val;
+        self.programmed_vertical_accessed = true;
     }
 
     #[must_use]
@@ -390,6 +507,7 @@ impl AgnusEcs {
 
     pub fn write_vbstrt(&mut self, val: u16) {
         self.vbstrt = val;
+        self.programmed_vertical_accessed = true;
     }
 
     #[must_use]
@@ -399,6 +517,7 @@ impl AgnusEcs {
 
     pub fn write_vbstop(&mut self, val: u16) {
         self.vbstop = val;
+        self.programmed_vertical_accessed = true;
     }
 
     #[must_use]
@@ -417,6 +536,7 @@ impl AgnusEcs {
 
     pub fn write_vsstrt(&mut self, val: u16) {
         self.vsstrt = val;
+        self.programmed_vertical_accessed = true;
     }
 
     /// ECS `DIWHIGH` latch (used by ECS display window extensions).
@@ -516,8 +636,11 @@ impl AgnusEcs {
         (self.beamcon0 & BEAMCON0_HSYTRUE) != 0
     }
 
-    /// Coarse ECS vertical blanking window check used by `machine-amiga` display
-    /// output gating while fuller sync/blank generator behavior is pending.
+    /// Geometric ECS vertical-blank window check for an arbitrary line.
+    ///
+    /// This remains a coarse sync-pin helper. Live sprite DMA uses the
+    /// edge-driven programmed latch because mid-field register changes and
+    /// unreachable comparator lines cannot be reconstructed from a range.
     #[must_use]
     pub fn vblank_window_active(&self, vpos: u16) -> bool {
         if !self.varvben_enabled() {
@@ -697,6 +820,7 @@ mod tests {
         BEAMCON0_HSYTRUE, BEAMCON0_LOLDIS, BEAMCON0_PAL, BEAMCON0_VARBEAMEN, BEAMCON0_VARCSYEN,
         BEAMCON0_VARHSYEN, BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN, BEAMCON0_VSYTRUE,
         PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy, SlotOwner,
+        UNWRITTEN_VERTICAL_BLANK_EDGE,
     };
 
     fn tick_programmed_line(agnus: &mut AgnusEcs) {
@@ -805,8 +929,8 @@ mod tests {
         assert_eq!(agnus.vsstop(), 0);
         assert_eq!(agnus.hbstrt(), 0);
         assert_eq!(agnus.hbstop(), 0);
-        assert_eq!(agnus.vbstrt(), 0);
-        assert_eq!(agnus.vbstop(), 0);
+        assert_eq!(agnus.vbstrt(), UNWRITTEN_VERTICAL_BLANK_EDGE);
+        assert_eq!(agnus.vbstop(), UNWRITTEN_VERTICAL_BLANK_EDGE);
         assert_eq!(agnus.hsstrt(), 0);
         assert_eq!(agnus.vsstrt(), 0);
         assert_eq!(agnus.diwhigh(), 0);
@@ -1260,6 +1384,418 @@ mod tests {
         assert!(agnus.vblank_window_active(301));
         assert!(agnus.vblank_window_active(10));
         assert!(!agnus.vblank_window_active(200));
+    }
+
+    #[test]
+    fn varvben_replaces_fixed_sprite_control_refetch_boundary() {
+        let mut agnus = AgnusEcs::new();
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.hpos = 0x15;
+        agnus.write_vbstrt(300);
+        agnus.write_vbstop(40);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARVBEN);
+
+        agnus.vpos = 25;
+        assert_eq!(
+            agnus.cck_bus_plan().slot_owner,
+            SlotOwner::Cpu,
+            "the fixed PAL boundary must stop generating requests"
+        );
+
+        agnus.vpos = 39;
+        agnus.hpos = agnus.current_line_ccks() - 1;
+        agnus.tick_cck();
+        agnus.hpos = 0x15;
+        assert_eq!(
+            agnus.cck_bus_plan().slot_owner,
+            SlotOwner::Sprite(0),
+            "VBSTOP must become the sprite control-refetch boundary"
+        );
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, false, 1, |_| 0x4000),
+            Some((true, 0x4000))
+        );
+    }
+
+    #[test]
+    fn programmed_sprite_boundary_is_region_independent_and_fixed_boundary_restores() {
+        for (region, fixed_line, beamcon0) in [
+            (commodore_agnus_ocs::AgnusRegion::Pal, 25, BEAMCON0_PAL),
+            (commodore_agnus_ocs::AgnusRegion::Ntsc, 20, 0),
+        ] {
+            let inner = commodore_agnus_ocs::Agnus::new_with_region(region);
+            let mut agnus = AgnusEcs::from_ocs(inner);
+            agnus.dmacon = 0x0220; // DMAEN | SPREN
+            agnus.hpos = 0x15;
+            agnus.write_vbstrt(300);
+            agnus.write_vbstop(40);
+            agnus.write_beamcon0(beamcon0 | BEAMCON0_VARVBEN);
+
+            agnus.vpos = fixed_line;
+            assert_eq!(agnus.cck_bus_plan().slot_owner, SlotOwner::Cpu);
+            agnus.vpos = 39;
+            agnus.hpos = agnus.current_line_ccks() - 1;
+            agnus.tick_cck();
+            agnus.hpos = 0x15;
+            assert_eq!(agnus.cck_bus_plan().slot_owner, SlotOwner::Sprite(0));
+
+            agnus.write_beamcon0(beamcon0);
+            agnus.vpos = fixed_line;
+            assert_eq!(
+                agnus.cck_bus_plan().slot_owner,
+                SlotOwner::Sprite(0),
+                "clearing VARVBEN restores the regional fixed boundary"
+            );
+        }
+    }
+
+    #[test]
+    fn guest_pal_bit_selects_the_fixed_sprite_boundary() {
+        let mut agnus = AgnusEcs::new();
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.hpos = 0x15;
+
+        agnus.write_beamcon0(0); // guest selects NTSC fixed timing
+        agnus.vpos = 20;
+        assert_eq!(agnus.cck_bus_plan().slot_owner, SlotOwner::Sprite(0));
+
+        agnus.set_pal_mode(true);
+        agnus.vpos = 20;
+        assert_eq!(agnus.cck_bus_plan().slot_owner, SlotOwner::Cpu);
+        agnus.vpos = 25;
+        assert_eq!(agnus.cck_bus_plan().slot_owner, SlotOwner::Sprite(0));
+    }
+
+    #[test]
+    fn unrelated_vertical_write_does_not_arm_unwritten_blank_edges() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_vtotal(311);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARVBEN);
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.spr_pt[0] = 0x1000;
+        agnus.poke_sprite_pos(0, 50 << 8);
+        agnus.poke_sprite_ctl(0, 100 << 8);
+        agnus.vpos = agnus.lines_per_frame - 1;
+        agnus.hpos = agnus.current_line_ccks() - 1;
+
+        agnus.tick_cck();
+
+        assert_eq!(agnus.vpos, 0);
+        assert!(
+            !agnus.programmed_vblank_stop_event(),
+            "an unrelated timing write must not turn an unwritten VBSTOP into a line-zero edge"
+        );
+        agnus.hpos = 0x15;
+        assert_eq!(
+            agnus.cck_bus_plan().slot_owner,
+            SlotOwner::Cpu,
+            "an unwritten blank comparator must not request sprite control"
+        );
+
+        let mut agnus = AgnusEcs::new();
+        agnus.write_vtotal(0x07FF);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARBEAMEN | BEAMCON0_VARVBEN);
+        agnus.dmacon = 0x0220;
+        agnus.poke_sprite_pos(0, 50 << 8);
+        agnus.poke_sprite_ctl(0, 100 << 8);
+        agnus.vpos = 0x07FE;
+        agnus.hpos = agnus.current_line_ccks() - 1;
+
+        agnus.tick_cck();
+
+        assert_eq!(agnus.vpos, 0x07FF);
+        assert!(
+            !agnus.programmed_vblank_stop_event(),
+            "the reset sentinel must remain outside the 11-bit comparator domain"
+        );
+        agnus.hpos = 0x15;
+        assert_eq!(agnus.cck_bus_plan().slot_owner, SlotOwner::Cpu);
+    }
+
+    #[test]
+    fn programmed_blank_latch_survives_wrap_when_stop_is_unreachable() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_htotal(1);
+        agnus.write_vtotal(311);
+        agnus.write_vbstrt(300);
+        agnus.write_vbstop(400);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARBEAMEN | BEAMCON0_VARVBEN);
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        // VSTART=299, VSTOP=500: latent data state would span the wrap.
+        agnus.poke_sprite_pos(0, 43 << 8);
+        agnus.poke_sprite_ctl(0, (244 << 8) | 0x0006);
+        agnus.vpos = 298;
+
+        tick_programmed_line(&mut agnus);
+        assert!(agnus.sprite_dma_on(0));
+        for _ in 299..312 {
+            tick_programmed_line(&mut agnus);
+        }
+        assert_eq!(agnus.vpos, 0);
+        agnus.hpos = 0x15;
+        assert_eq!(
+            agnus.cck_bus_plan().slot_owner,
+            SlotOwner::Cpu,
+            "blank stays latched because the programmed stop edge was never reached"
+        );
+    }
+
+    #[test]
+    fn programming_blank_edges_mid_line_does_not_reconstruct_the_latch() {
+        let mut agnus = AgnusEcs::new();
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.hpos = 0x15;
+        agnus.vpos = 350;
+        agnus.poke_sprite_pos(0, 94 << 8);
+        agnus.poke_sprite_ctl(0, (244 << 8) | 0x0006);
+        assert!(agnus.sprite_dma_on(0));
+
+        agnus.write_vbstrt(300);
+        agnus.write_vbstop(400);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARVBEN);
+
+        assert_eq!(
+            agnus.cck_bus_plan().slot_owner,
+            SlotOwner::Sprite(0),
+            "enabling VARVBEN selects the tracked latch, not a geometric range"
+        );
+    }
+
+    #[test]
+    fn writing_vbstop_to_current_line_does_not_manufacture_reset_event() {
+        let mut agnus = AgnusEcs::new();
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.hpos = 0x15;
+        agnus.vpos = 40;
+        agnus.spr_pt[0] = 0x1000;
+        agnus.write_vbstrt(100);
+        agnus.write_vbstop(200);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARVBEN);
+        agnus.poke_sprite_pos(0, 40 << 8);
+        agnus.poke_sprite_ctl(0, 60 << 8);
+        assert!(agnus.sprite_dma_on(0));
+
+        agnus.write_vbstop(40);
+
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, false, 1, |_| 0xA55A),
+            Some((false, 0xA55A)),
+            "register writes take effect at a future line-entry comparison"
+        );
+    }
+
+    #[test]
+    fn changing_vbstop_mid_line_does_not_cancel_latched_reset_event() {
+        let mut agnus = AgnusEcs::new();
+        agnus.spr_pt[0] = 0x1000;
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.write_vbstrt(35);
+        agnus.write_vbstop(40);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARVBEN);
+        agnus.vpos = 39;
+        agnus.hpos = agnus.current_line_ccks() - 1;
+        agnus.tick_cck();
+        assert_eq!(agnus.vpos, 40);
+
+        agnus.write_vbstop(60);
+
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, false, 1, |_| 0x4000),
+            Some((true, 0x4000)),
+            "the line-held stop event survives a later register write"
+        );
+    }
+
+    #[test]
+    fn varvben_resets_active_sprite_when_beam_enters_vbstop_line() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_htotal(1);
+        agnus.write_vtotal(311);
+        agnus.write_vbstrt(35);
+        agnus.write_vbstop(40);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARBEAMEN | BEAMCON0_VARVBEN);
+        agnus.poke_sprite_pos(0, 30 << 8);
+        agnus.poke_sprite_ctl(0, 60 << 8);
+        agnus.vpos = 29;
+
+        tick_programmed_line(&mut agnus);
+        assert!(agnus.sprite_dma_on(0), "VSTART activates the sprite");
+
+        for _ in 30..40 {
+            tick_programmed_line(&mut agnus);
+        }
+        assert_eq!(agnus.vpos, 40);
+        assert!(
+            !agnus.sprite_dma_on(0),
+            "the programmed reset boundary clears active sprite data"
+        );
+    }
+
+    #[test]
+    fn programmed_vbstop_event_wins_over_same_line_sprite_vstart() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_htotal(1);
+        agnus.write_vtotal(311);
+        agnus.write_vbstrt(35);
+        agnus.write_vbstop(40);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARBEAMEN | BEAMCON0_VARVBEN);
+        agnus.poke_sprite_pos(0, 40 << 8);
+        agnus.poke_sprite_ctl(0, 60 << 8);
+        agnus.vpos = 39;
+
+        tick_programmed_line(&mut agnus);
+
+        assert_eq!(agnus.vpos, 40);
+        assert!(
+            !agnus.sprite_dma_on(0),
+            "the reset event must take precedence over VSTART"
+        );
+    }
+
+    #[test]
+    fn varvben_direct_sprite_writes_respect_programmed_vertical_blank() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_vbstrt(20);
+        agnus.write_vbstop(40);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARVBEN);
+        agnus.vpos = 19;
+        agnus.hpos = agnus.current_line_ccks() - 1;
+        agnus.tick_cck();
+        assert!(agnus.programmed_vblank_active());
+        agnus.poke_sprite_ctl(0, 60 << 8);
+        agnus.vpos = 30;
+
+        agnus.poke_sprite_pos(0, 30 << 8);
+
+        assert!(
+            !agnus.sprite_dma_on(0),
+            "direct comparator writes inside programmed blank must not activate data"
+        );
+    }
+
+    #[test]
+    fn equal_programmed_blank_edges_still_request_sprite_control() {
+        let mut agnus = AgnusEcs::new();
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.hpos = 0x15;
+        agnus.vpos = 50;
+        agnus.write_vbstrt(50);
+        agnus.write_vbstop(50);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARVBEN);
+        agnus.vpos = 49;
+        agnus.hpos = agnus.current_line_ccks() - 1;
+        agnus.tick_cck();
+        agnus.hpos = 0x15;
+
+        assert!(
+            !agnus.vblank_window_active(50),
+            "equal edges describe an empty blank interval"
+        );
+        assert_eq!(
+            agnus.cck_bus_plan().slot_owner,
+            SlotOwner::Sprite(0),
+            "the VBSTOP edge still resets and refetches sprite control"
+        );
+    }
+
+    #[test]
+    fn zero_vbstop_refetches_control_on_line_zero_then_allows_line_one_data() {
+        let mut agnus = AgnusEcs::new();
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.spr_pt[0] = 0x1000;
+        agnus.write_vbstrt(300);
+        agnus.write_vbstop(0);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARVBEN);
+        agnus.poke_sprite_ctl(0, 99 << 8);
+        agnus.vpos = agnus.lines_per_frame - 1;
+        agnus.hpos = agnus.current_line_ccks() - 1;
+        agnus.tick_cck();
+        assert_eq!(agnus.vpos, 0);
+        assert!(agnus.programmed_vblank_stop_event());
+
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, false, 1, |_| 0x0100),
+            Some((true, 0x0100))
+        );
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, true, 1, |_| 0x0200),
+            Some((true, 0x0200))
+        );
+        assert!(!agnus.sprite_dma_on(0));
+
+        agnus.hpos = agnus.current_line_ccks() - 1;
+        agnus.tick_cck();
+        assert_eq!(agnus.vpos, 1);
+        assert!(agnus.sprite_dma_on(0), "VSTART=1 enables line-one data");
+        agnus.hpos = 0x15;
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, false, 1, |_| 0xA55A),
+            Some((false, 0xA55A))
+        );
+    }
+
+    #[test]
+    fn programmed_blank_suppresses_sprite_vstop_comparator_and_bus_request() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_htotal(1);
+        agnus.write_vtotal(311);
+        agnus.write_vbstrt(35);
+        agnus.write_vbstop(40);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARBEAMEN | BEAMCON0_VARVBEN);
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.poke_sprite_pos(0, 30 << 8);
+        agnus.poke_sprite_ctl(0, 37 << 8);
+        agnus.vpos = 29;
+
+        tick_programmed_line(&mut agnus);
+        assert!(agnus.sprite_dma_on(0));
+        for _ in 30..37 {
+            tick_programmed_line(&mut agnus);
+        }
+        assert_eq!(agnus.vpos, 37);
+        assert!(
+            agnus.sprite_dma_on(0),
+            "an ordinary VSTOP match inside blank is suppressed"
+        );
+        agnus.hpos = 0x15;
+        assert_eq!(
+            agnus.cck_bus_plan().slot_owner,
+            SlotOwner::Cpu,
+            "latent sprite state cannot claim a bus slot during blank"
+        );
+    }
+
+    #[test]
+    fn programmable_sprite_state_can_cross_the_field_boundary() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_htotal(1);
+        agnus.write_vtotal(311);
+        agnus.write_vbstrt(20);
+        agnus.write_vbstop(300);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARBEAMEN | BEAMCON0_VARVBEN);
+        // VSTART=301, VSTOP=10: the active interval crosses counter wrap.
+        agnus.poke_sprite_pos(0, 45 << 8);
+        agnus.poke_sprite_ctl(0, (10 << 8) | 0x0004);
+        agnus.vpos = 300;
+
+        tick_programmed_line(&mut agnus);
+        assert_eq!(agnus.vpos, 301);
+        assert!(agnus.sprite_dma_on(0), "VSTART activates after VBSTOP");
+
+        for _ in 301..312 {
+            tick_programmed_line(&mut agnus);
+        }
+        assert_eq!(agnus.vpos, 0);
+        assert!(
+            agnus.sprite_dma_on(0),
+            "counter wrap alone must not manufacture a programmable reset"
+        );
+
+        for _ in 0..10 {
+            tick_programmed_line(&mut agnus);
+        }
+        assert_eq!(agnus.vpos, 10);
+        assert!(!agnus.sprite_dma_on(0), "VSTOP still ends the sprite");
     }
 
     #[test]

@@ -2189,6 +2189,94 @@ mod bus_plan_dispatch_tests {
     }
 
     #[test]
+    fn guest_programmed_vbstop_drives_alice_sprite_control_fetch() {
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        amiga.poke_word(0x00DF_F1CC, 300); // VBSTRT
+        amiga.poke_word(0x00DF_F1CE, 40); // VBSTOP
+        amiga.poke_word(0x00DF_F1DC, 0x1020); // VARVBEN | PAL
+        amiga.poke_word(0x00DF_F096, 0x8220); // SETCLR | DMAEN | SPREN
+        amiga.agnus.vpos = 39;
+        amiga.agnus.hpos = amiga.agnus.current_line_ccks() - 1;
+        amiga.agnus.tick_cck();
+        assert!(amiga.agnus.programmed_vblank_stop_event());
+        amiga.agnus.hpos = 0x14;
+        amiga.agnus.spr_pt[0] = 0x0000_2000;
+        amiga.poke_word(0x0000_2000, 0x4100);
+        amiga.cck_phase = 0;
+
+        amiga.tick();
+
+        assert_eq!(amiga.agnus.hpos, 0x15);
+        assert_eq!(amiga.agnus.vbstop(), 40);
+        assert_eq!(amiga.agnus.spr_pt[0], 0x0000_2002);
+        assert_eq!(amiga.agnus.sprite_vstart(0), 0x41);
+    }
+
+    #[test]
+    fn snapshot_preserves_programmed_vblank_latch_and_line_event() {
+        let rom = vec![0; 512 * 1024];
+        let mut amiga = AmigaA1200::new(rom.clone());
+        amiga.agnus.write_vbstrt(300);
+        amiga.agnus.write_vbstop(40);
+        amiga.agnus.write_beamcon0(0x1020); // VARVBEN | PAL
+        amiga.agnus.vpos = 299;
+        amiga.agnus.hpos = amiga.agnus.current_line_ccks() - 1;
+        amiga.agnus.tick_cck();
+        assert!(amiga.agnus.programmed_vblank_active());
+        assert!(!amiga.agnus.programmed_vblank_stop_event());
+
+        let bytes = postcard::to_allocvec(&amiga.snapshot_state()).expect("serialize snapshot");
+        let snapshot: AmigaA1200Snapshot =
+            postcard::from_bytes(&bytes).expect("deserialize snapshot");
+        let mut restored = AmigaA1200::new(rom.clone());
+        restored.restore_snapshot_state(snapshot);
+        assert!(restored.agnus.programmed_vblank_active());
+
+        restored.agnus.vpos = 39;
+        restored.agnus.hpos = restored.agnus.current_line_ccks() - 1;
+        restored.agnus.tick_cck();
+        assert!(!restored.agnus.programmed_vblank_active());
+        assert!(restored.agnus.programmed_vblank_stop_event());
+
+        let bytes = postcard::to_allocvec(&restored.snapshot_state()).expect("serialize edge");
+        let snapshot: AmigaA1200Snapshot = postcard::from_bytes(&bytes).expect("deserialize edge");
+        let mut edge_restored = AmigaA1200::new(rom);
+        edge_restored.restore_snapshot_state(snapshot);
+        assert!(!edge_restored.agnus.programmed_vblank_active());
+        assert!(edge_restored.agnus.programmed_vblank_stop_event());
+    }
+
+    #[test]
+    fn snapshot_preserves_mid_cck_sprite_bus_authority() {
+        let rom = vec![0; 512 * 1024];
+        let mut amiga = AmigaA1200::new(rom.clone());
+        amiga.agnus.dmacon = 0x0220; // DMAEN | SPREN
+        amiga.agnus.spr_pt[0] = 0x0000_2000;
+        amiga.poke_word(0x0000_2000, 0x4100);
+        amiga.agnus.vpos = 25;
+        amiga.agnus.hpos = 0x14;
+        amiga.cck_phase = 0;
+
+        amiga.tick();
+
+        assert_eq!(amiga.cck_phase, 1);
+        assert_eq!(amiga.agnus.hpos, 0x15);
+        assert!(amiga.agnus.sprite_bus_used_this_cck());
+
+        let bytes = postcard::to_allocvec(&amiga.snapshot_state()).expect("serialize snapshot");
+        let snapshot: AmigaA1200Snapshot =
+            postcard::from_bytes(&bytes).expect("deserialize snapshot");
+        let mut restored = AmigaA1200::new(rom);
+        restored.restore_snapshot_state(snapshot);
+
+        assert_eq!(restored.cck_phase, 1);
+        assert!(
+            restored.agnus.sprite_bus_used_this_cck(),
+            "phase-one restore must keep the phase-zero sprite's bus ownership"
+        );
+    }
+
+    #[test]
     fn concrete_alice_plan_releases_demoted_bitplane_slot_to_cpu() {
         let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
         amiga.agnus.vpos = 0x0020;

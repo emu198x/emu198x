@@ -13,6 +13,6 @@ pub use agnus::{
     LOWRES_DDF_TO_PLANE, LOWRES_DDF_TO_PLANE_AGA, NTSC_CCKS_PER_FRAME, NTSC_CCKS_PER_LINE_LONG,
     NTSC_CCKS_PER_LINE_SHORT, NTSC_LINES_PER_FRAME, NTSC_VBL_END_LINE, PAL_CCKS_PER_FRAME,
     PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, PAL_VBL_END_LINE, PaulaReturnProgressPolicy, SlotOwner,
-    VBL_END_LINE,
+    SpriteDmaVerticalTiming, VBL_END_LINE,
 };
 pub use copper::{Copper, State as CopperState};

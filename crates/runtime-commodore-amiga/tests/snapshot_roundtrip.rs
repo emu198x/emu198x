@@ -135,7 +135,7 @@ fn restore_rejects_wrong_model() -> Result<(), Box<dyn Error>> {
 #[test]
 fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
     let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
-    // Crafted bytes that won't deserialize as v1 — postcard rejects
+    // Crafted bytes that won't deserialize as the current envelope — postcard rejects
     // mismatched length / shape and the restore returns an error.
     let result = runtime.restore(&[0xFFu8; 4]);
     assert!(result.is_err(), "garbage bytes should not restore");
@@ -143,11 +143,11 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field to 99, and confirm the version-mismatch arm fires with a
+/// field back to 1, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of an `SnapshotEnvelopeV1` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 1` that byte is `0x01`.
-/// Replacing it with a single-byte value > 1 keeps the envelope
+/// of a `SnapshotEnvelopeV2` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 2` that byte is `0x02`.
+/// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch (rather than the postcard-parse-error branch above).
 #[test]
@@ -155,15 +155,15 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 1,
-        "postcard varint for SNAPSHOT_VERSION = 1 should be 0x01"
+        bytes[0], 2,
+        "postcard varint for SNAPSHOT_VERSION = 2 should be 0x02"
     );
-    bytes[0] = 99;
+    bytes[0] = 1;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-99 snapshot should be rejected");
+        .expect_err("version-1 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("version")),
         "expected version-mismatch reason, got {err:?}"

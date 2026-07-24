@@ -68,6 +68,71 @@ pub enum AgnusRegion {
     Ntsc,
 }
 
+/// Derived vertical timing used by the shared sprite-DMA state machine.
+///
+/// OCS supplies the fixed regional blank-stop line. ECS and AGA supply
+/// their latched programmed blank level and one-line `VBSTOP` event while
+/// `BEAMCON0.VARVBEN` is active. This value is deliberately transient:
+/// ECS/AGA serialize the underlying programmable event-generator state.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpriteDmaVerticalTiming {
+    programmed_blank_active: Option<bool>,
+    reset_event: bool,
+    fixed_blank_stop: u16,
+}
+
+impl SpriteDmaVerticalTiming {
+    /// Fixed OCS/PAL-or-NTSC vertical blank, which occupies lines before
+    /// `blank_stop` in the current fixed-timing model.
+    #[must_use]
+    pub const fn fixed(blank_stop: u16) -> Self {
+        Self {
+            programmed_blank_active: None,
+            reset_event: false,
+            fixed_blank_stop: blank_stop,
+        }
+    }
+
+    /// ECS/AGA programmable vertical blank selected from the event-driven
+    /// latch and line-held `VBSTOP` pulse.
+    #[must_use]
+    pub const fn programmed(blank_active: bool, reset_event: bool) -> Self {
+        Self {
+            programmed_blank_active: Some(blank_active),
+            reset_event,
+            fixed_blank_stop: 0,
+        }
+    }
+
+    /// Whether the ordinary sprite comparators and DMA requests are
+    /// suppressed at `vpos`.
+    #[must_use]
+    pub const fn blank_active(self, vpos: u16) -> bool {
+        match self.programmed_blank_active {
+            Some(active) => active,
+            None => vpos < self.fixed_blank_stop,
+        }
+    }
+
+    /// `VBSTOP` (or the fixed regional equivalent) is a one-line sprite
+    /// reset and control-refetch event, distinct from the blank level.
+    #[must_use]
+    pub const fn reset_event(self, vpos: u16) -> bool {
+        match self.programmed_blank_active {
+            Some(_) => self.reset_event,
+            None => vpos == self.fixed_blank_stop,
+        }
+    }
+
+    /// Fixed timing retains the existing end-of-field safety clear.
+    /// Programmable timing derives reset solely from its explicit stop event,
+    /// allowing deliberately wrapped active intervals.
+    const fn clears_on_field_end(self) -> bool {
+        self.programmed_blank_active.is_none()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlotOwner {
     Cpu,
@@ -454,11 +519,11 @@ pub struct Agnus {
     spr_vstart: [u16; 8],
     spr_vstop: [u16; 8],
     spr_dma_on: [bool; 8],
-    /// Transient record that sprite DMA drove the chip bus during the
-    /// current CCK. A second control-word fetch can change VSTOP and make
-    /// a newly computed plan look idle; CPU arbitration must still honour
-    /// the original use for both master/4 phases of that CCK.
-    #[serde(skip)]
+    /// Record that sprite DMA drove the chip bus during the current CCK.
+    /// A second control-word fetch can change VSTOP and make a newly
+    /// computed plan look idle; CPU arbitration must still honour the
+    /// original use for both master/4 phases of that CCK. Snapshots
+    /// serialize this alongside the machine's half-CCK phase.
     sprite_bus_used_this_cck: bool,
 
     // Disk pointer
@@ -1335,6 +1400,58 @@ impl Agnus {
     /// OCS boundary lifecycle. Callers must pass totals in `1..u16::MAX`.
     #[doc(hidden)]
     pub fn tick_cck_with_timing(&mut self, line_ccks: u16, short_field_lines: u16) {
+        let sprite_timing = self.fixed_sprite_dma_vertical_timing();
+        self.tick_cck_with_timing_and_sprite_vertical_timing(
+            line_ccks,
+            short_field_lines,
+            sprite_timing,
+        );
+    }
+
+    /// Return the raster line that the next CCK enters, or `None` when
+    /// the next CCK remains on the current line.
+    ///
+    /// Chipset wrappers use this to advance edge-driven extension state
+    /// before the shared boundary lifecycle evaluates the new line.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn next_cck_line_entry(&self, line_ccks: u16, short_field_lines: u16) -> Option<u16> {
+        debug_assert!(
+            line_ccks > 0 && line_ccks < u16::MAX,
+            "line total must fit the beam counter"
+        );
+        debug_assert!(
+            short_field_lines > 0 && short_field_lines < u16::MAX,
+            "field total must leave room for the interlace extension"
+        );
+        if self.hpos + 1 < line_ccks {
+            return None;
+        }
+
+        let interlace = (self.bplcon0 & 0x0004) != 0;
+        let frame_lines = if interlace && self.lof {
+            short_field_lines + 1
+        } else {
+            short_field_lines
+        };
+        let next_vpos = self.vpos + 1;
+        Some(if next_vpos >= frame_lines {
+            0
+        } else {
+            next_vpos
+        })
+    }
+
+    /// Tick one CCK with variant-selected beam totals and sprite vertical
+    /// timing. ECS/AGA use this seam so programmable blanking reaches the
+    /// same lifecycle that advances the shared OCS beam counters.
+    #[doc(hidden)]
+    pub fn tick_cck_with_timing_and_sprite_vertical_timing(
+        &mut self,
+        line_ccks: u16,
+        short_field_lines: u16,
+        sprite_timing: SpriteDmaVerticalTiming,
+    ) {
         debug_assert!(
             line_ccks > 0 && line_ccks < u16::MAX,
             "line total must fit the beam counter"
@@ -1372,7 +1489,7 @@ impl Agnus {
             // New display line: run the per-line sprite-DMA update
             // (VSTART activation, VSTOP deactivation, top-of-frame
             // control-refetch priming). gap #162.
-            self.update_sprite_dma(frame_lines);
+            self.update_sprite_dma_with_vertical_timing(frame_lines, sprite_timing);
         }
     }
 
@@ -1381,16 +1498,26 @@ impl Agnus {
     /// the beam reaches VSTART and deactivates it at VSTOP. Comparator
     /// state evolves independently of SPREN; that bit gates the resulting
     /// bus request in slot arbitration.
+    #[cfg(test)]
     fn update_sprite_dma(&mut self, frame_lines: u16) {
+        let sprite_timing = self.fixed_sprite_dma_vertical_timing();
+        self.update_sprite_dma_with_vertical_timing(frame_lines, sprite_timing);
+    }
+
+    fn update_sprite_dma_with_vertical_timing(
+        &mut self,
+        frame_lines: u16,
+        sprite_timing: SpriteDmaVerticalTiming,
+    ) {
         let v = self.vpos;
-        if v + 1 >= frame_lines {
+        if sprite_timing.clears_on_field_end() && v + 1 >= frame_lines {
             for s in 0..8 {
                 self.spr_dma_on[s] = false;
             }
             return;
         }
         for s in 0..8 {
-            self.update_sprite_dma_comparator(s);
+            self.update_sprite_dma_comparator_with_vertical_timing(s, sprite_timing);
         }
     }
 
@@ -1405,30 +1532,47 @@ impl Agnus {
         }
     }
 
-    fn update_sprite_dma_comparator(&mut self, channel: usize) {
-        if channel >= self.spr_dma_on.len() || self.vpos < self.fixed_vblank_end_line() {
+    const fn fixed_sprite_dma_vertical_timing(&self) -> SpriteDmaVerticalTiming {
+        SpriteDmaVerticalTiming::fixed(self.fixed_vblank_end_line())
+    }
+
+    fn update_sprite_dma_comparator_with_vertical_timing(
+        &mut self,
+        channel: usize,
+        sprite_timing: SpriteDmaVerticalTiming,
+    ) {
+        if channel >= self.spr_dma_on.len() || sprite_timing.blank_active(self.vpos) {
             return;
         }
-        if self.vpos == self.fixed_vblank_end_line() || self.vpos == self.spr_vstop[channel] {
+        if sprite_timing.reset_event(self.vpos) || self.vpos == self.spr_vstop[channel] {
             self.spr_dma_on[channel] = false;
         } else if self.vpos == self.spr_vstart[channel] {
             self.spr_dma_on[channel] = true;
         }
     }
 
-    fn sprite_control_fetch_due(&self, channel: usize) -> bool {
+    fn sprite_control_fetch_due_with_vertical_timing(
+        &self,
+        channel: usize,
+        sprite_timing: SpriteDmaVerticalTiming,
+    ) -> bool {
         channel < self.spr_vstop.len()
-            && (self.vpos == self.fixed_vblank_end_line() || self.vpos == self.spr_vstop[channel])
+            && (sprite_timing.reset_event(self.vpos) || self.vpos == self.spr_vstop[channel])
     }
 
     /// Whether `channel` has a control- or data-fetch request on the
     /// current line. SPREN is deliberately handled by slot arbitration;
     /// this predicate describes the per-channel request state shared by
     /// planning and service.
-    fn sprite_dma_cycle_requested(&self, channel: usize) -> bool {
+    fn sprite_dma_cycle_requested_with_vertical_timing(
+        &self,
+        channel: usize,
+        sprite_timing: SpriteDmaVerticalTiming,
+    ) -> bool {
         channel < self.spr_dma_on.len()
-            && self.vpos >= self.fixed_vblank_end_line()
-            && (self.sprite_control_fetch_due(channel) || self.spr_dma_on[channel])
+            && !sprite_timing.blank_active(self.vpos)
+            && (self.sprite_control_fetch_due_with_vertical_timing(channel, sprite_timing)
+                || self.spr_dma_on[channel])
     }
 
     /// Start a new CCK with no recorded sprite bus use.
@@ -1459,24 +1603,44 @@ impl Agnus {
         channel: usize,
         second_word: bool,
         width: u8,
+        read: impl FnMut(u32) -> u16,
+    ) -> Option<(bool, u64)> {
+        let sprite_timing = self.fixed_sprite_dma_vertical_timing();
+        self.service_sprite_dma_cyc_with_vertical_timing(
+            channel,
+            second_word,
+            width,
+            sprite_timing,
+            read,
+        )
+    }
+
+    /// Variant-aware form of [`Self::service_sprite_dma_cyc`].
+    #[doc(hidden)]
+    pub fn service_sprite_dma_cyc_with_vertical_timing(
+        &mut self,
+        channel: usize,
+        second_word: bool,
+        width: u8,
+        sprite_timing: SpriteDmaVerticalTiming,
         mut read: impl FnMut(u32) -> u16,
     ) -> Option<(bool, u64)> {
         // Sprite DMA is suppressed during vertical blank, and an idle
         // channel does not consume its scheduled bus opportunity.
-        if !self.sprite_dma_cycle_requested(channel) {
+        if !self.sprite_dma_cycle_requested_with_vertical_timing(channel, sprite_timing) {
             return None;
         }
         self.sprite_bus_used_this_cck = true;
-        if self.sprite_control_fetch_due(channel) {
+        if self.sprite_control_fetch_due_with_vertical_timing(channel, sprite_timing) {
             // Control fetch (SPRxPOS / SPRxCTL): always a single word —
             // FMODE widens the data fetch, not the control words.
             self.spr_dma_on[channel] = false;
             let word = read(self.spr_pt[channel]);
             self.spr_pt[channel] = self.spr_pt[channel].wrapping_add(2);
             if second_word {
-                self.latch_sprite_ctl(channel, word);
+                self.latch_sprite_ctl_with_vertical_timing(channel, word, sprite_timing);
             } else {
-                self.latch_sprite_pos(channel, word);
+                self.latch_sprite_pos_with_vertical_timing(channel, word, sprite_timing);
             }
             Some((true, u64::from(word)))
         } else if self.spr_dma_on[channel] {
@@ -1506,8 +1670,20 @@ impl Agnus {
     /// control words zero) leaves VSTART/VSTOP at 0 and the sprite never
     /// displays. Mirrors vAmiga `Agnus::setSPRxPOS` (AgnusRegs.cpp:462).
     pub fn poke_sprite_pos(&mut self, channel: usize, val: u16) {
+        let sprite_timing = self.fixed_sprite_dma_vertical_timing();
+        self.poke_sprite_pos_with_vertical_timing(channel, val, sprite_timing);
+    }
+
+    /// Variant-aware form of [`Self::poke_sprite_pos`].
+    #[doc(hidden)]
+    pub fn poke_sprite_pos_with_vertical_timing(
+        &mut self,
+        channel: usize,
+        val: u16,
+        sprite_timing: SpriteDmaVerticalTiming,
+    ) {
         if channel < 8 {
-            self.latch_sprite_pos(channel, val);
+            self.latch_sprite_pos_with_vertical_timing(channel, val, sprite_timing);
         }
     }
 
@@ -1515,24 +1691,46 @@ impl Agnus {
     /// VSTART[8]/VSTOP comparators. See [`Self::poke_sprite_pos`].
     /// Mirrors vAmiga `Agnus::setSPRxCTL` (AgnusRegs.cpp:501).
     pub fn poke_sprite_ctl(&mut self, channel: usize, val: u16) {
+        let sprite_timing = self.fixed_sprite_dma_vertical_timing();
+        self.poke_sprite_ctl_with_vertical_timing(channel, val, sprite_timing);
+    }
+
+    /// Variant-aware form of [`Self::poke_sprite_ctl`].
+    #[doc(hidden)]
+    pub fn poke_sprite_ctl_with_vertical_timing(
+        &mut self,
+        channel: usize,
+        val: u16,
+        sprite_timing: SpriteDmaVerticalTiming,
+    ) {
         if channel < 8 {
-            self.latch_sprite_ctl(channel, val);
+            self.latch_sprite_ctl_with_vertical_timing(channel, val, sprite_timing);
         }
     }
 
     /// Latch VSTART low 8 bits from a fetched SPRxPOS word (bits 15-8).
-    fn latch_sprite_pos(&mut self, channel: usize, pos: u16) {
+    fn latch_sprite_pos_with_vertical_timing(
+        &mut self,
+        channel: usize,
+        pos: u16,
+        sprite_timing: SpriteDmaVerticalTiming,
+    ) {
         self.spr_vstart[channel] = (self.spr_vstart[channel] & 0x0100) | (pos >> 8);
-        self.update_sprite_dma_comparator(channel);
+        self.update_sprite_dma_comparator_with_vertical_timing(channel, sprite_timing);
     }
 
     /// Latch VSTOP (CTL bits 15-8) plus VSTART[8] (CTL bit 2) and
     /// VSTOP[8] (CTL bit 1) from a fetched SPRxCTL word. OCS is 9-bit;
     /// the ECS VSTART[9]/VSTOP[9] bits (CTL 6/5) are not modelled here.
-    fn latch_sprite_ctl(&mut self, channel: usize, ctl: u16) {
+    fn latch_sprite_ctl_with_vertical_timing(
+        &mut self,
+        channel: usize,
+        ctl: u16,
+        sprite_timing: SpriteDmaVerticalTiming,
+    ) {
         self.spr_vstart[channel] = (self.spr_vstart[channel] & 0x00FF) | ((ctl & 0x0004) << 6);
         self.spr_vstop[channel] = (ctl >> 8) | ((ctl & 0x0002) << 7);
-        self.update_sprite_dma_comparator(channel);
+        self.update_sprite_dma_comparator_with_vertical_timing(channel, sprite_timing);
     }
 
     /// Test/diagnostic accessors for the sprite-DMA state machine.
@@ -1570,12 +1768,16 @@ impl Agnus {
 
     /// Determine who owns the current CCK slot.
     pub fn current_slot(&self) -> SlotOwner {
-        self.current_slot_with_bitplane_vertical_active(self.bitplane_dma_vertical_active())
+        self.current_slot_with_vertical_timing(
+            self.bitplane_dma_vertical_active(),
+            self.fixed_sprite_dma_vertical_timing(),
+        )
     }
 
-    fn current_slot_with_bitplane_vertical_active(
+    fn current_slot_with_vertical_timing(
         &self,
         bitplane_vertical_active: bool,
+        sprite_timing: SpriteDmaVerticalTiming,
     ) -> SlotOwner {
         // Hardware-correct OCS PAL DMA time-slot allocation (vAmiga
         // `SequencerDas.cpp` + Minimig `agnus.v` priority chain). Every
@@ -1615,7 +1817,7 @@ impl Agnus {
         // while requesting a control or data fetch.
         if self.dma_enabled(0x0020) && (0x15..=0x33).contains(&hpos) && !hpos.is_multiple_of(2) {
             let channel = ((hpos - 0x15) / 4) as usize;
-            if self.sprite_dma_cycle_requested(channel) {
+            if self.sprite_dma_cycle_requested_with_vertical_timing(channel, sprite_timing) {
                 return SlotOwner::Sprite(channel as u8);
             }
         }
@@ -1718,7 +1920,10 @@ impl Agnus {
 
     /// Compute the machine-facing Agnus bus-arbitration plan for this CCK.
     pub fn cck_bus_plan(&self) -> CckBusPlan {
-        self.cck_bus_plan_with_bitplane_vertical_active(self.bitplane_dma_vertical_active())
+        self.cck_bus_plan_with_vertical_timing(
+            self.bitplane_dma_vertical_active(),
+            self.fixed_sprite_dma_vertical_timing(),
+        )
     }
 
     /// Build a complete plan using a chipset-variant vertical bitplane
@@ -1731,7 +1936,22 @@ impl Agnus {
         &self,
         bitplane_vertical_active: bool,
     ) -> CckBusPlan {
-        let slot_owner = self.current_slot_with_bitplane_vertical_active(bitplane_vertical_active);
+        self.cck_bus_plan_with_vertical_timing(
+            bitplane_vertical_active,
+            self.fixed_sprite_dma_vertical_timing(),
+        )
+    }
+
+    /// Build a complete plan using chipset-variant bitplane and sprite
+    /// vertical timing.
+    #[doc(hidden)]
+    pub fn cck_bus_plan_with_vertical_timing(
+        &self,
+        bitplane_vertical_active: bool,
+        sprite_timing: SpriteDmaVerticalTiming,
+    ) -> CckBusPlan {
+        let slot_owner =
+            self.current_slot_with_vertical_timing(bitplane_vertical_active, sprite_timing);
         let disk_dma_slot_granted = matches!(slot_owner, SlotOwner::Disk);
         let sprite_dma_service_channel = match slot_owner {
             SlotOwner::Sprite(channel) => Some(channel),

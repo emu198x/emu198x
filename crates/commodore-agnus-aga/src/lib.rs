@@ -136,7 +136,7 @@ impl From<AgnusAga> for InnerAgnusEcs {
 
 #[cfg(test)]
 mod tests {
-    use super::{AgnusAga, InnerAgnusEcs};
+    use super::{AgnusAga, BEAMCON0_PAL, BEAMCON0_VARVBEN, InnerAgnusEcs, SlotOwner};
 
     #[test]
     fn new_starts_with_fmode_cleared() {
@@ -195,5 +195,26 @@ mod tests {
         assert_eq!(agnus.dmacon, 0x0200);
         assert_eq!(agnus.bplcon0, 0x0010);
         assert_eq!(agnus.max_bitplanes, 8);
+    }
+
+    #[test]
+    fn alice_inherits_programmed_sprite_control_refetch_boundary() {
+        let mut agnus = AgnusAga::new();
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.spr_pt[0] = 0x1000;
+        agnus.write_vbstrt(300);
+        agnus.write_vbstop(40);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARVBEN);
+        agnus.vpos = 39;
+        agnus.hpos = agnus.current_line_ccks() - 1;
+        agnus.tick_cck();
+        agnus.hpos = 0x15;
+
+        assert_eq!(agnus.cck_bus_plan().slot_owner, SlotOwner::Sprite(0));
+        let width = agnus.spr_fetch_width();
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, false, width, |_| 0x4000),
+            Some((true, 0x4000))
+        );
     }
 }

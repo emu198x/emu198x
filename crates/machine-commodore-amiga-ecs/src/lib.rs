@@ -2102,6 +2102,30 @@ mod bus_plan_dispatch_tests {
     }
 
     #[test]
+    fn guest_programmed_vbstop_drives_ecs_sprite_control_fetch() {
+        let mut amiga = machine();
+        amiga.poke_word(0x00DF_F1CC, 300); // VBSTRT
+        amiga.poke_word(0x00DF_F1CE, 40); // VBSTOP
+        amiga.poke_word(0x00DF_F1DC, 0x1020); // VARVBEN | PAL
+        amiga.poke_word(0x00DF_F096, 0x8220); // SETCLR | DMAEN | SPREN
+        amiga.agnus.vpos = 39;
+        amiga.agnus.hpos = amiga.agnus.current_line_ccks() - 1;
+        amiga.agnus.tick_cck();
+        assert!(amiga.agnus.programmed_vblank_stop_event());
+        amiga.agnus.hpos = 0x14;
+        amiga.agnus.spr_pt[0] = 0x0000_2000;
+        amiga.poke_word(0x0000_2000, 0x4100);
+        amiga.cck_phase = 0;
+
+        amiga.tick();
+
+        assert_eq!(amiga.agnus.hpos, 0x15);
+        assert_eq!(amiga.agnus.vbstop(), 40);
+        assert_eq!(amiga.agnus.spr_pt[0], 0x0000_2002);
+        assert_eq!(amiga.agnus.sprite_vstart(0), 0x41);
+    }
+
+    #[test]
     fn sprite_control_fetch_keeps_the_cpu_stalled_for_the_whole_cck() {
         let mut amiga = machine();
         amiga.agnus.vpos = 30;

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Drive sprite blanking and control refetch from the edge-driven
+  `VBSTRT`/`VBSTOP` state selected by `BEAMCON0.VARVBEN`
+- Keep untouched programmable blank comparators unarmed when other
+  vertical-timing registers are written
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-agnus-ecs-v0.2.0) - 2026-06-04
 
 ### Other

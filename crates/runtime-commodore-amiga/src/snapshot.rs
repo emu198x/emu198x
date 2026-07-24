@@ -19,7 +19,7 @@ use crate::Model;
 use crate::runtime::AmigaRuntime;
 use crate::variants::AmigaMachine;
 
-const SNAPSHOT_VERSION: u32 = 1;
+const SNAPSHOT_VERSION: u32 = 2;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
 /// snapshot (`M::Snapshot`) and the variant's reconstruction metadata
@@ -29,7 +29,7 @@ const SNAPSHOT_VERSION: u32 = 1;
 /// Versioned so future snapshot extensions can bump the major version
 /// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV1<M: AmigaMachine> {
+struct SnapshotEnvelopeV2<M: AmigaMachine> {
     version: u32,
     model: Model,
     metadata: M::SnapshotMetadata,
@@ -46,7 +46,7 @@ struct SnapshotEnvelopeV1<M: AmigaMachine> {
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
 pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u8>, MachineError> {
-    let envelope = SnapshotEnvelopeV1::<M> {
+    let envelope = SnapshotEnvelopeV2::<M> {
         version: SNAPSHOT_VERSION,
         model: runtime.model(),
         metadata: runtime.metadata().clone(),
@@ -73,18 +73,25 @@ pub(crate) fn decode<M: AmigaMachine>(
     runtime: &mut AmigaRuntime<M>,
     bytes: &[u8],
 ) -> Result<(), MachineError> {
-    let envelope: SnapshotEnvelopeV1<M> =
+    // Read the leading version varint before deserializing the versioned
+    // machine payload. A schema change can otherwise fail inside postcard
+    // before the explicit version check gets a chance to explain it.
+    let (version, _) = postcard::take_from_bytes::<u32>(bytes).map_err(|reason| {
+        MachineError::InvalidSnapshot {
+            reason: reason.to_string(),
+        }
+    })?;
+    if version != SNAPSHOT_VERSION {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
+        });
+    }
+
+    let envelope: SnapshotEnvelopeV2<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;
-    if envelope.version != SNAPSHOT_VERSION {
-        return Err(MachineError::InvalidSnapshot {
-            reason: format!(
-                "unsupported snapshot version {}; expected {SNAPSHOT_VERSION}",
-                envelope.version
-            ),
-        });
-    }
+    debug_assert_eq!(envelope.version, SNAPSHOT_VERSION);
     if envelope.model != runtime.model() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
