@@ -12,11 +12,12 @@
 //!   - copy the chip's per-pixel output into the board's own ARGB
 //!     framebuffer for display.
 //!
-//! DDF / DIW windowing helpers (`ddf_window`, `diw_vertical_window`)
-//! live here because Agnus (not Denise) owns those registers on real
-//! silicon — the helpers only need the register values, not Denise
-//! state. The per-CCK DMA slot schedule itself now lives in one place:
-//! Agnus's `current_slot` / `cck_bus_plan` (#30).
+//! DDF / legacy OCS DIW decoding helpers (`ddf_window`,
+//! `diw_vertical_window`) live here because Agnus owns those registers
+//! on real silicon. The live vertical gate is supplied by the concrete
+//! Agnus/Alice variant so ECS/AGA `DIWHIGH` and comparator-latch state
+//! cannot be lost through an OCS base view. The per-CCK DMA slot schedule
+//! itself lives in Agnus's `current_slot` / `cck_bus_plan` (#30).
 //!
 //! HIRES / HAM / EHB / DPF / sprites / collisions all flow through
 //! the chip's `output_pixel_with_beam_and_playfield_gate` unchanged.
@@ -172,16 +173,17 @@ impl<C: DeniseChip> Denise<C> {
         &mut self,
         phase: u8,
         bitplane_dma_fetch: Option<BitplaneDmaFetch>,
+        vertical_diw_active: bool,
         agnus: &mut commodore_agnus_ocs::Agnus,
         memory: &Memory,
     ) {
         let vpos = agnus.vpos;
         let hpos = agnus.hpos;
         let dmacon = agnus.dmacon;
-        let (vstart, vstop) = diw_vertical_window(agnus.diwstrt, agnus.diwstop);
+        let (vstart, _) = diw_vertical_window(agnus.diwstrt, agnus.diwstop);
         let (ddf_start, _) = ddf_window(agnus.ddfstrt, agnus.ddfstop);
 
-        let in_visible_line = (vstart..vstop).contains(&vpos);
+        let in_visible_line = vertical_diw_active;
         let bpl_dma_on = dmacon & 0x0300 == 0x0300;
         let bpu = agnus.num_bitplanes();
         // The fetch sequencer completes the 8-CCK block containing
@@ -442,12 +444,14 @@ mod tests {
             agnus.hpos = h;
             let plan = agnus.cck_bus_plan();
             let width = agnus.bpl_fetch_width();
+            let vertical_diw_active = agnus.vertical_diw_active();
             denise.tick(
                 0,
                 plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
                     plane,
                     width_words: width,
                 }),
+                vertical_diw_active,
                 &mut agnus,
                 &mem,
             );
@@ -483,12 +487,14 @@ mod tests {
             agnus.hpos = h;
             let plan = agnus.cck_bus_plan();
             let width = agnus.bpl_fetch_width();
+            let vertical_diw_active = agnus.vertical_diw_active();
             denise.tick(
                 0,
                 plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
                     plane,
                     width_words: width,
                 }),
+                vertical_diw_active,
                 &mut agnus,
                 &mem,
             );
@@ -534,16 +540,18 @@ mod tests {
             for hpos in 0u16..=0x00E2 {
                 agnus.hpos = hpos;
                 let plan = agnus.cck_bus_plan();
+                let vertical_diw_active = agnus.vertical_diw_active();
                 denise.tick(
                     0,
                     plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
                         plane,
                         width_words: 1,
                     }),
+                    vertical_diw_active,
                     &mut agnus,
                     &mem,
                 );
-                denise.tick(1, None, &mut agnus, &mem);
+                denise.tick(1, None, vertical_diw_active, &mut agnus, &mem);
             }
         }
 

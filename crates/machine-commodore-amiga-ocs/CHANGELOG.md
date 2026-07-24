@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Pass the installed Agnus revision's vertical display-window state to
+  Denise output, including OCS wrapping and Fat Agnus extended windows
 - Route base display-window writes through the installed Agnus
   revision so Fat Agnus updates its extended vertical-DIW latch
 - Select Fat Agnus 8372A explicitly for matching OCS-shaped profiles,

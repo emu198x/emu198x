@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Gate rendered output with Alice's serialized vertical display-window
+  state, including an explicitly programmed zero `DIWHIGH`
 - Route Alice's ten-bit sprite vertical coordinates through guest
   register writes and snapshots
 

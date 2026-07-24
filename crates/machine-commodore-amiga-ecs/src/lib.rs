@@ -1930,10 +1930,16 @@ impl AmigaDriver for AmigaEcs {
 
     fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
         let width_words = self.agnus.bpl_fetch_width();
+        let vertical_diw_active = self.agnus.vertical_diw_active();
         let bitplane_dma_fetch =
             bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });
-        self.denise
-            .tick(phase, bitplane_dma_fetch, &mut self.agnus, &self.memory);
+        self.denise.tick(
+            phase,
+            bitplane_dma_fetch,
+            vertical_diw_active,
+            &mut self.agnus,
+            &self.memory,
+        );
     }
 
     fn cck_phase(&self) -> u8 {
@@ -2233,6 +2239,35 @@ mod bus_plan_dispatch_tests {
         <AmigaEcs as AmigaDriver>::denise_tick(&mut amiga, 0, plan.bitplane_dma_fetch_plane);
 
         assert_eq!(amiga.agnus.bpl_pt[0], 0x0002_0002);
+    }
+
+    #[test]
+    fn concrete_ecs_vertical_latch_drives_denise_in_diwhigh_extended_window() {
+        let mut amiga = machine();
+        amiga.agnus.vpos = 0x0110;
+        amiga.agnus.write_diwstrt(0x1010);
+        amiga.agnus.write_diwstop(0xA020);
+        amiga.agnus.write_diwhigh(0x0101); // VSTART=$110, VSTOP=$1A0
+        assert!(amiga.agnus.vertical_diw_active());
+
+        amiga.agnus.vpos = 0x0120;
+        amiga.agnus.hpos = 0x0038;
+        amiga.agnus.dmacon = 0x0300;
+        amiga.agnus.ddfstrt = 0x0038;
+        amiga.agnus.ddfstop = 0x00D0;
+        amiga.agnus.bplcon0 = 0x1000;
+        amiga.denise.write_word(0x0180, 0x0000);
+        amiga.denise.write_word(0x0182, 0x0FFF);
+        amiga.denise.write_word(0x0110, 0x8000);
+
+        <AmigaEcs as AmigaDriver>::denise_tick(&mut amiga, 1, None);
+
+        let y = usize::from(0x0120u16 - 0x0019) * 2;
+        let x = (usize::from(0x0038u16 - 0x002C) * 2 + 1) * 2;
+        assert_eq!(
+            amiga.denise.framebuffer()[y * FB_WIDTH as usize + x],
+            0xFFFF_FFFF
+        );
     }
 
     #[test]

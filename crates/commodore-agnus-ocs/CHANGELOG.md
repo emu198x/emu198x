@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Expose the current OCS vertical display-window predicate so machine
+  integrations can use the same state for DMA and rendered output
+
 ### Fixed
 
 - Derive sprite control and data requests from one shared regional

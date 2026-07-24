@@ -84,6 +84,14 @@ impl InstalledAgnus {
         }
     }
 
+    #[must_use]
+    pub(crate) fn vertical_diw_active(&self) -> bool {
+        match self {
+            Self::EarlyOcs(agnus) => agnus.vertical_diw_active(),
+            Self::Fat8372A(agnus) => agnus.vertical_diw_active(),
+        }
+    }
+
     pub(crate) fn service_sprite_dma_cyc(
         &mut self,
         channel: usize,

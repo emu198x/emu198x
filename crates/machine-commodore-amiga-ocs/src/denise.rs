@@ -42,12 +42,14 @@ mod tests {
             agnus.hpos = hpos;
             let plan = agnus.cck_bus_plan();
             let width = agnus.bpl_fetch_width();
+            let vertical_diw_active = agnus.vertical_diw_active();
             denise.tick(
                 0,
                 plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
                     plane,
                     width_words: width,
                 }),
+                vertical_diw_active,
                 &mut agnus,
                 &memory,
             );
@@ -86,21 +88,50 @@ mod tests {
             agnus.hpos = hpos;
             let plan = agnus.cck_bus_plan();
             let width = agnus.bpl_fetch_width();
+            let vertical_diw_active = agnus.vertical_diw_active();
             denise.tick(
                 0,
                 plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
                     plane,
                     width_words: width,
                 }),
+                vertical_diw_active,
                 &mut agnus,
                 &memory,
             );
-            denise.tick(1, None, &mut agnus, &memory);
+            denise.tick(1, None, vertical_diw_active, &mut agnus, &memory);
         }
 
         assert_eq!(
             denise.ocs.shift_count, 0,
             "the wrapper must keep advancing Denise after DDF closes so late-line pixels do not leak into the next line",
         );
+    }
+
+    #[test]
+    fn wrapped_ocs_vertical_window_drives_denise_output() {
+        let mut denise = Denise::new();
+        let mut agnus = commodore_agnus_ocs::Agnus::new();
+        let memory = Memory::new(vec![0; 256 * 1024]);
+
+        agnus.vpos = 0x0030;
+        agnus.hpos = 0x0040;
+        agnus.dmacon = DMACON_BPL;
+        agnus.bplcon0 = 0x1000;
+        agnus.ddfstrt = 0x0038;
+        agnus.ddfstop = 0x00D0;
+        agnus.diwstrt = 0xF081;
+        agnus.diwstop = 0xE0C1;
+        let vertical_diw_active = agnus.vertical_diw_active();
+        assert!(vertical_diw_active);
+
+        denise.write_word(0x0180, 0x0000);
+        denise.write_word(0x0182, 0x0FFF);
+        denise.write_word(0x0110, 0x8000);
+        denise.tick(1, None, vertical_diw_active, &mut agnus, &memory);
+
+        let y = usize::from(0x0030u16 - 0x0019) * 2;
+        let x = (usize::from(0x0040u16 - 0x002C) * 2 + 1) * 2;
+        assert_eq!(denise.framebuffer()[y * FB_WIDTH as usize + x], 0xFFFF_FFFF);
     }
 }

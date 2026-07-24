@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Gate board-level Amiga output with the concrete Agnus or Alice vertical
+  display-window state instead of re-decoding legacy OCS bounds
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/common-commodore-amiga-v0.2.0) - 2026-06-04
 
 ### Added

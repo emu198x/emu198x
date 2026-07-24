@@ -1790,8 +1790,10 @@ impl Agnus {
         self.spr_dma_on[channel]
     }
 
-    /// Whether OCS bitplane DMA is vertically active at the current beam line.
-    fn bitplane_dma_vertical_active(&self) -> bool {
+    /// Whether the OCS vertical display window is active at the current beam
+    /// line. The same state gates bitplane DMA and board-level Denise output.
+    #[must_use]
+    pub fn vertical_diw_active(&self) -> bool {
         let vstart = (self.diwstrt >> 8) & 0x00FF;
         let stop_low = (self.diwstop >> 8) & 0x00FF;
         let vstop = if stop_low & 0x0080 != 0 {
@@ -1812,7 +1814,7 @@ impl Agnus {
     /// Determine who owns the current CCK slot.
     pub fn current_slot(&self) -> SlotOwner {
         self.current_slot_with_vertical_timing(
-            self.bitplane_dma_vertical_active(),
+            self.vertical_diw_active(),
             self.fixed_sprite_dma_vertical_timing(),
         )
     }
@@ -1964,7 +1966,7 @@ impl Agnus {
     /// Compute the machine-facing Agnus bus-arbitration plan for this CCK.
     pub fn cck_bus_plan(&self) -> CckBusPlan {
         self.cck_bus_plan_with_vertical_timing(
-            self.bitplane_dma_vertical_active(),
+            self.vertical_diw_active(),
             self.fixed_sprite_dma_vertical_timing(),
         )
     }

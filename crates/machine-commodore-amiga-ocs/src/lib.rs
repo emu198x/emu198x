@@ -2037,11 +2037,13 @@ impl AmigaDriver for AmigaOcs {
 
     fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
         let width_words = self.agnus.bpl_fetch_width();
+        let vertical_diw_active = self.agnus.vertical_diw_active();
         let bitplane_dma_fetch =
             bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });
         self.denise.tick(
             phase,
             bitplane_dma_fetch,
+            vertical_diw_active,
             self.agnus.base_mut(),
             &self.memory,
         );
