@@ -74,8 +74,8 @@ fn ram_variant_presets_construct_cleanly() {
     for model in [
         Model::A500OcsPal,
         Model::A500OcsPalA501,
-        Model::A500PlusEcsPal,
         Model::A500OcsPalMaxed,
+        Model::A2000OcsPal,
     ] {
         let runtime = AmigaOcsRuntime::new(model, blank_kickstart())
             .unwrap_or_else(|e| panic!("preset {model:?} should construct: {e:?}"));
@@ -256,6 +256,44 @@ fn workbench_13_reaches_desktop() -> Result<(), Box<dyn Error>> {
         result.value,
         serde_json::Value::Bool(true),
         "Workbench 1.3 should reach desktop within 25M ticks"
+    );
+    Ok(())
+}
+
+/// Waypoint: Kickstart 2.04 boots an A2000B-shaped machine with Fat
+/// Agnus 8372A and OCS Denise to the insert-disk screen.
+///
+/// This specifically guards the mixed-chipset profile: reporting the
+/// corrected Fat-Agnus identity must not divert Kickstart into a path
+/// that the OCS-shaped machine cannot execute.
+#[test]
+#[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick204.rom (KS 2.04 r37.175)"]
+fn kickstart_204_reaches_insert_disk_screen_a2000_fat_agnus_pal() -> Result<(), Box<dyn Error>> {
+    let Some(rom_dir) = home_rom_dir() else {
+        eprintln!("skip: no Amiga ROM dir at $HOME/.emu198x/roms/commodore-amiga");
+        return Ok(());
+    };
+    let kickstart_path = rom_dir.join("kick204.rom");
+    if !kickstart_path.exists() {
+        eprintln!("skip: kick204.rom missing at {}", kickstart_path.display());
+        return Ok(());
+    }
+    let firmware = std::fs::read(&kickstart_path)?;
+    let mut runtime = AmigaOcsRuntime::new(Model::A2000OcsPal, firmware)?;
+    assert_eq!(runtime.machine().agnus().agnus_id, 0x2000);
+
+    let mut host = null_host();
+    runtime.run_until(MachineTime::new(50_000_000), &mut host)?;
+
+    let provider = runtime_commodore_amiga::AmigaSessionQueryProvider;
+    use emu198x_shell::SessionQueryProvider;
+    let result = provider
+        .query(&runtime, "boot.detected")?
+        .expect("boot.detected should be available");
+    assert_eq!(
+        result.value,
+        serde_json::Value::Bool(true),
+        "Kickstart 2.04 should reach insert-disk within 50M ticks (A2000 Fat Agnus PAL)"
     );
     Ok(())
 }

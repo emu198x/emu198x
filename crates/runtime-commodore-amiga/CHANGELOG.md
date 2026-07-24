@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bump Amiga postcard snapshots to version 2 for serialized programmable
   vertical-blank and current-CCK sprite-arbitration state; version 1 is rejected
 
+### Fixed
+
+- Preserve OCS-shaped A2000 and maxed-A500 profiles while selecting
+  their installed Fat Agnus 8372A identity, RAM ceiling and sprite
+  comparators explicitly, independently from RAM size and OCS Denise
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/runtime-commodore-amiga-v0.2.0) - 2026-06-04
 
 ### Fixed

@@ -630,7 +630,9 @@ fn ntsc_a1000_uses_bootstrap_firmware_path() {
 }
 
 // =====================================================================
-// ECS variant smoke tests (A500+ today; A600 / A2000B / A3000 to come)
+// ECS variant smoke tests (A500+ and A600 today; A3000 to come).
+// A2000B remains in the OCS-shaped arm because it pairs 8372A with
+// OCS Denise.
 //
 // AmigaEcsRuntime is the canonical home for the A500+ Models. The
 // chip stack is AgnusEcs + DeniseEcs over the existing OCS Paula +

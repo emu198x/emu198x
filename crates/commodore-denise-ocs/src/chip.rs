@@ -500,25 +500,6 @@ impl DeniseOcs {
         ((pos & 0x00FF) << 1) | (ctl & 0x0001)
     }
 
-    fn sprite_vstart(pos: u16, ctl: u16) -> u16 {
-        (((ctl >> 2) & 0x0001) << 8) | ((pos >> 8) & 0x00FF)
-    }
-
-    fn sprite_vstop(_pos: u16, ctl: u16) -> u16 {
-        (((ctl >> 1) & 0x0001) << 8) | ((ctl >> 8) & 0x00FF)
-    }
-
-    fn sprite_line_active(beam_y: u32, vstart: u32, vstop: u32) -> bool {
-        if vstart == vstop {
-            return false;
-        }
-        if vstart < vstop {
-            beam_y >= vstart && beam_y < vstop
-        } else {
-            beam_y >= vstart || beam_y < vstop
-        }
-    }
-
     fn reset_sprite_line_runtime(&mut self, beam_y: u32) {
         self.spr_shift_count = [0; 8];
         self.spr_current_code = [0; 8];
@@ -530,7 +511,7 @@ impl DeniseOcs {
         self.sprite_runtime_beam_y = beam_y;
     }
 
-    fn step_sprite_runtime_one_pixel(&mut self, beam_x: u32, beam_y: u32) {
+    fn step_sprite_runtime_one_pixel(&mut self, beam_x: u32) {
         // Propagate position writes with a 1-pixel pipeline delay:
         // the display comparator uses spr_pos_display which trails spr_pos.
         for sprite in 0..8usize {
@@ -559,11 +540,12 @@ impl DeniseOcs {
             let pos = self.spr_pos_display[sprite];
             let ctl = self.spr_ctl[sprite];
             let hstart = u32::from(Self::sprite_hstart(pos, ctl));
-            let vstart = u32::from(Self::sprite_vstart(pos, ctl));
-            let vstop = u32::from(Self::sprite_vstop(pos, ctl));
 
-            // Comparator: detect the horizontal match at lores resolution.
-            let load_pulse = Self::sprite_line_active(beam_y, vstart, vstop) && beam_x == hstart;
+            // Denise owns only the armed horizontal display comparator.
+            // Agnus uses VSTART/VSTOP to decide when DMA supplies or
+            // terminates line data. In manual mode one SPRxDATA write
+            // repeats on every line until SPRxCTL disarms the sprite.
+            let load_pulse = beam_x == hstart;
 
             // Load phase: copy sprite data regs into the serial shifters.
             if load_pulse {
@@ -600,7 +582,7 @@ impl DeniseOcs {
             self.reset_sprite_line_runtime(beam_y);
             // Fast-forward from the line start to the requested beam pixel.
             for x in 0..=beam_x {
-                self.step_sprite_runtime_one_pixel(x, beam_y);
+                self.step_sprite_runtime_one_pixel(x);
             }
             self.sprite_runtime_beam_x = beam_x;
             return;
@@ -609,14 +591,14 @@ impl DeniseOcs {
         if beam_x <= self.sprite_runtime_beam_x {
             self.reset_sprite_line_runtime(beam_y);
             for x in 0..=beam_x {
-                self.step_sprite_runtime_one_pixel(x, beam_y);
+                self.step_sprite_runtime_one_pixel(x);
             }
             self.sprite_runtime_beam_x = beam_x;
             return;
         }
 
         for x in (self.sprite_runtime_beam_x + 1)..=beam_x {
-            self.step_sprite_runtime_one_pixel(x, beam_y);
+            self.step_sprite_runtime_one_pixel(x);
         }
         self.sprite_runtime_beam_x = beam_x;
     }

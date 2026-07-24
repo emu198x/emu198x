@@ -103,9 +103,10 @@ fn sprite_hstart_comparator_honours_subpixel_bit() {
 }
 
 #[test]
-fn sprite_vstart_vstop_gate_vertical_extent() {
-    // HRM 4-3: sprite is active on lines [vstart, vstop). Outside
-    // that range the shifter is idle and COLOR00 shows.
+fn manual_sprite_data_repeats_on_every_line_until_ctl_disarms() {
+    // HRM "Manual Mode": VSTART/VSTOP belong to Agnus's DMA lifecycle.
+    // Once SPRxDATA arms Denise, unchanged data is displayed on every
+    // line at HSTART until a SPRxCTL write disarms it.
     let mut d = with_clear_playfield();
     d.set_palette(17, 0xF00);
     let (pos, ctl) = encode_sprite_pos_ctl(30, 20, 22); // lines 20, 21
@@ -116,23 +117,25 @@ fn sprite_vstart_vstop_gate_vertical_extent() {
 
     assert_eq!(
         d.output_pixel_color(30, 19),
-        DeniseOcs::rgb12_to_argb32(0x000),
-        "before vstart -> no sprite"
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "manual data repeats before the DMA VSTART value"
     );
     assert_eq!(
         d.output_pixel_color(30, 20),
         DeniseOcs::rgb12_to_argb32(0xF00),
-        "on vstart -> sprite visible"
-    );
-    assert_eq!(
-        d.output_pixel_color(30, 21),
-        DeniseOcs::rgb12_to_argb32(0xF00),
-        "between vstart and vstop -> sprite visible"
+        "manual data displays on the encoded VSTART line"
     );
     assert_eq!(
         d.output_pixel_color(30, 22),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "manual data repeats on the encoded VSTOP line"
+    );
+
+    d.write_sprite_ctl(0, ctl);
+    assert_eq!(
+        d.output_pixel_color(30, 23),
         DeniseOcs::rgb12_to_argb32(0x000),
-        "on vstop -> sprite no longer visible"
+        "SPRxCTL disarms the horizontal comparator"
     );
 }
 
@@ -912,8 +915,8 @@ fn bplcon4_osprm_xors_odd_sprite_colour_bank() {
 }
 
 // --- Cov-5c additions: sprite-pair collision bits 10-14 + odd-sprite
-// CLXCON enables for sprites 5 and 7 + sprite_line_active wrap case +
-// the priority-loop "odd sprite with ATTACH continues" fall-through.
+// CLXCON enables for sprites 5 and 7 + the priority-loop "odd sprite
+// with ATTACH continues" fall-through.
 
 #[test]
 fn clxdat_latches_sprite_pair_cross_bits_10_through_14() {
@@ -993,55 +996,22 @@ fn clxcon_ensp5_and_ensp7_gate_odd_sprite_in_collision_mask() {
 }
 
 #[test]
-fn sprite_line_active_wraps_when_vstart_greater_than_vstop() {
-    // When SPRxPOS encodes vstart > vstop the active range wraps the
-    // field boundary: sprite is visible on lines >= vstart OR < vstop.
-    // Place a sprite with vstart=300, vstop=2 and verify it lights up
-    // both at line 305 (above vstart) and line 1 (below vstop).
+fn manual_sprite_uses_only_horizontal_comparator_above_line_511() {
+    // An enhanced Agnus can DMA sprite data for VSTART=$301. Denise
+    // must not independently decode the nine-bit OCS vertical fields
+    // and reject that already-armed data.
     let mut d = with_clear_playfield();
     d.set_palette(17, 0xF00);
-    let (pos, ctl) = encode_sprite_pos_ctl(40, 300, 2);
-    d.write_sprite_pos(0, pos);
-    d.write_sprite_ctl(0, ctl);
+    d.write_sprite_pos(0, 0x0114); // VSTART low=$01, HSTART=40
+    d.write_sprite_ctl(0, 0x0246); // enhanced VSTART=$301
     d.write_sprite_datb(0, 0x0000);
     d.write_sprite_data(0, 0x8000);
 
     assert_eq!(
-        d.output_pixel_color(40, 305),
+        d.output_pixel_color(40, 0x0301),
         DeniseOcs::rgb12_to_argb32(0xF00),
-        "wrap: line above vstart -> sprite visible"
+        "armed data must reach the horizontal comparator on the enhanced line"
     );
-    assert_eq!(
-        d.output_pixel_color(40, 1),
-        DeniseOcs::rgb12_to_argb32(0xF00),
-        "wrap: line below vstop -> sprite visible"
-    );
-    assert_eq!(
-        d.output_pixel_color(40, 100),
-        DeniseOcs::rgb12_to_argb32(0x000),
-        "wrap: line in the gap -> no sprite"
-    );
-}
-
-#[test]
-fn sprite_line_active_returns_false_when_vstart_equals_vstop() {
-    // The early-return `if vstart == vstop { return false }` arm of
-    // `sprite_line_active` — sprite is never visible.
-    let mut d = with_clear_playfield();
-    d.set_palette(17, 0xF00);
-    let (pos, ctl) = encode_sprite_pos_ctl(40, 30, 30);
-    d.write_sprite_pos(0, pos);
-    d.write_sprite_ctl(0, ctl);
-    d.write_sprite_datb(0, 0x0000);
-    d.write_sprite_data(0, 0x8000);
-
-    for line in [29u32, 30, 31, 32] {
-        assert_eq!(
-            d.output_pixel_color(40, line),
-            DeniseOcs::rgb12_to_argb32(0x000),
-            "vstart==vstop -> never active (line {line})"
-        );
-    }
 }
 
 #[test]

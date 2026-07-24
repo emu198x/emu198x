@@ -194,6 +194,8 @@ impl AmigaMachine for AmigaOcs {
     type SnapshotMetadata = RamConfig;
 
     fn rebuild(&mut self, firmware: &[u8], metadata: &Self::SnapshotMetadata) {
+        let region = self.region();
+        let fat_agnus = self.agnus().agnus_id >= 0x2000;
         // Two OCS construction paths sit behind one trait method.
         // The 64 KiB image is unambiguously an A1000 bootstrap ROM
         // (the only valid size at that length); 256/512 KiB images
@@ -201,10 +203,26 @@ impl AmigaMachine for AmigaOcs {
         // `validate_firmware_rom` already gates these sizes per
         // model, so we can dispatch on length here without re-
         // checking the model.
-        *self = if firmware.len() == 64 * 1024 {
-            AmigaOcs::with_a1000_bootstrap_rom(firmware.to_vec(), *metadata)
-        } else {
-            AmigaOcs::with_ram_config(firmware.to_vec(), *metadata)
+        *self = match (firmware.len() == 64 * 1024, region, fat_agnus) {
+            (true, AgnusRegion::Pal, false) => {
+                AmigaOcs::with_a1000_bootstrap_rom(firmware.to_vec(), *metadata)
+            }
+            (true, AgnusRegion::Ntsc, false) => {
+                AmigaOcs::with_a1000_bootstrap_rom_ntsc(firmware.to_vec(), *metadata)
+            }
+            (false, AgnusRegion::Pal, true) => {
+                AmigaOcs::with_fat_agnus_ram_config(firmware.to_vec(), *metadata)
+            }
+            (false, AgnusRegion::Ntsc, true) => {
+                AmigaOcs::with_fat_agnus_ram_config_ntsc(firmware.to_vec(), *metadata)
+            }
+            (false, AgnusRegion::Pal, false) => {
+                AmigaOcs::with_ram_config(firmware.to_vec(), *metadata)
+            }
+            (false, AgnusRegion::Ntsc, false) => {
+                AmigaOcs::with_ram_config_ntsc(firmware.to_vec(), *metadata)
+            }
+            (true, _, true) => unreachable!("A1000 bootstrap machines do not use Fat Agnus"),
         };
     }
 
@@ -316,18 +334,16 @@ impl AmigaMachine for AmigaOcs {
     }
 }
 
-/// Type alias for the OCS runtime — covers the A1000 + A500 family.
-/// The A500+ Models (`A500PlusEcsPal/Ntsc`) are listed in `Model`
-/// alongside the OCS variants but are *technically* misrouted when
-/// constructed through `AmigaOcsRuntime` (A500+ shipped with ECS
-/// chips per Commodore). For the canonical ECS chip stack, use
-/// `AmigaEcsRuntime`. The OCS path remains the verifier-binary
-/// default until the dispatch refactor lands in a follow-up session.
+/// Type alias for the OCS-shaped runtime. Covers the A1000, A500
+/// family and A2000B profiles. Fat Agnus 8372A configurations remain
+/// in this arm because they retain OCS Denise, while Agnus-side
+/// capabilities are selected independently from the installed chip
+/// RAM layout.
 pub type AmigaOcsRuntime = AmigaRuntime<AmigaOcs>;
 
 // ===================================================================
-// AmigaEcs impl — A500+ today; A600 / A2000B / A3000 to follow once
-// Gayle / Ramsey / Fat Gary are ported. The trait body is mechanically
+// AmigaEcs impl — A500+ and A600 today; A3000 follows once Ramsey /
+// Fat Gary are ported. The trait body is mechanically
 // identical to the AmigaOcs impl: the chip-level differences (BEAMCON0
 // register handling, BPLCON3 register, programmable sync generator)
 // are absorbed inside AgnusEcs / DeniseEcs via Deref/DerefMut, so the
@@ -462,9 +478,8 @@ impl AmigaMachine for AmigaEcs {
     }
 }
 
-/// Type alias for the ECS runtime — currently A500+. A600 / A2000B /
-/// A3000 land here in later sessions once their machine-specific
-/// chips (Gayle, Ramsey, Fat Gary) are ported. The chip stack is
+/// Type alias for the ECS runtime — currently A500+ and A600. A3000
+/// lands here once Ramsey and Fat Gary are ported. The chip stack is
 /// AgnusEcs + DeniseEcs over the existing OCS Paula + CIA pair.
 pub type AmigaEcsRuntime = AmigaRuntime<AmigaEcs>;
 
@@ -686,10 +701,11 @@ pub type AmigaA1200Runtime = AmigaRuntime<AmigaA1200>;
 // mechanical, internal-only change with no API churn.
 #[allow(clippy::large_enum_variant)]
 pub enum AmigaRuntimeKind {
-    /// OCS chip stack — A1000, A500, A500-A501, A500-Maxed (PAL/NTSC).
+    /// OCS-shaped stack — A1000, A500 family and A2000B. The A2000B
+    /// combines Fat Agnus 8372A with OCS Denise.
     Ocs(AmigaOcsRuntime),
-    /// ECS chip stack — A500+ today (PAL/NTSC); A600 / A2000B / A3000
-    /// will land here once their machine-specific chips are ported.
+    /// ECS chip stack — A500+ and A600 today; A3000 follows once its
+    /// machine-specific chips are ported.
     Ecs(AmigaEcsRuntime),
     /// AGA chip stack — A1200 today (PAL/NTSC); A4000 / CD32 land
     /// here once their machine-specific chips (Fat Gary + Ramsey for
@@ -1041,6 +1057,7 @@ impl AmigaRuntimeKind {
 mod tests {
     use super::*;
     use crate::Model;
+    use emu198x_shell::{MachineCore, ResetKind};
 
     /// Spec invariant: every advertised variant query path is unique.
     /// Doubles would silently clobber each other in a sorted listing.
@@ -1104,5 +1121,19 @@ mod tests {
         assert!(!kind.is_aga());
         assert!(!kind.is_ecs(), "A2000 should land in the Ocs arm");
         assert_eq!(kind.model(), Model::A2000OcsPal);
+        let AmigaRuntimeKind::Ocs(mut runtime) = kind else {
+            panic!("A2000 should use the OCS-shaped machine");
+        };
+        assert_eq!(
+            runtime.machine().agnus().agnus_id,
+            0x2000,
+            "the OCS-shaped A2000 still carries Fat Agnus 8372A"
+        );
+        runtime.reset(ResetKind::Hard);
+        assert_eq!(
+            runtime.machine().agnus().agnus_id,
+            0x2000,
+            "hard reset must preserve the model's explicit Agnus revision"
+        );
     }
 }

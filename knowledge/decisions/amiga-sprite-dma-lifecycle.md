@@ -58,6 +58,13 @@ Both direct `SPRxPOS`/`SPRxCTL` writes and DMA-fetched control words
 re-evaluate the comparator state for the current line. This keeps the
 CPU, Copper and sprite-DMA paths on the same state machine.
 
+Denise does not apply a second VSTART/VSTOP display window. Writing
+`SPRxDATA` arms its horizontal comparator and writing `SPRxCTL`
+disarms it. In manual mode, unchanged data therefore repeats at
+HSTART on every line. In DMA mode, vertical extent emerges because
+Agnus supplies fresh line data between its comparators and supplies
+control words at VSTOP.
+
 The implementation does not claim physical reset values for the
 write-only programmable comparators. ECS and AGA seed untouched
 `VBSTRT` and `VBSTOP` shadows to an out-of-domain sentinel, following
@@ -66,8 +73,30 @@ written, line-entry comparisons begin, but an untouched blank edge
 remains unarmed. This prevents an unrelated `VTOTAL`, `VSSTRT` or
 `VSSTOP` write from manufacturing a line-zero blank event.
 
-This decision currently covers the shared nine-bit sprite VSTART and
-VSTOP comparator. ECS VSTART[9] and VSTOP[9] remain unimplemented.
+Early OCS Agnus revisions compare nine-bit VSTART and VSTOP values.
+Enhanced Agnus revisions beginning with Fat Agnus 8372A, plus AGA
+Alice, add a tenth comparator bit: `SPRxCTL` bit 6 supplies VSTART[9]
+and bit 5 supplies VSTOP[9]. This includes 8372A paired with OCS
+Denise in later A500 and A2000 machines. The capability follows the
+Agnus revision, not the Denise revision, whole-chipset wrapper, region
+or `BEAMCON0` mode. A later `SPRxPOS` write replaces the low VSTART
+byte while preserving both selected high bits; every `SPRxCTL` write
+replaces both high-bit values.
+
+The ten-bit coordinates compare exactly against the full programmed
+beam position. They do not alias when beam V10 is set. The inspected
+evidence does not establish physical aliasing above line `$3FF`, so the
+implementation follows WinUAE's exact comparison rather than inferring
+modulo-1024 behaviour from Minimig's ten-bit comparator input.
+
+The current mixed 8372A + OCS Denise machine path implements the
+8372A identity, chip-RAM ceiling and shared-core sprite comparator
+behaviour. Its remaining ECS Agnus register surface is incomplete.
+The passing Kickstart 2.04 insert-disk waypoint does not establish
+Workbench 2.04 compatibility; V36 software can detect enhanced Agnus
+and use ECS big-blit or programmable-timing registers. That register
+routing is a separate implementation task, not a hardware distinction.
+
 Programmable blanking for sync outputs, VERTB, CIA timing and Copper
 restart is separate from this sprite-DMA decision.
 
@@ -79,6 +108,8 @@ The *Amiga Hardware Reference Manual*, third edition, documents:
   (printed page 219, PDF page 234);
 - VSTART activation, VSTOP termination and the control/data sequence
   (printed pages 124–126, PDF pages 139–141);
+- manual mode repeating armed data on every line until `SPRxCTL`
+  disarms the sprite (printed page 123, PDF page 138);
 - the visible consequence of disabling sprite DMA between VSTART and
   VSTOP (printed page 109, PDF page 124);
 - programmable `VBSTRT`/`VBSTOP` and vertical total behaviour (printed
@@ -89,6 +120,22 @@ The *Amiga Hardware Reference Manual*, third edition, documents:
 The *A500/A2000 Technical Reference Manual* identifies `SPREN` as the
 sprite-DMA enable and permits processor writes to `SPRxPOS`/`SPRxCTL`
 (pages 208 and 210–211).
+
+The third-edition hardware manual's main register descriptions call
+`SPRxCTL` bits 6–4 unused, while its ECS sprite-positioning table
+defines horizontal bit 3 but does not positively define bits 6/5. The
+enhanced vertical mapping is therefore recorded as undocumented ECS
+behaviour, not as a manufacturer-documented extension. Independent
+compatibility evidence supports the boundary:
+
+- WinUAE gates bit-6 VSTART[9] and bit-5 VSTOP[9] on `ecs_agnus`; its
+  historical changelog records the ECS/AGA implementation as fixing
+  *The Dark Demon — Burning Spears*;
+- vAmiga commits `926152b23` and `9bb04b0860` added and then corrected
+  the same ECS-gated mapping for issue 692, whose failure distinguishes
+  the intended early-OCS corruption from enhanced-Agnus output;
+- Minimig-AGA stores both bits and includes them in the vertical
+  comparison when its ECS capability input is active.
 
 Those manuals do not directly expose the hidden comparator state while
 `SPREN` is clear, nor do they explicitly name the selected blank-end
@@ -128,6 +175,9 @@ not asserted as manufacturer-documented power-on behaviour.
 - The Amiga runtime postcard schema is version 2. Version-1 snapshots
   are rejected rather than migrated.
 - The per-request `SpriteDmaVerticalTiming` value remains transient.
+  It also carries the nine- or ten-bit comparator capability selected
+  by the Agnus identity; the already-serialized `agnus_id` and `u16`
+  comparator values require no snapshot schema change.
   The current-CCK sprite bus-use latch is serialized because a snapshot
   can preserve the machine at the second half of a CCK.
 - VSTOP remains the value last supplied by control data; it is no
@@ -150,6 +200,15 @@ Reject these patterns:
 - using the PAL reset boundary for an NTSC Agnus;
 - continuing to use a fixed regional reset while `VARVBEN` is set;
 - requiring `VARBEAMEN` before programmable blank affects sprites;
+- letting `SPRxCTL` bits 6/5 extend early-OCS Agnus coordinates;
+- ignoring `SPRxCTL` bits 6/5 on Fat Agnus 8372A, later ECS Agnus or
+  AGA Alice;
+- selecting comparator width from Denise, the whole-chipset wrapper,
+  region or `BEAMCON0`;
+- applying a second VSTART/VSTOP gate in Denise instead of using its
+  armed horizontal comparator;
+- aliasing a ten-bit sprite coordinate onto beam positions above `$3FF`
+  without hardware evidence;
 - treating equal `VBSTRT`/`VBSTOP` as removing the independent stop
   event;
 - manufacturing an extra field-end sprite reset in programmable mode;

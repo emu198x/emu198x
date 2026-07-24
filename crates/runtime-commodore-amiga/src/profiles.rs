@@ -59,14 +59,12 @@ pub enum Model {
     A600EcsPal,
     /// A600 ECS NTSC.
     A600EcsNtsc,
-    /// A2000 OCS PAL: 1 MiB chip RAM via Fat Agnus 8372A, 68000 CPU,
-    /// OCS Denise, Zorro-II slots, Kickstart 1.3 / 2.04. Backed by
-    /// `AmigaOcs` — the chip stack is identical to the A500 Rev 6+
-    /// (same Fat Agnus, same OCS Denise, same Paula). A2000 Rev A
-    /// (early, 512 KiB chip via Agnus 8371) is reachable via
-    /// `AmigaOcsRuntime::with_ram_config(..., RamConfig::bare())`
-    /// without a separate catalogue entry; the Rev B (Fat Agnus
-    /// 8372A) is the canonical "A2000 PAL" we surface here.
+    /// A2000 mixed PAL: ECS Fat Agnus 8372A jumpered for 1 MiB chip
+    /// RAM, OCS Denise, 68000 CPU, Zorro-II slots and Kickstart 1.3 /
+    /// 2.04. Backed by `AmigaOcs` because the mixed stack retains the
+    /// OCS Denise shape. A2000 Rev A (early Agnus 8371, 512 KiB chip)
+    /// is reachable via `AmigaOcsRuntime::with_ram_config(...,
+    /// RamConfig::bare())` without a separate catalogue entry.
     A2000OcsPal,
     /// A2000 OCS NTSC.
     A2000OcsNtsc,
@@ -177,10 +175,10 @@ impl Model {
             // is reachable through with_ram_config). No slow, no
             // fast Zorro — A600 has no Zorro slots.
             Self::A600EcsPal | Self::A600EcsNtsc => RamConfig::a500_plus(),
-            // Stock A2000 Rev B (Fat Agnus 8372A): 1 MiB chip, no
-            // slow trapdoor (A2000 doesn't have a trapdoor; slow
-            // RAM is reached via a Zorro-II daughterboard).
-            // Zorro-II fast RAM is reachable through with_ram_config.
+            // Canonical A2000 Rev B profile: Fat Agnus 8372A jumpered
+            // for its 1 MiB chip-RAM maximum. The base machine shipped
+            // with 512 KiB; no slow trapdoor is present, and additional
+            // RAM is normally provided by a Zorro-II board.
             Self::A2000OcsPal | Self::A2000OcsNtsc => RamConfig::a500_plus(),
         }
     }
@@ -192,6 +190,19 @@ impl Model {
     #[must_use]
     pub const fn is_a1000(self) -> bool {
         matches!(self, Self::A1000OcsPal | Self::A1000OcsNtsc)
+    }
+
+    /// Whether this OCS-shaped profile installs Fat Agnus 8372A.
+    ///
+    /// This is a silicon-revision choice, not a deduction from the
+    /// configured RAM size: a 512 KiB-populated board can contain an
+    /// 8372A, while no RAM expansion can turn an early Agnus into one.
+    #[must_use]
+    pub const fn uses_fat_agnus_8372a(self) -> bool {
+        matches!(
+            self,
+            Self::A500OcsPalMaxed | Self::A500OcsNtscMaxed | Self::A2000OcsPal | Self::A2000OcsNtsc
+        )
     }
 
     /// Whether this model is NTSC. Drives the Agnus region selection
@@ -376,14 +387,16 @@ pub fn profile_for(model: Model) -> MachineProfile {
         summary: match model {
             Model::A1000OcsPal => "Amiga 1000 OCS PAL — bootstrap-ROM cold boot into writable WOM, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Kickstart-to-Workbench disk swaps are scriptable via headless media reloads.".into(),
             Model::A1000OcsNtsc => "Amiga 1000 OCS NTSC — bootstrap-ROM cold boot into writable WOM, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Boot path matches PAL A1000; Agnus runs on the NTSC clock with the short/long line alternation modelled in the chip layer.".into(),
-            Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500PlusEcsPal | Model::A500OcsPalMaxed => "Amiga OCS PAL — Kickstart-backed headless boot, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Snapshots and broader software validation still pending.".into(),
-            Model::A500OcsNtsc | Model::A500OcsNtscA501 | Model::A500PlusEcsNtsc | Model::A500OcsNtscMaxed => "Amiga OCS NTSC — Kickstart-backed headless boot at the US 60 Hz field rate, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. NTSC boot validation still pending; structural plumbing is in place via the chip-layer short/long line alternation.".into(),
+            Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500OcsPalMaxed => "Amiga OCS-shaped PAL — Kickstart-backed headless boot, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Snapshots and broader software validation still pending.".into(),
+            Model::A500OcsNtsc | Model::A500OcsNtscA501 | Model::A500OcsNtscMaxed => "Amiga OCS-shaped NTSC — Kickstart-backed headless boot at the US 60 Hz field rate, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. NTSC boot validation still pending; structural plumbing is in place via the chip-layer short/long line alternation.".into(),
+            Model::A500PlusEcsPal => "Amiga 500 Plus ECS PAL — 68000 + ECS Agnus 8375 / Denise 8373, 1 MiB chip RAM and Kickstart 2.04. The full ECS chip stack supplies programmable timing and enhanced display registers.".into(),
+            Model::A500PlusEcsNtsc => "Amiga 500 Plus ECS NTSC — same ECS chip stack as the PAL profile, with NTSC beam timing.".into(),
             Model::A1200AgaPal => "Amiga 1200 AGA PAL — 68EC020 + Alice/Lisa chipset + Gayle, 2 MiB chip RAM, Kickstart 3.0/3.1, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Active stage-by-stage development; boot validation work documented in docs/handoffs/.".into(),
             Model::A1200AgaNtsc => "Amiga 1200 AGA NTSC — 68EC020 + Alice/Lisa chipset + Gayle, 2 MiB chip RAM. NTSC boot validation pending; PAL Agnus path is the active target.".into(),
             Model::A600EcsPal => "Amiga 600 ECS PAL — 68000 + ECS Agnus 8375 / Denise 8373 + Gayle (IDE + PCMCIA decode), 1 MiB chip RAM, Kickstart 2.05. Shares the ECS chip stack with the A500+; A600 form factor and Gayle-driven IDE distinguish it.".into(),
             Model::A600EcsNtsc => "Amiga 600 ECS NTSC — same chip stack as the A600 PAL, NTSC Agnus.".into(),
-            Model::A2000OcsPal => "Amiga 2000 OCS PAL — 68000 + Fat Agnus 8372A + OCS Denise + Paula, 1 MiB chip RAM, Kickstart 1.3 / 2.04, Zorro-II slots. Catalogued as the Rev 6.x form factor; A2000A (early Agnus 8371, 512 KiB chip) is reachable via `AmigaOcsRuntime::with_ram_config` without a separate model entry.".into(),
-            Model::A2000OcsNtsc => "Amiga 2000 OCS NTSC — same chip stack as the A2000 PAL, NTSC Agnus.".into(),
+            Model::A2000OcsPal => "Amiga 2000 mixed PAL — 68000 + ECS Fat Agnus 8372A + OCS Denise + Paula, configured for 1 MiB chip RAM, Kickstart 1.3 / 2.04 and Zorro-II slots. The current 8372A path covers identity, RAM ceiling and shared sprite comparators; its remaining ECS Agnus register surface is still incomplete. A2000A (early Agnus 8371, 512 KiB chip) is reachable via `AmigaOcsRuntime::with_ram_config` without a separate model entry.".into(),
+            Model::A2000OcsNtsc => "Amiga 2000 mixed NTSC — the same ECS Fat Agnus 8372A + OCS Denise stack as the PAL profile, with NTSC beam timing; the remaining ECS Agnus register surface is still incomplete.".into(),
         },
         clock: ClockDesc::new("system-tick", ClockRate::from_hz(tick_hz)),
         firmware: vec![FirmwareRequirement::new(firmware_id, firmware_name, false)],

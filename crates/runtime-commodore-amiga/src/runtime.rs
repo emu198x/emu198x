@@ -570,10 +570,8 @@ impl AmigaRuntime<AmigaOcs> {
 
 // =====================================================================
 // AmigaEcs-specific construction + audio control surface.
-// Parallels the AmigaOcs block above. Today only the A500+ ECS
-// variants route through here; A600 / A2000B / A3000 land alongside
-// once their machine-specific chips (Gayle / Ramsey / Fat Gary) are
-// ported.
+// Parallels the AmigaOcs block above. A500+ and A600 variants route
+// through here; A3000 joins them once Ramsey and Fat Gary are ported.
 // =====================================================================
 
 impl AmigaRuntime<AmigaEcs> {
@@ -804,11 +802,18 @@ fn build_amiga_ocs(model: Model, ram_config: RamConfig, firmware_rom: &[u8]) -> 
     // aware constructor; the Zorro-II fast-RAM board is attached
     // automatically when `ram_config.fast_kb > 0`.
     let firmware = firmware_rom.to_vec();
-    match (model.is_a1000(), model.is_ntsc()) {
-        (true, false) => AmigaOcs::with_a1000_bootstrap_rom(firmware, ram_config),
-        (true, true) => AmigaOcs::with_a1000_bootstrap_rom_ntsc(firmware, ram_config),
-        (false, false) => AmigaOcs::with_ram_config(firmware, ram_config),
-        (false, true) => AmigaOcs::with_ram_config_ntsc(firmware, ram_config),
+    match (
+        model.is_a1000(),
+        model.is_ntsc(),
+        model.uses_fat_agnus_8372a(),
+    ) {
+        (true, false, false) => AmigaOcs::with_a1000_bootstrap_rom(firmware, ram_config),
+        (true, true, false) => AmigaOcs::with_a1000_bootstrap_rom_ntsc(firmware, ram_config),
+        (false, false, true) => AmigaOcs::with_fat_agnus_ram_config(firmware, ram_config),
+        (false, true, true) => AmigaOcs::with_fat_agnus_ram_config_ntsc(firmware, ram_config),
+        (false, false, false) => AmigaOcs::with_ram_config(firmware, ram_config),
+        (false, true, false) => AmigaOcs::with_ram_config_ntsc(firmware, ram_config),
+        (true, _, true) => unreachable!("A1000 profiles never use Fat Agnus 8372A"),
     }
 }
 

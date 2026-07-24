@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `VBSTRT`/`VBSTOP` state selected by `BEAMCON0.VARVBEN`
 - Keep untouched programmable blank comparators unarmed when other
   vertical-timing registers are written
+- Decode the undocumented `SPRxCTL` bit-6/bit-5 VSTART[9]/VSTOP[9]
+  extensions for direct and DMA-fetched control words
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-agnus-ecs-v0.2.0) - 2026-06-04
 

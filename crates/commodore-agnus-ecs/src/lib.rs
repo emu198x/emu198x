@@ -264,7 +264,7 @@ impl AgnusEcs {
     }
 
     fn sprite_dma_vertical_timing(&self) -> SpriteDmaVerticalTiming {
-        if self.varvben_enabled() {
+        let timing = if self.varvben_enabled() {
             SpriteDmaVerticalTiming::programmed(
                 self.programmed_vblank_active,
                 self.programmed_vblank_stop_event,
@@ -276,7 +276,8 @@ impl AgnusEcs {
                 NTSC_VBL_END_LINE
             };
             SpriteDmaVerticalTiming::fixed(blank_stop)
-        }
+        };
+        timing.with_ten_bit_sprite_comparators()
     }
 
     fn enter_programmed_vertical_line(&mut self, vpos: u16) {
@@ -1361,6 +1362,104 @@ mod tests {
         let plan = agnus.cck_bus_plan();
         assert_eq!(plan.slot_owner, SlotOwner::Bitplane(0));
         assert_eq!(plan.bitplane_dma_fetch_plane, Some(0));
+    }
+
+    #[test]
+    fn enhanced_sprite_ctl_bits_extend_direct_vertical_coordinates() {
+        let mut agnus = AgnusEcs::new();
+
+        // CTL bit 6 supplies VSTART[9]. Writing POS afterwards must retain
+        // both high VSTART bits while replacing the low byte.
+        agnus.poke_sprite_ctl(0, 0x0246);
+        agnus.poke_sprite_pos(0, 0x0100);
+        assert_eq!(agnus.sprite_vstart(0), 0x301);
+        assert_eq!(agnus.sprite_vstop(0), 0x102);
+
+        // CTL bit 5 independently supplies VSTOP[9].
+        agnus.poke_sprite_ctl(0, 0x0226);
+        assert_eq!(agnus.sprite_vstart(0), 0x101);
+        assert_eq!(agnus.sprite_vstop(0), 0x302);
+
+        // A subsequent CTL write replaces both enhanced bits rather than
+        // preserving stale V9 state.
+        agnus.poke_sprite_ctl(0, 0x0206);
+        assert_eq!(agnus.sprite_vstart(0), 0x101);
+        assert_eq!(agnus.sprite_vstop(0), 0x102);
+    }
+
+    #[test]
+    fn enhanced_sprite_ctl_bits_extend_dma_fetched_vertical_coordinates() {
+        let mut agnus = AgnusEcs::new();
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.spr_pt[0] = 0x1000;
+        agnus.vpos = 30;
+        agnus.poke_sprite_ctl(0, 30 << 8);
+
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, false, 1, |_| 0x0100),
+            Some((true, 0x0100))
+        );
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, true, 1, |_| 0x0266),
+            Some((true, 0x0266))
+        );
+        assert_eq!(agnus.sprite_vstart(0), 0x301);
+        assert_eq!(agnus.sprite_vstop(0), 0x302);
+    }
+
+    #[test]
+    fn enhanced_sprite_comparators_follow_ten_bit_programmed_beam() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_htotal(0);
+        agnus.write_vtotal(0x03FF);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARBEAMEN);
+        agnus.poke_sprite_pos(0, 0x0100);
+        agnus.poke_sprite_ctl(0, 0x0266); // VSTART=$301, VSTOP=$302
+        agnus.vpos = 0x0300;
+
+        tick_programmed_line(&mut agnus);
+        assert_eq!(agnus.vpos, 0x0301);
+        assert!(
+            agnus.sprite_dma_on(0),
+            "VSTART[9] participates in comparison"
+        );
+
+        tick_programmed_line(&mut agnus);
+        assert_eq!(agnus.vpos, 0x0302);
+        assert!(
+            !agnus.sprite_dma_on(0),
+            "VSTOP[9] participates in comparison"
+        );
+    }
+
+    #[test]
+    fn enhanced_sprite_comparators_do_not_alias_above_ten_bits() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_htotal(0);
+        agnus.write_vtotal(0x07FF);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_VARBEAMEN);
+        agnus.poke_sprite_pos(0, 0xFF00);
+        agnus.poke_sprite_ctl(0, 0x0144); // VSTART=$3FF, VSTOP=$001
+        agnus.vpos = 0x03FE;
+
+        tick_programmed_line(&mut agnus);
+        assert_eq!(agnus.vpos, 0x03FF);
+        assert!(
+            agnus.sprite_dma_on(0),
+            "the sprite must first activate at its exact ten-bit VSTART"
+        );
+
+        tick_programmed_line(&mut agnus);
+        assert_eq!(agnus.vpos, 0x0400);
+        assert!(agnus.sprite_dma_on(0));
+
+        tick_programmed_line(&mut agnus);
+
+        assert_eq!(agnus.vpos, 0x0401);
+        assert!(
+            agnus.sprite_dma_on(0),
+            "VSTOP=$001 must not alias onto beam $401"
+        );
     }
 
     #[test]

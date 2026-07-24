@@ -217,4 +217,15 @@ mod tests {
             Some((true, 0x4000))
         );
     }
+
+    #[test]
+    fn alice_inherits_enhanced_sprite_vertical_coordinates() {
+        let mut agnus = AgnusAga::new();
+
+        agnus.poke_sprite_ctl(0, 0x0246);
+        agnus.poke_sprite_pos(0, 0x0100);
+
+        assert_eq!(agnus.sprite_vstart(0), 0x301);
+        assert_eq!(agnus.sprite_vstop(0), 0x102);
+    }
 }

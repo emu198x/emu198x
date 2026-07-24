@@ -29,7 +29,7 @@ fn a501_trapdoor_preset_installs_512k_chip_plus_512k_slow() {
 
 #[test]
 fn a500plus_preset_installs_1m_chip_no_slow() {
-    let amiga = AmigaOcs::with_ram_config(zero_rom(), RamConfig::a500_plus());
+    let amiga = AmigaOcs::with_fat_agnus_ram_config(zero_rom(), RamConfig::a500_plus());
     assert_eq!(amiga.memory().chip_ram_size(), 1024 * 1024);
     assert_eq!(amiga.memory().slow_ram_size(), 0);
 }
@@ -38,7 +38,7 @@ fn a500plus_preset_installs_1m_chip_no_slow() {
 fn a500_maxed_preset_installs_1m_chip_plus_512k_slow_plus_8m_fast() {
     let cfg = RamConfig::a500_maxed();
     assert_eq!(cfg.fast_kb, 8192);
-    let amiga = AmigaOcs::with_ram_config(zero_rom(), cfg);
+    let amiga = AmigaOcs::with_fat_agnus_ram_config(zero_rom(), cfg);
     assert_eq!(amiga.memory().chip_ram_size(), 1024 * 1024);
     assert_eq!(amiga.memory().slow_ram_size(), 512 * 1024);
     // Fast RAM is exposed through the Zorro-II autoconfig board, not
@@ -108,4 +108,23 @@ fn with_ram_config_panics_on_invalid_sizes() {
         fast_kb: 0,
     };
     let _ = AmigaOcs::with_ram_config(zero_rom(), bad);
+}
+
+#[test]
+#[should_panic(expected = "RamConfig out of range for selected Agnus")]
+fn early_ocs_constructor_rejects_chip_ram_above_512k() {
+    let _ = AmigaOcs::with_ram_config(zero_rom(), RamConfig::a500_plus());
+}
+
+#[test]
+#[should_panic(expected = "RamConfig out of range for selected Agnus")]
+fn fat_agnus_constructor_rejects_chip_ram_above_1m() {
+    let _ = AmigaOcs::with_fat_agnus_ram_config(
+        zero_rom(),
+        RamConfig {
+            chip_kb: 2048,
+            slow_kb: 0,
+            fast_kb: 0,
+        },
+    );
 }

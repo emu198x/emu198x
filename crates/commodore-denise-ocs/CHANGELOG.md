@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Let armed manual sprite data repeat on every line until `SPRxCTL`
+  disarms it, leaving VSTART/VSTOP lifecycle decisions to Agnus
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-denise-ocs-v0.2.0) - 2026-06-04
 
 ### Added

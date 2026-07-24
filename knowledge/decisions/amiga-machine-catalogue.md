@@ -45,8 +45,11 @@ enum AmigaRuntimeKind {
 ```
 
 **Fat Agnus 8372A goes under Ocs.** The 1 MB chip-RAM Fat Agnus is
-paired with OCS Denise; the chip-stack *shape* is OCS, only the
-chip-RAM ceiling moves. The model catalogue distinguishes
+paired with OCS Denise, so the chip-stack *shape* remains OCS.
+Its Agnus-side revision capabilities—including the wider chip-RAM
+address space and ten-bit sprite vertical comparators—are explicit
+configuration rather than properties inferred from installed RAM.
+The model catalogue distinguishes
 `A500::REV_C_PAL` (256 KB chip, pre-Fat-Agnus) from `A500::REV_G_PAL`
 (1 MB chip, Fat-Agnus 8372A) — but both run on `OcsCore`.
 
@@ -295,8 +298,8 @@ Stop and re-consult before:
   Kickstart is config. A500+ uses the ECS Agnus 8372B (productivity
   modes, SUPERHIRES), so it's ECS.
 - **"Treat Fat Agnus 8372A A500s as ECS"** — no. 8372A is paired
-  with OCS Denise. The chip-stack shape is OCS; only the chip-RAM
-  ceiling moves.
+  with OCS Denise. The chip-stack shape is OCS; individual Agnus-side
+  revision capabilities still differ from early OCS Agnus.
 - **"Add a `CpuVariant` enum inside `OcsCore` so we can swap CPUs at
   config time"** — no. Stock CPU is hardcoded per chipset.
   Accelerator boards swap the CPU via `Option<Accelerator>`, not by

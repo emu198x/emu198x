@@ -54,9 +54,9 @@ const AUTOCONFIG_TOP: u32 = 0x00E8_0080;
 /// `fast_kb` is carried here so the runtime preset surface is stable
 /// across the autoconfig wiring.
 ///
-/// Sizes are in kilobytes. Only the sizes listed in
-/// `memory::is_valid_chip_ram_size` / `is_valid_slow_ram_size` are
-/// accepted by `AmigaOcs::with_ram_config`.
+/// Sizes are in kilobytes. `is_valid` checks the family-wide memory
+/// representation; each machine constructor additionally enforces the
+/// installed Agnus revision's chip-RAM ceiling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RamConfig {
     /// Chip RAM in KiB. One of 256, 512, 1024, 2048.
@@ -476,19 +476,21 @@ impl AmigaOcs {
         )
     }
 
-    /// Build a new Amiga (OCS) with a fully explicit RAM layout.
+    /// Build a new Amiga with an early OCS Agnus and a fully explicit
+    /// RAM layout.
     ///
     /// Panics if `cfg` is not one of the supported size combinations
-    /// (see `RamConfig::is_valid`). When `cfg.fast_kb > 0` a single
-    /// Zorro-II fast-RAM board is attached and starts unconfigured;
-    /// `expansion.library` discovers it during boot and assigns its
-    /// base address.
+    /// (see `RamConfig::is_valid`) or requests more than the early
+    /// Agnus's 512 KiB chip-RAM ceiling. When `cfg.fast_kb > 0` a
+    /// single Zorro-II fast-RAM board is attached and starts
+    /// unconfigured; `expansion.library` discovers it during boot and
+    /// assigns its base address.
     ///
     /// PAL Agnus is used; the matching NTSC entry point is
     /// `with_ram_config_ntsc`.
     #[must_use]
     pub fn with_ram_config(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Pal)
+        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Pal, false)
     }
 
     /// NTSC counterpart of `with_ram_config`. Same RAM/autoconfig
@@ -496,13 +498,36 @@ impl AmigaOcs {
     /// and the per-line short/long alternation enabled.
     #[must_use]
     pub fn with_ram_config_ntsc(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Ntsc)
+        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Ntsc, false)
     }
 
-    fn with_ram_config_region(kickstart: Vec<u8>, cfg: RamConfig, region: AgnusRegion) -> Self {
+    /// Build an OCS-shaped PAL machine with Fat Agnus 8372A and OCS
+    /// Denise. The explicit constructor keeps silicon revision
+    /// independent from the installed amount of RAM.
+    ///
+    /// Panics if the layout exceeds the 8372A's 1 MiB chip-RAM ceiling.
+    #[must_use]
+    pub fn with_fat_agnus_ram_config(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
+        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Pal, true)
+    }
+
+    /// NTSC counterpart of [`Self::with_fat_agnus_ram_config`].
+    #[must_use]
+    pub fn with_fat_agnus_ram_config_ntsc(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
+        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Ntsc, true)
+    }
+
+    fn with_ram_config_region(
+        kickstart: Vec<u8>,
+        cfg: RamConfig,
+        region: AgnusRegion,
+        fat_agnus: bool,
+    ) -> Self {
+        let chip_ram_ceiling_kb = if fat_agnus { 1024 } else { 512 };
         assert!(
-            cfg.is_valid(),
-            "RamConfig out of range: {cfg:?}; allowed chip=256/512/1024/2048 KiB, \
+            cfg.is_valid() && cfg.chip_kb <= chip_ram_ceiling_kb,
+            "RamConfig out of range for selected Agnus: {cfg:?}; allowed chip up to \
+             {chip_ram_ceiling_kb} KiB, \
              slow=0/256/512/1024/1536 KiB, fast multiple-of-64 up to 8192 KiB"
         );
         let memory = Memory::new_with_ram(
@@ -510,7 +535,12 @@ impl AmigaOcs {
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
-        Self::with_memory_config(memory, cfg, true, region)
+        let agnus = if fat_agnus {
+            Agnus::new_fat_agnus_with_region(region)
+        } else {
+            Agnus::new_with_region(region)
+        };
+        Self::with_memory_config(memory, cfg, true, agnus)
     }
 
     /// Build a real A1000-style machine: a small bootstrap ROM at
@@ -539,8 +569,8 @@ impl AmigaOcs {
         region: AgnusRegion,
     ) -> Self {
         assert!(
-            cfg.is_valid(),
-            "RamConfig out of range: {cfg:?}; allowed chip=256/512/1024/2048 KiB, \
+            cfg.is_valid() && cfg.chip_kb <= 512,
+            "RamConfig out of range for A1000 Agnus: {cfg:?}; allowed chip up to 512 KiB, \
              slow=0/256/512/1024/1536 KiB, fast multiple-of-64 up to 8192 KiB"
         );
         let memory = Memory::new_a1000_bootstrap_with_ram(
@@ -548,14 +578,14 @@ impl AmigaOcs {
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
-        Self::with_memory_config(memory, cfg, true, region)
+        Self::with_memory_config(memory, cfg, true, Agnus::new_with_region(region))
     }
 
     fn with_memory_config(
         memory: Memory,
         cfg: RamConfig,
         slow_ram_decode: bool,
-        region: AgnusRegion,
+        agnus: Agnus,
     ) -> Self {
         // Autoconfig only supports the eight Zorro-II sizes; other
         // (still-valid) fast_kb values are rounded down to the nearest
@@ -619,7 +649,7 @@ impl AmigaOcs {
             port0_left_button_pressed: false,
             port1_left_button_pressed: false,
             joystick1: JoystickState::default(),
-            agnus: Agnus::new_with_region(region),
+            agnus,
             copper: Copper::new(),
             denise: Denise::new(),
             tick_count: 0,

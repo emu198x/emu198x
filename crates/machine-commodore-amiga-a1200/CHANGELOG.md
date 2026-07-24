@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Route Alice's ten-bit sprite vertical coordinates through guest
+  register writes and snapshots
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-commodore-amiga-a1200-v0.2.0) - 2026-06-04
 
 ### Added

@@ -24,6 +24,34 @@ fn parked_cpu_rom() -> Vec<u8> {
 }
 
 #[test]
+fn fat_agnus_8372a_enables_enhanced_sprite_comparators_with_ocs_denise() {
+    let mut early = AmigaOcs::with_ram_config(parked_cpu_rom(), RamConfig::bare());
+    early.poke_word(0x00DF_F142, 0x0266);
+    early.poke_word(0x00DF_F140, 0x0100);
+    assert_eq!(early.agnus().sprite_vstart(0), 0x101);
+    assert_eq!(early.agnus().sprite_vstop(0), 0x102);
+
+    let mut fat = AmigaOcs::with_fat_agnus_ram_config(parked_cpu_rom(), RamConfig::a500_plus());
+    fat.poke_word(0x00DF_F142, 0x0266);
+    fat.poke_word(0x00DF_F140, 0x0100);
+    assert_eq!(fat.agnus().agnus_id, 0x2000);
+    assert_eq!(
+        fat.read_word(0x00DF_F004) & 0x7F00,
+        0x2000,
+        "the selected revision must be visible through VPOSR"
+    );
+    assert_eq!(fat.agnus().sprite_vstart(0), 0x301);
+    assert_eq!(fat.agnus().sprite_vstop(0), 0x302);
+
+    let snapshot = fat.snapshot_state();
+    let mut restored = AmigaOcs::new(parked_cpu_rom());
+    restored.restore_snapshot_state(snapshot);
+    assert_eq!(restored.agnus().agnus_id, 0x2000);
+    assert_eq!(restored.agnus().sprite_vstart(0), 0x301);
+    assert_eq!(restored.agnus().sprite_vstop(0), 0x302);
+}
+
+#[test]
 fn dma_sprite_control_words_are_fetched_and_sprite_activates() {
     let mut amiga = AmigaOcs::new(parked_cpu_rom());
 

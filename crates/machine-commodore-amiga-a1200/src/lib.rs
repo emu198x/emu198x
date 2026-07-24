@@ -2247,6 +2247,66 @@ mod bus_plan_dispatch_tests {
     }
 
     #[test]
+    fn guest_and_dma_extended_sprite_coordinates_survive_alice_snapshot() {
+        let rom = vec![0; 512 * 1024];
+        let mut amiga = AmigaA1200::new(rom.clone());
+
+        // Use the guest-visible custom-register path. CTL bits 6/5
+        // supply VSTART[9]/VSTOP[9] on Alice; the later POS write must
+        // preserve the start high bits.
+        amiga.poke_word(0x00DF_F142, 0x0266);
+        amiga.poke_word(0x00DF_F140, 0x0100);
+        assert_eq!(amiga.agnus.sprite_vstart(0), 0x0301);
+        assert_eq!(amiga.agnus.sprite_vstop(0), 0x0302);
+
+        // Fetch an asymmetric pair through Alice's real sprite-1 bus
+        // slots. This covers the machine's DMA-to-Agnus and DMA-to-Denise
+        // control-word route rather than only direct register dispatch.
+        amiga.poke_word(0x0000_2000, 0x0100); // SPR1POS low VSTART=$01
+        amiga.poke_word(0x0000_2002, 0x0226); // VSTART=$101, VSTOP=$302
+        amiga.poke_word(0x00DF_F124, 0x0000); // SPR1PTH
+        amiga.poke_word(0x00DF_F126, 0x2000); // SPR1PTL
+        amiga.poke_word(0x00DF_F14A, 30 << 8); // make line 30 a control fetch
+        amiga.poke_word(0x00DF_F096, 0x8220); // SETCLR | DMAEN | SPREN
+        amiga.agnus.vpos = 30;
+        amiga.agnus.hpos = 0x18;
+        amiga.cck_phase = 0;
+        amiga.tick(); // sprite 1 first control slot at $19
+        assert_eq!(amiga.agnus.spr_pt[1], 0x0000_2002);
+        amiga.agnus.hpos = 0x1A;
+        amiga.cck_phase = 0;
+        amiga.tick(); // sprite 1 second control slot at $1B
+        assert_eq!(amiga.agnus.spr_pt[1], 0x0000_2004);
+        assert_eq!(amiga.agnus.sprite_vstart(1), 0x0101);
+        assert_eq!(amiga.agnus.sprite_vstop(1), 0x0302);
+
+        let bytes = postcard::to_allocvec(&amiga.snapshot_state()).expect("serialize snapshot");
+        let snapshot: AmigaA1200Snapshot =
+            postcard::from_bytes(&bytes).expect("deserialize snapshot");
+        let mut restored = AmigaA1200::new(rom);
+        restored.restore_snapshot_state(snapshot);
+
+        assert_eq!(restored.agnus.sprite_vstart(0), 0x0301);
+        assert_eq!(restored.agnus.sprite_vstop(0), 0x0302);
+        assert_eq!(restored.agnus.sprite_vstart(1), 0x0101);
+        assert_eq!(restored.agnus.sprite_vstop(1), 0x0302);
+
+        // The restored values remain live comparator state, not merely
+        // serialized diagnostics.
+        restored.agnus.write_htotal(0);
+        restored.agnus.write_vtotal(0x03FF);
+        restored.agnus.write_beamcon0(
+            commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_PAL,
+        );
+        restored.agnus.vpos = 0x0300;
+        restored.agnus.hpos = 0;
+        restored.agnus.tick_cck();
+        assert!(restored.agnus.sprite_dma_on(0));
+        restored.agnus.tick_cck();
+        assert!(!restored.agnus.sprite_dma_on(0));
+    }
+
+    #[test]
     fn snapshot_preserves_mid_cck_sprite_bus_authority() {
         let rom = vec![0; 512 * 1024];
         let mut amiga = AmigaA1200::new(rom.clone());

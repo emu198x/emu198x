@@ -42,9 +42,10 @@ pub const FATTER_AGNUS_CHIP_RAM_BYTES: usize = 256 * KIB;
 /// A500" chip-RAM size.
 pub const OCS_AGNUS_CHIP_RAM_BYTES: usize = 512 * KIB;
 
-/// Chip RAM ceiling on Fat Agnus 8372A: 1 MiB. Paired with OCS
-/// Denise (still OCS, not ECS); shipped in A500 Rev 6+, A2000B
-/// Rev 6.x, CDTV, and the A500+'s ECS-but-OCS-compatible config.
+/// Chip RAM ceiling on ECS Fat Agnus 8372A: 1 MiB. It is commonly
+/// paired with OCS Denise in later A500, A2000 and CDTV boards,
+/// producing the mixed chip stack catalogued under the OCS-shaped
+/// runtime arm.
 pub const FAT_AGNUS_CHIP_RAM_BYTES: usize = MIB;
 
 /// Chip RAM ceiling on ECS Super Agnus 8375 and AGA Alice: 2 MiB.
@@ -61,17 +62,17 @@ pub const ECS_AGA_CHIP_RAM_BYTES: usize = 2 * MIB;
 /// region) is configuration; only the chipset changes the chip
 /// stack's structural shape.
 ///
-/// Fat Agnus 8372A goes under [`Self::Ocs`] — it is paired with OCS
-/// Denise, so the chip-stack shape is OCS even though the chip-RAM
-/// ceiling moves to 1 MB. ECS Agnus 8372B / 8375 paired with ECS
-/// Denise 8373 lives under [`Self::Ecs`]. AGA Alice + Lisa under
-/// [`Self::Aga`]. Vampire SAGA will land as a fourth variant when
-/// implemented.
+/// ECS Fat Agnus 8372A goes under [`Self::Ocs`] when paired with OCS
+/// Denise: the runtime arm describes the mixed stack's structural
+/// shape, not the Agnus revision in isolation. ECS Agnus 8372B / 8375
+/// paired with ECS Denise 8373 lives under [`Self::Ecs`]. AGA Alice +
+/// Lisa lives under [`Self::Aga`]. Vampire SAGA will land as a fourth
+/// variant when implemented.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ChipsetKind {
-    /// OCS chipset (8361 / 8367 / 8370 / 8371 / 8372A Agnus + OCS
-    /// Denise + Paula 8364). Covers A1000, A500 (all revisions),
-    /// A2000, CDTV.
+    /// OCS-shaped chipset stack: early OCS Agnus, or ECS 8372A in the
+    /// mixed configuration, paired with OCS Denise + Paula 8364.
+    /// Covers A1000, A500 (all revisions), A2000 and CDTV.
     Ocs,
     /// ECS chipset (8372B / 8375 Agnus + ECS Denise 8373 + Paula
     /// 8364). Covers A500+, A600, A3000.

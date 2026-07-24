@@ -80,6 +80,7 @@ pub struct SpriteDmaVerticalTiming {
     programmed_blank_active: Option<bool>,
     reset_event: bool,
     fixed_blank_stop: u16,
+    sprite_vertical_mask: u16,
 }
 
 impl SpriteDmaVerticalTiming {
@@ -91,6 +92,7 @@ impl SpriteDmaVerticalTiming {
             programmed_blank_active: None,
             reset_event: false,
             fixed_blank_stop: blank_stop,
+            sprite_vertical_mask: 0x01FF,
         }
     }
 
@@ -102,7 +104,22 @@ impl SpriteDmaVerticalTiming {
             programmed_blank_active: Some(blank_active),
             reset_event,
             fixed_blank_stop: 0,
+            sprite_vertical_mask: 0x01FF,
         }
+    }
+
+    /// Select the undocumented ECS/AGA tenth vertical comparator bit
+    /// carried in `SPRxCTL` bits 6 and 5.
+    #[must_use]
+    pub const fn with_ten_bit_sprite_comparators(self) -> Self {
+        Self {
+            sprite_vertical_mask: 0x03FF,
+            ..self
+        }
+    }
+
+    const fn sprite_vertical_high_mask(self) -> u16 {
+        self.sprite_vertical_mask & 0x0300
     }
 
     /// Whether the ordinary sprite comparators and DMA requests are
@@ -679,6 +696,22 @@ impl Agnus {
                 agnus.lol_toggle = true;
             }
         }
+        agnus
+    }
+
+    /// Create the 1 MiB Fat Agnus 8372A used with OCS Denise in later
+    /// A500 and A2000 revisions. Its chip-stack shape remains OCS.
+    /// Revision behaviour shared by this core—including ten-bit
+    /// sprite vertical comparators—is selected by the `$2000`/`$3000`
+    /// VPOSR identity. The rest of the 8372A's ECS register surface is
+    /// supplied by the ECS extension layer, not this shared core.
+    #[must_use]
+    pub fn new_fat_agnus_with_region(region: AgnusRegion) -> Self {
+        let mut agnus = Self::new_with_region(region);
+        agnus.agnus_id = match region {
+            AgnusRegion::Pal => 0x2000,
+            AgnusRegion::Ntsc => 0x3000,
+        };
         agnus
     }
 
@@ -1533,7 +1566,12 @@ impl Agnus {
     }
 
     const fn fixed_sprite_dma_vertical_timing(&self) -> SpriteDmaVerticalTiming {
-        SpriteDmaVerticalTiming::fixed(self.fixed_vblank_end_line())
+        let timing = SpriteDmaVerticalTiming::fixed(self.fixed_vblank_end_line());
+        if self.agnus_id >= 0x2000 {
+            timing.with_ten_bit_sprite_comparators()
+        } else {
+            timing
+        }
     }
 
     fn update_sprite_dma_comparator_with_vertical_timing(
@@ -1715,21 +1753,26 @@ impl Agnus {
         pos: u16,
         sprite_timing: SpriteDmaVerticalTiming,
     ) {
-        self.spr_vstart[channel] = (self.spr_vstart[channel] & 0x0100) | (pos >> 8);
+        self.spr_vstart[channel] =
+            (self.spr_vstart[channel] & sprite_timing.sprite_vertical_high_mask()) | (pos >> 8);
         self.update_sprite_dma_comparator_with_vertical_timing(channel, sprite_timing);
     }
 
     /// Latch VSTOP (CTL bits 15-8) plus VSTART[8] (CTL bit 2) and
-    /// VSTOP[8] (CTL bit 1) from a fetched SPRxCTL word. OCS is 9-bit;
-    /// the ECS VSTART[9]/VSTOP[9] bits (CTL 6/5) are not modelled here.
+    /// VSTOP[8] (CTL bit 1) from a fetched SPRxCTL word. Enhanced Agnus
+    /// also maps CTL bits 6/5 to VSTART[9]/VSTOP[9].
     fn latch_sprite_ctl_with_vertical_timing(
         &mut self,
         channel: usize,
         ctl: u16,
         sprite_timing: SpriteDmaVerticalTiming,
     ) {
-        self.spr_vstart[channel] = (self.spr_vstart[channel] & 0x00FF) | ((ctl & 0x0004) << 6);
-        self.spr_vstop[channel] = (ctl >> 8) | ((ctl & 0x0002) << 7);
+        let enhanced_high_bit = sprite_timing.sprite_vertical_high_mask() & 0x0200;
+        self.spr_vstart[channel] = (self.spr_vstart[channel] & 0x00FF)
+            | ((ctl & 0x0004) << 6)
+            | (((ctl & 0x0040) << 3) & enhanced_high_bit);
+        self.spr_vstop[channel] =
+            (ctl >> 8) | ((ctl & 0x0002) << 7) | (((ctl & 0x0020) << 4) & enhanced_high_bit);
         self.update_sprite_dma_comparator_with_vertical_timing(channel, sprite_timing);
     }
 
@@ -2904,6 +2947,79 @@ mod tests {
         let _ = agnus.service_sprite_dma_cyc(0, true, 1, |_| 0x0200 | 0x04 | 0x02);
         assert_eq!(agnus.sprite_vstart(0), 0x101, "VSTART = 0x100 | 1");
         assert_eq!(agnus.sprite_vstop(0), 0x102, "VSTOP = 0x100 | 2");
+    }
+
+    #[test]
+    fn sprite_ctl_enhanced_vertical_bits_are_ignored_on_ocs() {
+        let mut agnus = sprite_dma_agnus();
+
+        // CTL bit 6 is VSTART[9] only on enhanced Agnus, while bits 2/1
+        // remain the OCS VSTART[8]/VSTOP[8] extensions. Write CTL before
+        // POS to prove the later POS write preserves exactly the OCS high
+        // bit and does not retain the enhanced bit.
+        agnus.poke_sprite_ctl(0, 0x0246);
+        agnus.poke_sprite_pos(0, 0x0100);
+
+        assert_eq!(agnus.sprite_vstart(0), 0x101);
+        assert_eq!(agnus.sprite_vstop(0), 0x102);
+
+        // CTL bit 5 is likewise ignored rather than becoming VSTOP[9].
+        agnus.poke_sprite_ctl(0, 0x0226);
+        assert_eq!(agnus.sprite_vstart(0), 0x101);
+        assert_eq!(agnus.sprite_vstop(0), 0x102);
+
+        // The DMA-fetched control path uses the same early-OCS width.
+        let mut dma_agnus = sprite_dma_agnus();
+        dma_agnus.spr_pt[0] = 0x1000;
+        dma_agnus.vpos = 30;
+        dma_agnus.poke_sprite_ctl(0, 30 << 8);
+        assert_eq!(
+            dma_agnus.service_sprite_dma_cyc(0, false, 1, |_| 0x0100),
+            Some((true, 0x0100))
+        );
+        assert_eq!(
+            dma_agnus.service_sprite_dma_cyc(0, true, 1, |_| 0x0266),
+            Some((true, 0x0266))
+        );
+        assert_eq!(dma_agnus.sprite_vstart(0), 0x101);
+        assert_eq!(dma_agnus.sprite_vstop(0), 0x102);
+    }
+
+    #[test]
+    fn fat_agnus_8372a_fetches_and_compares_ten_bit_sprite_vertical_coordinates() {
+        let mut agnus = Agnus::new_fat_agnus_with_region(AgnusRegion::Pal);
+        agnus.dmacon = 0x0220; // DMAEN | SPREN
+        agnus.spr_pt[0] = 0x1000;
+        agnus.vpos = 30;
+        agnus.poke_sprite_ctl(0, 30 << 8);
+
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, false, 1, |_| 0x0100),
+            Some((true, 0x0100))
+        );
+        assert_eq!(
+            agnus.service_sprite_dma_cyc(0, true, 1, |_| 0x0266),
+            Some((true, 0x0266))
+        );
+
+        assert_eq!(agnus.agnus_id, 0x2000);
+        assert_eq!(agnus.sprite_vstart(0), 0x301);
+        assert_eq!(agnus.sprite_vstop(0), 0x302);
+
+        // Give the fixed-timing core a long synthetic field so the
+        // enhanced coordinates can drive the normal line-entry state
+        // machine without involving the ECS programmable-beam wrapper.
+        agnus.lines_per_frame = 0x0400;
+        agnus.vpos = 0x0300;
+        agnus.hpos = agnus.current_line_ccks() - 1;
+        agnus.tick_cck();
+        assert_eq!(agnus.vpos, 0x0301);
+        assert!(agnus.sprite_dma_on(0));
+
+        agnus.hpos = agnus.current_line_ccks() - 1;
+        agnus.tick_cck();
+        assert_eq!(agnus.vpos, 0x0302);
+        assert!(!agnus.sprite_dma_on(0));
     }
 
     #[test]
