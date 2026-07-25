@@ -74,11 +74,12 @@ fn build_rom(arm_bitplane_dma: bool) -> Vec<u8> {
         put_l(&mut rom, at, 0x00DF_F100);
         at += 4;
 
-        // DDFSTRT = $0000 (maximise DDF coverage so nearly every CCK
-        // inside the line produces a bitplane claim).
+        // DDFSTRT = $0018, the earliest ordinary OCS start. This
+        // maximises legal DDF coverage without depending on the
+        // separate cross-line hard-start latch behaviour.
         put_w(&mut rom, at, 0x33FC);
         at += 2;
-        put_w(&mut rom, at, 0x0000);
+        put_w(&mut rom, at, 0x0018);
         at += 2;
         put_l(&mut rom, at, 0x00DF_F092);
         at += 4;

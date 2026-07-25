@@ -122,6 +122,82 @@ fn snapshot_then_restore_yields_bit_identical_forward_run() -> Result<(), Box<dy
 }
 
 #[test]
+fn ocs_hard_ddfstop_endpoint_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    {
+        let machine = original.machine_mut();
+        machine.poke_word(0x00DF_F08E, 0x3081); // DIWSTRT
+        machine.poke_word(0x00DF_F090, 0xF0C1); // DIWSTOP
+        machine.poke_word(0x00DF_F092, 0x0018); // DDFSTRT
+        machine.poke_word(0x00DF_F094, 0x00E0); // DDFSTOP beyond hard stop
+        machine.poke_word(0x00DF_F100, 0xC200); // hires, four planes
+        for (high, low, pointer) in [
+            (0x00DF_F0E0, 0x00DF_F0E2, 0x0001_0000u32),
+            (0x00DF_F0E4, 0x00DF_F0E6, 0x0001_2000),
+            (0x00DF_F0E8, 0x00DF_F0EA, 0x0001_4000),
+            (0x00DF_F0EC, 0x00DF_F0EE, 0x0001_6000),
+        ] {
+            machine.poke_word(high, (pointer >> 16) as u16);
+            machine.poke_word(low, pointer as u16);
+        }
+        machine.poke_word(0x00DF_F096, 0x8300); // DMAEN | BPLEN
+    }
+    while original.machine().agnus().vpos < 0x0030 {
+        original.machine_mut().tick();
+    }
+    while original.machine().agnus().hpos < 0x00D7 {
+        original.machine_mut().tick();
+    }
+    assert_eq!(original.machine().agnus().ddf_fetch_end(), None);
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    restored.restore(&snapshot)?;
+    assert_eq!(restored.machine().agnus().ddf_fetch_end(), None);
+
+    while original.machine().agnus().hpos < 0x00D8 {
+        original.machine_mut().tick();
+    }
+    while restored.machine().agnus().hpos < 0x00D8 {
+        restored.machine_mut().tick();
+    }
+    assert_eq!(original.machine().agnus().ddf_fetch_end(), Some(0x00DF));
+    assert_eq!(restored.machine().agnus().ddf_fetch_end(), Some(0x00DF));
+
+    // A second round trip while the terminal unit is pending proves
+    // the frozen endpoint itself remains part of postcard state.
+    let pending_snapshot = original.snapshot()?;
+    let mut pending_restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    pending_restored.restore(&pending_snapshot)?;
+    assert_eq!(
+        pending_restored.machine().agnus().ddf_fetch_end(),
+        Some(0x00DF)
+    );
+
+    let line = original.machine().agnus().vpos;
+    while original.machine().agnus().vpos == line {
+        original.machine_mut().tick();
+    }
+    while restored.machine().agnus().vpos == line {
+        restored.machine_mut().tick();
+    }
+    while pending_restored.machine().agnus().vpos == line {
+        pending_restored.machine_mut().tick();
+    }
+    assert_eq!(
+        original.machine().agnus().bpl_pt,
+        restored.machine().agnus().bpl_pt,
+        "restored hard-stop state must produce the same terminal fetches"
+    );
+    assert_eq!(
+        original.machine().agnus().bpl_pt,
+        pending_restored.machine().agnus().bpl_pt,
+        "post-event postcard state must preserve the frozen terminal fetches"
+    );
+    Ok(())
+}
+
+#[test]
 fn a2000_fat_agnus_snapshot_round_trips_extension_state() -> Result<(), Box<dyn Error>> {
     let mut original = AmigaOcsRuntime::new(Model::A2000OcsPal, blank_kickstart())?;
     assert!(original.machine().uses_fat_agnus_8372a());
@@ -208,10 +284,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 5, and confirm the version-mismatch arm fires with a
+/// field back to 6, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV6` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 6` that byte is `0x06`.
+/// of a `SnapshotEnvelopeV7` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 7` that byte is `0x07`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch (rather than the postcard-parse-error branch above).
@@ -220,15 +296,15 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 6,
-        "postcard varint for SNAPSHOT_VERSION = 6 should be 0x06"
+        bytes[0], 7,
+        "postcard varint for SNAPSHOT_VERSION = 7 should be 0x07"
     );
-    bytes[0] = 5;
+    bytes[0] = 6;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-5 snapshot should be rejected before payload decode");
+        .expect_err("version-6 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("version")),
         "expected version-mismatch reason, got {err:?}"

@@ -311,9 +311,10 @@ pub const WIDE_FETCH_PLANE_ORDER: [Option<u8>; 8] = [
 /// mirroring WinUAE's `fetchunits[]` / `fetchstarts[]` tables
 /// (custom.cpp), indexed `[fetchmode * 4 + res]`.
 ///
-/// - `fetchunit` is the DDF stop-rounding granularity (color clocks):
-///   the fetch window always completes the unit containing DDFSTOP
-///   plus one more unit.
+/// - `fetchunit` is the ordinary DDFSTOP rounding granularity (color
+///   clocks): an ordinary stop completes the unit containing DDFSTOP
+///   plus one more unit. Fixed hardware limits can use different
+///   termination rules.
 /// - `fetchstart` is the plane-fetch group length: one DMA access per
 ///   active plane per group, each access transferring `fetch_width`
 ///   words (16-bit = 1, 32-bit = 2, 64-bit = 4).
@@ -483,9 +484,10 @@ pub struct Agnus {
     /// the event that requested termination; later register writes cannot
     /// revoke it.
     ddf_stop_match: Option<u16>,
-    /// Inclusive terminal CCK for the current ordinary fetch region,
-    /// frozen when DDFSTOP matches. `None` means no ordinary stop has
-    /// matched this line.
+    /// Inclusive terminal CCK for the current fetch region, frozen when
+    /// either ordinary DDFSTOP or a fixed hardware boundary requests
+    /// termination. `None` means no terminal endpoint has been latched
+    /// for an active fetch region this line.
     ddf_fetch_end: Option<u16>,
 
     // Blitter Registers
@@ -1839,6 +1841,37 @@ impl Agnus {
 
     fn evaluate_ddf_comparators(&mut self) {
         let ddf_mask = self.ddf_mask();
+        // Stop signals sample the sequencer state that existed on beam
+        // entry. In particular, a DDFSTRT comparator coincident with the
+        // OCS $D8 hard edge may start an idle sequencer, but that new run
+        // is not stopped by the same edge.
+        if let Some(matched_start) = self.ddf_start_match
+            && self.ddf_fetch_end.is_none()
+        {
+            let ddfstop = self.ddfstop & ddf_mask;
+            // The ordinary comparator branch deliberately models only a
+            // start-before-stop region. Equal comparators, stop-before-start,
+            // the OCS cross-line hard-start latch, and enhanced multiple
+            // regions need further variant-specific sequencer state.
+            if matched_start < ddfstop && self.hpos == ddfstop {
+                self.ddf_stop_match = Some(ddfstop);
+                self.ddf_fetch_end = Some(self.ddf_terminal_fetch_end(matched_start, ddfstop));
+            }
+
+            // Original Agnus has a fixed right-hand fetch boundary at $D8.
+            // It requests termination even when the programmed DDFSTOP is
+            // later or its comparator has already passed. Preserve the
+            // currently selected full fetch-unit terminal policy: this agrees
+            // with the A500/A2000 timing diagram and the WinUAE, vAmiga and
+            // Minimig sequencers. The HRM's conflicting 49-word hires prose
+            // remains a verification question rather than a silent special
+            // case here. An ordinary comparator at the same position is
+            // recorded first; both request the same terminal sequence.
+            if self.agnus_id < 0x2000 && self.hpos == 0x00D8 && self.ddf_fetch_end.is_none() {
+                self.ddf_fetch_end = Some(self.ddf_terminal_fetch_end(matched_start, 0x00D8));
+            }
+        }
+
         let ddfstrt = self.ddfstrt & ddf_mask;
         if self.ddf_start_match.is_none() && self.hpos == ddfstrt {
             // Early OCS starts the sequencer only when display DMA is enabled
@@ -1850,22 +1883,9 @@ impl Agnus {
                 self.ddf_start_match = Some(ddfstrt);
             }
         }
+    }
 
-        let Some(matched_start) = self.ddf_start_match else {
-            return;
-        };
-        if self.ddf_stop_match.is_some() {
-            return;
-        }
-
-        let ddfstop = self.ddfstop & ddf_mask;
-        // This slice deliberately models only an ordinary start-before-stop
-        // region. Equal comparators, stop-before-start, hard limits and
-        // enhanced multiple regions need variant-specific sequencer state.
-        if matched_start >= ddfstop || self.hpos != ddfstop {
-            return;
-        }
-
+    fn ddf_terminal_fetch_end(&self, matched_start: u16, stop: u16) -> u16 {
         let hires = (self.bplcon0 & 0x8000) != 0;
         let shres = (self.bplcon0 & 0x0040) != 0;
         let fetch_width = self.bpl_fetch_width();
@@ -1874,12 +1894,11 @@ impl Agnus {
         } else {
             fetch_cadence(fetch_width, hires, shres).0
         };
-        let span = u32::from(ddfstop - matched_start);
+        let span = u32::from(stop - matched_start);
         let blocks = span.div_ceil(fetchunit) + 1;
         let end = u32::from(matched_start) + blocks * fetchunit - 1;
 
-        self.ddf_stop_match = Some(ddfstop);
-        self.ddf_fetch_end = Some(end.min(u32::from(u16::MAX)) as u16);
+        end.min(u32::from(u16::MAX)) as u16
     }
 
     /// Current line's observed DDFSTRT comparator and frozen fetch-phase
@@ -1895,8 +1914,8 @@ impl Agnus {
         self.ddf_stop_match
     }
 
-    /// Inclusive terminal CCK frozen when the current line observed
-    /// ordinary DDFSTOP.
+    /// Inclusive terminal CCK frozen when the current line observed an
+    /// ordinary or fixed-hardware stop.
     #[must_use]
     pub const fn ddf_fetch_end(&self) -> Option<u16> {
         self.ddf_fetch_end
@@ -2530,6 +2549,93 @@ mod tests {
         assert_eq!(bitplane_grants(&mut hires, 0), 40);
         assert_eq!(hires.ddf_stop_match(), Some(0x00D4));
         assert_eq!(hires.ddf_fetch_end(), Some(0x00DB));
+    }
+
+    #[test]
+    fn ocs_hard_ddfstop_terminates_fetches_beyond_the_fixed_boundary() {
+        // The original chipset's fixed right boundary requests a stop
+        // at $D8 even when the programmed DDFSTOP comparator is later
+        // or has already passed. The selected terminal policy completes
+        // the current eight-CCK fetch unit; the HRM's conflicting 49-word
+        // hires statement remains an explicit verification question.
+        for ddfstop in [0x00D8, 0x00E0, 0x0010] {
+            let mut agnus = Agnus::new();
+            agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+            agnus.bplcon0 = 0xC000; // hires, four planes
+            agnus.ddfstrt = 0x0018;
+            agnus.ddfstop = ddfstop;
+
+            let map = plane_map(&mut agnus);
+            assert_eq!(agnus.ddf_fetch_end(), Some(0x00DF));
+            assert!(
+                map[0x00E0..=0x00E2].iter().all(Option::is_none),
+                "the OCS hard stop must release every post-unit bus slot"
+            );
+            assert_eq!(
+                agnus.ddf_stop_match(),
+                (ddfstop == 0x00D8).then_some(0x00D8),
+                "the programmed comparator is recorded only when it coincides with the hard edge"
+            );
+        }
+    }
+
+    #[test]
+    fn ocs_hard_ddfstop_samples_the_preexisting_run_before_a_coincident_start() {
+        let mut agnus = Agnus::new();
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        agnus.bplcon0 = 0x9000; // hires, one plane
+        agnus.ddfstrt = 0x00D8;
+        agnus.ddfstop = 0x00E0;
+        agnus.vpos = 0x0030;
+        agnus.diwstrt = 0x2C81;
+        agnus.diwstop = 0x2CC1;
+        agnus.hpos = 0x00D7;
+
+        agnus.tick_cck();
+
+        assert_eq!(agnus.ddf_start_match(), Some(0x00D8));
+        assert_eq!(
+            agnus.ddf_fetch_end(),
+            None,
+            "a run created at $D8 must not consume the same hard-stop edge"
+        );
+    }
+
+    #[test]
+    fn ocs_hard_ddfstop_completion_retains_the_active_fetch_phase() {
+        let mut agnus = Agnus::new();
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        agnus.bplcon0 = 0xC000; // hires, four planes
+        agnus.ddfstrt = 0x001C;
+        agnus.ddfstop = 0x00E8;
+
+        let map = plane_map(&mut agnus);
+
+        assert_eq!(agnus.ddf_fetch_end(), Some(0x00E3));
+        assert!(
+            map[0x00E0..=0x00E2].iter().any(Option::is_some),
+            "the $D8 request must complete the phase-shifted terminal unit"
+        );
+    }
+
+    #[test]
+    fn ocs_hard_ddfstop_cannot_be_cancelled_by_a_late_register_write() {
+        let mut agnus = Agnus::new();
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        agnus.bplcon0 = 0xC000; // hires, four planes
+        agnus.ddfstrt = 0x0018;
+        agnus.ddfstop = 0x00E0;
+
+        observe_ddf_start_for_test(&mut agnus);
+        tick_to_hpos(&mut agnus, 0x00D8);
+        assert_eq!(agnus.ddf_stop_match(), None);
+        assert_eq!(agnus.ddf_fetch_end(), Some(0x00DF));
+
+        agnus.write_ddfstop(0x00E4);
+        tick_to_hpos(&mut agnus, 0x00E0);
+        assert_eq!(agnus.ddf_stop_match(), None);
+        assert_eq!(agnus.ddf_fetch_end(), Some(0x00DF));
+        assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
     }
 
     /// The whole-line bitplane plane map (which plane, if any, each

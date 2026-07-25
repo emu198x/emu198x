@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve original Agnus's `$D8` terminal fetch through machine
+  arbitration and snapshots while the Fat Agnus `HARDDIS` path retains
+  its available post-`$DF` grants
 - Preserve each line's observed ordinary DDFSTOP and terminal fetch
   endpoint through OCS and mixed Fat Agnus arbitration
 - Preserve each line's DDFSTRT comparator match through OCS and mixed

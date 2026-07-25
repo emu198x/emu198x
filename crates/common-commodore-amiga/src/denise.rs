@@ -65,7 +65,8 @@ pub fn diw_vertical_window(diwstrt: u16, diwstop: u16) -> (u16, u16) {
 /// Decode a DDFSTRT/DDFSTOP register pair into a CCK-aligned fetch
 /// window `[ddf_start, ddf_stop)`. The low 2 bits of each register
 /// are forced to zero per HRM — fetch block boundaries must align to
-/// 4 CCKs for lores.
+/// 4 CCKs for lores. This helper only decodes register values; runtime
+/// comparator history and fixed hardware limits belong to Agnus.
 #[must_use]
 pub fn ddf_window(ddfstrt: u16, ddfstop: u16) -> (u16, u16) {
     (ddfstrt & 0x00FC, ddfstop & 0x00FC)
@@ -186,8 +187,10 @@ impl<C: DeniseChip> Denise<C> {
         let in_visible_line = vertical_diw_active;
         let bpl_dma_on = dmacon & 0x0300 == 0x0300;
         let bpu = agnus.num_bitplanes();
-        // The fetch sequencer completes the 8-CCK block containing
-        // DDFSTOP *and one more* (per WinUAE's DDF state machine).
+        // An ordinary DDFSTOP completes the active fetch unit containing
+        // it and one additional unit; Agnus derives that unit from the
+        // installed fetch mode. Agnus also owns fixed-limit termination
+        // and passes only actual grants here.
         // Keep the chip's BPLCON0 copy in lockstep with Agnus's —
         // Agnus owns the primary storage (it consumes BPU for the DMA
         // scheduler); Denise reads HIRES/HOMOD/DBLPF/LACE from it.

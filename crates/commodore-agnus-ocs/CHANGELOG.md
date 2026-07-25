@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Evaluate original Agnus's fixed `$D8` data-fetch stop as a beam event
+  and freeze its terminal fetch unit so later or missed DDFSTOP
+  comparators cannot overrun into end-of-line bus slots
 - Treat DDFSTOP as a serialized comparator event for ordinary
   start-before-stop fetch regions and freeze the terminal fetch endpoint,
   so current, past or post-match register writes cannot rewrite line history

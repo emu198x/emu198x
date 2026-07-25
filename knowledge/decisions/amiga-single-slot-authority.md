@@ -95,14 +95,15 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   DDFSTOP and beam position cannot reconstruct either one. The ordinary
   endpoint retains the Hardware Reference Manual's documented fetch counts,
   including the complete terminal fetch unit.
-  This is still a bounded comparator and terminal-endpoint seam, not a
-  complete DDF sequencer. The fixed hardware stop remains separate because
-  OCS's documented `$D8` boundary yields 25 low-resolution words but only
-  49 high-resolution words; treating it as an ordinary numeric minimum
-  would produce the wrong high-resolution count. Equal boundaries,
-  stop-before-start, raw register-write latency, eligibility changes,
+  Original Agnus's fixed right-hand stop is another event owned by this
+  sequencer and freezes the phase-dependent terminal endpoint before the
+  machine loop dispatches a same-position Copper MOVE. Its evidence and
+  selected terminal policy are recorded in
+  [Original Agnus DDF hard-stop terminal policy](amiga-ocs-ddf-hard-stop.md).
+  Equal boundaries, stop-before-start, the original Agnus cross-line
+  hard-start latch, raw register-write latency, eligibility changes,
   multiple enhanced-chipset regions, exact modulo timing and Alice's
-  explicit eight-CCK final state also remain separate accuracy work.
+  explicit final state remain separate accuracy work.
 - Sprite control/data request state is likewise part of the Agnus plan.
   `SPREN` exposes the scheduled opportunities but does not make an idle
   channel own them; unused cells remain available to the blitter or CPU.
