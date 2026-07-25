@@ -84,10 +84,25 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   apply those gates when arbitration consumes it. The match is serialized
   because it cannot be reconstructed from the current registers and beam
   position.
-  This is the DDFSTRT comparator and phase seam, not a complete DDF
-  sequencer. DDFSTOP edge state, final-fetch-unit behaviour, hardware fetch
-  limits, equal-boundary behaviour, eligibility changes after a start and
-  multiple enhanced-chipset fetch regions remain separate accuracy work.
+  DDFSTOP is also a comparator event for an ordinary start-before-stop
+  region. Agnus observes the masked stop when the beam enters its CCK,
+  before a Copper MOVE at that position, and freezes the inclusive terminal
+  fetch endpoint from the active fetch cadence. The old stop therefore wins
+  if Copper overwrites it on the matching CCK; a newly written current or
+  past stop cannot match retroactively; an unreached future replacement can
+  match; and a later write cannot cancel a stop already in progress.
+  The observed stop and terminal endpoint are serialized because live
+  DDFSTOP and beam position cannot reconstruct either one. The ordinary
+  endpoint retains the Hardware Reference Manual's documented fetch counts,
+  including the complete terminal fetch unit.
+  This is still a bounded comparator and terminal-endpoint seam, not a
+  complete DDF sequencer. The fixed hardware stop remains separate because
+  OCS's documented `$D8` boundary yields 25 low-resolution words but only
+  49 high-resolution words; treating it as an ordinary numeric minimum
+  would produce the wrong high-resolution count. Equal boundaries,
+  stop-before-start, raw register-write latency, eligibility changes,
+  multiple enhanced-chipset regions, exact modulo timing and Alice's
+  explicit eight-CCK final state also remain separate accuracy work.
 - Sprite control/data request state is likewise part of the Agnus plan.
   `SPREN` exposes the scheduled opportunities but does not make an idle
   channel own them; unused cells remain available to the blitter or CPU.
@@ -135,6 +150,9 @@ If I catch myself proposing any of these, stop and re-read the "Why".
 - Starting a bitplane sequence from `hpos >= live DDFSTRT`, or phasing
   Denise from the live DDFSTRT value after Agnus has already observed the
   line's comparator.
+- Deriving the end of an active fetch region from live DDFSTOP after its
+  comparator has matched, or manufacturing a missed stop because the beam
+  has already passed a newly written value.
 - A fixed-slot map that packs channels onto consecutive hpos.
 - Treating `SPREN + sprite hpos` as sufficient ownership without checking
   whether that sprite requests control or data DMA on the current line.
@@ -154,5 +172,7 @@ If I catch myself proposing any of these, stop and re-read the "Why".
 - "Bitplane DMA only claims even cells, so the CPU is fine on odd."
 - "Let Denise compute its own DDF fetch window."
 - "The beam is past DDFSTRT, so DMA must already be active."
+- "The beam is past DDFSTOP, so recompute the fetch end from its current
+  value."
 - "current_slot already says Copper, so stall the CPU."
 - "SPREN reserves every sprite slot whether or not the channel fetches."

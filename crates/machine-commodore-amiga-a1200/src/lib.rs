@@ -2388,6 +2388,53 @@ mod bus_plan_dispatch_tests {
     }
 
     #[test]
+    fn snapshot_preserves_matched_ddf_stop_and_pending_final_fetch() {
+        let rom = vec![0; 512 * 1024];
+        let mut amiga = AmigaA1200::new(rom.clone());
+        amiga.agnus.vpos = 0x0020;
+        amiga.agnus.dmacon = 0x0300;
+        amiga.agnus.bplcon0 = 0x9000; // hires, one bitplane
+        amiga.agnus.write_ddfstrt(0x0038);
+        amiga.agnus.write_ddfstop(0x0040);
+        amiga.agnus.write_diwstrt(0x2010);
+        amiga.agnus.write_diwstop(0xA020);
+        observe_ddf_start(&mut amiga);
+        while amiga.agnus.hpos < 0x0040 {
+            amiga.agnus.tick_cck();
+        }
+
+        assert_eq!(amiga.agnus.ddf_stop_match(), Some(0x0040));
+        assert_eq!(amiga.agnus.ddf_fetch_end(), Some(0x0047));
+        amiga.agnus.write_ddfstop(0x0080);
+
+        let bytes = postcard::to_allocvec(&amiga.snapshot_state()).expect("serialize snapshot");
+        let snapshot: AmigaA1200Snapshot =
+            postcard::from_bytes(&bytes).expect("deserialize snapshot");
+        let mut restored = AmigaA1200::new(rom);
+        restored.restore_snapshot_state(snapshot);
+
+        assert_eq!(restored.agnus.hpos, 0x0040);
+        assert_eq!(restored.agnus.ddfstop, 0x0080);
+        assert_eq!(restored.agnus.ddf_stop_match(), Some(0x0040));
+        assert_eq!(restored.agnus.ddf_fetch_end(), Some(0x0047));
+
+        while restored.agnus.hpos < 0x0047 {
+            restored.agnus.tick_cck();
+        }
+        assert_eq!(
+            restored.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            Some(0),
+            "the frozen final fetch unit must remain pending after restore"
+        );
+        restored.agnus.tick_cck();
+        assert_eq!(
+            restored.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            None,
+            "the restored endpoint must terminate the current fetch run"
+        );
+    }
+
+    #[test]
     fn concrete_alice_plan_releases_demoted_bitplane_slot_to_cpu() {
         let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
         amiga.agnus.vpos = 0x0020;

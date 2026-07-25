@@ -2156,6 +2156,104 @@ mod bus_plan_dispatch_tests {
         assert_eq!(amiga.agnus.bpl_pt[3], 0x0000_5002);
     }
 
+    fn machine_after_copper_ddfstop_move(initial_stop: u16, replacement: u16) -> AmigaEcs {
+        let mut amiga = machine();
+        amiga.agnus.vpos = 0x0020;
+        amiga.agnus.dmacon = 0x0380; // DMAEN | BPLEN | COPEN
+        amiga.agnus.bplcon0 = 0x1000; // lores, one bitplane
+        amiga.agnus.write_ddfstrt(0x0038);
+        amiga.agnus.write_ddfstop(initial_stop);
+        amiga.agnus.write_diwstrt(0x2010);
+        amiga.agnus.write_diwstop(0xA020);
+        amiga.agnus.bpl_pt[0] = 0x0000_2000;
+        observe_ddf_start(&mut amiga);
+
+        amiga.poke_word(0x0000_1000, 0x0094);
+        amiga.poke_word(0x0000_1002, replacement);
+        amiga.copper.pc = 0x0000_1000;
+        amiga.copper.cck_phase = 1;
+        amiga.agnus.hpos = 0x003F;
+        amiga.cck_phase = 0;
+
+        amiga.tick();
+
+        assert!(matches!(
+            amiga.debug_copper_move_log.last(),
+            Some(&(_, 0x0020, 0x0040, 0x0094, value)) if value == replacement
+        ));
+        amiga
+    }
+
+    fn tick_until_hpos(amiga: &mut AmigaEcs, target: u16) {
+        let vpos = amiga.agnus.vpos;
+        assert!(amiga.agnus.hpos <= target);
+        while amiga.agnus.hpos < target {
+            amiga.tick();
+        }
+        assert_eq!(amiga.agnus.vpos, vpos, "test must not cross a line");
+    }
+
+    #[test]
+    fn copper_ddfstop_write_cannot_retroactively_stop_current_line_dma() {
+        for replacement in [0x003C, 0x0040] {
+            let mut amiga = machine_after_copper_ddfstop_move(0x0080, replacement);
+
+            tick_until_hpos(&mut amiga, 0x004F);
+
+            assert_eq!(
+                amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+                Some(0),
+                "DDFSTOP={replacement:#06x} missed its current-line comparator"
+            );
+            assert_eq!(
+                amiga.agnus.bpl_pt[0], 0x0000_2004,
+                "a missed DDFSTOP comparator cannot truncate the active fetch run"
+            );
+        }
+    }
+
+    #[test]
+    fn copper_cannot_cancel_a_ddfstop_match_from_the_same_beam_entry() {
+        let mut amiga = machine_after_copper_ddfstop_move(0x0040, 0x0080);
+
+        tick_until_hpos(&mut amiga, 0x0047);
+        assert_eq!(
+            amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            Some(0),
+            "the matched stop still permits its terminal fetch unit"
+        );
+        assert_eq!(amiga.agnus.bpl_pt[0], 0x0000_2002);
+
+        tick_until_hpos(&mut amiga, 0x004F);
+        assert_eq!(
+            amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            None,
+            "the Copper rewrite must not cancel the already observed stop"
+        );
+        assert_eq!(amiga.agnus.bpl_pt[0], 0x0000_2002);
+    }
+
+    #[test]
+    fn copper_can_reschedule_an_unreached_future_ddfstop_comparator() {
+        let mut amiga = machine_after_copper_ddfstop_move(0x0080, 0x0048);
+
+        tick_until_hpos(&mut amiga, 0x004F);
+        assert_eq!(
+            amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            Some(0),
+            "the future stop retains its terminal fetch unit"
+        );
+        assert_eq!(amiga.agnus.bpl_pt[0], 0x0000_2004);
+
+        tick_until_hpos(&mut amiga, 0x0057);
+        assert_eq!(
+            amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            None,
+            "the fetch run must end after the future stop's terminal unit"
+        );
+        assert_eq!(amiga.agnus.bpl_pt[0], 0x0000_2004);
+    }
+
     #[test]
     fn concrete_ecs_plan_releases_idle_sprite_opportunity_to_cpu() {
         let mut amiga = machine();

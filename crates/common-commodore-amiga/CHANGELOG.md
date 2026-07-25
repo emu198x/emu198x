@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep Denise fetch, pointer and pixel integration aligned with Agnus's
+  comparator-driven DDFSTOP termination
 - Phase Denise's bitplane pipeline from Agnus's matched DDFSTRT origin
   rather than a mutable register value
 - Gate board-level Amiga output with the concrete Agnus or Alice vertical

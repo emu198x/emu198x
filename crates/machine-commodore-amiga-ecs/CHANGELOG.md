@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Resolve the DDFSTOP comparator before a same-CCK Copper MOVE, so an
+  old match wins and a current or past replacement cannot stop retroactively
 - Apply Copper DDFSTRT writes only to unreached comparator events,
   preventing writes at or behind the beam from starting the current line
 - Preserve the ECS `DIWHIGH` vertical window when gating rendered output

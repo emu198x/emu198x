@@ -52,8 +52,7 @@ mod tests {
         agnus.bpl_pt[1] = 0x0000_0200;
         observe_ddf_start(&mut agnus);
 
-        for hpos in 0..=0x00E2 {
-            agnus.hpos = hpos;
+        loop {
             let plan = agnus.cck_bus_plan();
             let width = agnus.bpl_fetch_width();
             let vertical_diw_active = agnus.vertical_diw_active();
@@ -67,6 +66,10 @@ mod tests {
                 &mut agnus,
                 &memory,
             );
+            if agnus.hpos == 0x00E2 {
+                break;
+            }
+            agnus.tick_cck();
         }
 
         assert_eq!(
@@ -99,8 +102,7 @@ mod tests {
         agnus.bpl_pt[0] = 0x0000_0100;
         observe_ddf_start(&mut agnus);
 
-        for hpos in 0..=0x00E2 {
-            agnus.hpos = hpos;
+        loop {
             let plan = agnus.cck_bus_plan();
             let width = agnus.bpl_fetch_width();
             let vertical_diw_active = agnus.vertical_diw_active();
@@ -115,6 +117,10 @@ mod tests {
                 &memory,
             );
             denise.tick(1, None, vertical_diw_active, &mut agnus, &memory);
+            if agnus.hpos == 0x00E2 {
+                break;
+            }
+            agnus.tick_cck();
         }
 
         assert_eq!(

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve an observed ordinary DDFSTOP and its pending final fetch unit
+  across later register writes and snapshots
 - Retain a DDFSTRT comparator match independently of the DMA and
   vertical-window gates, and use its frozen phase for the current line
 - Drive ECS bitplane vertical eligibility from a serialized

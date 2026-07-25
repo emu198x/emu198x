@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 6 so the current-line
+  DDFSTOP comparator match and frozen final fetch endpoint survive save
+  and restore; version 5 is rejected
 - Bump Amiga postcard snapshots to version 5 so the current-line
   DDFSTRT comparator match and frozen fetch origin survive save and
   restore; version 4 is rejected

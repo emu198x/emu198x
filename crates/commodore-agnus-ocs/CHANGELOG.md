@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Treat DDFSTOP as a serialized comparator event for ordinary
+  start-before-stop fetch regions and freeze the terminal fetch endpoint,
+  so current, past or post-match register writes cannot rewrite line history
 - Start and phase each line's bitplane fetches from a serialized
   DDFSTRT comparator match instead of the live register value, so
   current or past writes cannot retroactively create DMA

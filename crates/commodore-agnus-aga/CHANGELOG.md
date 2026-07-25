@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve Alice's observed ordinary DDFSTOP and frozen current-line
+  fetch endpoint across later register writes and snapshots
 - Keep Alice wide-fetch arbitration aligned to the DDFSTRT comparator
   that started the current line, even after the register is rewritten
 - Inherit ECS programmable vertical-blank timing for Alice sprite DMA

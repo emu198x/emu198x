@@ -479,6 +479,14 @@ pub struct Agnus {
     /// Current line's observed DDFSTRT comparator and frozen fetch-phase
     /// origin. `None` means the comparator has not matched this line.
     ddf_start_match: Option<u16>,
+    /// Current line's observed ordinary DDFSTOP comparator. This records
+    /// the event that requested termination; later register writes cannot
+    /// revoke it.
+    ddf_stop_match: Option<u16>,
+    /// Inclusive terminal CCK for the current ordinary fetch region,
+    /// frozen when DDFSTOP matches. `None` means no ordinary stop has
+    /// matched this line.
+    ddf_fetch_end: Option<u16>,
 
     // Blitter Registers
     pub bltcon0: u16,
@@ -612,6 +620,8 @@ impl Agnus {
             ddfstrt: 0,
             ddfstop: 0,
             ddf_start_match: None,
+            ddf_stop_match: None,
+            ddf_fetch_end: None,
             bltcon0: 0,
             bltcon1: 0,
             bltsize: 0,
@@ -1501,6 +1511,8 @@ impl Agnus {
         if self.hpos >= line_ccks {
             self.hpos = 0;
             self.ddf_start_match = None;
+            self.ddf_stop_match = None;
+            self.ddf_fetch_end = None;
             // End-of-line: toggle the long-line flipflop on regions
             // that alternate (NTSC default). PAL has lol_toggle=false
             // so the flipflop stays at 0 (every line is 227).
@@ -1529,7 +1541,7 @@ impl Agnus {
             // control-refetch priming). gap #162.
             self.update_sprite_dma_with_vertical_timing(frame_lines, sprite_timing);
         }
-        self.evaluate_ddf_start_comparator();
+        self.evaluate_ddf_comparators();
     }
 
     /// Per-line sprite-DMA update — run once as the beam enters each new
@@ -1825,23 +1837,49 @@ impl Agnus {
         }
     }
 
-    fn evaluate_ddf_start_comparator(&mut self) {
-        if self.ddf_start_match.is_some() {
-            return;
+    fn evaluate_ddf_comparators(&mut self) {
+        let ddf_mask = self.ddf_mask();
+        let ddfstrt = self.ddfstrt & ddf_mask;
+        if self.ddf_start_match.is_none() && self.hpos == ddfstrt {
+            // Early OCS starts the sequencer only when display DMA is enabled
+            // inside the vertical display window. Fat Agnus, ECS and Alice
+            // retain the comparator match independently and apply those gates
+            // when arbitration consumes it.
+            let enhanced = self.agnus_id >= 0x2000;
+            if enhanced || (self.dma_enabled(0x0100) && self.vertical_diw_active()) {
+                self.ddf_start_match = Some(ddfstrt);
+            }
         }
-        let ddfstrt = self.ddfstrt & self.ddf_mask();
-        if self.hpos != ddfstrt {
+
+        let Some(matched_start) = self.ddf_start_match else {
+            return;
+        };
+        if self.ddf_stop_match.is_some() {
             return;
         }
 
-        // Early OCS starts the sequencer only when display DMA is enabled
-        // inside the vertical display window. Fat Agnus, ECS and Alice
-        // retain the comparator match independently and apply those gates
-        // when arbitration consumes it.
-        let enhanced = self.agnus_id >= 0x2000;
-        if enhanced || (self.dma_enabled(0x0100) && self.vertical_diw_active()) {
-            self.ddf_start_match = Some(ddfstrt);
+        let ddfstop = self.ddfstop & ddf_mask;
+        // This slice deliberately models only an ordinary start-before-stop
+        // region. Equal comparators, stop-before-start, hard limits and
+        // enhanced multiple regions need variant-specific sequencer state.
+        if matched_start >= ddfstop || self.hpos != ddfstop {
+            return;
         }
+
+        let hires = (self.bplcon0 & 0x8000) != 0;
+        let shres = (self.bplcon0 & 0x0040) != 0;
+        let fetch_width = self.bpl_fetch_width();
+        let fetchunit = if fetch_width <= 1 {
+            8
+        } else {
+            fetch_cadence(fetch_width, hires, shres).0
+        };
+        let span = u32::from(ddfstop - matched_start);
+        let blocks = span.div_ceil(fetchunit) + 1;
+        let end = u32::from(matched_start) + blocks * fetchunit - 1;
+
+        self.ddf_stop_match = Some(ddfstop);
+        self.ddf_fetch_end = Some(end.min(u32::from(u16::MAX)) as u16);
     }
 
     /// Current line's observed DDFSTRT comparator and frozen fetch-phase
@@ -1849,6 +1887,19 @@ impl Agnus {
     #[must_use]
     pub const fn ddf_start_match(&self) -> Option<u16> {
         self.ddf_start_match
+    }
+
+    /// Current line's observed ordinary DDFSTOP comparator.
+    #[must_use]
+    pub const fn ddf_stop_match(&self) -> Option<u16> {
+        self.ddf_stop_match
+    }
+
+    /// Inclusive terminal CCK frozen when the current line observed
+    /// ordinary DDFSTOP.
+    #[must_use]
+    pub const fn ddf_fetch_end(&self) -> Option<u16> {
+        self.ddf_fetch_end
     }
 
     /// Determine who owns the current CCK slot.
@@ -1922,13 +1973,10 @@ impl Agnus {
         let hires = (self.bplcon0 & 0x8000) != 0;
         let shres = (self.bplcon0 & 0x0040) != 0;
         let fetch_width = self.bpl_fetch_width();
-        // DDFSTRT/DDFSTOP align to the fetch boundary: the hardware
-        // ignores the low DDF bits. OCS masks $FC (4-CCK lores
-        // granularity); ECS/AGA mask $FE (2-CCK, the finer step SHRES
-        // needs). agnus_id >= $2000 selects ECS and later. #30 Phase 4.
-        let ddf_mask = self.ddf_mask();
         let ddfstrt = self.ddf_start_match?;
-        let ddfstop = self.ddfstop & ddf_mask;
+        if self.ddf_fetch_end.is_some_and(|end| self.hpos > end) {
+            return None;
+        }
         if self.dma_enabled(0x0100) && num_bpl > 0 && self.hpos >= ddfstrt {
             if fetch_width <= 1 {
                 // OCS / ECS / AGA 16-bit cadence. SuperHires (ECS+)
@@ -1940,59 +1988,41 @@ impl Agnus {
                 } else {
                     8
                 };
-                let fetchunit: u32 = 8;
-                let ddf_span = u32::from(ddfstop.saturating_sub(ddfstrt));
-                let blocks = ddf_span.div_ceil(fetchunit) + 1;
-                let fetch_window_end = u32::from(ddfstrt) + blocks * fetchunit - 1;
-                if u32::from(self.hpos) <= fetch_window_end {
-                    let pos_in_group = ((self.hpos - ddfstrt) % group_len) as usize;
-                    let plane_slot = if shres {
-                        // SuperHires at 16-bit fetch — 2 planes / 4
-                        // colours (#469). BPL3+ are not fetched (the
-                        // 2-slot group caps it, matching real SHRES).
-                        SHRES_DDF_TO_PLANE[pos_in_group]
-                    } else if hires {
-                        HIRES_DDF_TO_PLANE[pos_in_group]
-                    } else if self.max_bitplanes > 6 {
-                        // AGA lowres fills the two idle slots with
-                        // BPL7/BPL8 (#99). Identical to the OCS table
-                        // for planes 0-5; the `< num_bpl` filter below
-                        // drops BPL7/BPL8 when fewer planes are active.
-                        LOWRES_DDF_TO_PLANE_AGA[pos_in_group]
-                    } else {
-                        LOWRES_DDF_TO_PLANE[pos_in_group]
-                    };
-                    plane_slot.filter(|&p| p < num_bpl)
+                let pos_in_group = ((self.hpos - ddfstrt) % group_len) as usize;
+                let plane_slot = if shres {
+                    // SuperHires at 16-bit fetch — 2 planes / 4
+                    // colours (#469). BPL3+ are not fetched (the
+                    // 2-slot group caps it, matching real SHRES).
+                    SHRES_DDF_TO_PLANE[pos_in_group]
+                } else if hires {
+                    HIRES_DDF_TO_PLANE[pos_in_group]
+                } else if self.max_bitplanes > 6 {
+                    // AGA lowres fills the two idle slots with
+                    // BPL7/BPL8 (#99). Identical to the OCS table
+                    // for planes 0-5; the `< num_bpl` filter below
+                    // drops BPL7/BPL8 when fewer planes are active.
+                    LOWRES_DDF_TO_PLANE_AGA[pos_in_group]
                 } else {
-                    None
-                }
+                    LOWRES_DDF_TO_PLANE[pos_in_group]
+                };
+                plane_slot.filter(|&p| p < num_bpl)
             } else {
-                // AGA wide fetch (FMODE > 0). For every width > 1,
-                // fetchunit == fetchstart, so each fetchunit block holds
-                // exactly one plane access per active plane, each access
-                // transferring `fetch_width` words. The DDFSTOP-rounding
-                // "complete the block plus one more" rule (div_ceil + 1)
-                // is the same as the 16-bit path.
-                let (fetchunit, fetchstart) = fetch_cadence(fetch_width, hires, shres);
-                let ddf_span = u32::from(ddfstop.saturating_sub(ddfstrt));
-                let blocks = ddf_span.div_ceil(fetchunit) + 1;
-                let fetch_window_end = u32::from(ddfstrt) + blocks * fetchunit - 1;
-                if u32::from(self.hpos) <= fetch_window_end {
-                    let pos = ((u32::from(self.hpos) - u32::from(ddfstrt)) % fetchstart) as usize;
-                    // The 8-entry WIDE order covers planes 0..7 only
-                    // when the group is >= 8 CCKs (FMODE>0 lores/hires,
-                    // and SHRES@FMODE2). SHRES@FMODE1 shrinks the group
-                    // to 4 CCKs / 4 planes (#469) — the wide order does
-                    // not nest, so reuse the 4-slot hires order, whose
-                    // plane set is exactly planes 0..3 with BPL1 last.
-                    let plane_slot = match fetchstart {
-                        4 => HIRES_DDF_TO_PLANE.get(pos).copied().flatten(),
-                        _ => WIDE_FETCH_PLANE_ORDER.get(pos).copied().flatten(),
-                    };
-                    plane_slot.filter(|&p| p < num_bpl)
-                } else {
-                    None
-                }
+                // AGA wide fetch (FMODE > 0). Each fetchstart group
+                // contains one access per active plane, with each access
+                // transferring `fetch_width` words.
+                let (_, fetchstart) = fetch_cadence(fetch_width, hires, shres);
+                let pos = ((u32::from(self.hpos) - u32::from(ddfstrt)) % fetchstart) as usize;
+                // The 8-entry WIDE order covers planes 0..7 only
+                // when the group is >= 8 CCKs (FMODE>0 lores/hires,
+                // and SHRES@FMODE2). SHRES@FMODE1 shrinks the group
+                // to 4 CCKs / 4 planes (#469) — the wide order does
+                // not nest, so reuse the 4-slot hires order, whose
+                // plane set is exactly planes 0..3 with BPL1 last.
+                let plane_slot = match fetchstart {
+                    4 => HIRES_DDF_TO_PLANE.get(pos).copied().flatten(),
+                    _ => WIDE_FETCH_PLANE_ORDER.get(pos).copied().flatten(),
+                };
+                plane_slot.filter(|&p| p < num_bpl)
             }
         } else {
             None
@@ -2419,13 +2449,20 @@ mod tests {
 
     /// Count bitplane DMA grants for one plane across a whole scan line.
     fn bitplane_grants(agnus: &mut Agnus, plane: u8) -> usize {
+        if agnus.ddf_start_match().is_some() {
+            agnus.hpos = agnus.current_line_ccks() - 1;
+            agnus.tick_cck();
+        }
         observe_ddf_start_for_test(agnus);
         let mut count = 0;
-        for h in 0u16..=0xE2 {
-            agnus.hpos = h;
+        loop {
             if agnus.current_slot() == SlotOwner::Bitplane(plane) {
                 count += 1;
             }
+            if agnus.hpos == 0xE2 {
+                break;
+            }
+            agnus.tick_cck();
         }
         count
     }
@@ -2471,19 +2508,46 @@ mod tests {
         assert_eq!(bitplane_grants(&mut agnus, 1), 38, "BPL2 accesses/line");
     }
 
+    #[test]
+    fn documented_normal_ddf_windows_keep_their_word_counts() {
+        // Amiga Hardware Reference Manual formulas:
+        //   lores $38..$D0 = 20 words per plane
+        //   hires $3C..$D4 = 40 words per plane
+        let mut lores = Agnus::new();
+        lores.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        lores.bplcon0 = 0x1000; // lores, one plane
+        lores.ddfstrt = 0x0038;
+        lores.ddfstop = 0x00D0;
+        assert_eq!(bitplane_grants(&mut lores, 0), 20);
+        assert_eq!(lores.ddf_stop_match(), Some(0x00D0));
+        assert_eq!(lores.ddf_fetch_end(), Some(0x00D7));
+
+        let mut hires = Agnus::new();
+        hires.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        hires.bplcon0 = 0x9000; // hires, one plane
+        hires.ddfstrt = 0x003C;
+        hires.ddfstop = 0x00D4;
+        assert_eq!(bitplane_grants(&mut hires, 0), 40);
+        assert_eq!(hires.ddf_stop_match(), Some(0x00D4));
+        assert_eq!(hires.ddf_fetch_end(), Some(0x00DB));
+    }
+
     /// The whole-line bitplane plane map (which plane, if any, each
     /// hpos fetches) — the fetch grid `bitplane_slot_at` produces.
     fn plane_map(agnus: &mut Agnus) -> Vec<Option<u8>> {
         observe_ddf_start_for_test(agnus);
-        (0u16..=0xE2)
-            .map(|h| {
-                agnus.hpos = h;
-                match agnus.current_slot() {
-                    SlotOwner::Bitplane(p) => Some(p),
-                    _ => None,
-                }
-            })
-            .collect()
+        let mut map = vec![None; usize::from(agnus.hpos)];
+        loop {
+            map.push(match agnus.current_slot() {
+                SlotOwner::Bitplane(p) => Some(p),
+                _ => None,
+            });
+            if agnus.hpos == 0xE2 {
+                break;
+            }
+            agnus.tick_cck();
+        }
+        map
     }
 
     #[test]
@@ -2654,6 +2718,88 @@ mod tests {
             None,
             "entering the display window cannot replay a missed comparator",
         );
+    }
+
+    #[test]
+    fn ddfstop_write_at_or_behind_beam_cannot_stop_retroactively() {
+        for replacement in [0x0038, 0x0040] {
+            let mut agnus = configured_hires_ddf(0x0038);
+            agnus.write_ddfstop(0x0080);
+            agnus.hpos = 0x0037;
+            agnus.tick_cck();
+            tick_to_hpos(&mut agnus, 0x0040);
+
+            agnus.write_ddfstop(replacement);
+            tick_to_hpos(&mut agnus, 0x004B);
+
+            assert_eq!(
+                agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+                Some(0),
+                "DDFSTOP={replacement:#06x} missed its current-line comparator",
+            );
+            assert_eq!(agnus.ddf_stop_match(), None);
+            assert_eq!(agnus.ddf_fetch_end(), None);
+        }
+    }
+
+    #[test]
+    fn matched_ddfstop_freezes_the_current_line_fetch_end() {
+        let mut agnus = configured_hires_ddf(0x0038);
+        agnus.write_ddfstop(0x0040);
+        agnus.hpos = 0x0037;
+        agnus.tick_cck();
+        tick_to_hpos(&mut agnus, 0x0040);
+
+        agnus.write_ddfstop(0x0080);
+        tick_to_hpos(&mut agnus, 0x004B);
+
+        assert_eq!(agnus.ddf_stop_match(), Some(0x0040));
+        assert_eq!(agnus.ddf_fetch_end(), Some(0x0047));
+        assert_eq!(
+            agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            None,
+            "a later register write cannot cancel an observed stop",
+        );
+    }
+
+    #[test]
+    fn future_ddfstop_write_stops_after_the_new_comparator() {
+        let mut agnus = configured_hires_ddf(0x0038);
+        agnus.write_ddfstop(0x0080);
+        agnus.hpos = 0x0037;
+        agnus.tick_cck();
+        tick_to_hpos(&mut agnus, 0x0040);
+        agnus.write_ddfstop(0x0048);
+
+        tick_to_hpos(&mut agnus, 0x004F);
+        assert_eq!(agnus.ddf_stop_match(), Some(0x0048));
+        assert_eq!(agnus.ddf_fetch_end(), Some(0x004F));
+        assert_eq!(
+            agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            Some(0),
+            "the final fetch unit completes after DDFSTOP",
+        );
+
+        tick_to_hpos(&mut agnus, 0x0053);
+        assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
+    }
+
+    #[test]
+    fn ddf_stop_match_and_fetch_end_reset_at_line_start() {
+        let mut agnus = configured_hires_ddf(0x0038);
+        agnus.write_ddfstop(0x0040);
+        agnus.hpos = 0x0037;
+        agnus.tick_cck();
+        tick_to_hpos(&mut agnus, 0x0040);
+        assert_eq!(agnus.ddf_stop_match(), Some(0x0040));
+        assert_eq!(agnus.ddf_fetch_end(), Some(0x0047));
+
+        agnus.hpos = agnus.current_line_ccks() - 1;
+        agnus.tick_cck();
+        assert_eq!(agnus.hpos, 0);
+        assert_eq!(agnus.ddf_start_match(), None);
+        assert_eq!(agnus.ddf_stop_match(), None);
+        assert_eq!(agnus.ddf_fetch_end(), None);
     }
 
     #[test]

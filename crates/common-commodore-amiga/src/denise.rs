@@ -452,10 +452,11 @@ mod tests {
         let mut denise = Denise::<DeniseOcs>::new();
         observe_ddf_start(&mut agnus);
 
-        // Sweep one whole line (vpos inside the 44..300 DIW window);
-        // stop before wrapping to hpos 0 again so no modulo is applied.
-        for h in 0u16..=0xE2 {
-            agnus.hpos = h;
+        // Sweep from the observed start through the rest of the line.
+        // Advancing Agnus normally lets the DDFSTOP comparator freeze
+        // the terminal fetch unit. Stop before wrapping to hpos 0 again
+        // so no modulo is applied.
+        loop {
             let plan = agnus.cck_bus_plan();
             let width = agnus.bpl_fetch_width();
             let vertical_diw_active = agnus.vertical_diw_active();
@@ -469,6 +470,10 @@ mod tests {
                 &mut agnus,
                 &mem,
             );
+            if agnus.hpos == 0xE2 {
+                break;
+            }
+            agnus.tick_cck();
         }
 
         assert_eq!(agnus.bpl_pt[0] - bpl0, 88, "BPL1 bytes/line (44 words)");
@@ -498,8 +503,7 @@ mod tests {
         let mut denise = Denise::<DeniseOcs>::new();
         observe_ddf_start(&mut agnus);
 
-        for h in 0u16..=0xE2 {
-            agnus.hpos = h;
+        loop {
             let plan = agnus.cck_bus_plan();
             let width = agnus.bpl_fetch_width();
             let vertical_diw_active = agnus.vertical_diw_active();
@@ -513,6 +517,10 @@ mod tests {
                 &mut agnus,
                 &mem,
             );
+            if agnus.hpos == 0xE2 {
+                break;
+            }
+            agnus.tick_cck();
         }
 
         assert_eq!(agnus.bpl_pt[0] - bpl0, 76, "BPL1 bytes/line (38 words)");
@@ -552,9 +560,7 @@ mod tests {
         reference.ocs.set_palette(1, 0xFFF);
         after_write.ocs.set_palette(1, 0xFFF);
 
-        for hpos in 0x0038u16..=0x0070 {
-            matched.hpos = hpos;
-            rewritten.hpos = hpos;
+        loop {
             let reference_fetch = matched
                 .cck_bus_plan()
                 .bitplane_dma_fetch_plane
@@ -574,6 +580,11 @@ mod tests {
             after_write.tick(0, rewritten_fetch, true, &mut rewritten, &memory);
             reference.tick(1, None, true, &mut matched, &memory);
             after_write.tick(1, None, true, &mut rewritten, &memory);
+            if matched.hpos == 0x0070 {
+                break;
+            }
+            matched.tick_cck();
+            rewritten.tick_cck();
         }
 
         assert_eq!(matched.ddf_start_match(), Some(0x0038));
@@ -620,12 +631,10 @@ mod tests {
         denise.ocs.set_palette(1, 0xF00);
         denise.ocs.set_palette(2, 0x0F0);
         denise.ocs.set_palette(3, 0x00F);
-        observe_ddf_start(&mut agnus);
-
-        for vpos in 0x002Cu16..0x0030 {
-            agnus.vpos = vpos;
-            for hpos in 0u16..=0x00E2 {
-                agnus.hpos = hpos;
+        agnus.vpos = 0x002C;
+        agnus.hpos = 0;
+        for _ in 0..4 {
+            loop {
                 let plan = agnus.cck_bus_plan();
                 let vertical_diw_active = agnus.vertical_diw_active();
                 denise.tick(
@@ -639,6 +648,12 @@ mod tests {
                     &mem,
                 );
                 denise.tick(1, None, vertical_diw_active, &mut agnus, &mem);
+                let line_end = agnus.current_line_ccks() - 1;
+                let was_line_end = agnus.hpos == line_end;
+                agnus.tick_cck();
+                if was_line_end {
+                    break;
+                }
             }
         }
 

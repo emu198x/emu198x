@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve Alice's observed ordinary DDFSTOP and pending current-line
+  fetch endpoint through register rewrites and snapshots
 - Preserve Alice's current-line DDFSTRT fetch origin in arbitration,
   wide-fetch rendering and snapshots
 - Gate rendered output with Alice's serialized vertical display-window
