@@ -490,6 +490,15 @@ pub struct Agnus {
     /// termination. `None` means no terminal endpoint has been latched
     /// for an active fetch region this line.
     ddf_fetch_end: Option<u16>,
+    /// Original-Agnus current-line run-abort latch. Clearing effective
+    /// bitplane DMA before a terminal request ends the active sequencer
+    /// without erasing the observed DDFSTRT phase used by Denise. A later
+    /// same-line DMA enable therefore cannot resume that stale run.
+    ///
+    /// Enhanced-chipset wrappers serialize this shared field but do not
+    /// consume it; their soft-enable and multi-region behavior needs a
+    /// separate sequencer model.
+    ocs_ddf_run_aborted: bool,
     /// Effective original-Agnus horizontal start permission. `$18` opens
     /// it and completion of a terminal fetch unit closes it. A one-CCK
     /// logical tail beyond a short physical line is projected at wrap into
@@ -635,6 +644,7 @@ impl Agnus {
             ddf_start_match: None,
             ddf_stop_match: None,
             ddf_fetch_end: None,
+            ocs_ddf_run_aborted: false,
             // Preserve the established first-line behavior. The bounded
             // hardware contract begins once `$18` or a terminal completion
             // has driven the latch.
@@ -1563,6 +1573,7 @@ impl Agnus {
             self.ddf_start_match = None;
             self.ddf_stop_match = None;
             self.ddf_fetch_end = None;
+            self.ocs_ddf_run_aborted = false;
             // End-of-line: toggle the long-line flipflop on regions
             // that alternate (NTSC default). PAL has lol_toggle=false
             // so the flipflop stays at 0 (every line is 227).
@@ -1911,6 +1922,7 @@ impl Agnus {
         // is not stopped by the same edge.
         if let Some(matched_start) = self.ddf_start_match
             && self.ddf_fetch_end.is_none()
+            && (enhanced || !self.ocs_ddf_run_aborted)
         {
             let ddfstop = self.ddfstop & ddf_mask;
             // The ordinary stop branch applies only when this run started
@@ -1949,6 +1961,9 @@ impl Agnus {
             // when arbitration consumes it.
             if enhanced || (self.dma_enabled(0x0100) && self.vertical_diw_active()) {
                 self.ddf_start_match = Some(ddfstrt);
+                if !enhanced {
+                    self.ocs_ddf_run_aborted = false;
+                }
             }
         }
     }
@@ -1998,6 +2013,15 @@ impl Agnus {
     #[must_use]
     pub const fn ocs_ddf_hard_start_open(&self) -> bool {
         self.ocs_ddf_hard_start_open
+    }
+
+    /// Whether effective bitplane DMA terminated the current original-Agnus
+    /// fetch run before a terminal unit was requested. The observed DDFSTRT
+    /// phase remains available for the display pipeline, but cannot own new
+    /// bus slots. Enhanced variants do not consume this shared field.
+    #[must_use]
+    pub const fn ocs_ddf_run_aborted(&self) -> bool {
+        self.ocs_ddf_run_aborted
     }
 
     /// Determine who owns the current CCK slot.
@@ -2072,6 +2096,9 @@ impl Agnus {
         let shres = (self.bplcon0 & 0x0040) != 0;
         let fetch_width = self.bpl_fetch_width();
         let ddfstrt = self.ddf_start_match?;
+        if self.agnus_id < 0x2000 && self.ocs_ddf_run_aborted {
+            return None;
+        }
         if self.ddf_fetch_end.is_some_and(|end| self.hpos > end) {
             return None;
         }
@@ -2211,10 +2238,19 @@ impl Agnus {
     /// Write to DMACON ($DFF096) with HRM set/clear semantics:
     /// bit 15 = SET, bit 15 clear = CLEAR.
     pub fn write_dmacon(&mut self, val: u16) {
+        let bitplane_dma_was_enabled = self.dma_enabled(bits::DMACON_BPLEN);
         if val & bits::DMACON_SETCLR != 0 {
             self.dmacon |= val & bits::DMACON_MASK;
         } else {
             self.dmacon &= !(val & bits::DMACON_MASK);
+        }
+        if self.agnus_id < 0x2000
+            && bitplane_dma_was_enabled
+            && !self.dma_enabled(bits::DMACON_BPLEN)
+            && self.ddf_start_match.is_some()
+            && self.ddf_fetch_end.is_none()
+        {
+            self.ocs_ddf_run_aborted = true;
         }
     }
 
@@ -3071,6 +3107,88 @@ mod tests {
         ecs.dmacon = DMACON_DMAEN | DMACON_BPLEN;
         ecs.hpos = 0x003F;
         assert_eq!(ecs.cck_bus_plan().bitplane_dma_fetch_plane, Some(0));
+    }
+
+    #[test]
+    fn ocs_bpl_dma_disable_ends_unstopped_run_before_reenable() {
+        for disabled_bit in [DMACON_BPLEN, DMACON_DMAEN] {
+            let mut agnus = configured_hires_ddf(0x0038);
+            tick_to_hpos(&mut agnus, 0x0040);
+            assert_eq!(agnus.ddf_start_match(), Some(0x0038));
+            assert!(
+                agnus.cck_bus_plan().bitplane_dma_fetch_plane.is_some(),
+                "the test must begin with an active bitplane run",
+            );
+
+            agnus.write_dmacon(disabled_bit);
+            for _ in 0..8 {
+                agnus.tick_cck();
+            }
+            assert!(!agnus.dma_enabled(DMACON_BPLEN));
+
+            agnus.write_dmacon(0x8000 | disabled_bit);
+            for _ in 0..8 {
+                agnus.tick_cck();
+            }
+            assert!(agnus.dma_enabled(DMACON_BPLEN));
+
+            assert!(agnus.ocs_ddf_run_aborted());
+            assert_eq!(
+                agnus.ddf_start_match(),
+                Some(0x0038),
+                "the observed DDFSTRT remains the frozen display-phase origin",
+            );
+            assert_eq!(
+                agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+                None,
+                "re-enabling DMA must not resume the stale DDF fetch origin",
+            );
+
+            tick_to_hpos(&mut agnus, 0x00D0);
+            assert_eq!(agnus.ddf_stop_match(), None);
+            assert_eq!(
+                agnus.ddf_fetch_end(),
+                None,
+                "the aborted unstopped run must not manufacture a terminal unit",
+            );
+            tick_to_hpos(&mut agnus, 0x00D8);
+            assert_eq!(agnus.ddf_fetch_end(), None);
+            assert!(
+                agnus.ocs_ddf_hard_start_open(),
+                "DMA disable does not close the original-Agnus start permission",
+            );
+        }
+
+        let mut before_start = configured_hires_ddf(0x0080);
+        before_start.write_dmacon(DMACON_BPLEN);
+        assert!(
+            !before_start.ocs_ddf_run_aborted(),
+            "disabling DMA before DDFSTRT cannot abort a run that does not exist",
+        );
+    }
+
+    #[test]
+    fn enhanced_agnus_does_not_consume_ocs_dma_abort_state() {
+        let mut agnus = configured_hires_ddf(0x0038);
+        agnus.agnus_id = 0x2000;
+        tick_to_hpos(&mut agnus, 0x0040);
+        assert_eq!(agnus.ddf_start_match(), Some(0x0038));
+
+        agnus.write_dmacon(DMACON_BPLEN);
+        for _ in 0..8 {
+            agnus.tick_cck();
+        }
+        agnus.write_dmacon(0x8000 | DMACON_BPLEN);
+        for _ in 0..8 {
+            agnus.tick_cck();
+        }
+
+        assert!(!agnus.ocs_ddf_run_aborted());
+        agnus.ocs_ddf_run_aborted = true;
+        assert!(
+            agnus.cck_bus_plan().bitplane_dma_fetch_plane.is_some(),
+            "the shared OCS abort state must not alter enhanced behavior",
+        );
     }
 
     #[test]

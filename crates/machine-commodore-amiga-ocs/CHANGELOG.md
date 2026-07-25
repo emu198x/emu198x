@@ -9,11 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add an end-to-end pointer regression for original-Agnus bitplane
+  DMA disable and same-line re-enable
 - Add machine-level pointer-advance regressions for clean-idle
   register-equal DDF windows on original and Fat Agnus
 
 ### Fixed
 
+- Prevent bitplane pointers advancing from an original-Agnus DDF run
+  that DMA disable already terminated
 - Preserve original Agnus's phase-shifted short-line terminal result
   through machine timing and runtime snapshot restore so the following
   pre-`$18` DDF start remains inhibited

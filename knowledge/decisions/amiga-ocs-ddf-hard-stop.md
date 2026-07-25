@@ -96,6 +96,7 @@ This decision does not define:
   original-Agnus terminal unit across horizontal wrap;
 - register-equal DDF boundaries with a pre-existing run, and
   stop-before-start sequences;
+- DMA disable after a terminal request is pending;
 - the enhanced-chipset left-hand hard start and complete multi-region
   sequencer;
 - variable-beam interactions;
@@ -127,6 +128,7 @@ Hermetic tests cover:
 
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Original Agnus cross-line DDF hard-start gate](amiga-ocs-ddf-hard-start-gate.md)
+- [Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md)
 - [Enhanced Agnus horizontal DDF hard limits](amiga-enhanced-ddf-hard-limits.md)
 - [Idle register-equal DDF boundaries](amiga-idle-equal-ddf-boundaries.md)
 - [Amiga sprite DMA lifecycle](amiga-sprite-dma-lifecycle.md)

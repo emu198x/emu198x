@@ -112,12 +112,15 @@ The runtime uses one global Amiga envelope version. Version-9 ECS and AGA
 runtime snapshots are therefore also rejected even though those chipsets do
 not consume this original-chipset gate transition.
 
-Raw postcards of the public `AmigaOcsSnapshot`, `AmigaEcsSnapshot` and
-`AmigaA1200Snapshot` machine values are unversioned. Their positional layout
-did not change, so they remain decodable. An early-OCS raw snapshot captured
-after the old buggy wrap can silently restore the stale open gate; ECS and AGA
-raw states are not semantically affected by this transition. Durable save
-states must use the runtime envelope.
+For this version-9-to-10 transition, raw postcards of the public
+`AmigaOcsSnapshot`, `AmigaEcsSnapshot` and `AmigaA1200Snapshot` machine
+values were unversioned but their positional layout did not change. An
+early-OCS raw snapshot captured after the old buggy wrap could therefore
+decode while silently restoring the stale open gate; ECS and AGA raw states
+were not semantically affected by this transition. Schema version 11 later
+changes that raw layout, as recorded in
+[Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md).
+Durable save states must use the runtime envelope.
 
 ## Deferred behaviour
 
@@ -132,7 +135,8 @@ The following also remain deferred:
 
 - the hardware power-on level of the hard-start gate;
 - exact comparator and output-pipeline sub-CCK latency;
-- live DMA or vertical-window changes during an active run;
+- DMA disable after a terminal request and vertical-window changes during
+  an active run;
 - stop-before-start and already-running equality cases;
 - multiple DDF regions;
 - the enhanced-chipset `$18` hard-window state.
@@ -161,6 +165,7 @@ Hermetic tests cover:
 ## Related documents
 
 - [Original Agnus DDF hard-stop terminal policy](amiga-ocs-ddf-hard-stop.md)
+- [Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md)
 - [Idle register-equal DDF boundaries](amiga-idle-equal-ddf-boundaries.md)
 - [Enhanced Agnus horizontal DDF hard limits](amiga-enhanced-ddf-hard-limits.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)

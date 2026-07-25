@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 11 so an original-Agnus
+  run aborted by bitplane DMA disable cannot resume after restore;
+  version 10 is rejected
 - Bump Amiga postcard snapshots to version 10 because version 9 can
   preserve an open original-Agnus start gate after discarding a
   phase-shifted `$E3` terminal endpoint at short-line wrap

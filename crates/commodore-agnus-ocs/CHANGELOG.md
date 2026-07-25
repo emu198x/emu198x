@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Terminate an unstopped original-Agnus DDF run when effective
+  bitplane DMA is disabled so same-line re-enable cannot resume its
+  stale fetch phase
 - Preserve the proven next-line start-inhibition result when an
   original-Agnus phase-shifted `$E3` terminal endpoint crosses a
   short-line wrap, without assigning an unverified terminal bus slot

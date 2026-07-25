@@ -267,6 +267,106 @@ fn ocs_phase_shifted_terminal_wrap_survives_postcard_round_trip() -> Result<(), 
 }
 
 #[test]
+fn ocs_aborted_ddf_run_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    {
+        let machine = original.machine_mut();
+        machine.poke_word(0x00DF_F08E, 0x3081); // DIWSTRT
+        machine.poke_word(0x00DF_F090, 0xF0C1); // DIWSTOP
+        machine.poke_word(0x00DF_F092, 0x0038); // DDFSTRT
+        machine.poke_word(0x00DF_F094, 0x00D0); // later ordinary DDFSTOP
+        machine.poke_word(0x00DF_F100, 0xC200); // hires, four planes
+        for (high, low, pointer) in [
+            (0x00DF_F0E0, 0x00DF_F0E2, 0x0001_0000u32),
+            (0x00DF_F0E4, 0x00DF_F0E6, 0x0001_2000),
+            (0x00DF_F0E8, 0x00DF_F0EA, 0x0001_4000),
+            (0x00DF_F0EC, 0x00DF_F0EE, 0x0001_6000),
+        ] {
+            machine.poke_word(high, (pointer >> 16) as u16);
+            machine.poke_word(low, pointer as u16);
+        }
+        machine.poke_word(0x00DF_F096, 0x8300); // DMAEN | BPLEN
+    }
+    while original.machine().agnus().vpos < 0x0030 {
+        original.machine_mut().tick();
+    }
+    while original.machine().agnus().hpos < 0x0040 {
+        original.machine_mut().tick();
+    }
+    assert_eq!(original.machine().agnus().ddf_start_match(), Some(0x0038));
+
+    original.machine_mut().poke_word(0x00DF_F096, 0x0100); // clear BPLEN
+    while original.machine().agnus().hpos < 0x0048 {
+        original.machine_mut().tick();
+    }
+    original.machine_mut().poke_word(0x00DF_F096, 0x8100); // set BPLEN
+    while original.machine().agnus().hpos < 0x0050 {
+        original.machine_mut().tick();
+    }
+    assert!(original.machine().agnus().dma_enabled(0x0100));
+    assert!(original.machine().agnus().ocs_ddf_run_aborted());
+    assert_eq!(original.machine().agnus().ddf_start_match(), Some(0x0038));
+    assert_eq!(original.machine().agnus().ddf_fetch_end(), None);
+    let pointers_after_reenable = original.machine().agnus().bpl_pt;
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    restored.restore(&snapshot)?;
+    assert!(restored.machine().agnus().dma_enabled(0x0100));
+    assert!(restored.machine().agnus().ocs_ddf_run_aborted());
+    assert_eq!(restored.machine().agnus().ddf_start_match(), Some(0x0038));
+    assert_eq!(restored.machine().agnus().ddf_fetch_end(), None);
+    assert_eq!(
+        snapshot,
+        restored.snapshot()?,
+        "the post-re-enable abort history must be byte-stable through postcard",
+    );
+
+    while original.machine().agnus().hpos < 0x00D8 {
+        original.machine_mut().tick();
+    }
+    while restored.machine().agnus().hpos < 0x00D8 {
+        restored.machine_mut().tick();
+    }
+    for runtime in [&original, &restored] {
+        assert!(runtime.machine().agnus().ocs_ddf_run_aborted());
+        assert_eq!(runtime.machine().agnus().ddf_stop_match(), None);
+        assert_eq!(runtime.machine().agnus().ddf_fetch_end(), None);
+        assert!(runtime.machine().agnus().ocs_ddf_hard_start_open());
+        assert_eq!(
+            runtime.machine().agnus().bpl_pt,
+            pointers_after_reenable,
+            "the restored stale origin must not advance bitplane pointers",
+        );
+    }
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "restored abort history must produce the same no-resume result",
+    );
+
+    let aborted_line = original.machine().agnus().vpos;
+    while original.machine().agnus().vpos == aborted_line {
+        original.machine_mut().tick();
+    }
+    while restored.machine().agnus().vpos == aborted_line {
+        restored.machine_mut().tick();
+    }
+    assert!(!original.machine().agnus().ocs_ddf_run_aborted());
+    assert!(!restored.machine().agnus().ocs_ddf_run_aborted());
+    while original.machine().agnus().hpos < 0x0038 {
+        original.machine_mut().tick();
+    }
+    while restored.machine().agnus().hpos < 0x0038 {
+        restored.machine_mut().tick();
+    }
+    assert_eq!(original.machine().agnus().ddf_start_match(), Some(0x0038));
+    assert_eq!(restored.machine().agnus().ddf_start_match(), Some(0x0038));
+    assert_eq!(original.snapshot()?, restored.snapshot()?);
+    Ok(())
+}
+
+#[test]
 fn ocs_closed_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
     let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     {
@@ -594,10 +694,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 9, and confirm the version-mismatch arm fires with a
+/// field back to 10, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV10` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 10` that byte is `0x0A`.
+/// of a `SnapshotEnvelopeV11` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 11` that byte is `0x0B`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -606,20 +706,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 10,
-        "postcard varint for SNAPSHOT_VERSION = 10 should be 0x0A"
+        bytes[0], 11,
+        "postcard varint for SNAPSHOT_VERSION = 11 should be 0x0B"
     );
-    bytes[0] = 9;
+    bytes[0] = 10;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-9 snapshot should be rejected before payload decode");
+        .expect_err("version-10 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 9; expected 10"
+                if reason == "unsupported snapshot version 10; expected 11"
         ),
         "expected version-mismatch reason, got {err:?}"
     );

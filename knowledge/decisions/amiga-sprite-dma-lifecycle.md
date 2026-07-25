@@ -180,10 +180,10 @@ not asserted as manufacturer-documented power-on behaviour.
   event generator itself has historical state that cannot be recovered
   from registers and beam position. ECS and AGA snapshots preserve the
   vertical-accessed flag, blank-active latch and line-held edge events.
-- The Amiga runtime postcard schema is version 10. Version-9 snapshots
-  are rejected because one taken after the old short-line wrap behaviour
-  can contain an irreparably open original-Agnus start gate after losing
-  its `$E3` logical terminal endpoint. Version 9 introduced the serialized
+- The Amiga runtime postcard schema is version 11. Version-10 snapshots
+  are rejected because they do not preserve whether effective bitplane DMA
+  aborted an unstopped original-Agnus run. Version 10 fixed the semantic
+  short-line `$E3` transition; version 9 introduced the serialized
   horizontal hard-start gate; version 8 introduced the enhanced-chipset
   `$D8` terminal endpoint; version 7 made the same compatibility break for
   the original-Agnus `$D8` event; version 6 introduced the current-line

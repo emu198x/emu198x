@@ -100,12 +100,18 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   machine loop dispatches a same-position Copper MOVE. Its evidence and
   selected terminal policy are recorded in
   [Original Agnus DDF hard-stop terminal policy](amiga-ocs-ddf-hard-stop.md).
+  If effective original-Agnus bitplane DMA falls before a terminal request,
+  a serialized abort latch removes the old run from future slot ownership
+  and stop scheduling without erasing its display-phase origin. Re-enabling
+  DMA cannot resume that run. This transition is defined in
+  [Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md).
   Register-equal boundaries with a pre-existing run, stop-before-start,
-  raw register-write latency, eligibility changes, multiple enhanced-chipset
-  regions, exact cross-wrap terminal bus and pointer timing, exact modulo
-  timing and Alice's explicit final state remain separate accuracy work. The
-  implemented clean-idle equality and original-Agnus hard-start admission
-  transitions, including the compressed short-line wrap result, are recorded in
+  raw register-write latency, vertical eligibility changes, DMA disable
+  after a pending terminal request, multiple enhanced-chipset regions, exact
+  cross-wrap terminal bus and pointer timing, exact modulo timing and Alice's
+  explicit final state remain separate accuracy work. The implemented
+  clean-idle equality and original-Agnus hard-start admission transitions,
+  including the compressed short-line wrap result, are recorded in
   [Idle register-equal DDF boundaries](amiga-idle-equal-ddf-boundaries.md)
   and [Original Agnus cross-line DDF hard-start gate](amiga-ocs-ddf-hard-start-gate.md).
 - Sprite control/data request state is likewise part of the Agnus plan.
