@@ -120,7 +120,9 @@ decode while silently restoring the stale open gate; ECS and AGA raw states
 were not semantically affected by this transition. Schema version 11 later
 changes that raw layout, as recorded in
 [Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md).
-Durable save states must use the runtime envelope.
+Schema version 12 later changes the meaning of that abort state when a
+rewritten future DDFSTRT comparator is reached, without changing the raw
+postcard layout. Durable save states must use the runtime envelope.
 
 ## Deferred behaviour
 

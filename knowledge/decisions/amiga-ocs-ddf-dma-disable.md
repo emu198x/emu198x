@@ -25,10 +25,17 @@ and its fetch counter on `SIG_BMAPEN_CLR`. `SIG_BMAPEN_SET` restores only
 the DMA enable. Its original-chipset sequencer also requires a later
 `SIG_BPHSTART` event to begin another run.
 
-The two implementations agree on the eventual no-resume result. They use
-different internal event positions and do not establish one shared
-write-to-stop latency or final pipelined bitplane slot. The repository has
-no real-hardware trace for that boundary.
+WinUAE evaluates each later DDFSTRT comparator independently when no run is
+active. vAmiga removes an unreached old event after a DDFSTRT write and
+schedules a new future `SIG_BPHSTART`. Both can therefore establish a fresh
+run at a rewritten comparator strictly ahead of the beam once DMA and the
+other admission gates permit it.
+
+The two implementations agree on the eventual no-resume and fresh-start
+results. They use different internal event positions and do not establish
+one shared write-to-stop latency, DDFSTRT write latency or final pipelined
+bitplane slot. The repository has no real-hardware trace for those
+boundaries.
 
 ## The decision
 
@@ -49,18 +56,23 @@ Once Emu198x has recorded the abort transition, the run:
 - retains its observed DDFSTRT value as the frozen display-phase origin;
 - owns no new bitplane bus slots;
 - does not consume a later DDFSTOP or fixed `$D8` event;
-- cannot resume when bitplane DMA is enabled again in the same line; and
+- cannot resume when bitplane DMA is enabled again in the same line;
 - does not close the original-Agnus hard-start permission because no
-  terminal fetch unit completed.
+  terminal fetch unit completed; and
+- can be replaced only when a rewritten, masked DDFSTRT value still ahead
+  of the beam reaches its comparator with DMA, the vertical window and the
+  hard-start permission all active.
 
 Preserving DDFSTRT history is intentional. Denise uses that origin for its
 display-pipeline coordinate. Erasing it would conflate sequencer termination
-with a new display phase.
+with a new display phase. An admitted later comparator replaces the old
+origin, clears the abort latch and establishes a fresh run whose display and
+fetch phases use the new origin.
 
-The abort latch resets at horizontal wrap with the other current-line run
-state. A normal next-line DDFSTRT comparator can therefore establish a fresh
-run when DMA, the vertical display window and the carried hard-start
-permission allow it.
+The abort latch clears at an admitted later DDFSTRT comparator or resets at
+horizontal wrap with the other current-line run state. A normal next-line
+comparator can therefore establish a fresh run when DMA, the vertical
+display window and the carried hard-start permission allow it.
 
 Enhanced Agnus and Alice serialize the shared inner field but do not consume
 it. Their DMA soft-enable, hard-window and multi-region behaviour remains a
@@ -70,8 +82,11 @@ The machine loop fixes the Copper's grant before dispatching that Copper
 MOVE, so a DMACON write cannot retroactively take that cell from the Copper.
 Other ownership is recomputed afterwards. Verification judges only the
 settled result, eight CCKs after disable and eight after re-enable, beyond
-the delayed transitions in both inspected implementations. It therefore
-does not claim the exact hardware latency.
+the delayed transitions in both inspected implementations. The rewritten
+DDFSTRT is also programmed well before its comparator, and bus and pointer
+activity is checked eight CCKs after that comparator. It is not checked on
+the internal trigger cell. The tests therefore do not claim either exact
+hardware write latency.
 
 The new field changes every nested Amiga machine postcard. Runtime postcards
 therefore advance to schema version 11 and reject version 10 before payload
@@ -80,12 +95,21 @@ contain DMA enabled, a historical DDFSTRT origin and no terminal endpoint,
 with no record that the old run was already aborted. That state is
 indistinguishable from a legitimate active run during restore.
 
-The runtime uses one global Amiga envelope version, so version-10 ECS and AGA
-runtime snapshots are also rejected even though those chipsets do not
-consume this latch. Raw postcards of `AmigaOcsSnapshot`, `AmigaEcsSnapshot`
-and `AmigaA1200Snapshot` are unversioned and their positional layout has
-changed. They have no migration path. Durable save states must use the
-runtime envelope.
+Admitting a rewritten future comparator adds no field, but changes the
+meaning of the serialized abort state. Runtime postcards therefore advance
+again to schema version 12 and reject version 11. A version-11 snapshot
+captured after the old runtime missed the rewritten comparator cannot
+distinguish that miss from a behind-beam write or a comparator crossed while
+DMA or the vertical window was inactive.
+
+The runtime uses one global Amiga envelope version, so each transition also
+rejects ECS and AGA runtime snapshots even though those chipsets do not
+consume the OCS abort latch. Raw postcards of `AmigaOcsSnapshot`,
+`AmigaEcsSnapshot` and `AmigaA1200Snapshot` are unversioned. Version 11
+changed their positional layout by adding the shared field. Version 12 does
+not change that layout, but a raw OCS postcard can silently retain the stale
+version-11 meaning; raw ECS and AGA semantics are unaffected. Raw postcards
+have no migration path. Durable save states must use the runtime envelope.
 
 ## Deferred behaviour
 
@@ -96,7 +120,6 @@ This decision does not define:
 - exact DMACON write latency or the final in-flight bitplane slot;
 - already-fetched Denise shifter output after the sequencer stops;
 - a vertical display-window transition during an active run;
-- a rewritten future DDFSTRT after an abort in the same line;
 - multiple DDF regions;
 - enhanced-chipset DMA-enable transitions; or
 - exact modulo timing.
@@ -114,9 +137,16 @@ Hermetic tests cover:
 - disabling DMA before DDFSTRT not creating an abort;
 - enhanced Agnus ignoring the shared OCS latch;
 - machine-level bitplane pointers remaining fixed after re-enable;
+- a rewritten future DDFSTRT replacing the old origin, clearing the abort
+  and advancing pointers from the new phase;
+- current and behind-beam rewrites remaining non-retroactive;
+- a future comparator crossed while DMA is off not being replayed after
+  re-enable;
 - postcard round-trip after re-enable, deterministic no-resume through
-  `$D8`, and normal next-line re-arming; and
-- rejection of version-10 runtime postcards.
+  `$D8`, and normal next-line re-arming;
+- postcard round-trip before a rewritten future comparator, followed by
+  deterministic fresh re-arming; and
+- rejection of version-11 runtime postcards.
 
 ## Related documents
 

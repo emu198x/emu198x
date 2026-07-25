@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 12 because version 11 can
+  preserve an original-Agnus abort after the old runtime missed a
+  rewritten future DDFSTRT comparator; version 11 is rejected
 - Bump Amiga postcard snapshots to version 11 so an original-Agnus
   run aborted by bitplane DMA disable cannot resume after restore;
   version 10 is rejected

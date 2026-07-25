@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add an end-to-end pointer regression for a rewritten future DDFSTRT
+  establishing a fresh original-Agnus fetch phase after DMA abort
 - Add an end-to-end pointer regression for original-Agnus bitplane
   DMA disable and same-line re-enable
 - Add machine-level pointer-advance regressions for clean-idle
@@ -16,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Advance bitplane pointers from the new fetch phase when a later
+  DDFSTRT comparator re-arms an aborted original-Agnus run
 - Prevent bitplane pointers advancing from an original-Agnus DDF run
   that DMA disable already terminated
 - Preserve original Agnus's phase-shifted short-line terminal result

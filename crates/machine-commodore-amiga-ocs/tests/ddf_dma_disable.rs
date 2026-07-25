@@ -49,8 +49,7 @@ fn advance_to_hpos(amiga: &mut AmigaOcs, target: u16) {
     assert_eq!(amiga.agnus().hpos, target);
 }
 
-#[test]
-fn reenabled_bitplane_dma_does_not_advance_an_aborted_ocs_run() {
+fn active_hires_run() -> AmigaOcs {
     let mut amiga = AmigaOcs::with_ram_config(parked_cpu_rom(), RamConfig::bare());
     amiga.poke_word(DIWSTRT, 0x3081);
     amiga.poke_word(DIWSTOP, 0xF0C1);
@@ -66,7 +65,12 @@ fn reenabled_bitplane_dma_does_not_advance_an_aborted_ocs_run() {
     advance_to_line(&mut amiga, 0x0030);
     advance_to_hpos(&mut amiga, 0x0040);
     assert_eq!(amiga.agnus().ddf_start_match(), Some(0x0038));
+    amiga
+}
 
+#[test]
+fn reenabled_bitplane_dma_does_not_advance_an_aborted_ocs_run() {
+    let mut amiga = active_hires_run();
     amiga.poke_word(DMACON, 0x0100); // clear BPLEN
     advance_to_hpos(&mut amiga, 0x0048);
     let pointers_after_disable = amiga.agnus().bpl_pt;
@@ -82,4 +86,36 @@ fn reenabled_bitplane_dma_does_not_advance_an_aborted_ocs_run() {
         pointers_after_disable,
         "re-enabling BPLEN must not advance pointers from the stale fetch origin",
     );
+}
+
+#[test]
+fn rewritten_future_ddf_start_advances_pointers_from_a_fresh_ocs_phase() {
+    let mut amiga = active_hires_run();
+    amiga.poke_word(DMACON, 0x0100); // clear BPLEN
+    advance_to_hpos(&mut amiga, 0x0048);
+    let pointers_after_disable = amiga.agnus().bpl_pt;
+    amiga.poke_word(DMACON, 0x8100); // set BPLEN
+    advance_to_hpos(&mut amiga, 0x0050);
+    assert_eq!(amiga.agnus().bpl_pt, pointers_after_disable);
+
+    amiga.poke_word(DDFSTRT, 0x0060);
+    advance_to_hpos(&mut amiga, 0x005F);
+    assert!(amiga.agnus().ocs_ddf_run_aborted());
+    assert_eq!(amiga.agnus().ddf_start_match(), Some(0x0038));
+    assert_eq!(amiga.agnus().bpl_pt, pointers_after_disable);
+
+    advance_to_hpos(&mut amiga, 0x0060);
+    assert!(!amiga.agnus().ocs_ddf_run_aborted());
+    assert_eq!(amiga.agnus().ddf_start_match(), Some(0x0060));
+
+    advance_to_hpos(&mut amiga, 0x0068);
+    assert_ne!(
+        amiga.agnus().bpl_pt,
+        pointers_after_disable,
+        "the fresh DDFSTRT phase must own new bitplane fetches",
+    );
+
+    advance_to_hpos(&mut amiga, 0x00D0);
+    assert_eq!(amiga.agnus().ddf_stop_match(), Some(0x00D0));
+    assert_eq!(amiga.agnus().ddf_fetch_end(), Some(0x00D7));
 }

@@ -1951,14 +1951,18 @@ impl Agnus {
         }
 
         let ddfstrt = self.ddfstrt & ddf_mask;
-        if self.ddf_start_match.is_none()
+        let start_comparator_can_open_run = self.ddf_start_match.is_none()
+            || (!enhanced && self.ocs_ddf_run_aborted && self.ddf_fetch_end.is_none());
+        if start_comparator_can_open_run
             && self.hpos == ddfstrt
             && (enhanced || self.ocs_ddf_hard_start_open)
         {
             // Early OCS starts the sequencer only when display DMA is enabled
             // inside the vertical display window. Fat Agnus, ECS and Alice
             // retain the comparator match independently and apply those gates
-            // when arbitration consumes it.
+            // when arbitration consumes it. An OCS abort preserves its old
+            // display-phase origin until a genuinely later DDFSTRT comparator
+            // replaces it; restoring DMA alone cannot reach this branch.
             if enhanced || (self.dma_enabled(0x0100) && self.vertical_diw_active()) {
                 self.ddf_start_match = Some(ddfstrt);
                 if !enhanced {
@@ -3164,6 +3168,101 @@ mod tests {
         assert!(
             !before_start.ocs_ddf_run_aborted(),
             "disabling DMA before DDFSTRT cannot abort a run that does not exist",
+        );
+    }
+
+    #[test]
+    fn ocs_aborted_run_accepts_a_rewritten_future_ddf_start() {
+        let mut agnus = configured_hires_ddf(0x0038);
+        tick_to_hpos(&mut agnus, 0x0040);
+        agnus.write_dmacon(DMACON_BPLEN);
+        for _ in 0..8 {
+            agnus.tick_cck();
+        }
+        agnus.write_dmacon(0x8000 | DMACON_BPLEN);
+        for _ in 0..8 {
+            agnus.tick_cck();
+        }
+
+        assert!(agnus.ocs_ddf_run_aborted());
+        assert_eq!(agnus.ddf_start_match(), Some(0x0038));
+        assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
+
+        agnus.write_ddfstrt(0x0060);
+        tick_to_hpos(&mut agnus, 0x005F);
+        assert_eq!(
+            agnus.ddf_start_match(),
+            Some(0x0038),
+            "the old display phase remains frozen before the new comparator",
+        );
+        assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
+
+        agnus.tick_cck();
+        assert_eq!(agnus.hpos, 0x0060);
+        assert_eq!(
+            agnus.ddf_start_match(),
+            Some(0x0060),
+            "the future comparator must replace the aborted fetch origin",
+        );
+        assert!(!agnus.ocs_ddf_run_aborted());
+
+        tick_to_hpos(&mut agnus, 0x00D0);
+        assert_eq!(agnus.ddf_stop_match(), Some(0x00D0));
+        assert_eq!(agnus.ddf_fetch_end(), Some(0x00D7));
+    }
+
+    #[test]
+    fn ocs_aborted_run_does_not_replay_a_missed_ddf_start() {
+        for replacement in [0x0048, 0x0050] {
+            let mut agnus = configured_hires_ddf(0x0038);
+            tick_to_hpos(&mut agnus, 0x0040);
+            agnus.write_dmacon(DMACON_BPLEN);
+            for _ in 0..8 {
+                agnus.tick_cck();
+            }
+            agnus.write_dmacon(0x8000 | DMACON_BPLEN);
+            for _ in 0..8 {
+                agnus.tick_cck();
+            }
+            assert_eq!(agnus.hpos, 0x0050);
+
+            agnus.write_ddfstrt(replacement);
+            tick_to_hpos(&mut agnus, 0x0058);
+            assert!(agnus.ocs_ddf_run_aborted());
+            assert_eq!(
+                agnus.ddf_start_match(),
+                Some(0x0038),
+                "a current or behind-beam rewrite cannot replace the old origin",
+            );
+            assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
+        }
+
+        let mut dma_off_at_match = configured_hires_ddf(0x0038);
+        tick_to_hpos(&mut dma_off_at_match, 0x0040);
+        dma_off_at_match.write_dmacon(DMACON_BPLEN);
+        for _ in 0..8 {
+            dma_off_at_match.tick_cck();
+        }
+        dma_off_at_match.write_ddfstrt(0x0060);
+        tick_to_hpos(&mut dma_off_at_match, 0x0068);
+        assert!(!dma_off_at_match.dma_enabled(DMACON_BPLEN));
+        assert!(dma_off_at_match.ocs_ddf_run_aborted());
+        assert_eq!(dma_off_at_match.ddf_start_match(), Some(0x0038));
+
+        dma_off_at_match.write_dmacon(0x8000 | DMACON_BPLEN);
+        for _ in 0..8 {
+            dma_off_at_match.tick_cck();
+        }
+        assert!(dma_off_at_match.dma_enabled(DMACON_BPLEN));
+        assert!(dma_off_at_match.ocs_ddf_run_aborted());
+        assert_eq!(
+            dma_off_at_match.ddf_start_match(),
+            Some(0x0038),
+            "re-enabling DMA cannot replay a comparator crossed while DMA was off",
+        );
+        assert_eq!(
+            dma_off_at_match.cck_bus_plan().bitplane_dma_fetch_plane,
+            None,
         );
     }
 

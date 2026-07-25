@@ -72,8 +72,9 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   Denise-side fetch gate. This prevents inactive display DMA from ghost-owning
   the bus outside the display window.
 - DDFSTRT is an edge, not a continuously reconstructed range boundary. On
-  each line Agnus records the first matching masked comparator value and uses
-  it as the immutable fetch-phase origin for both arbitration and Denise.
+  each line Agnus records the masked comparator that opens the current run
+  and uses it as the frozen fetch-phase origin for both arbitration and
+  Denise while that run remains active.
   The match resets at horizontal position zero and is evaluated when the beam
   enters a CCK, before a Copper MOVE can alter the register in that CCK.
   A write at or behind the beam therefore cannot start the line
@@ -103,7 +104,10 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   If effective original-Agnus bitplane DMA falls before a terminal request,
   a serialized abort latch removes the old run from future slot ownership
   and stop scheduling without erasing its display-phase origin. Re-enabling
-  DMA cannot resume that run. This transition is defined in
+  DMA cannot resume that run. A rewritten future DDFSTRT may replace the old
+  origin only when its comparator is reached with the normal OCS admission
+  gates active; current, behind-beam and ineligible comparators remain
+  missed. This transition is defined in
   [Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md).
   Register-equal boundaries with a pre-existing run, stop-before-start,
   raw register-write latency, vertical eligibility changes, DMA disable

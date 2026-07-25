@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Let a genuinely later DDFSTRT comparator establish a fresh
+  original-Agnus run after DMA terminated the old run, without
+  treating DMA re-enable itself as a resume
 - Terminate an unstopped original-Agnus DDF run when effective
   bitplane DMA is disabled so same-line re-enable cannot resume its
   stale fetch phase

@@ -19,11 +19,11 @@ use crate::Model;
 use crate::runtime::AmigaRuntime;
 use crate::variants::AmigaMachine;
 
-// Version 11 adds the original-Agnus current-line DDF run-abort latch. A
-// version-10 snapshot taken after bitplane DMA was re-enabled can otherwise
-// contain an apparently active fetch origin with no record that the old run
-// was terminated while DMA was off.
-const SNAPSHOT_VERSION: u32 = 11;
+// Version 12 lets an original-Agnus run-abort latch admit a genuinely later
+// DDFSTRT comparator. A version-11 snapshot taken after the old runtime missed
+// that comparator cannot distinguish the miss from a behind-beam register
+// write or a comparator crossed while display DMA was ineligible.
+const SNAPSHOT_VERSION: u32 = 12;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
 /// snapshot (`M::Snapshot`) and the variant's reconstruction metadata
@@ -33,7 +33,7 @@ const SNAPSHOT_VERSION: u32 = 11;
 /// Versioned so future snapshot extensions can bump the major version
 /// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV11<M: AmigaMachine> {
+struct SnapshotEnvelopeV12<M: AmigaMachine> {
     version: u32,
     model: Model,
     metadata: M::SnapshotMetadata,
@@ -50,7 +50,7 @@ struct SnapshotEnvelopeV11<M: AmigaMachine> {
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
 pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u8>, MachineError> {
-    let envelope = SnapshotEnvelopeV11::<M> {
+    let envelope = SnapshotEnvelopeV12::<M> {
         version: SNAPSHOT_VERSION,
         model: runtime.model(),
         metadata: runtime.metadata().clone(),
@@ -91,7 +91,7 @@ pub(crate) fn decode<M: AmigaMachine>(
         });
     }
 
-    let envelope: SnapshotEnvelopeV11<M> =
+    let envelope: SnapshotEnvelopeV12<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;
