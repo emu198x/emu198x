@@ -198,6 +198,162 @@ fn ocs_hard_ddfstop_endpoint_survives_postcard_round_trip() -> Result<(), Box<dy
 }
 
 #[test]
+fn ocs_closed_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    {
+        let machine = original.machine_mut();
+        machine.poke_word(0x00DF_F08E, 0x3081); // DIWSTRT
+        machine.poke_word(0x00DF_F090, 0xF0C1); // DIWSTOP
+        machine.poke_word(0x00DF_F092, 0x0018); // DDFSTRT
+        machine.poke_word(0x00DF_F094, 0x00D0); // in-line terminal unit
+        machine.poke_word(0x00DF_F100, 0xC200); // hires, four planes
+        machine.poke_word(0x00DF_F096, 0x8300); // DMAEN | BPLEN
+    }
+    while original.machine().agnus().vpos < 0x0030 {
+        original.machine_mut().tick();
+    }
+    while original.machine().agnus().hpos < 0x00D7 {
+        original.machine_mut().tick();
+    }
+    assert_eq!(original.machine().agnus().ddf_fetch_end(), Some(0x00D7));
+    assert!(
+        !original.machine().agnus().ocs_ddf_hard_start_open(),
+        "the completed terminal unit must close the OCS hard-start gate",
+    );
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    restored.restore(&snapshot)?;
+    assert!(
+        !restored.machine().agnus().ocs_ddf_hard_start_open(),
+        "the non-default closed gate must survive postcard restore",
+    );
+    assert_eq!(
+        snapshot,
+        restored.snapshot()?,
+        "the closed gate must be byte-stable through postcard",
+    );
+
+    original.machine_mut().poke_word(0x00DF_F092, 0x0010);
+    restored.machine_mut().poke_word(0x00DF_F092, 0x0010);
+    let completed_line = original.machine().agnus().vpos;
+    while original.machine().agnus().vpos == completed_line
+        || original.machine().agnus().hpos < 0x0010
+    {
+        original.machine_mut().tick();
+    }
+    while restored.machine().agnus().vpos == completed_line
+        || restored.machine().agnus().hpos < 0x0010
+    {
+        restored.machine_mut().tick();
+    }
+
+    assert_eq!(original.machine().agnus().ddf_start_match(), None);
+    assert_eq!(restored.machine().agnus().ddf_start_match(), None);
+    assert!(
+        !original.machine().agnus().ocs_ddf_hard_start_open()
+            && !restored.machine().agnus().ocs_ddf_hard_start_open(),
+        "the restored closed gate must reject the next line's pre-$18 comparator",
+    );
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "restored hard-start state must remain deterministic after the missed comparator",
+    );
+    Ok(())
+}
+
+#[test]
+fn ocs_open_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    {
+        let machine = original.machine_mut();
+        machine.poke_word(0x00DF_F08E, 0x3081); // DIWSTRT
+        machine.poke_word(0x00DF_F090, 0xF0C1); // DIWSTOP
+        machine.poke_word(0x00DF_F092, 0x0018); // DDFSTRT
+        machine.poke_word(0x00DF_F094, 0x00D0); // in-line terminal unit
+        machine.poke_word(0x00DF_F100, 0xC200); // hires, four planes
+        machine.poke_word(0x00DF_F096, 0x8300); // DMAEN | BPLEN
+    }
+    while original.machine().agnus().vpos < 0x0030 {
+        original.machine_mut().tick();
+    }
+    while original.machine().agnus().hpos < 0x00D7 {
+        original.machine_mut().tick();
+    }
+    assert!(!original.machine().agnus().ocs_ddf_hard_start_open());
+
+    original.machine_mut().poke_word(0x00DF_F096, 0x0100); // clear BPLEN
+    original.machine_mut().poke_word(0x00DF_F092, 0x0010);
+    let completed_line = original.machine().agnus().vpos;
+    while original.machine().agnus().vpos == completed_line {
+        original.machine_mut().tick();
+    }
+    while original.machine().agnus().hpos < 0x0018 {
+        original.machine_mut().tick();
+    }
+    assert!(original.machine().agnus().ocs_ddf_hard_start_open());
+    assert_eq!(original.machine().agnus().ddf_start_match(), None);
+
+    let idle_line = original.machine().agnus().vpos;
+    while original.machine().agnus().vpos == idle_line {
+        original.machine_mut().tick();
+    }
+    assert_eq!(original.machine().agnus().hpos, 0);
+    assert!(
+        original.machine().agnus().ocs_ddf_hard_start_open(),
+        "the idle line must carry the reopened gate across EOL",
+    );
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    restored.restore(&snapshot)?;
+    assert!(
+        restored.machine().agnus().ocs_ddf_hard_start_open(),
+        "the true gate state must survive postcard restore",
+    );
+    assert_eq!(
+        snapshot,
+        restored.snapshot()?,
+        "the open gate must be byte-stable through postcard",
+    );
+
+    original.machine_mut().poke_word(0x00DF_F096, 0x8300);
+    restored.machine_mut().poke_word(0x00DF_F096, 0x8300);
+    while original.machine().agnus().hpos < 0x0010 {
+        original.machine_mut().tick();
+    }
+    while restored.machine().agnus().hpos < 0x0010 {
+        restored.machine_mut().tick();
+    }
+
+    assert_eq!(original.machine().agnus().ddf_start_match(), Some(0x0010),);
+    assert_eq!(restored.machine().agnus().ddf_start_match(), Some(0x0010),);
+    assert_eq!(
+        original
+            .machine()
+            .agnus()
+            .cck_bus_plan()
+            .bitplane_dma_fetch_plane,
+        Some(3),
+    );
+    assert_eq!(
+        restored
+            .machine()
+            .agnus()
+            .cck_bus_plan()
+            .bitplane_dma_fetch_plane,
+        Some(3),
+    );
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "restored open-gate state must produce the same early DMA start",
+    );
+    Ok(())
+}
+
+#[test]
 fn fat_agnus_hard_ddfstop_endpoint_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
     let mut original = AmigaOcsRuntime::new(Model::A2000OcsPal, blank_kickstart())?;
     assert!(original.machine().uses_fat_agnus_8372a());
@@ -369,29 +525,33 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 7, and confirm the version-mismatch arm fires with a
+/// field back to 8, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV8` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 8` that byte is `0x08`.
+/// of a `SnapshotEnvelopeV9` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 9` that byte is `0x09`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
-/// branch (rather than the postcard-parse-error branch above).
+/// branch instead of the postcard-parse-error branch above.
 #[test]
 fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 8,
-        "postcard varint for SNAPSHOT_VERSION = 8 should be 0x08"
+        bytes[0], 9,
+        "postcard varint for SNAPSHOT_VERSION = 9 should be 0x09"
     );
-    bytes[0] = 7;
+    bytes[0] = 8;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-7 snapshot should be rejected before payload decode");
+        .expect_err("version-8 snapshot should be rejected before payload decode");
     assert!(
-        matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("version")),
+        matches!(
+            err,
+            MachineError::InvalidSnapshot { ref reason }
+                if reason == "unsupported snapshot version 8; expected 9"
+        ),
         "expected version-mismatch reason, got {err:?}"
     );
     Ok(())

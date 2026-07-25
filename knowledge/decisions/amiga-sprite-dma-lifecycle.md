@@ -180,16 +180,17 @@ not asserted as manufacturer-documented power-on behaviour.
   event generator itself has historical state that cannot be recovered
   from registers and beam position. ECS and AGA snapshots preserve the
   vertical-accessed flag, blank-active latch and line-held edge events.
-- The Amiga runtime postcard schema is version 8. Version-7 snapshots
-  are rejected rather than migrated because they can restore an active
-  enhanced-chipset fetch region after `$D8` without the newly required
-  terminal endpoint. Version 7 made the same compatibility break for the
-  original-Agnus `$D8` event; version 6 introduced the current-line
-  DDFSTOP comparator match and frozen final fetch endpoint; version 5
-  introduced the current-line DDFSTRT comparator match and frozen fetch
-  origin; version 4 introduced the hidden ECS/AGA vertical display-window
-  latch; version 3 introduced the installed early/Fat Agnus distinction
-  and the Fat Agnus wrapper's live extension-register state.
+- The Amiga runtime postcard schema is version 9. Version-8 snapshots
+  are rejected rather than migrated because they do not contain the
+  original-Agnus horizontal hard-start gate. Version 8 introduced the
+  enhanced-chipset `$D8` terminal endpoint; version 7 made the same
+  compatibility break for the original-Agnus `$D8` event; version 6
+  introduced the current-line DDFSTOP comparator match and frozen final
+  fetch endpoint; version 5 introduced the current-line DDFSTRT comparator
+  match and frozen fetch origin; version 4 introduced the hidden ECS/AGA
+  vertical display-window latch; version 3 introduced the installed
+  early/Fat Agnus distinction and the Fat Agnus wrapper's live
+  extension-register state.
 - The per-request `SpriteDmaVerticalTiming` value remains transient.
   It also carries the nine- or ten-bit comparator capability selected
   by the Agnus identity; the already-serialized `agnus_id` and `u16`

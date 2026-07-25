@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Carry original Agnus's horizontal DDF hard-start gate across line
+  boundaries: `$18` opens it, in-line terminal completion closes it,
+  and a missed pre-`$18` comparator is not replayed
 - Let enhanced-chipset wrappers select the shared `$D8` bitplane-DMA
   stop event without duplicating the OCS fetch sequencer
 - Evaluate original Agnus's fixed `$D8` data-fetch stop as a beam event

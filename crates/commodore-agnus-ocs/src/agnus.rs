@@ -490,6 +490,14 @@ pub struct Agnus {
     /// termination. `None` means no terminal endpoint has been latched
     /// for an active fetch region this line.
     ddf_fetch_end: Option<u16>,
+    /// Original-Agnus horizontal hard-start gate. `$18` opens it and
+    /// completion of a terminal fetch unit represented on the current
+    /// physical line closes it. Unlike the current-line comparator
+    /// fields, this state survives line wrap.
+    ///
+    /// Enhanced-chipset wrappers carry the field because they serialize
+    /// this shared inner core, but their timing does not consume it.
+    ocs_ddf_hard_start_open: bool,
 
     // Blitter Registers
     pub bltcon0: u16,
@@ -625,6 +633,10 @@ impl Agnus {
             ddf_start_match: None,
             ddf_stop_match: None,
             ddf_fetch_end: None,
+            // Preserve the established first-line behavior. The bounded
+            // hardware contract begins once `$18` or a terminal completion
+            // has driven the latch.
+            ocs_ddf_hard_start_open: true,
             bltcon0: 0,
             bltcon1: 0,
             bltsize: 0,
@@ -1863,6 +1875,22 @@ impl Agnus {
 
     fn evaluate_ddf_comparators(&mut self, fixed_ddf_right_stop_enabled: bool) {
         let ddf_mask = self.ddf_mask();
+        let enhanced = self.agnus_id >= 0x2000;
+
+        if !enhanced {
+            // A terminal fetch represented on this physical line closes the
+            // original-Agnus left gate only when its final CCK completes.
+            // An idle line therefore carries the open state across EOL,
+            // while an in-line completion carries the closed state. `$18`
+            // reopens the gate before a coincident DDFSTRT comparator.
+            if self.ddf_fetch_end == Some(self.hpos) {
+                self.ocs_ddf_hard_start_open = false;
+            }
+            if self.hpos == 0x0018 {
+                self.ocs_ddf_hard_start_open = true;
+            }
+        }
+
         // Stop signals sample the sequencer state that existed on beam
         // entry. In particular, a DDFSTRT comparator coincident with the
         // OCS $D8 hard edge may start an idle sequencer, but that new run
@@ -1876,8 +1904,9 @@ impl Agnus {
             // empty window: the stop phase samples the idle sequencer before
             // the start phase opens a run, so equality deliberately reaches
             // the fixed right edge instead. Equality with a pre-existing run,
-            // stop-before-start, the OCS cross-line hard-start latch and
-            // enhanced multiple regions need further sequencer state.
+            // stop-before-start, phase-shifted OCS terminal completion across
+            // horizontal wrap and enhanced multiple regions need further
+            // sequencer state.
             if matched_start < ddfstop && self.hpos == ddfstop {
                 self.ddf_stop_match = Some(ddfstop);
                 self.ddf_fetch_end = Some(self.ddf_terminal_fetch_end(matched_start, ddfstop));
@@ -1896,12 +1925,14 @@ impl Agnus {
         }
 
         let ddfstrt = self.ddfstrt & ddf_mask;
-        if self.ddf_start_match.is_none() && self.hpos == ddfstrt {
+        if self.ddf_start_match.is_none()
+            && self.hpos == ddfstrt
+            && (enhanced || self.ocs_ddf_hard_start_open)
+        {
             // Early OCS starts the sequencer only when display DMA is enabled
             // inside the vertical display window. Fat Agnus, ECS and Alice
             // retain the comparator match independently and apply those gates
             // when arbitration consumes it.
-            let enhanced = self.agnus_id >= 0x2000;
             if enhanced || (self.dma_enabled(0x0100) && self.vertical_diw_active()) {
                 self.ddf_start_match = Some(ddfstrt);
             }
@@ -1943,6 +1974,14 @@ impl Agnus {
     #[must_use]
     pub const fn ddf_fetch_end(&self) -> Option<u16> {
         self.ddf_fetch_end
+    }
+
+    /// Whether the original-Agnus horizontal hard-start gate currently
+    /// permits a DDFSTRT comparator. Enhanced variants do not consume this
+    /// shared serialized field.
+    #[must_use]
+    pub const fn ocs_ddf_hard_start_open(&self) -> bool {
+        self.ocs_ddf_hard_start_open
     }
 
     /// Determine who owns the current CCK slot.
@@ -2482,6 +2521,10 @@ mod tests {
             agnus.vpos = 0x0030;
             agnus.diwstrt = 0x2C81;
             agnus.diwstop = 0x2CC1;
+            // This helper jumps directly to the comparator. Establish the
+            // post-$18 precondition explicitly instead of making unrelated
+            // cadence tests traverse the horizontal latch lifecycle.
+            agnus.ocs_ddf_hard_start_open = true;
         }
         let start = agnus.ddfstrt & agnus.ddf_mask();
         assert!(start > 0, "test helper requires a non-zero DDFSTRT");
@@ -2831,6 +2874,100 @@ mod tests {
     }
 
     #[test]
+    fn ocs_pre_18_start_depends_on_previous_line_fetch_completion() {
+        let mut completed = configured_hires_ddf(0x0018);
+        tick_to_hpos(&mut completed, 0x00D7);
+        assert_eq!(completed.ddf_fetch_end(), Some(0x00D7));
+        assert!(!completed.ocs_ddf_hard_start_open());
+        completed.write_ddfstrt(0x0010);
+        tick_to_hpos(&mut completed, 0);
+        assert!(!completed.ocs_ddf_hard_start_open());
+        tick_to_hpos(&mut completed, 0x0010);
+        assert_eq!(
+            completed.ddf_start_match(),
+            None,
+            "the prior terminal fetch closed the carried OCS hard-start gate",
+        );
+        assert_eq!(
+            completed.cck_bus_plan().bitplane_dma_fetch_plane,
+            None,
+            "a pre-$18 comparator missed while the gate was closed is not replayed",
+        );
+        tick_to_hpos(&mut completed, 0x0018);
+        assert!(completed.ocs_ddf_hard_start_open());
+        assert_eq!(
+            completed.ddf_start_match(),
+            None,
+            "opening the gate at $18 cannot replay the missed $10 comparator",
+        );
+
+        let mut idle = configured_hires_ddf(0x0018);
+        tick_to_hpos(&mut idle, 0x00D7);
+        assert!(!idle.ocs_ddf_hard_start_open());
+        idle.dmacon = 0;
+        idle.write_ddfstrt(0x0038);
+        tick_to_hpos(&mut idle, 0);
+        assert!(!idle.ocs_ddf_hard_start_open());
+        tick_to_hpos(&mut idle, 0x0038);
+        assert_eq!(idle.ddf_start_match(), None);
+        assert!(idle.ocs_ddf_hard_start_open());
+        idle.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        idle.write_ddfstrt(0x0010);
+        tick_to_hpos(&mut idle, 0);
+        assert!(idle.ocs_ddf_hard_start_open());
+        tick_to_hpos(&mut idle, 0x0010);
+        assert_eq!(
+            idle.ddf_start_match(),
+            Some(0x0010),
+            "an idle line carries the open OCS hard-start gate across EOL",
+        );
+        assert_eq!(
+            idle.cck_bus_plan().bitplane_dma_fetch_plane,
+            Some(3),
+            "the carried gate permits the first hires four-plane request",
+        );
+    }
+
+    #[test]
+    fn ocs_hard_start_and_ddfstrt_18_coincident_event_starts() {
+        let mut agnus = configured_hires_ddf(0x0018);
+        tick_to_hpos(&mut agnus, 0x00D7);
+        assert!(!agnus.ocs_ddf_hard_start_open());
+        tick_to_hpos(&mut agnus, 0);
+
+        tick_to_hpos(&mut agnus, 0x0017);
+        assert_eq!(agnus.ddf_start_match(), None);
+        assert!(!agnus.ocs_ddf_hard_start_open());
+        agnus.tick_cck();
+
+        assert!(agnus.ocs_ddf_hard_start_open());
+        assert_eq!(agnus.ddf_start_match(), Some(0x0018));
+        assert_eq!(
+            agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            Some(3),
+            "the $18 hard-open event precedes the coincident start comparator",
+        );
+    }
+
+    #[test]
+    fn fresh_ocs_preserves_the_first_line_pre_18_start_policy() {
+        let mut agnus = configured_hires_ddf(0x0010);
+        assert!(
+            agnus.ocs_ddf_hard_start_open(),
+            "the deterministic constructor policy starts with the gate open",
+        );
+
+        tick_to_hpos(&mut agnus, 0x0010);
+
+        assert_eq!(agnus.ddf_start_match(), Some(0x0010));
+        assert_eq!(
+            agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            Some(3),
+            "the compatibility default permits a first-line pre-$18 start",
+        );
+    }
+
+    #[test]
     fn early_ocs_requires_dma_at_match_but_enhanced_agnus_retains_it() {
         let mut ocs = configured_hires_ddf(0x0038);
         ocs.dmacon = 0;
@@ -2843,6 +2980,7 @@ mod tests {
 
         let mut ecs = configured_hires_ddf(0x0038);
         ecs.agnus_id = 0x2000;
+        ecs.ocs_ddf_hard_start_open = false;
         ecs.dmacon = 0;
         ecs.hpos = 0x0037;
         ecs.tick_cck();

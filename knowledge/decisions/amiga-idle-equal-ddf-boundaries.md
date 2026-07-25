@@ -13,7 +13,7 @@ horizontal hard edges?
 The *Amiga Hardware Reference Manual* gives word-count formulas for ordinary
 start-before-stop windows. It does not define register equality or an
 OCS/ECS distinction. Applying the ordinary formula to this case would
-therefore be an inference, not documented behavior.
+therefore be an inference, not documented behaviour.
 
 The inspected WinUAE revision
 `c32694e338fa5f34977f522eb4898adb069d2e73` does not treat equality as a
@@ -28,8 +28,8 @@ The inspected vAmiga revision
 signals into one state transition. Its OCS and ECS branches both sample the
 old BPRUN state for the stop request, then start an idle sequencer. This
 produces the same clean-state result through a different abstraction. The
-source labels the relevant ECS path a likely fix rather than a documented
-hardware result.
+source labels the relevant ECS path a likely fix and does not present it as
+a documented hardware result.
 
 The inspected Minimig-AGA revision
 `3ab91cd9220d4d047886d215b515227cbe568bdd` agrees for OCS. Its ECS/AGA path
@@ -45,7 +45,7 @@ disagreement.
 
 ## The decision
 
-Preserve the WinUAE/vAmiga clean-state behavior.
+Preserve the WinUAE/vAmiga clean-state behaviour.
 
 For a stable, register-equal pair between the nominal hard edges:
 
@@ -69,12 +69,12 @@ its later output pipeline directly.
 
 Alice inherits the same idle transition through the ECS wrapper. The
 verification here uses 16-bit fetch mode and does not settle AGA wide-fetch
-terminal behavior.
+terminal behaviour.
 
-No new state is introduced, so runtime postcard schema version 8 remains
-current.
+No new state was introduced by this decision, so it did not advance runtime
+postcard schema version 8.
 
-## Deferred behavior
+## Deferred behaviour
 
 This decision does not define:
 
@@ -82,13 +82,13 @@ This decision does not define:
 - retained enhanced soft-enable state on subsequent lines;
 - equality at the `$18` or `$D8` hard edges;
 - equality while a register is rewritten near either comparator;
-- cross-line behavior while enhanced horizontal limits are disabled;
+- cross-line behaviour while enhanced horizontal limits are disabled;
 - AGA wide-fetch terminal state;
 - exact comparator-to-bus pipeline latency.
 
 Those cases require separate soft-enable, hard-window, run-origin and
-terminal state. They belong with the full multi-region sequencer rather
-than an equality-specific branch.
+terminal state. They belong with the full multi-region sequencer, not an
+equality-specific branch.
 
 ## Verification
 

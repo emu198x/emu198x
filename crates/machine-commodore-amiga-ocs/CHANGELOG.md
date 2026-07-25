@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve original Agnus's carried horizontal DDF hard-start gate
+  through machine arbitration and runtime snapshots
 - Enforce Fat Agnus 8372A's default `$D8` bitplane-DMA stop in
   OCS-shaped machines while retaining `HARDDIS` and the other enhanced
   horizontal-limit bypasses

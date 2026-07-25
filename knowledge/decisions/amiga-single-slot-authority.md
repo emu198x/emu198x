@@ -100,10 +100,14 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   machine loop dispatches a same-position Copper MOVE. Its evidence and
   selected terminal policy are recorded in
   [Original Agnus DDF hard-stop terminal policy](amiga-ocs-ddf-hard-stop.md).
-  Equal boundaries, stop-before-start, the original Agnus cross-line
-  hard-start latch, raw register-write latency, eligibility changes,
-  multiple enhanced-chipset regions, exact modulo timing and Alice's
-  explicit final state remain separate accuracy work.
+  Register-equal boundaries with a pre-existing run, stop-before-start,
+  phase-shifted original-Agnus terminal completion across horizontal wrap,
+  raw register-write latency, eligibility changes, multiple
+  enhanced-chipset regions, exact modulo timing and Alice's explicit final
+  state remain separate accuracy work. The implemented clean-idle equality
+  and in-line original-Agnus hard-start transitions are recorded in
+  [Idle register-equal DDF boundaries](amiga-idle-equal-ddf-boundaries.md)
+  and [Original Agnus cross-line DDF hard-start gate](amiga-ocs-ddf-hard-start-gate.md).
 - Sprite control/data request state is likewise part of the Agnus plan.
   `SPREN` exposes the scheduled opportunities but does not make an idle
   channel own them; unused cells remain available to the blitter or CPU.
