@@ -19,11 +19,11 @@ use crate::Model;
 use crate::runtime::AmigaRuntime;
 use crate::variants::AmigaMachine;
 
-// Version 12 lets an original-Agnus run-abort latch admit a genuinely later
-// DDFSTRT comparator. A version-11 snapshot taken after the old runtime missed
-// that comparator cannot distinguish the miss from a behind-beam register
-// write or a comparator crossed while display DMA was ineligible.
-const SNAPSHOT_VERSION: u32 = 12;
+// Version 13 serializes the original-Agnus vertical display-window latch.
+// A version-12 snapshot taken after a current-line VSTOP and later register
+// restoration cannot reconstruct the closed latch or the resulting terminated
+// DDF run from DIWSTRT, DIWSTOP and beam position alone.
+const SNAPSHOT_VERSION: u32 = 13;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
 /// snapshot (`M::Snapshot`) and the variant's reconstruction metadata
@@ -33,7 +33,7 @@ const SNAPSHOT_VERSION: u32 = 12;
 /// Versioned so future snapshot extensions can bump the major version
 /// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV12<M: AmigaMachine> {
+struct SnapshotEnvelopeV13<M: AmigaMachine> {
     version: u32,
     model: Model,
     metadata: M::SnapshotMetadata,
@@ -50,7 +50,7 @@ struct SnapshotEnvelopeV12<M: AmigaMachine> {
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
 pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u8>, MachineError> {
-    let envelope = SnapshotEnvelopeV12::<M> {
+    let envelope = SnapshotEnvelopeV13::<M> {
         version: SNAPSHOT_VERSION,
         model: runtime.model(),
         metadata: runtime.metadata().clone(),
@@ -91,7 +91,7 @@ pub(crate) fn decode<M: AmigaMachine>(
         });
     }
 
-    let envelope: SnapshotEnvelopeV12<M> =
+    let envelope: SnapshotEnvelopeV13<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;

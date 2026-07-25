@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add an end-to-end pointer regression for vertical VSTOP termination,
+  non-resuming VSTART reopen and later DDFSTRT re-arm
 - Add an end-to-end pointer regression for a rewritten future DDFSTRT
   establishing a fresh original-Agnus fetch phase after DMA abort
 - Add an end-to-end pointer regression for original-Agnus bitplane
@@ -18,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve original-Agnus vertical display-window history through machine
+  arbitration instead of treating start-after-stop values as a live
+  wrapping range
 - Advance bitplane pointers from the new fetch phase when a later
   DDFSTRT comparator re-arms an aborted original-Agnus run
 - Prevent bitplane pointers advancing from an original-Agnus DDF run
@@ -38,7 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve each line's DDFSTRT comparator match through OCS and mixed
   Fat Agnus arbitration and rendering
 - Pass the installed Agnus revision's vertical display-window state to
-  Denise output, including OCS wrapping and Fat Agnus extended windows
+  Denise output, including comparator-driven OCS and Fat Agnus extended
+  windows
 - Route base display-window writes through the installed Agnus
   revision so Fat Agnus updates its extended vertical-DIW latch
 - Select Fat Agnus 8372A explicitly for matching OCS-shaped profiles,

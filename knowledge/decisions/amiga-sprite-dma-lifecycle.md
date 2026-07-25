@@ -180,11 +180,12 @@ not asserted as manufacturer-documented power-on behaviour.
   event generator itself has historical state that cannot be recovered
   from registers and beam position. ECS and AGA snapshots preserve the
   vertical-accessed flag, blank-active latch and line-held edge events.
-- The Amiga runtime postcard schema is version 12. Version-11 snapshots
-  are rejected because the old runtime could miss a rewritten future
-  DDFSTRT comparator after an original-Agnus run abort. Version 11 introduced
-  the serialized abort latch; version 10 fixed the semantic short-line `$E3`
-  transition; version 9 introduced the serialized
+- The Amiga runtime postcard schema is version 13. Version-12 snapshots
+  are rejected because they do not contain the original-Agnus vertical
+  display-window latch. Version 12 made a rewritten future DDFSTRT
+  comparator re-arm an aborted original-Agnus run; version 11 introduced
+  the serialized abort latch; version 10 fixed the semantic short-line
+  `$E3` transition; version 9 introduced the serialized
   horizontal hard-start gate; version 8 introduced the enhanced-chipset
   `$D8` terminal endpoint; version 7 made the same compatibility break for
   the original-Agnus `$D8` event; version 6 introduced the current-line
@@ -242,4 +243,5 @@ Reject these patterns:
 ## Related documents
 
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
+- [Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md)
 - [Amiga full-family architecture review](amiga-full-family-architecture-review.md)

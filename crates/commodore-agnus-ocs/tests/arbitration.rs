@@ -53,9 +53,22 @@ fn at_hpos(agnus: &mut Agnus, hpos: u16) {
 
 fn observe_ddf_start(agnus: &mut Agnus) {
     if agnus.agnus_id < 0x2000 && !agnus.vertical_diw_active() {
-        agnus.vpos = 0x0030;
-        agnus.diwstrt = 0x2C81;
-        agnus.diwstop = 0x2CC1;
+        let (diwstrt, diwstop) = if agnus.diwstrt == 0 && agnus.diwstop == 0 {
+            agnus.vpos = 0x0030;
+            (0x2C81, 0x2CC1)
+        } else {
+            (agnus.diwstrt, agnus.diwstop)
+        };
+        assert!(agnus.vpos <= 0x00FF);
+        agnus.write_diwstop(diwstop);
+        // Establish the hidden vertical latch through a real current-line
+        // VSTART event, then restore the caller's register value while
+        // preserving its sprite-comparator setup.
+        agnus.write_diwstrt((agnus.vpos << 8) | (diwstrt & 0x00FF));
+        agnus.write_diwstrt(diwstrt);
+        for _ in 0..8 {
+            agnus.tick_cck();
+        }
     }
     let mask = if agnus.agnus_id >= 0x2000 {
         0x00FE

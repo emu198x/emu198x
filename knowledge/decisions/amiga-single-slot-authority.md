@@ -68,9 +68,13 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   `Copper::tick_cck`; the copper no longer computes its own parity.
 - `service_cpu_bus` consumes the plan's explicit CPU grant, including
   blitter-nasty ownership, while preserving the parked-Copper fallthrough.
-- OCS bitplane vertical eligibility is part of the Agnus plan rather than a
-  Denise-side fetch gate. This prevents inactive display DMA from ghost-owning
-  the bus outside the display window.
+- OCS bitplane vertical eligibility is part of the Agnus plan, not a
+  Denise-side fetch gate. Original Agnus preserves it as a serialized
+  VSTART/VSTOP latch; it is not reconstructed as a circular range from live
+  registers and beam position. This prevents inactive display DMA from
+  ghost-owning the bus outside the display window. The comparator, rewrite
+  and run-termination rules are defined in
+  [Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md).
 - DDFSTRT is an edge, not a continuously reconstructed range boundary. On
   each line Agnus records the masked comparator that opens the current run
   and uses it as the frozen fetch-phase origin for both arbitration and
@@ -101,19 +105,23 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   machine loop dispatches a same-position Copper MOVE. Its evidence and
   selected terminal policy are recorded in
   [Original Agnus DDF hard-stop terminal policy](amiga-ocs-ddf-hard-stop.md).
-  If effective original-Agnus bitplane DMA falls before a terminal request,
-  a serialized abort latch removes the old run from future slot ownership
-  and stop scheduling without erasing its display-phase origin. Re-enabling
-  DMA cannot resume that run. A rewritten future DDFSTRT may replace the old
-  origin only when its comparator is reached with the normal OCS admission
-  gates active; current, behind-beam and ineligible comparators remain
-  missed. This transition is defined in
-  [Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md).
+  If effective original-Agnus bitplane eligibility falls before a terminal
+  request, a serialized abort latch removes the old run from future slot
+  ownership and stop scheduling without erasing its display-phase origin.
+  Re-enabling DMA or reopening the vertical latch cannot resume that run. A
+  rewritten future DDFSTRT may replace the old origin only when its comparator
+  is reached with the normal OCS admission gates active; current, behind-beam
+  and ineligible comparators remain missed. The two terminating gates are
+  defined in
+  [Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md)
+  and
+  [Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md).
   Register-equal boundaries with a pre-existing run, stop-before-start,
-  raw register-write latency, vertical eligibility changes, DMA disable
-  after a pending terminal request, multiple enhanced-chipset regions, exact
-  cross-wrap terminal bus and pointer timing, exact modulo timing and Alice's
-  explicit final state remain separate accuracy work. The implemented
+  raw register-write latency, DMA disable or vertical close after a pending
+  terminal request, revision-specific OCS hard vertical blanking, multiple
+  enhanced-chipset regions, exact cross-wrap terminal bus and pointer timing,
+  exact modulo timing and Alice's explicit final state remain separate
+  accuracy work. The implemented
   clean-idle equality and original-Agnus hard-start admission transitions,
   including the compressed short-line wrap result, are recorded in
   [Idle register-equal DDF boundaries](amiga-idle-equal-ddf-boundaries.md)
@@ -173,7 +181,8 @@ If I catch myself proposing any of these, stop and re-read the "Why".
   whether that sprite requests control or data DMA on the current line.
 - Recomputing `cck_bus_plan()` after a state-mutating DMA service and using
   the new result to retroactively grant the same CCK to the CPU.
-- Reconstructing ECS/AGA vertical bitplane eligibility as a range comparison
+- Reconstructing any installed Agnus's vertical bitplane eligibility as a
+  range comparison
   over VSTART, VSTOP and the current beam position instead of preserving the
   comparator-driven latch.
 - Re-decoding a separate OCS vertical range in the render path instead of using
@@ -191,3 +200,11 @@ If I catch myself proposing any of these, stop and re-read the "Why".
   value."
 - "current_slot already says Copper, so stall the CPU."
 - "SPREN reserves every sprite slot whether or not the channel fetches."
+
+## Related documents
+
+- [Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md)
+- [Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md)
+- [Original Agnus DDF hard-stop terminal policy](amiga-ocs-ddf-hard-stop.md)
+- [Original Agnus cross-line DDF hard-start gate](amiga-ocs-ddf-hard-start-gate.md)
+- [Amiga sprite DMA lifecycle](amiga-sprite-dma-lifecycle.md)

@@ -490,10 +490,11 @@ pub struct Agnus {
     /// termination. `None` means no terminal endpoint has been latched
     /// for an active fetch region this line.
     ddf_fetch_end: Option<u16>,
-    /// Original-Agnus current-line run-abort latch. Clearing effective
-    /// bitplane DMA before a terminal request ends the active sequencer
-    /// without erasing the observed DDFSTRT phase used by Denise. A later
-    /// same-line DMA enable therefore cannot resume that stale run.
+    /// Original-Agnus current-line run-abort latch. Losing effective
+    /// bitplane eligibility through DMA disable or a vertical display-window
+    /// stop before a terminal request ends the active sequencer without
+    /// erasing the observed DDFSTRT phase used by Denise. Restoring the
+    /// eligibility gate alone therefore cannot resume that stale run.
     ///
     /// Enhanced-chipset wrappers serialize this shared field but do not
     /// consume it; their soft-enable and multi-region behavior needs a
@@ -553,6 +554,15 @@ pub struct Agnus {
     // Display window
     pub diwstrt: u16,
     pub diwstop: u16,
+    /// Hidden original-Agnus vertical display-window flip-flop. Decoded
+    /// VSTART/VSTOP comparator events change this state; live register
+    /// geometry does not reconstruct it. The revision-specific hard
+    /// vertical-blank close remains separate until chip identity can
+    /// distinguish A1000 from later original Agnus revisions.
+    ///
+    /// Enhanced-chipset wrappers serialize this shared field but use their
+    /// own DIWHIGH-aware vertical latch.
+    ocs_vertical_diw_active: bool,
     pub bpl1mod: i16,
     pub bpl2mod: i16,
 
@@ -678,6 +688,7 @@ impl Agnus {
             blt_alwm: 0xFFFF,
             diwstrt: 0,
             diwstop: 0,
+            ocs_vertical_diw_active: false,
             bpl1mod: 0,
             bpl2mod: 0,
             spr_pt: [0; 8],
@@ -1590,13 +1601,27 @@ impl Agnus {
             } else {
                 short_field_lines
             };
-            if self.vpos >= frame_lines {
+            let field_wrapped = self.vpos >= frame_lines;
+            if field_wrapped {
                 self.vpos = 0;
                 self.vbl_count += 1;
                 if interlace {
                     self.lof = !self.lof;
                 }
             }
+            if field_wrapped && self.agnus_id < 0x2000 {
+                // A1000 and later original Agnus revisions force the
+                // vertical latch closed at different physical boundaries.
+                // Project only their common post-wrap result here, before a
+                // possible line-zero VSTART comparator; do not assign the
+                // close to one revision's bus-visible line.
+                self.ocs_vertical_diw_active = false;
+            }
+            // Original Agnus carries a hidden vertical display-window
+            // flip-flop. Evaluate the new line before its first horizontal
+            // DDF comparator so VSTART admits, and VSTOP rejects, a
+            // same-line fetch start.
+            self.evaluate_ocs_vertical_diw_comparators(self.vpos);
             // New display line: run the per-line sprite-DMA update
             // (VSTART activation, VSTOP deactivation, top-of-frame
             // control-refetch priming). gap #162.
@@ -1869,17 +1894,55 @@ impl Agnus {
         self.spr_dma_on[channel]
     }
 
-    /// Whether the OCS vertical display window is active at the current beam
-    /// line. The same state gates bitplane DMA and board-level Denise output.
-    #[must_use]
-    pub fn vertical_diw_active(&self) -> bool {
+    fn ocs_vertical_diw_bounds(&self) -> (u16, u16) {
         let vstart = (self.diwstrt >> 8) & 0x00FF;
         let stop_low = (self.diwstop >> 8) & 0x00FF;
-        let vstop = if stop_low & 0x0080 != 0 {
-            stop_low
-        } else {
-            stop_low | 0x0100
-        };
+        let stop_v8 = ((!((stop_low >> 7) & 0x1)) & 0x1) << 8;
+        (vstart, stop_v8 | stop_low)
+    }
+
+    fn evaluate_ocs_vertical_diw_comparators(&mut self, vpos: u16) {
+        if self.agnus_id >= 0x2000 {
+            return;
+        }
+
+        let (vstart, vstop) = self.ocs_vertical_diw_bounds();
+        let start = vpos == vstart;
+        let stop = vpos == vstop;
+        let was_active = self.ocs_vertical_diw_active;
+
+        // Stop has precedence. Equal decoded comparators therefore leave the
+        // window closed.
+        if start && !stop {
+            self.ocs_vertical_diw_active = true;
+        } else if stop {
+            self.ocs_vertical_diw_active = false;
+        }
+
+        if was_active
+            && !self.ocs_vertical_diw_active
+            && self.ddf_start_match.is_some()
+            && self.ddf_fetch_end.is_none()
+        {
+            self.ocs_ddf_run_aborted = true;
+        }
+    }
+
+    fn evaluate_ocs_vertical_diw_write(&mut self) {
+        self.evaluate_ocs_vertical_diw_comparators(self.vpos);
+    }
+
+    /// Whether the vertical display window is active at the current beam
+    /// line. Original Agnus returns its hidden comparator-driven latch. Raw
+    /// enhanced-chipset test instances retain the legacy geometric fallback;
+    /// production ECS/AGA wrappers supply their own DIWHIGH-aware latch.
+    #[must_use]
+    pub fn vertical_diw_active(&self) -> bool {
+        if self.agnus_id < 0x2000 {
+            return self.ocs_vertical_diw_active;
+        }
+
+        let (vstart, vstop) = self.ocs_vertical_diw_bounds();
         if vstart == vstop {
             return false;
         }
@@ -2019,10 +2082,11 @@ impl Agnus {
         self.ocs_ddf_hard_start_open
     }
 
-    /// Whether effective bitplane DMA terminated the current original-Agnus
-    /// fetch run before a terminal unit was requested. The observed DDFSTRT
-    /// phase remains available for the display pipeline, but cannot own new
-    /// bus slots. Enhanced variants do not consume this shared field.
+    /// Whether loss of effective bitplane eligibility terminated the current
+    /// original-Agnus fetch run before a terminal unit was requested. The
+    /// observed DDFSTRT phase remains available for the display pipeline, but
+    /// cannot own new bus slots. Enhanced variants do not consume this shared
+    /// field.
     #[must_use]
     pub const fn ocs_ddf_run_aborted(&self) -> bool {
         self.ocs_ddf_run_aborted
@@ -2272,9 +2336,11 @@ impl Agnus {
     }
     pub fn write_diwstrt(&mut self, val: u16) {
         self.diwstrt = val;
+        self.evaluate_ocs_vertical_diw_write();
     }
     pub fn write_diwstop(&mut self, val: u16) {
         self.diwstop = val;
+        self.evaluate_ocs_vertical_diw_write();
     }
     pub fn write_bpl1mod(&mut self, val: u16) {
         self.bpl1mod = val as i16;
@@ -2577,6 +2643,7 @@ mod tests {
             agnus.vpos = 0x0030;
             agnus.diwstrt = 0x2C81;
             agnus.diwstop = 0x2CC1;
+            agnus.ocs_vertical_diw_active = true;
             // This helper jumps directly to the comparator. Establish the
             // post-$18 precondition explicitly instead of making unrelated
             // cadence tests traverse the horizontal latch lifecycle.
@@ -2734,6 +2801,7 @@ mod tests {
         agnus.vpos = 0x0030;
         agnus.diwstrt = 0x2C81;
         agnus.diwstop = 0x2CC1;
+        agnus.ocs_vertical_diw_active = true;
         agnus.hpos = 0x00D7;
 
         agnus.tick_cck();
@@ -2847,6 +2915,7 @@ mod tests {
         agnus.write_ddfstop(0x00D0);
         agnus.diwstrt = 0x2C81;
         agnus.diwstop = 0x2CC1;
+        agnus.ocs_vertical_diw_active = true;
         agnus
     }
 
@@ -2854,6 +2923,146 @@ mod tests {
         while agnus.hpos != target {
             agnus.tick_cck();
         }
+    }
+
+    fn enter_ocs_vertical_line(agnus: &mut Agnus, target: u16) {
+        let interlace = (agnus.bplcon0 & 0x0004) != 0;
+        let frame_lines = agnus.lines_per_frame + u16::from(interlace && agnus.lof);
+        assert!(target < frame_lines);
+        agnus.vpos = if target == 0 {
+            frame_lines - 1
+        } else {
+            target - 1
+        };
+        agnus.hpos = agnus.current_line_ccks() - 1;
+        agnus.tick_cck();
+        assert_eq!(agnus.vpos, target);
+        assert_eq!(agnus.hpos, 0);
+    }
+
+    fn settle_ocs_diw_write(agnus: &mut Agnus) {
+        for _ in 0..8 {
+            agnus.tick_cck();
+        }
+    }
+
+    #[test]
+    fn ocs_vertical_diw_latch_starts_inactive_and_follows_line_events() {
+        let mut agnus = Agnus::new();
+        agnus.diwstrt = 0x2C81;
+        agnus.diwstop = 0xF0C1;
+        assert!(!agnus.vertical_diw_active());
+
+        enter_ocs_vertical_line(&mut agnus, 0x002C);
+        assert!(agnus.vertical_diw_active());
+
+        enter_ocs_vertical_line(&mut agnus, 0x00EF);
+        assert!(
+            agnus.vertical_diw_active(),
+            "ordinary lines must preserve the comparator history",
+        );
+
+        enter_ocs_vertical_line(&mut agnus, 0x00F0);
+        assert!(!agnus.vertical_diw_active());
+    }
+
+    #[test]
+    fn ocs_equal_vertical_boundaries_leave_the_latch_closed() {
+        let mut agnus = Agnus::new();
+        agnus.diwstrt = 0xE081;
+        agnus.diwstop = 0xE0C1;
+        agnus.ocs_vertical_diw_active = true;
+
+        enter_ocs_vertical_line(&mut agnus, 0x00E0);
+
+        assert!(
+            !agnus.vertical_diw_active(),
+            "VSTOP must take precedence over a coincident VSTART",
+        );
+    }
+
+    #[test]
+    fn ocs_implicit_vstop_high_bit_closes_at_12c_not_2c() {
+        let mut agnus = Agnus::new();
+        agnus.diwstrt = 0x2C81;
+        agnus.diwstop = 0x2CC1;
+
+        enter_ocs_vertical_line(&mut agnus, 0x002C);
+        assert!(
+            agnus.vertical_diw_active(),
+            "VSTOP must decode to $12C when its stored V7 is clear",
+        );
+        enter_ocs_vertical_line(&mut agnus, 0x012C);
+        assert!(!agnus.vertical_diw_active());
+    }
+
+    #[test]
+    fn ocs_start_after_stop_is_event_history_not_a_wrapping_range() {
+        let mut agnus = Agnus::new();
+        agnus.diwstrt = 0xF081;
+        agnus.diwstop = 0xE0C1;
+
+        enter_ocs_vertical_line(&mut agnus, 0x0030);
+        assert!(
+            !agnus.vertical_diw_active(),
+            "an early-frame position cannot reconstruct a circular range",
+        );
+        enter_ocs_vertical_line(&mut agnus, 0x00E0);
+        assert!(!agnus.vertical_diw_active());
+        enter_ocs_vertical_line(&mut agnus, 0x00F0);
+        assert!(agnus.vertical_diw_active());
+
+        enter_ocs_vertical_line(&mut agnus, 0);
+        assert!(
+            !agnus.vertical_diw_active(),
+            "the late VSTART cannot survive into the next field",
+        );
+    }
+
+    #[test]
+    fn ocs_current_line_diw_writes_only_apply_matching_events() {
+        let mut agnus = Agnus::new();
+        agnus.vpos = 0x00B0;
+        agnus.write_diwstrt(0x2C81);
+        agnus.write_diwstop(0xF0C1);
+        settle_ocs_diw_write(&mut agnus);
+        assert!(!agnus.vertical_diw_active());
+
+        agnus.write_diwstrt(0xB081);
+        settle_ocs_diw_write(&mut agnus);
+        assert!(agnus.vertical_diw_active());
+        agnus.write_diwstrt(0x2C81);
+        agnus.write_diwstop(0xE0C1);
+        settle_ocs_diw_write(&mut agnus);
+        assert!(
+            agnus.vertical_diw_active(),
+            "moving non-matching comparators must preserve an open latch",
+        );
+
+        agnus.write_diwstop(0xB0C1);
+        settle_ocs_diw_write(&mut agnus);
+        assert!(!agnus.vertical_diw_active());
+        agnus.write_diwstop(0xF0C1);
+        settle_ocs_diw_write(&mut agnus);
+        assert!(
+            !agnus.vertical_diw_active(),
+            "moving a stop comparator cannot reconstruct a closed latch",
+        );
+
+        agnus.write_diwstrt(0xB081);
+        agnus.write_diwstop(0xB0C1);
+        settle_ocs_diw_write(&mut agnus);
+        assert!(
+            !agnus.vertical_diw_active(),
+            "a rewritten equal pair must resolve to the stop event",
+        );
+
+        agnus.write_diwstop(0xF0C1);
+        settle_ocs_diw_write(&mut agnus);
+        assert!(
+            agnus.vertical_diw_active(),
+            "moving VSTOP away must expose the unchanged current-line VSTART",
+        );
     }
 
     #[test]
@@ -3036,6 +3245,7 @@ mod tests {
         agnus.write_ddfstop(0x00E0);
         agnus.diwstrt = 0x2C81;
         agnus.diwstop = 0x2CC1;
+        agnus.ocs_vertical_diw_active = true;
         assert_eq!(agnus.current_line_ccks(), 0x00E4);
 
         tick_to_hpos(&mut agnus, 0x00D8);
@@ -3294,20 +3504,106 @@ mod tests {
     fn early_ocs_requires_the_vertical_window_at_ddf_start_match() {
         let mut agnus = configured_hires_ddf(0x0038);
         agnus.vpos = 0x0010;
+        agnus.ocs_vertical_diw_active = false;
         assert!(!agnus.vertical_diw_active());
 
         agnus.hpos = 0x0037;
         agnus.tick_cck();
         assert_eq!(agnus.ddf_start_match(), None);
 
-        agnus.vpos = 0x0030;
+        agnus.write_diwstrt(0x1081);
+        settle_ocs_diw_write(&mut agnus);
         assert!(agnus.vertical_diw_active());
-        agnus.hpos = 0x003F;
         assert_eq!(
             agnus.cck_bus_plan().bitplane_dma_fetch_plane,
             None,
             "entering the display window cannot replay a missed comparator",
         );
+    }
+
+    #[test]
+    fn ocs_vertical_stop_event_aborts_without_geometric_resume() {
+        let mut agnus = configured_hires_ddf(0x0038);
+        agnus.vpos = 0x00B0;
+        tick_to_hpos(&mut agnus, 0x0040);
+        assert_eq!(agnus.ddf_start_match(), Some(0x0038));
+        assert!(agnus.vertical_diw_active());
+
+        agnus.write_diwstop(0xB0C1);
+        for _ in 0..8 {
+            agnus.tick_cck();
+        }
+        assert!(!agnus.vertical_diw_active());
+        assert!(
+            agnus.ocs_ddf_run_aborted(),
+            "a vertical stop event must terminate the unstopped OCS run",
+        );
+        assert_eq!(agnus.ddf_start_match(), Some(0x0038));
+
+        agnus.write_diwstop(0xF0C1);
+        for _ in 0..8 {
+            agnus.tick_cck();
+        }
+        assert!(
+            !agnus.vertical_diw_active(),
+            "restoring register geometry without a VSTART event cannot reopen the latch",
+        );
+        assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
+
+        agnus.write_diwstrt(0xB081);
+        for _ in 0..8 {
+            agnus.tick_cck();
+        }
+        assert!(agnus.vertical_diw_active());
+        assert!(agnus.ocs_ddf_run_aborted());
+        assert_eq!(agnus.ddf_start_match(), Some(0x0038));
+        assert_eq!(
+            agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            None,
+            "vertical re-opening alone cannot resume the old DDF origin",
+        );
+
+        agnus.write_ddfstrt(0x0080);
+        tick_to_hpos(&mut agnus, 0x0080);
+        assert_eq!(agnus.ddf_start_match(), Some(0x0080));
+        assert!(!agnus.ocs_ddf_run_aborted());
+
+        tick_to_hpos(&mut agnus, 0x00D0);
+        assert_eq!(agnus.ddf_stop_match(), Some(0x00D0));
+        assert_eq!(agnus.ddf_fetch_end(), Some(0x00D7));
+    }
+
+    #[test]
+    fn ocs_aborted_run_does_not_replay_ddfstart_crossed_while_vertically_closed() {
+        let mut agnus = configured_hires_ddf(0x0038);
+        agnus.vpos = 0x00B0;
+        tick_to_hpos(&mut agnus, 0x0040);
+
+        agnus.write_diwstop(0xB0C1);
+        settle_ocs_diw_write(&mut agnus);
+        assert!(!agnus.vertical_diw_active());
+        assert!(agnus.ocs_ddf_run_aborted());
+        assert_eq!(agnus.ddf_start_match(), Some(0x0038));
+
+        agnus.write_ddfstrt(0x0060);
+        tick_to_hpos(&mut agnus, 0x0068);
+        assert!(
+            agnus.ocs_ddf_run_aborted(),
+            "an ineligible future comparator must not replace the old origin",
+        );
+        assert_eq!(agnus.ddf_start_match(), Some(0x0038));
+
+        agnus.write_diwstop(0xF0C1);
+        agnus.write_diwstrt(0xB081);
+        settle_ocs_diw_write(&mut agnus);
+        assert!(agnus.vertical_diw_active());
+        assert!(agnus.ocs_ddf_run_aborted());
+        assert_eq!(
+            agnus.ddf_start_match(),
+            Some(0x0038),
+            "vertical reopen cannot replay the comparator crossed while closed",
+        );
+        assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
     }
 
     #[test]
@@ -3484,6 +3780,7 @@ mod tests {
         assert!(outside.cpu_chip_bus_granted);
 
         agnus.vpos = 0x30;
+        agnus.write_diwstrt(0x3010);
         agnus.hpos = 0x1B;
         agnus.tick_cck();
         agnus.hpos = 0x23;
@@ -3506,6 +3803,7 @@ mod tests {
         assert_eq!(outside.bitplane_dma_fetch_plane, None);
 
         agnus.vpos = 0x30;
+        agnus.write_diwstrt(0x3010);
         agnus.hpos = 0x1B;
         agnus.tick_cck();
         agnus.hpos = 0x23;

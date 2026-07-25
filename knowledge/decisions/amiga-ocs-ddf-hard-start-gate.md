@@ -124,6 +124,10 @@ Schema version 12 later changes the meaning of that abort state when a
 rewritten future DDFSTRT comparator is reached, without changing the raw
 postcard layout. Durable save states must use the runtime envelope.
 
+Schema version 13 later changes the nested raw layout by adding the
+original-Agnus vertical display-window latch, as recorded in
+[Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md).
+
 ## Deferred behaviour
 
 This decision defines only the start-admission result of the phase-shifted
@@ -137,8 +141,7 @@ The following also remain deferred:
 
 - the hardware power-on level of the hard-start gate;
 - exact comparator and output-pipeline sub-CCK latency;
-- DMA disable after a terminal request and vertical-window changes during
-  an active run;
+- DMA disable or vertical close after a terminal request;
 - stop-before-start and already-running equality cases;
 - multiple DDF regions;
 - the enhanced-chipset `$18` hard-window state.
@@ -168,6 +171,7 @@ Hermetic tests cover:
 
 - [Original Agnus DDF hard-stop terminal policy](amiga-ocs-ddf-hard-stop.md)
 - [Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md)
+- [Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md)
 - [Idle register-equal DDF boundaries](amiga-idle-equal-ddf-boundaries.md)
 - [Enhanced Agnus horizontal DDF hard limits](amiga-enhanced-ddf-hard-limits.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)

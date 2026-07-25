@@ -111,6 +111,12 @@ not change that layout, but a raw OCS postcard can silently retain the stale
 version-11 meaning; raw ECS and AGA semantics are unaffected. Raw postcards
 have no migration path. Durable save states must use the runtime envelope.
 
+Schema version 13 later changes the nested raw layout again by serializing
+the original-Agnus vertical display-window latch. That latch can set the
+same run-abort state when a vertical stop terminates an unstopped run, as
+defined in
+[Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md).
+
 ## Deferred behaviour
 
 This decision does not define:
@@ -119,7 +125,6 @@ This decision does not define:
   a terminal unit;
 - exact DMACON write latency or the final in-flight bitplane slot;
 - already-fetched Denise shifter output after the sequencer stops;
-- a vertical display-window transition during an active run;
 - multiple DDF regions;
 - enhanced-chipset DMA-enable transitions; or
 - exact modulo timing.
@@ -152,6 +157,7 @@ Hermetic tests cover:
 
 - [Original Agnus cross-line DDF hard-start gate](amiga-ocs-ddf-hard-start-gate.md)
 - [Original Agnus DDF hard-stop terminal policy](amiga-ocs-ddf-hard-stop.md)
+- [Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md)
 - [Idle register-equal DDF boundaries](amiga-idle-equal-ddf-boundaries.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Save State Format](save-state-format.md)

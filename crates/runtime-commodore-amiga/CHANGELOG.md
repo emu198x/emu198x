@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 13 so the hidden
+  original-Agnus vertical display-window latch and resulting DDF abort
+  history survive restore; version 12 is rejected
 - Bump Amiga postcard snapshots to version 12 because version 11 can
   preserve an original-Agnus abort after the old runtime missed a
   rewritten future DDFSTRT comparator; version 11 is rejected

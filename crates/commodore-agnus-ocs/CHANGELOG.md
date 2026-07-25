@@ -11,11 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add regression coverage for the non-empty idle register-equal
   DDFSTRT/DDFSTOP transition
-- Expose the current OCS vertical display-window predicate so machine
-  integrations can use the same state for DMA and rendered output
+- Serialize the original-Agnus vertical display-window latch so machine
+  integrations and save states preserve comparator history
 
 ### Fixed
 
+- Drive original-Agnus vertical bitplane eligibility from VSTART/VSTOP
+  events instead of reconstructing a circular range, and terminate an
+  unstopped DDF run when VSTOP closes the latch; project the common closed
+  state across field wrap without assigning a revision-specific close line
 - Let a genuinely later DDFSTRT comparator establish a fresh
   original-Agnus run after DMA terminated the old run, without
   treating DMA re-enable itself as a resume

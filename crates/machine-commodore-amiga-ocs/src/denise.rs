@@ -21,6 +21,17 @@ mod tests {
     const DMACON_BPL: u16 = 0x0300;
 
     fn observe_ddf_start(agnus: &mut commodore_agnus_ocs::Agnus) {
+        if agnus.agnus_id < 0x2000 && !agnus.vertical_diw_active() {
+            let diwstrt = agnus.diwstrt;
+            let diwstop = agnus.diwstop;
+            assert!(agnus.vpos <= 0x00FF);
+            agnus.write_diwstop(diwstop);
+            agnus.write_diwstrt((agnus.vpos << 8) | (diwstrt & 0x00FF));
+            agnus.write_diwstrt(diwstrt);
+            for _ in 0..8 {
+                agnus.tick_cck();
+            }
+        }
         let mask = if agnus.agnus_id >= 0x2000 {
             0x00FE
         } else {
@@ -130,31 +141,27 @@ mod tests {
     }
 
     #[test]
-    fn wrapped_ocs_vertical_window_drives_denise_output() {
-        let mut denise = Denise::new();
+    fn start_after_stop_does_not_reconstruct_an_early_vertical_window() {
         let mut agnus = commodore_agnus_ocs::Agnus::new();
-        let memory = Memory::new(vec![0; 256 * 1024]);
 
         agnus.vpos = 0x0030;
-        agnus.hpos = 0x0040;
         agnus.dmacon = DMACON_BPL;
         agnus.bplcon0 = 0x1000;
         agnus.ddfstrt = 0x0038;
         agnus.ddfstop = 0x00D0;
         agnus.diwstrt = 0xF081;
         agnus.diwstop = 0xE0C1;
-        let vertical_diw_active = agnus.vertical_diw_active();
-        assert!(vertical_diw_active);
-        observe_ddf_start(&mut agnus);
-        agnus.hpos = 0x0040;
+        assert!(
+            !agnus.vertical_diw_active(),
+            "position alone cannot manufacture an open comparator latch",
+        );
 
-        denise.write_word(0x0180, 0x0000);
-        denise.write_word(0x0182, 0x0FFF);
-        denise.write_word(0x0110, 0x8000);
-        denise.tick(1, None, vertical_diw_active, &mut agnus, &memory);
-
-        let y = usize::from(0x0030u16 - 0x0019) * 2;
-        let x = (usize::from(0x0040u16 - 0x002C) * 2 + 1) * 2;
-        assert_eq!(denise.framebuffer()[y * FB_WIDTH as usize + x], 0xFFFF_FFFF);
+        agnus.hpos = 0x0037;
+        agnus.tick_cck();
+        assert_eq!(
+            agnus.ddf_start_match(),
+            None,
+            "the early line cannot admit bitplane DMA before the later VSTART event",
+        );
     }
 }

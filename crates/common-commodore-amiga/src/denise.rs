@@ -384,6 +384,17 @@ mod tests {
     use super::*;
 
     fn observe_ddf_start(agnus: &mut commodore_agnus_ocs::Agnus) {
+        if agnus.agnus_id < 0x2000 && !agnus.vertical_diw_active() {
+            let diwstrt = agnus.diwstrt;
+            let diwstop = agnus.diwstop;
+            assert!(agnus.vpos <= 0x00FF);
+            agnus.write_diwstop(diwstop);
+            agnus.write_diwstrt((agnus.vpos << 8) | (diwstrt & 0x00FF));
+            agnus.write_diwstrt(diwstrt);
+            for _ in 0..8 {
+                agnus.tick_cck();
+            }
+        }
         let mask = if agnus.agnus_id >= 0x2000 {
             0x00FE
         } else {
