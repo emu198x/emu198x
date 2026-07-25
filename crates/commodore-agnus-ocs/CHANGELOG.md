@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add regression coverage for the non-empty idle register-equal
+  DDFSTRT/DDFSTOP transition
 - Expose the current OCS vertical display-window predicate so machine
   integrations can use the same state for DMA and rendered output
 

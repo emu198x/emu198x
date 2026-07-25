@@ -90,7 +90,8 @@ fixed boundary.
 This decision does not define:
 
 - the original Agnus cross-line hard-start latch before `$18`;
-- equal DDF boundaries and stop-before-start sequences;
+- register-equal DDF boundaries with a pre-existing run, and
+  stop-before-start sequences;
 - the enhanced-chipset left-hand hard start and complete multi-region
   sequencer;
 - variable-beam interactions;
@@ -120,5 +121,6 @@ Hermetic tests cover:
 
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Enhanced Agnus horizontal DDF hard limits](amiga-enhanced-ddf-hard-limits.md)
+- [Idle register-equal DDF boundaries](amiga-idle-equal-ddf-boundaries.md)
 - [Amiga sprite DMA lifecycle](amiga-sprite-dma-lifecycle.md)
 - [Save State Format](save-state-format.md)

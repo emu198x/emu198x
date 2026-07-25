@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add machine-level pointer-advance regressions for clean-idle
+  register-equal DDF windows on original and Fat Agnus
+
 ### Fixed
 
 - Enforce Fat Agnus 8372A's default `$D8` bitplane-DMA stop in

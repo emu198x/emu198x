@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add regression coverage for the non-empty idle register-equal
+  DDFSTRT/DDFSTOP transition
+
 ### Fixed
 
 - Apply the enhanced-chipset `$D8` bitplane-DMA stop by default, while

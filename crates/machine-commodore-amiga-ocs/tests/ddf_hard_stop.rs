@@ -65,6 +65,12 @@ fn configure_hires_overrun(amiga: &mut AmigaOcs) {
     amiga.poke_word(DMACON, 0x8300); // SETCLR | DMAEN | BPLEN
 }
 
+fn configure_hires_clean_idle_candidate(amiga: &mut AmigaOcs) {
+    configure_hires_overrun(amiga);
+    amiga.poke_word(DDFSTRT, 0x0038);
+    amiga.poke_word(DDFSTOP, 0x00D0);
+}
+
 fn configure_lores_overrun(amiga: &mut AmigaOcs) {
     amiga.poke_word(DIWSTRT, 0x3081);
     amiga.poke_word(DIWSTOP, 0xF0C1);
@@ -228,6 +234,45 @@ fn fat_agnus_defaults_to_the_fixed_right_limit_and_varvben_does_not_bypass_it() 
                 "BPL{} {case} byte count",
                 plane + 1,
             );
+        }
+    }
+}
+
+#[test]
+fn equal_ddf_boundaries_are_not_an_empty_machine_fetch_window() {
+    for (case, mut amiga, beamcon0, expected_bytes) in [
+        ("early OCS", early_ocs_machine(), None, [84, 84, 84, 84]),
+        (
+            "Fat Agnus default",
+            fat_agnus_machine(),
+            Some(0x0020),
+            [84, 84, 84, 84],
+        ),
+        (
+            "Fat Agnus HARDDIS",
+            fat_agnus_machine(),
+            Some(0x4020),
+            [84, 86, 84, 86],
+        ),
+    ] {
+        if let Some(beamcon0) = beamcon0 {
+            amiga.poke_word(BEAMCON0, beamcon0);
+        }
+        configure_hires_clean_idle_candidate(&mut amiga);
+        advance_to_line(&mut amiga, 0x0030);
+        assert_eq!(amiga.agnus().ddf_start_match(), None);
+        amiga.poke_word(DDFSTOP, 0x0038);
+        let line_bases = amiga.agnus().bpl_pt;
+        run_to_next_line(&mut amiga);
+
+        for (((plane, base), bytes), pointer) in line_bases
+            .into_iter()
+            .enumerate()
+            .take(4)
+            .zip(expected_bytes)
+            .zip(amiga.agnus().bpl_pt)
+        {
+            assert_eq!(pointer, base + bytes, "BPL{} {case} byte count", plane + 1,);
         }
     }
 }

@@ -1001,6 +1001,33 @@ mod tests {
         assert_eq!(agnus.ddf_fetch_end(), Some(0x00E3));
     }
 
+    #[test]
+    fn equal_ddf_boundaries_start_an_idle_enhanced_run() {
+        for (case, beamcon0, expected_end, expected_post_df_plane) in [
+            ("default hard limit", BEAMCON0_PAL, Some(0x00DF), None),
+            ("HARDDIS", BEAMCON0_PAL | BEAMCON0_HARDDIS, None, Some(3)),
+        ] {
+            let mut agnus = AgnusEcs::new();
+            agnus.dmacon = 0x0300; // DMAEN | BPLEN
+            agnus.bplcon0 = 0xC000; // hires, four planes
+            agnus.ddfstrt = 0x0038;
+            agnus.ddfstop = 0x0038;
+            agnus.vertical_diw_active = true;
+            agnus.write_beamcon0(beamcon0);
+
+            observe_ddf_start(&mut agnus);
+            assert_eq!(agnus.ddf_stop_match(), None);
+            tick_to_hpos(&mut agnus, 0x00D8);
+            assert_eq!(agnus.ddf_fetch_end(), expected_end, "{case} endpoint");
+            tick_to_hpos(&mut agnus, 0x00E0);
+            assert_eq!(
+                agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+                expected_post_df_plane,
+                "{case} post-$DF arbitration",
+            );
+        }
+    }
+
     /// BLTCON0L is a byte-write port — only the low byte updates,
     /// the high byte of BLTCON0 (shift amount + channel enables)
     /// must remain untouched. KS 2.x relies on this to change LF

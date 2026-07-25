@@ -81,7 +81,8 @@ The following remain deferred:
 - the enhanced `$18` hard-window opening event;
 - multiple enhanced DDF regions;
 - live same-edge hard-limit control-write latency;
-- equal and stop-before-start DDF comparators;
+- register-equal comparators with a pre-existing run, and
+  stop-before-start comparators;
 - AGA wide-fetch terminal states;
 - exact modulo timing.
 
@@ -102,5 +103,6 @@ Hermetic tests cover:
 ## Related documents
 
 - [Original Agnus DDF hard-stop terminal policy](amiga-ocs-ddf-hard-stop.md)
+- [Idle register-equal DDF boundaries](amiga-idle-equal-ddf-boundaries.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Save State Format](save-state-format.md)

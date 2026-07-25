@@ -247,6 +247,44 @@ mod tests {
     }
 
     #[test]
+    fn alice_equal_ddf_boundaries_start_an_idle_run() {
+        for (case, beamcon0, expected_end) in [
+            ("default hard limit", BEAMCON0_PAL, Some(0x00DF)),
+            ("HARDDIS", BEAMCON0_PAL | super::BEAMCON0_HARDDIS, None),
+        ] {
+            let mut agnus = AgnusAga::new();
+            agnus.fmode = 0;
+            agnus.ddfstrt = 0x0038;
+            agnus.ddfstop = 0x00D0;
+            agnus.write_diwstrt(0x2010);
+            agnus.write_diwstop(0xA020);
+            agnus.write_beamcon0(beamcon0);
+            tick_to_line(&mut agnus, 0x0020);
+            assert_eq!(agnus.hpos, 0);
+            assert!(agnus.vertical_diw_active());
+            assert_eq!(agnus.ddf_start_match(), None);
+
+            agnus.ddfstop = 0x0038;
+            agnus.dmacon = 0x0300; // DMAEN | BPLEN
+            agnus.bplcon0 = 0xC000; // hires, four planes
+            agnus.hpos = 0x0037;
+            agnus.tick_cck();
+            assert_eq!(
+                agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+                Some(3),
+                "Alice {case} must issue the first hires four-plane DMA request",
+            );
+            while agnus.hpos < 0x00D8 {
+                agnus.tick_cck();
+            }
+
+            assert_eq!(agnus.ddf_start_match(), Some(0x0038));
+            assert_eq!(agnus.ddf_stop_match(), None);
+            assert_eq!(agnus.ddf_fetch_end(), expected_end, "Alice {case} endpoint");
+        }
+    }
+
+    #[test]
     fn alice_inherits_programmed_sprite_control_refetch_boundary() {
         let mut agnus = AgnusAga::new();
         agnus.dmacon = 0x0220; // DMAEN | SPREN

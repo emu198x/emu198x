@@ -482,9 +482,8 @@ pub struct Agnus {
     /// Current line's observed DDFSTRT comparator and frozen fetch-phase
     /// origin. `None` means the comparator has not matched this line.
     ddf_start_match: Option<u16>,
-    /// Current line's observed ordinary DDFSTOP comparator. This records
-    /// the event that requested termination; later register writes cannot
-    /// revoke it.
+    /// Current line's ordinary DDFSTOP event that requested termination
+    /// of an active fetch run. Later register writes cannot revoke it.
     ddf_stop_match: Option<u16>,
     /// Inclusive terminal CCK for the current fetch region, frozen when
     /// either ordinary DDFSTOP or a fixed hardware boundary requests
@@ -1872,10 +1871,13 @@ impl Agnus {
             && self.ddf_fetch_end.is_none()
         {
             let ddfstop = self.ddfstop & ddf_mask;
-            // The ordinary comparator branch deliberately models only a
-            // start-before-stop region. Equal comparators, stop-before-start,
-            // the OCS cross-line hard-start latch, and enhanced multiple
-            // regions need further variant-specific sequencer state.
+            // The ordinary stop branch applies only when this run started
+            // before the stop comparator. A register-equal pair is not an
+            // empty window: the stop phase samples the idle sequencer before
+            // the start phase opens a run, so equality deliberately reaches
+            // the fixed right edge instead. Equality with a pre-existing run,
+            // stop-before-start, the OCS cross-line hard-start latch and
+            // enhanced multiple regions need further sequencer state.
             if matched_start < ddfstop && self.hpos == ddfstop {
                 self.ddf_stop_match = Some(ddfstop);
                 self.ddf_fetch_end = Some(self.ddf_terminal_fetch_end(matched_start, ddfstop));
@@ -1929,7 +1931,8 @@ impl Agnus {
         self.ddf_start_match
     }
 
-    /// Current line's observed ordinary DDFSTOP comparator.
+    /// Current line's ordinary DDFSTOP event that requested termination
+    /// of the active fetch run.
     #[must_use]
     pub const fn ddf_stop_match(&self) -> Option<u16> {
         self.ddf_stop_match
@@ -2570,6 +2573,28 @@ mod tests {
         assert_eq!(bitplane_grants(&mut hires, 0), 40);
         assert_eq!(hires.ddf_stop_match(), Some(0x00D4));
         assert_eq!(hires.ddf_fetch_end(), Some(0x00DB));
+    }
+
+    #[test]
+    fn equal_ddf_boundaries_start_an_idle_ocs_run_until_the_hard_stop() {
+        let mut agnus = Agnus::new();
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        agnus.bplcon0 = 0x1000; // lores, one plane
+        agnus.ddfstrt = 0x0038;
+        agnus.ddfstop = 0x0038;
+
+        assert_eq!(
+            bitplane_grants(&mut agnus, 0),
+            21,
+            "an equal pair runs from $38 through the $D8 terminal unit",
+        );
+        assert_eq!(agnus.ddf_start_match(), Some(0x0038));
+        assert_eq!(
+            agnus.ddf_stop_match(),
+            None,
+            "the stop phase sampled the idle sequencer before the start",
+        );
+        assert_eq!(agnus.ddf_fetch_end(), Some(0x00DF));
     }
 
     #[test]

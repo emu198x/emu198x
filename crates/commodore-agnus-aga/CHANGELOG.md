@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add regression coverage showing that Alice inherits the clean-idle
+  register-equal DDF transition and issues bitplane DMA
+
 ### Fixed
 
 - Inherit the enhanced `$D8` bitplane-DMA stop and horizontal hard-limit
