@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 10 because version 9 can
+  preserve an open original-Agnus start gate after discarding a
+  phase-shifted `$E3` terminal endpoint at short-line wrap
 - Bump Amiga postcard snapshots to version 9 so the serialized
   original-Agnus horizontal hard-start gate survives line boundaries;
   version 8 is rejected

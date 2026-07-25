@@ -490,10 +490,12 @@ pub struct Agnus {
     /// termination. `None` means no terminal endpoint has been latched
     /// for an active fetch region this line.
     ddf_fetch_end: Option<u16>,
-    /// Original-Agnus horizontal hard-start gate. `$18` opens it and
-    /// completion of a terminal fetch unit represented on the current
-    /// physical line closes it. Unlike the current-line comparator
-    /// fields, this state survives line wrap.
+    /// Effective original-Agnus horizontal start permission. `$18` opens
+    /// it and completion of a terminal fetch unit closes it. A one-CCK
+    /// logical tail beyond a short physical line is projected at wrap into
+    /// its proven next-line start-inhibition result; this field does not
+    /// claim the tail's exact bus position. Unlike the current-line
+    /// comparator fields, this state survives line wrap.
     ///
     /// Enhanced-chipset wrappers carry the field because they serialize
     /// this shared inner core, but their timing does not consume it.
@@ -1545,6 +1547,18 @@ impl Agnus {
         );
         self.hpos += 1;
         if self.hpos >= line_ccks {
+            // A phase-shifted OCS fetch unit can have its logical terminal
+            // endpoint at $E3 even when a short physical line ends at $E2.
+            // WinUAE and vAmiga agree that the old run prevents a fresh $00
+            // start and that the hard-start permission is closed before the
+            // next legal $04 comparator. They do not establish one shared
+            // externally visible bus cell for the tail. Consume only that
+            // proven start-admission result before discarding line-local DDF
+            // state. No bus slot or pointer service is synthesized for the
+            // old terminal tail.
+            if self.agnus_id < 0x2000 && self.ddf_fetch_end == Some(line_ccks) {
+                self.ocs_ddf_hard_start_open = false;
+            }
             self.hpos = 0;
             self.ddf_start_match = None;
             self.ddf_stop_match = None;
@@ -1976,9 +1990,11 @@ impl Agnus {
         self.ddf_fetch_end
     }
 
-    /// Whether the original-Agnus horizontal hard-start gate currently
-    /// permits a DDFSTRT comparator. Enhanced variants do not consume this
-    /// shared serialized field.
+    /// Whether the effective original-Agnus horizontal start permission
+    /// currently admits a DDFSTRT comparator. This includes the proven
+    /// admission result of a one-CCK terminal tail across a short-line wrap,
+    /// not a claim about that tail's exact bus timing. Enhanced variants do
+    /// not consume this shared serialized field.
     #[must_use]
     pub const fn ocs_ddf_hard_start_open(&self) -> bool {
         self.ocs_ddf_hard_start_open
@@ -2925,6 +2941,73 @@ mod tests {
             idle.cck_bus_plan().bitplane_dma_fetch_plane,
             Some(3),
             "the carried gate permits the first hires four-plane request",
+        );
+    }
+
+    #[test]
+    fn ocs_phase_shifted_terminal_wrap_blocks_next_line_pre_18_start() {
+        for next_start in [0x0000, 0x0004, 0x0008, 0x000C, 0x0010, 0x0014] {
+            let mut agnus = configured_hires_ddf(0x001C);
+            agnus.write_ddfstop(0x00E0);
+
+            tick_to_hpos(&mut agnus, 0x00D8);
+            assert_eq!(
+                agnus.ddf_fetch_end(),
+                Some(0x00E3),
+                "the $D8 hard stop freezes the phase-shifted logical endpoint",
+            );
+            assert!(
+                agnus.ocs_ddf_hard_start_open(),
+                "the terminal unit has not completed on the current physical line",
+            );
+
+            agnus.write_ddfstrt(next_start);
+            tick_to_hpos(&mut agnus, 0);
+            tick_to_hpos(&mut agnus, next_start);
+
+            assert!(
+                !agnus.ocs_ddf_hard_start_open(),
+                "the projected terminal result must inhibit the next-line start",
+            );
+            assert_eq!(
+                agnus.ddf_start_match(),
+                None,
+                "the next-line pre-$18 comparator must not establish a fresh fetch origin",
+            );
+
+            tick_to_hpos(&mut agnus, 0x0018);
+            assert!(agnus.ocs_ddf_hard_start_open());
+            assert_eq!(
+                agnus.ddf_start_match(),
+                None,
+                "opening at $18 cannot replay the missed comparator",
+            );
+        }
+    }
+
+    #[test]
+    fn ocs_logical_e3_terminal_is_in_line_on_ntsc_long_line() {
+        let mut agnus = Agnus::new_with_region(AgnusRegion::Ntsc);
+        agnus.lol = true;
+        agnus.vpos = 0x0030;
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        agnus.bplcon0 = 0xC000; // hires, four bitplanes
+        agnus.write_ddfstrt(0x001C);
+        agnus.write_ddfstop(0x00E0);
+        agnus.diwstrt = 0x2C81;
+        agnus.diwstop = 0x2CC1;
+        assert_eq!(agnus.current_line_ccks(), 0x00E4);
+
+        tick_to_hpos(&mut agnus, 0x00D8);
+        assert_eq!(agnus.ddf_fetch_end(), Some(0x00E3));
+        assert!(agnus.ocs_ddf_hard_start_open());
+
+        tick_to_hpos(&mut agnus, 0x00E3);
+
+        assert_eq!(agnus.hpos, 0x00E3);
+        assert!(
+            !agnus.ocs_ddf_hard_start_open(),
+            "the represented in-line $E3 endpoint closes the effective gate before wrap",
         );
     }
 

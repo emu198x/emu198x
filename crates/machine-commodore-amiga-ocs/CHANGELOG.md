@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve original Agnus's phase-shifted short-line terminal result
+  through machine timing and runtime snapshot restore so the following
+  pre-`$18` DDF start remains inhibited
 - Preserve original Agnus's carried horizontal DDF hard-start gate
   through machine arbitration and runtime snapshots
 - Enforce Fat Agnus 8372A's default `$D8` bitplane-DMA stop in

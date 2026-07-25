@@ -180,17 +180,18 @@ not asserted as manufacturer-documented power-on behaviour.
   event generator itself has historical state that cannot be recovered
   from registers and beam position. ECS and AGA snapshots preserve the
   vertical-accessed flag, blank-active latch and line-held edge events.
-- The Amiga runtime postcard schema is version 9. Version-8 snapshots
-  are rejected rather than migrated because they do not contain the
-  original-Agnus horizontal hard-start gate. Version 8 introduced the
-  enhanced-chipset `$D8` terminal endpoint; version 7 made the same
-  compatibility break for the original-Agnus `$D8` event; version 6
-  introduced the current-line DDFSTOP comparator match and frozen final
-  fetch endpoint; version 5 introduced the current-line DDFSTRT comparator
-  match and frozen fetch origin; version 4 introduced the hidden ECS/AGA
-  vertical display-window latch; version 3 introduced the installed
-  early/Fat Agnus distinction and the Fat Agnus wrapper's live
-  extension-register state.
+- The Amiga runtime postcard schema is version 10. Version-9 snapshots
+  are rejected because one taken after the old short-line wrap behaviour
+  can contain an irreparably open original-Agnus start gate after losing
+  its `$E3` logical terminal endpoint. Version 9 introduced the serialized
+  horizontal hard-start gate; version 8 introduced the enhanced-chipset
+  `$D8` terminal endpoint; version 7 made the same compatibility break for
+  the original-Agnus `$D8` event; version 6 introduced the current-line
+  DDFSTOP comparator match and frozen final fetch endpoint; version 5
+  introduced the current-line DDFSTRT comparator match and frozen fetch
+  origin; version 4 introduced the hidden ECS/AGA vertical display-window
+  latch; version 3 introduced the installed early/Fat Agnus distinction
+  and the Fat Agnus wrapper's live extension-register state.
 - The per-request `SpriteDmaVerticalTiming` value remains transient.
   It also carries the nine- or ten-bit comparator capability selected
   by the Agnus identity; the already-serialized `agnus_id` and `u16`

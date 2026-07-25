@@ -101,11 +101,11 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   selected terminal policy are recorded in
   [Original Agnus DDF hard-stop terminal policy](amiga-ocs-ddf-hard-stop.md).
   Register-equal boundaries with a pre-existing run, stop-before-start,
-  phase-shifted original-Agnus terminal completion across horizontal wrap,
-  raw register-write latency, eligibility changes, multiple
-  enhanced-chipset regions, exact modulo timing and Alice's explicit final
-  state remain separate accuracy work. The implemented clean-idle equality
-  and in-line original-Agnus hard-start transitions are recorded in
+  raw register-write latency, eligibility changes, multiple enhanced-chipset
+  regions, exact cross-wrap terminal bus and pointer timing, exact modulo
+  timing and Alice's explicit final state remain separate accuracy work. The
+  implemented clean-idle equality and original-Agnus hard-start admission
+  transitions, including the compressed short-line wrap result, are recorded in
   [Idle register-equal DDF boundaries](amiga-idle-equal-ddf-boundaries.md)
   and [Original Agnus cross-line DDF hard-start gate](amiga-ocs-ddf-hard-start-gate.md).
 - Sprite control/data request state is likewise part of the Agnus plan.

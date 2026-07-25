@@ -60,9 +60,12 @@ previously missing fixed event.
 At `$D8`, an already-running original-Agnus fetch sequence receives a stop
 request. Its terminal endpoint remains relative to the matched DDFSTRT
 phase: a `$18`-aligned run ends inclusively at `$DF`, while a `$1C`-aligned
-run has a calculated inclusive endpoint of `$E3`, although fixed end-of-line
-arbitration still owns its reserved terminal cells. A run first started by
-a DDFSTRT match at `$D8` does not consume the same hard-stop edge.
+run has a calculated inclusive endpoint of `$E3`. Emu198x can represent that
+logical endpoint before an NTSC long line wraps. On a short line, the
+cross-wrap decision uses the endpoint only to preserve the proven next-line
+start-admission result; its exact bus activity remains unresolved. A run
+first started by a DDFSTRT match at `$D8` does not consume the same hard-stop
+edge.
 
 The current machine execution model evaluates Agnus beam events before
 dispatching the Copper for that CCK. The frozen endpoint therefore precedes
@@ -89,8 +92,8 @@ fixed boundary.
 
 This decision does not define:
 
-- phase-shifted original-Agnus terminal units whose completion crosses
-  horizontal wrap;
+- the exact bus slot, pointer advance or modulo timing of a phase-shifted
+  original-Agnus terminal unit across horizontal wrap;
 - register-equal DDF boundaries with a pre-existing run, and
   stop-before-start sequences;
 - the enhanced-chipset left-hand hard start and complete multi-region
@@ -116,7 +119,9 @@ Hermetic tests cover:
   post-`$DF` grants;
 - a machine snapshot round trip immediately before the hard event;
 - postcard snapshot round trips both immediately before the hard event and
-  while the terminal unit is pending.
+  while the terminal unit is pending;
+- a `$1C`-phased `$E3` endpoint surviving postcard restore immediately
+  before short-line wrap and producing the same next-line admission result.
 
 ## Related documents
 

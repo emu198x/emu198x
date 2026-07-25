@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve the proven next-line start-inhibition result when an
+  original-Agnus phase-shifted `$E3` terminal endpoint crosses a
+  short-line wrap, without assigning an unverified terminal bus slot
 - Carry original Agnus's horizontal DDF hard-start gate across line
   boundaries: `$18` opens it, in-line terminal completion closes it,
   and a missed pre-`$18` comparator is not replayed

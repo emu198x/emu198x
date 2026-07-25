@@ -39,6 +39,23 @@ and vAmiga agree on the state change and cross-line result, but do not
 establish a shared exact bus position for a phase-shifted terminal unit that
 finishes after horizontal wrap.
 
+For the phase-shifted `DDFSTRT=$1C` case, the fixed right stop produces a
+logical terminal endpoint at `$E3`. A short PAL or NTSC line exposes physical
+positions only through `$E2`. Original Agnus masks DDF positions with `$FC`,
+so the next architectural start positions are `$00`, `$04`, `$08`, `$0C`,
+`$10`, `$14` and `$18`.
+
+The pinned WinUAE revision carries the old run, stopping phase and fetch
+counter across wrap. The old run prevents `$00` from establishing a fresh
+run, and its normal-stop path closes the limiter before `$04` is considered.
+The pinned vAmiga revision carries `bprun`, `lastFu`, `shw` and the fetch
+counter across the same boundary. It independently rejects a fresh `$00`
+run and clears the original-chipset start permission before `$04`.
+
+These implementations agree on start admission. They do not agree closely
+enough to identify one externally visible next-line bitplane slot, pointer
+advance or modulo event.
+
 The initial power-on value is also unresolved. WinUAE's C++ static
 zero-initialisation produces its open state, while vAmiga's resetter clears
 `shw` to produce its closed state. Neither establishes hardware power-on
@@ -57,7 +74,10 @@ For original Agnus:
   the gate;
 - completion of a terminal fetch unit whose endpoint occurs on the current
   physical line closes the gate;
-- end-of-line does not reset the gate;
+- when the one-CCK logical `$E3` endpoint lies beyond a short physical line,
+  line wrap projects its proven start-admission result into a closed effective
+  gate before the next line's DDF comparators are evaluated;
+- end-of-line alone does not reset the gate;
 - a DDFSTRT comparator before `$18` can start only while the carried gate is
   open;
 - a comparator missed while the gate is closed is not replayed when `$18`
@@ -67,6 +87,12 @@ An idle line has no terminal completion, so it carries an open gate into the
 next line. A line whose terminal unit completes after its `$18` opening and
 before wrap carries a closed gate.
 
+For the projected short-line case, `$00` cannot establish a fresh run and
+the effective gate is closed for `$04` through `$14`. `$18` still reopens it
+before a coincident start is considered. This is a compressed start-admission
+model. It does not place the old terminal fetch on a physical next-line bus
+cell.
+
 Enhanced Agnus and Alice do not consume this original-chipset field. Their
 left hard window belongs to the enhanced multi-region sequencer.
 
@@ -74,27 +100,33 @@ Emu198x initializes the gate open to preserve its established deterministic
 first-line behaviour. This is an implementation compatibility choice, not a
 claim about the hardware power-on level.
 
-The new serialized field changes every nested Amiga machine postcard.
-Runtime postcard snapshots therefore advance to schema version 9. Version-8
-snapshots are rejected before payload decoding because the nested positional
-postcard layout has changed.
+The serialized gate was introduced in runtime postcard schema version 9.
+This additional short-line transition does not change the nested postcard
+layout, but runtime postcards advance to schema version 10. A version-9
+snapshot taken immediately after the old wrap behaviour has already lost
+the `$E3` endpoint and records an open gate indistinguishable from a
+legitimate idle-line carry. That state cannot be repaired during restore, so
+version-9 snapshots are rejected before payload decoding.
+
+The runtime uses one global Amiga envelope version. Version-9 ECS and AGA
+runtime snapshots are therefore also rejected even though those chipsets do
+not consume this original-chipset gate transition.
 
 Raw postcards of the public `AmigaOcsSnapshot`, `AmigaEcsSnapshot` and
-`AmigaA1200Snapshot` machine values are unversioned and have no migration or
-version-8 rejection gate. Durable save states must use the runtime envelope.
+`AmigaA1200Snapshot` machine values are unversioned. Their positional layout
+did not change, so they remain decodable. An early-OCS raw snapshot captured
+after the old buggy wrap can silently restore the stale open gate; ECS and AGA
+raw states are not semantically affected by this transition. Durable save
+states must use the runtime envelope.
 
 ## Deferred behaviour
 
-This decision does not define a terminal fetch unit whose phase-relative
-endpoint lies beyond the last physical CCK of a short line.
-
-WinUAE carries live run, stopping and fetch-phase state through horizontal
-wrap. vAmiga also preserves its full sequencer state, but the inspected
-oracles do not agree on an exact externally visible next-line fetch
-position. Emu198x still clears the current-line start and terminal fields at
-wrap, so it neither continues the pending terminal unit nor closes the gate
-at its eventual completion. This phase-shifted case remains a known
-implementation gap.
+This decision defines only the start-admission result of the phase-shifted
+terminal unit. Emu198x does not carry the old run, stopping phase and fetch
+counter into next-line bus arbitration. The exact terminal bitplane slot,
+pointer advancement, modulo timing and contention during `$00` through `$03`
+remain unresolved. Closing the effective gate at line entry must not be read
+as a claim that the physical limiter changes at that position.
 
 The following also remain deferred:
 
@@ -118,7 +150,13 @@ Hermetic tests cover:
 - the deterministic first-line open policy and enhanced-chipset bypass;
 - postcard round-trip of the open and non-default closed states, followed
   by deterministic accepted and rejected next-line comparators;
-- rejection of version-8 runtime postcards.
+- all legal pre-`$18` comparators after a short-line `$E3` logical terminal,
+  including `$00`, with no replay at `$18`;
+- the same logical `$E3` endpoint being represented in-line on an NTSC long
+  line;
+- postcard round-trip immediately before short-line wrap, followed by the
+  deterministic closed-gate result;
+- rejection of version-9 runtime postcards.
 
 ## Related documents
 
