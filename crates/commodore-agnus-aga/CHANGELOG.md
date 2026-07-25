@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Inherit the enhanced `$D8` bitplane-DMA stop and horizontal hard-limit
+  bypass policy through Alice's ECS timing layer
 - Preserve Alice's observed ordinary DDFSTOP and frozen current-line
   fetch endpoint across later register writes and snapshots
 - Keep Alice wide-fetch arbitration aligned to the DDFSTRT comparator

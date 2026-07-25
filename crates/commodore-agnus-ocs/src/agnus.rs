@@ -26,6 +26,8 @@ pub mod bits {
 
     /// BPLCON0 bits Agnus cares about (rest are Denise-owned).
     pub const BPLCON0_HIRES: u16 = 0x8000;
+    pub const BPLCON0_UHRES: u16 = 0x0080;
+    pub const BPLCON0_SHRES: u16 = 0x0040;
     pub const BPLCON0_LACE: u16 = 0x0004;
     /// BPU (number of bitplanes) field — 3 high bits at 14..12.
     pub const BPLCON0_BPU_MASK: u16 = 0x7000;
@@ -1501,6 +1503,27 @@ impl Agnus {
         short_field_lines: u16,
         sprite_timing: SpriteDmaVerticalTiming,
     ) {
+        self.tick_cck_with_variant_timing(
+            line_ccks,
+            short_field_lines,
+            sprite_timing,
+            self.agnus_id < 0x2000,
+        );
+    }
+
+    /// Tick one CCK with wrapper-selected timing and fixed-DDF policy.
+    ///
+    /// Enhanced-chipset wrappers use this seam to disable the fixed
+    /// right-hand DDF boundary without storing a derived policy in the
+    /// serializable OCS core.
+    #[doc(hidden)]
+    pub fn tick_cck_with_variant_timing(
+        &mut self,
+        line_ccks: u16,
+        short_field_lines: u16,
+        sprite_timing: SpriteDmaVerticalTiming,
+        fixed_ddf_right_stop_enabled: bool,
+    ) {
         debug_assert!(
             line_ccks > 0 && line_ccks < u16::MAX,
             "line total must fit the beam counter"
@@ -1543,7 +1566,7 @@ impl Agnus {
             // control-refetch priming). gap #162.
             self.update_sprite_dma_with_vertical_timing(frame_lines, sprite_timing);
         }
-        self.evaluate_ddf_comparators();
+        self.evaluate_ddf_comparators(fixed_ddf_right_stop_enabled);
     }
 
     /// Per-line sprite-DMA update — run once as the beam enters each new
@@ -1839,7 +1862,7 @@ impl Agnus {
         }
     }
 
-    fn evaluate_ddf_comparators(&mut self) {
+    fn evaluate_ddf_comparators(&mut self, fixed_ddf_right_stop_enabled: bool) {
         let ddf_mask = self.ddf_mask();
         // Stop signals sample the sequencer state that existed on beam
         // entry. In particular, a DDFSTRT comparator coincident with the
@@ -1858,16 +1881,14 @@ impl Agnus {
                 self.ddf_fetch_end = Some(self.ddf_terminal_fetch_end(matched_start, ddfstop));
             }
 
-            // Original Agnus has a fixed right-hand fetch boundary at $D8.
-            // It requests termination even when the programmed DDFSTOP is
-            // later or its comparator has already passed. Preserve the
-            // currently selected full fetch-unit terminal policy: this agrees
-            // with the A500/A2000 timing diagram and the WinUAE, vAmiga and
-            // Minimig sequencers. The HRM's conflicting 49-word hires prose
-            // remains a verification question rather than a silent special
-            // case here. An ordinary comparator at the same position is
-            // recorded first; both request the same terminal sequence.
-            if self.agnus_id < 0x2000 && self.hpos == 0x00D8 && self.ddf_fetch_end.is_none() {
+            // Original Agnus and enhanced chips with horizontal hard limits
+            // enabled have a fixed right-hand fetch boundary at $D8. It
+            // requests termination even when programmed DDFSTOP is later or
+            // its comparator has already passed. Preserve the selected full
+            // fetch-unit terminal policy and the matched start phase. An
+            // ordinary comparator at the same position is recorded first;
+            // both request the same terminal sequence.
+            if fixed_ddf_right_stop_enabled && self.hpos == 0x00D8 && self.ddf_fetch_end.is_none() {
                 self.ddf_fetch_end = Some(self.ddf_terminal_fetch_end(matched_start, 0x00D8));
             }
         }

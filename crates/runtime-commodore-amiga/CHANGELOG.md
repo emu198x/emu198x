@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 8 because a version-7
+  snapshot can restore an active enhanced-chipset fetch region after
+  `$D8` without the newly required terminal endpoint; version 7 is
+  rejected
 - Bump Amiga postcard snapshots to version 7 because a version-6 snapshot
   can restore an active original-Agnus fetch region after `$D8` without
   a terminal endpoint and continue past the fixed boundary; version 6 is

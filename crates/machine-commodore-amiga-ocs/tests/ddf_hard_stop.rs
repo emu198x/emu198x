@@ -201,3 +201,33 @@ fn fat_agnus_harddis_keeps_the_post_df_slots_available() {
         );
     }
 }
+
+#[test]
+fn fat_agnus_defaults_to_the_fixed_right_limit_and_varvben_does_not_bypass_it() {
+    for (case, beamcon0) in [("default", 0x0020), ("VARVBEN is vertical only", 0x1020)] {
+        let mut fat = fat_agnus_machine();
+        fat.poke_word(BEAMCON0, beamcon0);
+        configure_hires_overrun(&mut fat);
+        advance_to_line(&mut fat, 0x0030);
+        let line_bases = fat.agnus().bpl_pt;
+
+        while fat.agnus().hpos < 0x00D8 {
+            fat.tick();
+        }
+        assert_eq!(
+            fat.agnus().ddf_fetch_end(),
+            Some(0x00DF),
+            "{case} must retain the enhanced fixed right limit",
+        );
+
+        run_to_next_line(&mut fat);
+        for (plane, base) in line_bases.into_iter().enumerate().take(4) {
+            assert_eq!(
+                fat.agnus().bpl_pt[plane],
+                base + 100,
+                "BPL{} {case} byte count",
+                plane + 1,
+            );
+        }
+    }
+}

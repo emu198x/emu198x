@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Apply the enhanced-chipset `$D8` bitplane-DMA stop by default, while
+  `HARDDIS`, `VARBEAMEN`, `SHRES` and `UHRES` disable the horizontal
+  hard limit and `VARVBEN` remains vertical-only
 - Preserve an observed ordinary DDFSTOP and its pending final fetch unit
   across later register writes and snapshots
 - Retain a DDFSTRT comparator match independently of the DMA and

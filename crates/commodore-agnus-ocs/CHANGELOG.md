@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Let enhanced-chipset wrappers select the shared `$D8` bitplane-DMA
+  stop event without duplicating the OCS fetch sequencer
 - Evaluate original Agnus's fixed `$D8` data-fetch stop as a beam event
   and freeze its terminal fetch unit so later or missed DDFSTOP
   comparators cannot overrun into end-of-line bus slots

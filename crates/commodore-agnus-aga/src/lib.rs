@@ -212,6 +212,41 @@ mod tests {
     }
 
     #[test]
+    fn alice_inherits_the_enhanced_right_ddf_limit_policy() {
+        for (case, beamcon0, expected_end) in [
+            ("default", BEAMCON0_PAL, Some(0x00DF)),
+            ("HARDDIS", BEAMCON0_PAL | super::BEAMCON0_HARDDIS, None),
+        ] {
+            let mut agnus = AgnusAga::new();
+            agnus.dmacon = 0x0300; // DMAEN | BPLEN
+            agnus.bplcon0 = 0xC000; // hires, four planes
+            agnus.ddfstrt = 0x0018;
+            agnus.ddfstop = 0x00E0;
+            agnus.write_beamcon0(beamcon0);
+            agnus.hpos = 0x0017;
+            agnus.tick_cck();
+            assert_eq!(agnus.ddf_start_match(), Some(0x0018));
+            while agnus.hpos < 0x00D8 {
+                agnus.tick_cck();
+            }
+
+            assert_eq!(
+                agnus.ddf_fetch_end(),
+                expected_end,
+                "Alice {case} horizontal hard-limit policy",
+            );
+            assert_eq!(agnus.ddf_start_match(), Some(0x0018));
+            if expected_end.is_none() {
+                while agnus.hpos < 0x00E0 {
+                    agnus.tick_cck();
+                }
+                assert_eq!(agnus.ddf_stop_match(), Some(0x00E0));
+                assert_eq!(agnus.ddf_fetch_end(), Some(0x00E7));
+            }
+        }
+    }
+
+    #[test]
     fn alice_inherits_programmed_sprite_control_refetch_boundary() {
         let mut agnus = AgnusAga::new();
         agnus.dmacon = 0x0220; // DMAEN | SPREN

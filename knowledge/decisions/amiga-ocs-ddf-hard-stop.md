@@ -91,7 +91,8 @@ This decision does not define:
 
 - the original Agnus cross-line hard-start latch before `$18`;
 - equal DDF boundaries and stop-before-start sequences;
-- enhanced-chipset hard limits or BEAMCON0 `HARDDIS`;
+- the enhanced-chipset left-hand hard start and complete multi-region
+  sequencer;
 - variable-beam interactions;
 - AGA wide-fetch final states;
 - exact modulo timing;
@@ -118,5 +119,6 @@ Hermetic tests cover:
 ## Related documents
 
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
+- [Enhanced Agnus horizontal DDF hard limits](amiga-enhanced-ddf-hard-limits.md)
 - [Amiga sprite DMA lifecycle](amiga-sprite-dma-lifecycle.md)
 - [Save State Format](save-state-format.md)

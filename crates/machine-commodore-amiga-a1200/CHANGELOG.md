@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Apply the enhanced `$D8` bitplane-DMA stop and horizontal hard-limit
+  bypass policy through the Alice machine loop
 - Preserve Alice's observed ordinary DDFSTOP and pending current-line
   fetch endpoint through register rewrites and snapshots
 - Preserve Alice's current-line DDFSTRT fetch origin in arbitration,

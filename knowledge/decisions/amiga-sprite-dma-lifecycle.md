@@ -180,10 +180,11 @@ not asserted as manufacturer-documented power-on behaviour.
   event generator itself has historical state that cannot be recovered
   from registers and beam position. ECS and AGA snapshots preserve the
   vertical-accessed flag, blank-active latch and line-held edge events.
-- The Amiga runtime postcard schema is version 7. Version-6 snapshots
+- The Amiga runtime postcard schema is version 8. Version-7 snapshots
   are rejected rather than migrated because they can restore an active
-  original-Agnus fetch region after `$D8` without a terminal endpoint and
-  continue past the fixed boundary. Version 6 introduced the current-line
+  enhanced-chipset fetch region after `$D8` without the newly required
+  terminal endpoint. Version 7 made the same compatibility break for the
+  original-Agnus `$D8` event; version 6 introduced the current-line
   DDFSTOP comparator match and frozen final fetch endpoint; version 5
   introduced the current-line DDFSTRT comparator match and frozen fetch
   origin; version 4 introduced the hidden ECS/AGA vertical display-window

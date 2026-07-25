@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Enforce Fat Agnus 8372A's default `$D8` bitplane-DMA stop in
+  OCS-shaped machines while retaining `HARDDIS` and the other enhanced
+  horizontal-limit bypasses
 - Preserve original Agnus's `$D8` terminal fetch through machine
   arbitration and snapshots while the Fat Agnus `HARDDIS` path retains
   its available post-`$DF` grants

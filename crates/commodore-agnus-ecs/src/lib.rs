@@ -7,7 +7,8 @@
 use std::ops::{Deref, DerefMut};
 
 use commodore_agnus_ocs::{
-    NTSC_VBL_END_LINE, PAL_VBL_END_LINE, SpriteDmaVerticalTiming, bits::BPLCON0_LACE,
+    NTSC_VBL_END_LINE, PAL_VBL_END_LINE, SpriteDmaVerticalTiming,
+    bits::{BPLCON0_LACE, BPLCON0_SHRES, BPLCON0_UHRES},
 };
 
 pub use commodore_agnus_ocs::Agnus as InnerAgnusOcs;
@@ -335,6 +336,12 @@ impl AgnusEcs {
         self.varbeamen_enabled() || self.varvben_enabled() || self.harddis_enabled()
     }
 
+    fn horizontal_hard_ddf_limit_disabled(&self) -> bool {
+        self.harddis_enabled()
+            || self.varbeamen_enabled()
+            || (self.inner.bplcon0 & (BPLCON0_SHRES | BPLCON0_UHRES)) != 0
+    }
+
     fn fixed_vertical_blank_start_event(&self, vpos: u16) -> bool {
         vpos == self.current_field_lines() - 1
     }
@@ -394,10 +401,12 @@ impl AgnusEcs {
             self.evaluate_vertical_diw_comparators(vpos);
         }
         let sprite_timing = self.sprite_dma_vertical_timing();
-        self.inner.tick_cck_with_timing_and_sprite_vertical_timing(
+        let fixed_ddf_right_stop_enabled = !self.horizontal_hard_ddf_limit_disabled();
+        self.inner.tick_cck_with_variant_timing(
             line_ccks,
             short_field_lines,
             sprite_timing,
+            fixed_ddf_right_stop_enabled,
         );
     }
 
@@ -918,6 +927,78 @@ mod tests {
         agnus.hpos = start - 1;
         agnus.tick_cck();
         assert_eq!(agnus.ddf_start_match(), Some(start));
+    }
+
+    fn tick_to_hpos(agnus: &mut AgnusEcs, target: u16) {
+        while agnus.hpos < target {
+            agnus.tick_cck();
+        }
+        assert_eq!(agnus.hpos, target);
+    }
+
+    #[test]
+    fn enhanced_right_ddf_limit_obeys_horizontal_hard_limit_policy() {
+        for (case, beamcon0, bplcon0_mode, expected_end) in [
+            ("default", BEAMCON0_PAL, 0x0000, Some(0x00DF)),
+            (
+                "VARVBEN is vertical only",
+                BEAMCON0_PAL | BEAMCON0_VARVBEN,
+                0x0000,
+                Some(0x00DF),
+            ),
+            ("HARDDIS", BEAMCON0_PAL | BEAMCON0_HARDDIS, 0x0000, None),
+            ("VARBEAMEN", BEAMCON0_PAL | BEAMCON0_VARBEAMEN, 0x0000, None),
+            ("SHRES", BEAMCON0_PAL, 0x0040, None),
+            ("UHRES", BEAMCON0_PAL, 0x0080, None),
+        ] {
+            let mut agnus = AgnusEcs::new();
+            agnus.dmacon = 0x0300; // DMAEN | BPLEN
+            agnus.bplcon0 = 0xC000 | bplcon0_mode; // hires, four planes
+            agnus.ddfstrt = 0x0018;
+            agnus.ddfstop = 0x00E0;
+            agnus.write_beamcon0(beamcon0);
+
+            observe_ddf_start(&mut agnus);
+            tick_to_hpos(&mut agnus, 0x00D8);
+
+            assert_eq!(
+                agnus.ddf_fetch_end(),
+                expected_end,
+                "{case} horizontal hard-limit policy",
+            );
+            assert_eq!(
+                agnus.ddf_start_match(),
+                Some(0x0018),
+                "{case} must retain the active fetch origin",
+            );
+            if expected_end.is_none() {
+                tick_to_hpos(&mut agnus, 0x00E0);
+                assert_eq!(
+                    agnus.ddf_stop_match(),
+                    Some(0x00E0),
+                    "{case} bypass must leave the ordinary comparator armed",
+                );
+                assert_eq!(
+                    agnus.ddf_fetch_end(),
+                    Some(0x00E7),
+                    "{case} bypass must terminate at programmed DDFSTOP",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn enhanced_right_ddf_limit_retains_the_matched_fetch_phase() {
+        let mut agnus = AgnusEcs::new();
+        agnus.dmacon = 0x0300; // DMAEN | BPLEN
+        agnus.bplcon0 = 0xC000; // hires, four planes
+        agnus.ddfstrt = 0x001C;
+        agnus.ddfstop = 0x00E8;
+
+        observe_ddf_start(&mut agnus);
+        tick_to_hpos(&mut agnus, 0x00D8);
+
+        assert_eq!(agnus.ddf_fetch_end(), Some(0x00E3));
     }
 
     /// BLTCON0L is a byte-write port — only the low byte updates,
