@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Model accepted INT and NMI refresh cycles, including their `R` increments
 - Present the post-HALT address during phantom M1 reads and discard the fetched byte
 - Preserve accepted NMI and INT sequence identity across mid-response snapshot restore
+- Extend interrupt acknowledge by a complete TW for each asserted WAIT sample
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/zilog-z80-v0.2.0) - 2026-06-04
 

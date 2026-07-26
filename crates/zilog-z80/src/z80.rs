@@ -923,9 +923,14 @@ impl Z80 {
             }
             IntAckPhase::T4Fall => {
                 if self.wait {
-                    return;
+                    // UM0080 Figure 9 samples WAIT on the falling edge of
+                    // each TW and inserts another complete TW while it
+                    // remains asserted. Replay both halves of T4 rather
+                    // than revisiting only this falling edge.
+                    self.phase = Phase::IntAck(IntAckPhase::T4Rise);
+                } else {
+                    self.phase = Phase::IntAck(IntAckPhase::T5Rise);
                 }
-                self.phase = Phase::IntAck(IntAckPhase::T5Rise);
             }
             IntAckPhase::T5Rise => {
                 // Capture the vector before the acknowledge strobe ends, then
@@ -1702,6 +1707,85 @@ mod tests {
         assert!(saw_refresh);
         assert!(saw_refresh_mreq);
         assert_eq!(z80.regs.r, 0x13);
+        assert_eq!(z80.walker.staged.addr, 0x4034);
+        assert_eq!(z80.phase, Phase::MemWrite(MemPhase::T1Rise));
+    }
+
+    #[test]
+    fn maskable_interrupt_wait_inserts_a_complete_tw() {
+        let mut z80 = Z80::new();
+        let mut mem = [0u8; 65_536];
+        mem[0] = 0x00; // NOP
+
+        z80.regs.iff1 = true;
+        z80.regs.im = 2;
+        z80.irq = true;
+        step_one(&mut z80, &mut mem);
+        z80.irq = false;
+
+        assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T1Rise));
+        z80.regs.i = 0x40;
+        z80.walker.staged.data_lo = 0xA5;
+        let response_pc = z80.regs.pc;
+        let mut halfcycles = 0;
+        let mut acknowledge_count = 0;
+
+        // Reach the falling edge of the second automatic TW. IORQ rises
+        // during this prefix and bus_request must expose one acknowledge.
+        for _ in 0..7 {
+            z80.tick();
+            halfcycles += 1;
+            if let Some(request) = z80.bus_request() {
+                assert_eq!(request, BusOp::IntAck);
+                acknowledge_count += 1;
+                z80.data_in = 0x34;
+            }
+        }
+        assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T4Fall));
+        assert_eq!(acknowledge_count, 1);
+
+        z80.wait = true;
+        z80.tick();
+        halfcycles += 1;
+        assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T4Rise));
+        assert_eq!(z80.bus_request(), None);
+
+        // The inserted state repeats the complete TW while retaining the
+        // acknowledge pins and the PC address. The vector is not consumed.
+        for expected_phase in [IntAckPhase::T4Fall, IntAckPhase::T5Rise] {
+            assert!(z80.m1);
+            assert!(z80.iorq);
+            assert!(!z80.mreq);
+            assert!(!z80.rd);
+            assert!(!z80.wr);
+            assert!(!z80.rfsh);
+            assert_eq!(z80.addr, response_pc);
+            assert_eq!(z80.walker.staged.data_lo, 0xA5);
+
+            z80.wait = false;
+            z80.tick();
+            halfcycles += 1;
+            assert_eq!(z80.phase, Phase::IntAck(expected_phase));
+            assert_eq!(z80.bus_request(), None);
+        }
+
+        // T5 rising samples the vector and terminates the acknowledge strobe.
+        assert_eq!(z80.walker.staged.data_lo, 0xA5);
+        z80.tick();
+        halfcycles += 1;
+        assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T5Fall));
+        assert_eq!(z80.walker.staged.data_lo, 0x34);
+        assert!(!z80.iorq);
+        assert_eq!(z80.bus_request(), None);
+
+        while matches!(z80.phase, Phase::IntAck(_)) {
+            z80.tick();
+            halfcycles += 1;
+            assert_eq!(z80.bus_request(), None);
+        }
+
+        assert_eq!(halfcycles, 16);
+        assert_eq!(acknowledge_count, 1);
         assert_eq!(z80.walker.staged.addr, 0x4034);
         assert_eq!(z80.phase, Phase::MemWrite(MemPhase::T1Rise));
     }
