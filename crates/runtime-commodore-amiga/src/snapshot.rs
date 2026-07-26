@@ -19,10 +19,13 @@ use crate::Model;
 use crate::runtime::AmigaRuntime;
 use crate::variants::AmigaMachine;
 
-// Version 15 serializes original-Agnus revision identity and its line-held
-// hard vertical-blank force-off state. Version 14 cannot distinguish an
-// A1000 line-zero close from a later original Agnus final-line close.
-const SNAPSHOT_VERSION: u32 = 15;
+// Version 16 serializes the shared two-CCK blitter startup phase and the
+// pending Copper WAIT/SKIP instruction kind. Version 15 cannot distinguish a
+// just-started blit from one that has accepted its first or second startup
+// CCK, or preserve a deferred SKIP comparison. Those states change A1000
+// BBUSY visibility, BZERO reload timing, admission of the first channel
+// operation and the next Copper instruction.
+const SNAPSHOT_VERSION: u32 = 16;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
 /// snapshot (`M::Snapshot`) and the variant's reconstruction metadata
@@ -32,7 +35,7 @@ const SNAPSHOT_VERSION: u32 = 15;
 /// Versioned so future snapshot extensions can bump the major version
 /// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV15<M: AmigaMachine> {
+struct SnapshotEnvelopeV16<M: AmigaMachine> {
     version: u32,
     model: Model,
     metadata: M::SnapshotMetadata,
@@ -49,7 +52,7 @@ struct SnapshotEnvelopeV15<M: AmigaMachine> {
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
 pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u8>, MachineError> {
-    let envelope = SnapshotEnvelopeV15::<M> {
+    let envelope = SnapshotEnvelopeV16::<M> {
         version: SNAPSHOT_VERSION,
         model: runtime.model(),
         metadata: runtime.metadata().clone(),
@@ -90,7 +93,7 @@ pub(crate) fn decode<M: AmigaMachine>(
         });
     }
 
-    let envelope: SnapshotEnvelopeV15<M> =
+    let envelope: SnapshotEnvelopeV16<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;

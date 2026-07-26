@@ -180,10 +180,12 @@ not asserted as manufacturer-documented power-on behaviour.
   event generator itself has historical state that cannot be recovered
   from registers and beam position. ECS and AGA snapshots preserve the
   vertical-accessed flag, blank-active latch and line-held edge events.
-- The Amiga runtime postcard schema is version 15. Version-14 snapshots
-  are rejected because they do not contain installed original-Agnus revision
-  identity or its line-held hard vertical-blank state. Version 14 introduced
-  the MC68000's hidden group-0/group-1 exception-processing state. Version 13
+- The Amiga runtime postcard schema is version 16. Version-15 snapshots
+  are rejected because they do not preserve the shared two-CCK
+  blitter-startup phase or the pending Copper `WAIT`/`SKIP` discriminator.
+  Version 15 introduced installed original-Agnus revision identity and its
+  line-held hard vertical-blank state; version 14 introduced the MC68000's
+  hidden group-0/group-1 exception-processing state. Version 13
   introduced the original-Agnus vertical display-window latch; version 12
   made a rewritten future DDFSTRT comparator re-arm an aborted
   original-Agnus run; version 11 introduced
@@ -246,6 +248,8 @@ Reject these patterns:
 ## Related documents
 
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
+- [Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)
+- [Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md)
 - [Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md)
 - [Original Agnus hard vertical-blank close](amiga-original-agnus-hard-vertical-blank.md)
 - [Amiga full-family architecture review](amiga-full-family-architecture-review.md)

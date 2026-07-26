@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add model-level coverage for A1000-versus-later BBUSY visibility, accepted
+  startup progress, deferred channel service and completion interrupt timing
+- Add an A1000 Copper regression in which BBUSY becomes visible between
+  BFD-clear `SKIP` decode and its pending comparison
 - Expose `OriginalAgnusRevision` through the OCS machine facade alongside
   `AgnusRegion`
 - Add model-level coverage for the A1000 line-zero hard close and the later
@@ -25,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Advance the blitter's two startup CCKs only through Agnus's admitted
+  progress path, without performing a channel operation or raising INT_BLIT
+  during startup
 - Select the 8361/8367 A1000 original-Agnus timing through the dedicated
   bootstrap-ROM builder while leaving later OCS-shaped builders on
   8370/8371 timing

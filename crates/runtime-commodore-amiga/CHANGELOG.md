@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Expose internal busy, visible busy and remaining startup CCKs as distinct
+  Agnus and blitter query leaves
+
 ### Changed
 
+- Bump Amiga postcard snapshots to version 16 so the shared two-CCK
+  blitter-startup phase and pending Copper `WAIT`/`SKIP` kind survive restore;
+  version 15 is rejected because it cannot preserve A1000 BBUSY visibility,
+  BZERO reload timing, admission of the first channel operation or a deferred
+  `SKIP` decision
 - Bump Amiga postcard snapshots to version 15 so installed original-Agnus
   revision identity and its line-held hard vertical-blank force-off state
   survive restore; version 14 is rejected because it cannot distinguish

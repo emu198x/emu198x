@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Serialize the shared two-CCK blitter-startup phase and expose its
+  progress outcome separately from a serviced channel operation
 - Serialize installed original-Agnus revision identity and the line-held hard
   vertical-blank force-off state that cannot be reconstructed from VPOSR,
   beam position and live interlace registers
@@ -19,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Begin internal blitter activity immediately on every revision, consume two
+  accepted/free startup CCKs before the first channel operation, reload BZERO
+  on the first accepted CCK, and delay only A1000-visible BBUSY to that point
 - Select the A1000 hard vertical-blank close on line zero and the later
   original-Agnus close on the final physical PAL/NTSC field line, including
   LOF-dependent interlaced fields; force-off wins over a coincident VSTART

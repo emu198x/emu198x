@@ -4,13 +4,14 @@
 //! dispatch, run-to-completion, and INT_BLIT on completion.
 //!
 //! Since #31 the blitter is **incremental**: writing BLTSIZE arms the
-//! scheduler, and the blit drains one DMA op per granted CCK in the
-//! tick loop (BBUSY stays set in DMACONR until it finishes) rather than
-//! completing on the register write. Progress is granted only when
-//! blitter DMA is enabled (DMACON DMAEN + BLTEN) and a bus slot is free,
-//! so each test enables blitter DMA and then ticks the machine until the
-//! blit raises INT_BLIT. (The earlier synchronous-completion model these
-//! tests first assumed predated #31.)
+//! scheduler. The first two granted CCKs consume startup, followed by at
+//! most one DMA operation per grant in the tick loop (BBUSY stays set in
+//! DMACONR until it finishes) rather than completing on the register
+//! write. Progress is granted only when blitter DMA is enabled (DMACON
+//! DMAEN + BLTEN) and a bus slot is free, so each test enables blitter
+//! DMA and then ticks the machine until the blit raises INT_BLIT. (The
+//! earlier synchronous-completion model these tests first assumed
+//! predated #31.)
 
 use machine_commodore_amiga_ocs::{AmigaOcs, IntSource};
 

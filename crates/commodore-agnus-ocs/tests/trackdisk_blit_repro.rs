@@ -20,7 +20,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use commodore_agnus_ocs::Agnus;
+use commodore_agnus_ocs::{Agnus, BlitterProgress};
 
 struct TestRam {
     cells: RefCell<HashMap<u32, u16>>,
@@ -42,8 +42,12 @@ impl TestRam {
 
 fn run_blit(agnus: &mut Agnus, ram: &TestRam) {
     let mut ops = 0u32;
-    while let Some(op) = agnus.next_blitter_dma_request() {
-        agnus.grant_blitter_dma_op(op);
+    while agnus.next_blitter_dma_request().is_some() {
+        let op = match agnus.tick_blitter_scheduler_op(true) {
+            BlitterProgress::Startup => continue,
+            BlitterProgress::Operation(op) => op,
+            BlitterProgress::NoProgress => break,
+        };
         let read = |addr: u32| ram.peek(addr);
         let write = |addr: u32, val: u16| ram.poke(addr, val);
         let _done = agnus.execute_incremental_blitter_op(op, read, write);

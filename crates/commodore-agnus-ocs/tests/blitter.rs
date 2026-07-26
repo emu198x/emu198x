@@ -28,7 +28,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use commodore_agnus_ocs::Agnus;
+use commodore_agnus_ocs::{Agnus, BlitterProgress};
 
 // ────────────────────────────────────────────────────────────────
 // Test scaffolding
@@ -56,8 +56,12 @@ impl TestRam {
 /// Returns the total number of DMA ops that ran.
 fn run_blit(agnus: &mut Agnus, ram: &TestRam) -> u32 {
     let mut ops = 0u32;
-    while let Some(op) = agnus.next_blitter_dma_request() {
-        agnus.grant_blitter_dma_op(op);
+    while agnus.next_blitter_dma_request().is_some() {
+        let op = match agnus.tick_blitter_scheduler_op(true) {
+            BlitterProgress::Startup => continue,
+            BlitterProgress::Operation(op) => op,
+            BlitterProgress::NoProgress => break,
+        };
         let read = |addr: u32| ram.peek(addr);
         let write = |addr: u32, val: u16| ram.poke(addr, val);
         let done = agnus.execute_incremental_blitter_op(op, read, write);
@@ -396,8 +400,14 @@ fn scheduler_halts_when_bus_grant_is_withheld() {
         assert!(!agnus.tick_blitter_scheduler(false));
     }
     assert_eq!(agnus.blitter_ccks_remaining, before);
-    // Tick with progress — counts down.
-    agnus.tick_blitter_scheduler(true);
+    // The first two accepted CCKs drain shared startup without consuming
+    // either D operation.
+    assert!(!agnus.tick_blitter_scheduler(true));
+    assert!(!agnus.tick_blitter_scheduler(true));
+    assert_eq!(agnus.blitter_ccks_remaining, before);
+
+    // The third accepted CCK services the first real operation.
+    assert!(!agnus.tick_blitter_scheduler(true));
     assert_eq!(agnus.blitter_ccks_remaining, before - 1);
 }
 
@@ -419,8 +429,9 @@ fn blitter_nasty_mode_requires_busy_blten_bltpri_all_set() {
 
 // ────────────────────────────────────────────────────────────────
 // Incremental drain (#31) — byte-for-byte parity with the synchronous
-// path. `tick_blitter_dma` (one op per granted CCK) must produce the
-// same chip RAM as `run_blit` / `run_blit_to_completion`.
+// path. `tick_blitter_dma` (one startup/operation outcome per granted
+// CCK) must produce the same chip RAM as `run_blit` /
+// `run_blit_to_completion`.
 // ────────────────────────────────────────────────────────────────
 
 /// `BlitterBus` view over the test RAM (interior-mutable, so `&TestRam`
@@ -436,27 +447,34 @@ impl commodore_agnus_ocs::BlitterBus for RamBus<'_> {
     }
 }
 
-/// Drive a started blit one op per call via the per-CCK path. Returns
-/// total ops; asserts completion is reported exactly once and the
-/// blitter clears.
+/// Drive a started blit one accepted CCK per call via the per-CCK path.
+/// Returns the channel-operation count; asserts that the two shared startup
+/// CCKs precede those operations, completion is reported exactly once, and
+/// the blitter clears.
 fn run_blit_incremental(agnus: &mut Agnus, ram: &TestRam) -> u32 {
     let mut bus = RamBus(ram);
-    let mut ops = 0u32;
+    let operation_count = agnus.blitter_ccks_remaining;
+    let mut accepted_ccks = 0u32;
     loop {
         let done = agnus.tick_blitter_dma(&mut bus);
-        ops += 1;
+        accepted_ccks += 1;
         if done {
             break;
         }
-        if ops > 10_000 {
+        if accepted_ccks > 10_000 {
             panic!("incremental blit runaway");
         }
     }
+    assert_eq!(
+        accepted_ccks,
+        operation_count + 2,
+        "incremental drain must include exactly two startup CCKs",
+    );
     assert!(
         !agnus.blitter_busy,
         "blitter must clear when the incremental blit completes"
     );
-    ops
+    operation_count
 }
 
 /// Run `setup` through both the synchronous and the incremental paths

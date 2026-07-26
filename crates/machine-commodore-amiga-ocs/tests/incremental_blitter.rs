@@ -2,11 +2,12 @@
 //! machine tick loop.
 //!
 //! The blitter no longer completes instantly on the BLTSIZE write — it
-//! drains one DMA op per granted CCK while the machine ticks, BBUSY
-//! (DMACONR bit 14) stays asserted until it finishes, and INT_BLIT
+//! consumes two startup outcomes followed by at most one DMA operation
+//! per granted CCK while the machine ticks. On this later original Agnus,
+//! BBUSY (DMACONR bit 14) stays asserted until it finishes and INT_BLIT
 //! fires on completion. These checks drive a real A→D copy through the
-//! public bus (`poke_word`) and tick the machine to completion, the
-//! same path a `WaitBlit` loop would exercise.
+//! public bus (`poke_word`) and tick the machine to completion, the same
+//! path a `WaitBlit` loop would exercise.
 
 use machine_commodore_amiga_ocs::AmigaOcs;
 

@@ -114,6 +114,11 @@ envelope.
 Schema version 15 later adds installed original-Agnus revision identity and
 the line-held hard-blank force-off state, as recorded in
 [Original Agnus hard vertical-blank close](amiga-original-agnus-hard-vertical-blank.md).
+Schema version 16 then adds the shared two-CCK blitter-startup phase and
+the pending Copper `WAIT`/`SKIP` discriminator, as recorded in
+[Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)
+and
+[Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md).
 
 ## Deferred behaviour
 

@@ -58,6 +58,32 @@ fn a1000_queries_report_bootstrap_state() {
     assert_eq!(wom_locked.value, json!(false));
 }
 
+#[test]
+fn a1000_blitter_queries_distinguish_internal_activity_from_visible_busy() {
+    let mut runtime = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
+        .expect("runtime init");
+    runtime.machine_mut().poke_word(0x00DF_F040, 0x0000);
+    runtime.machine_mut().poke_word(0x00DF_F058, (1 << 6) | 1);
+
+    let provider = AmigaSessionQueryProvider;
+    let internal = provider
+        .query(&runtime, "blitter.busy")
+        .expect("query succeeds")
+        .expect("path present");
+    let visible = provider
+        .query(&runtime, "blitter.busy_visible")
+        .expect("query succeeds")
+        .expect("path present");
+    let startup = provider
+        .query(&runtime, "blitter.startup_ccks_remaining")
+        .expect("query succeeds")
+        .expect("path present");
+
+    assert_eq!(internal.value, json!(true));
+    assert_eq!(visible.value, json!(false));
+    assert_eq!(startup.value, json!(2));
+}
+
 /// Walk every advertised path against a freshly-constructed runtime.
 /// Each concrete path resolves; the dispatcher's no-match arm is
 /// covered by `unknown_path_returns_ok_none`. Drives the whole match

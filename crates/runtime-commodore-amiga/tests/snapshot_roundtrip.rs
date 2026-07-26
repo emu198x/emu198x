@@ -34,6 +34,16 @@ use emu198x_shell::{
 use format_commodore_amiga_adf::ADF_SIZE_DD;
 use runtime_commodore_amiga::{AmigaEcsRuntime, AmigaOcsRuntime, Model};
 
+const BLTCON0: u32 = 0x00DF_F040;
+const BLTSIZE: u32 = 0x00DF_F058;
+const COP1LCH: u32 = 0x00DF_F080;
+const COP1LCL: u32 = 0x00DF_F082;
+const COPJMP1: u32 = 0x00DF_F088;
+const DMACON: u32 = 0x00DF_F096;
+const INTREQ: u32 = 0x00DF_F09C;
+const DMACON_SET_DMA_BLITTER_NASTY: u16 = 0x8640;
+const INT_BLIT: u16 = 0x0040;
+
 fn blank_kickstart() -> Vec<u8> {
     let mut kickstart = vec![0u8; 256 * 1024];
     // Minimal reset vector — supervisor stack at $00080000, PC at the
@@ -667,6 +677,243 @@ fn a1000_hard_vertical_blank_identity_survives_postcard_round_trip() -> Result<(
 }
 
 #[test]
+fn a1000_blitter_startup_phase_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    {
+        let machine = original.machine_mut();
+        machine.poke_word(BLTCON0, 0x01FF); // USED | D := 1
+        machine.poke_word(BLTSIZE, (1 << 6) | 1);
+        // A following blitter-register write serializes behind the first blit,
+        // giving the new blit a known preceding non-zero BZERO result.
+        machine.poke_word(BLTCON0, 0);
+        machine.poke_word(INTREQ, INT_BLIT); // clear first-blit completion
+        assert!(!machine.agnus().blitter_dzero);
+        machine.poke_word(BLTSIZE, (1 << 6) | 1);
+    }
+
+    assert!(original.machine().agnus().blitter_busy);
+    assert!(!original.machine().agnus().blitter_busy_visible());
+    assert!(
+        !original.machine().agnus().blitter_dzero,
+        "BLTSIZE must preserve the preceding non-zero BZERO result",
+    );
+    assert_eq!(
+        original.machine().agnus().blitter_startup_ccks_remaining(),
+        2,
+    );
+    assert_eq!(original.machine().intreq() & INT_BLIT, 0);
+
+    let before_first_cck = original.snapshot()?;
+    let mut restored_before =
+        AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    restored_before.restore(&before_first_cck)?;
+    assert_eq!(before_first_cck, restored_before.snapshot()?);
+    assert!(restored_before.machine().agnus().blitter_busy);
+    assert!(!restored_before.machine().agnus().blitter_busy_visible());
+    assert!(!restored_before.machine().agnus().blitter_dzero);
+    assert_eq!(
+        restored_before
+            .machine()
+            .agnus()
+            .blitter_startup_ccks_remaining(),
+        2,
+    );
+
+    for runtime in [&mut original, &mut restored_before] {
+        runtime
+            .machine_mut()
+            .poke_word(DMACON, DMACON_SET_DMA_BLITTER_NASTY);
+    }
+    let mut guard = 0;
+    while original.machine().agnus().blitter_startup_ccks_remaining() == 2 {
+        original.machine_mut().tick();
+        restored_before.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 1_000, "A1000 never accepted its first startup CCK");
+        assert_eq!(
+            original.machine().agnus().blitter_startup_ccks_remaining(),
+            restored_before
+                .machine()
+                .agnus()
+                .blitter_startup_ccks_remaining(),
+        );
+    }
+
+    assert_eq!(
+        original.machine().agnus().blitter_startup_ccks_remaining(),
+        1,
+    );
+    assert!(original.machine().agnus().blitter_busy_visible());
+    assert!(
+        original.machine().agnus().blitter_dzero,
+        "first accepted startup CCK must reload BZERO",
+    );
+    assert_eq!(original.machine().agnus().blitter_ccks_remaining, 1);
+    assert_eq!(original.machine().intreq() & INT_BLIT, 0);
+    assert_eq!(original.snapshot()?, restored_before.snapshot()?);
+
+    let after_first_cck = original.snapshot()?;
+    let mut restored_after = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    restored_after.restore(&after_first_cck)?;
+    assert_eq!(after_first_cck, restored_after.snapshot()?);
+    assert!(restored_after.machine().agnus().blitter_busy_visible());
+    assert!(restored_after.machine().agnus().blitter_dzero);
+    assert_eq!(
+        restored_after
+            .machine()
+            .agnus()
+            .blitter_startup_ccks_remaining(),
+        1,
+    );
+    assert_eq!(restored_after.machine().agnus().blitter_ccks_remaining, 1);
+    assert_eq!(restored_after.machine().intreq() & INT_BLIT, 0);
+
+    while original.machine().agnus().blitter_busy {
+        original.machine_mut().tick();
+        restored_after.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 2_000, "A1000 blit never completed");
+        assert_eq!(
+            original.machine().agnus().blitter_busy,
+            restored_after.machine().agnus().blitter_busy,
+        );
+    }
+    assert!(!original.machine().agnus().blitter_busy_visible());
+    assert_ne!(original.machine().intreq() & INT_BLIT, 0);
+    assert_eq!(
+        original.snapshot()?,
+        restored_after.snapshot()?,
+        "restored mid-startup state must complete on the same CCK",
+    );
+    Ok(())
+}
+
+#[test]
+fn pending_copper_skip_kind_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    {
+        let machine = original.machine_mut();
+        machine.poke_word(BLTCON0, 0);
+        machine.poke_word(BLTSIZE, (1 << 6) | 1);
+        machine.poke_word(0x0000_1000, 0x0001); // matching SKIP
+        machine.poke_word(0x0000_1002, 0x7FFF); // BFD=0
+        machine.poke_word(0x0000_1004, 0x0180); // MOVE COLOR00
+        machine.poke_word(0x0000_1006, 0x0F00);
+        machine.poke_word(0x0000_1008, 0xFFFF);
+        machine.poke_word(0x0000_100A, 0xFFFE);
+        machine.poke_word(COP1LCH, 0);
+        machine.poke_word(COP1LCL, 0x1000);
+        machine.poke_word(COPJMP1, 0);
+        machine.poke_word(DMACON, 0x8280); // SETCLR | DMAEN | COPEN
+    }
+
+    let mut guard = 0;
+    while !original.machine().copper().pending_wait_delay {
+        original.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 1_000, "Copper never decoded the SKIP");
+    }
+    assert!(original.machine().copper().pending_wait_is_skip);
+    assert_eq!(original.machine().copper().pc, 0x1004);
+    assert!(!original.machine().agnus().blitter_busy_visible());
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    restored.restore(&snapshot)?;
+    assert_eq!(snapshot, restored.snapshot()?);
+    assert!(restored.machine().copper().pending_wait_delay);
+    assert!(
+        restored.machine().copper().pending_wait_is_skip,
+        "the pending comparison must restore as SKIP rather than WAIT",
+    );
+    assert_eq!(restored.machine().copper().pc, 0x1004);
+
+    for runtime in [&mut original, &mut restored] {
+        runtime.machine_mut().poke_word(DMACON, 0x0080); // clear COPEN
+        runtime
+            .machine_mut()
+            .poke_word(DMACON, DMACON_SET_DMA_BLITTER_NASTY);
+    }
+    while original.machine().agnus().blitter_startup_ccks_remaining() == 2 {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 2_000, "A1000 never accepted its first startup CCK");
+    }
+    assert!(original.machine().agnus().blitter_busy_visible());
+    assert!(restored.machine().agnus().blitter_busy_visible());
+    assert!(original.machine().copper().pending_wait_is_skip);
+    assert!(restored.machine().copper().pending_wait_is_skip);
+
+    for runtime in [&mut original, &mut restored] {
+        runtime.machine_mut().poke_word(DMACON, 0x8080); // SETCLR | COPEN
+    }
+    for _ in 0..64 {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+    }
+    assert_eq!(original.machine().color(0) & 0x0FFF, 0x0F00);
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "restored pending SKIP must sample the same post-restore BBUSY transition",
+    );
+    Ok(())
+}
+
+#[test]
+fn ecs_blitter_startup_phase_survives_nested_snapshot() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    original.machine_mut().poke_word(BLTCON0, 0);
+    original.machine_mut().poke_word(BLTSIZE, (1 << 6) | 1);
+    original
+        .machine_mut()
+        .poke_word(DMACON, DMACON_SET_DMA_BLITTER_NASTY);
+
+    assert!(
+        original.machine().agnus().blitter_busy_visible(),
+        "enhanced Agnus must expose BBUSY immediately",
+    );
+    let mut guard = 0;
+    while original.machine().agnus().blitter_startup_ccks_remaining() == 2 {
+        original.machine_mut().tick();
+        guard += 1;
+        assert!(
+            guard < 1_000,
+            "enhanced Agnus never accepted its first startup CCK",
+        );
+    }
+    assert_eq!(
+        original.machine().agnus().blitter_startup_ccks_remaining(),
+        1,
+    );
+    assert_eq!(original.machine().agnus().blitter_ccks_remaining, 1);
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    restored.restore(&snapshot)?;
+    assert_eq!(snapshot, restored.snapshot()?);
+    assert_eq!(
+        restored.machine().agnus().blitter_startup_ccks_remaining(),
+        1,
+    );
+    assert!(restored.machine().agnus().blitter_busy_visible());
+
+    while original.machine().agnus().blitter_busy {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 2_000, "enhanced Agnus blit never completed");
+    }
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "nested enhanced-Agnus startup state must continue deterministically",
+    );
+    Ok(())
+}
+
+#[test]
 fn ocs_closed_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
     let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     {
@@ -994,10 +1241,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 14, and confirm the version-mismatch arm fires with a
+/// field back to 15, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV15` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 15` that byte is `0x0F`.
+/// of a `SnapshotEnvelopeV16` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 16` that byte is `0x10`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -1006,20 +1253,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 15,
-        "postcard varint for SNAPSHOT_VERSION = 15 should be 0x0F"
+        bytes[0], 16,
+        "postcard varint for SNAPSHOT_VERSION = 16 should be 0x10"
     );
-    bytes[0] = 14;
+    bytes[0] = 15;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-14 snapshot should be rejected before payload decode");
+        .expect_err("version-15 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 14; expected 15"
+                if reason == "unsupported snapshot version 15; expected 16"
         ),
         "expected version-mismatch reason, got {err:?}"
     );

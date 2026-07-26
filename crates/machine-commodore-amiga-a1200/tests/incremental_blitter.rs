@@ -2,8 +2,9 @@
 //! (AGA) machine tick loop, via the ECS/AGA large-blit start path
 //! (BLTSIZV/BLTSIZH at $05C/$05E).
 //!
-//! The blit drains one DMA op per granted CCK, BBUSY stays asserted in
-//! DMACONR until it finishes, and INT_BLIT fires on completion.
+//! The blit consumes two startup outcomes followed by at most one DMA
+//! operation per granted CCK. BBUSY stays asserted in DMACONR until it
+//! finishes, and INT_BLIT fires on completion.
 
 use machine_commodore_amiga_a1200::AmigaA1200;
 

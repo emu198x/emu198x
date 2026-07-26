@@ -519,9 +519,18 @@ Tracked but not blocking.
 
 ### Copper wait-with-blitter-priority
 
-The exact cycle the copper resumes after a `WAIT` that coincides
-with a blitter-priority frame is a known accuracy edge. Not blocking
-catalogue entries.
+The blitter-start side is now bounded: Copper `WAIT` and `SKIP` consume
+the externally visible busy signal, BFD applies to both instructions,
+the comparison samples that signal after instruction fetch, and the
+A1000 exposes busy on its first accepted startup CCK. See
+[Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)
+and
+[Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md).
+
+The exact completion-side cycle on which the Copper resumes after a
+`WAIT`, including the revision-specific relationship between Copper and
+`DMACONR` busy deassertion, remains a known accuracy edge. It does not
+block catalogue entries.
 
 ### CIA SP / SDR shift register
 
@@ -617,6 +626,10 @@ In order of leverage for unblocking the full Amiga family:
   runtime layer the seam fixes build on
 - [`amiga-port-plan.md`](amiga-port-plan.md) — staged port plan
   the OCS / ECS / AGA progression follows
+- [Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)
+  — shared startup pipeline, visible busy and Copper BFD boundary
+- [Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md)
+  — post-fetch beam and visible-busy sampling boundary
 - [`october-catalogue.md`](october-catalogue.md) — Amiga is
   engineering-bar; no October deadline
 

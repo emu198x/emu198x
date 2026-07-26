@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Feed the revision-correct visible blitter-busy signal to Copper `WAIT` and
+  `SKIP`, apply BFD's blitter-idle condition to both instructions, and defer
+  `SKIP` comparison until the post-fetch decision phase
 - Consume original Agnus's frozen hard-stop grants without reconstructing
   a separate Denise-side DDF limit
 - Keep Denise fetch, pointer and pixel integration aligned with Agnus's

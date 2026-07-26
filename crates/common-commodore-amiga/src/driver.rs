@@ -245,8 +245,11 @@ pub trait AmigaDriver {
                 // the non-Denise ones.
                 let vpos = self.agnus().vpos;
                 let hpos = self.agnus().hpos;
-                // BFD=0 copper WAITs block on the live blitter (#33).
-                let blitter_busy = self.agnus().blitter_busy;
+                // Copper WAIT/SKIP BFD=0 sees the externally visible
+                // blitter-busy signal. A1000 Agnus delays that signal until
+                // its first accepted/free progress CCK; internal arbitration
+                // remains busy from BLTSIZE onward.
+                let blitter_busy = self.agnus().blitter_busy_visible();
                 if let Some((reg, val)) =
                     self.copper_tick_cck(vpos, hpos, copper_slot_granted, blitter_busy)
                 {
@@ -264,11 +267,12 @@ pub trait AmigaDriver {
             let bus_plan = self.agnus_bus_plan();
             bitplane_dma_fetch_plane = bus_plan.bitplane_dma_fetch_plane;
 
-            // ── Blitter DMA — one op per granted CCK (#31). A blit now
-            // consumes real chip cycles and contends for the bus rather
-            // than finishing instantly on the BLTSIZE write; BBUSY
-            // (DMACONR bit 14) stays set until it drains. INT_BLIT fires
-            // on the CCK that drains the last op.
+            // ── Blitter DMA — one startup outcome or channel op per
+            // granted CCK (#31). A blit consumes real chip cycles and
+            // contends for the bus rather than finishing instantly on the
+            // BLTSIZE write. Later chips expose BBUSY immediately; A1000
+            // does so after the first accepted startup CCK. INT_BLIT fires
+            // on the CCK that drains the last operation.
             if bus_plan.blitter_dma_progress_granted && self.blitter_dma_step() {
                 self.paula_mut().raise(IntSource::Blit);
             }

@@ -1218,9 +1218,9 @@ impl AmigaEcs {
             }
             0x05E => {
                 // BLTSIZH starts the ECS large blit; `write_bltsizh`
-                // arms the incremental scheduler. The blit then drains
-                // one DMA op per granted CCK in the tick loop (#31)
-                // instead of completing here.
+                // arms the incremental scheduler. Each granted CCK then
+                // consumes a startup outcome or one DMA operation in the
+                // tick loop (#31) instead of completing here.
                 self.drain_blit_if_busy();
                 self.agnus.write_bltsizh(val);
                 self.debug_blit_starts += 1;
@@ -1237,10 +1237,10 @@ impl AmigaEcs {
                 ));
             }
             // Agnus-owned blitter registers. BLTSIZE ($058) arms the
-            // incremental scheduler via `start_blit`; the blit drains
-            // one DMA op per granted CCK in the tick loop (#31). A
-            // register write that lands mid-blit drains the in-flight
-            // blit first (hardware CPU-stall serialization).
+            // incremental scheduler via `start_blit`; each granted CCK
+            // consumes a startup outcome or one DMA operation in the tick
+            // loop (#31). A register write that lands mid-blit drains the
+            // in-flight blit first (hardware CPU-stall serialization).
             0x040..=0x074 => {
                 self.drain_blit_if_busy();
                 if self.agnus.write_blitter_register(offset, val) && offset == 0x058 {
@@ -2485,7 +2485,16 @@ mod bus_plan_dispatch_tests {
         amiga.tick();
 
         assert_eq!(amiga.agnus.hpos, 0x0023);
-        assert!(!amiga.agnus.blitter_busy);
-        assert_eq!(amiga.memory.read_chip_ram_word(dst), 0xFFFF);
+        assert!(amiga.agnus.blitter_busy);
+        assert_eq!(
+            amiga.agnus.blitter_startup_ccks_remaining(),
+            1,
+            "the demoted slot must admit the first shared startup CCK",
+        );
+        assert_eq!(
+            amiga.memory.read_chip_ram_word(dst),
+            0,
+            "startup progress must not perform the pending D operation",
+        );
     }
 }

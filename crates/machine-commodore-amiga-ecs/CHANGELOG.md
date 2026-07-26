@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Consume the shared two accepted blitter-startup CCKs before the first
+  channel operation while retaining immediate enhanced-chip BBUSY visibility
 - Apply the enhanced `$D8` bitplane-DMA stop and horizontal hard-limit
   bypass policy through the native ECS machine loop
 - Resolve the DDFSTOP comparator before a same-CCK Copper MOVE, so an

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Consume the shared two accepted blitter-startup CCKs before the first
+  Alice channel operation while retaining immediate BBUSY visibility
 - Apply the enhanced `$D8` bitplane-DMA stop and horizontal hard-limit
   bypass policy through the Alice machine loop
 - Preserve Alice's observed ordinary DDFSTOP and pending current-line

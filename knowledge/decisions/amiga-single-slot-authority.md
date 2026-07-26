@@ -68,6 +68,13 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   `Copper::tick_cck`; the copper no longer computes its own parity.
 - `service_cpu_bus` consumes the plan's explicit CPU grant, including
   blitter-nasty ownership, while preserving the parked-Copper fallthrough.
+- A just-started blit consumes two accepted startup CCKs before its first
+  channel operation. An accepted startup CCK is a CPU/free cell for which
+  the same plan asserts `blitter_dma_progress_granted`; disabled blitter DMA
+  or a higher-priority owner holds the phase. Internal busy participates in
+  arbitration immediately, while A1000-visible BBUSY is a separate signal.
+  The startup and signal rules are defined in
+  [Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md).
 - OCS bitplane vertical eligibility is part of the Agnus plan, not a
   Denise-side fetch gate. Original Agnus preserves it as a serialized
   VSTART/VSTOP latch; it is not reconstructed as a circular range from live
@@ -210,4 +217,6 @@ If I catch myself proposing any of these, stop and re-read the "Why".
 - [Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md)
 - [Original Agnus DDF hard-stop terminal policy](amiga-ocs-ddf-hard-stop.md)
 - [Original Agnus cross-line DDF hard-start gate](amiga-ocs-ddf-hard-start-gate.md)
+- [Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)
+- [Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md)
 - [Amiga sprite DMA lifecycle](amiga-sprite-dma-lifecycle.md)

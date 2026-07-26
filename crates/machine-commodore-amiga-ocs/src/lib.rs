@@ -1332,13 +1332,14 @@ impl AmigaOcs {
             }
             // Agnus-owned blitter registers. BLTSIZE ($058) fires
             // `start_blit` inside `write_blitter_register`, arming the
-            // incremental scheduler; the blit then drains one DMA op per
-            // granted CCK in the tick loop (#31) — BBUSY stays set in
-            // DMACONR until it finishes — instead of completing here.
+            // incremental scheduler; the blit then consumes one startup
+            // outcome or DMA operation per granted CCK in the tick loop
+            // (#31) instead of completing here. DMACONR BBUSY follows the
+            // installed Agnus revision's externally visible timing.
             //
             // Real Agnus CPU-stalls a blitter-register write that lands
-            // while a blit is in flight (BBUSY) until the blitter is
-            // free. We approximate that serialization by draining the
+            // while a blit is internally active until the blitter is free.
+            // We approximate that serialization by draining the
             // in-flight blit before applying the write, so code that
             // reprograms the blitter without an intervening WaitBlit
             // still sees the first blit complete rather than have it

@@ -91,9 +91,10 @@ unchanged.
 
 ## Save-state compatibility
 
-The revision identity and held force-off state change every nested Amiga
-machine postcard. The Amiga runtime envelope advances to schema version 15
-and rejects version 14 before payload decoding.
+The revision identity and held force-off state changed every nested Amiga
+machine postcard. When this state was introduced, the Amiga runtime envelope
+advanced to schema version 15 and rejected version 14 before payload
+decoding.
 
 A version-14 A1000 snapshot contains regional VPOSR identity, beam position
 and display-window history, but cannot say that line zero rather than the
@@ -105,6 +106,12 @@ Raw postcards of `Agnus`, `AgnusEcs`, `AgnusAga`,
 `AmigaOcsSnapshot`, `AmigaEcsSnapshot` and `AmigaA1200Snapshot` remain
 unversioned and change positional layout. Durable save states must use the
 versioned runtime envelope.
+
+Schema version 16 later adds the shared Agnus blitter-startup phase and
+the pending Copper `WAIT`/`SKIP` discriminator, as recorded in
+[Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)
+and
+[Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md).
 
 ## Deferred behaviour
 
@@ -148,5 +155,7 @@ Hermetic tests cover:
 - [Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md)
 - [Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
+- [Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)
+- [Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md)
 - [Amiga sprite DMA lifecycle](amiga-sprite-dma-lifecycle.md)
 - [Live-machine save-state serialization](savestate-live-machine-serde.md)

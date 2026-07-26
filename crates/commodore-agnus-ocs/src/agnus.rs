@@ -74,11 +74,14 @@ pub enum AgnusRegion {
 ///
 /// The VPOSR identity bits distinguish PAL from NTSC but do not distinguish
 /// the A1000's 8361/8367 Agnus from the later 8370/8371 original Agnus.
-/// Their hard vertical-blank close occurs on different physical lines, so
-/// machine construction and snapshots must carry that identity separately.
+/// Their hard vertical-blank close occurs on different physical lines, and
+/// only the A1000 revision delays externally visible blitter busy until its
+/// first accepted startup CCK. Machine construction and snapshots must
+/// therefore carry that identity separately.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OriginalAgnusRevision {
-    /// 8361/8367 as installed in the A1000: hard close on line zero.
+    /// 8361/8367 as installed in the A1000: hard close on line zero and
+    /// delayed visible blitter busy.
     A1000,
     /// 8370/8371 as installed in later original-chipset machines: hard close
     /// on the final physical line of the field.
@@ -371,6 +374,19 @@ pub enum BlitterDmaOp {
     Internal,
 }
 
+/// Result of offering one CCK to the blitter scheduler.
+///
+/// `Startup` is distinct from `NoProgress`: it consumes one of the two
+/// accepted/free startup CCKs shared by every supported Agnus/Alice revision,
+/// but deliberately does not service the pending channel operation.
+#[must_use = "the scheduler outcome distinguishes a withheld CCK, startup progress, and a serviced operation"]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlitterProgress {
+    NoProgress,
+    Startup,
+    Operation(BlitterDmaOp),
+}
+
 /// Per-word blitter state machine: tracks which channel accesses still need
 /// servicing for the current word. Replaces the pre-built VecDeque queue so
 /// that individual channel accesses can be granted in any order (with the
@@ -533,11 +549,22 @@ pub struct Agnus {
     pub bltsize: u16,
     pub bltsizv_ecs: u16,
     pub bltsizh_ecs: u16,
+    /// Internal blitter activity. This becomes true as soon as a blit starts
+    /// so arbitration, nasty mode and completion draining can react
+    /// immediately, even on the A1000 revision whose external BBUSY signal
+    /// has a one-progress-CCK startup delay.
     pub blitter_busy: bool,
+    /// Accepted/free startup CCKs remaining before the first channel op.
+    ///
+    /// All supported revisions share the two-CCK startup pipeline. The A1000
+    /// additionally keeps external BBUSY clear while this is `2`, then asserts
+    /// it when the first accepted startup CCK decrements the value to `1`.
+    blitter_startup_ccks_remaining: u8,
     pub blitter_exec_pending: bool,
     /// Running NOR of every D word the current blit has written: stays
     /// `true` while all results are zero, cleared on the first non-zero
-    /// D word. Read out as DMACONR BZERO (bit 13). Reset at `start_blit`.
+    /// D word. Read out as DMACONR BZERO (bit 13). The previous result is
+    /// preserved at `start_blit`, then reset on the first accepted startup CCK.
     pub blitter_dzero: bool,
     /// Effective blit height (rows for area mode, length for line mode):
     /// the legacy BLTSIZE `>>6` field (0→1024) or, for an ECS large
@@ -692,6 +719,7 @@ impl Agnus {
             bltsizv_ecs: 0,
             bltsizh_ecs: 0,
             blitter_busy: false,
+            blitter_startup_ccks_remaining: 0,
             blitter_exec_pending: false,
             blitter_dzero: true,
             blt_height: 0,
@@ -785,7 +813,7 @@ impl Agnus {
     ///
     /// PAL/NTSC VPOSR identity and beam totals remain region-selected. The
     /// separate revision identity selects the A1000 line-zero hard
-    /// vertical-blank close.
+    /// vertical-blank close and delayed visible blitter-busy signal.
     #[must_use]
     pub fn new_a1000_with_region(region: AgnusRegion) -> Self {
         let mut agnus = Self::new_with_region(region);
@@ -905,10 +933,36 @@ impl Agnus {
         self.blitter_busy && self.dma_enabled(DMACON_BLTEN) && (self.dmacon & DMACON_BLTPRI) != 0
     }
 
-    /// Start a coarse per-CCK blitter completion timer.
+    /// Whether software-visible blitter busy is asserted.
     ///
-    /// This preserves `blitter_busy` across CCKs so bus arbitration can react
-    /// to the blitter before the existing synchronous blit implementation runs.
+    /// Internal activity begins immediately on every Agnus revision. The
+    /// 8361/8367 installed in the A1000 delays only its externally visible
+    /// BBUSY signal until the first accepted/free blitter progress CCK. This
+    /// accessor is therefore the source for both DMACONR.BBUSY and Copper
+    /// BFD=0 synchronization; arbitration and diagnostics use
+    /// [`Agnus::blitter_busy`] directly.
+    #[must_use]
+    pub fn blitter_busy_visible(&self) -> bool {
+        self.blitter_busy
+            && !(self.delays_visible_blitter_busy() && self.blitter_startup_ccks_remaining == 2)
+    }
+
+    /// Accepted startup CCKs remaining before the first channel operation.
+    ///
+    /// This is diagnostic state. A value of `2` is the just-started state,
+    /// `1` means the first startup CCK has been accepted, and `0` admits
+    /// normal A/B/C/D/internal operations.
+    #[must_use]
+    pub const fn blitter_startup_ccks_remaining(&self) -> u8 {
+        self.blitter_startup_ccks_remaining
+    }
+
+    #[must_use]
+    fn delays_visible_blitter_busy(&self) -> bool {
+        self.agnus_id < 0x2000 && self.original_revision == OriginalAgnusRevision::A1000
+    }
+
+    /// Start a legacy-BLTSIZE blit and arm its incremental CCK scheduler.
     pub fn start_blit(&mut self) {
         // Legacy BLTSIZE encoding: V in bits 15-6 (0 → 1024 lines), H in
         // bits 5-0 (0 → 64 words).
@@ -933,8 +987,8 @@ impl Agnus {
         self.blt_height = height;
         self.blt_width_words = width_words;
         self.blitter_busy = true;
+        self.blitter_startup_ccks_remaining = 2;
         self.blitter_exec_pending = true;
-        self.blitter_dzero = true; // BZERO accumulates from "all zero"
         self.init_incremental_blitter_runtime();
         self.init_blitter_word_state();
         self.blitter_ccks_remaining = self.count_total_blitter_ops();
@@ -974,10 +1028,11 @@ impl Agnus {
         None
     }
 
-    /// Grant a blitter DMA operation, marking the channel as serviced.
+    /// Service one channel operation after the shared startup phase.
     ///
-    /// Called by the machine tick loop when a blitter slot is available.
-    pub fn grant_blitter_dma_op(&mut self, op: BlitterDmaOp) {
+    /// Startup consumption belongs to [`Agnus::tick_blitter_scheduler_op`],
+    /// keeping this low-level mutation operation-only.
+    fn consume_blitter_dma_op(&mut self, op: BlitterDmaOp) {
         if let Some(ws) = &mut self.blitter_word_state {
             match op {
                 BlitterDmaOp::ReadA => ws.need_a = false,
@@ -1033,18 +1088,29 @@ impl Agnus {
         true
     }
 
-    /// Consume one blitter DMA timing op if progress is granted.
+    /// Consume one accepted/free blitter progress CCK.
     ///
-    /// Queries the word state machine for the next requested op and grants it.
-    /// The caller is responsible for executing the op against the incremental
-    /// runtime and calling `advance_blitter_word()` when the word completes.
-    pub fn tick_blitter_scheduler_op(&mut self, progress_this_cck: bool) -> Option<BlitterDmaOp> {
+    /// The first two accepted CCKs report [`BlitterProgress::Startup`] and do
+    /// not service the pending operation. The first of those CCKs reloads
+    /// BZERO. Once startup is drained, the caller is responsible for executing
+    /// each returned operation against the incremental runtime and calling
+    /// [`Agnus::advance_blitter_word`] when the word completes.
+    pub fn tick_blitter_scheduler_op(&mut self, progress_this_cck: bool) -> BlitterProgress {
         if !progress_this_cck {
-            return None;
+            return BlitterProgress::NoProgress;
         }
-        let op = self.next_blitter_dma_request()?;
-        self.grant_blitter_dma_op(op);
-        Some(op)
+        let Some(op) = self.next_blitter_dma_request() else {
+            return BlitterProgress::NoProgress;
+        };
+        if self.blitter_startup_ccks_remaining != 0 {
+            self.blitter_startup_ccks_remaining -= 1;
+            if self.blitter_startup_ccks_remaining == 1 {
+                self.blitter_dzero = true;
+            }
+            return BlitterProgress::Startup;
+        }
+        self.consume_blitter_dma_op(op);
+        BlitterProgress::Operation(op)
     }
 
     /// Advance the blitter scheduler by one CCK and report completion.
@@ -1055,13 +1121,18 @@ impl Agnus {
     /// one-call progress step rather than driving the op-by-op
     /// protocol manually.
     pub fn tick_blitter_scheduler(&mut self, progress_this_cck: bool) -> bool {
-        if self.tick_blitter_scheduler_op(progress_this_cck).is_none() {
+        if !matches!(
+            self.tick_blitter_scheduler_op(progress_this_cck),
+            BlitterProgress::Operation(_)
+        ) {
             return false;
         }
         // Check if the word is complete after granting an op.
         if self.blitter_word_complete() {
             if self.blitter_ccks_remaining == 0 {
                 self.blitter_word_state = None;
+                self.blitter_busy = false;
+                self.blitter_startup_ccks_remaining = 0;
                 self.blitter_exec_pending = false;
                 self.blitter_line_runtime = None;
                 self.blitter_area_runtime = None;
@@ -1072,9 +1143,11 @@ impl Agnus {
         false
     }
 
-    /// Clear the blitter scheduler state after the blit core executes.
+    /// Clear all scheduler and internal activity state.
     pub fn clear_blitter_scheduler(&mut self) {
         self.blitter_word_state = None;
+        self.blitter_busy = false;
+        self.blitter_startup_ccks_remaining = 0;
         self.blitter_exec_pending = false;
         self.blitter_ccks_remaining = 0;
         self.blitter_line_runtime = None;
@@ -2478,8 +2551,14 @@ impl Agnus {
     /// so only one direction of the bus is borrowed at a time.
     pub fn run_blit_to_completion(&mut self, bus: &mut dyn BlitterBus) {
         let mut guard = 0u32;
-        while let Some(op) = self.next_blitter_dma_request() {
-            self.grant_blitter_dma_op(op);
+        while self.next_blitter_dma_request().is_some() {
+            guard += 1;
+            let BlitterProgress::Operation(op) = self.tick_blitter_scheduler_op(true) else {
+                if guard > 1_000_000 {
+                    break;
+                }
+                continue;
+            };
             let done = match op {
                 BlitterDmaOp::WriteD => self.execute_incremental_blitter_op(
                     op,
@@ -2492,35 +2571,40 @@ impl Agnus {
             if self.blitter_word_complete() && !done {
                 self.advance_blitter_word();
             }
-            guard += 1;
             if guard > 1_000_000 {
                 break;
             }
         }
         self.blitter_busy = false;
+        self.blitter_startup_ccks_remaining = 0;
     }
 
-    /// Service exactly one granted blitter DMA op against the chip bus —
-    /// the per-CCK counterpart to [`Agnus::run_blit_to_completion`]. The
-    /// machine calls this once on each CCK the bus plan grants the
-    /// blitter (`CckBusPlan::blitter_dma_progress_granted`), so a blit
-    /// consumes real chip cycles and contends for the bus instead of
-    /// finishing instantly on the BLTSIZE write.
+    /// Consume exactly one granted blitter progress outcome against the chip
+    /// bus — the per-CCK counterpart to [`Agnus::run_blit_to_completion`].
+    /// The first two calls after a start consume shared startup CCKs without
+    /// servicing a channel operation. Later calls service at most one
+    /// operation. The machine calls this once on each CCK the bus plan grants
+    /// the blitter (`CckBusPlan::blitter_dma_progress_granted`), so a blit
+    /// consumes real chip cycles and contends for the bus instead of finishing
+    /// instantly on the BLTSIZE write.
     ///
     /// Returns `true` on the CCK that drains the last op — the caller
     /// raises INT_BLIT. The body mirrors `run_blit_to_completion`'s loop
-    /// exactly; the only difference is one op per call instead of a
-    /// drain-to-completion loop. An equivalence test
+    /// exactly; the only difference is one startup/operation outcome per call
+    /// instead of a drain-to-completion loop. An equivalence test
     /// (`incremental_drain_matches_synchronous_blit`) pins that the two
     /// paths produce byte-identical chip-RAM output.
     pub fn tick_blitter_dma(&mut self, bus: &mut dyn BlitterBus) -> bool {
-        let Some(op) = self.next_blitter_dma_request() else {
-            // Caller only ticks us while busy; no pending op means the
-            // blit is already drained — report completion once.
-            self.blitter_busy = false;
-            return true;
+        let op = match self.tick_blitter_scheduler_op(true) {
+            BlitterProgress::Startup => return false,
+            BlitterProgress::Operation(op) => op,
+            BlitterProgress::NoProgress => {
+                // Caller only ticks us while busy; no pending op means the
+                // blit is already drained — report completion once.
+                self.blitter_busy = false;
+                return true;
+            }
         };
-        self.grant_blitter_dma_op(op);
         let done = match op {
             BlitterDmaOp::WriteD => self.execute_incremental_blitter_op(
                 op,
@@ -2535,6 +2619,7 @@ impl Agnus {
         }
         if self.next_blitter_dma_request().is_none() {
             self.blitter_busy = false;
+            self.blitter_startup_ccks_remaining = 0;
             return true;
         }
         false
@@ -2566,17 +2651,16 @@ impl Agnus {
     }
 
     /// Read DMACONR ($DFF002): the stored DMACON enable/control bits
-    /// plus live blitter status. BBUSY (bit 14) is asserted while a
-    /// blit is in flight so a `WaitBlit` poll (read DMACONR until BBUSY
-    /// clears) is honoured now that blits take real chip cycles rather
-    /// than completing instantly on the BLTSIZE write (#31/#32). BZERO
-    /// (bit 13) reports whether the (last) blit produced an all-zero D
-    /// result — the signal collision/comparison blits read after
-    /// WaitBlit.
+    /// plus live blitter status. BBUSY (bit 14) follows externally visible
+    /// busy: later revisions assert it for the whole in-flight blit, while
+    /// A1000 Agnus keeps it clear until the first accepted startup CCK.
+    /// A `WaitBlit` poll then observes it until completion. BZERO (bit 13)
+    /// reports whether the current or last blit produced an all-zero D
+    /// result; a new blit reloads it on its first accepted startup CCK.
     #[must_use]
     pub fn dmaconr(&self) -> u16 {
         let mut v = self.dmacon & bits::DMACON_MASK;
-        if self.blitter_busy {
+        if self.blitter_busy_visible() {
             v |= 0x4000; // BBUSY
         }
         if self.blitter_dzero {
@@ -4135,9 +4219,17 @@ mod tests {
         assert_eq!(agnus.blitter_ccks_remaining, 2);
 
         assert!(!agnus.tick_blitter_scheduler(true));
+        assert!(!agnus.tick_blitter_scheduler(true));
+        assert_eq!(
+            agnus.blitter_ccks_remaining, 2,
+            "two accepted startup CCKs must not consume D operations",
+        );
+
+        assert!(!agnus.tick_blitter_scheduler(true));
         assert_eq!(agnus.blitter_ccks_remaining, 1);
 
         assert!(agnus.tick_blitter_scheduler(true));
+        assert!(!agnus.blitter_busy);
         assert!(!agnus.blitter_exec_pending);
         assert_eq!(agnus.blitter_ccks_remaining, 0);
     }
@@ -4156,9 +4248,9 @@ mod tests {
 
         // First word should request ReadA, then ReadC, then WriteD.
         assert_eq!(agnus.next_blitter_dma_request(), Some(BlitterDmaOp::ReadA));
-        agnus.grant_blitter_dma_op(BlitterDmaOp::ReadA);
+        agnus.consume_blitter_dma_op(BlitterDmaOp::ReadA);
         assert_eq!(agnus.next_blitter_dma_request(), Some(BlitterDmaOp::ReadC));
-        agnus.grant_blitter_dma_op(BlitterDmaOp::ReadC);
+        agnus.consume_blitter_dma_op(BlitterDmaOp::ReadC);
         assert_eq!(agnus.next_blitter_dma_request(), Some(BlitterDmaOp::WriteD));
     }
 
@@ -4176,7 +4268,7 @@ mod tests {
 
         // First line step should request ReadC, then WriteD.
         assert_eq!(agnus.next_blitter_dma_request(), Some(BlitterDmaOp::ReadC));
-        agnus.grant_blitter_dma_op(BlitterDmaOp::ReadC);
+        agnus.consume_blitter_dma_op(BlitterDmaOp::ReadC);
         assert_eq!(agnus.next_blitter_dma_request(), Some(BlitterDmaOp::WriteD));
     }
 

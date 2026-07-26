@@ -26,9 +26,10 @@
 //! Scheduling: Agnus owns the DMA-slot arbitration. The driver
 //! passes `copper_slot_granted` each CCK — true on the even free
 //! cells Agnus allocates to the copper (#30, `current_slot`). The
-//! copper consumes one granted cell per memory cycle; each MOVE /
-//! SKIP costs two, a WAIT three, so an instruction lands every
-//! ~4 wall CCKs when grants are unobstructed.
+//! copper consumes one granted cell per modeled memory cycle. MOVE
+//! fetches complete after two such cells. WAIT and SKIP compare in a
+//! following eligible decision phase so they sample the live beam and
+//! visible blitter status after instruction fetch.
 
 use crate::memory::Memory;
 use serde::{Deserialize, Serialize};
@@ -56,22 +57,26 @@ pub struct Copper {
     /// holds the WAIT while a blit is in flight (#33). When true
     /// (`BFD=1`, the common case) the blitter is ignored.
     pub wait_bfd: bool,
-    /// CCKs accumulated since last copper instruction step. MOVE and
-    /// SKIP complete in 2 eligible CCKs (HRM: "two memory cycles and
-    /// four memory clocks per instruction"). WAIT needs 3 eligible
-    /// CCKs total; see `pending_wait_delay`.
+    /// CCKs accumulated while fetching the current instruction pair.
+    /// MOVE dispatches after 2 eligible CCKs. WAIT and SKIP then enter
+    /// the shared post-decode comparison phase described by
+    /// `pending_wait_delay`.
     pub cck_phase: u8,
-    /// Post-decode one-CCK delay for WAIT. HRM: "The WAIT instruction
-    /// requires three memory cycles and six memory clocks per
-    /// instruction" — one more memory cycle than MOVE/SKIP. After
-    /// fetching + decoding a WAIT, the copper holds this extra cycle
-    /// before entering the waiting state. Fields below stash the
-    /// target / mask / bfd that will be committed when the delay
-    /// eligible-CCK arrives.
+    /// Post-decode comparison phase shared by WAIT and SKIP.
+    ///
+    /// The fields below preserve the decoded condition until the next
+    /// eligible Copper CCK, when the live beam and visible blitter-busy
+    /// inputs are sampled. WAIT may then enter its persistent waiting
+    /// state; SKIP either advances over the following instruction pair
+    /// or resumes normal fetch. This is the model's current abstraction
+    /// of the Agnus WAITSKIP decision states.
     pub pending_wait_delay: bool,
     pub pending_wait_target: u16,
     pub pending_wait_mask: u16,
     pub pending_wait_bfd: bool,
+    /// `true` when the shared pending comparison belongs to SKIP;
+    /// `false` when it belongs to WAIT.
+    pub pending_wait_is_skip: bool,
     /// Copper halted by a dangerous MOVE (register address < $80 and
     /// CDANG = 0). Per HRM + WinUAE: "if the Copper DMA attempts to
     /// write to a register below $80, the Copper DMA is stopped".
@@ -113,6 +118,7 @@ impl Copper {
         self.waiting = false;
         self.cck_phase = 0;
         self.pending_wait_delay = false;
+        self.pending_wait_is_skip = false;
         self.stopped = false;
     }
 
@@ -122,6 +128,7 @@ impl Copper {
         self.waiting = false;
         self.cck_phase = 0;
         self.pending_wait_delay = false;
+        self.pending_wait_is_skip = false;
         self.stopped = false;
     }
 
@@ -180,29 +187,34 @@ impl Copper {
             return None;
         }
 
-        // WAIT takes 3 memory cycles (HRM). The first 2 fetch + decode
-        // the instruction pair (handled by the fetch throttle below);
-        // the 3rd is the extra cycle before actually pausing. When
-        // this flag is set, the current eligible CCK is that 3rd
-        // cycle: commit the stashed target/mask and enter waiting.
+        // WAIT and SKIP compare after the instruction-pair fetch rather
+        // than at decode. When this flag is set, the current eligible
+        // CCK samples the stashed condition against the live beam and
+        // visible blitter-busy inputs.
         if self.pending_wait_delay {
-            // This eligible CCK is the WAITSKIP2 cycle (Minimig
-            // agnus_copper.v FSM: FETCH1 → FETCH2 → WAITSKIP1 →
-            // WAITSKIP2). The beam comparison happens HERE — after the
-            // word-pair fetch and the dummy cycle — not at fetch time.
+            // This is the modeled WAITSKIP decision phase. The beam
+            // comparison happens HERE, after the word-pair fetch, not
+            // at fetch time.
             // Evaluating it here is what makes the $FFDF line-255
             // crossing behave (#458): a WAIT fetched late on line 255
             // has its compare deferred to a couple of CCKs later, by
             // which the beam has wrapped to line 256 (V[7:0] = 0),
             // instead of seeing the still-$FF V[7:0] of line 255.
+            let is_skip = self.pending_wait_is_skip;
             self.pending_wait_delay = false;
+            self.pending_wait_is_skip = false;
             let satisfied = beam_match(
                 self.pending_wait_target,
                 self.pending_wait_mask,
                 beam_vp,
                 beam_hp,
             ) && (self.pending_wait_bfd || !blitter_busy);
-            if satisfied {
+            if is_skip {
+                if satisfied {
+                    self.pc = self.pc.wrapping_add(4);
+                }
+                self.cck_phase = 0;
+            } else if satisfied {
                 // Beam already at/past target (and, for BFD=0, blitter
                 // idle): the WAIT completes and the copper proceeds to
                 // fetch the next instruction.
@@ -216,8 +228,8 @@ impl Copper {
             return None;
         }
 
-        // Each MOVE / SKIP (and the fetch+decode portion of WAIT)
-        // requires two memory cycles (= two granted CCKs). In
+        // Each instruction-pair fetch requires two modeled memory
+        // cycles (= two granted CCKs). In
         // unconstrained conditions those are two consecutive even
         // free cells, for 4 wall CCKs. When bitplane / sprite DMA
         // steals those cells the copper's effective rate drops
@@ -292,25 +304,17 @@ impl Copper {
             let mask = (word2 & 0x7FFE) | 0x8000;
             let bfd = (word2 & 0x8000) != 0;
 
-            if word2 & 1 == 0 {
-                // WAIT. The beam comparison is NOT made here at fetch
-                // time — it is deferred to the WAITSKIP2 cycle (the
-                // `pending_wait_delay` handler above), matching the
-                // Agnus copper FSM. Arm the delay unconditionally and
-                // stash the target/mask/bfd; the next eligible CCK
-                // evaluates the compare and either completes the WAIT
-                // (already past) or commits the waiting state.
-                self.pending_wait_delay = true;
-                self.pending_wait_target = target;
-                self.pending_wait_mask = mask;
-                self.pending_wait_bfd = bfd;
-            } else {
-                // SKIP: if beam already satisfies the mask/target,
-                // skip the next instruction word-pair.
-                if beam_match(target, mask, beam_vp, beam_hp) {
-                    self.pc = self.pc.wrapping_add(4);
-                }
-            }
+            // WAIT and SKIP share the deferred comparison phase. BFD has
+            // the same blitter synchronization meaning for both: with BFD=0
+            // the beam condition is insufficient while externally visible
+            // BBUSY is asserted; BFD=1 ignores the blitter. Stashing the
+            // instruction kind is necessary because visible busy can change
+            // between decode and the decision CCK.
+            self.pending_wait_delay = true;
+            self.pending_wait_target = target;
+            self.pending_wait_mask = mask;
+            self.pending_wait_bfd = bfd;
+            self.pending_wait_is_skip = word2 & 1 != 0;
             None
         }
     }
@@ -636,8 +640,8 @@ mod tests {
         copper.jump1();
 
         // Beam past target → SKIP consumes COLOR00 MOVE, only COLOR01
-        // runs. Each instruction = 4 wall CCKs, we have 3 instrs →
-        // need ≥ 12 CCKs of eligible copper cycles.
+        // runs. Sixteen wall CCKs cover the SKIP decision phase and
+        // the following MOVE fetch without reaching the sentinel.
         run_ccks(&mut copper, &mem, &mut denise, 100, 16);
         assert_eq!(denise.color(0), 0x0000);
         assert_eq!(denise.color(1), 0x00F0);
@@ -886,6 +890,98 @@ mod tests {
             denise.color(0),
             0x0F00,
             "BFD=0 WAIT releases once the blitter is idle"
+        );
+    }
+
+    fn color_after_matching_skip(skip_word2: u16, blitter_busy: bool) -> u16 {
+        let mem = build_test_memory_with_list(
+            &[
+                (0x0001, skip_word2), // matching SKIP at vp=0
+                (0x0180, 0x0F00),     // skipped only when the full condition is true
+                (0xFFFF, 0xFFFE),
+            ],
+            0x1000,
+        );
+        let mut denise = TestDenise::new();
+        let mut copper = Copper::new();
+        copper.cop1lc = 0x1000;
+        copper.jump1();
+
+        for hpos in 0..40u16 {
+            if let Some((reg, val)) =
+                copper.tick_cck(&mem, 0, hpos, copper_slot_granted(hpos), blitter_busy)
+            {
+                denise.write_word(reg, val);
+            }
+        }
+        denise.color(0)
+    }
+
+    #[test]
+    fn skip_applies_the_same_bfd_blitter_condition_as_wait() {
+        assert_eq!(
+            color_after_matching_skip(0x7FFF, true),
+            0x0F00,
+            "BFD=0 SKIP must not skip while externally visible BBUSY is set",
+        );
+        assert_eq!(
+            color_after_matching_skip(0x7FFF, false),
+            0x0000,
+            "BFD=0 SKIP must skip once the blitter is externally idle",
+        );
+        assert_eq!(
+            color_after_matching_skip(0xFFFF, true),
+            0x0000,
+            "BFD=1 SKIP must ignore blitter busy",
+        );
+    }
+
+    #[test]
+    fn skip_samples_visible_busy_in_its_deferred_comparison_phase() {
+        let mem = build_test_memory_with_list(
+            &[
+                (0x0001, 0x7FFF), // matching SKIP, BFD=0
+                (0x0180, 0x0F00), // retained only when comparison sees busy
+                (0xFFFF, 0xFFFE),
+            ],
+            0x1000,
+        );
+
+        let mut became_busy = Copper::new();
+        became_busy.cop1lc = 0x1000;
+        became_busy.jump1();
+        assert_eq!(became_busy.tick_cck(&mem, 0, 0, true, false), None);
+        assert_eq!(became_busy.tick_cck(&mem, 0, 2, true, false), None);
+        assert!(became_busy.pending_wait_delay);
+        assert!(became_busy.pending_wait_is_skip);
+        assert_eq!(
+            became_busy.pc, 0x1004,
+            "SKIP must not consume the next pair at decode",
+        );
+
+        assert_eq!(became_busy.tick_cck(&mem, 0, 4, true, true), None);
+        assert!(!became_busy.pending_wait_delay);
+        assert_eq!(
+            became_busy.pc, 0x1004,
+            "BBUSY asserted after decode must prevent the pending SKIP",
+        );
+        assert_eq!(became_busy.tick_cck(&mem, 0, 6, true, true), None);
+        assert_eq!(
+            became_busy.tick_cck(&mem, 0, 8, true, true),
+            Some((0x0180, 0x0F00)),
+            "the retained MOVE must execute",
+        );
+
+        let mut became_idle = Copper::new();
+        became_idle.cop1lc = 0x1000;
+        became_idle.jump1();
+        assert_eq!(became_idle.tick_cck(&mem, 0, 0, true, true), None);
+        assert_eq!(became_idle.tick_cck(&mem, 0, 2, true, true), None);
+        assert!(became_idle.pending_wait_is_skip);
+        assert_eq!(became_idle.tick_cck(&mem, 0, 4, true, false), None);
+        assert_eq!(
+            became_idle.pc, 0x1008,
+            "BBUSY cleared after decode must let the pending SKIP consume the next pair",
         );
     }
 }

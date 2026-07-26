@@ -273,7 +273,9 @@ pub(crate) fn agnus_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "dmacon": m.dmacon(),
         "bplcon0": m.bplcon0(),
         "blitter_busy": a.blitter_busy,
+        "blitter_busy_visible": a.blitter_busy_visible(),
         "blitter_exec_pending": a.blitter_exec_pending,
+        "blitter_startup_ccks_remaining": a.blitter_startup_ccks_remaining(),
         "blitter_ccks_remaining": a.blitter_ccks_remaining,
         "bpl_pt": (0..8).map(|i| a.bpl_pt[i]).collect::<Vec<_>>(),
         "blt_apt": a.blt_apt,
@@ -299,7 +301,9 @@ pub(crate) fn blitter_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     let a = m.agnus();
     json!({
         "busy": a.blitter_busy,
+        "busy_visible": a.blitter_busy_visible(),
         "exec_pending": a.blitter_exec_pending,
+        "startup_ccks_remaining": a.blitter_startup_ccks_remaining(),
         "ccks_remaining": a.blitter_ccks_remaining,
         "apt": a.blt_apt,
         "bpt": a.blt_bpt,
