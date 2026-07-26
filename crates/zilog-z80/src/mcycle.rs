@@ -70,6 +70,10 @@ pub enum MStep {
     /// N T-states (2N half-cycles). Address bus shows IR (or context-dependent).
     Internal(u8),
 
+    /// Non-maskable interrupt response cycle.
+    /// 5 T-states (10 half-cycles): discarded PC read followed by refresh.
+    NmiAck,
+
     /// Interrupt acknowledge cycle.
     /// 7 T-states (14 half-cycles): special M1-like cycle.
     IntAck,
@@ -100,6 +104,8 @@ impl MStep {
             MStep::IoRead | MStep::IoWrite => 8, // 4 T-states
 
             MStep::Internal(n) => n * 2, // N T-states
+
+            MStep::NmiAck => 10, // 5 T-states
 
             MStep::IntAck => 14, // 7 T-states
 
@@ -610,7 +616,7 @@ pub static SEQ_INT_IM1: &[MStep] = &[
 /// IM 2 interrupt response: IntAck + execute (stage vector) + push PC + read vector low + read vector high + execute (jump).
 pub static SEQ_INT_IM2: &[MStep] = &[
     MStep::IntAck,
-    MStep::Execute, // stage: push current PC, compute vector addr = (I << 8) | data_in
+    MStep::Execute, // stage: push PC, compute vector address from I and latched ack byte
     MStep::PushHi,
     MStep::PushLo,
     MStep::ReadAddr,   // read low byte of handler address from vector table
@@ -618,9 +624,9 @@ pub static SEQ_INT_IM2: &[MStep] = &[
     MStep::Execute,    // set PC = handler address
 ];
 
-/// NMI response: internal(5) + execute + push PC.
+/// NMI response: discarded M1 fetch/refresh + execute + push PC.
 pub static SEQ_NMI: &[MStep] = &[
-    MStep::Internal(5),
+    MStep::NmiAck,
     MStep::Execute, // stage: push current PC, set PC = 0x0066
     MStep::PushHi,
     MStep::PushLo,
@@ -698,7 +704,8 @@ mod tests {
         assert_eq!(MStep::Internal(1).half_cycles(), 2);
         assert_eq!(MStep::Internal(5).half_cycles(), 10);
 
-        // Interrupt acknowledge: 7 T-states.
+        // Interrupt response cycles.
+        assert_eq!(MStep::NmiAck.half_cycles(), 10);
         assert_eq!(MStep::IntAck.half_cycles(), 14);
 
         // Execute is processed without advancing the clock.

@@ -427,8 +427,8 @@ fn load_zex_snapshot(path: &Path, suite: ZexSuite) -> Result<ZexHarnessState, St
         ));
     }
 
-    let metadata: ZexHarnessSnapshot = serde_json::from_slice(&bytes[metadata_start..metadata_end])
-        .map_err(|error| {
+    let mut metadata: ZexHarnessSnapshot =
+        serde_json::from_slice(&bytes[metadata_start..metadata_end]).map_err(|error| {
             format!(
                 "failed to decode {} snapshot metadata from {}: {error}",
                 suite.display_name(),
@@ -462,6 +462,7 @@ fn load_zex_snapshot(path: &Path, suite: ZexSuite) -> Result<ZexHarnessState, St
             metadata.checkpoint_index
         ));
     }
+    metadata.z80.rehydrate_walker_sequence();
 
     let memory_bytes = &bytes[metadata_end..metadata_end + 65_536];
     let mut mem = [0u8; 65_536];

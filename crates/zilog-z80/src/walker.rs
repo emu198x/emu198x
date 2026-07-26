@@ -1,6 +1,6 @@
 use crate::mcycle::{self, MStep};
 use crate::registers::Registers;
-use crate::z80::{IntAckPhase, InternalPhase, IoPhase, MemPhase, Phase};
+use crate::z80::{IntAckPhase, InternalPhase, IoPhase, MemPhase, NmiAckPhase, Phase};
 
 /// Staged data accumulated across MSteps within an instruction.
 /// Execute steps consume this data to apply the operation.
@@ -40,6 +40,18 @@ pub enum Prefix {
     FD,   // IY
     DDCB, // IX+d bit ops
     FDCB, // IY+d bit ops
+    /// Accepted non-maskable-interrupt response.
+    ///
+    /// Interrupt identities are appended after the original opcode-prefix
+    /// variants so existing postcard discriminants remain stable. They make
+    /// the skipped static M-step sequence reconstructible after a snapshot.
+    InterruptNmi,
+    /// Accepted maskable-interrupt response in mode 0.
+    InterruptIm0,
+    /// Accepted maskable-interrupt response in mode 1.
+    InterruptIm1,
+    /// Accepted maskable-interrupt response in mode 2.
+    InterruptIm2,
 }
 
 /// Walker state — tracks progress through an instruction's MStep sequence.
@@ -52,8 +64,8 @@ pub struct Walker {
     /// `#[serde(skip)]` because it's a `&'static` reference — static
     /// data, not serialisable. On deserialise it defaults to `SEQ_NOP`,
     /// which matches the idle "just finished an instruction" state.
-    /// Save states must be taken at instruction boundaries
-    /// (`instruction_complete == true`) for this to be correct.
+    /// `Z80::rehydrate_walker_sequence` reconstructs active instruction
+    /// and interrupt-response sequences from the serialised identity.
     #[serde(skip, default = "default_sequence")]
     pub sequence: &'static [MStep],
     /// Index into the sequence (0 = first step after M1 decode).
@@ -115,6 +127,7 @@ impl Walker {
             MStep::IoRead => Some(Phase::IoRead(IoPhase::T1Rise)),
             MStep::IoWrite => Some(Phase::IoWrite(IoPhase::T1Rise)),
             MStep::Internal(n) => Some(Phase::Internal(InternalPhase { remaining: n * 2 })),
+            MStep::NmiAck => Some(Phase::NmiAck(NmiAckPhase::T1Rise)),
             MStep::IntAck => Some(Phase::IntAck(IntAckPhase::T1Rise)),
             MStep::Execute => None, // 0 half-cycles
         }
@@ -172,7 +185,7 @@ impl Walker {
             MStep::Internal(_) => {
                 *addr = regs.ir();
             }
-            MStep::IntAck => {
+            MStep::NmiAck | MStep::IntAck => {
                 *addr = regs.pc;
             }
             MStep::Execute => {}
@@ -264,6 +277,29 @@ mod tests {
         assert_eq!(w.step_idx, 0);
         // The default sequence is SEQ_NOP — one Execute step.
         assert!(matches!(w.current_step(), Some(MStep::Execute)));
+    }
+
+    #[test]
+    fn postcard_prefix_discriminants_remain_append_only() {
+        for (prefix, expected) in [
+            (Prefix::None, 0),
+            (Prefix::CB, 1),
+            (Prefix::ED, 2),
+            (Prefix::DD, 3),
+            (Prefix::FD, 4),
+            (Prefix::DDCB, 5),
+            (Prefix::FDCB, 6),
+            (Prefix::InterruptNmi, 7),
+            (Prefix::InterruptIm0, 8),
+            (Prefix::InterruptIm1, 9),
+            (Prefix::InterruptIm2, 10),
+        ] {
+            assert_eq!(
+                postcard::to_allocvec(&prefix).expect("prefix should encode"),
+                [expected],
+                "{prefix:?} postcard discriminant changed",
+            );
+        }
     }
 
     #[test]

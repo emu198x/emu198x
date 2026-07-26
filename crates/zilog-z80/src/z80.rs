@@ -43,12 +43,12 @@ pub(crate) static DDCB_FETCH: [MStep; 2] = [MStep::FetchDisp, MStep::FetchByte];
 ///
 /// # Save states
 ///
-/// Save states should be taken at instruction boundaries (when
-/// `instruction_complete()` is true). Mid-instruction state includes
-/// the walker's current `&'static [MStep]` sequence which cannot be
-/// serialised; `#[serde(skip)]` restores it to the idle NOP sequence
-/// on deserialisation, and the next `tick()` will fetch a fresh
-/// instruction cleanly.
+/// The walker's current `&'static [MStep]` sequence cannot be serialised,
+/// so a machine must call [`Self::rehydrate_walker_sequence`] after
+/// deserialisation and before the next tick. The serialised walker retains
+/// the opcode prefix or accepted-interrupt identity needed to reconstruct
+/// that sequence. Mid-instruction and mid-interrupt-response snapshots are
+/// therefore supported when the owning machine performs this restore hook.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Z80 {
     /// Register file (public for machine inspection and test setup).
@@ -199,6 +199,12 @@ pub enum Phase {
     /// Transitional: the current M-step just completed, advance to next.
     /// This is processed immediately (0 half-cycles).
     NextStep,
+
+    /// Non-maskable interrupt response: discarded PC read and refresh.
+    ///
+    /// Keep new serialised variants after the original phase variants so
+    /// postcard discriminants used by existing save states remain stable.
+    NmiAck(NmiAckPhase),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -242,9 +248,25 @@ pub struct InternalPhase {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+/// Half-cycle phases of the five-T-state NMI response cycle.
+pub enum NmiAckPhase {
+    T1Rise,
+    T1Fall,
+    T2Rise,
+    T2Fall,
+    T3Rise,
+    T3Fall,
+    T4Rise,
+    T4Fall,
+    T5Rise,
+    T5Fall,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum IntAckPhase {
-    /// IntAck is 7 T-states (14 half-cycles): 5 internal + 2 for data read.
-    /// Phases T1-T5 are internal (IORQ + M1 asserted at T4).
+    /// IntAck is 7 T-states (14 half-cycles). Its externally visible
+    /// acknowledge transfer and refresh occupy the first five T-states;
+    /// the final two T-states preserve the established response timing.
     T1Rise,
     T1Fall,
     T2Rise,
@@ -310,17 +332,17 @@ impl Z80 {
         self.instructions_retired
     }
 
-    /// Re-derives `walker.sequence` from the preserved `(prefix, opcode)`
-    /// after a snapshot restore.
+    /// Re-derives `walker.sequence` from the preserved sequence identity and
+    /// opcode after a snapshot restore.
     ///
     /// `walker.sequence` is `#[serde(skip)]` because it's a `&'static`
     /// reference to one of the per-opcode MStep tables; serde defaults
     /// it to `SEQ_NOP` on deserialise. For snapshots taken at instruction
     /// boundaries that's fine — the next `tick()` fetches a fresh
     /// instruction and overwrites the field. For snapshots taken
-    /// mid-instruction the restored Z80 would walk the wrong sequence
-    /// (or fall off `SEQ_NOP`'s single Execute step) and diverge from
-    /// the original.
+    /// mid-instruction or during an accepted interrupt response, the restored
+    /// Z80 would walk the wrong sequence (or fall off `SEQ_NOP`'s single
+    /// Execute step) and diverge from the original.
     ///
     /// Call once after `restore`, before the next `tick()`. Idempotent;
     /// safe to call when the walker is already at an instruction
@@ -342,6 +364,10 @@ impl Z80 {
                     mcycle::SEQ_DDCB_HL
                 }
             }
+            Prefix::InterruptNmi => mcycle::SEQ_NMI,
+            Prefix::InterruptIm0 => mcycle::SEQ_INT_IM0,
+            Prefix::InterruptIm1 => mcycle::SEQ_INT_IM1,
+            Prefix::InterruptIm2 => mcycle::SEQ_INT_IM2,
         };
     }
 
@@ -384,10 +410,8 @@ impl Z80 {
         self.prev_mw = mw;
         self.prev_iorq = iorq;
 
-        // IntAck (iorq && m1) takes priority over plain io read,
-        // because m1 is asserted during the entire fetch+intack cycle
-        // and `iorq && m1` is the documented interrupt acknowledge
-        // contract on real hardware.
+        // IntAck (iorq && m1) takes priority over plain I/O read because
+        // their overlap is the documented interrupt-acknowledge contract.
         if iorq_rising && self.m1 {
             Some(BusOp::IntAck)
         } else if iorq_rising && self.rd {
@@ -425,6 +449,7 @@ impl Z80 {
             Phase::IoRead(io) => self.tick_io_read(io),
             Phase::IoWrite(io) => self.tick_io_write(io),
             Phase::Internal(int) => self.tick_internal(int),
+            Phase::NmiAck(nmi) => self.tick_nmi_ack(nmi),
             Phase::IntAck(ia) => self.tick_int_ack(ia),
             Phase::NextStep => self.advance_to_next_step(),
         }
@@ -435,15 +460,10 @@ impl Z80 {
     fn tick_m1(&mut self, phase: M1Phase) {
         match phase {
             M1Phase::T1Rise => {
-                // While halted, run a phantom M1 cycle that re-fetches the
-                // HALT opcode: rewind PC so this fetch reads HALT again
-                // (T2Fall re-increments it). PC therefore oscillates between
-                // the HALT byte and HALT+1 during the halt loop, but rests at
-                // HALT+1 at every instruction boundary.
-                if self.halt {
-                    self.regs.pc = self.regs.pc.wrapping_sub(1);
-                }
-                // Address bus = PC, assert M1
+                // While halted, PC remains at the byte following HALT. Each
+                // phantom M1 reads that address, discards the byte and forces
+                // NOP internally; T2Fall therefore does not advance PC.
+                // Address bus = PC, assert M1.
                 self.addr = self.regs.pc;
                 self.m1 = true;
                 self.mreq = false;
@@ -468,10 +488,12 @@ impl Z80 {
             M1Phase::T2Fall => {
                 // End of read: deassert MREQ, RD
                 // Latch the opcode byte
-                let opcode = self.data_in;
+                let opcode = if self.halt { 0x00 } else { self.data_in };
                 self.mreq = false;
                 self.rd = false;
-                self.regs.pc = self.regs.pc.wrapping_add(1);
+                if !self.halt {
+                    self.regs.pc = self.regs.pc.wrapping_add(1);
+                }
                 // Store opcode for decode at T4
                 self.data = opcode; // Reuse data bus as temp storage
                 self.phase = Phase::M1(M1Phase::T3Rise);
@@ -806,12 +828,76 @@ impl Z80 {
         }
     }
 
+    // === Non-maskable Interrupt Response ===
+
+    fn tick_nmi_ack(&mut self, phase: NmiAckPhase) {
+        match phase {
+            NmiAckPhase::T1Rise => {
+                // NMI begins with an M1 memory read at PC. The byte is
+                // discarded and PC does not advance.
+                self.addr = self.regs.pc;
+                self.m1 = true;
+                self.mreq = false;
+                self.rd = false;
+                self.iorq = false;
+                self.rfsh = false;
+                self.phase = Phase::NmiAck(NmiAckPhase::T1Fall);
+            }
+            NmiAckPhase::T1Fall => {
+                self.mreq = true;
+                self.rd = true;
+                self.phase = Phase::NmiAck(NmiAckPhase::T2Rise);
+            }
+            NmiAckPhase::T2Rise => {
+                if self.wait {
+                    return;
+                }
+                self.phase = Phase::NmiAck(NmiAckPhase::T2Fall);
+            }
+            NmiAckPhase::T2Fall => {
+                self.mreq = false;
+                self.rd = false;
+                self.phase = Phase::NmiAck(NmiAckPhase::T3Rise);
+            }
+            NmiAckPhase::T3Rise => {
+                self.addr = self.regs.ir();
+                self.rfsh = true;
+                self.m1 = false;
+                self.phase = Phase::NmiAck(NmiAckPhase::T3Fall);
+            }
+            NmiAckPhase::T3Fall => {
+                self.mreq = true;
+                self.phase = Phase::NmiAck(NmiAckPhase::T4Rise);
+            }
+            NmiAckPhase::T4Rise => {
+                self.phase = Phase::NmiAck(NmiAckPhase::T4Fall);
+            }
+            NmiAckPhase::T4Fall => {
+                self.phase = Phase::NmiAck(NmiAckPhase::T5Rise);
+            }
+            NmiAckPhase::T5Rise => {
+                self.mreq = false;
+                self.rfsh = false;
+                self.regs.inc_r();
+                self.phase = Phase::NmiAck(NmiAckPhase::T5Fall);
+            }
+            NmiAckPhase::T5Fall => {
+                self.advance_to_next_step();
+            }
+        }
+    }
+
     // === Interrupt Acknowledge ===
 
     fn tick_int_ack(&mut self, phase: IntAckPhase) {
         match phase {
             IntAckPhase::T1Rise => {
+                self.addr = self.regs.pc;
                 self.m1 = true;
+                self.mreq = false;
+                self.iorq = false;
+                self.rd = false;
+                self.rfsh = false;
                 self.phase = Phase::IntAck(IntAckPhase::T1Fall);
             }
             IntAckPhase::T1Fall => {
@@ -827,11 +913,12 @@ impl Z80 {
                 self.phase = Phase::IntAck(IntAckPhase::T3Fall);
             }
             IntAckPhase::T3Fall => {
+                // First automatic wait state has completed. IORQ with M1
+                // identifies the acknowledge transfer; RD remains inactive.
+                self.iorq = true;
                 self.phase = Phase::IntAck(IntAckPhase::T4Rise);
             }
             IntAckPhase::T4Rise => {
-                // IORQ asserted (with M1 already active = IntAck)
-                self.iorq = true;
                 self.phase = Phase::IntAck(IntAckPhase::T4Fall);
             }
             IntAckPhase::T4Fall => {
@@ -841,15 +928,23 @@ impl Z80 {
                 self.phase = Phase::IntAck(IntAckPhase::T5Rise);
             }
             IntAckPhase::T5Rise => {
+                // Capture the vector before the acknowledge strobe ends, then
+                // enter the refresh tail of the special M1 cycle.
+                self.walker.staged.data_lo = self.data_in;
+                self.iorq = false;
+                self.m1 = false;
+                self.addr = self.regs.ir();
+                self.rfsh = true;
                 self.phase = Phase::IntAck(IntAckPhase::T5Fall);
             }
             IntAckPhase::T5Fall => {
-                // Latch interrupt data from bus
+                self.mreq = true;
                 self.phase = Phase::IntAck(IntAckPhase::T6Rise);
             }
             IntAckPhase::T6Rise => {
-                self.iorq = false;
-                self.m1 = false;
+                self.mreq = false;
+                self.rfsh = false;
+                self.regs.inc_r();
                 self.phase = Phase::IntAck(IntAckPhase::T6Fall);
             }
             IntAckPhase::T6Fall => {
@@ -963,6 +1058,7 @@ impl Z80 {
             self.regs.iff1 = false; // NMI disables IFF1 (but not IFF2)
             self.begin_new_instruction();
             self.walker.sequence = mcycle::SEQ_NMI;
+            self.walker.prefix = crate::walker::Prefix::InterruptNmi;
             self.walker.opcode = 0; // not a real opcode
             self.try_advance_walker();
             return;
@@ -974,12 +1070,14 @@ impl Z80 {
             self.regs.iff1 = false;
             self.regs.iff2 = false;
             self.begin_new_instruction();
-            self.walker.sequence = match self.regs.im {
-                0 => mcycle::SEQ_INT_IM0,
-                1 => mcycle::SEQ_INT_IM1,
-                2 => mcycle::SEQ_INT_IM2,
-                _ => mcycle::SEQ_INT_IM1,
+            let (sequence, identity) = match self.regs.im {
+                0 => (mcycle::SEQ_INT_IM0, crate::walker::Prefix::InterruptIm0),
+                1 => (mcycle::SEQ_INT_IM1, crate::walker::Prefix::InterruptIm1),
+                2 => (mcycle::SEQ_INT_IM2, crate::walker::Prefix::InterruptIm2),
+                _ => (mcycle::SEQ_INT_IM1, crate::walker::Prefix::InterruptIm1),
             };
+            self.walker.sequence = sequence;
+            self.walker.prefix = identity;
             self.walker.opcode = 0;
             self.try_advance_walker();
             return;
@@ -988,12 +1086,9 @@ impl Z80 {
         // Clear EI pending flag (EI defers interrupts by one instruction)
         self.ei_pending = false;
 
-        // Start next M1 fetch. While halted, the phantom re-fetch of the
-        // HALT opcode is handled at M1 T1Rise (PC is rewound there, then
-        // re-incremented by the fetch) — NOT here. Keeping PC at HALT+1 at
-        // the instruction boundary matches real hardware and the Tom Harte
-        // single-step oracle, and leaves the post-HALT address for an
-        // accepted interrupt to push (RETI returns past HALT).
+        // Start the next M1 fetch. While halted, PC remains at the byte after
+        // HALT; tick_m1 reads and discards that byte without advancing PC.
+        // An accepted interrupt therefore pushes the same post-HALT address.
         self.phase = Phase::M1(M1Phase::T1Rise);
     }
 
@@ -1386,6 +1481,336 @@ mod tests {
         }
     }
 
+    fn tick_with_interrupt_bus(z80: &mut Z80, mem: &mut [u8; 65_536], vector: u8) {
+        if z80.mreq && z80.rd {
+            z80.data_in = mem[z80.addr as usize];
+        }
+        if z80.mreq && z80.wr {
+            mem[z80.addr as usize] = z80.data;
+        }
+        if z80.iorq && z80.m1 {
+            z80.data_in = vector;
+        }
+        z80.tick();
+    }
+
+    fn run_current_response(z80: &mut Z80, mem: &mut [u8; 65_536], vector: u8) {
+        let target = z80.instructions_retired() + 1;
+        let mut guard = 0;
+        while z80.instructions_retired() < target && guard < 128 {
+            tick_with_interrupt_bus(z80, mem, vector);
+            guard += 1;
+        }
+        assert_eq!(
+            z80.instructions_retired(),
+            target,
+            "interrupt response did not retire within the guard"
+        );
+    }
+
+    fn assert_response_round_trips_at_every_halfcycle(
+        seed: &Z80,
+        seed_mem: &[u8; 65_536],
+        vector: u8,
+        response_halfcycles: usize,
+        identity: crate::walker::Prefix,
+    ) {
+        for snapshot_offset in 0..response_halfcycles {
+            let mut original = seed.clone();
+            let mut original_mem = *seed_mem;
+            for _ in 0..snapshot_offset {
+                tick_with_interrupt_bus(&mut original, &mut original_mem, vector);
+            }
+
+            assert!(
+                !original.instruction_complete(),
+                "response retired before snapshot offset {snapshot_offset}"
+            );
+            assert_eq!(original.walker.prefix, identity);
+
+            let encoded = postcard::to_allocvec(&original).expect("interrupt state should encode");
+            let mut restored: Z80 =
+                postcard::from_bytes(&encoded).expect("interrupt state should decode");
+            assert_eq!(restored.walker.prefix, identity);
+            restored.rehydrate_walker_sequence();
+            let mut restored_mem = original_mem;
+
+            run_current_response(&mut original, &mut original_mem, vector);
+            run_current_response(&mut restored, &mut restored_mem, vector);
+
+            assert_eq!(
+                postcard::to_allocvec(&restored).expect("restored result should encode"),
+                postcard::to_allocvec(&original).expect("control result should encode"),
+                "CPU state diverged after snapshot offset {snapshot_offset}"
+            );
+            assert_eq!(
+                restored_mem, original_mem,
+                "memory diverged after snapshot offset {snapshot_offset}"
+            );
+        }
+    }
+
+    #[test]
+    fn nmi_response_round_trips_at_every_halfcycle() {
+        let mut z80 = Z80::new();
+        let mut mem = [0u8; 65_536];
+        mem[0] = 0x00;
+        z80.regs.sp = 0xFF00;
+        z80.nmi = true;
+        step_one(&mut z80, &mut mem);
+        z80.nmi = false;
+
+        assert_eq!(z80.phase, Phase::NmiAck(NmiAckPhase::T1Rise));
+        assert_response_round_trips_at_every_halfcycle(
+            &z80,
+            &mem,
+            0xFF,
+            22,
+            crate::walker::Prefix::InterruptNmi,
+        );
+    }
+
+    #[test]
+    fn maskable_interrupt_responses_round_trip_at_every_halfcycle() {
+        for (mode, vector, response_halfcycles, identity, expected_pc) in [
+            (0, 0xCF, 26, crate::walker::Prefix::InterruptIm0, 0x0008),
+            (1, 0xFF, 26, crate::walker::Prefix::InterruptIm1, 0x0038),
+            (2, 0x34, 38, crate::walker::Prefix::InterruptIm2, 0x5678),
+        ] {
+            let mut z80 = Z80::new();
+            let mut mem = [0u8; 65_536];
+            mem[0] = 0x00;
+            mem[0x4034] = 0x78;
+            mem[0x4035] = 0x56;
+            z80.regs.sp = 0xFF00;
+            z80.regs.i = 0x40;
+            z80.regs.im = mode;
+            z80.regs.iff1 = true;
+            z80.irq = true;
+            step_one(&mut z80, &mut mem);
+            z80.irq = false;
+
+            assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T1Rise));
+            assert_response_round_trips_at_every_halfcycle(
+                &z80,
+                &mem,
+                vector,
+                response_halfcycles,
+                identity,
+            );
+
+            let mut control = z80;
+            run_current_response(&mut control, &mut mem, vector);
+            assert_eq!(control.regs.pc, expected_pc, "mode {mode}");
+        }
+    }
+
+    #[test]
+    fn maskable_interrupt_response_increments_r_and_preserves_bit_7() {
+        let mut z80 = Z80::new();
+        let mut mem = [0u8; 65_536];
+        mem[0] = 0x00; // NOP
+
+        z80.regs.r = 0xFE;
+        z80.regs.iff1 = true;
+        z80.regs.im = 1;
+        z80.irq = true;
+
+        // The NOP's M1 takes R from FE to FF and accepts IRQ at the
+        // instruction boundary. The interrupt response is a further M1
+        // cycle, so its refresh increment must wrap only R's low seven bits.
+        step_one(&mut z80, &mut mem);
+        assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T1Rise));
+        z80.irq = false;
+
+        step_one(&mut z80, &mut mem);
+
+        assert_eq!(z80.regs.r, 0x80);
+        assert_eq!(z80.regs.pc, 0x0038);
+    }
+
+    #[test]
+    fn non_maskable_interrupt_response_increments_r_and_preserves_bit_7() {
+        let mut z80 = Z80::new();
+        let mut mem = [0u8; 65_536];
+        mem[0] = 0x00; // NOP
+
+        z80.regs.r = 0xFE;
+        z80.regs.iff1 = true;
+        z80.regs.iff2 = true;
+        z80.nmi = true;
+
+        // The NOP's M1 takes R from FE to FF. The accepted NMI response
+        // performs another M1-like fetch, whose increment wraps to 80.
+        step_one(&mut z80, &mut mem);
+        step_one(&mut z80, &mut mem);
+
+        assert_eq!(z80.regs.r, 0x80);
+        assert_eq!(z80.regs.pc, 0x0066);
+        assert!(!z80.regs.iff1);
+        assert!(z80.regs.iff2);
+    }
+
+    #[test]
+    fn maskable_interrupt_acknowledge_exposes_refresh_and_latches_vector() {
+        let mut z80 = Z80::new();
+        let mut mem = [0u8; 65_536];
+        mem[0] = 0x00; // NOP
+
+        z80.regs.iff1 = true;
+        z80.regs.im = 2;
+        z80.irq = true;
+        step_one(&mut z80, &mut mem);
+        z80.irq = false;
+
+        assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T1Rise));
+        z80.regs.i = 0x40;
+        z80.regs.r = 0x12;
+        let response_pc = z80.regs.pc;
+        let refresh_addr = z80.regs.ir();
+        let mut acknowledge_count = 0;
+        let mut saw_refresh = false;
+        let mut saw_refresh_mreq = false;
+
+        for _ in 0..14 {
+            assert!(matches!(z80.phase, Phase::IntAck(_)));
+            z80.tick();
+            assert!(!z80.rd, "INT acknowledge must not assert RD");
+
+            if let Some(request) = z80.bus_request() {
+                assert_eq!(request, BusOp::IntAck);
+                assert_eq!(z80.addr, response_pc);
+                acknowledge_count += 1;
+                z80.data_in = 0x34;
+            }
+
+            if z80.rfsh {
+                saw_refresh = true;
+                assert_eq!(z80.addr, refresh_addr);
+                saw_refresh_mreq |= z80.mreq;
+            }
+
+            // A host may stop driving the vector as soon as IORQ deasserts.
+            // IM 0/2 must consume the value captured during acknowledge,
+            // not whatever happens to remain on data_in during refresh.
+            if acknowledge_count != 0 && !z80.iorq {
+                z80.data_in = 0x99;
+            }
+        }
+
+        assert_eq!(acknowledge_count, 1);
+        assert!(saw_refresh);
+        assert!(saw_refresh_mreq);
+        assert_eq!(z80.regs.r, 0x13);
+        assert_eq!(z80.walker.staged.addr, 0x4034);
+        assert_eq!(z80.phase, Phase::MemWrite(MemPhase::T1Rise));
+    }
+
+    #[test]
+    fn non_maskable_interrupt_response_exposes_discarded_read_and_refresh() {
+        let mut z80 = Z80::new();
+        let mut mem = [0u8; 65_536];
+        mem[0] = 0x00; // NOP
+
+        z80.nmi = true;
+        step_one(&mut z80, &mut mem);
+
+        assert_eq!(z80.phase, Phase::NmiAck(NmiAckPhase::T1Rise));
+        z80.regs.i = 0x40;
+        z80.regs.r = 0x12;
+        let response_pc = z80.regs.pc;
+        let refresh_addr = z80.regs.ir();
+        let mut read_count = 0;
+        let mut saw_refresh = false;
+        let mut saw_refresh_mreq = false;
+
+        for _ in 0..10 {
+            assert!(matches!(z80.phase, Phase::NmiAck(_)));
+            z80.tick();
+            assert!(!z80.iorq);
+
+            if let Some(request) = z80.bus_request() {
+                assert_eq!(request, BusOp::MemRead);
+                assert_eq!(z80.addr, response_pc);
+                read_count += 1;
+                z80.data_in = 0x76; // ignored; must not become an opcode
+            }
+
+            if z80.rfsh {
+                saw_refresh = true;
+                assert_eq!(z80.addr, refresh_addr);
+                saw_refresh_mreq |= z80.mreq;
+            }
+        }
+
+        assert_eq!(read_count, 1);
+        assert!(saw_refresh);
+        assert!(saw_refresh_mreq);
+        assert_eq!(z80.regs.r, 0x13);
+        assert_eq!(z80.walker.staged.push_val, response_pc);
+        assert_eq!(z80.regs.pc, 0x0066);
+        assert_eq!(z80.phase, Phase::MemWrite(MemPhase::T1Rise));
+    }
+
+    #[test]
+    fn halt_exit_counts_phantom_fetch_and_interrupt_response_separately() {
+        let mut z80 = Z80::new();
+        let mut mem = [0u8; 65_536];
+        mem[0] = 0x76; // HALT
+
+        z80.regs.iff1 = true;
+        z80.regs.im = 1;
+        z80.regs.sp = 0xFF00;
+
+        step_one(&mut z80, &mut mem);
+        assert!(z80.halt);
+        assert_eq!(z80.regs.r, 1, "HALT opcode fetch");
+        assert_eq!(z80.regs.pc, 1);
+
+        z80.irq = true;
+        step_one(&mut z80, &mut mem);
+        assert!(!z80.halt);
+        assert_eq!(z80.regs.r, 2, "final phantom HALT M1 fetch");
+        z80.irq = false;
+
+        step_one(&mut z80, &mut mem);
+
+        assert_eq!(z80.regs.r, 3, "interrupt acknowledge M1");
+        let saved_pc = u16::from(mem[0xFEFE]) | (u16::from(mem[0xFEFF]) << 8);
+        assert_eq!(saved_pc, 0x0001);
+    }
+
+    #[test]
+    fn halt_phantom_fetch_reads_post_halt_address_and_ignores_data() {
+        let mut z80 = Z80::new();
+        let mut mem = [0u8; 65_536];
+        mem[0] = 0x76; // HALT
+        mem[1] = 0xF3; // DI — must be read but ignored while halted
+
+        z80.regs.iff1 = true;
+        z80.regs.iff2 = true;
+        step_one(&mut z80, &mut mem);
+        assert!(z80.halt);
+        assert_eq!(z80.regs.pc, 1);
+
+        let target = z80.instructions_retired() + 1;
+        let mut read_addresses = Vec::new();
+        while z80.instructions_retired() < target {
+            if z80.mreq && z80.rd {
+                read_addresses.push(z80.addr);
+                z80.data_in = mem[z80.addr as usize];
+            }
+            z80.tick();
+        }
+
+        read_addresses.dedup();
+        assert_eq!(read_addresses, vec![0x0001]);
+        assert!(z80.halt);
+        assert_eq!(z80.regs.pc, 1);
+        assert!(z80.regs.iff1, "discarded DI byte must not execute");
+        assert!(z80.regs.iff2, "discarded DI byte must not execute");
+    }
+
     #[test]
     fn retirement_counter_steps_one_instruction_at_a_time() {
         // All single-M-cycle ops — the case the level `instruction_complete`
@@ -1507,7 +1932,7 @@ mod tests {
         let mut restored: Z80 = serde_json::from_str(&serialized).expect("decode");
 
         // Without rehydration, walker.sequence has fallen back to SEQ_NOP.
-        // Rehydrate from (prefix, opcode) to restore the real sequence.
+        // Rehydrate from the preserved sequence identity and opcode.
         restored.rehydrate_walker_sequence();
 
         // Run both forward through the rest of the instruction and one
@@ -1558,7 +1983,7 @@ mod tests {
         z80.regs.sp = 0xFF00;
 
         // Tick the CPU until halt latches, then 200 more ticks (~25 phantom
-        // M1 cycles of 8 half-cycles each). Observe that PC settles to 1
+        // M1 cycles of 8 half-cycles each). Observe that PC remains at 1
         // (post-HALT) and R has incremented many times — proving the
         // phantom-fetch loop is doing work.
         let mut halt_seen = false;
@@ -1587,10 +2012,9 @@ mod tests {
                 z80.data_in = mem[z80.addr as usize];
             }
             assert!(z80.halt, "halt must persist while IRQ is low");
-            assert!(
-                z80.regs.pc <= 0x0001,
-                "PC must oscillate between HALT byte and the one after, never escape (got {:#06x})",
-                z80.regs.pc,
+            assert_eq!(
+                z80.regs.pc, 0x0001,
+                "PC must remain at the byte following HALT",
             );
         }
         assert!(

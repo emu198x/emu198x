@@ -11,6 +11,7 @@ repository.workspace = true
 serde = { workspace = true }
 
 [dev-dependencies]
+postcard = { workspace = true }
 serde_json = "1"
 # Asm198x ISA-spec disassembler, used only by the isa_conformance cross-check
 # test (rung-1 phase 2, see 198x/decisions/rung1-wiring.md). Pinned to the same

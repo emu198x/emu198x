@@ -601,6 +601,7 @@ dependencies = [
  "gi-ay-3-8912",
  "peripheral-kempston-joystick",
  "serde",
+ "serde_json",
  "sinclair-ula-7k010e",
  "zilog-z80",
 ]
@@ -613,6 +614,7 @@ dependencies = [
  "ferranti-ula-6c001e",
  "peripheral-kempston-joystick",
  "serde",
+ "serde_json",
  "zilog-z80",
 ]
 
@@ -625,6 +627,7 @@ dependencies = [
  "gi-ay-3-8912",
  "nec-upd765a",
  "serde",
+ "serde_json",
  "zilog-z80",
 ]
 
@@ -5402,6 +5405,7 @@ name = "zilog-z80"
 version = "0.2.0"
 dependencies = [
  "isa-disasm",
+ "postcard",
  "serde",
  "serde_json",
 ]

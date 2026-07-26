@@ -152,12 +152,9 @@ fn jp_unconditional() {
 
     run(&mut z80, &mut mem, 1000);
     assert!(z80.halt);
-    // While halted, PC oscillates between the HALT byte (0x0010) and
-    // the one after as the CPU re-fetches phantom NOPs. `run` exits as
-    // soon as halt latches — at that moment PC rests at HALT+1 (0x0011):
-    // executing HALT advances PC past the opcode, matching real hardware
-    // and the Tom Harte oracle. The phantom M1 only momentarily rewinds PC
-    // to the HALT byte during each re-fetch.
+    // Executing HALT advances PC past the opcode. Phantom M1 cycles read
+    // that post-HALT address without advancing PC, matching the dedicated
+    // pin-level regression and leaving the correct interrupt return address.
     assert_eq!(z80.regs.pc, 0x0011);
 }
 
