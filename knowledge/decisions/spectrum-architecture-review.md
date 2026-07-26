@@ -1,7 +1,7 @@
 # Decision: Spectrum architecture review — tighten the seams, not the spine
 
-**Date:** 2026-05-18, polish pass 2026-05-19, Phase 2 close-out 2026-05-20, Float48K + Float128K un-gate 2026-05-20, IF2 routing 2026-05-20
-**Status:** Phase 2 landed — Seams 1, 2, 3, 4, 5 + UlaRevision rename complete. Float48K and Float128K strict assertions un-gated. Sinclair Interface 2 keyboard-matrix routing landed. Remaining open threads (5C-vs-6C HSync, Smith Y/U/V palette, 3-level beeper LUT, T-state probe offset) explicitly deferred — no test-harness blockers remain.
+**Date:** 2026-05-18, polish pass 2026-05-19, Phase 2 close-out 2026-05-20, Float48K + Float128K un-gate 2026-05-20, IF2 routing 2026-05-20, divide-by-five cadence and interrupt-snapshot follow-up 2026-07-25
+**Status:** Phase 2 landed — Seams 1, 2, 3, 4, 5 + UlaRevision rename complete. Float48K and Float128K strict assertions are un-gated; the corrected 128K cadence now reaches the 14364 target while the 48K probe retains a documented one-T-state residual. Sinclair Interface 2 keyboard-matrix routing landed. Remaining open threads (5C-vs-6C HSync, Smith Y/U/V palette, 3-level beeper LUT, 48K T-state probe offset) are explicitly deferred.
 
 ## What this is
 
@@ -15,9 +15,16 @@ This document mirrors [`amiga-architecture-review.md`](amiga-architecture-review
 
 These decisions are load-bearing, validated by Z80 100% Tom Harte, ZEXDOC/ZEXALL pass, Signal Part 3, and the 101-entry catalogue running SNAP-PASS in 94 minutes. Nothing in this review revisits them:
 
-- **Master oscillator drives the loop.** `SpectrumDriver::tick_one_halfcycle` in `crates/common-sinclair-zx-spectrum/src/driver.rs:184` ticks the ULA every even half-cycle and gates the CPU on `cpu_clock_active()`. `hc` is the only time counter.
+- **Master oscillator drives the loop.** `SpectrumDriver::tick_one_halfcycle`
+  advances the legacy-named `hc` master-clock counter and schedules two
+  ULA/Z80 edges per configured CPU divisor. This preserves the divide-by-four
+  cadence and models divide-by-five machines without a 25-percent overclock.
+  `hc` remains the only time counter.
 - **Pin-level CPU bus interface, no Bus trait.** `Z80::bus_request` in `crates/zilog-z80/src/z80.rs:355` returns `BusOp` from observing `mreq`/`iorq`/`rd`/`wr` edges. The machine layer dispatches via a 6-arm match (`common-sinclair-zx-spectrum-48k-class/src/core.rs:351-372`).
-- **Half-cycle signal granularity.** Z80 `Phase` enum carries `T1Rise`/`T1Fall` for every M-cycle. Contention decisions happen between CPU edges.
+- **Half-cycle signal granularity.** Z80 `Phase` carries
+  `T1Rise`/`T1Fall` for every M-cycle. Contention decisions happen between
+  scheduled CPU edges; odd master divisors may place unequal numbers of
+  master ticks on the two clock levels.
 - **ULA as trait, one implementation per variant.** Ferranti, Sinclair 7K, Amstrad 40077, Timex SCLD, Pentagon, Scorpion all implement `Ula`. Shared rendering in `UlaEngine`, variant-specific contention in the wrapper.
 - **Within-family layering, phantom-typed variants.** Eight October-scope variants type-distinct via marker structs; snapshots cannot cross variants.
 
@@ -274,6 +281,7 @@ In order of leverage for unblocking October-public and protecting future capture
   - **Catalogue verification landed 2026-05-20** in commit `6b19411`. New entry `sabre-wulf-kempston-start` (48K) drives a scripted sequence — key "4" selects Kempston control, key "0" starts the game, then `InputEvent::Button { port: 0, name: "fire" }` swings the sabre. Captured 1UP-001070 gameplay frame vs the no-FIRE baseline 1UP-000545 proves the routing chain reaches a real game's `$1F` poll. The hash diff against the baseline is load-bearing: a regression breaking any link in `ScriptStep::Button → session.queue_input → HostIo::input_events → SpectrumRuntime::apply_input → set_kempston_button → KempstonJoystick state` collapses the hash back toward baseline.
 - **Seam 3**: every `#[serde(skip)]` field on a Spectrum-stack struct either has a `Default` that produces correct behaviour or is rehydrated by a typed `after_restore`. Audit test asserts this. FDC disk image survives snapshot restore in a regression test.
   - **Landed 2026-05-20** in commit `7ea8842`. Runtime caches DSK bytes alongside the machine; snapshot envelope bumped to v2 with a `disk_images` field; `restore_disk_images` replays the insertion after `after_restore`. Regression test `snapshot_restore_preserves_mounted_disk_on_plus3` exercises the round-trip. Audit lives in `crates/common-sinclair-zx-spectrum/src/serde_skip_audit.rs` with a locked inventory of 13 annotations across 6 files, each carrying a justification.
+  - **Follow-up 2026-07-25.** The envelope is now v3 so an accepted Z80 NMI or maskable-interrupt response retains its sequence identity across restore. Version 2 is rejected before full payload decode. `snapshot_mid_nmi_response_continues_identically` exercises the runtime continuation path; the core covers every half-cycle of NMI and IM 0/1/2.
 - **Seam 4**: `audio_routing_version` and `frame_routing_version` constants in place. Catalogue mismatch fails loud with a re-capture instruction. AY re-capture wave completed; R-Type's 128 audio hash unchanged (beeper-only invariant); RoboCop / Operation Wolf / Rainbow Islands / Bubble Bobble / Out Run hashes updated. `solid-status.md` §1 reflects the code reality.
   - **Landed 2026-05-19 / 2026-05-20**: routing-version check landed in commit `c7abaef`, capture-mode bypass in `0471db4`. Re-capture wave covered all 102 entries across 9 commits (`546ce25` 48K vanilla, `94347ff` Plus, `57c2994` 16K, `539aa00` 128K, `22ecf8b` +2, `bdde7f4` +2A, `eaebbdc` +2B, `e2daab9` +3, `d9507c2` SpeedLock). Manifest now at `frame_routing_version = 3`; all 102 entries PASS in run-mode.
 - **Seam 5**: `boot_invariants.rs` carries at least five per-variant waypoint assertions including the un-gated Float48K strict check.
@@ -289,7 +297,7 @@ In order of leverage for unblocking October-public and protecting future capture
     9. Kempston attaches on first gamepad event (48K) [`kempston_attaches_on_first_gamepad_event`, 48K]
     10. Kempston attaches on first gamepad event (128K) [`kempston_attaches_on_first_gamepad_event`, 128K]
     11. Amstrad-class declines Kempston events on +3 [Seam 2 trait-bound enforcement — the negative case]
-    12. Snapshot envelope locked at v2 [Seam 3 catch — silent envelope drift breaks previously-saved snapshots]
+    12. Snapshot envelope locked at v3 [Seam 3 catch — silent envelope drift breaks previously-saved snapshots]
   - Adds `is_paging_locked()` public accessors on `Memory128K` and `MemoryPlus`; adds the `serde_skip_audit.rs` inventory.
   - **Float48K strict un-gate** remains blocked on Phase 1 #8 (RST 16 capture can't read PRINT-FP digits). When un-gated it replaces waypoint #4's structural surrogate with the real T=14338 probe and lands the 128K's T=14364 sibling.
 - This document is updated with implementation status and links to commits.
@@ -316,11 +324,15 @@ All five named seams have landed code. The order-of-work was Seam 4 → Seam 1 �
 
 With those harness fixes the probe output is clean: `1982 Sinclair Research Ltd` / `Program: Float48K` / `Bytes: floatcode` / `14330 255 / 14331 255 / … / 14338 255 / 14339 128`. The strict assertion now runs without an env-var gate. Pinned engine value: **T=14339** (`FLOAT48K_EXPECTED_TSTATE`), 1 T-state late vs the canonical T-14338 Woody reports for real Sinclair 48K hardware. The 1-T-state offset is a Z80/ULA phase-alignment subtlety in how our Z80 model samples the IO data bus inside the IN M-cycle — independent of the ULA fetch timing, which is correct per Seam 1. Tracked as an engine-fidelity follow-up; catalogue hashes are unaffected (they depend on the visible-pixel tap, not the floating-bus probe).
 
-**Float128K harness un-gated 2026-05-20** in `crates/machine-sinclair-zx-spectrum-128k/tests/float_bus.rs`. Same shape as the 48K version — control-byte state machine + `STEP_TSTATES = 1`, ENTER-press boot sequence (no `LOAD ""` typing — the 128K's Tape Loader menu entry handles that internally). Pinned engine value: **T=14366**, 2 T-states past canonical T-14364. The 2-T-state offset (vs the 48K's 1-T-state) reflects the same Z80/ULA phase-alignment subtlety scaled by `cpu_divisor = 5` — each CPU T-state spans 5 half-cycles vs the 48K's 4, so the IN-instruction IO sample point lands one full T-state further from the bus exposure event. The 128 BASIC ROM 0 print routine drops the first character of menu lines through our PR-ALL hook (different code path from ROM 1's standard PR-ALL); the load-chain assertion tolerates this cosmetic loss because the probe's iteration values come through cleanly.
+**Float128K harness un-gated 2026-05-20** in `crates/machine-sinclair-zx-spectrum-128k/tests/float_bus.rs`. Same shape as the 48K version — control-byte state machine + `STEP_TSTATES = 1`, ENTER-press boot sequence (no `LOAD ""` typing — the 128K's Tape Loader menu entry handles that internally). It initially pinned **T=14366** because the shared scheduler advanced divide-by-five machines as though every second master-clock tick were a CPU/ULA edge. The corrected two-edges-per-five-ticks cadence now makes the probe's first non-`$FF` result land at the established **T=14364** target. The 128 BASIC ROM 0 print routine drops the first character of menu lines through our PR-ALL hook (different code path from ROM 1's standard PR-ALL); the load-chain assertion tolerates this cosmetic loss because the probe's iteration values come through cleanly.
 
 **Deferred to post-Phase-2** (captured in [Fidelity findings deferred beyond October](#fidelity-findings-deferred-beyond-october)):
 
-- **Float48K / Float128K T-state offset** — engine prints 14339 / 14366 vs canonical 14338 / 14364. Z80 IN-instruction IO sample-point phase question, scaled by the variant's `cpu_divisor`. Not a ULA fetch bug.
+- **Float48K T-state offset** — the engine prints 14337 versus the
+  established 14338 target after the floating-bus read-phase correction.
+  Floatspy remains byte-equal to its Spectron reference, so this residual
+  edge-detection difference is kept as the narrower follow-up. The 128K
+  probe now lands at 14364 after the divide-by-five scheduler correction.
 - **5C-vs-6C HSync timing** — no SOLID catalogue entry currently depends; tracked as a per-revision flag if a dependent title surfaces.
 - **Smith Y/U/V palette tables for the CRT filter** — `VideoFilter::Crt` ships in `emu198x-native-video`; Chapter 16's per-colour tables would upgrade colour fidelity but do not affect catalogue hashes (palette mapping happens after the framebuffer hash).
 - **3-level beeper voltage LUT** — Chapter 20 four-voltage divider. No catalogue title currently exercises three-level beeper.
@@ -342,6 +354,8 @@ The catalogue runs **101 entries SNAP-PASS in 94 min** at `frame_routing_version
 
 - [`amiga-architecture-review.md`](amiga-architecture-review.md) — the template this review mirrors
 - [`ula-first-fetch-tstate-offset.md`](ula-first-fetch-tstate-offset.md) — open investigation that Seam 1 closes
+- [`spectrum-128k-contention-origin.md`](spectrum-128k-contention-origin.md) — the source-defined 128K contention phase and HALT boundary regression
+- [`z80-interrupt-snapshot-identity.md`](z80-interrupt-snapshot-identity.md) — restoring accepted interrupt responses
 - [`ula-drives-model.md`](ula-drives-model.md) — the spine this review preserves
 - [`spectrum-driver.md`](spectrum-driver.md) — the shared run loop the seam fixes inherit
 - [`within-family-layering.md`](within-family-layering.md) — the five-piece structure the seam fixes respect

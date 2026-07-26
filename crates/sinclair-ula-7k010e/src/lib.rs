@@ -65,7 +65,19 @@ impl Ula for SinclairUla {
         framebuffer: &mut [u8],
     ) {
         let e = &mut self.engine;
-        let phase = (e.pixel as usize) & 0x0F;
+        let next_scan = if e.scan + 1 == 311 { 0 } else { e.scan + 1 };
+        let contention_pixel = if next_scan < 192 && e.pixel >= 450 {
+            Some(e.pixel - 450)
+        } else if e.scan < 192 && e.pixel < 250 {
+            Some(e.pixel + 6)
+        } else {
+            None
+        };
+        // HALT2INT128's early-128K hardware profile fixes the delay-table
+        // origin one ULA pixel after this logical /Border coordinate. The
+        // alternating Z80 clock level then produces the documented
+        // T-state contention ramp across the two-pixel CPU clock cells.
+        let phase = contention_pixel.map(|pixel| ((pixel as usize) + 1) & 0x0F);
 
         // Snow: a CPU refresh with I in screen-RAM range collides with
         // the video fetch (the Sinclair ULA ignores /RFSH). gap #12.
@@ -73,11 +85,13 @@ impl Ula for SinclairUla {
 
         e.tick_rendering(memory, framebuffer, snow);
 
-        // Contention: same model as 48K (memory + I/O), same delay table.
-        // The phase difference (`contention_phase: 1`) is a property of the
-        // 5-divisor crystal — the ULA's 16-clock cell aligns differently
-        // relative to the CPU than on the 48K's 4-divisor machine.
-        if e.video {
+        // Contention: same delay pattern as the 48K, advanced by one
+        // T-state. The delay table is indexed in ULA pixels, hence the
+        // two-pixel conversion above. Contention follows /Border rather
+        // than the later video-fetch window: on the 128K it begins at
+        // T=14361, while the floating bus does not expose the first fetch
+        // until T=14364.
+        if let Some(phase) = phase {
             let contended_addr = memory.is_contended(cpu_addr);
             let mem_contention = contended_addr && e.z80_clock_high && !cpu_mreq;
 
@@ -130,6 +144,20 @@ impl Ula for SinclairUla {
 mod tests {
     use super::*;
 
+    struct ContendedMemory;
+
+    impl MemoryBus for ContendedMemory {
+        fn read(&self, _addr: u16) -> u8 {
+            0
+        }
+
+        fn write(&mut self, _addr: u16, _value: u8) {}
+
+        fn is_contended(&self, _addr: u16) -> bool {
+            true
+        }
+    }
+
     #[test]
     fn frame_timing_matches_128k_constants() {
         let ula = SinclairUla::new();
@@ -141,6 +169,7 @@ mod tests {
         assert_eq!(t.tstates_per_frame, 70_908);
         assert_eq!(t.contention_start_tstate, 14_361);
         assert_eq!(t.contention_phase, 1);
+        assert_eq!(t.interrupt_length_tstates, 36);
     }
 
     #[test]
@@ -156,5 +185,112 @@ mod tests {
         let mut ula = SinclairUla::new();
         ula.write_fe(0x05); // border bits 0..2 = 0b101 = magenta
         assert_eq!(ula.border_color(), 5);
+    }
+
+    #[test]
+    fn contention_starts_before_video_fetch_with_phase_one_offset() {
+        let mut ula = SinclairUla::new();
+        let mut framebuffer = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
+        let tick = |ula: &mut SinclairUla, framebuffer: &mut [u8]| {
+            ula.tick(&ContendedMemory, 0x4000, false, false, false, framebuffer);
+        };
+
+        assert!(ula.engine.border_active);
+        tick(&mut ula, &mut framebuffer);
+        assert!(
+            !ula.engine.border_active,
+            "the active-display contention window must open at pixel 0"
+        );
+        assert!(
+            !ula.engine.video,
+            "video fetch must not start before pixel 4"
+        );
+        assert!(
+            !ula.engine.cpu_clock,
+            "the leading edge of the 128K contention window withholds the CPU clock"
+        );
+
+        tick(&mut ula, &mut framebuffer);
+        assert!(!ula.engine.video);
+        assert!(!ula.engine.cpu_clock);
+
+        tick(&mut ula, &mut framebuffer);
+        assert!(!ula.engine.video, "video fetch has not started at pixel 2");
+        assert!(
+            !ula.engine.cpu_clock,
+            "phase-one contention must withhold the CPU clock before video fetch"
+        );
+    }
+
+    #[test]
+    fn contention_opens_before_the_active_line_border_latch() {
+        let mut ula = SinclairUla::new();
+        let mut framebuffer = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
+        ula.engine.scan = 310;
+        ula.engine.pixel = 449;
+        ula.engine.z80_clock_high = false;
+
+        ula.tick(
+            &ContendedMemory,
+            0x4000,
+            false,
+            false,
+            false,
+            &mut framebuffer,
+        );
+        assert_eq!(ula.engine.pixel, 450);
+        assert!(ula.engine.cpu_clock);
+        assert!(ula.engine.z80_clock_high);
+        assert!(
+            ula.engine.border_active,
+            "rendering border remains active before the next line",
+        );
+
+        ula.tick(
+            &ContendedMemory,
+            0x4000,
+            false,
+            false,
+            false,
+            &mut framebuffer,
+        );
+        assert_eq!(ula.engine.pixel, 451);
+        assert!(
+            ula.engine.cpu_clock,
+            "delay-table phase 1 does not yet withhold the CPU clock",
+        );
+        assert!(
+            ula.engine.border_active,
+            "contention phase selection must not depend on the rendering-border latch",
+        );
+
+        ula.tick(
+            &ContendedMemory,
+            0x4000,
+            false,
+            false,
+            false,
+            &mut framebuffer,
+        );
+        assert_eq!(ula.engine.pixel, 452);
+        assert!(ula.engine.cpu_clock);
+
+        ula.tick(
+            &ContendedMemory,
+            0x4000,
+            false,
+            false,
+            false,
+            &mut framebuffer,
+        );
+        assert_eq!(ula.engine.pixel, 453);
+        assert!(
+            !ula.engine.cpu_clock,
+            "the phase-3 delay must withhold the CPU before the next line",
+        );
+        assert!(
+            ula.engine.border_active,
+            "contention must not depend on the rendering-border latch",
+        );
     }
 }

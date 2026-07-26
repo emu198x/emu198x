@@ -7,9 +7,12 @@
 //! paletted framebuffer as a 16-colour indexed PNG, and compare to
 //! the checked-in golden in `tests/goldens/`. Re-run with
 //! `UPDATE_GOLDENS=1` to refresh after eyeballing a deliberate
-//! change.
+//! change. HALT2INT is a semantic exception: it decodes the finished
+//! screen and requires the diagnostic's complete `HALT: Early`
+//! classification instead of preserving an obsolete self-golden.
 
 use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
+use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::palette::SPECTRUM_PALETTE;
 use common_sinclair_zx_spectrum::tape::TapeBlock;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
@@ -23,6 +26,11 @@ const SYSTEM_TESTS_DIR_ENV: &str = "EMU198X_SPECTRUM_SYSTEM_TESTS_DIR";
 
 const BOOT_FRAMES: usize = 200;
 const RUN_BUDGET_FRAMES: usize = 5_000;
+const SCREEN_TEXT_COLS: usize = 32;
+const SCREEN_TEXT_ROWS: usize = 24;
+const ROM_TEXT_GLYPH_BASE: u16 = 0x3D00;
+const ROM_TEXT_GLYPH_FIRST: u8 = 0x20;
+const ROM_TEXT_GLYPH_COUNT: usize = 96;
 
 fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").expect("HOME must be set"))
@@ -188,12 +196,12 @@ fn compare_or_update(png_stem: &str, framebuffer: &[u8]) {
     );
 }
 
-fn run_and_compare(tap_filename: &str, png_stem: &str) {
+fn run_to_completion(tap_filename: &str) -> Option<Spectrum128K> {
     let rom0_path = rom0_path();
     let rom1_path = rom1_path();
     if !rom0_path.is_file() || !rom1_path.is_file() {
         eprintln!("128K ROMs not found — skipping");
-        return;
+        return None;
     }
     let tap_path = system_tests_dir().join(tap_filename);
     if !tap_path.is_file() {
@@ -201,7 +209,7 @@ fn run_and_compare(tap_filename: &str, png_stem: &str) {
             "{tap_filename} not found at {} — skipping",
             tap_path.display()
         );
-        return;
+        return None;
     }
 
     let tap_bytes = std::fs::read(&tap_path).unwrap_or_else(|e| panic!("{tap_filename}: {e}"));
@@ -223,13 +231,80 @@ fn run_and_compare(tap_filename: &str, png_stem: &str) {
         machine.run_frame();
     }
 
+    Some(machine)
+}
+
+fn run_and_compare(tap_filename: &str, png_stem: &str) {
+    let Some(machine) = run_to_completion(tap_filename) else {
+        return;
+    };
+
     compare_or_update(png_stem, &machine.framebuffer);
+}
+
+/// Decode the 24×32 ROM-font text cells in the fixed screen bank.
+///
+/// HALT2INT prints through ROM 1 (48 BASIC). Reading that ROM bank
+/// directly keeps glyph decoding independent of the final paging state.
+fn screen_text_lines(machine: &Spectrum128K) -> Vec<String> {
+    let glyphs: Vec<[u8; 8]> = (0..ROM_TEXT_GLYPH_COUNT)
+        .map(|glyph_index| {
+            let mut glyph = [0u8; 8];
+            let glyph_base = ROM_TEXT_GLYPH_BASE + (glyph_index as u16) * 8;
+            for (row, byte) in glyph.iter_mut().enumerate() {
+                *byte = machine.memory.read_rom_byte(1, glyph_base + row as u16);
+            }
+            glyph
+        })
+        .collect();
+
+    (0..SCREEN_TEXT_ROWS)
+        .map(|text_row| {
+            let mut line = String::with_capacity(SCREEN_TEXT_COLS);
+            for text_col in 0..SCREEN_TEXT_COLS {
+                let mut cell = [0u8; 8];
+                for (pixel_row, byte) in cell.iter_mut().enumerate() {
+                    let y = text_row * 8 + pixel_row;
+                    let addr = 0x4000
+                        + (((y & 0b1100_0000) as u16) << 5)
+                        + (((y & 0b0011_1000) as u16) << 2)
+                        + (((y & 0b0000_0111) as u16) << 8)
+                        + text_col as u16;
+                    *byte = machine.memory.read(addr);
+                }
+
+                let decoded =
+                    glyphs
+                        .iter()
+                        .position(|glyph| *glyph == cell)
+                        .map_or('?', |glyph_index| {
+                            let code = ROM_TEXT_GLYPH_FIRST + glyph_index as u8;
+                            match code {
+                                0x20..=0x7E => code as char,
+                                0x7F => '©',
+                                _ => '?',
+                            }
+                        });
+                line.push(decoded);
+            }
+            line
+        })
+        .collect()
 }
 
 #[test]
 #[ignore = "requires local 128K ROMs and halt2int128.tap; ~100 s wall time"]
 fn halt2int128_runs_to_completion() {
-    run_and_compare("halt2int128.tap", "halt2int128");
+    let Some(machine) = run_to_completion("halt2int128.tap") else {
+        return;
+    };
+    let lines = screen_text_lines(&machine);
+
+    assert!(
+        lines.iter().any(|line| line.contains("HALT: Early")),
+        "HALT2INT128 should classify the complete HALT profile as Early; decoded screen:\n{}",
+        lines.join("\n"),
+    );
 }
 
 #[test]

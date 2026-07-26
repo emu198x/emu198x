@@ -9,7 +9,10 @@
 //! (when `UPDATE_GOLDENS=1` is set or the golden is missing) or
 //! compares decoded bytes against the checked-in golden in
 //! `tests/goldens/`. Same shape as `runtime-sinclair-zx-spectrum`'s
-//! `goldens.rs` for the boot screens.
+//! `goldens.rs` for the boot screens. HALT2INT is deliberately a
+//! semantic exception: its floating-bus classification is not yet an
+//! authority, so that smoke decodes the finished screen and asserts
+//! only the independently established `HALT: Early` result.
 //!
 //! Each smoke also byte-compares its 256×192 screen content against
 //! Spectron's `tests/Results/<name>_48.png` reference when
@@ -18,13 +21,12 @@
 //! be clean 4× nearest-neighbour scales of its raw framebuffer, so
 //! after downscaling and mapping both sides to Spectrum colour indices
 //! the content compares exactly. `btime` matches byte-for-byte today;
-//! `floatspy`/`halt2int` need run-to-completion input driving (their
-//! references are the finished self-test screen, our capture the
-//! interactive menu) before the compare is meaningful; `ptime` has no
-//! 48K reference to compare against. The self-locked golden stays as a
-//! second regression contract: drift in tape timing, BASIC interpreter
-//! cycle budget, ULA contention, or the Z80's bus probe all show up as
-//! a pixel diff.
+//! `floatspy` needs run-to-completion input driving before its menu
+//! capture can be compared meaningfully; `ptime` has no 48K reference
+//! to compare against. The self-locked goldens stay as a second
+//! regression contract for those tests: drift in tape timing, BASIC
+//! interpreter cycle budget, ULA contention, or the Z80's bus probe all
+//! show up as a pixel diff.
 //!
 //! Required local fixtures (resolved in this order):
 //!
@@ -37,6 +39,7 @@
 //! local data stays green.
 
 use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
+use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::palette::SPECTRUM_PALETTE;
 use common_sinclair_zx_spectrum::tape::TapeBlock;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
@@ -55,6 +58,11 @@ const SPECTRON_RESULTS_ENV: &str = "EMU198X_SPECTRON_RESULTS_DIR";
 
 const BOOT_FRAMES: usize = 200;
 const RUN_BUDGET_FRAMES: usize = 5_000;
+const SCREEN_TEXT_COLS: usize = 32;
+const SCREEN_TEXT_ROWS: usize = 24;
+const ROM_TEXT_GLYPH_BASE: u16 = 0x3D00;
+const ROM_TEXT_GLYPH_FIRST: u8 = 0x20;
+const ROM_TEXT_GLYPH_COUNT: usize = 96;
 
 fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").expect("HOME must be set"))
@@ -329,6 +337,57 @@ fn assert_screen_matches_spectron(spectron_png: &str, framebuffer: &[u8]) {
     );
 }
 
+/// Decodes the ULA bitmap into its 24×32 ROM-font text cells.
+///
+/// HALT2INT prints its classifications through the Spectrum ROM, so matching
+/// screen cells against the loaded ROM's glyph table gives the test a stable
+/// semantic assertion without locking unrelated diagnostic fields.
+fn screen_text_lines(machine: &Spectrum48k) -> Vec<String> {
+    let glyphs: Vec<[u8; 8]> = (0..ROM_TEXT_GLYPH_COUNT)
+        .map(|glyph_index| {
+            let mut glyph = [0u8; 8];
+            let glyph_base = ROM_TEXT_GLYPH_BASE + (glyph_index as u16) * 8;
+            for (row, byte) in glyph.iter_mut().enumerate() {
+                *byte = machine.read(glyph_base + row as u16);
+            }
+            glyph
+        })
+        .collect();
+
+    (0..SCREEN_TEXT_ROWS)
+        .map(|text_row| {
+            let mut line = String::with_capacity(SCREEN_TEXT_COLS);
+            for text_col in 0..SCREEN_TEXT_COLS {
+                let mut cell = [0u8; 8];
+                for (pixel_row, byte) in cell.iter_mut().enumerate() {
+                    let y = text_row * 8 + pixel_row;
+                    let addr = 0x4000
+                        + (((y & 0b1100_0000) as u16) << 5)
+                        + (((y & 0b0011_1000) as u16) << 2)
+                        + (((y & 0b0000_0111) as u16) << 8)
+                        + text_col as u16;
+                    *byte = machine.read(addr);
+                }
+
+                let decoded =
+                    glyphs
+                        .iter()
+                        .position(|glyph| *glyph == cell)
+                        .map_or('?', |glyph_index| {
+                            let code = ROM_TEXT_GLYPH_FIRST + glyph_index as u8;
+                            match code {
+                                0x20..=0x7E => code as char,
+                                0x7F => '©',
+                                _ => '?',
+                            }
+                        });
+                line.push(decoded);
+            }
+            line
+        })
+        .collect()
+}
+
 fn compare_or_update(test_name: &str, framebuffer: &[u8]) {
     let path = goldens_dir().join(format!("{test_name}.png"));
     let updating = std::env::var_os("UPDATE_GOLDENS").is_some();
@@ -376,10 +435,22 @@ fn run_and_compare(test_name: &str) {
 /// the captured screen content is byte-equal to Spectron's reference of
 /// that name (gated on `EMU198X_SPECTRON_RESULTS_DIR`).
 fn run_and_compare_with_spectron(test_name: &str, spectron_png: Option<&str>) {
+    let Some(machine) = run_to_completion(test_name) else {
+        return;
+    };
+
+    compare_or_update(test_name, machine.framebuffer());
+    if let Some(reference) = spectron_png {
+        assert_screen_matches_spectron(reference, machine.framebuffer());
+    }
+}
+
+/// Loads and runs one system-test TAP to its fixed capture budget.
+fn run_to_completion(test_name: &str) -> Option<Spectrum48k> {
     let rom_path = rom_path();
     if !rom_path.is_file() {
         eprintln!("48K ROM not found at {} — skipping", rom_path.display());
-        return;
+        return None;
     }
     let tap_path = system_tests_dir().join(format!("{test_name}.tap"));
     if !tap_path.is_file() {
@@ -388,7 +459,7 @@ fn run_and_compare_with_spectron(test_name: &str, spectron_png: Option<&str>) {
             test_name,
             tap_path.display()
         );
-        return;
+        return None;
     }
 
     let rom = std::fs::read(&rom_path).expect("48K ROM should read");
@@ -414,10 +485,7 @@ fn run_and_compare_with_spectron(test_name: &str, spectron_png: Option<&str>) {
         machine.run_frame();
     }
 
-    compare_or_update(test_name, machine.framebuffer());
-    if let Some(reference) = spectron_png {
-        assert_screen_matches_spectron(reference, machine.framebuffer());
-    }
+    Some(machine)
 }
 
 #[test]
@@ -483,8 +551,16 @@ fn floatspy_selftest_ok() {
 #[test]
 #[ignore = "requires local 48K ROM and halt2int.tap; ~100 s wall time"]
 fn halt2int_runs_to_completion() {
-    // Spectron parity pending — see `floatspy_runs_to_completion` (#10).
-    run_and_compare("halt2int");
+    let Some(machine) = run_to_completion("halt2int") else {
+        return;
+    };
+    let lines = screen_text_lines(&machine);
+
+    assert!(
+        lines.iter().any(|line| line.contains("HALT: Early")),
+        "HALT2INT should classify the HALT profile as Early; decoded screen:\n{}",
+        lines.join("\n"),
+    );
 }
 
 #[test]

@@ -9,7 +9,7 @@ use crate::timing::FrameTiming;
 
 /// ULA trait — the heart of each Spectrum variant.
 ///
-/// The ULA ticks on every half-cycle of the master oscillator. It:
+/// The ULA ticks twice per CPU T-state. It:
 /// - Renders pixels to the framebuffer in real-time
 /// - Gates the CPU's clock signal (contention)
 /// - Generates the interrupt signal
@@ -20,7 +20,7 @@ use crate::timing::FrameTiming;
 /// Ferranti 6C001E (48K), Sinclair 7K010E (128K), Amstrad 40077 (+2A/+3),
 /// Timex SCLD (TC2048/2068), Pentagon ULA, Scorpion ULA.
 pub trait Ula {
-    /// Advance one half-cycle of the master oscillator.
+    /// Advance one CPU half-cycle edge.
     ///
     /// The ULA must be ticked BEFORE the CPU on each half-cycle.
     /// After ticking, the machine loop checks `cpu_clock_active()` to

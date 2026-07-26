@@ -71,19 +71,10 @@ const STEP_TSTATES: u32 = 1;
 /// First T-state at which the Float128K probe sees a non-`$FF` byte on
 /// our engine.
 ///
-/// **Real 128K hardware:** Float128K prints `14364` (Woody / Smith Ch 12 +
-/// Ch 21 canonical) — 26 T-states later than the 48K's 14338, accounting
-/// for the wider line and different scan-0 alignment.
-///
-/// **Our engine:** prints `14366`, 2 T-states past canonical. The 48K
-/// version of this probe lands at 14339 — 1 T-state past canonical 14338.
-/// The wider 128K offset reflects the same Z80/ULA phase-alignment
-/// subtlety scaled by `cpu_divisor = 5` (each CPU T-state spans 5
-/// half-cycles vs the 48K's 4, so the IN-instruction IO sample point
-/// lands one full T-state further from the bus exposure event).
-/// Tracked as engine-fidelity follow-up; catalogue hashes are unaffected
-/// (visible-pixel tap, not the floating-bus probe).
-const FLOAT128K_EXPECTED_TSTATE: u32 = 14366;
+/// Long-established Fuse/community reference coordinate. Primary hardware
+/// capture provenance remains incomplete; this is an implementation target,
+/// not a claim of a new direct hardware measurement.
+const FLOAT128K_EXPECTED_TSTATE: u32 = 14364;
 
 fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").expect("HOME must be set"))
@@ -327,7 +318,7 @@ fn float128k_prints_expected_tstate() {
             // The probe iterates and prints `T-state byte\n` for each
             // offset. Stop once one full result line containing a
             // candidate T-state and a non-255 byte has been printed.
-            ["14362", "14363", "14364", "14365", "14366"]
+            ["14362", "14363", "14364", "14365", "14366", "14367"]
                 .iter()
                 .any(|stem| {
                     t.lines().any(|line| {
@@ -379,14 +370,23 @@ fn float128k_prints_expected_tstate() {
          --- transcript ---\n{transcript}",
     );
 
-    let expected = FLOAT128K_EXPECTED_TSTATE.to_string();
-    assert!(
-        transcript.contains(&expected),
-        "Float128K probe did not produce expected T-state {expected}\n\
-         (engine timing regression — see FLOAT128K_EXPECTED_TSTATE's comment)\n\
+    let first_non_ff = transcript.lines().find_map(|line| {
+        let mut fields = line.split_ascii_whitespace();
+        let tstate = fields.next()?.parse::<u32>().ok()?;
+        let value = fields.next()?.parse::<u16>().ok()?;
+        (value != 255).then_some(tstate)
+    });
+    assert_eq!(
+        first_non_ff,
+        Some(FLOAT128K_EXPECTED_TSTATE),
+        "Float128K first non-255 reading drifted\n\
+         (see FLOAT128K_EXPECTED_TSTATE's evidence note)\n\
          --- transcript ---\n{transcript}",
     );
-    eprintln!("\nFloat128K: STRICT PASS — found expected T-state {expected}");
+    eprintln!(
+        "\nFloat128K: STRICT PASS — first non-255 reading at {}",
+        FLOAT128K_EXPECTED_TSTATE
+    );
 }
 
 /// Save the current 128K framebuffer as an RGBA PNG using the Spectrum

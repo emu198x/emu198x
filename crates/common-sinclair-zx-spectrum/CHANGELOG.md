@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- schedule two ULA/Z80 half-cycle edges per configured CPU divisor instead of overclocking divide-by-five machines by 25 percent
+- advance the Spectrum frame and audio routing epochs so stale 128K-family catalogue captures fail explicitly
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/common-sinclair-zx-spectrum-v0.2.0) - 2026-06-04
 
 ### Fixed

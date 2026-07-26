@@ -32,9 +32,14 @@
 /// clean AC swing centred on zero. `volume` default raised 0.5 → 1.0 to keep
 /// the perceived loudness of a toggling tone unchanged across the remap.
 ///
+/// **Version 3** (2026-07-22, current): 128K-family beeper, EAR and AY
+/// events use the corrected divide-by-five CPU cadence. The version remains
+/// ahead of the Spectrum catalogue manifest until affected entries have been
+/// reviewed and re-captured.
+///
 /// See `knowledge/decisions/spectrum-architecture-review.md` Seam 4 for
 /// the re-capture discipline this constant enforces.
-pub const AUDIO_ROUTING_VERSION: u32 = 2;
+pub const AUDIO_ROUTING_VERSION: u32 = 3;
 
 /// Combined beeper + tape-EAR speaker line state with the canonical blend
 /// ratios (0.8 for the beeper output, 0.2 for the tape EAR input).

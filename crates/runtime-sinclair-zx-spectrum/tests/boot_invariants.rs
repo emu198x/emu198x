@@ -147,16 +147,14 @@ fn int_asserts_at_canonical_t_state_48k() -> Result<(), Box<dyn Error>> {
 }
 
 /// **Seam 5 waypoint #1b:** Interrupt asserts at the canonical
-/// half-cycle on the 128K.
+/// master-clock position on the 128K.
 ///
 /// The Sinclair 128K shares `int_scan = 248` with the 48K but runs at
-/// the 17.7 MHz master clock (`cpu_divisor = 5`, not 4), so a T-state
-/// is 5 half-cycles long and does not divide evenly into the ULA's
-/// 2-half-cycles-per-pixel tick rate. Asserting in half-cycles is
-/// the only fraction-free way to pin the INT-fires-here position:
-/// `(248 × 456 + 1) × 2 = 226 178` half-cycles from frame start
-/// (`pixels_per_line = 456`, `int_start_pixel = 1`, two half-cycles
-/// per ULA pixel).
+/// the 17.7 MHz master clock (`cpu_divisor = 5`, not 4). The shared
+/// scheduler therefore emits two ULA/Z80 half-cycle edges at phases
+/// 0 and 2 of each five-tick T-state. Pinning the interrupt in master-
+/// clock units verifies both the ULA geometry and that divide-by-five
+/// cadence.
 ///
 /// Catches regression: any drift in `int_scan`, `int_start_pixel`,
 /// `int_end_pixel`, or `pixels_per_line` for `CONFIG_128K`.
@@ -164,36 +162,61 @@ fn int_asserts_at_canonical_t_state_48k() -> Result<(), Box<dyn Error>> {
 fn int_asserts_at_canonical_t_state_128k() {
     let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
 
-    // After 226 176 half-cycles the ULA has ticked 113 088 times
-    // (one tick per even-`hc` iteration). 113 088 = 248 × 456, so the
-    // counter sits at (scan = 248, pixel = 0) — one ULA tick shy of
-    // int_start_pixel = 1.
-    runtime.machine_mut().advance_halfcycles(226_176);
+    // Two ULA edges per five master-clock ticks means that after
+    // 282 720 ticks the ULA has advanced 113 088 pixels:
+    // 248 × 456, exactly one ULA edge shy of int_start_pixel = 1.
+    runtime.machine_mut().advance_halfcycles(282_720);
     assert!(
         !runtime.machine().z80.irq,
         "INT must not be asserted before scan 248, pixel 1 on 128K"
     );
 
-    // +2 half-cycles fires one more ULA tick (113 089), incrementing
-    // the pixel counter to 1 and latching int_active = true. The
+    // The next master-clock tick is phase 0 and fires ULA edge 113 089,
+    // incrementing the pixel counter to 1 and latching int_active. The
     // engine's `feed_irq` runs in the same half-cycle and propagates
     // the flag to `z80.irq`.
-    runtime.machine_mut().advance_halfcycles(2);
+    runtime.machine_mut().advance_halfcycles(1);
     assert!(
         runtime.machine().z80.irq,
         "INT must be asserted at scan 248, pixel ≥ 1 on 128K"
     );
 
-    // +130 half-cycles = 65 more ULA ticks, pushing the pixel
-    // counter past int_end_pixel = 65.
-    runtime.machine_mut().advance_halfcycles(130);
+    // Sixty-four further ULA edges reach pixel 65. The Sinclair 128K
+    // pulse is 36 T-states wide, so it remains asserted here; this is
+    // where the Amstrad-class 32-T-state pulse deasserts.
+    runtime.machine_mut().advance_halfcycles(160);
+    assert!(
+        runtime.machine().z80.irq,
+        "Sinclair 128K INT must remain active for 36 T-states"
+    );
+
+    // Eight more ULA edges reach int_end_pixel = 73. At two edges per
+    // five master ticks, those final four T-states consume 20 ticks.
+    runtime.machine_mut().advance_halfcycles(20);
     assert!(
         !runtime.machine().z80.irq,
-        "INT must deassert after the 64-pixel active window on 128K"
+        "Sinclair 128K INT must deassert after its 36-T-state window"
     );
 }
 
-/// **Seam 5 waypoint #1c:** Interrupt asserts at the canonical T-state
+/// **Seam 5 waypoint #1c:** The Amstrad ASIC retains its shorter
+/// 32-T-state interrupt pulse.
+#[test]
+fn int_pulse_is_32_tstates_on_amstrad_class() {
+    let mut runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
+
+    runtime.machine_mut().advance_halfcycles(282_720);
+    assert!(!runtime.machine().z80.irq);
+    runtime.machine_mut().advance_halfcycles(1);
+    assert!(runtime.machine().z80.irq);
+    runtime.machine_mut().advance_halfcycles(160);
+    assert!(
+        !runtime.machine().z80.irq,
+        "Amstrad-class INT must deassert after its 32-T-state window"
+    );
+}
+
+/// **Seam 5 waypoint #1d:** Interrupt asserts at the canonical T-state
 /// on the Pentagon.
 ///
 /// The Pentagon is the load-bearing exception in the family: 320 lines
@@ -348,30 +371,31 @@ fn kempston_attaches_on_first_gamepad_event_48k() -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
-/// **Seam 5 waypoint #5:** Snapshot version is locked at v2.
+/// **Seam 5 waypoint #5:** Snapshot version is locked at v3.
 ///
 /// The runtime envelope was bumped 1 → 2 in Seam 3 to carry the
-/// disk-image cache. Any further breaking change to the envelope
-/// must update [`SNAPSHOT_VERSION`] and document the upgrade path
-/// in `crates/runtime-sinclair-zx-spectrum/src/snapshot.rs`. This
-/// waypoint locks the current version so a drive-by bump fails the
-/// test and forces the author to justify the change.
+/// disk-image cache, then 2 → 3 when accepted Z80 interrupt responses
+/// gained a serialisable sequence identity. Any further breaking
+/// change to the envelope must update [`SNAPSHOT_VERSION`] and
+/// document the upgrade path in
+/// `crates/runtime-sinclair-zx-spectrum/src/snapshot.rs`. This
+/// waypoint locks the current version so a drive-by bump fails.
 ///
 /// Catches regression: silent envelope drift that would break
 /// previously-saved snapshots.
 #[test]
-fn snapshot_envelope_version_is_v2() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_v3() -> Result<(), Box<dyn Error>> {
     // The envelope embeds the version as a varint at byte offset 0
     // (postcard encodes the leading u32 directly with no length
     // prefix). For small u32s the varint occupies exactly 1 byte
-    // and matches the value, so byte 0 of the snapshot bytes == 2.
+    // and matches the value, so byte 0 of the snapshot bytes == 3.
     let runtime = Spectrum48kRuntime::from_rom_bytes(&[0; 16 * 1024])?;
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must produce non-empty bytes");
     assert_eq!(
-        bytes[0], 2,
-        "snapshot envelope must be at version 2 (Seam 3 disk-image cache); \
-         see knowledge/decisions/spectrum-architecture-review.md Seam 3"
+        bytes[0], 3,
+        "snapshot envelope must be at version 3 (Z80 interrupt identity); \
+         see crates/runtime-sinclair-zx-spectrum/src/snapshot.rs"
     );
     Ok(())
 }

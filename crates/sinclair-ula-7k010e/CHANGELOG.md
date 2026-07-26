@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- align the active-border contention table with HALT2INT128's complete early-128K profile
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/sinclair-ula-7k010e-v0.2.0) - 2026-06-04
 
 ### Other

@@ -37,7 +37,7 @@ use crate::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 /// Float48K strict-mode target: T=14338 for 48K, T=14364 for 128K.
 /// Border still updates immediately on `write_fe`.
 ///
-/// **Version 3** (2026-05-19, current): AOLatch border timing
+/// **Version 3** (2026-05-19): AOLatch border timing
 /// (Smith Chapter 14 p. 134, `/AOLatch = /(/C0 + C1 + /C2)`).
 /// `write_fe` still updates `border` (BorderLatch) immediately, but
 /// the rendered border colour now reads from `border_aolatch`, which
@@ -46,10 +46,15 @@ use crate::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 /// granularity that border-effect demos exploit. Frame hashes that
 /// cover the border region during multi-colour effects will change.
 ///
+/// **Version 4** (2026-07-22, current): 128K-family rendering uses two
+/// ULA edges per five master-clock ticks instead of one edge per two ticks.
+/// The version remains ahead of the Spectrum catalogue manifest until
+/// affected entries have been reviewed and re-captured.
+///
 /// Bumps planned: further versions per substantive rendering change.
 /// See the architecture review's Seam 4 for the re-capture discipline
 /// this constant enforces.
-pub const FRAME_ROUTING_VERSION: u32 = 3;
+pub const FRAME_ROUTING_VERSION: u32 = 4;
 
 /// Timing and layout constants for a specific ULA variant.
 #[derive(Clone, Debug)]
@@ -124,7 +129,7 @@ pub const CONFIG_128K: UlaConfig = UlaConfig {
     screen_end: 12 + 256,
     int_scan: 248,
     int_start_pixel: 1,
-    int_end_pixel: 65,
+    int_end_pixel: 73,
     fb_x_offset: 36,
     fb_x_wrap_start: 420, // 456 - 36
     fb_x_wrap_offset: 420,
@@ -134,8 +139,14 @@ pub const CONFIG_128K: UlaConfig = UlaConfig {
     vsync_end: 263,
 };
 
-/// +2A / +2B / +3 timing (Amstrad 40077): same as 128K.
-pub const CONFIG_PLUS2A: UlaConfig = CONFIG_128K;
+/// +2A / +2B / +3 timing (Amstrad 40077).
+///
+/// Display geometry matches the Sinclair 128K, but the Amstrad ASIC's
+/// interrupt pulse is 32 T-states rather than 36.
+pub const CONFIG_PLUS2A: UlaConfig = UlaConfig {
+    int_end_pixel: 65,
+    ..CONFIG_128K
+};
 
 /// TS2068 NTSC timing: 448 pixels/line, 262 lines, 14.112 MHz crystal.
 ///

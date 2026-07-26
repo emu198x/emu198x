@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- derive tape, recorder, AY, FDC and audio cadence from the Amstrad divide-by-five timebase
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/common-sinclair-zx-spectrum-amstrad-class-v0.2.0) - 2026-06-04
 
 ### Other

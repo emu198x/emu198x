@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- require HALT2INT128's complete source-defined `HALT: Early` classification instead of the obsolete self-golden
+- make Float128K assert the first non-`0xFF` result rather than accepting a matching T-state label with an idle value
+- refresh the Super HALT Invaders golden at the corrected frame cadence
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-sinclair-zx-spectrum-128k-v0.2.0) - 2026-06-04
 
 ### Other

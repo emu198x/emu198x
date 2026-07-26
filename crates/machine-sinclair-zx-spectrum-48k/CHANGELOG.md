@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- require HALT2INT's complete source-defined `HALT: Early` classification instead of the obsolete self-golden
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-sinclair-zx-spectrum-48k-v0.2.0) - 2026-06-04
 
 ### Fixed
