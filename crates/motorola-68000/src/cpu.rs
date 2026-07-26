@@ -372,6 +372,43 @@ pub enum BitOp {
     Bchg,
 }
 
+/// Direction of a word transfer rejected by address-error detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddressErrorAccess {
+    /// The rejected transfer would have read a word from memory.
+    Read,
+    /// The rejected transfer would have written a word to memory.
+    Write,
+}
+
+/// Diagnostic observation of a word transfer rejected at an odd address.
+///
+/// Address errors are detected before the core enters [`State::BusCycle`], so
+/// the machine layer never receives an ordinary bus request for the rejected
+/// transfer. This record exposes the internal rejection boundary without
+/// implying that address strobe was asserted or that an external transfer
+/// completed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AddressErrorObservation {
+    /// Address produced by the core's abstract word-transfer micro-operation.
+    pub requested_address: u32,
+    /// Address recorded by the exception sequencer after instruction-specific
+    /// word-step adjustment.
+    pub frame_fault_address: u32,
+    /// Read or write direction of the rejected word transfer.
+    pub access: AddressErrorAccess,
+    /// Function-code value selected for the attempted transfer.
+    pub function_code: FunctionCode,
+    /// Access-information word prepared for the group-0 frame.
+    pub access_information: u16,
+    /// Status register prepared for the group-0 frame.
+    pub saved_sr: u16,
+    /// Instruction-register word prepared for the group-0 frame.
+    pub frame_ir: u16,
+    /// Program-counter value prepared for the group-0 frame.
+    pub frame_pc: u32,
+}
+
 /// Motorola 68000 CPU with reactive bus state machine.
 ///
 /// Call [`tick`](Cpu68000::tick) every crystal clock cycle. The CPU only
@@ -474,26 +511,33 @@ pub struct Cpu68000 {
     // --- Address error state ---
     /// Fault address that triggered the address error.
     pub(crate) ae_fault_addr: u32,
-    /// Access info word (IR bits [15:5] | R/W | function code).
+    /// Access info word (IR bits [15:5] | R/W | I/N | function code).
     pub(crate) ae_access_info: u16,
     /// Saved SR at time of address error (before supervisor mode).
     pub(crate) ae_saved_sr: u16,
-    /// True while processing an address error (prevents recursive AE).
+    /// True while processing a group-0 exception, including reset and the
+    /// first handler-instruction fetch. A further bus or address fault halts.
     pub(crate) ae_in_progress: bool,
+    /// True while the original MC68000 is processing a group-0 or group-1
+    /// exception. This is the source of the address-error frame's I/N bit;
+    /// group-2 exceptions remain part of instruction processing.
+    #[serde(default)]
+    pub(crate) group0_or_group1_processing: bool,
     /// True when the AE was caused by a FetchIRC (branch/jump to odd target).
     pub(crate) ae_from_fetch_irc: bool,
     /// DBcc: original Dn.w value before decrement, for undo on branch AE.
     pub(crate) dbcc_dn_undo: Option<(u8, u16)>,
-    /// IR value to push in the AE frame. Usually IR, but for MOVE.w write AE
-    /// with -(An) destination the real 68000 pushes IRC because the pipeline
-    /// has already advanced IR → IRC before the write cycle.
+    /// First instruction word prepared for the address-error frame.
+    /// Kept separately because frame construction occurs after the rejected
+    /// transfer has abandoned the instruction pipeline.
     pub(crate) ae_frame_ir: u16,
-    /// Saved SR for MOVE write AE flag restoration. The real 68000's 16-bit
-    /// ALU evaluates MOVE flags in stages during the write bus cycle. If the
-    /// write triggers AE, the frame SR reflects how far evaluation progressed:
+    /// Saved SR for the current MOVE write-AE compatibility policy:
     /// - `pre_move_sr`: full restore (for register src to (An)/(An)+, or
     ///   memory src to (An)/(An)+/abs.l with lo-word synthetic flags)
     /// - `pre_move_vc`: partial restore, V/C only (for register src to d16/d8+idx)
+    ///
+    /// These snapshots reproduce classified software-oracle outcomes; they do
+    /// not establish the original processor's internal flag timing.
     pub(crate) pre_move_sr: Option<u16>,
     /// Saved SR for partial V/C restore on MOVE.l write AE with extension-word
     /// destinations. N,Z are already computed during the FetchIRC; only V,C
@@ -509,11 +553,16 @@ pub struct Cpu68000 {
     /// only the most recent (relevant) side effect gets undone.
     /// Register undo info for address error: (reg, amount, is_postinc, is_dst).
     pub(crate) ae_undo_reg: Option<(u8, u32, bool, bool)>,
-    /// UNLK: original stack pointer to restore if AE fires.
+    /// UNLK: original stack pointer retained by the current compatibility path.
     /// UNLK sets A7 ← An before reading from the new (potentially odd) A7.
-    /// If the read faults, the real 68000 undoes the A7 modification.
     /// Tuple: (was_supervisor, original_sp).
     pub(crate) sp_undo: Option<(bool, u32)>,
+    /// Most recent internally rejected odd-address transfer.
+    ///
+    /// Diagnostic only. Consumers take the observation explicitly; snapshots
+    /// omit it because it does not affect processor execution.
+    #[serde(skip)]
+    address_error_observation: Option<AddressErrorObservation>,
 
     // --- Bus error / group-0 exception state ---
     /// Vector number for the current group-0 exception (2=bus error, 3=address error).
@@ -618,16 +667,16 @@ pub struct Cpu68000 {
 
     /// Musashi-style "undefined V" for ABCD / SBCD / NBCD.
     ///
-    /// PRM defines V as undefined for these. Real 68000 hardware
-    /// (the upstream Tom Harte SingleStepTests corpus) and Musashi
-    /// pick different concrete values for V; both are valid
-    /// interpretations of "undefined" but they disagree
-    /// instruction-by-instruction. Our reference oracles split:
+    /// PRM defines V as undefined for these. SingleStepTests and
+    /// Musashi pick different concrete values for V; both fit
+    /// "undefined" but disagree instruction-by-instruction. Our
+    /// reference oracles split:
     /// the m68k-test-gen 68010 / 68020 corpora are Musashi-driven
     /// (so they expect Musashi V), while the upstream 68000 corpus
-    /// is real-hardware-derived (and expects real-hw V).
+    /// is implementation-generated and expects SingleStepTests V.
     ///
-    /// `false` (default) → real-hw V via `bcd_add_realhw` etc.
+    /// `false` (default) → SingleStepTests-compatible V via the
+    /// legacy `bcd_add_realhw` helpers.
     /// `true` → Musashi V via `bcd_add_musashi` etc.
     /// The 68010 / 68020 wrappers set it `true` in `new()`.
     #[serde(skip)]
@@ -637,12 +686,13 @@ pub struct Cpu68000 {
     /// `DIVS.W` (and 32-bit `DIVL` already follows this path).
     ///
     /// PRM § 6.2.7: "on overflow N undefined, Z undefined, C
-    /// cleared, V set". Real 68000 hardware does roughly that (V
-    /// set, C cleared, N/Z preserved). Musashi preserves *all*
-    /// flags except V (which is set). The same Musashi-vs-real-hw
-    /// split as the BCD V flag applies.
+    /// cleared, V set". SingleStepTests clears C, sets V and
+    /// preserves N/Z; Musashi preserves *all* flags except V
+    /// (which is set). The same suite-vs-Musashi split as the BCD
+    /// V flag applies.
     ///
-    /// `false` (default) → real-hw: clear C, set V, preserve N/Z/X.
+    /// `false` (default) → SingleStepTests: clear C, set V,
+    /// preserve N/Z/X.
     /// `true` → Musashi: set V, preserve everything else.
     /// The 68010 / 68020 wrappers set it `true` in `new()`.
     #[serde(skip)]
@@ -1043,6 +1093,7 @@ impl Cpu68000 {
             ae_access_info: 0,
             ae_saved_sr: 0,
             ae_in_progress: false,
+            group0_or_group1_processing: false,
             ae_from_fetch_irc: false,
             dbcc_dn_undo: None,
             ae_frame_ir: 0,
@@ -1051,6 +1102,7 @@ impl Cpu68000 {
             program_space_access: false,
             ae_undo_reg: None,
             sp_undo: None,
+            address_error_observation: None,
             group0_vector: 3,
             bus_status: BusStatus::Wait,
             ipl: 0,
@@ -1155,6 +1207,9 @@ impl Cpu68000 {
     /// Sets supervisor mode with interrupts masked, clears the micro-op
     /// queue, and begins the prefetch sequence.
     pub fn reset_to(&mut self, ssp: u32, pc: u32) {
+        self.clear_address_error_execution_state();
+        self.ae_in_progress = true;
+        self.group0_or_group1_processing = true;
         self.regs.ssp = ssp;
         self.regs.pc = pc;
         self.regs.sr = 0x2700;
@@ -1162,6 +1217,7 @@ impl Cpu68000 {
         self.state = State::Idle;
         self.in_followup = false;
         self.followup_tag = 0;
+        self.address_error_observation = None;
         self.micro_ops.clear();
         self.micro_ops.push(MicroOp::FetchIRC);
         self.micro_ops.push(MicroOp::PromoteIRC);
@@ -1173,6 +1229,7 @@ impl Cpu68000 {
     /// DL test format (PC points past opcode+IRC), and queues an Execute
     /// micro-op so the next tick will decode the instruction.
     pub fn setup_prefetch(&mut self, opcode: u16, irc: u16) {
+        self.clear_address_error_execution_state();
         self.ir = opcode;
         self.opcode_at_start = opcode;
         self.irc = irc;
@@ -1186,8 +1243,17 @@ impl Cpu68000 {
         self.micro_ops.push(MicroOp::Execute);
         self.in_followup = false;
         self.followup_tag = 0;
+        self.address_error_observation = None;
         self.state = State::Idle;
         self.instruction_starts = 1;
+    }
+
+    /// Take the most recent internally rejected odd-address transfer.
+    ///
+    /// The observation is independent of the later exception-frame sequence.
+    /// Taking it prevents a previous fault from being mistaken for a new one.
+    pub fn take_address_error_observation(&mut self) -> Option<AddressErrorObservation> {
+        self.address_error_observation.take()
     }
 
     /// Consume the current IRC value and queue a FetchIRC to replace it.
@@ -1412,14 +1478,25 @@ impl Cpu68000 {
         self.followup_tag = 0;
         self.src_mode = None;
         self.dst_mode = None;
+        self.clear_address_error_execution_state();
+        self.micro_ops.push(MicroOp::FetchIRC);
+        self.micro_ops.push(MicroOp::Execute);
+    }
+
+    /// Clear transient state retained while constructing an address-error frame.
+    ///
+    /// This does not clear the public observation: callers may inspect that after
+    /// the exception handler's prefetch has promoted the pipeline.
+    fn clear_address_error_execution_state(&mut self) {
+        self.ae_in_progress = false;
+        self.group0_or_group1_processing = false;
+        self.ae_from_fetch_irc = false;
         self.ae_undo_reg = None;
         self.sp_undo = None;
         self.dbcc_dn_undo = None;
         self.pre_move_sr = None;
         self.pre_move_vc = None;
         self.program_space_access = false;
-        self.micro_ops.push(MicroOp::FetchIRC);
-        self.micro_ops.push(MicroOp::Execute);
     }
 
     /// Begin an interrupt exception sequence.
@@ -1429,6 +1506,8 @@ impl Cpu68000 {
     /// stack (SSP). The old SR (with the user-mode S bit) is saved first
     /// so it can be pushed in the frame.
     fn initiate_interrupt_exception(&mut self, level: u8) {
+        self.clear_address_error_execution_state();
+        self.group0_or_group1_processing = true;
         self.target_ipl = level;
         self.interrupts_taken = self.interrupts_taken.wrapping_add(1);
         // Save old SR before changing mode (for pushing in the exception frame).
@@ -1480,6 +1559,8 @@ impl Cpu68000 {
     /// there is no InterruptAck bus cycle. The PC to push in the frame
     /// is passed as a parameter (differs per instruction type).
     pub fn begin_group1_exception(&mut self, vector: u8, pc_to_push: u32) {
+        self.clear_address_error_execution_state();
+        self.group0_or_group1_processing = matches!(vector, 4 | 8 | 9 | 10 | 11);
         self.ae_saved_sr = self.regs.sr;
         self.regs.set_supervisor(true);
         self.regs.sr &= !0x8000; // Clear trace
@@ -1790,12 +1871,16 @@ impl Cpu68000 {
             return true;
         }
 
-        // Determine function code for the group-0 frame.
-        // The Harte/MAME fixtures expect only instruction-fetch faults to
-        // report program-space FC bits; data operand faults, including
-        // PC-relative operands, report data-space FC bits.
+        // Determine function code for the group-0 frame. Instruction fetches
+        // and PC-relative operand reads use program space; other operands use
+        // data space.
         let is_sup = self.regs.is_supervisor();
-        let is_program = matches!(op, MicroOp::FetchIRC);
+        let is_program = matches!(op, MicroOp::FetchIRC)
+            || (self.program_space_access
+                && matches!(
+                    op,
+                    MicroOp::ReadWord | MicroOp::ReadLongHi | MicroOp::ReadLongLo
+                ));
         let fc = match (is_sup, is_program) {
             (true, true) => FunctionCode::SupervisorProgram,
             (true, false) => FunctionCode::SupervisorData,
@@ -1821,8 +1906,10 @@ impl Cpu68000 {
     ///
     /// Then reads vector 3 (address 0x0C) and jumps to handler.
     fn begin_address_error(&mut self, fault_addr: u32, is_read: bool, fc: FunctionCode) {
+        let not_processing_instruction = self.group0_or_group1_processing;
         self.ae_fault_addr = self.adjust_ae_fault_addr(fault_addr, is_read);
         self.ae_in_progress = true;
+        self.group0_or_group1_processing = true;
         self.group0_vector = 3;
 
         // UNLK: undo the A7 ← An modification so the exception frame
@@ -1835,16 +1922,16 @@ impl Cpu68000 {
             }
         }
 
-        // Undo post-increment/predecrement on AE when the transfer wasn't committed.
+        // Apply the current software-oracle compatibility policy for EA
+        // register side effects. The historical commit boundary is unresolved.
         if let Some((reg, amount, is_postinc, _is_dst)) = self.ae_undo_reg.take() {
             let undo = if is_postinc {
                 if !is_read {
                     // Write AE: always undo postincrement (write never committed).
                     true
                 } else {
-                    // Standard postincrement source reads stick, even for long
-                    // transfers; the odd/partial access faults after the
-                    // address register update has committed.
+                    // The retained compatibility fixtures keep standard
+                    // postincrement source-read updates.
                     false
                 }
             } else {
@@ -1852,11 +1939,9 @@ impl Cpu68000 {
                 // - ADDX/SUBX -(Ay),-(Ax): byte/word source predecrement
                 //   sticks on AE. Long only commits the first -2 step.
                 // - Standard -(An) EA: only undo on write AE for Long size.
-                //   The real 68000 keeps the decremented value for byte/word
-                //   write AE, but undoes it for long (verified by DL tests).
-                // ADDX/SUBX -(Ay),-(Ax) long: the 68000 decrements by 2
-                // (word-sized step) before checking alignment. AE fires after
-                // the first -2, so only half the predecrement gets undone.
+                //   The retained fixtures keep byte/word write decrements but
+                //   restore the second half of a long predecrement.
+                // - ADDX/SUBX long compatibility retains one word-sized step.
                 let is_addx_subx_long = self.size == Size::Long
                     && matches!(self.ir & 0xF130, 0xD100 | 0x9100)
                     && (self.ir & 0x0008) != 0;
@@ -1884,20 +1969,19 @@ impl Cpu68000 {
             }
         }
 
-        // MOVEM mem→reg with postincrement advances the address register a
-        // word at a time. If the first read faults, the +2 step has already
-        // committed even for long transfers.
+        // Current MOVEM compatibility retains a one-word postincrement when
+        // the first read is rejected, including for long transfers.
         if is_read && (self.ir & 0xFF80) == 0x4C80 && self.movem_an_reg != 0xFF {
             let r = self.movem_an_reg as usize;
             self.regs.set_a(r, self.addr.wrapping_add(2));
         }
 
-        // DBcc with an odd taken target keeps the Dn.w decrement. The fetch
-        // that faults is for the next instruction, not part of the decrement.
+        // Current Emu198x compatibility retains the DBcc decrement. The
+        // MAME-derived corpus instead restores Dn; hardware remains unresolved.
         self.dbcc_dn_undo = None;
 
-        // For MOVE write AE: restore flags to match the 68000's flag
-        // evaluation timing. pre_move_sr = full restore, pre_move_vc = V,C only.
+        // Apply the retained MOVE write-AE status compatibility policy.
+        // pre_move_sr = full restore, pre_move_vc = V,C only.
         if !is_read {
             if let Some(saved_sr) = self.pre_move_sr.take() {
                 self.regs.sr = saved_sr;
@@ -1911,15 +1995,14 @@ impl Cpu68000 {
         self.pre_move_vc = None;
 
         // Save SR for the exception frame AFTER undo and flag restoration.
-        // The reference implementation restores pre-MOVE SR first, then
-        // captures old_sr, so the AE frame also gets the restored SR.
+        // Capture the status selected by the compatibility policy above.
         self.ae_saved_sr = self.regs.sr;
 
         self.ae_frame_ir = self.opcode_at_start;
 
         self.ae_access_info = (self.ae_frame_ir & 0xFFE0)
             | (if is_read { 0x10 } else { 0 })
-            | (if self.ae_from_fetch_irc { 0x08 } else { 0 })
+            | (if not_processing_instruction { 0x08 } else { 0 })
             | u16::from(fc.bits() & 0x07);
 
         // Enter supervisor mode and clear trace
@@ -1933,6 +2016,21 @@ impl Cpu68000 {
         // Frame PC: complex formula that depends on instruction type,
         // addressing modes, access size, and read/write direction.
         let frame_pc = self.compute_ae_frame_pc(is_read);
+
+        self.address_error_observation = Some(AddressErrorObservation {
+            requested_address: fault_addr,
+            frame_fault_address: self.ae_fault_addr,
+            access: if is_read {
+                AddressErrorAccess::Read
+            } else {
+                AddressErrorAccess::Write
+            },
+            function_code: fc,
+            access_information: self.ae_access_info,
+            saved_sr: self.ae_saved_sr,
+            frame_ir: self.ae_frame_ir,
+            frame_pc,
+        });
 
         if self.variant_format_a_group0 {
             // 68020+ 28-byte Format $A frame. The push happens
@@ -1967,7 +2065,9 @@ impl Cpu68000 {
             return;
         }
 
+        let not_processing_instruction = self.group0_or_group1_processing;
         self.ae_in_progress = true;
+        self.group0_or_group1_processing = true;
         self.ae_saved_sr = self.regs.sr;
 
         // Enter supervisor mode and clear trace.
@@ -1982,8 +2082,10 @@ impl Cpu68000 {
         self.group0_vector = 2;
         self.ae_fault_addr = fault_addr;
         self.ae_frame_ir = self.ir;
-        self.ae_access_info =
-            (self.ir & 0xFFE0) | (if is_read { 0x10 } else { 0 }) | u16::from(fc.bits() & 0x07);
+        self.ae_access_info = (self.ir & 0xFFE0)
+            | (if is_read { 0x10 } else { 0 })
+            | (if not_processing_instruction { 0x08 } else { 0 })
+            | u16::from(fc.bits() & 0x07);
 
         if self.variant_format_a_group0 {
             // 68020+ 28-byte Format $A frame.
@@ -2004,13 +2106,14 @@ impl Cpu68000 {
 
     /// Compute the frame PC for an address error exception.
     ///
-    /// The 68000's reported PC in the AE frame depends on:
+    /// The current compatibility result depends on:
     /// - Instruction type (MOVE vs non-MOVE)
     /// - Access direction (read vs write)
     /// - Addressing modes and their extension words
     /// - Operation size (for predecrement)
     ///
-    /// Derived from the cpu-m68k reference implementation and DL test cases.
+    /// These formulas are classified software-oracle compatibility rules, not
+    /// independently measured original-processor behaviour.
     fn compute_ae_frame_pc(&self, is_read: bool) -> u32 {
         let top = (self.ir >> 12) & 0xF;
 
@@ -2022,13 +2125,11 @@ impl Cpu68000 {
         // FetchIRC AE: branch/jump to an odd target.
         //
         // When a branch/jump instruction resolves to an odd address, the
-        // CPU has already updated regs.pc to the target before issuing
-        // the FetchIRC that triggers the AE. The real 68000 saves
-        // `regs.pc - 4` as the frame PC, reflecting the prefetch
-        // pipeline state at the moment of the fault.
-        //
-        // Verified against Tom Harte 680x0 fixtures for JMP, JSR, BSR,
-        // Bcc, DBcc, RTS, RTE, RTR.
+        // core has already updated regs.pc to the target before issuing
+        // the FetchIRC that triggers the AE. SingleStepTests fixtures for
+        // JMP, JSR, BSR, Bcc, DBcc, RTS, RTE and RTR expect `regs.pc - 4`
+        // as the frame PC. This is a corpus-compatibility rule, not an
+        // independently measured hardware claim.
         if self.ae_from_fetch_irc {
             return self.regs.pc.wrapping_sub(4);
         }
@@ -2041,9 +2142,7 @@ impl Cpu68000 {
             return self.instr_start_pc.wrapping_add(4);
         }
 
-        // ADDX/SUBX -(An),-(An): address errors report the instruction start
-        // PC, not ISP + 4. The long predecrement path only commits the first
-        // word-sized decrement before the alignment fault trips.
+        // ADDX/SUBX -(An),-(An) compatibility uses the instruction-start PC.
         if matches!(top, 0x9 | 0xD) {
             let opmode = (self.ir >> 6) & 7;
             if (4..=6).contains(&opmode) && ea_mode == 1 {
@@ -2185,14 +2284,11 @@ impl Cpu68000 {
         }
     }
 
-    /// Adjust fault address for MOVE.l -(An) destination write AE.
-    ///
-    /// The 68000 reports the fault address as `An - 2` (word-sized initial
-    /// decrement) rather than the full `An - 4` (long-sized decrement).
+    /// Adjust the abstract request to the fault address used by the retained
+    /// software-oracle compatibility boundary.
     fn adjust_ae_fault_addr(&self, addr: u32, is_read: bool) -> u32 {
-        // ADDX/SUBX -(Ay),-(Ax) long read AE: the 68000 decrements by 2
-        // (word-sized) first, then checks alignment. Our decode decremented
-        // by 4 at once, so the reported fault address is 2 too low.
+        // ADDX/SUBX long fixtures use a word-stepped fault address while the
+        // abstract EA path applies the complete long predecrement at once.
         if is_read && self.size == Size::Long {
             let top = (self.ir >> 12) & 0xF;
             let opmode = (self.ir >> 6) & 7;
@@ -2205,9 +2301,8 @@ impl Cpu68000 {
             return addr;
         }
 
-        // MOVEM.l -(An) write AE: the real 68000 decrements by 2 first
-        // and writes the low word at An-2. Our code decrements by 4 at
-        // once, so adjust the fault address by +2 to match hardware.
+        // MOVEM.l predecrement fixtures use a word-stepped fault address while
+        // the abstract EA path applies the complete long predecrement at once.
         if (self.ir & 0xFB80) == 0x4880 {
             let ea_mode_bits = ((self.ir >> 3) & 7) as u8;
             let is_long = (self.ir >> 6) & 1 == 1;
@@ -2232,5 +2327,284 @@ impl Cpu68000 {
         } else {
             addr
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cpu_with_program_read_address_error() -> Cpu68000 {
+        let mut cpu = Cpu68000::new();
+        cpu.regs.sr = 0x2000;
+        cpu.ir = 0x303A;
+        cpu.opcode_at_start = 0x303A;
+        cpu.instr_start_pc = 0x1000;
+        cpu.addr = 0xFF12_3457;
+        cpu.program_space_access = true;
+
+        assert!(cpu.check_address_error(MicroOp::ReadWord));
+        cpu
+    }
+
+    fn cpu_with_data_write_address_error() -> Cpu68000 {
+        let mut cpu = Cpu68000::new();
+        cpu.regs.sr = 0x2000;
+        cpu.ir = 0x3080;
+        cpu.opcode_at_start = 0x3080;
+        cpu.instr_start_pc = 0x1000;
+        cpu.addr = 0x0012_3457;
+
+        assert!(cpu.check_address_error(MicroOp::WriteWord));
+        cpu
+    }
+
+    fn cpu_with_instruction_fetch_address_error() -> Cpu68000 {
+        let mut cpu = Cpu68000::new();
+        cpu.regs.sr = 0x2000;
+        cpu.ir = 0x4ED2;
+        cpu.opcode_at_start = 0x4ED2;
+        cpu.instr_start_pc = 0x1000;
+        cpu.next_fetch_addr = 0x0012_3457;
+
+        assert!(cpu.check_address_error(MicroOp::FetchIRC));
+        cpu
+    }
+
+    #[test]
+    fn address_error_observation_records_program_read_boundary() {
+        let mut cpu = cpu_with_program_read_address_error();
+        let observation = cpu
+            .take_address_error_observation()
+            .expect("odd word read should produce an observation");
+
+        assert_eq!(observation.requested_address, 0xFF12_3457);
+        assert_eq!(observation.frame_fault_address, 0xFF12_3457);
+        assert_eq!(observation.access, AddressErrorAccess::Read);
+        assert_eq!(observation.function_code, FunctionCode::SupervisorProgram);
+        assert_eq!(observation.access_information, 0x3036);
+        assert_eq!(observation.saved_sr, 0x2000);
+        assert_eq!(observation.frame_ir, 0x303A);
+        assert_eq!(observation.frame_pc, 0x1002);
+        assert_eq!(cpu.take_address_error_observation(), None);
+    }
+
+    #[test]
+    fn address_error_observation_records_data_write_boundary() {
+        let mut cpu = cpu_with_data_write_address_error();
+        let observation = cpu
+            .take_address_error_observation()
+            .expect("odd word write should produce an observation");
+
+        assert_eq!(observation.requested_address, 0x0012_3457);
+        assert_eq!(observation.frame_fault_address, 0x0012_3457);
+        assert_eq!(observation.access, AddressErrorAccess::Write);
+        assert_eq!(observation.function_code, FunctionCode::SupervisorData);
+        assert_eq!(observation.access_information, 0x3085);
+    }
+
+    #[test]
+    fn stack_write_address_error_ignores_program_operand_space() {
+        let mut cpu = Cpu68000::new();
+        cpu.regs.sr = 0x2000;
+        cpu.regs.ssp = 0x0012_3457;
+        cpu.ir = 0x487A; // PEA (d16,PC)
+        cpu.opcode_at_start = 0x487A;
+        cpu.instr_start_pc = 0x1000;
+        cpu.program_space_access = true;
+
+        assert!(cpu.check_address_error(MicroOp::PushLongHi));
+        let observation = cpu
+            .take_address_error_observation()
+            .expect("odd stack write should produce an observation");
+
+        assert_eq!(observation.access, AddressErrorAccess::Write);
+        assert_eq!(observation.function_code, FunctionCode::SupervisorData);
+        assert_eq!(observation.access_information & 0x001F, 0x0005);
+    }
+
+    #[test]
+    fn instruction_fetch_address_error_records_instruction_processing() {
+        let mut cpu = cpu_with_instruction_fetch_address_error();
+        let observation = cpu
+            .take_address_error_observation()
+            .expect("odd instruction fetch should produce an observation");
+
+        assert_eq!(observation.access, AddressErrorAccess::Read);
+        assert_eq!(observation.function_code, FunctionCode::SupervisorProgram);
+        assert_eq!(observation.access_information, 0x4ED6);
+        assert_eq!(observation.access_information & 0x0008, 0);
+    }
+
+    #[test]
+    fn setup_boundaries_clear_address_error_observation() {
+        let mut reset_cpu = cpu_with_program_read_address_error();
+        reset_cpu.reset_to(0x2000, 0x1000);
+        assert_eq!(reset_cpu.take_address_error_observation(), None);
+        assert!(reset_cpu.ae_in_progress);
+        assert!(reset_cpu.group0_or_group1_processing);
+        assert!(!reset_cpu.ae_from_fetch_irc);
+        assert!(!reset_cpu.program_space_access);
+
+        let mut prefetch_cpu = cpu_with_program_read_address_error();
+        prefetch_cpu.regs.pc = 0x1004;
+        prefetch_cpu.setup_prefetch(0x4E71, 0x4E71);
+        assert_eq!(prefetch_cpu.take_address_error_observation(), None);
+        assert!(!prefetch_cpu.ae_in_progress);
+        assert!(!prefetch_cpu.group0_or_group1_processing);
+        assert!(!prefetch_cpu.ae_from_fetch_irc);
+        assert!(!prefetch_cpu.program_space_access);
+
+        let serialized = serde_json::to_vec(&cpu_with_program_read_address_error())
+            .expect("serialize CPU with pending observation");
+        let mut restored: Cpu68000 =
+            serde_json::from_slice(&serialized).expect("deserialize CPU snapshot");
+        assert_eq!(restored.take_address_error_observation(), None);
+    }
+
+    #[test]
+    fn reset_clears_double_address_error_state() {
+        let mut cpu = cpu_with_program_read_address_error();
+        cpu.addr = 0x0012_3457;
+        assert!(cpu.check_address_error(MicroOp::ReadWord));
+        assert!(matches!(cpu.state, State::Halted));
+
+        cpu.reset_to(0x2000, 0x1000);
+        cpu.regs.pc = 0x1004;
+        cpu.setup_prefetch(0x4E71, 0x4E71);
+        cpu.addr = 0x0012_3457;
+        assert!(cpu.check_address_error(MicroOp::ReadWord));
+        assert!(!matches!(cpu.state, State::Halted));
+    }
+
+    #[test]
+    fn group1_handler_fetch_address_error_records_not_instruction() {
+        let mut cpu = Cpu68000::new();
+        cpu.regs.sr = 0x2000;
+        cpu.ir = 0x4AFC;
+        cpu.opcode_at_start = 0x4AFC;
+        cpu.begin_group1_exception(4, 0x1000);
+        assert!(cpu.group0_or_group1_processing);
+
+        cpu.followup_tag = TAG_EXC_FINISH;
+        cpu.data = 0x2001;
+        cpu.continue_instruction();
+        assert!(cpu.group0_or_group1_processing);
+        assert!(!cpu.ae_in_progress);
+        assert!(cpu.check_address_error(MicroOp::FetchIRC));
+
+        let observation = cpu
+            .take_address_error_observation()
+            .expect("odd group-1 handler fetch should produce an observation");
+        assert_eq!(observation.access_information & 0x001F, 0x001E);
+        assert!(!matches!(cpu.state, State::Halted));
+    }
+
+    #[test]
+    fn group1_handler_fetch_context_survives_serde() {
+        let mut cpu = Cpu68000::new();
+        cpu.regs.sr = 0x2000;
+        cpu.ir = 0x4AFC;
+        cpu.opcode_at_start = 0x4AFC;
+        cpu.begin_group1_exception(4, 0x1000);
+        cpu.followup_tag = TAG_EXC_FINISH;
+        cpu.data = 0x2001;
+
+        let serialized =
+            serde_json::to_vec(&cpu).expect("serialize group-1 handler-prefetch state");
+        let mut restored: Cpu68000 = serde_json::from_slice(&serialized)
+            .expect("deserialize group-1 handler-prefetch state");
+        assert!(restored.group0_or_group1_processing);
+
+        restored.continue_instruction();
+        assert!(restored.check_address_error(MicroOp::FetchIRC));
+        let observation = restored
+            .take_address_error_observation()
+            .expect("odd restored group-1 handler fetch should produce an observation");
+        assert_eq!(observation.access_information & 0x001F, 0x001E);
+        assert!(!matches!(restored.state, State::Halted));
+    }
+
+    #[test]
+    fn group2_handler_fetch_address_error_records_instruction_processing() {
+        let mut cpu = Cpu68000::new();
+        cpu.regs.sr = 0x2000;
+        cpu.ir = 0x80C0;
+        cpu.opcode_at_start = 0x80C0;
+        cpu.begin_group1_exception(5, 0x1000);
+        assert!(!cpu.group0_or_group1_processing);
+
+        cpu.followup_tag = TAG_EXC_FINISH;
+        cpu.data = 0x2001;
+        cpu.continue_instruction();
+        assert!(cpu.check_address_error(MicroOp::FetchIRC));
+
+        let observation = cpu
+            .take_address_error_observation()
+            .expect("odd group-2 handler fetch should produce an observation");
+        assert_eq!(observation.access_information & 0x001F, 0x0016);
+    }
+
+    #[test]
+    fn group0_odd_handler_fetch_halts() {
+        let mut cpu = cpu_with_instruction_fetch_address_error();
+        let _ = cpu.take_address_error_observation();
+        cpu.followup_tag = TAG_AE_FINISH;
+        cpu.data = 0x2001;
+        cpu.continue_instruction();
+
+        assert!(cpu.ae_in_progress);
+        assert!(cpu.group0_or_group1_processing);
+        assert!(cpu.check_address_error(MicroOp::FetchIRC));
+        assert!(matches!(cpu.state, State::Halted));
+        assert_eq!(cpu.take_address_error_observation(), None);
+    }
+
+    #[test]
+    fn program_operand_address_error_reads_vector_in_supervisor_data_space() {
+        let mut cpu = cpu_with_program_read_address_error();
+        let mut vector_cycles = Vec::new();
+
+        for _ in 0..256 {
+            let bus_cycle = match &cpu.state {
+                State::BusCycle {
+                    addr,
+                    fc,
+                    cycle_count,
+                    ..
+                } => Some((*addr, *fc, *cycle_count)),
+                _ => None,
+            };
+
+            if let Some((addr, fc, cycle_count)) = bus_cycle {
+                if matches!(addr, 0x0C | 0x0E)
+                    && !vector_cycles
+                        .iter()
+                        .any(|(seen_addr, _)| *seen_addr == addr)
+                {
+                    vector_cycles.push((addr, fc));
+                }
+                cpu.bus_status = if cycle_count >= 3 {
+                    BusStatus::Ready(0)
+                } else {
+                    BusStatus::Wait
+                };
+            } else {
+                cpu.bus_status = BusStatus::Wait;
+            }
+
+            cpu.tick();
+            if vector_cycles.len() == 2 {
+                break;
+            }
+        }
+
+        assert_eq!(
+            vector_cycles,
+            vec![
+                (0x0C, FunctionCode::SupervisorData),
+                (0x0E, FunctionCode::SupervisorData),
+            ]
+        );
     }
 }

@@ -2,12 +2,13 @@
 //!
 //! The brief extension word `(d8,An,Xn)` is exercised by the
 //! m68k-generated corpus, but that generator only ever emits brief
-//! words (bit 8 clear), and the real-68000 Tom Harte harness skips
-//! every indexed-addressing case outright. So the 68020 full format —
-//! base displacement, scaled index, base/index suppression, and
-//! memory indirection — had **no** coverage anywhere, which is how the
-//! AGA Workbench palette bug (a full-format `lea` mis-decoded as
-//! brief) survived a "100%" Tom Harte pass.
+//! words (bit 8 clear), and the inherited-subset SingleStepTests
+//! harness skips every indexed-addressing case outright. The 68020
+//! full format — base displacement, scaled index, base/index
+//! suppression, and memory indirection — therefore had no generated
+//! coverage. This is how the AGA Workbench palette bug, a full-format
+//! `lea` mis-decoded as brief, survived a reported 100% inherited-subset
+//! pass.
 //!
 //! Every expected address here is computed by hand from the 68020
 //! User's Manual §2.2 / WinUAE `get_disp_ea_020`

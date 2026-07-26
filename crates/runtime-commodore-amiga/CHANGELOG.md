@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 14 so the MC68000's
+  group-0/group-1 exception-processing history survives restore;
+  version 13 is rejected because it cannot reconstruct address-error
+  I/N context or recursive-fault handling
 - Bump Amiga postcard snapshots to version 13 so the hidden
   original-Agnus vertical display-window latch and resulting DDF abort
   history survive restore; version 12 is rejected

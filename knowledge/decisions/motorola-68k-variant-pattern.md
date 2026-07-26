@@ -74,8 +74,8 @@ Current catalogue:
 | `variant_six_word_frame` | 68010 + 68020 | `begin_group1_exception` pushes Format/Vector word above PC + SR (8-byte frame instead of 6-byte). |
 | `variant_format2_vectors` | 68020 | Vectors 5 / 6 / 7 / 9 use Format `$2` 12-byte frame with extra Instruction-Address long. PRM § 8.6.3. |
 | `variant_extended_sr_writes` | 68020 | SR write mask widens from `$A71F` to `$F71F` (allows M-flag bit 12). The four SR-write sites consult `Cpu68000::sr_write_mask()`. |
-| `variant_musashi_bcd_v` | 68010 + 68020 | `bcd_add` / `bcd_sub` / `nbcd_op` report Musashi's "undefined V" instead of real-68000-hardware's. Each has both implementations as free functions. |
-| `variant_musashi_div_overflow` | 68010 + 68020 | 16-bit `DIVU.W` / `DIVS.W` overflow path: Musashi sets only V; real-hw / PRM clears C, sets V, preserves N/Z/X. |
+| `variant_musashi_bcd_v` | 68010 + 68020 | `bcd_add` / `bcd_sub` / `nbcd_op` report Musashi's "undefined V" instead of the SingleStepTests expectation. Each has both implementations as free functions. |
+| `variant_musashi_div_overflow` | 68010 + 68020 | 16-bit `DIVU.W` / `DIVS.W` overflow path: Musashi sets only V; SingleStepTests clears C, sets V and preserves N/Z/X. The PRM specifies C clear and V set but leaves N/Z undefined. |
 
 ### 3. Continuation hook — multi-step instructions
 
@@ -108,7 +108,7 @@ Stop and re-read this doc if you find yourself:
 - **Modifying `motorola-68000/src/{cpu,decode,execute,ea}.rs`** to add a `match self.model { … }` arm. That's the 2026-04-29 strip coming back. Use a variant flag instead.
 - **Defining a generic `Cpu68k<M: M68kVariant>`** to parameterise the core. The wrap-don't-clone shape is *not* generic over variant; each variant is its own struct. Generics here add complexity without buying variance — the variant set is fixed and small.
 - **Cloning** the 68000 core inside a variant crate, or duplicating an instruction handler. Either chain through the existing decode hook or add a flag.
-- **Tom Harte regresses against any of the three corpora** simultaneously. The corpora oracle-divide (SingleStepTests/680x0 is real-hw; m68k-test-gen is Musashi). When they disagree, that's a variant flag, not an "improvement" — see `variant_musashi_bcd_v` for precedent.
+- **Tom Harte regresses against any of the three corpora** simultaneously. The corpus divide is SingleStepTests/680x0 versus Musashi-driven m68k-test-gen. When they disagree, preserve the difference explicitly rather than treating one software oracle as hardware truth — see `variant_musashi_bcd_v` for precedent.
 
 ## Forward look — 68030 / 68040 / 68060 / AC68080
 

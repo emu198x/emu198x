@@ -180,9 +180,11 @@ not asserted as manufacturer-documented power-on behaviour.
   event generator itself has historical state that cannot be recovered
   from registers and beam position. ECS and AGA snapshots preserve the
   vertical-accessed flag, blank-active latch and line-held edge events.
-- The Amiga runtime postcard schema is version 13. Version-12 snapshots
-  are rejected because they do not contain the original-Agnus vertical
-  display-window latch. Version 12 made a rewritten future DDFSTRT
+- The Amiga runtime postcard schema is version 14. Version-13 snapshots
+  are rejected because they do not contain the MC68000's hidden
+  group-0/group-1 exception-processing state. Version 13 introduced the
+  original-Agnus vertical display-window latch; version 12 made a
+  rewritten future DDFSTRT
   comparator re-arm an aborted original-Agnus run; version 11 introduced
   the serialized abort latch; version 10 fixed the semantic short-line
   `$E3` transition; version 9 introduced the serialized

@@ -87,9 +87,9 @@ impl Cpu68010 {
         // The Tom Harte 68010 / 68020 corpora are Musashi-driven
         // (m68k-test-gen uses Musashi as the oracle), so BCD V and
         // DIV overflow semantics match Musashi's "undefined"
-        // interpretations rather than real-68000 hardware. The
-        // 68000 itself (which uses the upstream SingleStepTests
-        // real-hardware corpus) leaves both flags false.
+        // interpretations rather than the SingleStepTests baseline.
+        // The 68000 itself uses the upstream implementation-generated
+        // SingleStepTests corpus and leaves both flags false.
         self.inner.variant_musashi_bcd_v = true;
         self.inner.variant_musashi_div_overflow = true;
     }

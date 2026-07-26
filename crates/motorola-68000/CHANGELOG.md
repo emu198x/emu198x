@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Expose the internally rejected odd-address transfer as a diagnostic
+  `AddressErrorObservation`, without claiming an external bus transfer
+- Add a binary `SingleStepTests/m68000` harness covering a 240,090-row
+  agreement subset and a separate 55,606-event address-error taxonomy
+
+### Changed
+
+- Pin the `SingleStepTests/680x0` full sweep to its exact fixture count,
+  two named invalid rows, classified software-oracle differences and a
+  row-stable compatibility fingerprint
+- Resolve the registered 680x0 corpus from the shared 198x assets root by default
+
+### Fixed
+
+- Preserve group-0/group-1 processing state through handler prefetch so
+  recursive faults and the address-error I/N bit follow the exception
+  sequence
+- Use program-space function codes for PC-relative operand reads and
+  supervisor-data function codes for exception-vector reads
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/motorola-68000-v0.2.0) - 2026-06-04
 
 ### Added

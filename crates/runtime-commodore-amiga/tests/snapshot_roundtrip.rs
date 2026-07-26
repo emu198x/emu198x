@@ -48,6 +48,18 @@ fn blank_kickstart() -> Vec<u8> {
     kickstart
 }
 
+fn odd_group1_handler_kickstart() -> Vec<u8> {
+    let mut kickstart = vec![0u8; 256 * 1024];
+    kickstart[0..4].copy_from_slice(&0x0008_0000u32.to_be_bytes());
+    kickstart[4..8].copy_from_slice(&0x00F8_0008u32.to_be_bytes());
+    kickstart[8..10].copy_from_slice(&0x4AFCu16.to_be_bytes()); // ILLEGAL
+    kickstart[12..16].copy_from_slice(&0x00F8_0030u32.to_be_bytes()); // address error
+    kickstart[16..20].copy_from_slice(&0x00F8_0021u32.to_be_bytes()); // ILLEGAL vector
+    kickstart[0x30] = 0x60; // BRA.S
+    kickstart[0x31] = 0xFE; // -2: stable address-error handler
+    kickstart
+}
+
 fn null_host() -> HostIo<'static> {
     HostIo {
         input_events: &[],
@@ -115,6 +127,43 @@ fn snapshot_then_restore_then_snapshot_is_a_fixed_point() -> Result<(), Box<dyn 
     assert_eq!(
         snapshot_a, snapshot_b,
         "snapshot bytes differ after round-trip — see lib field list"
+    );
+    Ok(())
+}
+
+#[test]
+fn group1_handler_prefetch_context_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, odd_group1_handler_kickstart())?;
+    let mut reached_odd_handler = false;
+    for _ in 0..20_000 {
+        original.machine_mut().tick();
+        if original.machine().cpu().regs.pc == 0x00F8_0021 {
+            reached_odd_handler = true;
+            break;
+        }
+    }
+    assert!(
+        reached_odd_handler,
+        "ILLEGAL exception did not reach its odd group-1 handler",
+    );
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, odd_group1_handler_kickstart())?;
+    restored.restore(&snapshot)?;
+    assert_eq!(
+        snapshot,
+        restored.snapshot()?,
+        "group-1 handler-prefetch state must survive postcard",
+    );
+
+    for _ in 0..512 {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+    }
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "restored exception context must produce the same address-error frame and handler state",
     );
     Ok(())
 }
@@ -863,10 +912,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 12, and confirm the version-mismatch arm fires with a
+/// field back to 13, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV13` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 13` that byte is `0x0D`.
+/// of a `SnapshotEnvelopeV14` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 14` that byte is `0x0E`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -875,20 +924,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 13,
-        "postcard varint for SNAPSHOT_VERSION = 13 should be 0x0D"
+        bytes[0], 14,
+        "postcard varint for SNAPSHOT_VERSION = 14 should be 0x0E"
     );
-    bytes[0] = 12;
+    bytes[0] = 13;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-12 snapshot should be rejected before payload decode");
+        .expect_err("version-13 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 12; expected 13"
+                if reason == "unsupported snapshot version 13; expected 14"
         ),
         "expected version-mismatch reason, got {err:?}"
     );

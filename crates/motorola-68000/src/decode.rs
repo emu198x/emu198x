@@ -1920,6 +1920,7 @@ impl Cpu68000 {
 
             TAG_EXC_FETCH_VECTOR => {
                 let vector = self.data as u8;
+                self.program_space_access = false;
                 // 68010+: vector table is relocated by VBR. On 68000 VBR is 0.
                 self.addr = self.regs.vbr.wrapping_add(u32::from(vector) * 4);
                 self.size = Size::Long;
@@ -1931,8 +1932,6 @@ impl Cpu68000 {
             TAG_EXC_FINISH => {
                 self.regs.pc = self.data;
                 self.next_fetch_addr = self.regs.pc;
-                // Clear group-0 in-progress flag (bus error / address error).
-                self.ae_in_progress = false;
                 // For interrupts, set supervisor + clear trace + update mask.
                 // For group 1/2, supervisor and trace were already set in
                 // begin_group1_exception; don't change interrupt mask.
@@ -2475,6 +2474,7 @@ impl Cpu68000 {
 
             TAG_AE_FETCH_VECTOR => {
                 // group0_vector: 2 = bus error, 3 = address error.
+                self.program_space_access = false;
                 self.addr = u32::from(self.group0_vector) * 4;
                 self.followup_tag = TAG_AE_FINISH;
                 self.queue_read_ops(Size::Long);
@@ -2484,7 +2484,6 @@ impl Cpu68000 {
             TAG_AE_FINISH => {
                 self.regs.pc = self.data;
                 self.next_fetch_addr = self.regs.pc;
-                self.ae_in_progress = false;
                 self.micro_ops.clear();
                 self.micro_ops.push(MicroOp::FetchIRC);
                 self.micro_ops.push(MicroOp::PromoteIRC);
@@ -2642,8 +2641,8 @@ impl Cpu68000 {
                                 // Musashi: set V, preserve N / Z / X / C.
                                 self.regs.sr |= 0x0002;
                             } else {
-                                // Real-hw / PRM: clear C, set V,
-                                // preserve N / Z / X.
+                                // SingleStepTests / PRM: clear C, set V.
+                                // The suite preserves N / Z / X.
                                 let mut sr = self.regs.sr & !0x0003;
                                 sr |= 0x0002;
                                 self.regs.sr = sr;
@@ -2684,8 +2683,8 @@ impl Cpu68000 {
                                 // Musashi: set V, preserve N / Z / X / C.
                                 self.regs.sr |= 0x0002;
                             } else {
-                                // Real-hw / PRM: clear C, set V,
-                                // preserve N / Z / X.
+                                // SingleStepTests / PRM: clear C, set V.
+                                // The suite preserves N / Z / X.
                                 let mut sr = self.regs.sr & !0x0003;
                                 sr |= 0x0002;
                                 self.regs.sr = sr;
