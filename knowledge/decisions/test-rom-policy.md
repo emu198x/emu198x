@@ -27,17 +27,11 @@ The decision matters because:
 
 ### Bundled
 
-- **`test-data/zex/zexdoc.com`** + **`test-data/zex/zexall.com`**
-  (~17 KiB total). Frank Cringle's Z80 exerciser, 1996.
-  Originally distributed under "yaze" (Yet Another Z80 Emulator).
-  Redistributed for ~30 years across every major Z80 emulator
-  project (Fuse, MAME, RetroArch, ZEsarUX, …) as standard
-  regression fixtures. Provenance + redistribution rationale
-  documented at [`test-data/zex/README.md`](../../test-data/zex/README.md).
-  **Effectively public domain by long-standing universal
-  redistribution.** Status: keep bundled.
+No external test ROM corpus is currently bundled in `test-data/`.
+The generated M68k fixtures retained there are project-owned test
+outputs rather than redistributed ROMs.
 
-### Not bundled; user-provided via env var (skip-if-missing)
+### Not bundled; user-provided via env var
 
 | Test corpus | Env var | License | Bundled-safe? |
 |---|---|---|---|
@@ -49,6 +43,7 @@ The decision matters because:
 | Super Mario Bros. ROM (NES regression) | `EMU198X_NES_SMB_ROM` | Commercial, copyrighted (Nintendo) | No — never bundle |
 | Manic Miner / Jet Set Willy TZX (Spectrum regression) | `EMU198X_SPECTRUM_MANIC_MINER_TZX` / `…_JET_SET_WILLY_TZX` | Commercial (Bug-Byte / Software Projects); some titles have permissive distribution permission, varies | No — never bundle |
 | Mealybug Tearoom (mattcurrie, future use) | (env var TBD when first referenced) | MIT | Yes if we want |
+| ZEXDOC / ZEXALL | `EMU198X_ZEX_DIR` | No explicit grant; long-standing redistribution | No — referenced externally since 2026-07-04 |
 
 ### Hand-rolled in-repo (not external test ROMs, just shaped like)
 
@@ -57,17 +52,35 @@ The decision matters because:
   corpus exists yet; this is our own baseline. No licensing issue
   (project's own work, GPL-2.0-or-later like everything else).
 
-### Tom Harte processor tests (upstream, MIT)
+### SingleStepTests processor repositories
 
 - [github.com/TomHarte/ProcessorTests](https://github.com/TomHarte/ProcessorTests)
-- Covers 6502, Z80, 65816, 68000 (and growing). Millions of JSON
-  test vectors.
-- **License: MIT.** Explicit and clean.
-- Currently consumed by each CPU crate's test fixtures (downloaded
-  / referenced as needed). Not currently bundled in our repo;
-  vectors are large enough that referencing is the right pattern.
-- **Bundled-safe: yes.** But size + churn argue for referenced-not-
-  bundled at the gigabytes-of-JSON scale.
+  redirects to the archived `SingleStepTests/ProcessorTests`
+  repository, whose suites have since been split into separate
+  repositories.
+- The exact `SingleStepTests/680x0` revision consumed by the M68k
+  harnesses, `e0d5ece9670205cc84a0101081837deb446f86a3`, has no
+  tracked `LICENSE`, `COPYING`, `NOTICE`, copyright statement, or
+  license declaration.
+- **Rights status for the retained 680x0 revision: undetermined.**
+  A license in a related or containing repository must not be
+  applied to a split suite without evidence that it covers the
+  exact retained files.
+- The checkout is referenced by `motorola-68000` and by the
+  inherited-subset harnesses in `motorola-68010` and
+  `motorola-68020`. It is not currently bundled in this repository;
+  its size supports retaining the referenced-fixture pattern.
+- **SingleStepTests/680x0 redistribution: unknown.** Keep it
+  referenced and do not bundle it pending an exact rights review.
+
+The separate `SingleStepTests/m68000` repository at revision
+`64b253116a3de04aaac4346c43680960dc9b67e5` carries an MIT licence
+covering its compact binary fixtures. The 68000 comparison harness
+references its 127 files through `EMU198X_68000_MAME_ROOT`; the corpus
+is not bundled because its size and independent revision history fit
+the external-fixture pattern. Its README identifies MAME's microcoded
+MC68000 core as the generator and explicitly excludes TAS and TRAPV
+from its verified set.
 
 ## The policy
 
@@ -76,16 +89,14 @@ The decision matters because:
 **Tier 1: explicit permissive license (MIT / Apache-2.0 / BSD /
 CC0 / public domain).** Bundling is safe. Whether to bundle is a
 practical decision (size, churn, convenience). Examples: Tom
-Harte vectors, mealybug, mooneye-gb test ROMs (the test ROMs
-specifically, not the main emulator code), dmg-acid2.
+Harte vectors whose exact source carries an applicable license,
+mealybug, mooneye-gb test ROMs (the test ROMs specifically, not
+the main emulator code), dmg-acid2.
 
 **Tier 2: no explicit license but universally redistributed for
 decades.** Effectively public domain by practice. Examples: ZEX
-(already bundled with documented rationale), Blargg test ROMs,
-nestest. **Default: don't bundle; reference via env-var path.**
-The ZEX case is grandfathered (already bundled with documented
-rationale predating this policy); future Tier 2 additions are not
-bundled.
+(historically bundled, now external), Blargg test ROMs, nestest.
+**Default: don't bundle; reference via env-var path.**
 
 **Tier 3: commercial / copyrighted.** Never bundle. Examples: any
 commercial game ROM (Manic Miner, Super Mario Bros., …),
@@ -105,7 +116,7 @@ README documenting:
   have the same bytes everyone else does)
 - Which tests / regressions consume it
 
-`test-data/zex/README.md` is the template.
+Use the provenance fields above as the required template.
 
 ### When referencing, document via env var
 
@@ -113,21 +124,42 @@ Every test ROM consumed via env var path follows the pattern:
 
 - `EMU198X_<SYSTEM>_<CORPUS>_<DETAIL>` env var (e.g.,
   `EMU198X_GB_BLARGG_ROOT`, `EMU198X_NES_SMB_ROM`)
-- Skip-if-missing semantics: tests log `skipping: set EMU198X_X
-  to <description>` and pass
+- Ordinary local tests use skip-if-missing semantics: they log
+  `skipping: set EMU198X_X to <description>` and pass
 - Documented in the consumer test file's prologue comments and (if
   user-facing) in the README's Getting ROMs section
 
+### Explicit accuracy-gate exception
+
+An ignored test that is deliberately invoked as an accuracy gate may
+require its external asset. In that context:
+
+- an explicitly supplied path is authoritative, and a missing, unreadable
+  or malformed asset fails the test;
+- the canonical scheduled workflow fails preflight when required corpus
+  storage is not configured, while forks may record a skip;
+- an in-repository checksum manifest pins the identity of every consumed
+  fixture independently of the delivery archive;
+- a private object store is a delivery cache, not the canonical source
+  and not evidence of redistribution rights.
+
+Each exact asset still requires an item-specific rights assessment. Do
+not upload an asset with undetermined rights solely because a workflow
+can consume it. Existing private availability does not establish a right
+to redistribute or expand access.
+
 ## Why this policy
 
-### Why Tier 2 stays unbundled by default (grandfathering ZEX)
+### Why Tier 2 stays unbundled
 
-ZEX is bundled because it was bundled before this policy existed
-and removing it would break the existing Z80 regression CI gate.
-The rationale (universal 30-year redistribution) is documented in
-its README. **That's the bar for grandfathering Tier 2, not a
-template for adding more.** Bundling new Tier 2 ROMs would expand
-our redistribution exposure without expanding the project's value
+ZEX was bundled before this policy existed. It moved to the external
+corpus store on 2026-07-04 and is now supplied through
+`EMU198X_ZEX_DIR`, so the regression gate no longer requires repository
+redistribution. Its long-standing availability remains evidence of
+provenance, not an explicit licence grant.
+
+Bundling new or previously removed Tier 2 ROMs would expand our
+redistribution exposure without expanding the project's value
 proportionally.
 
 The cost of referencing Blargg / nestest (env var + skip-if-
@@ -153,7 +185,7 @@ bundled because:
   document
 
 **Exception:** if a small, stable, Tier 1 test ROM becomes
-critical to a CI regression gate (the way ZEX did for Z80), we
+critical to a CI regression gate, we
 revisit bundling for that specific case with the standard
 provenance README.
 
@@ -168,13 +200,15 @@ Obvious. Just naming it for completeness.
   explicit grant is not paid back by avoiding a one-time user
   download.
 - **Bundling nestest.nes** same reasoning.
-- **Bundling Tom Harte JSON vectors** even though MIT-licensed.
-  Size + churn argue for referenced-not-bundled.
-- **Maintaining a "blessed mirror" of external test corpora** in
-  a separate repo or release artifact. Defer until someone asks
-  for it; the env-var pattern works.
-- **Removing ZEX from `test-data/`.** Grandfathered with documented
-  rationale.
+- **Bundling large external JSON corpora.** Size + churn argue for
+  referenced-not-bundled, and each exact source still requires a
+  license review.
+- **Treating a private CI delivery cache as a canonical or blessed
+  mirror.** Canonical identity comes from registered source provenance
+  and committed checksums; storage configuration does not replace rights
+  review.
+- **Re-bundling ZEX for convenience.** The environment-variable path
+  already supports the regression without repository redistribution.
 
 ## Future additions
 
@@ -182,20 +216,23 @@ When a new test ROM corpus is added:
 
 1. Determine its tier (1 / 2 / 3) by license check
 2. Default: reference via env var (with `EMU198X_<SYSTEM>_<CORPUS>`
-  pattern + skip-if-missing semantics)
-3. If bundling is genuinely needed (e.g., CI-gated regression with
-  no reasonable user-download path), and the corpus is Tier 1 and
-  small (< 100 KiB), bundle with a per-folder provenance README
-4. Update the audit table at the top of this record
+  pattern + skip-if-missing semantics for ordinary local tests)
+3. If an ignored test becomes an explicit accuracy gate, document its
+   required-asset failure semantics and pin every consumed fixture
+4. If bundling is genuinely needed (e.g., CI-gated regression with
+   no reasonable user-download path), and the corpus is Tier 1 and
+   small (< 100 KiB), bundle with a per-folder provenance README
+5. Update the audit table at the top of this record
 
 ## Drift triggers
 
 - **"Bundle Blargg/nestest so users don't have to download
   separately"** — re-read § Why Tier 2 stays unbundled. The
   redistribution exposure isn't justified by the convenience.
-- **"Bundle Tom Harte vectors because they're MIT"** — size and
-  churn make this expensive; referenced-not-bundled is the right
-  pattern even for Tier 1 at that scale.
+- **"Bundle SingleStepTests vectors because a related repository
+  is MIT"** — review the exact retained source. The `680x0`
+  revision currently has no tracked license, and related-repository
+  metadata is not sufficient.
 - **"Bundle this small MIT test ROM for convenience"** — only if
   it's CI-gated AND small AND a per-user download path is
   awkward. Otherwise stay with env-var pattern for uniformity.
@@ -205,17 +242,38 @@ When a new test ROM corpus is added:
 
 ## Log
 
+### 2026-07-04 — ZEX moved to external corpus storage
+
+The checked-in ZEXDOC and ZEXALL binaries were removed when the Z80
+exerciser joined the shared external-corpus workflow. Tests now use
+`EMU198X_ZEX_DIR`. This removed the only grandfathered Tier 2 bundle;
+no external test ROM corpus is currently stored in `test-data/`.
+
+### 2026-07-21 — SingleStepTests 680x0 rights correction
+
+The exact retained `SingleStepTests/680x0` revision contains no
+tracked license or rights notice. The earlier blanket MIT and
+bundled-safe wording was therefore narrowed to item-specific
+review. The suite remains referenced rather than bundled, so no
+repository content needed removal.
+
+The explicit MC68000 full-sweep invocation is also recorded as an
+exception to ordinary skip-if-missing behaviour. Its canonical scheduled
+job requires configured storage and verifies an in-repository per-file
+checksum manifest. The delivery cache does not change the suite's
+undetermined redistribution status.
+
 ### 2026-05-23 — Policy locked
 
-Audit confirms the current state is clean: ZEX is the only
-bundled test ROM and has documented rationale; everything else is
-referenced via env var with skip-if-missing semantics. No
-licensing concerns surfaced in the audit.
+At the time of this audit, ZEX was the only bundled test ROM and
+had documented rationale; everything else was referenced via env
+var with skip-if-missing semantics. ZEX moved out of the repository
+on 2026-07-04.
 
 Policy locked: three tiers (explicit permissive / universal
 redistribution / commercial), default to referenced-not-bundled
-even for Tier 1, grandfather ZEX, never bundle Tier 3, bundle Tier
-1 only when CI-gated and small with a provenance README.
+even for Tier 1, never bundle Tier 3, bundle Tier 1 only when
+CI-gated and small with a provenance README.
 
 The README's references to Blargg + nestest as `~/.emu198x/media/`
 paths align with this policy. No action needed in the README.

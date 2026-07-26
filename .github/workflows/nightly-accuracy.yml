@@ -1,16 +1,17 @@
 name: Nightly Accuracy
 
-# Runs the external CPU conformance corpora that are too large / too slow to
-# gate every push — the Tom Harte single-step suites (6502, Z80, 68000), SM83
-# (Tennant), Klaus Dormann, FUSE Z80, and Wolfgang Lorenz. These tests are
-# `#[ignore]`d by default (they need corpora that don't live in the repo), so
-# without this workflow the project's strongest validation runs only on a dev
-# machine by hand. This is the standing gate that makes the accuracy claims real.
+# Runs external CPU comparison corpora that are too large or asset-dependent
+# to gate every push: SingleStepTests (6502, Z80, 68000), SM83 (Tennant),
+# Klaus Dormann, FUSE Z80, Wolfgang Lorenz, and ZEXDOC/ZEXALL. Their tests are
+# ignored by default because the external corpora are not checked into this
+# repository. A completed job records only the comparison it executed; the
+# workflow's presence does not establish an accuracy result.
 #
-# Corpora come from a private "dedicated assets store" (a GitHub repo's release
-# assets) that you control — see test-data/accuracy-corpora.md. That keeps them
-# hermetic and lets the Lorenz tarball carry the C64 KERNAL without any public
-# ROM redistribution. ZEXDOC/ZEXALL is hermetic and lives in zex.yml, not here.
+# A configured private release store delivers the corpora. It is a cache, not
+# their canonical provenance or a grant of redistribution rights. The workflow
+# verifies delivery checksums; the 68000 job also verifies a committed per-file
+# manifest. The Lorenz asset contains the project's synthetic free KERNAL, not
+# a commercial ROM. See test-data/accuracy-corpora.md.
 
 on:
   schedule:
@@ -32,8 +33,8 @@ env:
 jobs:
   # Secrets can't be read in a job-level `if`, so a preflight job turns
   # "is the store configured?" into an output the corpus jobs gate on. On a
-  # fork or a PR without the secret this short-circuits everything to skipped
-  # (not failed), keeping those runs green.
+  # fork without the secret this short-circuits everything to skipped. On the
+  # canonical repository, missing configuration fails the preflight.
   preflight:
     name: Preflight
     runs-on: ubuntu-latest
@@ -48,7 +49,11 @@ jobs:
             echo "Corpora store: ${CORPORA_REPO}@${CORPORA_TAG}"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Corpora store not configured (ACCURACY_CORPORA_TOKEN secret and/or ACCURACY_CORPORA_REPO variable unset). Corpus jobs skipped. See test-data/accuracy-corpora.md."
+            if [ "${{ github.repository }}" = "emu198x/emu198x" ]; then
+              echo "::error::Corpora store not configured on the canonical repository (ACCURACY_CORPORA_TOKEN secret and/or ACCURACY_CORPORA_REPO variable unset). See test-data/accuracy-corpora.md."
+              exit 1
+            fi
+            echo "::warning::Corpora store not configured on this fork. Corpus jobs skipped. See test-data/accuracy-corpora.md."
           fi
 
   # Fast-to-moderate corpora, one matrix leg each. Each leg pulls its tarball
@@ -137,9 +142,10 @@ jobs:
       - name: Run ${{ matrix.name }}
         run: cargo test --release -p ${{ matrix.crate }} --test ${{ matrix.test }} ${{ matrix.filter }} -- --include-ignored --nocapture
 
-  # Tom Harte 68000 — the ~1,000,058-case sweep. Gigabytes and potentially
-  # hours, so it gets its own job with a long timeout rather than sharing the
-  # matrix. This is the "million-test" claim's standing gate.
+  # SingleStepTests 68000 — 124 fixture files containing 1,000,060 rows.
+  # The harness excludes two named invalid rows and compares the remaining
+  # 1,000,058. It gets its own job with a long timeout rather than sharing the
+  # matrix.
   harte-68000:
     name: harte-68000
     runs-on: ubuntu-latest
@@ -177,10 +183,24 @@ jobs:
             -p 'harte-68000.tar.zst' -p 'SHA256SUMS'
           grep ' harte-68000.tar.zst$' SHA256SUMS | sha256sum -c -
           tar --zstd -xf 'harte-68000.tar.zst'
-          echo "EMU198X_68000_TOM_HARTE_ROOT=$(pwd)/harte-68000" >> "$GITHUB_ENV"
+          cd harte-68000
+          sha256sum -c "${GITHUB_WORKSPACE}/test-data/singlesteptests-680x0-e0d5ece.sha256"
+          echo "EMU198X_68000_TOM_HARTE_ROOT=$(pwd)" >> "$GITHUB_ENV"
 
-      - name: Run Tom Harte 68000 full sweep
-        run: cargo test --release -p motorola-68000 --test tom_harte harte_full_sweep -- --include-ignored --nocapture
+      - name: Verify full-sweep test is registered
+        run: |
+          set -euo pipefail
+          matches="$(
+            cargo test --release -p motorola-68000 --test tom_harte -- --list --ignored |
+              awk '$0 == "harte_full_sweep: test" { count++ } END { print count + 0 }'
+          )"
+          if [ "${matches}" -ne 1 ]; then
+            echo "::error::Expected exactly one ignored harte_full_sweep test; found ${matches}."
+            exit 1
+          fi
+
+      - name: Run SingleStepTests 68000 full sweep
+        run: cargo test --release -p motorola-68000 --test tom_harte harte_full_sweep -- --ignored --exact --nocapture
 
   # Wolfgang Lorenz — its own job because it loads a C64 KERNAL into $E000-$FFFF.
   # That KERNAL is a *synthetic, fully-free* one we author (not the commercial
