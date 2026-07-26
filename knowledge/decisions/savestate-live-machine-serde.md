@@ -20,9 +20,10 @@ The pattern (proven across 14 systems, PRs #655–668):
   AY-3-8912 already did.
 - The runtime snapshot envelope is a **borrowing** struct for encode (no clone)
   + an **owning** struct for decode, carrying `version`, `time`, `model_id`,
-  and `machine: Option<M>`. `SNAPSHOT_VERSION` bumps (1→2) — the old bootstrap
-  envelope is incompatible. Decode checks version + rejects a `model_id`
-  mismatch.
+  and `machine: Option<M>`. The initial live-machine rollout bumped
+  `SNAPSHOT_VERSION` from 1→2 because the old bootstrap envelope was
+  incompatible. Decode checks the leading version before decoding the full
+  payload, then rejects a `model_id` mismatch.
 - Restore installs the deserialised machine via a new `set_machine()` that
   **re-derives the host RGBA framebuffer** from the restored chip dims before
   repainting. This sizing is **load-bearing**: runtimes whose `blank()` starts
@@ -33,6 +34,19 @@ The pattern (proven across 14 systems, PRs #655–668):
 Tests per system: a machine-level `snapshot_round_trips_live_state` (serialise →
 advance → re-serialise differs; restore the first → re-serialise byte-identical;
 a poked RAM byte survives) + a runtime `decode_rejects_unsupported_version`.
+
+## Z80 interrupt-response amendment
+
+Z80-based live-machine runtimes use snapshot version 3. The core now preserves
+the identity of an accepted NMI, IM 0, IM 1, or IM 2 response so the skipped
+static walker sequence can be rehydrated mid-response. Version 2 payloads did
+not carry that identity and are rejected before full postcard decode.
+
+The core regression suite serialises and resumes every externally observable
+half-cycle of all four response sequences. The Spectrum runtime additionally
+round-trips and continues a machine snapshot taken during NMI acknowledgement.
+The sequence representation is defined in
+[Z80 interrupt snapshot identity](z80-interrupt-snapshot-identity.md).
 
 ## Atari (decided 2026-06-26): use serde, same as everyone else
 
@@ -51,3 +65,9 @@ Round-trip tests are **machine-level** (postcard on the struct). The runtime
 `set_machine` + RGBA-repaint path is verified by mirroring `rebuild_machine` +
 code review, not by a runtime-level restore test. A small per-system
 run→snapshot→restore→run test would close this — tracked as a follow-up.
+
+## Related documents
+
+- [Z80 interrupt snapshot identity](z80-interrupt-snapshot-identity.md)
+- [Runtime internal shape](runtime-internal-shape.md)
+- [Spectrum architecture review](spectrum-architecture-review.md)

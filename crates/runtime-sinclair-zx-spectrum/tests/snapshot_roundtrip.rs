@@ -14,6 +14,7 @@ use emu198x_shell::{
 use runtime_sinclair_zx_spectrum::{
     Spectrum16kRuntime, Spectrum48kRuntime, Spectrum128kRuntime, SpectrumPlus3Runtime,
 };
+use zilog_z80::z80::Phase;
 
 const WARMUP: u64 = 50_000;
 const LOCKSTEP: u64 = 100_000;
@@ -83,4 +84,73 @@ fn snapshot_round_trip_128k() {
 #[test]
 fn snapshot_round_trip_plus3() {
     assert_round_trip(SpectrumPlus3Runtime::blank(), SpectrumPlus3Runtime::blank());
+}
+
+#[test]
+fn snapshot_mid_nmi_response_continues_identically() {
+    let mut original = Spectrum48kRuntime::blank();
+    original.machine_mut().z80_mut().nmi = true;
+
+    let mut accepted = false;
+    for _ in 0..128 {
+        original.machine_mut().advance_halfcycles(1);
+        if matches!(original.machine().z80().phase, Phase::NmiAck(_)) {
+            accepted = true;
+            break;
+        }
+    }
+    assert!(accepted, "the blank Spectrum must accept the requested NMI");
+
+    // Move beyond the response's first edge so this exercises continuation
+    // through the skipped static sequence rather than boundary reconstruction.
+    original.machine_mut().advance_halfcycles(4);
+    assert!(
+        matches!(original.machine().z80().phase, Phase::NmiAck(_)),
+        "snapshot must be taken while the NMI response is in progress"
+    );
+
+    let snap = original
+        .snapshot()
+        .expect("mid-NMI Spectrum runtime should snapshot");
+    let mut restored = Spectrum48kRuntime::blank();
+    restored
+        .restore(&snap)
+        .expect("mid-NMI Spectrum snapshot should restore");
+    assert_eq!(
+        restored
+            .snapshot()
+            .expect("restored runtime should re-snapshot"),
+        snap,
+        "restore must reproduce the complete mid-response state"
+    );
+
+    original.machine_mut().advance_halfcycles(128);
+    restored.machine_mut().advance_halfcycles(128);
+    let restored_bytes =
+        postcard::to_allocvec(restored.machine().z80()).expect("restored Z80 should encode");
+    let original_bytes =
+        postcard::to_allocvec(original.machine().z80()).expect("original Z80 should encode");
+    assert_eq!(
+        restored_bytes.len(),
+        original_bytes.len(),
+        "continued Z80 states must have the same length"
+    );
+    let first_difference = restored_bytes
+        .iter()
+        .zip(&original_bytes)
+        .position(|(restored, original)| restored != original);
+    assert!(
+        first_difference.is_none(),
+        "restored and original NMI responses first differ at Z80 byte {:?}",
+        first_difference
+    );
+
+    let restored_memory =
+        postcard::to_allocvec(restored.machine().memory()).expect("restored memory should encode");
+    let original_memory =
+        postcard::to_allocvec(original.machine().memory()).expect("original memory should encode");
+    assert_eq!(
+        restored_memory, original_memory,
+        "NMI stack writes and subsequent memory state must remain identical"
+    );
 }

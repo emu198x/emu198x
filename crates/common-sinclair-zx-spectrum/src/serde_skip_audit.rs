@@ -62,7 +62,7 @@ const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[
         expected: 1,
         justification: "Walker sequence is `&'static`. Rehydrated by \
                         `Z80::rehydrate_walker_sequence` from the preserved \
-                        `(prefix, opcode)` pair.",
+                        sequence identity and opcode.",
     },
     SerdeSkipAudit {
         path: "crates/common-sinclair-zx-spectrum-48k-class/src/core.rs",

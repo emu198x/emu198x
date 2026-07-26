@@ -239,9 +239,9 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
 
     /// Reattaches `&'static` references that don't survive serde's
     /// `#[serde(skip)]` round-trip, and rehydrates the Z80 walker
-    /// sequence from `(prefix, opcode)`. Call once after restoring
-    /// a postcard snapshot. Without it the Sinclair 7K010E reverts
-    /// to 48K timing on restore.
+    /// sequence from the preserved sequence identity and opcode. Call
+    /// once after restoring a postcard snapshot. Without it the Sinclair
+    /// 7K010E reverts to 48K timing on restore.
     pub fn restore_volatile_refs(&mut self) {
         self.z80.rehydrate_walker_sequence();
         self.ula.reattach_config();

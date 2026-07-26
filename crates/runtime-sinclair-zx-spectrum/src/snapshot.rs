@@ -22,20 +22,25 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// **Version 1** (legacy): version + profile_id + time + keyboard_rows
 /// + machine.
 ///
-/// **Version 2** (Seam 3, 2026-05-20, current): adds `disk_images`
+/// **Version 2** (Seam 3, 2026-05-20): added `disk_images`
 /// so a +3 snapshot taken with a disk mounted comes back with the
 /// disk still inserted. The FDC's `disks` field stays
 /// `#[serde(skip)]` (large, not all reconstructible from disk
 /// state alone); the runtime caches the raw bytes alongside and
 /// replays the insertion through `load_disk_image` after restore.
-const SNAPSHOT_VERSION: u32 = 2;
+///
+/// **Version 3** (current): preserves the explicit identity of an
+/// accepted Z80 NMI or maskable-interrupt response. Version 2 could
+/// serialise a response in progress, but could not distinguish its
+/// skipped static walker sequence after decode, so it is rejected.
+const SNAPSHOT_VERSION: u32 = 3;
 
 /// Borrowed snapshot envelope used by [`encode`]. Generic over any
 /// `M: Serialize`; the `SpectrumMachine` bound is enforced at the
 /// `encode`/`decode` entry points so the envelope stays usable from
 /// pure-serde contexts.
 #[derive(Serialize)]
-struct SpectrumRuntimeSnapshotRefV2<'a, M: Serialize> {
+struct SpectrumRuntimeSnapshotRefV3<'a, M: Serialize> {
     version: u32,
     profile_id: &'a str,
     time: MachineTime,
@@ -47,7 +52,7 @@ struct SpectrumRuntimeSnapshotRefV2<'a, M: Serialize> {
 /// Owned snapshot envelope used by [`decode`]. Generic over any
 /// `M: Deserialize<'de>`.
 #[derive(Deserialize)]
-struct SpectrumRuntimeSnapshotV2<M> {
+struct SpectrumRuntimeSnapshotV3<M> {
     version: u32,
     profile_id: String,
     time: MachineTime,
@@ -65,7 +70,7 @@ struct SpectrumRuntimeSnapshotV2<M> {
 pub(crate) fn encode<M: SpectrumMachine>(
     runtime: &SpectrumRuntime<M>,
 ) -> Result<Vec<u8>, MachineError> {
-    postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV2 {
+    postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV3 {
         version: SNAPSHOT_VERSION,
         profile_id: runtime.profile().profile_id.as_str(),
         time: runtime.time_value(),
@@ -87,16 +92,23 @@ pub(crate) fn decode<M: SpectrumMachine>(
     runtime: &mut SpectrumRuntime<M>,
     bytes: &[u8],
 ) -> Result<(), MachineError> {
-    let snapshot: SpectrumRuntimeSnapshotV2<M> =
+    let (version, _) = postcard::take_from_bytes::<u32>(bytes).map_err(|reason| {
+        MachineError::InvalidSnapshot {
+            reason: format!("decode failed: {reason}"),
+        }
+    })?;
+
+    if version != SNAPSHOT_VERSION {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
+        });
+    }
+
+    let snapshot: SpectrumRuntimeSnapshotV3<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
-
-    if snapshot.version != SNAPSHOT_VERSION {
-        return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported snapshot version {}", snapshot.version),
-        });
-    }
+    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
 
     if snapshot.profile_id != runtime.profile().profile_id.as_str() {
         return Err(MachineError::InvalidSnapshot {
@@ -138,7 +150,7 @@ mod tests {
         // the corresponding decode error paths without needing to touch
         // the real envelope schema.
         let machine = Spectrum128K::new();
-        postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV2 {
+        postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV3 {
             version,
             profile_id,
             time: MachineTime::default(),
@@ -169,6 +181,24 @@ mod tests {
             MachineError::InvalidSnapshot { reason } => {
                 assert!(
                     reason.contains("unsupported snapshot version"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_rejects_version_2_before_payload_decode() {
+        let bytes = postcard::to_allocvec(&2_u32).expect("legacy version should encode");
+        let mut runtime = Spectrum48kRuntime::blank();
+        let err = runtime
+            .restore(&bytes)
+            .expect_err("version 2 snapshots must be rejected");
+        match err {
+            MachineError::InvalidSnapshot { reason } => {
+                assert!(
+                    reason.contains("unsupported snapshot version 2"),
                     "unexpected reason: {reason}"
                 );
             }

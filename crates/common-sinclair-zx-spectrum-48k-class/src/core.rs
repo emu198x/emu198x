@@ -223,8 +223,8 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
 
     /// Reattaches `&'static` references that don't survive serde's
     /// `#[serde(skip)]` round-trip, and rehydrates the Z80 walker
-    /// sequence from `(prefix, opcode)`. Call once after restoring
-    /// a postcard snapshot.
+    /// sequence from the preserved sequence identity and opcode. Call
+    /// once after restoring a postcard snapshot.
     pub fn restore_volatile_refs(&mut self) {
         self.z80.rehydrate_walker_sequence();
         self.ula.reattach_config();

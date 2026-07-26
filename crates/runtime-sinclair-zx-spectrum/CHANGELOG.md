@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Advance live-machine snapshots to version 3; version 2 cannot preserve accepted Z80 interrupt response identity
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/runtime-sinclair-zx-spectrum-v0.2.0) - 2026-06-04
 
 ### Added

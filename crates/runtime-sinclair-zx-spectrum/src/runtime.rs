@@ -120,9 +120,9 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     /// machine. Default: no-op. Variants override to repair `&'static`
     /// references that don't survive serde's `#[serde(skip)]` round-trip
     /// — most importantly `Z80::rehydrate_walker_sequence`, which
-    /// re-derives the mid-instruction walker sequence from the preserved
-    /// `(prefix, opcode)` so snapshots taken at frame boundaries (i.e.
-    /// almost always mid-instruction) reload as a coherent CPU.
+    /// re-derives the mid-instruction or accepted-interrupt walker sequence
+    /// from its preserved identity and opcode so snapshots taken at frame
+    /// boundaries reload as a coherent CPU.
     fn after_restore(&mut self) {}
 
     /// Applies one parsed `.sna` / `.z80` snapshot to the machine's

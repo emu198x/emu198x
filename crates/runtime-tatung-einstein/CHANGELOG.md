@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Advance live-machine snapshots to version 3 and rehydrate the Z80 walker sequence before resumed execution; version 2 cannot preserve accepted interrupt response identity
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/runtime-tatung-einstein-v0.2.0) - 2026-06-04
 
 ### Added

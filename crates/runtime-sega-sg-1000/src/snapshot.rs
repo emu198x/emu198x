@@ -11,11 +11,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::Sg1000Runtime;
 
-const SNAPSHOT_VERSION: u16 = 2;
+const SNAPSHOT_VERSION: u16 = 3;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
-struct Sg1000RuntimeSnapshotRefV2<'a> {
+struct Sg1000RuntimeSnapshotRefV3<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
@@ -24,7 +24,7 @@ struct Sg1000RuntimeSnapshotRefV2<'a> {
 
 /// Owning envelope used during decode.
 #[derive(Deserialize)]
-struct Sg1000RuntimeSnapshotV2 {
+struct Sg1000RuntimeSnapshotV3 {
     version: u16,
     time: u64,
     model_id: String,
@@ -32,7 +32,7 @@ struct Sg1000RuntimeSnapshotV2 {
 }
 
 pub(crate) fn encode(runtime: &Sg1000Runtime) -> Result<Vec<u8>, MachineError> {
-    let snapshot = Sg1000RuntimeSnapshotRefV2 {
+    let snapshot = Sg1000RuntimeSnapshotRefV3 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
@@ -44,15 +44,21 @@ pub(crate) fn encode(runtime: &Sg1000Runtime) -> Result<Vec<u8>, MachineError> {
 }
 
 pub(crate) fn decode(runtime: &mut Sg1000Runtime, bytes: &[u8]) -> Result<(), MachineError> {
-    let snapshot: Sg1000RuntimeSnapshotV2 =
+    let (version, _) = postcard::take_from_bytes::<u16>(bytes).map_err(|reason| {
+        MachineError::InvalidSnapshot {
+            reason: format!("decode failed: {reason}"),
+        }
+    })?;
+    if version != SNAPSHOT_VERSION {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
+        });
+    }
+    let snapshot: Sg1000RuntimeSnapshotV3 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
-    if snapshot.version != SNAPSHOT_VERSION {
-        return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported snapshot version {}", snapshot.version),
-        });
-    }
+    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
     if snapshot.model_id != runtime.model().model_id() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
@@ -63,34 +69,50 @@ pub(crate) fn decode(runtime: &mut Sg1000Runtime, bytes: &[u8]) -> Result<(), Ma
         });
     }
     runtime.set_time(MachineTime::new(snapshot.time));
-    runtime.set_machine(snapshot.machine);
+    let mut machine = snapshot.machine;
+    if let Some(machine) = &mut machine {
+        machine.cpu_mut().rehydrate_walker_sequence();
+    }
+    runtime.set_machine(machine);
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Sg1000RuntimeSnapshotRefV2, decode};
+    use super::{SNAPSHOT_VERSION, decode};
     use crate::profiles::Model;
     use crate::runtime::Sg1000Runtime;
     use emu198x_shell::MachineError;
 
-    /// A future-version envelope is rejected before any state is touched.
     #[test]
-    fn decode_rejects_unsupported_version() {
+    fn decode_rejects_future_version_before_payload_decode() {
         let mut runtime = Sg1000Runtime::blank(Model::Sg1000Ntsc);
-        let bytes = postcard::to_allocvec(&Sg1000RuntimeSnapshotRefV2 {
-            version: 999,
-            time: 0,
-            model_id: runtime.model().model_id(),
-            machine: None,
-        })
-        .expect("synthetic envelope should encode");
+        let future_version = SNAPSHOT_VERSION + 1;
+        let bytes = postcard::to_allocvec(&future_version).expect("future version should encode");
 
         let err = decode(&mut runtime, &bytes).expect_err("future version should reject");
         match err {
             MachineError::InvalidSnapshot { reason } => {
                 assert!(
-                    reason.contains("unsupported snapshot version"),
+                    reason.contains(&format!("unsupported snapshot version {future_version}")),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+
+    /// Version 2 cannot preserve the accepted Z80 interrupt sequence identity.
+    #[test]
+    fn decode_rejects_version_2_before_payload_decode() {
+        let mut runtime = Sg1000Runtime::blank(Model::Sg1000Ntsc);
+        let bytes = postcard::to_allocvec(&2_u16).expect("legacy version should encode");
+
+        let err = decode(&mut runtime, &bytes).expect_err("version 2 should reject");
+        match err {
+            MachineError::InvalidSnapshot { reason } => {
+                assert!(
+                    reason.contains("unsupported snapshot version 2"),
                     "unexpected reason: {reason}"
                 );
             }
