@@ -11,8 +11,9 @@ use std::ops::{Deref, DerefMut};
 use commodore_agnus_ecs::AgnusEcs;
 
 pub use commodore_agnus_ocs::{
-    Agnus, AgnusRegion, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_LINES_PER_FRAME, PAL_CCKS_PER_FRAME,
-    PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
+    Agnus, AgnusRegion, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_LINES_PER_FRAME,
+    OriginalAgnusRevision, PAL_CCKS_PER_FRAME, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, SlotOwner,
+    VBL_END_LINE, bits,
 };
 
 /// Agnus silicon installed in an OCS-shaped machine.
@@ -38,6 +39,11 @@ pub(crate) enum ExtendedBlitterWrite {
 }
 
 impl InstalledAgnus {
+    #[must_use]
+    pub(crate) fn a1000(region: AgnusRegion) -> Self {
+        Self::EarlyOcs(Agnus::new_a1000_with_region(region))
+    }
+
     #[must_use]
     pub(crate) fn early_ocs(region: AgnusRegion) -> Self {
         Self::EarlyOcs(Agnus::new_with_region(region))

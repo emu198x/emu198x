@@ -36,10 +36,9 @@ a claim about an unobserved silicon power-on voltage.
 
 The implementations differ in their internal event delays and exact
 current-line register-write timing. Their forced late-field close also
-depends on revision: WinUAE distinguishes the A1000 boundary from later
-original Agnus revisions, while vAmiga uses one generic regional boundary.
-The current Emu198x original-Agnus identity does not distinguish those
-installed revisions.
+depends on revision. That separate boundary and its evidence are recorded
+in
+[Original Agnus hard vertical-blank close](amiga-original-agnus-hard-vertical-blank.md).
 
 Neither implementation treats the vertical latch as an immediate
 per-pixel Denise shifter clear. The shared evidence establishes bitplane
@@ -62,12 +61,11 @@ The latch starts inactive. At each line entry, Agnus compares the new
 DDF comparators. A VSTART match opens the latch. A VSTOP match closes it.
 Lines matching neither boundary preserve the previous state.
 
-A1000 and later original Agnus revisions force the latch closed at
-different physical late-field boundaries. At field wrap, Emu198x projects
-their common post-wrap closed result before evaluating the new field's
-explicit line-zero comparators. This prevents a late VSTART from becoming a
-steady-state circular range without assigning the physical close to one
-revision's line.
+The installed original-Agnus revision also supplies a line-held hard
+vertical-blank close. It participates as a stop event and takes precedence
+over a coincident VSTART. The A1000 and later physical boundaries, builder
+selection and save-state consequences are defined in
+[Original Agnus hard vertical-blank close](amiga-original-agnus-hard-vertical-blank.md).
 
 A changed `DIWSTRT` or `DIWSTOP` write re-evaluates the decoded comparators
 against the current `vpos`, with VSTOP priority. If neither matches, the
@@ -77,14 +75,14 @@ between VSTART, VSTOP and the beam do not reconstruct the state. A VSTART
 numerically greater than VSTOP is therefore event history, not a circular
 range that is automatically active near the top of the field.
 
-When VSTOP closes an active original-Agnus DDF run before an ordinary or
-fixed terminal endpoint has been requested, it sets the existing
-current-line run-abort latch. The observed DDFSTRT remains the frozen
-display-phase origin, but it owns no further bitplane slots. A later VSTART
-can reopen vertical eligibility but cannot resume that stale run. A
-genuinely later DDFSTRT comparator may replace the old origin and establish
-a fresh run when DMA, vertical eligibility and the horizontal hard-start
-permission all admit it.
+When VSTOP or revision-specific hard force-off closes an active
+original-Agnus DDF run before an ordinary or fixed terminal endpoint has
+been requested, it sets the existing current-line run-abort latch. The
+observed DDFSTRT remains the frozen display-phase origin, but it owns no
+further bitplane slots. A later VSTART can reopen vertical eligibility but
+cannot resume that stale run. A genuinely later DDFSTRT comparator may
+replace the old origin and establish a fresh run when DMA, vertical
+eligibility and the horizontal hard-start permission all admit it.
 
 The enhanced-chipset wrappers serialize the shared inner OCS field because
 it is part of the nested postcard layout, but do not consume it. Fat Agnus,
@@ -97,9 +95,9 @@ cell.
 
 ## Save-state compatibility
 
-The new latch changes every nested Amiga machine postcard. The Amiga
-runtime envelope therefore advances to schema version 13 and rejects
-version 12 before payload decoding.
+This latch changed every nested Amiga machine postcard when it was
+introduced. The Amiga runtime envelope therefore advanced to schema version
+13 and rejected version 12 before payload decoding.
 
 A version-12 OCS snapshot can contain a current beam position and restored
 `DIWSTRT`/`DIWSTOP` values that look geometrically active even though a
@@ -113,12 +111,14 @@ Raw postcards of `Agnus`, `AgnusEcs`, `AgnusAga`, `AmigaOcsSnapshot`,
 positional layout. Durable save states must use the versioned runtime
 envelope.
 
+Schema version 15 later adds installed original-Agnus revision identity and
+the line-held hard-blank force-off state, as recorded in
+[Original Agnus hard vertical-blank close](amiga-original-agnus-hard-vertical-blank.md).
+
 ## Deferred behaviour
 
 This decision does not define:
 
-- the A1000-versus-later-Agnus hard vertical-blank close event;
-- A1000 precedence when VSTART itself is on line zero;
 - exact `DIWSTRT` or `DIWSTOP` write latency;
 - the final in-flight bitplane fetch or exact pixel cutoff;
 - whether already-fetched or manually written BPLDAT remains visible after
@@ -126,12 +126,6 @@ This decision does not define:
 - vertical close after a terminal fetch endpoint is already pending;
 - exact modulo timing; or
 - enhanced-chipset multi-region sequencing.
-
-Until installed original-Agnus identity can distinguish the A1000 from
-later revisions, Emu198x does not assign the forced close to a physical
-line. The projected wrap result evaluates a line-zero VSTART afterwards,
-which matches later original Agnus. The A1000's same-line force-off
-precedence remains deferred.
 
 ## Verification
 
@@ -141,7 +135,8 @@ Hermetic tests cover:
 - normal VSTART opening and VSTOP closing on line entry;
 - VSTOP precedence for equal decoded boundaries;
 - start-after-stop values remaining inactive at an early line without
-  wrapping-range reconstruction, then closing again across field wrap;
+  wrapping-range reconstruction, then closing at the installed revision's
+  hard-blank boundary;
 - non-matching current-line register writes preserving latch history and a
   moved VSTOP exposing an unchanged matching VSTART;
 - a matching current-line VSTOP terminating an unstopped DDF run;
@@ -153,12 +148,14 @@ Hermetic tests cover:
 - machine-level pointer stability and fresh-phase advancement;
 - postcard round-trip of a closed but geometrically active-looking state,
   followed by deterministic reopen and re-arm; and
-- rejection of version-12 runtime postcards.
+- the current runtime envelope rejecting the preceding schema before
+  payload decoding.
 
 ## Related documents
 
 - [Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md)
 - [Original Agnus cross-line DDF hard-start gate](amiga-ocs-ddf-hard-start-gate.md)
 - [Original Agnus DDF hard-stop terminal policy](amiga-ocs-ddf-hard-stop.md)
+- [Original Agnus hard vertical-blank close](amiga-original-agnus-hard-vertical-blank.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Live-machine save-state serialization](savestate-live-machine-serde.md)

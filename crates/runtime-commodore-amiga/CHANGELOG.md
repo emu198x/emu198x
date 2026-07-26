@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 15 so installed original-Agnus
+  revision identity and its line-held hard vertical-blank force-off state
+  survive restore; version 14 is rejected because it cannot distinguish
+  A1000 line-zero timing from the later final-line close
 - Bump Amiga postcard snapshots to version 14 so the MC68000's
   group-0/group-1 exception-processing history survives restore;
   version 13 is rejected because it cannot reconstruct address-error

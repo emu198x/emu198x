@@ -118,10 +118,12 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   [Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md).
   Register-equal boundaries with a pre-existing run, stop-before-start,
   raw register-write latency, DMA disable or vertical close after a pending
-  terminal request, revision-specific OCS hard vertical blanking, multiple
-  enhanced-chipset regions, exact cross-wrap terminal bus and pointer timing,
-  exact modulo timing and Alice's explicit final state remain separate
-  accuracy work. The implemented
+  terminal request, multiple enhanced-chipset regions, exact cross-wrap
+  terminal bus and pointer timing, exact modulo timing and Alice's explicit
+  final state remain separate accuracy work. Revision-specific original-Agnus
+  force-off timing is defined in
+  [Original Agnus hard vertical-blank close](amiga-original-agnus-hard-vertical-blank.md).
+  The implemented
   clean-idle equality and original-Agnus hard-start admission transitions,
   including the compressed short-line wrap result, are recorded in
   [Idle register-equal DDF boundaries](amiga-idle-equal-ddf-boundaries.md)
@@ -204,6 +206,7 @@ If I catch myself proposing any of these, stop and re-read the "Why".
 ## Related documents
 
 - [Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md)
+- [Original Agnus hard vertical-blank close](amiga-original-agnus-hard-vertical-blank.md)
 - [Original Agnus DDF run termination on DMA disable](amiga-ocs-ddf-dma-disable.md)
 - [Original Agnus DDF hard-stop terminal policy](amiga-ocs-ddf-hard-stop.md)
 - [Original Agnus cross-line DDF hard-start gate](amiga-ocs-ddf-hard-start-gate.md)

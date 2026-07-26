@@ -128,9 +128,11 @@ Corpus checksums pin the fixture bytes separately.
 The MC68000's group-0/group-1 exception-processing flag is serialized
 because it controls the I/N bit of a subsequent address-error frame and
 whether a recursive group-0 fault halts the processor. Adding that hidden
-execution state changes every containing postcard payload. The Amiga
-runtime therefore uses snapshot schema 14 and rejects version 13 rather
-than restoring a semantically incomplete CPU.
+execution state changed every containing postcard payload. The Amiga
+runtime therefore introduced snapshot schema 14 and rejected version 13
+rather than restoring a semantically incomplete CPU. Schema 15 later adds
+original-Agnus hard-blank identity and line-held state, as recorded in
+[Original Agnus hard vertical-blank close](amiga-original-agnus-hard-vertical-blank.md).
 
 The 68010's 8 failures are two clusters — 7 in `MOVEC_010` and 1 in `ADD.w_idxPC_D1` — at the 4-parts-per-million scale where multi-step exception sequences diverge in *when* state is captured (Musashi's `execute()` hook fires at instruction boundaries; some exception-frame pushes capture mid-sequence vs after). These are 68010-specific edge cases not present on the higher variants and not exercised by the inherited cross-check. Recorded here rather than chased: investigation cost ≫ correctness benefit at this scale, and the diagnostic value of count=8000 (catching the three Phase-7.6/Cpu68040-MOVEC bugs at higher rates than count=1000 would have) has already been collected.
 

@@ -15,8 +15,8 @@ use common_commodore_amiga::{cia, copper, memory, rtc};
 
 pub use agnus::{
     Agnus, AgnusRegion, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_FRAME_TICKS, NTSC_LINES_PER_FRAME,
-    PAL_CCKS_PER_FRAME, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS,
-    PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
+    OriginalAgnusRevision, PAL_CCKS_PER_FRAME, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS,
+    PAL_LINE_TICKS, PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
 };
 pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
@@ -579,7 +579,7 @@ impl AmigaOcs {
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
-        Self::with_memory_config(memory, cfg, true, InstalledAgnus::early_ocs(region))
+        Self::with_memory_config(memory, cfg, true, InstalledAgnus::a1000(region))
     }
 
     fn with_memory_config(

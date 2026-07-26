@@ -19,11 +19,10 @@ use crate::Model;
 use crate::runtime::AmigaRuntime;
 use crate::variants::AmigaMachine;
 
-// Version 14 serializes the MC68000's group-0/group-1 exception-processing
-// state. A version-13 snapshot taken between exception-vector completion and
-// the first handler instruction cannot reconstruct the address-error I/N
-// context or recursive-fault policy from architectural registers alone.
-const SNAPSHOT_VERSION: u32 = 14;
+// Version 15 serializes original-Agnus revision identity and its line-held
+// hard vertical-blank force-off state. Version 14 cannot distinguish an
+// A1000 line-zero close from a later original Agnus final-line close.
+const SNAPSHOT_VERSION: u32 = 15;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
 /// snapshot (`M::Snapshot`) and the variant's reconstruction metadata
@@ -33,7 +32,7 @@ const SNAPSHOT_VERSION: u32 = 14;
 /// Versioned so future snapshot extensions can bump the major version
 /// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV14<M: AmigaMachine> {
+struct SnapshotEnvelopeV15<M: AmigaMachine> {
     version: u32,
     model: Model,
     metadata: M::SnapshotMetadata,
@@ -50,7 +49,7 @@ struct SnapshotEnvelopeV14<M: AmigaMachine> {
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
 pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u8>, MachineError> {
-    let envelope = SnapshotEnvelopeV14::<M> {
+    let envelope = SnapshotEnvelopeV15::<M> {
         version: SNAPSHOT_VERSION,
         model: runtime.model(),
         metadata: runtime.metadata().clone(),
@@ -91,7 +90,7 @@ pub(crate) fn decode<M: AmigaMachine>(
         });
     }
 
-    let envelope: SnapshotEnvelopeV14<M> =
+    let envelope: SnapshotEnvelopeV15<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;

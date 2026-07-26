@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose `OriginalAgnusRevision` through the OCS machine facade alongside
+  `AgnusRegion`
+- Add model-level coverage for the A1000 line-zero hard close and the later
+  original-Agnus final-line close, including their different line-zero
+  VSTART results
 - Add an end-to-end pointer regression for vertical VSTOP termination,
   non-resuming VSTART reopen and later DDFSTRT re-arm
 - Add an end-to-end pointer regression for a rewritten future DDFSTRT
@@ -20,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Select the 8361/8367 A1000 original-Agnus timing through the dedicated
+  bootstrap-ROM builder while leaving later OCS-shaped builders on
+  8370/8371 timing
 - Preserve original-Agnus vertical display-window history through machine
   arbitration instead of treating start-after-stop values as a live
   wrapping range

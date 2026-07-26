@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Serialize installed original-Agnus revision identity and the line-held hard
+  vertical-blank force-off state that cannot be reconstructed from VPOSR,
+  beam position and live interlace registers
 - Add regression coverage for the non-empty idle register-equal
   DDFSTRT/DDFSTOP transition
 - Serialize the original-Agnus vertical display-window latch so machine
@@ -16,10 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Select the A1000 hard vertical-blank close on line zero and the later
+  original-Agnus close on the final physical PAL/NTSC field line, including
+  LOF-dependent interlaced fields; force-off wins over a coincident VSTART
+  and terminates an unstopped DDF run
 - Drive original-Agnus vertical bitplane eligibility from VSTART/VSTOP
   events instead of reconstructing a circular range, and terminate an
-  unstopped DDF run when VSTOP closes the latch; project the common closed
-  state across field wrap without assigning a revision-specific close line
+  unstopped DDF run when VSTOP closes the latch
 - Let a genuinely later DDFSTRT comparator establish a fresh
   original-Agnus run after DMA terminated the old run, without
   treating DMA re-enable itself as a resume

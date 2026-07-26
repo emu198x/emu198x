@@ -21,8 +21,12 @@
 //!
 //! Pattern modelled on `runtime-sinclair-zx-spectrum/tests/runtime_48k.rs`.
 
+mod common;
+
 use std::error::Error;
 
+use commodore_agnus_ocs::OriginalAgnusRevision;
+use common::dummy_a1000_bootstrap_rom;
 use emu198x_shell::{
     HostIo, MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink,
     NullFrameSink, NullTraceSink,
@@ -585,6 +589,84 @@ fn ocs_vertical_diw_history_survives_postcard_round_trip() -> Result<(), Box<dyn
 }
 
 #[test]
+fn a1000_hard_vertical_blank_identity_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    original.machine_mut().poke_word(0x00DF_F08E, 0xF081); // late VSTART
+    original.machine_mut().poke_word(0x00DF_F090, 0xE0C1); // earlier VSTOP
+
+    while original.machine().agnus().vpos < 0x00F0 {
+        original.machine_mut().tick();
+    }
+    assert!(original.machine().agnus().vertical_diw_active());
+    original.machine_mut().poke_word(0x00DF_F08E, 0x0081); // line-zero VSTART
+    assert_eq!(original.machine().agnus().diwstrt, 0x0081);
+    assert!(original.machine().agnus().vertical_diw_active());
+
+    let final_line = original.machine().agnus().lines_per_frame - 1;
+    while original.machine().agnus().vpos < final_line {
+        original.machine_mut().tick();
+    }
+    assert_eq!(
+        original.machine().agnus().original_revision(),
+        OriginalAgnusRevision::A1000,
+    );
+    assert!(
+        original.machine().agnus().vertical_diw_active(),
+        "A1000 must remain open on its final physical field line",
+    );
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    restored.restore(&snapshot)?;
+    assert_eq!(
+        restored.machine().agnus().original_revision(),
+        OriginalAgnusRevision::A1000,
+    );
+    assert!(restored.machine().agnus().vertical_diw_active());
+    assert_eq!(
+        snapshot,
+        restored.snapshot()?,
+        "revision and held hard-blank state must be byte-stable through postcard",
+    );
+
+    for runtime in [&mut original, &mut restored] {
+        while runtime.machine().agnus().vpos == final_line {
+            runtime.machine_mut().tick();
+        }
+        assert_eq!(runtime.machine().agnus().vpos, 0);
+        assert!(
+            !runtime.machine().agnus().vertical_diw_active(),
+            "restored A1000 line-zero force-off must beat VSTART",
+        );
+    }
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "restored A1000 hard-blank state must evolve deterministically",
+    );
+
+    // Snapshot the asserted, line-held force-off state itself. Revision
+    // identity alone is insufficient here: DIW writes consume the held
+    // event rather than recomputing it from vpos.
+    let line_zero_snapshot = original.snapshot()?;
+    let mut line_zero_restored =
+        AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())?;
+    line_zero_restored.restore(&line_zero_snapshot)?;
+    assert_eq!(line_zero_restored.machine().agnus().vpos, 0);
+    assert!(!line_zero_restored.machine().agnus().vertical_diw_active());
+    assert_eq!(line_zero_snapshot, line_zero_restored.snapshot()?);
+
+    line_zero_restored
+        .machine_mut()
+        .poke_word(0x00DF_F08E, 0x0081);
+    assert!(
+        !line_zero_restored.machine().agnus().vertical_diw_active(),
+        "restored line-held A1000 force-off must reject a matching DIWSTRT write",
+    );
+    Ok(())
+}
+
+#[test]
 fn ocs_closed_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
     let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     {
@@ -912,10 +994,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 13, and confirm the version-mismatch arm fires with a
+/// field back to 14, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV14` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 14` that byte is `0x0E`.
+/// of a `SnapshotEnvelopeV15` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 15` that byte is `0x0F`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -924,20 +1006,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 14,
-        "postcard varint for SNAPSHOT_VERSION = 14 should be 0x0E"
+        bytes[0], 15,
+        "postcard varint for SNAPSHOT_VERSION = 15 should be 0x0F"
     );
-    bytes[0] = 13;
+    bytes[0] = 14;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-13 snapshot should be rejected before payload decode");
+        .expect_err("version-14 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 13; expected 14"
+                if reason == "unsupported snapshot version 14; expected 15"
         ),
         "expected version-mismatch reason, got {err:?}"
     );

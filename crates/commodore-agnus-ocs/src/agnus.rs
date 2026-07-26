@@ -70,6 +70,22 @@ pub enum AgnusRegion {
     Ntsc,
 }
 
+/// Installed original-Agnus silicon revision.
+///
+/// The VPOSR identity bits distinguish PAL from NTSC but do not distinguish
+/// the A1000's 8361/8367 Agnus from the later 8370/8371 original Agnus.
+/// Their hard vertical-blank close occurs on different physical lines, so
+/// machine construction and snapshots must carry that identity separately.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OriginalAgnusRevision {
+    /// 8361/8367 as installed in the A1000: hard close on line zero.
+    A1000,
+    /// 8370/8371 as installed in later original-chipset machines: hard close
+    /// on the final physical line of the field.
+    #[default]
+    Later,
+}
+
 /// Derived vertical timing used by the shared sprite-DMA state machine.
 ///
 /// OCS supplies the fixed regional blank-stop line. ECS and AGA supply
@@ -555,14 +571,19 @@ pub struct Agnus {
     pub diwstrt: u16,
     pub diwstop: u16,
     /// Hidden original-Agnus vertical display-window flip-flop. Decoded
-    /// VSTART/VSTOP comparator events change this state; live register
-    /// geometry does not reconstruct it. The revision-specific hard
-    /// vertical-blank close remains separate until chip identity can
-    /// distinguish A1000 from later original Agnus revisions.
+    /// VSTART/VSTOP comparator events and the revision-specific hard
+    /// vertical-blank close change this state; live register geometry does
+    /// not reconstruct it.
     ///
     /// Enhanced-chipset wrappers serialize this shared field but use their
     /// own DIWHIGH-aware vertical latch.
     ocs_vertical_diw_active: bool,
+    /// Line-held original-Agnus hard vertical-blank force-off state.
+    ///
+    /// This is selected on line entry from the installed revision and the
+    /// then-current field length. It remains stable across same-line register
+    /// writes, including changes to interlace state.
+    ocs_hard_vertical_blank_active: bool,
     pub bpl1mod: i16,
     pub bpl2mod: i16,
 
@@ -617,6 +638,12 @@ pub struct Agnus {
     /// constructor so the inner OCS struct still serialises cleanly
     /// while the bus-read returns the wrapper's true chip identity.
     pub agnus_id: u16,
+
+    /// Original-Agnus revision identity not represented by VPOSR.
+    ///
+    /// Enhanced-chipset wrappers serialize this nested field but do not
+    /// consume it because their `agnus_id` selects their own vertical latch.
+    original_revision: OriginalAgnusRevision,
 
     /// Selected video region. PAL or NTSC. Drives `lines_per_frame`,
     /// `agnus_id`, and `lol_toggle`.
@@ -689,6 +716,7 @@ impl Agnus {
             diwstrt: 0,
             diwstop: 0,
             ocs_vertical_diw_active: false,
+            ocs_hard_vertical_blank_active: false,
             bpl1mod: 0,
             bpl2mod: 0,
             spr_pt: [0; 8],
@@ -703,6 +731,7 @@ impl Agnus {
             lof: true,
             lines_per_frame: PAL_LINES_PER_FRAME,
             agnus_id: 0x1000,
+            original_revision: OriginalAgnusRevision::Later,
             region: AgnusRegion::Pal,
             lol: false,
             lol_toggle: false,
@@ -721,14 +750,15 @@ impl Agnus {
         agnus
     }
 
-    /// Create a new Agnus configured for the named video region.
-    /// PAL is the existing default — every line is 227 CCKs, frame
-    /// is 312 lines, `agnus_id = $1000` (8367 PAL OCS Agnus). NTSC
-    /// alternates short/long lines (227/228) per HRM p. 785, frame
-    /// is 262 lines, `agnus_id = $0000` (8361 NTSC OCS Agnus). The
-    /// first NTSC line is short; the alternation is strict (every
-    /// other line) until ECS adds the LOLDIS bit on BPLCON3. `agnus_id`
-    /// is stored pre-shifted into VPOSR bits 14-8.
+    /// Create a later original Agnus configured for the named video region.
+    ///
+    /// PAL is the existing default: every line is 227 CCKs, each short field
+    /// is 312 lines, and the 8371 uses `agnus_id = $1000`, shared with the
+    /// A1000's 8367. NTSC alternates short and long lines (227/228) per HRM
+    /// p. 785, uses 262-line short fields, and the 8370 uses
+    /// `agnus_id = $0000`, shared with the A1000's 8361. The first NTSC line
+    /// is short; the alternation is strict until ECS adds the LOLDIS bit on
+    /// BPLCON3. `agnus_id` is stored pre-shifted into VPOSR bits 14-8.
     #[must_use]
     pub fn new_with_region(region: AgnusRegion) -> Self {
         let mut agnus = Self::new();
@@ -749,6 +779,26 @@ impl Agnus {
             }
         }
         agnus
+    }
+
+    /// Create the 8361/8367 original Agnus installed in an A1000.
+    ///
+    /// PAL/NTSC VPOSR identity and beam totals remain region-selected. The
+    /// separate revision identity selects the A1000 line-zero hard
+    /// vertical-blank close.
+    #[must_use]
+    pub fn new_a1000_with_region(region: AgnusRegion) -> Self {
+        let mut agnus = Self::new_with_region(region);
+        agnus.original_revision = OriginalAgnusRevision::A1000;
+        // Construction starts at line zero, the A1000 hard-blank line.
+        agnus.ocs_hard_vertical_blank_active = true;
+        agnus
+    }
+
+    /// Installed original-Agnus revision.
+    #[must_use]
+    pub const fn original_revision(&self) -> OriginalAgnusRevision {
+        self.original_revision
     }
 
     /// Create the 1 MiB Fat Agnus 8372A used with OCS Denise in later
@@ -1609,18 +1659,15 @@ impl Agnus {
                     self.lof = !self.lof;
                 }
             }
-            if field_wrapped && self.agnus_id < 0x2000 {
-                // A1000 and later original Agnus revisions force the
-                // vertical latch closed at different physical boundaries.
-                // Project only their common post-wrap result here, before a
-                // possible line-zero VSTART comparator; do not assign the
-                // close to one revision's bus-visible line.
-                self.ocs_vertical_diw_active = false;
-            }
             // Original Agnus carries a hidden vertical display-window
-            // flip-flop. Evaluate the new line before its first horizontal
-            // DDF comparator so VSTART admits, and VSTOP rejects, a
-            // same-line fetch start.
+            // flip-flop. The installed revision's hard vertical-blank close
+            // is a force-off level for its physical line and takes
+            // precedence over a coincident VSTART. Evaluate the new line
+            // before its first horizontal DDF comparator so VSTART admits,
+            // and either VSTOP or hard blank rejects, a same-line fetch
+            // start.
+            self.ocs_hard_vertical_blank_active =
+                self.original_hard_vertical_blank_active(self.vpos, frame_lines);
             self.evaluate_ocs_vertical_diw_comparators(self.vpos);
             // New display line: run the per-line sprite-DMA update
             // (VSTART activation, VSTOP deactivation, top-of-frame
@@ -1901,17 +1948,29 @@ impl Agnus {
         (vstart, stop_v8 | stop_low)
     }
 
+    fn original_hard_vertical_blank_active(&self, vpos: u16, field_lines: u16) -> bool {
+        if self.agnus_id >= 0x2000 {
+            return false;
+        }
+
+        match self.original_revision {
+            OriginalAgnusRevision::A1000 => vpos == 0,
+            OriginalAgnusRevision::Later => vpos == field_lines - 1,
+        }
+    }
+
     fn evaluate_ocs_vertical_diw_comparators(&mut self, vpos: u16) {
         if self.agnus_id >= 0x2000 {
             return;
         }
 
         let (vstart, vstop) = self.ocs_vertical_diw_bounds();
-        let start = vpos == vstart;
-        let stop = vpos == vstop;
+        let start = vpos == vstart && !self.ocs_hard_vertical_blank_active;
+        let stop = vpos == vstop || self.ocs_hard_vertical_blank_active;
         let was_active = self.ocs_vertical_diw_active;
 
-        // Stop has precedence. Equal decoded comparators therefore leave the
+        // Stop has precedence. Equal decoded comparators and a VSTART
+        // coincident with the hard vertical-blank line therefore leave the
         // window closed.
         if start && !stop {
             self.ocs_vertical_diw_active = true;
@@ -3012,10 +3071,171 @@ mod tests {
         enter_ocs_vertical_line(&mut agnus, 0x00F0);
         assert!(agnus.vertical_diw_active());
 
+        let final_line = agnus.lines_per_frame - 1;
+        enter_ocs_vertical_line(&mut agnus, final_line);
+        assert!(
+            !agnus.vertical_diw_active(),
+            "later original Agnus must close on the final physical field line",
+        );
         enter_ocs_vertical_line(&mut agnus, 0);
         assert!(
             !agnus.vertical_diw_active(),
             "the late VSTART cannot survive into the next field",
+        );
+    }
+
+    #[test]
+    fn original_agnus_hard_vertical_blank_uses_revision_specific_lines() {
+        for region in [AgnusRegion::Pal, AgnusRegion::Ntsc] {
+            for (interlace, lof) in [(false, true), (true, false), (true, true)] {
+                let mut a1000 = Agnus::new_a1000_with_region(region);
+                a1000.bplcon0 = if interlace { bits::BPLCON0_LACE } else { 0 };
+                a1000.lof = lof;
+                a1000.diwstrt = 0x0081;
+                a1000.diwstop = 0xE0C1;
+                a1000.ocs_vertical_diw_active = true;
+                let final_line = a1000.lines_per_frame + u16::from(interlace && a1000.lof) - 1;
+
+                enter_ocs_vertical_line(&mut a1000, final_line);
+                assert!(
+                    a1000.vertical_diw_active(),
+                    "A1000 {region:?} interlace={interlace} lof={lof} must not hard-close on the final field line",
+                );
+                enter_ocs_vertical_line(&mut a1000, 0);
+                assert!(
+                    !a1000.vertical_diw_active(),
+                    "A1000 {region:?} interlace={interlace} lof={lof} line-zero hard close must beat VSTART",
+                );
+
+                let mut later = Agnus::new_with_region(region);
+                later.bplcon0 = if interlace { bits::BPLCON0_LACE } else { 0 };
+                later.lof = lof;
+                later.diwstrt = 0x0081;
+                later.diwstop = 0xE0C1;
+                later.ocs_vertical_diw_active = true;
+                enter_ocs_vertical_line(&mut later, final_line);
+                assert!(
+                    !later.vertical_diw_active(),
+                    "later original Agnus {region:?} interlace={interlace} lof={lof} must hard-close on the final field line",
+                );
+                enter_ocs_vertical_line(&mut later, 0);
+                assert!(
+                    later.vertical_diw_active(),
+                    "later original Agnus {region:?} interlace={interlace} lof={lof} must allow line-zero VSTART to reopen",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a1000_line_zero_diw_write_cannot_override_hard_blank() {
+        let mut agnus = Agnus::new_a1000_with_region(AgnusRegion::Pal);
+        agnus.diwstop = 0xE0C1;
+        agnus.write_diwstrt(0x0081);
+        assert!(
+            !agnus.vertical_diw_active(),
+            "a newly constructed A1000 must begin with line-zero force-off held",
+        );
+
+        agnus.diwstrt = 0xF081;
+        agnus.ocs_vertical_diw_active = true;
+
+        enter_ocs_vertical_line(&mut agnus, 0);
+        assert!(!agnus.vertical_diw_active());
+
+        agnus.write_diwstrt(0x0081);
+        assert!(
+            !agnus.vertical_diw_active(),
+            "a matching current-line VSTART write must not reopen A1000 line zero",
+        );
+    }
+
+    #[test]
+    fn a1000_hard_blank_force_off_releases_on_line_one() {
+        let mut agnus = Agnus::new_a1000_with_region(AgnusRegion::Pal);
+        agnus.diwstop = 0xE0C1;
+        agnus.write_diwstrt(0x0181);
+        assert!(!agnus.vertical_diw_active());
+
+        enter_ocs_vertical_line(&mut agnus, 1);
+
+        assert!(
+            agnus.vertical_diw_active(),
+            "A1000 force-off must release after line zero so line-one VSTART can open",
+        );
+    }
+
+    #[test]
+    fn later_hard_blank_selection_is_held_across_same_line_lace_writes() {
+        let mut agnus = Agnus::new_with_region(AgnusRegion::Pal);
+        agnus.bplcon0 = bits::BPLCON0_LACE;
+        agnus.diwstrt = 0x3781;
+        agnus.diwstop = 0xE0C1;
+        agnus.ocs_vertical_diw_active = true;
+
+        // LOF starts true, so interlaced PAL has 313 lines. Line 311 is
+        // therefore not the final physical line selected for hard blank.
+        enter_ocs_vertical_line(&mut agnus, PAL_LINES_PER_FRAME - 1);
+        assert!(!agnus.ocs_hard_vertical_blank_active);
+        assert!(agnus.vertical_diw_active());
+
+        // Clearing LACE makes the live register geometry look like a
+        // 312-line field. It must not retroactively turn the current line
+        // into hard blank when a DIW write re-evaluates its comparator.
+        agnus.write_bplcon0(0);
+        agnus.write_diwstrt(0x3781);
+        assert!(!agnus.ocs_hard_vertical_blank_active);
+        assert!(
+            agnus.vertical_diw_active(),
+            "same-line LACE writes must not replace the held hard-blank event",
+        );
+    }
+
+    #[test]
+    fn a1000_line_zero_hard_close_precedes_ddf_start_admission() {
+        let mut agnus = Agnus::new_a1000_with_region(AgnusRegion::Pal);
+        agnus.diwstrt = 0x0081;
+        agnus.diwstop = 0xE0C1;
+        agnus.ocs_vertical_diw_active = true;
+        agnus.dmacon = DMACON_DMAEN | DMACON_BPLEN;
+        agnus.bplcon0 = 0xC000;
+        agnus.write_ddfstrt(0x0018);
+        agnus.write_ddfstop(0x00D0);
+
+        enter_ocs_vertical_line(&mut agnus, 0);
+        tick_to_hpos(&mut agnus, 0x0018);
+
+        assert!(!agnus.vertical_diw_active());
+        assert_eq!(
+            agnus.ddf_start_match(),
+            None,
+            "line-zero VSTART must not admit a DDF run through A1000 hard blank",
+        );
+        assert_eq!(agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
+    }
+
+    #[test]
+    fn a1000_hard_blank_force_off_aborts_an_unstopped_ddf_run() {
+        let mut agnus = Agnus::new_a1000_with_region(AgnusRegion::Pal);
+        agnus.vpos = 0;
+        agnus.diwstrt = 0x0081;
+        agnus.diwstop = 0xE0C1;
+        agnus.ocs_vertical_diw_active = true;
+        agnus.ddf_start_match = Some(0x0038);
+        agnus.ddf_fetch_end = None;
+        agnus.ocs_ddf_run_aborted = false;
+
+        agnus.evaluate_ocs_vertical_diw_write();
+
+        assert!(!agnus.vertical_diw_active());
+        assert!(
+            agnus.ocs_ddf_run_aborted(),
+            "hard force-off must terminate an active run without an endpoint",
+        );
+        assert_eq!(
+            agnus.ddf_start_match(),
+            Some(0x0038),
+            "termination preserves the observed display-phase origin",
         );
     }
 
@@ -4036,13 +4256,26 @@ mod tests {
     #[test]
     fn vposr_reports_agnus_id_in_upper_byte() {
         let pal = Agnus::new_with_region(AgnusRegion::Pal);
-        // PAL 8367: bits 14-8 = `0010000` → upper byte $10 → u16 $1000.
+        // PAL 8371/8367: bits 14-8 = `0010000` → upper byte $10 → u16 $1000.
         // LOF starts set + vpos bit 8 zero at reset → bit 15 = 1, bit 0 = 0.
         assert_eq!(pal.vposr() & 0x7F00, 0x1000);
 
         let ntsc = Agnus::new_with_region(AgnusRegion::Ntsc);
-        // NTSC 8361: upper byte $00 → u16 $0000.
+        // NTSC 8370/8361: upper byte $00 → u16 $0000.
         assert_eq!(ntsc.vposr() & 0x7F00, 0x0000);
+    }
+
+    #[test]
+    fn vposr_identity_cannot_distinguish_a1000_from_later_original_agnus() {
+        for region in [AgnusRegion::Pal, AgnusRegion::Ntsc] {
+            let a1000 = Agnus::new_a1000_with_region(region);
+            let later = Agnus::new_with_region(region);
+
+            assert_eq!(a1000.vposr() & 0x7F00, later.vposr() & 0x7F00);
+            assert_eq!(a1000.original_revision(), OriginalAgnusRevision::A1000);
+            assert_eq!(later.original_revision(), OriginalAgnusRevision::Later);
+            assert_ne!(a1000.original_revision(), later.original_revision());
+        }
     }
 
     #[test]
@@ -4050,8 +4283,8 @@ mod tests {
         let agnus = Agnus::new_with_region(AgnusRegion::Pal);
         assert_eq!(agnus.region, AgnusRegion::Pal);
         assert_eq!(agnus.lines_per_frame, PAL_LINES_PER_FRAME);
-        // 8367 PAL OCS Agnus stores its VPOSR ID pre-shifted into
-        // bits 14-8 — see the `agnus_id` field doc.
+        // Later 8371 PAL original Agnus shares the 8367's VPOSR ID,
+        // stored pre-shifted into bits 14-8.
         assert_eq!(agnus.agnus_id, 0x1000);
         assert!(!agnus.lol);
         assert!(!agnus.lol_toggle);
@@ -4063,7 +4296,7 @@ mod tests {
         let mut agnus = Agnus::new_with_region(AgnusRegion::Ntsc);
         assert_eq!(agnus.region, AgnusRegion::Ntsc);
         assert_eq!(agnus.lines_per_frame, NTSC_LINES_PER_FRAME);
-        // 8361 NTSC OCS Agnus reports $0000 in VPOSR bits 14-8.
+        // Later 8370 NTSC original Agnus shares the 8361's $0000 ID.
         assert_eq!(agnus.agnus_id, 0x0000);
         assert!(!agnus.lol);
         assert!(agnus.lol_toggle);
