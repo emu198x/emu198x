@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Carry the accepted interrupt level on A3-A1 during acknowledge and
+  update the active SR mask when interrupt processing begins instead of
+  re-sampling or deferring those effects until vector completion
 - Preserve group-0/group-1 processing state through handler prefetch so
   recursive faults and the address-error I/N bit follow the exception
   sequence

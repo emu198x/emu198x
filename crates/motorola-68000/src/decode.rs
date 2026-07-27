@@ -1932,17 +1932,8 @@ impl Cpu68000 {
             TAG_EXC_FINISH => {
                 self.regs.pc = self.data;
                 self.next_fetch_addr = self.regs.pc;
-                // For interrupts, set supervisor + clear trace + update mask.
-                // For group 1/2, supervisor and trace were already set in
-                // begin_group1_exception; don't change interrupt mask.
-                if self.exc_vector.is_some() {
-                    // Group 1/2: supervisor, trace, and mask already handled
-                } else {
-                    // Hardware interrupt: supervisor mode and trace were set in
-                    // initiate_interrupt_exception. Update the interrupt mask
-                    // to the level being acknowledged (happens after InterruptAck).
-                    self.regs.sr = (self.regs.sr & !0x0700) | (u16::from(self.target_ipl) << 8);
-                }
+                // All entry-side SR effects were applied before the exception
+                // frame and vector fetch began.
                 self.exc_vector = None;
                 self.micro_ops.clear();
                 self.micro_ops.push(MicroOp::FetchIRC);

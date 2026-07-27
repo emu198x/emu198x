@@ -45,7 +45,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use motorola_68000::bus::{BusStatus, FunctionCode};
+use motorola_68000::bus::{BusStatus, FunctionCode, interrupt_acknowledge_level};
 use motorola_68000::cpu::State;
 use motorola_68000::registers::FpReg;
 use motorola_68020::Cpu68020;
@@ -212,7 +212,8 @@ fn service_bus(cpu: &mut Cpu68020, mem: &mut SparseMem) {
     {
         if *cycle_count >= 3 {
             if *fc == FunctionCode::InterruptAck {
-                cpu.bus_status = BusStatus::Ready(24 + u16::from(cpu.ipl));
+                let acknowledged_level = interrupt_acknowledge_level(*addr);
+                cpu.bus_status = BusStatus::Ready(24 + u16::from(acknowledged_level));
             } else if *is_read {
                 let val = if *is_word {
                     mem.read_word(*addr)

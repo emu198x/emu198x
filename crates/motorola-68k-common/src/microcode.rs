@@ -49,7 +49,7 @@ pub enum MicroOp {
     PopLongHi,
     /// Pop the low word of a long from the stack (read at SP + 2, SP += 4).
     PopLongLo,
-    /// Interrupt acknowledge bus cycle (FC = 7, address = 0xFFFFFF).
+    /// Interrupt acknowledge bus cycle (FC = 7, accepted level on A3-A1).
     InterruptAck,
 
     // --- Internal delay ---

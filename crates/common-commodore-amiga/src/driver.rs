@@ -46,7 +46,7 @@ use crate::memory::Memory;
 use commodore_agnus_ocs::{Agnus, BlitterCckOutcome, CckBusPlan, SlotOwner};
 use commodore_paula_8364::{IntSource, Paula8364};
 use motorola_68000::Cpu68000;
-use motorola_68000::bus::{BusStatus, FunctionCode};
+use motorola_68000::bus::{BusStatus, FunctionCode, interrupt_acknowledge_level};
 use motorola_68000::cpu::State;
 use peripheral_commodore_amiga_floppy::AmigaFloppyDrive;
 use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
@@ -486,11 +486,19 @@ pub trait AmigaDriver {
             return;
         }
 
-        // Autovectored interrupts: the chipset drives /VPA during
-        // InterruptAck and the CPU computes vector = 24 + IPL.
+        // Autovectored interrupts: the current shared compatibility path
+        // collapses the board's VPA/AVEC response and the CPU's internal
+        // vector generation into Ready(24 + level). Ready does not describe
+        // literal DTACK and bus data for this cycle. The MC68000-shaped
+        // address carries the accepted level on A3-A1; live IPL may have
+        // changed by the time this bus cycle is serviced.
         if fc == FunctionCode::InterruptAck {
-            let ipl = self.cpu_base().ipl & 0x07;
-            self.cpu_base_mut().bus_status = BusStatus::Ready(24 + u16::from(ipl));
+            let acknowledged_level = interrupt_acknowledge_level(addr);
+            assert_ne!(
+                acknowledged_level, 0,
+                "interrupt acknowledge cannot encode request level 0"
+            );
+            self.cpu_base_mut().bus_status = BusStatus::Ready(24 + u16::from(acknowledged_level));
             return;
         }
 

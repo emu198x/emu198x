@@ -2153,6 +2153,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn autovector_uses_the_level_encoded_by_the_interrupt_acknowledge_cycle() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.cpu.ipl = 6;
+        amiga.cpu.bus_status = BusStatus::Wait;
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::InterruptAck,
+            addr: 0x00FF_FFF7, // accepted IPL 3 on A3-A1
+            fc: FunctionCode::InterruptAck,
+            is_read: true,
+            is_word: true,
+            data: None,
+            cycle_count: 2,
+        };
+
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(
+            amiga.cpu.bus_status,
+            BusStatus::Ready(27),
+            "the live IPL 6 pins must not replace the accepted level 3"
+        );
+    }
+
+    #[test]
     fn cpu_reuses_a_suppressed_onedot_d_cell_in_nasty_mode() {
         let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
         amiga.agnus.bltcon0 = 0x0BCA; // USEA+C+D, standard line minterm

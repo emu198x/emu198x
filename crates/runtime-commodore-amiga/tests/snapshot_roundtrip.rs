@@ -32,6 +32,8 @@ use emu198x_shell::{
     NullFrameSink, NullTraceSink,
 };
 use format_commodore_amiga_adf::ADF_SIZE_DD;
+use motorola_68000::cpu::State;
+use motorola_68000::microcode::MicroOp;
 use runtime_commodore_amiga::{AmigaA1200Runtime, AmigaEcsRuntime, AmigaOcsRuntime, Model};
 
 const BLTCON0: u32 = 0x00DF_F040;
@@ -84,6 +86,16 @@ fn odd_group1_handler_kickstart() -> Vec<u8> {
     kickstart[16..20].copy_from_slice(&0x00F8_0021u32.to_be_bytes()); // ILLEGAL vector
     kickstart[0x30] = 0x60; // BRA.S
     kickstart[0x31] = 0xFE; // -2: stable address-error handler
+    kickstart
+}
+
+fn interrupt_acknowledge_kickstart() -> Vec<u8> {
+    let mut kickstart = vec![0u8; 256 * 1024];
+    kickstart[0..4].copy_from_slice(&0x0008_0000u32.to_be_bytes());
+    kickstart[4..8].copy_from_slice(&0x00F8_0008u32.to_be_bytes());
+    kickstart[8..10].copy_from_slice(&0x46FCu16.to_be_bytes()); // MOVE.W #$2000,SR
+    kickstart[10..12].copy_from_slice(&0x2000u16.to_be_bytes());
+    kickstart[12..14].copy_from_slice(&0x60FEu16.to_be_bytes()); // BRA.S *
     kickstart
 }
 
@@ -191,6 +203,60 @@ fn group1_handler_prefetch_context_survives_postcard_round_trip() -> Result<(), 
         original.snapshot()?,
         restored.snapshot()?,
         "restored exception context must produce the same address-error frame and handler state",
+    );
+    Ok(())
+}
+
+#[test]
+fn accepted_interrupt_acknowledge_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    let kickstart = interrupt_acknowledge_kickstart();
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, kickstart.clone())?;
+    original.machine_mut().poke_word(0x00DF_F09A, 0xC040); // INTEN | BLIT
+    original.machine_mut().poke_word(0x00DF_F09C, 0x8040); // request BLIT
+
+    let mut reached_acknowledge = false;
+    for _ in 0..20_000 {
+        original.machine_mut().tick();
+        if let State::BusCycle { op, addr, .. } = &original.machine().cpu().state
+            && *op == MicroOp::InterruptAck
+        {
+            assert_eq!(*addr, 0x00FF_FFF7);
+            reached_acknowledge = true;
+            break;
+        }
+    }
+    assert!(
+        reached_acknowledge,
+        "the synthetic level-3 request should reach interrupt acknowledge"
+    );
+    assert_eq!(original.machine().cpu().target_ipl, 3);
+    assert_eq!(original.machine().cpu().regs.interrupt_mask(), 3);
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, kickstart)?;
+    restored.restore(&snapshot)?;
+    assert_eq!(
+        snapshot,
+        restored.snapshot()?,
+        "the accepted level and its active acknowledge cycle must round-trip byte-identically"
+    );
+    assert!(matches!(
+        &restored.machine().cpu().state,
+        State::BusCycle {
+            op: MicroOp::InterruptAck,
+            addr: 0x00FF_FFF7,
+            ..
+        }
+    ));
+
+    for _ in 0..64 {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+    }
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "restored acknowledge state must select the same vector and continuation"
     );
     Ok(())
 }
@@ -1489,10 +1555,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 17, and confirm the version-mismatch arm fires with a
+/// field back to 18, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV18` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 18` that byte is `0x12`.
+/// of a `SnapshotEnvelopeV19` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 19` that byte is `0x13`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -1501,20 +1567,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 18,
-        "postcard varint for SNAPSHOT_VERSION = 18 should be 0x12"
+        bytes[0], 19,
+        "postcard varint for SNAPSHOT_VERSION = 19 should be 0x13"
     );
-    bytes[0] = 17;
+    bytes[0] = 18;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-17 snapshot should be rejected before payload decode");
+        .expect_err("version-18 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 17; expected 18"
+                if reason == "unsupported snapshot version 18; expected 19"
         ),
         "expected version-mismatch reason, got {err:?}"
     );

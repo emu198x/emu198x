@@ -30,7 +30,7 @@
 
 use crate::addressing::AddrMode;
 use crate::alu::Size;
-use crate::bus::{BusStatus, FunctionCode};
+use crate::bus::{BusStatus, FunctionCode, interrupt_acknowledge_address};
 use crate::microcode::{MicroOp, MicroOpQueue};
 use crate::registers::Registers;
 use serde::{Deserialize, Serialize};
@@ -1515,6 +1515,10 @@ impl Cpu68000 {
         // Enter supervisor mode BEFORE pushing so the frame goes onto SSP.
         self.regs.set_supervisor(true);
         self.regs.sr &= !0x8000; // Clear trace bit
+        // The active processor mask changes to the accepted level as
+        // interrupt processing begins. The saved copy above retains the
+        // pre-interrupt mask for the exception frame.
+        self.regs.sr = (self.regs.sr & !0x0700) | (u16::from(self.target_ipl) << 8);
         self.in_followup = true;
         // The PC to save is the address of the NEXT instruction — the one
         // that would have executed if the interrupt hadn't fired. That's
@@ -1766,7 +1770,14 @@ impl Cpu68000 {
                 self.regs.set_active_sp(sp.wrapping_add(4));
                 (sp.wrapping_add(2), fc_data, true, true, None)
             }
-            MicroOp::InterruptAck => (0xFFFFFF, FunctionCode::InterruptAck, true, true, None),
+            MicroOp::InterruptAck => {
+                // During interrupt acknowledge the 68000 places the
+                // accepted level on A3-A1 and drives every other address
+                // line high. The external machine must decode this bus
+                // value, not re-sample the live IPL input pins.
+                let addr = interrupt_acknowledge_address(self.target_ipl);
+                (addr, FunctionCode::InterruptAck, true, true, None)
+            }
             _ => panic!("Non-bus op in initiate_bus_cycle: {:?}", op),
         };
 

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add shared interrupt-acknowledge address helpers for carrying the
+  accepted level on A3-A1 through the current MC68000-shaped shared
+  core and its inherited test harnesses
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/motorola-68k-common-v0.2.0) - 2026-06-04
 
 ### Other

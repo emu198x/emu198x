@@ -170,9 +170,10 @@ drain or final D, nor can it recover which observer must remain busy
 after the source event. Guessing would risk a duplicate interrupt, a
 missing final write or a one-CCK Copper difference.
 
-The current runtime envelope is version 18 because the later line-mode
-decision adds serialized ONEDOT, texture-phase and current-CCK
-arbitration state.
+The later line-mode decision advanced the envelope to version 18 for
+serialized ONEDOT, texture-phase and current-CCK arbitration state.
+The current runtime envelope is version 19 because accepted MC68000
+interrupt-acknowledge identity must also be unambiguous across builds.
 
 Raw postcards of the affected Agnus and machine types remain
 unversioned and change positional layout. Durable save states must use

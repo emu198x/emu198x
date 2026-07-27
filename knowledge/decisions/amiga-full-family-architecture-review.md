@@ -54,6 +54,13 @@ this review revisits them:
   Same shape will be used for 68010 / 68020 / 68030 / 68040 / 68060
   / AC68080 with the bus-protocol differences (sync vs async, 16-bit
   vs 32-bit) modelled by the per-CPU crate.
+  Interrupt acknowledge follows the same boundary on the current
+  MC68000-shaped compatibility surface: the shared core presents its
+  accepted level on A3-A1 and the Amiga driver selects the autovector from
+  those pins, never from mutable live IPL. This is not a claim that later
+  processors share the MC68000's external acknowledge protocol; each
+  per-variant bus surface must model its own signals. See
+  [Accepted MC68000 interrupt level](motorola-68000-interrupt-acknowledge-level.md).
 - **Chip-as-trait/struct-with-pins.** Each chip — Paula, Agnus,
   Denise, the two CIAs, Gary, autoconfig boards — is a struct with
   the silicon's pin surface as fields. One implementation per
@@ -634,6 +641,8 @@ In order of leverage for unblocking the full Amiga family:
   sibling review for the engineering-bar third system
 - [`cpu-bus-interface.md`](cpu-bus-interface.md) — universal
   pin-level CPU rule
+- [Accepted MC68000 interrupt level](motorola-68000-interrupt-acknowledge-level.md)
+  — accepted interrupt identity across the CPU and shared Amiga bus boundary
 - [`within-family-layering.md`](within-family-layering.md) —
   chip-per-crate the seam fixes respect
 - [`runtime-internal-shape.md`](runtime-internal-shape.md) —

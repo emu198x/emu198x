@@ -12,7 +12,7 @@
 #![allow(clippy::unnecessary_cast)]
 
 use motorola_68000::Cpu68000;
-use motorola_68000::bus::BusStatus;
+use motorola_68000::bus::{BusStatus, interrupt_acknowledge_level};
 
 /// 64 KiB test memory with big-endian word access.
 struct TestMem {
@@ -122,7 +122,8 @@ fn service_bus(cpu: &mut Cpu68000, mem: &mut TestMem) {
             ..
         } if *cycle_count >= 3 => {
             if *fc == motorola_68000::bus::FunctionCode::InterruptAck {
-                cpu.bus_status = BusStatus::Ready(24 + u16::from(cpu.ipl));
+                let acknowledged_level = interrupt_acknowledge_level(*addr);
+                cpu.bus_status = BusStatus::Ready(24 + u16::from(acknowledged_level));
             } else if *is_read {
                 let val = if *is_word {
                     mem.read_word(*addr)
@@ -388,6 +389,85 @@ fn interrupt_from_tight_branch_loop() {
         3,
         "SR mask should be 3 in handler"
     );
+}
+
+#[test]
+fn interrupt_acknowledge_preserves_the_level_accepted_at_the_boundary() {
+    let mut mem = TestMem::new(0x2000);
+
+    // The accepted level-3 autovector leads to the expected handler.
+    mem.write_long(27 * 4, 0x0000_0120);
+    mem.write_word(0x0120, 0x7033); // MOVEQ #$33,D0
+    mem.write_word(0x0122, 0x60FE); // BRA.S *
+
+    // A live-pin-derived level-0 response would use vector 24 instead.
+    mem.write_long(24 * 4, 0x0000_0140);
+    mem.write_word(0x0140, 0x7077); // MOVEQ #$77,D0
+    mem.write_word(0x0142, 0x60FE); // BRA.S *
+
+    // Lower the interrupt mask, then wait at an instruction boundary.
+    mem.write_word(0x0100, 0x46FC); // MOVE.W #$2000,SR
+    mem.write_word(0x0102, 0x2000);
+    mem.write_word(0x0104, 0x60FE); // BRA.S *
+
+    let mut cpu = setup_cpu_reset_to(&mut mem, 0x0800, 0x0100);
+
+    for _ in 0..2_000 {
+        cpu.ipl = 0;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.regs.interrupt_mask() == 0 && cpu.ir == 0x60FE {
+            break;
+        }
+    }
+    assert_eq!(cpu.regs.interrupt_mask(), 0);
+
+    let mut accepted = false;
+    let mut iack_address = None;
+    for _ in 0..10_000 {
+        // Withdraw the request as soon as the CPU has accepted level 3.
+        // The subsequent acknowledge cycle must still describe level 3.
+        cpu.ipl = if accepted { 0 } else { 3 };
+
+        if let motorola_68000::cpu::State::BusCycle { addr, fc, .. } = &cpu.state
+            && *fc == motorola_68000::bus::FunctionCode::InterruptAck
+        {
+            assert_eq!(
+                cpu.ipl, 0,
+                "the live request should already be withdrawn before IACK"
+            );
+            iack_address = Some(*addr);
+        }
+
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+
+        if !accepted && cpu.interrupts_taken == 1 {
+            accepted = true;
+            assert_eq!(cpu.target_ipl, 3);
+            assert_eq!(
+                cpu.regs.interrupt_mask(),
+                3,
+                "the active SR mask changes when level 3 is accepted"
+            );
+        }
+
+        if cpu.regs.d[0] == 0x33 {
+            break;
+        }
+    }
+
+    assert!(accepted, "the CPU should accept the asserted level 3");
+    assert_eq!(
+        iack_address,
+        Some(0x00FF_FFF7),
+        "A3-A1 must carry the accepted level while all other address lines are high"
+    );
+    assert_eq!(
+        cpu.regs.d[0], 0x33,
+        "the acknowledge response must select the accepted level-3 autovector"
+    );
+    assert_eq!(cpu.regs.interrupt_mask(), 3);
 }
 
 #[test]

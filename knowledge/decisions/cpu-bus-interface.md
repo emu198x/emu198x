@@ -185,6 +185,12 @@ Will reuse `mos-6502` directly. The NES variant has no decimal mode (handled by 
 
 The 68000 has a more complex bus protocol than the 6502 — ASn (address strobe), UDS/LDS (upper/lower data strobes), DTACK (data transfer acknowledge from peripheral), BG/BR/BGACK (bus grant chain for DMA arbitration). All of these become pin fields. Agnus, the bus master, observes these pins continuously and asserts BG/BGACK to take ownership of the bus during DMA cycles.
 
+Special cycles remain part of the same contract. During interrupt
+acknowledge the CPU presents the level it already accepted on A3-A1; the
+machine derives its response from those output pins and does not
+re-sample the mutable IPL inputs. The concrete ownership boundary is
+recorded in [Accepted MC68000 interrupt level](motorola-68000-interrupt-acknowledge-level.md).
+
 ## Drift triggers
 
 **Phrases that signal you should re-read this entry:**
@@ -211,4 +217,5 @@ The 68000 has a more complex bus protocol than the 6502 — ASn (address strobe)
 - [`crates/zilog-z80/`](../../crates/zilog-z80/) — the worked Z80 example.
 - [`crates/mos-6502/`](../../crates/mos-6502/) — the worked 6502 example (in progress).
 - [Half-cycle signals](half-cycle-signals.md) — the related decision about timing granularity.
+- [Accepted MC68000 interrupt level](motorola-68000-interrupt-acknowledge-level.md) — interrupt identity across the pin-level boundary.
 - [No Bus trait](no-bus-trait.md) — the original (Z80-specific) framing of this rule, now superseded by this universal version.

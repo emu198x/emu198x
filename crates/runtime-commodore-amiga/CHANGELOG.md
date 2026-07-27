@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 19 because a version-18
+  snapshot taken during interrupt acknowledge can retain the old fixed
+  level-7 address, a pre-acceptance active SR mask or an autovector
+  derived from mutable live IPL
 - Bump Amiga postcard snapshots to version 18 so active line-mode ONEDOT
   row eligibility, B texture phase and current-CCK nasty ownership validity
   survive restore; version 17 is rejected

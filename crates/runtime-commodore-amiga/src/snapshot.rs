@@ -19,12 +19,15 @@ use crate::Model;
 use crate::runtime::AmigaRuntime;
 use crate::variants::AmigaMachine;
 
-// Version 18 serializes the line-mode ONEDOT horizontal-row latch, line
-// texture phase, and the current CCK's pre-service nasty ownership plus its
-// validity marker. Version 17 cannot determine whether a restored logical
-// WriteD should be suppressed or whether that would-be transfer left the CPU
-// cell free.
-const SNAPSHOT_VERSION: u32 = 18;
+// Version 19 rejects version-18 snapshots because an active MC68000
+// interrupt-acknowledge cycle could contain the old fixed level-7 address
+// regardless of its accepted level, or a vector response derived from live
+// IPL pins. A snapshot from earlier in exception entry could also retain the
+// pre-acceptance active SR mask, which the current continuation no longer
+// updates at vector completion. Current state carries the accepted level
+// consistently in target_ipl, SR, the IACK address and any completed
+// autovector response.
+const SNAPSHOT_VERSION: u32 = 19;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
 /// snapshot (`M::Snapshot`) and the variant's reconstruction metadata
@@ -34,7 +37,7 @@ const SNAPSHOT_VERSION: u32 = 18;
 /// Versioned so future snapshot extensions can bump the major version
 /// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV18<M: AmigaMachine> {
+struct SnapshotEnvelopeV19<M: AmigaMachine> {
     version: u32,
     model: Model,
     metadata: M::SnapshotMetadata,
@@ -51,7 +54,7 @@ struct SnapshotEnvelopeV18<M: AmigaMachine> {
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
 pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u8>, MachineError> {
-    let envelope = SnapshotEnvelopeV18::<M> {
+    let envelope = SnapshotEnvelopeV19::<M> {
         version: SNAPSHOT_VERSION,
         model: runtime.model(),
         metadata: runtime.metadata().clone(),
@@ -92,7 +95,7 @@ pub(crate) fn decode<M: AmigaMachine>(
         });
     }
 
-    let envelope: SnapshotEnvelopeV18<M> =
+    let envelope: SnapshotEnvelopeV19<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;
