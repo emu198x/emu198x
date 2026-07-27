@@ -359,8 +359,7 @@ impl Cpu68000 {
         }
         self.addr = self.ff_base;
         self.followup_tag = TAG_EA_FF_INDIRECT_DONE;
-        self.micro_ops.push(MicroOp::ReadLongHi);
-        self.micro_ops.push(MicroOp::ReadLongLo);
+        self.queue_read_ops(Size::Long);
         self.micro_ops.push(MicroOp::Execute);
     }
 }

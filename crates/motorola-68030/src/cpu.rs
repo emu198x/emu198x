@@ -127,7 +127,19 @@ mod tests {
         assert!(cpu.variant_six_word_frame);
         assert!(cpu.variant_format2_vectors);
         assert!(cpu.variant_extended_sr_writes);
+        assert!(cpu.variant_dynamic_bus_sizing);
         assert!(cpu.variant_musashi_bcd_v);
         assert!(cpu.variant_musashi_div_overflow);
+    }
+
+    #[test]
+    fn deserialize_restores_dynamic_bus_sizing() {
+        let mut cpu = Cpu68030::new();
+        cpu.variant_dynamic_bus_sizing = false;
+        let encoded = rmp_serde::to_vec_named(&cpu).expect("serialize MC68030");
+
+        let restored: Cpu68030 = rmp_serde::from_slice(&encoded).expect("deserialize MC68030");
+
+        assert!(restored.variant_dynamic_bus_sizing);
     }
 }

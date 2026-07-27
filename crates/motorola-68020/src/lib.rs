@@ -12,8 +12,9 @@
 //! [`Cpu68020`] wraps the MC68010 layer and installs the MC68020 ISA,
 //! addressing, timing, cache, coprocessor and exception capabilities on
 //! the shared reactive core. The Amiga A1200 uses this type as its active
-//! CPU. The external bus remains the shared compatibility surface; full
-//! 32-bit dynamic bus sizing is separate work.
+//! CPU. Data operands retain their SIZ value across DSACK-selected 8-,
+//! 16- and 32-bit phases; instruction fetch and the remaining electrical
+//! bus protocol retain the shared compatibility surface.
 //!
 //! # Architectural delta
 //!
@@ -91,9 +92,9 @@
 //!   same effort as everything else combined.
 //! - **Address Error generation** — only on instruction fetch.
 //!   Data accesses to odd addresses go through hardware
-//!   misalignment handling; no exception fires. The current abstract
-//!   bus preserves logical RAM values but does not yet model
-//!   alignment-dependent split cycles or odd MMIO side effects.
+//!   misalignment handling; no exception fires. The dynamic data bus
+//!   models alignment-dependent split cycles. Odd MMIO remains on the
+//!   compatibility path until each responder's lane behaviour is known.
 //! - **MOVE from SR** is privileged here too (matches 68010).
 //!
 //! ## Coprocessor interface (cpID 1 = FPU, cpID 2 = PMMU)

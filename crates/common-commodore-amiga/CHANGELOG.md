@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add an optional responder-sized CPU-bus completion path while preserving
+  byte/word compatibility dispatch for unchanged machines and address regions
+
 ### Fixed
 
 - Select an Amiga autovector from the interrupt level encoded by the

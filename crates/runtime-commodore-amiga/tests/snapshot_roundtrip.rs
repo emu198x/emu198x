@@ -32,6 +32,7 @@ use emu198x_shell::{
     NullFrameSink, NullTraceSink,
 };
 use format_commodore_amiga_adf::ADF_SIZE_DD;
+use motorola_68000::bus::TransferSize;
 use motorola_68000::cpu::State;
 use motorola_68000::microcode::MicroOp;
 use runtime_commodore_amiga::{AmigaA1200Runtime, AmigaEcsRuntime, AmigaOcsRuntime, Model};
@@ -96,6 +97,23 @@ fn interrupt_acknowledge_kickstart() -> Vec<u8> {
     kickstart[8..10].copy_from_slice(&0x46FCu16.to_be_bytes()); // MOVE.W #$2000,SR
     kickstart[10..12].copy_from_slice(&0x2000u16.to_be_bytes());
     kickstart[12..14].copy_from_slice(&0x60FEu16.to_be_bytes()); // BRA.S *
+    kickstart
+}
+
+fn dynamic_long_write_kickstart() -> Vec<u8> {
+    let mut kickstart = vec![0u8; 512 * 1024];
+    kickstart[0..4].copy_from_slice(&0x0008_0000u32.to_be_bytes());
+    kickstart[4..8].copy_from_slice(&0x00F8_0008u32.to_be_bytes());
+    let words: [u16; 8] = [
+        0x203C, // MOVE.L #$DEADBEEF,D0
+        0xDEAD, 0xBEEF, 0x207C, // MOVEA.L #$00001001,A0
+        0x0000, 0x1001, 0x2080, // MOVE.L D0,(A0)
+        0x60FE, // BRA.S *
+    ];
+    for (index, word) in words.into_iter().enumerate() {
+        let offset = 8 + index * 2;
+        kickstart[offset..offset + 2].copy_from_slice(&word.to_be_bytes());
+    }
     kickstart
 }
 
@@ -1228,6 +1246,94 @@ fn alice_blitter_completion_pipeline_survives_postcard_round_trip() -> Result<()
 }
 
 #[test]
+fn a1200_dynamic_bus_phase_survives_runtime_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    const DESTINATION: u32 = 0x0000_1001;
+
+    let kickstart = dynamic_long_write_kickstart();
+    let mut original = AmigaA1200Runtime::new(Model::A1200AgaPal, kickstart.clone())?;
+    {
+        let machine = original.machine_mut();
+        machine.poke_byte(DESTINATION - 1, 0xA5);
+        for offset in 0..4 {
+            machine.poke_byte(DESTINATION + offset, 0xCC);
+        }
+        machine.poke_byte(DESTINATION + 4, 0x5A);
+    }
+
+    let mut reached_split = false;
+    for _ in 0..10_000 {
+        original.machine_mut().tick();
+        let machine = original.machine();
+        let split_state = machine
+            .cpu()
+            .active_bus_transfer
+            .is_some_and(|transfer| transfer.remaining == TransferSize::Byte)
+            && matches!(
+                &machine.cpu().state,
+                State::BusCycle {
+                    addr,
+                    op: MicroOp::WriteLong,
+                    ..
+                } if *addr == DESTINATION + 3
+            );
+        if split_state {
+            reached_split = true;
+            break;
+        }
+    }
+    assert!(
+        reached_split,
+        "the odd long write never reached its final split phase"
+    );
+    assert_eq!(
+        [
+            original.machine().read_chip_ram_byte(DESTINATION - 1),
+            original.machine().read_chip_ram_byte(DESTINATION),
+            original.machine().read_chip_ram_byte(DESTINATION + 1),
+            original.machine().read_chip_ram_byte(DESTINATION + 2),
+            original.machine().read_chip_ram_byte(DESTINATION + 3),
+            original.machine().read_chip_ram_byte(DESTINATION + 4),
+        ],
+        [0xA5, 0xDE, 0xAD, 0xBE, 0xCC, 0x5A]
+    );
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaA1200Runtime::new(Model::A1200AgaPal, kickstart)?;
+    restored.restore(&snapshot)?;
+    assert_eq!(snapshot, restored.snapshot()?);
+
+    let mut completed = false;
+    for _ in 0..100 {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+        if original.machine().cpu().active_bus_transfer.is_none()
+            && original.machine().read_chip_ram_byte(DESTINATION + 3) == 0xEF
+        {
+            completed = true;
+            break;
+        }
+    }
+    assert!(completed, "the restored final byte phase did not complete");
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "the in-flight dynamic transfer must continue deterministically"
+    );
+    assert_eq!(
+        [
+            original.machine().read_chip_ram_byte(DESTINATION - 1),
+            original.machine().read_chip_ram_byte(DESTINATION),
+            original.machine().read_chip_ram_byte(DESTINATION + 1),
+            original.machine().read_chip_ram_byte(DESTINATION + 2),
+            original.machine().read_chip_ram_byte(DESTINATION + 3),
+            original.machine().read_chip_ram_byte(DESTINATION + 4),
+        ],
+        [0xA5, 0xDE, 0xAD, 0xBE, 0xEF, 0x5A]
+    );
+    Ok(())
+}
+
+#[test]
 fn ocs_closed_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
     let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     {
@@ -1555,10 +1661,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 21, and confirm the version-mismatch arm fires with a
+/// field back to 22, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV22` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 22` that byte is `0x16`.
+/// of a `SnapshotEnvelopeV23` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 23` that byte is `0x17`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -1567,20 +1673,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 22,
-        "postcard varint for SNAPSHOT_VERSION = 22 should be 0x16"
+        bytes[0], 23,
+        "postcard varint for SNAPSHOT_VERSION = 23 should be 0x17"
     );
-    bytes[0] = 21;
+    bytes[0] = 22;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-21 snapshot should be rejected before payload decode");
+        .expect_err("version-22 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 21; expected 22"
+                if reason == "unsupported snapshot version 22; expected 23"
         ),
         "expected version-mismatch reason, got {err:?}"
     );

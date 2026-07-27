@@ -107,6 +107,23 @@ retains one compatibility boundary.
 The stack-selection and frame rules are defined by
 [MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md).
 
+## MC68020/MC68030 dynamic bus-sizing amendment
+
+MC68020/MC68030 live state includes the logical transfer that owns the current
+physical bus phase: its original and remaining size, complete write operand,
+partial read accumulator, current SIZ value and physical D31-D0 write image.
+A responder reports its port width independently for every phase, so restoring
+only the compatibility byte/word bus-cycle view can lose accepted bytes or
+repeat a completed write.
+
+The Amiga runtime envelope therefore advances from version 22 to version 23.
+A positional version-22 payload does not contain the logical transfer state.
+Every Amiga model rejects it before decoding the machine payload so the shared
+runtime retains one compatibility boundary.
+
+The transfer contract is defined by
+[MC68020/MC68030 dynamic bus sizing](motorola-68020-dynamic-bus-sizing.md).
+
 ## Atari (decided 2026-06-26): use serde, same as everyone else
 
 The Atari chips (TIA, RIOT/6532, ANTIC, GTIA, POKEY, MARIA) carry **hand-rolled
@@ -131,5 +148,6 @@ run→snapshot→restore→run test would close this — tracked as a follow-up.
 - [MC68000 level-7 transition recognition](motorola-68000-level-7-transition.md)
 - [MC68010+ acknowledged interrupt vectors](motorola-68010-acknowledged-interrupt-vector.md)
 - [MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md)
+- [MC68020/MC68030 dynamic bus sizing](motorola-68020-dynamic-bus-sizing.md)
 - [Runtime internal shape](runtime-internal-shape.md)
 - [Spectrum architecture review](spectrum-architecture-review.md)

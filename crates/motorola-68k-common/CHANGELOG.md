@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add MC68020/MC68030 SIZ and DSACK representations, phase sizing,
+  read-lane selection and write-data duplication helpers
 - Add capability-gated MC68020-family A7 selection across USP, ISP and MSP
   without interpreting the reserved M bit on MC68000 or MC68010 register files
 - Add shared interrupt-acknowledge address helpers for carrying the

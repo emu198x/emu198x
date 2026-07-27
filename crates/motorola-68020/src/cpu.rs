@@ -77,6 +77,10 @@ impl Cpu68020 {
         // the 68020+. Instruction prefetches remain word-aligned and still
         // take an address error at odd targets.
         self.inner.variant_unaligned_data_access = true;
+        // The 68020 and 68030 expose SIZ1/SIZ0 and accept DSACK1/DSACK0,
+        // allowing each responder to report an 8-, 16-, or 32-bit port on
+        // every physical phase of one logical operand.
+        self.inner.variant_dynamic_bus_sizing = true;
         // The 68020 introduces separate interrupt and master supervisor
         // stacks. Shared A7 accesses select ISP when S=1/M=0 and MSP when
         // S=1/M=1; wrappers re-enable this non-serialized capability here.
@@ -3536,6 +3540,7 @@ mod tests {
         assert!(restored.variant_scaled_index);
         assert!(restored.variant_extended_sr_writes);
         assert!(restored.variant_unaligned_data_access);
+        assert!(restored.variant_dynamic_bus_sizing);
         assert!(restored.variant_format2_vectors);
         assert!(restored.variant_six_word_frame);
         assert!(restored.variant_musashi_bcd_v);
@@ -3552,6 +3557,7 @@ mod tests {
         assert!(cloned.variant_scaled_index);
         assert!(cloned.variant_extended_sr_writes);
         assert!(cloned.variant_unaligned_data_access);
+        assert!(cloned.variant_dynamic_bus_sizing);
         assert!(cloned.variant_format2_vectors);
     }
 

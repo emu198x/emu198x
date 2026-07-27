@@ -39,7 +39,10 @@
 //! bus-timing work (the composable-config `ActiveCpu` amendment) lands
 //! at `dispatch_bus` / `tick_cpu_with_ipl`, not here.
 
-use crate::board::{BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, TICKS_PER_CCK};
+use crate::board::{
+    BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, SizedBusResponse, SizedBusTransaction,
+    TICKS_PER_CCK,
+};
 use crate::cia::Cia;
 use crate::copper::Copper;
 use crate::memory::Memory;
@@ -170,6 +173,15 @@ pub trait AmigaDriver {
     /// The CPU bus-cycle chip-select chain. Per-variant: the A1200 adds a
     /// Gayle arm. Returns the response the addressed chip drove.
     fn dispatch_bus(&mut self, tx: &BusTransaction) -> BusResponse;
+    /// Optional MC68020/MC68030 dynamic-sized responder.
+    ///
+    /// Returning `None` retains the legacy byte/word compatibility dispatch
+    /// for this phase. Variants opt in only where both port width and lane
+    /// behaviour are evidence-backed.
+    fn dispatch_sized_bus(&mut self, tx: &SizedBusTransaction) -> Option<SizedBusResponse> {
+        let _ = tx;
+        None
+    }
 
     // ---------- the shared body (provided) ----------
 
@@ -410,19 +422,31 @@ pub trait AmigaDriver {
         // Snapshot the bus-cycle parameters out of the CPU state so we
         // can mutate self.memory and other chips without borrowing the
         // CPU mutably across helper boundaries.
-        let bus_info = match &self.cpu_base().state {
-            State::BusCycle {
-                addr,
-                fc,
-                is_read,
-                is_word,
-                data,
-                cycle_count,
-                ..
-            } => Some((*addr, *fc, *is_read, *is_word, *data, *cycle_count)),
-            _ => None,
+        let bus_info = {
+            let cpu = self.cpu_base();
+            match &cpu.state {
+                State::BusCycle {
+                    addr,
+                    fc,
+                    is_read,
+                    is_word,
+                    data,
+                    cycle_count,
+                    ..
+                } => Some((
+                    *addr,
+                    *fc,
+                    *is_read,
+                    *is_word,
+                    *data,
+                    *cycle_count,
+                    cpu.active_bus_transfer
+                        .map(|_| (cpu.bus_transfer_size, cpu.bus_data_out)),
+                )),
+                _ => None,
+            }
         };
-        let Some((addr, fc, is_read, is_word, data, cycle_count)) = bus_info else {
+        let Some((addr, fc, is_read, is_word, data, cycle_count, sized_phase)) = bus_info else {
             return;
         };
 
@@ -435,7 +459,7 @@ pub trait AmigaDriver {
         }
         if matches!(
             self.cpu_base().bus_status,
-            BusStatus::Ready(_) | BusStatus::Error
+            BusStatus::Ready(_) | BusStatus::ReadySized { .. } | BusStatus::Error
         ) {
             return;
         }
@@ -500,6 +524,22 @@ pub trait AmigaDriver {
             );
             self.cpu_base_mut().bus_status = BusStatus::Ready(24 + u16::from(acknowledged_level));
             return;
+        }
+
+        if let Some((remaining, sized_data)) = sized_phase {
+            let tx = SizedBusTransaction {
+                addr: addr24,
+                is_read,
+                remaining,
+                data: sized_data,
+            };
+            if let Some(response) = self.dispatch_sized_bus(&tx) {
+                self.cpu_base_mut().bus_status = BusStatus::ReadySized {
+                    data: response.data,
+                    port: response.port,
+                };
+                return;
+            }
         }
 
         let tx = BusTransaction {

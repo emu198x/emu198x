@@ -9,6 +9,7 @@
 //! data, and the master-clock divisors are the same on every Amiga.
 
 use crate::memory::Memory;
+use motorola_68000::bus::{DataPortSize, TransferSize};
 
 /// Ticks per Agnus colour clock. A CCK (HRM beam-coordinate unit) is
 /// two master/4 ticks — one tick per lores pixel.
@@ -65,4 +66,32 @@ pub enum BusResponse {
     Word(u16),
     /// Write completed; bus_status becomes `Ready(0)`.
     WriteAck,
+}
+
+/// One MC68020/MC68030 physical data phase presented to a responder.
+///
+/// This is deliberately separate from [`BusTransaction`]. The legacy type
+/// describes an already-decomposed byte/word access and is used by every
+/// existing MC68000-shaped machine path. A sized transaction preserves the
+/// current SIZ value and the physical D31-D0 write image until a responder
+/// reports its width.
+#[derive(Clone, Copy)]
+pub struct SizedBusTransaction {
+    /// Current physical phase address.
+    pub addr: u32,
+    /// `true` for a read phase, `false` for a write phase.
+    pub is_read: bool,
+    /// Current SIZ value: bytes remaining in the logical operand.
+    pub remaining: TransferSize,
+    /// Physical D31-D0 image driven by the processor during a write.
+    pub data: u32,
+}
+
+/// Completion produced by one evidence-backed dynamic-sized responder.
+#[derive(Clone, Copy)]
+pub struct SizedBusResponse {
+    /// Physical D31-D0 image driven during a read; ignored for writes.
+    pub data: u32,
+    /// Responder width encoded by DSACK1/DSACK0.
+    pub port: DataPortSize,
 }

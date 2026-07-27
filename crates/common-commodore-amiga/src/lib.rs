@@ -23,6 +23,9 @@ pub mod driver;
 pub mod memory;
 pub mod rtc;
 
-pub use board::{BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, ChipRamBus, TICKS_PER_CCK};
+pub use board::{
+    BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, ChipRamBus, SizedBusResponse,
+    SizedBusTransaction, TICKS_PER_CCK,
+};
 pub use denise_chip::DeniseChip;
 pub use driver::AmigaDriver;

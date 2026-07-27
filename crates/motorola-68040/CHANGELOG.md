@@ -9,14 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Explicitly disable the inherited MC68020/MC68030 SIZ/DSACK sequencer because
+  the MC68040 uses a different external transfer protocol
 - Strengthen the generated-corpus harness to preserve odd memory addresses
   and apply and compare MSP, VBR, CACR and CAAR
 
 ### Fixed
 
 - Inherit the shared logical unaligned-data capability while retaining odd
-  instruction-prefetch address errors. Dynamic sizing and odd MMIO split
-  semantics remain deferred
+  instruction-prefetch address errors. The MC68040 transfer protocol and odd
+  MMIO split semantics remain deferred
 - Inherit VBR-relative group-0 handler fetches. The current compatibility
   frame remains Format `$A`; the MC68040 Format `$7` path is deferred
 - Inherit the shared MSP/ISP selection, paired master-mode interrupt frames

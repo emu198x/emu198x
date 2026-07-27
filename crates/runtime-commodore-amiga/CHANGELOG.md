@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Preserve MC68020 logical data transfers across sized A1200 chip-RAM phases,
+  including unaligned longword accesses
 - Refresh the A1200 Kickstart 3.1 and Workbench 3.1 golden frame for the
   corrected horizontal-scroll arrow glyphs produced by line-mode blits
 - Expose Copper busy, completion phase, remaining completion CCKs and
@@ -18,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 23 so an in-flight
+  MC68020/MC68030 dynamic-sized transfer retains its remaining SIZ value,
+  complete write operand, partial read accumulator and current bus outputs;
+  version 22 is rejected
 - Bump Amiga postcard snapshots to version 22 so MC68020+ master-mode
   interrupt entry and Format-$1 RTE retain their pending phase, buffered
   SR/PC and selected USP/ISP/MSP bank; in-flight UNLK state now carries

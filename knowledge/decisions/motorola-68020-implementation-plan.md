@@ -2,9 +2,10 @@
 
 **Date:** 2026-05-21
 **Status:** Active execution record. The shared MC68020 core and A1200
-integration are implemented. Dynamic external-bus sizing, precise
-access-fault restart and the remaining processor-specific exception
-frames are still open.
+integration are implemented. Dynamic data-transfer sizing is implemented for
+MC68020/MC68030 responders, with the A1200 initially opting in 32-bit chip RAM.
+Precise access-fault restart, unresolved MMIO widths and the remaining
+processor-specific exception frames are still open.
 
 ## What this is
 
@@ -78,11 +79,11 @@ primary machine evidence. The protocol differences already matter for
 unaligned operands and for code that touches custom registers: the
 68020 may split one logical operand into several narrower transactions.
 
-The active `machine-commodore-amiga-a1200` currently services the
-shared byte/word transaction surface. A future dynamic-sizing
-implementation must add SIZ0/SIZ1, DSACK0/1 and per-region responder
-widths to that machine boundary; the working A1200 integration is not
-evidence that those physical bus phases are already modelled.
+The active `machine-commodore-amiga-a1200` preserves one logical data operand
+across SIZ/DSACK-selected physical phases. It initially advertises a 32-bit
+responder only for chip RAM. OVL-selected ROM reads and MMIO retain the shared
+byte/word compatibility surface until their responder widths and lane effects
+are pinned independently.
 
 ## Instruction test corpora
 
@@ -253,18 +254,20 @@ Tracked as Phase 1.5 follow-on, not chased here.
 DSACK0/1, AS, DS, R/W, FC0/1/2, IPL0/1/2, BERR, HALT, RESET,
 CDIS, CIIN).
 
-**Status: deferred.** The active core and A1200 use the shared
-compatibility transaction surface. Logical unaligned RAM accesses are
-correct, but responder-width selection, split MMIO side effects and
-pin-level timing are not implemented.
+**Status: implemented for data-transfer sizing (2026-07-27).** The CPU exposes
+the current SIZ value and physical D31-D0 write image. A sized machine response
+reports the DSACK-decoded 8-, 16- or 32-bit port independently for every
+physical phase. Existing `Ready(u16)` responders retain the shared byte/word
+compatibility contract.
 
-- Define the bus pin types in `motorola-68k-common::bus` (extend
-  the existing `BusPins` shape; 68020 needs more pins).
-- Bus state machine: replace 68000's "wait for DTACK low" with
-  68020's "sample DSACK on next clock edge, decode size from
-  SIZ pins."
-- Extend `machine-commodore-amiga-a1200` to drive those pins and
-  declare responder widths per address region.
+- `motorola-68k-common::bus` defines transfer sizes, responder widths, phase
+  reduction, read-lane selection and write-data duplication.
+- The shared core retains the logical operand, advances split phases and
+  re-samples responder width on each completion.
+- The A1200 advertises a 32-bit responder for chip RAM only and arbitrates each
+  physical phase independently.
+- Program prefetch, interrupt acknowledge, retry, burst/cache-line protocols
+  and unresolved MMIO remain outside this data-sizing slice.
 
 ### Phase 3 — scaled index + brief extension word
 
@@ -692,11 +695,11 @@ prefetches. Directed tests cover odd `MOVE.W`, `MOVE.L` and stack data
 accesses, plus an odd jump target that enters vector 3 through a
 32-byte Format `$A` frame.
 
-The current bus carries the exact logical address, so byte-addressable
-RAM returns and stores the right value. It does not yet expose
-SIZ0/SIZ1, DSACK-selected responder widths or alignment-dependent split
-phases. Odd memory-mapped I/O and precise bus timing therefore remain
-separate work rather than part of this closeout.
+The dynamic-sized bus now carries the exact logical address and remaining SIZ
+value across alignment-dependent split phases. Byte-addressable RAM returns and
+stores the right value through 8-, 16- and 32-bit responders. Odd
+memory-mapped I/O and precise access-fault restart remain separate work rather
+than part of this closeout.
 
 ### Phase 8 — instruction cache
 
@@ -777,10 +780,10 @@ Counts, provenance and exclusions belong in
 
 ## Resolved and open questions
 
-1. **External bus depth — open.** The current core uses atomic
-   compatibility transactions. SIZ0/SIZ1, DSACK-selected widths,
-   alignment-dependent split phases and their arbitration effects
-   remain Phase 2 work.
+1. **External data sizing — implemented with region boundaries.** The current
+   core preserves SIZ across DSACK-selected split phases and re-arbitrates every
+   A1200 chip-RAM phase. Program-fetch protocol, retry, bursts and MMIO widths
+   remain open.
 2. **FPU state placement — resolved.** FP0-FP7, FPCR, FPSR and FPIAR
    live in the shared register substrate, while the MC68020 wrapper
    controls whether a coprocessor is attached.
@@ -799,9 +802,9 @@ Counts, provenance and exclusions belong in
 - Manual-defined behaviour outside those corpora has directed tests.
 - `machine-commodore-amiga-a1200` composes `Cpu68020`, and its machine,
   runtime snapshot and golden-output regressions remain green.
-- Features described as deferred remain explicit: dynamic bus sizing,
-  odd MMIO split semantics, precise Format `$A` restart and the
-  unimplemented wider exception paths.
+- Features described as deferred remain explicit: odd MMIO split semantics,
+  precise Format `$A` restart, retry/burst protocols and the unimplemented
+  wider exception paths.
 
 ## Non-goals
 
@@ -815,9 +818,9 @@ Counts, provenance and exclusions belong in
   pipeline is not project work.
 - **PiStorm.** A PiStorm Amiga uses a real CPU; this plan does
   not model PiStorm-specific timing or host-FS shims.
-- **Dynamic external-bus sizing in this ISA phase.** It remains
-  required accuracy work, but is tracked at the CPU/machine bus
-  boundary rather than being implied by logical operand correctness.
+- **Complete electrical bus-pin modelling.** Program fetch, retry, burst and
+  cache-line protocols remain tracked at the CPU/machine bus boundary rather
+  than being implied by data-transfer sizing.
 
 ## Related
 
@@ -832,7 +835,9 @@ Counts, provenance and exclusions belong in
 - [MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md) —
   MSP/ISP selection, paired interrupt frames and the Format `$1` return
 - [MC68020 unaligned data access](motorola-68020-unaligned-data-access.md) —
-  logical operand correctness and the deferred dynamic-sizing boundary
+  odd-address acceptance and machine-region limits
+- [MC68020/MC68030 dynamic bus sizing](motorola-68020-dynamic-bus-sizing.md) —
+  SIZ/DSACK phases, compatibility responses and the initial A1200 width scope
 
 ## Reference library cross-links
 

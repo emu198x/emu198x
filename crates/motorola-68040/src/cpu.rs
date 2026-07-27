@@ -51,6 +51,10 @@ impl Cpu68040 {
     /// wrapped chain. Called from `new()` and `Deserialize`.
     fn install_variant_hooks(&mut self) {
         self.inner.variant_decode_hook = Some(decode_68040_opcode);
+        // The 68040 inherits the shared instruction implementation, but its
+        // external transfer protocol is not the 68020/68030 SIZ/DSACK
+        // handshake modelled by the current dynamic-sizing sequencer.
+        self.inner.variant_dynamic_bus_sizing = false;
     }
 
     /// Borrow the wrapped 68030 core.
@@ -172,7 +176,19 @@ mod tests {
         assert!(cpu.variant_six_word_frame);
         assert!(cpu.variant_format2_vectors);
         assert!(cpu.variant_extended_sr_writes);
+        assert!(!cpu.variant_dynamic_bus_sizing);
         assert!(cpu.variant_musashi_bcd_v);
         assert!(cpu.variant_musashi_div_overflow);
+    }
+
+    #[test]
+    fn deserialize_disables_68020_dynamic_bus_sizing() {
+        let mut cpu = Cpu68040::new();
+        cpu.variant_dynamic_bus_sizing = true;
+        let encoded = rmp_serde::to_vec_named(&cpu).expect("serialize MC68040");
+
+        let restored: Cpu68040 = rmp_serde::from_slice(&encoded).expect("deserialize MC68040");
+
+        assert!(!restored.variant_dynamic_bus_sizing);
     }
 }

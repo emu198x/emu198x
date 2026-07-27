@@ -7,12 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Model MC68020/MC68030 logical byte, word and longword data transfers across
+  alignment- and DSACK-width-dependent physical phases, including serialized
+  in-flight continuation
+
 ### Fixed
 
 - Retain odd start addresses for logical word and long-word data transactions,
   with byte-addressable RAM producing the correct values, while retaining
-  vector 3 for odd instruction prefetches. Dynamic sizing and odd MMIO split
-  semantics remain deferred
+  vector 3 for odd instruction prefetches. Odd MMIO split semantics remain
+  deferred where responder lanes are unresolved
 - Match inherited Format `$A` entry and return to the documented
   16-word frame extent and offsets instead of omitting the two highest
   internal words. Precise special-status, pipeline and fault-rerun state

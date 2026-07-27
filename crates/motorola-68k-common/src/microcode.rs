@@ -63,6 +63,19 @@ pub enum MicroOp {
     Execute,
     /// Promote IRC to IR and advance the pipeline.
     PromoteIRC,
+
+    // --- MC68020/MC68030 logical long transfers ---
+    //
+    // Appended after every pre-existing variant so postcard discriminants for
+    // saved MC68000/MC68010 micro-op queues remain stable.
+    /// Read one logical long operand through the dynamic-sizing sequencer.
+    ReadLong,
+    /// Write one logical long operand through the dynamic-sizing sequencer.
+    WriteLong,
+    /// Push one logical long through the dynamic-sizing sequencer.
+    PushLong,
+    /// Pop one logical long through the dynamic-sizing sequencer.
+    PopLong,
 }
 
 impl MicroOp {

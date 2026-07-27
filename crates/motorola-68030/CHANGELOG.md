@@ -9,14 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Inherit the MC68020 SIZ/DSACK data-transfer sequencer and reinstall its
+  capability after deserialization
 - Strengthen the generated-corpus harness to preserve odd memory addresses
   and apply and compare MSP, VBR, CACR and CAAR
 
 ### Fixed
 
 - Inherit MC68020 logical unaligned-data transactions while retaining odd
-  instruction-prefetch address errors. Dynamic sizing and odd MMIO split
-  semantics remain deferred
+  instruction-prefetch address errors. Odd MMIO split semantics remain
+  deferred where responder lanes are unresolved
 - Inherit VBR-relative group-0 handler fetches and the rejected
   next-instruction address in the Format `$A` PC field
 - Inherit MC68020-family MSP/ISP selection, paired master-mode interrupt

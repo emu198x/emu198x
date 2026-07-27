@@ -19,15 +19,13 @@ use crate::Model;
 use crate::runtime::AmigaRuntime;
 use crate::variants::AmigaMachine;
 
-// Version 22 rejects version-21 snapshots because MC68020+ master-mode
-// interrupt entry and Format-$1 RTE now serialize their pending phase, buffered
-// SR/PC and selected USP/ISP/MSP bank. In-flight UNLK state also retains a
-// three-way stack-bank identity instead of a user/supervisor boolean, and
-// Format-$A entry/RTE now retain their in-flight step and frame PC. A version-21
-// positional payload cannot resume those states correctly. The shared envelope
-// version also advances for OCS/ECS models so every Amiga runtime has one
-// unambiguous compatibility boundary.
-const SNAPSHOT_VERSION: u32 = 22;
+// Version 23 rejects version-22 snapshots because MC68020/MC68030 logical data
+// transfers now retain their remaining SIZ value, full write operand, partial
+// read accumulator and physical bus outputs across split DSACK phases. A
+// version-22 positional payload cannot resume midway through one of those
+// transfers. The shared envelope version also advances for OCS/ECS models so
+// every Amiga runtime has one unambiguous compatibility boundary.
+const SNAPSHOT_VERSION: u32 = 23;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
 /// snapshot (`M::Snapshot`) and the variant's reconstruction metadata
@@ -37,7 +35,7 @@ const SNAPSHOT_VERSION: u32 = 22;
 /// Versioned so future snapshot extensions can bump the major version
 /// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV22<M: AmigaMachine> {
+struct SnapshotEnvelopeV23<M: AmigaMachine> {
     version: u32,
     model: Model,
     metadata: M::SnapshotMetadata,
@@ -54,7 +52,7 @@ struct SnapshotEnvelopeV22<M: AmigaMachine> {
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
 pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u8>, MachineError> {
-    let envelope = SnapshotEnvelopeV22::<M> {
+    let envelope = SnapshotEnvelopeV23::<M> {
         version: SNAPSHOT_VERSION,
         model: runtime.model(),
         metadata: runtime.metadata().clone(),
@@ -95,7 +93,7 @@ pub(crate) fn decode<M: AmigaMachine>(
         });
     }
 
-    let envelope: SnapshotEnvelopeV22<M> =
+    let envelope: SnapshotEnvelopeV23<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;

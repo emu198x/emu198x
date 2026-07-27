@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Complete MC68020 chip-RAM data phases through Alice's 32-bit path, with
+  independent arbitration and once-only write side effects per phase;
+  unresolved ROM and MMIO widths retain compatibility dispatch
+
 ### Fixed
 
 - Preserve Alice's delayed finish source and serialized final-D completion

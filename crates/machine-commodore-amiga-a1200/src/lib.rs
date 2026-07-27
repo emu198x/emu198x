@@ -17,7 +17,9 @@
 
 mod agnus;
 mod denise;
-use common_commodore_amiga::board::{BusResponse, BusTransaction, ChipRamBus, TICKS_PER_CCK};
+use common_commodore_amiga::board::{
+    BusResponse, BusTransaction, ChipRamBus, SizedBusResponse, SizedBusTransaction, TICKS_PER_CCK,
+};
 use common_commodore_amiga::driver::AmigaDriver;
 use common_commodore_amiga::{cia, copper, memory, rtc};
 
@@ -44,6 +46,9 @@ pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
 pub use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
 pub use rtc::RTC_BASE;
 
+use motorola_68000::bus::{
+    DataPortSize, dynamic_transfer_bytes, extract_dynamic_bus_data, place_dynamic_read_data,
+};
 use motorola_68020::Cpu68020;
 use rtc::Msm6242Rtc;
 
@@ -1841,6 +1846,76 @@ impl AmigaA1200 {
         }
     }
 
+    /// A1200 chip RAM is connected through Alice's 32-bit data path.
+    ///
+    /// This is the only dynamic-sized region enabled initially. OVL reads
+    /// continue through the ROM compatibility path, and MMIO remains legacy
+    /// until each device's lanes and external response width are pinned down.
+    fn dispatch_sized_chip_ram(&mut self, tx: &SizedBusTransaction) -> Option<SizedBusResponse> {
+        let is_chip_ram = tx.addr < 0x0020_0000 && (!tx.is_read || !self.memory.overlay());
+        if !is_chip_ram {
+            return None;
+        }
+
+        let port = DataPortSize::Long;
+        let transferred = dynamic_transfer_bytes(tx.remaining, tx.addr, port);
+
+        let data = if tx.is_read {
+            let mut value = 0u32;
+            for offset in 0..transferred {
+                value = (value << 8)
+                    | u32::from(
+                        self.memory
+                            .read_chip_ram_byte(tx.addr.wrapping_add(u32::from(offset))),
+                    );
+            }
+            self.memory.set_last_bus_value(value as u16);
+            place_dynamic_read_data(value, transferred, tx.addr, port)
+        } else {
+            let value = extract_dynamic_bus_data(tx.data, transferred, tx.addr, port);
+            self.record_sized_watch_write(tx.addr, transferred, value);
+            for offset in 0..transferred {
+                let shift = u32::from(transferred - offset - 1) * 8;
+                self.memory.write_byte(
+                    tx.addr.wrapping_add(u32::from(offset)),
+                    ((value >> shift) & 0xFF) as u8,
+                );
+            }
+            self.memory.set_last_bus_value(value as u16);
+            0
+        };
+
+        Some(SizedBusResponse { data, port })
+    }
+
+    /// Preserve the existing word-shaped write-watch format for a physical
+    /// phase wider than 16 bits by recording sequential word/byte fragments.
+    fn record_sized_watch_write(&mut self, addr: u32, transferred: u8, value: u32) {
+        let Some((lo, len)) = self.debug_watch_addr else {
+            return;
+        };
+        let hi = lo.wrapping_add(len);
+        let mut done = 0u8;
+        while done < transferred {
+            let chunk = (transferred - done).min(2);
+            let fragment_addr = addr.wrapping_add(u32::from(done));
+            let fragment_hi = fragment_addr.wrapping_add(u32::from(chunk));
+            if fragment_addr < hi && fragment_hi > lo {
+                let remaining = transferred - done;
+                let shift = u32::from(remaining - chunk) * 8;
+                let mask = if chunk == 2 { 0xFFFF } else { 0xFF };
+                self.debug_watch_writes.push((
+                    self.tick_count / TICKS_PER_CCK,
+                    self.cpu.regs.pc,
+                    fragment_addr,
+                    ((value >> shift) & mask) as u16,
+                    chunk == 2,
+                ));
+            }
+            done += chunk;
+        }
+    }
+
     /// Build a persistable snapshot of the live machine state.
     ///
     /// Diagnostic logs (`debug_*` fields) are intentionally excluded —
@@ -2157,13 +2232,19 @@ impl AmigaDriver for AmigaA1200 {
             .or_else(|| self.dispatch_custom_register(tx))
             .unwrap_or_else(|| self.dispatch_memory(tx))
     }
+
+    fn dispatch_sized_bus(&mut self, tx: &SizedBusTransaction) -> Option<SizedBusResponse> {
+        self.dispatch_sized_chip_ram(tx)
+    }
 }
 
 #[cfg(test)]
 mod bus_plan_dispatch_tests {
     use super::*;
-    use motorola_68000::bus::{BusStatus, FunctionCode};
-    use motorola_68000::cpu::State;
+    use motorola_68000::bus::{
+        BusStatus, DataPortSize, FunctionCode, TransferSize, dynamic_write_data,
+    };
+    use motorola_68000::cpu::{ActiveBusTransfer, State};
     use motorola_68000::microcode::MicroOp;
 
     fn observe_ddf_start(amiga: &mut AmigaA1200) {
@@ -2507,6 +2588,223 @@ mod bus_plan_dispatch_tests {
         amiga.cpu.state = State::BusCycle {
             op: MicroOp::ReadWord,
             addr: ADDR,
+            fc: FunctionCode::SupervisorData,
+            is_read: true,
+            is_word: true,
+            data: None,
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+
+        <AmigaA1200 as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0x1234));
+    }
+
+    #[test]
+    fn held_dynamic_long_response_does_not_repeat_chip_ram_write_side_effects() {
+        const ADDR: u32 = 0x0000_1000;
+        const VALUE: u32 = 0x1234_5678;
+
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        amiga.memory.set_overlay(false);
+        amiga.debug_watch_addr = Some((ADDR, 4));
+        amiga.agnus.hpos = 0x0035;
+        assert_eq!(amiga.agnus.cck_bus_plan().slot_owner, SlotOwner::Cpu);
+        assert!(amiga.agnus.cck_bus_plan().cpu_chip_bus_granted);
+
+        amiga.cpu.active_bus_transfer = Some(ActiveBusTransfer {
+            logical_size: TransferSize::Long,
+            remaining: TransferSize::Long,
+            write_data: VALUE,
+            read_data: 0,
+        });
+        amiga.cpu.bus_transfer_size = TransferSize::Long;
+        amiga.cpu.bus_data_out = dynamic_write_data(VALUE, TransferSize::Long, ADDR);
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteLong,
+            addr: ADDR,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some((VALUE >> 16) as u16),
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+
+        <AmigaA1200 as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(
+            amiga.cpu.bus_status,
+            BusStatus::ReadySized {
+                data: 0,
+                port: DataPortSize::Long
+            }
+        );
+        assert_eq!(amiga.memory.read_long(ADDR), VALUE);
+        assert_eq!(amiga.debug_watch_writes.len(), 2);
+        assert_eq!(
+            (
+                amiga.debug_watch_writes[0].2,
+                amiga.debug_watch_writes[0].3,
+                amiga.debug_watch_writes[0].4,
+            ),
+            (ADDR, 0x1234, true)
+        );
+        assert_eq!(
+            (
+                amiga.debug_watch_writes[1].2,
+                amiga.debug_watch_writes[1].3,
+                amiga.debug_watch_writes[1].4,
+            ),
+            (ADDR + 2, 0x5678, true)
+        );
+
+        let first_watch_writes = amiga.debug_watch_writes.clone();
+        amiga.memory.write_byte(ADDR, 0xA5);
+
+        <AmigaA1200 as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(
+            amiga.cpu.bus_status,
+            BusStatus::ReadySized {
+                data: 0,
+                port: DataPortSize::Long
+            }
+        );
+        assert_eq!(
+            amiga.memory.read_chip_ram_byte(ADDR),
+            0xA5,
+            "a held response must not dispatch the write again"
+        );
+        assert_eq!(
+            amiga.debug_watch_writes, first_watch_writes,
+            "a held response must not duplicate diagnostic side effects"
+        );
+    }
+
+    #[test]
+    fn dynamic_long_write_stops_at_chip_ram_end_before_compatibility_phase() {
+        const ADDR: u32 = 0x001F_FFFD;
+        const VALUE: u32 = 0x1234_5678;
+
+        let mut amiga = AmigaA1200::with_ram_config(
+            vec![0; 512 * 1024],
+            RamConfig {
+                chip_kb: 2048,
+                slow_kb: 0,
+                fast_kb: 0,
+            },
+        );
+        amiga.memory.set_overlay(false);
+        amiga.debug_watch_addr = Some((ADDR, 4));
+        amiga.agnus.hpos = 0x0035;
+        assert_eq!(amiga.agnus.cck_bus_plan().slot_owner, SlotOwner::Cpu);
+        assert!(amiga.agnus.cck_bus_plan().cpu_chip_bus_granted);
+        amiga.memory.write_byte(0, 0xA5);
+
+        amiga.cpu.active_bus_transfer = Some(ActiveBusTransfer {
+            logical_size: TransferSize::Long,
+            remaining: TransferSize::Long,
+            write_data: VALUE,
+            read_data: 0,
+        });
+        amiga.cpu.bus_transfer_size = TransferSize::Long;
+        amiga.cpu.bus_data_out = dynamic_write_data(VALUE, TransferSize::Long, ADDR);
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteLong,
+            addr: ADDR,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some((VALUE >> 16) as u16),
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+
+        <AmigaA1200 as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(
+            amiga.cpu.bus_status,
+            BusStatus::ReadySized {
+                data: 0,
+                port: DataPortSize::Long
+            }
+        );
+        assert_eq!(amiga.memory.read_chip_ram_byte(ADDR), 0x12);
+        assert_eq!(amiga.memory.read_chip_ram_byte(ADDR + 1), 0x34);
+        assert_eq!(amiga.memory.read_chip_ram_byte(ADDR + 2), 0x56);
+        assert_eq!(amiga.debug_watch_writes.len(), 2);
+
+        amiga.cpu.tick();
+
+        let transfer = amiga
+            .cpu
+            .active_bus_transfer
+            .expect("the final byte must remain pending");
+        assert_eq!(transfer.remaining, TransferSize::Byte);
+        match &amiga.cpu.state {
+            State::BusCycle {
+                addr,
+                is_word,
+                data,
+                cycle_count,
+                ..
+            } => {
+                assert_eq!(*addr, 0x0020_0000);
+                assert!(!is_word);
+                assert_eq!(*data, Some(0x78));
+                assert_eq!(*cycle_count, 0);
+            }
+            _ => panic!("expected the final byte bus phase"),
+        }
+
+        let State::BusCycle { cycle_count, .. } = &mut amiga.cpu.state else {
+            unreachable!("the transfer was checked as a bus cycle above");
+        };
+        *cycle_count = 2;
+        <AmigaA1200 as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(
+            amiga.cpu.bus_status,
+            BusStatus::Ready(0),
+            "the byte outside chip RAM must use compatibility dispatch"
+        );
+        assert_eq!(
+            amiga.memory.read_chip_ram_byte(0),
+            0xA5,
+            "the compatibility phase must not wrap into chip RAM"
+        );
+        assert_eq!(amiga.debug_watch_writes.len(), 3);
+        assert_eq!(
+            (
+                amiga.debug_watch_writes[2].2,
+                amiga.debug_watch_writes[2].3,
+                amiga.debug_watch_writes[2].4,
+            ),
+            (0x0020_0000, 0x78, false)
+        );
+    }
+
+    #[test]
+    fn overlay_read_keeps_dynamic_long_on_the_rom_compatibility_path() {
+        let mut rom = vec![0; 512 * 1024];
+        rom[0] = 0x12;
+        rom[1] = 0x34;
+        let mut amiga = AmigaA1200::new(rom);
+        assert!(amiga.memory.overlay());
+
+        amiga.cpu.active_bus_transfer = Some(ActiveBusTransfer {
+            logical_size: TransferSize::Long,
+            remaining: TransferSize::Long,
+            write_data: 0,
+            read_data: 0,
+        });
+        amiga.cpu.bus_transfer_size = TransferSize::Long;
+        amiga.cpu.bus_data_out = 0;
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::ReadLong,
+            addr: 0,
             fc: FunctionCode::SupervisorData,
             is_read: true,
             is_word: true,

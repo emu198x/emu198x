@@ -30,7 +30,10 @@
 
 use crate::addressing::AddrMode;
 use crate::alu::Size;
-use crate::bus::{BusStatus, FunctionCode, interrupt_acknowledge_address};
+use crate::bus::{
+    BusStatus, DataPortSize, FunctionCode, TransferSize, dynamic_transfer_bytes,
+    dynamic_write_data, extract_dynamic_bus_data, interrupt_acknowledge_address,
+};
 use crate::microcode::{MicroOp, MicroOpQueue};
 use crate::registers::{Registers, StackBank};
 use serde::{Deserialize, Serialize};
@@ -350,6 +353,24 @@ pub enum State {
     Stopped,
 }
 
+/// One logical MC68020/MC68030 data transfer that may span several bus cycles.
+///
+/// The processor keeps the original operand intact while SIZ reports the
+/// bytes still outstanding. Each DSACK response can accept a different number
+/// of bytes, so this state is serialized independently of the compatibility
+/// [`State::BusCycle`] view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActiveBusTransfer {
+    /// Original logical operand size.
+    pub logical_size: TransferSize,
+    /// Bytes still outstanding, encoded as the current SIZ pin value.
+    pub remaining: TransferSize,
+    /// Complete write operand, right-justified in big-endian byte order.
+    pub write_data: u32,
+    /// Sequential read bytes accepted by completed physical phases.
+    pub read_data: u32,
+}
+
 /// ALU operation type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AluOp {
@@ -590,6 +611,22 @@ pub struct Cpu68000 {
     /// state and `cycle_count >= min_bus`.
     pub bus_status: BusStatus,
 
+    /// Serialized logical transfer state for MC68020/MC68030 dynamic sizing.
+    ///
+    /// `None` on the MC68000/MC68010 and for program-space prefetches.
+    pub active_bus_transfer: Option<ActiveBusTransfer>,
+
+    /// **Output:** current SIZ1/SIZ0 value decoded as bytes remaining.
+    ///
+    /// Meaningful while [`Self::active_bus_transfer`] is present.
+    pub bus_transfer_size: TransferSize,
+
+    /// **Output:** physical D31-D0 write-data image for the current phase.
+    ///
+    /// The MC68020/MC68030 duplicate operand bytes before knowing which
+    /// responder width will terminate the cycle. Reads drive zero here.
+    pub bus_data_out: u32,
+
     /// **Input:** Interrupt priority level (IPL0-IPL2), written by
     /// the machine layer from Paula's interrupt priority encoder.
     /// Sampled on every tick. Ordinary requests are checked at instruction
@@ -736,6 +773,14 @@ pub struct Cpu68000 {
     /// shared address-error gate keeps applying the original rule otherwise.
     #[serde(skip)]
     pub variant_unaligned_data_access: bool,
+
+    /// MC68020/MC68030 SIZ and DSACK dynamic bus sizing.
+    ///
+    /// The capability is reinstalled by the variant wrapper after
+    /// deserialization. The MC68040 has a different bus protocol and disables
+    /// this inherited MC68020/MC68030 interface.
+    #[serde(skip)]
+    pub variant_dynamic_bus_sizing: bool,
 
     /// 68020+ Format `$A` group-0 exception frame.
     ///
@@ -1151,6 +1196,9 @@ impl Cpu68000 {
             address_error_observation: None,
             group0_vector: 3,
             bus_status: BusStatus::Wait,
+            active_bus_transfer: None,
+            bus_transfer_size: TransferSize::Word,
+            bus_data_out: 0,
             ipl: 0,
             sampled_ipl: 0,
             level7_transition_pending: false,
@@ -1165,6 +1213,7 @@ impl Cpu68000 {
             variant_musashi_div_overflow: false,
             variant_extended_sr_writes: false,
             variant_unaligned_data_access: false,
+            variant_dynamic_bus_sizing: false,
             variant_format_a_group0: false,
             variant_min_bus_clocks: 4,
             variant_constant_shift_timing: false,
@@ -1275,6 +1324,7 @@ impl Cpu68000 {
     /// queue, and begins the prefetch sequence.
     pub fn reset_to(&mut self, ssp: u32, pc: u32) {
         self.clear_address_error_execution_state();
+        self.clear_active_bus_transfer();
         self.ae_in_progress = true;
         self.group0_or_group1_processing = true;
         self.regs.ssp = ssp;
@@ -1306,6 +1356,7 @@ impl Cpu68000 {
     /// micro-op so the next tick will decode the instruction.
     pub fn setup_prefetch(&mut self, opcode: u16, irc: u16) {
         self.clear_address_error_execution_state();
+        self.clear_active_bus_transfer();
         self.ir = opcode;
         self.opcode_at_start = opcode;
         self.irc = irc;
@@ -1346,6 +1397,7 @@ impl Cpu68000 {
     /// Halt the CPU (unimplemented instruction or double fault).
     #[allow(dead_code)]
     pub(crate) fn halt(&mut self) {
+        self.clear_active_bus_transfer();
         self.state = State::Halted;
     }
 
@@ -1428,6 +1480,7 @@ impl Cpu68000 {
         // 4-clock minimum bus cycle (S0-S7) on the 68000/68010; the
         // 68020+ wrapper lowers this to 3 via its TimingClass.
         let min_bus = self.variant_min_bus_clocks;
+        let mut completed_bus_cycle = None;
         match &mut self.state {
             State::Idle => {}
             State::Internal { cycles } => {
@@ -1451,31 +1504,8 @@ impl Cpu68000 {
                     // The machine layer writes bus_status before this
                     // tick based on the output pins (addr, fc, rw, etc.)
                     // that were set when this BusCycle state was entered.
-                    let result = self.bus_status;
-                    match result {
-                        BusStatus::Ready(read_data) => {
-                            let completed_op = *op;
-                            self.finish_bus_cycle(completed_op, read_data);
-                            self.state = State::Idle;
-                        }
-                        BusStatus::Wait => {}
-                        BusStatus::Error => {
-                            let completed_op = *op;
-                            let fault_addr = *addr;
-                            let fault_read = *is_read;
-                            let fault_fc = *fc;
-                            self.state = State::Idle;
-                            if completed_op == MicroOp::InterruptAck {
-                                // BERR terminates an interrupt-acknowledge
-                                // cycle by supplying the spurious interrupt
-                                // vector. Frame construction either already
-                                // occurred (MC68000) or follows this response
-                                // (formatted-frame variants).
-                                self.finish_bus_cycle(completed_op, 24);
-                            } else {
-                                self.begin_bus_error(fault_addr, fault_read, fault_fc);
-                            }
-                        }
+                    if !matches!(self.bus_status, BusStatus::Wait) {
+                        completed_bus_cycle = Some((*op, *addr, *fc, *is_read, self.bus_status));
                     }
                 }
             }
@@ -1501,6 +1531,47 @@ impl Cpu68000 {
                         }
                     }
                 }
+            }
+        }
+
+        // Bus completion mutates both the serialized logical-transfer state
+        // and the compatibility State::BusCycle view. Process it after the
+        // state match so neither mutation overlaps the borrow above.
+        if let Some((op, addr, fc, is_read, result)) = completed_bus_cycle {
+            match result {
+                BusStatus::Ready(read_data) => {
+                    if self.active_bus_transfer.is_some() {
+                        self.finish_dynamic_bus_phase(
+                            op,
+                            addr,
+                            is_read,
+                            u32::from(read_data),
+                            None,
+                        );
+                    } else {
+                        self.finish_bus_cycle(op, read_data);
+                        self.state = State::Idle;
+                    }
+                }
+                BusStatus::ReadySized { data, port } => {
+                    assert!(
+                        self.active_bus_transfer.is_some(),
+                        "sized bus response requires an active MC68020/MC68030 data transfer"
+                    );
+                    self.finish_dynamic_bus_phase(op, addr, is_read, data, Some(port));
+                }
+                BusStatus::Error => {
+                    self.clear_active_bus_transfer();
+                    self.state = State::Idle;
+                    if op == MicroOp::InterruptAck {
+                        // BERR terminates an interrupt-acknowledge cycle by
+                        // supplying the spurious interrupt vector.
+                        self.finish_bus_cycle(op, 24);
+                    } else {
+                        self.begin_bus_error(addr, is_read, fc);
+                    }
+                }
+                BusStatus::Wait => unreachable!("wait responses are not completion events"),
             }
         }
     }
@@ -1609,6 +1680,14 @@ impl Cpu68000 {
         self.pre_move_sr = None;
         self.pre_move_vc = None;
         self.program_space_access = false;
+    }
+
+    /// Clear the externally visible state of a dynamic-sized data transfer.
+    fn clear_active_bus_transfer(&mut self) {
+        self.active_bus_transfer = None;
+        self.bus_transfer_size = TransferSize::Word;
+        self.bus_data_out = 0;
+        self.bus_status = BusStatus::Wait;
     }
 
     /// Begin an interrupt exception sequence.
@@ -1736,8 +1815,12 @@ impl Cpu68000 {
             Size::Byte => self.micro_ops.push(MicroOp::ReadByte),
             Size::Word => self.micro_ops.push(MicroOp::ReadWord),
             Size::Long => {
-                self.micro_ops.push(MicroOp::ReadLongHi);
-                self.micro_ops.push(MicroOp::ReadLongLo);
+                if self.variant_dynamic_bus_sizing {
+                    self.micro_ops.push(MicroOp::ReadLong);
+                } else {
+                    self.micro_ops.push(MicroOp::ReadLongHi);
+                    self.micro_ops.push(MicroOp::ReadLongLo);
+                }
             }
         }
     }
@@ -1751,8 +1834,12 @@ impl Cpu68000 {
             Size::Byte => self.micro_ops.push(MicroOp::WriteByte),
             Size::Word => self.micro_ops.push(MicroOp::WriteWord),
             Size::Long => {
-                self.micro_ops.push(MicroOp::WriteLongHi);
-                self.micro_ops.push(MicroOp::WriteLongLo);
+                if self.variant_dynamic_bus_sizing {
+                    self.micro_ops.push(MicroOp::WriteLong);
+                } else {
+                    self.micro_ops.push(MicroOp::WriteLongHi);
+                    self.micro_ops.push(MicroOp::WriteLongLo);
+                }
             }
         }
     }
@@ -1769,6 +1856,15 @@ impl Cpu68000 {
     /// hit path is gated on `variant_icache` being present (68020+ only)
     /// and CACR.E (enable); everything else is unchanged.
     fn initiate_bus_cycle(&mut self, op: MicroOp) -> State {
+        assert!(
+            self.variant_dynamic_bus_sizing
+                || !matches!(
+                    op,
+                    MicroOp::ReadLong | MicroOp::WriteLong | MicroOp::PushLong | MicroOp::PopLong
+                ),
+            "logical long micro-op requires MC68020/MC68030 dynamic bus sizing"
+        );
+
         let is_sup = self.regs.is_supervisor();
 
         // 68020+ instruction-cache hit: self-serve the prefetch word
@@ -1818,6 +1914,7 @@ impl Cpu68000 {
             MicroOp::ReadWord => (self.addr, fc_ea, true, true, None),
             MicroOp::ReadLongHi => (self.addr, fc_ea, true, true, None),
             MicroOp::ReadLongLo => (self.addr.wrapping_add(2), fc_ea, true, true, None),
+            MicroOp::ReadLong => (self.addr, fc_ea, true, true, None),
             MicroOp::WriteByte => (
                 self.addr,
                 fc_data,
@@ -1839,6 +1936,13 @@ impl Cpu68000 {
                 false,
                 true,
                 Some((self.data & 0xFFFF) as u16),
+            ),
+            MicroOp::WriteLong => (
+                self.addr,
+                fc_data,
+                false,
+                true,
+                Some((self.data >> 16) as u16),
             ),
             MicroOp::PushWord => {
                 // SP -= 2, then write at new SP
@@ -1863,6 +1967,12 @@ impl Cpu68000 {
                     Some((self.data & 0xFFFF) as u16),
                 )
             }
+            MicroOp::PushLong => {
+                // SP -= 4 once for the complete logical transfer.
+                let sp = self.regs.active_sp().wrapping_sub(4);
+                self.regs.set_active_sp(sp);
+                (sp, fc_data, false, true, Some((self.data >> 16) as u16))
+            }
             MicroOp::PopWord => {
                 // Read from SP, then SP += 2
                 let sp = self.regs.active_sp();
@@ -1879,6 +1989,13 @@ impl Cpu68000 {
                 self.regs.set_active_sp(sp.wrapping_add(4));
                 (sp.wrapping_add(2), fc_data, true, true, None)
             }
+            MicroOp::PopLong => {
+                // Match the existing pop path: expose the updated SP while
+                // the memory cycle is active.
+                let sp = self.regs.active_sp();
+                self.regs.set_active_sp(sp.wrapping_add(4));
+                (sp, fc_data, true, true, None)
+            }
             MicroOp::InterruptAck => {
                 // During interrupt acknowledge the 68000 places the
                 // accepted level on A3-A1 and drives every other address
@@ -1889,6 +2006,38 @@ impl Cpu68000 {
             }
             _ => panic!("Non-bus op in initiate_bus_cycle: {:?}", op),
         };
+
+        if self.variant_dynamic_bus_sizing
+            && let Some((logical_size, write_data)) = self.dynamic_transfer_description(op, is_read)
+        {
+            let transfer = ActiveBusTransfer {
+                logical_size,
+                remaining: logical_size,
+                write_data,
+                read_data: 0,
+            };
+            let (is_word, data) = Self::compatibility_phase(&transfer, is_read);
+            self.active_bus_transfer = Some(transfer);
+            self.bus_transfer_size = logical_size;
+            self.bus_data_out = if is_read {
+                0
+            } else {
+                dynamic_write_data(write_data, logical_size, addr)
+            };
+            self.bus_status = BusStatus::Wait;
+
+            return State::BusCycle {
+                op,
+                addr,
+                fc,
+                is_read,
+                is_word,
+                data,
+                cycle_count: 0,
+            };
+        }
+
+        self.clear_active_bus_transfer();
 
         // M68000 has no MMU: logical and physical addresses are
         // identical. The on-die MMU first appears in the 68030 — the
@@ -1904,6 +2053,148 @@ impl Cpu68000 {
             data,
             cycle_count: 0,
         }
+    }
+
+    /// Describe an MC68020/MC68030 logical data operand.
+    ///
+    /// Existing high/low micro-ops remain word-sized logical transfers. This
+    /// preserves their continuation boundaries while still applying SIZ and
+    /// DSACK rules to odd addresses. The whole-long variants allow ordinary
+    /// long loads and stores to complete through one aligned 32-bit phase.
+    fn dynamic_transfer_description(
+        &self,
+        op: MicroOp,
+        is_read: bool,
+    ) -> Option<(TransferSize, u32)> {
+        let size = match op {
+            MicroOp::ReadByte | MicroOp::WriteByte => TransferSize::Byte,
+            MicroOp::ReadWord
+            | MicroOp::ReadWordNoData
+            | MicroOp::WriteWord
+            | MicroOp::PushWord
+            | MicroOp::PopWord
+            | MicroOp::ReadLongHi
+            | MicroOp::ReadLongLo
+            | MicroOp::WriteLongHi
+            | MicroOp::WriteLongLo
+            | MicroOp::PushLongHi
+            | MicroOp::PushLongLo
+            | MicroOp::PopLongHi
+            | MicroOp::PopLongLo => TransferSize::Word,
+            MicroOp::ReadLong | MicroOp::WriteLong | MicroOp::PushLong | MicroOp::PopLong => {
+                TransferSize::Long
+            }
+            MicroOp::FetchIRC | MicroOp::InterruptAck => return None,
+            _ => return None,
+        };
+
+        let write_data = if is_read {
+            0
+        } else {
+            match op {
+                MicroOp::WriteByte => self.data & 0xFF,
+                MicroOp::WriteWord | MicroOp::PushWord => self.data & 0xFFFF,
+                MicroOp::WriteLongHi | MicroOp::PushLongHi => (self.data >> 16) & 0xFFFF,
+                MicroOp::WriteLongLo | MicroOp::PushLongLo => self.data & 0xFFFF,
+                MicroOp::WriteLong | MicroOp::PushLong => self.data,
+                _ => 0,
+            }
+        };
+
+        Some((size, write_data))
+    }
+
+    /// Produce the legacy byte/word view of the current dynamic phase.
+    fn compatibility_phase(transfer: &ActiveBusTransfer, is_read: bool) -> (bool, Option<u16>) {
+        let remaining = transfer.remaining.bytes();
+        let chunk = remaining.min(2);
+        let shift = u32::from(remaining - chunk) * 8;
+        let mask = if chunk == 2 { 0xFFFF } else { 0xFF };
+        let data = if is_read {
+            None
+        } else {
+            Some(((transfer.write_data >> shift) & mask) as u16)
+        };
+        (chunk == 2, data)
+    }
+
+    /// Consume one completed physical phase of a dynamic-sized transfer.
+    fn finish_dynamic_bus_phase(
+        &mut self,
+        op: MicroOp,
+        address: u32,
+        is_read: bool,
+        bus_data: u32,
+        port: Option<DataPortSize>,
+    ) {
+        let mut transfer = self
+            .active_bus_transfer
+            .take()
+            .expect("dynamic phase requires active transfer state");
+
+        let transferred = match port {
+            Some(port) => dynamic_transfer_bytes(transfer.remaining, address, port),
+            None => transfer.remaining.bytes().min(2),
+        };
+
+        if is_read {
+            let phase_data = match port {
+                Some(port) => extract_dynamic_bus_data(bus_data, transferred, address, port),
+                None => {
+                    let mask = if transferred == 2 { 0xFFFF } else { 0xFF };
+                    bus_data & mask
+                }
+            };
+            transfer.read_data = ((u64::from(transfer.read_data) << (u32::from(transferred) * 8))
+                | u64::from(phase_data)) as u32;
+        }
+
+        let remaining = transfer.remaining.bytes() - transferred;
+        if remaining == 0 {
+            self.clear_active_bus_transfer();
+            if is_read {
+                match op {
+                    MicroOp::ReadLong | MicroOp::PopLong => {
+                        self.data = transfer.read_data;
+                    }
+                    _ => self.finish_bus_cycle(op, transfer.read_data as u16),
+                }
+            }
+            self.state = State::Idle;
+            return;
+        }
+
+        transfer.remaining = TransferSize::from_bytes(remaining);
+        let next_addr = address.wrapping_add(u32::from(transferred));
+        let (next_is_word, next_data) = Self::compatibility_phase(&transfer, is_read);
+
+        self.bus_transfer_size = transfer.remaining;
+        self.bus_data_out = if is_read {
+            0
+        } else {
+            dynamic_write_data(transfer.write_data, transfer.remaining, next_addr)
+        };
+        self.active_bus_transfer = Some(transfer);
+        self.bus_status = BusStatus::Wait;
+
+        let State::BusCycle {
+            op: state_op,
+            addr,
+            is_read: state_is_read,
+            is_word,
+            data,
+            cycle_count,
+            ..
+        } = &mut self.state
+        else {
+            panic!("dynamic transfer phase completed outside a bus cycle");
+        };
+        debug_assert_eq!(*state_op, op);
+        debug_assert_eq!(*state_is_read, is_read);
+        *addr = next_addr;
+        *is_word = next_is_word;
+        *data = next_data;
+        *cycle_count = 0;
     }
 
     /// Complete a bus cycle and store the result.
@@ -1968,14 +2259,18 @@ impl Cpu68000 {
         // Byte ops and non-memory ops never trigger address errors
         let (check_addr, is_read) = match op {
             MicroOp::FetchIRC => (self.next_fetch_addr, true),
-            MicroOp::ReadWord | MicroOp::ReadLongHi => (self.addr, true),
+            MicroOp::ReadWord | MicroOp::ReadLongHi | MicroOp::ReadLong => (self.addr, true),
             MicroOp::ReadLongLo => (self.addr.wrapping_add(2), true),
-            MicroOp::WriteWord | MicroOp::WriteLongHi => (self.addr, false),
+            MicroOp::WriteWord | MicroOp::WriteLongHi | MicroOp::WriteLong => (self.addr, false),
             MicroOp::WriteLongLo => (self.addr.wrapping_add(2), false),
             MicroOp::PushWord => (self.regs.active_sp().wrapping_sub(2), false),
-            MicroOp::PushLongHi => (self.regs.active_sp().wrapping_sub(4), false),
+            MicroOp::PushLongHi | MicroOp::PushLong => {
+                (self.regs.active_sp().wrapping_sub(4), false)
+            }
             MicroOp::PushLongLo => (self.regs.active_sp().wrapping_add(2), false),
-            MicroOp::PopWord | MicroOp::PopLongHi => (self.regs.active_sp(), true),
+            MicroOp::PopWord | MicroOp::PopLongHi | MicroOp::PopLong => {
+                (self.regs.active_sp(), true)
+            }
             MicroOp::PopLongLo => (self.regs.active_sp().wrapping_add(2), true),
             _ => return false,
         };
@@ -1994,6 +2289,7 @@ impl Cpu68000 {
 
         // Double address error: halt the CPU
         if self.ae_in_progress {
+            self.clear_active_bus_transfer();
             self.state = State::Halted;
             return true;
         }
@@ -2006,7 +2302,10 @@ impl Cpu68000 {
             || (self.program_space_access
                 && matches!(
                     op,
-                    MicroOp::ReadWord | MicroOp::ReadLongHi | MicroOp::ReadLongLo
+                    MicroOp::ReadWord
+                        | MicroOp::ReadLongHi
+                        | MicroOp::ReadLongLo
+                        | MicroOp::ReadLong
                 ));
         let fc = match (is_sup, is_program) {
             (true, true) => FunctionCode::SupervisorProgram,
@@ -2033,6 +2332,7 @@ impl Cpu68000 {
     ///
     /// Then reads vector 3 (address 0x0C) and jumps to handler.
     fn begin_address_error(&mut self, fault_addr: u32, is_read: bool, fc: FunctionCode) {
+        self.clear_active_bus_transfer();
         let not_processing_instruction = self.group0_or_group1_processing;
         self.ae_fault_addr = self.adjust_ae_fault_addr(fault_addr, is_read);
         self.ae_in_progress = true;
@@ -2183,6 +2483,7 @@ impl Cpu68000 {
     pub(crate) fn begin_bus_error(&mut self, fault_addr: u32, is_read: bool, fc: FunctionCode) {
         // Double fault during another group-0 exception → halt.
         if self.ae_in_progress {
+            self.clear_active_bus_transfer();
             self.state = State::Halted;
             return;
         }
@@ -2196,6 +2497,7 @@ impl Cpu68000 {
         self.enter_exception_supervisor_mode();
 
         // Abandon current instruction.
+        self.clear_active_bus_transfer();
         self.micro_ops.clear();
         self.in_followup = true;
 
@@ -2463,6 +2765,24 @@ impl Cpu68000 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn logical_long_micro_op_requires_dynamic_sizing_before_stack_side_effects() {
+        let mut cpu = Cpu68000::new();
+        cpu.regs.sr = 0x2000;
+        cpu.regs.ssp = 0x8000;
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = cpu.initiate_bus_cycle(MicroOp::PushLong);
+        }));
+
+        assert!(result.is_err());
+        assert_eq!(
+            cpu.regs.active_sp(),
+            0x8000,
+            "a rejected whole-long push must not decrement the stack pointer"
+        );
+    }
 
     fn cpu_with_program_read_address_error() -> Cpu68000 {
         let mut cpu = Cpu68000::new();

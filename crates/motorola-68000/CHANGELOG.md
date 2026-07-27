@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Preserve one serialized MC68020/MC68030 logical data transfer across
+  responder-sized physical phases while retaining the existing byte/word
+  compatibility response for unchanged machines and test harnesses
 - Pin the `SingleStepTests/680x0` full sweep to its exact fixture count,
   two named invalid rows, classified software-oracle differences and a
   row-stable compatibility fingerprint
@@ -25,8 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Gate odd-address data rejection by CPU capability so MC68020-family
   wrappers retain odd start addresses for logical data transactions while
-  MC68000 behaviour remains unchanged. Dynamic sizing and odd MMIO split
-  semantics remain machine-layer work
+  MC68000 behaviour remains unchanged. Dynamic sizing applies where a machine
+  reports responder width; unresolved odd MMIO semantics remain machine work
 - Complete the documented 16-word extent of the MC68020 Format `$A` short
   bus-fault frame and preserve its entry/RTE continuation through serde.
   Precise special-status, pipeline, data-buffer and fault-rerun state remains

@@ -1,13 +1,13 @@
 # Decision: permit MC68020-family data operands at odd addresses
 
 **Date:** 2026-07-25
-**Status:** implemented for logical RAM access
+**Status:** implemented with machine-region limits
 
 ## Question
 
 How should the shared 68k core distinguish the MC68000/MC68010
-odd-address rule from MC68020-family data accesses before the external
-bus models dynamic sizing and split cycles?
+odd-address rule from MC68020-family data accesses and carry accepted
+unaligned operands through the external bus?
 
 ## Decision
 
@@ -42,29 +42,21 @@ inherit it through the variant-wrapper chain.
 
 ## Current bus boundary
 
-The current CPU/bus contract carries a byte or word transaction with an
-exact start address. A long transfer is two word transactions at
-`address` and `address + 2`. The Amiga RAM path composes each word from
-the bytes at the requested address and the following address.
+The current CPU/bus contract preserves the logical operand while exposing its
+exact phase address, remaining SIZ value and physical D31-D0 write image. A
+sized responder reports its DSACK-selected width on every phase. The CPU then
+accepts the bytes that fit before that port's next boundary and reissues the
+remainder.
 
-This is sufficient for the correct logical value of an unaligned RAM
-operand and for exact byte placement on a RAM write.
+Existing `Ready(u16)` machines retain the earlier compatibility contract: a
+logical long completes as two abstract word phases. `ReadySized` is the only
+response that applies alignment- and width-dependent splitting.
 
-It is not a complete MC68020 external-bus model. The current contract
-does not expose:
-
-- SIZ0/SIZ1 transfer-size signals;
-- DSACK-selected responder width;
-- byte-lane strobes;
-- the extra split phases required by alignment and port width;
-- the individual side effects of a split access spanning device
-  registers.
-
-Consequently, this decision does not claim cycle-accurate unaligned
-timing or correct odd word/long access to memory-mapped devices. Those
-require a separate dynamic-bus-sizing implementation, with responder
-widths pinned per machine address region from primary hardware
-evidence.
+This is sufficient for correct unaligned RAM operands through 8-, 16- and
+32-bit responders. It does not establish correct odd word/long behaviour for
+memory-mapped devices whose lane wiring or responder width remains unresolved.
+Those regions stay on compatibility dispatch until primary hardware evidence
+and once-only side-effect tests pin their behaviour.
 
 ## Why the capability belongs in the shared core
 
@@ -74,9 +66,10 @@ default disabled preserves the MC68000 and MC68010 without duplicating
 their memory pipelines, while the MC68020 wrapper installs only the
 architectural delta.
 
-The capability is configuration rather than live execution state. It
-is skipped by serde and reinstalled by the wrapper, so this change does
-not require another snapshot-schema revision.
+The address-acceptance capability is configuration rather than live execution
+state. It is skipped by serde and reinstalled by the wrapper. The separate
+dynamic transfer state is serialized and advances Amiga runtime snapshots to
+version 23.
 
 ## Verification
 
@@ -103,8 +96,7 @@ The MC68020 User's Manual permits byte, word and long-word data operands
 at any byte address. It retains the address error for an instruction or
 extension-word prefetch at an odd address. Section 5.2.2 and Table 5-6
 describe the additional bus cycles as a function of operand size,
-address offset and responder width; those cycles are the deferred bus
-work identified above.
+address offset and responder width.
 
 ## Related Documents
 
@@ -114,3 +106,4 @@ work identified above.
 - [M68k test-oracle strategy](m68k-test-oracle-strategy.md)
 - [CPU bus interface](cpu-bus-interface.md)
 - [Save-state live-machine serde](savestate-live-machine-serde.md)
+- [MC68020/MC68030 dynamic bus sizing](motorola-68020-dynamic-bus-sizing.md)
