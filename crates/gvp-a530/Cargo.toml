@@ -1,0 +1,19 @@
+[package]
+name = "gvp-a530"
+description = "GVP A530 accelerator board state — configuration jumpers and Zorro-II-discovered 32-bit local RAM."
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+commodore-amiga-autoconfig = { path = "../commodore-amiga-autoconfig", version = "0.2.0" }
+motorola-68k-common = { path = "../motorola-68k-common", version = "0.2.0" }
+serde = { workspace = true }
+
+[dev-dependencies]
+postcard = { workspace = true }
+
+[lints]
+workspace = true

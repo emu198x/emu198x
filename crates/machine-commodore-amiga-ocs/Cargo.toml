@@ -19,6 +19,7 @@ peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-flop
 peripheral-commodore-amiga-keyboard = { path = "../peripheral-commodore-amiga-keyboard", version = "0.2.0" }
 commodore-gary = { path = "../commodore-gary", version = "0.2.0" }
 commodore-amiga-autoconfig = { path = "../commodore-amiga-autoconfig", version = "0.2.0" }
+gvp-a530 = { path = "../gvp-a530", version = "0.2.0" }
 format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf", version = "0.2.0" }
 serde = { workspace = true }
 

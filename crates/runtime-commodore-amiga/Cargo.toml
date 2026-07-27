@@ -11,6 +11,7 @@ repository.workspace = true
 commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.2.0" }
 emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
 format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf", version = "0.2.0" }
+gvp-a530 = { path = "../gvp-a530", version = "0.2.0" }
 machine-commodore-amiga-a1200 = { path = "../machine-commodore-amiga-a1200", version = "0.2.0" }
 machine-commodore-amiga-ecs = { path = "../machine-commodore-amiga-ecs", version = "0.2.0" }
 machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs", version = "0.2.0" }

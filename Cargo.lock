@@ -1706,6 +1706,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gvp-a530"
+version = "0.2.0"
+dependencies = [
+ "commodore-amiga-autoconfig",
+ "motorola-68k-common",
+ "postcard",
+ "serde",
+]
+
+[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2212,6 +2222,7 @@ dependencies = [
  "commodore-paula-8364",
  "common-commodore-amiga",
  "format-commodore-amiga-adf",
+ "gvp-a530",
  "mos-cia-8520",
  "motorola-68000",
  "peripheral-commodore-amiga-floppy",
@@ -3825,6 +3836,7 @@ dependencies = [
  "commodore-agnus-ocs",
  "emu198x-shell",
  "format-commodore-amiga-adf",
+ "gvp-a530",
  "machine-commodore-amiga-a1200",
  "machine-commodore-amiga-ecs",
  "machine-commodore-amiga-ocs",

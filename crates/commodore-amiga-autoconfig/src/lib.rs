@@ -144,12 +144,32 @@ impl AutoconfigBoard {
     /// Panics if `size_kib` is outside the supported set.
     #[must_use]
     pub fn fast_ram(size_kib: u32) -> Self {
+        Self::fast_ram_with_identity(size_kib, MANUFACTURER_COMMODORE, 0x09, 0x0000_0001)
+    }
+
+    /// Create a Zorro-II fast-RAM board with an explicit Autoconfig
+    /// identity.
+    ///
+    /// `manufacturer`, `product`, and `serial` are emitted through the
+    /// corresponding expansion-ROM fields. Size must be one of
+    /// {64, 128, 256, 512, 1024, 2048, 4096, 8192} KiB.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `size_kib` is outside the supported set.
+    #[must_use]
+    pub fn fast_ram_with_identity(
+        size_kib: u32,
+        manufacturer: u16,
+        product: u8,
+        serial: u32,
+    ) -> Self {
         let size_code = size_code_for_kib(size_kib)
             .unwrap_or_else(|| panic!("fast_ram: {size_kib} KiB is not a Zorro-II board size"));
         Self {
-            manufacturer: MANUFACTURER_COMMODORE,
-            product: 0x09, // arbitrary — not currently checked by ROM
-            serial: 0x0000_0001,
+            manufacturer,
+            product,
+            serial,
             size_code,
             state: AutoconfigState::Unconfigured,
             payload: Payload::FastRam {
@@ -191,13 +211,44 @@ impl AutoconfigBoard {
         }
     }
 
+    /// Direct access to the RAM backing, independent of mapping state.
+    ///
+    /// Machine integrations should normally use the mapped-address helpers.
+    /// This storage view exists for save-state validation, diagnostics, and
+    /// board-local buses that have already performed address translation.
+    #[must_use]
+    pub fn ram_bytes(&self) -> &[u8] {
+        match &self.payload {
+            Payload::FastRam { bytes } => bytes,
+        }
+    }
+
+    /// Mutable direct access to the RAM backing, independent of mapping
+    /// state.
+    ///
+    /// Callers are responsible for performing any required address
+    /// translation before using this board-local storage view.
+    pub fn ram_bytes_mut(&mut self) -> &mut [u8] {
+        match &mut self.payload {
+            Payload::FastRam { bytes } => bytes,
+        }
+    }
+
+    /// Return whether `addr` lands inside the configured RAM window.
+    #[must_use]
+    pub fn contains_ram_address(&self, addr: u32) -> bool {
+        let Some(base) = self.base() else {
+            return false;
+        };
+        addr >= base && addr < base + self.ram_size()
+    }
+
     /// Read one byte from the board's mapped RAM, if the address
     /// lands inside the configured region.
     #[must_use]
     pub fn read_ram_byte(&self, addr: u32) -> Option<u8> {
         let base = self.base()?;
-        let size = self.ram_size();
-        if addr < base || addr >= base + size {
+        if !self.contains_ram_address(addr) {
             return None;
         }
         match &self.payload {
@@ -209,13 +260,18 @@ impl AutoconfigBoard {
     /// lands inside the configured region. No-op otherwise.
     pub fn write_ram_byte(&mut self, addr: u32, val: u8) {
         let Some(base) = self.base() else { return };
-        let size = self.ram_size();
-        if addr < base || addr >= base + size {
+        if !self.contains_ram_address(addr) {
             return;
         }
         match &mut self.payload {
             Payload::FastRam { bytes } => bytes[(addr - base) as usize] = val,
         }
+    }
+
+    /// Return the board to its power-on Autoconfig state without clearing
+    /// RAM.
+    pub fn reset(&mut self) {
+        self.state = AutoconfigState::Unconfigured;
     }
 
     /// Read one word from the autoconfig probe window
