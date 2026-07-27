@@ -527,10 +527,16 @@ A1000 exposes busy on its first accepted startup CCK. See
 and
 [Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md).
 
-The exact completion-side cycle on which the Copper resumes after a
-`WAIT`, including the revision-specific relationship between Copper and
-`DMACONR` busy deassertion, remains a known accuracy edge. It does not
-block catalogue entries.
+The completion-side busy inputs are now bounded separately. Pre-AGA
+main finish, BZERO and final D are serialized; Alice delays its source
+finish until final D; and `DMACONR` and Copper BFD have distinct
+first-idle CCKs. See
+[Blitter completion pipeline](amiga-blitter-completion-pipeline.md).
+
+The remaining accuracy edge is the Copper's first request and fetch
+after a completion-dependent `WAIT` becomes eligible, including
+same-CCK cancellation and ownership. It does not block catalogue
+entries.
 
 ### CIA SP / SDR shift register
 
@@ -628,6 +634,8 @@ In order of leverage for unblocking the full Amiga family:
   the OCS / ECS / AGA progression follows
 - [Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)
   — shared startup pipeline, visible busy and Copper BFD boundary
+- [Blitter completion pipeline](amiga-blitter-completion-pipeline.md)
+  — revision-specific finish, final-D and observer boundaries
 - [Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md)
   — post-fetch beam and visible-busy sampling boundary
 - [`october-catalogue.md`](october-catalogue.md) — Amiga is
