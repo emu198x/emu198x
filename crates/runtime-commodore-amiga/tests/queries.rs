@@ -9,7 +9,7 @@ use emu198x_shell::{
 };
 use format_commodore_amiga_adf::ADF_SIZE_DD;
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AmigaSessionQueryProvider, Model,
+    A500_PAL_FRAME_TICKS, AmigaA1200Runtime, AmigaOcsRuntime, AmigaSessionQueryProvider, Model,
 };
 use serde_json::json;
 
@@ -74,6 +74,10 @@ fn a1000_blitter_queries_distinguish_internal_activity_from_visible_busy() {
         .query(&runtime, "blitter.busy_visible")
         .expect("query succeeds")
         .expect("path present");
+    let copper = provider
+        .query(&runtime, "blitter.busy_copper")
+        .expect("query succeeds")
+        .expect("path present");
     let startup = provider
         .query(&runtime, "blitter.startup_ccks_remaining")
         .expect("query succeeds")
@@ -81,7 +85,47 @@ fn a1000_blitter_queries_distinguish_internal_activity_from_visible_busy() {
 
     assert_eq!(internal.value, json!(true));
     assert_eq!(visible.value, json!(false));
+    assert_eq!(copper.value, json!(false));
     assert_eq!(startup.value, json!(2));
+}
+
+#[test]
+fn completion_queries_distinguish_dmacon_copper_and_final_d() {
+    let mut runtime =
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let machine = runtime.machine_mut();
+    machine.poke_word(0x00DF_F096, 0x8640); // DMAEN | BLTEN | BLTPRI
+    machine.poke_word(0x00DF_F040, 0x01FF); // USED, D := all ones
+    machine.poke_word(0x00DF_F054, 0);
+    machine.poke_word(0x00DF_F056, 0x2000);
+    machine.poke_word(0x00DF_F058, (1 << 6) | 1);
+
+    let mut guard = 0;
+    while runtime.machine().agnus().blitter_completion_phase() != "final-write" {
+        runtime.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 1_000, "blitter never reached final-write");
+    }
+
+    let provider = AmigaSessionQueryProvider;
+    for (path, expected) in [
+        ("blitter.busy", json!(true)),
+        ("blitter.busy_visible", json!(false)),
+        ("blitter.busy_copper", json!(true)),
+        ("blitter.completion_phase", json!("final-write")),
+        ("blitter.completion_ccks_remaining", json!(1)),
+        ("blitter.final_d_pending", json!(true)),
+        ("agnus.blitter_busy_copper", json!(true)),
+        ("agnus.blitter_completion_phase", json!("final-write")),
+        ("agnus.blitter_completion_ccks_remaining", json!(1)),
+        ("agnus.blitter_final_d_pending", json!(true)),
+    ] {
+        let result = provider
+            .query(&runtime, path)
+            .expect("query succeeds")
+            .expect("path present");
+        assert_eq!(result.value, expected, "{path}");
+    }
 }
 
 /// Walk every advertised path against a freshly-constructed runtime.
@@ -101,6 +145,18 @@ fn every_advertised_query_path_resolves_without_floppy() {
 #[test]
 fn every_advertised_query_path_resolves_with_floppy_loaded() {
     walk_all_paths(true);
+}
+
+#[test]
+fn every_a1200_query_path_resolves() {
+    let runtime = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let provider = AmigaSessionQueryProvider;
+    for path in provider.query_paths(&runtime, None) {
+        let value = provider
+            .query(&runtime, &path)
+            .unwrap_or_else(|err| panic!("concrete {path} should not fail: {err:?}"));
+        assert!(value.is_some(), "concrete {path} should resolve");
+    }
 }
 
 fn walk_all_paths(with_disk: bool) {

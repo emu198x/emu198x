@@ -13,7 +13,7 @@ The third-edition *Amiga Hardware Reference Manual*, printed pages 20–21
 and 30–32, defines the instruction formats, masked beam comparison and
 aggregate instruction costs. It assigns two memory cycles to `MOVE` and
 `SKIP`, three to `WAIT`, and applies the position-comparison rules to both
-conditional instructions. Appendix A, printed page 274, states that BFD
+conditional instructions. Appendix A, printed page 275, states that BFD
 controls the blitter-finished condition for both `WAIT` and `SKIP`.
 
 The inspected WinUAE revision
@@ -98,7 +98,8 @@ This decision does not define:
 - comparison progress while a nominal Copper slot is occupied;
 - the exact relationship between Copper wake-up, a yielded bus request
   and the following first-word fetch;
-- same-CCK ordering at blitter completion; or
+- the first Copper fetch after a completion-dependent wait becomes
+  eligible; or
 - undocumented revision differences.
 
 Those questions require bus traces or a separately bounded
@@ -131,5 +132,6 @@ Reject these patterns:
 ## Related Documents
 
 - [Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)
+- [Blitter completion pipeline](amiga-blitter-completion-pipeline.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Live-machine save-state serialization](savestate-live-machine-serde.md)

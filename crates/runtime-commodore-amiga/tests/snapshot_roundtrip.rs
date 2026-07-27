@@ -32,10 +32,14 @@ use emu198x_shell::{
     NullFrameSink, NullTraceSink,
 };
 use format_commodore_amiga_adf::ADF_SIZE_DD;
-use runtime_commodore_amiga::{AmigaEcsRuntime, AmigaOcsRuntime, Model};
+use runtime_commodore_amiga::{AmigaA1200Runtime, AmigaEcsRuntime, AmigaOcsRuntime, Model};
 
 const BLTCON0: u32 = 0x00DF_F040;
+const BLTDPTH: u32 = 0x00DF_F054;
+const BLTDPTL: u32 = 0x00DF_F056;
 const BLTSIZE: u32 = 0x00DF_F058;
+const BLTSIZV: u32 = 0x00DF_F05C;
+const BLTSIZH: u32 = 0x00DF_F05E;
 const COP1LCH: u32 = 0x00DF_F080;
 const COP1LCL: u32 = 0x00DF_F082;
 const COPJMP1: u32 = 0x00DF_F088;
@@ -778,7 +782,39 @@ fn a1000_blitter_startup_phase_survives_postcard_round_trip() -> Result<(), Box<
             restored_after.machine().agnus().blitter_busy,
         );
     }
+    assert!(
+        original.machine().agnus().blitter_busy_visible(),
+        "DMACONR must retain the completion source CCK",
+    );
+    assert!(
+        original.machine().agnus().blitter_busy_copper(),
+        "Copper BFD must retain its longer completion observation",
+    );
+    while original.machine().agnus().blitter_busy_visible() {
+        original.machine_mut().tick();
+        restored_after.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 2_100, "A1000 DMACONR busy hold never drained");
+        assert_eq!(
+            original.machine().agnus().blitter_busy_visible(),
+            restored_after.machine().agnus().blitter_busy_visible(),
+        );
+    }
     assert!(!original.machine().agnus().blitter_busy_visible());
+    assert!(
+        original.machine().agnus().blitter_busy_copper(),
+        "Copper BFD remains busy for one CCK after DMACONR releases",
+    );
+    while original.machine().agnus().blitter_busy_copper() {
+        original.machine_mut().tick();
+        restored_after.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 2_200, "A1000 Copper busy hold never drained");
+        assert_eq!(
+            original.machine().agnus().blitter_busy_copper(),
+            restored_after.machine().agnus().blitter_busy_copper(),
+        );
+    }
     assert_ne!(original.machine().intreq() & INT_BLIT, 0);
     assert_eq!(
         original.snapshot()?,
@@ -909,6 +945,143 @@ fn ecs_blitter_startup_phase_survives_nested_snapshot() -> Result<(), Box<dyn Er
         original.snapshot()?,
         restored.snapshot()?,
         "nested enhanced-Agnus startup state must continue deterministically",
+    );
+    Ok(())
+}
+
+#[test]
+fn pre_aga_blitter_completion_pipeline_survives_postcard_round_trip() -> Result<(), Box<dyn Error>>
+{
+    const DESTINATION: u32 = 0x0000_2000;
+
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    {
+        let machine = original.machine_mut();
+        machine.poke_word(DMACON, DMACON_SET_DMA_BLITTER_NASTY);
+        machine.poke_word(BLTCON0, 0x01FF); // USED | D := all ones
+        machine.poke_word(BLTDPTH, (DESTINATION >> 16) as u16);
+        machine.poke_word(BLTDPTL, DESTINATION as u16);
+        machine.poke_word(BLTSIZE, (1 << 6) | 1);
+    }
+
+    let mut guard = 0;
+    while original.machine().agnus().blitter_completion_phase() != "final-result" {
+        original.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 1_000, "pre-AGA blitter never reached main finish");
+    }
+    assert!(original.machine().agnus().blitter_busy);
+    assert!(original.machine().agnus().blitter_busy_visible());
+    assert!(original.machine().agnus().blitter_busy_copper());
+    assert_eq!(
+        original
+            .machine()
+            .agnus()
+            .blitter_completion_ccks_remaining(),
+        2,
+    );
+    assert!(original.machine().agnus().blitter_final_d_pending());
+    assert!(original.machine().agnus().blitter_dzero);
+    assert_ne!(original.machine().intreq() & INT_BLIT, 0);
+    assert_eq!(original.machine().read_chip_ram_byte(DESTINATION), 0);
+
+    let at_finish = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    restored.restore(&at_finish)?;
+    assert_eq!(at_finish, restored.snapshot()?);
+
+    while original.machine().agnus().blitter_completion_phase() != "final-write" {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 2_000, "pre-AGA final result never settled");
+    }
+    assert_eq!(original.snapshot()?, restored.snapshot()?);
+    assert!(original.machine().agnus().blitter_busy);
+    assert!(!original.machine().agnus().blitter_busy_visible());
+    assert!(original.machine().agnus().blitter_busy_copper());
+    assert!(!original.machine().agnus().blitter_dzero);
+    assert_eq!(
+        original
+            .machine()
+            .agnus()
+            .blitter_completion_ccks_remaining(),
+        1,
+    );
+    assert_eq!(original.machine().read_chip_ram_byte(DESTINATION), 0);
+
+    let before_final_d = original.snapshot()?;
+    let mut restored_before_final_d = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    restored_before_final_d.restore(&before_final_d)?;
+    assert_eq!(before_final_d, restored_before_final_d.snapshot()?);
+
+    while original.machine().agnus().blitter_busy {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+        restored_before_final_d.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 3_000, "pre-AGA final D never drained");
+    }
+    assert_eq!(original.machine().read_chip_ram_byte(DESTINATION), 0xFF);
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "finish-stage restore must preserve final-D continuation",
+    );
+    assert_eq!(
+        original.snapshot()?,
+        restored_before_final_d.snapshot()?,
+        "final-write restore must preserve final-D continuation",
+    );
+    Ok(())
+}
+
+#[test]
+fn alice_blitter_completion_pipeline_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    const DESTINATION: u32 = 0x0000_2000;
+
+    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    {
+        let machine = original.machine_mut();
+        machine.poke_word(DMACON, DMACON_SET_DMA_BLITTER_NASTY);
+        machine.poke_word(BLTCON0, 0x01FF); // USED | D := all ones
+        machine.poke_word(BLTDPTH, (DESTINATION >> 16) as u16);
+        machine.poke_word(BLTDPTL, DESTINATION as u16);
+        machine.poke_word(BLTSIZV, 1);
+        machine.poke_word(BLTSIZH, 1);
+    }
+
+    let mut guard = 0;
+    while original.machine().agnus().blitter_completion_phase() != "final-write" {
+        original.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 1_000, "Alice final result never settled");
+    }
+    assert!(original.machine().agnus().blitter_busy);
+    assert!(original.machine().agnus().blitter_busy_visible());
+    assert!(original.machine().agnus().blitter_busy_copper());
+    assert!(!original.machine().agnus().blitter_finish_emitted());
+    assert!(!original.machine().agnus().blitter_dzero);
+    assert_eq!(original.machine().intreq() & INT_BLIT, 0);
+    assert_eq!(original.machine().read_chip_ram_byte(DESTINATION), 0);
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    restored.restore(&snapshot)?;
+    assert_eq!(snapshot, restored.snapshot()?);
+
+    while original.machine().agnus().blitter_busy {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 2_000, "Alice final D never drained");
+    }
+    assert_eq!(original.machine().read_chip_ram_byte(DESTINATION), 0xFF);
+    assert_ne!(original.machine().intreq() & INT_BLIT, 0);
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "Alice completion tail must continue deterministically",
     );
     Ok(())
 }
@@ -1241,10 +1414,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 15, and confirm the version-mismatch arm fires with a
+/// field back to 16, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV16` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 16` that byte is `0x10`.
+/// of a `SnapshotEnvelopeV17` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 17` that byte is `0x11`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -1253,20 +1426,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 16,
-        "postcard varint for SNAPSHOT_VERSION = 16 should be 0x10"
+        bytes[0], 17,
+        "postcard varint for SNAPSHOT_VERSION = 17 should be 0x11"
     );
-    bytes[0] = 15;
+    bytes[0] = 16;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-15 snapshot should be rejected before payload decode");
+        .expect_err("version-16 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 15; expected 16"
+                if reason == "unsupported snapshot version 16; expected 17"
         ),
         "expected version-mismatch reason, got {err:?}"
     );

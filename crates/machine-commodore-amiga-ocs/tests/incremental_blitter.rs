@@ -4,10 +4,9 @@
 //! The blitter no longer completes instantly on the BLTSIZE write — it
 //! consumes two startup outcomes followed by at most one DMA operation
 //! per granted CCK while the machine ticks. On this later original Agnus,
-//! BBUSY (DMACONR bit 14) stays asserted until it finishes and INT_BLIT
-//! fires on completion. These checks drive a real A→D copy through the
-//! public bus (`poke_word`) and tick the machine to completion, the same
-//! path a `WaitBlit` loop would exercise.
+//! BBUSY (DMACONR bit 14) and INT_BLIT expose main completion before
+//! the final result/D pipeline drains. These checks drive a real A→D
+//! copy through the public bus (`poke_word`) and pin that ordering.
 
 use machine_commodore_amiga_ocs::AmigaOcs;
 
@@ -68,19 +67,31 @@ fn blit_drains_over_ccks_sets_bbusy_then_completes() {
         assert!(ticks < 100_000, "blit never completed (BBUSY stuck)");
     }
 
+    assert!(ticks > 0, "blit must take real chip cycles");
     assert!(
-        ticks > 0,
-        "blit must take real chip cycles, not finish instantly"
+        amiga.agnus().blitter_busy,
+        "pre-AGA internal activity must outlive DMACONR BBUSY",
     );
     assert_eq!(
         chip_word(&amiga, dst),
-        0xABCD,
-        "A→D copy must land the source word in the destination"
+        0,
+        "final D must still be pending when DMACONR first reports idle",
     );
     assert_ne!(
         amiga.read_word(INTREQR) & INT_BLIT,
         0,
-        "INT_BLIT must be raised when the blit completes"
+        "INT_BLIT source fires at pre-AGA main completion",
+    );
+
+    while amiga.agnus().blitter_busy {
+        amiga.tick();
+        ticks += 1;
+        assert!(ticks < 100_000, "final-D pipeline never drained");
+    }
+    assert_eq!(
+        chip_word(&amiga, dst),
+        0xABCD,
+        "A→D copy must land the source word in the destination"
     );
 }
 

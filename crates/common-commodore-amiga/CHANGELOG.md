@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Advance the blitter completion pipeline every CCK, feed Copper its
+  later BFD observation, raise Paula only on the one-shot finish source
+  and retain actual same-CCK blitter bus use in CPU arbitration
 - Feed the revision-correct visible blitter-busy signal to Copper `WAIT` and
   `SKIP`, apply BFD's blitter-idle condition to both instructions, and defer
   `SKIP` comparison until the post-fetch decision phase

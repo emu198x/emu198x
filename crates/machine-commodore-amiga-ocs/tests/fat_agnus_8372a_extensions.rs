@@ -83,12 +83,12 @@ fn prepare_d_only_clear(amiga: &mut AmigaOcs, destination: u32) {
 
 fn run_blit_to_completion(amiga: &mut AmigaOcs) -> u32 {
     for ticks in 0..100_000 {
-        if amiga.read_word(DMACONR) & BBUSY == 0 {
+        if !amiga.agnus().blitter_busy {
             return ticks;
         }
         amiga.tick();
     }
-    panic!("extended blit did not clear BBUSY within the tick budget");
+    panic!("extended blitter pipeline did not drain within the tick budget");
 }
 
 #[test]

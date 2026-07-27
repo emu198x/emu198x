@@ -36,12 +36,16 @@ fn enable_blitter_dma(amiga: &mut AmigaOcs) {
     amiga.poke_word(0x00DF_F096, 0x8000 | 0x0200 | 0x0040); // SET DMAEN|BLTEN
 }
 
-/// Tick until the in-flight blit drains and raises INT_BLIT. Bounded so
-/// a genuine never-completing blit fails loudly rather than hanging — a
-/// 1–2 word blit needs only a handful of CCKs, far under this budget.
+/// Tick until the internal final-D pipeline drains. INT_BLIT is allowed to
+/// precede that drain on pre-AGA Agnus.
 fn run_blit_to_completion(amiga: &mut AmigaOcs) {
     for _ in 0..100_000 {
-        if amiga.intreq() & IntSource::Blit.mask() != 0 {
+        if !amiga.agnus().blitter_busy {
+            assert_ne!(
+                amiga.intreq() & IntSource::Blit.mask(),
+                0,
+                "blit must emit INT_BLIT before or at pipeline drain",
+            );
             return;
         }
         amiga.tick();

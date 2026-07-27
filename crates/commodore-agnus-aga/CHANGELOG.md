@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Report PAL/NTSC Alice identity directly from AGA constructors and delay
+  D-channel blitter finish until the serialized final-D stage
 - Inherit the enhanced `$D8` bitplane-DMA stop and horizontal hard-limit
   bypass policy through Alice's ECS timing layer
 - Preserve Alice's observed ordinary DDFSTOP and frozen current-line

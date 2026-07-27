@@ -13,9 +13,9 @@ use commodore_agnus_ocs::{
 
 pub use commodore_agnus_ocs::Agnus as InnerAgnusOcs;
 pub use commodore_agnus_ocs::{
-    BlitterDmaOp, CckBusPlan, Copper, CopperState, HIRES_DDF_TO_PLANE, LOWRES_DDF_TO_PLANE,
-    LOWRES_DDF_TO_PLANE_AGA, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy,
-    SlotOwner,
+    BlitterCckOutcome, BlitterDmaOp, CckBusPlan, Copper, CopperState, HIRES_DDF_TO_PLANE,
+    LOWRES_DDF_TO_PLANE, LOWRES_DDF_TO_PLANE_AGA, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME,
+    PaulaReturnProgressPolicy, SlotOwner,
 };
 
 // `BEAMCON0` bit layout (bits 14..0), matching the HRM and WinUAE definitions.

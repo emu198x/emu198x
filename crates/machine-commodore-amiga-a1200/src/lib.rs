@@ -22,9 +22,9 @@ use common_commodore_amiga::driver::AmigaDriver;
 use common_commodore_amiga::{cia, copper, memory, rtc};
 
 pub use agnus::{
-    Agnus, AgnusAga, AgnusEcs, AgnusRegion, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_FRAME_TICKS,
-    NTSC_LINES_PER_FRAME, PAL_CCKS_PER_FRAME, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS,
-    PAL_LINE_TICKS, PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
+    Agnus, AgnusAga, AgnusEcs, AgnusRegion, BlitterCckOutcome, CckBusPlan, NTSC_CCKS_PER_FRAME,
+    NTSC_FRAME_TICKS, NTSC_LINES_PER_FRAME, PAL_CCKS_PER_FRAME, PAL_FRAME_LINES, PAL_FRAME_TICKS,
+    PAL_LINE_CCKS, PAL_LINE_TICKS, PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
 };
 pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
@@ -1144,8 +1144,9 @@ impl AmigaA1200 {
     fn drain_blit_if_busy(&mut self) {
         if self.agnus.blitter_busy {
             let mut bus = ChipRamBus(&mut self.memory);
-            self.agnus.run_blit_to_completion(&mut bus);
-            self.paula.raise(IntSource::Blit);
+            if self.agnus.run_blit_to_completion(&mut bus) {
+                self.paula.raise(IntSource::Blit);
+            }
         }
     }
 
@@ -2015,9 +2016,9 @@ impl AmigaDriver for AmigaA1200 {
             .tick_cck(&self.memory, vpos, hpos, copper_slot_granted, blitter_busy)
     }
 
-    fn blitter_dma_step(&mut self) -> bool {
+    fn blitter_dma_step(&mut self, progress_granted: bool) -> BlitterCckOutcome {
         let mut bus = ChipRamBus(&mut self.memory);
-        self.agnus.tick_blitter_dma(&mut bus)
+        self.agnus.tick_blitter_cck(progress_granted, &mut bus)
     }
 
     fn audio_tick_cck(&mut self, dmacon: u16, slot: Option<u8>) {

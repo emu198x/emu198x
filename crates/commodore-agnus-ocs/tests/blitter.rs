@@ -28,7 +28,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use commodore_agnus_ocs::{Agnus, BlitterProgress};
+use commodore_agnus_ocs::{Agnus, BlitterCckOutcome, BlitterDmaOp, BlitterProgress};
 
 // ────────────────────────────────────────────────────────────────
 // Test scaffolding
@@ -52,8 +52,9 @@ impl TestRam {
     }
 }
 
-/// Drive the blitter synchronously from `start_blit` to completion.
-/// Returns the total number of DMA ops that ran.
+/// Drive only the request/execution engine from `start_blit` to its last
+/// operation. This is an algorithm oracle; it deliberately does not model
+/// physical completion observers. Returns the number of operations executed.
 fn run_blit(agnus: &mut Agnus, ram: &TestRam) -> u32 {
     let mut ops = 0u32;
     while agnus.next_blitter_dma_request().is_some() {
@@ -397,17 +398,29 @@ fn scheduler_halts_when_bus_grant_is_withheld() {
     let before = agnus.blitter_ccks_remaining;
     // Tick with progress disabled — should not decrement.
     for _ in 0..10 {
-        assert!(!agnus.tick_blitter_scheduler(false));
+        assert_eq!(
+            agnus.tick_blitter_scheduler_op(false),
+            BlitterProgress::NoProgress,
+        );
     }
     assert_eq!(agnus.blitter_ccks_remaining, before);
     // The first two accepted CCKs drain shared startup without consuming
     // either D operation.
-    assert!(!agnus.tick_blitter_scheduler(true));
-    assert!(!agnus.tick_blitter_scheduler(true));
+    assert_eq!(
+        agnus.tick_blitter_scheduler_op(true),
+        BlitterProgress::Startup,
+    );
+    assert_eq!(
+        agnus.tick_blitter_scheduler_op(true),
+        BlitterProgress::Startup,
+    );
     assert_eq!(agnus.blitter_ccks_remaining, before);
 
     // The third accepted CCK services the first real operation.
-    assert!(!agnus.tick_blitter_scheduler(true));
+    assert_eq!(
+        agnus.tick_blitter_scheduler_op(true),
+        BlitterProgress::Operation(BlitterDmaOp::WriteD),
+    );
     assert_eq!(agnus.blitter_ccks_remaining, before - 1);
 }
 
@@ -428,14 +441,13 @@ fn blitter_nasty_mode_requires_busy_blten_bltpri_all_set() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Incremental drain (#31) — byte-for-byte parity with the synchronous
-// path. `tick_blitter_dma` (one startup/operation outcome per granted
-// CCK) must produce the same chip RAM as `run_blit` /
+// Incremental drain (#31) — byte-for-byte parity with the transaction-level
+// synchronous path. `tick_blitter_cck` must produce the same chip RAM as
 // `run_blit_to_completion`.
 // ────────────────────────────────────────────────────────────────
 
 /// `BlitterBus` view over the test RAM (interior-mutable, so `&TestRam`
-/// is enough). Lets us drive the public `tick_blitter_dma` exactly as
+/// is enough). Lets us drive the public `tick_blitter_cck` exactly as
 /// the machine tick loop does.
 struct RamBus<'a>(&'a TestRam);
 impl commodore_agnus_ocs::BlitterBus for RamBus<'_> {
@@ -447,34 +459,42 @@ impl commodore_agnus_ocs::BlitterBus for RamBus<'_> {
     }
 }
 
-/// Drive a started blit one accepted CCK per call via the per-CCK path.
-/// Returns the channel-operation count; asserts that the two shared startup
-/// CCKs precede those operations, completion is reported exactly once, and
-/// the blitter clears.
+/// Drive a started blit one CCK per call via the live path.
+///
+/// Returns the channel-operation count; asserts that startup plus any
+/// final-D tail consume the exact extra CCKs, the finish source fires once,
+/// and internal activity drains.
 fn run_blit_incremental(agnus: &mut Agnus, ram: &TestRam) -> u32 {
     let mut bus = RamBus(ram);
     let operation_count = agnus.blitter_ccks_remaining;
+    let has_area_final_d = agnus.bltcon1 & 1 == 0 && agnus.bltcon0 & 0x0100 != 0;
     let mut accepted_ccks = 0u32;
-    loop {
-        let done = agnus.tick_blitter_dma(&mut bus);
+    let mut interrupts = 0u32;
+    while agnus.blitter_busy {
+        let outcome = agnus.tick_blitter_cck(true, &mut bus);
         accepted_ccks += 1;
-        if done {
-            break;
-        }
+        interrupts += u32::from(outcome.interrupt);
         if accepted_ccks > 10_000 {
             panic!("incremental blit runaway");
         }
     }
     assert_eq!(
         accepted_ccks,
-        operation_count + 2,
-        "incremental drain must include exactly two startup CCKs",
+        operation_count + 2 + if has_area_final_d { 2 } else { 0 },
+        "incremental drain must include startup and the bounded final-D tail",
     );
+    assert_eq!(interrupts, 1, "finish source must fire exactly once");
     assert!(
         !agnus.blitter_busy,
         "blitter must clear when the incremental blit completes"
     );
     operation_count
+}
+
+fn tick_live(agnus: &mut Agnus, ram: &TestRam, progress_granted: bool) -> BlitterCckOutcome {
+    agnus.tick_cck();
+    let mut bus = RamBus(ram);
+    agnus.tick_blitter_cck(progress_granted, &mut bus)
 }
 
 /// Run `setup` through both the synchronous and the incremental paths
@@ -485,7 +505,12 @@ fn assert_paths_agree(setup: impl Fn(&mut Agnus, &TestRam), label: &str) {
     let ram_sync = TestRam::new();
     setup(&mut a_sync, &ram_sync);
     a_sync.start_blit();
-    let sync_ops = run_blit(&mut a_sync, &ram_sync);
+    let sync_ops = a_sync.blitter_ccks_remaining;
+    let mut sync_bus = RamBus(&ram_sync);
+    assert!(
+        a_sync.run_blit_to_completion(&mut sync_bus),
+        "{label}: synchronous drain missed the finish source",
+    );
 
     let mut a_inc = Agnus::new();
     let ram_inc = TestRam::new();
@@ -582,6 +607,242 @@ fn bzero_tracks_whether_all_d_words_were_zero() {
         "an all-zero D result must set BZERO (the collision-test signal)"
     );
     assert_ne!(agnus.dmaconr() & 0x2000, 0, "DMACONR BZERO set");
+}
+
+#[test]
+fn pre_aga_area_final_d_orders_finish_result_and_write() {
+    use commodore_agnus_ocs::bits::{DMACON_BLTEN, DMACON_BLTPRI, DMACON_DMAEN};
+
+    let mut agnus = Agnus::new();
+    let ram = TestRam::new();
+    agnus.dmacon = DMACON_DMAEN | DMACON_BLTEN | DMACON_BLTPRI;
+    agnus.blt_dpt = 0x2000;
+    program_single_word_blit(&mut agnus, 0xFF, false, false, false, true);
+    agnus.start_blit();
+
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome::default()
+    );
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome::default()
+    );
+
+    let finish = tick_live(&mut agnus, &ram, true);
+    assert_eq!(
+        finish,
+        BlitterCckOutcome {
+            interrupt: true,
+            bus_used: false,
+        }
+    );
+    assert!(agnus.blitter_busy, "the final-D pipeline remains active");
+    assert!(
+        !agnus.blitter_nasty_active(),
+        "pre-AGA nasty ownership ends at main finish",
+    );
+    assert!(agnus.blitter_busy_visible(), "DMACONR holds busy through F");
+    assert!(agnus.blitter_busy_copper(), "Copper holds busy through F");
+    assert_eq!(agnus.blitter_completion_phase(), "final-result");
+    assert_eq!(agnus.blitter_completion_ccks_remaining(), 2);
+    assert!(agnus.blitter_final_d_pending());
+    assert!(
+        agnus.blitter_dzero,
+        "the final result is not generated at F"
+    );
+    assert_eq!(ram.peek(0x2000), 0);
+
+    let result = tick_live(&mut agnus, &ram, false);
+    assert_eq!(result, BlitterCckOutcome::default());
+    assert!(agnus.blitter_busy);
+    assert!(!agnus.blitter_nasty_active());
+    assert!(!agnus.blitter_busy_visible(), "DMACONR releases at F+1");
+    assert!(agnus.blitter_busy_copper(), "Copper remains busy at F+1");
+    assert_eq!(agnus.blitter_completion_phase(), "final-write");
+    assert_eq!(agnus.blitter_completion_ccks_remaining(), 1);
+    assert!(!agnus.blitter_dzero, "BZERO settles with the result at F+1");
+    assert_eq!(ram.peek(0x2000), 0, "final D has not reached memory");
+
+    let blocked_write = tick_live(&mut agnus, &ram, false);
+    assert_eq!(blocked_write, BlitterCckOutcome::default());
+    assert!(
+        agnus.blitter_busy,
+        "the final D waits for an admitted bus slot"
+    );
+    assert!(!agnus.blitter_nasty_active());
+    assert!(!agnus.blitter_busy_visible());
+    assert!(
+        !agnus.blitter_busy_copper(),
+        "the observer hold expires independently of final-D contention"
+    );
+    assert_eq!(agnus.blitter_completion_phase(), "final-write");
+    assert_eq!(agnus.blitter_completion_ccks_remaining(), 1);
+    assert_eq!(ram.peek(0x2000), 0, "a denied slot cannot write final D");
+
+    let write = tick_live(&mut agnus, &ram, true);
+    assert_eq!(
+        write,
+        BlitterCckOutcome {
+            interrupt: false,
+            bus_used: true,
+        }
+    );
+    assert!(!agnus.blitter_busy);
+    assert!(!agnus.blitter_busy_visible());
+    assert!(!agnus.blitter_busy_copper());
+    assert_eq!(agnus.blitter_completion_phase(), "idle");
+    assert_eq!(agnus.blitter_completion_ccks_remaining(), 0);
+    assert!(!agnus.blitter_final_d_pending());
+    assert_eq!(ram.peek(0x2000), 0xFFFF);
+
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome::default(),
+        "finish and final D must remain one-shot",
+    );
+}
+
+#[test]
+fn alice_area_completion_waits_for_final_d() {
+    use commodore_agnus_ocs::bits::{DMACON_BLTEN, DMACON_BLTPRI, DMACON_DMAEN};
+
+    let mut agnus = Agnus::new();
+    agnus.agnus_id = 0x2300; // PAL Alice identity
+    agnus.dmacon = DMACON_DMAEN | DMACON_BLTEN | DMACON_BLTPRI;
+    let ram = TestRam::new();
+    agnus.blt_dpt = 0x2000;
+    program_single_word_blit(&mut agnus, 0xFF, false, false, false, true);
+    agnus.start_blit();
+
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome::default()
+    );
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome::default()
+    );
+
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome::default(),
+        "Alice must not emit completion at the pre-AGA F boundary",
+    );
+    assert!(
+        !agnus.blitter_nasty_active(),
+        "Alice's internal completion tail must not own the chip bus",
+    );
+    assert_eq!(agnus.blitter_completion_ccks_remaining(), 2);
+    assert!(agnus.blitter_busy_visible());
+    assert!(agnus.blitter_busy_copper());
+
+    assert_eq!(
+        tick_live(&mut agnus, &ram, false),
+        BlitterCckOutcome::default(),
+    );
+    assert_eq!(agnus.blitter_completion_ccks_remaining(), 1);
+    assert!(!agnus.blitter_dzero);
+    assert_eq!(ram.peek(0x2000), 0);
+    assert!(agnus.blitter_busy_visible());
+    assert!(agnus.blitter_busy_copper());
+
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome {
+            interrupt: true,
+            bus_used: true,
+        },
+    );
+    assert!(!agnus.blitter_busy);
+    assert_eq!(ram.peek(0x2000), 0xFFFF);
+    assert!(
+        agnus.blitter_busy_visible(),
+        "Alice DMACONR holds busy through the final-D finish CCK",
+    );
+    assert!(agnus.blitter_busy_copper());
+
+    assert_eq!(
+        tick_live(&mut agnus, &ram, false),
+        BlitterCckOutcome::default(),
+    );
+    assert!(!agnus.blitter_busy_visible());
+    assert!(agnus.blitter_busy_copper());
+    assert_eq!(
+        tick_live(&mut agnus, &ram, false),
+        BlitterCckOutcome::default(),
+    );
+    assert!(!agnus.blitter_busy_copper());
+}
+
+#[test]
+fn area_without_d_updates_bzero_and_finishes_on_final_op() {
+    let mut agnus = Agnus::new();
+    let ram = TestRam::new();
+    program_single_word_blit(&mut agnus, 0xFF, false, false, false, false);
+    agnus.start_blit();
+
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome::default()
+    );
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome::default()
+    );
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome {
+            interrupt: true,
+            bus_used: false,
+        },
+    );
+    assert!(!agnus.blitter_busy);
+    assert!(
+        !agnus.blitter_dzero,
+        "generated non-zero D must clear BZERO"
+    );
+    assert!(!agnus.blitter_final_d_pending());
+    assert!(agnus.blitter_busy_visible());
+    assert!(agnus.blitter_busy_copper());
+}
+
+#[test]
+fn line_mode_finishes_with_its_final_d_write() {
+    let mut agnus = Agnus::new();
+    let ram = TestRam::new();
+    agnus.bltcon0 = 0x0B00 | 0xCA; // USEA/B/C/D line minterm
+    agnus.bltcon1 = 0x0001; // LINE
+    agnus.blt_apt = 0;
+    agnus.blt_bdat = 0xFFFF;
+    agnus.blt_cpt = 0x2000;
+    agnus.blt_dpt = 0x2000;
+    agnus.blt_amod = 0;
+    agnus.blt_bmod = 4;
+    agnus.blt_cmod = 0;
+    agnus.bltsize = (1 << 6) | 2;
+    agnus.start_blit();
+
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome::default()
+    );
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome::default()
+    );
+    assert!(tick_live(&mut agnus, &ram, true).bus_used); // ReadC
+    let finish = tick_live(&mut agnus, &ram, true);
+    assert_eq!(
+        finish,
+        BlitterCckOutcome {
+            interrupt: true,
+            bus_used: true,
+        },
+    );
+    assert!(!agnus.blitter_busy);
+    assert!(!agnus.blitter_final_d_pending());
+    assert_ne!(ram.peek(0x2000), 0, "line result lands with completion");
 }
 
 #[test]

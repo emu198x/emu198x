@@ -177,9 +177,29 @@ fn one_operation_blit_cannot_complete_during_startup() {
 
     assert!(agnus.tick_blitter_dma(&mut bus));
     assert!(!agnus.blitter_busy);
-    assert!(!agnus.blitter_busy_visible());
+    assert!(
+        agnus.blitter_busy_visible(),
+        "DMACONR retains busy through the finish-source CCK",
+    );
+    assert!(agnus.blitter_busy_copper());
     assert_eq!(agnus.blitter_ccks_remaining, 0);
     assert_eq!((bus.reads, bus.writes), (0, 0));
+
+    assert!(
+        !agnus.run_blit_to_completion(&mut bus),
+        "an idle synchronous drain has no new finish source",
+    );
+    assert!(agnus.blitter_busy_visible());
+    assert!(
+        agnus.blitter_busy_copper(),
+        "an idle synchronous drain must preserve observer holds",
+    );
+
+    agnus.tick_cck();
+    assert!(!agnus.blitter_busy_visible());
+    assert!(agnus.blitter_busy_copper());
+    agnus.tick_cck();
+    assert!(!agnus.blitter_busy_copper());
 }
 
 #[test]
@@ -209,18 +229,24 @@ fn new_blit_rearms_startup_and_preserves_bzero_until_first_acceptance() {
 }
 
 #[test]
-fn scheduler_only_completion_clears_internal_and_visible_busy() {
+fn compatibility_dma_wrapper_reports_only_full_pipeline_drain() {
     let mut agnus = Agnus::new_a1000_with_region(AgnusRegion::Pal);
     agnus.bltcon0 = 0x0100; // D only: one operation
     agnus.bltsize = (1 << 6) | 1;
     agnus.start_blit();
+    let mut bus = NullBus::default();
 
-    assert!(!agnus.tick_blitter_scheduler(true));
-    assert!(!agnus.tick_blitter_scheduler(true));
-    assert!(agnus.tick_blitter_scheduler(true));
+    assert!(!agnus.tick_blitter_dma(&mut bus));
+    assert!(!agnus.tick_blitter_dma(&mut bus));
+    assert!(
+        !agnus.tick_blitter_dma(&mut bus),
+        "pre-AGA source finish precedes pipeline drain",
+    );
+    assert!(!agnus.tick_blitter_dma(&mut bus));
+    assert!(agnus.tick_blitter_dma(&mut bus));
 
     assert!(!agnus.blitter_busy);
-    assert!(!agnus.blitter_busy_visible());
+    assert_eq!(bus.writes, 1);
     assert_eq!(agnus.blitter_startup_ccks_remaining(), 0);
 }
 

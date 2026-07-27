@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose serialized blitter completion phase, Copper-specific busy,
+  remaining completion CCKs, final-D pending state and per-CCK bus use
 - Serialize the shared two-CCK blitter-startup phase and expose its
   progress outcome separately from a serviced channel operation
 - Serialize installed original-Agnus revision identity and the line-held hard
@@ -21,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Separate pre-AGA main finish, BZERO result generation and final D,
+  delay Alice's finish source until final D, and retain distinct DMACONR
+  and Copper completion observations
+- Update BZERO from every generated D result even when D DMA is disabled,
+  and release pre-AGA blitter-nasty ownership at main finish
 - Begin internal blitter activity immediately on every revision, consume two
   accepted/free startup CCKs before the first channel operation, reload BZERO
   on the first accepted CCK, and delay only A1000-visible BBUSY to that point

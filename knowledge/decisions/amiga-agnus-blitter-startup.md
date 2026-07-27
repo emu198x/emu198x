@@ -13,7 +13,7 @@ The third-edition *Amiga Hardware Reference Manual*, printed page 186,
 distinguishes the original A1000 Agnus from Fat Agnus when software
 starts a blit while memory access is locked out. The A1000 can still
 report the blitter as idle immediately after the start, while Fat Agnus
-asserts busy at the `BLTSIZE` write. Appendix A, printed page 274,
+asserts busy at the `BLTSIZE` write. Appendix A, printed page 275,
 defines Copper BFD for both `WAIT` and `SKIP`: when it is set, blitter
 finished has no effect; when it is clear, the blitter-finished condition
 must accompany the beam comparison.
@@ -141,17 +141,14 @@ physical behaviour while blitter DMA is disabled.
 
 This decision does not define:
 
-- revision-specific completion phases, including the exact relative
-  deassertion times observed by `DMACONR` and the Copper;
 - the exact yielded-Copper slot on which a startup state advances;
 - CPU and non-nasty blitter coexistence within a nominal CPU/free cell;
 - physical synchronous-drain behaviour while blitter DMA is disabled;
-- channel-pipeline effects from mid-blit register writes; or
-- the final-D and completion-interrupt pipeline.
+- channel-pipeline effects from mid-blit register writes.
 
-Those behaviours require their own evidence and tests. In particular,
-the established startup status input does not close the separate
-Copper-resume-at-completion accuracy edge.
+Those behaviours require their own evidence and tests. Completion
+ordering is defined separately by
+[Blitter completion pipeline](amiga-blitter-completion-pipeline.md).
 
 ## Verification
 
@@ -192,6 +189,7 @@ Reject these patterns:
 
 ## Related Documents
 
+- [Blitter completion pipeline](amiga-blitter-completion-pipeline.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md)
 - [Original Agnus hard vertical-blank close](amiga-original-agnus-hard-vertical-blank.md)

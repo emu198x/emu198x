@@ -3,8 +3,9 @@
 //! (BLTSIZV/BLTSIZH at $05C/$05E) that KS 2.x/3.x uses for most blits.
 //!
 //! The blit consumes two startup outcomes followed by at most one DMA
-//! operation per granted CCK. BBUSY stays asserted in DMACONR until it
-//! finishes, and INT_BLIT fires on completion.
+//! operation per granted CCK. On ECS, the main-finish source and
+//! DMACONR BBUSY release precede the final result/D pipeline; internal
+//! activity remains authoritative when a test needs the memory result.
 
 use machine_commodore_amiga_ecs::AmigaEcs;
 
@@ -23,13 +24,13 @@ fn chip_word(amiga: &AmigaEcs, addr: u32) -> u16 {
     (hi << 8) | lo
 }
 
-/// Tick to BBUSY-clear (the WaitBlit path), returning the tick count.
+/// Tick until the internal final-D pipeline drains, returning the tick count.
 fn run_to_idle(amiga: &mut AmigaEcs) -> u32 {
     let mut ticks = 0u32;
-    while amiga.read_word(DMACONR) & BBUSY != 0 {
+    while amiga.agnus().blitter_busy {
         amiga.tick();
         ticks += 1;
-        assert!(ticks < 100_000, "blit never completed (BBUSY stuck)");
+        assert!(ticks < 100_000, "blitter pipeline never drained");
     }
     ticks
 }

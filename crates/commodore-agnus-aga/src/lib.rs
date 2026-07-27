@@ -33,9 +33,9 @@ pub use commodore_agnus_ecs::{
     AgnusEcs as InnerAgnusEcs, BEAMCON0_BLANKEN, BEAMCON0_CSCBEN, BEAMCON0_CSYTRUE, BEAMCON0_DUAL,
     BEAMCON0_HARDDIS, BEAMCON0_HSYTRUE, BEAMCON0_LOLDIS, BEAMCON0_LPENDIS, BEAMCON0_PAL,
     BEAMCON0_VARBEAMEN, BEAMCON0_VARCSYEN, BEAMCON0_VARHSYEN, BEAMCON0_VARVBEN, BEAMCON0_VARVSYEN,
-    BEAMCON0_VSYTRUE, BlitterDmaOp, CckBusPlan, Copper, CopperState, HIRES_DDF_TO_PLANE,
-    LOWRES_DDF_TO_PLANE, LOWRES_DDF_TO_PLANE_AGA, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME,
-    PaulaReturnProgressPolicy, SlotOwner,
+    BEAMCON0_VSYTRUE, BlitterCckOutcome, BlitterDmaOp, CckBusPlan, Copper, CopperState,
+    HIRES_DDF_TO_PLANE, LOWRES_DDF_TO_PLANE, LOWRES_DDF_TO_PLANE_AGA, PAL_CCKS_PER_LINE,
+    PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy, SlotOwner,
 };
 
 /// AGA Alice — wraps `AgnusEcs` with the FMODE register and AGA-only
@@ -56,6 +56,7 @@ impl AgnusAga {
     pub fn new() -> Self {
         let mut inner = InnerAgnusEcs::new();
         inner.max_bitplanes = 8;
+        inner.agnus_id = 0x2300;
         Self { inner, fmode: 0 }
     }
 
@@ -65,6 +66,10 @@ impl AgnusAga {
     #[must_use]
     pub fn from_ecs(mut inner: InnerAgnusEcs) -> Self {
         inner.max_bitplanes = 8;
+        inner.agnus_id = match inner.region {
+            commodore_agnus_ocs::AgnusRegion::Pal => 0x2300,
+            commodore_agnus_ocs::AgnusRegion::Ntsc => 0x3300,
+        };
         Self { inner, fmode: 0 }
     }
 
@@ -140,6 +145,22 @@ mod tests {
         AgnusAga, BEAMCON0_PAL, BEAMCON0_VARVBEN, InnerAgnusEcs, PAL_CCKS_PER_LINE,
         PAL_LINES_PER_FRAME, SlotOwner,
     };
+    use commodore_agnus_ocs::{BlitterBus, BlitterCckOutcome};
+
+    #[derive(Default)]
+    struct NullBus {
+        writes: usize,
+    }
+
+    impl BlitterBus for NullBus {
+        fn read_word(&mut self, _addr: u32) -> u16 {
+            0
+        }
+
+        fn write_word(&mut self, _addr: u32, _val: u16) {
+            self.writes += 1;
+        }
+    }
 
     fn tick_to_line(agnus: &mut InnerAgnusEcs, target: u16) {
         let one_field = usize::from(PAL_CCKS_PER_LINE) * (usize::from(PAL_LINES_PER_FRAME) + 1);
@@ -156,6 +177,7 @@ mod tests {
     fn new_starts_with_fmode_cleared() {
         let agnus = AgnusAga::new();
         assert_eq!(agnus.fmode, 0);
+        assert_eq!(agnus.agnus_id, 0x2300);
         assert_eq!(agnus.bpl_fetch_width(), 1);
         assert_eq!(agnus.spr_fetch_width(), 1);
     }
@@ -196,7 +218,57 @@ mod tests {
         agnus.bplcon0 = 0x0010;
 
         assert_eq!(agnus.max_bitplanes, 8);
+        assert_eq!(agnus.agnus_id, 0x2300);
         assert_eq!(agnus.num_bitplanes(), 8);
+    }
+
+    #[test]
+    fn from_ntsc_ecs_reports_ntsc_alice_identity() {
+        let ocs =
+            commodore_agnus_ocs::Agnus::new_with_region(commodore_agnus_ocs::AgnusRegion::Ntsc);
+        let agnus = AgnusAga::from_ecs(InnerAgnusEcs::from_ocs(ocs));
+
+        assert_eq!(agnus.agnus_id, 0x3300);
+    }
+
+    #[test]
+    fn fresh_alice_delays_blitter_finish_until_final_d() {
+        let mut agnus = AgnusAga::new();
+        let mut bus = NullBus::default();
+        agnus.bltcon0 = 0x01FF; // USED | D := $FFFF
+        agnus.bltcon1 = 0;
+        agnus.blt_dpt = 0x2000;
+        agnus.bltsize = (1 << 6) | 1;
+        agnus.start_blit();
+
+        assert_eq!(
+            agnus.tick_blitter_cck(true, &mut bus),
+            BlitterCckOutcome::default(),
+        );
+        assert_eq!(
+            agnus.tick_blitter_cck(true, &mut bus),
+            BlitterCckOutcome::default(),
+        );
+        assert_eq!(
+            agnus.tick_blitter_cck(true, &mut bus),
+            BlitterCckOutcome::default(),
+            "Alice must not emit the pre-AGA main-finish source",
+        );
+        assert_eq!(agnus.blitter_completion_phase(), "final-result");
+        assert_eq!(
+            agnus.tick_blitter_cck(true, &mut bus),
+            BlitterCckOutcome::default(),
+        );
+
+        assert_eq!(
+            agnus.tick_blitter_cck(true, &mut bus),
+            BlitterCckOutcome {
+                interrupt: true,
+                bus_used: true,
+            },
+        );
+        assert_eq!(bus.writes, 1);
+        assert!(!agnus.blitter_busy);
     }
 
     #[test]

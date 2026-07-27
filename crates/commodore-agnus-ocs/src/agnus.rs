@@ -223,9 +223,10 @@ pub struct CckBusPlan {
     pub cpu_chip_bus_granted: bool,
     /// Blitter chip-bus grant for this CCK.
     ///
-    /// Minimal model: a busy blitter in nasty mode (BLTPRI) takes CPU/free
-    /// slots when blitter DMA is enabled. The blitter operation itself is still
-    /// executed synchronously elsewhere, so this only models bus arbitration.
+    /// The active main blitter in nasty mode (BLTPRI) requests CPU/free slots
+    /// while blitter DMA is enabled. The machine executes the admitted
+    /// incremental operation in the same CCK and separately latches whether it
+    /// actually drove the chip bus.
     pub blitter_chip_bus_granted: bool,
     /// Blitter work-progress grant for this CCK.
     ///
@@ -385,6 +386,32 @@ pub enum BlitterProgress {
     NoProgress,
     Startup,
     Operation(BlitterDmaOp),
+}
+
+/// Observable work performed by one blitter CCK.
+///
+/// Completion is not synonymous with pipeline drain on pre-AGA Agnus:
+/// an area blit with D enabled emits its finish source while the final
+/// result and D write are still pending. The machine therefore consumes
+/// the interrupt edge separately from [`Agnus::blitter_busy`].
+#[must_use = "the machine must preserve the interrupt edge and bus-use observation"]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct BlitterCckOutcome {
+    /// The Agnus blitter-finished source fired during this CCK.
+    pub interrupt: bool,
+    /// A blitter A/B/C read or D write drove the chip bus during this CCK.
+    pub bus_used: bool,
+}
+
+/// Final two-stage drain of a normal area blit with D enabled.
+///
+/// The last main cycle is followed by one internal result/BZERO stage and
+/// then the final D bus write. Original and ECS Agnus emit completion before
+/// these stages; Alice delays completion until the write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum BlitterCompletionPhase {
+    FinalResult,
+    FinalWrite { addr: u32, value: u16 },
 }
 
 /// Per-word blitter state machine: tracks which channel accesses still need
@@ -560,11 +587,25 @@ pub struct Agnus {
     /// additionally keeps external BBUSY clear while this is `2`, then asserts
     /// it when the first accepted startup CCK decrements the value to `1`.
     blitter_startup_ccks_remaining: u8,
+    /// Pending final-result/final-D drain for a normal D-enabled area blit.
+    blitter_completion_phase: Option<BlitterCompletionPhase>,
+    /// One-shot main-finish source for the current blit.
+    ///
+    /// This becomes true before the final D drain on pre-AGA chips and at
+    /// final D on Alice. It is distinct from `blitter_busy`, which remains
+    /// true until every internal pipeline stage has drained.
+    blitter_finish_emitted: bool,
+    /// DMACONR retains BBUSY through the CCK that emits the finish source.
+    blitter_dmacon_busy_hold_ccks: u8,
+    /// Copper BFD observes the blitter-finished condition one CCK later than
+    /// DMACONR in the pinned cycle-exact completion model.
+    blitter_copper_busy_hold_ccks: u8,
     pub blitter_exec_pending: bool,
-    /// Running NOR of every D word the current blit has written: stays
+    /// Running NOR of every D result the current blit has generated: stays
     /// `true` while all results are zero, cleared on the first non-zero
-    /// D word. Read out as DMACONR BZERO (bit 13). The previous result is
-    /// preserved at `start_blit`, then reset on the first accepted startup CCK.
+    /// result even when D DMA is disabled. Read out as DMACONR BZERO
+    /// (bit 13). The previous result is preserved at `start_blit`, then reset
+    /// on the first accepted startup CCK.
     pub blitter_dzero: bool,
     /// Effective blit height (rows for area mode, length for line mode):
     /// the legacy BLTSIZE `>>6` field (0→1024) or, for an ECS large
@@ -633,6 +674,11 @@ pub struct Agnus {
     /// original use for both master/4 phases of that CCK. Snapshots
     /// serialize this alongside the machine's half-CCK phase.
     sprite_bus_used_this_cck: bool,
+    /// Record that the current CCK's pre-service plan gave the chip bus to a
+    /// blitter transfer. Completion can change the live plan before the CPU
+    /// polls later in the same CCK, so the actual use must remain latched
+    /// across both master/4 phases.
+    blitter_bus_used_this_cck: bool,
 
     // Disk pointer
     pub dsk_pt: u32,
@@ -720,6 +766,10 @@ impl Agnus {
             bltsizh_ecs: 0,
             blitter_busy: false,
             blitter_startup_ccks_remaining: 0,
+            blitter_completion_phase: None,
+            blitter_finish_emitted: false,
+            blitter_dmacon_busy_hold_ccks: 0,
+            blitter_copper_busy_hold_ccks: 0,
             blitter_exec_pending: false,
             blitter_dzero: true,
             blt_height: 0,
@@ -754,6 +804,7 @@ impl Agnus {
             spr_vstop: [0; 8],
             spr_dma_on: [false; 8],
             sprite_bus_used_this_cck: false,
+            blitter_bus_used_this_cck: false,
             dsk_pt: 0,
             fmode: 0,
             lof: true,
@@ -924,26 +975,89 @@ impl Agnus {
         self.spr_pt_hi_pending[sprite] = false;
     }
 
-    /// `true` when a busy blitter is in nasty mode and may steal CPU/free slots.
+    /// `true` while the blitter's main engine is in nasty mode and may steal
+    /// CPU/free slots.
+    ///
+    /// The internal result/final-D tail does not itself own a chip-bus cell,
+    /// including Alice's two CCKs before its delayed finish source. A later
+    /// final D still blocks same-CCK CPU chip access through
+    /// [`Agnus::blitter_bus_used_this_cck`].
     #[must_use]
     pub fn blitter_nasty_active(&self) -> bool {
         const DMACON_BLTEN: u16 = 0x0040;
         const DMACON_BLTPRI: u16 = 0x0400;
 
-        self.blitter_busy && self.dma_enabled(DMACON_BLTEN) && (self.dmacon & DMACON_BLTPRI) != 0
+        self.blitter_busy
+            && !self.blitter_finish_emitted
+            && self.blitter_completion_phase.is_none()
+            && self.dma_enabled(DMACON_BLTEN)
+            && (self.dmacon & DMACON_BLTPRI) != 0
     }
 
-    /// Whether software-visible blitter busy is asserted.
+    /// Whether DMACONR-visible blitter busy is asserted.
     ///
     /// Internal activity begins immediately on every Agnus revision. The
     /// 8361/8367 installed in the A1000 delays only its externally visible
-    /// BBUSY signal until the first accepted/free blitter progress CCK. This
-    /// accessor is therefore the source for both DMACONR.BBUSY and Copper
-    /// BFD=0 synchronization; arbitration and diagnostics use
-    /// [`Agnus::blitter_busy`] directly.
+    /// BBUSY signal until the first accepted/free blitter progress CCK.
+    ///
+    /// Completion has a second observer boundary. Original and ECS Agnus
+    /// emit their main-finish source before the final D pipeline drains, and
+    /// DMACONR retains BBUSY through that finish CCK. Copper has its own later
+    /// observation exposed by [`Agnus::blitter_busy_copper`]. Diagnostics and
+    /// completion admission use internal [`Agnus::blitter_busy`]; nasty
+    /// ownership ends at main finish and later bus transfers are latched from
+    /// their actual use.
     #[must_use]
     pub fn blitter_busy_visible(&self) -> bool {
+        self.blitter_observer_busy() || self.blitter_dmacon_busy_hold_ccks != 0
+    }
+
+    /// Whether the Copper's BFD blitter-finished input remains busy.
+    ///
+    /// The A1000 startup exception is shared with DMACONR, but completion is
+    /// not: the Copper retains the busy condition for one additional CCK.
+    #[must_use]
+    pub fn blitter_busy_copper(&self) -> bool {
+        self.blitter_observer_busy() || self.blitter_copper_busy_hold_ccks != 0
+    }
+
+    /// Stable diagnostic name for the current final-D completion stage.
+    #[must_use]
+    pub fn blitter_completion_phase(&self) -> &'static str {
+        match self.blitter_completion_phase {
+            Some(BlitterCompletionPhase::FinalResult) => "final-result",
+            Some(BlitterCompletionPhase::FinalWrite { .. }) => "final-write",
+            None if self.blitter_busy => "running",
+            None => "idle",
+        }
+    }
+
+    /// CCK stages remaining in the bounded final-D completion pipeline.
+    #[must_use]
+    pub const fn blitter_completion_ccks_remaining(&self) -> u8 {
+        match self.blitter_completion_phase {
+            Some(BlitterCompletionPhase::FinalResult) => 2,
+            Some(BlitterCompletionPhase::FinalWrite { .. }) => 1,
+            None => 0,
+        }
+    }
+
+    /// Whether a final area-mode D result remains to be written.
+    #[must_use]
+    pub const fn blitter_final_d_pending(&self) -> bool {
+        self.blitter_completion_phase.is_some()
+    }
+
+    /// Whether the one-shot blitter-finished source has fired for this blit.
+    #[must_use]
+    pub const fn blitter_finish_emitted(&self) -> bool {
+        self.blitter_finish_emitted
+    }
+
+    #[must_use]
+    fn blitter_observer_busy(&self) -> bool {
         self.blitter_busy
+            && !self.blitter_finish_emitted
             && !(self.delays_visible_blitter_busy() && self.blitter_startup_ccks_remaining == 2)
     }
 
@@ -960,6 +1074,11 @@ impl Agnus {
     #[must_use]
     fn delays_visible_blitter_busy(&self) -> bool {
         self.agnus_id < 0x2000 && self.original_revision == OriginalAgnusRevision::A1000
+    }
+
+    #[must_use]
+    fn is_alice(&self) -> bool {
+        self.agnus_id & 0x0F00 == 0x0300
     }
 
     /// Start a legacy-BLTSIZE blit and arm its incremental CCK scheduler.
@@ -988,6 +1107,10 @@ impl Agnus {
         self.blt_width_words = width_words;
         self.blitter_busy = true;
         self.blitter_startup_ccks_remaining = 2;
+        self.blitter_completion_phase = None;
+        self.blitter_finish_emitted = false;
+        self.blitter_dmacon_busy_hold_ccks = 0;
+        self.blitter_copper_busy_hold_ccks = 0;
         self.blitter_exec_pending = true;
         self.init_incremental_blitter_runtime();
         self.init_blitter_word_state();
@@ -1113,50 +1236,26 @@ impl Agnus {
         BlitterProgress::Operation(op)
     }
 
-    /// Advance the blitter scheduler by one CCK and report completion.
-    ///
-    /// Full request→grant→advance cycle wrapper around
-    /// `tick_blitter_scheduler_op`. Returns `true` when the blit
-    /// completes. Useful to tests + any integrator that wants a
-    /// one-call progress step rather than driving the op-by-op
-    /// protocol manually.
-    pub fn tick_blitter_scheduler(&mut self, progress_this_cck: bool) -> bool {
-        if !matches!(
-            self.tick_blitter_scheduler_op(progress_this_cck),
-            BlitterProgress::Operation(_)
-        ) {
-            return false;
-        }
-        // Check if the word is complete after granting an op.
-        if self.blitter_word_complete() {
-            if self.blitter_ccks_remaining == 0 {
-                self.blitter_word_state = None;
-                self.blitter_busy = false;
-                self.blitter_startup_ccks_remaining = 0;
-                self.blitter_exec_pending = false;
-                self.blitter_line_runtime = None;
-                self.blitter_area_runtime = None;
-                return true;
-            }
-            self.advance_blitter_word();
-        }
-        false
-    }
-
     /// Clear all scheduler and internal activity state.
     pub fn clear_blitter_scheduler(&mut self) {
         self.blitter_word_state = None;
         self.blitter_busy = false;
         self.blitter_startup_ccks_remaining = 0;
+        self.blitter_completion_phase = None;
+        self.blitter_finish_emitted = false;
+        self.blitter_dmacon_busy_hold_ccks = 0;
+        self.blitter_copper_busy_hold_ccks = 0;
         self.blitter_exec_pending = false;
         self.blitter_ccks_remaining = 0;
         self.blitter_line_runtime = None;
         self.blitter_area_runtime = None;
+        self.blitter_bus_used_this_cck = false;
     }
 
     #[must_use]
     pub fn blitter_exec_ready(&self) -> bool {
         self.blitter_busy
+            && self.blitter_completion_phase.is_none()
             && !self.blitter_exec_pending
             && self.blitter_line_runtime.is_none()
             && self.blitter_area_runtime.is_none()
@@ -1396,10 +1495,13 @@ impl Agnus {
             result = filled;
         }
 
+        // BZERO observes every generated destination result, whether or not
+        // D DMA is enabled. USED controls the memory transfer, not the
+        // minterm/zero-detection path.
+        if result != 0 {
+            self.blitter_dzero = false;
+        }
         if area.use_d {
-            if result != 0 {
-                self.blitter_dzero = false; // BZERO: a non-zero D word
-            }
             write_word(area.dpt, result);
             area.dpt = (area.dpt as i32 + area.ptr_step) as u32;
         }
@@ -1689,6 +1791,8 @@ impl Agnus {
             short_field_lines > 0 && short_field_lines < u16::MAX,
             "field total must leave room for the interlace extension"
         );
+        self.blitter_dmacon_busy_hold_ccks = self.blitter_dmacon_busy_hold_ccks.saturating_sub(1);
+        self.blitter_copper_busy_hold_ccks = self.blitter_copper_busy_hold_ccks.saturating_sub(1);
         self.hpos += 1;
         if self.hpos >= line_ccks {
             // A phase-shifted OCS fetch unit can have its logical terminal
@@ -1846,6 +1950,21 @@ impl Agnus {
     #[must_use]
     pub fn sprite_bus_used_this_cck(&self) -> bool {
         self.sprite_bus_used_this_cck
+    }
+
+    /// Record whether the blitter drove the chip bus during this CCK.
+    ///
+    /// The driver records this after the operation is known. A completion
+    /// transition can otherwise make a later same-CCK CPU arbitration query
+    /// recompute an idle plan and retroactively reuse the transfer's cell.
+    pub fn record_blitter_bus_use(&mut self, used: bool) {
+        self.blitter_bus_used_this_cck = used;
+    }
+
+    /// Whether a blitter transfer drove the chip bus during this CCK.
+    #[must_use]
+    pub const fn blitter_bus_used_this_cck(&self) -> bool {
+        self.blitter_bus_used_this_cck
     }
 
     /// Service one sprite-DMA bus cycle for `channel` (gap #162). Called
@@ -2542,70 +2661,60 @@ impl Agnus {
         true
     }
 
-    /// Drive a blit to completion synchronously. Used by the simple
-    /// "run the blit on BLTSIZE write" integration model — later work
-    /// (task #147, true per-slot pacing) replaces this with
-    /// incremental tick-driven progress.
-    ///
-    /// Takes a single bus trait implementation — matches on op type
-    /// so only one direction of the bus is borrowed at a time.
-    pub fn run_blit_to_completion(&mut self, bus: &mut dyn BlitterBus) {
-        let mut guard = 0u32;
-        while self.next_blitter_dma_request().is_some() {
-            guard += 1;
-            let BlitterProgress::Operation(op) = self.tick_blitter_scheduler_op(true) else {
-                if guard > 1_000_000 {
-                    break;
-                }
-                continue;
-            };
-            let done = match op {
-                BlitterDmaOp::WriteD => self.execute_incremental_blitter_op(
-                    op,
-                    |_| 0,
-                    |addr, val| bus.write_word(addr, val),
-                ),
-                BlitterDmaOp::Internal => self.execute_incremental_blitter_op(op, |_| 0, |_, _| {}),
-                _ => self.execute_incremental_blitter_op(op, |addr| bus.read_word(addr), |_, _| {}),
-            };
-            if self.blitter_word_complete() && !done {
-                self.advance_blitter_word();
-            }
-            if guard > 1_000_000 {
-                break;
-            }
+    /// Emit the one-shot main-finish source and arm observer-specific busy
+    /// holds. Returns `true` only for the first emission of the current blit.
+    fn emit_blitter_finish(&mut self) -> bool {
+        if self.blitter_finish_emitted {
+            return false;
         }
-        self.blitter_busy = false;
-        self.blitter_startup_ccks_remaining = 0;
+        self.blitter_finish_emitted = true;
+        // The source fires after the Copper has sampled this CCK but before a
+        // same-CCK CPU custom-register read. DMACONR therefore needs one
+        // retained CCK; Copper needs the finish CCK plus one more.
+        self.blitter_dmacon_busy_hold_ccks = 1;
+        self.blitter_copper_busy_hold_ccks = 2;
+        true
     }
 
-    /// Consume exactly one granted blitter progress outcome against the chip
-    /// bus — the per-CCK counterpart to [`Agnus::run_blit_to_completion`].
-    /// The first two calls after a start consume shared startup CCKs without
-    /// servicing a channel operation. Later calls service at most one
-    /// operation. The machine calls this once on each CCK the bus plan grants
-    /// the blitter (`CckBusPlan::blitter_dma_progress_granted`), so a blit
-    /// consumes real chip cycles and contends for the bus instead of finishing
-    /// instantly on the BLTSIZE write.
-    ///
-    /// Returns `true` on the CCK that drains the last op — the caller
-    /// raises INT_BLIT. The body mirrors `run_blit_to_completion`'s loop
-    /// exactly; the only difference is one startup/operation outcome per call
-    /// instead of a drain-to-completion loop. An equivalence test
-    /// (`incremental_drain_matches_synchronous_blit`) pins that the two
-    /// paths produce byte-identical chip-RAM output.
-    pub fn tick_blitter_dma(&mut self, bus: &mut dyn BlitterBus) -> bool {
-        let op = match self.tick_blitter_scheduler_op(true) {
-            BlitterProgress::Startup => return false,
-            BlitterProgress::Operation(op) => op,
-            BlitterProgress::NoProgress => {
-                // Caller only ticks us while busy; no pending op means the
-                // blit is already drained — report completion once.
-                self.blitter_busy = false;
-                return true;
-            }
-        };
-        let done = match op {
+    /// Whether the next scheduler request is the final D of a normal area
+    /// blit. That request is split into main-finish, result and write stages.
+    #[must_use]
+    fn final_area_d_requested(&self) -> bool {
+        self.blitter_startup_ccks_remaining == 0
+            && matches!(
+                (
+                    self.blitter_line_runtime,
+                    self.blitter_area_runtime,
+                    self.next_blitter_dma_request(),
+                ),
+                (
+                    None,
+                    Some(BlitterAreaRuntime {
+                        rows_remaining: 1,
+                        words_remaining_in_row: 1,
+                        use_d: true,
+                        ..
+                    }),
+                    Some(BlitterDmaOp::WriteD),
+                )
+            )
+    }
+
+    /// Clear internal activity after every pipeline stage has drained.
+    fn finish_blitter_pipeline(&mut self) {
+        self.blitter_word_state = None;
+        self.blitter_busy = false;
+        self.blitter_startup_ccks_remaining = 0;
+        self.blitter_completion_phase = None;
+        self.blitter_exec_pending = false;
+        self.blitter_ccks_remaining = 0;
+        self.blitter_line_runtime = None;
+        self.blitter_area_runtime = None;
+    }
+
+    /// Execute one already-consumed scheduler operation against the bus.
+    fn execute_blitter_bus_op(&mut self, op: BlitterDmaOp, bus: &mut dyn BlitterBus) -> bool {
+        match op {
             BlitterDmaOp::WriteD => self.execute_incremental_blitter_op(
                 op,
                 |_| 0,
@@ -2613,16 +2722,147 @@ impl Agnus {
             ),
             BlitterDmaOp::Internal => self.execute_incremental_blitter_op(op, |_| 0, |_, _| {}),
             _ => self.execute_incremental_blitter_op(op, |addr| bus.read_word(addr), |_, _| {}),
+        }
+    }
+
+    /// Advance the blitter by one CCK.
+    ///
+    /// `progress_granted` admits startup, channel operations and the final D
+    /// bus write. Once the last main cycle has been admitted, the internal
+    /// final-result stage advances on the following CCK without another bus
+    /// grant. This keeps the two-stage output pipeline distinct from bus
+    /// arbitration.
+    pub fn tick_blitter_cck(
+        &mut self,
+        progress_granted: bool,
+        bus: &mut dyn BlitterBus,
+    ) -> BlitterCckOutcome {
+        if !self.blitter_busy {
+            return BlitterCckOutcome::default();
+        }
+
+        if let Some(phase) = self.blitter_completion_phase {
+            return match phase {
+                BlitterCompletionPhase::FinalResult => {
+                    let op = self.tick_blitter_scheduler_op(true);
+                    debug_assert_eq!(op, BlitterProgress::Operation(BlitterDmaOp::WriteD));
+
+                    let mut pending_write = None;
+                    let done = self.execute_incremental_blitter_op(
+                        BlitterDmaOp::WriteD,
+                        |_| 0,
+                        |addr, value| pending_write = Some((addr, value)),
+                    );
+                    debug_assert!(done, "the buffered D operation must be the final area word");
+                    let Some((addr, value)) = pending_write else {
+                        self.finish_blitter_pipeline();
+                        return BlitterCckOutcome::default();
+                    };
+                    self.blitter_completion_phase =
+                        Some(BlitterCompletionPhase::FinalWrite { addr, value });
+                    BlitterCckOutcome::default()
+                }
+                BlitterCompletionPhase::FinalWrite { addr, value } => {
+                    if !progress_granted {
+                        return BlitterCckOutcome::default();
+                    }
+                    bus.write_word(addr, value);
+                    self.finish_blitter_pipeline();
+                    BlitterCckOutcome {
+                        interrupt: self.emit_blitter_finish(),
+                        bus_used: true,
+                    }
+                }
+            };
+        }
+
+        if !progress_granted {
+            return BlitterCckOutcome::default();
+        }
+
+        // The existing scheduler presents final D as one operation. Hardware
+        // first retires the last main cycle, then computes BZERO/result, then
+        // writes D. Split only the final area word here; earlier pipelined D
+        // operations retain the established execution model.
+        if self.final_area_d_requested() {
+            self.blitter_completion_phase = Some(BlitterCompletionPhase::FinalResult);
+            return BlitterCckOutcome {
+                interrupt: if self.is_alice() {
+                    false
+                } else {
+                    self.emit_blitter_finish()
+                },
+                bus_used: false,
+            };
+        }
+
+        let op = match self.tick_blitter_scheduler_op(true) {
+            BlitterProgress::Startup | BlitterProgress::NoProgress => {
+                return BlitterCckOutcome::default();
+            }
+            BlitterProgress::Operation(op) => op,
         };
+        let bus_used = !matches!(op, BlitterDmaOp::Internal);
+        let done = self.execute_blitter_bus_op(op, bus);
         if self.blitter_word_complete() && !done {
             self.advance_blitter_word();
         }
-        if self.next_blitter_dma_request().is_none() {
-            self.blitter_busy = false;
-            self.blitter_startup_ccks_remaining = 0;
-            return true;
+        if self.next_blitter_dma_request().is_some() {
+            return BlitterCckOutcome {
+                interrupt: false,
+                bus_used,
+            };
         }
-        false
+
+        self.finish_blitter_pipeline();
+        BlitterCckOutcome {
+            interrupt: self.emit_blitter_finish(),
+            bus_used,
+        }
+    }
+
+    /// Drive a blit to completion synchronously.
+    ///
+    /// This is the transaction-level CPU-write serialization fallback. It
+    /// consumes the same startup, completion and final-D stages as the live
+    /// CCK path, but exposes no intermediate observer phase to software.
+    ///
+    /// Takes a single bus trait implementation — matches on op type
+    /// so only one direction of the bus is borrowed at a time.
+    pub fn run_blit_to_completion(&mut self, bus: &mut dyn BlitterBus) -> bool {
+        if !self.blitter_busy {
+            return false;
+        }
+
+        let maximum_steps = u64::from(self.blitter_startup_ccks_remaining)
+            + u64::from(self.blitter_ccks_remaining)
+            + 2;
+        let mut steps = 0u64;
+        let mut interrupt = false;
+        while self.blitter_busy {
+            steps += 1;
+            interrupt |= self.tick_blitter_cck(true, bus).interrupt;
+            assert!(
+                steps <= maximum_steps,
+                "serialized blitter drain exceeded its finite operation budget",
+            );
+        }
+        // No external observer ran during the synchronous drain.
+        self.blitter_dmacon_busy_hold_ccks = 0;
+        self.blitter_copper_busy_hold_ccks = 0;
+        interrupt
+    }
+
+    /// Compatibility wrapper that advances one always-granted CCK.
+    ///
+    /// Returns `true` only when this CCK drains the complete internal pipeline.
+    /// It deliberately does not expose the earlier pre-AGA finish-source edge;
+    /// integrations that need interrupt timing or bus use must call
+    /// [`Agnus::tick_blitter_cck`].
+    pub fn tick_blitter_dma(&mut self, bus: &mut dyn BlitterBus) -> bool {
+        let was_busy = self.blitter_busy;
+        let _ = self.tick_blitter_cck(true, bus);
+        was_busy && !self.blitter_busy
     }
 }
 
@@ -2652,11 +2892,11 @@ impl Agnus {
 
     /// Read DMACONR ($DFF002): the stored DMACON enable/control bits
     /// plus live blitter status. BBUSY (bit 14) follows externally visible
-    /// busy: later revisions assert it for the whole in-flight blit, while
-    /// A1000 Agnus keeps it clear until the first accepted startup CCK.
-    /// A `WaitBlit` poll then observes it until completion. BZERO (bit 13)
-    /// reports whether the current or last blit produced an all-zero D
-    /// result; a new blit reloads it on its first accepted startup CCK.
+    /// busy: later revisions assert it at start, while A1000 Agnus keeps it
+    /// clear until the first accepted startup CCK. At pre-AGA completion it
+    /// can release before the internal final-D tail drains. BZERO (bit 13)
+    /// reports whether the current or last blit generated only zero D
+    /// results; a new blit reloads it on its first accepted startup CCK.
     #[must_use]
     pub fn dmaconr(&self) -> u16 {
         let mut v = self.dmacon & bits::DMACON_MASK;
@@ -4202,7 +4442,7 @@ mod tests {
     }
 
     #[test]
-    fn blitter_scheduler_counts_down_and_requires_progress() {
+    fn blitter_scheduler_ops_count_down_and_require_progress() {
         let mut agnus = Agnus::new();
         agnus.bltcon0 = 0x0100; // D write only => 1 DMA op/word
         agnus.bltsize = (1 << 6) | 2; // height=1, width=2 => budget=2
@@ -4212,26 +4452,36 @@ mod tests {
         assert!(agnus.blitter_exec_pending);
         assert_eq!(agnus.blitter_ccks_remaining, 2);
 
-        assert!(
-            !agnus.tick_blitter_scheduler(false),
-            "no progress when bus grant is withheld"
+        assert_eq!(
+            agnus.tick_blitter_scheduler_op(false),
+            BlitterProgress::NoProgress,
+            "no progress when bus grant is withheld",
         );
         assert_eq!(agnus.blitter_ccks_remaining, 2);
 
-        assert!(!agnus.tick_blitter_scheduler(true));
-        assert!(!agnus.tick_blitter_scheduler(true));
+        assert_eq!(
+            agnus.tick_blitter_scheduler_op(true),
+            BlitterProgress::Startup,
+        );
+        assert_eq!(
+            agnus.tick_blitter_scheduler_op(true),
+            BlitterProgress::Startup,
+        );
         assert_eq!(
             agnus.blitter_ccks_remaining, 2,
             "two accepted startup CCKs must not consume D operations",
         );
 
-        assert!(!agnus.tick_blitter_scheduler(true));
+        assert_eq!(
+            agnus.tick_blitter_scheduler_op(true),
+            BlitterProgress::Operation(BlitterDmaOp::WriteD),
+        );
         assert_eq!(agnus.blitter_ccks_remaining, 1);
 
-        assert!(agnus.tick_blitter_scheduler(true));
-        assert!(!agnus.blitter_busy);
-        assert!(!agnus.blitter_exec_pending);
-        assert_eq!(agnus.blitter_ccks_remaining, 0);
+        assert!(
+            agnus.blitter_busy,
+            "the request scheduler cannot retire completion without execution",
+        );
     }
 
     #[test]

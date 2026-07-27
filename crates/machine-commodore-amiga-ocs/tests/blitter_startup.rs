@@ -118,6 +118,11 @@ fn a1000_machine_hides_busy_until_first_grant_without_completing_or_interrupting
         guard += 1;
         assert!(guard < 2_000, "A1000 one-operation blit never completed");
     }
+    while a1000.read_word(DMACONR) & BBUSY != 0 {
+        a1000.tick();
+        guard += 1;
+        assert!(guard < 2_000, "A1000 DMACONR completion hold never cleared");
+    }
     assert_eq!(a1000.read_word(DMACONR) & BBUSY, 0);
     assert_ne!(a1000.read_word(INTREQR) & INT_BLIT, 0);
 }

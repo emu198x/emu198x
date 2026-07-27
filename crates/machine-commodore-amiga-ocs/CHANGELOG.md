@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add end-to-end coverage for pre-AGA finish, DMACONR and Copper BFD
+  boundaries, final-D contention and non-nasty same-CCK bus ownership
 - Add model-level coverage for A1000-versus-later BBUSY visibility, accepted
   startup progress, deferred channel service and completion interrupt timing
 - Add an A1000 Copper regression in which BBUSY becomes visible between

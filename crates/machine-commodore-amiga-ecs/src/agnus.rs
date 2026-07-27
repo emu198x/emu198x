@@ -9,8 +9,8 @@
 
 pub use commodore_agnus_ecs::AgnusEcs;
 pub use commodore_agnus_ocs::{
-    Agnus, AgnusRegion, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_LINES_PER_FRAME, PAL_CCKS_PER_FRAME,
-    PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
+    Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_LINES_PER_FRAME,
+    PAL_CCKS_PER_FRAME, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
 };
 
 /// PAL line length in CCKs — alias for the chip-crate constant under

@@ -43,7 +43,7 @@ use crate::board::{BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, TICKS_PER_C
 use crate::cia::Cia;
 use crate::copper::Copper;
 use crate::memory::Memory;
-use commodore_agnus_ocs::{Agnus, CckBusPlan, SlotOwner};
+use commodore_agnus_ocs::{Agnus, BlitterCckOutcome, CckBusPlan, SlotOwner};
 use commodore_paula_8364::{IntSource, Paula8364};
 use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode};
@@ -98,10 +98,13 @@ pub trait AmigaDriver {
         blitter_busy: bool,
     ) -> Option<(u16, u16)>;
 
-    /// Advance the blitter DMA by one granted CCK. Returns `true` if the
-    /// blit drained this cycle (INT_BLIT should fire). Encapsulates the
-    /// `&mut agnus` + `&mut memory` (`ChipRamBus`) split borrow.
-    fn blitter_dma_step(&mut self) -> bool;
+    /// Advance the blitter completion pipeline by one CCK.
+    ///
+    /// Startup, channel operations and final D consume
+    /// `progress_granted`; the already-admitted internal result stage does
+    /// not. Encapsulates the `&mut agnus` + `&mut memory` (`ChipRamBus`)
+    /// split borrow.
+    fn blitter_dma_step(&mut self, progress_granted: bool) -> BlitterCckOutcome;
 
     /// Step Paula's audio engine for one CCK, reading sample data from
     /// chip RAM. Encapsulates the `&mut paula` + `&memory` split borrow.
@@ -245,11 +248,11 @@ pub trait AmigaDriver {
                 // the non-Denise ones.
                 let vpos = self.agnus().vpos;
                 let hpos = self.agnus().hpos;
-                // Copper WAIT/SKIP BFD=0 sees the externally visible
-                // blitter-busy signal. A1000 Agnus delays that signal until
-                // its first accepted/free progress CCK; internal arbitration
-                // remains busy from BLTSIZE onward.
-                let blitter_busy = self.agnus().blitter_busy_visible();
+                // Copper WAIT/SKIP BFD=0 sees its own blitter-finished
+                // observation. It shares the A1000 startup exception with
+                // DMACONR, but retains busy one CCK longer after main finish
+                // while the final-D pipeline advances.
+                let blitter_busy = self.agnus().blitter_busy_copper();
                 if let Some((reg, val)) =
                     self.copper_tick_cck(vpos, hpos, copper_slot_granted, blitter_busy)
                 {
@@ -267,13 +270,16 @@ pub trait AmigaDriver {
             let bus_plan = self.agnus_bus_plan();
             bitplane_dma_fetch_plane = bus_plan.bitplane_dma_fetch_plane;
 
-            // ── Blitter DMA — one startup outcome or channel op per
-            // granted CCK (#31). A blit consumes real chip cycles and
-            // contends for the bus rather than finishing instantly on the
-            // BLTSIZE write. Later chips expose BBUSY immediately; A1000
-            // does so after the first accepted startup CCK. INT_BLIT fires
-            // on the CCK that drains the last operation.
-            if bus_plan.blitter_dma_progress_granted && self.blitter_dma_step() {
+            // ── Blitter DMA and completion pipeline ───────────────
+            // The entry point runs every CCK. Startup/channel/final-D work
+            // remains grant-gated; the internal final-result stage advances
+            // after the last admitted main cycle without another bus grant.
+            // Pre-AGA normal D blits emit INT_BLIT before final D, while
+            // Alice delays that source to final D.
+            let blitter_outcome = self.blitter_dma_step(bus_plan.blitter_dma_progress_granted);
+            self.agnus_mut()
+                .record_blitter_bus_use(blitter_outcome.bus_used);
+            if blitter_outcome.interrupt {
                 self.paula_mut().raise(IntSource::Blit);
             }
 
@@ -454,6 +460,7 @@ pub trait AmigaDriver {
         // actual sprite use authoritative until the next CCK rather than
         // retroactively granting the same bus cell to the CPU.
         let dma_holds_bus = self.agnus().sprite_bus_used_this_cck()
+            || self.agnus().blitter_bus_used_this_cck()
             || match bus_plan.slot_owner {
                 SlotOwner::Cpu => !bus_plan.cpu_chip_bus_granted,
                 SlotOwner::Copper => self.copper().bus_used_this_cck,

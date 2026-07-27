@@ -9,11 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose Copper busy, completion phase, remaining completion CCKs and
+  final-D pending state through Agnus and blitter query namespaces
 - Expose internal busy, visible busy and remaining startup CCKs as distinct
   Agnus and blitter query leaves
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 17 so pre-AGA and Alice
+  completion phases, observer holds, one-shot finish state and same-CCK
+  blitter bus use survive restore; version 16 is rejected
 - Bump Amiga postcard snapshots to version 16 so the shared two-CCK
   blitter-startup phase and pending Copper `WAIT`/`SKIP` kind survive restore;
   version 15 is rejected because it cannot preserve A1000 BBUSY visibility,
