@@ -1,23 +1,15 @@
 # Decision: Amiga machine rollout plan
 
 **Date:** 2026-05-22
-**Status:** A1200 Stages A–K landed 2026-05-22. Stage J fixed a
-68010+ RTE bug (RTE now pops the Format/Vector word). Stage K
-added the 68020+ 28-byte Format-$A "short bus fault" frame for
-group-0 (bus/address error) exceptions, replacing the 14-byte
-68000-style frame, and taught RTE to pop the 20-byte tail when
-the popped F/V word's Format nibble is `$A`. KS 3.1 now alerts
-with the **specific** code `$80000003` (`AN_ExcptVect`,
-"exception vector check failed") instead of the previous chaotic
-codes — a sign that the frame format is now agreeing with KS
-and the remaining mismatch is at a higher level (the stack
-leak from KS's SHORTER pseudo-frame routine, which our 8-byte
-RTE pop turns into a 2-byte leak per call). The chain is now:
-priv-viol probes succeed → ExitIntr's RTE at `$F81398` pops a
-slightly-misaligned PC → vec-3 address error → `$F80B0E`
-handler → alert with `$80000003`. Cycle 1 reaches 5538 unique
-PCs (2.4× pre-Stage-J), IPL drops at frame 115, video chips
-init reached.
+**Status:** A1200 work recorded through Stage U landed by
+2026-05-25; the Stage V candidates remain open. At the last
+rollout investigation recorded here, KS 3.1 reached Exec idle
+after AGA register and palette initialisation, while the final
+Workbench-display copper-list path remained unresolved. CPU
+follow-ups on 2026-07-25 corrected the Format `$A` frame extent
+to 16 words and made MC68010+ acknowledged-vector identity
+consistent. Stage-local diagnoses below are retained as
+historical observations at their original boundaries.
 
 ## What this is
 
@@ -637,10 +629,14 @@ frame's F-V slot ($0020) and low word was the byte past it
 - `TAG_RTE_READ_FMT2_HI` / `TAG_RTE_READ_FMT2_LO` — for Format-$2
   frames, pop the 4-byte Instruction Address above the F-V word.
 
-Other formats ($1 throwaway, $9 coprocessor mid-instruction, $A/$B
-access fault) currently fall through to "finish" rather than
-raising a format-error exception. KS 3.1 boot doesn't generate
-them; we'll add proper handling when something does.
+Format `$1` now consumes its throwaway ISP frame and restarts `RTE` on
+the master stack, as defined in
+[MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md).
+Format `$A` is recognised and its complete footprint is consumed by
+the A1200 fault path. Its precise special-status, pipeline and rerun
+semantics remain incomplete. Format `$9` and `$B` remain incomplete;
+none of these wider frames must be inferred from the working short
+frames.
 
 **Verification.** Before: 12 vec-11 traps per cycle, perpetual
 reboot, 2315 unique PCs visited, IPL never drops. After: 6 vec-11
@@ -714,19 +710,28 @@ parity at a higher level.
 
 ### Stage K landed
 
-68020+ now pushes a 28-byte Format-$A short bus-fault frame for
-group-0 exceptions (vec 2, vec 3), replacing the 14-byte 68000
-frame. RTE now pops the F/V word and dispatches on the Format
+68020+ pushes a 16-word/32-byte Format-$A short bus-fault frame
+for group-0 exceptions (vec 2, vec 3), replacing the 14-byte
+68000 frame. RTE pops the F/V word and dispatches on the Format
 nibble — Format $0 (8 bytes), Format $2 (12 bytes), Format $A
-(28 bytes). Implemented in `motorola-68000` behind a new
-`variant_format_a_group0` flag enabled in the 68020 wrapper;
-new follow-up tags: `TAG_AE_FMT_A_STEP` for the 11-step push,
-`TAG_RTE_READ_FMTA_STEP` for the 10-step tail pop.
+(32 bytes). Implemented in `motorola-68000` behind
+`variant_format_a_group0`, enabled in the 68020 wrapper.
+`TAG_AE_FMT_A_STEP` performs the 13-step back-to-front push and
+`TAG_RTE_READ_FMTA_STEP` consumes the 12-word tail above the
+common eight-byte prefix.
+
+The first Stage K implementation used 28 bytes and omitted the
+two internal-register words at offsets `$1C` and `$1E`. The
+2026-07-25 correction makes the memory extent match MC68020UM
+Table 6-5. This is structural frame compatibility: the
+exact special-status, pipeline, data-buffer and internal state is
+incomplete, and `RTE` consumes the footprint without reconstructing
+restart state or rerunning the faulted access.
 
 **Result:** KS 3.1 alert code went from chaotic `$03FF` →
 specific `$80000003` = `AN_ExcptVect` ("exception vector check
-failed"). The frame format is now agreeing with KS; the
-remaining bug is at a higher level — the stack leak from
+failed"). The frame extent and offsets inspected by this path now agree
+with KS; the remaining bug is at a higher level — the stack leak from
 KS's SHORTER pseudo-frame path. See Stage L.
 
 ## A1200 Stage L — chase the AN_ExcptVect alert
@@ -797,30 +802,31 @@ each 8-byte RTE pop. Six bytes is the 68000-style group-1
 exception frame size; the missing 2 bytes is the F/V word the
 68010+ frame is supposed to carry.
 
-**Fix.** `motorola-68000/src/cpu.rs::initiate_interrupt_exception`
-now branches on `variant_six_word_frame`. On 68010+ it pushes
-the F/V word first (vector = 24 + level for autovectored
-interrupts, which is what all retro 68010+ Amiga / Atari Falcon
-targets use), then chains through `TAG_EXC_STACK_FORMAT` for
-the PC + SR push — mirroring `begin_group1_exception`. The 68000
-path is unchanged.
+**Initial fix.** `motorola-68000/src/cpu.rs::initiate_interrupt_exception`
+was made to branch on `variant_six_word_frame`. The first version
+prebuilt an autovector Format/Vector word, then chained through
+`TAG_EXC_STACK_FORMAT` for the PC + SR push. That closed the A1200
+stack leak but did not cover device-supplied vectors.
 
-**Genuinely-vectored 68010+ systems** (Mac via VIA/SCC, some
-VME) would need an IACK-first refactor before the F/V push so
-the pre-pushed vector matches the external vector. No current
-target uses vectored interrupts; deferred until one does.
+**Acknowledged-vector follow-up (2026-07-25).** The formatted path now
+performs interrupt acknowledge first, retains the selected device,
+autovector or spurious vector, and uses it for both the Format/Vector
+word and handler fetch. Genuinely vectored MC68010+ systems therefore
+share the same architectural path; later-family physical acknowledge
+signals remain a separate bus-boundary concern.
 
 **Result.** A1200 boot progression jumped from 5,539 unique PCs
 visited (alert at `$F8044E` blinker) to **22,880 unique PCs**
 visited — boot now reaches resident-module init at `$F96xxx`.
-SSP no longer drifts past chip-RAM top. Tom Harte 68000/68010/
-68020 suites + all Amiga machine tests green.
+SSP no longer drifts past chip-RAM top. The SingleStepTests
+MC68000 suite, Musashi-generated MC68010/MC68020 suites and all
+Amiga machine tests remained green.
 
 The new alert (`D7 = $80000004`, popped at `$F96424` /
 `$F958E0` / `$F96856`) is a separate problem deep in
 resident-module init — Stage M territory.
 
-## A1200 Stage M findings — 2026-05-24 (in flight)
+## A1200 Stage M findings — 2026-05-24 (landed)
 
 KS 3.1 was tripping vector 4 (illegal instruction) at
 `$F85298` on a `BFEXTU (A1), …` opcode. Our 68020 implemented
@@ -895,7 +901,8 @@ hardware-side issue (Paula audio, Gayle PCMCIA quirks,
 graphics.library expectations) is the Stage M follow-up
 investigation.
 
-**Tom Harte 68000 / 68010 / 68020 + all Amiga machine tests
+**The SingleStepTests MC68000 suite, Musashi-generated
+MC68010/MC68020 suites and all Amiga machine tests remained
 green** — no regressions from the new pipeline.
 
 ### Stage M follow-ups landed — 2026-05-24
@@ -963,8 +970,9 @@ coverage expansion. Three CPU-completeness gaps closed:
 - 68020+ bit-field memory operands (Stage M / M-2..M-5)
 - Test-only IRQ-counter visibility (Stage N)
 
-Tom Harte 68000 / 68010 / 68020 + all Amiga machine tests stay
-green throughout.
+The SingleStepTests MC68000 suite, Musashi-generated
+MC68010/MC68020 suites and all Amiga machine tests stayed green
+throughout.
 
 ### Diagnostic surface left in `ks31_boot.rs`
 
@@ -1395,4 +1403,5 @@ Stage V candidates:
 
 - [Amiga full-family architecture review](amiga-full-family-architecture-review.md) — the architectural seams this plan sequences through.
 - [Motorola 68k variant pattern](motorola-68k-variant-pattern.md) — the wrap-don't-clone pattern that makes CPU swaps mechanical.
-- [Motorola 68k test-oracle strategy](m68k-test-oracle-strategy.md) — the verification ladder, with Mitigation B gated on the first real 68020 machine (i.e., A1200 Stage C).
+- [MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md) — the paired MSP/ISP frame and `RTE` rule inherited by later CPUs.
+- [Motorola 68k test-oracle strategy](m68k-test-oracle-strategy.md) — the verification ladder and the still-separate WinUAE consensus-oracle work.

@@ -5,7 +5,7 @@
 //! See `knowledge/decisions/motorola-68020-implementation-plan.md`
 //! Phase 1.5 for the architectural context: the 68010 owns its own
 //! ISA delta, the 68020 wraps the 68010, and each variant gets its
-//! own Tom Harte sweep so regressions stay isolated to the right
+//! own generated-corpus sweep so regressions stay isolated to the right
 //! layer.
 //!
 //! Default corpus root:

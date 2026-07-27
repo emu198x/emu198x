@@ -244,30 +244,28 @@ deltas but don't implement them. The deltas are well-bounded:
 - **68060**: superset plus superscalar dispatch.
 - **AC68080**: 68060 superset plus Apollo extensions.
 
-**Proposed change.** Implement in the order matching variant
+**Execution order.** Implement in the order matching variant
 demand:
 
-1. **68EC020 first.** Unlocks A1200, CD32, the most-requested
-   AGA targets. Crate `motorola-68020` lives in the workspace
-   with a `Cpu68020` struct exposing the 68020's synchronous-bus
-   pin surface. Re-uses `motorola-68k-common` for ALU /
-   addressing / register file. New microcode for 32-bit
-   memory-indirect addressing modes and coprocessor interface
-   (stubbed for EC variant).
-2. **68030.** Unlocks A3000 and accelerator boards (CSA Magnum,
-   GVP Accelerator). On-die MMU implementation lives in this
-   crate; 68040 re-uses it via `MmuMode::M68040` per the existing
-   skeleton plan.
-3. **68040.** Unlocks A4000 base model.
+1. **68EC020 first — landed.** The A1200 composes `Cpu68020`
+   through the shared compatibility bus. Dynamic sizing and
+   responder-width signalling remain separate bus-boundary work.
+2. **68030 wrapper — landed.** It inherits the 68020 instruction
+   core; processor-specific MMU and cache integration remain
+   incomplete before an A3000 or accelerator target can rely on it.
+3. **68040 wrapper — landed.** It inherits the shared instruction
+   core. Processor-specific cache, MMU/FPU and exception-frame work
+   remain before an A4000 target can rely on it.
 4. **68060.** Optional A4000T accelerator coverage.
 5. **AC68080.** Apollo Vampire targets. May land outside Motorola
    namespace (`apollo-ac68080`) since it's a clean-room FPGA
    reimplementation with vector extensions.
 
-Each variant follows the same shape: own crate, own pin surface
-(may differ between variants), own state machine, own Tom Harte
-slice. The 68k-common substrate grows only as new instructions are
-added; existing 68000 code stays unchanged.
+Each implemented variant follows the wrapper pattern: its own crate
+layers a narrow ISA and behaviour delta over the previous processor.
+The MC68000 uses the retained SingleStepTests corpus; later variants
+use Musashi-generated corpora plus directed manual-based tests.
+Physical bus surfaces may still diverge by processor.
 
 **Silicon evidence (Reference library):**
 
@@ -677,8 +675,8 @@ The Amiga reference surface is rich. The most relevant material:
 | FS-UAE source | Sibling open implementation | Cross-validation |
 | vAmiga source (vendored) | C++ Amiga emulator | Cross-validation |
 | Musashi (vendored) | 68k-family C implementation | Seam 2 cross-validation |
-| Tom Harte 68000 (in CI) | 68000 instruction-vector corpus | Locked at 100% |
-| Tom Harte 68020 / 68030 / 68040 (community) | Higher-variant vectors | Seam 2 incoming |
+| SingleStepTests/680x0 | Implementation-generated MC68000 vectors | MC68000 regression oracle |
+| `m68k-test-gen` | Musashi-generated MC68010–MC68040 vectors | Later-variant software oracle |
 
 ### Cross-cutting global KB
 

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add capability-gated MC68020-family A7 selection across USP, ISP and MSP
+  without interpreting the reserved M bit on MC68000 or MC68010 register files
 - Add shared interrupt-acknowledge address helpers for carrying the
   accepted level on A3-A1 through the current MC68000-shaped shared
   core and its inherited test harnesses

@@ -1,39 +1,42 @@
 # Decision: Motorola 68020 implementation plan
 
 **Date:** 2026-05-21
-**Status:** Proposed (execution plan)
+**Status:** Active execution record. The shared MC68020 core and A1200
+integration are implemented. Dynamic external-bus sizing, precise
+access-fault restart and the remaining processor-specific exception
+frames are still open.
 
 ## What this is
 
-A phased execution plan for fleshing out `motorola-68020` from
-skeleton crate (where it sits today) to a working 68020 / 68EC020
-implementation. Implements Seam 2 of
+A phased execution record for taking `motorola-68020` from its original
+skeleton crate to a working 68020 / 68EC020 implementation. Implements
+Seam 2 of
 [`amiga-full-family-architecture-review.md`](amiga-full-family-architecture-review.md).
 
-The 68020 is the gating CPU for several major Amiga targets:
+The 68020 was the gating CPU for several major Amiga targets:
 
-- **A1200** (68EC020 @ 14 MHz, AGA chipset)
+- **A1200** (68EC020 @ 14 MHz, AGA chipset) — active
 - **CD32** (68EC020 @ 14 MHz, AGA + AKIKO)
 - **A2500/30/UX accelerator boards** for A2000
 
-Without a working 68020 the workspace can't model any AGA hardware
-beyond a desk-check. With it landed, the entire AGA chipset
-infrastructure (Lisa Denise, fat Agnus AGA) plugs onto a working
-CPU and the catalogue can grow into the 1992-1994 software corpus.
+Landing the core allowed the AGA chipset infrastructure (Lisa and
+Alice) to run on the A1200. CD32 and accelerator targets still depend
+on their machine-specific hardware.
 
-## What we are *not* changing
+## Architectural constraints
 
-- Tom Harte 68000 100% pass on `motorola-68000`. Untouched.
-- `motorola-68k-common` shared substrate (addressing modes, ALU,
-  bus pin types, register file, status flags, `CpuModel` enum).
-  All 68020 additions land as additive modules or new arms.
+- The SingleStepTests MC68000 baseline must not regress.
+- `motorola-68k-common` and `motorola-68000` remain the shared
+  substrate. MC68020 deltas use wrappers, decode hooks and narrow
+  capability gates, including the register-file capability needed
+  for three-way A7 selection.
 - Crate boundary. `motorola-68020` is the home; this plan does not
   add new crates.
 
-## What's already in place
+## Starting point (2026-05-21)
 
-The scaffold is done (skeleton at
-`crates/motorola-68020/src/lib.rs`, 153 lines):
+The scaffold was a 153-line skeleton at
+`crates/motorola-68020/src/lib.rs`:
 
 - Detailed silicon-feature doc comment covering bus, pipeline,
   new control registers (CACR/CAAR/MSP/ISP), new instructions
@@ -49,9 +52,9 @@ The scaffold is done (skeleton at
   `CpuModel::M68020` / `M68EC020` identifiers (already in the
   shared enum).
 
-What's missing: the actual state machine, decode tables, new
-addressing-mode parsing, instruction implementations, bus
-protocol, cache, coprocessor interface stubs.
+At that point, what was missing was the actual state machine, decode
+tables, new addressing-mode parsing, instruction implementations, bus
+protocol, cache and coprocessor interface.
 
 ## The architectural fault line
 
@@ -68,50 +71,48 @@ protocol shifts fundamentally:
 | Pipeline | 2-word prefetch | 2-word prefetch + parallel decode |
 | Instruction cache | None | 256-byte direct-mapped, 16 lines × 4 words |
 
-The Amiga A1200's 68EC020 sits on a 16-bit chip bus (matching the
-OCS/ECS/AGA chipset's data path) but runs at 14 MHz with
-dynamic-bus-sized memory accesses. So the bus protocol differences
-matter for any Amiga code that touches custom registers — the
-typical 68000 chipset machine assumes word-aligned 16-bit
-read/write, the 68020 may emit narrower or wider transactions.
+The Amiga A1200's 68EC020 encounters different responder widths across
+its address map and runs at 14 MHz with dynamic-bus-sized memory
+accesses. The exact per-region widths still need to be pinned from
+primary machine evidence. The protocol differences already matter for
+unaligned operands and for code that touches custom registers: the
+68020 may split one logical operand into several narrower transactions.
 
-This means the machine layer wiring is also new work:
-`machine-commodore-amiga-aga` will need a `service_cpu_bus`
-analogue that understands SIZ0/SIZ1 and DSACK0/1, not the
-68000's pure DTACK-vs-VPA dispatch.
+The active `machine-commodore-amiga-a1200` currently services the
+shared byte/word transaction surface. A future dynamic-sizing
+implementation must add SIZ0/SIZ1, DSACK0/1 and per-region responder
+widths to that machine boundary; the working A1200 integration is not
+evidence that those physical bus phases are already modelled.
 
-## Tom Harte test corpus
+## Instruction test corpora
 
-The Tom Harte project (SingleStepTests on GitHub) ships
-single-step test vectors for the 68000 (canonical, in CI at
-100%) and community-generated coverage for 68020 / 68030 /
-68040 (separate corpus, also single-step format).
+SingleStepTests/680x0 publishes MC68000 vectors only. It does not
+publish MC68020, MC68030 or MC68040 corpora.
 
-**Action needed early in execution**: locate or download the
-68020 corpus into `~/Projects/198x/assets/test-suites/`,
-register a path env var (`M68020_TEST_DATA`), and wire a
-`#[ignore]`'d integration test in `motorola-68020/tests/`
-mirroring `motorola-68000/tests/tom_harte.rs`. The 68020
-corpus is per-instruction JSON files, 10,000 vectors each.
+The later-processor instruction corpora are MessagePack fixtures
+generated by `m68k-test-gen` from Musashi. The retained MC68000 subset
+provides a separate inherited-behaviour cross-check. Some harness
+filenames retain `tom_harte` as a legacy identifier; that name is not
+their provenance.
 
-Without the corpus the implementation has no repeatable
-instruction-level comparison baseline, so regressions could pass
-without detection.
+Current corpus provenance, counts, exclusions and limitations are
+canonical in
+[M68k test-oracle strategy](m68k-test-oracle-strategy.md).
 
 ## Phased implementation
 
-Each phase below ends with a green test gate. Phases are sized
-to fit roughly one focused session, but can stretch — Phase 0 is
-small, Phase 1+ are large.
+Completed phases record their verification gates below. The original
+plan sized each phase for roughly one focused session; the retained
+estimates are historical rather than current commitments.
 
-### Phase 0 — Tom Harte 68020 corpus + first vector pass
+### Phase 0 — generated MC68020 corpus + first vector pass
 
 **Goal**: harness in place + the shared 68000-subset already
 runs through it via the type alias.
 
 **Status: complete (2026-05-21).**
 
-- ~~Download Tom Harte 68020 corpus~~ — none is published
+- ~~Locate a published MC68020 SingleStepTests corpus~~ — none is published
   upstream (the SingleStepTests/680x0 repo stops at 68000).
   Instead we use `Emu198x-Oldest/crates/m68k-test-gen`, which
   drives Musashi as the reference oracle and emits MessagePack
@@ -164,6 +165,10 @@ per-method forwarding. The wrapper pattern is adapted from
 `Emu198x-Oldest/crates/motorola-68020/src/lib.rs`, modulo the old
 `CpuModel`-flagged inner core (stripped 2026-04-29).
 
+That was the landing shape. The control registers now live in the
+shared `Registers` value so inherited wrappers and serialization use
+one register file; `Cpu68020` remains the capability-installing wrapper.
+
 - `crates/motorola-68020/src/cpu.rs` (~140 lines): the wrapper
   struct, `new()` / `Default` / `into_inner` / `as_inner` /
   `as_inner_mut`, `Deref` / `DerefMut`, `From<Cpu68020> for
@@ -172,9 +177,11 @@ per-method forwarding. The wrapper pattern is adapted from
   the new registers are independent of the inner core's SSP, and
   `setup_prefetch` reaches the inner pipeline through `DerefMut`).
 - `crates/motorola-68020/src/lib.rs`: re-export now points at the
-  wrapper struct. `Cpu68EC020` is a type alias to `Cpu68020` —
-  the two diverge only in Phase 8 (F-line dispatch).
-- Tom Harte baseline re-measured: still **2072 / 2400 = 86.33 %**.
+  wrapper struct. `Cpu68EC020` remains a type alias to `Cpu68020`;
+  coprocessor presence is selected by configuration rather than a
+  second CPU type.
+- Musashi-generated baseline re-measured: still
+  **2072 / 2400 = 86.33 %**.
   No drift, as expected — the wrapper changes structure, not
   behaviour.
 
@@ -204,8 +211,8 @@ own delta and chains hooks through the family.
 - **`motorola-68010`** is no longer a type-alias skeleton: it owns
   `Cpu68010` (`Cpu68000` + Deref) and a `decode_68010_opcode` hook
   that handles `MOVE from CCR` (register destination) and `MOVEC`
-  (read/write VBR / SFC / DFC / USP). The crate gets its own Tom
-  Harte harness against an `m68k-test-gen`-produced
+  (read/write VBR / SFC / DFC / USP). The crate gets its own
+  generated-corpus harness against an `m68k-test-gen`-produced
   `m68010/v1/` corpus (229 fixtures × 10 vectors = 2,290 tests).
 
 - **`motorola-68020`** repointed: `Cpu68020` now wraps
@@ -228,9 +235,9 @@ own delta and chains hooks through the family.
 
 EXTB.L and MOVE-from-CCR went 0 % → 100 %. MOVEC_010 and BKPT
 still fail (0 %) because their failing fixtures take the 68010
-ILLEGAL trap, and the trap currently pushes a 4-word (68000)
-frame instead of the 6-word (68010) frame Musashi captures. The
-6-word frame is **Phase 6** scope — adding it here would have
+ILLEGAL trap, and the trap currently pushes a 3-word, 6-byte MC68000
+frame instead of the 4-word, 8-byte MC68010 frame Musashi captures. The
+formatted frame is **Phase 6** scope — adding it here would have
 forced the `begin_group1_exception` rewrite to land out of
 sequence. RTD is deferred to a later phase that hosts the
 multi-step continuation dispatch the wrapper needs.
@@ -246,14 +253,18 @@ Tracked as Phase 1.5 follow-on, not chased here.
 DSACK0/1, AS, DS, R/W, FC0/1/2, IPL0/1/2, BERR, HALT, RESET,
 CDIS, CIIN).
 
+**Status: deferred.** The active core and A1200 use the shared
+compatibility transaction surface. Logical unaligned RAM accesses are
+correct, but responder-width selection, split MMIO side effects and
+pin-level timing are not implemented.
+
 - Define the bus pin types in `motorola-68k-common::bus` (extend
   the existing `BusPins` shape; 68020 needs more pins).
 - Bus state machine: replace 68000's "wait for DTACK low" with
   68020's "sample DSACK on next clock edge, decode size from
   SIZ pins."
-- The machine layer for AGA will drive these pins; for now
-  `Cpu68020` just exposes them and the test harness wires them
-  up.
+- Extend `machine-commodore-amiga-a1200` to drive those pins and
+  declare responder widths per address region.
 
 ### Phase 3 — scaled index + brief extension word
 
@@ -268,12 +279,13 @@ extension point: a narrow `pub` boolean on `Cpu68000` that the
 shared EA / decode paths consult.
 
 - Added `Cpu68000.variant_scaled_index: bool` (default false,
-  `#[serde(skip)]`). `Cpu68020::new()` flips it to true.
+  `#[serde(skip)]`). `Cpu68020::install_variant_hooks()` enables it.
 - The two `AddrIndIndex` / `PcIndex` sites in
   `motorola-68000/src/ea.rs` now read `1 << ((ext >> 9) & 0x3)`
   when the flag is set, and stay at `1` otherwise. 68000 / 68010
   behaviour unchanged.
-- Tom Harte 68020 baseline: 2092 → **2226 / 2400 = 92.75 %**
+- Musashi-generated MC68020 baseline:
+  2092 → **2226 / 2400 = 92.75 %**
   (+134 tests, +19 fully-passing fixtures). 68010 unchanged at
   97.64 %. The 16 ADD/ADDI/CLR/LEA/MOVE/PEA scaled-index
   fixtures all flipped from partial (10-60 %) to 100 %, plus
@@ -289,6 +301,10 @@ narrow `pub` boolean on `Cpu68000`, set in the variant wrapper's
 extension word's pre-/post-index + base displacement + outer
 displacement.
 
+**Status: implemented in the current EA decoder (2026-05-28).**
+Directed `full_format_ea` regressions cover the path; the generated
+corpora still do not emit full-format extension words.
+
 This is the single largest piece of decode work in the entire
 68020 — full extension word parsing is roughly the same effort
 as everything else combined per the M68000PRM. Phaseable
@@ -302,7 +318,9 @@ internally:
 - 4d: suppress-base (BS bit) and suppress-index (IS bit) —
   build the address from only the displacements.
 
-Tom Harte coverage grows substantially after this lands.
+Generated-corpus pass rates do not measure this phase. That coverage
+boundary is recorded in
+[M68k test-oracle strategy](m68k-test-oracle-strategy.md).
 
 ### Phase 5 — new instructions
 
@@ -377,25 +395,29 @@ unchanged at 97.64 %.
 - 5h: **CAS / CAS2** — atomic compare-and-swap.
 - 5i: **CALLM / RTM** — module call. Largely vestigial.
 
-Each sub-phase ends with the Tom Harte slice for those
+Each sub-phase ends with the generated-corpus slice for those
 instructions passing.
 
 ### Phase 6 — exception frames + interrupt model
 
-**Goal**: 68010+ 6-word frame + M-flag + (later) the wider frame
-formats and MSP/ISP routing.
+**Goal**: 68010+ formatted short frame, M-flag, wider frame formats and
+MSP/ISP routing.
 
-**Status: partial — short-frame portion landed (2026-05-21).**
+**Status: complete for the ordinary, instruction-error and
+master-interrupt paths (2026-07-25).** Format `$9` and `$B` remain
+separate work; structural Format `$A` support landed during A1200
+bring-up.
 
 The short-frame piece is what every group-1/2 exception on the
-68010/68020 needs and what the Tom Harte corpus tests. Wider
-frames (format $9 coprocessor, $A/$B bus error) and the MSP/ISP
-split are deferred — no current fixture exercises them.
+68010/68020 needs and what the generated corpus tests. Manual-directed
+regressions now cover the MSP/ISP split and Format `$1`, which the
+generated fixtures did not exercise.
 
 What landed:
 
 - **Two new variant flags on `Cpu68000`**:
-  - `variant_six_word_frame: bool` — 68010 and 68020 both set.
+  - `variant_six_word_frame: bool` — legacy field name; 68010 and
+    68020 both set it for the four-word, eight-byte formatted frame.
     `begin_group1_exception` consults it; when set, the frame
     push starts with a `PushWord` of the Format/Vector word at
     the highest address (SP+6 in the final 8-byte frame), then
@@ -421,24 +443,29 @@ Baselines after Phase 6:
 | `motorola-68010` | **2265 / 2290 = 98.91 %** | +29 tests | 224 / 229 | 1 / 229 (RTD) |
 | `motorola-68020` | **2368 / 2400 = 98.67 %** | +42 tests | 234 / 240 | 1 / 240 (RTD) |
 
-BKPT and MOVEC_010 closed on both crates (6-word frame).
+BKPT and MOVEC_010 closed on both crates (four-word Format `$0` frame).
 MOVEtoSR / ORItoSR / EORItoSR closed on 68020 (M-flag), and
 their lingering issues on 68010 also fell out (random-source bits
 that previously survived the wrong mask now don't survive the
 right one).
 
-Deferred:
+The initial closeout deferred Format `$1`, Format `$2`, the wider fault
+frames and MSP/ISP routing. Format `$2` subsequently landed in the
+closeout below. Structural Format `$A` support landed during A1200
+bring-up. Format `$1` and MSP/ISP routing landed on 2026-07-25; their
+canonical implementation rule is
+[MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md).
+Format `$9` and `$B` remain deferred.
 
-- **Format $1** throwaway interrupt frame — needs the M-flag
-  routing to actually pick which SP to push onto.
-- **Format $2** instruction-error trap (CHK / TRAPV / divide-by-
-  zero on the 68020): adds the faulting-instruction PC. The 68020
-  CHK partial is in this category.
-- **Format $9 / $A / $B** — no fixture exercises them; defer.
-- **MSP / ISP routing** — needs the M-flag to actually steer
-  stack accesses through `regs.msp` vs `regs.ssp` instead of
-  always `regs.ssp`. No current Tom Harte fixture sets up
-  initial M=1 so no observable behaviour today.
+Current Format `$A` support is layout compatibility, not complete
+fault restart. Entry uses the documented 16-word extent and field
+offsets, while exact special-status, pipeline, data-buffer and internal
+state remains incomplete. `RTE` consumes the complete frame footprint
+but does not reconstruct that state or rerun the faulted access.
+MC68010-and-later group-0 handler fetches apply VBR. When an odd
+next-instruction prefetch takes vector 3 on the MC68020 path, the
+Format `$A` common PC field records the rejected address rather than
+the preceding instruction start.
 
 #### Phase 6.5 — DIV overflow C-preservation
 
@@ -552,9 +579,9 @@ CHK (1/10) — the Format $2 instruction-error exception frame.
 Phase 6.5 and 7.5 chased the m68k-test-gen 68010 / 68020 corpora
 to 100 % by rewriting the shared BCD ALU and 16-bit DIV overflow
 path to match Musashi. That regressed the upstream
-`motorola-68000` Tom Harte harness — which uses the
-implementation-generated SingleStepTests/680x0 corpus — from
-100 % to 98.89 %. The concrete flag values on `ABCD` / `SBCD` /
+`motorola-68000` SingleStepTests harness — which uses the
+implementation-generated SingleStepTests/680x0 corpus — from 100 % to
+98.89 %. The concrete flag values on `ABCD` / `SBCD` /
 `NBCD` and on `DIVU.W` / `DIVS.W` overflow differ between
 SingleStepTests and Musashi. The PRM leaves BCD V and the DIV
 overflow N/Z values undefined while specifying DIV C clear and V
@@ -634,12 +661,49 @@ Final baselines:
 | `motorola-68010` | **2290 / 2290 = 100.00 %** | (unchanged) | **0** |
 | `motorola-68020` | **2400 / 2400 = 100.00 %** | +9 | **0** |
 
-**Both crates at 100 %.** The Tom Harte 68k corpus is fully green.
+**Both crates at 100 %.** The generated 68k corpus is fully green.
+
+### Phase 6 master-stack closeout — MSP/ISP and Format `$1`
+
+**Status: complete (2026-07-25).**
+
+The MC68020 wrapper now enables three-way A7 selection: USP in user
+mode, ISP in supervisor interrupt mode and MSP in supervisor master
+mode. The capability is reinstalled after deserialization and remains
+disabled on the MC68000 and MC68010, where SR bit 12 is reserved.
+
+An interrupt accepted with M set writes its ordinary Format `$0` frame
+to MSP, clears live M and writes a matching four-word Format `$1`
+throwaway frame to ISP. `RTE` consumes the ISP frame, restores its
+S/M state and restarts frame processing on MSP. Serialized continuation
+state pins both the entry transition and the return stack bank.
+
+The generated instruction corpora did not exercise this path. Directed
+tests cover stack selection, both frame layouts, the two-stage return
+and serialization at both cross-stack boundaries.
+
+### Phase 6 data-alignment closeout
+
+**Status: complete for logical RAM values (2026-07-25).**
+
+The MC68020 wrapper now enables unaligned word and long-word data
+operands while preserving address errors for odd instruction
+prefetches. Directed tests cover odd `MOVE.W`, `MOVE.L` and stack data
+accesses, plus an odd jump target that enters vector 3 through a
+32-byte Format `$A` frame.
+
+The current bus carries the exact logical address, so byte-addressable
+RAM returns and stores the right value. It does not yet expose
+SIZ0/SIZ1, DSACK-selected responder widths or alignment-dependent split
+phases. Odd memory-mapped I/O and precise bus timing therefore remain
+separate work rather than part of this closeout.
 
 ### Phase 8 — instruction cache
 
 **Goal**: 256-byte direct-mapped instruction cache, CACR /
 CAAR control, hit/miss in the fetch path.
+
+**Status: implemented (2026-06-13).**
 
 - Cache state: 16 lines × 4 words = 64 entries, each with a
   20-bit tag + FC bits + valid flag.
@@ -657,32 +721,24 @@ is fine without modelling cache misses cycle-accurately.
 
 ### Phase 9 — coprocessor interface stubs (F-line)
 
-**Goal**: F-line opcodes don't trap as illegal; they perform
-the coprocessor handshake (CIR/CSR/CCR memory-mapped reads/
-writes) and return without doing FPU/MMU work.
+**Original goal**: distinguish an absent coprocessor from an attached
+device before implementing FPU or PMMU behaviour.
 
-- Decoder recognises F-line range ($F000-$FFFF) and
-  dispatches to a coprocessor handler.
-- Handler reads `CIR` / `CSR` / `CCR` via the bus to negotiate
-  the operation type — but executes nothing.
-- 68EC020 path: F-line traps as `LINE 1111 EMULATOR` (vector 11)
-  per the EC variant's no-coprocessor behaviour.
-- Full 68020 path: handshake completes, the "FPU"/"MMU" returns
-  trivial replies (idle/no-op). When the real FPU lands in
-  `motorola-68040::fpu` (or its own crate), F-line routes through
-  there.
+**Status: superseded by the optional 68881/68882 implementation
+(2026-06-14 onward).** The decoder routes cpID 1 to the attached FPU
+implementation. With no FPU attached, the F-line path takes vector 11,
+which is the A1200/68EC020 configuration. FPU arithmetic and state
+transfers are implemented; the physical CIR/CSR/CCR handshake and a
+cpID-2 PMMU remain separate work. See
+[68881/2 FPU SoftFloat port](fpu-softfloat-port.md).
 
-The Amiga A1200 / CD32 use 68EC020 — they take the F-line trap.
-A500 + accelerator with real 68020 + 68881 FPU is the case that
-needs the full handshake later.
+## Original per-phase scope estimates
 
-## Per-phase scope estimates
-
-Lines added (test code excluded; tests roughly 2× production):
+These were planning estimates, not current line counts:
 
 | Phase | Scope | Implementation lines |
 |---|---|---|
-| 0 | Tom Harte harness | ~150 |
+| 0 | Generated-corpus harness | ~150 |
 | 1 | Fork Cpu68020 from alias | ~300 |
 | 2 | Bus protocol | ~400 |
 | 3 | Scaled index | ~50 |
@@ -702,84 +758,66 @@ their own.
 
 ## Cross-validation strategy
 
-For every phase, three reference points:
+The evidence and software-oracle roles are distinct:
 
-1. **Tom Harte vectors** — primary correctness oracle. Each
-   instruction has 10,000 input/output vectors. Pass rate
-   per-instruction is the per-phase done criterion.
-2. **Musashi** (vendored at `Emu198x-Unclean/emulators/cpu-libs/`)
-   — C implementation of 68000-68040. Read for "how did Musashi
-   handle this?" when an instruction's spec is ambiguous.
-3. **WinUAE** — most cycle-accurate open Amiga emulator; covers
-   the full 68k family. Use for bus-protocol questions and
-   chipset-bus interaction edge cases.
+1. **Motorola manuals** define silicon behaviour. The MC68020 User's
+   Manual and M68000 Programmer's Reference Manual are primary.
+2. **Musashi-derived `m68k-test-gen` fixtures** provide broad
+   instruction regression coverage. They are a software oracle, not
+   independent hardware evidence. SingleStepTests/680x0 supplies a
+   retained MC68000-subset cross-check.
+3. **Directed tests** cover manual-defined paths absent from generated
+   corpora, including full-format effective addresses, master-mode
+   interrupt stacks and logical unaligned data.
+4. **WinUAE** is an implementation reference for Amiga integration and
+   disagreement investigation. Consensus work remains separate.
 
-The M68020 User's Manual at
-`../reference/by-topic/cpu-68020/`
-is the canonical silicon spec.
+Counts, provenance and exclusions belong in
+[M68k test-oracle strategy](m68k-test-oracle-strategy.md).
 
-## Open questions to resolve early
+## Resolved and open questions
 
-1. **Bus protocol modelling depth.** Do we model the 3-clock
-   bus cycle phases (S0..S5) explicitly, or treat each bus
-   transaction as atomic the way the 68000 currently does?
-   The Amiga's chipset DMA arbitration may force the explicit
-   model — the 68020 sits on a chipset bus that's still
-   primarily Agnus-arbitrated.
+1. **External bus depth — open.** The current core uses atomic
+   compatibility transactions. SIZ0/SIZ1, DSACK-selected widths,
+   alignment-dependent split phases and their arbitration effects
+   remain Phase 2 work.
+2. **FPU state placement — resolved.** FP0-FP7, FPCR, FPSR and FPIAR
+   live in the shared register substrate, while the MC68020 wrapper
+   controls whether a coprocessor is attached.
+3. **Instruction cache — implemented with a remaining fidelity
+   boundary.** The direct-mapped cache and CACR/CAAR control path are
+   active. Cache-coherency and timing claims remain limited to the
+   implemented tests.
+4. **68EC020 coprocessor absence — resolved by configuration.** An
+   unattached FPU takes the F-line emulator trap; attaching the optional
+   68881/68882 enables cpID-1 dispatch.
 
-2. **Where do FPU registers live?** The 68881/68882 has its
-   own register file (FP0-FP7, FPCR, FPSR, FPIAR). The full
-   68020 + FPU pair needs these somewhere — in `motorola-68020`
-   itself, in `motorola-68040::fpu` (whose FPU is on-die),
-   or a new `motorola-68881` crate? The review suggests
-   `motorola_68040::fpu`; revisit when implementing Phase 8.
+## Current acceptance criteria
 
-3. **Instruction cache coherency model.** Real 68020 has no
-   data-side cache (added in 68030); writes go straight through
-   to memory. But the I-cache can become stale if code writes
-   to instruction memory and doesn't CINV. Most Amiga software
-   doesn't self-modify; we can probably ignore this case for
-   the A1200 / CD32 catalogue.
-
-4. **68EC020 vs 68020 capability gate.** Per `CpuCapabilities`:
-   the EC variant omits the coprocessor interface. We model
-   this with the existing capability gates or by routing all
-   F-line through a `Cpu68EC020` shim that traps?
-
-## Done criteria
-
-- **Phase-by-phase**: each phase ends with the Tom Harte slice
-  for that phase's instructions at >95% pass rate. Per-vector
-  failures investigated and either fixed or documented as known
-  silicon-edge gaps with M68000PRM citations.
-- **Phase 7 end**: `Cpu68020` runs a synthetic test program
-  (sequence of instructions exercising scaled index + bitfield
-  + 32-bit DIV) to completion in a hermetic test harness.
-- **Phase 8 end**: 68EC020 F-line trap behaviour matches WinUAE
-  for at least 10 sampled F-line opcodes.
-- **Integration**: a future `machine-commodore-amiga-aga` crate
-  can substitute `Cpu68020` for `Cpu68000` in the wiring and
-  boot the same chipset RAM patterns (NOP loops, simple
-  copper lists).
+- Relevant generated corpora remain green, with provenance and
+  exclusions recorded rather than described as hardware truth.
+- Manual-defined behaviour outside those corpora has directed tests.
+- `machine-commodore-amiga-a1200` composes `Cpu68020`, and its machine,
+  runtime snapshot and golden-output regressions remain green.
+- Features described as deferred remain explicit: dynamic bus sizing,
+  odd MMIO split semantics, precise Format `$A` restart and the
+  unimplemented wider exception paths.
 
 ## Non-goals
 
-- **68030 implementation.** PMMU + on-die data cache stay in
-  `motorola-68030`'s skeleton. Land 68020 first; 68030 inherits
-  the bus + decode work.
-- **68040 implementation.** Harvard caches, on-die FPU, MMU — all
-  deferred to `motorola-68040`. The skeleton crate documents
-  the deltas.
+- **MC68030 completion.** Its ISA wrapper inherits this core, while
+  PMMU and processor-specific cache work remain in `motorola-68030`.
+- **MC68040 completion.** Its wrapper also inherits this core, while
+  the on-die MMU/FPU, cache delta, MOVE16/CINV/CPUSH and Format `$7`
+  access-error frame remain processor-specific work.
 - **AC68080 / Apollo Vampire.** Out of scope until a real
   Vampire target enters the catalogue. The FPGA-internal
   pipeline is not project work.
 - **PiStorm.** A PiStorm Amiga uses a real CPU; this plan does
   not model PiStorm-specific timing or host-FS shims.
-- **Bus-cycle cycle-accuracy beyond Amiga needs.** The 68020
-  in an Amiga sits on Agnus's arbitration grid; sub-cycle
-  timing within a bus transaction matters less than wall-time
-  CCK alignment. If a per-game accuracy gap surfaces, address
-  per-game.
+- **Dynamic external-bus sizing in this ISA phase.** It remains
+  required accuracy work, but is tracked at the CPU/machine bus
+  boundary rather than being implied by logical operand correctness.
 
 ## Related
 
@@ -791,6 +829,10 @@ is the canonical silicon spec.
   CPU rule the 68020 implementation respects
 - [`within-family-layering.md`](within-family-layering.md) —
   the per-CPU-variant crate pattern
+- [MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md) —
+  MSP/ISP selection, paired interrupt frames and the Format `$1` return
+- [MC68020 unaligned data access](motorola-68020-unaligned-data-access.md) —
+  logical operand correctness and the deferred dynamic-sizing boundary
 
 ## Reference library cross-links
 
@@ -800,10 +842,10 @@ The 68020-relevant primary references:
 |---|---|---|
 | *M68020 User's Manual* (Motorola, 4th ed.) | Canonical silicon spec — bus, decode, exceptions | All |
 | *M68000PRM* (Motorola Programmer's Reference Manual) | Instruction-by-instruction spec including 68020 additions | 5, 6 |
-| *M68881 User's Manual* | FPU pair documentation | 8, future FPU |
+| *M68881 User's Manual* | FPU pair documentation | Optional FPU path |
 | Musashi source (vendored) | Reference implementation, 68000-68040 | All — when spec ambiguous |
 | WinUAE source (`Emu198x-Unclean/emulators/amiga/winuae/`) | Cycle-accurate Amiga 68020 | 2, 7 |
-| Tom Harte 68020 corpus (to obtain) | Per-instruction correctness oracle | All |
+| `m68k-test-gen` MC68020 corpus | Musashi-derived per-instruction software oracle | All |
 
 The 68020 has more public reference material than any other
 68k variant — it was the workhorse of late-80s/early-90s

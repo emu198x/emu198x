@@ -571,6 +571,53 @@ mod tests {
     }
 
     #[test]
+    fn odd_chip_ram_word_read_starts_at_the_requested_byte() {
+        let mut mem = Memory::new(test_rom());
+        mem.set_overlay(false);
+        mem.write_byte(0x100, 0xA5);
+        mem.write_byte(0x101, 0x12);
+        mem.write_byte(0x102, 0x34);
+        mem.write_byte(0x103, 0x5A);
+
+        assert_eq!(mem.read_word(0x101), 0x1234);
+        assert_eq!(mem.read_chip_ram_byte(0x100), 0xA5);
+        assert_eq!(mem.read_chip_ram_byte(0x103), 0x5A);
+    }
+
+    #[test]
+    fn odd_chip_ram_long_read_starts_at_the_requested_byte() {
+        let mut mem = Memory::new(test_rom());
+        mem.set_overlay(false);
+        mem.write_byte(0x100, 0xA5);
+        mem.write_byte(0x101, 0x12);
+        mem.write_byte(0x102, 0x34);
+        mem.write_byte(0x103, 0x56);
+        mem.write_byte(0x104, 0x78);
+        mem.write_byte(0x105, 0x5A);
+
+        assert_eq!(mem.read_long(0x101), 0x1234_5678);
+        assert_eq!(mem.read_chip_ram_byte(0x100), 0xA5);
+        assert_eq!(mem.read_chip_ram_byte(0x105), 0x5A);
+    }
+
+    #[test]
+    fn odd_chip_ram_word_write_preserves_surrounding_bytes() {
+        let mut mem = Memory::new(test_rom());
+        mem.set_overlay(false);
+        mem.write_byte(0x100, 0xA5);
+        mem.write_byte(0x101, 0);
+        mem.write_byte(0x102, 0);
+        mem.write_byte(0x103, 0x5A);
+
+        mem.write_word(0x101, 0x1234);
+
+        assert_eq!(mem.read_chip_ram_byte(0x100), 0xA5);
+        assert_eq!(mem.read_chip_ram_byte(0x101), 0x12);
+        assert_eq!(mem.read_chip_ram_byte(0x102), 0x34);
+        assert_eq!(mem.read_chip_ram_byte(0x103), 0x5A);
+    }
+
+    #[test]
     fn rom_anchored_at_high_address() {
         let mem = Memory::new(test_rom());
         assert_eq!(mem.read_long(0xFC_0000), 0xDEAD_BEEF);

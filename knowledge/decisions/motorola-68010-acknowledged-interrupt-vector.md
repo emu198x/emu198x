@@ -56,11 +56,15 @@ The current compatibility surface represents acknowledge as
 
 - the full CPU-space address presentation of the MC68020 and MC68030;
 - the MC68040 transfer-type, transfer-modifier and termination signals;
-- BERR-plus-HALT retry;
-- MC68020-and-later master-stack and Format `$1` throwaway frames.
+- BERR-plus-HALT retry.
 
 Those are separate variant capabilities. They must not be inferred from
 the now-correct vector/frame identity.
+
+MC68020-and-later master-stack selection and Format `$1` throwaway
+frames are now implemented as a separate capability. Their stack
+transition and return rule is defined in
+[MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md).
 
 ## Bus-sequence boundary
 
@@ -68,13 +72,20 @@ This change is architecturally ordered around acknowledge: it obtains the
 selected vector before writing the Format/Vector word. It is not a
 cycle-exact model of every stack write.
 
-Motorola's family bus timing diagram shows a PCL stack cycle before
-interrupt acknowledge, followed by the remaining stack and vector-fetch
-cycles. The shared micro-operation path currently performs acknowledge
-before all formatted-frame writes. Reproducing the literal sequence
-requires a dedicated exception-stack continuation and variant bus-width
-rules. That work is deliberately separate so final-frame correctness is
-not coupled to an inaccurate claim about later-family pins.
+The processor-specific sequences are not interchangeable:
+
+- the MC68000 documents a PCL stack write before acknowledge, followed
+  by the remaining frame and vector-fetch transfers;
+- the MC68010 documents acknowledge before its frame writes, followed
+  by PCL, saved SR, PCH and the Format/Vector word;
+- the MC68020, MC68030 and MC68040 manuals do not guarantee the order of
+  individual exception bus cycles.
+
+The current formatted-frame path matches the MC68010's coarse
+acknowledge-before-frame boundary. It does not reproduce the MC68010's
+literal per-word stack-write order. Later wrappers inherit final frame
+and vector identity only; their shared micro-operation order must not be
+treated as a pin-level timing claim.
 
 ## Snapshot compatibility
 
@@ -87,7 +98,7 @@ previously skipped even though formatted synchronous exceptions already
 used it between Format/Vector and PC stacking. Restoring at that boundary
 could therefore substitute zero for the saved PC.
 
-Amiga runtime snapshots therefore advance from schema version 20 to 21.
+This change advanced Amiga runtime snapshots from schema version 20 to 21.
 A version-20 payload lacks the pending PC, and a version-20 reader does
 not recognize the new continuation tag. The runtime rejects version 20
 instead of guessing either part of an in-flight exception.
@@ -124,11 +135,17 @@ and
 based on sections 6.2.5 and 6.3.2 of Motorola's ninth-edition family
 user's manual.
 
+The bus-sequence distinction uses the processor-specific MC68010
+interrupt-exception timing diagram (section 5.3.2, Figure 5-7). The
+later-family ordering caveat is explicit in section 6.1 of the MC68020,
+MC68030 and MC68040 user's manuals.
+
 ## Related Documents
 
 - [Accepted MC68000 interrupt level](motorola-68000-interrupt-acknowledge-level.md)
 - [MC68000 spurious interrupt response](motorola-68000-spurious-interrupt-response.md)
 - [MC68000 level-7 transition recognition](motorola-68000-level-7-transition.md)
+- [MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md)
 - [CPU bus interface](cpu-bus-interface.md)
 - [68k variant pattern](motorola-68k-variant-pattern.md)
 - [Save-state live-machine serde](savestate-live-machine-serde.md)

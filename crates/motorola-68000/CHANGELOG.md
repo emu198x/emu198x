@@ -23,6 +23,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Gate odd-address data rejection by CPU capability so MC68020-family
+  wrappers retain odd start addresses for logical data transactions while
+  MC68000 behaviour remains unchanged. Dynamic sizing and odd MMIO split
+  semantics remain machine-layer work
+- Complete the documented 16-word extent of the MC68020 Format `$A` short
+  bus-fault frame and preserve its entry/RTE continuation through serde.
+  Precise special-status, pipeline, data-buffer and fault-rerun state remains
+  incomplete
+- Use VBR for inherited MC68010-and-later group-0 handler fetches while
+  retaining the MC68000's fixed vector base
+- Stack the rejected next-instruction address as the MC68020 Format `$A` PC
+  when an odd instruction-boundary prefetch takes vector 3
+- Preserve the supervisor stack bank, saved SR and saved PC throughout an
+  in-flight formatted `RTE`, including an MC68020 Format `$1` restart
+- Support the inherited MC68020 master-interrupt transition from an ordinary
+  MSP frame to a matching Format `$1` throwaway frame on ISP
 - Build MC68010-and-later interrupt Format/Vector words from the vector
   selected by acknowledge, including device-supplied and spurious vectors
 - Serialize the pending MC68010-and-later exception-frame PC instead of
@@ -70,7 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 68020 Phase 7.5: Musashi-style BCD V flag
 - 68020 Phase 7: continuation hook + RTD
 - 68020 Phase 6.5: 16-bit DIV overflow C preservation
-- 68020 Phase 6: 6-word exception frame + M-flag
+- 68020 Phase 6: four-word formatted exception frame + M-flag write support
 - 68020 Phase 3: scaled-index brief extension word
 - 68020 Phase 1.5: bring the 68010 crate to life
 - Fix more clippy lints from Rust 1.95.0

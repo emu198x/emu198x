@@ -64,16 +64,26 @@ Each of the 68010+/68020+ `ILLEGAL`-trap arms in `decode_and_execute` calls `sel
 
 ### 2. Behaviour flags — subtle deltas on existing instructions
 
-`pub variant_<feature>_enable: bool` fields, all `#[serde(skip)]`, default `false`. Shared code paths in `motorola-68000` consult them. Each variant wrapper flips the relevant ones on in `new()`.
+Most capabilities are `pub variant_<feature>: bool` fields on
+`Cpu68000`, defaulting to `false`. Shared code paths consult them and
+each wrapper enables the relevant set in `install_variant_hooks`.
 
-Current catalogue:
+The master-stack capability is the one deliberate placement exception:
+it lives on `Registers` because every explicit or implicit A7 access
+must select the same bank. It follows the same rules as the other
+wrapper configuration: default disabled, skipped by serde and
+reinstalled by the MC68020-family wrapper after deserialization.
+
+Representative catalogue:
 
 | Flag | Set by | What it does |
 |---|---|---|
 | `variant_scaled_index` | 68020 | Brief extension-word bits 10-9 encode `*1/*2/*4/*8` instead of being "don't care". `ea.rs` reads it. |
-| `variant_six_word_frame` | 68010 + 68020 | `begin_group1_exception` pushes Format/Vector word above PC + SR (8-byte frame instead of 6-byte). |
+| `variant_six_word_frame` | 68010 + 68020 | Legacy name: `begin_group1_exception` pushes a Format/Vector word above PC + SR, producing a four-word/eight-byte frame instead of the MC68000's three-word/six-byte frame. |
 | `variant_format2_vectors` | 68020 | Vectors 5 / 6 / 7 / 9 use Format `$2` 12-byte frame with extra Instruction-Address long. PRM § 8.6.3. |
 | `variant_extended_sr_writes` | 68020 | SR write mask widens from `$A71F` to `$F71F` (allows M-flag bit 12). The four SR-write sites consult `Cpu68000::sr_write_mask()`. |
+| `variant_unaligned_data_access` | 68020 | Word and long data operands may begin at any byte address; odd instruction prefetches still take vector 3. |
+| `Registers::master_stack_capable` | 68020 | A7 selects ISP for `S=1, M=0` and MSP for `S=1, M=1`; interrupt entry and Format `$1` `RTE` use the same selection. |
 | `variant_musashi_bcd_v` | 68010 + 68020 | `bcd_add` / `bcd_sub` / `nbcd_op` report Musashi's "undefined V" instead of the SingleStepTests expectation. Each has both implementations as free functions. |
 | `variant_musashi_div_overflow` | 68010 + 68020 | 16-bit `DIVU.W` / `DIVS.W` overflow path: Musashi sets only V; SingleStepTests clears C, sets V and preserves N/Z/X. The PRM specifies C clear and V set but leaves N/Z undefined. |
 
@@ -97,6 +107,8 @@ Called at the top of `continue_instruction` before the 68000's match arms. Retur
 | `TAG_RTD_PC_HI` (200) | motorola-68010 | RTD post-PopLongHi |
 | `TAG_RTD_PC_LO` (201) | motorola-68010 | RTD post-PopLongLo |
 | `variant_pending_disp` | motorola-68000 | RTD `d16`; future opcodes can repurpose |
+| `exc_master_interrupt_pending` | motorola-68000 | Cross-stack interrupt entry between the MSP frame and Format `$1` ISP frame |
+| `rte_saved_sr` / `rte_saved_pc` / `rte_stack_bank` | motorola-68000 | In-flight formatted `RTE` values and the selected USP/ISP/MSP bank being consumed |
 
 The variant tag space starts at 200 to leave room: the 68000's own tags occupy `0..=80`-ish, and we may add more before 200 if the 68000 itself grows.
 
@@ -114,8 +126,14 @@ Stop and re-read this doc if you find yourself:
 
 The same shape carries through, with one anticipated generalisation.
 
-- **68030** wraps 68020. **Wrapper landed 2026-05-22**; `Cpu68030` is a thin Deref wrapper over `Cpu68020` with no additional ISA delta configured yet. The m68k-test-gen 68030 corpus passes at 100% via inheritance alone. The MMU module (`motorola-68030/src/mmu.rs`, 2,421 lines, unused) waits on the decode-side wiring for PMOVE / PFLUSH / PTEST / PLOAD when an MMU-bearing machine arrives.
-- **68040** wraps 68030. **Wrapper landed 2026-05-22**; same pattern. 100% on the m68k-test-gen 68040 corpus via inheritance. The FPU module (`motorola-68040/src/fpu.rs`, 705 lines, unused) waits on F-line cpID=1 dispatch. MOVE16 / CINV / CPUSH and the Format `$7` bus-error frame are deferred until exercised.
+- **68030** wraps 68020. **Wrapper landed 2026-05-22**; `Cpu68030` is a thin Deref wrapper over `Cpu68020` with no additional ISA delta configured yet. The m68k-test-gen 68030 corpus passes at 100% via inheritance alone, and MSP/ISP plus Format `$1` behaviour inherits through the same chain. The MMU module (`motorola-68030/src/mmu.rs`, 2,421 lines, unused) waits on the decode-side wiring for PMOVE / PFLUSH / PTEST / PLOAD when an MMU-bearing machine arrives.
+- **68040** wraps 68030. **Wrapper landed 2026-05-22**; same pattern,
+  including the inherited master-stack compatibility path. The generated
+  corpus passes via inheritance, but does not establish exact MC68040
+  interrupt-frame SR contents. The FPU module
+  (`motorola-68040/src/fpu.rs`, 705 lines, unused) waits on F-line cpID=1
+  dispatch. MOVE16 / CINV / CPUSH and the Format `$7` access-error frame
+  are deferred until exercised.
 - **68060** is a new crate. ISA-wise it's a 68040 subset (no CALLM / RTM / CHK2 / CMP2) plus PCR. Superscalar dispatch is a cycle-accuracy concern, not an ISA one, so the variant pattern still applies for correctness; cycle-accurate superscalar is a separate (and large) decision.
 - **AC68080** (Apollo Vampire, FPGA-implemented 68060-class) is a much wider departure: AMMX vector unit, 64-bit registers, instruction extensions. This may be the variant where wrap-don't-clone stops paying. Decision deferred until the Vampire roadmap firms up.
 
@@ -126,5 +144,7 @@ The same shape carries through, with one anticipated generalisation.
 ## Related
 
 - [Motorola 68020 implementation plan](motorola-68020-implementation-plan.md) — the phased work that produced this pattern; final state has all three corpora at 100 %.
+- [MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md) — the register-file capability and serialized continuation that apply the pattern to A7 and `RTE`.
+- [MC68020 unaligned data access](motorola-68020-unaligned-data-access.md) — the shared address-error capability and its dynamic-bus-sizing boundary.
 - [Amiga full-family architecture review](amiga-full-family-architecture-review.md) — Seam 2 frames the broader 68k-family completion work this pattern serves.
 - [CPU bus interface](cpu-bus-interface.md) — the orthogonal rule that constrains the bus shape (pin-level fields, no `Bus` trait). Both rules apply simultaneously.

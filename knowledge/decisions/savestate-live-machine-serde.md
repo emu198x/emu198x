@@ -84,6 +84,29 @@ compatibility boundary.
 The frame rule is defined by
 [MC68010+ acknowledged interrupt vectors](motorola-68010-acknowledged-interrupt-vector.md).
 
+## MC68020+ master interrupt-stack amendment
+
+MC68020-and-later live state includes whether a master-mode interrupt still
+owes its Format-$1 throwaway frame, the SR and PC buffered by an in-flight
+`RTE`, and the USP/ISP/MSP bank from which that frame is being consumed.
+An in-flight `UNLK` likewise retains the exact bank associated with its saved
+original pointer. This preserves its serialized continuation identity; it does
+not claim an MC68020 master-stack fault-recovery path. Format-$A entry and
+return retain their step counter and saved frame PC. That preserves the current
+structural frame continuation; it does not imply that precise Format-$A
+pipeline or fault-rerun state is implemented. The live SR alone cannot
+reconstruct these continuation boundaries: interrupt entry switches from MSP
+to ISP between frames, while Format-$1 `RTE` applies an intermediate SR before
+restarting on whichever of the three stacks it selects.
+
+The Amiga runtime envelope therefore advances from version 21 to version 22.
+A positional version-21 payload does not contain those fields. Every Amiga
+model rejects it before decoding the machine payload so the shared runtime
+retains one compatibility boundary.
+
+The stack-selection and frame rules are defined by
+[MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md).
+
 ## Atari (decided 2026-06-26): use serde, same as everyone else
 
 The Atari chips (TIA, RIOT/6532, ANTIC, GTIA, POKEY, MARIA) carry **hand-rolled
@@ -107,5 +130,6 @@ run→snapshot→restore→run test would close this — tracked as a follow-up.
 - [Z80 interrupt snapshot identity](z80-interrupt-snapshot-identity.md)
 - [MC68000 level-7 transition recognition](motorola-68000-level-7-transition.md)
 - [MC68010+ acknowledged interrupt vectors](motorola-68010-acknowledged-interrupt-vector.md)
+- [MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md)
 - [Runtime internal shape](runtime-internal-shape.md)
 - [Spectrum architecture review](spectrum-architecture-review.md)

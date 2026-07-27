@@ -3,11 +3,24 @@
 //! - D0-D7: 8 data registers (32-bit)
 //! - A0-A7: 8 address registers (32-bit, A7 is the active stack pointer)
 //! - USP: User stack pointer (A7 when in user mode)
-//! - SSP: Supervisor stack pointer (A7 when in supervisor mode)
+//! - SSP/ISP: Supervisor or interrupt stack pointer
+//! - MSP: Master stack pointer on processors with dual supervisor stacks
 //! - PC: Program counter (32-bit, 24-bit on 68000)
 //! - SR: Status register (16-bit)
 
 use serde::{Deserialize, Serialize};
+
+/// Architectural stack-pointer bank selected for an A7 access.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StackBank {
+    /// User Stack Pointer.
+    User,
+    /// Supervisor Stack Pointer on the 68000/68010, or Interrupt Stack
+    /// Pointer on processors with distinct supervisor stacks.
+    Interrupt,
+    /// Master Stack Pointer on processors with distinct supervisor stacks.
+    Master,
+}
 
 /// FPU register value — a true 80-bit extended-precision float, stored
 /// as Motorola/Intel `floatx80`: `high` holds the sign (bit 15) and the
@@ -152,6 +165,15 @@ pub struct Registers {
     pub fpsr: u32,
     /// FP Instruction Address Register (PC of last FPU instruction).
     pub fpiar: u32,
+    /// Whether this register file belongs to a processor with distinct
+    /// interrupt and master supervisor stacks.
+    ///
+    /// This is variant configuration rather than architectural state, so
+    /// wrappers restore it after deserialization. Keeping it here lets every
+    /// shared A7 access select the correct bank without interpreting the
+    /// reserved M bit on the 68000 or 68010.
+    #[serde(skip)]
+    master_stack_capable: bool,
 }
 
 impl Default for Registers {
@@ -195,6 +217,7 @@ impl Registers {
             fpcr: 0,
             fpsr: 0,
             fpiar: 0,
+            master_stack_capable: false,
         }
     }
 
@@ -293,23 +316,71 @@ impl Registers {
         }
     }
 
-    /// Get the active stack pointer (USP or SSP based on supervisor mode).
+    /// Enable distinct interrupt and master supervisor stack selection.
+    ///
+    /// MC68020-family wrappers call this after construction and
+    /// deserialization. The 68000 and 68010 leave it disabled because SR bit
+    /// 12 is reserved on those processors.
+    pub fn enable_master_stack(&mut self) {
+        self.master_stack_capable = true;
+    }
+
+    /// Whether this variant has distinct interrupt and master stacks.
+    #[must_use]
+    pub const fn master_stack_capable(&self) -> bool {
+        self.master_stack_capable
+    }
+
+    /// Whether the master stack is the currently selected supervisor stack.
+    #[must_use]
+    pub const fn master_stack_active(&self) -> bool {
+        self.master_stack_capable && self.is_supervisor() && self.sr & 0x1000 != 0
+    }
+
+    /// Stack-pointer bank selected by the current S/M state.
+    #[must_use]
+    pub const fn active_stack_bank(&self) -> StackBank {
+        if !self.is_supervisor() {
+            StackBank::User
+        } else if self.master_stack_active() {
+            StackBank::Master
+        } else {
+            StackBank::Interrupt
+        }
+    }
+
+    /// Read one stack-pointer bank without changing the active selection.
+    #[must_use]
+    pub const fn stack_pointer(&self, bank: StackBank) -> u32 {
+        match bank {
+            StackBank::User => self.usp,
+            StackBank::Interrupt => self.ssp,
+            StackBank::Master => self.msp,
+        }
+    }
+
+    /// Write one stack-pointer bank without changing the active selection.
+    pub fn set_stack_pointer(&mut self, bank: StackBank, value: u32) {
+        match bank {
+            StackBank::User => self.usp = value,
+            StackBank::Interrupt => self.ssp = value,
+            StackBank::Master => self.msp = value,
+        }
+    }
+
+    /// Get the active stack pointer.
+    ///
+    /// User mode selects USP. Supervisor mode selects SSP/ISP unless a
+    /// dual-supervisor-stack processor has M set, in which case it selects
+    /// MSP.
     #[must_use]
     pub const fn active_sp(&self) -> u32 {
-        if self.is_supervisor() {
-            self.ssp
-        } else {
-            self.usp
-        }
+        self.stack_pointer(self.active_stack_bank())
     }
 
     /// Set the active stack pointer.
     pub fn set_active_sp(&mut self, value: u32) {
-        if self.is_supervisor() {
-            self.ssp = value;
-        } else {
-            self.usp = value;
-        }
+        self.set_stack_pointer(self.active_stack_bank(), value);
     }
 
     /// Check if in supervisor mode.
@@ -396,5 +467,41 @@ impl Registers {
         let new_sp = sp.wrapping_add(4);
         self.set_active_sp(new_sp);
         new_sp
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Registers;
+
+    #[test]
+    fn reserved_m_bit_does_not_redirect_a7_without_variant_capability() {
+        let mut regs = Registers::new();
+        regs.ssp = 0x8000;
+        regs.msp = 0x9000;
+        regs.sr = 0x3000;
+
+        assert_eq!(regs.active_sp(), 0x8000);
+        regs.set_active_sp(0x7FFC);
+        assert_eq!(regs.ssp, 0x7FFC);
+        assert_eq!(regs.msp, 0x9000);
+    }
+
+    #[test]
+    fn enabled_master_stack_selects_msp_only_in_supervisor_mode() {
+        let mut regs = Registers::new();
+        regs.usp = 0x7000;
+        regs.ssp = 0x8000;
+        regs.msp = 0x9000;
+        regs.enable_master_stack();
+
+        regs.sr = 0x1000;
+        assert_eq!(regs.active_sp(), 0x7000);
+
+        regs.sr = 0x2000;
+        assert_eq!(regs.active_sp(), 0x8000);
+
+        regs.sr = 0x3000;
+        assert_eq!(regs.active_sp(), 0x9000);
     }
 }

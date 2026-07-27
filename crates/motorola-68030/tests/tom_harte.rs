@@ -1,4 +1,4 @@
-//! Tom Harte-style single-step harness for the 68030.
+//! Musashi-generated single-step harness for the 68030.
 //!
 //! There is no upstream Tom Harte corpus for the 68030 today, so the
 //! vectors come from `m68k-test-gen` (in `Emu198x-Oldest/`), which
@@ -14,10 +14,9 @@
 //! Override with the `M68030_TEST_DATA` environment variable.
 //!
 //! Each fixture covers one instruction (or one addressing-mode variant
-//! of an instruction). The current `Cpu68030` type is still aliased to
-//! `Cpu68000` — this harness is the baseline measurement that
-//! `knowledge/decisions/motorola-68030-implementation-plan.md` Phase 0
-//! calls for: the pass rate before any 68030-specific work begins.
+//! of an instruction). `Cpu68030` wraps `Cpu68020`; this harness
+//! measures the generated instruction corpus inherited through that
+//! chain. The filename is a legacy identifier, not corpus provenance.
 //!
 //! Skipped under normal `cargo test`. Run explicitly with:
 //!
@@ -105,7 +104,7 @@ impl SparseMem {
     }
 
     fn read_word(&self, addr: u32) -> u16 {
-        let a = addr & 0xFF_FFFE;
+        let a = addr & 0xFF_FFFF;
         (u16::from(self.read_byte(a)) << 8) | u16::from(self.read_byte(a + 1))
     }
 
@@ -114,7 +113,7 @@ impl SparseMem {
     }
 
     fn write_word(&mut self, addr: u32, val: u16) {
-        let a = addr & 0xFF_FFFE;
+        let a = addr & 0xFF_FFFF;
         self.write_byte(a, (val >> 8) as u8);
         self.write_byte(a + 1, val as u8);
     }
@@ -159,11 +158,10 @@ fn apply_initial(cpu: &mut Cpu68030, mem: &mut SparseMem, initial: &CpuState) {
     cpu.regs.usp = initial.usp;
     cpu.regs.ssp = initial.ssp;
     cpu.regs.sr = initial.sr;
-
-    // 68030-only register state (msp / vbr / cacr / caar) is ignored
-    // for now — the current Cpu68030 is a type alias of Cpu68000 and
-    // has no fields to receive these. They'll start mattering once
-    // Phase 1 forks Cpu68030 into its own struct.
+    cpu.regs.msp = initial.msp;
+    cpu.regs.vbr = initial.vbr;
+    cpu.regs.cacr = initial.cacr;
+    cpu.regs.caar = initial.caar;
 
     // m68k-test-gen stores Musashi's [IR, PREF_DATA] in initial.prefetch,
     // which is *not* the opcode bytes — Musashi's IR after pulse_reset
@@ -276,10 +274,24 @@ fn compare_final(cpu: &Cpu68030, mem: &SparseMem, final_state: &CpuState) -> Vec
             actual: format!("${:08X}", cpu.regs.ssp),
         });
     }
+    for (field, actual, expected) in [
+        ("msp", cpu.regs.msp, final_state.msp),
+        ("vbr", cpu.regs.vbr, final_state.vbr),
+        ("cacr", cpu.regs.cacr, final_state.cacr),
+        ("caar", cpu.regs.caar, final_state.caar),
+    ] {
+        if actual != expected {
+            v.push(Mismatch {
+                field: field.into(),
+                expected: format!("${expected:08X}"),
+                actual: format!("${actual:08X}"),
+            });
+        }
+    }
 
-    // Tom Harte "final PC" = address of the next instruction the
-    // prefetched word came from. Match against `instr_start_pc`, same
-    // as the 68000 harness.
+    // The generated final PC is the address of the next instruction
+    // from which the prefetched word came. Match against
+    // `instr_start_pc`, as in the other family harnesses.
     if cpu.instr_start_pc != final_state.pc {
         v.push(Mismatch {
             field: "pc".into(),
@@ -392,12 +404,8 @@ fn print_result(r: &FixtureResult) {
 
 // ─── Tests ─────────────────────────────────────────────────────────
 
-/// Baseline sweep: run every fixture in the corpus root and report
-/// per-instruction pass rate plus a workspace total. The current
-/// `Cpu68030` is still aliased to `Cpu68000`, so anything that
-/// requires 68030 semantics (bitfield ops, scaled index, MULL/DIVL,
-/// full extension words, …) is expected to fail. The total here is
-/// the Phase 0 baseline the implementation plan measures against.
+/// Run every fixture in the corpus root and report the current
+/// per-instruction pass rate plus a workspace total.
 #[test]
 #[ignore]
 fn harte_baseline_full_sweep() {
@@ -420,7 +428,7 @@ fn harte_baseline_full_sweep() {
 
     println!();
     println!(
-        "Tom Harte 68030 baseline ({} fixtures, Cpu68030 = Cpu68000):",
+        "Musashi-generated MC68030 corpus ({} fixtures):",
         entries.len()
     );
 

@@ -1,6 +1,6 @@
 [package]
 name = "motorola-68020"
-description = "Motorola 68020 CPU — adds CACR/CAAR/MSP/ISP, bitfield ops, 32-bit MUL/DIV, scaled index, barrel shifter, and the coprocessor interface. Skeleton crate: re-exports the shared 68k core with a 68020-specific type alias. Not exercised by any active machine today."
+description = "Motorola 68020 CPU — MC68010-derived core with 68020 ISA extensions, full-format addressing, cache and timing support, coprocessor dispatch, and MSP/ISP exception stacks. Used by the Amiga A1200."
 edition.workspace = true
 version.workspace = true
 publish = false

@@ -73,13 +73,21 @@ impl Cpu68020 {
         // leaves it false (only the 68000-shared 0xA71F bits are
         // writable).
         self.inner.variant_extended_sr_writes = true;
+        // Word and long data operands may begin on any byte boundary on
+        // the 68020+. Instruction prefetches remain word-aligned and still
+        // take an address error at odd targets.
+        self.inner.variant_unaligned_data_access = true;
+        // The 68020 introduces separate interrupt and master supervisor
+        // stacks. Shared A7 accesses select ISP when S=1/M=0 and MSP when
+        // S=1/M=1; wrappers re-enable this non-serialized capability here.
+        self.inner.regs.enable_master_stack();
         // The 68020+ promotes CHK / CHK2 / divide-by-zero / TRAPV /
         // TRAPcc / Trace to a 12-byte Format-$2 exception frame
         // with an extra Instruction-Address long at the top.
         // M68000PRM § 8.6.3.
         self.inner.variant_format2_vectors = true;
         // The 68020+ promotes group-0 (bus/address error) to a
-        // 28-byte Format-$A "short bus fault" frame. KS 3.1's
+        // 32-byte Format-$A "short bus fault" frame. KS 3.1's
         // vec-2/3 handler reads at Format-$A field offsets (SR at
         // SP+0, PC at SP+2, F/V at SP+6, ...). M68000PRM § 8.6.4.
         self.inner.variant_format_a_group0 = true;
@@ -2578,9 +2586,8 @@ fn read_68020_cr(cpu: &Cpu68000, ext: u16) -> Option<u32> {
         0x002 => Some(cpu.regs.cacr),
         0x802 => Some(cpu.regs.caar),
         0x803 => Some(cpu.regs.msp),
-        // ISP: when the M-flag is clear (always, for the current
-        // corpus), the active SSP *is* the ISP — read it back so
-        // round-trip MOVEC writes match.
+        // MOVEC names ISP explicitly, so it reads the interrupt-stack bank
+        // even when M currently makes MSP the active A7.
         0x804 => Some(cpu.regs.ssp),
         _ => None,
     }
@@ -2624,8 +2631,8 @@ fn write_68020_cr(cpu: &mut Cpu68000, ext: u16, value: u32) -> bool {
             true
         }
         0x804 => {
-            // ISP write with M=0 lands on the active SSP. M=1
-            // routing is deferred (no fixture exercises it).
+            // MOVEC names ISP explicitly, so it writes the interrupt-stack
+            // bank without changing whichever bank A7 currently selects.
             cpu.regs.ssp = value;
             true
         }
@@ -3528,6 +3535,7 @@ mod tests {
         assert!(restored.variant_continue_hook.is_some());
         assert!(restored.variant_scaled_index);
         assert!(restored.variant_extended_sr_writes);
+        assert!(restored.variant_unaligned_data_access);
         assert!(restored.variant_format2_vectors);
         assert!(restored.variant_six_word_frame);
         assert!(restored.variant_musashi_bcd_v);
@@ -3543,6 +3551,7 @@ mod tests {
         assert!(cloned.variant_continue_hook.is_some());
         assert!(cloned.variant_scaled_index);
         assert!(cloned.variant_extended_sr_writes);
+        assert!(cloned.variant_unaligned_data_access);
         assert!(cloned.variant_format2_vectors);
     }
 

@@ -121,7 +121,7 @@ impl SparseMem {
     }
 
     fn read_word(&self, addr: u32) -> u16 {
-        let a = addr & 0xFF_FFFE;
+        let a = addr & 0xFF_FFFF;
         (u16::from(self.read_byte(a)) << 8) | u16::from(self.read_byte(a + 1))
     }
 
@@ -130,7 +130,7 @@ impl SparseMem {
     }
 
     fn write_word(&mut self, addr: u32, val: u16) {
-        let a = addr & 0xFF_FFFE;
+        let a = addr & 0xFF_FFFF;
         self.write_byte(a, (val >> 8) as u8);
         self.write_byte(a + 1, val as u8);
     }
@@ -178,7 +178,11 @@ fn apply_initial(cpu: &mut Cpu68020, mem: &mut SparseMem, initial: &CpuState) {
     cpu.regs.a = initial.a;
     cpu.regs.usp = initial.usp;
     cpu.regs.ssp = initial.ssp;
+    cpu.regs.msp = initial.msp;
     cpu.regs.sr = initial.sr;
+    cpu.regs.vbr = initial.vbr;
+    cpu.regs.cacr = initial.cacr;
+    cpu.regs.caar = initial.caar;
 
     for (slot, &(high, low)) in cpu.regs.fp.iter_mut().zip(initial.fp.iter()) {
         *slot = FpReg::new(high, low);
@@ -324,6 +328,22 @@ fn compare_final(cpu: &Cpu68020, mem: &SparseMem, final_state: &CpuState) -> Vec
             expected: format!("${:04X}", final_state.sr),
             actual: format!("${:04X}", cpu.regs.sr),
         });
+    }
+    for (field, actual, expected) in [
+        ("usp", cpu.regs.usp, final_state.usp),
+        ("ssp", cpu.regs.ssp, final_state.ssp),
+        ("msp", cpu.regs.msp, final_state.msp),
+        ("vbr", cpu.regs.vbr, final_state.vbr),
+        ("cacr", cpu.regs.cacr, final_state.cacr),
+        ("caar", cpu.regs.caar, final_state.caar),
+    ] {
+        if actual != expected {
+            v.push(Mismatch {
+                field: field.into(),
+                expected: format!("${expected:08X}"),
+                actual: format!("${actual:08X}"),
+            });
+        }
     }
     for i in 0..8 {
         if cpu.regs.d[i] != final_state.d[i] {

@@ -14,10 +14,8 @@
 //! Override with the `M68020_TEST_DATA` environment variable.
 //!
 //! Each fixture covers one instruction (or one addressing-mode variant
-//! of an instruction). The current `Cpu68020` type is still aliased to
-//! `Cpu68000` — this harness is the baseline measurement that
-//! `knowledge/decisions/motorola-68020-implementation-plan.md` Phase 0
-//! calls for: the pass rate before any 68020-specific work begins.
+//! of an instruction). The harness applies and compares the complete
+//! MC68020 register subset represented by the generator.
 //!
 //! Skipped under normal `cargo test`. Run explicitly with:
 //!
@@ -105,7 +103,7 @@ impl SparseMem {
     }
 
     fn read_word(&self, addr: u32) -> u16 {
-        let a = addr & 0xFF_FFFE;
+        let a = addr & 0xFF_FFFF;
         (u16::from(self.read_byte(a)) << 8) | u16::from(self.read_byte(a + 1))
     }
 
@@ -114,7 +112,7 @@ impl SparseMem {
     }
 
     fn write_word(&mut self, addr: u32, val: u16) {
-        let a = addr & 0xFF_FFFE;
+        let a = addr & 0xFF_FFFF;
         self.write_byte(a, (val >> 8) as u8);
         self.write_byte(a + 1, val as u8);
     }
@@ -158,12 +156,11 @@ fn apply_initial(cpu: &mut Cpu68020, mem: &mut SparseMem, initial: &CpuState) {
     cpu.regs.a = initial.a;
     cpu.regs.usp = initial.usp;
     cpu.regs.ssp = initial.ssp;
+    cpu.regs.msp = initial.msp;
     cpu.regs.sr = initial.sr;
-
-    // 68020-only register state (msp / vbr / cacr / caar) is ignored
-    // for now — the current Cpu68020 is a type alias of Cpu68000 and
-    // has no fields to receive these. They'll start mattering once
-    // Phase 1 forks Cpu68020 into its own struct.
+    cpu.regs.vbr = initial.vbr;
+    cpu.regs.cacr = initial.cacr;
+    cpu.regs.caar = initial.caar;
 
     // m68k-test-gen stores Musashi's [IR, PREF_DATA] in initial.prefetch,
     // which is *not* the opcode bytes — Musashi's IR after pulse_reset
@@ -275,6 +272,20 @@ fn compare_final(cpu: &Cpu68020, mem: &SparseMem, final_state: &CpuState) -> Vec
             expected: format!("${:08X}", final_state.ssp),
             actual: format!("${:08X}", cpu.regs.ssp),
         });
+    }
+    for (field, actual, expected) in [
+        ("msp", cpu.regs.msp, final_state.msp),
+        ("vbr", cpu.regs.vbr, final_state.vbr),
+        ("cacr", cpu.regs.cacr, final_state.cacr),
+        ("caar", cpu.regs.caar, final_state.caar),
+    ] {
+        if actual != expected {
+            v.push(Mismatch {
+                field: field.into(),
+                expected: format!("${expected:08X}"),
+                actual: format!("${actual:08X}"),
+            });
+        }
     }
 
     // Tom Harte "final PC" = address of the next instruction the
@@ -392,12 +403,8 @@ fn print_result(r: &FixtureResult) {
 
 // ─── Tests ─────────────────────────────────────────────────────────
 
-/// Baseline sweep: run every fixture in the corpus root and report
-/// per-instruction pass rate plus a workspace total. The current
-/// `Cpu68020` is still aliased to `Cpu68000`, so anything that
-/// requires 68020 semantics (bitfield ops, scaled index, MULL/DIVL,
-/// full extension words, …) is expected to fail. The total here is
-/// the Phase 0 baseline the implementation plan measures against.
+/// Run every fixture in the generated corpus and report the current
+/// per-instruction pass rate plus a workspace total.
 #[test]
 #[ignore]
 fn harte_baseline_full_sweep() {
@@ -420,7 +427,7 @@ fn harte_baseline_full_sweep() {
 
     println!();
     println!(
-        "Tom Harte 68020 baseline ({} fixtures, Cpu68020 = Cpu68000):",
+        "Musashi-generated MC68020 corpus ({} fixtures):",
         entries.len()
     );
 
@@ -458,9 +465,8 @@ fn harte_baseline_full_sweep() {
 }
 
 /// Tiny smoke test for harness wiring: NOP is the simplest opcode in
-/// the corpus and should pass on the type-alias 68020 today. If this
-/// fails, the harness itself is broken (deserialiser, prefetch setup,
-/// bus service); don't chase the bigger sweep.
+/// the corpus. If this fails, the harness itself is broken (deserializer,
+/// prefetch setup or bus service).
 #[test]
 #[ignore]
 fn harte_nop_smoke() {
@@ -477,6 +483,6 @@ fn harte_nop_smoke() {
     assert!(r.total > 0, "NOP fixture should have tests");
     assert_eq!(
         r.passed, r.total,
-        "NOP should pass on Cpu68000-aliased Cpu68020 — harness wiring is broken if it doesn't",
+        "NOP should pass on Cpu68020; otherwise the corpus harness is broken",
     );
 }

@@ -2472,6 +2472,55 @@ mod bus_plan_dispatch_tests {
     }
 
     #[test]
+    fn cpu_bus_preserves_odd_chip_ram_word_address_and_value() {
+        const ADDR: u32 = 0x0000_1001;
+
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        amiga.memory.set_overlay(false);
+        amiga.agnus.hpos = 0x0035;
+        assert_eq!(amiga.agnus.cck_bus_plan().slot_owner, SlotOwner::Cpu);
+        assert!(amiga.agnus.cck_bus_plan().cpu_chip_bus_granted);
+
+        amiga.memory.write_byte(ADDR - 1, 0xA5);
+        amiga.memory.write_byte(ADDR, 0);
+        amiga.memory.write_byte(ADDR + 1, 0);
+        amiga.memory.write_byte(ADDR + 2, 0x5A);
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: ADDR,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0x1234),
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+
+        <AmigaA1200 as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
+        assert_eq!(amiga.memory.read_chip_ram_byte(ADDR - 1), 0xA5);
+        assert_eq!(amiga.memory.read_chip_ram_byte(ADDR), 0x12);
+        assert_eq!(amiga.memory.read_chip_ram_byte(ADDR + 1), 0x34);
+        assert_eq!(amiga.memory.read_chip_ram_byte(ADDR + 2), 0x5A);
+
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::ReadWord,
+            addr: ADDR,
+            fc: FunctionCode::SupervisorData,
+            is_read: true,
+            is_word: true,
+            data: None,
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+
+        <AmigaA1200 as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0x1234));
+    }
+
+    #[test]
     fn alice_explicit_zero_equal_window_blanks_denise_output() {
         let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
         amiga.agnus.vpos = 0x002C;

@@ -32,7 +32,7 @@ use crate::addressing::AddrMode;
 use crate::alu::Size;
 use crate::bus::{BusStatus, FunctionCode, interrupt_acknowledge_address};
 use crate::microcode::{MicroOp, MicroOpQueue};
-use crate::registers::Registers;
+use crate::registers::{Registers, StackBank};
 use serde::{Deserialize, Serialize};
 
 // --- Follow-up tag constants ---
@@ -132,9 +132,10 @@ pub const TAG_RTE_READ_FORMAT: u8 = 91;
 pub const TAG_RTE_READ_FMT2_HI: u8 = 92;
 /// RTE: 68020+ Format $2 — low word of Instruction Address read.
 pub const TAG_RTE_READ_FMT2_LO: u8 = 93;
-/// RTE: 68020+ Format $A short bus-fault — pop the remaining 20
-/// bytes (= 10 words) above the F/V word. Each step reads one word
-/// and advances SSP; step 10 finishes the RTE.
+/// RTE: 68020+ Format $A short bus-fault — pop the remaining 24
+/// bytes (= 12 words) above the F/V word. Each step reads one word
+/// and advances the stack bank on which the frame began; step 12
+/// finishes the RTE.
 pub const TAG_RTE_READ_FMTA_STEP: u8 = 95;
 
 // RTR follow-ups
@@ -195,7 +196,7 @@ pub const TAG_AE_FETCH_VECTOR: u8 = 54;
 pub const TAG_AE_FINISH: u8 = 55;
 /// 68020+ Format `$A` short bus-fault frame push step. Called
 /// repeatedly with `ae_fmt_a_step` selecting which field to push;
-/// step 11 hands off to `TAG_AE_FETCH_VECTOR`.
+/// step 12 hands off to `TAG_AE_FETCH_VECTOR`.
 pub const TAG_AE_FMT_A_STEP: u8 = 94;
 
 // 68020+ bit-field memory pipeline (Phase 5 / Stage M).
@@ -561,8 +562,8 @@ pub struct Cpu68000 {
     pub(crate) ae_undo_reg: Option<(u8, u32, bool, bool)>,
     /// UNLK: original stack pointer retained by the current compatibility path.
     /// UNLK sets A7 ← An before reading from the new (potentially odd) A7.
-    /// Tuple: (was_supervisor, original_sp).
-    pub(crate) sp_undo: Option<(bool, u32)>,
+    /// Tuple: (selected stack bank, original pointer).
+    pub(crate) sp_undo: Option<(StackBank, u32)>,
     /// Most recent internally rejected odd-address transfer.
     ///
     /// Diagnostic only. Consumers take the observation explicitly; snapshots
@@ -726,11 +727,21 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub variant_extended_sr_writes: bool,
 
+    /// 68020+ unaligned data access support.
+    ///
+    /// The 68000 / 68010 reject odd-address word and long-word transfers.
+    /// The 68020+ may read or write data at any byte address; only an
+    /// instruction prefetch from an odd address raises an address error.
+    /// The 68020 wrapper enables this non-serialized capability and the
+    /// shared address-error gate keeps applying the original rule otherwise.
+    #[serde(skip)]
+    pub variant_unaligned_data_access: bool,
+
     /// 68020+ Format `$A` group-0 exception frame.
     ///
     /// The 68000 / 68010 push a 14-byte frame for bus error (vec 2)
     /// and address error (vec 3): access info, fault address, IR,
-    /// SR, PC. The 68020 promotes group-0 to a 28-byte short
+    /// SR, PC. The 68020 promotes group-0 to a 32-byte short
     /// bus-fault frame (Format `$A`) with a different layout:
     /// SR, PC, F/V word, then internal pipeline state. KS 3.1's
     /// vec-2/3 handler at `$F80B0E` reads the frame at offsets
@@ -823,21 +834,18 @@ pub struct Cpu68000 {
     /// `#[serde(skip)]`. Default `0` (null).
     pub variant_fpu_state: u8,
 
-    /// Step counter for the 11-step Format `$A` push sequence.
+    /// Step counter for the 13-step Format `$A` push sequence.
     /// Consulted by `TAG_AE_FMT_A_STEP`.
-    #[serde(skip)]
     pub(crate) ae_fmt_a_step: u8,
 
-    /// Step counter for the 10-step Format `$A` RTE pop. Each step
-    /// reads one word and advances SSP; step 10 finishes the RTE.
-    #[serde(skip)]
+    /// Step counter for the 12-step Format `$A` RTE tail pop. Each step
+    /// reads one word after the common eight-byte prefix; step 12 finishes.
     pub(crate) rte_fmta_step: u8,
 
     /// Frame PC saved at group-0 entry for use by Format `$A`
     /// pushes. The 68000 path stores it in `self.data` and pushes
     /// immediately; Format `$A` needs the value preserved across
     /// many intermediate pushes.
-    #[serde(skip)]
     pub(crate) ae_frame_pc: u32,
 
     /// Pending PC value during the 68010+ exception frame push.
@@ -847,6 +855,28 @@ pub struct Cpu68000 {
     /// Format/Vector word before the PC push begins. The PC is stashed
     /// here until `TAG_EXC_STACK_FORMAT` restores it to `self.data`.
     pub(crate) exc_pending_pc: u32,
+
+    /// Whether the normal frame for a master-mode interrupt is still being
+    /// written to MSP.
+    ///
+    /// Once that frame completes, the exception sequencer clears live M and
+    /// writes a Format-$1 throwaway frame to ISP. This phase is serialized so
+    /// a snapshot taken during either frame resumes on the same stack bank.
+    pub(crate) exc_master_interrupt_pending: bool,
+
+    /// Saved SR read from the current RTE frame.
+    ///
+    /// RTE defers applying it until the complete frame has been consumed so
+    /// every frame read remains a supervisor-data access. Format-$1 applies
+    /// this intermediate SR before restarting RTE on MSP.
+    pub(crate) rte_saved_sr: u16,
+    /// Saved PC read from the current RTE frame.
+    pub(crate) rte_saved_pc: u32,
+    /// Stack-pointer bank from which the current RTE frame is being consumed.
+    /// Capturing all three possibilities matters because a Format-$1 restart
+    /// may select USP, ISP or MSP. It also prevents an SR restore from
+    /// redirecting pointer updates to another bank.
+    pub(crate) rte_stack_bank: StackBank,
 
     // ── 68020+ bit-field memory pipeline scratch ──────────────────
     //
@@ -1134,6 +1164,7 @@ impl Cpu68000 {
             variant_musashi_bcd_v: false,
             variant_musashi_div_overflow: false,
             variant_extended_sr_writes: false,
+            variant_unaligned_data_access: false,
             variant_format_a_group0: false,
             variant_min_bus_clocks: 4,
             variant_constant_shift_timing: false,
@@ -1148,6 +1179,10 @@ impl Cpu68000 {
             ae_frame_pc: 0,
             rte_fmta_step: 0,
             exc_pending_pc: 0,
+            exc_master_interrupt_pending: false,
+            rte_saved_sr: 0,
+            rte_saved_pc: 0,
+            rte_stack_bank: StackBank::Interrupt,
             bf_buf: 0,
             bf_base_addr: 0,
             bf_sub_op: 0,
@@ -1220,6 +1255,20 @@ impl Cpu68000 {
         }
     }
 
+    /// Enter supervisor mode and clear the trace state appropriate to this
+    /// processor generation.
+    ///
+    /// The 68000 and 68010 expose only T1. The 68020 adds T0, and exception
+    /// entry clears both trace bits while preserving M for stack selection.
+    fn enter_exception_supervisor_mode(&mut self) {
+        self.regs.set_supervisor(true);
+        if self.variant_extended_sr_writes {
+            self.regs.sr &= !0xC000;
+        } else {
+            self.regs.sr &= !0x8000;
+        }
+    }
+
     /// Reset the CPU to begin executing from a given SSP and PC.
     ///
     /// Sets supervisor mode with interrupts masked, clears the micro-op
@@ -1237,6 +1286,13 @@ impl Cpu68000 {
         self.followup_tag = 0;
         self.sampled_ipl = self.ipl;
         self.level7_transition_pending = false;
+        self.exc_master_interrupt_pending = false;
+        self.rte_saved_sr = 0;
+        self.rte_saved_pc = 0;
+        self.rte_stack_bank = StackBank::Interrupt;
+        self.ae_fmt_a_step = 0;
+        self.rte_fmta_step = 0;
+        self.ae_frame_pc = 0;
         self.address_error_observation = None;
         self.micro_ops.clear();
         self.micro_ops.push(MicroOp::FetchIRC);
@@ -1557,10 +1613,10 @@ impl Cpu68000 {
 
     /// Begin an interrupt exception sequence.
     ///
-    /// The 68000 enters supervisor mode immediately when processing an
-    /// exception — the exception frame is always pushed to the supervisor
-    /// stack (SSP). The old SR (with the user-mode S bit) is saved first
-    /// so it can be pushed in the frame.
+    /// The processor enters supervisor mode immediately when processing an
+    /// exception. The 68000/68010 use SSP. On the 68020+, an interrupt
+    /// accepted with M set first writes its normal frame to MSP, then clears M
+    /// and writes a Format-$1 throwaway frame to ISP.
     fn initiate_interrupt_exception(&mut self, level: u8) {
         self.clear_address_error_execution_state();
         self.group0_or_group1_processing = true;
@@ -1568,9 +1624,11 @@ impl Cpu68000 {
         self.interrupts_taken = self.interrupts_taken.wrapping_add(1);
         // Save old SR before changing mode (for pushing in the exception frame).
         self.ae_saved_sr = self.regs.sr;
-        // Enter supervisor mode BEFORE pushing so the frame goes onto SSP.
-        self.regs.set_supervisor(true);
-        self.regs.sr &= !0x8000; // Clear trace bit
+        self.exc_master_interrupt_pending =
+            self.regs.master_stack_capable() && self.regs.sr & 0x1000 != 0;
+        // Enter supervisor mode before pushing so A7 selects the appropriate
+        // supervisor stack (SSP/ISP, or MSP when M is set on a 68020+).
+        self.enter_exception_supervisor_mode();
         // The active processor mask changes to the accepted level as
         // interrupt processing begins. The saved copy above retains the
         // pre-interrupt mask for the exception frame.
@@ -1617,8 +1675,8 @@ impl Cpu68000 {
         self.clear_address_error_execution_state();
         self.group0_or_group1_processing = matches!(vector, 4 | 8 | 9 | 10 | 11);
         self.ae_saved_sr = self.regs.sr;
-        self.regs.set_supervisor(true);
-        self.regs.sr &= !0x8000; // Clear trace
+        self.exc_master_interrupt_pending = false;
+        self.enter_exception_supervisor_mode();
         self.exc_vector = Some(vector);
         self.in_followup = true;
         self.micro_ops.clear();
@@ -1922,6 +1980,13 @@ impl Cpu68000 {
             _ => return false,
         };
 
+        // The 68020+ accepts byte, word, and long data operands at any byte
+        // boundary. Instruction words remain word-aligned, so FetchIRC must
+        // still reject an odd target.
+        if self.variant_unaligned_data_access && !matches!(op, MicroOp::FetchIRC) {
+            return false;
+        }
+
         // Even address: no error
         if check_addr & 1 == 0 {
             return false;
@@ -1976,12 +2041,8 @@ impl Cpu68000 {
 
         // UNLK: undo the A7 ← An modification so the exception frame
         // gets pushed on the original (valid) stack, not the faulting one.
-        if let Some((was_supervisor, original_sp)) = self.sp_undo.take() {
-            if was_supervisor {
-                self.regs.ssp = original_sp;
-            } else {
-                self.regs.usp = original_sp;
-            }
+        if let Some((bank, original_sp)) = self.sp_undo.take() {
+            self.regs.set_stack_pointer(bank, original_sp);
         }
 
         // Apply the current software-oracle compatibility policy for EA
@@ -2067,9 +2128,8 @@ impl Cpu68000 {
             | (if not_processing_instruction { 0x08 } else { 0 })
             | u16::from(fc.bits() & 0x07);
 
-        // Enter supervisor mode and clear trace
-        self.regs.set_supervisor(true);
-        self.regs.sr &= !0x8000; // Clear trace
+        // Enter supervisor mode and clear the variant's trace bits.
+        self.enter_exception_supervisor_mode();
 
         // Abandon current instruction
         self.micro_ops.clear();
@@ -2095,7 +2155,7 @@ impl Cpu68000 {
         });
 
         if self.variant_format_a_group0 {
-            // 68020+ 28-byte Format $A frame. The push happens
+            // 68020+ 32-byte Format $A frame. The push happens
             // back-to-front (highest field first) so the final SP
             // ends up at the SR slot. Stash the PC for the
             // multi-step push handler.
@@ -2132,9 +2192,8 @@ impl Cpu68000 {
         self.group0_or_group1_processing = true;
         self.ae_saved_sr = self.regs.sr;
 
-        // Enter supervisor mode and clear trace.
-        self.regs.set_supervisor(true);
-        self.regs.sr &= !0x8000;
+        // Enter supervisor mode and clear the variant's trace bits.
+        self.enter_exception_supervisor_mode();
 
         // Abandon current instruction.
         self.micro_ops.clear();
@@ -2150,7 +2209,7 @@ impl Cpu68000 {
             | u16::from(fc.bits() & 0x07);
 
         if self.variant_format_a_group0 {
-            // 68020+ 28-byte Format $A frame.
+            // 68020+ 32-byte Format $A frame.
             self.ae_frame_pc = self.instr_start_pc;
             self.ae_fmt_a_step = 0;
             self.data = 0;
@@ -2177,6 +2236,15 @@ impl Cpu68000 {
     /// These formulas are classified software-oracle compatibility rules, not
     /// independently measured original-processor behaviour.
     fn compute_ae_frame_pc(&self, is_read: bool) -> u32 {
+        // The MC68020 short bus-fault frame is used when an odd instruction
+        // target is detected at an instruction boundary. Table 6-5 defines
+        // its stacked PC as the next instruction, which is the rejected
+        // prefetch address itself. Keep the implementation-generated 68000
+        // compatibility formula below isolated to the original frame.
+        if self.variant_format_a_group0 && self.ae_from_fetch_irc {
+            return self.ae_fault_addr;
+        }
+
         let top = (self.ir >> 12) & 0xF;
 
         // MOVE instructions have a separate, more complex formula
@@ -2431,6 +2499,54 @@ mod tests {
 
         assert!(cpu.check_address_error(MicroOp::FetchIRC));
         cpu
+    }
+
+    #[test]
+    fn unaligned_data_capability_allows_every_shared_data_transfer() {
+        let data_ops = [
+            MicroOp::ReadWord,
+            MicroOp::ReadLongHi,
+            MicroOp::ReadLongLo,
+            MicroOp::WriteWord,
+            MicroOp::WriteLongHi,
+            MicroOp::WriteLongLo,
+            MicroOp::PushWord,
+            MicroOp::PushLongHi,
+            MicroOp::PushLongLo,
+            MicroOp::PopWord,
+            MicroOp::PopLongHi,
+            MicroOp::PopLongLo,
+        ];
+
+        for op in data_ops {
+            let mut cpu = Cpu68000::new();
+            cpu.variant_unaligned_data_access = true;
+            cpu.regs.ssp = 0x0012_3457;
+            cpu.addr = 0x0012_3457;
+            cpu.program_space_access = true;
+
+            assert!(
+                !cpu.check_address_error(op),
+                "{op:?} must remain a valid 68020 data transfer"
+            );
+            assert_eq!(cpu.take_address_error_observation(), None);
+        }
+    }
+
+    #[test]
+    fn unaligned_data_capability_still_rejects_odd_instruction_fetches() {
+        let mut cpu = Cpu68000::new();
+        cpu.variant_unaligned_data_access = true;
+        cpu.regs.sr = 0x2000;
+        cpu.next_fetch_addr = 0x0012_3457;
+
+        assert!(cpu.check_address_error(MicroOp::FetchIRC));
+        assert_eq!(
+            cpu.take_address_error_observation()
+                .expect("odd instruction fetch must still be observed")
+                .requested_address,
+            0x0012_3457
+        );
     }
 
     #[test]

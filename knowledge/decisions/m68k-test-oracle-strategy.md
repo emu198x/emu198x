@@ -61,13 +61,18 @@ This gives a cross-suite regression check for the inherited 68000 subset. It is 
 
 **Cost**: one session.
 
-### B. Second-oracle generation (when wiring a 68020 machine)
+### B. Second-oracle generation
 
-When we wire the 68020 into an actual Amiga machine (CD32 / A1200 — Amiga-full-family-architecture-review Seam 2), we'll already be consulting **WinUAE** as the reference for AGA chipset behaviour. WinUAE has its own 68020 / 68030 / 68040 implementations in `cpummu.cpp` / `newcpu.cpp` that have been pressure-tested by the Amiga community for years.
+The A1200 now wires the MC68020-family core into an actual Amiga
+machine, and WinUAE is already a reference for AGA chipset behaviour.
+WinUAE has its own 68020 / 68030 / 68040 implementations in
+`cpummu.cpp` / `newcpu.cpp` that have been pressure-tested by the Amiga
+community for years.
 
 Plan: extract WinUAE's CPU as a callable library, add it as a second oracle to `m68k-test-gen`, generate a **consensus corpus** (vectors where Musashi and WinUAE agree). The disagreement set becomes a manual-review queue — those are places one of the two oracles is probably wrong, and the answer is interesting in itself.
 
-**Cost**: 1–2 weeks. Defer until the 68020 actually has a machine to wire into.
+**Cost**: 1–2 weeks. This remains a separate oracle-extraction project,
+not a prerequisite for manual-directed fixes with primary evidence.
 
 ### C. Real-software pixel-diff (long term, with the catalogue)
 
@@ -91,21 +96,34 @@ Stop and revisit this decision if:
 | `motorola-68000` | 1,000,058 / 1,000,058 = 100.00 % | SingleStepTests/680x0 (implementation-generated) |
 | `motorola-68000` MAME agreement subset | 240,090 / 240,090 = 100.00 % | SingleStepTests/m68000 (MAME-generated) |
 | `motorola-68010` | 1,831,992 / 1,832,000 = 99.99956 % | Musashi (m68k-test-gen, count=8000) |
-| `motorola-68020` | 1,920,000 / 1,920,000 = 100.00 % | Musashi (m68k-test-gen, count=8000) |
+| `motorola-68020` | 1,944,000 / 1,944,000 = 100.00 % | Musashi (m68k-test-gen, count=8000) |
 | `motorola-68030` | 1,920,000 / 1,920,000 = 100.00 % | Musashi (m68k-test-gen, count=8000) |
 | `motorola-68040` | 1,920,000 / 1,920,000 = 100.00 % | Musashi (m68k-test-gen, count=8000) |
 | 68010 inherited retained subset | 753,676 / 753,676 exact | SingleStepTests 68000 subset; 157,667 structural address-error rows excluded |
 | 68020 inherited retained subset | 666,066 / 666,066 exact | SingleStepTests 68000 subset; 124,225 structural address-error and 73 long-branch rows excluded |
 
-**~7.6 million Musashi comparisons + 1 million SingleStepTests/680x0
+**~7.62 million Musashi comparisons + 1 million SingleStepTests/680x0
 comparisons + 240,090 MAME-generated agreement comparisons + 1.42 million
-inherited-subset exact comparisons = ~10.25 million recorded
+inherited-subset exact comparisons = ~10.28 million recorded
 comparisons.** All five processor variants report ≥ 99.99956 % in their
 primary generated suites.
 
-The 68000 line was re-executed locally on 2026-07-25 against clean SingleStepTests revision `e0d5ece9670205cc84a0101081837deb446f86a3`. All 124 fixture files passed; the corpus contained 1,000,060 rows, of which two named invalid `ASL.b` rows were excluded and 1,000,058 were compared. Of those, 968,687 were exact agreements and 31,371 were narrowly classified address-error function-code or I/N differences, pinned by row fingerprint `52fb9713c00ab6ae`. The MAME-generated agreement and address-error sweeps were run on the same date. The higher-variant Musashi figures were not re-executed during the provenance correction.
+The 68000 line was re-executed locally on 2026-07-25 against clean SingleStepTests revision `e0d5ece9670205cc84a0101081837deb446f86a3`. All 124 fixture files passed; the corpus contained 1,000,060 rows, of which two named invalid `ASL.b` rows were excluded and 1,000,058 were compared. Of those, 968,687 were exact agreements and 31,371 were narrowly classified address-error function-code or I/N differences, pinned by row fingerprint `52fb9713c00ab6ae`. The MAME-generated agreement and address-error sweeps were run on the same date.
 
-The inherited-subset sweeps were re-executed on 2026-07-26 against the
+The MC68020 Musashi line was re-executed on 2026-07-25 after the
+supervisor-stack and unaligned-data changes. All 252 fixtures and
+1,944,000 rows passed while applying and comparing the generated MSP,
+VBR, CACR and CAAR state. The MC68010 line retained its pinned
+1,831,992 / 1,832,000 baseline on the same date.
+
+The MC68030 and MC68040 lines were also re-executed on 2026-07-25 after
+their harnesses stopped even-aligning word transactions and began
+applying and comparing MSP, VBR, CACR and CAAR. Each retained
+1,920,000 / 1,920,000 across 240 fixtures. The stronger result still
+measures the generated corpus rather than processor-specific MMU,
+cache, bus or exception-frame completeness.
+
+The inherited-subset sweeps were re-executed on 2026-07-25 against the
 same retained revision. The 68010 source partition contains 911,343 rows.
 Its harness excludes 157,667 rows whose fixture transactions and final
 memory identify a complete 68000 address-error event: 149,908 reads and
@@ -151,8 +169,24 @@ Result: the AGA Workbench palette bug — `lea (A3,D0.w*2),A5` (`$4BF3 $0310`) d
 
 **Standing caveat:** the pass-rate table measures the generated or retained subset, not the whole ISA. A green inherited-subset run says nothing about indexed addressing. A green `m68k-test-gen` run covers brief indexed addressing but not full-format extension words. Closing the remaining gap means **extending `m68k-test-gen` to emit full-format words** (set bit 8, randomise BS/IS/BD-size/IS-field/scale, fetch the base/outer displacement words) and regenerating against Musashi or, preferably, the WinUAE consensus oracle of mitigation B.
 
+## Coverage gap: master-mode interrupt stacks (closed by directed tests)
+
+The generated corpora did not exercise MC68020 interrupt entry with M
+set, the paired MSP/ISP frames or the Format `$1` `RTE` restart. A green
+generated sweep therefore did not establish that A7 selected MSP or
+that an interrupt returned through both supervisor stacks.
+
+The implementation closes that regression gap with manual-directed
+tests for stack selection, one-frame and two-frame interrupt entry,
+two-stage `RTE`, and serialization at both cross-stack boundaries. These
+tests establish agreement with the documented architecture. They are
+not a captured silicon timing oracle, and they do not claim a literal
+ordering for later-family exception bus cycles.
+
 ## Related
 
 - [Motorola 68k variant pattern](motorola-68k-variant-pattern.md) — the architectural shape that absorbs SingleStepTests-vs-Musashi divergence as variant flags (precedent: `variant_musashi_bcd_v`, `variant_musashi_div_overflow`).
 - [Motorola 68020 implementation plan](motorola-68020-implementation-plan.md) — the phased work that reached the current state.
-- [Amiga full-family architecture review](amiga-full-family-architecture-review.md) — Seam 2 (68k family completion) names when option B becomes timely.
+- [MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md) — the primary-manual rule covered by directed tests rather than generated fixtures.
+- [MC68020 unaligned data access](motorola-68020-unaligned-data-access.md) — the primary-manual alignment rule and the boundary of the current logical-RAM tests.
+- [Amiga full-family architecture review](amiga-full-family-architecture-review.md) — Seam 2 defines the 68k-family work that made option B timely.

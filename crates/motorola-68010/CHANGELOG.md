@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Use the interrupt-acknowledge result for both handler selection and the
   stacked Format/Vector offset
+- Fetch bus- and address-error handlers relative to VBR instead of the
+  MC68000's fixed vector base
 - Preserve the pending PC when serializing an in-flight formatted
   exception frame
 
@@ -27,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - M68k test-oracle strategy + inherited-subset cross-validation
 - 68020 Phase 7.6: variant-gate BCD V + DIV overflow
 - 68020 Phase 7: continuation hook + RTD
-- 68020 Phase 6: 6-word exception frame + M-flag
+- 68020 Phase 6: four-word formatted exception frame + M-flag write support
 - 68020 Phase 1.5: bring the 68010 crate to life
 - Reduce motorola-68000 to truly-M68000
 - Split 68k family into per-variant crates + strip MMU/FPU from M68000

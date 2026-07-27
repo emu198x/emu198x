@@ -174,9 +174,10 @@ The later line-mode decision advanced the envelope to version 18 for
 serialized ONEDOT, texture-phase and current-CCK arbitration state.
 Accepted MC68000 interrupt-acknowledge identity advanced it to version
 19. Level-7 sampled input history and a pending transition advanced it
-to version 20. The current runtime envelope is version 21 because a
-wrapped MC68010-or-later CPU can be saved between acknowledge and
-Format/Vector frame construction and must retain its pending frame PC.
+to version 20. MC68010+ acknowledged-vector identity advanced it to
+version 21, and MC68020+ master-stack interrupt/RTE identity advanced it
+to version 22. Later changes are recorded in
+[Save-state: serde the live machine](savestate-live-machine-serde.md).
 
 Raw postcards of the affected Agnus and machine types remain
 unversioned and change positional layout. Durable save states must use

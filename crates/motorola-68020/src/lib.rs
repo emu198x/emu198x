@@ -1,4 +1,4 @@
-//! Motorola 68020 CPU — skeleton crate.
+//! Motorola 68020 CPU.
 //!
 //! The 68020 is the first 32-bit-everywhere member of the family:
 //! 32-bit external data and address buses, a 32-bit ALU, a barrel
@@ -7,15 +7,15 @@
 //! the 68851 PMMU. The 68EC020 omits the coprocessor interface (no
 //! FPU, no MMU); it shows up in the Amiga CD32 and A1200.
 //!
-//! # Today
+//! # Current implementation
 //!
-//! No active machine in the workspace runs a 68020-class part. The
-//! M68000 core no longer contains 68020-specific decode arms or
-//! capability gates — those were stripped on 2026-04-29. When a
-//! 68020 machine arrives, this crate gains its own core and the type
-//! aliases collapse into real types.
+//! [`Cpu68020`] wraps the MC68010 layer and installs the MC68020 ISA,
+//! addressing, timing, cache, coprocessor and exception capabilities on
+//! the shared reactive core. The Amiga A1200 uses this type as its active
+//! CPU. The external bus remains the shared compatibility surface; full
+//! 32-bit dynamic bus sizing is separate work.
 //!
-//! # What a real 68020 implementation needs
+//! # Architectural delta
 //!
 //! References are to the M68000PRM and the M68020 User's Manual.
 //! 68020-specific instructions and behaviours are *additive* on top
@@ -41,8 +41,9 @@
 //! - **MSP** (Master Stack Pointer) — second supervisor stack
 //!   selected when SR M-flag (bit 12) is set. The unmasked SSP
 //!   becomes the *Interrupt* Stack Pointer; the MSP is the *Master*
-//!   stack used by tasks the OS schedules. Eight-word interrupt
-//!   stack frames (format `$1`) get the throwaway treatment.
+//!   stack used by tasks the OS schedules. An interrupt accepted with
+//!   M set creates an ordinary frame on MSP and a four-word Format `$1`
+//!   throwaway frame on ISP.
 //!
 //! ## New instructions (illegal on M68000 / M68010)
 //!
@@ -90,7 +91,9 @@
 //!   same effort as everything else combined.
 //! - **Address Error generation** — only on instruction fetch.
 //!   Data accesses to odd addresses go through hardware
-//!   misalignment handling; no exception fires.
+//!   misalignment handling; no exception fires. The current abstract
+//!   bus preserves logical RAM values but does not yet model
+//!   alignment-dependent split cycles or odd MMIO side effects.
 //! - **MOVE from SR** is privileged here too (matches 68010).
 //!
 //! ## Coprocessor interface (cpID 1 = FPU, cpID 2 = PMMU)
@@ -104,29 +107,36 @@
 //! ## Exception frames
 //!
 //! - **Format `$0`**: short — 4-word frame (group 1/2).
-//! - **Format `$1`**: throwaway interrupt (8-word frame, MSP path).
-//! - **Format `$2`**: 6-word frame (instruction-error trap, address
-//!   error, etc.) — adds `instruction_address` field.
+//! - **Format `$1`**: 4-word throwaway interrupt frame on ISP, paired
+//!   with the ordinary frame retained on MSP.
+//! - **Format `$2`**: 6-word instruction-error frame — adds an
+//!   `instruction_address` field.
 //! - **Format `$9`**: coprocessor mid-instruction (10 words).
-//! - **Format `$A`**: short bus / address error (16 words). The
-//!   instruction is *not* restartable — the handler must skip past
-//!   the failing instruction.
+//! - **Format `$A`**: short bus / address error (16 words). The current
+//!   entry path implements the documented frame extent and field offsets.
+//!   Its special-status, pipeline, data-buffer and internal words do not
+//!   yet contain the precise state required to rerun a faulted access.
 //! - **Format `$B`**: long bus / address error (46 words). Captures
 //!   enough internal state for the OS to retry the failing access.
 //!
-//! `RTE` dispatches on the format word and pops the right amount.
+//! `RTE` currently handles Formats `$0`, `$1` and `$2`. Format `$1`
+//! restores its saved SR and restarts frame processing on the newly
+//! selected stack. Format `$A` is recognised and its complete 16-word
+//! footprint is consumed, but exact pipeline restoration and fault rerun
+//! remain incomplete. Return handling for Formats `$9` and `$B` remains
+//! separate work.
 //!
 //! # Today's wrapper
 //!
 //! [`Cpu68020`] wraps [`motorola_68010::Cpu68010`], which in turn
 //! wraps [`motorola_68000::Cpu68000`]. Each variant installs a decode
 //! hook on the inner 68000's `variant_decode_hook` slot; the 68020
-//! hook handles its own ISA delta (`EXTB.L` so far; bit-field /
-//! MULL / DIVL / TRAPcc / etc. follow in Phase 5) and falls through
-//! to the 68010 hook for `MOVEC` / `MOVE-from-CCR` and other 68010
+//! hook handles the MC68020 ISA and addressing delta and falls through
+//! to the 68010 hook for `MOVEC`, `MOVE-from-CCR` and other inherited
 //! opcodes. `Deref` / `DerefMut` chain through both wrappers to the
 //! inner 68000 so existing call sites that touch `cpu.regs`,
-//! `cpu.state`, `cpu.tick()`, etc. continue to work.
+//! `cpu.state`, `cpu.tick()`, etc. continue to work. The wrapper also
+//! enables MSP/ISP selection in the shared register file.
 //!
 //! All 68020 control registers (`MSP`, `VBR`, `CACR`, `CAAR`, `SFC`,
 //! `DFC`) live on the shared

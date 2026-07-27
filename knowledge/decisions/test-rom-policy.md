@@ -47,10 +47,11 @@ outputs rather than redistributed ROMs.
 
 ### Hand-rolled in-repo (not external test ROMs, just shaped like)
 
-- **`crates/motorola-68040/tests/tom_harte.rs`** — Tom Harte-style
-  single-step harness for the 68040. No upstream Tom Harte 68040
-  corpus exists yet; this is our own baseline. No licensing issue
-  (project's own work, GPL-2.0-or-later like everything else).
+- **`crates/motorola-68040/tests/tom_harte.rs`** — project-authored
+  single-step harness for the Musashi-generated MC68040 corpus. No
+  upstream SingleStepTests MC68040 corpus exists; the filename is a
+  legacy identifier. The harness is project work
+  (GPL-2.0-or-later like the rest of Emu198x).
 
 ### SingleStepTests processor repositories
 

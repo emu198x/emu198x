@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 22 so MC68020+ master-mode
+  interrupt entry and Format-$1 RTE retain their pending phase, buffered
+  SR/PC and selected USP/ISP/MSP bank; in-flight UNLK state now carries
+  explicit stack-bank identity too. Format-$A entry/RTE phases are retained,
+  and version 21 is rejected
 - Bump Amiga postcard snapshots to version 21 so a wrapped MC68010-or-later
   CPU retains its pending frame PC and can resume between interrupt
   acknowledge and Format/Vector frame construction; version 20 is rejected

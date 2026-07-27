@@ -7,8 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Strengthen the generated-corpus harness to preserve odd memory addresses
+  and apply and compare MSP, VBR, CACR and CAAR
+
 ### Fixed
 
+- Inherit MC68020 logical unaligned-data transactions while retaining odd
+  instruction-prefetch address errors. Dynamic sizing and odd MMIO split
+  semantics remain deferred
+- Inherit VBR-relative group-0 handler fetches and the rejected
+  next-instruction address in the Format `$A` PC field
+- Inherit MC68020-family MSP/ISP selection, paired master-mode interrupt
+  frames and Format `$1` return behaviour
 - Inherit acknowledged-vector Format/Vector consistency from the shared
   MC68010 exception-entry path
 

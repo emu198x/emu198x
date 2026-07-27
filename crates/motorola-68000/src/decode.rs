@@ -36,6 +36,35 @@ use crate::cpu::{
 use crate::microcode::MicroOp;
 
 impl Cpu68000 {
+    /// Begin reading an RTE frame from the currently selected stack and
+    /// remember that bank until the frame has been consumed.
+    fn begin_rte_frame(&mut self) {
+        self.rte_stack_bank = self.regs.active_stack_bank();
+        self.addr = self.regs.active_sp();
+        self.followup_tag = TAG_RTE_READ_SR;
+        self.micro_ops.clear();
+        self.micro_ops.push(MicroOp::ReadWord);
+        self.micro_ops.push(MicroOp::Execute);
+    }
+
+    /// Advance the stack bank captured by [`Self::begin_rte_frame`].
+    fn advance_rte_stack(&mut self, bytes: u32) {
+        self.addr = self.addr.wrapping_add(bytes);
+        self.regs.set_stack_pointer(self.rte_stack_bank, self.addr);
+    }
+
+    /// Restore the state buffered from a complete RTE frame and resume
+    /// instruction fetch.
+    fn finish_rte_frame(&mut self) {
+        self.regs.sr = self.rte_saved_sr;
+        self.regs.pc = self.rte_saved_pc;
+        self.next_fetch_addr = self.regs.pc;
+        self.micro_ops.clear();
+        self.micro_ops.push(MicroOp::FetchIRC);
+        self.micro_ops.push(MicroOp::PromoteIRC);
+        self.in_followup = false;
+    }
+
     /// Decode the opcode in IR and begin execution.
     ///
     /// If `in_followup` is set, routes to `continue_instruction` instead.
@@ -1232,19 +1261,16 @@ impl Cpu68000 {
         }
 
         // --- RTE (0x4E73) ---
-        // RTE pops SR then PC from the supervisor stack. Restoring SR may
-        // switch to user mode, so we can't use PopWord/PopLong (which use
-        // active_sp). Instead, track SSP manually via self.addr and update
-        // regs.ssp directly after each read.
+        // RTE consumes the complete frame from the supervisor stack bank
+        // selected at instruction start before applying its saved SR. A
+        // Format-$1 frame is the exception: its SR deliberately selects MSP,
+        // then RTE restarts there to consume the real interrupt frame.
         if opcode == 0x4E73 {
             if self.check_supervisor() {
                 return;
             }
-            self.addr = self.regs.ssp;
             self.in_followup = true;
-            self.followup_tag = TAG_RTE_READ_SR;
-            self.micro_ops.push(MicroOp::ReadWord);
-            self.micro_ops.push(MicroOp::Execute);
+            self.begin_rte_frame();
             return;
         }
 
@@ -1298,7 +1324,7 @@ impl Cpu68000 {
             let r = (opcode & 7) as u8;
             // Save original SP for AE undo — if the popped An address is
             // odd, AE fires and A7 must revert to its pre-UNLK value.
-            self.sp_undo = Some((self.regs.is_supervisor(), self.regs.active_sp()));
+            self.sp_undo = Some((self.regs.active_stack_bank(), self.regs.active_sp()));
             // SP = An, pop An from stack
             self.regs.set_active_sp(self.regs.a(r as usize));
             self.ea_reg = r;
@@ -1917,7 +1943,23 @@ impl Cpu68000 {
             }
 
             TAG_EXC_STACK_SR => {
-                if let Some(vector) = self.exc_vector {
+                if self.exc_master_interrupt_pending {
+                    // The normal frame is complete on MSP. Interrupt
+                    // processing now enters interrupt mode and writes the
+                    // matching Format-$1 throwaway frame on ISP. Its saved SR
+                    // is the original copy with S forced set; M remains set so
+                    // RTE can switch back to MSP.
+                    self.exc_master_interrupt_pending = false;
+                    self.regs.sr &= !0x1000;
+                    self.ae_saved_sr |= 0x2000;
+                    let vector = self
+                        .exc_vector
+                        .expect("master interrupt must retain acknowledged vector");
+                    self.data = 0x1000 | u32::from(u16::from(vector) * 4);
+                    self.followup_tag = TAG_EXC_STACK_FORMAT;
+                    self.micro_ops.push(MicroOp::PushWord);
+                    self.micro_ops.push(MicroOp::Execute);
+                } else if let Some(vector) = self.exc_vector {
                     // Synchronous exception or acknowledged formatted-frame
                     // interrupt: use the retained vector without another
                     // acknowledge. TAG_EXC_FINISH clears the scratch value.
@@ -1949,6 +1991,7 @@ impl Cpu68000 {
                 // All entry-side SR effects were applied before the exception
                 // frame and vector fetch began.
                 self.exc_vector = None;
+                self.exc_master_interrupt_pending = false;
                 self.micro_ops.clear();
                 self.micro_ops.push(MicroOp::FetchIRC);
                 self.micro_ops.push(MicroOp::PromoteIRC);
@@ -1956,32 +1999,26 @@ impl Cpu68000 {
             }
 
             // --- RTE handlers ---
-            // RTE reads 6 bytes from SSP: SR(2) + PC(4). We track the SSP
-            // position in self.addr and update regs.ssp directly because
-            // restoring SR may switch to user mode (making active_sp = USP).
+            // RTE buffers SR and PC until the current frame has been consumed.
+            // This keeps all frame reads in supervisor data space and lets the
+            // captured MSP/ISP bank advance independently of the restored SR.
             TAG_RTE_READ_SR => {
-                let new_sr = (self.data as u16) & self.sr_write_mask();
-                self.addr = self.addr.wrapping_add(2);
-                self.regs.sr = new_sr;
-                self.regs.ssp = self.addr;
+                self.rte_saved_sr = (self.data as u16) & self.sr_write_mask();
+                self.advance_rte_stack(2);
                 self.followup_tag = TAG_RTE_READ_PC_HI;
                 self.micro_ops.push(MicroOp::ReadWord);
                 self.micro_ops.push(MicroOp::Execute);
             }
             TAG_RTE_READ_PC_HI => {
-                self.src_val = self.data; // Save PC hi word
-                self.addr = self.addr.wrapping_add(2);
-                self.regs.ssp = self.addr;
+                self.rte_saved_pc = (self.data & 0xFFFF) << 16;
+                self.advance_rte_stack(2);
                 self.followup_tag = TAG_RTE_READ_PC_LO;
                 self.micro_ops.push(MicroOp::ReadWord);
                 self.micro_ops.push(MicroOp::Execute);
             }
             TAG_RTE_READ_PC_LO => {
-                let target = (self.src_val << 16) | (self.data & 0xFFFF);
-                self.addr = self.addr.wrapping_add(2);
-                self.regs.ssp = self.addr;
-                self.regs.pc = target;
-                self.next_fetch_addr = self.regs.pc;
+                self.rte_saved_pc |= self.data & 0xFFFF;
+                self.advance_rte_stack(2);
 
                 if self.variant_six_word_frame {
                     // 68010+: read the Format/Vector word that sits
@@ -1996,27 +2033,28 @@ impl Cpu68000 {
                 } else {
                     // 68000: no format word in the exception frame,
                     // just refetch.
-                    self.micro_ops.clear();
-                    self.micro_ops.push(MicroOp::FetchIRC);
-                    self.micro_ops.push(MicroOp::PromoteIRC);
-                    self.in_followup = false;
+                    self.finish_rte_frame();
                 }
             }
             TAG_RTE_READ_FORMAT => {
-                // F/V word has been read into self.data. Advance SSP
-                // past it and decide whether more bytes need popping.
+                // F/V word has been read into self.data. Advance the
+                // captured stack bank past it and decide whether more bytes
+                // need popping.
                 let fv = self.data as u16;
                 let format = (fv >> 12) & 0x0F;
-                self.addr = self.addr.wrapping_add(2);
-                self.regs.ssp = self.addr;
+                self.advance_rte_stack(2);
                 match format {
                     0 => {
                         // Short frame complete; resume execution at
                         // the popped PC.
-                        self.micro_ops.clear();
-                        self.micro_ops.push(MicroOp::FetchIRC);
-                        self.micro_ops.push(MicroOp::PromoteIRC);
-                        self.in_followup = false;
+                        self.finish_rte_frame();
+                    }
+                    1 if self.regs.master_stack_capable() => {
+                        // The throwaway frame's SR has S and M set. Applying
+                        // it selects MSP; restart RTE there and discard this
+                        // frame's PC.
+                        self.regs.sr = self.rte_saved_sr;
+                        self.begin_rte_frame();
                     }
                     2 => {
                         // 12-byte frame: pop the Instruction Address
@@ -2027,10 +2065,10 @@ impl Cpu68000 {
                         self.micro_ops.push(MicroOp::Execute);
                     }
                     0xA => {
-                        // 28-byte short bus-fault frame: 20 more
-                        // bytes (10 words) above the F/V word —
+                        // 32-byte short bus-fault frame: 24 more
+                        // bytes (12 words) above the F/V word —
                         // internal pipeline state we don't track.
-                        // Pop them step-by-step to advance SSP.
+                        // Pop them step-by-step to advance the frame bank.
                         self.rte_fmta_step = 0;
                         self.followup_tag = TAG_RTE_READ_FMTA_STEP;
                         self.micro_ops.clear();
@@ -2038,32 +2076,26 @@ impl Cpu68000 {
                         self.micro_ops.push(MicroOp::Execute);
                     }
                     _ => {
-                        // Other formats (1 throwaway, 9 coprocessor
-                        // mid-instruction, B access fault) are not
+                        // Other formats (9 coprocessor mid-instruction,
+                        // B access fault) are not
                         // implemented yet. KS doesn't generate them
                         // during normal boot; if encountered we just
                         // resume — better than halting, and any real
                         // mismatch will surface via downstream
                         // misbehaviour rather than silent CPU stall.
-                        self.micro_ops.clear();
-                        self.micro_ops.push(MicroOp::FetchIRC);
-                        self.micro_ops.push(MicroOp::PromoteIRC);
-                        self.in_followup = false;
+                        self.finish_rte_frame();
                     }
                 }
             }
             TAG_RTE_READ_FMTA_STEP => {
                 // Each step has just completed one word read; advance
-                // SSP. After 10 words (20 bytes) we've consumed the
-                // Format-$A frame's internal state and can finish.
-                self.addr = self.addr.wrapping_add(2);
-                self.regs.ssp = self.addr;
+                // the captured stack. After 12 words (24 bytes)
+                // we've consumed the Format-$A frame's internal state and can
+                // finish.
+                self.advance_rte_stack(2);
                 self.rte_fmta_step = self.rte_fmta_step.wrapping_add(1);
-                if self.rte_fmta_step >= 10 {
-                    self.micro_ops.clear();
-                    self.micro_ops.push(MicroOp::FetchIRC);
-                    self.micro_ops.push(MicroOp::PromoteIRC);
-                    self.in_followup = false;
+                if self.rte_fmta_step >= 12 {
+                    self.finish_rte_frame();
                 } else {
                     self.followup_tag = TAG_RTE_READ_FMTA_STEP;
                     self.micro_ops.push(MicroOp::ReadWord);
@@ -2074,19 +2106,14 @@ impl Cpu68000 {
                 // High word of Instruction Address read; discard
                 // (the resume PC was already loaded from the frame's
                 // PC field) and queue the low word.
-                self.addr = self.addr.wrapping_add(2);
-                self.regs.ssp = self.addr;
+                self.advance_rte_stack(2);
                 self.followup_tag = TAG_RTE_READ_FMT2_LO;
                 self.micro_ops.push(MicroOp::ReadWord);
                 self.micro_ops.push(MicroOp::Execute);
             }
             TAG_RTE_READ_FMT2_LO => {
-                self.addr = self.addr.wrapping_add(2);
-                self.regs.ssp = self.addr;
-                self.micro_ops.clear();
-                self.micro_ops.push(MicroOp::FetchIRC);
-                self.micro_ops.push(MicroOp::PromoteIRC);
-                self.in_followup = false;
+                self.advance_rte_stack(2);
+                self.finish_rte_frame();
             }
 
             // --- RTR handlers ---
@@ -2395,65 +2422,76 @@ impl Cpu68000 {
                 self.micro_ops.push(MicroOp::Execute);
             }
 
-            // 68020+ short bus-fault frame (Format $A, 28 bytes).
-            // Pushes the 11 frame fields back-to-front so the final
-            // SP rests at the SR slot. Internal/pipeline fields we
-            // don't track (Stage B, SSW, internal registers, data
-            // output buffer) push as zero — KS 3.1's vec-2/3
-            // handler doesn't read them in the cycle-1 boot path.
+            // 68020+ short bus-fault frame (Format $A, 32 bytes).
+            // Pushes the 13 frame fields back-to-front so the final
+            // SP rests at the SR slot. Internal/pipeline fields not
+            // represented by the current core use compatibility
+            // placeholders; exact fault restart remains separate work.
             TAG_AE_FMT_A_STEP => {
                 let step = self.ae_fmt_a_step;
                 self.ae_fmt_a_step = step.wrapping_add(1);
-                self.followup_tag = if step >= 10 {
+                self.followup_tag = if step >= 12 {
                     TAG_AE_FETCH_VECTOR
                 } else {
                     TAG_AE_FMT_A_STEP
                 };
                 match step {
                     0 => {
-                        // Data Output Buffer (long) — top of frame.
+                        // Highest internal register (word, offset $1E).
                         self.data = 0;
-                        self.micro_ops.push(MicroOp::PushLongHi);
-                        self.micro_ops.push(MicroOp::PushLongLo);
+                        self.micro_ops.push(MicroOp::PushWord);
                     }
                     1 => {
-                        // Internal register (word).
+                        // Internal register (word, offset $1C).
                         self.data = 0;
                         self.micro_ops.push(MicroOp::PushWord);
                     }
                     2 => {
+                        // Data Output Buffer (long, offsets $18-$1A).
+                        self.data = 0;
+                        self.micro_ops.push(MicroOp::PushLongHi);
+                        self.micro_ops.push(MicroOp::PushLongLo);
+                    }
+                    3 => {
                         // Internal register (word).
                         self.data = 0;
                         self.micro_ops.push(MicroOp::PushWord);
                     }
-                    3 => {
+                    4 => {
+                        // Internal register (word).
+                        self.data = 0;
+                        self.micro_ops.push(MicroOp::PushWord);
+                    }
+                    5 => {
                         // Data Cycle Fault Address (long).
                         self.data = self.ae_fault_addr;
                         self.micro_ops.push(MicroOp::PushLongHi);
                         self.micro_ops.push(MicroOp::PushLongLo);
                     }
-                    4 => {
+                    6 => {
                         // Instruction Pipe Stage B (word).
                         self.data = 0;
                         self.micro_ops.push(MicroOp::PushWord);
                     }
-                    5 => {
-                        // Instruction Pipe Stage C (word) — the
-                        // instruction we were executing.
+                    7 => {
+                        // Instruction Pipe Stage C compatibility image.
+                        // The current frame IR is useful diagnostically,
+                        // but is not an exact reconstruction of the
+                        // MC68020 pipeline word in every fault phase.
                         self.data = u32::from(self.ae_frame_ir);
                         self.micro_ops.push(MicroOp::PushWord);
                     }
-                    6 => {
+                    8 => {
                         // Special Status Word.
                         self.data = 0;
                         self.micro_ops.push(MicroOp::PushWord);
                     }
-                    7 => {
+                    9 => {
                         // Internal register (word).
                         self.data = 0;
                         self.micro_ops.push(MicroOp::PushWord);
                     }
-                    8 => {
+                    10 => {
                         // Format / Vector word: Format $A in high
                         // nibble, vector offset (= vec * 4) in the
                         // low 12 bits.
@@ -2461,18 +2499,18 @@ impl Cpu68000 {
                         self.data = u32::from(fv);
                         self.micro_ops.push(MicroOp::PushWord);
                     }
-                    9 => {
+                    11 => {
                         // PC (long).
                         self.data = self.ae_frame_pc;
                         self.micro_ops.push(MicroOp::PushLongHi);
                         self.micro_ops.push(MicroOp::PushLongLo);
                     }
-                    10 => {
+                    12 => {
                         // SR (word) — bottom of frame, final SP.
                         self.data = u32::from(self.ae_saved_sr);
                         self.micro_ops.push(MicroOp::PushWord);
                     }
-                    _ => unreachable!("ae_fmt_a_step exceeded 10"),
+                    _ => unreachable!("ae_fmt_a_step exceeded 12"),
                 }
                 self.micro_ops.push(MicroOp::Execute);
             }
@@ -2480,7 +2518,12 @@ impl Cpu68000 {
             TAG_AE_FETCH_VECTOR => {
                 // group0_vector: 2 = bus error, 3 = address error.
                 self.program_space_access = false;
-                self.addr = u32::from(self.group0_vector) * 4;
+                let vector_offset = u32::from(self.group0_vector) * 4;
+                self.addr = if self.variant_six_word_frame {
+                    self.regs.vbr.wrapping_add(vector_offset)
+                } else {
+                    vector_offset
+                };
                 self.followup_tag = TAG_AE_FINISH;
                 self.queue_read_ops(Size::Long);
                 self.micro_ops.push(MicroOp::Execute);
