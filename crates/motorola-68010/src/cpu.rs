@@ -12,8 +12,7 @@
 //! 2. Install the decode hook in [`Cpu68010::new`] so the 68000 core
 //!    routes 68010-specific opcodes here instead of taking ILLEGAL.
 //!
-//! The hook in this crate covers the 68010-introduced opcodes that
-//! complete in a single Execute step:
+//! The hook in this crate covers:
 //!
 //! - `MOVEC` (`$4E7A` / `$4E7B`) — read/write VBR / SFC / DFC / USP
 //!   through the standard control-register namespace.
@@ -21,15 +20,20 @@
 //!   non-privileged read of the CCR alongside the 68000's privileged
 //!   `MOVE from SR`. Memory destinations (modes 2-7) need the
 //!   multi-step EA pipeline and are deferred to a later phase.
-//!
-//! Deferred to a later phase because they require multi-step
-//! continuation dispatch (which today only the 68000 core knows
-//! how to do for its own tags):
-//!
 //! - `RTD #d16` (`$4E74`) — pops PC then adjusts SP by d16.
+//!
+//! The shared core supplies the four-word Format `$0` exception frame,
+//! VBR-relative vector fetch and matching RTE path when this wrapper
+//! installs its formatted-frame flag.
+//!
+//! Deferred to later work:
+//!
 //! - `MOVES` (`$0Exx`) — privileged data move using SFC/DFC.
+//! - Memory destinations for `MOVE from CCR`.
+//! - Privileged 68010 `MOVE from SR`.
 //! - Loop mode optimisation on DBcc.
-//! - 68010 6-word exception frames + format word.
+//! - Restartable Format `$8` bus-error frames.
+//! - Cycle-exact exception stack and acknowledge ordering.
 //!
 //! `BKPT` (`$4848`-`$484F`) is left to fall through to the 68000's
 //! ILLEGAL trap, which matches the 68010 behaviour exactly when no

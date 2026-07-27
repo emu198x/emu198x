@@ -56,22 +56,23 @@ and this decision does not add an artificial Amiga timeout.
 
 ## Later-family boundary
 
-This decision is complete for the MC68000. The current MC68010-through-
-MC68040 wrappers inherit the same compatibility bus surface, but their
-format-and-vector word is prepared before acknowledge. A BERR response
-can therefore fetch vector 24 while retaining a word prepared for the
-autovector.
+The MC68010-through-MC68040 wrappers now retain the acknowledge result
+before constructing their Format/Vector word. A BERR response therefore
+selects vector 24 for both the stacked `$0060` offset and the handler
+fetch.
 
-Variant-accurate spurious and device-supplied vectors on those processors
-require the separate IACK-first exception-frame work. This decision does
-not claim that the shared compatibility path models their external bus
-protocols.
+Those wrappers still inherit a shared compatibility bus surface. This
+decision does not claim that it models each later processor's acknowledge
+address, termination signals or retry protocol. The architectural frame
+rule and remaining bus boundary are defined in
+[MC68010+ acknowledged interrupt vectors](motorola-68010-acknowledged-interrupt-vector.md).
 
 ## Snapshot compatibility
 
-No serialized field or layout changes. The Amiga drivers cannot produce
-an in-flight IACK-plus-BERR state through normal execution, so the
-machine snapshot schema does not change.
+The MC68000 response change itself added no serialized field or layout and
+did not change the Amiga snapshot schema. The later-family frame fix adds
+a reachable post-IACK continuation state, so the shared Amiga envelope
+subsequently advances from version 20 to 21.
 
 ## Verification
 
@@ -97,5 +98,6 @@ based on the Motorola ninth-edition user's manual.
 ## Related Documents
 
 - [Accepted MC68000 interrupt level](motorola-68000-interrupt-acknowledge-level.md)
+- [MC68010+ acknowledged interrupt vectors](motorola-68010-acknowledged-interrupt-vector.md)
 - [CPU bus interface](cpu-bus-interface.md)
 - [68k test-oracle strategy](m68k-test-oracle-strategy.md)

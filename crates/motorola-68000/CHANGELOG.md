@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Build MC68010-and-later interrupt Format/Vector words from the vector
+  selected by acknowledge, including device-supplied and spurious vectors
+- Serialize the pending MC68010-and-later exception-frame PC instead of
+  restoring an in-flight formatted frame with a zero saved address
 - Latch lower-to-level-7 transitions until an interrupt boundary instead of
   treating a continuously held level 7 as a new request at every instruction
 - Select spurious vector 24 when external BERR terminates an

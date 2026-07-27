@@ -923,10 +923,9 @@ there. A series of diagnostics pin down the situation:
 **IRQ delivery is healthy.** The first diagnostic round reported
 "0 autovec IRQs taken" via `exc_counts`, which led to a long
 hypothesis chain about mask-correlation and self-blocking loops.
-That report was wrong: `initiate_interrupt_exception` intentionally
-leaves `exc_vector` unset (so the shared follow-up tag chain can
-distinguish interrupts from group-1/2 exceptions), so the test's
-exc_vector-based counter missed every IRQ. A dedicated counter
+That report was wrong: `exc_vector` is exception-continuation scratch
+state and is cleared before handler execution, so the test's
+`exc_vector`-based counter missed every IRQ. A dedicated counter
 (`Cpu68000::interrupts_taken`) reveals **89,057 IRQs taken in 30
 000 frames** (~3K/sec, expected rate for VBL + CIA + Paula).
 

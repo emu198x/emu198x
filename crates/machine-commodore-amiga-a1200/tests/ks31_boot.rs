@@ -1095,11 +1095,10 @@ fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
     // frame; complete silence means the chipset → CPU IPL path is
     // broken.
     // Direct IRQ counter on the CPU. `exc_counts` above misses
-    // hardware interrupts because `initiate_interrupt_exception`
-    // intentionally leaves `exc_vector` unset (so the shared
-    // follow-up tag chain can distinguish interrupts from group-1/2
-    // exceptions). `cpu.interrupts_taken` increments unconditionally
-    // for every IRQ entry, regardless of vector.
+    // hardware interrupts because `exc_vector` is continuation
+    // scratch state and is cleared before handler execution.
+    // `cpu.interrupts_taken` increments unconditionally for every
+    // IRQ entry, regardless of vector.
     eprintln!("CPU interrupts_taken counter: {}", m.cpu().interrupts_taken);
 
     // Display state check — STRAP arrives if BPLCON0 hits $8303

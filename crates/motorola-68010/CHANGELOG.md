@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Use the interrupt-acknowledge result for both handler selection and the
+  stacked Format/Vector offset
+- Preserve the pending PC when serializing an in-flight formatted
+  exception frame
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/motorola-68010-v0.2.0) - 2026-06-04
 
 ### Other

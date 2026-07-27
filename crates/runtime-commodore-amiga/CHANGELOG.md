@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Bump Amiga postcard snapshots to version 21 so a wrapped MC68010-or-later
+  CPU retains its pending frame PC and can resume between interrupt
+  acknowledge and Format/Vector frame construction; version 20 is rejected
 - Bump Amiga postcard snapshots to version 20 so the MC68000's sampled
   interrupt level and pending lower-to-level-7 transition survive restore;
   version 19 is rejected

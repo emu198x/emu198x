@@ -66,6 +66,24 @@ envelope.
 The recognition rule and reset boundary are defined by
 [MC68000 level-7 transition recognition](motorola-68000-level-7-transition.md).
 
+## MC68010+ acknowledged-vector amendment
+
+The shared MC68010-and-later interrupt path now has a reachable
+continuation between interrupt acknowledge and Format/Vector frame
+construction. At that boundary the selected vector may be retained in
+`exc_vector`, and the pending PC in `exc_pending_pc` must survive until
+the PC stack writes begin. The latter field was previously skipped by
+serde even though formatted synchronous exceptions also rely on it.
+
+The Amiga runtime envelope therefore advances from version 20 to version
+21. The positional postcard layout changes to include the pending PC, and
+a version-20 reader does not understand the new continuation tag. All
+Amiga models reject version 20 so the common runtime retains one
+compatibility boundary.
+
+The frame rule is defined by
+[MC68010+ acknowledged interrupt vectors](motorola-68010-acknowledged-interrupt-vector.md).
+
 ## Atari (decided 2026-06-26): use serde, same as everyone else
 
 The Atari chips (TIA, RIOT/6532, ANTIC, GTIA, POKEY, MARIA) carry **hand-rolled
@@ -88,5 +106,6 @@ run→snapshot→restore→run test would close this — tracked as a follow-up.
 
 - [Z80 interrupt snapshot identity](z80-interrupt-snapshot-identity.md)
 - [MC68000 level-7 transition recognition](motorola-68000-level-7-transition.md)
+- [MC68010+ acknowledged interrupt vectors](motorola-68010-acknowledged-interrupt-vector.md)
 - [Runtime internal shape](runtime-internal-shape.md)
 - [Spectrum architecture review](spectrum-architecture-review.md)

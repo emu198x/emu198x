@@ -176,6 +176,9 @@ pub const TAG_EXC_STACK_INSTR_ADDR_HI: u8 = 44;
 /// Address pushed; restore `self.data` to the Format/Vector value
 /// and continue with the format-word push.
 pub const TAG_EXC_STACK_INSTR_ADDR_LO: u8 = 45;
+/// Exception: 68010+ interrupt acknowledge completed; retain the
+/// selected vector and push its Format/Vector offset.
+pub const TAG_EXC_IACK_COMPLETE: u8 = 46;
 
 // Address error exception follow-ups (14-byte group 0 frame)
 /// AE: push SR word.
@@ -484,10 +487,9 @@ pub struct Cpu68000 {
     pub target_ipl: u8,
     /// Count of hardware interrupts entered (PromoteIRC / tick-idle
     /// IPL-acceptance paths). Diagnostic only — never reset by the
-    /// CPU. Tests use this to confirm IRQ delivery without poking
-    /// `exc_vector` (which `initiate_interrupt_exception` intentionally
-    /// leaves unset to distinguish interrupts from group-1/2
-    /// exceptions in the shared follow-up tag chain).
+    /// CPU. Tests use this instead of sampling `exc_vector`, which is
+    /// transient continuation state and is cleared before handler
+    /// execution.
     #[serde(skip)]
     pub interrupts_taken: u64,
     /// Enable verbose debug logging.
@@ -500,8 +502,12 @@ pub struct Cpu68000 {
     pub movem_is_write: bool,
     /// MOVEM: address register used for predec/postinc (0-7), or 0xFF if none.
     pub movem_an_reg: u8,
-    /// Exception vector for group 1/2 exceptions (TRAP, privilege violation, etc.).
-    /// When set, TAG_EXC_STACK_SR skips InterruptAck and uses this vector directly.
+    /// Exception vector already known to the current exception sequence.
+    ///
+    /// Group 1/2 exceptions set this before stacking. MC68010+ hardware
+    /// interrupts set it after interrupt acknowledge so the selected vector
+    /// supplies both the Format/Vector word and the handler fetch.
+    /// When set, `TAG_EXC_STACK_SR` skips interrupt acknowledge.
     pub exc_vector: Option<u8>,
     /// Source operand value.
     pub src_val: u32,
@@ -836,12 +842,10 @@ pub struct Cpu68000 {
 
     /// Pending PC value during the 68010+ exception frame push.
     ///
-    /// When `variant_six_word_frame` is set,
-    /// `begin_group1_exception` pushes the Format/Vector word first,
-    /// which needs `self.data` to hold the format word during that
-    /// push. The PC value gets stashed here and restored to
-    /// `self.data` once the format push completes.
-    #[serde(skip)]
+    /// When `variant_six_word_frame` is set, formatted synchronous
+    /// exceptions and acknowledged interrupts use `self.data` for the
+    /// Format/Vector word before the PC push begins. The PC is stashed
+    /// here until `TAG_EXC_STACK_FORMAT` restores it to `self.data`.
     pub(crate) exc_pending_pc: u32,
 
     // ── 68020+ bit-field memory pipeline scratch ──────────────────
@@ -1408,8 +1412,9 @@ impl Cpu68000 {
                             if completed_op == MicroOp::InterruptAck {
                                 // BERR terminates an interrupt-acknowledge
                                 // cycle by supplying the spurious interrupt
-                                // vector. The ordinary interrupt frame is
-                                // already on the stack at this point.
+                                // vector. Frame construction either already
+                                // occurred (MC68000) or follows this response
+                                // (formatted-frame variants).
                                 self.finish_bus_cycle(completed_op, 24);
                             } else {
                                 self.begin_bus_error(fault_addr, fault_read, fault_fc);
@@ -1579,25 +1584,20 @@ impl Cpu68000 {
         let pc_to_push = self.irc_addr;
 
         if self.variant_six_word_frame {
-            // 68010+: 8-byte Format-$0 interrupt frame. Push the F/V
-            // word first using the autovector number (24 + level).
-            // All retro 68010+ targets we support (Amiga A1200/A3000/
-            // A4000/CD32, Atari Falcon) use autovectored interrupts,
-            // so the subsequent IACK returns the same autovector
-            // value the CPU pre-pushed in the F/V word — the frame
-            // is internally consistent. Genuinely-vectored 68010+
-            // systems (Mac via VIA/SCC) would need an IACK-first
-            // refactor before the F/V push. M68000PRM § 8.6.
+            // 68010+: the selected interrupt vector must supply both
+            // the Format/Vector word and the handler fetch. Acquire it
+            // before constructing the 8-byte Format-$0 frame so a
+            // device vector or spurious response cannot leave an
+            // autovector-derived offset in the frame.
             //
             // RTE on 68010+ pops 8 bytes for Format $0 (Stage J
             // fix); pushing 6 bytes here was leaking 2 bytes per
             // interrupt, accumulating into SSP overflow past the top
             // of chip RAM. Surfaced during A1200 Stage L.
-            let vector = 24u8.saturating_add(level);
             self.exc_pending_pc = pc_to_push;
-            self.data = u32::from(u16::from(vector) * 4);
-            self.followup_tag = TAG_EXC_STACK_FORMAT;
-            self.micro_ops.push(MicroOp::PushWord);
+            self.exc_vector = None;
+            self.followup_tag = TAG_EXC_IACK_COMPLETE;
+            self.micro_ops.push(MicroOp::InterruptAck);
             self.micro_ops.push(MicroOp::Execute);
         } else {
             // 68000: push PC directly (6-byte frame: PC + SR).

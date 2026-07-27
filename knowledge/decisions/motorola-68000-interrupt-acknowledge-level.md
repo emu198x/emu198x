@@ -130,10 +130,12 @@ Level-7 transition recognition is handled separately by
 BERR during interrupt acknowledge is handled separately by
 [MC68000 spurious interrupt response](motorola-68000-spurious-interrupt-response.md).
 
-Externally supplied vectors on 68010-or-later machines remain outside the
-current Amiga target boundary. Those machines need an IACK-first frame
-path before their format-and-vector word can represent a device-supplied
-vector.
+The shared MC68010-and-later exception path now constructs its
+Format/Vector word from the acknowledged vector. Device-supplied,
+autovectored and spurious responses therefore select one consistent frame
+offset and handler. The remaining distinction is external bus timing and
+signals, not architectural vector identity; see
+[MC68010+ acknowledged interrupt vectors](motorola-68010-acknowledged-interrupt-vector.md).
 
 ## Evidence basis
 
@@ -149,6 +151,7 @@ Amiga-side level and autovector boundary is defined by
 - [CPU bus interface](cpu-bus-interface.md)
 - [MC68000 level-7 transition recognition](motorola-68000-level-7-transition.md)
 - [MC68000 spurious interrupt response](motorola-68000-spurious-interrupt-response.md)
+- [MC68010+ acknowledged interrupt vectors](motorola-68010-acknowledged-interrupt-vector.md)
 - [Amiga full-family architecture review](amiga-full-family-architecture-review.md)
 - [Save-state live-machine serde](savestate-live-machine-serde.md)
 - [68k test-oracle strategy](m68k-test-oracle-strategy.md)
