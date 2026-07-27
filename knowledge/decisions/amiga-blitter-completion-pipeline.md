@@ -172,8 +172,9 @@ missing final write or a one-CCK Copper difference.
 
 The later line-mode decision advanced the envelope to version 18 for
 serialized ONEDOT, texture-phase and current-CCK arbitration state.
-The current runtime envelope is version 19 because accepted MC68000
-interrupt-acknowledge identity must also be unambiguous across builds.
+Accepted MC68000 interrupt-acknowledge identity advanced it to version
+19. The current runtime envelope is version 20 because level-7 sampled
+input history and a pending transition must also survive restore.
 
 Raw postcards of the affected Agnus and machine types remain
 unversioned and change positional layout. Durable save states must use

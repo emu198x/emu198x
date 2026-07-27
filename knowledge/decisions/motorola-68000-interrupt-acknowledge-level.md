@@ -124,9 +124,8 @@ accepted level on A3-A1.
 
 ## Deferred boundaries
 
-This decision does not correct the separate level-7 edge-latching rule.
-The current CPU can accept a continuously held level 7 repeatedly; that
-requires explicit serialized transition/pending state and its own tests.
+Level-7 transition recognition is handled separately by
+[MC68000 level-7 transition recognition](motorola-68000-level-7-transition.md).
 
 BERR during interrupt acknowledge is handled separately by
 [MC68000 spurious interrupt response](motorola-68000-spurious-interrupt-response.md).
@@ -148,6 +147,7 @@ Amiga-side level and autovector boundary is defined by
 ## Related Documents
 
 - [CPU bus interface](cpu-bus-interface.md)
+- [MC68000 level-7 transition recognition](motorola-68000-level-7-transition.md)
 - [MC68000 spurious interrupt response](motorola-68000-spurious-interrupt-response.md)
 - [Amiga full-family architecture review](amiga-full-family-architecture-review.md)
 - [Save-state live-machine serde](savestate-live-machine-serde.md)

@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Latch lower-to-level-7 transitions until an interrupt boundary instead of
+  treating a continuously held level 7 as a new request at every instruction
 - Select spurious vector 24 when external BERR terminates an
   interrupt-acknowledge cycle, while retaining ordinary vector-2 bus errors
 - Carry the accepted interrupt level on A3-A1 during acknowledge and

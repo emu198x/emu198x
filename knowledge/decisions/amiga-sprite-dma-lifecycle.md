@@ -180,27 +180,10 @@ not asserted as manufacturer-documented power-on behaviour.
   event generator itself has historical state that cannot be recovered
   from registers and beam position. ECS and AGA snapshots preserve the
   vertical-accessed flag, blank-active latch and line-held edge events.
-- The Amiga runtime postcard schema is version 17. Version-16 snapshots
-  are rejected because they do not preserve the serialized blitter
-  completion phase and its observer holds. Version 16 introduced the shared
-  two-CCK blitter-startup phase and pending Copper `WAIT`/`SKIP`
-  discriminator.
-  Version 15 introduced installed original-Agnus revision identity and its
-  line-held hard vertical-blank state; version 14 introduced the MC68000's
-  hidden group-0/group-1 exception-processing state. Version 13
-  introduced the original-Agnus vertical display-window latch; version 12
-  made a rewritten future DDFSTRT comparator re-arm an aborted
-  original-Agnus run; version 11 introduced
-  the serialized abort latch; version 10 fixed the semantic short-line
-  `$E3` transition; version 9 introduced the serialized
-  horizontal hard-start gate; version 8 introduced the enhanced-chipset
-  `$D8` terminal endpoint; version 7 made the same compatibility break for
-  the original-Agnus `$D8` event; version 6 introduced the current-line
-  DDFSTOP comparator match and frozen final fetch endpoint; version 5
-  introduced the current-line DDFSTRT comparator match and frozen fetch
-  origin; version 4 introduced the hidden ECS/AGA vertical display-window
-  latch; version 3 introduced the installed early/Fat Agnus distinction
-  and the Fat Agnus wrapper's live extension-register state.
+- These fields are part of the serialized live machine. Durable
+  compatibility follows the versioned Amiga runtime envelope; raw machine
+  postcards remain unversioned. The shared policy is defined by
+  [Save-state live-machine serde](savestate-live-machine-serde.md).
 - The per-request `SpriteDmaVerticalTiming` value remains transient.
   It also carries the nine- or ten-bit comparator capability selected
   by the Agnus identity; the already-serialized `agnus_id` and `u16`

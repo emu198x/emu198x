@@ -555,6 +555,338 @@ fn device_vector_15_during_interrupt_acknowledge_selects_uninitialized_interrupt
 }
 
 #[test]
+fn held_level_7_request_does_not_repeat_while_mask_stays_7() {
+    let mut mem = TestMem::new(0x4000);
+
+    mem.write_long(31 * 4, 0x0000_0120);
+    mem.write_word(0x0120, 0x7001); // MOVEQ #1,D0
+    mem.write_word(0x0122, 0x60FE); // BRA.S *
+    mem.write_word(0x0100, 0x60FE); // BRA.S *
+
+    let mut cpu = setup_cpu_reset_to(&mut mem, 0x2000, 0x0100);
+    for _ in 0..5_000 {
+        cpu.ipl = 7;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+    }
+
+    assert_eq!(
+        cpu.interrupts_taken, 1,
+        "a held level 7 is one transition, not a new interrupt at every boundary"
+    );
+    assert_eq!(cpu.regs.d[0], 1);
+    assert_eq!(cpu.regs.active_sp(), 0x1FFA);
+    assert_eq!(cpu.target_ipl, 7);
+    assert_eq!(cpu.regs.interrupt_mask(), 7);
+}
+
+#[test]
+fn lower_to_level_7_transition_during_a_bus_cycle_retriggers_while_masked() {
+    let mut mem = TestMem::new(0x4000);
+
+    mem.write_long(31 * 4, 0x0000_0120);
+    mem.write_word(0x0120, 0x5240); // ADDQ.W #1,D0
+    mem.write_word(0x0122, 0x60FE); // BRA.S *
+    mem.write_word(0x0100, 0x60FE); // BRA.S *
+
+    let mut cpu = setup_cpu_reset_to(&mut mem, 0x2000, 0x0100);
+    for _ in 0..10_000 {
+        cpu.ipl = 7;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.regs.d[0] == 1 && cpu.interrupts_taken == 1 {
+            break;
+        }
+    }
+    assert_eq!(cpu.regs.d[0], 1);
+    assert_eq!(cpu.interrupts_taken, 1);
+    assert_eq!(cpu.regs.interrupt_mask(), 7);
+
+    let mut found_early_bus_cycle = false;
+    for _ in 0..2_000 {
+        cpu.ipl = 7;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if matches!(
+            &cpu.state,
+            motorola_68000::cpu::State::BusCycle {
+                fc,
+                cycle_count: 1,
+                ..
+            } if *fc != motorola_68000::bus::FunctionCode::InterruptAck
+        ) {
+            found_early_bus_cycle = true;
+            break;
+        }
+    }
+    assert!(
+        found_early_bus_cycle,
+        "the test must change IPL while an ordinary bus cycle is active"
+    );
+
+    cpu.ipl = 6;
+    service_bus(&mut cpu, &mut mem);
+    cpu.tick();
+    assert_eq!(
+        cpu.interrupts_taken, 1,
+        "falling from level 7 must not generate an interrupt"
+    );
+    assert!(matches!(
+        &cpu.state,
+        motorola_68000::cpu::State::BusCycle { cycle_count: 2, .. }
+    ));
+
+    cpu.ipl = 7;
+    service_bus(&mut cpu, &mut mem);
+    cpu.tick();
+    assert_eq!(
+        cpu.interrupts_taken, 1,
+        "the rising transition occurs before the next instruction boundary"
+    );
+    assert!(matches!(
+        &cpu.state,
+        motorola_68000::cpu::State::BusCycle { cycle_count: 3, .. }
+    ));
+
+    for _ in 0..10_000 {
+        cpu.ipl = 7;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.regs.d[0] == 2 {
+            break;
+        }
+    }
+
+    assert_eq!(
+        cpu.regs.d[0], 2,
+        "the lower-to-level-7 transition must remain pending until the boundary"
+    );
+    assert_eq!(cpu.interrupts_taken, 2);
+    assert_eq!(cpu.regs.active_sp(), 0x1FF4);
+    assert_eq!(cpu.regs.interrupt_mask(), 7);
+}
+
+#[test]
+fn held_level_7_is_accepted_after_an_instruction_lowers_the_mask() {
+    let mut mem = TestMem::new(0x4000);
+
+    mem.write_long(31 * 4, 0x0000_0120);
+    mem.write_word(0x0120, 0x46FC); // MOVE.W #$2000,SR
+    mem.write_word(0x0122, 0x2000);
+    mem.write_word(0x0124, 0x60FE); // BRA.S *
+    mem.write_word(0x0100, 0x60FE); // BRA.S *
+
+    let mut cpu = setup_cpu_reset_to(&mut mem, 0x2000, 0x0100);
+    for _ in 0..10_000 {
+        cpu.ipl = 7;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.interrupts_taken == 2 {
+            break;
+        }
+    }
+    assert_eq!(
+        cpu.interrupts_taken, 2,
+        "a held level 7 becomes eligible through ordinary comparison after MOVE to SR"
+    );
+
+    let mut second_frame_written = false;
+    for _ in 0..10_000 {
+        cpu.ipl = 0;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.regs.active_sp() == 0x1FF4 && mem.read_word(0x1FF4) != 0 {
+            second_frame_written = true;
+            break;
+        }
+    }
+
+    assert!(
+        second_frame_written,
+        "the second level-7 exception frame must complete"
+    );
+    assert_eq!(
+        mem.read_word(0x1FFA),
+        0x2700,
+        "the first frame records the initial mask of 7"
+    );
+    assert_eq!(
+        mem.read_word(0x1FF4),
+        0x2000,
+        "the second entry must occur after the handler instruction lowers the mask"
+    );
+    assert_eq!(cpu.regs.interrupt_mask(), 7);
+}
+
+#[test]
+fn level_7_transition_wakes_stop_with_mask_7() {
+    let mut mem = TestMem::new(0x4000);
+
+    mem.write_long(31 * 4, 0x0000_0120);
+    mem.write_word(0x0120, 0x7055); // MOVEQ #$55,D0
+    mem.write_word(0x0122, 0x60FE); // BRA.S *
+    mem.write_word(0x0100, 0x4E72); // STOP
+    mem.write_word(0x0102, 0x2700); // supervisor, mask 7
+    mem.write_word(0x0104, 0x7277); // MOVEQ #$77,D1
+    mem.write_word(0x0106, 0x60FE); // BRA.S *
+
+    let mut cpu = setup_cpu_reset_to(&mut mem, 0x2000, 0x0100);
+    let mut stopped = false;
+    for _ in 0..2_000 {
+        cpu.ipl = 6;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if matches!(cpu.state, motorola_68000::cpu::State::Stopped) {
+            stopped = true;
+            break;
+        }
+    }
+    assert!(stopped, "STOP #$2700 must enter the stopped state");
+    assert_eq!(cpu.regs.interrupt_mask(), 7);
+    assert_eq!(cpu.regs.d[1], 0);
+
+    for _ in 0..10_000 {
+        cpu.ipl = 7;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.regs.d[0] == 0x55 {
+            break;
+        }
+    }
+
+    assert_eq!(
+        cpu.regs.d[0], 0x55,
+        "a lower-to-level-7 transition must wake STOP despite mask 7"
+    );
+    assert_eq!(cpu.interrupts_taken, 1);
+    assert_eq!(cpu.regs.active_sp(), 0x1FFA);
+    assert_eq!(cpu.regs.interrupt_mask(), 7);
+    assert_eq!(
+        cpu.regs.d[1], 0,
+        "the instruction after STOP must not execute before the handler"
+    );
+}
+
+#[test]
+fn serde_preserves_that_level_7_is_already_held() {
+    let mut mem = TestMem::new(0x4000);
+
+    mem.write_long(31 * 4, 0x0000_0120);
+    mem.write_word(0x0120, 0x5240); // ADDQ.W #1,D0
+    mem.write_word(0x0122, 0x60FE); // BRA.S *
+    mem.write_word(0x0100, 0x60FE); // BRA.S *
+
+    let mut cpu = setup_cpu_reset_to(&mut mem, 0x2000, 0x0100);
+    for _ in 0..10_000 {
+        cpu.ipl = 7;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.regs.d[0] == 1 && cpu.interrupts_taken == 1 {
+            break;
+        }
+    }
+    assert_eq!(cpu.regs.d[0], 1);
+    assert_eq!(cpu.regs.active_sp(), 0x1FFA);
+
+    let serialized = serde_json::to_vec(&cpu).expect("serialize held level-7 state");
+    let mut restored: Cpu68000 =
+        serde_json::from_slice(&serialized).expect("deserialize held level-7 state");
+    let instruction_starts = restored.instruction_starts;
+
+    for _ in 0..5_000 {
+        restored.ipl = 7;
+        service_bus(&mut restored, &mut mem);
+        restored.tick();
+    }
+
+    assert!(
+        restored.instruction_starts > instruction_starts,
+        "the restored handler loop must continue executing instructions"
+    );
+    assert_eq!(
+        restored.regs.d[0], 1,
+        "restoring a held level 7 must not invent a new transition"
+    );
+    assert_eq!(restored.regs.active_sp(), 0x1FFA);
+    assert_eq!(restored.regs.interrupt_mask(), 7);
+}
+
+#[test]
+fn pending_level_7_transition_survives_serde() {
+    let mut mem = TestMem::new(0x4000);
+
+    mem.write_long(31 * 4, 0x0000_0120);
+    mem.write_word(0x0120, 0x5240); // ADDQ.W #1,D0
+    mem.write_word(0x0122, 0x60FE); // BRA.S *
+    mem.write_word(0x0100, 0x60FE); // BRA.S *
+
+    let mut cpu = setup_cpu_reset_to(&mut mem, 0x2000, 0x0100);
+    for _ in 0..10_000 {
+        cpu.ipl = 7;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.regs.d[0] == 1 && cpu.interrupts_taken == 1 {
+            break;
+        }
+    }
+    assert_eq!(cpu.regs.d[0], 1);
+    assert_eq!(cpu.regs.active_sp(), 0x1FFA);
+
+    let mut found_early_bus_cycle = false;
+    for _ in 0..2_000 {
+        cpu.ipl = 7;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if matches!(
+            &cpu.state,
+            motorola_68000::cpu::State::BusCycle {
+                fc,
+                cycle_count: 1,
+                ..
+            } if *fc != motorola_68000::bus::FunctionCode::InterruptAck
+        ) {
+            found_early_bus_cycle = true;
+            break;
+        }
+    }
+    assert!(
+        found_early_bus_cycle,
+        "the test must create the transition during an active bus cycle"
+    );
+
+    cpu.ipl = 6;
+    service_bus(&mut cpu, &mut mem);
+    cpu.tick();
+    cpu.ipl = 7;
+    service_bus(&mut cpu, &mut mem);
+    cpu.tick();
+    assert!(matches!(
+        &cpu.state,
+        motorola_68000::cpu::State::BusCycle { cycle_count: 3, .. }
+    ));
+
+    let serialized = serde_json::to_vec(&cpu).expect("serialize pending level-7 transition");
+    let mut restored: Cpu68000 =
+        serde_json::from_slice(&serialized).expect("deserialize pending level-7 transition");
+
+    for _ in 0..10_000 {
+        restored.ipl = 7;
+        service_bus(&mut restored, &mut mem);
+        restored.tick();
+        if restored.regs.d[0] == 2 {
+            break;
+        }
+    }
+
+    assert_eq!(
+        restored.regs.d[0], 2,
+        "the restored transition must remain pending until the next boundary"
+    );
+    assert_eq!(restored.regs.active_sp(), 0x1FF4);
+    assert_eq!(restored.regs.interrupt_mask(), 7);
+}
+
+#[test]
 fn bus_error_during_interrupt_acknowledge_selects_the_spurious_vector() {
     let mut mem = TestMem::new(0x2000);
 

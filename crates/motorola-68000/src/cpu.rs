@@ -585,8 +585,20 @@ pub struct Cpu68000 {
 
     /// **Input:** Interrupt priority level (IPL0-IPL2), written by
     /// the machine layer from Paula's interrupt priority encoder.
-    /// Checked at instruction boundaries and in the Stopped state.
+    /// Sampled on every tick. Ordinary requests are checked at instruction
+    /// boundaries and in the Stopped state; lower-to-level-7 transitions are
+    /// retained in `level7_transition_pending` until one of those boundaries.
     pub ipl: u8,
+    /// Most recent interrupt level sampled by [`Self::tick`].
+    ///
+    /// This is architectural history for detecting a lower-to-level-7
+    /// transition, so it must survive save and restore.
+    pub(crate) sampled_ipl: u8,
+    /// A sampled lower-to-level-7 transition awaiting an instruction boundary.
+    ///
+    /// A boolean models the processor's pending condition rather than a queue:
+    /// repeated transitions before service coalesce into one pending request.
+    pub(crate) level7_transition_pending: bool,
 
     /// **Output:** True when the CPU wants to assert the RESET
     /// line on the bus (from a RESET instruction). The machine
@@ -1106,6 +1118,8 @@ impl Cpu68000 {
             group0_vector: 3,
             bus_status: BusStatus::Wait,
             ipl: 0,
+            sampled_ipl: 0,
+            level7_transition_pending: false,
             reset_out: false,
             instruction_starts: 0,
             opcode_at_start: 0,
@@ -1217,6 +1231,8 @@ impl Cpu68000 {
         self.state = State::Idle;
         self.in_followup = false;
         self.followup_tag = 0;
+        self.sampled_ipl = self.ipl;
+        self.level7_transition_pending = false;
         self.address_error_observation = None;
         self.micro_ops.clear();
         self.micro_ops.push(MicroOp::FetchIRC);
@@ -1311,17 +1327,19 @@ impl Cpu68000 {
     ///    priority encoder.
     /// 3. After calling: check `reset_out` for RESET instruction.
     pub fn tick(&mut self) {
+        self.sample_interrupt_level();
+
         // --- Idle: drain instant ops, check interrupts, start bus cycles ---
         if matches!(self.state, State::Idle) {
             self.process_instant_ops();
 
             // Check for pending interrupts when no work remains
-            if matches!(self.state, State::Idle) && self.micro_ops.is_empty() {
-                let ipl = self.ipl;
-                if ipl > self.regs.interrupt_mask() || ipl == 7 {
-                    self.initiate_interrupt_exception(ipl);
-                    self.process_instant_ops();
-                }
+            if matches!(self.state, State::Idle)
+                && self.micro_ops.is_empty()
+                && let Some(level) = self.take_interrupt_at_boundary()
+            {
+                self.initiate_interrupt_exception(level);
+                self.process_instant_ops();
             }
 
             // Start next instruction if nothing queued
@@ -1405,10 +1423,9 @@ impl Cpu68000 {
                 // The STOP instruction waits for an interrupt with a
                 // priority higher than the current mask. The machine
                 // writes self.ipl before each tick.
-                let ipl = self.ipl;
-                if ipl > self.regs.interrupt_mask() || ipl == 7 {
+                if let Some(level) = self.take_interrupt_at_boundary() {
                     self.state = State::Idle;
-                    self.initiate_interrupt_exception(ipl);
+                    self.initiate_interrupt_exception(level);
                     self.process_instant_ops();
                     // Dispatch bus cycle if needed
                     if matches!(self.state, State::Idle)
@@ -1449,9 +1466,8 @@ impl Cpu68000 {
                         self.begin_group1_exception(vector, self.irc_addr);
                     } else {
                         // The 68000 samples interrupts at instruction boundaries.
-                        let ipl = self.ipl;
-                        if ipl > self.regs.interrupt_mask() || ipl == 7 {
-                            self.initiate_interrupt_exception(ipl);
+                        if let Some(level) = self.take_interrupt_at_boundary() {
+                            self.initiate_interrupt_exception(level);
                         } else {
                             self.promote_pipeline();
                         }
@@ -1468,6 +1484,32 @@ impl Cpu68000 {
     /// Queue PromoteIRC to start the next instruction.
     pub(crate) fn start_next_instruction(&mut self) {
         self.micro_ops.push(MicroOp::PromoteIRC);
+    }
+
+    /// Sample the external request level and retain a lower-to-level-7
+    /// transition until the next interrupt-recognition boundary.
+    fn sample_interrupt_level(&mut self) {
+        debug_assert!(self.ipl <= 7, "IPL input must be encoded in three bits");
+        if self.sampled_ipl < 7 && self.ipl == 7 {
+            self.level7_transition_pending = true;
+        }
+        self.sampled_ipl = self.ipl;
+    }
+
+    /// Select one interrupt at an instruction or STOP boundary.
+    ///
+    /// A pending level-7 transition is independent of the active mask and
+    /// takes priority over the current level comparison. Once consumed, a
+    /// continuously held level 7 can be accepted again only if software
+    /// lowers the active mask below 7.
+    fn take_interrupt_at_boundary(&mut self) -> Option<u8> {
+        if self.level7_transition_pending {
+            self.level7_transition_pending = false;
+            Some(7)
+        } else {
+            let level = self.ipl;
+            (level > self.regs.interrupt_mask()).then_some(level)
+        }
     }
 
     /// Move IRC -> IR, advance PC, queue FetchIRC + Execute.
@@ -2495,6 +2537,40 @@ mod tests {
         cpu.addr = 0x0012_3457;
         assert!(cpu.check_address_error(MicroOp::ReadWord));
         assert!(!matches!(cpu.state, State::Halted));
+    }
+
+    #[test]
+    fn level7_transition_state_survives_serde() {
+        let mut cpu = Cpu68000::new();
+        cpu.state = State::Internal { cycles: 3 };
+        cpu.ipl = 7;
+        cpu.tick();
+
+        assert_eq!(cpu.sampled_ipl, 7);
+        assert!(cpu.level7_transition_pending);
+
+        let serialized =
+            serde_json::to_vec(&cpu).expect("serialize CPU with pending level-7 transition");
+        let restored: Cpu68000 =
+            serde_json::from_slice(&serialized).expect("deserialize level-7 transition state");
+
+        assert_eq!(restored.sampled_ipl, 7);
+        assert!(restored.level7_transition_pending);
+    }
+
+    #[test]
+    fn reset_clears_pending_level7_transition_and_synchronizes_input() {
+        let mut cpu = Cpu68000::new();
+        cpu.state = State::Internal { cycles: 3 };
+        cpu.ipl = 7;
+        cpu.tick();
+        assert!(cpu.level7_transition_pending);
+
+        cpu.ipl = 6;
+        cpu.reset_to(0x2000, 0x1000);
+
+        assert_eq!(cpu.sampled_ipl, 6);
+        assert!(!cpu.level7_transition_pending);
     }
 
     #[test]

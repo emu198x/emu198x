@@ -48,6 +48,24 @@ round-trips and continues a machine snapshot taken during NMI acknowledgement.
 The sequence representation is defined in
 [Z80 interrupt snapshot identity](z80-interrupt-snapshot-identity.md).
 
+## MC68000 level-7 amendment
+
+MC68000 live state includes both the most recently sampled IPL value and
+a pending lower-to-level-7 transition. The first prevents restore from
+inventing a new transition while level 7 remains held. The second prevents
+restore from losing a transition that arrived before an instruction
+boundary.
+
+The Amiga runtime envelope advances to version 20 and rejects version 19
+before decoding its positional postcard payload. Stock Amiga interrupt
+logic produces levels 0-6, but every Amiga snapshot embeds the CPU layout,
+including the A1200's nested MC68020 wrapper. Raw CPU and machine
+postcards remain unversioned; durable save states use the runtime
+envelope.
+
+The recognition rule and reset boundary are defined by
+[MC68000 level-7 transition recognition](motorola-68000-level-7-transition.md).
+
 ## Atari (decided 2026-06-26): use serde, same as everyone else
 
 The Atari chips (TIA, RIOT/6532, ANTIC, GTIA, POKEY, MARIA) carry **hand-rolled
@@ -69,5 +87,6 @@ run→snapshot→restore→run test would close this — tracked as a follow-up.
 ## Related documents
 
 - [Z80 interrupt snapshot identity](z80-interrupt-snapshot-identity.md)
+- [MC68000 level-7 transition recognition](motorola-68000-level-7-transition.md)
 - [Runtime internal shape](runtime-internal-shape.md)
 - [Spectrum architecture review](spectrum-architecture-review.md)
