@@ -109,6 +109,11 @@ impl Cpu68020 {
         // it via MOVEC. Rebuilt empty here on every construct/deserialize
         // — a cold cache is transparent. See `motorola_68000::icache`.
         self.inner.variant_icache = Some(motorola_68000::ICache::new());
+        // The MC68020 CACR exposes E/F/CE/C in bits 0-3. Preserve the
+        // existing MC68020 compatibility readback: all four written bits
+        // remain visible even though CE and C also trigger invalidation.
+        self.inner.variant_cacr_write_mask = 0x0000_000F;
+        self.inner.variant_cacr_read_zero_mask = 0;
         // Indexed and computed effective-address calculations cost the
         // 68020's clocks (M68020UM § 8.2.3 Calculate EA, Cache Case —
         // the no-overlap column our sequential engine targets) instead
@@ -2538,12 +2543,9 @@ fn compute_divl(cpu: &mut Cpu68000, ext: u16, src: u32, next_pc: u32) {
 // The 68020 adds four control registers reachable via MOVEC, on
 // top of the 68010-basic four (SFC / DFC / USP / VBR):
 //
-//   $002 CACR — Cache Control (mask varies per variant; on 68020
-//                bits 0-3 are writable, on 68030 bits 0-12 are,
-//                and on 68040 all bits are. Musashi gates the
-//                mask on `CPU_TYPE`; we keep the 68020-conservative
-//                mask of 0xf because that's what the corpus
-//                expects).
+//   $002 CACR — Cache Control. Variant wrappers install the writable
+//                and read-as-zero masks that distinguish the MC68020
+//                and MC68030 layouts.
 //   $802 CAAR — Cache Address Register.
 //   $803 MSP  — Master Stack Pointer.
 //   $804 ISP  — Interrupt Stack Pointer (when M-flag is clear,
@@ -2587,7 +2589,7 @@ fn execute_movec_68020_rn_to_cr(cpu: &mut Cpu68000) -> bool {
 
 fn read_68020_cr(cpu: &Cpu68000, ext: u16) -> Option<u32> {
     match ext & 0x0FFF {
-        0x002 => Some(cpu.regs.cacr),
+        0x002 => Some(cpu.regs.cacr & !cpu.variant_cacr_read_zero_mask),
         0x802 => Some(cpu.regs.caar),
         0x803 => Some(cpu.regs.msp),
         // MOVEC names ISP explicitly, so it reads the interrupt-stack bank
@@ -2605,16 +2607,15 @@ fn write_68020_cr(cpu: &mut Cpu68000, ext: u16, value: u32) -> bool {
             //   bit 1 F  — freeze (serve hits, suppress fills)
             //   bit 2 CE — clear entry (the CAAR-indexed line)
             //   bit 3 C  — clear cache (all entries)
-            // Higher variants (68030, 68040) widen this; matching
-            // Musashi exactly would mean per-variant masks, but
-            // the m68k-test-gen corpus generates random values and
-            // the 68020 / 68030 mask differs only in upper bits
-            // that the corpus doesn't exercise meaningfully.
-            cpu.regs.cacr = value & 0x0f;
+            // Variant wrappers supply the writable layout. Momentary
+            // command bits are acted on from the original value, then
+            // omitted from persistent register state where the variant
+            // defines them as read-zero.
+            cpu.regs.cacr = value & cpu.variant_cacr_write_mask & !cpu.variant_cacr_read_zero_mask;
             // C and CE are momentary actions that fire on the write.
-            // We keep them in the stored value (the corpus round-trips
-            // `value & 0x0f`) but act on them here. CE selects the line
-            // by CAAR.
+            // MC68020 compatibility keeps them in the stored value; the
+            // MC68030 mask makes its corresponding action bits read zero.
+            // CE selects the line by CAAR.
             let caar = cpu.regs.caar;
             if let Some(cache) = cpu.variant_icache.as_mut() {
                 if value & 0x08 != 0 {
@@ -3580,6 +3581,17 @@ mod tests {
         assert_eq!(cpu.regs.vbr, 0);
         assert_eq!(cpu.regs.cacr, 0);
         assert_eq!(cpu.regs.caar, 0);
+    }
+
+    #[test]
+    fn m68020_cacr_preserves_established_four_bit_readback() {
+        let mut cpu = Cpu68020::new();
+        cpu.regs.sr |= 0x2000;
+        cpu.regs.d[0] = u32::MAX;
+        cpu.irc = 0x0002; // MOVEC D0, CACR
+
+        assert!(super::decode_68020_opcode(&mut cpu.inner, 0x4E7B));
+        assert_eq!(cpu.regs.cacr, 0x0000_000F);
     }
 
     #[test]

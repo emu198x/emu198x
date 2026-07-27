@@ -18,7 +18,7 @@ pub enum CpuModel {
     M68EC020,
     /// MC68020 — full 32-bit (FPU + MMU coprocessor interface).
     M68020,
-    /// MC68EC030 — no FPU, no MMU.
+    /// MC68EC030 — external FPU interface, no on-die MMU.
     M68EC030,
     /// MC68LC030 — no FPU, has on-chip MMU.
     M68LC030,
@@ -183,6 +183,7 @@ impl CpuModel {
                 extb_l: true,
                 bitfield: true,
                 cas: true,
+                fpu: true,
                 scaled_index: true,
                 barrel_shifter: true,
                 instruction_cache: true,
@@ -390,12 +391,15 @@ mod tests {
     }
 
     #[test]
-    fn ec_lc_variants_differ_only_in_fpu_mmu() {
+    fn m68030_variants_select_fpu_interface_and_mmu_independently() {
         let ec = CpuModel::M68EC030.capabilities();
         let lc = CpuModel::M68LC030.capabilities();
         let full = CpuModel::M68030.capabilities();
 
-        assert!(!ec.fpu && !ec.mmu);
+        // The EC part removes the on-die MMU but retains the external
+        // MC68881/MC68882 coprocessor interface. Whether a board actually
+        // fits one is a separate machine property.
+        assert!(ec.fpu && !ec.mmu);
         assert!(!lc.fpu && lc.mmu);
         assert!(full.fpu && full.mmu);
 

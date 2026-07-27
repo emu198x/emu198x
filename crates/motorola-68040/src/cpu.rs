@@ -55,6 +55,12 @@ impl Cpu68040 {
         // external transfer protocol is not the 68020/68030 SIZ/DSACK
         // handshake modelled by the current dynamic-sizing sequencer.
         self.inner.variant_dynamic_bus_sizing = false;
+        // Preserve the established MC68040 compatibility behaviour until
+        // its distinct cache implementation and CACR semantics land. Do
+        // not accidentally inherit the MC68030 masks merely because the
+        // family wrappers are structurally nested.
+        self.inner.variant_cacr_write_mask = 0x0000_000F;
+        self.inner.variant_cacr_read_zero_mask = 0;
     }
 
     /// Borrow the wrapped 68030 core.
@@ -179,6 +185,8 @@ mod tests {
         assert!(!cpu.variant_dynamic_bus_sizing);
         assert!(cpu.variant_musashi_bcd_v);
         assert!(cpu.variant_musashi_div_overflow);
+        assert_eq!(cpu.variant_cacr_write_mask, 0x0000_000F);
+        assert_eq!(cpu.variant_cacr_read_zero_mask, 0);
     }
 
     #[test]
@@ -190,5 +198,18 @@ mod tests {
         let restored: Cpu68040 = rmp_serde::from_slice(&encoded).expect("deserialize MC68040");
 
         assert!(!restored.variant_dynamic_bus_sizing);
+        assert_eq!(restored.variant_cacr_write_mask, 0x0000_000F);
+        assert_eq!(restored.variant_cacr_read_zero_mask, 0);
+    }
+
+    #[test]
+    fn m68040_does_not_inherit_mc68030_cacr_mask() {
+        let mut cpu = Cpu68040::new();
+        cpu.regs.sr |= 0x2000;
+        cpu.regs.d[0] = u32::MAX;
+        cpu.irc = 0x0002; // MOVEC D0, CACR
+
+        assert!(super::decode_68040_opcode(&mut cpu, 0x4E7B));
+        assert_eq!(cpu.regs.cacr, 0x0000_000F);
     }
 }

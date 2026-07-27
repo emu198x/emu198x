@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Explicitly retain the current four-bit MC68040 CACR compatibility mask
+  instead of inheriting the newly modelled MC68030 register layout
 - Explicitly disable the inherited MC68020/MC68030 SIZ/DSACK sequencer because
   the MC68040 uses a different external transfer protocol
 - Strengthen the generated-corpus harness to preserve odd memory addresses

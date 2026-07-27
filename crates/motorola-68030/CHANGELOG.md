@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Model the external CDIS input as a combinational cache override that
+  suppresses hits and fills without flushing retained entries
+
 ### Changed
 
+- Install the MC68030 CACR layout, including persistent control bits and
+  always-zero instruction/data clear commands
 - Inherit the MC68020 SIZ/DSACK data-transfer sequencer and reinstall its
   capability after deserialization
 - Strengthen the generated-corpus harness to preserve odd memory addresses
@@ -16,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Correct the MC68EC030 capability description: it removes the on-die MMU but
+  retains the external MC68881/MC68882 coprocessor interface
 - Inherit MC68020 logical unaligned-data transactions while retaining odd
   instruction-prefetch address errors. Odd MMIO split semantics remain
   deferred where responder lanes are unresolved

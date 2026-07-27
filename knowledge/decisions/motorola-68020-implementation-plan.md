@@ -808,8 +808,10 @@ Counts, provenance and exclusions belong in
 
 ## Non-goals
 
-- **MC68030 completion.** Its ISA wrapper inherits this core, while
-  PMMU and processor-specific cache work remain in `motorola-68030`.
+- **MC68030 completion.** Its ISA wrapper inherits this core. The
+  processor-specific CACR and CDIS control boundary is implemented in
+  `motorola-68030`; the data cache, bursts, cache inhibition and PMMU
+  execution remain there.
 - **MC68040 completion.** Its wrapper also inherits this core, while
   the on-die MMU/FPU, cache delta, MOVE16/CINV/CPUSH and Format `$7`
   access-error frame remain processor-specific work.
@@ -828,6 +830,8 @@ Counts, provenance and exclusions belong in
   Seam 2 — the parent review
 - [`amiga-architecture-review.md`](amiga-architecture-review.md) —
   the OCS-focused review whose 5 seams landed earlier
+- [MC68030 cache-control boundary](motorola-68030-cache-control.md) —
+  the implemented register and external-input slice
 - [`cpu-bus-interface.md`](cpu-bus-interface.md) — the pin-level
   CPU rule the 68020 implementation respects
 - [`within-family-layering.md`](within-family-layering.md) —

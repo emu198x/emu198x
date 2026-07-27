@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alignment- and DSACK-width-dependent physical phases, including serialized
   in-flight continuation
 
+### Changed
+
+- Make CACR writable and read-zero masks variant-installed while preserving
+  the established MC68020 four-bit compatibility readback
+
 ### Fixed
 
 - Retain odd start addresses for logical word and long-word data transactions,

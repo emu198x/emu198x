@@ -824,6 +824,32 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub variant_icache: Option<crate::icache::ICache>,
 
+    /// Variant-specific writable-bit mask for the cache control register.
+    ///
+    /// The MC68020 wrapper installs `$0000_000F`; the MC68030 widens the
+    /// implemented register to `$0000_3F1F`. This is a variant binding,
+    /// not architectural state, so wrappers reinstall it after deserialize.
+    #[serde(skip)]
+    pub variant_cacr_write_mask: u32,
+
+    /// CACR action bits that always read as zero on this CPU variant.
+    ///
+    /// The current MC68020 compatibility model preserves its four written
+    /// bits. The MC68030 marks CI/CEI/CD/CED (`$0000_0C0C`) as momentary
+    /// clear commands, leaving only persistent controls in `regs.cacr`.
+    #[serde(skip)]
+    pub variant_cacr_read_zero_mask: u32,
+
+    /// External cache-disable input, expressed as an asserted logical level.
+    ///
+    /// The MC68030's active-low CDIS pin suppresses instruction-cache hits
+    /// and fills without invalidating entries. This field is combinational
+    /// machine input rather than CPU state, so it is deliberately not
+    /// serialized; a machine that exposes CDIS must drive it before each CPU
+    /// edge after construction or restore.
+    #[serde(skip)]
+    pub variant_cache_disable_asserted: bool,
+
     /// Scratch slot for a variant instruction's primary extension word,
     /// stashed across a memory-operand fetch. Used by 68020 memory-source
     /// MUL.L / DIV.L (and future mem-operand instructions): the spec word
@@ -1218,6 +1244,9 @@ impl Cpu68000 {
             variant_min_bus_clocks: 4,
             variant_constant_shift_timing: false,
             variant_icache: None,
+            variant_cacr_write_mask: 0,
+            variant_cacr_read_zero_mask: 0,
+            variant_cache_disable_asserted: false,
             variant_um_ea_calc_timing: false,
             variant_long_branch: false,
             variant_fpu_present: false,
@@ -1330,6 +1359,10 @@ impl Cpu68000 {
         self.regs.ssp = ssp;
         self.regs.pc = pc;
         self.regs.sr = 0x2700;
+        self.regs.cacr = 0;
+        if let Some(cache) = self.variant_icache.as_mut() {
+            cache.clear();
+        }
         self.next_fetch_addr = pc;
         self.state = State::Idle;
         self.in_followup = false;
@@ -1872,7 +1905,10 @@ impl Cpu68000 {
         // only for the call, so the borrow ends before we update fetch
         // state. The served value is byte-identical to a bus fetch —
         // only the cycle is elided — so architectural state is unchanged.
-        if matches!(op, MicroOp::FetchIRC) && self.regs.cacr & 0x01 != 0 {
+        if matches!(op, MicroOp::FetchIRC)
+            && !self.variant_cache_disable_asserted
+            && self.regs.cacr & 0x01 != 0
+        {
             let addr = self.next_fetch_addr;
             let hit = self
                 .variant_icache
@@ -2222,7 +2258,7 @@ impl Cpu68000 {
                 // the program-space function code.
                 let enabled = self.regs.cacr & 0x01 != 0;
                 let frozen = self.regs.cacr & 0x02 != 0;
-                if enabled && !frozen {
+                if enabled && !frozen && !self.variant_cache_disable_asserted {
                     let fc2 = self.regs.is_supervisor();
                     if let Some(cache) = self.variant_icache.as_mut() {
                         cache.fill(fetched_addr, fc2, read_data);

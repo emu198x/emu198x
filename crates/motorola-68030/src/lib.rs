@@ -16,9 +16,9 @@
 //!
 //! # Today
 //!
-//! No active machine in the workspace runs a 68030-class part. The
-//! M68000 core no longer contains 68030-specific decode arms or
-//! capability gates — those were stripped on 2026-04-29.
+//! No active machine in the workspace runs a 68030-class part yet.
+//! The wrapper now owns its CACR layout and CDIS input; the remaining
+//! cache and MMU datapaths stay out of the M68000 instruction core.
 //!
 //! # What a real 68030 implementation needs
 //!
@@ -28,12 +28,13 @@
 //!
 //! ## Caches
 //!
-//! - **256-byte data cache** — direct-mapped, 16 lines × 4 words.
-//!   Write-through, write-no-allocate. Toggled via CACR bits 8-11
-//!   (ED / FD / CD / CED). Hit on a tag-and-FC match.
-//! - **Burst fill** — 4-word burst transactions on cache misses
-//!   when CACR `WA` (write-allocate) is set. Memory must assert
-//!   /CIIN if a region is non-cacheable.
+//! - **256-byte data cache** — direct-mapped, 16 lines × four long
+//!   words. Write-through; CACR.WA optionally enables aligned long-word
+//!   write allocation. Toggled via CACR bits 8-13. Hit on a tag-and-FC
+//!   match.
+//! - **Burst fill** — four-long-word burst transactions on cache misses
+//!   when the relevant CACR instruction/data burst-enable bit is set.
+//!   Memory asserts /CIIN if a region is non-cacheable.
 //! - **Cache lines tag function-code bits** so supervisor and user
 //!   accesses don't share lines.
 //!
@@ -73,12 +74,12 @@
 //! # Today's wrapper
 //!
 //! [`Cpu68030`] wraps [`motorola_68020::Cpu68020`] via the family
-//! variant pattern. No 68030-specific decode hooks are installed
-//! yet — PMOVE / PFLUSH / PTEST / PLOAD aren't in the
-//! `m68k-test-gen` corpus, so the wrapper inherits everything the
-//! 68020 hook chain provides. [`Cpu68EC030`] / [`Cpu68LC030`] are
-//! type aliases to [`Cpu68030`] until the FPU / MMU presence
-//! actually diverges in behaviour.
+//! variant pattern. CACR uses the shared MOVEC path with
+//! MC68030-specific masks installed by this wrapper. PMOVE / PFLUSH /
+//! PTEST / PLOAD aren't in the `m68k-test-gen` corpus, so the wrapper
+//! otherwise inherits the 68020 hook chain. [`Cpu68EC030`] /
+//! [`Cpu68LC030`] are type aliases to [`Cpu68030`] until their FPU /
+//! MMU execution paths diverge.
 
 pub mod cpu;
 pub mod mmu;
@@ -110,7 +111,7 @@ impl M68030Variant {
 }
 
 /// Marker zero-sized type identifying the 68EC030 variant
-/// (no FPU, no MMU).
+/// (external FPU interface, no on-die MMU).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct M68EC030Variant;
 

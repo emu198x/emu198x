@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Gate instruction-cache use and allocation on the MC68030 external
+  cache-disable input without invalidating retained entries
+- Clear CACR and invalidate the installed variant instruction cache on reset
 - Preserve one serialized MC68020/MC68030 logical data transfer across
   responder-sized physical phases while retaining the existing byte/word
   compatibility response for unchanged machines and test harnesses

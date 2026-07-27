@@ -126,7 +126,15 @@ Stop and re-read this doc if you find yourself:
 
 The same shape carries through, with one anticipated generalisation.
 
-- **68030** wraps 68020. **Wrapper landed 2026-05-22**; `Cpu68030` is a thin Deref wrapper over `Cpu68020` with no additional ISA delta configured yet. The m68k-test-gen 68030 corpus passes at 100% via inheritance alone, and MSP/ISP plus Format `$1` behaviour inherits through the same chain. The MMU module (`motorola-68030/src/mmu.rs`, 2,421 lines, unused) waits on the decode-side wiring for PMOVE / PFLUSH / PTEST / PLOAD when an MMU-bearing machine arrives.
+- **68030** wraps 68020. **Wrapper landed 2026-05-22**; `Cpu68030`
+  inherits the 68020 instruction dispatcher and installs the MC68030 CACR
+  layout and CDIS input as processor-specific bindings. The m68k-test-gen
+  corpus passes through the inherited ISA path, while manual-directed tests
+  own the CACR behaviour where Musashi differs. MSP/ISP plus Format `$1`
+  behaviour inherits through the same chain. The MMU module
+  (`motorola-68030/src/mmu.rs`, 2,421 lines, unused) waits on the decode-side
+  wiring for PMOVE / PFLUSH / PTEST / PLOAD when an MMU-bearing machine
+  arrives.
 - **68040** wraps 68030. **Wrapper landed 2026-05-22**; same pattern,
   including the inherited master-stack compatibility path. The generated
   corpus passes via inheritance, but does not establish exact MC68040
@@ -146,5 +154,7 @@ The same shape carries through, with one anticipated generalisation.
 - [Motorola 68020 implementation plan](motorola-68020-implementation-plan.md) — the phased work that produced this pattern; final state has all three corpora at 100 %.
 - [MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md) — the register-file capability and serialized continuation that apply the pattern to A7 and `RTE`.
 - [MC68020 unaligned data access](motorola-68020-unaligned-data-access.md) — the shared address-error capability and its dynamic-bus-sizing boundary.
+- [MC68030 cache-control boundary](motorola-68030-cache-control.md) — the
+  variant-installed CACR and combinational CDIS model.
 - [Amiga full-family architecture review](amiga-full-family-architecture-review.md) — Seam 2 frames the broader 68k-family completion work this pattern serves.
 - [CPU bus interface](cpu-bus-interface.md) — the orthogonal rule that constrains the bus shape (pin-level fields, no `Bus` trait). Both rules apply simultaneously.
