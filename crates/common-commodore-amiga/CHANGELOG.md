@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add the closed active-CPU type and serialized rational CPU-clock
+  accumulator needed by stock and accelerated Amiga configurations
 - Add an optional responder-sized CPU-bus completion path while preserving
   byte/word compatibility dispatch for unchanged machines and address regions
 

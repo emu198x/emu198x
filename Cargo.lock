@@ -539,8 +539,13 @@ dependencies = [
  "commodore-paula-8364",
  "mos-cia-8520",
  "motorola-68000",
+ "motorola-68010",
+ "motorola-68020",
+ "motorola-68030",
+ "motorola-68040",
  "peripheral-commodore-amiga-floppy",
  "peripheral-commodore-amiga-keyboard",
+ "postcard",
  "serde",
 ]
 
