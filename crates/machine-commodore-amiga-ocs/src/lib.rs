@@ -2143,3 +2143,84 @@ impl AmigaDriver for AmigaOcs {
             .unwrap_or_else(|| self.dispatch_memory(tx))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use motorola_68000::bus::{BusStatus, FunctionCode};
+    use motorola_68000::cpu::State;
+    use motorola_68000::microcode::MicroOp;
+
+    use super::*;
+
+    #[test]
+    fn cpu_reuses_a_suppressed_onedot_d_cell_in_nasty_mode() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.agnus.bltcon0 = 0x0BCA; // USEA+C+D, standard line minterm
+        amiga.agnus.bltcon1 = 0x001B; // X-major +X/+Y, ONEDOT, LINE
+        amiga.agnus.blt_apt = 0x0000_FFFE;
+        amiga.agnus.blt_amod = 0;
+        amiga.agnus.blt_bmod = 0;
+        amiga.agnus.blt_cmod = -2;
+        amiga.agnus.blt_adat = 0x8000;
+        amiga.agnus.blt_bdat = 0xFFFF;
+        amiga.agnus.blt_cpt = 0x2000;
+        amiga.agnus.blt_dpt = 0x2000;
+        amiga.agnus.bltsize = (3 << 6) | 2;
+        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BLTEN | bits::DMACON_BLTPRI;
+        amiga.agnus.start_blit();
+
+        // Drain startup, first C/D and the second C read. The pending
+        // logical WriteD is suppressed because the row already has a dot.
+        for _ in 0..5 {
+            let _ = amiga.blitter_dma_step(true);
+        }
+        assert_eq!(
+            amiga.agnus.next_blitter_dma_request(),
+            Some(commodore_agnus_ocs::BlitterDmaOp::WriteD),
+        );
+        assert!(!amiga.agnus.blitter_nasty_active());
+
+        // Arrange the next phase-0 tick at a genuine CPU/free cell and place
+        // a mature CPU chip-RAM write on the bus. The line engine retires its
+        // would-be D in that CCK without driving the bus, so the CPU transfer
+        // must complete in the same cell even though BLTPRI remains set.
+        amiga.cck_phase = 0;
+        amiga.agnus.hpos = 0x34;
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: 0x3000,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0x1234),
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+
+        amiga.tick();
+
+        assert!(
+            amiga.agnus.blitter_busy,
+            "the suppressed operation must be non-final for this arbitration regression",
+        );
+        assert_eq!(
+            amiga.agnus.next_blitter_dma_request(),
+            Some(commodore_agnus_ocs::BlitterDmaOp::ReadC),
+        );
+        assert!(
+            amiga.agnus.blitter_nasty_active(),
+            "the live plan has already advanced to the next bus-using C read",
+        );
+        assert!(!amiga.agnus.blitter_bus_used_this_cck());
+        assert!(!amiga.agnus.blitter_nasty_owned_this_cck());
+        assert!(amiga.agnus.blitter_cck_bus_state_recorded());
+        assert!(
+            matches!(amiga.cpu.bus_status, BusStatus::Ready(0)),
+            "CPU bus status after the free cell was {:?}; plan is {:?}",
+            amiga.cpu.bus_status,
+            amiga.agnus.cck_bus_plan(),
+        );
+        assert_eq!(amiga.read_chip_ram_byte(0x3000), 0x12);
+        assert_eq!(amiga.read_chip_ram_byte(0x3001), 0x34);
+    }
+}

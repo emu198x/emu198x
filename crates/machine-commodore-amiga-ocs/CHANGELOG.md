@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add a machine-level regression proving that the 68000 reuses a
+  suppressed ONEDOT D cell while blitter nasty mode remains enabled
 - Add end-to-end coverage for pre-AGA finish, DMACONR and Copper BFD
   boundaries, final-D contention and non-nasty same-CCK bus ownership
 - Add model-level coverage for A1000-versus-later BBUSY visibility, accepted

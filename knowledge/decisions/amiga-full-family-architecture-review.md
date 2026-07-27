@@ -533,6 +533,14 @@ finish until final D; and `DMACONR` and Copper BFD have distinct
 first-idle CCKs. See
 [Blitter completion pipeline](amiga-blitter-completion-pipeline.md).
 
+Line-mode ONEDOT is also bounded: one write is permitted per horizontal
+row, suppressed results still reach BZERO and completion, and their
+would-be D cells remain available to the CPU. Standard line texture now
+uses preloaded `BLTBDAT` independently of B DMA and advances from the
+selected BSH bit. See
+[Amiga blitter line-mode ONEDOT](amiga-blitter-line-onedot.md) and
+[Amiga blitter line texture phase](amiga-blitter-line-texture-phase.md).
+
 The remaining accuracy edge is the Copper's first request and fetch
 after a completion-dependent `WAIT` becomes eligible, including
 same-CCK cancellation and ownership. It does not block catalogue
@@ -636,6 +644,10 @@ In order of leverage for unblocking the full Amiga family:
   — shared startup pipeline, visible busy and Copper BFD boundary
 - [Blitter completion pipeline](amiga-blitter-completion-pipeline.md)
   — revision-specific finish, final-D and observer boundaries
+- [Amiga blitter line-mode ONEDOT](amiga-blitter-line-onedot.md)
+  — per-row suppression, BZERO, completion and free-cell behaviour
+- [Amiga blitter line texture phase](amiga-blitter-line-texture-phase.md)
+  — preloaded B pattern and BSH selection
 - [Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md)
   — post-fetch beam and visible-busy sampling boundary
 - [`october-catalogue.md`](october-catalogue.md) — Amiga is

@@ -51,7 +51,8 @@ the final D stage of a non-line D-channel blit. The ordinary
 `DMACONR` and Copper holds are then applied after that delayed finish.
 Its line path finishes with the final D write, or with the cycle on
 which that write would have occurred when one-dot suppression removes
-it. The current implementation does not yet model that suppression. A
+it. That suppression is defined separately by
+[Amiga blitter line-mode ONEDOT](amiga-blitter-line-onedot.md). A
 non-line blit without D does not take the AGA final-D delay.
 
 The inspected Minimig revision
@@ -100,6 +101,7 @@ mean that a CPU read or Copper fetch completes on that CCK.
 | AGA area blit with D | `F+2` | `F+1` | `F+2` | `F+2` | `F+3` | `F+4` |
 | Area blit without D, any revision | `F` | `F` | none | `F` | `F+1` | `F+2` |
 | Line blit with an emitted D write, any revision | `F` | by `F` | `F` | `F` | `F+1` | `F+2` |
+| Line blit with final D suppressed by ONEDOT, any revision | `F` | by `F` | none | `F` | `F+1` | `F+2` |
 
 Pre-AGA covers A1000 and later original Agnus revisions as well as ECS
 Agnus. AGA denotes Alice.
@@ -148,6 +150,11 @@ and can first treat the blitter as finished at `S+2`. Applying that
 common rule after Alice's delayed `S = F+2` produces the AGA offsets in
 the table.
 
+A line-mode ONEDOT operation still generates its D result and advances
+the line pipeline, but a suppressed D does not drive the chip bus. If
+the final operation is suppressed, `F` is its would-be-write CCK and
+the ordinary source and observer rules begin there.
+
 ## Save-state compatibility
 
 The completion phase, both observer holds, whether the source interrupt
@@ -156,12 +163,16 @@ hidden execution state. They are serialized rather than
 reconstructed from channel pointers, BZERO, memory or current busy
 observations.
 
-The Amiga runtime envelope advances to schema version 17 and rejects
-version 16 before payload decoding. A version-16 snapshot can identify
-an active blit but cannot distinguish main finish from result drain or
-final D, nor can it recover which observer must remain busy after the
-source event. Guessing would risk a duplicate interrupt, a missing final
-write or a one-CCK Copper difference.
+The completion state introduced Amiga runtime schema version 17, which
+rejected version 16 before payload decoding. A version-16 snapshot can
+identify an active blit but cannot distinguish main finish from result
+drain or final D, nor can it recover which observer must remain busy
+after the source event. Guessing would risk a duplicate interrupt, a
+missing final write or a one-CCK Copper difference.
+
+The current runtime envelope is version 18 because the later line-mode
+decision adds serialized ONEDOT, texture-phase and current-CCK
+arbitration state.
 
 Raw postcards of the affected Agnus and machine types remain
 unversioned and change positional layout. Durable save states must use
@@ -199,8 +210,6 @@ This decision does not define:
 - propagation from the blitter source event through Paula's
   `INTREQ` latch, the interrupt encoder and CPU IPL;
 - exact stretching of the AGA final-D delay under bus contention;
-- line-mode one-dot write suppression and completion on its
-  would-be-write CCK;
 - origin-aware CPU and Copper writes to blitter registers during an
   active blit;
 - the Copper's first request and fetch after a BFD-clear wait becomes
@@ -220,6 +229,7 @@ Hermetic tests cover:
 - AGA area completion through `F+4`, including the delayed source
   interrupt and both observer holds;
 - D-disabled area and line-mode completion without the area-D tail;
+- line-mode ONEDOT completion on a bus-free final would-be D;
 - `DMACONR` and Copper BFD observing their separate first-idle CCKs;
 - no duplicate source interrupt while later completion stages drain;
 - deterministic continuation across unavailable progress grants; and
@@ -240,6 +250,7 @@ Reject these patterns:
   finish;
 - deriving BZERO from whether D writes memory;
 - collapsing the line or D-disabled cases into the area-D pipeline;
+- charging a suppressed ONEDOT D as a final bus transfer;
 - treating the source event as proof of same-CCK `INTREQ` or IPL
   propagation; or
 - reconstructing completion phase or observer holds during snapshot
@@ -248,6 +259,8 @@ Reject these patterns:
 ## Related Documents
 
 - [Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)
+- [Amiga blitter line-mode ONEDOT](amiga-blitter-line-onedot.md)
+- [Amiga blitter line texture phase](amiga-blitter-line-texture-phase.md)
 - [Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Amiga full-family architecture review](amiga-full-family-architecture-review.md)

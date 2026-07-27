@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Serialize line-mode ONEDOT row eligibility, B texture phase and
+  pre-service nasty ownership for deterministic mid-line restore and
+  same-CCK CPU arbitration
 - Expose serialized blitter completion phase, Copper-specific busy,
   remaining completion CCKs, final-D pending state and per-CCK bus use
 - Serialize the shared two-CCK blitter-startup phase and expose its
@@ -23,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Suppress complete later D transfers in an ONEDOT horizontal row while
+  retaining minterm, BZERO, line-state and final would-be-write completion
+- Consume the preloaded `BLTBDAT` line texture with SRCB disabled, start
+  at the selected BSH bit, decrement its phase per pixel and leave the
+  data register unchanged
 - Separate pre-AGA main finish, BZERO result generation and final D,
   delay Alice's finish source until final D, and retain distinct DMACONR
   and Copper completion observations

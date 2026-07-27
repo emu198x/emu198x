@@ -185,6 +185,7 @@ pub trait AmigaDriver {
             // Per-CCK bus-use observations remain valid across both
             // master/4 phases. Clear them only as a new CCK begins.
             self.agnus_mut().reset_sprite_bus_usage();
+            self.agnus_mut().reset_blitter_cck_bus_state();
 
             // Advance the beam.
             self.advance_agnus_cck();
@@ -276,9 +277,10 @@ pub trait AmigaDriver {
             // after the last admitted main cycle without another bus grant.
             // Pre-AGA normal D blits emit INT_BLIT before final D, while
             // Alice delays that source to final D.
+            let blitter_nasty_owned = bus_plan.blitter_chip_bus_granted;
             let blitter_outcome = self.blitter_dma_step(bus_plan.blitter_dma_progress_granted);
             self.agnus_mut()
-                .record_blitter_bus_use(blitter_outcome.bus_used);
+                .record_blitter_cck_bus_state(blitter_nasty_owned, blitter_outcome.bus_used);
             if blitter_outcome.interrupt {
                 self.paula_mut().raise(IntSource::Blit);
             }
@@ -459,10 +461,23 @@ pub trait AmigaDriver {
         // plan no longer show the request that consumed this CCK. Keep
         // actual sprite use authoritative until the next CCK rather than
         // retroactively granting the same bus cell to the CPU.
+        let blitter_holds_bus = if self.agnus().blitter_cck_bus_state_recorded() {
+            self.agnus().blitter_bus_used_this_cck() || self.agnus().blitter_nasty_owned_this_cck()
+        } else {
+            // Test/backdoor and other direct service callers may not have
+            // run the phase-0 DMA body. Preserve the general live-plan
+            // invariant in that case.
+            matches!(bus_plan.slot_owner, SlotOwner::Cpu) && !bus_plan.cpu_chip_bus_granted
+        };
         let dma_holds_bus = self.agnus().sprite_bus_used_this_cck()
-            || self.agnus().blitter_bus_used_this_cck()
+            || blitter_holds_bus
             || match bus_plan.slot_owner {
-                SlotOwner::Cpu => !bus_plan.cpu_chip_bus_granted,
+                // Blitter ownership for the current CPU/free cell is
+                // represented by the two pre-service/actual-use latches
+                // above. Re-reading the live blitter request here could see
+                // the next line operation and retroactively consume a
+                // bus-free ONEDOT would-be-write cell.
+                SlotOwner::Cpu => false,
                 SlotOwner::Copper => self.copper().bus_used_this_cck,
                 _ => true,
             };

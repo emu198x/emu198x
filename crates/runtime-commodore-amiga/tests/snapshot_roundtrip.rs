@@ -25,7 +25,7 @@ mod common;
 
 use std::error::Error;
 
-use commodore_agnus_ocs::OriginalAgnusRevision;
+use commodore_agnus_ocs::{BlitterDmaOp, OriginalAgnusRevision};
 use common::dummy_a1000_bootstrap_rom;
 use emu198x_shell::{
     HostIo, MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink,
@@ -35,9 +35,18 @@ use format_commodore_amiga_adf::ADF_SIZE_DD;
 use runtime_commodore_amiga::{AmigaA1200Runtime, AmigaEcsRuntime, AmigaOcsRuntime, Model};
 
 const BLTCON0: u32 = 0x00DF_F040;
+const BLTCON1: u32 = 0x00DF_F042;
+const BLTCPTH: u32 = 0x00DF_F048;
+const BLTCPTL: u32 = 0x00DF_F04A;
+const BLTAPTL: u32 = 0x00DF_F052;
 const BLTDPTH: u32 = 0x00DF_F054;
 const BLTDPTL: u32 = 0x00DF_F056;
 const BLTSIZE: u32 = 0x00DF_F058;
+const BLTCMOD: u32 = 0x00DF_F060;
+const BLTBMOD: u32 = 0x00DF_F062;
+const BLTAMOD: u32 = 0x00DF_F064;
+const BLTBDAT: u32 = 0x00DF_F072;
+const BLTADAT: u32 = 0x00DF_F074;
 const BLTSIZV: u32 = 0x00DF_F05C;
 const BLTSIZH: u32 = 0x00DF_F05E;
 const COP1LCH: u32 = 0x00DF_F080;
@@ -1037,6 +1046,72 @@ fn pre_aga_blitter_completion_pipeline_survives_postcard_round_trip() -> Result<
 }
 
 #[test]
+fn line_onedot_suppression_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    const DESTINATION: u32 = 0x0000_2000;
+
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    {
+        let machine = original.machine_mut();
+        machine.poke_word(DMACON, DMACON_SET_DMA_BLITTER_NASTY);
+        machine.poke_word(BLTCON0, 0x0BCA); // USEA+C+D, standard line minterm
+        machine.poke_word(BLTCON1, 0x001B); // X-major +X/+Y, ONEDOT, LINE
+        machine.poke_word(BLTAPTL, 0xFFFE); // negative, unchanged line error
+        machine.poke_word(BLTAMOD, 0);
+        machine.poke_word(BLTBMOD, 0);
+        machine.poke_word(BLTCMOD, 0xFFFE);
+        machine.poke_word(BLTADAT, 0x8000);
+        machine.poke_word(BLTBDAT, 0xFFFF);
+        machine.poke_word(BLTCPTH, 0);
+        machine.poke_word(BLTCPTL, DESTINATION as u16);
+        machine.poke_word(BLTDPTH, 0);
+        machine.poke_word(BLTDPTL, DESTINATION as u16);
+        machine.poke_word(BLTSIZE, (2 << 6) | 2);
+    }
+
+    let mut guard = 0;
+    while original.machine().agnus().blitter_ccks_remaining != 1 {
+        original.machine_mut().tick();
+        guard += 1;
+        assert!(
+            guard < 1_000,
+            "line blitter never reached the second logical D operation",
+        );
+    }
+    assert_eq!(
+        original.machine().agnus().next_blitter_dma_request(),
+        Some(BlitterDmaOp::WriteD),
+    );
+    assert_eq!(
+        original.machine().read_chip_ram_byte(DESTINATION),
+        0x80,
+        "the first dot must be present before the suppressed second write",
+    );
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    restored.restore(&snapshot)?;
+    assert_eq!(snapshot, restored.snapshot()?);
+
+    while original.machine().agnus().blitter_busy {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 2_000, "restored ONEDOT line never completed");
+    }
+    assert_eq!(
+        original.machine().read_chip_ram_byte(DESTINATION),
+        0x80,
+        "the same-row second D transfer must remain suppressed",
+    );
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "the serialized ONEDOT and texture phases must continue deterministically",
+    );
+    Ok(())
+}
+
+#[test]
 fn alice_blitter_completion_pipeline_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
     const DESTINATION: u32 = 0x0000_2000;
 
@@ -1414,10 +1489,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 16, and confirm the version-mismatch arm fires with a
+/// field back to 17, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV17` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 17` that byte is `0x11`.
+/// of a `SnapshotEnvelopeV18` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 18` that byte is `0x12`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -1426,20 +1501,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 17,
-        "postcard varint for SNAPSHOT_VERSION = 17 should be 0x11"
+        bytes[0], 18,
+        "postcard varint for SNAPSHOT_VERSION = 18 should be 0x12"
     );
-    bytes[0] = 16;
+    bytes[0] = 17;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-16 snapshot should be rejected before payload decode");
+        .expect_err("version-17 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 16; expected 17"
+                if reason == "unsupported snapshot version 17; expected 18"
         ),
         "expected version-mismatch reason, got {err:?}"
     );

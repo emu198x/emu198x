@@ -14,11 +14,9 @@
 //!   BLTCON0 bits  7-0   lf      minterm LUT (the 256 logic functions)
 //!
 //!   BLTCON1 bits 15-12  bsh     B shift
-//!   BLTCON1 bit   4     efe     exclusive fill enable
-//!   BLTCON1 bit   3     ife     inclusive fill enable
-//!   BLTCON1 bit   2     fc      fill carry initial
-//!   BLTCON1 bit   1     desc    descending (reverse)
-//!   BLTCON1 bit   0     line    line mode
+//!   BLTCON1 bits 4-2    area-fill controls, or line octant controls
+//!   BLTCON1 bit   1     descending in area mode, ONEDOT in line mode
+//!   BLTCON1 bit   0     line mode
 //!
 //!   BLTSIZE: height (bits 15-6) = rows, width (bits 5-0) = words/row.
 //!
@@ -340,7 +338,7 @@ fn line_mode_draws_a_horizontal_line_as_pixels_into_d() {
     let mut agnus = Agnus::new();
     let ram = TestRam::new();
     // BLTCON0 ash = starting pixel in word (bits 15-12).
-    agnus.bltcon0 = 0x0B00 | 0xCA; // USEB+C+D, minterm $CA: standard line LF
+    agnus.bltcon0 = 0x0B00 | 0xCA; // USEA+C+D, minterm $CA: standard line LF
     agnus.bltcon1 = 0x0001; // LINE mode
     agnus.blt_apt = 0; // Bresenham error
     agnus.blt_bdat = 0xFFFF; // texture: solid
@@ -359,6 +357,182 @@ fn line_mode_draws_a_horizontal_line_as_pixels_into_d() {
         0xF000,
         "4 leftmost pixels plotted; got ${out:04X}"
     );
+}
+
+fn program_x_major_line(agnus: &mut Agnus, steps: u16, one_dot: bool, texture: u16) {
+    // Octant 0 is X-major, +X/+Y in the current line decode. A negative,
+    // unchanged error keeps every step on the same horizontal row.
+    agnus.bltcon0 = 0x0B00 | 0xCA; // USEA+C+D, standard line minterm
+    agnus.bltcon1 = 0x0019 | if one_dot { 0x0002 } else { 0 };
+    agnus.blt_apt = 0x0000_FFFF; // signed error = -1
+    agnus.blt_bdat = texture;
+    agnus.blt_cpt = 0x2000;
+    agnus.blt_dpt = 0x2000;
+    agnus.blt_amod = 0;
+    agnus.blt_bmod = 0;
+    agnus.blt_cmod = -2;
+    agnus.bltsize = (steps << 6) | 2;
+}
+
+#[test]
+fn line_mode_onedot_writes_only_the_first_pixel_in_a_horizontal_row() {
+    let mut normal = Agnus::new();
+    let normal_ram = TestRam::new();
+    program_x_major_line(&mut normal, 4, false, 0xFFFF);
+    normal.start_blit();
+    run_blit(&mut normal, &normal_ram);
+    assert_eq!(
+        normal_ram.peek(0x2000) & 0xF000,
+        0xF000,
+        "the non-ONEDOT control must write every generated pixel",
+    );
+
+    let mut one_dot = Agnus::new();
+    let one_dot_ram = TestRam::new();
+    program_x_major_line(&mut one_dot, 4, true, 0xFFFF);
+    one_dot.start_blit();
+    run_blit(&mut one_dot, &one_dot_ram);
+    assert_eq!(
+        one_dot_ram.peek(0x2000),
+        0x8000,
+        "ONEDOT must suppress the complete later D transfers in the row",
+    );
+}
+
+#[test]
+fn line_mode_uses_preloaded_b_texture_without_b_dma() {
+    let mut agnus = Agnus::new();
+    let ram = TestRam::new();
+    // Standard line setup leaves SRCB disabled. BSH=0 selects texture bit
+    // 0 first, then wraps to bit 15 and continues downward.
+    program_x_major_line(&mut agnus, 4, false, 0x8001);
+    agnus.start_blit();
+
+    run_blit(&mut agnus, &ram);
+
+    assert_eq!(
+        ram.peek(0x2000) & 0xF000,
+        0xC000,
+        "texture bits 0,15,14,13 must gate the four generated pixels",
+    );
+    assert_eq!(
+        agnus.blt_bdat, 0x8001,
+        "the line texture rotates through internal phase, not BLTBDAT",
+    );
+    assert_eq!(
+        agnus.bltcon1 >> 12,
+        12,
+        "four pixels must decrement the visible B shift from 0 to 12",
+    );
+}
+
+#[test]
+fn line_mode_onedot_rearms_after_each_vertical_step() {
+    let mut agnus = Agnus::new();
+    let ram = TestRam::new();
+    agnus.bltcon0 = 0x0B00 | 0xCA; // USEA+C+D, standard line minterm
+    agnus.bltcon1 = 0x0007; // LINE | ONEDOT, Y-major +X/+Y octant
+    agnus.blt_apt = 0x0000_FFFF;
+    agnus.blt_bdat = 0xFFFF;
+    agnus.blt_cpt = 0x2000;
+    agnus.blt_dpt = 0x2000;
+    agnus.blt_amod = 0;
+    agnus.blt_bmod = 0;
+    agnus.blt_cmod = -2; // each Y step advances one word in test RAM
+    agnus.bltsize = (3 << 6) | 2;
+    agnus.start_blit();
+
+    run_blit(&mut agnus, &ram);
+
+    assert_eq!(ram.peek(0x2000), 0x8000);
+    assert_eq!(ram.peek(0x2002), 0x8000);
+    assert_eq!(ram.peek(0x2004), 0x8000);
+}
+
+#[test]
+fn suppressed_onedot_d_updates_bzero_finishes_and_leaves_the_bus_free() {
+    use commodore_agnus_ocs::SlotOwner;
+    use commodore_agnus_ocs::bits::{DMACON_BLTEN, DMACON_BLTPRI, DMACON_DMAEN};
+
+    for agnus_id in [0x1000, 0x2300] {
+        let mut agnus = Agnus::new();
+        let ram = TestRam::new();
+        // BSH=0 selects bit 0 first; the line shifter then wraps to bit
+        // 15, so this pattern produces zero followed by a non-zero pixel.
+        program_x_major_line(&mut agnus, 2, true, 0x8000);
+        agnus.agnus_id = agnus_id;
+        agnus.dmacon = DMACON_DMAEN | DMACON_BLTEN | DMACON_BLTPRI;
+        agnus.hpos = 0x35; // a CPU/free cell
+        agnus.start_blit();
+        let mut bus = RamBus(&ram);
+
+        // Two startup CCKs, first C/D, then the second C read. The first
+        // texture bit is clear, so the permitted D transfer writes zero.
+        assert_eq!(
+            agnus.tick_blitter_cck(true, &mut bus),
+            BlitterCckOutcome::default(),
+        );
+        assert_eq!(
+            agnus.tick_blitter_cck(true, &mut bus),
+            BlitterCckOutcome::default(),
+        );
+        assert_eq!(
+            agnus.tick_blitter_cck(true, &mut bus),
+            BlitterCckOutcome {
+                interrupt: false,
+                bus_used: true,
+            },
+        );
+        assert_eq!(
+            agnus.tick_blitter_cck(true, &mut bus),
+            BlitterCckOutcome {
+                interrupt: false,
+                bus_used: true,
+            },
+        );
+        assert_eq!(
+            agnus.tick_blitter_cck(true, &mut bus),
+            BlitterCckOutcome {
+                interrupt: false,
+                bus_used: true,
+            },
+        );
+        assert!(agnus.blitter_dzero);
+
+        // The rotated texture makes the final generated result non-zero,
+        // but ONEDOT suppresses its complete D transfer. Arbitration can
+        // see that before the logical WriteD retires.
+        let plan = agnus.cck_bus_plan();
+        assert_eq!(plan.slot_owner, SlotOwner::Cpu);
+        assert!(plan.blitter_dma_progress_granted);
+        assert!(!plan.blitter_chip_bus_granted);
+        assert!(plan.cpu_chip_bus_granted);
+        assert!(!agnus.blitter_nasty_active());
+
+        let outcome = agnus.tick_blitter_cck(true, &mut bus);
+        assert_eq!(
+            outcome,
+            BlitterCckOutcome {
+                interrupt: true,
+                bus_used: false,
+            },
+            "revision ${agnus_id:04X} must finish on the bus-free would-be D CCK",
+        );
+        assert_eq!(ram.peek(0x2000), 0);
+        assert!(
+            !agnus.blitter_dzero,
+            "the suppressed non-zero result must still clear BZERO",
+        );
+        assert!(!agnus.blitter_busy);
+        assert!(agnus.blitter_busy_visible());
+        assert!(agnus.blitter_busy_copper());
+
+        agnus.tick_cck();
+        assert!(!agnus.blitter_busy_visible());
+        assert!(agnus.blitter_busy_copper());
+        agnus.tick_cck();
+        assert!(!agnus.blitter_busy_copper());
+    }
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -811,7 +985,7 @@ fn area_without_d_updates_bzero_and_finishes_on_final_op() {
 fn line_mode_finishes_with_its_final_d_write() {
     let mut agnus = Agnus::new();
     let ram = TestRam::new();
-    agnus.bltcon0 = 0x0B00 | 0xCA; // USEA/B/C/D line minterm
+    agnus.bltcon0 = 0x0B00 | 0xCA; // USEA+C+D, standard line minterm
     agnus.bltcon1 = 0x0001; // LINE
     agnus.blt_apt = 0;
     agnus.blt_bdat = 0xFFFF;
@@ -912,7 +1086,7 @@ fn incremental_drain_matches_synchronous_blit() {
     // Line mode (the ReadC -> WriteD per-step path).
     assert_paths_agree(
         |agnus, _ram| {
-            agnus.bltcon0 = 0x0B00 | 0xCA; // USEB+C+D, standard line LF
+            agnus.bltcon0 = 0x0B00 | 0xCA; // USEA+C+D, standard line LF
             agnus.bltcon1 = 0x0001; // LINE mode
             agnus.blt_apt = 0;
             agnus.blt_bdat = 0xFFFF;

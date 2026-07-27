@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve pre-service nasty ownership across both half-CCK phases so a
+  bus-free ONEDOT would-be D remains available to the 68000 after the line
+  engine advances
 - Advance the blitter completion pipeline every CCK, feed Copper its
   later BFD observation, raise Paula only on the one-shot finish source
   and retain actual same-CCK blitter bus use in CPU arbitration

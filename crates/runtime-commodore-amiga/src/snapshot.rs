@@ -19,12 +19,12 @@ use crate::Model;
 use crate::runtime::AmigaRuntime;
 use crate::variants::AmigaMachine;
 
-// Version 17 serializes the blitter main-finish/final-result/final-D pipeline,
-// its DMACONR and Copper observer holds, the one-shot finish-source state, and
-// same-CCK blitter bus-use latch. Version 16 collapses these states into one
-// busy/completion edge, so restoring it could move BZERO, final D, INT_BLIT,
-// Copper BFD release or CPU chip-bus ownership.
-const SNAPSHOT_VERSION: u32 = 17;
+// Version 18 serializes the line-mode ONEDOT horizontal-row latch, line
+// texture phase, and the current CCK's pre-service nasty ownership plus its
+// validity marker. Version 17 cannot determine whether a restored logical
+// WriteD should be suppressed or whether that would-be transfer left the CPU
+// cell free.
+const SNAPSHOT_VERSION: u32 = 18;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
 /// snapshot (`M::Snapshot`) and the variant's reconstruction metadata
@@ -34,7 +34,7 @@ const SNAPSHOT_VERSION: u32 = 17;
 /// Versioned so future snapshot extensions can bump the major version
 /// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV17<M: AmigaMachine> {
+struct SnapshotEnvelopeV18<M: AmigaMachine> {
     version: u32,
     model: Model,
     metadata: M::SnapshotMetadata,
@@ -51,7 +51,7 @@ struct SnapshotEnvelopeV17<M: AmigaMachine> {
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
 pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u8>, MachineError> {
-    let envelope = SnapshotEnvelopeV17::<M> {
+    let envelope = SnapshotEnvelopeV18::<M> {
         version: SNAPSHOT_VERSION,
         model: runtime.model(),
         metadata: runtime.metadata().clone(),
@@ -92,7 +92,7 @@ pub(crate) fn decode<M: AmigaMachine>(
         });
     }
 
-    let envelope: SnapshotEnvelopeV17<M> =
+    let envelope: SnapshotEnvelopeV18<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;

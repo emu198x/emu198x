@@ -476,10 +476,17 @@ struct BlitterLineRuntime {
     dpt: u32,
     pixel_bit: u16,
     row_mod: i16,
+    /// Preloaded BLTBDAT line texture. Standard line setup leaves B DMA
+    /// disabled; the internal shifter consumes this register value directly.
     texture: u16,
+    /// Current BLTCON1 BSH selector. Zero selects texture bit 0, then each
+    /// generated pixel decrements the selector with 15-to-0 wrap.
+    texture_bit: u8,
     lf: u8,
     sing: bool,
-    texture_enabled: bool,
+    /// Whether the current horizontal row has already emitted its ONEDOT
+    /// D transfer. A vertical step starts a fresh row and clears the latch.
+    one_dot_drawn: bool,
     major_is_y: bool,
     x_neg: bool,
     y_neg: bool,
@@ -679,6 +686,16 @@ pub struct Agnus {
     /// polls later in the same CCK, so the actual use must remain latched
     /// across both master/4 phases.
     blitter_bus_used_this_cck: bool,
+    /// Record that the pre-service plan assigned the current CPU/free cell
+    /// to a nasty blitter operation. The line engine can advance from a
+    /// bus-free ONEDOT would-be write to its next C read before the CPU polls;
+    /// preserving the original decision prevents that next request from
+    /// retroactively taking the already-free cell.
+    blitter_nasty_owned_this_cck: bool,
+    /// Whether the current CCK has a pre-service/actual-use blitter
+    /// arbitration observation. Direct bus-service callers that have not run
+    /// the phase-0 DMA body must fall back to the live plan.
+    blitter_cck_bus_state_recorded: bool,
 
     // Disk pointer
     pub dsk_pt: u32,
@@ -805,6 +822,8 @@ impl Agnus {
             spr_dma_on: [false; 8],
             sprite_bus_used_this_cck: false,
             blitter_bus_used_this_cck: false,
+            blitter_nasty_owned_this_cck: false,
+            blitter_cck_bus_state_recorded: false,
             dsk_pt: 0,
             fmode: 0,
             lof: true,
@@ -992,6 +1011,7 @@ impl Agnus {
             && self.blitter_completion_phase.is_none()
             && self.dma_enabled(DMACON_BLTEN)
             && (self.dmacon & DMACON_BLTPRI) != 0
+            && self.next_blitter_progress_uses_bus()
     }
 
     /// Whether DMACONR-visible blitter busy is asserted.
@@ -1250,6 +1270,8 @@ impl Agnus {
         self.blitter_line_runtime = None;
         self.blitter_area_runtime = None;
         self.blitter_bus_used_this_cck = false;
+        self.blitter_nasty_owned_this_cck = false;
+        self.blitter_cck_bus_state_recorded = false;
     }
 
     #[must_use]
@@ -1301,14 +1323,10 @@ impl Agnus {
 
                     let pixel_mask: u16 = 0x8000 >> line.pixel_bit;
                     let a_val = pixel_mask;
-                    let b_val = if line.texture_enabled {
-                        if line.texture & 0x8000 != 0 {
-                            0xFFFF
-                        } else {
-                            0x0000
-                        }
-                    } else {
+                    let b_val = if line.texture & (1 << line.texture_bit) != 0 {
                         0xFFFF
+                    } else {
+                        0x0000
                     };
 
                     let mut result: u16 = 0;
@@ -1321,17 +1339,15 @@ impl Agnus {
                             result |= 1 << bit;
                         }
                     }
-                    if line.sing {
-                        result = (result & pixel_mask) | (c_val & !pixel_mask);
-                    }
                     if result != 0 {
                         self.blitter_dzero = false; // BZERO: a non-zero D word
                     }
-                    write_word(line.dpt, result);
-
-                    if line.texture_enabled {
-                        line.texture = line.texture.rotate_left(1);
+                    let write_d = !line.sing || !line.one_dot_drawn;
+                    if write_d {
+                        write_word(line.dpt, result);
                     }
+
+                    line.texture_bit = line.texture_bit.wrapping_sub(1) & 0x0F;
 
                     let step_x = |line: &mut BlitterLineRuntime| {
                         if line.x_neg {
@@ -1358,7 +1374,7 @@ impl Agnus {
                         }
                     };
 
-                    if line.error >= 0 {
+                    let moved_y = if line.error >= 0 {
                         if line.major_is_y {
                             step_y(&mut line);
                             step_x(&mut line);
@@ -1367,6 +1383,7 @@ impl Agnus {
                             step_y(&mut line);
                         }
                         line.error = line.error.wrapping_add(line.error_sub);
+                        true
                     } else {
                         if line.major_is_y {
                             step_y(&mut line);
@@ -1374,6 +1391,15 @@ impl Agnus {
                             step_x(&mut line);
                         }
                         line.error = line.error.wrapping_add(line.error_add);
+                        line.major_is_y
+                    };
+
+                    if line.sing {
+                        // ONEDOT permits the first D transfer in each
+                        // horizontal row. A Y transition during this step
+                        // arms the next row; otherwise this row remains
+                        // suppressed.
+                        line.one_dot_drawn = !moved_y;
                     }
 
                     line.have_c_word = false;
@@ -1383,6 +1409,8 @@ impl Agnus {
                         self.blt_cpt = line.cpt;
                         self.blt_dpt = line.dpt;
                         self.blt_bdat = line.texture;
+                        self.bltcon1 =
+                            (self.bltcon1 & 0x0FFF) | (u16::from(line.texture_bit) << 12);
                         self.blitter_line_runtime = None;
                         self.blitter_word_state = None;
                         self.blitter_exec_pending = false;
@@ -1642,7 +1670,7 @@ impl Agnus {
         let length = self.blt_height;
         let ash = (self.bltcon0 >> 12) & 0xF;
         let lf = self.bltcon0 as u8;
-        let texture_enabled = (self.bltcon0 & 0x0400) != 0;
+        let texture_bit = (self.bltcon1 >> 12) as u8;
         let sud = self.bltcon1 & 0x0010 != 0;
         let sul = self.bltcon1 & 0x0008 != 0;
         let aul = self.bltcon1 & 0x0004 != 0;
@@ -1681,9 +1709,10 @@ impl Agnus {
             pixel_bit: ash,
             row_mod: self.blt_cmod,
             texture: self.blt_bdat,
+            texture_bit,
             lf,
             sing,
-            texture_enabled,
+            one_dot_drawn: false,
             major_is_y,
             x_neg,
             y_neg,
@@ -1952,19 +1981,46 @@ impl Agnus {
         self.sprite_bus_used_this_cck
     }
 
-    /// Record whether the blitter drove the chip bus during this CCK.
+    /// Record the blitter's pre-service nasty ownership and actual bus use
+    /// for this CCK.
     ///
-    /// The driver records this after the operation is known. A completion
-    /// transition can otherwise make a later same-CCK CPU arbitration query
-    /// recompute an idle plan and retroactively reuse the transfer's cell.
-    pub fn record_blitter_bus_use(&mut self, used: bool) {
-        self.blitter_bus_used_this_cck = used;
+    /// The driver records both after the operation is known. Completion or a
+    /// bus-free ONEDOT would-be write can otherwise change the live plan
+    /// before a later same-CCK CPU arbitration query.
+    pub fn record_blitter_cck_bus_state(&mut self, nasty_owned: bool, bus_used: bool) {
+        self.blitter_nasty_owned_this_cck = nasty_owned;
+        self.blitter_bus_used_this_cck = bus_used;
+        self.blitter_cck_bus_state_recorded = true;
+    }
+
+    /// Start a CCK without a recorded blitter arbitration outcome.
+    ///
+    /// The driver replaces this empty state after the phase-0 blitter step.
+    /// Until then, a direct CPU bus-service call must use the live plan.
+    pub fn reset_blitter_cck_bus_state(&mut self) {
+        self.blitter_bus_used_this_cck = false;
+        self.blitter_nasty_owned_this_cck = false;
+        self.blitter_cck_bus_state_recorded = false;
     }
 
     /// Whether a blitter transfer drove the chip bus during this CCK.
     #[must_use]
     pub const fn blitter_bus_used_this_cck(&self) -> bool {
         self.blitter_bus_used_this_cck
+    }
+
+    /// Whether the current CCK's pre-service plan assigned its CPU/free cell
+    /// to the nasty blitter.
+    #[must_use]
+    pub const fn blitter_nasty_owned_this_cck(&self) -> bool {
+        self.blitter_nasty_owned_this_cck
+    }
+
+    /// Whether the phase-0 DMA body has recorded blitter ownership for this
+    /// CCK.
+    #[must_use]
+    pub const fn blitter_cck_bus_state_recorded(&self) -> bool {
+        self.blitter_cck_bus_state_recorded
     }
 
     /// Service one sprite-DMA bus cycle for `channel` (gap #162). Called
@@ -2725,6 +2781,34 @@ impl Agnus {
         }
     }
 
+    /// Whether the current logical operation drives the chip bus.
+    ///
+    /// A suppressed line-mode ONEDOT D operation still computes the minterm,
+    /// updates BZERO, advances the line state and may emit completion, but it
+    /// does not perform a D transfer.
+    fn blitter_operation_uses_bus(&self, op: BlitterDmaOp) -> bool {
+        match op {
+            BlitterDmaOp::Internal => false,
+            BlitterDmaOp::WriteD => !self
+                .blitter_line_runtime
+                .is_some_and(|line| line.sing && line.one_dot_drawn),
+            BlitterDmaOp::ReadA | BlitterDmaOp::ReadB | BlitterDmaOp::ReadC => true,
+        }
+    }
+
+    /// Whether the next admitted scheduler CCK needs the chip bus.
+    ///
+    /// Startup retains the existing accepted/free-cell policy. Once startup
+    /// has drained, the pending operation determines whether nasty mode owns
+    /// the cell; notably, a suppressed ONEDOT WriteD leaves it free.
+    fn next_blitter_progress_uses_bus(&self) -> bool {
+        if self.blitter_startup_ccks_remaining != 0 {
+            return true;
+        }
+        self.next_blitter_dma_request()
+            .is_none_or(|op| self.blitter_operation_uses_bus(op))
+    }
+
     /// Advance the blitter by one CCK.
     ///
     /// `progress_granted` admits startup, channel operations and the final D
@@ -2802,7 +2886,7 @@ impl Agnus {
             }
             BlitterProgress::Operation(op) => op,
         };
-        let bus_used = !matches!(op, BlitterDmaOp::Internal);
+        let bus_used = self.blitter_operation_uses_bus(op);
         let done = self.execute_blitter_bus_op(op, bus);
         if self.blitter_word_complete() && !done {
             self.advance_blitter_word();
