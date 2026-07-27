@@ -128,10 +128,8 @@ This decision does not correct the separate level-7 edge-latching rule.
 The current CPU can accept a continuously held level 7 repeatedly; that
 requires explicit serialized transition/pending state and its own tests.
 
-It also does not correct BERR during interrupt acknowledge. The current
-core routes that response through the ordinary bus-error path instead of
-selecting spurious vector 24. That is a separate exception-sequencing
-change.
+BERR during interrupt acknowledge is handled separately by
+[MC68000 spurious interrupt response](motorola-68000-spurious-interrupt-response.md).
 
 Externally supplied vectors on 68010-or-later machines remain outside the
 current Amiga target boundary. Those machines need an IACK-first frame
@@ -150,6 +148,7 @@ Amiga-side level and autovector boundary is defined by
 ## Related Documents
 
 - [CPU bus interface](cpu-bus-interface.md)
+- [MC68000 spurious interrupt response](motorola-68000-spurious-interrupt-response.md)
 - [Amiga full-family architecture review](amiga-full-family-architecture-review.md)
 - [Save-state live-machine serde](savestate-live-machine-serde.md)
 - [68k test-oracle strategy](m68k-test-oracle-strategy.md)

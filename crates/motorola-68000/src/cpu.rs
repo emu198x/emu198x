@@ -1382,11 +1382,20 @@ impl Cpu68000 {
                         }
                         BusStatus::Wait => {}
                         BusStatus::Error => {
+                            let completed_op = *op;
                             let fault_addr = *addr;
                             let fault_read = *is_read;
                             let fault_fc = *fc;
                             self.state = State::Idle;
-                            self.begin_bus_error(fault_addr, fault_read, fault_fc);
+                            if completed_op == MicroOp::InterruptAck {
+                                // BERR terminates an interrupt-acknowledge
+                                // cycle by supplying the spurious interrupt
+                                // vector. The ordinary interrupt frame is
+                                // already on the stack at this point.
+                                self.finish_bus_cycle(completed_op, 24);
+                            } else {
+                                self.begin_bus_error(fault_addr, fault_read, fault_fc);
+                            }
                         }
                     }
                 }
@@ -2066,9 +2075,9 @@ impl Cpu68000 {
 
     /// Start a bus error exception sequence.
     ///
-    /// Called when the bus returns `BusStatus::Error` (e.g. Fat Gary timeout).
-    /// The 68000 pushes the same 14-byte group-0 frame as address error,
-    /// using vector 2 instead of vector 3.
+    /// Called when a non-acknowledge bus cycle returns `BusStatus::Error`
+    /// (e.g. Fat Gary timeout). The 68000 pushes the same 14-byte group-0
+    /// frame as address error, using vector 2 instead of vector 3.
     pub(crate) fn begin_bus_error(&mut self, fault_addr: u32, is_read: bool, fc: FunctionCode) {
         // Double fault during another group-0 exception → halt.
         if self.ae_in_progress {

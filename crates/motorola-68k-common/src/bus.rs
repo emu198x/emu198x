@@ -35,7 +35,8 @@ impl FunctionCode {
 /// In pin terms:
 /// - `Ready` = DTACK asserted, data valid on the bus.
 /// - `Wait` = DTACK not asserted, CPU holds in BusCycle state.
-/// - `Error` = BERR asserted, CPU enters bus error exception.
+/// - `Error` = BERR asserted. Ordinary cycles enter the bus-error exception;
+///   interrupt acknowledge selects the spurious interrupt response.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BusStatus {
     /// The bus cycle is complete. For ordinary reads, contains the data word.
@@ -47,7 +48,10 @@ pub enum BusStatus {
     Ready(u16),
     /// The bus is not ready yet (DTACK not asserted).
     Wait,
-    /// A bus error (BERR) occurred.
+    /// A terminal bus error (BERR without a retry request) occurred. During
+    /// interrupt acknowledge this selects the spurious interrupt response
+    /// instead of the ordinary bus-error path. This abstraction does not
+    /// represent the BERR-plus-HALT retry handshake.
     Error,
 }
 

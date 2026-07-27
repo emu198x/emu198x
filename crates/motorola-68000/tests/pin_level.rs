@@ -471,6 +471,264 @@ fn interrupt_acknowledge_preserves_the_level_accepted_at_the_boundary() {
 }
 
 #[test]
+fn device_vector_15_during_interrupt_acknowledge_selects_uninitialized_interrupt() {
+    let mut mem = TestMem::new(0x2000);
+
+    mem.write_long(15 * 4, 0x0000_0120);
+    mem.write_word(0x0120, 0x700F); // MOVEQ #15,D0
+    mem.write_word(0x0122, 0x60FE); // BRA.S *
+
+    // Keep sentinels at the spurious and level-3 autovector entries.
+    mem.write_long(24 * 4, 0x0000_0140);
+    mem.write_word(0x0140, 0x7018); // MOVEQ #24,D0
+    mem.write_word(0x0142, 0x60FE); // BRA.S *
+    mem.write_long(27 * 4, 0x0000_0160);
+    mem.write_word(0x0160, 0x701B); // MOVEQ #27,D0
+    mem.write_word(0x0162, 0x60FE); // BRA.S *
+
+    mem.write_word(0x0100, 0x46FC); // MOVE.W #$2000,SR
+    mem.write_word(0x0102, 0x2000);
+    mem.write_word(0x0104, 0x60FE); // BRA.S *
+
+    let mut cpu = setup_cpu_reset_to(&mut mem, 0x0800, 0x0100);
+    for _ in 0..2_000 {
+        cpu.ipl = 0;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.regs.interrupt_mask() == 0 && cpu.ir == 0x60FE {
+            break;
+        }
+    }
+    assert_eq!(cpu.regs.interrupt_mask(), 0);
+
+    let mut accepted = false;
+    let mut supplied_device_vector = false;
+    for _ in 0..10_000 {
+        cpu.ipl = if accepted { 0 } else { 3 };
+
+        let mut service_normally = true;
+        if let motorola_68000::cpu::State::BusCycle {
+            addr,
+            fc,
+            cycle_count,
+            ..
+        } = &cpu.state
+            && *fc == motorola_68000::bus::FunctionCode::InterruptAck
+        {
+            assert_eq!(*addr, 0x00FF_FFF7);
+            service_normally = false;
+            if *cycle_count >= 3 {
+                cpu.bus_status = BusStatus::Ready(15);
+                supplied_device_vector = true;
+            } else {
+                cpu.bus_status = BusStatus::Wait;
+            }
+        }
+        if service_normally {
+            service_bus(&mut cpu, &mut mem);
+        }
+
+        cpu.tick();
+
+        if !accepted && cpu.interrupts_taken == 1 {
+            accepted = true;
+        }
+        if matches!(cpu.regs.d[0], 15 | 24 | 27) {
+            break;
+        }
+    }
+
+    assert!(accepted);
+    assert!(
+        supplied_device_vector,
+        "the test must complete acknowledge with device vector 15"
+    );
+    assert_eq!(
+        cpu.regs.d[0], 15,
+        "device vector 15 selects the uninitialized-interrupt entry"
+    );
+    assert_eq!(cpu.interrupts_taken, 1);
+    assert_eq!(cpu.regs.active_sp(), 0x07FA);
+    assert_eq!(mem.read_word(0x07FA), 0x2000);
+    assert_eq!(cpu.target_ipl, 3);
+    assert_eq!(cpu.regs.interrupt_mask(), 3);
+}
+
+#[test]
+fn bus_error_during_interrupt_acknowledge_selects_the_spurious_vector() {
+    let mut mem = TestMem::new(0x2000);
+
+    mem.write_long(24 * 4, 0x0000_0120);
+    mem.write_word(0x0120, 0x7018); // MOVEQ #24,D0
+    mem.write_word(0x0122, 0x60FE); // BRA.S *
+
+    // Ordinary bus-error handling would select vector 2 and build a
+    // group-0 frame. Keep a sentinel there to distinguish that path.
+    mem.write_long(2 * 4, 0x0000_0140);
+    mem.write_word(0x0140, 0x7002); // MOVEQ #2,D0
+    mem.write_word(0x0142, 0x60FE); // BRA.S *
+
+    mem.write_word(0x0100, 0x46FC); // MOVE.W #$2000,SR
+    mem.write_word(0x0102, 0x2000);
+    mem.write_word(0x0104, 0x60FE); // BRA.S *
+    mem.write_word(0x07F8, 0xA55A); // Below the six-byte interrupt frame.
+
+    let mut cpu = setup_cpu_reset_to(&mut mem, 0x0800, 0x0100);
+    for _ in 0..2_000 {
+        cpu.ipl = 0;
+        service_bus(&mut cpu, &mut mem);
+        cpu.tick();
+        if cpu.regs.interrupt_mask() == 0 && cpu.ir == 0x60FE {
+            break;
+        }
+    }
+    assert_eq!(cpu.regs.interrupt_mask(), 0);
+
+    let mut accepted = false;
+    let mut injected_iack_error = false;
+    for _ in 0..10_000 {
+        cpu.ipl = if accepted { 0 } else { 3 };
+
+        let mut service_normally = true;
+        if let motorola_68000::cpu::State::BusCycle {
+            addr,
+            fc,
+            cycle_count,
+            ..
+        } = &cpu.state
+            && *fc == motorola_68000::bus::FunctionCode::InterruptAck
+        {
+            assert_eq!(*addr, 0x00FF_FFF7);
+            service_normally = false;
+            if *cycle_count >= 3 {
+                cpu.bus_status = BusStatus::Error;
+                injected_iack_error = true;
+            } else {
+                cpu.bus_status = BusStatus::Wait;
+            }
+        }
+        if service_normally {
+            service_bus(&mut cpu, &mut mem);
+        }
+
+        cpu.tick();
+
+        if !accepted && cpu.interrupts_taken == 1 {
+            accepted = true;
+        }
+        if matches!(cpu.regs.d[0], 2 | 24) {
+            break;
+        }
+    }
+
+    assert!(accepted);
+    assert!(
+        injected_iack_error,
+        "the test must terminate the acknowledge cycle with BERR"
+    );
+    assert_eq!(
+        cpu.regs.d[0], 24,
+        "BERR during IACK selects spurious vector 24, not bus-error vector 2"
+    );
+    assert_eq!(
+        cpu.regs.active_sp(),
+        0x07FA,
+        "spurious interrupt retains the ordinary six-byte interrupt frame"
+    );
+    assert_eq!(
+        mem.read_word(0x07FA),
+        0x2000,
+        "the frame must contain the pre-interrupt SR"
+    );
+    assert_eq!(mem.read_word(0x07FC), 0x0000);
+    assert_eq!(
+        mem.read_word(0x07FE),
+        0x0104,
+        "the frame must contain the interrupted program counter"
+    );
+    assert_eq!(
+        mem.read_word(0x07F8),
+        0xA55A,
+        "spurious response must not push a second group-0 frame"
+    );
+    assert_eq!(cpu.interrupts_taken, 1);
+    assert_eq!(cpu.target_ipl, 3);
+    assert_eq!(cpu.regs.interrupt_mask(), 3);
+}
+
+#[test]
+fn ordinary_data_read_bus_error_still_selects_vector_2_and_builds_group0_frame() {
+    let mut mem = TestMem::new(0x4000);
+
+    mem.write_long(2 * 4, 0x0000_0140);
+    mem.write_word(0x0140, 0x7202); // MOVEQ #2,D1
+    mem.write_word(0x0142, 0x60FE); // BRA.S *
+
+    mem.write_word(0x0100, 0x3039); // MOVE.W ($00002000).L,D0
+    mem.write_long(0x0102, 0x0000_2000);
+    mem.write_word(0x0106, 0x60FE); // BRA.S *
+
+    let mut cpu = Cpu68000::new();
+    cpu.reset_to(0x0800, 0x0100);
+
+    let mut injected_data_error = false;
+    for _ in 0..10_000 {
+        cpu.ipl = 0;
+
+        let mut service_normally = true;
+        if let motorola_68000::cpu::State::BusCycle {
+            addr,
+            fc,
+            is_read,
+            cycle_count,
+            ..
+        } = &cpu.state
+            && *addr == 0x0000_2000
+            && *fc == motorola_68000::bus::FunctionCode::SupervisorData
+            && *is_read
+        {
+            service_normally = false;
+            if *cycle_count >= 3 {
+                cpu.bus_status = BusStatus::Error;
+                injected_data_error = true;
+            } else {
+                cpu.bus_status = BusStatus::Wait;
+            }
+        }
+        if service_normally {
+            service_bus(&mut cpu, &mut mem);
+        }
+
+        cpu.tick();
+
+        if cpu.regs.d[1] == 2 {
+            break;
+        }
+    }
+
+    assert!(
+        injected_data_error,
+        "the test must terminate the operand read with BERR"
+    );
+    assert_eq!(
+        cpu.regs.d[1], 2,
+        "ordinary BERR must continue to select bus-error vector 2"
+    );
+    assert_eq!(
+        cpu.regs.active_sp(),
+        0x07F2,
+        "ordinary BERR must build the 68000's 14-byte group-0 frame"
+    );
+    assert_eq!(mem.read_word(0x07F2) & 0x001F, 0x0015);
+    assert_eq!(mem.read_word(0x07F4), 0x0000);
+    assert_eq!(mem.read_word(0x07F6), 0x2000);
+    assert_eq!(mem.read_word(0x07F8), 0x3039);
+    assert_eq!(mem.read_word(0x07FA), 0x2700);
+    assert_eq!(mem.read_word(0x07FC), 0x0000);
+    assert_eq!(mem.read_word(0x07FE), 0x0100);
+}
+
+#[test]
 fn trap_and_rte() {
     // TRAP #0 → handler writes D0=$99, RTE → BRA.S *
     // This is the exec.library system call mechanism.
