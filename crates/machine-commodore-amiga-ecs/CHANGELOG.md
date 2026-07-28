@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Route Copper horizontal comparison through the ECS Agnus projection so
+  programmed beam timing reaches `WAIT` and `SKIP`
 - Reset generic Autoconfig state on CPU RESET without clearing expansion RAM
 - Preserve the inherited pre-AGA finish/result/final-D pipeline and drain
   internal completion rather than stopping at the early source event

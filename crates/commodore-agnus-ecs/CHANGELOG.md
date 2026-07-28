@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Derive the Copper comparator's horizontal wrap from programmed `HTOTAL`,
+  current LOL state and the resulting line-length parity
 - Inherit the serialized pre-AGA blitter completion pipeline, including
   early main finish, trailing BZERO/final D and separate busy observers
 - Apply the enhanced-chipset `$D8` bitplane-DMA stop by default, while

@@ -91,6 +91,14 @@ impl InstalledAgnus {
     }
 
     #[must_use]
+    pub(crate) fn copper_comparator_hpos(&self) -> u16 {
+        match self {
+            Self::EarlyOcs(agnus) => agnus.copper_comparator_hpos(),
+            Self::Fat8372A(agnus) => agnus.copper_comparator_hpos(),
+        }
+    }
+
+    #[must_use]
     pub(crate) fn vertical_diw_active(&self) -> bool {
         match self {
             Self::EarlyOcs(agnus) => agnus.vertical_diw_active(),

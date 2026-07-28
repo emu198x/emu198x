@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Project the physical horizontal beam into the Copper comparator's two-CCK
+  lead and PAL/NTSC line-parity wrap
 - Suppress complete later D transfers in an ONEDOT horizontal row while
   retaining minterm, BZERO, line-state and final would-be-write completion
 - Consume the preloaded `BLTBDAT` line texture with SRCB disabled, start

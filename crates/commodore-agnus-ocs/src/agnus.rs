@@ -928,6 +928,23 @@ impl Agnus {
         }
     }
 
+    /// Horizontal position currently visible to the Copper `WAIT`/`SKIP`
+    /// comparator.
+    ///
+    /// The comparator observes the beam two CCKs ahead. Its effective period
+    /// is the largest even number of CCKs in the current line: PAL and NTSC
+    /// short lines therefore wrap at physical `$E0`, while an NTSC long line
+    /// wraps at physical `$E2`.
+    #[must_use]
+    pub fn copper_comparator_hpos(&self) -> u16 {
+        let period = self.current_line_ccks() & !1;
+        if period == 0 {
+            0
+        } else {
+            (self.hpos + 2) % period
+        }
+    }
+
     pub fn num_bitplanes(&self) -> u8 {
         if self.max_bitplanes > 6 {
             // AGA: 4-bit BPU from bits 14-12 (3 bits) + bit 4 (extra high bit).
@@ -4715,6 +4732,35 @@ mod tests {
         assert!(!agnus.lol);
         assert!(!agnus.lol_toggle);
         assert_eq!(agnus.current_line_ccks(), PAL_CCKS_PER_LINE);
+    }
+
+    #[test]
+    fn copper_horizontal_comparator_follows_current_line_parity() {
+        let mut pal = Agnus::new_with_region(AgnusRegion::Pal);
+        for (physical, comparator) in [
+            (0x00DD, 0x00DF),
+            (0x00DE, 0x00E0),
+            (0x00DF, 0x00E1),
+            (0x00E0, 0x0000),
+            (0x00E1, 0x0001),
+            (0x00E2, 0x0002),
+        ] {
+            pal.hpos = physical;
+            assert_eq!(pal.copper_comparator_hpos(), comparator);
+        }
+
+        let mut ntsc = Agnus::new_with_region(AgnusRegion::Ntsc);
+        ntsc.lol = true;
+        assert_eq!(ntsc.current_line_ccks(), NTSC_CCKS_PER_LINE_LONG);
+        for (physical, comparator) in [
+            (0x00E0, 0x00E2),
+            (0x00E1, 0x00E3),
+            (0x00E2, 0x0000),
+            (0x00E3, 0x0001),
+        ] {
+            ntsc.hpos = physical;
+            assert_eq!(ntsc.copper_comparator_hpos(), comparator);
+        }
     }
 
     #[test]

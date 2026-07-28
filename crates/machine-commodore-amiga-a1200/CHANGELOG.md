@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Route Copper horizontal comparison through Alice's inherited programmable
+  beam projection
 - Reset generic Autoconfig state on CPU RESET without clearing expansion RAM
 - Preserve Alice's delayed finish source and serialized final-D completion
   through live execution and synchronous register-write ordering

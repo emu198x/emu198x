@@ -388,14 +388,8 @@ impl AgnusEcs {
     /// existing beam units (CCKs and raster lines), not a full ECS sync/blank
     /// generator implementation.
     pub fn tick_cck(&mut self) {
-        let (line_ccks, short_field_lines) = if self.varbeamen_enabled() {
-            (
-                self.htotal_highest_count() + 1 + u16::from(self.inner.lol),
-                self.short_field_lines(),
-            )
-        } else {
-            (self.inner.current_line_ccks(), self.short_field_lines())
-        };
+        let line_ccks = self.current_line_ccks();
+        let short_field_lines = self.short_field_lines();
         if let Some(vpos) = self.inner.next_cck_line_entry(line_ccks, short_field_lines) {
             self.enter_programmed_vertical_line(vpos);
             self.evaluate_vertical_diw_comparators(vpos);
@@ -408,6 +402,41 @@ impl AgnusEcs {
             sprite_timing,
             fixed_ddf_right_stop_enabled,
         );
+    }
+
+    /// Length of the active scanline in CCKs.
+    ///
+    /// Fixed timing follows the wrapped OCS core, including NTSC long-line
+    /// state. `BEAMCON0.VARBEAMEN` selects the programmed `HTOTAL` limit and
+    /// retains the same long-line extension used by beam advancement.
+    #[must_use]
+    pub fn current_line_ccks(&self) -> u16 {
+        if self.varbeamen_enabled() {
+            self.htotal_highest_count() + 1 + u16::from(self.inner.lol)
+        } else {
+            self.inner.current_line_ccks()
+        }
+    }
+
+    /// Horizontal position currently visible to the Copper `WAIT`/`SKIP`
+    /// comparator.
+    ///
+    /// Fixed timing uses the inherited OCS counter projection. With
+    /// `BEAMCON0.VARBEAMEN`, the programmed `HTOTAL` and current long-line
+    /// state select the physical line length. The comparator's period is the
+    /// largest even number of CCKs in that line.
+    #[must_use]
+    pub fn copper_comparator_hpos(&self) -> u16 {
+        if !self.varbeamen_enabled() {
+            return self.inner.copper_comparator_hpos();
+        }
+
+        let period = self.current_line_ccks() & !1;
+        if period == 0 {
+            0
+        } else {
+            (self.inner.hpos + 2) % period
+        }
     }
 
     fn short_field_lines(&self) -> u16 {
@@ -1245,6 +1274,64 @@ mod tests {
         assert_eq!(agnus.hpos, 0);
         assert_eq!(agnus.vpos, 0);
         assert_eq!(agnus.vbl_count, 1);
+    }
+
+    #[test]
+    fn copper_horizontal_comparator_uses_programmed_htotal_wrap_origin() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_htotal(0x00FA);
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+
+        // Short line: L=$FB, even comparator period P=$FA, origin=$F8.
+        for (physical, comparator) in [(0x00F7, 0x00F9), (0x00F8, 0x0000), (0x00FA, 0x0002)] {
+            agnus.hpos = physical;
+            assert_eq!(agnus.copper_comparator_hpos(), comparator);
+        }
+
+        // Long line: L=$FC, period P=$FC, origin moves to $FA.
+        agnus.lol = true;
+        assert_eq!(agnus.current_line_ccks(), 0x00FC);
+        for (physical, comparator) in [(0x00F8, 0x00FA), (0x00FA, 0x0000), (0x00FB, 0x0001)] {
+            agnus.hpos = physical;
+            assert_eq!(agnus.copper_comparator_hpos(), comparator);
+        }
+
+        // An odd programmed highest count produces an even short line, so
+        // LOL does not move the comparator period on the following odd line.
+        agnus.write_htotal(0x00F9);
+        for lol in [false, true] {
+            agnus.lol = lol;
+            agnus.hpos = 0x00F8;
+            assert_eq!(agnus.copper_comparator_hpos(), 0);
+        }
+    }
+
+    #[test]
+    fn copper_horizontal_comparator_handles_degenerate_programmed_totals() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_beamcon0(BEAMCON0_VARBEAMEN);
+
+        agnus.write_htotal(0);
+        agnus.lol = false;
+        agnus.hpos = 0;
+        assert_eq!(agnus.current_line_ccks(), 1);
+        assert_eq!(agnus.copper_comparator_hpos(), 0);
+
+        agnus.lol = true;
+        agnus.hpos = 1;
+        assert_eq!(agnus.current_line_ccks(), 2);
+        assert_eq!(agnus.copper_comparator_hpos(), 1);
+
+        agnus.write_htotal(1);
+        agnus.lol = false;
+        assert_eq!(agnus.current_line_ccks(), 2);
+        agnus.hpos = 1;
+        assert_eq!(agnus.copper_comparator_hpos(), 1);
+
+        agnus.lol = true;
+        assert_eq!(agnus.current_line_ccks(), 3);
+        agnus.hpos = 2;
+        assert_eq!(agnus.copper_comparator_hpos(), 0);
     }
 
     #[test]

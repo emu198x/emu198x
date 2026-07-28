@@ -17,8 +17,8 @@
 //!                     (HRM: "the least significant bit is not used
 //!                     in the comparison"). End-of-list sentinel:
 //!                     WAIT \$FFFF \$FFFE — VP=$FF HP=$7F with full
-//!                     mask, which can never be satisfied since
-//!                     hpos maxes at $E2.
+//!                     mask, which can never be satisfied because the
+//!                     horizontal comparator never reaches $FE.
 //!   SKIP  vp, hp    — same shape; word2 bit 0 = 1. Skips the
 //!                     next instruction if the masked beam already
 //!                     ≥ the masked target.
@@ -147,11 +147,16 @@ impl Copper {
     ///
     /// COPJMP1 / COPJMP2 strobes stay internal — the copper reloads
     /// its own PC and returns `None` for those.
+    ///
+    /// `comparator_hp` is Agnus's comparator-visible horizontal position,
+    /// including its two-CCK lead and end-of-line counter projection. Keeping
+    /// that projection at the chip boundary lets fixed and programmable beam
+    /// timing share this Copper core.
     pub fn tick_cck(
         &mut self,
         memory: &Memory,
         beam_vp: u16,
-        beam_hp: u16,
+        comparator_hp: u16,
         copper_slot_granted: bool,
         blitter_busy: bool,
     ) -> Option<(u16, u16)> {
@@ -168,7 +173,7 @@ impl Copper {
         // BltWait/copper-blitter-sync idiom that blocks the copper until
         // the in-flight blit drains.
         if self.waiting {
-            let satisfied = beam_match(self.wait_target, self.wait_mask, beam_vp, beam_hp)
+            let satisfied = beam_match(self.wait_target, self.wait_mask, beam_vp, comparator_hp)
                 && (self.wait_bfd || !blitter_busy);
             if satisfied {
                 self.waiting = false;
@@ -207,7 +212,7 @@ impl Copper {
                 self.pending_wait_target,
                 self.pending_wait_mask,
                 beam_vp,
-                beam_hp,
+                comparator_hp,
             ) && (self.pending_wait_bfd || !blitter_busy);
             if is_skip {
                 if satisfied {
@@ -325,15 +330,18 @@ impl Copper {
 /// masked current position is `>=` the masked target — the condition
 /// WAIT releases on and SKIP skips on.
 ///
-/// Semantics per Amiga Hardware Reference Manual 3rd ed., "Coprocessor
-/// Hardware":
-/// - HP bit 0 is NOT used in the comparison (step of 2 CCKs).
-/// - VP bit 7 is always compared (the mask's bit 15 is forced on).
-/// - Only the low 8 bits of vpos are used — vpos > 255 wraps to 0
-///   for comparison purposes.
+/// Position semantics:
+/// - Per the Amiga Hardware Reference Manual 3rd ed., "Coprocessor
+///   Hardware", HP bit 0 is NOT used in the comparison (step of 2 CCKs).
+/// - `comparator_hp` is the horizontal counter projection supplied by Agnus,
+///   rather than the physical beam position.
+/// - Per the manual, VP bit 7 is always compared (the mask's bit 15 is
+///   forced on).
+/// - Per the manual, only the low 8 bits of vpos are used — vpos > 255
+///   wraps to 0 for comparison purposes.
 #[must_use]
-pub fn beam_match(target: u16, mask: u16, beam_vp: u16, beam_hp: u16) -> bool {
-    let current = ((beam_vp & 0x00FF) << 8) | (beam_hp & 0x00FE);
+pub fn beam_match(target: u16, mask: u16, beam_vp: u16, comparator_hp: u16) -> bool {
+    let current = ((beam_vp & 0x00FF) << 8) | (comparator_hp & 0x00FE);
     (current & mask) >= (target & mask)
 }
 
@@ -369,6 +377,12 @@ mod tests {
         hpos.is_multiple_of(2) && hpos != 0xE0
     }
 
+    /// Project one PAL physical position onto the horizontal counter value
+    /// supplied by Agnus in production.
+    fn pal_comparator_hpos(hpos: u16) -> u16 {
+        (hpos + 2) % 0x00E2
+    }
+
     /// Tick the copper for `ccks` wall-CCKs, advancing hpos each
     /// tick and holding vpos fixed. Grants the copper its even free
     /// cells so it sees unconstrained availability. MOVEs returned by
@@ -379,9 +393,13 @@ mod tests {
     fn run_ccks(copper: &mut Copper, mem: &Memory, denise: &mut TestDenise, vpos: u16, ccks: u16) {
         for i in 0..ccks {
             let hpos = i % 227;
-            if let Some((reg, val)) =
-                copper.tick_cck(mem, vpos, hpos, copper_slot_granted(hpos), false)
-            {
+            if let Some((reg, val)) = copper.tick_cck(
+                mem,
+                vpos,
+                pal_comparator_hpos(hpos),
+                copper_slot_granted(hpos),
+                false,
+            ) {
                 denise.write_word(reg, val);
             }
         }
@@ -413,7 +431,7 @@ mod tests {
         copper.jump1();
 
         for i in 0..40u16 {
-            let write = copper.tick_cck(&mem, 0, i % 227, false, false);
+            let write = copper.tick_cck(&mem, 0, pal_comparator_hpos(i % 227), false, false);
             if let Some((reg, val)) = write {
                 denise.write_word(reg, val);
             }
@@ -439,7 +457,9 @@ mod tests {
 
         for i in 0..40u16 {
             // Grant nothing: every potential copper cell is contended.
-            if let Some((reg, val)) = copper.tick_cck(&mem, 0, i % 227, false, false) {
+            if let Some((reg, val)) =
+                copper.tick_cck(&mem, 0, pal_comparator_hpos(i % 227), false, false)
+            {
                 denise.write_word(reg, val);
             }
         }
@@ -475,9 +495,13 @@ mod tests {
         // Tick more with beam still below target — MOVE doesn't run.
         for i in 0..50u16 {
             let hpos = i % 227;
-            if let Some((reg, val)) =
-                copper.tick_cck(&mem, 4, hpos, copper_slot_granted(hpos), false)
-            {
+            if let Some((reg, val)) = copper.tick_cck(
+                &mem,
+                4,
+                pal_comparator_hpos(hpos),
+                copper_slot_granted(hpos),
+                false,
+            ) {
                 denise.write_word(reg, val);
             }
         }
@@ -580,14 +604,26 @@ mod tests {
         let target = 0x0004;
         let mask = (0x00FEu16 & 0x7FFE) | 0x8000;
 
-        // beam_hp = 4: current = 4, 4 >= 4 → true.
-        assert!(beam_match(target, mask, 0, 4));
-        // beam_hp = 5: LSB ignored → current still = 4, 4 >= 4 → true.
-        assert!(beam_match(target, mask, 0, 5));
-        // beam_hp = 3: current = 2 (LSB cleared), 2 >= 4 → false.
+        // comparator HP = 3 clears to 2 and remains below the target.
         assert!(!beam_match(target, mask, 0, 3));
-        // beam_hp = 6: current = 6, 6 >= 4 → true.
+        // Comparator positions 4 and 5 both compare as 4.
+        assert!(beam_match(target, mask, 0, 4));
+        assert!(beam_match(target, mask, 0, 5));
         assert!(beam_match(target, mask, 0, 6));
+    }
+
+    #[test]
+    fn beam_match_uses_the_comparator_visible_horizontal_position() {
+        let target_e0 = 0x00E0;
+        let target_00 = 0x0000;
+        let mask = 0x80FE;
+
+        // Agnus owns physical-to-comparator projection. Copper consumes the
+        // projected value literally, then clears HP bit 0.
+        assert!(!beam_match(target_e0, mask, 0, 0x00DE));
+        assert!(beam_match(target_e0, mask, 0, 0x00E0));
+        assert!(!beam_match(target_e0, mask, 0, 0x0000));
+        assert!(beam_match(target_00, mask, 0, 0x0000));
     }
 
     #[test]
@@ -810,9 +846,13 @@ mod tests {
 
         for vpos in 250u16..312 {
             for hpos in 0u16..227 {
-                if let Some((reg, val)) =
-                    copper.tick_cck(&mem, vpos, hpos, copper_slot_granted(hpos), false)
-                {
+                if let Some((reg, val)) = copper.tick_cck(
+                    &mem,
+                    vpos,
+                    pal_comparator_hpos(hpos),
+                    copper_slot_granted(hpos),
+                    false,
+                ) {
                     denise.write_word(reg, val);
                     if reg == 0x0180 {
                         return Some(vpos);
@@ -864,9 +904,13 @@ mod tests {
         // WAIT must hold, so the MOVE never runs.
         for i in 0..40u16 {
             let hpos = i % 227;
-            if let Some((reg, val)) =
-                copper.tick_cck(&mem, 0, hpos, copper_slot_granted(hpos), true)
-            {
+            if let Some((reg, val)) = copper.tick_cck(
+                &mem,
+                0,
+                pal_comparator_hpos(hpos),
+                copper_slot_granted(hpos),
+                true,
+            ) {
                 denise.write_word(reg, val);
             }
         }
@@ -880,9 +924,13 @@ mod tests {
         // Blitter goes idle: the WAIT releases and the MOVE runs.
         for i in 0..8u16 {
             let hpos = i % 227;
-            if let Some((reg, val)) =
-                copper.tick_cck(&mem, 0, hpos, copper_slot_granted(hpos), false)
-            {
+            if let Some((reg, val)) = copper.tick_cck(
+                &mem,
+                0,
+                pal_comparator_hpos(hpos),
+                copper_slot_granted(hpos),
+                false,
+            ) {
                 denise.write_word(reg, val);
             }
         }
@@ -908,9 +956,13 @@ mod tests {
         copper.jump1();
 
         for hpos in 0..40u16 {
-            if let Some((reg, val)) =
-                copper.tick_cck(&mem, 0, hpos, copper_slot_granted(hpos), blitter_busy)
-            {
+            if let Some((reg, val)) = copper.tick_cck(
+                &mem,
+                0,
+                pal_comparator_hpos(hpos),
+                copper_slot_granted(hpos),
+                blitter_busy,
+            ) {
                 denise.write_word(reg, val);
             }
         }

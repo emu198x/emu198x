@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Route Copper horizontal comparison through the installed original or Fat
+  Agnus projection, including NTSC-long and programmable timing
 - Include accelerator-local RAM writes in the shared CPU memory-watch
   diagnostics, normalizing 32-bit physical phases to ordered byte records
 - Advance the blitter's two startup CCKs only through Agnus's admitted

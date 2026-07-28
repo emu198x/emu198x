@@ -2157,8 +2157,15 @@ impl AmigaDriver for AmigaA1200 {
         copper_slot_granted: bool,
         blitter_busy: bool,
     ) -> Option<(u16, u16)> {
-        self.copper
-            .tick_cck(&self.memory, vpos, hpos, copper_slot_granted, blitter_busy)
+        debug_assert_eq!(hpos, self.agnus.hpos);
+        let comparator_hp = self.agnus.copper_comparator_hpos();
+        self.copper.tick_cck(
+            &self.memory,
+            vpos,
+            comparator_hp,
+            copper_slot_granted,
+            blitter_busy,
+        )
     }
 
     fn blitter_dma_step(&mut self, progress_granted: bool) -> BlitterCckOutcome {
@@ -2328,6 +2335,27 @@ mod bus_plan_dispatch_tests {
     };
     use motorola_68000::cpu::{ActiveBusTransfer, State};
     use motorola_68000::microcode::MicroOp;
+
+    #[test]
+    fn copper_wait_uses_the_alice_programmed_horizontal_projection() {
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        amiga.agnus.write_htotal(0x00FA);
+        amiga.agnus.write_beamcon0(
+            commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_PAL,
+        );
+        amiga.agnus.hpos = 0x00F8;
+        amiga.copper.waiting = true;
+        amiga.copper.wait_target = 0x0010;
+        amiga.copper.wait_mask = 0x80FE;
+        amiga.copper.wait_bfd = true;
+
+        <AmigaA1200 as AmigaDriver>::copper_tick_cck(&mut amiga, 0, 0x00F8, false, false);
+
+        assert!(
+            amiga.copper.waiting,
+            "programmed physical $F8 must wrap to comparator position zero",
+        );
+    }
 
     fn observe_ddf_start(amiga: &mut AmigaA1200) {
         let start = amiga.agnus.ddfstrt & 0x00FE;

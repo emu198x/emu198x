@@ -2275,8 +2275,15 @@ impl AmigaDriver for AmigaOcs {
         copper_slot_granted: bool,
         blitter_busy: bool,
     ) -> Option<(u16, u16)> {
-        self.copper
-            .tick_cck(&self.memory, vpos, hpos, copper_slot_granted, blitter_busy)
+        debug_assert_eq!(hpos, self.agnus.hpos);
+        let comparator_hp = self.agnus.copper_comparator_hpos();
+        self.copper.tick_cck(
+            &self.memory,
+            vpos,
+            comparator_hp,
+            copper_slot_granted,
+            blitter_busy,
+        )
     }
 
     fn blitter_dma_step(&mut self, progress_granted: bool) -> BlitterCckOutcome {
@@ -2518,6 +2525,49 @@ mod tests {
         A530Config::new(A530RamSize::Mib1, 1)
             .with_cache_enabled(false)
             .with_autoboot_enabled(false)
+    }
+
+    fn arm_horizontal_copper_wait(copper: &mut Copper, target_hp: u16) {
+        copper.waiting = true;
+        copper.wait_target = target_hp;
+        copper.wait_mask = 0x80FE;
+        copper.wait_bfd = true;
+    }
+
+    #[test]
+    fn copper_wait_uses_the_installed_agnus_horizontal_projection() {
+        let mut ocs = AmigaOcs::new(vec![0; 256 * 1024]);
+        ocs.agnus.hpos = 0x00DE;
+        arm_horizontal_copper_wait(&mut ocs.copper, 0x00E0);
+        <AmigaOcs as AmigaDriver>::copper_tick_cck(&mut ocs, 0, 0x00DE, false, false);
+        assert!(
+            !ocs.copper.waiting,
+            "PAL physical $DE must reach comparator position $E0",
+        );
+
+        let mut ntsc = AmigaOcs::with_ram_config_ntsc(vec![0; 256 * 1024], RamConfig::bare());
+        ntsc.agnus.lol = true;
+        ntsc.agnus.hpos = 0x00E0;
+        arm_horizontal_copper_wait(&mut ntsc.copper, 0x00E2);
+        <AmigaOcs as AmigaDriver>::copper_tick_cck(&mut ntsc, 0, 0x00E0, false, false);
+        assert!(
+            !ntsc.copper.waiting,
+            "NTSC-long physical $E0 must reach comparator position $E2",
+        );
+
+        let mut fat = AmigaOcs::with_fat_agnus_ram_config(vec![0; 256 * 1024], RamConfig::bare());
+        assert!(fat.agnus.write_timing_register(0x1C0, 0x00FA));
+        assert!(fat.agnus.write_timing_register(
+            0x1DC,
+            commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_PAL,
+        ));
+        fat.agnus.hpos = 0x00F8;
+        arm_horizontal_copper_wait(&mut fat.copper, 0x0010);
+        <AmigaOcs as AmigaDriver>::copper_tick_cck(&mut fat, 0, 0x00F8, false, false);
+        assert!(
+            fat.copper.waiting,
+            "Fat Agnus programmed physical $F8 must wrap to comparator position zero",
+        );
     }
 
     #[test]
