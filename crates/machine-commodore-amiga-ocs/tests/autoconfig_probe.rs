@@ -3,8 +3,8 @@
 //! Asserts the full host-facing handshake against the probe window
 //! `$E80000-$E8007F`, walked exactly the way `expansion.library` does
 //! during boot: read the high and low nibbles of each config-ROM
-//! byte, un-invert to discover the board's class and size, then write
-//! the pair of base-address nibbles to assign its RAM window.
+//! byte, interpret the exceptional uninverted `ER_TYPE` byte, then
+//! write the pair of base-address nibbles to assign its RAM window.
 //!
 //! Reads and writes go through `poke_word` / `read_word` so the
 //! bus-dispatch wiring is exercised end-to-end — same path the 68000
@@ -38,11 +38,11 @@ fn probe_window_returns_floating_bus_when_no_board_attached() {
 }
 
 #[test]
-fn er_type_identifies_zorro_ii_ram_board_post_inversion() {
+fn er_type_identifies_zorro_ii_ram_board_without_inversion() {
     // A 2M fast-RAM board should report itself as a Zorro-II memory
-    // board with size-code 0b110 (2M) in the ER_TYPE byte. Post-
-    // inversion bits 6-7 are preserved (11 = Zorro-II), while the
-    // rest invert.
+    // board with size-code 0b110 (2M) in the ER_TYPE byte. ER_TYPE is
+    // the one complete Autoconfig byte whose data bits are not
+    // physically inverted.
     let amiga = AmigaOcs::with_ram_config(
         zero_rom(),
         RamConfig {
@@ -52,9 +52,8 @@ fn er_type_identifies_zorro_ii_ram_board_post_inversion() {
         },
     );
     let er_type = read_rom_byte(&amiga, 0x00);
-    // bits 7-6 = 11 (Zorro-II, untouched); bits 5-0 = !(MEMORY | size)
-    // = !(0b10_0110) = 0b01_1001 → full byte = 0b1101_1001 = $D9.
-    assert_eq!(er_type, 0xD9);
+    // bits 7-6 = 11 (Zorro-II), bit 5 = memory, size = 0b110.
+    assert_eq!(er_type, 0xE6);
 }
 
 #[test]
@@ -80,10 +79,9 @@ fn manufacturer_id_reads_commodore_post_inversion() {
 fn host_base_assignment_handshake_maps_fast_ram() {
     // Full `expansion.library` handshake:
     //   1. Read ER_TYPE, confirm Zorro-II memory board.
-    //   2. Write the upper nibble of the assigned base upper byte
-    //      to `$E80048`.
-    //   3. Write the lower nibble to `$E8004A` — board moves to
-    //      Configured state.
+    //   2. Write A19-A16 to `$E8004A`.
+    //   3. Write A23-A20 to `$E80048` — board moves to Configured
+    //      state and releases the next board.
     //   4. Subsequent reads/writes at the assigned base hit the
     //      board's RAM backing.
     let mut amiga = AmigaOcs::with_ram_config(
@@ -96,8 +94,8 @@ fn host_base_assignment_handshake_maps_fast_ram() {
     );
     // Step 2-3: assign base $20_0000 (the canonical first Zorro-II
     // slot above the chip + slow-RAM region).
-    amiga.poke_word(0x00E8_0048, 0x2000);
     amiga.poke_word(0x00E8_004A, 0x0000);
+    amiga.poke_word(0x00E8_0048, 0x2000);
     let board = amiga.autoconfig().expect("board should still exist");
     assert_eq!(board.base(), Some(0x0020_0000));
     assert!(!board.visible_in_probe_window());
@@ -123,8 +121,8 @@ fn probe_window_goes_silent_after_configuration() {
             fast_kb: 512,
         },
     );
-    amiga.poke_word(0x00E8_0048, 0x2000);
     amiga.poke_word(0x00E8_004A, 0x0000);
+    amiga.poke_word(0x00E8_0048, 0x2000);
     // Reads from the probe window now float — any further ROM-byte
     // reconstruction would see floating-bus $FFFF patterns.
     assert_eq!(amiga.read_word(0x00E8_0000), 0xFFFF);

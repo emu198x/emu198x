@@ -269,4 +269,26 @@ mod tests {
         movec_to_cacr(&mut restored, u32::MAX);
         assert_eq!(restored.regs.cacr, CACR_PERSISTENT);
     }
+
+    #[test]
+    fn deserialize_preserves_warm_instruction_cache() {
+        let mut cpu = Cpu68030::new();
+        let addr = 0x0000_1000;
+        cpu.variant_icache
+            .as_mut()
+            .expect("MC68030 I-cache")
+            .fill(addr, true, 0x4E71);
+        let encoded = rmp_serde::to_vec_named(&cpu).expect("serialize MC68030");
+
+        let restored: Cpu68030 = rmp_serde::from_slice(&encoded).expect("deserialize MC68030");
+
+        assert_eq!(
+            restored
+                .variant_icache
+                .as_ref()
+                .expect("restored MC68030 I-cache")
+                .lookup(addr, true),
+            Some(0x4E71)
+        );
+    }
 }

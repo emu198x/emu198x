@@ -7,6 +7,7 @@ use thiserror::Error;
 
 use crate::asset::{AssetLoadError, read_media_asset};
 use crate::control::ControlCommand;
+use crate::debug::DebugTarget;
 use crate::machine::{MachineCore, ResetKind};
 use crate::media::{MediaImage, MediaKind, MediaSet};
 use crate::query::{QueryError, QueryPathsResult, QueryResult, SessionQueryProvider};
@@ -1018,6 +1019,20 @@ const RUN_UNTIL_MAX_STEPS: u64 = 2_000_000;
 /// Default number of entries a `watch_*_log` step returns.
 const WATCH_LOG_DEFAULT_LIMIT: u32 = 64;
 
+/// Run one bounded debug-step attempt and report whether the target's
+/// monotonic instruction-boundary counter advanced. Targets without that
+/// optional counter explicitly guarantee the historical exact-step contract.
+fn step_debug_target(target: &mut dyn DebugTarget) -> (u64, bool) {
+    let before = target.instruction_boundary_count();
+    let ticks = target.step_instruction();
+    let after = target.instruction_boundary_count();
+    let completed = match (before, after) {
+        (Some(before), Some(after)) => after != before,
+        _ => true,
+    };
+    (ticks, completed)
+}
+
 impl ScriptStep {
     /// Executes one script step against one live headless session.
     ///
@@ -1177,14 +1192,20 @@ impl ScriptStep {
                 };
                 let mut ticks = 0u64;
                 let mut pc_trace = Vec::with_capacity(count as usize);
+                let mut completed = 0u32;
                 for _ in 0..count {
-                    ticks += target.step_instruction();
+                    let (step_ticks, instruction_completed) = step_debug_target(target);
+                    ticks += step_ticks;
+                    if !instruction_completed {
+                        break;
+                    }
+                    completed += 1;
                     pc_trace.push(target.pc());
                 }
                 let pc = target.pc();
                 let next = target.disassemble(pc).map(|(text, _)| text);
                 Ok(Some(ScriptObservation::Step {
-                    instructions: count,
+                    instructions: completed,
                     ticks,
                     pc,
                     pc_trace,
@@ -1207,7 +1228,11 @@ impl ScriptStep {
                         reached = true;
                         break;
                     }
-                    ticks += target.step_instruction();
+                    let (step_ticks, instruction_completed) = step_debug_target(target);
+                    ticks += step_ticks;
+                    if !instruction_completed {
+                        break;
+                    }
                     steps += 1;
                 }
                 reached |= target.pc() == target_pc;
@@ -1233,7 +1258,11 @@ impl ScriptStep {
                         reached = true;
                         break;
                     }
-                    ticks += target.step_instruction();
+                    let (step_ticks, instruction_completed) = step_debug_target(target);
+                    ticks += step_ticks;
+                    if !instruction_completed {
+                        break;
+                    }
                     steps += 1;
                 }
                 reached |= targets.contains(&target.pc());
@@ -1258,8 +1287,11 @@ impl ScriptStep {
                 let mut old = None;
                 let mut new = None;
                 while steps < budget {
-                    ticks += target.step_instruction();
-                    steps += 1;
+                    let (step_ticks, instruction_completed) = step_debug_target(target);
+                    ticks += step_ticks;
+                    if instruction_completed {
+                        steps += 1;
+                    }
                     let mut hit = false;
                     for (i, a) in addrs.iter().enumerate() {
                         let now = target.peek(*a);
@@ -1272,6 +1304,9 @@ impl ScriptStep {
                         }
                     }
                     if hit {
+                        break;
+                    }
+                    if !instruction_completed {
                         break;
                     }
                 }
@@ -1778,6 +1813,9 @@ mod tests {
         mem_log: Vec<crate::watch::WatchMemoryRecord>,
         ay_watching: bool,
         ay_log: Vec<crate::watch::WatchAyRecord>,
+        instruction_starts: u64,
+        step_completes: bool,
+        step_ticks: u64,
     }
 
     impl DummyMachine {
@@ -1812,6 +1850,9 @@ mod tests {
                 mem_log: Vec::new(),
                 ay_watching: false,
                 ay_log: Vec::new(),
+                instruction_starts: 0,
+                step_completes: true,
+                step_ticks: 0,
             }
         }
     }
@@ -1845,13 +1886,19 @@ mod tests {
             }
         }
         fn dbg_cpu_state(&self) -> serde_json::Value {
-            json!({})
+            json!({"instruction_starts": self.instruction_starts})
+        }
+        fn dbg_instruction_boundary_count(&self) -> Option<u64> {
+            Some(self.instruction_starts)
         }
         fn dbg_disassemble(&self, _addr: u32) -> Option<(String, u8)> {
             None
         }
         fn dbg_step(&mut self) -> u64 {
-            0
+            if self.step_completes {
+                self.instruction_starts = self.instruction_starts.wrapping_add(1);
+            }
+            self.step_ticks
         }
     }
 
@@ -2117,7 +2164,7 @@ mod tests {
                 .expect("step emits an observation")
         };
 
-        // query_cpu → carries the machine's cpu_state value (DummyMachine: {}).
+        // query_cpu → carries the machine's CPU-specific state object.
         match run(&mut session, ScriptStep::QueryCpu) {
             ScriptObservation::QueryCpu { registers } => assert!(registers.is_object()),
             other => panic!("expected QueryCpu, got {other:?}"),
@@ -2204,6 +2251,35 @@ mod tests {
                 assert_eq!(steps, 4);
             }
             other => panic!("expected RunUntilMemChange, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bounded_debug_attempt_does_not_claim_an_unfinished_instruction() {
+        let mut machine = DummyMachine::new();
+        machine.step_completes = false;
+        machine.step_ticks = 1_000_000;
+        let mut session = HeadlessSession::new(machine, 1);
+
+        let observation = ScriptStep::Step {
+            instructions: Some(3),
+        }
+        .execute_collect(&mut session)
+        .expect("bounded step should execute")
+        .expect("bounded step should emit an observation");
+
+        match observation {
+            ScriptObservation::Step {
+                instructions,
+                ticks,
+                pc_trace,
+                ..
+            } => {
+                assert_eq!(instructions, 0);
+                assert_eq!(ticks, 1_000_000);
+                assert!(pc_trace.is_empty());
+            }
+            other => panic!("expected Step, got {other:?}"),
         }
     }
 

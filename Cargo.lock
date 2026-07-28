@@ -472,6 +472,7 @@ dependencies = [
 name = "commodore-amiga-autoconfig"
 version = "0.2.0"
 dependencies = [
+ "postcard",
  "serde",
 ]
 
@@ -2228,6 +2229,7 @@ dependencies = [
  "peripheral-commodore-amiga-floppy",
  "peripheral-commodore-amiga-keyboard",
  "png",
+ "postcard",
  "serde",
  "zip",
 ]
@@ -2686,6 +2688,7 @@ dependencies = [
  "isa-disasm",
  "motorola-68k-common",
  "serde",
+ "serde-big-array",
  "serde_json",
 ]
 

@@ -21,17 +21,18 @@
 //! | `$18`  | `ER_SERIALNUMBER` (4 bytes)                 |
 //! | `$20`  | `ER_INITDIAG`   (2 bytes)                   |
 //!
-//! Host writes `$E80048` (base high nibble) and `$E8004A` (base low
-//! nibble) to map the board; `$E8004C` is the shut-up escape.
+//! Host writes `$E8004A` (base low nibble) before the final `$E80048`
+//! (base high nibble) that maps the board; `$E8004C` is the shut-up
+//! escape.
 //!
 //! # Bit-level weirdness we must honour
 //!
 //! Each config-ROM byte is **split across two word-aligned offsets**
 //! (`base + 2n` high nibble, `base + 2n + 2` low nibble), delivered
 //! in the high 4 bits of the returned 16-bit word. Every data bit
-//! is **inverted** except `ER_TYPE` bits 6-7 (the board-class bits
-//! host software uses to tell "board present" apart from floating
-//! bus).
+//! is **inverted** except the complete `ER_TYPE` byte at register
+//! `$00`. Keeping that byte uninverted preserves its board class,
+//! memory flag, ROM flag, and size code.
 //!
 //! ## `ER_TYPE` layout
 //!
@@ -54,7 +55,9 @@
 
 #![forbid(unsafe_code)]
 
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::ser::SerializeStructVariant as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// `ER_TYPE` bit 7: board class MSB. `11` = Zorro-II, `10` =
 /// Zorro-III (not modelled here), `01` = reserved, `00` = no board
@@ -68,10 +71,17 @@ pub const ER_TYPE_MEMORY: u8 = 0b0010_0000;
 /// plain RAM boards but set on common boards, so we follow suit.
 pub const ER_TYPE_EXTENDED: u8 = 0b0001_0000;
 
+/// `ER_FLAGS` bit 7 — place a Zorro-II memory function in the dedicated
+/// `$200000-$9FFFFF` eight-megabyte expansion-memory space.
+pub const ER_FLAGS_MEM_8MB: u8 = 0b1000_0000;
+
 /// Commodore's assigned Zorro-II manufacturer ID. Set on CBM-branded
 /// boards (A501, A590, ...). Tests use it as a known value; picked
 /// here as the default for the fast-RAM board.
 pub const MANUFACTURER_COMMODORE: u16 = 0x0202;
+
+const DEFAULT_FAST_RAM_PRODUCT_ID: u8 = 0x09;
+const DEFAULT_FAST_RAM_SERIAL_NUMBER: u32 = 0x0000_0001;
 
 /// Size of the autoconfig probe window at `$E80000-$E8007F`.
 pub const AUTOCONFIG_WINDOW_BYTES: u32 = 0x80;
@@ -94,14 +104,14 @@ pub const fn size_code_for_kib(size_kib: u32) -> Option<u8> {
 }
 
 /// Configuration state of a Zorro-II board.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AutoconfigState {
     /// Board is unconfigured — reads answer at `$E80000` and the
     /// host hasn't assigned a base address yet.
     Unconfigured,
-    /// Host has written the high nibble of the base address via
-    /// `$E80048` but not yet the low nibble.
-    WaitingLowBase { hi: u8 },
+    /// Host has written A19-A16 via `$E8004A` but has not yet written the
+    /// final A23-A20 nibble via `$E80048`.
+    WaitingHighBase { lo: u8 },
     /// Host has written `$E8004C` shut-up — board is silent forever
     /// (until reset).
     ShutUp,
@@ -109,6 +119,83 @@ pub enum AutoconfigState {
     /// now mapped into memory starting at `base` and the probe
     /// window reverts to floating bus.
     Configured { base: u32 },
+}
+
+impl Serialize for AutoconfigState {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Unconfigured => {
+                serializer.serialize_unit_variant("AutoconfigState", 0, "Unconfigured")
+            }
+            Self::WaitingHighBase { lo } => {
+                // Variant index 1 belonged to the old, protocol-inverted
+                // `WaitingLowBase { hi }` state. Keep it as a tombstone and
+                // append the corrected state so old raw postcard values fail
+                // closed instead of silently changing meaning.
+                let mut state = serializer.serialize_struct_variant(
+                    "AutoconfigState",
+                    4,
+                    "WaitingHighBase",
+                    1,
+                )?;
+                state.serialize_field("lo", lo)?;
+                state.end()
+            }
+            Self::ShutUp => serializer.serialize_unit_variant("AutoconfigState", 2, "ShutUp"),
+            Self::Configured { base } => {
+                let mut state =
+                    serializer.serialize_struct_variant("AutoconfigState", 3, "Configured", 1)?;
+                state.serialize_field("base", base)?;
+                state.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AutoconfigState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        enum StoredState {
+            Unconfigured,
+            #[serde(rename = "WaitingLowBase")]
+            LegacyWaitingLowBase {
+                hi: u8,
+            },
+            ShutUp,
+            Configured {
+                base: u32,
+            },
+            WaitingHighBase {
+                lo: u8,
+            },
+        }
+
+        match StoredState::deserialize(deserializer)? {
+            StoredState::Unconfigured => Ok(Self::Unconfigured),
+            StoredState::LegacyWaitingLowBase { hi } => Err(D::Error::custom(format!(
+                "legacy Autoconfig waiting state with high nibble {hi:#x} cannot be resumed"
+            ))),
+            StoredState::WaitingHighBase { lo } if lo <= 0x0F => Ok(Self::WaitingHighBase { lo }),
+            StoredState::WaitingHighBase { .. } => Err(D::Error::custom(
+                "Autoconfig base low nibble exceeds 4 bits",
+            )),
+            StoredState::ShutUp => Ok(Self::ShutUp),
+            StoredState::Configured { base }
+                if base <= 0x00FF_0000 && base.is_multiple_of(0x1_0000) =>
+            {
+                Ok(Self::Configured { base })
+            }
+            StoredState::Configured { .. } => Err(D::Error::custom(
+                "Zorro-II base must be a 64 KiB-aligned 24-bit address",
+            )),
+        }
+    }
 }
 
 /// Board-specific payload held by an `AutoconfigBoard`.
@@ -144,7 +231,12 @@ impl AutoconfigBoard {
     /// Panics if `size_kib` is outside the supported set.
     #[must_use]
     pub fn fast_ram(size_kib: u32) -> Self {
-        Self::fast_ram_with_identity(size_kib, MANUFACTURER_COMMODORE, 0x09, 0x0000_0001)
+        Self::fast_ram_with_identity(
+            size_kib,
+            MANUFACTURER_COMMODORE,
+            DEFAULT_FAST_RAM_PRODUCT_ID,
+            DEFAULT_FAST_RAM_SERIAL_NUMBER,
+        )
     }
 
     /// Create a Zorro-II fast-RAM board with an explicit Autoconfig
@@ -178,6 +270,24 @@ impl AutoconfigBoard {
         }
     }
 
+    /// Manufacturer identity emitted through the expansion ROM.
+    #[must_use]
+    pub const fn manufacturer_id(&self) -> u16 {
+        self.manufacturer
+    }
+
+    /// Product identity emitted through the expansion ROM.
+    #[must_use]
+    pub const fn product_id(&self) -> u8 {
+        self.product
+    }
+
+    /// Serial number emitted through the expansion ROM.
+    #[must_use]
+    pub const fn serial_number(&self) -> u32 {
+        self.serial
+    }
+
     /// Current configuration state.
     #[must_use]
     pub fn state(&self) -> AutoconfigState {
@@ -189,7 +299,7 @@ impl AutoconfigBoard {
     pub fn visible_in_probe_window(&self) -> bool {
         matches!(
             self.state,
-            AutoconfigState::Unconfigured | AutoconfigState::WaitingLowBase { .. }
+            AutoconfigState::Unconfigured | AutoconfigState::WaitingHighBase { .. }
         )
     }
 
@@ -209,6 +319,37 @@ impl AutoconfigBoard {
         match &self.payload {
             Payload::FastRam { bytes } => bytes.len() as u32,
         }
+    }
+
+    /// Whether the serialized size code agrees with the RAM backing.
+    ///
+    /// Constructors maintain this invariant. Snapshot validators can use
+    /// this check to reject forged or corrupted serialized board state.
+    #[must_use]
+    pub fn configuration_is_coherent(&self) -> bool {
+        let bytes = self.ram_size();
+        let state_is_coherent = match self.state {
+            AutoconfigState::Unconfigured | AutoconfigState::ShutUp => true,
+            AutoconfigState::WaitingHighBase { lo } => lo <= 0x0F,
+            AutoconfigState::Configured { base } => {
+                base.is_multiple_of(0x1_0000)
+                    && base
+                        .checked_add(bytes)
+                        .is_some_and(|end| end <= 0x0100_0000)
+            }
+        };
+        state_is_coherent
+            && bytes.is_multiple_of(1024)
+            && size_code_for_kib(bytes / 1024).is_some_and(|code| code == self.size_code)
+    }
+
+    /// Whether the expansion-ROM identity matches the generic Fast RAM board
+    /// constructed by [`Self::fast_ram`].
+    #[must_use]
+    pub const fn has_default_fast_ram_identity(&self) -> bool {
+        self.manufacturer == MANUFACTURER_COMMODORE
+            && self.product == DEFAULT_FAST_RAM_PRODUCT_ID
+            && self.serial == DEFAULT_FAST_RAM_SERIAL_NUMBER
     }
 
     /// Direct access to the RAM backing, independent of mapping state.
@@ -240,7 +381,8 @@ impl AutoconfigBoard {
         let Some(base) = self.base() else {
             return false;
         };
-        addr >= base && addr < base + self.ram_size()
+        base.checked_add(self.ram_size())
+            .is_some_and(|end| addr >= base && addr < end && end <= 0x0100_0000)
     }
 
     /// Read one byte from the board's mapped RAM, if the address
@@ -305,35 +447,40 @@ impl AutoconfigBoard {
     }
 
     /// Accept one word written to the probe window. Handles base-
-    /// address configuration (`$48`/`$4A`) and the shut-up command
+    /// address configuration (`$4A` then `$48`) and the shut-up command
     /// (`$4C`). Other offsets are no-ops.
     pub fn write_word(&mut self, offset: u16, val: u16) {
         if !self.visible_in_probe_window() {
             return;
         }
         match offset {
-            // ec_BaseAddress high nibble (top 4 bits of upper byte of
-            // base address) goes to $48. The data appears in the high
-            // 4 bits of the write value, same as the read protocol.
-            0x48 => {
-                let hi = ((val >> 12) & 0x0F) as u8;
-                self.state = AutoconfigState::WaitingLowBase { hi };
+            // ec_BaseAddress low nibble (A19-A16) goes to $4A first.
+            // Zorro-II software writes the final high nibble to $48;
+            // that final write configures the board and releases the
+            // next function in the chain.
+            0x4A => {
+                let lo = ((val >> 12) & 0x0F) as u8;
+                self.state = AutoconfigState::WaitingHighBase { lo };
             }
-            // Low nibble goes to $4A — completes the base address.
+            // High nibble goes to $48 and completes the base address.
             //
             // Base address byte layout (per Amiga Expansion Series
             // ZORRO II spec, "Configuration Address" section):
-            //   top 4 bits of the base address's upper byte come
-            //   from the $48 write; next 4 bits come from the $4A
-            //   write. On Zorro-II the base address is always
+            //   A23-A20 come from the final $48 write; A19-A16 come
+            //   from the preceding $4A write. On Zorro-II the base is
             //   a multiple of $10000, so the lower 16 bits of the
             //   assigned base are always zero.
-            0x4A => {
-                if let AutoconfigState::WaitingLowBase { hi } = self.state {
-                    let lo = ((val >> 12) & 0x0F) as u8;
+            0x48 => {
+                if let AutoconfigState::WaitingHighBase { lo } = self.state {
+                    let hi = ((val >> 12) & 0x0F) as u8;
                     let upper_byte = (hi << 4) | lo;
                     let base = (u32::from(upper_byte)) << 16;
-                    self.state = AutoconfigState::Configured { base };
+                    if base
+                        .checked_add(self.ram_size())
+                        .is_some_and(|end| end <= 0x0100_0000)
+                    {
+                        self.state = AutoconfigState::Configured { base };
+                    }
                 }
             }
             // ec_Shutup: host is refusing the board. We go silent.
@@ -348,16 +495,13 @@ impl AutoconfigBoard {
     /// nibble window offset. `hi_nibble_offset` must be a multiple
     /// of 4 and less than `AUTOCONFIG_WINDOW_BYTES`.
     ///
-    /// See the module doc: every bit is inverted except `ER_TYPE`
-    /// bits 6-7. Inversion is applied per-byte here so `read_word`
+    /// See the module doc: every register byte except `ER_TYPE` is
+    /// inverted. Inversion is applied per-byte here so `read_word`
     /// can focus on nibble dispatch.
     fn config_rom_byte(&self, hi_nibble_offset: u16) -> u8 {
         let nominal = self.nominal_rom_byte(hi_nibble_offset);
         if hi_nibble_offset == 0 {
-            // ER_TYPE: bits 6-7 are NOT inverted (they carry the
-            // board-present signature the host uses to distinguish
-            // a live board from floating bus).
-            (nominal & 0b1100_0000) | (!nominal & 0b0011_1111)
+            nominal
         } else {
             !nominal
         }
@@ -391,7 +535,7 @@ impl AutoconfigBoard {
         match hi_nibble_offset {
             0x00 => ER_TYPE_ZORRO_II | ER_TYPE_MEMORY | self.size_code,
             0x04 => self.product,
-            0x08 => 0x40, // ER_FLAGS: memlist flag
+            0x08 => ER_FLAGS_MEM_8MB,
             0x10 => (self.manufacturer >> 8) as u8,
             0x14 => (self.manufacturer & 0xFF) as u8,
             0x18 => (self.serial >> 24) as u8,
@@ -432,19 +576,28 @@ mod tests {
 
     #[test]
     fn er_type_reads_zorro_ii_memory_board_with_correct_size_code() {
-        // ER_TYPE is the only byte where bits 6-7 are NOT inverted,
-        // so the returned value encodes the Zorro-II marker cleanly
-        // at the top while the lower 6 bits are inverted.
+        // ER_TYPE is the one complete byte that is not physically
+        // inverted. Its board class, memory flag, and size therefore
+        // arrive in nominal form.
         let board = AutoconfigBoard::fast_ram(2048);
         let byte = read_byte_from_probe(&board, 0x00);
-        // Nominal ER_TYPE: ER_TYPE_ZORRO_II | ER_TYPE_MEMORY | 0b110
-        //                = 1100_0000 | 0010_0000 | 0000_0110
-        //                = 1110_0110 = $E6
-        // Selective invert: bits 7-6 unchanged; bits 5-0 invert.
-        // -> 1100_0000 | (!1110_0110 & 0011_1111)
-        //    = 1100_0000 | (0001_1001)
-        //    = 1101_1001 = $D9
-        assert_eq!(byte, 0xD9);
+        assert_eq!(byte, ER_TYPE_ZORRO_II | ER_TYPE_MEMORY | 0b110);
+    }
+
+    #[test]
+    fn legacy_protocol_inverted_waiting_state_is_rejected() {
+        #[allow(dead_code)]
+        #[derive(Serialize)]
+        enum LegacyState {
+            Unconfigured,
+            WaitingLowBase { hi: u8 },
+        }
+
+        let encoded = postcard::to_allocvec(&LegacyState::WaitingLowBase { hi: 0x02 })
+            .expect("encode legacy waiting state");
+        let error = postcard::from_bytes::<AutoconfigState>(&encoded)
+            .expect_err("legacy waiting state must not silently change meaning");
+        assert_eq!(error, postcard::Error::SerdeDeCustom);
     }
 
     #[test]
@@ -461,16 +614,21 @@ mod tests {
     }
 
     #[test]
+    fn fast_ram_requests_the_dedicated_zorro_ii_memory_space() {
+        let board = AutoconfigBoard::fast_ram(1024);
+        assert_eq!(read_byte_from_probe(&board, 0x08), !ER_FLAGS_MEM_8MB);
+    }
+
+    #[test]
     fn base_address_assignment_is_two_step() {
         let mut board = AutoconfigBoard::fast_ram(2048);
-        // Host sends high nibble = $2 (upper nibble of upper base
-        // byte — maps to $2x_xxxx).
-        board.write_word(0x48, 0x2000);
-        assert_eq!(board.state(), AutoconfigState::WaitingLowBase { hi: 2 });
+        // Host sends low nibble = $0 (A19-A16).
+        board.write_word(0x4A, 0x0000);
+        assert_eq!(board.state(), AutoconfigState::WaitingHighBase { lo: 0 });
         assert!(board.visible_in_probe_window());
 
-        // Now low nibble = $0 — complete base $20_0000.
-        board.write_word(0x4A, 0x0000);
+        // The final high nibble = $2 completes base $20_0000.
+        board.write_word(0x48, 0x2000);
         assert_eq!(
             board.state(),
             AutoconfigState::Configured { base: 0x0020_0000 }
@@ -480,10 +638,32 @@ mod tests {
     }
 
     #[test]
+    fn out_of_range_base_assignment_remains_retriable_and_serializable() {
+        let mut board = AutoconfigBoard::fast_ram(8192);
+        board.write_word(0x4A, 0xF000);
+        board.write_word(0x48, 0xF000);
+
+        assert_eq!(board.state(), AutoconfigState::WaitingHighBase { lo: 0x0F });
+        assert!(board.visible_in_probe_window());
+        assert!(board.configuration_is_coherent());
+        let encoded = postcard::to_allocvec(&board).expect("encode reachable partial state");
+        let restored: AutoconfigBoard =
+            postcard::from_bytes(&encoded).expect("restore reachable partial state");
+        assert_eq!(restored.state(), board.state());
+
+        board.write_word(0x4A, 0x0000);
+        board.write_word(0x48, 0x2000);
+        assert_eq!(
+            board.state(),
+            AutoconfigState::Configured { base: 0x0020_0000 }
+        );
+    }
+
+    #[test]
     fn read_after_configuration_returns_floating_bus() {
         let mut board = AutoconfigBoard::fast_ram(512);
-        board.write_word(0x48, 0x2000);
         board.write_word(0x4A, 0x0000);
+        board.write_word(0x48, 0x2000);
         // Probe window reverts to floating bus.
         assert_eq!(board.read_word(0x00), 0xFFFF);
         assert_eq!(board.read_word(0x10), 0xFFFF);
@@ -503,8 +683,8 @@ mod tests {
     #[test]
     fn configured_board_serves_reads_from_its_base() {
         let mut board = AutoconfigBoard::fast_ram(256);
-        board.write_word(0x48, 0x2000);
         board.write_word(0x4A, 0x0000);
+        board.write_word(0x48, 0x2000);
         // Write a byte at base + 0x100 through the board's write
         // helper, then read it back.
         board.write_ram_byte(0x0020_0100, 0xAB);
@@ -514,8 +694,8 @@ mod tests {
     #[test]
     fn configured_board_rejects_out_of_range_access() {
         let mut board = AutoconfigBoard::fast_ram(256);
-        board.write_word(0x48, 0x2000);
         board.write_word(0x4A, 0x0000);
+        board.write_word(0x48, 0x2000);
         // 256 KiB = $40000; $20_0000 + $40000 = $24_0000 is one past
         // the top.
         assert_eq!(board.read_ram_byte(0x0024_0000), None);
@@ -543,6 +723,42 @@ mod tests {
         }
         assert_eq!(size_code_for_kib(100), None);
         assert_eq!(size_code_for_kib(3072), None);
+    }
+
+    #[test]
+    fn coherence_check_rejects_a_size_code_that_disagrees_with_backing() {
+        let mut board = AutoconfigBoard::fast_ram_with_identity(1024, 2017, 9, 0x1234_5678);
+        assert_eq!(board.manufacturer_id(), 2017);
+        assert_eq!(board.product_id(), 9);
+        assert_eq!(board.serial_number(), 0x1234_5678);
+        assert!(board.configuration_is_coherent());
+
+        board.size_code = size_code_for_kib(2048).expect("2 MiB has a Zorro-II size code");
+        assert!(!board.configuration_is_coherent());
+    }
+
+    #[test]
+    fn serialized_state_rejects_impossible_base_values() {
+        for state in [
+            AutoconfigState::WaitingHighBase { lo: 0x10 },
+            AutoconfigState::Configured { base: u32::MAX },
+            AutoconfigState::Configured { base: 0x0012_3456 },
+        ] {
+            let bytes = postcard::to_allocvec(&state).expect("serialize forged state");
+            assert!(
+                postcard::from_bytes::<AutoconfigState>(&bytes).is_err(),
+                "forged state should be rejected: {state:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn coherence_rejects_a_mapping_that_exceeds_the_zorro_ii_space() {
+        let mut board = AutoconfigBoard::fast_ram(8192);
+        board.state = AutoconfigState::Configured { base: 0x00FF_0000 };
+
+        assert!(!board.configuration_is_coherent());
+        assert!(!board.contains_ram_address(0x00FF_0000));
     }
 
     #[test]

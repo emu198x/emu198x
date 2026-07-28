@@ -1,6 +1,6 @@
 [package]
 name = "machine-commodore-amiga-a1200"
-description = "Commodore Amiga A1200 (AGA chipset) — Alice (commodore-agnus-aga) + Lisa (commodore-denise-aga) + Gayle (commodore-gayle) wired into the common Amiga board substrate. Stage A: 68000 CPU (parallel of machine-commodore-amiga-ecs with AGA chips swapped in); Cpu68020 swap lands in Stage B per knowledge/decisions/amiga-machine-rollout-plan.md."
+description = "Commodore Amiga A1200 (AGA chipset) — Alice (commodore-agnus-aga) + Lisa (commodore-denise-aga) + Gayle (commodore-gayle) wired into the common Amiga board substrate with its stock MC68EC020 clock domain."
 edition.workspace = true
 version.workspace = true
 publish = false

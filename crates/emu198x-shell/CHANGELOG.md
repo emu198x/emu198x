@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Allow bounded `DebugTarget::step_instruction` implementations to report
+  consumed complete ticks without implying that an instruction boundary was
+  crossed; zero ticks can represent partial progress by a faster CPU
+- Add an explicit optional monotonic boundary counter to `DebugTarget` and
+  count only completed instructions in shared script and MCP observations;
+  targets without a counter retain the exact-step guarantee
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/emu198x-shell-v0.2.0) - 2026-06-04
 
 ### Added

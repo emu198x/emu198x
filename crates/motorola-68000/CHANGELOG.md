@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Extend the direct CPU serde layout with persisted instruction-cache state;
+  versioned machine/runtime envelopes must reject earlier positional payloads
 - Gate instruction-cache use and allocation on the MC68030 external
   cache-disable input without invalidating retained entries
 - Clear CACR and invalidate the installed variant instruction cache on reset
@@ -29,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Clear a previously asserted external RESET output when `reset_to` starts a
+  new processor reset sequence
+- Serialize installed MC68020-family instruction-cache contents so a warm
+  save-state resumes with the same bus contention and timing
 - Gate odd-address data rejection by CPU capability so MC68020-family
   wrappers retain odd start addresses for logical data transactions while
   MC68000 behaviour remains unchanged. Dynamic sizing applies where a machine

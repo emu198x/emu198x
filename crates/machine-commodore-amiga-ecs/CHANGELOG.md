@@ -7,8 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- [breaking] Store the stock MC68000 through the active-CPU boundary and
+  preserve its exact 1:1 CPU-clock phase in the raw `AmigaEcsSnapshot`
+  postcard schema; runtime envelopes version this as V24
+
+### Added
+
+- Retain a bounded, non-snapshot instruction-boundary queue for runtime
+  tracing
+
 ### Fixed
 
+- Reset generic Autoconfig state on CPU RESET without clearing expansion RAM
 - Preserve the inherited pre-AGA finish/result/final-D pipeline and drain
   internal completion rather than stopping at the early source event
 - Consume the shared two accepted blitter-startup CCKs before the first

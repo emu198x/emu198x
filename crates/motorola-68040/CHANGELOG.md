@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve the inherited instruction-cache compatibility state across
+  serialization
 - Inherit the shared logical unaligned-data capability while retaining odd
   instruction-prefetch address errors. The MC68040 transfer protocol and odd
   MMIO split semantics remain deferred

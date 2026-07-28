@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- [breaking] Extend the raw `AmigaOcsSnapshot` postcard schema with the
+  active-CPU variant, rational clock, partial CPU-domain state, A530 board,
+  and synchronized motherboard bridge; runtime envelopes version this as V24
+
 ### Added
 
+- Add the GVP A530 machine path with a 40 MHz MC68EC030, exact asynchronous
+  clock phase, 32-bit board-local RAM, a synchronized 16-bit motherboard
+  bridge, and snapshot-safe instruction-boundary capture
+- Preserve a debugger stop between A530 CPU edges in machine snapshots
 - Add a machine-boundary regression proving that Amiga autovector
   selection follows the accepted level on IACK A3-A1, not live IPL
 - Add a machine-level regression proving that the 68000 reuses a
@@ -35,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Include accelerator-local RAM writes in the shared CPU memory-watch
+  diagnostics, normalizing 32-bit physical phases to ordered byte records
 - Advance the blitter's two startup CCKs only through Agnus's admitted
   progress path, without performing a channel operation or raising INT_BLIT
   during startup

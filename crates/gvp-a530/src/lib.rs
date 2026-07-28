@@ -1,7 +1,7 @@
 //! GVP A530 accelerator-board configuration and local RAM.
 //!
-//! This crate is the board-local state required before an Amiga machine can
-//! integrate an A530 profile:
+//! This crate supplies the board-local state used by an Amiga machine's A530
+//! profile:
 //!
 //! - the documented 1, 2, 4, or 8 MiB local-RAM configurations;
 //! - the factory cache-enable and autoboot jumper states;
@@ -11,8 +11,8 @@
 //! The A530 manual identifies a 40 MHz MC68EC030, a shipped minimum of 1 MiB
 //! local RAM, and the four supported RAM capacities. CPU construction,
 //! ownership, clocking, cache behaviour, and the synchronized motherboard
-//! bridge belong to the eventual machine integration rather than this board
-//! state crate.
+//! bridge belong to the integrating machine rather than this board-state
+//! crate.
 //!
 //! The memory-function identity `2017/9` comes from WinUAE and is therefore a
 //! secondary-oracle compatibility fact, not a claim sourced from the A530
@@ -44,7 +44,7 @@ pub const A530_MEMORY_PRODUCT_ID: u8 = 9;
 pub const LOCAL_RAM_PORT: DataPortSize = DataPortSize::Long;
 
 /// Supported A530 local-RAM capacity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum A530RamSize {
     /// 1 MiB, the minimum shipped configuration documented by the manual.
     Mib1,
@@ -97,7 +97,7 @@ impl A530RamSize {
 ///
 /// `serial` is caller-supplied because no primary source in the current
 /// evidence set establishes one canonical board serial number.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct A530Config {
     ram_size: A530RamSize,
     serial: u32,
@@ -162,7 +162,7 @@ impl A530Config {
 
 /// Serde-persistable GVP A530 board-local state.
 ///
-/// The contained Autoconfig board is only the memory function. A future
+/// The contained Autoconfig board is only the memory function. The integrating
 /// machine owns the processor and decides whether an access uses this local
 /// 32-bit path or the synchronized 16-bit motherboard bridge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,6 +245,20 @@ impl GvpA530 {
         self.memory_function.ram_size()
     }
 
+    /// Whether persisted board configuration, Autoconfig identity, size
+    /// encoding, and local-RAM backing agree.
+    ///
+    /// Constructors maintain these invariants. Snapshot validators should
+    /// reject state for which this returns `false`.
+    #[must_use]
+    pub fn configuration_is_coherent(&self) -> bool {
+        self.memory_function.configuration_is_coherent()
+            && self.memory_function.ram_size() == self.config.ram_size().bytes()
+            && self.memory_function.manufacturer_id() == GVP_MANUFACTURER_ID
+            && self.memory_function.product_id() == A530_MEMORY_PRODUCT_ID
+            && self.memory_function.serial_number() == self.config.serial()
+    }
+
     /// Direct board-local storage view, independent of Autoconfig mapping.
     #[must_use]
     pub fn storage(&self) -> &[u8] {
@@ -260,6 +274,14 @@ impl GvpA530 {
     #[must_use]
     pub fn contains_mapped_address(&self, address: u32) -> bool {
         self.memory_function.contains_ram_address(address)
+    }
+
+    /// Whether every byte in one dynamic-sized CPU phase lands in local RAM.
+    #[must_use]
+    pub fn contains_sized_access(&self, address: u32, remaining: TransferSize) -> bool {
+        let transferred = dynamic_transfer_bytes(remaining, address, LOCAL_RAM_PORT);
+        (0..transferred)
+            .all(|offset| self.contains_mapped_address(address.wrapping_add(u32::from(offset))))
     }
 
     /// Read one mapped byte.
@@ -287,6 +309,9 @@ impl GvpA530 {
     /// bus response.
     #[must_use]
     pub fn read_sized(&self, address: u32, remaining: TransferSize) -> Option<u32> {
+        if !self.contains_sized_access(address, remaining) {
+            return None;
+        }
         let transferred = dynamic_transfer_bytes(remaining, address, LOCAL_RAM_PORT);
         let mut value = 0u32;
         for offset in 0..transferred {
@@ -308,13 +333,10 @@ impl GvpA530 {
     /// case no bytes are written.
     #[must_use]
     pub fn write_sized(&mut self, address: u32, remaining: TransferSize, data: u32) -> bool {
-        let transferred = dynamic_transfer_bytes(remaining, address, LOCAL_RAM_PORT);
-        for offset in 0..transferred {
-            if !self.contains_mapped_address(address.wrapping_add(u32::from(offset))) {
-                return false;
-            }
+        if !self.contains_sized_access(address, remaining) {
+            return false;
         }
-
+        let transferred = dynamic_transfer_bytes(remaining, address, LOCAL_RAM_PORT);
         let value = extract_dynamic_bus_data(data, transferred, address, LOCAL_RAM_PORT);
         for offset in 0..transferred {
             let shift = u32::from(transferred - offset - 1) * 8;
@@ -335,8 +357,8 @@ mod tests {
 
     fn configured_board(size: A530RamSize) -> GvpA530 {
         let mut board = GvpA530::new(A530Config::new(size, SERIAL));
-        board.write_autoconfig_word(0x48, 0x2000);
         board.write_autoconfig_word(0x4A, 0x0000);
+        board.write_autoconfig_word(0x48, 0x2000);
         assert_eq!(board.mapped_base(), Some(BASE));
         board
     }
@@ -362,6 +384,7 @@ mod tests {
                 GvpA530::new(A530Config::new(size, SERIAL)).ram_size(),
                 bytes
             );
+            assert!(GvpA530::new(A530Config::new(size, SERIAL)).configuration_is_coherent());
         }
         assert_eq!(A530RamSize::from_mib(0), None);
         assert_eq!(A530RamSize::from_mib(3), None);
@@ -398,13 +421,35 @@ mod tests {
     }
 
     #[test]
+    fn coherence_check_rejects_backing_or_identity_mismatches() {
+        let config = A530Config::new(A530RamSize::Mib1, SERIAL);
+        let mut wrong_backing = GvpA530::new(config);
+        wrong_backing.memory_function = AutoconfigBoard::fast_ram_with_identity(
+            A530RamSize::Mib2.kib(),
+            GVP_MANUFACTURER_ID,
+            A530_MEMORY_PRODUCT_ID,
+            SERIAL,
+        );
+        assert!(!wrong_backing.configuration_is_coherent());
+
+        let mut wrong_identity = GvpA530::new(config);
+        wrong_identity.memory_function = AutoconfigBoard::fast_ram_with_identity(
+            A530RamSize::Mib1.kib(),
+            GVP_MANUFACTURER_ID,
+            A530_MEMORY_PRODUCT_ID.wrapping_add(1),
+            SERIAL,
+        );
+        assert!(!wrong_identity.configuration_is_coherent());
+    }
+
+    #[test]
     fn autoconfig_mapping_controls_mapped_access() {
         let mut board = GvpA530::new(A530Config::new(A530RamSize::Mib1, SERIAL));
         assert_eq!(board.autoconfig_state(), AutoconfigState::Unconfigured);
         assert_eq!(board.read_mapped_byte(BASE), None);
 
-        board.write_autoconfig_word(0x48, 0x2000);
         board.write_autoconfig_word(0x4A, 0x0000);
+        board.write_autoconfig_word(0x48, 0x2000);
 
         assert_eq!(
             board.autoconfig_state(),
@@ -455,8 +500,8 @@ mod tests {
             .with_cache_enabled(false)
             .with_autoboot_enabled(false);
         let mut board = GvpA530::new(config);
-        board.write_autoconfig_word(0x48, 0x2000);
         board.write_autoconfig_word(0x4A, 0x0000);
+        board.write_autoconfig_word(0x48, 0x2000);
         assert!(board.write_mapped_byte(BASE + 7, 0x5A));
 
         let bytes = postcard::to_allocvec(&board).expect("serialize A530");

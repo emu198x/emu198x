@@ -9,13 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Drive the selected CPU through its exact clock domain, preserve every
+  instruction boundary crossed inside a system tick, and separate
+  accelerator-local responders from synchronized motherboard cycles
+- Retain partially consumed CPU-domain edges so exact instruction stepping
+  cannot discard faster-CPU time or advance the chipset twice
 - Add the closed active-CPU type and serialized rational CPU-clock
   accumulator needed by stock and accelerated Amiga configurations
 - Add an optional responder-sized CPU-bus completion path while preserving
   byte/word compatibility dispatch for unchanged machines and address regions
 
+### Changed
+
+- [breaking] Extend the public `AmigaDriver` implementation surface with
+  active-CPU clock-domain state and instruction-boundary recording
+
 ### Fixed
 
+- Reject restored active-CPU state whose serialized instruction-cache
+  presence is impossible for the selected processor family
+- Consume CPU RESET output after every active-CPU edge and provide a shared
+  external-device reset hook
 - Select an Amiga autovector from the interrupt level encoded by the
   current shared acknowledge cycle instead of mutable live IPL inputs
 - Preserve pre-service nasty ownership across both half-CCK phases so a

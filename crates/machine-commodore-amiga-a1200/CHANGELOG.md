@@ -9,12 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Store the stock MC68EC020 through the active-CPU boundary and
+  run its serialized clock domain at two CPU edges per 7 MHz Amiga system
+  tick in the raw `AmigaA1200Snapshot` postcard schema; runtime envelopes
+  version this as V24
+- Retain a bounded, non-snapshot instruction-boundary queue for runtime
+  tracing
 - Complete MC68020 chip-RAM data phases through Alice's 32-bit path, with
   independent arbitration and once-only write side effects per phase;
   unresolved ROM and MMIO widths retain compatibility dispatch
 
 ### Fixed
 
+- Reset generic Autoconfig state on CPU RESET without clearing expansion RAM
 - Preserve Alice's delayed finish source and serialized final-D completion
   through live execution and synchronous register-write ordering
 - Consume the shared two accepted blitter-startup CCKs before the first

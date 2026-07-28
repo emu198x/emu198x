@@ -2,8 +2,9 @@
 //!
 //! Stage A established the bare structural shape (machine constructs,
 //! ticks, snapshot round-trips). Stage B swapped the CPU from
-//! `Cpu68000` to `Cpu68020`; the swap is observable via the
-//! variant_decode_hook the wrapper installs on the inner core.
+//! `Cpu68000` to the stock MC68EC020, implemented by the `Cpu68020`
+//! wrapper; the swap is observable via the variant hook installed on
+//! the inner core.
 //!
 //! Booting a real Kickstart 3.1 ROM is Stage C, tracked separately
 //! in `knowledge/decisions/amiga-machine-rollout-plan.md`.
@@ -78,10 +79,10 @@ fn default_chip_ram_constant_unchanged_from_ecs_baseline() {
 }
 
 #[test]
-fn machine_runs_on_cpu68020_with_variant_hooks_installed() {
-    // Stage B: Cpu68020 wraps Cpu68010 wraps Cpu68000. The 68020 /
-    // 68010 hook installation should be visible at the Cpu68000
-    // layer through the deref chain.
+fn machine_runs_on_m68ec020_with_variant_hooks_installed() {
+    // Stage B: the MC68EC020 ActiveCpu arm holds Cpu68020, which wraps
+    // Cpu68010 and Cpu68000. The hook installation remains visible at
+    // the shared base through the deref chain.
     let m = a1200_chip_only();
     let cpu = m.cpu();
     assert!(
@@ -115,12 +116,12 @@ fn machine_runs_on_cpu68020_with_variant_hooks_installed() {
 }
 
 #[test]
-fn snapshot_round_trip_preserves_cpu68020_variant_hooks() {
+fn snapshot_round_trip_preserves_m68ec020_variant_hooks() {
     // The Cpu68000 fields backing the hooks are `#[serde(skip)]`,
     // so a naive deserialize would zero them out. Cpu68020's custom
     // Deserialize re-installs the hooks; this test confirms the
-    // round-trip path lands a fully-configured 68020 on the other
-    // side.
+    // round-trip path lands a fully configured MC68EC020 arm on the
+    // other side.
     let mut m = a1200_chip_only();
     for _ in 0..50 {
         m.tick();

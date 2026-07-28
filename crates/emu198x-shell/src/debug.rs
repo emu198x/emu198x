@@ -58,6 +58,18 @@ pub trait DebugTarget {
     /// 6502 vs …), so each machine returns its own object.
     fn cpu_state(&self) -> Value;
 
+    /// Monotonic count of CPU instruction boundaries, when stepping can
+    /// legitimately stop before reaching one.
+    ///
+    /// Returning `None` is an exact-step guarantee: every call to
+    /// [`step_instruction`](Self::step_instruction) completes one instruction.
+    /// A bounded implementation that may return early must expose `Some` so
+    /// generic script and MCP callers can distinguish consumed time from a
+    /// completed instruction.
+    fn instruction_boundary_count(&self) -> Option<u64> {
+        None
+    }
+
     /// Disassemble one instruction at `addr`, returning `(text, length)`.
     ///
     /// Returns `None` only for a target that has not overridden this method.
@@ -68,9 +80,19 @@ pub trait DebugTarget {
         None
     }
 
-    /// Run exactly one whole CPU instruction, returning the number of
-    /// authoritative-clock ticks consumed. Implementors must resync the
-    /// runtime's derived state (framebuffer, clock) before returning.
+    /// Attempt to run exactly one whole CPU instruction, returning the number
+    /// of *complete* authoritative-clock ticks consumed. A processor clocked
+    /// faster than the authoritative machine clock can stop part-way through
+    /// one tick and legitimately return zero; that partial progress remains
+    /// in machine state and is completed by a later step or run operation.
+    ///
+    /// An implementation may impose a safety bound when a stopped or wedged
+    /// processor cannot reach another instruction boundary. In that case it
+    /// returns the ticks consumed up to the bound and must expose a monotonic
+    /// [`instruction_boundary_count`](Self::instruction_boundary_count).
+    ///
+    /// Implementors must resync the runtime's derived state (framebuffer,
+    /// clock, and audio phase) before returning.
     fn step_instruction(&mut self) -> u64;
 
     /// Whether this machine supports I/O port tracing (port-mapped
@@ -116,6 +138,10 @@ pub trait DebugPrimitives {
     fn dbg_poke(&mut self, addr: u32, value: u8);
     /// See [`DebugTarget::cpu_state`].
     fn dbg_cpu_state(&self) -> Value;
+    /// See [`DebugTarget::instruction_boundary_count`].
+    fn dbg_instruction_boundary_count(&self) -> Option<u64> {
+        None
+    }
     /// See [`DebugTarget::disassemble`].
     fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)>;
     /// See [`DebugTarget::step_instruction`].
@@ -144,6 +170,9 @@ impl<T: DebugPrimitives> DebugTarget for T {
     }
     fn cpu_state(&self) -> Value {
         self.dbg_cpu_state()
+    }
+    fn instruction_boundary_count(&self) -> Option<u64> {
+        self.dbg_instruction_boundary_count()
     }
     fn disassemble(&self, addr: u32) -> Option<(String, u8)> {
         self.dbg_disassemble(addr)

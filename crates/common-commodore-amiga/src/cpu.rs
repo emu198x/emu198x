@@ -107,6 +107,25 @@ impl ActiveCpu {
         }
     }
 
+    /// Confirm that processor-family-only state matches the enum variant.
+    ///
+    /// The shared core serializes the optional instruction-cache contents so
+    /// warm 68020+ caches survive snapshots. A 68000 or 68010 must never carry
+    /// that cache, while every currently supported 68020+ wrapper installs it.
+    /// Snapshot restore uses this check to reject forged or corrupt payloads
+    /// before they can enable impossible cached instruction fetches.
+    #[must_use]
+    pub fn variant_state_is_coherent(&self) -> bool {
+        match self {
+            Self::M68000(_) | Self::M68010(_) => self.as_base().variant_icache.is_none(),
+            Self::M68EC020(_)
+            | Self::M68020(_)
+            | Self::M68EC030(_)
+            | Self::M68030(_)
+            | Self::M68040(_) => self.as_base().variant_icache.is_some(),
+        }
+    }
+
     /// Advance the configured processor by one of its input-clock edges.
     pub fn tick(&mut self) {
         match self {
@@ -238,6 +257,28 @@ mod tests {
 
             assert_eq!(restored.model(), model);
             assert_eq!(restored.regs.d[3], 0x1234_5678);
+        }
+    }
+
+    #[test]
+    fn variant_state_rejects_a_cache_on_an_mc68000() {
+        let mut cpu = ActiveCpu::M68000(Cpu68000::new());
+        cpu.as_base_mut().variant_icache = Some(motorola_68000::ICache::new());
+        let encoded = postcard::to_allocvec(&cpu).expect("serialize forged active CPU");
+        let restored: ActiveCpu =
+            postcard::from_bytes(&encoded).expect("deserialize forged active CPU");
+
+        assert!(!restored.variant_state_is_coherent());
+    }
+
+    #[test]
+    fn constructed_variant_cache_shapes_are_coherent() {
+        for cpu in all_variants() {
+            assert!(
+                cpu.variant_state_is_coherent(),
+                "{:?} must carry the correct instruction-cache shape",
+                cpu.model()
+            );
         }
     }
 }

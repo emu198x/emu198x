@@ -809,21 +809,6 @@ pub struct Cpu68000 {
     /// `2 + 2·count` clocks.
     pub variant_constant_shift_timing: bool,
 
-    /// On-chip instruction cache (68020+). `None` on the 68000/68010
-    /// (no cache); the 68020+ wrapper installs `Some(ICache::new())` in
-    /// `install_variant_hooks`. A program-space prefetch ([`FetchIRC`])
-    /// that hits self-serves the word with no external bus cycle, so
-    /// cached code does not contend with the chip-RAM DMA grid — the
-    /// real Amiga benefit, not merely a clock saving. Gated at runtime
-    /// on CACR.E (enable) / CACR.F (freeze). `#[serde(skip)]`: rebuilt
-    /// empty on deserialize, which is transparent (a cold cache always
-    /// misses to the bus). See `icache.rs` and the 68k cycle-timing
-    /// plan (#41/#110/#111).
-    ///
-    /// [`FetchIRC`]: crate::microcode::MicroOp::FetchIRC
-    #[serde(skip)]
-    pub variant_icache: Option<crate::icache::ICache>,
-
     /// Variant-specific writable-bit mask for the cache control register.
     ///
     /// The MC68020 wrapper installs `$0000_000F`; the MC68030 widens the
@@ -1159,6 +1144,20 @@ pub struct Cpu68000 {
     /// pop completes.
     #[serde(skip)]
     pub variant_pending_disp: u32,
+
+    /// On-chip instruction cache (68020+). `None` on the 68000/68010
+    /// (no cache); the 68020+ wrapper installs `Some(ICache::new())` in
+    /// `install_variant_hooks`. A program-space prefetch ([`FetchIRC`])
+    /// that hits self-serves the word with no external bus cycle, so
+    /// cached code does not contend with the chip-RAM DMA grid. Gated at
+    /// runtime on CACR.E (enable) / CACR.F (freeze). Cache contents are
+    /// architectural timing state and are serialized so a restored warm hit
+    /// does not become an external bus cycle. Runtime snapshots version this
+    /// binary-layout change at their envelope boundary.
+    ///
+    /// [`FetchIRC`]: crate::microcode::MicroOp::FetchIRC
+    #[serde(default)]
+    pub variant_icache: Option<crate::icache::ICache>,
 }
 
 impl Cpu68000 {
@@ -1369,6 +1368,7 @@ impl Cpu68000 {
         self.followup_tag = 0;
         self.sampled_ipl = self.ipl;
         self.level7_transition_pending = false;
+        self.reset_out = false;
         self.exc_master_interrupt_pending = false;
         self.rte_saved_sr = 0;
         self.rte_saved_pc = 0;
@@ -3039,10 +3039,12 @@ mod tests {
         assert!(cpu.level7_transition_pending);
 
         cpu.ipl = 6;
+        cpu.reset_out = true;
         cpu.reset_to(0x2000, 0x1000);
 
         assert_eq!(cpu.sampled_ipl, 6);
         assert!(!cpu.level7_transition_pending);
+        assert!(!cpu.reset_out);
     }
 
     #[test]

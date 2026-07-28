@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve warm instruction-cache contents when variant hooks are reinstalled
+  after deserialization
 - Retain odd start addresses for logical word and long-word data transactions,
   with byte-addressable RAM producing the correct values, while retaining
   vector 3 for odd instruction prefetches. Odd MMIO split semantics remain

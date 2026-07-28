@@ -24,6 +24,7 @@ format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf", version =
 serde = { workspace = true }
 
 [dev-dependencies]
+postcard = { workspace = true }
 png = { workspace = true }
 zip = { workspace = true }
 

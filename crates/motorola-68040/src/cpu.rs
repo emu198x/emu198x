@@ -203,6 +203,28 @@ mod tests {
     }
 
     #[test]
+    fn deserialize_preserves_inherited_warm_instruction_cache() {
+        let mut cpu = Cpu68040::new();
+        let addr = 0x0000_1000;
+        cpu.variant_icache
+            .as_mut()
+            .expect("inherited MC68040 I-cache compatibility model")
+            .fill(addr, true, 0x4E71);
+        let encoded = rmp_serde::to_vec_named(&cpu).expect("serialize MC68040");
+
+        let restored: Cpu68040 = rmp_serde::from_slice(&encoded).expect("deserialize MC68040");
+
+        assert_eq!(
+            restored
+                .variant_icache
+                .as_ref()
+                .expect("restored MC68040 I-cache compatibility model")
+                .lookup(addr, true),
+            Some(0x4E71)
+        );
+    }
+
+    #[test]
     fn m68040_does_not_inherit_mc68030_cacr_mask() {
         let mut cpu = Cpu68040::new();
         cpu.regs.sr |= 0x2000;

@@ -26,10 +26,11 @@ pub mod memory;
 pub mod rtc;
 
 pub use board::{
-    BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, ChipRamBus, SizedBusResponse,
-    SizedBusTransaction, TICKS_PER_CCK,
+    BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, ChipRamBus, MotherboardBridgeAction,
+    NTSC_SYSTEM_TICK_HZ, PAL_SYSTEM_TICK_HZ, SizedBusResponse, SizedBusTransaction,
+    SynchronizedMotherboardBridge, TICKS_PER_CCK,
 };
-pub use clock::CpuClock;
+pub use clock::{CpuClock, CpuDomainPhase};
 pub use cpu::ActiveCpu;
 pub use denise_chip::DeniseChip;
-pub use driver::AmigaDriver;
+pub use driver::{AmigaDriver, CpuBoundary};

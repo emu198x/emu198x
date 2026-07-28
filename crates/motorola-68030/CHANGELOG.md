@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve inherited warm instruction-cache contents across serialization
 - Correct the MC68EC030 capability description: it removes the on-die MMU but
   retains the external MC68881/MC68882 coprocessor interface
 - Inherit MC68020 logical unaligned-data transactions while retaining odd

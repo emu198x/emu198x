@@ -36,12 +36,15 @@
 //! ship the testable 68020 direct-mapped case now rather than untested
 //! associativity machinery.
 
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
+
 /// Number of direct-mapped entries. 68020: 64 long-word lines = 256 B.
 const ENTRIES: usize = 64;
 
 /// One cache line: a long word (two instruction words) plus a tag and a
 /// validity bit per word.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 struct Line {
     /// `(addr >> 8) << 1 | fc2` — address bits [31:8] of the line, with
     /// the FC2 (supervisor) bit folded into bit 0 so user- and
@@ -67,12 +70,13 @@ impl Line {
 /// A 68020-class direct-mapped instruction cache.
 ///
 /// Lives on [`crate::Cpu68000`] as `variant_icache`, set to `Some(..)`
-/// only by the 68020+ wrapper's `install_variant_hooks`. It is
-/// `#[serde(skip)]` and rebuilt empty on deserialize — a cold cache is
-/// transparent (every access misses to the bus), so snapshots lose only
-/// timing state, never correctness.
-#[derive(Clone)]
+/// only by the 68020+ wrapper's `install_variant_hooks`. Cache contents
+/// are serialized because a warm hit suppresses an external bus cycle;
+/// replacing a restored warm cache with a cold one would therefore alter
+/// bus contention and execution timing after a save-state boundary.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ICache {
+    #[serde(with = "BigArray")]
     lines: [Line; ENTRIES],
 }
 

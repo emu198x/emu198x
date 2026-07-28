@@ -106,9 +106,13 @@ impl Cpu68020 {
         // that hits skips the external bus cycle, so cached code does
         // not contend with Agnus for chip RAM. The cache starts
         // disabled (CACR.E = 0, like real hardware); Kickstart enables
-        // it via MOVEC. Rebuilt empty here on every construct/deserialize
-        // — a cold cache is transparent. See `motorola_68000::icache`.
-        self.inner.variant_icache = Some(motorola_68000::ICache::new());
+        // it via MOVEC. Construct it only when absent: deserialization
+        // restores warm cache contents before reinstalling variant hooks,
+        // and replacing them here would change bus contention and timing.
+        // See `motorola_68000::icache`.
+        if self.inner.variant_icache.is_none() {
+            self.inner.variant_icache = Some(motorola_68000::ICache::new());
+        }
         // The MC68020 CACR exposes E/F/CE/C in bits 0-3. Preserve the
         // existing MC68020 compatibility readback: all four written bits
         // remain visible even though CE and C also trigger invalidation.
@@ -3547,6 +3551,26 @@ mod tests {
         assert!(restored.variant_musashi_bcd_v);
         assert!(restored.variant_musashi_div_overflow);
         assert!(restored.variant_long_branch);
+    }
+
+    #[test]
+    fn deserialize_preserves_warm_instruction_cache() {
+        let mut cpu = Cpu68020::new();
+        let user_addr = 0x0000_1000;
+        let supervisor_addr = 0x0000_1004;
+        let cache = cpu.variant_icache.as_mut().expect("MC68020 I-cache");
+        cache.fill(user_addr, false, 0x4E71);
+        cache.fill(supervisor_addr, true, 0x4E75);
+
+        let bytes = postcard::to_allocvec(&cpu).expect("serialize");
+        let restored: Cpu68020 = postcard::from_bytes(&bytes).expect("deserialize");
+        let cache = restored
+            .variant_icache
+            .as_ref()
+            .expect("restored MC68020 I-cache");
+
+        assert_eq!(cache.lookup(user_addr, false), Some(0x4E71));
+        assert_eq!(cache.lookup(supervisor_addr, true), Some(0x4E75));
     }
 
     #[test]

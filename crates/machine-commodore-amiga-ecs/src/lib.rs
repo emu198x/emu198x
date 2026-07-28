@@ -8,9 +8,11 @@
 
 mod agnus;
 mod denise;
+use std::collections::VecDeque;
+
 use common_commodore_amiga::board::{BusResponse, BusTransaction, ChipRamBus, TICKS_PER_CCK};
-use common_commodore_amiga::driver::AmigaDriver;
-use common_commodore_amiga::{cia, copper, memory, rtc};
+use common_commodore_amiga::driver::{AmigaDriver, CpuBoundary};
+use common_commodore_amiga::{ActiveCpu, CpuClock, CpuDomainPhase, cia, copper, memory, rtc};
 
 pub use agnus::{
     Agnus, AgnusEcs, AgnusRegion, BlitterCckOutcome, CckBusPlan, NTSC_CCKS_PER_FRAME,
@@ -42,7 +44,7 @@ const CUSTOM_TOP: u32 = 0x00E0_0000;
 const SLOW_RAM_BASE: u32 = 0x00C0_0000;
 /// Zorro-II autoconfig probe window — the first unconfigured board
 /// answers here until `expansion.library` writes its base-address
-/// pair to `$E80048` / `$E8004A`.
+/// pair to `$E8004A` / `$E80048`.
 const AUTOCONFIG_BASE: u32 = 0x00E8_0000;
 const AUTOCONFIG_TOP: u32 = 0x00E8_0080;
 
@@ -50,9 +52,8 @@ const AUTOCONFIG_TOP: u32 = 0x00E8_0080;
 ///
 /// Chip RAM lives at `$000000` and is required. Slow RAM is the A501-
 /// style trapdoor expansion at `$C00000`. Fast RAM is a Zorro-II
-/// autoconfig board (implementation lands in a follow-up commit);
-/// `fast_kb` is carried here so the runtime preset surface is stable
-/// across the autoconfig wiring.
+/// autoconfig board; `fast_kb` keeps the runtime preset surface stable across
+/// the autoconfig wiring.
 ///
 /// One entry in the diagnostic blit log.
 pub type BlitLogEntry = (u64, u32, u16, u16, u32, u32, u32, u32, u16);
@@ -159,6 +160,7 @@ fn decode_cia_b_prb_for_df0(prb: u8) -> (bool, bool, bool, bool, bool) {
 }
 
 const DEBUG_RTC_LOG_LIMIT: usize = 4096;
+const CPU_BOUNDARY_QUEUE_LIMIT: usize = 4096;
 
 // `ChipRamBus`, `BusTransaction`, `BusResponse`, `TICKS_PER_CCK`, and
 // `CIA_E_CLOCK_DIVISOR` are shared board glue, relocated to
@@ -166,7 +168,12 @@ const DEBUG_RTC_LOG_LIMIT: usize = 4096;
 
 /// Amiga (ECS) machine.
 pub struct AmigaEcs {
-    cpu: Cpu68000,
+    cpu: ActiveCpu,
+    /// Exact active-CPU edges emitted per Amiga system tick.
+    cpu_clock: CpuClock,
+    /// Unconsumed CPU edges when exact instruction stepping stops part-way
+    /// through one Amiga system tick.
+    cpu_domain_phase: CpuDomainPhase,
     memory: Memory,
     /// DF0 floppy drive — head / motor / MFM track encoder. Responds
     /// to CIA-B PRB control pulses and feeds CIA-A PRA status bits +
@@ -235,6 +242,9 @@ pub struct AmigaEcs {
     /// Last sampled CIA-B interrupt-input state.
     prev_cia_b_irq: bool,
     e_clock_phase: u64,
+    /// Bounded instruction-boundary observations. This diagnostic queue is
+    /// intentionally excluded from machine snapshots.
+    cpu_boundaries: VecDeque<CpuBoundary>,
     /// Diagnostic: count of unique custom-register read offsets seen
     /// since reset, indexed by offset / 2.
     pub debug_reg_read_counts: std::collections::HashMap<u16, u64>,
@@ -335,7 +345,9 @@ pub struct AmigaEcs {
 /// MFM bytes per inserted floppy.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct AmigaEcsSnapshot {
-    cpu: Cpu68000,
+    cpu: ActiveCpu,
+    cpu_clock: CpuClock,
+    cpu_domain_phase: CpuDomainPhase,
     memory: Memory,
     drive: AmigaFloppyDrive,
     track_cache: Option<(u32, u32, Vec<u8>)>,
@@ -503,7 +515,7 @@ impl AmigaEcs {
             let size = Self::zorro_size_for_kib(cfg.fast_kb);
             size.map(AutoconfigBoard::fast_ram)
         };
-        let mut cpu = Cpu68000::new();
+        let mut cpu = ActiveCpu::M68000(Cpu68000::new());
         let ssp = memory.read_long(0x000000);
         let pc = memory.read_long(0x000004);
         cpu.reset_to(ssp, pc);
@@ -535,6 +547,8 @@ impl AmigaEcs {
         gary.set_rtc_present(cfg.slow_kb > 0);
         Self {
             cpu,
+            cpu_clock: CpuClock::from_ratio(1, 1),
+            cpu_domain_phase: CpuDomainPhase::default(),
             memory,
             drive,
             track_cache: None,
@@ -569,6 +583,7 @@ impl AmigaEcs {
             prev_cia_a_irq: false,
             prev_cia_b_irq: false,
             e_clock_phase: 0,
+            cpu_boundaries: VecDeque::new(),
             debug_reg_read_counts: std::collections::HashMap::new(),
             debug_peak_intena: 0,
             debug_intena_writes: 0,
@@ -1380,16 +1395,44 @@ impl AmigaEcs {
         }
     }
 
-    /// CPU access (read-only — mutating outside the tick loop breaks
-    /// invariants).
+    /// Shared MC68000-compatible CPU state (read-only — mutating outside the
+    /// tick loop breaks invariants).
     #[must_use]
     pub fn cpu(&self) -> &Cpu68000 {
+        self.cpu.as_base()
+    }
+
+    /// Runtime-selected processor, including its concrete model identity.
+    #[must_use]
+    pub const fn active_cpu(&self) -> &ActiveCpu {
         &self.cpu
     }
 
-    /// Total master/4 ticks (= 68000 CPU clocks = lores pixels)
-    /// elapsed since construction. This is the finest-grained clock
-    /// in the machine.
+    /// Exact active-CPU clock conversion, including serialized phase.
+    #[must_use]
+    pub const fn cpu_clock(&self) -> CpuClock {
+        self.cpu_clock
+    }
+
+    /// Whether persisted partial CPU-domain progress is compatible with the
+    /// configured CPU clock.
+    #[must_use]
+    pub fn cpu_domain_phase_is_coherent(&self) -> bool {
+        self.cpu_domain_phase
+            .snapshot_is_coherent(self.cpu_clock, self.tick_count)
+    }
+
+    /// Drain instruction boundaries retained since the previous observation.
+    ///
+    /// The queue is bounded and diagnostic-only; draining it does not change
+    /// emulated machine state.
+    pub fn drain_cpu_boundaries(&mut self) -> std::collections::vec_deque::Drain<'_, CpuBoundary> {
+        self.cpu_boundaries.drain(..)
+    }
+
+    /// Total Amiga system ticks (master/4, the lores pixel rate) elapsed
+    /// since construction. The stock MC68000 clock domain is 1:1 with
+    /// this counter.
     #[must_use]
     pub fn tick_count(&self) -> u64 {
         self.tick_count
@@ -1506,6 +1549,13 @@ impl AmigaEcs {
     /// MCP) keep working unchanged.
     pub fn tick(&mut self) {
         <Self as AmigaDriver>::tick(self);
+    }
+
+    /// Advance either to the next active-CPU instruction boundary or through
+    /// one complete Amiga system tick when no boundary is crossed.
+    #[must_use]
+    pub fn advance_to_cpu_boundary(&mut self) -> bool {
+        <Self as AmigaDriver>::advance_to_cpu_boundary(self)
     }
 
     /// CIA-A is wired to the low data byte (D0-D7) at `$BFExxx`. The
@@ -1738,6 +1788,8 @@ impl AmigaEcs {
     pub fn snapshot_state(&self) -> AmigaEcsSnapshot {
         AmigaEcsSnapshot {
             cpu: self.cpu.clone(),
+            cpu_clock: self.cpu_clock,
+            cpu_domain_phase: self.cpu_domain_phase,
             memory: self.memory.clone(),
             drive: self.drive.clone(),
             track_cache: self.track_cache.clone(),
@@ -1776,6 +1828,8 @@ impl AmigaEcs {
     /// restore.
     pub fn restore_snapshot_state(&mut self, snap: AmigaEcsSnapshot) {
         self.cpu = snap.cpu;
+        self.cpu_clock = snap.cpu_clock;
+        self.cpu_domain_phase = snap.cpu_domain_phase;
         self.memory = snap.memory;
         self.drive = snap.drive;
         self.track_cache = snap.track_cache;
@@ -1826,13 +1880,14 @@ impl AmigaEcs {
         self.debug_bplcon0_log.clear();
         self.debug_palette_log.clear();
         self.debug_reg_read_log.clear();
+        self.cpu_boundaries.clear();
     }
 }
 
 // The shared per-CCK driver (#34). Common Agnus state is exposed
 // through base-typed accessors, while behavior that ECS overrides
 // resolves through concrete helpers before coercion. No Gayle arm;
-// stock Cpu68000.
+// stock MC68000 held through ActiveCpu.
 impl AmigaDriver for AmigaEcs {
     fn agnus(&self) -> &Agnus {
         &self.agnus
@@ -1880,10 +1935,25 @@ impl AmigaDriver for AmigaEcs {
         &mut self.memory
     }
     fn cpu_base(&self) -> &motorola_68000::Cpu68000 {
-        &self.cpu
+        self.cpu.as_base()
     }
     fn cpu_base_mut(&mut self) -> &mut motorola_68000::Cpu68000 {
-        &mut self.cpu
+        self.cpu.as_base_mut()
+    }
+    fn cpu_clock_mut(&mut self) -> &mut CpuClock {
+        &mut self.cpu_clock
+    }
+    fn cpu_domain_phase(&self) -> &CpuDomainPhase {
+        &self.cpu_domain_phase
+    }
+    fn cpu_domain_phase_mut(&mut self) -> &mut CpuDomainPhase {
+        &mut self.cpu_domain_phase
+    }
+
+    fn reset_external_devices_from_cpu(&mut self) {
+        if let Some(board) = self.autoconfig.as_mut() {
+            board.reset();
+        }
     }
 
     fn copper_tick_cck(
@@ -1994,6 +2064,17 @@ impl AmigaDriver for AmigaEcs {
     fn push_copper_move_log(&mut self, entry: common_commodore_amiga::driver::CopperMoveLogEntry) {
         self.debug_copper_move_log.push(entry);
     }
+    fn record_cpu_boundary(&mut self) {
+        if self.cpu_boundaries.len() == CPU_BOUNDARY_QUEUE_LIMIT {
+            self.cpu_boundaries.pop_front();
+        }
+        self.cpu_boundaries.push_back(CpuBoundary {
+            system_tick: self.tick_count,
+            instr_start_pc: self.cpu.instr_start_pc,
+            sr: self.cpu.regs.sr,
+            opcode: self.cpu.ir,
+        });
+    }
 
     fn advance_agnus_cck(&mut self) {
         self.agnus.tick_cck();
@@ -2038,6 +2119,7 @@ impl AmigaDriver for AmigaEcs {
 #[cfg(test)]
 mod bus_plan_dispatch_tests {
     use super::*;
+    use motorola_68000::CpuModel;
     use motorola_68000::bus::{BusStatus, FunctionCode};
     use motorola_68000::cpu::State;
     use motorola_68000::microcode::MicroOp;
@@ -2046,12 +2128,60 @@ mod bus_plan_dispatch_tests {
         AmigaEcs::new(vec![0; 512 * 1024])
     }
 
+    #[test]
+    fn cpu_reset_output_restarts_autoconfig_without_clearing_fast_ram() {
+        let mut amiga = AmigaEcs::with_ram_config(
+            vec![0; 512 * 1024],
+            RamConfig {
+                chip_kb: 512,
+                slow_kb: 0,
+                fast_kb: 1024,
+            },
+        );
+        let board = amiga
+            .autoconfig
+            .as_mut()
+            .expect("fast RAM must install an Autoconfig board");
+        board.write_word(0x4A, 0x0000);
+        board.write_word(0x48, 0x2000);
+        board.write_ram_byte(0x0020_0042, 0xA5);
+        assert_eq!(
+            board.state(),
+            AutoconfigState::Configured { base: 0x0020_0000 }
+        );
+        amiga.cpu.reset_out = true;
+
+        amiga.tick();
+
+        assert!(!amiga.cpu.reset_out, "machine must consume RESET output");
+        let board = amiga
+            .autoconfig()
+            .expect("Autoconfig board remains installed");
+        assert_eq!(board.state(), AutoconfigState::Unconfigured);
+        assert_eq!(board.ram_bytes()[0x42], 0xA5);
+    }
+
     fn observe_ddf_start(amiga: &mut AmigaEcs) {
         let start = amiga.agnus.ddfstrt & 0x00FE;
         assert!(start > 0, "test helper requires a non-zero DDFSTRT");
         amiga.agnus.hpos = start - 1;
         amiga.agnus.tick_cck();
         assert_eq!(amiga.agnus.ddf_start_match(), Some(start));
+    }
+
+    #[test]
+    fn stock_ecs_clock_emits_one_cpu_edge_per_system_tick() {
+        let mut amiga = machine();
+        amiga.cpu.state = State::Internal { cycles: 4 };
+        let tick_count = amiga.tick_count;
+
+        amiga.tick();
+
+        assert_eq!(amiga.tick_count, tick_count + 1);
+        assert!(matches!(amiga.cpu.state, State::Internal { cycles: 3 }));
+        assert_eq!(amiga.cpu.model(), CpuModel::M68000);
+        assert_eq!(amiga.cpu_clock.numerator(), 1);
+        assert_eq!(amiga.cpu_clock.denominator(), 1);
     }
 
     fn configure_diwhigh_demoted_bitplane_slot(amiga: &mut AmigaEcs) {

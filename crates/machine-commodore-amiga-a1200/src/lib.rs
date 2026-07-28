@@ -4,10 +4,9 @@
 //! Wires the AGA chipset chips (Alice = `commodore-agnus-aga`,
 //! Lisa = `commodore-denise-aga`) into the common Amiga board
 //! substrate alongside Gayle (IDE / PCMCIA address decoder) at
-//! `$D80000-$DFFFFF`. Stage B: the CPU is `Cpu68020` — the deref
-//! chain hands `regs`, `state`, `bus_status`, `ipl`, and `tick()`
-//! straight through to `Cpu68000` so the existing bus / chipset
-//! wiring composes unchanged.
+//! `$D80000-$DFFFFF`. The stock MC68EC020 is held in the shared
+//! [`ActiveCpu`] runtime-selection type and receives two input-clock
+//! edges for each 7 MHz Amiga system tick.
 //!
 //! Structurally this is a parallel of `machine-commodore-amiga-ecs`
 //! with the chipset types swapped (`AgnusAga` for `AgnusEcs`,
@@ -17,11 +16,13 @@
 
 mod agnus;
 mod denise;
+use std::collections::VecDeque;
+
 use common_commodore_amiga::board::{
     BusResponse, BusTransaction, ChipRamBus, SizedBusResponse, SizedBusTransaction, TICKS_PER_CCK,
 };
-use common_commodore_amiga::driver::AmigaDriver;
-use common_commodore_amiga::{cia, copper, memory, rtc};
+use common_commodore_amiga::driver::{AmigaDriver, CpuBoundary};
+use common_commodore_amiga::{ActiveCpu, CpuClock, CpuDomainPhase, cia, copper, memory, rtc};
 
 pub use agnus::{
     Agnus, AgnusAga, AgnusEcs, AgnusRegion, BlitterCckOutcome, CckBusPlan, NTSC_CCKS_PER_FRAME,
@@ -57,7 +58,7 @@ const CUSTOM_TOP: u32 = 0x00E0_0000;
 const SLOW_RAM_BASE: u32 = 0x00C0_0000;
 /// Zorro-II autoconfig probe window — the first unconfigured board
 /// answers here until `expansion.library` writes its base-address
-/// pair to `$E80048` / `$E8004A`.
+/// pair to `$E8004A` / `$E80048`.
 const AUTOCONFIG_BASE: u32 = 0x00E8_0000;
 const AUTOCONFIG_TOP: u32 = 0x00E8_0080;
 
@@ -65,9 +66,8 @@ const AUTOCONFIG_TOP: u32 = 0x00E8_0080;
 ///
 /// Chip RAM lives at `$000000` and is required. Slow RAM is the A501-
 /// style trapdoor expansion at `$C00000`. Fast RAM is a Zorro-II
-/// autoconfig board (implementation lands in a follow-up commit);
-/// `fast_kb` is carried here so the runtime preset surface is stable
-/// across the autoconfig wiring.
+/// autoconfig board; `fast_kb` keeps the runtime preset surface stable across
+/// the autoconfig wiring.
 ///
 /// One entry in the diagnostic blit log.
 pub type BlitLogEntry = (u64, u32, u16, u16, u32, u32, u32, u32, u16);
@@ -174,6 +174,7 @@ fn decode_cia_b_prb_for_df0(prb: u8) -> (bool, bool, bool, bool, bool) {
 }
 
 const DEBUG_RTC_LOG_LIMIT: usize = 4096;
+const CPU_BOUNDARY_QUEUE_LIMIT: usize = 4096;
 
 // `ChipRamBus`, `BusTransaction`, `BusResponse`, `TICKS_PER_CCK`, and
 // `CIA_E_CLOCK_DIVISOR` are shared board glue, relocated to
@@ -181,7 +182,12 @@ const DEBUG_RTC_LOG_LIMIT: usize = 4096;
 
 /// Amiga A1200 (AGA chipset) machine.
 pub struct AmigaA1200 {
-    cpu: Cpu68020,
+    cpu: ActiveCpu,
+    /// Exact active-CPU edges emitted per Amiga system tick.
+    cpu_clock: CpuClock,
+    /// Unconsumed CPU edges when exact instruction stepping stops part-way
+    /// through one Amiga system tick.
+    cpu_domain_phase: CpuDomainPhase,
     memory: Memory,
     /// DF0 floppy drive — head / motor / MFM track encoder. Responds
     /// to CIA-B PRB control pulses and feeds CIA-A PRA status bits +
@@ -255,6 +261,9 @@ pub struct AmigaA1200 {
     /// Last sampled CIA-B interrupt-input state.
     prev_cia_b_irq: bool,
     e_clock_phase: u64,
+    /// Bounded instruction-boundary observations. This diagnostic queue is
+    /// intentionally excluded from machine snapshots.
+    cpu_boundaries: VecDeque<CpuBoundary>,
     /// Diagnostic: count of unique custom-register read offsets seen
     /// since reset, indexed by offset / 2.
     pub debug_reg_read_counts: std::collections::HashMap<u16, u64>,
@@ -366,7 +375,9 @@ pub struct AmigaA1200 {
 /// MFM bytes per inserted floppy.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct AmigaA1200Snapshot {
-    cpu: Cpu68020,
+    cpu: ActiveCpu,
+    cpu_clock: CpuClock,
+    cpu_domain_phase: CpuDomainPhase,
     memory: Memory,
     drive: AmigaFloppyDrive,
     track_cache: Option<(u32, u32, Vec<u8>)>,
@@ -535,7 +546,7 @@ impl AmigaA1200 {
             let size = Self::zorro_size_for_kib(cfg.fast_kb);
             size.map(AutoconfigBoard::fast_ram)
         };
-        let mut cpu = Cpu68020::new();
+        let mut cpu = ActiveCpu::M68EC020(Cpu68020::new());
         let ssp = memory.read_long(0x000000);
         let pc = memory.read_long(0x000004);
         cpu.reset_to(ssp, pc);
@@ -567,6 +578,8 @@ impl AmigaA1200 {
         gary.set_rtc_present(cfg.slow_kb > 0);
         Self {
             cpu,
+            cpu_clock: CpuClock::from_ratio(2, 1),
+            cpu_domain_phase: CpuDomainPhase::default(),
             memory,
             drive,
             track_cache: None,
@@ -640,6 +653,7 @@ impl AmigaA1200 {
             prev_cia_a_irq: false,
             prev_cia_b_irq: false,
             e_clock_phase: 0,
+            cpu_boundaries: VecDeque::new(),
             debug_reg_read_counts: std::collections::HashMap::new(),
             debug_reg_read_log: Vec::new(),
             debug_peak_intena: 0,
@@ -1467,17 +1481,47 @@ impl AmigaA1200 {
         }
     }
 
-    /// CPU access (read-only — mutating outside the tick loop breaks
-    /// invariants). Returns the `Cpu68020` wrapper; callers that
-    /// only need the shared 68000 fields can `&*` Deref through.
+    /// Stock MC68EC020 wrapper (read-only — mutating outside the tick loop
+    /// breaks invariants).
     #[must_use]
     pub fn cpu(&self) -> &Cpu68020 {
+        match &self.cpu {
+            ActiveCpu::M68EC020(cpu) | ActiveCpu::M68020(cpu) => cpu,
+            _ => unreachable!("an A1200 machine must retain an MC68020-family processor"),
+        }
+    }
+
+    /// Runtime-selected processor, including its concrete model identity.
+    #[must_use]
+    pub const fn active_cpu(&self) -> &ActiveCpu {
         &self.cpu
     }
 
-    /// Total master/4 ticks (= 68000 CPU clocks = lores pixels)
-    /// elapsed since construction. This is the finest-grained clock
-    /// in the machine.
+    /// Exact active-CPU clock conversion, including serialized phase.
+    #[must_use]
+    pub const fn cpu_clock(&self) -> CpuClock {
+        self.cpu_clock
+    }
+
+    /// Whether persisted partial CPU-domain progress is compatible with the
+    /// configured CPU clock.
+    #[must_use]
+    pub fn cpu_domain_phase_is_coherent(&self) -> bool {
+        self.cpu_domain_phase
+            .snapshot_is_coherent(self.cpu_clock, self.tick_count)
+    }
+
+    /// Drain instruction boundaries retained since the previous observation.
+    ///
+    /// The queue is bounded and diagnostic-only; draining it does not change
+    /// emulated machine state.
+    pub fn drain_cpu_boundaries(&mut self) -> std::collections::vec_deque::Drain<'_, CpuBoundary> {
+        self.cpu_boundaries.drain(..)
+    }
+
+    /// Total Amiga system ticks (master/4, the lores pixel rate) elapsed
+    /// since construction. The stock MC68EC020 clock domain emits two
+    /// processor edges per system tick without changing this counter.
     #[must_use]
     pub fn tick_count(&self) -> u64 {
         self.tick_count
@@ -1582,22 +1626,29 @@ impl AmigaA1200 {
         self.memory.read_chip_ram_byte(addr)
     }
 
-    /// Tick one primary period — master/4 = 68000 CPU clock = lores
-    /// pixel rate (7.09 MHz PAL). This is the finest granularity in
-    /// the machine; everything coarser (CCK, CIA E-clock, 68000 bus
-    /// cycle) derives from it.
+    /// Tick one primary period — the master/4 lores-pixel and board clock
+    /// (7.09 MHz PAL). Chipset timing derives from this domain; the stock
+    /// MC68EC020 receives two input-clock edges during the same period.
     ///
     /// Two ticks make one Agnus CCK, so chip-side events that the HRM
     /// describes at CCK granularity (beam advance, copper fetch slot,
     /// bitplane fetch, shift-register reload) fire on alternate ticks
-    /// (`cck_phase == 0`). Per-tick events (CPU clock, lores pixel
-    /// output, CIA E-clock divisor, CPU bus service) fire every tick.
+    /// (`cck_phase == 0`). Board-tick events (lores pixel output and the
+    /// CIA E-clock divisor) fire once, while CPU bus service runs before
+    /// each emitted processor edge.
     /// One machine tick. The per-CCK body is the shared
     /// [`AmigaDriver::tick`]; this inherent method delegates so the many
     /// existing `AmigaA1200::tick` callers (tests, the `AmigaMachine`
     /// impl, MCP) keep working unchanged.
     pub fn tick(&mut self) {
         <Self as AmigaDriver>::tick(self);
+    }
+
+    /// Advance either to the next active-CPU instruction boundary or through
+    /// one complete Amiga system tick when no boundary is crossed.
+    #[must_use]
+    pub fn advance_to_cpu_boundary(&mut self) -> bool {
+        <Self as AmigaDriver>::advance_to_cpu_boundary(self)
     }
 
     /// CIA-A is wired to the low data byte (D0-D7) at `$BFExxx`. The
@@ -1926,6 +1977,8 @@ impl AmigaA1200 {
     pub fn snapshot_state(&self) -> AmigaA1200Snapshot {
         AmigaA1200Snapshot {
             cpu: self.cpu.clone(),
+            cpu_clock: self.cpu_clock,
+            cpu_domain_phase: self.cpu_domain_phase,
             memory: self.memory.clone(),
             drive: self.drive.clone(),
             track_cache: self.track_cache.clone(),
@@ -1965,6 +2018,8 @@ impl AmigaA1200 {
     /// restore.
     pub fn restore_snapshot_state(&mut self, snap: AmigaA1200Snapshot) {
         self.cpu = snap.cpu;
+        self.cpu_clock = snap.cpu_clock;
+        self.cpu_domain_phase = snap.cpu_domain_phase;
         self.memory = snap.memory;
         self.drive = snap.drive;
         self.track_cache = snap.track_cache;
@@ -2018,13 +2073,14 @@ impl AmigaA1200 {
         self.debug_watch_addr = None;
         self.debug_watch_writes.clear();
         self.debug_rtc_log.clear();
+        self.cpu_boundaries.clear();
     }
 }
 
 // The shared per-CCK driver (#34). Common Agnus state is exposed
 // through the OCS base, while behavior inherited from ECS resolves on
-// concrete Alice before coercion. The CPU is a `Cpu68020` (whose own
-// `tick()` runs in `tick_cpu_with_ipl`) and the bus-dispatch chain
+// concrete Alice before coercion. The CPU is the MC68EC020 arm of
+// `ActiveCpu` and the bus-dispatch chain
 // carries the extra Gayle arm.
 impl AmigaDriver for AmigaA1200 {
     fn agnus(&self) -> &Agnus {
@@ -2073,11 +2129,25 @@ impl AmigaDriver for AmigaA1200 {
         &mut self.memory
     }
     fn cpu_base(&self) -> &motorola_68000::Cpu68000 {
-        // Cpu68020 → Cpu68010 → Cpu68000: the shared bus-protocol view.
-        &self.cpu
+        self.cpu.as_base()
     }
     fn cpu_base_mut(&mut self) -> &mut motorola_68000::Cpu68000 {
-        &mut self.cpu
+        self.cpu.as_base_mut()
+    }
+    fn cpu_clock_mut(&mut self) -> &mut CpuClock {
+        &mut self.cpu_clock
+    }
+    fn cpu_domain_phase(&self) -> &CpuDomainPhase {
+        &self.cpu_domain_phase
+    }
+    fn cpu_domain_phase_mut(&mut self) -> &mut CpuDomainPhase {
+        &mut self.cpu_domain_phase
+    }
+
+    fn reset_external_devices_from_cpu(&mut self) {
+        if let Some(board) = self.autoconfig.as_mut() {
+            board.reset();
+        }
     }
 
     fn copper_tick_cck(
@@ -2188,6 +2258,17 @@ impl AmigaDriver for AmigaA1200 {
     fn push_copper_move_log(&mut self, entry: common_commodore_amiga::driver::CopperMoveLogEntry) {
         self.debug_copper_move_log.push(entry);
     }
+    fn record_cpu_boundary(&mut self) {
+        if self.cpu_boundaries.len() == CPU_BOUNDARY_QUEUE_LIMIT {
+            self.cpu_boundaries.pop_front();
+        }
+        self.cpu_boundaries.push_back(CpuBoundary {
+            system_tick: self.tick_count,
+            instr_start_pc: self.cpu.instr_start_pc,
+            sr: self.cpu.regs.sr,
+            opcode: self.cpu.ir,
+        });
+    }
 
     fn advance_agnus_cck(&mut self) {
         self.agnus.tick_cck();
@@ -2214,8 +2295,8 @@ impl AmigaDriver for AmigaA1200 {
     }
 
     fn tick_cpu_with_ipl(&mut self) {
-        // The A1200's own Cpu68020 tick — *not* routed through the Deref
-        // base, so the future per-variant 68020 bus timing is unaffected.
+        // Dispatch through ActiveCpu so the selected processor wrapper owns
+        // its variant behavior.
         self.cpu.ipl = self.paula.compute_ipl();
         self.cpu.tick();
     }
@@ -2241,6 +2322,7 @@ impl AmigaDriver for AmigaA1200 {
 #[cfg(test)]
 mod bus_plan_dispatch_tests {
     use super::*;
+    use motorola_68000::CpuModel;
     use motorola_68000::bus::{
         BusStatus, DataPortSize, FunctionCode, TransferSize, dynamic_write_data,
     };
@@ -2253,6 +2335,104 @@ mod bus_plan_dispatch_tests {
         amiga.agnus.hpos = start - 1;
         amiga.agnus.tick_cck();
         assert_eq!(amiga.agnus.ddf_start_match(), Some(start));
+    }
+
+    #[test]
+    fn stock_a1200_clock_emits_two_cpu_edges_per_system_tick() {
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        amiga.cpu.state = State::Internal { cycles: 4 };
+        let tick_count = amiga.tick_count;
+
+        amiga.tick();
+
+        assert_eq!(amiga.tick_count, tick_count + 1);
+        assert!(matches!(amiga.cpu.state, State::Internal { cycles: 2 }));
+        assert_eq!(amiga.cpu.model(), CpuModel::M68EC020);
+        assert_eq!(amiga.cpu_clock.numerator(), 2);
+        assert_eq!(amiga.cpu_clock.denominator(), 1);
+        assert_eq!(amiga.cpu_clock.phase(), 0);
+    }
+
+    #[test]
+    fn snapshot_preserves_the_a1200_clock_fixed_point_and_clears_boundaries() {
+        let rom = vec![0; 512 * 1024];
+        let mut amiga = AmigaA1200::new(rom.clone());
+        amiga.tick();
+        <AmigaA1200 as AmigaDriver>::record_cpu_boundary(&mut amiga);
+        assert_eq!(amiga.cpu_boundaries.len(), 1);
+
+        let encoded =
+            postcard::to_allocvec(&amiga.snapshot_state()).expect("serialize A1200 snapshot");
+        let snapshot: AmigaA1200Snapshot =
+            postcard::from_bytes(&encoded).expect("deserialize A1200 snapshot");
+        let mut restored = AmigaA1200::new(rom);
+        restored.restore_snapshot_state(snapshot);
+
+        assert_eq!(restored.cpu.model(), CpuModel::M68EC020);
+        assert_eq!(restored.cpu_clock.numerator(), 2);
+        assert_eq!(restored.cpu_clock.denominator(), 1);
+        assert_eq!(restored.cpu_clock.phase(), 0);
+        assert_eq!(restored.drain_cpu_boundaries().len(), 0);
+    }
+
+    #[test]
+    fn instruction_boundary_queue_is_bounded_and_drains_in_order() {
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+
+        for system_tick in 0..=CPU_BOUNDARY_QUEUE_LIMIT {
+            amiga.tick_count = system_tick as u64;
+            <AmigaA1200 as AmigaDriver>::record_cpu_boundary(&mut amiga);
+        }
+
+        let mut boundaries = amiga.drain_cpu_boundaries();
+        assert_eq!(boundaries.len(), CPU_BOUNDARY_QUEUE_LIMIT);
+        assert_eq!(
+            boundaries
+                .next()
+                .expect("the bounded queue retains its first entry")
+                .system_tick,
+            1
+        );
+        assert_eq!(
+            boundaries
+                .next_back()
+                .expect("the bounded queue retains its final entry")
+                .system_tick,
+            CPU_BOUNDARY_QUEUE_LIMIT as u64
+        );
+    }
+
+    #[test]
+    fn cpu_reset_output_restarts_autoconfig_without_clearing_fast_ram() {
+        let mut amiga = AmigaA1200::with_ram_config(
+            vec![0; 512 * 1024],
+            RamConfig {
+                chip_kb: 512,
+                slow_kb: 0,
+                fast_kb: 1024,
+            },
+        );
+        let board = amiga
+            .autoconfig
+            .as_mut()
+            .expect("fast RAM must install an Autoconfig board");
+        board.write_word(0x4A, 0x0000);
+        board.write_word(0x48, 0x2000);
+        board.write_ram_byte(0x0020_0042, 0xA5);
+        assert_eq!(
+            board.state(),
+            AutoconfigState::Configured { base: 0x0020_0000 }
+        );
+        amiga.cpu.reset_out = true;
+
+        amiga.tick();
+
+        assert!(!amiga.cpu.reset_out, "machine must consume RESET output");
+        let board = amiga
+            .autoconfig()
+            .expect("Autoconfig board remains installed");
+        assert_eq!(board.state(), AutoconfigState::Unconfigured);
+        assert_eq!(board.ram_bytes()[0x42], 0xA5);
     }
 
     #[test]
