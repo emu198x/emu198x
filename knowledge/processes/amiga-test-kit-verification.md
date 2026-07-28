@@ -152,6 +152,7 @@ software outside the exercised path.
 ## Related documents
 
 - [Amiga Test Kit v1.12 fixture identity](../../test-data/amiga-test-kit-v1.12.md)
+- [Amiga Test Kit v1.21 video conformance](amiga-test-kit-video-conformance.md)
 - [Test ROM bundling policy](../decisions/test-rom-policy.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)
 - [Amiga machine catalogue](../decisions/amiga-machine-catalogue.md)

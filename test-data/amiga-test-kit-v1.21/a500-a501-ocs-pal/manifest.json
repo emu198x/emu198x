@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "evidence_level": "single-independent-implementation",
+  "suite": {
+    "name": "Amiga Test Kit",
+    "version": "1.21",
+    "source_tag": "testkit-v1.21",
+    "source_commit": "9477599d1611da2326f43532dbe563c2848e308b",
+    "adf_sha256": "abe7426c93619a7bb61ce10e3e66a4747fcaf22acd1d1876310033faa700ad28"
+  },
+  "machine": {
+    "model": "commodore-amiga-a500-ocs-pal-a501",
+    "cpu": "MC68000",
+    "chipset": "OCS",
+    "region": "PAL",
+    "chip_ram_bytes": 524288,
+    "slow_ram_bytes": 524288,
+    "kickstart_revision": "1.3 r34.005",
+    "kickstart_sha256": "ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53"
+  },
+  "viewport": {
+    "runtime_width": 768,
+    "runtime_height": 576,
+    "x": 20,
+    "y": 2,
+    "width": 716,
+    "height": 570,
+    "vertical_decimation": 2,
+    "canonical_width": 716,
+    "canonical_height": 285,
+    "pixel_format": "rgb8"
+  },
+  "comparison": {
+    "format": "rgb4",
+    "reference_channel_step": 16,
+    "runtime_channel_step": 17,
+    "rounding": "nearest",
+    "reference_max_error": 1,
+    "runtime_max_error": 0
+  },
+  "producer": {
+    "id": "vamiga-4.4b12-60fd1e6b-a500-ocs-pal-a501",
+    "emulator": "vAmiga",
+    "version": "4.4b12",
+    "revision": "60fd1e6b69dcd77c9f44d1291bd37ec715362ab0",
+    "implementation_family": "vAmiga",
+    "configuration": "A500_OCS_1MB",
+    "capture_method": "VAHeadless RegressionTester raw RGB"
+  },
+  "producer_viewport": {
+    "texture_x_start": 196,
+    "texture_x_end_exclusive": 912,
+    "texture_y_start": 26,
+    "texture_y_end_exclusive": 311,
+    "beam_hpos_start": 49,
+    "beam_hpos_end_exclusive": 228,
+    "beam_vpos_start": 26,
+    "beam_vpos_end_exclusive": 311,
+    "width": 716,
+    "height": 285,
+    "pixel_format": "packed-row-major-rgb8"
+  },
+  "producer_timing": {
+    "unit": "simulated-seconds",
+    "boot_wait": 12,
+    "keyboard_auto_release_milliseconds": 500,
+    "inter_key_wait": 1
+  },
+  "execution": {
+    "boot_fields": 600,
+    "key_hold_fields": 3,
+    "key_release_settle_fields": 1,
+    "inter_key_fields": 50
+  },
+  "frames": [
+    {
+      "id": "gradients",
+      "navigation": [
+        "F6",
+        "F1"
+      ],
+      "execution_settle_fields": 150,
+      "behaviour": "static",
+      "references": [
+        {
+          "phase": "static",
+          "file": "gradients.png",
+          "png_sha256": "fc53293a01a413fb97b61aca13ff2c039ad2e3e44c5a7a6bd80a79f76c10c3aa",
+          "rgb_sha256": "8b4c84f6abed05887a1de6b9d61dd4c7467354ebe2e3997226e22dec6570adb8",
+          "producer_final_wait_seconds": 3
+        }
+      ]
+    },
+    {
+      "id": "static-checkerboard",
+      "navigation": [
+        "F6",
+        "F2"
+      ],
+      "execution_settle_fields": 100,
+      "behaviour": "static",
+      "references": [
+        {
+          "phase": "static",
+          "file": "static-checkerboard.png",
+          "png_sha256": "00960531e6955e575cf142e85f56c8a970dc69e6ab41767d46834149d72d3e90",
+          "rgb_sha256": "0fb819d6bba7f1ddd4b4933c7dcd1ae50bdc847d4a16590210ae2d5aae3b5533",
+          "producer_final_wait_seconds": 2
+        }
+      ]
+    },
+    {
+      "id": "alternating-checkerboard",
+      "navigation": [
+        "F6",
+        "F3"
+      ],
+      "execution_settle_fields": 100,
+      "behaviour": "alternating",
+      "references": [
+        {
+          "phase": "a",
+          "file": "alternating-checkerboard-phase-a.png",
+          "png_sha256": "066fff641da432708f9f821cef913a28072b165a956e33aa4187d2367e5431c2",
+          "rgb_sha256": "0da5a908684fc75d306e2e71bc0500acbdbda6efa267e3a3d36be481ff61951c",
+          "producer_final_wait_seconds": 2
+        },
+        {
+          "phase": "b",
+          "file": "alternating-checkerboard-phase-b.png",
+          "png_sha256": "00960531e6955e575cf142e85f56c8a970dc69e6ab41767d46834149d72d3e90",
+          "rgb_sha256": "0fb819d6bba7f1ddd4b4933c7dcd1ae50bdc847d4a16590210ae2d5aae3b5533",
+          "producer_final_wait_seconds": 3
+        }
+      ]
+    },
+    {
+      "id": "ebu-bars",
+      "navigation": [
+        "F6",
+        "F4",
+        "F6"
+      ],
+      "execution_settle_fields": 100,
+      "behaviour": "static",
+      "references": [
+        {
+          "phase": "static",
+          "file": "ebu-bars.png",
+          "png_sha256": "a5216c089c36b91ad2c15944d6983a71391d87c3ea6100768e107e12acae8b15",
+          "rgb_sha256": "5d44bb58b0c081afb49cfe3a02b4c7a463d7271a03831faf8830c6ebec689f41",
+          "producer_final_wait_seconds": 2
+        }
+      ]
+    },
+    {
+      "id": "dots",
+      "navigation": [
+        "F6",
+        "F5"
+      ],
+      "execution_settle_fields": 100,
+      "behaviour": "static",
+      "references": [
+        {
+          "phase": "static",
+          "file": "dots.png",
+          "png_sha256": "ca35e2fe14b3673b32a77ad60452595691c248d31ba984b0168949522551faa5",
+          "rgb_sha256": "6c4effb3ee7d1196a32fed340297a3cfe67fc9fa666444412df99d8ebb5ee46b",
+          "producer_final_wait_seconds": 2
+        }
+      ]
+    },
+    {
+      "id": "crosshatch",
+      "navigation": [
+        "F6",
+        "F6"
+      ],
+      "execution_settle_fields": 100,
+      "behaviour": "static",
+      "references": [
+        {
+          "phase": "static",
+          "file": "crosshatch.png",
+          "png_sha256": "4e1693d8e9578c5fd533281745bb2e26d995089a32bee4d1d16598dd5acfe7c9",
+          "rgb_sha256": "4d9466a4251b6b85bded76572d3dffcd3c379e175a38f3edcfb466d794f5a4bc",
+          "producer_final_wait_seconds": 2
+        }
+      ]
+    }
+  ]
+}

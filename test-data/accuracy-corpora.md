@@ -44,19 +44,24 @@ tarball also carries the free Amstrad-permissioned 48K ROM.
 | Fixture | Consumer | Env var | Upstream source | Licence | Required firmware |
 |---|---|---|---|---|---|
 | Amiga Test Kit v1.12 | `runtime-commodore-amiga` · `amiga_test_kit` | `EMU198X_AMIGA_TEST_KIT_ADF` | keirf/amiga-stuff tag `testkit-v1.12` | Public domain / Unlicense | Kickstart 1.3 r34.005 through `EMU198X_AMIGA_KICKSTART_13_ROM` |
+| Amiga Test Kit v1.21 video | `runtime-commodore-amiga` · `amiga_test_kit_video` | `EMU198X_AMIGA_TEST_KIT_V121_ADF` | keirf/amiga-stuff tag `testkit-v1.21` | Public domain / Unlicense | Kickstart 1.3 r34.005 through `EMU198X_AMIGA_KICKSTART_13_ROM` |
 
-The Test Kit ADF and its required Kickstart image are pinned by
-[`amiga-test-kit-v1.12.sha256`](amiga-test-kit-v1.12.sha256). The ADF may be
-delivered raw or in a ZIP; the manifest applies to the normalised ADF bytes.
-The public-domain ADF remains externally supplied, and the proprietary
+The Test Kit ADFs and their required Kickstart image are pinned by
+[`amiga-test-kit-v1.12.sha256`](amiga-test-kit-v1.12.sha256) and
+[`amiga-test-kit-v1.21.sha256`](amiga-test-kit-v1.21.sha256). An ADF may be
+delivered raw or in a ZIP; each manifest applies to the normalised ADF bytes.
+The public-domain ADFs remain externally supplied, and the proprietary
 Kickstart ROM must not be added to the corpus store.
 
-This gate is invoked through
-[`scripts/verify-amiga-test-kit.sh`](../scripts/verify-amiga-test-kit.sh). It is
-not part of the CPU-corpus matrix or the current private-mirror contract below.
-Its provenance and assertion boundary are documented separately in
-[`amiga-test-kit-v1.12.md`](amiga-test-kit-v1.12.md) and
-[`Amiga Test Kit verification`](../knowledge/processes/amiga-test-kit-verification.md).
+The v1.12 gate is invoked through
+[`scripts/verify-amiga-test-kit.sh`](../scripts/verify-amiga-test-kit.sh). The
+v1.21 video gate is invoked through
+[`scripts/verify-amiga-test-kit-video.sh`](../scripts/verify-amiga-test-kit-video.sh).
+Neither is part of the CPU-corpus matrix or the current private-mirror contract
+below. Their assertion boundaries are documented in
+[`Amiga Test Kit verification`](../knowledge/processes/amiga-test-kit-verification.md)
+and
+[`Amiga Test Kit v1.21 video conformance`](../knowledge/processes/amiga-test-kit-video-conformance.md).
 
 Directory layout each env var points at: the extracted corpus directory. The
 6502 and Z80 SingleStepTests corpora and the SM83 corpus use per-opcode JSON
@@ -128,5 +133,7 @@ live.
 ## Related documents
 
 - [Amiga Test Kit v1.12 fixture identity](amiga-test-kit-v1.12.md)
+- [Amiga Test Kit v1.21 fixture identity](amiga-test-kit-v1.21.md)
 - [Amiga Test Kit verification](../knowledge/processes/amiga-test-kit-verification.md)
+- [Amiga Test Kit v1.21 video conformance](../knowledge/processes/amiga-test-kit-video-conformance.md)
 - [Test ROM bundling policy](../knowledge/decisions/test-rom-policy.md)

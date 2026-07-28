@@ -55,8 +55,11 @@ mkdir -p target/llvm-cov
 # run for minutes. With the flag, llvm-cov instruments them and the
 # resulting coverage figures reflect the broader instruction-set
 # surface — at the cost of a substantially longer wall-clock run
-# and disk-space pressure. Tests whose fixtures aren't present
-# self-skip with `eprintln "skipping"` rather than failing.
+# and disk-space pressure. Many optional corpus tests self-skip when
+# their fixtures are absent. Explicit accuracy gates, including both
+# Amiga Test Kit lanes, fail when requested without their registered
+# inputs; provision those fixtures or invoke their dedicated wrappers
+# instead of assuming a global ignored-test run will skip them.
 extra_cargo_args=()
 libtest_args=()
 for arg in "$@"; do

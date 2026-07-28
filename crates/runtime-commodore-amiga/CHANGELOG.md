@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add an explicit Amiga Test Kit v1.21 video-conformance lane for A500+A501
+  OCS PAL reference-pattern capture and independently sourced comparison
 - Add an explicit, checksum-pinned Amiga Test Kit v1.12 gate covering stock
   A500 and GVP A530 guest identification, visible menu/input progress, and
   deterministic A530 snapshot replay

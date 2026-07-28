@@ -45,6 +45,7 @@ outputs rather than redistributed ROMs.
 | Mealybug Tearoom (mattcurrie, future use) | (env var TBD when first referenced) | MIT | Yes if we want |
 | ZEXDOC / ZEXALL | `EMU198X_ZEX_DIR` | No explicit grant; long-standing redistribution | No — referenced externally since 2026-07-04 |
 | Amiga Test Kit v1.12 | `EMU198X_AMIGA_TEST_KIT_ADF` | Public domain / Unlicense | Yes for the ADF; required Kickstart remains proprietary |
+| Amiga Test Kit v1.21 | `EMU198X_AMIGA_TEST_KIT_V121_ADF` | Public domain / Unlicense | Yes for the ADF; required Kickstart remains proprietary |
 
 ### Hand-rolled in-repo (not external test ROMs, just shaped like)
 
@@ -191,11 +192,12 @@ critical to a CI regression gate, we
 revisit bundling for that specific case with the standard
 provenance README.
 
-Amiga Test Kit follows the default. Its 901,120-byte ADF is safe to
-redistribute, but the complete gate also needs a proprietary Kickstart image.
-Keeping both inputs external gives the lane one delivery contract without
-placing firmware in the repository. The exact normalised inputs remain pinned
-by `test-data/amiga-test-kit-v1.12.sha256`.
+Amiga Test Kit follows the default. Each registered 901,120-byte ADF is safe
+to redistribute, but the complete gates also need a proprietary Kickstart
+image. Keeping both kinds of input external gives each lane one delivery
+contract without placing firmware in the repository. The exact normalised
+inputs remain pinned by `test-data/amiga-test-kit-v1.12.sha256` and
+`test-data/amiga-test-kit-v1.21.sha256`.
 
 ### Why we never bundle commercial ROMs
 
@@ -217,10 +219,10 @@ Obvious. Just naming it for completeness.
   review.
 - **Re-bundling ZEX for convenience.** The environment-variable path
   already supports the regression without repository redistribution.
-- **Bundling Amiga Test Kit because it is public domain.** The ADF is
+- **Bundling Amiga Test Kit because it is public domain.** The ADFs are
   permissively redistributable, but the external fixture path is already
-  required for its Kickstart dependency and the committed checksum manifest
-  supplies reproducible identity without adding the image.
+  required for their Kickstart dependency and the committed checksum manifests
+  supply reproducible identities without adding the images.
 
 ## Future additions
 
@@ -253,6 +255,13 @@ When a new test ROM corpus is added:
   document it as a special case and revisit.
 
 ## Log
+
+### 2026-07-28 — Amiga Test Kit v1.21 video gate registered
+
+The pixel-reference gate now references Test Kit v1.21 through
+`EMU198X_AMIGA_TEST_KIT_V121_ADF`. The ADF and proprietary Kickstart remain
+external. Their normalised identities are pinned independently of the
+committed vAmiga reference manifest and PNG checksums.
 
 ### 2026-07-28 — Amiga Test Kit v1.12 registered
 
@@ -302,4 +311,6 @@ paths align with this policy. No action needed in the README.
 
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)
 - [Amiga Test Kit v1.12 fixture identity](../../test-data/amiga-test-kit-v1.12.md)
+- [Amiga Test Kit v1.21 fixture identity](../../test-data/amiga-test-kit-v1.21.md)
 - [Amiga Test Kit verification](../processes/amiga-test-kit-verification.md)
+- [Amiga Test Kit v1.21 video conformance](../processes/amiga-test-kit-video-conformance.md)

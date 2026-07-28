@@ -18,6 +18,8 @@ knowledge/processes/
 !knowledge/processes/
 knowledge/processes/*
 !knowledge/processes/amiga-test-kit-verification.md
+!knowledge/processes/amiga-test-kit-video-conformance.md
+!knowledge/processes/golden-image-capture.md
 knowledge/references/
 knowledge/systems/
 knowledge/tests/
