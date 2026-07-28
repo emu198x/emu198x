@@ -44,6 +44,7 @@ outputs rather than redistributed ROMs.
 | Manic Miner / Jet Set Willy TZX (Spectrum regression) | `EMU198X_SPECTRUM_MANIC_MINER_TZX` / `…_JET_SET_WILLY_TZX` | Commercial (Bug-Byte / Software Projects); some titles have permissive distribution permission, varies | No — never bundle |
 | Mealybug Tearoom (mattcurrie, future use) | (env var TBD when first referenced) | MIT | Yes if we want |
 | ZEXDOC / ZEXALL | `EMU198X_ZEX_DIR` | No explicit grant; long-standing redistribution | No — referenced externally since 2026-07-04 |
+| Amiga Test Kit v1.12 | `EMU198X_AMIGA_TEST_KIT_ADF` | Public domain / Unlicense | Yes for the ADF; required Kickstart remains proprietary |
 
 ### Hand-rolled in-repo (not external test ROMs, just shaped like)
 
@@ -169,10 +170,10 @@ zero for us. The benefit of bundling them (no per-user download
 step) doesn't justify becoming a redistributor for content we
 don't have explicit rights to redistribute.
 
-### Why MIT test ROMs (mealybug, dmg-acid2) stay unbundled too
+### Why permissively licensed test ROMs stay unbundled too
 
-Even with explicit MIT permission, we default to referenced-not-
-bundled because:
+Even with explicit MIT, Unlicense, or public-domain permission, we default to
+referenced-not-bundled because:
 
 - The MIT-licensed test ROMs we'd want (mealybug, mooneye-gb
   tests, dmg-acid2) total a few hundred KiB to a few MiB —
@@ -189,6 +190,12 @@ bundled because:
 critical to a CI regression gate, we
 revisit bundling for that specific case with the standard
 provenance README.
+
+Amiga Test Kit follows the default. Its 901,120-byte ADF is safe to
+redistribute, but the complete gate also needs a proprietary Kickstart image.
+Keeping both inputs external gives the lane one delivery contract without
+placing firmware in the repository. The exact normalised inputs remain pinned
+by `test-data/amiga-test-kit-v1.12.sha256`.
 
 ### Why we never bundle commercial ROMs
 
@@ -210,6 +217,10 @@ Obvious. Just naming it for completeness.
   review.
 - **Re-bundling ZEX for convenience.** The environment-variable path
   already supports the regression without repository redistribution.
+- **Bundling Amiga Test Kit because it is public domain.** The ADF is
+  permissively redistributable, but the external fixture path is already
+  required for its Kickstart dependency and the committed checksum manifest
+  supplies reproducible identity without adding the image.
 
 ## Future additions
 
@@ -242,6 +253,14 @@ When a new test ROM corpus is added:
   document it as a special case and revisit.
 
 ## Log
+
+### 2026-07-28 — Amiga Test Kit v1.12 registered
+
+The system-level Amiga gate now references Test Kit v1.12 through
+`EMU198X_AMIGA_TEST_KIT_ADF`. Its public-domain ADF and the proprietary
+Kickstart 1.3 image are both external. The committed checksum manifest pins the
+normalised bytes consumed by the explicit ignored gate; it does not grant a
+right to redistribute Kickstart.
 
 ### 2026-07-04 — ZEX moved to external corpus storage
 
@@ -278,3 +297,9 @@ CI-gated and small with a provenance README.
 
 The README's references to Blargg + nestest as `~/.emu198x/media/`
 paths align with this policy. No action needed in the README.
+
+## Related documents
+
+- [Accuracy corpora](../../test-data/accuracy-corpora.md)
+- [Amiga Test Kit v1.12 fixture identity](../../test-data/amiga-test-kit-v1.12.md)
+- [Amiga Test Kit verification](../processes/amiga-test-kit-verification.md)

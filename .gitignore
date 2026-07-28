@@ -5,9 +5,9 @@ docs/Reference/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
-# Local-only working knowledge base. Only knowledge/decisions/ ships
-# publicly — the rest is LLM-curated working notes (chips/systems/
-# concepts/amiga/log.md) that stays out of the public repo.
+# Local-only working knowledge base. knowledge/decisions/ and explicitly
+# unignored process records ship publicly — the rest is LLM-curated working
+# notes (chips/systems/concepts/amiga/log.md) that stay out of the public repo.
 knowledge/log.md
 knowledge/SCHEMA.md
 knowledge/index.md
@@ -15,6 +15,9 @@ knowledge/amiga/
 knowledge/chips/
 knowledge/concepts/
 knowledge/processes/
+!knowledge/processes/
+knowledge/processes/*
+!knowledge/processes/amiga-test-kit-verification.md
 knowledge/references/
 knowledge/systems/
 knowledge/tests/

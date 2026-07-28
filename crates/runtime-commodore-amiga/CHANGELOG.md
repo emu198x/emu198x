@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add an explicit, checksum-pinned Amiga Test Kit v1.12 gate covering stock
+  A500 and GVP A530 guest identification, visible menu/input progress, and
+  deterministic A530 snapshot replay
 - Add canonical immutable Amiga processor, accelerator, and machine
   configurations, including PAL and NTSC A500 + GVP A530 research profiles
 - Preserve every higher-CPU instruction boundary for tracing and stop shared

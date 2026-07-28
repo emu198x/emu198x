@@ -39,6 +39,25 @@ binaries via a dedicated `zex.yml` workflow, which was retired when the binaries
 were removed. z80test runs Patrik Rak's exerciser on a full 48K Spectrum, so its
 tarball also carries the free Amstrad-permissioned 48K ROM.
 
+## System-level external gates
+
+| Fixture | Consumer | Env var | Upstream source | Licence | Required firmware |
+|---|---|---|---|---|---|
+| Amiga Test Kit v1.12 | `runtime-commodore-amiga` · `amiga_test_kit` | `EMU198X_AMIGA_TEST_KIT_ADF` | keirf/amiga-stuff tag `testkit-v1.12` | Public domain / Unlicense | Kickstart 1.3 r34.005 through `EMU198X_AMIGA_KICKSTART_13_ROM` |
+
+The Test Kit ADF and its required Kickstart image are pinned by
+[`amiga-test-kit-v1.12.sha256`](amiga-test-kit-v1.12.sha256). The ADF may be
+delivered raw or in a ZIP; the manifest applies to the normalised ADF bytes.
+The public-domain ADF remains externally supplied, and the proprietary
+Kickstart ROM must not be added to the corpus store.
+
+This gate is invoked through
+[`scripts/verify-amiga-test-kit.sh`](../scripts/verify-amiga-test-kit.sh). It is
+not part of the CPU-corpus matrix or the current private-mirror contract below.
+Its provenance and assertion boundary are documented separately in
+[`amiga-test-kit-v1.12.md`](amiga-test-kit-v1.12.md) and
+[`Amiga Test Kit verification`](../knowledge/processes/amiga-test-kit-verification.md).
+
 Directory layout each env var points at: the extracted corpus directory. The
 6502 and Z80 SingleStepTests corpora and the SM83 corpus use per-opcode JSON
 files (`ab.json` → opcode 0xAB, plus `cb.json` for the SM83 CB table). The
@@ -105,3 +124,9 @@ configuration reports the missing assets and skips the corpus jobs.
 
 Re-run on demand from the Actions tab (`workflow_dispatch`) once the store is
 live.
+
+## Related documents
+
+- [Amiga Test Kit v1.12 fixture identity](amiga-test-kit-v1.12.md)
+- [Amiga Test Kit verification](../knowledge/processes/amiga-test-kit-verification.md)
+- [Test ROM bundling policy](../knowledge/decisions/test-rom-policy.md)
