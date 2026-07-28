@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [breaking] Extend the public `AmigaMachine` implementation surface with
   canonical construction, exact CPU-boundary advancement, boundary draining,
   and restored-configuration validation
+- [breaking] Bump Amiga postcard snapshots to version 25 so original-Agnus
+  identity is validated against the configured machine and region; version 24
+  is rejected because it could persist reversed PAL/NTSC identity bits
 - Bump Amiga postcard snapshots to version 24 and persist the canonical
   construction configuration alongside ActiveCpu and CPU-clock machine state;
   version 23 is rejected

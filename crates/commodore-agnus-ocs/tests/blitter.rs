@@ -454,7 +454,7 @@ fn suppressed_onedot_d_updates_bzero_finishes_and_leaves_the_bus_free() {
     use commodore_agnus_ocs::SlotOwner;
     use commodore_agnus_ocs::bits::{DMACON_BLTEN, DMACON_BLTPRI, DMACON_DMAEN};
 
-    for agnus_id in [0x1000, 0x2300] {
+    for agnus_id in [0x0000, 0x2300] {
         let mut agnus = Agnus::new();
         let ram = TestRam::new();
         // BSH=0 selects bit 0 first; the line shifter then wraps to bit

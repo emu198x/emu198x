@@ -169,6 +169,7 @@ pub trait AmigaMachine {
 
 struct MachineConfigurationState<'a> {
     region: AgnusRegion,
+    agnus_id: u16,
     cpu_model: CpuModel,
     cpu_variant_state_coherent: bool,
     cpu_clock_numerator: u64,
@@ -198,6 +199,13 @@ fn validate_machine_configuration(
         return Err(format!(
             "video region mismatch: machine is {:?}, configuration requires {expected_region:?}",
             state.region
+        ));
+    }
+    let expected_agnus_id = expected_agnus_id(config.model());
+    if state.agnus_id != expected_agnus_id {
+        return Err(format!(
+            "Agnus identity mismatch: machine reports ${:04X}, configuration requires ${expected_agnus_id:04X}",
+            state.agnus_id
         ));
     }
 
@@ -307,6 +315,18 @@ fn validate_machine_configuration(
         return Err("synchronized bridge state does not belong to the waiting CPU cycle".into());
     }
     Ok(())
+}
+
+const fn expected_agnus_id(model: Model) -> u16 {
+    if model.is_aga() {
+        if model.is_ntsc() { 0x3300 } else { 0x2300 }
+    } else if model.is_ecs() || model.uses_fat_agnus_8372a() {
+        if model.is_ntsc() { 0x3000 } else { 0x2000 }
+    } else if model.is_ntsc() {
+        0x1000
+    } else {
+        0x0000
+    }
 }
 
 fn validate_autoconfig_chain(
@@ -517,6 +537,7 @@ impl AmigaMachine for AmigaOcs {
             config,
             MachineConfigurationState {
                 region: self.region(),
+                agnus_id: self.agnus().agnus_id,
                 cpu_model: self.active_cpu().model(),
                 cpu_variant_state_coherent: self.active_cpu().variant_state_is_coherent(),
                 cpu_clock_numerator: self.cpu_clock().numerator(),
@@ -698,6 +719,7 @@ impl AmigaMachine for AmigaEcs {
             config,
             MachineConfigurationState {
                 region: self.region(),
+                agnus_id: self.agnus().agnus_id,
                 cpu_model: self.active_cpu().model(),
                 cpu_variant_state_coherent: self.active_cpu().variant_state_is_coherent(),
                 cpu_clock_numerator: self.cpu_clock().numerator(),
@@ -934,6 +956,7 @@ impl AmigaMachine for AmigaA1200 {
             config,
             MachineConfigurationState {
                 region: self.region(),
+                agnus_id: self.agnus().agnus_id,
                 cpu_model: self.active_cpu().model(),
                 cpu_variant_state_coherent: self.active_cpu().variant_state_is_coherent(),
                 cpu_clock_numerator: self.cpu_clock().numerator(),
@@ -1421,7 +1444,7 @@ impl AmigaRuntimeKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Model;
+    use crate::{AmigaOcsRuntime, Model};
     use emu198x_shell::{MachineCore, ResetKind};
 
     /// Spec invariant: every advertised variant query path is unique.
@@ -1476,6 +1499,73 @@ mod tests {
             Some(&downstream),
         )
         .expect("the downstream board may configure after the A530");
+    }
+
+    #[test]
+    fn model_builders_install_the_canonical_agnus_identity() {
+        for model in [
+            Model::A1000OcsPal,
+            Model::A1000OcsNtsc,
+            Model::A500OcsPal,
+            Model::A500OcsNtsc,
+            Model::A500OcsPalA501,
+            Model::A500OcsNtscA501,
+            Model::A2000OcsPal,
+            Model::A2000OcsNtsc,
+            Model::A500OcsPalMaxed,
+            Model::A500OcsNtscMaxed,
+            Model::A500PlusEcsPal,
+            Model::A500PlusEcsNtsc,
+            Model::A600EcsPal,
+            Model::A600EcsNtsc,
+            Model::A1200AgaPal,
+            Model::A1200AgaNtsc,
+            Model::A500OcsPalGvpA530,
+            Model::A500OcsNtscGvpA530,
+        ] {
+            let mut runtime = AmigaRuntimeKind::blank(model);
+            assert_eq!(
+                AmigaLiveAccess::agnus(&runtime).agnus_id,
+                expected_agnus_id(model),
+                "{model:?} builder installed the wrong VPOSR identity"
+            );
+            runtime.reset(ResetKind::Hard);
+            assert_eq!(
+                AmigaLiveAccess::agnus(&runtime).agnus_id,
+                expected_agnus_id(model),
+                "{model:?} hard reset installed the wrong VPOSR identity"
+            );
+        }
+    }
+
+    #[test]
+    fn configuration_validation_rejects_original_agnus_region_id_mismatch() {
+        let runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let machine = runtime.machine();
+        let error = validate_machine_configuration(
+            runtime.config(),
+            MachineConfigurationState {
+                region: machine.region(),
+                agnus_id: 0x1000,
+                cpu_model: machine.active_cpu().model(),
+                cpu_variant_state_coherent: machine.active_cpu().variant_state_is_coherent(),
+                cpu_clock_numerator: machine.cpu_clock().numerator(),
+                cpu_clock_denominator: machine.cpu_clock().denominator(),
+                cpu_domain_phase_coherent: machine.cpu_domain_phase_is_coherent(),
+                chip_ram_bytes: machine.memory().chip_ram_size(),
+                slow_ram_bytes: machine.memory().slow_ram_size(),
+                fast_ram: None,
+                a530_config: None,
+                a530_ram_bytes: None,
+                a530_autoconfig_state: None,
+                a530_configuration_coherent: true,
+                synchronized_bridge_present: false,
+                synchronized_bridge_coherent: true,
+            },
+        )
+        .expect_err("PAL timing with the original NTSC identity must be rejected");
+
+        assert!(error.contains("Agnus identity mismatch"));
     }
 
     #[test]
