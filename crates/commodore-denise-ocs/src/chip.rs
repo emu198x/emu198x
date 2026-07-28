@@ -51,12 +51,13 @@ pub struct DeniseOcs {
     pub bplcon1: u16,
     pub bplcon2: u16,
     /// BPLCON4 ($10C): bits 15-8 BPLAM (bitplane colour XOR), bits 7-4
-    /// ESPRM (even-sprite colour base), bits 3-0 OSPRM (odd-sprite
-    /// base). Resets to `$0011` per Minimig `denise.v` — the ESPRM/OSPRM
-    /// nibbles default to 1 so sprites land in the OCS `$10–$1F` colour
-    /// range, and BPLAM is 0 (no XOR). OCS leaves this at the reset value
-    /// (it has no BPLCON4 register, but the sprite base is hardwired to
-    /// the same `$1x` range); AGA software repoints it.
+    /// ESPRM (even-sprite colour base), bits 3-0 OSPRM (odd-sprite base).
+    ///
+    /// This is AGA composition state stored in the shared rendering core.
+    /// It resets to `$0011` per Minimig `denise.v`, matching the hard-wired
+    /// OCS/ECS sprite colour range. OCS and ECS register dispatch leave it
+    /// unchanged because neither chipset decodes BPLCON4; the AGA wrapper
+    /// writes it directly.
     pub bplcon4: u16,
     pub clxcon: u16,
     pub clxdat: u16,
@@ -223,7 +224,7 @@ impl DeniseOcs {
     /// | `$102`      | BPLCON1 (fine scroll, dual-playfield)             |
     /// | `$104`      | BPLCON2 (sprite/playfield priority)               |
     /// | `$098`      | CLXCON (collision match/enable mask)              |
-    /// | `$10C`      | BPLCON4 (AGA sprite XOR — ignored on OCS)         |
+    /// | `$10C`      | BPLCON4 (AGA-only; ignored here)                   |
     /// | `$110..$11C`| BPL1DAT..BPL6DAT (shift-load triggers on BPL1DAT) |
     /// | `$140..$17E`| SPRxPOS / SPRxCTL / SPRxDATA / SPRxDATB × 8       |
     /// | `$180..$1BE`| COLOR00..COLOR31                                  |
@@ -236,7 +237,6 @@ impl DeniseOcs {
             0x100 => self.bplcon0 = val,
             0x102 => self.bplcon1 = val,
             0x104 => self.bplcon2 = val,
-            0x10C => self.bplcon4 = val,
             0x110..=0x11C => {
                 let plane = ((offset - 0x110) / 2) as usize;
                 self.load_bitplane(plane, val);

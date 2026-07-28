@@ -231,6 +231,16 @@ mod tests {
     }
 
     #[test]
+    fn ecs_register_dispatch_ignores_aga_only_bplcon4() {
+        let mut denise = DeniseEcs::new();
+        let reset_value = denise.as_inner().bplcon4;
+
+        denise.write_word(0x010C, 0x4E92);
+
+        assert_eq!(denise.as_inner().bplcon4, reset_value);
+    }
+
+    #[test]
     fn into_inner_returns_mutated_wrapped_core() {
         let mut denise = DeniseEcs::default();
         denise.set_palette(3, 0x0789);

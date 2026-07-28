@@ -142,6 +142,42 @@ fn run_until_advances_time_and_emits_frame() {
 }
 
 #[test]
+fn run_until_emits_on_actual_long_interlace_field_boundary() {
+    let mut runtime =
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    runtime.machine_mut().poke_word(0x00DF_F100, 0x0004);
+
+    let target = MachineTime::new(A500_PAL_FRAME_TICKS);
+    let long_field_ticks = A500_PAL_FRAME_TICKS + (A500_PAL_FRAME_TICKS / 312);
+    let expected_time = MachineTime::new(long_field_ticks);
+    let mut frame_sink = NullFrameSink;
+    let mut audio_sink = AudioCollector::default();
+    let mut trace_sink = NullTraceSink;
+    let mut host = HostIo {
+        input_events: &[],
+        frame_sink: &mut frame_sink,
+        audio_sink: &mut audio_sink,
+        trace_sink: &mut trace_sink,
+    };
+
+    let result = runtime
+        .run_until(target, &mut host)
+        .expect("one long interlace field should run");
+
+    assert_eq!(result.reached, expected_time);
+    assert_eq!(runtime.time(), expected_time);
+    assert_eq!(runtime.machine().agnus().vbl_count, 1);
+    assert_eq!(runtime.machine().agnus().vpos, 0);
+    assert_eq!(runtime.machine().agnus().hpos, 0);
+    assert_eq!(audio_sink.packets, 1);
+    assert_eq!(audio_sink.last_timestamp, expected_time);
+    assert_eq!(
+        audio_sink.last_samples.len(),
+        audio_sample_frames_for_ticks(long_field_ticks) * usize::from(AUDIO_CHANNELS)
+    );
+}
+
+#[test]
 fn run_until_applies_mouse_input_to_controller_port_zero() {
     let mut runtime =
         AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");

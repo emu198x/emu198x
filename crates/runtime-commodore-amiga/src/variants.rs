@@ -97,12 +97,19 @@ pub trait AmigaMachine {
     /// system tick, and the runtime must preserve each one for tracing.
     fn drain_cpu_boundaries(&mut self) -> impl Iterator<Item = CpuTraceEntry>;
 
-    /// Number of machine ticks in one video frame for this variant.
-    /// PAL OCS = 312 lines × 227 CCK × 2 ticks/CCK = 141,648. NTSC
-    /// variants will return a different value; in the future some
-    /// variants (NTSC interlace fields, Vampire-with-clock-mod) may
-    /// return field-dependent values rather than a single constant.
+    /// Nominal number of machine ticks in one video field for this variant.
+    /// PAL OCS = 312 lines × 227 CCK × 2 ticks/CCK = 141,648. The
+    /// runtime uses this as its host pacing quantum; actual field
+    /// delivery follows [`Self::video_field_count`] because interlace
+    /// can add a line after a field has already begun.
     fn frame_ticks(&self) -> u64;
+
+    /// Number of video fields completed by the chipset.
+    ///
+    /// This counter is the authoritative output boundary. It prevents
+    /// runtime frame delivery from cutting a long interlace field short
+    /// when guest software changes `LACE` during the field.
+    fn video_field_count(&self) -> u64;
 
     /// Master CCK rate in Hz. Used by the runtime to downsample
     /// Paula audio to the host sample rate. PAL ≈ 3,546,895.
@@ -450,6 +457,10 @@ impl AmigaMachine for AmigaOcs {
         }
     }
 
+    fn video_field_count(&self) -> u64 {
+        self.agnus().vbl_count
+    }
+
     fn cck_hz(&self) -> u64 {
         match self.region() {
             AgnusRegion::Pal => crate::A500_PAL_CCK_HZ,
@@ -625,6 +636,10 @@ impl AmigaMachine for AmigaEcs {
             AgnusRegion::Pal => crate::A500_PAL_FRAME_TICKS,
             AgnusRegion::Ntsc => crate::A500_NTSC_FRAME_TICKS,
         }
+    }
+
+    fn video_field_count(&self) -> u64 {
+        self.agnus().vbl_count
     }
 
     fn cck_hz(&self) -> u64 {
@@ -854,6 +869,10 @@ impl AmigaMachine for AmigaA1200 {
             AgnusRegion::Pal => crate::A500_PAL_FRAME_TICKS,
             AgnusRegion::Ntsc => crate::A500_NTSC_FRAME_TICKS,
         }
+    }
+
+    fn video_field_count(&self) -> u64 {
+        self.agnus().vbl_count
     }
 
     fn cck_hz(&self) -> u64 {

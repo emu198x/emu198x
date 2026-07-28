@@ -429,17 +429,26 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
         }
 
         while self.time < target {
-            // Run one frame's worth of machine ticks. The variant
-            // declares its own frame length via `M::frame_ticks()` —
-            // PAL OCS = 141,648 ticks; NTSC variants will return a
-            // different value once they land.
-            let frame_ticks = self.machine.frame_ticks();
+            // Run to the chipset's next completed video field. A
+            // nominal PAL field is 141,648 ticks, but guest software
+            // may enable interlace after the field has begun and add
+            // one line. The Agnus field counter is therefore the
+            // authoritative output boundary.
+            let starting_field = self.machine.video_field_count();
+            let mut field_ticks = 0_u64;
             self.audio_buffer.clear();
-            for _ in 0..frame_ticks {
+            while self.machine.video_field_count() == starting_field {
                 self.tick_and_sample_audio();
+                field_ticks = field_ticks.saturating_add(1);
             }
+            // Agnus advances the beam on the first half of a CCK. Finish
+            // the second half before exposing the field so both hires
+            // pixels at the line-zero boundary have been processed and
+            // the next run starts on a complete CCK boundary.
+            self.tick_and_sample_audio();
+            field_ticks = field_ticks.saturating_add(1);
             self.frame_count = self.frame_count.saturating_add(1);
-            self.time = self.time.saturating_add(frame_ticks);
+            self.time = self.time.saturating_add(field_ticks);
             self.update_rgba_framebuffer();
 
             host.frame_sink.push_frame(FramePacket {

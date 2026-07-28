@@ -11,19 +11,27 @@
 use commodore_denise_ocs::DeniseOcs;
 
 #[test]
-fn write_word_routes_bplcon0_bplcon1_bplcon2_bplcon4_clxcon() {
+fn write_word_routes_bplcon0_bplcon1_bplcon2_clxcon() {
     let mut d = DeniseOcs::new();
     d.write_word(0x100, 0x9000); // BPLCON0
     d.write_word(0x102, 0x0040); // BPLCON1
     d.write_word(0x104, 0x0044); // BPLCON2
-    d.write_word(0x10C, 0x00A5); // BPLCON4
     d.write_word(0x098, 0x1234); // CLXCON
 
     assert_eq!(d.bplcon0, 0x9000);
     assert_eq!(d.bplcon1, 0x0040);
     assert_eq!(d.bplcon2, 0x0044);
-    assert_eq!(d.bplcon4, 0x00A5);
     assert_eq!(d.clxcon, 0x1234);
+}
+
+#[test]
+fn write_word_ignores_aga_only_bplcon4() {
+    let mut d = DeniseOcs::new();
+    let reset_value = d.bplcon4;
+
+    d.write_word(0x10C, 0x4E92);
+
+    assert_eq!(d.bplcon4, reset_value);
 }
 
 #[test]
