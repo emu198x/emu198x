@@ -15,6 +15,9 @@
 //! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../../../knowledge/decisions/amiga-machine-catalogue.md
 
 pub use crate::profiles::Model;
+use gvp_a530::A530Config;
+use machine_commodore_amiga_ocs::RamConfig;
+use motorola_68000::CpuModel;
 
 // ─── Byte-size convenience constants ────────────────────────────────
 //
@@ -33,9 +36,10 @@ pub const MIB: usize = 1024 * KIB;
 // catalogue / test readability.
 
 /// Chip RAM ceiling on the first Fatter Agnus 8361 / 8367 (A1000):
-/// 256 KiB. The original Amiga's chip-RAM budget — Workbench 1.x and
-/// the early commercial software stack target this layout.
-pub const FATTER_AGNUS_CHIP_RAM_BYTES: usize = 256 * KIB;
+/// 512 KiB. The shipping machine includes 256 KiB on the motherboard;
+/// the front expansion can supply the other 256 KiB within the same
+/// Agnus address space.
+pub const FATTER_AGNUS_CHIP_RAM_BYTES: usize = 512 * KIB;
 
 /// Chip RAM ceiling on OCS 8370 (NTSC) / 8371 (PAL early) Agnus
 /// shipped in the A500 Rev 3-5 board: 512 KiB. The canonical "stock
@@ -82,21 +86,18 @@ pub enum ChipsetKind {
     Aga,
 }
 
-/// Stock CPU type for a given Amiga model.
+/// Catalogue CPU identity for a given Amiga model.
 ///
-/// Per [`amiga-machine-catalogue.md`]:
-///
-/// > Stock CPU is hardcoded per chipset (`Cpu68000` for OCS / ECS,
-/// > `Cpu68EC020` for AGA); accelerator boards layer on top as
-/// > `Option<Accelerator>`.
-///
-/// The enum exists so curriculum tools and profile metadata can
-/// surface "this machine ships with a 68000" without reaching into
-/// the chip-stack core. Per-instruction dispatch in the runtime
-/// does **not** match on this enum — the stock CPU type is fixed
-/// statically per chipset core.
+/// The catalogue keeps this broader identity separate from [`CpuModel`] so
+/// profile metadata can eventually represent compatible processors outside
+/// Motorola's 680x0 line, such as the Apollo AC68080. Executable Motorola
+/// configurations use [`CpuConfig`], whose model is the canonical
+/// [`CpuModel`] shared by the processor implementations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum CpuKind {
+    // Keep the first five variants in their original order. Serde's default
+    // externally tagged binary representation encodes enum positions, so new
+    // catalogue identities must be appended rather than inserted.
     /// Motorola 68000 (A1000, A500, A500+, A600, A2000, CDTV).
     M68000,
     /// Motorola 68EC020 (A1200, CD32).
@@ -107,6 +108,43 @@ pub enum CpuKind {
     M68040,
     /// Apollo AC68080 (Vampire FPGA — future).
     Ac68080,
+    /// Motorola 68010 (supported by replacement-CPU configurations).
+    M68010,
+    /// Motorola 68020 (accelerators and processor replacement boards).
+    M68020,
+    /// Motorola 68EC030, without an on-chip MMU (GVP A530).
+    M68EC030,
+}
+
+/// Processor selection and input-clock rate for one machine configuration.
+///
+/// The clock rate describes processor edges, not the Amiga system-tick rate
+/// advertised by [`crate::profile_for`]. Keeping the two values separate is
+/// required for accelerators whose CPU is asynchronous to the motherboard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CpuConfig {
+    model: CpuModel,
+    clock_hz: u64,
+}
+
+impl CpuConfig {
+    /// Construct an immutable processor configuration.
+    #[must_use]
+    pub const fn new(model: CpuModel, clock_hz: u64) -> Self {
+        Self { model, clock_hz }
+    }
+
+    /// Configured processor model.
+    #[must_use]
+    pub const fn model(self) -> CpuModel {
+        self.model
+    }
+
+    /// Processor input-clock rate in hertz.
+    #[must_use]
+    pub const fn clock_hz(self) -> u64 {
+        self.clock_hz
+    }
 }
 
 /// Accelerator board override layer.
@@ -117,22 +155,83 @@ pub enum CpuKind {
 /// don't replace the chipset — only the CPU's bus mastery, with
 /// optional Fast RAM, storage, MMU, and graphics additions.
 ///
-/// **No variants are implemented today.** The enum exists so the
-/// bus-dispatch hook can be locked in ahead of the first accelerator
-/// implementation (Vampire AC68080 or PiStorm work). When the first
-/// accelerator lands, its variant is added here and the bus
-/// dispatch in the chip cores starts checking
-/// `Option<Accelerator>::Some(...)` for an override CPU + memory
-/// map.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Accelerator {
+    /// GVP A530 side expansion: MC68EC030 and accelerator-local RAM.
+    ///
+    /// The configuration records the SCSI-autoboot jumper, but the
+    /// controller and boot-ROM functions are not implemented.
+    GvpA530(A530Config),
     // Reserved:
-    //   GvpA530           — A500 trapdoor 68030 + SCSI + RAM
     //   BlizzardII        — A500 sidecar 68030
     //   Blizzard1230      — A1200 trapdoor 68030
     //   BlizzardPpc       — A1200 trapdoor 68060 + PowerPC 603/604
     //   Vampire { … }     — Apollo FPGA AC68080 + SAGA + RTG
     //   PiStorm { … }     — Raspberry Pi-backed 68k + RTG
+}
+
+/// Canonical construction configuration for one Amiga runtime.
+///
+/// The value records immutable construction intent. Mutable execution state
+/// such as CPU clock phase, registers, RAM contents, and Autoconfig progress
+/// belongs to the machine snapshot rather than this configuration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AmigaConfig {
+    model: Model,
+    ram: RamConfig,
+    cpu: CpuConfig,
+    accelerator: Option<Accelerator>,
+}
+
+impl AmigaConfig {
+    /// Construct a complete machine configuration.
+    #[must_use]
+    pub const fn new(
+        model: Model,
+        ram: RamConfig,
+        cpu: CpuConfig,
+        accelerator: Option<Accelerator>,
+    ) -> Self {
+        Self {
+            model,
+            ram,
+            cpu,
+            accelerator,
+        }
+    }
+
+    /// Catalogue model represented by this configuration.
+    #[must_use]
+    pub const fn model(self) -> Model {
+        self.model
+    }
+
+    /// Motherboard and generic Zorro-II RAM configuration.
+    #[must_use]
+    pub const fn ram(self) -> RamConfig {
+        self.ram
+    }
+
+    /// Active processor configuration.
+    #[must_use]
+    pub const fn cpu(self) -> CpuConfig {
+        self.cpu
+    }
+
+    /// Optional accelerator configuration.
+    #[must_use]
+    pub const fn accelerator(self) -> Option<Accelerator> {
+        self.accelerator
+    }
+
+    /// Return this configuration with a caller-supplied generic RAM layout.
+    ///
+    /// Accelerator-local RAM is unaffected.
+    #[must_use]
+    pub const fn with_ram(mut self, ram: RamConfig) -> Self {
+        self.ram = ram;
+        self
+    }
 }
 
 // ─── Hierarchical const aliases ─────────────────────────────────────
@@ -166,6 +265,10 @@ pub mod a500 {
     pub const MAXED_PAL: Model = Model::A500OcsPalMaxed;
     /// Maxed A500 (NTSC).
     pub const MAXED_NTSC: Model = Model::A500OcsNtscMaxed;
+    /// A500 OCS PAL validation profile with a 40 MHz GVP A530.
+    pub const GVP_A530_PAL: Model = Model::A500OcsPalGvpA530;
+    /// A500 OCS NTSC validation profile with a 40 MHz GVP A530.
+    pub const GVP_A530_NTSC: Model = Model::A500OcsNtscGvpA530;
 }
 
 /// A500+ — the 1991 ECS refresh of the A500.
@@ -209,21 +312,18 @@ pub mod a2000 {
     pub const NTSC: Model = Model::A2000OcsNtsc;
 }
 
-// ─── Future families ────────────────────────────────────────────────
+// ─── Unimplemented families ────────────────────────────────────────
 //
-// Per the rollout plan, the next machines to land are A1200 (AGA),
-// A600 (ECS, reuses Gayle from A1200 extraction), CDTV (OCS + CD
-// peripheral), A4000/030 (AGA + 68030), CD32 (AGA + Akiko),
-// A3000 (ECS + 68030), and A4000/040. When each machine's chip
-// stack lands, its constants are added here as new submodules:
+// Remaining rollout-plan families include CDTV (OCS + CD peripheral),
+// A4000/030 (AGA + 68030), CD32 (AGA + Akiko), A3000 (ECS + 68030),
+// and A4000/040. These comments reserve catalogue shape only; they do
+// not create supported profiles. When each machine's required chip stack
+// and board devices land, its constants are added here as new submodules:
 //
-//   pub mod a1200    { pub const PAL: Model = …; pub const NTSC: Model = …; }
-//   pub mod a600     { pub const PAL: Model = …; pub const HD_PAL: Model = …; }
 //   pub mod cdtv     { pub const PAL: Model = …; pub const NTSC: Model = …; }
 //   pub mod a4000    { pub const A030_PAL: Model = …; pub const A040_PAL: Model = …; }
 //   pub mod cd32     { pub const PAL: Model = …; pub const NTSC: Model = …; }
 //   pub mod a3000    { pub const DESKTOP_PAL: Model = …; pub const TOWER_PAL: Model = …; }
-//   pub mod a2000    { pub const REV_A_PAL: Model = …; pub const REV_B_PAL: Model = …; }
 
 #[cfg(test)]
 mod tests {
@@ -236,6 +336,8 @@ mod tests {
         assert_eq!(a500::PAL, Model::A500OcsPal);
         assert_eq!(a500::A501_PAL, Model::A500OcsPalA501);
         assert_eq!(a500::MAXED_NTSC, Model::A500OcsNtscMaxed);
+        assert_eq!(a500::GVP_A530_PAL, Model::A500OcsPalGvpA530);
+        assert_eq!(a500::GVP_A530_NTSC, Model::A500OcsNtscGvpA530);
         assert_eq!(a500plus::PAL, Model::A500PlusEcsPal);
         assert_eq!(a600::PAL, Model::A600EcsPal);
         assert_eq!(a600::NTSC, Model::A600EcsNtsc);
@@ -252,6 +354,7 @@ mod tests {
         assert_eq!(a500::PAL.chipset(), ChipsetKind::Ocs);
         assert_eq!(a500::A501_PAL.chipset(), ChipsetKind::Ocs);
         assert_eq!(a500::MAXED_NTSC.chipset(), ChipsetKind::Ocs);
+        assert_eq!(a500::GVP_A530_PAL.chipset(), ChipsetKind::Ocs);
         assert_eq!(a500plus::PAL.chipset(), ChipsetKind::Ecs);
         assert_eq!(a500plus::NTSC.chipset(), ChipsetKind::Ecs);
         assert_eq!(a600::PAL.chipset(), ChipsetKind::Ecs);
@@ -264,7 +367,8 @@ mod tests {
 
     #[test]
     fn cpu_kind_partitions_by_chipset() {
-        // OCS + ECS models ship stock 68000; AGA models ship 68EC020.
+        // Stock OCS + ECS models use a 68000; AGA models use a 68EC020.
+        // Accelerator validation profiles report their active CPU.
         // As A3000 / A4000 land (still under ECS / AGA but with 68030
         // / 68040 stock CPUs), this test grows.
         for model in [
@@ -292,19 +396,45 @@ mod tests {
                 "{model:?} should be 68EC020"
             );
         }
+        for model in [a500::GVP_A530_PAL, a500::GVP_A530_NTSC] {
+            assert_eq!(
+                model.cpu(),
+                CpuKind::M68EC030,
+                "{model:?} should be 68EC030"
+            );
+        }
     }
 
     #[test]
-    fn accelerator_enum_has_no_variants_yet() {
-        // The Accelerator type exists as a future-proofing axis but
-        // no variants are implemented. Once a variant lands, this
-        // test is replaced with a positive existence check.
-        //
-        // `Option<Accelerator>` is always `None` today because the
-        // empty enum can't be constructed; this is asserted via the
-        // type-level invariant rather than a runtime check.
-        fn _accelerator_is_uninhabited(a: Accelerator) -> ! {
-            match a {}
+    fn a530_validation_configuration_is_explicit_and_non_factory() {
+        let config = a500::GVP_A530_PAL.config();
+        assert_eq!(config.ram(), machine_commodore_amiga_ocs::RamConfig::bare());
+        assert_eq!(config.cpu(), CpuConfig::new(CpuModel::M68EC030, 40_000_000));
+        let Some(Accelerator::GvpA530(a530)) = config.accelerator() else {
+            panic!("A530 profile must carry its accelerator configuration");
+        };
+        assert_eq!(a530.ram_size().kib(), 1024);
+        assert!(!a530.cache_enabled());
+        assert!(!a530.autoboot_enabled());
+    }
+
+    #[test]
+    fn cpu_kind_preserves_original_serialized_discriminants() {
+        for (kind, expected) in [
+            (CpuKind::M68000, 0),
+            (CpuKind::M68EC020, 1),
+            (CpuKind::M68030, 2),
+            (CpuKind::M68040, 3),
+            (CpuKind::Ac68080, 4),
+            (CpuKind::M68010, 5),
+            (CpuKind::M68020, 6),
+            (CpuKind::M68EC030, 7),
+        ] {
+            assert_eq!(
+                postcard::to_allocvec(&kind).expect("serialize CPU kind"),
+                vec![expected],
+                "{kind:?} must retain its append-only binary discriminant"
+            );
         }
     }
 }

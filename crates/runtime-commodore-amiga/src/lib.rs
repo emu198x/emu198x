@@ -14,10 +14,11 @@ mod typing;
 mod variants;
 
 pub use amiga_model::{
-    Accelerator, ChipsetKind, CpuKind, ECS_AGA_CHIP_RAM_BYTES, FAT_AGNUS_CHIP_RAM_BYTES,
-    FATTER_AGNUS_CHIP_RAM_BYTES, KIB, MIB, OCS_AGNUS_CHIP_RAM_BYTES,
+    Accelerator, AmigaConfig, ChipsetKind, CpuConfig, CpuKind, ECS_AGA_CHIP_RAM_BYTES,
+    FAT_AGNUS_CHIP_RAM_BYTES, FATTER_AGNUS_CHIP_RAM_BYTES, KIB, MIB, OCS_AGNUS_CHIP_RAM_BYTES,
 };
 pub use cpu_trace::CpuTraceEntry;
+pub use gvp_a530::{A530Config, A530RamSize};
 pub use input::keys_for_char;
 pub use live_access::{
     AgaLisaSnapshot, AmigaLiveAccess, Bplcon0LogEntry, CpuSnapshot, CustomWriteEntry, DskLogEntry,

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add canonical immutable Amiga processor, accelerator, and machine
+  configurations, including PAL and NTSC A500 + GVP A530 research profiles
+- Preserve every higher-CPU instruction boundary for tracing and stop shared
+  debugger steps after exactly one instruction
 - Preserve MC68020 logical data transfers across sized A1200 chip-RAM phases,
   including unaligned longword accesses
 - Refresh the A1200 Kickstart 3.1 and Workbench 3.1 golden frame for the
@@ -20,6 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Timestamp public CPU-trace entries with the zero-based Amiga system tick
+  containing the boundary; several higher-CPU boundaries can share one tick
+- Classify the existing unvalidated A500, A500+A501, A500-maxed, and A1200
+  NTSC profiles as Research rather than Boots
+- [breaking] Extend the public exhaustive `Model`, `CpuKind`, and
+  `Accelerator` enums with the A500/A530 profiles and the higher-CPU
+  configuration vocabulary
+- [breaking] Extend the public `AmigaMachine` implementation surface with
+  canonical construction, exact CPU-boundary advancement, boundary draining,
+  and restored-configuration validation
+- Bump Amiga postcard snapshots to version 24 and persist the canonical
+  construction configuration alongside ActiveCpu and CPU-clock machine state;
+  version 23 is rejected
 - Bump Amiga postcard snapshots to version 23 so an in-flight
   MC68020/MC68030 dynamic-sized transfer retains its remaining SIZ value,
   complete write operand, partial read accumulator and current bus outputs;
@@ -97,6 +114,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vertical-blank and current-CCK sprite-arbitration state; version 1 is rejected
 
 ### Fixed
+
+- Correct the public A1000/Fatter-Agnus chip-RAM ceiling to its addressable
+  512 KiB while retaining the 256 KiB shipping profile
+- Validate model-specific Agnus RAM ceilings before construction
+- Reject malformed persisted floppy images and incoherent A530 state before
+  committing a snapshot restore, and clear observational CPU traces only
+  after a successful restore
+- Reject snapshot states that advance a downstream Autoconfig board before
+  the A530 leaves the probe window or map two configured boards over the same
+  address range
+- Reject non-canonical audio resampler phases and chipset framebuffers whose
+  serialized length does not exactly match the selected machine
+- Reset transient Paula analog-filter history after machine reset and
+  successful snapshot restore
+- Preserve partially consumed higher-CPU system ticks across snapshots
+- Preserve ECS and A1200 NTSC region selection across runtime reset
 
 - Preserve OCS-shaped A2000 and maxed-A500 profiles while selecting
   their installed Fat Agnus 8372A identity, RAM ceiling, sprite

@@ -5,7 +5,11 @@ use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
     MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
 };
+use gvp_a530::{A530Config, A530RamSize};
 use machine_commodore_amiga_ocs::RamConfig;
+use motorola_68000::CpuModel;
+
+use crate::amiga_model::{Accelerator, AmigaConfig, CpuConfig, CpuKind};
 
 /// Supported Amiga models in the fresh workspace bootstrap.
 ///
@@ -15,7 +19,7 @@ use machine_commodore_amiga_ocs::RamConfig;
 /// the same configurations as sold in North America (60 Hz, 262-line
 /// frames with the short/long line alternation modelled in the chip
 /// layer per HRM p. 785). Custom layouts outside these presets are
-/// available through `AmigaRuntime::from_ram_config`.
+/// available through the runtime variant's `with_ram_config` constructor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Model {
     /// A1000 OCS PAL (shipping config, 1985): 256 KiB chip RAM,
@@ -69,6 +73,13 @@ pub enum Model {
     A2000OcsPal,
     /// A2000 OCS NTSC.
     A2000OcsNtsc,
+    /// A500 OCS PAL validation configuration with a 40 MHz GVP A530,
+    /// 1 MiB accelerator-local RAM, cache disabled, and SCSI autoboot
+    /// disabled.
+    A500OcsPalGvpA530,
+    /// NTSC counterpart of the A500 + GVP A530 validation
+    /// configuration.
+    A500OcsNtscGvpA530,
 }
 
 /// Native PAL frame length in Agnus colour clocks.
@@ -115,6 +126,8 @@ impl Model {
             Self::A600EcsNtsc => "commodore-amiga-a600-ecs-ntsc",
             Self::A2000OcsPal => "commodore-amiga-a2000-ocs-pal",
             Self::A2000OcsNtsc => "commodore-amiga-a2000-ocs-ntsc",
+            Self::A500OcsPalGvpA530 => "commodore-amiga-a500-ocs-pal-gvp-a530-40mhz-1m",
+            Self::A500OcsNtscGvpA530 => "commodore-amiga-a500-ocs-ntsc-gvp-a530-40mhz-1m",
         }
     }
 
@@ -144,11 +157,14 @@ impl Model {
             Self::A600EcsNtsc => "Commodore Amiga 600 (ECS NTSC)",
             Self::A2000OcsPal => "Commodore Amiga 2000 (OCS PAL, Fat Agnus 8372A)",
             Self::A2000OcsNtsc => "Commodore Amiga 2000 (OCS NTSC, Fat Agnus 8372A)",
+            Self::A500OcsPalGvpA530 => "Commodore Amiga 500 + GVP A530 (OCS PAL, 40 MHz, 1 MiB)",
+            Self::A500OcsNtscGvpA530 => "Commodore Amiga 500 + GVP A530 (OCS NTSC, 40 MHz, 1 MiB)",
         }
     }
 
-    /// RAM layout for this model. Use `AmigaRuntime::from_ram_config`
-    /// if you need a layout outside the preset set. The PAL/NTSC pairs
+    /// RAM layout for this model. Use the runtime variant's
+    /// `with_ram_config` constructor for a layout outside the preset set.
+    /// The PAL/NTSC pairs
     /// share a layout — only Agnus differs.
     #[must_use]
     pub const fn ram_config(self) -> RamConfig {
@@ -158,7 +174,10 @@ impl Model {
                 slow_kb: 0,
                 fast_kb: 0,
             },
-            Self::A500OcsPal | Self::A500OcsNtsc => RamConfig::bare(),
+            Self::A500OcsPal
+            | Self::A500OcsNtsc
+            | Self::A500OcsPalGvpA530
+            | Self::A500OcsNtscGvpA530 => RamConfig::bare(),
             Self::A500OcsPalA501 | Self::A500OcsNtscA501 => RamConfig::a501_trapdoor(),
             Self::A500PlusEcsPal | Self::A500PlusEcsNtsc => RamConfig::a500_plus(),
             Self::A500OcsPalMaxed | Self::A500OcsNtscMaxed => RamConfig::a500_maxed(),
@@ -220,6 +239,7 @@ impl Model {
                 | Self::A1200AgaNtsc
                 | Self::A600EcsNtsc
                 | Self::A2000OcsNtsc
+                | Self::A500OcsNtscGvpA530
         )
     }
 
@@ -261,7 +281,9 @@ impl Model {
             | Self::A500OcsPalMaxed
             | Self::A500OcsNtscMaxed
             | Self::A2000OcsPal
-            | Self::A2000OcsNtsc => ChipsetKind::Ocs,
+            | Self::A2000OcsNtsc
+            | Self::A500OcsPalGvpA530
+            | Self::A500OcsNtscGvpA530 => ChipsetKind::Ocs,
             Self::A500PlusEcsPal | Self::A500PlusEcsNtsc | Self::A600EcsPal | Self::A600EcsNtsc => {
                 ChipsetKind::Ecs
             }
@@ -269,10 +291,7 @@ impl Model {
         }
     }
 
-    /// Stock CPU type for this model. Accelerator boards override
-    /// the active CPU at runtime through `Option<Accelerator>`
-    /// (per [`amiga-machine-catalogue.md`]); this method returns
-    /// the *stock* CPU only.
+    /// Active CPU type for this model configuration.
     ///
     /// [`amiga-machine-catalogue.md`]: ../../../../../knowledge/decisions/amiga-machine-catalogue.md
     #[must_use]
@@ -294,7 +313,57 @@ impl Model {
             | Self::A2000OcsPal
             | Self::A2000OcsNtsc => CpuKind::M68000,
             Self::A1200AgaPal | Self::A1200AgaNtsc => CpuKind::M68EC020,
+            Self::A500OcsPalGvpA530 | Self::A500OcsNtscGvpA530 => CpuKind::M68EC030,
         }
+    }
+
+    /// Canonical immutable construction configuration.
+    #[must_use]
+    pub const fn config(self) -> AmigaConfig {
+        let system_tick_hz = if self.is_ntsc() {
+            A500_NTSC_CCK_HZ * 2
+        } else {
+            A500_PAL_CCK_HZ * 2
+        };
+        let cpu_clock_hz = match self.cpu() {
+            CpuKind::M68000 | CpuKind::M68010 => system_tick_hz,
+            CpuKind::M68EC020 => system_tick_hz * 2,
+            CpuKind::M68020 => system_tick_hz,
+            CpuKind::M68EC030 => 40_000_000,
+            CpuKind::M68030 | CpuKind::M68040 | CpuKind::Ac68080 => system_tick_hz,
+        };
+        let cpu_model = match self {
+            Self::A1000OcsPal
+            | Self::A1000OcsNtsc
+            | Self::A500OcsPal
+            | Self::A500OcsNtsc
+            | Self::A500OcsPalA501
+            | Self::A500OcsNtscA501
+            | Self::A500OcsPalMaxed
+            | Self::A500OcsNtscMaxed
+            | Self::A500PlusEcsPal
+            | Self::A500PlusEcsNtsc
+            | Self::A600EcsPal
+            | Self::A600EcsNtsc
+            | Self::A2000OcsPal
+            | Self::A2000OcsNtsc => CpuModel::M68000,
+            Self::A1200AgaPal | Self::A1200AgaNtsc => CpuModel::M68EC020,
+            Self::A500OcsPalGvpA530 | Self::A500OcsNtscGvpA530 => CpuModel::M68EC030,
+        };
+        let accelerator = match self {
+            Self::A500OcsPalGvpA530 | Self::A500OcsNtscGvpA530 => Some(Accelerator::GvpA530(
+                A530Config::new(A530RamSize::Mib1, 0)
+                    .with_cache_enabled(false)
+                    .with_autoboot_enabled(false),
+            )),
+            _ => None,
+        };
+        AmigaConfig::new(
+            self,
+            self.ram_config(),
+            CpuConfig::new(cpu_model, cpu_clock_hz),
+            accelerator,
+        )
     }
 }
 
@@ -318,6 +387,8 @@ pub fn profiles() -> Vec<MachineProfile> {
         profile_for(Model::A600EcsNtsc),
         profile_for(Model::A2000OcsPal),
         profile_for(Model::A2000OcsNtsc),
+        profile_for(Model::A500OcsPalGvpA530),
+        profile_for(Model::A500OcsNtscGvpA530),
     ]
 }
 
@@ -348,7 +419,10 @@ pub fn profile_for(model: Model) -> MachineProfile {
         | Model::A500OcsPalMaxed
         | Model::A500OcsNtscMaxed => 1987,
         Model::A500PlusEcsPal | Model::A500PlusEcsNtsc => 1991,
-        Model::A1200AgaPal | Model::A1200AgaNtsc => 1992,
+        Model::A1200AgaPal
+        | Model::A1200AgaNtsc
+        | Model::A500OcsPalGvpA530
+        | Model::A500OcsNtscGvpA530 => 1992,
         Model::A600EcsPal | Model::A600EcsNtsc => 1992,
         // A2000A shipped 1987 alongside the A500; A2000B (Fat Agnus
         // Rev 6.x) is 1989+. We catalogue the Rev B variant here, so
@@ -383,7 +457,19 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Amiga,
         region,
-        support_tier: SupportTier::Boots,
+        support_tier: if matches!(
+            model,
+            Model::A500OcsNtsc
+                | Model::A500OcsNtscA501
+                | Model::A500OcsNtscMaxed
+                | Model::A1200AgaNtsc
+                | Model::A500OcsPalGvpA530
+                | Model::A500OcsNtscGvpA530
+        ) {
+            SupportTier::Research
+        } else {
+            SupportTier::Boots
+        },
         release_year,
         summary: match model {
             Model::A1000OcsPal => "Amiga 1000 OCS PAL — bootstrap-ROM cold boot into writable WOM, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Kickstart-to-Workbench disk swaps are scriptable via headless media reloads.".into(),
@@ -398,6 +484,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
             Model::A600EcsNtsc => "Amiga 600 ECS NTSC — same chip stack as the A600 PAL, NTSC Agnus.".into(),
             Model::A2000OcsPal => "Amiga 2000 mixed PAL — 68000 + ECS Fat Agnus 8372A + OCS Denise + Paula, configured for 1 MiB chip RAM, Kickstart 1.3 / 2.04 and Zorro-II slots. The 8372A path covers identity, RAM ceiling, ten-bit sprite comparators, extended blits, DIWHIGH display-DMA gating and the currently modelled programmable timing registers; additional ECS Agnus behavior remains incomplete. A2000A (early Agnus 8371, 512 KiB chip) does not yet have a distinct runtime model; only the raw `AmigaOcs::with_ram_config` machine constructor can currently select the early chip without A2000 identity.".into(),
             Model::A2000OcsNtsc => "Amiga 2000 mixed NTSC — the same ECS Fat Agnus 8372A + OCS Denise stack as the PAL profile, with NTSC beam timing and the currently modelled 8372A extension registers; additional ECS Agnus behavior remains incomplete.".into(),
+            Model::A500OcsPalGvpA530 => "Research validation profile: Amiga 500 OCS PAL with a 40 MHz MC68EC030 GVP A530 and 1 MiB accelerator-local RAM. Cache and SCSI autoboot are disabled so validation does not claim unimplemented behaviour.".into(),
+            Model::A500OcsNtscGvpA530 => "Research validation profile: Amiga 500 OCS NTSC with a 40 MHz MC68EC030 GVP A530 and 1 MiB accelerator-local RAM. Cache and SCSI autoboot are disabled so validation does not claim unimplemented behaviour.".into(),
         },
         clock: ClockDesc::new("system-tick", ClockRate::from_hz(tick_hz)),
         firmware: vec![FirmwareRequirement::new(firmware_id, firmware_name, false)],
@@ -457,5 +545,45 @@ mod tests {
         );
         assert_eq!(profile.media_slots.len(), 1);
         assert_eq!(profile.media_slots[0].id.as_ref(), "floppy-0");
+    }
+
+    #[test]
+    fn a530_profiles_are_research_tier_and_keep_system_clock_regional() {
+        let pal = profile_for(Model::A500OcsPalGvpA530);
+        let ntsc = profile_for(Model::A500OcsNtscGvpA530);
+
+        assert_eq!(pal.support_tier, SupportTier::Research);
+        assert_eq!(ntsc.support_tier, SupportTier::Research);
+        assert_eq!(pal.clock.rate.numerator_hz, A500_PAL_CCK_HZ * 2);
+        assert_eq!(ntsc.clock.rate.numerator_hz, A500_NTSC_CCK_HZ * 2);
+        assert_eq!(pal.region, Region::Pal);
+        assert_eq!(ntsc.region, Region::Ntsc);
+        assert_eq!(pal.profile_id.as_str(), Model::A500OcsPalGvpA530.model_id());
+        assert_eq!(
+            ntsc.profile_id.as_str(),
+            Model::A500OcsNtscGvpA530.model_id()
+        );
+    }
+
+    #[test]
+    fn profiles_with_pending_boot_validation_are_research_tier() {
+        for model in [
+            Model::A500OcsNtsc,
+            Model::A500OcsNtscA501,
+            Model::A500OcsNtscMaxed,
+            Model::A1200AgaNtsc,
+        ] {
+            assert_eq!(
+                profile_for(model).support_tier,
+                SupportTier::Research,
+                "{model:?} must not claim a completed baseline boot path"
+            );
+        }
+
+        assert_eq!(
+            profile_for(Model::A1200AgaPal).support_tier,
+            SupportTier::Boots,
+            "the validated PAL A1200 retains its baseline boot claim"
+        );
     }
 }

@@ -63,8 +63,9 @@ Usage: emu198x-amiga --headless [OPTIONS]   (add --no-default-features for graph
 Firmware:
     --rom-dir DIR             directory containing Kickstart ROM images
     --kickstart PATH          explicit ROM path (Kickstart on A500, bootstrap on A1000)
-    --model MODEL             a1000 | a500 | a500-a501 | a500-plus | a500-maxed
-                              | a600 | a1200 | a2000 [default: a500]
+    --model MODEL             a1000 | a500 | a500-gvp-a530 | a500-a501
+                              | a500-plus | a500-maxed | a600 | a1200 | a2000
+                              [default: a500]
 
 Media:
     --disk PATH               insert one ADF image into DF0:

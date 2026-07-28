@@ -16,10 +16,11 @@
 //!   keys + Space fall through to that port.
 //! - **Keyboard**: [`map_amiga_key`] maps each physical host key to one Amiga key
 //!   name.
-//! - **Variants**: all eight Amiga models (A1000 / A500 family / A600 / A1200 /
-//!   A2000) as the Machine-menu radio. Each switch resolves the target model's
-//!   Kickstart via the staged ROM resolution in `model.rs` and rebuilds the
-//!   runtime with `from_firmware` (the inserted disk is lost — a hardware swap).
+//! - **Variants**: all nine selectable PAL configurations (A1000 / A500 family,
+//!   including the A530 research profile / A600 / A1200 / A2000) as the
+//!   Machine-menu radio. Each switch resolves the target model's Kickstart via
+//!   the staged ROM resolution in `model.rs` and rebuilds the runtime with
+//!   `from_firmware` (the inserted disk is lost — a hardware swap).
 //! - **Reset**: [`after_reset`](UiSystem::after_reset) re-inserts the DF0 ADF so
 //!   F12 keeps the disk (the bespoke runner dropped it).
 //!
@@ -277,12 +278,13 @@ fn model_arg_id(model: ModelArg) -> &'static str {
     ModelArg::IDS[match model {
         ModelArg::A1000 => 0,
         ModelArg::A500 => 1,
-        ModelArg::A500A501 => 2,
-        ModelArg::A500Plus => 3,
-        ModelArg::A500Maxed => 4,
-        ModelArg::A600 => 5,
-        ModelArg::A1200 => 6,
-        ModelArg::A2000 => 7,
+        ModelArg::A500GvpA530 => 2,
+        ModelArg::A500A501 => 3,
+        ModelArg::A500Plus => 4,
+        ModelArg::A500Maxed => 5,
+        ModelArg::A600 => 6,
+        ModelArg::A1200 => 7,
+        ModelArg::A2000 => 8,
     }]
 }
 
@@ -483,14 +485,14 @@ mod tests {
     }
 
     #[test]
-    fn variants_list_covers_all_eight_models() {
+    fn variants_list_covers_all_nine_models() {
         let system = AmigaSystem {
             model: ModelArg::A500,
             disk: None,
             keyboard_joystick: false,
         };
         let variants = system.variants();
-        assert_eq!(variants.len(), 8);
+        assert_eq!(variants.len(), 9);
         let ids: Vec<_> = variants.iter().map(|v| v.id.as_ref()).collect();
         assert_eq!(ids, ModelArg::IDS);
         assert_eq!(

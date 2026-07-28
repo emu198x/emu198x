@@ -1,12 +1,11 @@
 //! Per-variant trait + impls for the Amiga family.
 //!
-//! Today there is one variant: A1000 / A500-family OCS PAL, all
-//! served by a single `AmigaOcs` machine struct via different RAM
-//! configs and bootstrap modes. The trait `AmigaMachine` exists
-//! so that adding ECS / AGA / SAGA / NTSC / Vampire AC68080 /
-//! PiStorm / RTG variants becomes a mechanical extension rather
-//! than a runtime rewrite. Any type that implements `AmigaMachine`
-//! plugs into `AmigaRuntime<M>` with no further runtime changes.
+//! Three chipset-tier machines currently implement the shared surface:
+//! OCS-shaped A1000/A500/A2000 configurations, ECS A500+/A600
+//! configurations, and the AGA A1200. PAL and NTSC regions, RAM layouts,
+//! and the A500's optional GVP A530 accelerator remain canonical
+//! configuration rather than parallel machine types. Future chipset tiers
+//! can implement `AmigaMachine` without reshaping the runtime.
 //!
 //! See `knowledge/decisions/runtime-internal-shape.md` for the playbook
 //! and the Amiga long-term-scope memory note for the full target
@@ -16,6 +15,7 @@
 
 use emu198x_shell::QueryError;
 use format_commodore_amiga_adf::Adf;
+use gvp_a530::A530Config;
 use machine_commodore_amiga_a1200::{AmigaA1200, AmigaA1200Snapshot};
 // `CiaExt::power_led` — the LED-filter gate. The trait is re-exported
 // identically by every Amiga machine crate (it originates in
@@ -23,28 +23,28 @@ use machine_commodore_amiga_a1200::{AmigaA1200, AmigaA1200Snapshot};
 use machine_commodore_amiga_ecs::CiaExt;
 use machine_commodore_amiga_ecs::{AmigaEcs, AmigaEcsSnapshot};
 use machine_commodore_amiga_ocs::{
-    AgnusRegion, AmigaOcs, AmigaOcsSnapshot, FB_HEIGHT, FB_WIDTH, RamConfig,
+    AgnusRegion, AmigaOcs, AmigaOcsSnapshot, AutoconfigBoard, AutoconfigState, FB_HEIGHT, FB_WIDTH,
 };
+use motorola_68000::CpuModel;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use crate::live_access::AmigaLiveAccess;
 use crate::queries::{aga_snapshot, chip_field, is_chip, resolve_chip_query};
-use crate::{AmigaRuntime, Model};
+use crate::{
+    A500_NTSC_CCK_HZ, A500_PAL_CCK_HZ, Accelerator, AmigaConfig, AmigaRuntime, CpuTraceEntry, Model,
+};
 
 /// Per-variant machine surface for the Amiga family.
 ///
 /// Implemented by every concrete machine type that wants to plug
 /// into `AmigaRuntime<M>`. The trait is deliberately agnostic to:
 ///
-///   * which CPU is running (Cpu68000 today, the dormant
-///     Cpu68020/30/40 variant crates next, eventually a software
-///     AC68080 model for Apollo Vampire and a software 68k host
-///     for PiStorm)
-///   * which chipset is producing the chipset framebuffer (OCS
-///     today, ECS / AGA / SAGA later — SAGA is a chip-stack
-///     replacement, not an OCS+wrapper)
+///   * which supported Motorola CPU is running through `ActiveCpu`
+///   * which chipset is producing the chipset framebuffer (OCS,
+///     ECS, or AGA today; SAGA remains a future chip-stack
+///     replacement rather than an OCS wrapper)
 ///   * which graphics output is in use (chipset-only today; RTG
 ///     cards arrive via a slotted framebuffer accessor without
 ///     reshaping the trait)
@@ -60,28 +60,42 @@ pub trait AmigaMachine {
     /// postcard inside the runtime's snapshot envelope.
     type Snapshot: Serialize + DeserializeOwned;
 
-    /// Variant-specific extra metadata the runtime carries across
-    /// snapshots so a restore can reconstruct the machine. For OCS
-    /// this is `RamConfig` (the chip / slow / fast RAM sizes the
-    /// chip stack was built around). Future variants may carry a
-    /// chipset descriptor (ECS/AGA/SAGA marker), a CPU + accelerator
-    /// pair (Vampire AC68080 vs PiStorm 68k), or an RTG card
-    /// inventory — whatever needs to be replayed alongside the
-    /// chip-stack snapshot to fully reconstruct the machine.
-    type SnapshotMetadata: Serialize + DeserializeOwned + Clone;
-
     // ---------- clock / lifecycle ----------
 
+    /// Build a fresh chip stack from firmware and canonical construction
+    /// configuration. Snapshot restore uses this to validate a candidate
+    /// machine without touching the live one.
+    fn build(firmware: &[u8], config: AmigaConfig) -> Self
+    where
+        Self: Sized;
+
     /// Rebuild the chip stack from scratch using the supplied firmware
-    /// and metadata. Drives `MachineCore::reset`. Variants that do
-    /// "construct fresh" (the OCS pattern: `*self =
-    /// AmigaOcs::with_ram_config(firmware, metadata)`) use this hook
-    /// to replace themselves; future in-place reset variants can
-    /// implement a per-field clear instead.
-    fn rebuild(&mut self, firmware: &[u8], metadata: &Self::SnapshotMetadata);
+    /// and canonical construction configuration. Drives
+    /// `MachineCore::reset`.
+    fn rebuild(&mut self, firmware: &[u8], config: AmigaConfig)
+    where
+        Self: Sized,
+    {
+        *self = Self::build(firmware, config);
+    }
 
     /// Advance the machine by one tick (master / 4 = half-CCK).
     fn tick(&mut self);
+
+    /// Advance either to the next CPU instruction boundary or through one
+    /// complete system tick when no boundary is crossed.
+    ///
+    /// Faster processors may return at a boundary while retaining later CPU
+    /// edges from the same system tick. The next call resumes those edges
+    /// before advancing the chipset.
+    fn advance_to_cpu_boundary(&mut self) -> bool;
+
+    /// Drain every CPU instruction boundary retained by the machine.
+    ///
+    /// The queue decouples CPU edges from runtime observations: a faster
+    /// processor can cross multiple instruction boundaries during one Amiga
+    /// system tick, and the runtime must preserve each one for tracing.
+    fn drain_cpu_boundaries(&mut self) -> impl Iterator<Item = CpuTraceEntry>;
 
     /// Number of machine ticks in one video frame for this variant.
     /// PAL OCS = 312 lines × 227 CCK × 2 ticks/CCK = 141,648. NTSC
@@ -130,6 +144,9 @@ pub trait AmigaMachine {
 
     fn snapshot_state(&self) -> Self::Snapshot;
     fn restore_snapshot_state(&mut self, snapshot: Self::Snapshot);
+    /// Confirm that restored machine state still represents the canonical
+    /// construction configuration carried by the runtime envelope.
+    fn validate_configuration(&self, config: AmigaConfig) -> Result<(), String>;
 
     // ---------- queries ----------
 
@@ -141,6 +158,199 @@ pub trait AmigaMachine {
     /// the variant doesn't recognise the path so the runtime can
     /// surface UnknownPath cleanly.
     fn resolve_variant_query(&self, path: &str) -> Result<Option<Value>, QueryError>;
+}
+
+struct MachineConfigurationState<'a> {
+    region: AgnusRegion,
+    cpu_model: CpuModel,
+    cpu_variant_state_coherent: bool,
+    cpu_clock_numerator: u64,
+    cpu_clock_denominator: u64,
+    cpu_domain_phase_coherent: bool,
+    chip_ram_bytes: usize,
+    slow_ram_bytes: usize,
+    fast_ram: Option<&'a AutoconfigBoard>,
+    a530_config: Option<A530Config>,
+    a530_ram_bytes: Option<u32>,
+    a530_autoconfig_state: Option<AutoconfigState>,
+    a530_configuration_coherent: bool,
+    synchronized_bridge_present: bool,
+    synchronized_bridge_coherent: bool,
+}
+
+fn validate_machine_configuration(
+    config: AmigaConfig,
+    state: MachineConfigurationState<'_>,
+) -> Result<(), String> {
+    let expected_region = if config.model().is_ntsc() {
+        AgnusRegion::Ntsc
+    } else {
+        AgnusRegion::Pal
+    };
+    if state.region != expected_region {
+        return Err(format!(
+            "video region mismatch: machine is {:?}, configuration requires {expected_region:?}",
+            state.region
+        ));
+    }
+
+    let expected_cpu_model = config.cpu().model();
+    if state.cpu_model != expected_cpu_model {
+        return Err(format!(
+            "CPU mismatch: machine is {:?}, configuration requires {expected_cpu_model:?}",
+            state.cpu_model
+        ));
+    }
+    if !state.cpu_variant_state_coherent {
+        return Err("processor-family state is not coherent with the active CPU variant".into());
+    }
+
+    let system_tick_hz = if config.model().is_ntsc() {
+        A500_NTSC_CCK_HZ * 2
+    } else {
+        A500_PAL_CCK_HZ * 2
+    };
+    let divisor = greatest_common_divisor(config.cpu().clock_hz(), system_tick_hz);
+    let expected_clock_numerator = config.cpu().clock_hz() / divisor;
+    let expected_clock_denominator = system_tick_hz / divisor;
+    if state.cpu_clock_numerator != expected_clock_numerator
+        || state.cpu_clock_denominator != expected_clock_denominator
+    {
+        return Err(format!(
+            "CPU clock mismatch: machine is {}/{}, configuration requires {}/{}",
+            state.cpu_clock_numerator,
+            state.cpu_clock_denominator,
+            expected_clock_numerator,
+            expected_clock_denominator
+        ));
+    }
+    if !state.cpu_domain_phase_coherent {
+        return Err("partial CPU-domain state is not coherent with its clock".into());
+    }
+
+    let ram = config.ram();
+    if state.chip_ram_bytes != ram.chip_kb as usize * 1024
+        || state.slow_ram_bytes != ram.slow_kb as usize * 1024
+    {
+        return Err(format!(
+            "motherboard RAM mismatch: machine has {} chip/{} slow bytes, configuration requires {} chip/{} slow bytes",
+            state.chip_ram_bytes,
+            state.slow_ram_bytes,
+            ram.chip_kb as usize * 1024,
+            ram.slow_kb as usize * 1024
+        ));
+    }
+    let expected_fast_ram_bytes = [8192, 4096, 2048, 1024, 512, 256, 128, 64]
+        .into_iter()
+        .find(|&kib| ram.fast_kb >= kib)
+        .map(|kib| kib * 1024);
+    if state.fast_ram.map(AutoconfigBoard::ram_size) != expected_fast_ram_bytes {
+        return Err(format!(
+            "generic Fast RAM mismatch: machine has {:?} bytes, configuration requires {expected_fast_ram_bytes:?}",
+            state.fast_ram.map(AutoconfigBoard::ram_size)
+        ));
+    }
+    if state.fast_ram.is_some_and(|board| {
+        !board.configuration_is_coherent() || !board.has_default_fast_ram_identity()
+    }) {
+        return Err(
+            "generic Fast RAM backing, Autoconfig identity, and configuration disagree".into(),
+        );
+    }
+
+    let expected_a530 = config
+        .accelerator()
+        .map(|Accelerator::GvpA530(board)| board);
+    if state.a530_config != expected_a530 {
+        return Err(format!(
+            "GVP A530 mismatch: machine has {:?}, configuration requires {expected_a530:?}",
+            state.a530_config
+        ));
+    }
+    let expected_a530_ram_bytes = expected_a530.map(|board| board.ram_size().bytes());
+    if state.a530_ram_bytes != expected_a530_ram_bytes {
+        return Err(format!(
+            "GVP A530 local RAM mismatch: machine has {:?} bytes, configuration requires {expected_a530_ram_bytes:?}",
+            state.a530_ram_bytes
+        ));
+    }
+    if state.a530_autoconfig_state.is_some() != expected_a530.is_some() {
+        return Err(format!(
+            "GVP A530 Autoconfig state mismatch: present={}, expected={}",
+            state.a530_autoconfig_state.is_some(),
+            expected_a530.is_some()
+        ));
+    }
+    if !state.a530_configuration_coherent {
+        return Err("GVP A530 backing, Autoconfig identity, and configuration disagree".into());
+    }
+    validate_autoconfig_chain(
+        state.a530_autoconfig_state,
+        state.a530_ram_bytes,
+        state.fast_ram,
+    )?;
+    if state.synchronized_bridge_present != expected_a530.is_some() {
+        return Err(format!(
+            "synchronized bridge mismatch: present={}, expected={}",
+            state.synchronized_bridge_present,
+            expected_a530.is_some()
+        ));
+    }
+    if !state.synchronized_bridge_coherent {
+        return Err("synchronized bridge state does not belong to the waiting CPU cycle".into());
+    }
+    Ok(())
+}
+
+fn validate_autoconfig_chain(
+    first_state: Option<AutoconfigState>,
+    first_ram_bytes: Option<u32>,
+    downstream: Option<&AutoconfigBoard>,
+) -> Result<(), String> {
+    let Some(first_state) = first_state else {
+        return Ok(());
+    };
+
+    if matches!(
+        first_state,
+        AutoconfigState::Unconfigured | AutoconfigState::WaitingHighBase { .. }
+    ) && downstream.is_some_and(|board| board.state() != AutoconfigState::Unconfigured)
+    {
+        return Err(
+            "downstream Fast RAM advanced before the preceding GVP A530 left the probe window"
+                .into(),
+        );
+    }
+
+    let (AutoconfigState::Configured { base: first_base }, Some(first_size), Some(downstream)) =
+        (first_state, first_ram_bytes, downstream)
+    else {
+        return Ok(());
+    };
+    let Some(downstream_base) = downstream.base() else {
+        return Ok(());
+    };
+
+    let first_end = first_base
+        .checked_add(first_size)
+        .ok_or_else(|| "GVP A530 mapped range overflows the address space".to_owned())?;
+    let downstream_end = downstream_base
+        .checked_add(downstream.ram_size())
+        .ok_or_else(|| "generic Fast RAM mapped range overflows the address space".to_owned())?;
+    if first_base < downstream_end && downstream_base < first_end {
+        return Err("configured Autoconfig board ranges overlap".into());
+    }
+
+    Ok(())
+}
+
+const fn greatest_common_divisor(mut lhs: u64, mut rhs: u64) -> u64 {
+    while rhs != 0 {
+        let remainder = lhs % rhs;
+        lhs = rhs;
+        rhs = remainder;
+    }
+    lhs
 }
 
 // ===================================================================
@@ -205,43 +415,28 @@ impl AmigaMachine for AmigaOcs {
     const CHIPSET_FB_HEIGHT: u32 = FB_HEIGHT;
 
     type Snapshot = AmigaOcsSnapshot;
-    type SnapshotMetadata = RamConfig;
 
-    fn rebuild(&mut self, firmware: &[u8], metadata: &Self::SnapshotMetadata) {
-        let region = self.region();
-        let fat_agnus = self.uses_fat_agnus_8372a();
-        // Two OCS construction paths sit behind one trait method.
-        // The 64 KiB image is unambiguously an A1000 bootstrap ROM
-        // (the only valid size at that length); 256/512 KiB images
-        // are A500-family Kickstart. The runtime's
-        // `validate_firmware_rom` already gates these sizes per
-        // model, so we can dispatch on length here without re-
-        // checking the model.
-        *self = match (firmware.len() == 64 * 1024, region, fat_agnus) {
-            (true, AgnusRegion::Pal, false) => {
-                AmigaOcs::with_a1000_bootstrap_rom(firmware.to_vec(), *metadata)
-            }
-            (true, AgnusRegion::Ntsc, false) => {
-                AmigaOcs::with_a1000_bootstrap_rom_ntsc(firmware.to_vec(), *metadata)
-            }
-            (false, AgnusRegion::Pal, true) => {
-                AmigaOcs::with_fat_agnus_ram_config(firmware.to_vec(), *metadata)
-            }
-            (false, AgnusRegion::Ntsc, true) => {
-                AmigaOcs::with_fat_agnus_ram_config_ntsc(firmware.to_vec(), *metadata)
-            }
-            (false, AgnusRegion::Pal, false) => {
-                AmigaOcs::with_ram_config(firmware.to_vec(), *metadata)
-            }
-            (false, AgnusRegion::Ntsc, false) => {
-                AmigaOcs::with_ram_config_ntsc(firmware.to_vec(), *metadata)
-            }
-            (true, _, true) => unreachable!("A1000 bootstrap machines do not use Fat Agnus"),
-        };
+    fn build(firmware: &[u8], config: AmigaConfig) -> Self {
+        crate::runtime::build_amiga_ocs(config, firmware)
     }
 
     fn tick(&mut self) {
         AmigaOcs::tick(self);
+    }
+
+    fn advance_to_cpu_boundary(&mut self) -> bool {
+        AmigaOcs::advance_to_cpu_boundary(self)
+    }
+
+    fn drain_cpu_boundaries(&mut self) -> impl Iterator<Item = CpuTraceEntry> {
+        AmigaOcs::drain_cpu_boundaries(self).map(|boundary| {
+            (
+                boundary.system_tick,
+                boundary.instr_start_pc,
+                boundary.sr,
+                boundary.opcode,
+            )
+        })
     }
 
     fn frame_ticks(&self) -> u64 {
@@ -304,6 +499,35 @@ impl AmigaMachine for AmigaOcs {
 
     fn restore_snapshot_state(&mut self, snapshot: Self::Snapshot) {
         AmigaOcs::restore_snapshot_state(self, snapshot);
+    }
+
+    fn validate_configuration(&self, config: AmigaConfig) -> Result<(), String> {
+        validate_machine_configuration(
+            config,
+            MachineConfigurationState {
+                region: self.region(),
+                cpu_model: self.active_cpu().model(),
+                cpu_variant_state_coherent: self.active_cpu().variant_state_is_coherent(),
+                cpu_clock_numerator: self.cpu_clock().numerator(),
+                cpu_clock_denominator: self.cpu_clock().denominator(),
+                cpu_domain_phase_coherent: self.cpu_domain_phase_is_coherent(),
+                chip_ram_bytes: self.memory().chip_ram_size(),
+                slow_ram_bytes: self.memory().slow_ram_size(),
+                fast_ram: self.autoconfig(),
+                a530_config: self.gvp_a530().map(|board| board.config()),
+                a530_ram_bytes: self.gvp_a530().map(|board| board.ram_size()),
+                a530_autoconfig_state: self.gvp_a530().map(|board| board.autoconfig_state()),
+                a530_configuration_coherent: self
+                    .gvp_a530()
+                    .is_none_or(|board| board.configuration_is_coherent()),
+                synchronized_bridge_present: self.has_synchronized_motherboard_bridge(),
+                synchronized_bridge_coherent: self.motherboard_bridge_is_coherent(),
+            },
+        )?;
+        if self.uses_fat_agnus_8372a() != config.model().uses_fat_agnus_8372a() {
+            return Err("installed OCS-shaped Agnus revision does not match configuration".into());
+        }
+        Ok(())
     }
 
     fn variant_query_paths() -> &'static [&'static str] {
@@ -372,19 +596,28 @@ impl AmigaMachine for AmigaEcs {
     const CHIPSET_FB_HEIGHT: u32 = FB_HEIGHT;
 
     type Snapshot = AmigaEcsSnapshot;
-    type SnapshotMetadata = RamConfig;
 
-    fn rebuild(&mut self, firmware: &[u8], metadata: &Self::SnapshotMetadata) {
-        // The A500+ never shipped with an A1000-style bootstrap ROM,
-        // so for now ECS only routes through the standard Kickstart
-        // path. When A1000-NTSC-ECS-equivalent (or A3000 with its
-        // 64KiB bootstrap) lands we can extend this to mirror the
-        // OCS rebuild's size-based dispatch.
-        *self = AmigaEcs::with_ram_config(firmware.to_vec(), *metadata);
+    fn build(firmware: &[u8], config: AmigaConfig) -> Self {
+        crate::runtime::build_amiga_ecs(config, firmware)
     }
 
     fn tick(&mut self) {
         AmigaEcs::tick(self);
+    }
+
+    fn advance_to_cpu_boundary(&mut self) -> bool {
+        AmigaEcs::advance_to_cpu_boundary(self)
+    }
+
+    fn drain_cpu_boundaries(&mut self) -> impl Iterator<Item = CpuTraceEntry> {
+        AmigaEcs::drain_cpu_boundaries(self).map(|boundary| {
+            (
+                boundary.system_tick,
+                boundary.instr_start_pc,
+                boundary.sr,
+                boundary.opcode,
+            )
+        })
     }
 
     fn frame_ticks(&self) -> u64 {
@@ -443,6 +676,29 @@ impl AmigaMachine for AmigaEcs {
 
     fn restore_snapshot_state(&mut self, snapshot: Self::Snapshot) {
         AmigaEcs::restore_snapshot_state(self, snapshot);
+    }
+
+    fn validate_configuration(&self, config: AmigaConfig) -> Result<(), String> {
+        validate_machine_configuration(
+            config,
+            MachineConfigurationState {
+                region: self.region(),
+                cpu_model: self.active_cpu().model(),
+                cpu_variant_state_coherent: self.active_cpu().variant_state_is_coherent(),
+                cpu_clock_numerator: self.cpu_clock().numerator(),
+                cpu_clock_denominator: self.cpu_clock().denominator(),
+                cpu_domain_phase_coherent: self.cpu_domain_phase_is_coherent(),
+                chip_ram_bytes: self.memory().chip_ram_size(),
+                slow_ram_bytes: self.memory().slow_ram_size(),
+                fast_ram: self.autoconfig(),
+                a530_config: None,
+                a530_ram_bytes: None,
+                a530_autoconfig_state: None,
+                a530_configuration_coherent: true,
+                synchronized_bridge_present: false,
+                synchronized_bridge_coherent: true,
+            },
+        )
     }
 
     fn variant_query_paths() -> &'static [&'static str] {
@@ -569,20 +825,28 @@ impl AmigaMachine for AmigaA1200 {
     const CHIPSET_FB_HEIGHT: u32 = FB_HEIGHT;
 
     type Snapshot = AmigaA1200Snapshot;
-    type SnapshotMetadata = RamConfig;
 
-    fn rebuild(&mut self, firmware: &[u8], metadata: &Self::SnapshotMetadata) {
-        // A1200 only ever boots from Kickstart 3.0 / 3.1 (512 KiB).
-        // There's no A1000-style bootstrap path here; the runtime's
-        // `validate_firmware_rom` already gates ROM sizes against
-        // `Model::is_a1000()`, which returns false for every AGA
-        // model, so the firmware reaches this method already sized
-        // for a Kickstart image.
-        *self = AmigaA1200::with_ram_config(firmware.to_vec(), *metadata);
+    fn build(firmware: &[u8], config: AmigaConfig) -> Self {
+        crate::runtime::build_amiga_a1200(config, firmware)
     }
 
     fn tick(&mut self) {
         AmigaA1200::tick(self);
+    }
+
+    fn advance_to_cpu_boundary(&mut self) -> bool {
+        AmigaA1200::advance_to_cpu_boundary(self)
+    }
+
+    fn drain_cpu_boundaries(&mut self) -> impl Iterator<Item = CpuTraceEntry> {
+        AmigaA1200::drain_cpu_boundaries(self).map(|boundary| {
+            (
+                boundary.system_tick,
+                boundary.instr_start_pc,
+                boundary.sr,
+                boundary.opcode,
+            )
+        })
     }
 
     fn frame_ticks(&self) -> u64 {
@@ -644,6 +908,29 @@ impl AmigaMachine for AmigaA1200 {
 
     fn restore_snapshot_state(&mut self, snapshot: Self::Snapshot) {
         AmigaA1200::restore_snapshot_state(self, snapshot);
+    }
+
+    fn validate_configuration(&self, config: AmigaConfig) -> Result<(), String> {
+        validate_machine_configuration(
+            config,
+            MachineConfigurationState {
+                region: self.region(),
+                cpu_model: self.active_cpu().model(),
+                cpu_variant_state_coherent: self.active_cpu().variant_state_is_coherent(),
+                cpu_clock_numerator: self.cpu_clock().numerator(),
+                cpu_clock_denominator: self.cpu_clock().denominator(),
+                cpu_domain_phase_coherent: self.cpu_domain_phase_is_coherent(),
+                chip_ram_bytes: self.memory().chip_ram_size(),
+                slow_ram_bytes: self.memory().slow_ram_size(),
+                fast_ram: self.autoconfig(),
+                a530_config: None,
+                a530_ram_bytes: None,
+                a530_autoconfig_state: None,
+                a530_configuration_coherent: true,
+                synchronized_bridge_present: false,
+                synchronized_bridge_coherent: true,
+            },
+        )
     }
 
     fn variant_query_paths() -> &'static [&'static str] {
@@ -795,6 +1082,37 @@ impl AmigaRuntimeKind {
     #[must_use]
     pub fn is_aga(&self) -> bool {
         matches!(self, Self::Aga(_))
+    }
+
+    /// Advance exactly to the next active-CPU instruction boundary.
+    ///
+    /// Returns completed Amiga system ticks. A higher-clocked processor can
+    /// reach a boundary part-way through a tick, in which case zero complete
+    /// ticks may be reported while the remaining CPU edges are retained. If
+    /// `tick_limit` is reached first, returns the complete ticks consumed
+    /// without implying that a boundary was crossed; compare
+    /// [`AmigaLiveAccess::cpu_instruction_starts`] before and after when the
+    /// distinction matters.
+    pub(crate) fn step_cpu_instruction(&mut self, tick_limit: u64) -> u64 {
+        let start_tick = AmigaLiveAccess::tick_count(self);
+        let start_instruction = AmigaLiveAccess::cpu_instruction_starts(self);
+        let mut completed_ticks = 0;
+
+        while AmigaLiveAccess::cpu_instruction_starts(self) == start_instruction
+            && completed_ticks < tick_limit
+        {
+            let crossed_boundary = match self {
+                Self::Ocs(runtime) => runtime.advance_to_cpu_boundary_traced(),
+                Self::Ecs(runtime) => runtime.advance_to_cpu_boundary_traced(),
+                Self::Aga(runtime) => runtime.advance_to_cpu_boundary_traced(),
+            };
+            completed_ticks = AmigaLiveAccess::tick_count(self).wrapping_sub(start_tick);
+            if crossed_boundary {
+                break;
+            }
+        }
+
+        completed_ticks
     }
 }
 
@@ -1096,6 +1414,49 @@ mod tests {
         let mut deduped = sorted.clone();
         deduped.dedup();
         assert_eq!(sorted.len(), deduped.len(), "duplicate variant query paths");
+    }
+
+    #[test]
+    fn autoconfig_chain_rejects_downstream_progress_while_a530_is_visible() {
+        let mut downstream = AutoconfigBoard::fast_ram(1024);
+        downstream.write_word(0x4A, 0x0000);
+
+        let error = validate_autoconfig_chain(
+            Some(AutoconfigState::Unconfigured),
+            Some(1024 * 1024),
+            Some(&downstream),
+        )
+        .expect_err("the downstream board cannot be probed before the A530");
+        assert!(error.contains("advanced before"));
+    }
+
+    #[test]
+    fn autoconfig_chain_rejects_overlapping_configured_ranges() {
+        let mut downstream = AutoconfigBoard::fast_ram(1024);
+        downstream.write_word(0x4A, 0x0000);
+        downstream.write_word(0x48, 0x2000);
+
+        let error = validate_autoconfig_chain(
+            Some(AutoconfigState::Configured { base: 0x0020_0000 }),
+            Some(1024 * 1024),
+            Some(&downstream),
+        )
+        .expect_err("two boards cannot own the same mapped range");
+        assert!(error.contains("overlap"));
+    }
+
+    #[test]
+    fn autoconfig_chain_accepts_ordered_non_overlapping_ranges() {
+        let mut downstream = AutoconfigBoard::fast_ram(1024);
+        downstream.write_word(0x4A, 0x0000);
+        downstream.write_word(0x48, 0x4000);
+
+        validate_autoconfig_chain(
+            Some(AutoconfigState::Configured { base: 0x0020_0000 }),
+            Some(1024 * 1024),
+            Some(&downstream),
+        )
+        .expect("the downstream board may configure after the A530");
     }
 
     #[test]

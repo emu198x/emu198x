@@ -50,7 +50,8 @@ Usage: emu198x-amiga [OPTIONS]
 Options:
     --rom-dir DIR        directory containing Amiga ROM images
     --kickstart PATH     explicit ROM path (Kickstart on A500, bootstrap on A1000)
-    --model MODEL        a1000 | a500 | a500-a501 | a500-plus | a500-maxed | a600 | a1200 | a2000 [default: a500]
+    --model MODEL        a1000 | a500 | a500-gvp-a530 | a500-a501 | a500-plus
+                         | a500-maxed | a600 | a1200 | a2000 [default: a500]
     --disk PATH          insert one ADF image into DF0:
     --scale N            integer window scale, default 1
     --video MODE         raw | lcd | crt [default: raw]
@@ -216,7 +217,7 @@ where
 
 pub(crate) fn parse_model_arg(value: &str) -> ModelArg {
     ModelArg::from_id(value).unwrap_or_else(|| {
-        die("--model expects a1000, a500, a500-a501, a500-plus, a500-maxed, a600, a1200, or a2000")
+        die("--model expects a1000, a500, a500-gvp-a530, a500-a501, a500-plus, a500-maxed, a600, a1200, or a2000")
     })
 }
 

@@ -280,6 +280,34 @@ fn accepted_interrupt_acknowledge_survives_postcard_round_trip() -> Result<(), B
 }
 
 #[test]
+fn a530_snapshot_is_a_fixed_point_with_clock_bridge_and_local_ram() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPalGvpA530, blank_kickstart())?;
+    original.machine_mut().poke_word(0x00E8_004A, 0x0000);
+    original.machine_mut().poke_word(0x00E8_0048, 0x2000);
+    original.machine_mut().poke_word(0x0020_0042, 0xA55A);
+    for _ in 0..17 {
+        original.machine_mut().tick();
+    }
+    assert_ne!(original.machine().cpu_clock().phase(), 0);
+
+    let snapshot_a = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPalGvpA530, blank_kickstart())?;
+    restored.restore(&snapshot_a)?;
+
+    assert_eq!(
+        restored
+            .machine()
+            .gvp_a530()
+            .expect("A530 survives restore")
+            .mapped_base(),
+        Some(0x0020_0000)
+    );
+    assert_eq!(restored.machine().read_word(0x0020_0042), 0xA55A);
+    assert_eq!(restored.snapshot()?, snapshot_a);
+    Ok(())
+}
+
+#[test]
 fn snapshot_then_restore_yields_bit_identical_forward_run() -> Result<(), Box<dyn Error>> {
     let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut host = null_host();
@@ -1663,8 +1691,8 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 /// Take a real snapshot, hand-patch the leading postcard varint version
 /// field back to 22, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV23` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 23` that byte is `0x17`.
+/// of a `SnapshotEnvelopeV24` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 24` that byte is `0x18`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -1673,8 +1701,8 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 23,
-        "postcard varint for SNAPSHOT_VERSION = 23 should be 0x17"
+        bytes[0], 24,
+        "postcard varint for SNAPSHOT_VERSION = 24 should be 0x18"
     );
     bytes[0] = 22;
 
@@ -1686,7 +1714,7 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 22; expected 23"
+                if reason == "unsupported snapshot version 22; expected 24"
         ),
         "expected version-mismatch reason, got {err:?}"
     );
@@ -1694,9 +1722,9 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Snapshot taken with an ADF inserted into DF0 round-trips through
-/// restore — the `Some(bytes)` arm of `decode` re-mounts the disk via
-/// `insert_floppy_bytes_pub`. Without this test the floppy0 re-insert
-/// path stays uncovered.
+/// restore — the `Some(bytes)` arm of `decode` validates the persisted
+/// image and mounts it on the candidate machine before commit. Without
+/// this test the floppy0 re-insert path stays uncovered.
 #[test]
 fn restore_remounts_persisted_floppy_image() -> Result<(), Box<dyn Error>> {
     let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;

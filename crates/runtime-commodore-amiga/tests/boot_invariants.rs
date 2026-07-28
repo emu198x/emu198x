@@ -75,6 +75,7 @@ fn ram_variant_presets_construct_cleanly() {
         Model::A500OcsPal,
         Model::A500OcsPalA501,
         Model::A500OcsPalMaxed,
+        Model::A500OcsPalGvpA530,
         Model::A2000OcsPal,
     ] {
         let runtime = AmigaOcsRuntime::new(model, blank_kickstart())
@@ -95,9 +96,12 @@ fn expected_chip(model: Model) -> usize {
     // only Agnus differs between regions. The named constants index
     // by the Agnus revision that gates the ceiling.
     match model {
-        Model::A500OcsPal | Model::A500OcsPalA501 | Model::A500OcsNtsc | Model::A500OcsNtscA501 => {
-            OCS_AGNUS_CHIP_RAM_BYTES
-        }
+        Model::A500OcsPal
+        | Model::A500OcsPalA501
+        | Model::A500OcsNtsc
+        | Model::A500OcsNtscA501
+        | Model::A500OcsPalGvpA530
+        | Model::A500OcsNtscGvpA530 => OCS_AGNUS_CHIP_RAM_BYTES,
         Model::A500PlusEcsPal
         | Model::A500OcsPalMaxed
         | Model::A500PlusEcsNtsc

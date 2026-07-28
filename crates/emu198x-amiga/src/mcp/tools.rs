@@ -48,8 +48,9 @@ pub(crate) trait AmigaCtx {
     /// Shared mutable view (memory pokes, tracer arming).
     fn live_mut(&mut self) -> &mut dyn AmigaLiveAccess;
     /// Swap the session onto a different Amiga model, given its id
-    /// (`a1000`, `a500`, `a500-a501`, `a500-plus`, `a500-maxed`, `a600`,
-    /// `a1200`, `a2000`). Resolves the model's Kickstart by convention
+    /// (`a1000`, `a500`, `a500-gvp-a530`, `a500-a501`, `a500-plus`,
+    /// `a500-maxed`, `a600`, `a1200`, `a2000`). Resolves the model's
+    /// Kickstart by convention
     /// (`EMU198X_AMIGA_ROM_DIR` env + `~/.emu198x/roms/…`), builds the
     /// matching OCS / ECS / AGA variant, installs it, re-paces the
     /// session to its frame length, and hard-resets — all via the
@@ -2893,7 +2894,7 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
     add(
         registry,
         "set_machine",
-        "Swap to a different Amiga model (a1000 / a500 / a500-a501 / a500-plus / a500-maxed / a600 / a1200 / a2000), rebuilding the OCS/ECS/AGA variant. Hard-resets — re-insert any disk after.",
+        "Swap to a different Amiga model (a1000 / a500 / a500-gvp-a530 / a500-a501 / a500-plus / a500-maxed / a600 / a1200 / a2000), rebuilding the OCS/ECS/AGA variant. Hard-resets — re-insert any disk after.",
         set_machine_schema,
         tool_set_machine,
     );

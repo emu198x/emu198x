@@ -18,9 +18,12 @@ use serde_json::{Value, json};
 use crate::live_access::AmigaLiveAccess;
 use crate::variants::AmigaRuntimeKind;
 
-/// Safety bound on a single-instruction step: one 68000 instruction retires in
-/// far fewer master/4 ticks than this, so it only guards against a wedged CPU
-/// rather than capping normal stepping.
+/// Safety bound on a single-instruction step: one 680x0 instruction retires in
+/// far fewer master/4 ticks than this, so it only guards against a stopped or
+/// wedged CPU rather than capping normal stepping. If the bound is reached,
+/// `dbg_step` returns the complete ticks consumed without claiming that an
+/// instruction completed. The explicit debug-boundary counter lets shared
+/// callers detect that outcome without interpreting CPU-specific JSON.
 const STEP_TICK_LIMIT: u64 = 1_000_000;
 
 impl DebugPrimitives for AmigaRuntimeKind {
@@ -87,19 +90,16 @@ impl DebugPrimitives for AmigaRuntimeKind {
         })
     }
 
+    fn dbg_instruction_boundary_count(&self) -> Option<u64> {
+        Some(self.cpu_instruction_starts())
+    }
+
     fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)> {
         Some(m68k_disassemble(addr, |a| self.dbg_peek(a)))
     }
 
     fn dbg_step(&mut self) -> u64 {
-        let start = self.cpu_instruction_starts();
-        let target = start.wrapping_add(1);
-        let mut ticks = 0u64;
-        while self.cpu_instruction_starts() != target && ticks < STEP_TICK_LIMIT {
-            AmigaLiveAccess::tick(self);
-            ticks += 1;
-        }
-        ticks
+        self.step_cpu_instruction(STEP_TICK_LIMIT)
     }
 
     // io_trace defaults to unsupported: the 68000 is memory-mapped, so the

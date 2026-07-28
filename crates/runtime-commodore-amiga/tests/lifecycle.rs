@@ -10,7 +10,8 @@ use emu198x_shell::{
 };
 use format_commodore_amiga_adf::ADF_SIZE_DD;
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AudioControls, Model, PaulaChannel, profile_for,
+    A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AudioControls, Model, PaulaChannel, RamConfig,
+    profile_for,
 };
 
 use common::{
@@ -415,15 +416,138 @@ fn blank_constructor_builds_a1000_runtime() {
 }
 
 #[test]
+fn construction_rejects_chip_ram_above_the_selected_agnus_ceiling() {
+    let cases = [
+        (
+            Model::A1000OcsPal,
+            dummy_a1000_bootstrap_rom(),
+            RamConfig {
+                chip_kb: 1024,
+                slow_kb: 0,
+                fast_kb: 0,
+            },
+        ),
+        (
+            Model::A500OcsPal,
+            dummy_kickstart(),
+            RamConfig {
+                chip_kb: 1024,
+                slow_kb: 0,
+                fast_kb: 0,
+            },
+        ),
+        (
+            Model::A2000OcsPal,
+            dummy_kickstart(),
+            RamConfig {
+                chip_kb: 2048,
+                slow_kb: 0,
+                fast_kb: 0,
+            },
+        ),
+    ];
+
+    for (model, firmware, ram) in cases {
+        let error = AmigaOcsRuntime::with_ram_config(model, firmware, ram)
+            .err()
+            .expect("Agnus-incompatible chip RAM must be rejected before construction");
+        assert!(
+            matches!(error, MachineError::InvalidRequest { .. }),
+            "unexpected error for {model:?}: {error:?}"
+        );
+    }
+}
+
+#[test]
 fn blank_constructor_builds_every_ocs_shaped_pal_variant() {
     for model in [
         Model::A500OcsPalA501,
         Model::A500OcsPalMaxed,
         Model::A2000OcsPal,
+        Model::A500OcsPalGvpA530,
     ] {
         let runtime = AmigaOcsRuntime::blank(model);
         assert_eq!(runtime.model(), model);
     }
+}
+
+#[test]
+fn a530_profile_builds_and_resets_the_configured_cpu_clock_and_board() {
+    use motorola_68000::CpuModel;
+    use runtime_commodore_amiga::{Accelerator, CpuConfig};
+
+    let mut runtime = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
+    assert_eq!(
+        runtime.config().cpu(),
+        CpuConfig::new(CpuModel::M68EC030, 40_000_000)
+    );
+    assert!(matches!(
+        runtime.config().accelerator(),
+        Some(Accelerator::GvpA530(_))
+    ));
+    assert_eq!(runtime.machine().active_cpu().model(), CpuModel::M68EC030);
+    assert_eq!(runtime.machine().cpu_clock().numerator(), 4_000_000);
+    assert_eq!(runtime.machine().cpu_clock().denominator(), 709_379);
+    assert!(runtime.machine().gvp_a530().is_some());
+
+    runtime.machine_mut().tick();
+    assert_ne!(runtime.machine().cpu_clock().phase(), 0);
+    runtime.reset(ResetKind::Hard);
+
+    assert_eq!(runtime.machine().active_cpu().model(), CpuModel::M68EC030);
+    assert_eq!(runtime.machine().cpu_clock().numerator(), 4_000_000);
+    assert_eq!(runtime.machine().cpu_clock().denominator(), 709_379);
+    assert_eq!(runtime.machine().cpu_clock().phase(), 0);
+    assert!(runtime.machine().gvp_a530().is_some());
+}
+
+#[test]
+fn ntsc_a530_profile_builds_and_resets_the_configured_cpu_clock_and_board() {
+    use machine_commodore_amiga_ocs::AgnusRegion;
+    use motorola_68000::CpuModel;
+    use runtime_commodore_amiga::{Accelerator, CpuConfig};
+
+    let mut runtime = AmigaOcsRuntime::blank(Model::A500OcsNtscGvpA530);
+    assert_eq!(runtime.machine().region(), AgnusRegion::Ntsc);
+    assert_eq!(
+        runtime.config().cpu(),
+        CpuConfig::new(CpuModel::M68EC030, 40_000_000)
+    );
+    let Some(Accelerator::GvpA530(config)) = runtime.config().accelerator() else {
+        panic!("NTSC A530 profile must carry its accelerator configuration");
+    };
+    assert_eq!(config.ram_size().kib(), 1024);
+    assert!(!config.cache_enabled());
+    assert!(!config.autoboot_enabled());
+    assert_eq!(runtime.machine().active_cpu().model(), CpuModel::M68EC030);
+    assert_eq!(runtime.machine().cpu_clock().numerator(), 4_000_000);
+    assert_eq!(runtime.machine().cpu_clock().denominator(), 715_909);
+    assert!(runtime.machine().has_synchronized_motherboard_bridge());
+    let board = runtime
+        .machine()
+        .gvp_a530()
+        .expect("NTSC A530 board must be installed");
+    assert_eq!(board.config(), config);
+    assert_eq!(board.ram_size(), 1024 * 1024);
+    assert!(board.configuration_is_coherent());
+
+    runtime.machine_mut().tick();
+    assert_ne!(runtime.machine().cpu_clock().phase(), 0);
+    runtime.reset(ResetKind::Hard);
+
+    assert_eq!(runtime.machine().region(), AgnusRegion::Ntsc);
+    assert_eq!(runtime.machine().active_cpu().model(), CpuModel::M68EC030);
+    assert_eq!(runtime.machine().cpu_clock().numerator(), 4_000_000);
+    assert_eq!(runtime.machine().cpu_clock().denominator(), 715_909);
+    assert_eq!(runtime.machine().cpu_clock().phase(), 0);
+    assert!(runtime.machine().has_synchronized_motherboard_bridge());
+    let board = runtime
+        .machine()
+        .gvp_a530()
+        .expect("NTSC A530 board must survive reset");
+    assert_eq!(board.config(), config);
+    assert_eq!(board.ram_size(), 1024 * 1024);
+    assert!(board.configuration_is_coherent());
 }
 
 #[test]
@@ -561,6 +685,7 @@ fn blank_constructor_builds_every_ntsc_variant() {
     let _ = AmigaOcsRuntime::blank(Model::A500OcsNtscA501);
     let _ = AmigaOcsRuntime::blank(Model::A500OcsNtscMaxed);
     let _ = AmigaOcsRuntime::blank(Model::A2000OcsNtsc);
+    let _ = AmigaOcsRuntime::blank(Model::A500OcsNtscGvpA530);
 }
 
 #[test]
@@ -688,6 +813,28 @@ fn ecs_runtime_runs_one_ntsc_frame() {
         )
         .expect("one ECS NTSC frame should run");
     assert_eq!(runtime.time(), MachineTime::new(A500_NTSC_FRAME_TICKS));
+}
+
+#[test]
+fn reset_preserves_ecs_ntsc_region() {
+    use machine_commodore_amiga_ocs::AgnusRegion;
+    use runtime_commodore_amiga::AmigaEcsRuntime;
+
+    let mut runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsNtsc);
+    runtime.reset(ResetKind::Hard);
+
+    assert_eq!(runtime.machine().region(), AgnusRegion::Ntsc);
+}
+
+#[test]
+fn reset_preserves_a1200_ntsc_region() {
+    use machine_commodore_amiga_ocs::AgnusRegion;
+    use runtime_commodore_amiga::AmigaA1200Runtime;
+
+    let mut runtime = AmigaA1200Runtime::blank(Model::A1200AgaNtsc);
+    runtime.reset(ResetKind::Hard);
+
+    assert_eq!(runtime.machine().region(), AgnusRegion::Ntsc);
 }
 
 #[test]

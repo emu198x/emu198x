@@ -11,7 +11,7 @@
 //! memory tests.
 
 use emu198x_shell::MachineCore;
-use runtime_commodore_amiga::{AmigaRuntimeKind, Model};
+use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind, Model};
 
 #[test]
 fn debug_surface_works_on_68000() {
@@ -56,4 +56,59 @@ fn debug_surface_works_on_68000() {
         .expect("debug target")
         .step_instruction();
     assert!(ticks > 0, "stepping consumed cycles");
+}
+
+#[test]
+fn debug_step_on_multi_edge_cpu_crosses_exactly_one_boundary() {
+    let mut runtime = AmigaRuntimeKind::blank(Model::A1200AgaPal);
+    let starts_before = runtime.cpu_instruction_starts();
+    let machine_ticks_before = runtime.tick_count();
+    let runtime_time_before = runtime.time().get();
+
+    let ticks = runtime
+        .debug_target_mut()
+        .expect("debug target")
+        .step_instruction();
+
+    let starts_after = runtime.cpu_instruction_starts();
+    let completed_ticks = runtime.tick_count().wrapping_sub(machine_ticks_before);
+    assert!(ticks > 0, "stepping consumed system ticks");
+    assert_eq!(ticks, completed_ticks);
+    assert_eq!(
+        runtime.time().get().wrapping_sub(runtime_time_before),
+        completed_ticks,
+        "debug stepping must keep runtime time aligned with completed machine ticks"
+    );
+    assert_eq!(
+        starts_after.wrapping_sub(starts_before),
+        1,
+        "one debugger step must cross exactly one instruction boundary"
+    );
+}
+
+#[test]
+fn repeated_debug_steps_on_a530_each_cross_one_boundary() {
+    let mut runtime = AmigaRuntimeKind::blank(Model::A500OcsPalGvpA530);
+
+    for _ in 0..64 {
+        let starts_before = runtime.cpu_instruction_starts();
+        let machine_ticks_before = runtime.tick_count();
+        let runtime_time_before = runtime.time().get();
+        let ticks = runtime
+            .debug_target_mut()
+            .expect("debug target")
+            .step_instruction();
+        let completed_ticks = runtime.tick_count().wrapping_sub(machine_ticks_before);
+        assert_eq!(
+            runtime.cpu_instruction_starts().wrapping_sub(starts_before),
+            1,
+            "40 MHz A530 stepping must not run through a second instruction"
+        );
+        assert_eq!(ticks, completed_ticks);
+        assert_eq!(
+            runtime.time().get().wrapping_sub(runtime_time_before),
+            completed_ticks,
+            "partial and complete A530 steps must keep runtime time additive"
+        );
+    }
 }

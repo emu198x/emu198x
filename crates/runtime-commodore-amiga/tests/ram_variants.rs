@@ -1,21 +1,24 @@
-//! Runtime-level tests for the RAM-variant presets.
+//! Runtime-level tests for A500-family RAM and accelerator profiles.
 //!
-//! The runtime exposes four `Model` presets that map onto A500-family
-//! RAM layouts: stock, A501-trapdoor, A500+, and a maxed A500 with
-//! Zorro-II fast RAM. These tests confirm each preset wires the
-//! correct `RamConfig` through to the machine and that the fast-RAM
-//! path stands up an autoconfig board visible to the ROM.
+//! The tests cover stock, A501-trapdoor, A500+, and maxed A500 RAM
+//! layouts, plus the A500 + GVP A530 research profile. They confirm
+//! each preset wires the correct `RamConfig` through to the machine
+//! and that Kickstart can discover both motherboard-bus and
+//! accelerator-local RAM through Autoconfig.
 //!
-//! The fast-RAM boot test is hermetic until it finds a Kickstart 1.3
-//! ROM at `~/.emu198x/roms/commodore-amiga/kick13.rom` — same path
-//! the machine-layer boot tests use. When the ROM is absent the test
-//! prints a skip marker and returns; CI without the ROM still runs
-//! the rest of the suite.
+//! The ROM-backed boot tests become active when they find Kickstart
+//! 1.3 at `~/.emu198x/roms/commodore-amiga/kick13.rom`, the same path
+//! used by the machine-layer boot tests. When the ROM is absent they
+//! print a skip marker and return; CI without the ROM still runs the
+//! rest of the suite.
 
 use std::error::Error;
 use std::path::PathBuf;
 
-use runtime_commodore_amiga::{AmigaEcsRuntime, AmigaOcsRuntime, Model, RamConfig};
+use motorola_68000::CpuModel;
+use runtime_commodore_amiga::{
+    AmigaEcsRuntime, AmigaLiveAccess, AmigaOcsRuntime, Model, RamConfig,
+};
 
 fn blank_kickstart() -> Vec<u8> {
     let mut kickstart = vec![0u8; 256 * 1024];
@@ -151,5 +154,109 @@ fn kickstart_13_configures_fast_ram_board_during_boot() -> Result<(), Box<dyn Er
     // Probe window has gone silent for the configured board —
     // subsequent scans see floating bus.
     assert_eq!(rt.machine().read_word(0x00E8_0000), 0xFFFF);
+    Ok(())
+}
+
+/// End-to-end integration: the shipped A500 + GVP A530 profile boots
+/// Kickstart 1.3 on its 40 MHz MC68EC030 and `expansion.library`
+/// assigns the accelerator's local-RAM memory function a Zorro-II
+/// base address.
+///
+/// The loop exits as soon as the board is configured. Its cap is a
+/// regression bound rather than a fixed boot duration, keeping the
+/// test focused on the first Autoconfig pass.
+///
+/// No-op when the Kickstart 1.3 image is absent at
+/// `~/.emu198x/roms/commodore-amiga/kick13.rom`.
+#[test]
+fn kickstart_13_configures_a530_local_ram_during_boot() -> Result<(), Box<dyn Error>> {
+    let Some(rom) = load_kickstart_13() else {
+        return Ok(());
+    };
+    let mut rt = AmigaOcsRuntime::new(Model::A500OcsPalGvpA530, rom)?;
+    let board = rt
+        .machine()
+        .gvp_a530()
+        .expect("A530 profile must install its accelerator");
+    assert_eq!(rt.machine().active_cpu().model(), CpuModel::M68EC030);
+    assert_eq!(rt.config().cpu().clock_hz(), 40_000_000);
+    assert_eq!(board.ram_size(), 1024 * 1024);
+    assert!(board.configuration_is_coherent());
+    assert_eq!(board.mapped_base(), None);
+
+    let instruction_starts_before = rt.machine().cpu_instruction_starts();
+    const MAX_BOOT_FRAMES: u64 = 75;
+    let max_ticks = MAX_BOOT_FRAMES * runtime_commodore_amiga::A500_PAL_FRAME_TICKS;
+    let mut configured_at_tick = None;
+    for tick in 1..=max_ticks {
+        rt.machine_mut().tick();
+        if rt
+            .machine()
+            .gvp_a530()
+            .and_then(|board| board.mapped_base())
+            .is_some()
+        {
+            configured_at_tick = Some(tick);
+            break;
+        }
+    }
+
+    let instruction_starts = rt
+        .machine()
+        .cpu_instruction_starts()
+        .wrapping_sub(instruction_starts_before);
+    assert!(
+        instruction_starts >= 1_000,
+        "A530 CPU made insufficient boot progress: {instruction_starts} instruction starts"
+    );
+    let configured_at_tick = configured_at_tick.unwrap_or_else(|| {
+        panic!(
+            "Kickstart 1.3 did not configure A530 local RAM within {MAX_BOOT_FRAMES} PAL frames \
+             ({max_ticks} system ticks, {instruction_starts} instruction starts)"
+        )
+    });
+    let board = rt
+        .machine()
+        .gvp_a530()
+        .expect("A530 board must remain installed after Autoconfig");
+    let base = board
+        .mapped_base()
+        .expect("configured A530 local RAM must have a base address");
+    let end = base
+        .checked_add(board.ram_size())
+        .expect("coherent A530 mapping must not overflow");
+    assert_eq!(base & 0x0000_FFFF, 0, "Zorro-II base must be 64K-aligned");
+    assert!(
+        base >= 0x0020_0000 && end <= 0x00A0_0000,
+        "A530 Fast RAM ${base:06X}-${end:06X} must occupy the dedicated Zorro-II memory space"
+    );
+    assert!(board.contains_mapped_address(base));
+    assert!(board.contains_mapped_address(end - 1));
+    assert!(!board.contains_mapped_address(end));
+    assert!(board.configuration_is_coherent());
+    assert_eq!(rt.machine().read_word(0x00E8_0000), 0xFFFF);
+
+    let instruction_starts_at_config = rt.machine().cpu_instruction_starts();
+    for _ in 0..10_000 {
+        rt.machine_mut().tick();
+    }
+    assert!(
+        rt.machine()
+            .cpu_instruction_starts()
+            .wrapping_sub(instruction_starts_at_config)
+            > 0,
+        "the A530 CPU must continue executing after its local RAM is mapped"
+    );
+    assert_eq!(
+        rt.machine()
+            .gvp_a530()
+            .expect("A530 remains installed")
+            .mapped_base(),
+        Some(base)
+    );
+    eprintln!(
+        "A530 local RAM configured at ${base:06X} after {configured_at_tick} system ticks \
+         ({instruction_starts} instruction starts)"
+    );
     Ok(())
 }

@@ -16,13 +16,15 @@ use std::path::{Path, PathBuf};
 use runtime_commodore_amiga::Model;
 
 /// Model selector shared by the UI's `parse_cli`, the MCP CLI, and ROM
-/// resolution. The full eight-model surface (the AGA A1200 included) so
+/// resolution. The full model surface (including the AGA A1200 and the
+/// A500/A530 research configuration) so
 /// `--model a1200` selects the AGA chipset across every mode.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum ModelArg {
     A1000,
     #[default]
     A500,
+    A500GvpA530,
     A500A501,
     A500Plus,
     A500Maxed,
@@ -35,9 +37,10 @@ impl ModelArg {
     /// Every accepted model id, in canonical order. Single source of
     /// truth for `--model` parsing, the MCP / `--script` `set_machine`
     /// schema, and their error messages.
-    pub(crate) const IDS: [&'static str; 8] = [
+    pub(crate) const IDS: [&'static str; 9] = [
         "a1000",
         "a500",
+        "a500-gvp-a530",
         "a500-a501",
         "a500-plus",
         "a500-maxed",
@@ -50,6 +53,7 @@ impl ModelArg {
         match self {
             Self::A1000 => Model::A1000OcsPal,
             Self::A500 => Model::A500OcsPal,
+            Self::A500GvpA530 => Model::A500OcsPalGvpA530,
             Self::A500A501 => Model::A500OcsPalA501,
             Self::A500Plus => Model::A500PlusEcsPal,
             Self::A500Maxed => Model::A500OcsPalMaxed,
@@ -67,6 +71,7 @@ impl ModelArg {
         Some(match value {
             "a1000" => Self::A1000,
             "a500" => Self::A500,
+            "a500-gvp-a530" => Self::A500GvpA530,
             "a500-a501" => Self::A500A501,
             "a500-plus" => Self::A500Plus,
             "a500-maxed" => Self::A500Maxed,
@@ -92,6 +97,7 @@ pub(crate) const fn firmware_id_for_model_arg(model: ModelArg) -> &'static str {
     match model {
         ModelArg::A1000 => A1000_BOOTSTRAP_ID,
         ModelArg::A500
+        | ModelArg::A500GvpA530
         | ModelArg::A500A501
         | ModelArg::A500Plus
         | ModelArg::A500Maxed
@@ -112,7 +118,11 @@ pub(crate) fn rom_candidates_for_model(model: ModelArg) -> &'static [&'static st
             "bootstrap.rom",
         ],
         // A500-family + A2000 (OCS, 256/512 KiB Kickstart).
-        ModelArg::A500 | ModelArg::A500A501 | ModelArg::A500Maxed | ModelArg::A2000 => &[
+        ModelArg::A500
+        | ModelArg::A500GvpA530
+        | ModelArg::A500A501
+        | ModelArg::A500Maxed
+        | ModelArg::A2000 => &[
             "kick13.rom",
             "kick12.rom",
             "kick31.rom",
@@ -200,6 +210,7 @@ mod tests {
     fn model_args_map_to_runtime_models() {
         assert_eq!(ModelArg::A1000.to_model(), Model::A1000OcsPal);
         assert_eq!(ModelArg::A500.to_model(), Model::A500OcsPal);
+        assert_eq!(ModelArg::A500GvpA530.to_model(), Model::A500OcsPalGvpA530);
         assert_eq!(ModelArg::A500A501.to_model(), Model::A500OcsPalA501);
         assert_eq!(ModelArg::A500Plus.to_model(), Model::A500PlusEcsPal);
         assert_eq!(ModelArg::A500Maxed.to_model(), Model::A500OcsPalMaxed);

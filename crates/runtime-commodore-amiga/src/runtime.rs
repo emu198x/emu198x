@@ -2,10 +2,9 @@
 //!
 //! `AmigaRuntime<M: AmigaMachine>` implements `MachineCore` so the
 //! shell can drive any Amiga variant through a common interface. The
-//! runtime owns variant-agnostic state (model, time, frame counters,
-//! audio buffers, RGBA framebuffer, boot heuristic), variant-specific
-//! state via `M::SnapshotMetadata` (RAM layout for OCS today), and
-//! delegates per-frame ticking, framebuffer access, audio sampling,
+//! runtime owns variant-agnostic state (configuration, time, frame counters,
+//! audio buffers, RGBA framebuffer, boot heuristic), and delegates
+//! per-frame ticking, framebuffer access, audio sampling,
 //! and chip-state queries to the machine through the `AmigaMachine`
 //! trait.
 //!
@@ -32,7 +31,10 @@ use crate::input::apply_input_event;
 use crate::live_access::AmigaLiveAccess;
 use crate::snapshot;
 use crate::variants::AmigaMachine;
-use crate::{Model, profile_for};
+use crate::{
+    Accelerator, AmigaConfig, ChipsetKind, ECS_AGA_CHIP_RAM_BYTES, FAT_AGNUS_CHIP_RAM_BYTES,
+    FATTER_AGNUS_CHIP_RAM_BYTES, KIB, Model, OCS_AGNUS_CHIP_RAM_BYTES, profile_for,
+};
 
 pub(crate) const KICKSTART_ROM_ID: &str = "commodore-amiga-kickstart-rom";
 pub(crate) const A1000_BOOTSTRAP_ROM_ID: &str = "commodore-amiga-a1000-bootstrap-rom";
@@ -55,11 +57,10 @@ pub const DISPLAY_HEIGHT: u32 = FB_HEIGHT;
 /// type alias next to `AmigaOcsRuntime` in `variants.rs`.
 pub struct AmigaRuntime<M: AmigaMachine> {
     profile: MachineProfile,
-    model: Model,
-    /// Variant-specific snapshot metadata. For OCS this is `RamConfig`
-    /// (the chip / slow / fast RAM sizes the chip stack was built
-    /// around). Held here so `reset` rebuilds with the same layout.
-    metadata: M::SnapshotMetadata,
+    /// Immutable machine-construction intent. Held separately from the
+    /// machine snapshot so reset and restore rebuild the same region, RAM,
+    /// processor, and accelerator configuration.
+    config: AmigaConfig,
     // pub(crate) so the `cpu_trace` sibling module's `tick_traced` can
     // take disjoint field borrows of `machine` (read) and `cpu_trace`
     // (write) in one method — accessor methods would borrow all of
@@ -112,11 +113,19 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         &mut self.machine
     }
 
-    /// Active model (affects profile metadata, not the machine
-    /// internals).
+    /// Active model represented by the canonical construction configuration.
+    ///
+    /// The model selects profile metadata and machine internals including the
+    /// chipset stack, video region, processor, RAM defaults, and accelerator.
     #[must_use]
     pub fn model(&self) -> Model {
-        self.model
+        self.config.model()
+    }
+
+    /// Canonical immutable machine-construction configuration.
+    #[must_use]
+    pub const fn config(&self) -> AmigaConfig {
+        self.config
     }
 
     /// Copy the machine's ARGB framebuffer into the RGBA frame
@@ -198,17 +207,18 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         self.floppy0_bytes.as_deref()
     }
 
+    /// Firmware used to construct this runtime's machine. Snapshot restore
+    /// builds its candidate machine from the same immutable image.
+    #[must_use]
+    pub(crate) fn firmware_rom(&self) -> &[u8] {
+        &self.firmware_rom
+    }
+
     /// 48 kHz resampler phase. Held in the snapshot so a restore picks
     /// up sampling at exactly the same fractional offset.
     #[must_use]
     pub(crate) fn audio_sample_accumulator(&self) -> u64 {
         self.audio_sample_accumulator
-    }
-
-    /// Variant-specific snapshot metadata (RamConfig for OCS).
-    #[must_use]
-    pub(crate) fn metadata(&self) -> &M::SnapshotMetadata {
-        &self.metadata
     }
 
     /// Current machine time, exposed by name distinct from the
@@ -223,8 +233,14 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         self.time = time;
     }
 
-    pub(crate) fn set_metadata(&mut self, metadata: M::SnapshotMetadata) {
-        self.metadata = metadata;
+    pub(crate) fn set_config(&mut self, config: AmigaConfig) {
+        self.config = config;
+    }
+
+    /// Replace the live machine after an independently restored candidate has
+    /// passed all snapshot validation.
+    pub(crate) fn replace_machine(&mut self, machine: M) {
+        self.machine = machine;
     }
 
     pub(crate) fn set_frame_count(&mut self, frame_count: u64) {
@@ -251,8 +267,40 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         self.floppy0_bytes = None;
     }
 
+    pub(crate) fn set_floppy0_bytes(&mut self, bytes: Option<Vec<u8>>) {
+        self.floppy0_bytes = bytes;
+    }
+
     pub(crate) fn clear_audio_buffer(&mut self) {
         self.audio_buffer.clear();
+    }
+
+    /// Rebuild the transient analog-filter chain for the configured model.
+    ///
+    /// IIR history is intentionally absent from snapshots, so reset and a
+    /// successful restore both return it to its canonical zero-history state.
+    pub(crate) fn reset_audio_filter(&mut self) {
+        self.audio_filter = crate::audio_filter::AmigaAudioFilter::for_model(self.model());
+    }
+
+    #[cfg(test)]
+    pub(crate) fn filter_audio_for_test(
+        &mut self,
+        mut left: f32,
+        mut right: f32,
+        led_bright: bool,
+    ) -> (f32, f32) {
+        self.audio_filter.apply(&mut left, &mut right, led_bright);
+        (left, right)
+    }
+
+    /// Drop instruction trace entries after a successful snapshot restore.
+    ///
+    /// Trace data is observational runtime state rather than emulated machine
+    /// state, so it must not span a restore boundary. Arm state and filters
+    /// remain in place for the continuing debug session.
+    pub(crate) fn clear_cpu_trace_after_restore(&mut self) {
+        self.cpu_trace.clear_on_reset();
     }
 
     /// Repack the machine's framebuffer into the runtime's RGBA8888
@@ -269,11 +317,8 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
 // Kept off the bulk `impl<M: AmigaMachine>` block so the bound doesn't
 // cascade onto the query / snapshot siblings.
 impl<M: AmigaMachine + AmigaLiveAccess> AmigaRuntime<M> {
-    fn tick_and_sample_audio(&mut self) {
-        // Route through the trace funnel so an armed CPU trace captures
-        // every instruction boundary the run loop crosses — same path
-        // the per-tick `step` / `run_until_*` tools use.
-        self.tick_traced();
+    /// Advance the host-audio resampler after one completed Amiga system tick.
+    fn sample_audio_after_tick(&mut self) {
         self.audio_sample_accumulator = self
             .audio_sample_accumulator
             .saturating_add(u64::from(AUDIO_SAMPLE_RATE_HZ));
@@ -290,6 +335,27 @@ impl<M: AmigaMachine + AmigaLiveAccess> AmigaRuntime<M> {
             self.audio_buffer.push(right.clamp(-1.0, 1.0));
         }
     }
+
+    fn tick_and_sample_audio(&mut self) {
+        // Route through the trace funnel so an armed CPU trace captures
+        // every instruction boundary the run loop crosses — same path
+        // the per-tick `step` / `run_until_*` tools use.
+        self.tick_traced();
+        self.sample_audio_after_tick();
+    }
+
+    /// Account for complete system ticks crossed by exact CPU stepping.
+    ///
+    /// A faster CPU can stop part-way through a system tick. In that case
+    /// `completed_ticks` is zero, but the framebuffer is still refreshed
+    /// because the tick's chipset phase may already have run.
+    pub(crate) fn account_debug_progress(&mut self, completed_ticks: u64) {
+        for _ in 0..completed_ticks {
+            self.sample_audio_after_tick();
+        }
+        self.time = self.time.saturating_add(completed_ticks);
+        self.update_rgba_framebuffer();
+    }
 }
 
 impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
@@ -303,11 +369,11 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
 
     fn reset(&mut self, _kind: ResetKind) {
         // The variant rebuilds itself in place via `AmigaMachine::
-        // rebuild(firmware, metadata)`. After the new chip stack
+        // rebuild(firmware, config)`. After the new chip stack
         // exists, re-mount any cached DF0 image, zero the time /
         // frame counters, and refresh the RGBA mirror so the next
         // frame draw sees the post-reset contents.
-        self.machine.rebuild(&self.firmware_rom, &self.metadata);
+        self.machine.rebuild(&self.firmware_rom, self.config);
         if let Some(bytes) = self.floppy0_bytes.clone() {
             self.insert_floppy_bytes("floppy-0", &bytes)
                 .expect("re-mounting cached DF0 image should not fail");
@@ -316,6 +382,7 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
         self.frame_count = 0;
         self.audio_sample_accumulator = 0;
         self.audio_buffer.clear();
+        self.reset_audio_filter();
         // Drop pre-reset trace entries so they don't bleed into
         // post-reset analysis (arm-state + filter are kept).
         self.cpu_trace.clear_on_reset();
@@ -426,22 +493,10 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         // Both A1000 PAL and A1000 NTSC need disk-change-pending
         // bookkeeping during the bootstrap-to-Kickstart-disk handoff.
         // Other (Kickstart-resident) variants insert without it.
-        let change_pending = self.model.is_a1000();
+        let change_pending = self.model().is_a1000();
         self.machine.insert_floppy0(adf, change_pending);
         self.floppy0_bytes = Some(bytes.to_vec());
         Ok(())
-    }
-
-    /// Snapshot-side hook into `insert_floppy_bytes`. The snapshot
-    /// module re-mounts the persisted disk image after restoring the
-    /// machine; the call has to go through the same media path so the
-    /// A1000 disk-change-pending bookkeeping fires.
-    pub(crate) fn insert_floppy_bytes_pub(
-        &mut self,
-        slot: &str,
-        bytes: &[u8],
-    ) -> Result<(), MachineError> {
-        self.insert_floppy_bytes(slot, bytes)
     }
 }
 
@@ -466,7 +521,7 @@ impl AmigaRuntime<AmigaOcs> {
     /// Returns an error if the firmware size is not valid for the
     /// selected model.
     pub fn new(model: Model, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
-        Self::with_ram_config(model, firmware_rom, model.ram_config())
+        Self::with_config(model.config(), firmware_rom)
     }
 
     /// Construct a runtime with an explicit RAM layout, bypassing the
@@ -477,21 +532,27 @@ impl AmigaRuntime<AmigaOcs> {
     ///
     /// # Errors
     ///
-    /// Returns an error if the ROM size is invalid. Panics if the RAM
-    /// layout is not one of the supported size combinations — see
-    /// `RamConfig::is_valid`.
+    /// Returns an error if the ROM size is invalid, the RAM layout is
+    /// unsupported, or the selected Agnus cannot address the requested chip
+    /// RAM.
     pub fn with_ram_config(
         model: Model,
         firmware_rom: Vec<u8>,
         ram_config: RamConfig,
     ) -> Result<Self, MachineError> {
+        Self::with_config(model.config().with_ram(ram_config), firmware_rom)
+    }
+
+    /// Construct from a complete canonical configuration.
+    pub fn with_config(config: AmigaConfig, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
+        let model = config.model();
+        validate_config(config, ChipsetKind::Ocs)?;
         validate_firmware_rom(model, &firmware_rom)?;
-        let machine = build_amiga_ocs(model, ram_config, &firmware_rom);
+        let machine = build_amiga_ocs(config, &firmware_rom);
         let tick_hz = AmigaMachine::cck_hz(&machine).saturating_mul(2);
         let mut runtime = Self {
             profile: profile_for(model),
-            model,
-            metadata: ram_config,
+            config,
             machine,
             time: MachineTime::default(),
             firmware_rom,
@@ -536,11 +597,11 @@ impl AmigaRuntime<AmigaOcs> {
     }
 
     /// RAM layout currently installed — read back for diagnostics or
-    /// for tests asserting a preset was honoured. OCS-specific alias
-    /// over the generic `metadata` field.
+    /// for tests asserting a preset was honoured. This is the RAM
+    /// portion of the runtime's canonical construction configuration.
     #[must_use]
     pub fn ram_config(&self) -> RamConfig {
-        self.metadata
+        self.config.ram()
     }
 
     /// Current host-side Paula audio controls. OCS-specific because
@@ -578,7 +639,7 @@ impl AmigaRuntime<AmigaEcs> {
     /// Construct an ECS runtime from owned firmware bytes, using the
     /// model's preset RAM layout.
     pub fn new(model: Model, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
-        Self::with_ram_config(model, firmware_rom, model.ram_config())
+        Self::with_config(model.config(), firmware_rom)
     }
 
     /// Construct an ECS runtime with an explicit RAM layout.
@@ -587,13 +648,19 @@ impl AmigaRuntime<AmigaEcs> {
         firmware_rom: Vec<u8>,
         ram_config: RamConfig,
     ) -> Result<Self, MachineError> {
+        Self::with_config(model.config().with_ram(ram_config), firmware_rom)
+    }
+
+    /// Construct an ECS runtime from a complete canonical configuration.
+    pub fn with_config(config: AmigaConfig, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
+        let model = config.model();
+        validate_config(config, ChipsetKind::Ecs)?;
         validate_firmware_rom(model, &firmware_rom)?;
-        let machine = build_amiga_ecs(model, ram_config, &firmware_rom);
+        let machine = build_amiga_ecs(config, &firmware_rom);
         let tick_hz = AmigaMachine::cck_hz(&machine).saturating_mul(2);
         let mut runtime = Self {
             profile: profile_for(model),
-            model,
-            metadata: ram_config,
+            config,
             machine,
             time: MachineTime::default(),
             firmware_rom,
@@ -636,7 +703,7 @@ impl AmigaRuntime<AmigaEcs> {
     /// RAM layout currently installed.
     #[must_use]
     pub fn ram_config(&self) -> RamConfig {
-        self.metadata
+        self.config.ram()
     }
 
     /// Current host-side Paula audio controls. The ECS machine crate
@@ -680,7 +747,7 @@ impl AmigaRuntime<AmigaA1200> {
     /// Returns an error if the firmware size is not valid for the
     /// selected model (A1200 expects a 512 KiB Kickstart 3.0/3.1).
     pub fn new(model: Model, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
-        Self::with_ram_config(model, firmware_rom, model.ram_config())
+        Self::with_config(model.config(), firmware_rom)
     }
 
     /// Construct a runtime with an explicit RAM layout, bypassing the
@@ -695,13 +762,19 @@ impl AmigaRuntime<AmigaA1200> {
         firmware_rom: Vec<u8>,
         ram_config: RamConfig,
     ) -> Result<Self, MachineError> {
+        Self::with_config(model.config().with_ram(ram_config), firmware_rom)
+    }
+
+    /// Construct an AGA runtime from a complete canonical configuration.
+    pub fn with_config(config: AmigaConfig, firmware_rom: Vec<u8>) -> Result<Self, MachineError> {
+        let model = config.model();
+        validate_config(config, ChipsetKind::Aga)?;
         validate_firmware_rom(model, &firmware_rom)?;
-        let machine = build_amiga_a1200(model, ram_config, &firmware_rom);
+        let machine = build_amiga_a1200(config, &firmware_rom);
         let tick_hz = AmigaMachine::cck_hz(&machine).saturating_mul(2);
         let mut runtime = Self {
             profile: profile_for(model),
-            model,
-            metadata: ram_config,
+            config,
             machine,
             time: MachineTime::default(),
             firmware_rom,
@@ -747,7 +820,7 @@ impl AmigaRuntime<AmigaA1200> {
     /// RAM layout currently installed.
     #[must_use]
     pub fn ram_config(&self) -> RamConfig {
-        self.metadata
+        self.config.ram()
     }
 
     /// Current host-side Paula audio controls.
@@ -769,39 +842,50 @@ impl AmigaRuntime<AmigaA1200> {
     }
 }
 
-fn build_amiga_a1200(model: Model, ram_config: RamConfig, firmware_rom: &[u8]) -> AmigaA1200 {
+pub(crate) fn build_amiga_a1200(config: AmigaConfig, firmware_rom: &[u8]) -> AmigaA1200 {
     // A1200 only ever boots from Kickstart 3.0 / 3.1 (no A1000-style
     // bootstrap path). Region drives PAL/NTSC Agnus selection inside
     // the chip layer; A1200 reuses the same shared AgnusRegion enum.
+    let model = config.model();
     let firmware = firmware_rom.to_vec();
     if model.is_ntsc() {
-        AmigaA1200::with_ram_config_ntsc(firmware, ram_config)
+        AmigaA1200::with_ram_config_ntsc(firmware, config.ram())
     } else {
-        AmigaA1200::with_ram_config(firmware, ram_config)
+        AmigaA1200::with_ram_config(firmware, config.ram())
     }
 }
 
-fn build_amiga_ecs(model: Model, ram_config: RamConfig, firmware_rom: &[u8]) -> AmigaEcs {
+pub(crate) fn build_amiga_ecs(config: AmigaConfig, firmware_rom: &[u8]) -> AmigaEcs {
     // ECS uses the same Kickstart-only construction as the A500
     // family. A1000-style bootstrap and A3000 SuperKickstart paths
     // come later. Region drives PAL/NTSC Agnus selection inside the
     // chip layer.
+    let model = config.model();
     let firmware = firmware_rom.to_vec();
     if model.is_ntsc() {
-        AmigaEcs::with_ram_config_ntsc(firmware, ram_config)
+        AmigaEcs::with_ram_config_ntsc(firmware, config.ram())
     } else {
-        AmigaEcs::with_ram_config(firmware, ram_config)
+        AmigaEcs::with_ram_config(firmware, config.ram())
     }
 }
 
-fn build_amiga_ocs(model: Model, ram_config: RamConfig, firmware_rom: &[u8]) -> AmigaOcs {
+pub(crate) fn build_amiga_ocs(config: AmigaConfig, firmware_rom: &[u8]) -> AmigaOcs {
     // Cross product of two model axes:
     //   - A1000 (bootstrap ROM into WOM) vs A500-family (Kickstart)
     //   - PAL vs NTSC Agnus
     // Every A500-family layout routes through the same autoconfig-
     // aware constructor; the Zorro-II fast-RAM board is attached
     // automatically when `ram_config.fast_kb > 0`.
+    let model = config.model();
+    let ram_config = config.ram();
     let firmware = firmware_rom.to_vec();
+    if let Some(Accelerator::GvpA530(board_config)) = config.accelerator() {
+        return if model.is_ntsc() {
+            AmigaOcs::with_gvp_a530_config_ntsc(firmware, ram_config, board_config)
+        } else {
+            AmigaOcs::with_gvp_a530_config(firmware, ram_config, board_config)
+        };
+    }
     match (
         model.is_a1000(),
         model.is_ntsc(),
@@ -815,6 +899,62 @@ fn build_amiga_ocs(model: Model, ram_config: RamConfig, firmware_rom: &[u8]) -> 
         (false, true, false) => AmigaOcs::with_ram_config_ntsc(firmware, ram_config),
         (true, _, true) => unreachable!("A1000 profiles never use Fat Agnus 8372A"),
     }
+}
+
+/// Validate construction intent before a machine constructor can observe it.
+///
+/// Custom RAM layouts remain supported. Processor and accelerator axes stay
+/// bound to the selected catalogue model so profile identity cannot silently
+/// describe different hardware.
+pub(crate) fn validate_config(
+    config: AmigaConfig,
+    expected_chipset: ChipsetKind,
+) -> Result<(), MachineError> {
+    if config.model().chipset() != expected_chipset {
+        return Err(MachineError::InvalidRequest {
+            reason: format!(
+                "model {:?} uses {:?}, not {:?}",
+                config.model(),
+                config.model().chipset(),
+                expected_chipset
+            ),
+        });
+    }
+    if !config.ram().is_valid() {
+        return Err(MachineError::InvalidRequest {
+            reason: format!("unsupported Amiga RAM layout: {:?}", config.ram()),
+        });
+    }
+    let model = config.model();
+    let chip_ram_ceiling = if model.is_a1000() {
+        FATTER_AGNUS_CHIP_RAM_BYTES
+    } else {
+        match expected_chipset {
+            ChipsetKind::Ocs if model.uses_fat_agnus_8372a() => FAT_AGNUS_CHIP_RAM_BYTES,
+            ChipsetKind::Ocs => OCS_AGNUS_CHIP_RAM_BYTES,
+            ChipsetKind::Ecs | ChipsetKind::Aga => ECS_AGA_CHIP_RAM_BYTES,
+        }
+    };
+    let chip_ram_bytes = config.ram().chip_kb as usize * KIB;
+    if chip_ram_bytes > chip_ram_ceiling {
+        return Err(MachineError::InvalidRequest {
+            reason: format!(
+                "model {model:?} addresses at most {} KiB chip RAM, not {} KiB",
+                chip_ram_ceiling / KIB,
+                config.ram().chip_kb
+            ),
+        });
+    }
+    let canonical = config.model().config();
+    if config.cpu() != canonical.cpu() || config.accelerator() != canonical.accelerator() {
+        return Err(MachineError::InvalidRequest {
+            reason: format!(
+                "processor or accelerator does not match model {:?}",
+                config.model()
+            ),
+        });
+    }
+    Ok(())
 }
 
 fn firmware_id_for_model(model: Model) -> &'static str {
@@ -905,4 +1045,82 @@ fn audio_buffer_capacity_for_frame(tick_hz: u64) -> usize {
     audio_sample_frames_for_ticks(frame_ticks, tick_hz)
         .saturating_add(1)
         .saturating_mul(usize::from(AUDIO_CHANNELS))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::A500_PAL_CCK_HZ;
+    use crate::variants::AmigaRuntimeKind;
+
+    #[test]
+    fn bounded_step_accounts_progress_when_stopped_cpu_has_no_next_boundary() {
+        let mut rom = blank_standard_kickstart_rom();
+        // Reset PC is $F80008. Execute STOP #$2700 there, with interrupts
+        // masked, so the following debugger step cannot reach a new boundary.
+        rom[8..12].copy_from_slice(&[0x4E, 0x72, 0x27, 0x00]);
+        let mut runtime = AmigaRuntimeKind::new(Model::A500OcsPal, rom).expect("test ROM is valid");
+
+        runtime.step_cpu_instruction(1_024);
+        let starts_before = runtime.cpu_instruction_starts();
+        assert_eq!(starts_before, 1, "the STOP instruction must have started");
+
+        let tick_limit = 32;
+        let machine_ticks_before = runtime.tick_count();
+        let runtime_time_before = runtime.time().get();
+        let AmigaRuntimeKind::Ocs(inner) = &mut runtime else {
+            panic!("A500 must use the OCS runtime");
+        };
+        let audio_phase_before = inner.audio_sample_accumulator();
+        // Make every cached framebuffer diagnostic deliberately stale. Exact
+        // stepping must rebuild them even when the CPU is stopped.
+        inner.non_black_pixels = u32::MAX;
+        inner.non_white_pixels = u32::MAX;
+        inner.first_active_row = Some(u32::MAX);
+
+        let consumed = runtime.step_cpu_instruction(tick_limit);
+
+        assert_eq!(consumed, tick_limit);
+        assert_eq!(
+            runtime.cpu_instruction_starts(),
+            starts_before,
+            "an unchanged boundary counter reports that the bounded step did not complete an instruction"
+        );
+        assert_eq!(
+            runtime.tick_count().wrapping_sub(machine_ticks_before),
+            tick_limit
+        );
+        assert_eq!(
+            runtime.time().get().wrapping_sub(runtime_time_before),
+            tick_limit,
+            "bounded stepping must still account for completed machine ticks"
+        );
+
+        let AmigaRuntimeKind::Ocs(inner) = &runtime else {
+            panic!("A500 must use the OCS runtime");
+        };
+        let tick_hz = A500_PAL_CCK_HZ * 2;
+        assert_eq!(
+            inner.audio_sample_accumulator(),
+            (audio_phase_before + tick_limit * u64::from(AUDIO_SAMPLE_RATE_HZ)) % tick_hz,
+            "bounded stepping must advance host-audio phase once per completed tick"
+        );
+
+        let framebuffer = inner.machine().denise().framebuffer();
+        let expected_non_black = framebuffer
+            .iter()
+            .filter(|pixel| **pixel & 0x00FF_FFFF != 0)
+            .count() as u32;
+        let expected_non_white = framebuffer
+            .iter()
+            .filter(|pixel| **pixel & 0x00FF_FFFF != 0x00FF_FFFF)
+            .count() as u32;
+        let expected_first_active_row = framebuffer
+            .iter()
+            .position(|pixel| *pixel & 0x00FF_FFFF != 0)
+            .map(|index| index as u32 / DISPLAY_WIDTH);
+        assert_eq!(inner.non_black_pixels, expected_non_black);
+        assert_eq!(inner.non_white_pixels, expected_non_white);
+        assert_eq!(inner.first_active_row, expected_first_active_row);
+    }
 }
