@@ -717,8 +717,8 @@ pub struct Agnus {
     /// `u16` — `vposr()` returns `agnus_id & 0x7F00`, so the field
     /// is the literal value KS reads from VPOSR (minus LOF and the
     /// vpos high bit). Real-chip values:
-    ///   * OCS NTSC 8361 / 8370 = `$0000`
-    ///   * OCS PAL  8367 / 8371 = `$1000`
+    ///   * OCS NTSC 8361 / 8370 = `$1000`
+    ///   * OCS PAL  8367 / 8371 = `$0000`
     ///   * ECS NTSC 8375        = `$3000`
     ///   * ECS PAL  8375        = `$2000`
     ///   * AGA Alice NTSC       = `$3300`
@@ -828,7 +828,7 @@ impl Agnus {
             fmode: 0,
             lof: true,
             lines_per_frame: PAL_LINES_PER_FRAME,
-            agnus_id: 0x1000,
+            agnus_id: 0x0000,
             original_revision: OriginalAgnusRevision::Later,
             region: AgnusRegion::Pal,
             lol: false,
@@ -851,10 +851,10 @@ impl Agnus {
     /// Create a later original Agnus configured for the named video region.
     ///
     /// PAL is the existing default: every line is 227 CCKs, each short field
-    /// is 312 lines, and the 8371 uses `agnus_id = $1000`, shared with the
+    /// is 312 lines, and the 8371 uses `agnus_id = $0000`, shared with the
     /// A1000's 8367. NTSC alternates short and long lines (227/228) per HRM
     /// p. 785, uses 262-line short fields, and the 8370 uses
-    /// `agnus_id = $0000`, shared with the A1000's 8361. The first NTSC line
+    /// `agnus_id = $1000`, shared with the A1000's 8361. The first NTSC line
     /// is short; the alternation is strict until ECS adds the LOLDIS bit on
     /// BPLCON3. `agnus_id` is stored pre-shifted into VPOSR bits 14-8.
     #[must_use]
@@ -864,14 +864,14 @@ impl Agnus {
             AgnusRegion::Pal => {
                 agnus.region = AgnusRegion::Pal;
                 agnus.lines_per_frame = PAL_LINES_PER_FRAME;
-                agnus.agnus_id = 0x1000;
+                agnus.agnus_id = 0x0000;
                 agnus.lol = false;
                 agnus.lol_toggle = false;
             }
             AgnusRegion::Ntsc => {
                 agnus.region = AgnusRegion::Ntsc;
                 agnus.lines_per_frame = NTSC_LINES_PER_FRAME;
-                agnus.agnus_id = 0x0000;
+                agnus.agnus_id = 0x1000;
                 agnus.lol = false;
                 agnus.lol_toggle = true;
             }
@@ -3340,7 +3340,7 @@ mod tests {
     fn ddf_strt_aligns_to_fetch_boundary_per_variant() {
         // OCS ignores DDFSTRT's low 2 bits ($FC, 4-CCK lores boundary):
         // an unaligned $3A produces exactly the same fetch grid as $38.
-        let mut aligned = Agnus::new(); // OCS, agnus_id = $1000
+        let mut aligned = Agnus::new(); // OCS, agnus_id = $0000
         aligned.dmacon = DMACON_DMAEN | DMACON_BPLEN;
         aligned.bplcon0 = 0x6000; // lores, 6 planes
         aligned.ddfstrt = 0x38;
@@ -4680,15 +4680,15 @@ mod tests {
     /// refactors can't silently regress to the pre-Stage AE-j state
     /// where every chipset reported `$0000` in the ID bits.
     #[test]
-    fn vposr_reports_agnus_id_in_upper_byte() {
+    fn vposr_reports_original_agnus_region_identity() {
         let pal = Agnus::new_with_region(AgnusRegion::Pal);
-        // PAL 8371/8367: bits 14-8 = `0010000` → upper byte $10 → u16 $1000.
+        // PAL 8371/8367: upper byte $00 → u16 $0000.
         // LOF starts set + vpos bit 8 zero at reset → bit 15 = 1, bit 0 = 0.
-        assert_eq!(pal.vposr() & 0x7F00, 0x1000);
+        assert_eq!(pal.vposr() & 0x7F00, 0x0000);
 
         let ntsc = Agnus::new_with_region(AgnusRegion::Ntsc);
-        // NTSC 8370/8361: upper byte $00 → u16 $0000.
-        assert_eq!(ntsc.vposr() & 0x7F00, 0x0000);
+        // NTSC 8370/8361: bits 14-8 = `0010000` → upper byte $10.
+        assert_eq!(ntsc.vposr() & 0x7F00, 0x1000);
     }
 
     #[test]
@@ -4711,7 +4711,7 @@ mod tests {
         assert_eq!(agnus.lines_per_frame, PAL_LINES_PER_FRAME);
         // Later 8371 PAL original Agnus shares the 8367's VPOSR ID,
         // stored pre-shifted into bits 14-8.
-        assert_eq!(agnus.agnus_id, 0x1000);
+        assert_eq!(agnus.agnus_id, 0x0000);
         assert!(!agnus.lol);
         assert!(!agnus.lol_toggle);
         assert_eq!(agnus.current_line_ccks(), PAL_CCKS_PER_LINE);
@@ -4722,8 +4722,8 @@ mod tests {
         let mut agnus = Agnus::new_with_region(AgnusRegion::Ntsc);
         assert_eq!(agnus.region, AgnusRegion::Ntsc);
         assert_eq!(agnus.lines_per_frame, NTSC_LINES_PER_FRAME);
-        // Later 8370 NTSC original Agnus shares the 8361's $0000 ID.
-        assert_eq!(agnus.agnus_id, 0x0000);
+        // Later 8370 NTSC original Agnus shares the 8361's $1000 ID.
+        assert_eq!(agnus.agnus_id, 0x1000);
         assert!(!agnus.lol);
         assert!(agnus.lol_toggle);
         // First line = short (227).
