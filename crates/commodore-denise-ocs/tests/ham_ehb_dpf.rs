@@ -352,14 +352,8 @@ fn normal_mode_ignores_ham_ehb() {
     assert_eq!(rgb, 0x0FF);
 }
 
-// FIXME (Denise port): this dual-playfield priority case was failing
-// before the Denise archive was re-included in the workspace for the
-// Phase 1 characterisation effort. Leaving it ignored so the
-// workspace build stays green; Phase 2 task #163 (attached-pair +
-// priority port) owns the fix. See
-// knowledge/amiga/denise-ocs-porting-gap-list.md.
 #[test]
-#[ignore = "known archive bug — tracked in denise-ocs-porting-gap-list.md; fix in #163"]
+#[ignore = "known dual-playfield sprite-priority bug"]
 fn dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite() {
     fn encode_sprite_pos_ctl(hstart: u16, vstart: u16, vstop: u16) -> (u16, u16) {
         let pos = ((vstart & 0x00FF) << 8) | ((hstart >> 1) & 0x00FF);
@@ -381,6 +375,7 @@ fn dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite() {
     denise.spr_ctl[0] = ctl;
     denise.spr_data[0] = 0x8000;
     denise.spr_datb[0] = 0x0000;
+    denise.spr_armed[0] = true;
 
     // Both playfields active on this pixel: PF1 code=1 (plane 1), PF2 code=1 (plane 2).
     // PF2PRI=1 puts PF2 in front of PF1.
@@ -389,7 +384,7 @@ fn dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite() {
     denise.shift_count = 1;
     denise.bplcon2 = 0x0044; // PF2PRI=1, PF1P=4 (sprite beats PF1), PF2P=0 (PF2 beats sprite)
     assert_eq!(
-        denise.output_pixel_color(22, 9),
+        denise.output_pixel_color(23, 9),
         DeniseOcs::rgb12_to_argb32(0x0F0),
         "front PF2 should hide sprite when PF2P places PF2 ahead of SP01"
     );
@@ -399,7 +394,7 @@ fn dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite() {
     denise.shift_count = 1;
     denise.bplcon2 = 0x004C; // PF2PRI=1, PF2P=1 => SP01 in front of PF2
     assert_eq!(
-        denise.output_pixel_color(22, 9),
+        denise.output_pixel_color(23, 9),
         DeniseOcs::rgb12_to_argb32(0xF00),
         "sprite should appear when PF2P places SP01 ahead of front PF2"
     );

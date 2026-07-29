@@ -292,9 +292,13 @@ mod tests {
             denise.write_sprite_data(0, 0x8000);
         }
 
+        let ocs_pixel = ocs.output_pixel_color(21, 10);
+        let ecs_pixel = ecs.output_pixel_color(21, 10);
+        assert_eq!(ecs_pixel, ocs_pixel);
         assert_eq!(
-            ecs.output_pixel_color(20, 10),
-            ocs.output_pixel_color(20, 10)
+            ecs_pixel,
+            InnerDeniseOcs::rgb12_to_argb32(0xF00),
+            "the ECS wrapper must inherit the OCS sprite output phase",
         );
         assert_eq!(ecs.clxdat, ocs.clxdat);
     }

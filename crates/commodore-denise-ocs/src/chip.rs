@@ -548,10 +548,17 @@ impl DeniseOcs {
             let load_pulse = beam_x == hstart;
 
             // Load phase: copy sprite data regs into the serial shifters.
+            // In this per-pixel sequencer the comparison loads the shifter
+            // and composition observes its first MSB on the following lores
+            // step. This realizes vAmiga's observed +2-hires-pixel placement
+            // without biasing the HSTART register decode; pinned WinUAE
+            // models the same one-lores-pixel start delay in its sprite
+            // output latch.
             if load_pulse {
                 self.spr_shift_data[sprite] = self.spr_data[sprite];
                 self.spr_shift_datb[sprite] = self.spr_datb[sprite];
                 self.spr_shift_count[sprite] = self.spr_width;
+                continue;
             }
 
             if self.spr_shift_count[sprite] == 0 {

@@ -3,18 +3,18 @@
 //! A table-driven regression net for Amiga boot screens. Each row is
 //! a `(Model, Kickstart ROM, optional ADF, settle frame count)`
 //! combination; the harness runs the machine for the settle frames,
-//! captures Denise's framebuffer, crops to FS-UAE's default PAL
-//! region, and byte-compares against a reference PNG on disk.
+//! captures Denise's framebuffer, crops to the matrix's historical
+//! FS-UAE-sized PAL region, and byte-compares against a regression PNG
+//! on disk.
 //!
 //! # Framing
 //!
 //! Our emulator renders at **768×576** — full PAL Standard overscan,
 //! the same region the runtime shows users. FS-UAE's default PAL
 //! output crops 8 px each side horizontally and 2 scan-lines top and
-//! bottom to **752×572**. Goldens are stored at the FS-UAE dimension
-//! so they can be compared pixel-exactly against FS-UAE captures
-//! (the ground truth for this suite). The harness applies the same
-//! symmetric crop to our 768×576 output before comparison.
+//! bottom to **752×572**. Goldens retain that dimension and the harness
+//! applies the same symmetric crop to our 768×576 output before
+//! comparison.
 //!
 //! # External artifacts
 //!
@@ -30,22 +30,12 @@
 //!
 //! # Capturing / updating goldens
 //!
-//! Goldens are FS-UAE captures (the trusted reference) — see
-//! `knowledge/processes/golden-image-capture.md`. Don't regenerate with
-//! `EMU198X_UPDATE_GOLDENS=1` unless you've verified the emulator
-//! matches FS-UAE for that row; the env var is provided for the
-//! bootstrap workflow but should almost never be used.
-//!
-//! Provenance exception — `a500-ks13-wb13` (re-blessed 2026-06-09):
-//! the original capture predated working hardware-sprite DMA, so it
-//! showed a clean desktop with no mouse pointer. Once the Agnus→Denise
-//! sprite handoff (gap #162) landed, the Workbench pointer renders at
-//! the WB screen's top-left corner. This was verified to be the real
-//! KS 1.3 boot position — `IntuitionBase.MouseX/MouseY` read back as
-//! (0,0), which maps through DIWSTRT to that raster spot — so the
-//! pointer is where the ROM puts it, not an emulator artifact. The
-//! golden was regenerated from our (verified-correct) output to include
-//! it. Everything outside the pointer stayed pixel-identical.
+//! The current committed PNGs are Emu198x-produced regression baselines,
+//! not independent FS-UAE accuracy references. See
+//! `knowledge/processes/golden-image-capture.md` for the provenance rule.
+//! `EMU198X_UPDATE_GOLDENS=1` is available only for a reviewed baseline
+//! change: establish the cause, compare the changed region with independent
+//! evidence, and inspect the complete image before retaining it.
 //!
 //! On mismatch the harness writes two debug PNGs next to the
 //! golden:
@@ -117,9 +107,8 @@ enum BootFlow {
 const FSUAE_W: u32 = 752;
 const FSUAE_H: u32 = 572;
 
-/// Settle-frame count matching the archive's FS-UAE captures. All
-/// archive goldens were taken at frame 250 for KS 1.2 / 1.3 on the
-/// insert-disk screen.
+/// Historical settle-frame count retained by the current regression
+/// baselines. The Kickstart 1.2 / 1.3 insert-disk rows capture frame 250.
 const KS13_SETTLE_FRAMES: u64 = 250;
 
 const MATRIX: &[GoldenRow] = &[
@@ -287,9 +276,8 @@ fn tick_frames(rt: &mut AmigaOcsRuntime, frames: u64) {
     }
 }
 
-/// Capture the Denise framebuffer, crop to FS-UAE's default PAL
-/// region, and return the cropped bytes as RGB (no alpha — FS-UAE
-/// reference PNGs are RGB, so goldens and diffs share the format).
+/// Capture the Denise framebuffer, crop to the matrix's historical
+/// FS-UAE-sized PAL region, and return the cropped bytes as RGB.
 ///
 /// The crop is a centered `(DISPLAY_WIDTH - FSUAE_W) / 2`-pixel
 /// horizontal trim and `(DISPLAY_HEIGHT - FSUAE_H) / 2`-scanline
@@ -321,8 +309,7 @@ fn crop_fsuae_rgb(fb: &[u32]) -> Vec<u8> {
     rgb
 }
 
-/// Encode RGB bytes (no alpha) as a PNG blob. Matches the FS-UAE
-/// reference goldens' pixel format so byte-compare is meaningful.
+/// Encode RGB bytes (no alpha) in the regression baseline's pixel format.
 fn encode_rgb_png(rgb: &[u8], w: u32, h: u32) -> Vec<u8> {
     assert_eq!(rgb.len(), (w * h * 3) as usize);
     let mut png_bytes = Vec::new();
@@ -521,8 +508,8 @@ fn run_row(row: &GoldenRow) {
     }
 
     if !golden_path.exists() {
-        // First-run safety: goldens come from FS-UAE (see module
-        // doc). Don't invent one silently.
+        // First-run safety: a missing reviewed regression baseline must not
+        // be invented silently.
         panic!(
             "{}: golden missing at {}. \
              See knowledge/processes/golden-image-capture.md.",
@@ -534,7 +521,7 @@ fn run_row(row: &GoldenRow) {
     let (expected_rgb, gw, gh) = decode_png_rgb(&golden_path);
     if gw != FSUAE_W || gh != FSUAE_H {
         panic!(
-            "{}: golden dimensions {}×{} do not match FS-UAE {}×{} at {}",
+            "{}: golden dimensions {}×{} do not match matrix geometry {}×{} at {}",
             row.name,
             gw,
             gh,

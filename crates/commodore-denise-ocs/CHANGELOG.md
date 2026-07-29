@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Delay newly loaded sprite display and collision data by one low-resolution
+  pixel after the `SPRxPOS`/`SPRxCTL` horizontal comparison
 - Let armed manual sprite data repeat on every line until `SPRxCTL`
   disarms it, leaving VSTART/VSTOP lifecycle decisions to Agnus
 

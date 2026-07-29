@@ -176,6 +176,10 @@ comparator correction, the gradients mismatch contracts from 7,822 pixels to
 remaining bounding boxes are confined to the Test Kit menu-pointer region.
 The dots pattern becomes an exact match.
 
+Those figures isolate the Copper correction before the later
+[sprite horizontal output phase](amiga-sprite-horizontal-output-phase.md)
+change. They are not the current whole-lane result.
+
 ## Drift triggers
 
 Reject these patterns:
@@ -191,6 +195,7 @@ Reject these patterns:
 
 ## Related Documents
 
+- [Amiga sprite horizontal output phase](amiga-sprite-horizontal-output-phase.md)
 - [Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)
 - [Blitter completion pipeline](amiga-blitter-completion-pipeline.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)

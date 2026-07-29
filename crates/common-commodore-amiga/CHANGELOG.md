@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve Denise's one-low-resolution-pixel sprite load-to-output phase in
+  the board-level video path
 - Feed Copper `WAIT` and `SKIP` the installed Agnus's comparator-visible
   horizontal position, including its two-CCK lead and active-line parity wrap
 - Reject restored active-CPU state whose serialized instruction-cache

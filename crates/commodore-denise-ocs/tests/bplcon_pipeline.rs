@@ -232,7 +232,7 @@ fn dpf_pf2pri_sprite_priority_uses_pf2p_field_for_front_pf2() {
     // PF2PRI=1 + PF2P=0 -> no sprite group < 0, PF2 wins.
     let mut d = build();
     d.bplcon2 = 0x0040; // PF2PRI, PF2P=0
-    let dbg = d.output_pixel_with_beam(0, 5, 0, 5);
+    let dbg = d.output_pixel_with_beam(1, 5, 1, 5);
     assert_eq!(
         dbg.final_color_idx, 9,
         "PF2 in front + PF2P=0 -> PF2 wins over sprite group 0"
@@ -241,7 +241,7 @@ fn dpf_pf2pri_sprite_priority_uses_pf2p_field_for_front_pf2() {
     // PF2PRI=1 + PF2P=1 -> sprite group 0 < 1, sprite wins.
     let mut d = build();
     d.bplcon2 = 0x0048; // PF2PRI, PF2P=1
-    let dbg = d.output_pixel_with_beam(0, 5, 0, 5);
+    let dbg = d.output_pixel_with_beam(1, 5, 1, 5);
     assert_eq!(
         dbg.final_color_idx, 17,
         "PF2 in front + PF2P=1 -> sprite group 0 wins"

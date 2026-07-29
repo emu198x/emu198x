@@ -65,6 +65,11 @@ HSTART on every line. In DMA mode, vertical extent emerges because
 Agnus supplies fresh line data between its comparators and supplies
 control words at VSTOP.
 
+The horizontal comparison loads Denise's sprite shifter; newly loaded data
+reaches display and collision logic one low-resolution pixel later. That
+separate phase decision is defined in
+[Amiga sprite horizontal output phase](amiga-sprite-horizontal-output-phase.md).
+
 The implementation does not claim physical reset values for the
 write-only programmable comparators. ECS and AGA seed untouched
 `VBSTRT` and `VBSTOP` shadows to an out-of-domain sentinel, following
@@ -232,6 +237,7 @@ Reject these patterns:
 
 ## Related documents
 
+- [Amiga sprite horizontal output phase](amiga-sprite-horizontal-output-phase.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)
 - [Blitter completion pipeline](amiga-blitter-completion-pipeline.md)

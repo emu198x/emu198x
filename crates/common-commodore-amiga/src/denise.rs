@@ -437,6 +437,49 @@ mod tests {
     }
 
     #[test]
+    fn sprite_first_pixel_follows_hstart_load_in_board_framebuffer() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let mut agnus = Agnus::new();
+        agnus.vpos = 50;
+        agnus.hpos = 100;
+        agnus.diwstrt = 0x2C00;
+        agnus.diwstop = 0xF4FF;
+
+        let mut denise = Denise::<DeniseOcs>::new();
+        denise.ocs.set_palette(0, 0x000);
+        denise.ocs.set_palette(17, 0xF00);
+        denise.ocs.write_sprite_pos(0, 0x3264); // HSTART=200
+        denise.ocs.write_sprite_ctl(0, 0x3C00);
+        denise.ocs.write_sprite_datb(0, 0x0000);
+        denise.ocs.write_sprite_data(0, 0x8000);
+
+        let memory = Memory::new(vec![0; 2]);
+        denise.tick(0, None, true, &mut agnus, &memory);
+        denise.tick(1, None, true, &mut agnus, &memory);
+
+        let y = u32::from(agnus.vpos - 0x19) * 2;
+        let hstart_x = u32::from(agnus.hpos - 0x2C) * 4;
+        let first_sprite_x = hstart_x + 2;
+        let framebuffer = denise.framebuffer();
+        for x in hstart_x..first_sprite_x {
+            assert_eq!(
+                framebuffer[(y * FB_WIDTH + x) as usize],
+                0xFF00_0000,
+                "the HSTART comparison/load step remains background",
+            );
+        }
+        for x in first_sprite_x..first_sprite_x + 2 {
+            assert_eq!(
+                framebuffer[(y * FB_WIDTH + x) as usize],
+                0xFFFF_0000,
+                "the first sprite MSB appears on the following lores step",
+            );
+        }
+    }
+
+    #[test]
     fn wide_fetch_advances_pointer_by_width_words_per_line() {
         use commodore_agnus_ocs::Agnus;
         use commodore_denise_ocs::DeniseOcs;
