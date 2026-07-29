@@ -1,0 +1,626 @@
+{
+  "source_format_version": 1,
+  "suite": {
+    "id": "org.198x.amiga.programmable-hblank",
+    "version": "1.0.0",
+    "license": "CC0-1.0",
+    "source_revision": "source-v1"
+  },
+  "defaults": {
+    "applicability": {
+      "agnus": [
+        "ECS Agnus",
+        "AGA Alice"
+      ],
+      "display_chip": [
+        "ECS Denise",
+        "AGA Lisa"
+      ],
+      "min_chip_ram_bytes": 524288,
+      "regions": [
+        "PAL"
+      ]
+    },
+    "line_geometry": {
+      "coordinate_source": "raw 11-bit HBSTRT/HBSTOP register words",
+      "register_minimum": 0,
+      "register_maximum": 2047,
+      "register_modulus": 2048,
+      "sample_beam_line": 128,
+      "horizontal_mapping": "producer-recorded",
+      "guard_register": "COLOR00"
+    },
+    "programming_schedule": {
+      "phase": "once after boot, before the ready record is published",
+      "write_order": [
+        "DMACON",
+        "INTENA",
+        "INTREQ",
+        "BPLCON3 palette-bank-zero setup",
+        "COLOR00",
+        "HBSTRT",
+        "HBSTOP",
+        "BEAMCON0",
+        "BPLCON3",
+        "BPLCON0"
+      ],
+      "steady_state": "The probe leaves the case register values unchanged while the field counter advances."
+    },
+    "settle_capture": {
+      "ready_record_address": "0x0002ff00",
+      "ready_magic": "HBLK",
+      "ready_magic_width_bytes": 4,
+      "case_number_address": "0x0002ff04",
+      "case_number_width_bytes": 2,
+      "schema_version_address": "0x0002ff06",
+      "schema_version_width_bytes": 2,
+      "field_counter_address": "0x0002ff08",
+      "field_counter_width_bytes": 4,
+      "byte_order": "big-endian",
+      "ready_timeout_fields": 600,
+      "settle_fields": 8,
+      "capture_fields": 3,
+      "adjacent_field_stability_required": true
+    }
+  },
+  "cases": [
+    {
+      "id": "fixed-control",
+      "numeric_id": 1,
+      "question": "What horizontal blanking is observed when HBSTRT and HBSTOP are programmed but ECSENA, EXTBLKEN, and BLANKEN are clear?",
+      "registers": {
+        "bplcon0": {
+          "word": "0x0000",
+          "symbols": []
+        },
+        "bplcon3": {
+          "word": "0x0000",
+          "symbols": []
+        },
+        "beamcon0": {
+          "word": "0x0020",
+          "symbols": [
+            "PAL"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x0080",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x00a0",
+          "symbols": []
+        }
+      },
+      "resolution": "lores",
+      "identity": {
+        "visual": {
+          "method": "solid COLOR00",
+          "color00": "0x0f0",
+          "description": "Bright green outside any blanked interval."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-v1/01-fixed-control",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "ecsena-gate",
+      "numeric_id": 2,
+      "question": "Does clearing ECSENA prevent the otherwise-enabled programmable blanking path from changing horizontal blanking?",
+      "registers": {
+        "bplcon0": {
+          "word": "0x0000",
+          "symbols": []
+        },
+        "bplcon3": {
+          "word": "0x0001",
+          "symbols": [
+            "EXTBLKEN"
+          ]
+        },
+        "beamcon0": {
+          "word": "0x0028",
+          "symbols": [
+            "PAL",
+            "BLANKEN"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x0080",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x00a0",
+          "symbols": []
+        }
+      },
+      "resolution": "lores",
+      "identity": {
+        "visual": {
+          "method": "solid COLOR00",
+          "color00": "0xf00",
+          "description": "Bright red outside any blanked interval."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-v1/02-ecsena-gate",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "extblken-gate",
+      "numeric_id": 3,
+      "question": "Does clearing EXTBLKEN prevent the otherwise-enabled programmable blanking path from changing horizontal blanking?",
+      "registers": {
+        "bplcon0": {
+          "word": "0x0001",
+          "symbols": [
+            "ECSENA"
+          ]
+        },
+        "bplcon3": {
+          "word": "0x0000",
+          "symbols": []
+        },
+        "beamcon0": {
+          "word": "0x0028",
+          "symbols": [
+            "PAL",
+            "BLANKEN"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x0080",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x00a0",
+          "symbols": []
+        }
+      },
+      "resolution": "lores",
+      "identity": {
+        "visual": {
+          "method": "solid COLOR00",
+          "color00": "0x00f",
+          "description": "Bright blue outside any blanked interval."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-v1/03-extblken-gate",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "blanken-path",
+      "numeric_id": 4,
+      "question": "Does clearing BLANKEN prevent ECSENA and EXTBLKEN from selecting the programmable blanking path?",
+      "registers": {
+        "bplcon0": {
+          "word": "0x0001",
+          "symbols": [
+            "ECSENA"
+          ]
+        },
+        "bplcon3": {
+          "word": "0x0001",
+          "symbols": [
+            "EXTBLKEN"
+          ]
+        },
+        "beamcon0": {
+          "word": "0x0020",
+          "symbols": [
+            "PAL"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x0080",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x00a0",
+          "symbols": []
+        }
+      },
+      "resolution": "lores",
+      "identity": {
+        "visual": {
+          "method": "solid COLOR00",
+          "color00": "0xff0",
+          "description": "Bright yellow outside any blanked interval."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-v1/04-blanken-path",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "programmed-central",
+      "numeric_id": 5,
+      "question": "What blank interval is observed for an enabled non-wrapping HBSTRT 0x0080 to HBSTOP 0x00a0 window?",
+      "registers": {
+        "bplcon0": {
+          "word": "0x0001",
+          "symbols": [
+            "ECSENA"
+          ]
+        },
+        "bplcon3": {
+          "word": "0x0001",
+          "symbols": [
+            "EXTBLKEN"
+          ]
+        },
+        "beamcon0": {
+          "word": "0x0028",
+          "symbols": [
+            "PAL",
+            "BLANKEN"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x0080",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x00a0",
+          "symbols": []
+        }
+      },
+      "resolution": "lores",
+      "identity": {
+        "visual": {
+          "method": "solid COLOR00",
+          "color00": "0x0ff",
+          "description": "Bright cyan outside any blanked interval."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-v1/05-programmed-central",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "programmed-wrap",
+      "numeric_id": 6,
+      "question": "What blank interval is observed when HBSTRT 0x00d0 is greater than HBSTOP 0x0040?",
+      "registers": {
+        "bplcon0": {
+          "word": "0x0001",
+          "symbols": [
+            "ECSENA"
+          ]
+        },
+        "bplcon3": {
+          "word": "0x0001",
+          "symbols": [
+            "EXTBLKEN"
+          ]
+        },
+        "beamcon0": {
+          "word": "0x0028",
+          "symbols": [
+            "PAL",
+            "BLANKEN"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x00d0",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x0040",
+          "symbols": []
+        }
+      },
+      "resolution": "lores",
+      "identity": {
+        "visual": {
+          "method": "solid COLOR00",
+          "color00": "0xf0f",
+          "description": "Bright magenta outside any blanked interval."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-v1/06-programmed-wrap",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "programmed-equal",
+      "numeric_id": 7,
+      "question": "What horizontal blanking is observed when enabled HBSTRT and HBSTOP are both 0x0080?",
+      "registers": {
+        "bplcon0": {
+          "word": "0x0001",
+          "symbols": [
+            "ECSENA"
+          ]
+        },
+        "bplcon3": {
+          "word": "0x0001",
+          "symbols": [
+            "EXTBLKEN"
+          ]
+        },
+        "beamcon0": {
+          "word": "0x0028",
+          "symbols": [
+            "PAL",
+            "BLANKEN"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x0080",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x0080",
+          "symbols": []
+        }
+      },
+      "resolution": "lores",
+      "identity": {
+        "visual": {
+          "method": "solid COLOR00",
+          "color00": "0xfff",
+          "description": "White outside any blanked interval."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-v1/07-programmed-equal",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "aga-fine-lores",
+      "numeric_id": 8,
+      "question": "Where do AGA blank edges appear for HBSTRT 0x0080 and HBSTOP 0x07a0 while BPLCON0 selects lores?",
+      "applicability": {
+        "agnus": [
+          "AGA Alice"
+        ],
+        "display_chip": [
+          "AGA Lisa"
+        ],
+        "min_chip_ram_bytes": 524288,
+        "regions": [
+          "PAL"
+        ]
+      },
+      "registers": {
+        "bplcon0": {
+          "word": "0x0001",
+          "symbols": [
+            "ECSENA"
+          ]
+        },
+        "bplcon3": {
+          "word": "0x0001",
+          "symbols": [
+            "EXTBLKEN"
+          ]
+        },
+        "beamcon0": {
+          "word": "0x0028",
+          "symbols": [
+            "PAL",
+            "BLANKEN"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x0080",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x07a0",
+          "symbols": []
+        }
+      },
+      "resolution": "lores",
+      "identity": {
+        "visual": {
+          "method": "solid COLOR00",
+          "color00": "0x8f0",
+          "description": "Yellow-green outside any blanked interval."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-v1/08-aga-fine-lores",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "aga-fine-hires",
+      "numeric_id": 9,
+      "question": "Where do AGA blank edges appear for HBSTRT 0x0080 and HBSTOP 0x07a0 while BPLCON0 selects hires?",
+      "applicability": {
+        "agnus": [
+          "AGA Alice"
+        ],
+        "display_chip": [
+          "AGA Lisa"
+        ],
+        "min_chip_ram_bytes": 524288,
+        "regions": [
+          "PAL"
+        ]
+      },
+      "registers": {
+        "bplcon0": {
+          "word": "0x8001",
+          "symbols": [
+            "HIRES",
+            "ECSENA"
+          ]
+        },
+        "bplcon3": {
+          "word": "0x0001",
+          "symbols": [
+            "EXTBLKEN"
+          ]
+        },
+        "beamcon0": {
+          "word": "0x0028",
+          "symbols": [
+            "PAL",
+            "BLANKEN"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x0080",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x07a0",
+          "symbols": []
+        }
+      },
+      "resolution": "hires",
+      "identity": {
+        "visual": {
+          "method": "solid COLOR00",
+          "color00": "0xf80",
+          "description": "Orange outside any blanked interval."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-v1/09-aga-fine-hires",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "aga-fine-shres",
+      "numeric_id": 10,
+      "question": "Where do AGA blank edges appear for HBSTRT 0x0080 and HBSTOP 0x07a0 while BPLCON0 selects super-hires?",
+      "applicability": {
+        "agnus": [
+          "AGA Alice"
+        ],
+        "display_chip": [
+          "AGA Lisa"
+        ],
+        "min_chip_ram_bytes": 524288,
+        "regions": [
+          "PAL"
+        ]
+      },
+      "registers": {
+        "bplcon0": {
+          "word": "0x0041",
+          "symbols": [
+            "SHRES",
+            "ECSENA"
+          ]
+        },
+        "bplcon3": {
+          "word": "0x0001",
+          "symbols": [
+            "EXTBLKEN"
+          ]
+        },
+        "beamcon0": {
+          "word": "0x0028",
+          "symbols": [
+            "PAL",
+            "BLANKEN"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x0080",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x07a0",
+          "symbols": []
+        }
+      },
+      "resolution": "super-hires",
+      "identity": {
+        "visual": {
+          "method": "solid COLOR00",
+          "color00": "0x08f",
+          "description": "Blue-cyan outside any blanked interval."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-v1/10-aga-fine-shres",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+# Documentary References
+
+The probe's register addresses and baseline control bits were checked against
+the *Amiga Hardware Reference Manual*, Third Edition, Appendix C, particularly
+the enhanced-chip-set register map and the sections “Multi-Sync and Bi-Sync
+Monitors” and “New BEAMCON0 Register”.
+
+The later-chip questions were also informed by *The Amiga 3000 System
+Specification*, sections 3.2.7 and 3.2.8, which describe Lisa horizontal
+blanking registers and the finer horizontal comparator resolution.
+
+These works explain which controls exist. They do not settle every observable
+edge, gate interaction, wrap behavior, equal-value behavior, or capture
+convention addressed by this corpus.
+
+No third-party reference text, emulator source, firmware, or capture is
+redistributed here. Implementations are evidence producers rather than
+specification authorities; their observations belong in capture records with
+their implementation family made explicit.
+
+## Related files
+
+- [`../cases/README.md`](../cases/README.md) contains the resulting questions.
+- [`../schema/README.md`](../schema/README.md) defines how observations are
+  recorded.
