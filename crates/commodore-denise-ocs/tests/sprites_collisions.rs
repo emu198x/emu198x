@@ -40,8 +40,113 @@ fn with_clear_playfield() -> DeniseOcs {
     d.set_palette(0, 0x000);
     d.begin_beam_line();
     d.bpl_data[0] = 0x0000;
-    d.trigger_shift_load();
+    enable_sprites_for_direct_fixture(&mut d);
     d
+}
+
+/// Open the BPL1DAT sprite latch, then retire the queued bitplane copy so
+/// direct-shifter fixtures can seed their live state without it being replaced.
+fn enable_sprites_for_direct_fixture(d: &mut DeniseOcs) {
+    d.queue_shift_load_from_bpl1dat();
+    d.trigger_shift_load();
+}
+
+#[test]
+fn bpl1dat_enables_sprite_display_for_only_the_current_line() {
+    let mut d = DeniseOcs::new();
+    d.set_palette(0, 0x000);
+    d.set_palette(17, 0xF00);
+
+    let (pos, ctl) = encode_sprite_pos_ctl(4, 10, 13);
+    d.write_sprite_pos(0, pos);
+    d.write_sprite_ctl(0, ctl);
+    d.write_sprite_datb(0, 0x0000);
+    d.write_sprite_data(0, 0x8000);
+
+    d.begin_beam_line();
+    assert_eq!(
+        d.output_pixel_color(5, 10),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "a line without BPL1DAT must hide an otherwise armed sprite"
+    );
+
+    d.begin_beam_line();
+    d.write_word(0x110, 0x0000);
+    assert_eq!(
+        d.output_pixel_color(5, 11),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "a BPL1DAT register write must enable sprite display for the line"
+    );
+
+    d.begin_beam_line();
+    assert_eq!(
+        d.output_pixel_color(5, 12),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "the next line must hide sprites again until its own BPL1DAT write"
+    );
+}
+
+#[test]
+fn bpl1dat_visibility_gate_suppresses_sprite_collisions() {
+    let mut d = DeniseOcs::new();
+    d.clxcon = 0xFFFF;
+
+    for sprite in [0, 2] {
+        let (pos, ctl) = encode_sprite_pos_ctl(4, 20, 22);
+        d.write_sprite_pos(sprite, pos);
+        d.write_sprite_ctl(sprite, ctl);
+        d.write_sprite_datb(sprite, 0x0000);
+        d.write_sprite_data(sprite, 0x8000);
+    }
+
+    d.begin_beam_line();
+    let _ = d.output_pixel_with_beam(5, 20, 5, 20);
+    assert_eq!(
+        d.read_clxdat() & (1 << 9),
+        0,
+        "hidden sprite groups must not enter the collision matrix"
+    );
+
+    d.begin_beam_line();
+    d.queue_shift_load_from_bpl1dat();
+    let _ = d.output_pixel_with_beam(5, 21, 5, 21);
+    assert_ne!(
+        d.read_clxdat() & (1 << 9),
+        0,
+        "BPL1DAT-enabled sprite groups must contribute to collisions"
+    );
+}
+
+#[test]
+fn hidden_sprite_shifter_keeps_advancing_before_bpl1dat() {
+    let mut d = DeniseOcs::new();
+    d.set_palette(0, 0x000);
+    d.set_palette(17, 0xF00);
+
+    let (pos, ctl) = encode_sprite_pos_ctl(4, 30, 31);
+    d.write_sprite_pos(0, pos);
+    d.write_sprite_ctl(0, ctl);
+    d.write_sprite_datb(0, 0x0000);
+    d.write_sprite_data(0, 0xA000); // serial pixels 1, 0, 1
+    d.begin_beam_line();
+
+    assert_eq!(
+        d.output_pixel_color(5, 30),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "the first serial pixel is consumed while sprite display is hidden"
+    );
+
+    d.queue_shift_load_from_bpl1dat();
+    assert_eq!(
+        d.output_pixel_color(6, 30),
+        DeniseOcs::rgb12_to_argb32(0x000),
+        "enabling mid-stream must expose the second, zero sprite bit"
+    );
+    assert_eq!(
+        d.output_pixel_color(7, 30),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "the third sprite bit must follow, proving hidden output did not pause the shifter"
+    );
 }
 
 #[test]
@@ -145,6 +250,7 @@ fn sprite_collision_begins_one_lores_pixel_after_hstart() {
     // observe the same serial output phase as display, so no sprite collision
     // can latch until the following lores pixel.
     let mut d = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut d);
     d.clxcon = (1 << 6) | 1; // enable BPL1 and require its pixel to be set
     let (pos, ctl) = encode_sprite_pos_ctl(20, 10, 11);
     d.write_sprite_pos(0, pos);
@@ -221,7 +327,7 @@ fn transparent_sprite_pixel_leaves_playfield_visible() {
     d.begin_beam_line();
     // Playfield bit at the sprite's first output pixel (MSB is pixel 0).
     d.bpl_data[0] = 1 << (15 - 6);
-    d.trigger_shift_load();
+    enable_sprites_for_direct_fixture(&mut d);
 
     // Sprite at HSTART=5 armed with DATA=DATB=0. The comparator loads
     // at 5 and its first transparent output pixel reaches Denise at 6.
@@ -319,7 +425,7 @@ fn sprite_vs_pf1_priority_via_bplcon2_pf1p_field() {
         d.set_palette(17, 0xF00); // sprite colour
         d.begin_beam_line();
         d.bpl_data[0] = 0x8000; // PF1 lit at pixel 0
-        d.trigger_shift_load();
+        enable_sprites_for_direct_fixture(&mut d);
         let (pos, ctl) = encode_sprite_pos_ctl(0, 5, 6);
         d.write_sprite_pos(0, pos);
         d.write_sprite_ctl(0, ctl);
@@ -461,6 +567,7 @@ fn clxdat_latches_sprite_pair_crosses() {
 #[test]
 fn sprite_pixel_overrides_bitplane_pixel() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     denise.set_palette(1, 0x00F);
     denise.set_palette(17, 0xF00); // sprite 0/1 pair, color 1
@@ -484,6 +591,7 @@ fn sprite_pixel_overrides_bitplane_pixel() {
 #[test]
 fn sprite_ctl_disarms_and_sprite_data_rearms_comparator() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     denise.set_palette(17, 0xF00);
 
@@ -528,6 +636,7 @@ fn sprite_ctl_disarms_and_sprite_data_rearms_comparator() {
 #[test]
 fn sprite_pos_write_moves_armed_sprite_horizontally() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     denise.set_palette(17, 0x0F0);
 
@@ -564,6 +673,7 @@ fn sprite_pos_write_moves_armed_sprite_horizontally() {
 #[test]
 fn mid_line_sprite_data_write_affects_next_line_not_current_line() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     denise.set_palette(17, 0xF00);
 
@@ -608,6 +718,7 @@ fn mid_line_sprite_data_write_affects_next_line_not_current_line() {
 #[test]
 fn mid_line_sprite_pos_write_before_hstart_moves_same_line_trigger() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     denise.set_palette(17, 0x0FF);
 
@@ -644,6 +755,7 @@ fn mid_line_sprite_pos_write_before_hstart_moves_same_line_trigger() {
 #[test]
 fn spritedata_rearm_after_hstart_waits_until_next_line() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     denise.set_palette(17, 0xF0F);
 
@@ -675,6 +787,7 @@ fn spritedata_rearm_after_hstart_waits_until_next_line() {
 #[test]
 fn clxdat_follows_loaded_sprite_serial_data_under_mid_line_data_write() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     let (pos, ctl) = encode_sprite_pos_ctl(20, 10, 12); // active on lines 10 and 11
     denise.write_sprite_pos(0, pos);
     denise.write_sprite_ctl(0, ctl);
@@ -719,6 +832,7 @@ fn clxdat_follows_loaded_sprite_serial_data_under_mid_line_data_write() {
 #[test]
 fn clxdat_stops_latching_after_mid_line_ctl_disarm() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     let (pos, ctl) = encode_sprite_pos_ctl(24, 8, 9);
     denise.write_sprite_pos(0, pos);
     denise.write_sprite_ctl(0, ctl);
@@ -754,6 +868,7 @@ fn clxdat_stops_latching_after_mid_line_ctl_disarm() {
 #[test]
 fn clxdat_pos_write_before_hstart_moves_same_line_collision_point() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     let (pos_a, ctl) = encode_sprite_pos_ctl(26, 9, 10);
     let (pos_b, _) = encode_sprite_pos_ctl(24, 9, 10);
     denise.write_sprite_pos(0, pos_a);
@@ -793,6 +908,7 @@ fn clxdat_pos_write_before_hstart_moves_same_line_collision_point() {
 #[test]
 fn clxdat_arm_after_hstart_waits_until_next_line() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     let (pos, ctl) = encode_sprite_pos_ctl(28, 11, 13); // active on lines 11 and 12
     denise.write_sprite_pos(0, pos);
     denise.write_sprite_ctl(0, ctl); // disarm
@@ -831,6 +947,7 @@ fn clxdat_arm_after_hstart_waits_until_next_line() {
 #[test]
 fn transparent_sprite_pixel_leaves_playfield_visible_via_field_pokes() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     denise.set_palette(1, 0x0F0);
     denise.set_palette(17, 0xF00);
@@ -853,6 +970,7 @@ fn transparent_sprite_pixel_leaves_playfield_visible_via_field_pokes() {
 #[test]
 fn lower_numbered_sprite_has_priority_on_overlap_via_field_pokes() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     denise.set_palette(17, 0xF00); // sprite 0 pair color 1
     denise.set_palette(21, 0x0FF); // sprite 2 pair color 1
@@ -879,6 +997,7 @@ fn lower_numbered_sprite_has_priority_on_overlap_via_field_pokes() {
 #[test]
 fn attached_sprite_pair_uses_full_sprite_palette_range() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     denise.set_palette(25, 0x0F0); // attached color value 1001 => COLOR25
 
@@ -902,6 +1021,7 @@ fn attached_sprite_pair_uses_full_sprite_palette_range() {
 #[test]
 fn misaligned_attached_pair_reverts_to_shifted_color_subsets() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     denise.set_palette(17, 0xF00); // even-only attached fallback color (code 0001)
     denise.set_palette(20, 0x0F0); // odd-only attached fallback color (code 0100)
@@ -945,6 +1065,7 @@ fn misaligned_attached_pair_reverts_to_shifted_color_subsets() {
 #[test]
 fn attach_bit_on_even_sprite_is_ignored() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     denise.set_palette(17, 0xF00); // would appear if sprite 2 were incorrectly treated as attached
     denise.set_palette(21, 0x00F); // normal sprite-2 color code 1 (group 1 base)
@@ -965,6 +1086,7 @@ fn attach_bit_on_even_sprite_is_ignored() {
 #[test]
 fn bplcon2_pf1_priority_can_hide_sprite_group_0() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     denise.set_palette(1, 0x00F); // playfield color
     denise.set_palette(17, 0xF00); // sprite 0 color
@@ -989,6 +1111,7 @@ fn bplcon2_pf1_priority_can_hide_sprite_group_0() {
 #[test]
 fn bplcon2_pf1_priority_can_place_sprite_group_0_in_front() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     denise.set_palette(1, 0x00F); // playfield color
     denise.set_palette(17, 0xF00); // sprite 0 color
@@ -1013,6 +1136,7 @@ fn bplcon2_pf1_priority_can_place_sprite_group_0_in_front() {
 #[test]
 fn bplcon4_esprm_xors_even_sprite_colour_bank() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     // ESPRM = 1 => even sprites XOR upper nybble with 1.
     // Sprite 0 code 1: base index = 17 (0x11). XOR: 0x11 ^ 0x10 = 0x01.
@@ -1035,6 +1159,7 @@ fn bplcon4_esprm_xors_even_sprite_colour_bank() {
 #[test]
 fn bplcon4_osprm_xors_odd_sprite_colour_bank() {
     let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
     // OSPRM = 1 => odd sprites XOR upper nybble with 1.
     // Sprite 3 (odd, pair 1) code 1: base index = 20+1 = 21 (0x15).
@@ -1246,6 +1371,7 @@ fn wide_sprite_renders_pixels_beyond_the_16px_window() {
     // here we pin the shifter capability it unlocks.
     let render_at_plus_41 = |width: u8| {
         let mut d = DeniseOcs::new();
+        enable_sprites_for_direct_fixture(&mut d);
         d.set_palette(0, 0x000); // COLOR00 = black background
         d.set_palette(17, 0xF00); // sprite 0/1 pair, colour code 1 = red
         d.spr_width = width;
@@ -1277,6 +1403,7 @@ fn wide_sprite_data_setter_loads_the_full_payload() {
     // columns 16-31 — unreachable by a 16-px sprite.
     let make = |width: u8| {
         let mut d = DeniseOcs::new();
+        enable_sprites_for_direct_fixture(&mut d);
         d.set_palette(0, 0x000);
         d.set_palette(17, 0xF00); // sprite 0/1, colour code 1 = red
         d.spr_width = width;

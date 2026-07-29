@@ -457,6 +457,11 @@ mod tests {
 
         let memory = Memory::new(vec![0; 2]);
         denise.tick(0, None, true, &mut agnus, &memory);
+        // BPL1DAT enables sprite contribution for the remainder of the line.
+        // Inject it after the phase-0 line reset so this focused board test
+        // can exercise the following sprite output step without constructing
+        // a complete bitplane-DMA fixture.
+        denise.ocs.queue_shift_load_from_bpl1dat();
         denise.tick(1, None, true, &mut agnus, &memory);
 
         let y = u32::from(agnus.vpos - 0x19) * 2;

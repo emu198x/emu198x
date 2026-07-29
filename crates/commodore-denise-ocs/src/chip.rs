@@ -77,6 +77,10 @@ pub struct DeniseOcs {
     /// Sprite pixel width: 16 (OCS/ECS), 32, or 64 (AGA via FMODE bits 3-2).
     pub spr_width: u8,
     spr_current_code: [u8; 8],
+    /// Whether a BPL1DAT arrival has enabled sprite contribution on the
+    /// current beam line. Sprite shifters continue to advance while this is
+    /// false, but their pixels and collision bits remain hidden.
+    sprite_bpl1dat_enabled: bool,
     /// Cumulative count of output pixels each sprite has contributed to
     /// the composited display (a sprite group rendered a non-transparent
     /// pixel inside the display window). A query/diagnostic surface for
@@ -192,6 +196,7 @@ impl DeniseOcs {
             spr_shift_count: [0; 8],
             spr_width: 16,
             spr_current_code: [0; 8],
+            sprite_bpl1dat_enabled: false,
             spr_pixels_rendered: [0; 8],
             sprite_runtime_line_valid: false,
             sprite_runtime_beam_x: 0,
@@ -413,14 +418,22 @@ impl DeniseOcs {
         self.spr_pixels_rendered.get(sprite).copied().unwrap_or(0)
     }
 
-    /// Reset per-line state for bitplane shift-load timing.
+    /// Whether BPL1DAT has enabled sprite contribution on the current line.
+    #[must_use]
+    pub const fn sprite_bpl1dat_enabled(&self) -> bool {
+        self.sprite_bpl1dat_enabled
+    }
+
+    /// Reset per-line state for bitplane and sprite output timing.
     ///
     /// Clears `bpl_prev_data` so the BPLCON1 barrel-shift carry does not
-    /// leak across scanlines. Sets `bpl_scroll_pending_line` for the
-    /// legacy `trigger_shift_load()` path used by unit tests.
+    /// leak across scanlines, hides normal sprite contribution until the
+    /// line's first BPL1DAT arrival, and sets `bpl_scroll_pending_line` for
+    /// the legacy `trigger_shift_load()` path used by unit tests.
     pub fn begin_beam_line(&mut self) {
         self.bpl_scroll_pending_line = true;
         self.bpl_prev_data = [0; 8];
+        self.sprite_bpl1dat_enabled = false;
         self.ham_prev_rgb = self.palette[0];
         self.ham_prev_rgb24 = self.palette_24[0];
         // Drop any wide-fetch words left over from the previous line so
@@ -487,10 +500,13 @@ impl DeniseOcs {
         }
     }
 
-    /// Queue a BPL1DAT-triggered parallel load. The actual copy into the
-    /// serial shift registers happens later when Denise's horizontal comparator
-    /// matches `BPLCON1`, mirroring real hardware behavior more closely.
+    /// Process a BPL1DAT arrival and queue its bitplane parallel load.
+    ///
+    /// Sprite contribution becomes eligible immediately. The separate copy
+    /// into the bitplane serial shift registers happens later when Denise's
+    /// horizontal comparator matches `BPLCON1`.
     pub fn queue_shift_load_from_bpl1dat(&mut self) {
+        self.sprite_bpl1dat_enabled = true;
         self.bpl_pending_data = self.bpl_data;
         self.bpl_pending_copy_odd_planes = true;
         self.bpl_pending_copy_even_planes = true;
@@ -1245,7 +1261,12 @@ impl DeniseOcs {
                 front_playfield: None,
             }
         };
-        let sprite_group_mask = self.collision_group_mask(beam_x, beam_y);
+        let sprite_output_visible = playfield_visible_gate && self.sprite_bpl1dat_enabled;
+        let sprite_group_mask = if sprite_output_visible {
+            self.collision_group_mask(beam_x, beam_y)
+        } else {
+            0
+        };
         self.latch_collisions(
             if playfield_visible_gate {
                 plane_bits_mask
@@ -1255,10 +1276,11 @@ impl DeniseOcs {
             sprite_group_mask,
         );
 
-        // Sprite lookup (lores resolution — same sprite for both hires sub-pixels).
-        // On real Denise, the display window (DIWSTRT/DIWSTOP) blanks both
-        // playfields AND sprites — only COLOR00 is output outside the window.
-        let sprite_pixel = if playfield_visible_gate {
+        // Sprite lookup (lores resolution — same sprite for both hires
+        // sub-pixels). Normal sprite contribution requires both display
+        // eligibility and a BPL1DAT arrival on this line. Sprite shifters were
+        // already advanced above even when this output gate remains closed.
+        let sprite_pixel = if sprite_output_visible {
             self.sprite_pixel(beam_x, beam_y)
         } else {
             None

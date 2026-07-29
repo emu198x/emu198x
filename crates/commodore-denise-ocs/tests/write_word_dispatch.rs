@@ -100,6 +100,36 @@ fn write_word_bpl1dat_queues_shift_load_then_pixel_pump_commits_it() {
 }
 
 #[test]
+fn only_bpl1dat_enables_sprites_for_the_current_line() {
+    let mut d = DeniseOcs::new();
+    d.begin_beam_line();
+
+    assert!(
+        !d.sprite_bpl1dat_enabled(),
+        "sprites must begin each line hidden"
+    );
+
+    d.write_word(0x112, 0xFFFF);
+    assert!(
+        !d.sprite_bpl1dat_enabled(),
+        "BPL2DAT must not open the sprite visibility latch"
+    );
+
+    d.bplcon0 = 0;
+    d.write_word(0x110, 0x0000);
+    assert!(
+        d.sprite_bpl1dat_enabled(),
+        "even a zero BPL1DAT write with no active bitplanes must enable sprites"
+    );
+
+    d.begin_beam_line();
+    assert!(
+        !d.sprite_bpl1dat_enabled(),
+        "the sprite visibility latch must reset at the next line"
+    );
+}
+
+#[test]
 fn bpl1dat_queue_with_nonzero_odd_scroll_delays_commit_by_phase_count() {
     // With odd_scroll=4 (BPLCON1=0x40 high nibble), the queued odd-plane
     // load only commits when (beam_x - 1) & 0x0F == 4 → beam_x = 5.

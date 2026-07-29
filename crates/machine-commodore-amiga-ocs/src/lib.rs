@@ -2667,6 +2667,25 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_preserves_denise_bpl1dat_sprite_visibility_latch() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        assert!(!amiga.denise.ocs.sprite_bpl1dat_enabled());
+
+        amiga.denise.ocs.queue_shift_load_from_bpl1dat();
+        assert!(amiga.denise.ocs.sprite_bpl1dat_enabled());
+        let snapshot = amiga.snapshot_state();
+
+        amiga.denise.ocs.begin_beam_line();
+        assert!(!amiga.denise.ocs.sprite_bpl1dat_enabled());
+        amiga.restore_snapshot_state(snapshot);
+
+        assert!(
+            amiga.denise.ocs.sprite_bpl1dat_enabled(),
+            "restoring mid-line must preserve whether BPL1DAT has enabled sprites",
+        );
+    }
+
+    #[test]
     fn a530_snapshot_preserves_instruction_step_stopped_mid_system_tick() {
         fn configured_machine() -> AmigaOcs {
             let config = A530Config::new(A530RamSize::Mib1, 1)

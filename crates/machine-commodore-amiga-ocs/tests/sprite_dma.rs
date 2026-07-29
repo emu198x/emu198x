@@ -148,6 +148,15 @@ fn dma_sprite_renders_pixels_into_the_display() {
     amiga.poke_word(0x00DF_F08E, 0x2C81); // DIWSTRT
     amiga.poke_word(0x00DF_F090, 0xF4C1); // DIWSTOP
 
+    // Run a cleared one-bitplane display through ordinary DMA. BPL1DAT
+    // arrivals enable sprite contribution on each line even though the
+    // fetched playfield pixels remain colour 0.
+    amiga.poke_word(0x00DF_F0E0, 0x0000); // BPL1PTH
+    amiga.poke_word(0x00DF_F0E2, 0x4000); // BPL1PTL
+    amiga.poke_word(0x00DF_F092, 0x0038); // DDFSTRT
+    amiga.poke_word(0x00DF_F094, 0x00D0); // DDFSTOP
+    amiga.poke_word(0x00DF_F100, 0x1000); // BPLCON0: one bitplane
+
     // Sprite 0 the DMA way, positioned inside the window:
     //   SPR0POS = 0x3264 -> VSTART=0x32(50), HSTART=(0x64)<<1=200
     //   SPR0CTL = 0x3C00 -> VSTOP =0x3C(60), HSTART bit0=0, no ATTACH
@@ -161,7 +170,7 @@ fn dma_sprite_renders_pixels_into_the_display() {
 
     amiga.poke_word(0x00DF_F120, 0x0000); // SPR0PTH
     amiga.poke_word(0x00DF_F122, 0x2000); // SPR0PTL
-    amiga.poke_word(0x00DF_F096, 0x8000 | 0x0200 | 0x0020); // DMACON: DMAEN|SPREN
+    amiga.poke_word(0x00DF_F096, 0x8000 | 0x0200 | 0x0100 | 0x0020); // DMAEN|BPLEN|SPREN
 
     // Run past the sprite's VSTOP line so all active lines have been drawn.
     let mut guard = 0;
@@ -196,6 +205,15 @@ fn sprite_positioned_by_direct_pos_ctl_writes_renders() {
     amiga.poke_word(0x00DF_F08E, 0x2C81); // DIWSTRT
     amiga.poke_word(0x00DF_F090, 0xF4C1); // DIWSTOP
 
+    // Run a cleared one-bitplane display through ordinary DMA. BPL1DAT
+    // arrivals enable sprite contribution on each line even though the
+    // fetched playfield pixels remain colour 0.
+    amiga.poke_word(0x00DF_F0E0, 0x0000); // BPL1PTH
+    amiga.poke_word(0x00DF_F0E2, 0x4000); // BPL1PTL
+    amiga.poke_word(0x00DF_F092, 0x0038); // DDFSTRT
+    amiga.poke_word(0x00DF_F094, 0x00D0); // DDFSTOP
+    amiga.poke_word(0x00DF_F100, 0x1000); // BPLCON0: one bitplane
+
     // Sprite 0 data at $2000 with a ZERO control-word header (the Blitz
     // shape) followed by opaque image lines.
     amiga.poke_word(0x2000, 0x0000); // POS — left zero
@@ -206,7 +224,7 @@ fn sprite_positioned_by_direct_pos_ctl_writes_renders() {
     }
     amiga.poke_word(0x00DF_F120, 0x0000); // SPR0PTH
     amiga.poke_word(0x00DF_F122, 0x2000); // SPR0PTL
-    amiga.poke_word(0x00DF_F096, 0x8000 | 0x0200 | 0x0020); // DMACON: DMAEN|SPREN
+    amiga.poke_word(0x00DF_F096, 0x8000 | 0x0200 | 0x0100 | 0x0020); // DMAEN|BPLEN|SPREN
 
     // Run past the reset line (VBL_END_LINE = 25), where the DMA control
     // fetch reads the zero header and pins VSTART/VSTOP at 0.

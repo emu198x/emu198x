@@ -67,6 +67,15 @@ fn programmed_vbstop_fetches_control_before_sprite_pixels_reach_the_framebuffer(
     amiga.poke_word(0x00DF_F090, 0xF4C1);
     amiga.poke_word(0x00DF_F1A2, 0x0F00);
 
+    // Run a cleared one-bitplane display through ordinary DMA. BPL1DAT
+    // arrivals enable sprite contribution on each line even though the
+    // fetched playfield pixels remain colour 0.
+    amiga.poke_word(0x00DF_F0E0, 0x0000); // BPL1PTH
+    amiga.poke_word(0x00DF_F0E2, 0x4000); // BPL1PTL
+    amiga.poke_word(0x00DF_F092, 0x0038); // DDFSTRT
+    amiga.poke_word(0x00DF_F094, 0x00D0); // DDFSTOP
+    amiga.poke_word(0x00DF_F100, 0x1000); // BPLCON0: one bitplane
+
     // Move the blank-stop/control-load event from fixed PAL line 25 to
     // programmed line 40. The programmed beam counter itself remains off.
     amiga.poke_word(0x00DF_F1CC, 300); // VBSTRT
@@ -92,7 +101,7 @@ fn programmed_vbstop_fetches_control_before_sprite_pixels_reach_the_framebuffer(
         amiga.tick();
         guard += 1;
     }
-    amiga.poke_word(0x00DF_F096, 0x8220); // SETCLR | DMAEN | SPREN
+    amiga.poke_word(0x00DF_F096, 0x8320); // SETCLR | DMAEN | BPLEN | SPREN
     let field = amiga.agnus().vbl_count;
     while amiga.agnus().vbl_count == field && guard < 4_000_000 {
         amiga.tick();

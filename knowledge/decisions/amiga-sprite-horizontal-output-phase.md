@@ -94,14 +94,20 @@ Hermetic Denise tests establish that:
 The explicit Amiga Test Kit v1.21 video lane verifies the correction against
 the independently produced A500+A501 OCS PAL reference. Gradients, the static
 checkerboard, both alternating-checkerboard phases, and dots now match exactly.
-The EBU-bars case retains 114 pointer-region pixels because Emu198x has not yet
-implemented Denise's separate per-line BPL1DAT sprite-visibility prerequisite.
-Crosshatch retains 56 far-right pixels caused by post-wrap raster placement.
-Those differences are attributed separately rather than hidden by a sprite or
+In the phase-only run, the EBU-bars case retained 114 pointer-region pixels.
+That residual led to the separate
+[Denise BPL1DAT sprite-visibility](amiga-denise-bpl1dat-sprite-visibility.md)
+decision and is not evidence for another HSTART offset.
+
+After implementing that separate prerequisite, EBU bars match exactly. The
+phase-only crosshatch result retained 56 far-right pixels caused by post-wrap
+raster placement, and the same 56 pixels remain after the visibility change.
+That residual remains attributed separately rather than hidden by a sprite or
 framebuffer offset.
 
 ## Related documents
 
+- [Denise BPL1DAT sprite visibility](amiga-denise-bpl1dat-sprite-visibility.md)
 - [Amiga sprite DMA lifecycle](amiga-sprite-dma-lifecycle.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Amiga Test Kit v1.21 video conformance](../processes/amiga-test-kit-video-conformance.md)

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Require a current-line `BPL1DAT` arrival before normal sprite display and
+  collision contribution while continuing to advance hidden sprite shifters
 - Delay newly loaded sprite display and collision data by one low-resolution
   pixel after the `SPRxPOS`/`SPRxCTL` horizontal comparison
 - Let armed manual sprite data repeat on every line until `SPRxCTL`

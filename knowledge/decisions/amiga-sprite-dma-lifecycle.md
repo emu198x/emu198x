@@ -60,10 +60,14 @@ CPU, Copper and sprite-DMA paths on the same state machine.
 
 Denise does not apply a second VSTART/VSTOP display window. Writing
 `SPRxDATA` arms its horizontal comparator and writing `SPRxCTL`
-disarms it. In manual mode, unchanged data therefore repeats at
-HSTART on every line. In DMA mode, vertical extent emerges because
-Agnus supplies fresh line data between its comparators and supplies
-control words at VSTOP.
+disarms it. In manual mode, unchanged data therefore reaches the
+horizontal comparator and shifter at HSTART on every line. That
+repetition does not by itself guarantee visible output: normal sprite
+contribution is also subject to Denise's line-local BPL1DAT prerequisite,
+defined in
+[Denise BPL1DAT sprite visibility](amiga-denise-bpl1dat-sprite-visibility.md).
+In DMA mode, vertical extent emerges because Agnus supplies fresh line
+data between its comparators and supplies control words at VSTOP.
 
 The horizontal comparison loads Denise's sprite shifter; newly loaded data
 reaches display and collision logic one low-resolution pixel later. That
@@ -222,6 +226,8 @@ Reject these patterns:
   region or `BEAMCON0`;
 - applying a second VSTART/VSTOP gate in Denise instead of using its
   armed horizontal comparator;
+- treating `SPRxDATA` comparator arming as bypassing Denise's separate
+  BPL1DAT sprite-visibility prerequisite;
 - aliasing a ten-bit sprite coordinate onto beam positions above `$3FF`
   without hardware evidence;
 - treating equal `VBSTRT`/`VBSTOP` as removing the independent stop
@@ -237,6 +243,7 @@ Reject these patterns:
 
 ## Related documents
 
+- [Denise BPL1DAT sprite visibility](amiga-denise-bpl1dat-sprite-visibility.md)
 - [Amiga sprite horizontal output phase](amiga-sprite-horizontal-output-phase.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)

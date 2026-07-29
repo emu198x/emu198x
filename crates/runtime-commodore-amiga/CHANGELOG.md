@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Bump Amiga postcard snapshots to version 26 so Denise's per-line
+  BPL1DAT sprite-visibility latch survives restore; version 25 is rejected
+  because it cannot preserve per-line sprite visibility
 - Timestamp public CPU-trace entries with the zero-based Amiga system tick
   containing the boundary; several higher-CPU boundaries can share one tick
 - Classify the existing unvalidated A500, A500+A501, A500-maxed, and A1200

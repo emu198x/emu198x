@@ -220,6 +220,7 @@ fn dpf_pf2pri_sprite_priority_uses_pf2p_field_for_front_pf2() {
         d.begin_beam_line();
         d.bpl_data[0] = 0x8000; // PF1 lit
         d.bpl_data[1] = 0x8000; // PF2 lit
+        d.queue_shift_load_from_bpl1dat();
         d.trigger_shift_load();
         let (pos, ctl) = encode_sprite_pos_ctl(0, 5, 6);
         d.write_sprite_pos(0, pos);

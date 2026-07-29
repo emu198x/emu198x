@@ -365,6 +365,8 @@ fn dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite() {
     }
 
     let mut denise = DeniseOcs::new();
+    denise.queue_shift_load_from_bpl1dat();
+    denise.trigger_shift_load();
     denise.bplcon0 = 0x0400; // DBLPF
     denise.set_palette(1, 0x00F); // PF1 color
     denise.set_palette(9, 0x0F0); // PF2 color

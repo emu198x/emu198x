@@ -290,6 +290,7 @@ mod tests {
             denise.write_sprite_ctl(0, ctl);
             denise.write_sprite_datb(0, 0x0000);
             denise.write_sprite_data(0, 0x8000);
+            denise.queue_shift_load_from_bpl1dat();
         }
 
         let ocs_pixel = ocs.output_pixel_color(21, 10);
