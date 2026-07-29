@@ -1,0 +1,41 @@
+rom = "firmware.rom"
+identify = false
+
+[machine]
+profile = "A1200"
+rom_scsi_device_disable = false
+
+[emulation]
+power_on = true
+pacing_budget = "cycles"
+
+[cpu]
+model = "68EC020"
+fpu = false
+
+[memory]
+chip = "2M"
+slow = "0"
+fast = "0"
+
+[chipset]
+revision = "AGA"
+video = "PAL"
+
+[floppy]
+drives = 1
+speed = 100
+
+[floppy.df0]
+path = "stimulus.adf"
+write_protected = true
+
+[display]
+overscan = "full"
+pixel_aspect = "square"
+deinterlace = false
+phosphor = 0.0
+shader = "none"
+bezel = false
+tint = "none"
+status_bar = false

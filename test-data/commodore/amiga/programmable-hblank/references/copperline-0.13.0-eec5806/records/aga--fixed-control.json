@@ -1,0 +1,118 @@
+{
+  "artifact": {
+    "adf_file": "fixed-control.adf",
+    "adf_sha256": "fcaffa26d67316904ea9765266f158549c2a7175b1c48ae062210be451bb4e81",
+    "payload_file": "fixed-control.bin",
+    "payload_sha256": "25436b1244bf636a5d6f96443e36eef008796afb7c8778fef1bf7b864444df67"
+  },
+  "case_id": "fixed-control",
+  "execution": {
+    "adjacent_field_stability": "confirmed",
+    "captured_fields": [
+      400,
+      401,
+      402
+    ],
+    "cold_boot": true,
+    "command_or_procedure": "./capture.sh aga fixed-control <Copperline-eec5806778dab8b60f3b05fa7ab2428e4e18b073> <suite-1.0.1-directory> <firmware-matching-recorded-sha256> <fresh-output-directory> <operator>",
+    "configuration_sha256": "f36345b7f9ebf1fc63a552c60c19060ab6324d8ec8d7ee3cf45d6120aa1ba9b8",
+    "ready_observed_field": 390,
+    "ready_rule": {
+      "byte_order": "big-endian",
+      "case_number": 1,
+      "field_counter_minimum": 8,
+      "magic": "HBLK",
+      "record_address": "0x0002ff00"
+    },
+    "settle_fields": 10
+  },
+  "machine": {
+    "agnus": "AGA Alice",
+    "chipset": "AGA",
+    "cpu": "Motorola 68EC020",
+    "denise_or_lisa": "AGA Lisa",
+    "firmware": {
+      "revision": "Kickstart 3.1 revision 40.068",
+      "sha256": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707"
+    },
+    "model": "A1200",
+    "ram_bytes": 2097152,
+    "region": "PAL"
+  },
+  "normalization": {
+    "alignment_search": false,
+    "beam_coordinate": {
+      "horizontal_origin_sample": -196,
+      "horizontal_samples_per_register_increment_denominator": 1,
+      "horizontal_samples_per_register_increment_numerator": 4,
+      "phase_denominator": 1,
+      "phase_numerator": 0,
+      "sample_beam_line": 128,
+      "sample_row": 200
+    },
+    "color_conversion": "PNG RGBA8 decoded without colour management",
+    "crop": {
+      "height": 570,
+      "width": 716,
+      "x": 0,
+      "y": 0
+    },
+    "field_handling": "bob"
+  },
+  "observations": {
+    "blank_start_samples": [
+      null,
+      null,
+      null
+    ],
+    "blank_stop_samples": [
+      null,
+      null,
+      null
+    ],
+    "equal_outcome": "not-applicable",
+    "guard_color_word": "0x0f0",
+    "interval_convention": "not-applicable",
+    "notes": [
+      "Sample row 200 contained black runs none in all three byte-identical adjacent fields.",
+      "The ready record held probe field counter 271. Copperline dump labels [400, 401, 402] contain the fields that just completed at those boundaries, with probe field counters [281, 282, 283].",
+      "The beam-to-sample mapping came from an audited producer path; no image alignment search was performed.",
+      "Raw run log ../logs/aga--fixed-control.log has SHA-256 d60439769471dfe664392a4e0aea8bc0908a5a1f2ac34f3c08519a299214bec2.",
+      "Capture-time manifest ../manifests/aga--fixed-control.json has SHA-256 8bd55281692c172d365b0a1dc06ead0e20f9fa7885922c6f363dae60013111ad."
+    ],
+    "uncertainty_samples": 0,
+    "wrap_outcome": "not-applicable"
+  },
+  "producer": {
+    "implementation_family": "Copperline",
+    "kind": "software-emulator",
+    "product": "Copperline",
+    "revision": "eec5806778dab8b60f3b05fa7ab2428e4e18b073",
+    "source_url": "https://github.com/CopperlineHQ/Copperline",
+    "version": "0.13.0"
+  },
+  "provenance": {
+    "capture_date": "2026-07-29",
+    "classification": "software-derived",
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "operator": "Codex (OpenAI), supervised by Steve Hill"
+  },
+  "schema_version": "1.0.0",
+  "source_capture": {
+    "blanking_retained": true,
+    "decoded_pixel_sha256": "5a2e03817540f6f47b7da73fe238271f9d2bb12f4b0227c10b0e7eeefca46f1c",
+    "file_name": "../captures/aga--fixed-control.apng",
+    "file_sha256": "d9ef40fe17528a951f845f34f03bfcf2b1a275758be496f7bd8102b4547fb842",
+    "filter": "none",
+    "height": 570,
+    "method": "Copperline raw headless frame dump, packaged as APNG",
+    "overscan_retained": true,
+    "pixel_format": "RGBA8888, tightly packed, row-major",
+    "scaling": "none",
+    "shader": "none",
+    "stride_bytes": 2864,
+    "width": 716
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank",
+  "suite_version": "1.0.1"
+}

@@ -1,0 +1,69 @@
+{
+  "capture": {
+    "captured_at_utc": "2026-07-29T15:01:33+00:00",
+    "case_id": "fixed-control",
+    "command": [
+      "<verified-copperline-binary>",
+      "--config",
+      "capture.toml",
+      "--noaudio",
+      "--dump-frames",
+      "frames",
+      "--dump-start",
+      "8",
+      "--dump-count",
+      "3"
+    ],
+    "environment": {
+      "COPPERLINE_DBG_AFTER": "7.8",
+      "COPPERLINE_DBG_BREAK": "300aa",
+      "COPPERLINE_DBG_DUMP": "2ff00:48",
+      "COPPERLINE_DBG_FC": "2ff0a",
+      "COPPERLINE_DBG_MAXHITS": "1",
+      "COPPERLINE_DBG_UNTIL": "8.2",
+      "COPPERLINE_DEINTERLACE": "0",
+      "COPPERLINE_DUMP_RENDER_META": "1",
+      "COPPERLINE_HCENTER": "0",
+      "COPPERLINE_OVERSCAN": "full",
+      "COPPERLINE_PHOSPHOR": "0",
+      "COPPERLINE_PIXEL_ASPECT": "square",
+      "COPPERLINE_SHOT_RAW": "1",
+      "COPPERLINE_THREADED_RENDER": "0",
+      "RUST_LOG": "info"
+    },
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "operator": "Codex (OpenAI), supervised by Steve Hill",
+    "profile": "aga"
+  },
+  "capture_tools": {
+    "capture.sh": "dfd5664617fcadaa442984722f7b19974bc17cb0808965b989460b84119dd7f2",
+    "capture_manifest.py": "697f95a074bbcb30bd748e7891124c1dfe8057db5296e5d7325daa64d39a61e0"
+  },
+  "inputs": {
+    "capture.toml": "f36345b7f9ebf1fc63a552c60c19060ab6324d8ec8d7ee3cf45d6120aa1ba9b8",
+    "firmware.rom": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707",
+    "stimulus.adf": "fcaffa26d67316904ea9765266f158549c2a7175b1c48ae062210be451bb4e81",
+    "stimulus.bin": "25436b1244bf636a5d6f96443e36eef008796afb7c8778fef1bf7b864444df67",
+    "suite-v1.json": "f8f70818fb0a7454db283deb48b75858302bece28922f3b1f2dfab0d59503b24"
+  },
+  "producer": {
+    "binary_sha256": "ead4139d547085ad58a9794b17e57e6bf0649e4c6c7040e038f00550030a7fe9",
+    "product": "Copperline",
+    "revision": "eec5806778dab8b60f3b05fa7ab2428e4e18b073",
+    "source_url": "https://github.com/CopperlineHQ/Copperline",
+    "version": "0.13.0",
+    "version_output": "copperline 0.13.0"
+  },
+  "schema_version": "1.0.0",
+  "suite": {
+    "adf_file": "fixed-control.adf",
+    "adf_sha256": "fcaffa26d67316904ea9765266f158549c2a7175b1c48ae062210be451bb4e81",
+    "case_id": "fixed-control",
+    "id": "org.198x.amiga.programmable-hblank",
+    "numeric_id": 1,
+    "payload_file": "fixed-control.bin",
+    "payload_sha256": "25436b1244bf636a5d6f96443e36eef008796afb7c8778fef1bf7b864444df67",
+    "source_revision": "source-v2",
+    "version": "1.0.1"
+  }
+}

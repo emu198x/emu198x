@@ -23,3 +23,7 @@ implementation family made explicit.
 - [`../cases/README.md`](../cases/README.md) contains the resulting questions.
 - [`../schema/README.md`](../schema/README.md) defines how observations are
   recorded.
+- [`comparator-capabilities.md`](comparator-capabilities.md) records which
+  audited producers can currently supply admissible evidence.
+- [`copperline-0.13.0-eec5806/`](copperline-0.13.0-eec5806/README.md) contains
+  the registered Copperline software capture.

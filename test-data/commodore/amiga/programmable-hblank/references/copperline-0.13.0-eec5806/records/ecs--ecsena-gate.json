@@ -1,0 +1,119 @@
+{
+  "artifact": {
+    "adf_file": "ecsena-gate.adf",
+    "adf_sha256": "342383da85bd7522976e35a6901b2e83baf6bd525edfdc846224e2fa1c345385",
+    "payload_file": "ecsena-gate.bin",
+    "payload_sha256": "3a8c10d093b552aa164c89a2c8404767b63afcc38e320c38737bdbb7ce7d9fc8"
+  },
+  "case_id": "ecsena-gate",
+  "execution": {
+    "adjacent_field_stability": "confirmed",
+    "captured_fields": [
+      400,
+      401,
+      402
+    ],
+    "cold_boot": true,
+    "command_or_procedure": "./capture.sh ecs ecsena-gate <Copperline-eec5806778dab8b60f3b05fa7ab2428e4e18b073> <suite-1.0.1-directory> <firmware-matching-recorded-sha256> <fresh-output-directory> <operator>",
+    "configuration_sha256": "a4809260eaf8e00d0e0bffaf638ed448410c12981144f3a8221c19def9a61d69",
+    "ready_observed_field": 390,
+    "ready_rule": {
+      "byte_order": "big-endian",
+      "case_number": 2,
+      "field_counter_minimum": 8,
+      "magic": "HBLK",
+      "record_address": "0x0002ff00"
+    },
+    "settle_fields": 10
+  },
+  "machine": {
+    "agnus": "8375 ECS Agnus",
+    "chipset": "ECS",
+    "cpu": "Motorola 68000",
+    "denise_or_lisa": "8373 ECS Denise",
+    "firmware": {
+      "revision": "Kickstart 2.04 revision 37.175",
+      "sha256": "d0b70e8a1772614b897f92c33cb299bed3fc8e3de488fc12f67f97fc2486eb79"
+    },
+    "model": "A500 Plus",
+    "ram_bytes": 1048576,
+    "region": "PAL"
+  },
+  "normalization": {
+    "alignment_search": false,
+    "beam_coordinate": {
+      "horizontal_origin_sample": -196,
+      "horizontal_samples_per_register_increment_denominator": 1,
+      "horizontal_samples_per_register_increment_numerator": 4,
+      "phase_denominator": 1,
+      "phase_numerator": 0,
+      "sample_beam_line": 128,
+      "sample_row": 200
+    },
+    "color_conversion": "PNG RGBA8 decoded without colour management",
+    "crop": {
+      "height": 570,
+      "width": 716,
+      "x": 0,
+      "y": 0
+    },
+    "field_handling": "bob"
+  },
+  "observations": {
+    "blank_start_samples": [
+      316,
+      316,
+      316
+    ],
+    "blank_stop_samples": [
+      444,
+      444,
+      444
+    ],
+    "equal_outcome": "not-applicable",
+    "guard_color_word": "0xf00",
+    "interval_convention": "start-inclusive-stop-exclusive",
+    "notes": [
+      "Sample row 200 contained black runs [316, 444) in all three byte-identical adjacent fields.",
+      "The ready record held probe field counter 190. Copperline dump labels [400, 401, 402] contain the fields that just completed at those boundaries, with probe field counters [200, 201, 202].",
+      "The beam-to-sample mapping came from an audited producer path; no image alignment search was performed.",
+      "Raw run log ../logs/ecs--ecsena-gate.log has SHA-256 bd0bea7b0e716fd634ec6d5e0ff199cc8454239b42ac4c60dfcb496c4f02c427.",
+      "Capture-time manifest ../manifests/ecs--ecsena-gate.json has SHA-256 e864be34e77e50053feb00355c92e369896e5df562ba86746fac7e264dfd5b40.",
+      "Copperline produced the programmed interval while ECSENA was clear; this is a producer disagreement candidate, not a resolved hardware gate."
+    ],
+    "uncertainty_samples": 0,
+    "wrap_outcome": "does-not-wrap"
+  },
+  "producer": {
+    "implementation_family": "Copperline",
+    "kind": "software-emulator",
+    "product": "Copperline",
+    "revision": "eec5806778dab8b60f3b05fa7ab2428e4e18b073",
+    "source_url": "https://github.com/CopperlineHQ/Copperline",
+    "version": "0.13.0"
+  },
+  "provenance": {
+    "capture_date": "2026-07-29",
+    "classification": "software-derived",
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "operator": "Codex (OpenAI), supervised by Steve Hill"
+  },
+  "schema_version": "1.0.0",
+  "source_capture": {
+    "blanking_retained": true,
+    "decoded_pixel_sha256": "fa90263cef8ccb42f6cfe6f59d83261c1cc8b1026af9dcf791aaef9904a724b4",
+    "file_name": "../captures/ecs--ecsena-gate.apng",
+    "file_sha256": "95c1563aa75b4e6354f05fce6c4051683fd4400c5ef1304a948d6bc046ca1206",
+    "filter": "none",
+    "height": 570,
+    "method": "Copperline raw headless frame dump, packaged as APNG",
+    "overscan_retained": true,
+    "pixel_format": "RGBA8888, tightly packed, row-major",
+    "scaling": "none",
+    "shader": "none",
+    "stride_bytes": 2864,
+    "width": 716
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank",
+  "suite_version": "1.0.1"
+}

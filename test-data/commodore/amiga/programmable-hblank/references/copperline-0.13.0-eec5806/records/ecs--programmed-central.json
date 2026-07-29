@@ -1,0 +1,118 @@
+{
+  "artifact": {
+    "adf_file": "programmed-central.adf",
+    "adf_sha256": "dbce868b3ac2c932883c70b820cb1b3e0773ffc4f46f7ca21242ab362357976a",
+    "payload_file": "programmed-central.bin",
+    "payload_sha256": "a2bb0828666d39f2034e86fc81aa552b76aca3f0e1e26df987999f20a3b2ab33"
+  },
+  "case_id": "programmed-central",
+  "execution": {
+    "adjacent_field_stability": "confirmed",
+    "captured_fields": [
+      400,
+      401,
+      402
+    ],
+    "cold_boot": true,
+    "command_or_procedure": "./capture.sh ecs programmed-central <Copperline-eec5806778dab8b60f3b05fa7ab2428e4e18b073> <suite-1.0.1-directory> <firmware-matching-recorded-sha256> <fresh-output-directory> <operator>",
+    "configuration_sha256": "a4809260eaf8e00d0e0bffaf638ed448410c12981144f3a8221c19def9a61d69",
+    "ready_observed_field": 390,
+    "ready_rule": {
+      "byte_order": "big-endian",
+      "case_number": 5,
+      "field_counter_minimum": 8,
+      "magic": "HBLK",
+      "record_address": "0x0002ff00"
+    },
+    "settle_fields": 10
+  },
+  "machine": {
+    "agnus": "8375 ECS Agnus",
+    "chipset": "ECS",
+    "cpu": "Motorola 68000",
+    "denise_or_lisa": "8373 ECS Denise",
+    "firmware": {
+      "revision": "Kickstart 2.04 revision 37.175",
+      "sha256": "d0b70e8a1772614b897f92c33cb299bed3fc8e3de488fc12f67f97fc2486eb79"
+    },
+    "model": "A500 Plus",
+    "ram_bytes": 1048576,
+    "region": "PAL"
+  },
+  "normalization": {
+    "alignment_search": false,
+    "beam_coordinate": {
+      "horizontal_origin_sample": -196,
+      "horizontal_samples_per_register_increment_denominator": 1,
+      "horizontal_samples_per_register_increment_numerator": 4,
+      "phase_denominator": 1,
+      "phase_numerator": 0,
+      "sample_beam_line": 128,
+      "sample_row": 200
+    },
+    "color_conversion": "PNG RGBA8 decoded without colour management",
+    "crop": {
+      "height": 570,
+      "width": 716,
+      "x": 0,
+      "y": 0
+    },
+    "field_handling": "bob"
+  },
+  "observations": {
+    "blank_start_samples": [
+      316,
+      316,
+      316
+    ],
+    "blank_stop_samples": [
+      444,
+      444,
+      444
+    ],
+    "equal_outcome": "not-applicable",
+    "guard_color_word": "0x0ff",
+    "interval_convention": "start-inclusive-stop-exclusive",
+    "notes": [
+      "Sample row 200 contained black runs [316, 444) in all three byte-identical adjacent fields.",
+      "The ready record held probe field counter 190. Copperline dump labels [400, 401, 402] contain the fields that just completed at those boundaries, with probe field counters [200, 201, 202].",
+      "The beam-to-sample mapping came from an audited producer path; no image alignment search was performed.",
+      "Raw run log ../logs/ecs--programmed-central.log has SHA-256 a8bb41d4349b00b950e7df882fb8f60d5cce090988b3168fa4b9575272d2e92c.",
+      "Capture-time manifest ../manifests/ecs--programmed-central.json has SHA-256 79503a054e73c89a29492191dc68f808d04c0813ccbcd4942480dff2773e35b4."
+    ],
+    "uncertainty_samples": 0,
+    "wrap_outcome": "does-not-wrap"
+  },
+  "producer": {
+    "implementation_family": "Copperline",
+    "kind": "software-emulator",
+    "product": "Copperline",
+    "revision": "eec5806778dab8b60f3b05fa7ab2428e4e18b073",
+    "source_url": "https://github.com/CopperlineHQ/Copperline",
+    "version": "0.13.0"
+  },
+  "provenance": {
+    "capture_date": "2026-07-29",
+    "classification": "software-derived",
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "operator": "Codex (OpenAI), supervised by Steve Hill"
+  },
+  "schema_version": "1.0.0",
+  "source_capture": {
+    "blanking_retained": true,
+    "decoded_pixel_sha256": "1f5a2b8a6513bf369eb03bbe6e6dd0ce8be37b7b7b1bafa52cbb97ee60834916",
+    "file_name": "../captures/ecs--programmed-central.apng",
+    "file_sha256": "61497570ab434031aeaa6b64d704755bec96e0fecfed2450599603c29ec875d1",
+    "filter": "none",
+    "height": 570,
+    "method": "Copperline raw headless frame dump, packaged as APNG",
+    "overscan_retained": true,
+    "pixel_format": "RGBA8888, tightly packed, row-major",
+    "scaling": "none",
+    "shader": "none",
+    "stride_bytes": 2864,
+    "width": 716
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank",
+  "suite_version": "1.0.1"
+}

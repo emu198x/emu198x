@@ -11,6 +11,13 @@ requires enough provenance to distinguish hardware from software, identify
 shared implementation ancestry, reproduce the machine configuration, and
 audit all pixel transformations.
 
+When `captured_fields` names more than one field, `source_capture.file_name`
+must identify a multi-frame container whose frame order matches that array.
+For RGBA8 captures, `decoded_pixel_sha256` is the SHA-256 of the tightly
+packed, row-major RGBA bytes for every decoded frame concatenated in container
+order. A producer using another pixel format must state the exact byte
+sequence in `source_capture.pixel_format`.
+
 Schemas describe evidence records. They do not decide which observation is
 correct and do not assign expected pixels.
 

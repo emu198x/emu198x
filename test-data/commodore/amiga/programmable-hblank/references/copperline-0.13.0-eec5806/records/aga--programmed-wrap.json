@@ -1,0 +1,118 @@
+{
+  "artifact": {
+    "adf_file": "programmed-wrap.adf",
+    "adf_sha256": "30d01c9542c28da5f31ef56335e85f33f88aad142527ccdab27d4c54764f37ca",
+    "payload_file": "programmed-wrap.bin",
+    "payload_sha256": "3b32255a57be4ef93e3efc422f3fc96af35290211e586d89e1d9a7331a70f884"
+  },
+  "case_id": "programmed-wrap",
+  "execution": {
+    "adjacent_field_stability": "confirmed",
+    "captured_fields": [
+      400,
+      401,
+      402
+    ],
+    "cold_boot": true,
+    "command_or_procedure": "./capture.sh aga programmed-wrap <Copperline-eec5806778dab8b60f3b05fa7ab2428e4e18b073> <suite-1.0.1-directory> <firmware-matching-recorded-sha256> <fresh-output-directory> <operator>",
+    "configuration_sha256": "f36345b7f9ebf1fc63a552c60c19060ab6324d8ec8d7ee3cf45d6120aa1ba9b8",
+    "ready_observed_field": 390,
+    "ready_rule": {
+      "byte_order": "big-endian",
+      "case_number": 6,
+      "field_counter_minimum": 8,
+      "magic": "HBLK",
+      "record_address": "0x0002ff00"
+    },
+    "settle_fields": 10
+  },
+  "machine": {
+    "agnus": "AGA Alice",
+    "chipset": "AGA",
+    "cpu": "Motorola 68EC020",
+    "denise_or_lisa": "AGA Lisa",
+    "firmware": {
+      "revision": "Kickstart 3.1 revision 40.068",
+      "sha256": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707"
+    },
+    "model": "A1200",
+    "ram_bytes": 2097152,
+    "region": "PAL"
+  },
+  "normalization": {
+    "alignment_search": false,
+    "beam_coordinate": {
+      "horizontal_origin_sample": -196,
+      "horizontal_samples_per_register_increment_denominator": 1,
+      "horizontal_samples_per_register_increment_numerator": 4,
+      "phase_denominator": 1,
+      "phase_numerator": 0,
+      "sample_beam_line": 128,
+      "sample_row": 200
+    },
+    "color_conversion": "PNG RGBA8 decoded without colour management",
+    "crop": {
+      "height": 570,
+      "width": 716,
+      "x": 0,
+      "y": 0
+    },
+    "field_handling": "bob"
+  },
+  "observations": {
+    "blank_start_samples": [
+      636,
+      636,
+      636
+    ],
+    "blank_stop_samples": [
+      60,
+      60,
+      60
+    ],
+    "equal_outcome": "not-applicable",
+    "guard_color_word": "0xf0f",
+    "interval_convention": "start-inclusive-stop-exclusive",
+    "notes": [
+      "Sample row 200 contained black runs [0, 60), [636, 716) in all three byte-identical adjacent fields.",
+      "The ready record held probe field counter 271. Copperline dump labels [400, 401, 402] contain the fields that just completed at those boundaries, with probe field counters [281, 282, 283].",
+      "The beam-to-sample mapping came from an audited producer path; no image alignment search was performed.",
+      "Raw run log ../logs/aga--programmed-wrap.log has SHA-256 a4471b7bc3775d640e76ba42e6e358c7d84aede13e35f3bb0e2435af49008793.",
+      "Capture-time manifest ../manifests/aga--programmed-wrap.json has SHA-256 20fe5716dd9ff5b0aee51f1c283da91cfaaf4e8cc8a26d154cd1d68c4e90f644."
+    ],
+    "uncertainty_samples": 0,
+    "wrap_outcome": "wraps"
+  },
+  "producer": {
+    "implementation_family": "Copperline",
+    "kind": "software-emulator",
+    "product": "Copperline",
+    "revision": "eec5806778dab8b60f3b05fa7ab2428e4e18b073",
+    "source_url": "https://github.com/CopperlineHQ/Copperline",
+    "version": "0.13.0"
+  },
+  "provenance": {
+    "capture_date": "2026-07-29",
+    "classification": "software-derived",
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "operator": "Codex (OpenAI), supervised by Steve Hill"
+  },
+  "schema_version": "1.0.0",
+  "source_capture": {
+    "blanking_retained": true,
+    "decoded_pixel_sha256": "a7fe4cda2ddc28b1312cd10c9df5d6a485ea1618e7ed63231151fddffcbefe9d",
+    "file_name": "../captures/aga--programmed-wrap.apng",
+    "file_sha256": "f8bbdf01e5c1238dd93dfaadf3f44ea0cc9c1a200a33676b7745f44ee6c90bdd",
+    "filter": "none",
+    "height": 570,
+    "method": "Copperline raw headless frame dump, packaged as APNG",
+    "overscan_retained": true,
+    "pixel_format": "RGBA8888, tightly packed, row-major",
+    "scaling": "none",
+    "shader": "none",
+    "stride_bytes": 2864,
+    "width": 716
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank",
+  "suite_version": "1.0.1"
+}

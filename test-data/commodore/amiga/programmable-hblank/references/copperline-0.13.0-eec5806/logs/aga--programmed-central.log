@@ -1,0 +1,46 @@
+[2026-07-29T15:01:46Z INFO  copperline] config: cpu=M68EC020 fpu=false cpu_clock=14MHz chip_ram=2048K fast_ram=0K slow_ram=0K z3_ram=0K zorro_boards=0 chipset=Aga (agnus=AgaAlice denise=AgaLisa) video=Pal rom=firmware.rom floppy_drives=1
+[2026-07-29T15:01:46Z INFO  copperline] chipset AGA: bitplanes/palette/FMODE fetch, sprites (wide fetch, manual wide, SSCAN2/BSCAN2 scan doubling, BPLCON4 offsets) and CLXCON2 collisions are implemented; residual gaps: 35 ns SHRES sprite output, AGA DDF fine granularity, live collisions on the 6-plane decode (docs/internals/chipset.md)
+[2026-07-29T15:01:46Z INFO  copperline] audio: disabled (null sink); no sound
+[2026-07-29T15:01:46Z INFO  copperline] emulation timing: deterministic core, paced=false
+[2026-07-29T15:01:46Z INFO  copperline::emulator] input: port 1 = mouse, port 2 = joystick
+[2026-07-29T15:01:46Z INFO  copperline::emulator] machine profile: A1200 (gate array GayleA1200, rtc none)
+[2026-07-29T15:01:46Z INFO  copperline::emulator] cpu speed: 14.19 MHz (4x colour clock), fast RAM at CPU speed
+[2026-07-29T15:01:46Z INFO  copperline::emulator] real pacing budget: returned m68k cycles plus explicit chip-bus waits
+[2026-07-29T15:01:46Z INFO  copperline::debugger] debugger armed: breaks=["0x300AA"] catches=[] catch_alert=false watches=0 dumps=1 trace=false window=[7.8,8.2) max_hits=1
+[2026-07-29T15:01:46Z INFO  copperline::cpu] cpu cache emulation: icache=true dcache=false (CACR-controlled)
+[2026-07-29T15:01:46Z INFO  copperline] headless capture: running without a window (no display connection)
+[2026-07-29T15:01:46Z INFO  copperline::video::window] frame dump armed: will save 3 frames to frames after 8.0s emulated time
+[2026-07-29T15:01:49Z INFO  copperline::cpu] DBG BREAK pc=0x000300AA t=7.81244 f=390 v=0 h=2 sr=0x0000 pc=0x000300AA
+[2026-07-29T15:01:49Z INFO  copperline::cpu]   D0=0x00000020  A0=0x0002FF00
+[2026-07-29T15:01:49Z INFO  copperline::cpu]   D1=0x00000004  A1=0x000300D6
+[2026-07-29T15:01:49Z INFO  copperline::cpu]   D2=0x00000001  A2=0x0002FF46
+[2026-07-29T15:01:49Z INFO  copperline::cpu]   D3=0x0000A1E8  A3=0x0000D5FC
+[2026-07-29T15:01:49Z INFO  copperline::cpu]   D4=0x000014B0  A4=0x00002698
+[2026-07-29T15:01:49Z INFO  copperline::cpu]   D5=0x00000000  A5=0x00000A74
+[2026-07-29T15:01:49Z INFO  copperline::cpu]   D6=0xFFFFFFFF  A6=0x00DFF000
+[2026-07-29T15:01:49Z INFO  copperline::cpu]   D7=0x00000000  A7=0x0002F000
+[2026-07-29T15:01:49Z INFO  copperline::cpu]   dmacon=0x0000 diwstrt=0x0181 diwstop=0x0281 ddfstrt=0x0018 ddfstop=0x0020 bplcon0=0x0001 bplcon1=0x0000 bplcon2=0x0024 bpl1mod=0 bpl2mod=0 bplpt=[00000000, 00000000, 00000000, 00000000, 00000000, 00000000, 00000000, 00000000] dispbplpt=[00000000, 00000000, 00000000, 00000000, 00000000, 00000000, 00000000, 00000000]
+[2026-07-29T15:01:49Z INFO  copperline::cpu]   mem 0x0002FF00: 4842 4C4B 0005 0001 0000 010F 0001 0001 0028 0080 00A0 00FF 0000 0000 0000 0000 616D 6967 612D 6862 6C61 6E6B 2D76 312F 3035 2D70 726F 6772 616D 6D65 642D 6365 6E74 7261 6C00 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 
+[2026-07-29T15:01:49Z INFO  copperline::cpu] fc 0x02FF0A=0x0110 (272) secs=7.81244 f=390 writer_pc=0x000300AA change#1
+[2026-07-29T15:01:49Z INFO  copperline::cpu] fc 0x02FF0A=0x0111 (273) secs=7.83247 f=391 writer_pc=0x000300AA change#2
+[2026-07-29T15:01:49Z INFO  copperline::cpu] fc 0x02FF0A=0x0112 (274) secs=7.85250 f=392 writer_pc=0x000300AA change#3
+[2026-07-29T15:01:49Z INFO  copperline::cpu] fc 0x02FF0A=0x0113 (275) secs=7.87253 f=393 writer_pc=0x000300AA change#4
+[2026-07-29T15:01:49Z INFO  copperline::cpu] fc 0x02FF0A=0x0114 (276) secs=7.89256 f=394 writer_pc=0x000300AA change#5
+[2026-07-29T15:01:49Z INFO  copperline::cpu] fc 0x02FF0A=0x0115 (277) secs=7.91260 f=395 writer_pc=0x000300AA change#6
+[2026-07-29T15:01:49Z INFO  copperline::cpu] fc 0x02FF0A=0x0116 (278) secs=7.93263 f=396 writer_pc=0x000300AA change#7
+[2026-07-29T15:01:49Z INFO  copperline::cpu] fc 0x02FF0A=0x0117 (279) secs=7.95266 f=397 writer_pc=0x000300AA change#8
+[2026-07-29T15:01:49Z INFO  copperline::cpu] fc 0x02FF0A=0x0118 (280) secs=7.97269 f=398 writer_pc=0x000300AA change#9
+[2026-07-29T15:01:49Z INFO  copperline::cpu] fc 0x02FF0A=0x0119 (281) secs=7.99272 f=399 writer_pc=0x000300AA change#10
+[2026-07-29T15:01:49Z INFO  copperline::cpu] fc 0x02FF0A=0x011A (282) secs=8.01276 f=400 writer_pc=0x000300AA change#11
+[2026-07-29T15:01:49Z INFO  copperline::video::window::present] frame-meta idx=0 emu_frame=400 emu_secs=8.013 pc=0x0300A0 beam=(8, 210) dmacon=0x0000 bplcon0=0x0001 bplcon1=0x0000 bplcon2=0x0024 bplpt=[000000, 000000, 000000, 000000, 000000, 000000, 000000, 000000] sprpt=[00BEE0, 000CB0, 000CB0, 000CB0, 000CB0, 000CB0, 000CB0, 000CB0] sprctl=[FF00, FF00, FF00, FF00, FF00, FF00, FF00, FF00] bplmod=(0,0) ddf=(0x018,0x020) diw=(0x0181,0x0281) base_pal=[0FF, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000] top_pal=[0FF, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000] bottom_valid=false bottom_pal=[000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000] events=0 cpu_colors=0 copper_colors=0 controls=0 captured_rows=0
+[2026-07-29T15:01:49Z INFO  copperline::video::window] frame dump: saved 1/3 (frames/frame-000000.png)
+[2026-07-29T15:01:49Z INFO  copperline::cpu] fc 0x02FF0A=0x011B (283) secs=8.03279 f=401 writer_pc=0x000300AA change#12
+[2026-07-29T15:01:49Z INFO  copperline::video::window::present] frame-meta idx=1 emu_frame=401 emu_secs=8.047 pc=0x0300A4 beam=(216, 173) dmacon=0x0000 bplcon0=0x0001 bplcon1=0x0000 bplcon2=0x0024 bplpt=[000000, 000000, 000000, 000000, 000000, 000000, 000000, 000000] sprpt=[00BEE0, 000CB0, 000CB0, 000CB0, 000CB0, 000CB0, 000CB0, 000CB0] sprctl=[FF00, FF00, FF00, FF00, FF00, FF00, FF00, FF00] bplmod=(0,0) ddf=(0x018,0x020) diw=(0x0181,0x0281) base_pal=[0FF, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000] top_pal=[0FF, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000] bottom_valid=false bottom_pal=[000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000] events=0 cpu_colors=0 copper_colors=0 controls=0 captured_rows=0
+[2026-07-29T15:01:49Z INFO  copperline::cpu] fc 0x02FF0A=0x011C (284) secs=8.05282 f=402 writer_pc=0x000300AA change#13
+[2026-07-29T15:01:49Z INFO  copperline::video::window::present] frame-meta idx=2 emu_frame=402 emu_secs=8.063 pc=0x0300A0 beam=(164, 42) dmacon=0x0000 bplcon0=0x0001 bplcon1=0x0000 bplcon2=0x0024 bplpt=[000000, 000000, 000000, 000000, 000000, 000000, 000000, 000000] sprpt=[00BEE0, 000CB0, 000CB0, 000CB0, 000CB0, 000CB0, 000CB0, 000CB0] sprctl=[FF00, FF00, FF00, FF00, FF00, FF00, FF00, FF00] bplmod=(0,0) ddf=(0x018,0x020) diw=(0x0181,0x0281) base_pal=[0FF, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000] top_pal=[0FF, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000] bottom_valid=false bottom_pal=[000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000, 000] events=0 cpu_colors=0 copper_colors=0 controls=0 captured_rows=0
+[2026-07-29T15:01:49Z INFO  copperline::video::window] frame dump: saved 3/3 (frames/frame-000002.png)
+[2026-07-29T15:01:49Z INFO  copperline::video::window] frame dump complete: saved 3 frames to frames
+[2026-07-29T15:01:49Z INFO  copperline::emulator] emu stats: 2.9s elapsed, 8.1s emulated (275.1%), 485 frames (165.4/s), 12351428 slices (4213467.4/s), ~4.21 MIPS
+[2026-07-29T15:01:49Z INFO  copperline::bus] video pipeline stats (emu stats): bitplane_fetch calls=0 slots=0 rows_started=0 rows_completed=0 time=0.000ms, sprite_fetch calls=917525 pair_slots=917525 lines=0 time=37.322ms
+[2026-07-29T15:01:49Z INFO  copperline::bus] video pipeline stats (emu stats): collisions calls=0 pixels=0 full_line_scans=0 control_segments=0 time=0.000ms avg=0.0ns/pixel
+[2026-07-29T15:01:49Z INFO  copperline::bus] video pipeline stats (emu stats): render frames=402 events=1688 control_segments=66 playfield_pixels=0 manual_bpl_segments=3 sprite_lines=0 total=374.467ms phases(events=6.310, background=108.086, playfield=0.025, manual_bpl=0.051, sprites=2.365)
