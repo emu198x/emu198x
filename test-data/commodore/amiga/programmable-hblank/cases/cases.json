@@ -2,9 +2,9 @@
   "source_format_version": 1,
   "suite": {
     "id": "org.198x.amiga.programmable-hblank",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "license": "CC0-1.0",
-    "source_revision": "source-v1"
+    "source_revision": "source-v2"
   },
   "defaults": {
     "applicability": {
@@ -36,6 +36,7 @@
         "DMACON",
         "INTENA",
         "INTREQ",
+        "BPLCON0 ECSENA access setup",
         "BPLCON3 palette-bank-zero setup",
         "COLOR00",
         "HBSTRT",

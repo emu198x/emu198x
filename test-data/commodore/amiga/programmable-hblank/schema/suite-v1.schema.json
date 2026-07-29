@@ -276,6 +276,7 @@
             "DMACON",
             "INTENA",
             "INTREQ",
+            "BPLCON0 ECSENA access setup",
             "BPLCON3 palette-bank-zero setup",
             "COLOR00",
             "HBSTRT",

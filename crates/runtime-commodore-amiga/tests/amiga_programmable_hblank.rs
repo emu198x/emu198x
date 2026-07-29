@@ -23,9 +23,10 @@ const KICKSTART_204_ENV: &str = "EMU198X_AMIGA_KICKSTART_204_ROM";
 const KICKSTART_31_A1200_ENV: &str = "EMU198X_AMIGA_KICKSTART_31_A1200_ROM";
 
 const SUITE_ID: &str = "org.198x.amiga.programmable-hblank";
-const SUITE_VERSION: &str = "1.0.0";
-const SOURCE_REVISION: &str = "source-v1";
-const CASE_FILE_SHA256: &str = "0672f0a3b6f9123e1e06c1366a8a6e1ddcc9f505feec05deff9a78c0650e3076";
+const MANIFEST_SCHEMA_VERSION: &str = "1.0.0";
+const SUITE_VERSION: &str = "1.0.1";
+const SOURCE_REVISION: &str = "source-v2";
+const CASE_FILE_SHA256: &str = "cdf0f8ea0e46250f5d2d310034d61b8b0fc13050ce7ba0659550d01153c39d3d";
 const ADF_BYTES: usize = 901_120;
 
 const READY_MAGIC: u32 = 0x4842_4C4B;
@@ -55,43 +56,43 @@ type TestSession = HeadlessSession<AmigaRuntimeKind, AmigaSessionQueryProvider>;
 const EXPECTED_ADF_SHA256: &[(&str, &str)] = &[
     (
         "fixed-control",
-        "78e5ae95fd6441781b98c4c16e6203ec5e6b79ea5544a2d739f7ef359bd12a80",
+        "fcaffa26d67316904ea9765266f158549c2a7175b1c48ae062210be451bb4e81",
     ),
     (
         "ecsena-gate",
-        "d91df0686d98b5c8029d863b2d13fc03ba3d507c4b8c1eab12589b736463cf9f",
+        "342383da85bd7522976e35a6901b2e83baf6bd525edfdc846224e2fa1c345385",
     ),
     (
         "extblken-gate",
-        "6e68e6388049e0867f765e4db75ed412152a608065e30d044ceec00d84f231b2",
+        "a24473b6ea38c0ba8461001dc7afa684ed05e8a2d4d0ff9bdc40832a10f72023",
     ),
     (
         "blanken-path",
-        "5a1eda670fa13ec61bbec609f109cd2921f94a534b0894841d2ba0bc8bb23ad5",
+        "6d9114e9d07d4f0e551e0f2e955552e73db65bca3a0da63cc333d20a399584f0",
     ),
     (
         "programmed-central",
-        "94fa7001ba8ba36562108d5320fb2f27b9f65efd7edf5921177a7013af943af1",
+        "dbce868b3ac2c932883c70b820cb1b3e0773ffc4f46f7ca21242ab362357976a",
     ),
     (
         "programmed-wrap",
-        "a2221d62ec69ef913bf1362ceb4f21f6ee26024d4610f33f86a753701d72aec7",
+        "30d01c9542c28da5f31ef56335e85f33f88aad142527ccdab27d4c54764f37ca",
     ),
     (
         "programmed-equal",
-        "7c64858b1eaab834b61c551f9f2de82d36044feb20a1e8a29749fad87b66cea3",
+        "136f73e79668040f49f5a7e497e2de2e480f2bd1cab4a30512003ef87d172ac7",
     ),
     (
         "aga-fine-lores",
-        "766adc08d9f591a427d12980e9daba5f0202db7fd8b20193da7d9828bcccdc61",
+        "4ef2e3f4fdb0fdb996156f7c07facad56b7b589a9536d21627d888c02ebaaf1b",
     ),
     (
         "aga-fine-hires",
-        "dab09afdf7eba498902c79a6b0a571c7c1d82e260c375467af67b8d0dd484252",
+        "5983638dbea2d33123fdea377cac241498bccfae2d584f480eba7f3cf4b642e2",
     ),
     (
         "aga-fine-shres",
-        "98bdace2d126a4a267ef293babf8e15a12f815ebee4db2bb1e1685fc7b50ff3f",
+        "d543a6eb5f551b4cd1f0226ec20d9795b943e7c8757db7c441269997e3c940f4",
     ),
 ];
 
@@ -380,7 +381,7 @@ fn load_and_validate_suite(dist: &Path) -> Manifest {
         )
     });
 
-    assert_eq!(manifest.schema_version, SUITE_VERSION);
+    assert_eq!(manifest.schema_version, MANIFEST_SCHEMA_VERSION);
     assert_eq!(manifest.suite.id, SUITE_ID);
     assert_eq!(manifest.suite.version, SUITE_VERSION);
     assert_eq!(manifest.suite.license, "CC0-1.0");

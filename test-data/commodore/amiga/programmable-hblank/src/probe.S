@@ -30,9 +30,15 @@ _start:
      * settle for complete fields before any capture becomes admissible.
      */
     /*
-     * Select AGA palette bank zero before COLOR00. The case BPLCON3 value is
+     * BPLCON3 is an enhanced-display register. Open its access gate before
+     * both writes, then restore the case's final ECSENA state after the final
+     * BPLCON3 value has latched. This lets the ECSENA gate case preload
+     * EXTBLKEN before deliberately closing ECSENA.
+     *
+     * Select palette bank zero before COLOR00. The case BPLCON3 value is
      * written later so this setup write cannot become the steady-state gate.
      */
+    move.w  #CASE_BPLCON0_ACCESS, BPLCON0(%a6)
     move.w  #0, BPLCON3(%a6)
     move.w  #CASE_COLOR00, COLOR00(%a6)
     move.w  #CASE_HBSTRT, HBSTRT(%a6)

@@ -6,10 +6,13 @@ This directory contains the original 68000 source shared by every case.
 device's open I/O request to load the sector-aligned payload at
 `0x00030000`, checks the synchronous read result, and transfers control.
 
-`probe.S` disables DMA and CPU interrupts, writes the case-defined custom
-register values, publishes a ready record at `0x0002ff00`, and increments its
-field counter from the vertical-blank request. It does not use Kickstart
-libraries after loading and does not depend on a filesystem.
+`probe.S` disables DMA and CPU interrupts, opens `BPLCON0.ECSENA` while
+writing `BPLCON3`, restores the case-defined steady-state controls, publishes
+a ready record at `0x0002ff00`, and increments its field counter from the
+vertical-blank request. The temporary access write lets a case preload an
+enhanced-display control before deliberately clearing `ECSENA`. The probe
+does not use Kickstart libraries after loading and does not depend on a
+filesystem.
 
 `custom-registers.inc` contains only the register addresses and masks required
 by those two sources. `case.inc` is generated in a temporary build directory

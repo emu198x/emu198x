@@ -244,12 +244,14 @@ def tool_version(tool: Path) -> str:
 
 def generated_case_include(case: dict[str, Any]) -> str:
     registers = case["registers"]
+    bplcon0_access = int(registers["bplcon0"]["word"], 16) | 0x0001
     serial = case["identity"]["serial"]["value"]
     lines = [
         "/* SPDX-License-Identifier: CC0-1.0 */",
         "/* Generated from cases/cases.json; do not edit. */",
         f".equ CASE_NUMBER, {case['numeric_id']}",
         f".equ CASE_BPLCON0, {registers['bplcon0']['word']}",
+        f".equ CASE_BPLCON0_ACCESS, 0x{bplcon0_access:04x}",
         f".equ CASE_BPLCON3, {registers['bplcon3']['word']}",
         f".equ CASE_BEAMCON0, {registers['beamcon0']['word']}",
         f".equ CASE_HBSTRT, {registers['hbstrt']['word']}",
