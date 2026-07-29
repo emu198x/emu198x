@@ -34,7 +34,7 @@ _start:
     move.l  #PAYLOAD_ADDRESS, IO_DATA(%a1)
     move.l  #FIRST_PAYLOAD_BYTE, IO_OFFSET(%a1)
     jsr     LVO_DO_IO(%a6)
-    tst.l   %d0
+    tst.b   %d0
     bne.s   .Lread_failed
     jmp     PAYLOAD_ADDRESS
 

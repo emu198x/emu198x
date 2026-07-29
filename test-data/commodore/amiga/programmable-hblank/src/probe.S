@@ -15,10 +15,12 @@
 
 _start:
     move.l  #STACK_TOP, %sp
-    move.w  #0x2700, %sr
     move.l  #CUSTOM_BASE, %a6
 
-    /* Stop existing activity inherited from the boot environment. */
+    /*
+     * Kickstart enters boot blocks in user mode, so interrupt masking must
+     * use the custom-chip gate rather than a privileged SR write.
+     */
     move.w  #CLEAR_ALL, DMACON(%a6)
     move.w  #CLEAR_ALL, INTENA(%a6)
     move.w  #CLEAR_ALL, INTREQ(%a6)
