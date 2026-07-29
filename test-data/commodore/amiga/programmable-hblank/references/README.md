@@ -10,13 +10,13 @@ Specification*, sections 3.2.7 and 3.2.8, which describe Lisa horizontal
 blanking registers and the finer horizontal comparator resolution.
 
 These works explain which controls exist. They do not settle every observable
-edge, gate interaction, wrap behavior, equal-value behavior, or capture
+edge, gate interaction, wrap behaviour, equal-value behaviour, or capture
 convention addressed by this corpus.
 
 No third-party reference text, emulator source, firmware, or capture is
-redistributed here. Implementations are evidence producers rather than
-specification authorities; their observations belong in capture records with
-their implementation family made explicit.
+redistributed here. Implementations are evidence producers, not specification
+authorities. Their observations belong in capture records with their
+implementation family made explicit.
 
 ## Related files
 

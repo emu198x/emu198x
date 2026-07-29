@@ -39,6 +39,25 @@ binaries via a dedicated `zex.yml` workflow, which was retired when the binaries
 were removed. z80test runs Patrik Rak's exerciser on a full 48K Spectrum, so its
 tarball also carries the free Amstrad-permissioned 48K ROM.
 
+## Project-authored system-level corpus
+
+| Corpus | Consumer | Corpus path | Strict wrapper | Licence | Required firmware |
+|---|---|---|---|---|---|
+| Amiga programmable HBLANK | `runtime-commodore-amiga` · `amiga_programmable_hblank` | [`commodore/amiga/programmable-hblank/`](commodore/amiga/programmable-hblank/) | [`scripts/verify-amiga-programmable-hblank.sh`](../scripts/verify-amiga-programmable-hblank.sh) | CC0-1.0 | Kickstart images for the selected ECS and AGA profiles, supplied externally |
+
+The programmable-HBLANK corpus is project-authored and emulator-neutral.
+Sources, case definitions, schemas, and deterministic build tools are retained
+in the corpus directory. Generated ADFs, payloads, and the suite manifest below
+`dist/` are ignored and rebuilt by the strict wrapper. Commercial Kickstart
+ROMs are not included.
+
+The source cases currently leave expected observations unresolved. The
+Emu198x lane therefore verifies identities, boots the probes, and reports
+stable measurements; it does not claim semantic conformance until independent
+evidence promotes an expected observation. The first gate covers CCK-aligned
+cases on ECS and AGA profiles. The AGA fine-position cases are excluded until
+the capture grid can represent their 70 ns and 35 ns placement.
+
 ## System-level external gates
 
 | Fixture | Consumer | Env var | Upstream source | Licence | Required firmware |
@@ -136,4 +155,6 @@ live.
 - [Amiga Test Kit v1.21 fixture identity](amiga-test-kit-v1.21.md)
 - [Amiga Test Kit verification](../knowledge/processes/amiga-test-kit-verification.md)
 - [Amiga Test Kit v1.21 video conformance](../knowledge/processes/amiga-test-kit-video-conformance.md)
+- [Portable programmable-HBLANK corpus](commodore/amiga/programmable-hblank/README.md)
+- [Amiga programmable-HBLANK conformance](../knowledge/processes/amiga-programmable-hblank-conformance.md)
 - [Test ROM bundling policy](../knowledge/decisions/test-rom-policy.md)

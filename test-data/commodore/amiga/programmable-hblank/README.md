@@ -9,12 +9,12 @@ emulator runners, expected images, or implementation-specific assertions.
 
 Every case sets a stable, non-black background, writes one documented
 register configuration, publishes a machine-readable ready record in chip RAM,
-and then leaves the configuration unchanged. A capture producer is responsible
-for retaining blanking and overscan rather than cropping them away.
+and then leaves the configuration unchanged. A capture producer must retain
+blanking and overscan without cropping.
 
 Observed results are deliberately unresolved in the source case file. A result
 becomes evidence only when it is recorded in the capture schema with the exact
-artifact, machine configuration, producer revision, and normalization choices.
+artifact, machine configuration, producer revision, and normalisation choices.
 
 ## Building
 
@@ -37,7 +37,7 @@ Capture at least three adjacent fields without filtering, shaders, scaling, or
 automatic cropping. Record the result with
 [`schema/capture-v1.schema.json`](schema/capture-v1.schema.json).
 
-The background color and the NUL-terminated ASCII identity at
+The background colour and the NUL-terminated ASCII identity at
 `0x0002ff20` distinguish cases. Neither identity is an expected blanking
 outcome.
 
@@ -48,13 +48,13 @@ wrapped, and equal programmable windows, plus AGA fine-position cases in
 lores, hires, and super-hires.
 
 It does not specify the correct output. It does not test vertical blanking,
-programmable sync, variable line length, genlock, or analogue monitor behavior.
+programmable sync, variable line length, genlock, or analogue monitor behaviour.
 
 ## Related files
 
 - [`cases/README.md`](cases/README.md) explains the questions represented by
   the cases.
-- [`src/README.md`](src/README.md) describes the probe's on-machine behavior.
+- [`src/README.md`](src/README.md) describes the probe's on-machine behaviour.
 - [`schema/README.md`](schema/README.md) defines evidence interchange.
 - [`references/README.md`](references/README.md) identifies the documentary
   basis without redistributing third-party material.

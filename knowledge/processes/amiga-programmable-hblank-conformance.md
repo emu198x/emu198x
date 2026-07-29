@@ -75,9 +75,9 @@ A reference package is admissible when it records:
 - observed blank edges, ordering, wrap behaviour, and uncertainty.
 
 Frontend screenshots that crop blanking, scale the image, apply a shader, or
-omit their source geometry are diagnostic material rather than canonical
-references. An Emu198x-produced image may be retained below `target/accuracy/`
-for diagnosis, but it cannot become an independent expected result.
+omit their source geometry are diagnostic material, not canonical references.
+An Emu198x-produced image may be retained below `target/accuracy/` for
+diagnosis, but it cannot become an independent expected result.
 
 ## Comparator roles
 
@@ -94,7 +94,7 @@ HBLANK path is recorded as unsupported, not as a behavioural disagreement.
 
 Minimig, MAME, and other implementations may supply diagnostic comparisons
 only after the relevant path and capture geometry have been audited. No
-implementation is promoted to ground truth merely because it is written in
+implementation is promoted to ground truth solely because it is written in
 hardware-description language or has broad system coverage.
 
 ## Promoting an expected observation
@@ -120,9 +120,9 @@ entire emulator-produced frame is not the specification.
 ## Emu198x conformance lane
 
 The Emu198x adapter must verify the corpus manifest and artifact hashes before
-booting a case. It must run the declared machine profile, wait by emulated
-fields rather than host time, capture two adjacent settled fields, and confirm
-that a static case is stable.
+booting a case. It must run the declared machine profile, wait in emulated
+fields, capture three adjacent settled fields, and confirm that a static case
+is stable.
 
 Assertions consume promoted semantic observations from registered independent
 references. A failure records the Emu198x frame, edge measurements, relevant
