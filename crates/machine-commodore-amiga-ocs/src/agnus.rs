@@ -98,6 +98,15 @@ impl InstalledAgnus {
         }
     }
 
+    /// Length of the active scanline in CCKs.
+    #[must_use]
+    pub(crate) fn current_line_ccks(&self) -> u16 {
+        match self {
+            Self::EarlyOcs(agnus) => agnus.current_line_ccks(),
+            Self::Fat8372A(agnus) => agnus.current_line_ccks(),
+        }
+    }
+
     #[must_use]
     pub(crate) fn vertical_diw_active(&self) -> bool {
         match self {

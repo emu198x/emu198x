@@ -104,11 +104,12 @@ pub trait AmigaMachine {
     /// can add a line after a field has already begun.
     fn frame_ticks(&self) -> u64;
 
-    /// Number of video fields completed by the chipset.
+    /// Number of video fields completed by the display pipeline.
     ///
-    /// This counter is the authoritative output boundary. It prevents
-    /// runtime frame delivery from cutting a long interlace field short
-    /// when guest software changes `LACE` during the field.
+    /// This counter is the authoritative output boundary. It prevents runtime
+    /// frame delivery from cutting a long interlace field short when guest
+    /// software changes `LACE` during the field, and from publishing after
+    /// Agnus wraps while Denise still owns carried pixels from the prior row.
     fn video_field_count(&self) -> u64;
 
     /// Master CCK rate in Hz. Used by the runtime to downsample
@@ -478,7 +479,8 @@ impl AmigaMachine for AmigaOcs {
     }
 
     fn video_field_count(&self) -> u64 {
-        self.agnus().vbl_count
+        self.denise()
+            .completed_display_field_count(self.agnus().vbl_count)
     }
 
     fn cck_hz(&self) -> u64 {
@@ -660,7 +662,8 @@ impl AmigaMachine for AmigaEcs {
     }
 
     fn video_field_count(&self) -> u64 {
-        self.agnus().vbl_count
+        self.denise()
+            .completed_display_field_count(self.agnus().vbl_count)
     }
 
     fn cck_hz(&self) -> u64 {
@@ -894,7 +897,8 @@ impl AmigaMachine for AmigaA1200 {
     }
 
     fn video_field_count(&self) -> u64 {
-        self.agnus().vbl_count
+        self.denise()
+            .completed_display_field_count(self.agnus().vbl_count)
     }
 
     fn cck_hz(&self) -> u64 {

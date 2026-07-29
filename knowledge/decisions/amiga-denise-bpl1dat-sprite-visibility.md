@@ -142,9 +142,12 @@ differences left by the earlier phase-only run. Gradients, the static
 checkerboard, both alternating-checkerboard phases, EBU bars and dots now
 match their registered references exactly.
 
-The strict lane remains red only for the independently attributed crosshatch
-residual: 56 pixels in canonical columns 712–715 across 14 horizontal lines.
-Its count and location were unchanged by this decision.
+The independently attributed crosshatch residual remained after this
+decision: 56 pixels in canonical columns 712–715 across 14 horizontal lines.
+The later
+[Denise raster-wrap projection](amiga-denise-raster-wrap-projection.md)
+decision removed those differences without changing the sprite-visibility
+rule.
 
 The boot golden matrix identified one expected change in its Emu198x-produced
 baselines. The A500 Workbench 1.3 desktop lost a 10-by-2-pixel rectangle at
@@ -173,6 +176,7 @@ Reject these patterns:
 ## Related documents
 
 - [Amiga sprite horizontal output phase](amiga-sprite-horizontal-output-phase.md)
+- [Denise raster-wrap projection](amiga-denise-raster-wrap-projection.md)
 - [Amiga sprite DMA lifecycle](amiga-sprite-dma-lifecycle.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Amiga Test Kit v1.21 video conformance](../processes/amiga-test-kit-video-conformance.md)

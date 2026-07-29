@@ -2203,6 +2203,7 @@ impl AmigaDriver for AmigaA1200 {
     fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
+        let line_ccks = self.agnus.current_line_ccks();
         let bitplane_dma_fetch =
             bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });
         self.denise.tick(
@@ -2211,6 +2212,7 @@ impl AmigaDriver for AmigaA1200 {
             vertical_diw_active,
             &mut self.agnus,
             &self.memory,
+            line_ccks,
         );
     }
 
@@ -2489,6 +2491,66 @@ mod bus_plan_dispatch_tests {
         assert_eq!(
             amiga.agnus.cck_bus_plan().slot_owner,
             SlotOwner::Bitplane(7)
+        );
+    }
+
+    #[test]
+    fn alice_hblank_reset_precedes_a_coincident_wide_bitplane_fetch() {
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        amiga.agnus.vpos = 0x001F;
+
+        // Alice accepts the enhanced even-CCK DDF comparator at $12. The
+        // ordinary early-start value $18 is six CCKs after the fixed HBLANK
+        // boundary and therefore cannot exercise same-CCK ordering.
+        amiga.poke_word(0x00DF_F096, 0x8300); // SETCLR | DMAEN | BPLEN
+        amiga.poke_word(0x00DF_F100, 0x0010); // BPU = 8, lowres
+        amiga.poke_word(0x00DF_F08E, 0x2010); // VSTART on the next line
+        amiga.poke_word(0x00DF_F090, 0xA020);
+        amiga.poke_word(0x00DF_F092, 0x0012);
+        amiga.poke_word(0x00DF_F094, 0x00D0);
+        amiga.poke_word(0x00DF_F1FC, 0x0001); // 32-bit bitplane fetches
+
+        // The first wide-fetch slot carries BPL8. Its word-zero is blank and
+        // its staged tail starts with one set pixel, making loss of that tail
+        // observable after the shift register drains.
+        amiga.agnus.bpl_pt[7] = 0x0000_2000;
+        amiga.poke_word(0x0000_2000, 0x0000);
+        amiga.poke_word(0x0000_2002, 0x8000);
+
+        // Enter line $20 through a real raw wrap, retain its pre-$12 carry,
+        // then stop after phase zero at the fixed HBLANK boundary. This avoids
+        // manufacturing a boundary by calling Denise directly with an unset
+        // line marker.
+        amiga.agnus.hpos = amiga.agnus.current_line_ccks() - 1;
+        amiga.cck_phase = 1;
+        amiga.tick();
+        let mut guard = 0;
+        while !(amiga.agnus.vpos == 0x0020 && amiga.agnus.hpos == 0x0012 && amiga.cck_phase == 1) {
+            amiga.tick();
+            guard += 1;
+            assert!(guard < 100, "beam did not reach line $20 hpos $12");
+        }
+
+        assert!(amiga.agnus.vertical_diw_active());
+        assert_eq!(
+            amiga.agnus.bpl_pt[7], 0x0000_2004,
+            "Alice must grant one 32-bit BPL8 transfer at DDFSTRT=$12",
+        );
+
+        // Commit the fetched group and consume its blank first word. The next
+        // source pixel must come from the staged 0x8000 tail. If HBLANK reset
+        // ran after this CCK's DMA service, begin_beam_line() would have
+        // discarded the tail and this pixel would remain zero.
+        let denise = amiga.denise.ocs.as_inner_mut().as_inner_mut();
+        denise.trigger_shift_load();
+        for x in 0..16 {
+            let pixel = denise.output_pixel_with_beam(x, 0, x, 0);
+            assert_eq!(pixel.quad_samples[0].raw_color_idx, 0);
+        }
+        let tail_pixel = denise.output_pixel_with_beam(16, 0, 16, 0);
+        assert_eq!(
+            tail_pixel.quad_samples[0].raw_color_idx, 0x80,
+            "the first wide transfer's staged BPL8 tail must survive line reset",
         );
     }
 

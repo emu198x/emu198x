@@ -4,9 +4,9 @@
 mod common;
 
 use emu198x_shell::{
-    ControlCommand, FirmwareImage, FirmwareSet, HostIo, InputEvent, MachineCore, MachineError,
-    MachineTime, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
-    NullAudioSink, NullFrameSink, NullTraceSink, ResetKind,
+    ControlCommand, FirmwareImage, FirmwareSet, FramePacket, FrameSink, HostIo, InputEvent,
+    MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, MediaTransportAction,
+    MediaTransportCommand, NullAudioSink, NullFrameSink, NullTraceSink, ResetKind,
 };
 use format_commodore_amiga_adf::ADF_SIZE_DD;
 use runtime_commodore_amiga::{
@@ -19,6 +19,31 @@ use common::{
     audio_sample_frames_for_ticks, dummy_a1000_bootstrap_rom, dummy_a1000_firmware, dummy_firmware,
     dummy_kickstart,
 };
+
+/// A reset machine starts at raw line-zero rather than at Denise's display
+/// boundary. Its first completed frame therefore includes the fixed `$12`
+/// post-wrap interval before subsequent publications settle to the nominal
+/// field period.
+const FIRST_FRAME_PUBLICATION_DELAY_TICKS: u64 = 0x12 * 2;
+
+#[derive(Default)]
+struct FrameCollector {
+    timestamp: MachineTime,
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+}
+
+impl FrameSink for FrameCollector {
+    fn push_frame(&mut self, frame: FramePacket<'_>) -> Result<(), MachineError> {
+        self.timestamp = frame.timestamp;
+        self.width = frame.width;
+        self.height = frame.height;
+        self.pixels.clear();
+        self.pixels.extend_from_slice(frame.pixels);
+        Ok(())
+    }
+}
 
 #[test]
 fn from_firmware_accepts_supported_kickstart_size() {
@@ -124,14 +149,16 @@ fn run_until_advances_time_and_emits_frame() {
     runtime
         .run_until(target, &mut host)
         .expect("one frame should run");
-    assert_eq!(runtime.time(), target);
+    let first_frame_ticks = A500_PAL_FRAME_TICKS + FIRST_FRAME_PUBLICATION_DELAY_TICKS;
+    let first_frame_time = MachineTime::new(first_frame_ticks);
+    assert_eq!(runtime.time(), first_frame_time);
     assert_eq!(audio_sink.packets, 1);
-    assert_eq!(audio_sink.last_timestamp, target);
+    assert_eq!(audio_sink.last_timestamp, first_frame_time);
     assert_eq!(audio_sink.last_sample_rate, AUDIO_SAMPLE_RATE_HZ);
     assert_eq!(audio_sink.last_channels, AUDIO_CHANNELS);
     assert_eq!(
         audio_sink.last_samples.len(),
-        audio_sample_frames_for_ticks(A500_PAL_FRAME_TICKS) * usize::from(AUDIO_CHANNELS)
+        audio_sample_frames_for_ticks(first_frame_ticks) * usize::from(AUDIO_CHANNELS)
     );
     assert!(
         audio_sink
@@ -142,6 +169,50 @@ fn run_until_advances_time_and_emits_frame() {
 }
 
 #[test]
+fn run_until_publishes_pal_frame_after_raster_carry_reaches_right_edge() {
+    let mut runtime =
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    runtime.machine_mut().poke_word(0x00DF_F180, 0x0F00);
+
+    let mut frame_sink = FrameCollector::default();
+    let mut audio_sink = NullAudioSink;
+    let mut trace_sink = NullTraceSink;
+    runtime
+        .run_until(
+            MachineTime::new(A500_PAL_FRAME_TICKS),
+            &mut HostIo {
+                input_events: &[],
+                frame_sink: &mut frame_sink,
+                audio_sink: &mut audio_sink,
+                trace_sink: &mut trace_sink,
+            },
+        )
+        .expect("one complete PAL display field should run");
+
+    assert_eq!(frame_sink.width, 768);
+    assert_eq!(frame_sink.height, 576);
+    assert_eq!(
+        frame_sink.timestamp,
+        MachineTime::new(A500_PAL_FRAME_TICKS + FIRST_FRAME_PUBLICATION_DELAY_TICKS),
+    );
+    assert_eq!(runtime.machine().agnus().vpos, 0);
+    assert_eq!(runtime.machine().agnus().hpos, 0x12);
+
+    let final_vpos = runtime.machine().agnus().lines_per_frame - 1;
+    let first_row = u32::from(final_vpos - 0x19) * 2;
+    for y in first_row..=first_row + 1 {
+        for x in 732..768 {
+            let offset = ((y * frame_sink.width + x) * 4) as usize;
+            assert_eq!(
+                &frame_sink.pixels[offset..offset + 4],
+                &[0xFF, 0x00, 0x00, 0xFF],
+                "published PAL framebuffer tail at ({x}, {y}) must be current",
+            );
+        }
+    }
+}
+
+#[test]
 fn run_until_emits_on_actual_long_interlace_field_boundary() {
     let mut runtime =
         AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
@@ -149,7 +220,8 @@ fn run_until_emits_on_actual_long_interlace_field_boundary() {
 
     let target = MachineTime::new(A500_PAL_FRAME_TICKS);
     let long_field_ticks = A500_PAL_FRAME_TICKS + (A500_PAL_FRAME_TICKS / 312);
-    let expected_time = MachineTime::new(long_field_ticks);
+    let completed_field_ticks = long_field_ticks + FIRST_FRAME_PUBLICATION_DELAY_TICKS;
+    let expected_time = MachineTime::new(completed_field_ticks);
     let mut frame_sink = NullFrameSink;
     let mut audio_sink = AudioCollector::default();
     let mut trace_sink = NullTraceSink;
@@ -168,12 +240,12 @@ fn run_until_emits_on_actual_long_interlace_field_boundary() {
     assert_eq!(runtime.time(), expected_time);
     assert_eq!(runtime.machine().agnus().vbl_count, 1);
     assert_eq!(runtime.machine().agnus().vpos, 0);
-    assert_eq!(runtime.machine().agnus().hpos, 0);
+    assert_eq!(runtime.machine().agnus().hpos, 0x12);
     assert_eq!(audio_sink.packets, 1);
     assert_eq!(audio_sink.last_timestamp, expected_time);
     assert_eq!(
         audio_sink.last_samples.len(),
-        audio_sample_frames_for_ticks(long_field_ticks) * usize::from(AUDIO_CHANNELS)
+        audio_sample_frames_for_ticks(completed_field_ticks) * usize::from(AUDIO_CHANNELS)
     );
 }
 
@@ -761,7 +833,10 @@ fn ntsc_runtime_runs_one_frame_at_ntsc_tick_count() {
             },
         )
         .expect("one NTSC frame should run");
-    assert_eq!(runtime.time(), MachineTime::new(A500_NTSC_FRAME_TICKS));
+    assert_eq!(
+        runtime.time(),
+        MachineTime::new(A500_NTSC_FRAME_TICKS + FIRST_FRAME_PUBLICATION_DELAY_TICKS),
+    );
 }
 
 #[test]
@@ -827,7 +902,10 @@ fn ecs_runtime_runs_one_pal_frame() {
             },
         )
         .expect("one ECS PAL frame should run");
-    assert_eq!(runtime.time(), MachineTime::new(A500_PAL_FRAME_TICKS));
+    assert_eq!(
+        runtime.time(),
+        MachineTime::new(A500_PAL_FRAME_TICKS + FIRST_FRAME_PUBLICATION_DELAY_TICKS),
+    );
 }
 
 #[test]
@@ -848,7 +926,10 @@ fn ecs_runtime_runs_one_ntsc_frame() {
             },
         )
         .expect("one ECS NTSC frame should run");
-    assert_eq!(runtime.time(), MachineTime::new(A500_NTSC_FRAME_TICKS));
+    assert_eq!(
+        runtime.time(),
+        MachineTime::new(A500_NTSC_FRAME_TICKS + FIRST_FRAME_PUBLICATION_DELAY_TICKS),
+    );
 }
 
 #[test]

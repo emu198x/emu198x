@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Project Denise's real post-wrap output onto the preceding physical raster
+  row and defer line-local display reset until the hardwired HBLANK boundary
+- Perform the HBLANK line reset before a coincident phase-zero bitplane fetch
+  so an AGA wide-transfer tail remains part of the new line
 - Preserve Denise's one-low-resolution-pixel sprite load-to-output phase in
   the board-level video path
 - Feed Copper `WAIT` and `SKIP` the installed Agnus's comparator-visible

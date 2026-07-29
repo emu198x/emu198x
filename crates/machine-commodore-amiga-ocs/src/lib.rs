@@ -2326,6 +2326,7 @@ impl AmigaDriver for AmigaOcs {
     fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
+        let line_ccks = self.agnus.current_line_ccks();
         let bitplane_dma_fetch =
             bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });
         self.denise.tick(
@@ -2334,6 +2335,7 @@ impl AmigaDriver for AmigaOcs {
             vertical_diw_active,
             self.agnus.base_mut(),
             &self.memory,
+            line_ccks,
         );
     }
 
@@ -2561,6 +2563,11 @@ mod tests {
             0x1DC,
             commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_PAL,
         ));
+        assert_eq!(
+            fat.agnus.current_line_ccks(),
+            0x00FB,
+            "the mixed OCS machine must retain Fat Agnus's programmed line length",
+        );
         fat.agnus.hpos = 0x00F8;
         arm_horizontal_copper_wait(&mut fat.copper, 0x0010);
         <AmigaOcs as AmigaDriver>::copper_tick_cck(&mut fat, 0, 0x00F8, false, false);
@@ -2683,6 +2690,74 @@ mod tests {
             amiga.denise.ocs.sprite_bpl1dat_enabled(),
             "restoring mid-line must preserve whether BPL1DAT has enabled sprites",
         );
+    }
+
+    #[test]
+    fn postcard_snapshot_preserves_pending_denise_raster_carry() {
+        let mut original = AmigaOcs::new(vec![0; 256 * 1024]);
+        original.agnus.agnus_id = 0x2000;
+        original.agnus.vpos = 50;
+        original.agnus.hpos = 226;
+        original.agnus.diwstrt = 0x0000;
+        original.agnus.diwstop = 0x00FF;
+        original.agnus.bplcon0 = 0x1000;
+        original.denise.ocs.set_palette(0, 0x000);
+        original.denise.ocs.set_palette(1, 0xFFF);
+        original.denise.ocs.bpl_shift[0] = 0x6000;
+        original.denise.ocs.shift_count = 3;
+
+        <AmigaOcs as AmigaDriver>::denise_tick(&mut original, 1, None);
+        original.agnus.vbl_count = 1;
+        original.agnus.vpos = 0;
+        original.agnus.hpos = 0;
+        assert_eq!(
+            original
+                .denise
+                .completed_display_field_count(original.agnus.vbl_count),
+            0,
+            "raw field ownership must remain with the carried raster",
+        );
+
+        let encoded = postcard::to_allocvec(&original.snapshot_state())
+            .expect("encode wrapped-field carry state");
+        let snapshot: AmigaOcsSnapshot =
+            postcard::from_bytes(&encoded).expect("decode wrapped-field carry state");
+        let mut restored = AmigaOcs::new(vec![0; 256 * 1024]);
+        restored.restore_snapshot_state(snapshot);
+        assert_eq!(
+            restored
+                .denise
+                .completed_display_field_count(restored.agnus.vbl_count),
+            0,
+            "restoring inside the wrap must preserve display-field ownership",
+        );
+
+        for amiga in [&mut original, &mut restored] {
+            <AmigaOcs as AmigaDriver>::denise_tick(amiga, 0, None);
+            <AmigaOcs as AmigaDriver>::denise_tick(amiga, 1, None);
+        }
+
+        assert_eq!(restored.denise.framebuffer(), original.denise.framebuffer());
+        let prior_y = (50u32 - 0x19) * 2;
+        for x in 732..736 {
+            assert_eq!(
+                restored.denise.framebuffer()[(prior_y * denise::FB_WIDTH + x) as usize],
+                0xFFFF_FFFF,
+                "restored physical hpos 0 must complete the prior raster row",
+            );
+        }
+
+        for amiga in [&mut original, &mut restored] {
+            amiga.agnus.hpos = 0x12;
+            <AmigaOcs as AmigaDriver>::denise_tick(amiga, 0, None);
+            assert_eq!(
+                amiga
+                    .denise
+                    .completed_display_field_count(amiga.agnus.vbl_count),
+                1,
+                "HBLANK start must release the restored field for publication",
+            );
+        }
     }
 
     #[test]

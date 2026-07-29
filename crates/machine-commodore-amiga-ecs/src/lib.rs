@@ -2009,6 +2009,7 @@ impl AmigaDriver for AmigaEcs {
     fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
+        let line_ccks = self.agnus.current_line_ccks();
         let bitplane_dma_fetch =
             bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });
         self.denise.tick(
@@ -2017,6 +2018,7 @@ impl AmigaDriver for AmigaEcs {
             vertical_diw_active,
             &mut self.agnus,
             &self.memory,
+            line_ccks,
         );
     }
 
@@ -2154,6 +2156,42 @@ mod bus_plan_dispatch_tests {
             amiga.copper.waiting,
             "programmed physical $F8 must wrap to comparator position zero",
         );
+    }
+
+    #[test]
+    fn programmed_ecs_line_length_drives_denise_wrap_projection() {
+        let mut amiga = machine();
+        amiga.agnus.write_htotal(229);
+        amiga.agnus.write_beamcon0(
+            commodore_agnus_ecs::BEAMCON0_VARBEAMEN | commodore_agnus_ecs::BEAMCON0_PAL,
+        );
+        assert_eq!(amiga.agnus.current_line_ccks(), 230);
+
+        amiga.agnus.vpos = 50;
+        amiga.agnus.write_diwstop(0x64FF);
+        amiga.agnus.write_diwstrt(0x3200);
+        assert!(amiga.agnus.vertical_diw_active());
+        amiga.agnus.hpos = 229;
+        amiga.agnus.bplcon0 = 0x1000;
+        amiga.denise.ocs.set_palette(0, 0x000);
+        amiga.denise.ocs.set_palette(1, 0xFFF);
+        amiga.denise.ocs.bpl_shift[0] = 0x6000;
+        amiga.denise.ocs.shift_count = 3;
+
+        <AmigaEcs as AmigaDriver>::denise_tick(&mut amiga, 1, None);
+        amiga.agnus.vpos = 51;
+        amiga.agnus.hpos = 0;
+        <AmigaEcs as AmigaDriver>::denise_tick(&mut amiga, 0, None);
+        <AmigaEcs as AmigaDriver>::denise_tick(&mut amiga, 1, None);
+
+        let prior_y = (50usize - 0x19) * 2;
+        for x in 744..748 {
+            assert_eq!(
+                amiga.denise.framebuffer()[prior_y * FB_WIDTH as usize + x],
+                0xFFFF_FFFF,
+                "HTOTAL=229 must project physical hpos 0 onto x 744..747",
+            );
+        }
     }
 
     #[test]

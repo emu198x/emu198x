@@ -67,6 +67,7 @@ mod tests {
             let plan = agnus.cck_bus_plan();
             let width = agnus.bpl_fetch_width();
             let vertical_diw_active = agnus.vertical_diw_active();
+            let line_ccks = agnus.current_line_ccks();
             denise.tick(
                 0,
                 plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
@@ -76,6 +77,7 @@ mod tests {
                 vertical_diw_active,
                 &mut agnus,
                 &memory,
+                line_ccks,
             );
             if agnus.hpos == 0x00E2 {
                 break;
@@ -117,6 +119,7 @@ mod tests {
             let plan = agnus.cck_bus_plan();
             let width = agnus.bpl_fetch_width();
             let vertical_diw_active = agnus.vertical_diw_active();
+            let line_ccks = agnus.current_line_ccks();
             denise.tick(
                 0,
                 plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
@@ -126,8 +129,9 @@ mod tests {
                 vertical_diw_active,
                 &mut agnus,
                 &memory,
+                line_ccks,
             );
-            denise.tick(1, None, vertical_diw_active, &mut agnus, &memory);
+            denise.tick(1, None, vertical_diw_active, &mut agnus, &memory, line_ccks);
             if agnus.hpos == 0x00E2 {
                 break;
             }

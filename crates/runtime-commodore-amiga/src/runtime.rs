@@ -429,11 +429,12 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
         }
 
         while self.time < target {
-            // Run to the chipset's next completed video field. A
-            // nominal PAL field is 141,648 ticks, but guest software
-            // may enable interlace after the field has begun and add
-            // one line. The Agnus field counter is therefore the
-            // authoritative output boundary.
+            // Run to the display pipeline's next completed video field. A
+            // nominal PAL field is 141,648 ticks, but guest software may
+            // enable interlace after the field has begun and add one line.
+            // The variant's completed-field projection also holds Agnus's
+            // raw increment back while Denise finishes the preceding raster
+            // row across horizontal counter wrap.
             let starting_field = self.machine.video_field_count();
             let mut field_ticks = 0_u64;
             self.audio_buffer.clear();
@@ -441,9 +442,9 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
                 self.tick_and_sample_audio();
                 field_ticks = field_ticks.saturating_add(1);
             }
-            // Agnus advances the beam on the first half of a CCK. Finish
-            // the second half before exposing the field so both hires
-            // pixels at the line-zero boundary have been processed and
+            // The completed-field projection advances on the first half of a
+            // CCK. Finish the second half before exposing the field so both
+            // hires pixels at the display boundary have been processed and
             // the next run starts on a complete CCK boundary.
             self.tick_and_sample_audio();
             field_ticks = field_ticks.saturating_add(1);

@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Bump Amiga postcard snapshots to version 27 so Denise's
+  prior-line raster carry, raw field identity and HBLANK-reset context survive
+  restore; version 26 is rejected because it cannot preserve that context
 - [breaking] Bump Amiga postcard snapshots to version 26 so Denise's per-line
   BPL1DAT sprite-visibility latch survives restore; version 25 is rejected
   because it cannot preserve per-line sprite visibility
@@ -126,6 +129,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Publish fixed-sync PAL and NTSC fields only after Denise retires the
+  post-wrap raster tail, keeping the final framebuffer rows current through
+  the right edge
 - Correct the public A1000/Fatter-Agnus chip-RAM ceiling to its addressable
   512 KiB while retaining the 256 KiB shipping profile
 - Validate model-specific Agnus RAM ceilings before construction

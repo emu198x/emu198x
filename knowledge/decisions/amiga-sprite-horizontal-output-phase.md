@@ -102,12 +102,15 @@ decision and is not evidence for another HSTART offset.
 After implementing that separate prerequisite, EBU bars match exactly. The
 phase-only crosshatch result retained 56 far-right pixels caused by post-wrap
 raster placement, and the same 56 pixels remain after the visibility change.
-That residual remains attributed separately rather than hidden by a sprite or
-framebuffer offset.
+The separate
+[Denise raster-wrap projection](amiga-denise-raster-wrap-projection.md)
+decision removes that residual rather than hiding it with a sprite or
+framebuffer offset. All six registered video diagnostics now match exactly.
 
 ## Related documents
 
 - [Denise BPL1DAT sprite visibility](amiga-denise-bpl1dat-sprite-visibility.md)
+- [Denise raster-wrap projection](amiga-denise-raster-wrap-projection.md)
 - [Amiga sprite DMA lifecycle](amiga-sprite-dma-lifecycle.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Amiga Test Kit v1.21 video conformance](../processes/amiga-test-kit-video-conformance.md)

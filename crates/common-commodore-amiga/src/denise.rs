@@ -36,6 +36,22 @@ pub struct BitplaneDmaFetch {
     pub width_words: u8,
 }
 
+/// Display context retained while the horizontal counter has wrapped but
+/// Denise is still completing the preceding raster row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct PriorLineRasterContext {
+    vpos: u16,
+    line_ccks: u16,
+    /// Raw Agnus field count while this physical line was current.
+    vbl_count: u64,
+    ddf_start: Option<u16>,
+    pipeline_y: u32,
+    vertical_diw_active: bool,
+    /// `None` writes both line-doubled rows. Interlaced fields retain the
+    /// selected row offset (`0` for LOF, `1` for the alternate field).
+    interlace_row: Option<u8>,
+}
+
 /// Decode a DIWSTRT/DIWSTOP register pair into the effective vertical
 /// display window `[vstart, vstop)` in absolute line numbers.
 ///
@@ -95,6 +111,9 @@ pub struct Denise<C: DeniseChip> {
     /// vpos of the most recent `begin_beam_line()` call — guards
     /// against multiple resets per line.
     last_begin_line: Option<u16>,
+    /// Previous physical line retained through the post-wrap interval before
+    /// Denise reaches fixed HBLANK start and begins the new display line.
+    prior_line_raster: Option<PriorLineRasterContext>,
 }
 
 impl<C: DeniseChip> Default for Denise<C> {
@@ -111,6 +130,7 @@ impl<C: DeniseChip> Denise<C> {
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
             bytes_this_line: 0,
             last_begin_line: None,
+            prior_line_raster: None,
         }
     }
 
@@ -154,6 +174,21 @@ impl<C: DeniseChip> Denise<C> {
         &self.framebuffer
     }
 
+    /// Number of fields whose final displayed raster row is complete.
+    ///
+    /// Agnus increments `vbl_count` when its raw counters enter line zero,
+    /// before Denise has consumed the post-wrap CCKs that still belong to the
+    /// preceding displayed row. Hold that increment back while the retained
+    /// context came from an older raw field. Ordinary carries between lines
+    /// have the same count as Agnus and therefore do not affect this value.
+    #[must_use]
+    pub fn completed_display_field_count(&self, vbl_count: u64) -> u64 {
+        let previous_field_pending = self
+            .prior_line_raster
+            .is_some_and(|prior| prior.vbl_count.checked_add(1) == Some(vbl_count));
+        vbl_count.saturating_sub(u64::from(previous_field_pending))
+    }
+
     /// Read one COLOR palette entry from the chip.
     #[must_use]
     pub fn color(&self, idx: usize) -> u16 {
@@ -163,8 +198,12 @@ impl<C: DeniseChip> Denise<C> {
     /// Tick one master/4 period (= 1 lores pixel, = half a CCK).
     /// `phase` selects which half of the CCK this tick belongs to:
     ///   - `0`: first lores pixel of the CCK. CCK-boundary events
-    ///     (fetch, end-of-line modulo, begin-line reset) fire here.
+    ///     (fetch, end-of-line modulo, HBLANK-start reset) fire here.
     ///   - `1`: second lores pixel of the CCK.
+    ///
+    /// `line_ccks` is the actual length of the current physical line from the
+    /// outermost Agnus or Alice variant. Denise needs it to project physical
+    /// positions after counter wrap onto the preceding displayed row.
     ///
     /// Every tick advances the chip's shift register by the mode-
     /// appropriate number of source pixels and writes one lores pixel
@@ -177,6 +216,7 @@ impl<C: DeniseChip> Denise<C> {
         vertical_diw_active: bool,
         agnus: &mut commodore_agnus_ocs::Agnus,
         memory: &Memory,
+        line_ccks: u16,
     ) {
         let vpos = agnus.vpos;
         let hpos = agnus.hpos;
@@ -187,6 +227,7 @@ impl<C: DeniseChip> Denise<C> {
         let in_visible_line = vertical_diw_active;
         let bpl_dma_on = dmacon & 0x0300 == 0x0300;
         let bpu = agnus.num_bitplanes();
+        const HBLANK_START_CCK: u16 = 0x12;
         // An ordinary DDFSTOP completes the active fetch unit containing
         // it and one additional unit; Agnus derives that unit from the
         // installed fetch mode. Agnus also owns fixed-limit termination
@@ -204,6 +245,23 @@ impl<C: DeniseChip> Denise<C> {
 
         // ── CCK-boundary events (phase 0 only) ──────────────────
         if phase == 0 {
+            // Denise's display line begins at fixed HBLANK start, not when
+            // Agnus's horizontal counter wraps. Until $12, physical pixels
+            // still complete the preceding displayed row. Perform the
+            // one-time line reset before servicing this CCK's fetch so an
+            // enhanced-chipset DDF comparator coincident with the boundary
+            // contributes to the new line rather than being cleared as
+            // previous-line state.
+            if hpos >= HBLANK_START_CCK {
+                self.prior_line_raster = None;
+                if in_visible_line && self.last_begin_line != Some(vpos) {
+                    self.ocs.begin_beam_line();
+                    self.last_begin_line = Some(vpos);
+                } else if !in_visible_line {
+                    self.last_begin_line = None;
+                }
+            }
+
             // Bitplane fetch — the concrete Agnus/Alice grant already
             // incorporates DMA enable, DDF cadence, and its variant's
             // vertical display-window decode.
@@ -244,15 +302,6 @@ impl<C: DeniseChip> Denise<C> {
                 self.bytes_this_line = 0;
             }
 
-            // Line-start reset — clears the chip's BPLCON1 carry and
-            // the HAM prev-RGB. Fire once per visible line.
-            if in_visible_line && self.last_begin_line != Some(vpos) {
-                self.ocs.begin_beam_line();
-                self.last_begin_line = Some(vpos);
-            } else if !in_visible_line {
-                self.last_begin_line = None;
-            }
-
             // Sprite DMA is serviced per colour-clock slot by the machine
             // (Agnus owns the control/data state machine + the SPRxPT
             // pointers; see `Agnus::service_sprite_dma_cyc`). The earlier
@@ -269,65 +318,99 @@ impl<C: DeniseChip> Denise<C> {
         const VIEWPORT_V_START_LINE: u16 = 0x19;
         const VIEWPORT_H_END_CCK: u16 = 0xEC;
         const VIEWPORT_V_END_LINE: u16 = 0x139;
-        let in_viewport_h = (VIEWPORT_H_START_CCK..VIEWPORT_H_END_CCK).contains(&hpos);
-        let in_viewport_v = (VIEWPORT_V_START_LINE..VIEWPORT_V_END_LINE).contains(&vpos);
-        if in_viewport_h && in_viewport_v {
-            let fb_y = u32::from(vpos - VIEWPORT_V_START_LINE) * 2;
-            let fb_x_lores = u32::from(hpos - VIEWPORT_H_START_CCK) * 2 + u32::from(phase);
+        let pipeline_y = u32::from(vpos.saturating_sub(vstart)) * 2;
+        let interlace_row = if lace {
+            Some(if agnus.lof { 0 } else { 1 })
+        } else {
+            None
+        };
 
-            let pipeline_x = match ddf_start {
-                Some(start) if hpos >= start => u32::from(hpos - start) * 2 + u32::from(phase),
-                _ => 0,
-            };
-            let pipeline_y = u32::from(vpos.saturating_sub(vstart)) * 2;
-
-            let local_x = fb_x_lores;
-            let local_y = fb_y;
-
-            // Apply the horizontal DIW gate. DIWSTRT/DIWSTOP comparator
-            // blanks both playfields and sprites outside the window;
-            // only COLOR00 is output.
-            let beam_x_lores = u32::from(hpos) * 2 + u32::from(phase);
-            let hstart = u32::from(agnus.diwstrt & 0x00FF);
-            let hstop = 0x0100u32 | u32::from(agnus.diwstop & 0x00FF);
-            let in_visible_h = beam_x_lores >= hstart && beam_x_lores < hstop;
-            let playfield_gate = in_visible_line && in_visible_h;
-
-            // The bitplane pipeline runs in scroll-relative coordinates
-            // (`pipeline_x`/`pipeline_y`), but the sprite comparator needs
-            // the *absolute* beam position: SPRxPOS/CTL decode to an
-            // absolute raster line (VSTART/VSTOP) and lores HSTART. Feed
-            // the sprite path `beam_x_lores` and the raw `vpos` so DMA-
-            // driven sprites land where the copper positioned them. gap #162.
-            let dbg = self.ocs.output_pixel_with_beam_sprite_coords(
-                pipeline_x,
+        // vAmiga's registered raster mapping treats physical positions before
+        // HBLANK start as the tail of the preceding displayed row. Extend the
+        // horizontal coordinate by that line's actual length while retaining
+        // its vertical, DDF and interlace context. Agnus time and bus ownership
+        // remain on the current physical position.
+        let projection = if hpos < HBLANK_START_CCK {
+            self.prior_line_raster.map(|prior| {
+                (
+                    prior.vpos,
+                    prior.line_ccks.saturating_add(hpos),
+                    prior.ddf_start,
+                    prior.pipeline_y,
+                    prior.vertical_diw_active,
+                    prior.interlace_row,
+                )
+            })
+        } else {
+            Some((
+                vpos,
+                hpos,
+                ddf_start,
                 pipeline_y,
-                pipeline_x,
-                pipeline_y,
-                beam_x_lores,
-                u32::from(vpos),
-                playfield_gate,
-            );
-            let cols = if dbg.called {
-                match dbg.source_pixels_per_fb_pixel.min(2) {
-                    0 => [0, 0],
-                    1 => [dbg.final_color_idx, dbg.final_color_idx],
-                    _ => [dbg.quad_color_idx[0], dbg.quad_color_idx[1]],
-                }
-            } else {
-                [0, 0]
-            };
-            {
-                let rows: &[u32] = if lace {
-                    if agnus.lof {
-                        &[local_y]
-                    } else {
-                        &[local_y + 1]
+                in_visible_line,
+                interlace_row,
+            ))
+        };
+
+        if let Some((
+            raster_vpos,
+            raster_hpos,
+            raster_ddf_start,
+            raster_pipeline_y,
+            raster_vertical_diw_active,
+            raster_interlace_row,
+        )) = projection
+        {
+            let in_viewport_h = (VIEWPORT_H_START_CCK..VIEWPORT_H_END_CCK).contains(&raster_hpos);
+            let in_viewport_v = (VIEWPORT_V_START_LINE..VIEWPORT_V_END_LINE).contains(&raster_vpos);
+            if in_viewport_h && in_viewport_v {
+                let local_y = u32::from(raster_vpos - VIEWPORT_V_START_LINE) * 2;
+                let local_x = u32::from(raster_hpos - VIEWPORT_H_START_CCK) * 2 + u32::from(phase);
+                let pipeline_x = match raster_ddf_start {
+                    Some(start) if raster_hpos >= start => {
+                        u32::from(raster_hpos - start) * 2 + u32::from(phase)
+                    }
+                    _ => 0,
+                };
+
+                // Horizontal visibility uses the extended Denise coordinate,
+                // not the wrapped physical counter. This lets genuine
+                // bitplane and sprite tails reach the right edge.
+                let beam_x_lores = u32::from(raster_hpos) * 2 + u32::from(phase);
+                let hstart = u32::from(agnus.diwstrt & 0x00FF);
+                let hstop = 0x0100u32 | u32::from(agnus.diwstop & 0x00FF);
+                let in_visible_h = beam_x_lores >= hstart && beam_x_lores < hstop;
+                let playfield_gate = raster_vertical_diw_active && in_visible_h;
+
+                // The bitplane pipeline runs in DDF-relative coordinates, but
+                // the sprite comparator consumes the extended absolute Denise
+                // coordinate and the raster row being completed.
+                let dbg = self.ocs.output_pixel_with_beam_sprite_coords(
+                    pipeline_x,
+                    raster_pipeline_y,
+                    pipeline_x,
+                    raster_pipeline_y,
+                    beam_x_lores,
+                    u32::from(raster_vpos),
+                    playfield_gate,
+                );
+                let cols = if dbg.called {
+                    match dbg.source_pixels_per_fb_pixel.min(2) {
+                        0 => [0, 0],
+                        1 => [dbg.final_color_idx, dbg.final_color_idx],
+                        _ => [dbg.quad_color_idx[0], dbg.quad_color_idx[1]],
                     }
                 } else {
-                    &[local_y, local_y + 1]
+                    [0, 0]
                 };
-                for &dy in rows {
+
+                let row_offsets: &[u32] = match raster_interlace_row {
+                    Some(0) => &[0],
+                    Some(_) => &[1],
+                    None => &[0, 1],
+                };
+                for &row_offset in row_offsets {
+                    let dy = local_y + row_offset;
                     for (dx, color_idx) in cols.iter().enumerate() {
                         // Resolve through the chip's colour path — 24-bit
                         // palette on AGA, 12-bit upscaled on OCS/ECS (#93).
@@ -340,31 +423,20 @@ impl<C: DeniseChip> Denise<C> {
                     }
                 }
             }
+        }
 
-            // Tail fill — extend COLOR00 to the right border.
-            if phase == 1 && hpos == agnus.current_line_ccks() - 1 {
-                let tail_start = u32::from(hpos - VIEWPORT_H_START_CCK + 1) * 4;
-                if tail_start < FB_WIDTH {
-                    let bg_pixel = self.ocs.resolve_color_argb(0);
-                    let rows: &[u32] = if lace {
-                        if agnus.lof {
-                            &[local_y]
-                        } else {
-                            &[local_y + 1]
-                        }
-                    } else {
-                        &[local_y, local_y + 1]
-                    };
-                    for &dy in rows {
-                        for x in tail_start..FB_WIDTH {
-                            let idx = (dy * FB_WIDTH + x) as usize;
-                            if idx < self.framebuffer.len() {
-                                self.framebuffer[idx] = bg_pixel;
-                            }
-                        }
-                    }
-                }
-            }
+        // Capture after the terminal pixel has been composed. The following
+        // physical line's pre-$12 interval will finish this displayed row.
+        if phase == 1 && line_ccks != 0 && hpos.saturating_add(1) == line_ccks {
+            self.prior_line_raster = Some(PriorLineRasterContext {
+                vpos,
+                line_ccks,
+                vbl_count: agnus.vbl_count,
+                ddf_start,
+                pipeline_y,
+                vertical_diw_active: in_visible_line,
+                interlace_row,
+            });
         }
     }
 }
@@ -382,6 +454,48 @@ pub(crate) fn rgb12_to_argb(c12: u16) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn capture_prior_line_tail(
+        denise: &mut Denise<commodore_denise_ocs::DeniseOcs>,
+        agnus: &mut commodore_agnus_ocs::Agnus,
+        memory: &Memory,
+        vpos: u16,
+        line_ccks: u16,
+        shift_bits: u16,
+        interlace_lof: Option<bool>,
+    ) {
+        agnus.vpos = vpos;
+        agnus.hpos = line_ccks - 1;
+        agnus.diwstrt = 0x0000;
+        agnus.diwstop = 0x00FF;
+        agnus.bplcon0 = 0x1000 | if interlace_lof.is_some() { 0x0004 } else { 0 };
+        agnus.lof = interlace_lof.unwrap_or(false);
+
+        denise.ocs.set_palette(0, 0x000);
+        denise.ocs.set_palette(1, 0xFFF);
+        denise.ocs.bpl_shift[0] = shift_bits;
+        denise.ocs.shift_count = 3;
+        denise.tick(1, None, true, agnus, memory, line_ccks);
+
+        assert_eq!(
+            denise.prior_line_raster.map(|context| context.line_ccks),
+            Some(line_ccks),
+            "the terminal phase must capture the actual physical line length",
+        );
+    }
+
+    fn render_wrapped_hpos_zero(
+        denise: &mut Denise<commodore_denise_ocs::DeniseOcs>,
+        agnus: &mut commodore_agnus_ocs::Agnus,
+        memory: &Memory,
+        vpos: u16,
+        line_ccks: u16,
+    ) {
+        agnus.vpos = vpos;
+        agnus.hpos = 0;
+        denise.tick(0, None, true, agnus, memory, line_ccks);
+        denise.tick(1, None, true, agnus, memory, line_ccks);
+    }
 
     fn observe_ddf_start(agnus: &mut commodore_agnus_ocs::Agnus) {
         if agnus.agnus_id < 0x2000 && !agnus.vertical_diw_active() {
@@ -437,6 +551,207 @@ mod tests {
     }
 
     #[test]
+    fn wrapped_hpos_zero_uses_the_previous_lines_actual_length() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let memory = Memory::new(vec![0; 2]);
+        let prior_vpos = 50;
+        let target_y = u32::from(prior_vpos - 0x19) * 2;
+
+        let mut short_agnus = Agnus::new();
+        let mut short = Denise::<DeniseOcs>::new();
+        capture_prior_line_tail(
+            &mut short,
+            &mut short_agnus,
+            &memory,
+            prior_vpos,
+            227,
+            0x6000,
+            None,
+        );
+        render_wrapped_hpos_zero(&mut short, &mut short_agnus, &memory, prior_vpos + 1, 228);
+
+        for x in 732..736 {
+            assert_eq!(
+                short.framebuffer[(target_y * FB_WIDTH + x) as usize],
+                0xFFFF_FFFF,
+                "a 227-CCK line must project physical hpos 0 onto x 732..735",
+            );
+        }
+        assert_eq!(
+            short.framebuffer[(target_y * FB_WIDTH + 736) as usize],
+            0xFF00_0000,
+        );
+
+        let mut long_agnus = Agnus::new();
+        let mut long = Denise::<DeniseOcs>::new();
+        capture_prior_line_tail(
+            &mut long,
+            &mut long_agnus,
+            &memory,
+            prior_vpos,
+            228,
+            0x6000,
+            None,
+        );
+        render_wrapped_hpos_zero(&mut long, &mut long_agnus, &memory, prior_vpos + 1, 227);
+
+        assert_eq!(
+            long.framebuffer[(target_y * FB_WIDTH + 735) as usize],
+            0xFF00_0000,
+            "a 228-CCK line already owns x 732..735 before counter wrap",
+        );
+        for x in 736..740 {
+            assert_eq!(
+                long.framebuffer[(target_y * FB_WIDTH + x) as usize],
+                0xFFFF_FFFF,
+                "a 228-CCK line must project physical hpos 0 onto x 736..739",
+            );
+        }
+    }
+
+    #[test]
+    fn line_local_denise_state_resets_at_hblank_start_not_counter_wrap() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let memory = Memory::new(vec![0; 2]);
+        let mut agnus = Agnus::new();
+        let mut denise = Denise::<DeniseOcs>::new();
+        denise.ocs.queue_shift_load_from_bpl1dat();
+        capture_prior_line_tail(&mut denise, &mut agnus, &memory, 50, 227, 0x0000, None);
+
+        agnus.vpos = 51;
+        agnus.hpos = 0;
+        denise.tick(0, None, true, &mut agnus, &memory, 227);
+        assert!(
+            denise.ocs.sprite_bpl1dat_enabled(),
+            "counter wrap must retain the prior line's BPL1DAT visibility state",
+        );
+
+        agnus.hpos = 0x11;
+        denise.tick(0, None, true, &mut agnus, &memory, 227);
+        assert!(denise.ocs.sprite_bpl1dat_enabled());
+
+        agnus.hpos = 0x12;
+        denise.tick(0, None, true, &mut agnus, &memory, 227);
+        assert!(
+            !denise.ocs.sprite_bpl1dat_enabled(),
+            "fixed HBLANK start must begin the new Denise display line",
+        );
+        assert!(denise.prior_line_raster.is_none());
+    }
+
+    #[test]
+    fn completed_display_field_waits_for_wrapped_raster_carry() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let memory = Memory::new(vec![0; 2]);
+        let mut agnus = Agnus::new();
+        let mut denise = Denise::<DeniseOcs>::new();
+        agnus.vbl_count = 7;
+        capture_prior_line_tail(&mut denise, &mut agnus, &memory, 311, 227, 0x0000, None);
+
+        assert_eq!(
+            denise.completed_display_field_count(agnus.vbl_count),
+            7,
+            "an ordinary captured line must not change the completed field count",
+        );
+
+        agnus.vbl_count = 8;
+        agnus.vpos = 0;
+        agnus.hpos = 0;
+        denise.tick(0, None, false, &mut agnus, &memory, 227);
+        denise.tick(1, None, false, &mut agnus, &memory, 227);
+        assert_eq!(
+            denise.completed_display_field_count(agnus.vbl_count),
+            7,
+            "raw field wrap must remain unpublished while prior output is pending",
+        );
+        assert_eq!(
+            denise.completed_display_field_count(agnus.vbl_count + 1),
+            9,
+            "a context older than one raw transition must not suppress a later field",
+        );
+
+        agnus.hpos = 0x11;
+        denise.tick(0, None, false, &mut agnus, &memory, 227);
+        denise.tick(1, None, false, &mut agnus, &memory, 227);
+        assert_eq!(denise.completed_display_field_count(agnus.vbl_count), 7);
+
+        agnus.hpos = 0x12;
+        denise.tick(0, None, false, &mut agnus, &memory, 227);
+        assert_eq!(
+            denise.completed_display_field_count(agnus.vbl_count),
+            8,
+            "HBLANK-start retirement makes the wrapped field publishable",
+        );
+    }
+
+    #[test]
+    fn wrapped_pixels_keep_the_previous_fields_interlace_row() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let memory = Memory::new(vec![0; 2]);
+        let mut agnus = Agnus::new();
+        let mut denise = Denise::<DeniseOcs>::new();
+        let prior_vpos = 50;
+        let top_y = u32::from(prior_vpos - 0x19) * 2;
+        capture_prior_line_tail(
+            &mut denise,
+            &mut agnus,
+            &memory,
+            prior_vpos,
+            227,
+            0x6000,
+            Some(true),
+        );
+
+        agnus.lof = false;
+        render_wrapped_hpos_zero(&mut denise, &mut agnus, &memory, prior_vpos + 1, 227);
+
+        assert_eq!(
+            denise.framebuffer[(top_y * FB_WIDTH + 732) as usize],
+            0xFFFF_FFFF,
+            "carry must retain the prior field's selected row",
+        );
+        assert_eq!(
+            denise.framebuffer[((top_y + 1) * FB_WIDTH + 732) as usize],
+            0xFF00_0000,
+            "the current field selection must not move a prior-line carry",
+        );
+    }
+
+    #[test]
+    fn startup_hpos_zero_without_prior_context_does_not_consume_video_state() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let memory = Memory::new(vec![0; 2]);
+        let mut agnus = Agnus::new();
+        agnus.vpos = 51;
+        agnus.hpos = 0;
+        agnus.diwstrt = 0x0000;
+        agnus.diwstop = 0x00FF;
+        agnus.bplcon0 = 0x1000;
+
+        let mut denise = Denise::<DeniseOcs>::new();
+        denise.ocs.bpl_shift[0] = 0xFFFF;
+        denise.ocs.shift_count = 16;
+        denise.tick(0, None, true, &mut agnus, &memory, 227);
+        denise.tick(1, None, true, &mut agnus, &memory, 227);
+
+        assert_eq!(
+            denise.ocs.shift_count, 16,
+            "no previous-line context means there is no carried pixel to consume",
+        );
+        assert!(denise.framebuffer.iter().all(|pixel| *pixel == 0xFF00_0000));
+    }
+
+    #[test]
     fn sprite_first_pixel_follows_hstart_load_in_board_framebuffer() {
         use commodore_agnus_ocs::Agnus;
         use commodore_denise_ocs::DeniseOcs;
@@ -456,13 +771,14 @@ mod tests {
         denise.ocs.write_sprite_data(0, 0x8000);
 
         let memory = Memory::new(vec![0; 2]);
-        denise.tick(0, None, true, &mut agnus, &memory);
+        let line_ccks = agnus.current_line_ccks();
+        denise.tick(0, None, true, &mut agnus, &memory, line_ccks);
         // BPL1DAT enables sprite contribution for the remainder of the line.
         // Inject it after the phase-0 line reset so this focused board test
         // can exercise the following sprite output step without constructing
         // a complete bitplane-DMA fixture.
         denise.ocs.queue_shift_load_from_bpl1dat();
-        denise.tick(1, None, true, &mut agnus, &memory);
+        denise.tick(1, None, true, &mut agnus, &memory, line_ccks);
 
         let y = u32::from(agnus.vpos - 0x19) * 2;
         let hstart_x = u32::from(agnus.hpos - 0x2C) * 4;
@@ -522,6 +838,7 @@ mod tests {
             let plan = agnus.cck_bus_plan();
             let width = agnus.bpl_fetch_width();
             let vertical_diw_active = agnus.vertical_diw_active();
+            let line_ccks = agnus.current_line_ccks();
             denise.tick(
                 0,
                 plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
@@ -531,6 +848,7 @@ mod tests {
                 vertical_diw_active,
                 &mut agnus,
                 &mem,
+                line_ccks,
             );
             if agnus.hpos == 0xE2 {
                 break;
@@ -569,6 +887,7 @@ mod tests {
             let plan = agnus.cck_bus_plan();
             let width = agnus.bpl_fetch_width();
             let vertical_diw_active = agnus.vertical_diw_active();
+            let line_ccks = agnus.current_line_ccks();
             denise.tick(
                 0,
                 plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
@@ -578,6 +897,7 @@ mod tests {
                 vertical_diw_active,
                 &mut agnus,
                 &mem,
+                line_ccks,
             );
             if agnus.hpos == 0xE2 {
                 break;
@@ -638,10 +958,26 @@ mod tests {
                     width_words: 1,
                 });
 
-            reference.tick(0, reference_fetch, true, &mut matched, &memory);
-            after_write.tick(0, rewritten_fetch, true, &mut rewritten, &memory);
-            reference.tick(1, None, true, &mut matched, &memory);
-            after_write.tick(1, None, true, &mut rewritten, &memory);
+            let matched_line_ccks = matched.current_line_ccks();
+            let rewritten_line_ccks = rewritten.current_line_ccks();
+            reference.tick(
+                0,
+                reference_fetch,
+                true,
+                &mut matched,
+                &memory,
+                matched_line_ccks,
+            );
+            after_write.tick(
+                0,
+                rewritten_fetch,
+                true,
+                &mut rewritten,
+                &memory,
+                rewritten_line_ccks,
+            );
+            reference.tick(1, None, true, &mut matched, &memory, matched_line_ccks);
+            after_write.tick(1, None, true, &mut rewritten, &memory, rewritten_line_ccks);
             if matched.hpos == 0x0070 {
                 break;
             }
@@ -699,6 +1035,7 @@ mod tests {
             loop {
                 let plan = agnus.cck_bus_plan();
                 let vertical_diw_active = agnus.vertical_diw_active();
+                let line_ccks = agnus.current_line_ccks();
                 denise.tick(
                     0,
                     plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
@@ -708,9 +1045,10 @@ mod tests {
                     vertical_diw_active,
                     &mut agnus,
                     &mem,
+                    line_ccks,
                 );
-                denise.tick(1, None, vertical_diw_active, &mut agnus, &mem);
-                let line_end = agnus.current_line_ccks() - 1;
+                denise.tick(1, None, vertical_diw_active, &mut agnus, &mem, line_ccks);
+                let line_end = line_ccks - 1;
                 let was_line_end = agnus.hpos == line_end;
                 agnus.tick_cck();
                 if was_line_end {
