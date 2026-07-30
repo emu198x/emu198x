@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Preserve the optional A600 Gayle component in the raw
+  `AmigaEcsSnapshot` postcard schema; runtime envelopes version this as V29
 - [breaking] Preserve the two programmed horizontal-blank event latches in
   the raw `AmigaEcsSnapshot` postcard schema; runtime envelopes version this
   as V28
@@ -18,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Compose Gayle into explicit PAL and NTSC A600 board constructors while
+  retaining the existing A500+ constructors without it
+- Route A600 IDE and Gayle control-register accesses through the same Gayle
+  bus arm used by the A1200
+- Expose optional A600 Gayle state through a side-effect-free diagnostic
+  snapshot
 - Expose the battery-backed clock through a side-effect-free diagnostic snapshot
 - Expose raw controller counters and host input latches through a read-only
   diagnostic snapshot

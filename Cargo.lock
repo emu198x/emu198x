@@ -2246,6 +2246,7 @@ dependencies = [
  "commodore-denise-ecs",
  "commodore-denise-ocs",
  "commodore-gary",
+ "commodore-gayle",
  "commodore-paula-8364",
  "common-commodore-amiga",
  "format-commodore-amiga-adf",

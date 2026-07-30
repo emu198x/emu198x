@@ -1,10 +1,8 @@
-//! Commodore Amiga (OCS chipset) machine — incremental restart.
+//! Commodore Amiga ECS machine family.
 //!
-//! Built milestone-by-milestone per
-//! `knowledge/decisions/amiga-restart-plan.md`. Each milestone adds the
-//! minimum hardware behaviour the running ROM demands; nothing more.
-//!
-//! Current milestone: **M6 — beam counter + VBL interrupt.**
+//! The machine composes the shared ECS chipset substrate into A500+ and A600
+//! board configurations. A600 construction adds the Gayle IDE / PCMCIA gate
+//! array; A500+ construction leaves that bus component absent.
 
 mod agnus;
 mod denise;
@@ -26,6 +24,7 @@ pub use agnus::{
 pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
 pub use commodore_gary::{ChipSelect, Gary};
+pub use commodore_gayle::{Gayle, GayleDiagnosticSnapshot};
 use commodore_paula_8364::bits::{
     POTGOR_BTN_PORT0_MIDDLE, POTGOR_BTN_PORT0_RIGHT, POTGOR_BTN_PORT1_MIDDLE,
     POTGOR_BTN_PORT1_RIGHT,
@@ -231,6 +230,11 @@ pub struct AmigaEcs {
     agnus: AgnusEcs,
     copper: Copper,
     denise: Denise,
+    /// A600 Gayle gate array. Absent on A500+ board configurations.
+    ///
+    /// The current component implements IDE task-file and control-register
+    /// decode at `$DA0000-$DBFFFF`; IDE and PCMCIA backends remain absent.
+    gayle: Option<Gayle>,
     tick_count: u64,
     /// Sub-CCK phase: 0 at the first tick of a CCK (fetch/reload
     /// events fire here), 1 at the second tick. Flips each tick.
@@ -374,6 +378,7 @@ pub struct AmigaEcsSnapshot {
     agnus: AgnusEcs,
     copper: Copper,
     denise: Denise,
+    gayle: Option<Gayle>,
     tick_count: u64,
     cck_phase: u8,
     prev_vertb_level: bool,
@@ -439,7 +444,7 @@ impl AmigaEcs {
     /// `with_ram_config_ntsc`.
     #[must_use]
     pub fn with_ram_config(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Pal)
+        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Pal, false)
     }
 
     /// NTSC counterpart of `with_ram_config`. Same RAM/autoconfig
@@ -447,10 +452,31 @@ impl AmigaEcs {
     /// and the per-line short/long alternation enabled.
     #[must_use]
     pub fn with_ram_config_ntsc(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
-        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Ntsc)
+        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Ntsc, false)
     }
 
-    fn with_ram_config_region(kickstart: Vec<u8>, cfg: RamConfig, region: AgnusRegion) -> Self {
+    /// Build a PAL A600 with Gayle and a fully explicit RAM layout.
+    ///
+    /// This is the A600 counterpart to [`Self::with_ram_config`]. It installs
+    /// Gayle's IDE / PCMCIA address decoder while retaining the same ECS
+    /// chipset and RAM validation rules.
+    #[must_use]
+    pub fn with_a600_ram_config(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
+        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Pal, true)
+    }
+
+    /// NTSC counterpart of [`Self::with_a600_ram_config`].
+    #[must_use]
+    pub fn with_a600_ram_config_ntsc(kickstart: Vec<u8>, cfg: RamConfig) -> Self {
+        Self::with_ram_config_region(kickstart, cfg, AgnusRegion::Ntsc, true)
+    }
+
+    fn with_ram_config_region(
+        kickstart: Vec<u8>,
+        cfg: RamConfig,
+        region: AgnusRegion,
+        has_gayle: bool,
+    ) -> Self {
         assert!(
             cfg.is_valid(),
             "RamConfig out of range: {cfg:?}; allowed chip=256/512/1024/2048 KiB, \
@@ -461,7 +487,7 @@ impl AmigaEcs {
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
-        Self::with_memory_config(memory, cfg, true, region)
+        Self::with_memory_config(memory, cfg, true, region, has_gayle)
     }
 
     /// Build a real A1000-style machine: a small bootstrap ROM at
@@ -499,7 +525,7 @@ impl AmigaEcs {
             cfg.chip_kb as usize * 1024,
             cfg.slow_kb as usize * 1024,
         );
-        Self::with_memory_config(memory, cfg, true, region)
+        Self::with_memory_config(memory, cfg, true, region, false)
     }
 
     fn with_memory_config(
@@ -507,6 +533,7 @@ impl AmigaEcs {
         cfg: RamConfig,
         slow_ram_decode: bool,
         region: AgnusRegion,
+        has_gayle: bool,
     ) -> Self {
         // Autoconfig only supports the eight Zorro-II sizes; other
         // (still-valid) fast_kb values are rounded down to the nearest
@@ -575,6 +602,7 @@ impl AmigaEcs {
             agnus: AgnusEcs::from_ocs(Agnus::new_with_region(region)),
             copper: Copper::new(),
             denise: Denise::new(),
+            gayle: has_gayle.then_some(Gayle::new()),
             tick_count: 0,
             cck_phase: 0,
             // Initialise as `true` because at reset the beam is at
@@ -693,6 +721,15 @@ impl AmigaEcs {
     #[must_use]
     pub fn rtc_diagnostic_snapshot(&self) -> Msm6242RtcDiagnosticSnapshot {
         self.rtc.diagnostic_snapshot()
+    }
+
+    /// Side-effect-free Gayle state for A600 board configurations.
+    ///
+    /// Returns `None` for A500+ configurations, where no Gayle component is
+    /// installed and its bus window remains unclaimed.
+    #[must_use]
+    pub fn gayle_diagnostic_snapshot(&self) -> Option<GayleDiagnosticSnapshot> {
+        self.gayle.as_ref().map(Gayle::diagnostic_snapshot)
     }
 
     /// Mutable CIA-B access. Only for tests/integrations that need to
@@ -1691,6 +1728,33 @@ impl AmigaEcs {
         })
     }
 
+    /// A600 Gayle gate-array window at `$DA0000-$DBFFFF`.
+    ///
+    /// IDE task-file registers at `$DA0000-$DA3FFF` currently expose the
+    /// no-drive values used by the A1200 integration, and the four Gayle
+    /// control registers occupy `$DA8000-$DABFFF`. A500+ configurations
+    /// return `None` without claiming the address.
+    fn dispatch_gayle(&mut self, tx: &BusTransaction) -> Option<BusResponse> {
+        let gayle = self.gayle.as_mut()?;
+        if !(0x00DA_0000..0x00DC_0000).contains(&tx.addr) {
+            return None;
+        }
+        Some(if tx.is_read {
+            if tx.is_word {
+                BusResponse::Word(gayle.read_word(tx.addr))
+            } else {
+                BusResponse::Byte(gayle.read(tx.addr))
+            }
+        } else {
+            if tx.is_word {
+                gayle.write_word(tx.addr, tx.data);
+            } else {
+                gayle.write(tx.addr, tx.data as u8);
+            }
+            BusResponse::WriteAck
+        })
+    }
+
     /// Old-address battery-backed RTC at `$DC0000-$DC003F`. Word
     /// accesses route through `read_word` / `write_word`; byte
     /// accesses through `read_byte` / `write_byte`. Either path logs
@@ -1903,6 +1967,7 @@ impl AmigaEcs {
             agnus: self.agnus.clone(),
             copper: self.copper.clone(),
             denise: self.denise.clone(),
+            gayle: self.gayle.clone(),
             tick_count: self.tick_count,
             cck_phase: self.cck_phase,
             prev_vertb_level: self.prev_vertb_level,
@@ -1943,6 +2008,7 @@ impl AmigaEcs {
         self.agnus = snap.agnus;
         self.copper = snap.copper;
         self.denise = snap.denise;
+        self.gayle = snap.gayle;
         self.tick_count = snap.tick_count;
         self.cck_phase = snap.cck_phase;
         self.prev_vertb_level = snap.prev_vertb_level;
@@ -1976,8 +2042,9 @@ impl AmigaEcs {
 
 // The shared per-CCK driver (#34). Common Agnus state is exposed
 // through base-typed accessors, while behavior that ECS overrides
-// resolves through concrete helpers before coercion. No Gayle arm;
-// stock MC68000 held through ActiveCpu.
+// resolves through concrete helpers before coercion. The optional Gayle arm
+// is active only for A600 board configurations; the stock MC68000 is held
+// through ActiveCpu.
 impl AmigaDriver for AmigaEcs {
     fn agnus(&self) -> &Agnus {
         &self.agnus
@@ -2216,6 +2283,7 @@ impl AmigaDriver for AmigaEcs {
     fn dispatch_bus(&mut self, tx: &BusTransaction) -> BusResponse {
         self.dispatch_cia_a(tx)
             .or_else(|| self.dispatch_cia_b(tx))
+            .or_else(|| self.dispatch_gayle(tx))
             .or_else(|| self.dispatch_rtc(tx))
             .or_else(|| self.dispatch_autoconfig(tx))
             .or_else(|| self.dispatch_fast_ram(tx))
@@ -2234,6 +2302,135 @@ mod bus_plan_dispatch_tests {
 
     fn machine() -> AmigaEcs {
         AmigaEcs::new(vec![0; 512 * 1024])
+    }
+
+    fn a600() -> AmigaEcs {
+        AmigaEcs::with_a600_ram_config(vec![0; 512 * 1024], RamConfig::bare())
+    }
+
+    #[test]
+    fn only_explicit_a600_constructors_install_gayle() {
+        let a500_plus = machine();
+        let a600_pal = a600();
+        let a600_ntsc = AmigaEcs::with_a600_ram_config_ntsc(vec![0; 512 * 1024], RamConfig::bare());
+
+        assert!(a500_plus.gayle_diagnostic_snapshot().is_none());
+        assert!(a600_pal.gayle_diagnostic_snapshot().is_some());
+        assert_eq!(a600_pal.region(), AgnusRegion::Pal);
+        assert!(a600_ntsc.gayle_diagnostic_snapshot().is_some());
+        assert_eq!(a600_ntsc.region(), AgnusRegion::Ntsc);
+    }
+
+    #[test]
+    fn a600_gayle_bus_matches_the_a1200_dispatch_window() {
+        let mut a600 = a600();
+
+        let status = a600.dispatch_gayle(&BusTransaction {
+            addr: 0x00DA_001C,
+            is_read: true,
+            is_word: false,
+            data: 0,
+        });
+        assert!(matches!(status, Some(BusResponse::Byte(0x7F))));
+
+        let data = a600.dispatch_gayle(&BusTransaction {
+            addr: 0x00DA_0000,
+            is_read: true,
+            is_word: true,
+            data: 0,
+        });
+        assert!(matches!(data, Some(BusResponse::Word(0xFFFF))));
+
+        let card_status_write = a600.dispatch_gayle(&BusTransaction {
+            addr: 0x00DA_8000,
+            is_read: false,
+            is_word: false,
+            data: 0x00A5,
+        });
+        assert!(matches!(card_status_write, Some(BusResponse::WriteAck)));
+
+        let configuration_write = a600.dispatch_gayle(&BusTransaction {
+            addr: 0x00DA_B000,
+            is_read: false,
+            is_word: true,
+            data: 0x123F,
+        });
+        assert!(matches!(configuration_write, Some(BusResponse::WriteAck)));
+
+        let snapshot = a600
+            .gayle_diagnostic_snapshot()
+            .expect("the A600 constructor must install Gayle");
+        assert_eq!(snapshot.registers.card_status, 0xA5);
+        assert_eq!(snapshot.registers.configuration, 0x0F);
+
+        let upper_half_alias = a600.dispatch_gayle(&BusTransaction {
+            addr: 0x00DB_0000,
+            is_read: true,
+            is_word: false,
+            data: 0,
+        });
+        assert!(matches!(upper_half_alias, Some(BusResponse::Byte(0xFF))));
+
+        let outside_window = a600.dispatch_gayle(&BusTransaction {
+            addr: 0x00DC_0000,
+            is_read: true,
+            is_word: false,
+            data: 0,
+        });
+        assert!(outside_window.is_none());
+    }
+
+    #[test]
+    fn a500_plus_leaves_the_gayle_window_unclaimed() {
+        let mut a500_plus = machine();
+        let response = a500_plus.dispatch_gayle(&BusTransaction {
+            addr: 0x00DA_001C,
+            is_read: true,
+            is_word: false,
+            data: 0,
+        });
+
+        assert!(response.is_none());
+    }
+
+    #[test]
+    fn snapshot_restore_preserves_gayle_presence_and_register_state() {
+        let mut source = a600();
+        assert!(matches!(
+            source.dispatch_gayle(&BusTransaction {
+                addr: 0x00DA_8000,
+                is_read: false,
+                is_word: false,
+                data: 0x005A,
+            }),
+            Some(BusResponse::WriteAck)
+        ));
+        assert!(matches!(
+            source.dispatch_gayle(&BusTransaction {
+                addr: 0x00DA_B000,
+                is_read: false,
+                is_word: false,
+                data: 0x000B,
+            }),
+            Some(BusResponse::WriteAck)
+        ));
+
+        let snapshot = source.snapshot_state();
+        let mut restored = machine();
+        restored.restore_snapshot_state(snapshot);
+
+        let gayle = restored
+            .gayle_diagnostic_snapshot()
+            .expect("restoring an A600 snapshot must restore Gayle");
+        assert_eq!(gayle.registers.card_status, 0x5A);
+        assert_eq!(gayle.registers.configuration, 0x0B);
+
+        let a500_plus_snapshot = machine().snapshot_state();
+        restored.restore_snapshot_state(a500_plus_snapshot);
+        assert!(
+            restored.gayle_diagnostic_snapshot().is_none(),
+            "restoring an A500+ snapshot must remove Gayle"
+        );
     }
 
     #[test]
