@@ -2203,13 +2203,19 @@ impl AmigaDriver for AmigaA1200 {
     fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
+        let horizontal_blanking = denise::HorizontalBlanking::from_aga_registers(
+            self.agnus.bplcon0,
+            self.denise.ocs.bplcon3,
+            self.agnus.hbstrt(),
+            self.agnus.hbstop(),
+        );
         let line_ccks = self.agnus.current_line_ccks();
         let bitplane_dma_fetch =
             bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });
-        self.denise.tick(
+        self.denise.tick_with_output_signals(
             phase,
             bitplane_dma_fetch,
-            vertical_diw_active,
+            denise::DeniseOutputSignals::new(vertical_diw_active, horizontal_blanking),
             &mut self.agnus,
             &self.memory,
             line_ccks,
@@ -3114,6 +3120,39 @@ mod bus_plan_dispatch_tests {
         assert_eq!(
             amiga.denise.framebuffer()[y * FB_WIDTH as usize + x],
             0xFF00_00FF
+        );
+    }
+
+    #[test]
+    fn a1200_denise_tick_uses_lisa_fine_hblank_phase() {
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        amiga.agnus.vpos = 0x0032;
+        amiga.agnus.write_diwstop(0x64FF);
+        amiga.agnus.write_diwstrt(0x3200);
+        assert!(amiga.agnus.vertical_diw_active());
+
+        // Enable the enhanced comparator path, make the unblanked background
+        // green, and place HBSTOP at Lisa fine phase seven. The renderer's
+        // four-sample CCK grid pairs the eight Lisa phases, so the first
+        // output sample in phase one is blank and the second is visible.
+        amiga.agnus.bplcon0 = 0x0001; // ECSENA
+        amiga.denise.write_word(0x0106, 0x0001); // EXTBLKEN
+        amiga.denise.write_word(0x0180, 0x00F0);
+        amiga.agnus.write_hbstrt(0x0080);
+        amiga.agnus.write_hbstop(0x07A0);
+        amiga.agnus.hpos = 0x00A0;
+
+        <AmigaA1200 as AmigaDriver>::denise_tick(&mut amiga, 1, None);
+
+        let y = usize::from(0x0032u16 - 0x0019) * 2;
+        let x = usize::from(0x00A0u16 - 0x002C) * 4 + 2;
+        assert_eq!(
+            amiga.denise.framebuffer()[y * FB_WIDTH as usize + x],
+            0xFF00_0000,
+        );
+        assert_eq!(
+            amiga.denise.framebuffer()[y * FB_WIDTH as usize + x + 1],
+            0xFF00_FF00,
         );
     }
 }

@@ -131,8 +131,15 @@ booting a case. It must run the declared machine profile, wait in emulated
 fields, capture three adjacent settled fields, and confirm that a static case
 is stable.
 
-Assertions consume promoted semantic observations from registered independent
-references. A failure records the Emu198x frame, edge measurements, relevant
+Assertions consume semantic observations on which the registered UAE and
+Copperline implementation families agree. The current CCK-aligned gate checks
+the fixed-control, programmed-central, programmed-wrap, and programmed-equal
+cases on ECS and AGA, plus the ECS `BLANKEN`-clear case. `ECSENA`,
+`EXTBLKEN`, and AGA `BLANKEN` remain measurement-only disagreements. This
+consumer-side table does not modify the neutral corpus or turn either emulator
+family into hardware truth.
+
+A failure records the Emu198x frame, edge measurements, relevant
 custom-register writes, and comparison details below
 `target/accuracy/amiga-programmable-hblank/`. There is no golden-update mode.
 
@@ -141,6 +148,9 @@ placement requires a capture or trace grid capable of representing those
 positions; passing a coarser framebuffer comparison must not be described as
 proof of finer timing. The registered UAE host-HIRES captures exercise the
 three fine-position cases but cannot distinguish the final 35 ns phase bit.
+Emu198x represents paired Lisa fine phases in its four-sample-per-CCK renderer,
+but the current portable integration gate deliberately collapses horizontally
+duplicated pairs and does not claim fine-position conformance.
 
 ## Monitor-mode integration
 
@@ -155,9 +165,9 @@ itself certify their complete monitor geometry.
 
 ## Result interpretation
 
-A passing case establishes only that Emu198x matched the promoted observations
-for the declared corpus version, artifact, machine profile, firmware identity,
-capture grid, and field rule.
+A passing case establishes only that Emu198x matched the asserted cross-family
+consensus observations for the declared corpus version, artifact, machine
+profile, firmware identity, capture grid, and field rule.
 
 It does not establish general Amiga video accuracy, another chipset revision,
 another region, untested register-write timing, analogue output, or physical

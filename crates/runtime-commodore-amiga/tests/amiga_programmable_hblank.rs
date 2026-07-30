@@ -1,9 +1,10 @@
 //! Explicit consumer for the emulator-neutral programmable-HBLANK corpus.
 //!
-//! The corpus does not yet contain promoted expected observations. This gate
-//! therefore validates fixture identity, probe execution, settled-field
-//! stability, and measurement integrity without treating Emu198x output as a
-//! reference result.
+//! The neutral corpus deliberately contains no emulator-authored expectations.
+//! This consumer validates fixture identity, probe execution, settled-field
+//! stability, and measurement integrity, then asserts only the semantic
+//! CCK-aligned observations on which the registered UAE and Copperline
+//! implementation families agree. Disputed gates remain observations.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -293,8 +294,8 @@ struct CapturedField {
 }
 
 #[test]
-#[ignore = "explicit programmable-HBLANK corpus measurement gate"]
-fn programmable_hblank_corpus_boots_and_records_stable_cck_observations() {
+#[ignore = "explicit programmable-HBLANK corpus consensus and measurement gate"]
+fn programmable_hblank_corpus_matches_consensus_and_records_disagreements() {
     let dist = required_directory(DIST_ENV);
     let manifest = load_and_validate_suite(&dist);
 
@@ -340,7 +341,17 @@ fn programmable_hblank_corpus_boots_and_records_stable_cck_observations() {
                 &adf,
             );
             let mut captured = Vec::new();
-            let result = execute_case(&mut session, case, &mut captured);
+            let expected = consensus_expected_runs(&case.id, profile.id);
+            let result = execute_case(&mut session, case, &mut captured).and_then(|observation| {
+                if let Some(expected) = expected.as_ref()
+                    && observation.as_slice() != expected.as_slice()
+                {
+                    return Err(format!(
+                        "measured black runs {observation:?}; registered cross-family consensus is {expected:?}"
+                    ));
+                }
+                Ok(observation)
+            });
             let observation = match result {
                 Ok(observation) => observation,
                 Err(error) => {
@@ -354,7 +365,12 @@ fn programmable_hblank_corpus_boots_and_records_stable_cck_observations() {
                 }
             };
             println!(
-                "HBLANK unresolved observation: case={} profile={} frame_sha256={} black_runs={:?} coordinate=lores-samples origin_hpos={:#x} samples_per_cck={}",
+                "HBLANK {} observation: case={} profile={} frame_sha256={} black_runs={:?} coordinate=lores-samples origin_hpos={:#x} samples_per_cck={}",
+                if expected.is_some() {
+                    "cross-family-consensus"
+                } else {
+                    "unresolved"
+                },
                 case.id,
                 profile.id,
                 captured
@@ -367,6 +383,36 @@ fn programmable_hblank_corpus_boots_and_records_stable_cck_observations() {
                 OUTPUT_PIXELS_PER_CCK / PIXEL_DUPLICATION as u32,
             );
         }
+    }
+}
+
+fn consensus_expected_runs(case_id: &str, profile_id: &str) -> Option<Vec<BlackRun>> {
+    let sample = |hpos| {
+        ((hpos - PAL_VIEWPORT_H_START_CCK) * (OUTPUT_PIXELS_PER_CCK / PIXEL_DUPLICATION as u32))
+            as usize
+    };
+    match case_id {
+        "fixed-control" | "programmed-equal" => Some(Vec::new()),
+        "programmed-central" => Some(vec![BlackRun {
+            start: sample(0x80),
+            end_exclusive: sample(0xA0),
+        }]),
+        "programmed-wrap" => Some(vec![
+            BlackRun {
+                start: 0,
+                end_exclusive: sample(0x40),
+            },
+            BlackRun {
+                start: sample(0xD0),
+                end_exclusive: DISPLAY_WIDTH as usize / PIXEL_DUPLICATION,
+            },
+        ]),
+        // Both registered families suppress the programmed interval on ECS
+        // when BLANKEN is clear. Their AGA interpretations disagree.
+        "blanken-path" if profile_id == "a500-plus-ecs-pal" => Some(Vec::new()),
+        // ECSENA, EXTBLKEN, and AGA BLANKEN remain software-family
+        // disagreements and therefore measurement-only cases.
+        _ => None,
     }
 }
 

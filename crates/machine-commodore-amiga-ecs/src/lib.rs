@@ -2009,13 +2009,20 @@ impl AmigaDriver for AmigaEcs {
     fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
+        let horizontal_blanking = denise::HorizontalBlanking::from_ecs_registers(
+            self.agnus.bplcon0,
+            self.denise.ocs.bplcon3,
+            self.agnus.beamcon0(),
+            self.agnus.hbstrt(),
+            self.agnus.hbstop(),
+        );
         let line_ccks = self.agnus.current_line_ccks();
         let bitplane_dma_fetch =
             bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });
-        self.denise.tick(
+        self.denise.tick_with_output_signals(
             phase,
             bitplane_dma_fetch,
-            vertical_diw_active,
+            denise::DeniseOutputSignals::new(vertical_diw_active, horizontal_blanking),
             &mut self.agnus,
             &self.memory,
             line_ccks,

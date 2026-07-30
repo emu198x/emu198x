@@ -36,6 +36,139 @@ pub struct BitplaneDmaFetch {
     pub width_words: u8,
 }
 
+/// External horizontal-blank interval on the board framebuffer's four-sample
+/// per-CCK output grid.
+///
+/// The machine layer combines registers owned by Agnus/Alice and Denise/Lisa
+/// into this signal. The renderer consumes only the resulting interval, so it
+/// does not need chipset-specific register ownership or gate policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HorizontalBlanking {
+    start_sample: u16,
+    stop_sample: u16,
+}
+
+impl HorizontalBlanking {
+    const OUTPUT_SAMPLES_PER_CCK: u16 = 4;
+    const OUTPUT_SAMPLE_MODULUS: u16 = 256 * Self::OUTPUT_SAMPLES_PER_CCK;
+    const BPLCON0_ECSENA: u16 = 0x0001;
+    const BPLCON3_EXTBLKEN: u16 = 0x0001;
+    const BEAMCON0_BLANKEN: u16 = 0x0008;
+
+    /// Disable external programmable horizontal blanking.
+    #[must_use]
+    pub const fn disabled() -> Self {
+        Self {
+            start_sample: 0,
+            stop_sample: 0,
+        }
+    }
+
+    /// Build the ECS external-blank signal from the registers split across
+    /// Agnus and Super Denise.
+    ///
+    /// This gate policy follows the registered current UAE-family path:
+    /// `ECSENA`, `EXTBLKEN`, and `BLANKEN` must all be set. The independent
+    /// reference corpus still treats the disputed `ECSENA` and `EXTBLKEN`
+    /// gate cases as unresolved.
+    #[must_use]
+    pub const fn from_ecs_registers(
+        bplcon0: u16,
+        bplcon3: u16,
+        beamcon0: u16,
+        hbstrt: u16,
+        hbstop: u16,
+    ) -> Self {
+        let enabled = bplcon0 & Self::BPLCON0_ECSENA != 0
+            && bplcon3 & Self::BPLCON3_EXTBLKEN != 0
+            && beamcon0 & Self::BEAMCON0_BLANKEN != 0;
+        if enabled {
+            Self::from_coarse_words(hbstrt, hbstop)
+        } else {
+            Self::disabled()
+        }
+    }
+
+    /// Build the AGA external-blank signal from Alice and Lisa registers.
+    ///
+    /// The registered UAE-family Lisa path requires `ECSENA` and `EXTBLKEN`
+    /// but does not use `BLANKEN` as a comparator gate. Its three fine bits
+    /// are paired onto this renderer's four output samples per CCK.
+    #[must_use]
+    pub const fn from_aga_registers(bplcon0: u16, bplcon3: u16, hbstrt: u16, hbstop: u16) -> Self {
+        let enabled = bplcon0 & Self::BPLCON0_ECSENA != 0 && bplcon3 & Self::BPLCON3_EXTBLKEN != 0;
+        if enabled {
+            Self::from_fine_words(hbstrt, hbstop)
+        } else {
+            Self::disabled()
+        }
+    }
+
+    const fn from_coarse_words(hbstrt: u16, hbstop: u16) -> Self {
+        Self {
+            start_sample: (hbstrt & 0x00FF) * Self::OUTPUT_SAMPLES_PER_CCK,
+            stop_sample: (hbstop & 0x00FF) * Self::OUTPUT_SAMPLES_PER_CCK,
+        }
+    }
+
+    const fn from_fine_words(hbstrt: u16, hbstop: u16) -> Self {
+        Self {
+            start_sample: Self::fine_word_to_output_sample(hbstrt),
+            stop_sample: Self::fine_word_to_output_sample(hbstop),
+        }
+    }
+
+    const fn fine_word_to_output_sample(word: u16) -> u16 {
+        let coarse = word & 0x00FF;
+        let fine = (word >> 8) & 0x0007;
+        coarse * Self::OUTPUT_SAMPLES_PER_CCK + fine / 2
+    }
+
+    fn contains_output_sample(self, hpos: u16, phase: u8, subpixel: u8) -> bool {
+        debug_assert!(phase < 2);
+        debug_assert!(subpixel < 2);
+        if self.start_sample == self.stop_sample {
+            return false;
+        }
+
+        let sample = ((hpos & 0x00FF) * Self::OUTPUT_SAMPLES_PER_CCK
+            + u16::from(phase) * 2
+            + u16::from(subpixel))
+            % Self::OUTPUT_SAMPLE_MODULUS;
+        if self.start_sample < self.stop_sample {
+            (self.start_sample..self.stop_sample).contains(&sample)
+        } else {
+            sample >= self.start_sample || sample < self.stop_sample
+        }
+    }
+}
+
+/// Display signals composed by the concrete machine around the shared Denise
+/// renderer for one output tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeniseOutputSignals {
+    vertical_diw_active: bool,
+    horizontal_blanking: HorizontalBlanking,
+}
+
+impl DeniseOutputSignals {
+    /// Compose enhanced display signals at the machine boundary.
+    #[must_use]
+    pub const fn new(vertical_diw_active: bool, horizontal_blanking: HorizontalBlanking) -> Self {
+        Self {
+            vertical_diw_active,
+            horizontal_blanking,
+        }
+    }
+
+    /// Compose the OCS-compatible output path with no programmable horizontal
+    /// blanking.
+    #[must_use]
+    pub const fn unblanked(vertical_diw_active: bool) -> Self {
+        Self::new(vertical_diw_active, HorizontalBlanking::disabled())
+    }
+}
+
 /// Display context retained while the horizontal counter has wrapped but
 /// Denise is still completing the preceding raster row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -218,6 +351,35 @@ impl<C: DeniseChip> Denise<C> {
         memory: &Memory,
         line_ccks: u16,
     ) {
+        self.tick_with_output_signals(
+            phase,
+            bitplane_dma_fetch,
+            DeniseOutputSignals::unblanked(vertical_diw_active),
+            agnus,
+            memory,
+            line_ccks,
+        );
+    }
+
+    /// Tick one master/4 period while applying a machine-composed external
+    /// programmable-horizontal-blank signal to final video output.
+    ///
+    /// Pixel, HAM, sprite, and collision state still advances while blanking
+    /// is active. Blanking replaces only the final external sample with
+    /// opaque black.
+    pub fn tick_with_output_signals(
+        &mut self,
+        phase: u8,
+        bitplane_dma_fetch: Option<BitplaneDmaFetch>,
+        output_signals: DeniseOutputSignals,
+        agnus: &mut commodore_agnus_ocs::Agnus,
+        memory: &Memory,
+        line_ccks: u16,
+    ) {
+        let DeniseOutputSignals {
+            vertical_diw_active,
+            horizontal_blanking,
+        } = output_signals;
         let vpos = agnus.vpos;
         let hpos = agnus.hpos;
         let dmacon = agnus.dmacon;
@@ -414,7 +576,13 @@ impl<C: DeniseChip> Denise<C> {
                     for (dx, color_idx) in cols.iter().enumerate() {
                         // Resolve through the chip's colour path — 24-bit
                         // palette on AGA, 12-bit upscaled on OCS/ECS (#93).
-                        let pixel = self.ocs.resolve_color_argb(*color_idx);
+                        let composed_pixel = self.ocs.resolve_color_argb(*color_idx);
+                        let pixel =
+                            if horizontal_blanking.contains_output_sample(hpos, phase, dx as u8) {
+                                0xFF00_0000
+                            } else {
+                                composed_pixel
+                            };
                         let x = local_x * 2 + dx as u32;
                         let idx = (dy * FB_WIDTH + x) as usize;
                         if idx < self.framebuffer.len() {
@@ -548,6 +716,148 @@ mod tests {
         assert_eq!(ddf_window(0x0038, 0x00D0), (0x38, 0xD0));
         assert_eq!(ddf_window(0x003B, 0x00D2), (0x38, 0xD0));
         assert_eq!(ddf_window(0x003C, 0x00D3), (0x3C, 0xD0));
+    }
+
+    #[test]
+    fn ecs_external_hblank_applies_gates_and_coarse_comparator_boundaries() {
+        let enabled =
+            HorizontalBlanking::from_ecs_registers(0x0001, 0x0001, 0x0008, 0x0080, 0x00A0);
+        assert!(!enabled.contains_output_sample(0x007F, 1, 1));
+        assert!(enabled.contains_output_sample(0x0080, 0, 0));
+        assert!(enabled.contains_output_sample(0x009F, 1, 1));
+        assert!(!enabled.contains_output_sample(0x00A0, 0, 0));
+
+        for disabled in [
+            HorizontalBlanking::from_ecs_registers(0x0000, 0x0001, 0x0008, 0x0080, 0x00A0),
+            HorizontalBlanking::from_ecs_registers(0x0001, 0x0000, 0x0008, 0x0080, 0x00A0),
+            HorizontalBlanking::from_ecs_registers(0x0001, 0x0001, 0x0000, 0x0080, 0x00A0),
+        ] {
+            assert!(!disabled.contains_output_sample(0x0090, 0, 0));
+        }
+    }
+
+    #[test]
+    fn horizontal_blank_comparator_wraps_and_treats_equal_edges_as_empty() {
+        let wrapped =
+            HorizontalBlanking::from_ecs_registers(0x0001, 0x0001, 0x0008, 0x00D0, 0x0040);
+        assert!(!wrapped.contains_output_sample(0x00CF, 1, 1));
+        assert!(wrapped.contains_output_sample(0x00D0, 0, 0));
+        assert!(wrapped.contains_output_sample(0x00FF, 1, 1));
+        assert!(wrapped.contains_output_sample(0x0000, 0, 0));
+        assert!(wrapped.contains_output_sample(0x003F, 1, 1));
+        assert!(!wrapped.contains_output_sample(0x0040, 0, 0));
+
+        let equal = HorizontalBlanking::from_ecs_registers(0x0001, 0x0001, 0x0008, 0x0080, 0x0080);
+        for hpos in [0x0000, 0x007F, 0x0080, 0x00FF, 0x01FF] {
+            assert!(!equal.contains_output_sample(hpos, 0, 0));
+        }
+    }
+
+    #[test]
+    fn aga_external_hblank_pairs_fine_phases_onto_output_samples() {
+        let blanking = HorizontalBlanking::from_aga_registers(0x0001, 0x0001, 0x0080, 0x07A0);
+        assert!(!blanking.contains_output_sample(0x007F, 1, 1));
+        assert!(blanking.contains_output_sample(0x0080, 0, 0));
+        assert!(blanking.contains_output_sample(0x00A0, 0, 0));
+        assert!(blanking.contains_output_sample(0x00A0, 0, 1));
+        assert!(blanking.contains_output_sample(0x00A0, 1, 0));
+        assert!(!blanking.contains_output_sample(0x00A0, 1, 1));
+        assert!(!blanking.contains_output_sample(0x00A1, 0, 0));
+
+        for disabled in [
+            HorizontalBlanking::from_aga_registers(0x0000, 0x0001, 0x0080, 0x07A0),
+            HorizontalBlanking::from_aga_registers(0x0001, 0x0000, 0x0080, 0x07A0),
+        ] {
+            assert!(!disabled.contains_output_sample(0x0090, 0, 0));
+        }
+    }
+
+    #[test]
+    fn aga_fine_hblank_can_split_one_output_pair() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let memory = Memory::new(vec![0; 2]);
+        let mut agnus = Agnus::new();
+        agnus.vpos = 50;
+        agnus.hpos = 0x00A0;
+        agnus.diwstrt = 0x0000;
+        agnus.diwstop = 0x00FF;
+
+        let mut denise = Denise::<DeniseOcs>::new();
+        denise.ocs.set_palette(0, 0x0F0);
+        let line_ccks = agnus.current_line_ccks();
+        denise.tick_with_output_signals(
+            1,
+            None,
+            DeniseOutputSignals::new(
+                true,
+                HorizontalBlanking::from_aga_registers(0x0001, 0x0001, 0x0080, 0x07A0),
+            ),
+            &mut agnus,
+            &memory,
+            line_ccks,
+        );
+
+        let y = u32::from(agnus.vpos - 0x19) * 2;
+        let x = u32::from(agnus.hpos - 0x2C) * 4 + 2;
+        assert_eq!(denise.framebuffer[(y * FB_WIDTH + x) as usize], 0xFF00_0000);
+        assert_eq!(
+            denise.framebuffer[(y * FB_WIDTH + x + 1) as usize],
+            0xFF00_FF00,
+        );
+    }
+
+    #[test]
+    fn external_hblank_masks_output_without_stalling_the_pixel_pipeline() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let memory = Memory::new(vec![0; 2]);
+        let mut reference_agnus = Agnus::new();
+        reference_agnus.vpos = 50;
+        reference_agnus.hpos = 0x0080;
+        reference_agnus.diwstrt = 0x0000;
+        reference_agnus.diwstop = 0x00FF;
+        reference_agnus.bplcon0 = 0x1000;
+
+        let mut blanked_agnus = reference_agnus.clone();
+        let mut reference = Denise::<DeniseOcs>::new();
+        reference.ocs.set_palette(0, 0x0F0);
+        reference.ocs.set_palette(1, 0xFFF);
+        reference.ocs.bpl_shift[0] = 0xFFFF;
+        reference.ocs.shift_count = 16;
+        let mut blanked = reference.clone();
+
+        let line_ccks = reference_agnus.current_line_ccks();
+        reference.tick(0, None, true, &mut reference_agnus, &memory, line_ccks);
+        blanked.tick_with_output_signals(
+            0,
+            None,
+            DeniseOutputSignals::new(
+                true,
+                HorizontalBlanking::from_ecs_registers(0x0001, 0x0001, 0x0008, 0x0080, 0x00A0),
+            ),
+            &mut blanked_agnus,
+            &memory,
+            line_ccks,
+        );
+
+        assert_eq!(blanked.ocs.bpl_shift, reference.ocs.bpl_shift);
+        assert_eq!(blanked.ocs.shift_count, reference.ocs.shift_count);
+        let y = u32::from(reference_agnus.vpos - 0x19) * 2;
+        let x = u32::from(reference_agnus.hpos - 0x2C) * 4;
+        assert_ne!(
+            reference.framebuffer[(y * FB_WIDTH + x) as usize],
+            0xFF00_0000,
+            "the unblanked fixture must compose a visible pixel",
+        );
+        for dx in 0..2 {
+            assert_eq!(
+                blanked.framebuffer[(y * FB_WIDTH + x + dx) as usize],
+                0xFF00_0000,
+            );
+        }
     }
 
     #[test]

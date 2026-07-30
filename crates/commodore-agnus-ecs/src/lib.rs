@@ -770,15 +770,16 @@ impl AgnusEcs {
         }
     }
 
-    /// Coarse ECS horizontal blanking window check used by `machine-amiga`
-    /// display output gating while fuller sync/blank generator behavior is
-    /// pending.
+    /// Coarse ECS internal horizontal-blank window used by the provisional
+    /// sync-pin model.
     ///
     /// HRM exposes `HBSTRT/HBSTOP` without a dedicated "VARHBEN" bit; this
     /// helper uses `BEAMCON0.HARDDIS` as the coarse gate for programmable
-    /// blank-window behavior in the current emulator beam model.
+    /// blank-window behavior in that model. Enhanced external display
+    /// blanking is composed separately from `ECSENA`, `EXTBLKEN`, `BLANKEN`,
+    /// and these comparator words at the board rendering boundary.
     #[must_use]
-    pub fn hblank_window_active(&self, hpos: u16) -> bool {
+    pub fn harddis_hblank_window_active(&self, hpos: u16) -> bool {
         if !self.harddis_enabled() {
             return false;
         }
@@ -793,6 +794,15 @@ impl AgnusEcs {
         } else {
             hpos >= start || hpos < stop
         }
+    }
+
+    /// Compatibility alias for the provisional `HARDDIS`-gated sync model.
+    ///
+    /// This is not the enhanced external display-blanking selector.
+    #[deprecated(note = "use harddis_hblank_window_active for the provisional sync-pin model")]
+    #[must_use]
+    pub fn hblank_window_active(&self, hpos: u16) -> bool {
+        self.harddis_hblank_window_active(hpos)
     }
 
     /// Coarse ECS horizontal sync window check used by `machine-amiga`
@@ -846,7 +856,7 @@ impl AgnusEcs {
         // Raw window-active states (active = true).
         let hsync_raw = self.hsync_window_active(hpos);
         let vsync_raw = self.vsync_window_active(vpos);
-        let hblank_raw = self.hblank_window_active(hpos);
+        let hblank_raw = self.harddis_hblank_window_active(hpos);
         let vblank_raw = self.vblank_window_active(vpos);
 
         // Apply polarity: "TRUE" polarity means active-high output.
@@ -2414,10 +2424,10 @@ mod tests {
         agnus.write_hbstrt(10);
         agnus.write_hbstop(20);
         agnus.write_beamcon0(BEAMCON0_HARDDIS);
-        assert!(!agnus.hblank_window_active(9));
-        assert!(agnus.hblank_window_active(10));
-        assert!(agnus.hblank_window_active(19));
-        assert!(!agnus.hblank_window_active(20));
+        assert!(!agnus.harddis_hblank_window_active(9));
+        assert!(agnus.harddis_hblank_window_active(10));
+        assert!(agnus.harddis_hblank_window_active(19));
+        assert!(!agnus.harddis_hblank_window_active(20));
     }
 
     #[test]
@@ -2426,9 +2436,9 @@ mod tests {
         agnus.write_hbstrt(220);
         agnus.write_hbstop(10);
         agnus.write_beamcon0(BEAMCON0_HARDDIS);
-        assert!(agnus.hblank_window_active(221));
-        assert!(agnus.hblank_window_active(5));
-        assert!(!agnus.hblank_window_active(100));
+        assert!(agnus.harddis_hblank_window_active(221));
+        assert!(agnus.harddis_hblank_window_active(5));
+        assert!(!agnus.harddis_hblank_window_active(100));
     }
 
     #[test]

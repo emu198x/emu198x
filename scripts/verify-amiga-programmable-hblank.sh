@@ -10,7 +10,7 @@ usage() {
 Usage: scripts/verify-amiga-programmable-hblank.sh
 
 Builds the emulator-neutral programmable-HBLANK corpus and runs its explicit
-full-ECS and A1200 measurement gate.
+full-ECS and A1200 cross-family-consensus and disagreement-measurement gate.
 
 Environment:
     EMU198X_AMIGA_KICKSTART_204_ROM       Kickstart 2.04 r37.175 ROM
