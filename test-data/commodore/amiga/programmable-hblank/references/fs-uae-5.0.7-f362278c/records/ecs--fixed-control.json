@@ -1,0 +1,121 @@
+{
+  "artifact": {
+    "adf_file": "fixed-control.adf",
+    "adf_sha256": "fcaffa26d67316904ea9765266f158549c2a7175b1c48ae062210be451bb4e81",
+    "payload_file": "fixed-control.bin",
+    "payload_sha256": "25436b1244bf636a5d6f96443e36eef008796afb7c8778fef1bf7b864444df67"
+  },
+  "case_id": "fixed-control",
+  "execution": {
+    "adjacent_field_stability": "confirmed",
+    "captured_fields": [
+      193,
+      194,
+      195
+    ],
+    "cold_boot": true,
+    "command_or_procedure": "tools/fs-uae-hblank-capture/capture.sh ecs fixed-control <FS-UAE-5.0.7-f362278ccd4c60991caac3b4d240d4a3f751bea2> <suite-1.0.1-directory> <firmware-matching-recorded-sha256> <fresh-output-directory> <operator>",
+    "configuration_sha256": "9638a8e11915f8990dfb8fe224c5254f4b5f72a3be10e5578c5c89e981bfd90a",
+    "ready_observed_field": 185,
+    "ready_rule": {
+      "byte_order": "big-endian",
+      "case_number": 1,
+      "field_counter_minimum": 8,
+      "magic": "HBLK",
+      "record_address": "0x0002ff00"
+    },
+    "settle_fields": 8
+  },
+  "machine": {
+    "agnus": "8375 ECS Agnus",
+    "chipset": "ECS",
+    "cpu": "Motorola 68000",
+    "denise_or_lisa": "8373 ECS Denise",
+    "firmware": {
+      "revision": "Kickstart 2.04 revision 37.175",
+      "sha256": "d0b70e8a1772614b897f92c33cb299bed3fc8e3de488fc12f67f97fc2486eb79"
+    },
+    "model": "A500 Plus",
+    "ram_bytes": 1048576,
+    "region": "PAL"
+  },
+  "normalization": {
+    "alignment_search": false,
+    "beam_coordinate": {
+      "horizontal_origin_sample": -184,
+      "horizontal_samples_per_register_increment_denominator": 1,
+      "horizontal_samples_per_register_increment_numerator": 4,
+      "phase_denominator": 1,
+      "phase_numerator": 0,
+      "sample_beam_line": 128,
+      "sample_row": 202
+    },
+    "color_conversion": "lossless BGRA-to-RGBA channel reorder; PNG RGBA8 decoded without colour management",
+    "crop": {
+      "height": 576,
+      "width": 756,
+      "x": 0,
+      "y": 0
+    },
+    "field_handling": "bob"
+  },
+  "observations": {
+    "blank_start_samples": [
+      null,
+      null,
+      null
+    ],
+    "blank_stop_samples": [
+      null,
+      null,
+      null
+    ],
+    "equal_outcome": "not-applicable",
+    "guard_color_word": "0x0f0",
+    "interval_convention": "not-applicable",
+    "notes": [
+      "Raw sample row 202 contained black runs [0, 2) in all three byte-identical adjacent fields.",
+      "The raw x=[0, 2) transparent-black producer boundary is retained in the APNG and the black-run audit, but is not interpreted as a programmable-HBLANK edge.",
+      "Ready was observed at core field 185 with guest field 1; after 8 fields, core fields [193, 194, 195] and guest counters [9, 10, 11] were captured.",
+      "The source-derived raw mapping is x=4*(register&0xff)+floor(((register>>8)&7)/2)-184. It came from the producer source path; no image-alignment search was performed.",
+      "The 756 by 576 UAE core framebuffer was preserved in full. The recorded 752 by 572 FS-UAE frontend compatibility view was not applied.",
+      "Captured configuration ../configs/ecs--fixed-control.uae has SHA-256 9638a8e11915f8990dfb8fe224c5254f4b5f72a3be10e5578c5c89e981bfd90a.",
+      "Raw run log ../logs/ecs--fixed-control.log has SHA-256 021b9b15ba79032d9af3443d6f7e50c639fded56fd83ff58df93eee068080a6b.",
+      "Capture-time manifest ../manifests/ecs--fixed-control.json has SHA-256 0b5a0912d1b1255811b41d29a3962322321d6f13e09035e8e82012b70dcc68dc."
+    ],
+    "uncertainty_samples": 0,
+    "wrap_outcome": "not-applicable"
+  },
+  "producer": {
+    "implementation_family": "UAE",
+    "kind": "software-emulator",
+    "product": "FS-UAE",
+    "revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+    "source_url": "https://github.com/FrodeSolheim/fs-uae",
+    "version": "5.0.7"
+  },
+  "provenance": {
+    "capture_date": "2026-07-29",
+    "classification": "software-derived",
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "operator": "Codex (OpenAI), supervised by Steve Hill"
+  },
+  "schema_version": "1.0.0",
+  "source_capture": {
+    "blanking_retained": true,
+    "decoded_pixel_sha256": "ccbe1f80f3b9f5621e6593e5c5f71ee3ff3ac561461703feb88d7d5566bbaac2",
+    "file_name": "../captures/ecs--fixed-control.apng",
+    "file_sha256": "94cc3f5c6174a6823b4fe9e872fd550bb37c3fef55d98b9e13b0e82c4a870ebd",
+    "filter": "none",
+    "height": 576,
+    "method": "FS-UAE raw UAE-core framebuffer hook, losslessly reordered from BGRA and packaged as APNG",
+    "overscan_retained": true,
+    "pixel_format": "RGBA8888, tightly packed, row-major; alpha retained from source BGRA8888",
+    "scaling": "none",
+    "shader": "none",
+    "stride_bytes": 3024,
+    "width": 756
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank",
+  "suite_version": "1.0.1"
+}

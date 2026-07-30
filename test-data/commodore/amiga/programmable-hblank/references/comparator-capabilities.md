@@ -14,12 +14,14 @@ also excluded.
 | --- | --- | --- | --- |
 | Copperline 0.13.0 | `eec5806778dab8b60f3b05fa7ab2428e4e18b073` | ECS and AGA, CCK-aligned cases | Registered software-derived capture |
 | FS-UAE 3.2.35 | `4ae7ddaec50b567ed80d71ffbff067cb58e945a3` | UAE core derived from WinUAE 3300b2 | Unsupported feature; excluded |
-| FS-UAE 5.0.7 development source | `f362278ccd4c60991caac3b4d240d4a3f751bea2` | UAE core derived from WinUAE 6.0.1 | Raw capture unavailable; excluded |
-| WinUAE development source | `c32694e338fa5f34977f522eb4898adb069d2e73` | ECS and AGA source paths | Source-audited candidate; no capture registered |
+| FS-UAE 5.0.7 | `f362278ccd4c60991caac3b4d240d4a3f751bea2` | UAE core derived from WinUAE 6.0.1; ECS and AGA full suite at host HIRES | Registered software-derived capture |
+| WinUAE development source | `c32694e338fa5f34977f522eb4898adb069d2e73` | ECS and AGA source paths | Source-audited member of the captured UAE family |
 | vAmiga 4.4b12 | `60fd1e6b69dcd77c9f44d1291bd37ec715362ab0` | OCS and partial ECS | Unsupported feature; excluded |
 
-The UAE entries belong to one implementation family. A future FS-UAE and
-WinUAE capture agreement would not count as two independent observations.
+The UAE entries belong to one implementation family. FS-UAE supplies the
+executable capture route to the audited current-generation UAE path. A
+separate WinUAE capture would remain useful for adapter verification but would
+not count as an independent observation.
 
 ## Copperline
 
@@ -56,35 +58,57 @@ The A1200 configuration had SHA-256
 `c22047afb24966014b47b47e7eb536610838d0dd7b692af4b209c399f95dee4c`.
 The probe ADFs and firmware matched the suite 1.0.1 records.
 
-## Current FS-UAE source
+## FS-UAE 5.0.7
 
-The current source built without changes and identified itself as FS-UAE
-5.0.7 with a core derived from WinUAE 6.0.1. The resulting binary had SHA-256
-`75bda31519a91242dc3fcae4a1b7e14d8e53b1bdff589f1ae852b97ec27e4d2b`.
+The current source identifies itself as FS-UAE 5.0.7 with a core derived from
+WinUAE 6.0.1. A capture-only patch copies the complete UAE chipset
+`video_memory` buffer before FS-UAE's compatibility crop and frontend
+processing. The exact patched macOS arm64 binary has SHA-256
+`81fdcc09bf36b6a275a9d39b27407e3484815b5713b411e16dbfe6024cf2899b`.
 
-An A500 Plus control run reached the required 68000 cycle-exact, Kickstart
-2.04, and suite 1.0.1 ADF configuration. Its native buffer settled at 756 by
-576 pixels and 49.920410 Hz. The development frontend did not emit a requested
-raw screenshot in two bounded attempts. No pixel observation from this
-revision is registered.
+Seventeen cold-boot runs cover the seven CCK-aligned cases on A500 Plus ECS
+and A1200 AGA profiles, plus all three AGA fine-position cases. Each run first
+observed the ready record at guest field counter 1, waited eight further
+fields, and captured counters 9, 10, and 11. Every three-field set is
+byte-identical.
 
-A later temporary frontend hook reached a complete 752 by 572 emulator buffer
-at frontend frame 400, then faulted before writing a file because the
-screenshot subsystem had not been initialised. That run also reported no disk
-in drive zero, independently invalidating it as a corpus control. The modified
-binary produced no evidence and is excluded.
+The source-derived raw geometry is 756 by 576 BGRA8888 at host HIRES. Rows 202
+and 203 represent doubled beam line 128. In the main capture interval, an HB
+word `r` maps to raw sample
+`4 * (r & 0xff) + floor(((r >> 8) & 7) / 2) - 184`. The package retains the
+raw two-sample left storage pad and four bottom storage rows but excludes them
+from semantic blank classification.
+
+The current UAE observations are:
+
+- clearing `ECSENA` or `EXTBLKEN` prevents the enhanced path on both profiles;
+- the ECS profile produces no programmed interval when `BLANKEN` is clear;
+- the AGA profile still produces the programmed interval when `BLANKEN` is
+  clear;
+- central, wrapped, and equal comparator cases produce the same semantic
+  outcomes as Copperline after each producer's declared coordinate mapping;
+- the AGA fine stop value produces raw sample 459 in lores, hires, and
+  superhires guest modes on the host-HIRES grid.
+
+The host-HIRES grid combines adjacent Lisa superhires phases. The fine
+captures verify the producer path but do not distinguish fine phases 6 and 7.
+
+The exact patch, runner, configurations, firmware hashes, complete logs, run
+manifests, APNGs, records, raw frame hashes, and interpretation limits are in
+the [FS-UAE capture package](fs-uae-5.0.7-f362278c/README.md) and
+[capture adapter](../../../../../tools/fs-uae-hblank-capture/README.md).
 
 ## WinUAE source
 
 The audited development revision contains separate ECS and AGA external
-blanking paths in `drawing.cpp`. Both test `BPLCON0.ECSENA` and
+blanking paths in `drawing.cpp`. Both require `BPLCON0.ECSENA` and
 `BPLCON3.EXTBLKEN`. The AGA path derives its programmable edges from HBSTRT and
 HBSTOP, including the fine position bits. The ECS path selects fixed Denise
-and CSYNC-derived blanking; it does not use the AGA programmable comparator.
+and CSYNC-derived blanking rather than the AGA programmable comparator.
 
-This source behaviour identifies a likely disagreement with Copperline,
-especially for ECS. It is not a captured observation and does not resolve a
-case. A registered capture from this UAE generation remains required.
+This source audit supplies the coordinate and feature interpretation for the
+registered FS-UAE route. It does not turn FS-UAE and WinUAE into independent
+evidence families.
 
 ## vAmiga
 
@@ -102,14 +126,16 @@ would measure its fixed fallback, not the programmable path.
 
 ## Next admissible comparison
 
-The next useful result is a raw current-generation UAE-family capture with
-auditable geometry. A software capture from another independent family or a
-registered physical-hardware capture would provide stronger evidence. Until
-then, no case with a producer disagreement should be promoted.
+The next evidence-bearing result must come from another independent
+implementation family or registered physical hardware. A host-superhires UAE
+capture would improve fine-phase resolution but would remain within the UAE
+family. Until independent evidence resolves the gate disagreements, those
+cases must not be promoted.
 
 ## Related files
 
 - [Capture evidence boundary](README.md)
 - [Copperline capture package](copperline-0.13.0-eec5806/README.md)
+- [FS-UAE capture package](fs-uae-5.0.7-f362278c/README.md)
 - [Capture schema](../schema/capture-v1.schema.json)
 - [Conformance process](../../../../../knowledge/processes/amiga-programmable-hblank-conformance.md)

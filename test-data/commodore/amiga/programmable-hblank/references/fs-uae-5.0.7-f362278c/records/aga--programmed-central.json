@@ -1,0 +1,121 @@
+{
+  "artifact": {
+    "adf_file": "programmed-central.adf",
+    "adf_sha256": "dbce868b3ac2c932883c70b820cb1b3e0773ffc4f46f7ca21242ab362357976a",
+    "payload_file": "programmed-central.bin",
+    "payload_sha256": "a2bb0828666d39f2034e86fc81aa552b76aca3f0e1e26df987999f20a3b2ab33"
+  },
+  "case_id": "programmed-central",
+  "execution": {
+    "adjacent_field_stability": "confirmed",
+    "captured_fields": [
+      89,
+      90,
+      91
+    ],
+    "cold_boot": true,
+    "command_or_procedure": "tools/fs-uae-hblank-capture/capture.sh aga programmed-central <FS-UAE-5.0.7-f362278ccd4c60991caac3b4d240d4a3f751bea2> <suite-1.0.1-directory> <firmware-matching-recorded-sha256> <fresh-output-directory> <operator>",
+    "configuration_sha256": "2afa348c45d38d30628d09e6a4c9613381af2f115ea3edda095fc9732e746016",
+    "ready_observed_field": 81,
+    "ready_rule": {
+      "byte_order": "big-endian",
+      "case_number": 5,
+      "field_counter_minimum": 8,
+      "magic": "HBLK",
+      "record_address": "0x0002ff00"
+    },
+    "settle_fields": 8
+  },
+  "machine": {
+    "agnus": "AGA Alice",
+    "chipset": "AGA",
+    "cpu": "Motorola 68EC020",
+    "denise_or_lisa": "AGA Lisa",
+    "firmware": {
+      "revision": "Kickstart 3.1 revision 40.068",
+      "sha256": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707"
+    },
+    "model": "A1200",
+    "ram_bytes": 2097152,
+    "region": "PAL"
+  },
+  "normalization": {
+    "alignment_search": false,
+    "beam_coordinate": {
+      "horizontal_origin_sample": -184,
+      "horizontal_samples_per_register_increment_denominator": 1,
+      "horizontal_samples_per_register_increment_numerator": 4,
+      "phase_denominator": 1,
+      "phase_numerator": 0,
+      "sample_beam_line": 128,
+      "sample_row": 202
+    },
+    "color_conversion": "lossless BGRA-to-RGBA channel reorder; PNG RGBA8 decoded without colour management",
+    "crop": {
+      "height": 576,
+      "width": 756,
+      "x": 0,
+      "y": 0
+    },
+    "field_handling": "bob"
+  },
+  "observations": {
+    "blank_start_samples": [
+      328,
+      328,
+      328
+    ],
+    "blank_stop_samples": [
+      456,
+      456,
+      456
+    ],
+    "equal_outcome": "not-applicable",
+    "guard_color_word": "0x0ff",
+    "interval_convention": "start-inclusive-stop-exclusive",
+    "notes": [
+      "Raw sample row 202 contained black runs [0, 2), [328, 456) in all three byte-identical adjacent fields.",
+      "The raw x=[0, 2) transparent-black producer boundary is retained in the APNG and the black-run audit, but is not interpreted as a programmable-HBLANK edge.",
+      "Ready was observed at core field 81 with guest field 1; after 8 fields, core fields [89, 90, 91] and guest counters [9, 10, 11] were captured.",
+      "The source-derived raw mapping is x=4*(register&0xff)+floor(((register>>8)&7)/2)-184. It came from the producer source path; no image-alignment search was performed.",
+      "The 756 by 576 UAE core framebuffer was preserved in full. The recorded 752 by 572 FS-UAE frontend compatibility view was not applied.",
+      "Captured configuration ../configs/aga--programmed-central.uae has SHA-256 2afa348c45d38d30628d09e6a4c9613381af2f115ea3edda095fc9732e746016.",
+      "Raw run log ../logs/aga--programmed-central.log has SHA-256 2ecfa50ff4ea625385bad7365bccedb9141efdf5f06da1db110e8f9fde6f8695.",
+      "Capture-time manifest ../manifests/aga--programmed-central.json has SHA-256 db08f50e29d5e3d38bc22e5096d37336fc60a6ac29549fc94f427c8a7fa970c8."
+    ],
+    "uncertainty_samples": 0,
+    "wrap_outcome": "does-not-wrap"
+  },
+  "producer": {
+    "implementation_family": "UAE",
+    "kind": "software-emulator",
+    "product": "FS-UAE",
+    "revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+    "source_url": "https://github.com/FrodeSolheim/fs-uae",
+    "version": "5.0.7"
+  },
+  "provenance": {
+    "capture_date": "2026-07-29",
+    "classification": "software-derived",
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "operator": "Codex (OpenAI), supervised by Steve Hill"
+  },
+  "schema_version": "1.0.0",
+  "source_capture": {
+    "blanking_retained": true,
+    "decoded_pixel_sha256": "392353165f31b13524085efa233f34bb5558bd8822874afc371f0c6d9534eedc",
+    "file_name": "../captures/aga--programmed-central.apng",
+    "file_sha256": "ebc9310dd56bfb53d461ff41066b2b7fda4bb1651f8ea2b4ffa41766551d7ade",
+    "filter": "none",
+    "height": 576,
+    "method": "FS-UAE raw UAE-core framebuffer hook, losslessly reordered from BGRA and packaged as APNG",
+    "overscan_retained": true,
+    "pixel_format": "RGBA8888, tightly packed, row-major; alpha retained from source BGRA8888",
+    "scaling": "none",
+    "shader": "none",
+    "stride_bytes": 3024,
+    "width": 756
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank",
+  "suite_version": "1.0.1"
+}

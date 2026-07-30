@@ -1,0 +1,121 @@
+{
+  "artifact": {
+    "adf_file": "programmed-wrap.adf",
+    "adf_sha256": "30d01c9542c28da5f31ef56335e85f33f88aad142527ccdab27d4c54764f37ca",
+    "payload_file": "programmed-wrap.bin",
+    "payload_sha256": "3b32255a57be4ef93e3efc422f3fc96af35290211e586d89e1d9a7331a70f884"
+  },
+  "case_id": "programmed-wrap",
+  "execution": {
+    "adjacent_field_stability": "confirmed",
+    "captured_fields": [
+      193,
+      194,
+      195
+    ],
+    "cold_boot": true,
+    "command_or_procedure": "tools/fs-uae-hblank-capture/capture.sh ecs programmed-wrap <FS-UAE-5.0.7-f362278ccd4c60991caac3b4d240d4a3f751bea2> <suite-1.0.1-directory> <firmware-matching-recorded-sha256> <fresh-output-directory> <operator>",
+    "configuration_sha256": "f739ac081d2ce526f6fadc61743c1dd3d3b53195d9b746e3cfb0b9c12b5335a4",
+    "ready_observed_field": 185,
+    "ready_rule": {
+      "byte_order": "big-endian",
+      "case_number": 6,
+      "field_counter_minimum": 8,
+      "magic": "HBLK",
+      "record_address": "0x0002ff00"
+    },
+    "settle_fields": 8
+  },
+  "machine": {
+    "agnus": "8375 ECS Agnus",
+    "chipset": "ECS",
+    "cpu": "Motorola 68000",
+    "denise_or_lisa": "8373 ECS Denise",
+    "firmware": {
+      "revision": "Kickstart 2.04 revision 37.175",
+      "sha256": "d0b70e8a1772614b897f92c33cb299bed3fc8e3de488fc12f67f97fc2486eb79"
+    },
+    "model": "A500 Plus",
+    "ram_bytes": 1048576,
+    "region": "PAL"
+  },
+  "normalization": {
+    "alignment_search": false,
+    "beam_coordinate": {
+      "horizontal_origin_sample": -184,
+      "horizontal_samples_per_register_increment_denominator": 1,
+      "horizontal_samples_per_register_increment_numerator": 4,
+      "phase_denominator": 1,
+      "phase_numerator": 0,
+      "sample_beam_line": 128,
+      "sample_row": 202
+    },
+    "color_conversion": "lossless BGRA-to-RGBA channel reorder; PNG RGBA8 decoded without colour management",
+    "crop": {
+      "height": 576,
+      "width": 756,
+      "x": 0,
+      "y": 0
+    },
+    "field_handling": "bob"
+  },
+  "observations": {
+    "blank_start_samples": [
+      648,
+      648,
+      648
+    ],
+    "blank_stop_samples": [
+      72,
+      72,
+      72
+    ],
+    "equal_outcome": "not-applicable",
+    "guard_color_word": "0xf0f",
+    "interval_convention": "start-inclusive-stop-exclusive",
+    "notes": [
+      "Raw sample row 202 contained black runs [0, 72), [648, 756) in all three byte-identical adjacent fields.",
+      "The raw x=[0, 2) transparent-black producer boundary is retained in the APNG and the black-run audit, but is not interpreted as a programmable-HBLANK edge.",
+      "Ready was observed at core field 185 with guest field 1; after 8 fields, core fields [193, 194, 195] and guest counters [9, 10, 11] were captured.",
+      "The source-derived raw mapping is x=4*(register&0xff)+floor(((register>>8)&7)/2)-184. It came from the producer source path; no image-alignment search was performed.",
+      "The 756 by 576 UAE core framebuffer was preserved in full. The recorded 752 by 572 FS-UAE frontend compatibility view was not applied.",
+      "Captured configuration ../configs/ecs--programmed-wrap.uae has SHA-256 f739ac081d2ce526f6fadc61743c1dd3d3b53195d9b746e3cfb0b9c12b5335a4.",
+      "Raw run log ../logs/ecs--programmed-wrap.log has SHA-256 d3c7e20efc2e65a40604fd158270a656244004d8695148f83d5cd61a364a1c8e.",
+      "Capture-time manifest ../manifests/ecs--programmed-wrap.json has SHA-256 5e139a4930cb84b6657e0023c46bf1f34375d36c59cce63e4db5ee38ba5b4531."
+    ],
+    "uncertainty_samples": 0,
+    "wrap_outcome": "wraps"
+  },
+  "producer": {
+    "implementation_family": "UAE",
+    "kind": "software-emulator",
+    "product": "FS-UAE",
+    "revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+    "source_url": "https://github.com/FrodeSolheim/fs-uae",
+    "version": "5.0.7"
+  },
+  "provenance": {
+    "capture_date": "2026-07-29",
+    "classification": "software-derived",
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "operator": "Codex (OpenAI), supervised by Steve Hill"
+  },
+  "schema_version": "1.0.0",
+  "source_capture": {
+    "blanking_retained": true,
+    "decoded_pixel_sha256": "10afc3c5ee6e817e9ec85d23efdde223016c08f5e3cb6bb9a4b1201635250b8c",
+    "file_name": "../captures/ecs--programmed-wrap.apng",
+    "file_sha256": "85c851622e2aabb1a662d9b530fe8e8f534da9c36230974a930d8ba303b14d4f",
+    "filter": "none",
+    "height": 576,
+    "method": "FS-UAE raw UAE-core framebuffer hook, losslessly reordered from BGRA and packaged as APNG",
+    "overscan_retained": true,
+    "pixel_format": "RGBA8888, tightly packed, row-major; alpha retained from source BGRA8888",
+    "scaling": "none",
+    "shader": "none",
+    "stride_bytes": 3024,
+    "width": 756
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank",
+  "suite_version": "1.0.1"
+}

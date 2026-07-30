@@ -1,0 +1,280 @@
+--- a/od-fs/video-fs.cpp
++++ b/od-fs/video-fs.cpp
+@@ -2489,8 +2489,262 @@
+ #endif
+ 
+ #include "fsuae-hack.h"
++#include "fsemu-frame.h"
+ #include "fsemu-video.h"
++#include "memory.h"
++
++/*
++ * Evidence capture hook for the 198x programmable-HBLANK corpus.
++ *
++ * This snapshots the completed UAE chipset framebuffer before FS-UAE's
++ * compatibility crop, frontend scaling, filtering, shaders, overlays, or GPU
++ * presentation. It also reads the probe's published ready record so each
++ * buffer can be tied to an adjacent guest field. The hook is inert unless
++ * FSEMU_CODEX_CAPTURE_DIR and FSEMU_CODEX_CAPTURE_CASE_NUMBER are set.
++ */
++static void codex_capture_completed_hblank_field(
++	const uae_u8 *buffer,
++	int width,
++	int height,
++	int stride,
++	const fsemu_video_frame_t *frontend_frame,
++	int mode)
++{
++	static bool initialized;
++	static const char *capture_dir;
++	static int expected_case = -1;
++	static int minimum_guest_field = 8;
++	static int captured_count;
++	static int last_core_field = -1;
++	static uae_u32 last_guest_field;
++	static bool ready_logged;
++
++	if (!initialized) {
++		capture_dir = getenv("FSEMU_CODEX_CAPTURE_DIR");
++		const char *case_value =
++			getenv("FSEMU_CODEX_CAPTURE_CASE_NUMBER");
++		const char *minimum_value =
++			getenv("FSEMU_CODEX_CAPTURE_MIN_FIELD_COUNTER");
++		if (case_value && case_value[0]) {
++			expected_case = atoi(case_value);
++		}
++		if (minimum_value && minimum_value[0]) {
++			minimum_guest_field = atoi(minimum_value);
++		}
++		initialized = true;
++	}
++
++	if (!capture_dir || !capture_dir[0] || expected_case < 0 ||
++		captured_count >= 3 || mode != 1 ||
++		frontend_frame->partial != frontend_frame->height) {
++		return;
++	}
++
++	const uaecptr ready_base = 0x0002ff00;
++	const uae_u32 ready_magic = memory_get_long(ready_base);
++	const uae_u16 case_number = memory_get_word(ready_base + 0x04);
++	const uae_u16 schema_version = memory_get_word(ready_base + 0x06);
++	const uae_u32 guest_field = memory_get_long(ready_base + 0x08);
++	const int core_field = fsemu_frame_counter();
++
++	if (ready_magic != 0x48424c4b || case_number != expected_case ||
++		schema_version != 1) {
++		return;
++	}
++
++	if (!ready_logged) {
++		fprintf(stderr,
++			"CODEX_READY core_field=%d guest_field=%u case=%u "
++			"schema=%u magic=HBLK\n",
++			core_field,
++			(unsigned int) guest_field,
++			(unsigned int) case_number,
++			(unsigned int) schema_version);
++		ready_logged = true;
++	}
++
++	if (guest_field < (uae_u32) minimum_guest_field) {
++		return;
++	}
++
++	if (captured_count > 0 &&
++		(core_field != last_core_field + 1 ||
++		 guest_field != last_guest_field + 1)) {
++		fprintf(stderr,
++			"CODEX_CAPTURE discontinuity core_field=%d previous_core=%d "
++			"guest_field=%u previous_guest=%u\n",
++			core_field,
++			last_core_field,
++			(unsigned int) guest_field,
++			(unsigned int) last_guest_field);
++		captured_count = 3;
++		return;
++	}
++
++	char identity[33];
++	for (int i = 0; i < 32; i++) {
++		identity[i] = (char) memory_get_byte(ready_base + 0x20 + i);
++		if (identity[i] == '\0') {
++			break;
++		}
++		identity[i + 1] = '\0';
++	}
++	identity[32] = '\0';
++
++	char raw_path[MAX_DPATH];
++	char metadata_path[MAX_DPATH];
++	snprintf(raw_path,
++		sizeof(raw_path),
++		"%s/field-%06d.bgra",
++		capture_dir,
++		core_field);
++	snprintf(metadata_path,
++		sizeof(metadata_path),
++		"%s/field-%06d.json",
++		capture_dir,
++		core_field);
++
++	FILE *raw_file = fopen(raw_path, "wb");
++	if (!raw_file) {
++		fprintf(stderr,
++			"CODEX_CAPTURE error=open-raw core_field=%d path=%s errno=%d\n",
++			core_field,
++			raw_path,
++			errno);
++		captured_count = 3;
++		return;
++	}
++
++	bool write_ok = true;
++	for (int y = 0; y < height; y++) {
++		const uae_u8 *row = buffer + y * stride;
++		if (fwrite(row, 1, width * 4, raw_file) != (size_t) width * 4) {
++			write_ok = false;
++			break;
++		}
++	}
++	if (fclose(raw_file) != 0) {
++		write_ok = false;
++	}
++	if (!write_ok) {
++		fprintf(stderr,
++			"CODEX_CAPTURE error=write-raw core_field=%d path=%s errno=%d\n",
++			core_field,
++			raw_path,
++			errno);
++		captured_count = 3;
++		return;
++	}
++
++	FILE *metadata_file = fopen(metadata_path, "wb");
++	if (!metadata_file) {
++		fprintf(stderr,
++			"CODEX_CAPTURE error=open-metadata core_field=%d path=%s "
++			"errno=%d\n",
++			core_field,
++			metadata_path,
++			errno);
++		captured_count = 3;
++		return;
++	}
++
++	fprintf(metadata_file,
++		"{\n"
++		"  \"schema\": \"org.198x.fs-uae.raw-capture/v1\",\n"
++		"  \"core_field\": %d,\n"
++		"  \"guest_field_counter\": %u,\n"
++		"  \"ready\": {\n"
++		"    \"magic\": \"HBLK\",\n"
++		"    \"case_number\": %u,\n"
++		"    \"schema_version\": %u,\n"
++		"    \"identity\": \"%s\",\n"
++		"    \"bplcon0\": \"0x%04x\",\n"
++		"    \"bplcon3\": \"0x%04x\",\n"
++		"    \"beamcon0\": \"0x%04x\",\n"
++		"    \"hbstrt\": \"0x%04x\",\n"
++		"    \"hbstop\": \"0x%04x\",\n"
++		"    \"color00\": \"0x%04x\"\n"
++		"  },\n"
++		"  \"framebuffer\": {\n"
++		"    \"stage\": \"completed UAE chipset video_memory before "
++			"FS-UAE compatibility crop and frontend processing\",\n"
++		"    \"width\": %d,\n"
++		"    \"height\": %d,\n"
++		"    \"stride_bytes\": %d,\n"
++		"    \"depth_bits\": 32,\n"
++		"    \"pixel_format\": \"BGRA8888\",\n"
++		"    \"packed_output_stride_bytes\": %d,\n"
++		"    \"complete\": true\n"
++		"  },\n"
++		"  \"frontend_compatibility_view\": {\n"
++		"    \"width\": %d,\n"
++		"    \"height\": %d,\n"
++		"    \"partial\": %d,\n"
++		"    \"limits\": {\"x\": %d, \"y\": %d, \"width\": %d, "
++			"\"height\": %d}\n"
++		"  }\n"
++		"}\n",
++		core_field,
++		(unsigned int) guest_field,
++		(unsigned int) case_number,
++		(unsigned int) schema_version,
++		identity,
++		(unsigned int) memory_get_word(ready_base + 0x0c),
++		(unsigned int) memory_get_word(ready_base + 0x0e),
++		(unsigned int) memory_get_word(ready_base + 0x10),
++		(unsigned int) memory_get_word(ready_base + 0x12),
++		(unsigned int) memory_get_word(ready_base + 0x14),
++		(unsigned int) memory_get_word(ready_base + 0x16),
++		width,
++		height,
++		stride,
++		width * 4,
++		frontend_frame->width,
++		frontend_frame->height,
++		frontend_frame->partial,
++		frontend_frame->limits.x,
++		frontend_frame->limits.y,
++		frontend_frame->limits.w,
++		frontend_frame->limits.h);
++
++	if (fclose(metadata_file) != 0) {
++		fprintf(stderr,
++			"CODEX_CAPTURE error=write-metadata core_field=%d path=%s "
++			"errno=%d\n",
++			core_field,
++			metadata_path,
++			errno);
++		captured_count = 3;
++		return;
++	}
++
++	fprintf(stderr,
++		"CODEX_CAPTURE captured=%d core_field=%d guest_field=%u "
++		"width=%d height=%d stride=%d raw=%s metadata=%s\n",
++		captured_count + 1,
++		core_field,
++		(unsigned int) guest_field,
++		width,
++		height,
++		stride,
++		raw_path,
++		metadata_path);
+ 
++	captured_count++;
++	last_core_field = core_field;
++	last_guest_field = guest_field;
++	if (captured_count == 3) {
++		fprintf(stderr,
++			"CODEX_CAPTURE complete first_core_field=%d "
++			"last_core_field=%d first_guest_field=%u "
++			"last_guest_field=%u\n",
++			core_field - 2,
++			core_field,
++			(unsigned int) (guest_field - 2),
++			(unsigned int) guest_field);
++	}
++}
++
+ bool uae_fsvideo_renderframe(int monid, int mode, bool immediate)
+ {
+ 	struct AmigaMonitor *mon = &AMonitors[monid];
+@@ -2823,6 +3077,14 @@
+ 	int isntsc = (beamcon0 & BEAMCON0_PAL) ? 0 : 1;		
+ 	hack_ntsc_mode = isntsc == 1;
+ 
++	codex_capture_completed_hblank_field(
++		video_memory,
++		avidinfo->outbuffer->outwidth,
++		avidinfo->outbuffer->outheight,
++		2048 * 4,
++		frame,
++		mode);
++
+ 	// fsemu_video_post_partial_frame(avidinfo->);
+ 	fsemu_video_post_frame(frame);
+ 	// notice_screen_contents_lost(monid);

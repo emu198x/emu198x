@@ -37,9 +37,14 @@ as unsuitable for blank-edge evidence.
 ## Licensing
 
 Contributions must be original or otherwise available for dedication under
-CC0 1.0. Do not copy source, generated code, binaries, screenshots, or test
-vectors from another emulator. Documentary references may identify third-party
-works without redistributing them.
+CC0 1.0. Do not copy third-party source, generated code, binaries, screenshots,
+or test vectors into the corpus. A submitted capture must be produced from the
+corpus-authored probe, contain no firmware or emulator user-interface imagery,
+and be available for dedication under CC0.
+
+Producer-specific adapters and patches do not belong in this subtree. Retain
+them under the repository's applicable software licence and bind them from
+the capture package by exact revision and SHA-256.
 
 ## Related files
 

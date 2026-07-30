@@ -1,0 +1,82 @@
+{
+  "binary": {
+    "architecture": "arm64",
+    "file_format": "Mach-O 64-bit executable",
+    "redistributed": false,
+    "sha256": "81fdcc09bf36b6a275a9d39b27407e3484815b5713b411e16dbfe6024cf2899b",
+    "signature": "ad hoc linker signature"
+  },
+  "build": {
+    "configuration_artifacts_sha256": {
+      "Makefile": "2825e8b4973850f146253607f249f318f18509d0d97a66468b90f60affd890aa",
+      "config.log": "410d6803fa4c947506b88407c3ac699fb2ff5ca6fb4f99984fac6042372337ed",
+      "config.status": "981690e99abe36640847bbd20f089f021080fb36859662f4bce6bf8bd1a61caa"
+    },
+    "configure_command": "../configure --prefix=/tmp/fs-uae-current-build.XqhtYq/_install",
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "make_command": "make -j4",
+    "make_output_retained": false,
+    "portable_ini_sha256": "f6ea7ad62b30f5b1d3092081990d41206c60aea7dcc29379a2977e89c4d994f0",
+    "toolchain": {
+      "c_compiler": "Apple clang 21.0.0 (clang-2100.1.1.101)",
+      "cxx_compiler": "Apple clang 21.0.0 (clang-2100.1.1.101)",
+      "make": "GNU Make 3.81",
+      "python": "CPython 3.14.3",
+      "target": "arm64-apple-darwin25.5.0"
+    }
+  },
+  "capture_change_audit": {
+    "capture_stage": "completed UAE chipset video_memory before FS-UAE compatibility crop and frontend processing",
+    "changed_tracked_files": [
+      "od-fs/video-fs.cpp"
+    ],
+    "environment_gated": true,
+    "guest_memory_access": "read-only ready-record and register snapshot",
+    "non_hook_tracked_files_match_base": true,
+    "output": "three tightly packed BGRA8888 fields plus JSON metadata",
+    "writes_guest_memory": false
+  },
+  "dynamic_dependencies": [
+    "/usr/lib/libresolv.9.dylib",
+    "/System/Library/Frameworks/Carbon.framework/Versions/A/Carbon",
+    "/System/Library/Frameworks/Cocoa.framework/Versions/A/Cocoa",
+    "/opt/homebrew/opt/flac/lib/libFLAC.14.dylib",
+    "/opt/homebrew/opt/glib/lib/libgthread-2.0.0.dylib",
+    "/opt/homebrew/opt/glib/lib/libglib-2.0.0.dylib",
+    "/opt/homebrew/opt/gettext/lib/libintl.8.dylib",
+    "/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit",
+    "/opt/homebrew/opt/mpg123/lib/libmpg123.0.dylib",
+    "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+    "/opt/homebrew/opt/libpng/lib/libpng16.16.dylib",
+    "/opt/homebrew/opt/python@3.14/Frameworks/Python.framework/Versions/3.14/Python",
+    "/opt/homebrew/opt/sdl3_image/lib/libSDL3_image.0.dylib",
+    "/opt/homebrew/opt/sdl3/lib/libSDL3.0.dylib",
+    "/opt/homebrew/opt/sdl3_ttf/lib/libSDL3_ttf.0.dylib",
+    "/usr/lib/libz.1.dylib",
+    "/opt/homebrew/opt/zstd/lib/libzstd.1.dylib",
+    "/usr/lib/libSystem.B.dylib",
+    "/opt/homebrew/opt/libmpeg2/lib/libmpeg2.0.dylib",
+    "/opt/homebrew/opt/libmpeg2/lib/libmpeg2convert.0.dylib",
+    "/usr/lib/libc++.1.dylib"
+  ],
+  "patch": {
+    "base_file_sha256": "f308fb0bb81f5da083a5e0f67384d4eba5ac0493ed04dcb4cb4a3eac42ce97a6",
+    "file": "../../../../../../tools/fs-uae-hblank-capture/fs-uae-5.0.7-programmable-hblank-capture.patch",
+    "patched_file_sha256": "b7fce0150dc3fb89d7afdeec333fc41d279b32ec4ba556521b17638ba21361cc",
+    "sha256": "73e423453152097723b22e4ba0db7cb626b4756e5697d49154bfd98055ddd0ed"
+  },
+  "producer": {
+    "product": "FS-UAE",
+    "revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+    "source_url": "https://github.com/FrodeSolheim/fs-uae",
+    "uae_base_version": "WinUAE 6.0.1",
+    "version": "5.0.7"
+  },
+  "schema_version": "1.0.0",
+  "source": {
+    "base_checkout_clean": true,
+    "revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+    "tracked_file_comparison": "All base-tracked files except od-fs/video-fs.cpp compared byte-for-byte equal after copying to the temporary build tree.",
+    "unmodified_binary_sha256": "75bda31519a91242dc3fcae4a1b7e14d8e53b1bdff589f1ae852b97ec27e4d2b"
+  }
+}

@@ -42,10 +42,12 @@ It contains no Kickstart image, Workbench component, AmigaOS monitor driver,
 third-party emulator code, or Emu198x expected image. Each generated ADF is one
 static case, so a producer does not need to automate a menu or keyboard.
 
-Emu198x adapters belong in runtime tests and scripts outside the corpus. This
-separation allows the corpus subtree to be published or extracted without
-carrying Emu198x implementation assumptions into another emulator's test
-harness.
+Emu198x adapters belong in runtime tests and scripts outside the corpus.
+Producer-specific capture patches and runners also remain outside the CC0
+subtree under their applicable software licence; a reference package binds
+them by revision and SHA-256. This separation allows the corpus subtree to be
+published or extracted without carrying implementation code into another
+emulator's test harness.
 
 ## Build contract
 
@@ -84,6 +86,11 @@ diagnosis, but it cannot become an independent expected result.
 WinUAE and FS-UAE count as one UAE implementation family. FS-UAE remains useful
 as an executable cross-platform route to that family, but agreement between the
 two is not an independent vote.
+
+The registered FS-UAE 5.0.7 package captures the current WinUAE 6.0.1-derived
+path before frontend processing. Its host-HIRES raster represents AGA fine
+positions at paired superhires phases. It establishes a UAE-family observation
+but does not establish physical hardware behaviour.
 
 Copperline is an independent software implementation with OCS, ECS, and AGA
 profiles. Its result supplies a second AGA comparison when the exact revision
@@ -132,7 +139,8 @@ custom-register writes, and comparison details below
 CCK-aligned behaviour is the first implementation gate. AGA 70 ns and 35 ns
 placement requires a capture or trace grid capable of representing those
 positions; passing a coarser framebuffer comparison must not be described as
-proof of finer timing.
+proof of finer timing. The registered UAE host-HIRES captures exercise the
+three fine-position cases but cannot distinguish the final 35 ns phase bit.
 
 ## Monitor-mode integration
 
@@ -159,6 +167,7 @@ case.
 ## Related documents
 
 - [Portable programmable-HBLANK corpus](../../test-data/commodore/amiga/programmable-hblank/README.md)
+- [Current UAE-family capture](../../test-data/commodore/amiga/programmable-hblank/references/fs-uae-5.0.7-f362278c/README.md)
 - [Amiga Test Kit v1.21 video conformance](amiga-test-kit-video-conformance.md)
 - [Amiga Test Kit verification](amiga-test-kit-verification.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)

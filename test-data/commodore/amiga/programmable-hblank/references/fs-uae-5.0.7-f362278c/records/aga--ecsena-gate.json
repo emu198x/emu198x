@@ -1,0 +1,121 @@
+{
+  "artifact": {
+    "adf_file": "ecsena-gate.adf",
+    "adf_sha256": "342383da85bd7522976e35a6901b2e83baf6bd525edfdc846224e2fa1c345385",
+    "payload_file": "ecsena-gate.bin",
+    "payload_sha256": "3a8c10d093b552aa164c89a2c8404767b63afcc38e320c38737bdbb7ce7d9fc8"
+  },
+  "case_id": "ecsena-gate",
+  "execution": {
+    "adjacent_field_stability": "confirmed",
+    "captured_fields": [
+      89,
+      90,
+      91
+    ],
+    "cold_boot": true,
+    "command_or_procedure": "tools/fs-uae-hblank-capture/capture.sh aga ecsena-gate <FS-UAE-5.0.7-f362278ccd4c60991caac3b4d240d4a3f751bea2> <suite-1.0.1-directory> <firmware-matching-recorded-sha256> <fresh-output-directory> <operator>",
+    "configuration_sha256": "df75a07e1b6d23e4174f733e572d42e5032ce327d6de580fe49c8b3484fab407",
+    "ready_observed_field": 81,
+    "ready_rule": {
+      "byte_order": "big-endian",
+      "case_number": 2,
+      "field_counter_minimum": 8,
+      "magic": "HBLK",
+      "record_address": "0x0002ff00"
+    },
+    "settle_fields": 8
+  },
+  "machine": {
+    "agnus": "AGA Alice",
+    "chipset": "AGA",
+    "cpu": "Motorola 68EC020",
+    "denise_or_lisa": "AGA Lisa",
+    "firmware": {
+      "revision": "Kickstart 3.1 revision 40.068",
+      "sha256": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707"
+    },
+    "model": "A1200",
+    "ram_bytes": 2097152,
+    "region": "PAL"
+  },
+  "normalization": {
+    "alignment_search": false,
+    "beam_coordinate": {
+      "horizontal_origin_sample": -184,
+      "horizontal_samples_per_register_increment_denominator": 1,
+      "horizontal_samples_per_register_increment_numerator": 4,
+      "phase_denominator": 1,
+      "phase_numerator": 0,
+      "sample_beam_line": 128,
+      "sample_row": 202
+    },
+    "color_conversion": "lossless BGRA-to-RGBA channel reorder; PNG RGBA8 decoded without colour management",
+    "crop": {
+      "height": 576,
+      "width": 756,
+      "x": 0,
+      "y": 0
+    },
+    "field_handling": "bob"
+  },
+  "observations": {
+    "blank_start_samples": [
+      null,
+      null,
+      null
+    ],
+    "blank_stop_samples": [
+      null,
+      null,
+      null
+    ],
+    "equal_outcome": "not-applicable",
+    "guard_color_word": "0xf00",
+    "interval_convention": "not-applicable",
+    "notes": [
+      "Raw sample row 202 contained black runs [0, 2) in all three byte-identical adjacent fields.",
+      "The raw x=[0, 2) transparent-black producer boundary is retained in the APNG and the black-run audit, but is not interpreted as a programmable-HBLANK edge.",
+      "Ready was observed at core field 81 with guest field 1; after 8 fields, core fields [89, 90, 91] and guest counters [9, 10, 11] were captured.",
+      "The source-derived raw mapping is x=4*(register&0xff)+floor(((register>>8)&7)/2)-184. It came from the producer source path; no image-alignment search was performed.",
+      "The 756 by 576 UAE core framebuffer was preserved in full. The recorded 752 by 572 FS-UAE frontend compatibility view was not applied.",
+      "Captured configuration ../configs/aga--ecsena-gate.uae has SHA-256 df75a07e1b6d23e4174f733e572d42e5032ce327d6de580fe49c8b3484fab407.",
+      "Raw run log ../logs/aga--ecsena-gate.log has SHA-256 5cb814a0c22e22c73fe0a1e8da698f2bb0ef1ba14edd32336fd29f4c8745626c.",
+      "Capture-time manifest ../manifests/aga--ecsena-gate.json has SHA-256 2366eafb19bad455fb26035ecf1b771bddce06e389e5f3a745261fd792f772ad."
+    ],
+    "uncertainty_samples": 0,
+    "wrap_outcome": "not-applicable"
+  },
+  "producer": {
+    "implementation_family": "UAE",
+    "kind": "software-emulator",
+    "product": "FS-UAE",
+    "revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+    "source_url": "https://github.com/FrodeSolheim/fs-uae",
+    "version": "5.0.7"
+  },
+  "provenance": {
+    "capture_date": "2026-07-29",
+    "classification": "software-derived",
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "operator": "Codex (OpenAI), supervised by Steve Hill"
+  },
+  "schema_version": "1.0.0",
+  "source_capture": {
+    "blanking_retained": true,
+    "decoded_pixel_sha256": "85ce5cb1f1c34ad0e395b9fc7223e4b59b7667f9a5fe1a920a035479aeb88e1e",
+    "file_name": "../captures/aga--ecsena-gate.apng",
+    "file_sha256": "8ab3b140e0109808209420b15a88316e5599e6e20f84a479a0442fa8639db7b6",
+    "filter": "none",
+    "height": 576,
+    "method": "FS-UAE raw UAE-core framebuffer hook, losslessly reordered from BGRA and packaged as APNG",
+    "overscan_retained": true,
+    "pixel_format": "RGBA8888, tightly packed, row-major; alpha retained from source BGRA8888",
+    "scaling": "none",
+    "shader": "none",
+    "stride_bytes": 3024,
+    "width": 756
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank",
+  "suite_version": "1.0.1"
+}

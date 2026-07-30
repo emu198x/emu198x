@@ -13,10 +13,12 @@ These works explain which controls exist. They do not settle every observable
 edge, gate interaction, wrap behaviour, equal-value behaviour, or capture
 convention addressed by this corpus.
 
-No third-party reference text, emulator source, firmware, or capture is
-redistributed here. Implementations are evidence producers, not specification
-authorities. Their observations belong in capture records with their
-implementation family made explicit.
+No third-party reference text, emulator source, emulator binary, or firmware
+is redistributed here. Registered captures contain only the corpus-authored
+guard pattern and blanking produced during controlled project runs.
+Implementations are evidence producers, not specification authorities. Their
+observations belong in capture records with their implementation family made
+explicit.
 
 ## Related files
 
@@ -27,3 +29,5 @@ implementation family made explicit.
   audited producers can currently supply admissible evidence.
 - [`copperline-0.13.0-eec5806/`](copperline-0.13.0-eec5806/README.md) contains
   the registered Copperline software capture.
+- [`fs-uae-5.0.7-f362278c/`](fs-uae-5.0.7-f362278c/README.md) contains the
+  registered current-generation UAE-family software capture.
