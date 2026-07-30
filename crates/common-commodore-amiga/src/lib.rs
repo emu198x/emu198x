@@ -31,7 +31,7 @@ pub use board::{
     SynchronizedMotherboardBridge, TICKS_PER_CCK,
 };
 pub use clock::{CpuClock, CpuDomainPhase};
-pub use cpu::ActiveCpu;
+pub use cpu::{ActiveCpu, ActiveCpuDiagnosticSnapshot};
 pub use denise_chip::DeniseChip;
 pub use driver::{
     AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY, AmigaDriver, AmigaInputDiagnosticSnapshot,

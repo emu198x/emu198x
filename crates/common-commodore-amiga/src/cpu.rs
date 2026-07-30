@@ -7,7 +7,7 @@
 
 use std::ops::{Deref, DerefMut};
 
-use motorola_68000::{Cpu68000, CpuModel};
+use motorola_68000::{Cpu68000, CpuCapabilities, CpuCoreDiagnosticSnapshot, CpuModel, TimingClass};
 use motorola_68010::Cpu68010;
 use motorola_68020::Cpu68020;
 use motorola_68030::Cpu68030;
@@ -36,6 +36,27 @@ pub enum ActiveCpu {
     M68030(Cpu68030),
     /// Motorola MC68040.
     M68040(Cpu68040),
+}
+
+/// Complete bounded diagnostic state for the active processor.
+///
+/// `core` is flattened only at serialization time so the canonical query
+/// object retains established leaves such as `cpu.pc`, `cpu.sr`, and
+/// `cpu.ipl`. The Rust API keeps model identity separate from the shared
+/// execution-core snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ActiveCpuDiagnosticSnapshot {
+    /// Configured processor model.
+    pub model: CpuModel,
+    /// External address-bus mask for the configured model.
+    pub address_mask: u32,
+    /// Instruction timing class.
+    pub timing_class: TimingClass,
+    /// Static architectural capability catalogue for the model.
+    pub capabilities: CpuCapabilities,
+    /// Mutable state owned by the shared execution core.
+    #[serde(flatten)]
+    pub core: CpuCoreDiagnosticSnapshot,
 }
 
 impl ActiveCpu {
@@ -123,6 +144,19 @@ impl ActiveCpu {
             | Self::M68EC030(_)
             | Self::M68030(_)
             | Self::M68040(_) => self.as_base().variant_icache.is_some(),
+        }
+    }
+
+    /// Capture model identity, capabilities, and complete bounded live state.
+    #[must_use]
+    pub fn diagnostic_snapshot(&self) -> ActiveCpuDiagnosticSnapshot {
+        let model = self.model();
+        ActiveCpuDiagnosticSnapshot {
+            model,
+            address_mask: model.addr_mask(),
+            timing_class: model.timing_class(),
+            capabilities: model.capabilities(),
+            core: self.as_base().diagnostic_snapshot(),
         }
     }
 
@@ -280,5 +314,43 @@ mod tests {
                 cpu.model()
             );
         }
+    }
+
+    #[test]
+    fn diagnostic_snapshots_preserve_every_active_model_distinction() {
+        let snapshots = all_variants().map(|cpu| cpu.diagnostic_snapshot());
+
+        assert_eq!(
+            snapshots.map(|snapshot| snapshot.model),
+            [
+                CpuModel::M68000,
+                CpuModel::M68010,
+                CpuModel::M68EC020,
+                CpuModel::M68020,
+                CpuModel::M68EC030,
+                CpuModel::M68030,
+                CpuModel::M68040,
+            ],
+        );
+        assert_eq!(snapshots[0].address_mask, 0x00FF_FFFF);
+        assert_eq!(snapshots[2].address_mask, 0x00FF_FFFF);
+        assert_eq!(snapshots[3].address_mask, 0xFFFF_FFFF);
+        assert_eq!(snapshots[6].timing_class, TimingClass::M68040);
+        assert!(!snapshots[0].core.variant.six_word_frame);
+        assert!(snapshots[1].core.variant.six_word_frame);
+        assert!(!snapshots[1].core.cache.instruction_state_present);
+        assert!(snapshots[2].core.cache.instruction_state_present);
+        assert!(snapshots[2].core.variant.dynamic_bus_sizing);
+        assert!(snapshots[5].core.variant.dynamic_bus_sizing);
+        assert!(!snapshots[6].core.variant.dynamic_bus_sizing);
+        assert!(!snapshots[2].capabilities.fpu);
+        assert!(snapshots[3].capabilities.fpu);
+        assert!(!snapshots[4].capabilities.mmu);
+        assert!(snapshots[5].capabilities.mmu);
+        assert!(snapshots[6].capabilities.fpu);
+        assert!(
+            snapshots.iter().all(|snapshot| !snapshot.core.fpu.present),
+            "constructing a CPU model alone must not attach an external FPU",
+        );
     }
 }

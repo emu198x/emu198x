@@ -162,6 +162,18 @@ impl MicroOpQueue {
         }
     }
 
+    /// Number of pending micro-operations.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    /// Maximum number of pending micro-operations retained by the queue.
+    #[must_use]
+    pub const fn capacity(&self) -> usize {
+        QUEUE_CAPACITY
+    }
+
     /// Returns true if the queue has no pending ops.
     #[must_use]
     pub fn is_empty(&self) -> bool {

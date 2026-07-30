@@ -44,6 +44,145 @@ fn query_cpu_pc_returns_initial_reset_vector() {
 }
 
 #[test]
+fn cpu_group_exposes_the_complete_bounded_schema() {
+    let runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let cpu = query_value(&runtime, "cpu");
+    let cpu = cpu.as_object().expect("CPU query should return an object");
+    let mut fields: Vec<&str> = cpu.keys().map(String::as_str).collect();
+    fields.sort_unstable();
+    assert_eq!(
+        fields,
+        [
+            "a",
+            "a7",
+            "address_mask",
+            "bus",
+            "cache",
+            "capabilities",
+            "control",
+            "d",
+            "exception",
+            "execution",
+            "fpu",
+            "interrupts",
+            "ipl",
+            "model",
+            "msp",
+            "pc",
+            "pipelines",
+            "prefetch",
+            "sr",
+            "ssp",
+            "status",
+            "timing_class",
+            "usp",
+            "variant",
+        ],
+    );
+
+    let variant = cpu["variant"]
+        .as_object()
+        .expect("CPU variant state should be an object");
+    let mut variant_fields: Vec<&str> = variant.keys().map(String::as_str).collect();
+    variant_fields.sort_unstable();
+    assert_eq!(
+        variant_fields,
+        [
+            "cache_disable_asserted",
+            "cacr_read_zero_mask",
+            "cacr_write_mask",
+            "constant_shift_timing",
+            "continue_hook_present",
+            "decode_hook_present",
+            "dynamic_bus_sizing",
+            "extended_sr_writes",
+            "format2_vectors",
+            "format_a_group0",
+            "fpu_is_68882",
+            "fpu_present",
+            "long_branch",
+            "master_stack_capable",
+            "minimum_bus_clocks",
+            "mmu_translation_state_present",
+            "musashi_bcd_overflow",
+            "musashi_divide_overflow",
+            "scaled_index",
+            "six_word_frame",
+            "um_ea_calculation_timing",
+            "unaligned_data_access",
+        ],
+    );
+
+    assert_eq!(cpu["d"].as_array().map(Vec::len), Some(8));
+    assert_eq!(cpu["a"].as_array().map(Vec::len), Some(8));
+    assert_eq!(cpu["a7"], cpu["a"][7]);
+    assert_eq!(cpu["pc"], query_value(&runtime, "cpu.pc"));
+    assert_eq!(cpu["sr"], query_value(&runtime, "cpu.sr"));
+    assert_eq!(cpu["ipl"], query_value(&runtime, "cpu.ipl"));
+    assert_eq!(cpu["execution"]["micro_op_capacity"], json!(32));
+    assert_eq!(cpu["cache"]["data_state_present"], json!(false));
+    assert_eq!(cpu["pipelines"]["fpu"]["frame_buffer_capacity"], json!(60),);
+    assert_eq!(
+        cpu["pipelines"]["fpu"]["frame_buffer"]
+            .as_array()
+            .map(Vec::len),
+        Some(60),
+    );
+}
+
+#[test]
+fn cpu_group_distinguishes_stock_ocs_ecs_aga_and_accelerated_models() {
+    let ocs = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let aga = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let accelerated = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
+
+    for runtime in [&ocs, &AmigaOcsRuntime::blank(Model::A2000OcsPal)] {
+        assert_eq!(query_value(runtime, "cpu.model"), json!("M68000"));
+        assert_eq!(
+            query_value(runtime, "cpu.cache.instruction_state_present"),
+            json!(false),
+        );
+    }
+    assert_eq!(query_value(&ecs, "cpu.model"), json!("M68000"));
+    assert_eq!(query_value(&aga, "cpu.model"), json!("M68EC020"));
+    assert_eq!(query_value(&aga, "cpu.address_mask"), json!(0x00FF_FFFFu32),);
+    assert_eq!(
+        query_value(&aga, "cpu.variant.dynamic_bus_sizing"),
+        json!(true),
+    );
+    assert_eq!(
+        query_value(&aga, "cpu.cache.instruction_state_present"),
+        json!(true),
+    );
+    assert_eq!(query_value(&aga, "cpu.capabilities.fpu"), json!(false),);
+
+    assert_eq!(query_value(&accelerated, "cpu.model"), json!("M68EC030"),);
+    assert_eq!(
+        query_value(&accelerated, "cpu.address_mask"),
+        json!(0xFFFF_FFFFu32),
+    );
+    assert_eq!(
+        query_value(&accelerated, "cpu.capabilities.mmu"),
+        json!(false),
+    );
+    assert_eq!(
+        query_value(&accelerated, "cpu.capabilities.data_cache"),
+        json!(true),
+    );
+    assert_eq!(
+        query_value(&accelerated, "cpu.cache.data_state_present"),
+        json!(false),
+        "model capability and implemented mutable cache state must remain distinct",
+    );
+    assert_eq!(
+        query_value(&accelerated, "cpu.variant.mmu_translation_state_present",),
+        json!(false),
+        "architectural MMU capability must not imply an installed translation datapath",
+    );
+}
+
+#[test]
 fn keyboard_queries_expose_complete_protocol_state_and_legacy_aliases() {
     let runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
     let provider = AmigaSessionQueryProvider;
@@ -337,6 +476,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
         &ocs,
         &[
             "runtime",
+            "cpu",
             "memory",
             "chipset",
             "agnus",
@@ -362,6 +502,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
         &ecs,
         &[
             "runtime",
+            "cpu",
             "memory",
             "chipset",
             "agnus",
@@ -387,6 +528,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
         &a600,
         &[
             "runtime",
+            "cpu",
             "memory",
             "chipset",
             "agnus",
@@ -413,6 +555,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
         &aga,
         &[
             "runtime",
+            "cpu",
             "memory",
             "chipset",
             "agnus",

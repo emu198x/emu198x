@@ -35,6 +35,16 @@ pub mod ea;
 pub mod execute;
 pub mod icache;
 
-pub use cpu::{AddressErrorAccess, AddressErrorObservation, Cpu68000};
+pub use cpu::{
+    AddressErrorAccess, AddressErrorObservation, Cpu68000, CpuAddressErrorDiagnosticSnapshot,
+    CpuBitFieldDiagnosticSnapshot, CpuBusCycleDiagnosticSnapshot, CpuBusDiagnosticSnapshot,
+    CpuCacheDiagnosticSnapshot, CpuControlDiagnosticSnapshot, CpuCoreDiagnosticSnapshot,
+    CpuExceptionDiagnosticSnapshot, CpuExecutionDiagnosticSnapshot,
+    CpuExecutionStateDiagnosticKind, CpuExecutionStateDiagnosticSnapshot, CpuFpuDiagnosticSnapshot,
+    CpuFpuPipelineDiagnosticSnapshot, CpuFullFormatEaDiagnosticSnapshot,
+    CpuInterruptDiagnosticSnapshot, CpuMovemDiagnosticSnapshot, CpuPipelineDiagnosticSnapshot,
+    CpuPrefetchDiagnosticSnapshot, CpuRteDiagnosticSnapshot, CpuStatusDiagnosticSnapshot,
+    CpuVariantDiagnosticSnapshot,
+};
 pub use icache::ICache;
 pub use motorola_68k_common::{CpuCapabilities, CpuModel, TimingClass};

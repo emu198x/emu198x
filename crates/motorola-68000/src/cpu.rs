@@ -398,7 +398,7 @@ pub enum BitOp {
 }
 
 /// Direction of a word transfer rejected by address-error detection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum AddressErrorAccess {
     /// The rejected transfer would have read a word from memory.
     Read,
@@ -413,7 +413,7 @@ pub enum AddressErrorAccess {
 /// transfer. This record exposes the internal rejection boundary without
 /// implying that address strobe was asserted or that an external transfer
 /// completed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct AddressErrorObservation {
     /// Address produced by the core's abstract word-transfer micro-operation.
     pub requested_address: u32,
@@ -1159,6 +1159,20 @@ pub struct Cpu68000 {
     #[serde(default)]
     pub variant_icache: Option<crate::icache::ICache>,
 }
+
+mod diagnostics;
+
+pub use diagnostics::{
+    CpuAddressErrorDiagnosticSnapshot, CpuBitFieldDiagnosticSnapshot,
+    CpuBusCycleDiagnosticSnapshot, CpuBusDiagnosticSnapshot, CpuCacheDiagnosticSnapshot,
+    CpuControlDiagnosticSnapshot, CpuCoreDiagnosticSnapshot, CpuExceptionDiagnosticSnapshot,
+    CpuExecutionDiagnosticSnapshot, CpuExecutionStateDiagnosticKind,
+    CpuExecutionStateDiagnosticSnapshot, CpuFpuDiagnosticSnapshot,
+    CpuFpuPipelineDiagnosticSnapshot, CpuFullFormatEaDiagnosticSnapshot,
+    CpuInterruptDiagnosticSnapshot, CpuMovemDiagnosticSnapshot, CpuPipelineDiagnosticSnapshot,
+    CpuPrefetchDiagnosticSnapshot, CpuRteDiagnosticSnapshot, CpuStatusDiagnosticSnapshot,
+    CpuVariantDiagnosticSnapshot,
+};
 
 impl Cpu68000 {
     /// Create a new CPU in reset state.

@@ -61,6 +61,7 @@ pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
 /// baseline; this closes the gap where a newly exposed diagnostic field could
 /// be returned by a group but omitted from `query_paths`.
 const GROUPED_VARIANT_QUERY_ROOTS: &[&str] = &[
+    "cpu",
     "memory",
     "chipset",
     "agnus",
@@ -433,6 +434,13 @@ fn decode_pot_bits(val: u16) -> Value {
             ("DATLX", 0x0100),
         ],
     )
+}
+
+/// Complete active-processor state, serialized from the typed component
+/// snapshot rather than reconstructed from runtime-visible scalar accessors.
+pub(crate) fn cpu_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    serde_json::to_value(m.cpu_diagnostic_snapshot())
+        .expect("the typed CPU diagnostic snapshot must serialize")
 }
 
 /// BPLCON0 / DMACON / ADKCON / COLOR00 / copper pointers / overlay.
@@ -1444,13 +1452,16 @@ pub(crate) fn disk_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     Value::Object(snapshot)
 }
 
-/// Dispatch the chipset chip groups shared by every variant (`agnus`,
-/// `paula`, `cia`, `blitter`, `chipset`, `disk`). Returns `Some(value)`
+/// Dispatch the processor and chipset groups shared by every variant (`cpu`,
+/// `agnus`, `paula`, `cia`, `blitter`, `chipset`, `disk`). Returns `Some(value)`
 /// for an owned group or leaf, and `None` both for a non-chip path and
 /// for an unknown sub-field — the caller's own match then handles the
 /// former and reports the latter as an unknown path. The AGA-only `aga`
 /// group is routed separately by the AGA variant.
 pub(crate) fn resolve_chip_query(m: &dyn AmigaLiveAccess, path: &str) -> Option<Value> {
+    if is_chip(path, "cpu") {
+        return chip_field(path, "cpu", cpu_snapshot(m));
+    }
     if is_chip(path, "agnus") {
         return chip_field(path, "agnus", agnus_snapshot(m));
     }

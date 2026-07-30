@@ -406,6 +406,7 @@ macro_rules! amiga_variant_query_paths {
         &[
     "memory",
     "memory.overlay",
+    "cpu",
     "cpu.pc",
     "cpu.sr",
     "cpu.ipl",

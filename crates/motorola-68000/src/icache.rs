@@ -136,6 +136,36 @@ impl ICache {
     pub fn clear_entry(&mut self, addr: u32) {
         self.lines[index(addr)].valid = [false, false];
     }
+
+    /// Number of cache lines containing at least one valid word.
+    #[must_use]
+    pub fn valid_line_count(&self) -> usize {
+        self.lines
+            .iter()
+            .filter(|line| line.valid.iter().any(|&valid| valid))
+            .count()
+    }
+
+    /// Number of individually valid instruction words.
+    #[must_use]
+    pub fn valid_word_count(&self) -> usize {
+        self.lines
+            .iter()
+            .map(|line| line.valid.iter().filter(|&&valid| valid).count())
+            .sum()
+    }
+
+    /// Number of direct-mapped long-word lines in this cache model.
+    #[must_use]
+    pub const fn line_capacity(&self) -> usize {
+        ENTRIES
+    }
+
+    /// Number of independently tracked instruction words.
+    #[must_use]
+    pub const fn word_capacity(&self) -> usize {
+        ENTRIES * 2
+    }
 }
 
 /// Direct-mapped line index: address bits [7:2].

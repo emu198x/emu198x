@@ -12,10 +12,11 @@
 //! Step 3b plumbing for the AGA / ECS / OCS multi-variant MCP surface.
 //!
 //! Shape choices:
-//! - **CPU**: returned as a copy via [`CpuSnapshot`] because Cpu68000
-//!   and Cpu68020 are different concrete types. The hot scalar
+//! - **CPU**: complete inspection uses the typed
+//!   [`ActiveCpuDiagnosticSnapshot`], while the older compact
+//!   [`CpuSnapshot`] remains available to debugger call sites. The hot scalar
 //!   accessors (`cpu_pc`, `cpu_instruction_starts`) are spelled out
-//!   separately so per-tick loops don't pay the copy cost.
+//!   separately so per-tick loops don't pay either copy cost.
 //! - **Shared chips** (CIA, Paula, drive, keyboard) are exposed by
 //!   reference using the shared base types from the chip crates —
 //!   every machine returns the same concrete type from its inherent
@@ -37,6 +38,7 @@ use commodore_denise_ocs::DeniseDiagnosticSnapshot;
 use commodore_gary::GaryDiagnosticSnapshot;
 use commodore_gayle::GayleDiagnosticSnapshot;
 use common_commodore_amiga::board::MotherboardBridgeDiagnosticSnapshot;
+use common_commodore_amiga::ActiveCpuDiagnosticSnapshot;
 use common_commodore_amiga::denise::DeniseBoardPipelineDiagnosticSnapshot;
 use common_commodore_amiga::memory::MemoryDiagnosticSnapshot;
 use format_commodore_amiga_adf::Adf;
@@ -53,11 +55,12 @@ use motorola_68k_common::registers::Registers;
 
 use crate::variants::AmigaRuntimeKind;
 
-/// Snapshot of the CPU register file + scheduler bookkeeping. Built
-/// by [`AmigaLiveAccess::cpu_snapshot`] so the trait can hand back
-/// CPU state without exposing the concrete Cpu68000 / Cpu68020 types.
+/// Compact CPU register file and scheduler bookkeeping retained for debugger
+/// compatibility.
 ///
-/// The fields mirror the `query_cpu` tool's JSON output one-for-one.
+/// Canonical query inspection uses
+/// [`AmigaLiveAccess::cpu_diagnostic_snapshot`], which includes model,
+/// sequencer, bus, exception, cache, and FPU state.
 #[derive(Debug, Clone, Copy)]
 pub struct CpuSnapshot {
     pub regs: Registers,
@@ -324,6 +327,9 @@ pub type RtcAccessLogEntry = (u64, u32, u32, bool, bool, u16);
 /// every tool body regardless of the active chipset.
 pub trait AmigaLiveAccess {
     // ---------- CPU ----------
+
+    /// Complete bounded diagnostic state for the runtime-selected processor.
+    fn cpu_diagnostic_snapshot(&self) -> ActiveCpuDiagnosticSnapshot;
 
     /// Full CPU debug snapshot — copies the register file plus the
     /// scheduler bookkeeping the `query_cpu` / `step` tools need.
@@ -640,6 +646,10 @@ pub trait AmigaLiveAccess {
 // ===================================================================
 
 impl AmigaLiveAccess for AmigaOcs {
+    fn cpu_diagnostic_snapshot(&self) -> ActiveCpuDiagnosticSnapshot {
+        self.active_cpu().diagnostic_snapshot()
+    }
+
     fn cpu_snapshot(&self) -> CpuSnapshot {
         let cpu = self.cpu();
         CpuSnapshot {
@@ -945,6 +955,10 @@ impl AmigaLiveAccess for AmigaOcs {
 // (BEAMCON0, BPLCON3) are absorbed by AgnusEcs / DeniseEcs via Deref.
 
 impl AmigaLiveAccess for AmigaEcs {
+    fn cpu_diagnostic_snapshot(&self) -> ActiveCpuDiagnosticSnapshot {
+        self.active_cpu().diagnostic_snapshot()
+    }
+
     fn cpu_snapshot(&self) -> CpuSnapshot {
         let cpu = self.cpu();
         CpuSnapshot {
@@ -1249,6 +1263,10 @@ impl AmigaLiveAccess for AmigaEcs {
 // ===================================================================
 
 impl AmigaLiveAccess for AmigaA1200 {
+    fn cpu_diagnostic_snapshot(&self) -> ActiveCpuDiagnosticSnapshot {
+        self.active_cpu().diagnostic_snapshot()
+    }
+
     fn cpu_snapshot(&self) -> CpuSnapshot {
         let cpu = self.cpu();
         CpuSnapshot {
@@ -1583,6 +1601,14 @@ impl AmigaLiveAccess for AmigaA1200 {
 // AmigaLiveAccess` by reborrowing through `AmigaRuntimeKind`.
 
 impl AmigaLiveAccess for AmigaRuntimeKind {
+    fn cpu_diagnostic_snapshot(&self) -> ActiveCpuDiagnosticSnapshot {
+        match self {
+            Self::Ocs(rt) => rt.machine().cpu_diagnostic_snapshot(),
+            Self::Ecs(rt) => rt.machine().cpu_diagnostic_snapshot(),
+            Self::Aga(rt) => rt.machine().cpu_diagnostic_snapshot(),
+        }
+    }
+
     fn cpu_snapshot(&self) -> CpuSnapshot {
         match self {
             Self::Ocs(rt) => rt.machine().cpu_snapshot(),
