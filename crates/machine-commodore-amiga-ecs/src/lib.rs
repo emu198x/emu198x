@@ -575,6 +575,7 @@ impl AmigaEcs {
         let mut gary = Gary::new();
         gary.set_slow_ram_present(slow_ram_decode);
         gary.set_rtc_present(cfg.slow_kb > 0);
+        gary.set_gayle_present(has_gayle);
         Self {
             cpu,
             cpu_clock: CpuClock::from_ratio(1, 1),
@@ -1180,6 +1181,12 @@ impl AmigaEcs {
             self.dispatch_custom_write(offset, val);
             return;
         }
+        if (0x00DA_0000..0x00DC_0000).contains(&addr24)
+            && let Some(gayle) = self.gayle.as_mut()
+        {
+            gayle.write_word(addr24, val);
+            return;
+        }
         match self.gary.decode(addr24) {
             ChipSelect::Rtc => self.rtc.write_word(addr24, val),
             _ => self.memory.write_word(addr24, val),
@@ -1441,6 +1448,10 @@ impl AmigaEcs {
             // purposes a byte write just writes the byte value.
             let word = u16::from(val) << 8 | u16::from(val);
             self.dispatch_custom_write(offset, word);
+        } else if (0x00DA_0000..0x00DC_0000).contains(&(addr & 0xFF_FFFF))
+            && let Some(gayle) = self.gayle.as_mut()
+        {
+            gayle.write(addr, val);
         } else if self.gary.decode(addr) == ChipSelect::Rtc {
             self.rtc.write_byte(addr, val);
         } else {
@@ -1604,6 +1615,11 @@ impl AmigaEcs {
         }
         if let Some(reg) = cia::decode_cia_b(addr24) {
             return u16::from(self.cia_b.peek(reg));
+        }
+        if (0x00DA_0000..0x00DC_0000).contains(&addr24)
+            && let Some(gayle) = self.gayle.as_ref()
+        {
+            return gayle.read_word(addr24);
         }
         // Zorro-II autoconfig probe window.
         if (AUTOCONFIG_BASE..AUTOCONFIG_TOP).contains(&addr24) {
@@ -2315,9 +2331,12 @@ mod bus_plan_dispatch_tests {
         let a600_ntsc = AmigaEcs::with_a600_ram_config_ntsc(vec![0; 512 * 1024], RamConfig::bare());
 
         assert!(a500_plus.gayle_diagnostic_snapshot().is_none());
+        assert!(!a500_plus.gary().gayle_present());
         assert!(a600_pal.gayle_diagnostic_snapshot().is_some());
+        assert!(a600_pal.gary().gayle_present());
         assert_eq!(a600_pal.region(), AgnusRegion::Pal);
         assert!(a600_ntsc.gayle_diagnostic_snapshot().is_some());
+        assert!(a600_ntsc.gary().gayle_present());
         assert_eq!(a600_ntsc.region(), AgnusRegion::Ntsc);
     }
 
@@ -2378,6 +2397,16 @@ mod bus_plan_dispatch_tests {
             data: 0,
         });
         assert!(outside_window.is_none());
+
+        a600.poke_byte(0x00DA_8000, 0xA5);
+        assert_eq!(a600.read_word(0x00DA_8000), 0x00A5);
+        assert_eq!(
+            a600.gayle_diagnostic_snapshot()
+                .expect("A600 should contain Gayle")
+                .registers
+                .card_status,
+            0xA5,
+        );
     }
 
     #[test]

@@ -1225,6 +1225,10 @@ impl AmigaA1200 {
             self.dispatch_custom_write(offset, val);
             return;
         }
+        if (0x00DA_0000..0x00DC_0000).contains(&addr24) {
+            self.gayle.write_word(addr24, val);
+            return;
+        }
         match self.gary.decode(addr24) {
             ChipSelect::Rtc => self.rtc.write_word(addr24, val),
             _ => self.memory.write_word(addr24, val),
@@ -1498,6 +1502,8 @@ impl AmigaA1200 {
             // purposes a byte write just writes the byte value.
             let word = u16::from(val) << 8 | u16::from(val);
             self.dispatch_custom_write(offset, word);
+        } else if (0x00DA_0000..0x00DC_0000).contains(&(addr & 0xFF_FFFF)) {
+            self.gayle.write(addr, val);
         } else if self.gary.decode(addr) == ChipSelect::Rtc {
             self.rtc.write_byte(addr, val);
         } else {
@@ -1664,6 +1670,9 @@ impl AmigaA1200 {
         }
         if let Some(reg) = cia::decode_cia_b(addr24) {
             return u16::from(self.cia_b.peek(reg));
+        }
+        if (0x00DA_0000..0x00DC_0000).contains(&addr24) {
+            return self.gayle.read_word(addr24);
         }
         // Zorro-II autoconfig probe window.
         if (AUTOCONFIG_BASE..AUTOCONFIG_TOP).contains(&addr24) {
@@ -2416,8 +2425,8 @@ impl AmigaDriver for AmigaA1200 {
     }
 
     fn dispatch_bus(&mut self, tx: &BusTransaction) -> BusResponse {
-        // AGA-only: the Gayle arm (IDE + control registers) sits between
-        // the CIA pair and the RTC, matching the original inline chain.
+        // A1200 board-specific: the Gayle arm (IDE + control registers) sits
+        // between the CIA pair and the RTC, matching the A600 integration.
         self.dispatch_cia_a(tx)
             .or_else(|| self.dispatch_cia_b(tx))
             .or_else(|| self.dispatch_gayle(tx))
@@ -2459,10 +2468,16 @@ mod bus_plan_dispatch_tests {
 
     #[test]
     fn a1200_gary_reports_the_installed_gayle() {
-        let amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
 
         assert!(amiga.gary().gayle_present());
         assert_eq!(amiga.chip_select(0x00DA_8000), ChipSelect::Gayle);
+        amiga.poke_byte(0x00DA_8000, 0x5A);
+        assert_eq!(amiga.read_word(0x00DA_8000), 0x005A);
+        assert_eq!(
+            amiga.gayle_diagnostic_snapshot().registers.card_status,
+            0x5A,
+        );
     }
 
     #[test]

@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Keep Gary's public address-decoder state consistent with the installed Gayle
   controller
+- Route side-effect-free memory inspection and debugger writes through Gayle's
+  implemented register window
 - Record CIA-B bus writes in the existing diagnostic log
 - Compose rendered programmable horizontal blanking from Lisa's observed
   fine-phase HBSTRT/HBSTOP events and live ECSENA/EXTBLKEN selectors

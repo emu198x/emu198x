@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- [breaking] Preserve the optional A600 Gayle component in the raw
-  `AmigaEcsSnapshot` postcard schema; runtime envelopes version this as V29
+- [breaking] Preserve the keyboard byte awaiting a host handshake and the
+  optional A600 Gayle component in the raw `AmigaEcsSnapshot` postcard
+  schema; runtime envelopes version this as V29
 - [breaking] Preserve the two programmed horizontal-blank event latches in
   the raw `AmigaEcsSnapshot` postcard schema; runtime envelopes version this
   as V28
@@ -38,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep Gary's public address-decoder state consistent with the optional A600
+  Gayle controller
+- Route A600 side-effect-free memory inspection and debugger writes through
+  Gayle's implemented register window
 - Record CIA-B bus writes in the existing diagnostic log
 - Compose rendered programmable horizontal blanking from Agnus's observed
   HBSTRT/HBSTOP events and the live Super Denise selectors
