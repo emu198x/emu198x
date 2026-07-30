@@ -77,6 +77,87 @@ mod reg {
     pub const CRB: u8 = 0x0F;
 }
 
+/// Side-effect-free snapshot of all implemented MOS 8520 state.
+///
+/// This view is intended for debuggers, traces, and runtime queries. Reading
+/// it does not release timer or TOD read latches, clear interrupt status, or
+/// otherwise perform a register read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Cia8520DiagnosticSnapshot {
+    /// Port A data-register latch.
+    pub port_a: u8,
+    /// Port B data-register latch.
+    pub port_b: u8,
+    /// Port A data-direction register.
+    pub ddr_a: u8,
+    /// Port B data-direction register.
+    pub ddr_b: u8,
+    /// Current externally driven Port A pin levels.
+    pub external_a: u8,
+    /// Current externally driven Port B pin levels.
+    pub external_b: u8,
+    /// Current Timer A counter.
+    pub timer_a: u16,
+    /// Timer A reload latch.
+    pub timer_a_latch: u16,
+    /// Whether Timer A is running.
+    pub timer_a_running: bool,
+    /// Whether Timer A is in one-shot mode.
+    pub timer_a_oneshot: bool,
+    /// Whether a Timer A force-load strobe is pending.
+    pub timer_a_force_load: bool,
+    /// Current Timer B counter.
+    pub timer_b: u16,
+    /// Timer B reload latch.
+    pub timer_b_latch: u16,
+    /// Whether Timer B is running.
+    pub timer_b_running: bool,
+    /// Whether Timer B is in one-shot mode.
+    pub timer_b_oneshot: bool,
+    /// Whether a Timer B force-load strobe is pending.
+    pub timer_b_force_load: bool,
+    /// Latched interrupt-source status bits.
+    pub icr_status: u8,
+    /// Enabled interrupt-source mask bits.
+    pub icr_mask: u8,
+    /// Control register A, with the LOAD strobe removed.
+    pub cra: u8,
+    /// Control register B, with the LOAD strobe removed.
+    pub crb: u8,
+    /// Timer A output level driven onto PB6 when CRA.PBON is enabled.
+    pub pb6_out: bool,
+    /// Timer B output level driven onto PB7 when CRB.PBON is enabled.
+    pub pb7_out: bool,
+    /// Serial data register.
+    pub sdr: u8,
+    /// Live 24-bit binary time-of-day counter.
+    pub tod_counter: u32,
+    /// Programmed 24-bit binary time-of-day alarm.
+    pub tod_alarm: u32,
+    /// TOD value captured by a TOD high-byte read.
+    pub tod_latch: u32,
+    /// Whether TOD middle/low reads currently use `tod_latch`.
+    pub tod_latched: bool,
+    /// Timer A high byte captured by a Timer A low-byte read.
+    pub timer_a_read_hi_latch: u8,
+    /// Whether the captured Timer A high byte is active.
+    pub timer_a_read_hi_latched: bool,
+    /// Timer B high byte captured by a Timer B low-byte read.
+    pub timer_b_read_hi_latch: u8,
+    /// Whether the captured Timer B high byte is active.
+    pub timer_b_read_hi_latched: bool,
+    /// Whether writes have halted the 8520 TOD counter.
+    pub tod_halted: bool,
+    /// Current Port A value after DDR and external-pin composition.
+    pub port_a_output: u8,
+    /// Current Port B value after DDR, external pins, and timer outputs.
+    pub port_b_output: u8,
+    /// Current level-sensitive `/IRQ` output.
+    pub irq_active: bool,
+    /// Whether CRB currently routes TOD writes to the alarm.
+    pub tod_write_targets_alarm: bool,
+}
+
 /// MOS 8520 Complex Interface Adapter.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Cia8520 {
@@ -572,6 +653,50 @@ impl Cia8520 {
     #[must_use]
     pub fn port_b_output(&self) -> u8 {
         self.port_b_value()
+    }
+
+    /// Return a side-effect-free snapshot of every implemented CIA register,
+    /// latch, timer, port, TOD, serial, control, and interrupt field.
+    #[must_use]
+    pub fn diagnostic_snapshot(&self) -> Cia8520DiagnosticSnapshot {
+        Cia8520DiagnosticSnapshot {
+            port_a: self.port_a,
+            port_b: self.port_b,
+            ddr_a: self.ddr_a,
+            ddr_b: self.ddr_b,
+            external_a: self.external_a,
+            external_b: self.external_b,
+            timer_a: self.timer_a,
+            timer_a_latch: self.timer_a_latch,
+            timer_a_running: self.timer_a_running,
+            timer_a_oneshot: self.timer_a_oneshot,
+            timer_a_force_load: self.timer_a_force_load,
+            timer_b: self.timer_b,
+            timer_b_latch: self.timer_b_latch,
+            timer_b_running: self.timer_b_running,
+            timer_b_oneshot: self.timer_b_oneshot,
+            timer_b_force_load: self.timer_b_force_load,
+            icr_status: self.icr_status,
+            icr_mask: self.icr_mask,
+            cra: self.cra,
+            crb: self.crb,
+            pb6_out: self.pb6_out,
+            pb7_out: self.pb7_out,
+            sdr: self.sdr,
+            tod_counter: self.tod_counter,
+            tod_alarm: self.tod_alarm,
+            tod_latch: self.tod_latch,
+            tod_latched: self.tod_latched,
+            timer_a_read_hi_latch: self.timer_a_read_hi_latch,
+            timer_a_read_hi_latched: self.timer_a_read_hi_latched,
+            timer_b_read_hi_latch: self.timer_b_read_hi_latch,
+            timer_b_read_hi_latched: self.timer_b_read_hi_latched,
+            tod_halted: self.tod_halted,
+            port_a_output: self.port_a_output(),
+            port_b_output: self.port_b_output(),
+            irq_active: self.irq_active(),
+            tod_write_targets_alarm: self.tod_write_targets_alarm(),
+        }
     }
 
     // ── Internals ────────────────────────────────────────────────────

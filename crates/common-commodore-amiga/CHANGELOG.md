@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-consuming diagnostic getter
 - Add shared read-only scheduler and encoded-track-stream snapshots, and
   centralise the bounded instruction-boundary queue capacity
+- Add a side-effect-free RTC diagnostic snapshot exposing stored and effective
+  time, decoded calendar fields, and control state without the host anchor
 - Drive the selected CPU through its exact clock domain, preserve every
   instruction boundary crossed inside a system tick, and separate
   accelerator-local responders from synchronized motherboard cycles

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add a side-effect-free diagnostic snapshot covering every implemented CIA register, latch, timer, port, TOD, serial, control, and interrupt field.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/mos-cia-8520-v0.2.0) - 2026-06-04
 
 ### Other

@@ -60,6 +60,53 @@ struct CalendarTime {
     weekday: u8, // Sunday = 0
 }
 
+/// Side-effect-free snapshot of the Amiga RTC's emulated clock and controls.
+///
+/// The host-side time anchor is intentionally excluded. `effective_unix_seconds`
+/// and the decoded calendar are sampled once so all returned fields describe
+/// the same emulated instant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Msm6242RtcDiagnosticSnapshot {
+    /// Persisted emulated Unix timestamp at the current host anchor.
+    pub stored_unix_seconds: i64,
+    /// Emulated Unix timestamp after applying elapsed host time when running.
+    pub effective_unix_seconds: i64,
+    /// Decoded calendar year for the effective timestamp.
+    pub year: i32,
+    /// Decoded calendar month in the range 1..=12.
+    pub month: u8,
+    /// Decoded day of month in the range 1..=31.
+    pub day: u8,
+    /// Decoded 24-hour clock hour in the range 0..=23.
+    pub hour: u8,
+    /// Decoded minute in the range 0..=59.
+    pub minute: u8,
+    /// Decoded second in the range 0..=59.
+    pub second: u8,
+    /// Decoded weekday, where Sunday is zero.
+    pub weekday: u8,
+    /// Raw stored control-D nibble.
+    pub control_d: u8,
+    /// Raw stored control-E nibble.
+    pub control_e: u8,
+    /// Raw stored control-F nibble after RESET strobe handling.
+    pub control_f: u8,
+    /// Whether the RTC is currently advancing.
+    pub running: bool,
+    /// Whether control-D HOLD is set.
+    pub hold: bool,
+    /// Whether control-F STOP is set.
+    pub stop: bool,
+    /// Whether control-F selects 24-hour display.
+    pub hour_mode_24: bool,
+    /// Whether the control-D IRQ flag is set.
+    pub irq_flag: bool,
+    /// Whether the control-D BUSY flag is stored.
+    pub busy: bool,
+    /// Whether the control-F RESET strobe remains set.
+    pub reset: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Msm6242Rtc {
     unix_seconds: i64,
@@ -127,6 +174,35 @@ impl Msm6242Rtc {
         let lo = (value & 0x0F) as u8;
         let nibble = if lo != 0 || hi == 0 { lo } else { hi };
         self.write_byte(addr24, nibble);
+    }
+
+    /// Return a side-effect-free diagnostic snapshot of the stored and
+    /// effective clock value plus every implemented control state.
+    #[must_use]
+    pub fn diagnostic_snapshot(&self) -> Msm6242RtcDiagnosticSnapshot {
+        let effective_unix_seconds = self.effective_unix_seconds();
+        let calendar = CalendarTime::from_unix_seconds(effective_unix_seconds);
+        Msm6242RtcDiagnosticSnapshot {
+            stored_unix_seconds: self.unix_seconds,
+            effective_unix_seconds,
+            year: calendar.year,
+            month: calendar.month,
+            day: calendar.day,
+            hour: calendar.hour,
+            minute: calendar.minute,
+            second: calendar.second,
+            weekday: calendar.weekday,
+            control_d: self.control_d,
+            control_e: self.control_e,
+            control_f: self.control_f,
+            running: self.running(),
+            hold: self.control_d & CD_HOLD != 0,
+            stop: self.control_f & CF_STOP != 0,
+            hour_mode_24: self.control_f & CF_24H != 0,
+            irq_flag: self.control_d & CD_IRQ_FLAG != 0,
+            busy: self.control_d & CD_BUSY != 0,
+            reset: self.control_f & CF_RESET != 0,
+        }
     }
 
     fn running(&self) -> bool {
@@ -383,9 +459,9 @@ fn days_from_civil(year: i32, month: u8, day: u8) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        CalendarTime, Msm6242Rtc, REG_DAY_1, REG_DAY_10, REG_HOUR_1, REG_HOUR_10, REG_MINUTE_1,
-        REG_MINUTE_10, REG_MONTH_1, REG_MONTH_10, REG_SECOND_1, REG_SECOND_10, REG_WEEKDAY,
-        REG_YEAR_1, REG_YEAR_10, RTC_BASE,
+        CD_HOLD, CF_24H, CF_STOP, CalendarTime, Msm6242Rtc, REG_CD, REG_CE, REG_CF, REG_DAY_1,
+        REG_DAY_10, REG_HOUR_1, REG_HOUR_10, REG_MINUTE_1, REG_MINUTE_10, REG_MONTH_1,
+        REG_MONTH_10, REG_SECOND_1, REG_SECOND_10, REG_WEEKDAY, REG_YEAR_1, REG_YEAR_10, RTC_BASE,
     };
 
     #[test]
@@ -441,5 +517,58 @@ mod tests {
             assert_eq!(rtc.read_byte(addr), expected);
             assert_eq!(rtc.read_word(addr), u16::from(expected) * 0x0101);
         }
+    }
+
+    #[test]
+    fn diagnostic_snapshot_reports_stored_effective_calendar_and_controls() {
+        let calendar = CalendarTime {
+            year: 2026,
+            month: 4,
+            day: 22,
+            hour: 19,
+            minute: 51,
+            second: 57,
+            weekday: 3,
+        };
+        let unix_seconds = calendar.to_unix_seconds();
+        let mut rtc = Msm6242Rtc::with_unix_seconds_for_test(unix_seconds);
+        rtc.write_byte(RTC_BASE + (REG_CE as u32) * 4, 0x0B);
+
+        let snapshot = rtc.diagnostic_snapshot();
+        assert_eq!(snapshot.stored_unix_seconds, unix_seconds);
+        assert_eq!(snapshot.effective_unix_seconds, unix_seconds);
+        assert_eq!(snapshot.year, 2026);
+        assert_eq!(snapshot.month, 4);
+        assert_eq!(snapshot.day, 22);
+        assert_eq!(snapshot.hour, 19);
+        assert_eq!(snapshot.minute, 51);
+        assert_eq!(snapshot.second, 57);
+        assert_eq!(snapshot.weekday, 3);
+        assert_eq!(snapshot.control_d, CD_HOLD | 0x04);
+        assert_eq!(snapshot.control_e, 0x0B);
+        assert_eq!(snapshot.control_f, CF_24H);
+        assert!(!snapshot.running);
+        assert!(snapshot.hold);
+        assert!(!snapshot.stop);
+        assert!(snapshot.hour_mode_24);
+        assert!(snapshot.irq_flag);
+        assert!(!snapshot.busy);
+        assert!(!snapshot.reset);
+
+        rtc.write_byte(RTC_BASE + (REG_CF as u32) * 4, CF_STOP);
+        let stopped = rtc.diagnostic_snapshot();
+        assert!(!stopped.running);
+        assert!(stopped.hold);
+        assert!(stopped.stop);
+        assert!(!stopped.hour_mode_24);
+
+        rtc.write_byte(RTC_BASE + (REG_CD as u32) * 4, 0);
+        rtc.write_byte(RTC_BASE + (REG_CF as u32) * 4, CF_24H);
+        let running = rtc.diagnostic_snapshot();
+        assert!(running.running);
+        assert!(!running.hold);
+        assert!(!running.stop);
+        assert!(running.hour_mode_24);
+        assert!(running.effective_unix_seconds >= running.stored_unix_seconds);
     }
 }
