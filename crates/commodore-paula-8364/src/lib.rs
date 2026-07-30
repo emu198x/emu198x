@@ -704,6 +704,156 @@ pub struct AudioChannelSnapshot {
     pub sample: i8,
 }
 
+/// Side-effect-free snapshot of Paula's interrupt and shared-control registers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaulaInterruptDiagnosticSnapshot {
+    /// Raw INTENA interrupt-enable register.
+    pub intena: u16,
+    /// Raw INTREQ interrupt-request register.
+    pub intreq: u16,
+    /// Raw ADKCON audio, disk, and UART control register.
+    pub adkcon: u16,
+    /// Unmasked interrupt sources that are currently pending.
+    pub active_sources: u16,
+    /// Interrupt priority level derived from the current INTENA and INTREQ state.
+    pub ipl: u8,
+}
+
+/// Diagnostic name for one audio channel's internal DMA/playback state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PaulaAudioDmaState {
+    /// DMA is disabled, or CPU-written AUDxDAT playback is active.
+    Idle,
+    /// DMA was enabled and the channel is waiting for its dummy first word.
+    WaitWord1,
+    /// The dummy word arrived and the channel is waiting for its first sample.
+    WaitWord2,
+    /// The channel is producing bytes from its current and next words.
+    Playing,
+}
+
+/// Side-effect-free snapshot of one Paula audio channel.
+///
+/// This exposes the complete implemented register, DMA, buffering, timing, and
+/// playback state. Register values retain their raw programmed form while
+/// derived fields such as [`Self::effective_period`] report the value used by
+/// the playback engine.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PaulaAudioChannelDiagnosticSnapshot {
+    /// Raw AUDxLC location register.
+    pub location: u32,
+    /// Current DMA fetch pointer.
+    pub dma_pointer: u32,
+    /// Raw AUDxLEN word count.
+    pub length_words: u16,
+    /// AUDxLEN interpreted by Paula, where zero represents 65,536 words.
+    pub programmed_length_words: u32,
+    /// Words remaining before the DMA buffer reloads.
+    pub words_remaining: u32,
+    /// Raw AUDxPER period register.
+    pub period: u16,
+    /// Period used by playback after applying Paula's minimum.
+    pub effective_period: u16,
+    /// Clamped AUDxVOL value.
+    pub volume: u8,
+    /// Stored AUDxDAT register/latch.
+    pub data: u16,
+    /// Word currently feeding the output byte latch.
+    pub current_word: Option<u16>,
+    /// Prefetched word waiting behind `current_word`.
+    pub next_word: Option<u16>,
+    /// Whether the next output transition selects the current word's high byte.
+    pub next_byte_is_high: bool,
+    /// CCKs remaining until the next output transition.
+    pub period_counter: u16,
+    /// Current signed eight-bit DAC sample latch.
+    pub output_sample: i8,
+    /// Current DMA/playback state-machine state.
+    pub state: PaulaAudioDmaState,
+    /// Whether the channel's DMA playback path is active.
+    pub dma_active: bool,
+    /// DMA-enable level retained from the previous audio tick.
+    pub dma_enabled_previous: bool,
+    /// Number of channel DMA requests waiting for an Agnus slot.
+    pub dma_requests_pending: u8,
+    /// Whether this channel modulates the next channel's period.
+    pub period_modulation_enabled: bool,
+    /// Whether this channel modulates the next channel's volume.
+    pub volume_modulation_enabled: bool,
+    /// Host-side mixer control applied to this channel.
+    pub host_control: ChannelControl,
+}
+
+/// Side-effect-free snapshot of Paula's four audio channels and host controls.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PaulaAudioDiagnosticSnapshot {
+    /// Complete channel state in AUD0 through AUD3 order.
+    pub channels: [PaulaAudioChannelDiagnosticSnapshot; 4],
+    /// Global and per-channel host mixer controls.
+    pub controls: AudioControls,
+}
+
+/// Side-effect-free snapshot of Paula's implemented UART state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaulaSerialDiagnosticSnapshot {
+    /// Raw SERDAT transmit register.
+    pub serdat: u16,
+    /// Raw SERPER baud and word-length register.
+    pub serper: u16,
+    /// Composite SERDATR value without applying its read side effects.
+    pub serdatr: u16,
+    /// Raw receive-data latch.
+    pub receive_data: u16,
+    /// Whether the receive-data latch is full.
+    pub receive_full: bool,
+    /// Whether an unread receive byte was overwritten.
+    pub receive_overrun: bool,
+}
+
+/// Side-effect-free snapshot of Paula's implemented pot-port state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaulaPotDiagnosticSnapshot {
+    /// Latched POTGO value; the START strobe is not retained.
+    pub potgo: u16,
+    /// Raw externally supplied levels for the four pot pins.
+    pub raw_pin_levels: u16,
+    /// Composite POTGOR value derived from direction, output, and raw pin state.
+    pub potgor: u16,
+    /// Port 0 proportional-input counter.
+    pub pot0dat: u16,
+    /// Port 1 proportional-input counter.
+    pub pot1dat: u16,
+}
+
+/// Side-effect-free summary of Paula's component-owned diagnostic logs.
+///
+/// Counts describe the entries currently retained by each log. INTENA and
+/// INTREQ logs are bounded to their most recent 16 writes; disk-write logs
+/// retain all entries until explicitly cleared.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaulaLogDiagnosticSnapshot {
+    /// Retained INTENA writes in oldest-to-newest order.
+    pub intena_writes: Vec<u16>,
+    /// Number of retained INTENA writes.
+    pub intena_write_count: usize,
+    /// Most recent INTENA write.
+    pub last_intena_write: Option<u16>,
+    /// Retained INTREQ writes in oldest-to-newest order.
+    pub intreq_writes: Vec<u16>,
+    /// Number of retained INTREQ writes.
+    pub intreq_write_count: usize,
+    /// Most recent INTREQ write.
+    pub last_intreq_write: Option<u16>,
+    /// Number of retained disk write-DMA words.
+    pub disk_write_dma_count: usize,
+    /// Most recent disk write-DMA word.
+    pub last_disk_write_dma_word: Option<u16>,
+    /// Number of retained disk PIO writes.
+    pub disk_write_pio_count: usize,
+    /// Most recent disk PIO write.
+    pub last_disk_write_pio_word: Option<u16>,
+}
+
 /// Side-effect-free snapshot of Paula's implemented floppy-disk state.
 ///
 /// The queued DSKDAT words are copied in consumer order so debuggers and
@@ -964,6 +1114,20 @@ impl Paula8364 {
         }
     }
 
+    /// Return a side-effect-free diagnostic snapshot of Paula's interrupt and
+    /// shared-control registers, including the currently active sources and
+    /// derived processor interrupt level.
+    #[must_use]
+    pub fn interrupt_diagnostic_snapshot(&self) -> PaulaInterruptDiagnosticSnapshot {
+        PaulaInterruptDiagnosticSnapshot {
+            intena: self.intena,
+            intreq: self.intreq,
+            adkcon: self.adkcon,
+            active_sources: self.intena & self.intreq & INT_SOURCES,
+            ipl: self.compute_ipl(),
+        }
+    }
+
     fn apply_set_clear(reg: &mut u16, val: u16) {
         if val & INT_SETCLR != 0 {
             *reg |= val & INT_SOURCES | (val & INT_INTEN);
@@ -1018,6 +1182,48 @@ impl Paula8364 {
             volume: c.vol,
             sample: c.output_sample,
         })
+    }
+
+    /// Return a side-effect-free diagnostic snapshot of every implemented
+    /// audio register, DMA pipeline, playback latch, and host mixer control.
+    #[must_use]
+    pub fn audio_diagnostic_snapshot(&self) -> PaulaAudioDiagnosticSnapshot {
+        let channels = std::array::from_fn(|index| {
+            let channel = &self.audio[index];
+            let state = match channel.state {
+                AudioState::Idle => PaulaAudioDmaState::Idle,
+                AudioState::WaitWord1 => PaulaAudioDmaState::WaitWord1,
+                AudioState::WaitWord2 => PaulaAudioDmaState::WaitWord2,
+                AudioState::Playing => PaulaAudioDmaState::Playing,
+            };
+            PaulaAudioChannelDiagnosticSnapshot {
+                location: channel.lc,
+                dma_pointer: channel.ptr,
+                length_words: channel.len_words,
+                programmed_length_words: channel.programmed_length_words(),
+                words_remaining: channel.words_remaining,
+                period: channel.per,
+                effective_period: channel.effective_period(),
+                volume: channel.vol,
+                data: channel.dat,
+                current_word: channel.current_word,
+                next_word: channel.next_word,
+                next_byte_is_high: channel.next_byte_is_hi,
+                period_counter: channel.period_counter,
+                output_sample: channel.output_sample,
+                state,
+                dma_active: channel.dma_active,
+                dma_enabled_previous: channel.dma_enabled_prev,
+                dma_requests_pending: channel.dma_requests_pending,
+                period_modulation_enabled: self.adkcon & ADKCON_USE_PER[index] != 0,
+                volume_modulation_enabled: self.adkcon & ADKCON_USE_VOL[index] != 0,
+                host_control: self.audio_controls.channels[index],
+            }
+        });
+        PaulaAudioDiagnosticSnapshot {
+            channels,
+            controls: self.audio_controls,
+        }
     }
 
     /// Current host-side audio controls.
@@ -1515,6 +1721,21 @@ impl Paula8364 {
         v | SERDATR_TBE | SERDATR_TSRE
     }
 
+    /// Return a side-effect-free diagnostic snapshot of the UART registers and
+    /// receive latches. Unlike [`Self::read_serdatr`], this does not clear RBF
+    /// or the overrun latch.
+    #[must_use]
+    pub fn serial_diagnostic_snapshot(&self) -> PaulaSerialDiagnosticSnapshot {
+        PaulaSerialDiagnosticSnapshot {
+            serdat: self.serdat,
+            serper: self.serper,
+            serdatr: self.peek_serdatr(),
+            receive_data: self.serial_rx_byte,
+            receive_full: self.serial_rx_full,
+            receive_overrun: self.serial_rx_overrun,
+        }
+    }
+
     /// Inject an incoming serial byte — the hook a future serial
     /// peripheral (modem, MIDI, null-modem pair, etc.) calls on each
     /// received byte. Raises INT_RBF and sets OVRUN if RBF was still
@@ -1588,6 +1809,19 @@ impl Paula8364 {
         self.pot1dat
     }
 
+    /// Return a side-effect-free diagnostic snapshot of the pot-port output
+    /// latch, raw external pin levels, composite POTGOR value, and counters.
+    #[must_use]
+    pub fn pot_diagnostic_snapshot(&self) -> PaulaPotDiagnosticSnapshot {
+        PaulaPotDiagnosticSnapshot {
+            potgo: self.potgo,
+            raw_pin_levels: self.pot_pin_levels,
+            potgor: self.peek_potgor(),
+            pot0dat: self.pot0dat,
+            pot1dat: self.pot1dat,
+        }
+    }
+
     /// Inject the live level of one of the four pot pins. `mask` must
     /// be one of `POTGOR_BTN_*` / `POTGO_DAT*` constants. `high = true`
     /// is the idle/released state; `false` is pulled low (button press
@@ -1650,6 +1884,25 @@ impl Paula8364 {
     #[must_use]
     pub fn debug_intreq_writes(&self) -> &VecDeque<u16> {
         &self.intreq_write_log
+    }
+
+    /// Return a side-effect-free summary of Paula's component-owned
+    /// diagnostic logs. The bounded interrupt logs are copied in retained
+    /// order; disk-write logs expose only their count and most recent value.
+    #[must_use]
+    pub fn log_diagnostic_snapshot(&self) -> PaulaLogDiagnosticSnapshot {
+        PaulaLogDiagnosticSnapshot {
+            intena_writes: self.intena_write_log.iter().copied().collect(),
+            intena_write_count: self.intena_write_log.len(),
+            last_intena_write: self.intena_write_log.back().copied(),
+            intreq_writes: self.intreq_write_log.iter().copied().collect(),
+            intreq_write_count: self.intreq_write_log.len(),
+            last_intreq_write: self.intreq_write_log.back().copied(),
+            disk_write_dma_count: self.disk_write_dma_log.len(),
+            last_disk_write_dma_word: self.disk_write_dma_log.last().copied(),
+            disk_write_pio_count: self.disk_write_pio_log.len(),
+            last_disk_write_pio_word: self.disk_write_pio_log.last().copied(),
+        }
     }
 }
 

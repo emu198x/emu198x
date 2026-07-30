@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose the complete common Denise register, bitplane, collision, sprite,
+  HAM and wide-fetch pipeline through grouped diagnostics
+- Expose Paula's interrupt priority, audio pipelines and controls, UART,
+  pot-port pins and component logs through grouped diagnostics
 - Expose controller-port sources, keyboard protocol progress and all existing
   machine diagnostic counters and last-entry summaries through grouped queries
 - Resolve and advertise nested query fields, with recursive catalogue tests

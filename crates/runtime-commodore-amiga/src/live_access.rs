@@ -32,6 +32,7 @@
 //! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../../knowledge/decisions/amiga-machine-catalogue.md
 
 use commodore_agnus_ocs::Agnus;
+use commodore_denise_ocs::DeniseDiagnosticSnapshot;
 use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_a1200::AmigaA1200;
 use machine_commodore_amiga_ecs::{AgnusEcs, AmigaEcs, DeniseEcs};
@@ -348,6 +349,9 @@ pub trait AmigaLiveAccess {
         None
     }
 
+    /// Complete common Denise rendering-core state.
+    fn denise_diagnostic_snapshot(&self) -> DeniseDiagnosticSnapshot;
+
     fn cia_a(&self) -> &Cia;
     fn cia_b(&self) -> &Cia;
     fn paula(&self) -> &Paula8364;
@@ -633,6 +637,10 @@ impl AmigaLiveAccess for AmigaOcs {
         AmigaOcs::agnus(self)
     }
 
+    fn denise_diagnostic_snapshot(&self) -> DeniseDiagnosticSnapshot {
+        self.denise().ocs.diagnostic_snapshot()
+    }
+
     fn cia_a(&self) -> &Cia {
         AmigaOcs::cia_a(self)
     }
@@ -903,6 +911,10 @@ impl AmigaLiveAccess for AmigaEcs {
         ))
     }
 
+    fn denise_diagnostic_snapshot(&self) -> DeniseDiagnosticSnapshot {
+        self.denise().ocs.diagnostic_snapshot()
+    }
+
     fn cia_a(&self) -> &Cia {
         AmigaEcs::cia_a(self)
     }
@@ -1164,6 +1176,10 @@ impl AmigaLiveAccess for AmigaA1200 {
             self.bplcon0(),
             output_active,
         ))
+    }
+
+    fn denise_diagnostic_snapshot(&self) -> DeniseDiagnosticSnapshot {
+        self.denise().ocs.diagnostic_snapshot()
     }
 
     fn cia_a(&self) -> &Cia {
@@ -1523,6 +1539,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(_) => None,
             Self::Ecs(rt) => rt.machine().enhanced_denise(),
             Self::Aga(rt) => rt.machine().enhanced_denise(),
+        }
+    }
+
+    fn denise_diagnostic_snapshot(&self) -> DeniseDiagnosticSnapshot {
+        match self {
+            Self::Ocs(rt) => rt.machine().denise_diagnostic_snapshot(),
+            Self::Ecs(rt) => rt.machine().denise_diagnostic_snapshot(),
+            Self::Aga(rt) => rt.machine().denise_diagnostic_snapshot(),
         }
     }
 

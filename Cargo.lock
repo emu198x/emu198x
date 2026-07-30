@@ -3885,6 +3885,7 @@ name = "runtime-commodore-amiga"
 version = "0.2.0"
 dependencies = [
  "commodore-agnus-ocs",
+ "commodore-denise-ocs",
  "emu198x-shell",
  "format-commodore-amiga-adf",
  "gvp-a530",

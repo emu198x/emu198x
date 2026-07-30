@@ -28,6 +28,8 @@ pub const NTSC_RASTER_FB_HEIGHT: u32 = 524;
 
 pub use chip::DeniseOcs;
 pub use debug::{
-    DeniseOutputPixelDebug, DeniseShiftLoadDebug, DeniseShiftLoadPlaneDebug, DeniseSourcePixelDebug,
+    DeniseBitplaneDiagnosticSnapshot, DeniseDiagnosticSnapshot, DeniseOutputPixelDebug,
+    DeniseShiftLoadDebug, DeniseShiftLoadPlaneDebug, DeniseSourcePixelDebug,
+    DeniseSpriteDiagnosticSnapshot,
 };
 pub use viewport::{ViewportBounds, ViewportImage, ViewportPreset, pixel_aspect_ratio};

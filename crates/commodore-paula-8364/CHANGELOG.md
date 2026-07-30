@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add side-effect-free diagnostic snapshots for Paula interrupt/control,
+  complete audio-pipeline, UART, pot-port, and component log state.
 - Add a read-only diagnostic snapshot for Paula disk registers, byte latches, DSKDAT queue, DMA state, and PLL timing.
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-paula-8364-v0.2.0) - 2026-06-04

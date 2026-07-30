@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Expose a side-effect-free snapshot of all implemented Denise register,
+  bitplane, sprite, collision, HAM and wide-fetch pipeline state
+
 ### Fixed
 
 - Require a current-line `BPL1DAT` arrival before normal sprite display and

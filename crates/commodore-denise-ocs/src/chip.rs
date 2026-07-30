@@ -12,7 +12,9 @@ use serde_big_array::BigArray;
 use crate::PAL_RASTER_FB_HEIGHT;
 use crate::RASTER_FB_WIDTH;
 use crate::debug::{
-    DeniseOutputPixelDebug, DeniseShiftLoadDebug, DeniseShiftLoadPlaneDebug, DeniseSourcePixelDebug,
+    DeniseBitplaneDiagnosticSnapshot, DeniseDiagnosticSnapshot, DeniseOutputPixelDebug,
+    DeniseShiftLoadDebug, DeniseShiftLoadPlaneDebug, DeniseSourcePixelDebug,
+    DeniseSpriteDiagnosticSnapshot,
 };
 use crate::viewport::{ViewportImage, ViewportPreset};
 
@@ -485,6 +487,69 @@ impl DeniseOcs {
     #[must_use]
     pub fn last_shift_load_debug(&self) -> DeniseShiftLoadDebug {
         self.last_shift_load_debug
+    }
+
+    /// Capture every implemented register, bitplane and sprite pipeline field
+    /// without advancing shifters, clearing collision latches or modifying
+    /// framebuffer state.
+    #[must_use]
+    pub fn diagnostic_snapshot(&self) -> DeniseDiagnosticSnapshot {
+        DeniseDiagnosticSnapshot {
+            palette_12: self.palette,
+            palette_24: self.palette_24,
+            raster_width: self.raster_fb_width,
+            raster_height: self.raster_fb_height,
+            framebuffer_pixels: self.framebuffer_raster.len(),
+            interlace_active: self.interlace_active,
+            long_frame: self.lof,
+            maximum_bitplanes: self.max_bitplanes,
+            active_bitplanes: self.num_bitplanes(),
+            bplcon0: self.bplcon0,
+            bplcon1: self.bplcon1,
+            bplcon2: self.bplcon2,
+            bplcon4: self.bplcon4,
+            clxcon: self.clxcon,
+            clxdat: self.clxdat,
+            bitplanes: DeniseBitplaneDiagnosticSnapshot {
+                holding_data: self.bpl_data,
+                shift_data: self.bpl_shift,
+                aggregate_shift_count: self.shift_count,
+                shift_counts: self.bpl_shift_count,
+                shift_delays: self.bpl_shift_delay,
+                previous_data: self.bpl_prev_data,
+                pending_data: self.bpl_pending_data,
+                pending_copy_odd_planes: self.bpl_pending_copy_odd_planes,
+                pending_copy_even_planes: self.bpl_pending_copy_even_planes,
+                scroll_pending_line: self.bpl_scroll_pending_line,
+                active_fifo: self.bpl_fifo,
+                active_fifo_lengths: self.bpl_fifo_len,
+                staged_fetch_tails: self.bpl_fetch_tail,
+                staged_fetch_tail_lengths: self.bpl_fetch_tail_len,
+                deferred_shift_load_source_pixels: self.deferred_shift_load_after_source_pixels,
+            },
+            sprite_width: self.spr_width,
+            sprites: std::array::from_fn(|sprite| DeniseSpriteDiagnosticSnapshot {
+                position: self.spr_pos[sprite],
+                display_position: self.spr_pos_display[sprite],
+                position_dirty: self.spr_pos_dirty[sprite],
+                control: self.spr_ctl[sprite],
+                data: self.spr_data[sprite],
+                data_b: self.spr_datb[sprite],
+                armed: self.spr_armed[sprite],
+                shift_data: self.spr_shift_data[sprite],
+                shift_data_b: self.spr_shift_datb[sprite],
+                shift_count: self.spr_shift_count[sprite],
+                current_code: self.spr_current_code[sprite],
+                pixels_rendered: self.spr_pixels_rendered[sprite],
+            }),
+            sprite_bpl1dat_enabled: self.sprite_bpl1dat_enabled,
+            sprite_runtime_line_valid: self.sprite_runtime_line_valid,
+            sprite_runtime_beam_x: self.sprite_runtime_beam_x,
+            sprite_runtime_beam_y: self.sprite_runtime_beam_y,
+            ham_previous_rgb12: self.ham_prev_rgb,
+            ham_previous_rgb24: self.ham_prev_rgb24,
+            last_shift_load: self.last_shift_load_debug,
+        }
     }
 
     /// Defer the next bitplane parallel shift-load until after `count`
@@ -1510,6 +1575,37 @@ mod tests {
             out.push(raw as u8);
         }
         out
+    }
+
+    #[test]
+    fn diagnostic_snapshot_copies_pipeline_state_without_consuming_it() {
+        let mut denise = DeniseOcs::new();
+        denise.bplcon0 = 0x9000;
+        denise.bplcon1 = 0x0040;
+        denise.clxdat = 0x1234;
+        denise.load_bitplane(0, 0xA55A);
+        denise.push_bpl_fifo(0, 0x1111);
+        denise.queue_shift_load_from_bpl1dat();
+        denise.write_sprite_pos(2, 0x3456);
+        denise.write_sprite_ctl(2, 0x789A);
+        denise.write_sprite_data_wide(2, 0x1122_3344_5566_7788);
+
+        let first = denise.diagnostic_snapshot();
+        let second = denise.diagnostic_snapshot();
+
+        assert_eq!(first, second);
+        assert_eq!(first.clxdat, 0x1234);
+        assert_eq!(denise.peek_clxdat(), 0x1234);
+        assert_eq!(first.bitplanes.holding_data[0], 0xA55A);
+        assert_eq!(first.bitplanes.staged_fetch_tails[0][0], 0x1111);
+        assert!(first.bitplanes.pending_copy_odd_planes);
+        assert_eq!(first.sprites[2].position, 0x3456);
+        assert_eq!(first.sprites[2].control, 0x789A);
+        assert_eq!(first.sprites[2].data, 0x1122_3344_5566_7788);
+        assert_eq!(
+            first.framebuffer_pixels,
+            (first.raster_width * first.raster_height) as usize,
+        );
     }
 
     #[test]

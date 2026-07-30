@@ -260,6 +260,65 @@ fn decode_int_bits(val: u16) -> Value {
     Value::Object(out)
 }
 
+fn decode_named_bits(val: u16, names: &[(&str, u16)]) -> Value {
+    let mut out = serde_json::Map::new();
+    for &(name, mask) in names {
+        out.insert(name.to_owned(), Value::Bool(val & mask != 0));
+    }
+    Value::Object(out)
+}
+
+fn decode_adkcon_bits(val: u16) -> Value {
+    decode_named_bits(
+        val,
+        &[
+            ("PRECOMP1", 0x4000),
+            ("PRECOMP0", 0x2000),
+            ("MFMPREC", 0x1000),
+            ("UARTBRK", 0x0800),
+            ("WORDSYNC", 0x0400),
+            ("MSBSYNC", 0x0200),
+            ("FAST", 0x0100),
+            ("USE3PN", 0x0080),
+            ("USE2P3", 0x0040),
+            ("USE1P2", 0x0020),
+            ("USE0P1", 0x0010),
+            ("USE3VN", 0x0008),
+            ("USE2V3", 0x0004),
+            ("USE1V2", 0x0002),
+            ("USE0V1", 0x0001),
+        ],
+    )
+}
+
+fn decode_serdatr_bits(val: u16) -> Value {
+    decode_named_bits(
+        val,
+        &[
+            ("OVRUN", 0x8000),
+            ("RBF", 0x4000),
+            ("TBE", 0x2000),
+            ("TSRE", 0x1000),
+        ],
+    )
+}
+
+fn decode_pot_bits(val: u16) -> Value {
+    decode_named_bits(
+        val,
+        &[
+            ("OUTRY", 0x8000),
+            ("DATRY", 0x4000),
+            ("OUTLY", 0x2000),
+            ("DATLY", 0x1000),
+            ("OUTRX", 0x0800),
+            ("DATRX", 0x0400),
+            ("OUTLX", 0x0200),
+            ("DATLX", 0x0100),
+        ],
+    )
+}
+
 /// BPLCON0 / DMACON / ADKCON / COLOR00 / copper pointers / overlay.
 pub(crate) fn chipset_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     let enhanced_agnus = m.ecs_agnus_timing();
@@ -358,17 +417,54 @@ pub(crate) fn scheduler_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     })
 }
 
-/// Paula interrupt state: INTENA / INTREQ raw plus the master-enable
-/// flag and the decoded source bitmaps.
+/// Complete Paula interrupt, audio, serial, pot-port and component-log state.
 pub(crate) fn paula_snapshot(m: &dyn AmigaLiveAccess) -> Value {
-    let intena = m.intena();
-    let intreq = m.intreq();
+    let paula = m.paula();
+    let interrupt = paula.interrupt_diagnostic_snapshot();
+    let audio = paula.audio_diagnostic_snapshot();
+    let serial = paula.serial_diagnostic_snapshot();
+    let pot = paula.pot_diagnostic_snapshot();
+    let logs = paula.log_diagnostic_snapshot();
     json!({
-        "intena": intena,
-        "intreq": intreq,
-        "master_enable": (intena & 0x4000) != 0,
-        "intena_bits": decode_int_bits(intena),
-        "intreq_bits": decode_int_bits(intreq),
+        "intena": interrupt.intena,
+        "intreq": interrupt.intreq,
+        "adkcon": interrupt.adkcon,
+        "active_sources": interrupt.active_sources,
+        "ipl": interrupt.ipl,
+        "master_enable": (interrupt.intena & 0x4000) != 0,
+        "intena_bits": decode_int_bits(interrupt.intena),
+        "intreq_bits": decode_int_bits(interrupt.intreq),
+        "active_source_bits": decode_int_bits(interrupt.active_sources),
+        "adkcon_bits": decode_adkcon_bits(interrupt.adkcon),
+        "audio": {
+            "channels": {
+                "channel0": audio.channels[0],
+                "channel1": audio.channels[1],
+                "channel2": audio.channels[2],
+                "channel3": audio.channels[3],
+            },
+            "controls": audio.controls,
+        },
+        "serial": {
+            "serdat": serial.serdat,
+            "serper": serial.serper,
+            "serdatr": serial.serdatr,
+            "serdatr_bits": decode_serdatr_bits(serial.serdatr),
+            "receive_data": serial.receive_data,
+            "receive_full": serial.receive_full,
+            "receive_overrun": serial.receive_overrun,
+        },
+        "pot": {
+            "potgo": pot.potgo,
+            "potgo_bits": decode_pot_bits(pot.potgo),
+            "raw_pin_levels": pot.raw_pin_levels,
+            "raw_pin_bits": decode_pot_bits(pot.raw_pin_levels),
+            "potgor": pot.potgor,
+            "potgor_bits": decode_pot_bits(pot.potgor),
+            "pot0dat": pot.pot0dat,
+            "pot1dat": pot.pot1dat,
+        },
+        "logs": logs,
     })
 }
 
@@ -420,6 +516,7 @@ pub(crate) fn keyboard_snapshot(m: &dyn AmigaLiveAccess) -> Value {
 /// Board-level controller counters and Paula proportional-input readback.
 pub(crate) fn input_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     let state = m.input_diagnostic_snapshot();
+    let pot = m.paula().pot_diagnostic_snapshot();
     json!({
         "joy0_x": state.joy0_x,
         "joy0_y": state.joy0_y,
@@ -436,10 +533,11 @@ pub(crate) fn input_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "joystick1_fire": state.joystick1_fire,
         "joystick1_button2": state.joystick1_button2,
         "joystick1_button3": state.joystick1_button3,
-        "potgo": m.paula().potgo(),
-        "potgor": m.paula().peek_potgor(),
-        "pot0dat": m.paula().pot0dat(),
-        "pot1dat": m.paula().pot1dat(),
+        "potgo": pot.potgo,
+        "potgor": pot.potgor,
+        "pot_raw_pin_levels": pot.raw_pin_levels,
+        "pot0dat": pot.pot0dat,
+        "pot1dat": pot.pot1dat,
     })
 }
 
@@ -712,7 +810,61 @@ pub(crate) fn agnus_snapshot(m: &dyn AmigaLiveAccess) -> Value {
 /// the same discoverable schema with `null` values.
 pub(crate) fn denise_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     let denise = m.enhanced_denise();
-    json!({
+    let core = m.denise_diagnostic_snapshot();
+    let mut snapshot = json!({
+        "palette_12": core.palette_12,
+        "palette_24": core.palette_24.to_vec(),
+        "raster_width": core.raster_width,
+        "raster_height": core.raster_height,
+        "framebuffer_pixels": core.framebuffer_pixels,
+        "interlace_active": core.interlace_active,
+        "long_frame": core.long_frame,
+        "maximum_bitplanes": core.maximum_bitplanes,
+        "active_bitplanes": core.active_bitplanes,
+        "bplcon0": core.bplcon0,
+        "bplcon1": core.bplcon1,
+        "bplcon2": core.bplcon2,
+        "bplcon4": core.bplcon4,
+        "clxcon": core.clxcon,
+        "clxdat": core.clxdat,
+        "bitplanes": {
+            "holding_data": core.bitplanes.holding_data,
+            "shift_data": core.bitplanes.shift_data,
+            "aggregate_shift_count": core.bitplanes.aggregate_shift_count,
+            "shift_counts": core.bitplanes.shift_counts,
+            "shift_delays": core.bitplanes.shift_delays,
+            "previous_data": core.bitplanes.previous_data,
+            "pending_data": core.bitplanes.pending_data,
+            "pending_copy_odd_planes": core.bitplanes.pending_copy_odd_planes,
+            "pending_copy_even_planes": core.bitplanes.pending_copy_even_planes,
+            "scroll_pending_line": core.bitplanes.scroll_pending_line,
+            "active_fifo": core.bitplanes.active_fifo,
+            "active_fifo_lengths": core.bitplanes.active_fifo_lengths,
+            "staged_fetch_tails": core.bitplanes.staged_fetch_tails,
+            "staged_fetch_tail_lengths": core.bitplanes.staged_fetch_tail_lengths,
+            "deferred_shift_load_source_pixels":
+                core.bitplanes.deferred_shift_load_source_pixels,
+        },
+        "sprite_width": core.sprite_width,
+        "sprites": core.sprites,
+        "sprite_bpl1dat_enabled": core.sprite_bpl1dat_enabled,
+        "sprite_runtime_line_valid": core.sprite_runtime_line_valid,
+        "sprite_runtime_beam_x": core.sprite_runtime_beam_x,
+        "sprite_runtime_beam_y": core.sprite_runtime_beam_y,
+        "ham_previous_rgb12": core.ham_previous_rgb12,
+        "ham_previous_rgb24": core.ham_previous_rgb24,
+        "last_shift_load": {
+            "hires": core.last_shift_load.hires,
+            "odd_scroll": core.last_shift_load.odd_scroll,
+            "even_scroll": core.last_shift_load.even_scroll,
+            "num_bitplanes": core.last_shift_load.num_bitplanes,
+            "planes": core.last_shift_load.planes,
+        },
+    })
+    .as_object()
+    .cloned()
+    .expect("the common Denise snapshot is an object");
+    let enhanced = json!({
         "deniseid": denise.map(|state| state.deniseid),
         "bplcon3": denise.map(|state| state.bplcon3),
         "ecsena_enabled": denise.map(|state| state.ecsena_enabled),
@@ -727,7 +879,14 @@ pub(crate) fn denise_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "killehb_enabled": denise.map(|state| state.killehb_enabled),
         "programmed_hblank_active":
             denise.map(|state| state.programmed_hblank_active),
-    })
+    });
+    snapshot.extend(
+        enhanced
+            .as_object()
+            .expect("the enhanced Denise snapshot is an object")
+            .clone(),
+    );
+    Value::Object(snapshot)
 }
 
 /// Blitter sub-view of Agnus: busy / pending state and the A-D channel
