@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Preserve the two programmed horizontal-blank event latches in
+  the raw `AmigaEcsSnapshot` postcard schema; runtime envelopes version this
+  as V28
 - [breaking] Store the stock MC68000 through the active-CPU boundary and
   preserve its exact 1:1 CPU-clock phase in the raw `AmigaEcsSnapshot`
   postcard schema; runtime envelopes version this as V24
@@ -20,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Compose rendered programmable horizontal blanking from Agnus's observed
+  HBSTRT/HBSTOP events and the live Super Denise selectors
 - Route Copper horizontal comparison through the ECS Agnus projection so
   programmed beam timing reaches `WAIT` and `SKIP`
 - Reset generic Autoconfig state on CPU RESET without clearing expansion RAM

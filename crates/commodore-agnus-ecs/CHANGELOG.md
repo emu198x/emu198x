@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Drive programmable horizontal blanking from serialized HBSTRT/HBSTOP edge
+  latches and sample BLANKEN at HBSTRT, so mid-line register writes cannot
+  reconstruct an interval behind the beam
 - Derive the Copper comparator's horizontal wrap from programmed `HTOTAL`,
   current LOL state and the resulting line-length parity
 - Inherit the serialized pre-AGA blitter completion pipeline, including

@@ -1668,6 +1668,128 @@ fn ecs_vertical_diw_latch_survives_snapshot_round_trip() -> Result<(), Box<dyn E
 }
 
 #[test]
+fn ecs_programmed_hblank_latch_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    original.machine_mut().poke_word(0x00DF_F1C4, 0x0040); // HBSTRT
+    original.machine_mut().poke_word(0x00DF_F1C6, 0x0080); // HBSTOP
+    original.machine_mut().poke_word(0x00DF_F100, 0x0001); // ECSENA
+    original.machine_mut().poke_word(0x00DF_F106, 0x0001); // EXTBLKEN
+
+    // Reach HBSTRT with BLANKEN clear, then enable it too late. This is the
+    // non-vacuous state that requires separate raw and routed ECS latches.
+    for _ in 0..2_048 {
+        original.machine_mut().tick();
+        if original.machine().agnus_ecs().programmed_hblank_active() {
+            break;
+        }
+    }
+    assert!(
+        original.machine().agnus_ecs().programmed_hblank_active(),
+        "the test must observe the programmed HBSTRT event",
+    );
+    assert!(
+        !original
+            .machine()
+            .agnus_ecs()
+            .programmed_hblank_routed_active(),
+        "BLANKEN was clear when HBSTRT matched",
+    );
+    original.machine_mut().poke_word(0x00DF_F1DC, 0x0028); // PAL | BLANKEN
+    assert!(
+        !original
+            .machine()
+            .agnus_ecs()
+            .programmed_hblank_routed_active(),
+        "enabling BLANKEN after HBSTRT must not synthesize routed blanking",
+    );
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    restored.restore(&snapshot)?;
+    assert!(restored.machine().agnus_ecs().programmed_hblank_active());
+    assert!(
+        !restored
+            .machine()
+            .agnus_ecs()
+            .programmed_hblank_routed_active()
+    );
+    assert_eq!(
+        snapshot,
+        restored.snapshot()?,
+        "the two hidden ECS horizontal-blank latches must be byte-stable",
+    );
+
+    let mut reached_stop = false;
+    for _ in 0..2_048 {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+        let original_active = original.machine().agnus_ecs().programmed_hblank_active();
+        let restored_active = restored.machine().agnus_ecs().programmed_hblank_active();
+        assert_eq!(original_active, restored_active);
+        if !original_active {
+            reached_stop = true;
+            break;
+        }
+    }
+    assert!(reached_stop, "HBSTOP must remain reachable after restore");
+    assert_eq!(original.snapshot()?, restored.snapshot()?);
+    Ok(())
+}
+
+#[test]
+fn aga_programmed_hblank_latch_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    original.machine_mut().poke_word(0x00DF_F1C4, 0x0040); // HBSTRT
+    original.machine_mut().poke_word(0x00DF_F1C6, 0x0080); // HBSTOP
+    original.machine_mut().poke_word(0x00DF_F100, 0x0001); // ECSENA
+    original.machine_mut().poke_word(0x00DF_F106, 0x0001); // EXTBLKEN
+    assert!(
+        !original.machine().agnus_aga().blanken_enabled(),
+        "Lisa's programmed blanking path must not depend on BLANKEN",
+    );
+
+    for _ in 0..2_048 {
+        original.machine_mut().tick();
+        if original.machine().denise_aga().programmed_hblank_active() {
+            break;
+        }
+    }
+    assert!(
+        original.machine().denise_aga().programmed_hblank_active(),
+        "the test must observe Lisa's programmed HBSTRT event",
+    );
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    restored.restore(&snapshot)?;
+    assert!(restored.machine().denise_aga().programmed_hblank_active());
+    assert_eq!(
+        snapshot,
+        restored.snapshot()?,
+        "Lisa's hidden horizontal-blank latch must be byte-stable",
+    );
+
+    let mut reached_stop = false;
+    for _ in 0..2_048 {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+        let original_active = original.machine().denise_aga().programmed_hblank_active();
+        let restored_active = restored.machine().denise_aga().programmed_hblank_active();
+        assert_eq!(original_active, restored_active);
+        if !original_active {
+            reached_stop = true;
+            break;
+        }
+    }
+    assert!(
+        reached_stop,
+        "Lisa HBSTOP must remain reachable after restore"
+    );
+    assert_eq!(original.snapshot()?, restored.snapshot()?);
+    Ok(())
+}
+
+#[test]
 fn restore_rejects_wrong_model() -> Result<(), Box<dyn Error>> {
     let original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let snapshot = original.snapshot()?;
@@ -1689,10 +1811,10 @@ fn restore_rejects_unknown_version() -> Result<(), Box<dyn Error>> {
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 26, and confirm the version-mismatch arm fires with a
+/// field back to 27, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV27` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 27` that byte is `0x1B`.
+/// of a `SnapshotEnvelopeV28` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 28` that byte is `0x1C`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -1701,20 +1823,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 27,
-        "postcard varint for SNAPSHOT_VERSION = 27 should be 0x1B"
+        bytes[0], 28,
+        "postcard varint for SNAPSHOT_VERSION = 28 should be 0x1C"
     );
-    bytes[0] = 26;
+    bytes[0] = 27;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-26 snapshot should be rejected before payload decode");
+        .expect_err("version-27 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 26; expected 27"
+                if reason == "unsupported snapshot version 27; expected 28"
         ),
         "expected version-mismatch reason, got {err:?}"
     );

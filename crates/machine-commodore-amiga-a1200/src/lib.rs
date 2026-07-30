@@ -699,6 +699,13 @@ impl AmigaA1200 {
         &self.agnus
     }
 
+    /// Direct read-only access to the AGA Alice wrapper and its enhanced
+    /// timing state.
+    #[must_use]
+    pub const fn agnus_aga(&self) -> &AgnusAga {
+        &self.agnus
+    }
+
     /// Active video region — PAL or NTSC. Drives runtime frame timing
     /// and is exposed to the runtime layer so query callers and the
     /// `AmigaMachine` impl can ask the machine which region it's
@@ -2203,9 +2210,10 @@ impl AmigaDriver for AmigaA1200 {
     fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
-        let horizontal_blanking = denise::HorizontalBlanking::from_aga_registers(
+        let horizontal_blanking = self.denise.ocs.programmed_hblank_for_output_phase(
+            self.agnus.hpos,
+            phase,
             self.agnus.bplcon0,
-            self.denise.ocs.bplcon3,
             self.agnus.hbstrt(),
             self.agnus.hbstop(),
         );
@@ -3140,6 +3148,8 @@ mod bus_plan_dispatch_tests {
         amiga.denise.write_word(0x0180, 0x00F0);
         amiga.agnus.write_hbstrt(0x0080);
         amiga.agnus.write_hbstop(0x07A0);
+        amiga.agnus.hpos = 0x0080;
+        <AmigaA1200 as AmigaDriver>::denise_tick(&mut amiga, 0, None);
         amiga.agnus.hpos = 0x00A0;
 
         <AmigaA1200 as AmigaDriver>::denise_tick(&mut amiga, 1, None);

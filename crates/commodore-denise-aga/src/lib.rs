@@ -33,7 +33,7 @@ use std::ops::{Deref, DerefMut};
 pub use commodore_denise_ecs::DeniseEcs as InnerDeniseEcs;
 pub use commodore_denise_ocs::{DeniseOcs as InnerDeniseOcs, DeniseOutputPixelDebug};
 
-use common_commodore_amiga::denise_chip::DeniseChip;
+use common_commodore_amiga::{denise::HorizontalBlanking, denise_chip::DeniseChip};
 
 /// AGA Lisa DENISEID value as the CPU reads it from $DFF07C.
 /// WinUAE returns `0x00F8` for A1200 (and `0xFCF8` for A4000).
@@ -64,6 +64,10 @@ pub struct DeniseAga {
     /// Current sprite display width in pixels (16 / 32 / 64),
     /// driven by FMODE bits 3..2.
     pub spr_width: u8,
+    /// Hidden Lisa programmable horizontal-blank level. Comparator events and
+    /// the live ECSENA/EXTBLKEN selectors change this state; register writes
+    /// do not reconstruct it from the current beam position.
+    programmed_hblank_active: bool,
 }
 
 /// Serde adapter — `[u32; 256]` isn't `Serialize`/`Deserialize` by
@@ -107,6 +111,7 @@ impl DeniseAga {
             palette_24: [0; PALETTE_ENTRIES_24],
             ham_prev_rgb24: 0,
             spr_width: 16,
+            programmed_hblank_active: false,
         }
     }
 
@@ -123,6 +128,7 @@ impl DeniseAga {
             palette_24: [0; PALETTE_ENTRIES_24],
             ham_prev_rgb24: 0,
             spr_width: 16,
+            programmed_hblank_active: false,
         }
     }
 
@@ -141,6 +147,63 @@ impl DeniseAga {
     #[must_use]
     pub fn into_inner(self) -> InnerDeniseEcs {
         self.inner
+    }
+
+    /// Advance Lisa's programmable horizontal-blank comparator over the two
+    /// output samples produced by one Denise phase.
+    ///
+    /// The coarse comparator occupies the low byte of HBSTRT/HBSTOP. Lisa's
+    /// three fine bits are paired onto the renderer's four-sample-per-CCK
+    /// grid. ECSENA and EXTBLKEN are sampled live; disabling either clears the
+    /// hidden level, so enabling a selector after HBSTRT cannot synthesize a
+    /// start event. BEAMCON0.BLANKEN is not part of the Lisa path.
+    #[must_use]
+    pub fn programmed_hblank_for_output_phase(
+        &mut self,
+        hpos: u16,
+        phase: u8,
+        bplcon0: u16,
+        hbstrt: u16,
+        hbstop: u16,
+    ) -> HorizontalBlanking {
+        const BPLCON0_ECSENA: u16 = 0x0001;
+        const BPLCON3_EXTBLKEN: u16 = 0x0001;
+        const OUTPUT_SAMPLES_PER_CCK: u16 = 4;
+
+        debug_assert!(phase < 2);
+        let selectors_enabled =
+            (bplcon0 & BPLCON0_ECSENA) != 0 && (self.inner.bplcon3 & BPLCON3_EXTBLKEN) != 0;
+        let fine_sample =
+            |word: u16| (word & 0x00FF) * OUTPUT_SAMPLES_PER_CCK + ((word >> 8) & 0x0007) / 2;
+        let start_sample = fine_sample(hbstrt);
+        let stop_sample = fine_sample(hbstop);
+        let phase_sample = (hpos & 0x00FF) * OUTPUT_SAMPLES_PER_CCK + u16::from(phase) * 2;
+        let mut output_samples = [false; 2];
+
+        for (subpixel, output) in output_samples.iter_mut().enumerate() {
+            if !selectors_enabled {
+                self.programmed_hblank_active = false;
+                continue;
+            }
+
+            let sample = phase_sample + subpixel as u16;
+            // Start precedes stop, so equal edges describe an empty interval.
+            if sample == start_sample {
+                self.programmed_hblank_active = true;
+            }
+            if sample == stop_sample {
+                self.programmed_hblank_active = false;
+            }
+            *output = self.programmed_hblank_active;
+        }
+
+        HorizontalBlanking::from_output_samples(output_samples)
+    }
+
+    /// Current hidden Lisa programmable horizontal-blank level.
+    #[must_use]
+    pub const fn programmed_hblank_active(&self) -> bool {
+        self.programmed_hblank_active
     }
 
     /// AGA Lisa ID register value, as reported by DENISEID ($DFF07C).
@@ -475,7 +538,7 @@ impl DeniseChip for DeniseAga {
 #[cfg(test)]
 mod tests {
     use super::{DeniseAga, LISA_DENISE_ID};
-    use common_commodore_amiga::denise_chip::DeniseChip;
+    use common_commodore_amiga::{denise::HorizontalBlanking, denise_chip::DeniseChip};
 
     #[test]
     fn new_starts_with_aga_register_defaults() {
@@ -486,6 +549,126 @@ mod tests {
         assert_eq!(denise.spr_width, 16);
         assert_eq!(denise.ham_prev_rgb24, 0);
         assert!(denise.palette_24.iter().all(|&c| c == 0));
+        assert!(!denise.programmed_hblank_active());
+    }
+
+    #[test]
+    fn lisa_hblank_fine_stop_can_split_one_output_pair() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x0001); // ECSENA
+        denise.write_word(0x0106, 0x0001); // EXTBLKEN
+
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0030, 0, 0x0001, 0x0030, 0x0740,),
+            HorizontalBlanking::from_output_samples([true, true]),
+        );
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0040, 1, 0x0001, 0x0030, 0x0740,),
+            HorizontalBlanking::from_output_samples([true, false]),
+        );
+        assert!(!denise.programmed_hblank_active());
+    }
+
+    #[test]
+    fn lisa_hbstrt_write_behind_beam_does_not_synthesize_start() {
+        let mut denise = DeniseAga::new();
+        denise.write_word(0x0106, 0x0001); // EXTBLKEN
+
+        let _ = denise.programmed_hblank_for_output_phase(0x0060, 0, 0x0001, 0x0070, 0x00C0);
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0061, 0, 0x0001, 0x0050, 0x00C0,),
+            HorizontalBlanking::disabled(),
+        );
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0050, 0, 0x0001, 0x0050, 0x00C0,),
+            HorizontalBlanking::from_level(true),
+            "the rewritten edge takes effect when the following line reaches it",
+        );
+    }
+
+    #[test]
+    fn lisa_hbstop_write_ahead_after_stop_does_not_reassert() {
+        let mut denise = DeniseAga::new();
+        denise.write_word(0x0106, 0x0001); // EXTBLKEN
+        let _ = denise.programmed_hblank_for_output_phase(0x0060, 0, 0x0001, 0x0060, 0x0070);
+        let _ = denise.programmed_hblank_for_output_phase(0x0070, 0, 0x0001, 0x0060, 0x0070);
+
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0071, 0, 0x0001, 0x0060, 0x00B0,),
+            HorizontalBlanking::disabled(),
+        );
+        let _ = denise.programmed_hblank_for_output_phase(0x0060, 0, 0x0001, 0x0060, 0x00B0);
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x00A0, 0, 0x0001, 0x0060, 0x00B0,),
+            HorizontalBlanking::from_level(true),
+            "the future stop remains active on the following line",
+        );
+    }
+
+    #[test]
+    fn lisa_ecsena_enable_after_start_waits_for_the_next_start() {
+        let mut denise = DeniseAga::new();
+        denise.write_word(0x0106, 0x0001); // EXTBLKEN
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0000, 0x0040, 0x0080,),
+            HorizontalBlanking::disabled(),
+        );
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0050, 0, 0x0001, 0x0040, 0x0080,),
+            HorizontalBlanking::disabled(),
+        );
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0001, 0x0040, 0x0080,),
+            HorizontalBlanking::from_level(true),
+        );
+    }
+
+    #[test]
+    fn lisa_extblken_enable_after_start_waits_for_the_next_start() {
+        let mut denise = DeniseAga::new();
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0001, 0x0040, 0x0080,),
+            HorizontalBlanking::disabled(),
+        );
+        denise.write_word(0x0106, 0x0001); // EXTBLKEN
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0050, 0, 0x0001, 0x0040, 0x0080,),
+            HorizontalBlanking::disabled(),
+        );
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0001, 0x0040, 0x0080,),
+            HorizontalBlanking::from_level(true),
+        );
+    }
+
+    #[test]
+    fn lisa_equal_hblank_edges_leave_level_clear() {
+        let mut denise = DeniseAga::new();
+        denise.write_word(0x0106, 0x0001); // EXTBLKEN
+
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0001, 0x0040, 0x0040,),
+            HorizontalBlanking::disabled(),
+        );
+        assert!(!denise.programmed_hblank_active());
+    }
+
+    #[test]
+    fn disabling_a_lisa_selector_clears_the_active_level() {
+        let mut denise = DeniseAga::new();
+        denise.write_word(0x0106, 0x0001); // EXTBLKEN
+        let _ = denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0001, 0x0040, 0x0080);
+        assert!(denise.programmed_hblank_active());
+
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0050, 0, 0x0000, 0x0040, 0x0080,),
+            HorizontalBlanking::disabled(),
+        );
+        assert!(!denise.programmed_hblank_active());
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(0x0060, 0, 0x0001, 0x0040, 0x0080,),
+            HorizontalBlanking::disabled(),
+        );
     }
 
     #[test]

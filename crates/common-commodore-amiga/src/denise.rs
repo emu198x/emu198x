@@ -36,110 +36,43 @@ pub struct BitplaneDmaFetch {
     pub width_words: u8,
 }
 
-/// External horizontal-blank interval on the board framebuffer's four-sample
-/// per-CCK output grid.
+/// External horizontal-blank levels for the two output samples emitted by one
+/// master/4 tick.
 ///
-/// The machine layer combines registers owned by Agnus/Alice and Denise/Lisa
-/// into this signal. The renderer consumes only the resulting interval, so it
-/// does not need chipset-specific register ownership or gate policy.
+/// The machine layer advances the chipset-specific comparator latches and
+/// supplies their resulting levels. The renderer therefore has no register,
+/// comparator, or selector policy of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HorizontalBlanking {
-    start_sample: u16,
-    stop_sample: u16,
+    output_samples: [bool; 2],
 }
 
 impl HorizontalBlanking {
-    const OUTPUT_SAMPLES_PER_CCK: u16 = 4;
-    const OUTPUT_SAMPLE_MODULUS: u16 = 256 * Self::OUTPUT_SAMPLES_PER_CCK;
-    const BPLCON0_ECSENA: u16 = 0x0001;
-    const BPLCON3_EXTBLKEN: u16 = 0x0001;
-    const BEAMCON0_BLANKEN: u16 = 0x0008;
-
     /// Disable external programmable horizontal blanking.
     #[must_use]
     pub const fn disabled() -> Self {
-        Self {
-            start_sample: 0,
-            stop_sample: 0,
-        }
+        Self::from_level(false)
     }
 
-    /// Build the ECS external-blank signal from the registers split across
-    /// Agnus and Super Denise.
-    ///
-    /// This gate policy follows the registered current UAE-family path:
-    /// `ECSENA`, `EXTBLKEN`, and `BLANKEN` must all be set. The independent
-    /// reference corpus still treats the disputed `ECSENA` and `EXTBLKEN`
-    /// gate cases as unresolved.
+    /// Apply one horizontal-blank level to both samples in this output tick.
     #[must_use]
-    pub const fn from_ecs_registers(
-        bplcon0: u16,
-        bplcon3: u16,
-        beamcon0: u16,
-        hbstrt: u16,
-        hbstop: u16,
-    ) -> Self {
-        let enabled = bplcon0 & Self::BPLCON0_ECSENA != 0
-            && bplcon3 & Self::BPLCON3_EXTBLKEN != 0
-            && beamcon0 & Self::BEAMCON0_BLANKEN != 0;
-        if enabled {
-            Self::from_coarse_words(hbstrt, hbstop)
-        } else {
-            Self::disabled()
+    pub const fn from_level(active: bool) -> Self {
+        Self {
+            output_samples: [active; 2],
         }
     }
 
-    /// Build the AGA external-blank signal from Alice and Lisa registers.
-    ///
-    /// The registered UAE-family Lisa path requires `ECSENA` and `EXTBLKEN`
-    /// but does not use `BLANKEN` as a comparator gate. Its three fine bits
-    /// are paired onto this renderer's four output samples per CCK.
+    /// Apply independently composed levels to the two output samples in this
+    /// tick. Lisa uses this form because one fine comparator can split the
+    /// pair.
     #[must_use]
-    pub const fn from_aga_registers(bplcon0: u16, bplcon3: u16, hbstrt: u16, hbstop: u16) -> Self {
-        let enabled = bplcon0 & Self::BPLCON0_ECSENA != 0 && bplcon3 & Self::BPLCON3_EXTBLKEN != 0;
-        if enabled {
-            Self::from_fine_words(hbstrt, hbstop)
-        } else {
-            Self::disabled()
-        }
+    pub const fn from_output_samples(output_samples: [bool; 2]) -> Self {
+        Self { output_samples }
     }
 
-    const fn from_coarse_words(hbstrt: u16, hbstop: u16) -> Self {
-        Self {
-            start_sample: (hbstrt & 0x00FF) * Self::OUTPUT_SAMPLES_PER_CCK,
-            stop_sample: (hbstop & 0x00FF) * Self::OUTPUT_SAMPLES_PER_CCK,
-        }
-    }
-
-    const fn from_fine_words(hbstrt: u16, hbstop: u16) -> Self {
-        Self {
-            start_sample: Self::fine_word_to_output_sample(hbstrt),
-            stop_sample: Self::fine_word_to_output_sample(hbstop),
-        }
-    }
-
-    const fn fine_word_to_output_sample(word: u16) -> u16 {
-        let coarse = word & 0x00FF;
-        let fine = (word >> 8) & 0x0007;
-        coarse * Self::OUTPUT_SAMPLES_PER_CCK + fine / 2
-    }
-
-    fn contains_output_sample(self, hpos: u16, phase: u8, subpixel: u8) -> bool {
-        debug_assert!(phase < 2);
+    fn contains_output_sample(self, subpixel: u8) -> bool {
         debug_assert!(subpixel < 2);
-        if self.start_sample == self.stop_sample {
-            return false;
-        }
-
-        let sample = ((hpos & 0x00FF) * Self::OUTPUT_SAMPLES_PER_CCK
-            + u16::from(phase) * 2
-            + u16::from(subpixel))
-            % Self::OUTPUT_SAMPLE_MODULUS;
-        if self.start_sample < self.stop_sample {
-            (self.start_sample..self.stop_sample).contains(&sample)
-        } else {
-            sample >= self.start_sample || sample < self.stop_sample
-        }
+        self.output_samples[usize::from(subpixel)]
     }
 }
 
@@ -577,12 +510,11 @@ impl<C: DeniseChip> Denise<C> {
                         // Resolve through the chip's colour path — 24-bit
                         // palette on AGA, 12-bit upscaled on OCS/ECS (#93).
                         let composed_pixel = self.ocs.resolve_color_argb(*color_idx);
-                        let pixel =
-                            if horizontal_blanking.contains_output_sample(hpos, phase, dx as u8) {
-                                0xFF00_0000
-                            } else {
-                                composed_pixel
-                            };
+                        let pixel = if horizontal_blanking.contains_output_sample(dx as u8) {
+                            0xFF00_0000
+                        } else {
+                            composed_pixel
+                        };
                         let x = local_x * 2 + dx as u32;
                         let idx = (dy * FB_WIDTH + x) as usize;
                         if idx < self.framebuffer.len() {
@@ -719,57 +651,18 @@ mod tests {
     }
 
     #[test]
-    fn ecs_external_hblank_applies_gates_and_coarse_comparator_boundaries() {
-        let enabled =
-            HorizontalBlanking::from_ecs_registers(0x0001, 0x0001, 0x0008, 0x0080, 0x00A0);
-        assert!(!enabled.contains_output_sample(0x007F, 1, 1));
-        assert!(enabled.contains_output_sample(0x0080, 0, 0));
-        assert!(enabled.contains_output_sample(0x009F, 1, 1));
-        assert!(!enabled.contains_output_sample(0x00A0, 0, 0));
+    fn horizontal_blanking_carries_composed_output_levels_only() {
+        let disabled = HorizontalBlanking::disabled();
+        assert!(!disabled.contains_output_sample(0));
+        assert!(!disabled.contains_output_sample(1));
 
-        for disabled in [
-            HorizontalBlanking::from_ecs_registers(0x0000, 0x0001, 0x0008, 0x0080, 0x00A0),
-            HorizontalBlanking::from_ecs_registers(0x0001, 0x0000, 0x0008, 0x0080, 0x00A0),
-            HorizontalBlanking::from_ecs_registers(0x0001, 0x0001, 0x0000, 0x0080, 0x00A0),
-        ] {
-            assert!(!disabled.contains_output_sample(0x0090, 0, 0));
-        }
-    }
+        let enabled = HorizontalBlanking::from_level(true);
+        assert!(enabled.contains_output_sample(0));
+        assert!(enabled.contains_output_sample(1));
 
-    #[test]
-    fn horizontal_blank_comparator_wraps_and_treats_equal_edges_as_empty() {
-        let wrapped =
-            HorizontalBlanking::from_ecs_registers(0x0001, 0x0001, 0x0008, 0x00D0, 0x0040);
-        assert!(!wrapped.contains_output_sample(0x00CF, 1, 1));
-        assert!(wrapped.contains_output_sample(0x00D0, 0, 0));
-        assert!(wrapped.contains_output_sample(0x00FF, 1, 1));
-        assert!(wrapped.contains_output_sample(0x0000, 0, 0));
-        assert!(wrapped.contains_output_sample(0x003F, 1, 1));
-        assert!(!wrapped.contains_output_sample(0x0040, 0, 0));
-
-        let equal = HorizontalBlanking::from_ecs_registers(0x0001, 0x0001, 0x0008, 0x0080, 0x0080);
-        for hpos in [0x0000, 0x007F, 0x0080, 0x00FF, 0x01FF] {
-            assert!(!equal.contains_output_sample(hpos, 0, 0));
-        }
-    }
-
-    #[test]
-    fn aga_external_hblank_pairs_fine_phases_onto_output_samples() {
-        let blanking = HorizontalBlanking::from_aga_registers(0x0001, 0x0001, 0x0080, 0x07A0);
-        assert!(!blanking.contains_output_sample(0x007F, 1, 1));
-        assert!(blanking.contains_output_sample(0x0080, 0, 0));
-        assert!(blanking.contains_output_sample(0x00A0, 0, 0));
-        assert!(blanking.contains_output_sample(0x00A0, 0, 1));
-        assert!(blanking.contains_output_sample(0x00A0, 1, 0));
-        assert!(!blanking.contains_output_sample(0x00A0, 1, 1));
-        assert!(!blanking.contains_output_sample(0x00A1, 0, 0));
-
-        for disabled in [
-            HorizontalBlanking::from_aga_registers(0x0000, 0x0001, 0x0080, 0x07A0),
-            HorizontalBlanking::from_aga_registers(0x0001, 0x0000, 0x0080, 0x07A0),
-        ] {
-            assert!(!disabled.contains_output_sample(0x0090, 0, 0));
-        }
+        let split = HorizontalBlanking::from_output_samples([true, false]);
+        assert!(split.contains_output_sample(0));
+        assert!(!split.contains_output_sample(1));
     }
 
     #[test]
@@ -790,10 +683,7 @@ mod tests {
         denise.tick_with_output_signals(
             1,
             None,
-            DeniseOutputSignals::new(
-                true,
-                HorizontalBlanking::from_aga_registers(0x0001, 0x0001, 0x0080, 0x07A0),
-            ),
+            DeniseOutputSignals::new(true, HorizontalBlanking::from_output_samples([true, false])),
             &mut agnus,
             &memory,
             line_ccks,
@@ -834,10 +724,7 @@ mod tests {
         blanked.tick_with_output_signals(
             0,
             None,
-            DeniseOutputSignals::new(
-                true,
-                HorizontalBlanking::from_ecs_registers(0x0001, 0x0001, 0x0008, 0x0080, 0x00A0),
-            ),
+            DeniseOutputSignals::new(true, HorizontalBlanking::from_level(true)),
             &mut blanked_agnus,
             &memory,
             line_ccks,

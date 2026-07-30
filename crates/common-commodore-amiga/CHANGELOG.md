@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Consume machine-composed horizontal-blank levels for each output sample
+  instead of reconstructing chipset comparator intervals inside the renderer
 - Project Denise's real post-wrap output onto the preceding physical raster
   row and defer line-local display reset until the hardwired HBLANK boundary
 - Perform the HBLANK line reset before a coincident phase-zero bitplane fetch

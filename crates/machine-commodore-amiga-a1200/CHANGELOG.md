@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Preserve Lisa's programmed horizontal-blank event latch in the
+  raw `AmigaA1200Snapshot` postcard schema; runtime envelopes version this as
+  V28
 - [breaking] Store the stock MC68EC020 through the active-CPU boundary and
   run its serialized clock domain at two CPU edges per 7 MHz Amiga system
   tick in the raw `AmigaA1200Snapshot` postcard schema; runtime envelopes
@@ -21,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Compose rendered programmable horizontal blanking from Lisa's observed
+  fine-phase HBSTRT/HBSTOP events and live ECSENA/EXTBLKEN selectors
 - Route Copper horizontal comparison through Alice's inherited programmable
   beam projection
 - Reset generic Autoconfig state on CPU RESET without clearing expansion RAM

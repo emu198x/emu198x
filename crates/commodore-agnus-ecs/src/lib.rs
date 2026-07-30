@@ -98,6 +98,13 @@ pub struct AgnusEcs {
     /// One-line programmed vertical-blank edge pulses.
     programmed_vblank_start_event: bool,
     programmed_vblank_stop_event: bool,
+    /// Hidden programmed horizontal-blank comparator level. HBSTRT/HBSTOP
+    /// edge events change this state; register writes do not reconstruct it
+    /// from the current beam position.
+    programmed_hblank_active: bool,
+    /// Programmed horizontal-blank level sampled through BLANKEN at HBSTRT.
+    /// This remains clear when BLANKEN is enabled after the start edge.
+    programmed_hblank_routed_active: bool,
     hsstrt: u16,
     vsstrt: u16,
     diwhigh: u16,
@@ -153,6 +160,8 @@ impl AgnusEcs {
             programmed_vblank_active: false,
             programmed_vblank_start_event: false,
             programmed_vblank_stop_event: false,
+            programmed_hblank_active: false,
+            programmed_hblank_routed_active: false,
             hsstrt: 0,
             vsstrt: 0,
             diwhigh: 0,
@@ -197,6 +206,8 @@ impl AgnusEcs {
             programmed_vblank_active: false,
             programmed_vblank_start_event: false,
             programmed_vblank_stop_event: false,
+            programmed_hblank_active: false,
+            programmed_hblank_routed_active: false,
             hsstrt: 0,
             vsstrt: 0,
             diwhigh: 0,
@@ -308,6 +319,22 @@ impl AgnusEcs {
         }
     }
 
+    fn enter_programmed_horizontal_position(&mut self, hpos: u16) {
+        let hpos = hpos & 0x00FF;
+
+        // Start precedes stop. Equal comparators therefore describe an empty
+        // blank level. BLANKEN is sampled only by the start event: enabling it
+        // after the beam has passed HBSTRT cannot synthesize a routed level.
+        if hpos == (self.hbstrt & 0x00FF) {
+            self.programmed_hblank_active = true;
+            self.programmed_hblank_routed_active = self.blanken_enabled();
+        }
+        if hpos == (self.hbstop & 0x00FF) {
+            self.programmed_hblank_active = false;
+            self.programmed_hblank_routed_active = false;
+        }
+    }
+
     fn bitplane_vertical_bounds(&self) -> (u16, u16) {
         if self.diwhigh_written {
             // An explicit DIWHIGH write selects direct high-bit decoding even
@@ -381,6 +408,19 @@ impl AgnusEcs {
         self.programmed_vblank_stop_event
     }
 
+    /// Current hidden programmed horizontal-blank comparator level.
+    #[must_use]
+    pub const fn programmed_hblank_active(&self) -> bool {
+        self.programmed_hblank_active
+    }
+
+    /// Current programmed horizontal-blank level routed through BLANKEN at
+    /// the most recent HBSTRT event.
+    #[must_use]
+    pub const fn programmed_hblank_routed_active(&self) -> bool {
+        self.programmed_hblank_routed_active
+    }
+
     /// Tick one CCK, applying ECS programmable beam wrap limits when
     /// `BEAMCON0.VARBEAMEN` is enabled.
     ///
@@ -402,6 +442,7 @@ impl AgnusEcs {
             sprite_timing,
             fixed_ddf_right_stop_enabled,
         );
+        self.enter_programmed_horizontal_position(self.inner.hpos);
     }
 
     /// Length of the active scanline in CCKs.
@@ -2416,6 +2457,106 @@ mod tests {
         }
         assert_eq!(agnus.vpos, 10);
         assert!(!agnus.sprite_dma_on(0), "VSTOP still ends the sprite");
+    }
+
+    #[test]
+    fn programmed_hblank_edges_follow_beam_ticks() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_hbstrt(0x0040);
+        agnus.write_hbstop(0x0060);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_BLANKEN);
+        agnus.hpos = 0x003F;
+
+        agnus.tick_cck();
+
+        assert_eq!(agnus.hpos, 0x0040);
+        assert!(agnus.programmed_hblank_active());
+        assert!(agnus.programmed_hblank_routed_active());
+    }
+
+    #[test]
+    fn hbstrt_write_behind_beam_does_not_synthesize_start() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_hbstrt(0x0070);
+        agnus.write_hbstop(0x0090);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_BLANKEN);
+
+        // Model a Copper write after the old start has not yet matched: moving
+        // HBSTRT behind the beam changes only the next possible edge.
+        agnus.enter_programmed_horizontal_position(0x0050);
+        agnus.write_hbstrt(0x0040);
+        agnus.enter_programmed_horizontal_position(0x0051);
+
+        assert!(!agnus.programmed_hblank_active());
+        assert!(!agnus.programmed_hblank_routed_active());
+    }
+
+    #[test]
+    fn hbstop_write_ahead_after_stop_does_not_reassert() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_hbstrt(0x0040);
+        agnus.write_hbstop(0x0060);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_BLANKEN);
+        agnus.enter_programmed_horizontal_position(0x0040);
+        agnus.enter_programmed_horizontal_position(0x0060);
+        assert!(!agnus.programmed_hblank_active());
+
+        // A new stop ahead of the beam cannot undo the stop event that has
+        // already ended this line's level.
+        agnus.write_hbstop(0x0080);
+        agnus.enter_programmed_horizontal_position(0x0070);
+
+        assert!(!agnus.programmed_hblank_active());
+        assert!(!agnus.programmed_hblank_routed_active());
+    }
+
+    #[test]
+    fn blanken_enable_does_not_route_an_already_active_hblank() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_hbstrt(0x0040);
+        agnus.write_hbstop(0x0060);
+        agnus.write_beamcon0(BEAMCON0_PAL);
+        agnus.enter_programmed_horizontal_position(0x0040);
+        assert!(agnus.programmed_hblank_active());
+        assert!(!agnus.programmed_hblank_routed_active());
+
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_BLANKEN);
+        assert!(agnus.programmed_hblank_active());
+        assert!(!agnus.programmed_hblank_routed_active());
+
+        agnus.enter_programmed_horizontal_position(0x0060);
+        agnus.enter_programmed_horizontal_position(0x0040);
+        assert!(agnus.programmed_hblank_active());
+        assert!(agnus.programmed_hblank_routed_active());
+    }
+
+    #[test]
+    fn programmed_hblank_equal_edges_leave_level_clear() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_hbstrt(0x0040);
+        agnus.write_hbstop(0x0040);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_BLANKEN);
+
+        agnus.enter_programmed_horizontal_position(0x0040);
+
+        assert!(!agnus.programmed_hblank_active());
+        assert!(!agnus.programmed_hblank_routed_active());
+    }
+
+    #[test]
+    fn programmed_hblank_wraps_across_line_zero() {
+        let mut agnus = AgnusEcs::new();
+        agnus.write_hbstrt(220);
+        agnus.write_hbstop(10);
+        agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_BLANKEN);
+
+        agnus.enter_programmed_horizontal_position(220);
+        assert!(agnus.programmed_hblank_routed_active());
+        agnus.enter_programmed_horizontal_position(5);
+        assert!(agnus.programmed_hblank_routed_active());
+        agnus.enter_programmed_horizontal_position(10);
+        assert!(!agnus.programmed_hblank_active());
+        assert!(!agnus.programmed_hblank_routed_active());
     }
 
     #[test]

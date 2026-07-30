@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Drive Lisa programmable horizontal blanking from a serialized fine-phase
+  comparator latch, with ECSENA and EXTBLKEN sampled at the event boundary
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-denise-aga-v0.2.0) - 2026-06-04
 
 ### Added

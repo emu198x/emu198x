@@ -2007,15 +2007,17 @@ impl AmigaDriver for AmigaEcs {
     }
 
     fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
+        const BPLCON0_ECSENA: u16 = 0x0001;
+        const BPLCON3_EXTBLKEN: u16 = 0x0001;
+
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
-        let horizontal_blanking = denise::HorizontalBlanking::from_ecs_registers(
-            self.agnus.bplcon0,
-            self.denise.ocs.bplcon3,
-            self.agnus.beamcon0(),
-            self.agnus.hbstrt(),
-            self.agnus.hbstop(),
-        );
+        let horizontal_blanking_active = self.agnus.programmed_hblank_routed_active()
+            && self.agnus.blanken_enabled()
+            && (self.agnus.bplcon0 & BPLCON0_ECSENA) != 0
+            && (self.denise.ocs.bplcon3 & BPLCON3_EXTBLKEN) != 0;
+        let horizontal_blanking =
+            denise::HorizontalBlanking::from_level(horizontal_blanking_active);
         let line_ccks = self.agnus.current_line_ccks();
         let bitplane_dma_fetch =
             bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });

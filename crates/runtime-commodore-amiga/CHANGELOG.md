@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Bump Amiga postcard snapshots to version 28 so ECS Agnus and
+  AGA Lisa programmable horizontal-blank event history survives restore;
+  version 27 is rejected because it cannot preserve those hidden latches
 - [breaking] Bump Amiga postcard snapshots to version 27 so Denise's
   prior-line raster carry, raw field identity and HBLANK-reset context survive
   restore; version 26 is rejected because it cannot preserve that context
