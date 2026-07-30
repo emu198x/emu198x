@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose all six Gary motherboard address-decoder configuration flags through
+  discoverable grouped and leaf queries
 - Expose every implemented CIA register, timer, serial, port, TOD and read-latch
   field plus the battery-backed RTC value, calendar and control flags
 - Discover every nested grouped-diagnostic field automatically so additions

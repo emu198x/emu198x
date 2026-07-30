@@ -33,6 +33,7 @@
 
 use commodore_agnus_ocs::{Agnus, AgnusBusDiagnosticSnapshot};
 use commodore_denise_ocs::DeniseDiagnosticSnapshot;
+use commodore_gary::GaryDiagnosticSnapshot;
 use commodore_gayle::GayleDiagnosticSnapshot;
 use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_a1200::AmigaA1200;
@@ -368,6 +369,9 @@ pub trait AmigaLiveAccess {
     fn keyboard(&self) -> &AmigaKeyboard;
     fn copper(&self) -> &Copper;
 
+    /// Complete motherboard address-decoder configuration.
+    fn gary_diagnostic_snapshot(&self) -> GaryDiagnosticSnapshot;
+
     /// Complete Gayle state on A600 and A1200 boards. Other variants do not
     /// contain Gayle.
     fn gayle_diagnostic_snapshot(&self) -> Option<GayleDiagnosticSnapshot> {
@@ -688,6 +692,10 @@ impl AmigaLiveAccess for AmigaOcs {
         AmigaOcs::copper(self)
     }
 
+    fn gary_diagnostic_snapshot(&self) -> GaryDiagnosticSnapshot {
+        self.gary().diagnostic_snapshot()
+    }
+
     fn framebuffer(&self) -> &[u32] {
         self.denise().framebuffer()
     }
@@ -971,6 +979,10 @@ impl AmigaLiveAccess for AmigaEcs {
         AmigaEcs::copper(self)
     }
 
+    fn gary_diagnostic_snapshot(&self) -> GaryDiagnosticSnapshot {
+        self.gary().diagnostic_snapshot()
+    }
+
     fn gayle_diagnostic_snapshot(&self) -> Option<GayleDiagnosticSnapshot> {
         AmigaEcs::gayle_diagnostic_snapshot(self)
     }
@@ -1249,6 +1261,10 @@ impl AmigaLiveAccess for AmigaA1200 {
 
     fn copper(&self) -> &Copper {
         AmigaA1200::copper(self)
+    }
+
+    fn gary_diagnostic_snapshot(&self) -> GaryDiagnosticSnapshot {
+        self.gary().diagnostic_snapshot()
     }
 
     fn gayle_diagnostic_snapshot(&self) -> Option<GayleDiagnosticSnapshot> {
@@ -1660,6 +1676,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => AmigaLiveAccess::copper(rt.machine()),
             Self::Ecs(rt) => AmigaLiveAccess::copper(rt.machine()),
             Self::Aga(rt) => AmigaLiveAccess::copper(rt.machine()),
+        }
+    }
+
+    fn gary_diagnostic_snapshot(&self) -> GaryDiagnosticSnapshot {
+        match self {
+            Self::Ocs(rt) => rt.machine().gary().diagnostic_snapshot(),
+            Self::Ecs(rt) => rt.machine().gary().diagnostic_snapshot(),
+            Self::Aga(rt) => rt.machine().gary().diagnostic_snapshot(),
         }
     }
 

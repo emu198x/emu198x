@@ -234,6 +234,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
             "cia",
             "rtc",
             "keyboard",
+            "gary",
             "input",
             "debug",
             "disk",
@@ -256,6 +257,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
             "cia",
             "rtc",
             "keyboard",
+            "gary",
             "input",
             "debug",
             "disk",
@@ -278,6 +280,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
             "cia",
             "rtc",
             "keyboard",
+            "gary",
             "gayle",
             "input",
             "debug",
@@ -301,6 +304,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
             "cia",
             "rtc",
             "keyboard",
+            "gary",
             "gayle",
             "input",
             "debug",
@@ -344,6 +348,32 @@ fn gayle_discovery_matches_the_configured_board() {
         query_value(&a1200, "gayle.registers.card_status"),
         json!(0xA5),
     );
+    assert_eq!(query_value(&a500_plus, "gary.gayle_present"), json!(false));
+    assert_eq!(query_value(&a600, "gary.gayle_present"), json!(true));
+    assert_eq!(query_value(&a1200, "gary.gayle_present"), json!(true));
+}
+
+#[test]
+fn gary_group_exposes_every_persisted_configuration_flag() {
+    let runtime = AmigaOcsRuntime::blank(Model::A500OcsPalA501);
+    let fields = query_value(&runtime, "gary")
+        .as_object()
+        .expect("Gary query should return an object")
+        .clone();
+
+    assert_eq!(fields.len(), 6);
+    for field in [
+        "slow_ram_present",
+        "gayle_present",
+        "pcmcia_present",
+        "dmac_present",
+        "resource_regs_present",
+        "rtc_present",
+    ] {
+        assert!(fields.contains_key(field), "gary.{field} should be exposed");
+    }
+    assert_eq!(fields["slow_ram_present"], json!(true));
+    assert_eq!(fields["rtc_present"], json!(true));
 }
 
 fn assert_gayle_present<M: AmigaMachine>(

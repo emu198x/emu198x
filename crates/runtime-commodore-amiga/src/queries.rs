@@ -70,6 +70,7 @@ const GROUPED_VARIANT_QUERY_ROOTS: &[&str] = &[
     "cia",
     "rtc",
     "keyboard",
+    "gary",
     "gayle",
     "input",
     "debug",
@@ -619,6 +620,11 @@ pub(crate) fn keyboard_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         json!((m.cia_a().cra() & 0x40) != 0),
     );
     snapshot
+}
+
+/// Complete Gary motherboard address-decoder configuration.
+pub(crate) fn gary_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    json!(m.gary_diagnostic_snapshot())
 }
 
 /// Complete Gayle board-controller state on machines which contain it.
@@ -1354,6 +1360,9 @@ pub(crate) fn resolve_chip_query(m: &dyn AmigaLiveAccess, path: &str) -> Option<
     }
     if is_chip(path, "keyboard") {
         return chip_field(path, "keyboard", keyboard_snapshot(m));
+    }
+    if is_chip(path, "gary") {
+        return chip_field(path, "gary", gary_snapshot(m));
     }
     if is_chip(path, "gayle") {
         return gayle_snapshot(m).and_then(|snapshot| chip_field(path, "gayle", snapshot));
