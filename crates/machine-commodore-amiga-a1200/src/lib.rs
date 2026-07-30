@@ -36,7 +36,7 @@ pub use agnus::{
 pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
 pub use commodore_gary::{ChipSelect, Gary};
-pub use commodore_gayle::Gayle;
+pub use commodore_gayle::{Gayle, GayleDiagnosticSnapshot};
 use commodore_paula_8364::bits::{
     POTGOR_BTN_PORT0_MIDDLE, POTGOR_BTN_PORT0_RIGHT, POTGOR_BTN_PORT1_MIDDLE,
     POTGOR_BTN_PORT1_RIGHT,
@@ -736,6 +736,13 @@ impl AmigaA1200 {
     #[must_use]
     pub fn denise_aga(&self) -> &commodore_denise_aga::DeniseAga {
         &self.denise.ocs
+    }
+
+    /// Complete side-effect-free Gayle register, interrupt, IDE, PCMCIA and
+    /// address-decoder state.
+    #[must_use]
+    pub const fn gayle_diagnostic_snapshot(&self) -> GayleDiagnosticSnapshot {
+        self.gayle.diagnostic_snapshot()
     }
 
     /// Read-only memory access (for tests inspecting OVL state etc.).
