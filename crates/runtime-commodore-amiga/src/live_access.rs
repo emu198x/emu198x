@@ -44,7 +44,7 @@ use machine_commodore_amiga_ecs::{AgnusEcs, AmigaEcs, DeniseEcs};
 use machine_commodore_amiga_ocs::{
     AmigaFloppyDrive, AmigaInputDiagnosticSnapshot, AmigaKeyboard, AmigaOcs,
     AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot, Cia, Copper,
-    Msm6242RtcDiagnosticSnapshot, Paula8364,
+    InstalledAgnusKind, Msm6242RtcDiagnosticSnapshot, Paula8364,
 };
 use motorola_68k_common::registers::Registers;
 
@@ -65,6 +65,36 @@ pub struct CpuSnapshot {
     pub in_followup: bool,
     pub followup_tag: u8,
     pub instruction_starts: u64,
+}
+
+/// Installed Agnus-family implementation exposed by runtime diagnostics.
+///
+/// The distinction between [`Self::EarlyOcs`] and [`Self::Fat8372A`] is
+/// required for OCS-shaped boards where the display chip remains OCS Denise
+/// while Agnus provides ECS timing extensions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgnusInstalledVariant {
+    /// Original-chip-set Agnus without an ECS extension layer.
+    EarlyOcs,
+    /// Fat Agnus 8372A inside an otherwise OCS-shaped machine.
+    Fat8372A,
+    /// ECS Agnus in an ECS chipset machine.
+    Ecs,
+    /// AGA Alice.
+    Alice,
+}
+
+impl AgnusInstalledVariant {
+    /// Stable diagnostic name used by the canonical query surface.
+    #[must_use]
+    pub const fn canonical_name(self) -> &'static str {
+        match self {
+            Self::EarlyOcs => "early-ocs",
+            Self::Fat8372A => "fat-8372a",
+            Self::Ecs => "ecs",
+            Self::Alice => "alice",
+        }
+    }
 }
 
 /// AGA Lisa (AGA Denise) state snapshot for the `query_aga` tool.
@@ -342,14 +372,17 @@ pub trait AmigaLiveAccess {
 
     fn agnus(&self) -> &Agnus;
 
+    /// Installed Agnus-family implementation.
+    fn installed_agnus_variant(&self) -> AgnusInstalledVariant;
+
     /// Current arbitration plan plus recorded same-CCK bus use. Enhanced
     /// variants override this to apply their programmable vertical timing.
     fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
         self.agnus().bus_diagnostic_snapshot()
     }
 
-    /// ECS Agnus programmable timing state, inherited by Alice. OCS sessions
-    /// return `None`.
+    /// ECS Agnus programmable timing state, inherited by Alice and present on
+    /// OCS-shaped boards fitted with Fat Agnus 8372A.
     fn ecs_agnus_timing(&self) -> Option<EcsAgnusTimingSnapshot> {
         None
     }
@@ -671,8 +704,23 @@ impl AmigaLiveAccess for AmigaOcs {
         AmigaOcs::agnus(self)
     }
 
+    fn installed_agnus_variant(&self) -> AgnusInstalledVariant {
+        match self.installed_agnus_kind() {
+            InstalledAgnusKind::EarlyOcs => AgnusInstalledVariant::EarlyOcs,
+            InstalledAgnusKind::Fat8372A => AgnusInstalledVariant::Fat8372A,
+        }
+    }
+
     fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
-        AmigaOcs::agnus(self).bus_diagnostic_snapshot()
+        if let Some(agnus) = self.agnus_ecs() {
+            agnus.bus_diagnostic_snapshot_for_plan(agnus.cck_bus_plan())
+        } else {
+            AmigaOcs::agnus(self).bus_diagnostic_snapshot()
+        }
+    }
+
+    fn ecs_agnus_timing(&self) -> Option<EcsAgnusTimingSnapshot> {
+        self.agnus_ecs().map(ecs_agnus_timing_snapshot)
     }
 
     fn denise_diagnostic_snapshot(&self) -> DeniseDiagnosticSnapshot {
@@ -944,6 +992,10 @@ impl AmigaLiveAccess for AmigaEcs {
         // the struct field, but its public accessor projects the inner
         // OCS Agnus.
         AmigaEcs::agnus(self)
+    }
+
+    fn installed_agnus_variant(&self) -> AgnusInstalledVariant {
+        AgnusInstalledVariant::Ecs
     }
 
     fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
@@ -1237,6 +1289,10 @@ impl AmigaLiveAccess for AmigaA1200 {
     fn agnus(&self) -> &Agnus {
         // Inherent agnus() already returns &commodore_agnus_ocs::Agnus.
         AmigaA1200::agnus(self)
+    }
+
+    fn installed_agnus_variant(&self) -> AgnusInstalledVariant {
+        AgnusInstalledVariant::Alice
     }
 
     fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
@@ -1637,6 +1693,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
         }
     }
 
+    fn installed_agnus_variant(&self) -> AgnusInstalledVariant {
+        match self {
+            Self::Ocs(rt) => rt.machine().installed_agnus_variant(),
+            Self::Ecs(rt) => rt.machine().installed_agnus_variant(),
+            Self::Aga(rt) => rt.machine().installed_agnus_variant(),
+        }
+    }
+
     fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
         match self {
             Self::Ocs(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
@@ -1647,7 +1711,7 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
 
     fn ecs_agnus_timing(&self) -> Option<EcsAgnusTimingSnapshot> {
         match self {
-            Self::Ocs(_) => None,
+            Self::Ocs(rt) => rt.machine().ecs_agnus_timing(),
             Self::Ecs(rt) => rt.machine().ecs_agnus_timing(),
             Self::Aga(rt) => rt.machine().ecs_agnus_timing(),
         }

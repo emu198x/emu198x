@@ -9,8 +9,9 @@ use emu198x_shell::{
 };
 use format_commodore_amiga_adf::ADF_SIZE_DD;
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaA1200Runtime, AmigaEcsRuntime, AmigaMachine, AmigaOcsRuntime,
-    AmigaRuntime, AmigaRuntimeKind, AmigaSessionQueryProvider, Model,
+    A500_PAL_FRAME_TICKS, AgnusInstalledVariant, AmigaA1200Runtime, AmigaEcsRuntime,
+    AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime, AmigaRuntime, AmigaRuntimeKind,
+    AmigaSessionQueryProvider, Model,
 };
 use serde_json::{Value, json};
 
@@ -123,6 +124,68 @@ fn debugger_peek_does_not_drive_the_floating_bus() {
         .value;
     assert_eq!(before, json!(0xA55A));
     assert_eq!(after, before);
+}
+
+#[test]
+fn agnus_queries_distinguish_early_ocs_from_a2000_fat_8372a() {
+    let mut early = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let mut fat = AmigaOcsRuntime::blank(Model::A2000OcsPal);
+
+    assert_eq!(
+        query_value(&early, "agnus.installed_variant"),
+        json!("early-ocs"),
+    );
+    assert_eq!(
+        query_value(&fat, "agnus.installed_variant"),
+        json!("fat-8372a"),
+    );
+
+    early.machine_mut().poke_word(0x00DF_F1C0, 0x0022);
+    fat.machine_mut().poke_word(0x00DF_F1C0, 0x0033);
+    fat.machine_mut().poke_word(0x00DF_F1C4, 0x0044);
+    fat.machine_mut().poke_word(0x00DF_F1DC, 0x00A0);
+
+    assert_eq!(
+        query_value(&early, "agnus.htotal"),
+        Value::Null,
+        "early OCS must not claim an ECS timing latch"
+    );
+    assert_eq!(query_value(&fat, "agnus.htotal"), json!(0x0033));
+    assert_eq!(query_value(&fat, "agnus.hbstrt"), json!(0x0044));
+    assert_eq!(query_value(&fat, "agnus.beamcon0"), json!(0x00A0));
+}
+
+#[test]
+fn installed_agnus_query_names_cover_enhanced_machine_variants() {
+    let ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let alice = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+
+    assert_eq!(query_value(&ecs, "agnus.installed_variant"), json!("ecs"),);
+    assert_eq!(
+        query_value(&alice, "agnus.installed_variant"),
+        json!("alice"),
+    );
+}
+
+#[test]
+fn runtime_kind_forwards_a2000_fat_agnus_timing_diagnostics() {
+    let early = AmigaRuntimeKind::blank(Model::A500OcsPal);
+    assert_eq!(
+        early.installed_agnus_variant(),
+        AgnusInstalledVariant::EarlyOcs
+    );
+    assert!(early.ecs_agnus_timing().is_none());
+
+    let fat = AmigaRuntimeKind::blank(Model::A2000OcsPal);
+    assert_eq!(
+        fat.installed_agnus_variant(),
+        AgnusInstalledVariant::Fat8372A
+    );
+    let timing = fat
+        .ecs_agnus_timing()
+        .expect("A2000 Fat Agnus timing should cross the runtime-kind boundary");
+    assert_eq!(timing.beamcon0, 0x0020);
+    assert_eq!(timing.htotal, 226);
 }
 
 #[test]

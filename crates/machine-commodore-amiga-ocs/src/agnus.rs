@@ -8,7 +8,7 @@
 
 use std::ops::{Deref, DerefMut};
 
-use commodore_agnus_ecs::AgnusEcs;
+pub use commodore_agnus_ecs::AgnusEcs;
 
 pub use commodore_agnus_ocs::{
     Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_LINES_PER_FRAME,
@@ -29,6 +29,18 @@ pub use commodore_agnus_ocs::{
 pub(crate) enum InstalledAgnus {
     EarlyOcs(Agnus),
     Fat8372A(AgnusEcs),
+}
+
+/// Agnus implementation installed in an OCS-shaped machine.
+///
+/// This records the board-level silicon choice independently of the common
+/// OCS register core returned by [`crate::AmigaOcs::agnus`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstalledAgnusKind {
+    /// Original-chip-set Agnus without the ECS extension layer.
+    EarlyOcs,
+    /// Fat Agnus 8372A with ECS timing and blitter extensions.
+    Fat8372A,
 }
 
 /// Result of an ECS-only blitter-extension write.
@@ -67,6 +79,22 @@ impl InstalledAgnus {
         match self {
             Self::EarlyOcs(agnus) => agnus,
             Self::Fat8372A(agnus) => agnus.as_inner_mut(),
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn kind(&self) -> InstalledAgnusKind {
+        match self {
+            Self::EarlyOcs(_) => InstalledAgnusKind::EarlyOcs,
+            Self::Fat8372A(_) => InstalledAgnusKind::Fat8372A,
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn ecs(&self) -> Option<&AgnusEcs> {
+        match self {
+            Self::EarlyOcs(_) => None,
+            Self::Fat8372A(agnus) => Some(agnus),
         }
     }
 

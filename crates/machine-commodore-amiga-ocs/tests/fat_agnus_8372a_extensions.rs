@@ -4,7 +4,7 @@
 //! ECS Agnus register behavior must be available without silently upgrading
 //! the display chip to Super Denise.
 
-use machine_commodore_amiga_ocs::{AmigaOcs, RamConfig};
+use machine_commodore_amiga_ocs::{AmigaOcs, InstalledAgnusKind, RamConfig};
 
 const CUSTOM_BASE: u32 = 0x00DF_F000;
 const DMACONR: u32 = CUSTOM_BASE + 0x002;
@@ -89,6 +89,32 @@ fn run_blit_to_completion(amiga: &mut AmigaOcs) -> u32 {
         amiga.tick();
     }
     panic!("extended blitter pipeline did not drain within the tick budget");
+}
+
+#[test]
+fn installed_agnus_diagnostic_distinguishes_early_ocs_from_fat_8372a() {
+    let early = early_ocs_machine();
+    assert_eq!(early.installed_agnus_kind(), InstalledAgnusKind::EarlyOcs);
+    assert!(
+        early.agnus_ecs().is_none(),
+        "early OCS must not expose an ECS extension layer"
+    );
+
+    let mut fat = fat_agnus_machine();
+    assert_eq!(fat.installed_agnus_kind(), InstalledAgnusKind::Fat8372A);
+    assert!(
+        fat.agnus_ecs().is_some(),
+        "Fat 8372A must expose its ECS extension layer"
+    );
+
+    fat.poke_word(HTOTAL, 0x0033);
+    assert_eq!(
+        fat.agnus_ecs()
+            .expect("Fat Agnus should retain its extension layer")
+            .htotal(),
+        0x0033,
+        "the diagnostic reference must report the live timing latch"
+    );
 }
 
 #[test]

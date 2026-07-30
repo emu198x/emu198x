@@ -25,10 +25,10 @@ use common_commodore_amiga::{
 };
 
 pub use agnus::{
-    Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, NTSC_CCKS_PER_FRAME, NTSC_FRAME_TICKS,
-    NTSC_LINES_PER_FRAME, OriginalAgnusRevision, PAL_CCKS_PER_FRAME, PAL_FRAME_LINES,
-    PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS, PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE,
-    bits,
+    Agnus, AgnusEcs, AgnusRegion, BlitterCckOutcome, CckBusPlan, InstalledAgnusKind,
+    NTSC_CCKS_PER_FRAME, NTSC_FRAME_TICKS, NTSC_LINES_PER_FRAME, OriginalAgnusRevision,
+    PAL_CCKS_PER_FRAME, PAL_FRAME_LINES, PAL_FRAME_TICKS, PAL_LINE_CCKS, PAL_LINE_TICKS,
+    PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
 };
 pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
@@ -801,13 +801,28 @@ impl AmigaOcs {
         self.agnus.base()
     }
 
+    /// Installed Agnus implementation, including mixed 8372A + OCS Denise
+    /// configurations.
+    #[must_use]
+    pub const fn installed_agnus_kind(&self) -> InstalledAgnusKind {
+        self.agnus.kind()
+    }
+
+    /// Read-only ECS extension state when Fat Agnus 8372A is installed.
+    ///
+    /// Early OCS configurations return `None`.
+    #[must_use]
+    pub const fn agnus_ecs(&self) -> Option<&AgnusEcs> {
+        self.agnus.ecs()
+    }
+
     /// Whether this OCS-shaped machine has Fat Agnus 8372A installed.
     ///
     /// This is a board-level silicon choice, independent of the installed
     /// chip-RAM amount. Denise remains OCS when this returns `true`.
     #[must_use]
     pub const fn uses_fat_agnus_8372a(&self) -> bool {
-        self.agnus.is_fat_8372a()
+        matches!(self.installed_agnus_kind(), InstalledAgnusKind::Fat8372A)
     }
 
     /// Active video region — PAL or NTSC. Drives runtime frame timing

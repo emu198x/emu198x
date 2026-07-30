@@ -834,6 +834,7 @@ pub(crate) fn agnus_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     let a = m.agnus();
     let ecs = m.ecs_agnus_timing();
     let mut snapshot = json!({
+        "installed_variant": m.installed_agnus_variant().canonical_name(),
         "vpos": a.vpos,
         "hpos": a.hpos,
         "dmacon": m.dmacon(),
