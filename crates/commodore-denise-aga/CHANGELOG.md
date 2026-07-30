@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Expose a complete side-effect-free diagnostic snapshot of Lisa-owned
+  register, 24-bit palette, HAM8 and programmable-blanking state
+
 ### Fixed
 
 - Drive Lisa programmable horizontal blanking from a serialized fine-phase

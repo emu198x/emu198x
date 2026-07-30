@@ -45,6 +45,28 @@ pub const LISA_DENISE_ID: u16 = 0x00F8;
 /// Number of palette entries in AGA (vs 32 on OCS / ECS).
 pub const PALETTE_ENTRIES_24: usize = 256;
 
+/// Complete read-only snapshot of the state owned by the Lisa wrapper.
+///
+/// The wrapped ECS/OCS rendering core exposes its own diagnostic snapshot.
+/// This type reports only Lisa's outer register mirrors, 24-bit colour state
+/// and programmable-blanking latch, so callers can combine the two views
+/// without mistaking the common core's compatibility fields for Lisa's live
+/// palette or HAM8 hold register.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DeniseAgaDiagnosticSnapshot {
+    /// Lisa's BPLCON4 register mirror.
+    pub bplcon4: u16,
+    /// Lisa's complete 256-entry 24-bit palette, stored as `0x00RRGGBB`.
+    #[serde(with = "palette_24_serde")]
+    pub palette_24: [u32; PALETTE_ENTRIES_24],
+    /// Lisa's current 24-bit HAM8 hold colour, stored as `0x00RRGGBB`.
+    pub ham_prev_rgb24: u32,
+    /// Lisa's FMODE-derived sprite width mirror.
+    pub spr_width: u8,
+    /// Hidden programmable horizontal-blank comparator level.
+    pub programmed_hblank_active: bool,
+}
+
 /// Commodore Lisa (AGA Denise). Wraps the ECS Denise core and adds
 /// the AGA-only register state.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -147,6 +169,23 @@ impl DeniseAga {
     #[must_use]
     pub fn into_inner(self) -> InnerDeniseEcs {
         self.inner
+    }
+
+    /// Capture every mutable field owned by the Lisa wrapper without
+    /// advancing HAM chaining, changing the blanking comparator or touching
+    /// the wrapped ECS/OCS rendering core.
+    ///
+    /// Use the wrapped OCS core's diagnostic snapshot separately when its
+    /// bitplane, sprite and common-register pipeline state is also required.
+    #[must_use]
+    pub fn diagnostic_snapshot(&self) -> DeniseAgaDiagnosticSnapshot {
+        DeniseAgaDiagnosticSnapshot {
+            bplcon4: self.bplcon4,
+            palette_24: self.palette_24,
+            ham_prev_rgb24: self.ham_prev_rgb24,
+            spr_width: self.spr_width,
+            programmed_hblank_active: self.programmed_hblank_active,
+        }
     }
 
     /// Advance Lisa's programmable horizontal-blank comparator over the two
@@ -550,6 +589,47 @@ mod tests {
         assert_eq!(denise.ham_prev_rgb24, 0);
         assert!(denise.palette_24.iter().all(|&c| c == 0));
         assert!(!denise.programmed_hblank_active());
+    }
+
+    #[test]
+    fn diagnostic_snapshot_reports_complete_lisa_state_without_using_core_mirrors() {
+        let mut denise = DeniseAga::new();
+
+        for (index, color) in denise.palette_24.iter_mut().enumerate() {
+            *color = ((index as u32) * 0x0001_0203) & 0x00FF_FFFF;
+        }
+        denise.write_word(0x0106, 0xA000); // BANK=5, LOCT=0
+        denise.write_word(0x019A, 0x0A5C); // COLOR13 in bank 5 -> slot 173
+        denise.write_word(0x010C, 0x5A3C);
+        denise.write_word(0x01FC, 0x000C);
+        denise.set_bplcon0(0x0810); // HAM + BPU=8
+        denise.palette_24[1] = 0x0012_3457;
+        assert_eq!(denise.resolve_color_argb(0x04), 0xFF12_3457);
+
+        denise.write_word(0x0106, 0x0001); // EXTBLKEN
+        let _ = denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0001, 0x0040, 0x0080);
+
+        // The common OCS core carries compatibility mirrors. Deliberately
+        // make them disagree so this test proves the snapshot reads Lisa's
+        // actual outer state rather than the older common diagnostic view.
+        let core = denise.as_inner_mut().as_inner_mut();
+        core.bplcon4 = 0xBEEF;
+        core.palette_24 = [0x00DE_ADBE; 256];
+        core.ham_prev_rgb24 = 0x00CA_FEBE;
+        core.spr_width = 16;
+
+        let expected_palette = denise.palette_24;
+        let first = denise.diagnostic_snapshot();
+        let second = denise.diagnostic_snapshot();
+
+        assert_eq!(first, second);
+        assert_eq!(first.bplcon4, 0x5A3C);
+        assert_eq!(first.palette_24, expected_palette);
+        assert_eq!(first.palette_24[173], 0x00AA_55CC);
+        assert_eq!(first.ham_prev_rgb24, 0x0012_3457);
+        assert_eq!(first.spr_width, 64);
+        assert!(first.programmed_hblank_active);
+        assert!(denise.programmed_hblank_active());
     }
 
     #[test]
