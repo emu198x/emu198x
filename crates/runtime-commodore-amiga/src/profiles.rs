@@ -225,6 +225,15 @@ impl Model {
         )
     }
 
+    /// Whether this motherboard contains the Gayle IDE and PCMCIA controller.
+    #[must_use]
+    pub const fn uses_gayle(self) -> bool {
+        matches!(
+            self,
+            Self::A600EcsPal | Self::A600EcsNtsc | Self::A1200AgaPal | Self::A1200AgaNtsc
+        )
+    }
+
     /// Whether this model is NTSC. Drives the Agnus region selection
     /// and the runtime frame-tick / CCK-rate constants.
     #[must_use]
@@ -517,6 +526,20 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), profiles.len());
+    }
+
+    #[test]
+    fn gayle_is_a_motherboard_property_of_a600_and_a1200_profiles() {
+        for model in [
+            Model::A600EcsPal,
+            Model::A600EcsNtsc,
+            Model::A1200AgaPal,
+            Model::A1200AgaNtsc,
+        ] {
+            assert!(model.uses_gayle(), "{model:?} should contain Gayle");
+        }
+        assert!(!Model::A500PlusEcsPal.uses_gayle());
+        assert!(!Model::A500PlusEcsNtsc.uses_gayle());
     }
 
     #[test]

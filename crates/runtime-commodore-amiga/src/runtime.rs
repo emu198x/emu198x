@@ -884,10 +884,11 @@ pub(crate) fn build_amiga_ecs(config: AmigaConfig, firmware_rom: &[u8]) -> Amiga
     // chip layer.
     let model = config.model();
     let firmware = firmware_rom.to_vec();
-    if model.is_ntsc() {
-        AmigaEcs::with_ram_config_ntsc(firmware, config.ram())
-    } else {
-        AmigaEcs::with_ram_config(firmware, config.ram())
+    match (model.uses_gayle(), model.is_ntsc()) {
+        (true, false) => AmigaEcs::with_a600_ram_config(firmware, config.ram()),
+        (true, true) => AmigaEcs::with_a600_ram_config_ntsc(firmware, config.ram()),
+        (false, false) => AmigaEcs::with_ram_config(firmware, config.ram()),
+        (false, true) => AmigaEcs::with_ram_config_ntsc(firmware, config.ram()),
     }
 }
 

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Preserve the keyboard byte awaiting a host handshake in the raw
+  `AmigaOcsSnapshot` postcard schema; runtime envelopes version this as V29
 - [breaking] Extend the raw `AmigaOcsSnapshot` postcard schema with the
   active-CPU variant, rational clock, partial CPU-domain state, A530 board,
   and synchronized motherboard bridge; runtime envelopes version this as V24

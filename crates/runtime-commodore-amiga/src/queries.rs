@@ -70,6 +70,7 @@ const GROUPED_VARIANT_QUERY_ROOTS: &[&str] = &[
     "cia",
     "rtc",
     "keyboard",
+    "gayle",
     "input",
     "debug",
     "disk",
@@ -602,15 +603,31 @@ pub(crate) fn rtc_snapshot(m: &dyn AmigaLiveAccess) -> Value {
 /// Keyboard controller protocol progress and its current CIA-A serial
 /// interface. All reads are side-effect-free.
 pub(crate) fn keyboard_snapshot(m: &dyn AmigaLiveAccess) -> Value {
-    let keyboard = m.keyboard();
-    json!({
-        "state": keyboard.debug_state_name(),
-        "timer": keyboard.debug_timer(),
-        "queued": keyboard.queued_key_count(),
-        "bytes_sent": keyboard.bytes_sent,
-        "cia_a_sdr": m.cia_a().peek(0x0C),
-        "cia_a_spmode": (m.cia_a().cra() & 0x40) != 0,
-    })
+    let keyboard = m.keyboard().diagnostic_snapshot();
+    let mut snapshot = serde_json::to_value(&keyboard)
+        .expect("Amiga keyboard diagnostic snapshot should serialize");
+    let fields = snapshot
+        .as_object_mut()
+        .expect("Amiga keyboard diagnostic snapshot should be an object");
+    // Retain the established compact aliases while exposing the component's
+    // complete protocol snapshot.
+    fields.insert("timer".to_owned(), json!(keyboard.timer_ticks));
+    fields.insert("queued".to_owned(), json!(keyboard.queue_count));
+    fields.insert("cia_a_sdr".to_owned(), json!(m.cia_a().peek(0x0C)));
+    fields.insert(
+        "cia_a_spmode".to_owned(),
+        json!((m.cia_a().cra() & 0x40) != 0),
+    );
+    snapshot
+}
+
+/// Complete Gayle board-controller state on machines which contain it.
+///
+/// A600 and A1200 return a snapshot; A500+ and OCS-shaped machines return
+/// `None`, so discovery reflects the actual configured board.
+pub(crate) fn gayle_snapshot(m: &dyn AmigaLiveAccess) -> Option<Value> {
+    m.gayle_diagnostic_snapshot()
+        .map(|snapshot| json!(snapshot))
 }
 
 /// Board-level controller counters and Paula proportional-input readback.
@@ -1337,6 +1354,9 @@ pub(crate) fn resolve_chip_query(m: &dyn AmigaLiveAccess, path: &str) -> Option<
     }
     if is_chip(path, "keyboard") {
         return chip_field(path, "keyboard", keyboard_snapshot(m));
+    }
+    if is_chip(path, "gayle") {
+        return gayle_snapshot(m).and_then(|snapshot| chip_field(path, "gayle", snapshot));
     }
     if is_chip(path, "input") {
         return chip_field(path, "input", input_snapshot(m));

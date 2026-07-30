@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Bump Amiga postcard snapshots to version 29 so keyboard bytes
+  awaiting a host handshake and model-specific A600 Gayle state survive
+  restore; version 28 is rejected because its positional payload lacks them
 - [breaking] Bump Amiga postcard snapshots to version 28 so ECS Agnus and
   AGA Lisa programmable horizontal-blank event history survives restore;
   version 27 is rejected because it cannot preserve those hidden latches

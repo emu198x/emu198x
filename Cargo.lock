@@ -3887,6 +3887,7 @@ version = "0.2.0"
 dependencies = [
  "commodore-agnus-ocs",
  "commodore-denise-ocs",
+ "commodore-gayle",
  "emu198x-shell",
  "format-commodore-amiga-adf",
  "gvp-a530",

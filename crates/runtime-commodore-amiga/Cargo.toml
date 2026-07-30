@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.2.0" }
 commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.2.0" }
+commodore-gayle = { path = "../commodore-gayle", version = "0.2.0" }
 emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
 format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf", version = "0.2.0" }
 gvp-a530 = { path = "../gvp-a530", version = "0.2.0" }

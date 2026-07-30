@@ -43,6 +43,39 @@ fn query_cpu_pc_returns_initial_reset_vector() {
 }
 
 #[test]
+fn keyboard_queries_expose_complete_protocol_state_and_legacy_aliases() {
+    let runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let provider = AmigaSessionQueryProvider;
+    let paths = provider.query_paths(&runtime, Some("keyboard"));
+
+    for path in [
+        "keyboard.current_byte",
+        "keyboard.pending_encoded_byte",
+        "keyboard.serial_bits_remaining",
+        "keyboard.waiting_for_handshake",
+        "keyboard.queued_bytes",
+        "keyboard.queue_allocated_capacity",
+        "keyboard.timer",
+        "keyboard.queued",
+        "keyboard.cia_a_sdr",
+        "keyboard.cia_a_spmode",
+    ] {
+        assert!(
+            paths.contains(&path.to_owned()),
+            "{path} should be advertised"
+        );
+    }
+    assert_eq!(
+        query_value(&runtime, "keyboard.timer"),
+        query_value(&runtime, "keyboard.timer_ticks"),
+    );
+    assert_eq!(
+        query_value(&runtime, "keyboard.queued"),
+        query_value(&runtime, "keyboard.queue_count"),
+    );
+}
+
+#[test]
 fn a1000_queries_report_bootstrap_state() {
     let runtime = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
         .expect("runtime init");
@@ -173,6 +206,18 @@ fn every_ecs_query_path_resolves() {
 }
 
 #[test]
+fn every_a600_query_path_resolves() {
+    let runtime = AmigaEcsRuntime::blank(Model::A600EcsPal);
+    let provider = AmigaSessionQueryProvider;
+    for path in provider.query_paths(&runtime, None) {
+        let value = provider
+            .query(&runtime, &path)
+            .unwrap_or_else(|err| panic!("concrete {path} should not fail: {err:?}"));
+        assert!(value.is_some(), "concrete {path} should resolve");
+    }
+}
+
+#[test]
 fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
     let ocs = AmigaOcsRuntime::blank(Model::A500OcsPal);
     assert_group_leaf_catalogue(
@@ -218,6 +263,29 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
         ],
     );
 
+    let a600 = AmigaEcsRuntime::blank(Model::A600EcsPal);
+    assert_group_leaf_catalogue(
+        &a600,
+        &[
+            "runtime",
+            "chipset",
+            "agnus",
+            "denise",
+            "copper",
+            "dma",
+            "blitter",
+            "paula",
+            "cia",
+            "rtc",
+            "keyboard",
+            "gayle",
+            "input",
+            "debug",
+            "disk",
+            "scheduler",
+        ],
+    );
+
     let aga = AmigaA1200Runtime::blank(Model::A1200AgaPal);
     assert_group_leaf_catalogue(
         &aga,
@@ -233,12 +301,67 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
             "cia",
             "rtc",
             "keyboard",
+            "gayle",
             "input",
             "debug",
             "disk",
             "scheduler",
             "aga",
         ],
+    );
+}
+
+#[test]
+fn gayle_discovery_matches_the_configured_board() {
+    let provider = AmigaSessionQueryProvider;
+    let a500_plus = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let mut a600 = AmigaEcsRuntime::blank(Model::A600EcsPal);
+    let mut a1200 = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+
+    assert!(
+        !provider
+            .query_paths(&a500_plus, Some("gayle"))
+            .iter()
+            .any(|path| path == "gayle"),
+        "A500+ must not advertise a chip it does not contain",
+    );
+    assert!(
+        provider
+            .query(&a500_plus, "gayle")
+            .expect("A500+ query should not fail")
+            .is_none(),
+    );
+
+    a600.machine_mut().poke_byte(0x00DA_8000, 0x5A);
+    a1200.machine_mut().poke_byte(0x00DA_8000, 0xA5);
+    assert_gayle_present(&a600, &provider);
+    assert_gayle_present(&a1200, &provider);
+    assert_eq!(
+        query_value(&a600, "gayle.registers.card_status"),
+        json!(0x5A),
+    );
+    assert_eq!(
+        query_value(&a1200, "gayle.registers.card_status"),
+        json!(0xA5),
+    );
+}
+
+fn assert_gayle_present<M: AmigaMachine>(
+    runtime: &AmigaRuntime<M>,
+    provider: &AmigaSessionQueryProvider,
+) {
+    assert!(
+        provider
+            .query_paths(runtime, Some("gayle"))
+            .contains(&"gayle.registers.card_status".to_owned()),
+    );
+    assert_eq!(
+        provider
+            .query(runtime, "gayle.ide.drive_attached")
+            .expect("Gayle query should not fail")
+            .expect("Gayle leaf should resolve")
+            .value,
+        json!(false),
     );
 }
 

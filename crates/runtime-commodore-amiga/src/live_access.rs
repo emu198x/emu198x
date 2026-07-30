@@ -33,6 +33,7 @@
 
 use commodore_agnus_ocs::{Agnus, AgnusBusDiagnosticSnapshot};
 use commodore_denise_ocs::DeniseDiagnosticSnapshot;
+use commodore_gayle::GayleDiagnosticSnapshot;
 use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_a1200::AmigaA1200;
 use machine_commodore_amiga_ecs::{AgnusEcs, AmigaEcs, DeniseEcs};
@@ -366,6 +367,12 @@ pub trait AmigaLiveAccess {
     fn drive(&self) -> &AmigaFloppyDrive;
     fn keyboard(&self) -> &AmigaKeyboard;
     fn copper(&self) -> &Copper;
+
+    /// Complete Gayle state on A600 and A1200 boards. Other variants do not
+    /// contain Gayle.
+    fn gayle_diagnostic_snapshot(&self) -> Option<GayleDiagnosticSnapshot> {
+        None
+    }
 
     // ---------- video ----------
 
@@ -964,6 +971,10 @@ impl AmigaLiveAccess for AmigaEcs {
         AmigaEcs::copper(self)
     }
 
+    fn gayle_diagnostic_snapshot(&self) -> Option<GayleDiagnosticSnapshot> {
+        AmigaEcs::gayle_diagnostic_snapshot(self)
+    }
+
     fn framebuffer(&self) -> &[u32] {
         self.denise().framebuffer()
     }
@@ -1238,6 +1249,10 @@ impl AmigaLiveAccess for AmigaA1200 {
 
     fn copper(&self) -> &Copper {
         AmigaA1200::copper(self)
+    }
+
+    fn gayle_diagnostic_snapshot(&self) -> Option<GayleDiagnosticSnapshot> {
+        Some(AmigaA1200::gayle_diagnostic_snapshot(self))
     }
 
     fn framebuffer(&self) -> &[u32] {
@@ -1645,6 +1660,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => AmigaLiveAccess::copper(rt.machine()),
             Self::Ecs(rt) => AmigaLiveAccess::copper(rt.machine()),
             Self::Aga(rt) => AmigaLiveAccess::copper(rt.machine()),
+        }
+    }
+
+    fn gayle_diagnostic_snapshot(&self) -> Option<GayleDiagnosticSnapshot> {
+        match self {
+            Self::Ocs(_) => None,
+            Self::Ecs(rt) => rt.machine().gayle_diagnostic_snapshot(),
+            Self::Aga(rt) => Some(rt.machine().gayle_diagnostic_snapshot()),
         }
     }
 

@@ -186,6 +186,8 @@ struct MachineConfigurationState<'a> {
     a530_configuration_coherent: bool,
     synchronized_bridge_present: bool,
     synchronized_bridge_coherent: bool,
+    gayle_present: bool,
+    gary_gayle_decode_enabled: bool,
 }
 
 fn validate_machine_configuration(
@@ -315,6 +317,19 @@ fn validate_machine_configuration(
     }
     if !state.synchronized_bridge_coherent {
         return Err("synchronized bridge state does not belong to the waiting CPU cycle".into());
+    }
+    let expected_gayle_present = config.model().uses_gayle();
+    if state.gayle_present != expected_gayle_present {
+        return Err(format!(
+            "Gayle mismatch: present={}, configuration requires {expected_gayle_present}",
+            state.gayle_present
+        ));
+    }
+    if state.gary_gayle_decode_enabled != expected_gayle_present {
+        return Err(format!(
+            "Gary/Gayle decode mismatch: enabled={}, configuration requires {expected_gayle_present}",
+            state.gary_gayle_decode_enabled
+        ));
     }
     Ok(())
 }
@@ -1282,6 +1297,8 @@ impl AmigaMachine for AmigaOcs {
                     .is_none_or(|board| board.configuration_is_coherent()),
                 synchronized_bridge_present: self.has_synchronized_motherboard_bridge(),
                 synchronized_bridge_coherent: self.motherboard_bridge_is_coherent(),
+                gayle_present: false,
+                gary_gayle_decode_enabled: self.gary().gayle_present(),
             },
         )?;
         if self.uses_fat_agnus_8372a() != config.model().uses_fat_agnus_8372a() {
@@ -1463,6 +1480,8 @@ impl AmigaMachine for AmigaEcs {
                 a530_configuration_coherent: true,
                 synchronized_bridge_present: false,
                 synchronized_bridge_coherent: true,
+                gayle_present: self.gayle_diagnostic_snapshot().is_some(),
+                gary_gayle_decode_enabled: self.gary().gayle_present(),
             },
         )
     }
@@ -1521,7 +1540,7 @@ pub type AmigaEcsRuntime = AmigaRuntime<AmigaEcs>;
 // two-CIA pair + the AGA-specific Gayle controller (IDE + control
 // registers). For the trait impl, the surface is mechanically the same
 // as OCS / ECS — only the snapshot type and query-path catalogue differ
-// (A1000 paths drop, future Gayle / Akiko paths arrive in Phase 2).
+// (A1000 paths drop; Akiko remains future CD32 board work).
 // ===================================================================
 
 /// AGA query paths. Drops the A1000-only paths (no A1200 bootstrap ROM
@@ -1659,6 +1678,8 @@ impl AmigaMachine for AmigaA1200 {
                 a530_configuration_coherent: true,
                 synchronized_bridge_present: false,
                 synchronized_bridge_coherent: true,
+                gayle_present: true,
+                gary_gayle_decode_enabled: self.gary().gayle_present(),
             },
         )
     }
@@ -2262,6 +2283,8 @@ mod tests {
                 a530_configuration_coherent: true,
                 synchronized_bridge_present: false,
                 synchronized_bridge_coherent: true,
+                gayle_present: false,
+                gary_gayle_decode_enabled: machine.gary().gayle_present(),
             },
         )
         .expect_err("PAL timing with the original NTSC identity must be rejected");

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Preserve the raw byte awaiting a host handshake in serialized keyboard state.
+
 ### Added
 
 - Add a side-effect-free diagnostic snapshot covering the complete implemented
