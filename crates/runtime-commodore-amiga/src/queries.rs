@@ -239,7 +239,11 @@ pub(crate) fn chip_field(path: &str, chip: &str, snapshot: Value) -> Option<Valu
         return Some(snapshot);
     }
     let field = path.strip_prefix(chip)?.strip_prefix('.')?;
-    snapshot.get(field).cloned()
+    let mut value = &snapshot;
+    for segment in field.split('.') {
+        value = value.get(segment)?;
+    }
+    Some(value.clone())
 }
 
 /// Decode the Paula INTENA/INTREQ bit layout into a readable map.
@@ -251,9 +255,7 @@ fn decode_int_bits(val: u16) -> Value {
     ];
     let mut out = serde_json::Map::new();
     for (bit, name) in NAMES.iter().enumerate() {
-        if val & (1 << bit) != 0 {
-            out.insert((*name).to_string(), Value::Bool(true));
-        }
+        out.insert((*name).to_string(), Value::Bool(val & (1 << bit) != 0));
     }
     Value::Object(out)
 }
@@ -398,6 +400,203 @@ pub(crate) fn cia_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     json!({
         "cia_a": cia_fields(m.cia_a()),
         "cia_b": cia_fields(m.cia_b()),
+    })
+}
+
+/// Keyboard controller protocol progress and its current CIA-A serial
+/// interface. All reads are side-effect-free.
+pub(crate) fn keyboard_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    let keyboard = m.keyboard();
+    json!({
+        "state": keyboard.debug_state_name(),
+        "timer": keyboard.debug_timer(),
+        "queued": keyboard.queued_key_count(),
+        "bytes_sent": keyboard.bytes_sent,
+        "cia_a_sdr": m.cia_a().peek(0x0C),
+        "cia_a_spmode": (m.cia_a().cra() & 0x40) != 0,
+    })
+}
+
+/// Board-level controller counters and Paula proportional-input readback.
+pub(crate) fn input_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    let state = m.input_diagnostic_snapshot();
+    json!({
+        "joy0_x": state.joy0_x,
+        "joy0_y": state.joy0_y,
+        "joy0dat": state.joy0dat,
+        "joy1_x": state.joy1_x,
+        "joy1_y": state.joy1_y,
+        "joy1dat": state.joy1dat,
+        "port0_primary_button_pressed": state.port0_primary_button_pressed,
+        "port1_primary_button_pressed": state.port1_primary_button_pressed,
+        "joystick1_up": state.joystick1_up,
+        "joystick1_down": state.joystick1_down,
+        "joystick1_left": state.joystick1_left,
+        "joystick1_right": state.joystick1_right,
+        "joystick1_fire": state.joystick1_fire,
+        "joystick1_button2": state.joystick1_button2,
+        "joystick1_button3": state.joystick1_button3,
+        "potgo": m.paula().potgo(),
+        "potgor": m.paula().peek_potgor(),
+        "pot0dat": m.paula().pot0dat(),
+        "pot1dat": m.paula().pot1dat(),
+    })
+}
+
+fn register_read_counts(m: &dyn AmigaLiveAccess) -> Vec<Value> {
+    let mut counts: Vec<(u16, u64)> = m
+        .register_read_counts()
+        .iter()
+        .map(|(&register, &count)| (register, count))
+        .collect();
+    counts.sort_unstable_by_key(|&(register, _)| register);
+    counts
+        .into_iter()
+        .map(|(register, count)| json!({"register": register, "count": count}))
+        .collect()
+}
+
+fn cia_read_counts(counts: Option<&std::collections::HashMap<u8, u64>>) -> Option<Vec<Value>> {
+    let mut counts: Vec<(u8, u64)> = counts?
+        .iter()
+        .map(|(&register, &count)| (register, count))
+        .collect();
+    counts.sort_unstable_by_key(|&(register, _)| register);
+    Some(
+        counts
+            .into_iter()
+            .map(|(register, count)| json!({"register": register, "count": count}))
+            .collect(),
+    )
+}
+
+/// Non-behavioural counters and bounded trace-buffer summaries. Large logs
+/// stay available through their dedicated trace tools; this query reports
+/// counts and the most recent entry without serialising megabytes of history.
+pub(crate) fn debug_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    let last_transition = |entry: Option<&(u64, u32, u16, u16, u16)>| {
+        entry.map(|&(tick, pc, written, before, after)| {
+            json!({
+                "tick": tick,
+                "pc": pc,
+                "written": written,
+                "before": before,
+                "after": after,
+            })
+        })
+    };
+    let last_pointer = |entry: Option<&(u64, u32, u32)>| {
+        entry.map(|&(tick, pc, value)| json!({"tick": tick, "pc": pc, "value": value}))
+    };
+    let last_cia_write = |entry: Option<&(u64, u32, u8, u8)>| {
+        entry.map(|&(tick, pc, register, value)| {
+            json!({"tick": tick, "pc": pc, "register": register, "value": value})
+        })
+    };
+    json!({
+        "register_read_counts": register_read_counts(m),
+        "register_read_log_count": m.reg_read_log().len(),
+        "last_register_read": m.reg_read_log().last().map(
+            |&(tick, pc, register, value)| {
+                json!({"tick": tick, "pc": pc, "register": register, "value": value})
+            }
+        ),
+        "custom_write_log_count": m.custom_write_log().len(),
+        "last_custom_write": m.custom_write_log().last().map(
+            |&(tick, pc, address, register, value, is_word)| {
+                json!({
+                    "tick": tick,
+                    "pc": pc,
+                    "address": address,
+                    "register": register,
+                    "value": value,
+                    "is_word": is_word,
+                })
+            }
+        ),
+        "palette_log_count": m.palette_log().len(),
+        "last_palette_write": m.palette_log().last().map(
+            |&(tick, pc, register, value, bplcon3)| {
+                json!({
+                    "tick": tick,
+                    "pc": pc,
+                    "register": register,
+                    "value": value,
+                    "bplcon3": bplcon3,
+                })
+            }
+        ),
+        "bplcon0_log_count": m.bplcon0_log().len(),
+        "last_bplcon0_write": m.bplcon0_log().last().map(
+            |&(tick, pc, value)| json!({"tick": tick, "pc": pc, "value": value})
+        ),
+        "peak_intena": m.peak_intena(),
+        "intena_write_count": m.intena_write_count(),
+        "intena_transition_count": m.intena_log().len(),
+        "last_intena_transition": last_transition(m.intena_log().last()),
+        "dmacon_transition_count": m.dmacon_log().len(),
+        "last_dmacon_transition": last_transition(m.dmacon_log().last()),
+        "cop1lc_write_count": m.cop1lc_log().len(),
+        "last_cop1lc_write": last_pointer(m.cop1lc_log().last()),
+        "cop2lc_write_count": m.cop2lc_log().len(),
+        "last_cop2lc_write": last_pointer(m.cop2lc_log().last()),
+        "dsk_write_count": m.dsk_write_log().len(),
+        "last_dsk_write": m.dsk_write_log().last().map(
+            |&(tick, pc, register, value)| {
+                json!({"tick": tick, "pc": pc, "register": register, "value": value})
+            }
+        ),
+        "blitter_start_count": m.blitter_start_count(),
+        "blitter_log_count": m.blitter_log().len(),
+        "last_blitter_start": m.blitter_log().last().map(
+            |&(tick, pc, bltcon0, bltcon1, apt, bpt, cpt, dpt, bltsize)| {
+                json!({
+                    "tick": tick,
+                    "pc": pc,
+                    "bltcon0": bltcon0,
+                    "bltcon1": bltcon1,
+                    "apt": apt,
+                    "bpt": bpt,
+                    "cpt": cpt,
+                    "dpt": dpt,
+                    "bltsize": bltsize,
+                })
+            }
+        ),
+        "cia_a_write_count": m.cia_a_write_log().len(),
+        "last_cia_a_write": last_cia_write(m.cia_a_write_log().last()),
+        "cia_b_write_count": m.cia_b_write_log().len(),
+        "last_cia_b_write": last_cia_write(m.cia_b_write_log().last()),
+        "cia_a_read_counts": cia_read_counts(m.cia_a_read_counts()),
+        "cia_b_read_counts": cia_read_counts(m.cia_b_read_counts()),
+        "rtc_access_count": m.rtc_access_log().len(),
+        "last_rtc_access": m.rtc_access_log().last().map(
+            |&(tick, pc, address, is_read, is_word, value)| {
+                json!({
+                    "tick": tick,
+                    "pc": pc,
+                    "address": address,
+                    "is_read": is_read,
+                    "is_word": is_word,
+                    "value": value,
+                })
+            }
+        ),
+        "watch_range": m.watch_range().map(
+            |(base, length)| json!({"base": base, "length": length})
+        ),
+        "watch_write_count": m.watch_log().len(),
+        "last_watch_write": m.watch_log().last().map(
+            |&(tick, pc, address, value, is_word)| {
+                json!({
+                    "tick": tick,
+                    "pc": pc,
+                    "address": address,
+                    "value": value,
+                    "is_word": is_word,
+                })
+            }
+        ),
     })
 }
 
@@ -676,6 +875,15 @@ pub(crate) fn resolve_chip_query(m: &dyn AmigaLiveAccess, path: &str) -> Option<
     }
     if is_chip(path, "cia") {
         return chip_field(path, "cia", cia_snapshot(m));
+    }
+    if is_chip(path, "keyboard") {
+        return chip_field(path, "keyboard", keyboard_snapshot(m));
+    }
+    if is_chip(path, "input") {
+        return chip_field(path, "input", input_snapshot(m));
+    }
+    if is_chip(path, "debug") {
+        return chip_field(path, "debug", debug_snapshot(m));
     }
     if is_chip(path, "blitter") {
         return chip_field(path, "blitter", blitter_snapshot(m));

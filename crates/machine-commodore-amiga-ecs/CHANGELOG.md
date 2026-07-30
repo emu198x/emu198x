@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose raw controller counters and host input latches through a read-only
+  diagnostic snapshot
 - Expose side-effect-free scheduler, pending instruction-boundary and encoded
   track-stream diagnostic snapshots
 - Expose the installed Super Denise wrapper through a read-only accessor for
@@ -27,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Record CIA-B bus writes in the existing diagnostic log
 - Compose rendered programmable horizontal blanking from Agnus's observed
   HBSTRT/HBSTOP events and the live Super Denise selectors
 - Route Copper horizontal comparison through the ECS Agnus projection so

@@ -36,8 +36,8 @@ use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_a1200::AmigaA1200;
 use machine_commodore_amiga_ecs::{AgnusEcs, AmigaEcs, DeniseEcs};
 use machine_commodore_amiga_ocs::{
-    AmigaFloppyDrive, AmigaKeyboard, AmigaOcs, AmigaSchedulerDiagnosticSnapshot,
-    AmigaTrackStreamDiagnosticSnapshot, Cia, Copper, Paula8364,
+    AmigaFloppyDrive, AmigaInputDiagnosticSnapshot, AmigaKeyboard, AmigaOcs,
+    AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot, Cia, Copper, Paula8364,
 };
 use motorola_68k_common::registers::Registers;
 
@@ -258,6 +258,24 @@ pub type CustomWriteEntry = (u64, u32, u32, u16, u16, bool);
 /// `(tick, vpos, hpos, custom_register_offset, value)`.
 pub type CopperMoveLogEntry = (u64, u16, u16, u16, u16);
 
+/// INTENA / DMACON transition log entry:
+/// `(tick, pc, written_value, value_before, value_after)`.
+pub type RegisterTransitionLogEntry = (u64, u32, u16, u16, u16);
+
+/// Copper-list pointer update log entry: `(tick, pc, new_pointer)`.
+pub type CopperPointerLogEntry = (u64, u32, u32);
+
+/// Blitter-start log entry:
+/// `(tick, pc, bltcon0, bltcon1, apt, bpt, cpt, dpt, bltsize)`.
+pub type BlitLogEntry = (u64, u32, u16, u16, u32, u32, u32, u32, u16);
+
+/// CIA register-write log entry: `(tick, pc, register, value)`.
+pub type CiaRegisterWriteLogEntry = (u64, u32, u8, u8);
+
+/// RTC bus-access log entry:
+/// `(tick, pc, address, is_read, is_word, value)`.
+pub type RtcAccessLogEntry = (u64, u32, u32, bool, bool, u16);
+
 /// Chipset-agnostic read/write surface used by the family MCP tools.
 ///
 /// Implemented by every concrete machine struct (`AmigaOcs`,
@@ -296,6 +314,9 @@ pub trait AmigaLiveAccess {
 
     /// Board-level encoded-track cache and delivery-pacer state.
     fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot;
+
+    /// Board-level controller-port counters and host input latches.
+    fn input_diagnostic_snapshot(&self) -> AmigaInputDiagnosticSnapshot;
 
     // ---------- chipset register snapshot ----------
 
@@ -396,6 +417,52 @@ pub trait AmigaLiveAccess {
 
     /// Copper MOVE events routed through the custom-register dispatcher.
     fn copper_move_log(&self) -> &[CopperMoveLogEntry];
+
+    /// Per-register custom-chip read totals.
+    fn register_read_counts(&self) -> &std::collections::HashMap<u16, u64>;
+
+    /// Highest INTENA value observed after a CPU write.
+    fn peak_intena(&self) -> u16;
+
+    /// Total CPU writes to INTENA, including no-op writes.
+    fn intena_write_count(&self) -> u64;
+
+    /// INTENA writes that changed the stored value.
+    fn intena_log(&self) -> &[RegisterTransitionLogEntry];
+
+    /// COP1LC pointer updates.
+    fn cop1lc_log(&self) -> &[CopperPointerLogEntry];
+
+    /// COP2LC pointer updates.
+    fn cop2lc_log(&self) -> &[CopperPointerLogEntry];
+
+    /// DMACON writes that changed the stored value.
+    fn dmacon_log(&self) -> &[RegisterTransitionLogEntry];
+
+    /// Total blitter start-register writes.
+    fn blitter_start_count(&self) -> u64;
+
+    /// Captured blitter starts and their register context.
+    fn blitter_log(&self) -> &[BlitLogEntry];
+
+    /// CIA-A register writes.
+    fn cia_a_write_log(&self) -> &[CiaRegisterWriteLogEntry];
+
+    /// CIA-B register writes.
+    fn cia_b_write_log(&self) -> &[CiaRegisterWriteLogEntry];
+
+    /// CIA-A register-read totals, when the machine records them.
+    fn cia_a_read_counts(&self) -> Option<&std::collections::HashMap<u8, u64>> {
+        None
+    }
+
+    /// CIA-B register-read totals, when the machine records them.
+    fn cia_b_read_counts(&self) -> Option<&std::collections::HashMap<u8, u64>> {
+        None
+    }
+
+    /// Bounded RTC bus-access log.
+    fn rtc_access_log(&self) -> &[RtcAccessLogEntry];
 
     /// Compatibility projection used by the existing AGA Copper-list tool.
     /// All chipsets now expose the common Copper through [`Self::copper`].
@@ -516,6 +583,10 @@ impl AmigaLiveAccess for AmigaOcs {
 
     fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot {
         AmigaOcs::track_stream_diagnostic_snapshot(self)
+    }
+
+    fn input_diagnostic_snapshot(&self) -> AmigaInputDiagnosticSnapshot {
+        AmigaOcs::input_diagnostic_snapshot(self)
     }
 
     fn intena(&self) -> u16 {
@@ -650,6 +721,54 @@ impl AmigaLiveAccess for AmigaOcs {
         &self.debug_copper_move_log
     }
 
+    fn register_read_counts(&self) -> &std::collections::HashMap<u16, u64> {
+        &self.debug_reg_read_counts
+    }
+
+    fn peak_intena(&self) -> u16 {
+        self.debug_peak_intena
+    }
+
+    fn intena_write_count(&self) -> u64 {
+        self.debug_intena_writes
+    }
+
+    fn intena_log(&self) -> &[RegisterTransitionLogEntry] {
+        &self.debug_intena_log
+    }
+
+    fn cop1lc_log(&self) -> &[CopperPointerLogEntry] {
+        &self.debug_cop1lc_log
+    }
+
+    fn cop2lc_log(&self) -> &[CopperPointerLogEntry] {
+        &self.debug_cop2lc_log
+    }
+
+    fn dmacon_log(&self) -> &[RegisterTransitionLogEntry] {
+        &self.debug_dmacon_log
+    }
+
+    fn blitter_start_count(&self) -> u64 {
+        self.debug_blit_starts
+    }
+
+    fn blitter_log(&self) -> &[BlitLogEntry] {
+        &self.debug_blit_log
+    }
+
+    fn cia_a_write_log(&self) -> &[CiaRegisterWriteLogEntry] {
+        &self.debug_cia_a_cr_log
+    }
+
+    fn cia_b_write_log(&self) -> &[CiaRegisterWriteLogEntry] {
+        &self.debug_cia_b_cr_log
+    }
+
+    fn rtc_access_log(&self) -> &[RtcAccessLogEntry] {
+        &self.debug_rtc_log
+    }
+
     fn aga_copper(&self) -> Option<&Copper> {
         None
     }
@@ -711,6 +830,10 @@ impl AmigaLiveAccess for AmigaEcs {
 
     fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot {
         AmigaEcs::track_stream_diagnostic_snapshot(self)
+    }
+
+    fn input_diagnostic_snapshot(&self) -> AmigaInputDiagnosticSnapshot {
+        AmigaEcs::input_diagnostic_snapshot(self)
     }
 
     fn intena(&self) -> u16 {
@@ -868,6 +991,54 @@ impl AmigaLiveAccess for AmigaEcs {
         &self.debug_copper_move_log
     }
 
+    fn register_read_counts(&self) -> &std::collections::HashMap<u16, u64> {
+        &self.debug_reg_read_counts
+    }
+
+    fn peak_intena(&self) -> u16 {
+        self.debug_peak_intena
+    }
+
+    fn intena_write_count(&self) -> u64 {
+        self.debug_intena_writes
+    }
+
+    fn intena_log(&self) -> &[RegisterTransitionLogEntry] {
+        &self.debug_intena_log
+    }
+
+    fn cop1lc_log(&self) -> &[CopperPointerLogEntry] {
+        &self.debug_cop1lc_log
+    }
+
+    fn cop2lc_log(&self) -> &[CopperPointerLogEntry] {
+        &self.debug_cop2lc_log
+    }
+
+    fn dmacon_log(&self) -> &[RegisterTransitionLogEntry] {
+        &self.debug_dmacon_log
+    }
+
+    fn blitter_start_count(&self) -> u64 {
+        self.debug_blit_starts
+    }
+
+    fn blitter_log(&self) -> &[BlitLogEntry] {
+        &self.debug_blit_log
+    }
+
+    fn cia_a_write_log(&self) -> &[CiaRegisterWriteLogEntry] {
+        &self.debug_cia_a_cr_log
+    }
+
+    fn cia_b_write_log(&self) -> &[CiaRegisterWriteLogEntry] {
+        &self.debug_cia_b_cr_log
+    }
+
+    fn rtc_access_log(&self) -> &[RtcAccessLogEntry] {
+        &self.debug_rtc_log
+    }
+
     fn aga_copper(&self) -> Option<&Copper> {
         None
     }
@@ -926,6 +1097,10 @@ impl AmigaLiveAccess for AmigaA1200 {
 
     fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot {
         AmigaA1200::track_stream_diagnostic_snapshot(self)
+    }
+
+    fn input_diagnostic_snapshot(&self) -> AmigaInputDiagnosticSnapshot {
+        AmigaA1200::input_diagnostic_snapshot(self)
     }
 
     fn intena(&self) -> u16 {
@@ -1079,6 +1254,62 @@ impl AmigaLiveAccess for AmigaA1200 {
         &self.debug_copper_move_log
     }
 
+    fn register_read_counts(&self) -> &std::collections::HashMap<u16, u64> {
+        &self.debug_reg_read_counts
+    }
+
+    fn peak_intena(&self) -> u16 {
+        self.debug_peak_intena
+    }
+
+    fn intena_write_count(&self) -> u64 {
+        self.debug_intena_writes
+    }
+
+    fn intena_log(&self) -> &[RegisterTransitionLogEntry] {
+        &self.debug_intena_log
+    }
+
+    fn cop1lc_log(&self) -> &[CopperPointerLogEntry] {
+        &self.debug_cop1lc_log
+    }
+
+    fn cop2lc_log(&self) -> &[CopperPointerLogEntry] {
+        &self.debug_cop2lc_log
+    }
+
+    fn dmacon_log(&self) -> &[RegisterTransitionLogEntry] {
+        &self.debug_dmacon_log
+    }
+
+    fn blitter_start_count(&self) -> u64 {
+        self.debug_blit_starts
+    }
+
+    fn blitter_log(&self) -> &[BlitLogEntry] {
+        &self.debug_blit_log
+    }
+
+    fn cia_a_write_log(&self) -> &[CiaRegisterWriteLogEntry] {
+        &self.debug_cia_a_cr_log
+    }
+
+    fn cia_b_write_log(&self) -> &[CiaRegisterWriteLogEntry] {
+        &self.debug_cia_b_cr_log
+    }
+
+    fn cia_a_read_counts(&self) -> Option<&std::collections::HashMap<u8, u64>> {
+        Some(&self.debug_cia_a_read_counts)
+    }
+
+    fn cia_b_read_counts(&self) -> Option<&std::collections::HashMap<u8, u64>> {
+        Some(&self.debug_cia_b_read_counts)
+    }
+
+    fn rtc_access_log(&self) -> &[RtcAccessLogEntry] {
+        &self.debug_rtc_log
+    }
+
     fn aga_copper(&self) -> Option<&Copper> {
         Some(AmigaA1200::copper(self))
     }
@@ -1180,6 +1411,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => rt.machine().track_stream_diagnostic_snapshot(),
             Self::Ecs(rt) => rt.machine().track_stream_diagnostic_snapshot(),
             Self::Aga(rt) => rt.machine().track_stream_diagnostic_snapshot(),
+        }
+    }
+
+    fn input_diagnostic_snapshot(&self) -> AmigaInputDiagnosticSnapshot {
+        match self {
+            Self::Ocs(rt) => rt.machine().input_diagnostic_snapshot(),
+            Self::Ecs(rt) => rt.machine().input_diagnostic_snapshot(),
+            Self::Aga(rt) => rt.machine().input_diagnostic_snapshot(),
         }
     }
 
@@ -1452,6 +1691,116 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => rt.machine().copper_move_log(),
             Self::Ecs(rt) => rt.machine().copper_move_log(),
             Self::Aga(rt) => rt.machine().copper_move_log(),
+        }
+    }
+
+    fn register_read_counts(&self) -> &std::collections::HashMap<u16, u64> {
+        match self {
+            Self::Ocs(rt) => rt.machine().register_read_counts(),
+            Self::Ecs(rt) => rt.machine().register_read_counts(),
+            Self::Aga(rt) => rt.machine().register_read_counts(),
+        }
+    }
+
+    fn peak_intena(&self) -> u16 {
+        match self {
+            Self::Ocs(rt) => rt.machine().peak_intena(),
+            Self::Ecs(rt) => rt.machine().peak_intena(),
+            Self::Aga(rt) => rt.machine().peak_intena(),
+        }
+    }
+
+    fn intena_write_count(&self) -> u64 {
+        match self {
+            Self::Ocs(rt) => rt.machine().intena_write_count(),
+            Self::Ecs(rt) => rt.machine().intena_write_count(),
+            Self::Aga(rt) => rt.machine().intena_write_count(),
+        }
+    }
+
+    fn intena_log(&self) -> &[RegisterTransitionLogEntry] {
+        match self {
+            Self::Ocs(rt) => rt.machine().intena_log(),
+            Self::Ecs(rt) => rt.machine().intena_log(),
+            Self::Aga(rt) => rt.machine().intena_log(),
+        }
+    }
+
+    fn cop1lc_log(&self) -> &[CopperPointerLogEntry] {
+        match self {
+            Self::Ocs(rt) => rt.machine().cop1lc_log(),
+            Self::Ecs(rt) => rt.machine().cop1lc_log(),
+            Self::Aga(rt) => rt.machine().cop1lc_log(),
+        }
+    }
+
+    fn cop2lc_log(&self) -> &[CopperPointerLogEntry] {
+        match self {
+            Self::Ocs(rt) => rt.machine().cop2lc_log(),
+            Self::Ecs(rt) => rt.machine().cop2lc_log(),
+            Self::Aga(rt) => rt.machine().cop2lc_log(),
+        }
+    }
+
+    fn dmacon_log(&self) -> &[RegisterTransitionLogEntry] {
+        match self {
+            Self::Ocs(rt) => rt.machine().dmacon_log(),
+            Self::Ecs(rt) => rt.machine().dmacon_log(),
+            Self::Aga(rt) => rt.machine().dmacon_log(),
+        }
+    }
+
+    fn blitter_start_count(&self) -> u64 {
+        match self {
+            Self::Ocs(rt) => rt.machine().blitter_start_count(),
+            Self::Ecs(rt) => rt.machine().blitter_start_count(),
+            Self::Aga(rt) => rt.machine().blitter_start_count(),
+        }
+    }
+
+    fn blitter_log(&self) -> &[BlitLogEntry] {
+        match self {
+            Self::Ocs(rt) => rt.machine().blitter_log(),
+            Self::Ecs(rt) => rt.machine().blitter_log(),
+            Self::Aga(rt) => rt.machine().blitter_log(),
+        }
+    }
+
+    fn cia_a_write_log(&self) -> &[CiaRegisterWriteLogEntry] {
+        match self {
+            Self::Ocs(rt) => rt.machine().cia_a_write_log(),
+            Self::Ecs(rt) => rt.machine().cia_a_write_log(),
+            Self::Aga(rt) => rt.machine().cia_a_write_log(),
+        }
+    }
+
+    fn cia_b_write_log(&self) -> &[CiaRegisterWriteLogEntry] {
+        match self {
+            Self::Ocs(rt) => rt.machine().cia_b_write_log(),
+            Self::Ecs(rt) => rt.machine().cia_b_write_log(),
+            Self::Aga(rt) => rt.machine().cia_b_write_log(),
+        }
+    }
+
+    fn cia_a_read_counts(&self) -> Option<&std::collections::HashMap<u8, u64>> {
+        match self {
+            Self::Ocs(_) | Self::Ecs(_) => None,
+            Self::Aga(rt) => rt.machine().cia_a_read_counts(),
+        }
+    }
+
+    fn cia_b_read_counts(&self) -> Option<&std::collections::HashMap<u8, u64>> {
+        match self {
+            Self::Ocs(_) | Self::Ecs(_) => None,
+            Self::Aga(rt) => rt.machine().cia_b_read_counts(),
+        }
+    }
+
+    fn rtc_access_log(&self) -> &[RtcAccessLogEntry] {
+        match self {
+            Self::Ocs(rt) => rt.machine().rtc_access_log(),
+            Self::Ecs(rt) => rt.machine().rtc_access_log(),
+            Self::Aga(rt) => rt.machine().rtc_access_log(),
         }
     }
 

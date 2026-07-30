@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose raw controller counters and host input latches through a read-only
+  diagnostic snapshot
 - Expose side-effect-free scheduler, pending instruction-boundary and encoded
   track-stream diagnostic snapshots
 - Add the GVP A530 machine path with a 40 MHz MC68EC030, exact asynchronous
@@ -47,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Record CIA-B bus writes in the existing diagnostic log
 - Route Copper horizontal comparison through the installed original or Fat
   Agnus projection, including NTSC-long and programmable timing
 - Include accelerator-local RAM writes in the shared CPU memory-watch

@@ -186,6 +186,9 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
             "blitter",
             "paula",
             "cia",
+            "keyboard",
+            "input",
+            "debug",
             "disk",
             "scheduler",
         ],
@@ -203,6 +206,9 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
             "blitter",
             "paula",
             "cia",
+            "keyboard",
+            "input",
+            "debug",
             "disk",
             "scheduler",
         ],
@@ -220,6 +226,9 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
             "blitter",
             "paula",
             "cia",
+            "keyboard",
+            "input",
+            "debug",
             "disk",
             "scheduler",
             "aga",
@@ -236,25 +245,37 @@ fn assert_group_leaf_catalogue<M: AmigaMachine>(runtime: &AmigaRuntime<M>, group
             .query(runtime, group)
             .unwrap_or_else(|error| panic!("{group} query failed: {error:?}"))
             .unwrap_or_else(|| panic!("{group} group should resolve"));
-        let object = grouped
-            .value
-            .as_object()
-            .unwrap_or_else(|| panic!("{group} should be an object"));
+        assert_group_value_catalogue(runtime, &provider, &paths, group, &grouped.value);
+    }
+}
 
-        for (field, grouped_value) in object {
-            let path = format!("{group}.{field}");
-            assert!(
-                paths.contains(&path),
-                "{path} appears in the grouped snapshot but is not advertised",
-            );
-            let leaf = provider
-                .query(runtime, &path)
-                .unwrap_or_else(|error| panic!("{path} query failed: {error:?}"))
-                .unwrap_or_else(|| panic!("{path} should resolve"));
-            assert_eq!(
-                &leaf.value, grouped_value,
-                "{path} should equal its grouped snapshot field",
-            );
+fn assert_group_value_catalogue<M: AmigaMachine>(
+    runtime: &AmigaRuntime<M>,
+    provider: &AmigaSessionQueryProvider,
+    paths: &[String],
+    prefix: &str,
+    value: &Value,
+) {
+    let object = value
+        .as_object()
+        .unwrap_or_else(|| panic!("{prefix} should be an object"));
+
+    for (field, grouped_value) in object {
+        let path = format!("{prefix}.{field}");
+        assert!(
+            paths.contains(&path),
+            "{path} appears in the grouped snapshot but is not advertised",
+        );
+        let leaf = provider
+            .query(runtime, &path)
+            .unwrap_or_else(|error| panic!("{path} query failed: {error:?}"))
+            .unwrap_or_else(|| panic!("{path} should resolve"));
+        assert_eq!(
+            &leaf.value, grouped_value,
+            "{path} should equal its grouped snapshot field",
+        );
+        if grouped_value.is_object() {
+            assert_group_value_catalogue(runtime, provider, paths, &path, grouped_value);
         }
     }
 }

@@ -143,6 +143,46 @@ pub struct AmigaTrackStreamDiagnosticSnapshot {
     pub word_interval_ccks: u16,
 }
 
+/// Side-effect-free view of the board-level controller-port input state.
+///
+/// This records both the raw counter bytes presented through JOY0DAT /
+/// JOY1DAT and the host-control latches that feed those counters. Paula-owned
+/// proportional-input and auxiliary-button state remains in Paula's own
+/// diagnostic snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AmigaInputDiagnosticSnapshot {
+    /// Port 0 horizontal counter byte.
+    pub joy0_x: u8,
+    /// Port 0 vertical counter byte.
+    pub joy0_y: u8,
+    /// Complete JOY0DAT readback.
+    pub joy0dat: u16,
+    /// Port 1 horizontal counter byte.
+    pub joy1_x: u8,
+    /// Port 1 vertical counter byte.
+    pub joy1_y: u8,
+    /// Complete JOY1DAT readback.
+    pub joy1dat: u16,
+    /// Whether port 0's active-low primary fire / left mouse button is held.
+    pub port0_primary_button_pressed: bool,
+    /// Whether port 1's active-low primary fire button is held.
+    pub port1_primary_button_pressed: bool,
+    /// Host-level port 1 joystick up latch.
+    pub joystick1_up: bool,
+    /// Host-level port 1 joystick down latch.
+    pub joystick1_down: bool,
+    /// Host-level port 1 joystick left latch.
+    pub joystick1_left: bool,
+    /// Host-level port 1 joystick right latch.
+    pub joystick1_right: bool,
+    /// Host-level port 1 primary fire latch.
+    pub joystick1_fire: bool,
+    /// Host-level port 1 second-button latch.
+    pub joystick1_button2: bool,
+    /// Host-level port 1 third-button latch.
+    pub joystick1_button3: bool,
+}
+
 /// The shared per-CCK driver for every Amiga chipset variant.
 ///
 /// Implemented by each machine struct **in its own crate** (so the

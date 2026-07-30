@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose raw controller counters and host input latches through a read-only
+  diagnostic snapshot
 - Expose side-effect-free scheduler, pending instruction-boundary and encoded
   track-stream diagnostic snapshots
 
@@ -29,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Record CIA-B bus writes in the existing diagnostic log
 - Compose rendered programmable horizontal blanking from Lisa's observed
   fine-phase HBSTRT/HBSTOP events and live ECSENA/EXTBLKEN selectors
 - Route Copper horizontal comparison through Alice's inherited programmable

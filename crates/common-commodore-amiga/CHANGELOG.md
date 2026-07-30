@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add a shared side-effect-free controller-port input snapshot
 - Expose the pending CPU-domain motherboard admission slot through a
   non-consuming diagnostic getter
 - Add shared read-only scheduler and encoded-track-stream snapshots, and

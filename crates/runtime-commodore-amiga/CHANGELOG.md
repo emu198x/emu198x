@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose controller-port sources, keyboard protocol progress and all existing
+  machine diagnostic counters and last-entry summaries through grouped queries
+- Resolve and advertise nested query fields, with recursive catalogue tests
+  covering every object field returned by each diagnostic group
 - Expose runtime buffering, CPU-domain scheduling, common Copper pipelines,
   complete floppy mechanism/track-stream/Paula disk state and Copper MOVE-log
   summaries through discoverable grouped queries

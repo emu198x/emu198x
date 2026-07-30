@@ -13,8 +13,8 @@ use std::collections::VecDeque;
 use common_commodore_amiga::board::{BusResponse, BusTransaction, ChipRamBus, TICKS_PER_CCK};
 use common_commodore_amiga::driver::{AmigaDriver, CpuBoundary};
 pub use common_commodore_amiga::{
-    AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY, AmigaSchedulerDiagnosticSnapshot,
-    AmigaTrackStreamDiagnosticSnapshot,
+    AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY, AmigaInputDiagnosticSnapshot,
+    AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot,
 };
 use common_commodore_amiga::{ActiveCpu, CpuClock, CpuDomainPhase, cia, copper, memory, rtc};
 
@@ -1503,6 +1503,28 @@ impl AmigaEcs {
         }
     }
 
+    /// Side-effect-free controller-port counters and host input latches.
+    #[must_use]
+    pub fn input_diagnostic_snapshot(&self) -> AmigaInputDiagnosticSnapshot {
+        AmigaInputDiagnosticSnapshot {
+            joy0_x: self.joy0_x,
+            joy0_y: self.joy0_y,
+            joy0dat: joydat(self.joy0_x, self.joy0_y),
+            joy1_x: self.joy1_x,
+            joy1_y: self.joy1_y,
+            joy1dat: joydat(self.joy1_x, self.joy1_y),
+            port0_primary_button_pressed: self.port0_left_button_pressed,
+            port1_primary_button_pressed: self.port1_left_button_pressed,
+            joystick1_up: self.joystick1.up,
+            joystick1_down: self.joystick1.down,
+            joystick1_left: self.joystick1.left,
+            joystick1_right: self.joystick1.right,
+            joystick1_fire: self.joystick1.fire,
+            joystick1_button2: self.joystick1.button2,
+            joystick1_button3: self.joystick1.button3,
+        }
+    }
+
     /// Read a word at the given 24-bit address — peeks state without
     /// side effects (does NOT clear ICR etc). For inspecting state
     /// during tests; not equivalent to a CPU bus cycle.
@@ -1649,6 +1671,12 @@ impl AmigaEcs {
             } else {
                 tx.data as u8
             };
+            self.debug_cia_b_cr_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                reg,
+                byte,
+            ));
             self.cia_b.write(reg, byte);
             if matches!(reg, 0x01 | 0x03) {
                 self.apply_df0_control_from_cia_b();
@@ -2200,6 +2228,20 @@ mod bus_plan_dispatch_tests {
 
     fn machine() -> AmigaEcs {
         AmigaEcs::new(vec![0; 512 * 1024])
+    }
+
+    #[test]
+    fn cia_b_bus_writes_are_recorded_for_diagnostics() {
+        let mut amiga = machine();
+        let response = amiga.dispatch_cia_b(&BusTransaction {
+            addr: 0x00BF_D100,
+            is_read: false,
+            is_word: true,
+            data: 0xA500,
+        });
+
+        assert!(matches!(response, Some(BusResponse::WriteAck)));
+        assert_eq!(amiga.debug_cia_b_cr_log, vec![(0, 0, 1, 0xA5)]);
     }
 
     #[test]
