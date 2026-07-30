@@ -22,9 +22,13 @@ The first slice does not certify:
 - monitor-driver geometry;
 - analogue RGB, composite, genlock, or sync-pin levels;
 - sub-pixel AGA placement that the captured sample grid cannot represent;
+- register writes made after a relevant comparator position on the current
+  line;
 - physical hardware behaviour without a registered hardware capture.
 
-Those questions require separate cases and evidence.
+Those questions require separate cases and evidence. Mid-line register writes
+are covered by the separate
+[`write-timing process`](amiga-programmable-hblank-write-timing.md).
 
 ## Portable corpus boundary
 
@@ -177,6 +181,7 @@ case.
 ## Related documents
 
 - [Portable programmable-HBLANK corpus](../../test-data/commodore/amiga/programmable-hblank/README.md)
+- [Programmable-HBLANK write timing](amiga-programmable-hblank-write-timing.md)
 - [Current UAE-family capture](../../test-data/commodore/amiga/programmable-hblank/references/fs-uae-5.0.7-f362278c/README.md)
 - [Amiga Test Kit v1.21 video conformance](amiga-test-kit-video-conformance.md)
 - [Amiga Test Kit verification](amiga-test-kit-verification.md)

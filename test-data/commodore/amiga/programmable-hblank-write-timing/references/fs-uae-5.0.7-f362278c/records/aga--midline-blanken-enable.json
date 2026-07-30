@@ -1,0 +1,203 @@
+{
+  "artifact": {
+    "adf_file": "midline-blanken-enable.adf",
+    "adf_sha256": "45384fa006b082aadaf503b1467b7f63941ce38d01aa554feaa8a115c5263e17",
+    "payload_file": "midline-blanken-enable.bin",
+    "payload_sha256": "fc5adfed1654c1f247d3ec763843d2ad5376ea22312489742828ed0a50f240a4"
+  },
+  "case_id": "midline-blanken-enable",
+  "execution": {
+    "adjacent_field_stability": "confirmed",
+    "captured_fields": [
+      89,
+      90,
+      91
+    ],
+    "cold_boot": true,
+    "command_or_procedure": "tools/fs-uae-hblank-write-timing-capture/capture.sh aga midline-blanken-enable <registered-FS-UAE-binary> <suite-1.0.0-directory> <firmware-matching-recorded-sha256> <fresh-output-directory> <operator>",
+    "configuration_sha256": "caf84d409f8932151ab0b83253deda901143e38a1f5d08ab47864ca4180d3dec",
+    "ready_observed_field": 81,
+    "ready_rule": {
+      "byte_order": "big-endian",
+      "case_number": 5,
+      "field_counter_minimum": 8,
+      "magic": "HBLK",
+      "record_address": "0x0002ff00"
+    },
+    "settle_fields": 8
+  },
+  "machine": {
+    "agnus": "AGA Alice",
+    "chipset": "AGA",
+    "cpu": "Motorola 68EC020",
+    "denise_or_lisa": "AGA Lisa",
+    "firmware": {
+      "revision": "Kickstart 3.1 revision 40.068",
+      "sha256": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707"
+    },
+    "model": "A1200",
+    "ram_bytes": 2097152,
+    "region": "PAL"
+  },
+  "normalization": {
+    "alignment_search": false,
+    "beam_coordinate": {
+      "horizontal_origin_sample": -184,
+      "horizontal_samples_per_register_increment_denominator": 1,
+      "horizontal_samples_per_register_increment_numerator": 4,
+      "phase_denominator": 1,
+      "phase_numerator": 0,
+      "sample_beam_line": 128,
+      "sample_row": 204
+    },
+    "color_conversion": "lossless BGRA-to-RGBA channel reorder; black classified by RGB regardless of retained source alpha",
+    "crop": {
+      "height": 576,
+      "width": 756,
+      "x": 0,
+      "y": 0
+    },
+    "field_handling": "bob"
+  },
+  "observations": {
+    "following_line_carry": "mutation confirmed",
+    "guard_color_word": "0x0ff",
+    "interval_convention": "start-inclusive-stop-exclusive",
+    "lines": [
+      {
+        "black_runs": [
+          [
+            264,
+            520
+          ]
+        ],
+        "guard_runs": [
+          [
+            2,
+            264
+          ],
+          [
+            520,
+            756
+          ]
+        ],
+        "marker_runs": [],
+        "raw_rows": [
+          202,
+          203
+        ],
+        "role": "pre-mutation baseline"
+      },
+      {
+        "black_runs": [
+          [
+            264,
+            520
+          ]
+        ],
+        "guard_runs": [
+          [
+            2,
+            264
+          ]
+        ],
+        "marker_runs": [
+          [
+            520,
+            756
+          ]
+        ],
+        "raw_rows": [
+          204,
+          205
+        ],
+        "role": "mutation output"
+      },
+      {
+        "black_runs": [
+          [
+            264,
+            520
+          ]
+        ],
+        "guard_runs": [],
+        "marker_runs": [
+          [
+            2,
+            264
+          ],
+          [
+            520,
+            756
+          ]
+        ],
+        "raw_rows": [
+          206,
+          207
+        ],
+        "role": "post-mutation control"
+      }
+    ],
+    "marker_color_word": "0xf0f",
+    "notes": [
+      "The marked mutation output was discovered at raw rows 204/205; it was not assumed to be the steady-state suite's row 202.",
+      "The raw x=[0, 2) transparent-black storage boundary is retained in the APNG and excluded from semantic runs.",
+      "Ready was observed at core field 81; core fields [89, 90, 91] and guest counters [9, 10, 11] were captured after eight settling fields.",
+      "Configuration ../configs/aga--midline-blanken-enable.uae has SHA-256 caf84d409f8932151ab0b83253deda901143e38a1f5d08ab47864ca4180d3dec.",
+      "Run log ../logs/aga--midline-blanken-enable.log has SHA-256 6007b896bdbb50c20ad5708019de7555efa1d70738cc6aeaca5e4ca90626f8b2.",
+      "Capture manifest ../manifests/aga--midline-blanken-enable.json has SHA-256 5a78578ac5ed125793097e59dfcebb8e1eec3ce95ad1236a39569ad1c85faf76."
+    ],
+    "storage_exclusion": [
+      0,
+      2
+    ],
+    "uncertainty_samples": 0
+  },
+  "producer": {
+    "implementation_family": "UAE",
+    "kind": "software-emulator",
+    "product": "FS-UAE",
+    "revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+    "source_url": "https://github.com/FrodeSolheim/fs-uae",
+    "version": "5.0.7"
+  },
+  "provenance": {
+    "capture_date": "2026-07-30",
+    "classification": "software-derived",
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "operator": "Codex (OpenAI), supervised by Steve Hill"
+  },
+  "schema_version": "1.0.0",
+  "source_capture": {
+    "blanking_retained": true,
+    "decoded_pixel_sha256": "a187e796012cc8fc30a18fba94a4c0b713e2ff09efed0280f3059b6dc2ed1a0e",
+    "file_name": "../captures/aga--midline-blanken-enable.apng",
+    "file_sha256": "cbaf7cfc4847a0963b3f565bc85aa7e9e61a57902dcb2172b62842caa6327bfd",
+    "filter": "none",
+    "height": 576,
+    "method": "FS-UAE raw UAE-core framebuffer hook, losslessly reordered from BGRA and packaged as APNG",
+    "overscan_retained": true,
+    "pixel_format": "RGBA8888, tightly packed, row-major; alpha retained from source BGRA8888",
+    "scaling": "none",
+    "shader": "none",
+    "stride_bytes": 3024,
+    "width": 756
+  },
+  "stimulus": {
+    "baseline_word": "0x0020",
+    "mutation_beam_line": 128,
+    "mutation_wait_hpos_cck": 136,
+    "mutation_word": "0x0028",
+    "reset_beam_line": 127,
+    "reset_wait_hpos_cck": 32,
+    "tested_register": "BEAMCON0",
+    "write_position_evidence": {
+      "marker_start_sample": 520,
+      "method": "Copper schedule with immediately preceding visible COLOR00 marker",
+      "tested_write_sample": null,
+      "uncertainty": "The marker proves the preceding MOVE and bounds schedule order. This framebuffer does not directly expose the tested register bus-write sample."
+    }
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank-write-timing",
+  "suite_version": "1.0.0"
+}

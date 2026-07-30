@@ -1,0 +1,674 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Programmable HBLANK write-timing capture record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "suite_id",
+    "suite_version",
+    "case_id",
+    "artifact",
+    "producer",
+    "machine",
+    "execution",
+    "source_capture",
+    "normalization",
+    "stimulus",
+    "observations",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "suite_id": {
+      "const": "org.198x.amiga.programmable-hblank-write-timing"
+    },
+    "suite_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "case_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "artifact": {
+      "$ref": "#/$defs/artifact"
+    },
+    "producer": {
+      "$ref": "#/$defs/producer"
+    },
+    "machine": {
+      "$ref": "#/$defs/machine"
+    },
+    "execution": {
+      "$ref": "#/$defs/execution"
+    },
+    "source_capture": {
+      "$ref": "#/$defs/source_capture"
+    },
+    "normalization": {
+      "$ref": "#/$defs/normalization"
+    },
+    "stimulus": {
+      "$ref": "#/$defs/stimulus"
+    },
+    "observations": {
+      "$ref": "#/$defs/observations"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adf_file",
+        "adf_sha256",
+        "payload_file",
+        "payload_sha256"
+      ],
+      "properties": {
+        "adf_file": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*\\.adf$"
+        },
+        "adf_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "payload_file": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*\\.bin$"
+        },
+        "payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "product",
+        "version",
+        "revision",
+        "source_url",
+        "implementation_family"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "physical-hardware",
+            "software-emulator",
+            "fpga-reimplementation"
+          ]
+        },
+        "product": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "implementation_family": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "cpu",
+        "agnus",
+        "denise_or_lisa",
+        "chipset",
+        "region",
+        "ram_bytes",
+        "firmware"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cpu": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agnus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "denise_or_lisa": {
+          "type": "string",
+          "minLength": 1
+        },
+        "chipset": {
+          "enum": [
+            "ECS",
+            "AGA"
+          ]
+        },
+        "region": {
+          "const": "PAL"
+        },
+        "ram_bytes": {
+          "type": "integer",
+          "minimum": 524288
+        },
+        "firmware": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "revision",
+            "sha256"
+          ],
+          "properties": {
+            "revision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cold_boot",
+        "command_or_procedure",
+        "configuration_sha256",
+        "ready_rule",
+        "ready_observed_field",
+        "settle_fields",
+        "captured_fields",
+        "adjacent_field_stability"
+      ],
+      "properties": {
+        "cold_boot": {
+          "type": "boolean"
+        },
+        "command_or_procedure": {
+          "type": "string",
+          "minLength": 1
+        },
+        "configuration_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "ready_rule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "record_address",
+            "magic",
+            "case_number",
+            "field_counter_minimum",
+            "byte_order"
+          ],
+          "properties": {
+            "record_address": {
+              "const": "0x0002ff00"
+            },
+            "magic": {
+              "const": "HBLK"
+            },
+            "case_number": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "field_counter_minimum": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "byte_order": {
+              "const": "big-endian"
+            }
+          }
+        },
+        "ready_observed_field": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "settle_fields": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "captured_fields": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "adjacent_field_stability": {
+          "enum": [
+            "confirmed",
+            "not-confirmed"
+          ]
+        }
+      }
+    },
+    "source_capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "width",
+        "height",
+        "pixel_format",
+        "stride_bytes",
+        "blanking_retained",
+        "overscan_retained",
+        "filter",
+        "scaling",
+        "shader",
+        "file_name",
+        "file_sha256",
+        "decoded_pixel_sha256"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pixel_format": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stride_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "blanking_retained": {
+          "type": "boolean"
+        },
+        "overscan_retained": {
+          "type": "boolean"
+        },
+        "filter": {
+          "const": "none"
+        },
+        "scaling": {
+          "const": "none"
+        },
+        "shader": {
+          "const": "none"
+        },
+        "file_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "decoded_pixel_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "normalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "beam_coordinate",
+        "crop",
+        "field_handling",
+        "color_conversion",
+        "alignment_search"
+      ],
+      "properties": {
+        "beam_coordinate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sample_beam_line",
+            "sample_row",
+            "horizontal_origin_sample",
+            "horizontal_samples_per_register_increment_numerator",
+            "horizontal_samples_per_register_increment_denominator",
+            "phase_numerator",
+            "phase_denominator"
+          ],
+          "properties": {
+            "sample_beam_line": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sample_row": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "horizontal_origin_sample": {
+              "type": "integer"
+            },
+            "horizontal_samples_per_register_increment_numerator": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "horizontal_samples_per_register_increment_denominator": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "phase_numerator": {
+              "type": "integer"
+            },
+            "phase_denominator": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "crop": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "y": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "field_handling": {
+          "enum": [
+            "separate-fields",
+            "progressive-source",
+            "weave",
+            "bob"
+          ]
+        },
+        "color_conversion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "alignment_search": {
+          "const": false
+        }
+      }
+    },
+    "stimulus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reset_beam_line",
+        "reset_wait_hpos_cck",
+        "mutation_beam_line",
+        "mutation_wait_hpos_cck",
+        "tested_register",
+        "baseline_word",
+        "mutation_word",
+        "write_position_evidence"
+      ],
+      "properties": {
+        "reset_beam_line": {
+          "const": 127
+        },
+        "reset_wait_hpos_cck": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mutation_beam_line": {
+          "const": 128
+        },
+        "mutation_wait_hpos_cck": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tested_register": {
+          "enum": [
+            "BPLCON0",
+            "BPLCON3",
+            "BEAMCON0",
+            "HBSTRT",
+            "HBSTOP"
+          ]
+        },
+        "baseline_word": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]{4}$"
+        },
+        "mutation_word": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]{4}$"
+        },
+        "write_position_evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "marker_start_sample",
+            "tested_write_sample",
+            "uncertainty"
+          ],
+          "properties": {
+            "method": {
+              "const": "Copper schedule with immediately preceding visible COLOR00 marker"
+            },
+            "marker_start_sample": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "tested_write_sample": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "uncertainty": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "sample_interval": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "integer",
+          "minimum": 1
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "observed_line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "raw_rows",
+        "black_runs",
+        "guard_runs",
+        "marker_runs"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "pre-mutation baseline",
+            "mutation output",
+            "post-mutation control"
+          ]
+        },
+        "raw_rows": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "integer",
+              "minimum": 0
+            }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "black_runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sample_interval"
+          }
+        },
+        "guard_runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sample_interval"
+          }
+        },
+        "marker_runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sample_interval"
+          }
+        }
+      }
+    },
+    "observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "guard_color_word",
+        "marker_color_word",
+        "storage_exclusion",
+        "interval_convention",
+        "lines",
+        "following_line_carry",
+        "uncertainty_samples",
+        "notes"
+      ],
+      "properties": {
+        "guard_color_word": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]{3}$"
+        },
+        "marker_color_word": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]{3}$"
+        },
+        "storage_exclusion": {
+          "$ref": "#/$defs/sample_interval"
+        },
+        "interval_convention": {
+          "const": "start-inclusive-stop-exclusive"
+        },
+        "lines": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/observed_line"
+          }
+        },
+        "following_line_carry": {
+          "enum": [
+            "mutation confirmed",
+            "mutation not confirmed"
+          ]
+        },
+        "uncertainty_samples": {
+          "type": "number",
+          "minimum": 0
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operator",
+        "capture_date",
+        "host",
+        "classification"
+      ],
+      "properties": {
+        "operator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capture_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "classification": {
+          "enum": [
+            "hardware-evidence",
+            "software-derived",
+            "fpga-derived",
+            "diagnostic-only"
+          ]
+        }
+      }
+    }
+  }
+}

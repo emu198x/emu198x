@@ -1,0 +1,189 @@
+{
+  "artifact": {
+    "adf_file": "midline-extblken-enable.adf",
+    "adf_sha256": "2af980fe37ece8018d727b9a661dc0f58a8c7a228a668ef0fb891a07c23b930a",
+    "payload_file": "midline-extblken-enable.bin",
+    "payload_sha256": "f033d15ab15e409eddb18de084c800dc5e94bb320173c3928a56a1036dd2dedc"
+  },
+  "case_id": "midline-extblken-enable",
+  "execution": {
+    "adjacent_field_stability": "confirmed",
+    "captured_fields": [
+      89,
+      90,
+      91
+    ],
+    "cold_boot": true,
+    "command_or_procedure": "tools/fs-uae-hblank-write-timing-capture/capture.sh aga midline-extblken-enable <registered-FS-UAE-binary> <suite-1.0.0-directory> <firmware-matching-recorded-sha256> <fresh-output-directory> <operator>",
+    "configuration_sha256": "b0cffacbee42f6453a36748556c362a02738668dae9878a2b95674b53c875507",
+    "ready_observed_field": 81,
+    "ready_rule": {
+      "byte_order": "big-endian",
+      "case_number": 4,
+      "field_counter_minimum": 8,
+      "magic": "HBLK",
+      "record_address": "0x0002ff00"
+    },
+    "settle_fields": 8
+  },
+  "machine": {
+    "agnus": "AGA Alice",
+    "chipset": "AGA",
+    "cpu": "Motorola 68EC020",
+    "denise_or_lisa": "AGA Lisa",
+    "firmware": {
+      "revision": "Kickstart 3.1 revision 40.068",
+      "sha256": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707"
+    },
+    "model": "A1200",
+    "ram_bytes": 2097152,
+    "region": "PAL"
+  },
+  "normalization": {
+    "alignment_search": false,
+    "beam_coordinate": {
+      "horizontal_origin_sample": -184,
+      "horizontal_samples_per_register_increment_denominator": 1,
+      "horizontal_samples_per_register_increment_numerator": 4,
+      "phase_denominator": 1,
+      "phase_numerator": 0,
+      "sample_beam_line": 128,
+      "sample_row": 204
+    },
+    "color_conversion": "lossless BGRA-to-RGBA channel reorder; black classified by RGB regardless of retained source alpha",
+    "crop": {
+      "height": 576,
+      "width": 756,
+      "x": 0,
+      "y": 0
+    },
+    "field_handling": "bob"
+  },
+  "observations": {
+    "following_line_carry": "mutation confirmed",
+    "guard_color_word": "0xff0",
+    "interval_convention": "start-inclusive-stop-exclusive",
+    "lines": [
+      {
+        "black_runs": [],
+        "guard_runs": [
+          [
+            2,
+            756
+          ]
+        ],
+        "marker_runs": [],
+        "raw_rows": [
+          202,
+          203
+        ],
+        "role": "pre-mutation baseline"
+      },
+      {
+        "black_runs": [],
+        "guard_runs": [
+          [
+            2,
+            371
+          ]
+        ],
+        "marker_runs": [
+          [
+            371,
+            756
+          ]
+        ],
+        "raw_rows": [
+          204,
+          205
+        ],
+        "role": "mutation output"
+      },
+      {
+        "black_runs": [
+          [
+            264,
+            520
+          ]
+        ],
+        "guard_runs": [],
+        "marker_runs": [
+          [
+            2,
+            264
+          ],
+          [
+            520,
+            756
+          ]
+        ],
+        "raw_rows": [
+          206,
+          207
+        ],
+        "role": "post-mutation control"
+      }
+    ],
+    "marker_color_word": "0xf0f",
+    "notes": [
+      "The marked mutation output was discovered at raw rows 204/205; it was not assumed to be the steady-state suite's row 202.",
+      "The raw x=[0, 2) transparent-black storage boundary is retained in the APNG and excluded from semantic runs.",
+      "Ready was observed at core field 81; core fields [89, 90, 91] and guest counters [9, 10, 11] were captured after eight settling fields.",
+      "Configuration ../configs/aga--midline-extblken-enable.uae has SHA-256 b0cffacbee42f6453a36748556c362a02738668dae9878a2b95674b53c875507.",
+      "Run log ../logs/aga--midline-extblken-enable.log has SHA-256 188dbb82e7082ef87f11a95a15f3004ba358ceb2b7340aed3665c9476ee13155.",
+      "Capture manifest ../manifests/aga--midline-extblken-enable.json has SHA-256 c964f149fc95faf6f7154f8caf1429b3f01631a8430c91d98960477ed27cd8d4."
+    ],
+    "storage_exclusion": [
+      0,
+      2
+    ],
+    "uncertainty_samples": 0
+  },
+  "producer": {
+    "implementation_family": "UAE",
+    "kind": "software-emulator",
+    "product": "FS-UAE",
+    "revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+    "source_url": "https://github.com/FrodeSolheim/fs-uae",
+    "version": "5.0.7"
+  },
+  "provenance": {
+    "capture_date": "2026-07-30",
+    "classification": "software-derived",
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "operator": "Codex (OpenAI), supervised by Steve Hill"
+  },
+  "schema_version": "1.0.0",
+  "source_capture": {
+    "blanking_retained": true,
+    "decoded_pixel_sha256": "80d8d8446debabb6bb6027bfa157b6d1e4d8ed113272e7761ed7a89548fecf9f",
+    "file_name": "../captures/aga--midline-extblken-enable.apng",
+    "file_sha256": "0714374daa045e16a43a2e473425d67d600b44b2498bad1f41a30184e82fb589",
+    "filter": "none",
+    "height": 576,
+    "method": "FS-UAE raw UAE-core framebuffer hook, losslessly reordered from BGRA and packaged as APNG",
+    "overscan_retained": true,
+    "pixel_format": "RGBA8888, tightly packed, row-major; alpha retained from source BGRA8888",
+    "scaling": "none",
+    "shader": "none",
+    "stride_bytes": 3024,
+    "width": 756
+  },
+  "stimulus": {
+    "baseline_word": "0x0000",
+    "mutation_beam_line": 128,
+    "mutation_wait_hpos_cck": 136,
+    "mutation_word": "0x0001",
+    "reset_beam_line": 127,
+    "reset_wait_hpos_cck": 32,
+    "tested_register": "BPLCON3",
+    "write_position_evidence": {
+      "marker_start_sample": 371,
+      "method": "Copper schedule with immediately preceding visible COLOR00 marker",
+      "tested_write_sample": null,
+      "uncertainty": "The marker proves the preceding MOVE and bounds schedule order. This framebuffer does not directly expose the tested register bus-write sample."
+    }
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank-write-timing",
+  "suite_version": "1.0.0"
+}

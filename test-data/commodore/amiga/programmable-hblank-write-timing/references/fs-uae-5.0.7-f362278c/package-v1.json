@@ -1,0 +1,255 @@
+{
+  "capture_tools": {
+    "capture.sh": "397c5454b34d6344ce2cd64c5addb94dc6d25f32e9f116cc12e27a7f9c3ff9d3",
+    "capture_manifest.py": "61d52dc05e197b3bab95d4e5ce0ccba70841020a943bd83355950187859cc37f",
+    "config.uae.in": "49de327d26d7f2b632bc7a62c987dd625c18acee1cdd00af5558626e3d071678"
+  },
+  "configurations": {
+    "aga--midline-blanken-enable": "caf84d409f8932151ab0b83253deda901143e38a1f5d08ab47864ca4180d3dec",
+    "aga--midline-ecsena-enable": "8c205b2faccecc6f3952fc55d2560d062c7e5800f282dfad96cef94b716bd307",
+    "aga--midline-extblken-enable": "b0cffacbee42f6453a36748556c362a02738668dae9878a2b95674b53c875507",
+    "aga--midline-hbstop-future": "9fd8f20de6ac99c94c1af1d9ef0763c50229046e46a77a3a694e05ab421b5b86",
+    "aga--midline-hbstrt-past": "0de204da2542ed3b2f88ef5d3cc9b455456ef920594020d4fe8a03b3b782744a",
+    "ecs--midline-blanken-enable": "2a59cec7c89dd387f939ee4b85c11db7c275d47a3c81b9d4b29e1073ec0b1428",
+    "ecs--midline-ecsena-enable": "09fb3d25e42d6ac9a711cf06861914e621f8678e9c8e02cc8a3dfbc9d1da6fa3",
+    "ecs--midline-extblken-enable": "3ccb6190249b79ffa773200e1a8792fda24239fa41170c616581009d29fbe37c",
+    "ecs--midline-hbstop-future": "197e4a117c7eac26ecec4efc1ae3772643475460dba536c69f2036be27193639",
+    "ecs--midline-hbstrt-past": "520dc58ad463652afe9b97015679eb0a762886ac5ce14093d53fcc283a4f0a04"
+  },
+  "matrix": {
+    "cases": [
+      "midline-hbstrt-past",
+      "midline-hbstop-future",
+      "midline-ecsena-enable",
+      "midline-extblken-enable",
+      "midline-blanken-enable"
+    ],
+    "packaged_pixel_format": "RGBA8888",
+    "profiles": [
+      "ecs",
+      "aga"
+    ],
+    "raw_height": 576,
+    "raw_pixel_format": "BGRA8888",
+    "raw_width": 756,
+    "run_count": 10
+  },
+  "packager": {
+    "pillow_version": "12.2.0",
+    "python_implementation": "cpython",
+    "python_version": "3.14.3",
+    "script_sha256": "aa8b7cb9b92f4bf78f6acb483fef04cfd830935109243bf0ab098a171aeb6fb1",
+    "zlib_build_version": "1.2.12",
+    "zlib_runtime_version": "1.2.12"
+  },
+  "producer": {
+    "binary_sha256": "81fdcc09bf36b6a275a9d39b27407e3484815b5713b411e16dbfe6024cf2899b",
+    "build_manifest_file": "producer-build-v1.json",
+    "build_manifest_sha256": "f3c9a7bc52a91eda942d9befd97861d5f46603d6becb1a833a53c6943d7f4ac0",
+    "capture_patch_sha256": "73e423453152097723b22e4ba0db7cb626b4756e5697d49154bfd98055ddd0ed",
+    "product": "FS-UAE",
+    "revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+    "source_url": "https://github.com/FrodeSolheim/fs-uae",
+    "uae_base_version": "WinUAE 6.0.1",
+    "version": "5.0.7"
+  },
+  "runs": [
+    {
+      "capture_file": "captures/ecs--midline-hbstrt-past.apng",
+      "capture_manifest_file": "manifests/ecs--midline-hbstrt-past.json",
+      "capture_manifest_sha256": "3632932847d9c9528149110d8bee4de7c3ba8dfbc685373c9c7f520cf780be4d",
+      "capture_sha256": "223ecc7a27be9026ea89b6d461a7522329fe07bfaf2c514e6e207d1de8eef6e5",
+      "case_id": "midline-hbstrt-past",
+      "configuration_file": "configs/ecs--midline-hbstrt-past.uae",
+      "configuration_sha256": "520dc58ad463652afe9b97015679eb0a762886ac5ce14093d53fcc283a4f0a04",
+      "decoded_pixel_sha256": "df800b9994e4db50d9e4c4bdd0c914c85cf9d3033600264f9f3d2f5f186d6da2",
+      "mutation_output_rows": [
+        204,
+        205
+      ],
+      "profile": "ecs",
+      "record_file": "records/ecs--midline-hbstrt-past.json",
+      "record_sha256": "05aacc60e41a415ba6326f1c959e3f160d3744328d9b78c0e36639e8bffe30c8",
+      "run_log_file": "logs/ecs--midline-hbstrt-past.log",
+      "run_log_sha256": "f73f23886cdf0fbd65d0f8f15f59f542787c326c496aec83a5122bee25978ee1"
+    },
+    {
+      "capture_file": "captures/ecs--midline-hbstop-future.apng",
+      "capture_manifest_file": "manifests/ecs--midline-hbstop-future.json",
+      "capture_manifest_sha256": "ea8581c9ce112f1cc26acd350536928749f2e5aef64bcdf23766b5d2aee58492",
+      "capture_sha256": "40046a4af13bb8bbbf39d205b5810cb42627b03d3d8da0b25f140b7eca56bbcf",
+      "case_id": "midline-hbstop-future",
+      "configuration_file": "configs/ecs--midline-hbstop-future.uae",
+      "configuration_sha256": "197e4a117c7eac26ecec4efc1ae3772643475460dba536c69f2036be27193639",
+      "decoded_pixel_sha256": "e63dbbdf2ed1834780e0daaf050144ffc1a2748f6218eda34fc88c71f68fa6dd",
+      "mutation_output_rows": [
+        204,
+        205
+      ],
+      "profile": "ecs",
+      "record_file": "records/ecs--midline-hbstop-future.json",
+      "record_sha256": "91374a8d1cbd86a211ab9e9397643fcd9aa8cf91851875b7dc6d823631c770fa",
+      "run_log_file": "logs/ecs--midline-hbstop-future.log",
+      "run_log_sha256": "adab75f4c441338884f82f71debf244a7d28ec5cf36ad503f426badd925adc6d"
+    },
+    {
+      "capture_file": "captures/ecs--midline-ecsena-enable.apng",
+      "capture_manifest_file": "manifests/ecs--midline-ecsena-enable.json",
+      "capture_manifest_sha256": "de573427ec320e12d5b79a2ba01773dd05823a90b3e30c5ce43d6fe9860cbb2e",
+      "capture_sha256": "adfe2311cd19319c2b06363b3b3d8338547a1eda6a138faa6d1909b83e20354f",
+      "case_id": "midline-ecsena-enable",
+      "configuration_file": "configs/ecs--midline-ecsena-enable.uae",
+      "configuration_sha256": "09fb3d25e42d6ac9a711cf06861914e621f8678e9c8e02cc8a3dfbc9d1da6fa3",
+      "decoded_pixel_sha256": "7fb54f7ed230696d5ea0aa816fafd79e8e4da5875f1dfad83a3211f0d72b1e0c",
+      "mutation_output_rows": [
+        204,
+        205
+      ],
+      "profile": "ecs",
+      "record_file": "records/ecs--midline-ecsena-enable.json",
+      "record_sha256": "318d8264a3815f3111651fdd36bff58eed41c2dddc92a71ecf0ae6cb40f4bc50",
+      "run_log_file": "logs/ecs--midline-ecsena-enable.log",
+      "run_log_sha256": "84ecb98fb1fc97bf4d1b0f5c7b6ada0c1e1fc5dd0ba2b5e899d143c5626335b2"
+    },
+    {
+      "capture_file": "captures/ecs--midline-extblken-enable.apng",
+      "capture_manifest_file": "manifests/ecs--midline-extblken-enable.json",
+      "capture_manifest_sha256": "2a395accd8d6e67e6c61fed69e06f55a31b6f3c1540b5c847a719ea122def1fe",
+      "capture_sha256": "7526eca5fc876c5e2aaa45cdb7fd666246039400f00adf494241fee3b76e234b",
+      "case_id": "midline-extblken-enable",
+      "configuration_file": "configs/ecs--midline-extblken-enable.uae",
+      "configuration_sha256": "3ccb6190249b79ffa773200e1a8792fda24239fa41170c616581009d29fbe37c",
+      "decoded_pixel_sha256": "42626289799513fbf7a1be84733ee876934bbc208bc35469caa753d3cfd1234a",
+      "mutation_output_rows": [
+        204,
+        205
+      ],
+      "profile": "ecs",
+      "record_file": "records/ecs--midline-extblken-enable.json",
+      "record_sha256": "5414af0206bc79f28f82d0830a45efb5b24cef6470954a0cd62ca10970e82fe4",
+      "run_log_file": "logs/ecs--midline-extblken-enable.log",
+      "run_log_sha256": "2cae19a59db651729b292e8f29e28967cb29f5fdf8035fe100f94b6143dfa5c3"
+    },
+    {
+      "capture_file": "captures/ecs--midline-blanken-enable.apng",
+      "capture_manifest_file": "manifests/ecs--midline-blanken-enable.json",
+      "capture_manifest_sha256": "2516c0bdc9c5fc246b5853bce5658117a7809715f3fde46e63b70d0638c06d6c",
+      "capture_sha256": "008170c411304e9e4593000d164cc90db117445fd9e5b63de7b6641ccaeb5200",
+      "case_id": "midline-blanken-enable",
+      "configuration_file": "configs/ecs--midline-blanken-enable.uae",
+      "configuration_sha256": "2a59cec7c89dd387f939ee4b85c11db7c275d47a3c81b9d4b29e1073ec0b1428",
+      "decoded_pixel_sha256": "a296e40d54cf8ad1ca36c081adc7397dce70b9e4187303e15afa977b90ae82c3",
+      "mutation_output_rows": [
+        204,
+        205
+      ],
+      "profile": "ecs",
+      "record_file": "records/ecs--midline-blanken-enable.json",
+      "record_sha256": "40745e1d66baef28449089d5504a07e676d19c23e2d37064f510277f65a0e1ad",
+      "run_log_file": "logs/ecs--midline-blanken-enable.log",
+      "run_log_sha256": "3426d8a63b94b0545f6bd19684a8401e7e9b7b62dcf4054ea5518bbbf3b0a260"
+    },
+    {
+      "capture_file": "captures/aga--midline-hbstrt-past.apng",
+      "capture_manifest_file": "manifests/aga--midline-hbstrt-past.json",
+      "capture_manifest_sha256": "8b47701357e918d01914f6badfc6b81e75b9efeae62823f23e23a2f356158d9e",
+      "capture_sha256": "3f81448a91f16432abcef1a76592986ff16303935aaacfbb2f9b4d745b02944d",
+      "case_id": "midline-hbstrt-past",
+      "configuration_file": "configs/aga--midline-hbstrt-past.uae",
+      "configuration_sha256": "0de204da2542ed3b2f88ef5d3cc9b455456ef920594020d4fe8a03b3b782744a",
+      "decoded_pixel_sha256": "e67dc3ed4905c21c0b0ac6f2ac0f814ca3b95c7dfcea123e800508d4edeaf1ec",
+      "mutation_output_rows": [
+        204,
+        205
+      ],
+      "profile": "aga",
+      "record_file": "records/aga--midline-hbstrt-past.json",
+      "record_sha256": "03c879dccef1ec62fd337beb00f7b11f6ee3230942fc5e0d9c7cf0e199359916",
+      "run_log_file": "logs/aga--midline-hbstrt-past.log",
+      "run_log_sha256": "540f00777d773c4b8143d11a337a99dc4bb5dd7d42672178ddb219051acb37be"
+    },
+    {
+      "capture_file": "captures/aga--midline-hbstop-future.apng",
+      "capture_manifest_file": "manifests/aga--midline-hbstop-future.json",
+      "capture_manifest_sha256": "0a7e95976ddd8a7d0f6d474461d2413c3882aca50c6f25bf33f07e95a6965add",
+      "capture_sha256": "8f72656e5790cfe916ecb9c23b2085db3c4401dfcd1978c1fbea742495f61aa5",
+      "case_id": "midline-hbstop-future",
+      "configuration_file": "configs/aga--midline-hbstop-future.uae",
+      "configuration_sha256": "9fd8f20de6ac99c94c1af1d9ef0763c50229046e46a77a3a694e05ab421b5b86",
+      "decoded_pixel_sha256": "d4072cb647ba044b3de1f787a3edcb05f41cfc9173026291f7d5f7fef2cf5c91",
+      "mutation_output_rows": [
+        204,
+        205
+      ],
+      "profile": "aga",
+      "record_file": "records/aga--midline-hbstop-future.json",
+      "record_sha256": "fb704382cacad2fdb38900474e26a7c30908fb0090ef1ebbb0a09188b98495f2",
+      "run_log_file": "logs/aga--midline-hbstop-future.log",
+      "run_log_sha256": "96d70e6d288ca6e9633f3c28b5082e52929500a8c7452ec6bdf56bb67a6e3317"
+    },
+    {
+      "capture_file": "captures/aga--midline-ecsena-enable.apng",
+      "capture_manifest_file": "manifests/aga--midline-ecsena-enable.json",
+      "capture_manifest_sha256": "cc648ca38319cdf70ca1a8d45d56a35957bd9351d4d0246c894310de614db7d2",
+      "capture_sha256": "04bad04b61c4340eee059a998a5754eb35519d4ed0df106316cc270cf8c20a06",
+      "case_id": "midline-ecsena-enable",
+      "configuration_file": "configs/aga--midline-ecsena-enable.uae",
+      "configuration_sha256": "8c205b2faccecc6f3952fc55d2560d062c7e5800f282dfad96cef94b716bd307",
+      "decoded_pixel_sha256": "059bbf7b79adcca2464a763d2b1cd797ba7720ddd2335a1bb4ad0c390a764621",
+      "mutation_output_rows": [
+        204,
+        205
+      ],
+      "profile": "aga",
+      "record_file": "records/aga--midline-ecsena-enable.json",
+      "record_sha256": "0ebe44da6c7857d73c9022355bd8ef9b8a5975b6ffdb5ab8e4bb3113790e0ca1",
+      "run_log_file": "logs/aga--midline-ecsena-enable.log",
+      "run_log_sha256": "494fa5b97cd1130cc1197ccca7eb24607914e29c8a44869c08c0347b218e12d5"
+    },
+    {
+      "capture_file": "captures/aga--midline-extblken-enable.apng",
+      "capture_manifest_file": "manifests/aga--midline-extblken-enable.json",
+      "capture_manifest_sha256": "c964f149fc95faf6f7154f8caf1429b3f01631a8430c91d98960477ed27cd8d4",
+      "capture_sha256": "0714374daa045e16a43a2e473425d67d600b44b2498bad1f41a30184e82fb589",
+      "case_id": "midline-extblken-enable",
+      "configuration_file": "configs/aga--midline-extblken-enable.uae",
+      "configuration_sha256": "b0cffacbee42f6453a36748556c362a02738668dae9878a2b95674b53c875507",
+      "decoded_pixel_sha256": "80d8d8446debabb6bb6027bfa157b6d1e4d8ed113272e7761ed7a89548fecf9f",
+      "mutation_output_rows": [
+        204,
+        205
+      ],
+      "profile": "aga",
+      "record_file": "records/aga--midline-extblken-enable.json",
+      "record_sha256": "9498c6ea51f006622597583e08b2d04c5b3bd0b36dfc6b73e81c444c83077a37",
+      "run_log_file": "logs/aga--midline-extblken-enable.log",
+      "run_log_sha256": "188dbb82e7082ef87f11a95a15f3004ba358ceb2b7340aed3665c9476ee13155"
+    },
+    {
+      "capture_file": "captures/aga--midline-blanken-enable.apng",
+      "capture_manifest_file": "manifests/aga--midline-blanken-enable.json",
+      "capture_manifest_sha256": "5a78578ac5ed125793097e59dfcebb8e1eec3ce95ad1236a39569ad1c85faf76",
+      "capture_sha256": "cbaf7cfc4847a0963b3f565bc85aa7e9e61a57902dcb2172b62842caa6327bfd",
+      "case_id": "midline-blanken-enable",
+      "configuration_file": "configs/aga--midline-blanken-enable.uae",
+      "configuration_sha256": "caf84d409f8932151ab0b83253deda901143e38a1f5d08ab47864ca4180d3dec",
+      "decoded_pixel_sha256": "a187e796012cc8fc30a18fba94a4c0b713e2ff09efed0280f3059b6dc2ed1a0e",
+      "mutation_output_rows": [
+        204,
+        205
+      ],
+      "profile": "aga",
+      "record_file": "records/aga--midline-blanken-enable.json",
+      "record_sha256": "dc5ca5dcc8c000b3c9dda33783d5c324cb186ad74ef84db85aa4bb829a05e43c",
+      "run_log_file": "logs/aga--midline-blanken-enable.log",
+      "run_log_sha256": "6007b896bdbb50c20ad5708019de7555efa1d70738cc6aeaca5e4ca90626f8b2"
+    }
+  ],
+  "schema_version": "1.0.0",
+  "suite": {
+    "id": "org.198x.amiga.programmable-hblank-write-timing",
+    "manifest_sha256": "fc4c4568b3ae5a7d06e07eddb18f9048937717291d022f02cfc32e68d5f6faf3",
+    "source_revision": "source-v1",
+    "version": "1.0.0"
+  }
+}

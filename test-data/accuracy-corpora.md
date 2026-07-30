@@ -44,6 +44,7 @@ tarball also carries the free Amstrad-permissioned 48K ROM.
 | Corpus | Consumer | Corpus path | Strict wrapper | Licence | Required firmware |
 |---|---|---|---|---|---|
 | Amiga programmable HBLANK | `runtime-commodore-amiga` · `amiga_programmable_hblank` | [`commodore/amiga/programmable-hblank/`](commodore/amiga/programmable-hblank/) | [`scripts/verify-amiga-programmable-hblank.sh`](../scripts/verify-amiga-programmable-hblank.sh) | CC0-1.0 | Kickstart images for the selected ECS and AGA profiles, supplied externally |
+| Amiga programmable HBLANK write timing | Reference evidence registered; Emu198x consumer pending | [`commodore/amiga/programmable-hblank-write-timing/`](commodore/amiga/programmable-hblank-write-timing/) | none | CC0-1.0 | Kickstart images for the selected ECS and AGA profiles, supplied externally |
 
 The programmable-HBLANK corpus is project-authored and emulator-neutral.
 Sources, case definitions, schemas, and deterministic build tools are retained
@@ -57,6 +58,14 @@ stable measurements; it does not claim semantic conformance until independent
 evidence promotes an expected observation. The first gate covers CCK-aligned
 cases on ECS and AGA profiles. The AGA fine-position cases are excluded until
 the capture grid can represent their 70 ns and 35 ns placement.
+
+The write-timing corpus is a separate five-case suite because it asks about
+state changes within a line rather than settled output geometry. Its
+registered FS-UAE package contains ten stable ECS and AGA observations from
+the UAE implementation family. Copperline 0.13.0 and vAmiga 4.4b12 cannot
+answer the question through an admissible path. The observations therefore
+remain single-family evidence, and no Emu198x conformance consumer is
+registered yet.
 
 ## System-level external gates
 
@@ -157,4 +166,6 @@ live.
 - [Amiga Test Kit v1.21 video conformance](../knowledge/processes/amiga-test-kit-video-conformance.md)
 - [Portable programmable-HBLANK corpus](commodore/amiga/programmable-hblank/README.md)
 - [Amiga programmable-HBLANK conformance](../knowledge/processes/amiga-programmable-hblank-conformance.md)
+- [Portable programmable-HBLANK write-timing corpus](commodore/amiga/programmable-hblank-write-timing/README.md)
+- [Amiga programmable-HBLANK write timing](../knowledge/processes/amiga-programmable-hblank-write-timing.md)
 - [Test ROM bundling policy](../knowledge/decisions/test-rom-policy.md)

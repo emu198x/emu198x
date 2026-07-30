@@ -1,0 +1,242 @@
+{
+  "capture": {
+    "captured_at_utc": "2026-07-30T11:10:15+00:00",
+    "case_id": "midline-hbstop-future",
+    "command": [
+      "/private/tmp/fs-uae-current-build.XqhtYq/build/fs-uae",
+      "/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstop-future/config.uae"
+    ],
+    "environment": {
+      "FSEMU_CODEX_CAPTURE_CASE_NUMBER": "2",
+      "FSEMU_CODEX_CAPTURE_DIR": "/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstop-future/capture",
+      "FSEMU_CODEX_CAPTURE_MIN_FIELD_COUNTER": "9",
+      "FSEMU_QUIT_AFTER_N_FRAMES": "600"
+    },
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "operator": "Codex (OpenAI), supervised by Steve Hill",
+    "profile": "aga"
+  },
+  "capture_tools": {
+    "capture.sh": "397c5454b34d6344ce2cd64c5addb94dc6d25f32e9f116cc12e27a7f9c3ff9d3",
+    "capture_manifest.py": "61d52dc05e197b3bab95d4e5ce0ccba70841020a943bd83355950187859cc37f",
+    "config.uae.in": "49de327d26d7f2b632bc7a62c987dd625c18acee1cdd00af5558626e3d071678",
+    "directory": "/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-fs-capture"
+  },
+  "files": {
+    "capture_hash_manifest_sha256": "bea65217f281b85cbf52415bab90be6c1f8782555eb736f710f76ed8fe0e176b",
+    "run_log_sha256": "96d70e6d288ca6e9633f3c28b5082e52929500a8c7452ec6bdf56bb67a6e3317"
+  },
+  "inputs": {
+    "adf": {
+      "file": "/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstop-future/inputs/midline-hbstop-future.adf",
+      "mode": "0o444",
+      "sha256": "be45c90e522bc379015517b47f78b663070a14764ad703166c36fdaac4d486b4"
+    },
+    "after_manifest_sha256": "0072a824229709b0e04e55c2e581b9a8d0b456c809aa65ef49a2d337a1f9e04f",
+    "before_manifest_sha256": "0072a824229709b0e04e55c2e581b9a8d0b456c809aa65ef49a2d337a1f9e04f",
+    "configuration": {
+      "file": "/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstop-future/config.uae",
+      "sha256": "9fd8f20de6ac99c94c1af1d9ef0763c50229046e46a77a3a694e05ab421b5b86"
+    },
+    "firmware": {
+      "file": "/Users/stevehill/.emu198x/roms/commodore-amiga/kick31a1200.rom",
+      "sha256": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707"
+    },
+    "payload": {
+      "file": "/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstop-future/inputs/midline-hbstop-future.bin",
+      "mode": "0o444",
+      "sha256": "f068b0573371e45848f3501ecf760c135dcb015edd63675fe10210f72faf3b25"
+    },
+    "suite_manifest": {
+      "file": "/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstop-future/inputs/suite-v1.json",
+      "sha256": "fc4c4568b3ae5a7d06e07eddb18f9048937717291d022f02cfc32e68d5f6faf3"
+    },
+    "unchanged_during_capture": true
+  },
+  "producer": {
+    "binary_file": "/private/tmp/fs-uae-current-build.XqhtYq/build/fs-uae",
+    "binary_sha256": "81fdcc09bf36b6a275a9d39b27407e3484815b5713b411e16dbfe6024cf2899b",
+    "capture_patch_sha256": "73e423453152097723b22e4ba0db7cb626b4756e5697d49154bfd98055ddd0ed",
+    "product": "FS-UAE",
+    "revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+    "source_url": "https://github.com/FrodeSolheim/fs-uae",
+    "uae_base_version": "WinUAE 6.0.1",
+    "version": "5.0.7"
+  },
+  "raw_capture": {
+    "adjacent_field_stability": "byte-identical",
+    "fields": [
+      {
+        "core_field": 89,
+        "guest_field_counter": 9,
+        "metadata": {
+          "core_field": 89,
+          "framebuffer": {
+            "complete": true,
+            "depth_bits": 32,
+            "height": 576,
+            "packed_output_stride_bytes": 3024,
+            "pixel_format": "BGRA8888",
+            "stage": "completed UAE chipset video_memory before FS-UAE compatibility crop and frontend processing",
+            "stride_bytes": 8192,
+            "width": 756
+          },
+          "frontend_compatibility_view": {
+            "height": 572,
+            "limits": {
+              "height": 540,
+              "width": 692,
+              "x": 48,
+              "y": 22
+            },
+            "partial": 572,
+            "width": 752
+          },
+          "guest_field_counter": 9,
+          "ready": {
+            "beamcon0": "0x0028",
+            "bplcon0": "0x0001",
+            "bplcon3": "0x0001",
+            "case_number": 2,
+            "color00": "0x0f00",
+            "hbstop": "0x0070",
+            "hbstrt": "0x0060",
+            "identity": "amiga-hblank-write-timing-v1/2-m",
+            "magic": "HBLK",
+            "schema_version": 1
+          },
+          "schema": "org.198x.fs-uae.raw-capture/v1"
+        },
+        "metadata_file": "field-000089.json",
+        "metadata_sha256": "b21758a9151ecd49dba50bb90d8613ff3e0fba37bb2be3e8530e79a7663dc82a",
+        "raw_file": "field-000089.bgra",
+        "raw_sha256": "fe975b2383cfb21962833064edfbcba55b3e9db9db12a8b7f94eeba5b0cf6fbe"
+      },
+      {
+        "core_field": 90,
+        "guest_field_counter": 10,
+        "metadata": {
+          "core_field": 90,
+          "framebuffer": {
+            "complete": true,
+            "depth_bits": 32,
+            "height": 576,
+            "packed_output_stride_bytes": 3024,
+            "pixel_format": "BGRA8888",
+            "stage": "completed UAE chipset video_memory before FS-UAE compatibility crop and frontend processing",
+            "stride_bytes": 8192,
+            "width": 756
+          },
+          "frontend_compatibility_view": {
+            "height": 572,
+            "limits": {
+              "height": 540,
+              "width": 692,
+              "x": 48,
+              "y": 22
+            },
+            "partial": 572,
+            "width": 752
+          },
+          "guest_field_counter": 10,
+          "ready": {
+            "beamcon0": "0x0028",
+            "bplcon0": "0x0001",
+            "bplcon3": "0x0001",
+            "case_number": 2,
+            "color00": "0x0f00",
+            "hbstop": "0x0070",
+            "hbstrt": "0x0060",
+            "identity": "amiga-hblank-write-timing-v1/2-m",
+            "magic": "HBLK",
+            "schema_version": 1
+          },
+          "schema": "org.198x.fs-uae.raw-capture/v1"
+        },
+        "metadata_file": "field-000090.json",
+        "metadata_sha256": "2af90d10cc8a9e2ad872a8a918731d527f98f27d5df6637365372cc7658bf51e",
+        "raw_file": "field-000090.bgra",
+        "raw_sha256": "fe975b2383cfb21962833064edfbcba55b3e9db9db12a8b7f94eeba5b0cf6fbe"
+      },
+      {
+        "core_field": 91,
+        "guest_field_counter": 11,
+        "metadata": {
+          "core_field": 91,
+          "framebuffer": {
+            "complete": true,
+            "depth_bits": 32,
+            "height": 576,
+            "packed_output_stride_bytes": 3024,
+            "pixel_format": "BGRA8888",
+            "stage": "completed UAE chipset video_memory before FS-UAE compatibility crop and frontend processing",
+            "stride_bytes": 8192,
+            "width": 756
+          },
+          "frontend_compatibility_view": {
+            "height": 572,
+            "limits": {
+              "height": 540,
+              "width": 692,
+              "x": 48,
+              "y": 22
+            },
+            "partial": 572,
+            "width": 752
+          },
+          "guest_field_counter": 11,
+          "ready": {
+            "beamcon0": "0x0028",
+            "bplcon0": "0x0001",
+            "bplcon3": "0x0001",
+            "case_number": 2,
+            "color00": "0x0f00",
+            "hbstop": "0x0070",
+            "hbstrt": "0x0060",
+            "identity": "amiga-hblank-write-timing-v1/2-m",
+            "magic": "HBLK",
+            "schema_version": 1
+          },
+          "schema": "org.198x.fs-uae.raw-capture/v1"
+        },
+        "metadata_file": "field-000091.json",
+        "metadata_sha256": "f99a17c4fd7699bb45800302c6297d11ca000bb108495a4faab3bfa1ece8cfa2",
+        "raw_file": "field-000091.bgra",
+        "raw_sha256": "fe975b2383cfb21962833064edfbcba55b3e9db9db12a8b7f94eeba5b0cf6fbe"
+      }
+    ],
+    "height": 576,
+    "packed_stride_bytes": 3024,
+    "pixel_format": "BGRA8888",
+    "producer_stride_bytes": 8192,
+    "width": 756
+  },
+  "readiness": {
+    "captured_core_fields": [
+      89,
+      90,
+      91
+    ],
+    "captured_guest_field_counters": [
+      9,
+      10,
+      11
+    ],
+    "ready_core_field": 81,
+    "ready_guest_field_counter": 1,
+    "settle_fields": 8
+  },
+  "schema_version": "1.0.0",
+  "suite": {
+    "adf_file": "midline-hbstop-future.adf",
+    "adf_sha256": "be45c90e522bc379015517b47f78b663070a14764ad703166c36fdaac4d486b4",
+    "case_id": "midline-hbstop-future",
+    "id": "org.198x.amiga.programmable-hblank-write-timing",
+    "manifest_sha256": "fc4c4568b3ae5a7d06e07eddb18f9048937717291d022f02cfc32e68d5f6faf3",
+    "numeric_id": 2,
+    "payload_file": "midline-hbstop-future.bin",
+    "payload_sha256": "f068b0573371e45848f3501ecf760c135dcb015edd63675fe10210f72faf3b25",
+    "source_revision": "source-v1",
+    "version": "1.0.0"
+  }
+}

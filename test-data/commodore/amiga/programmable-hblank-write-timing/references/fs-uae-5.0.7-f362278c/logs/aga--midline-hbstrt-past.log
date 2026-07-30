@@ -1,0 +1,2318 @@
+2026-07-30 12:10:12.621 fs-uae[30142:37587710] FS-UAE version 5.0.7 starting...
+2026-07-30 12:10:12.697 fs-uae[30142:37587710] SDL_GetBasePath() = /private/tmp/fs-uae-current-build.XqhtYq/build/
+2026-07-30 12:10:12.697 fs-uae[30142:37587710] Checking /private/tmp/fs-uae-current-build.XqhtYq/build/Portable.ini
+2026-07-30 12:10:12.697 fs-uae[30142:37587710] Checking /private/tmp/fs-uae-current-build.XqhtYq/Portable.ini
+2026-07-30 12:10:12.697 fs-uae[30142:37587710] Found potential portable directory!
+2026-07-30 12:10:12.697 fs-uae[30142:37587710] Portable.ini starts with # FS-UAE
+2026-07-30 12:10:12.697 fs-uae[30142:37587710]    Data dir: /private/tmp/fs-uae-current-build.XqhtYq/Data/
+2026-07-30 12:10:12.697 fs-uae[30142:37587710]   Cache dir: /private/tmp/fs-uae-current-build.XqhtYq/Cache/
+2026-07-30 12:10:12.697 fs-uae[30142:37587710] Log dir: /private/tmp/fs-uae-current-build.XqhtYq/Cache/Log/
+2026-07-30 12:10:12.697 fs-uae[30142:37587710] Log file: /private/tmp/fs-uae-current-build.XqhtYq/Cache/Log/FS-UAE.log.txt
+2026-07-30 12:10:12.698 fs-uae[30142:37587710] [PLUGINS] Initializing
+2026-07-30 12:10:12.698 fs-uae[30142:37587710] fsuae_path_system_dir <- /private/tmp/fs-uae-current-build.XqhtYq/build/System
+2026-07-30 12:10:12.698 fs-uae[30142:37587710] [PLUGINS] Loading plugins from /private/tmp/fs-uae-current-build.XqhtYq/build/System
+2026-07-30 12:10:12.698 fs-uae[30142:37587710] [PLUGINS] Could not open plugins dir /private/tmp/fs-uae-current-build.XqhtYq/build/System
+2026-07-30 12:10:12.698 fs-uae[30142:37587710] [PLUGINS] Test /private/../../../../../Plugin.ini
+2026-07-30 12:10:12.698 fs-uae[30142:37587710] [PLUGINS] Is plugin: 0
+2026-07-30 12:10:12.698 fs-uae[30142:37587710] fsuae_path_base_dir <- /private/tmp/fs-uae-current-build.XqhtYq/build
+2026-07-30 12:10:12.698 fs-uae[30142:37587710] [FSE] [TME] current time() is: 1785409812
+2026-07-30 12:10:12.699 fs-uae[30142:37587710] [FSE] [TME] localtime + timegm:  -1
+2026-07-30 12:10:12.699 fs-uae[30142:37587710] [FSE] [TME] localtime + mktime:  1785409812
+2026-07-30 12:10:12.699 fs-uae[30142:37587710] [FSE] [TME] time of day:       1785409812 + (699048 / 1000000)
+2026-07-30 12:10:12.699 fs-uae[30142:37587710] [FSE] [TME] localtime offset:  3600
+2026-07-30 12:10:12.699 fs-uae[30142:37587710] [FSE] [INP] Adding system keyboard device
+2026-07-30 12:10:12.699 fs-uae[30142:37587710] InputDevice: Set name 'Keyboard'
+2026-07-30 12:10:12.699 fs-uae[30142:37587710] InputDevice: Set name 'Mouse'
+2026-07-30 12:10:12.699 fs-uae[30142:37587710] [FSE] [INP] Initializing sdlinput module
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] [FSE] [INP] Added 151 built-in game controller mappings
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] [FSE] [INP] Initializing input module
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] [GUI] [FNT] Initializing font module
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] [GUI] [IMG] Initializing image module
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] Initializing surface module
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] [FSE] [OPT] quit_after_n_frames = 600
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] [FSE] [OPT] codex_capture_dir = /Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/capture
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] [FSE] [OPT] codex_capture_case_number = 1
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] [FSE] [OPT] codex_capture_min_field_counter = 9
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] [...] Init application module
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] [...] Init frame module
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] [FSE] [AUD] Init
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] [FSE] [AUD] Initialize driver...
+2026-07-30 12:10:12.721 fs-uae[30142:37587710] [FSE] [AUD] SDL_Init(SDL_INIT_AUDIO)
+2026-07-30 12:10:12.779 fs-uae[30142:37587710] [FSE] [AUD] SDL audio driver: coreaudio
+2026-07-30 12:10:12.779 fs-uae[30142:37587710] [FSE] [AUD] Playback devices (2):
+2026-07-30 12:10:12.779 fs-uae[30142:37587710] [FSE] [AUD] Device 15: BenQ EW3270U
+2026-07-30 12:10:12.779 fs-uae[30142:37587710] [FSE] [AUD] Device 19: MacBook Pro Speakers
+2026-07-30 12:10:12.817 fs-uae[30142:37587710] [FSE] [AUD] Opened audio device
+2026-07-30 12:10:12.818 fs-uae[30142:37587710] [FSE] [AUD] Frequency: 44100
+2026-07-30 12:10:12.818 fs-uae[30142:37587710] [FSE] [AUD] Format: S16LE (32784)
+2026-07-30 12:10:12.818 fs-uae[30142:37587710] [FSE] [AUD] Channels: 2
+2026-07-30 12:10:12.818 fs-uae[30142:37587710] [FSE] [AUD] SDL buffer: 11 ms
+2026-07-30 12:10:12.818 fs-uae[30142:37587710] FIXME: Set volume not implemented yet
+2026-07-30 12:10:12.818 fs-uae[30142:37587710] [...] Init frame module
+2026-07-30 12:10:12.818 fs-uae[30142:37587710] Initialize Python
+2026-07-30 12:10:12.818 fs-uae[30142:37587710] Development mode
+2026-07-30 12:10:12.818 fs-uae[30142:37587710] python_dir: /private/tmp/fs-uae-current-build.XqhtYq/build/od-fs/python
+2026-07-30 12:10:12.818 fs-uae[30142:37587710] python_home: NULL
+2026-07-30 12:10:12.818 fs-uae[30142:37587710] resources_dir: /private/tmp/fs-uae-current-build.XqhtYq/build/od-fs/resources
+2026-07-30 12:10:12.829 fs-uae[30142:37587710] Adding zip file to python sys.path: /private/tmp/fs-uae-current-build.XqhtYq/build/Python/FS-UAE.zip
+2026-07-30 12:10:12.829 fs-uae[30142:37587710] Adding directory to python sys.path: /private/tmp/fs-uae-current-build.XqhtYq/build/od-fs/python
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+TypeError: 'module' object is not callable
+2026-07-30 12:10:12.841 fs-uae[30142:37587735] Python thread function start
+2026-07-30 12:10:12.856 fs-uae[30142:37587710] SDL_EVENT_KEYBOARD_ADDED (1): Keyboard
+2026-07-30 12:10:12.856 fs-uae[30142:37587710] SDL_EVENT_MOUSE_ADDED (1): Mouse
+2026-07-30 12:10:12.893 fs-uae[30142:37587735] [GUI] [FNT] Loaded /private/tmp/fs-uae-current-build.XqhtYq/build/od-fs/resources/Fonts/Roboto-Regular.ttf (14)
+2026-07-30 12:10:12.893 fs-uae[30142:37587735] fsapp_surface_actually_create 1 1
+2026-07-30 12:10:12.893 fs-uae[30142:37587735] Adding surface 1x1 to surface list
+2026-07-30 12:10:12.893 fs-uae[30142:37587735] fsapp_surface_actually_create 1 1
+2026-07-30 12:10:12.893 fs-uae[30142:37587735] Adding surface 1x1 to surface list
+2026-07-30 12:10:12.893 fs-uae[30142:37587735] fsapp_surface_actually_create 1 1
+2026-07-30 12:10:12.893 fs-uae[30142:37587735] Adding surface 1x1 to surface list
+2026-07-30 12:10:12.893 fs-uae[30142:37587735] fsapp_surface_actually_create 1 1
+2026-07-30 12:10:12.893 fs-uae[30142:37587735] Adding surface 1x1 to surface list
+2026-07-30 12:10:12.893 fs-uae[30142:37587735] fsapp_surface_actually_create 1038 36
+2026-07-30 12:10:12.893 fs-uae[30142:37587735] Adding surface 1038x36 to surface list
+2026-07-30 12:10:12.894 fs-uae[30142:37587735] [GUI] [FNT] Loaded /private/tmp/fs-uae-current-build.XqhtYq/build/od-fs/resources/Fonts/Roboto-Bold.ttf (14)
+2026-07-30 12:10:12.894 fs-uae[30142:37587735] fsapp_surface_actually_create 3 39
+2026-07-30 12:10:12.894 fs-uae[30142:37587735] Adding surface 3x39 to surface list
+2026-07-30 12:10:12.894 fs-uae[30142:37587735] fsapp_surface_actually_create 1 1
+2026-07-30 12:10:12.894 fs-uae[30142:37587735] Adding surface 1x1 to surface list
+2026-07-30 12:10:12.894 fs-uae[30142:37587735] [UAE] [000] Initializing core derived from WinUAE 6.0.1
+2026-07-30 12:10:12.895 fs-uae[30142:37587735] [UAE] [000] clipboard_init
+2026-07-30 12:10:12.895 fs-uae[30142:37587710] SDL_CreateWindow
+2026-07-30 12:10:12.895 fs-uae[30142:37587735] [UAE] [000] Set option sound_frequency = "44100"
+2026-07-30 12:10:12.895 fs-uae[30142:37587735] [UAE] [000] amiga_set_audio_frequency: 44100
+Hello from Python
+sys.path =['/private/tmp/fs-uae-current-build.XqhtYq/build/od-fs/python', '/private/tmp/fs-uae-current-build.XqhtYq/build/Python/FS-UAE.zip', '/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python314.zip', '/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14', '/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/lib-dynload', '/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/site-packages', '/opt/homebrew/lib/python3.14/site-packages']
+Today is Thu Jul 30 12:10:12 2026
+fsapp.fsapp_init
+fsgui.init
+FS-UAE desired window client size 1038 810
+/private/tmp/fs-uae-current-build.XqhtYq/build/od-fs/resources/Fonts/Roboto-Regular.ttf
+/private/tmp/fs-uae-current-build.XqhtYq/build/od-fs/resources/Images/window/minimize.png
+/private/tmp/fs-uae-current-build.XqhtYq/build/od-fs/resources/Images/window/maximize.png
+/private/tmp/fs-uae-current-build.XqhtYq/build/od-fs/resources/Images/window/close.png
+/private/tmp/fs-uae-current-build.XqhtYq/build/od-fs/resources/Fonts/Roboto-Bold.ttf
+FS-UAE real size 1038 846
+/private/tmp/fs-uae-current-build.XqhtYq/build/od-fs/resources/Images/window/close.png
+on_resize, fit emulator video within 1038 810
+Emulator window at (0, 0) size (1038, 810)
+is_floppy_enabled True
+is_floppy_enabled True
+is_floppy_enabled True
+is_floppy_enabled True
+INFO:root:Data: '/private/tmp/fs-uae-current-build.XqhtYq/Data/'
+INFO:root:ROM: ['/private/tmp/fs-uae-current-build.XqhtYq/Data/ROM', '/private/tmp/fs-uae-current-build.XqhtYq/Data/ROMs']
+INFO:root:Kickstart: ['/private/tmp/fs-uae-current-build.XqhtYq/Data/ROM/Kickstart', '/private/tmp/fs-uae-current-build.XqhtYq/Data/ROM/Kickstarts', '/private/tmp/fs-uae-current-build.XqhtYq/Data/ROMs/Kickstart', '/private/tmp/fs-uae-current-build.XqhtYq/Data/ROMs/Kickstarts', '/Users/stevehill/.wine/drive_c/users/Public/Documents/Amiga Files/Shared/rom']
+ROMs directory: /private/tmp/fs-uae-current-build.XqhtYq/Data/ROMs
+ROM directory: /private/tmp/fs-uae-current-build.XqhtYq/Data/ROM
+DEBUG:fsuae.roms.romservice:_scan_kickstart_dir '/private/tmp/fs-uae-current-build.XqhtYq/Data/ROM/Kickstart'
+DEBUG:fsuae.roms.romservice:Scanned Kickstart ROMs in 0.0 ms
+DEBUG:fsuae.roms.romservice:_scan_kickstart_dir '/private/tmp/fs-uae-current-build.XqhtYq/Data/ROM/Kickstarts'
+DEBUG:fsuae.roms.romservice:Scanned Kickstart ROMs in 0.0 ms
+DEBUG:fsuae.roms.romservice:_scan_kickstart_dir '/private/tmp/fs-uae-current-build.XqhtYq/Data/ROMs/Kickstart'
+DEBUG:fsuae.roms.romservice:Scanned Kickstart ROMs in 0.0 ms
+DEBUG:fsuae.roms.romservice:_scan_kickstart_dir '/private/tmp/fs-uae-current-build.XqhtYq/Data/ROMs/Kickstarts'
+DEBUG:fsuae.roms.romservice:Scanned Kickstart ROMs in 0.0 ms
+DEBUG:fsuae.roms.romservice:_scan_kickstart_dir '/Users/stevehill/.wine/drive_c/users/Public/Documents/Amiga Files/Shared/rom'
+DEBUG:fsuae.roms.romservice:Scanned Kickstart ROMs in 0.0 ms
+2026-07-30 12:10:12.895 fs-uae[30142:37587735] Starting emulation thread
+2026-07-30 12:10:12.896 fs-uae[30142:37587735] [FSE] [INP] Added input port[0] Joystick Port 1
+2026-07-30 12:10:12.896 fs-uae[30142:37587741] Waiting for window and fsemu to initialize...
+[FSE] [INP] Currently disabling mapping custom actions
+2026-07-30 12:10:12.896 fs-uae[30142:37587735] [FSE] [INP] Currently disabling mapping custom actions
+[FSE] [INP] Currently disabling mapping custom actions
+2026-07-30 12:10:12.896 fs-uae[30142:37587735] [FSE] [INP] Currently disabling mapping custom actions
+[FSE] [INP] Currently disabling mapping custom actions
+2026-07-30 12:10:12.896 fs-uae[30142:37587735] [FSE] [INP] Currently disabling mapping custom actions
+2026-07-30 12:10:12.896 fs-uae[30142:37587735] [FSE] [INP] Added input port[1] Joystick Port 0
+[FSE] [INP] Currently disabling mapping custom actions
+2026-07-30 12:10:12.896 fs-uae[30142:37587735] [FSE] [INP] Currently disabling mapping custom actions
+[FSE] [INP] Currently disabling mapping custom actions
+2026-07-30 12:10:12.896 fs-uae[30142:37587735] [FSE] [INP] Currently disabling mapping custom actions
+[FSE] [INP] Currently disabling mapping custom actions
+2026-07-30 12:10:12.896 fs-uae[30142:37587735] [FSE] [INP] Currently disabling mapping custom actions
+2026-07-30 12:10:12.896 fs-uae[30142:37587735] [FSE] [INP] Added input port[2] Joystick Port 2
+[FSE] [INP] Currently disabling mapping custom actions
+2026-07-30 12:10:12.896 fs-uae[30142:37587735] [FSE] [INP] Currently disabling mapping custom actions
+2026-07-30 12:10:12.896 fs-uae[30142:37587735] [FSE] [INP] Added input port[3] Joystick Port 3
+[FSE] [INP] Currently disabling mapping custom actions
+2026-07-30 12:10:12.896 fs-uae[30142:37587735] [FSE] [INP] Currently disabling mapping custom actions
+WARNING:app.map_ports:NOT SETTING PORT MODES...!!!
+2026-07-30 12:10:12.896 fs-uae[30142:37587735] [FSE] [INP] Configure keyboard
+2026-07-30 12:10:12.897 fs-uae[30142:37587735] fsapp_surface_actually_create 1038 810
+2026-07-30 12:10:12.897 fs-uae[30142:37587735] fsapp_surface_actually_create 1040 848
+2026-07-30 12:10:12.897 fs-uae[30142:37587735] fsapp_surface_actually_create 1038 36
+2026-07-30 12:10:12.897 fs-uae[30142:37587735] fsapp_surface_actually_create 0 810
+2026-07-30 12:10:12.897 fs-uae[30142:37587735] fsapp_surface_actually_create 0 810
+2026-07-30 12:10:12.897 fs-uae[30142:37587735] fsapp_surface_actually_create 1038 0
+2026-07-30 12:10:12.931 fs-uae[30142:37587710] SDL_GetWindowSize -> 1038x846
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] OpenGL vendor: Apple
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] OpenGL renderer: Apple M2 Max
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] OpenGL version: 2.1 Metal - 90.5
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] OpenGL shading language version: 1.20
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] OpenGL extensions: GL_ARB_color_buffer_float GL_ARB_depth_buffer_float GL_ARB_depth_clamp GL_ARB_depth_texture GL_ARB_draw_buffers GL_ARB_draw_elements_base_vertex GL_ARB_draw_instanced GL_ARB_fragment_program GL_ARB_fragment_program_shadow GL_ARB_fragment_shader GL_ARB_framebuffer_object GL_ARB_framebuffer_sRGB GL_ARB_half_float_pixel GL_ARB_half_float_vertex GL_ARB_imaging GL_ARB_instanced_arrays GL_ARB_multisample GL_ARB_multitexture GL_ARB_occlusion_query GL_ARB_pixel_buffer_object GL_ARB_point_parameters GL_ARB_point_sprite GL_ARB_provoking_vertex GL_ARB_seamless_cube_map GL_ARB_shader_objects GL_ARB_shader_texture_lod GL_ARB_shading_language_100 GL_ARB_shadow GL_ARB_shadow_ambient GL_ARB_sync GL_ARB_texture_border_clamp GL_ARB_texture_compression GL_ARB_texture_compression_rgtc GL_ARB_texture_cube_map GL_ARB_texture_env_add GL_ARB_texture_env_combine GL_ARB_texture_env_crossbar GL_ARB_texture_env_dot3 GL_ARB_texture_float GL_ARB_texture_mirrored_repeat GL_ARB_texture_non_power_of_two GL_ARB_texture_rectangle GL_ARB_texture_rg GL_ARB_transpose_matrix GL_ARB_vertex_array_bgra GL_ARB_vertex_blend GL_ARB_vertex_buffer_object GL_ARB_vertex_program GL_ARB_vertex_shader GL_ARB_window_pos GL_EXT_abgr GL_EXT_bgra GL_EXT_bindable_uniform GL_EXT_blend_color GL_EXT_blend_equation_separate GL_EXT_blend_func_separate GL_EXT_blend_minmax GL_EXT_blend_subtract GL_EXT_clip_volume_hint GL_EXT_debug_label GL_EXT_debug_marker GL_EXT_draw_buffers2 GL_EXT_draw_range_elements GL_EXT_fog_coord GL_EXT_framebuffer_blit GL_EXT_framebuffer_multisample GL_EXT_framebuffer_multisample_blit_scaled GL_EXT_framebuffer_object GL_EXT_framebuffer_sRGB GL_EXT_geometry_shader4 GL_EXT_gpu_program_parameters GL_EXT_gpu_shader4 GL_EXT_multi_draw_arrays GL_EXT_packed_depth_stencil GL_EXT_packed_float GL_EXT_provoking_vertex GL_EXT_rescale_normal GL_EXT_secondary_color GL_EXT_separate_specular_color GL_EXT_shadow_funcs GL_EXT_stencil_two_side GL_EXT_stencil_wrap GL_EXT_texture_array GL_EXT_texture_compression_dxt1 GL_EXT_texture_compression_s3tc GL_EXT_texture_env_add GL_EXT_texture_filter_anisotropic GL_EXT_texture_integer GL_EXT_texture_lod_bias GL_EXT_texture_rectangle GL_EXT_texture_shared_exponent GL_EXT_texture_sRGB GL_EXT_texture_sRGB_decode GL_EXT_timer_query GL_EXT_transform_feedback GL_EXT_vertex_array_bgra GL_APPLE_aux_depth_stencil GL_APPLE_client_storage GL_APPLE_element_array GL_APPLE_fence GL_APPLE_float_pixels GL_APPLE_flush_buffer_range GL_APPLE_flush_render GL_APPLE_packed_pixels GL_APPLE_pixel_buffer GL_APPLE_rgb_422 GL_APPLE_row_bytes GL_APPLE_specular_vector GL_APPLE_texture_range GL_APPLE_transform_hint GL_APPLE_vertex_array_object GL_APPLE_vertex_point_size GL_APPLE_vertex_program_evaluators GL_APPLE_ycbcr_422 GL_ATI_separate_stencil GL_ATI_texture_env_combine3 GL_ATI_texture_float GL_IBM_rasterpos_clip GL_NV_blend_square GL_NV_conditional_render GL_NV_depth_clamp GL_NV_fog_distance GL_NV_fragment_program_option GL_NV_fragment_program2 GL_NV_light_max_exponent GL_NV_texgen_reflection GL_NV_texture_barrier GL_NV_vertex_program2_option GL_NV_vertex_program3 GL_SGI_color_matrix GL_SGIS_generate_mipmap GL_SGIS_texture_edge_clamp GL_SGIS_texture_lod 
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] OpenGL reported max texture size: 16384x16384
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] [FSE] [VID] Video driver: SDL
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] [...] Init video module
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] [FSE] [THM] Initializing theme module
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] [...] Init frame module
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] [FSE] [VID] No format flags, setting default format
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] [FSE] [VID] Initializing OpenGL video renderer
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] [FSE] [SHD] Initializing XML shader module
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] [FSE] [SHD] Initializing shader module
+2026-07-30 12:10:12.948 fs-uae[30142:37587710] [FSE] [VID] GL_RGBA, GL_BGRA, GL_UNSIGNED_BYTE
+2026-07-30 12:10:12.951 fs-uae[30142:37587710] [FSE] [VID] Window size 1038x846 : drawable size 1038x846
+2026-07-30 12:10:12.951 fs-uae[30142:37587710] [FSE] [INP] fsemu_inputport_set_device_by_index port 0x7f1a08e00 device 0
+2026-07-30 12:10:12.951 fs-uae[30142:37587710] [FSE] [INP] fsemu_inputport_set_device_by_index port 0x7f1a08e80 device 1
+2026-07-30 12:10:12.951 fs-uae[30142:37587710] First render, wait on UI this time!
+2026-07-30 12:10:12.951 fs-uae[30142:37587710] Create texture 1038x36 for surface
+2026-07-30 12:10:12.951 fs-uae[30142:37587710] Create texture 1038x36 for surface
+2026-07-30 12:10:12.952 fs-uae[30142:37587741] Window was created
+2026-07-30 12:10:12.952 fs-uae[30142:37587741] [UAE] [000] amiga_main
+2026-07-30 12:10:12.952 fs-uae[30142:37587741] [UAE] [000] KB: keyboard_settrans
+2026-07-30 12:10:12.952 fs-uae[30142:37587741] [UAE] [000] MMAN: Total physical RAM 32768 MB, all RAM 32768 MB
+2026-07-30 12:10:12.952 fs-uae[30142:37587741] [UAE] [000] MMAN: Attempting to reserve: 2561 MB
+2026-07-30 12:10:12.952 fs-uae[30142:37587741] [UAE] [000] VM: Reserve  0xa0100000 bytes
+2026-07-30 12:10:12.952 fs-uae[30142:37587741] [UAE] [000] VM: Reserve  0xa0100000 bytes, got address 0x300000000
+2026-07-30 12:10:12.952 fs-uae[30142:37587741] [UAE] [000] MMAN: Reserved 0x300000000-0x3a0100000 (0xa0100000 2561M)
+2026-07-30 12:10:12.952 fs-uae[30142:37587741] [UAE] [000] Enumerating display devices.. 
+2026-07-30 12:10:12.952 fs-uae[30142:37587741] [UAE] [000]  -- stub -- enumeratedisplays 
+2026-07-30 12:10:12.952 fs-uae[30142:37587741] [UAE] [000]  -- stub -- enumeratedisplays2 
+2026-07-30 12:10:12.955 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_joystick return 1
+2026-07-30 12:10:12.955 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_mouse return 1
+2026-07-30 12:10:12.955 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_kb return 1
+2026-07-30 12:10:12.955 fs-uae[30142:37587741] [UAE] [000]  -- stub -- get_kb_num return 0
+2026-07-30 12:10:12.955 fs-uae[30142:37587741] [UAE] [000]     (ignoring further calls to get_kb_num)
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000] target_default_options p=0x105c36610 type=0
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000] target_default_options: enabling floppy sounds
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000]  -- stub -- get_joystick_num return 0
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000]     (ignoring further calls to get_joystick_num)
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000]  -- stub -- get_mouse_num return 0
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000]     (ignoring further calls to get_mouse_num)
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 1, ignore = 0
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_issamepath 
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_issamepath 
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_issamepath 
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000]     (ignoring further calls to my_issamepath)
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 1, ignore = 0
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000] Stored port 1(0)/0 d=0: added 0 0  
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000] Stored port 1(0)/0 d=0: added 0 0  
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000] Port1(0): ID 'kbd1' matched
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000] Port0(0): NONE
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000] Port2(0): NONE
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000] Port3(0): NONE
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000] target_fixup_options
+2026-07-30 12:10:12.956 fs-uae[30142:37587741] [UAE] [000] Set gfx_api = 1
+2026-07-30 12:10:12.957 fs-uae[30142:37587741] [UAE] [000] target_cfgfile_load -- stub -- init_joystick return 1
+2026-07-30 12:10:12.957 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_mouse return 1
+2026-07-30 12:10:12.957 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_kb return 1
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] target_default_options p=0x105c36610 type=0
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] target_default_options: enabling floppy sounds
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] config reset
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] load config 'default.uae':0
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] cfgfile_load_2 failed
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 1, ignore = 0
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 1, ignore = 0
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] Stored port 1(0)/0 d=1: added 0 0  
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] Port1(0): ID 'kbd1' matched
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] Port0(0): NONE
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] Port2(0): NONE
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] Port3(0): NONE
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] target_fixup_options
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] Set gfx_api = 1
+2026-07-30 12:10:12.958 fs-uae[30142:37587741] [UAE] [000] failed to load config 'default.uae'
+2026-07-30 12:10:12.959 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 1, ignore = 0
+2026-07-30 12:10:12.959 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 1, ignore = 0
+2026-07-30 12:10:12.959 fs-uae[30142:37587741] [UAE] [000] Stored port 1(0)/1 d=1: added 0 0  
+2026-07-30 12:10:12.959 fs-uae[30142:37587741] [UAE] [000] Port1(0): ID 'kbd1' matched
+2026-07-30 12:10:12.959 fs-uae[30142:37587741] [UAE] [000] Port0(0): NONE
+2026-07-30 12:10:12.959 fs-uae[30142:37587741] [UAE] [000] Port2(0): NONE
+2026-07-30 12:10:12.959 fs-uae[30142:37587741] [UAE] [000] Port3(0): NONE
+2026-07-30 12:10:12.959 fs-uae[30142:37587741] [UAE] [000] target_fixup_options
+2026-07-30 12:10:12.959 fs-uae[30142:37587741] [UAE] [000] Set gfx_api = 1
+2026-07-30 12:10:12.959 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_joystick return 1
+2026-07-30 12:10:12.959 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_mouse return 1
+2026-07-30 12:10:12.959 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_kb return 1
+2026-07-30 12:10:12.960 fs-uae[30142:37587741] [UAE] [000]  -- stub -- compatibility_copy 
+2026-07-30 12:10:12.960 fs-uae[30142:37587741] [UAE] [000]     (ignoring further calls to compatibility_copy)
+2026-07-30 12:10:12.960 fs-uae[30142:37587741] [UAE] [000]  -- stub -- input_get_default_keyboard num=0 return 0
+2026-07-30 12:10:12.960 fs-uae[30142:37587741] [UAE] [000]     (ignoring further calls to input_get_default_keyboard)
+2026-07-30 12:10:12.960 fs-uae[30142:37587741] [UAE] [000]  -- stub -- scanevents 
+2026-07-30 12:10:12.960 fs-uae[30142:37587741] [UAE] [000]     (ignoring further calls to scanevents)
+2026-07-30 12:10:12.960 fs-uae[30142:37587741] [UAE] [000] Stored port 1(0)/2 d=0: added 0 0  
+2026-07-30 12:10:12.960 fs-uae[30142:37587741] [UAE] [000]  -- stub -- gui_init 
+2026-07-30 12:10:12.961 fs-uae[30142:37587741] [UAE] [000]  -- stub -- logging_init 
+2026-07-30 12:10:12.961 fs-uae[30142:37587741] [UAE] [000] Autoconfig board list:
+2026-07-30 12:10:12.961 fs-uae[30142:37587741] [UAE] [000] END
+2026-07-30 12:10:12.961 fs-uae[30142:37587741] [UAE] [000] MMAN: Selected REAL Z3 mapping mode
+2026-07-30 12:10:12.961 fs-uae[30142:37587741] [UAE] [000] Total 16M Z3 Total 16M, HM 0M
+2026-07-30 12:10:12.961 fs-uae[30142:37587741] [UAE] [000] Autoconfig board list:
+2026-07-30 12:10:12.961 fs-uae[30142:37587741] [UAE] [000] END
+2026-07-30 12:10:12.961 fs-uae[30142:37587741] [UAE] [000] MMAN: Our special area: 0x300000000-0x301000000 (0x01000000 16M)
+2026-07-30 12:10:12.961 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 1, ignore = 0
+2026-07-30 12:10:12.961 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 1, ignore = 0
+2026-07-30 12:10:12.961 fs-uae[30142:37587741] [UAE] [000] target_fixup_options
+2026-07-30 12:10:12.961 fs-uae[30142:37587741] [UAE] [000] Set gfx_api = 1
+2026-07-30 12:10:12.961 fs-uae[30142:37587741] [UAE] [000]  -- stub -- getlocaltime 
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_run 
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] Stored port 1(0)/2 d=0: added 0 0  
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] mapped_malloc nodirect UAE Boot ROM 0x7efc70000
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_getdate 
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] TRAP_ENTRY = 00f021da
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] shmget of size 524288 (512k) for kick (Kickstart ROM)
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] VM: Decommit 0x80020    bytes at 0x300f80000
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300f80000 size=524320 type=4096 prot=4
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x80020    bytes at 0x300f80000 (READ_WRITE)
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300f80000 size=524320 type=4096 prot=4
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x80020    bytes at 0x300f80000 (READ_WRITE)
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] 0x300f80000: VA 00F80000 - 01000020 80020 (512k) ok (0x300f80000)
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] mapped_malloc direct Kickstart ROM 0x300f80000
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] shmget of size 1048576 (1024k) for chip (Chip memory)
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] VM: Decommit 0x100020   bytes at 0x300000000
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300000000 size=1048608 type=4096 prot=4
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x100020   bytes at 0x300000000 (READ_WRITE)
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300000000 size=1048608 type=4096 prot=4
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x100020   bytes at 0x300000000 (READ_WRITE)
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] 0x300000000: VA 00000000 - 00100020 100020 (1024k) ok (0x300000000)
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] mapped_malloc direct Chip memory 0x300000000
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] - VirtualProtect addr=0x300f80000 size=524288 prot=4
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] ROM VP 00F80000 - 01000000 80000 (512k) UNPROT
+2026-07-30 12:10:12.962 fs-uae[30142:37587741] [UAE] [000] ROM loader.. (<none>)
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] shmget of size 524288 (512k) for rom_e0 (Extended Kickstart ROM)
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] VM: Decommit 0x80000    bytes at 0x300e00000
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300e00000 size=524288 type=4096 prot=4
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x80000    bytes at 0x300e00000 (READ_WRITE)
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300e00000 size=524288 type=4096 prot=4
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x80000    bytes at 0x300e00000 (READ_WRITE)
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] 0x300e00000: VA 00E00000 - 00E80000 80000 (512k) ok (0x300e00000)
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] mapped_malloc direct Extended Kickstart ROM 0x300e00000
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] shmget of size 524288 (512k) for custmem1 (Non-autoconfig RAM #1)
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] VM: Decommit 0x80000    bytes at 0x300a80000
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300a80000 size=524288 type=4096 prot=4
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x80000    bytes at 0x300a80000 (READ_WRITE)
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300a80000 size=524288 type=4096 prot=4
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x80000    bytes at 0x300a80000 (READ_WRITE)
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] 0x300a80000: VA 00A80000 - 00B00000 80000 (512k) ok (0x300a80000)
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] mapped_malloc direct Non-autoconfig RAM #1 0x300a80000
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] shmget of size 524288 (512k) for custmem2 (Non-autoconfig RAM #2)
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] VM: Decommit 0x80000    bytes at 0x300b00000
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300b00000 size=524288 type=4096 prot=4
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x80000    bytes at 0x300b00000 (READ_WRITE)
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300b00000 size=524288 type=4096 prot=4
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x80000    bytes at 0x300b00000 (READ_WRITE)
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] 0x300b00000: VA 00B00000 - 00B80000 80000 (512k) ok (0x300b00000)
+2026-07-30 12:10:12.965 fs-uae[30142:37587741] [UAE] [000] mapped_malloc direct Non-autoconfig RAM #2 0x300b00000
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] ROM loader end
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] memory init end
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] uae_start_tread "denise" function 0x102e44c78 arg 0x0
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] DISK_init calling drive_insert
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=3 fake=0 forcewriteprotect=0
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=3 fake=1 forcewriteprotect=1
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] DISK INSERT (df3): 
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] DISK_init calling drive_insert
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=2 fake=0 forcewriteprotect=0
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=2 fake=1 forcewriteprotect=1
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] DISK INSERT (df2): 
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] DISK_init calling drive_insert
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=1 fake=0 forcewriteprotect=0
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:12.966 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=1 fake=1 forcewriteprotect=1
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] DISK INSERT (df1): 
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [UAE] [000] DISK_init calling drive_insert
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=0 fake=0 forcewriteprotect=0
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=0 fake=1 forcewriteprotect=1
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] DISK INSERT (df0): 
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [PLUGINS] Looking up module "FloppyBridge"
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [PLUGINS] Looking up module "FloppyBridge" in "/private/tmp/fs-uae-current-build.XqhtYq/Data/Plugins/"
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/Data/Plugins/FloppyBridge/macOS/ARM64/FloppyBridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/Data/Plugins/FloppyBridge/macOS/ARM64/floppybridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/Data/Plugins/FloppyBridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/Data/Plugins/floppybridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] application_dir = /private/tmp/fs-uae-current-build.XqhtYq/build/
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [PLUGINS] Looking up module "FloppyBridge" in "/private/tmp/fs-uae-current-build.XqhtYq/build/"
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/build/FloppyBridge/macOS/ARM64/FloppyBridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/build/FloppyBridge/macOS/ARM64/floppybridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/build/FloppyBridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/build/floppybridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [UAE] [000] DLOPEN: Could not find plugin "FloppyBridge"
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [PLUGINS] Looking up module "libfloppybridge"
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [PLUGINS] Looking up module "libfloppybridge" in "/private/tmp/fs-uae-current-build.XqhtYq/Data/Plugins/"
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/Data/Plugins/libfloppybridge/macOS/ARM64/libfloppybridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/Data/Plugins/libfloppybridge/macOS/ARM64/libfloppybridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/Data/Plugins/libfloppybridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/Data/Plugins/libfloppybridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [PLUGINS] Looking up module "libfloppybridge" in "/private/tmp/fs-uae-current-build.XqhtYq/build/"
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/build/libfloppybridge/macOS/ARM64/libfloppybridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/build/libfloppybridge/macOS/ARM64/libfloppybridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/build/libfloppybridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] Checking /private/tmp/fs-uae-current-build.XqhtYq/build/libfloppybridge.so
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [UAE] [000] DLOPEN: Could not find plugin "libfloppybridge"
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [UAE] [000] No disk in drive 0.
+2026-07-30 12:10:12.967 fs-uae[30142:37587741] [UAE] [000] CPU cycleunit: 256 (0.500)
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000] 1872 CPU functions
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000]  -- stub -- InitializeDarkMode 
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000]  -- stub -- d3d_select 
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000]  -- stub -- wait_keyrelease 
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000]  -- stub -- regqueryint name=FullScreenMode
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000]  -- stub -- regqueryint name=FullScreenModeRTG
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000]  -- stub -- d3d_select 
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000]  -- stub -- create_windows 
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000]  -- stub -- updatewinrect 
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000]  -- stub -- Screenshot_RGBinfo 
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000]  -- stub -- display_param_init 
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000]  -- stub -- setmouseactive 
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000]  -- stub -- refreshtitle 
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000] Stored port 1(0)/2 d=0: added 0 0  
+2026-07-30 12:10:12.972 fs-uae[30142:37587741] [UAE] [000] CPU cycleunit: 256 (0.500)
+2026-07-30 12:10:12.973 fs-uae[30142:37587741] [UAE] [000] Building CPU, 44274 opcodes (0 -2 1)
+2026-07-30 12:10:12.973 fs-uae[30142:37587741] [UAE] [000] CPU=68000, FPU=0, MMU=0, JIT=0. prefetch and cycle-exact 24-bit
+2026-07-30 12:10:12.973 fs-uae[30142:37587741] [UAE] [000]  -- stub -- display_vblank_thread 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] memory init end
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] segtracker: install
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] reset_drive: set drv->newnamewriteprotected = false
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] reset_drive calling drive_insert
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=3 fake=0 forcewriteprotect=0
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=3 fake=1 forcewriteprotect=1
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] DISK INSERT (df3): 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] reset_drive: set drv->newnamewriteprotected = false
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] reset_drive calling drive_insert
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=2 fake=0 forcewriteprotect=0
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=2 fake=1 forcewriteprotect=1
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] DISK INSERT (df2): 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] reset_drive: set drv->newnamewriteprotected = false
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] reset_drive calling drive_insert
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=1 fake=0 forcewriteprotect=0
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=1 fake=1 forcewriteprotect=1
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] DISK INSERT (df1): 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] reset_drive: set drv->newnamewriteprotected = false
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] reset_drive calling drive_insert
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=0 fake=0 forcewriteprotect=0
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=0 fake=1 forcewriteprotect=1
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] DISK INSERT (df0): 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000]  -- stub -- filesys_addexternals 
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] initparallel
+2026-07-30 12:10:12.974 fs-uae[30142:37587741] [UAE] [000] Reset at 00000000. Chipset mask = 00000001
+2026-07-30 12:10:12.975 fs-uae[30142:37587741] [UAE] [000] 00000000     512K/1 =     512K ID* F16 Extended Kickstart ROM (95A5B178)
+2026-07-30 12:10:12.975 fs-uae[30142:37587741] [UAE] [000] 00080000    1536K/0 =    1536K ID* F16 Chip memory
+2026-07-30 12:10:12.975 fs-uae[30142:37587741] [UAE] [000] 00200000    8192K/0 =    8192K --  F16 <none>
+2026-07-30 12:10:12.975 fs-uae[30142:37587741] [UAE] [000] 00A00000     512K/0 =     512K --  CIA CIA
+2026-07-30 12:10:12.975 fs-uae[30142:37587741] [UAE] [000] 00A80000     512K/1 =     512K ID* F32 Non-autoconfig RAM #1
+2026-07-30 12:10:12.975 fs-uae[30142:37587741] [UAE] [000] 00B00000     512K/1 =     512K ID* F32 Non-autoconfig RAM #2
+2026-07-30 12:10:12.975 fs-uae[30142:37587741] [UAE] [000] 00B80000     512K/0 =     512K --  CIA CIA
+2026-07-30 12:10:12.975 fs-uae[30142:37587741] [UAE] [000] 00C00000     512K/1 =     512K ID* F16 Slow memory
+2026-07-30 12:10:12.975 fs-uae[30142:37587741] [UAE] [000] 00C80000    1024K/0 =    1024K --  F16 Custom chipset
+2026-07-30 12:10:12.975 fs-uae[30142:37587741] [UAE] [000] 00D80000     256K/0 =     256K --  C16 <none>
+2026-07-30 12:10:12.975 fs-uae[30142:37587741] [UAE] [000] 00DC0000      64K/0 =      64K --  C16 Battery backed up clock (none)
+2026-07-30 12:10:12.975 fs-uae[30142:37587741] [UAE] [000] 00DD0000      64K/0 =      64K --  C16 <none>
+2026-07-30 12:10:12.975 fs-uae[30142:37587741] [UAE] [000] 00DE0000     128K/0 =     128K --  C16 Custom chipset
+2026-07-30 12:10:12.977 fs-uae[30142:37587741] [UAE] [000] 00E00000     512K/1 =     512K ID* F16 Extended Kickstart ROM (95A5B178)
+2026-07-30 12:10:12.977 fs-uae[30142:37587741] [UAE] [000] 00E80000      64K/0 =      64K --  F16 Autoconfig Z2
+2026-07-30 12:10:12.977 fs-uae[30142:37587741] [UAE] [000] 00E90000     960K/0 =     960K --  F16 <none>
+2026-07-30 12:10:12.978 fs-uae[30142:37587741] [UAE] [000] 00F80000     512K/1 =     512K ID* F16 Kickstart ROM (0FE88DAB)
+2026-07-30 12:10:12.978 fs-uae[30142:37587741] [UAE] [000] PAL mode V=50.0804Hz H=15625.0879Hz (227x312+0) IDX=10 (PAL) D=0 RTG=0/0
+2026-07-30 12:10:12.978 fs-uae[30142:37587741] [UAE] [000] RTGFREQ: 312*50.0804 = 15625.0879 / 50.1 = 312
+2026-07-30 12:10:12.978 fs-uae[30142:37587741] [UAE] [000]  -- stub -- xD3D_alloctexture monid=0 w=756 h=574
+2026-07-30 12:10:12.978 fs-uae[30142:37587741] [UAE] [000] Buffer 0 size (756*574) Native
+2026-07-30 12:10:12.978 fs-uae[30142:37587741] [UAE] [000]  -- stub -- updatedisplayarea2 
+2026-07-30 12:10:12.978 fs-uae[30142:37587741] [FSE] [AUD] Resume audio (FIXME!)
+2026-07-30 12:10:12.978 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:12.981 fs-uae[30142:37587741] [UAE] [000]  -- stub -- enforcer_disable 
+2026-07-30 12:10:12.981 fs-uae[30142:37587741] [UAE] [000] Autoconfig board list:
+2026-07-30 12:10:12.981 fs-uae[30142:37587741] [UAE] [000] END
+2026-07-30 12:10:12.981 fs-uae[30142:37587741] [UAE] [000] CPU cycleunit: 256 (0.500)
+2026-07-30 12:10:12.981 fs-uae[30142:37587741] [UAE] [000]  -- stub -- fpux_restore 
+2026-07-30 12:10:12.981 fs-uae[30142:37587741] [UAE] [000] - VirtualProtect addr=0x300f80000 size=524288 prot=4
+2026-07-30 12:10:12.981 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.981 fs-uae[30142:37587741] [UAE] [000] ROM VP 00F80000 - 01000000 80000 (512k) UNPROT
+2026-07-30 12:10:12.981 fs-uae[30142:37587741] [UAE] [000] - VirtualProtect addr=0x300e00000 size=524288 prot=4
+2026-07-30 12:10:12.981 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.981 fs-uae[30142:37587741] [UAE] [000] ROM VP 00E00000 - 00E80000 80000 (512k) UNPROT
+2026-07-30 12:10:12.981 fs-uae[30142:37587741] [UAE] [001] hardreset, memory cleared
+2026-07-30 12:10:12.981 fs-uae[30142:37587741] [UAE] [001] SNDRATE 312.0*227.0*50.080410=3546895.000000
+2026-07-30 12:10:12.982 fs-uae[30142:37587741] [UAE] [001]  -- stub -- getlocaltime 
+2026-07-30 12:10:12.982 fs-uae[30142:37587741] [UAE] [001] rndseed = 00000001 (1)
+2026-07-30 12:10:12.982 fs-uae[30142:37587741] [UAE] [004]  -- stub -- xD3D11_showframe 
+2026-07-30 12:10:12.982 fs-uae[30142:37587741] [UAE] [004]     (ignoring further calls to xD3D11_showframe)
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] target_quit
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_restart 
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [FSE] [FRM] Emulation frame rate is now 50.080410 Hz
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] - VirtualProtect addr=0x300f80000 size=524288 prot=4
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] ROM VP 00F80000 - 01000000 80000 (512k) UNPROT
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] - VirtualProtect addr=0x300e00000 size=524288 prot=4
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] ROM VP 00E00000 - 00E80000 80000 (512k) UNPROT
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000]  -- stub -- close_joystick 
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000]  -- stub -- close_mouse 
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000]  -- stub -- close_kb 
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] serial: close fd=-1
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] mapped_free nondirect Slow memory
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] VM: Decommit 0x80000    bytes at 0x300f80000
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] mapped_free direct Kickstart ROM
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] VM: Decommit 0x80000    bytes at 0x300e00000
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] mapped_free direct Extended Kickstart ROM
+2026-07-30 12:10:12.985 fs-uae[30142:37587741] [UAE] [000] VM: Decommit 0x100000   bytes at 0x300000000
+2026-07-30 12:10:12.986 fs-uae[30142:37587741] [UAE] [000] mapped_free direct Chip memory
+2026-07-30 12:10:12.986 fs-uae[30142:37587741] [UAE] [000] VM: Decommit 0x80000    bytes at 0x300a80000
+2026-07-30 12:10:12.986 fs-uae[30142:37587741] [UAE] [000] mapped_free direct Non-autoconfig RAM #1
+2026-07-30 12:10:12.986 fs-uae[30142:37587741] [UAE] [000] VM: Decommit 0x80000    bytes at 0x300b00000
+2026-07-30 12:10:12.986 fs-uae[30142:37587741] [UAE] [000] mapped_free direct Non-autoconfig RAM #2
+2026-07-30 12:10:12.986 fs-uae[30142:37587741] [UAE] [000] mapped_free nondirect UAE Boot ROM
+2026-07-30 12:10:12.986 fs-uae[30142:37587741] [UAE] [000]  -- stub -- graphics_leave 
+2026-07-30 12:10:12.986 fs-uae[30142:37587741] [UAE] [000]  -- stub -- gui_exit 
+2026-07-30 12:10:12.987 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_joystick return 1
+2026-07-30 12:10:12.987 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_mouse return 1
+2026-07-30 12:10:12.987 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_kb return 1
+2026-07-30 12:10:12.988 fs-uae[30142:37587741] [UAE] [000] target_default_options p=0x105c36610 type=0
+2026-07-30 12:10:12.988 fs-uae[30142:37587741] [UAE] [000] target_default_options: enabling floppy sounds
+2026-07-30 12:10:12.988 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 1, ignore = 0
+2026-07-30 12:10:12.988 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 1, ignore = 0
+2026-07-30 12:10:12.988 fs-uae[30142:37587741] [UAE] [000] Stored port 1(0)/2 d=0: added 0 0  
+2026-07-30 12:10:12.988 fs-uae[30142:37587741] [UAE] [000] Stored port 1(0)/2 d=0: added 0 0  
+2026-07-30 12:10:12.988 fs-uae[30142:37587741] [UAE] [000] Port1(0): ID 'kbd1' matched
+2026-07-30 12:10:12.988 fs-uae[30142:37587741] [UAE] [000] Port0(0): NONE
+2026-07-30 12:10:12.988 fs-uae[30142:37587741] [UAE] [000] Port2(0): NONE
+2026-07-30 12:10:12.988 fs-uae[30142:37587741] [UAE] [000] Port3(0): NONE
+2026-07-30 12:10:12.988 fs-uae[30142:37587741] [UAE] [000] target_fixup_options
+2026-07-30 12:10:12.988 fs-uae[30142:37587741] [UAE] [000] Set gfx_api = 1
+2026-07-30 12:10:12.989 fs-uae[30142:37587741] [UAE] [000] target_cfgfile_load -- stub -- init_joystick return 1
+2026-07-30 12:10:12.989 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_mouse return 1
+2026-07-30 12:10:12.989 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_kb return 1
+2026-07-30 12:10:12.989 fs-uae[30142:37587741] [UAE] [000] target_default_options p=0x105c36610 type=0
+2026-07-30 12:10:12.989 fs-uae[30142:37587741] [UAE] [000] target_default_options: enabling floppy sounds
+2026-07-30 12:10:12.990 fs-uae[30142:37587741] [UAE] [000] config reset
+2026-07-30 12:10:12.990 fs-uae[30142:37587741] [UAE] [000] load config '/var/folders/94/p_ng_dqx7tq9rx2rcw0y8zth0000gn/T/fsuae-temp-config-NPZZS3':0
+2026-07-30 12:10:12.990 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_parse_option p=0x105c36610
+, option="rom_path"
+2026-07-30 12:10:12.990 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_multipath_modified 
+2026-07-30 12:10:12.990 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_parse_option p=0x105c36610
+, option="floppy_path"
+2026-07-30 12:10:12.990 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_multipath_modified 
+2026-07-30 12:10:12.990 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_parse_option p=0x105c36610
+, option="hardfile_path"
+2026-07-30 12:10:12.990 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_multipath_modified 
+2026-07-30 12:10:12.990 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_parse_option p=0x105c36610
+, option="cd_path"
+2026-07-30 12:10:12.990 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_multipath_modified 
+2026-07-30 12:10:12.994 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 9, ignore = 0
+2026-07-30 12:10:12.996 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_addtorecent name="/var/folders/94/p_ng_dqx7tq9rx2rcw0y8zth0000gn/T/fsuae-temp-config-NPZZS3" t=0
+2026-07-30 12:10:12.996 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 9, ignore = 0
+2026-07-30 12:10:12.996 fs-uae[30142:37587741] [UAE] [000] Cycle-exact mode requires at least Disabled but emulated sound setting.
+2026-07-30 12:10:12.997 fs-uae[30142:37587741] [UAE] [000] KS ver = 40 (0x28)
+2026-07-30 12:10:12.997 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 9, ignore = 0
+2026-07-30 12:10:12.997 fs-uae[30142:37587741] [UAE] [000] Port0(0): ID 'none' matched
+2026-07-30 12:10:12.997 fs-uae[30142:37587741] [UAE] [000] Port1(0): ID 'none' matched
+2026-07-30 12:10:12.997 fs-uae[30142:37587741] [UAE] [000] Port2(0): NONE
+2026-07-30 12:10:12.997 fs-uae[30142:37587741] [UAE] [000] Port3(0): NONE
+2026-07-30 12:10:12.997 fs-uae[30142:37587741] [UAE] [000] target_fixup_options
+2026-07-30 12:10:12.997 fs-uae[30142:37587741] [UAE] [000] Set gfx_api = 1
+2026-07-30 12:10:12.999 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 9, ignore = 0
+2026-07-30 12:10:12.999 fs-uae[30142:37587741] [UAE] [000] KS ver = 40 (0x28)
+2026-07-30 12:10:12.999 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 9, ignore = 0
+2026-07-30 12:10:12.999 fs-uae[30142:37587741] [UAE] [000] Port0(0): ID 'none' matched
+2026-07-30 12:10:12.999 fs-uae[30142:37587741] [UAE] [000] Port1(0): ID 'none' matched
+2026-07-30 12:10:12.999 fs-uae[30142:37587741] [UAE] [000] Port2(0): NONE
+2026-07-30 12:10:12.999 fs-uae[30142:37587741] [UAE] [000] Port3(0): NONE
+2026-07-30 12:10:12.999 fs-uae[30142:37587741] [UAE] [000] target_fixup_options
+2026-07-30 12:10:12.999 fs-uae[30142:37587741] [UAE] [000] Set gfx_api = 1
+2026-07-30 12:10:13.000 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_joystick return 1
+2026-07-30 12:10:13.000 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_mouse return 1
+2026-07-30 12:10:13.000 fs-uae[30142:37587741] [UAE] [000]  -- stub -- init_kb return 1
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000]  -- stub -- logging_init 
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] Autoconfig board list:
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] Card 01: '<no name>' no autoconfig 00da0000 - 00daffff.
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] Card 02: '<no name>' no autoconfig 00600000 - 00a7ffff.
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] END
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] MMAN: Selected REAL Z3 mapping mode
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] Total 256M Z3 Total 256M, HM 0M
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] Autoconfig board list:
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] Card 01: '<no name>' no autoconfig 00da0000 - 00daffff.
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] Card 02: '<no name>' no autoconfig 00600000 - 00a7ffff.
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] END
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] MMAN: Our special area: 0x300000000-0x310000000 (0x10000000 256M)
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 9, ignore = 0
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] KS ver = 40 (0x28)
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] built_in_chipset_prefs 9, ignore = 0
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] target_fixup_options
+2026-07-30 12:10:13.002 fs-uae[30142:37587741] [UAE] [000] Set gfx_api = 1
+2026-07-30 12:10:13.004 fs-uae[30142:37587741] [UAE] [000]  -- stub -- getlocaltime 
+2026-07-30 12:10:13.004 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_run 
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] mapped_malloc nodirect UAE Boot ROM 0x7f0b64000
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000]  -- stub -- target_getdate 
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] TRAP_ENTRY = 00f021da
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] shmget of size 524288 (512k) for kick (Kickstart ROM)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] VM: Decommit 0x80020    bytes at 0x300f80000
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300f80000 size=524320 type=4096 prot=4
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x80020    bytes at 0x300f80000 (READ_WRITE)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300f80000 size=524320 type=4096 prot=4
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x80020    bytes at 0x300f80000 (READ_WRITE)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] 0x300f80000: VA 00F80000 - 01000020 80020 (512k) ok (0x300f80000)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] mapped_malloc direct Kickstart ROM 0x300f80000
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] shmget of size 2097152 (2048k) for chip (Chip memory)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] VM: Decommit 0x200020   bytes at 0x300000000
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300000000 size=2097184 type=4096 prot=4
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x200020   bytes at 0x300000000 (READ_WRITE)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] - VirtualAlloc addr=0x300000000 size=2097184 type=4096 prot=4
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000]   MEM_COMMIT
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] commit prot=3
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] VM: Commit   0x200020   bytes at 0x300000000 (READ_WRITE)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] 0x300000000: VA 00000000 - 00200020 200020 (2048k) ok (0x300000000)
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] mapped_malloc direct Chip memory 0x300000000
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] - VirtualProtect addr=0x300f80000 size=524288 prot=4
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] ROM VP 00F80000 - 01000000 80000 (512k) UNPROT
+2026-07-30 12:10:13.005 fs-uae[30142:37587741] [UAE] [000] ROM loader.. (<none>)
+2026-07-30 12:10:13.006 fs-uae[30142:37587741] [UAE] [000] Known ROM 'KS ROM v3.1 (A1200)' loaded
+2026-07-30 12:10:13.007 fs-uae[30142:37587741] [UAE] [000] ROM loader end
+2026-07-30 12:10:13.007 fs-uae[30142:37587741] [UAE] [000] memory init end
+2026-07-30 12:10:13.007 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.007 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] DISK_init calling drive_insert
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=3 fake=0 forcewriteprotect=0
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=3 fake=1 forcewriteprotect=1
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] DISK INSERT (df3): 
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] DISK_init calling drive_insert
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=2 fake=0 forcewriteprotect=0
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=2 fake=1 forcewriteprotect=1
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] DISK INSERT (df2): 
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] DISK_init calling drive_insert
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=1 fake=0 forcewriteprotect=0
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=1 fake=1 forcewriteprotect=1
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] DISK INSERT (df1): 
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] DISK_init calling drive_insert
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=0 fake=0 forcewriteprotect=1
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=0 fake=1 forcewriteprotect=1
+2026-07-30 12:10:13.011 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.013 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.016 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.018 fs-uae[30142:37587741] [UAE] [000] drive_insert: set currprefs.floppyslots[0].forcedwriteprotect to 1
+2026-07-30 12:10:13.018 fs-uae[30142:37587741] [UAE] [000] drive_insert: set drv->newnamewriteprotected = 1
+2026-07-30 12:10:13.018 fs-uae[30142:37587741] DISK INSERT (df0): /Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/inputs/midline-hbstrt-past.adf
+2026-07-30 12:10:13.018 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.018 fs-uae[30142:37587741] [UAE] [000] CPU cycleunit: 128 (0.250)
+2026-07-30 12:10:13.024 fs-uae[30142:37587741] [UAE] [000] 1872 CPU functions
+2026-07-30 12:10:13.024 fs-uae[30142:37587741] [UAE] [000]  -- stub -- InitializeDarkMode 
+2026-07-30 12:10:13.024 fs-uae[30142:37587741] [UAE] [000]  -- stub -- d3d_select 
+2026-07-30 12:10:13.024 fs-uae[30142:37587741] [UAE] [000]  -- stub -- wait_keyrelease 
+2026-07-30 12:10:13.024 fs-uae[30142:37587741] [UAE] [000]  -- stub -- regqueryint name=FullScreenMode
+2026-07-30 12:10:13.024 fs-uae[30142:37587741] [UAE] [000]  -- stub -- regqueryint name=FullScreenModeRTG
+2026-07-30 12:10:13.024 fs-uae[30142:37587741] [UAE] [000]  -- stub -- d3d_select 
+2026-07-30 12:10:13.024 fs-uae[30142:37587741] [UAE] [000]  -- stub -- create_windows 
+2026-07-30 12:10:13.026 fs-uae[30142:37587741] [UAE] [000]  -- stub -- updatewinrect 
+2026-07-30 12:10:13.027 fs-uae[30142:37587741] [UAE] [000]  -- stub -- Screenshot_RGBinfo 
+2026-07-30 12:10:13.027 fs-uae[30142:37587741] [UAE] [000]  -- stub -- display_param_init 
+2026-07-30 12:10:13.027 fs-uae[30142:37587741] [UAE] [000]  -- stub -- setmouseactive 
+2026-07-30 12:10:13.027 fs-uae[30142:37587741] [UAE] [000]  -- stub -- refreshtitle 
+2026-07-30 12:10:13.027 fs-uae[30142:37587741] [UAE] [000] CPU cycleunit: 128 (0.250)
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] Building CPU, 45912 opcodes (2 -2 1)
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] CPU=68020, FPU=0, MMU=0, JIT=0. ~cycle-exact 24-bit
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000]  -- stub -- display_vblank_thread 
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] memory init end
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] segtracker: install
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] reset_drive: set drv->newnamewriteprotected = false
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] reset_drive calling drive_insert
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=3 fake=0 forcewriteprotect=0
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=3 fake=1 forcewriteprotect=1
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] DISK INSERT (df3): 
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] reset_drive: set drv->newnamewriteprotected = false
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] reset_drive calling drive_insert
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=2 fake=0 forcewriteprotect=0
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=2 fake=1 forcewriteprotect=1
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] DISK INSERT (df2): 
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] reset_drive: set drv->newnamewriteprotected = false
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] reset_drive calling drive_insert
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=1 fake=0 forcewriteprotect=0
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=1 fake=1 forcewriteprotect=1
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] DISK INSERT (df1): 
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] reset_drive: set drv->newnamewriteprotected = false
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] reset_drive calling drive_insert
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=0 fake=0 forcewriteprotect=0
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] DISK_examine_image calling drive_insert
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000] drive_insert dnum=0 fake=1 forcewriteprotect=1
+2026-07-30 12:10:13.028 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.031 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.033 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.035 fs-uae[30142:37587741] [UAE] [000] drive_insert: set currprefs.floppyslots[0].forcedwriteprotect to 0
+2026-07-30 12:10:13.035 fs-uae[30142:37587741] [UAE] [000] drive_insert: set drv->newnamewriteprotected = 0
+2026-07-30 12:10:13.035 fs-uae[30142:37587741] DISK INSERT (df0): /Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/inputs/midline-hbstrt-past.adf
+2026-07-30 12:10:13.035 fs-uae[30142:37587741] [UAE] [000]  -- stub -- my_resolvesoftlink 
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_unpost used
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000]  -- stub -- filesys_addexternals 
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000] initparallel
+2026-07-30 12:10:13.036 fs-uae[30142:37587741] [UAE] [000] Reset at 00F80114. Chipset mask = 00000007
+2026-07-30 12:10:13.037 fs-uae[30142:37587741] [UAE] [000] 00000000    2048K/4 =     512K ID* F32 Kickstart ROM (1483A091)
+2026-07-30 12:10:13.037 fs-uae[30142:37587741] [UAE] [000] =KS ROM v3.1 (A1200) rev 40.68 (512k)
+2026-07-30 12:10:13.037 fs-uae[30142:37587741] [UAE] [000] 00200000    8704K/0 =    8704K --  F32 <none>
+2026-07-30 12:10:13.038 fs-uae[30142:37587741] [UAE] [000] 00A80000    1024K/2 =     512K ID* F32 Kickstart ROM (1483A091)
+2026-07-30 12:10:13.038 fs-uae[30142:37587741] [UAE] [000] =KS ROM v3.1 (A1200) rev 40.68 (512k)
+2026-07-30 12:10:13.038 fs-uae[30142:37587741] [UAE] [000] 00B80000     448K/0 =     448K --  F32 <none>
+2026-07-30 12:10:13.038 fs-uae[30142:37587741] [UAE] [000] 00BF0000      64K/0 =      64K --  CIA CIA
+2026-07-30 12:10:13.038 fs-uae[30142:37587741] [UAE] [000] 00C00000    1536K/0 =    1536K --  F32 <none>
+2026-07-30 12:10:13.038 fs-uae[30142:37587741] [UAE] [000] 00D80000     256K/0 =     256K --  C16 Gayle (low)
+2026-07-30 12:10:13.038 fs-uae[30142:37587741] [UAE] [000] 00DC0000      64K/0 =      64K --  C16 Battery backed up clock (MSM6242B)
+2026-07-30 12:10:13.038 fs-uae[30142:37587741] [UAE] [000] 00DD0000      64K/0 =      64K --  C16 Gayle (low)
+2026-07-30 12:10:13.038 fs-uae[30142:37587741] [UAE] [000] 00DE0000      64K/0 =      64K --  C16 Gayle (high)
+2026-07-30 12:10:13.038 fs-uae[30142:37587741] [UAE] [000] 00DF0000      64K/0 =      64K --  C16 Custom chipset
+2026-07-30 12:10:13.040 fs-uae[30142:37587741] [UAE] [000] 00E00000     512K/1 =     512K ID* F32 Kickstart ROM (1483A091)
+2026-07-30 12:10:13.040 fs-uae[30142:37587741] [UAE] [000] =KS ROM v3.1 (A1200) rev 40.68 (512k)
+2026-07-30 12:10:13.040 fs-uae[30142:37587741] [UAE] [000] 00E80000      64K/0 =      64K --  F32 Autoconfig [reset]
+2026-07-30 12:10:13.040 fs-uae[30142:37587741] [UAE] [000] 00E90000     960K/0 =     960K --  F32 <none>
+2026-07-30 12:10:13.041 fs-uae[30142:37587741] [UAE] [000] 00F80000     512K/1 =     512K ID* F32 Kickstart ROM (1483A091)
+2026-07-30 12:10:13.041 fs-uae[30142:37587741] [UAE] [000] =KS ROM v3.1 (A1200) rev 40.68 (512k)
+2026-07-30 12:10:13.041 fs-uae[30142:37587741] [UAE] [000] PAL mode V=50.0804Hz H=15625.0879Hz (227x312+0) IDX=10 (PAL) D=0 RTG=0/0
+2026-07-30 12:10:13.041 fs-uae[30142:37587741] [UAE] [000] RTGFREQ: 312*50.0804 = 15625.0879 / 50.1 = 312
+2026-07-30 12:10:13.041 fs-uae[30142:37587741] [UAE] [000]  -- stub -- xD3D_alloctexture monid=0 w=756 h=574
+2026-07-30 12:10:13.041 fs-uae[30142:37587741] [UAE] [000] Buffer 0 size (756*574) Native
+2026-07-30 12:10:13.041 fs-uae[30142:37587741] [UAE] [000] WARNING: uae_sem_init used with existing event (?)
+2026-07-30 12:10:13.042 fs-uae[30142:37587741] [UAE] [000]  -- stub -- enforcer_disable 
+2026-07-30 12:10:13.042 fs-uae[30142:37587741] [UAE] [000] Autoconfig board list:
+2026-07-30 12:10:13.042 fs-uae[30142:37587741] [UAE] [000] Card 01: '<no name>' no autoconfig 00da0000 - 00daffff.
+2026-07-30 12:10:13.042 fs-uae[30142:37587741] [UAE] [000] Card 02: '<no name>' no autoconfig 00600000 - 00a7ffff.
+2026-07-30 12:10:13.042 fs-uae[30142:37587741] [UAE] [000] END
+2026-07-30 12:10:13.042 fs-uae[30142:37587741] [UAE] [000] uae_start_tread "ide" function 0x1038cc13c arg 0x104c5abb0
+2026-07-30 12:10:13.042 fs-uae[30142:37587741] [UAE] [000] Card 0: skipping autoconfig (not autoconfig)
+2026-07-30 12:10:13.042 fs-uae[30142:37587741] [UAE] [000] Memory map after autoconfig:
+2026-07-30 12:10:13.044 fs-uae[30142:37587741] [UAE] [000] 00000000    2048K/4 =     512K ID* F32 Kickstart ROM (1483A091)
+2026-07-30 12:10:13.044 fs-uae[30142:37587741] [UAE] [000] =KS ROM v3.1 (A1200) rev 40.68 (512k)
+2026-07-30 12:10:13.044 fs-uae[30142:37587741] [UAE] [000] 00200000    8704K/0 =    8704K --  F32 <none>
+2026-07-30 12:10:13.045 fs-uae[30142:37587741] [UAE] [000] 00A80000    1024K/2 =     512K ID* F32 Kickstart ROM (1483A091)
+2026-07-30 12:10:13.045 fs-uae[30142:37587741] [UAE] [000] =KS ROM v3.1 (A1200) rev 40.68 (512k)
+2026-07-30 12:10:13.045 fs-uae[30142:37587741] [UAE] [000] 00B80000     448K/0 =     448K --  F32 <none>
+2026-07-30 12:10:13.045 fs-uae[30142:37587741] [UAE] [000] 00BF0000      64K/0 =      64K --  CIA CIA
+2026-07-30 12:10:13.045 fs-uae[30142:37587741] [UAE] [000] 00C00000    1536K/0 =    1536K --  F32 <none>
+2026-07-30 12:10:13.045 fs-uae[30142:37587741] [UAE] [000] 00D80000     256K/0 =     256K --  C16 Gayle (low)
+2026-07-30 12:10:13.045 fs-uae[30142:37587741] [UAE] [000] 00DC0000      64K/0 =      64K --  C16 Battery backed up clock (MSM6242B)
+2026-07-30 12:10:13.045 fs-uae[30142:37587741] [UAE] [000] 00DD0000      64K/0 =      64K --  C16 Gayle (low)
+2026-07-30 12:10:13.045 fs-uae[30142:37587741] [UAE] [000] 00DE0000      64K/0 =      64K --  C16 Gayle (high)
+2026-07-30 12:10:13.045 fs-uae[30142:37587741] [UAE] [000] 00DF0000      64K/0 =      64K --  C16 Custom chipset
+2026-07-30 12:10:13.046 fs-uae[30142:37587741] [UAE] [000] 00E00000     512K/1 =     512K ID* F32 Kickstart ROM (1483A091)
+2026-07-30 12:10:13.046 fs-uae[30142:37587741] [UAE] [000] =KS ROM v3.1 (A1200) rev 40.68 (512k)
+2026-07-30 12:10:13.046 fs-uae[30142:37587741] [UAE] [000] 00E80000      64K/0 =      64K --  F32 Autoconfig Z2
+2026-07-30 12:10:13.046 fs-uae[30142:37587741] [UAE] [000] 00E90000     960K/0 =     960K --  F32 <none>
+2026-07-30 12:10:13.048 fs-uae[30142:37587741] [UAE] [000] 00F80000     512K/1 =     512K ID* F32 Kickstart ROM (1483A091)
+2026-07-30 12:10:13.048 fs-uae[30142:37587741] [UAE] [000] =KS ROM v3.1 (A1200) rev 40.68 (512k)
+2026-07-30 12:10:13.048 fs-uae[30142:37587741] [UAE] [000] CPU cycleunit: 128 (0.250)
+2026-07-30 12:10:13.048 fs-uae[30142:37587741] [UAE] [000]  -- stub -- fpux_restore 
+2026-07-30 12:10:13.048 fs-uae[30142:37587741] [UAE] [000] - VirtualProtect addr=0x300f80000 size=524288 prot=4
+2026-07-30 12:10:13.048 fs-uae[30142:37587741] [UAE] [000]   PAGE_READWRITE
+2026-07-30 12:10:13.048 fs-uae[30142:37587741] [UAE] [000] ROM VP 00F80000 - 01000000 80000 (512k) UNPROT
+2026-07-30 12:10:13.048 fs-uae[30142:37587741] [UAE] [001] hardreset, memory cleared
+2026-07-30 12:10:13.048 fs-uae[30142:37587741] [UAE] [001]  -- stub -- getlocaltime 
+2026-07-30 12:10:13.048 fs-uae[30142:37587741] [UAE] [001] rndseed = 00000001 (1)
+2026-07-30 12:10:13.048 fs-uae[30142:37587741] [UAE] [004] Display Size: 640x480 Offset: 58x36
+2026-07-30 12:10:13.048 fs-uae[30142:37587741] [UAE] [004] First: 30000 Last: 0 Min: 26
+DeviceRobotService.__joystick_port_0 
+DeviceRobotService.__joystick_port_1 
+---------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------
+SORTED DEVICES
+- Keyboard
+- Mouse
+auto-fill 0 mode 'joystick' value ''
+? 107 Keyboard None
+Using <InputDevice 'Keyboard' (0)>
+auto-fill 1 mode 'mouse' value ''
+? 107 Keyboard 0
+? 109 Mouse None
+Using <InputDevice 'Mouse' (0)>
+auto-fill 2 mode 'none' value ''
+auto-fill 3 mode 'none' value ''
+PORT 0 Keyboard
+PORT 1 Mouse
+PORT 2 None
+PORT 3 None
+AUTO DEVICES --------------------------
+? 107 Keyboard 0
+Using <InputDevice 'Keyboard' (0)>
+<InputDevice 'Keyboard' (0)>
+? 107 Keyboard 0
+? 109 Mouse 1
+Using <InputDevice 'Mouse' (0)>
+<InputDevice 'Mouse' (0)>
+None
+None
+handle_user_event
+1
+1
+'Keyboard'
+handle_user_event
+2
+1
+'Mouse'
+DEBUG:fsuae.uaeconfigservice:-----> 'config_description' <- 'UAE default configuration'
+DEBUG:fsuae.uaeconfigservice:  (key 'config_description' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'config_hardware' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'config_hardware' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'config_host' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'config_host' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'config_version' <- '6.0.1'
+DEBUG:fsuae.uaeconfigservice:  (key 'config_version' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'config_hardware_path' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'config_hardware_path' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'config_host_path' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'config_host_path' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'config_all_path' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'config_all_path' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'fsuae.rom_path' <- './'
+DEBUG:fsuae.uaeconfigservice:  (key 'fsuae.rom_path' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'fsuae.floppy_path' <- './'
+DEBUG:fsuae.uaeconfigservice:  (key 'fsuae.floppy_path' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'fsuae.hardfile_path' <- './'
+DEBUG:fsuae.uaeconfigservice:  (key 'fsuae.hardfile_path' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'use_gui' <- 'yes'
+DEBUG:fsuae.uaeconfigservice:  (key 'use_gui' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'use_debugger' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'use_debugger' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'debugging_options' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'debugging_options' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'kickstart_rom_file' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'kickstart_rom_file' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'kickstart_ext_rom_file' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'kickstart_ext_rom_file' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'flash_file' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'flash_file' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cart_file' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'cart_file' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'rtc_file' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'rtc_file' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'picassoiv_rom_file' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'picassoiv_rom_file' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'kickshifter' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'kickshifter' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'scsidevice_disable' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'scsidevice_disable' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'ks_write_enabled' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'ks_write_enabled' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy_volume' <- '90'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy_volume' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy0' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy0' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy0wp' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy0wp' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy0type' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy0type' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy0sound' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy0sound' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy1' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy1' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy1wp' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy1wp' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy1type' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy1type' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy1sound' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy1sound' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy2' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy2' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy2wp' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy2wp' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy2type' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy2type' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy2sound' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy2sound' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy3' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy3' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy3wp' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy3wp' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy3type' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy3type' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy3sound' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy3sound' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'nr_floppies' <- '2'
+DEBUG:fsuae.uaeconfigservice:  (key 'nr_floppies' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy_write_protect' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy_write_protect' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy_speed' <- '100'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy_speed' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy_channel_mask' <- '0xffff'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppy_channel_mask' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cd_speed' <- '100'
+DEBUG:fsuae.uaeconfigservice:  (key 'cd_speed' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'parallel_on_demand' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'parallel_on_demand' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'serial_on_demand' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'serial_on_demand' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'serial_hardware_ctsrts' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'serial_hardware_ctsrts' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'serial_status' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'serial_status' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'serial_ri' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'serial_ri' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'serial_direct' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'serial_direct' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'serial_stopbits' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'serial_stopbits' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'serial_translate' <- 'disabled'
+DEBUG:fsuae.uaeconfigservice:  (key 'serial_translate' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'scsi' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'scsi' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'uaeserial' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'uaeserial' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sana2' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'sana2' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_output' <- 'exact'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_output' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_channels' <- 'stereo'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_channels' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_stereo_separation' <- '7'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_stereo_separation' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_stereo_mixing_delay' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_stereo_mixing_delay' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_max_buff' <- '16384'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_max_buff' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_frequency' <- '44100'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_frequency' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_interpol' <- 'anti'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_interpol' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_filter' <- 'emulated'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_filter' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_filter_type' <- 'standard'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_filter_type' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_volume' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_volume' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_volume_paula' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_volume_paula' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_volume_cd' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_volume_cd' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_volume_ahi' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_volume_ahi' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_volume_midi' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_volume_midi' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_volume_genlock' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_volume_genlock' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_auto' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_auto' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_stereo_swap_paula' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_stereo_swap_paula' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_stereo_swap_ahi' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_stereo_swap_ahi' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_volcnt' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'sound_volcnt' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sampler_frequency' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'sampler_frequency' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sampler_buffer' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'sampler_buffer' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'sampler_stereo' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'sampler_stereo' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'comp_trustbyte' <- 'direct'
+DEBUG:fsuae.uaeconfigservice:  (key 'comp_trustbyte' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'comp_trustword' <- 'direct'
+DEBUG:fsuae.uaeconfigservice:  (key 'comp_trustword' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'comp_trustlong' <- 'direct'
+DEBUG:fsuae.uaeconfigservice:  (key 'comp_trustlong' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'comp_trustnaddr' <- 'direct'
+DEBUG:fsuae.uaeconfigservice:  (key 'comp_trustnaddr' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'comp_nf' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'comp_nf' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'comp_constjump' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'comp_constjump' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'comp_flushmode' <- 'soft'
+DEBUG:fsuae.uaeconfigservice:  (key 'comp_flushmode' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'compfpu' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'compfpu' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'comp_catchfault' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'comp_catchfault' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cachesize' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'cachesize' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'jit_blacklist' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'jit_blacklist' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'jit_inhibit' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'jit_inhibit' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'joyport0' <- 'none'
+DEBUG:fsuae.uaeconfigservice:  (key 'joyport0' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'joyport0autofire' <- 'none'
+DEBUG:fsuae.uaeconfigservice:  (key 'joyport0autofire' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'joyport1' <- 'kbd1'
+DEBUG:fsuae.uaeconfigservice:  (key 'joyport1' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'joyport1autofire' <- 'none'
+DEBUG:fsuae.uaeconfigservice:  (key 'joyport1autofire' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'bsdsocket_emu' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'bsdsocket_emu' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'synchronize_clock' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'synchronize_clock' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'maprom' <- '0x0'
+DEBUG:fsuae.uaeconfigservice:  (key 'maprom' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'boot_rom_uae' <- 'automatic'
+DEBUG:fsuae.uaeconfigservice:  (key 'boot_rom_uae' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'uaeboard' <- 'disabled'
+DEBUG:fsuae.uaeconfigservice:  (key 'uaeboard' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'parallel_matrix_emulation' <- 'none'
+DEBUG:fsuae.uaeconfigservice:  (key 'parallel_matrix_emulation' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'parallel_postscript_emulation' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'parallel_postscript_emulation' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'parallel_postscript_detection' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'parallel_postscript_detection' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'ghostscript_parameters' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'ghostscript_parameters' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'parallel_autoflush' <- '5'
+DEBUG:fsuae.uaeconfigservice:  (key 'parallel_autoflush' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'uae_hide' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'uae_hide' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'uae_hide_autoconfig' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'uae_hide_autoconfig' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'magic_mouse' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'magic_mouse' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'magic_mousecursor' <- 'both'
+DEBUG:fsuae.uaeconfigservice:  (key 'magic_mousecursor' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'absolute_mouse' <- 'none'
+DEBUG:fsuae.uaeconfigservice:  (key 'absolute_mouse' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'tablet_library' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'tablet_library' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'clipboard_sharing' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'clipboard_sharing' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'native_code' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'native_code' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cputester' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'cputester' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_display' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_display' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_display_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_display_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_framerate' <- '1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_framerate' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_width' <- '720'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_width' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_height' <- '568'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_height' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_x_windowed' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_x_windowed' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_y_windowed' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_y_windowed' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_resize_windowed' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_resize_windowed' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_width_windowed' <- '720'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_width_windowed' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_height_windowed' <- '568'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_height_windowed' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_width_fullscreen' <- '800'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_width_fullscreen' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_height_fullscreen' <- '600'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_height_fullscreen' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_refreshrate' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_refreshrate' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_refreshrate_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_refreshrate_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_autoresolution' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_autoresolution' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_autoresolution_delay' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_autoresolution_delay' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_autoresolution_min_vertical' <- 'single'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_autoresolution_min_vertical' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_autoresolution_min_horizontal' <- 'lores'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_autoresolution_min_horizontal' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_autoresolution_vga' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_autoresolution_vga' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_backbuffers' <- '2'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_backbuffers' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_backbuffers_rtg' <- '1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_backbuffers_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_vsync' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_vsync' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_vsyncmode' <- 'normal'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_vsyncmode' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_vsync_picasso' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_vsync_picasso' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_vsyncmode_picasso' <- 'normal'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_vsyncmode_picasso' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_lores' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_lores' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_resolution' <- 'hires'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_resolution' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_lores_mode' <- 'normal'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_lores_mode' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_flickerfixer' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_flickerfixer' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_linemode' <- 'double2'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_linemode' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_fullscreen_amiga' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_fullscreen_amiga' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_fullscreen_picasso' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_fullscreen_picasso' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_center_horizontal' <- 'none'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_center_horizontal' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_center_vertical' <- 'none'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_center_vertical' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_colour_mode' <- '32bit'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_colour_mode' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_blacker_than_black' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_blacker_than_black' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_monochrome' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_monochrome' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_atari_palette_fix' <- 'disabled'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_atari_palette_fix' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_black_frame_insertion' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_black_frame_insertion' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_black_frame_insertion_ratio' <- '50'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_black_frame_insertion_ratio' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_api' <- 'direct3d'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_api' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_api_hdr' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_api_hdr' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_api_options' <- 'hardware'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_api_options' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_horizontal_extra' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_horizontal_extra' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_vertical_extra' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_vertical_extra' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_frame_slices' <- '4'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_frame_slices' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_vrr_monitor' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_vrr_monitor' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_overscanmode' <- 'overscan'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_overscanmode' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_monitorblankdelay' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_monitorblankdelay' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_rotation' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_rotation' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_bordercolor' <- '0x00000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_bordercolor' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_mask' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_mask' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter' <- 'null'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_mode' <- '1x'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_mode' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_mode2' <- '-'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_mode2' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_vert_zoomf' <- '0.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_vert_zoomf' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_horiz_zoomf' <- '0.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_horiz_zoomf' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_vert_zoom_multf' <- '1.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_vert_zoom_multf' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_horiz_zoom_multf' <- '1.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_horiz_zoom_multf' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_vert_offsetf' <- '0.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_vert_offsetf' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_horiz_offsetf' <- '0.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_horiz_offsetf' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_left_border' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_left_border' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_right_border' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_right_border' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_top_border' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_top_border' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_bottom_border' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_bottom_border' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_scanlines' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_scanlines' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_scanlinelevel' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_scanlinelevel' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_scanlineratio' <- '17'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_scanlineratio' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_scanlineoffset' <- '1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_scanlineoffset' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_luminance' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_luminance' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_contrast' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_contrast' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_saturation' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_saturation' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_gamma' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_gamma' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_gamma_r' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_gamma_r' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_gamma_g' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_gamma_g' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_gamma_b' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_gamma_b' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_blur' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_blur' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_noise' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_noise' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_bilinear' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_bilinear' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_keep_autoscale_aspect' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_keep_autoscale_aspect' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_keep_aspect' <- 'none'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_keep_aspect' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_autoscale' <- 'auto'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_autoscale' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_autoscale_limit' <- '1/1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_autoscale_limit' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_aspect_ratio' <- '0:0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_aspect_ratio' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_rotation' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_rotation' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_mask_rtg' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_mask_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_rtg' <- 'null'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_mode_rtg' <- '1x'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_mode_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_mode2_rtg' <- '-'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_mode2_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_vert_zoomf_rtg' <- '0.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_vert_zoomf_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_horiz_zoomf_rtg' <- '0.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_horiz_zoomf_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_vert_zoom_multf_rtg' <- '1.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_vert_zoom_multf_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_horiz_zoom_multf_rtg' <- '1.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_horiz_zoom_multf_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_vert_offsetf_rtg' <- '0.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_vert_offsetf_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_horiz_offsetf_rtg' <- '0.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_horiz_offsetf_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_left_border_rtg' <- '-1'
+2026-07-30 12:10:13.053 fs-uae[30142:37587741] [UAE] [000]  -- stub -- read_mouse 
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_left_border_rtg' was not in config key set)
+2026-07-30 12:10:13.053 fs-uae[30142:37587741] [UAE] [000]     (ignoring further calls to read_mouse)
+2026-07-30 12:10:13.053 fs-uae[30142:37587741] [UAE] [000]  -- stub -- read_joystick 
+2026-07-30 12:10:13.053 fs-uae[30142:37587741] [UAE] [000]     (ignoring further calls to read_joystick)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_right_border_rtg' <- '0'
+2026-07-30 12:10:13.053 fs-uae[30142:37587741] [UAE] [000]  -- stub -- read_kb 
+2026-07-30 12:10:13.053 fs-uae[30142:37587741] [UAE] [000]     (ignoring further calls to read_kb)
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_right_border_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_top_border_rtg' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_top_border_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_bottom_border_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_bottom_border_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_scanlines_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_scanlines_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_scanlinelevel_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_scanlinelevel_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_scanlineratio_rtg' <- '17'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_scanlineratio_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_scanlineoffset_rtg' <- '1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_scanlineoffset_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_luminance_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_luminance_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_contrast_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_contrast_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_saturation_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_saturation_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_gamma_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_gamma_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_gamma_r_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_gamma_r_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_gamma_g_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_gamma_g_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_gamma_b_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_gamma_b_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_blur_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_blur_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_noise_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_noise_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_bilinear_rtg' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_bilinear_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_keep_autoscale_aspect_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_keep_autoscale_aspect_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_keep_aspect_rtg' <- 'none'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_keep_aspect_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_autoscale_rtg' <- 'scale'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_autoscale_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_autoscale_limit_rtg' <- '1/1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_autoscale_limit_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_aspect_ratio_rtg' <- '0:0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_aspect_ratio_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_rotation_rtg' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_rotation_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_enable_lace' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_enable_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_mask_lace' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_mask_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_lace' <- 'null'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_mode_lace' <- '1x'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_mode_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_mode2_lace' <- '-'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_mode2_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_vert_zoomf_lace' <- '0.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_vert_zoomf_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_horiz_zoomf_lace' <- '0.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_horiz_zoomf_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_vert_zoom_multf_lace' <- '1.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_vert_zoom_multf_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_horiz_zoom_multf_lace' <- '1.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_horiz_zoom_multf_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_vert_offsetf_lace' <- '0.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_vert_offsetf_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_horiz_offsetf_lace' <- '0.000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_horiz_offsetf_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_left_border_lace' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_left_border_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_right_border_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_right_border_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_top_border_lace' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_top_border_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_bottom_border_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_bottom_border_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_scanlines_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_scanlines_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_scanlinelevel_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_scanlinelevel_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_scanlineratio_lace' <- '17'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_scanlineratio_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_scanlineoffset_lace' <- '1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_scanlineoffset_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_luminance_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_luminance_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_contrast_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_contrast_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_saturation_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_saturation_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_gamma_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_gamma_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_gamma_r_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_gamma_r_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_gamma_g_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_gamma_g_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_gamma_b_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_gamma_b_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_blur_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_blur_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_noise_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_noise_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_bilinear_lace' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_bilinear_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_keep_autoscale_aspect_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_keep_autoscale_aspect_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_keep_aspect_lace' <- 'none'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_keep_aspect_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_autoscale_lace' <- 'auto'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_autoscale_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_autoscale_limit_lace' <- '1/1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_autoscale_limit_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_aspect_ratio_lace' <- '0:0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_aspect_ratio_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_filter_rotation_lace' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_filter_rotation_lace' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_luminance' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_luminance' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_contrast' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_contrast' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_gamma' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_gamma' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_gamma_r' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_gamma_r' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_gamma_g' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_gamma_g' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_gamma_b' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_gamma_b' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_center_horizontal_position' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_center_horizontal_position' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_center_vertical_position' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_center_vertical_position' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_center_horizontal_size' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_center_horizontal_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfx_center_vertical_size' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfx_center_vertical_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'rtg_vert_zoom_multf' <- '1'
+DEBUG:fsuae.uaeconfigservice:  (key 'rtg_vert_zoom_multf' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'rtg_horiz_zoom_multf' <- '1'
+DEBUG:fsuae.uaeconfigservice:  (key 'rtg_horiz_zoom_multf' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'immediate_blits' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'immediate_blits' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'waiting_blits' <- 'disabled'
+DEBUG:fsuae.uaeconfigservice:  (key 'waiting_blits' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'blitter_throttle' <- '0.00000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'blitter_throttle' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'ntsc' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'ntsc' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'genlock' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'genlock' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'genlock_alpha' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'genlock_alpha' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'genlock_aspect' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'genlock_aspect' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'genlockmode' <- 'none'
+DEBUG:fsuae.uaeconfigservice:  (key 'genlockmode' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'genlock_image' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'genlock_image' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'genlock_video' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'genlock_video' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'genlock_font' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'genlock_font' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'genlock_mix' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'genlock_mix' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'genlock_scale' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'genlock_scale' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'genlock_offset_x' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'genlock_offset_x' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'genlock_offset_y' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'genlock_offset_y' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'monitoremu' <- 'none'
+DEBUG:fsuae.uaeconfigservice:  (key 'monitoremu' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'monitoremu_monitor' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'monitoremu_monitor' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'lightpen_crosshair' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'lightpen_crosshair' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'show_leds' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'show_leds' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'show_leds_rtg' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'show_leds_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'show_leds_enabled' <- 'snd,cpu,fps,power,hd,cd,df0,df1,df2,df3:md,net'
+DEBUG:fsuae.uaeconfigservice:  (key 'show_leds_enabled' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'show_leds_enabled_rtg' <- 'snd,cpu,fps,power,hd,cd,df0,df1,df2,df3:md,net'
+DEBUG:fsuae.uaeconfigservice:  (key 'show_leds_enabled_rtg' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'show_refresh_indicator' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'show_refresh_indicator' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'power_led_dim' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'power_led_dim' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'keyboard_leds' <- 'numlock:none,capslock:none,scrolllock:none'
+DEBUG:fsuae.uaeconfigservice:  (key 'keyboard_leds' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'chipset' <- 'ecs_agnus'
+DEBUG:fsuae.uaeconfigservice:  (key 'chipset' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'chipset_refreshrate' <- '50.080410'
+DEBUG:fsuae.uaeconfigservice:  (key 'chipset_refreshrate' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'chipset_subpixel' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'chipset_subpixel' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'chipset_black_level_calibration' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'chipset_black_level_calibration' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'collision_level' <- 'full'
+DEBUG:fsuae.uaeconfigservice:  (key 'collision_level' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'chipset_compatible' <- 'Generic'
+DEBUG:fsuae.uaeconfigservice:  (key 'chipset_compatible' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'display_optimizations' <- 'full'
+DEBUG:fsuae.uaeconfigservice:  (key 'display_optimizations' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'ciaatod' <- 'vblank'
+DEBUG:fsuae.uaeconfigservice:  (key 'ciaatod' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'rtc' <- 'MSM6242B'
+DEBUG:fsuae.uaeconfigservice:  (key 'rtc' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'chipset_rtc_adjust' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'chipset_rtc_adjust' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cia_overlay' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'cia_overlay' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'ksmirror_e0' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'ksmirror_e0' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'ksmirror_a8' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'ksmirror_a8' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cd32cd' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'cd32cd' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cd32c2p' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'cd32c2p' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cd32nvram' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'cd32nvram' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cd32nvram_size' <- '1'
+DEBUG:fsuae.uaeconfigservice:  (key 'cd32nvram_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cdtvcd' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'cdtvcd' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cdtv-cr' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'cdtv-cr' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cdtvram' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'cdtvram' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'a1000ram' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'a1000ram' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'fatgary' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'fatgary' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'ramsey' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'ramsey' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'pcmcia' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'pcmcia' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'resetwarning' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'resetwarning' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'denise_noehb' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'denise_noehb' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'agnus_bltbusybug' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'agnus_bltbusybug' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'bkpt_halt' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'bkpt_halt' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'ics_agnus' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'ics_agnus' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cia_todbug' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'cia_todbug' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'z3_autoconfig' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'z3_autoconfig' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> '1mchipjumper' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key '1mchipjumper' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'color_burst' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'color_burst' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'hvcsync' <- 'hvcsync'
+DEBUG:fsuae.uaeconfigservice:  (key 'hvcsync' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'toshiba_gary' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'toshiba_gary' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'rom_is_slow' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'rom_is_slow' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'ciaa_type' <- 'default'
+DEBUG:fsuae.uaeconfigservice:  (key 'ciaa_type' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'ciab_type' <- 'default'
+DEBUG:fsuae.uaeconfigservice:  (key 'ciab_type' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'unmapped_address_space' <- 'floating'
+DEBUG:fsuae.uaeconfigservice:  (key 'unmapped_address_space' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'memory_pattern' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'memory_pattern' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'ipl_delay' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'ipl_delay' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'floppydata_pullup' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'floppydata_pullup' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'keyboard_handshake' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'keyboard_handshake' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'chipset_hacks' <- '0x0'
+DEBUG:fsuae.uaeconfigservice:  (key 'chipset_hacks' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'eclockphase' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'eclockphase' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'eclocksync' <- 'default'
+DEBUG:fsuae.uaeconfigservice:  (key 'eclocksync' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'agnusmodel' <- 'default'
+DEBUG:fsuae.uaeconfigservice:  (key 'agnusmodel' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'agnussize' <- 'default'
+DEBUG:fsuae.uaeconfigservice:  (key 'agnussize' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'denisemodel' <- 'default'
+DEBUG:fsuae.uaeconfigservice:  (key 'denisemodel' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'z3mapping' <- 'auto'
+DEBUG:fsuae.uaeconfigservice:  (key 'z3mapping' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'board_custom_order' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'board_custom_order' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'fastmem_size' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'fastmem_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'debugmem_start' <- '0x0'
+DEBUG:fsuae.uaeconfigservice:  (key 'debugmem_start' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'debugmem_size' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'debugmem_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'mem25bit_size' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'mem25bit_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'a3000mem_size' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'a3000mem_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'mbresmem_size' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'mbresmem_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'z3mem_size' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'z3mem_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'z3mem_start' <- '0x40000000'
+DEBUG:fsuae.uaeconfigservice:  (key 'z3mem_start' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'bogomem_size' <- '2'
+DEBUG:fsuae.uaeconfigservice:  (key 'bogomem_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpuboard_type' <- 'none'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpuboard_type' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpuboardmem1_size' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpuboardmem1_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpuboardmem2_size' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpuboardmem2_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfxcard_hardware_vblank' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfxcard_hardware_vblank' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfxcard_hardware_sprite' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfxcard_hardware_sprite' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfxcard_overlay' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfxcard_overlay' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfxcard_screensplit' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfxcard_screensplit' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfxcard_paletteswitch' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfxcard_paletteswitch' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfxcard_dacswitch' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfxcard_dacswitch' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'gfxcard_multithread' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'gfxcard_multithread' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'chipmem_size' <- '1'
+DEBUG:fsuae.uaeconfigservice:  (key 'chipmem_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'megachipmem_size' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'megachipmem_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_speed' <- 'real'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_speed' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_throttle' <- '0.0'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_throttle' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_x86_throttle' <- '0.0'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_x86_throttle' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_type' <- '68000'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_type' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_model' <- '68000'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_model' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_compatible' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_compatible' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_24bit_addressing' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_24bit_addressing' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_data_cache' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_data_cache' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_reset_pause' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_reset_pause' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_halt_auto_reset' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_halt_auto_reset' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_threaded' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_threaded' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_cycle_exact' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_cycle_exact' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_memory_cycle_exact' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_memory_cycle_exact' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'blitter_cycle_exact' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'blitter_cycle_exact' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cycle_exact' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'cycle_exact' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'fpu_no_unimplemented' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'fpu_no_unimplemented' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_no_unimplemented' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_no_unimplemented' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'fpu_strict' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'fpu_strict' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'fpu_softfloat' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'fpu_softfloat' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'rtg_nocustom' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'rtg_nocustom' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'rtg_modes' <- '0x212'
+DEBUG:fsuae.uaeconfigservice:  (key 'rtg_modes' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'rtg_noautomodes' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'rtg_noautomodes' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'debug_mem' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'debug_mem' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'log_illegal_mem' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'log_illegal_mem' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'keyboard_connected' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'keyboard_connected' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'keyboard_nkro' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'keyboard_nkro' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'keyboard_type' <- 'UAE'
+DEBUG:fsuae.uaeconfigservice:  (key 'keyboard_type' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'kbd_lang' <- 'us'
+DEBUG:fsuae.uaeconfigservice:  (key 'kbd_lang' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'state_replay_rate' <- '250'
+DEBUG:fsuae.uaeconfigservice:  (key 'state_replay_rate' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'state_replay_buffers' <- '100'
+DEBUG:fsuae.uaeconfigservice:  (key 'state_replay_buffers' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'state_replay_autoplay' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'state_replay_autoplay' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'warp' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'warp' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'warp_limit' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'warp_limit' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'warpboot' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'warpboot' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'warpboot_delay' <- '100'
+DEBUG:fsuae.uaeconfigservice:  (key 'warpboot_delay' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'filesys_max_size' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'filesys_max_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'filesys_max_name_length' <- '107'
+DEBUG:fsuae.uaeconfigservice:  (key 'filesys_max_name_length' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'filesys_max_file_size' <- '2147483647'
+DEBUG:fsuae.uaeconfigservice:  (key 'filesys_max_file_size' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'filesys_inject_icons' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'filesys_inject_icons' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'filesys_inject_icons_drawer' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'filesys_inject_icons_drawer' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'filesys_inject_icons_project' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'filesys_inject_icons_project' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'filesys_inject_icons_tool' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'filesys_inject_icons_tool' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'scsidev_mode' <- 'original'
+DEBUG:fsuae.uaeconfigservice:  (key 'scsidev_mode' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'harddrive_write_protect' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'harddrive_write_protect' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.config' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.config' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.joymouse_speed_analog' <- '100'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.joymouse_speed_analog' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.joymouse_speed_digital' <- '10'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.joymouse_speed_digital' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.joymouse_deadzone' <- '33'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.joymouse_deadzone' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.joystick_deadzone' <- '33'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.joystick_deadzone' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.analog_joystick_multiplier' <- '18'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.analog_joystick_multiplier' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.analog_joystick_offset' <- '-5'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.analog_joystick_offset' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.mouse_speed' <- '100'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.mouse_speed' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.autofire_speed' <- '600'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.autofire_speed' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.autoswitch' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.autoswitch' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.keyboard_type' <- 'amiga'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.keyboard_type' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.contact_bounce' <- '0'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.contact_bounce' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.devicematchflags' <- '-1'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.devicematchflags' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.autoswitchleftright' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.autoswitchleftright' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.advancedmultiinput' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.advancedmultiinput' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.default_osk' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.default_osk' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.name' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.name' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.0.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.0.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.1.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.1.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.2.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.2.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.3.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.3.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.4.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.4.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.5.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.5.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.6.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.6.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.7.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.7.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.8.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.8.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.9.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.9.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.10.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.10.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.11.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.11.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.12.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.12.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.13.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.13.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.14.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.14.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.15.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.15.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.16.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.16.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.17.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.17.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.18.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.18.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.joystick.19.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.joystick.19.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.0.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.0.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.1.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.1.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.2.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.2.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.3.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.3.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.4.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.4.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.5.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.5.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.6.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.6.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.7.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.7.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.8.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.8.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.9.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.9.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.10.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.10.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.11.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.11.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.12.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.12.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.13.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.13.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.14.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.14.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.15.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.15.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.16.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.16.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.17.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.17.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.18.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.18.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.mouse.19.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.mouse.19.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.0.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.0.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.1.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.1.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.2.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.2.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.3.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.3.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.4.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.4.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.5.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.5.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.6.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.6.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.7.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.7.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.8.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.8.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.9.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.9.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.10.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.10.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.11.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.11.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.12.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.12.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.13.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.13.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.14.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.14.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.15.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.15.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.16.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.16.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.17.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.17.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.18.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.18.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.keyboard.19.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.keyboard.19.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.internal.0.friendlyname' <- 'Internal events'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.internal.0.friendlyname' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.internal.0.name' <- 'INTERNALEVENTS1'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.internal.0.name' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.internal.0.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.internal.0.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.1.internal.0.disabled' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.1.internal.0.disabled' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.name' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.name' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.0.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.0.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.1.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.1.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.2.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.2.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.3.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.3.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.4.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.4.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.5.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.5.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.6.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.6.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.7.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.7.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.8.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.8.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.9.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.9.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.10.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.10.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.11.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.11.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.12.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.12.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.13.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.13.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.14.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.14.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.15.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.15.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.16.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.16.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.17.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.17.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.18.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.18.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.joystick.19.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.joystick.19.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.0.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.0.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.1.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.1.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.2.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.2.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.3.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.3.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.4.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.4.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.5.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.5.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.6.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.6.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.7.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.7.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.8.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.8.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.9.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.9.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.10.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.10.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.11.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.11.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.12.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.12.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.13.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.13.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.14.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.14.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.15.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.15.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.16.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.16.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.17.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.17.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.18.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.18.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.mouse.19.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.mouse.19.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.0.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.0.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.1.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.1.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.2.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.2.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.3.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.3.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.4.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.4.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.5.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.5.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.6.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.6.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.7.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.7.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.8.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.8.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.9.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.9.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.10.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.10.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.11.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.11.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.12.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.12.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.13.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.13.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.14.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.14.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.15.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.15.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.16.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.16.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.17.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.17.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.18.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.18.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.keyboard.19.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.keyboard.19.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.internal.0.friendlyname' <- 'Internal events'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.internal.0.friendlyname' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.internal.0.name' <- 'INTERNALEVENTS1'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.internal.0.name' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.internal.0.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.internal.0.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.2.internal.0.disabled' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.2.internal.0.disabled' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.name' <- ''
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.name' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.0.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.0.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.1.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.1.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.2.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.2.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.3.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.3.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.4.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.4.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.5.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.5.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.6.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.6.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.7.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.7.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.8.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.8.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.9.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.9.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.10.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.10.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.11.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.11.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.12.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.12.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.13.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.13.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.14.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.14.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.15.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.15.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.16.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.16.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.17.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.17.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.18.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.18.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.joystick.19.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.joystick.19.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.0.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.0.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.1.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.1.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.2.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.2.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.3.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.3.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.4.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.4.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.5.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.5.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.6.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.6.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.7.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.7.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.8.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.8.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.9.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.9.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.10.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.10.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.11.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.11.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.12.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.12.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.13.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.13.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.14.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.14.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.15.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.15.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.16.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.16.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.17.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.17.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.18.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.18.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.mouse.19.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.mouse.19.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.0.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.0.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.1.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.1.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.2.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.2.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.3.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.3.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.4.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.4.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.5.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.5.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.6.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.6.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.7.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.7.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.8.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.8.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.9.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.9.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.10.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.10.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.11.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.11.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.12.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.12.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.13.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.13.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.14.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.14.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.15.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.15.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.16.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.16.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.17.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.17.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.18.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.18.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.keyboard.19.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.keyboard.19.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.internal.0.friendlyname' <- 'Internal events'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.internal.0.friendlyname' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.internal.0.name' <- 'INTERNALEVENTS1'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.internal.0.name' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.internal.0.empty' <- 'true'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.internal.0.empty' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'input.3.internal.0.disabled' <- 'false'
+DEBUG:fsuae.uaeconfigservice:  (key 'input.3.internal.0.disabled' was not in config key set)
+is_floppy_enabled True
+is_floppy_enabled True
+is_floppy_enabled False
+is_floppy_enabled False
+DEBUG:fsuae.uaeconfigservice:-----> 'config_description' <- '198x HBLANK write timing aga midline-hbstrt-past'
+DEBUG:fsuae.uaeconfigservice:-----> 'fsuae.rom_path' <- '/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/base/Kickstarts/'
+DEBUG:fsuae.uaeconfigservice:-----> 'fsuae.floppy_path' <- '/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/base/Floppies/'
+DEBUG:fsuae.uaeconfigservice:-----> 'fsuae.hardfile_path' <- '/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/base/Hard Drives/'
+DEBUG:fsuae.uaeconfigservice:-----> 'fsuae.cd_path' <- '/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/base/CD-ROMs/'
+DEBUG:fsuae.uaeconfigservice:  (key 'fsuae.cd_path' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'kickstart_rom_file' <- '/Users/stevehill/.emu198x/roms/commodore-amiga/kick31a1200.rom'
+DEBUG:fsuae.uaeconfigservice:-----> 'kickstart_rom_file_id' <- '1483A091,KS ROM v3.1 (A1200)'
+DEBUG:fsuae.uaeconfigservice:  (key 'kickstart_rom_file_id' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'pcmcia_mb_rom_file' <- ':ENABLED'
+DEBUG:fsuae.uaeconfigservice:  (key 'pcmcia_mb_rom_file' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'ide_mb_rom_file' <- ':ENABLED'
+DEBUG:fsuae.uaeconfigservice:  (key 'ide_mb_rom_file' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'flash_file' <- '/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/base/Kickstarts/'
+DEBUG:fsuae.uaeconfigservice:-----> 'rtc_file' <- '/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/base/Kickstarts/'
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy0' <- '/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/inputs/midline-hbstrt-past.adf'
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy1type' <- '-1'
+DEBUG:fsuae.uaeconfigservice:-----> 'statefile' <- '/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/base/Save States/aga--midline-hbstrt-past.uss'
+DEBUG:fsuae.uaeconfigservice:  (key 'statefile' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'nr_floppies' <- '1'
+DEBUG:fsuae.uaeconfigservice:-----> 'floppy_write_protect' <- 'true'
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_output' <- 'interrupts'
+DEBUG:fsuae.uaeconfigservice:-----> 'sound_frequency' <- '48000'
+DEBUG:fsuae.uaeconfigservice:-----> 'joyport1' <- 'none'
+DEBUG:fsuae.uaeconfigservice:-----> 'boot_rom_uae' <- 'disabled'
+DEBUG:fsuae.uaeconfigservice:-----> 'chipset' <- 'aga'
+DEBUG:fsuae.uaeconfigservice:-----> 'collision_level' <- 'playfields'
+DEBUG:fsuae.uaeconfigservice:-----> 'chipset_compatible' <- 'A1200'
+DEBUG:fsuae.uaeconfigservice:-----> 'rtc' <- 'none'
+DEBUG:fsuae.uaeconfigservice:-----> 'cia_overlay' <- 'false'
+DEBUG:fsuae.uaeconfigservice:-----> 'ksmirror_a8' <- 'true'
+DEBUG:fsuae.uaeconfigservice:-----> 'pcmcia' <- 'true'
+DEBUG:fsuae.uaeconfigservice:-----> 'resetwarning' <- 'true'
+DEBUG:fsuae.uaeconfigservice:-----> 'cia_todbug' <- 'false'
+DEBUG:fsuae.uaeconfigservice:-----> 'eclocksync' <- 'Gayle'
+DEBUG:fsuae.uaeconfigservice:-----> 'ide' <- 'a600/a1200'
+DEBUG:fsuae.uaeconfigservice:  (key 'ide' was not in config key set)
+DEBUG:fsuae.uaeconfigservice:-----> 'bogomem_size' <- '0'
+DEBUG:fsuae.uaeconfigservice:-----> 'chipmem_size' <- '4'
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_type' <- '68ec020'
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_model' <- '68020'
+DEBUG:fsuae.uaeconfigservice:-----> 'cpu_multiplier' <- '4'
+DEBUG:fsuae.uaeconfigservice:  (key 'cpu_multiplier' was not in config key set)
+2026-07-30 12:10:13.330 fs-uae[30142:37587741] [UAE] [191] SERIAL: period=372/3357, baud=9600, hsyncs=14, bits=8, PC=f8018a
+2026-07-30 12:10:13.330 fs-uae[30142:37587741] [UAE] [194] B-Trap F201 at 00F80CA0 -> 00F80CC0
+2026-07-30 12:10:13.368 fs-uae[30142:37587741] [UAE] [004]  -- stub -- gui_fps 
+2026-07-30 12:10:13.368 fs-uae[30142:37587741] [UAE] [004]     (ignoring further calls to gui_fps)
+2026-07-30 12:10:13.647 fs-uae[30142:37587741] [UAE] [020] Ignoring call to handle_msgpump
+2026-07-30 12:10:13.648 fs-uae[30142:37587741] [UAE] [020] Ignoring call to handle_msgpump
+2026-07-30 12:10:13.669 fs-uae[30142:37587741] [UAE] [020] Ignoring call to handle_msgpump
+2026-07-30 12:10:13.687 fs-uae[30142:37587741] [UAE] [020] Ignoring call to handle_msgpump
+2026-07-30 12:10:13.687 fs-uae[30142:37587741] [UAE] [020] Ignoring call to handle_msgpump
+2026-07-30 12:10:13.730 fs-uae[30142:37587741] [UAE] [003] PAL mode V=49.9204Hz H=15625.0879Hz (227x312+1) IDX=10 (PAL) D=0 RTG=0/0
+2026-07-30 12:10:13.731 fs-uae[30142:37587741] [UAE] [003] RTGFREQ: 312*49.9204 = 15575.1680 / 49.9 = 312
+2026-07-30 12:10:13.731 fs-uae[30142:37587741] [UAE] [003]  -- stub -- xD3D_alloctexture monid=0 w=-756 h=-574
+2026-07-30 12:10:13.731 fs-uae[30142:37587741] [UAE] [003]  -- stub -- updatedisplayarea2 
+2026-07-30 12:10:13.753 fs-uae[30142:37587741] [FSE] [FRM] Emulation frame rate is now 49.920410 Hz
+is_floppy_enabled False
+DEBUG:fsuae.uaeconfigservice:-----> 'chipset_refreshrate' <- '49.920410'
+2026-07-30 12:10:13.813 fs-uae[30142:37587741] [UAE] [003] PAL mode V=49.9204Hz H=15625.0879Hz (227x312+1) IDX=10 (PAL) D=0 RTG=0/0
+2026-07-30 12:10:13.813 fs-uae[30142:37587741] [UAE] [003] RTGFREQ: 312*49.9204 = 15575.1680 / 49.9 = 312
+2026-07-30 12:10:13.813 fs-uae[30142:37587741] [UAE] [003]  -- stub -- xD3D_alloctexture monid=0 w=756 h=576
+2026-07-30 12:10:13.813 fs-uae[30142:37587741] [UAE] [003] Buffer 0 size (756*576) Native
+2026-07-30 12:10:14.731 fs-uae[30142:37587741] [UAE] [188] BEAMCON0 = 0028, PC=0003003C
+2026-07-30 12:10:14.736 fs-uae[30142:37587741] [FSE] [FRM] Emulation frame rate is now 50.080410 Hz
+CODEX_READY core_field=81 guest_field=1 case=1 schema=1 magic=HBLK
+CODEX_CAPTURE captured=1 core_field=89 guest_field=9 width=756 height=576 stride=8192 raw=/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/capture/field-000089.bgra metadata=/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/capture/field-000089.json
+CODEX_CAPTURE captured=2 core_field=90 guest_field=10 width=756 height=576 stride=8192 raw=/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/capture/field-000090.bgra metadata=/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/capture/field-000090.json
+CODEX_CAPTURE captured=3 core_field=91 guest_field=11 width=756 height=576 stride=8192 raw=/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/capture/field-000091.bgra metadata=/Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/capture/field-000091.json
+CODEX_CAPTURE complete first_core_field=89 last_core_field=91 first_guest_field=9 last_guest_field=11
+2026-07-30 12:10:14.957 fs-uae[30142:37587710] Signalling and waiting for UI thread to quit
+2026-07-30 12:10:14.957 fs-uae[30142:37587735] Python thread function end
+2026-07-30 12:10:14.957 fs-uae[30142:37587710] Python thread ended
+2026-07-30 12:10:14.957 fs-uae[30142:37587710] FIXME: Wait for emulation thread
+quit_after_n_frames = 600
+codex_capture_dir = /Users/stevehill/Desktop/Documentation/.tmp/hblank-write-timing-registered-captures/aga/midline-hbstrt-past/capture
+codex_capture_case_number = 1
+codex_capture_min_field_counter = 9
+Freeing SDL_EVENT_FSAPP_CUSTOM event 0x7f0efe900
+Freeing SDL_EVENT_FSAPP_CUSTOM event 0x7f0efe880
+
+
+
+fsemu_video_init
+[MAIN] Received message type 131073
+
+FIND DEVICE: 107:0
+Check 107, 0
+[MAIN] Received message type 131073
+
+FIND DEVICE: 109:0
+Check 107, 0
+Check 109, 0
+Process early messages
+[CHANNEL] Received message type 10004
+Calling amiga_main
+InitPicasso96
+ -- stub -- getlocaltime 
+ -- stub -- target_getdate 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- refreshtitle 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+10 + 4 = 14
+current_linear_hpos_short 227 - (display_hstart_cyclewait_skip 28 + display_hstart_cyclewait_skip2) 10
+vb->inwidth = 756
+ -- stub -- enforcer_disable 
+InitPicasso96
+InitPicasso96
+InitPicasso96
+InitPicasso96
+ -- stub -- getlocaltime 
+ -- changed: custom               raw: 184  52 752 518 / custom:   0   0   0   0
+[31m[1mForcing fsemu_frame_number_began = 0[0m
+
+[CHANNEL] Received message type 10002
+FIXME: &workprefs ?
+setting restart_program = 2
+ -- stub -- target_restart 
+FIXME: Not removing temp file
+ret 0 quit_to_gui 0 restart_program 2
+InitPicasso96
+ -- stub -- target_parse_option p=0x105c36610
+, option="rom_path"
+ -- stub -- target_parse_option p=0x105c36610
+, option="floppy_path"
+ -- stub -- target_parse_option p=0x105c36610
+, option="hardfile_path"
+ -- stub -- target_parse_option p=0x105c36610
+, option="cd_path"
+ -- stub -- target_addtorecent name="/var/folders/94/p_ng_dqx7tq9rx2rcw0y8zth0000gn/T/fsuae-temp-config-NPZZS3" t=0
+ -- stub -- getlocaltime 
+ -- stub -- target_getdate 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- refreshtitle 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+ -- stub -- my_resolvesoftlink 
+10 + 4 = 14
+current_linear_hpos_short 227 - (display_hstart_cyclewait_skip 28 + display_hstart_cyclewait_skip2) 10
+vb->inwidth = 756
+ -- stub -- enforcer_disable 
+InitPicasso96
+InitPicasso96
+InitPicasso96
+InitPicasso96
+ -- stub -- getlocaltime 
+ -- changed: custom               raw: 184  52 754 518 / custom:  58  36 640 480
+ -- changed: raw                  raw: 184  52 754 518 / custom:  58  36 640 480
+--- late_frames >= 10 ---
+10 + 4 = 14
+current_linear_hpos_short 227 - (display_hstart_cyclewait_skip 28 + display_hstart_cyclewait_skip2) 10
+vb->inwidth = 756
+10 + 4 = 14
+current_linear_hpos_short 227 - (display_hstart_cyclewait_skip 28 + display_hstart_cyclewait_skip2) 10
+vb->inwidth = 756
+--- late_frames >= 10 ---

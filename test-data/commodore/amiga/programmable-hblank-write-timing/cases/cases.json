@@ -1,0 +1,370 @@
+{
+  "source_format_version": 1,
+  "suite": {
+    "id": "org.198x.amiga.programmable-hblank-write-timing",
+    "version": "1.0.0",
+    "license": "CC0-1.0",
+    "source_revision": "source-v1"
+  },
+  "defaults": {
+    "applicability": {
+      "agnus": [
+        "ECS Agnus",
+        "AGA Alice"
+      ],
+      "display_chip": [
+        "ECS Denise",
+        "AGA Lisa"
+      ],
+      "min_chip_ram_bytes": 524288,
+      "regions": [
+        "PAL"
+      ]
+    },
+    "line_geometry": {
+      "coordinate_source": "raw 11-bit HBSTRT/HBSTOP register words",
+      "register_minimum": 0,
+      "register_maximum": 2047,
+      "register_modulus": 2048,
+      "sample_beam_line": 128,
+      "horizontal_mapping": "producer-recorded",
+      "guard_register": "COLOR00"
+    },
+    "programming_schedule": {
+      "phase": "once per field through a Copper list after the ready record is published",
+      "write_order": [
+        "static register setup",
+        "COP1LC",
+        "DMACON Copper enable",
+        "COPJMP1",
+        "line 127 baseline reset",
+        "line 128 COLOR00 marker",
+        "line 128 tested register write"
+      ],
+      "steady_state": "The Copper restores the initial register and guard colour on beam line 127, then applies one marked test write on beam line 128 in every field."
+    },
+    "settle_capture": {
+      "ready_record_address": "0x0002ff00",
+      "ready_magic": "HBLK",
+      "ready_magic_width_bytes": 4,
+      "case_number_address": "0x0002ff04",
+      "case_number_width_bytes": 2,
+      "schema_version_address": "0x0002ff06",
+      "schema_version_width_bytes": 2,
+      "field_counter_address": "0x0002ff08",
+      "field_counter_width_bytes": 4,
+      "byte_order": "big-endian",
+      "ready_timeout_fields": 600,
+      "settle_fields": 8,
+      "capture_fields": 3,
+      "adjacent_field_stability_required": true
+    }
+  },
+  "cases": [
+    {
+      "id": "midline-hbstrt-past",
+      "numeric_id": 1,
+      "question": "Does a mid-line HBSTRT write assert blanking when the new start comparator is already behind the beam?",
+      "registers": {
+        "bplcon0": {
+          "word": "0x0001",
+          "symbols": [
+            "ECSENA"
+          ]
+        },
+        "bplcon3": {
+          "word": "0x0001",
+          "symbols": [
+            "EXTBLKEN"
+          ]
+        },
+        "beamcon0": {
+          "word": "0x0028",
+          "symbols": [
+            "PAL",
+            "BLANKEN"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x00b0",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x00c0",
+          "symbols": []
+        }
+      },
+      "timed_write": {
+        "reset_beam_line": 127,
+        "reset_hpos_cck": 32,
+        "beam_line": 128,
+        "wait_hpos_cck": 136,
+        "register": "HBSTRT",
+        "word": "0x0070"
+      },
+      "resolution": "lores",
+      "identity": {
+        "visual": {
+          "method": "scheduled COLOR00 marker",
+          "color00": "0x0f0",
+          "marker_color00": "0xf0f",
+          "description": "Bright green is the guard colour; magenta marks the tested Copper write."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-write-timing-v1/1-midline-hbstrt-past",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "midline-hbstop-future",
+      "numeric_id": 2,
+      "question": "Does a mid-line HBSTOP write reassert blanking when the original stop event has passed but the new stop comparator remains ahead?",
+      "registers": {
+        "bplcon0": {
+          "word": "0x0001",
+          "symbols": [
+            "ECSENA"
+          ]
+        },
+        "bplcon3": {
+          "word": "0x0001",
+          "symbols": [
+            "EXTBLKEN"
+          ]
+        },
+        "beamcon0": {
+          "word": "0x0028",
+          "symbols": [
+            "PAL",
+            "BLANKEN"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x0060",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x0070",
+          "symbols": []
+        }
+      },
+      "timed_write": {
+        "reset_beam_line": 127,
+        "reset_hpos_cck": 32,
+        "beam_line": 128,
+        "wait_hpos_cck": 136,
+        "register": "HBSTOP",
+        "word": "0x00b0"
+      },
+      "resolution": "lores",
+      "identity": {
+        "visual": {
+          "method": "scheduled COLOR00 marker",
+          "color00": "0xf00",
+          "marker_color00": "0xf0f",
+          "description": "Bright red is the guard colour; magenta marks the tested Copper write."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-write-timing-v1/2-midline-hbstop-future",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "midline-ecsena-enable",
+      "numeric_id": 3,
+      "question": "What blanking is exposed when ECSENA is enabled after HBSTRT but before HBSTOP?",
+      "registers": {
+        "bplcon0": {
+          "word": "0x0000",
+          "symbols": []
+        },
+        "bplcon3": {
+          "word": "0x0001",
+          "symbols": [
+            "EXTBLKEN"
+          ]
+        },
+        "beamcon0": {
+          "word": "0x0028",
+          "symbols": [
+            "PAL",
+            "BLANKEN"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x0070",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x00b0",
+          "symbols": []
+        }
+      },
+      "timed_write": {
+        "reset_beam_line": 127,
+        "reset_hpos_cck": 32,
+        "beam_line": 128,
+        "wait_hpos_cck": 136,
+        "register": "BPLCON0",
+        "word": "0x0001"
+      },
+      "resolution": "lores",
+      "identity": {
+        "visual": {
+          "method": "scheduled COLOR00 marker",
+          "color00": "0x00f",
+          "marker_color00": "0xf0f",
+          "description": "Bright blue is the guard colour; magenta marks the tested Copper write."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-write-timing-v1/3-midline-ecsena-enable",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "midline-extblken-enable",
+      "numeric_id": 4,
+      "question": "What blanking is exposed when EXTBLKEN is enabled after HBSTRT but before HBSTOP?",
+      "registers": {
+        "bplcon0": {
+          "word": "0x0001",
+          "symbols": [
+            "ECSENA"
+          ]
+        },
+        "bplcon3": {
+          "word": "0x0000",
+          "symbols": []
+        },
+        "beamcon0": {
+          "word": "0x0028",
+          "symbols": [
+            "PAL",
+            "BLANKEN"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x0070",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x00b0",
+          "symbols": []
+        }
+      },
+      "timed_write": {
+        "reset_beam_line": 127,
+        "reset_hpos_cck": 32,
+        "beam_line": 128,
+        "wait_hpos_cck": 136,
+        "register": "BPLCON3",
+        "word": "0x0001"
+      },
+      "resolution": "lores",
+      "identity": {
+        "visual": {
+          "method": "scheduled COLOR00 marker",
+          "color00": "0xff0",
+          "marker_color00": "0xf0f",
+          "description": "Bright yellow is the guard colour; magenta marks the tested Copper write."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-write-timing-v1/4-midline-extblken-enable",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "midline-blanken-enable",
+      "numeric_id": 5,
+      "question": "What blanking is exposed when BLANKEN is enabled after HBSTRT but before HBSTOP?",
+      "registers": {
+        "bplcon0": {
+          "word": "0x0001",
+          "symbols": [
+            "ECSENA"
+          ]
+        },
+        "bplcon3": {
+          "word": "0x0001",
+          "symbols": [
+            "EXTBLKEN"
+          ]
+        },
+        "beamcon0": {
+          "word": "0x0020",
+          "symbols": [
+            "PAL"
+          ]
+        },
+        "hbstrt": {
+          "word": "0x0070",
+          "symbols": []
+        },
+        "hbstop": {
+          "word": "0x00b0",
+          "symbols": []
+        }
+      },
+      "timed_write": {
+        "reset_beam_line": 127,
+        "reset_hpos_cck": 32,
+        "beam_line": 128,
+        "wait_hpos_cck": 136,
+        "register": "BEAMCON0",
+        "word": "0x0028"
+      },
+      "resolution": "lores",
+      "identity": {
+        "visual": {
+          "method": "scheduled COLOR00 marker",
+          "color00": "0x0ff",
+          "marker_color00": "0xf0f",
+          "description": "Bright cyan is the guard colour; magenta marks the tested Copper write."
+        },
+        "serial": {
+          "encoding": "US-ASCII",
+          "terminator": "NUL",
+          "value": "amiga-hblank-write-timing-v1/5-midline-blanken-enable",
+          "address": "0x0002ff20",
+          "maximum_bytes": 64
+        }
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    }
+  ]
+}

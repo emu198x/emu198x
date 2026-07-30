@@ -1,0 +1,207 @@
+{
+  "artifact": {
+    "adf_file": "midline-hbstop-future.adf",
+    "adf_sha256": "be45c90e522bc379015517b47f78b663070a14764ad703166c36fdaac4d486b4",
+    "payload_file": "midline-hbstop-future.bin",
+    "payload_sha256": "f068b0573371e45848f3501ecf760c135dcb015edd63675fe10210f72faf3b25"
+  },
+  "case_id": "midline-hbstop-future",
+  "execution": {
+    "adjacent_field_stability": "confirmed",
+    "captured_fields": [
+      193,
+      194,
+      195
+    ],
+    "cold_boot": true,
+    "command_or_procedure": "tools/fs-uae-hblank-write-timing-capture/capture.sh ecs midline-hbstop-future <registered-FS-UAE-binary> <suite-1.0.0-directory> <firmware-matching-recorded-sha256> <fresh-output-directory> <operator>",
+    "configuration_sha256": "197e4a117c7eac26ecec4efc1ae3772643475460dba536c69f2036be27193639",
+    "ready_observed_field": 185,
+    "ready_rule": {
+      "byte_order": "big-endian",
+      "case_number": 2,
+      "field_counter_minimum": 8,
+      "magic": "HBLK",
+      "record_address": "0x0002ff00"
+    },
+    "settle_fields": 8
+  },
+  "machine": {
+    "agnus": "8375 ECS Agnus",
+    "chipset": "ECS",
+    "cpu": "Motorola 68000",
+    "denise_or_lisa": "8373 ECS Denise",
+    "firmware": {
+      "revision": "Kickstart 2.04 revision 37.175",
+      "sha256": "d0b70e8a1772614b897f92c33cb299bed3fc8e3de488fc12f67f97fc2486eb79"
+    },
+    "model": "A500 Plus",
+    "ram_bytes": 1048576,
+    "region": "PAL"
+  },
+  "normalization": {
+    "alignment_search": false,
+    "beam_coordinate": {
+      "horizontal_origin_sample": -184,
+      "horizontal_samples_per_register_increment_denominator": 1,
+      "horizontal_samples_per_register_increment_numerator": 4,
+      "phase_denominator": 1,
+      "phase_numerator": 0,
+      "sample_beam_line": 128,
+      "sample_row": 204
+    },
+    "color_conversion": "lossless BGRA-to-RGBA channel reorder; black classified by RGB regardless of retained source alpha",
+    "crop": {
+      "height": 576,
+      "width": 756,
+      "x": 0,
+      "y": 0
+    },
+    "field_handling": "bob"
+  },
+  "observations": {
+    "following_line_carry": "mutation confirmed",
+    "guard_color_word": "0xf00",
+    "interval_convention": "start-inclusive-stop-exclusive",
+    "lines": [
+      {
+        "black_runs": [
+          [
+            200,
+            264
+          ]
+        ],
+        "guard_runs": [
+          [
+            2,
+            200
+          ],
+          [
+            264,
+            756
+          ]
+        ],
+        "marker_runs": [],
+        "raw_rows": [
+          202,
+          203
+        ],
+        "role": "pre-mutation baseline"
+      },
+      {
+        "black_runs": [
+          [
+            200,
+            264
+          ]
+        ],
+        "guard_runs": [
+          [
+            2,
+            200
+          ],
+          [
+            264,
+            370
+          ]
+        ],
+        "marker_runs": [
+          [
+            370,
+            756
+          ]
+        ],
+        "raw_rows": [
+          204,
+          205
+        ],
+        "role": "mutation output"
+      },
+      {
+        "black_runs": [
+          [
+            200,
+            520
+          ]
+        ],
+        "guard_runs": [],
+        "marker_runs": [
+          [
+            2,
+            200
+          ],
+          [
+            520,
+            756
+          ]
+        ],
+        "raw_rows": [
+          206,
+          207
+        ],
+        "role": "post-mutation control"
+      }
+    ],
+    "marker_color_word": "0xf0f",
+    "notes": [
+      "The marked mutation output was discovered at raw rows 204/205; it was not assumed to be the steady-state suite's row 202.",
+      "The raw x=[0, 2) transparent-black storage boundary is retained in the APNG and excluded from semantic runs.",
+      "Ready was observed at core field 185; core fields [193, 194, 195] and guest counters [9, 10, 11] were captured after eight settling fields.",
+      "Configuration ../configs/ecs--midline-hbstop-future.uae has SHA-256 197e4a117c7eac26ecec4efc1ae3772643475460dba536c69f2036be27193639.",
+      "Run log ../logs/ecs--midline-hbstop-future.log has SHA-256 adab75f4c441338884f82f71debf244a7d28ec5cf36ad503f426badd925adc6d.",
+      "Capture manifest ../manifests/ecs--midline-hbstop-future.json has SHA-256 ea8581c9ce112f1cc26acd350536928749f2e5aef64bcdf23766b5d2aee58492."
+    ],
+    "storage_exclusion": [
+      0,
+      2
+    ],
+    "uncertainty_samples": 0
+  },
+  "producer": {
+    "implementation_family": "UAE",
+    "kind": "software-emulator",
+    "product": "FS-UAE",
+    "revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+    "source_url": "https://github.com/FrodeSolheim/fs-uae",
+    "version": "5.0.7"
+  },
+  "provenance": {
+    "capture_date": "2026-07-30",
+    "classification": "software-derived",
+    "host": "macOS 26.5.2 build 25F84, arm64",
+    "operator": "Codex (OpenAI), supervised by Steve Hill"
+  },
+  "schema_version": "1.0.0",
+  "source_capture": {
+    "blanking_retained": true,
+    "decoded_pixel_sha256": "e63dbbdf2ed1834780e0daaf050144ffc1a2748f6218eda34fc88c71f68fa6dd",
+    "file_name": "../captures/ecs--midline-hbstop-future.apng",
+    "file_sha256": "40046a4af13bb8bbbf39d205b5810cb42627b03d3d8da0b25f140b7eca56bbcf",
+    "filter": "none",
+    "height": 576,
+    "method": "FS-UAE raw UAE-core framebuffer hook, losslessly reordered from BGRA and packaged as APNG",
+    "overscan_retained": true,
+    "pixel_format": "RGBA8888, tightly packed, row-major; alpha retained from source BGRA8888",
+    "scaling": "none",
+    "shader": "none",
+    "stride_bytes": 3024,
+    "width": 756
+  },
+  "stimulus": {
+    "baseline_word": "0x0070",
+    "mutation_beam_line": 128,
+    "mutation_wait_hpos_cck": 136,
+    "mutation_word": "0x00b0",
+    "reset_beam_line": 127,
+    "reset_wait_hpos_cck": 32,
+    "tested_register": "HBSTOP",
+    "write_position_evidence": {
+      "marker_start_sample": 370,
+      "method": "Copper schedule with immediately preceding visible COLOR00 marker",
+      "tested_write_sample": null,
+      "uncertainty": "The marker proves the preceding MOVE and bounds schedule order. This framebuffer does not directly expose the tested register bus-write sample."
+    }
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank-write-timing",
+  "suite_version": "1.0.0"
+}
