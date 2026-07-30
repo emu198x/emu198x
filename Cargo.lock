@@ -3886,6 +3886,7 @@ name = "runtime-commodore-amiga"
 version = "0.2.0"
 dependencies = [
  "commodore-agnus-ocs",
+ "commodore-denise-aga",
  "commodore-denise-ocs",
  "commodore-gary",
  "commodore-gayle",

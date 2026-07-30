@@ -1560,6 +1560,7 @@ const AGA_VARIANT_QUERY_PATHS: &[&str] = amiga_variant_query_paths!(
     "aga.ham_prev_rgb24",
     "aga.programmed_hblank_active",
     "aga.palette_24_nonzero_per_bank",
+    "aga.palette_24",
     "aga.palette_24_bank0",
     "aga.ocs_palette_12bit",
 );

@@ -987,6 +987,12 @@ pub(crate) fn denise_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     .as_object()
     .cloned()
     .expect("the common Denise snapshot is an object");
+    if let Some(lisa) = m.aga_denise_diagnostic_snapshot() {
+        snapshot.insert("palette_24".to_owned(), json!(lisa.palette_24.to_vec()));
+        snapshot.insert("bplcon4".to_owned(), json!(lisa.bplcon4));
+        snapshot.insert("sprite_width".to_owned(), json!(lisa.spr_width));
+        snapshot.insert("ham_previous_rgb24".to_owned(), json!(lisa.ham_prev_rgb24));
+    }
     let enhanced = json!({
         "deniseid": denise.map(|state| state.deniseid),
         "bplcon3": denise.map(|state| state.bplcon3),
@@ -1396,7 +1402,6 @@ pub(crate) fn aga_snapshot(m: &dyn AmigaLiveAccess) -> Option<Value> {
             bank_nonzero[i / 32] += 1;
         }
     }
-    let bank0: Vec<u32> = aga.palette_24[0..32].to_vec();
     let ocs_palette: Vec<u16> = (0..32).map(|i| m.color(i)).collect();
     Some(json!({
         "deniseid": aga.deniseid,
@@ -1408,7 +1413,8 @@ pub(crate) fn aga_snapshot(m: &dyn AmigaLiveAccess) -> Option<Value> {
         "ham_prev_rgb24": aga.ham_prev_rgb24,
         "programmed_hblank_active": aga.programmed_hblank_active,
         "palette_24_nonzero_per_bank": bank_nonzero,
-        "palette_24_bank0": bank0,
+        "palette_24": aga.palette_24.to_vec(),
+        "palette_24_bank0": aga.palette_24[0..32].to_vec(),
         "ocs_palette_12bit": ocs_palette,
     }))
 }

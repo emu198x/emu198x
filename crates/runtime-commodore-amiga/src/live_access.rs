@@ -32,6 +32,7 @@
 //! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../../knowledge/decisions/amiga-machine-catalogue.md
 
 use commodore_agnus_ocs::{Agnus, AgnusBusDiagnosticSnapshot};
+use commodore_denise_aga::DeniseAgaDiagnosticSnapshot;
 use commodore_denise_ocs::DeniseDiagnosticSnapshot;
 use commodore_gary::GaryDiagnosticSnapshot;
 use commodore_gayle::GayleDiagnosticSnapshot;
@@ -360,6 +361,12 @@ pub trait AmigaLiveAccess {
 
     /// Complete common Denise rendering-core state.
     fn denise_diagnostic_snapshot(&self) -> DeniseDiagnosticSnapshot;
+
+    /// Complete mutable state owned by AGA Lisa outside its wrapped ECS/OCS
+    /// core. OCS and ECS machines return `None`.
+    fn aga_denise_diagnostic_snapshot(&self) -> Option<DeniseAgaDiagnosticSnapshot> {
+        None
+    }
 
     fn cia_a(&self) -> &Cia;
     fn cia_b(&self) -> &Cia;
@@ -1232,7 +1239,14 @@ impl AmigaLiveAccess for AmigaA1200 {
     }
 
     fn denise_diagnostic_snapshot(&self) -> DeniseDiagnosticSnapshot {
-        self.denise().ocs.diagnostic_snapshot()
+        self.denise_aga()
+            .as_inner()
+            .as_inner()
+            .diagnostic_snapshot()
+    }
+
+    fn aga_denise_diagnostic_snapshot(&self) -> Option<DeniseAgaDiagnosticSnapshot> {
+        Some(self.denise_aga().diagnostic_snapshot())
     }
 
     fn cia_a(&self) -> &Cia {
@@ -1620,6 +1634,13 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => rt.machine().denise_diagnostic_snapshot(),
             Self::Ecs(rt) => rt.machine().denise_diagnostic_snapshot(),
             Self::Aga(rt) => rt.machine().denise_diagnostic_snapshot(),
+        }
+    }
+
+    fn aga_denise_diagnostic_snapshot(&self) -> Option<DeniseAgaDiagnosticSnapshot> {
+        match self {
+            Self::Ocs(_) | Self::Ecs(_) => None,
+            Self::Aga(rt) => Some(rt.machine().denise_aga().diagnostic_snapshot()),
         }
     }
 

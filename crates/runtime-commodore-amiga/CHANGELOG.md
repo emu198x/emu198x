@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose Lisa's complete 256-entry palette through both the canonical Denise
+  group and the AGA compatibility group
 - Expose all six Gary motherboard address-decoder configuration flags through
   discoverable grouped and leaf queries
 - Expose every implemented CIA register, timer, serial, port, TOD and read-latch
@@ -60,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [breaking] Bump Amiga postcard snapshots to version 29 so keyboard bytes
   awaiting a host handshake and model-specific A600 Gayle state survive
   restore; version 28 is rejected because its positional payload lacks them
+
 - [breaking] Bump Amiga postcard snapshots to version 28 so ECS Agnus and
   AGA Lisa programmable horizontal-blank event history survives restore;
   version 27 is rejected because it cannot preserve those hidden latches
@@ -163,6 +166,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Report Lisa's actual outer 24-bit palette and HAM8 hold state instead of the
+  wrapped OCS core's unused mirrors
 - Publish fixed-sync PAL and NTSC fields only after Denise retires the
   post-wrap raster tail, keeping the final framebuffer rows current through
   the right edge

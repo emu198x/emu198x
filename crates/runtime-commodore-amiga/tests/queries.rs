@@ -494,6 +494,8 @@ fn ecs_queries_expose_raw_routed_and_composed_hblank_state() {
 #[test]
 fn aga_queries_expose_lisa_and_composed_hblank_state() {
     let mut runtime = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    runtime.machine_mut().poke_word(0x00DF_F106, 0xA000); // BANK=5, LOCT=0
+    runtime.machine_mut().poke_word(0x00DF_F19A, 0x0A5C); // COLOR13 -> slot 173
     runtime.machine_mut().poke_word(0x00DF_F1C4, 0x0040); // HBSTRT
     runtime.machine_mut().poke_word(0x00DF_F1C6, 0x0080); // HBSTOP
     runtime.machine_mut().poke_word(0x00DF_F100, 0x0001); // ECSENA
@@ -523,6 +525,19 @@ fn aga_queries_expose_lisa_and_composed_hblank_state() {
         query_value(&runtime, "chipset.programmed_hblank_output_active"),
         json!(true),
     );
+
+    let denise_palette = query_value(&runtime, "denise.palette_24");
+    let aga_palette = query_value(&runtime, "aga.palette_24");
+    let denise_palette = denise_palette
+        .as_array()
+        .expect("Denise palette should be an array");
+    let aga_palette = aga_palette
+        .as_array()
+        .expect("AGA palette should be an array");
+    assert_eq!(denise_palette.len(), 256);
+    assert_eq!(aga_palette.len(), 256);
+    assert_eq!(denise_palette[173], json!(0x00AA_55CCu32));
+    assert_eq!(aga_palette[173], json!(0x00AA_55CCu32));
 }
 
 #[test]
