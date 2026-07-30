@@ -31,7 +31,7 @@
 //!
 //! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../../knowledge/decisions/amiga-machine-catalogue.md
 
-use commodore_agnus_ocs::Agnus;
+use commodore_agnus_ocs::{Agnus, AgnusBusDiagnosticSnapshot};
 use commodore_denise_ocs::DeniseDiagnosticSnapshot;
 use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_a1200::AmigaA1200;
@@ -336,6 +336,12 @@ pub trait AmigaLiveAccess {
 
     fn agnus(&self) -> &Agnus;
 
+    /// Current arbitration plan plus recorded same-CCK bus use. Enhanced
+    /// variants override this to apply their programmable vertical timing.
+    fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
+        self.agnus().bus_diagnostic_snapshot()
+    }
+
     /// ECS Agnus programmable timing state, inherited by Alice. OCS sessions
     /// return `None`.
     fn ecs_agnus_timing(&self) -> Option<EcsAgnusTimingSnapshot> {
@@ -637,6 +643,10 @@ impl AmigaLiveAccess for AmigaOcs {
         AmigaOcs::agnus(self)
     }
 
+    fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
+        AmigaOcs::agnus(self).bus_diagnostic_snapshot()
+    }
+
     fn denise_diagnostic_snapshot(&self) -> DeniseDiagnosticSnapshot {
         self.denise().ocs.diagnostic_snapshot()
     }
@@ -890,6 +900,11 @@ impl AmigaLiveAccess for AmigaEcs {
         // the struct field, but its public accessor projects the inner
         // OCS Agnus.
         AmigaEcs::agnus(self)
+    }
+
+    fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
+        let agnus = self.agnus_ecs();
+        agnus.bus_diagnostic_snapshot_for_plan(agnus.cck_bus_plan())
     }
 
     fn ecs_agnus_timing(&self) -> Option<EcsAgnusTimingSnapshot> {
@@ -1158,6 +1173,11 @@ impl AmigaLiveAccess for AmigaA1200 {
     fn agnus(&self) -> &Agnus {
         // Inherent agnus() already returns &commodore_agnus_ocs::Agnus.
         AmigaA1200::agnus(self)
+    }
+
+    fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
+        let agnus = self.agnus_aga();
+        agnus.bus_diagnostic_snapshot_for_plan(agnus.cck_bus_plan())
     }
 
     fn ecs_agnus_timing(&self) -> Option<EcsAgnusTimingSnapshot> {
@@ -1523,6 +1543,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => AmigaLiveAccess::agnus(rt.machine()),
             Self::Ecs(rt) => AmigaLiveAccess::agnus(rt.machine()),
             Self::Aga(rt) => AmigaLiveAccess::agnus(rt.machine()),
+        }
+    }
+
+    fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
+        match self {
+            Self::Ocs(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
+            Self::Ecs(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
+            Self::Aga(rt) => rt.machine().agnus_bus_diagnostic_snapshot(),
         }
     }
 

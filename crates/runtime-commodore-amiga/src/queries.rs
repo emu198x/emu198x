@@ -12,6 +12,10 @@
 //! `amiga.machine.*` namespaces) are pushed down to the machine via
 //! `M::resolve_variant_query`.
 
+use commodore_agnus_ocs::{
+    AgnusBlitterCompletionDiagnosticPhase, BlitterBusDiagnosticAuthority, BlitterDmaOp,
+    PaulaReturnProgressPolicy, SlotOwner,
+};
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
 use serde_json::{Value, json};
 
@@ -889,24 +893,218 @@ pub(crate) fn denise_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     Value::Object(snapshot)
 }
 
-/// Blitter sub-view of Agnus: busy / pending state and the A-D channel
-/// pointers.
-pub(crate) fn blitter_snapshot(m: &dyn AmigaLiveAccess) -> Value {
-    let a = m.agnus();
+fn slot_owner_fields(owner: SlotOwner) -> (&'static str, Option<u8>) {
+    match owner {
+        SlotOwner::Cpu => ("cpu", None),
+        SlotOwner::Refresh => ("refresh", None),
+        SlotOwner::Disk => ("disk", None),
+        SlotOwner::Audio(channel) => ("audio", Some(channel)),
+        SlotOwner::Sprite(channel) => ("sprite", Some(channel)),
+        SlotOwner::Bitplane(channel) => ("bitplane", Some(channel)),
+        SlotOwner::Copper => ("copper", None),
+    }
+}
+
+fn blitter_dma_op_name(operation: BlitterDmaOp) -> &'static str {
+    match operation {
+        BlitterDmaOp::ReadA => "read-a",
+        BlitterDmaOp::ReadB => "read-b",
+        BlitterDmaOp::ReadC => "read-c",
+        BlitterDmaOp::WriteD => "write-d",
+        BlitterDmaOp::Internal => "internal",
+    }
+}
+
+/// Agnus's current arbitration plan, recorded same-CCK use and complete DDF
+/// comparator/run state.
+pub(crate) fn dma_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    let bus = m.agnus_bus_diagnostic_snapshot();
+    let ddf = m.agnus().ddf_diagnostic_snapshot();
+    let (slot_owner, slot_channel) = slot_owner_fields(bus.plan.slot_owner);
+    let return_policy = match bus.plan.paula_return_progress_policy {
+        PaulaReturnProgressPolicy::Advance => "advance",
+        PaulaReturnProgressPolicy::Stall => "stall",
+        PaulaReturnProgressPolicy::CopperFetchConditional => "copper-fetch-conditional",
+    };
+    let blitter_authority = match bus.blitter_authority {
+        BlitterBusDiagnosticAuthority::CurrentPlanFallback => "current-plan-fallback",
+        BlitterBusDiagnosticAuthority::RecordedCckState => "recorded-cck-state",
+    };
     json!({
-        "busy": a.blitter_busy,
-        "busy_visible": a.blitter_busy_visible(),
-        "busy_copper": a.blitter_busy_copper(),
-        "exec_pending": a.blitter_exec_pending,
-        "startup_ccks_remaining": a.blitter_startup_ccks_remaining(),
-        "ccks_remaining": a.blitter_ccks_remaining,
-        "completion_phase": a.blitter_completion_phase(),
-        "completion_ccks_remaining": a.blitter_completion_ccks_remaining(),
-        "final_d_pending": a.blitter_final_d_pending(),
-        "apt": a.blt_apt,
-        "bpt": a.blt_bpt,
-        "cpt": a.blt_cpt,
-        "dpt": a.blt_dpt,
+        "vpos": bus.vpos,
+        "hpos": bus.hpos,
+        "dmacon": m.dmacon(),
+        "dmacon_bits": decode_named_bits(
+            m.dmacon(),
+            &[
+                ("BLTPRI", 0x0400),
+                ("DMAEN", 0x0200),
+                ("BPLEN", 0x0100),
+                ("COPEN", 0x0080),
+                ("BLTEN", 0x0040),
+                ("SPREN", 0x0020),
+                ("DSKEN", 0x0010),
+                ("AUD3EN", 0x0008),
+                ("AUD2EN", 0x0004),
+                ("AUD1EN", 0x0002),
+                ("AUD0EN", 0x0001),
+            ],
+        ),
+        "plan": {
+            "slot_owner": slot_owner,
+            "slot_channel": slot_channel,
+            "disk_dma_slot_granted": bus.plan.disk_dma_slot_granted,
+            "sprite_dma_service_channel": bus.plan.sprite_dma_service_channel,
+            "audio_dma_service_channel": bus.plan.audio_dma_service_channel,
+            "bitplane_dma_fetch_plane": bus.plan.bitplane_dma_fetch_plane,
+            "copper_dma_slot_granted": bus.plan.copper_dma_slot_granted,
+            "cpu_chip_bus_granted": bus.plan.cpu_chip_bus_granted,
+            "blitter_chip_bus_granted": bus.plan.blitter_chip_bus_granted,
+            "blitter_dma_progress_granted": bus.plan.blitter_dma_progress_granted,
+            "paula_return_progress_policy": return_policy,
+        },
+        "actual": {
+            "sprite_bus_used_this_cck": bus.sprite_bus_used_this_cck,
+            "sprite_holds_bus": bus.sprite_holds_bus,
+            "blitter_bus_used_this_cck": bus.blitter_bus_used_this_cck,
+            "blitter_nasty_owned_this_cck": bus.blitter_nasty_owned_this_cck,
+            "blitter_cck_bus_state_recorded": bus.blitter_cck_bus_state_recorded,
+            "blitter_authority": blitter_authority,
+            "blitter_holds_bus": bus.blitter_holds_bus,
+        },
+        "ddf": ddf,
+    })
+}
+
+/// Complete Agnus blitter register, scheduling, word, line and area state.
+pub(crate) fn blitter_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    let state = m.agnus().blitter_diagnostic_snapshot();
+    let completion = &state.execution.completion_phase;
+    let (completion_phase, final_write_address, final_write_value) = match completion {
+        AgnusBlitterCompletionDiagnosticPhase::None => ("none", None, None),
+        AgnusBlitterCompletionDiagnosticPhase::FinalResult => ("final-result", None, None),
+        AgnusBlitterCompletionDiagnosticPhase::FinalWrite { address, value } => {
+            ("final-write", Some(*address), Some(*value))
+        }
+    };
+    let word = state.word.as_ref();
+    let line = state.line.as_ref();
+    let area = state.area.as_ref();
+    let execution = json!({
+        "agnus_id": state.execution.agnus_id,
+        "original_revision": state.execution.original_revision,
+        "dmacon": state.execution.dmacon,
+        "dma_enabled": state.execution.dma_enabled,
+        "priority_enabled": state.execution.priority_enabled,
+        "busy": state.execution.busy,
+        "busy_visible": state.execution.busy_visible,
+        "busy_copper": state.execution.busy_copper,
+        "nasty_active": state.execution.nasty_active,
+        "startup_ccks_remaining": state.execution.startup_ccks_remaining,
+        "completion_phase": completion_phase,
+        "final_write_address": final_write_address,
+        "final_write_value": final_write_value,
+        "completion_ccks_remaining": state.execution.completion_ccks_remaining,
+        "final_d_pending": state.execution.final_d_pending,
+        "finish_emitted": state.execution.finish_emitted,
+        "dmacon_busy_hold_ccks": state.execution.dmacon_busy_hold_ccks,
+        "copper_busy_hold_ccks": state.execution.copper_busy_hold_ccks,
+        "exec_pending": state.execution.exec_pending,
+        "exec_ready": state.execution.exec_ready,
+        "zero": state.execution.zero,
+        "height": state.execution.height,
+        "width_words": state.execution.width_words,
+        "ccks_remaining": state.execution.ccks_remaining,
+        "next_dma_request": state.execution.next_dma_request.map(blitter_dma_op_name),
+        "next_progress_uses_bus": state.execution.next_progress_uses_bus,
+        "word_complete": state.execution.word_complete,
+        "incremental_runtime_present": state.execution.incremental_runtime_present,
+    });
+    let word = json!({
+        "present": word.is_some(),
+        "need_a": word.map(|state| state.need_a),
+        "need_b": word.map(|state| state.need_b),
+        "need_c": word.map(|state| state.need_c),
+        "need_d": word.map(|state| state.need_d),
+        "reads_done": word.map(|state| state.reads_done),
+        "internal_only": word.map(|state| state.internal_only),
+        "internal_done": word.map(|state| state.internal_done),
+    });
+    let line = json!({
+        "present": line.is_some(),
+        "steps_remaining": line.map(|state| state.steps_remaining),
+        "error": line.map(|state| state.error),
+        "error_add": line.map(|state| state.error_add),
+        "error_sub": line.map(|state| state.error_sub),
+        "cpt": line.map(|state| state.cpt),
+        "dpt": line.map(|state| state.dpt),
+        "pixel_bit": line.map(|state| state.pixel_bit),
+        "row_mod": line.map(|state| state.row_mod),
+        "texture": line.map(|state| state.texture),
+        "texture_bit": line.map(|state| state.texture_bit),
+        "lf": line.map(|state| state.lf),
+        "sing": line.map(|state| state.sing),
+        "one_dot_drawn": line.map(|state| state.one_dot_drawn),
+        "major_is_y": line.map(|state| state.major_is_y),
+        "x_negative": line.map(|state| state.x_negative),
+        "y_negative": line.map(|state| state.y_negative),
+        "last_c_word": line.map(|state| state.last_c_word),
+        "have_c_word": line.map(|state| state.have_c_word),
+    });
+    let area = json!({
+        "present": area.is_some(),
+        "rows_remaining": area.map(|state| state.rows_remaining),
+        "width_words": area.map(|state| state.width_words),
+        "words_remaining_in_row": area.map(|state| state.words_remaining_in_row),
+        "use_a": area.map(|state| state.use_a),
+        "use_b": area.map(|state| state.use_b),
+        "use_c": area.map(|state| state.use_c),
+        "use_d": area.map(|state| state.use_d),
+        "lf": area.map(|state| state.lf),
+        "a_shift": area.map(|state| state.a_shift),
+        "b_shift": area.map(|state| state.b_shift),
+        "descending": area.map(|state| state.descending),
+        "pointer_step": area.map(|state| state.pointer_step),
+        "modulo_direction": area.map(|state| state.modulo_direction),
+        "fill_enabled": area.map(|state| state.fill_enabled),
+        "inclusive_fill_enabled": area.map(|state| state.inclusive_fill_enabled),
+        "exclusive_fill_enabled": area.map(|state| state.exclusive_fill_enabled),
+        "fill_carry_initial": area.map(|state| state.fill_carry_initial),
+        "fill_carry": area.map(|state| state.fill_carry),
+        "apt": area.map(|state| state.apt),
+        "bpt": area.map(|state| state.bpt),
+        "cpt": area.map(|state| state.cpt),
+        "dpt": area.map(|state| state.dpt),
+        "amod": area.map(|state| state.amod),
+        "bmod": area.map(|state| state.bmod),
+        "cmod": area.map(|state| state.cmod),
+        "dmod": area.map(|state| state.dmod),
+        "a_previous": area.map(|state| state.a_previous),
+        "b_previous": area.map(|state| state.b_previous),
+        "a_raw": area.map(|state| state.a_raw),
+        "b_raw": area.map(|state| state.b_raw),
+        "c_value": area.map(|state| state.c_value),
+    });
+    json!({
+        // Compatibility leaves retained from the original compact snapshot.
+        "busy": state.execution.busy,
+        "busy_visible": state.execution.busy_visible,
+        "busy_copper": state.execution.busy_copper,
+        "exec_pending": state.execution.exec_pending,
+        "startup_ccks_remaining": state.execution.startup_ccks_remaining,
+        "ccks_remaining": state.execution.ccks_remaining,
+        "completion_phase": completion_phase,
+        "completion_ccks_remaining": state.execution.completion_ccks_remaining,
+        "final_d_pending": state.execution.final_d_pending,
+        "apt": state.registers.blt_apt,
+        "bpt": state.registers.blt_bpt,
+        "cpt": state.registers.blt_cpt,
+        "dpt": state.registers.blt_dpt,
+        "registers": state.registers,
+        "execution": execution,
+        "word": word,
+        "line": line,
+        "area": area,
     })
 }
 
@@ -1028,6 +1226,9 @@ pub(crate) fn resolve_chip_query(m: &dyn AmigaLiveAccess, path: &str) -> Option<
     }
     if is_chip(path, "scheduler") {
         return chip_field(path, "scheduler", scheduler_snapshot(m));
+    }
+    if is_chip(path, "dma") {
+        return chip_field(path, "dma", dma_snapshot(m));
     }
     if is_chip(path, "paula") {
         return chip_field(path, "paula", paula_snapshot(m));

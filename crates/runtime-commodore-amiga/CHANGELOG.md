@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose Agnus's complete current bus plan, recorded same-CCK ownership, DDF
+  sequencer and blitter internals through grouped diagnostics
 - Expose the complete common Denise register, bitplane, collision, sprite,
   HAM and wide-fetch pipeline through grouped diagnostics
 - Expose Paula's interrupt priority, audio pipelines and controls, UART,
