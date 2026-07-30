@@ -437,6 +437,207 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
 }
 
 #[test]
+fn runtime_configuration_queries_expose_complete_immutable_construction_intent() {
+    let stock = AmigaOcsRuntime::blank(Model::A500OcsPal);
+
+    assert_exact_object_fields(
+        &query_value(&stock, "runtime.configuration"),
+        &[
+            "accelerator",
+            "chipset",
+            "cpu",
+            "model_id",
+            "profile_id",
+            "ram",
+            "region",
+        ],
+    );
+    assert_exact_object_fields(
+        &query_value(&stock, "runtime.configuration.ram"),
+        &["chip_kb", "fast_kb", "slow_kb"],
+    );
+    assert_exact_object_fields(
+        &query_value(&stock, "runtime.configuration.cpu"),
+        &["clock_hz", "model"],
+    );
+    assert_exact_object_fields(
+        &query_value(&stock, "runtime.configuration.accelerator"),
+        &["configuration", "kind", "present"],
+    );
+    assert_eq!(
+        query_value(&stock, "runtime.configuration.model_id"),
+        json!("commodore-amiga-a500-ocs-pal"),
+    );
+    assert_eq!(
+        query_value(&stock, "runtime.configuration.profile_id"),
+        json!("commodore-amiga-a500-ocs-pal"),
+    );
+    assert_eq!(
+        query_value(&stock, "runtime.configuration.region"),
+        json!("pal"),
+    );
+    assert_eq!(
+        query_value(&stock, "runtime.configuration.chipset"),
+        json!("ocs"),
+    );
+    assert_eq!(
+        query_value(&stock, "runtime.configuration.ram"),
+        json!({"chip_kb": 512, "slow_kb": 0, "fast_kb": 0}),
+    );
+    assert_eq!(
+        query_value(&stock, "runtime.configuration.cpu"),
+        json!({"model": "m68000", "clock_hz": 7_093_790}),
+    );
+    assert_eq!(
+        query_value(&stock, "runtime.configuration.accelerator"),
+        json!({"present": false, "kind": null, "configuration": null}),
+    );
+    assert_eq!(
+        query_value(&stock, "runtime.rgba_framebuffer_bytes"),
+        json!(768 * 576 * 4),
+        "the host mirror reports its size without returning framebuffer payload",
+    );
+
+    let a1200 = AmigaA1200Runtime::blank(Model::A1200AgaNtsc);
+    assert_eq!(
+        query_value(&a1200, "runtime.configuration.region"),
+        json!("ntsc"),
+    );
+    assert_eq!(
+        query_value(&a1200, "runtime.configuration.chipset"),
+        json!("aga"),
+    );
+    assert_eq!(
+        query_value(&a1200, "runtime.configuration.cpu"),
+        json!({"model": "m68ec020", "clock_hz": 14_318_180}),
+    );
+    assert_eq!(
+        query_value(&a1200, "runtime.configuration.ram"),
+        json!({"chip_kb": 2048, "slow_kb": 0, "fast_kb": 0}),
+    );
+}
+
+#[test]
+fn accelerator_configuration_paths_are_model_specific_and_complete() {
+    let provider = AmigaSessionQueryProvider;
+    let stock = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let stock_paths = provider.query_paths(&stock, Some("runtime.configuration.accelerator"));
+    assert!(
+        !stock_paths
+            .contains(&"runtime.configuration.accelerator.configuration.ram_size_bytes".to_owned()),
+        "a machine without an accelerator must not advertise absent configuration leaves",
+    );
+
+    let accelerated = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
+    let accelerated_paths =
+        provider.query_paths(&accelerated, Some("runtime.configuration.accelerator"));
+    for path in [
+        "runtime.configuration.accelerator.configuration.ram_size_bytes",
+        "runtime.configuration.accelerator.configuration.serial",
+        "runtime.configuration.accelerator.configuration.cache_enabled",
+        "runtime.configuration.accelerator.configuration.autoboot_enabled",
+    ] {
+        assert!(
+            accelerated_paths.contains(&path.to_owned()),
+            "{path} should be dynamically advertised for the A530 profile",
+        );
+    }
+    assert_exact_object_fields(
+        &query_value(
+            &accelerated,
+            "runtime.configuration.accelerator.configuration",
+        ),
+        &[
+            "autoboot_enabled",
+            "cache_enabled",
+            "ram_size_bytes",
+            "serial",
+        ],
+    );
+    assert_eq!(
+        query_value(&accelerated, "runtime.configuration.accelerator"),
+        json!({
+            "present": true,
+            "kind": "gvp-a530",
+            "configuration": {
+                "ram_size_bytes": 1024 * 1024,
+                "serial": 0,
+                "cache_enabled": false,
+                "autoboot_enabled": false,
+            },
+        }),
+    );
+}
+
+#[test]
+fn audio_filter_queries_are_complete_dynamic_and_side_effect_free() {
+    let provider = AmigaSessionQueryProvider;
+    let a500 = AmigaOcsRuntime::blank(Model::A500OcsPal);
+
+    assert_exact_object_fields(
+        &query_value(&a500, "runtime.audio_filter"),
+        &[
+            "led_always_on",
+            "led_low_pass",
+            "led_stage_engaged",
+            "static_high_pass",
+            "static_low_pass",
+        ],
+    );
+    assert_exact_object_fields(
+        &query_value(&a500, "runtime.audio_filter.static_low_pass"),
+        &["a1", "a2", "history_left", "history_right"],
+    );
+    assert_exact_object_fields(
+        &query_value(&a500, "runtime.audio_filter.static_high_pass"),
+        &["a1", "a2", "history_left", "history_right"],
+    );
+    assert_exact_object_fields(
+        &query_value(&a500, "runtime.audio_filter.led_low_pass"),
+        &["a1", "a2", "b1", "b2", "history_left", "history_right"],
+    );
+
+    let typed_before = a500.audio_filter_diagnostic_snapshot();
+    let first = query_value(&a500, "runtime.audio_filter");
+    let second = query_value(&a500, "runtime.audio_filter");
+    let typed_after = a500.audio_filter_diagnostic_snapshot();
+    assert_eq!(first, second);
+    assert_eq!(typed_before, typed_after);
+
+    let a500_paths = provider.query_paths(&a500, Some("runtime.audio_filter"));
+    assert!(
+        a500_paths.contains(&"runtime.audio_filter.static_low_pass.a1".to_owned()),
+        "the fitted A500 low-pass coefficients should be dynamically discoverable",
+    );
+
+    let a1200 = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    let a1200_paths = provider.query_paths(&a1200, Some("runtime.audio_filter"));
+    assert_eq!(
+        query_value(&a1200, "runtime.audio_filter.static_low_pass"),
+        Value::Null,
+    );
+    assert!(
+        !a1200_paths.contains(&"runtime.audio_filter.static_low_pass.a1".to_owned()),
+        "an absent A1200 low-pass stage must not advertise coefficient leaves",
+    );
+    assert_eq!(
+        query_value(&a1200, "runtime.audio_filter.led_always_on"),
+        json!(false),
+    );
+
+    let a1000 = AmigaOcsRuntime::blank(Model::A1000OcsPal);
+    assert_eq!(
+        query_value(&a1000, "runtime.audio_filter.led_always_on"),
+        json!(true),
+    );
+    assert_eq!(
+        query_value(&a1000, "runtime.audio_filter.led_stage_engaged"),
+        json!(true),
+        "A1000 wiring must report the LED stage engaged independently of CIA state",
+    );
+}
+
+#[test]
 fn agnus_group_exposes_complete_non_blitter_state_and_live_ocs_values() {
     let runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
 

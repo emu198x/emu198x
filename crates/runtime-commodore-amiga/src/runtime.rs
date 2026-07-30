@@ -128,6 +128,19 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         self.config
     }
 
+    /// Complete bounded view of the runtime-owned analog output filter.
+    ///
+    /// Reading this snapshot does not advance the filter or alter its IIR
+    /// history. The effective LED-stage flag includes the machine's current
+    /// power-LED line and the A1000's always-on wiring.
+    #[must_use]
+    pub fn audio_filter_diagnostic_snapshot(
+        &self,
+    ) -> crate::audio_filter::AmigaAudioFilterDiagnosticSnapshot {
+        self.audio_filter
+            .diagnostic_snapshot(self.machine.led_filter_engaged())
+    }
+
     /// Copy the machine's ARGB framebuffer into the RGBA frame
     /// packet buffer the shell expects. ARGB → RGBA is a simple
     /// byte reorder. Side-effect: refreshes the pixel-based boot
@@ -225,6 +238,12 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
     #[must_use]
     pub(crate) fn audio_buffer_samples(&self) -> usize {
         self.audio_buffer.len()
+    }
+
+    /// Number of bytes in the host-facing RGBA framebuffer mirror.
+    #[must_use]
+    pub(crate) fn rgba_framebuffer_bytes(&self) -> usize {
+        self.rgba_framebuffer.len()
     }
 
     /// Authoritative machine-tick rate used by the audio resampler.

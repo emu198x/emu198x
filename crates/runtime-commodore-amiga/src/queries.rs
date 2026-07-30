@@ -17,11 +17,12 @@ use commodore_agnus_ocs::{
     PaulaReturnProgressPolicy, SlotOwner,
 };
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
+use motorola_68000::CpuModel;
 use serde_json::{Value, json};
 
-use crate::AmigaRuntime;
 use crate::live_access::AmigaLiveAccess;
 use crate::variants::AmigaMachine;
+use crate::{Accelerator, AmigaConfig, AmigaRuntime, ChipsetKind};
 
 /// Runtime-owned query paths shared by every Amiga variant. Variant-
 /// specific paths come from `M::variant_query_paths()` and are joined
@@ -44,6 +45,7 @@ pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
     "runtime.floppy0_image_bytes",
     "runtime.audio_sample_accumulator",
     "runtime.audio_buffer_samples",
+    "runtime.rgba_framebuffer_bytes",
     "runtime.tick_hz",
     "runtime.audio_sample_rate_hz",
     "runtime.audio_channels",
@@ -202,6 +204,8 @@ pub(crate) fn runtime_snapshot<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Va
     let trace_count = runtime.cpu_trace_entries().len();
     let trace_limit = runtime.cpu_trace_max_entries();
     json!({
+        "configuration": runtime_configuration_snapshot(runtime.config()),
+        "audio_filter": runtime.audio_filter_diagnostic_snapshot(),
         "machine_time": runtime.time_value().get(),
         "frame_count": runtime.frame_count(),
         "video_field_count": runtime.machine().video_field_count(),
@@ -212,6 +216,7 @@ pub(crate) fn runtime_snapshot<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Va
         "floppy0_image_bytes": runtime.floppy0_bytes().map(<[u8]>::len),
         "audio_sample_accumulator": runtime.audio_sample_accumulator(),
         "audio_buffer_samples": runtime.audio_buffer_samples(),
+        "rgba_framebuffer_bytes": runtime.rgba_framebuffer_bytes(),
         "tick_hz": runtime.tick_hz(),
         "audio_sample_rate_hz": crate::runtime::AUDIO_SAMPLE_RATE_HZ,
         "audio_channels": crate::runtime::AUDIO_CHANNELS,
@@ -221,6 +226,70 @@ pub(crate) fn runtime_snapshot<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Va
         "cpu_trace_entry_count": trace_count,
         "cpu_trace_at_limit": trace_count >= trace_limit,
     })
+}
+
+fn runtime_configuration_snapshot(config: AmigaConfig) -> Value {
+    let model = config.model();
+    let ram = config.ram();
+    let cpu = config.cpu();
+    let (accelerator_kind, accelerator_configuration) = match config.accelerator() {
+        None => (None, None),
+        Some(Accelerator::GvpA530(a530)) => (
+            Some("gvp-a530"),
+            Some(json!({
+                "ram_size_bytes": a530.ram_size().bytes(),
+                "serial": a530.serial(),
+                "cache_enabled": a530.cache_enabled(),
+                "autoboot_enabled": a530.autoboot_enabled(),
+            })),
+        ),
+    };
+    json!({
+        "model_id": model.model_id(),
+        "profile_id": model.profile_id(),
+        "region": if model.is_ntsc() { "ntsc" } else { "pal" },
+        "chipset": chipset_name(model.chipset()),
+        "ram": {
+            "chip_kb": ram.chip_kb,
+            "slow_kb": ram.slow_kb,
+            "fast_kb": ram.fast_kb,
+        },
+        "cpu": {
+            "model": cpu_model_name(cpu.model()),
+            "clock_hz": cpu.clock_hz(),
+        },
+        "accelerator": {
+            "present": config.accelerator().is_some(),
+            "kind": accelerator_kind,
+            "configuration": accelerator_configuration,
+        },
+    })
+}
+
+const fn chipset_name(chipset: ChipsetKind) -> &'static str {
+    match chipset {
+        ChipsetKind::Ocs => "ocs",
+        ChipsetKind::Ecs => "ecs",
+        ChipsetKind::Aga => "aga",
+    }
+}
+
+const fn cpu_model_name(model: CpuModel) -> &'static str {
+    match model {
+        CpuModel::M68000 => "m68000",
+        CpuModel::M68010 => "m68010",
+        CpuModel::M68EC020 => "m68ec020",
+        CpuModel::M68020 => "m68020",
+        CpuModel::M68EC030 => "m68ec030",
+        CpuModel::M68LC030 => "m68lc030",
+        CpuModel::M68030 => "m68030",
+        CpuModel::M68EC040 => "m68ec040",
+        CpuModel::M68LC040 => "m68lc040",
+        CpuModel::M68040 => "m68040",
+        CpuModel::M68EC060 => "m68ec060",
+        CpuModel::M68LC060 => "m68lc060",
+        CpuModel::M68060 => "m68060",
+    }
 }
 
 /// Same provider, but dispatching over the runtime-time

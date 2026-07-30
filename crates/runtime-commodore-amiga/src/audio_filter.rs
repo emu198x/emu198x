@@ -20,6 +20,7 @@
 use crate::profiles::Model;
 use crate::runtime::AUDIO_SAMPLE_RATE_HZ;
 
+use serde::Serialize;
 use std::f64::consts::PI;
 
 // ── Component values (vAmiga AudioFilter.cpp:245-266) ────────────────
@@ -43,6 +44,23 @@ struct OnePole {
     a2: f64,
     sl: f64,
     sr: f64,
+}
+
+/// Side-effect-free view of one one-pole filter stage.
+///
+/// The coefficients are immutable after construction. `history_left` and
+/// `history_right` are the complete bounded IIR history retained by the
+/// stage.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct OnePoleFilterDiagnosticSnapshot {
+    /// Current-input coefficient.
+    pub a1: f64,
+    /// Prior-output coefficient.
+    pub a2: f64,
+    /// Retained left-channel low-pass output.
+    pub history_left: f64,
+    /// Retained right-channel low-pass output.
+    pub history_right: f64,
 }
 
 impl OnePole {
@@ -77,6 +95,15 @@ impl OnePole {
         self.sr = self.a1 * r + self.a2 * self.sr;
         (l - self.sl, r - self.sr)
     }
+
+    const fn diagnostic_snapshot(&self) -> OnePoleFilterDiagnosticSnapshot {
+        OnePoleFilterDiagnosticSnapshot {
+            a1: self.a1,
+            a2: self.a2,
+            history_left: self.sl,
+            history_right: self.sr,
+        }
+    }
 }
 
 /// Two-pole (biquad) low-pass in Direct Form I, with independent
@@ -90,6 +117,26 @@ struct TwoPole {
     // [x[n-1], x[n-2], y[n-1], y[n-2]] per channel.
     l: [f64; 4],
     r: [f64; 4],
+}
+
+/// Side-effect-free view of the switchable two-pole LED filter.
+///
+/// The two four-element history arrays contain, in order, `x[n-1]`,
+/// `x[n-2]`, `y[n-1]`, and `y[n-2]` for each stereo channel.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct TwoPoleFilterDiagnosticSnapshot {
+    /// Current-input and second-prior-input coefficient.
+    pub a1: f64,
+    /// Prior-input coefficient.
+    pub a2: f64,
+    /// Prior-output feedback coefficient.
+    pub b1: f64,
+    /// Second-prior-output feedback coefficient.
+    pub b2: f64,
+    /// Left-channel `[x[n-1], x[n-2], y[n-1], y[n-2]]` history.
+    pub history_left: [f64; 4],
+    /// Right-channel `[x[n-1], x[n-2], y[n-1], y[n-2]]` history.
+    pub history_right: [f64; 4],
 }
 
 impl TwoPole {
@@ -124,6 +171,37 @@ impl TwoPole {
         self.r = [r, self.r[0], yr, self.r[2]];
         (yl, yr)
     }
+
+    const fn diagnostic_snapshot(&self) -> TwoPoleFilterDiagnosticSnapshot {
+        TwoPoleFilterDiagnosticSnapshot {
+            a1: self.a1,
+            a2: self.a2,
+            b1: self.b1,
+            b2: self.b2,
+            history_left: self.l,
+            history_right: self.r,
+        }
+    }
+}
+
+/// Complete bounded view of the runtime-owned analog output filter.
+///
+/// The snapshot contains every stored coefficient, configuration flag, and
+/// IIR history value. The static low-pass is `None` on models where that
+/// physical stage is absent. Audio samples and unbounded output buffers are
+/// deliberately excluded.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct AmigaAudioFilterDiagnosticSnapshot {
+    /// Fitted one-pole static low-pass, absent on A1200 models.
+    pub static_low_pass: Option<OnePoleFilterDiagnosticSnapshot>,
+    /// Switchable two-pole LED low-pass.
+    pub led_low_pass: TwoPoleFilterDiagnosticSnapshot,
+    /// Always-fitted DC-blocking high-pass.
+    pub static_high_pass: OnePoleFilterDiagnosticSnapshot,
+    /// Whether board wiring forces the LED filter on independently of CIA-A.
+    pub led_always_on: bool,
+    /// Whether the LED filter is effective for the next host sample.
+    pub led_stage_engaged: bool,
 }
 
 /// The Amiga's analog output filter chain for one machine model.
@@ -185,6 +263,28 @@ impl AmigaAudioFilter {
         (l, r) = self.hi.apply_hp(l, r);
         *left = l as f32;
         *right = r as f32;
+    }
+
+    /// Return a complete bounded diagnostic snapshot without changing filter
+    /// history.
+    ///
+    /// `led_bright` is the current CIA-A power-LED line state. The reported
+    /// engagement folds it together with the A1000's always-on wiring.
+    #[must_use]
+    pub const fn diagnostic_snapshot(
+        &self,
+        led_bright: bool,
+    ) -> AmigaAudioFilterDiagnosticSnapshot {
+        AmigaAudioFilterDiagnosticSnapshot {
+            static_low_pass: match self.lo {
+                Some(filter) => Some(filter.diagnostic_snapshot()),
+                None => None,
+            },
+            led_low_pass: self.led.diagnostic_snapshot(),
+            static_high_pass: self.hi.diagnostic_snapshot(),
+            led_always_on: self.led_always_on,
+            led_stage_engaged: self.led_always_on || led_bright,
+        }
     }
 }
 
@@ -281,5 +381,36 @@ mod tests {
                 "filter output must stay finite"
             );
         }
+    }
+
+    #[test]
+    fn diagnostic_snapshot_is_complete_and_side_effect_free() {
+        let mut filter = AmigaAudioFilter::for_model(Model::A500OcsPal);
+        let (mut left, mut right) = (0.75, -0.25);
+        filter.apply(&mut left, &mut right, true);
+
+        let first = filter.diagnostic_snapshot(true);
+        let second = filter.diagnostic_snapshot(true);
+
+        assert_eq!(first, second);
+        assert!(first.static_low_pass.is_some());
+        assert!(first.led_stage_engaged);
+        assert_ne!(first.static_high_pass.history_left, 0.0);
+        assert_ne!(first.static_high_pass.history_right, 0.0);
+        assert_ne!(first.led_low_pass.history_left, [0.0; 4]);
+        assert_ne!(first.led_low_pass.history_right, [0.0; 4]);
+    }
+
+    #[test]
+    fn diagnostic_snapshot_reports_model_specific_filter_topology() {
+        let a1000 = AmigaAudioFilter::for_model(Model::A1000OcsPal).diagnostic_snapshot(false);
+        assert!(a1000.static_low_pass.is_some());
+        assert!(a1000.led_always_on);
+        assert!(a1000.led_stage_engaged);
+
+        let a1200 = AmigaAudioFilter::for_model(Model::A1200AgaPal).diagnostic_snapshot(false);
+        assert!(a1200.static_low_pass.is_none());
+        assert!(!a1200.led_always_on);
+        assert!(!a1200.led_stage_engaged);
     }
 }
