@@ -396,10 +396,22 @@ impl AgnusEcs {
         self.vertical_diw_active
     }
 
+    /// Whether any programmable vertical-timing register has been written.
+    #[must_use]
+    pub const fn programmed_vertical_accessed(&self) -> bool {
+        self.programmed_vertical_accessed
+    }
+
     /// Current hidden programmed vertical-blank latch.
     #[must_use]
     pub const fn programmed_vblank_active(&self) -> bool {
         self.programmed_vblank_active
+    }
+
+    /// Whether the current line carries the programmed `VBSTRT` event.
+    #[must_use]
+    pub const fn programmed_vblank_start_event(&self) -> bool {
+        self.programmed_vblank_start_event
     }
 
     /// Whether the current line carries the programmed `VBSTOP` event.
@@ -739,6 +751,16 @@ impl AgnusEcs {
     }
 
     #[must_use]
+    pub const fn pal_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_PAL) != 0
+    }
+
+    #[must_use]
+    pub const fn dual_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_DUAL) != 0
+    }
+
+    #[must_use]
     pub const fn varvben_enabled(&self) -> bool {
         (self.beamcon0 & BEAMCON0_VARVBEN) != 0
     }
@@ -766,6 +788,16 @@ impl AgnusEcs {
     #[must_use]
     pub const fn harddis_enabled(&self) -> bool {
         (self.beamcon0 & BEAMCON0_HARDDIS) != 0
+    }
+
+    #[must_use]
+    pub const fn loldis_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_LOLDIS) != 0
+    }
+
+    #[must_use]
+    pub const fn lpendis_enabled(&self) -> bool {
+        (self.beamcon0 & BEAMCON0_LPENDIS) != 0
     }
 
     #[must_use]

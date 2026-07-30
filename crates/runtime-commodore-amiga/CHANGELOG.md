@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose complete ECS/AGA programmable timing, decoded selector, sync-pin and
+  composed horizontal-blank state through discoverable grouped and leaf
+  queries
+- Advertise every existing grouped Amiga diagnostic field and standalone
+  sprite query, with catalogue tests that reject future discovery drift
+- Distinguish the floppy mechanism's motor-at-speed state from the
+  multiplexed active-low READY pin in disk diagnostics
 - Add an explicit Amiga Test Kit v1.21 video-conformance lane for A500+A501
   OCS PAL reference-pattern capture and independently sourced comparison
 - Add an explicit, checksum-pinned Amiga Test Kit v1.12 gate covering stock

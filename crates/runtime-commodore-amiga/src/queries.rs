@@ -205,8 +205,11 @@ fn decode_int_bits(val: u16) -> Value {
 
 /// BPLCON0 / DMACON / ADKCON / COLOR00 / copper pointers / overlay.
 pub(crate) fn chipset_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    let enhanced_agnus = m.ecs_agnus_timing();
+    let enhanced_denise = m.enhanced_denise();
     json!({
         "bplcon0": m.bplcon0(),
+        "bplcon3": enhanced_denise.map(|denise| denise.bplcon3),
         "dmacon": m.dmacon(),
         "adkcon": m.adkcon(),
         "color00": m.color(0),
@@ -214,6 +217,11 @@ pub(crate) fn chipset_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "cop2lc": m.copper_cop2lc(),
         "copper_pc": m.copper_pc(),
         "overlay": m.overlay(),
+        "ecsena_enabled": enhanced_denise.map(|denise| denise.ecsena_enabled),
+        "extblken_enabled": enhanced_denise.map(|denise| denise.extblken_enabled),
+        "blanken_enabled": enhanced_agnus.map(|agnus| agnus.blanken_enabled),
+        "programmed_hblank_output_active":
+            enhanced_denise.map(|denise| denise.programmed_hblank_active),
     })
 }
 
@@ -267,7 +275,8 @@ pub(crate) fn cia_snapshot(m: &dyn AmigaLiveAccess) -> Value {
 /// decode. `dmacon` / `bplcon0` mirror the chipset registers Agnus owns.
 pub(crate) fn agnus_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     let a = m.agnus();
-    json!({
+    let ecs = m.ecs_agnus_timing();
+    let mut snapshot = json!({
         "vpos": a.vpos,
         "hpos": a.hpos,
         "dmacon": m.dmacon(),
@@ -297,6 +306,98 @@ pub(crate) fn agnus_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "bpl2mod": a.bpl2mod,
         "num_bitplanes": a.num_bitplanes(),
     })
+    .as_object()
+    .cloned()
+    .expect("the base Agnus snapshot is an object");
+    let enhanced_registers = json!({
+        "beamcon0": ecs.map(|state| state.beamcon0),
+        "htotal": ecs.map(|state| state.htotal),
+        "hsstop": ecs.map(|state| state.hsstop),
+        "hbstrt": ecs.map(|state| state.hbstrt),
+        "hbstop": ecs.map(|state| state.hbstop),
+        "vtotal": ecs.map(|state| state.vtotal),
+        "vsstop": ecs.map(|state| state.vsstop),
+        "vbstrt": ecs.map(|state| state.vbstrt),
+        "vbstop": ecs.map(|state| state.vbstop),
+        "hsstrt": ecs.map(|state| state.hsstrt),
+        "vsstrt": ecs.map(|state| state.vsstrt),
+        "diwhigh": ecs.map(|state| state.diwhigh),
+        "diwhigh_written": ecs.map(|state| state.diwhigh_written),
+        "bltsizv": ecs.map(|state| state.bltsizv),
+        "bltsizh": ecs.map(|state| state.bltsizh),
+    });
+    let enhanced_events = json!({
+        "programmed_vertical_accessed":
+            ecs.map(|state| state.programmed_vertical_accessed),
+        "programmed_vblank_active": ecs.map(|state| state.programmed_vblank_active),
+        "programmed_vblank_start_event":
+            ecs.map(|state| state.programmed_vblank_start_event),
+        "programmed_vblank_stop_event":
+            ecs.map(|state| state.programmed_vblank_stop_event),
+        "programmed_hblank_active": ecs.map(|state| state.programmed_hblank_active),
+        "programmed_hblank_routed_active":
+            ecs.map(|state| state.programmed_hblank_routed_active),
+        "vertical_diw_active": ecs.map(|state| state.vertical_diw_active),
+        "current_line_ccks": ecs.map(|state| state.current_line_ccks),
+        "copper_comparator_hpos": ecs.map(|state| state.copper_comparator_hpos),
+    });
+    let enhanced_signals = json!({
+        "pal_enabled": ecs.map(|state| state.pal_enabled),
+        "dual_enabled": ecs.map(|state| state.dual_enabled),
+        "varbeamen_enabled": ecs.map(|state| state.varbeamen_enabled),
+        "varvben_enabled": ecs.map(|state| state.varvben_enabled),
+        "varvsyen_enabled": ecs.map(|state| state.varvsyen_enabled),
+        "varhsyen_enabled": ecs.map(|state| state.varhsyen_enabled),
+        "cscben_enabled": ecs.map(|state| state.cscben_enabled),
+        "varcsyen_enabled": ecs.map(|state| state.varcsyen_enabled),
+        "harddis_enabled": ecs.map(|state| state.harddis_enabled),
+        "blanken_enabled": ecs.map(|state| state.blanken_enabled),
+        "loldis_enabled": ecs.map(|state| state.loldis_enabled),
+        "lpendis_enabled": ecs.map(|state| state.lpendis_enabled),
+        "csytrue_enabled": ecs.map(|state| state.csytrue_enabled),
+        "vsytrue_enabled": ecs.map(|state| state.vsytrue_enabled),
+        "hsytrue_enabled": ecs.map(|state| state.hsytrue_enabled),
+        "harddis_hblank_window_active":
+            ecs.map(|state| state.harddis_hblank_window_active),
+        "vblank_window_active": ecs.map(|state| state.vblank_window_active),
+        "hsync_window_active": ecs.map(|state| state.hsync_window_active),
+        "vsync_window_active": ecs.map(|state| state.vsync_window_active),
+        "sync_pin_hsync": ecs.map(|state| state.sync_pin_hsync),
+        "sync_pin_vsync": ecs.map(|state| state.sync_pin_vsync),
+        "sync_pin_csync": ecs.map(|state| state.sync_pin_csync),
+        "sync_pin_blank": ecs.map(|state| state.sync_pin_blank),
+    });
+    for enhanced in [enhanced_registers, enhanced_events, enhanced_signals] {
+        snapshot.extend(
+            enhanced
+                .as_object()
+                .expect("the enhanced Agnus snapshot section is an object")
+                .clone(),
+        );
+    }
+    Value::Object(snapshot)
+}
+
+/// Enhanced Denise state shared by ECS Super Denise and AGA Lisa. OCS keeps
+/// the same discoverable schema with `null` values.
+pub(crate) fn denise_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    let denise = m.enhanced_denise();
+    json!({
+        "deniseid": denise.map(|state| state.deniseid),
+        "bplcon3": denise.map(|state| state.bplcon3),
+        "ecsena_enabled": denise.map(|state| state.ecsena_enabled),
+        "extblken_enabled": denise.map(|state| state.extblken_enabled),
+        "shres_enabled": denise.map(|state| state.shres_enabled),
+        "bplhwrm_enabled": denise.map(|state| state.bplhwrm_enabled),
+        "sprhwrm_enabled": denise.map(|state| state.sprhwrm_enabled),
+        "bplcon3_extensions_enabled":
+            denise.map(|state| state.bplcon3_extensions_enabled),
+        "border_blank_enabled": denise.map(|state| state.border_blank_enabled),
+        "border_opaque_enabled": denise.map(|state| state.border_opaque_enabled),
+        "killehb_enabled": denise.map(|state| state.killehb_enabled),
+        "programmed_hblank_active":
+            denise.map(|state| state.programmed_hblank_active),
+    })
 }
 
 /// Blitter sub-view of Agnus: busy / pending state and the A-D channel
@@ -320,9 +421,9 @@ pub(crate) fn blitter_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     })
 }
 
-/// DF0 drive state. Field names preserve the pre-fold `disk.*` leaves
-/// (`inserted`, `change_pending`, `motor_spinning` = the active-low
-/// READY line) and add `selected` plus the raw four-line `status`.
+/// DF0 drive state. `motor_spinning` reports the mechanical state while
+/// `ready_low` and the raw four-line `status` report the multiplexed drive
+/// pins; READY can carry identification bits while the motor is off.
 pub(crate) fn disk_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     let drive = m.drive();
     let status = drive.status();
@@ -332,7 +433,8 @@ pub(crate) fn disk_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "cylinder": drive.cylinder(),
         "head": drive.head(),
         "motor_on": drive.motor_on(),
-        "motor_spinning": status.ready,
+        "motor_spinning": drive.motor_spinning(),
+        "ready_low": status.ready,
         "step_events": drive.step_event_counter(),
         "selected": drive.selected(),
         "status": {
@@ -353,6 +455,9 @@ pub(crate) fn disk_snapshot(m: &dyn AmigaLiveAccess) -> Value {
 pub(crate) fn resolve_chip_query(m: &dyn AmigaLiveAccess, path: &str) -> Option<Value> {
     if is_chip(path, "agnus") {
         return chip_field(path, "agnus", agnus_snapshot(m));
+    }
+    if is_chip(path, "denise") {
+        return chip_field(path, "denise", denise_snapshot(m));
     }
     if is_chip(path, "paula") {
         return chip_field(path, "paula", paula_snapshot(m));
@@ -393,6 +498,7 @@ pub(crate) fn aga_snapshot(m: &dyn AmigaLiveAccess) -> Option<Value> {
         "bplcon4": aga.bplcon4,
         "spr_width": aga.spr_width,
         "ham_prev_rgb24": aga.ham_prev_rgb24,
+        "programmed_hblank_active": aga.programmed_hblank_active,
         "palette_24_nonzero_per_bank": bank_nonzero,
         "palette_24_bank0": bank0,
         "ocs_palette_12bit": ocs_palette,

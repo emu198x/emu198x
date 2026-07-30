@@ -7,7 +7,7 @@
 //! arbitration lives in Agnus (`current_slot` / `cck_bus_plan`, #30)
 //! and is consumed from the shared `AmigaDriver` body, not here.
 
-use commodore_denise_ecs::DeniseEcs;
+pub use commodore_denise_ecs::DeniseEcs;
 pub use common_commodore_amiga::denise::{
     BitplaneDmaFetch, DeniseOutputSignals, FB_HEIGHT, FB_WIDTH, HorizontalBlanking,
 };

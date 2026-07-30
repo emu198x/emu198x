@@ -108,6 +108,12 @@ impl DeniseEcs {
         (self.bplcon3 & BPLCON3_ENBPLCN3) != 0
     }
 
+    /// Whether BPLCON3.EXTBLKEN selects external programmable blanking.
+    #[must_use]
+    pub const fn extblken_enabled(&self) -> bool {
+        (self.bplcon3 & BPLCON3_ENBPLCN3) != 0
+    }
+
     /// Whether ECS requests a blanked border for genlock overlay.
     #[must_use]
     pub const fn border_blank_enabled(&self) -> bool {

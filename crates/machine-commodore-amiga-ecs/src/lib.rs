@@ -29,7 +29,7 @@ use commodore_paula_8364::bits::{
 use commodore_paula_8364::decode as paula_decode;
 pub use commodore_paula_8364::{AudioControls, AudioField, IntSource, Paula8364, PaulaChannel};
 pub use copper::Copper;
-pub use denise::{Denise, FB_HEIGHT, FB_WIDTH};
+pub use denise::{Denise, DeniseEcs, FB_HEIGHT, FB_WIDTH};
 pub use format_commodore_amiga_adf::Adf;
 pub use memory::{CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE, Memory};
 pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
@@ -652,6 +652,13 @@ impl AmigaEcs {
     #[must_use]
     pub fn denise(&self) -> &Denise {
         &self.denise
+    }
+
+    /// Direct read-only access to the ECS Super Denise wrapper and its
+    /// enhanced display state.
+    #[must_use]
+    pub const fn denise_ecs(&self) -> &commodore_denise_ecs::DeniseEcs {
+        &self.denise.ocs
     }
 
     /// Read-only memory access (for tests inspecting OVL state etc.).

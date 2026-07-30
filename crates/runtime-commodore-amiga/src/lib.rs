@@ -22,7 +22,8 @@ pub use gvp_a530::{A530Config, A530RamSize};
 pub use input::keys_for_char;
 pub use live_access::{
     AgaLisaSnapshot, AmigaLiveAccess, Bplcon0LogEntry, CpuSnapshot, CustomWriteEntry, DskLogEntry,
-    PaletteLogEntry, RegReadLogEntry, WatchLogEntry,
+    EcsAgnusTimingSnapshot, EnhancedDeniseSnapshot, PaletteLogEntry, RegReadLogEntry,
+    WatchLogEntry,
 };
 pub use machine_commodore_amiga_ocs::{AudioControls, PaulaChannel, RamConfig};
 pub use profiles::{

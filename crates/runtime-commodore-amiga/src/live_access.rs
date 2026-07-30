@@ -34,7 +34,7 @@
 use commodore_agnus_ocs::Agnus;
 use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_a1200::{AmigaA1200, Copper as A1200Copper};
-use machine_commodore_amiga_ecs::AmigaEcs;
+use machine_commodore_amiga_ecs::{AgnusEcs, AmigaEcs, DeniseEcs};
 use machine_commodore_amiga_ocs::{AmigaFloppyDrive, AmigaKeyboard, AmigaOcs, Cia, Paula8364};
 use motorola_68k_common::registers::Registers;
 
@@ -69,8 +69,155 @@ pub struct AgaLisaSnapshot {
     pub bplcon4: u16,
     pub spr_width: u8,
     pub ham_prev_rgb24: u32,
+    pub programmed_hblank_active: bool,
     /// 256-entry 24-bit palette (8 banks × 32), stored `0x00RRGGBB`.
     pub palette_24: [u32; 256],
+}
+
+/// Complete read-only view of the ECS Agnus timing layer. AGA Alice inherits
+/// the same state, so AGA sessions return this snapshot as well.
+#[derive(Debug, Clone, Copy)]
+pub struct EcsAgnusTimingSnapshot {
+    pub beamcon0: u16,
+    pub htotal: u16,
+    pub hsstop: u16,
+    pub hbstrt: u16,
+    pub hbstop: u16,
+    pub vtotal: u16,
+    pub vsstop: u16,
+    pub vbstrt: u16,
+    pub vbstop: u16,
+    pub hsstrt: u16,
+    pub vsstrt: u16,
+    pub diwhigh: u16,
+    pub diwhigh_written: bool,
+    pub bltsizv: u16,
+    pub bltsizh: u16,
+    pub programmed_vertical_accessed: bool,
+    pub programmed_vblank_active: bool,
+    pub programmed_vblank_start_event: bool,
+    pub programmed_vblank_stop_event: bool,
+    pub programmed_hblank_active: bool,
+    pub programmed_hblank_routed_active: bool,
+    pub vertical_diw_active: bool,
+    pub current_line_ccks: u16,
+    pub copper_comparator_hpos: u16,
+    pub pal_enabled: bool,
+    pub dual_enabled: bool,
+    pub varbeamen_enabled: bool,
+    pub varvben_enabled: bool,
+    pub varvsyen_enabled: bool,
+    pub varhsyen_enabled: bool,
+    pub cscben_enabled: bool,
+    pub varcsyen_enabled: bool,
+    pub harddis_enabled: bool,
+    pub blanken_enabled: bool,
+    pub loldis_enabled: bool,
+    pub lpendis_enabled: bool,
+    pub csytrue_enabled: bool,
+    pub vsytrue_enabled: bool,
+    pub hsytrue_enabled: bool,
+    pub harddis_hblank_window_active: bool,
+    pub vblank_window_active: bool,
+    pub hsync_window_active: bool,
+    pub vsync_window_active: bool,
+    pub sync_pin_hsync: bool,
+    pub sync_pin_vsync: bool,
+    pub sync_pin_csync: bool,
+    pub sync_pin_blank: bool,
+}
+
+/// Complete read-only view of the ECS Denise layer shared by Super Denise and
+/// AGA Lisa, plus the board-composed programmable-HBLANK output level.
+#[derive(Debug, Clone, Copy)]
+pub struct EnhancedDeniseSnapshot {
+    pub deniseid: u16,
+    pub bplcon3: u16,
+    pub ecsena_enabled: bool,
+    pub extblken_enabled: bool,
+    pub shres_enabled: bool,
+    pub bplhwrm_enabled: bool,
+    pub sprhwrm_enabled: bool,
+    pub bplcon3_extensions_enabled: bool,
+    pub border_blank_enabled: bool,
+    pub border_opaque_enabled: bool,
+    pub killehb_enabled: bool,
+    pub programmed_hblank_active: bool,
+}
+
+fn ecs_agnus_timing_snapshot(agnus: &AgnusEcs) -> EcsAgnusTimingSnapshot {
+    let pins = agnus.sync_pin_levels(agnus.hpos, agnus.vpos);
+    EcsAgnusTimingSnapshot {
+        beamcon0: agnus.beamcon0(),
+        htotal: agnus.htotal(),
+        hsstop: agnus.hsstop(),
+        hbstrt: agnus.hbstrt(),
+        hbstop: agnus.hbstop(),
+        vtotal: agnus.vtotal(),
+        vsstop: agnus.vsstop(),
+        vbstrt: agnus.vbstrt(),
+        vbstop: agnus.vbstop(),
+        hsstrt: agnus.hsstrt(),
+        vsstrt: agnus.vsstrt(),
+        diwhigh: agnus.diwhigh(),
+        diwhigh_written: agnus.diwhigh_written(),
+        bltsizv: agnus.bltsizv,
+        bltsizh: agnus.bltsizh,
+        programmed_vertical_accessed: agnus.programmed_vertical_accessed(),
+        programmed_vblank_active: agnus.programmed_vblank_active(),
+        programmed_vblank_start_event: agnus.programmed_vblank_start_event(),
+        programmed_vblank_stop_event: agnus.programmed_vblank_stop_event(),
+        programmed_hblank_active: agnus.programmed_hblank_active(),
+        programmed_hblank_routed_active: agnus.programmed_hblank_routed_active(),
+        vertical_diw_active: agnus.vertical_diw_active(),
+        current_line_ccks: agnus.current_line_ccks(),
+        copper_comparator_hpos: agnus.copper_comparator_hpos(),
+        pal_enabled: agnus.pal_enabled(),
+        dual_enabled: agnus.dual_enabled(),
+        varbeamen_enabled: agnus.varbeamen_enabled(),
+        varvben_enabled: agnus.varvben_enabled(),
+        varvsyen_enabled: agnus.varvsyen_enabled(),
+        varhsyen_enabled: agnus.varhsyen_enabled(),
+        cscben_enabled: agnus.cscben_enabled(),
+        varcsyen_enabled: agnus.varcsyen_enabled(),
+        harddis_enabled: agnus.harddis_enabled(),
+        blanken_enabled: agnus.blanken_enabled(),
+        loldis_enabled: agnus.loldis_enabled(),
+        lpendis_enabled: agnus.lpendis_enabled(),
+        csytrue_enabled: agnus.csytrue_enabled(),
+        vsytrue_enabled: agnus.vsytrue_enabled(),
+        hsytrue_enabled: agnus.hsytrue_enabled(),
+        harddis_hblank_window_active: agnus.harddis_hblank_window_active(agnus.hpos),
+        vblank_window_active: agnus.vblank_window_active(agnus.vpos),
+        hsync_window_active: agnus.hsync_window_active(agnus.hpos),
+        vsync_window_active: agnus.vsync_window_active(agnus.vpos),
+        sync_pin_hsync: pins.hsync,
+        sync_pin_vsync: pins.vsync,
+        sync_pin_csync: pins.csync,
+        sync_pin_blank: pins.blank,
+    }
+}
+
+fn enhanced_denise_snapshot(
+    denise: &DeniseEcs,
+    deniseid: u16,
+    bplcon0: u16,
+    programmed_hblank_active: bool,
+) -> EnhancedDeniseSnapshot {
+    EnhancedDeniseSnapshot {
+        deniseid,
+        bplcon3: denise.bplcon3,
+        ecsena_enabled: (bplcon0 & 0x0001) != 0,
+        extblken_enabled: denise.extblken_enabled(),
+        shres_enabled: denise.shres_enabled(),
+        bplhwrm_enabled: denise.bplhwrm_enabled(),
+        sprhwrm_enabled: denise.sprhwrm_enabled(),
+        bplcon3_extensions_enabled: denise.bplcon3_extensions_enabled(),
+        border_blank_enabled: denise.border_blank_enabled(),
+        border_opaque_enabled: denise.border_opaque_enabled(),
+        killehb_enabled: denise.killehb_enabled(),
+        programmed_hblank_active,
+    }
 }
 
 /// Watch-log entry shape: `(tick, pc, addr, value, is_word)`.
@@ -153,6 +300,20 @@ pub trait AmigaLiveAccess {
     // ---------- chip references (shared base types) ----------
 
     fn agnus(&self) -> &Agnus;
+
+    /// ECS Agnus programmable timing state, inherited by Alice. OCS sessions
+    /// return `None`.
+    fn ecs_agnus_timing(&self) -> Option<EcsAgnusTimingSnapshot> {
+        None
+    }
+
+    /// ECS Denise state shared by Super Denise and Lisa, including the
+    /// board-composed programmable horizontal-blank output. OCS sessions
+    /// return `None`.
+    fn enhanced_denise(&self) -> Option<EnhancedDeniseSnapshot> {
+        None
+    }
+
     fn cia_a(&self) -> &Cia;
     fn cia_b(&self) -> &Cia;
     fn paula(&self) -> &Paula8364;
@@ -560,6 +721,25 @@ impl AmigaLiveAccess for AmigaEcs {
         AmigaEcs::agnus(self)
     }
 
+    fn ecs_agnus_timing(&self) -> Option<EcsAgnusTimingSnapshot> {
+        Some(ecs_agnus_timing_snapshot(self.agnus_ecs()))
+    }
+
+    fn enhanced_denise(&self) -> Option<EnhancedDeniseSnapshot> {
+        let agnus = self.agnus_ecs();
+        let denise = self.denise_ecs();
+        let output_active = agnus.programmed_hblank_routed_active()
+            && agnus.blanken_enabled()
+            && (self.bplcon0() & 0x0001) != 0
+            && denise.extblken_enabled();
+        Some(enhanced_denise_snapshot(
+            denise,
+            denise.deniseid(),
+            self.bplcon0(),
+            output_active,
+        ))
+    }
+
     fn cia_a(&self) -> &Cia {
         AmigaEcs::cia_a(self)
     }
@@ -737,6 +917,24 @@ impl AmigaLiveAccess for AmigaA1200 {
         AmigaA1200::agnus(self)
     }
 
+    fn ecs_agnus_timing(&self) -> Option<EcsAgnusTimingSnapshot> {
+        Some(ecs_agnus_timing_snapshot(self.agnus_aga().as_inner()))
+    }
+
+    fn enhanced_denise(&self) -> Option<EnhancedDeniseSnapshot> {
+        let lisa = self.denise_aga();
+        let ecs_denise = lisa.as_inner();
+        let output_active = lisa.programmed_hblank_active()
+            && (self.bplcon0() & 0x0001) != 0
+            && ecs_denise.extblken_enabled();
+        Some(enhanced_denise_snapshot(
+            ecs_denise,
+            lisa.deniseid(),
+            self.bplcon0(),
+            output_active,
+        ))
+    }
+
     fn cia_a(&self) -> &Cia {
         AmigaA1200::cia_a(self)
     }
@@ -830,6 +1028,7 @@ impl AmigaLiveAccess for AmigaA1200 {
             bplcon4: aga.bplcon4,
             spr_width: aga.spr_width,
             ham_prev_rgb24: aga.ham_prev_rgb24,
+            programmed_hblank_active: aga.programmed_hblank_active(),
             palette_24: aga.palette_24,
         })
     }
@@ -989,6 +1188,22 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => AmigaLiveAccess::agnus(rt.machine()),
             Self::Ecs(rt) => AmigaLiveAccess::agnus(rt.machine()),
             Self::Aga(rt) => AmigaLiveAccess::agnus(rt.machine()),
+        }
+    }
+
+    fn ecs_agnus_timing(&self) -> Option<EcsAgnusTimingSnapshot> {
+        match self {
+            Self::Ocs(_) => None,
+            Self::Ecs(rt) => rt.machine().ecs_agnus_timing(),
+            Self::Aga(rt) => rt.machine().ecs_agnus_timing(),
+        }
+    }
+
+    fn enhanced_denise(&self) -> Option<EnhancedDeniseSnapshot> {
+        match self {
+            Self::Ocs(_) => None,
+            Self::Ecs(rt) => rt.machine().enhanced_denise(),
+            Self::Aga(rt) => rt.machine().enhanced_denise(),
         }
     }
 

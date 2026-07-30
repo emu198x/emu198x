@@ -385,22 +385,36 @@ const fn greatest_common_divisor(mut lhs: u64, mut rhs: u64) -> u64 {
 // AmigaOcs impl — covers A1000 + A500 family + A500+ + maxed-A500.
 // ===================================================================
 
-const OCS_VARIANT_QUERY_PATHS: &[&str] = &[
-    "a1000.boot_rom_visible",
-    "a1000.wom_locked",
+macro_rules! amiga_variant_query_paths {
+    ($($variant_path:expr),* $(,)?) => {
+        &[
     "memory.overlay",
     "cpu.pc",
     "cpu.sr",
     "cpu.ipl",
-    // Folded chip groups (#456) — each resolves as a whole object; the
-    // long-standing leaves below them stay advertised and now resolve
-    // through the grouped snapshot.
+    // Folded chip groups (#456). Every top-level field is also
+    // advertised as a leaf so discovery never requires guessing a
+    // path after inspecting the grouped object.
     "chipset",
     "agnus",
+    "denise",
     "blitter",
     "paula",
     "cia",
     "disk",
+    "chipset.bplcon0",
+    "chipset.bplcon3",
+    "chipset.dmacon",
+    "chipset.adkcon",
+    "chipset.color00",
+    "chipset.cop1lc",
+    "chipset.cop2lc",
+    "chipset.copper_pc",
+    "chipset.overlay",
+    "chipset.ecsena_enabled",
+    "chipset.extblken_enabled",
+    "chipset.blanken_enabled",
+    "chipset.programmed_hblank_output_active",
     "agnus.vpos",
     "agnus.hpos",
     "agnus.dmacon",
@@ -408,19 +422,106 @@ const OCS_VARIANT_QUERY_PATHS: &[&str] = &[
     "agnus.blitter_busy",
     "agnus.blitter_busy_visible",
     "agnus.blitter_busy_copper",
+    "agnus.blitter_exec_pending",
     "agnus.blitter_startup_ccks_remaining",
+    "agnus.blitter_ccks_remaining",
     "agnus.blitter_completion_phase",
     "agnus.blitter_completion_ccks_remaining",
     "agnus.blitter_final_d_pending",
+    "agnus.bpl_pt",
+    "agnus.blt_apt",
+    "agnus.blt_bpt",
+    "agnus.blt_cpt",
+    "agnus.blt_dpt",
+    "agnus.fmode",
+    "agnus.bpl_fetch_width",
+    "agnus.spr_fetch_width",
+    "agnus.diwstrt",
+    "agnus.diwstop",
+    "agnus.ddfstrt",
+    "agnus.ddfstop",
+    "agnus.bpl1mod",
+    "agnus.bpl2mod",
+    "agnus.num_bitplanes",
+    "agnus.beamcon0",
+    "agnus.htotal",
+    "agnus.hsstop",
+    "agnus.hbstrt",
+    "agnus.hbstop",
+    "agnus.vtotal",
+    "agnus.vsstop",
+    "agnus.vbstrt",
+    "agnus.vbstop",
+    "agnus.hsstrt",
+    "agnus.vsstrt",
+    "agnus.diwhigh",
+    "agnus.diwhigh_written",
+    "agnus.bltsizv",
+    "agnus.bltsizh",
+    "agnus.programmed_vertical_accessed",
+    "agnus.programmed_vblank_active",
+    "agnus.programmed_vblank_start_event",
+    "agnus.programmed_vblank_stop_event",
+    "agnus.programmed_hblank_active",
+    "agnus.programmed_hblank_routed_active",
+    "agnus.vertical_diw_active",
+    "agnus.current_line_ccks",
+    "agnus.copper_comparator_hpos",
+    "agnus.pal_enabled",
+    "agnus.dual_enabled",
+    "agnus.varbeamen_enabled",
+    "agnus.varvben_enabled",
+    "agnus.varvsyen_enabled",
+    "agnus.varhsyen_enabled",
+    "agnus.cscben_enabled",
+    "agnus.varcsyen_enabled",
+    "agnus.harddis_enabled",
+    "agnus.blanken_enabled",
+    "agnus.loldis_enabled",
+    "agnus.lpendis_enabled",
+    "agnus.csytrue_enabled",
+    "agnus.vsytrue_enabled",
+    "agnus.hsytrue_enabled",
+    "agnus.harddis_hblank_window_active",
+    "agnus.vblank_window_active",
+    "agnus.hsync_window_active",
+    "agnus.vsync_window_active",
+    "agnus.sync_pin_hsync",
+    "agnus.sync_pin_vsync",
+    "agnus.sync_pin_csync",
+    "agnus.sync_pin_blank",
+    "denise.deniseid",
+    "denise.bplcon3",
+    "denise.ecsena_enabled",
+    "denise.extblken_enabled",
+    "denise.shres_enabled",
+    "denise.bplhwrm_enabled",
+    "denise.sprhwrm_enabled",
+    "denise.bplcon3_extensions_enabled",
+    "denise.border_blank_enabled",
+    "denise.border_opaque_enabled",
+    "denise.killehb_enabled",
+    "denise.programmed_hblank_active",
     "blitter.busy",
     "blitter.busy_visible",
     "blitter.busy_copper",
+    "blitter.exec_pending",
     "blitter.startup_ccks_remaining",
+    "blitter.ccks_remaining",
     "blitter.completion_phase",
     "blitter.completion_ccks_remaining",
     "blitter.final_d_pending",
+    "blitter.apt",
+    "blitter.bpt",
+    "blitter.cpt",
+    "blitter.dpt",
     "paula.intena",
     "paula.intreq",
+    "paula.master_enable",
+    "paula.intena_bits",
+    "paula.intreq_bits",
+    "cia.cia_a",
+    "cia.cia_b",
     "debug.dsk_write_count",
     "debug.last_dsk_write",
     "display.color00",
@@ -431,12 +532,26 @@ const OCS_VARIANT_QUERY_PATHS: &[&str] = &[
     "disk.head",
     "disk.motor_on",
     "disk.motor_spinning",
+    "disk.ready_low",
     "disk.step_events",
+    "disk.selected",
+    "disk.status",
     "keyboard.state",
     "keyboard.queued",
     "input.joy0dat",
     "input.joy1dat",
-];
+    "sprite0.dma_on",
+    "sprite0.vstart",
+    "sprite0.vstop",
+    "sprite0.pixels_rendered",
+    "sprite0.ptr",
+    $($variant_path),*
+        ]
+    };
+}
+
+const OCS_VARIANT_QUERY_PATHS: &[&str] =
+    amiga_variant_query_paths!("a1000.boot_rom_visible", "a1000.wom_locked",);
 
 impl AmigaMachine for AmigaOcs {
     const CHIPSET_FB_WIDTH: u32 = FB_WIDTH;
@@ -623,7 +738,7 @@ pub type AmigaOcsRuntime = AmigaRuntime<AmigaOcs>;
 // a future ECS-only behaviour can be carved out without touching OCS.
 // ===================================================================
 
-const ECS_VARIANT_QUERY_PATHS: &[&str] = OCS_VARIANT_QUERY_PATHS;
+const ECS_VARIANT_QUERY_PATHS: &[&str] = amiga_variant_query_paths!();
 
 impl AmigaMachine for AmigaEcs {
     const CHIPSET_FB_WIDTH: u32 = FB_WIDTH;
@@ -746,19 +861,13 @@ impl AmigaMachine for AmigaEcs {
     }
 
     fn resolve_variant_query(&self, path: &str) -> Result<Option<Value>, QueryError> {
-        // Same chip-state surface as OCS for now — every query path
-        // ECS carries is also valid on OCS. The ECS-only paths
-        // (BEAMCON0, BPLCON3 reads) will land alongside whichever
-        // verifier flow needs them first.
-        //
         // Folded chip snapshots (#456): grouped `agnus` / `paula` / `cia`
-        // / `blitter` / `chipset` / `disk` objects + per-field leaves.
+        // / `blitter` / `chipset` / `denise` / `disk` objects +
+        // per-field leaves, including the ECS programmable-timing state.
         if let Some(value) = resolve_chip_query(self, path) {
             return Ok(Some(value));
         }
         let value = match path {
-            "a1000.boot_rom_visible" => json!(self.memory().a1000_boot_rom_visible()),
-            "a1000.wom_locked" => json!(self.memory().a1000_wom_locked()),
             "memory.overlay" => json!(self.memory().overlay()),
             "cpu.pc" => json!(self.cpu().regs.pc),
             "cpu.sr" => json!(self.cpu().regs.sr),
@@ -809,56 +918,20 @@ pub type AmigaEcsRuntime = AmigaRuntime<AmigaEcs>;
 /// land. CPU / Agnus / Paula / disk / keyboard paths share the same
 /// names as OCS / ECS so curriculum scripts targeting "cpu.pc"
 /// work across the family.
-const AGA_VARIANT_QUERY_PATHS: &[&str] = &[
-    "memory.overlay",
-    "cpu.pc",
-    "cpu.sr",
-    "cpu.ipl",
-    // Folded chip groups (#456); `aga` is the AGA-only Lisa + 24-bit
-    // palette snapshot.
-    "chipset",
-    "agnus",
-    "blitter",
-    "paula",
-    "cia",
-    "disk",
+const AGA_VARIANT_QUERY_PATHS: &[&str] = amiga_variant_query_paths!(
     "aga",
-    "agnus.vpos",
-    "agnus.hpos",
-    "agnus.dmacon",
-    "agnus.bplcon0",
-    "agnus.blitter_busy",
-    "agnus.blitter_busy_visible",
-    "agnus.blitter_busy_copper",
-    "agnus.blitter_startup_ccks_remaining",
-    "agnus.blitter_completion_phase",
-    "agnus.blitter_completion_ccks_remaining",
-    "agnus.blitter_final_d_pending",
-    "blitter.busy",
-    "blitter.busy_visible",
-    "blitter.busy_copper",
-    "blitter.startup_ccks_remaining",
-    "blitter.completion_phase",
-    "blitter.completion_ccks_remaining",
-    "blitter.final_d_pending",
-    "paula.intena",
-    "paula.intreq",
-    "debug.dsk_write_count",
-    "debug.last_dsk_write",
-    "display.color00",
-    "display.color01",
-    "disk.inserted",
-    "disk.change_pending",
-    "disk.cylinder",
-    "disk.head",
-    "disk.motor_on",
-    "disk.motor_spinning",
-    "disk.step_events",
-    "keyboard.state",
-    "keyboard.queued",
-    "input.joy0dat",
-    "input.joy1dat",
-];
+    "aga.deniseid",
+    "aga.bplcon3",
+    "aga.bplcon3_bank",
+    "aga.bplcon3_loct",
+    "aga.bplcon4",
+    "aga.spr_width",
+    "aga.ham_prev_rgb24",
+    "aga.programmed_hblank_active",
+    "aga.palette_24_nonzero_per_bank",
+    "aga.palette_24_bank0",
+    "aga.ocs_palette_12bit",
+);
 
 impl AmigaMachine for AmigaA1200 {
     const CHIPSET_FB_WIDTH: u32 = FB_WIDTH;
@@ -1460,6 +1533,19 @@ mod tests {
         let mut deduped = sorted.clone();
         deduped.dedup();
         assert_eq!(sorted.len(), deduped.len(), "duplicate variant query paths");
+    }
+
+    #[test]
+    fn ecs_variant_query_paths_are_unique() {
+        let mut sorted: Vec<&&str> = ECS_VARIANT_QUERY_PATHS.iter().collect();
+        sorted.sort();
+        let mut deduped = sorted.clone();
+        deduped.dedup();
+        assert_eq!(
+            sorted.len(),
+            deduped.len(),
+            "duplicate ECS variant query paths"
+        );
     }
 
     #[test]

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Expose the live `BPLCON3.EXTBLKEN` selector through a read-only accessor
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-denise-ecs-v0.2.0) - 2026-06-04
 
 ### Other

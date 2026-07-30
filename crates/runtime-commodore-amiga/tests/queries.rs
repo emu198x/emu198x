@@ -9,9 +9,10 @@ use emu198x_shell::{
 };
 use format_commodore_amiga_adf::ADF_SIZE_DD;
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaA1200Runtime, AmigaOcsRuntime, AmigaSessionQueryProvider, Model,
+    A500_PAL_FRAME_TICKS, AmigaA1200Runtime, AmigaEcsRuntime, AmigaMachine, AmigaOcsRuntime,
+    AmigaRuntime, AmigaSessionQueryProvider, Model,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 
 use common::{dummy_a1000_bootstrap_rom, dummy_kickstart};
 
@@ -157,6 +158,161 @@ fn every_a1200_query_path_resolves() {
             .unwrap_or_else(|err| panic!("concrete {path} should not fail: {err:?}"));
         assert!(value.is_some(), "concrete {path} should resolve");
     }
+}
+
+#[test]
+fn every_ecs_query_path_resolves() {
+    let runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let provider = AmigaSessionQueryProvider;
+    for path in provider.query_paths(&runtime, None) {
+        let value = provider
+            .query(&runtime, &path)
+            .unwrap_or_else(|err| panic!("concrete {path} should not fail: {err:?}"));
+        assert!(value.is_some(), "concrete {path} should resolve");
+    }
+}
+
+#[test]
+fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
+    let ocs = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    assert_group_leaf_catalogue(
+        &ocs,
+        &[
+            "chipset", "agnus", "denise", "blitter", "paula", "cia", "disk",
+        ],
+    );
+
+    let ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    assert_group_leaf_catalogue(
+        &ecs,
+        &[
+            "chipset", "agnus", "denise", "blitter", "paula", "cia", "disk",
+        ],
+    );
+
+    let aga = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    assert_group_leaf_catalogue(
+        &aga,
+        &[
+            "chipset", "agnus", "denise", "blitter", "paula", "cia", "disk", "aga",
+        ],
+    );
+}
+
+fn assert_group_leaf_catalogue<M: AmigaMachine>(runtime: &AmigaRuntime<M>, groups: &[&str]) {
+    let provider = AmigaSessionQueryProvider;
+    let paths = provider.query_paths(runtime, None);
+
+    for group in groups {
+        let grouped = provider
+            .query(runtime, group)
+            .unwrap_or_else(|error| panic!("{group} query failed: {error:?}"))
+            .unwrap_or_else(|| panic!("{group} group should resolve"));
+        let object = grouped
+            .value
+            .as_object()
+            .unwrap_or_else(|| panic!("{group} should be an object"));
+
+        for (field, grouped_value) in object {
+            let path = format!("{group}.{field}");
+            assert!(
+                paths.contains(&path),
+                "{path} appears in the grouped snapshot but is not advertised",
+            );
+            let leaf = provider
+                .query(runtime, &path)
+                .unwrap_or_else(|error| panic!("{path} query failed: {error:?}"))
+                .unwrap_or_else(|| panic!("{path} should resolve"));
+            assert_eq!(
+                &leaf.value, grouped_value,
+                "{path} should equal its grouped snapshot field",
+            );
+        }
+    }
+}
+
+fn query_value<M: AmigaMachine>(runtime: &AmigaRuntime<M>, path: &str) -> Value {
+    AmigaSessionQueryProvider
+        .query(runtime, path)
+        .unwrap_or_else(|error| panic!("{path} query failed: {error:?}"))
+        .unwrap_or_else(|| panic!("{path} should resolve"))
+        .value
+}
+
+#[test]
+fn ecs_queries_expose_raw_routed_and_composed_hblank_state() {
+    let mut runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    runtime.machine_mut().poke_word(0x00DF_F1C4, 0x0040); // HBSTRT
+    runtime.machine_mut().poke_word(0x00DF_F1C6, 0x0080); // HBSTOP
+    runtime.machine_mut().poke_word(0x00DF_F100, 0x0001); // ECSENA
+    runtime.machine_mut().poke_word(0x00DF_F106, 0x0001); // EXTBLKEN
+
+    for _ in 0..2_048 {
+        runtime.machine_mut().tick();
+        if query_value(&runtime, "agnus.programmed_hblank_active") == json!(true) {
+            break;
+        }
+    }
+
+    assert_eq!(query_value(&runtime, "agnus.hbstrt"), json!(0x0040));
+    assert_eq!(query_value(&runtime, "agnus.hbstop"), json!(0x0080));
+    assert_eq!(
+        query_value(&runtime, "agnus.programmed_hblank_active"),
+        json!(true),
+    );
+    assert_eq!(
+        query_value(&runtime, "agnus.programmed_hblank_routed_active"),
+        json!(false),
+    );
+    assert_eq!(
+        query_value(&runtime, "denise.programmed_hblank_active"),
+        json!(false),
+    );
+
+    runtime.machine_mut().poke_word(0x00DF_F1DC, 0x0028); // PAL | BLANKEN
+    assert_eq!(
+        query_value(&runtime, "agnus.programmed_hblank_routed_active"),
+        json!(false),
+        "enabling BLANKEN after HBSTRT must not synthesize a routed event",
+    );
+    assert_eq!(
+        query_value(&runtime, "chipset.programmed_hblank_output_active"),
+        json!(false),
+    );
+}
+
+#[test]
+fn aga_queries_expose_lisa_and_composed_hblank_state() {
+    let mut runtime = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    runtime.machine_mut().poke_word(0x00DF_F1C4, 0x0040); // HBSTRT
+    runtime.machine_mut().poke_word(0x00DF_F1C6, 0x0080); // HBSTOP
+    runtime.machine_mut().poke_word(0x00DF_F100, 0x0001); // ECSENA
+    runtime.machine_mut().poke_word(0x00DF_F106, 0x0001); // EXTBLKEN
+
+    for _ in 0..2_048 {
+        runtime.machine_mut().tick();
+        if query_value(&runtime, "aga.programmed_hblank_active") == json!(true) {
+            break;
+        }
+    }
+
+    assert_eq!(
+        query_value(&runtime, "agnus.programmed_hblank_active"),
+        json!(true),
+        "Alice's coarse comparator history remains independently visible",
+    );
+    assert_eq!(
+        query_value(&runtime, "aga.programmed_hblank_active"),
+        json!(true),
+    );
+    assert_eq!(
+        query_value(&runtime, "denise.programmed_hblank_active"),
+        json!(true),
+    );
+    assert_eq!(
+        query_value(&runtime, "chipset.programmed_hblank_output_active"),
+        json!(true),
+    );
 }
 
 fn walk_all_paths(with_disk: bool) {
