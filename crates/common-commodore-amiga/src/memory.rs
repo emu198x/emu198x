@@ -60,6 +60,70 @@ enum RomRegion {
     },
 }
 
+/// Size and address-line mask for one mirrored memory region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryRegionDiagnosticSnapshot {
+    /// Number of bytes physically backed by the region.
+    pub size_bytes: usize,
+    /// Mask applied to a decoded address before indexing the region.
+    pub address_mask: u32,
+}
+
+/// Installed Amiga ROM implementation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryRomKind {
+    /// A conventional Kickstart ROM mirrored through its decode window.
+    Standard,
+    /// The A1000 bootstrap-ROM and writable-control-store arrangement.
+    A1000,
+}
+
+/// Side-effect-free description of an A1000 ROM arrangement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct A1000RomDiagnosticSnapshot {
+    /// Physical bootstrap-ROM topology.
+    pub boot_rom: MemoryRegionDiagnosticSnapshot,
+    /// Physical writable-control-store topology.
+    pub wom: MemoryRegionDiagnosticSnapshot,
+    /// Whether the bootstrap ROM currently supplies its decoded reads.
+    pub boot_rom_visible: bool,
+    /// Whether writes to the WOM are currently inhibited.
+    pub wom_locked: bool,
+}
+
+/// Side-effect-free description of the installed ROM implementation.
+///
+/// `standard` is populated only for [`MemoryRomKind::Standard`], while
+/// `a1000` is populated only for [`MemoryRomKind::A1000`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryRomDiagnosticSnapshot {
+    /// Installed ROM implementation.
+    pub kind: MemoryRomKind,
+    /// Physical topology of a conventional Kickstart ROM.
+    pub standard: Option<MemoryRegionDiagnosticSnapshot>,
+    /// Physical topology and state of an A1000 ROM arrangement.
+    pub a1000: Option<A1000RomDiagnosticSnapshot>,
+}
+
+/// Side-effect-free snapshot of the Amiga memory map's topology and state.
+///
+/// Memory payload bytes are intentionally excluded. Inspecting the snapshot
+/// cannot drive or otherwise mutate the emulated bus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryDiagnosticSnapshot {
+    /// Installed chip-RAM topology.
+    pub chip_ram: MemoryRegionDiagnosticSnapshot,
+    /// Installed slow-RAM size in bytes, or zero when no bank is present.
+    pub slow_ram_size_bytes: usize,
+    /// Installed ROM implementation and its physical topology.
+    pub rom: MemoryRomDiagnosticSnapshot,
+    /// Whether ROM reads are currently overlaid onto low memory.
+    pub overlay: bool,
+    /// Most recent 16-bit value driven onto the tracked chip bus.
+    pub floating_bus_word: u16,
+}
+
 /// Default chip-RAM size used by `Memory::new` and the A500 bare
 /// factory — 512 KiB, the stock A500 config.
 pub const DEFAULT_CHIP_RAM_SIZE: usize = 512 * 1024;
@@ -269,6 +333,57 @@ impl Memory {
         self.last_bus_value.set(val);
     }
 
+    /// Capture the memory map's topology and current control state.
+    ///
+    /// Backing payload bytes are deliberately omitted.
+    #[must_use]
+    pub fn diagnostic_snapshot(&self) -> MemoryDiagnosticSnapshot {
+        let rom = match &self.rom {
+            RomRegion::Standard { rom, rom_mask } => MemoryRomDiagnosticSnapshot {
+                kind: MemoryRomKind::Standard,
+                standard: Some(MemoryRegionDiagnosticSnapshot {
+                    size_bytes: rom.len(),
+                    address_mask: *rom_mask,
+                }),
+                a1000: None,
+            },
+            RomRegion::A1000 {
+                boot_rom,
+                boot_rom_mask,
+                wom,
+                wom_mask,
+                boot_rom_visible,
+                wom_locked,
+            } => MemoryRomDiagnosticSnapshot {
+                kind: MemoryRomKind::A1000,
+                standard: None,
+                a1000: Some(A1000RomDiagnosticSnapshot {
+                    boot_rom: MemoryRegionDiagnosticSnapshot {
+                        size_bytes: boot_rom.len(),
+                        address_mask: *boot_rom_mask,
+                    },
+                    wom: MemoryRegionDiagnosticSnapshot {
+                        size_bytes: wom.len(),
+                        address_mask: *wom_mask,
+                    },
+                    boot_rom_visible: *boot_rom_visible,
+                    wom_locked: *wom_locked,
+                }),
+            },
+        };
+
+        MemoryDiagnosticSnapshot {
+            chip_ram: MemoryRegionDiagnosticSnapshot {
+                size_bytes: self.chip_ram.len(),
+                address_mask: self.chip_ram_mask,
+            },
+            slow_ram_size_bytes: self.slow_ram.len(),
+            rom,
+            overlay: self.overlay,
+            floating_bus_word: self.last_bus_value.get(),
+        }
+    }
+
     /// Update the floating bus with the byte-slot corresponding to a
     /// single-byte transaction. The chip bus is 16 bits wide; at even
     /// address the high byte is "live", at odd address the low byte.
@@ -310,48 +425,72 @@ impl Memory {
         word
     }
 
+    /// Inspect one byte through the active memory map without driving the bus.
+    #[must_use]
+    pub fn peek_byte(&self, addr: u32) -> u8 {
+        self.peek_byte_inner(addr).0
+    }
+
+    /// Inspect one big-endian word through the active memory map without
+    /// driving the bus.
+    #[must_use]
+    pub fn peek_word(&self, addr: u32) -> u16 {
+        let hi = self.peek_byte(addr);
+        let lo = self.peek_byte(addr.wrapping_add(1));
+        (u16::from(hi) << 8) | u16::from(lo)
+    }
+
+    /// Inspect one big-endian longword through the active memory map without
+    /// driving the bus.
+    #[must_use]
+    pub fn peek_long(&self, addr: u32) -> u32 {
+        let hi = self.peek_word(addr);
+        let lo = self.peek_word(addr.wrapping_add(2));
+        (u32::from(hi) << 16) | u32::from(lo)
+    }
+
     /// Read one byte from the active memory map.
     #[must_use]
     pub fn read_byte(&self, addr: u32) -> u8 {
+        let (byte, drives_bus) = self.peek_byte_inner(addr);
+        if drives_bus {
+            self.update_bus_from_byte(addr, byte);
+        }
+        byte
+    }
+
+    fn peek_byte_inner(&self, addr: u32) -> (u8, bool) {
         let addr = addr & 0xFF_FFFF;
 
         // OVL routes low-memory READS to ROM when active.
         if self.overlay && (OVL_BASE..OVL_TOP).contains(&addr) {
-            let byte = self.overlay_rom_byte(addr);
-            self.update_bus_from_byte(addr, byte);
-            return byte;
+            return (self.overlay_rom_byte(addr), true);
         }
 
         // Chip RAM, with incomplete address decode (Agnus 19-bit
         // address bus → addresses above 512K alias back).
         if (CHIP_RAM_DECODE_BASE..CHIP_RAM_DECODE_TOP).contains(&addr) {
-            let byte = self.chip_ram[(addr & self.chip_ram_mask) as usize];
-            self.update_bus_from_byte(addr, byte);
-            return byte;
+            return (self.chip_ram[(addr & self.chip_ram_mask) as usize], true);
         }
 
         // Slow RAM (trapdoor) at $C00000, up to installed size.
         if addr >= SLOW_RAM_BASE && !self.slow_ram.is_empty() {
             let off = (addr - SLOW_RAM_BASE) as usize;
             if off < self.slow_ram.len() {
-                let byte = self.slow_ram[off];
-                self.update_bus_from_byte(addr, byte);
-                return byte;
+                return (self.slow_ram[off], true);
             }
         }
 
         // ROM at its anchor.
         if (ROM_BASE..ROM_TOP).contains(&addr) {
-            let byte = self.rom_window_byte(addr);
-            self.update_bus_from_byte(addr, byte);
-            return byte;
+            return (self.rom_window_byte(addr), true);
         }
 
         // Unmapped read: no device responds, so the bus floats high.
         // Archive parity and the current autoconfig probe expect
         // absent devices to read back as open bus ($FF bytes / $FFFF
         // words), not as residue from the previous transfer.
-        0xFF
+        (0xFF, false)
     }
 
     /// Read one word (big-endian) from the active memory map.
@@ -720,6 +859,73 @@ mod tests {
     }
 
     #[test]
+    fn standard_memory_peeks_follow_active_mappings_without_driving_bus() {
+        let mut mem = Memory::new_with_ram(test_rom(), 512 * 1024, 512 * 1024);
+        mem.write_word(0x0000_0100, 0x1234);
+        mem.write_word(0x00C0_0000, 0x5678);
+        mem.set_last_bus_value(0xA55A);
+
+        assert_eq!(mem.peek_byte(0x0000_0000), 0xDE);
+        assert_eq!(mem.peek_word(0x0000_0002), 0xBEEF);
+        assert_eq!(mem.peek_long(0x0000_0004), 0xCAFE_BABE);
+        assert_eq!(mem.peek_long(0x00F8_0000), 0xDEAD_BEEF);
+        assert_eq!(mem.last_bus_value(), 0xA55A);
+
+        mem.set_overlay(false);
+        assert_eq!(mem.peek_word(0x0000_0100), 0x1234);
+        assert_eq!(mem.peek_word(0x00C0_0000), 0x5678);
+        assert_eq!(mem.peek_word(0x00A0_0000), 0xFFFF);
+        assert_eq!(mem.last_bus_value(), 0xA55A);
+    }
+
+    #[test]
+    fn normal_reads_still_drive_bus_after_non_driving_peeks() {
+        let mem = Memory::new(test_rom());
+        mem.set_last_bus_value(0x1357);
+
+        assert_eq!(mem.peek_long(0x0000_0000), 0xDEAD_BEEF);
+        assert_eq!(mem.last_bus_value(), 0x1357);
+
+        assert_eq!(mem.read_byte(0x0000_0000), 0xDE);
+        assert_eq!(mem.last_bus_value(), 0xDE57);
+        assert_eq!(mem.read_word(0x0000_0002), 0xBEEF);
+        assert_eq!(mem.last_bus_value(), 0xBEEF);
+        assert_eq!(mem.read_long(0x0000_0004), 0xCAFE_BABE);
+        assert_eq!(mem.last_bus_value(), 0xBABE);
+    }
+
+    #[test]
+    fn standard_memory_diagnostic_snapshot_exposes_topology_without_payload() {
+        let mem = Memory::new_with_ram(test_rom(), 1024 * 1024, 512 * 1024);
+        mem.set_last_bus_value(0xCAFE);
+
+        let snapshot = mem.diagnostic_snapshot();
+        let expected = MemoryDiagnosticSnapshot {
+            chip_ram: MemoryRegionDiagnosticSnapshot {
+                size_bytes: 1024 * 1024,
+                address_mask: 0x0F_FFFF,
+            },
+            slow_ram_size_bytes: 512 * 1024,
+            rom: MemoryRomDiagnosticSnapshot {
+                kind: MemoryRomKind::Standard,
+                standard: Some(MemoryRegionDiagnosticSnapshot {
+                    size_bytes: 256 * 1024,
+                    address_mask: 0x03_FFFF,
+                }),
+                a1000: None,
+            },
+            overlay: true,
+            floating_bus_word: 0xCAFE,
+        };
+        assert_eq!(snapshot, expected);
+
+        let encoded = postcard::to_allocvec(&snapshot).expect("serialize memory diagnostics");
+        let restored: MemoryDiagnosticSnapshot =
+            postcard::from_bytes(&encoded).expect("deserialize memory diagnostics");
+        assert_eq!(restored, snapshot);
+    }
+
+    #[test]
     fn chip_ram_1m_decodes_full_range_without_aliasing() {
         // With 1 MiB of chip RAM installed, writes at $0000 and
         // $80000 must land in distinct bytes (no 19-bit aliasing).
@@ -794,6 +1000,69 @@ mod tests {
         assert!(!mem.a1000_wom_locked());
         assert_eq!(mem.read_word(0x00FC_0000), 0xCAFE);
         assert_eq!(mem.read_word(0x00F8_0000), 0xAA55);
+    }
+
+    #[test]
+    fn a1000_peeks_follow_boot_rom_and_wom_without_driving_bus() {
+        let mut mem = Memory::new_a1000_bootstrap_with_ram(test_boot_rom(), 256 * 1024, 0);
+        mem.write_word(0x00FC_0000, 0xCAFE);
+        mem.set_last_bus_value(0x5AA5);
+
+        assert_eq!(mem.peek_long(0x0000_0000), 0xAA55_1234);
+        assert_eq!(mem.peek_word(0x00F8_0000), 0xAA55);
+        assert_eq!(mem.peek_word(0x00FC_0000), 0xCAFE);
+        assert_eq!(mem.last_bus_value(), 0x5AA5);
+
+        mem.write_word(0x00F8_0000, 0xBEEF);
+        assert!(!mem.a1000_boot_rom_visible());
+        assert!(mem.a1000_wom_locked());
+        mem.set_last_bus_value(0xA55A);
+
+        assert_eq!(mem.peek_word(0x0000_0000), 0xCAFE);
+        assert_eq!(mem.peek_word(0x00F8_0000), 0xCAFE);
+        assert_eq!(mem.peek_word(0x00FC_0000), 0xCAFE);
+        assert_eq!(mem.last_bus_value(), 0xA55A);
+    }
+
+    #[test]
+    fn a1000_memory_diagnostic_snapshot_exposes_both_rom_regions() {
+        let mut mem = Memory::new_a1000_bootstrap_with_ram(test_boot_rom(), 256 * 1024, 0);
+        mem.write_word(0x00F8_0000, 0xBEEF);
+        mem.set_overlay(false);
+        mem.set_last_bus_value(0x1234);
+
+        let snapshot = mem.diagnostic_snapshot();
+        let expected = MemoryDiagnosticSnapshot {
+            chip_ram: MemoryRegionDiagnosticSnapshot {
+                size_bytes: 256 * 1024,
+                address_mask: 0x03_FFFF,
+            },
+            slow_ram_size_bytes: 0,
+            rom: MemoryRomDiagnosticSnapshot {
+                kind: MemoryRomKind::A1000,
+                standard: None,
+                a1000: Some(A1000RomDiagnosticSnapshot {
+                    boot_rom: MemoryRegionDiagnosticSnapshot {
+                        size_bytes: 64 * 1024,
+                        address_mask: 0x00_FFFF,
+                    },
+                    wom: MemoryRegionDiagnosticSnapshot {
+                        size_bytes: 256 * 1024,
+                        address_mask: 0x03_FFFF,
+                    },
+                    boot_rom_visible: false,
+                    wom_locked: true,
+                }),
+            },
+            overlay: false,
+            floating_bus_word: 0x1234,
+        };
+        assert_eq!(snapshot, expected);
+
+        let encoded = postcard::to_allocvec(&snapshot).expect("serialize memory diagnostics");
+        let restored: MemoryDiagnosticSnapshot =
+            postcard::from_bytes(&encoded).expect("deserialize memory diagnostics");
+        assert_eq!(restored, snapshot);
     }
 
     #[test]

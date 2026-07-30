@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add non-driving active-map memory peeks and a payload-free diagnostic snapshot
+  of installed memory topology, ROM state, overlay, and floating-bus value
 - Add a shared side-effect-free controller-port input snapshot
 - Expose the pending CPU-domain motherboard admission slot through a
   non-consuming diagnostic getter
