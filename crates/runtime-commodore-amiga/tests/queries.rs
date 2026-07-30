@@ -120,7 +120,38 @@ fn cpu_group_exposes_the_complete_bounded_schema() {
     assert_eq!(cpu["sr"], query_value(&runtime, "cpu.sr"));
     assert_eq!(cpu["ipl"], query_value(&runtime, "cpu.ipl"));
     assert_eq!(cpu["execution"]["micro_op_capacity"], json!(32));
+    let pending_micro_ops = cpu["execution"]["pending_micro_ops"]
+        .as_array()
+        .expect("pending CPU micro-operations should be a fixed array");
+    assert_eq!(pending_micro_ops.len(), 32);
+    let pending_count = cpu["execution"]["micro_op_count"]
+        .as_u64()
+        .expect("micro-operation count should be numeric") as usize;
+    assert!(
+        pending_micro_ops[..pending_count]
+            .iter()
+            .all(|operation| !operation.is_null()),
+        "the active queue prefix must contain ordered operations",
+    );
+    assert!(
+        pending_micro_ops[pending_count..]
+            .iter()
+            .all(Value::is_null),
+        "unused queue positions must be explicit nulls",
+    );
+    assert_eq!(
+        cpu["execution"]["next_micro_op"],
+        pending_micro_ops.first().cloned().unwrap_or(Value::Null),
+    );
     assert_eq!(cpu["cache"]["data_state_present"], json!(false));
+    let cache_lines = cpu["cache"]["lines"]
+        .as_array()
+        .expect("CPU cache lines should be a fixed array");
+    assert_eq!(cache_lines.len(), 64);
+    assert!(
+        cache_lines.iter().all(Value::is_null),
+        "a CPU without an installed cache must not synthesize cache contents",
+    );
     assert_eq!(cpu["pipelines"]["fpu"]["frame_buffer_capacity"], json!(60),);
     assert_eq!(
         cpu["pipelines"]["fpu"]["frame_buffer"]
@@ -154,6 +185,30 @@ fn cpu_group_distinguishes_stock_ocs_ecs_aga_and_accelerated_models() {
     assert_eq!(
         query_value(&aga, "cpu.cache.instruction_state_present"),
         json!(true),
+    );
+    let aga_cache_lines = query_value(&aga, "cpu.cache.lines");
+    let aga_cache_lines = aga_cache_lines
+        .as_array()
+        .expect("installed instruction cache should expose all lines");
+    assert_eq!(aga_cache_lines.len(), 64);
+    assert!(
+        aga_cache_lines.iter().all(Value::is_object),
+        "every installed cache line should have a summary",
+    );
+    let mut line_fields: Vec<&str> = aga_cache_lines[0]
+        .as_object()
+        .expect("cache line should be an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    line_fields.sort_unstable();
+    assert_eq!(line_fields, ["index", "tag", "valid", "words"]);
+    assert!(
+        aga_cache_lines
+            .iter()
+            .enumerate()
+            .all(|(index, line)| line["index"] == json!(index)),
+        "cache line summaries must retain hardware index order",
     );
     assert_eq!(query_value(&aga, "cpu.capabilities.fpu"), json!(false),);
 

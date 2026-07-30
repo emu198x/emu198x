@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 /// Number of direct-mapped entries. 68020: 64 long-word lines = 256 B.
-const ENTRIES: usize = 64;
+pub const INSTRUCTION_CACHE_LINE_COUNT: usize = 64;
 
 /// One cache line: a long word (two instruction words) plus a tag and a
 /// validity bit per word.
@@ -55,6 +55,19 @@ struct Line {
     words: [u16; 2],
     /// Validity, one bit per word.
     valid: [bool; 2],
+}
+
+/// Stable diagnostic projection of one direct-mapped instruction-cache line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ICacheLineDiagnosticSnapshot {
+    /// Direct-mapped line index.
+    pub index: u8,
+    /// Address/function-code tag retained by the line.
+    pub tag: u32,
+    /// Even- and odd-offset instruction words.
+    pub words: [u16; 2],
+    /// Per-word validity flags used by the current compatibility model.
+    pub valid: [bool; 2],
 }
 
 impl Line {
@@ -77,7 +90,7 @@ impl Line {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ICache {
     #[serde(with = "BigArray")]
-    lines: [Line; ENTRIES],
+    lines: [Line; INSTRUCTION_CACHE_LINE_COUNT],
 }
 
 impl Default for ICache {
@@ -91,7 +104,7 @@ impl ICache {
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            lines: [Line::empty(); ENTRIES],
+            lines: [Line::empty(); INSTRUCTION_CACHE_LINE_COUNT],
         }
     }
 
@@ -158,20 +171,38 @@ impl ICache {
     /// Number of direct-mapped long-word lines in this cache model.
     #[must_use]
     pub const fn line_capacity(&self) -> usize {
-        ENTRIES
+        INSTRUCTION_CACHE_LINE_COUNT
     }
 
     /// Number of independently tracked instruction words.
     #[must_use]
     pub const fn word_capacity(&self) -> usize {
-        ENTRIES * 2
+        INSTRUCTION_CACHE_LINE_COUNT * 2
+    }
+
+    /// All direct-mapped lines in hardware index order.
+    ///
+    /// Invalid lines retain their tag and word values because those values can
+    /// explain divergence around invalidation and refill boundaries even
+    /// though they cannot currently produce a hit.
+    #[must_use]
+    pub fn diagnostic_lines(&self) -> [ICacheLineDiagnosticSnapshot; INSTRUCTION_CACHE_LINE_COUNT] {
+        core::array::from_fn(|index| {
+            let line = self.lines[index];
+            ICacheLineDiagnosticSnapshot {
+                index: index as u8,
+                tag: line.tag,
+                words: line.words,
+                valid: line.valid,
+            }
+        })
     }
 }
 
 /// Direct-mapped line index: address bits [7:2].
 #[inline]
 fn index(addr: u32) -> usize {
-    ((addr >> 2) as usize) & (ENTRIES - 1)
+    ((addr >> 2) as usize) & (INSTRUCTION_CACHE_LINE_COUNT - 1)
 }
 
 /// Word offset within the long-word line: address bit 1.
@@ -253,5 +284,49 @@ mod tests {
         c.clear_entry(0x1000);
         assert_eq!(c.lookup(0x1000, false), None);
         assert_eq!(c.lookup(0x1004, false), Some(0x5678));
+    }
+
+    #[test]
+    fn diagnostic_lines_preserve_index_tag_words_and_validity() {
+        let mut cache = ICache::new();
+        cache.fill(0x1000, true, 0xAAAA);
+        cache.fill(0x1002, true, 0x5555);
+        cache.fill(0x1004, false, 0x1234);
+
+        let lines = cache.diagnostic_lines();
+
+        assert!(
+            lines
+                .iter()
+                .enumerate()
+                .all(|(index, line)| usize::from(line.index) == index),
+        );
+        assert_eq!(
+            lines[0],
+            ICacheLineDiagnosticSnapshot {
+                index: 0,
+                tag: key(0x1000, true),
+                words: [0xAAAA, 0x5555],
+                valid: [true, true],
+            },
+        );
+        assert_eq!(
+            lines[1],
+            ICacheLineDiagnosticSnapshot {
+                index: 1,
+                tag: key(0x1004, false),
+                words: [0x1234, 0],
+                valid: [true, false],
+            },
+        );
+        assert_eq!(
+            lines[INSTRUCTION_CACHE_LINE_COUNT - 1],
+            ICacheLineDiagnosticSnapshot {
+                index: (INSTRUCTION_CACHE_LINE_COUNT - 1) as u8,
+                tag: 0,
+                words: [0, 0],
+                valid: [false, false],
+            },
+        );
     }
 }

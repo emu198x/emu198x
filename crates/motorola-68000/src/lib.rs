@@ -46,5 +46,5 @@ pub use cpu::{
     CpuPrefetchDiagnosticSnapshot, CpuRteDiagnosticSnapshot, CpuStatusDiagnosticSnapshot,
     CpuVariantDiagnosticSnapshot,
 };
-pub use icache::ICache;
+pub use icache::{ICache, ICacheLineDiagnosticSnapshot, INSTRUCTION_CACHE_LINE_COUNT};
 pub use motorola_68k_common::{CpuCapabilities, CpuModel, TimingClass};

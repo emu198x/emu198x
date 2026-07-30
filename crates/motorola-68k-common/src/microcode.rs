@@ -11,7 +11,8 @@
 
 use serde::{Deserialize, Serialize};
 
-const QUEUE_CAPACITY: usize = 32;
+/// Maximum number of pending micro-operations retained by one CPU.
+pub const MICRO_OP_QUEUE_CAPACITY: usize = 32;
 
 /// A single micro-operation in the CPU pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,7 +106,7 @@ impl MicroOp {
 /// allocation.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MicroOpQueue {
-    ops: [MicroOp; QUEUE_CAPACITY],
+    ops: [MicroOp; MICRO_OP_QUEUE_CAPACITY],
     head: u8,
     len: u8,
 }
@@ -116,7 +117,7 @@ impl MicroOpQueue {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
-            ops: [MicroOp::Internal(0); QUEUE_CAPACITY],
+            ops: [MicroOp::Internal(0); MICRO_OP_QUEUE_CAPACITY],
             head: 0,
             len: 0,
         }
@@ -124,7 +125,7 @@ impl MicroOpQueue {
 
     /// Push a micro-op to the back of the queue.
     pub fn push(&mut self, op: MicroOp) {
-        let idx = (self.head as usize + self.len as usize) % QUEUE_CAPACITY;
+        let idx = (self.head as usize + self.len as usize) % MICRO_OP_QUEUE_CAPACITY;
         self.ops[idx] = op;
         self.len += 1;
     }
@@ -133,7 +134,7 @@ impl MicroOpQueue {
     /// to insert a FetchIRC before whatever comes next).
     pub fn push_front(&mut self, op: MicroOp) {
         self.head = if self.head == 0 {
-            (QUEUE_CAPACITY - 1) as u8
+            (MICRO_OP_QUEUE_CAPACITY - 1) as u8
         } else {
             self.head - 1
         };
@@ -147,7 +148,7 @@ impl MicroOpQueue {
             return None;
         }
         let op = self.ops[self.head as usize];
-        self.head = ((self.head as usize + 1) % QUEUE_CAPACITY) as u8;
+        self.head = ((self.head as usize + 1) % MICRO_OP_QUEUE_CAPACITY) as u8;
         self.len -= 1;
         Some(op)
     }
@@ -171,7 +172,23 @@ impl MicroOpQueue {
     /// Maximum number of pending micro-operations retained by the queue.
     #[must_use]
     pub const fn capacity(&self) -> usize {
-        QUEUE_CAPACITY
+        MICRO_OP_QUEUE_CAPACITY
+    }
+
+    /// Ordered pending operations, followed by `None` in unused slots.
+    ///
+    /// The fixed array is a diagnostic copy rather than a view of the circular
+    /// storage, so consumers see logical FIFO order regardless of wraparound.
+    #[must_use]
+    pub fn diagnostic_operations(&self) -> [Option<MicroOp>; MICRO_OP_QUEUE_CAPACITY] {
+        let mut pending = [None; MICRO_OP_QUEUE_CAPACITY];
+        let mut position = 0;
+        while position < self.len as usize {
+            let index = (self.head as usize + position) % MICRO_OP_QUEUE_CAPACITY;
+            pending[position] = Some(self.ops[index]);
+            position += 1;
+        }
+        pending
     }
 
     /// Returns true if the queue has no pending ops.
@@ -191,7 +208,7 @@ impl MicroOpQueue {
     pub fn debug_contents(&self) -> String {
         let mut out = String::from("[");
         for i in 0..self.len as usize {
-            let idx = (self.head as usize + i) % QUEUE_CAPACITY;
+            let idx = (self.head as usize + i) % MICRO_OP_QUEUE_CAPACITY;
             if i > 0 {
                 out.push_str(", ");
             }
@@ -199,5 +216,39 @@ impl MicroOpQueue {
         }
         out.push(']');
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagnostic_operations_preserve_fifo_order_across_storage_wrap() {
+        let mut queue = MicroOpQueue::new();
+        for cycles in 0..30 {
+            queue.push(MicroOp::Internal(cycles));
+        }
+        for _ in 0..29 {
+            assert!(queue.pop().is_some());
+        }
+        queue.push(MicroOp::ReadWord);
+        queue.push(MicroOp::WriteByte);
+        queue.push(MicroOp::FetchIRC);
+
+        let pending = queue.diagnostic_operations();
+
+        assert_eq!(
+            &pending[..4],
+            &[
+                Some(MicroOp::Internal(29)),
+                Some(MicroOp::ReadWord),
+                Some(MicroOp::WriteByte),
+                Some(MicroOp::FetchIRC),
+            ],
+        );
+        assert!(pending[4..].iter().all(Option::is_none));
+        assert_eq!(queue.len(), 4);
+        assert_eq!(queue.front(), Some(MicroOp::Internal(29)));
     }
 }

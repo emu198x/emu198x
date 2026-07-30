@@ -9,7 +9,8 @@ use crate::addressing::AddrMode;
 use crate::alu::Size;
 use crate::bus::{BusStatus, FunctionCode, TransferSize};
 use crate::flags::{C, N, V, X, Z};
-use crate::microcode::MicroOp;
+use crate::icache::{ICacheLineDiagnosticSnapshot, INSTRUCTION_CACHE_LINE_COUNT};
+use crate::microcode::{MICRO_OP_QUEUE_CAPACITY, MicroOp};
 use crate::registers::{FpReg, StackBank};
 use serde::Serialize;
 
@@ -196,8 +197,11 @@ pub struct CpuExecutionDiagnosticSnapshot {
     pub micro_op_count: usize,
     /// Fixed queue capacity.
     pub micro_op_capacity: usize,
-    /// Next queued operation, without exposing the complete mutable queue.
+    /// Fast alias of the first ordered pending operation.
     pub next_micro_op: Option<MicroOp>,
+    /// Complete pending queue in FIFO order, followed by `None` in unused
+    /// fixed-capacity slots.
+    pub pending_micro_ops: [Option<MicroOp>; MICRO_OP_QUEUE_CAPACITY],
     /// Current effective or bus address scratch register.
     pub address: u32,
     /// Current data and ALU scratch register.
@@ -516,7 +520,7 @@ pub struct CpuVariantDiagnosticSnapshot {
     pub master_stack_capable: bool,
 }
 
-/// Bounded instruction-cache state.
+/// Complete bounded instruction-cache state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct CpuCacheDiagnosticSnapshot {
     /// Whether the shared 68020-class instruction-cache model is installed.
@@ -539,6 +543,9 @@ pub struct CpuCacheDiagnosticSnapshot {
     pub valid_word_count: usize,
     /// Total independently tracked instruction words.
     pub word_capacity: usize,
+    /// All direct-mapped lines in hardware index order.
+    #[serde(with = "serde_big_array::BigArray")]
+    pub lines: [Option<ICacheLineDiagnosticSnapshot>; INSTRUCTION_CACHE_LINE_COUNT],
     /// Whether a mutable data-cache state model is currently installed.
     pub data_state_present: bool,
 }
@@ -704,6 +711,7 @@ impl Cpu68000 {
             micro_op_count: self.micro_ops.len(),
             micro_op_capacity: self.micro_ops.capacity(),
             next_micro_op: self.micro_ops.front(),
+            pending_micro_ops: self.micro_ops.diagnostic_operations(),
             address: self.addr,
             data: self.data,
             in_followup: self.in_followup,
@@ -854,15 +862,19 @@ impl Cpu68000 {
         let instruction_enabled = self.regs.cacr & 0x01 != 0;
         let instruction_frozen = self.regs.cacr & 0x02 != 0;
         let instruction_state_present = self.variant_icache.is_some();
-        let (valid_line_count, line_capacity, valid_word_count, word_capacity) =
-            self.variant_icache.as_ref().map_or((0, 0, 0, 0), |cache| {
-                (
-                    cache.valid_line_count(),
-                    cache.line_capacity(),
-                    cache.valid_word_count(),
-                    cache.word_capacity(),
-                )
-            });
+        let (valid_line_count, line_capacity, valid_word_count, word_capacity, lines) =
+            self.variant_icache.as_ref().map_or_else(
+                || (0, 0, 0, 0, [None; INSTRUCTION_CACHE_LINE_COUNT]),
+                |cache| {
+                    (
+                        cache.valid_line_count(),
+                        cache.line_capacity(),
+                        cache.valid_word_count(),
+                        cache.word_capacity(),
+                        cache.diagnostic_lines().map(Some),
+                    )
+                },
+            );
         let cache = CpuCacheDiagnosticSnapshot {
             instruction_state_present,
             instruction_enabled,
@@ -879,6 +891,7 @@ impl Cpu68000 {
             line_capacity,
             valid_word_count,
             word_capacity,
+            lines,
             data_state_present: false,
         };
 
@@ -921,6 +934,9 @@ mod tests {
         cpu.opcode_at_start = 0x4E71;
         cpu.ff_dp = 0x0123;
         cpu.fp_frame_done = 7;
+        cpu.micro_ops.push(MicroOp::ReadWord);
+        cpu.micro_ops.push(MicroOp::Internal(3));
+        cpu.micro_ops.push(MicroOp::WriteByte);
 
         let snapshot = cpu.diagnostic_snapshot();
 
@@ -931,11 +947,24 @@ mod tests {
         assert_eq!(snapshot.prefetch.opcode_at_start, 0x4E71);
         assert_eq!(snapshot.pipelines.full_format_ea.extension_word, 0x0123);
         assert_eq!(snapshot.pipelines.fpu.frame_bytes_done, 7);
+        assert_eq!(
+            &snapshot.execution.pending_micro_ops[..3],
+            &[
+                Some(MicroOp::ReadWord),
+                Some(MicroOp::Internal(3)),
+                Some(MicroOp::WriteByte),
+            ],
+        );
+        assert!(
+            snapshot.execution.pending_micro_ops[3..]
+                .iter()
+                .all(Option::is_none),
+        );
         assert_eq!(cpu.take_address_error_observation(), None);
     }
 
     #[test]
-    fn cache_snapshot_reports_counts_without_cache_payload() {
+    fn cache_snapshot_reports_counts_and_every_ordered_line() {
         let mut cpu = Cpu68000::new();
         let mut cache = crate::ICache::new();
         cache.fill(0x1000, true, 0x4E71);
@@ -952,6 +981,15 @@ mod tests {
         assert_eq!(cache.valid_word_count, 2);
         assert_eq!(cache.line_capacity, 64);
         assert_eq!(cache.word_capacity, 128);
+        let line0 = cache.lines[0].expect("filled cache line");
+        assert_eq!(line0.words, [0x4E71, 0x4E75]);
+        assert_eq!(line0.valid, [true, true]);
+        assert_eq!(line0.index, 0);
+        assert!(
+            cache.lines[1..]
+                .iter()
+                .all(|line| line.is_some_and(|line| line.valid == [false, false])),
+        );
         assert!(!cache.data_state_present);
     }
 
@@ -968,7 +1006,17 @@ mod tests {
         assert_eq!(object["sr"], serde_json::json!(0x2700));
         assert_eq!(object["ipl"], serde_json::json!(0));
         assert_eq!(object["execution"]["micro_op_count"], serde_json::json!(0));
+        assert_eq!(
+            object["execution"]["pending_micro_ops"]
+                .as_array()
+                .map(Vec::len),
+            Some(MICRO_OP_QUEUE_CAPACITY),
+        );
         assert_eq!(object["cache"]["valid_word_count"], serde_json::json!(0));
+        assert_eq!(
+            object["cache"]["lines"].as_array().map(Vec::len),
+            Some(INSTRUCTION_CACHE_LINE_COUNT),
+        );
         assert_eq!(
             object["pipelines"]["fpu"]["frame_buffer"]
                 .as_array()
