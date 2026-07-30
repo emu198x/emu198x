@@ -36,6 +36,7 @@ use commodore_denise_aga::DeniseAgaDiagnosticSnapshot;
 use commodore_denise_ocs::DeniseDiagnosticSnapshot;
 use commodore_gary::GaryDiagnosticSnapshot;
 use commodore_gayle::GayleDiagnosticSnapshot;
+use common_commodore_amiga::denise::DeniseBoardPipelineDiagnosticSnapshot;
 use common_commodore_amiga::memory::MemoryDiagnosticSnapshot;
 use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_a1200::AmigaA1200;
@@ -363,6 +364,9 @@ pub trait AmigaLiveAccess {
     /// Complete common Denise rendering-core state.
     fn denise_diagnostic_snapshot(&self) -> DeniseDiagnosticSnapshot;
 
+    /// Complete bounded line state owned by the board-level Denise wrapper.
+    fn denise_board_pipeline_diagnostic_snapshot(&self) -> DeniseBoardPipelineDiagnosticSnapshot;
+
     /// Complete mutable state owned by AGA Lisa outside its wrapped ECS/OCS
     /// core. OCS and ECS machines return `None`.
     fn aga_denise_diagnostic_snapshot(&self) -> Option<DeniseAgaDiagnosticSnapshot> {
@@ -675,6 +679,10 @@ impl AmigaLiveAccess for AmigaOcs {
         self.denise().ocs.diagnostic_snapshot()
     }
 
+    fn denise_board_pipeline_diagnostic_snapshot(&self) -> DeniseBoardPipelineDiagnosticSnapshot {
+        self.denise().board_pipeline_diagnostic_snapshot()
+    }
+
     fn cia_a(&self) -> &Cia {
         AmigaOcs::cia_a(self)
     }
@@ -966,6 +974,10 @@ impl AmigaLiveAccess for AmigaEcs {
         self.denise().ocs.diagnostic_snapshot()
     }
 
+    fn denise_board_pipeline_diagnostic_snapshot(&self) -> DeniseBoardPipelineDiagnosticSnapshot {
+        self.denise().board_pipeline_diagnostic_snapshot()
+    }
+
     fn cia_a(&self) -> &Cia {
         AmigaEcs::cia_a(self)
     }
@@ -1255,6 +1267,10 @@ impl AmigaLiveAccess for AmigaA1200 {
             .as_inner()
             .as_inner()
             .diagnostic_snapshot()
+    }
+
+    fn denise_board_pipeline_diagnostic_snapshot(&self) -> DeniseBoardPipelineDiagnosticSnapshot {
+        self.denise().board_pipeline_diagnostic_snapshot()
     }
 
     fn aga_denise_diagnostic_snapshot(&self) -> Option<DeniseAgaDiagnosticSnapshot> {
@@ -1650,6 +1666,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => rt.machine().denise_diagnostic_snapshot(),
             Self::Ecs(rt) => rt.machine().denise_diagnostic_snapshot(),
             Self::Aga(rt) => rt.machine().denise_diagnostic_snapshot(),
+        }
+    }
+
+    fn denise_board_pipeline_diagnostic_snapshot(&self) -> DeniseBoardPipelineDiagnosticSnapshot {
+        match self {
+            Self::Ocs(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
+            Self::Ecs(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
+            Self::Aga(rt) => rt.machine().denise_board_pipeline_diagnostic_snapshot(),
         }
     }
 

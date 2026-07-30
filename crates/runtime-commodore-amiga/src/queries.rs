@@ -940,7 +940,9 @@ pub(crate) fn agnus_snapshot(m: &dyn AmigaLiveAccess) -> Value {
 pub(crate) fn denise_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     let denise = m.enhanced_denise();
     let core = m.denise_diagnostic_snapshot();
+    let board_pipeline = m.denise_board_pipeline_diagnostic_snapshot();
     let mut snapshot = json!({
+        "board_pipeline": board_pipeline,
         "palette_12": core.palette_12,
         "palette_24": core.palette_24.to_vec(),
         "raster_width": core.raster_width,

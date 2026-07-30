@@ -118,6 +118,32 @@ struct PriorLineRasterContext {
     interlace_row: Option<u8>,
 }
 
+/// Side-effect-free view of the preceding physical line retained while Denise
+/// completes its post-wrap raster tail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DenisePriorLineRasterDiagnosticSnapshot {
+    pub vpos: u16,
+    pub line_ccks: u16,
+    pub vbl_count: u64,
+    pub ddf_start: Option<u16>,
+    pub pipeline_y: u32,
+    pub vertical_diw_active: bool,
+    pub interlace_row: Option<u8>,
+}
+
+/// Complete bounded view of mutable line state owned by the board-level
+/// Denise wrapper.
+///
+/// The concrete chip pipeline is exposed by its own diagnostic snapshot. The
+/// framebuffer remains available through [`Denise::framebuffer`] and is not
+/// copied into this snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DeniseBoardPipelineDiagnosticSnapshot {
+    pub bytes_this_line: u32,
+    pub last_begin_line: Option<u16>,
+    pub prior_line_raster: Option<DenisePriorLineRasterDiagnosticSnapshot>,
+}
+
 /// Decode a DIWSTRT/DIWSTOP register pair into the effective vertical
 /// display window `[vstart, vstop)` in absolute line numbers.
 ///
@@ -238,6 +264,27 @@ impl<C: DeniseChip> Denise<C> {
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         &self.framebuffer
+    }
+
+    /// Inspect board-owned line and raster-tail state without advancing the
+    /// renderer or copying framebuffer pixels.
+    #[must_use]
+    pub fn board_pipeline_diagnostic_snapshot(&self) -> DeniseBoardPipelineDiagnosticSnapshot {
+        DeniseBoardPipelineDiagnosticSnapshot {
+            bytes_this_line: self.bytes_this_line,
+            last_begin_line: self.last_begin_line,
+            prior_line_raster: self.prior_line_raster.map(|prior| {
+                DenisePriorLineRasterDiagnosticSnapshot {
+                    vpos: prior.vpos,
+                    line_ccks: prior.line_ccks,
+                    vbl_count: prior.vbl_count,
+                    ddf_start: prior.ddf_start,
+                    pipeline_y: prior.pipeline_y,
+                    vertical_diw_active: prior.vertical_diw_active,
+                    interlace_row: prior.interlace_row,
+                }
+            }),
+        }
     }
 
     /// Number of fields whose final displayed raster row is complete.
@@ -838,6 +885,76 @@ mod tests {
             "fixed HBLANK start must begin the new Denise display line",
         );
         assert!(denise.prior_line_raster.is_none());
+    }
+
+    #[test]
+    fn board_pipeline_snapshot_tracks_fetch_and_prior_line_context() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let memory = Memory::new(vec![0; 2]);
+        let mut agnus = Agnus::new();
+        let mut denise = Denise::<DeniseOcs>::new();
+        assert_eq!(
+            denise.board_pipeline_diagnostic_snapshot(),
+            DeniseBoardPipelineDiagnosticSnapshot {
+                bytes_this_line: 0,
+                last_begin_line: None,
+                prior_line_raster: None,
+            },
+        );
+
+        agnus.vpos = 0x002C;
+        agnus.hpos = 0x0040;
+        agnus.vbl_count = 7;
+        agnus.diwstrt = 0x2C81;
+        agnus.diwstop = 0x2CC1;
+        let line_ccks = agnus.current_line_ccks();
+        denise.tick(
+            0,
+            Some(BitplaneDmaFetch {
+                plane: 0,
+                width_words: 1,
+            }),
+            true,
+            &mut agnus,
+            &memory,
+            line_ccks,
+        );
+        assert_eq!(
+            denise.board_pipeline_diagnostic_snapshot(),
+            DeniseBoardPipelineDiagnosticSnapshot {
+                bytes_this_line: 2,
+                last_begin_line: Some(0x002C),
+                prior_line_raster: None,
+            },
+        );
+
+        agnus.hpos = line_ccks - 1;
+        denise.tick(1, None, true, &mut agnus, &memory, line_ccks);
+        assert_eq!(
+            denise.board_pipeline_diagnostic_snapshot(),
+            DeniseBoardPipelineDiagnosticSnapshot {
+                bytes_this_line: 2,
+                last_begin_line: Some(0x002C),
+                prior_line_raster: Some(DenisePriorLineRasterDiagnosticSnapshot {
+                    vpos: 0x002C,
+                    line_ccks,
+                    vbl_count: 7,
+                    ddf_start: None,
+                    pipeline_y: 0,
+                    vertical_diw_active: true,
+                    interlace_row: None,
+                }),
+            },
+        );
+
+        agnus.vpos += 1;
+        agnus.hpos = 0x0012;
+        denise.tick(0, None, true, &mut agnus, &memory, line_ccks);
+        let retired = denise.board_pipeline_diagnostic_snapshot();
+        assert_eq!(retired.last_begin_line, Some(0x002D));
+        assert_eq!(retired.prior_line_raster, None);
     }
 
     #[test]

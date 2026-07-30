@@ -430,6 +430,81 @@ fn gary_group_exposes_every_persisted_configuration_flag() {
     assert_eq!(fields["rtc_present"], json!(true));
 }
 
+#[test]
+fn denise_board_pipeline_exposes_complete_bounded_state_on_every_chipset() {
+    let mut ocs = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    assert_denise_board_pipeline(&mut ocs);
+
+    let mut ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    assert_denise_board_pipeline(&mut ecs);
+
+    let mut aga = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    assert_denise_board_pipeline(&mut aga);
+}
+
+fn assert_denise_board_pipeline<M: AmigaMachine>(runtime: &mut AmigaRuntime<M>) {
+    let initial = query_value(runtime, "denise.board_pipeline");
+    let initial = initial
+        .as_object()
+        .expect("Denise board pipeline should be an object");
+    let mut initial_fields: Vec<&str> = initial.keys().map(String::as_str).collect();
+    initial_fields.sort_unstable();
+    assert_eq!(
+        initial_fields,
+        ["bytes_this_line", "last_begin_line", "prior_line_raster",],
+    );
+    assert_eq!(initial["bytes_this_line"], json!(0));
+    assert_eq!(initial["last_begin_line"], Value::Null);
+    assert_eq!(initial["prior_line_raster"], Value::Null);
+
+    let provider = AmigaSessionQueryProvider;
+    for _ in 0..2_000 {
+        runtime.machine_mut().tick();
+        if !query_value(runtime, "denise.board_pipeline.prior_line_raster").is_null() {
+            break;
+        }
+    }
+
+    let prior = query_value(runtime, "denise.board_pipeline.prior_line_raster");
+    let prior = prior
+        .as_object()
+        .expect("a physical line should leave a bounded prior-line context");
+    let mut prior_fields: Vec<&str> = prior.keys().map(String::as_str).collect();
+    prior_fields.sort_unstable();
+    assert_eq!(
+        prior_fields,
+        [
+            "ddf_start",
+            "interlace_row",
+            "line_ccks",
+            "pipeline_y",
+            "vbl_count",
+            "vertical_diw_active",
+            "vpos",
+        ],
+    );
+    assert!(
+        prior["line_ccks"]
+            .as_u64()
+            .is_some_and(|line_ccks| line_ccks > 0),
+        "the retained context must report the actual physical line length",
+    );
+
+    let paths = provider.query_paths(runtime, Some("denise.board_pipeline"));
+    assert!(
+        paths.contains(&"denise.board_pipeline.prior_line_raster.vpos".to_owned()),
+        "active optional context fields should become discoverable",
+    );
+    assert_eq!(
+        provider
+            .query(runtime, "denise.board_pipeline.prior_line_raster.vpos",)
+            .expect("query should succeed")
+            .expect("active context leaf should resolve")
+            .value,
+        prior["vpos"],
+    );
+}
+
 fn assert_gayle_present<M: AmigaMachine>(
     runtime: &AmigaRuntime<M>,
     provider: &AmigaSessionQueryProvider,
