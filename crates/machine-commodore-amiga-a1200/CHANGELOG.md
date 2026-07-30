@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Preserve the keyboard byte awaiting a host handshake in the raw
+  `AmigaA1200Snapshot` postcard schema; runtime envelopes version this as V29
 - [breaking] Preserve Lisa's programmed horizontal-blank event latch in the
   raw `AmigaA1200Snapshot` postcard schema; runtime envelopes version this as
   V28
@@ -33,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep Gary's public address-decoder state consistent with the installed Gayle
+  controller
 - Record CIA-B bus writes in the existing diagnostic log
 - Compose rendered programmable horizontal blanking from Lisa's observed
   fine-phase HBSTRT/HBSTOP events and live ECSENA/EXTBLKEN selectors

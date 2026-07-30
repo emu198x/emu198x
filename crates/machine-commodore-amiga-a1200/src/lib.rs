@@ -579,6 +579,7 @@ impl AmigaA1200 {
         let mut gary = Gary::new();
         gary.set_slow_ram_present(slow_ram_decode);
         gary.set_rtc_present(cfg.slow_kb > 0);
+        gary.set_gayle_present(true);
         Self {
             cpu,
             cpu_clock: CpuClock::from_ratio(2, 1),
@@ -2454,6 +2455,14 @@ mod bus_plan_dispatch_tests {
 
         assert!(matches!(response, Some(BusResponse::WriteAck)));
         assert_eq!(amiga.debug_cia_b_cr_log, vec![(0, 0, 1, 0xA5)]);
+    }
+
+    #[test]
+    fn a1200_gary_reports_the_installed_gayle() {
+        let amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+
+        assert!(amiga.gary().gayle_present());
+        assert_eq!(amiga.chip_select(0x00DA_8000), ChipSelect::Gayle);
     }
 
     #[test]
