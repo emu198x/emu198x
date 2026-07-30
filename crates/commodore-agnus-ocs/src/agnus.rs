@@ -299,6 +299,107 @@ pub struct AgnusBusDiagnosticSnapshot {
     pub blitter_holds_bus: bool,
 }
 
+/// Installed Agnus identity and construction-time capabilities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusIdentityDiagnosticSnapshot {
+    /// VPOSR identity bits for the installed Agnus or Alice revision.
+    pub agnus_id: u16,
+    /// Original-Agnus revision identity not represented by VPOSR.
+    pub original_revision: OriginalAgnusRevision,
+    /// Selected fixed-sync video region.
+    pub region: AgnusRegion,
+    /// Maximum bitplane count admitted by the installed chipset.
+    pub max_bitplanes: u8,
+}
+
+/// Side-effect-free view of the fixed beam counters and field state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusBeamDiagnosticSnapshot {
+    /// Current vertical beam position.
+    pub vpos: u16,
+    /// Current horizontal beam position in CCKs.
+    pub hpos: u16,
+    /// Long-frame field flag.
+    pub lof: bool,
+    /// Fixed-sync lines per non-interlaced frame.
+    pub lines_per_frame: u16,
+    /// Long-line flip-flop.
+    pub lol: bool,
+    /// Whether line wrap toggles [`Self::lol`].
+    pub lol_toggle: bool,
+    /// Number of completed fields since construction.
+    pub vbl_count: u64,
+    /// Physical length of the current fixed-sync line in CCKs.
+    pub current_line_ccks: u16,
+    /// Horizontal position currently observed by the Copper comparator.
+    pub copper_comparator_hpos: u16,
+}
+
+/// Original-Agnus vertical display-window and hard-blank latches.
+///
+/// Enhanced-chipset wrappers use their own DIWHIGH-aware display-window
+/// latch. [`Self::vertical_diw_active`] remains the effective value returned
+/// by the shared core, while the two `ocs_*` fields expose the serialized
+/// original-Agnus latches even when an outer wrapper does not consume them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusOcsLatchDiagnosticSnapshot {
+    /// Effective vertical display-window state returned by the shared core.
+    pub vertical_diw_active: bool,
+    /// Hidden original-Agnus comparator-driven display-window latch.
+    pub ocs_vertical_diw_active: bool,
+    /// Line-held original-Agnus hard vertical-blank force-off state.
+    pub ocs_hard_vertical_blank_active: bool,
+}
+
+/// Fixed-sync event levels and one-position strobes derived from the beam.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusEventDiagnosticSnapshot {
+    /// Whether the beam is inside the fixed vertical-blank interval.
+    pub vertb_level: bool,
+    /// Fixed-sync automatic Copper restart position.
+    pub fixed_sync_copper_restart_event: bool,
+    /// Fixed-sync CIA-A TOD event position.
+    pub fixed_sync_cia_a_tod_event: bool,
+    /// Fixed-sync CIA-B TOD event position.
+    pub fixed_sync_cia_b_tod_event: bool,
+}
+
+/// Complete side-effect-free view of the shared sprite-DMA state machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusSpriteDmaDiagnosticSnapshot {
+    /// Effective chip-RAM pointers used by each sprite channel.
+    pub spr_pt: [u32; 8],
+    /// Staged high pointer words awaiting matching low-word writes.
+    pub spr_pt_hi_latch: [u16; 8],
+    /// Whether each staged high pointer word is pending.
+    pub spr_pt_hi_pending: [bool; 8],
+    /// Latched vertical-start comparators.
+    pub spr_vstart: [u16; 8],
+    /// Latched vertical-stop comparators.
+    pub spr_vstop: [u16; 8],
+    /// Per-channel sprite-DMA active latches.
+    pub spr_dma_on: [bool; 8],
+}
+
+/// Complete non-blitter Agnus diagnostic state not already covered by the
+/// arbitration and DDF snapshots.
+///
+/// This is a read-only projection: observing it does not advance the beam,
+/// consume an event, commit a staged pointer or change sprite-DMA state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusDiagnosticSnapshot {
+    /// Installed revision, region and chipset capability.
+    pub identity: AgnusIdentityDiagnosticSnapshot,
+    /// Beam counters, field identity and fixed-sync line geometry.
+    pub beam: AgnusBeamDiagnosticSnapshot,
+    /// Effective and raw original-Agnus vertical latches.
+    pub ocs_latches: AgnusOcsLatchDiagnosticSnapshot,
+    /// Live fixed-sync levels and event positions.
+    pub events: AgnusEventDiagnosticSnapshot,
+    /// Sprite pointer staging, comparators and DMA-active latches.
+    pub sprite_dma: AgnusSpriteDmaDiagnosticSnapshot,
+}
+
 /// Side-effect-free view of the implemented data-fetch comparator sequencer.
 ///
 /// The raw registers alone cannot reconstruct a run after the beam has
@@ -2905,6 +3006,50 @@ impl Agnus {
     #[must_use]
     pub const fn ocs_ddf_run_aborted(&self) -> bool {
         self.ocs_ddf_run_aborted
+    }
+
+    /// Return a side-effect-free snapshot of Agnus identity, beam, vertical
+    /// latches, fixed-sync events and sprite-DMA state.
+    #[must_use]
+    pub fn diagnostic_snapshot(&self) -> AgnusDiagnosticSnapshot {
+        AgnusDiagnosticSnapshot {
+            identity: AgnusIdentityDiagnosticSnapshot {
+                agnus_id: self.agnus_id,
+                original_revision: self.original_revision,
+                region: self.region,
+                max_bitplanes: self.max_bitplanes,
+            },
+            beam: AgnusBeamDiagnosticSnapshot {
+                vpos: self.vpos,
+                hpos: self.hpos,
+                lof: self.lof,
+                lines_per_frame: self.lines_per_frame,
+                lol: self.lol,
+                lol_toggle: self.lol_toggle,
+                vbl_count: self.vbl_count,
+                current_line_ccks: self.current_line_ccks(),
+                copper_comparator_hpos: self.copper_comparator_hpos(),
+            },
+            ocs_latches: AgnusOcsLatchDiagnosticSnapshot {
+                vertical_diw_active: self.vertical_diw_active(),
+                ocs_vertical_diw_active: self.ocs_vertical_diw_active,
+                ocs_hard_vertical_blank_active: self.ocs_hard_vertical_blank_active,
+            },
+            events: AgnusEventDiagnosticSnapshot {
+                vertb_level: self.vertb_level(),
+                fixed_sync_copper_restart_event: self.fixed_sync_copper_restart_event(),
+                fixed_sync_cia_a_tod_event: self.fixed_sync_cia_a_tod_event(),
+                fixed_sync_cia_b_tod_event: self.fixed_sync_cia_b_tod_event(),
+            },
+            sprite_dma: AgnusSpriteDmaDiagnosticSnapshot {
+                spr_pt: self.spr_pt,
+                spr_pt_hi_latch: self.spr_pt_hi_latch,
+                spr_pt_hi_pending: self.spr_pt_hi_pending,
+                spr_vstart: self.spr_vstart,
+                spr_vstop: self.spr_vstop,
+                spr_dma_on: self.spr_dma_on,
+            },
+        }
     }
 
     /// Return a side-effect-free diagnostic snapshot of the implemented DDF

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose side-effect-free Agnus identity, beam, original-chipset latch,
+  fixed-sync event and complete sprite-DMA diagnostic snapshots
 - Add side-effect-free arbitration, DDF-sequencer and complete implemented
   blitter diagnostic snapshots, including authoritative per-CCK bus use,
   pending channel operations, line/fill runtime and buffered final-D state

@@ -433,6 +433,116 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
 }
 
 #[test]
+fn agnus_group_exposes_complete_non_blitter_state_and_live_ocs_values() {
+    let runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
+
+    assert_exact_object_fields(
+        &query_value(&runtime, "agnus.identity"),
+        &["agnus_id", "max_bitplanes", "original_revision", "region"],
+    );
+    assert_exact_object_fields(
+        &query_value(&runtime, "agnus.beam"),
+        &[
+            "copper_comparator_hpos",
+            "current_line_ccks",
+            "hpos",
+            "lines_per_frame",
+            "lof",
+            "lol",
+            "lol_toggle",
+            "vbl_count",
+            "vpos",
+        ],
+    );
+    assert_exact_object_fields(
+        &query_value(&runtime, "agnus.ocs_latches"),
+        &[
+            "ocs_hard_vertical_blank_active",
+            "ocs_vertical_diw_active",
+            "vertical_diw_active",
+        ],
+    );
+    assert_exact_object_fields(
+        &query_value(&runtime, "agnus.events"),
+        &[
+            "fixed_sync_cia_a_tod_event",
+            "fixed_sync_cia_b_tod_event",
+            "fixed_sync_copper_restart_event",
+            "vertb_level",
+        ],
+    );
+    assert_exact_object_fields(
+        &query_value(&runtime, "agnus.sprite_dma"),
+        &[
+            "spr_dma_on",
+            "spr_pt",
+            "spr_pt_hi_latch",
+            "spr_pt_hi_pending",
+            "spr_vstart",
+            "spr_vstop",
+        ],
+    );
+
+    assert_eq!(
+        query_value(&runtime, "agnus.vertical_diw_active"),
+        query_value(&runtime, "agnus.ocs_latches.vertical_diw_active"),
+    );
+    assert_eq!(
+        query_value(&runtime, "agnus.current_line_ccks"),
+        query_value(&runtime, "agnus.beam.current_line_ccks"),
+    );
+    assert_eq!(
+        query_value(&runtime, "agnus.copper_comparator_hpos"),
+        query_value(&runtime, "agnus.beam.copper_comparator_hpos"),
+    );
+    assert_eq!(
+        query_value(&runtime, "agnus.vertical_diw_active"),
+        json!(false),
+        "the OCS leaf must report a live boolean instead of null",
+    );
+    assert_eq!(
+        query_value(&runtime, "agnus.current_line_ccks"),
+        json!(227),
+        "the OCS leaf must report fixed PAL line geometry instead of null",
+    );
+    assert_eq!(
+        query_value(&runtime, "agnus.copper_comparator_hpos"),
+        json!(2),
+        "the OCS leaf must report the live comparator projection instead of null",
+    );
+    assert_eq!(query_value(&runtime, "agnus.identity.region"), json!("Pal"));
+    assert_eq!(
+        query_value(&runtime, "agnus.identity.original_revision"),
+        json!("Later"),
+    );
+    assert_eq!(
+        query_value(&runtime, "agnus.events.fixed_sync_copper_restart_event"),
+        json!(true),
+    );
+    assert_eq!(
+        query_value(&runtime, "agnus.events.vertb_level"),
+        json!(true),
+    );
+    for path in [
+        "agnus.sprite_dma.spr_pt",
+        "agnus.sprite_dma.spr_pt_hi_latch",
+        "agnus.sprite_dma.spr_pt_hi_pending",
+        "agnus.sprite_dma.spr_vstart",
+        "agnus.sprite_dma.spr_vstop",
+        "agnus.sprite_dma.spr_dma_on",
+    ] {
+        assert_eq!(
+            query_value(&runtime, path)
+                .as_array()
+                .unwrap_or_else(|| panic!("{path} should be an array"))
+                .len(),
+            8,
+            "{path} should expose all eight sprite channels",
+        );
+    }
+}
+
+#[test]
 fn gayle_discovery_matches_the_configured_board() {
     let provider = AmigaSessionQueryProvider;
     let a500_plus = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
@@ -639,6 +749,20 @@ fn query_value<M: AmigaMachine>(runtime: &AmigaRuntime<M>, path: &str) -> Value 
         .unwrap_or_else(|error| panic!("{path} query failed: {error:?}"))
         .unwrap_or_else(|| panic!("{path} should resolve"))
         .value
+}
+
+fn assert_exact_object_fields(value: &Value, expected: &[&str]) {
+    let mut actual = value
+        .as_object()
+        .expect("query should return an object")
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    actual.sort_unstable();
+
+    let mut expected = expected.to_vec();
+    expected.sort_unstable();
+    assert_eq!(actual, expected);
 }
 
 #[test]

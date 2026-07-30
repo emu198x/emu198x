@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose Agnus identity, beam, original-chipset latches, fixed-sync events and
+  complete sprite-DMA state through discoverable grouped and leaf queries
 - Expose memory topology, ROM arrangement, overlay state and floating-bus
   residue without copying RAM or ROM payload bytes
 - Expose Lisa's complete 256-entry palette through both the canonical Denise
@@ -61,6 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Report live OCS vertical-DIW, line-length and Copper-comparator values through
+  the existing Agnus leaves instead of returning null outside ECS/AGA sessions
 - [breaking] Bump Amiga postcard snapshots to version 29 so keyboard bytes
   awaiting a host handshake and model-specific A600 Gayle state survive
   restore; version 28 is rejected because its positional payload lacks them

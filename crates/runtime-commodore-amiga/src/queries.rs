@@ -833,10 +833,21 @@ pub(crate) fn debug_snapshot(m: &dyn AmigaLiveAccess) -> Value {
 pub(crate) fn agnus_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     let a = m.agnus();
     let ecs = m.ecs_agnus_timing();
+    let mut state = a.diagnostic_snapshot();
+    if let Some(enhanced) = ecs {
+        state.ocs_latches.vertical_diw_active = enhanced.vertical_diw_active;
+        state.beam.current_line_ccks = enhanced.current_line_ccks;
+        state.beam.copper_comparator_hpos = enhanced.copper_comparator_hpos;
+    }
     let mut snapshot = json!({
         "installed_variant": m.installed_agnus_variant().canonical_name(),
-        "vpos": a.vpos,
-        "hpos": a.hpos,
+        "identity": state.identity,
+        "beam": state.beam,
+        "ocs_latches": state.ocs_latches,
+        "events": state.events,
+        "sprite_dma": state.sprite_dma,
+        "vpos": state.beam.vpos,
+        "hpos": state.beam.hpos,
         "dmacon": m.dmacon(),
         "bplcon0": m.bplcon0(),
         "blitter_busy": a.blitter_busy,
@@ -895,9 +906,9 @@ pub(crate) fn agnus_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "programmed_hblank_active": ecs.map(|state| state.programmed_hblank_active),
         "programmed_hblank_routed_active":
             ecs.map(|state| state.programmed_hblank_routed_active),
-        "vertical_diw_active": ecs.map(|state| state.vertical_diw_active),
-        "current_line_ccks": ecs.map(|state| state.current_line_ccks),
-        "copper_comparator_hpos": ecs.map(|state| state.copper_comparator_hpos),
+        "vertical_diw_active": state.ocs_latches.vertical_diw_active,
+        "current_line_ccks": state.beam.current_line_ccks,
+        "copper_comparator_hpos": state.beam.copper_comparator_hpos,
     });
     let enhanced_signals = json!({
         "pal_enabled": ecs.map(|state| state.pal_enabled),

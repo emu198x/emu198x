@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
 use commodore_agnus_ocs::{
-    Agnus, AgnusBlitterCompletionDiagnosticPhase, BlitterBus, BlitterBusDiagnosticAuthority,
-    BlitterDmaOp, SlotOwner,
+    Agnus, AgnusBeamDiagnosticSnapshot, AgnusBlitterCompletionDiagnosticPhase,
+    AgnusDiagnosticSnapshot, AgnusEventDiagnosticSnapshot, AgnusIdentityDiagnosticSnapshot,
+    AgnusOcsLatchDiagnosticSnapshot, AgnusRegion, AgnusSpriteDmaDiagnosticSnapshot, BlitterBus,
+    BlitterBusDiagnosticAuthority, BlitterDmaOp, OriginalAgnusRevision, SlotOwner,
     bits::{DMACON_BLTEN, DMACON_BLTPRI, DMACON_DMAEN},
 };
 
@@ -86,6 +88,113 @@ fn ddf_snapshot_exposes_raw_effective_and_latched_comparator_state() {
     assert!(!snapshot.ocs_run_aborted);
     assert!(snapshot.ocs_hard_start_open);
     assert_eq!(agnus.ddf_diagnostic_snapshot(), snapshot);
+}
+
+#[test]
+fn diagnostic_snapshot_exposes_identity_beam_events_latches_and_sprite_dma() {
+    let mut agnus = Agnus::new_with_region(AgnusRegion::Ntsc);
+    agnus.vpos = 42;
+    agnus.hpos = 0x66;
+    agnus.lof = false;
+    agnus.lol = true;
+    agnus.vbl_count = 7;
+    agnus.write_diwstop(0xC800);
+    agnus.write_diwstrt(0x2A00);
+
+    agnus.write_sprite_pointer_reg(0, true, 0x1234);
+    agnus.write_sprite_pointer_reg(1, true, 0xABCD);
+    agnus.write_sprite_pointer_reg(1, false, 0x2469);
+    agnus.poke_sprite_pos(2, 42 << 8);
+    agnus.poke_sprite_ctl(2, 60 << 8);
+
+    let snapshot = agnus.diagnostic_snapshot();
+    assert_eq!(
+        agnus.diagnostic_snapshot(),
+        snapshot,
+        "diagnostic observation must not commit pointer staging or consume events",
+    );
+
+    let AgnusDiagnosticSnapshot {
+        identity,
+        beam,
+        ocs_latches,
+        events,
+        sprite_dma,
+    } = snapshot;
+    let AgnusIdentityDiagnosticSnapshot {
+        agnus_id,
+        original_revision,
+        region,
+        max_bitplanes,
+    } = identity;
+    assert_eq!(agnus_id, 0x1000);
+    assert_eq!(original_revision, OriginalAgnusRevision::Later);
+    assert_eq!(region, AgnusRegion::Ntsc);
+    assert_eq!(max_bitplanes, 6);
+
+    let AgnusBeamDiagnosticSnapshot {
+        vpos,
+        hpos,
+        lof,
+        lines_per_frame,
+        lol,
+        lol_toggle,
+        vbl_count,
+        current_line_ccks,
+        copper_comparator_hpos,
+    } = beam;
+    assert_eq!(vpos, 42);
+    assert_eq!(hpos, 0x66);
+    assert!(!lof);
+    assert_eq!(lines_per_frame, 262);
+    assert!(lol);
+    assert!(lol_toggle);
+    assert_eq!(vbl_count, 7);
+    assert_eq!(current_line_ccks, 228);
+    assert_eq!(copper_comparator_hpos, 0x68);
+
+    let AgnusOcsLatchDiagnosticSnapshot {
+        vertical_diw_active,
+        ocs_vertical_diw_active,
+        ocs_hard_vertical_blank_active,
+    } = ocs_latches;
+    assert!(vertical_diw_active);
+    assert!(ocs_vertical_diw_active);
+    assert!(!ocs_hard_vertical_blank_active);
+
+    let AgnusEventDiagnosticSnapshot {
+        vertb_level,
+        fixed_sync_copper_restart_event,
+        fixed_sync_cia_a_tod_event,
+        fixed_sync_cia_b_tod_event,
+    } = events;
+    assert!(!vertb_level);
+    assert!(!fixed_sync_copper_restart_event);
+    assert!(!fixed_sync_cia_a_tod_event);
+    assert!(fixed_sync_cia_b_tod_event);
+
+    let AgnusSpriteDmaDiagnosticSnapshot {
+        spr_pt,
+        spr_pt_hi_latch,
+        spr_pt_hi_pending,
+        spr_vstart,
+        spr_vstop,
+        spr_dma_on,
+    } = sprite_dma;
+    assert_eq!(spr_pt[0], 0);
+    assert_eq!(spr_pt_hi_latch[0], 0x1234);
+    assert!(spr_pt_hi_pending[0]);
+    assert_eq!(spr_pt[1], 0xABCD_2468);
+    assert_eq!(spr_pt_hi_latch[1], 0xABCD);
+    assert!(!spr_pt_hi_pending[1]);
+    assert_eq!(spr_vstart[2], 42);
+    assert_eq!(spr_vstop[2], 60);
+    assert!(spr_dma_on[2]);
+
+    let a1000 = Agnus::new_a1000_with_region(AgnusRegion::Pal).diagnostic_snapshot();
+    assert!(a1000.ocs_latches.ocs_hard_vertical_blank_active);
+    assert!(a1000.events.vertb_level);
+    assert!(a1000.events.fixed_sync_copper_restart_event);
 }
 
 #[test]
