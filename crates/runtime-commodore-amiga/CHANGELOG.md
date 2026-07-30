@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose runtime buffering, CPU-domain scheduling, common Copper pipelines,
+  complete floppy mechanism/track-stream/Paula disk state and Copper MOVE-log
+  summaries through discoverable grouped queries
+- Lift the common Copper and its bounded MOVE log through `AmigaLiveAccess`
+  on OCS, ECS and AGA machines
 - Expose complete ECS/AGA programmable timing, decoded selector, sync-pin and
   composed horizontal-blank state through discoverable grouped and leaf
   queries

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add a read-only diagnostic snapshot for mounted-media, mechanical timing, drive-ID, status-pin, and write-buffer state.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/peripheral-commodore-amiga-floppy-v0.2.0) - 2026-06-04
 
 ### Other

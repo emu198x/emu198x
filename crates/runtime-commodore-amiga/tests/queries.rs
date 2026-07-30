@@ -178,7 +178,16 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
     assert_group_leaf_catalogue(
         &ocs,
         &[
-            "chipset", "agnus", "denise", "blitter", "paula", "cia", "disk",
+            "runtime",
+            "chipset",
+            "agnus",
+            "denise",
+            "copper",
+            "blitter",
+            "paula",
+            "cia",
+            "disk",
+            "scheduler",
         ],
     );
 
@@ -186,7 +195,16 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
     assert_group_leaf_catalogue(
         &ecs,
         &[
-            "chipset", "agnus", "denise", "blitter", "paula", "cia", "disk",
+            "runtime",
+            "chipset",
+            "agnus",
+            "denise",
+            "copper",
+            "blitter",
+            "paula",
+            "cia",
+            "disk",
+            "scheduler",
         ],
     );
 
@@ -194,7 +212,17 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
     assert_group_leaf_catalogue(
         &aga,
         &[
-            "chipset", "agnus", "denise", "blitter", "paula", "cia", "disk", "aga",
+            "runtime",
+            "chipset",
+            "agnus",
+            "denise",
+            "copper",
+            "blitter",
+            "paula",
+            "cia",
+            "disk",
+            "scheduler",
+            "aga",
         ],
     );
 }
@@ -311,6 +339,46 @@ fn aga_queries_expose_lisa_and_composed_hblank_state() {
     );
     assert_eq!(
         query_value(&runtime, "chipset.programmed_hblank_output_active"),
+        json!(true),
+    );
+}
+
+#[test]
+fn scheduler_queries_do_not_drain_pending_cpu_boundaries() {
+    let mut runtime = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+
+    for _ in 0..2_000 {
+        runtime.machine_mut().tick();
+        if query_value(&runtime, "scheduler.pending_cpu_boundary_count")
+            .as_u64()
+            .is_some_and(|count| count > 0)
+        {
+            break;
+        }
+    }
+
+    let first = query_value(&runtime, "scheduler.pending_cpu_boundaries");
+    assert!(
+        first
+            .as_array()
+            .is_some_and(|boundaries| !boundaries.is_empty()),
+        "the direct machine tick loop should retain at least one boundary",
+    );
+    assert_eq!(
+        query_value(&runtime, "scheduler.pending_cpu_boundaries"),
+        first,
+        "observing scheduler state must not drain the boundary queue",
+    );
+    assert_eq!(
+        query_value(&runtime, "scheduler.cpu_clock_numerator"),
+        json!(2),
+    );
+    assert_eq!(
+        query_value(&runtime, "scheduler.cpu_clock_denominator"),
+        json!(1),
+    );
+    assert_eq!(
+        query_value(&runtime, "scheduler.cpu_domain_coherent"),
         json!(true),
     );
 }

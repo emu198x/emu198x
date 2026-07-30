@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose side-effect-free scheduler, pending instruction-boundary and encoded
+  track-stream diagnostic snapshots
 - Expose the installed Super Denise wrapper through a read-only accessor for
   runtime diagnostics
 - Retain a bounded, non-snapshot instruction-boundary queue for runtime

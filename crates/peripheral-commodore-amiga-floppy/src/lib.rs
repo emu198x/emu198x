@@ -104,6 +104,63 @@ pub struct DriveStatus {
     pub ready: bool,
 }
 
+/// Side-effect-free snapshot of the floppy drive's mechanical and media state.
+///
+/// This view is intended for debuggers, traces, and runtime queries. It exposes
+/// the state already maintained by [`AmigaFloppyDrive`] without providing
+/// mutable access to the mounted image or write buffers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AmigaFloppyDriveDiagnosticSnapshot {
+    /// Whether media is currently mounted.
+    pub has_disk: bool,
+    /// Whether the mounted media accepts writes, or `None` when empty.
+    pub disk_writable: Option<bool>,
+    /// Number of sectors on each track, or `None` when empty.
+    pub sectors_per_track: Option<u32>,
+    /// Whether the selected, spinning drive can currently supply read data.
+    pub read_data_available: bool,
+    /// Current cylinder, in the range 0..=79.
+    pub cylinder: u32,
+    /// Current head side, either 0 or 1.
+    pub head: u32,
+    /// Whether the motor control signal is asserted.
+    pub motor_on: bool,
+    /// Whether the motor has completed spin-up.
+    pub motor_spinning: bool,
+    /// Elapsed E-clock ticks in the current spin-up interval.
+    pub spin_timer: u32,
+    /// Elapsed E-clock ticks in the current revolution.
+    pub index_timer: u32,
+    /// Whether this drive is selected.
+    pub selected: bool,
+    /// Raw disk-change latch.
+    pub disk_changed: bool,
+    /// Previous decoded step-signal level used for edge detection.
+    pub prev_step: bool,
+    /// Monotonic count of accepted head-step events.
+    pub step_event_counter: u32,
+    /// Number of words retained in the observable MFM write capture.
+    pub write_mfm_capture_words: usize,
+    /// Number of captured words still awaiting decode and write-back.
+    pub write_mfm_pending_words: usize,
+    /// Current 32-bit drive-identification shift register.
+    pub id_shift_register: u32,
+    /// Index of the next drive-identification bit to emit.
+    pub id_bit: u8,
+    /// Raw latched `/DSKRDY` drive-identification bit.
+    ///
+    /// `true` means the physical active-low pin is deasserted.
+    pub id_ready_bit: bool,
+    /// Current `/DSKCHANGE` output in asserted-boolean form.
+    pub disk_change: bool,
+    /// Current `/DSKPROT` output in asserted-boolean form.
+    pub write_protect: bool,
+    /// Current `/DSKTRACK0` output in asserted-boolean form.
+    pub track0: bool,
+    /// Current `/DSKRDY` output in asserted-boolean form.
+    pub ready: bool,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct AmigaFloppyDrive {
     /// Inserted disk image, if any. Not serialised — disk media is
@@ -395,6 +452,38 @@ impl AmigaFloppyDrive {
 
     pub fn step_event_counter(&self) -> u32 {
         self.step_event_counter
+    }
+
+    /// Return a side-effect-free diagnostic snapshot of all implemented drive
+    /// mechanism state.
+    #[must_use]
+    pub fn diagnostic_snapshot(&self) -> AmigaFloppyDriveDiagnosticSnapshot {
+        let status = self.status();
+        AmigaFloppyDriveDiagnosticSnapshot {
+            has_disk: self.disk.is_some(),
+            disk_writable: self.disk.as_ref().map(|image| image.is_writable()),
+            sectors_per_track: self.disk.as_ref().map(|image| image.sectors_per_track()),
+            read_data_available: self.read_data_available(),
+            cylinder: self.cylinder,
+            head: self.head,
+            motor_on: self.motor_on,
+            motor_spinning: self.motor_spinning,
+            spin_timer: self.spin_timer,
+            index_timer: self.index_timer,
+            selected: self.selected,
+            disk_changed: self.disk_changed,
+            prev_step: self.prev_step,
+            step_event_counter: self.step_event_counter,
+            write_mfm_capture_words: self.write_mfm_capture.len(),
+            write_mfm_pending_words: self.write_mfm_pending.len(),
+            id_shift_register: self.id_shift_register,
+            id_bit: self.id_bit,
+            id_ready_bit: self.id_ready_bit,
+            disk_change: status.disk_change,
+            write_protect: status.write_protect,
+            track0: status.track0,
+            ready: status.ready,
+        }
     }
 
     /// Record one raw MFM word presented to the drive write path.

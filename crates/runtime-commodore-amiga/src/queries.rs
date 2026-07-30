@@ -29,6 +29,25 @@ pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
     "boot.reason",
     "boot.row",
     "machine.frame_count",
+    "runtime",
+    "runtime.machine_time",
+    "runtime.frame_count",
+    "runtime.video_field_count",
+    "runtime.non_black_pixels",
+    "runtime.non_white_pixels",
+    "runtime.first_active_row",
+    "runtime.firmware_rom_bytes",
+    "runtime.floppy0_image_bytes",
+    "runtime.audio_sample_accumulator",
+    "runtime.audio_buffer_samples",
+    "runtime.tick_hz",
+    "runtime.audio_sample_rate_hz",
+    "runtime.audio_channels",
+    "runtime.cpu_trace_armed",
+    "runtime.cpu_trace_pc_filter",
+    "runtime.cpu_trace_max_entries",
+    "runtime.cpu_trace_entry_count",
+    "runtime.cpu_trace_at_limit",
 ];
 
 /// Boot-status snapshot derived from the most recent frame. Matches
@@ -97,6 +116,16 @@ impl<M: AmigaMachine> SessionQueryProvider<AmigaRuntime<M>> for AmigaSessionQuer
         machine: &AmigaRuntime<M>,
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
+        if is_chip(path, "runtime") {
+            let Some(value) = chip_field(path, "runtime", runtime_snapshot(machine)) else {
+                return Ok(None);
+            };
+            return Ok(Some(QueryResult {
+                path: path.to_owned(),
+                value,
+            }));
+        }
+
         // Runtime-owned paths come first.
         let value = match path {
             "boot.detected" => json!(boot_status(machine).detected),
@@ -119,6 +148,32 @@ impl<M: AmigaMachine> SessionQueryProvider<AmigaRuntime<M>> for AmigaSessionQuer
             value,
         }))
     }
+}
+
+/// Runtime-owned host-integration and diagnostic-buffer state.
+pub(crate) fn runtime_snapshot<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Value {
+    let trace_count = runtime.cpu_trace_entries().len();
+    let trace_limit = runtime.cpu_trace_max_entries();
+    json!({
+        "machine_time": runtime.time_value().get(),
+        "frame_count": runtime.frame_count(),
+        "video_field_count": runtime.machine().video_field_count(),
+        "non_black_pixels": runtime.non_black_pixels(),
+        "non_white_pixels": runtime.non_white_pixels(),
+        "first_active_row": runtime.first_active_row(),
+        "firmware_rom_bytes": runtime.firmware_rom().len(),
+        "floppy0_image_bytes": runtime.floppy0_bytes().map(<[u8]>::len),
+        "audio_sample_accumulator": runtime.audio_sample_accumulator(),
+        "audio_buffer_samples": runtime.audio_buffer_samples(),
+        "tick_hz": runtime.tick_hz(),
+        "audio_sample_rate_hz": crate::runtime::AUDIO_SAMPLE_RATE_HZ,
+        "audio_channels": crate::runtime::AUDIO_CHANNELS,
+        "cpu_trace_armed": runtime.cpu_trace_armed(),
+        "cpu_trace_pc_filter": runtime.cpu_trace_pc_filter(),
+        "cpu_trace_max_entries": trace_limit,
+        "cpu_trace_entry_count": trace_count,
+        "cpu_trace_at_limit": trace_count >= trace_limit,
+    })
 }
 
 /// Same provider, but dispatching over the runtime-time
@@ -222,6 +277,82 @@ pub(crate) fn chipset_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "blanken_enabled": enhanced_agnus.map(|agnus| agnus.blanken_enabled),
         "programmed_hblank_output_active":
             enhanced_denise.map(|denise| denise.programmed_hblank_active),
+    })
+}
+
+/// Common Copper pipeline state and bounded MOVE-log summary.
+pub(crate) fn copper_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    let copper = m.copper();
+    let move_log = m.copper_move_log();
+    let last_move = move_log.last().map(|&(tick, vpos, hpos, register, value)| {
+        json!({
+            "tick": tick,
+            "vpos": vpos,
+            "hpos": hpos,
+            "register": register,
+            "value": value,
+        })
+    });
+    json!({
+        "pc": copper.pc,
+        "cop1lc": copper.cop1lc,
+        "cop2lc": copper.cop2lc,
+        "waiting": copper.waiting,
+        "wait_target": copper.wait_target,
+        "wait_mask": copper.wait_mask,
+        "wait_bfd": copper.wait_bfd,
+        "cck_phase": copper.cck_phase,
+        "pending_wait_delay": copper.pending_wait_delay,
+        "pending_wait_target": copper.pending_wait_target,
+        "pending_wait_mask": copper.pending_wait_mask,
+        "pending_wait_bfd": copper.pending_wait_bfd,
+        "pending_wait_is_skip": copper.pending_wait_is_skip,
+        "stopped": copper.stopped,
+        "cdang": copper.cdang,
+        "bus_used_this_cck": copper.bus_used_this_cck,
+        "move_log_count": move_log.len(),
+        "last_move": last_move,
+    })
+}
+
+/// Board scheduler, CPU clock-domain and pending boundary state.
+pub(crate) fn scheduler_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    let state = m.scheduler_diagnostic_snapshot();
+    let pending_cpu_boundaries: Vec<Value> = state
+        .pending_cpu_boundaries
+        .iter()
+        .map(|boundary| {
+            json!({
+                "system_tick": boundary.system_tick,
+                "instr_start_pc": boundary.instr_start_pc,
+                "sr": boundary.sr,
+                "opcode": boundary.opcode,
+            })
+        })
+        .collect();
+    json!({
+        "tick_count": state.tick_count,
+        "cck_count": state.cck_count,
+        "cck_phase": state.cck_phase,
+        "e_clock_phase": state.e_clock_phase,
+        "prev_vertb_level": state.prev_vertb_level,
+        "prev_cia_a_irq": state.prev_cia_a_irq,
+        "prev_cia_b_irq": state.prev_cia_b_irq,
+        "prev_cia_a_spmode": state.prev_cia_a_spmode,
+        "cpu_clock_numerator": state.cpu_clock_numerator,
+        "cpu_clock_denominator": state.cpu_clock_denominator,
+        "cpu_clock_phase": state.cpu_clock_phase,
+        "cpu_clock_maximum_edges_per_tick": state.cpu_clock_maximum_edges_per_tick,
+        "cpu_domain_idle": state.cpu_domain_idle,
+        "cpu_domain_edges_remaining": state.cpu_domain_edges_remaining,
+        "cpu_domain_motherboard_slot_pending":
+            state.cpu_domain_motherboard_slot_pending,
+        "cpu_domain_coherent": state.cpu_domain_coherent,
+        "pending_cpu_boundary_count": pending_cpu_boundaries.len(),
+        "pending_cpu_boundaries": pending_cpu_boundaries,
+        "pending_cpu_boundary_capacity": state.pending_cpu_boundary_capacity,
+        "pending_cpu_boundary_at_capacity":
+            state.pending_cpu_boundaries.len() >= state.pending_cpu_boundary_capacity,
     })
 }
 
@@ -426,24 +557,99 @@ pub(crate) fn blitter_snapshot(m: &dyn AmigaLiveAccess) -> Value {
 /// pins; READY can carry identification bits while the motor is off.
 pub(crate) fn disk_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     let drive = m.drive();
-    let status = drive.status();
-    json!({
-        "inserted": drive.has_disk(),
-        "change_pending": status.disk_change,
-        "cylinder": drive.cylinder(),
-        "head": drive.head(),
-        "motor_on": drive.motor_on(),
-        "motor_spinning": drive.motor_spinning(),
-        "ready_low": status.ready,
-        "step_events": drive.step_event_counter(),
-        "selected": drive.selected(),
+    let mechanism = drive.diagnostic_snapshot();
+    let controller = m.paula().disk_diagnostic_snapshot();
+    let track_stream = m.track_stream_diagnostic_snapshot();
+    let mut snapshot = json!({
+        "inserted": mechanism.has_disk,
+        "writable": mechanism.disk_writable,
+        "sectors_per_track": mechanism.sectors_per_track,
+        "read_data_available": mechanism.read_data_available,
+        "change_pending": mechanism.disk_change,
+        "cylinder": mechanism.cylinder,
+        "head": mechanism.head,
+        "motor_on": mechanism.motor_on,
+        "motor_spinning": mechanism.motor_spinning,
+        "ready_low": mechanism.ready,
+        "step_events": mechanism.step_event_counter,
+        "selected": mechanism.selected,
         "status": {
-            "disk_change_low": status.disk_change,
-            "write_protect_low": status.write_protect,
-            "track0_low": status.track0,
-            "ready_low": status.ready,
+            "disk_change_low": mechanism.disk_change,
+            "write_protect_low": mechanism.write_protect,
+            "track0_low": mechanism.track0,
+            "ready_low": mechanism.ready,
         },
     })
+    .as_object()
+    .cloned()
+    .expect("the base disk snapshot is an object");
+    let mechanism_details = json!({
+        "spin_timer": mechanism.spin_timer,
+        "index_timer": mechanism.index_timer,
+        "disk_changed_latch": mechanism.disk_changed,
+        "prev_step": mechanism.prev_step,
+        "write_capture_words": mechanism.write_mfm_capture_words,
+        "write_pending_words": mechanism.write_mfm_pending_words,
+        "id_shift_register": mechanism.id_shift_register,
+        "id_bit": mechanism.id_bit,
+        "id_ready_bit": mechanism.id_ready_bit,
+        "write_protect_low": mechanism.write_protect,
+        "track0_low": mechanism.track0,
+    });
+    let controller_registers = json!({
+        "dskpt": m.agnus().dsk_pt,
+        "dsklen": controller.dsklen,
+        "dsksync": controller.dsksync,
+        "dskdatr": controller.dskdatr,
+        "dskdat": controller.dskdat,
+        "dskbytr": m.paula().peek_dskbytr(m.dmacon()),
+        "dskbytr_data": controller.dskbytr_data,
+        "dskbytr_next_data": controller.dskbytr_next_data,
+        "dskbytr_next_delay_cck": controller.dskbytr_next_delay_cck,
+        "dskbytr_valid": controller.dskbytr_valid,
+        "dskbytr_wordequal": controller.dskbytr_wordequal,
+        "dskbytr_wordequal_delay_cck": controller.dskbytr_wordequal_delay_cck,
+        "dskdat_queue": controller.dskdat_queue,
+    });
+    let controller_state = json!({
+        "dsklen_armed": controller.dsklen_armed,
+        "dma_pending": controller.disk_dma_pending,
+        "dma_words_remaining": controller.disk_dma_words_remaining,
+        "dma_is_write": controller.disk_dma_is_write,
+        "dma_wordsync_waiting": controller.disk_dma_wordsync_waiting,
+        "dma_write_active": controller.disk_dma_write_active,
+        "dsklen_dma_enabled": controller.dsklen_dma_enabled,
+        "dsklen_write_enabled": controller.dsklen_write_enabled,
+        "wordsync_enabled": controller.wordsync_enabled,
+        "fast_enabled": controller.fast_enabled,
+        "disk_byte_delay_cck": controller.disk_byte_delay_cck,
+        "pll_phase": controller.disk_pll_phase,
+        "pll_variable_rate": controller.disk_pll_variable_rate,
+    });
+    let track_stream_state = json!({
+        "track_cache_present": track_stream.cache_present,
+        "track_cache_cylinder": track_stream.cache_cylinder,
+        "track_cache_head": track_stream.cache_head,
+        "track_cache_bytes": track_stream.cache_bytes,
+        "track_word_count": track_stream.word_count,
+        "track_word_cursor": track_stream.word_cursor,
+        "track_pacer_ccks": track_stream.pacer_ccks,
+        "track_word_interval_ccks": track_stream.word_interval_ccks,
+    });
+    for details in [
+        mechanism_details,
+        controller_registers,
+        controller_state,
+        track_stream_state,
+    ] {
+        snapshot.extend(
+            details
+                .as_object()
+                .expect("the disk snapshot section is an object")
+                .clone(),
+        );
+    }
+    Value::Object(snapshot)
 }
 
 /// Dispatch the chipset chip groups shared by every variant (`agnus`,
@@ -458,6 +664,12 @@ pub(crate) fn resolve_chip_query(m: &dyn AmigaLiveAccess, path: &str) -> Option<
     }
     if is_chip(path, "denise") {
         return chip_field(path, "denise", denise_snapshot(m));
+    }
+    if is_chip(path, "copper") {
+        return chip_field(path, "copper", copper_snapshot(m));
+    }
+    if is_chip(path, "scheduler") {
+        return chip_field(path, "scheduler", scheduler_snapshot(m));
     }
     if is_chip(path, "paula") {
         return chip_field(path, "paula", paula_snapshot(m));

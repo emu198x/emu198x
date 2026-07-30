@@ -150,7 +150,9 @@ impl<M: AmigaMachine + AmigaLiveAccess> AmigaRuntime<M> {
         let _ = AmigaMachine::drain_cpu_boundaries(&mut self.machine);
         dropped
     }
+}
 
+impl<M: AmigaMachine> AmigaRuntime<M> {
     /// Whether the trace is currently recording.
     #[must_use]
     pub fn cpu_trace_armed(&self) -> bool {
@@ -161,6 +163,12 @@ impl<M: AmigaMachine + AmigaLiveAccess> AmigaRuntime<M> {
     #[must_use]
     pub fn cpu_trace_max_entries(&self) -> usize {
         self.cpu_trace.max_entries
+    }
+
+    /// Optional inclusive PC range applied before trace entries are stored.
+    #[must_use]
+    pub fn cpu_trace_pc_filter(&self) -> Option<(u32, u32)> {
+        self.cpu_trace.pc_filter
     }
 
     /// Captured entries, oldest first.

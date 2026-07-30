@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose side-effect-free scheduler, pending instruction-boundary and encoded
+  track-stream diagnostic snapshots
 - Add the GVP A530 machine path with a 40 MHz MC68EC030, exact asynchronous
   clock phase, 32-bit board-local RAM, a synchronized 16-bit motherboard
   bridge, and snapshot-safe instruction-boundary capture

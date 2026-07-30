@@ -16,6 +16,10 @@ use common_commodore_amiga::board::{
     SizedBusResponse, SizedBusTransaction, SynchronizedMotherboardBridge, TICKS_PER_CCK,
 };
 use common_commodore_amiga::driver::AmigaDriver;
+pub use common_commodore_amiga::{
+    AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY, AmigaSchedulerDiagnosticSnapshot,
+    AmigaTrackStreamDiagnosticSnapshot,
+};
 use common_commodore_amiga::{
     ActiveCpu, CpuBoundary, CpuClock, CpuDomainPhase, cia, copper, memory, rtc,
 };
@@ -1735,6 +1739,52 @@ impl AmigaOcs {
         self.tick_count / TICKS_PER_CCK
     }
 
+    /// Side-effect-free board scheduler and CPU-domain state.
+    #[must_use]
+    pub fn scheduler_diagnostic_snapshot(&self) -> AmigaSchedulerDiagnosticSnapshot {
+        AmigaSchedulerDiagnosticSnapshot {
+            tick_count: self.tick_count,
+            cck_count: self.cck_count(),
+            cck_phase: self.cck_phase,
+            e_clock_phase: self.e_clock_phase,
+            prev_vertb_level: self.prev_vertb_level,
+            prev_cia_a_irq: self.prev_cia_a_irq,
+            prev_cia_b_irq: self.prev_cia_b_irq,
+            prev_cia_a_spmode: self.prev_cia_a_spmode,
+            cpu_clock_numerator: self.cpu_clock.numerator(),
+            cpu_clock_denominator: self.cpu_clock.denominator(),
+            cpu_clock_phase: self.cpu_clock.phase(),
+            cpu_clock_maximum_edges_per_tick: self.cpu_clock.maximum_edges_per_tick(),
+            cpu_domain_idle: self.cpu_domain_phase.is_idle(),
+            cpu_domain_edges_remaining: self.cpu_domain_phase.edges_remaining(),
+            cpu_domain_motherboard_slot_pending: self.cpu_domain_phase.motherboard_slot_pending(),
+            cpu_domain_coherent: self.cpu_domain_phase_is_coherent(),
+            pending_cpu_boundaries: self.cpu_boundaries.iter().copied().collect(),
+            pending_cpu_boundary_capacity: AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY,
+        }
+    }
+
+    /// Side-effect-free encoded-track cache and delivery-pacer state.
+    #[must_use]
+    pub fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot {
+        let (cache_cylinder, cache_head, cache_bytes) = self
+            .track_cache
+            .as_ref()
+            .map_or((None, None, 0), |(cylinder, head, bytes)| {
+                (Some(*cylinder), Some(*head), bytes.len())
+            });
+        AmigaTrackStreamDiagnosticSnapshot {
+            cache_present: self.track_cache.is_some(),
+            cache_cylinder,
+            cache_head,
+            cache_bytes,
+            word_count: cache_bytes / 2,
+            word_cursor: self.track_word_cursor,
+            pacer_ccks: self.track_pacer,
+            word_interval_ccks: self.disk_word_cck_interval(),
+        }
+    }
+
     /// Read a word at the given 24-bit address — peeks state without
     /// side effects (does NOT clear ICR etc). For inspecting state
     /// during tests; not equivalent to a CPU bus cycle.
@@ -2391,8 +2441,7 @@ impl AmigaDriver for AmigaOcs {
         self.debug_copper_move_log.push(entry);
     }
     fn record_cpu_boundary(&mut self) {
-        const BOUNDARY_QUEUE_CAPACITY: usize = 4096;
-        if self.cpu_boundaries.len() == BOUNDARY_QUEUE_CAPACITY {
+        if self.cpu_boundaries.len() == AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY {
             let _ = self.cpu_boundaries.pop_front();
         }
         let instr_start_pc = self.cpu.instr_start_pc;

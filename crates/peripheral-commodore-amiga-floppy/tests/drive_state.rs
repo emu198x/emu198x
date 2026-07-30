@@ -162,3 +162,55 @@ fn selecting_with_motor_on_bypasses_id_stream() {
         "ready reports spindle speed, not ID stream"
     );
 }
+
+#[test]
+fn diagnostic_snapshot_exposes_media_mechanism_and_write_state_without_side_effects() {
+    let mut drive = AmigaFloppyDrive::new();
+    let adf = Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank DD ADF");
+    drive.insert_disk_writable(adf, false);
+    drive.acknowledge_disk_change();
+    drive.note_write_mfm_word(0x4489);
+    drive.note_write_mfm_word(0x2AAA);
+
+    drive.update_control(false, false, false, true, true);
+    assert!(!drive.tick());
+
+    let snapshot = drive.diagnostic_snapshot();
+    assert!(snapshot.has_disk);
+    assert_eq!(snapshot.disk_writable, Some(false));
+    assert_eq!(snapshot.sectors_per_track, Some(11));
+    assert!(!snapshot.read_data_available);
+    assert_eq!(snapshot.cylinder, 0);
+    assert_eq!(snapshot.head, 0);
+    assert!(snapshot.motor_on);
+    assert!(!snapshot.motor_spinning);
+    assert_eq!(snapshot.spin_timer, 1);
+    assert_eq!(snapshot.index_timer, 0);
+    assert!(snapshot.selected);
+    assert!(!snapshot.disk_changed);
+    assert!(!snapshot.prev_step);
+    assert_eq!(snapshot.step_event_counter, 0);
+    assert_eq!(snapshot.write_mfm_capture_words, 2);
+    assert_eq!(snapshot.write_mfm_pending_words, 2);
+    assert_eq!(snapshot.id_shift_register, 0xFFFF_FFFF);
+    assert_eq!(snapshot.id_bit, 0);
+    assert!(snapshot.id_ready_bit);
+    assert!(!snapshot.disk_change);
+    assert!(snapshot.write_protect);
+    assert!(snapshot.track0);
+    assert!(!snapshot.ready);
+
+    assert_eq!(drive.write_mfm_capture(), &[0x4489, 0x2AAA]);
+    assert_eq!(drive.diagnostic_snapshot(), snapshot);
+}
+
+#[test]
+fn diagnostic_snapshot_exposes_drive_id_shift_progress() {
+    let mut drive = AmigaFloppyDrive::new();
+    drive.update_control(false, false, false, true, false);
+
+    let snapshot = drive.diagnostic_snapshot();
+    assert_eq!(snapshot.id_bit, 1);
+    assert!(snapshot.id_ready_bit);
+    assert!(!snapshot.ready);
+}

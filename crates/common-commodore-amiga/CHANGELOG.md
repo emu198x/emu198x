@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose the pending CPU-domain motherboard admission slot through a
+  non-consuming diagnostic getter
+- Add shared read-only scheduler and encoded-track-stream snapshots, and
+  centralise the bounded instruction-boundary queue capacity
 - Drive the selected CPU through its exact clock domain, preserve every
   instruction boundary crossed inside a system tick, and separate
   accelerator-local responders from synchronized motherboard cycles

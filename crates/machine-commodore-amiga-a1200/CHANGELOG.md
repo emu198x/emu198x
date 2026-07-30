@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Expose side-effect-free scheduler, pending instruction-boundary and encoded
+  track-stream diagnostic snapshots
+
 ### Changed
 
 - [breaking] Preserve Lisa's programmed horizontal-blank event latch in the

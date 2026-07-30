@@ -34,6 +34,13 @@ impl CpuDomainPhase {
         self.edges_remaining
     }
 
+    /// Whether the current system tick's motherboard admission slot remains
+    /// available to the next processor edge.
+    #[must_use]
+    pub const fn motherboard_slot_pending(self) -> bool {
+        self.motherboard_slot_pending
+    }
+
     /// Begin the CPU portion of a newly advanced system tick.
     ///
     /// # Panics
@@ -295,7 +302,9 @@ mod tests {
         let mut phase = CpuDomainPhase::default();
         phase.begin_tick(3);
 
+        assert!(phase.motherboard_slot_pending());
         assert_eq!(phase.take_edge(), Some(true));
+        assert!(!phase.motherboard_slot_pending());
         assert_eq!(phase.edges_remaining(), 2);
 
         let encoded = postcard::to_allocvec(&phase).expect("serialize CPU domain phase");
@@ -306,6 +315,20 @@ mod tests {
         assert_eq!(restored.take_edge(), Some(false));
         assert_eq!(restored.take_edge(), None);
         assert!(restored.is_idle());
+    }
+
+    #[test]
+    fn motherboard_slot_can_be_observed_without_consuming_an_edge() {
+        let mut phase = CpuDomainPhase::default();
+        phase.begin_tick(2);
+
+        assert!(phase.motherboard_slot_pending());
+        assert!(phase.motherboard_slot_pending());
+        assert_eq!(phase.edges_remaining(), 2);
+
+        assert_eq!(phase.take_edge(), Some(true));
+        assert!(!phase.motherboard_slot_pending());
+        assert_eq!(phase.edges_remaining(), 1);
     }
 
     #[test]

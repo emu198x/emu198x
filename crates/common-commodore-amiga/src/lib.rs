@@ -33,4 +33,7 @@ pub use board::{
 pub use clock::{CpuClock, CpuDomainPhase};
 pub use cpu::ActiveCpu;
 pub use denise_chip::DeniseChip;
-pub use driver::{AmigaDriver, CpuBoundary};
+pub use driver::{
+    AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY, AmigaDriver, AmigaSchedulerDiagnosticSnapshot,
+    AmigaTrackStreamDiagnosticSnapshot, CpuBoundary,
+};

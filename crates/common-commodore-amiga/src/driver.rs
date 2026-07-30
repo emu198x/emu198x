@@ -57,6 +57,10 @@ use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
 /// One entry in the copper-MOVE debug log: `(cck, vpos, hpos, reg, val)`.
 pub type CopperMoveLogEntry = (u64, u16, u16, u16, u16);
 
+/// Maximum number of undrained CPU instruction boundaries retained by one
+/// Amiga machine.
+pub const AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY: usize = 4096;
+
 /// One instruction boundary crossed during a machine tick.
 ///
 /// Faster processors can cross more than one boundary between two runtime
@@ -73,6 +77,70 @@ pub struct CpuBoundary {
     pub sr: u16,
     /// Instruction word observed at `instr_start_pc`.
     pub opcode: u16,
+}
+
+/// Side-effect-free view of one machine's board scheduler and CPU-domain
+/// progress.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AmigaSchedulerDiagnosticSnapshot {
+    /// Completed Amiga system ticks.
+    pub tick_count: u64,
+    /// Completed colour clocks.
+    pub cck_count: u64,
+    /// Current half-CCK phase.
+    pub cck_phase: u8,
+    /// Current CIA E-clock divider phase.
+    pub e_clock_phase: u64,
+    /// Previously sampled vertical-blank request level.
+    pub prev_vertb_level: bool,
+    /// Previously sampled CIA-A interrupt level.
+    pub prev_cia_a_irq: bool,
+    /// Previously sampled CIA-B interrupt level.
+    pub prev_cia_b_irq: bool,
+    /// Previously sampled CIA-A serial-port direction.
+    pub prev_cia_a_spmode: bool,
+    /// Active processor clock numerator per Amiga system tick.
+    pub cpu_clock_numerator: u64,
+    /// Active processor clock denominator per Amiga system tick.
+    pub cpu_clock_denominator: u64,
+    /// Retained rational clock phase.
+    pub cpu_clock_phase: u64,
+    /// Maximum processor edges one Amiga system tick can emit.
+    pub cpu_clock_maximum_edges_per_tick: u64,
+    /// Whether no partially consumed system tick remains.
+    pub cpu_domain_idle: bool,
+    /// Processor edges still due in the current system tick.
+    pub cpu_domain_edges_remaining: u64,
+    /// Whether the current tick's motherboard admission slot remains.
+    pub cpu_domain_motherboard_slot_pending: bool,
+    /// Whether the clock and partially consumed CPU domain agree.
+    pub cpu_domain_coherent: bool,
+    /// Undrained instruction boundaries, oldest first.
+    pub pending_cpu_boundaries: Vec<CpuBoundary>,
+    /// Maximum number of undrained boundaries retained.
+    pub pending_cpu_boundary_capacity: usize,
+}
+
+/// Side-effect-free view of the board-level encoded-track stream that feeds
+/// Paula's disk controller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AmigaTrackStreamDiagnosticSnapshot {
+    /// Whether an encoded-track cache is installed.
+    pub cache_present: bool,
+    /// Cylinder represented by the cache.
+    pub cache_cylinder: Option<u32>,
+    /// Head side represented by the cache.
+    pub cache_head: Option<u32>,
+    /// Encoded bytes held by the cache.
+    pub cache_bytes: usize,
+    /// Encoded words held by the cache.
+    pub word_count: usize,
+    /// Index of the next word delivered to Paula.
+    pub word_cursor: usize,
+    /// CCKs accumulated toward the next delivery.
+    pub pacer_ccks: u16,
+    /// Required CCK interval between delivered words.
+    pub word_interval_ccks: u16,
 }
 
 /// The shared per-CCK driver for every Amiga chipset variant.

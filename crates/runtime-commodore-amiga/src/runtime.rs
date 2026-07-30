@@ -221,6 +221,18 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         self.audio_sample_accumulator
     }
 
+    /// Number of interleaved host-audio samples currently buffered.
+    #[must_use]
+    pub(crate) fn audio_buffer_samples(&self) -> usize {
+        self.audio_buffer.len()
+    }
+
+    /// Authoritative machine-tick rate used by the audio resampler.
+    #[must_use]
+    pub(crate) const fn tick_hz(&self) -> u64 {
+        self.tick_hz
+    }
+
     /// Current machine time, exposed by name distinct from the
     /// `MachineCore::time` trait method so internal modules don't have
     /// to import the trait.

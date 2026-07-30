@@ -704,6 +704,62 @@ pub struct AudioChannelSnapshot {
     pub sample: i8,
 }
 
+/// Side-effect-free snapshot of Paula's implemented floppy-disk state.
+///
+/// The queued DSKDAT words are copied in consumer order so debuggers and
+/// traces can inspect the queue without draining it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PaulaDiskDiagnosticSnapshot {
+    /// Raw DSKLEN register.
+    pub dsklen: u16,
+    /// Raw DSKSYNC register.
+    pub dsksync: u16,
+    /// Most recently received disk word.
+    pub dskdatr: u16,
+    /// Most recently written DSKDAT word.
+    pub dskdat: u16,
+    /// Byte currently presented in DSKBYTR.
+    pub dskbytr_data: u8,
+    /// Low byte waiting to advance into DSKBYTR.
+    pub dskbytr_next_data: Option<u8>,
+    /// CCK delay remaining before `dskbytr_next_data` advances.
+    pub dskbytr_next_delay_cck: u8,
+    /// Whether DSKBYTR.DSKBYT is latched.
+    pub dskbytr_valid: bool,
+    /// Whether DSKBYTR.WORDEQUAL is latched.
+    pub dskbytr_wordequal: bool,
+    /// CCK delay remaining before WORDEQUAL clears.
+    pub dskbytr_wordequal_delay_cck: u8,
+    /// DSKDAT writes waiting for the drive consumer, in dequeue order.
+    pub dskdat_queue: Vec<u16>,
+    /// Whether the DSKLEN arming flip-flop has seen its first DMAEN write.
+    pub dsklen_armed: bool,
+    /// Whether a disk DMA transfer is pending.
+    pub disk_dma_pending: bool,
+    /// Number of words remaining in the captured transfer.
+    pub disk_dma_words_remaining: u32,
+    /// Captured DMA direction; `true` means chip RAM to disk.
+    pub disk_dma_is_write: bool,
+    /// Whether read DMA is waiting for its first WORDSYNC match.
+    pub disk_dma_wordsync_waiting: bool,
+    /// Whether a disk write-DMA transfer is currently active.
+    pub disk_dma_write_active: bool,
+    /// Whether DSKLEN.DMAEN is set in the current register value.
+    pub dsklen_dma_enabled: bool,
+    /// Whether DSKLEN.WRITE is set in the current register value.
+    pub dsklen_write_enabled: bool,
+    /// Whether ADKCON.WORDSYNC is enabled.
+    pub wordsync_enabled: bool,
+    /// Whether ADKCON.FAST selects fast disk-byte pacing.
+    pub fast_enabled: bool,
+    /// Current configured delay between the two bytes of an MFM word.
+    pub disk_byte_delay_cck: u8,
+    /// Current disk PLL phase accumulator.
+    pub disk_pll_phase: u16,
+    /// Whether the disk PLL is using variable-rate input.
+    pub disk_pll_variable_rate: bool,
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Paula8364 — main type
 // ─────────────────────────────────────────────────────────────────────
@@ -1288,6 +1344,38 @@ impl Paula8364 {
     #[must_use]
     pub fn disk_dma_write_active(&self) -> bool {
         self.disk_dma_is_write && self.disk_dma_words_remaining > 0
+    }
+
+    /// Return a side-effect-free diagnostic snapshot of all implemented
+    /// Paula disk-register, byte-latch, DMA, queue, and PLL state.
+    #[must_use]
+    pub fn disk_diagnostic_snapshot(&self) -> PaulaDiskDiagnosticSnapshot {
+        PaulaDiskDiagnosticSnapshot {
+            dsklen: self.dsklen,
+            dsksync: self.dsksync,
+            dskdatr: self.dskdatr,
+            dskdat: self.dskdat,
+            dskbytr_data: self.dskbytr_data,
+            dskbytr_next_data: self.dskbytr_next_data,
+            dskbytr_next_delay_cck: self.dskbytr_next_delay_cck,
+            dskbytr_valid: self.dskbytr_valid,
+            dskbytr_wordequal: self.dskbytr_wordequal,
+            dskbytr_wordequal_delay_cck: self.dskbytr_wordequal_delay_cck,
+            dskdat_queue: self.dskdat_queue.iter().copied().collect(),
+            dsklen_armed: self.dsklen_armed,
+            disk_dma_pending: self.disk_dma_pending,
+            disk_dma_words_remaining: self.disk_dma_words_remaining,
+            disk_dma_is_write: self.disk_dma_is_write,
+            disk_dma_wordsync_waiting: self.disk_dma_wordsync_waiting,
+            disk_dma_write_active: self.disk_dma_write_active(),
+            dsklen_dma_enabled: self.dsklen & DSKLEN_DMAEN != 0,
+            dsklen_write_enabled: self.dsklen & DSKLEN_WRITE != 0,
+            wordsync_enabled: self.adkcon & ADKCON_WORDSYNC != 0,
+            fast_enabled: self.adkcon & ADKCON_FAST != 0,
+            disk_byte_delay_cck: self.disk_byte_cck_delay(),
+            disk_pll_phase: self.disk_pll_phase,
+            disk_pll_variable_rate: self.disk_pll_variable_rate,
+        }
     }
 
     /// Read DSKBYTR with its documented side effect: DSKBYT clears.

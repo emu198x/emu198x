@@ -22,6 +22,10 @@ use common_commodore_amiga::board::{
     BusResponse, BusTransaction, ChipRamBus, SizedBusResponse, SizedBusTransaction, TICKS_PER_CCK,
 };
 use common_commodore_amiga::driver::{AmigaDriver, CpuBoundary};
+pub use common_commodore_amiga::{
+    AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY, AmigaSchedulerDiagnosticSnapshot,
+    AmigaTrackStreamDiagnosticSnapshot,
+};
 use common_commodore_amiga::{ActiveCpu, CpuClock, CpuDomainPhase, cia, copper, memory, rtc};
 
 pub use agnus::{
@@ -174,7 +178,6 @@ fn decode_cia_b_prb_for_df0(prb: u8) -> (bool, bool, bool, bool, bool) {
 }
 
 const DEBUG_RTC_LOG_LIMIT: usize = 4096;
-const CPU_BOUNDARY_QUEUE_LIMIT: usize = 4096;
 
 // `ChipRamBus`, `BusTransaction`, `BusResponse`, `TICKS_PER_CCK`, and
 // `CIA_E_CLOCK_DIVISOR` are shared board glue, relocated to
@@ -1543,6 +1546,52 @@ impl AmigaA1200 {
         self.tick_count / TICKS_PER_CCK
     }
 
+    /// Side-effect-free board scheduler and CPU-domain state.
+    #[must_use]
+    pub fn scheduler_diagnostic_snapshot(&self) -> AmigaSchedulerDiagnosticSnapshot {
+        AmigaSchedulerDiagnosticSnapshot {
+            tick_count: self.tick_count,
+            cck_count: self.cck_count(),
+            cck_phase: self.cck_phase,
+            e_clock_phase: self.e_clock_phase,
+            prev_vertb_level: self.prev_vertb_level,
+            prev_cia_a_irq: self.prev_cia_a_irq,
+            prev_cia_b_irq: self.prev_cia_b_irq,
+            prev_cia_a_spmode: self.prev_cia_a_spmode,
+            cpu_clock_numerator: self.cpu_clock.numerator(),
+            cpu_clock_denominator: self.cpu_clock.denominator(),
+            cpu_clock_phase: self.cpu_clock.phase(),
+            cpu_clock_maximum_edges_per_tick: self.cpu_clock.maximum_edges_per_tick(),
+            cpu_domain_idle: self.cpu_domain_phase.is_idle(),
+            cpu_domain_edges_remaining: self.cpu_domain_phase.edges_remaining(),
+            cpu_domain_motherboard_slot_pending: self.cpu_domain_phase.motherboard_slot_pending(),
+            cpu_domain_coherent: self.cpu_domain_phase_is_coherent(),
+            pending_cpu_boundaries: self.cpu_boundaries.iter().copied().collect(),
+            pending_cpu_boundary_capacity: AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY,
+        }
+    }
+
+    /// Side-effect-free encoded-track cache and delivery-pacer state.
+    #[must_use]
+    pub fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot {
+        let (cache_cylinder, cache_head, cache_bytes) = self
+            .track_cache
+            .as_ref()
+            .map_or((None, None, 0), |(cylinder, head, bytes)| {
+                (Some(*cylinder), Some(*head), bytes.len())
+            });
+        AmigaTrackStreamDiagnosticSnapshot {
+            cache_present: self.track_cache.is_some(),
+            cache_cylinder,
+            cache_head,
+            cache_bytes,
+            word_count: cache_bytes / 2,
+            word_cursor: self.track_word_cursor,
+            pacer_ccks: self.track_pacer,
+            word_interval_ccks: self.disk_word_cck_interval(),
+        }
+    }
+
     /// Read a word at the given 24-bit address — peeks state without
     /// side effects (does NOT clear ICR etc). For inspecting state
     /// during tests; not equivalent to a CPU bus cycle.
@@ -2282,7 +2331,7 @@ impl AmigaDriver for AmigaA1200 {
         self.debug_copper_move_log.push(entry);
     }
     fn record_cpu_boundary(&mut self) {
-        if self.cpu_boundaries.len() == CPU_BOUNDARY_QUEUE_LIMIT {
+        if self.cpu_boundaries.len() == AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY {
             self.cpu_boundaries.pop_front();
         }
         self.cpu_boundaries.push_back(CpuBoundary {
@@ -2423,13 +2472,13 @@ mod bus_plan_dispatch_tests {
     fn instruction_boundary_queue_is_bounded_and_drains_in_order() {
         let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
 
-        for system_tick in 0..=CPU_BOUNDARY_QUEUE_LIMIT {
+        for system_tick in 0..=AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY {
             amiga.tick_count = system_tick as u64;
             <AmigaA1200 as AmigaDriver>::record_cpu_boundary(&mut amiga);
         }
 
         let mut boundaries = amiga.drain_cpu_boundaries();
-        assert_eq!(boundaries.len(), CPU_BOUNDARY_QUEUE_LIMIT);
+        assert_eq!(boundaries.len(), AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY);
         assert_eq!(
             boundaries
                 .next()
@@ -2442,7 +2491,7 @@ mod bus_plan_dispatch_tests {
                 .next_back()
                 .expect("the bounded queue retains its final entry")
                 .system_tick,
-            CPU_BOUNDARY_QUEUE_LIMIT as u64
+            AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY as u64
         );
     }
 

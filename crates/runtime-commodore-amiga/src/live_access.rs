@@ -33,9 +33,12 @@
 
 use commodore_agnus_ocs::Agnus;
 use format_commodore_amiga_adf::Adf;
-use machine_commodore_amiga_a1200::{AmigaA1200, Copper as A1200Copper};
+use machine_commodore_amiga_a1200::AmigaA1200;
 use machine_commodore_amiga_ecs::{AgnusEcs, AmigaEcs, DeniseEcs};
-use machine_commodore_amiga_ocs::{AmigaFloppyDrive, AmigaKeyboard, AmigaOcs, Cia, Paula8364};
+use machine_commodore_amiga_ocs::{
+    AmigaFloppyDrive, AmigaKeyboard, AmigaOcs, AmigaSchedulerDiagnosticSnapshot,
+    AmigaTrackStreamDiagnosticSnapshot, Cia, Copper, Paula8364,
+};
 use motorola_68k_common::registers::Registers;
 
 use crate::variants::AmigaRuntimeKind;
@@ -251,6 +254,10 @@ pub type RegReadLogEntry = (u64, u32, u16, u16);
 /// (`addr & 0x1FF`). `is_word` distinguishes word vs byte writes.
 pub type CustomWriteEntry = (u64, u32, u32, u16, u16, bool);
 
+/// Copper MOVE diagnostic entry:
+/// `(tick, vpos, hpos, custom_register_offset, value)`.
+pub type CopperMoveLogEntry = (u64, u16, u16, u16, u16);
+
 /// Chipset-agnostic read/write surface used by the family MCP tools.
 ///
 /// Implemented by every concrete machine struct (`AmigaOcs`,
@@ -283,6 +290,12 @@ pub trait AmigaLiveAccess {
 
     /// Current tick counter.
     fn tick_count(&self) -> u64;
+
+    /// Board scheduler, CPU-domain and pending instruction-boundary state.
+    fn scheduler_diagnostic_snapshot(&self) -> AmigaSchedulerDiagnosticSnapshot;
+
+    /// Board-level encoded-track cache and delivery-pacer state.
+    fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot;
 
     // ---------- chipset register snapshot ----------
 
@@ -319,6 +332,7 @@ pub trait AmigaLiveAccess {
     fn paula(&self) -> &Paula8364;
     fn drive(&self) -> &AmigaFloppyDrive;
     fn keyboard(&self) -> &AmigaKeyboard;
+    fn copper(&self) -> &Copper;
 
     // ---------- video ----------
 
@@ -380,10 +394,12 @@ pub trait AmigaLiveAccess {
     /// one shot rather than polling `query_chipset`.
     fn custom_write_log(&self) -> &[CustomWriteEntry];
 
-    /// AGA Copper struct reference, for the `query_copper_list` tool.
-    /// Returns `None` on OCS / ECS — those chipsets carry a different
-    /// Copper type that hasn't been lifted to a shared base yet.
-    fn aga_copper(&self) -> Option<&A1200Copper>;
+    /// Copper MOVE events routed through the custom-register dispatcher.
+    fn copper_move_log(&self) -> &[CopperMoveLogEntry];
+
+    /// Compatibility projection used by the existing AGA Copper-list tool.
+    /// All chipsets now expose the common Copper through [`Self::copper`].
+    fn aga_copper(&self) -> Option<&Copper>;
 
     // ---------- media ----------
 
@@ -494,6 +510,14 @@ impl AmigaLiveAccess for AmigaOcs {
         AmigaOcs::tick_count(self)
     }
 
+    fn scheduler_diagnostic_snapshot(&self) -> AmigaSchedulerDiagnosticSnapshot {
+        AmigaOcs::scheduler_diagnostic_snapshot(self)
+    }
+
+    fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot {
+        AmigaOcs::track_stream_diagnostic_snapshot(self)
+    }
+
     fn intena(&self) -> u16 {
         AmigaOcs::intena(self)
     }
@@ -558,6 +582,10 @@ impl AmigaLiveAccess for AmigaOcs {
         AmigaOcs::keyboard(self)
     }
 
+    fn copper(&self) -> &Copper {
+        AmigaOcs::copper(self)
+    }
+
     fn framebuffer(&self) -> &[u32] {
         self.denise().framebuffer()
     }
@@ -618,7 +646,11 @@ impl AmigaLiveAccess for AmigaOcs {
         &self.debug_custom_write_log
     }
 
-    fn aga_copper(&self) -> Option<&A1200Copper> {
+    fn copper_move_log(&self) -> &[CopperMoveLogEntry] {
+        &self.debug_copper_move_log
+    }
+
+    fn aga_copper(&self) -> Option<&Copper> {
         None
     }
 
@@ -671,6 +703,14 @@ impl AmigaLiveAccess for AmigaEcs {
 
     fn tick_count(&self) -> u64 {
         AmigaEcs::tick_count(self)
+    }
+
+    fn scheduler_diagnostic_snapshot(&self) -> AmigaSchedulerDiagnosticSnapshot {
+        AmigaEcs::scheduler_diagnostic_snapshot(self)
+    }
+
+    fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot {
+        AmigaEcs::track_stream_diagnostic_snapshot(self)
     }
 
     fn intena(&self) -> u16 {
@@ -760,6 +800,10 @@ impl AmigaLiveAccess for AmigaEcs {
         AmigaEcs::keyboard(self)
     }
 
+    fn copper(&self) -> &Copper {
+        AmigaEcs::copper(self)
+    }
+
     fn framebuffer(&self) -> &[u32] {
         self.denise().framebuffer()
     }
@@ -820,7 +864,11 @@ impl AmigaLiveAccess for AmigaEcs {
         &self.debug_custom_write_log
     }
 
-    fn aga_copper(&self) -> Option<&A1200Copper> {
+    fn copper_move_log(&self) -> &[CopperMoveLogEntry] {
+        &self.debug_copper_move_log
+    }
+
+    fn aga_copper(&self) -> Option<&Copper> {
         None
     }
 
@@ -870,6 +918,14 @@ impl AmigaLiveAccess for AmigaA1200 {
 
     fn tick_count(&self) -> u64 {
         AmigaA1200::tick_count(self)
+    }
+
+    fn scheduler_diagnostic_snapshot(&self) -> AmigaSchedulerDiagnosticSnapshot {
+        AmigaA1200::scheduler_diagnostic_snapshot(self)
+    }
+
+    fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot {
+        AmigaA1200::track_stream_diagnostic_snapshot(self)
     }
 
     fn intena(&self) -> u16 {
@@ -955,6 +1011,10 @@ impl AmigaLiveAccess for AmigaA1200 {
         AmigaA1200::keyboard(self)
     }
 
+    fn copper(&self) -> &Copper {
+        AmigaA1200::copper(self)
+    }
+
     fn framebuffer(&self) -> &[u32] {
         self.denise().framebuffer()
     }
@@ -1015,7 +1075,11 @@ impl AmigaLiveAccess for AmigaA1200 {
         &self.debug_custom_write_log
     }
 
-    fn aga_copper(&self) -> Option<&A1200Copper> {
+    fn copper_move_log(&self) -> &[CopperMoveLogEntry] {
+        &self.debug_copper_move_log
+    }
+
+    fn aga_copper(&self) -> Option<&Copper> {
         Some(AmigaA1200::copper(self))
     }
 
@@ -1100,6 +1164,22 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => rt.machine().tick_count(),
             Self::Ecs(rt) => rt.machine().tick_count(),
             Self::Aga(rt) => rt.machine().tick_count(),
+        }
+    }
+
+    fn scheduler_diagnostic_snapshot(&self) -> AmigaSchedulerDiagnosticSnapshot {
+        match self {
+            Self::Ocs(rt) => rt.machine().scheduler_diagnostic_snapshot(),
+            Self::Ecs(rt) => rt.machine().scheduler_diagnostic_snapshot(),
+            Self::Aga(rt) => rt.machine().scheduler_diagnostic_snapshot(),
+        }
+    }
+
+    fn track_stream_diagnostic_snapshot(&self) -> AmigaTrackStreamDiagnosticSnapshot {
+        match self {
+            Self::Ocs(rt) => rt.machine().track_stream_diagnostic_snapshot(),
+            Self::Ecs(rt) => rt.machine().track_stream_diagnostic_snapshot(),
+            Self::Aga(rt) => rt.machine().track_stream_diagnostic_snapshot(),
         }
     }
 
@@ -1247,6 +1327,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
         }
     }
 
+    fn copper(&self) -> &Copper {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::copper(rt.machine()),
+            Self::Ecs(rt) => AmigaLiveAccess::copper(rt.machine()),
+            Self::Aga(rt) => AmigaLiveAccess::copper(rt.machine()),
+        }
+    }
+
     fn framebuffer(&self) -> &[u32] {
         match self {
             Self::Ocs(rt) => AmigaLiveAccess::framebuffer(rt.machine()),
@@ -1359,7 +1447,15 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
         }
     }
 
-    fn aga_copper(&self) -> Option<&A1200Copper> {
+    fn copper_move_log(&self) -> &[CopperMoveLogEntry] {
+        match self {
+            Self::Ocs(rt) => rt.machine().copper_move_log(),
+            Self::Ecs(rt) => rt.machine().copper_move_log(),
+            Self::Aga(rt) => rt.machine().copper_move_log(),
+        }
+    }
+
+    fn aga_copper(&self) -> Option<&Copper> {
         match self {
             Self::Ocs(_) | Self::Ecs(_) => None,
             Self::Aga(rt) => rt.machine().aga_copper(),

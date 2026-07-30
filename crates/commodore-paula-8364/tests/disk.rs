@@ -285,3 +285,68 @@ fn disk_pll_variable_rate_toggle_roundtrips() {
     p.set_disk_pll_variable_rate(false);
     assert!(!p.disk_pll_variable_rate());
 }
+
+#[test]
+fn disk_diagnostic_snapshot_exposes_register_latch_queue_dma_and_pll_state() {
+    let mut p = Paula8364::new();
+    p.write_adkcon(INT_SETCLR | ADKCON_WORDSYNC | ADKCON_FAST);
+    p.set_dsksync(0x4489);
+    p.write_dskdat(0x1111);
+    p.write_dskdat(0x2222);
+    assert!(p.note_disk_read_word(0x4489));
+    p.write_dsklen(DSKLEN_DMAEN | 3);
+    p.write_dsklen(DSKLEN_DMAEN | 3);
+    assert!(!p.disk_pll_accumulate(5));
+    p.set_disk_pll_variable_rate(true);
+
+    let snapshot = p.disk_diagnostic_snapshot();
+    assert_eq!(snapshot.dsklen, DSKLEN_DMAEN | 3);
+    assert_eq!(snapshot.dsksync, 0x4489);
+    assert_eq!(snapshot.dskdatr, 0x4489);
+    assert_eq!(snapshot.dskdat, 0x2222);
+    assert_eq!(snapshot.dskbytr_data, 0x44);
+    assert_eq!(snapshot.dskbytr_next_data, Some(0x89));
+    assert_eq!(snapshot.dskbytr_next_delay_cck, DISK_BYTE_CCK_FAST);
+    assert!(snapshot.dskbytr_valid);
+    assert!(snapshot.dskbytr_wordequal);
+    assert_eq!(snapshot.dskbytr_wordequal_delay_cck, DISK_BYTE_CCK_FAST);
+    assert_eq!(snapshot.dskdat_queue, [0x1111, 0x2222]);
+    assert!(!snapshot.dsklen_armed);
+    assert!(snapshot.disk_dma_pending);
+    assert_eq!(snapshot.disk_dma_words_remaining, 3);
+    assert!(!snapshot.disk_dma_is_write);
+    assert!(snapshot.disk_dma_wordsync_waiting);
+    assert!(!snapshot.disk_dma_write_active);
+    assert!(snapshot.dsklen_dma_enabled);
+    assert!(!snapshot.dsklen_write_enabled);
+    assert!(snapshot.wordsync_enabled);
+    assert!(snapshot.fast_enabled);
+    assert_eq!(snapshot.disk_byte_delay_cck, DISK_BYTE_CCK_FAST);
+    assert_eq!(snapshot.disk_pll_phase, 5);
+    assert!(snapshot.disk_pll_variable_rate);
+
+    assert_eq!(p.dskdat_queue_len(), 2, "snapshot must not drain DSKDAT");
+    assert_eq!(p.take_dskdat_queued_word(), Some(0x1111));
+}
+
+#[test]
+fn disk_diagnostic_snapshot_exposes_arming_and_write_direction() {
+    let mut p = Paula8364::new();
+    let dsklen = DSKLEN_DMAEN | DSKLEN_WRITE | 2;
+
+    p.write_dsklen(dsklen);
+    let armed = p.disk_diagnostic_snapshot();
+    assert!(armed.dsklen_armed);
+    assert!(!armed.disk_dma_pending);
+    assert_eq!(armed.disk_dma_words_remaining, 0);
+    assert!(armed.dsklen_write_enabled);
+
+    p.write_dsklen(dsklen);
+    let active = p.disk_diagnostic_snapshot();
+    assert!(!active.dsklen_armed);
+    assert!(active.disk_dma_pending);
+    assert_eq!(active.disk_dma_words_remaining, 2);
+    assert!(active.disk_dma_is_write);
+    assert!(!active.disk_dma_wordsync_waiting);
+    assert!(active.disk_dma_write_active);
+}
