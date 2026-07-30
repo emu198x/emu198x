@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose every implemented CIA register, timer, serial, port, TOD and read-latch
+  field plus the battery-backed RTC value, calendar and control flags
+- Discover every nested grouped-diagnostic field automatically so additions
+  cannot remain hidden from query-path enumeration
 - Expose Agnus's complete current bus plan, recorded same-CCK ownership, DDF
   sequencer and blitter internals through grouped diagnostics
 - Expose the complete common Denise register, bitplane, collision, sprite,

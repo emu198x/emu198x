@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose the battery-backed clock through a side-effect-free diagnostic snapshot
 - Expose raw controller counters and host input latches through a read-only
   diagnostic snapshot
 - Expose side-effect-free scheduler, pending instruction-boundary and encoded

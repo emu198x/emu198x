@@ -46,7 +46,7 @@ pub use gvp_a530::{A530Config, A530RamSize, GvpA530};
 pub use memory::{CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE, Memory};
 pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
 pub use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
-pub use rtc::RTC_BASE;
+pub use rtc::{Msm6242RtcDiagnosticSnapshot, RTC_BASE};
 
 use motorola_68000::CpuModel;
 use motorola_68000::bus::{
@@ -854,6 +854,12 @@ impl AmigaOcs {
     #[must_use]
     pub fn cia_b(&self) -> &Cia {
         &self.cia_b
+    }
+
+    /// Side-effect-free state of the board's battery-backed clock.
+    #[must_use]
+    pub fn rtc_diagnostic_snapshot(&self) -> Msm6242RtcDiagnosticSnapshot {
+        self.rtc.diagnostic_snapshot()
     }
 
     /// Mutable CIA-B access. Only for tests/integrations that need to

@@ -158,8 +158,9 @@ pub trait AmigaMachine {
 
     // ---------- queries ----------
 
-    /// Variant-specific query path catalogue. The runtime adds the
-    /// shared `boot.*` and `amiga.machine.*` paths on top of this.
+    /// Static variant-specific query path baseline. The runtime adds shared
+    /// paths and recursively discovers every field returned by grouped
+    /// side-effect-free snapshots.
     fn variant_query_paths() -> &'static [&'static str];
 
     /// Resolve a variant-specific query path. Returns `Ok(None)` if
@@ -404,6 +405,7 @@ macro_rules! amiga_variant_query_paths {
     "blitter",
     "paula",
     "cia",
+    "rtc",
     "keyboard",
     "input",
     "debug",

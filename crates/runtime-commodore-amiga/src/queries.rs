@@ -54,6 +54,39 @@ pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
     "runtime.cpu_trace_at_limit",
 ];
 
+/// Group roots whose object fields are added to discovery from the live,
+/// side-effect-free snapshot. Static variant catalogues remain a compatibility
+/// baseline; this closes the gap where a newly exposed diagnostic field could
+/// be returned by a group but omitted from `query_paths`.
+const GROUPED_VARIANT_QUERY_ROOTS: &[&str] = &[
+    "chipset",
+    "agnus",
+    "denise",
+    "copper",
+    "scheduler",
+    "dma",
+    "blitter",
+    "paula",
+    "cia",
+    "rtc",
+    "keyboard",
+    "input",
+    "debug",
+    "disk",
+    "aga",
+];
+
+fn collect_value_paths(prefix: &str, value: &Value, paths: &mut Vec<String>) {
+    paths.push(prefix.to_owned());
+    let Some(object) = value.as_object() else {
+        return;
+    };
+    for (field, child) in object {
+        let path = format!("{prefix}.{field}");
+        collect_value_paths(&path, child, paths);
+    }
+}
+
 /// Boot-status snapshot derived from the most recent frame. Matches
 /// the archive's `AmigaBootStatus` heuristic: a mostly-coloured
 /// framebuffer with visible pixels above row zero counts as boot-
@@ -102,14 +135,20 @@ pub(crate) fn boot_status<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> AmigaBo
 pub struct AmigaSessionQueryProvider;
 
 impl<M: AmigaMachine> SessionQueryProvider<AmigaRuntime<M>> for AmigaSessionQueryProvider {
-    fn query_paths(&self, _machine: &AmigaRuntime<M>, prefix: Option<&str>) -> Vec<String> {
+    fn query_paths(&self, machine: &AmigaRuntime<M>, prefix: Option<&str>) -> Vec<String> {
         let mut paths: Vec<String> = SHARED_QUERY_PATHS
             .iter()
             .chain(M::variant_query_paths().iter())
             .copied()
-            .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
             .map(str::to_owned)
             .collect();
+        collect_value_paths("runtime", &runtime_snapshot(machine), &mut paths);
+        for group in GROUPED_VARIANT_QUERY_ROOTS {
+            if let Ok(Some(snapshot)) = machine.machine().resolve_variant_query(group) {
+                collect_value_paths(group, &snapshot, &mut paths);
+            }
+        }
+        paths.retain(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)));
         paths.sort_unstable();
         paths.dedup();
         paths
@@ -472,26 +511,78 @@ pub(crate) fn paula_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     })
 }
 
-/// One CIA-8520's timer + control + TOD + port register file.
+fn cia_control_fields(cra: u8, crb: u8) -> (Value, Value, &'static str, &'static str) {
+    let cra_bits = decode_named_bits(
+        u16::from(cra),
+        &[
+            ("START", 0x01),
+            ("PBON", 0x02),
+            ("OUTMODE", 0x04),
+            ("RUNMODE", 0x08),
+            ("INMODE", 0x20),
+            ("SPMODE", 0x40),
+            ("TOD_RATE", 0x80),
+        ],
+    );
+    let crb_bits = decode_named_bits(
+        u16::from(crb),
+        &[
+            ("START", 0x01),
+            ("PBON", 0x02),
+            ("OUTMODE", 0x04),
+            ("RUNMODE", 0x08),
+            ("INMODE0", 0x20),
+            ("INMODE1", 0x40),
+            ("ALARM_SELECT", 0x80),
+        ],
+    );
+    let timer_a_input = if cra & 0x20 == 0 { "phi2" } else { "cnt" };
+    let timer_b_input = match crb & 0x60 {
+        0x00 => "phi2",
+        0x20 => "cnt",
+        0x40 => "timer-a",
+        _ => "cnt-and-timer-a",
+    };
+    (cra_bits, crb_bits, timer_a_input, timer_b_input)
+}
+
+fn decode_cia_interrupt_bits(value: u8) -> Value {
+    decode_named_bits(
+        u16::from(value),
+        &[
+            ("TA", 0x01),
+            ("TB", 0x02),
+            ("ALARM", 0x04),
+            ("SP", 0x08),
+            ("FLAG", 0x10),
+            ("IR", 0x80),
+        ],
+    )
+}
+
+/// One CIA-8520's complete implemented register, latch and pin state.
 fn cia_fields(c: &machine_commodore_amiga_ocs::Cia) -> Value {
-    json!({
-        "cra": c.cra(),
-        "crb": c.crb(),
-        "timer_a": c.timer_a(),
-        "timer_b": c.timer_b(),
-        "timer_a_running": c.timer_a_running(),
-        "timer_b_running": c.timer_b_running(),
-        "icr_status": c.icr_status(),
-        "icr_mask": c.icr_mask(),
-        "irq_active": c.irq_active(),
-        "ddr_a": c.ddr_a(),
-        "ddr_b": c.ddr_b(),
-        "port_a_output": c.port_a_output(),
-        "port_b_output": c.port_b_output(),
-        "tod_counter": c.tod_counter(),
-        "tod_alarm": c.tod_alarm(),
-        "tod_halted": c.tod_halted(),
-    })
+    let state = c.diagnostic_snapshot();
+    let (cra_bits, crb_bits, timer_a_input, timer_b_input) =
+        cia_control_fields(state.cra, state.crb);
+    let mut fields = serde_json::to_value(state)
+        .expect("the CIA diagnostic snapshot serialises")
+        .as_object()
+        .cloned()
+        .expect("the CIA diagnostic snapshot is an object");
+    fields.insert("cra_bits".to_owned(), cra_bits);
+    fields.insert("crb_bits".to_owned(), crb_bits);
+    fields.insert("timer_a_input".to_owned(), json!(timer_a_input));
+    fields.insert("timer_b_input".to_owned(), json!(timer_b_input));
+    fields.insert(
+        "icr_status_bits".to_owned(),
+        decode_cia_interrupt_bits(state.icr_status),
+    );
+    fields.insert(
+        "icr_mask_bits".to_owned(),
+        decode_cia_interrupt_bits(state.icr_mask),
+    );
+    Value::Object(fields)
 }
 
 /// Both CIAs (`cia_a` = U7 / keyboard / floppy control, `cia_b` = U8 /
@@ -501,6 +592,11 @@ pub(crate) fn cia_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "cia_a": cia_fields(m.cia_a()),
         "cia_b": cia_fields(m.cia_b()),
     })
+}
+
+/// Battery-backed clock value, decoded calendar and raw/decoded controls.
+pub(crate) fn rtc_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    json!(m.rtc_diagnostic_snapshot())
 }
 
 /// Keyboard controller protocol progress and its current CIA-A serial
@@ -1235,6 +1331,9 @@ pub(crate) fn resolve_chip_query(m: &dyn AmigaLiveAccess, path: &str) -> Option<
     }
     if is_chip(path, "cia") {
         return chip_field(path, "cia", cia_snapshot(m));
+    }
+    if is_chip(path, "rtc") {
+        return chip_field(path, "rtc", rtc_snapshot(m));
     }
     if is_chip(path, "keyboard") {
         return chip_field(path, "keyboard", keyboard_snapshot(m));

@@ -38,7 +38,8 @@ use machine_commodore_amiga_a1200::AmigaA1200;
 use machine_commodore_amiga_ecs::{AgnusEcs, AmigaEcs, DeniseEcs};
 use machine_commodore_amiga_ocs::{
     AmigaFloppyDrive, AmigaInputDiagnosticSnapshot, AmigaKeyboard, AmigaOcs,
-    AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot, Cia, Copper, Paula8364,
+    AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot, Cia, Copper,
+    Msm6242RtcDiagnosticSnapshot, Paula8364,
 };
 use motorola_68k_common::registers::Registers;
 
@@ -360,6 +361,7 @@ pub trait AmigaLiveAccess {
 
     fn cia_a(&self) -> &Cia;
     fn cia_b(&self) -> &Cia;
+    fn rtc_diagnostic_snapshot(&self) -> Msm6242RtcDiagnosticSnapshot;
     fn paula(&self) -> &Paula8364;
     fn drive(&self) -> &AmigaFloppyDrive;
     fn keyboard(&self) -> &AmigaKeyboard;
@@ -659,6 +661,10 @@ impl AmigaLiveAccess for AmigaOcs {
         AmigaOcs::cia_b(self)
     }
 
+    fn rtc_diagnostic_snapshot(&self) -> Msm6242RtcDiagnosticSnapshot {
+        AmigaOcs::rtc_diagnostic_snapshot(self)
+    }
+
     fn paula(&self) -> &Paula8364 {
         AmigaOcs::paula(self)
     }
@@ -938,6 +944,10 @@ impl AmigaLiveAccess for AmigaEcs {
         AmigaEcs::cia_b(self)
     }
 
+    fn rtc_diagnostic_snapshot(&self) -> Msm6242RtcDiagnosticSnapshot {
+        AmigaEcs::rtc_diagnostic_snapshot(self)
+    }
+
     fn paula(&self) -> &Paula8364 {
         AmigaEcs::paula(self)
     }
@@ -1208,6 +1218,10 @@ impl AmigaLiveAccess for AmigaA1200 {
 
     fn cia_b(&self) -> &Cia {
         AmigaA1200::cia_b(self)
+    }
+
+    fn rtc_diagnostic_snapshot(&self) -> Msm6242RtcDiagnosticSnapshot {
+        AmigaA1200::rtc_diagnostic_snapshot(self)
     }
 
     fn paula(&self) -> &Paula8364 {
@@ -1591,6 +1605,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => AmigaLiveAccess::cia_b(rt.machine()),
             Self::Ecs(rt) => AmigaLiveAccess::cia_b(rt.machine()),
             Self::Aga(rt) => AmigaLiveAccess::cia_b(rt.machine()),
+        }
+    }
+
+    fn rtc_diagnostic_snapshot(&self) -> Msm6242RtcDiagnosticSnapshot {
+        match self {
+            Self::Ocs(rt) => rt.machine().rtc_diagnostic_snapshot(),
+            Self::Ecs(rt) => rt.machine().rtc_diagnostic_snapshot(),
+            Self::Aga(rt) => rt.machine().rtc_diagnostic_snapshot(),
         }
     }
 
