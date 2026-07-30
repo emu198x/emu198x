@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add a side-effect-free diagnostic snapshot covering the complete implemented
+  keyboard protocol state, timers, in-flight and queued bytes, byte-level serial
+  progress, reset sequence, timeout behaviour, and counters.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/peripheral-commodore-amiga-keyboard-v0.2.0) - 2026-06-04
 
 ### Other
