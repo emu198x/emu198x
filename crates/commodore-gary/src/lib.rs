@@ -56,6 +56,26 @@ pub enum ChipSelect {
 // Gary state
 // ---------------------------------------------------------------------------
 
+/// Complete side-effect-free view of Gary's persisted configuration.
+///
+/// These are the exact six flags retained by [`Gary`]. Each flag controls a
+/// model-dependent chip-select aperture in [`Gary::decode`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GaryDiagnosticSnapshot {
+    /// Whether the slow-RAM chip select is enabled.
+    pub slow_ram_present: bool,
+    /// Whether the Gayle chip-select aperture is enabled.
+    pub gayle_present: bool,
+    /// Whether the two PCMCIA apertures are enabled.
+    pub pcmcia_present: bool,
+    /// Whether the DMAC chip-select aperture is enabled.
+    pub dmac_present: bool,
+    /// Whether the motherboard resource-register aperture is enabled.
+    pub resource_regs_present: bool,
+    /// Whether the battery-backed clock aperture is enabled.
+    pub rtc_present: bool,
+}
+
 /// Gary address decoder state.
 ///
 /// Configuration flags control which model-specific chip selects are
@@ -128,6 +148,12 @@ impl Gary {
         self.gayle_present
     }
 
+    /// True when the PCMCIA apertures are enabled.
+    #[must_use]
+    pub const fn pcmcia_present(&self) -> bool {
+        self.pcmcia_present
+    }
+
     /// True when DMAC is enabled.
     #[must_use]
     pub const fn dmac_present(&self) -> bool {
@@ -138,6 +164,28 @@ impl Gary {
     #[must_use]
     pub const fn resource_regs_present(&self) -> bool {
         self.resource_regs_present
+    }
+
+    /// True when the battery-backed clock aperture is enabled.
+    #[must_use]
+    pub const fn rtc_present(&self) -> bool {
+        self.rtc_present
+    }
+
+    /// Return all persisted decoder configuration without changing Gary.
+    ///
+    /// The snapshot copies only Gary's six configuration flags. It does not
+    /// perform an address decode or advance any other component state.
+    #[must_use]
+    pub const fn diagnostic_snapshot(&self) -> GaryDiagnosticSnapshot {
+        GaryDiagnosticSnapshot {
+            slow_ram_present: self.slow_ram_present,
+            gayle_present: self.gayle_present,
+            pcmcia_present: self.pcmcia_present,
+            dmac_present: self.dmac_present,
+            resource_regs_present: self.resource_regs_present,
+            rtc_present: self.rtc_present,
+        }
     }
 
     /// Decode a 24-bit address to a chip select.
@@ -283,6 +331,66 @@ mod tests {
         gary.set_dmac_present(true);
         gary.set_resource_regs_present(true);
         gary
+    }
+
+    // -- Diagnostics --------------------------------------------------------
+
+    #[test]
+    fn diagnostic_snapshot_reports_all_persisted_configuration() {
+        let mut gary = Gary::new();
+        assert_eq!(
+            gary.diagnostic_snapshot(),
+            GaryDiagnosticSnapshot {
+                slow_ram_present: false,
+                gayle_present: false,
+                pcmcia_present: false,
+                dmac_present: false,
+                resource_regs_present: false,
+                rtc_present: false,
+            }
+        );
+
+        gary.set_slow_ram_present(true);
+        gary.set_gayle_present(true);
+        gary.set_pcmcia_present(true);
+        gary.set_dmac_present(true);
+        gary.set_resource_regs_present(true);
+        gary.set_rtc_present(true);
+
+        let snapshot = gary.diagnostic_snapshot();
+        assert_eq!(
+            snapshot,
+            GaryDiagnosticSnapshot {
+                slow_ram_present: true,
+                gayle_present: true,
+                pcmcia_present: true,
+                dmac_present: true,
+                resource_regs_present: true,
+                rtc_present: true,
+            }
+        );
+        assert_eq!(snapshot.slow_ram_present, gary.slow_ram_present());
+        assert_eq!(snapshot.gayle_present, gary.gayle_present());
+        assert_eq!(snapshot.pcmcia_present, gary.pcmcia_present());
+        assert_eq!(snapshot.dmac_present, gary.dmac_present());
+        assert_eq!(snapshot.resource_regs_present, gary.resource_regs_present());
+        assert_eq!(snapshot.rtc_present, gary.rtc_present());
+    }
+
+    #[test]
+    fn diagnostic_snapshot_and_decode_leave_configuration_unchanged() {
+        let mut gary = Gary::new();
+        gary.set_slow_ram_present(true);
+        gary.set_gayle_present(true);
+        gary.set_pcmcia_present(true);
+        gary.set_rtc_present(true);
+        let expected = gary.diagnostic_snapshot();
+
+        assert_eq!(gary.decode(0x60_0000), ChipSelect::PcmciaCommon);
+        assert_eq!(gary.decode(0xD8_0000), ChipSelect::Gayle);
+        assert_eq!(gary.decode(0xDF_F000), ChipSelect::Custom);
+        assert_eq!(gary.diagnostic_snapshot(), expected);
+        assert_eq!(gary.diagnostic_snapshot(), expected);
     }
 
     // -- Basic chip selects (every model) -----------------------------------

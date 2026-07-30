@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add a complete, side-effect-free diagnostic snapshot of Gary's six
+  persisted configuration flags.
+- Add public PCMCIA and RTC presence getters.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-gary-v0.2.0) - 2026-06-04
 
 ### Other

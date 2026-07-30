@@ -170,6 +170,8 @@ fn default_gary_has_no_optional_peripherals() {
     let gary = Gary::default();
     assert!(!gary.slow_ram_present());
     assert!(!gary.gayle_present());
+    assert!(!gary.pcmcia_present());
     assert!(!gary.dmac_present());
     assert!(!gary.resource_regs_present());
+    assert!(!gary.rtc_present());
 }
