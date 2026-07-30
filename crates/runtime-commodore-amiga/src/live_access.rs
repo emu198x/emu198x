@@ -36,15 +36,18 @@ use commodore_denise_aga::DeniseAgaDiagnosticSnapshot;
 use commodore_denise_ocs::DeniseDiagnosticSnapshot;
 use commodore_gary::GaryDiagnosticSnapshot;
 use commodore_gayle::GayleDiagnosticSnapshot;
+use common_commodore_amiga::board::MotherboardBridgeDiagnosticSnapshot;
 use common_commodore_amiga::denise::DeniseBoardPipelineDiagnosticSnapshot;
 use common_commodore_amiga::memory::MemoryDiagnosticSnapshot;
 use format_commodore_amiga_adf::Adf;
+use gvp_a530::GvpA530DiagnosticSnapshot;
 use machine_commodore_amiga_a1200::AmigaA1200;
 use machine_commodore_amiga_ecs::{AgnusEcs, AmigaEcs, DeniseEcs};
 use machine_commodore_amiga_ocs::{
     AmigaFloppyDrive, AmigaInputDiagnosticSnapshot, AmigaKeyboard, AmigaOcs,
-    AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot, Cia, Copper,
-    InstalledAgnusKind, Msm6242RtcDiagnosticSnapshot, Paula8364,
+    AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot,
+    AutoconfigBoardDiagnosticSnapshot, Cia, Copper, InstalledAgnusKind,
+    Msm6242RtcDiagnosticSnapshot, Paula8364,
 };
 use motorola_68k_common::registers::Registers;
 
@@ -426,6 +429,29 @@ pub trait AmigaLiveAccess {
         None
     }
 
+    /// Generic Zorro-II Fast RAM board, if installed.
+    fn generic_fast_ram_diagnostic_snapshot(&self) -> Option<AutoconfigBoardDiagnosticSnapshot> {
+        None
+    }
+
+    /// GVP A530 accelerator board, if installed.
+    fn gvp_a530_diagnostic_snapshot(&self) -> Option<GvpA530DiagnosticSnapshot> {
+        None
+    }
+
+    /// Synchronized A530 motherboard bridge, if installed.
+    fn motherboard_bridge_diagnostic_snapshot(
+        &self,
+    ) -> Option<MotherboardBridgeDiagnosticSnapshot> {
+        None
+    }
+
+    /// Whether installed bridge work belongs to the processor cycle that
+    /// initiated it. `None` means no synchronized bridge is installed.
+    fn motherboard_bridge_is_coherent(&self) -> Option<bool> {
+        None
+    }
+
     // ---------- video ----------
 
     /// Borrow the chipset framebuffer as ARGB pixels.
@@ -767,6 +793,25 @@ impl AmigaLiveAccess for AmigaOcs {
         self.memory().diagnostic_snapshot()
     }
 
+    fn generic_fast_ram_diagnostic_snapshot(&self) -> Option<AutoconfigBoardDiagnosticSnapshot> {
+        self.autoconfig().map(|board| board.diagnostic_snapshot())
+    }
+
+    fn gvp_a530_diagnostic_snapshot(&self) -> Option<GvpA530DiagnosticSnapshot> {
+        self.gvp_a530().map(|board| board.diagnostic_snapshot())
+    }
+
+    fn motherboard_bridge_diagnostic_snapshot(
+        &self,
+    ) -> Option<MotherboardBridgeDiagnosticSnapshot> {
+        AmigaOcs::motherboard_bridge_diagnostic_snapshot(self)
+    }
+
+    fn motherboard_bridge_is_coherent(&self) -> Option<bool> {
+        self.has_synchronized_motherboard_bridge()
+            .then(|| AmigaOcs::motherboard_bridge_is_coherent(self))
+    }
+
     fn framebuffer(&self) -> &[u32] {
         self.denise().framebuffer()
     }
@@ -1070,6 +1115,10 @@ impl AmigaLiveAccess for AmigaEcs {
         AmigaEcs::gayle_diagnostic_snapshot(self)
     }
 
+    fn generic_fast_ram_diagnostic_snapshot(&self) -> Option<AutoconfigBoardDiagnosticSnapshot> {
+        self.autoconfig().map(|board| board.diagnostic_snapshot())
+    }
+
     fn framebuffer(&self) -> &[u32] {
         self.denise().framebuffer()
     }
@@ -1371,6 +1420,10 @@ impl AmigaLiveAccess for AmigaA1200 {
 
     fn gayle_diagnostic_snapshot(&self) -> Option<GayleDiagnosticSnapshot> {
         Some(AmigaA1200::gayle_diagnostic_snapshot(self))
+    }
+
+    fn generic_fast_ram_diagnostic_snapshot(&self) -> Option<AutoconfigBoardDiagnosticSnapshot> {
+        self.autoconfig().map(|board| board.diagnostic_snapshot())
     }
 
     fn framebuffer(&self) -> &[u32] {
@@ -1825,6 +1878,37 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(_) => None,
             Self::Ecs(rt) => rt.machine().gayle_diagnostic_snapshot(),
             Self::Aga(rt) => Some(rt.machine().gayle_diagnostic_snapshot()),
+        }
+    }
+
+    fn generic_fast_ram_diagnostic_snapshot(&self) -> Option<AutoconfigBoardDiagnosticSnapshot> {
+        match self {
+            Self::Ocs(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
+            Self::Ecs(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
+            Self::Aga(rt) => rt.machine().generic_fast_ram_diagnostic_snapshot(),
+        }
+    }
+
+    fn gvp_a530_diagnostic_snapshot(&self) -> Option<GvpA530DiagnosticSnapshot> {
+        match self {
+            Self::Ocs(rt) => rt.machine().gvp_a530_diagnostic_snapshot(),
+            Self::Ecs(_) | Self::Aga(_) => None,
+        }
+    }
+
+    fn motherboard_bridge_diagnostic_snapshot(
+        &self,
+    ) -> Option<MotherboardBridgeDiagnosticSnapshot> {
+        match self {
+            Self::Ocs(rt) => rt.machine().motherboard_bridge_diagnostic_snapshot(),
+            Self::Ecs(_) | Self::Aga(_) => None,
+        }
+    }
+
+    fn motherboard_bridge_is_coherent(&self) -> Option<bool> {
+        match self {
+            Self::Ocs(rt) => AmigaLiveAccess::motherboard_bridge_is_coherent(rt.machine()),
+            Self::Ecs(_) | Self::Aga(_) => None,
         }
     }
 

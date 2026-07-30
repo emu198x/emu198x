@@ -121,6 +121,59 @@ pub enum AutoconfigState {
     Configured { base: u32 },
 }
 
+/// Stable diagnostic name for the current Autoconfig protocol phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoconfigDiagnosticPhase {
+    /// The board is the active, untouched function in the probe window.
+    Unconfigured,
+    /// The low base-address nibble has been accepted and the board is waiting
+    /// for the final high nibble.
+    WaitingHighBase,
+    /// The host rejected the board with the shut-up command.
+    ShutUp,
+    /// The host assigned a complete base address.
+    Configured,
+}
+
+/// Side-effect-free description of the board's Autoconfig protocol state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AutoconfigStateDiagnosticSnapshot {
+    /// Current protocol phase.
+    pub phase: AutoconfigDiagnosticPhase,
+    /// Accepted A19-A16 nibble while waiting for the final A23-A20 nibble.
+    pub pending_base_low_nibble: Option<u8>,
+    /// Host-assigned base address after configuration.
+    pub mapped_base: Option<u32>,
+    /// Whether the board currently responds in the `$E80000` probe window.
+    pub visible_in_probe_window: bool,
+}
+
+/// Complete bounded diagnostic view of one Zorro-II Autoconfig board.
+///
+/// The snapshot includes every persisted identity, size, and protocol-state
+/// field plus the component's invariant checks. RAM payload bytes are
+/// intentionally excluded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AutoconfigBoardDiagnosticSnapshot {
+    /// Manufacturer identity emitted by the configuration ROM.
+    pub manufacturer_id: u16,
+    /// Product identity emitted by the configuration ROM.
+    pub product_id: u8,
+    /// Serial number emitted by the configuration ROM.
+    pub serial_number: u32,
+    /// Raw three-bit Zorro-II size code from `ER_TYPE`.
+    pub size_code: u8,
+    /// Physical RAM backing size in bytes.
+    pub ram_size_bytes: u32,
+    /// Current Autoconfig protocol state.
+    pub state: AutoconfigStateDiagnosticSnapshot,
+    /// Whether size, backing, and any assigned mapping remain coherent.
+    pub configuration_is_coherent: bool,
+    /// Whether this board has the generic Fast RAM constructor's identity.
+    pub has_default_fast_ram_identity: bool,
+}
+
 impl Serialize for AutoconfigState {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -352,6 +405,37 @@ impl AutoconfigBoard {
             && self.serial == DEFAULT_FAST_RAM_SERIAL_NUMBER
     }
 
+    /// Capture every bounded identity, size, and state field without copying
+    /// the board's RAM payload.
+    #[must_use]
+    pub fn diagnostic_snapshot(&self) -> AutoconfigBoardDiagnosticSnapshot {
+        let (phase, pending_base_low_nibble, mapped_base) = match self.state {
+            AutoconfigState::Unconfigured => (AutoconfigDiagnosticPhase::Unconfigured, None, None),
+            AutoconfigState::WaitingHighBase { lo } => {
+                (AutoconfigDiagnosticPhase::WaitingHighBase, Some(lo), None)
+            }
+            AutoconfigState::ShutUp => (AutoconfigDiagnosticPhase::ShutUp, None, None),
+            AutoconfigState::Configured { base } => {
+                (AutoconfigDiagnosticPhase::Configured, None, Some(base))
+            }
+        };
+        AutoconfigBoardDiagnosticSnapshot {
+            manufacturer_id: self.manufacturer,
+            product_id: self.product,
+            serial_number: self.serial,
+            size_code: self.size_code,
+            ram_size_bytes: self.ram_size(),
+            state: AutoconfigStateDiagnosticSnapshot {
+                phase,
+                pending_base_low_nibble,
+                mapped_base,
+                visible_in_probe_window: self.visible_in_probe_window(),
+            },
+            configuration_is_coherent: self.configuration_is_coherent(),
+            has_default_fast_ram_identity: self.has_default_fast_ram_identity(),
+        }
+    }
+
     /// Direct access to the RAM backing, independent of mapping state.
     ///
     /// Machine integrations should normally use the mapped-address helpers.
@@ -572,6 +656,71 @@ mod tests {
         assert!(board.visible_in_probe_window());
         assert_eq!(board.ram_size(), 2048 * 1024);
         assert_eq!(board.base(), None);
+    }
+
+    #[test]
+    fn diagnostic_snapshot_is_bounded_and_tracks_every_protocol_phase() {
+        let mut board = AutoconfigBoard::fast_ram_with_identity(1024, 2017, 9, 0x1234_5678);
+
+        assert_eq!(
+            board.diagnostic_snapshot(),
+            AutoconfigBoardDiagnosticSnapshot {
+                manufacturer_id: 2017,
+                product_id: 9,
+                serial_number: 0x1234_5678,
+                size_code: 0b101,
+                ram_size_bytes: 1024 * 1024,
+                state: AutoconfigStateDiagnosticSnapshot {
+                    phase: AutoconfigDiagnosticPhase::Unconfigured,
+                    pending_base_low_nibble: None,
+                    mapped_base: None,
+                    visible_in_probe_window: true,
+                },
+                configuration_is_coherent: true,
+                has_default_fast_ram_identity: false,
+            },
+        );
+
+        board.write_word(0x4A, 0x3000);
+        assert_eq!(
+            board.diagnostic_snapshot().state,
+            AutoconfigStateDiagnosticSnapshot {
+                phase: AutoconfigDiagnosticPhase::WaitingHighBase,
+                pending_base_low_nibble: Some(3),
+                mapped_base: None,
+                visible_in_probe_window: true,
+            },
+        );
+
+        board.write_word(0x48, 0x2000);
+        assert_eq!(
+            board.diagnostic_snapshot().state,
+            AutoconfigStateDiagnosticSnapshot {
+                phase: AutoconfigDiagnosticPhase::Configured,
+                pending_base_low_nibble: None,
+                mapped_base: Some(0x0023_0000),
+                visible_in_probe_window: false,
+            },
+        );
+
+        let encoded =
+            postcard::to_allocvec(&board.diagnostic_snapshot()).expect("encode diagnostics");
+        assert!(
+            encoded.len() < 64,
+            "diagnostics must not serialize the 1 MiB RAM payload"
+        );
+
+        board.reset();
+        board.write_word(0x4C, 0);
+        assert_eq!(
+            board.diagnostic_snapshot().state,
+            AutoconfigStateDiagnosticSnapshot {
+                phase: AutoconfigDiagnosticPhase::ShutUp,
+                pending_base_low_nibble: None,
+                mapped_base: None,
+                visible_in_probe_window: false,
+            },
+        );
     }
 
     #[test]

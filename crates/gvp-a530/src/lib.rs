@@ -22,7 +22,9 @@
 
 #![forbid(unsafe_code)]
 
-use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
+use commodore_amiga_autoconfig::{
+    AutoconfigBoard, AutoconfigBoardDiagnosticSnapshot, AutoconfigState,
+};
 use motorola_68k_common::bus::{
     DataPortSize, TransferSize, dynamic_transfer_bytes, extract_dynamic_bus_data,
     place_dynamic_read_data,
@@ -103,6 +105,35 @@ pub struct A530Config {
     serial: u32,
     cache_enabled: bool,
     autoboot_enabled: bool,
+}
+
+/// Bounded diagnostic view of the A530's static configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct A530ConfigDiagnosticSnapshot {
+    /// Installed accelerator-local RAM capacity in MiB.
+    pub ram_size_mib: u8,
+    /// Installed accelerator-local RAM capacity in bytes.
+    pub ram_size_bytes: u32,
+    /// Serial number emitted by the board's memory function.
+    pub serial_number: u32,
+    /// Cache-enable jumper state.
+    pub cache_enabled: bool,
+    /// SCSI autoboot-enable jumper state.
+    pub autoboot_enabled: bool,
+}
+
+/// Complete bounded diagnostic view of the implemented GVP A530 state.
+///
+/// The local-RAM payload is excluded. Its topology and Autoconfig state are
+/// represented by the nested memory-function snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GvpA530DiagnosticSnapshot {
+    /// Static board configuration and jumper state.
+    pub config: A530ConfigDiagnosticSnapshot,
+    /// Implemented Zorro-II memory function.
+    pub memory_function: AutoconfigBoardDiagnosticSnapshot,
+    /// Whether configuration, identity, and memory-function backing agree.
+    pub configuration_is_coherent: bool,
 }
 
 impl A530Config {
@@ -259,6 +290,23 @@ impl GvpA530 {
             && self.memory_function.serial_number() == self.config.serial()
     }
 
+    /// Capture every implemented configuration and memory-function field
+    /// without copying accelerator-local RAM.
+    #[must_use]
+    pub fn diagnostic_snapshot(&self) -> GvpA530DiagnosticSnapshot {
+        GvpA530DiagnosticSnapshot {
+            config: A530ConfigDiagnosticSnapshot {
+                ram_size_mib: self.config.ram_size().mib(),
+                ram_size_bytes: self.config.ram_size().bytes(),
+                serial_number: self.config.serial(),
+                cache_enabled: self.config.cache_enabled(),
+                autoboot_enabled: self.config.autoboot_enabled(),
+            },
+            memory_function: self.memory_function.diagnostic_snapshot(),
+            configuration_is_coherent: self.configuration_is_coherent(),
+        }
+    }
+
     /// Direct board-local storage view, independent of Autoconfig mapping.
     #[must_use]
     pub fn storage(&self) -> &[u8] {
@@ -403,6 +451,44 @@ mod tests {
         let board = GvpA530::new(compatibility);
         assert!(!board.cache_enabled());
         assert!(!board.autoboot_enabled());
+    }
+
+    #[test]
+    fn diagnostic_snapshot_exposes_config_and_memory_function_without_ram_payload() {
+        let config = A530Config::new(A530RamSize::Mib4, SERIAL)
+            .with_cache_enabled(false)
+            .with_autoboot_enabled(false);
+        let mut board = GvpA530::new(config);
+        board.write_autoconfig_word(0x4A, 0x0000);
+
+        let snapshot = board.diagnostic_snapshot();
+        assert_eq!(
+            snapshot.config,
+            A530ConfigDiagnosticSnapshot {
+                ram_size_mib: 4,
+                ram_size_bytes: 4 * 1024 * 1024,
+                serial_number: SERIAL,
+                cache_enabled: false,
+                autoboot_enabled: false,
+            },
+        );
+        assert_eq!(
+            snapshot.memory_function.manufacturer_id,
+            GVP_MANUFACTURER_ID
+        );
+        assert_eq!(snapshot.memory_function.product_id, A530_MEMORY_PRODUCT_ID);
+        assert_eq!(snapshot.memory_function.serial_number, SERIAL);
+        assert_eq!(
+            snapshot.memory_function.state.pending_base_low_nibble,
+            Some(0),
+        );
+        assert!(snapshot.configuration_is_coherent);
+
+        let encoded = postcard::to_allocvec(&snapshot).expect("encode diagnostics");
+        assert!(
+            encoded.len() < 96,
+            "diagnostics must not serialize the 4 MiB local-RAM payload"
+        );
     }
 
     #[test]

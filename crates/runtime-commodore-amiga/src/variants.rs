@@ -424,6 +424,7 @@ macro_rules! amiga_variant_query_paths {
     "rtc",
     "keyboard",
     "gary",
+    "expansion",
     "input",
     "debug",
     "disk",

@@ -12,8 +12,9 @@ use std::collections::VecDeque;
 
 use agnus::{ExtendedBlitterWrite, InstalledAgnus};
 use common_commodore_amiga::board::{
-    BusResponse, BusTransaction, ChipRamBus, NTSC_SYSTEM_TICK_HZ, PAL_SYSTEM_TICK_HZ,
-    SizedBusResponse, SizedBusTransaction, SynchronizedMotherboardBridge, TICKS_PER_CCK,
+    BusResponse, BusTransaction, ChipRamBus, MotherboardBridgeDiagnosticSnapshot,
+    NTSC_SYSTEM_TICK_HZ, PAL_SYSTEM_TICK_HZ, SizedBusResponse, SizedBusTransaction,
+    SynchronizedMotherboardBridge, TICKS_PER_CCK,
 };
 use common_commodore_amiga::driver::AmigaDriver;
 pub use common_commodore_amiga::{
@@ -31,7 +32,9 @@ pub use agnus::{
     PAL_LINES_PER_FRAME, SlotOwner, VBL_END_LINE, bits,
 };
 pub use cia::{Cia, CiaExt};
-pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
+pub use commodore_amiga_autoconfig::{
+    AutoconfigBoard, AutoconfigBoardDiagnosticSnapshot, AutoconfigState,
+};
 pub use commodore_gary::{ChipSelect, Gary};
 use commodore_paula_8364::bits::{
     POTGOR_BTN_PORT0_MIDDLE, POTGOR_BTN_PORT0_RIGHT, POTGOR_BTN_PORT1_MIDDLE,
@@ -1704,6 +1707,17 @@ impl AmigaOcs {
     #[must_use]
     pub fn has_synchronized_motherboard_bridge(&self) -> bool {
         self.motherboard_bridge.is_some()
+    }
+
+    /// Current synchronized A530 motherboard-bridge progress, if installed.
+    ///
+    /// Inspecting the snapshot does not poll or otherwise advance the bridge.
+    #[must_use]
+    pub fn motherboard_bridge_diagnostic_snapshot(
+        &self,
+    ) -> Option<MotherboardBridgeDiagnosticSnapshot> {
+        self.motherboard_bridge
+            .map(SynchronizedMotherboardBridge::diagnostic_snapshot)
     }
 
     /// Whether any pending synchronized response still belongs to the CPU

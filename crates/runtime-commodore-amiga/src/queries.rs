@@ -73,6 +73,7 @@ const GROUPED_VARIANT_QUERY_ROOTS: &[&str] = &[
     "keyboard",
     "gary",
     "gayle",
+    "expansion",
     "input",
     "debug",
     "disk",
@@ -631,6 +632,27 @@ pub(crate) fn gary_snapshot(m: &dyn AmigaLiveAccess) -> Value {
 /// Complete memory topology and control state without backing payload bytes.
 pub(crate) fn memory_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     json!(m.memory_diagnostic_snapshot())
+}
+
+/// Bounded expansion topology and live protocol state.
+///
+/// All three slots remain present across the family. A `null` slot means the
+/// corresponding device is genuinely absent from the configured machine.
+pub(crate) fn expansion_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    let motherboard_bridge = m.motherboard_bridge_diagnostic_snapshot().map(|snapshot| {
+        json!({
+            "phase": snapshot.phase,
+            "latched_response": snapshot.latched_response,
+            "coherent_with_cpu_cycle": m
+                .motherboard_bridge_is_coherent()
+                .expect("an installed bridge has a coherence result"),
+        })
+    });
+    json!({
+        "generic_fast_ram": m.generic_fast_ram_diagnostic_snapshot(),
+        "gvp_a530": m.gvp_a530_diagnostic_snapshot(),
+        "motherboard_bridge": motherboard_bridge,
+    })
 }
 
 /// Complete Gayle board-controller state on machines which contain it.
@@ -1392,6 +1414,9 @@ pub(crate) fn resolve_chip_query(m: &dyn AmigaLiveAccess, path: &str) -> Option<
     }
     if is_chip(path, "memory") {
         return chip_field(path, "memory", memory_snapshot(m));
+    }
+    if is_chip(path, "expansion") {
+        return chip_field(path, "expansion", expansion_snapshot(m));
     }
     if is_chip(path, "gayle") {
         return gayle_snapshot(m).and_then(|snapshot| chip_field(path, "gayle", snapshot));

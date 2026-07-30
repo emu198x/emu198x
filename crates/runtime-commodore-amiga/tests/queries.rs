@@ -349,6 +349,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
             "rtc",
             "keyboard",
             "gary",
+            "expansion",
             "input",
             "debug",
             "disk",
@@ -373,6 +374,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
             "rtc",
             "keyboard",
             "gary",
+            "expansion",
             "input",
             "debug",
             "disk",
@@ -398,6 +400,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
             "keyboard",
             "gary",
             "gayle",
+            "expansion",
             "input",
             "debug",
             "disk",
@@ -423,6 +426,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
             "keyboard",
             "gary",
             "gayle",
+            "expansion",
             "input",
             "debug",
             "disk",
@@ -601,6 +605,153 @@ fn gary_group_exposes_every_persisted_configuration_flag() {
     }
     assert_eq!(fields["slow_ram_present"], json!(true));
     assert_eq!(fields["rtc_present"], json!(true));
+}
+
+#[test]
+fn expansion_queries_distinguish_generic_fast_ram_a530_and_absent_devices() {
+    let bare = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let generic = AmigaOcsRuntime::blank(Model::A500OcsPalMaxed);
+    let a530 = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
+    let ecs = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    let a600 = AmigaEcsRuntime::blank(Model::A600EcsPal);
+    let a1200 = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+
+    assert_no_expansions(&bare);
+    assert_no_expansions(&ecs);
+    assert_no_expansions(&a600);
+    assert_no_expansions(&a1200);
+
+    let generic_snapshot = query_value(&generic, "expansion.generic_fast_ram");
+    let generic_snapshot = generic_snapshot
+        .as_object()
+        .expect("maxed A500 should install generic Fast RAM");
+    assert_eq!(generic_snapshot.len(), 8);
+    assert_eq!(generic_snapshot["manufacturer_id"], json!(0x0202));
+    assert_eq!(generic_snapshot["product_id"], json!(9));
+    assert_eq!(generic_snapshot["serial_number"], json!(1));
+    assert_eq!(generic_snapshot["size_code"], json!(0));
+    assert_eq!(generic_snapshot["ram_size_bytes"], json!(8 * 1024 * 1024));
+    assert_eq!(generic_snapshot["configuration_is_coherent"], json!(true));
+    assert_eq!(
+        generic_snapshot["has_default_fast_ram_identity"],
+        json!(true),
+    );
+    assert!(generic_snapshot["state"].is_object());
+    assert_eq!(query_value(&generic, "expansion.gvp_a530"), Value::Null);
+    assert_eq!(
+        query_value(&generic, "expansion.motherboard_bridge"),
+        Value::Null,
+    );
+
+    assert_eq!(
+        query_value(&a530, "expansion.generic_fast_ram"),
+        Value::Null,
+    );
+    let a530_config = query_value(&a530, "expansion.gvp_a530.config");
+    let a530_config = a530_config
+        .as_object()
+        .expect("A530 config should be an object");
+    assert_eq!(a530_config.len(), 5);
+    assert_eq!(a530_config["ram_size_mib"], json!(1));
+    assert_eq!(a530_config["ram_size_bytes"], json!(1024 * 1024));
+    assert_eq!(a530_config["serial_number"], json!(0));
+    assert_eq!(a530_config["cache_enabled"], json!(false));
+    assert_eq!(a530_config["autoboot_enabled"], json!(false));
+    assert_eq!(
+        query_value(&a530, "expansion.gvp_a530.memory_function.manufacturer_id",),
+        json!(2017),
+    );
+    assert_eq!(
+        query_value(&a530, "expansion.gvp_a530.memory_function.product_id"),
+        json!(9),
+    );
+    let bridge = query_value(&a530, "expansion.motherboard_bridge");
+    let bridge = bridge
+        .as_object()
+        .expect("A530 should install a synchronized motherboard bridge");
+    assert_eq!(bridge.len(), 3);
+    assert_eq!(bridge["phase"], json!("idle"));
+    assert_eq!(bridge["latched_response"], Value::Null);
+    assert_eq!(bridge["coherent_with_cpu_cycle"], json!(true));
+}
+
+fn assert_no_expansions<M: AmigaMachine>(runtime: &AmigaRuntime<M>) {
+    let expansion = query_value(runtime, "expansion");
+    let expansion = expansion
+        .as_object()
+        .expect("expansion query should always be an object");
+    assert_eq!(expansion.len(), 3);
+    assert_eq!(expansion["generic_fast_ram"], Value::Null);
+    assert_eq!(expansion["gvp_a530"], Value::Null);
+    assert_eq!(expansion["motherboard_bridge"], Value::Null);
+}
+
+#[test]
+fn expansion_query_tracks_autoconfig_state_transitions_and_discovers_live_fields() {
+    let mut generic = AmigaOcsRuntime::blank(Model::A500OcsPalMaxed);
+    let provider = AmigaSessionQueryProvider;
+    assert_eq!(
+        query_value(&generic, "expansion.generic_fast_ram.state.phase",),
+        json!("unconfigured"),
+    );
+    generic.machine_mut().poke_word(0x00E8_004A, 0x0000);
+    assert_eq!(
+        query_value(&generic, "expansion.generic_fast_ram.state.phase",),
+        json!("waiting_high_base"),
+    );
+    assert_eq!(
+        query_value(
+            &generic,
+            "expansion.generic_fast_ram.state.pending_base_low_nibble",
+        ),
+        json!(0),
+    );
+    generic.machine_mut().poke_word(0x00E8_0048, 0x2000);
+    assert_eq!(
+        query_value(&generic, "expansion.generic_fast_ram.state.mapped_base",),
+        json!(0x0020_0000),
+    );
+    assert_eq!(
+        query_value(
+            &generic,
+            "expansion.generic_fast_ram.state.visible_in_probe_window",
+        ),
+        json!(false),
+    );
+
+    let paths = provider.query_paths(&generic, Some("expansion"));
+    for path in [
+        "expansion",
+        "expansion.generic_fast_ram",
+        "expansion.generic_fast_ram.state.phase",
+        "expansion.generic_fast_ram.state.mapped_base",
+        "expansion.gvp_a530",
+        "expansion.motherboard_bridge",
+    ] {
+        assert!(
+            paths.contains(&path.to_owned()),
+            "{path} should be dynamically discoverable",
+        );
+    }
+
+    let mut a530 = AmigaOcsRuntime::blank(Model::A500OcsPalGvpA530);
+    a530.machine_mut().poke_word(0x00E8_004A, 0x0000);
+    assert_eq!(
+        query_value(&a530, "expansion.gvp_a530.memory_function.state.phase",),
+        json!("waiting_high_base"),
+    );
+    a530.machine_mut().poke_word(0x00E8_0048, 0x2000);
+    assert_eq!(
+        query_value(
+            &a530,
+            "expansion.gvp_a530.memory_function.state.mapped_base",
+        ),
+        json!(0x0020_0000),
+    );
+    assert_eq!(
+        query_value(&a530, "expansion.gvp_a530.configuration_is_coherent",),
+        json!(true),
+    );
 }
 
 #[test]

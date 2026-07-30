@@ -51,6 +51,55 @@ enum BridgePhase {
     ResponsePending(BusStatus),
 }
 
+/// Stable diagnostic name for a synchronized motherboard-bridge phase.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MotherboardBridgeDiagnosticPhase {
+    /// No accelerator transaction is crossing the bridge.
+    Idle,
+    /// A transaction is waiting for its first motherboard slot.
+    AwaitingSlot,
+    /// The address has crossed the synchronizer and awaits motherboard
+    /// dispatch.
+    AddressAccepted,
+    /// A completed motherboard result is retained for a later return slot.
+    ResponsePending,
+}
+
+/// Stable diagnostic classification of a retained motherboard response.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MotherboardBridgeResponseKind {
+    /// A completed 16-bit motherboard response.
+    Ready,
+    /// A terminal motherboard bus error.
+    Error,
+    /// A completed dynamic-sized response.
+    ReadySized,
+}
+
+/// Bounded diagnostic representation of one retained bridge response.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MotherboardBridgeResponseDiagnosticSnapshot {
+    /// Response classification.
+    pub kind: MotherboardBridgeResponseKind,
+    /// Data returned by a conventional 16-bit response.
+    pub word_data: Option<u16>,
+    /// Physical D31-D0 image returned by a dynamic-sized response.
+    pub sized_data: Option<u32>,
+    /// Dynamic-sized responder width.
+    pub sized_port: Option<DataPortSize>,
+}
+
+/// Complete side-effect-free view of synchronized bridge progress.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MotherboardBridgeDiagnosticSnapshot {
+    /// Current synchronizer phase.
+    pub phase: MotherboardBridgeDiagnosticPhase,
+    /// Completed response retained until a future motherboard slot.
+    pub latched_response: Option<MotherboardBridgeResponseDiagnosticSnapshot>,
+}
+
 /// What the shared driver should do after polling a synchronized bridge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MotherboardBridgeAction {
@@ -134,6 +183,51 @@ impl SynchronizedMotherboardBridge {
     #[must_use]
     pub const fn is_coherent_with_waiting_cpu(self, cpu_waiting: bool) -> bool {
         self.is_idle() || cpu_waiting
+    }
+
+    /// Capture the exact bridge phase and any retained response without
+    /// advancing synchronization.
+    #[must_use]
+    pub fn diagnostic_snapshot(self) -> MotherboardBridgeDiagnosticSnapshot {
+        let (phase, latched_response) = match self.phase {
+            BridgePhase::Idle => (MotherboardBridgeDiagnosticPhase::Idle, None),
+            BridgePhase::AwaitingSlot => (MotherboardBridgeDiagnosticPhase::AwaitingSlot, None),
+            BridgePhase::AddressAccepted => {
+                (MotherboardBridgeDiagnosticPhase::AddressAccepted, None)
+            }
+            BridgePhase::ResponsePending(status) => (
+                MotherboardBridgeDiagnosticPhase::ResponsePending,
+                Some(match status {
+                    BusStatus::Ready(data) => MotherboardBridgeResponseDiagnosticSnapshot {
+                        kind: MotherboardBridgeResponseKind::Ready,
+                        word_data: Some(data),
+                        sized_data: None,
+                        sized_port: None,
+                    },
+                    BusStatus::Error => MotherboardBridgeResponseDiagnosticSnapshot {
+                        kind: MotherboardBridgeResponseKind::Error,
+                        word_data: None,
+                        sized_data: None,
+                        sized_port: None,
+                    },
+                    BusStatus::ReadySized { data, port } => {
+                        MotherboardBridgeResponseDiagnosticSnapshot {
+                            kind: MotherboardBridgeResponseKind::ReadySized,
+                            word_data: None,
+                            sized_data: Some(data),
+                            sized_port: Some(port),
+                        }
+                    }
+                    BusStatus::Wait => {
+                        unreachable!("bridge invariants forbid a retained Wait response")
+                    }
+                }),
+            ),
+        };
+        MotherboardBridgeDiagnosticSnapshot {
+            phase,
+            latched_response,
+        }
     }
 }
 
@@ -259,6 +353,46 @@ mod tests {
             MotherboardBridgeAction::Complete(BusStatus::Ready(0x1234))
         );
         assert!(bridge.is_idle());
+    }
+
+    #[test]
+    fn synchronized_bridge_diagnostics_track_phase_and_latched_response() {
+        let mut bridge = SynchronizedMotherboardBridge::default();
+        assert_eq!(
+            bridge.diagnostic_snapshot(),
+            MotherboardBridgeDiagnosticSnapshot {
+                phase: MotherboardBridgeDiagnosticPhase::Idle,
+                latched_response: None,
+            },
+        );
+
+        assert_eq!(bridge.poll(false), MotherboardBridgeAction::Wait);
+        assert_eq!(
+            bridge.diagnostic_snapshot().phase,
+            MotherboardBridgeDiagnosticPhase::AwaitingSlot,
+        );
+        assert_eq!(bridge.poll(true), MotherboardBridgeAction::Wait);
+        assert_eq!(
+            bridge.diagnostic_snapshot().phase,
+            MotherboardBridgeDiagnosticPhase::AddressAccepted,
+        );
+        assert_eq!(bridge.poll(true), MotherboardBridgeAction::Access);
+        bridge.latch_response(BusStatus::ReadySized {
+            data: 0x1234_5678,
+            port: DataPortSize::Word,
+        });
+        assert_eq!(
+            bridge.diagnostic_snapshot(),
+            MotherboardBridgeDiagnosticSnapshot {
+                phase: MotherboardBridgeDiagnosticPhase::ResponsePending,
+                latched_response: Some(MotherboardBridgeResponseDiagnosticSnapshot {
+                    kind: MotherboardBridgeResponseKind::ReadySized,
+                    word_data: None,
+                    sized_data: Some(0x1234_5678),
+                    sized_port: Some(DataPortSize::Word),
+                }),
+            },
+        );
     }
 
     #[test]
