@@ -253,8 +253,91 @@ impl CckBusPlan {
     }
 }
 
+/// Source that is authoritative for the blitter's ownership of the current
+/// CPU/free CCK.
+///
+/// A live plan is sufficient before the machine has serviced the current
+/// CCK. Once service has run, the recorded outcome wins because the blitter
+/// can advance to a different request before the CPU observes the same cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BlitterBusDiagnosticAuthority {
+    /// No service outcome has been recorded; use the current bus plan.
+    CurrentPlanFallback,
+    /// The per-CCK actual-use and nasty-ownership latches are authoritative.
+    RecordedCckState,
+}
+
+/// Side-effect-free view of Agnus arbitration for the current CCK.
+///
+/// [`Self::plan`] is the live arbitration decision. The recorded fields retain
+/// what actually happened earlier in the same CCK, where completing a sprite
+/// fetch or advancing the blitter can make a newly computed plan differ from
+/// the decision already consumed by the machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusBusDiagnosticSnapshot {
+    /// Current vertical beam position.
+    pub vpos: u16,
+    /// Current horizontal beam position in CCKs.
+    pub hpos: u16,
+    /// Complete current Agnus arbitration plan.
+    pub plan: CckBusPlan,
+    /// Whether sprite DMA actually drove the chip bus in this CCK.
+    pub sprite_bus_used_this_cck: bool,
+    /// Effective sprite ownership after combining the live plan with recorded
+    /// same-CCK use.
+    pub sprite_holds_bus: bool,
+    /// Whether a blitter transfer actually drove the chip bus in this CCK.
+    pub blitter_bus_used_this_cck: bool,
+    /// Whether nasty mode owned this CPU/free cell even if the operation was
+    /// internally bus-free.
+    pub blitter_nasty_owned_this_cck: bool,
+    /// Whether the machine has recorded the current CCK's blitter outcome.
+    pub blitter_cck_bus_state_recorded: bool,
+    /// State source used to decide [`Self::blitter_holds_bus`].
+    pub blitter_authority: BlitterBusDiagnosticAuthority,
+    /// Effective blitter ownership after applying the authoritative source.
+    pub blitter_holds_bus: bool,
+}
+
+/// Side-effect-free view of the implemented data-fetch comparator sequencer.
+///
+/// The raw registers alone cannot reconstruct a run after the beam has
+/// observed their comparators. This snapshot therefore includes the frozen
+/// match and terminal latches as well as original-Agnus abort/start authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusDdfDiagnosticSnapshot {
+    /// Current vertical beam position.
+    pub vpos: u16,
+    /// Current horizontal beam position in CCKs.
+    pub hpos: u16,
+    /// Installed Agnus identity bits used to select comparator behavior.
+    pub agnus_id: u16,
+    /// Raw DDFSTRT register.
+    pub ddfstrt: u16,
+    /// Raw DDFSTOP register.
+    pub ddfstop: u16,
+    /// Comparator mask selected by the installed Agnus generation.
+    pub comparator_mask: u16,
+    /// Masked DDFSTRT comparator value.
+    pub effective_ddfstrt: u16,
+    /// Masked DDFSTOP comparator value.
+    pub effective_ddfstop: u16,
+    /// Current line's observed start comparator and frozen fetch origin.
+    pub start_match: Option<u16>,
+    /// Current line's observed ordinary stop comparator.
+    pub stop_match: Option<u16>,
+    /// Inclusive terminal CCK frozen for the active fetch run.
+    pub fetch_end: Option<u16>,
+    /// Whether original Agnus aborted the current-line run after losing an
+    /// effective bitplane-DMA eligibility gate.
+    pub ocs_run_aborted: bool,
+    /// Whether original Agnus currently permits a DDFSTRT comparator to open
+    /// a run.
+    pub ocs_hard_start_open: bool,
+}
+
 /// Maps ddfseq position (0-7) within an 8-CCK group to bitplane index.
-/// From Minimig Verilog: plane = {~ddfseq[0], ~ddfseq[1], ~ddfseq[2]}.
+/// From Minimig Verilog: `plane = {~ddfseq[0], ~ddfseq[1], ~ddfseq[2]}`.
 /// None = free slot (available for copper/CPU).
 pub const LOWRES_DDF_TO_PLANE: [Option<u8>; 8] = [
     None,    // 0: free
@@ -527,6 +610,267 @@ struct BlitterAreaRuntime {
     a_raw: u16,
     b_raw: u16,
     c_val: u16,
+}
+
+/// Side-effect-free view of every implemented blitter register.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusBlitterRegistersDiagnosticSnapshot {
+    /// Raw BLTCON0 control register.
+    pub bltcon0: u16,
+    /// Raw BLTCON1 control register.
+    pub bltcon1: u16,
+    /// Raw legacy BLTSIZE register.
+    pub bltsize: u16,
+    /// Raw shared ECS BLTSIZV shadow used by wrapper integrations.
+    pub bltsizv_ecs: u16,
+    /// Raw shared ECS BLTSIZH shadow used by wrapper integrations.
+    pub bltsizh_ecs: u16,
+    /// Current A-channel pointer.
+    pub blt_apt: u32,
+    /// Current B-channel pointer.
+    pub blt_bpt: u32,
+    /// Current C-channel pointer.
+    pub blt_cpt: u32,
+    /// Current D-channel pointer.
+    pub blt_dpt: u32,
+    /// Signed A-channel modulo.
+    pub blt_amod: i16,
+    /// Signed B-channel modulo.
+    pub blt_bmod: i16,
+    /// Signed C-channel modulo.
+    pub blt_cmod: i16,
+    /// Signed D-channel modulo.
+    pub blt_dmod: i16,
+    /// Current A-channel data register.
+    pub blt_adat: u16,
+    /// Current B-channel data register.
+    pub blt_bdat: u16,
+    /// Current C-channel data register.
+    pub blt_cdat: u16,
+    /// First-word A mask.
+    pub blt_afwm: u16,
+    /// Last-word A mask.
+    pub blt_alwm: u16,
+}
+
+/// Public diagnostic projection of the blitter's final-result/final-D drain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgnusBlitterCompletionDiagnosticPhase {
+    /// No final-result or final-D pipeline stage is pending.
+    None,
+    /// The final destination result and BZERO update are pending.
+    FinalResult,
+    /// The final destination word is buffered and waiting for a bus grant.
+    FinalWrite {
+        /// Chip-RAM destination address.
+        address: u32,
+        /// Buffered destination value.
+        value: u16,
+    },
+}
+
+/// Side-effect-free view of blitter scheduling and completion state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusBlitterExecutionDiagnosticSnapshot {
+    /// Installed Agnus/Alice identity bits that select completion behavior.
+    pub agnus_id: u16,
+    /// Installed original-Agnus revision that selects visible startup timing.
+    pub original_revision: OriginalAgnusRevision,
+    /// Raw DMACON state that gates blitter progress and priority.
+    pub dmacon: u16,
+    /// Whether master DMA and blitter DMA are both enabled.
+    pub dma_enabled: bool,
+    /// Whether the BLTPRI priority bit is set.
+    pub priority_enabled: bool,
+    /// Internal blitter activity, including startup and completion drain.
+    pub busy: bool,
+    /// DMACONR-visible busy state.
+    pub busy_visible: bool,
+    /// Busy state observed by Copper BFD.
+    pub busy_copper: bool,
+    /// Whether the current main-engine request can steal a CPU/free CCK.
+    pub nasty_active: bool,
+    /// Accepted/free startup CCKs remaining before the first channel op.
+    pub startup_ccks_remaining: u8,
+    /// Current final-result/final-D completion phase.
+    pub completion_phase: AgnusBlitterCompletionDiagnosticPhase,
+    /// CCK stages remaining in the final-result/final-D drain.
+    pub completion_ccks_remaining: u8,
+    /// Whether a final destination result or write remains pending.
+    pub final_d_pending: bool,
+    /// Whether the one-shot blitter-finished source has fired.
+    pub finish_emitted: bool,
+    /// DMACONR busy-retention CCKs remaining.
+    pub dmacon_busy_hold_ccks: u8,
+    /// Copper busy-retention CCKs remaining.
+    pub copper_busy_hold_ccks: u8,
+    /// Whether incremental execution still has a pending word operation.
+    pub exec_pending: bool,
+    /// Whether register-programmed work is ready to be admitted.
+    pub exec_ready: bool,
+    /// Running BZERO state; `true` means every generated result remains zero.
+    pub zero: bool,
+    /// Effective height or line length captured when the blit started.
+    pub height: u32,
+    /// Effective width in words captured when the blit started.
+    pub width_words: u32,
+    /// Remaining channel/internal scheduler operations.
+    pub ccks_remaining: u32,
+    /// Next channel/internal operation requested from arbitration.
+    pub next_dma_request: Option<BlitterDmaOp>,
+    /// Whether arbitration must reserve a chip-bus cell for the next admitted
+    /// progress stage.
+    pub next_progress_uses_bus: bool,
+    /// Whether all operations for the current word or line step are complete.
+    pub word_complete: bool,
+    /// Whether an area or line incremental runtime is installed.
+    pub incremental_runtime_present: bool,
+}
+
+/// Side-effect-free view of the current word's pending channel operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusBlitterWordDiagnosticSnapshot {
+    /// Whether an A-channel read is pending.
+    pub need_a: bool,
+    /// Whether a B-channel read is pending.
+    pub need_b: bool,
+    /// Whether a C-channel read is pending.
+    pub need_c: bool,
+    /// Whether a D-channel write is pending.
+    pub need_d: bool,
+    /// Whether every enabled source read has completed.
+    pub reads_done: bool,
+    /// Whether the word has no external channel operations.
+    pub internal_only: bool,
+    /// Whether the internal-only timing operation has completed.
+    pub internal_done: bool,
+}
+
+/// Side-effect-free view of the implemented line-mode runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusBlitterLineDiagnosticSnapshot {
+    /// Remaining pixel steps.
+    pub steps_remaining: u32,
+    /// Current Bresenham error accumulator.
+    pub error: i16,
+    /// Error term added on a major-axis-only step.
+    pub error_add: i16,
+    /// Error term added when both axes move.
+    pub error_sub: i16,
+    /// Internal C-channel pointer.
+    pub cpt: u32,
+    /// Internal D-channel pointer.
+    pub dpt: u32,
+    /// Current pixel bit within the destination word.
+    pub pixel_bit: u16,
+    /// Signed row modulo.
+    pub row_mod: i16,
+    /// Latched line texture.
+    pub texture: u16,
+    /// Current line-texture bit selector.
+    pub texture_bit: u8,
+    /// Latched minterm lookup function.
+    pub lf: u8,
+    /// Whether ONEDOT line suppression is enabled.
+    pub sing: bool,
+    /// Whether the current horizontal row has already emitted its D transfer.
+    pub one_dot_drawn: bool,
+    /// Whether Y is the major axis.
+    pub major_is_y: bool,
+    /// Whether X movement is negative.
+    pub x_negative: bool,
+    /// Whether Y movement is negative.
+    pub y_negative: bool,
+    /// Most recently fetched C word.
+    pub last_c_word: u16,
+    /// Whether [`Self::last_c_word`] belongs to the current step.
+    pub have_c_word: bool,
+}
+
+/// Side-effect-free view of the implemented area-mode runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusBlitterAreaDiagnosticSnapshot {
+    /// Rows not yet completed.
+    pub rows_remaining: u32,
+    /// Captured width in words.
+    pub width_words: u32,
+    /// Words remaining in the current row.
+    pub words_remaining_in_row: u32,
+    /// Whether A DMA is enabled for this blit.
+    pub use_a: bool,
+    /// Whether B DMA is enabled for this blit.
+    pub use_b: bool,
+    /// Whether C DMA is enabled for this blit.
+    pub use_c: bool,
+    /// Whether D DMA is enabled for this blit.
+    pub use_d: bool,
+    /// Latched minterm lookup function.
+    pub lf: u8,
+    /// Captured A shift.
+    pub a_shift: u16,
+    /// Captured B shift.
+    pub b_shift: u16,
+    /// Whether descending mode is active.
+    pub descending: bool,
+    /// Signed per-word pointer step.
+    pub pointer_step: i32,
+    /// Sign applied to row modulos.
+    pub modulo_direction: i32,
+    /// Whether either fill mode is enabled.
+    pub fill_enabled: bool,
+    /// Whether inclusive fill is enabled.
+    pub inclusive_fill_enabled: bool,
+    /// Whether exclusive fill is enabled.
+    pub exclusive_fill_enabled: bool,
+    /// Fill carry loaded at the start of each row.
+    pub fill_carry_initial: u16,
+    /// Current fill carry.
+    pub fill_carry: u16,
+    /// Internal A-channel pointer.
+    pub apt: u32,
+    /// Internal B-channel pointer.
+    pub bpt: u32,
+    /// Internal C-channel pointer.
+    pub cpt: u32,
+    /// Internal D-channel pointer.
+    pub dpt: u32,
+    /// Captured A modulo.
+    pub amod: i16,
+    /// Captured B modulo.
+    pub bmod: i16,
+    /// Captured C modulo.
+    pub cmod: i16,
+    /// Captured D modulo.
+    pub dmod: i16,
+    /// Previous masked A word used by the shift pipeline.
+    pub a_previous: u16,
+    /// Previous B word used by the shift pipeline.
+    pub b_previous: u16,
+    /// Current raw A word.
+    pub a_raw: u16,
+    /// Current raw B word.
+    pub b_raw: u16,
+    /// Current C value.
+    pub c_value: u16,
+}
+
+/// Complete side-effect-free view of the implemented Agnus blitter.
+///
+/// The register projection is kept separate from execution and per-mode
+/// runtime state so diagnostic consumers can compare stable register
+/// programming independently from a partially completed word.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgnusBlitterDiagnosticSnapshot {
+    /// Raw programmed and live blitter registers.
+    pub registers: AgnusBlitterRegistersDiagnosticSnapshot,
+    /// Scheduler, busy-observer, BZERO and completion state.
+    pub execution: AgnusBlitterExecutionDiagnosticSnapshot,
+    /// Pending operations for the current word or line step.
+    pub word: Option<AgnusBlitterWordDiagnosticSnapshot>,
+    /// Line-mode runtime, present only for an active line blit.
+    pub line: Option<AgnusBlitterLineDiagnosticSnapshot>,
+    /// Area-mode runtime, present only for an active area blit.
+    pub area: Option<AgnusBlitterAreaDiagnosticSnapshot>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1212,6 +1556,153 @@ impl Agnus {
         self.blitter_word_state
             .as_ref()
             .is_some_and(|ws| ws.is_complete())
+    }
+
+    /// Return a side-effect-free diagnostic snapshot of every implemented
+    /// blitter register, scheduler latch and incremental runtime field.
+    #[must_use]
+    pub fn blitter_diagnostic_snapshot(&self) -> AgnusBlitterDiagnosticSnapshot {
+        let completion_phase = match self.blitter_completion_phase {
+            None => AgnusBlitterCompletionDiagnosticPhase::None,
+            Some(BlitterCompletionPhase::FinalResult) => {
+                AgnusBlitterCompletionDiagnosticPhase::FinalResult
+            }
+            Some(BlitterCompletionPhase::FinalWrite { addr, value }) => {
+                AgnusBlitterCompletionDiagnosticPhase::FinalWrite {
+                    address: addr,
+                    value,
+                }
+            }
+        };
+        let next_dma_request = self.next_blitter_dma_request();
+        let next_progress_uses_bus = match completion_phase {
+            AgnusBlitterCompletionDiagnosticPhase::FinalResult => false,
+            AgnusBlitterCompletionDiagnosticPhase::FinalWrite { .. } => true,
+            AgnusBlitterCompletionDiagnosticPhase::None => {
+                next_dma_request.is_some()
+                    && self.blitter_busy
+                    && self.next_blitter_progress_uses_bus()
+            }
+        };
+
+        AgnusBlitterDiagnosticSnapshot {
+            registers: AgnusBlitterRegistersDiagnosticSnapshot {
+                bltcon0: self.bltcon0,
+                bltcon1: self.bltcon1,
+                bltsize: self.bltsize,
+                bltsizv_ecs: self.bltsizv_ecs,
+                bltsizh_ecs: self.bltsizh_ecs,
+                blt_apt: self.blt_apt,
+                blt_bpt: self.blt_bpt,
+                blt_cpt: self.blt_cpt,
+                blt_dpt: self.blt_dpt,
+                blt_amod: self.blt_amod,
+                blt_bmod: self.blt_bmod,
+                blt_cmod: self.blt_cmod,
+                blt_dmod: self.blt_dmod,
+                blt_adat: self.blt_adat,
+                blt_bdat: self.blt_bdat,
+                blt_cdat: self.blt_cdat,
+                blt_afwm: self.blt_afwm,
+                blt_alwm: self.blt_alwm,
+            },
+            execution: AgnusBlitterExecutionDiagnosticSnapshot {
+                agnus_id: self.agnus_id,
+                original_revision: self.original_revision,
+                dmacon: self.dmacon,
+                dma_enabled: self.dma_enabled(bits::DMACON_BLTEN),
+                priority_enabled: self.dmacon & bits::DMACON_BLTPRI != 0,
+                busy: self.blitter_busy,
+                busy_visible: self.blitter_busy_visible(),
+                busy_copper: self.blitter_busy_copper(),
+                nasty_active: self.blitter_nasty_active(),
+                startup_ccks_remaining: self.blitter_startup_ccks_remaining,
+                completion_phase,
+                completion_ccks_remaining: self.blitter_completion_ccks_remaining(),
+                final_d_pending: self.blitter_final_d_pending(),
+                finish_emitted: self.blitter_finish_emitted,
+                dmacon_busy_hold_ccks: self.blitter_dmacon_busy_hold_ccks,
+                copper_busy_hold_ccks: self.blitter_copper_busy_hold_ccks,
+                exec_pending: self.blitter_exec_pending,
+                exec_ready: self.blitter_exec_ready(),
+                zero: self.blitter_dzero,
+                height: self.blt_height,
+                width_words: self.blt_width_words,
+                ccks_remaining: self.blitter_ccks_remaining,
+                next_dma_request,
+                next_progress_uses_bus,
+                word_complete: self.blitter_word_complete(),
+                incremental_runtime_present: self.has_incremental_blitter_runtime(),
+            },
+            word: self
+                .blitter_word_state
+                .map(|word| AgnusBlitterWordDiagnosticSnapshot {
+                    need_a: word.need_a,
+                    need_b: word.need_b,
+                    need_c: word.need_c,
+                    need_d: word.need_d,
+                    reads_done: word.reads_done,
+                    internal_only: word.internal_only,
+                    internal_done: word.internal_done,
+                }),
+            line: self
+                .blitter_line_runtime
+                .map(|line| AgnusBlitterLineDiagnosticSnapshot {
+                    steps_remaining: line.steps_remaining,
+                    error: line.error,
+                    error_add: line.error_add,
+                    error_sub: line.error_sub,
+                    cpt: line.cpt,
+                    dpt: line.dpt,
+                    pixel_bit: line.pixel_bit,
+                    row_mod: line.row_mod,
+                    texture: line.texture,
+                    texture_bit: line.texture_bit,
+                    lf: line.lf,
+                    sing: line.sing,
+                    one_dot_drawn: line.one_dot_drawn,
+                    major_is_y: line.major_is_y,
+                    x_negative: line.x_neg,
+                    y_negative: line.y_neg,
+                    last_c_word: line.last_c_word,
+                    have_c_word: line.have_c_word,
+                }),
+            area: self
+                .blitter_area_runtime
+                .map(|area| AgnusBlitterAreaDiagnosticSnapshot {
+                    rows_remaining: area.rows_remaining,
+                    width_words: area.width_words,
+                    words_remaining_in_row: area.words_remaining_in_row,
+                    use_a: area.use_a,
+                    use_b: area.use_b,
+                    use_c: area.use_c,
+                    use_d: area.use_d,
+                    lf: area.lf,
+                    a_shift: area.a_shift,
+                    b_shift: area.b_shift,
+                    descending: area.desc,
+                    pointer_step: area.ptr_step,
+                    modulo_direction: area.mod_dir,
+                    fill_enabled: area.fill_enabled,
+                    inclusive_fill_enabled: area.ife,
+                    exclusive_fill_enabled: area.efe,
+                    fill_carry_initial: area.fill_carry_init,
+                    fill_carry: area.fill_carry,
+                    apt: area.apt,
+                    bpt: area.bpt,
+                    cpt: area.cpt,
+                    dpt: area.dpt,
+                    amod: area.amod,
+                    bmod: area.bmod,
+                    cmod: area.cmod,
+                    dmod: area.dmod,
+                    a_previous: area.a_prev,
+                    b_previous: area.b_prev,
+                    a_raw: area.a_raw,
+                    b_raw: area.b_raw,
+                    c_value: area.c_val,
+                }),
+        }
     }
 
     /// Advance to the next word after the current word completed.
@@ -2142,7 +2633,7 @@ impl Agnus {
     }
 
     /// Apply a direct (CPU/copper) write to `SPRxCTL` — update the
-    /// VSTART[8]/VSTOP comparators. See [`Self::poke_sprite_pos`].
+    /// `VSTART[8]`/VSTOP comparators. See [`Self::poke_sprite_pos`].
     /// Mirrors vAmiga `Agnus::setSPRxCTL` (AgnusRegs.cpp:501).
     pub fn poke_sprite_ctl(&mut self, channel: usize, val: u16) {
         let sprite_timing = self.fixed_sprite_dma_vertical_timing();
@@ -2416,6 +2907,28 @@ impl Agnus {
         self.ocs_ddf_run_aborted
     }
 
+    /// Return a side-effect-free diagnostic snapshot of the implemented DDF
+    /// comparator and fetch-run state.
+    #[must_use]
+    pub fn ddf_diagnostic_snapshot(&self) -> AgnusDdfDiagnosticSnapshot {
+        let comparator_mask = self.ddf_mask();
+        AgnusDdfDiagnosticSnapshot {
+            vpos: self.vpos,
+            hpos: self.hpos,
+            agnus_id: self.agnus_id,
+            ddfstrt: self.ddfstrt,
+            ddfstop: self.ddfstop,
+            comparator_mask,
+            effective_ddfstrt: self.ddfstrt & comparator_mask,
+            effective_ddfstop: self.ddfstop & comparator_mask,
+            start_match: self.ddf_start_match,
+            stop_match: self.ddf_stop_match,
+            fetch_end: self.ddf_fetch_end,
+            ocs_run_aborted: self.ocs_ddf_run_aborted,
+            ocs_hard_start_open: self.ocs_ddf_hard_start_open,
+        }
+    }
+
     /// Determine who owns the current CCK slot.
     pub fn current_slot(&self) -> SlotOwner {
         self.current_slot_with_vertical_timing(
@@ -2552,6 +3065,52 @@ impl Agnus {
             self.vertical_diw_active(),
             self.fixed_sprite_dma_vertical_timing(),
         )
+    }
+
+    /// Return a side-effect-free diagnostic snapshot of the current OCS bus
+    /// plan and the recorded per-CCK use latches.
+    ///
+    /// ECS and AGA wrappers with programmable vertical timing should compute
+    /// their wrapper-specific plan and call
+    /// [`Self::bus_diagnostic_snapshot_for_plan`] instead.
+    #[must_use]
+    pub fn bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
+        self.bus_diagnostic_snapshot_for_plan(self.cck_bus_plan())
+    }
+
+    /// Return a side-effect-free bus diagnostic snapshot using an
+    /// integration-selected current plan.
+    ///
+    /// This seam lets enhanced-chipset wrappers supply the same
+    /// vertical-timing-aware plan they use for arbitration while Agnus remains
+    /// the owner of the actual-use latches and diagnostic representation.
+    #[must_use]
+    pub fn bus_diagnostic_snapshot_for_plan(&self, plan: CckBusPlan) -> AgnusBusDiagnosticSnapshot {
+        let (blitter_authority, blitter_holds_bus) = if self.blitter_cck_bus_state_recorded {
+            (
+                BlitterBusDiagnosticAuthority::RecordedCckState,
+                self.blitter_bus_used_this_cck || self.blitter_nasty_owned_this_cck,
+            )
+        } else {
+            (
+                BlitterBusDiagnosticAuthority::CurrentPlanFallback,
+                matches!(plan.slot_owner, SlotOwner::Cpu) && !plan.cpu_chip_bus_granted,
+            )
+        };
+
+        AgnusBusDiagnosticSnapshot {
+            vpos: self.vpos,
+            hpos: self.hpos,
+            plan,
+            sprite_bus_used_this_cck: self.sprite_bus_used_this_cck,
+            sprite_holds_bus: self.sprite_bus_used_this_cck
+                || matches!(plan.slot_owner, SlotOwner::Sprite(_)),
+            blitter_bus_used_this_cck: self.blitter_bus_used_this_cck,
+            blitter_nasty_owned_this_cck: self.blitter_nasty_owned_this_cck,
+            blitter_cck_bus_state_recorded: self.blitter_cck_bus_state_recorded,
+            blitter_authority,
+            blitter_holds_bus,
+        }
     }
 
     /// Build a complete plan using a chipset-variant vertical bitplane

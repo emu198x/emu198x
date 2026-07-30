@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add side-effect-free arbitration, DDF-sequencer and complete implemented
+  blitter diagnostic snapshots, including authoritative per-CCK bus use,
+  pending channel operations, line/fill runtime and buffered final-D state
 - Serialize line-mode ONEDOT row eligibility, B texture phase and
   pre-service nasty ownership for deterministic mid-line restore and
   same-CCK CPU arbitration
