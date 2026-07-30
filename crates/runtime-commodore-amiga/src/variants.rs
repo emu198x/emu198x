@@ -404,6 +404,7 @@ const fn greatest_common_divisor(mut lhs: u64, mut rhs: u64) -> u64 {
 macro_rules! amiga_variant_query_paths {
     ($($variant_path:expr),* $(,)?) => {
         &[
+    "memory",
     "memory.overlay",
     "cpu.pc",
     "cpu.sr",

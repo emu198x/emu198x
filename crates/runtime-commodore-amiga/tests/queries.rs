@@ -4,13 +4,13 @@
 mod common;
 
 use emu198x_shell::{
-    HostIo, MachineCore, MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink,
-    NullFrameSink, NullTraceSink, SessionQueryProvider,
+    DebugPrimitives, HostIo, MachineCore, MachineTime, MediaImage, MediaKind, MediaSet,
+    NullAudioSink, NullFrameSink, NullTraceSink, SessionQueryProvider,
 };
 use format_commodore_amiga_adf::ADF_SIZE_DD;
 use runtime_commodore_amiga::{
     A500_PAL_FRAME_TICKS, AmigaA1200Runtime, AmigaEcsRuntime, AmigaMachine, AmigaOcsRuntime,
-    AmigaRuntime, AmigaSessionQueryProvider, Model,
+    AmigaRuntime, AmigaRuntimeKind, AmigaSessionQueryProvider, Model,
 };
 use serde_json::{Value, json};
 
@@ -73,6 +73,56 @@ fn keyboard_queries_expose_complete_protocol_state_and_legacy_aliases() {
         query_value(&runtime, "keyboard.queued"),
         query_value(&runtime, "keyboard.queue_count"),
     );
+}
+
+#[test]
+fn memory_queries_distinguish_standard_and_a1000_rom_topologies() {
+    let standard = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    assert_eq!(query_value(&standard, "memory.rom.kind"), json!("standard"));
+    assert_eq!(
+        query_value(&standard, "memory.rom.standard.size_bytes"),
+        json!(256 * 1024),
+    );
+    assert_eq!(query_value(&standard, "memory.rom.a1000"), Value::Null);
+
+    let a1000 = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
+        .expect("A1000 runtime init");
+    assert_eq!(query_value(&a1000, "memory.rom.kind"), json!("a1000"));
+    assert_eq!(
+        query_value(&a1000, "memory.rom.a1000.boot_rom.size_bytes"),
+        json!(64 * 1024),
+    );
+    assert_eq!(
+        query_value(&a1000, "memory.rom.a1000.wom.size_bytes"),
+        json!(256 * 1024),
+    );
+    assert_eq!(
+        query_value(&a1000, "memory.rom.a1000.boot_rom_visible"),
+        json!(true),
+    );
+}
+
+#[test]
+fn debugger_peek_does_not_drive_the_floating_bus() {
+    let mut runtime = AmigaRuntimeKind::blank(Model::A500OcsPal);
+    DebugPrimitives::dbg_poke(&mut runtime, 0x0001_0000, 0xA5);
+    DebugPrimitives::dbg_poke(&mut runtime, 0x0001_0001, 0x5A);
+    let provider = AmigaSessionQueryProvider;
+    let before = provider
+        .query(&runtime, "memory.floating_bus_word")
+        .expect("query should succeed")
+        .expect("memory field should resolve")
+        .value;
+
+    let _ = DebugPrimitives::dbg_peek(&runtime, 0x00F8_0000);
+
+    let after = provider
+        .query(&runtime, "memory.floating_bus_word")
+        .expect("query should succeed")
+        .expect("memory field should resolve")
+        .value;
+    assert_eq!(before, json!(0xA55A));
+    assert_eq!(after, before);
 }
 
 #[test]
@@ -224,6 +274,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
         &ocs,
         &[
             "runtime",
+            "memory",
             "chipset",
             "agnus",
             "denise",
@@ -247,6 +298,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
         &ecs,
         &[
             "runtime",
+            "memory",
             "chipset",
             "agnus",
             "denise",
@@ -270,6 +322,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
         &a600,
         &[
             "runtime",
+            "memory",
             "chipset",
             "agnus",
             "denise",
@@ -294,6 +347,7 @@ fn grouped_snapshot_fields_are_all_discoverable_as_leaves() {
         &aga,
         &[
             "runtime",
+            "memory",
             "chipset",
             "agnus",
             "denise",

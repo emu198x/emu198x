@@ -36,6 +36,7 @@ use commodore_denise_aga::DeniseAgaDiagnosticSnapshot;
 use commodore_denise_ocs::DeniseDiagnosticSnapshot;
 use commodore_gary::GaryDiagnosticSnapshot;
 use commodore_gayle::GayleDiagnosticSnapshot;
+use common_commodore_amiga::memory::MemoryDiagnosticSnapshot;
 use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_a1200::AmigaA1200;
 use machine_commodore_amiga_ecs::{AgnusEcs, AmigaEcs, DeniseEcs};
@@ -379,6 +380,9 @@ pub trait AmigaLiveAccess {
     /// Complete motherboard address-decoder configuration.
     fn gary_diagnostic_snapshot(&self) -> GaryDiagnosticSnapshot;
 
+    /// Complete memory-map topology, control state and floating-bus residue.
+    fn memory_diagnostic_snapshot(&self) -> MemoryDiagnosticSnapshot;
+
     /// Complete Gayle state on A600 and A1200 boards. Other variants do not
     /// contain Gayle.
     fn gayle_diagnostic_snapshot(&self) -> Option<GayleDiagnosticSnapshot> {
@@ -703,6 +707,10 @@ impl AmigaLiveAccess for AmigaOcs {
         self.gary().diagnostic_snapshot()
     }
 
+    fn memory_diagnostic_snapshot(&self) -> MemoryDiagnosticSnapshot {
+        self.memory().diagnostic_snapshot()
+    }
+
     fn framebuffer(&self) -> &[u32] {
         self.denise().framebuffer()
     }
@@ -988,6 +996,10 @@ impl AmigaLiveAccess for AmigaEcs {
 
     fn gary_diagnostic_snapshot(&self) -> GaryDiagnosticSnapshot {
         self.gary().diagnostic_snapshot()
+    }
+
+    fn memory_diagnostic_snapshot(&self) -> MemoryDiagnosticSnapshot {
+        self.memory().diagnostic_snapshot()
     }
 
     fn gayle_diagnostic_snapshot(&self) -> Option<GayleDiagnosticSnapshot> {
@@ -1279,6 +1291,10 @@ impl AmigaLiveAccess for AmigaA1200 {
 
     fn gary_diagnostic_snapshot(&self) -> GaryDiagnosticSnapshot {
         self.gary().diagnostic_snapshot()
+    }
+
+    fn memory_diagnostic_snapshot(&self) -> MemoryDiagnosticSnapshot {
+        self.memory().diagnostic_snapshot()
     }
 
     fn gayle_diagnostic_snapshot(&self) -> Option<GayleDiagnosticSnapshot> {
@@ -1705,6 +1721,14 @@ impl AmigaLiveAccess for AmigaRuntimeKind {
             Self::Ocs(rt) => rt.machine().gary().diagnostic_snapshot(),
             Self::Ecs(rt) => rt.machine().gary().diagnostic_snapshot(),
             Self::Aga(rt) => rt.machine().gary().diagnostic_snapshot(),
+        }
+    }
+
+    fn memory_diagnostic_snapshot(&self) -> MemoryDiagnosticSnapshot {
+        match self {
+            Self::Ocs(rt) => rt.machine().memory().diagnostic_snapshot(),
+            Self::Ecs(rt) => rt.machine().memory().diagnostic_snapshot(),
+            Self::Aga(rt) => rt.machine().memory().diagnostic_snapshot(),
         }
     }
 

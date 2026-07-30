@@ -3890,6 +3890,7 @@ dependencies = [
  "commodore-denise-ocs",
  "commodore-gary",
  "commodore-gayle",
+ "common-commodore-amiga",
  "emu198x-shell",
  "format-commodore-amiga-adf",
  "gvp-a530",

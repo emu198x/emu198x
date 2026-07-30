@@ -59,6 +59,7 @@ pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
 /// baseline; this closes the gap where a newly exposed diagnostic field could
 /// be returned by a group but omitted from `query_paths`.
 const GROUPED_VARIANT_QUERY_ROOTS: &[&str] = &[
+    "memory",
     "chipset",
     "agnus",
     "denise",
@@ -625,6 +626,11 @@ pub(crate) fn keyboard_snapshot(m: &dyn AmigaLiveAccess) -> Value {
 /// Complete Gary motherboard address-decoder configuration.
 pub(crate) fn gary_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     json!(m.gary_diagnostic_snapshot())
+}
+
+/// Complete memory topology and control state without backing payload bytes.
+pub(crate) fn memory_snapshot(m: &dyn AmigaLiveAccess) -> Value {
+    json!(m.memory_diagnostic_snapshot())
 }
 
 /// Complete Gayle board-controller state on machines which contain it.
@@ -1369,6 +1375,9 @@ pub(crate) fn resolve_chip_query(m: &dyn AmigaLiveAccess, path: &str) -> Option<
     }
     if is_chip(path, "gary") {
         return chip_field(path, "gary", gary_snapshot(m));
+    }
+    if is_chip(path, "memory") {
+        return chip_field(path, "memory", memory_snapshot(m));
     }
     if is_chip(path, "gayle") {
         return gayle_snapshot(m).and_then(|snapshot| chip_field(path, "gayle", snapshot));

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose memory topology, ROM arrangement, overlay state and floating-bus
+  residue without copying RAM or ROM payload bytes
 - Expose Lisa's complete 256-entry palette through both the canonical Denise
   group and the AGA compatibility group
 - Expose all six Gary motherboard address-decoder configuration flags through
@@ -166,6 +168,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep debugger memory reads and disassembly from altering floating-bus state
 - Report Lisa's actual outer 24-bit palette and HAM8 hold state instead of the
   wrapped OCS core's unused mirrors
 - Publish fixed-sync PAL and NTSC fields only after Denise retires the

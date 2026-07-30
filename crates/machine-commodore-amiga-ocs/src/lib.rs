@@ -1818,7 +1818,7 @@ impl AmigaOcs {
     /// during tests; not equivalent to a CPU bus cycle.
     #[must_use]
     pub fn read_word(&self, addr: u32) -> u16 {
-        self.bus_read_word(addr)
+        self.peek_bus_word(addr)
     }
 
     /// Read a word as if the CPU did the bus cycle. Side-effecting:
@@ -1843,12 +1843,20 @@ impl AmigaOcs {
     /// Read a longword (big-endian) at the given 24-bit address.
     #[must_use]
     pub fn read_long(&self, addr: u32) -> u32 {
-        let hi = self.bus_read_word(addr);
-        let lo = self.bus_read_word(addr.wrapping_add(2));
+        let hi = self.peek_bus_word(addr);
+        let lo = self.peek_bus_word(addr.wrapping_add(2));
         (u32::from(hi) << 16) | u32::from(lo)
     }
 
     fn bus_read_word(&self, address: u32) -> u16 {
+        self.inspect_bus_word(address, true)
+    }
+
+    fn peek_bus_word(&self, address: u32) -> u16 {
+        self.inspect_bus_word(address, false)
+    }
+
+    fn inspect_bus_word(&self, address: u32, drive_memory_bus: bool) -> u16 {
         if let Some(value) = self.a530_read_word(address) {
             return value;
         }
@@ -1903,7 +1911,11 @@ impl AmigaOcs {
                 _ => 0xFFFF,
             };
         }
-        self.memory.read_word(addr24)
+        if drive_memory_bus {
+            self.memory.read_word(addr24)
+        } else {
+            self.memory.peek_word(addr24)
+        }
     }
 
     /// Read a chip-RAM byte directly, ignoring the OVL overlay.

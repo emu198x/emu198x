@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep side-effect-free word and longword inspection from driving the floating
+  bus while retaining bus effects for CPU and DMA reads
 - Keep Gary's public address-decoder state consistent with the optional A600
   Gayle controller
 - Route A600 side-effect-free memory inspection and debugger writes through

@@ -52,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep side-effect-free word and longword inspection from driving the floating
+  bus while retaining bus effects for CPU and DMA reads
 - Record CIA-B bus writes in the existing diagnostic log
 - Route Copper horizontal comparison through the installed original or Fat
   Agnus projection, including NTSC-long and programmable timing
