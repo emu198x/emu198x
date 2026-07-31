@@ -27,8 +27,13 @@ All five seams landed between 2026-04-19 and 2026-05-21:
 
 Done-criteria status from the original review: Workbench 1.3 boots
 to desktop ✅, boot invariants in CI ✅, `service_cpu_bus` thinned ✅,
-Paula owns disk DMA end-to-end ✅, byte-write merge solved via
-per-arm locality ✅.
+Paula owns the DSKLEN/WORDSYNC/countdown state machine ✅, byte-write
+merge solved via per-arm locality ✅. The 2026-07-31 accuracy audit found
+that the board-level floppy transfer still advances from an independent
+track pacer rather than consuming Agnus's disk-DMA grants. That later
+arbitration gap is tracked by the
+[Amiga accuracy closure campaign](amiga-accuracy-closure-campaign.md);
+it does not reopen the ownership/locality result this review established.
 
 The follow-on review at
 [`amiga-full-family-architecture-review.md`](amiga-full-family-architecture-review.md)
@@ -159,7 +164,8 @@ In order of leverage for unblocking the Amiga and protecting future systems:
 - Workbench 1.3 boots to the desktop in the headless runner.
 - Boot-invariant tests run in CI and fail loudly on regression.
 - `service_cpu_bus` is under 200 lines and all chip-select arms produce `BusResponse`.
-- Paula owns disk read DMA end-to-end; machine layer is four lines of glue.
+- Paula owns the disk-controller state machine; the machine layer retains only
+  memory, media-stream and bus-grant glue.
 - Each chip owns its own register-word read for byte-write merging.
 - This document is updated with implementation status and links to commits.
 

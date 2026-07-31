@@ -614,8 +614,11 @@ In order of leverage for unblocking the full Amiga family:
 - Replacing the existing `AmigaMachine` trait. Tighten within it,
   never replace.
 - Refactoring Paula. The disk DMA work landed in the previous
-  review; Paula audio is correct enough for current catalogue
-  entries; further fidelity work is per-test, not seam-class.
+  review as an ownership/locality change. Later audit found an
+  unconsumed Agnus disk-DMA grant and no independent Paula waveform
+  oracle; those bounded accuracy tasks are tracked by the
+  [Amiga accuracy closure campaign](amiga-accuracy-closure-campaign.md),
+  not by this architecture review.
 - Splitting `commodore-paula-8364` into per-revision crates. Paula
   is identical across OCS / ECS / AGA — one crate is correct.
 - 68LC040 / 68LC060 (FPU-less variants). Cover 68040 / 68060
