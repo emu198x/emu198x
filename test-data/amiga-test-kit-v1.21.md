@@ -5,15 +5,19 @@ Amiga Test Kit v1.21 video-conformance fixture.
 
 ## Registered inputs
 
-| Normalised name | Size | SHA-256 | Redistribution |
-|---|---:|---|---|
-| `amiga-test-kit-v1.21.adf` | 901,120 bytes | `abe7426c93619a7bb61ce10e3e66a4747fcaf22acd1d1876310033faa700ad28` | Public domain |
-| `kickstart-1.3-r34.5.rom` | 262,144 bytes | `ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53` | Proprietary; do not redistribute |
+| Normalised name | Profile | Size | SHA-256 | Redistribution |
+|---|---|---:|---|---|
+| `amiga-test-kit-v1.21.adf` | both | 901,120 bytes | `abe7426c93619a7bb61ce10e3e66a4747fcaf22acd1d1876310033faa700ad28` | Public domain |
+| `kickstart-1.3-r34.5.rom` | A500+A501 OCS PAL | 262,144 bytes | `ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53` | Proprietary; do not redistribute |
+| `kickstart-3.1-a1200-r40.68.rom` | A1200 AGA PAL | 524,288 bytes | `6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707` | Proprietary; do not redistribute |
 
-The machine-readable form is
-[`amiga-test-kit-v1.21.sha256`](amiga-test-kit-v1.21.sha256). The normalised
-names describe the files after any delivery archive has been unpacked. An
-outer ZIP filename or checksum does not replace the payload checksum.
+The A500 machine-readable form is
+[`amiga-test-kit-v1.21.sha256`](amiga-test-kit-v1.21.sha256). The A1200 form is
+[`amiga-test-kit-v1.21-a1200-aga-pal.sha256`](amiga-test-kit-v1.21-a1200-aga-pal.sha256).
+Each file contains the shared ADF and only the firmware required by that
+profile. The normalised names describe the files after any delivery archive
+has been unpacked. An outer ZIP filename or checksum does not replace the
+payload checksum.
 
 The registered ADF has also been observed in the upstream delivery archive:
 
@@ -40,36 +44,46 @@ fixture under the test-ROM policy. It remains externally supplied because the
 project defaults to referenced fixtures and because the complete gate also
 requires a proprietary Kickstart image.
 
-Kickstart 1.3 revision 34.005 is Commodore firmware. Its checksum is registered
-only to make the verification input reproducible. This repository does not
-contain or redistribute the ROM.
+Kickstart 1.3 revision 34.005 and A1200 Kickstart 3.1 revision 40.068 are
+Commodore firmware. Their checksums are registered only to make each
+verification input reproducible. This repository does not contain or
+redistribute either ROM.
 
-## Reference family
+## Reference families
 
-The first registered video reference is the
-[A500+A501 OCS PAL vAmiga family](amiga-test-kit-v1.21/a500-a501-ocs-pal/README.md).
-Its manifest records the machine configuration, capture producer, viewport,
-navigation, settling rule, and identities of the committed PNGs.
+The registered video references are:
 
-Those captures are independent of Emu198x, but they come from one vAmiga
-implementation family. They are not evidence of agreement between independent
-emulator families or with physical hardware.
+- the [A500+A501 OCS PAL vAmiga family](amiga-test-kit-v1.21/a500-a501-ocs-pal/README.md);
+  and
+- the [A1200 AGA PAL FS-UAE family](amiga-test-kit-v1.21/a1200-aga-pal/README.md).
+
+Each manifest records its machine configuration, capture producer, viewport,
+navigation, settling rule, and committed PNG identities.
+
+Both families are independent of Emu198x. They cover different machine
+configurations and therefore do not constitute cross-implementation
+consensus. FS-UAE and WinUAE also belong to one UAE implementation family.
+Neither reference is physical-hardware evidence.
 
 ## Delivery contract
 
-The verification lane receives the ADF, or a ZIP containing it, through
-`EMU198X_AMIGA_TEST_KIT_V121_ADF`. It receives Kickstart through
-`EMU198X_AMIGA_KICKSTART_13_ROM`; the wrapper may resolve that file from the
-existing `EMU198X_AMIGA_ROM_DIR` convention before setting the direct path.
+Both verification gates receive the ADF, or a ZIP containing it, through
+`EMU198X_AMIGA_TEST_KIT_V121_ADF`. The A500 gate receives Kickstart through
+`EMU198X_AMIGA_KICKSTART_13_ROM`. The A1200 gate receives it through
+`EMU198X_AMIGA_KICKSTART_31_A1200_ROM`. Each wrapper may resolve its ROM from
+the existing `EMU198X_AMIGA_ROM_DIR` convention before setting the direct
+path.
 
-An explicitly invoked gate treats both files and the registered reference
-family as required. A missing file, an archive with an ambiguous ADF member, a
-malformed image, or a checksum mismatch is a failure rather than a skipped
-test.
+An explicitly invoked gate requires the shared ADF, its profile-specific ROM,
+and its registered reference family. It does not require the other profile's
+firmware. A missing file, an archive with an ambiguous ADF member, a malformed
+image, or a checksum mismatch fails the gate; it does not skip the test.
 
 ## Related documents
 
 - [A500+A501 OCS PAL vAmiga reference](amiga-test-kit-v1.21/a500-a501-ocs-pal/README.md)
+- [A1200 AGA PAL FS-UAE reference](amiga-test-kit-v1.21/a1200-aga-pal/README.md)
+- [FS-UAE A1200 capture adapter](../tools/fs-uae-test-kit-video-capture/README.md)
 - [Amiga Test Kit v1.21 video conformance](../knowledge/processes/amiga-test-kit-video-conformance.md)
 - [Amiga Test Kit v1.12 fixture identity](amiga-test-kit-v1.12.md)
 - [Accuracy corpora](accuracy-corpora.md)

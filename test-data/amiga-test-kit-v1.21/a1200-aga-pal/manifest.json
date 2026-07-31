@@ -1,0 +1,328 @@
+{
+  "capture_adapter": {
+    "Portable.ini": "f6ea7ad62b30f5b1d3092081990d41206c60aea7dcc29379a2977e89c4d994f0",
+    "capture.sh": "511cfed52f2b5d8a03a3d335bc144fbee59d2624f94c734e828c135b566eca28",
+    "capture_manifest.py": "896d310b9eecdcb09d67d29436e3ee1a389bde7385d595fab6048a13ee3a076e",
+    "config.uae.in": "cf8f5bdb01142cfe08c271158a0e1253ddef700f03b52a9f6f67698fc2648745",
+    "fs-uae-5.0.7-test-kit-video-capture.patch": "6116765eab7036cf756cb3212968675c9d1ca3ef327b8da3e4d194f05ffbb767"
+  },
+  "comparison": {
+    "channel_tolerance": 0,
+    "format": "rgb8-exact",
+    "reference_alpha": "discard-after-opaque-validation",
+    "row_pair_policy": "require-identical-before-decimation",
+    "runtime_alpha": "must-be-opaque"
+  },
+  "evidence_level": "single-independent-implementation",
+  "execution": {
+    "boot_fields": 600,
+    "inter_key_fields": 50,
+    "key_hold_fields": 3,
+    "key_release_settle_fields": 1
+  },
+  "frames": [
+    {
+      "behaviour": "static",
+      "capture_provenance": {
+        "capture_manifest_sha256": "6ba32f46cce564585fd9c678a5ed10c34a4a16c6f26a6181b40968ee5442920b",
+        "captured_at_utc": "2026-07-31T15:20:12+00:00",
+        "captured_core_fields": [
+          808,
+          809,
+          810
+        ],
+        "configuration_sha256": "444d3a6010bdc5fa767dd1a8330bccf76c36ebea3cf6563f242a123acfb2f789",
+        "frontend_wait_status": 0,
+        "host": "macOS 26.5.2 build 25F84, arm64",
+        "inputs_after_sha256": "df0de4bc4c095a602986c2f9ac09b5618032adbb7be8697c7afadd8d136402cd",
+        "inputs_before_sha256": "df0de4bc4c095a602986c2f9ac09b5618032adbb7be8697c7afadd8d136402cd",
+        "operator": "Steve Hill",
+        "raw_sha256": [
+          "6f34646191aa45a83bdb3bd6b02b020e011e9226e589fe4f848e376242419c88",
+          "6f34646191aa45a83bdb3bd6b02b020e011e9226e589fe4f848e376242419c88",
+          "6f34646191aa45a83bdb3bd6b02b020e011e9226e589fe4f848e376242419c88"
+        ],
+        "run_log_sha256": "6c2a774065381ec0baebc556947ab56e4c88b9d327bb5e2d32a1bc7c13b8f0f8"
+      },
+      "execution_settle_fields": 150,
+      "id": "gradients",
+      "navigation": [
+        "F6",
+        "F1"
+      ],
+      "references": [
+        {
+          "file": "gradients.png",
+          "phase": "static",
+          "png_sha256": "396881899197becce081f1ea5fc202ec6de802d23385640d7de79b2102c49360",
+          "rgb_sha256": "d7f581c6feb0a471477ce556f517c28f4f6032d2e6dfce30f1cc38ab52489411",
+          "source_core_field": 808,
+          "source_raw_sha256": "6f34646191aa45a83bdb3bd6b02b020e011e9226e589fe4f848e376242419c88"
+        }
+      ]
+    },
+    {
+      "behaviour": "static",
+      "capture_provenance": {
+        "capture_manifest_sha256": "6fc0b751531bed43d86434a49c972cf4d703ecf1b192f0f95760b5d0a05e79ab",
+        "captured_at_utc": "2026-07-31T15:20:30+00:00",
+        "captured_core_fields": [
+          758,
+          759,
+          760
+        ],
+        "configuration_sha256": "0474a0df74e703101e0f61bd4538880194551caea0346c8f7d9160808177e73f",
+        "frontend_wait_status": 0,
+        "host": "macOS 26.5.2 build 25F84, arm64",
+        "inputs_after_sha256": "d5c3c702f714b6aad89e5fe0b6d1b338b833dfe08afbe422dfc3fde4a1457723",
+        "inputs_before_sha256": "d5c3c702f714b6aad89e5fe0b6d1b338b833dfe08afbe422dfc3fde4a1457723",
+        "operator": "Steve Hill",
+        "raw_sha256": [
+          "657f70fe7bfa1241ca634b0432fe7b1875d87efa766fe279f30c9a6312d28ab5",
+          "657f70fe7bfa1241ca634b0432fe7b1875d87efa766fe279f30c9a6312d28ab5",
+          "657f70fe7bfa1241ca634b0432fe7b1875d87efa766fe279f30c9a6312d28ab5"
+        ],
+        "run_log_sha256": "1e4af691b13b8f0dbd201b66b1564a87de8326873e9093fa1389148e4ab52f59"
+      },
+      "execution_settle_fields": 100,
+      "id": "static-checkerboard",
+      "navigation": [
+        "F6",
+        "F2"
+      ],
+      "references": [
+        {
+          "file": "static-checkerboard.png",
+          "phase": "static",
+          "png_sha256": "192e3095440d88106f05912c16f38f7333103fec50d9c416f4521df72d5b1021",
+          "rgb_sha256": "959a6a162fb4750e83565cf2f43f2a8910c90dc5917ed34ab9c86bee10dccd51",
+          "source_core_field": 758,
+          "source_raw_sha256": "657f70fe7bfa1241ca634b0432fe7b1875d87efa766fe279f30c9a6312d28ab5"
+        }
+      ]
+    },
+    {
+      "behaviour": "alternating",
+      "capture_provenance": {
+        "capture_manifest_sha256": "3a12cb0e60cf4e5811ebc933308d3ea0c566276a9f10a3f2ea99d41ce48adc2b",
+        "captured_at_utc": "2026-07-31T15:20:47+00:00",
+        "captured_core_fields": [
+          758,
+          759,
+          760
+        ],
+        "configuration_sha256": "0e68ca5c0fe3f8e27b3f1e4fe2dbe72ac587206a343a0cc57539c291b04aeb3b",
+        "frontend_wait_status": 0,
+        "host": "macOS 26.5.2 build 25F84, arm64",
+        "inputs_after_sha256": "0debcbe33e933a3ee3ad04c1c6fe3b8a28c20296008de2bfa45d0077ddb8c802",
+        "inputs_before_sha256": "0debcbe33e933a3ee3ad04c1c6fe3b8a28c20296008de2bfa45d0077ddb8c802",
+        "operator": "Steve Hill",
+        "raw_sha256": [
+          "ba4dbb6c3944ffe75d8413c99a278cf93b8909b9d5263f769814a7eee10c9ad7",
+          "657f70fe7bfa1241ca634b0432fe7b1875d87efa766fe279f30c9a6312d28ab5",
+          "ba4dbb6c3944ffe75d8413c99a278cf93b8909b9d5263f769814a7eee10c9ad7"
+        ],
+        "run_log_sha256": "ea9ebe1fcebf908d768317214e1ad39fe5ced35a3c50a36ebb3f3be1b1996a04"
+      },
+      "execution_settle_fields": 100,
+      "id": "alternating-checkerboard",
+      "navigation": [
+        "F6",
+        "F3"
+      ],
+      "references": [
+        {
+          "file": "alternating-checkerboard-phase-a.png",
+          "phase": "a",
+          "png_sha256": "1ed1d30d599bc6b4beee8303a416d6b3ae4cee1947acd10a7526b1ae3a852465",
+          "rgb_sha256": "fa924c9486307b33e326ed5e124cca814bcdddbc501cbbcd71a77cc005ed130c",
+          "source_core_field": 758,
+          "source_raw_sha256": "ba4dbb6c3944ffe75d8413c99a278cf93b8909b9d5263f769814a7eee10c9ad7"
+        },
+        {
+          "file": "alternating-checkerboard-phase-b.png",
+          "phase": "b",
+          "png_sha256": "192e3095440d88106f05912c16f38f7333103fec50d9c416f4521df72d5b1021",
+          "rgb_sha256": "959a6a162fb4750e83565cf2f43f2a8910c90dc5917ed34ab9c86bee10dccd51",
+          "source_core_field": 759,
+          "source_raw_sha256": "657f70fe7bfa1241ca634b0432fe7b1875d87efa766fe279f30c9a6312d28ab5"
+        }
+      ]
+    },
+    {
+      "behaviour": "static",
+      "capture_provenance": {
+        "capture_manifest_sha256": "e868a824360d3ce4d76c17b6033e296729b901988a12de32fee3f921b9d78b3e",
+        "captured_at_utc": "2026-07-31T15:21:04+00:00",
+        "captured_core_fields": [
+          812,
+          813,
+          814
+        ],
+        "configuration_sha256": "bea9718a9ae6aa0f5cd2f350224bdf0c16e397b6d81d0e28a937581ea7fee8e2",
+        "frontend_wait_status": 0,
+        "host": "macOS 26.5.2 build 25F84, arm64",
+        "inputs_after_sha256": "3c270297df36d4cc79f156a9f2b57371b96d8aee3e214101eb00898bb0d48cc0",
+        "inputs_before_sha256": "3c270297df36d4cc79f156a9f2b57371b96d8aee3e214101eb00898bb0d48cc0",
+        "operator": "Steve Hill",
+        "raw_sha256": [
+          "b7a7f39ee67f1bd27c4db93580661e78c33b12805d25f08f51d4d4304f23b562",
+          "b7a7f39ee67f1bd27c4db93580661e78c33b12805d25f08f51d4d4304f23b562",
+          "b7a7f39ee67f1bd27c4db93580661e78c33b12805d25f08f51d4d4304f23b562"
+        ],
+        "run_log_sha256": "c5d58103e86a3dd9366b669a2c2345406f799b55fa655ed4149e0c24430f1387"
+      },
+      "execution_settle_fields": 100,
+      "id": "ebu-bars",
+      "navigation": [
+        "F6",
+        "F4",
+        "F6"
+      ],
+      "references": [
+        {
+          "file": "ebu-bars.png",
+          "phase": "static",
+          "png_sha256": "d33a657854f16641efa49cbf19b42480226d050e42824ad3fac1c3383b2220c2",
+          "rgb_sha256": "51e0a1f91e5dfbd006f82543be3cdf155f4f5b3b6e5c2d0641f286f9ffe07872",
+          "source_core_field": 812,
+          "source_raw_sha256": "b7a7f39ee67f1bd27c4db93580661e78c33b12805d25f08f51d4d4304f23b562"
+        }
+      ]
+    },
+    {
+      "behaviour": "static",
+      "capture_provenance": {
+        "capture_manifest_sha256": "eb7ff62d9211e2fde6a86d78ade0bb189fda5e8d35cce3d958d6c2a6e3753ab5",
+        "captured_at_utc": "2026-07-31T15:21:22+00:00",
+        "captured_core_fields": [
+          758,
+          759,
+          760
+        ],
+        "configuration_sha256": "72abcaa9c076c9f2b8722adc37bae700e89012a1830b63ca2ac7c024055d89a3",
+        "frontend_wait_status": 0,
+        "host": "macOS 26.5.2 build 25F84, arm64",
+        "inputs_after_sha256": "0719ca349f2a9856817cf18f2ad4e2cf7f01c7320e41d4401d8c7cbffbde4959",
+        "inputs_before_sha256": "0719ca349f2a9856817cf18f2ad4e2cf7f01c7320e41d4401d8c7cbffbde4959",
+        "operator": "Steve Hill",
+        "raw_sha256": [
+          "365dde06f3fc1f2e056fb4992bfeca559cf1ac8ad41afd9eb47c01f4f3c1b710",
+          "365dde06f3fc1f2e056fb4992bfeca559cf1ac8ad41afd9eb47c01f4f3c1b710",
+          "365dde06f3fc1f2e056fb4992bfeca559cf1ac8ad41afd9eb47c01f4f3c1b710"
+        ],
+        "run_log_sha256": "b474c5b93a88f9fa1022a11d963dac0be9f414407d08af18903d3e407eb6af29"
+      },
+      "execution_settle_fields": 100,
+      "id": "dots",
+      "navigation": [
+        "F6",
+        "F5"
+      ],
+      "references": [
+        {
+          "file": "dots.png",
+          "phase": "static",
+          "png_sha256": "e2fb6e101a79c7419f220aa246057a442b5a59dbc4b48fc9f3739fe662866e8a",
+          "rgb_sha256": "04dc46bb550a390f864b66a69b1679601f4726f807109ac2fda48d357a0b032c",
+          "source_core_field": 758,
+          "source_raw_sha256": "365dde06f3fc1f2e056fb4992bfeca559cf1ac8ad41afd9eb47c01f4f3c1b710"
+        }
+      ]
+    },
+    {
+      "behaviour": "static",
+      "capture_provenance": {
+        "capture_manifest_sha256": "ff953d82b6d7cdd304ad480cbc16f1bc2f1daecdea989fe91bdde43f36c241b2",
+        "captured_at_utc": "2026-07-31T15:21:39+00:00",
+        "captured_core_fields": [
+          758,
+          759,
+          760
+        ],
+        "configuration_sha256": "5800078a3361a2f333e99abe56f9567776d8ec54d83fc2ebe7077ecdc788fe6b",
+        "frontend_wait_status": 0,
+        "host": "macOS 26.5.2 build 25F84, arm64",
+        "inputs_after_sha256": "241ac1b7f13cdcc5eb8a4faa56d256a9e82258af9790cc17e3d526049039e4c5",
+        "inputs_before_sha256": "241ac1b7f13cdcc5eb8a4faa56d256a9e82258af9790cc17e3d526049039e4c5",
+        "operator": "Steve Hill",
+        "raw_sha256": [
+          "fc6e0c960b1049f046eaafc658af981a77bb4a233dd555af49333249209f1328",
+          "fc6e0c960b1049f046eaafc658af981a77bb4a233dd555af49333249209f1328",
+          "fc6e0c960b1049f046eaafc658af981a77bb4a233dd555af49333249209f1328"
+        ],
+        "run_log_sha256": "a8cb2829656519032cc6138c54a4491cedef8f3b6c9d2eb9ff72af71484cf766"
+      },
+      "execution_settle_fields": 100,
+      "id": "crosshatch",
+      "navigation": [
+        "F6",
+        "F6"
+      ],
+      "references": [
+        {
+          "file": "crosshatch.png",
+          "phase": "static",
+          "png_sha256": "f38fe880d0007bd1bd966b97d25a47c1217301816eeb4aef4de912345a026f79",
+          "rgb_sha256": "b5bbad96816a90b2dc059c5d88b6001a674d8d9b4abc224fb6de693f57d45110",
+          "source_core_field": 758,
+          "source_raw_sha256": "fc6e0c960b1049f046eaafc658af981a77bb4a233dd555af49333249209f1328"
+        }
+      ]
+    }
+  ],
+  "machine": {
+    "chip_ram_bytes": 2097152,
+    "chipset": "AGA",
+    "cpu": "68EC020",
+    "expansion_ram_bytes": 0,
+    "kickstart_revision": "3.1 r40.068",
+    "kickstart_sha256": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707",
+    "model": "commodore-amiga-a1200-aga-pal",
+    "region": "PAL"
+  },
+  "packaging": {
+    "png_encoding": "RGB8 filter-none zlib-level-9",
+    "python_version": "3.14.3",
+    "tool": "package.py",
+    "tool_sha256": "8c295d16bf69a3235eb6948234464bbfb59a557a1eceaec490338f708a8458d1",
+    "zlib_version": "1.2.12"
+  },
+  "producer": {
+    "binary_sha256": "5c3d9e35d100445a5603c5f86a19cc431a7363828053d4ede7d260c2c5d6899f",
+    "capture_method": "environment-gated raw chipset framebuffer hook",
+    "capture_patch_sha256": "6116765eab7036cf756cb3212968675c9d1ca3ef327b8da3e4d194f05ffbb767",
+    "configuration": "A1200 AGA PAL cycle-exact 68EC020",
+    "emulator": "FS-UAE",
+    "id": "fs-uae-5.0.7-f362278c-a1200-aga-pal",
+    "implementation_family": "UAE",
+    "revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+    "uae_base_version": "WinUAE 6.0.1",
+    "version": "5.0.7"
+  },
+  "schema_version": 1,
+  "suite": {
+    "adf_sha256": "abe7426c93619a7bb61ce10e3e66a4747fcaf22acd1d1876310033faa700ad28",
+    "name": "Amiga Test Kit",
+    "source_commit": "9477599d1611da2326f43532dbe563c2848e308b",
+    "source_tag": "testkit-v1.21",
+    "version": "1.21"
+  },
+  "viewport": {
+    "alignment_search": false,
+    "canonical_height": 286,
+    "canonical_width": 752,
+    "height": 572,
+    "pixel_format": "rgb8",
+    "producer_raw_height": 576,
+    "producer_raw_width": 756,
+    "producer_x": 2,
+    "producer_y": 0,
+    "runtime_height": 576,
+    "runtime_width": 768,
+    "runtime_x": 10,
+    "runtime_y": 4,
+    "vertical_decimation": 2,
+    "width": 752
+  }
+}

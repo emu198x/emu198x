@@ -104,9 +104,10 @@ Each run directory contains:
 - `capture-manifest.json`, binding the result to the producer, patch, tools,
   configuration, external inputs, keyboard events, and field labels.
 
-Promotion into `test-data/amiga-test-kit-v1.21/` is a separate evidence-review
-step. The ADF, Kickstart image, producer binary, and temporary raw run are not
-part of the registered firmware-free reference.
+The registered firmware-free result is the
+[A1200 AGA PAL reference](../../test-data/amiga-test-kit-v1.21/a1200-aga-pal/README.md).
+The ADF, Kickstart image, producer binary, and temporary raw run are not part
+of that reference package.
 
 ## Interpretation limits
 
@@ -125,5 +126,6 @@ are not redistributed here.
 ## Related files
 
 - [Amiga Test Kit reference collection](../../test-data/amiga-test-kit-v1.21/README.md)
+- [A1200 AGA PAL reference](../../test-data/amiga-test-kit-v1.21/a1200-aga-pal/README.md)
 - [Fixture identity](../../test-data/amiga-test-kit-v1.21.md)
 - [Video-conformance process](../../knowledge/processes/amiga-test-kit-video-conformance.md)
