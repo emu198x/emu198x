@@ -70,10 +70,12 @@ registered yet.
 
 The Paula-audio corpus is a three-case steady-waveform suite. Its Emu198x
 consumer verifies corpus identity, boots each case, and asserts internal
-cadence, stereo-routing, equal-channel, and paired-volume invariants. Those
-measurements are Emu198x-produced observations rather than independent
-expected results. Semantic conformance remains unresolved until an audited
-reference producer supplies a registered capture.
+cadence, hardware stereo routing (channels 1 and 2 left; channels 0 and 3
+right), equal-channel, and paired-volume invariants. A prototype vAmiga
+capture agrees with the corrected routing, cadence, and volume relationship,
+but is not yet a registered reference package. Semantic conformance remains
+unresolved until the audited producer and its capture provenance are retained
+with the corpus.
 
 ## System-level external gates
 
@@ -178,4 +180,5 @@ live.
 - [Amiga programmable-HBLANK write timing](../knowledge/processes/amiga-programmable-hblank-write-timing.md)
 - [Portable Paula-audio corpus](commodore/amiga/paula-audio/README.md)
 - [Amiga Paula-audio conformance](../knowledge/processes/amiga-paula-audio-conformance.md)
+- [Amiga Paula stereo routing](../knowledge/decisions/amiga-paula-stereo-routing.md)
 - [Test ROM bundling policy](../knowledge/decisions/test-rom-policy.md)

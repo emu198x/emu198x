@@ -91,9 +91,9 @@ The current self-consistency gate observes:
 
 | Case | Dominant output | AC RMS | Fundamental |
 | --- | --- | ---: | ---: |
-| `channel-0-full` | left | 0.354971423 | 3463.398 Hz |
-| `channel-1-full` | right | 0.354971299 | 3463.398 Hz |
-| `channel-0-half` | left | 0.177485636 | 3463.398 Hz |
+| `channel-0-full` | right | 0.354971423 | 3463.398 Hz |
+| `channel-1-full` | left | 0.354971299 | 3463.398 Hz |
+| `channel-0-half` | right | 0.177485636 | 3463.398 Hz |
 
 The inactive output is exactly silent in all three current captures. The
 half/full RMS ratio is 0.5 within the recorded precision.
@@ -103,7 +103,9 @@ that the portable probe executes and that Emu198x remains internally
 consistent. Step 3 of the Amiga accuracy closure campaign remains open until
 an independent producer records and agrees or a disagreement is classified.
 
-## Regression found by the corpus
+## Regressions found by the corpus
+
+### Disk stream timing
 
 The first current-source run failed before the audio probe executed. The
 rotational disk path was delivering one complete MFM word every 56 PAL colour
@@ -117,10 +119,27 @@ Correcting the byte/word distinction restored both the pre-existing HBLANK
 boot path and this audio corpus. Directed component and machine tests retain
 the corrected `FAST` interpretation.
 
+### Stereo output assignment
+
+The first independent vAmiga capture disagreed with Emu198x about which output
+carried each channel. The third-edition *Amiga Hardware Reference Manual*
+resolved the disagreement: channels 1 and 2 reach the left output, while
+channels 0 and 3 reach the right output. Emu198x had implemented the reverse
+assignment.
+
+The component mixer, all four directed channel tests, and the machine-level
+consumer now use the hardware assignment. The full gate observes channel 0 on
+the right, channel 1 on the left, and an unchanged half/full RMS ratio of 0.5.
+
+This evidence resolves the logical jack assignment without a physical
+machine. It does not resolve the analogue transfer, noise, crosstalk, clipping,
+or motherboard-component behaviour excluded above.
+
 ## Related documents
 
 - [Portable Paula-audio corpus](../../test-data/commodore/amiga/paula-audio/README.md)
 - [Amiga accuracy closure campaign](../decisions/amiga-accuracy-closure-campaign.md)
+- [Amiga Paula stereo routing](../decisions/amiga-paula-stereo-routing.md)
 - [Amiga disk rotation and DMA arbitration](../decisions/amiga-disk-dma-fifo-arbitration.md)
 - [Amiga programmable-HBLANK conformance](amiga-programmable-hblank-conformance.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)

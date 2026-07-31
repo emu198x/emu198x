@@ -215,14 +215,14 @@ fn paula_audio_corpus_has_stable_routing_cadence_and_volume_ratio() {
     let channel_0_half = measurements["channel-0-half"];
 
     let full_channel_balance =
-        (channel_0_full.left_rms - channel_1_full.right_rms).abs() / channel_0_full.left_rms;
+        (channel_0_full.right_rms - channel_1_full.left_rms).abs() / channel_0_full.right_rms;
     assert!(
         full_channel_balance < 0.001,
         "equivalent full-volume channels differ by {:.4}%",
         full_channel_balance * 100.0
     );
 
-    let half_ratio = channel_0_half.left_rms / channel_0_full.left_rms;
+    let half_ratio = channel_0_half.right_rms / channel_0_full.right_rms;
     assert!(
         (half_ratio - 0.5).abs() < 0.01,
         "volume 32 / volume 64 RMS ratio is {half_ratio}, expected 0.5"
@@ -458,14 +458,14 @@ fn validate_case_measurement(case: &Case, measurement: Measurement) {
     let nominal_hz = A500_PAL_CCK_HZ as f64 / (2.0 * f64::from(case.period_cck));
     let (dominant_rms, silent_rms, fundamental) = match case.channel {
         0 | 3 => (
-            measurement.left_rms,
-            measurement.right_rms,
-            measurement.left_fundamental_hz,
-        ),
-        1 | 2 => (
             measurement.right_rms,
             measurement.left_rms,
             measurement.right_fundamental_hz,
+        ),
+        1 | 2 => (
+            measurement.left_rms,
+            measurement.right_rms,
+            measurement.left_fundamental_hz,
         ),
         _ => unreachable!("case validation limits channel to 0..3"),
     };

@@ -141,11 +141,13 @@ campaign open.
 | 2026-07-31 | 1. Disk DMA arbitration | Commit `24b20ce4` separates the rotational stream from chip-memory traffic, adds Paula's bounded three-word FIFO, and binds reads and writes to Agnus cells `$07/$09/$0B`. Component, three-profile library, machine arbitration and full-track ADF write-back tests pass. Snapshot and query compatibility advance with the same step. |
 | 2026-07-31 | 2. Mid-blit register writes | Reference inspection rejected the original CPU-wait premise. CPU and Copper writes now use normal arbitration without synchronously completing the blitter. Replacement-size and no-hidden-time regressions cover OCS, ECS and AGA; exact per-channel effects of other mid-blit writes remain evidence-bound. |
 | 2026-07-31 | 3. Paula evidence foundation | A project-authored three-case waveform corpus now boots through the complete A500 path and measures cadence, stereo routing and the 64:32 volume ratio. Its first current-source run exposed and fixed a factor-of-two `ADKCON.FAST` disk-stream regression. The Emu198x self-consistency gate is green; independent waveform evidence is still required before this step closes. |
+| 2026-07-31 | 3. Paula stereo routing | A prototype vAmiga 4.4b12 capture disagreed with Emu198x's channel assignment. The primary hardware manual confirms channels 1 and 2 on the left output and channels 0 and 3 on the right. The reversed Emu198x mapping is corrected and covered for all four channels. The repeatable vAmiga producer and registered capture package remain outstanding. |
 
 ## Related Documents
 
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Amiga disk rotation and DMA arbitration](amiga-disk-dma-fifo-arbitration.md)
+- [Amiga Paula stereo routing](amiga-paula-stereo-routing.md)
 - [Amiga register writes during an active blit](amiga-mid-blit-register-writes.md)
 - [Amiga blitter completion pipeline](amiga-blitter-completion-pipeline.md)
 - [M68k test-oracle strategy](m68k-test-oracle-strategy.md)

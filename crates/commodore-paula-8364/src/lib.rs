@@ -247,13 +247,13 @@ pub mod decode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum PaulaChannel {
-    /// Audio channel 0, routed left on OCS.
+    /// Audio channel 0, routed right on OCS.
     Channel0,
-    /// Audio channel 1, routed right on OCS.
+    /// Audio channel 1, routed left on OCS.
     Channel1,
-    /// Audio channel 2, routed right on OCS.
+    /// Audio channel 2, routed left on OCS.
     Channel2,
-    /// Audio channel 3, routed left on OCS.
+    /// Audio channel 3, routed right on OCS.
     Channel3,
 }
 
@@ -1344,8 +1344,8 @@ impl Paula8364 {
         self.intreq |= irq_mask;
     }
 
-    /// Mixed stereo output in `[-1.0, 1.0]`. OCS routing: ch 0+3 → L,
-    /// ch 1+2 → R. Modulator channels (ADKCON attach) are muted.
+    /// Mixed stereo output in `[-1.0, 1.0]`. OCS routing: ch 1+2 → L,
+    /// ch 0+3 → R. Modulator channels (ADKCON attach) are muted.
     #[must_use]
     pub fn mix_audio_stereo(&self) -> (f32, f32) {
         let s = |i: usize| -> f32 {
@@ -1356,8 +1356,8 @@ impl Paula8364 {
             }
         };
         let master_gain = self.audio_controls.master_gain();
-        let left = (s(0) + s(3)) * 0.5 * master_gain;
-        let right = (s(1) + s(2)) * 0.5 * master_gain;
+        let left = (s(1) + s(2)) * 0.5 * master_gain;
+        let right = (s(0) + s(3)) * 0.5 * master_gain;
         (left.clamp(-1.0, 1.0), right.clamp(-1.0, 1.0))
     }
 
@@ -2180,8 +2180,8 @@ mod tests {
         p.audio[0].vol = 64;
 
         let (left, right) = p.mix_audio_stereo();
-        assert!(left > 0.4);
-        assert_eq!(right, 0.0);
+        assert_eq!(left, 0.0);
+        assert!(right > 0.4);
 
         p.set_audio_channel_enabled(PaulaChannel::Channel0, false);
         let (muted_left, muted_right) = p.mix_audio_stereo();

@@ -3,7 +3,7 @@
 //! Per HRM chapter 5 (Audio Hardware). Four identical DMA-driven
 //! channels, each with LC / LEN / PER / VOL / DAT. HRM minimum PER is
 //! 124 CCK for playback; the register read-back preserves any written
-//! value. Stereo routing: 0+3 → L, 1+2 → R. Modulator channels are
+//! value. Stereo routing: 1+2 → L, 0+3 → R. Modulator channels are
 //! muted from the mix.
 
 use commodore_paula_8364::{AudioField, IntSource, Paula8364, bits::*};
@@ -77,7 +77,7 @@ fn channel_volume_scales_output_linearly_across_the_6_bit_range() {
         for _ in 0..8 {
             p.tick_audio_cck(DMA_MASTER | DMA_AUD0, Some(0), sample);
         }
-        p.mix_audio_stereo().0 // channel 0 → left
+        p.mix_audio_stereo().1 // channel 0 → right
     }
 
     let full = output_at_volume(64);
@@ -133,7 +133,7 @@ fn audx_per_below_minimum_clamps_byte_duration_to_the_minimum() {
     let mut started = false;
     for _ in 0..8 {
         p.tick_audio_cck(dmacon, Some(0), sample);
-        if p.mix_audio_stereo().0 > 0.4 {
+        if p.mix_audio_stereo().1 > 0.4 {
             started = true;
             break;
         }
@@ -147,7 +147,7 @@ fn audx_per_below_minimum_clamps_byte_duration_to_the_minimum() {
     loop {
         p.tick_audio_cck(dmacon, Some(0), sample);
         held += 1;
-        if p.mix_audio_stereo().0.abs() < 0.05 {
+        if p.mix_audio_stereo().1.abs() < 0.05 {
             break; // stepped to the low byte
         }
         assert!(held < 200, "high byte never stepped — period clamp broken");
@@ -227,7 +227,7 @@ fn dma_startup_advances_only_on_granted_audio_slots() {
     }
     assert_eq!(p.intreq() & INT_AUD0, 0, "no IRQ without a granted slot");
     assert!(
-        p.mix_audio_stereo().0.abs() < 0.01,
+        p.mix_audio_stereo().1.abs() < 0.01,
         "no output without a granted slot"
     );
 
@@ -299,7 +299,7 @@ fn dma_disabled_during_startup_wait_returns_to_idle_without_irq() {
         "no IRQ after disabling DMA mid-startup"
     );
     assert!(
-        p.mix_audio_stereo().0.abs() < 0.01,
+        p.mix_audio_stereo().1.abs() < 0.01,
         "no output after disabling DMA mid-startup"
     );
 }
@@ -309,25 +309,37 @@ fn dma_disabled_during_startup_wait_returns_to_idle_without_irq() {
 // ────────────────────────────────────────────────────────────────
 
 #[test]
-fn channels_0_and_3_route_to_left_and_1_2_to_right() {
-    let mut p = Paula8364::new();
+fn channels_1_and_2_route_to_left_and_0_3_to_right() {
+    fn output(channel: u8) -> (f32, f32) {
+        let mut p = Paula8364::new();
+        p.write_audio(channel, AudioField::LcHi, 0);
+        p.write_audio(channel, AudioField::LcLo, 0x2000);
+        p.write_audio(channel, AudioField::Len, 1);
+        p.write_audio(channel, AudioField::Vol, 64);
 
-    // Ch 1 produces +max output on the right channel only.
-    p.write_audio(1, AudioField::LcHi, 0);
-    p.write_audio(1, AudioField::LcLo, 0x2000);
-    p.write_audio(1, AudioField::Len, 1);
-    p.write_audio(1, AudioField::Vol, 64);
-
-    let read = |_: u32| 0x7F;
-    for _ in 0..AUDIO_MIN_PERIOD_CCK {
-        p.tick_audio_cck(DMA_MASTER | DMA_AUD1, Some(1), read);
+        let read = |_: u32| 0x7F;
+        for _ in 0..AUDIO_MIN_PERIOD_CCK {
+            p.tick_audio_cck(DMA_MASTER | (DMA_AUD0 << channel), Some(channel), read);
+        }
+        p.mix_audio_stereo()
     }
-    let (left, right) = p.mix_audio_stereo();
-    assert!(
-        left.abs() < 0.01,
-        "ch 1 must not leak into left; got {left}"
-    );
-    assert!(right > 0.4, "ch 1 → right; got {right}");
+
+    for channel in [1, 2] {
+        let (left, right) = output(channel);
+        assert!(left > 0.4, "ch {channel} → left; got {left}");
+        assert!(
+            right.abs() < 0.01,
+            "ch {channel} must not leak into right; got {right}"
+        );
+    }
+    for channel in [0, 3] {
+        let (left, right) = output(channel);
+        assert!(right > 0.4, "ch {channel} → right; got {right}");
+        assert!(
+            left.abs() < 0.01,
+            "ch {channel} must not leak into left; got {left}"
+        );
+    }
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -348,10 +360,10 @@ fn attach_period_bit_mutes_modulator_channel_in_stereo_mix() {
     for _ in 0..AUDIO_MIN_PERIOD_CCK {
         p.tick_audio_cck(DMA_MASTER | DMA_AUD0, Some(0), read);
     }
-    let (left, _) = p.mix_audio_stereo();
+    let (_, right) = p.mix_audio_stereo();
     assert!(
-        left.abs() < 0.01,
-        "modulator channels don't contribute to the audio mix; got {left}"
+        right.abs() < 0.01,
+        "modulator channels don't contribute to the audio mix; got {right}"
     );
 }
 
