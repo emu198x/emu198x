@@ -14,6 +14,10 @@
 //! If neither resolves the test skips loudly with `eprintln!` rather
 //! than failing — KS 3.1 is not redistributable and CI machines
 //! without the user's licensed copy should still pass the suite.
+//!
+//! The one-frame execution smoke test runs by default. The 4,000-frame
+//! investigation is explicit because it captures extensive per-tick state and
+//! is not a routine regression gate.
 
 use machine_commodore_amiga_a1200::{AmigaA1200, PAL_FRAME_TICKS, RamConfig};
 use std::path::PathBuf;
@@ -108,7 +112,42 @@ fn dump_code_at(m: &AmigaA1200, pc: u32, words: u32) {
 }
 
 #[test]
-fn ks31_boots_far_enough_to_advance_pc_past_reset_vector() {
+fn ks31_executes_beyond_reset_during_the_first_pal_frame() {
+    let Some(rom) = load_ks31_rom() else { return };
+
+    let mut m = a1200_2mb_chip(rom);
+    let initial_pc = m.cpu().regs.pc;
+    let starts_before = m.cpu().instruction_starts;
+    let mut sampled_pcs = std::collections::BTreeSet::new();
+
+    for tick in 0..PAL_FRAME_TICKS {
+        m.tick();
+        if tick % 16 == 0 {
+            sampled_pcs.insert(m.cpu().regs.pc);
+        }
+    }
+
+    assert!(
+        m.cpu().instruction_starts > starts_before + 100,
+        "KS 3.1 must execute instructions during the first PAL frame",
+    );
+    assert!(
+        sampled_pcs.len() > 1,
+        "KS 3.1 must leave a single reset PC during the first PAL frame: \
+         {} sampled PCs, initial ${initial_pc:08X}, final ${:08X}, {} instruction starts",
+        sampled_pcs.len(),
+        m.cpu().regs.pc,
+        m.cpu().instruction_starts,
+    );
+    assert!(
+        sampled_pcs.iter().any(|&pc| pc != initial_pc),
+        "KS 3.1 must advance away from its reset PC",
+    );
+}
+
+#[test]
+#[ignore = "explicit 4,000-frame A1200 boot investigation"]
+fn diagnose_ks31_boot_over_4000_frames() {
     let Some(rom) = load_ks31_rom() else { return };
 
     let mut m = a1200_2mb_chip(rom);

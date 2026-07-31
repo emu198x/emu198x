@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaOcsRuntime, Model};
 
 #[test]
+#[ignore = "explicit 900-frame no-disk PC diagnostic"]
 fn no_disk_final_pc() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let rom_path = home.join(".emu198x/roms/commodore-amiga/kick13.rom");
