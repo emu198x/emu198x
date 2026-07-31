@@ -1,0 +1,357 @@
+diff --git i/od-fs/video-fs.cpp w/od-fs/video-fs.cpp
+index caaf02900..f02200b9f 100644
+--- i/od-fs/video-fs.cpp
++++ w/od-fs/video-fs.cpp
+@@ -2489,7 +2489,337 @@ void toggle_fullscreen(int monid, int mode)
+ #endif
+ 
+ #include "fsuae-hack.h"
++#include "fsemu-frame.h"
+ #include "fsemu-video.h"
++#include "keybuf.h"
++#include "keyboard.h"
++
++struct codex_testkit_case {
++	const char *id;
++	int keys[3];
++	int key_count;
++	int settle_fields;
++};
++
++static const struct codex_testkit_case codex_testkit_cases[] = {
++	{ "gradients", { AK_F6, AK_F1, 0 }, 2, 150 },
++	{ "static-checkerboard", { AK_F6, AK_F2, 0 }, 2, 100 },
++	{ "alternating-checkerboard", { AK_F6, AK_F3, 0 }, 2, 100 },
++	{ "ebu-bars", { AK_F6, AK_F4, AK_F6 }, 3, 100 },
++	{ "dots", { AK_F6, AK_F5, 0 }, 2, 100 },
++	{ "crosshatch", { AK_F6, AK_F6, 0 }, 2, 100 },
++};
++
++static bool codex_testkit_send_key(int core_field, int key, bool release)
++{
++	const int encoded = (key << 1) | (release ? 1 : 0);
++	if (!record_key(encoded, false)) {
++		fprintf(stderr,
++			"CODEX_TESTKIT error=keyboard-buffer core_field=%d "
++			"key=F%d release=%s\n",
++			core_field,
++			key - AK_F1 + 1,
++			release ? "true" : "false");
++		return false;
++	}
++	fprintf(stderr,
++		"CODEX_TESTKIT key core_field=%d key=F%d state=%s\n",
++		core_field,
++		key - AK_F1 + 1,
++		release ? "released" : "pressed");
++	return true;
++}
++
++/*
++ * Evidence capture hook for the 198x Amiga Test Kit v1.21 video lane.
++ *
++ * This injects a fixed field-counted function-key sequence and snapshots
++ * three adjacent completed UAE chipset framebuffers before FS-UAE's
++ * compatibility crop, frontend scaling, filtering, shaders, overlays, or
++ * GPU presentation. The hook is inert unless both capture environment
++ * variables are set.
++ */
++static void codex_capture_testkit_field(
++	const uae_u8 *buffer,
++	int width,
++	int height,
++	int stride,
++	const fsemu_video_frame_t *frontend_frame,
++	int mode)
++{
++	static bool initialized;
++	static bool failed;
++	static const char *capture_dir;
++	static const struct codex_testkit_case *selected_case;
++	static int captured_count;
++	static int next_action_event;
++	static int last_processed_core_field = -1;
++	static int last_captured_core_field = -1;
++
++	if (!initialized) {
++		capture_dir = getenv("FSEMU_CODEX_TESTKIT_CAPTURE_DIR");
++		const char *case_id = getenv("FSEMU_CODEX_TESTKIT_CASE");
++		if (capture_dir && capture_dir[0] && case_id && case_id[0]) {
++			for (size_t i = 0;
++				i < sizeof codex_testkit_cases / sizeof codex_testkit_cases[0];
++				i++) {
++				if (!strcmp(case_id, codex_testkit_cases[i].id)) {
++					selected_case = &codex_testkit_cases[i];
++					break;
++				}
++			}
++			if (!selected_case) {
++				fprintf(stderr,
++					"CODEX_TESTKIT error=unknown-case case=%s\n",
++					case_id);
++				failed = true;
++			} else {
++				fprintf(stderr,
++					"CODEX_TESTKIT configured case=%s boot_fields=600 "
++					"key_hold_fields=3 release_settle_fields=1 "
++					"inter_key_fields=50 settle_fields=%d\n",
++					selected_case->id,
++					selected_case->settle_fields);
++			}
++		} else if ((capture_dir && capture_dir[0]) || (case_id && case_id[0])) {
++			fprintf(stderr,
++				"CODEX_TESTKIT error=incomplete-environment\n");
++			failed = true;
++		}
++		initialized = true;
++	}
++
++	if (!capture_dir || !capture_dir[0] || !selected_case || failed ||
++		mode != 1 || frontend_frame->partial != frontend_frame->height) {
++		return;
++	}
++
++	const int core_field = fsemu_frame_counter();
++	if (core_field == last_processed_core_field) {
++		return;
++	}
++	last_processed_core_field = core_field;
++
++	int action_event = 0;
++	int action_field = 600;
++	for (int i = 0; i < selected_case->key_count; i++) {
++		if (action_event == next_action_event) {
++			if (core_field > action_field) {
++				fprintf(stderr,
++					"CODEX_TESTKIT error=missed-key-action "
++					"core_field=%d scheduled_field=%d key=F%d "
++					"state=pressed\n",
++					core_field,
++					action_field,
++					selected_case->keys[i] - AK_F1 + 1);
++				failed = true;
++				return;
++			}
++			if (core_field == action_field) {
++				if (!codex_testkit_send_key(
++						core_field, selected_case->keys[i], false)) {
++					failed = true;
++					return;
++				}
++				next_action_event++;
++			}
++		}
++		action_event++;
++		action_field += 3;
++		if (action_event == next_action_event) {
++			if (core_field > action_field) {
++				fprintf(stderr,
++					"CODEX_TESTKIT error=missed-key-action "
++					"core_field=%d scheduled_field=%d key=F%d "
++					"state=released\n",
++					core_field,
++					action_field,
++					selected_case->keys[i] - AK_F1 + 1);
++				failed = true;
++				return;
++			}
++			if (core_field == action_field) {
++				if (!codex_testkit_send_key(
++						core_field, selected_case->keys[i], true)) {
++					failed = true;
++					return;
++				}
++				next_action_event++;
++			}
++		}
++		action_event++;
++		action_field += 1;
++		if (i + 1 < selected_case->key_count) {
++			action_field += 50;
++		}
++	}
++	const int first_capture_field = action_field + selected_case->settle_fields;
++	if (core_field >= first_capture_field &&
++		next_action_event != selected_case->key_count * 2) {
++		fprintf(stderr,
++			"CODEX_TESTKIT error=incomplete-key-schedule core_field=%d "
++			"completed_events=%d expected_events=%d\n",
++			core_field,
++			next_action_event,
++			selected_case->key_count * 2);
++		failed = true;
++		return;
++	}
++	if (core_field < first_capture_field || captured_count >= 3) {
++		return;
++	}
++	if (core_field > first_capture_field + 2 ||
++		(captured_count > 0 && core_field != last_captured_core_field + 1)) {
++		fprintf(stderr,
++			"CODEX_TESTKIT error=capture-discontinuity core_field=%d "
++			"first_capture_field=%d last_captured_core_field=%d\n",
++			core_field,
++			first_capture_field,
++			last_captured_core_field);
++		failed = true;
++		return;
++	}
++	if (width != 756 || height != 576 || stride < width * 4) {
++		fprintf(stderr,
++			"CODEX_TESTKIT error=framebuffer-geometry core_field=%d "
++			"width=%d height=%d stride=%d\n",
++			core_field,
++			width,
++			height,
++			stride);
++		failed = true;
++		return;
++	}
++
++	char raw_path[MAX_DPATH];
++	char metadata_path[MAX_DPATH];
++	const int raw_length = snprintf(raw_path,
++		sizeof raw_path,
++		"%s/field-%06d.bgra",
++		capture_dir,
++		core_field);
++	const int metadata_length = snprintf(metadata_path,
++		sizeof metadata_path,
++		"%s/field-%06d.json",
++		capture_dir,
++		core_field);
++	if (raw_length < 0 || raw_length >= (int) sizeof raw_path ||
++		metadata_length < 0 || metadata_length >= (int) sizeof metadata_path) {
++		fprintf(stderr,
++			"CODEX_TESTKIT error=capture-path-too-long core_field=%d\n",
++			core_field);
++		failed = true;
++		return;
++	}
++
++	FILE *raw_file = fopen(raw_path, "wb");
++	if (!raw_file) {
++		fprintf(stderr,
++			"CODEX_TESTKIT error=open-raw core_field=%d errno=%d\n",
++			core_field,
++			errno);
++		failed = true;
++		return;
++	}
++	bool write_ok = true;
++	for (int y = 0; y < height; y++) {
++		const uae_u8 *row = buffer + y * stride;
++		if (fwrite(row, 1, width * 4, raw_file) != (size_t) width * 4) {
++			write_ok = false;
++			break;
++		}
++	}
++	if (fclose(raw_file) != 0) {
++		write_ok = false;
++	}
++	if (!write_ok) {
++		fprintf(stderr,
++			"CODEX_TESTKIT error=write-raw core_field=%d errno=%d\n",
++			core_field,
++			errno);
++		failed = true;
++		return;
++	}
++
++	FILE *metadata_file = fopen(metadata_path, "wb");
++	if (!metadata_file) {
++		fprintf(stderr,
++			"CODEX_TESTKIT error=open-metadata core_field=%d errno=%d\n",
++			core_field,
++			errno);
++		failed = true;
++		return;
++	}
++	const int metadata_written = fprintf(metadata_file,
++		"{\n"
++		"  \"schema\": \"org.198x.fs-uae.test-kit-video-raw/v1\",\n"
++		"  \"case_id\": \"%s\",\n"
++		"  \"capture_index\": %d,\n"
++		"  \"core_field\": %d,\n"
++		"  \"first_capture_field\": %d,\n"
++		"  \"framebuffer\": {\n"
++		"    \"stage\": \"completed UAE chipset video_memory before "
++			"FS-UAE compatibility crop and frontend processing\",\n"
++		"    \"width\": %d,\n"
++		"    \"height\": %d,\n"
++		"    \"source_stride_bytes\": %d,\n"
++		"    \"packed_stride_bytes\": %d,\n"
++		"    \"pixel_format\": \"BGRA8888\",\n"
++		"    \"complete\": true\n"
++		"  },\n"
++		"  \"frontend_compatibility_view\": {\n"
++		"    \"width\": %d,\n"
++		"    \"height\": %d,\n"
++		"    \"partial\": %d,\n"
++		"    \"limits\": {\"x\": %d, \"y\": %d, \"width\": %d, "
++			"\"height\": %d}\n"
++		"  }\n"
++		"}\n",
++		selected_case->id,
++		captured_count,
++		core_field,
++		first_capture_field,
++		width,
++		height,
++		stride,
++		width * 4,
++		frontend_frame->width,
++		frontend_frame->height,
++		frontend_frame->partial,
++		frontend_frame->limits.x,
++		frontend_frame->limits.y,
++		frontend_frame->limits.w,
++		frontend_frame->limits.h);
++	if (metadata_written < 0 || fclose(metadata_file) != 0) {
++		fprintf(stderr,
++			"CODEX_TESTKIT error=write-metadata core_field=%d errno=%d\n",
++			core_field,
++			errno);
++		failed = true;
++		return;
++	}
++
++	captured_count++;
++	last_captured_core_field = core_field;
++	fprintf(stderr,
++		"CODEX_TESTKIT captured=%d case=%s core_field=%d raw=%s "
++		"metadata=%s\n",
++		captured_count,
++		selected_case->id,
++		core_field,
++		raw_path,
++		metadata_path);
++	if (captured_count == 3) {
++		fflush(NULL);
++		fprintf(stderr,
++			"CODEX_TESTKIT complete case=%s first_core_field=%d "
++			"last_core_field=%d\n",
++			selected_case->id,
++			core_field - 2,
++			core_field);
++		fflush(stderr);
++	}
++}
+ 
+ bool uae_fsvideo_renderframe(int monid, int mode, bool immediate)
+ {
+@@ -2823,6 +3153,14 @@ bool uae_fsvideo_renderframe(int monid, int mode, bool immediate)
+ 	int isntsc = (beamcon0 & BEAMCON0_PAL) ? 0 : 1;		
+ 	hack_ntsc_mode = isntsc == 1;
+ 
++	codex_capture_testkit_field(
++		video_memory,
++		avidinfo->outbuffer->outwidth,
++		avidinfo->outbuffer->outheight,
++		2048 * 4,
++		frame,
++		mode);
++
+ 	// fsemu_video_post_partial_frame(avidinfo->);
+ 	fsemu_video_post_frame(frame);
+ 	// notice_screen_contents_lost(monid);
