@@ -142,6 +142,7 @@ campaign open.
 | 2026-07-31 | 2. Mid-blit register writes | Reference inspection rejected the original CPU-wait premise. CPU and Copper writes now use normal arbitration without synchronously completing the blitter. Replacement-size and no-hidden-time regressions cover OCS, ECS and AGA; exact per-channel effects of other mid-blit writes remain evidence-bound. |
 | 2026-07-31 | 3. Paula evidence foundation | A project-authored three-case waveform corpus now boots through the complete A500 path and measures cadence, stereo routing and the 64:32 volume ratio. Its first current-source run exposed and fixed a factor-of-two `ADKCON.FAST` disk-stream regression. The Emu198x self-consistency gate is green; independent waveform evidence is still required before this step closes. |
 | 2026-07-31 | 3. Paula stereo routing | A prototype vAmiga 4.4b12 capture disagreed with Emu198x's channel assignment. The primary hardware manual confirms channels 1 and 2 on the left output and channels 0 and 3 on the right. The reversed Emu198x mapping is corrected and covered for all four channels. The repeatable vAmiga producer and registered capture package remain outstanding. |
+| 2026-07-31 | 3. Registered Paula comparison | The reproducible vAmiga adapter and an audited three-case package now retain vAmiga 4.4b12 revision `60fd1e6b69dcd77c9f44d1291bd37ec715362ab0`, source WAVs, configurations, logs, hashes, and semantic records. Emu198x agrees on output assignment, programmed cadence within approximately 0.0098 percent, and the half/full volume relationship. This satisfies the Paula portion at the single-family software-evidence level; it does not establish hardware or two-family consensus. Step 3 remains open for independent A1200/AGA visual evidence. |
 
 ## Related Documents
 
@@ -155,5 +156,6 @@ campaign open.
 - [Amiga programmable-HBLANK conformance](../processes/amiga-programmable-hblank-conformance.md)
 - [Amiga programmable-HBLANK write timing](../processes/amiga-programmable-hblank-write-timing.md)
 - [Amiga Paula-audio conformance](../processes/amiga-paula-audio-conformance.md)
+- [Registered vAmiga Paula-audio package](../../test-data/commodore/amiga/paula-audio/references/vamiga-4.4b12-60fd1e6b/README.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)
 - [October catalogue](october-catalogue.md)

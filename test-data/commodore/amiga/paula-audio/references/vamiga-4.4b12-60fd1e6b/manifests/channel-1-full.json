@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0.0",
+  "producer_version": "4.4b12",
+  "producer_build": "4.4b12 (Jul 31 2026 14:43:21)",
+  "case_id": "channel-1-full",
+  "ready_emulator_frame": 214,
+  "ready_record": {
+    "case_number": 2,
+    "schema": 1,
+    "field_counter": 8,
+    "channel": 1,
+    "period_cck": 512,
+    "volume": 64,
+    "sample_word": "0x7f81",
+    "sample_words": 256,
+    "dmacon": "0x8202",
+    "sample_address": "0x000300f0",
+    "identity": "amiga-paula-audio-v1/02-channel-1-full"
+  },
+  "captured_emulator_frames": [215, 216, 217],
+  "captured_guest_fields": [9, 10, 11],
+  "field_sample_frames": [962, 962, 961],
+  "sample_frames": 2885,
+  "audio_statistics": {
+    "buffer_underflows": 0,
+    "buffer_overflows": 0,
+    "produced_samples": 208498,
+    "consumed_samples": 212594,
+    "final_fill_level": 0
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "artifact": {
+    "adf_file": "channel-0-full.adf",
+    "adf_sha256": "f47320f1a08d6c8985df716e62e0e8af22d067546cbe0ff0c3cc6a852b4ad0d2",
+    "payload_file": "channel-0-full.bin",
+    "payload_sha256": "b3f4515e80d364981440d21524fb1dcf9590f87e3ea6cc9e10b9c1dbf0acc17a"
+  },
+  "case_id": "channel-0-full",
+  "execution": {
+    "captured_fields": [
+      9,
+      10,
+      11
+    ],
+    "cold_boot": true,
+    "command_or_procedure": "tools/vamiga-paula-audio-capture/capture.sh channel-0-full <vAmiga-source-at-60fd1e6b69dcd77c9f44d1291bd37ec715362ab0> <suite-1.0.0-dist> <firmware-matching-recorded-sha256> <fresh-output-root> <operator>",
+    "configuration_sha256": "1252cb3fc1366e37f09946fd109c0bdd5dcd2ca4f9595a37f1402d54f5a3426e",
+    "ready_observed_field": 8,
+    "ready_rule": {
+      "byte_order": "big-endian",
+      "case_number": 1,
+      "field_counter_minimum": 8,
+      "magic": "PAUD",
+      "record_address": "0x0002ff00"
+    },
+    "settle_fields": 8
+  },
+  "machine": {
+    "chipset": "OCS",
+    "cpu": "Motorola 68000",
+    "firmware": {
+      "revision": "Kickstart 1.3 revision 34.005",
+      "sha256": "ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53"
+    },
+    "model": "Amiga 500",
+    "ram_bytes": 1048576,
+    "region": "PAL"
+  },
+  "observations": {
+    "amplitude_ratio": null,
+    "analysis_procedure": "Decode the complete IEEE-754 stereo WAVE; subtract each channel mean before RMS; measure the fundamental from the first and last positive-going mean crossing; apply no crop, gain, remap, filter, or sample conversion.",
+    "analysis_window_seconds": {
+      "end": 0.06010416666666667,
+      "start": 0.0
+    },
+    "channel_dominance_db": null,
+    "dominant_channel": "right",
+    "fundamental_hz": {
+      "left": null,
+      "right": 3463.059313215401
+    },
+    "rms": {
+      "left": 0.0,
+      "right": 0.09160477305197556
+    },
+    "status": "observed"
+  },
+  "producer": {
+    "implementation_family": "vAmiga",
+    "kind": "software-emulator",
+    "product": "vAmiga",
+    "revision": "60fd1e6b69dcd77c9f44d1291bd37ec715362ab0",
+    "source_url": "https://github.com/dirkwhoffmann/vAmiga",
+    "version": "4.4b12"
+  },
+  "provenance": {
+    "captured_at": "2026-07-31T13:55:40+00:00",
+    "notes": "Host: macOS-26.5.2-arm64-arm-64bit-Mach-O, arm64. Adapter binary SHA-256 3e706a0f439a32b91805871910e0747c627fb42dfbebc9ad055bc1b8381df9d4; adapter-result SHA-256 94dd7f9d89ecfb3f3f541d0ac6f03596603706f0d9c7831bfce3bb13628f2250; producer-log SHA-256 17b479b098c4218a26aa899a28cdea7e03ac86d87bab73784439d7fd9e217180; producer-build SHA-256 79eda048e8f058f74dcbcf1bd8b49fda9c9726df5e172453731f7d7ffbec977b. The source checkout was clean at the recorded revision. The WAVE retains vAmiga API left/right order with hard stereo and no channel remapping. Firmware and the compiled producer are not retained in the reference package. Packaged configuration ../configs/channel-0-full.retrosh has SHA-256 1252cb3fc1366e37f09946fd109c0bdd5dcd2ca4f9595a37f1402d54f5a3426e; capture-time manifest ../manifests/channel-0-full.json has SHA-256 94dd7f9d89ecfb3f3f541d0ac6f03596603706f0d9c7831bfce3bb13628f2250; producer log ../logs/channel-0-full.log has SHA-256 17b479b098c4218a26aa899a28cdea7e03ac86d87bab73784439d7fd9e217180.",
+    "operator": "Codex (OpenAI), supervised by Steve Hill",
+    "record_created_at": "2026-07-31T13:55:41+00:00"
+  },
+  "schema_version": "1.0.0",
+  "source_capture": {
+    "automatic_gain_control": false,
+    "channel_remapping": false,
+    "channels": 2,
+    "domain": "modelled-analogue-output",
+    "file_name": "../captures/channel-0-full.wav",
+    "file_sha256": "8f6b01df390270f07f4541333793674887ade48cedc96d4d5e02dcfaf779dacf",
+    "filtering": "vAmiga A500 modelled filter pipeline; the probe disables the switchable LED low-pass stage through CIA-A",
+    "method": "vAmiga VACore AudioPortAPI::copyInterleaved, drained after each complete VSYNC-driven field while suspended",
+    "resampling": "vAmiga linear interpolation to 48000 Hz; ASR disabled",
+    "sample_format": "IEEE-754 binary32 little-endian WAVE",
+    "sample_rate_hz": 48000
+  },
+  "suite_id": "org.198x.amiga.paula-audio",
+  "suite_version": "1.0.0"
+}

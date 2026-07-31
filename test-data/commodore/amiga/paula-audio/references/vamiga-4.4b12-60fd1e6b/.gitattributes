@@ -1,0 +1,3 @@
+captures/*.wav binary
+configs/*.retrosh -whitespace
+logs/*.log -whitespace

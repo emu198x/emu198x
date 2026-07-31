@@ -1,0 +1,336 @@
+# Commodore Amiga
+
+try amiga set VIDEO_FORMAT PAL           # Video format
+try amiga set WARP_BOOT 0                # Warp-boot duration
+try amiga set WARP_MODE NEVER            # Warp activation
+try amiga set VSYNC true                 # VSYNC mode
+try amiga set SPEED_BOOST 100            # Speed adjustment
+try amiga set RUN_AHEAD 0                # Run-ahead frames
+try amiga set WS_COMPRESSION true        # Compress workspaces
+
+# Host Computer
+
+try host set REFRESH_RATE 50             # Host video refresh rate
+try host set SAMPLE_RATE 48000           # Host audio sample rate
+try host set FRAMEBUF_WIDTH 0            # Window width
+try host set FRAMEBUF_HEIGHT 0           # Window height
+
+# DMA Controller
+
+try agnus set REVISION OCS               # Chip revision
+try agnus set PTR_DROPS true             # Ignore certain register writes
+
+# Blitter
+
+try blitter set ACCURACY 2               # Blitter accuracy level
+
+# DMA Debugger
+
+try dmadebugger set DEBUG_ENABLE false   # DMA Debugger
+try dmadebugger set DEBUG_MODE FG_LAYER  # DMA Debugger style
+try dmadebugger set DEBUG_OPACITY 50     # Opacity
+try dmadebugger set DEBUG_CHANNEL0 true  # Copper DMA
+try dmadebugger set DEBUG_CHANNEL1 true  # Blitter DMA
+try dmadebugger set DEBUG_CHANNEL2 true  # Disk DMA
+try dmadebugger set DEBUG_CHANNEL3 true  # Audio DMA
+try dmadebugger set DEBUG_CHANNEL4 true  # Sprite DMA
+try dmadebugger set DEBUG_CHANNEL5 true  # Bitplane DMA
+try dmadebugger set DEBUG_CHANNEL6 false # CPU DMA
+try dmadebugger set DEBUG_CHANNEL7 true  # Memory Refresh DMA
+try dmadebugger set DEBUG_COLOR0 4294901760 # Copper color
+try dmadebugger set DEBUG_COLOR1 4291559424 # Blitter color
+try dmadebugger set DEBUG_COLOR2 16711680 # Disk color
+try dmadebugger set DEBUG_COLOR3 4278255360 # Audio color
+try dmadebugger set DEBUG_COLOR4 8978176 # Sprite color
+try dmadebugger set DEBUG_COLOR5 16776960 # Bitplane color
+try dmadebugger set DEBUG_COLOR6 4294967040 # CPU color
+try dmadebugger set DEBUG_COLOR7 4278190080 # Memory refresh color
+
+# Audio Port
+
+try audio set PAN0 100                   # Channel 0 pan
+try audio set PAN1 300                   # Channel 1 pan
+try audio set PAN2 300                   # Channel 2 pan
+try audio set PAN3 100                   # Channel 3 pan
+try audio set VOL0 100                   # Channel 0 volume
+try audio set VOL1 100                   # Channel 1 volume
+try audio set VOL2 100                   # Channel 2 volume
+try audio set VOL3 100                   # Channel 3 volume
+try audio set VOLL 50                    # Master volume (left)
+try audio set VOLR 50                    # Master volume (right)
+try audio set BUFFER_SIZE 8192           # Audio buffer capacity
+try audio set SAMPLING_METHOD LINEAR     # Sampling method
+try audio set ASR false                  # Adaptive Sample Rate
+try audio set FASTPATH false             # Boost performance
+
+# Audio Filter
+
+try audio filter set FILTER_TYPE A500    # Audio filter type
+
+# Video Port
+
+try video set WHITE_NOISE true           # White noise
+
+# Real-time Clock
+
+try rtc set MODEL OKI                    # Chip revision
+
+# Graphics
+
+try denise set REVISION OCS              # Chip revision
+try denise set VIEWPORT_TRACKING true    # Track the currently used viewport
+try denise set FRAME_SKIPPING true       # Reduce frame rate in warp mode
+try denise set HIDDEN_BITPLANES 0        # Hide bitplanes
+try denise set HIDDEN_SPRITES 0          # Hide sprites
+try denise set HIDDEN_LAYERS 0           # Hide playfields
+try denise set HIDDEN_LAYER_ALPHA 128    # Hidden playfield opacity
+try denise set CLX_SPR_SPR false         # Detect sprite-sprite collisions
+try denise set CLX_SPR_PLF false         # Detect sprite-playfield collisions
+try denise set CLX_PLF_PLF false         # Detect playfield-playfield collisions
+
+# Disk Controller
+
+try paula dc set SPEED 1                 # Drive speed
+try paula dc set AUTO_DSKSYNC false      # Always find a sync mark
+try paula dc set LOCK_DSKSYNC false      # Ignore writes to DSKSYNC
+
+# Mouse in Port 1
+
+try mouse1 set PULLUP_RESISTORS true     # Emulate pullup resistors
+try mouse1 set SHAKE_DETECTION true      # Detect a shaked mouse
+try mouse1 set VELOCITY 100              # Mouse velocity
+
+# Joystick in Port 1
+
+try joystick1 set AUTOFIRE false         # Autofire
+try joystick1 set AUTOFIRE_BURSTS false  # Burst mode
+try joystick1 set AUTOFIRE_BULLETS 3     # Number of bullets per burst
+try joystick1 set AUTOFIRE_DELAY 5       # Autofire delay in frames
+
+# Mouse in Port 2
+
+try mouse2 set PULLUP_RESISTORS true     # Emulate pullup resistors
+try mouse2 set SHAKE_DETECTION true      # Detect a shaked mouse
+try mouse2 set VELOCITY 100              # Mouse velocity
+
+# Joystick in Port 2
+
+try joystick2 set AUTOFIRE false         # Autofire
+try joystick2 set AUTOFIRE_BURSTS false  # Burst mode
+try joystick2 set AUTOFIRE_BULLETS 3     # Number of bullets per burst
+try joystick2 set AUTOFIRE_DELAY 5       # Autofire delay in frames
+
+# Serial Port
+
+try serial set DEVICE NONE               # Serial device type
+try serial set VERBOSE false             # Verbose
+
+# Computer Monitor
+
+try monitor set PALETTE COLOR            # Color palette
+try monitor set BRIGHTNESS 50            # Monitor brightness
+try monitor set CONTRAST 100             # Monitor contrast
+try monitor set SATURATION 50            # Monitor saturation
+try monitor set CENTER AUTO              # Center mode
+try monitor set HCENTER 600              # Horizontal center
+try monitor set VCENTER 470              # Vertical center
+try monitor set ZOOM WIDE                # Zoom mode
+try monitor set HZOOM 1000               # Horizontal zoom
+try monitor set VZOOM 270                # Vertical zoom
+try monitor set ENHANCER NONE            # Enhancer
+try monitor set UPSCALER NONE            # Upscaler
+try monitor set BLUR true                # Blur
+try monitor set BLUR_RADIUS 0            # Blur radius
+try monitor set BLOOM false              # Bloom
+try monitor set BLOOM_RADIUS 200         # Bloom radius
+try monitor set BLOOM_BRIGHTNESS 200     # Bloom brightness
+try monitor set BLOOM_WEIGHT 100         # Bloom weight
+try monitor set DOTMASK NONE             # Dotmask
+try monitor set DOTMASK_BRIGHTNESS 550   # Dotmask brightness
+try monitor set SCANLINES NONE           # Scanlines
+try monitor set SCANLINE_BRIGHTNESS 550  # Scanline brightness
+try monitor set SCANLINE_WEIGHT 110      # Scanline weight
+try monitor set DISALIGNMENT false       # Cathode rays disalignment
+try monitor set DISALIGNMENT_H 250       # Horizontal cathode ray shift
+try monitor set DISALIGNMENT_V 250       # Vertical cathode ray shift
+try monitor set FLICKER true             # Interlace flicker
+try monitor set FLICKER_WEIGHT 250       # Interlace flicker intensity
+
+# Keyboard
+
+try keyboard set ACCURACY true           # Keyboard emulation accuracy
+
+# Floppy Drive 0
+
+try df0 set CONNECT true                 # Connection status
+try df0 set TYPE DD_35                   # Drive model
+try df0 set MECHANICS A1010              # Emulate drive mechanics
+try df0 set RPM 300                      # Disk rotation speed
+try df0 set SWAP_DELAY 50400000          # Disk swap delay
+try df0 set PAN 100                      # Pan
+try df0 set STEP_VOLUME 50               # Head step volume
+try df0 set POLL_VOLUME 0                # Disk polling step volume
+try df0 set INSERT_VOLUME 50             # Disk insertion volume
+try df0 set EJECT_VOLUME 50              # Disk ejection volume
+
+# Floppy Drive 1
+
+try df1 set CONNECT false                # Connection status
+try df1 set TYPE DD_35                   # Drive model
+try df1 set MECHANICS A1010              # Emulate drive mechanics
+try df1 set RPM 300                      # Disk rotation speed
+try df1 set SWAP_DELAY 50400000          # Disk swap delay
+try df1 set PAN 300                      # Pan
+try df1 set STEP_VOLUME 50               # Head step volume
+try df1 set POLL_VOLUME 0                # Disk polling step volume
+try df1 set INSERT_VOLUME 50             # Disk insertion volume
+try df1 set EJECT_VOLUME 50              # Disk ejection volume
+
+# Floppy Drive 2
+
+try df2 set CONNECT false                # Connection status
+try df2 set TYPE DD_35                   # Drive model
+try df2 set MECHANICS A1010              # Emulate drive mechanics
+try df2 set RPM 300                      # Disk rotation speed
+try df2 set SWAP_DELAY 50400000          # Disk swap delay
+try df2 set PAN 100                      # Pan
+try df2 set STEP_VOLUME 50               # Head step volume
+try df2 set POLL_VOLUME 0                # Disk polling step volume
+try df2 set INSERT_VOLUME 50             # Disk insertion volume
+try df2 set EJECT_VOLUME 50              # Disk ejection volume
+
+# Floppy Drive 3
+
+try df3 set CONNECT false                # Connection status
+try df3 set TYPE DD_35                   # Drive model
+try df3 set MECHANICS A1010              # Emulate drive mechanics
+try df3 set RPM 300                      # Disk rotation speed
+try df3 set SWAP_DELAY 50400000          # Disk swap delay
+try df3 set PAN 300                      # Pan
+try df3 set STEP_VOLUME 50               # Head step volume
+try df3 set POLL_VOLUME 0                # Disk polling step volume
+try df3 set INSERT_VOLUME 50             # Disk insertion volume
+try df3 set EJECT_VOLUME 50              # Disk ejection volume
+
+# Hard Drive 0
+
+try hd0 set TYPE GENERIC                 # Drive model
+try hd0 set PAN 300                      # Pan
+try hd0 set STEP_VOLUME 50               # Head step volume
+
+# Hard Drive 1
+
+try hd1 set TYPE GENERIC                 # Drive model
+try hd1 set PAN 100                      # Pan
+try hd1 set STEP_VOLUME 50               # Head step volume
+
+# Hard Drive 2
+
+try hd2 set TYPE GENERIC                 # Drive model
+try hd2 set PAN 300                      # Pan
+try hd2 set STEP_VOLUME 50               # Head step volume
+
+# Hard Drive 3
+
+try hd3 set TYPE GENERIC                 # Drive model
+try hd3 set PAN 100                      # Pan
+try hd3 set STEP_VOLUME 50               # Head step volume
+
+# Hard Drive 0 Controller
+
+try hdcon0 set CONNECT true              # Connection status
+
+# Hard Drive 1 Controller
+
+try hdcon1 set CONNECT false             # Connection status
+
+# Hard Drive 2 Controller
+
+try hdcon2 set CONNECT false             # Connection status
+
+# Hard Drive 3 Controller
+
+try hdcon3 set CONNECT false             # Connection status
+
+# Complex Interface Adapter A
+
+try ciaa set REVISION MOS_8520_DIP       # Chip revision
+try ciaa set TODBUG true                 # Emulate TOD bug
+try ciaa set ECLOCK_SYNCING true         # Sync accesses with E-clock
+try ciaa set IDLE_SLEEP true             # Enter idle state while not in use
+
+# Complex Interface Adapter B
+
+try ciab set REVISION MOS_8520_DIP       # Chip revision
+try ciab set TODBUG true                 # Emulate TOD bug
+try ciab set ECLOCK_SYNCING true         # Sync accesses with E-clock
+try ciab set IDLE_SLEEP true             # Enter idle state while not in use
+
+# Memory
+
+try mem set CHIP_RAM 512                 # Chip RAM size
+try mem set SLOW_RAM 512                 # Slow RAM size
+try mem set FAST_RAM 0                   # Fast RAM size
+try mem set EXT_START 224                # Extension ROM location
+try mem set SAVE_ROMS true               # Include ROMs in snapshots
+try mem set SLOW_RAM_DELAY true          # Emulate slow RAM bus delays
+try mem set SLOW_RAM_MIRROR true         # ECS memory mirroring
+try mem set BANKMAP A500                 # Memory mapping scheme
+try mem set UNMAPPING_TYPE FLOATING      # Unmapped memory behavior
+try mem set RAM_INIT_PATTERN ALL_ZEROES  # RAM initialization pattern
+
+# Central Processing Unit
+
+try cpu set REVISION 68000               # Chip revision
+try cpu set DASM_REVISION 68000          # Chip revision (disassembler)
+try cpu set DASM_SYNTAX MOIRA            # Disassembler syntax
+try cpu set DASM_NUMBERS HEX             # Disassembler number format
+try cpu set OVERCLOCKING 0               # Overclocking factor
+try cpu set RESET_VAL 0                  # Register reset value
+
+# Logic Analyzer
+
+try logicanalyzer set PROBE0 NONE        # Probe on channel 0
+try logicanalyzer set PROBE1 NONE        # Probe on channel 1
+try logicanalyzer set PROBE2 NONE        # Probe on channel 2
+try logicanalyzer set PROBE3 NONE        # Probe on channel 3
+try logicanalyzer set ADDR0 0x0000       # Channel 0 memory address
+try logicanalyzer set ADDR1 0x0000       # Channel 1 memory address
+try logicanalyzer set ADDR2 0x0000       # Channel 2 memory address
+try logicanalyzer set ADDR3 0x0000       # Channel 3 memory address
+
+# Remote Shell Server
+
+try server rsh set ENABLE false          # Server enable status
+try server rsh set PORT 8081             # Server port
+try server rsh set PROTOCOL DEFAULT      # Server protocol
+try server rsh set VERBOSE true          # Verbose mode
+
+# RPC Remote Server
+
+try server rpc set ENABLE false          # Server enable status
+try server rpc set PORT 8082             # Server port
+try server rpc set PROTOCOL DEFAULT      # Server protocol
+try server rpc set VERBOSE true          # Verbose mode
+
+# GDB Remote Server
+
+try server gdb set ENABLE false          # Server enable status
+try server gdb set PORT 8083             # Server port
+try server gdb set PROTOCOL DEFAULT      # Server protocol
+try server gdb set VERBOSE true          # Verbose mode
+
+# Prometheus Server
+
+try server prom set ENABLE false         # Server enable status
+try server prom set PORT 8084            # Server port
+try server prom set PROTOCOL DEFAULT     # Server protocol
+try server prom set VERBOSE true         # Verbose mode
+
+# Serial Port Server
+
+try server ser set ENABLE false          # Server enable status
+try server ser set PORT 8085             # Server port
+try server ser set PROTOCOL DEFAULT      # Server protocol
+try server ser set VERBOSE true          # Verbose mode
+

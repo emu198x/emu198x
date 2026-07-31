@@ -87,7 +87,7 @@ rebuilds the corpus, verifies Kickstart 1.3 and every artifact by SHA-256,
 boots each case on the A500 OCS PAL profile, waits for the ready record,
 discards boot audio, and measures three settled fields.
 
-The current self-consistency gate observes:
+The Emu198x capture observes:
 
 | Case | Dominant output | AC RMS | Fundamental |
 | --- | --- | ---: | ---: |
@@ -98,10 +98,33 @@ The current self-consistency gate observes:
 The inactive output is exactly silent in all three current captures. The
 half/full RMS ratio is 0.5 within the recorded precision.
 
-These are Emu198x observations, not independent expectations. The gate proves
-that the portable probe executes and that Emu198x remains internally
-consistent. Step 3 of the Amiga accuracy closure campaign remains open until
-an independent producer records and agrees or a disagreement is classified.
+The consumer also verifies the registered
+[`vAmiga 4.4b12 package`](../../test-data/commodore/amiga/paula-audio/references/vamiga-4.4b12-60fd1e6b/README.md),
+produced at revision
+`60fd1e6b69dcd77c9f44d1291bd37ec715362ab0`:
+
+| Case | Dominant output | AC RMS | Fundamental |
+| --- | --- | ---: | ---: |
+| `channel-0-full` | right | 0.09160477305197556 | 3463.059313215401 Hz |
+| `channel-1-full` | left | 0.0916021937843414 | 3463.059313215401 Hz |
+| `channel-0-half` | right | 0.04579806595009139 | 3463.059313215401 Hz |
+
+The registered channel-0 half/full RMS ratio is 0.49995283459854284. Emu198x
+agrees on output assignment. Its approximately 3463.397548 Hz fundamental
+differs from the vAmiga observation by approximately 0.338235 Hz, or 0.0098
+percent. Its 0.5 half/full ratio differs by approximately 0.0000472.
+
+Exact RMS magnitude is not compared across producers because vAmiga and
+Emu198x use different filter, gain, and resampling paths. The asserted boundary
+is routing, cadence, and the within-producer volume relationship. The
+[`amiga_paula_audio` consumer](../../crates/runtime-commodore-amiga/tests/amiga_paula_audio.rs)
+checks the package hashes and provenance, remeasures its source WAVs, and then
+applies that boundary to the current Emu198x capture.
+
+This satisfies the Paula portion of closure-campaign step 3 at the
+single-family software-evidence level. It is not hardware evidence or a
+two-family software consensus. The combined step remains open for independent
+A1200/AGA visual evidence.
 
 ## Regressions found by the corpus
 
@@ -138,6 +161,8 @@ or motherboard-component behaviour excluded above.
 ## Related documents
 
 - [Portable Paula-audio corpus](../../test-data/commodore/amiga/paula-audio/README.md)
+- [Registered vAmiga Paula-audio package](../../test-data/commodore/amiga/paula-audio/references/vamiga-4.4b12-60fd1e6b/README.md)
+- [Emu198x Paula-audio consumer](../../crates/runtime-commodore-amiga/tests/amiga_paula_audio.rs)
 - [Amiga accuracy closure campaign](../decisions/amiga-accuracy-closure-campaign.md)
 - [Amiga Paula stereo routing](../decisions/amiga-paula-stereo-routing.md)
 - [Amiga disk rotation and DMA arbitration](../decisions/amiga-disk-dma-fifo-arbitration.md)

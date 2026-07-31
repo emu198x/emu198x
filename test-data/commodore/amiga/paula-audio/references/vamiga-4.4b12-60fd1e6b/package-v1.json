@@ -1,0 +1,93 @@
+{
+  "capture_adapter": {
+    "CMakeLists.txt": "39429522b5b00d24d82080934091c21efab3dc6be2ee600aa0e7cb29b1f8804f",
+    "README.md": "e70f34df4073bdce447880f671d874af26b8e383cd7d57982ebe41a8d0e59f00",
+    "capture.sh": "c3eb1db8ad4484ca8aea3e7e05acb194079250bffb3332ba6fe0034b8d626f78",
+    "capture_record.py": "00b3749950e1b3ad29769d39c6b52909f65de64a54388b81d372ee7e74cc8a24",
+    "main.cpp": "04f680a6c986bcb8c84c07b69b3def97815ba13c0795fb08b43bce1c0bf5aded"
+  },
+  "matrix": {
+    "capture_domain": "modelled-analogue-output",
+    "captured_guest_fields": [
+      9,
+      10,
+      11
+    ],
+    "case_count": 3,
+    "cases": [
+      "channel-0-full",
+      "channel-1-full",
+      "channel-0-half"
+    ],
+    "machine": "A500 OCS PAL",
+    "sample_format": "IEEE-754 binary32 little-endian WAVE",
+    "sample_rate_hz": 48000
+  },
+  "packager": {
+    "python_version": "3.14.3",
+    "script": "package.py",
+    "script_sha256": "ec6771f708ed7c878c06daf264c3d4d6bc0fb34e6b75926f9614817d8e67fefd"
+  },
+  "producer": {
+    "binary_bytes": 13485544,
+    "binary_sha256": "3e706a0f439a32b91805871910e0747c627fb42dfbebc9ad055bc1b8381df9d4",
+    "implementation_family": "vAmiga",
+    "product": "vAmiga",
+    "revision": "60fd1e6b69dcd77c9f44d1291bd37ec715362ab0",
+    "source_tree_clean": true,
+    "source_url": "https://github.com/dirkwhoffmann/vAmiga",
+    "version": "4.4b12"
+  },
+  "producer_build": {
+    "log_file": "logs/producer-build.log",
+    "log_sha256": "fe8ee94d9f221af44e56a16e05cc04811b8270324627dac08587048c57d82305",
+    "record_file": "producer-build-v1.json",
+    "record_sha256": "79eda048e8f058f74dcbcf1bd8b49fda9c9726df5e172453731f7d7ffbec977b"
+  },
+  "runs": [
+    {
+      "capture_file": "captures/channel-0-full.wav",
+      "capture_sha256": "8f6b01df390270f07f4541333793674887ade48cedc96d4d5e02dcfaf779dacf",
+      "case_id": "channel-0-full",
+      "configuration_file": "configs/channel-0-full.retrosh",
+      "configuration_sha256": "1252cb3fc1366e37f09946fd109c0bdd5dcd2ca4f9595a37f1402d54f5a3426e",
+      "manifest_file": "manifests/channel-0-full.json",
+      "manifest_sha256": "94dd7f9d89ecfb3f3f541d0ac6f03596603706f0d9c7831bfce3bb13628f2250",
+      "producer_log_file": "logs/channel-0-full.log",
+      "producer_log_sha256": "17b479b098c4218a26aa899a28cdea7e03ac86d87bab73784439d7fd9e217180",
+      "record_file": "records/channel-0-full.json",
+      "record_sha256": "7297cdf67add18fc61561920efb0cb7d7e5c4e5455b883c5f4eb0c3d605ff8b7"
+    },
+    {
+      "capture_file": "captures/channel-1-full.wav",
+      "capture_sha256": "8ccc7956bb6487626b8c510f0800b1ad6f00536f0849620abbce076d9017806d",
+      "case_id": "channel-1-full",
+      "configuration_file": "configs/channel-1-full.retrosh",
+      "configuration_sha256": "1252cb3fc1366e37f09946fd109c0bdd5dcd2ca4f9595a37f1402d54f5a3426e",
+      "manifest_file": "manifests/channel-1-full.json",
+      "manifest_sha256": "3af148e6aa6277d46159b24a3fcc25996b9ebf52ceb09b2978adba9ac1328fd3",
+      "producer_log_file": "logs/channel-1-full.log",
+      "producer_log_sha256": "873a035c53026485f739989cb248590515e89de1b8428ee7625023df0796930e",
+      "record_file": "records/channel-1-full.json",
+      "record_sha256": "558a966641603bebb44acf4a14c636b7049968f3590766879a04ef98fd83cda4"
+    },
+    {
+      "capture_file": "captures/channel-0-half.wav",
+      "capture_sha256": "dc728b4075b627a07b1a607ff30ab98bbd23bbfd767a373be8427e7d17c3a2ff",
+      "case_id": "channel-0-half",
+      "configuration_file": "configs/channel-0-half.retrosh",
+      "configuration_sha256": "1252cb3fc1366e37f09946fd109c0bdd5dcd2ca4f9595a37f1402d54f5a3426e",
+      "manifest_file": "manifests/channel-0-half.json",
+      "manifest_sha256": "d3b6c8eef730cda20dd326d131d15fb61483217c394b31659907bb2b23cc72b6",
+      "producer_log_file": "logs/channel-0-half.log",
+      "producer_log_sha256": "2f5fb5561a33cf5d4c0f12157349b87c33f81838666d993ce973303cb82ffd2c",
+      "record_file": "records/channel-0-half.json",
+      "record_sha256": "b0cb5c4c386946cbf6bd44b7d6fa22c36bf9aee03b77e922f789564abba61748"
+    }
+  ],
+  "schema_version": "1.0.0",
+  "suite": {
+    "id": "org.198x.amiga.paula-audio",
+    "version": "1.0.0"
+  }
+}

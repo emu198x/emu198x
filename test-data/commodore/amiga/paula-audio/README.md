@@ -5,8 +5,9 @@ produces from a small set of controlled Paula audio configurations.
 
 The corpus is emulator-neutral. It contains bootable ADF sources,
 deterministic build tooling, case metadata, and an evidence interchange
-schema. It does not contain firmware, emulator runners, expected waveforms, or
-implementation-specific assertions.
+schema. The neutral cases do not contain firmware, emulator runners, expected
+waveforms, or implementation-specific assertions. Independently produced
+observations are retained separately below `references/`.
 
 Each case disables unrelated DMA and interrupts, disables the switchable LED
 filter, programs one audio channel with a repeating signed square wave,
@@ -58,6 +59,15 @@ output filtering and 44.1 or 48 kHz capture.
 The corpus does not establish an exact analogue transfer function, noise
 floor, distortion profile, interpolation mode, or minimum-period behaviour.
 Those require narrower evidence.
+
+## Registered evidence
+
+The
+[`vAmiga 4.4b12 package`](references/vamiga-4.4b12-60fd1e6b/README.md)
+retains one audited software-family observation for all three cases. It agrees
+with Emu198x on logical output assignment, programmed cadence, and the
+within-producer half/full volume relationship. It is not a universal expected
+waveform, a two-family software consensus, or physical-hardware evidence.
 
 ## Related files
 

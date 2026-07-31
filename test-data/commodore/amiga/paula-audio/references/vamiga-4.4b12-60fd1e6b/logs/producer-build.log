@@ -1,0 +1,9 @@
+-- Found ZLIB: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libz.tbd
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: /private/tmp/vamiga-paula-production-build-20260731
+[  6%] Built target xdms
+[ 14%] Built target utlib_core
+[ 42%] Built target RetroVault
+[ 98%] Built target VACore
+[100%] Built target vamiga-paula-audio-capture

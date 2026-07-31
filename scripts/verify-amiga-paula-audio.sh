@@ -10,7 +10,8 @@ usage() {
 Usage: scripts/verify-amiga-paula-audio.sh
 
 Builds the emulator-neutral Paula-audio corpus and runs the explicit A500
-routing, cadence, and paired-volume self-consistency gate.
+routing, cadence, and paired-volume gate against the registered reference
+package.
 
 Environment:
     EMU198X_AMIGA_KICKSTART_13_ROM  Kickstart 1.3 r34.005 ROM

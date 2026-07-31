@@ -1,7 +1,7 @@
 # Reference Captures
 
-This directory is reserved for independently produced Paula-audio capture
-packages.
+This directory contains independently produced Paula-audio capture packages
+that have passed the corpus's provenance and measurement checks.
 
 A package is admissible only when it records the exact corpus artifact,
 producer family and revision, complete machine configuration, firmware hash,
@@ -13,8 +13,21 @@ frontends around the same emulation core do not provide independent
 agreement. Physical machines must record board revision, output connection,
 capture interface, sample rate, and any calibration or level adjustment.
 
-No capture is currently promoted as an expected result. An empty references
-directory means that the corpus is runnable, not that Emu198x is conformant.
+The registered
+[`vamiga-4.4b12-60fd1e6b/`](vamiga-4.4b12-60fd1e6b/README.md) package records
+vAmiga 4.4b12 at revision
+`60fd1e6b69dcd77c9f44d1291bd37ec715362ab0`. Its three source captures agree
+with Emu198x on logical stereo routing and programmed cadence, and its
+channel-0 half/full RMS ratio is 0.499952835 against Emu198x's 0.5.
+
+This is one audited software implementation family. It is not physical
+hardware evidence or a two-family software consensus. Exact RMS magnitude is
+not compared across the producers because their filter, gain, and resampling
+paths differ.
+
+The neutral case definitions remain unresolved by design. Registered
+observations are retained in producer packages and bound by consumers without
+turning one implementation's samples into universal expected waveforms.
 
 ## Documentary basis
 
@@ -37,6 +50,8 @@ is redistributed in this corpus.
 ## Related files
 
 - [`../README.md`](../README.md) defines the capture contract.
+- [`vamiga-4.4b12-60fd1e6b/README.md`](vamiga-4.4b12-60fd1e6b/README.md)
+  describes the registered vAmiga package and its evidence boundary.
 - [`../schema/capture-v1.schema.json`](../schema/capture-v1.schema.json)
   defines one capture record.
 - [`../../../../../knowledge/decisions/amiga-accuracy-closure-campaign.md`](../../../../../knowledge/decisions/amiga-accuracy-closure-campaign.md)
