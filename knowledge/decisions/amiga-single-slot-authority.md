@@ -2,11 +2,10 @@
 
 **Date**: June 2026 (#30)
 
-**Implementation status:** The shared authority and its grant fields are
-implemented. As of 2026-07-31, the floppy stream still advances from its
-independent track pacer without consuming `disk_dma_slot_granted`. Closing
-that exception is the first step in the
-[Amiga accuracy closure campaign](amiga-accuracy-closure-campaign.md).
+**Implementation status:** Implemented. Disk memory transfers consume the
+authoritative grant as of commit `24b20ce4`; the independent rotational stream
+crosses Paula's bounded FIFO as defined by
+[Amiga disk rotation and DMA arbitration](amiga-disk-dma-fifo-arbitration.md).
 
 ## The decision
 
@@ -218,6 +217,7 @@ If I catch myself proposing any of these, stop and re-read the "Why".
 
 ## Related documents
 
+- [Amiga disk rotation and DMA arbitration](amiga-disk-dma-fifo-arbitration.md)
 - [Amiga accuracy closure campaign](amiga-accuracy-closure-campaign.md)
 - [Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md)
 - [Original Agnus hard vertical-blank close](amiga-original-agnus-hard-vertical-blank.md)

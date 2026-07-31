@@ -27,9 +27,42 @@ fn query_provider_returns_declared_paths() {
     assert!(paths.contains(&"cpu.pc".to_owned()));
     assert!(paths.contains(&"debug.dsk_write_count".to_owned()));
     assert!(paths.contains(&"disk.change_pending".to_owned()));
+    assert!(paths.contains(&"disk.dma_fifo_direction".to_owned()));
+    assert!(paths.contains(&"disk.dma_write_stream_active".to_owned()));
     assert!(paths.contains(&"disk.inserted".to_owned()));
     assert!(paths.contains(&"disk.step_events".to_owned()));
     assert!(paths.contains(&"keyboard.state".to_owned()));
+}
+
+#[test]
+fn disk_queries_expose_the_complete_dma_fifo_state() {
+    let mut runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    runtime.machine_mut().poke_word(0x00DF_F024, 0x8002);
+    runtime.machine_mut().poke_word(0x00DF_F024, 0x8002);
+    runtime
+        .machine_mut()
+        .paula_mut()
+        .receive_disk_read_word(0x1111);
+    runtime
+        .machine_mut()
+        .paula_mut()
+        .receive_disk_read_word(0x2222);
+
+    assert_eq!(
+        query_value(&runtime, "disk.dma_fifo"),
+        json!([0x1111, 0x2222])
+    );
+    assert_eq!(
+        query_value(&runtime, "disk.dma_fifo_direction"),
+        json!("read")
+    );
+    assert_eq!(query_value(&runtime, "disk.dma_fifo_count"), json!(2));
+    assert_eq!(query_value(&runtime, "disk.dma_fifo_empty"), json!(false));
+    assert_eq!(query_value(&runtime, "disk.dma_fifo_full"), json!(false));
+    assert_eq!(
+        query_value(&runtime, "disk.dma_write_stream_active"),
+        json!(false)
+    );
 }
 
 #[test]

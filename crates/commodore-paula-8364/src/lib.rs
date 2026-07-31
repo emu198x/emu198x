@@ -919,6 +919,8 @@ pub struct PaulaDiskDiagnosticSnapshot {
     pub disk_dma_wordsync_waiting: bool,
     /// Whether a disk write-DMA transfer is currently active.
     pub disk_dma_write_active: bool,
+    /// Whether write DMA is active or buffered words still await rotation.
+    pub disk_write_stream_active: bool,
     /// Whether DSKLEN.DMAEN is set in the current register value.
     pub dsklen_dma_enabled: bool,
     /// Whether DSKLEN.WRITE is set in the current register value.
@@ -1682,6 +1684,7 @@ impl Paula8364 {
             disk_dma_is_write: self.disk_dma_is_write,
             disk_dma_wordsync_waiting: self.disk_dma_wordsync_waiting,
             disk_dma_write_active: self.disk_dma_write_active(),
+            disk_write_stream_active: self.disk_write_stream_active(),
             dsklen_dma_enabled: self.dsklen & DSKLEN_DMAEN != 0,
             dsklen_write_enabled: self.dsklen & DSKLEN_WRITE != 0,
             wordsync_enabled: self.adkcon & ADKCON_WORDSYNC != 0,

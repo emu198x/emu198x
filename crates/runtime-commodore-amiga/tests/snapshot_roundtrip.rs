@@ -189,6 +189,35 @@ fn snapshot_then_restore_then_snapshot_is_a_fixed_point() -> Result<(), Box<dyn 
 }
 
 #[test]
+fn partial_disk_dma_fifo_is_a_snapshot_fixed_point() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    original.machine_mut().poke_word(0x00DF_F024, 0x8003);
+    original.machine_mut().poke_word(0x00DF_F024, 0x8003);
+    original
+        .machine_mut()
+        .paula_mut()
+        .receive_disk_read_word(0x1111);
+    original
+        .machine_mut()
+        .paula_mut()
+        .receive_disk_read_word(0x2222);
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    restored.restore(&snapshot)?;
+
+    let disk = restored.machine().paula().disk_diagnostic_snapshot();
+    assert_eq!(disk.disk_dma_fifo, [0x1111, 0x2222]);
+    assert_eq!(format!("{:?}", disk.disk_dma_fifo_direction), "Some(Read)");
+    assert_eq!(
+        restored.snapshot()?,
+        snapshot,
+        "a partially filled Paula FIFO must restore byte-identically"
+    );
+    Ok(())
+}
+
+#[test]
 fn group1_handler_prefetch_context_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
     let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, odd_group1_handler_kickstart())?;
     let mut reached_odd_handler = false;
@@ -1847,10 +1876,10 @@ fn ecs_snapshot_restore_preserves_model_specific_gayle_composition() -> Result<(
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 28, and confirm the version-mismatch arm fires with a
+/// field back to 29, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV29` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 29` that byte is `0x1D`.
+/// of a `SnapshotEnvelopeV30` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 30` that byte is `0x1E`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -1859,20 +1888,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 29,
-        "postcard varint for SNAPSHOT_VERSION = 29 should be 0x1D"
+        bytes[0], 30,
+        "postcard varint for SNAPSHOT_VERSION = 30 should be 0x1E"
     );
-    bytes[0] = 28;
+    bytes[0] = 29;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-28 snapshot should be rejected before payload decode");
+        .expect_err("version-29 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 28; expected 29"
+                if reason == "unsupported snapshot version 29; expected 30"
         ),
         "expected version-mismatch reason, got {err:?}"
     );

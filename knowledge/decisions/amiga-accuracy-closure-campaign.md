@@ -137,10 +137,12 @@ campaign open.
 | Date | Step | Result |
 | --- | --- | --- |
 | 2026-07-31 | Campaign recorded | Assessment, ordered work and pivot gate accepted at revision `8bb2c48e`. |
+| 2026-07-31 | 1. Disk DMA arbitration | Commit `24b20ce4` separates the rotational stream from chip-memory traffic, adds Paula's bounded three-word FIFO, and binds reads and writes to Agnus cells `$07/$09/$0B`. Component, three-profile library, machine arbitration and full-track ADF write-back tests pass. Snapshot and query compatibility advance with the same step. |
 
 ## Related documents
 
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
+- [Amiga disk rotation and DMA arbitration](amiga-disk-dma-fifo-arbitration.md)
 - [Amiga blitter completion pipeline](amiga-blitter-completion-pipeline.md)
 - [M68k test-oracle strategy](m68k-test-oracle-strategy.md)
 - [Amiga Test Kit video conformance](../processes/amiga-test-kit-video-conformance.md)

@@ -149,5 +149,6 @@ run→snapshot→restore→run test would close this — tracked as a follow-up.
 - [MC68010+ acknowledged interrupt vectors](motorola-68010-acknowledged-interrupt-vector.md)
 - [MC68020 master-mode interrupt stacks](motorola-68020-master-interrupt-stacks.md)
 - [MC68020/MC68030 dynamic bus sizing](motorola-68020-dynamic-bus-sizing.md)
+- [Amiga disk rotation and DMA arbitration](amiga-disk-dma-fifo-arbitration.md)
 - [Runtime internal shape](runtime-internal-shape.md)
 - [Spectrum architecture review](spectrum-architecture-review.md)

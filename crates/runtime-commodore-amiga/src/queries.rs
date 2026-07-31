@@ -1410,6 +1410,11 @@ pub(crate) fn disk_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "dskbytr_wordequal": controller.dskbytr_wordequal,
         "dskbytr_wordequal_delay_cck": controller.dskbytr_wordequal_delay_cck,
         "dskdat_queue": controller.dskdat_queue,
+        "dma_fifo": controller.disk_dma_fifo,
+        "dma_fifo_direction": controller.disk_dma_fifo_direction,
+        "dma_fifo_count": controller.disk_dma_fifo_count,
+        "dma_fifo_empty": controller.disk_dma_fifo_empty,
+        "dma_fifo_full": controller.disk_dma_fifo_full,
     });
     let controller_state = json!({
         "dsklen_armed": controller.dsklen_armed,
@@ -1418,6 +1423,7 @@ pub(crate) fn disk_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "dma_is_write": controller.disk_dma_is_write,
         "dma_wordsync_waiting": controller.disk_dma_wordsync_waiting,
         "dma_write_active": controller.disk_dma_write_active,
+        "dma_write_stream_active": controller.disk_write_stream_active,
         "dsklen_dma_enabled": controller.dsklen_dma_enabled,
         "dsklen_write_enabled": controller.dsklen_write_enabled,
         "wordsync_enabled": controller.wordsync_enabled,
