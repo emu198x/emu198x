@@ -551,7 +551,7 @@ fn joystick_port1_drives_joy1dat_and_cia_fire() {
 
 #[test]
 fn dskbytr_byte_pacing_advances_on_per_cck_disk_tick() {
-    // With ADKCON.FAST set, the chip delivers the next byte 14 CCKs
+    // With ADKCON.FAST set, the chip delivers the next byte 28 CCKs
     // after a word arrives. The machine's tick loop ticks Paula's
     // disk engine once per CCK.
     let mut amiga = AmigaOcs::new(zero_rom());
@@ -563,15 +563,20 @@ fn dskbytr_byte_pacing_advances_on_per_cck_disk_tick() {
     let _ = amiga.paula_mut().read_dskbytr(0);
     assert_eq!(amiga.paula().peek_dskbytr(0) & 0x8000, 0);
 
-    // 14 CCKs = 28 master/4 ticks. Run that, then DSKBYT should have
-    // re-latched with the low byte.
-    for _ in 0..(14 * 2) {
+    // The low byte must not arrive one CCK early.
+    for _ in 0..(27 * 2) {
+        amiga.tick();
+    }
+    assert_eq!(amiga.paula().peek_dskbytr(0) & 0x8000, 0);
+
+    // 28 CCKs = 56 master/4 ticks. The low byte now re-latches.
+    for _ in 0..2 {
         amiga.tick();
     }
     assert_ne!(
         amiga.paula().peek_dskbytr(0) & 0x8000,
         0,
-        "FAST disk pacing delivers next byte after 14 CCKs"
+        "FAST disk pacing delivers next byte after 28 CCKs"
     );
 }
 
