@@ -1,0 +1,108 @@
+{
+  "source_format_version": 1,
+  "suite": {
+    "id": "org.198x.amiga.paula-audio",
+    "version": "1.0.0",
+    "license": "CC0-1.0",
+    "source_revision": "source-v1"
+  },
+  "defaults": {
+    "applicability": {
+      "audio_chip": "Paula-compatible four-channel audio",
+      "models": [
+        "A500",
+        "A600",
+        "A1200"
+      ],
+      "regions": [
+        "PAL"
+      ],
+      "min_chip_ram_bytes": 524288
+    },
+    "sample": {
+      "word": "0x7f81",
+      "encoding": "two signed 8-bit PCM samples, high byte first",
+      "words": 256
+    },
+    "period_cck": 512,
+    "filter_control": {
+      "ciaa_port_a_bit": 1,
+      "state": "high",
+      "effect": "switchable LED filter disabled"
+    },
+    "capture": {
+      "ready_record_address": "0x0002ff00",
+      "ready_magic": "PAUD",
+      "byte_order": "big-endian",
+      "ready_timeout_fields": 600,
+      "settle_fields": 8,
+      "capture_fields": 3,
+      "automatic_gain_control": false,
+      "channel_remapping": false
+    }
+  },
+  "cases": [
+    {
+      "id": "channel-0-full",
+      "numeric_id": 1,
+      "question": "What steady-state stereo waveform does audio channel 0 produce at period 512 and volume 64?",
+      "channel": 0,
+      "volume": 64,
+      "visual_identity": {
+        "color00": "0x0f0",
+        "description": "Bright green background."
+      },
+      "serial_identity": "amiga-paula-audio-v1/01-channel-0-full",
+      "comparison": null,
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "channel-1-full",
+      "numeric_id": 2,
+      "question": "What steady-state stereo waveform does audio channel 1 produce at period 512 and volume 64?",
+      "channel": 1,
+      "volume": 64,
+      "visual_identity": {
+        "color00": "0x00f",
+        "description": "Bright blue background."
+      },
+      "serial_identity": "amiga-paula-audio-v1/02-channel-1-full",
+      "comparison": null,
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    },
+    {
+      "id": "channel-0-half",
+      "numeric_id": 3,
+      "question": "How does channel 0 output change when volume is reduced from 64 to 32 with every other probe setting unchanged?",
+      "channel": 0,
+      "volume": 32,
+      "visual_identity": {
+        "color00": "0xf80",
+        "description": "Orange background."
+      },
+      "serial_identity": "amiga-paula-audio-v1/03-channel-0-half",
+      "comparison": {
+        "case_id": "channel-0-full",
+        "differing_fields": [
+          "id",
+          "volume",
+          "numeric_id",
+          "visual_identity",
+          "serial_identity",
+          "question",
+          "comparison"
+        ]
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    }
+  ]
+}

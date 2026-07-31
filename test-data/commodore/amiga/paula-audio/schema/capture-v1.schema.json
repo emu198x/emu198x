@@ -1,0 +1,425 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Paula audio capture record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "suite_id",
+    "suite_version",
+    "case_id",
+    "artifact",
+    "producer",
+    "machine",
+    "execution",
+    "source_capture",
+    "observations",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "suite_id": {
+      "const": "org.198x.amiga.paula-audio"
+    },
+    "suite_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "case_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adf_file",
+        "adf_sha256",
+        "payload_file",
+        "payload_sha256"
+      ],
+      "properties": {
+        "adf_file": {
+          "type": "string"
+        },
+        "adf_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "payload_file": {
+          "type": "string"
+        },
+        "payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "product",
+        "version",
+        "revision",
+        "source_url",
+        "implementation_family"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "physical-hardware",
+            "software-emulator",
+            "fpga-reimplementation"
+          ]
+        },
+        "product": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "implementation_family": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "cpu",
+        "chipset",
+        "region",
+        "ram_bytes",
+        "firmware"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cpu": {
+          "type": "string",
+          "minLength": 1
+        },
+        "chipset": {
+          "enum": [
+            "OCS",
+            "ECS",
+            "AGA"
+          ]
+        },
+        "region": {
+          "const": "PAL"
+        },
+        "ram_bytes": {
+          "type": "integer",
+          "minimum": 524288
+        },
+        "firmware": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "revision",
+            "sha256"
+          ],
+          "properties": {
+            "revision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cold_boot",
+        "command_or_procedure",
+        "configuration_sha256",
+        "ready_rule",
+        "ready_observed_field",
+        "settle_fields",
+        "captured_fields"
+      ],
+      "properties": {
+        "cold_boot": {
+          "type": "boolean"
+        },
+        "command_or_procedure": {
+          "type": "string",
+          "minLength": 1
+        },
+        "configuration_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "ready_rule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "record_address",
+            "magic",
+            "case_number",
+            "field_counter_minimum",
+            "byte_order"
+          ],
+          "properties": {
+            "record_address": {
+              "const": "0x0002ff00"
+            },
+            "magic": {
+              "const": "PAUD"
+            },
+            "case_number": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "field_counter_minimum": {
+              "type": "integer",
+              "minimum": 8
+            },
+            "byte_order": {
+              "const": "big-endian"
+            }
+          }
+        },
+        "ready_observed_field": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "settle_fields": {
+          "type": "integer",
+          "minimum": 8
+        },
+        "captured_fields": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "source_capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain",
+        "method",
+        "sample_rate_hz",
+        "channels",
+        "sample_format",
+        "filtering",
+        "resampling",
+        "automatic_gain_control",
+        "channel_remapping",
+        "file_name",
+        "file_sha256"
+      ],
+      "properties": {
+        "domain": {
+          "enum": [
+            "digital-mixer",
+            "modelled-analogue-output",
+            "external-line-output"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sample_rate_hz": {
+          "type": "integer",
+          "minimum": 8000
+        },
+        "channels": {
+          "const": 2
+        },
+        "sample_format": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filtering": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resampling": {
+          "type": "string",
+          "minLength": 1
+        },
+        "automatic_gain_control": {
+          "const": false
+        },
+        "channel_remapping": {
+          "const": false
+        },
+        "file_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "analysis_window_seconds",
+        "fundamental_hz",
+        "rms",
+        "dominant_channel",
+        "channel_dominance_db",
+        "amplitude_ratio",
+        "analysis_procedure"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "observed",
+            "unusable"
+          ]
+        },
+        "analysis_window_seconds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "start",
+            "end"
+          ],
+          "properties": {
+            "start": {
+              "type": "number",
+              "minimum": 0
+            },
+            "end": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "fundamental_hz": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "left",
+            "right"
+          ],
+          "properties": {
+            "left": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "right": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        },
+        "rms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "left",
+            "right"
+          ],
+          "properties": {
+            "left": {
+              "type": "number",
+              "minimum": 0
+            },
+            "right": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        "dominant_channel": {
+          "enum": [
+            "left",
+            "right",
+            "neither"
+          ]
+        },
+        "channel_dominance_db": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "amplitude_ratio": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "analysis_procedure": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "captured_at",
+        "record_created_at",
+        "operator",
+        "notes"
+      ],
+      "properties": {
+        "captured_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "record_created_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

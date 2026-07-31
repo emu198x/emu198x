@@ -140,6 +140,7 @@ campaign open.
 | 2026-07-31 | Campaign recorded | Assessment, ordered work and pivot gate accepted at revision `8bb2c48e`. |
 | 2026-07-31 | 1. Disk DMA arbitration | Commit `24b20ce4` separates the rotational stream from chip-memory traffic, adds Paula's bounded three-word FIFO, and binds reads and writes to Agnus cells `$07/$09/$0B`. Component, three-profile library, machine arbitration and full-track ADF write-back tests pass. Snapshot and query compatibility advance with the same step. |
 | 2026-07-31 | 2. Mid-blit register writes | Reference inspection rejected the original CPU-wait premise. CPU and Copper writes now use normal arbitration without synchronously completing the blitter. Replacement-size and no-hidden-time regressions cover OCS, ECS and AGA; exact per-channel effects of other mid-blit writes remain evidence-bound. |
+| 2026-07-31 | 3. Paula evidence foundation | A project-authored three-case waveform corpus now boots through the complete A500 path and measures cadence, stereo routing and the 64:32 volume ratio. Its first current-source run exposed and fixed a factor-of-two `ADKCON.FAST` disk-stream regression. The Emu198x self-consistency gate is green; independent waveform evidence is still required before this step closes. |
 
 ## Related Documents
 
@@ -151,5 +152,6 @@ campaign open.
 - [Amiga Test Kit video conformance](../processes/amiga-test-kit-video-conformance.md)
 - [Amiga programmable-HBLANK conformance](../processes/amiga-programmable-hblank-conformance.md)
 - [Amiga programmable-HBLANK write timing](../processes/amiga-programmable-hblank-write-timing.md)
+- [Amiga Paula-audio conformance](../processes/amiga-paula-audio-conformance.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)
 - [October catalogue](october-catalogue.md)

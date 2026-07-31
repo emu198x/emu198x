@@ -45,6 +45,7 @@ tarball also carries the free Amstrad-permissioned 48K ROM.
 |---|---|---|---|---|---|
 | Amiga programmable HBLANK | `runtime-commodore-amiga` · `amiga_programmable_hblank` | [`commodore/amiga/programmable-hblank/`](commodore/amiga/programmable-hblank/) | [`scripts/verify-amiga-programmable-hblank.sh`](../scripts/verify-amiga-programmable-hblank.sh) | CC0-1.0 | Kickstart images for the selected ECS and AGA profiles, supplied externally |
 | Amiga programmable HBLANK write timing | Reference evidence registered; Emu198x consumer pending | [`commodore/amiga/programmable-hblank-write-timing/`](commodore/amiga/programmable-hblank-write-timing/) | none | CC0-1.0 | Kickstart images for the selected ECS and AGA profiles, supplied externally |
+| Amiga Paula audio | `runtime-commodore-amiga` · `amiga_paula_audio` | [`commodore/amiga/paula-audio/`](commodore/amiga/paula-audio/) | [`scripts/verify-amiga-paula-audio.sh`](../scripts/verify-amiga-paula-audio.sh) | CC0-1.0 | Kickstart 1.3 r34.005, supplied externally |
 
 The programmable-HBLANK corpus is project-authored and emulator-neutral.
 Sources, case definitions, schemas, and deterministic build tools are retained
@@ -66,6 +67,13 @@ the UAE implementation family. Copperline 0.13.0 and vAmiga 4.4b12 cannot
 answer the question through an admissible path. The observations therefore
 remain single-family evidence, and no Emu198x conformance consumer is
 registered yet.
+
+The Paula-audio corpus is a three-case steady-waveform suite. Its Emu198x
+consumer verifies corpus identity, boots each case, and asserts internal
+cadence, stereo-routing, equal-channel, and paired-volume invariants. Those
+measurements are Emu198x-produced observations rather than independent
+expected results. Semantic conformance remains unresolved until an audited
+reference producer supplies a registered capture.
 
 ## System-level external gates
 
@@ -168,4 +176,6 @@ live.
 - [Amiga programmable-HBLANK conformance](../knowledge/processes/amiga-programmable-hblank-conformance.md)
 - [Portable programmable-HBLANK write-timing corpus](commodore/amiga/programmable-hblank-write-timing/README.md)
 - [Amiga programmable-HBLANK write timing](../knowledge/processes/amiga-programmable-hblank-write-timing.md)
+- [Portable Paula-audio corpus](commodore/amiga/paula-audio/README.md)
+- [Amiga Paula-audio conformance](../knowledge/processes/amiga-paula-audio-conformance.md)
 - [Test ROM bundling policy](../knowledge/decisions/test-rom-policy.md)

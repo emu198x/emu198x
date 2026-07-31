@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Paula audio suite manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "suite",
+    "build",
+    "cases",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "suite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "license",
+        "source_revision"
+      ],
+      "properties": {
+        "id": {
+          "const": "org.198x.amiga.paula-audio"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "license": {
+          "const": "CC0-1.0"
+        },
+        "source_revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "toolchain",
+        "case_file_sha256",
+        "source_sha256"
+      ],
+      "properties": {
+        "toolchain": {
+          "type": "object"
+        },
+        "case_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source_sha256": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "case_id",
+          "adf_file",
+          "payload_file",
+          "adf_bytes",
+          "payload_bytes",
+          "sha256",
+          "load_address",
+          "sectors",
+          "bootblock_checksum"
+        ],
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "adf_file": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*\\.adf$"
+          },
+          "payload_file": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*\\.bin$"
+          },
+          "adf_bytes": {
+            "const": 901120
+          },
+          "payload_bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "adf",
+              "payload"
+            ],
+            "properties": {
+              "adf": {
+                "$ref": "#/$defs/sha256"
+              },
+              "payload": {
+                "$ref": "#/$defs/sha256"
+              }
+            }
+          },
+          "load_address": {
+            "const": 196608
+          },
+          "sectors": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bootblock_checksum": {
+            "type": "string",
+            "pattern": "^0x[0-9a-f]{8}$"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}
