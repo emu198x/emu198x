@@ -327,17 +327,18 @@ pub trait AmigaDriver {
     ///
     /// A 12,668-byte DD track at 300 RPM advances one byte about every 56 PAL
     /// CCKs, hence 112 CCKs per word. NTSC's faster colour clock makes that
-    /// 113 CCKs. ADKCON.FAST halves either interval.
+    /// 113 CCKs. This is ADKCON.FAST's normal 2 µs MFM rate. Clearing FAST
+    /// selects the 4 µs GCR-compatible clock and doubles the interval.
     fn disk_word_cck_interval(&self) -> u16 {
         const ADKCON_FAST: u16 = 0x0100;
-        let ordinary = match self.agnus().region {
+        let mfm_fast = match self.agnus().region {
             AgnusRegion::Pal => 112,
             AgnusRegion::Ntsc => 113,
         };
         if self.paula().adkcon() & ADKCON_FAST != 0 {
-            ordinary / 2
+            mfm_fast
         } else {
-            ordinary
+            mfm_fast * 2
         }
     }
     fn refresh_cia_a_external_inputs(&mut self);

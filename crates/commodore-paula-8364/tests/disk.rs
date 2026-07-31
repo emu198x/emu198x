@@ -6,7 +6,7 @@
 //!   - DSKLEN DMAEN write must be doubled to actually start DMA.
 //!   - Bit-15=0 DSKLEN write disarms the flip-flop (HRM "$4000 safety").
 //!   - DSKBYTR.DSKBYT clears on read; WORDEQUAL latches with a delay.
-//!   - Byte pacing is 28 CCK (ADKCON.FAST) or 56 CCK (default).
+//!   - Byte pacing is 56 PAL CCK (2 µs FAST/MFM) or 112 CCK (4 µs slow).
 //!   - The disk PLL consumes 16 bit-cells per word in variable-rate mode.
 
 use commodore_paula_8364::{
@@ -256,14 +256,14 @@ fn wordsync_discards_alignment_and_matching_word_before_dma_service() {
 // ────────────────────────────────────────────────────────────────
 
 #[test]
-fn fast_disk_bit_picks_28_cck_per_byte() {
+fn fast_disk_bit_picks_56_cck_per_byte() {
     let mut p = Paula8364::new();
     p.write_adkcon(INT_SETCLR | ADKCON_FAST);
     p.note_disk_read_word(0xAABB);
     let _ = p.read_dskbytr(0);
 
     let mut elapsed = 0u8;
-    for _ in 1..=40u8 {
+    for _ in 1..=80u8 {
         p.tick_disk_cck();
         elapsed += 1;
         if p.read_dskbytr(0) & DSKBYTR_DSKBYT != 0 {
@@ -274,13 +274,13 @@ fn fast_disk_bit_picks_28_cck_per_byte() {
 }
 
 #[test]
-fn slow_disk_default_picks_56_cck_per_byte() {
+fn slow_disk_default_picks_112_cck_per_byte() {
     let mut p = Paula8364::new();
     p.note_disk_read_word(0xAABB);
     let _ = p.read_dskbytr(0);
 
     let mut elapsed = 0u8;
-    for _ in 1..=60u8 {
+    for _ in 1..=120u8 {
         p.tick_disk_cck();
         elapsed += 1;
         if p.read_dskbytr(0) & DSKBYTR_DSKBYT != 0 {

@@ -10,7 +10,7 @@
 //!   bit 11  UARTBRK  (send serial break)
 //!   bit 10  WORDSYNC (latch DSKSYNC compare)
 //!   bit  9  MSBSYNC  (Apple-GCR MSB sync mode)
-//!   bit  8  FAST     (disk byte-pacing: 14 vs 28 CCK)
+//!   bit  8  FAST     (2 µs MFM vs 4 µs GCR-compatible bit cells)
 //!   bits 7-4  USE3P3..USE0P1  (N modulates N+1 period)
 //!   bits 3-0  USE3V2..USE0V1  (N modulates N+1 volume)
 
@@ -71,7 +71,7 @@ fn fast_disk_bit_shortens_next_byte_arrival_cck() {
         // Drain the immediate high byte the chip makes available.
         let _ = p.read_dskbytr(0);
 
-        for n in 1..=64u32 {
+        for n in 1..=128u32 {
             p.tick_disk_cck();
             if p.read_dskbytr(0) & DSKBYTR_DSKBYT != 0 {
                 return n;

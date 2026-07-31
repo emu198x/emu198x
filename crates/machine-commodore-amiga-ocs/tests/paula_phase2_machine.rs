@@ -551,8 +551,8 @@ fn joystick_port1_drives_joy1dat_and_cia_fire() {
 
 #[test]
 fn dskbytr_byte_pacing_advances_on_per_cck_disk_tick() {
-    // With ADKCON.FAST set, the chip delivers the next byte 28 CCKs
-    // after a word arrives. The machine's tick loop ticks Paula's
+    // With ADKCON.FAST set, the normal 2 µs MFM clock delivers the next
+    // byte 56 PAL CCKs after a word arrives. The machine's tick loop ticks Paula's
     // disk engine once per CCK.
     let mut amiga = AmigaOcs::new(zero_rom());
     amiga.poke_word(0x00DF_F09E, 0x8100); // ADKCON SET + FAST
@@ -564,19 +564,43 @@ fn dskbytr_byte_pacing_advances_on_per_cck_disk_tick() {
     assert_eq!(amiga.paula().peek_dskbytr(0) & 0x8000, 0);
 
     // The low byte must not arrive one CCK early.
-    for _ in 0..(27 * 2) {
+    for _ in 0..(55 * 2) {
         amiga.tick();
     }
     assert_eq!(amiga.paula().peek_dskbytr(0) & 0x8000, 0);
 
-    // 28 CCKs = 56 master/4 ticks. The low byte now re-latches.
+    // 56 CCKs = 112 master/4 ticks. The low byte now re-latches.
     for _ in 0..2 {
         amiga.tick();
     }
     assert_ne!(
         amiga.paula().peek_dskbytr(0) & 0x8000,
         0,
-        "FAST disk pacing delivers next byte after 28 CCKs"
+        "FAST disk pacing delivers next byte after 56 CCKs"
+    );
+}
+
+#[test]
+fn disk_track_stream_fast_bit_selects_the_normal_mfm_word_rate() {
+    let mut amiga = AmigaOcs::new(zero_rom());
+
+    assert_eq!(
+        amiga.track_stream_diagnostic_snapshot().word_interval_ccks,
+        224,
+        "FAST clear selects the 4 µs slow/GCR-compatible clock"
+    );
+
+    amiga.poke_word(0x00DF_F09E, 0x8100); // ADKCON SET + FAST
+    assert_eq!(
+        amiga.track_stream_diagnostic_snapshot().word_interval_ccks,
+        112,
+        "FAST set is the normal 2 µs MFM clock, not a 2× MFM accelerator"
+    );
+
+    amiga.poke_word(0x00DF_F09E, 0x0100); // ADKCON CLEAR + FAST
+    assert_eq!(
+        amiga.track_stream_diagnostic_snapshot().word_interval_ccks,
+        224
     );
 }
 

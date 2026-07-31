@@ -137,10 +137,14 @@ pub mod bits {
     /// HRM minimum playback period — below this the DMA slot cannot
     /// deliver in time. Writes below 124 are preserved for read-back.
     pub const AUDIO_MIN_PERIOD_CCK: u16 = 124;
-    /// Encoded-byte interval at the doubled disk clock.
-    pub const DISK_BYTE_CCK_FAST: u8 = 28;
-    /// Encoded-byte interval at the ordinary 300 RPM DD disk clock.
-    pub const DISK_BYTE_CCK_SLOW: u8 = 56;
+    /// Encoded-byte interval in FAST's normal 2 µs MFM bit-cell mode.
+    ///
+    /// Eight 2 µs cells are about 56 PAL colour clocks. FAST names the
+    /// disk data clock, not a multiplier applied to an already-normal MFM
+    /// stream.
+    pub const DISK_BYTE_CCK_FAST: u8 = 56;
+    /// Encoded-byte interval in the 4 µs GCR-compatible slow mode.
+    pub const DISK_BYTE_CCK_SLOW: u8 = 112;
 }
 
 use bits::*;

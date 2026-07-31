@@ -70,7 +70,8 @@ fn write_dma_persists_a_track_to_the_adf() {
     );
 
     // Tick until both the Agnus transfer and Paula's three-word write FIFO
-    // drain (112 CCK/word × 2 ticks/CCK × ~6k words → under the cap).
+    // drain (224 CCK/word in slow mode × 2 ticks/CCK × ~6k words → under
+    // the cap).
     let mut ticks = 0u64;
     while amiga.paula().disk_write_stream_active() && ticks < 5_000_000 {
         amiga.tick();

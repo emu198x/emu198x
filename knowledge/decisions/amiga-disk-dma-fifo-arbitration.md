@@ -58,14 +58,18 @@ selects the new direction.
 ## Rotational pace
 
 The sector-derived DD track contains 12,668 encoded bytes and represents one
-300 RPM revolution. The shared driver therefore advances an ordinary PAL
-stream every 112 CCKs per word. The NTSC approximation uses 113 CCKs per word.
-`ADKCON.FAST` halves those intervals.
+300 RPM revolution. `ADKCON.FAST` set selects the normal 2 µs MFM bit-cell
+clock. At that rate the shared driver advances a PAL stream every 112 CCKs per
+word; the NTSC approximation uses 113 CCKs. Clearing `FAST` selects the 4 µs
+GCR-compatible clock and doubles those intervals.
 
-Paula's byte-latch timing uses 56 CCKs per encoded byte at the ordinary rate
-and 28 CCKs with `FAST`. The previous machine path treated those byte
-intervals as whole-word intervals and consequently advanced ordinary media at
-twice the intended rate.
+Paula's byte latch advances after 56 PAL CCKs with `FAST` set and after 112
+CCKs with it clear. An earlier revision incorrectly treated `FAST` as a
+multiplier applied to an already-normal MFM rate. It therefore delivered one
+whole word every 56 CCKs, overflowed the three-word FIFO faster than Agnus's
+three disk cells per line could drain it, and corrupted ordinary Kickstart
+track reads. The portable Paula-audio probe exposed the regression by failing
+to boot through the current disk path.
 
 ## Persistence and inspection
 
@@ -95,4 +99,3 @@ bits, custom track lengths, IPF and flux timing remain outside this decision.
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Amiga accuracy closure campaign](amiga-accuracy-closure-campaign.md)
 - [Save-state: serde the live machine](savestate-live-machine-serde.md)
-
