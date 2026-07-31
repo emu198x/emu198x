@@ -6,10 +6,12 @@
 //!   - DSKLEN DMAEN write must be doubled to actually start DMA.
 //!   - Bit-15=0 DSKLEN write disarms the flip-flop (HRM "$4000 safety").
 //!   - DSKBYTR.DSKBYT clears on read; WORDEQUAL latches with a delay.
-//!   - Byte pacing is 14 CCK (ADKCON.FAST) or 28 CCK (default).
+//!   - Byte pacing is 28 CCK (ADKCON.FAST) or 56 CCK (default).
 //!   - The disk PLL consumes 16 bit-cells per word in variable-rate mode.
 
-use commodore_paula_8364::{IntSource, Paula8364, bits::*};
+use commodore_paula_8364::{
+    DISK_DMA_FIFO_WORD_CAPACITY, DiskDmaFifoDirection, IntSource, Paula8364, bits::*,
+};
 
 // ────────────────────────────────────────────────────────────────
 // DSKLEN double-write arming
@@ -60,6 +62,29 @@ fn complete_disk_dma_clears_pending_and_raises_dskblk_irq() {
     );
 }
 
+#[test]
+fn second_dsklen_arm_clears_fifo_and_selects_the_new_direction() {
+    let mut p = Paula8364::new();
+    let read = DSKLEN_DMAEN | 4;
+    p.write_dsklen(read);
+    p.write_dsklen(read);
+    p.receive_disk_read_word(0x1111);
+    p.receive_disk_read_word(0x2222);
+    assert_eq!(p.disk_diagnostic_snapshot().disk_dma_fifo_count, 2);
+
+    let write = DSKLEN_DMAEN | DSKLEN_WRITE | 2;
+    p.write_dsklen(write);
+    p.write_dsklen(write);
+
+    let snapshot = p.disk_diagnostic_snapshot();
+    assert_eq!(
+        snapshot.disk_dma_fifo_direction,
+        Some(DiskDmaFifoDirection::Write)
+    );
+    assert!(snapshot.disk_dma_fifo_empty);
+    assert_eq!(snapshot.disk_dma_fifo_count, 0);
+}
+
 // ────────────────────────────────────────────────────────────────
 // DSKBYTR status bits
 // ────────────────────────────────────────────────────────────────
@@ -94,6 +119,21 @@ fn dskbytr_data_byte_is_the_high_byte_of_the_received_word() {
     p.note_disk_read_word(0xA1B2);
     let byt = p.read_dskbytr(0);
     assert_eq!(byt & DSKBYTR_DATA_MASK, 0xA1);
+}
+
+#[test]
+fn rotational_read_updates_dskbytr_even_without_dma() {
+    let mut p = Paula8364::new();
+    p.receive_disk_read_word(0xA1B2);
+
+    let snapshot = p.disk_diagnostic_snapshot();
+    assert_eq!(snapshot.dskdatr, 0xA1B2);
+    assert_eq!(snapshot.dskbytr_data, 0xA1);
+    assert_eq!(snapshot.dskbytr_next_data, Some(0xB2));
+    assert!(
+        snapshot.disk_dma_fifo_empty,
+        "an idle controller must not manufacture a DMA request"
+    );
 }
 
 #[test]
@@ -179,12 +219,44 @@ fn wordequal_bit_latches_until_delay_elapses_then_clears() {
     );
 }
 
+#[test]
+fn wordsync_discards_alignment_and_matching_word_before_dma_service() {
+    let mut p = Paula8364::new();
+    p.write_adkcon(INT_SETCLR | ADKCON_WORDSYNC);
+    p.set_dsksync(0x4489);
+    let dsklen = DSKLEN_DMAEN | 1;
+    p.write_dsklen(dsklen);
+    p.write_dsklen(dsklen);
+
+    p.receive_disk_read_word(0xAAAA);
+    assert_eq!(p.disk_diagnostic_snapshot().disk_dma_fifo, [0xAAAA]);
+    assert_eq!(
+        p.service_disk_read_dma_slot(),
+        None,
+        "pre-sync data cannot consume an Agnus grant"
+    );
+
+    p.receive_disk_read_word(0x4489);
+    let aligned = p.disk_diagnostic_snapshot();
+    assert!(!aligned.disk_dma_wordsync_waiting);
+    assert!(
+        aligned.disk_dma_fifo_empty,
+        "the match clears alignment data and is not queued"
+    );
+    assert_eq!(p.service_disk_read_dma_slot(), None);
+
+    p.receive_disk_read_word(0x1234);
+    assert_eq!(p.service_disk_read_dma_slot(), Some(0x1234));
+    assert!(!p.disk_dma_pending());
+    assert_ne!(p.intreq() & IntSource::DskBlk.mask(), 0);
+}
+
 // ────────────────────────────────────────────────────────────────
 // Byte pacing (ADKCON.FAST)
 // ────────────────────────────────────────────────────────────────
 
 #[test]
-fn fast_disk_bit_picks_14_cck_per_byte() {
+fn fast_disk_bit_picks_28_cck_per_byte() {
     let mut p = Paula8364::new();
     p.write_adkcon(INT_SETCLR | ADKCON_FAST);
     p.note_disk_read_word(0xAABB);
@@ -202,7 +274,7 @@ fn fast_disk_bit_picks_14_cck_per_byte() {
 }
 
 #[test]
-fn slow_disk_default_picks_28_cck_per_byte() {
+fn slow_disk_default_picks_56_cck_per_byte() {
     let mut p = Paula8364::new();
     p.note_disk_read_word(0xAABB);
     let _ = p.read_dskbytr(0);
@@ -216,6 +288,101 @@ fn slow_disk_default_picks_28_cck_per_byte() {
         }
     }
     assert_eq!(elapsed, DISK_BYTE_CCK_SLOW);
+}
+
+// ────────────────────────────────────────────────────────────────
+// Three-word DMA FIFO and Agnus-granted service
+// ────────────────────────────────────────────────────────────────
+
+#[test]
+fn read_arrivals_wait_in_fifo_until_granted_slots_consume_them() {
+    let mut p = Paula8364::new();
+    let dsklen = DSKLEN_DMAEN | 2;
+    p.write_dsklen(dsklen);
+    p.write_dsklen(dsklen);
+    p.receive_disk_read_word(0x1111);
+    p.receive_disk_read_word(0x2222);
+
+    let waiting = p.disk_diagnostic_snapshot();
+    assert_eq!(waiting.disk_dma_words_remaining, 2);
+    assert_eq!(waiting.disk_dma_fifo, [0x1111, 0x2222]);
+    assert_eq!(
+        waiting.disk_dma_fifo_direction,
+        Some(DiskDmaFifoDirection::Read)
+    );
+    assert_eq!(p.intreq() & IntSource::DskBlk.mask(), 0);
+
+    assert_eq!(p.service_disk_read_dma_slot(), Some(0x1111));
+    assert_eq!(p.disk_diagnostic_snapshot().disk_dma_words_remaining, 1);
+    assert_eq!(p.intreq() & IntSource::DskBlk.mask(), 0);
+
+    assert_eq!(p.service_disk_read_dma_slot(), Some(0x2222));
+    assert!(!p.disk_dma_pending());
+    assert_ne!(p.intreq() & IntSource::DskBlk.mask(), 0);
+}
+
+#[test]
+fn read_fifo_is_bounded_and_keeps_existing_words_on_overflow() {
+    let mut p = Paula8364::new();
+    let dsklen = DSKLEN_DMAEN | 4;
+    p.write_dsklen(dsklen);
+    p.write_dsklen(dsklen);
+
+    for word in [0x1111, 0x2222, 0x3333, 0x4444] {
+        p.receive_disk_read_word(word);
+    }
+
+    let full = p.disk_diagnostic_snapshot();
+    assert_eq!(full.disk_dma_fifo_count, DISK_DMA_FIFO_WORD_CAPACITY);
+    assert_eq!(full.disk_dma_fifo, [0x1111, 0x2222, 0x3333]);
+    assert!(full.disk_dma_fifo_full);
+    assert!(!full.disk_dma_fifo_empty);
+
+    assert_eq!(p.service_disk_read_dma_slot(), Some(0x1111));
+    p.receive_disk_read_word(0x5555);
+    assert_eq!(
+        p.disk_diagnostic_snapshot().disk_dma_fifo,
+        [0x2222, 0x3333, 0x5555]
+    );
+}
+
+#[test]
+fn write_grants_stop_at_fifo_capacity_and_final_grant_leaves_words_drainable() {
+    let mut p = Paula8364::new();
+    let dsklen = DSKLEN_DMAEN | DSKLEN_WRITE | 4;
+    p.write_dsklen(dsklen);
+    p.write_dsklen(dsklen);
+
+    for word in [0x1111, 0x2222, 0x3333] {
+        assert!(p.disk_write_dma_slot_requested());
+        assert!(p.accept_disk_write_dma_slot(word));
+    }
+    let full = p.disk_diagnostic_snapshot();
+    assert!(full.disk_dma_fifo_full);
+    assert_eq!(full.disk_dma_words_remaining, 1);
+    assert!(!p.disk_write_dma_slot_requested());
+    assert!(!p.accept_disk_write_dma_slot(0x4444));
+    assert_eq!(full.disk_dma_fifo, [0x1111, 0x2222, 0x3333]);
+
+    assert_eq!(p.take_disk_write_stream_word(), Some(0x1111));
+    assert!(p.disk_write_dma_slot_requested());
+    assert!(p.accept_disk_write_dma_slot(0x4444));
+    assert!(
+        !p.disk_dma_pending(),
+        "the final granted chip-RAM fetch completes DSKLEN"
+    );
+    assert_ne!(p.intreq() & IntSource::DskBlk.mask(), 0);
+    assert!(
+        p.disk_write_stream_active(),
+        "accepted words remain drainable after DSKBLK"
+    );
+
+    assert_eq!(p.take_disk_write_stream_word(), Some(0x2222));
+    assert_eq!(p.take_disk_write_stream_word(), Some(0x3333));
+    assert_eq!(p.take_disk_write_stream_word(), Some(0x4444));
+    assert_eq!(p.take_disk_write_stream_word(), None);
+    assert!(!p.disk_write_stream_active());
+    assert_eq!(p.disk_diagnostic_snapshot().disk_dma_fifo_direction, None);
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -311,6 +478,13 @@ fn disk_diagnostic_snapshot_exposes_register_latch_queue_dma_and_pll_state() {
     assert!(snapshot.dskbytr_wordequal);
     assert_eq!(snapshot.dskbytr_wordequal_delay_cck, DISK_BYTE_CCK_FAST);
     assert_eq!(snapshot.dskdat_queue, [0x1111, 0x2222]);
+    assert!(snapshot.disk_dma_fifo_empty);
+    assert_eq!(snapshot.disk_dma_fifo_count, 0);
+    assert!(!snapshot.disk_dma_fifo_full);
+    assert_eq!(
+        snapshot.disk_dma_fifo_direction,
+        Some(DiskDmaFifoDirection::Read)
+    );
     assert!(!snapshot.dsklen_armed);
     assert!(snapshot.disk_dma_pending);
     assert_eq!(snapshot.disk_dma_words_remaining, 3);
@@ -349,4 +523,10 @@ fn disk_diagnostic_snapshot_exposes_arming_and_write_direction() {
     assert!(active.disk_dma_is_write);
     assert!(!active.disk_dma_wordsync_waiting);
     assert!(active.disk_dma_write_active);
+    assert!(active.disk_dma_fifo_empty);
+    assert_eq!(
+        active.disk_dma_fifo_direction,
+        Some(DiskDmaFifoDirection::Write)
+    );
+    assert!(p.disk_write_stream_active());
 }

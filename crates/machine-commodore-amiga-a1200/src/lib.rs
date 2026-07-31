@@ -1089,18 +1089,14 @@ impl AmigaA1200 {
         Some((addr24 & 0x1FE) as u16)
     }
 
-    /// Push the next MFM word from the drive's encoded track buffer
-    /// into Paula's disk DMA engine. Re-encodes the track when the
+    /// Push the next rotational MFM word from the drive's encoded track
+    /// buffer into Paula's disk FIFO. Re-encodes the track when the
     /// drive head has moved since the last word, or when no cache
     /// exists yet. Rotates the cursor back to 0 at end of track so
     /// successive revolutions keep delivering words.
     ///
-    /// Once Paula is asked to consume the word via
-    /// [`Paula8364::tick_disk_dma_slot`], it returns the word the
-    /// machine should write to chip RAM at DSKPT — or `None` when
-    /// WORDSYNC is still gating, the transfer is a write, or no
-    /// transfer is in flight. Paula self-clears `disk_dma_pending`
-    /// and raises DSKBLK when the transfer's word count hits zero.
+    /// This advances the rotating stream and DSKBYTR/DSKDATR state only.
+    /// Agnus-granted cells independently move queued words to chip RAM.
     fn feed_next_mfm_word(&mut self) {
         let cyl = self.drive.cylinder();
         let head = self.drive.head();
@@ -1140,41 +1136,16 @@ impl AmigaA1200 {
         let word = (u16::from(bytes[i]) << 8) | u16::from(bytes[i + 1]);
         self.track_word_cursor += 1;
 
-        // Disk-DMA glue. Paula owns the WORDSYNC gate, the word
-        // countdown, and the DSKBLK interrupt; the machine owns
-        // chip RAM and DSKPT (Agnus's pointer register).
-        if let Some(write_word) = self.paula.tick_disk_dma_slot(word) {
-            let addr = self.agnus.dsk_pt & 0x001F_FFFE;
-            self.memory.write_word(addr, write_word);
-            self.agnus.dsk_pt = self.agnus.dsk_pt.wrapping_add(2);
-        }
+        self.paula.receive_disk_read_word(word);
     }
 
-    /// Disk *write* DMA glue — the chip-RAM → drive mirror of
-    /// `feed_next_mfm_word` (#97). Pull the word at DSKPT, hand it to
-    /// Paula's write slot, feed the result to the drive's MFM capture,
-    /// advance DSKPT, and on the final word decode + persist the track.
+    /// Drain one rotational write-stream word from Paula's FIFO to the drive.
     fn feed_next_write_word(&mut self) {
-        let addr = self.agnus.dsk_pt & 0x001F_FFFE;
-        let word = self.memory.read_word(addr);
-        if let Some(write_word) = self.paula.tick_disk_write_dma_slot(word) {
+        if let Some(write_word) = self.paula.take_disk_write_stream_word() {
             self.drive.note_write_mfm_word(write_word);
-            self.agnus.dsk_pt = self.agnus.dsk_pt.wrapping_add(2);
-            if !self.paula.disk_dma_write_active() {
+            if !self.paula.disk_write_stream_active() {
                 self.drive.flush_write_capture();
             }
-        }
-    }
-
-    /// CCKs between consecutive MFM words at 250 kbit/s (ADKCON.FAST
-    /// clear) or 500 kbit/s (FAST set). Paula's internal byte pacer
-    /// uses 28 / 14 CCKs per byte; a word is two bytes.
-    fn disk_word_cck_interval(&self) -> u16 {
-        const ADKCON_FAST: u16 = 0x0100;
-        if self.paula.adkcon() & ADKCON_FAST != 0 {
-            28
-        } else {
-            56
         }
     }
 
@@ -2421,9 +2392,6 @@ impl AmigaDriver for AmigaA1200 {
     }
     fn feed_next_mfm_word(&mut self) {
         AmigaA1200::feed_next_mfm_word(self);
-    }
-    fn disk_word_cck_interval(&self) -> u16 {
-        AmigaA1200::disk_word_cck_interval(self)
     }
     fn refresh_cia_a_external_inputs(&mut self) {
         AmigaA1200::refresh_cia_a_external_inputs(self);

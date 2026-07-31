@@ -59,6 +59,8 @@ fn write_dma_persists_a_track_to_the_adf() {
     // (DSKLEN double-write with DMAEN | WRITE | length).
     amiga.poke_word(0x00DF_F020, (base >> 16) as u16); // DSKPTH
     amiga.poke_word(0x00DF_F022, (base & 0xFFFF) as u16); // DSKPTL
+    // Disk memory traffic requires both the master and disk-DMA gates.
+    amiga.poke_word(0x00DF_F096, 0x8000 | 0x0200 | 0x0010); // DMACON SETCLR|DMAEN|DSKEN
     let dsklen = 0x8000 | 0x4000 | (words.len() as u16);
     amiga.poke_word(0x00DF_F024, dsklen);
     amiga.poke_word(0x00DF_F024, dsklen);
@@ -67,16 +69,16 @@ fn write_dma_persists_a_track_to_the_adf() {
         "write DMA should be armed"
     );
 
-    // Tick until the transfer drains (56 CCK/word × 2 ticks/CCK × ~6k
-    // words → well under the cap).
+    // Tick until both the Agnus transfer and Paula's three-word write FIFO
+    // drain (112 CCK/word × 2 ticks/CCK × ~6k words → under the cap).
     let mut ticks = 0u64;
-    while amiga.paula().disk_dma_write_active() && ticks < 5_000_000 {
+    while amiga.paula().disk_write_stream_active() && ticks < 5_000_000 {
         amiga.tick();
         ticks += 1;
     }
     assert!(
-        !amiga.paula().disk_dma_write_active(),
-        "write DMA should have drained"
+        !amiga.paula().disk_write_stream_active(),
+        "write DMA and its FIFO should have drained"
     );
     assert_eq!(
         amiga.intreq() & 0x0002,
@@ -120,18 +122,19 @@ fn write_protected_mount_drops_the_save() {
     }
     amiga.poke_word(0x00DF_F020, (base >> 16) as u16);
     amiga.poke_word(0x00DF_F022, (base & 0xFFFF) as u16);
+    amiga.poke_word(0x00DF_F096, 0x8000 | 0x0200 | 0x0010);
     let dsklen = 0x8000 | 0x4000 | (words.len() as u16);
     amiga.poke_word(0x00DF_F024, dsklen);
     amiga.poke_word(0x00DF_F024, dsklen);
 
     let mut ticks = 0u64;
-    while amiga.paula().disk_dma_write_active() && ticks < 5_000_000 {
+    while amiga.paula().disk_write_stream_active() && ticks < 5_000_000 {
         amiga.tick();
         ticks += 1;
     }
     assert!(
-        !amiga.paula().disk_dma_write_active(),
-        "DMA still drains to the head"
+        !amiga.paula().disk_write_stream_active(),
+        "DMA and its FIFO still drain to the head"
     );
 
     // The transfer completes (the head "wrote") but a write-protected

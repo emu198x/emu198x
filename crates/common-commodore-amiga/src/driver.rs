@@ -46,7 +46,7 @@ use crate::cia::Cia;
 use crate::clock::{CpuClock, CpuDomainPhase};
 use crate::copper::Copper;
 use crate::memory::Memory;
-use commodore_agnus_ocs::{Agnus, BlitterCckOutcome, CckBusPlan, SlotOwner};
+use commodore_agnus_ocs::{Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, SlotOwner};
 use commodore_paula_8364::{IntSource, Paula8364};
 use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode, interrupt_acknowledge_level};
@@ -245,6 +245,31 @@ pub trait AmigaDriver {
     /// chip RAM. Encapsulates the `&mut paula` + `&memory` split borrow.
     fn audio_tick_cck(&mut self, dmacon: u16, slot: Option<u8>);
 
+    /// Service one Agnus-granted disk-DMA cell.
+    ///
+    /// Read DMA dequeues one word from Paula's rotational FIFO into chip RAM.
+    /// Write DMA moves one word from chip RAM into that FIFO when it has room.
+    /// The independent track pacer fills or drains the FIFO; it never performs
+    /// the memory transfer itself.
+    fn service_disk_dma_slot(&mut self) {
+        if self.paula().disk_write_dma_slot_requested() {
+            let addr = self.agnus().dsk_pt & 0x001F_FFFE;
+            let word = self.memory().read_word(addr);
+            if self.paula_mut().accept_disk_write_dma_slot(word) {
+                let next = self.agnus().dsk_pt.wrapping_add(2);
+                self.agnus_mut().dsk_pt = next;
+            }
+            return;
+        }
+
+        if let Some(word) = self.paula_mut().service_disk_read_dma_slot() {
+            let addr = self.agnus().dsk_pt & 0x001F_FFFE;
+            self.memory_mut().write_word(addr, word);
+            let next = self.agnus().dsk_pt.wrapping_add(2);
+            self.agnus_mut().dsk_pt = next;
+        }
+    }
+
     /// Service one sprite-DMA slot for `channel`: fetch the control/data
     /// word from chip RAM at the sprite pointer and route it into Denise
     /// (SPRxPOS/CTL via the register dispatch, SPRxDATA/DATB into the
@@ -297,7 +322,24 @@ pub trait AmigaDriver {
     fn dispatch_custom_write(&mut self, offset: u16, val: u16);
     fn feed_next_write_word(&mut self);
     fn feed_next_mfm_word(&mut self);
-    fn disk_word_cck_interval(&self) -> u16;
+    /// CCKs between rotational MFM words at the selected region and ADKCON
+    /// rate.
+    ///
+    /// A 12,668-byte DD track at 300 RPM advances one byte about every 56 PAL
+    /// CCKs, hence 112 CCKs per word. NTSC's faster colour clock makes that
+    /// 113 CCKs. ADKCON.FAST halves either interval.
+    fn disk_word_cck_interval(&self) -> u16 {
+        const ADKCON_FAST: u16 = 0x0100;
+        let ordinary = match self.agnus().region {
+            AgnusRegion::Pal => 112,
+            AgnusRegion::Ntsc => 113,
+        };
+        if self.paula().adkcon() & ADKCON_FAST != 0 {
+            ordinary / 2
+        } else {
+            ordinary
+        }
+    }
     fn refresh_cia_a_external_inputs(&mut self);
     /// Tick the variant's *own* CPU after loading IPL — `Cpu68000` for
     /// OCS / ECS, `Cpu68020` for AGA. Kept per-variant so it is not
@@ -504,36 +546,38 @@ pub trait AmigaDriver {
                     self.service_sprite_dma(channel, second_word);
                 }
 
-                // ── Paula disk engine — DSKBYTR byte-pacing + WORDEQUAL
-                // delay. Ticked once per CCK; no-op until a drive has
-                // delivered a word via `tick_disk_dma_slot`. Paula owns
-                // the DMA arm flip-flop, the word countdown, the WORDSYNC
-                // gate, and the DSKBLK interrupt; the machine layer is
-                // glue around those primitives.
+                // Disk memory traffic consumes only the fixed cells Agnus
+                // granted in this already-sampled plan. Rotational stream
+                // arrival remains independent below, through Paula's bounded
+                // FIFO, so DSKBYTR and disk rotation continue even when DSKEN
+                // is clear or the FIFO cannot use this cell.
+                if bus_plan.disk_dma_slot_granted {
+                    self.service_disk_dma_slot();
+                }
+
+                // ── Paula disk engine — DSKBYTR byte-latch + WORDEQUAL
+                // delay. Ticked once per CCK. Paula owns the DMA arm
+                // flip-flop, FIFO, word countdown, WORDSYNC gate and DSKBLK
+                // interrupt; the machine layer supplies memory and media
+                // movement at the two independently clocked boundaries.
                 self.paula_mut().tick_disk_cck();
 
-                // ── Floppy track-read path ──────────────────────────
-                // With drive selected, motor spinning, disk present, and
-                // Paula expecting data, feed MFM words word-by-word at
-                // the disk byte rate.
-                if self.paula().disk_dma_write_active() {
-                    // Disk WRITE DMA: pull words from chip RAM to the drive
-                    // at the disk byte rate (same pacer as the read path — a
-                    // transfer is either a read or a write, never both).
-                    if self.track_pacer() == 0 {
-                        self.feed_next_write_word();
-                        let interval = self.disk_word_cck_interval();
-                        self.set_track_pacer(interval);
+                // ── Rotational stream ↔ Paula FIFO ──────────────────
+                // The encoded track moves independently of disk DMA cells.
+                // In read mode, a paced word enters Paula's three-word FIFO.
+                // In write mode, a paced word leaves it for the drive. Agnus
+                // alone moves words between that FIFO and chip RAM above.
+                let write_stream_active = self.paula().disk_write_stream_active();
+                if write_stream_active || self.drive().read_data_available() {
+                    if self.track_pacer() <= 1 {
+                        if write_stream_active {
+                            self.feed_next_write_word();
+                        } else {
+                            self.feed_next_mfm_word();
+                        }
+                        self.set_track_pacer(self.disk_word_cck_interval());
                     } else {
-                        self.set_track_pacer(self.track_pacer().saturating_sub(1));
-                    }
-                } else if self.drive().read_data_available() {
-                    if self.track_pacer() == 0 {
-                        self.feed_next_mfm_word();
-                        let interval = self.disk_word_cck_interval();
-                        self.set_track_pacer(interval);
-                    } else {
-                        self.set_track_pacer(self.track_pacer().saturating_sub(1));
+                        self.set_track_pacer(self.track_pacer() - 1);
                     }
                 } else {
                     self.set_track_pacer(0);

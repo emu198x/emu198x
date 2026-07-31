@@ -137,8 +137,10 @@ pub mod bits {
     /// HRM minimum playback period — below this the DMA slot cannot
     /// deliver in time. Writes below 124 are preserved for read-back.
     pub const AUDIO_MIN_PERIOD_CCK: u16 = 124;
-    pub const DISK_BYTE_CCK_FAST: u8 = 14;
-    pub const DISK_BYTE_CCK_SLOW: u8 = 28;
+    /// Encoded-byte interval at the doubled disk clock.
+    pub const DISK_BYTE_CCK_FAST: u8 = 28;
+    /// Encoded-byte interval at the ordinary 300 RPM DD disk clock.
+    pub const DISK_BYTE_CCK_SLOW: u8 = 56;
 }
 
 use bits::*;
@@ -146,6 +148,19 @@ use bits::*;
 // ─────────────────────────────────────────────────────────────────────
 // Interrupt source enum + audio field enum (typed register API)
 // ─────────────────────────────────────────────────────────────────────
+
+/// Number of complete words in Paula's disk-DMA FIFO.
+pub const DISK_DMA_FIFO_WORD_CAPACITY: usize = 3;
+
+/// Direction of the words currently retained by Paula's disk-DMA FIFO.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiskDmaFifoDirection {
+    /// Encoded words received from the drive and awaiting chip-RAM writes.
+    Read,
+    /// Words fetched from chip RAM and awaiting delivery to the drive.
+    Write,
+}
 
 /// An INTREQ source. Indexes the 14 interrupt-request bits by name so
 /// callers don't use raw bit numbers.
@@ -882,6 +897,16 @@ pub struct PaulaDiskDiagnosticSnapshot {
     pub dskbytr_wordequal_delay_cck: u8,
     /// DSKDAT writes waiting for the drive consumer, in dequeue order.
     pub dskdat_queue: Vec<u16>,
+    /// Disk-DMA FIFO words in consumer order.
+    pub disk_dma_fifo: Vec<u16>,
+    /// Direction associated with the retained disk-DMA FIFO words.
+    pub disk_dma_fifo_direction: Option<DiskDmaFifoDirection>,
+    /// Number of complete words currently retained by the disk-DMA FIFO.
+    pub disk_dma_fifo_count: usize,
+    /// Whether the disk-DMA FIFO contains no complete words.
+    pub disk_dma_fifo_empty: bool,
+    /// Whether the disk-DMA FIFO contains all three complete words.
+    pub disk_dma_fifo_full: bool,
     /// Whether the DSKLEN arming flip-flop has seen its first DMAEN write.
     pub dsklen_armed: bool,
     /// Whether a disk DMA transfer is pending.
@@ -933,6 +958,10 @@ pub struct Paula8364 {
     dskbytr_wordequal_delay_cck: u8,
 
     dskdat_queue: VecDeque<u16>,
+    /// Three-word Paula disk FIFO, distinct from CPU-written DSKDAT.
+    disk_dma_fifo: VecDeque<u16>,
+    /// Direction of the transfer represented by `disk_dma_fifo`.
+    disk_dma_fifo_direction: Option<DiskDmaFifoDirection>,
     disk_dma_pending: bool,
     /// DSKLEN arming flip-flop per HRM "turn DMAEN on twice" protocol.
     dsklen_armed: bool,
@@ -1018,6 +1047,8 @@ impl Paula8364 {
             dskbytr_wordequal: false,
             dskbytr_wordequal_delay_cck: 0,
             dskdat_queue: VecDeque::new(),
+            disk_dma_fifo: VecDeque::with_capacity(DISK_DMA_FIFO_WORD_CAPACITY),
+            disk_dma_fifo_direction: None,
             disk_dma_pending: false,
             dsklen_armed: false,
             disk_dma_words_remaining: 0,
@@ -1384,6 +1415,12 @@ impl Paula8364 {
                 let word_count = u32::from(val & 0x3FFF);
                 let is_write = (val & DSKLEN_WRITE) != 0;
                 let wordsync_enabled = !is_write && (self.adkcon & ADKCON_WORDSYNC) != 0;
+                self.disk_dma_fifo.clear();
+                self.disk_dma_fifo_direction = Some(if is_write {
+                    DiskDmaFifoDirection::Write
+                } else {
+                    DiskDmaFifoDirection::Read
+                });
                 if word_count == 0 {
                     // Zero-length transfer fires DSKBLK at once per
                     // HRM ("a DSKLEN write with DMAEN set and length=0
@@ -1482,34 +1519,52 @@ impl Paula8364 {
         wordequal
     }
 
-    /// Drive the disk-read DMA state machine forward one slot. Pass
-    /// the next MFM word from the drive's encoded track stream;
-    /// returns `Some(word)` if the caller should write that word into
-    /// chip RAM at DSKPT (and increment DSKPT by 2), or `None` if the
-    /// word is suppressed by WORDSYNC gating, the transfer is a write
-    /// (chip-RAM → drive, not exercised by boot), or no transfer is
-    /// in flight.
+    /// Deliver one rotationally paced MFM word from the drive.
     ///
-    /// Side effects: updates DSKBYTR/DSKDATR latches via
-    /// [`note_disk_read_word`], decrements `disk_dma_words_remaining`,
-    /// and raises DSKBLK (via [`complete_disk_dma`]) when the transfer
-    /// reaches zero. The machine layer becomes glue: encode the next
-    /// MFM word, call this, write to chip RAM if `Some`, increment
-    /// DSKPT.
-    pub fn tick_disk_dma_slot(&mut self, word: u16) -> Option<u16> {
+    /// DSKDATR, DSKBYTR, and the sync comparator advance regardless of
+    /// whether DMA is armed. An active read transfer additionally queues
+    /// the word in Paula's three-word FIFO. While WORDSYNC is waiting,
+    /// unmatched words may accumulate but cannot be serviced; the first
+    /// matching word clears that alignment data, opens the gate, and is
+    /// itself discarded. A full FIFO retains its existing three words.
+    pub fn receive_disk_read_word(&mut self, word: u16) {
         let matched_sync = self.note_disk_read_word(word);
-        if self.disk_dma_words_remaining == 0 || self.disk_dma_is_write {
+        if !self.disk_dma_pending || self.disk_dma_is_write {
+            return;
+        }
+
+        if self.disk_dma_wordsync_waiting && matched_sync {
+            self.disk_dma_fifo.clear();
+            self.disk_dma_fifo_direction = Some(DiskDmaFifoDirection::Read);
+            self.disk_dma_wordsync_waiting = false;
+            return;
+        }
+
+        if self.disk_dma_fifo_direction != Some(DiskDmaFifoDirection::Read) {
+            self.disk_dma_fifo.clear();
+            self.disk_dma_fifo_direction = Some(DiskDmaFifoDirection::Read);
+        }
+        if self.disk_dma_fifo.len() < DISK_DMA_FIFO_WORD_CAPACITY {
+            self.disk_dma_fifo.push_back(word);
+        }
+    }
+
+    /// Consume one Agnus-granted disk-DMA read slot.
+    ///
+    /// Returns the oldest queued drive word for the machine to write to
+    /// chip RAM and advances the DSKLEN countdown only when a word was
+    /// available. WORDSYNC-waiting, write, idle, and FIFO-empty states do
+    /// not consume the grant.
+    pub fn service_disk_read_dma_slot(&mut self) -> Option<u16> {
+        if !self.disk_dma_pending
+            || self.disk_dma_is_write
+            || self.disk_dma_wordsync_waiting
+            || self.disk_dma_fifo_direction != Some(DiskDmaFifoDirection::Read)
+        {
             return None;
         }
-        if self.disk_dma_wordsync_waiting {
-            // First sync match opens the DMA gate but is not itself
-            // written. Later sync words land in memory normally — the
-            // A1000 bootstrap raw-track loader expects to find them.
-            if matched_sync {
-                self.disk_dma_wordsync_waiting = false;
-            }
-            return None;
-        }
+
+        let word = self.disk_dma_fifo.pop_front()?;
         self.disk_dma_words_remaining = self.disk_dma_words_remaining.saturating_sub(1);
         if self.disk_dma_words_remaining == 0 {
             self.complete_disk_dma();
@@ -1517,29 +1572,77 @@ impl Paula8364 {
         Some(word)
     }
 
-    /// Drive the disk-*write* DMA state machine forward one slot — the
-    /// chip-RAM → drive direction, the mirror of [`tick_disk_dma_slot`].
+    /// Whether an Agnus-granted disk slot can fetch another write word.
+    #[must_use]
+    pub fn disk_write_dma_slot_requested(&self) -> bool {
+        self.disk_dma_pending
+            && self.disk_dma_is_write
+            && self.disk_dma_words_remaining > 0
+            && self.disk_dma_fifo_direction == Some(DiskDmaFifoDirection::Write)
+            && self.disk_dma_fifo.len() < DISK_DMA_FIFO_WORD_CAPACITY
+    }
+
+    /// Accept one chip-RAM word fetched during an Agnus-granted disk slot.
     ///
-    /// The machine fetches the next word from chip RAM at DSKPT and
-    /// passes it here; the returned `Some(word)` is what the machine
-    /// then hands to the drive's write path (`note_write_mfm_word`),
-    /// after which it increments DSKPT. Returns `None` when no write
-    /// transfer is in flight (idle, or a read transfer — which
-    /// [`tick_disk_dma_slot`] owns).
-    ///
-    /// Decrements `disk_dma_words_remaining` and raises DSKBLK (via
-    /// [`complete_disk_dma`]) when the transfer reaches zero. WORDSYNC
-    /// does not gate writes — it is a read-only sync-search feature
-    /// (`write_dsklen` only arms `disk_dma_wordsync_waiting` for reads).
-    pub fn tick_disk_write_dma_slot(&mut self, word: u16) -> Option<u16> {
-        if self.disk_dma_words_remaining == 0 || !self.disk_dma_is_write {
-            return None;
+    /// The word enters Paula's FIFO and decrements the DSKLEN countdown only
+    /// when the active write transfer requests a slot and the FIFO has room.
+    /// The final accepted word raises DSKBLK but remains drainable by the
+    /// rotational stream.
+    pub fn accept_disk_write_dma_slot(&mut self, word: u16) -> bool {
+        if !self.disk_write_dma_slot_requested() {
+            return false;
         }
+
+        self.disk_dma_fifo.push_back(word);
         self.disk_dma_words_remaining = self.disk_dma_words_remaining.saturating_sub(1);
         if self.disk_dma_words_remaining == 0 {
             self.complete_disk_dma();
         }
+        true
+    }
+
+    /// Remove the oldest write-DMA word for rotational delivery to the drive.
+    pub fn take_disk_write_stream_word(&mut self) -> Option<u16> {
+        if self.disk_dma_fifo_direction != Some(DiskDmaFifoDirection::Write) {
+            return None;
+        }
+
+        let word = self.disk_dma_fifo.pop_front()?;
+        if self.disk_dma_fifo.is_empty() && !self.disk_dma_pending {
+            self.disk_dma_fifo_direction = None;
+        }
         Some(word)
+    }
+
+    /// Whether write DMA is still fetching or has FIFO words left to emit.
+    #[must_use]
+    pub fn disk_write_stream_active(&self) -> bool {
+        self.disk_dma_fifo_direction == Some(DiskDmaFifoDirection::Write)
+            && (self.disk_dma_pending || !self.disk_dma_fifo.is_empty())
+    }
+
+    /// Compatibility helper for callers that still combine drive arrival
+    /// and memory service in one operation.
+    ///
+    /// New machine integration must call [`receive_disk_read_word`] at the
+    /// rotational pace and [`service_disk_read_dma_slot`] only on an Agnus
+    /// grant.
+    pub fn tick_disk_dma_slot(&mut self, word: u16) -> Option<u16> {
+        self.receive_disk_read_word(word);
+        self.service_disk_read_dma_slot()
+    }
+
+    /// Compatibility helper for callers that still combine a write-DMA
+    /// fetch with immediate drive delivery.
+    ///
+    /// New machine integration must call [`accept_disk_write_dma_slot`] on
+    /// an Agnus grant and [`take_disk_write_stream_word`] at the rotational
+    /// pace.
+    pub fn tick_disk_write_dma_slot(&mut self, word: u16) -> Option<u16> {
+        if !self.accept_disk_write_dma_slot(word) {
+            return None;
+        }
+        self.take_disk_write_stream_word()
     }
 
     /// Whether a disk *write* DMA transfer is in flight, i.e. the
@@ -1568,6 +1671,11 @@ impl Paula8364 {
             dskbytr_wordequal: self.dskbytr_wordequal,
             dskbytr_wordequal_delay_cck: self.dskbytr_wordequal_delay_cck,
             dskdat_queue: self.dskdat_queue.iter().copied().collect(),
+            disk_dma_fifo: self.disk_dma_fifo.iter().copied().collect(),
+            disk_dma_fifo_direction: self.disk_dma_fifo_direction,
+            disk_dma_fifo_count: self.disk_dma_fifo.len(),
+            disk_dma_fifo_empty: self.disk_dma_fifo.is_empty(),
+            disk_dma_fifo_full: self.disk_dma_fifo.len() == DISK_DMA_FIFO_WORD_CAPACITY,
             dsklen_armed: self.dsklen_armed,
             disk_dma_pending: self.disk_dma_pending,
             disk_dma_words_remaining: self.disk_dma_words_remaining,
