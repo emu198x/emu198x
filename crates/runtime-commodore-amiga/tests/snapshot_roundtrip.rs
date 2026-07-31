@@ -836,9 +836,18 @@ fn a1000_blitter_startup_phase_survives_postcard_round_trip() -> Result<(), Box<
     {
         let machine = original.machine_mut();
         machine.poke_word(BLTCON0, 0x01FF); // USED | D := 1
+        machine.poke_word(DMACON, DMACON_SET_DMA_BLITTER_NASTY);
         machine.poke_word(BLTSIZE, (1 << 6) | 1);
-        // A following blitter-register write serializes behind the first blit,
-        // giving the new blit a known preceding non-zero BZERO result.
+        let mut guard = 0;
+        while machine.agnus().blitter_busy {
+            machine.tick();
+            guard += 1;
+            assert!(guard < 1_000, "setup blit never completed");
+        }
+
+        // Establish a known preceding non-zero BZERO result before starting
+        // the operation whose startup state is snapshotted. A register write
+        // no longer completes an in-flight blit as a hidden side effect.
         machine.poke_word(BLTCON0, 0);
         machine.poke_word(INTREQ, INT_BLIT); // clear first-blit completion
         assert!(!machine.agnus().blitter_dzero);

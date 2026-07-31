@@ -107,10 +107,11 @@ Pre-AGA covers A1000 and later original Agnus revisions as well as ECS
 Agnus. AGA denotes Alice.
 
 Internal busy remains asserted until the completion pipeline drains. It
-continues to govern completion-stage admission and register-write
-serialization. It is not cleared merely because the pre-AGA source
-interrupt has been emitted or because `DMACONR` can already report
-idle.
+continues to govern completion-stage admission. It is not cleared merely
+because the pre-AGA source interrupt has been emitted or because `DMACONR`
+can already report idle. A later size write may replace the active operation
+without first draining that pipeline, as defined by
+[Register writes during an active blit](amiga-mid-blit-register-writes.md).
 
 Blitter-nasty ownership is stage-aware rather than a synonym for the
 longer internal drain. The internal result stage does not own a
@@ -195,12 +196,11 @@ The scheduler keeps those stages serialized when a required bus action
 cannot proceed, but this does not establish the exact physical Alice
 delay when the final D slot is contended.
 
-The machine's transaction-level custom-register path currently drains
-an active blit synchronously before applying another blitter-register
-write. That preserves write ordering and final memory, but no external
-observer runs between the drained stages. The same dispatcher is used
-for CPU and Copper writes. It is an implementation boundary, not a
-claim about physical CPU stalls or mid-blit Copper writes.
+The machine's custom-register path does not drain an active blit before
+applying another blitter-register write. CPU and Copper writes reach the same
+dispatcher after ordinary arbitration, and every blitter pipeline stage
+remains scheduler-visible. Exact per-channel effects of changing a non-size
+register after an operation has begun remain outside this completion decision.
 
 A `DMACONR` first-idle CCK describes the chip-side status input. It does
 not include CPU bus-read latching or processor instruction timing.
@@ -215,8 +215,8 @@ This decision does not define:
 - propagation from the blitter source event through Paula's
   `INTREQ` latch, the interrupt encoder and CPU IPL;
 - exact stretching of the AGA final-D delay under bus contention;
-- origin-aware CPU and Copper writes to blitter registers during an
-  active blit;
+- exact channel-pipeline effects of changing pointer, mask, modulo, control or
+  data registers during an active blit;
 - the Copper's first request and fetch after a BFD-clear wait becomes
   eligible; or
 - same-CCK cancellation or arbitration between a waking Copper and the
@@ -264,6 +264,7 @@ Reject these patterns:
 ## Related Documents
 
 - [Agnus blitter startup before the first channel operation](amiga-agnus-blitter-startup.md)
+- [Amiga register writes during an active blit](amiga-mid-blit-register-writes.md)
 - [Amiga blitter line-mode ONEDOT](amiga-blitter-line-onedot.md)
 - [Amiga blitter line texture phase](amiga-blitter-line-texture-phase.md)
 - [Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md)

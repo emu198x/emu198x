@@ -132,10 +132,11 @@ existing scheduler granularity. It does not claim the exact physical
 bus cell on which a Copper that yields after a fetch opportunity lets
 the blitter advance.
 
-The synchronous test and diagnostic drain paths consume the same two
-startup outcomes before channel operations so their memory results
-remain comparable with the scheduled path. They are not evidence for
-physical behaviour while blitter DMA is disabled.
+The synchronous component-test helper consumes the same two startup outcomes
+before channel operations so its memory results remain comparable with the
+scheduled path. Running machines do not call that helper from register
+dispatch. It is not evidence for physical behaviour while blitter DMA is
+disabled.
 
 ## Deferred behaviour
 
@@ -143,7 +144,6 @@ This decision does not define:
 
 - the exact yielded-Copper slot on which a startup state advances;
 - CPU and non-nasty blitter coexistence within a nominal CPU/free cell;
-- physical synchronous-drain behaviour while blitter DMA is disabled;
 - channel-pipeline effects from mid-blit register writes.
 
 Those behaviours require their own evidence and tests. Completion
@@ -190,6 +190,7 @@ Reject these patterns:
 ## Related Documents
 
 - [Blitter completion pipeline](amiga-blitter-completion-pipeline.md)
+- [Amiga register writes during an active blit](amiga-mid-blit-register-writes.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Copper WAIT and SKIP comparison phase](amiga-copper-wait-skip-comparison.md)
 - [Original Agnus hard vertical-blank close](amiga-original-agnus-hard-vertical-blank.md)

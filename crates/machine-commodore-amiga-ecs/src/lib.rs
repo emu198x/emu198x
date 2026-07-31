@@ -1105,21 +1105,6 @@ impl AmigaEcs {
         }
     }
 
-    /// Serialize a blitter-register write against an in-flight blit.
-    /// Real Agnus CPU-stalls a blitter-register write that lands while a
-    /// blit is in flight (BBUSY) until the blitter is free; we
-    /// approximate that by draining the current blit before the write
-    /// lands, so code that reprograms the blitter without an intervening
-    /// WaitBlit isn't aborted by the next `start_blit`. No-op when idle.
-    fn drain_blit_if_busy(&mut self) {
-        if self.agnus.blitter_busy {
-            let mut bus = ChipRamBus(&mut self.memory);
-            if self.agnus.run_blit_to_completion(&mut bus) {
-                self.paula.raise(IntSource::Blit);
-            }
-        }
-    }
-
     /// Convenience: current BPLCON0 value.
     #[must_use]
     pub fn bplcon0(&self) -> u16 {
@@ -1256,11 +1241,9 @@ impl AmigaEcs {
             // updates and BLTSIZV/BLTSIZH for the bulk of text + icon
             // blits; without these handlers WB content never renders.
             0x05A => {
-                self.drain_blit_if_busy();
                 self.agnus.write_bltcon0l(val);
             }
             0x05C => {
-                self.drain_blit_if_busy();
                 self.agnus.write_bltsizv(val);
             }
             0x05E => {
@@ -1268,7 +1251,6 @@ impl AmigaEcs {
                 // arms the incremental scheduler. Each granted CCK then
                 // consumes a startup outcome or one DMA operation in the
                 // tick loop (#31) instead of completing here.
-                self.drain_blit_if_busy();
                 self.agnus.write_bltsizh(val);
                 self.debug_blit_starts += 1;
                 self.debug_blit_log.push((
@@ -1286,10 +1268,9 @@ impl AmigaEcs {
             // Agnus-owned blitter registers. BLTSIZE ($058) arms the
             // incremental scheduler via `start_blit`; each granted CCK
             // consumes a startup outcome or one DMA operation in the tick
-            // loop (#31). A register write that lands mid-blit drains the
-            // in-flight blit first (hardware CPU-stall serialization).
+            // loop (#31). Mid-blit writes land at their normally arbitrated
+            // CCK; software must WaitBlit before changing active state.
             0x040..=0x074 => {
-                self.drain_blit_if_busy();
                 if self.agnus.write_blitter_register(offset, val) && offset == 0x058 {
                     self.debug_blit_starts += 1;
                     self.debug_blit_log.push((
@@ -2302,6 +2283,22 @@ mod bus_plan_dispatch_tests {
 
     fn a600() -> AmigaEcs {
         AmigaEcs::with_a600_ram_config(vec![0; 512 * 1024], RamConfig::bare())
+    }
+
+    #[test]
+    fn ecs_blitter_extension_write_does_not_complete_the_active_blit() {
+        let mut amiga = machine();
+        amiga.poke_word(0x00DF_F058, (2 << 6) | 2);
+        assert!(amiga.agnus.blitter_busy);
+
+        amiga.poke_word(0x00DF_F05C, 3);
+        assert!(amiga.agnus.blitter_busy);
+        assert_eq!(amiga.paula.intreq() & 0x0040, 0);
+
+        amiga.poke_word(0x00DF_F05E, 2);
+        assert!(amiga.agnus.blitter_busy);
+        assert_eq!(amiga.agnus.blitter_startup_ccks_remaining(), 2);
+        assert_eq!(amiga.paula.intreq() & 0x0040, 0);
     }
 
     #[test]

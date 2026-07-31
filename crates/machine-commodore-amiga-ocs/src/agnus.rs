@@ -201,8 +201,8 @@ impl InstalledAgnus {
     /// Route one ECS blitter-extension register to Fat Agnus.
     ///
     /// Returns `None` for early OCS and for offsets outside the extension
-    /// trio. The caller serializes the write against an in-flight blit
-    /// before invoking this method.
+    /// trio. Mid-blit writes replace or alter live state without an implicit
+    /// synchronous completion.
     pub(crate) fn write_extended_blitter_register(
         &mut self,
         offset: u16,

@@ -47,14 +47,15 @@ compatibility percentage and must not be presented as one.
   scheduler, CPU, chipset, peripheral and expansion state needed to investigate
   disagreements is exposed.
 
-## Why the family score is not higher
+## Why the family score was not higher at assessment
 
-Two concrete shared timing shortcuts remain:
+Two concrete shared timing shortcuts were present when this campaign was
+recorded:
 
 1. Agnus computes `disk_dma_slot_granted`, but the running driver advances
    floppy read and write transfers from an independent track pacer rather than
    consuming the granted disk-DMA cells.
-2. A custom-register write to an active blitter can synchronously drain the
+2. A custom-register write to an active blitter could synchronously drain the
    blit before applying the write. This preserves ordering and final memory,
    but the beam, audio, CIAs, Copper and other DMA clients do not advance
    through the elapsed wait.
@@ -86,10 +87,10 @@ Work proceeds in this order:
    retaining rotational pacing, WORDSYNC behaviour, write capture and
    deterministic state. Add machine-level regressions for grant-gated reads,
    writes, pointer movement, completion interrupt and CPU contention.
-2. Replace synchronous active-blitter draining with scheduler-visible waiting
-   that advances every machine domain. Add regressions for CPU and Copper
-   writes during a blit and for the elapsed beam, CIA, audio, interrupt and
-   DMA state.
+2. Remove synchronous active-blitter draining. Let CPU and Copper writes land
+   through their ordinary arbitration without inventing a CPU wait, and keep
+   every blitter stage in the machine scheduler. Add regressions for CPU,
+   Copper and replacement-size writes during an active blit.
 3. Establish independent A1200/AGA visual evidence and an independent Paula
    waveform comparison. Record comparator provenance and the exact assertion
    boundary.
@@ -138,11 +139,13 @@ campaign open.
 | --- | --- | --- |
 | 2026-07-31 | Campaign recorded | Assessment, ordered work and pivot gate accepted at revision `8bb2c48e`. |
 | 2026-07-31 | 1. Disk DMA arbitration | Commit `24b20ce4` separates the rotational stream from chip-memory traffic, adds Paula's bounded three-word FIFO, and binds reads and writes to Agnus cells `$07/$09/$0B`. Component, three-profile library, machine arbitration and full-track ADF write-back tests pass. Snapshot and query compatibility advance with the same step. |
+| 2026-07-31 | 2. Mid-blit register writes | Reference inspection rejected the original CPU-wait premise. CPU and Copper writes now use normal arbitration without synchronously completing the blitter. Replacement-size and no-hidden-time regressions cover OCS, ECS and AGA; exact per-channel effects of other mid-blit writes remain evidence-bound. |
 
-## Related documents
+## Related Documents
 
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Amiga disk rotation and DMA arbitration](amiga-disk-dma-fifo-arbitration.md)
+- [Amiga register writes during an active blit](amiga-mid-blit-register-writes.md)
 - [Amiga blitter completion pipeline](amiga-blitter-completion-pipeline.md)
 - [M68k test-oracle strategy](m68k-test-oracle-strategy.md)
 - [Amiga Test Kit video conformance](../processes/amiga-test-kit-video-conformance.md)

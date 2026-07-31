@@ -3404,8 +3404,9 @@ impl Agnus {
     /// Dispatch a CPU write to any blitter register ($040..=$074).
     /// Returns `true` if the offset is a blitter register (handled or
     /// silently dropped on the unused slots), `false` otherwise.
-    /// Writing BLTSIZE ($058) triggers `start_blit()` — the caller is
-    /// responsible for running the blit to completion afterward.
+    /// Writing BLTSIZE ($058) triggers `start_blit()`. If another operation
+    /// is active, its scheduled state is overwritten; the caller must not
+    /// synchronously complete the old operation before applying the write.
     pub fn write_blitter_register(&mut self, offset: u16, val: u16) -> bool {
         match offset {
             0x040 => self.bltcon0 = val,
@@ -3626,11 +3627,10 @@ impl Agnus {
         }
     }
 
-    /// Drive a blit to completion synchronously.
+    /// Drive a blit to completion synchronously for component tests.
     ///
-    /// This is the transaction-level CPU-write serialization fallback. It
-    /// consumes the same startup, completion and final-D stages as the live
-    /// CCK path, but exposes no intermediate observer phase to software.
+    /// Running machines use [`Agnus::tick_blitter_cck`] so every pipeline
+    /// stage remains observable to the scheduler.
     ///
     /// Takes a single bus trait implementation — matches on op type
     /// so only one direction of the bus is borrowed at a time.

@@ -1311,20 +1311,6 @@ impl AmigaOcs {
         }
     }
 
-    /// Serialize a blitter-register write against an in-flight blit.
-    ///
-    /// Real Agnus stalls the CPU-side write until the current blit is
-    /// complete. Draining here preserves the ordering while the emulator's
-    /// CPU bus remains transaction-based.
-    fn drain_blit_if_busy(&mut self) {
-        if self.agnus.blitter_busy {
-            let mut bus = ChipRamBus(&mut self.memory);
-            if self.agnus.run_blit_to_completion(&mut bus) {
-                self.paula.raise(IntSource::Blit);
-            }
-        }
-    }
-
     /// Convenience: current BPLCON0 value.
     #[must_use]
     pub fn bplcon0(&self) -> u16 {
@@ -1456,7 +1442,6 @@ impl AmigaOcs {
             // legacy blitter-register range below, where these offsets are
             // intentionally ignored.
             0x05A | 0x05C | 0x05E if self.agnus.is_fat_8372a() => {
-                self.drain_blit_if_busy();
                 let result = self
                     .agnus
                     .write_extended_blitter_register(offset, val)
@@ -1483,15 +1468,11 @@ impl AmigaOcs {
             // (#31) instead of completing here. DMACONR BBUSY follows the
             // installed Agnus revision's externally visible timing.
             //
-            // Real Agnus CPU-stalls a blitter-register write that lands
-            // while a blit is internally active until the blitter is free.
-            // We approximate that serialization by draining the
-            // in-flight blit before applying the write, so code that
-            // reprograms the blitter without an intervening WaitBlit
-            // still sees the first blit complete rather than have it
-            // aborted by the next `start_blit`.
+            // A write during an active blit lands at its normally arbitrated
+            // CCK. Software must WaitBlit before reprogramming these
+            // registers; a new BLTSIZE may overwrite the in-flight operation.
+            // Every blitter step remains in the machine scheduler.
             0x040..=0x074 => {
-                self.drain_blit_if_busy();
                 if self.agnus.write_blitter_register(offset, val) && offset == 0x058 {
                     self.debug_blit_starts += 1;
                     self.debug_blit_log.push((
@@ -2640,6 +2621,38 @@ mod tests {
 
         assert!(matches!(response, Some(BusResponse::WriteAck)));
         assert_eq!(amiga.debug_cia_b_cr_log, vec![(0, 0, 1, 0xA5)]);
+    }
+
+    #[test]
+    fn cpu_blitter_register_write_does_not_complete_the_active_blit() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.agnus.bltsize = (2 << 6) | 2;
+        amiga.agnus.start_blit();
+        assert!(amiga.agnus.blitter_busy);
+
+        amiga.agnus.hpos = 0x34;
+        amiga.cpu.bus_status = BusStatus::Wait;
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: 0x00DF_F040,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0x1234),
+            cycle_count: 2,
+        };
+        let tick_before = amiga.tick_count;
+        let beam_before = (amiga.agnus.vpos, amiga.agnus.hpos);
+
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
+        assert_eq!(amiga.agnus.bltcon0, 0x1234);
+        assert!(amiga.agnus.blitter_busy);
+        assert_eq!(amiga.agnus.blitter_startup_ccks_remaining(), 2);
+        assert_eq!(amiga.paula.intreq() & 0x0040, 0);
+        assert_eq!(amiga.tick_count, tick_before);
+        assert_eq!((amiga.agnus.vpos, amiga.agnus.hpos), beam_before);
     }
 
     #[test]
