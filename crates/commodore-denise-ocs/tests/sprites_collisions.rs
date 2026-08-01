@@ -1134,13 +1134,12 @@ fn bplcon2_pf1_priority_can_place_sprite_group_0_in_front() {
 }
 
 #[test]
-fn bplcon4_esprm_xors_even_sprite_colour_bank() {
+fn bplcon4_esprm_replaces_even_sprite_colour_bank() {
     let mut denise = DeniseOcs::new();
     enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
-    // ESPRM = 1 => even sprites XOR upper nybble with 1.
-    // Sprite 0 code 1: base index = 17 (0x11). XOR: 0x11 ^ 0x10 = 0x01.
-    denise.bplcon4 = 0x0001;
+    // ESPRM = 0 => even sprite 0 code 1 directly selects palette index 1.
+    denise.bplcon4 = 0x0001; // OSPRM=1, ESPRM=0
     denise.set_palette(1, 0xABC);
 
     let (pos, ctl) = encode_sprite_pos_ctl(32, 14, 15);
@@ -1152,19 +1151,17 @@ fn bplcon4_esprm_xors_even_sprite_colour_bank() {
     assert_eq!(
         denise.output_pixel_color(33, 14),
         DeniseOcs::rgb12_to_argb32(0xABC),
-        "ESPRM should XOR even sprite to palette index 1"
+        "ESPRM should place even sprite 0 in palette block 0"
     );
 }
 
 #[test]
-fn bplcon4_osprm_xors_odd_sprite_colour_bank() {
+fn bplcon4_osprm_replaces_odd_sprite_colour_bank() {
     let mut denise = DeniseOcs::new();
     enable_sprites_for_direct_fixture(&mut denise);
     denise.set_palette(0, 0x000);
-    // OSPRM = 1 => odd sprites XOR upper nybble with 1.
-    // Sprite 3 (odd, pair 1) code 1: base index = 20+1 = 21 (0x15).
-    // XOR: 0x15 ^ 0x10 = 0x05 = 5.
-    denise.bplcon4 = 0x0010;
+    // OSPRM = 0 => odd sprite 3 (pair 1) code 1 directly selects index 5.
+    denise.bplcon4 = 0x0010; // ESPRM=1, OSPRM=0
     denise.set_palette(5, 0xDEF);
 
     let (pos, ctl) = encode_sprite_pos_ctl(32, 14, 15);
@@ -1176,7 +1173,68 @@ fn bplcon4_osprm_xors_odd_sprite_colour_bank() {
     assert_eq!(
         denise.output_pixel_color(33, 14),
         DeniseOcs::rgb12_to_argb32(0xDEF),
-        "OSPRM should XOR odd sprite to palette index 5"
+        "OSPRM should place odd sprite 3 in palette block 0"
+    );
+}
+
+#[test]
+fn bplcon4_banked_sprite_keeps_playfield_and_sprite_provenance_separate() {
+    let mut denise = DeniseOcs::new();
+    enable_sprites_for_direct_fixture(&mut denise);
+    denise.bplcon4 = 0x5AA1; // BPLAM=$5A, ESPRM=$A, OSPRM=$1
+
+    let (pos, ctl) = encode_sprite_pos_ctl(32, 14, 15);
+    denise.spr_pos[2] = pos;
+    denise.spr_ctl[2] = ctl;
+    denise.spr_data[2] = 0x8000; // pair 1, code 1 -> palette $A5
+    denise.spr_datb[2] = 0;
+
+    let debug = denise.output_pixel_with_beam(33, 14, 33, 14);
+    assert_eq!(debug.quad_playfield_color_idx[0], 0x5A);
+    assert_eq!(debug.quad_color_idx[0], 0xA5);
+    assert!(debug.quad_is_sprite[0]);
+}
+
+#[test]
+fn output_pixel_color_sprite_bypasses_ham_and_advances_hidden_playfield() {
+    let mut denise = DeniseOcs::new();
+    denise.bplcon0 = 0x6800; // six planes, HAM
+    denise.bplcon2 = 0x0001; // sprite group 0 in front of PF1
+    denise.set_palette(0, 0x123);
+    denise.set_palette(17, 0xF00);
+    denise.begin_beam_line();
+    enable_sprites_for_direct_fixture(&mut denise);
+
+    let (pos, ctl) = encode_sprite_pos_ctl(32, 14, 15);
+    denise.spr_pos[0] = pos;
+    denise.spr_ctl[0] = ctl;
+    denise.spr_data[0] = 0x8000;
+    denise.spr_datb[0] = 0;
+
+    // $2F modifies red under the sprite, then $35 modifies green on the
+    // following playfield-only pixel. Both commands must enter HAM's hold.
+    for plane in 0..6 {
+        let first = u16::from((0x2F_u8 >> plane) & 1) << 15;
+        let second = u16::from((0x35_u8 >> plane) & 1) << 14;
+        denise.bpl_shift[plane] = first | second;
+    }
+    denise.shift_count = 2;
+
+    assert_eq!(
+        denise.output_pixel_color(33, 14),
+        DeniseOcs::rgb12_to_argb32(0xF00),
+        "the winning sprite must select COLOR17 directly instead of becoming a HAM command",
+    );
+    assert_eq!(
+        denise.diagnostic_snapshot().ham_previous_rgb12,
+        0xF23,
+        "the obscured $2F playfield command must still advance HAM's hold",
+    );
+
+    assert_eq!(
+        denise.output_pixel_color(34, 14),
+        DeniseOcs::rgb12_to_argb32(0xF53),
+        "the next HAM command must continue from the hidden playfield hold",
     );
 }
 

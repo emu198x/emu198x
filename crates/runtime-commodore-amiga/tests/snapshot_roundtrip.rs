@@ -1828,6 +1828,148 @@ fn aga_programmed_hblank_latch_survives_snapshot_round_trip() -> Result<(), Box<
 }
 
 #[test]
+fn aga_delayed_color_write_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
+    const TARGET_VPOS: u16 = 0x0032;
+    const TARGET_HPOS: u16 = 0x0080;
+    const VIEWPORT_V_START: u16 = 0x0019;
+    const VIEWPORT_H_START: u16 = 0x002C;
+    const OLD_ARGB: u32 = 0xFF11_2233;
+    const NEW_ARGB: u32 = 0xFFAA_BBCC;
+
+    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    {
+        let machine = original.machine_mut();
+        machine.poke_word(0x00DF_F08E, 0x3081); // DIWSTRT
+        machine.poke_word(0x00DF_F090, 0xF0C1); // DIWSTOP
+        machine.poke_word(0x00DF_F100, 0x9000); // hires, one plane
+        machine.poke_word(0x00DF_F180, 0x0123); // old COLOR00
+    }
+
+    // Stop after phase zero has rendered at a known visible beam position.
+    // The next machine tick will render phase one's two adjacent hires
+    // samples without advancing Alice's horizontal counter.
+    let mut reached_target = false;
+    for _ in 0..100_000 {
+        let at_target = {
+            let machine = original.machine();
+            machine.agnus().vpos == TARGET_VPOS
+                && machine.agnus().hpos == TARGET_HPOS
+                && machine.scheduler_diagnostic_snapshot().cck_phase == 1
+        };
+        if at_target {
+            reached_target = true;
+            break;
+        }
+        original.machine_mut().tick();
+    }
+    assert!(
+        reached_target,
+        "the beam must reach the visible target before the guard expires",
+    );
+    assert!(original.machine().agnus_aga().vertical_diw_active());
+    assert_eq!(
+        original
+            .machine()
+            .denise()
+            .board_pipeline_diagnostic_snapshot()
+            .last_begin_line,
+        Some(TARGET_VPOS),
+    );
+    assert!(
+        original
+            .machine()
+            .denise_aga()
+            .diagnostic_snapshot()
+            .delayed_color_write
+            .is_none(),
+        "the setup COLOR00 write must have reached the output",
+    );
+
+    let framebuffer_width = original.machine().denise().framebuffer_size().0 as usize;
+    let row = usize::from(TARGET_VPOS - VIEWPORT_V_START) * 2;
+    let phase_zero_x = usize::from(TARGET_HPOS - VIEWPORT_H_START) * 4;
+    let phase_zero_offset = row * framebuffer_width + phase_zero_x;
+    assert_eq!(
+        &original.machine().denise().framebuffer()[phase_zero_offset..phase_zero_offset + 2],
+        &[OLD_ARGB, OLD_ARGB],
+        "phase zero must already be rendering the old visible colour",
+    );
+
+    original.machine_mut().poke_word(0x00DF_F180, 0x8ABC); // new COLOR00 + genlock
+
+    let pending = original
+        .machine()
+        .denise_aga()
+        .diagnostic_snapshot()
+        .delayed_color_write
+        .expect("the second COLOR00 write must still be pending");
+    assert_eq!(pending.palette_index, 0);
+    assert_eq!(pending.previous_rgb24, 0x0011_2233);
+    assert_eq!(pending.previous_rgb12, Some(0x0123));
+    assert!(!pending.previous_genlock);
+    assert!(
+        original
+            .machine()
+            .denise_aga()
+            .diagnostic_snapshot()
+            .palette_genlock[0],
+        "the new COLOR00 genlock flag must be live before the snapshot",
+    );
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    restored.restore(&snapshot)?;
+    assert_eq!(
+        (
+            restored.machine().agnus().vpos,
+            restored.machine().agnus().hpos,
+            restored.machine().scheduler_diagnostic_snapshot().cck_phase,
+        ),
+        (TARGET_VPOS, TARGET_HPOS, 1),
+        "restore must resume at the same visible output phase",
+    );
+    assert!(restored.machine().agnus_aga().vertical_diw_active());
+    assert_eq!(
+        restored
+            .machine()
+            .denise_aga()
+            .diagnostic_snapshot()
+            .delayed_color_write,
+        Some(pending),
+    );
+    assert!(
+        restored
+            .machine()
+            .denise_aga()
+            .diagnostic_snapshot()
+            .palette_genlock[0],
+        "restore must retain the new COLOR00 genlock flag",
+    );
+
+    original.machine_mut().tick();
+    restored.machine_mut().tick();
+
+    let phase_one_offset = phase_zero_offset + 2;
+    for (name, runtime) in [("original", &original), ("restored", &restored)] {
+        assert_eq!(
+            &runtime.machine().denise().framebuffer()[phase_one_offset..phase_one_offset + 2],
+            &[OLD_ARGB, NEW_ARGB],
+            "{name} phase one must show the old colour for exactly one hires sample",
+        );
+        assert!(
+            runtime
+                .machine()
+                .denise_aga()
+                .diagnostic_snapshot()
+                .delayed_color_write
+                .is_none(),
+            "{name} pending write must expire on the next Lisa output sample",
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn restore_rejects_wrong_model() -> Result<(), Box<dyn Error>> {
     let original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let snapshot = original.snapshot()?;
@@ -1885,10 +2027,10 @@ fn ecs_snapshot_restore_preserves_model_specific_gayle_composition() -> Result<(
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 29, and confirm the version-mismatch arm fires with a
+/// field back to 30, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV30` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 30` that byte is `0x1E`.
+/// of a `SnapshotEnvelopeV31` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 31` that byte is `0x1F`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -1897,20 +2039,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 30,
-        "postcard varint for SNAPSHOT_VERSION = 30 should be 0x1E"
+        bytes[0], 31,
+        "postcard varint for SNAPSHOT_VERSION = 31 should be 0x1F"
     );
-    bytes[0] = 29;
+    bytes[0] = 30;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-29 snapshot should be rejected before payload decode");
+        .expect_err("version-30 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 29; expected 30"
+                if reason == "unsupported snapshot version 30; expected 31"
         ),
         "expected version-mismatch reason, got {err:?}"
     );

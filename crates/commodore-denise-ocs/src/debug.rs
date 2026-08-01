@@ -28,6 +28,9 @@ pub struct DeniseOutputPixelDebug {
     pub quad_samples: [DeniseSourcePixelDebug; 4],
     pub plane_bits_mask: u8,
     pub final_color_idx: u8,
+    /// Playfield colour indices before sprite-priority replacement. HAM and
+    /// EHB decode this stream even when a sprite wins the final output.
+    pub quad_playfield_color_idx: [u8; 4],
     /// Independently-composed color indices for source pixels shifted out
     /// during this output call. SuperHires: 4 unique entries. Hires: [c0, c1,
     /// c1, c1]. Lores: all identical (`final_color_idx`).

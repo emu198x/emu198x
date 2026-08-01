@@ -1672,6 +1672,7 @@ impl AmigaA1200 {
                 0x012 => self.paula.pot0dat(),
                 0x014 => self.paula.pot1dat(),
                 0x016 => self.paula.peek_potgor(),
+                0x180..=0x1BE => self.denise.ocs.read_color_register(offset),
                 0x0A0..=0x0DA => paula_decode::audio_register(offset)
                     .map(|(ch, f)| self.paula.read_audio(ch, f))
                     .unwrap_or(0xFFFF),
@@ -1904,6 +1905,7 @@ impl AmigaA1200 {
                 // open bus). KS 3.1 reads $1FC during init — without
                 // this case it gets $FFFF where it expects 0.
                 0x1FC => self.agnus.fmode,
+                0x180..=0x1BE => self.denise.ocs.read_color_register(offset),
                 0x0A0..=0x0DA => paula_decode::audio_register(offset)
                     .map(|(ch, f)| self.paula.read_audio(ch, f))
                     .unwrap_or(0xFFFF),
@@ -2455,6 +2457,51 @@ mod bus_plan_dispatch_tests {
             amiga.gayle_diagnostic_snapshot().registers.card_status,
             0x5A,
         );
+    }
+
+    #[test]
+    fn aga_rdram_reaches_debug_and_cpu_custom_register_reads() {
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        amiga.poke_word(0x00DF_F106, 0xA000); // BANK=5, high nibbles
+        amiga.poke_word(0x00DF_F18A, 0x8A5C); // COLOR05 -> palette $A5, T=1
+        amiga.poke_word(0x00DF_F106, 0xA200); // BANK=5, LOCT
+        amiga.poke_word(0x00DF_F18A, 0x0123);
+
+        assert_eq!(amiga.read_word(0x00DF_F18A), 0xFFFF);
+        amiga.poke_word(0x00DF_F104, 0x0100); // BPLCON2 RDRAM
+
+        amiga.poke_word(0x00DF_F106, 0xA000);
+        assert_eq!(amiga.read_word(0x00DF_F18A), 0x8A5C);
+        assert!(matches!(
+            amiga.dispatch_custom_register(&BusTransaction {
+                addr: 0x00DF_F18A,
+                is_read: true,
+                is_word: true,
+                data: 0,
+            }),
+            Some(BusResponse::Word(0x8A5C)),
+        ));
+
+        amiga.poke_word(0x00DF_F106, 0xA200);
+        assert_eq!(amiga.read_word(0x00DF_F18A), 0x0123);
+        assert!(matches!(
+            amiga.dispatch_custom_register(&BusTransaction {
+                addr: 0x00DF_F18A,
+                is_read: true,
+                is_word: true,
+                data: 0,
+            }),
+            Some(BusResponse::Word(0x0123)),
+        ));
+
+        amiga.poke_word(0x00DF_F18A, 0x0FED); // ignored while RDRAM is set
+        amiga.poke_word(0x00DF_F106, 0xA000);
+        assert_eq!(amiga.read_word(0x00DF_F18A), 0x8A5C);
+        amiga.poke_word(0x00DF_F106, 0x8000); // BANK=4
+        assert_eq!(amiga.read_word(0x00DF_F18A), 0x0000);
+
+        amiga.poke_word(0x00DF_F104, 0x0000);
+        assert_eq!(amiga.read_word(0x00DF_F18A), 0xFFFF);
     }
 
     #[test]

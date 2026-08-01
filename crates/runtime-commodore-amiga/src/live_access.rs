@@ -33,7 +33,7 @@
 //! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../../knowledge/decisions/amiga-machine-catalogue.md
 
 use commodore_agnus_ocs::{Agnus, AgnusBusDiagnosticSnapshot};
-use commodore_denise_aga::DeniseAgaDiagnosticSnapshot;
+use commodore_denise_aga::{DeniseAgaDelayedColorWrite, DeniseAgaDiagnosticSnapshot};
 use commodore_denise_ocs::DeniseDiagnosticSnapshot;
 use commodore_gary::GaryDiagnosticSnapshot;
 use commodore_gayle::GayleDiagnosticSnapshot;
@@ -116,8 +116,11 @@ pub struct AgaLisaSnapshot {
     pub spr_width: u8,
     pub ham_prev_rgb24: u32,
     pub programmed_hblank_active: bool,
+    pub delayed_color_write: Option<DeniseAgaDelayedColorWrite>,
     /// 256-entry 24-bit palette (8 banks × 32), stored `0x00RRGGBB`.
     pub palette_24: [u32; 256],
+    /// Per-entry transparency/genlock flags accompanying the AGA palette.
+    pub palette_genlock: [bool; 256],
 }
 
 /// Complete read-only view of the ECS Agnus timing layer. AGA Alice inherits
@@ -1578,7 +1581,9 @@ impl AmigaLiveAccess for AmigaA1200 {
             spr_width: aga.spr_width,
             ham_prev_rgb24: aga.ham_prev_rgb24,
             programmed_hblank_active: aga.programmed_hblank_active(),
+            delayed_color_write: aga.diagnostic_snapshot().delayed_color_write,
             palette_24: aga.palette_24,
+            palette_genlock: aga.palette_genlock,
         })
     }
 

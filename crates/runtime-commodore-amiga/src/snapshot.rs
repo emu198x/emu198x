@@ -19,10 +19,10 @@ use crate::AmigaConfig;
 use crate::runtime::AmigaRuntime;
 use crate::variants::AmigaMachine;
 
-// Version 30 rejects version-29 snapshots because they cannot preserve Paula's
-// three-word disk-DMA FIFO or its read/write direction. Older positional
-// payloads also remain incompatible.
-const SNAPSHOT_VERSION: u32 = 30;
+// Version 31 rejects version-30 snapshots because AGA Lisa gained a pending
+// one-hires-pixel COLOR-write output stage and per-palette-entry genlock state.
+// Older positional payloads also remain incompatible.
+const SNAPSHOT_VERSION: u32 = 31;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
 /// snapshot (`M::Snapshot`) with the surrounding runtime context
@@ -31,7 +31,7 @@ const SNAPSHOT_VERSION: u32 = 30;
 /// Versioned so future snapshot extensions can bump the major version
 /// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV30<M: AmigaMachine> {
+struct SnapshotEnvelopeV31<M: AmigaMachine> {
     version: u32,
     config: AmigaConfig,
     time: MachineTime,
@@ -47,7 +47,7 @@ struct SnapshotEnvelopeV30<M: AmigaMachine> {
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
 pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u8>, MachineError> {
-    let envelope = SnapshotEnvelopeV30::<M> {
+    let envelope = SnapshotEnvelopeV31::<M> {
         version: SNAPSHOT_VERSION,
         config: runtime.config(),
         time: runtime.time_value(),
@@ -87,7 +87,7 @@ pub(crate) fn decode<M: AmigaMachine>(
         });
     }
 
-    let envelope: SnapshotEnvelopeV30<M> =
+    let envelope: SnapshotEnvelopeV31<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;
@@ -196,7 +196,7 @@ mod tests {
     fn restore_rejects_out_of_range_audio_phase_without_mutating_runtime() {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source snapshot");
-        let mut envelope: SnapshotEnvelopeV30<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV31<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.audio_sample_accumulator = u64::MAX;
         let forged = postcard::to_allocvec(&envelope).expect("encode forged audio phase");
@@ -221,7 +221,7 @@ mod tests {
     fn restore_rejects_machine_state_that_disagrees_with_a530_configuration() {
         let stock = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&stock).expect("encode stock snapshot");
-        let mut envelope: SnapshotEnvelopeV30<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV31<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.config = Model::A500OcsPalGvpA530.config();
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
@@ -285,7 +285,7 @@ mod tests {
     fn malformed_persisted_media_is_rejected_without_mutating_runtime_or_trace() {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source snapshot");
-        let mut envelope: SnapshotEnvelopeV30<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV31<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.floppy0_bytes = Some(vec![0; 17]);
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");

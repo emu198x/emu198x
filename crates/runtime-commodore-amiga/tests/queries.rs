@@ -1391,10 +1391,50 @@ fn ecs_queries_expose_raw_routed_and_composed_hblank_state() {
 }
 
 #[test]
+fn ecs_killehb_query_uses_bplcon2_instead_of_bplcon3() {
+    let mut runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    runtime.machine_mut().poke_word(0x00DF_F106, 0x0201);
+    assert_eq!(
+        query_value(&runtime, "denise.killehb_enabled"),
+        json!(false),
+        "ECS BPLCON3 bit 9 must not be reported as KILLEHB",
+    );
+
+    runtime.machine_mut().poke_word(0x00DF_F104, 0x0200);
+    assert_eq!(query_value(&runtime, "denise.killehb_enabled"), json!(true),);
+
+    runtime.machine_mut().poke_word(0x00DF_F106, 0x0000);
+    assert_eq!(
+        query_value(&runtime, "denise.killehb_enabled"),
+        json!(true),
+        "clearing BPLCON3 must not clear ECS KILLEHB diagnostics",
+    );
+    runtime.machine_mut().poke_word(0x00DF_F104, 0x0000);
+    assert_eq!(
+        query_value(&runtime, "denise.killehb_enabled"),
+        json!(false),
+    );
+}
+
+#[test]
 fn aga_queries_expose_lisa_and_composed_hblank_state() {
     let mut runtime = AmigaA1200Runtime::blank(Model::A1200AgaPal);
     runtime.machine_mut().poke_word(0x00DF_F106, 0xA000); // BANK=5, LOCT=0
-    runtime.machine_mut().poke_word(0x00DF_F19A, 0x0A5C); // COLOR13 -> slot 173
+    runtime.machine_mut().poke_word(0x00DF_F19A, 0x8A5C); // COLOR13 -> slot 173, T=1
+    let expected_delayed_color = json!({
+        "palette_index": 173,
+        "previous_rgb24": 0,
+        "previous_rgb12": null,
+        "previous_genlock": false,
+    });
+    assert_eq!(
+        query_value(&runtime, "aga.delayed_color_write"),
+        expected_delayed_color,
+    );
+    assert_eq!(
+        query_value(&runtime, "denise.delayed_color_write"),
+        expected_delayed_color,
+    );
     runtime.machine_mut().poke_word(0x00DF_F1C4, 0x0040); // HBSTRT
     runtime.machine_mut().poke_word(0x00DF_F1C6, 0x0080); // HBSTOP
     runtime.machine_mut().poke_word(0x00DF_F100, 0x0001); // ECSENA
@@ -1421,12 +1461,22 @@ fn aga_queries_expose_lisa_and_composed_hblank_state() {
         json!(true),
     );
     assert_eq!(
+        query_value(&runtime, "aga.delayed_color_write"),
+        Value::Null,
+    );
+    assert_eq!(
+        query_value(&runtime, "denise.delayed_color_write"),
+        Value::Null,
+    );
+    assert_eq!(
         query_value(&runtime, "chipset.programmed_hblank_output_active"),
         json!(true),
     );
 
     let denise_palette = query_value(&runtime, "denise.palette_24");
     let aga_palette = query_value(&runtime, "aga.palette_24");
+    let denise_genlock = query_value(&runtime, "denise.palette_genlock");
+    let aga_genlock = query_value(&runtime, "aga.palette_genlock");
     let denise_palette = denise_palette
         .as_array()
         .expect("Denise palette should be an array");
@@ -1437,6 +1487,36 @@ fn aga_queries_expose_lisa_and_composed_hblank_state() {
     assert_eq!(aga_palette.len(), 256);
     assert_eq!(denise_palette[173], json!(0x00AA_55CCu32));
     assert_eq!(aga_palette[173], json!(0x00AA_55CCu32));
+    assert_eq!(denise_genlock.as_array().map(Vec::len), Some(256));
+    assert_eq!(aga_genlock.as_array().map(Vec::len), Some(256));
+    assert_eq!(denise_genlock[173], json!(true));
+    assert_eq!(aga_genlock[173], json!(true));
+}
+
+#[test]
+fn aga_killehb_query_uses_bplcon2_instead_of_bplcon3_loct() {
+    let mut runtime = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    runtime.machine_mut().poke_word(0x00DF_F106, 0x0201); // LOCT | EXTBLKEN
+    assert_eq!(
+        query_value(&runtime, "denise.killehb_enabled"),
+        json!(false),
+        "AGA BPLCON3.LOCT must not be reported as ECS KILLEHB",
+    );
+
+    runtime.machine_mut().poke_word(0x00DF_F104, 0x0200); // BPLCON2 KILLEHB
+    assert_eq!(query_value(&runtime, "denise.killehb_enabled"), json!(true),);
+
+    runtime.machine_mut().poke_word(0x00DF_F106, 0x0000);
+    assert_eq!(
+        query_value(&runtime, "denise.killehb_enabled"),
+        json!(true),
+        "clearing LOCT must not clear AGA KILLEHB diagnostics",
+    );
+    runtime.machine_mut().poke_word(0x00DF_F104, 0x0000);
+    assert_eq!(
+        query_value(&runtime, "denise.killehb_enabled"),
+        json!(false),
+    );
 }
 
 #[test]

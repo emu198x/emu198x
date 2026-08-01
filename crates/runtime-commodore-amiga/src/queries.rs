@@ -1056,6 +1056,7 @@ pub(crate) fn denise_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "board_pipeline": board_pipeline,
         "palette_12": core.palette_12,
         "palette_24": core.palette_24.to_vec(),
+        "palette_genlock": vec![false; 256],
         "raster_width": core.raster_width,
         "raster_height": core.raster_height,
         "framebuffer_pixels": core.framebuffer_pixels,
@@ -1095,6 +1096,7 @@ pub(crate) fn denise_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "sprite_runtime_beam_y": core.sprite_runtime_beam_y,
         "ham_previous_rgb12": core.ham_previous_rgb12,
         "ham_previous_rgb24": core.ham_previous_rgb24,
+        "delayed_color_write": Value::Null,
         "last_shift_load": {
             "hires": core.last_shift_load.hires,
             "odd_scroll": core.last_shift_load.odd_scroll,
@@ -1108,9 +1110,17 @@ pub(crate) fn denise_snapshot(m: &dyn AmigaLiveAccess) -> Value {
     .expect("the common Denise snapshot is an object");
     if let Some(lisa) = m.aga_denise_diagnostic_snapshot() {
         snapshot.insert("palette_24".to_owned(), json!(lisa.palette_24.to_vec()));
+        snapshot.insert(
+            "palette_genlock".to_owned(),
+            json!(lisa.palette_genlock.to_vec()),
+        );
         snapshot.insert("bplcon4".to_owned(), json!(lisa.bplcon4));
         snapshot.insert("sprite_width".to_owned(), json!(lisa.spr_width));
         snapshot.insert("ham_previous_rgb24".to_owned(), json!(lisa.ham_prev_rgb24));
+        snapshot.insert(
+            "delayed_color_write".to_owned(),
+            json!(lisa.delayed_color_write),
+        );
     }
     let enhanced = json!({
         "deniseid": denise.map(|state| state.deniseid),
@@ -1546,8 +1556,10 @@ pub(crate) fn aga_snapshot(m: &dyn AmigaLiveAccess) -> Option<Value> {
         "spr_width": aga.spr_width,
         "ham_prev_rgb24": aga.ham_prev_rgb24,
         "programmed_hblank_active": aga.programmed_hblank_active,
+        "delayed_color_write": aga.delayed_color_write,
         "palette_24_nonzero_per_bank": bank_nonzero,
         "palette_24": aga.palette_24.to_vec(),
+        "palette_genlock": aga.palette_genlock.to_vec(),
         "palette_24_bank0": aga.palette_24[0..32].to_vec(),
         "ocs_palette_12bit": ocs_palette,
     }))

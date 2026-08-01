@@ -1247,12 +1247,21 @@ impl DeniseOcs {
     /// returns the composited color (playfield + sprites + priority).
     pub fn output_pixel_color(&mut self, x: u32, y: u32) -> u32 {
         let debug = self.output_pixel_with_beam(x, y, x, y);
-        if debug.called {
-            let rgb12 = self.resolve_color_rgb12(debug.final_color_idx);
-            Self::rgb12_to_argb32(rgb12)
-        } else {
-            0xFF00_0000
+        if !debug.called {
+            return 0xFF00_0000;
         }
+
+        let mut output = 0xFF00_0000;
+        for sample in 0..usize::from(debug.source_pixels_per_fb_pixel.clamp(1, 4)) {
+            let playfield_rgb12 = self.resolve_color_rgb12(debug.quad_playfield_color_idx[sample]);
+            let rgb12 = if debug.quad_is_sprite[sample] {
+                self.palette[usize::from(debug.quad_color_idx[sample]) & 0x1F]
+            } else {
+                playfield_rgb12
+            };
+            output = Self::rgb12_to_argb32(rgb12);
+        }
+        output
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1389,20 +1398,26 @@ impl DeniseOcs {
 
         // In hires/superhires, compose each source pixel independently for
         // full-res output. In lores all four entries are identical.
-        let (quad_color_idx, quad_is_sprite) =
+        let (quad_playfield_color_idx, quad_color_idx, quad_is_sprite) =
             if source_pixels_per_fb_pixel > 1 && playfield_visible_gate {
+                let mut quad_pf = [playfield.visible_color_idx as u8; 4];
                 let mut quad = [color_idx as u8; 4];
                 let mut quad_sp = [is_sprite; 4];
                 for i in 0..source_pixels_per_fb_pixel.min(4) as usize {
                     let (raw_i, pf1_i, pf2_i) = quad_samples[i];
                     let pf_i = self.compose_playfield_pixel(raw_i, pf1_i, pf2_i);
                     let (ci, sp) = resolve_sprite_priority(&pf_i, &sprite_pixel);
+                    quad_pf[i] = pf_i.visible_color_idx as u8;
                     quad[i] = ci as u8;
                     quad_sp[i] = sp;
                 }
-                (quad, quad_sp)
+                (quad_pf, quad, quad_sp)
             } else {
-                ([color_idx as u8; 4], [is_sprite; 4])
+                (
+                    [playfield.visible_color_idx as u8; 4],
+                    [color_idx as u8; 4],
+                    [is_sprite; 4],
+                )
             };
 
         DeniseOutputPixelDebug {
@@ -1416,6 +1431,7 @@ impl DeniseOcs {
             quad_samples: quad_samples_debug,
             plane_bits_mask,
             final_color_idx: color_idx as u8,
+            quad_playfield_color_idx,
             quad_color_idx,
             quad_is_sprite,
             playfield_visible_gate,

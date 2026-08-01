@@ -494,6 +494,7 @@ impl<C: DeniseChip> Denise<C> {
             ))
         };
 
+        let mut output_samples_advanced = false;
         if let Some((
             raster_vpos,
             raster_hpos,
@@ -505,58 +506,98 @@ impl<C: DeniseChip> Denise<C> {
         {
             let in_viewport_h = (VIEWPORT_H_START_CCK..VIEWPORT_H_END_CCK).contains(&raster_hpos);
             let in_viewport_v = (VIEWPORT_V_START_LINE..VIEWPORT_V_END_LINE).contains(&raster_vpos);
+            let pipeline_x = match raster_ddf_start {
+                Some(start) if raster_hpos >= start => {
+                    u32::from(raster_hpos - start) * 2 + u32::from(phase)
+                }
+                _ => 0,
+            };
+
+            // Horizontal visibility uses the extended Denise coordinate,
+            // not the wrapped physical counter. This lets genuine bitplane
+            // and sprite tails reach the right edge.
+            let beam_x_lores = u32::from(raster_hpos) * 2 + u32::from(phase);
+            let hstart = u32::from(agnus.diwstrt & 0x00FF);
+            let hstop = 0x0100u32 | u32::from(agnus.diwstop & 0x00FF);
+            let in_visible_h = beam_x_lores >= hstart && beam_x_lores < hstop;
+            let playfield_gate = raster_vertical_diw_active && in_visible_h;
+
+            // The Denise pipeline runs across the complete projected raster,
+            // including positions outside the host framebuffer. Early DDF
+            // windows can load and shift bitplane data before retained output
+            // begins; pausing here would let a later fetch overwrite that
+            // pending word. Only framebuffer storage is viewport-clipped.
+            // The bitplane pipeline uses DDF-relative coordinates, while the
+            // sprite comparator consumes the extended absolute beam position.
+            let dbg = self.ocs.output_pixel_with_beam_sprite_coords(
+                pipeline_x,
+                raster_pipeline_y,
+                pipeline_x,
+                raster_pipeline_y,
+                beam_x_lores,
+                u32::from(raster_vpos),
+                playfield_gate,
+            );
+            let samples = if dbg.called {
+                match dbg.source_pixels_per_fb_pixel.min(2) {
+                    0 => [(0, 0, false), (0, 0, false)],
+                    1 => [
+                        (
+                            dbg.quad_playfield_color_idx[0],
+                            dbg.final_color_idx,
+                            dbg.quad_is_sprite[0],
+                        ),
+                        (
+                            dbg.quad_playfield_color_idx[0],
+                            dbg.final_color_idx,
+                            dbg.quad_is_sprite[0],
+                        ),
+                    ],
+                    _ => [
+                        (
+                            dbg.quad_playfield_color_idx[0],
+                            dbg.quad_color_idx[0],
+                            dbg.quad_is_sprite[0],
+                        ),
+                        (
+                            dbg.quad_playfield_color_idx[1],
+                            dbg.quad_color_idx[1],
+                            dbg.quad_is_sprite[1],
+                        ),
+                    ],
+                }
+            } else {
+                [(0, 0, false), (0, 0, false)]
+            };
+
+            // Resolve each hires output sample once even when it is not
+            // retained. HAM and Lisa's delayed COLOR-write path are stateful,
+            // so composition is part of raster advancement rather than host
+            // framebuffer storage.
+            let composed_pixels =
+                samples.map(|(playfield_color_idx, output_color_idx, is_sprite)| {
+                    self.ocs.resolve_output_color_argb(
+                        playfield_color_idx,
+                        output_color_idx,
+                        is_sprite,
+                    )
+                });
+            output_samples_advanced = true;
+
             if in_viewport_h && in_viewport_v {
                 let local_y = u32::from(raster_vpos - VIEWPORT_V_START_LINE) * 2;
                 let local_x = u32::from(raster_hpos - VIEWPORT_H_START_CCK) * 2 + u32::from(phase);
-                let pipeline_x = match raster_ddf_start {
-                    Some(start) if raster_hpos >= start => {
-                        u32::from(raster_hpos - start) * 2 + u32::from(phase)
-                    }
-                    _ => 0,
-                };
-
-                // Horizontal visibility uses the extended Denise coordinate,
-                // not the wrapped physical counter. This lets genuine
-                // bitplane and sprite tails reach the right edge.
-                let beam_x_lores = u32::from(raster_hpos) * 2 + u32::from(phase);
-                let hstart = u32::from(agnus.diwstrt & 0x00FF);
-                let hstop = 0x0100u32 | u32::from(agnus.diwstop & 0x00FF);
-                let in_visible_h = beam_x_lores >= hstart && beam_x_lores < hstop;
-                let playfield_gate = raster_vertical_diw_active && in_visible_h;
-
-                // The bitplane pipeline runs in DDF-relative coordinates, but
-                // the sprite comparator consumes the extended absolute Denise
-                // coordinate and the raster row being completed.
-                let dbg = self.ocs.output_pixel_with_beam_sprite_coords(
-                    pipeline_x,
-                    raster_pipeline_y,
-                    pipeline_x,
-                    raster_pipeline_y,
-                    beam_x_lores,
-                    u32::from(raster_vpos),
-                    playfield_gate,
-                );
-                let cols = if dbg.called {
-                    match dbg.source_pixels_per_fb_pixel.min(2) {
-                        0 => [0, 0],
-                        1 => [dbg.final_color_idx, dbg.final_color_idx],
-                        _ => [dbg.quad_color_idx[0], dbg.quad_color_idx[1]],
-                    }
-                } else {
-                    [0, 0]
-                };
-
                 let row_offsets: &[u32] = match raster_interlace_row {
                     Some(0) => &[0],
                     Some(_) => &[1],
                     None => &[0, 1],
                 };
+
+                // Non-interlaced rendering duplicates the already-composed
+                // samples onto two host rows without advancing them twice.
                 for &row_offset in row_offsets {
                     let dy = local_y + row_offset;
-                    for (dx, color_idx) in cols.iter().enumerate() {
-                        // Resolve through the chip's colour path — 24-bit
-                        // palette on AGA, 12-bit upscaled on OCS/ECS (#93).
-                        let composed_pixel = self.ocs.resolve_color_argb(*color_idx);
+                    for (dx, composed_pixel) in composed_pixels.iter().copied().enumerate() {
                         let pixel = if horizontal_blanking.contains_output_sample(dx as u8) {
                             0xFF00_0000
                         } else {
@@ -570,6 +611,14 @@ impl<C: DeniseChip> Denise<C> {
                     }
                 }
             }
+        }
+
+        // At startup there is no previous-line raster context for physical
+        // positions before HBLANK start, so there is no bitplane or sprite
+        // output to consume. Still advance the standalone colour-output
+        // delay so a register write cannot remain pending indefinitely.
+        if !output_samples_advanced {
+            self.ocs.advance_color_output_samples(2);
         }
 
         // Capture after the terminal pixel has been composed. The following
@@ -792,6 +841,47 @@ mod tests {
                 0xFF00_0000,
             );
         }
+    }
+
+    #[test]
+    fn noninterlaced_host_row_duplication_does_not_advance_ham_twice() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let memory = Memory::new(vec![0; 2]);
+        let mut agnus = Agnus::new();
+        agnus.vpos = 50;
+        agnus.hpos = 0x0080;
+        agnus.diwstrt = 0x0000;
+        agnus.diwstop = 0x00FF;
+        agnus.bplcon0 = 0xE800; // HIRES, six planes, HAM
+
+        let mut denise = Denise::<DeniseOcs>::new();
+        denise.ocs.set_palette(0, 0x000);
+        // Emit HAM indices $2F (modify red) then $3F (modify green).
+        // Re-resolving the pair for the doubled host row would retain the
+        // first pass's green component in that row's first sample.
+        for plane in 0..6 {
+            let first = u16::from((0x2Fu8 >> plane) & 1) << 15;
+            let second = u16::from((0x3Fu8 >> plane) & 1) << 14;
+            denise.ocs.bpl_shift[plane] = first | second;
+        }
+        denise.ocs.shift_count = 16;
+
+        let line_ccks = agnus.current_line_ccks();
+        denise.tick(0, None, true, &mut agnus, &memory, line_ccks);
+
+        let y = u32::from(agnus.vpos - 0x19) * 2;
+        let x = u32::from(agnus.hpos - 0x2C) * 4;
+        let framebuffer = denise.framebuffer();
+        let top = &framebuffer[(y * FB_WIDTH + x) as usize..(y * FB_WIDTH + x + 2) as usize];
+        let bottom =
+            &framebuffer[((y + 1) * FB_WIDTH + x) as usize..((y + 1) * FB_WIDTH + x + 2) as usize];
+        assert_eq!(top, &[0xFFFF_0000, 0xFFFF_FF00]);
+        assert_eq!(
+            bottom, top,
+            "host row doubling must copy composed HAM pixels"
+        );
     }
 
     #[test]
@@ -1115,6 +1205,61 @@ mod tests {
     }
 
     #[test]
+    fn sprite_index_bypasses_ham_while_the_playfield_stream_advances() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let mut agnus = Agnus::new();
+        agnus.vpos = 50;
+        agnus.hpos = 100;
+        agnus.diwstrt = 0x2C00;
+        agnus.diwstop = 0xF4FF;
+        agnus.bplcon0 = 0x6800; // six planes, HAM
+
+        let mut denise = Denise::<DeniseOcs>::new();
+        denise.ocs.set_palette(0, 0x123);
+        denise.ocs.set_palette(17, 0xF00);
+        denise.ocs.write_sprite_pos(0, 0x3264); // HSTART=200
+        denise.ocs.write_sprite_ctl(0, 0x3C00);
+        denise.ocs.write_sprite_datb(0, 0x0000);
+        denise.ocs.write_sprite_data(0, 0x8000);
+
+        let memory = Memory::new(vec![0; 2]);
+        let line_ccks = agnus.current_line_ccks();
+        denise.tick(0, None, true, &mut agnus, &memory, line_ccks);
+
+        // Put HAM command $2f (modify red to $f) underneath the sprite and
+        // allow sprite group 0 in front of PF1.  The command must still
+        // advance HAM's hidden hold even though COLOR17 supplies the visible
+        // pixel.
+        for plane in 0..6 {
+            denise
+                .ocs
+                .load_bitplane(plane, if 0x2f & (1 << plane) != 0 { 0x8000 } else { 0 });
+        }
+        denise.ocs.bplcon2 = 0x0001;
+        denise.ocs.queue_shift_load_from_bpl1dat();
+        denise.ocs.trigger_shift_load();
+        let hold_before = denise.ocs.diagnostic_snapshot().ham_previous_rgb12;
+        denise.tick(1, None, true, &mut agnus, &memory, line_ccks);
+
+        let y = u32::from(agnus.vpos - 0x19) * 2;
+        let first_sprite_x = u32::from(agnus.hpos - 0x2C) * 4 + 2;
+        let framebuffer = denise.framebuffer();
+        assert_eq!(
+            framebuffer[(y * FB_WIDTH + first_sprite_x) as usize],
+            0xFFFF_0000,
+            "a winning sprite selects its palette colour instead of becoming a HAM command",
+        );
+        assert_eq!(
+            denise.ocs.diagnostic_snapshot().ham_previous_rgb12,
+            0xF23,
+            "the underlying playfield HAM command must advance the hidden hold",
+        );
+        assert_eq!(hold_before, 0x123);
+    }
+
+    #[test]
     fn wide_fetch_advances_pointer_by_width_words_per_line() {
         use commodore_agnus_ocs::Agnus;
         use commodore_denise_ocs::DeniseOcs;
@@ -1310,6 +1455,66 @@ mod tests {
             reference.framebuffer(),
             after_write.framebuffer(),
             "the live DDFSTRT register must not move an active pixel pipeline",
+        );
+    }
+
+    #[test]
+    fn early_ddf_primes_bitplane_shifter_before_framebuffer_viewport() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let mut agnus = Agnus::new();
+        agnus.agnus_id = 0x2300;
+        agnus.max_bitplanes = 8;
+        agnus.dmacon = 0x0300; // DMAEN | BPLEN
+        agnus.bplcon0 = 0x1200; // one lores bitplane, COLOR enabled
+        agnus.ddfstrt = 0x0020;
+        agnus.ddfstop = 0x00D8;
+        agnus.diwstrt = 0x1B51;
+        agnus.diwstop = 0x37D1;
+        agnus.vpos = 0x001B;
+        agnus.bpl_pt[0] = 0x0000_1000;
+
+        let mut memory = Memory::new(vec![0u8; 256 * 1024]);
+        memory.write_word(0x0000_1000, 0xFFFF);
+        memory.write_word(0x0000_1002, 0x0000);
+
+        let mut denise = Denise::<DeniseOcs>::new();
+        denise.ocs.write_word(0x102, 0); // BPLCON1
+        denise.ocs.set_palette(0, 0x000);
+        denise.ocs.set_palette(1, 0xFFF);
+        observe_ddf_start(&mut agnus);
+
+        loop {
+            let plan = agnus.cck_bus_plan();
+            let line_ccks = agnus.current_line_ccks();
+            denise.tick(
+                0,
+                plan.bitplane_dma_fetch_plane.map(|plane| BitplaneDmaFetch {
+                    plane,
+                    width_words: 1,
+                }),
+                true,
+                &mut agnus,
+                &memory,
+                line_ccks,
+            );
+            denise.tick(1, None, true, &mut agnus, &memory, line_ccks);
+            if agnus.hpos == 0x0031 {
+                break;
+            }
+            agnus.tick_cck();
+        }
+
+        let row = usize::from(agnus.vpos - 0x0019) * 2;
+        let retained = &denise.framebuffer[row * FB_WIDTH as usize..][..24];
+        assert!(
+            retained[..18].iter().all(|pixel| *pixel == 0xFFFF_FFFF),
+            "the first fetched word must already be shifting when retained output begins",
+        );
+        assert!(
+            retained[18..].iter().all(|pixel| *pixel == 0xFF00_0000),
+            "the second fetched word must begin at the next serial-load boundary",
         );
     }
 

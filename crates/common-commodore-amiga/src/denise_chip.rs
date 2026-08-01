@@ -79,6 +79,35 @@ pub trait DeniseChip:
         crate::denise::rgb12_to_argb(self.resolve_color_rgb12(color_idx))
     }
 
+    /// Resolve the final composited sample while preserving both the
+    /// underlying playfield and the result of sprite priority. HAM and EHB
+    /// decode the playfield stream before a winning sprite replaces the
+    /// visible colour with a direct palette selection.
+    fn resolve_output_color_argb(
+        &mut self,
+        playfield_color_idx: u8,
+        output_color_idx: u8,
+        is_sprite: bool,
+    ) -> u32 {
+        let playfield = self.resolve_color_argb(playfield_color_idx);
+        if is_sprite {
+            let rgb12 = self.palette()[usize::from(output_color_idx) & 0x1F];
+            crate::denise::rgb12_to_argb(rgb12)
+        } else {
+            playfield
+        }
+    }
+
+    /// Advance colour-output timing without resolving a visible pixel.
+    ///
+    /// OCS and ECS have no deferred colour-output state. AGA Lisa overrides
+    /// this hook because a `COLORxx` write reaches the output one hires pixel
+    /// after the register write, including while the board viewport is not
+    /// being recorded.
+    fn advance_color_output_samples(&mut self, samples: u8) {
+        let _ = samples;
+    }
+
     // ── Field accessors used by the wrapper ──
     fn palette(&self) -> &[u16; 32];
     fn interlace_active(&self) -> bool;
@@ -269,7 +298,7 @@ impl DeniseChip for DeniseEcs {
         )
     }
     fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16 {
-        self.as_inner_mut().resolve_color_rgb12(color_idx)
+        DeniseEcs::resolve_color_rgb12(self, color_idx)
     }
     fn palette(&self) -> &[u16; 32] {
         &self.as_inner().palette
@@ -300,5 +329,23 @@ impl DeniseChip for DeniseEcs {
     }
     fn peek_clxdat(&self) -> u16 {
         self.as_inner().peek_clxdat()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ecs_live_output_adapter_honors_killehb() {
+        let mut denise = DeniseEcs::new();
+        denise.as_inner_mut().set_palette(5, 0x0ACE);
+        denise.as_inner_mut().bplcon0 = 0x6000; // 6 planes, EHB
+        DeniseChip::write_word(&mut denise, 0x0104, 0x0200); // BPLCON2 KILLEHB
+
+        assert_eq!(
+            DeniseChip::resolve_output_color_argb(&mut denise, 0x25, 0x25, false),
+            crate::denise::rgb12_to_argb(0x0ACE),
+        );
     }
 }

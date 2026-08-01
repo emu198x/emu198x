@@ -13,7 +13,7 @@ const BPLCON0_BPLHWRM: u16 = 0x0020;
 const BPLCON0_SPRHWRM: u16 = 0x0010;
 const BPLCON3_BRDRBLNK: u16 = 0x0020;
 const BPLCON3_BRDNTRAN: u16 = 0x0010;
-const BPLCON3_KILLEHB: u16 = 0x0200;
+const BPLCON2_KILLEHB: u16 = 0x0200;
 const BPLCON3_ENBPLCN3: u16 = 0x0001;
 
 /// Thin ECS wrapper that currently reuses the OCS Denise implementation.
@@ -131,7 +131,7 @@ impl DeniseEcs {
     /// Whether ECS requests that EHB decoding be suppressed.
     #[must_use]
     pub const fn killehb_enabled(&self) -> bool {
-        self.bplcon3_extensions_enabled() && (self.bplcon3 & BPLCON3_KILLEHB) != 0
+        (self.inner.bplcon2 & BPLCON2_KILLEHB) != 0
     }
 
     /// Resolve a playfield colour index to 12-bit RGB, applying ECS-only
@@ -311,17 +311,17 @@ mod tests {
     }
 
     #[test]
-    fn killehb_requires_extension_enable_and_disables_halfbrite_when_active() {
+    fn killehb_is_a_bplcon2_control_and_disables_halfbrite_when_active() {
         let mut denise = DeniseEcs::new();
         denise.set_palette(5, 0x0ACE);
         denise.bplcon0 = 0x6000; // 6 planes, EHB
 
         assert_eq!(denise.resolve_color_rgb12(0x25), 0x0567);
 
-        denise.bplcon3 = 0x0200; // KILLEHB without ENBPLCN3
+        denise.bplcon3 = 0x0201; // BPLCON3 bit 9 is not KILLEHB
         assert_eq!(denise.resolve_color_rgb12(0x25), 0x0567);
 
-        denise.bplcon3 = 0x0201; // KILLEHB + ENBPLCN3
+        denise.write_word(0x0104, 0x0200); // BPLCON2 KILLEHB
         assert_eq!(denise.resolve_color_rgb12(0x25), 0x0ACE);
         assert_eq!(denise.resolve_color_rgb12(0x05), 0x0ACE);
     }
@@ -335,7 +335,7 @@ mod tests {
         let mut dual_playfield = DeniseEcs::new();
         dual_playfield.set_palette(5, 0x0ACE);
         dual_playfield.bplcon0 = 0x6400; // 6 planes, dual playfield
-        dual_playfield.bplcon3 = 0x0201; // KILLEHB + ENBPLCN3
+        dual_playfield.write_word(0x0104, 0x0200); // BPLCON2 KILLEHB
         assert_eq!(
             dual_playfield.resolve_color_rgb12(0x25),
             dual_playfield_baseline.resolve_color_rgb12(0x25)
@@ -349,7 +349,7 @@ mod tests {
         let mut ham = DeniseEcs::new();
         ham.set_palette(0, 0x0ACE);
         ham.bplcon0 = 0x6800; // 6 planes, HAM
-        ham.bplcon3 = 0x0201;
+        ham.write_word(0x0104, 0x0200); // BPLCON2 KILLEHB
         ham.begin_beam_line();
         assert_eq!(
             ham.resolve_color_rgb12(0x25),

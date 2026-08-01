@@ -17,8 +17,8 @@
 //!   resolve through `palette_24` for 8-bit-per-channel colour.
 //! - **Wide sprite emit** — done (#95): FMODE feeds the OCS shifter's
 //!   `spr_width` (16 / 32 / 64 px).
-//! - **HAM8 chaining** — done (#94): 8-plane HAM resolves to a 24-bit
-//!   pixel with low-2-bit channel hold; HAM6/EHB stay on the 12-bit path.
+//! - **HAM chaining and EHB** — done (#94): AGA HAM6/HAM8 and EHB resolve
+//!   through Lisa's 24-bit palette and hold state.
 //! - **BPLAM bitplane XOR** — done (#96): BPLCON4 bits 15..8 XOR the
 //!   playfield colour index before the palette lookup.
 //!
@@ -45,6 +45,25 @@ pub const LISA_DENISE_ID: u16 = 0x00F8;
 /// Number of palette entries in AGA (vs 32 on OCS / ECS).
 pub const PALETTE_ENTRIES_24: usize = 256;
 
+const BPLCON2_RDRAM: u16 = 0x0100;
+const BPLCON3_LOCT: u16 = 0x0200;
+
+/// One AGA `COLORxx` write waiting to cross Lisa's one-hires-pixel output
+/// delay. The palette register mirrors already contain the new values; these
+/// fields preserve the values visible to the immediately following sample.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DeniseAgaDelayedColorWrite {
+    /// AGA palette slot selected by BPLCON3 BANK and the COLOR register.
+    pub palette_index: u8,
+    /// Previous 24-bit value, stored as `0x00RRGGBB`.
+    pub previous_rgb24: u32,
+    /// Previous bank-zero 12-bit value when the write also updated the
+    /// compatibility palette. Other banks and LOCT writes leave this absent.
+    pub previous_rgb12: Option<u16>,
+    /// Previous transparency/genlock flag for the selected palette slot.
+    pub previous_genlock: bool,
+}
+
 /// Complete read-only snapshot of the state owned by the Lisa wrapper.
 ///
 /// The wrapped ECS/OCS rendering core exposes its own diagnostic snapshot.
@@ -59,12 +78,17 @@ pub struct DeniseAgaDiagnosticSnapshot {
     /// Lisa's complete 256-entry 24-bit palette, stored as `0x00RRGGBB`.
     #[serde(with = "palette_24_serde")]
     pub palette_24: [u32; PALETTE_ENTRIES_24],
+    /// Per-entry AGA palette transparency/genlock flags.
+    #[serde(with = "palette_genlock_serde")]
+    pub palette_genlock: [bool; PALETTE_ENTRIES_24],
     /// Lisa's current 24-bit HAM8 hold colour, stored as `0x00RRGGBB`.
     pub ham_prev_rgb24: u32,
     /// Lisa's FMODE-derived sprite width mirror.
     pub spr_width: u8,
     /// Hidden programmable horizontal-blank comparator level.
     pub programmed_hblank_active: bool,
+    /// Pending one-hires-pixel AGA palette-output delay, if any.
+    pub delayed_color_write: Option<DeniseAgaDelayedColorWrite>,
 }
 
 /// Commodore Lisa (AGA Denise). Wraps the ECS Denise core and adds
@@ -81,6 +105,9 @@ pub struct DeniseAga {
     /// Stored as `0x00RRGGBB`.
     #[serde(with = "palette_24_serde")]
     pub palette_24: [u32; PALETTE_ENTRIES_24],
+    /// Per-entry transparency/genlock flag written through COLOR bit 15.
+    #[serde(default = "default_palette_genlock", with = "palette_genlock_serde")]
+    pub palette_genlock: [bool; PALETTE_ENTRIES_24],
     /// Last resolved RGB24 value, used by HAM8 chaining.
     pub ham_prev_rgb24: u32,
     /// Current sprite display width in pixels (16 / 32 / 64),
@@ -90,6 +117,15 @@ pub struct DeniseAga {
     /// the live ECSENA/EXTBLKEN selectors change this state; register writes
     /// do not reconstruct it from the current beam position.
     programmed_hblank_active: bool,
+    /// The previous palette value visible for one hires output sample after
+    /// an AGA COLOR write. Register and inspection reads see the new value
+    /// immediately; only pixel output is delayed.
+    #[serde(default)]
+    delayed_color_write: Option<DeniseAgaDelayedColorWrite>,
+}
+
+const fn default_palette_genlock() -> [bool; PALETTE_ENTRIES_24] {
+    [false; PALETTE_ENTRIES_24]
 }
 
 /// Serde adapter — `[u32; 256]` isn't `Serialize`/`Deserialize` by
@@ -115,6 +151,27 @@ mod palette_24_serde {
     }
 }
 
+/// Serde adapter for the fixed 256-entry transparency table.
+mod palette_genlock_serde {
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
+
+    pub fn serialize<S: Serializer>(
+        flags: &[bool; super::PALETTE_ENTRIES_24],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(flags.iter())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<[bool; super::PALETTE_ENTRIES_24], D::Error> {
+        let values: Vec<bool> = Vec::deserialize(deserializer)?;
+        values.try_into().map_err(|values: Vec<bool>| {
+            D::Error::custom(format!("palette_genlock length {} != 256", values.len()))
+        })
+    }
+}
+
 impl DeniseAga {
     /// Construct a fresh Lisa with the AGA register state zeroed and
     /// sprite width at the AGA default of 16 pixels.
@@ -131,9 +188,11 @@ impl DeniseAga {
             inner,
             bplcon4: 0x0011,
             palette_24: [0; PALETTE_ENTRIES_24],
+            palette_genlock: [false; PALETTE_ENTRIES_24],
             ham_prev_rgb24: 0,
             spr_width: 16,
             programmed_hblank_active: false,
+            delayed_color_write: None,
         }
     }
 
@@ -148,9 +207,11 @@ impl DeniseAga {
             inner,
             bplcon4: 0x0011,
             palette_24: [0; PALETTE_ENTRIES_24],
+            palette_genlock: [false; PALETTE_ENTRIES_24],
             ham_prev_rgb24: 0,
             spr_width: 16,
             programmed_hblank_active: false,
+            delayed_color_write: None,
         }
     }
 
@@ -182,9 +243,11 @@ impl DeniseAga {
         DeniseAgaDiagnosticSnapshot {
             bplcon4: self.bplcon4,
             palette_24: self.palette_24,
+            palette_genlock: self.palette_genlock,
             ham_prev_rgb24: self.ham_prev_rgb24,
             spr_width: self.spr_width,
             programmed_hblank_active: self.programmed_hblank_active,
+            delayed_color_write: self.delayed_color_write,
         }
     }
 
@@ -287,17 +350,27 @@ impl DeniseAga {
     ///   full-precision 8-bit value (matches the AGA HRM / WinUAE).
     /// - `LOCT=1` (low write): only the low nybble of each channel
     ///   is updated; the high nybble keeps its previous value.
+    /// - with `BPLCON2.RDRAM` set, the write is ignored.
     ///
-    /// The OCS palette is also updated for bank 0 / LOCT=0 writes so
-    /// the existing ECS 12-bit render path keeps producing pixels
-    /// while the AGA 24-bit render path is still pending.
+    /// The OCS compatibility palette is also updated for bank 0 / LOCT=0
+    /// writes. Register mirrors change immediately, but Lisa keeps the
+    /// previous 24-bit value at its output for one hires pixel.
     pub fn handle_color_write(&mut self, offset: u16, val: u16) {
+        // Lisa samples RDRAM with the write before placing the one-pixel
+        // delayed colour change into its output pipeline. A protected write
+        // therefore changes neither the register mirrors nor pending output.
+        if self.inner.as_inner().bplcon2 & BPLCON2_RDRAM != 0 {
+            return;
+        }
         let idx = ((offset - 0x180) / 2) as usize;
         let bplcon3 = self.inner.bplcon3;
         let bank = ((bplcon3 >> 13) & 0x7) as usize;
-        let loct = (bplcon3 & 0x0200) != 0;
+        let loct = (bplcon3 & BPLCON3_LOCT) != 0;
         let slot = bank * 32 + idx;
         if slot < PALETTE_ENTRIES_24 {
+            let previous_rgb24 = self.palette_24[slot];
+            let previous_genlock = self.palette_genlock[slot];
+            let previous_rgb12 = (bank == 0 && !loct).then(|| self.inner.as_inner().palette[idx]);
             let r4 = u32::from((val >> 8) & 0xF);
             let g4 = u32::from((val >> 4) & 0xF);
             let b4 = u32::from(val & 0xF);
@@ -312,7 +385,18 @@ impl DeniseAga {
                 let g8 = (g4 << 4) | g4;
                 let b8 = (b4 << 4) | b4;
                 self.palette_24[slot] = (r8 << 16) | (g8 << 8) | b8;
+                self.palette_genlock[slot] = val & 0x8000 != 0;
             }
+
+            // A second COLOR write before the next output sample supersedes
+            // the pending entry. The earlier register value is already live,
+            // which is equivalent to flushing that earlier delayed write.
+            self.delayed_color_write = Some(DeniseAgaDelayedColorWrite {
+                palette_index: slot as u8,
+                previous_rgb24,
+                previous_rgb12,
+                previous_genlock,
+            });
         }
         // Keep the OCS 12-bit palette in sync for the existing render
         // path — but only for bank 0 / high writes, so LOCT=1 passes
@@ -320,6 +404,149 @@ impl DeniseAga {
         if bank == 0 && !loct {
             self.inner.write_word(offset, val);
         }
+    }
+
+    /// Read one banked AGA colour-table register through `BPLCON2.RDRAM`.
+    ///
+    /// The selected `BPLCON3.BANK` chooses one of the eight 32-colour banks.
+    /// `BPLCON3.LOCT` chooses the low or high nibble of each stored eight-bit
+    /// channel. Without RDRAM, colour registers remain write-only.
+    #[must_use]
+    pub fn read_color_register(&self, offset: u16) -> u16 {
+        if self.inner.as_inner().bplcon2 & BPLCON2_RDRAM == 0
+            || !(0x0180..=0x01BE).contains(&offset)
+            || offset & 1 != 0
+        {
+            return 0xFFFF;
+        }
+
+        let color = usize::from((offset - 0x0180) / 2);
+        let bank = usize::from((self.inner.bplcon3 >> 13) & 0x0007);
+        let rgb24 = self.palette_24[bank * 32 + color];
+        let shift = if self.inner.bplcon3 & BPLCON3_LOCT != 0 {
+            0
+        } else {
+            4
+        };
+        let red = ((rgb24 >> (16 + shift)) & 0x0F) as u16;
+        let green = ((rgb24 >> (8 + shift)) & 0x0F) as u16;
+        let blue = ((rgb24 >> shift) & 0x0F) as u16;
+        let genlock = if shift == 4 && self.palette_genlock[bank * 32 + color] {
+            0x8000
+        } else {
+            0
+        };
+        genlock | (red << 8) | (green << 4) | blue
+    }
+
+    fn resolve_rgb12_with_delayed_write(
+        &mut self,
+        color_idx: u8,
+        delayed: Option<DeniseAgaDelayedColorWrite>,
+    ) -> u16 {
+        let Some(delayed) = delayed else {
+            return self.inner.resolve_color_rgb12(color_idx);
+        };
+        let Some(previous_rgb12) = delayed.previous_rgb12 else {
+            return self.inner.resolve_color_rgb12(color_idx);
+        };
+
+        let palette_index = usize::from(delayed.palette_index);
+        // A valid write only records RGB12 for bank zero. Treat malformed
+        // restored state as having no compatible 12-bit delay instead of
+        // indexing beyond the fixed OCS palette.
+        if palette_index >= 32 {
+            return self.inner.resolve_color_rgb12(color_idx);
+        }
+        let current_rgb12 = self.inner.as_inner().palette[palette_index];
+        self.inner.as_inner_mut().palette[palette_index] = previous_rgb12;
+        let resolved = self.inner.resolve_color_rgb12(color_idx);
+        self.inner.as_inner_mut().palette[palette_index] = current_rgb12;
+        resolved
+    }
+
+    fn palette_rgb24_with_delayed_write(
+        &self,
+        palette_index: usize,
+        delayed: Option<DeniseAgaDelayedColorWrite>,
+    ) -> u32 {
+        delayed
+            .filter(|entry| usize::from(entry.palette_index) == palette_index)
+            .map_or(self.palette_24[palette_index], |entry| entry.previous_rgb24)
+            & 0x00FF_FFFF
+    }
+
+    fn resolve_playfield_color_argb_with_delayed_write(
+        &mut self,
+        color_idx: u8,
+        delayed: Option<DeniseAgaDelayedColorWrite>,
+    ) -> u32 {
+        let ocs = self.inner.as_inner();
+        let bplcon0 = ocs.bplcon0;
+        let ham = bplcon0 & 0x0800 != 0;
+        let dual_playfield = bplcon0 & 0x0400 != 0;
+        let planes = ocs.num_bitplanes();
+        let kill_ehb = ocs.bplcon2 & 0x0200 != 0;
+
+        // Lisa HAM resolves through the 24-bit palette and hold register.
+        // HAM8 uses the low two control bits and high six data bits; HAM6
+        // uses the high two control bits and replicates its four data bits
+        // across the selected eight-bit channel. Confirmed against
+        // Minimig-AGA's `denise_hamgenerator.v` and WinUAE/FS-UAE's
+        // `decode_ham_pixel_aga`.
+        //
+        // `color_idx` already has the BPLCON4 BPLAM XOR applied upstream
+        // in `compose_playfield_pixel` (#96), so control + data are taken
+        // post-XOR (Minimig's behaviour). WinUAE XORs only the control and
+        // colour-register index, taking modify data from the raw pixel —
+        // the two diverge only when BPLAM is non-zero in HAM8, which real
+        // software effectively never does.
+        if ham && !dual_playfield && planes >= 5 {
+            let prev = self.ham_prev_rgb24 & 0x00FF_FFFF;
+            let rgb = if planes >= 7 {
+                let control = color_idx & 0x03;
+                let data6 = u32::from(color_idx >> 2);
+                match control {
+                    0b00 => self.palette_rgb24_with_delayed_write(data6 as usize, delayed),
+                    0b01 => {
+                        let blue = (data6 << 2) | (prev & 0x03);
+                        (prev & 0x00FF_FF00) | blue
+                    }
+                    0b10 => {
+                        let red = (data6 << 2) | ((prev >> 16) & 0x03);
+                        (prev & 0x0000_FFFF) | (red << 16)
+                    }
+                    _ => {
+                        let green = (data6 << 2) | ((prev >> 8) & 0x03);
+                        (prev & 0x00FF_00FF) | (green << 8)
+                    }
+                }
+            } else {
+                let control = color_idx & 0x30;
+                let data8 = u32::from(color_idx & 0x0F) * 0x11;
+                match control {
+                    0x00 => self
+                        .palette_rgb24_with_delayed_write(usize::from(color_idx & 0x0F), delayed),
+                    0x10 => (prev & 0x00FF_FF00) | data8,
+                    0x20 => (prev & 0x0000_FFFF) | (data8 << 16),
+                    _ => (prev & 0x00FF_00FF) | (data8 << 8),
+                }
+            };
+            self.ham_prev_rgb24 = rgb;
+            return 0xFF00_0000 | rgb;
+        }
+
+        if !ham && !dual_playfield && planes == 6 {
+            let palette_index = usize::from(color_idx & 0x1F);
+            let mut rgb24 = self.palette_rgb24_with_delayed_write(palette_index, delayed);
+            if color_idx & 0x20 != 0 && !kill_ehb {
+                rgb24 = (rgb24 >> 1) & 0x007F_7F7F;
+            }
+            return 0xFF00_0000 | rgb24;
+        }
+
+        let palette_index = usize::from(color_idx);
+        0xFF00_0000 | self.palette_rgb24_with_delayed_write(palette_index, delayed)
     }
 }
 
@@ -420,9 +647,9 @@ impl DeniseChip for DeniseAga {
 
     fn begin_beam_line(&mut self) {
         self.inner.as_inner_mut().begin_beam_line();
-        // HAM8 holds a 24-bit running colour across the line; reset it to
-        // the AGA background (COLOR00) at the start of each scanline, the
-        // same way the OCS layer resets its 12-bit HAM hold register.
+        // AGA HAM6 and HAM8 hold a 24-bit running colour across the line;
+        // reset it to COLOR00 at the start of each scanline, the same way
+        // the OCS layer resets its 12-bit HAM hold register.
         self.ham_prev_rgb24 = self.palette_24[0] & 0x00FF_FFFF;
     }
 
@@ -463,75 +690,45 @@ impl DeniseChip for DeniseAga {
     }
 
     fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16 {
-        self.inner.resolve_color_rgb12(color_idx)
+        let delayed = self.delayed_color_write.take();
+        self.resolve_rgb12_with_delayed_write(color_idx, delayed)
     }
 
     /// Resolve to a final ARGB8888 pixel through the AGA 24-bit palette.
     ///
     /// - **Normal indexed** (#93): `palette_24[idx]` (8-bit-per-channel).
-    /// - **HAM8** (#94): 8-plane hold-and-modify, resolved to a full
-    ///   24-bit pixel — see below.
-    /// - **HAM6 / EHB**: derive their colour from the 12-bit palette
-    ///   (4-bit channels, nibble-replicated to 8 bits), so they stay on
-    ///   the existing 12-bit path.
+    /// - **HAM6 / HAM8**: Lisa hold-and-modify through its 24-bit palette
+    ///   and 24-bit running colour.
+    /// - **EHB**: halve each eight-bit component from the 24-bit base entry,
+    ///   unless AGA `BPLCON2.KILLEHB` suppresses half-brite selection.
     fn resolve_color_argb(&mut self, color_idx: u8) -> u32 {
-        let ocs = self.inner.as_inner();
-        let bplcon0 = ocs.bplcon0;
-        let ham = bplcon0 & 0x0800 != 0;
-        let dual_playfield = bplcon0 & 0x0400 != 0;
-        let planes = ocs.num_bitplanes();
+        let delayed = self.delayed_color_write.take();
+        self.resolve_playfield_color_argb_with_delayed_write(color_idx, delayed)
+    }
 
-        // HAM8: hold-and-modify with 8 bitplanes resolves to a 24-bit
-        // pixel. Unlike HAM6, the control select is the LOW two bits and
-        // the data is the HIGH six bits. control=00 reads a 24-bit colour
-        // register (bank 0, entries 0..63); a modify replaces the top six
-        // bits of one 8-bit channel and HOLDS that channel's low two bits
-        // from the previous pixel. Confirmed against two references:
-        // Minimig-AGA `denise_hamgenerator.v` (control `select_r[1:0]`,
-        // data `select_r[7:2]`) and WinUAE/fs-uae `decode_ham_pixel_aga`
-        // (control `pv & 0x3`, modify `pix & 0xFC`).
-        //
-        // `color_idx` already has the BPLCON4 BPLAM XOR applied upstream
-        // in `compose_playfield_pixel` (#96), so control + data are taken
-        // post-XOR (Minimig's behaviour). WinUAE XORs only the control and
-        // colour-register index, taking modify data from the raw pixel —
-        // the two diverge only when BPLAM is non-zero in HAM8, which real
-        // software effectively never does.
-        if ham && !dual_playfield && planes == 8 {
-            let control = color_idx & 0x03;
-            let data6 = u32::from(color_idx >> 2);
-            let prev = self.ham_prev_rgb24 & 0x00FF_FFFF;
-            let rgb = match control {
-                0b00 => self.palette_24[data6 as usize] & 0x00FF_FFFF,
-                0b01 => {
-                    // modify blue
-                    let blue = (data6 << 2) | (prev & 0x03);
-                    (prev & 0x00FF_FF00) | blue
-                }
-                0b10 => {
-                    // modify red
-                    let red = (data6 << 2) | ((prev >> 16) & 0x03);
-                    (prev & 0x0000_FFFF) | (red << 16)
-                }
-                _ => {
-                    // 0b11: modify green
-                    let green = (data6 << 2) | ((prev >> 8) & 0x03);
-                    (prev & 0x00FF_00FF) | (green << 8)
-                }
-            };
-            self.ham_prev_rgb24 = rgb;
-            return 0xFF00_0000 | rgb;
-        }
-
-        // HAM6 (≥5 planes) and EHB (6 planes, no HAM) derive their colour
-        // from the 12-bit palette rather than the 24-bit indexed table.
-        let derived_mode = !dual_playfield && ((ham && planes >= 5) || (!ham && planes == 6));
-        if derived_mode {
-            InnerDeniseOcs::rgb12_to_argb32(
-                self.inner.as_inner_mut().resolve_color_rgb12(color_idx),
-            )
+    fn resolve_output_color_argb(
+        &mut self,
+        playfield_color_idx: u8,
+        output_color_idx: u8,
+        is_sprite: bool,
+    ) -> u32 {
+        // One delayed palette view feeds both the underlying playfield decode
+        // and a sprite that subsequently wins priority for this sample.
+        let delayed = self.delayed_color_write.take();
+        let playfield =
+            self.resolve_playfield_color_argb_with_delayed_write(playfield_color_idx, delayed);
+        if is_sprite {
+            let rgb24 =
+                self.palette_rgb24_with_delayed_write(usize::from(output_color_idx), delayed);
+            0xFF00_0000 | rgb24
         } else {
-            0xFF00_0000 | (self.palette_24[color_idx as usize] & 0x00FF_FFFF)
+            playfield
+        }
+    }
+
+    fn advance_color_output_samples(&mut self, samples: u8) {
+        if samples != 0 {
+            self.delayed_color_write = None;
         }
     }
 
@@ -576,7 +773,7 @@ impl DeniseChip for DeniseAga {
 
 #[cfg(test)]
 mod tests {
-    use super::{DeniseAga, LISA_DENISE_ID};
+    use super::{BPLCON2_RDRAM, DeniseAga, LISA_DENISE_ID};
     use common_commodore_amiga::{denise::HorizontalBlanking, denise_chip::DeniseChip};
 
     #[test]
@@ -588,6 +785,7 @@ mod tests {
         assert_eq!(denise.spr_width, 16);
         assert_eq!(denise.ham_prev_rgb24, 0);
         assert!(denise.palette_24.iter().all(|&c| c == 0));
+        assert!(denise.palette_genlock.iter().all(|flag| !flag));
         assert!(!denise.programmed_hblank_active());
     }
 
@@ -598,6 +796,7 @@ mod tests {
         for (index, color) in denise.palette_24.iter_mut().enumerate() {
             *color = ((index as u32) * 0x0001_0203) & 0x00FF_FFFF;
         }
+        denise.palette_genlock[172] = true;
         denise.write_word(0x0106, 0xA000); // BANK=5, LOCT=0
         denise.write_word(0x019A, 0x0A5C); // COLOR13 in bank 5 -> slot 173
         denise.write_word(0x010C, 0x5A3C);
@@ -626,6 +825,8 @@ mod tests {
         assert_eq!(first.bplcon4, 0x5A3C);
         assert_eq!(first.palette_24, expected_palette);
         assert_eq!(first.palette_24[173], 0x00AA_55CC);
+        assert!(first.palette_genlock[172]);
+        assert!(!first.palette_genlock[173]);
         assert_eq!(first.ham_prev_rgb24, 0x0012_3457);
         assert_eq!(first.spr_width, 64);
         assert!(first.programmed_hblank_active);
@@ -792,16 +993,216 @@ mod tests {
     }
 
     #[test]
-    fn ham6_mode_keeps_the_12bit_path() {
-        // HAM6 (≤6 planes) derives colours from the 12-bit palette, not
-        // the indexed 24-bit table, so palette_24 must NOT be consulted.
+    fn color_write_reaches_aga_output_one_hires_pixel_late() {
         let mut denise = DeniseAga::new();
-        denise.set_bplcon0(0x5000 | 0x0800); // BPU=5 + HAM (bit 11)
-        denise.palette_24[1] = 0x0012_3456; // would show if 24-bit path were used
-        assert_ne!(
-            denise.resolve_color_argb(1),
-            0xFF12_3456,
-            "HAM6 mode must not resolve through the 24-bit palette"
+        denise.set_bplcon0(0x1000); // one plane, normal indexed mode
+
+        denise.write_word(0x0180, 0x0123);
+        denise.advance_color_output_samples(1);
+        denise.write_word(0x0180, 0x0ABC);
+
+        // Register and inspection state changes immediately.
+        assert_eq!(denise.palette_24[0], 0x00AA_BBCC);
+        assert_eq!(denise.palette()[0], 0x0ABC);
+        let pending = denise
+            .diagnostic_snapshot()
+            .delayed_color_write
+            .expect("COLOR00 write must be pending at the output");
+        assert_eq!(pending.palette_index, 0);
+        assert_eq!(pending.previous_rgb24, 0x0011_2233);
+        assert_eq!(pending.previous_rgb12, Some(0x0123));
+        assert!(!pending.previous_genlock);
+
+        // Lisa retains the previous colour for exactly one hires sample.
+        assert_eq!(denise.resolve_color_argb(0), 0xFF11_2233);
+        assert!(denise.diagnostic_snapshot().delayed_color_write.is_none());
+        assert_eq!(denise.resolve_color_argb(0), 0xFFAA_BBCC);
+    }
+
+    #[test]
+    fn aga_color_delay_expires_on_a_different_palette_index() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x1000);
+        denise.palette_24[1] = 0x0044_5566;
+
+        denise.write_word(0x0180, 0x0ABC);
+        assert_eq!(denise.resolve_color_argb(1), 0xFF44_5566);
+        assert_eq!(denise.resolve_color_argb(0), 0xFFAA_BBCC);
+    }
+
+    #[test]
+    fn aga_color_delay_expires_outside_the_recorded_viewport() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x1000);
+
+        denise.write_word(0x0180, 0x0ABC);
+        denise.advance_color_output_samples(1);
+
+        assert!(denise.diagnostic_snapshot().delayed_color_write.is_none());
+        assert_eq!(denise.resolve_color_argb(0), 0xFFAA_BBCC);
+    }
+
+    #[test]
+    fn rdram_protected_color_write_changes_neither_palette_nor_output_delay() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x1000);
+        denise.write_word(0x0180, 0x0123);
+        denise.advance_color_output_samples(1);
+        denise.write_word(0x0104, 0x0100); // BPLCON2 RDRAM
+
+        denise.write_word(0x0180, 0x0ABC);
+
+        assert_eq!(denise.palette_24[0], 0x0011_2233);
+        assert_eq!(denise.palette()[0], 0x0123);
+        assert!(denise.diagnostic_snapshot().delayed_color_write.is_none());
+        assert_eq!(denise.resolve_color_argb(0), 0xFF11_2233);
+    }
+
+    #[test]
+    fn rdram_reads_the_selected_bank_and_loct_half() {
+        let mut denise = DeniseAga::new();
+        denise.write_word(0x0106, 0xA000); // BANK=5, high nibbles
+        denise.write_word(0x018A, 0x8A5C); // COLOR05 -> palette $A5, T=1
+        denise.write_word(0x0106, 0xA200); // BANK=5, LOCT
+        denise.write_word(0x018A, 0x0123);
+
+        assert_eq!(denise.read_color_register(0x018A), 0xFFFF);
+        denise.write_word(0x0104, BPLCON2_RDRAM);
+
+        denise.write_word(0x0106, 0xA000);
+        assert_eq!(denise.read_color_register(0x018A), 0x8A5C);
+        denise.write_word(0x0106, 0xA200);
+        assert_eq!(denise.read_color_register(0x018A), 0x0123);
+
+        denise.write_word(0x018A, 0x0FED);
+        denise.write_word(0x0106, 0xA000);
+        assert_eq!(denise.read_color_register(0x018A), 0x8A5C);
+
+        denise.write_word(0x0106, 0x8000); // BANK=4
+        assert_eq!(denise.read_color_register(0x018A), 0x0000);
+        assert_eq!(denise.read_color_register(0x018B), 0xFFFF);
+    }
+
+    #[test]
+    fn aga_ehb_uses_delayed_full_24bit_palette_with_loct_precision() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x6000); // six planes, EHB
+
+        denise.write_word(0x0182, 0x0123);
+        denise.advance_color_output_samples(1);
+        denise.write_word(0x0106, 0x0200); // BPLCON3 LOCT
+        denise.write_word(0x0182, 0x0456);
+
+        // Index 33 is half-brite COLOR01. LOCT must not act as ECS KILLEHB,
+        // and the first sample must halve the complete previous RGB8 value.
+        assert_eq!(denise.resolve_color_argb(0x21), 0xFF08_1119);
+        assert_eq!(denise.resolve_color_argb(0x21), 0xFF0A_121B);
+    }
+
+    #[test]
+    fn aga_killehb_uses_bplcon2_and_keeps_full_24bit_base_color() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x6000); // six planes, EHB candidate
+        denise.write_word(0x0182, 0x0123);
+        denise.advance_color_output_samples(1);
+        denise.write_word(0x0104, 0x0200); // BPLCON2 KILLEHB
+
+        assert_eq!(denise.resolve_color_argb(0x21), 0xFF11_2233);
+    }
+
+    #[test]
+    fn consecutive_aga_color_writes_flush_the_earlier_delay() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x1000);
+
+        denise.write_word(0x0180, 0x0123);
+        denise.advance_color_output_samples(1);
+        denise.write_word(0x0180, 0x0456);
+        denise.write_word(0x0180, 0x0789);
+
+        // The second write makes $445566 live before queueing its own delay.
+        assert_eq!(denise.resolve_color_argb(0), 0xFF44_5566);
+        assert_eq!(denise.resolve_color_argb(0), 0xFF77_8899);
+    }
+
+    #[test]
+    fn ham8_direct_color_observes_the_aga_output_delay() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x0800 | 0x0010); // HAM + BPU=8
+
+        denise.write_word(0x0182, 0x0123);
+        denise.advance_color_output_samples(1);
+        denise.write_word(0x0182, 0x0ABC);
+
+        assert_eq!(denise.resolve_color_argb(0x04), 0xFF11_2233);
+        assert_eq!(denise.resolve_color_argb(0x04), 0xFFAA_BBCC);
+    }
+
+    #[test]
+    fn ham6_uses_delayed_24bit_palette_and_eight_bit_hold_channels() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x6000 | 0x0800); // BPU=6 + HAM
+        denise.write_word(0x0182, 0x0123);
+        denise.advance_color_output_samples(1);
+        denise.write_word(0x0106, 0x0200); // BPLCON3 LOCT
+        denise.write_word(0x0182, 0x0456);
+
+        assert_eq!(denise.resolve_color_argb(0x01), 0xFF11_2233);
+        assert_eq!(denise.resolve_color_argb(0x01), 0xFF14_2536);
+        assert_eq!(denise.resolve_color_argb(0x2A), 0xFFAA_2536); // red = $AA
+        assert_eq!(denise.resolve_color_argb(0x1C), 0xFFAA_25CC); // blue = $CC
+        assert_eq!(denise.resolve_color_argb(0x3D), 0xFFAA_DDCC); // green = $DD
+    }
+
+    #[test]
+    fn ham6_sprite_overlays_the_advancing_playfield_hold() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x6800); // six planes, HAM
+        denise.palette_24[0] = 0x0011_2233;
+        denise.palette_24[0x21] = 0x00DE_ADBE;
+        denise.begin_beam_line();
+
+        assert_eq!(
+            denise.resolve_output_color_argb(0x2A, 0x21, true),
+            0xFFDE_ADBE,
+        );
+        assert_eq!(denise.ham_prev_rgb24, 0x00AA_2233);
+    }
+
+    #[test]
+    fn ham8_sprite_overlays_the_advancing_playfield_hold() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x0810); // eight planes, HAM
+        denise.palette_24[0] = 0x0012_3456;
+        denise.palette_24[0xA5] = 0x0065_43AB;
+        denise.begin_beam_line();
+
+        assert_eq!(
+            denise.resolve_output_color_argb(0xAA, 0xA5, true),
+            0xFF65_43AB,
+        );
+        assert_eq!(denise.ham_prev_rgb24, 0x00AA_3456);
+    }
+
+    #[test]
+    fn ehb_sprite_bank_bypasses_half_brite_and_observes_color_delay() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x6000); // six-plane EHB playfield
+        denise.write_word(0x0106, 0xA000); // BANK=5, LOCT=0
+        denise.write_word(0x018A, 0x0123); // palette $A5
+        denise.advance_color_output_samples(1);
+        denise.palette_24[5] = 0x00FE_DCBA;
+        denise.write_word(0x018A, 0x0ABC);
+
+        assert_eq!(
+            denise.resolve_output_color_argb(0x25, 0xA5, true),
+            0xFF11_2233,
+            "the first sprite sample sees the delayed direct banked colour",
+        );
+        assert_eq!(
+            denise.resolve_output_color_argb(0x25, 0xA5, true),
+            0xFFAA_BBCC,
+            "subsequent sprite output sees the new direct colour",
         );
     }
 
