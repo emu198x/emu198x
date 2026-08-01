@@ -219,8 +219,7 @@ pub struct AmigaA1200 {
     /// only thereafter.
     gary: Gary,
     /// Battery-backed old-address RTC (`$DC0000`) used by A500+A501-
-    /// style configurations. Backed by host time so `SetClock load`
-    /// has something real to read.
+    /// style configurations. Advances from completed emulated system ticks.
     rtc: Msm6242Rtc,
     /// Zorro-II autoconfig board, present when the `RamConfig` asks
     /// for fast RAM. `None` when `fast_kb == 0`. Answers at the probe
@@ -2060,7 +2059,7 @@ impl AmigaA1200 {
             keyboard: self.keyboard.clone(),
             prev_cia_a_spmode: self.prev_cia_a_spmode,
             gary: self.gary.clone(),
-            rtc: self.rtc.clone(),
+            rtc: self.rtc.snapshot_state(),
             autoconfig: self.autoconfig.clone(),
             cia_a: self.cia_a.clone(),
             cia_b: self.cia_b.clone(),
@@ -2200,6 +2199,9 @@ impl AmigaDriver for AmigaA1200 {
     }
     fn memory_mut(&mut self) -> &mut Memory {
         &mut self.memory
+    }
+    fn rtc_mut(&mut self) -> &mut Msm6242Rtc {
+        &mut self.rtc
     }
     fn cpu_base(&self) -> &motorola_68000::Cpu68000 {
         self.cpu.as_base()

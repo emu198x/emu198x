@@ -291,8 +291,7 @@ pub struct AmigaOcs {
     /// only thereafter.
     gary: Gary,
     /// Battery-backed old-address RTC (`$DC0000`) used by A500+A501-
-    /// style configurations. Backed by host time so `SetClock load`
-    /// has something real to read.
+    /// style configurations. Advances from completed emulated system ticks.
     rtc: Msm6242Rtc,
     /// Zorro-II autoconfig board, present when the `RamConfig` asks
     /// for fast RAM. `None` when `fast_kb == 0`. Answers at the probe
@@ -2189,7 +2188,7 @@ impl AmigaOcs {
             keyboard: self.keyboard.clone(),
             prev_cia_a_spmode: self.prev_cia_a_spmode,
             gary: self.gary.clone(),
-            rtc: self.rtc.clone(),
+            rtc: self.rtc.snapshot_state(),
             autoconfig: self.autoconfig.clone(),
             cia_a: self.cia_a.clone(),
             cia_b: self.cia_b.clone(),
@@ -2328,6 +2327,9 @@ impl AmigaDriver for AmigaOcs {
     }
     fn memory_mut(&mut self) -> &mut Memory {
         &mut self.memory
+    }
+    fn rtc_mut(&mut self) -> &mut Msm6242Rtc {
+        &mut self.rtc
     }
     fn cpu_base(&self) -> &motorola_68000::Cpu68000 {
         &self.cpu
@@ -2607,6 +2609,21 @@ mod tests {
         copper.wait_target = target_hp;
         copper.wait_mask = 0x80FE;
         copper.wait_bfd = true;
+    }
+
+    #[test]
+    fn completed_system_tick_advances_rtc_at_region_rate() {
+        let mut pal = AmigaOcs::new(vec![0; 256 * 1024]);
+        pal.tick();
+        let pal_rtc = pal.rtc_diagnostic_snapshot();
+        assert_eq!(pal_rtc.subsecond_system_ticks, 1);
+        assert_eq!(pal_rtc.system_ticks_per_second, PAL_SYSTEM_TICK_HZ);
+
+        let mut ntsc = AmigaOcs::with_ram_config_ntsc(vec![0; 256 * 1024], RamConfig::bare());
+        ntsc.tick();
+        let ntsc_rtc = ntsc.rtc_diagnostic_snapshot();
+        assert_eq!(ntsc_rtc.subsecond_system_ticks, 1);
+        assert_eq!(ntsc_rtc.system_ticks_per_second, NTSC_SYSTEM_TICK_HZ);
     }
 
     #[test]

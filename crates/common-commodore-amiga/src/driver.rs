@@ -39,13 +39,15 @@
 //! inputs.
 
 use crate::board::{
-    BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, MotherboardBridgeAction, SizedBusResponse,
-    SizedBusTransaction, SynchronizedMotherboardBridge, TICKS_PER_CCK,
+    BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, MotherboardBridgeAction, NTSC_SYSTEM_TICK_HZ,
+    PAL_SYSTEM_TICK_HZ, SizedBusResponse, SizedBusTransaction, SynchronizedMotherboardBridge,
+    TICKS_PER_CCK,
 };
 use crate::cia::Cia;
 use crate::clock::{CpuClock, CpuDomainPhase};
 use crate::copper::Copper;
 use crate::memory::Memory;
+use crate::rtc::Msm6242Rtc;
 use commodore_agnus_ocs::{Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, SlotOwner};
 use commodore_paula_8364::{IntSource, Paula8364};
 use motorola_68000::Cpu68000;
@@ -207,6 +209,7 @@ pub trait AmigaDriver {
     fn keyboard_mut(&mut self) -> &mut AmigaKeyboard;
     fn memory(&self) -> &Memory;
     fn memory_mut(&mut self) -> &mut Memory;
+    fn rtc_mut(&mut self) -> &mut Msm6242Rtc;
     /// CPU bus-protocol view — the Deref base shared by every 680x0.
     /// Used only for `state` / `bus_status` / `ipl`; the variant's own
     /// `tick()` runs through [`AmigaDriver::tick_cpu_with_ipl`].
@@ -685,6 +688,11 @@ pub trait AmigaDriver {
     /// have all been consumed.
     fn finish_system_tick(&mut self) {
         debug_assert!(self.cpu_domain_phase().is_idle());
+        let ticks_per_second = match self.agnus().region {
+            AgnusRegion::Pal => PAL_SYSTEM_TICK_HZ,
+            AgnusRegion::Ntsc => NTSC_SYSTEM_TICK_HZ,
+        };
+        self.rtc_mut().advance_system_ticks(1, ticks_per_second);
         self.set_tick_count(self.tick_count() + 1);
         self.set_cck_phase(self.cck_phase() ^ 1);
     }

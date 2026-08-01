@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Expose the RTC clock mode, subsecond system-tick phase and retained system
+  tick rate through discoverable grouped and leaf queries
 - Expose Agnus identity, beam, original-chipset latches, fixed-sync events and
   complete sprite-DMA state through discoverable grouped and leaf queries
 - Expose memory topology, ROM arrangement, overlay state and floating-bus
@@ -69,6 +71,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Bump Amiga postcard snapshots to version 32 so the battery-backed
+  RTC's selected clock mode, subsecond system-tick phase and active tick rate
+  survive restore; version 31 is rejected because its positional RTC payload
+  lacks those fields
 - [breaking] Bump Amiga postcard snapshots to version 31 so a pending AGA
   Lisa `COLORxx` output delay and per-entry transparency/genlock state survive
   restore; version 30 is rejected because its positional payload cannot

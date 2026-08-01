@@ -7,17 +7,9 @@
 //! access patterns Amiga code uses, the machine routes any byte/word
 //! access within a 4-byte slot to the same nibble register.
 
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-/// Default for the non-serialised `host_reference` field. Restoring a
-/// snapshot anchors the elapsed-time counter at the moment of restore;
-/// software that has the CD_HOLD bit set sees the same `unix_seconds`
-/// regardless. Software that lets the clock free-run will see no jump
-/// because elapsed-since-anchor is what advances the counter.
-fn default_host_reference() -> SystemTime {
-    SystemTime::now()
-}
 
 pub const RTC_BASE: u32 = 0x00DC_0000;
 
@@ -49,6 +41,17 @@ const CF_RESET: u8 = 1 << 0;
 const HOUR10_PM: u8 = 1 << 2;
 const HOUR10_MASK: u8 = 0b0011;
 
+/// Source used to advance the RTC calendar.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RtcClockMode {
+    /// Advance only from explicit emulated system ticks.
+    #[default]
+    Emulated,
+    /// Advance from elapsed host wall time while the RTC is running.
+    HostSynchronized,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CalendarTime {
     year: i32,
@@ -67,9 +70,11 @@ struct CalendarTime {
 /// the same emulated instant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Msm6242RtcDiagnosticSnapshot {
-    /// Persisted emulated Unix timestamp at the current host anchor.
+    /// Source currently advancing the RTC calendar.
+    pub clock_mode: RtcClockMode,
+    /// Persisted whole-second Unix timestamp.
     pub stored_unix_seconds: i64,
-    /// Emulated Unix timestamp after applying elapsed host time when running.
+    /// Visible Unix timestamp after applying the selected clock source.
     pub effective_unix_seconds: i64,
     /// Decoded calendar year for the effective timestamp.
     pub year: i32,
@@ -105,18 +110,81 @@ pub struct Msm6242RtcDiagnosticSnapshot {
     pub busy: bool,
     /// Whether the control-F RESET strobe remains set.
     pub reset: bool,
+    /// Retained integer system ticks within the current emulated second.
+    pub subsecond_system_ticks: u64,
+    /// System ticks in one second for the retained emulated phase.
+    ///
+    /// This is zero until the first emulated tick is supplied, and remains
+    /// zero in host-synchronized mode.
+    pub system_ticks_per_second: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Msm6242Rtc {
     unix_seconds: i64,
-    /// Host-side anchor for elapsed-time computation. Re-anchored on
-    /// snapshot restore — see `default_host_reference` for rationale.
-    #[serde(skip, default = "default_host_reference")]
+    clock_mode: RtcClockMode,
+    subsecond_system_ticks: u64,
+    system_ticks_per_second: u64,
+    /// Host-side anchor for elapsed-time computation. Emulated mode keeps an
+    /// inert epoch value so deserializing deterministic state does not read
+    /// wall time.
+    #[serde(skip)]
     host_reference: SystemTime,
     control_d: u8,
     control_e: u8,
     control_f: u8,
+}
+
+impl<'de> Deserialize<'de> for Msm6242Rtc {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct StoredRtc {
+            unix_seconds: i64,
+            clock_mode: RtcClockMode,
+            subsecond_system_ticks: u64,
+            system_ticks_per_second: u64,
+            control_d: u8,
+            control_e: u8,
+            control_f: u8,
+        }
+
+        let stored = StoredRtc::deserialize(deserializer)?;
+        if stored.system_ticks_per_second == 0 && stored.subsecond_system_ticks != 0 {
+            return Err(D::Error::custom("RTC phase has no system-tick frequency"));
+        }
+        if stored.system_ticks_per_second != 0
+            && stored.subsecond_system_ticks >= stored.system_ticks_per_second
+        {
+            return Err(D::Error::custom(
+                "RTC phase exceeds its system-tick frequency",
+            ));
+        }
+        if stored.clock_mode == RtcClockMode::HostSynchronized
+            && (stored.subsecond_system_ticks != 0 || stored.system_ticks_per_second != 0)
+        {
+            return Err(D::Error::custom(
+                "host-synchronized RTC retains an emulated phase",
+            ));
+        }
+
+        let host_reference = match stored.clock_mode {
+            RtcClockMode::Emulated => UNIX_EPOCH,
+            RtcClockMode::HostSynchronized => SystemTime::now(),
+        };
+        Ok(Self {
+            unix_seconds: stored.unix_seconds,
+            clock_mode: stored.clock_mode,
+            subsecond_system_ticks: stored.subsecond_system_ticks,
+            system_ticks_per_second: stored.system_ticks_per_second,
+            host_reference,
+            control_d: stored.control_d,
+            control_e: stored.control_e,
+            control_f: stored.control_f,
+        })
+    }
 }
 
 impl Default for Msm6242Rtc {
@@ -126,29 +194,101 @@ impl Default for Msm6242Rtc {
 }
 
 impl Msm6242Rtc {
+    /// Create a deterministic RTC seeded once from host wall time.
+    ///
+    /// After construction, the calendar advances only when
+    /// [`Self::advance_system_ticks`] is called. No emulated-mode operation
+    /// reads wall time.
     #[must_use]
     pub fn new() -> Self {
-        let now = SystemTime::now();
-        let unix_seconds = system_time_to_unix_seconds(now);
+        Self::with_unix_seconds(system_time_to_unix_seconds(SystemTime::now()))
+    }
+
+    /// Create a deterministic, running RTC at an exact Unix timestamp.
+    ///
+    /// The subsecond phase starts at zero. This constructor does not read
+    /// host wall time.
+    #[must_use]
+    pub const fn with_unix_seconds(unix_seconds: i64) -> Self {
         Self {
             unix_seconds,
-            host_reference: now,
+            clock_mode: RtcClockMode::Emulated,
+            subsecond_system_ticks: 0,
+            system_ticks_per_second: 0,
+            host_reference: UNIX_EPOCH,
             control_d: CD_IRQ_FLAG,
             control_e: 0,
             control_f: CF_24H,
         }
     }
 
-    #[cfg(test)]
-    fn with_unix_seconds_for_test(unix_seconds: i64) -> Self {
-        Self {
-            unix_seconds,
-            host_reference: SystemTime::now(),
-            // Freeze the clock so tests observe the fixed timestamp
-            // instead of accumulating host elapsed time.
-            control_d: CD_IRQ_FLAG | CD_HOLD,
-            control_e: 0,
-            control_f: CF_24H,
+    /// Create an RTC whose running calendar follows elapsed host wall time.
+    #[must_use]
+    pub fn host_synchronized() -> Self {
+        Self::host_synchronized_at(SystemTime::now())
+    }
+
+    /// Return the source currently advancing the RTC calendar.
+    #[must_use]
+    pub const fn clock_mode(&self) -> RtcClockMode {
+        self.clock_mode
+    }
+
+    /// Change the source advancing the RTC calendar.
+    ///
+    /// The currently visible whole-second timestamp is retained. Switching
+    /// modes starts a new subsecond phase because host wall-time phase is not
+    /// part of deterministic machine state.
+    pub fn set_clock_mode(&mut self, mode: RtcClockMode) {
+        if self.clock_mode == mode {
+            return;
+        }
+        self.set_clock_mode_at(mode, SystemTime::now());
+    }
+
+    /// Advance a deterministic RTC by emulated system ticks.
+    ///
+    /// Ticks are ignored while the RTC is host synchronized, held, or
+    /// stopped. A rate change retains fractional progress using integer
+    /// rescaling.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `ticks_per_second` is zero.
+    #[inline]
+    pub fn advance_system_ticks(&mut self, ticks: u64, ticks_per_second: u64) {
+        assert!(
+            ticks_per_second != 0,
+            "RTC system-tick frequency must be non-zero"
+        );
+        if self.clock_mode != RtcClockMode::Emulated || !self.running() || ticks == 0 {
+            return;
+        }
+
+        self.rescale_subsecond_phase(ticks_per_second);
+        let ticks_until_rollover = ticks_per_second - self.subsecond_system_ticks;
+        if ticks < ticks_until_rollover {
+            self.subsecond_system_ticks += ticks;
+            return;
+        }
+
+        let ticks_after_rollover = ticks - ticks_until_rollover;
+        let elapsed_seconds = 1 + ticks_after_rollover / ticks_per_second;
+        self.subsecond_system_ticks = ticks_after_rollover % ticks_per_second;
+        self.unix_seconds = saturating_add_unsigned_seconds(self.unix_seconds, elapsed_seconds);
+    }
+
+    /// Return serializable RTC state normalized to the currently visible
+    /// timestamp.
+    ///
+    /// Emulated state is copied exactly, including its subsecond phase.
+    /// Host-synchronized state captures its visible whole-second time and
+    /// establishes a fresh host anchor in the returned state.
+    #[must_use]
+    pub fn snapshot_state(&self) -> Self {
+        match self.clock_mode {
+            RtcClockMode::Emulated => self.clone(),
+            RtcClockMode::HostSynchronized => self.snapshot_state_at(SystemTime::now()),
         }
     }
 
@@ -183,6 +323,7 @@ impl Msm6242Rtc {
         let effective_unix_seconds = self.effective_unix_seconds();
         let calendar = CalendarTime::from_unix_seconds(effective_unix_seconds);
         Msm6242RtcDiagnosticSnapshot {
+            clock_mode: self.clock_mode,
             stored_unix_seconds: self.unix_seconds,
             effective_unix_seconds,
             year: calendar.year,
@@ -202,6 +343,8 @@ impl Msm6242Rtc {
             irq_flag: self.control_d & CD_IRQ_FLAG != 0,
             busy: self.control_d & CD_BUSY != 0,
             reset: self.control_f & CF_RESET != 0,
+            subsecond_system_ticks: self.subsecond_system_ticks,
+            system_ticks_per_second: self.system_ticks_per_second,
         }
     }
 
@@ -210,20 +353,89 @@ impl Msm6242Rtc {
     }
 
     fn effective_unix_seconds(&self) -> i64 {
-        if !self.running() {
+        if self.clock_mode == RtcClockMode::Emulated || !self.running() {
             return self.unix_seconds;
         }
-        let elapsed = match SystemTime::now().duration_since(self.host_reference) {
+        self.effective_unix_seconds_at(SystemTime::now())
+    }
+
+    fn effective_unix_seconds_at(&self, now: SystemTime) -> i64 {
+        if self.clock_mode == RtcClockMode::Emulated || !self.running() {
+            return self.unix_seconds;
+        }
+        let elapsed = match now.duration_since(self.host_reference) {
             Ok(duration) => duration,
             Err(_) => Duration::ZERO,
         };
-        self.unix_seconds
-            .saturating_add(i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX))
+        saturating_add_unsigned_seconds(self.unix_seconds, elapsed.as_secs())
     }
 
     fn sync_to_now(&mut self) {
-        self.unix_seconds = self.effective_unix_seconds();
-        self.host_reference = SystemTime::now();
+        if self.clock_mode == RtcClockMode::HostSynchronized {
+            let now = SystemTime::now();
+            self.unix_seconds = self.effective_unix_seconds_at(now);
+            self.host_reference = now;
+        }
+    }
+
+    fn reanchor_host_clock(&mut self) {
+        if self.clock_mode == RtcClockMode::HostSynchronized {
+            self.host_reference = SystemTime::now();
+        }
+    }
+
+    fn reset_subsecond_phase(&mut self) {
+        self.subsecond_system_ticks = 0;
+        self.system_ticks_per_second = 0;
+    }
+
+    fn rescale_subsecond_phase(&mut self, ticks_per_second: u64) {
+        if self.system_ticks_per_second == ticks_per_second {
+            return;
+        }
+        if self.system_ticks_per_second == 0 {
+            self.subsecond_system_ticks = 0;
+        } else {
+            let phase = u128::from(self.subsecond_system_ticks) * u128::from(ticks_per_second)
+                / u128::from(self.system_ticks_per_second);
+            self.subsecond_system_ticks = phase as u64;
+        }
+        self.system_ticks_per_second = ticks_per_second;
+    }
+
+    fn host_synchronized_at(now: SystemTime) -> Self {
+        Self {
+            unix_seconds: system_time_to_unix_seconds(now),
+            clock_mode: RtcClockMode::HostSynchronized,
+            subsecond_system_ticks: 0,
+            system_ticks_per_second: 0,
+            host_reference: now,
+            control_d: CD_IRQ_FLAG,
+            control_e: 0,
+            control_f: CF_24H,
+        }
+    }
+
+    fn set_clock_mode_at(&mut self, mode: RtcClockMode, now: SystemTime) {
+        if self.clock_mode == mode {
+            return;
+        }
+        if self.clock_mode == RtcClockMode::HostSynchronized {
+            self.unix_seconds = self.effective_unix_seconds_at(now);
+        }
+        self.clock_mode = mode;
+        self.reset_subsecond_phase();
+        self.host_reference = match mode {
+            RtcClockMode::Emulated => UNIX_EPOCH,
+            RtcClockMode::HostSynchronized => now,
+        };
+    }
+
+    fn snapshot_state_at(&self, now: SystemTime) -> Self {
+        let mut snapshot = self.clone();
+        snapshot.unix_seconds = self.effective_unix_seconds_at(now);
+        snapshot.host_reference = now;
+        snapshot
     }
 
     fn read_nibble(&self, reg: usize) -> u8 {
@@ -257,7 +469,7 @@ impl Msm6242Rtc {
             }
             self.control_d = (nibble & !CD_BUSY) | CD_IRQ_FLAG;
             if !was_running && self.running() {
-                self.host_reference = SystemTime::now();
+                self.reanchor_host_clock();
             }
             return;
         }
@@ -282,10 +494,11 @@ impl Msm6242Rtc {
                     weekday: 0,
                 }
                 .to_unix_seconds();
+                self.reset_subsecond_phase();
                 self.control_f &= !CF_RESET;
             }
             if !was_running && self.running() {
-                self.host_reference = SystemTime::now();
+                self.reanchor_host_clock();
             }
             return;
         }
@@ -325,7 +538,8 @@ impl Msm6242Rtc {
             _ => {}
         }
         self.unix_seconds = calendar.to_unix_seconds();
-        self.host_reference = SystemTime::now();
+        self.reset_subsecond_phase();
+        self.reanchor_host_clock();
     }
 
     fn hour_ones(&self, calendar: CalendarTime) -> u8 {
@@ -389,6 +603,11 @@ fn system_time_to_unix_seconds(time: SystemTime) -> i64 {
             -(i64::try_from(duration.as_secs()).unwrap_or(i64::MAX))
         }
     }
+}
+
+fn saturating_add_unsigned_seconds(timestamp: i64, elapsed_seconds: u64) -> i64 {
+    let sum = i128::from(timestamp) + i128::from(elapsed_seconds);
+    sum.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64
 }
 
 fn hour_to_12h(hour24: u8) -> u8 {
@@ -462,7 +681,9 @@ mod tests {
         CD_HOLD, CF_24H, CF_STOP, CalendarTime, Msm6242Rtc, REG_CD, REG_CE, REG_CF, REG_DAY_1,
         REG_DAY_10, REG_HOUR_1, REG_HOUR_10, REG_MINUTE_1, REG_MINUTE_10, REG_MONTH_1,
         REG_MONTH_10, REG_SECOND_1, REG_SECOND_10, REG_WEEKDAY, REG_YEAR_1, REG_YEAR_10, RTC_BASE,
+        RtcClockMode,
     };
+    use std::time::{Duration, UNIX_EPOCH};
 
     #[test]
     fn calendar_round_trip_preserves_date_time() {
@@ -496,7 +717,7 @@ mod tests {
             weekday: 3,
         }
         .to_unix_seconds();
-        let rtc = Msm6242Rtc::with_unix_seconds_for_test(unix_seconds);
+        let rtc = Msm6242Rtc::with_unix_seconds(unix_seconds);
         let regs = [
             (REG_SECOND_1, 7),
             (REG_SECOND_10, 5),
@@ -531,10 +752,12 @@ mod tests {
             weekday: 3,
         };
         let unix_seconds = calendar.to_unix_seconds();
-        let mut rtc = Msm6242Rtc::with_unix_seconds_for_test(unix_seconds);
+        let mut rtc = Msm6242Rtc::with_unix_seconds(unix_seconds);
+        rtc.write_byte(RTC_BASE + (REG_CD as u32) * 4, CD_HOLD);
         rtc.write_byte(RTC_BASE + (REG_CE as u32) * 4, 0x0B);
 
         let snapshot = rtc.diagnostic_snapshot();
+        assert_eq!(snapshot.clock_mode, RtcClockMode::Emulated);
         assert_eq!(snapshot.stored_unix_seconds, unix_seconds);
         assert_eq!(snapshot.effective_unix_seconds, unix_seconds);
         assert_eq!(snapshot.year, 2026);
@@ -554,6 +777,8 @@ mod tests {
         assert!(snapshot.irq_flag);
         assert!(!snapshot.busy);
         assert!(!snapshot.reset);
+        assert_eq!(snapshot.subsecond_system_ticks, 0);
+        assert_eq!(snapshot.system_ticks_per_second, 0);
 
         rtc.write_byte(RTC_BASE + (REG_CF as u32) * 4, CF_STOP);
         let stopped = rtc.diagnostic_snapshot();
@@ -569,6 +794,185 @@ mod tests {
         assert!(!running.hold);
         assert!(!running.stop);
         assert!(running.hour_mode_24);
-        assert!(running.effective_unix_seconds >= running.stored_unix_seconds);
+        assert_eq!(running.effective_unix_seconds, running.stored_unix_seconds);
+    }
+
+    #[test]
+    fn fixed_seed_is_stable_until_emulated_ticks_advance() {
+        let rtc = Msm6242Rtc::with_unix_seconds(1_782_844_317);
+
+        let first = rtc.diagnostic_snapshot();
+        let second = rtc.diagnostic_snapshot();
+        assert_eq!(first, second);
+        assert_eq!(first.clock_mode, RtcClockMode::Emulated);
+        assert_eq!(first.stored_unix_seconds, 1_782_844_317);
+        assert_eq!(first.effective_unix_seconds, 1_782_844_317);
+        assert!(first.running);
+        assert_eq!(first.subsecond_system_ticks, 0);
+        assert_eq!(first.system_ticks_per_second, 0);
+    }
+
+    #[test]
+    fn emulated_ticks_roll_over_at_the_exact_calendar_boundary() {
+        let before_midnight = CalendarTime {
+            year: 2024,
+            month: 2,
+            day: 29,
+            hour: 23,
+            minute: 59,
+            second: 59,
+            weekday: 4,
+        }
+        .to_unix_seconds();
+        let mut rtc = Msm6242Rtc::with_unix_seconds(before_midnight);
+
+        rtc.advance_system_ticks(3, 4);
+        let before = rtc.diagnostic_snapshot();
+        assert_eq!(before.effective_unix_seconds, before_midnight);
+        assert_eq!(before.subsecond_system_ticks, 3);
+        assert_eq!(before.system_ticks_per_second, 4);
+
+        rtc.advance_system_ticks(1, 4);
+        let after = rtc.diagnostic_snapshot();
+        assert_eq!(after.effective_unix_seconds, before_midnight + 1);
+        assert_eq!((after.year, after.month, after.day), (2024, 3, 1));
+        assert_eq!((after.hour, after.minute, after.second), (0, 0, 0));
+        assert_eq!(after.subsecond_system_ticks, 0);
+
+        rtc.advance_system_ticks(9, 4);
+        let batch = rtc.diagnostic_snapshot();
+        assert_eq!(batch.effective_unix_seconds, before_midnight + 3);
+        assert_eq!(batch.second, 2);
+        assert_eq!(batch.subsecond_system_ticks, 1);
+    }
+
+    #[test]
+    fn hold_and_stop_pause_both_seconds_and_subsecond_phase() {
+        let mut rtc = Msm6242Rtc::with_unix_seconds(10_000);
+        rtc.advance_system_ticks(3, 4);
+
+        rtc.write_byte(RTC_BASE + (REG_CD as u32) * 4, CD_HOLD);
+        rtc.advance_system_ticks(9, 4);
+        let held = rtc.diagnostic_snapshot();
+        assert_eq!(held.effective_unix_seconds, 10_000);
+        assert_eq!(held.subsecond_system_ticks, 3);
+
+        rtc.write_byte(RTC_BASE + (REG_CD as u32) * 4, 0);
+        rtc.advance_system_ticks(1, 4);
+        let resumed = rtc.diagnostic_snapshot();
+        assert_eq!(resumed.effective_unix_seconds, 10_001);
+        assert_eq!(resumed.subsecond_system_ticks, 0);
+
+        rtc.write_byte(RTC_BASE + (REG_CF as u32) * 4, CF_24H | CF_STOP);
+        rtc.advance_system_ticks(8, 4);
+        let stopped = rtc.diagnostic_snapshot();
+        assert_eq!(stopped.effective_unix_seconds, 10_001);
+        assert_eq!(stopped.subsecond_system_ticks, 0);
+
+        rtc.write_byte(RTC_BASE + (REG_CF as u32) * 4, CF_24H);
+        rtc.advance_system_ticks(4, 4);
+        assert_eq!(rtc.diagnostic_snapshot().effective_unix_seconds, 10_002);
+    }
+
+    #[test]
+    fn emulated_snapshot_round_trip_preserves_exact_phase() {
+        let mut rtc = Msm6242Rtc::with_unix_seconds(20_000);
+        rtc.advance_system_ticks(13, 5);
+
+        let snapshot = rtc.snapshot_state();
+        let encoded = postcard::to_allocvec(&snapshot).expect("serialize deterministic RTC");
+        let restored: Msm6242Rtc =
+            postcard::from_bytes(&encoded).expect("deserialize deterministic RTC");
+
+        assert_eq!(restored.diagnostic_snapshot(), rtc.diagnostic_snapshot());
+        assert_eq!(restored.clock_mode(), RtcClockMode::Emulated);
+
+        let mut original = rtc;
+        let mut replay = restored;
+        original.advance_system_ticks(2, 5);
+        replay.advance_system_ticks(2, 5);
+        assert_eq!(replay.diagnostic_snapshot(), original.diagnostic_snapshot());
+    }
+
+    #[test]
+    fn host_snapshot_normalizes_visible_time_at_capture() {
+        let anchor = UNIX_EPOCH + Duration::from_secs(100_000);
+        let capture = anchor + Duration::from_secs(17);
+        let rtc = Msm6242Rtc::host_synchronized_at(anchor);
+
+        let snapshot = rtc.snapshot_state_at(capture);
+        assert_eq!(snapshot.clock_mode, RtcClockMode::HostSynchronized);
+        assert_eq!(snapshot.unix_seconds, 100_017);
+        assert_eq!(snapshot.host_reference, capture);
+        assert_eq!(snapshot.subsecond_system_ticks, 0);
+        assert_eq!(snapshot.system_ticks_per_second, 0);
+
+        let encoded = postcard::to_allocvec(&snapshot).expect("serialize host RTC");
+        let restored: Msm6242Rtc = postcard::from_bytes(&encoded).expect("deserialize host RTC");
+        assert_eq!(restored.clock_mode(), RtcClockMode::HostSynchronized);
+        assert_eq!(restored.unix_seconds, 100_017);
+    }
+
+    #[test]
+    fn mode_switch_retains_visible_seconds_and_resets_phase() {
+        let host_anchor = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let mut rtc = Msm6242Rtc::with_unix_seconds(30_000);
+        rtc.advance_system_ticks(3, 4);
+
+        rtc.set_clock_mode_at(RtcClockMode::HostSynchronized, host_anchor);
+        assert_eq!(rtc.clock_mode(), RtcClockMode::HostSynchronized);
+        assert_eq!(rtc.effective_unix_seconds_at(host_anchor), 30_000);
+        assert_eq!(rtc.subsecond_system_ticks, 0);
+        assert_eq!(rtc.system_ticks_per_second, 0);
+        rtc.advance_system_ticks(40, 4);
+        assert_eq!(
+            rtc.effective_unix_seconds_at(host_anchor + Duration::from_secs(2)),
+            30_002
+        );
+
+        rtc.set_clock_mode_at(RtcClockMode::Emulated, host_anchor + Duration::from_secs(2));
+        assert_eq!(rtc.clock_mode(), RtcClockMode::Emulated);
+        assert_eq!(rtc.effective_unix_seconds(), 30_002);
+        assert_eq!(rtc.subsecond_system_ticks, 0);
+        assert_eq!(rtc.system_ticks_per_second, 0);
+
+        rtc.advance_system_ticks(4, 4);
+        assert_eq!(rtc.effective_unix_seconds(), 30_003);
+    }
+
+    #[test]
+    fn tick_rate_change_rescales_fractional_progress_exactly() {
+        let mut rtc = Msm6242Rtc::with_unix_seconds(40_000);
+        rtc.advance_system_ticks(1, 4);
+        rtc.advance_system_ticks(1, 8);
+
+        let snapshot = rtc.diagnostic_snapshot();
+        assert_eq!(snapshot.effective_unix_seconds, 40_000);
+        assert_eq!(snapshot.subsecond_system_ticks, 3);
+        assert_eq!(snapshot.system_ticks_per_second, 8);
+    }
+
+    #[test]
+    fn maximum_tick_batch_saturates_seconds_without_overflow() {
+        let mut rtc = Msm6242Rtc::with_unix_seconds(0);
+
+        rtc.advance_system_ticks(u64::MAX, 1);
+
+        let snapshot = rtc.diagnostic_snapshot();
+        assert_eq!(snapshot.effective_unix_seconds, i64::MAX);
+        assert_eq!(snapshot.subsecond_system_ticks, 0);
+        assert_eq!(snapshot.system_ticks_per_second, 1);
+    }
+
+    #[test]
+    fn maximum_tick_batch_from_negative_epoch_uses_the_full_unsigned_range() {
+        let mut rtc = Msm6242Rtc::with_unix_seconds(i64::MIN);
+
+        rtc.advance_system_ticks(u64::MAX, 1);
+
+        let snapshot = rtc.diagnostic_snapshot();
+        assert_eq!(snapshot.effective_unix_seconds, i64::MAX);
+        assert_eq!(snapshot.subsecond_system_ticks, 0);
+        assert_eq!(snapshot.system_ticks_per_second, 1);
     }
 }

@@ -1040,6 +1040,84 @@ fn gary_group_exposes_every_persisted_configuration_flag() {
 }
 
 #[test]
+fn rtc_queries_expose_a_stable_deterministic_clock_and_subsecond_phase() {
+    let mut runtime = AmigaOcsRuntime::blank(Model::A500OcsPalA501);
+    let provider = AmigaSessionQueryProvider;
+
+    let initial = query_value(&runtime, "rtc");
+    assert_exact_object_fields(
+        &initial,
+        &[
+            "busy",
+            "clock_mode",
+            "control_d",
+            "control_e",
+            "control_f",
+            "day",
+            "effective_unix_seconds",
+            "hold",
+            "hour",
+            "hour_mode_24",
+            "irq_flag",
+            "minute",
+            "month",
+            "reset",
+            "running",
+            "second",
+            "stop",
+            "stored_unix_seconds",
+            "subsecond_system_ticks",
+            "system_ticks_per_second",
+            "weekday",
+            "year",
+        ],
+    );
+    assert_eq!(
+        query_value(&runtime, "rtc"),
+        initial,
+        "side-effect-free RTC queries must describe one stable emulated instant",
+    );
+    assert_eq!(initial["clock_mode"], json!("emulated"));
+    for field in [
+        "clock_mode",
+        "subsecond_system_ticks",
+        "system_ticks_per_second",
+    ] {
+        let path = format!("rtc.{field}");
+        assert!(
+            provider.query_paths(&runtime, Some(&path)).contains(&path),
+            "{path} must be discoverable",
+        );
+        assert_eq!(
+            query_value(&runtime, &path),
+            initial[field],
+            "{path} must match the grouped RTC snapshot",
+        );
+    }
+    assert_eq!(initial["subsecond_system_ticks"], json!(0));
+    for _ in 0..17 {
+        runtime.machine_mut().tick();
+    }
+    let advanced = query_value(&runtime, "rtc");
+    assert_eq!(advanced["subsecond_system_ticks"], json!(17));
+    assert!(
+        advanced["system_ticks_per_second"]
+            .as_u64()
+            .is_some_and(|ticks| ticks > 17),
+        "the active PAL RTC clock rate must be reported",
+    );
+    assert_eq!(
+        advanced["effective_unix_seconds"], initial["effective_unix_seconds"],
+        "seventeen system ticks must advance the phase without crossing a second",
+    );
+    assert_eq!(
+        query_value(&runtime, "rtc"),
+        advanced,
+        "RTC diagnostics must not advance between machine ticks",
+    );
+}
+
+#[test]
 fn expansion_queries_distinguish_generic_fast_ram_a530_and_absent_devices() {
     let bare = AmigaOcsRuntime::blank(Model::A500OcsPal);
     let generic = AmigaOcsRuntime::blank(Model::A500OcsPalMaxed);
@@ -1314,12 +1392,10 @@ fn assert_group_value_catalogue<M: AmigaMachine>(
             .query(runtime, &path)
             .unwrap_or_else(|error| panic!("{path} query failed: {error:?}"))
             .unwrap_or_else(|| panic!("{path} should resolve"));
-        if !path.starts_with("rtc.") {
-            assert_eq!(
-                &leaf.value, grouped_value,
-                "{path} should equal its grouped snapshot field",
-            );
-        }
+        assert_eq!(
+            &leaf.value, grouped_value,
+            "{path} should equal its grouped snapshot field",
+        );
         if grouped_value.is_object() {
             assert_group_value_catalogue(runtime, provider, paths, &path, grouped_value);
         }

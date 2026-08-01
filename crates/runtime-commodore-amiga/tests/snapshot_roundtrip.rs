@@ -189,6 +189,54 @@ fn snapshot_then_restore_then_snapshot_is_a_fixed_point() -> Result<(), Box<dyn 
 }
 
 #[test]
+fn rtc_time_and_subsecond_phase_survive_restore_and_forward_replay() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPalA501, blank_kickstart())?;
+    for _ in 0..12_345 {
+        original.machine_mut().tick();
+    }
+    let rtc_at_snapshot = original.machine().rtc_diagnostic_snapshot();
+    assert_eq!(
+        rtc_at_snapshot.stored_unix_seconds, rtc_at_snapshot.effective_unix_seconds,
+        "the emulated clock must not consult wall time between machine ticks",
+    );
+    assert_eq!(rtc_at_snapshot.subsecond_system_ticks, 12_345);
+    assert!(rtc_at_snapshot.system_ticks_per_second > 12_345);
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPalA501, blank_kickstart())?;
+    restored.restore(&snapshot)?;
+
+    assert_eq!(
+        restored.machine().rtc_diagnostic_snapshot(),
+        rtc_at_snapshot,
+        "restore must preserve the emulated second and exact subsecond phase",
+    );
+    assert_eq!(
+        restored.snapshot()?,
+        snapshot,
+        "the RTC-bearing version-32 envelope must be a byte-level fixed point",
+    );
+
+    for _ in 0..4_096 {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+    }
+    let replayed_rtc = restored.machine().rtc_diagnostic_snapshot();
+    assert_eq!(
+        replayed_rtc,
+        original.machine().rtc_diagnostic_snapshot(),
+        "restored RTC time and phase must replay exactly",
+    );
+    assert_eq!(replayed_rtc.subsecond_system_ticks, 16_441);
+    assert_eq!(
+        original.snapshot()?,
+        restored.snapshot()?,
+        "RTC replay must leave the complete runtime snapshot bit-identical",
+    );
+    Ok(())
+}
+
+#[test]
 fn partial_disk_dma_fifo_is_a_snapshot_fixed_point() -> Result<(), Box<dyn Error>> {
     let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     original.machine_mut().poke_word(0x00DF_F024, 0x8003);
@@ -2027,10 +2075,10 @@ fn ecs_snapshot_restore_preserves_model_specific_gayle_composition() -> Result<(
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 30, and confirm the version-mismatch arm fires with a
+/// field back to 31, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV31` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 31` that byte is `0x1F`.
+/// of a `SnapshotEnvelopeV32` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 32` that byte is `0x20`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -2039,20 +2087,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 31,
-        "postcard varint for SNAPSHOT_VERSION = 31 should be 0x1F"
+        bytes[0], 32,
+        "postcard varint for SNAPSHOT_VERSION = 32 should be 0x20"
     );
-    bytes[0] = 30;
+    bytes[0] = 31;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-30 snapshot should be rejected before payload decode");
+        .expect_err("version-31 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 30; expected 31"
+                if reason == "unsupported snapshot version 31; expected 32"
         ),
         "expected version-mismatch reason, got {err:?}"
     );
