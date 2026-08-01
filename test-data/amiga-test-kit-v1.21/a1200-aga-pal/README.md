@@ -60,11 +60,11 @@ searching for an alignment:
 - write the resulting 752 × 286 RGB8 image without scaling, filtering, colour
   correction, palette conversion, or tolerance.
 
-The corresponding Emu198x crop is `(10, 4)` in its 768 × 576 runtime
-framebuffer. That mapping follows the audited coordinate transforms used by
-the programmable-HBLANK evidence: the runtime horizontal origin is eight
-samples to the right of the raw FS-UAE origin, and the runtime's doubled row
-for the same beam line is four rows lower.
+The corresponding Emu198x crop is `(8, 2)` in its 768 × 576 runtime
+framebuffer. The fixed mapping is established by the registered bitplane-only
+checkerboard, dots, and crosshatch images, which share pixel positions without
+an alignment search. Beam-raced `COLORxx` screens are not used to choose the
+crop because Lisa applies a separate one-hires-pixel colour-output delay.
 
 All retained producer pixels have opaque alpha. Alpha is validated and then
 discarded; it is not part of the RGB comparison. The AGA reference preserves

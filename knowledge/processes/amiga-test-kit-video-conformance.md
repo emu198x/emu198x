@@ -1,30 +1,35 @@
 # Verifying Amiga video with Amiga Test Kit v1.21
 
-This process answers how the Amiga Test Kit v1.21 video-conformance lane is run
-and how its result may be interpreted.
+This process answers how the Amiga Test Kit v1.21 video-conformance lanes are
+run and how their results may be interpreted.
 
-The lane is separate from the Test Kit v1.12 identity and replay gate. Version
-1.12 verifies guest machine detection, input progress, and deterministic replay.
-Version 1.21 supplies stable video patterns for comparing Emu198x with a
-registered independent implementation.
+The video lanes are separate from the Test Kit v1.12 identity and replay gate.
+Version 1.12 verifies guest machine detection, input progress, and deterministic
+replay. Version 1.21 supplies stable video patterns for comparing Emu198x with
+a registered implementation independent of Emu198x. Two profile-specific lanes
+share the ADF but retain separate machines, firmware, reference families,
+normalisation rules, wrappers, and claims.
 
 ## Required inputs
 
-The lane requires:
+Both lanes require:
 
 - the registered Amiga Test Kit v1.21 ADF, supplied directly or inside a ZIP
   through `EMU198X_AMIGA_TEST_KIT_V121_ADF`;
-- Kickstart 1.3 revision 34.005, supplied through
-  `EMU198X_AMIGA_KICKSTART_13_ROM` or resolved from
-  `EMU198X_AMIGA_ROM_DIR`;
-- the registered reference manifest and its independently sourced images;
+- the selected profile's registered Kickstart image;
+- that profile's reference manifest and independently produced images;
 - a release build of the `runtime-commodore-amiga` integration test.
 
-[`test-data/amiga-test-kit-v1.21.sha256`](../../test-data/amiga-test-kit-v1.21.sha256)
-pins the normalised ADF and ROM bytes. The reference manifest separately pins
-the reference producer, machine configuration, capture geometry,
-synchronisation rule, and image identity. Delivery archive names do not replace
-payload checksums.
+| Profile | Firmware variable | Input manifest | Reference family |
+|---|---|---|---|
+| A500+A501 OCS PAL | `EMU198X_AMIGA_KICKSTART_13_ROM` | [`amiga-test-kit-v1.21.sha256`](../../test-data/amiga-test-kit-v1.21.sha256) | vAmiga 4.4b12 |
+| A1200 AGA PAL | `EMU198X_AMIGA_KICKSTART_31_A1200_ROM` | [`amiga-test-kit-v1.21-a1200-aga-pal.sha256`](../../test-data/amiga-test-kit-v1.21-a1200-aga-pal.sha256) | FS-UAE 5.0.7 |
+
+Each manifest pins the normalised ADF and profile-specific ROM bytes. The
+reference manifest separately pins the producer, machine configuration,
+capture geometry, synchronisation rule, and image identity. Delivery archive
+names do not replace payload checksums. Either wrapper may resolve its ROM from
+`EMU198X_AMIGA_ROM_DIR` when the direct variable is absent.
 
 An explicitly invoked lane is strict. A missing file, ambiguous ZIP, checksum
 mismatch, invalid provenance record, missing reference, or unexpected image
@@ -32,7 +37,9 @@ geometry is a failure rather than a skip.
 
 ## Invocation
 
-Run the complete lane from the repository root:
+Run one profile lane from the repository root.
+
+For A500+A501 OCS PAL:
 
 ```sh
 EMU198X_AMIGA_TEST_KIT_V121_ADF=/path/to/amiga-test-kit-v1.21.adf \
@@ -40,25 +47,36 @@ EMU198X_AMIGA_KICKSTART_13_ROM=/path/to/kick13.rom \
 scripts/verify-amiga-test-kit-video.sh
 ```
 
-The ADF variable may instead name a ZIP containing the registered image.
-`EMU198X_AMIGA_KICKSTART_13_ROM` may be omitted when `kick13.rom` is available
-through the normal Amiga ROM-directory resolution.
+For A1200 AGA PAL:
 
-The wrapper verifies the normalised inputs before running the ignored
-integration test in release mode with one test thread. Direct invocation of the
+```sh
+EMU198X_AMIGA_TEST_KIT_V121_ADF=/path/to/amiga-test-kit-v1.21.adf \
+EMU198X_AMIGA_KICKSTART_31_A1200_ROM=/path/to/kick31a1200.rom \
+scripts/verify-amiga-test-kit-video-a1200.sh
+```
+
+The ADF variable may instead name a ZIP containing the registered image. A
+direct ROM variable may be omitted when `kick13.rom` or `kick31a1200.rom`, as
+appropriate, is available through the normal Amiga ROM-directory resolution.
+
+Each wrapper verifies the normalised inputs before running only its ignored
+integration test in release mode with one test thread. Direct invocation of a
 test remains strict and does not acquire ordinary skip-if-missing behaviour.
 
-## Registered machine
+## Registered profiles
 
-The first conformance profile is an A500 with an A501 expansion, OCS PAL
-chipset, MC68000, 512 KiB chip RAM, 512 KiB slow RAM, and Kickstart 1.3
-revision 34.005. CPU, RAM, chipset, region, firmware, and Test Kit identities
-are part of the reference record rather than assumptions inferred from an
-image filename.
+The A500 profile uses an A500 with an A501 expansion, OCS PAL chipset, MC68000,
+512 KiB chip RAM, 512 KiB slow RAM, and Kickstart 1.3 revision 34.005.
 
-ECS, AGA, NTSC, accelerated, and expanded profiles require separate reference
-records. A result from the A500 OCS PAL lane must not be generalised to those
-configurations.
+The A1200 profile uses an unexpanded PAL A1200, AGA chipset, 68EC020, 2 MiB
+chip RAM, and Kickstart 3.1 revision 40.068.
+
+CPU, RAM, chipset, region, firmware, and Test Kit identities are part of each
+reference record rather than assumptions inferred from an image filename.
+
+ECS, NTSC, accelerated, and other expanded profiles require separate reference
+records. Neither registered result may be generalised to the other profile or
+to an unregistered configuration.
 
 ## Video patterns
 
@@ -88,18 +106,19 @@ A reference is admissible only when its manifest records:
 - machine model, processor, RAM, chipset, region, and firmware configuration;
 - Test Kit ADF checksum;
 - menu path;
-- producer boot, key-release, inter-key, and final-capture timing;
-- the separate boot, key-hold, key-release, inter-key, and final-settle field
-  counts used by the executable Emu198x procedure;
+- the producer and executable gate timing schedules, recorded separately or as
+  one shared field-count schedule as appropriate to the profile;
 - source viewport, comparison crop, pixel encoding, and any normalisation;
-- source PNG checksum and decoded-pixel checksum.
+- reference PNG checksum and decoded-pixel checksum, plus raw-capture checksums
+  when raw pixels are the capture authority.
 
-The first manifest records one vAmiga capture family. This is independent of
-Emu198x, but it is not cross-implementation consensus and must not be described
-as such. A later consensus manifest requires agreement with another
-independent implementation or physical hardware after the declared
-normalisation. FS-UAE shares UAE-family implementation ancestry with WinUAE and
-does not provide a second independent family alongside WinUAE.
+The A500 manifest records one vAmiga capture family. The A1200 manifest records
+one FS-UAE capture family whose core is derived from WinUAE. Both are
+independent of Emu198x, but they exercise different machine configurations and
+therefore do not form cross-implementation consensus. FS-UAE and WinUAE are one
+UAE implementation family and must not be counted as independent votes. A
+consensus result for either profile requires another independent implementation
+or physical hardware after the declared normalisation.
 
 An Emu198x-produced frame may be retained as diagnostic output or a regression
 baseline, but it cannot be registered as an independent source and the
@@ -116,18 +135,26 @@ The Emu198x framebuffer contains vertically doubled rows. The harness verifies
 that both runtime rows in every canonical scanline are identical before
 retaining one. It does not silently discard an unchecked row.
 
-OCS exposes four bits per colour channel. The registered vAmiga capture stores
-each nibble in the high half of an eight-bit channel, while Emu198x replicates
-the nibble across both halves. The harness reduces both encodings to the
-underlying four-bit channel value before comparison. This normalises a
-framebuffer representation choice; it does not introduce colour tolerance.
-The pinned vAmiga conversion may be one byte below its 16-value step. Emu198x
-must emit an exact 17-value step. A channel outside those declared encoding
-bounds fails before pixel comparison.
+For A500 OCS output, the canonical image is 716 × 285 pixels. OCS exposes four
+bits per colour channel. The registered vAmiga capture stores each nibble in
+the high half of an eight-bit channel, while Emu198x replicates the nibble
+across both halves. The harness reduces both encodings to the underlying
+four-bit channel value before comparison. This normalises a framebuffer
+representation choice; it does not introduce colour tolerance. The pinned
+vAmiga conversion may be one byte below its 16-value step. Emu198x must emit an
+exact 17-value step. A channel outside those declared encoding bounds fails
+before pixel comparison.
 
-Every pixel and every four-bit channel must match. There is no percentage
-threshold for a passing case. On a pixel or temporal mismatch the lane
-records:
+For A1200 AGA output, the canonical image is 752 × 286 RGB8 pixels. The fixed
+Emu198x crop begins at `(8, 2)` in the 768 × 576 framebuffer. Its mapping to the
+FS-UAE source is established from the bitplane-only checkerboard, dots, and
+crosshatch patterns without alignment search. The comparison retains all eight
+bits per channel and permits no channel tolerance.
+
+Every pixel and every compared channel must match. Each profile contains six
+cases and seven reference images because the alternating checkerboard retains
+two phases. There is no percentage threshold for a passing case. On a pixel or
+temporal mismatch the lane records:
 
 - the relevant Emu198x frame or phase sequence;
 - a pixel-difference mask for each compared pair;
@@ -135,16 +162,22 @@ records:
 - the first differing coordinate where a compared pair differs;
 - the case and reference identities.
 
-Diagnostics are written below
-`target/accuracy/amiga-test-kit-v1.21/a500-a501-ocs-pal/`. They are evidence for
-investigation and are never promoted automatically to expected images.
+Diagnostics are written below the selected profile directory:
+
+- `target/accuracy/amiga-test-kit-v1.21/a500-a501-ocs-pal/`;
+- `target/accuracy/amiga-test-kit-v1.21/a1200-aga-pal/`.
+
+They are evidence for investigation and are never promoted automatically to
+expected images.
 
 ## Result interpretation
 
-A passing lane establishes that Emu198x produced the registered vAmiga digital
-pixel output for every executed A500+A501 OCS PAL Test Kit v1.21 case, using
-the pinned machine, firmware, media, navigation, registered phase pair and
-alternation, and crop.
+A passing A500 lane establishes that Emu198x produced the registered vAmiga
+digital pixel output for every executed A500+A501 OCS PAL Test Kit v1.21 case.
+A passing A1200 lane establishes the equivalent agreement with the registered
+FS-UAE output for the A1200 AGA PAL cases. Each claim includes only its pinned
+machine, firmware, media, navigation, registered phase pair and alternation,
+and crop.
 
 It does not establish:
 
@@ -160,5 +193,7 @@ It does not establish:
 - [Amiga Test Kit v1.21 fixture identity](../../test-data/amiga-test-kit-v1.21.md)
 - [Amiga Test Kit v1.12 verification](amiga-test-kit-verification.md)
 - [Amiga boot-path golden capture](golden-image-capture.md)
+- [Lisa colour-output delay](../decisions/amiga-lisa-color-output-delay.md)
+- [Denise full-raster pipeline](../decisions/amiga-denise-full-raster-pipeline.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)
 - [Test ROM bundling policy](../decisions/test-rom-policy.md)

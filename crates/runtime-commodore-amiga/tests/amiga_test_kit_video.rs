@@ -11,21 +11,26 @@ use std::io::{BufReader, Cursor};
 use std::path::{Component, Path, PathBuf};
 
 use emu198x_shell::{
-    HeadlessSession, InputEvent, MediaImage, MediaKind, MediaSet, read_media_asset,
+    FamilyRuntime, HeadlessSession, InputEvent, MediaImage, MediaKind, MediaSet, read_media_asset,
 };
 use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider, DISPLAY_HEIGHT,
-    DISPLAY_WIDTH, Model,
+    AmigaRuntimeKind, AmigaSessionQueryProvider, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 const TEST_KIT_ENV: &str = "EMU198X_AMIGA_TEST_KIT_V121_ADF";
-const KICKSTART_ENV: &str = "EMU198X_AMIGA_KICKSTART_13_ROM";
 const TEST_KIT_BYTES: usize = 901_120;
 const TEST_KIT_SHA256: &str = "abe7426c93619a7bb61ce10e3e66a4747fcaf22acd1d1876310033faa700ad28";
-const KICKSTART_BYTES: usize = 262_144;
-const KICKSTART_SHA256: &str = "ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53";
+
+const A500_KICKSTART_ENV: &str = "EMU198X_AMIGA_KICKSTART_13_ROM";
+const A500_KICKSTART_BYTES: usize = 262_144;
+const A500_KICKSTART_SHA256: &str =
+    "ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53";
+const A1200_KICKSTART_ENV: &str = "EMU198X_AMIGA_KICKSTART_31_A1200_ROM";
+const A1200_KICKSTART_BYTES: usize = 524_288;
+const A1200_KICKSTART_SHA256: &str =
+    "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707";
 
 const BOOT_FIELDS: u32 = 600;
 const KEY_HOLD_FIELDS: u32 = 3;
@@ -34,17 +39,93 @@ const INTER_KEY_FIELDS: u32 = 50;
 
 const RUNTIME_WIDTH: u32 = 768;
 const RUNTIME_HEIGHT: u32 = 576;
-const CROP_X: u32 = 20;
-const CROP_Y: u32 = 2;
-const CROP_WIDTH: u32 = 716;
-const CROP_HEIGHT: u32 = 570;
 const VERTICAL_DECIMATION: u32 = 2;
-const REFERENCE_WIDTH: u32 = 716;
-const REFERENCE_HEIGHT: u32 = 285;
-const REFERENCE_CHANNEL_STEP: u8 = 16;
-const RUNTIME_CHANNEL_STEP: u8 = 17;
-const REFERENCE_MAX_CHANNEL_ERROR: u8 = 1;
-const RUNTIME_MAX_CHANNEL_ERROR: u8 = 0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PixelEncoding {
+    Rgb4,
+    Rgb8,
+}
+
+impl PixelEncoding {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Rgb4 => "RGB4",
+            Self::Rgb8 => "RGB8",
+        }
+    }
+
+    const fn diagnostic_red(self) -> u8 {
+        match self {
+            Self::Rgb4 => 0x0F,
+            Self::Rgb8 => 0xFF,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct GateProfile {
+    id: &'static str,
+    model: Model,
+    machine_label: &'static str,
+    kickstart_env: &'static str,
+    kickstart_label: &'static str,
+    kickstart_bytes: usize,
+    kickstart_sha256: &'static str,
+    crop_x: u32,
+    crop_y: u32,
+    crop_width: u32,
+    crop_height: u32,
+    canonical_width: u32,
+    canonical_height: u32,
+    encoding: PixelEncoding,
+    reference_channel_step: u8,
+    reference_max_channel_error: u8,
+    runtime_channel_step: u8,
+    runtime_max_channel_error: u8,
+}
+
+const A500_PROFILE: GateProfile = GateProfile {
+    id: "a500-a501-ocs-pal",
+    model: Model::A500OcsPalA501,
+    machine_label: "A500+A501 OCS PAL",
+    kickstart_env: A500_KICKSTART_ENV,
+    kickstart_label: "Kickstart 1.3 r34.005",
+    kickstart_bytes: A500_KICKSTART_BYTES,
+    kickstart_sha256: A500_KICKSTART_SHA256,
+    crop_x: 20,
+    crop_y: 2,
+    crop_width: 716,
+    crop_height: 570,
+    canonical_width: 716,
+    canonical_height: 285,
+    encoding: PixelEncoding::Rgb4,
+    reference_channel_step: 16,
+    reference_max_channel_error: 1,
+    runtime_channel_step: 17,
+    runtime_max_channel_error: 0,
+};
+
+const A1200_PROFILE: GateProfile = GateProfile {
+    id: "a1200-aga-pal",
+    model: Model::A1200AgaPal,
+    machine_label: "A1200 AGA PAL",
+    kickstart_env: A1200_KICKSTART_ENV,
+    kickstart_label: "Kickstart 3.1 r40.068",
+    kickstart_bytes: A1200_KICKSTART_BYTES,
+    kickstart_sha256: A1200_KICKSTART_SHA256,
+    crop_x: 8,
+    crop_y: 2,
+    crop_width: 752,
+    crop_height: 572,
+    canonical_width: 752,
+    canonical_height: 286,
+    encoding: PixelEncoding::Rgb8,
+    reference_channel_step: 1,
+    reference_max_channel_error: 0,
+    runtime_channel_step: 1,
+    runtime_max_channel_error: 0,
+};
 
 type TestSession = HeadlessSession<AmigaRuntimeKind, AmigaSessionQueryProvider>;
 
@@ -107,14 +188,14 @@ struct Fixtures {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Manifest {
+struct A500Manifest {
     schema_version: u32,
     evidence_level: String,
     suite: SuiteManifest,
-    machine: MachineManifest,
-    viewport: ViewportManifest,
-    comparison: ComparisonManifest,
-    producer: ProducerManifest,
+    machine: A500MachineManifest,
+    viewport: A500ViewportManifest,
+    comparison: A500ComparisonManifest,
+    producer: A500ProducerManifest,
     producer_viewport: ProducerViewportManifest,
     producer_timing: ProducerTimingManifest,
     execution: ExecutionManifest,
@@ -133,7 +214,7 @@ struct SuiteManifest {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct MachineManifest {
+struct A500MachineManifest {
     model: String,
     cpu: String,
     chipset: String,
@@ -146,7 +227,7 @@ struct MachineManifest {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ViewportManifest {
+struct A500ViewportManifest {
     runtime_width: u32,
     runtime_height: u32,
     x: u32,
@@ -161,7 +242,7 @@ struct ViewportManifest {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ComparisonManifest {
+struct A500ComparisonManifest {
     format: String,
     reference_channel_step: u8,
     runtime_channel_step: u8,
@@ -172,7 +253,7 @@ struct ComparisonManifest {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProducerManifest {
+struct A500ProducerManifest {
     id: String,
     emulator: String,
     version: String,
@@ -223,6 +304,7 @@ struct FrameManifest {
     navigation: Vec<String>,
     execution_settle_fields: u32,
     behaviour: String,
+    capture_provenance: Option<CaptureProvenanceManifest>,
     references: Vec<ReferenceImageManifest>,
 }
 
@@ -233,7 +315,124 @@ struct ReferenceImageManifest {
     file: String,
     png_sha256: String,
     rgb_sha256: String,
-    producer_final_wait_seconds: u32,
+    producer_final_wait_seconds: Option<u32>,
+    source_core_field: Option<u32>,
+    source_raw_sha256: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct A1200Manifest {
+    schema_version: u32,
+    evidence_level: String,
+    suite: SuiteManifest,
+    machine: A1200MachineManifest,
+    viewport: A1200ViewportManifest,
+    comparison: A1200ComparisonManifest,
+    producer: A1200ProducerManifest,
+    capture_adapter: CaptureAdapterManifest,
+    packaging: PackagingManifest,
+    execution: ExecutionManifest,
+    frames: Vec<FrameManifest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct A1200MachineManifest {
+    model: String,
+    cpu: String,
+    chipset: String,
+    region: String,
+    chip_ram_bytes: u32,
+    expansion_ram_bytes: u32,
+    kickstart_revision: String,
+    kickstart_sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct A1200ViewportManifest {
+    producer_raw_width: u32,
+    producer_raw_height: u32,
+    producer_x: u32,
+    producer_y: u32,
+    runtime_width: u32,
+    runtime_height: u32,
+    runtime_x: u32,
+    runtime_y: u32,
+    width: u32,
+    height: u32,
+    vertical_decimation: u32,
+    canonical_width: u32,
+    canonical_height: u32,
+    pixel_format: String,
+    alignment_search: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct A1200ComparisonManifest {
+    format: String,
+    channel_tolerance: u8,
+    reference_alpha: String,
+    runtime_alpha: String,
+    row_pair_policy: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct A1200ProducerManifest {
+    id: String,
+    emulator: String,
+    version: String,
+    revision: String,
+    uae_base_version: String,
+    implementation_family: String,
+    configuration: String,
+    capture_method: String,
+    capture_patch_sha256: String,
+    binary_sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CaptureAdapterManifest {
+    #[serde(rename = "capture.sh")]
+    capture_sh: String,
+    #[serde(rename = "capture_manifest.py")]
+    capture_manifest_py: String,
+    #[serde(rename = "config.uae.in")]
+    config_uae_in: String,
+    #[serde(rename = "Portable.ini")]
+    portable_ini: String,
+    #[serde(rename = "fs-uae-5.0.7-test-kit-video-capture.patch")]
+    capture_patch: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PackagingManifest {
+    tool: String,
+    tool_sha256: String,
+    python_version: String,
+    zlib_version: String,
+    png_encoding: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CaptureProvenanceManifest {
+    capture_manifest_sha256: String,
+    configuration_sha256: String,
+    run_log_sha256: String,
+    raw_sha256: Vec<String>,
+    inputs_before_sha256: String,
+    inputs_after_sha256: String,
+    captured_core_fields: Vec<u32>,
+    frontend_wait_status: i32,
+    captured_at_utc: String,
+    host: String,
+    operator: String,
 }
 
 #[derive(Debug)]
@@ -249,14 +448,31 @@ struct PixelMismatch {
     max_y: u32,
 }
 
+#[derive(Clone, Copy)]
+struct DiagnosticContext<'a> {
+    profile: &'a GateProfile,
+    case_id: &'a str,
+    frame_manifest: &'a FrameManifest,
+    producer_id: &'a str,
+}
+
 #[test]
 fn amiga_test_kit_v121_reference_manifest_is_self_consistent() {
-    let reference_dir = reference_dir();
-    let manifest = load_manifest(&reference_dir);
-    validate_manifest(&manifest);
-    for frame in &manifest.frames {
+    let a500_dir = reference_dir(&A500_PROFILE);
+    let a500_manifest = load_a500_manifest(&a500_dir);
+    validate_a500_manifest(&a500_manifest);
+    for frame in &a500_manifest.frames {
         for reference in &frame.references {
-            let _ = load_reference(&reference_dir, reference);
+            let _ = load_reference(&A500_PROFILE, &a500_dir, reference);
+        }
+    }
+
+    let a1200_dir = reference_dir(&A1200_PROFILE);
+    let a1200_manifest = load_a1200_manifest(&a1200_dir);
+    validate_a1200_manifest(&a1200_manifest);
+    for frame in &a1200_manifest.frames {
+        for reference in &frame.references {
+            let _ = load_reference(&A1200_PROFILE, &a1200_dir, reference);
         }
     }
 }
@@ -264,20 +480,48 @@ fn amiga_test_kit_v121_reference_manifest_is_self_consistent() {
 #[test]
 #[ignore = "explicit Amiga Test Kit v1.21 reference-pattern gate"]
 fn amiga_test_kit_v121_a500_a501_ocs_pal_matches_reference() {
-    let reference_dir = reference_dir();
-    prepare_diagnostics_dir();
-    let manifest = load_manifest(&reference_dir);
-    validate_manifest(&manifest);
+    let reference_dir = reference_dir(&A500_PROFILE);
+    let manifest = load_a500_manifest(&reference_dir);
+    validate_a500_manifest(&manifest);
+    run_profile_gate(
+        &A500_PROFILE,
+        &reference_dir,
+        &manifest.producer.id,
+        &manifest.frames,
+    );
+}
+
+#[test]
+#[ignore = "explicit Amiga Test Kit v1.21 A1200 AGA reference-pattern gate"]
+fn amiga_test_kit_v121_a1200_aga_pal_matches_reference() {
+    let reference_dir = reference_dir(&A1200_PROFILE);
+    let manifest = load_a1200_manifest(&reference_dir);
+    validate_a1200_manifest(&manifest);
+    run_profile_gate(
+        &A1200_PROFILE,
+        &reference_dir,
+        &manifest.producer.id,
+        &manifest.frames,
+    );
+}
+
+fn run_profile_gate(
+    profile: &GateProfile,
+    reference_dir: &Path,
+    producer_id: &str,
+    frames: &[FrameManifest],
+) {
+    prepare_diagnostics_dir(profile);
 
     // Validate every registered oracle before spending time booting the guest.
-    for frame in &manifest.frames {
+    for frame in frames {
         for reference in &frame.references {
-            let _ = load_reference(&reference_dir, reference);
+            let _ = load_reference(profile, reference_dir, reference);
         }
     }
 
-    let fixtures = load_fixtures();
-    let mut boot = build_session(&fixtures);
+    let fixtures = load_fixtures(profile);
+    let mut boot = build_session(profile, &fixtures);
     boot.run_frames(BOOT_FIELDS)
         .expect("Test Kit v1.21 should boot to its main menu");
     let menu_checkpoint = boot
@@ -286,37 +530,43 @@ fn amiga_test_kit_v121_a500_a501_ocs_pal_matches_reference() {
 
     let mut failures = Vec::new();
     for case in CASES {
-        let frame_manifest = manifest_frame(&manifest, case.id);
+        let frame_manifest = manifest_frame(frames, case.id);
         let expected: Vec<_> = frame_manifest
             .references
             .iter()
-            .map(|reference| load_reference(&reference_dir, reference))
+            .map(|reference| load_reference(profile, reference_dir, reference))
             .collect();
-        let mut session = build_session(&fixtures);
+        let mut session = build_session(profile, &fixtures);
         session
             .restore_snapshot(&menu_checkpoint)
             .unwrap_or_else(|error| panic!("restore Test Kit menu for {}: {error}", case.id));
 
         match run_case(
+            profile,
             &mut session,
             case,
             frame_manifest,
-            &manifest.producer.id,
+            producer_id,
             &expected,
         ) {
-            Ok(()) => eprintln!("Amiga Test Kit v1.21 video: {} matched", case.id),
+            Ok(()) => eprintln!(
+                "Amiga Test Kit v1.21 {} video: {} matched",
+                profile.machine_label, case.id
+            ),
             Err(error) => failures.push(format!("{}: {error}", case.id)),
         }
     }
 
     assert!(
         failures.is_empty(),
-        "Amiga Test Kit v1.21 video conformance failed:\n{}",
+        "Amiga Test Kit v1.21 {} video conformance failed:\n{}",
+        profile.machine_label,
         failures.join("\n")
     );
 }
 
 fn run_case(
+    profile: &GateProfile,
     session: &mut TestSession,
     case: &Case,
     frame_manifest: &FrameManifest,
@@ -337,6 +587,7 @@ fn run_case(
 
     match case.behaviour {
         Behaviour::Static => run_static_case(
+            profile,
             session,
             case,
             frame_manifest,
@@ -344,9 +595,14 @@ fn run_case(
             &expected[0],
             &frame_manifest.references[0],
         ),
-        Behaviour::Alternating => {
-            run_alternating_case(session, case, frame_manifest, producer_id, expected)
-        }
+        Behaviour::Alternating => run_alternating_case(
+            profile,
+            session,
+            case,
+            frame_manifest,
+            producer_id,
+            expected,
+        ),
     }
 }
 
@@ -369,6 +625,7 @@ fn press_registered_key(session: &mut TestSession, name: &str) -> Result<(), Str
 }
 
 fn run_static_case(
+    profile: &GateProfile,
     session: &mut TestSession,
     case: &Case,
     frame_manifest: &FrameManifest,
@@ -376,13 +633,14 @@ fn run_static_case(
     expected: &[u8],
     reference: &ReferenceImageManifest,
 ) -> Result<(), String> {
-    let first = normalized_frame(session)?;
+    let first = normalized_frame(profile, session)?;
     session
         .run_frames(1)
         .map_err(|error| format!("capture adjacent stability field: {error}"))?;
-    let second = normalized_frame(session)?;
+    let second = normalized_frame(profile, session)?;
     if first != second {
         write_temporal_diagnostics(
+            profile,
             case.id,
             frame_manifest,
             producer_id,
@@ -392,10 +650,11 @@ fn run_static_case(
         );
         return Err(format!(
             "static pattern changed across adjacent fields; diagnostics: {}",
-            diagnostics_dir().display()
+            diagnostics_dir(profile).display()
         ));
     }
     compare_or_diagnose(
+        profile,
         case.id,
         frame_manifest,
         producer_id,
@@ -406,31 +665,35 @@ fn run_static_case(
 }
 
 fn run_alternating_case(
+    profile: &GateProfile,
     session: &mut TestSession,
     case: &Case,
     frame_manifest: &FrameManifest,
     producer_id: &str,
     expected: &[Vec<u8>],
 ) -> Result<(), String> {
-    let phase_a = normalized_frame(session)?;
+    let phase_a = normalized_frame(profile, session)?;
     session
         .run_frames(1)
         .map_err(|error| format!("capture alternating phase B: {error}"))?;
-    let phase_b = normalized_frame(session)?;
+    let phase_b = normalized_frame(profile, session)?;
     session
         .run_frames(1)
         .map_err(|error| format!("capture alternating phase A2: {error}"))?;
-    let phase_a2 = normalized_frame(session)?;
+    let phase_a2 = normalized_frame(profile, session)?;
     session
         .run_frames(1)
         .map_err(|error| format!("capture alternating phase B2: {error}"))?;
-    let phase_b2 = normalized_frame(session)?;
+    let phase_b2 = normalized_frame(profile, session)?;
 
     if phase_a == phase_b || phase_a != phase_a2 || phase_b != phase_b2 {
         write_alternating_diagnostics(
-            case.id,
-            frame_manifest,
-            producer_id,
+            DiagnosticContext {
+                profile,
+                case_id: case.id,
+                frame_manifest,
+                producer_id,
+            },
             &phase_a,
             &phase_b,
             &phase_a2,
@@ -438,7 +701,7 @@ fn run_alternating_case(
         );
         return Err(format!(
             "pattern did not satisfy A != B, A == A2 and B == B2; diagnostics: {}",
-            diagnostics_dir().display()
+            diagnostics_dir(profile).display()
         ));
     }
 
@@ -464,13 +727,16 @@ fn run_alternating_case(
     };
     let expected_a = &expected[expected_a_index];
     let expected_b = &expected[expected_b_index];
-    let mismatch_a = pixel_mismatch(&phase_a, expected_a);
-    let mismatch_b = pixel_mismatch(&phase_b, expected_b);
+    let mismatch_a = pixel_mismatch(profile, &phase_a, expected_a);
+    let mismatch_b = pixel_mismatch(profile, &phase_b, expected_b);
     if let Some(mismatch) = &mismatch_a {
         write_mismatch_diagnostics(
-            &format!("{}-phase-a", case.id),
-            frame_manifest,
-            producer_id,
+            DiagnosticContext {
+                profile,
+                case_id: &format!("{}-phase-a", case.id),
+                frame_manifest,
+                producer_id,
+            },
             &frame_manifest.references[expected_a_index],
             &phase_a,
             expected_a,
@@ -479,21 +745,26 @@ fn run_alternating_case(
     }
     if let Some(mismatch) = &mismatch_b {
         write_mismatch_diagnostics(
-            &format!("{}-phase-b", case.id),
-            frame_manifest,
-            producer_id,
+            DiagnosticContext {
+                profile,
+                case_id: &format!("{}-phase-b", case.id),
+                frame_manifest,
+                producer_id,
+            },
             &frame_manifest.references[expected_b_index],
             &phase_b,
             expected_b,
             mismatch,
         );
     }
-    let phase_a_result = mismatch_a
-        .as_ref()
-        .map_or_else(|| "matched".to_owned(), mismatch_message);
-    let phase_b_result = mismatch_b
-        .as_ref()
-        .map_or_else(|| "matched".to_owned(), mismatch_message);
+    let phase_a_result = mismatch_a.as_ref().map_or_else(
+        || "matched".to_owned(),
+        |mismatch| mismatch_message(profile, mismatch),
+    );
+    let phase_b_result = mismatch_b.as_ref().map_or_else(
+        || "matched".to_owned(),
+        |mismatch| mismatch_message(profile, mismatch),
+    );
     Err(format!(
         "phase A {}; phase B {}",
         phase_a_result, phase_b_result
@@ -501,6 +772,7 @@ fn run_alternating_case(
 }
 
 fn compare_or_diagnose(
+    profile: &GateProfile,
     case_id: &str,
     frame_manifest: &FrameManifest,
     producer_id: &str,
@@ -508,19 +780,22 @@ fn compare_or_diagnose(
     expected: &[u8],
     reference: &ReferenceImageManifest,
 ) -> Result<(), String> {
-    let Some(mismatch) = pixel_mismatch(actual, expected) else {
+    let Some(mismatch) = pixel_mismatch(profile, actual, expected) else {
         return Ok(());
     };
     write_mismatch_diagnostics(
-        case_id,
-        frame_manifest,
-        producer_id,
+        DiagnosticContext {
+            profile,
+            case_id,
+            frame_manifest,
+            producer_id,
+        },
         reference,
         actual,
         expected,
         &mismatch,
     );
-    Err(mismatch_message(&mismatch))
+    Err(mismatch_message(profile, &mismatch))
 }
 
 fn differing_pixel_count(actual: &[u8], expected: &[u8]) -> usize {
@@ -531,39 +806,44 @@ fn differing_pixel_count(actual: &[u8], expected: &[u8]) -> usize {
         .count()
 }
 
-fn mismatch_message(mismatch: &PixelMismatch) -> String {
-    let total = u64::from(REFERENCE_WIDTH) * u64::from(REFERENCE_HEIGHT);
+fn mismatch_message(profile: &GateProfile, mismatch: &PixelMismatch) -> String {
+    let total = u64::from(profile.canonical_width) * u64::from(profile.canonical_height);
     let percentage = mismatch.differing_pixels as f64 * 100.0 / total as f64;
     format!(
-        "{} pixels differ ({percentage:.6}%); first at ({}, {}), expected RGB4 ${:X}{:X}{:X}, actual RGB4 ${:X}{:X}{:X}; bounding box ({}, {})..({}, {}); diagnostics: {}",
+        "{} pixels differ ({percentage:.6}%); first at ({}, {}), expected {} {}, actual {} {}; bounding box ({}, {})..({}, {}); diagnostics: {}",
         mismatch.differing_pixels,
         mismatch.first_x,
         mismatch.first_y,
-        mismatch.first_expected[0],
-        mismatch.first_expected[1],
-        mismatch.first_expected[2],
-        mismatch.first_actual[0],
-        mismatch.first_actual[1],
-        mismatch.first_actual[2],
+        profile.encoding.label(),
+        format_pixel(profile.encoding, mismatch.first_expected),
+        profile.encoding.label(),
+        format_pixel(profile.encoding, mismatch.first_actual),
         mismatch.min_x,
         mismatch.min_y,
         mismatch.max_x,
         mismatch.max_y,
-        diagnostics_dir().display()
+        diagnostics_dir(profile).display()
     )
 }
 
-fn pixel_mismatch(actual: &[u8], expected: &[u8]) -> Option<PixelMismatch> {
+fn format_pixel(encoding: PixelEncoding, pixel: [u8; 3]) -> String {
+    match encoding {
+        PixelEncoding::Rgb4 => format!("${:X}{:X}{:X}", pixel[0], pixel[1], pixel[2]),
+        PixelEncoding::Rgb8 => format!("#{:02X}{:02X}{:02X}", pixel[0], pixel[1], pixel[2]),
+    }
+}
+
+fn pixel_mismatch(profile: &GateProfile, actual: &[u8], expected: &[u8]) -> Option<PixelMismatch> {
     assert_eq!(
         actual.len(),
-        (REFERENCE_WIDTH * REFERENCE_HEIGHT * 3) as usize
+        (profile.canonical_width * profile.canonical_height * 3) as usize
     );
     assert_eq!(actual.len(), expected.len());
 
     let mut differing_pixels = 0;
     let mut first = None;
-    let mut min_x = REFERENCE_WIDTH;
-    let mut min_y = REFERENCE_HEIGHT;
+    let mut min_x = profile.canonical_width;
+    let mut min_y = profile.canonical_height;
     let mut max_x = 0;
     let mut max_y = 0;
 
@@ -575,8 +855,8 @@ fn pixel_mismatch(actual: &[u8], expected: &[u8]) -> Option<PixelMismatch> {
         if actual_pixel == expected_pixel {
             continue;
         }
-        let x = index as u32 % REFERENCE_WIDTH;
-        let y = index as u32 / REFERENCE_WIDTH;
+        let x = index as u32 % profile.canonical_width;
+        let y = index as u32 / profile.canonical_width;
         differing_pixels += 1;
         min_x = min_x.min(x);
         min_y = min_y.min(y);
@@ -605,7 +885,7 @@ fn pixel_mismatch(actual: &[u8], expected: &[u8]) -> Option<PixelMismatch> {
     )
 }
 
-fn normalized_frame(session: &TestSession) -> Result<Vec<u8>, String> {
+fn normalized_frame(profile: &GateProfile, session: &TestSession) -> Result<Vec<u8>, String> {
     let frame = session
         .latest_frame()
         .ok_or_else(|| "Test Kit did not emit a framebuffer".to_owned())?;
@@ -632,45 +912,66 @@ fn normalized_frame(session: &TestSession) -> Result<Vec<u8>, String> {
         ));
     }
 
-    let mut rgb = Vec::with_capacity((REFERENCE_WIDTH * REFERENCE_HEIGHT * 3) as usize);
-    for output_y in 0..REFERENCE_HEIGHT {
-        let source_y_a = CROP_Y + output_y * VERTICAL_DECIMATION;
+    if profile.crop_width != profile.canonical_width
+        || profile.crop_height != profile.canonical_height * VERTICAL_DECIMATION
+        || profile.crop_x + profile.crop_width > RUNTIME_WIDTH
+        || profile.crop_y + profile.crop_height > RUNTIME_HEIGHT
+    {
+        return Err(format!(
+            "invalid registered runtime crop for {}",
+            profile.id
+        ));
+    }
+
+    let mut rgb =
+        Vec::with_capacity((profile.canonical_width * profile.canonical_height * 3) as usize);
+    for output_y in 0..profile.canonical_height {
+        let source_y_a = profile.crop_y + output_y * VERTICAL_DECIMATION;
         let source_y_b = source_y_a + 1;
-        let row_start_a = ((source_y_a * RUNTIME_WIDTH + CROP_X) * 4) as usize;
-        let row_start_b = ((source_y_b * RUNTIME_WIDTH + CROP_X) * 4) as usize;
-        for source_x in 0..CROP_WIDTH as usize {
+        let row_start_a = ((source_y_a * RUNTIME_WIDTH + profile.crop_x) * 4) as usize;
+        let row_start_b = ((source_y_b * RUNTIME_WIDTH + profile.crop_x) * 4) as usize;
+        for source_x in 0..profile.crop_width as usize {
             let offset_a = row_start_a + source_x * 4;
             let offset_b = row_start_b + source_x * 4;
             for channel_index in 0..3 {
                 let channel_a = rgba[offset_a + channel_index];
                 let channel_b = rgba[offset_b + channel_index];
-                let Some(rgb4_a) =
-                    quantize_channel(channel_a, RUNTIME_CHANNEL_STEP, RUNTIME_MAX_CHANNEL_ERROR)
-                else {
+                let Some(normalized_a) = normalize_runtime_channel(profile, channel_a) else {
                     return Err(format!(
-                        "runtime channel {channel_a} at ({source_x}, {source_y_a}) is not an exact RGB4-expanded value"
+                        "runtime channel {channel_a} at ({source_x}, {source_y_a}) is outside the registered {} encoding",
+                        profile.encoding.label()
                     ));
                 };
-                let Some(rgb4_b) =
-                    quantize_channel(channel_b, RUNTIME_CHANNEL_STEP, RUNTIME_MAX_CHANNEL_ERROR)
-                else {
+                let Some(normalized_b) = normalize_runtime_channel(profile, channel_b) else {
                     return Err(format!(
-                        "runtime channel {channel_b} at ({source_x}, {source_y_b}) is not an exact RGB4-expanded value"
+                        "runtime channel {channel_b} at ({source_x}, {source_y_b}) is outside the registered {} encoding",
+                        profile.encoding.label()
                     ));
                 };
-                if rgb4_a != rgb4_b {
+                if normalized_a != normalized_b {
                     return Err(format!(
-                        "doubled runtime rows differ at canonical ({source_x}, {output_y}), channel {channel_index}: {rgb4_a:X} != {rgb4_b:X}"
+                        "doubled runtime rows differ at canonical ({source_x}, {output_y}), channel {channel_index}: {normalized_a:02X} != {normalized_b:02X}"
                     ));
                 }
-                rgb.push(rgb4_a);
+                rgb.push(normalized_a);
             }
         }
     }
     Ok(rgb)
 }
 
-fn load_fixtures() -> Fixtures {
+fn normalize_runtime_channel(profile: &GateProfile, channel: u8) -> Option<u8> {
+    match profile.encoding {
+        PixelEncoding::Rgb4 => quantize_channel(
+            channel,
+            profile.runtime_channel_step,
+            profile.runtime_max_channel_error,
+        ),
+        PixelEncoding::Rgb8 => Some(channel),
+    }
+}
+
+fn load_fixtures(profile: &GateProfile) -> Fixtures {
     let test_kit_path = required_path(TEST_KIT_ENV);
     let loaded = read_media_asset(&test_kit_path, MediaKind::Disk)
         .unwrap_or_else(|error| panic!("read {}: {error}", test_kit_path.display()));
@@ -681,14 +982,14 @@ fn load_fixtures() -> Fixtures {
         TEST_KIT_SHA256,
     );
 
-    let kickstart_path = required_path(KICKSTART_ENV);
+    let kickstart_path = required_path(profile.kickstart_env);
     let kickstart = fs::read(&kickstart_path)
         .unwrap_or_else(|error| panic!("read {}: {error}", kickstart_path.display()));
     assert_fixture(
-        "Kickstart 1.3 r34.005",
+        profile.kickstart_label,
         &kickstart,
-        KICKSTART_BYTES,
-        KICKSTART_SHA256,
+        profile.kickstart_bytes,
+        profile.kickstart_sha256,
     );
 
     Fixtures {
@@ -722,14 +1023,17 @@ fn assert_fixture(label: &str, bytes: &[u8], expected_len: usize, expected_sha25
     );
 }
 
-fn build_session(fixtures: &Fixtures) -> TestSession {
-    let runtime = AmigaRuntimeKind::new(Model::A500OcsPalA501, fixtures.kickstart.clone())
-        .unwrap_or_else(|error| panic!("construct A500+A501 Test Kit runtime: {error}"));
-    let mut session = HeadlessSession::new_with_query_provider(
-        runtime,
-        A500_PAL_FRAME_TICKS,
-        AmigaSessionQueryProvider,
-    );
+fn build_session(profile: &GateProfile, fixtures: &Fixtures) -> TestSession {
+    let runtime =
+        AmigaRuntimeKind::new(profile.model, fixtures.kickstart.clone()).unwrap_or_else(|error| {
+            panic!(
+                "construct {} Test Kit runtime: {error}",
+                profile.machine_label
+            )
+        });
+    let frame_ticks = runtime.native_frame_ticks();
+    let mut session =
+        HeadlessSession::new_with_query_provider(runtime, frame_ticks, AmigaSessionQueryProvider);
     let mut media = MediaSet::new();
     media.push(MediaImage::new(
         "floppy-0",
@@ -750,11 +1054,13 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn reference_dir() -> PathBuf {
-    repo_root().join("test-data/amiga-test-kit-v1.21/a500-a501-ocs-pal")
+fn reference_dir(profile: &GateProfile) -> PathBuf {
+    repo_root()
+        .join("test-data/amiga-test-kit-v1.21")
+        .join(profile.id)
 }
 
-fn diagnostics_dir() -> PathBuf {
+fn diagnostics_dir(profile: &GateProfile) -> PathBuf {
     let target = std::env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .map(|path| {
@@ -765,11 +1071,13 @@ fn diagnostics_dir() -> PathBuf {
             }
         })
         .unwrap_or_else(|| repo_root().join("target"));
-    target.join("accuracy/amiga-test-kit-v1.21/a500-a501-ocs-pal")
+    target
+        .join("accuracy/amiga-test-kit-v1.21")
+        .join(profile.id)
 }
 
-fn prepare_diagnostics_dir() {
-    let dir = diagnostics_dir();
+fn prepare_diagnostics_dir(profile: &GateProfile) {
+    let dir = diagnostics_dir(profile);
     if dir.exists() {
         fs::remove_dir_all(&dir)
             .unwrap_or_else(|error| panic!("clear stale diagnostics {}: {error}", dir.display()));
@@ -778,7 +1086,18 @@ fn prepare_diagnostics_dir() {
         .unwrap_or_else(|error| panic!("create diagnostics {}: {error}", dir.display()));
 }
 
-fn load_manifest(reference_dir: &Path) -> Manifest {
+fn load_a500_manifest(reference_dir: &Path) -> A500Manifest {
+    load_manifest(reference_dir)
+}
+
+fn load_a1200_manifest(reference_dir: &Path) -> A1200Manifest {
+    load_manifest(reference_dir)
+}
+
+fn load_manifest<T>(reference_dir: &Path) -> T
+where
+    T: for<'de> Deserialize<'de>,
+{
     let path = reference_dir.join("manifest.json");
     let bytes = fs::read(&path)
         .unwrap_or_else(|error| panic!("read reference manifest {}: {error}", path.display()));
@@ -790,7 +1109,7 @@ fn load_manifest(reference_dir: &Path) -> Manifest {
     })
 }
 
-fn validate_manifest(manifest: &Manifest) {
+fn validate_a500_manifest(manifest: &A500Manifest) {
     assert_eq!(manifest.schema_version, 1);
     assert_eq!(manifest.evidence_level, "single-independent-implementation");
     assert_eq!(manifest.suite.name, "Amiga Test Kit");
@@ -809,35 +1128,41 @@ fn validate_manifest(manifest: &Manifest) {
     assert_eq!(manifest.machine.chip_ram_bytes, 512 * 1024);
     assert_eq!(manifest.machine.slow_ram_bytes, 512 * 1024);
     assert_eq!(manifest.machine.kickstart_revision, "1.3 r34.005");
-    assert_eq!(manifest.machine.kickstart_sha256, KICKSTART_SHA256);
+    assert_eq!(manifest.machine.kickstart_sha256, A500_KICKSTART_SHA256);
 
     assert_eq!(manifest.viewport.runtime_width, RUNTIME_WIDTH);
     assert_eq!(manifest.viewport.runtime_height, RUNTIME_HEIGHT);
-    assert_eq!(manifest.viewport.x, CROP_X);
-    assert_eq!(manifest.viewport.y, CROP_Y);
-    assert_eq!(manifest.viewport.width, CROP_WIDTH);
-    assert_eq!(manifest.viewport.height, CROP_HEIGHT);
+    assert_eq!(manifest.viewport.x, A500_PROFILE.crop_x);
+    assert_eq!(manifest.viewport.y, A500_PROFILE.crop_y);
+    assert_eq!(manifest.viewport.width, A500_PROFILE.crop_width);
+    assert_eq!(manifest.viewport.height, A500_PROFILE.crop_height);
     assert_eq!(manifest.viewport.vertical_decimation, VERTICAL_DECIMATION);
-    assert_eq!(manifest.viewport.canonical_width, REFERENCE_WIDTH);
-    assert_eq!(manifest.viewport.canonical_height, REFERENCE_HEIGHT);
+    assert_eq!(
+        manifest.viewport.canonical_width,
+        A500_PROFILE.canonical_width
+    );
+    assert_eq!(
+        manifest.viewport.canonical_height,
+        A500_PROFILE.canonical_height
+    );
     assert_eq!(manifest.viewport.pixel_format, "rgb8");
     assert_eq!(manifest.comparison.format, "rgb4");
     assert_eq!(
         manifest.comparison.reference_channel_step,
-        REFERENCE_CHANNEL_STEP
+        A500_PROFILE.reference_channel_step
     );
     assert_eq!(
         manifest.comparison.runtime_channel_step,
-        RUNTIME_CHANNEL_STEP
+        A500_PROFILE.runtime_channel_step
     );
     assert_eq!(manifest.comparison.rounding, "nearest");
     assert_eq!(
         manifest.comparison.reference_max_error,
-        REFERENCE_MAX_CHANNEL_ERROR
+        A500_PROFILE.reference_max_channel_error
     );
     assert_eq!(
         manifest.comparison.runtime_max_error,
-        RUNTIME_MAX_CHANNEL_ERROR
+        A500_PROFILE.runtime_max_channel_error
     );
 
     assert!(!manifest.producer.id.is_empty());
@@ -865,8 +1190,14 @@ fn validate_manifest(manifest: &Manifest) {
     assert_eq!(manifest.producer_viewport.beam_hpos_end_exclusive, 0xE4);
     assert_eq!(manifest.producer_viewport.beam_vpos_start, 26);
     assert_eq!(manifest.producer_viewport.beam_vpos_end_exclusive, 311);
-    assert_eq!(manifest.producer_viewport.width, REFERENCE_WIDTH);
-    assert_eq!(manifest.producer_viewport.height, REFERENCE_HEIGHT);
+    assert_eq!(
+        manifest.producer_viewport.width,
+        A500_PROFILE.canonical_width
+    );
+    assert_eq!(
+        manifest.producer_viewport.height,
+        A500_PROFILE.canonical_height
+    );
     assert_eq!(
         manifest.producer_viewport.pixel_format,
         "packed-row-major-rgb8"
@@ -903,7 +1234,12 @@ fn validate_manifest(manifest: &Manifest) {
     );
 
     for case in CASES {
-        let frame = manifest_frame(manifest, case.id);
+        let frame = manifest_frame(&manifest.frames, case.id);
+        assert!(
+            frame.capture_provenance.is_none(),
+            "{} A500 reference must not contain A1200 capture provenance",
+            case.id
+        );
         assert_eq!(
             frame.navigation, case.navigation,
             "{} navigation differs from executable procedure",
@@ -932,7 +1268,7 @@ fn validate_manifest(manifest: &Manifest) {
                 assert_eq!(reference.phase, "static");
                 assert_eq!(reference.file, format!("{}.png", case.id));
                 let expected_wait = if case.id == "gradients" { 3 } else { 2 };
-                assert_eq!(reference.producer_final_wait_seconds, expected_wait);
+                assert_eq!(reference.producer_final_wait_seconds, Some(expected_wait));
             }
             Behaviour::Alternating => {
                 assert_eq!(
@@ -946,13 +1282,13 @@ fn validate_manifest(manifest: &Manifest) {
                     frame.references[0].file,
                     "alternating-checkerboard-phase-a.png"
                 );
-                assert_eq!(frame.references[0].producer_final_wait_seconds, 2);
+                assert_eq!(frame.references[0].producer_final_wait_seconds, Some(2));
                 assert_eq!(frame.references[1].phase, "b");
                 assert_eq!(
                     frame.references[1].file,
                     "alternating-checkerboard-phase-b.png"
                 );
-                assert_eq!(frame.references[1].producer_final_wait_seconds, 3);
+                assert_eq!(frame.references[1].producer_final_wait_seconds, Some(3));
             }
         }
 
@@ -968,6 +1304,8 @@ fn validate_manifest(manifest: &Manifest) {
             case.id
         );
         for reference in &frame.references {
+            assert!(reference.source_core_field.is_none());
+            assert!(reference.source_raw_sha256.is_none());
             assert_safe_relative_file(&reference.file);
             assert_sha256_text(
                 &reference.png_sha256,
@@ -981,9 +1319,243 @@ fn validate_manifest(manifest: &Manifest) {
     }
 }
 
-fn manifest_frame<'a>(manifest: &'a Manifest, id: &str) -> &'a FrameManifest {
-    manifest
+fn validate_a1200_manifest(manifest: &A1200Manifest) {
+    assert_eq!(manifest.schema_version, 1);
+    assert_eq!(manifest.evidence_level, "single-independent-implementation");
+    assert_eq!(manifest.suite.name, "Amiga Test Kit");
+    assert_eq!(manifest.suite.version, "1.21");
+    assert_eq!(manifest.suite.source_tag, "testkit-v1.21");
+    assert_eq!(
+        manifest.suite.source_commit,
+        "9477599d1611da2326f43532dbe563c2848e308b"
+    );
+    assert_eq!(manifest.suite.adf_sha256, TEST_KIT_SHA256);
+
+    assert_eq!(manifest.machine.model, "commodore-amiga-a1200-aga-pal");
+    assert_eq!(manifest.machine.cpu, "68EC020");
+    assert_eq!(manifest.machine.chipset, "AGA");
+    assert_eq!(manifest.machine.region, "PAL");
+    assert_eq!(manifest.machine.chip_ram_bytes, 2 * 1024 * 1024);
+    assert_eq!(manifest.machine.expansion_ram_bytes, 0);
+    assert_eq!(manifest.machine.kickstart_revision, "3.1 r40.068");
+    assert_eq!(manifest.machine.kickstart_sha256, A1200_KICKSTART_SHA256);
+
+    assert_eq!(manifest.viewport.producer_raw_width, 756);
+    assert_eq!(manifest.viewport.producer_raw_height, 576);
+    assert_eq!(manifest.viewport.producer_x, 2);
+    assert_eq!(manifest.viewport.producer_y, 0);
+    assert_eq!(manifest.viewport.runtime_width, RUNTIME_WIDTH);
+    assert_eq!(manifest.viewport.runtime_height, RUNTIME_HEIGHT);
+    assert_eq!(manifest.viewport.runtime_x, A1200_PROFILE.crop_x);
+    assert_eq!(manifest.viewport.runtime_y, A1200_PROFILE.crop_y);
+    assert_eq!(manifest.viewport.width, A1200_PROFILE.crop_width);
+    assert_eq!(manifest.viewport.height, A1200_PROFILE.crop_height);
+    assert_eq!(manifest.viewport.vertical_decimation, VERTICAL_DECIMATION);
+    assert_eq!(
+        manifest.viewport.canonical_width,
+        A1200_PROFILE.canonical_width
+    );
+    assert_eq!(
+        manifest.viewport.canonical_height,
+        A1200_PROFILE.canonical_height
+    );
+    assert_eq!(manifest.viewport.pixel_format, "rgb8");
+    assert!(!manifest.viewport.alignment_search);
+
+    assert_eq!(manifest.comparison.format, "rgb8-exact");
+    assert_eq!(manifest.comparison.channel_tolerance, 0);
+    assert_eq!(
+        manifest.comparison.reference_alpha,
+        "discard-after-opaque-validation"
+    );
+    assert_eq!(manifest.comparison.runtime_alpha, "must-be-opaque");
+    assert_eq!(
+        manifest.comparison.row_pair_policy,
+        "require-identical-before-decimation"
+    );
+
+    assert_eq!(manifest.producer.id, "fs-uae-5.0.7-f362278c-a1200-aga-pal");
+    assert_eq!(manifest.producer.emulator, "FS-UAE");
+    assert_eq!(manifest.producer.version, "5.0.7");
+    assert_eq!(
+        manifest.producer.revision,
+        "f362278ccd4c60991caac3b4d240d4a3f751bea2"
+    );
+    assert_eq!(manifest.producer.uae_base_version, "WinUAE 6.0.1");
+    assert_eq!(manifest.producer.implementation_family, "UAE");
+    assert_eq!(
+        manifest.producer.configuration,
+        "A1200 AGA PAL cycle-exact 68EC020"
+    );
+    assert_eq!(
+        manifest.producer.capture_method,
+        "environment-gated raw chipset framebuffer hook"
+    );
+    assert_eq!(
+        manifest.producer.capture_patch_sha256,
+        "6116765eab7036cf756cb3212968675c9d1ca3ef327b8da3e4d194f05ffbb767"
+    );
+    assert_eq!(
+        manifest.producer.binary_sha256,
+        "5c3d9e35d100445a5603c5f86a19cc431a7363828053d4ede7d260c2c5d6899f"
+    );
+    assert!(
+        !manifest.producer.emulator.eq_ignore_ascii_case("Emu198x"),
+        "Emu198x output cannot be its own reference producer"
+    );
+
+    assert_eq!(
+        manifest.capture_adapter.capture_sh,
+        "511cfed52f2b5d8a03a3d335bc144fbee59d2624f94c734e828c135b566eca28"
+    );
+    assert_eq!(
+        manifest.capture_adapter.capture_manifest_py,
+        "896d310b9eecdcb09d67d29436e3ee1a389bde7385d595fab6048a13ee3a076e"
+    );
+    assert_eq!(
+        manifest.capture_adapter.config_uae_in,
+        "cf8f5bdb01142cfe08c271158a0e1253ddef700f03b52a9f6f67698fc2648745"
+    );
+    assert_eq!(
+        manifest.capture_adapter.portable_ini,
+        "f6ea7ad62b30f5b1d3092081990d41206c60aea7dcc29379a2977e89c4d994f0"
+    );
+    assert_eq!(
+        manifest.capture_adapter.capture_patch,
+        manifest.producer.capture_patch_sha256
+    );
+
+    assert_eq!(manifest.packaging.tool, "package.py");
+    assert_eq!(
+        manifest.packaging.tool_sha256,
+        "3aad61692879397c2a613a44c5fa6df279fee8163480c6150047ae25ab43629c"
+    );
+    assert_eq!(manifest.packaging.python_version, "3.14.3");
+    assert_eq!(manifest.packaging.zlib_version, "1.2.12");
+    assert_eq!(
+        manifest.packaging.png_encoding,
+        "RGB8 filter-none zlib-level-9"
+    );
+
+    assert_eq!(manifest.execution.boot_fields, BOOT_FIELDS);
+    assert_eq!(manifest.execution.key_hold_fields, KEY_HOLD_FIELDS);
+    assert_eq!(
+        manifest.execution.key_release_settle_fields,
+        KEY_RELEASE_SETTLE_FIELDS
+    );
+    assert_eq!(manifest.execution.inter_key_fields, INTER_KEY_FIELDS);
+
+    let expected_ids: BTreeSet<_> = CASES.iter().map(|case| case.id).collect();
+    let actual_ids: BTreeSet<_> = manifest
         .frames
+        .iter()
+        .map(|frame| frame.id.as_str())
+        .collect();
+    assert_eq!(
+        actual_ids.len(),
+        manifest.frames.len(),
+        "A1200 reference manifest contains duplicate frame IDs"
+    );
+    assert_eq!(
+        actual_ids, expected_ids,
+        "A1200 manifest cases and executable case table differ"
+    );
+
+    for case in CASES {
+        let frame = manifest_frame(&manifest.frames, case.id);
+        assert_eq!(frame.navigation, case.navigation);
+        assert_eq!(frame.execution_settle_fields, case.settle_fields);
+        let expected_behaviour = match case.behaviour {
+            Behaviour::Static => "static",
+            Behaviour::Alternating => "alternating",
+        };
+        assert_eq!(frame.behaviour, expected_behaviour);
+
+        let expected_first_field = BOOT_FIELDS
+            + u32::try_from(case.navigation.len()).expect("navigation length fits in u32")
+                * (KEY_HOLD_FIELDS + KEY_RELEASE_SETTLE_FIELDS)
+            + u32::try_from(case.navigation.len().saturating_sub(1))
+                .expect("navigation wait count fits in u32")
+                * INTER_KEY_FIELDS
+            + case.settle_fields;
+        let capture = frame
+            .capture_provenance
+            .as_ref()
+            .unwrap_or_else(|| panic!("{} lacks capture provenance", case.id));
+        assert_eq!(
+            capture.captured_core_fields,
+            [
+                expected_first_field,
+                expected_first_field + 1,
+                expected_first_field + 2
+            ]
+        );
+        assert_eq!(capture.frontend_wait_status, 0);
+        assert_eq!(capture.inputs_before_sha256, capture.inputs_after_sha256);
+        assert!(capture.captured_at_utc.ends_with("+00:00"));
+        assert!(!capture.host.is_empty());
+        assert!(!capture.operator.is_empty());
+        assert_sha256_text(&capture.capture_manifest_sha256, "capture manifest");
+        assert_sha256_text(&capture.configuration_sha256, "capture configuration");
+        assert_sha256_text(&capture.run_log_sha256, "capture run log");
+        assert_sha256_text(&capture.inputs_before_sha256, "capture inputs");
+        assert_eq!(capture.raw_sha256.len(), 3);
+        for hash in &capture.raw_sha256 {
+            assert_sha256_text(hash, "raw capture");
+        }
+        match case.behaviour {
+            Behaviour::Static => {
+                assert_eq!(capture.raw_sha256[0], capture.raw_sha256[1]);
+                assert_eq!(capture.raw_sha256[1], capture.raw_sha256[2]);
+            }
+            Behaviour::Alternating => {
+                assert_ne!(capture.raw_sha256[0], capture.raw_sha256[1]);
+                assert_eq!(capture.raw_sha256[0], capture.raw_sha256[2]);
+            }
+        }
+
+        let expected_reference_count = match case.behaviour {
+            Behaviour::Static => 1,
+            Behaviour::Alternating => 2,
+        };
+        assert_eq!(frame.references.len(), expected_reference_count);
+        for (index, reference) in frame.references.iter().enumerate() {
+            let expected_phase = match case.behaviour {
+                Behaviour::Static => "static",
+                Behaviour::Alternating if index == 0 => "a",
+                Behaviour::Alternating => "b",
+            };
+            let expected_file = match case.behaviour {
+                Behaviour::Static => format!("{}.png", case.id),
+                Behaviour::Alternating if index == 0 => {
+                    "alternating-checkerboard-phase-a.png".to_owned()
+                }
+                Behaviour::Alternating => "alternating-checkerboard-phase-b.png".to_owned(),
+            };
+            assert_eq!(reference.phase, expected_phase);
+            assert_eq!(reference.file, expected_file);
+            assert!(reference.producer_final_wait_seconds.is_none());
+            assert_safe_relative_file(&reference.file);
+            assert_sha256_text(&reference.png_sha256, "reference PNG");
+            assert_sha256_text(&reference.rgb_sha256, "reference RGB");
+
+            let source_field = reference
+                .source_core_field
+                .unwrap_or_else(|| panic!("{} {} lacks source field", case.id, expected_phase));
+            let source_index = usize::try_from(source_field - expected_first_field)
+                .expect("source field offset fits in usize");
+            assert!(source_index < capture.raw_sha256.len());
+            assert_eq!(
+                reference.source_raw_sha256.as_deref(),
+                Some(capture.raw_sha256[source_index].as_str())
+            );
+            assert_eq!(source_index, index);
+        }
+    }
+}
+
+fn manifest_frame<'a>(frames: &'a [FrameManifest], id: &str) -> &'a FrameManifest {
+    frames
         .iter()
         .find(|frame| frame.id == id)
         .unwrap_or_else(|| panic!("reference manifest is missing case {id}"))
@@ -1015,7 +1587,11 @@ fn assert_sha256_text(value: &str, label: &str) {
     );
 }
 
-fn load_reference(reference_dir: &Path, reference: &ReferenceImageManifest) -> Vec<u8> {
+fn load_reference(
+    profile: &GateProfile,
+    reference_dir: &Path,
+    reference: &ReferenceImageManifest,
+) -> Vec<u8> {
     let path = reference_dir.join(&reference.file);
     let png_bytes = fs::read(&path)
         .unwrap_or_else(|error| panic!("read registered reference {}: {error}", path.display()));
@@ -1050,28 +1626,39 @@ fn load_reference(reference_dir: &Path, reference: &ReferenceImageManifest) -> V
         .next_frame(&mut rgb)
         .unwrap_or_else(|error| panic!("decode registered reference {}: {error}", path.display()));
     rgb.truncate(info.buffer_size());
-    assert_eq!(info.width, REFERENCE_WIDTH);
-    assert_eq!(info.height, REFERENCE_HEIGHT);
+    assert_eq!(info.width, profile.canonical_width);
+    assert_eq!(info.height, profile.canonical_height);
     assert_eq!(info.color_type, png::ColorType::Rgb);
     assert_eq!(info.bit_depth, png::BitDepth::Eight);
-    assert_eq!(rgb.len(), (REFERENCE_WIDTH * REFERENCE_HEIGHT * 3) as usize);
+    assert_eq!(
+        rgb.len(),
+        (profile.canonical_width * profile.canonical_height * 3) as usize
+    );
     assert_eq!(
         sha256_hex(&rgb),
         reference.rgb_sha256,
         "{} decoded RGB does not match the manifest",
         reference.file
     );
-    rgb.into_iter()
-        .map(|channel| {
-            quantize_channel(channel, REFERENCE_CHANNEL_STEP, REFERENCE_MAX_CHANNEL_ERROR)
+    match profile.encoding {
+        PixelEncoding::Rgb4 => rgb
+            .into_iter()
+            .map(|channel| {
+                quantize_channel(
+                    channel,
+                    profile.reference_channel_step,
+                    profile.reference_max_channel_error,
+                )
                 .unwrap_or_else(|| {
                     panic!(
                         "{} contains channel {channel} outside the registered RGB4 encoding",
                         path.display()
                     )
                 })
-        })
-        .collect()
+            })
+            .collect(),
+        PixelEncoding::Rgb8 => rgb,
+    }
 }
 
 fn quantize_channel(channel: u8, step: u8, max_error: u8) -> Option<u8> {
@@ -1091,21 +1678,25 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn write_mismatch_diagnostics(
-    case_id: &str,
-    frame_manifest: &FrameManifest,
-    producer_id: &str,
+    context: DiagnosticContext<'_>,
     reference: &ReferenceImageManifest,
     actual: &[u8],
     expected: &[u8],
     mismatch: &PixelMismatch,
 ) {
-    let dir = diagnostics_dir();
+    let DiagnosticContext {
+        profile,
+        case_id,
+        frame_manifest,
+        producer_id,
+    } = context;
+    let dir = diagnostics_dir(profile);
     fs::create_dir_all(&dir)
         .unwrap_or_else(|error| panic!("create diagnostics {}: {error}", dir.display()));
-    write_rgb_png(&dir.join(format!("{case_id}.actual.png")), actual);
+    write_rgb_png(profile, &dir.join(format!("{case_id}.actual.png")), actual);
 
-    let diff = diff_rgb4(actual, expected);
-    write_rgb_png(&dir.join(format!("{case_id}.diff.png")), &diff);
+    let diff = diff_pixels(profile, actual, expected);
+    write_rgb_png(profile, &dir.join(format!("{case_id}.diff.png")), &diff);
 
     let result = serde_json::json!({
         "schema_version": 1,
@@ -1114,15 +1705,16 @@ fn write_mismatch_diagnostics(
         "status": "pixel-mismatch",
         "producer_id": producer_id,
         "reference": reference_identity(reference),
-        "canonical_width": REFERENCE_WIDTH,
-        "canonical_height": REFERENCE_HEIGHT,
+        "canonical_width": profile.canonical_width,
+        "canonical_height": profile.canonical_height,
+        "pixel_encoding": profile.encoding.label(),
         "differing_pixels": mismatch.differing_pixels,
-        "total_pixels": u64::from(REFERENCE_WIDTH) * u64::from(REFERENCE_HEIGHT),
+        "total_pixels": u64::from(profile.canonical_width) * u64::from(profile.canonical_height),
         "first": {
             "x": mismatch.first_x,
             "y": mismatch.first_y,
-            "expected_rgb4": mismatch.first_expected,
-            "actual_rgb4": mismatch.first_actual
+            "expected_rgb": mismatch.first_expected,
+            "actual_rgb": mismatch.first_actual
         },
         "bounding_box": {
             "min_x": mismatch.min_x,
@@ -1131,10 +1723,11 @@ fn write_mismatch_diagnostics(
             "max_y": mismatch.max_y
         }
     });
-    write_result_json(case_id, &result);
+    write_result_json(profile, case_id, &result);
 }
 
 fn write_temporal_diagnostics(
+    profile: &GateProfile,
     case_id: &str,
     frame_manifest: &FrameManifest,
     producer_id: &str,
@@ -1142,16 +1735,17 @@ fn write_temporal_diagnostics(
     second: &[u8],
     status: &str,
 ) {
-    let dir = diagnostics_dir();
+    let dir = diagnostics_dir(profile);
     fs::create_dir_all(&dir)
         .unwrap_or_else(|error| panic!("create diagnostics {}: {error}", dir.display()));
-    write_rgb_png(&dir.join(format!("{case_id}.field-a.png")), first);
-    write_rgb_png(&dir.join(format!("{case_id}.field-b.png")), second);
+    write_rgb_png(profile, &dir.join(format!("{case_id}.field-a.png")), first);
+    write_rgb_png(profile, &dir.join(format!("{case_id}.field-b.png")), second);
     write_rgb_png(
+        profile,
         &dir.join(format!("{case_id}.field-diff.png")),
-        &diff_rgb4(first, second),
+        &diff_pixels(profile, first, second),
     );
-    let mismatch = pixel_mismatch(first, second);
+    let mismatch = pixel_mismatch(profile, first, second);
     let mut result = serde_json::json!({
         "schema_version": 1,
         "case": frame_manifest.id,
@@ -1159,19 +1753,21 @@ fn write_temporal_diagnostics(
         "status": status,
         "producer_id": producer_id,
         "references": reference_identities(frame_manifest),
-        "canonical_width": REFERENCE_WIDTH,
-        "canonical_height": REFERENCE_HEIGHT,
+        "canonical_width": profile.canonical_width,
+        "canonical_height": profile.canonical_height,
+        "pixel_encoding": profile.encoding.label(),
         "field_a_equals_field_b": mismatch.is_none()
     });
     if let Some(mismatch) = mismatch {
         result["differing_pixels"] = serde_json::json!(mismatch.differing_pixels);
-        result["total_pixels"] =
-            serde_json::json!(u64::from(REFERENCE_WIDTH) * u64::from(REFERENCE_HEIGHT));
+        result["total_pixels"] = serde_json::json!(
+            u64::from(profile.canonical_width) * u64::from(profile.canonical_height)
+        );
         result["first"] = serde_json::json!({
             "x": mismatch.first_x,
             "y": mismatch.first_y,
-            "field_b_rgb4": mismatch.first_expected,
-            "field_a_rgb4": mismatch.first_actual
+            "field_b_rgb": mismatch.first_expected,
+            "field_a_rgb": mismatch.first_actual
         });
         result["bounding_box"] = serde_json::json!({
             "min_x": mismatch.min_x,
@@ -1180,36 +1776,59 @@ fn write_temporal_diagnostics(
             "max_y": mismatch.max_y
         });
     }
-    write_result_json(case_id, &result);
+    write_result_json(profile, case_id, &result);
 }
 
 fn write_alternating_diagnostics(
-    case_id: &str,
-    frame_manifest: &FrameManifest,
-    producer_id: &str,
+    context: DiagnosticContext<'_>,
     phase_a: &[u8],
     phase_b: &[u8],
     phase_a2: &[u8],
     phase_b2: &[u8],
 ) {
-    let dir = diagnostics_dir();
+    let DiagnosticContext {
+        profile,
+        case_id,
+        frame_manifest,
+        producer_id,
+    } = context;
+    let dir = diagnostics_dir(profile);
     fs::create_dir_all(&dir)
         .unwrap_or_else(|error| panic!("create diagnostics {}: {error}", dir.display()));
-    write_rgb_png(&dir.join(format!("{case_id}.phase-a.png")), phase_a);
-    write_rgb_png(&dir.join(format!("{case_id}.phase-b.png")), phase_b);
-    write_rgb_png(&dir.join(format!("{case_id}.phase-a2.png")), phase_a2);
-    write_rgb_png(&dir.join(format!("{case_id}.phase-b2.png")), phase_b2);
     write_rgb_png(
+        profile,
+        &dir.join(format!("{case_id}.phase-a.png")),
+        phase_a,
+    );
+    write_rgb_png(
+        profile,
+        &dir.join(format!("{case_id}.phase-b.png")),
+        phase_b,
+    );
+    write_rgb_png(
+        profile,
+        &dir.join(format!("{case_id}.phase-a2.png")),
+        phase_a2,
+    );
+    write_rgb_png(
+        profile,
+        &dir.join(format!("{case_id}.phase-b2.png")),
+        phase_b2,
+    );
+    write_rgb_png(
+        profile,
         &dir.join(format!("{case_id}.phase-a-vs-b.diff.png")),
-        &diff_rgb4(phase_a, phase_b),
+        &diff_pixels(profile, phase_a, phase_b),
     );
     write_rgb_png(
+        profile,
         &dir.join(format!("{case_id}.phase-a-vs-a2.diff.png")),
-        &diff_rgb4(phase_a, phase_a2),
+        &diff_pixels(profile, phase_a, phase_a2),
     );
     write_rgb_png(
+        profile,
         &dir.join(format!("{case_id}.phase-b-vs-b2.diff.png")),
-        &diff_rgb4(phase_b, phase_b2),
+        &diff_pixels(profile, phase_b, phase_b2),
     );
 
     let result = serde_json::json!({
@@ -1219,39 +1838,40 @@ fn write_alternating_diagnostics(
         "status": "alternation-invariant-failed",
         "producer_id": producer_id,
         "references": reference_identities(frame_manifest),
-        "canonical_width": REFERENCE_WIDTH,
-        "canonical_height": REFERENCE_HEIGHT,
+        "canonical_width": profile.canonical_width,
+        "canonical_height": profile.canonical_height,
+        "pixel_encoding": profile.encoding.label(),
         "invariants": {
             "phase_a_differs_from_phase_b": phase_a != phase_b,
             "phase_a_repeats_after_two_fields": phase_a == phase_a2,
             "phase_b_repeats_after_two_fields": phase_b == phase_b2
         },
         "comparisons": {
-            "phase_a_vs_phase_b": frame_comparison(phase_a, phase_b),
-            "phase_a_vs_phase_a2": frame_comparison(phase_a, phase_a2),
-            "phase_b_vs_phase_b2": frame_comparison(phase_b, phase_b2)
+            "phase_a_vs_phase_b": frame_comparison(profile, phase_a, phase_b),
+            "phase_a_vs_phase_a2": frame_comparison(profile, phase_a, phase_a2),
+            "phase_b_vs_phase_b2": frame_comparison(profile, phase_b, phase_b2)
         }
     });
-    write_result_json(case_id, &result);
+    write_result_json(profile, case_id, &result);
 }
 
-fn frame_comparison(left: &[u8], right: &[u8]) -> serde_json::Value {
-    let Some(mismatch) = pixel_mismatch(left, right) else {
+fn frame_comparison(profile: &GateProfile, left: &[u8], right: &[u8]) -> serde_json::Value {
+    let Some(mismatch) = pixel_mismatch(profile, left, right) else {
         return serde_json::json!({
             "equal": true,
             "differing_pixels": 0,
-            "total_pixels": u64::from(REFERENCE_WIDTH) * u64::from(REFERENCE_HEIGHT)
+            "total_pixels": u64::from(profile.canonical_width) * u64::from(profile.canonical_height)
         });
     };
     serde_json::json!({
         "equal": false,
         "differing_pixels": mismatch.differing_pixels,
-        "total_pixels": u64::from(REFERENCE_WIDTH) * u64::from(REFERENCE_HEIGHT),
+        "total_pixels": u64::from(profile.canonical_width) * u64::from(profile.canonical_height),
         "first": {
             "x": mismatch.first_x,
             "y": mismatch.first_y,
-            "left_rgb4": mismatch.first_actual,
-            "right_rgb4": mismatch.first_expected
+            "left_rgb": mismatch.first_actual,
+            "right_rgb": mismatch.first_expected
         },
         "bounding_box": {
             "min_x": mismatch.min_x,
@@ -1262,13 +1882,13 @@ fn frame_comparison(left: &[u8], right: &[u8]) -> serde_json::Value {
     })
 }
 
-fn diff_rgb4(actual: &[u8], expected: &[u8]) -> Vec<u8> {
+fn diff_pixels(profile: &GateProfile, actual: &[u8], expected: &[u8]) -> Vec<u8> {
     let mut diff = Vec::with_capacity(actual.len());
     for (actual_pixel, expected_pixel) in actual.chunks_exact(3).zip(expected.chunks_exact(3)) {
         if actual_pixel == expected_pixel {
             diff.extend_from_slice(&[0, 0, 0]);
         } else {
-            diff.extend_from_slice(&[0x0F, 0, 0]);
+            diff.extend_from_slice(&[profile.encoding.diagnostic_red(), 0, 0]);
         }
     }
     diff
@@ -1291,29 +1911,34 @@ fn reference_identity(reference: &ReferenceImageManifest) -> serde_json::Value {
     })
 }
 
-fn write_result_json(case_id: &str, result: &serde_json::Value) {
-    let path = diagnostics_dir().join(format!("{case_id}.result.json"));
+fn write_result_json(profile: &GateProfile, case_id: &str, result: &serde_json::Value) {
+    let path = diagnostics_dir(profile).join(format!("{case_id}.result.json"));
     let bytes = serde_json::to_vec_pretty(result).expect("encode diagnostic result JSON");
     fs::write(&path, bytes)
         .unwrap_or_else(|error| panic!("write diagnostic result {}: {error}", path.display()));
 }
 
-fn write_rgb_png(path: &Path, rgb4: &[u8]) {
+fn write_rgb_png(profile: &GateProfile, path: &Path, channels: &[u8]) {
     assert_eq!(
-        rgb4.len(),
-        (REFERENCE_WIDTH * REFERENCE_HEIGHT * 3) as usize
+        channels.len(),
+        (profile.canonical_width * profile.canonical_height * 3) as usize
     );
-    assert!(
-        rgb4.iter().all(|&channel| channel <= 0x0F),
-        "diagnostic input must contain RGB4 channels"
-    );
-    let rgb8: Vec<u8> = rgb4
-        .iter()
-        .map(|&channel| channel * RUNTIME_CHANNEL_STEP)
-        .collect();
+    let rgb8 = match profile.encoding {
+        PixelEncoding::Rgb4 => {
+            assert!(
+                channels.iter().all(|&channel| channel <= 0x0F),
+                "diagnostic input must contain RGB4 channels"
+            );
+            channels
+                .iter()
+                .map(|&channel| channel * profile.runtime_channel_step)
+                .collect::<Vec<_>>()
+        }
+        PixelEncoding::Rgb8 => channels.to_vec(),
+    };
     let file = fs::File::create(path)
         .unwrap_or_else(|error| panic!("create diagnostic PNG {}: {error}", path.display()));
-    let mut encoder = png::Encoder::new(file, REFERENCE_WIDTH, REFERENCE_HEIGHT);
+    let mut encoder = png::Encoder::new(file, profile.canonical_width, profile.canonical_height);
     encoder.set_color(png::ColorType::Rgb);
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder

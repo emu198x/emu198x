@@ -123,8 +123,9 @@ applies that boundary to the current Emu198x capture.
 
 This satisfies the Paula portion of closure-campaign step 3 at the
 single-family software-evidence level. It is not hardware evidence or a
-two-family software consensus. The combined step remains open for independent
-A1200/AGA visual evidence.
+two-family software consensus. The separate A1200 AGA Test Kit lane now also
+passes its registered FS-UAE reference exactly, so the combined campaign step
+is complete at the same explicitly limited software-evidence level.
 
 ## Regressions found by the corpus
 

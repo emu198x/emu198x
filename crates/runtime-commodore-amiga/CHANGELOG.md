@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   residue without copying RAM or ROM payload bytes
 - Expose Lisa's complete 256-entry palette through both the canonical Denise
   group and the AGA compatibility group
+- Expose Lisa's complete 256-entry transparency/genlock table through both the
+  canonical Denise group and the AGA compatibility group
+- Expose Lisa's pending one-hires-pixel `COLORxx` output delay through the
+  canonical Denise and AGA diagnostic groups
 - Expose all six Gary motherboard address-decoder configuration flags through
   discoverable grouped and leaf queries
 - Expose every implemented CIA register, timer, serial, port, TOD and read-latch
@@ -45,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multiplexed active-low READY pin in disk diagnostics
 - Add an explicit Amiga Test Kit v1.21 video-conformance lane for A500+A501
   OCS PAL reference-pattern capture and independently sourced comparison
+- Add a separate strict Amiga Test Kit v1.21 A1200 AGA PAL lane with a
+  checksum-pinned FS-UAE reference package and exact RGB8 comparison
 - Add an explicit, checksum-pinned Amiga Test Kit v1.12 gate covering stock
   A500 and GVP A530 guest identification, visible menu/input progress, and
   deterministic A530 snapshot replay
@@ -63,6 +69,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Bump Amiga postcard snapshots to version 31 so a pending AGA
+  Lisa `COLORxx` output delay and per-entry transparency/genlock state survive
+  restore; version 30 is rejected because its positional payload cannot
+  preserve them
+- [breaking] Bump Amiga postcard snapshots to version 30 so Paula's
+  three-word disk-DMA FIFO and read/write direction survive restore; version
+  29 is rejected because its positional payload cannot preserve them
 - Report live OCS vertical-DIW, line-length and Copper-comparator values through
   the existing Agnus leaves instead of returning null outside ECS/AGA sessions
 - [breaking] Bump Amiga postcard snapshots to version 29 so keyboard bytes
@@ -172,6 +185,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Advance Denise's bitplane, sprite, HAM and colour-output pipelines across the
+  complete projected raster while clipping only host-framebuffer storage, so
+  early DDF fetches cannot be overwritten before the retained viewport begins
+- Delay AGA Lisa `COLORxx` changes at pixel output by one hires sample while
+  updating register and diagnostic mirrors immediately
+- Resolve AGA EHB and HAM6 through Lisa's 24-bit palette and hold state, keep
+  `BPLCON3.LOCT` distinct from AGA `BPLCON2.KILLEHB`, support banked RDRAM
+  colour readback including the transparency bit, and ignore colour writes
+  protected by `BPLCON2.RDRAM`
+- Preserve the hidden playfield stream when a sprite wins priority, so HAM
+  state advances before the sprite selects its direct palette colour
+- Read ECS `KILLEHB` from `BPLCON2`; `BPLCON3` bit 9 is not an
+  extension-gated control
 - Keep debugger memory reads and disassembly from altering floating-bus state
 - Report Lisa's actual outer 24-bit palette and HAM8 hold state instead of the
   wrapped OCS core's unused mirrors

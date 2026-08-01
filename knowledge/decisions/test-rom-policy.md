@@ -197,7 +197,8 @@ to redistribute, but the complete gates also need a proprietary Kickstart
 image. Keeping both kinds of input external gives each lane one delivery
 contract without placing firmware in the repository. The exact normalised
 inputs remain pinned by `test-data/amiga-test-kit-v1.12.sha256` and
-`test-data/amiga-test-kit-v1.21.sha256`.
+`test-data/amiga-test-kit-v1.21.sha256`, with the A1200 profile pinned
+separately by `test-data/amiga-test-kit-v1.21-a1200-aga-pal.sha256`.
 
 ### Why we never bundle commercial ROMs
 
@@ -255,6 +256,14 @@ When a new test ROM corpus is added:
   document it as a special case and revisit.
 
 ## Log
+
+### 2026-08-01 — A1200 Test Kit video profile registered
+
+The A1200 AGA PAL profile reuses the external Test Kit v1.21 ADF and requires
+an external proprietary Kickstart 3.1 A1200 image. Its profile-specific
+checksum manifest, FS-UAE reference manifest, and PNG checksums are independent
+of the earlier A500 delivery record. No firmware or ADF payload was added to
+the repository.
 
 ### 2026-07-28 — Amiga Test Kit v1.21 video gate registered
 

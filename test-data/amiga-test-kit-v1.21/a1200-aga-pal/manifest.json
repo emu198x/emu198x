@@ -285,7 +285,7 @@
     "png_encoding": "RGB8 filter-none zlib-level-9",
     "python_version": "3.14.3",
     "tool": "package.py",
-    "tool_sha256": "8c295d16bf69a3235eb6948234464bbfb59a557a1eceaec490338f708a8458d1",
+    "tool_sha256": "3aad61692879397c2a613a44c5fa6df279fee8163480c6150047ae25ab43629c",
     "zlib_version": "1.2.12"
   },
   "producer": {
@@ -320,8 +320,8 @@
     "producer_y": 0,
     "runtime_height": 576,
     "runtime_width": 768,
-    "runtime_x": 10,
-    "runtime_y": 4,
+    "runtime_x": 8,
+    "runtime_y": 2,
     "vertical_decimation": 2,
     "width": 752
   }

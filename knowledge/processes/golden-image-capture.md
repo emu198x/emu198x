@@ -22,8 +22,8 @@ The matrix selects the machine model, firmware, optional disk image, boot flow,
 and settle-frame count for each row.
 
 Firmware and media remain external. A row whose required local asset is absent
-reports a skip during an ordinary test run. The explicit Test Kit video gate has
-different failure semantics and is documented separately.
+reports a skip during an ordinary test run. The profile-specific Test Kit video
+gates have different failure semantics and are documented separately.
 
 ## Comparison geometry
 
@@ -39,6 +39,11 @@ captures:
 
 Reference PNGs must therefore decode to exactly 752 × 572 pixels. A dimension
 mismatch fails rather than being scaled or cropped implicitly.
+
+This mutable boot-golden geometry is not the A1200 Test Kit reference format.
+That strict gate validates doubled row pairs and retains one row from each,
+producing an immutable 752 × 286 comparison image from its registered FS-UAE
+capture. Its references cannot be updated through the boot-golden mechanism.
 
 ## External FS-UAE capture
 
