@@ -136,10 +136,10 @@ const MATRIX: &[GoldenRow] = &[
         kickstart: "kick13.rom",
         boot: BootFlow::Direct {
             disk: Some(DiskAsset::HomeMedia("workbench-1.3.adf")),
-            // Workbench 1.3 now reaches the desktop reliably, but later
-            // than the insert-disk screen. 2500 frames is the current
-            // empirical settle point for the desktop capture.
-            settle_frames: 2500,
+            // The corrected 112-CCK normal MFM stream reaches this reviewed
+            // desktop after frame 3000. Frame 3500 retains a measured margin
+            // and remains pixel-exact with the existing regression baseline.
+            settle_frames: 3500,
         },
     },
     GoldenRow {

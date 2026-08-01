@@ -69,6 +69,12 @@ rows carry their own settle counts in the matrix and must be captured at the
 matching guest waypoint. A visually similar screen reached at an unspecified
 time is not an interchangeable reference.
 
+An evidence-backed timing correction can move the frame at which a stable
+guest waypoint is reached. In that case, retain the existing golden when the
+later capture is pixel-exact, record the timing cause, and move only the row's
+settle count. A changed frame number alone does not justify replacing the
+image.
+
 ## Validating a golden
 
 Run the matrix from the repository root:

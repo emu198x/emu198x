@@ -212,15 +212,15 @@ fn kickstart_13_reaches_insert_disk_screen() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Waypoint: Kickstart 1.3 + Workbench 1.3 ADF reaches a steady
-/// post-boot screen. Promoted from the long-running diag harnesses.
+/// Early waypoint: Kickstart 1.3 accepts the Workbench 1.3 ADF and
+/// produces active display output. The boot-golden matrix owns the later,
+/// pixel-exact desktop assertion.
 ///
-/// Catches regression: disk DMA + MFM decode + autoconfig + trackdisk
-/// path together; this is the single most expensive regression to
-/// reproduce by hand.
+/// This catches early boot-path failures. `boot.detected` does not identify
+/// the Workbench desktop and must not be used as evidence that boot completed.
 #[test]
 #[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick13.rom and ~/.emu198x/media/commodore-amiga/workbench-1.3.adf"]
-fn workbench_13_reaches_desktop() -> Result<(), Box<dyn Error>> {
+fn workbench_13_media_reaches_active_display() -> Result<(), Box<dyn Error>> {
     use emu198x_shell::{MediaImage, MediaKind, MediaSet};
 
     let Some(rom_dir) = home_rom_dir() else {
@@ -247,8 +247,8 @@ fn workbench_13_reaches_desktop() -> Result<(), Box<dyn Error>> {
     runtime.load_media(&media)?;
 
     let mut host = null_host();
-    // Workbench boot is long; 25M ticks (~3 seconds at 7.16 MHz) is
-    // a generous bound that historically reaches the desktop.
+    // This is an early display waypoint, approximately 3.5 emulated seconds.
+    // Complete Workbench boot now settles at frame 3500 in golden_matrix.
     runtime.run_until(MachineTime::new(25_000_000), &mut host)?;
 
     let provider = runtime_commodore_amiga::AmigaSessionQueryProvider;
@@ -259,7 +259,7 @@ fn workbench_13_reaches_desktop() -> Result<(), Box<dyn Error>> {
     assert_eq!(
         result.value,
         serde_json::Value::Bool(true),
-        "Workbench 1.3 should reach desktop within 25M ticks"
+        "Workbench 1.3 media boot should produce active display output within 25M ticks"
     );
     Ok(())
 }
