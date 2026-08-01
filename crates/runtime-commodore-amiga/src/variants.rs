@@ -1760,15 +1760,15 @@ pub type AmigaA1200Runtime = AmigaRuntime<AmigaA1200>;
 // Storing a concrete `AmigaOcsRuntime` field in the binary forces
 // every model through OCS chips even when the Model is ECS-flavoured
 // (e.g. `A500PlusEcsPal`). `AmigaRuntimeKind` is the dispatcher: it
-// wraps either runtime type and forwards the `MachineCore` surface
-// to the inner case based on `Model::is_ecs()`.
+// wraps the active chipset-tier runtime and forwards the `MachineCore`
+// surface to the inner case selected by the model.
 // ===================================================================
 
 /// Runtime-time dispatch over the available Amiga machine kinds.
 /// Constructed via `AmigaRuntimeKind::new(model, firmware)` (or
-/// `from_firmware` / `blank`); the inner case is picked by
-/// `Model::is_ecs()`. Implements `MachineCore` so callers can drive
-/// it like any other runtime.
+/// `from_firmware` / `blank`); the inner case matches the model's OCS,
+/// ECS or AGA tier. Implements `MachineCore` so callers can drive it like
+/// any other runtime.
 // One instance per session, held for its lifetime; boxing the larger
 // variant would only add heap indirection to the hot per-tick
 // `MachineCore` forwarding path.
@@ -1799,8 +1799,8 @@ pub enum AmigaRuntimeKind {
 }
 
 impl AmigaRuntimeKind {
-    /// Construct using the model's preset RAM layout. Picks OCS or
-    /// ECS based on `Model::is_ecs()`.
+    /// Construct using the model's preset RAM layout. Picks the OCS, ECS or
+    /// AGA runtime tier from the model.
     ///
     /// # Errors
     /// Returns the underlying `MachineError` from the dispatched

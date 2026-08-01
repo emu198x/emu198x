@@ -14,7 +14,8 @@ use std::env;
 use std::path::PathBuf;
 
 use emu198x_catalogue::{
-    EntryOutcome, SnapshotOutcome, load_manifest, run_entry, run_spectrum_entry_with_snapshot_check,
+    EntryOutcome, SnapshotOutcome, load_manifest, run_amiga_entry_with_snapshot_check, run_entry,
+    run_spectrum_entry_with_snapshot_check,
 };
 
 fn manifest_dir() -> PathBuf {
@@ -66,19 +67,31 @@ fn catalogue_passes_every_entry() {
             manifest.entry.len()
         );
         for entry in &manifest.entry {
-            let run_result = if manifest.system.id == "spectrum" {
-                let (result, snapshot) = run_spectrum_entry_with_snapshot_check(
-                    &manifest,
-                    entry,
-                    &media_root,
-                    &firmware_root,
-                )
-                .unwrap_or_else(|err| panic!("{} runner failed: {err}", entry.id));
-                report_snapshot_outcome(entry, &snapshot.outcome, &mut failures);
-                result
-            } else {
-                run_entry(&manifest, entry, &media_root, &firmware_root)
-                    .unwrap_or_else(|err| panic!("{} runner failed: {err}", entry.id))
+            let run_result = match manifest.system.id.as_str() {
+                "spectrum" => {
+                    let (result, snapshot) = run_spectrum_entry_with_snapshot_check(
+                        &manifest,
+                        entry,
+                        &media_root,
+                        &firmware_root,
+                    )
+                    .unwrap_or_else(|err| panic!("{} runner failed: {err}", entry.id));
+                    report_snapshot_outcome(entry, &snapshot.outcome, &mut failures);
+                    result
+                }
+                "amiga" => {
+                    let (result, snapshot) = run_amiga_entry_with_snapshot_check(
+                        &manifest,
+                        entry,
+                        &media_root,
+                        &firmware_root,
+                    )
+                    .unwrap_or_else(|err| panic!("{} runner failed: {err}", entry.id));
+                    report_snapshot_outcome(entry, &snapshot.outcome, &mut failures);
+                    result
+                }
+                _ => run_entry(&manifest, entry, &media_root, &firmware_root)
+                    .unwrap_or_else(|err| panic!("{} runner failed: {err}", entry.id)),
             };
             match run_result.outcome {
                 EntryOutcome::Pass => {

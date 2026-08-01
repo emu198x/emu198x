@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Route A600 ECS and A1200 AGA entries through the Amiga catalogue runner,
+  using each runtime profile's native frame timing for capture and audio
+  windows.
+- Run every Amiga catalogue entry through the shared save-state fixed-point,
+  frame-replay and audio-replay gate.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/emu198x-catalogue-v0.2.0) - 2026-06-04
 
 ### Other

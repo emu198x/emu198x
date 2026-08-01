@@ -5,8 +5,9 @@
 //! asserts a boot frame hash, optional scripted-input progression, and an
 //! audio-window hash.
 //!
-//! Currently wired: Spectrum 48K + 128K. Schema and runner extend as the
-//! +3, Pentagon, Timex, C64, NES, and Amiga runtimes are wired in.
+//! The runner dispatches all four system families and the supported variants
+//! named by their manifests. A manifest remains incomplete until all of its
+//! intended catalogue entries carry verified frame and audio assertions.
 
 use std::hash::Hasher;
 use std::path::{Path, PathBuf};
@@ -24,10 +25,7 @@ use machine_sinclair_zx_spectrum_plus2::SpectrumPlus2;
 use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
 use machine_sinclair_zx_spectrum_plus2b::SpectrumPlus2B;
 use machine_sinclair_zx_spectrum_plus3::SpectrumPlus3;
-use runtime_commodore_amiga::{
-    A500_NTSC_FRAME_TICKS, A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider,
-    Model as AmigaModel,
-};
+use runtime_commodore_amiga::{AmigaRuntimeKind, AmigaSessionQueryProvider, Model as AmigaModel};
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_1581_AUTOLOAD_SLOT,
     DriveKind as C64DriveKind, Model as C64Model, autoload_basic_disk, autoload_basic_disk_1581,
@@ -64,12 +62,6 @@ const DEFAULT_C64_BOOT_FRAMES: u32 = 240;
 /// Frame budget for the C64 disk autoload to see the "SEARCHING FOR"
 /// prompt after issuing LOAD.
 const DEFAULT_C64_DISK_PROMPT_FRAMES: u32 = 600;
-
-/// Amiga PAL frames per second (50.08 Hz at 28.375 MHz master / 8 / 70908 CCKs).
-const AMIGA_PAL_FRAMES_PER_SEC: f64 = 50.0;
-
-/// Amiga NTSC frames per second (~59.94 Hz).
-const AMIGA_NTSC_FRAMES_PER_SEC: f64 = 59.94;
 
 /// Top-level manifest shape (one TOML file per system).
 #[derive(Debug, Deserialize)]
@@ -245,11 +237,11 @@ pub struct RunResult {
 
 /// Outcome of one entry's snapshot fidelity check.
 ///
-/// Returned alongside the per-entry [`RunResult`] by
-/// [`run_spectrum_entry_with_snapshot_check`]. `Pass` means the entry
-/// snapshotted at the boot waypoint, restored into a fresh-from-firmware
-/// runtime, and reproduced both the gap-end frame and the audio window
-/// byte-identically; the re-encoded snapshot also matched the original.
+/// Returned alongside the per-entry [`RunResult`] by the Spectrum and Amiga
+/// snapshot-check wrappers. `Pass` means the entry snapshotted at the boot
+/// waypoint, restored into a fresh-from-firmware runtime, and reproduced both
+/// the gap-end frame and the audio window byte-identically; the re-encoded
+/// snapshot also matched the original.
 #[derive(Debug)]
 pub enum SnapshotOutcome {
     Pass,
@@ -371,8 +363,8 @@ pub fn hash_xxh64(bytes: &[u8]) -> String {
 /// the check (legacy behaviour). Mismatch returns a loud error with
 /// re-capture instructions baked into the error message.
 ///
-/// Called at the top of `run_entry` and `run_spectrum_entry_with_snapshot_check`
-/// so every catalogue run path enforces the same discipline.
+/// Called at the top of `run_entry` and both snapshot-check wrappers so every
+/// catalogue run path enforces the same discipline.
 fn verify_routing_versions(manifest: &Manifest) -> Result<(), CatalogueError> {
     match manifest.system.id.as_str() {
         "spectrum" => {
@@ -549,6 +541,80 @@ pub fn run_spectrum_entry_with_snapshot_check(
     }
 }
 
+/// Runs one Amiga catalogue entry and proves its save state is lossless.
+///
+/// The entry follows the ordinary Amiga catalogue path through its native OCS,
+/// ECS or AGA runtime. At the boot waypoint, the wrapper snapshots the complete
+/// runtime, restores it into a fresh runtime built from the same firmware and
+/// profile, then compares re-encoded bytes, the post-waypoint frame and the
+/// audio window.
+///
+/// # Errors
+///
+/// Returns `UnsupportedSystem` when the manifest is not Amiga,
+/// `UnsupportedVariant` when the profile is not wired, firmware errors for an
+/// incomplete manifest, and `Session` for runtime or media failures.
+pub fn run_amiga_entry_with_snapshot_check(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<(RunResult, SnapshotCheckResult), CatalogueError> {
+    if manifest.system.id != "amiga" {
+        return Err(CatalogueError::UnsupportedSystem(
+            manifest.system.id.clone(),
+        ));
+    }
+    verify_routing_versions(manifest)?;
+
+    let model = amiga_model_from_variant(&entry.variant)
+        .ok_or_else(|| CatalogueError::UnsupportedVariant(entry.variant.clone()))?;
+    let files = lookup_firmware(manifest, &entry.variant)?;
+    if files.len() != 1 {
+        return Err(CatalogueError::FirmwareCountMismatch {
+            variant: entry.variant.clone(),
+            expected: 1,
+            actual: files.len(),
+        });
+    }
+    let firmware_bytes = read_firmware_bytes(firmware_root, &files[0])?;
+
+    let mut firmware_set = FirmwareSet::new();
+    firmware_set.push(FirmwareImage::new(files[0].id.clone(), &firmware_bytes));
+
+    let original_runtime = AmigaRuntimeKind::from_firmware(model, &firmware_set)
+        .map_err(|err| CatalogueError::Session(format!("Amiga runtime: {err}")))?;
+    let native_frame_ticks = original_runtime.native_frame_ticks();
+    let frames_per_sec = amiga_frames_per_second(&original_runtime, native_frame_ticks);
+    let mut original = HeadlessSession::new_with_query_provider(
+        original_runtime,
+        native_frame_ticks,
+        AmigaSessionQueryProvider,
+    );
+
+    if let Some(media) = entry.media.as_ref() {
+        let _ = load_media_spec(&mut original, media, media_root)?;
+    } else {
+        prepare_session_no_media(&mut original)?;
+    }
+
+    let fresh_runtime = AmigaRuntimeKind::from_firmware(model, &firmware_set)
+        .map_err(|err| CatalogueError::Session(format!("Amiga fresh runtime: {err}")))?;
+    let fresh_frame_ticks = fresh_runtime.native_frame_ticks();
+    if fresh_frame_ticks != native_frame_ticks {
+        return Err(CatalogueError::Session(format!(
+            "Amiga fresh runtime frame timing changed from {native_frame_ticks} to {fresh_frame_ticks}"
+        )));
+    }
+    let mut restored = HeadlessSession::new_with_query_provider(
+        fresh_runtime,
+        fresh_frame_ticks,
+        AmigaSessionQueryProvider,
+    );
+
+    finalize_snapshot_check(&mut original, &mut restored, entry, frames_per_sec)
+}
+
 fn amiga_model_from_variant(variant: &str) -> Option<AmigaModel> {
     match variant {
         "a500-ocs-pal" => Some(AmigaModel::A500OcsPal),
@@ -557,17 +623,17 @@ fn amiga_model_from_variant(variant: &str) -> Option<AmigaModel> {
         "a500-ocs-ntsc-a501" => Some(AmigaModel::A500OcsNtscA501),
         "a500-plus-ecs-pal" => Some(AmigaModel::A500PlusEcsPal),
         "a500-plus-ecs-ntsc" => Some(AmigaModel::A500PlusEcsNtsc),
+        "a600-ecs-pal" => Some(AmigaModel::A600EcsPal),
+        "a600-ecs-ntsc" => Some(AmigaModel::A600EcsNtsc),
+        "a1200-aga-pal" => Some(AmigaModel::A1200AgaPal),
+        "a1200-aga-ntsc" => Some(AmigaModel::A1200AgaNtsc),
         _ => None,
     }
 }
 
-fn amiga_frame_ticks(model: AmigaModel) -> u64 {
-    match model {
-        AmigaModel::A500OcsNtsc | AmigaModel::A500OcsNtscA501 | AmigaModel::A500PlusEcsNtsc => {
-            A500_NTSC_FRAME_TICKS
-        }
-        _ => A500_PAL_FRAME_TICKS,
-    }
+fn amiga_frames_per_second(runtime: &AmigaRuntimeKind, native_frame_ticks: u64) -> f64 {
+    let clock_rate = runtime.profile().clock.rate;
+    clock_rate.numerator_hz as f64 / clock_rate.denominator_hz as f64 / native_frame_ticks as f64
 }
 
 fn run_amiga_entry(
@@ -594,10 +660,12 @@ fn run_amiga_entry(
 
     let runtime = AmigaRuntimeKind::from_firmware(model, &firmware_set)
         .map_err(|err| CatalogueError::Session(format!("Amiga runtime: {err}")))?;
+    let native_frame_ticks = runtime.native_frame_ticks();
+    let frames_per_sec = amiga_frames_per_second(&runtime, native_frame_ticks);
 
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
-        amiga_frame_ticks(model),
+        native_frame_ticks,
         AmigaSessionQueryProvider,
     );
 
@@ -608,15 +676,6 @@ fn run_amiga_entry(
     } else {
         prepare_session_no_media(&mut session)?;
     }
-
-    let frames_per_sec = if matches!(
-        model,
-        AmigaModel::A500OcsNtsc | AmigaModel::A500OcsNtscA501 | AmigaModel::A500PlusEcsNtsc
-    ) {
-        AMIGA_NTSC_FRAMES_PER_SEC
-    } else {
-        AMIGA_PAL_FRAMES_PER_SEC
-    };
 
     run_assertions(&mut session, entry, frames_per_sec)
 }
@@ -2205,6 +2264,117 @@ mod tests {
         assert!(h.starts_with("xxh64:"), "got: {h}");
         assert_eq!(h.len(), "xxh64:".len() + 16);
         assert_eq!(h, hash_xxh64(b"hello world"));
+    }
+
+    #[test]
+    fn amiga_variant_names_cover_the_supported_catalogue_profiles() {
+        let expected = [
+            ("a500-ocs-pal", AmigaModel::A500OcsPal),
+            ("a500-ocs-ntsc", AmigaModel::A500OcsNtsc),
+            ("a500-ocs-pal-a501", AmigaModel::A500OcsPalA501),
+            ("a500-ocs-ntsc-a501", AmigaModel::A500OcsNtscA501),
+            ("a500-plus-ecs-pal", AmigaModel::A500PlusEcsPal),
+            ("a500-plus-ecs-ntsc", AmigaModel::A500PlusEcsNtsc),
+            ("a600-ecs-pal", AmigaModel::A600EcsPal),
+            ("a600-ecs-ntsc", AmigaModel::A600EcsNtsc),
+            ("a1200-aga-pal", AmigaModel::A1200AgaPal),
+            ("a1200-aga-ntsc", AmigaModel::A1200AgaNtsc),
+        ];
+
+        for (variant, model) in expected {
+            assert_eq!(amiga_model_from_variant(variant), Some(model), "{variant}");
+        }
+        assert_eq!(amiga_model_from_variant("a4000-aga-pal"), None);
+    }
+
+    #[test]
+    fn amiga_catalogue_profiles_dispatch_to_their_native_chipset_tiers() {
+        let ocs = AmigaRuntimeKind::blank(AmigaModel::A500OcsPal);
+        let ecs = AmigaRuntimeKind::blank(AmigaModel::A600EcsPal);
+        let aga = AmigaRuntimeKind::blank(AmigaModel::A1200AgaPal);
+
+        assert!(!ocs.is_ecs());
+        assert!(!ocs.is_aga());
+        assert!(ecs.is_ecs());
+        assert!(!ecs.is_aga());
+        assert!(!aga.is_ecs());
+        assert!(aga.is_aga());
+
+        let pal_ticks = aga.native_frame_ticks();
+        let ntsc_ticks = AmigaRuntimeKind::blank(AmigaModel::A1200AgaNtsc).native_frame_ticks();
+        assert_ne!(pal_ticks, ntsc_ticks);
+    }
+
+    #[test]
+    fn amiga_new_catalogue_profiles_construct_from_firmware() {
+        let firmware_bytes = vec![0; 512 * 1024];
+        let mut firmware = FirmwareSet::new();
+        firmware.push(FirmwareImage::new(
+            "commodore-amiga-kickstart-rom",
+            &firmware_bytes,
+        ));
+
+        for model in [AmigaModel::A600EcsPal, AmigaModel::A600EcsNtsc] {
+            let runtime = AmigaRuntimeKind::from_firmware(model, &firmware)
+                .expect("A600 catalogue firmware path should construct");
+            assert!(runtime.is_ecs(), "{model:?}");
+        }
+        for model in [AmigaModel::A1200AgaPal, AmigaModel::A1200AgaNtsc] {
+            let runtime = AmigaRuntimeKind::from_firmware(model, &firmware)
+                .expect("A1200 catalogue firmware path should construct");
+            assert!(runtime.is_aga(), "{model:?}");
+        }
+    }
+
+    #[test]
+    fn amiga_new_catalogue_profiles_replay_from_the_boot_waypoint() {
+        for (variant, model) in [
+            ("a600-ecs-pal", AmigaModel::A600EcsPal),
+            ("a600-ecs-ntsc", AmigaModel::A600EcsNtsc),
+            ("a1200-aga-pal", AmigaModel::A1200AgaPal),
+            ("a1200-aga-ntsc", AmigaModel::A1200AgaNtsc),
+        ] {
+            let original_runtime = AmigaRuntimeKind::blank(model);
+            let native_frame_ticks = original_runtime.native_frame_ticks();
+            let frames_per_second = amiga_frames_per_second(&original_runtime, native_frame_ticks);
+            let mut original = HeadlessSession::new_with_query_provider(
+                original_runtime,
+                native_frame_ticks,
+                AmigaSessionQueryProvider,
+            );
+            let mut restored = HeadlessSession::new_with_query_provider(
+                AmigaRuntimeKind::blank(model),
+                native_frame_ticks,
+                AmigaSessionQueryProvider,
+            );
+            let entry = Entry {
+                id: format!("{variant}-snapshot"),
+                title: variant.into(),
+                year: 0,
+                publisher: "Emu198x".into(),
+                variant: variant.into(),
+                media: None,
+                boot: Boot {
+                    wait_frames: 2,
+                    frame_hash: "xxh64:0000000000000000".into(),
+                },
+                script: vec![],
+                audio: Audio {
+                    from_frame: 1,
+                    secs: 0.02,
+                    hash: "xxh64:0000000000000000".into(),
+                },
+            };
+
+            let (_, snapshot) =
+                finalize_snapshot_check(&mut original, &mut restored, &entry, frames_per_second)
+                    .expect("hermetic Amiga snapshot check should run");
+            assert!(
+                matches!(snapshot.outcome, SnapshotOutcome::Pass),
+                "{variant}: {:?}",
+                snapshot.outcome
+            );
+        }
     }
 
     #[test]

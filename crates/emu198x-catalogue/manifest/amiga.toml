@@ -1,8 +1,10 @@
 # Amiga catalogue. See knowledge/decisions/october-catalogue.md.
 #
-# Coverage target: 10 entries spanning OCS A500 + ECS A500+, KS 1.3
-# + KS 2.04, AmigaDOS-friendly + boot-block trackloaded games, NTSC
-# validation. AGA / A1200 are post-October per the product roadmap.
+# Coverage target: 10 entries spanning OCS, ECS and AGA profiles,
+# PAL and NTSC timing, Workbench, boot-block trackloaders, Copper /
+# blitter-sensitive display cases and Paula audio. The active accuracy
+# closure campaign defines this engineering gate; it is not a public
+# launch commitment.
 #
 # Media paths resolve against:
 #   EMU198X_CATALOGUE_MEDIA_ROOT     (no default — required)
@@ -24,6 +26,30 @@ files = [
 variant = "a500-plus-ecs-pal"
 files = [
     { id = "commodore-amiga-kickstart-rom", path = "commodore-amiga/kick204.rom" },
+]
+
+[[system.firmware]]
+variant = "a600-ecs-pal"
+files = [
+    { id = "commodore-amiga-kickstart-rom", path = "commodore-amiga/kick205.rom" },
+]
+
+[[system.firmware]]
+variant = "a600-ecs-ntsc"
+files = [
+    { id = "commodore-amiga-kickstart-rom", path = "commodore-amiga/kick205.rom" },
+]
+
+[[system.firmware]]
+variant = "a1200-aga-pal"
+files = [
+    { id = "commodore-amiga-kickstart-rom", path = "commodore-amiga/kick31a1200.rom" },
+]
+
+[[system.firmware]]
+variant = "a1200-aga-ntsc"
+files = [
+    { id = "commodore-amiga-kickstart-rom", path = "commodore-amiga/kick31a1200.rom" },
 ]
 
 [[entry]]
