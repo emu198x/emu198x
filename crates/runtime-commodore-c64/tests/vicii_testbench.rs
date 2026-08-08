@@ -24,9 +24,15 @@ use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_KEY_HOLD_FRAMES, DEFAULT_TYPE_SETTLE_FRAMES,
     Model, type_string,
 };
+use sha2::{Digest, Sha256};
 
-/// `~/.emu198x/test-suites/c64-vicii/`, or `None` if not staged.
+/// The explicitly configured testbench, or the conventional per-user staging
+/// directory when no explicit path is supplied.
 fn testbench_dir() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("EMU198X_C64_VICII_TESTBENCH_DIR") {
+        let path = PathBuf::from(path);
+        return path.exists().then_some(path);
+    }
     let home = std::env::var("HOME").ok()?;
     let path = PathBuf::from(home).join(".emu198x/test-suites/c64-vicii");
     path.exists().then_some(path)
@@ -34,11 +40,17 @@ fn testbench_dir() -> Option<PathBuf> {
 
 /// True when the real C64 ROM set is staged locally.
 fn roms_present() -> bool {
-    std::env::var("HOME")
-        .map(|h| {
-            PathBuf::from(h)
-                .join(".emu198x/roms/commodore-c64/kernal.rom")
-                .exists()
+    let rom_dir = std::env::var("EMU198X_C64_ROM_DIR")
+        .map(PathBuf::from)
+        .or_else(|_| {
+            std::env::var("HOME")
+                .map(|home| PathBuf::from(home).join(".emu198x/roms/commodore-c64"))
+        });
+    rom_dir
+        .map(|path| {
+            ["kernal.rom", "basic.rom", "chargen.rom"]
+                .iter()
+                .all(|name| path.join(name).is_file())
         })
         .unwrap_or(false)
 }
@@ -129,6 +141,7 @@ const VICE_CROP_Y: u32 = 16;
 struct RefImage {
     width: u32,
     height: u32,
+    color_type: &'static str,
     rgb: Vec<u8>,
 }
 
@@ -140,17 +153,20 @@ fn decode_reference_png(path: &PathBuf) -> RefImage {
     let info = reader.next_frame(&mut buf).expect("reference PNG frame");
     buf.truncate(info.buffer_size());
     // Reference PNGs are 8-bit; normalise to RGB (drop alpha if present).
-    let rgb = match info.color_type {
-        png::ColorType::Rgb => buf,
-        png::ColorType::Rgba => buf
-            .chunks_exact(4)
-            .flat_map(|p| [p[0], p[1], p[2]])
-            .collect(),
+    let (color_type, rgb) = match info.color_type {
+        png::ColorType::Rgb => ("rgb8", buf),
+        png::ColorType::Rgba => (
+            "rgba8",
+            buf.chunks_exact(4)
+                .flat_map(|p| [p[0], p[1], p[2]])
+                .collect(),
+        ),
         other => panic!("unexpected reference PNG colour type: {other:?}"),
     };
     RefImage {
         width: info.width,
         height: info.height,
+        color_type,
         rgb,
     }
 }
@@ -175,9 +191,17 @@ fn nearest_c64_index(r: u8, g: u8, b: u8) -> u8 {
 
 /// Fraction of pixels whose C64 colour index matches when the reference is
 /// placed at (`dx`,`dy`) within our framebuffer.
-fn match_fraction(fb: &[u32], reference: &RefImage, dx: u32, dy: u32) -> f64 {
-    let mut matched = 0usize;
+struct IndexedComparison {
+    matched_pixels: usize,
+    actual: Vec<u8>,
+    reference: Vec<u8>,
+}
+
+fn compare_indexed(fb: &[u32], reference: &RefImage, dx: u32, dy: u32) -> IndexedComparison {
+    let mut matched_pixels = 0usize;
     let total = (reference.width * reference.height) as usize;
+    let mut actual_indices = Vec::with_capacity(total);
+    let mut reference_indices = Vec::with_capacity(total);
     for ry in 0..reference.height {
         for rx in 0..reference.width {
             let oi = ((dy + ry) * FB_WIDTH + (dx + rx)) as usize;
@@ -189,12 +213,27 @@ fn match_fraction(fb: &[u32], reference: &RefImage, dx: u32, dy: u32) -> f64 {
                 reference.rgb[ri + 1],
                 reference.rgb[ri + 2],
             );
+            actual_indices.push(ours);
+            reference_indices.push(theirs);
             if ours == theirs {
-                matched += 1;
+                matched_pixels += 1;
             }
         }
     }
-    matched as f64 / total as f64
+    IndexedComparison {
+        matched_pixels,
+        actual: actual_indices,
+        reference: reference_indices,
+    }
+}
+
+fn match_fraction(fb: &[u32], reference: &RefImage, dx: u32, dy: u32) -> f64 {
+    let comparison = compare_indexed(fb, reference, dx, dy);
+    comparison.matched_pixels as f64 / comparison.reference.len() as f64
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 /// Calibration: dump our `gfxfetch` framebuffer and search for the crop offset
@@ -508,29 +547,102 @@ const SURVEY: &[(&str, &str, &str)] = &[
 #[test]
 #[ignore = "survey aid: measures match % across VICII testbench categories"]
 fn survey_testbench_categories() {
+    let result_path = std::env::var("EMU198X_C64_VICII_SURVEY_RESULT")
+        .ok()
+        .map(PathBuf::from);
     if !roms_present() || testbench_dir().is_none() {
+        assert!(
+            result_path.is_none(),
+            "report-mode VIC-II survey requires the configured C64 ROM set and testbench"
+        );
         eprintln!("skip: C64 ROMs or testbench not staged");
         return;
     }
     let dir = testbench_dir().expect("checked");
     let mut rows: Vec<(f64, &str)> = Vec::new();
+    let mut cases = Vec::with_capacity(SURVEY.len());
     for (label, prg, refpng) in SURVEY {
         let refpath = dir.join(refpng);
         if !refpath.exists() {
+            assert!(
+                result_path.is_none(),
+                "report-mode VIC-II survey is missing reference {refpng}"
+            );
             eprintln!("{label:16} MISSING reference");
             continue;
         }
         let reference = decode_reference_png(&refpath);
         let fb = run_testprog(prg, 60);
-        rows.push((
-            match_fraction(&fb, &reference, VICE_CROP_X, VICE_CROP_Y),
-            label,
-        ));
+        let comparison = compare_indexed(&fb, &reference, VICE_CROP_X, VICE_CROP_Y);
+        let total_pixels = comparison.reference.len();
+        let fraction = comparison.matched_pixels as f64 / total_pixels as f64;
+        rows.push((fraction, label));
+        cases.push(serde_json::json!({
+            "id": label,
+            "program": prg,
+            "reference": refpng,
+            "reference_width": reference.width,
+            "reference_height": reference.height,
+            "reference_color_type": reference.color_type,
+            "reference_indexed_sha256": sha256_hex(&comparison.reference),
+            "actual_indexed_sha256": sha256_hex(&comparison.actual),
+            "matched_pixels": comparison.matched_pixels,
+            "total_pixels": total_pixels,
+        }));
     }
     rows.sort_by(|a, b| a.0.total_cmp(&b.0));
     eprintln!("\n=== VICII survey vs VICE 6569 (match %, worst first) ===");
     for (m, label) in &rows {
         eprintln!("{:7.3}%  {label}", m * 100.0);
+    }
+
+    if let Some(result_path) = result_path {
+        let revision = std::env::var("EMU198X_ACCURACY_GIT_REVISION")
+            .expect("report-mode survey requires EMU198X_ACCURACY_GIT_REVISION");
+        let dirty = match std::env::var("EMU198X_ACCURACY_GIT_DIRTY").as_deref() {
+            Ok("true") => true,
+            Ok("false") => false,
+            _ => panic!("report-mode survey requires EMU198X_ACCURACY_GIT_DIRTY=true|false"),
+        };
+        let result = serde_json::json!({
+            "schema": "org.198x.emu198x.c64-vicii-survey-producer.v1",
+            "revision": revision,
+            "dirty": dirty,
+            "runtime_contract": {
+                "model": "c64-pal-breadbin",
+                "vic_model": "6569",
+                "boot_frames": 150,
+                "settle_frames": 60,
+                "program_load": "direct-prg-with-basic-vartab-update",
+                "typed_command": "RUN\n",
+                "framebuffer_width": FB_WIDTH,
+                "framebuffer_height": FB_HEIGHT,
+                "framebuffer": {
+                    "width": FB_WIDTH,
+                    "height": FB_HEIGHT,
+                },
+            },
+            "comparison_contract": {
+                "method": "nearest-c64-palette-index-squared-rgb-v1",
+                "reference_width": 384,
+                "reference_height": 272,
+                "crop_x": VICE_CROP_X,
+                "crop_y": VICE_CROP_Y,
+                "crop": {
+                    "x": VICE_CROP_X,
+                    "y": VICE_CROP_Y,
+                    "width": 384,
+                    "height": 272,
+                },
+                "palette_argb": mos_vic_ii::palette::PALETTE,
+                "assertion_boundary": "digital-colour-index-output-not-analogue-colour",
+            },
+            "cases": cases,
+        });
+        let encoded = serde_json::to_vec_pretty(&result)
+            .expect("VIC-II survey producer result should encode");
+        std::fs::write(&result_path, encoded).expect("VIC-II survey producer result should write");
+        eprintln!("wrote structured VIC-II survey result");
     }
 }
 

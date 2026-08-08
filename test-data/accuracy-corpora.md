@@ -102,6 +102,7 @@ observations and a strict consumer are added.
 | Amiga Test Kit v1.12 | `runtime-commodore-amiga` · `amiga_test_kit` | `EMU198X_AMIGA_TEST_KIT_ADF` | keirf/amiga-stuff tag `testkit-v1.12` | Public domain / Unlicense | Kickstart 1.3 r34.005 through `EMU198X_AMIGA_KICKSTART_13_ROM` |
 | Amiga Test Kit v1.21 A500 video | `runtime-commodore-amiga` · `amiga_test_kit_video` | `EMU198X_AMIGA_TEST_KIT_V121_ADF` | keirf/amiga-stuff tag `testkit-v1.21` | Public domain / Unlicense | Kickstart 1.3 r34.005 through `EMU198X_AMIGA_KICKSTART_13_ROM` |
 | Amiga Test Kit v1.21 A1200 video | `runtime-commodore-amiga` · `amiga_test_kit_video` | `EMU198X_AMIGA_TEST_KIT_V121_ADF` | keirf/amiga-stuff tag `testkit-v1.21` | Public domain / Unlicense | A1200 Kickstart 3.1 r40.068 through `EMU198X_AMIGA_KICKSTART_31_A1200_ROM` |
+| C64 VIC-II PAL 6569 survey | `runtime-commodore-c64` · `vicii_testbench` | `EMU198X_C64_VICII_TESTBENCH_DIR` | VICE VIC-II testbench staging; exact upstream revision unresolved | Unresolved; externally supplied | C64 KERNAL, BASIC and character ROMs through `EMU198X_C64_ROM_DIR` |
 
 The Test Kit ADFs and their profile-specific Kickstart images are pinned by
 [`amiga-test-kit-v1.12.sha256`](amiga-test-kit-v1.12.sha256) and
@@ -110,6 +111,15 @@ The Test Kit ADFs and their profile-specific Kickstart images are pinned by
 for the A1200. An ADF may be delivered raw or in a ZIP; each manifest applies
 to the normalised ADF bytes. The public-domain ADFs remain externally supplied,
 and the proprietary Kickstart ROMs must not be added to the corpus store.
+
+The C64 VIC-II survey consumes one PAL 6569 program and reference image from
+each of 13 testbench categories. Its tracked
+[`assets-v1.json`](commodore/c64/vicii-vice-survey/assets-v1.json) manifest pins
+the 26 external testbench files and three ROMs by byte count and SHA-256 while
+leaving their bytes external. The wrapper compares nearest C64 palette indices,
+records exact integer pixel counts and writes a revision-keyed report. The
+results are diagnostic fractions, not pass rates, and the reference
+images do not share one uniform hardware-provenance claim.
 
 The v1.12 gate is invoked through
 [`scripts/verify-amiga-test-kit.sh`](../scripts/verify-amiga-test-kit.sh). The

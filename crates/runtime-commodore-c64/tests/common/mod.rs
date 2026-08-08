@@ -21,6 +21,18 @@ pub const CHARACTER_ROM_SIZE: usize = 0x1000;
 pub const DOS1541_ROM_SIZE: usize = 0x4000;
 pub const SCREEN_TEXT_HEIGHT: usize = 25;
 
+/// Explicit C64 ROM directory used by external-fixture tests, falling back to
+/// the conventional per-user staging directory.
+pub fn local_rom_dir() -> PathBuf {
+    std::env::var("EMU198X_C64_ROM_DIR")
+        .map(PathBuf::from)
+        .or_else(|_| {
+            std::env::var("HOME")
+                .map(|home| PathBuf::from(home).join(".emu198x/roms/commodore-c64"))
+        })
+        .expect("set EMU198X_C64_ROM_DIR or HOME for local C64 ROM tests")
+}
+
 #[derive(Default)]
 pub struct FrameCollector {
     pub count: usize,
@@ -152,10 +164,7 @@ pub fn make_d64() -> Vec<u8> {
 }
 
 pub fn local_rom_firmware() -> FirmwareSet<'static> {
-    let rom_dir = PathBuf::from(
-        std::env::var("HOME").expect("HOME should be available for local C64 ROM tests"),
-    )
-    .join(".emu198x/roms/commodore-c64");
+    let rom_dir = local_rom_dir();
 
     let kernal = Box::leak(
         fs::read(rom_dir.join("kernal.rom"))
@@ -181,10 +190,7 @@ pub fn local_rom_firmware() -> FirmwareSet<'static> {
 }
 
 pub fn local_rom_firmware_with_drive() -> FirmwareSet<'static> {
-    let rom_dir = PathBuf::from(
-        std::env::var("HOME").expect("HOME should be available for local C64 ROM tests"),
-    )
-    .join(".emu198x/roms/commodore-c64");
+    let rom_dir = local_rom_dir();
     let drive = Box::leak(
         fs::read(rom_dir.join("1541.rom"))
             .expect("local 1541 DOS ROM should exist")
@@ -199,10 +205,7 @@ pub fn local_rom_firmware_with_drive() -> FirmwareSet<'static> {
 /// C64 ROMs plus BOTH drive DOS ROMs, so the 1541 (device 8) and 1581
 /// (device 9) coexist on the bus.
 pub fn local_rom_firmware_with_both_drives() -> FirmwareSet<'static> {
-    let rom_dir = PathBuf::from(
-        std::env::var("HOME").expect("HOME should be available for local C64 ROM tests"),
-    )
-    .join(".emu198x/roms/commodore-c64");
+    let rom_dir = local_rom_dir();
     let drive_1581 = Box::leak(
         fs::read(rom_dir.join("1581.rom"))
             .expect("local 1581 DOS ROM should exist")
@@ -219,10 +222,7 @@ pub fn local_rom_firmware_with_both_drives() -> FirmwareSet<'static> {
 /// on device 8 and the 1581 on device 9; the 1571 ROM is retained for
 /// `set_port_drive`.
 pub fn local_rom_firmware_with_all_drives() -> FirmwareSet<'static> {
-    let rom_dir = PathBuf::from(
-        std::env::var("HOME").expect("HOME should be available for local C64 ROM tests"),
-    )
-    .join(".emu198x/roms/commodore-c64");
+    let rom_dir = local_rom_dir();
     let drive_1571 = Box::leak(
         fs::read(rom_dir.join("1571.rom"))
             .expect("local 1571 DOS ROM should exist")
@@ -237,10 +237,7 @@ pub fn local_rom_firmware_with_all_drives() -> FirmwareSet<'static> {
 /// C64 ROMs plus ONLY the 1581 DOS ROM (no 1541), so the 1581 is the sole
 /// drive on the bus.
 pub fn local_rom_firmware_with_1581_only() -> FirmwareSet<'static> {
-    let rom_dir = PathBuf::from(
-        std::env::var("HOME").expect("HOME should be available for local C64 ROM tests"),
-    )
-    .join(".emu198x/roms/commodore-c64");
+    let rom_dir = local_rom_dir();
     let drive_1581 = Box::leak(
         fs::read(rom_dir.join("1581.rom"))
             .expect("local 1581 DOS ROM should exist")

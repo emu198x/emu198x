@@ -1,0 +1,262 @@
+{
+  "schema": "org.198x.emu198x.c64-vicii-survey-assets.v1",
+  "id": "vice-vicii-pal-6569-breadth-survey-assets-v1",
+  "source": {
+    "suite": "VICE VIC-II testbench",
+    "holding": "locally staged external corpus",
+    "upstream_revision": "unresolved"
+  },
+  "scope": {
+    "model": "6569",
+    "case_ids": [
+      "gfxfetch",
+      "dmadelay",
+      "colorfetchbug",
+      "sequencer-bug",
+      "greydot",
+      "spritecrunch",
+      "spritedma",
+      "spritefetchbug",
+      "sb_sprite_fetch",
+      "vicii_timing",
+      "videomode",
+      "border",
+      "screenpos"
+    ],
+    "asset_count": 29
+  },
+  "assets": [
+    {
+      "id": "program:gfxfetch",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "gfxfetch/gfxfetch.prg",
+      "bytes": 1513,
+      "sha256": "9c42d9f7f985652b9313709e1b8f475af88b1719233bfd2438ff9d25ffaa0006"
+    },
+    {
+      "id": "reference:gfxfetch",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "gfxfetch/references/gfxfetch.prg.png",
+      "bytes": 6210,
+      "sha256": "773140642ee7aba5ca4c7e92867e41cd7a9e03bc588eb7c43d06a64da394b7b4"
+    },
+    {
+      "id": "program:dmadelay",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "dmadelay/test1-2a-03.prg",
+      "bytes": 1556,
+      "sha256": "7f885e843f0fb5ede0201996cf0458ca91ea8e7fd1ae18a74c594b7980606ffd"
+    },
+    {
+      "id": "reference:dmadelay",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "dmadelay/references/test1-2a-03.prg.png",
+      "bytes": 3936,
+      "sha256": "cb705082cf96261828e1bb7dbcaaf2ff6521e4002b245209a6bbdbf131db5cd3"
+    },
+    {
+      "id": "program:colorfetchbug",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "colorfetchbug/bitmap.prg",
+      "bytes": 404,
+      "sha256": "a6bcec547623f2eb60857fead5276485e8eb72638404a1cbeecdf8f71f9437ce"
+    },
+    {
+      "id": "reference:colorfetchbug",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "colorfetchbug/references/bitmap.prg.png",
+      "bytes": 1810,
+      "sha256": "39be1ab3571fbb7e1d9fcb36485830239a1658ce0ff045e392ff8e49b048c5cd"
+    },
+    {
+      "id": "program:sequencer-bug",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "sequencer-bug/bug.prg",
+      "bytes": 555,
+      "sha256": "5cc6ff8127068b44543ce623a7b75727e03a2235315d561dcb778e94617fa219"
+    },
+    {
+      "id": "reference:sequencer-bug",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "sequencer-bug/references/bug.prg.png",
+      "bytes": 972,
+      "sha256": "4faaa374270cefd5c3a61d79568c0c25364ae9384db9ac1cd0c0b25a2bdd0eea"
+    },
+    {
+      "id": "program:greydot",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "greydot/greydot.prg",
+      "bytes": 604,
+      "sha256": "aad598b0797edeeabd8fda80ac0c94cf66ca642d804dc7ada82eaf85c202c284"
+    },
+    {
+      "id": "reference:greydot",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "greydot/references/greydot.prg.png",
+      "bytes": 2233,
+      "sha256": "f66d74e13f72861eb74d8fbf77dc02d739a256563aa1d1606c3a3af597e98832"
+    },
+    {
+      "id": "program:spritecrunch",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "spritecrunch/spritecrunch-3b-00.prg",
+      "bytes": 6209,
+      "sha256": "3108d2b6141fda61fc94a79c176a94e05ec8a0e9d66764fed7f8f4e6ab523432"
+    },
+    {
+      "id": "reference:spritecrunch",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "spritecrunch/references/spritecrunch-3b-00.prg.png",
+      "bytes": 3517,
+      "sha256": "cbd48006b37b3cb23885563981705d9dd57417473f925c7cdb9293fb02a50887"
+    },
+    {
+      "id": "program:spritedma",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "spritedma/d017-54.prg",
+      "bytes": 622,
+      "sha256": "530bbfd4398e6c2953854e2c6c3a9a209b9a3a90a2c4a8f898bfd2923f2847d7"
+    },
+    {
+      "id": "reference:spritedma",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "spritedma/references/d017-54.prg.png",
+      "bytes": 1310,
+      "sha256": "2cbdbc959ac07d7d539555318b60ea55893784898bafd0b13f5e846ee36ed9ae"
+    },
+    {
+      "id": "program:spritefetchbug",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "spritefetchbug/test-136-2a.prg",
+      "bytes": 705,
+      "sha256": "febb9f08689675c0299a0851f446380bb25fe962e0c1f5cf5ba2fc455a9c5b74"
+    },
+    {
+      "id": "reference:spritefetchbug",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "spritefetchbug/references/test-136-2a.prg.png",
+      "bytes": 6880,
+      "sha256": "f62a5a6f3d8e6442c8e0364dc0909072b31e175f961fb2aacaa6bc028bbaae7e"
+    },
+    {
+      "id": "program:sb_sprite_fetch",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "sb_sprite_fetch/sbsprf24-163.prg",
+      "bytes": 2049,
+      "sha256": "ad55e38aad252f0b7d19325835bdac46d30190ce8e078483e9e7e587758e0d08"
+    },
+    {
+      "id": "reference:sb_sprite_fetch",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "sb_sprite_fetch/references/sbsprf24-163.prg.png",
+      "bytes": 1582,
+      "sha256": "542db28d676298a5486142024077578956ec67024bd87c2efeb6a6e6d10f13fe"
+    },
+    {
+      "id": "program:vicii_timing",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "vicii_timing/vicii_reg_timing-a5.prg",
+      "bytes": 11009,
+      "sha256": "b032137bdc8a0346115c956be3f9b08c2fd696952a6e542bae44b7d3e51aadd2"
+    },
+    {
+      "id": "reference:vicii_timing",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "vicii_timing/references/vicii_reg_timing-a5.prg.png",
+      "bytes": 19112,
+      "sha256": "49c047cd9b1a3f07ea5be5479a02b4e9e2cef2a7eb0e9f834c602d793928bb4f"
+    },
+    {
+      "id": "program:videomode",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "videomode/rmwtest.prg",
+      "bytes": 368,
+      "sha256": "bf9201196530d3039e52d8b9b3afb427a1f17c92cc4673c401d6e4542e90ef91"
+    },
+    {
+      "id": "reference:videomode",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "videomode/references/rmwtest.prg.png",
+      "bytes": 5397,
+      "sha256": "1dccca81638f1745808e19d4f4936ba63554d93adaf0b904daaf8833da4d8150"
+    },
+    {
+      "id": "program:border",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "border/border-250.prg",
+      "bytes": 1406,
+      "sha256": "4b3f626fdfaef18814e8a1004dc4fc7b4be47ac07525cbdf992d35ce0bd657d6"
+    },
+    {
+      "id": "reference:border",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "border/references/border-250.prg.png",
+      "bytes": 18542,
+      "sha256": "9993220fb5560b334412934c54aeb84b796ecd3a9d4f6a8968f117ff1ee43968"
+    },
+    {
+      "id": "program:screenpos",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "screenpos/screenpos.prg",
+      "bytes": 395,
+      "sha256": "e8bf283b52e96c512d93735558e037aeb857352a8d5bcdd5a32493b81f13b7ef"
+    },
+    {
+      "id": "reference:screenpos",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "screenpos/references/screenpos.prg.png",
+      "bytes": 6317,
+      "sha256": "b75a8177bb1cdf63b2f53329e7f30557f60ee4bc867b982299518b22f6d83e6e"
+    },
+    {
+      "id": "firmware:kernal",
+      "role": "firmware",
+      "root": "roms",
+      "relative_path": "kernal.rom",
+      "bytes": 8192,
+      "sha256": "83c60d47047d7beab8e5b7bf6f67f80daa088b7a6a27de0d7e016f6484042721"
+    },
+    {
+      "id": "firmware:basic",
+      "role": "firmware",
+      "root": "roms",
+      "relative_path": "basic.rom",
+      "bytes": 8192,
+      "sha256": "89878cea0a268734696de11c4bae593eaaa506465d2029d619c0e0cbccdfa62d"
+    },
+    {
+      "id": "firmware:chargen",
+      "role": "firmware",
+      "root": "roms",
+      "relative_path": "chargen.rom",
+      "bytes": 4096,
+      "sha256": "fd0d53b8480e86163ac98998976c72cc58d5dd8eb824ed7b829774e74213b420"
+    }
+  ]
+}
