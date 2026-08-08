@@ -11,6 +11,15 @@ Subdirectories should contain one focused corpus with its own purpose,
 licensing, provenance, build instructions, and validation contract. Generated
 or restricted artifacts must state whether they are tracked.
 
+[`closure-assets-v1.json`](closure-assets-v1.json) identifies the private
+firmware and media consumed by the strict Amiga golden and catalogue closure
+lanes. It records logical identities, source-container identities, selected
+archive members, and normalised payload identities without recording local
+absolute paths. The manifest is checked by
+[`scripts/verify-amiga-closure-assets.py`](../../../scripts/verify-amiga-closure-assets.py);
+`--lane` can restrict verification to either consumer and therefore to only
+that lane's required roots.
+
 The emulator-neutral programmable-horizontal-blanking data is divided by
 question:
 

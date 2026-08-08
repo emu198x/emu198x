@@ -1,0 +1,452 @@
+{
+  "schema_version": "1.0.0",
+  "scope": {
+    "lanes": [
+      "golden-matrix",
+      "catalogue-ten"
+    ],
+    "logical_asset_count": 16,
+    "source_use_count": 20
+  },
+  "roots": {
+    "a1000-kickstart-disk": {
+      "environment": "EMU198X_AMIGA_A1000_KICKSTART_DISK",
+      "kind": "file"
+    },
+    "catalogue-firmware": {
+      "environment": "EMU198X_CATALOGUE_FIRMWARE_ROOT",
+      "kind": "directory"
+    },
+    "catalogue-media": {
+      "environment": "EMU198X_CATALOGUE_MEDIA_ROOT",
+      "kind": "directory"
+    },
+    "golden-media": {
+      "default": "$HOME/.emu198x/media/commodore-amiga",
+      "kind": "directory"
+    },
+    "golden-rom": {
+      "default": "$HOME/.emu198x/roms/commodore-amiga",
+      "kind": "directory"
+    }
+  },
+  "assets": [
+    {
+      "id": "a1000-bootstrap-rom",
+      "kind": "firmware",
+      "payload": {
+        "bytes": 65536,
+        "sha256": "c67d47d0ff4a4cd29104e96fe7920a2ec13dff4f7f0fbcf7be645e2ae493262c"
+      },
+      "uses": [
+        {
+          "lane": "golden-matrix",
+          "consumers": [
+            "a1000-ks12-no-disk",
+            "a1000-ks12-wb12"
+          ],
+          "root": "golden-rom",
+          "relative_path": "a1000-bootstrap.rom",
+          "source": {
+            "bytes": 65536,
+            "sha256": "c67d47d0ff4a4cd29104e96fe7920a2ec13dff4f7f0fbcf7be645e2ae493262c"
+          }
+        }
+      ]
+    },
+    {
+      "id": "kickstart-1.3-r34.005",
+      "kind": "firmware",
+      "payload": {
+        "bytes": 262144,
+        "sha256": "ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53"
+      },
+      "uses": [
+        {
+          "lane": "golden-matrix",
+          "consumers": [
+            "a500-ks13-no-disk",
+            "a500-ks13-a501-no-disk",
+            "a500-ks13-wb13"
+          ],
+          "root": "golden-rom",
+          "relative_path": "kick13.rom",
+          "source": {
+            "bytes": 262144,
+            "sha256": "ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53"
+          }
+        },
+        {
+          "lane": "catalogue-ten",
+          "consumers": [
+            "workbench-1.3-desktop",
+            "barbarian",
+            "1943",
+            "arkanoid-revenge-of-doh",
+            "state-of-the-art",
+            "alien-syndrome-ntsc"
+          ],
+          "root": "catalogue-firmware",
+          "relative_path": "commodore-amiga/kick13.rom",
+          "source": {
+            "bytes": 262144,
+            "sha256": "ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53"
+          }
+        }
+      ]
+    },
+    {
+      "id": "kickstart-2.04-r37.175",
+      "kind": "firmware",
+      "payload": {
+        "bytes": 524288,
+        "sha256": "d0b70e8a1772614b897f92c33cb299bed3fc8e3de488fc12f67f97fc2486eb79"
+      },
+      "uses": [
+        {
+          "lane": "catalogue-ten",
+          "consumers": [
+            "workbench-2.04-desktop",
+            "bad-dudes-ecs"
+          ],
+          "root": "catalogue-firmware",
+          "relative_path": "commodore-amiga/kick204.rom",
+          "source": {
+            "bytes": 524288,
+            "sha256": "d0b70e8a1772614b897f92c33cb299bed3fc8e3de488fc12f67f97fc2486eb79"
+          }
+        }
+      ]
+    },
+    {
+      "id": "kickstart-3.1-a1200-r40.068",
+      "kind": "firmware",
+      "payload": {
+        "bytes": 524288,
+        "sha256": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707"
+      },
+      "uses": [
+        {
+          "lane": "golden-matrix",
+          "consumers": [
+            "a1200-ks31-wb31"
+          ],
+          "root": "golden-rom",
+          "relative_path": "kick31a1200.rom",
+          "source": {
+            "bytes": 524288,
+            "sha256": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707"
+          }
+        },
+        {
+          "lane": "catalogue-ten",
+          "consumers": [
+            "workbench-3.1-desktop",
+            "banshee-demo-aga"
+          ],
+          "root": "catalogue-firmware",
+          "relative_path": "commodore-amiga/kick31a1200.rom",
+          "source": {
+            "bytes": 524288,
+            "sha256": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707"
+          }
+        }
+      ]
+    },
+    {
+      "id": "a1000-kickstart-1.2-r33.180-disk",
+      "kind": "disk",
+      "payload": {
+        "bytes": 901120,
+        "sha256": "cc19c8130dfc6e208f1cb3f30cc9b1a7432ec6ca5da83991fa5ccfa7b14b9fcb"
+      },
+      "uses": [
+        {
+          "lane": "golden-matrix",
+          "consumers": [
+            "a1000-ks12-wb12"
+          ],
+          "root": "a1000-kickstart-disk",
+          "archive_member": "Kickstart-Disk v1.2 r33.180 (1986)(Commodore)(A1000).adf",
+          "source": {
+            "bytes": 155294,
+            "sha256": "f45ebe137589dcdfa45797fc603cc4b80155440ba26daf6ae144fdee379238f7"
+          }
+        }
+      ]
+    },
+    {
+      "id": "workbench-1.2-disk",
+      "kind": "disk",
+      "payload": {
+        "bytes": 901120,
+        "sha256": "f90ebf320bcf6addaa800ffeb6a5fb5925ed17f81ab778dafbf3ee4e9ad6f4e1"
+      },
+      "uses": [
+        {
+          "lane": "golden-matrix",
+          "consumers": [
+            "a1000-ks12-wb12"
+          ],
+          "root": "golden-media",
+          "relative_path": "workbench-1.2.adf",
+          "source": {
+            "bytes": 901120,
+            "sha256": "f90ebf320bcf6addaa800ffeb6a5fb5925ed17f81ab778dafbf3ee4e9ad6f4e1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "workbench-1.3-disk",
+      "kind": "disk",
+      "payload": {
+        "bytes": 901120,
+        "sha256": "961193c379678f79ef604b76e0bc5ab1828af812583389473b45499764f0b962"
+      },
+      "uses": [
+        {
+          "lane": "golden-matrix",
+          "consumers": [
+            "a500-ks13-wb13"
+          ],
+          "root": "golden-media",
+          "relative_path": "workbench-1.3.adf",
+          "source": {
+            "bytes": 901120,
+            "sha256": "961193c379678f79ef604b76e0bc5ab1828af812583389473b45499764f0b962"
+          }
+        },
+        {
+          "lane": "catalogue-ten",
+          "consumers": [
+            "workbench-1.3-desktop"
+          ],
+          "root": "catalogue-media",
+          "relative_path": "commodore-amiga/workbench-1.3.adf",
+          "source": {
+            "bytes": 901120,
+            "sha256": "961193c379678f79ef604b76e0bc5ab1828af812583389473b45499764f0b962"
+          }
+        }
+      ]
+    },
+    {
+      "id": "workbench-2.04-disk",
+      "kind": "disk",
+      "payload": {
+        "bytes": 901120,
+        "sha256": "ac6b2529b2896474401ff51c4fcf79464a5f53331b6ad872f0bb721a0a63b8ab"
+      },
+      "uses": [
+        {
+          "lane": "catalogue-ten",
+          "consumers": [
+            "workbench-2.04-desktop"
+          ],
+          "root": "catalogue-media",
+          "relative_path": "commodore-amiga/workbench-2.04.adf",
+          "source": {
+            "bytes": 901120,
+            "sha256": "ac6b2529b2896474401ff51c4fcf79464a5f53331b6ad872f0bb721a0a63b8ab"
+          }
+        }
+      ]
+    },
+    {
+      "id": "workbench-3.1-r40.42-disk",
+      "kind": "disk",
+      "payload": {
+        "bytes": 901120,
+        "sha256": "7473ba3c8ecd14d38c5d166617d652ecb12969c0acd3cc8a8ca4a949d0d243f2"
+      },
+      "uses": [
+        {
+          "lane": "golden-matrix",
+          "consumers": [
+            "a1200-ks31-wb31"
+          ],
+          "root": "golden-media",
+          "relative_path": "wb31/Workbench v3.1 rev 40.42 (1996)(ESCOM)(M10)(Disk 2 of 6)(Workbench).adf",
+          "source": {
+            "bytes": 901120,
+            "sha256": "7473ba3c8ecd14d38c5d166617d652ecb12969c0acd3cc8a8ca4a949d0d243f2"
+          }
+        },
+        {
+          "lane": "catalogue-ten",
+          "consumers": [
+            "workbench-3.1-desktop"
+          ],
+          "root": "catalogue-media",
+          "relative_path": "commodore-amiga/workbench-3.1.adf",
+          "source": {
+            "bytes": 901120,
+            "sha256": "7473ba3c8ecd14d38c5d166617d652ecb12969c0acd3cc8a8ca4a949d0d243f2"
+          }
+        }
+      ]
+    },
+    {
+      "id": "catalogue-1943-disk",
+      "kind": "disk",
+      "payload": {
+        "bytes": 901120,
+        "sha256": "113cbed88b9b5084397e992a141448390d53ed054dd015566bc1ded47410d509"
+      },
+      "uses": [
+        {
+          "lane": "catalogue-ten",
+          "consumers": [
+            "1943"
+          ],
+          "root": "catalogue-media",
+          "relative_path": "commodore-amiga/1943 - The Battle of Midway (1989)(GO!)[cr PNA].zip",
+          "archive_member": "1943 - The Battle of Midway (1989)(GO!)[cr PNA].adf",
+          "source": {
+            "bytes": 199837,
+            "sha256": "4b9e889c513103e40a24dbb75635cd4731cc3b10c19d338eba017136450d0f07"
+          }
+        }
+      ]
+    },
+    {
+      "id": "catalogue-alien-syndrome-ntsc-disk",
+      "kind": "disk",
+      "payload": {
+        "bytes": 901120,
+        "sha256": "3dd8bcfeeefca62159688d1319aca1cd7e108ab47c46786c3ee91d6dc03a8b46"
+      },
+      "uses": [
+        {
+          "lane": "catalogue-ten",
+          "consumers": [
+            "alien-syndrome-ntsc"
+          ],
+          "root": "catalogue-media",
+          "relative_path": "commodore-amiga/Alien Syndrome (1988)(Sega)(NTSC)(US)[cr][budget].zip",
+          "archive_member": "Alien Syndrome (1988)(Sega)(NTSC)(US)[cr][budget].adf",
+          "source": {
+            "bytes": 278138,
+            "sha256": "d36feedbd896cc4d901adc82c53ed716bf2d1c962b314400c0c04f7b8370f61c"
+          }
+        }
+      ]
+    },
+    {
+      "id": "catalogue-arkanoid-revenge-of-doh-disk",
+      "kind": "disk",
+      "payload": {
+        "bytes": 901120,
+        "sha256": "eb4ae48b29a9a81a07a0d1e70fc46c458f97062543ce4532d92c4ddb4b6bbc9a"
+      },
+      "uses": [
+        {
+          "lane": "catalogue-ten",
+          "consumers": [
+            "arkanoid-revenge-of-doh"
+          ],
+          "root": "catalogue-media",
+          "relative_path": "commodore-amiga/Arkanoid - Revenge of Doh (1988-11-05)(Imagine)[cr Ackerlight].zip",
+          "archive_member": "Arkanoid - Revenge of Doh (1988-11-05)(Imagine)[cr Ackerlight].adf",
+          "source": {
+            "bytes": 568016,
+            "sha256": "affee46bccb2a23546c5fad8570ac0e62cfcdd85f1feb1d7eb0505fb750f3495"
+          }
+        }
+      ]
+    },
+    {
+      "id": "catalogue-bad-dudes-ecs-disk",
+      "kind": "disk",
+      "payload": {
+        "bytes": 901120,
+        "sha256": "15f99c59c62add12fc855242c2b4a8ea141c393031ec101a3b76d87d25483c0b"
+      },
+      "uses": [
+        {
+          "lane": "catalogue-ten",
+          "consumers": [
+            "bad-dudes-ecs"
+          ],
+          "root": "catalogue-media",
+          "relative_path": "commodore-amiga/Bad Dudes vs. Dragon Ninja (1989)(Imagine)[cr OCL][t +3 OCL].zip",
+          "archive_member": "Bad Dudes vs. Dragon Ninja (1989)(Imagine)[cr OCL][t +3 OCL].adf",
+          "source": {
+            "bytes": 507266,
+            "sha256": "9bf2c9d0d618f1c1f8a3e0939216f308d8f6fc7f6e5a01921973ff9b77002f5a"
+          }
+        }
+      ]
+    },
+    {
+      "id": "catalogue-banshee-demo-aga-disk",
+      "kind": "disk",
+      "payload": {
+        "bytes": 901120,
+        "sha256": "ad359af80704650d0dac13e3dc3d20e66012caed0d49c2acfb0e8b4bbced9d07"
+      },
+      "uses": [
+        {
+          "lane": "catalogue-ten",
+          "consumers": [
+            "banshee-demo-aga"
+          ],
+          "root": "catalogue-media",
+          "relative_path": "commodore-amiga/Banshee (demo-playable) (1994)(Core)(AGA)[cr ATX].zip",
+          "archive_member": "Banshee (demo-playable) (1994)(Core)(AGA)[cr ATX].adf",
+          "source": {
+            "bytes": 494335,
+            "sha256": "55e258dbf43848f102ab757c25a0d2873b6af045a9ea31fd126a56064d5efc69"
+          }
+        }
+      ]
+    },
+    {
+      "id": "catalogue-barbarian-disk",
+      "kind": "disk",
+      "payload": {
+        "bytes": 901120,
+        "sha256": "8c6a5d1e54d0e03ae20bd1e8994feba45d253337cc69f3ae4bf42122b110de4d"
+      },
+      "uses": [
+        {
+          "lane": "catalogue-ten",
+          "consumers": [
+            "barbarian"
+          ],
+          "root": "catalogue-media",
+          "relative_path": "commodore-amiga/Barbarian - The Ultimate Warrior (1988)(Palace)[cr BS1 - TKT - INA].zip",
+          "archive_member": "Barbarian - The Ultimate Warrior (1988)(Palace)[cr BS1 - TKT - INA].adf",
+          "source": {
+            "bytes": 375135,
+            "sha256": "2dd36902dd2a32d398803a9ef3d023a4dcc7e57f160b85701aa64baaa949f819"
+          }
+        }
+      ]
+    },
+    {
+      "id": "catalogue-state-of-the-art-disk",
+      "kind": "disk",
+      "payload": {
+        "bytes": 901120,
+        "sha256": "470e74457065b38db660c1f6286e5600c6433b42f63f99f832f7d9a07c6a8a64"
+      },
+      "uses": [
+        {
+          "lane": "catalogue-ten",
+          "consumers": [
+            "state-of-the-art"
+          ],
+          "root": "catalogue-media",
+          "relative_path": "commodore-amiga/State of the Art (1992-12-29)(Spaceballs)[TP2#1].zip",
+          "archive_member": "State of the Art (1992-12-29)(Spaceballs)[TP2#1].adf",
+          "source": {
+            "bytes": 655782,
+            "sha256": "41d3b13f70a368462f2072e3845ba71ab360f948daa505c1ba73288b4f835422"
+          }
+        }
+      ]
+    }
+  ]
+}

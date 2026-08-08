@@ -22,6 +22,7 @@ knowledge/processes/*
 !knowledge/processes/amiga-programmable-hblank-conformance.md
 !knowledge/processes/amiga-programmable-hblank-write-timing.md
 !knowledge/processes/amiga-paula-audio-conformance.md
+!knowledge/processes/amiga-accuracy-closure-verification.md
 !knowledge/processes/golden-image-capture.md
 knowledge/references/
 knowledge/systems/
@@ -43,3 +44,6 @@ emulators/
 
 # Generated while building the portable Paula-audio corpus.
 /test-data/commodore/amiga/paula-audio/tools/__pycache__/
+
+# Python bytecode generated while exercising repository scripts.
+/scripts/__pycache__/
