@@ -12,8 +12,8 @@ use std::process;
 
 use emu198x_catalogue::{
     CatalogueError, Entry, EntryOutcome, Manifest, RunResult, SnapshotCheckResult, SnapshotOutcome,
-    load_manifest, run_amiga_entry_with_snapshot_check, run_entry, run_entry_for_capture,
-    run_spectrum_entry_with_snapshot_check,
+    load_manifest, run_amiga_entry_with_snapshot_check, run_c64_entry_with_snapshot_check,
+    run_entry, run_entry_for_capture, run_spectrum_entry_with_snapshot_check,
 };
 
 const USAGE: &str = "\
@@ -222,6 +222,11 @@ fn run_entry_for_verification(
         "spectrum" => {
             let (result, snapshot) =
                 run_spectrum_entry_with_snapshot_check(manifest, entry, media_root, firmware_root)?;
+            Ok((result, Some(snapshot)))
+        }
+        "c64" => {
+            let (result, snapshot) =
+                run_c64_entry_with_snapshot_check(manifest, entry, media_root, firmware_root)?;
             Ok((result, Some(snapshot)))
         }
         "amiga" => {

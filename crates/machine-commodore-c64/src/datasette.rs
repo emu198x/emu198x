@@ -144,6 +144,12 @@ impl Datasette {
     }
 
     pub fn set_motor_on(&mut self, motor_on: bool) {
+        // This method reflects a physical line level. Re-observing the same
+        // level must not restart an in-flight spin-up/spin-down delay; that
+        // would make a restore-time port refresh change future tape timing.
+        if self.motor_requested == motor_on {
+            return;
+        }
         self.motor_requested = motor_on;
 
         if motor_on {
@@ -342,5 +348,26 @@ mod tests {
 
         assert!(!datasette.advance_phi2_cycle());
         assert!(!datasette.motor_on());
+    }
+
+    #[test]
+    fn repeated_motor_level_does_not_restart_transition_delay() {
+        let mut datasette = Datasette::new();
+        datasette.load_tap(stub_tape(&[8]));
+        datasette.play();
+        datasette.set_motor_on(true);
+
+        for _ in 0..1_000 {
+            let _ = datasette.advance_phi2_cycle();
+        }
+        datasette.set_motor_on(true);
+        for _ in 1_000..MOTOR_DELAY_CYCLES {
+            let _ = datasette.advance_phi2_cycle();
+        }
+
+        assert!(
+            datasette.motor_on(),
+            "reasserting the same line level must not restart spin-up"
+        );
     }
 }

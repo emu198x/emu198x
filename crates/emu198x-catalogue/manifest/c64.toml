@@ -191,6 +191,10 @@ path = "commodore/c64/Games/Arcade/[D64]/Bomb Jack (1986)(Elite).zip"
 # title/scroll state at the capture frame (screenshot-verified as the
 # same canonical title), and the audio hash for
 # AUDIO_ROUTING_VERSION 4 (#763).
+# Requalified after the VICE-pattern cold-RAM fix (#779): Bomb Jack reads
+# power-on RAM during startup, changing the deterministic music stream while
+# leaving the canonical title frame unchanged. Ordinary capture and the
+# snapshot/replay path produced the same replacement hash.
 [entry.boot]
 wait_frames = 50000
 frame_hash = "xxh64:59cbde0e3e4589d8"
@@ -198,7 +202,7 @@ frame_hash = "xxh64:59cbde0e3e4589d8"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:33d7fa712e883c33"
+hash = "xxh64:56d4c8d09408532f"
 
 [[entry]]
 id = "thing-on-a-spring"

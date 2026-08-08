@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Run all 13 C64 entries through byte-fixed-point snapshot re-encoding plus
+  frame/audio replay. The coverage includes firmware-only boot, D64, D81,
+  writable raw-GCR G64, TAP, three cartridge types, and 1541/1571/1581 drive
+  routes.
+- Report the first differing offset, values and total byte count when snapshot
+  re-encoding is not canonical.
+- Requalify Bomb Jack's audio oracle after VICE-pattern cold RAM changed its
+  deterministic music stream; ordinary capture and snapshot replay agree on
+  the replacement hash while the title frame remains unchanged.
 - Honour an entry's explicit `media.writable` setting while keeping archive
   media read-only by default.
 - Add optional, bounds-checked boot-frame ignore rectangles. Selected RGBA

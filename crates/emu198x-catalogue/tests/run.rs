@@ -14,8 +14,8 @@ use std::env;
 use std::path::PathBuf;
 
 use emu198x_catalogue::{
-    EntryOutcome, SnapshotOutcome, load_manifest, run_amiga_entry_with_snapshot_check, run_entry,
-    run_spectrum_entry_with_snapshot_check,
+    EntryOutcome, SnapshotOutcome, load_manifest, run_amiga_entry_with_snapshot_check,
+    run_c64_entry_with_snapshot_check, run_entry, run_spectrum_entry_with_snapshot_check,
 };
 
 fn manifest_dir() -> PathBuf {
@@ -70,6 +70,17 @@ fn catalogue_passes_every_entry() {
             let run_result = match manifest.system.id.as_str() {
                 "spectrum" => {
                     let (result, snapshot) = run_spectrum_entry_with_snapshot_check(
+                        &manifest,
+                        entry,
+                        &media_root,
+                        &firmware_root,
+                    )
+                    .unwrap_or_else(|err| panic!("{} runner failed: {err}", entry.id));
+                    report_snapshot_outcome(entry, &snapshot.outcome, &mut failures);
+                    result
+                }
+                "c64" => {
+                    let (result, snapshot) = run_c64_entry_with_snapshot_check(
                         &manifest,
                         entry,
                         &media_root,
@@ -163,9 +174,13 @@ fn report_snapshot_outcome(
         SnapshotOutcome::BytesDrift {
             original_len,
             reencoded_len,
+            first_difference,
+            differing_bytes,
+            original_byte,
+            reencoded_byte,
         } => {
             let line = format!(
-                "[SNAP-FAIL] {} — re-encoded bytes drift: orig {original_len} bytes, reencoded {reencoded_len} bytes",
+                "[SNAP-FAIL] {} — re-encoded bytes drift: orig {original_len} bytes, reencoded {reencoded_len} bytes, {differing_bytes} differing byte(s), first at {first_difference} ({original_byte:?} -> {reencoded_byte:?})",
                 entry.id
             );
             println!("{line}");

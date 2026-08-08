@@ -107,6 +107,7 @@ fn plus3_disk_entries_load_and_match() {
             SnapshotOutcome::BytesDrift {
                 original_len,
                 reencoded_len,
+                ..
             } => {
                 let line = format!(
                     "[SNAP-FAIL] {} — bytes drift: orig {original_len}, reencoded {reencoded_len}",

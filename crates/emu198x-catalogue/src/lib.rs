@@ -410,8 +410,8 @@ pub struct RunResult {
 
 /// Outcome of one entry's snapshot fidelity check.
 ///
-/// Returned alongside the per-entry [`RunResult`] by the Spectrum and Amiga
-/// snapshot-check wrappers. `Pass` means the entry snapshotted at the boot
+/// Returned alongside the per-entry [`RunResult`] by the Spectrum, C64 and
+/// Amiga snapshot-check wrappers. `Pass` means the entry snapshotted at the boot
 /// waypoint, restored into a fresh-from-firmware runtime, and reproduced both
 /// the gap-end frame and the audio window byte-identically; the re-encoded
 /// snapshot also matched the original.
@@ -435,6 +435,10 @@ pub enum SnapshotOutcome {
     BytesDrift {
         original_len: usize,
         reencoded_len: usize,
+        first_difference: usize,
+        differing_bytes: usize,
+        original_byte: Option<u8>,
+        reencoded_byte: Option<u8>,
     },
 }
 
@@ -896,6 +900,52 @@ pub fn run_spectrum_entry_with_snapshot_check(
         "plus3" => snapshot_check_plus3(manifest, entry, media_root, firmware_root),
         other => Err(CatalogueError::UnsupportedVariant(other.into())),
     }
+}
+
+/// Runs one C64 catalogue entry and proves its save state is lossless.
+///
+/// The original session follows the ordinary C64 path through KERNAL boot,
+/// tape/disk autoload or cartridge startup and scripted input. At the boot
+/// waypoint, the complete machine, attached drive, IEC bus and media state are
+/// restored into a fresh runtime built from the same firmware and profile. The
+/// wrapper then compares re-encoded bytes, the post-waypoint frame and the
+/// audio window.
+///
+/// # Errors
+///
+/// Returns `UnsupportedSystem` when the manifest is not C64,
+/// `UnsupportedVariant` when the profile is not wired, firmware errors for an
+/// incomplete manifest, and `Session` for runtime, media or autoload failures.
+pub fn run_c64_entry_with_snapshot_check(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &Path,
+    firmware_root: &Path,
+) -> Result<(RunResult, SnapshotCheckResult), CatalogueError> {
+    if manifest.system.id != "c64" {
+        return Err(CatalogueError::UnsupportedSystem(
+            manifest.system.id.clone(),
+        ));
+    }
+    verify_routing_versions(manifest)?;
+
+    let model = c64_model_from_variant(&entry.variant)
+        .ok_or_else(|| CatalogueError::UnsupportedVariant(entry.variant.clone()))?;
+    let (files, bytes_storage) = load_c64_firmware(manifest, entry, firmware_root)?;
+    let (mut original, frames_per_sec) =
+        build_c64_session(model, &entry.variant, files, &bytes_storage, "C64 runtime")?;
+    prepare_c64_session(&mut original, entry, media_root)?;
+
+    let (mut restored, restored_frames_per_sec) = build_c64_session(
+        model,
+        &entry.variant,
+        files,
+        &bytes_storage,
+        "C64 fresh runtime",
+    )?;
+    debug_assert_eq!(frames_per_sec, restored_frames_per_sec);
+
+    finalize_snapshot_check(&mut original, &mut restored, entry, frames_per_sec)
 }
 
 /// Runs one Amiga catalogue entry and proves its save state is lossless.
@@ -1386,21 +1436,35 @@ fn run_c64_entry(
     media_root: &Path,
     firmware_root: &Path,
 ) -> Result<RunResult, CatalogueError> {
-    let model = match entry.variant.as_str() {
-        // `pal-1581` and `pal-1571` are electrically the PAL breadbin; the suffix
-        // only selects a firmware set that swaps the 1541 DOS ROM for the other
-        // drive's, so drive entries attach that drive without disturbing the
-        // shared `pal` set. The 1571 additionally takes device 8 (see below).
-        "pal" | "pal-1581" | "pal-1571" => C64Model::C64PalBreadbin,
-        "ntsc" => C64Model::C64NtscBreadbin,
-        other => return Err(CatalogueError::UnsupportedVariant(other.into())),
-    };
+    let model = c64_model_from_variant(&entry.variant)
+        .ok_or_else(|| CatalogueError::UnsupportedVariant(entry.variant.clone()))?;
+    let (files, bytes_storage) = load_c64_firmware(manifest, entry, firmware_root)?;
+    let (mut session, frames_per_sec) =
+        build_c64_session(model, &entry.variant, files, &bytes_storage, "C64 runtime")?;
+    prepare_c64_session(&mut session, entry, media_root)?;
+    run_assertions(&mut session, entry, frames_per_sec)
+}
 
+type C64CatalogueSession = HeadlessSession<C64Runtime, C64SessionQueryProvider>;
+
+fn c64_model_from_variant(variant: &str) -> Option<C64Model> {
+    match variant {
+        // These drive-qualified variants are electrically the PAL breadbin.
+        // Their firmware sets substitute a different drive DOS ROM.
+        "pal" | "pal-1581" | "pal-1571" => Some(C64Model::C64PalBreadbin),
+        "ntsc" => Some(C64Model::C64NtscBreadbin),
+        _ => None,
+    }
+}
+
+fn load_c64_firmware<'manifest>(
+    manifest: &'manifest Manifest,
+    entry: &Entry,
+    firmware_root: &Path,
+) -> Result<(&'manifest [FirmwareSpec], Vec<Vec<u8>>), CatalogueError> {
     let files = lookup_firmware(manifest, &entry.variant)?;
-    // C64 needs 3 ROMs minimum (KERNAL/BASIC/CHARGEN). When disk media
-    // is attached, the 1541 DOS ROM must also be loaded — declare it
-    // up-front in the manifest. Tolerate either count here so manifests
-    // can choose to omit the drive ROM for entries that never use disk.
+    // KERNAL, BASIC and CHARGEN are mandatory. A disk entry adds one drive DOS
+    // ROM selected by its variant.
     if !(3..=4).contains(&files.len()) {
         return Err(CatalogueError::FirmwareCountMismatch {
             variant: entry.variant.clone(),
@@ -1408,23 +1472,32 @@ fn run_c64_entry(
             actual: files.len(),
         });
     }
-    let bytes_storage: Vec<Vec<u8>> = files
+    let bytes_storage = files
         .iter()
         .map(|spec| read_firmware_bytes(firmware_root, spec))
         .collect::<Result<_, _>>()?;
+    Ok((files, bytes_storage))
+}
 
+fn build_c64_session(
+    model: C64Model,
+    variant: &str,
+    files: &[FirmwareSpec],
+    bytes_storage: &[Vec<u8>],
+    error_context: &str,
+) -> Result<(C64CatalogueSession, f64), CatalogueError> {
     let mut firmware_set = FirmwareSet::new();
-    for (spec, bytes) in files.iter().zip(bytes_storage.iter()) {
+    for (spec, bytes) in files.iter().zip(bytes_storage) {
         firmware_set.push(FirmwareImage::new(spec.id.clone(), bytes));
     }
 
     let mut runtime = C64Runtime::from_firmware(model, &firmware_set)
-        .map_err(|err| CatalogueError::Session(format!("C64 runtime: {err}")))?;
+        .map_err(|err| CatalogueError::Session(format!("{error_context}: {err}")))?;
 
     // The `pal-1571` firmware set carries the 1571 DOS ROM but no 1541, so
-    // device 8 is empty after construction. Put a 1571 on device 8 so a
-    // `drive-8` D71/D64 entry loads through it with the standard `LOAD"*",8,1`.
-    if entry.variant == "pal-1571" {
+    // device 8 is empty after construction. Put a 1571 on device 8 so both the
+    // original and restored sessions have the same physical drive topology.
+    if variant == "pal-1571" {
         runtime
             .set_port_drive(8, Some(C64DriveKind::C1571))
             .map_err(|err| CatalogueError::Session(format!("C64 1571 attach: {err}")))?;
@@ -1434,15 +1507,22 @@ fn run_c64_entry(
         C64Model::C64PalBreadbin | C64Model::C64cPal => &TIMING_PAL_BREADBIN,
         C64Model::C64NtscBreadbin | C64Model::C64cNtsc => &TIMING_NTSC_BREADBIN,
     };
-
-    let mut session = HeadlessSession::new_with_query_provider(
+    let frames_per_sec = timing.cpu_hz as f64 / f64::from(timing.cycles_per_frame);
+    let session = HeadlessSession::new_with_query_provider(
         runtime,
         u64::from(timing.cycles_per_frame),
         C64SessionQueryProvider,
     );
+    Ok((session, frames_per_sec))
+}
 
+fn prepare_c64_session(
+    session: &mut C64CatalogueSession,
+    entry: &Entry,
+    media_root: &Path,
+) -> Result<(), CatalogueError> {
     if let Some(media) = entry.media.as_ref() {
-        let media_kind = load_media_spec(&mut session, media, media_root)?;
+        let media_kind = load_media_spec(session, media, media_root)?;
         match media_kind {
             MediaKind::Disk => {
                 // The 1581 sits on IEC device 9 (slot `drive-9`) and needs
@@ -1450,7 +1530,7 @@ fn run_c64_entry(
                 // Route by slot so a D81 entry drives the 1581.
                 if media.slot == DEFAULT_DISK_1581_AUTOLOAD_SLOT {
                     autoload_basic_disk_1581(
-                        &mut session,
+                        session,
                         &media.slot,
                         DEFAULT_C64_BOOT_FRAMES,
                         DEFAULT_C64_DISK_PROMPT_FRAMES,
@@ -1460,7 +1540,7 @@ fn run_c64_entry(
                     })?;
                 } else {
                     autoload_basic_disk(
-                        &mut session,
+                        session,
                         &media.slot,
                         DEFAULT_C64_BOOT_FRAMES,
                         DEFAULT_C64_DISK_PROMPT_FRAMES,
@@ -1484,7 +1564,7 @@ fn run_c64_entry(
                         .set_tape_play_phase_cycles(media.play_phase_cycles);
                 }
                 c64_autoload_basic_tape(
-                    &mut session,
+                    session,
                     &media.slot,
                     DEFAULT_C64_BOOT_FRAMES,
                     DEFAULT_C64_DISK_PROMPT_FRAMES,
@@ -1508,14 +1588,12 @@ fn run_c64_entry(
             }
         }
     } else {
-        prepare_session_no_media(&mut session)?;
+        prepare_session_no_media(session)?;
         session
             .wait_for_boot(DEFAULT_C64_BOOT_FRAMES)
             .map_err(|err| CatalogueError::Session(format!("C64 boot wait: {err}")))?;
     }
-
-    let frames_per_sec = (timing.cpu_hz as f64) / f64::from(timing.cycles_per_frame);
-    run_assertions(&mut session, entry, frames_per_sec)
+    Ok(())
 }
 
 fn wait_for_tape_stop<M, Q>(
@@ -2579,9 +2657,24 @@ where
     );
 
     let outcome = if original_bytes != reencoded_bytes {
+        let first_difference = original_bytes
+            .iter()
+            .zip(&reencoded_bytes)
+            .position(|(original, reencoded)| original != reencoded)
+            .unwrap_or_else(|| original_bytes.len().min(reencoded_bytes.len()));
+        let differing_bytes = original_bytes
+            .iter()
+            .zip(&reencoded_bytes)
+            .filter(|(original, reencoded)| original != reencoded)
+            .count()
+            + original_bytes.len().abs_diff(reencoded_bytes.len());
         SnapshotOutcome::BytesDrift {
             original_len: encoded_len,
             reencoded_len,
+            first_difference,
+            differing_bytes,
+            original_byte: original_bytes.get(first_difference).copied(),
+            reencoded_byte: reencoded_bytes.get(first_difference).copied(),
         }
     } else if orig_gap_hash != rest_gap_hash {
         SnapshotOutcome::FrameHashDrift {
@@ -3052,6 +3145,68 @@ patch_guest_memory = true
                 .expect("A1200 catalogue firmware path should construct");
             assert!(runtime.is_aga(), "{model:?}");
         }
+    }
+
+    #[test]
+    fn c64_catalogue_replays_from_the_boot_waypoint() {
+        let frame_ticks = u64::from(TIMING_PAL_BREADBIN.cycles_per_frame);
+        let frames_per_second =
+            TIMING_PAL_BREADBIN.cpu_hz as f64 / f64::from(TIMING_PAL_BREADBIN.cycles_per_frame);
+        let mut original = HeadlessSession::new_with_query_provider(
+            C64Runtime::blank(C64Model::C64PalBreadbin),
+            frame_ticks,
+            C64SessionQueryProvider,
+        );
+        let mut restored = HeadlessSession::new_with_query_provider(
+            C64Runtime::blank(C64Model::C64PalBreadbin),
+            frame_ticks,
+            C64SessionQueryProvider,
+        );
+        let entry = Entry {
+            id: "c64-pal-snapshot".into(),
+            title: "C64 PAL snapshot".into(),
+            year: 0,
+            publisher: "Emu198x".into(),
+            variant: "pal".into(),
+            media: None,
+            boot: Boot {
+                wait_frames: 2,
+                frame_hash: "xxh64:0000000000000000".into(),
+                ignore_rects: vec![],
+            },
+            script: vec![],
+            startup: vec![],
+            audio: Audio {
+                from_frame: 1,
+                secs: 0.02,
+                hash: "xxh64:0000000000000000".into(),
+            },
+        };
+
+        let (_, snapshot) =
+            finalize_snapshot_check(&mut original, &mut restored, &entry, frames_per_second)
+                .expect("hermetic C64 snapshot check should run");
+        assert!(
+            matches!(snapshot.outcome, SnapshotOutcome::Pass),
+            "{:?}",
+            snapshot.outcome
+        );
+    }
+
+    #[test]
+    fn c64_catalogue_variants_select_the_expected_video_standard() {
+        for variant in ["pal", "pal-1571", "pal-1581"] {
+            assert_eq!(
+                c64_model_from_variant(variant),
+                Some(C64Model::C64PalBreadbin),
+                "{variant}"
+            );
+        }
+        assert_eq!(
+            c64_model_from_variant("ntsc"),
+            Some(C64Model::C64NtscBreadbin)
+        );
+        assert_eq!(c64_model_from_variant("pal-c64c"), None);
     }
 
     #[test]

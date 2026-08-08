@@ -121,6 +121,8 @@ The Spectrum's Seam 3 fix surfaced two real bugs (Z80 walker rehydration, ULA co
 
 Snapshot envelope version 4 serialises the VIC-II sequencer, MC/MCBASE fetch chain, fetched data, per-cycle render latches and both SID output queues. The runtime now drains the diagnostic per-voice queues with the mixed buffer at each frame boundary, bounding their size during long runs. Regression tests snapshot an active sprite and a non-empty SID queue, then compare restored execution and audio with an unforked clone. The serde audit now walks every Rust source file in the C64 CPU, VIC-II, SID, CIA, board, IEC, drive and runtime stack; the current reviewed skip count is zero. The 6502 walker and all persistent chip state remain owned serialisable values, so no rehydration hook is required.
 
+The catalogue replay gate landed on 2026-08-08. All 13 C64 entries now restore into a fresh same-profile runtime and require byte-identical re-encoding plus matching post-waypoint frame and audio output. The first full sweep exposed one restore-time normalisation bug: refreshing an unchanged datasette motor line restarted an in-flight transition delay. Making the physical line setter idempotent removed the drift. The final matrix is 13/13 `PASS` and 13/13 `SNAP-PASS` across firmware-only boot, D64, D81, G64, TAP, cartridge, 1541, 1571 and 1581 paths. This is deterministic replay evidence, not an independent hardware-accuracy oracle.
+
 **Why this matters for other systems.** Every system with stateful audio (Amiga Paula, NES APU, Game Boy APU) and stateful video DMA has the same surface. Get the C64 right; the rehydration pattern transfers.
 
 ### Seam 4 — Catalogue oracle integrity
