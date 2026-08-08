@@ -1167,6 +1167,36 @@ impl AmigaEcs {
         }
     }
 
+    /// Dispatch a Copper MOVE before Denise renders the current output tick.
+    fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
+        if (0x0180..=0x01BE).contains(&offset) && offset.is_multiple_of(2) {
+            self.denise.write_word_before_output_tick(offset, val);
+            self.record_palette_write(offset, val);
+        } else {
+            self.dispatch_custom_write(offset, val);
+        }
+    }
+
+    fn record_palette_write(&mut self, offset: u16, val: u16) {
+        // ECS has a real BPLCON3 selector/comparator register. BANK and LOCT
+        // remain unused until Lisa, but the live value identifies the write
+        // context for diagnostics.
+        if (((0x180..=0x1BE).contains(&offset) && offset.is_multiple_of(2))
+            || offset == 0x0106
+            || offset == 0x010C)
+            && self.debug_palette_log.len() < 262144
+        {
+            let bplcon3 = self.denise.ocs.bplcon3;
+            self.debug_palette_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                offset,
+                val,
+                Some(bplcon3),
+            ));
+        }
+    }
+
     /// Dispatch a custom-register word write to the right submodule.
     /// Shared between `poke_word` and the CPU bus servicer.
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
@@ -1363,27 +1393,7 @@ impl AmigaEcs {
                 val,
             ));
         }
-        // Capture COLOR ($180..$1BE), BPLCON3 ($0106) and BPLCON4
-        // ($010C) writes. ECS Denise has a real BPLCON3 register
-        // (sprite-resolution, programmable-sync, border-blank); we
-        // sample it as the fifth field so callers can reconstruct
-        // the chip-state at write-time. Bank / loct decoded from
-        // BPLCON3 are simply unused on ECS hardware — AGA-style
-        // palette banking is Lisa-only.
-        if (((0x180..=0x1BE).contains(&offset) && (offset & 1) == 0)
-            || offset == 0x0106
-            || offset == 0x010C)
-            && self.debug_palette_log.len() < 262144
-        {
-            let bplcon3 = self.denise.ocs.bplcon3;
-            self.debug_palette_log.push((
-                self.tick_count / TICKS_PER_CCK,
-                self.cpu.regs.pc,
-                offset,
-                val,
-                Some(bplcon3),
-            ));
-        }
+        self.record_palette_write(offset, val);
         if offset == 0x09A {
             self.debug_intena_writes += 1;
             let intena_after = self.paula.intena();
@@ -2292,6 +2302,9 @@ impl AmigaDriver for AmigaEcs {
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
         AmigaEcs::dispatch_custom_write(self, offset, val);
     }
+    fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
+        AmigaEcs::dispatch_copper_write(self, offset, val);
+    }
     fn feed_next_write_word(&mut self) {
         AmigaEcs::feed_next_write_word(self);
     }
@@ -2335,6 +2348,34 @@ mod bus_plan_dispatch_tests {
 
     fn a600() -> AmigaEcs {
         AmigaEcs::with_a600_ram_config(vec![0; 512 * 1024], RamConfig::bare())
+    }
+
+    #[test]
+    fn copper_and_post_output_color_writes_keep_distinct_phases_and_diagnostics() {
+        let mut amiga = machine();
+        amiga.denise.ocs.set_palette(0, 0x0123);
+
+        amiga.dispatch_copper_write(0x0180, 0x0ABC);
+        assert_eq!(amiga.denise.color(0), 0x0123);
+        assert_eq!(
+            amiga
+                .denise
+                .board_pipeline_diagnostic_snapshot()
+                .pending_early_writes
+                .len(),
+            1,
+        );
+        assert_eq!(
+            amiga.debug_palette_log.last().map(|entry| entry.2),
+            Some(0x0180)
+        );
+
+        amiga.dispatch_custom_write(0x0182, 0x0456);
+        assert_eq!(amiga.denise.color(1), 0x0456);
+        assert_eq!(
+            amiga.debug_palette_log.last().map(|entry| entry.2),
+            Some(0x0182)
+        );
     }
 
     #[test]

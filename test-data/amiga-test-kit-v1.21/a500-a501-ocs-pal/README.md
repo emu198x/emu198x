@@ -100,6 +100,17 @@ family. They do not establish cross-emulator consensus, physical-hardware
 output, analogue-video behaviour, or accuracy outside the registered
 configuration and patterns.
 
+The executable comparison is deliberately mixed. Static checkerboard, both
+alternating-checkerboard phases, dots, and crosshatch agree exactly after RGB4
+normalisation. Gradients and EBU bars retain the exact
+`denise-ocs-color-output-phase` disagreement signature. The latter is a pinned
+implementation-family disagreement, not an accepted pixel tolerance or a
+claim of vAmiga conformance.
+
+[`assertions.json`](assertions.json) binds these classifications and every
+observed signature to the exact producer-manifest bytes. Unexpected agreement
+or any change to a registered disagreement fails the gate pending review.
+
 A second independently configured implementation family must agree after the
 same declared normalisation before these frames can represent implementation
 consensus.
@@ -107,6 +118,7 @@ consensus.
 ## Expected contents
 
 - `manifest.json`: provenance, geometry, navigation, and checksums;
+- `assertions.json`: exact and registered-disagreement comparison contracts;
 - one strict RGB8 PNG for each static pattern and two for the alternating
   pattern;
 - this README.

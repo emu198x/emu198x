@@ -18,10 +18,11 @@ FS-UAE and WinUAE.
 
 The registered Amiga Test Kit v1.21 A1200 AGA PAL lane supplies the end-to-end
 observation. Before the delay was represented, the gradients and EBU-bar cases
-disagreed at beam-raced palette changes. With the reference geometry fixed
-from the bitplane-only checkerboard, dots and crosshatch patterns, introducing
-one hires sample of colour-output delay made the gradients and EBU bars exact
-without changing the independently produced reference pixels.
+disagreed at beam-raced palette changes. The current reference geometry is
+fixed from beam coordinates rather than searched from image content. Under
+that absolute mapping, introducing one hires sample of Lisa colour-output delay
+makes the palette boundaries exact without changing the independently produced
+reference pixels.
 
 The Test Kit result establishes the visible phase for the registered patterns.
 It does not expose Lisa's internal gates or establish the behaviour of every
@@ -103,11 +104,11 @@ Focused Lisa tests establish that:
   unchanged; and
 - consecutive writes retain one well-defined pending stage.
 
-Query and snapshot tests preserve and expose that stage. The strict A1200 AGA
-PAL Test Kit lane matches its FS-UAE 5.0.7 reference exactly for gradients,
-the static checkerboard, both alternating-checkerboard phases, EBU bars, dots
-and crosshatch after this decision and the separate full-raster pipeline rule
-are applied.
+Query and snapshot tests preserve and expose that stage. In the A1200 AGA PAL
+Test Kit lane, the EBU colour boundaries are exact after this decision. The
+other registered patterns additionally exercise bitplane, display-window and
+sprite timing; their current assertion status is recorded by the conformance
+process rather than attributed to this colour stage.
 
 ## Drift triggers
 
@@ -124,6 +125,8 @@ Reject these patterns:
 ## Related Documents
 
 - [Advance the Denise pipeline across the full projected raster](amiga-denise-full-raster-pipeline.md)
+- [Separate Copper colour writes from post-output writes](amiga-denise-color-output-phase.md)
+- [Lisa bitplane and display-window output phase](amiga-lisa-bitplane-diw-output-phase.md)
 - [Amiga Test Kit v1.21 video conformance](../processes/amiga-test-kit-video-conformance.md)
 - [Amiga programmable-HBLANK conformance](../processes/amiga-programmable-hblank-conformance.md)
 - [Save-state: serde the live machine](savestate-live-machine-serde.md)

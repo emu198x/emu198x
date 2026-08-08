@@ -18,6 +18,7 @@ Both lanes require:
   through `EMU198X_AMIGA_TEST_KIT_V121_ADF`;
 - the selected profile's registered Kickstart image;
 - that profile's reference manifest and independently produced images;
+- that profile's strict `assertions.json` comparison contract; and
 - a release build of the `runtime-commodore-amiga` integration test.
 
 | Profile | Firmware variable | Input manifest | Reference family |
@@ -124,6 +125,10 @@ An Emu198x-produced frame may be retained as diagnostic output or a regression
 baseline, but it cannot be registered as an independent source and the
 conformance test provides no golden-update mode.
 
+Each `assertions.json` is a separate executable claim about the comparison. It
+is byte-bound to its producer manifest and covers every registered case and
+phase exactly once. It does not turn Emu198x output into reference evidence.
+
 ## Pixel comparison
 
 The comparison operates on unscaled digital pixels. The reference manifest
@@ -146,15 +151,38 @@ exact 17-value step. A channel outside those declared encoding bounds fails
 before pixel comparison.
 
 For A1200 AGA output, the canonical image is 752 × 286 RGB8 pixels. The fixed
-Emu198x crop begins at `(8, 2)` in the 768 × 576 framebuffer. Its mapping to the
-FS-UAE source is established from the bitplane-only checkerboard, dots, and
-crosshatch patterns without alignment search. The comparison retains all eight
-bits per channel and permits no channel tolerance.
+Emu198x crop begins at `(10, 2)` in the 768 × 576 framebuffer. Manifest schema
+2 records the beam-absolute transform `Emu x = FS-UAE raw x + 8`: FS-UAE raw
+`x=0` represents horizontal-blank coarse coordinate 46, while Emu198x `x=0`
+represents CCK 44. The earlier `(8, 2)` crop was derived from bitplane content
+and hid a two-host-sample bitplane-phase error. The correction changes the
+consumer crop and bitplane timing, not the registered producer pixels. The
+comparison retains all eight bits per channel and permits no channel
+tolerance or alignment search.
 
-Every pixel and every compared channel must match. Each profile contains six
-cases and seven reference images because the alternating checkerboard retains
-two phases. There is no percentage threshold for a passing case. On a pixel or
-temporal mismatch the lane records:
+Each profile contains six cases and seven reference images because the
+alternating checkerboard retains two phases. There is no percentage threshold.
+The contract classifies each case and phase as either:
+
+- `exact`, which requires every normalised channel byte to equal the producer
+  reference; or
+- `registered-disagreement`, which requires a non-zero difference and an exact
+  match for the complete normalised Emu198x frame hash, one-byte-per-pixel
+  difference-mask hash, differing-pixel count, first differing pixel, and
+  bounding box.
+
+Unexpected agreement fails a registered-disagreement assertion. A changed
+disagreement also fails even when it has fewer differing pixels. This prevents
+an unresolved comparator question from becoming an open-ended tolerance.
+
+The current contract is:
+
+| Profile | Exact cases | Registered disagreement |
+|---|---|---|
+| A500+A501 OCS PAL | static checkerboard, both alternating-checkerboard phases, dots, crosshatch | gradients and EBU bars: `denise-ocs-color-output-phase` |
+| A1200 AGA PAL | EBU bars, dots, crosshatch | gradients, static checkerboard and both alternating-checkerboard phases: pointer-only `aga-sprite-horizontal-output-phase` |
+
+On a changed pixel or temporal result the lane records:
 
 - the relevant Emu198x frame or phase sequence;
 - a pixel-difference mask for each compared pair;
@@ -172,12 +200,19 @@ expected images.
 
 ## Result interpretation
 
-A passing A500 lane establishes that Emu198x produced the registered vAmiga
-digital pixel output for every executed A500+A501 OCS PAL Test Kit v1.21 case.
-A passing A1200 lane establishes the equivalent agreement with the registered
-FS-UAE output for the A1200 AGA PAL cases. Each claim includes only its pinned
-machine, firmware, media, navigation, registered phase pair and alternation,
-and crop.
+A passing lane establishes that every exact case still agrees with its
+registered producer and every unresolved case still has precisely its reviewed
+disagreement signature. It does not mean that all six cases agree with the
+producer. The closure runner additionally requires all six ordered outcome
+markers for each profile, so a zero exit status without the declared case set
+cannot satisfy the revision-wide closure.
+
+Each result includes only its pinned machine, firmware, media, navigation,
+registered phase pair and alternation, crop, producer-manifest bytes, and
+assertion contract. The A500 gradients and EBU bars remain unresolved against
+vAmiga. The A1200 pointer phase remains unresolved against FS-UAE in three
+patterns. Those questions require stronger independent or physical evidence;
+they are not relaxed comparisons.
 
 It does not establish:
 
@@ -194,6 +229,9 @@ It does not establish:
 - [Amiga Test Kit v1.12 verification](amiga-test-kit-verification.md)
 - [Amiga boot-path golden capture](golden-image-capture.md)
 - [Lisa colour-output delay](../decisions/amiga-lisa-color-output-delay.md)
+- [Lisa bitplane and display-window output phase](../decisions/amiga-lisa-bitplane-diw-output-phase.md)
+- [Denise colour-output phase](../decisions/amiga-denise-color-output-phase.md)
+- [Sprite horizontal-output phase](../decisions/amiga-sprite-horizontal-output-phase.md)
 - [Denise full-raster pipeline](../decisions/amiga-denise-full-raster-pipeline.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)
 - [Test ROM bundling policy](../decisions/test-rom-policy.md)

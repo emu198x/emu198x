@@ -22,7 +22,7 @@
 //! HIRES / HAM / EHB / DPF / sprites / collisions all flow through
 //! the chip's `output_pixel_with_beam_and_playfield_gate` unchanged.
 
-use crate::denise_chip::DeniseChip;
+use crate::denise_chip::{DeniseChip, HorizontalDiwComparatorPhase};
 use crate::memory::Memory;
 
 /// Display dimensions for PAL Standard (line-doubled, lores → 4:3).
@@ -191,6 +191,31 @@ pub fn ddf_window(ddfstrt: u16, ddfstop: u16) -> (u16, u16) {
     (ddfstrt & 0x00FC, ddfstop & 0x00FC)
 }
 
+/// Return whether the horizontal display-window gate is active for one
+/// lores output tick.
+///
+/// OCS/ECS comparator matches control the current tick (`[HSTART, HSTOP)`).
+/// Lisa's additional output stage applies each match after the current tick
+/// (`(HSTART, HSTOP]`). This is the steady-state transfer relation for stable
+/// window registers; it does not claim a history-sensitive latch model for
+/// mid-line DIWSTRT or DIWSTOP rewrites.
+#[inline]
+fn horizontal_diw_active(
+    beam_x_lores: u32,
+    diwstrt: u16,
+    diwstop: u16,
+    comparator_phase: HorizontalDiwComparatorPhase,
+) -> bool {
+    let hstart = u32::from(diwstrt & 0x00FF);
+    let hstop = 0x0100u32 | u32::from(diwstop & 0x00FF);
+    match comparator_phase {
+        HorizontalDiwComparatorPhase::BeforeOutput => {
+            beam_x_lores >= hstart && beam_x_lores < hstop
+        }
+        HorizontalDiwComparatorPhase::AfterOutput => beam_x_lores > hstart && beam_x_lores <= hstop,
+    }
+}
+
 /// Board-level Denise wrapper, generic over the concrete chip
 /// variant via [`DeniseChip`]. Each per-chipset machine crate
 /// instantiates this with its specific Denise type
@@ -241,10 +266,19 @@ impl<C: DeniseChip> Denise<C> {
         }
     }
 
-    /// CPU / copper write to a Denise-owned custom register. Thin
-    /// forwarder into the chip's `write_word`, except that COLOR writes cross
-    /// the early display-side RGA stage after the current output tick.
+    /// CPU or debugger write to a Denise-owned custom register after the
+    /// current output tick. The register is therefore available to the next
+    /// output tick immediately; Lisa retains its own one-hires-sample COLOR
+    /// delay inside the concrete chip.
     pub fn write_word(&mut self, offset: u16, val: u16) {
+        self.ocs.write_word(offset, val);
+    }
+
+    /// Copper write to a Denise-owned custom register before the current
+    /// output tick. COLOR writes cross Denise's early display-side RGA stage,
+    /// so the current output retains the previous colour. Other registers
+    /// retain their existing concrete-chip propagation rules.
+    pub fn write_word_before_output_tick(&mut self, offset: u16, val: u16) {
         if (0x0180..=0x01BE).contains(&offset) && offset.is_multiple_of(2) {
             if !self.ocs.write_color_with_early_output_delay(offset, val) {
                 self.pending_early_writes.push(DenisePendingRegisterWrite {
@@ -543,9 +577,12 @@ impl<C: DeniseChip> Denise<C> {
             // not the wrapped physical counter. This lets genuine bitplane
             // and sprite tails reach the right edge.
             let beam_x_lores = u32::from(raster_hpos) * 2 + u32::from(phase);
-            let hstart = u32::from(agnus.diwstrt & 0x00FF);
-            let hstop = 0x0100u32 | u32::from(agnus.diwstop & 0x00FF);
-            let in_visible_h = beam_x_lores >= hstart && beam_x_lores < hstop;
+            let in_visible_h = horizontal_diw_active(
+                beam_x_lores,
+                agnus.diwstrt,
+                agnus.diwstop,
+                self.ocs.horizontal_diw_comparator_phase(),
+            );
             let playfield_gate = raster_vertical_diw_active && in_visible_h;
 
             // The Denise pipeline runs across the complete projected raster,
@@ -782,6 +819,38 @@ mod tests {
         assert_eq!(ddf_window(0x0038, 0x00D0), (0x38, 0xD0));
         assert_eq!(ddf_window(0x003B, 0x00D2), (0x38, 0xD0));
         assert_eq!(ddf_window(0x003C, 0x00D3), (0x3C, 0xD0));
+    }
+
+    #[test]
+    fn horizontal_diw_gate_obeys_the_variant_comparator_phase() {
+        let diwstrt = 0x2C81;
+        let diwstop = 0x2CC1;
+
+        let before = |beam_x| {
+            horizontal_diw_active(
+                beam_x,
+                diwstrt,
+                diwstop,
+                HorizontalDiwComparatorPhase::BeforeOutput,
+            )
+        };
+        assert!(!before(0x080));
+        assert!(before(0x081));
+        assert!(before(0x1C0));
+        assert!(!before(0x1C1));
+
+        let after = |beam_x| {
+            horizontal_diw_active(
+                beam_x,
+                diwstrt,
+                diwstop,
+                HorizontalDiwComparatorPhase::AfterOutput,
+            )
+        };
+        assert!(!after(0x081));
+        assert!(after(0x082));
+        assert!(after(0x1C1));
+        assert!(!after(0x1C2));
     }
 
     #[test]
@@ -1098,7 +1167,7 @@ mod tests {
         let mut denise = Denise::<DeniseOcs>::new();
         denise.ocs.set_palette(0, 0x0123);
 
-        denise.write_word(0x0180, 0x0ABC);
+        denise.write_word_before_output_tick(0x0180, 0x0ABC);
 
         assert_eq!(denise.color(0), 0x0123);
         assert_eq!(
@@ -1121,6 +1190,42 @@ mod tests {
                 .pending_early_writes
                 .is_empty(),
         );
+    }
+
+    #[test]
+    fn color_write_after_output_is_ready_for_the_next_tick() {
+        use commodore_denise_ocs::DeniseOcs;
+
+        let mut denise = Denise::<DeniseOcs>::new();
+        denise.ocs.set_palette(0, 0x0123);
+
+        denise.write_word(0x0180, 0x0ABC);
+
+        assert_eq!(denise.color(0), 0x0ABC);
+        assert!(
+            denise
+                .board_pipeline_diagnostic_snapshot()
+                .pending_early_writes
+                .is_empty(),
+        );
+    }
+
+    #[test]
+    fn pending_early_color_write_survives_serialization() {
+        use commodore_denise_ocs::DeniseOcs;
+
+        let mut denise = Denise::<DeniseOcs>::new();
+        denise.write_word_before_output_tick(0x0180, 0x0ABC);
+
+        let encoded = postcard::to_allocvec(&denise).expect("serialize Denise pipeline");
+        let restored: Denise<DeniseOcs> =
+            postcard::from_bytes(&encoded).expect("deserialize Denise pipeline");
+
+        assert_eq!(
+            restored.board_pipeline_diagnostic_snapshot(),
+            denise.board_pipeline_diagnostic_snapshot(),
+        );
+        assert_eq!(restored.color(0), 0);
     }
 
     #[test]

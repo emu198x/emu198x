@@ -79,9 +79,9 @@ path = "commodore-amiga/workbench-1.3.adf"
 # depends on how much of the startup sequence has loaded.
 wait_frames = 3500
 frame_hash = "xxh64:d04f967ff00ab933"
-# Workbench's allocator-derived free-memory value can change around this
-# capture boundary. Exclude only its six digits; the rest of the full
-# 768 x 576 frame remains part of the exact hash.
+# Workbench's allocator-derived free-memory value can change in 16-byte
+# allocation quanta around this capture boundary. Exclude only its six digits;
+# the rest of the full 768 x 576 frame remains part of the exact hash.
 ignore_rects = [{ x = 278, y = 38, width = 50, height = 18 }]
 
 [entry.audio]
@@ -378,7 +378,9 @@ path = "commodore-amiga/State of the Art (1992-12-29)(Spaceballs)[TP2#1].zip"
 wait_frames = 6000
 # Active full-screen effect after the loader and title sequence. This is a
 # deterministic compatibility waypoint, not an independent visual oracle.
-frame_hash = "xxh64:5ea33166d3d0545e"
+# Reviewed after separating Copper COLOR writes from CPU/debug writes: the
+# change is one low-resolution sample at the intentional Copper output phase.
+frame_hash = "xxh64:e4a89c1194253bb1"
 
 [entry.audio]
 # The demo soundtrack is active in stereo at this window.

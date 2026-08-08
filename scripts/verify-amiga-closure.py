@@ -37,6 +37,8 @@ ALLOWED_DISAGREEMENT_CLASSIFICATIONS = {
 EXPECTED_DISAGREEMENT_IDS = (
     "paula-stereo-channel-assignment",
     "lisa-color-output-delay",
+    "denise-ocs-color-output-phase",
+    "aga-sprite-horizontal-output-phase",
     "a1000-workbench-pointer-golden-baseline",
     "a1000-workbench-free-memory-readout",
     "disk-read-dma-request-stage",
@@ -61,6 +63,32 @@ EXPECTED_CATALOGUE_IDS = (
     "alien-syndrome-ntsc",
 )
 
+EXPECTED_TEST_KIT_V121_MARKERS = {
+    "test-kit-v1.21-ocs": (
+        "Amiga Test Kit v1.21 A500+A501 OCS PAL video: gradients matched "
+        "registered disagreement signature(s): denise-ocs-color-output-phase",
+        "Amiga Test Kit v1.21 A500+A501 OCS PAL video: static-checkerboard "
+        "matched exactly",
+        "Amiga Test Kit v1.21 A500+A501 OCS PAL video: alternating-checkerboard "
+        "matched exactly",
+        "Amiga Test Kit v1.21 A500+A501 OCS PAL video: ebu-bars matched "
+        "registered disagreement signature(s): denise-ocs-color-output-phase",
+        "Amiga Test Kit v1.21 A500+A501 OCS PAL video: dots matched exactly",
+        "Amiga Test Kit v1.21 A500+A501 OCS PAL video: crosshatch matched exactly",
+    ),
+    "test-kit-v1.21-aga": (
+        "Amiga Test Kit v1.21 A1200 AGA PAL video: gradients matched registered "
+        "disagreement signature(s): aga-sprite-horizontal-output-phase",
+        "Amiga Test Kit v1.21 A1200 AGA PAL video: static-checkerboard matched "
+        "registered disagreement signature(s): aga-sprite-horizontal-output-phase",
+        "Amiga Test Kit v1.21 A1200 AGA PAL video: alternating-checkerboard matched "
+        "registered disagreement signature(s): aga-sprite-horizontal-output-phase",
+        "Amiga Test Kit v1.21 A1200 AGA PAL video: ebu-bars matched exactly",
+        "Amiga Test Kit v1.21 A1200 AGA PAL video: dots matched exactly",
+        "Amiga Test Kit v1.21 A1200 AGA PAL video: crosshatch matched exactly",
+    ),
+}
+
 # This registry is deliberately data rather than prose hidden in the runner.
 # Each row is traceable to the current campaign/process documents and is copied
 # unchanged into every report so a green command cannot erase evidence limits.
@@ -84,11 +112,46 @@ DISAGREEMENT_REGISTRY = [
         "kind": "comparator-disagreement",
         "classification": "fixed",
         "summary": (
-            "The registered A1200 Test Kit gradients and EBU bars became exact "
-            "after Lisa retained the previous palette value for one hires sample."
+            "Lisa's one-hires-sample delay aligned the registered A1200 Test "
+            "Kit COLOR transition boundaries. EBU bars are exact under the "
+            "beam-absolute crop; gradients retain only the separately tracked "
+            "pointer disagreement."
         ),
         "documents": [
             "knowledge/decisions/amiga-lisa-color-output-delay.md",
+            "knowledge/processes/amiga-test-kit-video-conformance.md",
+        ],
+    },
+    {
+        "id": "denise-ocs-color-output-phase",
+        "kind": "comparator-disagreement",
+        "classification": "blocked-stronger-evidence",
+        "summary": (
+            "The A500 gradients and EBU bars retain exact registered "
+            "disagreement signatures: vAmiga applies OCS Copper COLOR writes "
+            "without the early stage observed in the UAE ECS/AGA family. "
+            "Physical OCS evidence or another independent family is required."
+        ),
+        "documents": [
+            "test-data/amiga-test-kit-v1.21/a500-a501-ocs-pal/assertions.json",
+            "knowledge/decisions/amiga-denise-color-output-phase.md",
+            "knowledge/processes/amiga-test-kit-video-conformance.md",
+        ],
+    },
+    {
+        "id": "aga-sprite-horizontal-output-phase",
+        "kind": "comparator-disagreement",
+        "classification": "blocked-stronger-evidence",
+        "summary": (
+            "The A1200 Test Kit retains an exact pointer-local disagreement "
+            "footprint consistent with a two-host-sample displacement under "
+            "the beam-absolute crop. Audited UAE source does not support "
+            "adding a Lisa-only start delay; the machine-neutral sprite probe "
+            "remains the adjudication path."
+        ),
+        "documents": [
+            "test-data/amiga-test-kit-v1.21/a1200-aga-pal/assertions.json",
+            "knowledge/decisions/amiga-sprite-horizontal-output-phase.md",
             "knowledge/processes/amiga-test-kit-video-conformance.md",
         ],
     },
@@ -113,9 +176,10 @@ DISAGREEMENT_REGISTRY = [
         "classification": "scoped-out",
         "summary": (
             "Only the six allocator-derived Workbench 1.2 free-memory digits "
-            "are excluded by the exact 60x18 mask. The reviewed observation "
-            "changed from 131288 to 131224 bytes: 64 bytes, or four 16-byte "
-            "allocator quanta. The desktop pointer is outside the mask."
+            "are excluded by the exact 60x18 mask. Reviewed captures vary in "
+            "16-byte allocator quanta; one comparison changed from 131288 to "
+            "131224 bytes, or four quanta. The desktop pointer is outside the "
+            "mask."
         ),
         "documents": [
             "crates/runtime-commodore-amiga/tests/golden_matrix.rs",
@@ -264,6 +328,7 @@ LANES = (
         required_environment=(
             EnvRequirement("EMU198X_AMIGA_TEST_KIT_V121_ADF", FILE),
         ),
+        validator="test-kit-v1.21-ocs",
     ),
     Lane(
         id="test-kit-v1.21-aga",
@@ -271,6 +336,7 @@ LANES = (
         required_environment=(
             EnvRequirement("EMU198X_AMIGA_TEST_KIT_V121_ADF", FILE),
         ),
+        validator="test-kit-v1.21-aga",
     ),
     Lane(
         id="paula-audio",
@@ -591,6 +657,46 @@ def validate_catalogue_log(path: Path) -> dict[str, object]:
     }
 
 
+def validate_test_kit_v121_log(
+    path: Path, validator_id: str
+) -> dict[str, object]:
+    expected = EXPECTED_TEST_KIT_V121_MARKERS.get(validator_id)
+    if expected is None:
+        raise ValueError(f"unknown Test Kit v1.21 validator: {validator_id}")
+
+    marker_prefix = "Amiga Test Kit v1.21 "
+    actual: list[str] = []
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for raw_line in handle:
+            if (offset := raw_line.find(marker_prefix)) >= 0:
+                actual.append(raw_line[offset:].rstrip("\r\n"))
+
+    expected_list = list(expected)
+    exact_and_ordered = actual == expected_list
+    return {
+        "id": f"{validator_id}-exact-contract-markers",
+        "status": "pass" if exact_and_ordered else "fail",
+        "expected_markers": expected_list,
+        "actual_markers": actual,
+        "expected_marker_count": len(expected_list),
+        "actual_marker_count": len(actual),
+        "markers_unique": len(set(actual)) == len(actual),
+        "markers_exact_and_ordered": exact_and_ordered,
+    }
+
+
+def validate_lane_log(lane: Lane, path: Path) -> dict[str, object] | None:
+    if lane.validator is None:
+        return None
+    if lane.validator == "catalogue-ten":
+        return validate_catalogue_log(path)
+    if lane.validator in EXPECTED_TEST_KIT_V121_MARKERS:
+        return validate_test_kit_v121_log(path, lane.validator)
+    raise RuntimeError(
+        f"lane {lane.id} names unknown log validator {lane.validator}"
+    )
+
+
 def next_attempt_number(lane_record: dict[str, object]) -> int:
     attempts = lane_record.setdefault("attempts", [])
     if not isinstance(attempts, list):
@@ -706,13 +812,19 @@ def referenced_report_logs(
                 f"lane {lane.get('command_id', '<unknown>')} latest passing "
                 "attempt has a non-zero or missing exit code"
             )
-        if lane.get("command_id") == "catalogue-ten":
+        command_id = lane.get("command_id")
+        contract_lane = LANE_BY_ID.get(command_id) if isinstance(command_id, str) else None
+        if contract_lane is None:
+            raise RuntimeError(f"report names unknown lane {command_id}")
+        stored_validation: dict[str, object] | None = None
+        if contract_lane.validator is not None:
             validation = attempts[-1].get("validation")
             if not isinstance(validation, dict) or validation.get("status") != "pass":
                 raise RuntimeError(
-                    "catalogue-ten latest attempt has no passing marker validation"
+                    f"{command_id} latest attempt has no passing marker validation"
                 )
-        for attempt in attempts:
+            stored_validation = validation
+        for attempt_index, attempt in enumerate(attempts):
             if not isinstance(attempt, dict):
                 raise RuntimeError("report lane attempt must be an object")
             if attempt.get("command_id") != lane.get("command_id"):
@@ -737,6 +849,16 @@ def referenced_report_logs(
                 raise RuntimeError(f"invalid or missing log SHA-256: {raw_relative}")
             if sha256_file(source) != expected_sha256:
                 raise RuntimeError(f"referenced log SHA-256 differs: {raw_relative}")
+            if (
+                attempt_index == len(attempts) - 1
+                and stored_validation is not None
+            ):
+                recomputed_validation = validate_lane_log(contract_lane, source)
+                if recomputed_validation != stored_validation:
+                    raise RuntimeError(
+                        f"{command_id} stored marker validation differs from "
+                        "the hashed latest log"
+                    )
             logs[relative.as_posix()] = (source, relative)
     return [logs[key] for key in sorted(logs)]
 
@@ -921,9 +1043,8 @@ def run_lane(
     attempt["duration_seconds"] = round(time.monotonic() - started_monotonic, 3)
     attempt["log_sha256"] = sha256_file(log_path)
 
-    validation: dict[str, object] | None = None
-    if lane.validator == "catalogue-ten":
-        validation = validate_catalogue_log(log_path)
+    validation = validate_lane_log(lane, log_path)
+    if validation is not None:
         attempt["validation"] = validation
 
     if interrupted:

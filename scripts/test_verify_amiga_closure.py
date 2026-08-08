@@ -55,6 +55,14 @@ class VerifyAmigaClosureTests(unittest.TestCase):
             ["EMU198X_AMIGA_TEST_KIT_V121_ADF"],
         )
         self.assertEqual(
+            closure.LANE_BY_ID["test-kit-v1.21-ocs"].validator,
+            "test-kit-v1.21-ocs",
+        )
+        self.assertEqual(
+            closure.LANE_BY_ID["test-kit-v1.21-aga"].validator,
+            "test-kit-v1.21-aga",
+        )
+        self.assertEqual(
             [
                 item.name
                 for item in closure.LANE_BY_ID["catalogue-ten"].required_environment
@@ -141,6 +149,35 @@ class VerifyAmigaClosureTests(unittest.TestCase):
             self.assertEqual(result["status"], "fail")
             self.assertFalse(result["pass_ids_exact_and_ordered"])
 
+    def test_test_kit_validation_requires_exact_contract_markers_and_order(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / "test-kit.log"
+            for validator_id, expected in closure.EXPECTED_TEST_KIT_V121_MARKERS.items():
+                lines = [f"test ignored ... {expected[0]}\n"]
+                lines.extend(f"{marker}\n" for marker in expected[1:])
+                log.write_text("".join(lines), encoding="utf-8")
+                result = closure.validate_test_kit_v121_log(log, validator_id)
+                self.assertEqual(result["status"], "pass")
+                self.assertTrue(result["markers_exact_and_ordered"])
+                self.assertEqual(result["actual_marker_count"], 6)
+
+                reordered = list(lines)
+                reordered[1], reordered[2] = reordered[2], reordered[1]
+                log.write_text("".join(reordered), encoding="utf-8")
+                result = closure.validate_test_kit_v121_log(log, validator_id)
+                self.assertEqual(result["status"], "fail")
+                self.assertFalse(result["markers_exact_and_ordered"])
+
+                duplicated = list(lines)
+                duplicated.append(lines[-1])
+                log.write_text("".join(duplicated), encoding="utf-8")
+                result = closure.validate_test_kit_v121_log(log, validator_id)
+                self.assertEqual(result["status"], "fail")
+                self.assertFalse(result["markers_unique"])
+
+        with self.assertRaisesRegex(ValueError, "unknown Test Kit"):
+            closure.validate_test_kit_v121_log(Path("unused"), "unknown")
+
     def test_redactor_removes_environment_path_values_and_descendants(self) -> None:
         private_root = "/private/reference/library"
         redact = closure.make_redactor(
@@ -201,6 +238,14 @@ class VerifyAmigaClosureTests(unittest.TestCase):
         self.assertEqual(
             registry["a1000-workbench-free-memory-readout"], "scoped-out"
         )
+        self.assertEqual(
+            registry["denise-ocs-color-output-phase"],
+            "blocked-stronger-evidence",
+        )
+        self.assertEqual(
+            registry["aga-sprite-horizontal-output-phase"],
+            "blocked-stronger-evidence",
+        )
 
         missing_row = closure.DISAGREEMENT_REGISTRY[:-1]
         with self.assertRaisesRegex(RuntimeError, "ID set or order"):
@@ -247,7 +292,20 @@ class VerifyAmigaClosureTests(unittest.TestCase):
                 relative_log = Path("logs") / f"lane-{index}.log"
                 log = output / relative_log
                 log.parent.mkdir(parents=True, exist_ok=True)
-                log.write_text(f"redacted lane {index}\n", encoding="utf-8")
+                contract_lane = closure.LANE_BY_ID[lane["command_id"]]
+                if contract_lane.validator == "catalogue-ten":
+                    lines = []
+                    for entry_id in closure.EXPECTED_CATALOGUE_IDS:
+                        lines.append(f"[PASS] {entry_id} (reviewed title)\n")
+                        lines.append(f"[SNAP-PASS] {entry_id}\n")
+                    log.write_text("".join(lines), encoding="utf-8")
+                elif contract_lane.validator in closure.EXPECTED_TEST_KIT_V121_MARKERS:
+                    markers = closure.EXPECTED_TEST_KIT_V121_MARKERS[
+                        contract_lane.validator
+                    ]
+                    log.write_text("\n".join(markers) + "\n", encoding="utf-8")
+                else:
+                    log.write_text(f"redacted lane {index}\n", encoding="utf-8")
                 lane["status"] = "pass"
                 attempt = {
                     "command_id": lane["command_id"],
@@ -258,8 +316,10 @@ class VerifyAmigaClosureTests(unittest.TestCase):
                     "log": relative_log.as_posix(),
                     "log_sha256": closure.sha256_file(log),
                 }
-                if lane["command_id"] == "catalogue-ten":
-                    attempt["validation"] = {"status": "pass"}
+                if contract_lane.validator is not None:
+                    attempt["validation"] = closure.validate_lane_log(
+                        contract_lane, log
+                    )
                 lane["attempts"] = [attempt]
             closure.atomic_write_json(output / closure.REPORT_FILENAME, report)
 
@@ -274,6 +334,44 @@ class VerifyAmigaClosureTests(unittest.TestCase):
             closure.atomic_write_json(output / closure.REPORT_FILENAME, nonzero_exit)
             with self.assertRaisesRegex(RuntimeError, "non-zero or missing exit code"):
                 closure.archive_passing_report(repo, output, nonzero_exit)
+
+            missing_validation = json.loads(json.dumps(report))
+            test_kit_lane = next(
+                lane
+                for lane in missing_validation["lanes"]
+                if lane["command_id"] == "test-kit-v1.21-ocs"
+            )
+            del test_kit_lane["attempts"][0]["validation"]
+            closure.atomic_write_json(
+                output / closure.REPORT_FILENAME, missing_validation
+            )
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "test-kit-v1.21-ocs latest attempt has no passing marker validation",
+            ):
+                closure.archive_passing_report(repo, output, missing_validation)
+
+            forged_validation = json.loads(json.dumps(report))
+            forged_lane = next(
+                lane
+                for lane in forged_validation["lanes"]
+                if lane["command_id"] == "test-kit-v1.21-ocs"
+            )
+            forged_attempt = forged_lane["attempts"][0]
+            forged_log = output / forged_attempt["log"]
+            valid_log_bytes = forged_log.read_bytes()
+            forged_log.write_text("no case markers\n", encoding="utf-8")
+            forged_attempt["log_sha256"] = closure.sha256_file(forged_log)
+            forged_attempt["validation"] = {"status": "pass"}
+            closure.atomic_write_json(
+                output / closure.REPORT_FILENAME, forged_validation
+            )
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "stored marker validation differs from the hashed latest log",
+            ):
+                closure.archive_passing_report(repo, output, forged_validation)
+            forged_log.write_bytes(valid_log_bytes)
 
             dirty_report = json.loads(json.dumps(report))
             dirty_report["dirty"] = True

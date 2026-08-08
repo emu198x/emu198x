@@ -60,11 +60,18 @@ searching for an alignment:
 - write the resulting 752 × 286 RGB8 image without scaling, filtering, colour
   correction, palette conversion, or tolerance.
 
-The corresponding Emu198x crop is `(8, 2)` in its 768 × 576 runtime
-framebuffer. The fixed mapping is established by the registered bitplane-only
-checkerboard, dots, and crosshatch images, which share pixel positions without
-an alignment search. Beam-raced `COLORxx` screens are not used to choose the
-crop because Lisa applies a separate one-hires-pixel colour-output delay.
+The corresponding Emu198x crop is `(10, 2)` in its 768 × 576 runtime
+framebuffer. The fixed horizontal transform is
+`Emu x = FS-UAE raw x + 8`: the retained FS-UAE beam mapping places raw
+`x=0` at horizontal-blank coarse coordinate 46, while the Emu198x framebuffer
+places `x=0` at CCK 44. No alignment search is permitted.
+
+Manifest schema 2 replaces the earlier content-derived `(8, 2)` runtime crop.
+That `+6` mapping aligned the bitplane-only checkerboard, dots, and crosshatch
+while hiding a two-host-sample-early bitplane parallel-load phase. It then
+made correctly beam-timed `COLORxx` transitions appear two samples late.
+Correcting the bitplane phase and the runtime crop changes no producer pixel,
+PNG, or decoded RGB checksum.
 
 All retained producer pixels have opaque alpha. Alpha is validated and then
 discarded; it is not part of the RGB comparison. The AGA reference preserves
@@ -81,9 +88,21 @@ vote, or accuracy outside the registered A1200 configuration and patterns.
 The A500+A501 vAmiga family exercises a different machine and is not a second
 vote for this A1200 result.
 
+The beam-absolute comparison is exact for EBU bars, dots, and crosshatch. In
+gradients, static checkerboard, and both alternating-checkerboard phases, every
+remaining difference is confined to the pointer and is pinned under
+`aga-sprite-horizontal-output-phase`. This is an unresolved comparator
+signature, not a position tolerance or a claim that all six cases agree with
+FS-UAE.
+
+[`assertions.json`](assertions.json) binds these classifications and every
+observed signature to the exact producer-manifest bytes. Unexpected agreement
+or any change to a registered disagreement fails the gate pending review.
+
 ## Expected contents
 
 - `manifest.json`: provenance, geometry, navigation, timing, and checksums;
+- `assertions.json`: exact and registered-disagreement comparison contracts;
 - `package.py`: strict raw-run packaging and committed-reference verification;
 - one RGB8 PNG for each static pattern and two for the alternating pattern;
 - this README.

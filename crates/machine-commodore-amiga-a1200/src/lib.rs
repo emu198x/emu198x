@@ -1208,6 +1208,35 @@ impl AmigaA1200 {
         }
     }
 
+    /// Dispatch a Copper MOVE before Lisa renders the current output tick.
+    fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
+        if (0x0180..=0x01BE).contains(&offset) && offset.is_multiple_of(2) {
+            self.denise.write_word_before_output_tick(offset, val);
+            self.record_palette_write(offset, val);
+        } else {
+            self.dispatch_custom_write(offset, val);
+        }
+    }
+
+    fn record_palette_write(&mut self, offset: u16, val: u16) {
+        // Lisa's live BPLCON3 value identifies BANK and LOCT for COLOR writes
+        // and the selector context for BPLCON3/BPLCON4 diagnostics.
+        if (((0x180..=0x1BE).contains(&offset) && offset.is_multiple_of(2))
+            || offset == 0x0106
+            || offset == 0x010C)
+            && self.debug_palette_log.len() < 262144
+        {
+            let bplcon3 = self.denise.ocs.bplcon3;
+            self.debug_palette_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                offset,
+                val,
+                Some(bplcon3),
+            ));
+        }
+    }
+
     /// Dispatch a custom-register word write to the right submodule.
     /// Shared between `poke_word` and the CPU bus servicer.
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
@@ -1416,27 +1445,7 @@ impl AmigaA1200 {
                 val,
             ));
         }
-        // Capture COLOR ($180..$1BE), BPLCON3 ($106) and BPLCON4
-        // ($10C) writes together with the live BPLCON3 (so we can
-        // reconstruct BANK + LOCT context). BPLCON4 carries BPLAM
-        // (bits 15..8) — the AGA bitplane colour-base XOR that
-        // remaps displayed indices into other palette banks; without
-        // catching it we can't tell whether the OS is trying to
-        // point a 4-colour display at the grey ramp at slots 16-23.
-        if (((0x180..=0x1BE).contains(&offset) && (offset & 1) == 0)
-            || offset == 0x0106
-            || offset == 0x010C)
-            && self.debug_palette_log.len() < 262144
-        {
-            let bplcon3 = self.denise.ocs.bplcon3;
-            self.debug_palette_log.push((
-                self.tick_count / TICKS_PER_CCK,
-                self.cpu.regs.pc,
-                offset,
-                val,
-                Some(bplcon3),
-            ));
-        }
+        self.record_palette_write(offset, val);
         if offset == 0x09A {
             self.debug_intena_writes += 1;
             let intena_after = self.paula.intena();
@@ -2414,6 +2423,9 @@ impl AmigaDriver for AmigaA1200 {
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
         AmigaA1200::dispatch_custom_write(self, offset, val);
     }
+    fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
+        AmigaA1200::dispatch_copper_write(self, offset, val);
+    }
     fn feed_next_write_word(&mut self) {
         AmigaA1200::feed_next_write_word(self);
     }
@@ -2460,6 +2472,36 @@ mod bus_plan_dispatch_tests {
     use motorola_68000::cpu::{ActiveBusTransfer, State};
     use motorola_68000::microcode::MicroOp;
     use peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
+
+    #[test]
+    fn copper_and_post_output_color_writes_keep_distinct_phases_and_diagnostics() {
+        use common_commodore_amiga::DeniseChip as _;
+
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        amiga.denise.write_word(0x0180, 0x0123);
+        amiga.denise.ocs.advance_color_output_samples(1);
+
+        amiga.dispatch_copper_write(0x0180, 0x0ABC);
+        assert_eq!(amiga.denise.color(0), 0x0ABC);
+        let pipeline = amiga.denise.ocs.diagnostic_snapshot();
+        assert_eq!(
+            pipeline
+                .pending_early_color_write
+                .and_then(|write| write.previous_rgb12),
+            Some(0x0123),
+        );
+        assert_eq!(
+            amiga.debug_palette_log.last().map(|entry| entry.2),
+            Some(0x0180)
+        );
+
+        amiga.dispatch_custom_write(0x0182, 0x0456);
+        assert_eq!(amiga.denise.color(1), 0x0456);
+        assert_eq!(
+            amiga.debug_palette_log.last().map(|entry| entry.2),
+            Some(0x0182)
+        );
+    }
 
     #[test]
     fn track_change_preserves_rotational_word_phase() {
@@ -3507,6 +3549,8 @@ mod bus_plan_dispatch_tests {
 
     #[test]
     fn a1200_denise_tick_uses_lisa_fine_hblank_phase() {
+        use common_commodore_amiga::DeniseChip as _;
+
         let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
         amiga.agnus.vpos = 0x0032;
         amiga.agnus.write_diwstop(0x64FF);
@@ -3518,10 +3562,18 @@ mod bus_plan_dispatch_tests {
         // four-sample CCK grid pairs the eight Lisa phases, so the first
         // output sample in phase one is blank and the second is visible.
         amiga.agnus.bplcon0 = 0x0001; // ECSENA
+        amiga.denise.write_word(0x0100, 0x0001);
         amiga.denise.write_word(0x0106, 0x0001); // EXTBLKEN
         amiga.denise.write_word(0x0180, 0x00F0);
+        // This test isolates the fine HBLANK edge, so retire Lisa's separate
+        // one-hires-sample COLOR delay before sampling the comparator.
+        amiga.denise.ocs.advance_color_output_samples(1);
         amiga.agnus.write_hbstrt(0x0080);
         amiga.agnus.write_hbstop(0x07A0);
+        amiga.denise.ocs.set_programmed_hblank_input(0x0080, 0x07A0);
+        for _ in 0..3 {
+            amiga.denise.ocs.advance_register_output_pipeline();
+        }
         amiga.agnus.hpos = 0x0080;
         <AmigaA1200 as AmigaDriver>::denise_tick(&mut amiga, 0, None);
         amiga.agnus.hpos = 0x00A0;

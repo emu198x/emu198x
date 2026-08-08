@@ -285,7 +285,7 @@
     "png_encoding": "RGB8 filter-none zlib-level-9",
     "python_version": "3.14.3",
     "tool": "package.py",
-    "tool_sha256": "3aad61692879397c2a613a44c5fa6df279fee8163480c6150047ae25ab43629c",
+    "tool_sha256": "e238b3baea92c07b22e7183c5c2ece080982a4bd76e6b546fe098f5cf1feed82",
     "zlib_version": "1.2.12"
   },
   "producer": {
@@ -300,7 +300,7 @@
     "uae_base_version": "WinUAE 6.0.1",
     "version": "5.0.7"
   },
-  "schema_version": 1,
+  "schema_version": 2,
   "suite": {
     "adf_sha256": "abe7426c93619a7bb61ce10e3e66a4747fcaf22acd1d1876310033faa700ad28",
     "name": "Amiga Test Kit",
@@ -320,9 +320,13 @@
     "producer_y": 0,
     "runtime_height": 576,
     "runtime_width": 768,
-    "runtime_x": 8,
+    "runtime_x": 10,
     "runtime_y": 2,
     "vertical_decimation": 2,
-    "width": 752
+    "width": 752,
+    "horizontal_mapping": {
+      "formula": "runtime_x = producer_raw_x + 8",
+      "basis": "beam-absolute PAL host-HIRES mapping: producer raw x=0 is HB coarse coordinate 46; Emu198x x=0 is CCK 44"
+    }
   }
 }

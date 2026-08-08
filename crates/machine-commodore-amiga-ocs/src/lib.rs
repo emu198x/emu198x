@@ -1370,6 +1370,34 @@ impl AmigaOcs {
         }
     }
 
+    /// Dispatch a Copper MOVE before Denise renders the current output tick.
+    fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
+        if (0x0180..=0x01BE).contains(&offset) && offset.is_multiple_of(2) {
+            self.denise.write_word_before_output_tick(offset, val);
+            self.record_palette_write(offset, val);
+        } else {
+            self.dispatch_custom_write(offset, val);
+        }
+    }
+
+    fn record_palette_write(&mut self, offset: u16, val: u16) {
+        // On OCS BPLCON3 is not backed by a chip register. The attempted
+        // write remains inspectable, but there is no live selector value.
+        if (((0x180..=0x1BE).contains(&offset) && offset.is_multiple_of(2))
+            || offset == 0x0106
+            || offset == 0x010C)
+            && self.debug_palette_log.len() < 262144
+        {
+            self.debug_palette_log.push((
+                self.tick_count / TICKS_PER_CCK,
+                self.cpu.regs.pc,
+                offset,
+                val,
+                None,
+            ));
+        }
+    }
+
     /// Dispatch a custom-register word write to the right submodule.
     /// Shared between `poke_word` and the CPU bus servicer.
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
@@ -1565,27 +1593,7 @@ impl AmigaOcs {
                 val,
             ));
         }
-        // Capture COLOR ($180..$1BE), BPLCON3 ($0106) and BPLCON4
-        // ($010C) writes. On OCS BPLCON3 isn't backed by any chip
-        // register (the address writes nowhere) — we still record the
-        // attempt so games / probes that hit $0106 / $010C show up.
-        // The fifth field is `None` because there's no live BPLCON3
-        // state to sample; the AGA / ECS impls sample their real
-        // BPLCON3 register so callers can reconstruct AGA-bank /
-        // sprite-resolution context.
-        if (((0x180..=0x1BE).contains(&offset) && (offset & 1) == 0)
-            || offset == 0x0106
-            || offset == 0x010C)
-            && self.debug_palette_log.len() < 262144
-        {
-            self.debug_palette_log.push((
-                self.tick_count / TICKS_PER_CCK,
-                self.cpu.regs.pc,
-                offset,
-                val,
-                None,
-            ));
-        }
+        self.record_palette_write(offset, val);
         if offset == 0x09A {
             self.debug_intena_writes += 1;
             let intena_after = self.paula.intena();
@@ -2539,6 +2547,9 @@ impl AmigaDriver for AmigaOcs {
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
         AmigaOcs::dispatch_custom_write(self, offset, val);
     }
+    fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
+        AmigaOcs::dispatch_copper_write(self, offset, val);
+    }
     fn feed_next_write_word(&mut self) {
         AmigaOcs::feed_next_write_word(self);
     }
@@ -2657,6 +2668,77 @@ mod tests {
         copper.wait_target = target_hp;
         copper.wait_mask = 0x80FE;
         copper.wait_bfd = true;
+    }
+
+    #[test]
+    fn copper_and_post_output_color_writes_keep_distinct_phases_and_diagnostics() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.denise.ocs.set_palette(0, 0x0123);
+
+        amiga.dispatch_copper_write(0x0180, 0x0ABC);
+        assert_eq!(amiga.denise.color(0), 0x0123);
+        assert_eq!(
+            amiga
+                .denise
+                .board_pipeline_diagnostic_snapshot()
+                .pending_early_writes
+                .len(),
+            1,
+        );
+        assert_eq!(
+            amiga.debug_palette_log.last().map(|entry| entry.2),
+            Some(0x0180)
+        );
+
+        amiga.dispatch_custom_write(0x0182, 0x0456);
+        assert_eq!(amiga.denise.color(1), 0x0456);
+        assert_eq!(
+            amiga.debug_palette_log.last().map(|entry| entry.2),
+            Some(0x0182)
+        );
+    }
+
+    #[test]
+    fn scheduler_dispatches_copper_color_before_current_output() {
+        const OLD_ARGB: u32 = 0xFF11_2233;
+        const NEW_COLOR: u16 = 0x0ABC;
+
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.denise.ocs.set_palette(0, 0x0123);
+        amiga.agnus.vpos = 0x0032;
+        amiga.agnus.write_diwstrt(0x2C81);
+        amiga.agnus.write_diwstop(0xF4C1);
+
+        amiga.memory.write_word(0x1000, 0x0180); // MOVE COLOR00
+        amiga.memory.write_word(0x1002, NEW_COLOR);
+        amiga.copper.pc = 0x1000;
+        amiga.copper.cck_phase = 1; // complete the pair on this granted cell
+        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_COPEN;
+        amiga.cck_phase = 0;
+        amiga.agnus.hpos = 0x0043; // phase-zero advance enters free cell $44
+
+        amiga.tick();
+
+        assert_eq!(amiga.agnus.hpos, 0x0044);
+        assert_eq!(amiga.denise.color(0), NEW_COLOR);
+        assert!(
+            amiga
+                .denise
+                .board_pipeline_diagnostic_snapshot()
+                .pending_early_writes
+                .is_empty(),
+            "the Copper stage must retire after the current output tick",
+        );
+        let row = usize::from(0x0032u16 - 0x0019) * 2;
+        let x = usize::from(0x0044u16 - 0x002C) * 4;
+        assert_eq!(
+            &amiga.denise.framebuffer()
+                [row * denise::FB_WIDTH as usize + x..row * denise::FB_WIDTH as usize + x + 2],
+            &[OLD_ARGB, OLD_ARGB],
+            "the output tick containing the MOVE must retain the old colour",
+        );
+        assert_eq!(amiga.debug_copper_move_log.len(), 1);
+        assert_eq!(amiga.debug_palette_log.len(), 1);
     }
 
     #[test]

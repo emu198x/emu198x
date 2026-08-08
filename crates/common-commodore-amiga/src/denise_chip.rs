@@ -12,6 +12,16 @@
 use commodore_denise_ecs::DeniseEcs;
 use commodore_denise_ocs::{DeniseOcs, DeniseOutputPixelDebug};
 
+/// Timing of a horizontal display-window comparator match relative to the
+/// output tick at the matching beam position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HorizontalDiwComparatorPhase {
+    /// The comparator result controls the output at the matching position.
+    BeforeOutput,
+    /// The comparator result controls the output after the matching position.
+    AfterOutput,
+}
+
 /// Methods + field accessors the board-level `Denise` wrapper calls
 /// on the concrete chip. Both OCS Denise and ECS Super Denise impl
 /// this; the wrapper is generic over the impl.
@@ -22,6 +32,13 @@ pub trait DeniseChip:
     Clone + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static
 {
     fn new() -> Self;
+
+    /// Select when horizontal DIW comparator matches reach pixel output.
+    /// OCS Denise and ECS Super Denise use the match for the current tick;
+    /// AGA Lisa overrides this with its additional output stage.
+    fn horizontal_diw_comparator_phase(&self) -> HorizontalDiwComparatorPhase {
+        HorizontalDiwComparatorPhase::BeforeOutput
+    }
 
     // ── Register / data writes the wrapper forwards ──
     fn write_word(&mut self, offset: u16, val: u16);
@@ -355,6 +372,21 @@ impl DeniseChip for DeniseEcs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ocs_and_ecs_use_current_tick_horizontal_diw_matches() {
+        let ocs = DeniseOcs::new();
+        let ecs = DeniseEcs::new();
+
+        assert_eq!(
+            ocs.horizontal_diw_comparator_phase(),
+            HorizontalDiwComparatorPhase::BeforeOutput,
+        );
+        assert_eq!(
+            ecs.horizontal_diw_comparator_phase(),
+            HorizontalDiwComparatorPhase::BeforeOutput,
+        );
+    }
 
     #[test]
     fn ecs_live_output_adapter_honors_killehb() {

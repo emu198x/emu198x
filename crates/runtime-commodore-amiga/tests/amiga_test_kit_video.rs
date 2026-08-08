@@ -114,7 +114,7 @@ const A1200_PROFILE: GateProfile = GateProfile {
     kickstart_label: "Kickstart 3.1 r40.068",
     kickstart_bytes: A1200_KICKSTART_BYTES,
     kickstart_sha256: A1200_KICKSTART_SHA256,
-    crop_x: 8,
+    crop_x: 10,
     crop_y: 2,
     crop_width: 752,
     crop_height: 572,
@@ -367,6 +367,14 @@ struct A1200ViewportManifest {
     canonical_height: u32,
     pixel_format: String,
     alignment_search: bool,
+    horizontal_mapping: HorizontalMappingManifest,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HorizontalMappingManifest {
+    formula: String,
+    basis: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -435,7 +443,7 @@ struct CaptureProvenanceManifest {
     operator: String,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct PixelMismatch {
     differing_pixels: usize,
     first_x: u32,
@@ -448,12 +456,83 @@ struct PixelMismatch {
     max_y: u32,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AssertionsContract {
+    schema_version: u32,
+    profile_id: String,
+    producer_manifest_sha256: String,
+    canonical_width: u32,
+    canonical_height: u32,
+    pixel_encoding: String,
+    normalized_actual_channel_encoding: String,
+    diff_mask_encoding: String,
+    assertions: Vec<FrameAssertionContract>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FrameAssertionContract {
+    case: String,
+    phase: String,
+    expectation: AssertionExpectation,
+    disagreement_id: Option<String>,
+    normalized_actual_channel_bytes_sha256: String,
+    diff_mask_sha256: String,
+    differing_pixels: usize,
+    first_difference: Option<AssertionFirstDifference>,
+    bounding_box: Option<AssertionBoundingBox>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum AssertionExpectation {
+    Exact,
+    RegisteredDisagreement,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct AssertionFirstDifference {
+    x: u32,
+    y: u32,
+    expected_rgb: [u8; 3],
+    actual_rgb: [u8; 3],
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct AssertionBoundingBox {
+    min_x: u32,
+    min_y: u32,
+    max_x: u32,
+    max_y: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ObservedFrameSignature {
+    normalized_actual_channel_bytes_sha256: String,
+    diff_mask_sha256: String,
+    differing_pixels: usize,
+    first_difference: Option<AssertionFirstDifference>,
+    bounding_box: Option<AssertionBoundingBox>,
+}
+
 #[derive(Clone, Copy)]
 struct DiagnosticContext<'a> {
     profile: &'a GateProfile,
     case_id: &'a str,
     frame_manifest: &'a FrameManifest,
     producer_id: &'a str,
+}
+
+#[derive(Clone, Copy)]
+struct CaseRunContext<'a> {
+    profile: &'a GateProfile,
+    case: &'a Case,
+    frame_manifest: &'a FrameManifest,
+    producer_id: &'a str,
+    assertions: &'a AssertionsContract,
 }
 
 #[test]
@@ -478,16 +557,136 @@ fn amiga_test_kit_v121_reference_manifest_is_self_consistent() {
 }
 
 #[test]
+fn amiga_test_kit_v121_assertion_contracts_are_self_consistent() {
+    let a500_dir = reference_dir(&A500_PROFILE);
+    let a500_manifest = load_a500_manifest(&a500_dir);
+    let a500_assertions = load_assertions_contract(&a500_dir);
+    validate_assertions_contract(
+        &A500_PROFILE,
+        &a500_dir,
+        &a500_manifest.frames,
+        &a500_assertions,
+    );
+
+    let a1200_dir = reference_dir(&A1200_PROFILE);
+    let a1200_manifest = load_a1200_manifest(&a1200_dir);
+    let a1200_assertions = load_assertions_contract(&a1200_dir);
+    validate_assertions_contract(
+        &A1200_PROFILE,
+        &a1200_dir,
+        &a1200_manifest.frames,
+        &a1200_assertions,
+    );
+}
+
+#[test]
+fn assertion_signature_uses_one_mask_byte_per_pixel() {
+    let profile = GateProfile {
+        canonical_width: 2,
+        canonical_height: 1,
+        ..A1200_PROFILE
+    };
+    let expected = [0x00, 0x00, 0x00, 0x11, 0x22, 0x33];
+    let actual = [0x00, 0x00, 0x00, 0x11, 0x22, 0x44];
+    let mismatch = pixel_mismatch(&profile, &actual, &expected).expect("second pixel differs");
+
+    assert_eq!(diff_mask(&actual, &expected), [0, 1]);
+    assert_eq!(
+        observed_frame_signature(&profile, &actual, &expected, Some(&mismatch)),
+        ObservedFrameSignature {
+            normalized_actual_channel_bytes_sha256: sha256_hex(&actual),
+            diff_mask_sha256: sha256_hex(&[0, 1]),
+            differing_pixels: 1,
+            first_difference: Some(AssertionFirstDifference {
+                x: 1,
+                y: 0,
+                expected_rgb: [0x11, 0x22, 0x33],
+                actual_rgb: [0x11, 0x22, 0x44],
+            }),
+            bounding_box: Some(AssertionBoundingBox {
+                min_x: 1,
+                min_y: 0,
+                max_x: 1,
+                max_y: 0,
+            }),
+        }
+    );
+}
+
+#[test]
+fn registered_disagreement_rejects_agreement_and_signature_drift() {
+    let assertion = FrameAssertionContract {
+        case: "case".to_owned(),
+        phase: "static".to_owned(),
+        expectation: AssertionExpectation::RegisteredDisagreement,
+        disagreement_id: Some("registered-id".to_owned()),
+        normalized_actual_channel_bytes_sha256: "11".repeat(32),
+        diff_mask_sha256: "22".repeat(32),
+        differing_pixels: 1,
+        first_difference: Some(AssertionFirstDifference {
+            x: 0,
+            y: 0,
+            expected_rgb: [0, 0, 0],
+            actual_rgb: [1, 1, 1],
+        }),
+        bounding_box: Some(AssertionBoundingBox {
+            min_x: 0,
+            min_y: 0,
+            max_x: 0,
+            max_y: 0,
+        }),
+    };
+    let registered = ObservedFrameSignature {
+        normalized_actual_channel_bytes_sha256: assertion
+            .normalized_actual_channel_bytes_sha256
+            .clone(),
+        diff_mask_sha256: assertion.diff_mask_sha256.clone(),
+        differing_pixels: assertion.differing_pixels,
+        first_difference: assertion.first_difference.clone(),
+        bounding_box: assertion.bounding_box.clone(),
+    };
+    assert_eq!(
+        validate_observed_frame_signature(&assertion, &registered),
+        Ok(Some("registered-id".to_owned()))
+    );
+
+    let unexpected_agreement = ObservedFrameSignature {
+        differing_pixels: 0,
+        first_difference: None,
+        bounding_box: None,
+        ..registered.clone()
+    };
+    assert!(
+        validate_observed_frame_signature(&assertion, &unexpected_agreement)
+            .expect_err("registered disagreement must reject exact agreement")
+            .contains("unexpected agreement")
+    );
+
+    let changed = ObservedFrameSignature {
+        normalized_actual_channel_bytes_sha256: "33".repeat(32),
+        ..registered
+    };
+    assert!(
+        validate_observed_frame_signature(&assertion, &changed)
+            .expect_err("changed registered signature must fail")
+            .contains("assertion signature changed")
+    );
+}
+
+#[test]
 #[ignore = "explicit Amiga Test Kit v1.21 reference-pattern gate"]
 fn amiga_test_kit_v121_a500_a501_ocs_pal_matches_reference() {
     let reference_dir = reference_dir(&A500_PROFILE);
     let manifest = load_a500_manifest(&reference_dir);
     validate_a500_manifest(&manifest);
+    let assertions = load_assertions_contract(&reference_dir);
+    validate_assertions_contract(&A500_PROFILE, &reference_dir, &manifest.frames, &assertions);
     run_profile_gate(
         &A500_PROFILE,
         &reference_dir,
         &manifest.producer.id,
         &manifest.frames,
+        &assertions,
     );
 }
 
@@ -497,11 +696,19 @@ fn amiga_test_kit_v121_a1200_aga_pal_matches_reference() {
     let reference_dir = reference_dir(&A1200_PROFILE);
     let manifest = load_a1200_manifest(&reference_dir);
     validate_a1200_manifest(&manifest);
+    let assertions = load_assertions_contract(&reference_dir);
+    validate_assertions_contract(
+        &A1200_PROFILE,
+        &reference_dir,
+        &manifest.frames,
+        &assertions,
+    );
     run_profile_gate(
         &A1200_PROFILE,
         &reference_dir,
         &manifest.producer.id,
         &manifest.frames,
+        &assertions,
     );
 }
 
@@ -510,6 +717,7 @@ fn run_profile_gate(
     reference_dir: &Path,
     producer_id: &str,
     frames: &[FrameManifest],
+    assertions: &AssertionsContract,
 ) {
     prepare_diagnostics_dir(profile);
 
@@ -548,10 +756,17 @@ fn run_profile_gate(
             frame_manifest,
             producer_id,
             &expected,
+            assertions,
         ) {
-            Ok(()) => eprintln!(
-                "Amiga Test Kit v1.21 {} video: {} matched",
+            Ok(disagreements) if disagreements.is_empty() => eprintln!(
+                "Amiga Test Kit v1.21 {} video: {} matched exactly",
                 profile.machine_label, case.id
+            ),
+            Ok(disagreements) => eprintln!(
+                "Amiga Test Kit v1.21 {} video: {} matched registered disagreement signature(s): {}",
+                profile.machine_label,
+                case.id,
+                disagreements.into_iter().collect::<Vec<_>>().join(", ")
             ),
             Err(error) => failures.push(format!("{}: {error}", case.id)),
         }
@@ -572,7 +787,8 @@ fn run_case(
     frame_manifest: &FrameManifest,
     producer_id: &str,
     expected: &[Vec<u8>],
-) -> Result<(), String> {
+    assertions: &AssertionsContract,
+) -> Result<BTreeSet<String>, String> {
     for (index, key) in case.navigation.iter().enumerate() {
         press_registered_key(session, key)?;
         if index + 1 < case.navigation.len() {
@@ -585,24 +801,21 @@ fn run_case(
         .run_frames(case.settle_fields)
         .map_err(|error| format!("settle reference pattern: {error}"))?;
 
+    let context = CaseRunContext {
+        profile,
+        case,
+        frame_manifest,
+        producer_id,
+        assertions,
+    };
     match case.behaviour {
         Behaviour::Static => run_static_case(
-            profile,
+            context,
             session,
-            case,
-            frame_manifest,
-            producer_id,
             &expected[0],
             &frame_manifest.references[0],
         ),
-        Behaviour::Alternating => run_alternating_case(
-            profile,
-            session,
-            case,
-            frame_manifest,
-            producer_id,
-            expected,
-        ),
+        Behaviour::Alternating => run_alternating_case(context, session, expected),
     }
 }
 
@@ -625,14 +838,18 @@ fn press_registered_key(session: &mut TestSession, name: &str) -> Result<(), Str
 }
 
 fn run_static_case(
-    profile: &GateProfile,
+    context: CaseRunContext<'_>,
     session: &mut TestSession,
-    case: &Case,
-    frame_manifest: &FrameManifest,
-    producer_id: &str,
     expected: &[u8],
     reference: &ReferenceImageManifest,
-) -> Result<(), String> {
+) -> Result<BTreeSet<String>, String> {
+    let CaseRunContext {
+        profile,
+        case,
+        frame_manifest,
+        producer_id,
+        assertions,
+    } = context;
     let first = normalized_frame(profile, session)?;
     session
         .run_frames(1)
@@ -653,25 +870,34 @@ fn run_static_case(
             diagnostics_dir(profile).display()
         ));
     }
-    compare_or_diagnose(
-        profile,
-        case.id,
-        frame_manifest,
-        producer_id,
+    let assertion = frame_assertion(assertions, case.id, &reference.phase);
+    let disagreement = assert_frame_contract(
+        DiagnosticContext {
+            profile,
+            case_id: case.id,
+            frame_manifest,
+            producer_id,
+        },
         &second,
         expected,
         reference,
-    )
+        assertion,
+    )?;
+    Ok(disagreement.into_iter().collect())
 }
 
 fn run_alternating_case(
-    profile: &GateProfile,
+    context: CaseRunContext<'_>,
     session: &mut TestSession,
-    case: &Case,
-    frame_manifest: &FrameManifest,
-    producer_id: &str,
     expected: &[Vec<u8>],
-) -> Result<(), String> {
+) -> Result<BTreeSet<String>, String> {
+    let CaseRunContext {
+        profile,
+        case,
+        frame_manifest,
+        producer_id,
+        assertions,
+    } = context;
     let phase_a = normalized_frame(profile, session)?;
     session
         .run_frames(1)
@@ -710,12 +936,6 @@ fn run_alternating_case(
         2,
         "alternating case must have two registered phases"
     );
-    if (phase_a == expected[0] && phase_b == expected[1])
-        || (phase_a == expected[1] && phase_b == expected[0])
-    {
-        return Ok(());
-    }
-
     let direct_score = differing_pixel_count(&phase_a, &expected[0])
         + differing_pixel_count(&phase_b, &expected[1]);
     let reversed_score = differing_pixel_count(&phase_a, &expected[1])
@@ -725,77 +945,218 @@ fn run_alternating_case(
     } else {
         (1, 0)
     };
-    let expected_a = &expected[expected_a_index];
-    let expected_b = &expected[expected_b_index];
-    let mismatch_a = pixel_mismatch(profile, &phase_a, expected_a);
-    let mismatch_b = pixel_mismatch(profile, &phase_b, expected_b);
-    if let Some(mismatch) = &mismatch_a {
-        write_mismatch_diagnostics(
+    let comparisons = [
+        (&phase_a, expected_a_index, "runtime phase A"),
+        (&phase_b, expected_b_index, "runtime phase B"),
+    ];
+    let mut disagreements = BTreeSet::new();
+    let mut failures = Vec::new();
+    for (actual, expected_index, runtime_phase) in comparisons {
+        let reference = &frame_manifest.references[expected_index];
+        let artifact_id = assertion_artifact_id(case.id, &reference.phase);
+        let assertion = frame_assertion(assertions, case.id, &reference.phase);
+        match assert_frame_contract(
             DiagnosticContext {
                 profile,
-                case_id: &format!("{}-phase-a", case.id),
+                case_id: &artifact_id,
                 frame_manifest,
                 producer_id,
             },
-            &frame_manifest.references[expected_a_index],
-            &phase_a,
-            expected_a,
-            mismatch,
-        );
+            actual,
+            &expected[expected_index],
+            reference,
+            assertion,
+        ) {
+            Ok(Some(disagreement_id)) => {
+                disagreements.insert(disagreement_id);
+            }
+            Ok(None) => {}
+            Err(error) => failures.push(format!(
+                "{runtime_phase} mapped to reference phase {}: {error}",
+                reference.phase
+            )),
+        }
     }
-    if let Some(mismatch) = &mismatch_b {
-        write_mismatch_diagnostics(
-            DiagnosticContext {
-                profile,
-                case_id: &format!("{}-phase-b", case.id),
-                frame_manifest,
-                producer_id,
-            },
-            &frame_manifest.references[expected_b_index],
-            &phase_b,
-            expected_b,
-            mismatch,
-        );
+    if failures.is_empty() {
+        Ok(disagreements)
+    } else {
+        Err(failures.join("; "))
     }
-    let phase_a_result = mismatch_a.as_ref().map_or_else(
-        || "matched".to_owned(),
-        |mismatch| mismatch_message(profile, mismatch),
-    );
-    let phase_b_result = mismatch_b.as_ref().map_or_else(
-        || "matched".to_owned(),
-        |mismatch| mismatch_message(profile, mismatch),
-    );
-    Err(format!(
-        "phase A {}; phase B {}",
-        phase_a_result, phase_b_result
-    ))
 }
 
-fn compare_or_diagnose(
-    profile: &GateProfile,
-    case_id: &str,
-    frame_manifest: &FrameManifest,
-    producer_id: &str,
+fn assert_frame_contract(
+    context: DiagnosticContext<'_>,
     actual: &[u8],
     expected: &[u8],
     reference: &ReferenceImageManifest,
-) -> Result<(), String> {
-    let Some(mismatch) = pixel_mismatch(profile, actual, expected) else {
-        return Ok(());
-    };
-    write_mismatch_diagnostics(
-        DiagnosticContext {
-            profile,
-            case_id,
-            frame_manifest,
-            producer_id,
+    assertion: &FrameAssertionContract,
+) -> Result<Option<String>, String> {
+    let DiagnosticContext {
+        profile,
+        case_id,
+        frame_manifest,
+        producer_id,
+    } = context;
+    let mismatch = pixel_mismatch(profile, actual, expected);
+    if let Some(mismatch) = &mismatch {
+        write_mismatch_diagnostics(
+            DiagnosticContext {
+                profile,
+                case_id,
+                frame_manifest,
+                producer_id,
+            },
+            reference,
+            actual,
+            expected,
+            mismatch,
+        );
+    }
+
+    let observed = observed_frame_signature(profile, actual, expected, mismatch.as_ref());
+    validate_observed_frame_signature(assertion, &observed).map_err(|error| {
+        if assertion.expectation == AssertionExpectation::Exact
+            && let Some(mismatch) = &mismatch
+        {
+            format!("{error}; {}", mismatch_message(profile, mismatch))
+        } else {
+            error
+        }
+    })
+}
+
+fn validate_observed_frame_signature(
+    assertion: &FrameAssertionContract,
+    observed: &ObservedFrameSignature,
+) -> Result<Option<String>, String> {
+    match (assertion.expectation, observed.differing_pixels) {
+        (AssertionExpectation::Exact, 1..) => {
+            return Err("expected an exact match but pixels differ".to_owned());
+        }
+        (AssertionExpectation::RegisteredDisagreement, 0) => {
+            return Err(format!(
+                "unexpected agreement for registered disagreement {}",
+                assertion
+                    .disagreement_id
+                    .as_deref()
+                    .expect("validated disagreement must have an ID")
+            ));
+        }
+        _ => {}
+    }
+
+    let mut changes = Vec::new();
+    if observed.normalized_actual_channel_bytes_sha256
+        != assertion.normalized_actual_channel_bytes_sha256
+    {
+        changes.push(format!(
+            "normalized actual SHA-256 {} != {}",
+            observed.normalized_actual_channel_bytes_sha256,
+            assertion.normalized_actual_channel_bytes_sha256
+        ));
+    }
+    if observed.diff_mask_sha256 != assertion.diff_mask_sha256 {
+        changes.push(format!(
+            "diff-mask SHA-256 {} != {}",
+            observed.diff_mask_sha256, assertion.diff_mask_sha256
+        ));
+    }
+    if observed.differing_pixels != assertion.differing_pixels {
+        changes.push(format!(
+            "differing-pixel count {} != {}",
+            observed.differing_pixels, assertion.differing_pixels
+        ));
+    }
+    if observed.first_difference != assertion.first_difference {
+        changes.push(format!(
+            "first difference {:?} != {:?}",
+            observed.first_difference, assertion.first_difference
+        ));
+    }
+    if observed.bounding_box != assertion.bounding_box {
+        changes.push(format!(
+            "bounding box {:?} != {:?}",
+            observed.bounding_box, assertion.bounding_box
+        ));
+    }
+    if !changes.is_empty() {
+        return Err(format!(
+            "assertion signature changed: {}",
+            changes.join("; ")
+        ));
+    }
+
+    Ok(assertion.disagreement_id.clone())
+}
+
+fn frame_assertion<'a>(
+    assertions: &'a AssertionsContract,
+    case_id: &str,
+    phase: &str,
+) -> &'a FrameAssertionContract {
+    assertions
+        .assertions
+        .iter()
+        .find(|assertion| assertion.case == case_id && assertion.phase == phase)
+        .unwrap_or_else(|| panic!("assertions contract lacks {case_id} phase {phase}"))
+}
+
+fn assertion_artifact_id(case_id: &str, phase: &str) -> String {
+    if phase == "static" {
+        case_id.to_owned()
+    } else {
+        format!("{case_id}-phase-{phase}")
+    }
+}
+
+fn observed_frame_signature(
+    profile: &GateProfile,
+    actual: &[u8],
+    expected: &[u8],
+    mismatch: Option<&PixelMismatch>,
+) -> ObservedFrameSignature {
+    let diff_mask = diff_mask(actual, expected);
+    let (differing_pixels, first_difference, bounding_box) = mismatch.map_or_else(
+        || (0, None, None),
+        |mismatch| {
+            (
+                mismatch.differing_pixels,
+                Some(AssertionFirstDifference {
+                    x: mismatch.first_x,
+                    y: mismatch.first_y,
+                    expected_rgb: mismatch.first_expected,
+                    actual_rgb: mismatch.first_actual,
+                }),
+                Some(AssertionBoundingBox {
+                    min_x: mismatch.min_x,
+                    min_y: mismatch.min_y,
+                    max_x: mismatch.max_x,
+                    max_y: mismatch.max_y,
+                }),
+            )
         },
-        reference,
-        actual,
-        expected,
-        &mismatch,
     );
-    Err(mismatch_message(profile, &mismatch))
+    assert_eq!(
+        diff_mask.len(),
+        (profile.canonical_width * profile.canonical_height) as usize
+    );
+    ObservedFrameSignature {
+        normalized_actual_channel_bytes_sha256: sha256_hex(actual),
+        diff_mask_sha256: sha256_hex(&diff_mask),
+        differing_pixels,
+        first_difference,
+        bounding_box,
+    }
+}
+
+fn diff_mask(actual: &[u8], expected: &[u8]) -> Vec<u8> {
+    assert_eq!(actual.len(), expected.len());
+    assert_eq!(actual.len() % 3, 0);
+    actual
+        .chunks_exact(3)
+        .zip(expected.chunks_exact(3))
+        .map(|(actual_pixel, expected_pixel)| u8::from(actual_pixel != expected_pixel))
+        .collect()
 }
 
 fn differing_pixel_count(actual: &[u8], expected: &[u8]) -> usize {
@@ -1094,6 +1455,18 @@ fn load_a1200_manifest(reference_dir: &Path) -> A1200Manifest {
     load_manifest(reference_dir)
 }
 
+fn load_assertions_contract(reference_dir: &Path) -> AssertionsContract {
+    let path = reference_dir.join("assertions.json");
+    let bytes = fs::read(&path)
+        .unwrap_or_else(|error| panic!("read assertions contract {}: {error}", path.display()));
+    serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+        panic!(
+            "decode strict assertions contract {}: {error}",
+            path.display()
+        )
+    })
+}
+
 fn load_manifest<T>(reference_dir: &Path) -> T
 where
     T: for<'de> Deserialize<'de>,
@@ -1107,6 +1480,195 @@ where
             path.display()
         )
     })
+}
+
+fn validate_assertions_contract(
+    profile: &GateProfile,
+    reference_dir: &Path,
+    frames: &[FrameManifest],
+    contract: &AssertionsContract,
+) {
+    assert_eq!(contract.schema_version, 1);
+    assert_eq!(contract.profile_id, profile.id);
+    assert_eq!(contract.canonical_width, profile.canonical_width);
+    assert_eq!(contract.canonical_height, profile.canonical_height);
+    assert_eq!(contract.pixel_encoding, profile.encoding.label());
+    assert_eq!(
+        contract.normalized_actual_channel_encoding,
+        "packed-row-major-profile-channel-bytes"
+    );
+    assert_eq!(
+        contract.diff_mask_encoding,
+        "one-byte-per-pixel-0-equal-1-different"
+    );
+    assert_sha256_text(
+        &contract.producer_manifest_sha256,
+        "producer manifest binding",
+    );
+    let manifest_path = reference_dir.join("manifest.json");
+    let manifest_bytes = fs::read(&manifest_path).unwrap_or_else(|error| {
+        panic!(
+            "read producer manifest binding {}: {error}",
+            manifest_path.display()
+        )
+    });
+    assert_eq!(
+        contract.producer_manifest_sha256,
+        sha256_hex(&manifest_bytes),
+        "assertions contract is bound to different producer manifest bytes"
+    );
+
+    let expected_keys: BTreeSet<_> = frames
+        .iter()
+        .flat_map(|frame| {
+            frame
+                .references
+                .iter()
+                .map(move |reference| (frame.id.as_str(), reference.phase.as_str()))
+        })
+        .collect();
+    let actual_keys: BTreeSet<_> = contract
+        .assertions
+        .iter()
+        .map(|assertion| (assertion.case.as_str(), assertion.phase.as_str()))
+        .collect();
+    assert_eq!(
+        actual_keys.len(),
+        contract.assertions.len(),
+        "assertions contract contains duplicate case/phase keys"
+    );
+    assert_eq!(
+        actual_keys, expected_keys,
+        "assertions contract must cover every producer reference phase exactly once"
+    );
+
+    let total_pixels = (profile.canonical_width * profile.canonical_height) as usize;
+    let zero_diff_mask_sha256 = sha256_hex(&vec![0; total_pixels]);
+    for assertion in &contract.assertions {
+        let frame = manifest_frame(frames, &assertion.case);
+        let reference = frame
+            .references
+            .iter()
+            .find(|reference| reference.phase == assertion.phase)
+            .unwrap_or_else(|| {
+                panic!(
+                    "assertion {} phase {} has no producer reference",
+                    assertion.case, assertion.phase
+                )
+            });
+        let expected_disagreement =
+            expected_disagreement_id(profile, &assertion.case, &assertion.phase);
+        let expected_expectation = if expected_disagreement.is_some() {
+            AssertionExpectation::RegisteredDisagreement
+        } else {
+            AssertionExpectation::Exact
+        };
+        assert_eq!(
+            assertion.expectation, expected_expectation,
+            "{} phase {} has the wrong assertion class",
+            assertion.case, assertion.phase
+        );
+        assert_eq!(
+            assertion.disagreement_id.as_deref(),
+            expected_disagreement,
+            "{} phase {} has the wrong disagreement ID",
+            assertion.case,
+            assertion.phase
+        );
+        assert_sha256_text(
+            &assertion.normalized_actual_channel_bytes_sha256,
+            &format!(
+                "{} {} normalized actual channels",
+                assertion.case, assertion.phase
+            ),
+        );
+        assert_sha256_text(
+            &assertion.diff_mask_sha256,
+            &format!("{} {} diff mask", assertion.case, assertion.phase),
+        );
+
+        let normalized_reference = load_reference(profile, reference_dir, reference);
+        let normalized_reference_sha256 = sha256_hex(&normalized_reference);
+        match assertion.expectation {
+            AssertionExpectation::Exact => {
+                assert_eq!(assertion.differing_pixels, 0);
+                assert!(assertion.first_difference.is_none());
+                assert!(assertion.bounding_box.is_none());
+                assert_eq!(
+                    assertion.normalized_actual_channel_bytes_sha256, normalized_reference_sha256,
+                    "exact assertion actual hash must equal its normalized reference"
+                );
+                assert_eq!(
+                    assertion.diff_mask_sha256, zero_diff_mask_sha256,
+                    "exact assertion diff mask must be entirely zero"
+                );
+            }
+            AssertionExpectation::RegisteredDisagreement => {
+                assert!(assertion.differing_pixels > 0);
+                assert!(assertion.differing_pixels <= total_pixels);
+                assert_ne!(
+                    assertion.normalized_actual_channel_bytes_sha256, normalized_reference_sha256,
+                    "registered disagreement must not pin an exact reference hash"
+                );
+                assert_ne!(
+                    assertion.diff_mask_sha256, zero_diff_mask_sha256,
+                    "registered disagreement must not pin an all-zero mask"
+                );
+                let first = assertion.first_difference.as_ref().unwrap_or_else(|| {
+                    panic!(
+                        "{} phase {} disagreement lacks first difference",
+                        assertion.case, assertion.phase
+                    )
+                });
+                let bounding_box = assertion.bounding_box.as_ref().unwrap_or_else(|| {
+                    panic!(
+                        "{} phase {} disagreement lacks bounding box",
+                        assertion.case, assertion.phase
+                    )
+                });
+                assert!(first.x < profile.canonical_width);
+                assert!(first.y < profile.canonical_height);
+                assert!(bounding_box.min_x <= first.x && first.x <= bounding_box.max_x);
+                assert!(bounding_box.min_y <= first.y && first.y <= bounding_box.max_y);
+                assert!(bounding_box.max_x < profile.canonical_width);
+                assert!(bounding_box.max_y < profile.canonical_height);
+                let bounding_area = usize::try_from(
+                    (bounding_box.max_x - bounding_box.min_x + 1)
+                        * (bounding_box.max_y - bounding_box.min_y + 1),
+                )
+                .expect("assertion bounding-box area fits in usize");
+                assert!(assertion.differing_pixels <= bounding_area);
+                let first_offset = ((first.y * profile.canonical_width + first.x) * 3) as usize;
+                assert_eq!(
+                    first.expected_rgb,
+                    normalized_reference[first_offset..first_offset + 3],
+                    "registered first expected colour must come from the bound reference"
+                );
+                assert_ne!(first.actual_rgb, first.expected_rgb);
+                if profile.encoding == PixelEncoding::Rgb4 {
+                    assert!(first.actual_rgb.iter().all(|channel| *channel <= 0x0F));
+                }
+            }
+        }
+    }
+}
+
+fn expected_disagreement_id(
+    profile: &GateProfile,
+    case_id: &str,
+    phase: &str,
+) -> Option<&'static str> {
+    match (profile.id, case_id, phase) {
+        ("a500-a501-ocs-pal", "gradients" | "ebu-bars", "static") => {
+            Some("denise-ocs-color-output-phase")
+        }
+        ("a1200-aga-pal", "gradients" | "static-checkerboard", "static")
+        | ("a1200-aga-pal", "alternating-checkerboard", "a" | "b") => {
+            Some("aga-sprite-horizontal-output-phase")
+        }
+        ("a500-a501-ocs-pal" | "a1200-aga-pal", _, _) => None,
+        _ => panic!("no assertion policy registered for profile {}", profile.id),
+    }
 }
 
 fn validate_a500_manifest(manifest: &A500Manifest) {
@@ -1320,7 +1882,7 @@ fn validate_a500_manifest(manifest: &A500Manifest) {
 }
 
 fn validate_a1200_manifest(manifest: &A1200Manifest) {
-    assert_eq!(manifest.schema_version, 1);
+    assert_eq!(manifest.schema_version, 2);
     assert_eq!(manifest.evidence_level, "single-independent-implementation");
     assert_eq!(manifest.suite.name, "Amiga Test Kit");
     assert_eq!(manifest.suite.version, "1.21");
@@ -1361,6 +1923,14 @@ fn validate_a1200_manifest(manifest: &A1200Manifest) {
     );
     assert_eq!(manifest.viewport.pixel_format, "rgb8");
     assert!(!manifest.viewport.alignment_search);
+    assert_eq!(
+        manifest.viewport.horizontal_mapping.formula,
+        "runtime_x = producer_raw_x + 8"
+    );
+    assert_eq!(
+        manifest.viewport.horizontal_mapping.basis,
+        "beam-absolute PAL host-HIRES mapping: producer raw x=0 is HB coarse coordinate 46; Emu198x x=0 is CCK 44"
+    );
 
     assert_eq!(manifest.comparison.format, "rgb8-exact");
     assert_eq!(manifest.comparison.channel_tolerance, 0);
@@ -1428,7 +1998,7 @@ fn validate_a1200_manifest(manifest: &A1200Manifest) {
     assert_eq!(manifest.packaging.tool, "package.py");
     assert_eq!(
         manifest.packaging.tool_sha256,
-        "3aad61692879397c2a613a44c5fa6df279fee8163480c6150047ae25ab43629c"
+        "e238b3baea92c07b22e7183c5c2ece080982a4bd76e6b546fe098f5cf1feed82"
     );
     assert_eq!(manifest.packaging.python_version, "3.14.3");
     assert_eq!(manifest.packaging.zlib_version, "1.2.12");

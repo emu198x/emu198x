@@ -360,6 +360,12 @@ pub trait AmigaDriver {
     /// ECS / AGA variants extend this with their extra registers, so it
     /// is per-variant.
     fn dispatch_custom_write(&mut self, offset: u16, val: u16);
+    /// Route a Copper MOVE that arrives before Denise's output work for the
+    /// current half-CCK. Variants override this only where a display register
+    /// distinguishes that phase from the CPU bus path.
+    fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
+        self.dispatch_custom_write(offset, val);
+    }
     fn feed_next_write_word(&mut self);
     fn feed_next_mfm_word(&mut self);
     /// CCKs between rotational MFM words at the selected region and ADKCON
@@ -544,7 +550,7 @@ pub trait AmigaDriver {
                     {
                         let cck = self.tick_count() / TICKS_PER_CCK;
                         self.push_copper_move_log((cck, vpos, hpos, reg, val));
-                        self.dispatch_custom_write(reg, val);
+                        self.dispatch_copper_write(reg, val);
                     }
                 }
 

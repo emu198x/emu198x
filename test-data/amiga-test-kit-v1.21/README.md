@@ -37,6 +37,7 @@ capture geometry.
 - one subdirectory per registered machine and reference configuration;
 - a profile-specific `README.md`;
 - one strict provenance manifest;
+- one strict assertion contract bound to that manifest; and
 - the exact PNGs named and hashed by that manifest.
 
 The current collection contains:

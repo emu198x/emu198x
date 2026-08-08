@@ -1294,10 +1294,11 @@ impl DeniseOcs {
         // The BPLCON1 scroll comparator determines when pending BPL data is
         // copied into the shift register. In WinUAE, the copy check happens
         // AFTER pixel output within each half-CCK iteration, so newly copied
-        // data appears one pixel later. Our model does the copy BEFORE pixel
-        // output, so we compensate with a 1-pixel offset: beam_x - 1.
-        // Verified by pixel-level comparison against FS-UAE: offset 0 → 2px
-        // left, offset 2 → 2px right, offset 1 → exact match.
+        // data appears on the following output tick. Our model performs the
+        // copy before output, so the OCS/ECS baseline uses the absolute
+        // `beam_x - 1` phase. Lisa supplies its additional one-tick bitplane
+        // stage at the AGA adapter, without moving the independently clocked
+        // sprite comparator or COLOR output stage.
         let comparator_phase = (beam_x as u16).wrapping_sub(1);
 
         // Commit BPL1DAT-triggered pending loads BEFORE shifting pixels out,
@@ -1621,6 +1622,29 @@ mod tests {
         assert_eq!(
             first.framebuffer_pixels,
             (first.raster_width * first.raster_height) as usize,
+        );
+    }
+
+    #[test]
+    fn pending_bitplane_load_commits_on_the_next_output_tick() {
+        let mut denise = DeniseOcs::new();
+        denise.bplcon0 = 0x1000; // one lowres bitplane
+        denise.bplcon1 = 0;
+        denise.begin_beam_line();
+        denise.load_bitplane(0, 0x8000);
+        denise.queue_shift_load_from_bpl1dat();
+
+        let first = denise.output_pixel_with_beam(0, 0, 0, 0);
+        let second = denise.output_pixel_with_beam(1, 0, 1, 0);
+
+        assert_eq!(first.quad_playfield_color_idx[0], 0);
+        assert_eq!(second.quad_playfield_color_idx[0], 1);
+        assert!(
+            !denise
+                .diagnostic_snapshot()
+                .bitplanes
+                .pending_copy_odd_planes,
+            "the delayed comparator must eventually commit the pending BPL1DAT load",
         );
     }
 

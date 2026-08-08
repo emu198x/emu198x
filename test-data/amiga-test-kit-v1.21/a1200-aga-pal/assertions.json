@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "profile_id": "a1200-aga-pal",
+  "producer_manifest_sha256": "a31402d76eda3fe262dd3fcc31b58610be9b0f18a174b57b1f1af4f2ae26a679",
+  "canonical_width": 752,
+  "canonical_height": 286,
+  "pixel_encoding": "RGB8",
+  "normalized_actual_channel_encoding": "packed-row-major-profile-channel-bytes",
+  "diff_mask_encoding": "one-byte-per-pixel-0-equal-1-different",
+  "assertions": [
+    {
+      "case": "gradients",
+      "phase": "static",
+      "expectation": "registered-disagreement",
+      "disagreement_id": "aga-sprite-horizontal-output-phase",
+      "normalized_actual_channel_bytes_sha256": "238458d61ed3049f71b8b1f7bf4aef50c1b351c19b174a56f5452fdf23a42cee",
+      "diff_mask_sha256": "44e16fde6fba8a4117eac0062a991cf4bf31ff06ed52432f590696c86c0e2303",
+      "differing_pixels": 88,
+      "first_difference": {
+        "x": 74,
+        "y": 44,
+        "expected_rgb": [238, 68, 68],
+        "actual_rgb": [238, 238, 204]
+      },
+      "bounding_box": {
+        "min_x": 74,
+        "min_y": 44,
+        "max_x": 95,
+        "max_y": 54
+      }
+    },
+    {
+      "case": "static-checkerboard",
+      "phase": "static",
+      "expectation": "registered-disagreement",
+      "disagreement_id": "aga-sprite-horizontal-output-phase",
+      "normalized_actual_channel_bytes_sha256": "0f8ed9ab7314dd271173032d1fc762a527c7edb4d15c7b7d7d3f65e8b5b1ccd6",
+      "diff_mask_sha256": "ad5bc67ebbf4de645938f42cc16d0ab2f2fc8f454340e85467d1a7538d10e794",
+      "differing_pixels": 83,
+      "first_difference": {
+        "x": 74,
+        "y": 44,
+        "expected_rgb": [238, 68, 68],
+        "actual_rgb": [238, 238, 204]
+      },
+      "bounding_box": {
+        "min_x": 74,
+        "min_y": 44,
+        "max_x": 95,
+        "max_y": 54
+      }
+    },
+    {
+      "case": "alternating-checkerboard",
+      "phase": "a",
+      "expectation": "registered-disagreement",
+      "disagreement_id": "aga-sprite-horizontal-output-phase",
+      "normalized_actual_channel_bytes_sha256": "998847e6cd2f07ed7e4227954cc6a049f6bf9df17d759de995b6491368bdc1aa",
+      "diff_mask_sha256": "9ed83afe305ae9f6a2e032c1bcd0e4a2d3867479a8e8e672d3f961783b88b20f",
+      "differing_pixels": 83,
+      "first_difference": {
+        "x": 74,
+        "y": 44,
+        "expected_rgb": [238, 68, 68],
+        "actual_rgb": [238, 238, 204]
+      },
+      "bounding_box": {
+        "min_x": 74,
+        "min_y": 44,
+        "max_x": 95,
+        "max_y": 54
+      }
+    },
+    {
+      "case": "alternating-checkerboard",
+      "phase": "b",
+      "expectation": "registered-disagreement",
+      "disagreement_id": "aga-sprite-horizontal-output-phase",
+      "normalized_actual_channel_bytes_sha256": "0f8ed9ab7314dd271173032d1fc762a527c7edb4d15c7b7d7d3f65e8b5b1ccd6",
+      "diff_mask_sha256": "ad5bc67ebbf4de645938f42cc16d0ab2f2fc8f454340e85467d1a7538d10e794",
+      "differing_pixels": 83,
+      "first_difference": {
+        "x": 74,
+        "y": 44,
+        "expected_rgb": [238, 68, 68],
+        "actual_rgb": [238, 238, 204]
+      },
+      "bounding_box": {
+        "min_x": 74,
+        "min_y": 44,
+        "max_x": 95,
+        "max_y": 54
+      }
+    },
+    {
+      "case": "ebu-bars",
+      "phase": "static",
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "51e0a1f91e5dfbd006f82543be3cdf155f4f5b3b6e5c2d0641f286f9ffe07872",
+      "diff_mask_sha256": "3ea994e896077aac5e4edb069090c594e065416adf1b8dc5502a8376ed588c8d",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
+    },
+    {
+      "case": "dots",
+      "phase": "static",
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "04dc46bb550a390f864b66a69b1679601f4726f807109ac2fda48d357a0b032c",
+      "diff_mask_sha256": "3ea994e896077aac5e4edb069090c594e065416adf1b8dc5502a8376ed588c8d",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
+    },
+    {
+      "case": "crosshatch",
+      "phase": "static",
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "b5bbad96816a90b2dc059c5d88b6001a674d8d9b4abc224fb6de693f57d45110",
+      "diff_mask_sha256": "3ea994e896077aac5e4edb069090c594e065416adf1b8dc5502a8376ed588c8d",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
+    }
+  ]
+}

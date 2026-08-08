@@ -33,7 +33,10 @@ use std::ops::{Deref, DerefMut};
 pub use commodore_denise_ecs::DeniseEcs as InnerDeniseEcs;
 pub use commodore_denise_ocs::{DeniseOcs as InnerDeniseOcs, DeniseOutputPixelDebug};
 
-use common_commodore_amiga::{denise::HorizontalBlanking, denise_chip::DeniseChip};
+use common_commodore_amiga::{
+    denise::HorizontalBlanking,
+    denise_chip::{DeniseChip, HorizontalDiwComparatorPhase},
+};
 
 /// AGA Lisa DENISEID value as the CPU reads it from $DFF07C.
 /// WinUAE returns `0x00F8` for A1200 (and `0xFCF8` for A4000).
@@ -47,6 +50,13 @@ pub const PALETTE_ENTRIES_24: usize = 256;
 
 const BPLCON2_RDRAM: u16 = 0x0100;
 const BPLCON3_LOCT: u16 = 0x0200;
+
+/// Apply Lisa's additional one-lores-tick bitplane phase before forwarding
+/// into the shared OCS/ECS pixel core. Sprite coordinates remain absolute and
+/// do not pass through this helper.
+const fn lisa_bitplane_beam_x(beam_x: u32) -> u32 {
+    beam_x.wrapping_sub(1)
+}
 
 /// One AGA `COLORxx` write waiting to cross Lisa's one-hires-pixel output
 /// delay. The palette register mirrors already contain the new values; these
@@ -405,7 +415,7 @@ impl DeniseAga {
         self.inner.as_inner_mut().spr_width = width;
     }
 
-    /// Handle a CPU/copper write to one of the COLOR registers
+    /// Handle an ordinary post-output write to one of the COLOR registers
     /// (`$DFF180..$DFF1BE`). On AGA, the 32 base color indices are
     /// banked through `BPLCON3[15:13]` (8 banks × 32 = 256 entries),
     /// and `BPLCON3[9]` (LOCT) selects which 4-bit half of each
@@ -680,6 +690,10 @@ impl DeniseChip for DeniseAga {
         DeniseAga::new()
     }
 
+    fn horizontal_diw_comparator_phase(&self) -> HorizontalDiwComparatorPhase {
+        HorizontalDiwComparatorPhase::AfterOutput
+    }
+
     fn write_word(&mut self, offset: u16, val: u16) {
         // AGA-only registers land here. The ECS layer (`self.inner`)
         // handles BPLCON3 + its 12-bit COLOR semantics; AGA layers on
@@ -754,9 +768,20 @@ impl DeniseChip for DeniseAga {
         beam_y: u32,
         playfield_visible_gate: bool,
     ) -> DeniseOutputPixelDebug {
-        self.inner
+        let mut output = self
+            .inner
             .as_inner_mut()
-            .output_pixel_with_beam_and_playfield_gate(x, y, beam_x, beam_y, playfield_visible_gate)
+            .output_pixel_with_beam_sprite_coords(
+                x,
+                y,
+                lisa_bitplane_beam_x(beam_x),
+                beam_y,
+                beam_x,
+                beam_y,
+                playfield_visible_gate,
+            );
+        output.beam_x = beam_x;
+        output
     }
 
     fn output_pixel_with_beam_sprite_coords(
@@ -769,17 +794,20 @@ impl DeniseChip for DeniseAga {
         spr_beam_y: u32,
         playfield_visible_gate: bool,
     ) -> DeniseOutputPixelDebug {
-        self.inner
+        let mut output = self
+            .inner
             .as_inner_mut()
             .output_pixel_with_beam_sprite_coords(
                 x,
                 y,
-                beam_x,
+                lisa_bitplane_beam_x(beam_x),
                 beam_y,
                 spr_beam_x,
                 spr_beam_y,
                 playfield_visible_gate,
-            )
+            );
+        output.beam_x = beam_x;
+        output
     }
 
     fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16 {
@@ -883,7 +911,10 @@ impl DeniseChip for DeniseAga {
 #[cfg(test)]
 mod tests {
     use super::{BPLCON2_RDRAM, DeniseAga, LISA_DENISE_ID};
-    use common_commodore_amiga::{denise::HorizontalBlanking, denise_chip::DeniseChip};
+    use common_commodore_amiga::{
+        denise::HorizontalBlanking,
+        denise_chip::{DeniseChip, HorizontalDiwComparatorPhase},
+    };
 
     fn settle_programmed_hblank_inputs(
         denise: &mut DeniseAga,
@@ -909,6 +940,50 @@ mod tests {
         assert!(denise.palette_24.iter().all(|&c| c == 0));
         assert!(denise.palette_genlock.iter().all(|flag| !flag));
         assert!(!denise.programmed_hblank_active());
+    }
+
+    #[test]
+    fn lisa_declares_post_output_horizontal_diw_matches() {
+        let denise = DeniseAga::new();
+
+        assert_eq!(
+            denise.horizontal_diw_comparator_phase(),
+            HorizontalDiwComparatorPhase::AfterOutput,
+        );
+    }
+
+    #[test]
+    fn lisa_adds_one_output_tick_to_the_shared_bitplane_phase() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x1000); // one lowres bitplane
+        denise.begin_beam_line();
+        denise.load_bitplane(0, 0x8000);
+        denise.queue_shift_load_from_bpl1dat();
+
+        let first = denise.output_pixel_with_beam_and_playfield_gate(0, 0, 0, 0, true);
+        let second = denise.output_pixel_with_beam_and_playfield_gate(1, 0, 1, 0, true);
+        let third = denise.output_pixel_with_beam_and_playfield_gate(2, 0, 2, 0, true);
+
+        assert_eq!(first.quad_playfield_color_idx[0], 0);
+        assert_eq!(second.quad_playfield_color_idx[0], 0);
+        assert_eq!(third.quad_playfield_color_idx[0], 1);
+    }
+
+    #[test]
+    fn lisa_bitplane_phase_does_not_move_the_sprite_comparator() {
+        let mut denise = DeniseAga::new();
+        denise.begin_beam_line();
+        denise.write_sprite_pos(0, 0x0000); // HSTART=0
+        denise.write_sprite_ctl(0, 0x0000);
+        denise.write_sprite_datb(0, 0x0000);
+        denise.write_sprite_data(0, 0x8000);
+        denise.queue_shift_load_from_bpl1dat();
+
+        let at_hstart = denise.output_pixel_with_beam_sprite_coords(0, 0, 0, 0, 0, 0, true);
+        let following = denise.output_pixel_with_beam_sprite_coords(1, 0, 1, 0, 1, 0, true);
+
+        assert!(!at_hstart.quad_is_sprite[0]);
+        assert!(following.quad_is_sprite[0]);
     }
 
     #[test]
@@ -1162,6 +1237,40 @@ mod tests {
         // Lisa retains the previous colour for exactly one hires sample.
         assert_eq!(denise.resolve_color_argb(0), 0xFF11_2233);
         assert!(denise.diagnostic_snapshot().delayed_color_write.is_none());
+        assert_eq!(denise.resolve_color_argb(0), 0xFFAA_BBCC);
+    }
+
+    #[test]
+    fn copper_color_write_crosses_early_rga_and_lisa_output_stages() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x1000);
+        denise.write_word(0x0180, 0x0123);
+        denise.advance_color_output_samples(1);
+
+        assert!(denise.write_color_with_early_output_delay(0x0180, 0x0ABC));
+        assert!(
+            denise
+                .diagnostic_snapshot()
+                .pending_early_color_write
+                .is_some()
+        );
+        assert!(denise.diagnostic_snapshot().delayed_color_write.is_none());
+
+        // Every sample in the current board tick sees the prior palette.
+        assert_eq!(denise.resolve_color_argb(0), 0xFF11_2233);
+        assert_eq!(denise.resolve_color_argb(0), 0xFF11_2233);
+
+        denise.advance_early_color_output_pipeline();
+        assert!(
+            denise
+                .diagnostic_snapshot()
+                .pending_early_color_write
+                .is_none()
+        );
+        assert!(denise.diagnostic_snapshot().delayed_color_write.is_some());
+
+        // Lisa then retains that value for one additional hires sample.
+        assert_eq!(denise.resolve_color_argb(0), 0xFF11_2233);
         assert_eq!(denise.resolve_color_argb(0), 0xFFAA_BBCC);
     }
 

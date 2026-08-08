@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "profile_id": "a500-a501-ocs-pal",
+  "producer_manifest_sha256": "f9ca5fac9cabfc9406e4ae69aaad0ba599506061fb60c37ed5e913db8b428436",
+  "canonical_width": 716,
+  "canonical_height": 285,
+  "pixel_encoding": "RGB4",
+  "normalized_actual_channel_encoding": "packed-row-major-profile-channel-bytes",
+  "diff_mask_encoding": "one-byte-per-pixel-0-equal-1-different",
+  "assertions": [
+    {
+      "case": "gradients",
+      "phase": "static",
+      "expectation": "registered-disagreement",
+      "disagreement_id": "denise-ocs-color-output-phase",
+      "normalized_actual_channel_bytes_sha256": "87e28f45462b2307bf14ade554083057e424f19f0c6719bb4600466f591d041a",
+      "diff_mask_sha256": "02d251f4c53f0339700740ffa57b2d5a56c2f72af46d852243a4ee8532c25a97",
+      "differing_pixels": 1920,
+      "first_difference": {
+        "x": 148,
+        "y": 42,
+        "expected_rgb": [0, 0, 0],
+        "actual_rgb": [15, 15, 15]
+      },
+      "bounding_box": {
+        "min_x": 148,
+        "min_y": 42,
+        "max_x": 613,
+        "max_y": 201
+      }
+    },
+    {
+      "case": "static-checkerboard",
+      "phase": "static",
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "8b4f9d6f9d02990b6adae3658322f82e75c1f8150b885bea9a9aae772f7a31e7",
+      "diff_mask_sha256": "b94a1224894a03833a68f4b4d0a9b9ceb241e4384c1b1424ce688034ff1d69f1",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
+    },
+    {
+      "case": "alternating-checkerboard",
+      "phase": "a",
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "2bb679130fad88797602d8b61aed6b7ea5b66964f38fd04a62627ba3793a12f8",
+      "diff_mask_sha256": "b94a1224894a03833a68f4b4d0a9b9ceb241e4384c1b1424ce688034ff1d69f1",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
+    },
+    {
+      "case": "alternating-checkerboard",
+      "phase": "b",
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "8b4f9d6f9d02990b6adae3658322f82e75c1f8150b885bea9a9aae772f7a31e7",
+      "diff_mask_sha256": "b94a1224894a03833a68f4b4d0a9b9ceb241e4384c1b1424ce688034ff1d69f1",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
+    },
+    {
+      "case": "ebu-bars",
+      "phase": "static",
+      "expectation": "registered-disagreement",
+      "disagreement_id": "denise-ocs-color-output-phase",
+      "normalized_actual_channel_bytes_sha256": "e7a7144a61028e20716f5912356be3507f16c8c81e6f27eb325aac4e4b385433",
+      "diff_mask_sha256": "0f6169a4811fbb84aff743627af93807ad2eed924034af2040d989e9a6eb0041",
+      "differing_pixels": 3990,
+      "first_difference": {
+        "x": 108,
+        "y": 0,
+        "expected_rgb": [15, 15, 0],
+        "actual_rgb": [15, 15, 15]
+      },
+      "bounding_box": {
+        "min_x": 108,
+        "min_y": 0,
+        "max_x": 637,
+        "max_y": 284
+      }
+    },
+    {
+      "case": "dots",
+      "phase": "static",
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "52242f74ccf238fc4ac08e9533c59f529a9d76b6d74247d0aaf84bfa8c8cb161",
+      "diff_mask_sha256": "b94a1224894a03833a68f4b4d0a9b9ceb241e4384c1b1424ce688034ff1d69f1",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
+    },
+    {
+      "case": "crosshatch",
+      "phase": "static",
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "86d96e5387e84946a21803cd9567c9f5f36e626c4bfb7e6605c9cddc6435c79f",
+      "diff_mask_sha256": "b94a1224894a03833a68f4b4d0a9b9ceb241e4384c1b1424ce688034ff1d69f1",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
+    }
+  ]
+}

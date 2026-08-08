@@ -85,8 +85,8 @@ The lanes execute sequentially in this fixed order:
 | `amiga-regressions` | Hermetic common-chip, chipset, peripheral, machine and runtime library regressions plus the bounded integration set below. |
 | `snapshot-roundtrip` | Snapshot byte fixed points and identical forward execution across the exercised OCS, ECS and AGA profiles. |
 | `test-kit-v1.12` | Guest-reported Test Kit v1.12 execution and the selected A500/A530 assertions. |
-| `test-kit-v1.21-ocs` | Exact registered A500+A501 OCS PAL video cases. |
-| `test-kit-v1.21-aga` | Exact registered A1200 AGA PAL video cases. |
+| `test-kit-v1.21-ocs` | Mixed A500+A501 OCS PAL contract: four exact video cases and two exact registered comparator-disagreement signatures. |
+| `test-kit-v1.21-aga` | Mixed A1200 AGA PAL contract: three exact video cases and exact registered pointer-disagreement signatures in the remaining cases. |
 | `paula-audio` | Registered Paula routing, cadence and paired-volume comparison. |
 | `programmable-hblank` | Steady-state consensus assertions and retained measurement-only cases. |
 | `programmable-hblank-write-timing` | Independently remeasured mid-line write observations against the registered UAE-family package. |
@@ -102,11 +102,16 @@ incremental blitting, runtime mount/query/lifecycle/interrupt behaviour, and
 the checked-in Amiga catalogue-manifest contract. Diagnostic and
 external-firmware integration tests are not selected implicitly.
 
-The catalogue lane has an additional runner-level contract. Its log must
-contain `[PASS]` and `[SNAP-PASS]` markers for exactly the reviewed entry IDs,
-in manifest order. Ten different IDs, duplicated IDs, reordered IDs, or a zero
-process exit without both exact sequences is a lane failure. The report retains
-the expected and observed sequences.
+The two Test Kit v1.21 lanes and the catalogue lane have additional
+runner-level log contracts. Each Test Kit log must contain the six declared
+case outcomes in order, including the expected exact or registered-
+disagreement classification and disagreement ID. A missing, duplicated,
+reordered or reclassified outcome fails even when the test process exits zero.
+
+The catalogue log must contain `[PASS]` and `[SNAP-PASS]` markers for exactly
+the reviewed entry IDs, in manifest order. Ten different IDs, duplicated IDs,
+reordered IDs, or a zero process exit without both exact sequences is a lane
+failure. The report retains every expected and observed sequence.
 
 Run the complete set from the repository root after exporting the required
 inputs:
@@ -172,9 +177,11 @@ The option is rejected unless the overall report status is `pass`, the report
 was produced from a clean tree, and every lane's latest passing attempt names
 that clean revision and exited with status zero. It verifies the on-disk
 report, every referenced log path and every referenced log SHA-256, then
-rechecks that the repository is still clean at the same revision immediately
-before staging `report.json` and the redacted logs. The complete revision
-directory is published atomically below:
+recomputes each runner-level marker validation from the hashed latest log and
+requires it to equal the stored validation result. It then rechecks that the
+repository is still clean at the same revision immediately before staging
+`report.json` and the redacted logs. The complete revision directory is
+published atomically below:
 
 ```text
 test-data/commodore/amiga/closure-reports/<full-revision>/
@@ -207,9 +214,11 @@ The current registry covers:
 | ID | Classification | Boundary |
 | --- | --- | --- |
 | `paula-stereo-channel-assignment` | `fixed` | Primary documentation adjudicated the vAmiga disagreement and the mixer was corrected. |
-| `lisa-color-output-delay` | `fixed` | The one-hires-sample delay corrected the registered A1200 Test Kit disagreement. |
+| `lisa-color-output-delay` | `fixed` | The one-hires-sample delay aligns the registered A1200 colour-transition boundaries; EBU bars are exact and gradients retain only the separately tracked pointer disagreement. |
+| `denise-ocs-color-output-phase` | `blocked-stronger-evidence` | vAmiga OCS omits the early Copper colour stage observed in the UAE ECS/AGA family; the A500 gate pins rather than conceals the resulting gradients and EBU signatures. |
+| `aga-sprite-horizontal-output-phase` | `blocked-stronger-evidence` | The A1200 pointer-local footprint is consistent with a two-host-sample displacement under the absolute crop, while audited UAE source still specifies the shared one-lores start delay; the machine-neutral probe is pending. |
 | `a1000-workbench-pointer-golden-baseline` | `fixed` | The stale Workbench 1.2 golden omitted the current pointer; the reviewed rebaseline retains those pointer pixels as an unmasked exact assertion. |
-| `a1000-workbench-free-memory-readout` | `scoped-out` | The exact 60 x 18 mask excludes only six allocator-derived digits whose reviewed value moved from 131288 to 131224 bytes, four 16-byte allocation quanta. |
+| `a1000-workbench-free-memory-readout` | `scoped-out` | The exact 60 x 18 mask excludes only six allocator-derived digits. Reviewed captures vary in 16-byte allocator quanta; one comparison moved from 131288 to 131224 bytes, or four quanta. |
 | `disk-read-dma-request-stage` | `blocked-stronger-evidence` | WinUAE and vAmiga select different read stages; direct hardware evidence remains desirable. |
 | `programmable-hblank-ecsena-gate` | `blocked-stronger-evidence` | Audited implementation families disagree; the case remains measurement-only. |
 | `programmable-hblank-extblken-gate` | `blocked-stronger-evidence` | Audited implementation families disagree; the case remains measurement-only. |

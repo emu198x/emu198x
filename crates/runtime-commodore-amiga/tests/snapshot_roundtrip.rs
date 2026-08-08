@@ -1881,12 +1881,11 @@ fn aga_programmed_hblank_latch_survives_snapshot_round_trip() -> Result<(), Box<
 }
 
 #[test]
-fn ocs_early_color_write_queue_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
-    const COLOR00: u32 = 0x00DF_F180;
+fn ocs_copper_color_stage_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
     const NEW_COLOR: u16 = 0x0ABC;
 
     let mut original = AmigaOcsRuntime::blank(Model::A500OcsPal);
-    original.machine_mut().poke_word(COLOR00, NEW_COLOR);
+    AmigaDriver::dispatch_copper_write(original.machine_mut(), 0x0180, NEW_COLOR);
 
     let board_before = original
         .machine()
@@ -1929,7 +1928,7 @@ fn ocs_early_color_write_queue_survives_snapshot_round_trip() -> Result<(), Box<
 }
 
 #[test]
-fn aga_early_and_delayed_color_writes_survive_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
+fn aga_delayed_color_write_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
     const TARGET_VPOS: u16 = 0x0032;
     const TARGET_HPOS: u16 = 0x0080;
     const VIEWPORT_V_START: u16 = 0x0019;
@@ -1998,16 +1997,25 @@ fn aga_early_and_delayed_color_writes_survive_snapshot_round_trip() -> Result<()
 
     original.machine_mut().poke_word(0x00DF_F180, 0x8ABC); // new COLOR00 + genlock
 
-    let pending = original
+    let delayed = original
         .machine()
         .denise_aga()
         .diagnostic_snapshot()
-        .pending_early_color_write
-        .expect("the second COLOR00 write must still be in Lisa's early stage");
-    assert_eq!(pending.palette_index, 0);
-    assert_eq!(pending.previous_rgb24, 0x0011_2233);
-    assert_eq!(pending.previous_rgb12, Some(0x0123));
-    assert!(!pending.previous_genlock);
+        .delayed_color_write
+        .expect("the second COLOR00 write must retain Lisa's prior output sample");
+    assert_eq!(delayed.palette_index, 0);
+    assert_eq!(delayed.previous_rgb24, 0x0011_2233);
+    assert_eq!(delayed.previous_rgb12, Some(0x0123));
+    assert!(!delayed.previous_genlock);
+    assert!(
+        original
+            .machine()
+            .denise_aga()
+            .diagnostic_snapshot()
+            .pending_early_color_write
+            .is_none(),
+        "a post-output CPU/debug write must not re-enter the Copper stage",
+    );
     assert!(
         original
             .machine()
@@ -2035,8 +2043,8 @@ fn aga_early_and_delayed_color_writes_survive_snapshot_round_trip() -> Result<()
             .machine()
             .denise_aga()
             .diagnostic_snapshot()
-            .pending_early_color_write,
-        Some(pending),
+            .delayed_color_write,
+        Some(delayed),
     );
     assert!(
         restored
@@ -2053,8 +2061,8 @@ fn aga_early_and_delayed_color_writes_survive_snapshot_round_trip() -> Result<()
     for (name, runtime) in [("original", &original), ("restored", &restored)] {
         assert_eq!(
             &runtime.machine().denise().framebuffer()[phase_one_offset..phase_one_offset + 2],
-            &[OLD_ARGB, OLD_ARGB],
-            "{name} phase one must retain the old colour throughout the early stage",
+            &[OLD_ARGB, NEW_ARGB],
+            "{name} phase one must retain the old colour for one Lisa sample",
         );
         assert!(
             runtime
@@ -2063,16 +2071,16 @@ fn aga_early_and_delayed_color_writes_survive_snapshot_round_trip() -> Result<()
                 .diagnostic_snapshot()
                 .pending_early_color_write
                 .is_none(),
-            "{name} early-stage write must retire after the current output tick",
+            "{name} must not acquire a Copper-only early-stage write",
         );
-        assert_eq!(
+        assert!(
             runtime
                 .machine()
                 .denise_aga()
                 .diagnostic_snapshot()
-                .delayed_color_write,
-            Some(pending),
-            "{name} must retain Lisa's additional one-hires-sample delay",
+                .delayed_color_write
+                .is_none(),
+            "{name} Lisa delay must retire after one output sample",
         );
     }
 
@@ -2084,8 +2092,8 @@ fn aga_early_and_delayed_color_writes_survive_snapshot_round_trip() -> Result<()
         assert_eq!(
             &runtime.machine().denise().framebuffer()
                 [next_phase_zero_offset..next_phase_zero_offset + 2],
-            &[OLD_ARGB, NEW_ARGB],
-            "{name} next phase must show Lisa's one-hires-sample colour delay",
+            &[NEW_ARGB, NEW_ARGB],
+            "{name} next phase must use the new colour throughout",
         );
         assert!(
             runtime
@@ -2115,6 +2123,181 @@ fn aga_early_and_delayed_color_writes_survive_snapshot_round_trip() -> Result<()
 }
 
 #[test]
+fn aga_copper_color_stages_survive_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
+    const TARGET_VPOS: u16 = 0x0032;
+    const TARGET_HPOS: u16 = 0x0080;
+    const VIEWPORT_V_START: u16 = 0x0019;
+    const VIEWPORT_H_START: u16 = 0x002C;
+    const OLD_ARGB: u32 = 0xFF11_2233;
+    const NEW_ARGB: u32 = 0xFFAA_BBCC;
+
+    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    {
+        let machine = original.machine_mut();
+        machine.poke_word(0x00DF_F08E, 0x3081); // DIWSTRT
+        machine.poke_word(0x00DF_F090, 0xF0C1); // DIWSTOP
+        machine.poke_word(0x00DF_F100, 0x9000); // hires, one plane
+        machine.poke_word(0x00DF_F180, 0x0123); // old COLOR00
+    }
+
+    let mut reached_target = false;
+    for _ in 0..100_000 {
+        let at_target = {
+            let machine = original.machine();
+            machine.agnus().vpos == TARGET_VPOS
+                && machine.agnus().hpos == TARGET_HPOS
+                && machine.scheduler_diagnostic_snapshot().cck_phase == 1
+        };
+        if at_target {
+            reached_target = true;
+            break;
+        }
+        original.machine_mut().tick();
+    }
+    assert!(
+        reached_target,
+        "the beam must reach the visible target before the guard expires",
+    );
+    assert!(original.machine().agnus_aga().vertical_diw_active());
+    assert!(
+        original
+            .machine()
+            .denise_aga()
+            .diagnostic_snapshot()
+            .delayed_color_write
+            .is_none(),
+        "the setup COLOR00 write must have reached the output",
+    );
+
+    let framebuffer_width = original.machine().denise().framebuffer_size().0 as usize;
+    let row = usize::from(TARGET_VPOS - VIEWPORT_V_START) * 2;
+    let phase_zero_x = usize::from(TARGET_HPOS - VIEWPORT_H_START) * 4;
+    let phase_zero_offset = row * framebuffer_width + phase_zero_x;
+    assert_eq!(
+        &original.machine().denise().framebuffer()[phase_zero_offset..phase_zero_offset + 2],
+        &[OLD_ARGB, OLD_ARGB],
+    );
+
+    AmigaDriver::dispatch_copper_write(original.machine_mut(), 0x0180, 0x8ABC);
+    let early = original
+        .machine()
+        .denise_aga()
+        .diagnostic_snapshot()
+        .pending_early_color_write
+        .expect("Copper COLOR00 must remain in the pre-output stage");
+    assert_eq!(early.palette_index, 0);
+    assert_eq!(early.previous_rgb24, 0x0011_2233);
+    assert_eq!(early.previous_rgb12, Some(0x0123));
+    assert!(!early.previous_genlock);
+    assert!(
+        original
+            .machine()
+            .denise_aga()
+            .diagnostic_snapshot()
+            .delayed_color_write
+            .is_none(),
+    );
+    assert!(
+        original
+            .machine()
+            .denise()
+            .board_pipeline_diagnostic_snapshot()
+            .pending_early_writes
+            .is_empty(),
+        "Lisa owns the selector-aware pre-output COLOR stage",
+    );
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    restored.restore(&snapshot)?;
+    assert_eq!(
+        restored
+            .machine()
+            .denise_aga()
+            .diagnostic_snapshot()
+            .pending_early_color_write,
+        Some(early),
+    );
+    assert_eq!(
+        restored.machine().denise_aga().diagnostic_snapshot(),
+        original.machine().denise_aga().diagnostic_snapshot(),
+    );
+
+    original.machine_mut().tick();
+    restored.machine_mut().tick();
+    let phase_one_offset = phase_zero_offset + 2;
+    for (name, runtime) in [("original", &original), ("restored", &restored)] {
+        assert_eq!(
+            &runtime.machine().denise().framebuffer()[phase_one_offset..phase_one_offset + 2],
+            &[OLD_ARGB, OLD_ARGB],
+            "{name} current board tick must retain the old colour",
+        );
+        let diagnostic = runtime.machine().denise_aga().diagnostic_snapshot();
+        assert!(diagnostic.pending_early_color_write.is_none());
+        assert_eq!(diagnostic.delayed_color_write, Some(early));
+    }
+
+    original.machine_mut().tick();
+    restored.machine_mut().tick();
+    let next_phase_zero_offset = phase_zero_offset + 4;
+    for (name, runtime) in [("original", &original), ("restored", &restored)] {
+        assert_eq!(
+            &runtime.machine().denise().framebuffer()
+                [next_phase_zero_offset..next_phase_zero_offset + 2],
+            &[OLD_ARGB, NEW_ARGB],
+            "{name} next tick must retain one additional Lisa sample",
+        );
+        assert!(
+            runtime
+                .machine()
+                .denise_aga()
+                .diagnostic_snapshot()
+                .delayed_color_write
+                .is_none(),
+        );
+    }
+
+    original.machine_mut().tick();
+    restored.machine_mut().tick();
+    let next_phase_one_offset = phase_zero_offset + 6;
+    for (name, runtime) in [("original", &original), ("restored", &restored)] {
+        assert_eq!(
+            &runtime.machine().denise().framebuffer()
+                [next_phase_one_offset..next_phase_one_offset + 2],
+            &[NEW_ARGB, NEW_ARGB],
+            "{name} later output must use the new colour throughout",
+        );
+    }
+    assert_eq!(
+        original.machine().denise_aga().diagnostic_snapshot(),
+        restored.machine().denise_aga().diagnostic_snapshot(),
+    );
+    assert_eq!(
+        original
+            .machine()
+            .denise()
+            .board_pipeline_diagnostic_snapshot(),
+        restored
+            .machine()
+            .denise()
+            .board_pipeline_diagnostic_snapshot(),
+    );
+    assert_eq!(
+        (
+            original.machine().agnus().vpos,
+            original.machine().agnus().hpos,
+            original.machine().scheduler_diagnostic_snapshot().cck_phase,
+        ),
+        (
+            restored.machine().agnus().vpos,
+            restored.machine().agnus().hpos,
+            restored.machine().scheduler_diagnostic_snapshot().cck_phase,
+        ),
+    );
+    Ok(())
+}
+
+#[test]
 fn aga_display_register_pipelines_survive_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
     let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
     {
@@ -2139,7 +2322,8 @@ fn aga_display_register_pipelines_survive_snapshot_round_trip() -> Result<(), Bo
     let lisa_before = original.machine().denise_aga().diagnostic_snapshot();
 
     assert!(board_before.pending_early_writes.is_empty());
-    assert!(lisa_before.pending_early_color_write.is_some());
+    assert!(lisa_before.pending_early_color_write.is_none());
+    assert!(lisa_before.delayed_color_write.is_some());
     assert!(
         !original
             .machine()

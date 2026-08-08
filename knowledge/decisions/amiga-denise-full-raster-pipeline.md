@@ -91,11 +91,11 @@ that the first `BPL1DAT` word advances before the later fetch can replace the
 pending stage. A separate row-duplication regression proves that two host rows
 do not advance HAM twice.
 
-The strict A1200 AGA PAL Test Kit lane matches its registered reference exactly
-for gradients, the static checkerboard, both alternating-checkerboard phases,
-EBU bars, dots and crosshatch. The crosshatch changes from 140 differences in
-`x=0..9` across 14 rows to an exact result. The strict A500+A501 OCS PAL lane
-also remains exact for all registered cases.
+The A1200 AGA PAL crosshatch changes from 140 differences in `x=0..9` across
+14 rows to an exact result. The full-raster rule remains covered independently
+of the profile contracts' separately registered Copper-colour and pointer
+phase disagreements. On A500 OCS, the checkerboards, dots and crosshatch remain
+exact after the full-raster rule is applied.
 
 ## Drift triggers
 
@@ -111,6 +111,7 @@ Reject these patterns:
 ## Related Documents
 
 - [AGA Lisa colour-output delay](amiga-lisa-color-output-delay.md)
+- [Lisa bitplane and display-window output phase](amiga-lisa-bitplane-diw-output-phase.md)
 - [Carry Denise display projection across the Agnus raster wrap](amiga-denise-raster-wrap-projection.md)
 - [Denise BPL1DAT sprite visibility](amiga-denise-bpl1dat-sprite-visibility.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)

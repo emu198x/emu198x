@@ -92,9 +92,9 @@ still match exactly, and the manifest test must pin any checked-in exception's
 coordinates.
 
 Workbench 1.3 is the first use. Its allocator-derived free-memory number can
-change around the capture boundary; the catalogue excludes only the 50 x 18
-numeric field. The corresponding runtime golden applies the same narrow rule
-in its cropped coordinate space.
+change in 16-byte allocation quanta around the capture boundary; the catalogue
+excludes only the 50 x 18 numeric field. The corresponding runtime golden
+applies the same narrow rule in its cropped coordinate space.
 
 ### xxhash64 for frame and audio hashes
 

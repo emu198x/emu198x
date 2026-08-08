@@ -49,7 +49,7 @@ CROP_HEIGHT = 572
 VERTICAL_DECIMATION = 2
 CANONICAL_WIDTH = 752
 CANONICAL_HEIGHT = 286
-RUNTIME_CROP_X = 8
+RUNTIME_CROP_X = 10
 RUNTIME_CROP_Y = 2
 
 CASE_SPECS: tuple[dict[str, Any], ...] = (
@@ -411,7 +411,7 @@ def decode_png(path: Path) -> bytes:
 
 def static_manifest_fields() -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "evidence_level": "single-independent-implementation",
         "suite": {
             "name": "Amiga Test Kit",
@@ -446,6 +446,13 @@ def static_manifest_fields() -> dict[str, Any]:
             "canonical_height": CANONICAL_HEIGHT,
             "pixel_format": "rgb8",
             "alignment_search": False,
+            "horizontal_mapping": {
+                "formula": "runtime_x = producer_raw_x + 8",
+                "basis": (
+                    "beam-absolute PAL host-HIRES mapping: producer raw x=0 is "
+                    "HB coarse coordinate 46; Emu198x x=0 is CCK 44"
+                ),
+            },
         },
         "comparison": {
             "format": "rgb8-exact",

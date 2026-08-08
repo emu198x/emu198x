@@ -31,8 +31,8 @@ pixels are one low-resolution sprite pixel. This independently agrees with
 WinUAE's pipeline ordering.
 
 The registered vAmiga Amiga Test Kit v1.21 references expose the same
-observable placement end to end. Before the correction, the menu pointer was
-two canonical hires pixels left of the reference while the surrounding
+observable OCS placement end to end. Before the correction, the menu pointer
+was two canonical hires pixels left of the reference while the surrounding
 playfield pixels aligned. Its shape and colours otherwise matched.
 
 ## The decision
@@ -76,7 +76,11 @@ remain separate accuracy work; this decision does not claim that the current
 single-stage shifter reproduces every internal latch.
 
 ECS superhires sprite-position bit behaviour and AGA sprite-resolution modes
-are also outside this OCS phase decision.
+are also outside this OCS phase decision. The A1200 Test Kit reference retains
+a separate two-host-HIRES-sample pointer observation under its beam-absolute
+crop. Inspected UAE source still specifies the same one-lores-pixel start delay
+for OCS/ECS and AGA, so Emu198x does not add a Lisa-only offset from that image
+alone. A machine-neutral sprite-phase probe is the next evidence step.
 
 ## Verification
 
@@ -99,18 +103,20 @@ That residual led to the separate
 [Denise BPL1DAT sprite-visibility](amiga-denise-bpl1dat-sprite-visibility.md)
 decision and is not evidence for another HSTART offset.
 
-After implementing that separate prerequisite, EBU bars match exactly. The
-phase-only crosshatch result retained 56 far-right pixels caused by post-wrap
-raster placement, and the same 56 pixels remain after the visibility change.
-The separate
+After implementing that separate prerequisite, the OCS pointer placement
+matches in the non-colour cases. The phase-only crosshatch result retained 56
+far-right pixels caused by post-wrap raster placement, and the same 56 pixels
+remain after the visibility change. The separate
 [Denise raster-wrap projection](amiga-denise-raster-wrap-projection.md)
 decision removes that residual rather than hiding it with a sprite or
-framebuffer offset. All six registered video diagnostics now match exactly.
+framebuffer offset. Current gradients and EBU-bar status is governed by the
+separate Copper colour-phase disagreement, not by the sprite coordinate.
 
 ## Related documents
 
 - [Denise BPL1DAT sprite visibility](amiga-denise-bpl1dat-sprite-visibility.md)
 - [Denise raster-wrap projection](amiga-denise-raster-wrap-projection.md)
+- [Lisa bitplane and display-window output phase](amiga-lisa-bitplane-diw-output-phase.md)
 - [Amiga sprite DMA lifecycle](amiga-sprite-dma-lifecycle.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Amiga Test Kit v1.21 video conformance](../processes/amiga-test-kit-video-conformance.md)

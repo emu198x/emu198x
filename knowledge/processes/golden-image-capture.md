@@ -110,6 +110,43 @@ Before retaining an updated image:
 Do not use this update mechanism for the Test Kit v1.21 conformance references.
 That lane admits references only through its provenance contract.
 
+## Reviewed A1200 Workbench 3.1 rebaseline
+
+The 2026-08-08 Lisa bitplane and horizontal display-window phase correction
+moved the A1200 Workbench 3.1 playfield by two host-HIRES samples while leaving
+the independently clocked sprite pointer on its absolute coordinate path. The
+existing golden and the first corrected capture differed at 14,550 of 430,144
+pixels.
+
+Translating the corrected capture left by two samples aligned every changed
+playfield pixel except 184 pixels in a 22 x 22 rectangle at the pointer. This
+is the expected separation between the corrected bitplane path and the
+unchanged sprite path. It also agrees with the independently registered A1200
+Test Kit result: the non-pointer EBU, dots and crosshatch cases are exact under
+the beam-absolute mapping, while the remaining pointer phase is retained as a
+separate disagreement.
+
+The complete corrected Workbench image was reviewed and retained as the new
+Emu198x regression baseline. It is not an external Workbench capture, and no
+pointer mask was added; subsequent runs must reproduce every pixel exactly.
+
+## Volatile Workbench memory readouts
+
+Workbench computes the free-memory figure shown in the title bar from live
+allocator state. Captures taken at nearby instruction boundaries can therefore
+differ in 16-byte allocation quanta without representing a display failure.
+One reviewed Workbench 1.2 comparison moved by four such quanta.
+
+The matrix excludes only the numeric glyph field when this occurs. Its reviewed
+rectangles in the cropped 752 x 572 comparison space are:
+
+- Workbench 1.3: x 270, y 36, width 50, height 18;
+- Workbench 1.2: x 319, y 36, width 60, height 18.
+
+The pointer, title-bar chrome, surrounding text and every other framebuffer
+pixel remain exact. Do not enlarge either rectangle to accommodate an unrelated
+difference.
+
 ## Result interpretation
 
 A passing boot-path matrix establishes that current output matches the
@@ -120,5 +157,6 @@ that unexercised chipset modes are pixel accurate.
 ## Related documents
 
 - [Amiga Test Kit v1.21 video conformance](amiga-test-kit-video-conformance.md)
+- [Lisa bitplane and display-window output phase](../decisions/amiga-lisa-bitplane-diw-output-phase.md)
 - [Amiga Test Kit v1.12 verification](amiga-test-kit-verification.md)
 - [Test ROM bundling policy](../decisions/test-rom-policy.md)
