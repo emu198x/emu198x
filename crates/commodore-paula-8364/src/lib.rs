@@ -156,6 +156,11 @@ use bits::*;
 /// Number of complete words in Paula's disk-DMA FIFO.
 pub const DISK_DMA_FIFO_WORD_CAPACITY: usize = 3;
 
+const DISK_DMA_SLOT_D0: u8 = 1 << 0;
+const DISK_DMA_SLOT_D1: u8 = 1 << 1;
+const DISK_DMA_SLOT_D2: u8 = 1 << 2;
+const DISK_DMA_SLOT_ALL: u8 = DISK_DMA_SLOT_D0 | DISK_DMA_SLOT_D1 | DISK_DMA_SLOT_D2;
+
 /// Direction of the words currently retained by Paula's disk-DMA FIFO.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -911,10 +916,16 @@ pub struct PaulaDiskDiagnosticSnapshot {
     pub disk_dma_fifo_empty: bool,
     /// Whether the disk-DMA FIFO contains all three complete words.
     pub disk_dma_fifo_full: bool,
+    /// Number of read words discarded because the disk-DMA FIFO was full.
+    pub disk_dma_fifo_overrun_count: u64,
     /// Whether the DSKLEN arming flip-flop has seen its first DMAEN write.
     pub dsklen_armed: bool,
     /// Whether a disk DMA transfer is pending.
     pub disk_dma_pending: bool,
+    /// Whether Paula currently requests one of Agnus's fixed disk cells.
+    pub disk_dma_slot_requested: bool,
+    /// Fixed-cell request mask, with bits 0, 1 and 2 representing D0, D1 and D2.
+    pub disk_dma_slot_request_mask: u8,
     /// Number of words remaining in the captured transfer.
     pub disk_dma_words_remaining: u32,
     /// Captured DMA direction; `true` means chip RAM to disk.
@@ -968,6 +979,8 @@ pub struct Paula8364 {
     disk_dma_fifo: VecDeque<u16>,
     /// Direction of the transfer represented by `disk_dma_fifo`.
     disk_dma_fifo_direction: Option<DiskDmaFifoDirection>,
+    /// Cumulative read words discarded while the three-word FIFO was full.
+    disk_dma_fifo_overrun_count: u64,
     disk_dma_pending: bool,
     /// DSKLEN arming flip-flop per HRM "turn DMAEN on twice" protocol.
     dsklen_armed: bool,
@@ -1055,6 +1068,7 @@ impl Paula8364 {
             dskdat_queue: VecDeque::new(),
             disk_dma_fifo: VecDeque::with_capacity(DISK_DMA_FIFO_WORD_CAPACITY),
             disk_dma_fifo_direction: None,
+            disk_dma_fifo_overrun_count: 0,
             disk_dma_pending: false,
             dsklen_armed: false,
             disk_dma_words_remaining: 0,
@@ -1552,6 +1566,8 @@ impl Paula8364 {
         }
         if self.disk_dma_fifo.len() < DISK_DMA_FIFO_WORD_CAPACITY {
             self.disk_dma_fifo.push_back(word);
+        } else {
+            self.disk_dma_fifo_overrun_count = self.disk_dma_fifo_overrun_count.saturating_add(1);
         }
     }
 
@@ -1562,11 +1578,7 @@ impl Paula8364 {
     /// available. WORDSYNC-waiting, write, idle, and FIFO-empty states do
     /// not consume the grant.
     pub fn service_disk_read_dma_slot(&mut self) -> Option<u16> {
-        if !self.disk_dma_pending
-            || self.disk_dma_is_write
-            || self.disk_dma_wordsync_waiting
-            || self.disk_dma_fifo_direction != Some(DiskDmaFifoDirection::Read)
-        {
+        if !self.disk_dma_slot_requested() || self.disk_dma_is_write {
             return None;
         }
 
@@ -1576,6 +1588,50 @@ impl Paula8364 {
             self.complete_disk_dma();
         }
         Some(word)
+    }
+
+    /// Whether Paula is requesting one of Agnus's fixed disk-DMA cells.
+    ///
+    /// `DMACON.DSKEN` makes the cells available, but does not consume them by
+    /// itself. A read requests a cell only when an active, sync-aligned
+    /// transfer has a complete FIFO word. A write requests one only while an
+    /// active transfer has room for another chip-RAM word.
+    #[must_use]
+    pub fn disk_dma_slot_requested(&self) -> bool {
+        self.disk_dma_slot_request_mask() != 0
+    }
+
+    /// Which of Agnus's D0/D1/D2 cells Paula currently requests.
+    ///
+    /// Bits 0, 1 and 2 represent D0, D1 and D2 respectively. For read DMA,
+    /// this follows WinUAE's `disk_dmal` stage mapping: one queued word waits
+    /// for D2, two request D1 and D2, and a full FIFO requests D0, D1 and D2.
+    /// vAmiga currently services the earliest available cell instead, so
+    /// direct hardware confirmation remains desirable. Write DMA retains the
+    /// existing any-free-cell request until its FIFO-stage timing is modeled
+    /// separately.
+    #[must_use]
+    pub fn disk_dma_slot_request_mask(&self) -> u8 {
+        if self.disk_dma_is_write {
+            return if self.disk_write_dma_slot_requested() {
+                DISK_DMA_SLOT_ALL
+            } else {
+                0
+            };
+        }
+        if !self.disk_dma_pending
+            || self.disk_dma_wordsync_waiting
+            || self.disk_dma_fifo_direction != Some(DiskDmaFifoDirection::Read)
+        {
+            return 0;
+        }
+
+        match self.disk_dma_fifo.len() {
+            0 => 0,
+            1 => DISK_DMA_SLOT_D2,
+            2 => DISK_DMA_SLOT_D1 | DISK_DMA_SLOT_D2,
+            _ => DISK_DMA_SLOT_ALL,
+        }
     }
 
     /// Whether an Agnus-granted disk slot can fetch another write word.
@@ -1682,8 +1738,11 @@ impl Paula8364 {
             disk_dma_fifo_count: self.disk_dma_fifo.len(),
             disk_dma_fifo_empty: self.disk_dma_fifo.is_empty(),
             disk_dma_fifo_full: self.disk_dma_fifo.len() == DISK_DMA_FIFO_WORD_CAPACITY,
+            disk_dma_fifo_overrun_count: self.disk_dma_fifo_overrun_count,
             dsklen_armed: self.dsklen_armed,
             disk_dma_pending: self.disk_dma_pending,
+            disk_dma_slot_requested: self.disk_dma_slot_requested(),
+            disk_dma_slot_request_mask: self.disk_dma_slot_request_mask(),
             disk_dma_words_remaining: self.disk_dma_words_remaining,
             disk_dma_is_write: self.disk_dma_is_write,
             disk_dma_wordsync_waiting: self.disk_dma_wordsync_waiting,

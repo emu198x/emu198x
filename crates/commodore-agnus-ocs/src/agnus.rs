@@ -37,6 +37,8 @@ pub mod bits {
 pub const PAL_CCKS_PER_LINE: u16 = 227;
 pub const PAL_LINES_PER_FRAME: u16 = 312;
 
+const DISK_DMA_SLOT_REQUEST_ALL: u8 = 0b111;
+
 /// NTSC short-line length (227 CCKs). On NTSC, lines alternate
 /// between short (227) and long (228) every line — see
 /// `Agnus::lol` / `Agnus::lol_toggle`. The alternation provides the
@@ -270,9 +272,9 @@ pub enum BlitterBusDiagnosticAuthority {
 /// Side-effect-free view of Agnus arbitration for the current CCK.
 ///
 /// [`Self::plan`] is the live arbitration decision. The recorded fields retain
-/// what actually happened earlier in the same CCK, where completing a sprite
-/// fetch or advancing the blitter can make a newly computed plan differ from
-/// the decision already consumed by the machine.
+/// what actually happened earlier in the same CCK, where completing a disk
+/// transfer or sprite fetch, or advancing the blitter, can make a newly
+/// computed plan differ from the decision already consumed by the machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgnusBusDiagnosticSnapshot {
     /// Current vertical beam position.
@@ -281,6 +283,11 @@ pub struct AgnusBusDiagnosticSnapshot {
     pub hpos: u16,
     /// Complete current Agnus arbitration plan.
     pub plan: CckBusPlan,
+    /// Whether disk DMA actually drove the chip bus in this CCK.
+    pub disk_bus_used_this_cck: bool,
+    /// Effective disk ownership after combining the live plan with recorded
+    /// same-CCK use.
+    pub disk_holds_bus: bool,
     /// Whether sprite DMA actually drove the chip bus in this CCK.
     pub sprite_bus_used_this_cck: bool,
     /// Effective sprite ownership after combining the live plan with recorded
@@ -1120,6 +1127,11 @@ pub struct Agnus {
     spr_vstart: [u16; 8],
     spr_vstop: [u16; 8],
     spr_dma_on: [bool; 8],
+    /// Record that disk DMA drove the chip bus during the current CCK.
+    /// Servicing the final FIFO word can clear Paula's request and make a
+    /// newly computed plan look idle; CPU arbitration must still honour the
+    /// original use for both master/4 phases of that CCK.
+    disk_bus_used_this_cck: bool,
     /// Record that sprite DMA drove the chip bus during the current CCK.
     /// A second control-word fetch can change VSTOP and make a newly
     /// computed plan look idle; CPU arbitration must still honour the
@@ -1265,6 +1277,7 @@ impl Agnus {
             spr_vstart: [0; 8],
             spr_vstop: [0; 8],
             spr_dma_on: [false; 8],
+            disk_bus_used_this_cck: false,
             sprite_bus_used_this_cck: false,
             blitter_bus_used_this_cck: false,
             blitter_nasty_owned_this_cck: false,
@@ -2579,6 +2592,22 @@ impl Agnus {
                 || self.spr_dma_on[channel])
     }
 
+    /// Start a new CCK with no recorded disk bus use.
+    pub fn reset_disk_bus_usage(&mut self) {
+        self.disk_bus_used_this_cck = false;
+    }
+
+    /// Record whether disk DMA drove the chip bus during this CCK.
+    pub fn record_disk_bus_usage(&mut self, used: bool) {
+        self.disk_bus_used_this_cck = used;
+    }
+
+    /// Whether disk DMA drove the chip bus during this CCK.
+    #[must_use]
+    pub const fn disk_bus_used_this_cck(&self) -> bool {
+        self.disk_bus_used_this_cck
+    }
+
     /// Start a new CCK with no recorded sprite bus use.
     pub fn reset_sprite_bus_usage(&mut self) {
         self.sprite_bus_used_this_cck = false;
@@ -3079,6 +3108,7 @@ impl Agnus {
         self.current_slot_with_vertical_timing(
             self.vertical_diw_active(),
             self.fixed_sprite_dma_vertical_timing(),
+            DISK_DMA_SLOT_REQUEST_ALL,
         )
     }
 
@@ -3086,6 +3116,7 @@ impl Agnus {
         &self,
         bitplane_vertical_active: bool,
         sprite_timing: SpriteDmaVerticalTiming,
+        disk_dma_slot_request_mask: u8,
     ) -> SlotOwner {
         // Hardware-correct OCS PAL DMA time-slot allocation (vAmiga
         // `SequencerDas.cpp` + Minimig `agnus.v` priority chain). Every
@@ -3094,13 +3125,21 @@ impl Agnus {
         // even FREE cells. Priority on a contended cell:
         //   disk > refresh > audio > bitplane > sprite > copper > cpu
         // (blitter contention is layered onto the Cpu slots in
-        // `cck_bus_plan`). #30; see
+        // `cck_bus_plan`; the machine driver offers an actual unused Copper
+        // opportunity to the blitter before returning it to the CPU). #30; see
         // `docs/plans/2026-06-12-amiga-single-bus-rewrite-30.md`.
         let hpos = self.hpos;
         let eol_refresh = if self.lol { 0xE3 } else { 0xE2 };
 
-        // Disk D0/D1/D2 (DSKEN) — highest priority.
-        if self.dma_enabled(0x0010) && matches!(hpos, 0x07 | 0x09 | 0x0B) {
+        // Disk D0/D1/D2 — highest priority when DMACON makes the channel
+        // available and the corresponding Paula FIFO stage requests it.
+        let disk_slot_mask = match hpos {
+            0x07 => 0b001,
+            0x09 => 0b010,
+            0x0B => 0b100,
+            _ => 0,
+        };
+        if disk_dma_slot_request_mask & disk_slot_mask != 0 && self.dma_enabled(0x0010) {
             return SlotOwner::Disk;
         }
         // Memory refresh — 0x01/0x03/0x05 + end-of-line. Unconditional.
@@ -3209,6 +3248,39 @@ impl Agnus {
         self.cck_bus_plan_with_vertical_timing(
             self.vertical_diw_active(),
             self.fixed_sprite_dma_vertical_timing(),
+            DISK_DMA_SLOT_REQUEST_ALL,
+        )
+    }
+
+    /// Compute the machine-facing plan using Paula's current disk-DMA request.
+    ///
+    /// The standalone Agnus plan exposes scheduled D0/D1/D2 opportunities;
+    /// machine integration must additionally provide Paula's DSKLEN/FIFO
+    /// request so an idle disk channel releases those cells.
+    #[must_use]
+    pub fn cck_bus_plan_with_disk_request(&self, disk_dma_requested: bool) -> CckBusPlan {
+        let request_mask = if disk_dma_requested {
+            DISK_DMA_SLOT_REQUEST_ALL
+        } else {
+            0
+        };
+        self.cck_bus_plan_with_disk_request_mask(request_mask)
+    }
+
+    /// Compute the machine-facing plan using Paula's D0/D1/D2 request mask.
+    ///
+    /// Bits 0, 1 and 2 select the fixed cells at hpos `$07`, `$09` and `$0B`
+    /// respectively. This preserves Paula's three-stage read-FIFO timing while
+    /// keeping the physical cell decode owned by Agnus.
+    #[must_use]
+    pub fn cck_bus_plan_with_disk_request_mask(
+        &self,
+        disk_dma_slot_request_mask: u8,
+    ) -> CckBusPlan {
+        self.cck_bus_plan_with_vertical_timing(
+            self.vertical_diw_active(),
+            self.fixed_sprite_dma_vertical_timing(),
+            disk_dma_slot_request_mask,
         )
     }
 
@@ -3247,6 +3319,9 @@ impl Agnus {
             vpos: self.vpos,
             hpos: self.hpos,
             plan,
+            disk_bus_used_this_cck: self.disk_bus_used_this_cck,
+            disk_holds_bus: self.disk_bus_used_this_cck
+                || matches!(plan.slot_owner, SlotOwner::Disk),
             sprite_bus_used_this_cck: self.sprite_bus_used_this_cck,
             sprite_holds_bus: self.sprite_bus_used_this_cck
                 || matches!(plan.slot_owner, SlotOwner::Sprite(_)),
@@ -3271,6 +3346,7 @@ impl Agnus {
         self.cck_bus_plan_with_vertical_timing(
             bitplane_vertical_active,
             self.fixed_sprite_dma_vertical_timing(),
+            DISK_DMA_SLOT_REQUEST_ALL,
         )
     }
 
@@ -3281,9 +3357,13 @@ impl Agnus {
         &self,
         bitplane_vertical_active: bool,
         sprite_timing: SpriteDmaVerticalTiming,
+        disk_dma_slot_request_mask: u8,
     ) -> CckBusPlan {
-        let slot_owner =
-            self.current_slot_with_vertical_timing(bitplane_vertical_active, sprite_timing);
+        let slot_owner = self.current_slot_with_vertical_timing(
+            bitplane_vertical_active,
+            sprite_timing,
+            disk_dma_slot_request_mask,
+        );
         let disk_dma_slot_granted = matches!(slot_owner, SlotOwner::Disk);
         let sprite_dma_service_channel = match slot_owner {
             SlotOwner::Sprite(channel) => Some(channel),
@@ -3523,7 +3603,7 @@ impl Agnus {
     /// Startup retains the existing accepted/free-cell policy. Once startup
     /// has drained, the pending operation determines whether nasty mode owns
     /// the cell; notably, a suppressed ONEDOT WriteD leaves it free.
-    fn next_blitter_progress_uses_bus(&self) -> bool {
+    pub fn next_blitter_progress_uses_bus(&self) -> bool {
         if self.blitter_startup_ccks_remaining != 0 {
             return true;
         }
@@ -5342,6 +5422,25 @@ mod tests {
             plan.paula_return_progress_policy,
             PaulaReturnProgressPolicy::Stall
         );
+    }
+
+    #[test]
+    fn disk_request_mask_selects_its_corresponding_fixed_cells() {
+        let mut agnus = Agnus::new();
+        agnus.dmacon = DMACON_DMAEN | 0x0010; // DSKEN
+
+        for (hpos, matching_mask) in [(0x07, 0b001), (0x09, 0b010), (0x0B, 0b100)] {
+            agnus.hpos = hpos;
+
+            let matching = agnus.cck_bus_plan_with_disk_request_mask(matching_mask);
+            assert_eq!(matching.slot_owner, SlotOwner::Disk);
+            assert!(matching.disk_dma_slot_granted);
+
+            let other_stages = agnus.cck_bus_plan_with_disk_request_mask(0b111 ^ matching_mask);
+            assert_eq!(other_stages.slot_owner, SlotOwner::Cpu);
+            assert!(!other_stages.disk_dma_slot_granted);
+            assert!(other_stages.cpu_chip_bus_granted);
+        }
     }
 
     #[test]

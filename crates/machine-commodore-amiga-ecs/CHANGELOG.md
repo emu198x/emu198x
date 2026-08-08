@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Capture CPU, blitter D-channel and disk read-DMA writes in one source-aware
+  memory-watch stream without changing the existing CPU-only trace tuple
 - Compose Gayle into explicit PAL and NTSC A600 board constructors while
   retaining the existing A500+ constructors without it
 - Route A600 IDE and Gayle control-register accesses through the same Gayle
@@ -39,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Re-encode the current floppy track after a successful writable DMA flush so
+  subsequent reads observe persisted sectors without losing rotational phase
+- Preserve inherited nasty-mode CPU stalls when a parked Copper yields one of
+  its eligible cells to the blitter
 - Keep side-effect-free word and longword inspection from driving the floating
   bus while retaining bus effects for CPU and DMA reads
 - Keep Gary's public address-decoder state consistent with the optional A600

@@ -12,7 +12,7 @@ use crate::machine::{MachineCore, ResetKind};
 use crate::media::{MediaImage, MediaKind, MediaSet};
 use crate::query::{QueryError, QueryPathsResult, QueryResult, SessionQueryProvider};
 use crate::session::{HeadlessSession, SessionError};
-use crate::watch::{WatchAyRecord, WatchMemoryRecord};
+use crate::watch::{WatchAyRecord, WatchMemoryRecord, WatchMemorySource};
 
 /// One user-facing script media kind with stable JSON spellings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,7 +85,7 @@ pub struct DisasmInstruction {
     pub mnemonic: String,
 }
 
-/// One captured CPU write reported by [`ScriptObservation::WatchMemoryLog`].
+/// One captured write reported by [`ScriptObservation::WatchMemoryLog`].
 ///
 /// Widened to `u32` on every address field so the same shape covers both
 /// 16-bit (Z80, 6502) and 32-bit (68000) address spaces. `cck` and
@@ -93,7 +93,8 @@ pub struct DisasmInstruction {
 /// 8/16-bit machines leave `cck` absent and `size_bytes` `1`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryWriteEntry {
-    /// Program counter at the moment of the write.
+    /// CPU program counter at the moment of observation. For DMA writes this
+    /// is concurrent CPU context rather than the writer's instruction PC.
     pub pc: u32,
     /// Target address of the write.
     pub addr: u32,
@@ -107,6 +108,11 @@ pub struct MemoryWriteEntry {
     pub cck: Option<u64>,
     /// Width of the write in bytes (`1` for a byte store, `2` for a word).
     pub size_bytes: u8,
+    /// Hardware agent that issued the write, when the machine distinguishes
+    /// writers. Omitted for CPU-only family watches to preserve their prior
+    /// JSON representation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<crate::watch::WatchMemorySource>,
 }
 
 /// One shared JSON script step.
@@ -566,9 +572,9 @@ pub enum ScriptStep {
         /// 16-bit value to write.
         value: u16,
     },
-    /// Begin recording CPU writes inside the half-open address range
-    /// `[addr, addr + len)`. Replaces any prior watch range and clears
-    /// the captured log.
+    /// Begin recording writes inside the half-open address range
+    /// `[addr, addr + len)`. Replaces any prior watch range and clears the
+    /// captured log. Source-aware machines can include DMA writers.
     ///
     /// System-specific (binary-dispatched). Emits
     /// [`ScriptObservation::WatchMemoryStart`].
@@ -593,10 +599,23 @@ pub enum ScriptStep {
         /// Maximum number of entries to return. Defaults to 64.
         #[serde(default)]
         limit: Option<u32>,
-        /// When `true`, deduplicate identical `(pc, addr, value)`
-        /// triples before applying the limit.
+        /// When `true`, deduplicate identical `(pc, addr, value, source)`
+        /// tuples before applying the limit.
         #[serde(default)]
         unique: bool,
+        /// Return only writes explicitly attributed to this hardware agent.
+        /// CPU-only family watches do not stamp provenance and therefore do
+        /// not match a source filter.
+        #[serde(default)]
+        source: Option<WatchMemorySource>,
+        /// Return only timestamped writes at or after this CCK. Records from
+        /// machines without CCK timestamps do not match a CCK filter.
+        #[serde(default)]
+        cck_min: Option<u64>,
+        /// Return only timestamped writes at or before this CCK. Records from
+        /// machines without CCK timestamps do not match a CCK filter.
+        #[serde(default)]
+        cck_max: Option<u64>,
     },
 }
 
@@ -947,7 +966,8 @@ pub enum ScriptObservation {
         len: Option<u32>,
         /// Total number of records currently held.
         total_writes: u32,
-        /// Number of records actually returned (after limit + unique).
+        /// Number of records actually returned after filtering,
+        /// deduplication, and limiting.
         returned: u32,
         /// Most-recent entries up to the requested limit, in capture
         /// order (oldest first).
@@ -1659,7 +1679,19 @@ impl ScriptStep {
                     captured,
                 }))
             }
-            Self::WatchMemoryLog { limit, unique } => {
+            Self::WatchMemoryLog {
+                limit,
+                unique,
+                source,
+                cck_min,
+                cck_max,
+            } => {
+                if cck_min.zip(*cck_max).is_some_and(|(min, max)| min > max) {
+                    return Err(ScriptError::InvalidStep {
+                        step: "watch_memory_log",
+                        reason: "`cck_min` must not exceed `cck_max`".to_owned(),
+                    });
+                }
                 let limit = limit.unwrap_or(WATCH_LOG_DEFAULT_LIMIT) as usize;
                 let Some(target) = session.machine().watch_target() else {
                     return Err(ScriptError::SystemSpecificStep {
@@ -1678,9 +1710,18 @@ impl ScriptStep {
                 };
                 let total_writes = records.len() as u32;
                 let mut filtered: Vec<&WatchMemoryRecord> = records.iter().collect();
+                if let Some(source) = source {
+                    filtered.retain(|record| record.source == Some(*source));
+                }
+                if let Some(cck_min) = cck_min {
+                    filtered.retain(|record| record.cck.is_some_and(|cck| cck >= *cck_min));
+                }
+                if let Some(cck_max) = cck_max {
+                    filtered.retain(|record| record.cck.is_some_and(|cck| cck <= *cck_max));
+                }
                 if *unique {
                     let mut seen = std::collections::HashSet::new();
-                    filtered.retain(|r| seen.insert((r.pc, r.addr, r.value)));
+                    filtered.retain(|r| seen.insert((r.pc, r.addr, r.value, r.source)));
                 }
                 // Take the most-recent `limit`, restored to oldest-first order.
                 let start = filtered.len().saturating_sub(limit);
@@ -1692,6 +1733,7 @@ impl ScriptStep {
                         value: r.value,
                         cck: r.cck,
                         size_bytes: r.size_bytes,
+                        source: r.source,
                     })
                     .collect();
                 Ok(Some(ScriptObservation::WatchMemoryLog {
@@ -1882,6 +1924,7 @@ mod tests {
                     value: u32::from(value),
                     cck: None,
                     size_bytes: 1,
+                    source: None,
                 });
             }
         }
@@ -2426,6 +2469,9 @@ mod tests {
             ScriptStep::WatchMemoryLog {
                 limit: None,
                 unique: false,
+                source: None,
+                cck_min: None,
+                cck_max: None,
             },
         ) {
             ScriptObservation::WatchMemoryLog {
@@ -2440,6 +2486,7 @@ mod tests {
                 assert_eq!(entries.len(), 1);
                 assert_eq!((entries[0].addr, entries[0].value), (0x4001, 0x99));
                 assert_eq!(entries[0].size_bytes, 1);
+                assert_eq!(entries[0].source, None);
             }
             other => panic!("expected WatchMemoryLog, got {other:?}"),
         }
@@ -2482,6 +2529,113 @@ mod tests {
             }
             other => panic!("expected WatchAyClear, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn memory_watch_log_filters_by_source_and_inclusive_cck_window() {
+        let mut machine = DummyMachine::new();
+        machine.mem_watch = Some((0x78000, 8));
+        machine.mem_log = vec![
+            WatchMemoryRecord {
+                pc: 0x100,
+                addr: 0x78000,
+                value: 0x1111,
+                cck: Some(100),
+                size_bytes: 2,
+                source: Some(WatchMemorySource::Cpu),
+            },
+            WatchMemoryRecord {
+                pc: 0x102,
+                addr: 0x78002,
+                value: 0x2222,
+                cck: Some(110),
+                size_bytes: 2,
+                source: Some(WatchMemorySource::Blitter),
+            },
+            WatchMemoryRecord {
+                pc: 0x104,
+                addr: 0x78004,
+                value: 0x3333,
+                cck: Some(120),
+                size_bytes: 2,
+                source: Some(WatchMemorySource::Blitter),
+            },
+            WatchMemoryRecord {
+                pc: 0x106,
+                addr: 0x78006,
+                value: 0x4444,
+                cck: Some(115),
+                size_bytes: 2,
+                source: Some(WatchMemorySource::DiskDma),
+            },
+        ];
+        let mut session = HeadlessSession::new(machine, 1);
+
+        let observation = ScriptStep::WatchMemoryLog {
+            limit: None,
+            unique: false,
+            source: Some(WatchMemorySource::Blitter),
+            cck_min: Some(105),
+            cck_max: Some(115),
+        }
+        .execute_collect(&mut session)
+        .expect("filtered log should execute")
+        .expect("filtered log should emit an observation");
+        match observation {
+            ScriptObservation::WatchMemoryLog {
+                total_writes,
+                returned,
+                entries,
+                ..
+            } => {
+                assert_eq!(total_writes, 4);
+                assert_eq!(returned, 1);
+                assert_eq!(entries[0].value, 0x2222);
+                assert_eq!(entries[0].cck, Some(110));
+                assert_eq!(entries[0].source, Some(WatchMemorySource::Blitter));
+            }
+            other => panic!("expected WatchMemoryLog, got {other:?}"),
+        }
+
+        let reversed = ScriptStep::WatchMemoryLog {
+            limit: None,
+            unique: false,
+            source: None,
+            cck_min: Some(200),
+            cck_max: Some(100),
+        };
+        assert!(matches!(
+            reversed.execute_collect(&mut session),
+            Err(ScriptError::InvalidStep {
+                step: "watch_memory_log",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn memory_write_source_is_typed_and_legacy_json_remains_compatible() {
+        let source_aware = MemoryWriteEntry {
+            pc: 0x1234,
+            addr: 0x78000,
+            value: 0xA55A,
+            cck: Some(42),
+            size_bytes: 2,
+            source: Some(crate::watch::WatchMemorySource::DiskDma),
+        };
+        let json = serde_json::to_value(source_aware).expect("serialize source-aware write");
+        assert_eq!(json["source"], "disk_dma");
+
+        let legacy: MemoryWriteEntry = serde_json::from_value(json!({
+            "pc": 0x1234,
+            "addr": 0x4000,
+            "value": 0x99,
+            "size_bytes": 1
+        }))
+        .expect("deserialize legacy CPU-only write");
+        assert_eq!(legacy.source, None);
+        let legacy_json = serde_json::to_value(legacy).expect("serialize legacy write");
+        assert!(legacy_json.get("source").is_none());
     }
 
     #[test]

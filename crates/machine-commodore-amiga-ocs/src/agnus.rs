@@ -111,10 +111,17 @@ impl InstalledAgnus {
     }
 
     #[must_use]
-    pub(crate) fn cck_bus_plan(&self) -> CckBusPlan {
+    pub(crate) fn cck_bus_plan_with_disk_request_mask(
+        &self,
+        disk_dma_slot_request_mask: u8,
+    ) -> CckBusPlan {
         match self {
-            Self::EarlyOcs(agnus) => agnus.cck_bus_plan(),
-            Self::Fat8372A(agnus) => agnus.cck_bus_plan(),
+            Self::EarlyOcs(agnus) => {
+                agnus.cck_bus_plan_with_disk_request_mask(disk_dma_slot_request_mask)
+            }
+            Self::Fat8372A(agnus) => {
+                agnus.cck_bus_plan_with_disk_request_mask(disk_dma_slot_request_mask)
+            }
         }
     }
 

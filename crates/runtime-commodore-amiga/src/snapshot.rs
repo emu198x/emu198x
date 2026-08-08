@@ -19,10 +19,10 @@ use crate::AmigaConfig;
 use crate::runtime::AmigaRuntime;
 use crate::variants::AmigaMachine;
 
-// Version 32 rejects version-31 snapshots because the battery-backed RTC now
-// persists its clock mode, subsecond system-tick phase and active tick rate.
-// The older positional RTC payload cannot retain that timing context.
-const SNAPSHOT_VERSION: u32 = 32;
+// Version 34 preserves DF0 mount writability and reattaches the skipped media
+// object without modelling another physical insertion. Older envelopes cannot
+// represent the write-protect state of mounted archive media.
+const SNAPSHOT_VERSION: u32 = 34;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
 /// snapshot (`M::Snapshot`) with the surrounding runtime context
@@ -31,12 +31,13 @@ const SNAPSHOT_VERSION: u32 = 32;
 /// Versioned so future snapshot extensions can bump the major version
 /// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV32<M: AmigaMachine> {
+struct SnapshotEnvelopeV34<M: AmigaMachine> {
     version: u32,
     config: AmigaConfig,
     time: MachineTime,
     machine: M::Snapshot,
     floppy0_bytes: Option<Vec<u8>>,
+    floppy0_writable: bool,
     frame_count: u64,
     non_black_pixels: u32,
     non_white_pixels: u32,
@@ -47,12 +48,22 @@ struct SnapshotEnvelopeV32<M: AmigaMachine> {
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
 pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u8>, MachineError> {
-    let envelope = SnapshotEnvelopeV32::<M> {
+    let live_floppy0_bytes = runtime.machine().floppy0_image_bytes();
+    let floppy0_writable = if live_floppy0_bytes.is_some() {
+        runtime
+            .machine()
+            .floppy0_image_writable()
+            .unwrap_or(runtime.floppy0_writable())
+    } else {
+        runtime.floppy0_writable()
+    };
+    let envelope = SnapshotEnvelopeV34::<M> {
         version: SNAPSHOT_VERSION,
         config: runtime.config(),
         time: runtime.time_value(),
         machine: runtime.machine().snapshot_state(),
-        floppy0_bytes: runtime.floppy0_bytes().map(<[u8]>::to_vec),
+        floppy0_bytes: live_floppy0_bytes.or_else(|| runtime.floppy0_bytes().map(<[u8]>::to_vec)),
+        floppy0_writable,
         frame_count: runtime.frame_count(),
         non_black_pixels: runtime.non_black_pixels(),
         non_white_pixels: runtime.non_white_pixels(),
@@ -87,7 +98,7 @@ pub(crate) fn decode<M: AmigaMachine>(
         });
     }
 
-    let envelope: SnapshotEnvelopeV32<M> =
+    let envelope: SnapshotEnvelopeV34<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;
@@ -105,6 +116,11 @@ pub(crate) fn decode<M: AmigaMachine>(
     {
         return Err(MachineError::InvalidSnapshot {
             reason: format!("invalid Amiga configuration: {error}"),
+        });
+    }
+    if envelope.floppy0_bytes.is_none() && envelope.floppy0_writable {
+        return Err(MachineError::InvalidSnapshot {
+            reason: "empty DF0 cannot be marked writable".into(),
         });
     }
     let persisted_adf = envelope
@@ -146,7 +162,7 @@ pub(crate) fn decode<M: AmigaMachine>(
     }
 
     if let Some(adf) = persisted_adf {
-        candidate_machine.insert_floppy0(adf, envelope.config.model().is_a1000());
+        candidate_machine.reattach_floppy0(adf, envelope.floppy0_writable);
     }
 
     // Every fallible parse and configuration check has completed. Commit the
@@ -155,6 +171,7 @@ pub(crate) fn decode<M: AmigaMachine>(
     runtime.set_config(envelope.config);
     runtime.set_time(envelope.time);
     runtime.set_floppy0_bytes(envelope.floppy0_bytes);
+    runtime.set_floppy0_writable(envelope.floppy0_writable);
     runtime.set_frame_count(envelope.frame_count);
     runtime.set_non_black_pixels(envelope.non_black_pixels);
     runtime.set_non_white_pixels(envelope.non_white_pixels);
@@ -196,7 +213,7 @@ mod tests {
     fn restore_rejects_out_of_range_audio_phase_without_mutating_runtime() {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source snapshot");
-        let mut envelope: SnapshotEnvelopeV32<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV34<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.audio_sample_accumulator = u64::MAX;
         let forged = postcard::to_allocvec(&envelope).expect("encode forged audio phase");
@@ -221,7 +238,7 @@ mod tests {
     fn restore_rejects_machine_state_that_disagrees_with_a530_configuration() {
         let stock = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&stock).expect("encode stock snapshot");
-        let mut envelope: SnapshotEnvelopeV32<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV34<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.config = Model::A500OcsPalGvpA530.config();
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
@@ -285,7 +302,7 @@ mod tests {
     fn malformed_persisted_media_is_rejected_without_mutating_runtime_or_trace() {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source snapshot");
-        let mut envelope: SnapshotEnvelopeV32<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV34<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.floppy0_bytes = Some(vec![0; 17]);
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");

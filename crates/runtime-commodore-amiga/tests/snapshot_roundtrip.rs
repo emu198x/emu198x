@@ -27,6 +27,7 @@ use std::error::Error;
 
 use commodore_agnus_ocs::{BlitterDmaOp, OriginalAgnusRevision};
 use common::dummy_a1000_bootstrap_rom;
+use common_commodore_amiga::driver::AmigaDriver;
 use emu198x_shell::{
     HostIo, MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink,
     NullFrameSink, NullTraceSink,
@@ -35,7 +36,11 @@ use format_commodore_amiga_adf::ADF_SIZE_DD;
 use motorola_68000::bus::TransferSize;
 use motorola_68000::cpu::State;
 use motorola_68000::microcode::MicroOp;
-use runtime_commodore_amiga::{AmigaA1200Runtime, AmigaEcsRuntime, AmigaOcsRuntime, Model};
+use peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
+use runtime_commodore_amiga::{
+    AmigaA1200Runtime, AmigaEcsRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
+    AmigaRuntime, Model,
+};
 
 const BLTCON0: u32 = 0x00DF_F040;
 const BLTCON1: u32 = 0x00DF_F042;
@@ -214,7 +219,7 @@ fn rtc_time_and_subsecond_phase_survive_restore_and_forward_replay() -> Result<(
     assert_eq!(
         restored.snapshot()?,
         snapshot,
-        "the RTC-bearing version-32 envelope must be a byte-level fixed point",
+        "the RTC-bearing snapshot envelope must be a byte-level fixed point",
     );
 
     for _ in 0..4_096 {
@@ -2075,10 +2080,10 @@ fn ecs_snapshot_restore_preserves_model_specific_gayle_composition() -> Result<(
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 31, and confirm the version-mismatch arm fires with a
+/// field back to 32, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV32` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 32` that byte is `0x20`.
+/// of a `SnapshotEnvelopeV34` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 34` that byte is `0x22`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -2087,20 +2092,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 32,
-        "postcard varint for SNAPSHOT_VERSION = 32 should be 0x20"
+        bytes[0], 34,
+        "postcard varint for SNAPSHOT_VERSION = 34 should be 0x22"
     );
-    bytes[0] = 31;
+    bytes[0] = 32;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-31 snapshot should be rejected before payload decode");
+        .expect_err("version-32 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 31; expected 32"
+                if reason == "unsupported snapshot version 32; expected 34"
         ),
         "expected version-mismatch reason, got {err:?}"
     );
@@ -2128,5 +2133,127 @@ fn restore_remounts_persisted_floppy_image() -> Result<(), Box<dyn Error>> {
         restored.machine().drive().has_disk(),
         "restore should re-mount the persisted disk image"
     );
+    assert!(
+        restored.machine().drive().status().write_protect,
+        "archive media must retain its read-only mount state"
+    );
+    assert_eq!(
+        restored.snapshot()?,
+        snapshot,
+        "media reattachment must preserve the snapshot as a byte-level fixed point"
+    );
+    Ok(())
+}
+
+fn assert_writable_live_floppy_snapshot<M>(
+    chipset: &str,
+    mut runtime: AmigaRuntime<M>,
+    mut restored: AmigaRuntime<M>,
+) -> Result<(), Box<dyn Error>>
+where
+    M: AmigaDriver + AmigaLiveAccess + AmigaMachine,
+{
+    let source_disk = vec![0u8; ADF_SIZE_DD];
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("floppy-0", MediaKind::Disk, &source_disk).writable(true));
+    runtime.load_media(&media)?;
+    assert!(
+        !AmigaDriver::drive(runtime.machine()).status().write_protect,
+        "{chipset}: a writable mount must deassert /DSKPROT"
+    );
+
+    let replacement_track = vec![0xA5; 11 * 512];
+    let replacement_mfm = encode_mfm_track(&replacement_track, 0, 11);
+    let drive = runtime.machine_mut().drive_mut();
+    for bytes in replacement_mfm.chunks_exact(2) {
+        drive.note_write_mfm_word(u16::from_be_bytes([bytes[0], bytes[1]]));
+    }
+    assert_eq!(
+        drive.flush_write_capture(),
+        11,
+        "{chipset}: the live writable image should accept every replacement sector"
+    );
+
+    let live_bytes = AmigaDriver::drive(runtime.machine())
+        .save_adf()
+        .expect("writable disk remains mounted");
+    assert_eq!(
+        &live_bytes[..replacement_track.len()],
+        replacement_track.as_slice(),
+        "{chipset}: snapshot input must come from the guest-modified live image"
+    );
+    assert_ne!(
+        live_bytes, source_disk,
+        "{chipset}: the live image must differ from its mounted source"
+    );
+
+    let snapshot = runtime.snapshot()?;
+    restored.restore(&snapshot)?;
+
+    let restored_drive = AmigaDriver::drive(restored.machine());
+    assert!(
+        !restored_drive.status().write_protect,
+        "{chipset}: restore must preserve the writable mount's deasserted /DSKPROT"
+    );
+    assert_eq!(
+        restored_drive.diagnostic_snapshot().disk_writable,
+        Some(true),
+        "{chipset}: the restored drive must retain host write permission"
+    );
+    assert_eq!(
+        restored_drive.save_adf().as_deref(),
+        Some(live_bytes.as_slice()),
+        "{chipset}: restore must reattach the modified live ADF rather than the original host bytes"
+    );
+    assert_eq!(
+        restored.snapshot()?,
+        snapshot,
+        "{chipset}: writable media reattachment must remain a byte-level fixed point"
+    );
+
+    let second_track = vec![0x3C; 11 * 512];
+    let second_mfm = encode_mfm_track(&second_track, 0, 11);
+    let restored_drive = restored.machine_mut().drive_mut();
+    for bytes in second_mfm.chunks_exact(2) {
+        restored_drive.note_write_mfm_word(u16::from_be_bytes([bytes[0], bytes[1]]));
+    }
+    assert_eq!(
+        restored_drive.flush_write_capture(),
+        11,
+        "{chipset}: the restored writable mount must accept a subsequent guest write"
+    );
+    let rewritten_bytes = restored_drive
+        .save_adf()
+        .expect("rewritten disk remains mounted");
+    assert_eq!(
+        &rewritten_bytes[..second_track.len()],
+        second_track.as_slice(),
+        "{chipset}: the post-restore write must persist to the live image"
+    );
+    assert_ne!(
+        rewritten_bytes, live_bytes,
+        "{chipset}: the post-restore write must change the restored image"
+    );
+    Ok(())
+}
+
+#[test]
+fn restore_preserves_writable_live_floppy_image_across_chipset_tiers() -> Result<(), Box<dyn Error>>
+{
+    assert_writable_live_floppy_snapshot(
+        "OCS A500",
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+    )?;
+    assert_writable_live_floppy_snapshot(
+        "ECS A500+",
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+    )?;
+    assert_writable_live_floppy_snapshot(
+        "AGA A1200",
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+    )?;
     Ok(())
 }

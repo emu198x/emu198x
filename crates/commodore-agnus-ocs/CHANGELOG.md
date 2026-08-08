@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DDFSTRT/DDFSTOP transition
 - Serialize the original-Agnus vertical display-window latch so machine
   integrations and save states preserve comparator history
+- Accept Paula's per-cell D0/D1/D2 request mask when constructing the
+  machine-facing bus plan
+- Serialize and expose per-CCK disk bus use so a completed final word remains
+  authoritative for later CPU arbitration in the same cell
 
 ### Fixed
 

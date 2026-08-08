@@ -8,11 +8,13 @@ mod agnus;
 mod denise;
 use std::collections::VecDeque;
 
-use common_commodore_amiga::board::{BusResponse, BusTransaction, ChipRamBus, TICKS_PER_CCK};
+use common_commodore_amiga::board::{
+    BusResponse, BusTransaction, TICKS_PER_CCK, WatchingChipRamBus,
+};
 use common_commodore_amiga::driver::{AmigaDriver, CpuBoundary};
 pub use common_commodore_amiga::{
-    AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY, AmigaInputDiagnosticSnapshot,
-    AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot,
+    AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY, AmigaInputDiagnosticSnapshot, AmigaMemoryWriteRecord,
+    AmigaMemoryWriteSource, AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot,
 };
 use common_commodore_amiga::{ActiveCpu, CpuClock, CpuDomainPhase, cia, copper, memory, rtc};
 
@@ -310,12 +312,14 @@ pub struct AmigaEcs {
     /// byte-write behaviour differences against the archive machine,
     /// especially for display registers like BPLCON0.
     pub debug_custom_write_log: Vec<(u64, u32, u32, u16, u16, bool)>,
-    /// Diagnostic: when set, every CPU-initiated memory write whose
-    /// address falls in `[watch_addr, watch_addr+watch_len)` is
-    /// recorded as `(cck, pc, addr, val, is_word)`. Used by task #96
-    /// (chip-only LOFlist investigation) to see which instruction
-    /// writes what to a specific memory cell.
+    /// Diagnostic: half-open memory range observed by both the legacy
+    /// CPU-only tuple stream and the source-aware all-writer stream.
     pub debug_watch_addr: Option<(u32, u32)>,
+    /// Source-aware write stream used by the shared runtime watch. CPU entries
+    /// mirror `debug_watch_writes`; blitter D and disk read-DMA writes appear
+    /// only here.
+    pub debug_memory_watch_writes: Vec<AmigaMemoryWriteRecord>,
+    /// Legacy CPU-only tuple stream retained for existing diagnostics.
     pub debug_watch_writes: Vec<(u64, u32, u32, u16, bool)>,
     /// Diagnostic: bounded log of CPU RTC bus accesses. Entry is
     /// `(cck, pc, addr24, is_read, is_word, value)`, where `value`
@@ -630,6 +634,7 @@ impl AmigaEcs {
             debug_copper_move_log: Vec::new(),
             debug_custom_write_log: Vec::new(),
             debug_watch_addr: None,
+            debug_memory_watch_writes: Vec::new(),
             debug_watch_writes: Vec::new(),
             debug_rtc_log: Vec::new(),
             debug_bplcon0_log: Vec::new(),
@@ -824,10 +829,17 @@ impl AmigaEcs {
     /// helpers are thin presets over this.
     pub fn mount_adf(&mut self, adf: Adf, change_pending: bool, writable: bool) {
         self.drive.insert_disk_writable(adf, writable);
+        self.track_cache = None;
         if !change_pending {
             self.drive.acknowledge_disk_change();
         }
         self.refresh_cia_a_external_inputs();
+    }
+
+    /// Reconnect snapshot-owned DF0 media without generating a physical
+    /// insertion event or invalidating the restored encoded-track stream.
+    pub fn reattach_adf(&mut self, adf: Adf, writable: bool) {
+        self.drive.reattach_disk_writable(adf, writable);
     }
 
     /// Insert an ADF into DF0, writable, acknowledging the change so
@@ -851,6 +863,7 @@ impl AmigaEcs {
     /// Eject the disk from DF0.
     pub fn eject_disk(&mut self) {
         self.drive.eject_disk();
+        self.track_cache = None;
         self.refresh_cia_a_external_inputs();
     }
 
@@ -1047,8 +1060,9 @@ impl AmigaEcs {
     /// Push the next rotational MFM word from the drive's encoded track
     /// buffer into Paula's disk FIFO. Re-encodes the track when the
     /// drive head has moved since the last word, or when no cache
-    /// exists yet. Rotates the cursor back to 0 at end of track so
-    /// successive revolutions keep delivering words.
+    /// exists yet. Cache replacement preserves the spindle's word phase
+    /// modulo the new track length. Rotates the cursor back to 0 at end of
+    /// track so successive revolutions keep delivering words.
     ///
     /// This advances the rotating stream and DSKBYTR/DSKDATR state only.
     /// Agnus-granted cells independently move queued words to chip RAM.
@@ -1064,8 +1078,13 @@ impl AmigaEcs {
                 self.track_cache = None;
                 return;
             };
+            let word_count = bytes.len() / 2;
+            self.track_word_cursor = if word_count == 0 {
+                0
+            } else {
+                self.track_word_cursor % word_count
+            };
             self.track_cache = Some((cyl, head, bytes));
-            self.track_word_cursor = 0;
         }
         let Some((_, _, bytes)) = &self.track_cache else {
             return;
@@ -1098,8 +1117,8 @@ impl AmigaEcs {
     fn feed_next_write_word(&mut self) {
         if let Some(write_word) = self.paula.take_disk_write_stream_word() {
             self.drive.note_write_mfm_word(write_word);
-            if !self.paula.disk_write_stream_active() {
-                self.drive.flush_write_capture();
+            if !self.paula.disk_write_stream_active() && self.drive.flush_write_capture() > 0 {
+                self.track_cache = None;
             }
         }
     }
@@ -1888,26 +1907,47 @@ impl AmigaEcs {
                 BusResponse::Byte(self.memory.read_byte(tx.addr))
             }
         } else {
-            if let Some((lo, len)) = self.debug_watch_addr {
-                let hi = lo.wrapping_add(len);
-                let access_len = if tx.is_word { 2u32 } else { 1 };
-                let access_hi = tx.addr.wrapping_add(access_len);
-                if tx.addr < hi && access_hi > lo {
-                    self.debug_watch_writes.push((
-                        self.tick_count / TICKS_PER_CCK,
-                        self.cpu.regs.pc,
-                        tx.addr,
-                        tx.data,
-                        tx.is_word,
-                    ));
-                }
-            }
+            self.record_memory_watch_write(
+                AmigaMemoryWriteSource::Cpu,
+                tx.addr,
+                tx.data,
+                tx.is_word,
+            );
             if tx.is_word {
                 self.memory.write_word(tx.addr, tx.data);
             } else {
                 self.memory.write_byte(tx.addr, tx.data as u8);
             }
             BusResponse::WriteAck
+        }
+    }
+
+    fn record_memory_watch_write(
+        &mut self,
+        source: AmigaMemoryWriteSource,
+        addr: u32,
+        data: u16,
+        is_word: bool,
+    ) {
+        if let Some((lo, len)) = self.debug_watch_addr {
+            let hi = lo.wrapping_add(len);
+            let access_len = if is_word { 2u32 } else { 1 };
+            let access_hi = addr.wrapping_add(access_len);
+            if addr < hi && access_hi > lo {
+                let record = AmigaMemoryWriteRecord {
+                    cck: self.tick_count / TICKS_PER_CCK,
+                    pc: self.cpu.regs.pc,
+                    addr,
+                    value: data,
+                    is_word,
+                    source,
+                };
+                self.debug_memory_watch_writes.push(record);
+                if source == AmigaMemoryWriteSource::Cpu {
+                    self.debug_watch_writes
+                        .push((record.cck, record.pc, addr, data, is_word));
+                }
+            }
         }
     }
 
@@ -2010,6 +2050,7 @@ impl AmigaEcs {
         self.debug_copper_move_log.clear();
         self.debug_custom_write_log.clear();
         self.debug_watch_addr = None;
+        self.debug_memory_watch_writes.clear();
         self.debug_watch_writes.clear();
         self.debug_rtc_log.clear();
         self.debug_bplcon0_log.clear();
@@ -2114,8 +2155,17 @@ impl AmigaDriver for AmigaEcs {
     }
 
     fn blitter_dma_step(&mut self, progress_granted: bool) -> BlitterCckOutcome {
-        let mut bus = ChipRamBus(&mut self.memory);
-        self.agnus.tick_blitter_cck(progress_granted, &mut bus)
+        let mut bus = WatchingChipRamBus::new(&mut self.memory);
+        let outcome = self.agnus.tick_blitter_cck(progress_granted, &mut bus);
+        let write = bus.take_write();
+        if let Some((addr, value)) = write {
+            self.record_memory_watch_write(AmigaMemoryWriteSource::Blitter, addr, value, true);
+        }
+        outcome
+    }
+
+    fn record_disk_dma_memory_write(&mut self, addr: u32, value: u16) {
+        self.record_memory_watch_write(AmigaMemoryWriteSource::DiskDma, addr, value, true);
     }
 
     fn audio_tick_cck(&mut self, dmacon: u16, slot: Option<u8>) {
@@ -2238,7 +2288,8 @@ impl AmigaDriver for AmigaEcs {
     }
 
     fn agnus_bus_plan(&self) -> CckBusPlan {
-        self.agnus.cck_bus_plan()
+        self.agnus
+            .cck_bus_plan_with_disk_request_mask(self.paula.disk_dma_slot_request_mask())
     }
 
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
@@ -2274,10 +2325,12 @@ impl AmigaDriver for AmigaEcs {
 #[cfg(test)]
 mod bus_plan_dispatch_tests {
     use super::*;
+    use format_commodore_amiga_adf::ADF_SIZE_DD;
     use motorola_68000::CpuModel;
     use motorola_68000::bus::{BusStatus, FunctionCode};
     use motorola_68000::cpu::State;
     use motorola_68000::microcode::MicroOp;
+    use peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
 
     fn machine() -> AmigaEcs {
         AmigaEcs::new(vec![0; 512 * 1024])
@@ -2285,6 +2338,122 @@ mod bus_plan_dispatch_tests {
 
     fn a600() -> AmigaEcs {
         AmigaEcs::with_a600_ram_config(vec![0; 512 * 1024], RamConfig::bare())
+    }
+
+    #[test]
+    fn track_change_preserves_rotational_word_phase() {
+        const WORD_PHASE: usize = 173;
+
+        let mut amiga = machine();
+        amiga.insert_adf(Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank ADF"));
+        amiga.feed_next_mfm_word();
+        amiga.track_word_cursor = WORD_PHASE;
+
+        amiga.drive.update_control(false, false, true, true, false);
+        let next_track = amiga.drive.encode_mfm_track().expect("head 1 track");
+        let expected_word =
+            u16::from_be_bytes([next_track[WORD_PHASE * 2], next_track[WORD_PHASE * 2 + 1]]);
+
+        amiga.feed_next_mfm_word();
+
+        let stream = amiga.track_stream_diagnostic_snapshot();
+        assert_eq!(stream.cache_head, Some(1));
+        assert_eq!(stream.word_cursor, WORD_PHASE + 1);
+        assert_eq!(amiga.paula.dskdatr(), expected_word);
+    }
+
+    #[test]
+    fn media_change_invalidates_encoded_track_cache() {
+        const WORD_PHASE: usize = 32;
+
+        let mut amiga = machine();
+        amiga.insert_adf(Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank ADF"));
+        amiga.track_word_cursor = WORD_PHASE;
+        amiga.feed_next_mfm_word();
+        let old_word = amiga.paula.dskdatr();
+        assert!(amiga.track_cache.is_some());
+
+        amiga.track_word_cursor = WORD_PHASE;
+        amiga.insert_adf(Adf::from_bytes(vec![0xFF; ADF_SIZE_DD]).expect("valid replacement ADF"));
+        assert!(amiga.track_cache.is_none());
+        assert_eq!(amiga.track_word_cursor, WORD_PHASE);
+
+        let replacement_track = amiga.drive.encode_mfm_track().expect("replacement track");
+        let expected_word = u16::from_be_bytes([
+            replacement_track[WORD_PHASE * 2],
+            replacement_track[WORD_PHASE * 2 + 1],
+        ]);
+        assert_ne!(expected_word, old_word);
+
+        amiga.feed_next_mfm_word();
+        assert_eq!(amiga.paula.dskdatr(), expected_word);
+        assert_eq!(amiga.track_word_cursor, WORD_PHASE + 1);
+
+        amiga.eject_disk();
+        assert!(amiga.track_cache.is_none());
+        let cursor_after_eject = amiga.track_word_cursor;
+        amiga.feed_next_mfm_word();
+        assert!(amiga.track_cache.is_none());
+        assert_eq!(amiga.track_word_cursor, cursor_after_eject);
+        assert_eq!(amiga.paula.dskdatr(), expected_word);
+    }
+
+    #[test]
+    fn successful_track_write_invalidates_cache_and_preserves_word_phase() {
+        let mut amiga = machine();
+        amiga.mount_adf(
+            Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank ADF"),
+            false,
+            true,
+        );
+        amiga.feed_next_mfm_word();
+
+        let stale_track = amiga
+            .track_cache
+            .as_ref()
+            .expect("initial read should encode the track")
+            .2
+            .clone();
+        let replacement_data = vec![0xA5; 11 * 512];
+        let replacement_track = encode_mfm_track(&replacement_data, 0, 11);
+        let word_phase = stale_track
+            .chunks_exact(2)
+            .zip(replacement_track.chunks_exact(2))
+            .position(|(old, replacement)| old != replacement)
+            .expect("distinct sector data should change the encoded track");
+        let stale_word =
+            u16::from_be_bytes([stale_track[word_phase * 2], stale_track[word_phase * 2 + 1]]);
+        let expected_word = u16::from_be_bytes([
+            replacement_track[word_phase * 2],
+            replacement_track[word_phase * 2 + 1],
+        ]);
+        assert_ne!(stale_word, expected_word);
+        amiga.track_word_cursor = word_phase;
+
+        let mfm_words: Vec<u16> = replacement_track
+            .chunks_exact(2)
+            .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+            .collect();
+        let dsklen = commodore_paula_8364::bits::DSKLEN_DMAEN
+            | commodore_paula_8364::bits::DSKLEN_WRITE
+            | u16::try_from(mfm_words.len()).expect("DD track fits DSKLEN");
+        amiga.paula.write_dsklen(dsklen);
+        amiga.paula.write_dsklen(dsklen);
+        for word in mfm_words {
+            assert!(amiga.paula.accept_disk_write_dma_slot(word));
+            amiga.feed_next_write_word();
+        }
+
+        assert!(amiga.track_cache.is_none());
+        assert_eq!(amiga.track_word_cursor, word_phase);
+        assert_eq!(
+            &amiga.drive.save_adf().expect("disk remains mounted")[..replacement_data.len()],
+            replacement_data.as_slice()
+        );
+
+        amiga.feed_next_mfm_word();
+        assert_eq!(amiga.paula.dskdatr(), expected_word);
+        assert_eq!(amiga.track_word_cursor, word_phase + 1);
     }
 
     #[test]
@@ -2605,6 +2774,64 @@ mod bus_plan_dispatch_tests {
 
         assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
         assert_eq!(amiga.memory.read_chip_ram_word(0x1000), 0xA55A);
+    }
+
+    #[test]
+    fn memory_watch_records_cpu_blitter_and_disk_dma_sources() {
+        let mut amiga = machine();
+        amiga.memory.set_overlay(false);
+        amiga.debug_watch_addr = Some((0x1000, 0x2002));
+
+        let response = amiga.dispatch_memory(&BusTransaction {
+            addr: 0x1000,
+            is_read: false,
+            is_word: true,
+            data: 0x1234,
+        });
+        assert!(matches!(response, BusResponse::WriteAck));
+
+        amiga.poke_word(0x00DF_F040, 0x01FF);
+        amiga.poke_word(0x00DF_F042, 0x0000);
+        amiga.poke_word(0x00DF_F054, 0x0000);
+        amiga.poke_word(0x00DF_F056, 0x2000);
+        amiga.poke_word(0x00DF_F058, 0x0041);
+        for _ in 0..16 {
+            let _ = amiga.blitter_dma_step(true);
+            if !amiga.agnus.blitter_busy {
+                break;
+            }
+        }
+        assert!(!amiga.agnus.blitter_busy);
+
+        amiga.poke_word(0x00DF_F020, 0x0000);
+        amiga.poke_word(0x00DF_F022, 0x3000);
+        amiga.poke_word(0x00DF_F096, 0x8210);
+        amiga.poke_word(0x00DF_F024, 0x8001);
+        amiga.poke_word(0x00DF_F024, 0x8001);
+        amiga.paula.receive_disk_read_word(0xA55A);
+        assert!(<AmigaEcs as AmigaDriver>::service_disk_dma_slot(&mut amiga));
+
+        assert_eq!(
+            amiga
+                .debug_memory_watch_writes
+                .iter()
+                .map(|record| record.source)
+                .collect::<Vec<_>>(),
+            vec![
+                AmigaMemoryWriteSource::Cpu,
+                AmigaMemoryWriteSource::Blitter,
+                AmigaMemoryWriteSource::DiskDma,
+            ]
+        );
+        assert_eq!(
+            amiga
+                .debug_memory_watch_writes
+                .iter()
+                .map(|record| record.addr)
+                .collect::<Vec<_>>(),
+            vec![0x1000, 0x2000, 0x3000]
+        );
+        assert_eq!(amiga.debug_watch_writes.len(), 1);
     }
 
     fn machine_after_copper_ddfstrt_move(replacement: u16) -> AmigaEcs {

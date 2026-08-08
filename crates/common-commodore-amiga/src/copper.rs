@@ -239,6 +239,11 @@ impl Copper {
         // free cells, for 4 wall CCKs. When bitplane / sprite DMA
         // steals those cells the copper's effective rate drops
         // proportionally (Agnus simply stops granting the slot).
+        // Both accepted fetch cells belong to the Copper even though this
+        // abstraction reads the instruction pair only when the second cell
+        // completes. Marking only that second cell as used would let another
+        // master consume the first one concurrently.
+        self.bus_used_this_cck = true;
         self.cck_phase = self.cck_phase.wrapping_add(1);
         if self.cck_phase < 2 {
             return None;
@@ -247,10 +252,8 @@ impl Copper {
 
         // Fetch instruction pair from chip RAM. Copper accesses are
         // always chip-RAM-only, via Agnus DMA; each fetch drives the
-        // chip bus so the floating-bus residue tracks it. This is the
-        // one place the copper consumes a bus cell — record it so the
-        // CPU stalls only for cells the copper actually took (#30).
-        self.bus_used_this_cck = true;
+        // chip bus so the floating-bus residue tracks it. Bus ownership
+        // for both modeled fetch cells was recorded above.
         let word1 = memory.read_chip_ram_word(self.pc);
         let word2 = memory.read_chip_ram_word(self.pc.wrapping_add(2));
         self.pc = self.pc.wrapping_add(4);
@@ -417,6 +420,32 @@ mod tests {
         // when unconstrained. Run 4 wall CCKs with hpos cycling 0..3.
         run_ccks(&mut copper, &mem, &mut denise, 0, 4);
         assert_eq!(denise.color(0), 0x0F0F);
+    }
+
+    #[test]
+    fn both_instruction_fetch_cells_are_reported_as_bus_use() {
+        let mem = build_test_memory_with_list(&[(0x0180, 0x0F0F)], 0x1000);
+        let mut copper = Copper::new();
+        copper.cop1lc = 0x1000;
+        copper.jump1();
+
+        assert_eq!(copper.tick_cck(&mem, 0, 0, true, false), None);
+        assert_eq!(copper.cck_phase, 1);
+        assert!(
+            copper.bus_used_this_cck,
+            "the first modeled word-fetch cell belongs to the Copper",
+        );
+
+        copper.bus_used_this_cck = false;
+        assert_eq!(
+            copper.tick_cck(&mem, 0, 2, true, false),
+            Some((0x0180, 0x0F0F)),
+        );
+        assert_eq!(copper.cck_phase, 0);
+        assert!(
+            copper.bus_used_this_cck,
+            "the second modeled word-fetch cell belongs to the Copper",
+        );
     }
 
     #[test]

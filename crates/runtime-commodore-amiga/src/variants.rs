@@ -146,7 +146,17 @@ pub trait AmigaMachine {
     /// Insert an ADF image into DF0. The `change_pending` flag drives
     /// the disk-change-pending bookkeeping the A1000 boot path needs;
     /// post-A1000 firmware boots happily without it.
-    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool);
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool, writable: bool);
+
+    /// Reconnect the dynamically dispatched DF0 image after restoring the
+    /// drive and track-stream state. This must not model a new insertion.
+    fn reattach_floppy0(&mut self, adf: Adf, writable: bool);
+
+    /// Return DF0's current ADF bytes, including completed guest writes.
+    fn floppy0_image_bytes(&self) -> Option<Vec<u8>>;
+
+    /// Return the mounted image's host write permission, or `None` when empty.
+    fn floppy0_image_writable(&self) -> Option<bool>;
 
     // ---------- snapshot ----------
 
@@ -646,6 +656,8 @@ macro_rules! amiga_variant_query_paths {
     "dma.plan.blitter_dma_progress_granted",
     "dma.plan.paula_return_progress_policy",
     "dma.actual",
+    "dma.actual.disk_bus_used_this_cck",
+    "dma.actual.disk_holds_bus",
     "dma.actual.sprite_bus_used_this_cck",
     "dma.actual.sprite_holds_bus",
     "dma.actual.blitter_bus_used_this_cck",
@@ -1160,8 +1172,11 @@ macro_rules! amiga_variant_query_paths {
     "disk.dma_fifo_count",
     "disk.dma_fifo_empty",
     "disk.dma_fifo_full",
+    "disk.dma_fifo_overrun_count",
     "disk.dsklen_armed",
     "disk.dma_pending",
+    "disk.dma_slot_requested",
+    "disk.dma_slot_request_mask",
     "disk.dma_words_remaining",
     "disk.dma_is_write",
     "disk.dma_wordsync_waiting",
@@ -1275,12 +1290,20 @@ impl AmigaMachine for AmigaOcs {
         let _ = AmigaOcs::set_joystick_control(self, port, name, pressed);
     }
 
-    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
-        if change_pending {
-            self.insert_adf_with_change_pending(adf);
-        } else {
-            self.insert_adf(adf);
-        }
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool, writable: bool) {
+        self.mount_adf(adf, change_pending, writable);
+    }
+
+    fn reattach_floppy0(&mut self, adf: Adf, writable: bool) {
+        self.reattach_adf(adf, writable);
+    }
+
+    fn floppy0_image_bytes(&self) -> Option<Vec<u8>> {
+        self.drive().save_adf()
+    }
+
+    fn floppy0_image_writable(&self) -> Option<bool> {
+        self.drive().diagnostic_snapshot().disk_writable
     }
 
     fn snapshot_state(&self) -> Self::Snapshot {
@@ -1460,12 +1483,20 @@ impl AmigaMachine for AmigaEcs {
         let _ = AmigaEcs::set_joystick_control(self, port, name, pressed);
     }
 
-    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
-        if change_pending {
-            self.insert_adf_with_change_pending(adf);
-        } else {
-            self.insert_adf(adf);
-        }
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool, writable: bool) {
+        self.mount_adf(adf, change_pending, writable);
+    }
+
+    fn reattach_floppy0(&mut self, adf: Adf, writable: bool) {
+        self.reattach_adf(adf, writable);
+    }
+
+    fn floppy0_image_bytes(&self) -> Option<Vec<u8>> {
+        self.drive().save_adf()
+    }
+
+    fn floppy0_image_writable(&self) -> Option<bool> {
+        self.drive().diagnostic_snapshot().disk_writable
     }
 
     fn snapshot_state(&self) -> Self::Snapshot {
@@ -1661,12 +1692,20 @@ impl AmigaMachine for AmigaA1200 {
         let _ = AmigaA1200::set_joystick_control(self, port, name, pressed);
     }
 
-    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool) {
-        if change_pending {
-            self.insert_adf_with_change_pending(adf);
-        } else {
-            self.insert_adf(adf);
-        }
+    fn insert_floppy0(&mut self, adf: Adf, change_pending: bool, writable: bool) {
+        self.mount_adf(adf, change_pending, writable);
+    }
+
+    fn reattach_floppy0(&mut self, adf: Adf, writable: bool) {
+        self.reattach_adf(adf, writable);
+    }
+
+    fn floppy0_image_bytes(&self) -> Option<Vec<u8>> {
+        self.drive().save_adf()
+    }
+
+    fn floppy0_image_writable(&self) -> Option<bool> {
+        self.drive().diagnostic_snapshot().disk_writable
     }
 
     fn snapshot_state(&self) -> Self::Snapshot {
@@ -2109,15 +2148,24 @@ impl emu198x_shell::WatchTarget for AmigaRuntimeKind {
         Some(
             AmigaLiveAccess::watch_log(self)
                 .iter()
-                .map(
-                    |&(cck, pc, addr, val, is_word)| emu198x_shell::WatchMemoryRecord {
-                        pc,
-                        addr,
-                        value: u32::from(val),
-                        cck: Some(cck),
-                        size_bytes: if is_word { 2 } else { 1 },
-                    },
-                )
+                .map(|record| emu198x_shell::WatchMemoryRecord {
+                    pc: record.pc,
+                    addr: record.addr,
+                    value: u32::from(record.value),
+                    cck: Some(record.cck),
+                    size_bytes: if record.is_word { 2 } else { 1 },
+                    source: Some(match record.source {
+                        common_commodore_amiga::AmigaMemoryWriteSource::Cpu => {
+                            emu198x_shell::WatchMemorySource::Cpu
+                        }
+                        common_commodore_amiga::AmigaMemoryWriteSource::Blitter => {
+                            emu198x_shell::WatchMemorySource::Blitter
+                        }
+                        common_commodore_amiga::AmigaMemoryWriteSource::DiskDma => {
+                            emu198x_shell::WatchMemorySource::DiskDma
+                        }
+                    }),
+                })
                 .collect(),
         )
     }
@@ -2173,7 +2221,58 @@ impl AmigaRuntimeKind {
 mod tests {
     use super::*;
     use crate::{AmigaOcsRuntime, Model};
-    use emu198x_shell::{MachineCore, ResetKind};
+    use emu198x_shell::{MachineCore, ResetKind, WatchMemorySource, WatchTarget};
+
+    #[test]
+    fn shared_watch_maps_all_amiga_writer_sources() {
+        let mut runtime = AmigaRuntimeKind::blank(Model::A500OcsPal);
+        WatchTarget::start_memory_watch(&mut runtime, 0x78000, 2).expect("arm memory watch");
+        let AmigaRuntimeKind::Ocs(machine_runtime) = &mut runtime else {
+            panic!("A500 OCS must use the OCS runtime arm");
+        };
+        machine_runtime
+            .machine_mut()
+            .debug_memory_watch_writes
+            .extend([
+                common_commodore_amiga::AmigaMemoryWriteRecord {
+                    cck: 1,
+                    pc: 0x100,
+                    addr: 0x78000,
+                    value: 0x1111,
+                    is_word: true,
+                    source: common_commodore_amiga::AmigaMemoryWriteSource::Cpu,
+                },
+                common_commodore_amiga::AmigaMemoryWriteRecord {
+                    cck: 2,
+                    pc: 0x102,
+                    addr: 0x78000,
+                    value: 0x2222,
+                    is_word: true,
+                    source: common_commodore_amiga::AmigaMemoryWriteSource::Blitter,
+                },
+                common_commodore_amiga::AmigaMemoryWriteRecord {
+                    cck: 3,
+                    pc: 0x104,
+                    addr: 0x78000,
+                    value: 0x3333,
+                    is_word: true,
+                    source: common_commodore_amiga::AmigaMemoryWriteSource::DiskDma,
+                },
+            ]);
+
+        let records = WatchTarget::memory_watch_records(&runtime).expect("armed watch log");
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.source)
+                .collect::<Vec<_>>(),
+            vec![
+                Some(WatchMemorySource::Cpu),
+                Some(WatchMemorySource::Blitter),
+                Some(WatchMemorySource::DiskDma),
+            ]
+        );
+    }
 
     /// Spec invariant: every advertised variant query path is unique.
     /// Doubles would silently clobber each other in a sorted listing.

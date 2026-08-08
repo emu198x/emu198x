@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add optional typed CPU, blitter and disk-DMA provenance to shared
+  memory-write watch records while preserving CPU-only family JSON
+- Add optional source and inclusive CCK filters to memory-write watch logs so
+  long DMA captures can isolate one hardware agent and time window
+
 ### Changed
 
 - Allow bounded `DebugTarget::step_instruction` implementations to report

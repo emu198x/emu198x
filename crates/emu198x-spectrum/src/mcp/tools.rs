@@ -760,6 +760,9 @@ mod tests {
             ScriptStep::WatchMemoryLog {
                 limit: None,
                 unique: false,
+                source: None,
+                cck_min: None,
+                cck_max: None,
             }
         );
     }

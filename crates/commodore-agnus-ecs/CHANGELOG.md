@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   programmable-vertical event history through read-only accessors
 - Add regression coverage for the non-empty idle register-equal
   DDFSTRT/DDFSTOP transition
+- Forward Paula's per-cell D0/D1/D2 request mask through the ECS-aware bus plan
 
 ### Fixed
 

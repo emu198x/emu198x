@@ -269,12 +269,8 @@ fn enhanced_denise_snapshot(
     }
 }
 
-/// Watch-log entry shape: `(tick, pc, addr, value, is_word)`.
-///
-/// Re-aliased here so MCP tool bodies can name the type without
-/// dragging in the machine-crate shape. Matches the field tuple on
-/// each machine's `debug_watch_writes` field.
-pub type WatchLogEntry = (u64, u32, u32, u16, bool);
+/// Source-aware memory-write record shared by all Amiga machine variants.
+pub type WatchLogEntry = common_commodore_amiga::AmigaMemoryWriteRecord;
 
 /// DSK debug-log entry shape: `(tick, pc, register, value)`.
 pub type DskLogEntry = (u64, u32, u16, u16);
@@ -390,7 +386,10 @@ pub trait AmigaLiveAccess {
     /// Current arbitration plan plus recorded same-CCK bus use. Enhanced
     /// variants override this to apply their programmable vertical timing.
     fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
-        self.agnus().bus_diagnostic_snapshot()
+        let agnus = self.agnus();
+        agnus.bus_diagnostic_snapshot_for_plan(
+            agnus.cck_bus_plan_with_disk_request_mask(self.paula().disk_dma_slot_request_mask()),
+        )
     }
 
     /// ECS Agnus programmable timing state, inherited by Alice and present on
@@ -752,9 +751,16 @@ impl AmigaLiveAccess for AmigaOcs {
 
     fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
         if let Some(agnus) = self.agnus_ecs() {
-            agnus.bus_diagnostic_snapshot_for_plan(agnus.cck_bus_plan())
+            agnus.bus_diagnostic_snapshot_for_plan(
+                agnus
+                    .cck_bus_plan_with_disk_request_mask(self.paula().disk_dma_slot_request_mask()),
+            )
         } else {
-            AmigaOcs::agnus(self).bus_diagnostic_snapshot()
+            let agnus = AmigaOcs::agnus(self);
+            agnus.bus_diagnostic_snapshot_for_plan(
+                agnus
+                    .cck_bus_plan_with_disk_request_mask(self.paula().disk_dma_slot_request_mask()),
+            )
         }
     }
 
@@ -854,6 +860,7 @@ impl AmigaLiveAccess for AmigaOcs {
 
     fn set_watch(&mut self, base_len: Option<(u32, u32)>) {
         self.debug_watch_addr = base_len;
+        self.debug_memory_watch_writes.clear();
         self.debug_watch_writes.clear();
     }
 
@@ -862,7 +869,7 @@ impl AmigaLiveAccess for AmigaOcs {
     }
 
     fn watch_log(&self) -> &[WatchLogEntry] {
-        &self.debug_watch_writes
+        &self.debug_memory_watch_writes
     }
 
     fn dsk_write_log(&self) -> &[DskLogEntry] {
@@ -1062,7 +1069,9 @@ impl AmigaLiveAccess for AmigaEcs {
 
     fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
         let agnus = self.agnus_ecs();
-        agnus.bus_diagnostic_snapshot_for_plan(agnus.cck_bus_plan())
+        agnus.bus_diagnostic_snapshot_for_plan(
+            agnus.cck_bus_plan_with_disk_request_mask(self.paula().disk_dma_slot_request_mask()),
+        )
     }
 
     fn ecs_agnus_timing(&self) -> Option<EcsAgnusTimingSnapshot> {
@@ -1165,6 +1174,7 @@ impl AmigaLiveAccess for AmigaEcs {
 
     fn set_watch(&mut self, base_len: Option<(u32, u32)>) {
         self.debug_watch_addr = base_len;
+        self.debug_memory_watch_writes.clear();
         self.debug_watch_writes.clear();
     }
 
@@ -1173,7 +1183,7 @@ impl AmigaLiveAccess for AmigaEcs {
     }
 
     fn watch_log(&self) -> &[WatchLogEntry] {
-        &self.debug_watch_writes
+        &self.debug_memory_watch_writes
     }
 
     fn dsk_write_log(&self) -> &[DskLogEntry] {
@@ -1367,7 +1377,9 @@ impl AmigaLiveAccess for AmigaA1200 {
 
     fn agnus_bus_diagnostic_snapshot(&self) -> AgnusBusDiagnosticSnapshot {
         let agnus = self.agnus_aga();
-        agnus.bus_diagnostic_snapshot_for_plan(agnus.cck_bus_plan())
+        agnus.bus_diagnostic_snapshot_for_plan(
+            agnus.cck_bus_plan_with_disk_request_mask(self.paula().disk_dma_slot_request_mask()),
+        )
     }
 
     fn ecs_agnus_timing(&self) -> Option<EcsAgnusTimingSnapshot> {
@@ -1476,6 +1488,7 @@ impl AmigaLiveAccess for AmigaA1200 {
 
     fn set_watch(&mut self, base_len: Option<(u32, u32)>) {
         self.debug_watch_addr = base_len;
+        self.debug_memory_watch_writes.clear();
         self.debug_watch_writes.clear();
     }
 
@@ -1484,7 +1497,7 @@ impl AmigaLiveAccess for AmigaA1200 {
     }
 
     fn watch_log(&self) -> &[WatchLogEntry] {
-        &self.debug_watch_writes
+        &self.debug_memory_watch_writes
     }
 
     fn dsk_write_log(&self) -> &[DskLogEntry] {

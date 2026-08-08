@@ -266,6 +266,40 @@ impl commodore_agnus_ocs::BlitterBus for ChipRamBus<'_> {
     }
 }
 
+/// Source-observing `BlitterBus` adaptor used while a machine write watch may
+/// be armed. At most one channel operation is admitted per CCK, so retaining
+/// the most recent D-channel write is sufficient for the watch hook.
+pub struct WatchingChipRamBus<'a> {
+    memory: &'a mut Memory,
+    write: Option<(u32, u16)>,
+}
+
+impl<'a> WatchingChipRamBus<'a> {
+    /// Adapt one machine's chip RAM for an Agnus blitter step.
+    pub fn new(memory: &'a mut Memory) -> Self {
+        Self {
+            memory,
+            write: None,
+        }
+    }
+
+    /// Consume the D-channel write performed through this adaptor, if any.
+    pub fn take_write(&mut self) -> Option<(u32, u16)> {
+        self.write.take()
+    }
+}
+
+impl commodore_agnus_ocs::BlitterBus for WatchingChipRamBus<'_> {
+    fn read_word(&mut self, addr: u32) -> u16 {
+        self.memory.read_chip_ram_word(addr)
+    }
+    fn write_word(&mut self, addr: u32, val: u16) {
+        let addr = addr & 0x001F_FFFE;
+        self.memory.write_word(addr, val);
+        self.write = Some((addr, val));
+    }
+}
+
 /// Snapshotted out of `cpu.state.BusCycle` once per servicing pass so
 /// chip-select handlers can operate on plain values instead of holding
 /// a borrow on `&mut self.cpu`. `data` is `0` for reads.

@@ -48,7 +48,7 @@ use crate::clock::{CpuClock, CpuDomainPhase};
 use crate::copper::Copper;
 use crate::memory::Memory;
 use crate::rtc::Msm6242Rtc;
-use commodore_agnus_ocs::{Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, SlotOwner};
+use commodore_agnus_ocs::{Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, SlotOwner, bits};
 use commodore_paula_8364::{IntSource, Paula8364};
 use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode, interrupt_acknowledge_level};
@@ -58,6 +58,35 @@ use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
 
 /// One entry in the copper-MOVE debug log: `(cck, vpos, hpos, reg, val)`.
 pub type CopperMoveLogEntry = (u64, u16, u16, u16, u16);
+
+/// Hardware agent responsible for one watched Amiga memory write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AmigaMemoryWriteSource {
+    /// A write issued by the active processor.
+    Cpu,
+    /// A D-channel write issued by the blitter.
+    Blitter,
+    /// A Paula disk read-DMA word transferred into chip RAM by Agnus.
+    DiskDma,
+}
+
+/// One write captured by the Amiga's source-aware memory watch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AmigaMemoryWriteRecord {
+    /// Colour-clock timestamp at which the write reached memory.
+    pub cck: u64,
+    /// Active processor PC at the time of observation. For DMA writes this is
+    /// concurrent CPU context, not the writer's instruction address.
+    pub pc: u32,
+    /// Effective memory address written.
+    pub addr: u32,
+    /// Byte or word value written.
+    pub value: u16,
+    /// Whether this is a word (`true`) or byte (`false`) write.
+    pub is_word: bool,
+    /// Hardware agent that issued the write.
+    pub source: AmigaMemoryWriteSource,
+}
 
 /// Maximum number of undrained CPU instruction boundaries retained by one
 /// Amiga machine.
@@ -244,6 +273,10 @@ pub trait AmigaDriver {
     /// split borrow.
     fn blitter_dma_step(&mut self, progress_granted: bool) -> BlitterCckOutcome;
 
+    /// Record a disk read-DMA word after Agnus has transferred it into chip
+    /// RAM. The concrete machine owns the optional watch range and log.
+    fn record_disk_dma_memory_write(&mut self, addr: u32, value: u16);
+
     /// Step Paula's audio engine for one CCK, reading sample data from
     /// chip RAM. Encapsulates the `&mut paula` + `&memory` split borrow.
     fn audio_tick_cck(&mut self, dmacon: u16, slot: Option<u8>);
@@ -254,7 +287,7 @@ pub trait AmigaDriver {
     /// Write DMA moves one word from chip RAM into that FIFO when it has room.
     /// The independent track pacer fills or drains the FIFO; it never performs
     /// the memory transfer itself.
-    fn service_disk_dma_slot(&mut self) {
+    fn service_disk_dma_slot(&mut self) -> bool {
         if self.paula().disk_write_dma_slot_requested() {
             let addr = self.agnus().dsk_pt & 0x001F_FFFE;
             let word = self.memory().read_word(addr);
@@ -262,15 +295,19 @@ pub trait AmigaDriver {
                 let next = self.agnus().dsk_pt.wrapping_add(2);
                 self.agnus_mut().dsk_pt = next;
             }
-            return;
+            return true;
         }
 
         if let Some(word) = self.paula_mut().service_disk_read_dma_slot() {
             let addr = self.agnus().dsk_pt & 0x001F_FFFE;
             self.memory_mut().write_word(addr, word);
+            self.record_disk_dma_memory_write(addr, word);
             let next = self.agnus().dsk_pt.wrapping_add(2);
             self.agnus_mut().dsk_pt = next;
+            return true;
         }
+
+        false
     }
 
     /// Service one sprite-DMA slot for `channel`: fetch the control/data
@@ -431,6 +468,7 @@ pub trait AmigaDriver {
             if phase == 0 {
                 // Per-CCK bus-use observations remain valid across both
                 // master/4 phases. Clear them only as a new CCK begins.
+                self.agnus_mut().reset_disk_bus_usage();
                 self.agnus_mut().reset_sprite_bus_usage();
                 self.agnus_mut().reset_blitter_cck_bus_state();
 
@@ -524,8 +562,32 @@ pub trait AmigaDriver {
                 // after the last admitted main cycle without another bus grant.
                 // Pre-AGA normal D blits emit INT_BLIT before final D, while
                 // Alice delays that source to final D.
-                let blitter_nasty_owned = bus_plan.blitter_chip_bus_granted;
-                let blitter_outcome = self.blitter_dma_step(bus_plan.blitter_dma_progress_granted);
+                //
+                // Copper has first refusal on its eligible even cells, but a
+                // WAITing, stopped or internally throttled Copper does not
+                // allocate the bus. Offer that yielded cell to the blitter
+                // before the CPU, matching the actual-owner arbitration used
+                // by Agnus. A non-nasty blitter may use it only when the CPU
+                // has no mature chip-RAM request; BLTPRI may pre-empt one.
+                // Conversely, a Copper MOVE can change DMACON and therefore
+                // the fresh plan below; its recorded bus use remains
+                // authoritative and prevents a second owner in the same CCK.
+                let copper_bus_used = self.copper().bus_used_this_cck;
+                let copper_yielded_slot =
+                    matches!(bus_plan.slot_owner, SlotOwner::Copper) && !copper_bus_used;
+                let blitter_slot_available = bus_plan.blitter_dma_progress_granted
+                    || (copper_yielded_slot
+                        && self.agnus().blitter_busy
+                        && self.agnus().dma_enabled(bits::DMACON_BLTEN));
+                let cpu_competes_for_chip_bus = self.cpu_has_mature_chip_bus_request();
+                let blitter_may_preempt_cpu = self.agnus().blitter_nasty_active()
+                    || !self.agnus().next_blitter_progress_uses_bus();
+                let blitter_dma_progress_granted = !copper_bus_used
+                    && blitter_slot_available
+                    && (!cpu_competes_for_chip_bus || blitter_may_preempt_cpu);
+                let blitter_nasty_owned =
+                    blitter_dma_progress_granted && self.agnus().blitter_nasty_active();
+                let blitter_outcome = self.blitter_dma_step(blitter_dma_progress_granted);
                 self.agnus_mut()
                     .record_blitter_cck_bus_state(blitter_nasty_owned, blitter_outcome.bus_used);
                 if blitter_outcome.interrupt {
@@ -556,7 +618,8 @@ pub trait AmigaDriver {
                 // FIFO, so DSKBYTR and disk rotation continue even when DSKEN
                 // is clear or the FIFO cannot use this cell.
                 if bus_plan.disk_dma_slot_granted {
-                    self.service_disk_dma_slot();
+                    let disk_bus_used = self.service_disk_dma_slot();
+                    self.agnus_mut().record_disk_bus_usage(disk_bus_used);
                 }
 
                 // ── Paula disk engine — DSKBYTR byte-latch + WORDEQUAL
@@ -704,6 +767,37 @@ pub trait AmigaDriver {
     /// [`dispatch_bus`]: AmigaDriver::dispatch_bus
     fn service_cpu_bus(&mut self) {
         self.service_cpu_bus_with_motherboard_slot(true);
+    }
+
+    /// Whether the active processor has reached the response point of a
+    /// chip-RAM cycle that can compete for this CCK.
+    ///
+    /// Non-nasty blitter DMA uses CPU/free cells only when this is false.
+    /// BLTPRI may pre-empt the request, while a bus-free internal blitter
+    /// operation can retire without delaying it.
+    fn cpu_has_mature_chip_bus_request(&self) -> bool {
+        let cpu = self.cpu_base();
+        let State::BusCycle {
+            addr,
+            fc,
+            is_read,
+            cycle_count,
+            ..
+        } = &cpu.state
+        else {
+            return false;
+        };
+        if *cycle_count < 2
+            || *fc == FunctionCode::InterruptAck
+            || !matches!(cpu.bus_status, BusStatus::Wait)
+        {
+            return false;
+        }
+
+        let Some(addr24) = self.motherboard_address(*addr) else {
+            return false;
+        };
+        addr24 < 0x20_0000 && (!*is_read || !self.memory().overlay())
     }
 
     /// Service one active-CPU edge.
@@ -856,16 +950,17 @@ pub trait AmigaDriver {
             // invariant in that case.
             matches!(bus_plan.slot_owner, SlotOwner::Cpu) && !bus_plan.cpu_chip_bus_granted
         };
-        let dma_holds_bus = self.agnus().sprite_bus_used_this_cck()
+        let dma_holds_bus = self.agnus().disk_bus_used_this_cck()
+            || self.agnus().sprite_bus_used_this_cck()
             || blitter_holds_bus
+            || self.copper().bus_used_this_cck
             || match bus_plan.slot_owner {
                 // Blitter ownership for the current CPU/free cell is
                 // represented by the two pre-service/actual-use latches
                 // above. Re-reading the live blitter request here could see
                 // the next line operation and retroactively consume a
                 // bus-free ONEDOT would-be-write cell.
-                SlotOwner::Cpu => false,
-                SlotOwner::Copper => self.copper().bus_used_this_cck,
+                SlotOwner::Cpu | SlotOwner::Copper => false,
                 _ => true,
             };
         if is_chip_ram_access && dma_holds_bus {

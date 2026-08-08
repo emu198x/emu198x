@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add side-effect-free diagnostic snapshots for Paula interrupt/control,
   complete audio-pipeline, UART, pot-port, and component log state.
 - Add a read-only diagnostic snapshot for Paula disk registers, byte latches, DSKDAT queue, DMA state, and PLL timing.
+- Count rotational read words discarded while Paula's three-word disk-DMA FIFO
+  is full so media regressions cannot remain silent.
+- Expose the current D0/D1/D2 disk-cell request mask in the disk diagnostic
+  snapshot.
+
+### Changed
+
+- Stage disk read-DMA requests by FIFO occupancy: one queued word requests D2,
+  two request D1/D2, and three request D0/D1/D2.
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-paula-8364-v0.2.0) - 2026-06-04
 

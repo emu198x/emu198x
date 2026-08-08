@@ -28,7 +28,12 @@ fn query_provider_returns_declared_paths() {
     assert!(paths.contains(&"debug.dsk_write_count".to_owned()));
     assert!(paths.contains(&"disk.change_pending".to_owned()));
     assert!(paths.contains(&"disk.dma_fifo_direction".to_owned()));
+    assert!(paths.contains(&"disk.dma_fifo_overrun_count".to_owned()));
+    assert!(paths.contains(&"disk.dma_slot_requested".to_owned()));
+    assert!(paths.contains(&"disk.dma_slot_request_mask".to_owned()));
     assert!(paths.contains(&"disk.dma_write_stream_active".to_owned()));
+    assert!(paths.contains(&"dma.actual.disk_bus_used_this_cck".to_owned()));
+    assert!(paths.contains(&"dma.actual.disk_holds_bus".to_owned()));
     assert!(paths.contains(&"disk.inserted".to_owned()));
     assert!(paths.contains(&"disk.step_events".to_owned()));
     assert!(paths.contains(&"keyboard.state".to_owned()));
@@ -59,6 +64,18 @@ fn disk_queries_expose_the_complete_dma_fifo_state() {
     assert_eq!(query_value(&runtime, "disk.dma_fifo_count"), json!(2));
     assert_eq!(query_value(&runtime, "disk.dma_fifo_empty"), json!(false));
     assert_eq!(query_value(&runtime, "disk.dma_fifo_full"), json!(false));
+    assert_eq!(
+        query_value(&runtime, "disk.dma_fifo_overrun_count"),
+        json!(0)
+    );
+    assert_eq!(
+        query_value(&runtime, "disk.dma_slot_requested"),
+        json!(true)
+    );
+    assert_eq!(
+        query_value(&runtime, "disk.dma_slot_request_mask"),
+        json!(6)
+    );
     assert_eq!(
         query_value(&runtime, "disk.dma_write_stream_active"),
         json!(false)

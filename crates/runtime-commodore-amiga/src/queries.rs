@@ -912,18 +912,27 @@ pub(crate) fn debug_snapshot(m: &dyn AmigaLiveAccess) -> Value {
             |(base, length)| json!({"base": base, "length": length})
         ),
         "watch_write_count": m.watch_log().len(),
-        "last_watch_write": m.watch_log().last().map(
-            |&(tick, pc, address, value, is_word)| {
-                json!({
-                    "tick": tick,
-                    "pc": pc,
-                    "address": address,
-                    "value": value,
-                    "is_word": is_word,
-                })
-            }
-        ),
+        "last_watch_write": last_memory_watch_write(m.watch_log().last()),
     })
+}
+
+fn last_memory_watch_write(
+    record: Option<&common_commodore_amiga::AmigaMemoryWriteRecord>,
+) -> Option<Value> {
+    let record = record?;
+    let source = match record.source {
+        common_commodore_amiga::AmigaMemoryWriteSource::Cpu => "cpu",
+        common_commodore_amiga::AmigaMemoryWriteSource::Blitter => "blitter",
+        common_commodore_amiga::AmigaMemoryWriteSource::DiskDma => "disk_dma",
+    };
+    let mut object = serde_json::Map::new();
+    object.insert("tick".to_owned(), record.cck.into());
+    object.insert("pc".to_owned(), record.pc.into());
+    object.insert("address".to_owned(), record.addr.into());
+    object.insert("value".to_owned(), record.value.into());
+    object.insert("is_word".to_owned(), record.is_word.into());
+    object.insert("source".to_owned(), source.into());
+    Some(Value::Object(object))
 }
 
 /// Agnus: beam position, DMA pointers, blitter pointers, the display
@@ -1218,6 +1227,8 @@ pub(crate) fn dma_snapshot(m: &dyn AmigaLiveAccess) -> Value {
             "paula_return_progress_policy": return_policy,
         },
         "actual": {
+            "disk_bus_used_this_cck": bus.disk_bus_used_this_cck,
+            "disk_holds_bus": bus.disk_holds_bus,
             "sprite_bus_used_this_cck": bus.sprite_bus_used_this_cck,
             "sprite_holds_bus": bus.sprite_holds_bus,
             "blitter_bus_used_this_cck": bus.blitter_bus_used_this_cck,
@@ -1425,10 +1436,13 @@ pub(crate) fn disk_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "dma_fifo_count": controller.disk_dma_fifo_count,
         "dma_fifo_empty": controller.disk_dma_fifo_empty,
         "dma_fifo_full": controller.disk_dma_fifo_full,
+        "dma_fifo_overrun_count": controller.disk_dma_fifo_overrun_count,
     });
     let controller_state = json!({
         "dsklen_armed": controller.dsklen_armed,
         "dma_pending": controller.disk_dma_pending,
+        "dma_slot_requested": controller.disk_dma_slot_requested,
+        "dma_slot_request_mask": controller.disk_dma_slot_request_mask,
         "dma_words_remaining": controller.disk_dma_words_remaining,
         "dma_is_write": controller.disk_dma_is_write,
         "dma_wordsync_waiting": controller.disk_dma_wordsync_waiting,

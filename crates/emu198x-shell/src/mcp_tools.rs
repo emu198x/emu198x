@@ -633,8 +633,9 @@ where
 
     common(
         "watch_memory_start",
-        "Begin recording CPU writes inside `[addr, addr + len)`; replaces any \
-         prior range and clears the log.",
+        "Begin recording memory writes inside `[addr, addr + len)`; replaces \
+         any prior range and clears the log. Amiga records identify CPU, \
+         blitter D-channel, and disk read-DMA sources.",
         json!({
             "type": "object",
             "required": ["addr", "len"],
@@ -651,13 +652,21 @@ where
     );
     common(
         "watch_memory_log",
-        "Fetch the captured memory-write log (most-recent `limit`, oldest first).",
+        "Fetch the captured memory-write log (most-recent `limit`, oldest \
+         first). Source-aware machines report a typed `source` per entry and \
+         can filter by source and inclusive CCK bounds.",
         json!({
             "type": "object",
             "properties": {
                 "limit":  { "type": "integer", "minimum": 1, "default": 64 },
                 "unique": { "type": "boolean", "default": false,
-                            "description": "Deduplicate identical (pc, addr, value) triples." }
+                            "description": "Deduplicate identical (pc, addr, value, source) tuples." },
+                "source": { "type": "string", "enum": ["cpu", "blitter", "disk_dma"],
+                            "description": "Return writes explicitly attributed to this hardware agent." },
+                "cck_min": { "type": "integer", "minimum": 0,
+                             "description": "Inclusive lower CCK bound; excludes unstamped writes." },
+                "cck_max": { "type": "integer", "minimum": 0,
+                             "description": "Inclusive upper CCK bound; excludes unstamped writes." }
             }
         }),
     );

@@ -9,8 +9,9 @@
 //! tools in [`crate::mcp_tools`] (`watch_memory_*`, `watch_ay_*`) and the
 //! `--script` runner execute the identical body on any machine:
 //!
-//! - **Memory writes** — every CPU write inside an address range, as
-//!   `(pc, addr, value)` (Amiga additionally stamps `cck` + write width).
+//! - **Memory writes** — every observed write inside an address range, as
+//!   `(pc, addr, value)`. The Amiga additionally stamps `cck`, write width,
+//!   and whether the CPU, blitter, or disk DMA issued the write.
 //! - **AY register writes** — every `OUT` to the AY data port, as
 //!   `(pc, register, value)`; AY/PSG machines only.
 //!
@@ -21,13 +22,29 @@
 //! Addresses are `u32` so the surface spans the 8/16-bit machines (low 16
 //! bits) and the 68000 family (24-bit bus) uniformly.
 
-/// One captured CPU memory write, widened to the family-wide shape.
+/// Hardware agent responsible for a captured memory write.
+///
+/// This field is optional on [`WatchMemoryRecord`] so machine families whose
+/// watch is intrinsically CPU-only preserve their existing JSON shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WatchMemorySource {
+    /// The active processor issued the write.
+    Cpu,
+    /// The Amiga blitter's D channel issued the write.
+    Blitter,
+    /// Agnus transferred a Paula disk read-DMA word into chip RAM.
+    DiskDma,
+}
+
+/// One captured memory write, widened to the family-wide shape.
 ///
 /// `cck` and `size_bytes` carry the richer 68000 detail the Amiga records;
 /// byte-only 8/16-bit machines leave `cck` `None` and `size_bytes` `1`.
 #[derive(Debug, Clone, Copy)]
 pub struct WatchMemoryRecord {
-    /// CPU program counter at the moment of the write.
+    /// CPU program counter at the moment of observation. For DMA writes this
+    /// is concurrent CPU context rather than the writer's instruction PC.
     pub pc: u32,
     /// Target address of the write.
     pub addr: u32,
@@ -38,6 +55,9 @@ pub struct WatchMemoryRecord {
     pub cck: Option<u64>,
     /// Width of the write in bytes (`1` for a byte store, `2` for a word).
     pub size_bytes: u8,
+    /// Hardware agent that issued the write, when the machine distinguishes
+    /// writers. CPU-only families leave this absent.
+    pub source: Option<WatchMemorySource>,
 }
 
 /// One captured AY-3-8910/8912 register write.

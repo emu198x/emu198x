@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Cover writable DF0 snapshot reattachment across OCS, ECS and AGA runtimes
+  with a live guest-modified ADF, deasserted write protection and a byte-level
+  restore fixed point
+- Report CPU, blitter D-channel and disk read-DMA provenance through the
+  shared memory-write watch and grouped diagnostic log
+- Expose Paula's cumulative disk-DMA read-FIFO overrun count through the
+  discoverable disk diagnostic query and persist it in versioned snapshots
+- Expose Paula's current D0/D1/D2 disk-cell request mask through the
+  discoverable disk diagnostic query
+- Expose recorded same-CCK disk bus use and effective disk ownership through
+  the discoverable Agnus arbitration diagnostic
 - Expose the RTC clock mode, subsecond system-tick phase and retained system
   tick rate through discoverable grouped and leaf queries
 - Expose Agnus identity, beam, original-chipset latches, fixed-sync events and
@@ -71,6 +82,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Bump Amiga postcard snapshots to version 34 so DF0 mount
+  writability survives restore and skipped media objects are reattached
+  without generating a second physical insertion event; version 33 cannot
+  represent archive write protection.
+- Honour `MediaImage::writable` when mounting DF0 and preserve completed guest
+  writes across reset and snapshot encoding.
+- [breaking] Bump Amiga postcard snapshots to version 33 so Paula's cumulative
+  read-FIFO overrun count survives restore; version 32 lacks that field.
 - [breaking] Bump Amiga postcard snapshots to version 32 so the battery-backed
   RTC's selected clock mode, subsecond system-tick phase and active tick rate
   survive restore; version 31 is rejected because its positional RTC payload

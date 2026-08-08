@@ -75,4 +75,4 @@ pub use video::{
     DEFAULT_RECORDING_FADE_MS, VideoRecorder, VideoRecordingError, VideoRecordingSummary,
     compute_fps, find_ffmpeg, trim_audio_after, trim_audio_after_with_fade,
 };
-pub use watch::{WatchAyRecord, WatchError, WatchMemoryRecord, WatchTarget};
+pub use watch::{WatchAyRecord, WatchError, WatchMemoryRecord, WatchMemorySource, WatchTarget};

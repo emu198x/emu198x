@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Capture CPU, blitter D-channel and disk read-DMA writes in one source-aware
+  memory-watch stream without changing the existing CPU-only trace tuple
 - Expose the battery-backed clock through a side-effect-free diagnostic snapshot
 - Expose raw controller counters and host input latches through a read-only
   diagnostic snapshot
@@ -52,6 +54,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Re-encode the current floppy track after a successful writable DMA flush so
+  subsequent reads observe persisted sectors without losing rotational phase
+- Keep active Copper fetch cells ahead of both a nasty blitter and the CPU,
+  complementing the parked-Copper yield regression
+- Preserve nasty-mode CPU stalls when a parked Copper yields one of its
+  eligible cells, with an end-to-end CPU/blitter/Copper arbitration regression
+- Let a mature CPU chip-RAM request outrank a non-nasty blitter on ordinary
+  free and yielded-Copper cells while still allowing CPU-idle blitter use
 - Keep side-effect-free word and longword inspection from driving the floating
   bus while retaining bus effects for CPU and DMA reads
 - Record CIA-B bus writes in the existing diagnostic log

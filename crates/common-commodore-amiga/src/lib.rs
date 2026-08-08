@@ -28,12 +28,13 @@ pub mod rtc;
 pub use board::{
     BusResponse, BusTransaction, CIA_E_CLOCK_DIVISOR, ChipRamBus, MotherboardBridgeAction,
     NTSC_SYSTEM_TICK_HZ, PAL_SYSTEM_TICK_HZ, SizedBusResponse, SizedBusTransaction,
-    SynchronizedMotherboardBridge, TICKS_PER_CCK,
+    SynchronizedMotherboardBridge, TICKS_PER_CCK, WatchingChipRamBus,
 };
 pub use clock::{CpuClock, CpuDomainPhase};
 pub use cpu::{ActiveCpu, ActiveCpuDiagnosticSnapshot};
 pub use denise_chip::DeniseChip;
 pub use driver::{
     AMIGA_CPU_BOUNDARY_QUEUE_CAPACITY, AmigaDriver, AmigaInputDiagnosticSnapshot,
-    AmigaSchedulerDiagnosticSnapshot, AmigaTrackStreamDiagnosticSnapshot, CpuBoundary,
+    AmigaMemoryWriteRecord, AmigaMemoryWriteSource, AmigaSchedulerDiagnosticSnapshot,
+    AmigaTrackStreamDiagnosticSnapshot, CpuBoundary,
 };

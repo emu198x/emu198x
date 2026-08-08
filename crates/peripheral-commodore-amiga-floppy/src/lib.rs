@@ -261,6 +261,17 @@ impl AmigaFloppyDrive {
         self.disk_changed = true;
     }
 
+    /// Reattach an ADF image without changing any mechanical or signal state.
+    ///
+    /// Snapshot deserialization restores the drive mechanism but deliberately
+    /// omits the dynamically dispatched image object. The runtime uses this
+    /// method to reconnect that object without modelling a second physical
+    /// insertion: `/DSKCHANGE`, motor timing, head position, drive-ID state,
+    /// and pending write capture therefore remain exactly as snapshotted.
+    pub fn reattach_disk_writable(&mut self, adf: Adf, writable: bool) {
+        self.disk = Some(Box::new(AdfDiskImage::new_with_writable(adf, writable)));
+    }
+
     /// Insert any disk image implementing `DiskImage`.
     pub fn insert_disk_image(&mut self, image: Box<dyn DiskImage>) {
         self.disk = Some(image);
@@ -876,6 +887,33 @@ mod tests {
         let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
         drive.insert_disk_writable(adf, true);
         assert!(!drive.status().write_protect);
+    }
+
+    #[test]
+    fn snapshot_media_reattachment_preserves_drive_state() {
+        let bytes = vec![0; format_commodore_amiga_adf::ADF_SIZE_DD];
+        let mut drive = AmigaFloppyDrive::new();
+        drive.insert_disk_writable(Adf::from_bytes(bytes.clone()).expect("valid"), false);
+        drive.acknowledge_disk_change();
+        drive.update_control(false, false, true, true, true);
+        for _ in 0..17 {
+            drive.tick();
+        }
+        drive.note_write_mfm_word(0x4489);
+        let expected = drive.diagnostic_snapshot();
+
+        let mut restored = drive.clone();
+        assert!(
+            !restored.has_disk(),
+            "snapshot clone omits the media object"
+        );
+        restored.reattach_disk_writable(Adf::from_bytes(bytes).expect("valid"), false);
+
+        assert_eq!(
+            restored.diagnostic_snapshot(),
+            expected,
+            "reattachment must not look like a new insertion or reset the mechanism"
+        );
     }
 
     #[test]

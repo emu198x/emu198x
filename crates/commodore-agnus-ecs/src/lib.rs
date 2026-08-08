@@ -517,6 +517,27 @@ impl AgnusEcs {
         self.inner.cck_bus_plan_with_vertical_timing(
             self.bitplane_dma_vertical_active(),
             self.sprite_dma_vertical_timing(),
+            0b111,
+        )
+    }
+
+    /// ECS-aware plan using Paula's current disk-DMA request.
+    #[must_use]
+    pub fn cck_bus_plan_with_disk_request(&self, disk_dma_requested: bool) -> CckBusPlan {
+        let request_mask = if disk_dma_requested { 0b111 } else { 0 };
+        self.cck_bus_plan_with_disk_request_mask(request_mask)
+    }
+
+    /// ECS-aware plan using Paula's current D0/D1/D2 request mask.
+    #[must_use]
+    pub fn cck_bus_plan_with_disk_request_mask(
+        &self,
+        disk_dma_slot_request_mask: u8,
+    ) -> CckBusPlan {
+        self.inner.cck_bus_plan_with_vertical_timing(
+            self.bitplane_dma_vertical_active(),
+            self.sprite_dma_vertical_timing(),
+            disk_dma_slot_request_mask,
         )
     }
 

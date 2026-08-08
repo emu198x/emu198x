@@ -69,6 +69,9 @@ pub struct AmigaRuntime<M: AmigaMachine> {
     time: MachineTime,
     firmware_rom: Vec<u8>,
     floppy0_bytes: Option<Vec<u8>>,
+    /// Host write permission associated with `floppy0_bytes`. Meaningful only
+    /// while DF0 contains media; empty drives keep the canonical `false`.
+    floppy0_writable: bool,
     rgba_framebuffer: Vec<u8>,
     frame_count: u64,
     /// Pixel counts from the most recently emitted frame — drives the
@@ -220,6 +223,12 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         self.floppy0_bytes.as_deref()
     }
 
+    /// Whether the persisted DF0 image was mounted writable.
+    #[must_use]
+    pub(crate) const fn floppy0_writable(&self) -> bool {
+        self.floppy0_writable
+    }
+
     /// Firmware used to construct this runtime's machine. Snapshot restore
     /// builds its candidate machine from the same immutable image.
     #[must_use]
@@ -296,10 +305,15 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
 
     pub(crate) fn clear_floppy0_bytes(&mut self) {
         self.floppy0_bytes = None;
+        self.floppy0_writable = false;
     }
 
     pub(crate) fn set_floppy0_bytes(&mut self, bytes: Option<Vec<u8>>) {
         self.floppy0_bytes = bytes;
+    }
+
+    pub(crate) fn set_floppy0_writable(&mut self, writable: bool) {
+        self.floppy0_writable = writable;
     }
 
     pub(crate) fn clear_audio_buffer(&mut self) {
@@ -404,9 +418,18 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
         // exists, re-mount any cached DF0 image, zero the time /
         // frame counters, and refresh the RGBA mirror so the next
         // frame draw sees the post-reset contents.
+        let live_floppy0_bytes = self.machine.floppy0_image_bytes();
+        let floppy0_writable = if live_floppy0_bytes.is_some() {
+            self.machine
+                .floppy0_image_writable()
+                .unwrap_or(self.floppy0_writable)
+        } else {
+            self.floppy0_writable
+        };
+        let floppy0_bytes = live_floppy0_bytes.or_else(|| self.floppy0_bytes.clone());
         self.machine.rebuild(&self.firmware_rom, self.config);
-        if let Some(bytes) = self.floppy0_bytes.clone() {
-            self.insert_floppy_bytes("floppy-0", &bytes)
+        if let Some(bytes) = floppy0_bytes {
+            self.insert_floppy_bytes("floppy-0", &bytes, floppy0_writable)
                 .expect("re-mounting cached DF0 image should not fail");
         }
         self.time = MachineTime::default();
@@ -430,7 +453,7 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
             if image.kind != MediaKind::Disk {
                 return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
             }
-            self.insert_floppy_bytes(image.slot.as_ref(), image.bytes)?;
+            self.insert_floppy_bytes(image.slot.as_ref(), image.bytes, image.writable)?;
         }
         Ok(())
     }
@@ -523,10 +546,15 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
 
 /// Generic floppy-bytes insertion. Decodes the ADF, asks the variant
 /// (via `AmigaMachine::insert_floppy0`) to mount it with the right
-/// disk-change-pending bookkeeping for the current model, and caches
-/// the bytes for snapshot replay.
+/// disk-change-pending bookkeeping and host write permission, and caches the
+/// bytes for reset and snapshot replay.
 impl<M: AmigaMachine> AmigaRuntime<M> {
-    fn insert_floppy_bytes(&mut self, slot: &str, bytes: &[u8]) -> Result<(), MachineError> {
+    fn insert_floppy_bytes(
+        &mut self,
+        slot: &str,
+        bytes: &[u8],
+        writable: bool,
+    ) -> Result<(), MachineError> {
         let adf = Adf::from_bytes(bytes.to_vec()).map_err(|reason| MachineError::InvalidMedia {
             slot: slot.to_owned(),
             reason: reason.to_string(),
@@ -535,8 +563,9 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         // bookkeeping during the bootstrap-to-Kickstart-disk handoff.
         // Other (Kickstart-resident) variants insert without it.
         let change_pending = self.model().is_a1000();
-        self.machine.insert_floppy0(adf, change_pending);
+        self.machine.insert_floppy0(adf, change_pending, writable);
         self.floppy0_bytes = Some(bytes.to_vec());
+        self.floppy0_writable = writable;
         Ok(())
     }
 }
@@ -598,6 +627,7 @@ impl AmigaRuntime<AmigaOcs> {
             time: MachineTime::default(),
             firmware_rom,
             floppy0_bytes: None,
+            floppy0_writable: false,
             rgba_framebuffer: vec![0; (DISPLAY_WIDTH * DISPLAY_HEIGHT * 4) as usize],
             frame_count: 0,
             non_black_pixels: 0,
@@ -706,6 +736,7 @@ impl AmigaRuntime<AmigaEcs> {
             time: MachineTime::default(),
             firmware_rom,
             floppy0_bytes: None,
+            floppy0_writable: false,
             rgba_framebuffer: vec![0; (DISPLAY_WIDTH * DISPLAY_HEIGHT * 4) as usize],
             frame_count: 0,
             non_black_pixels: 0,
@@ -820,6 +851,7 @@ impl AmigaRuntime<AmigaA1200> {
             time: MachineTime::default(),
             firmware_rom,
             floppy0_bytes: None,
+            floppy0_writable: false,
             rgba_framebuffer: vec![0; (DISPLAY_WIDTH * DISPLAY_HEIGHT * 4) as usize],
             frame_count: 0,
             non_black_pixels: 0,

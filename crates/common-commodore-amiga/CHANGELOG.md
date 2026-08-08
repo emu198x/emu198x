@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add a source-aware Amiga memory-write record and the narrow shared-driver
+  hook for observing disk read-DMA writes into chip RAM
 - Add non-driving active-map memory peeks and a payload-free diagnostic snapshot
   of installed memory topology, ROM state, overlay, and floating-bus value
 - Add a shared side-effect-free controller-port input snapshot
@@ -30,11 +32,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Preserve actual disk-DMA bus use across both CPU phases of a CCK, including
+  the final transfer cell after Paula clears its live request
 - [breaking] Extend the public `AmigaDriver` implementation surface with
   active-CPU clock-domain state and instruction-boundary recording
 
 ### Fixed
 
+- Reserve both modeled Copper instruction-fetch cells so the first word-fetch
+  phase cannot be double-allocated to the blitter or CPU
+- Offer a Copper-eligible cell that a waiting or throttled Copper did not use
+  to the blitter before returning it to the CPU. A non-nasty blitter yields to
+  a mature CPU chip-RAM request; nasty mode may pre-empt it.
 - Consume machine-composed horizontal-blank levels for each output sample
   instead of reconstructing chipset comparator intervals inside the renderer
 - Project Denise's real post-wrap output onto the preceding physical raster

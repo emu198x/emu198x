@@ -16,6 +16,10 @@
 //! applies the same symmetric crop to our 768×576 output before
 //! comparison.
 //!
+//! Rows may declare small ignored rectangles for guest-generated values that
+//! are known to vary with the exact observation instant. These exclusions are
+//! coordinate-exact and reviewed; they are not a general pixel tolerance.
+//!
 //! # External artifacts
 //!
 //! The harness loads firmware and media from the user's private
@@ -76,7 +80,25 @@ struct GoldenRow {
     kickstart: &'static str,
     /// Boot flow to execute before capturing the frame.
     boot: BootFlow,
+    /// Guest-generated volatile regions excluded from the pixel comparison.
+    ignored_regions: &'static [FrameRegion],
 }
+
+/// One reviewed rectangle in the cropped FS-UAE coordinate space.
+#[derive(Clone, Copy)]
+struct FrameRegion {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+const WB13_FREE_MEMORY_READOUT: &[FrameRegion] = &[FrameRegion {
+    x: 270,
+    y: 36,
+    width: 50,
+    height: 18,
+}];
 
 #[derive(Clone, Copy)]
 enum DiskAsset {
@@ -120,6 +142,7 @@ const MATRIX: &[GoldenRow] = &[
             disk: None,
             settle_frames: KS13_SETTLE_FRAMES,
         },
+        ignored_regions: &[],
     },
     GoldenRow {
         name: "a500-ks13-a501-no-disk",
@@ -129,6 +152,7 @@ const MATRIX: &[GoldenRow] = &[
             disk: None,
             settle_frames: KS13_SETTLE_FRAMES,
         },
+        ignored_regions: &[],
     },
     GoldenRow {
         name: "a500-ks13-wb13",
@@ -141,6 +165,10 @@ const MATRIX: &[GoldenRow] = &[
             // and remains pixel-exact with the existing regression baseline.
             settle_frames: 3500,
         },
+        // Workbench updates this allocator-derived number around the capture
+        // boundary. The current and previous frames differ only in these
+        // digits; the rest of the 752×572 desktop remains exact.
+        ignored_regions: WB13_FREE_MEMORY_READOUT,
     },
     GoldenRow {
         name: "a1000-ks12-no-disk",
@@ -150,6 +178,7 @@ const MATRIX: &[GoldenRow] = &[
             disk: None,
             settle_frames: KS13_SETTLE_FRAMES,
         },
+        ignored_regions: &[],
     },
     GoldenRow {
         name: "a1000-ks12-wb12",
@@ -160,6 +189,7 @@ const MATRIX: &[GoldenRow] = &[
             workbench_disk: DiskAsset::HomeMedia("workbench-1.2.adf"),
             post_swap_frames: 3000,
         },
+        ignored_regions: &[],
     },
     // AGA: A1200 + Kickstart 3.1 booting Workbench 3.1 to the desktop.
     // Locks the FMODE bitplane wide-fetch and 68020 full-format EA decode
@@ -175,6 +205,7 @@ const MATRIX: &[GoldenRow] = &[
             )),
             settle_frames: 1800,
         },
+        ignored_regions: &[],
     },
 ];
 
@@ -379,6 +410,43 @@ fn decode_png_rgb(path: &Path) -> (Vec<u8>, u32, u32) {
     (rgb, info.width, info.height)
 }
 
+/// Count pixel differences outside explicitly ignored guest-volatile regions.
+fn count_unignored_differences(
+    actual_rgb: &[u8],
+    expected_rgb: &[u8],
+    width: u32,
+    height: u32,
+    ignored_regions: &[FrameRegion],
+) -> usize {
+    assert_eq!(actual_rgb.len(), expected_rgb.len());
+    assert_eq!(actual_rgb.len(), (width * height * 3) as usize);
+    for region in ignored_regions {
+        assert!(region.width > 0 && region.height > 0);
+        assert!(region.x.saturating_add(region.width) <= width);
+        assert!(region.y.saturating_add(region.height) <= height);
+    }
+
+    actual_rgb
+        .chunks_exact(3)
+        .zip(expected_rgb.chunks_exact(3))
+        .enumerate()
+        .filter(|(index, (actual, expected))| {
+            if actual == expected {
+                return false;
+            }
+            let index = *index as u32;
+            let x = index % width;
+            let y = index / width;
+            !ignored_regions.iter().any(|region| {
+                x >= region.x
+                    && x < region.x + region.width
+                    && y >= region.y
+                    && y < region.y + region.height
+            })
+        })
+        .count()
+}
+
 /// Run one row end-to-end: build runtime, tick to settle, compare
 /// frame against golden, or rewrite golden in update mode.
 ///
@@ -530,7 +598,14 @@ fn run_row(row: &GoldenRow) {
             golden_path.display()
         );
     }
-    if actual_rgb == expected_rgb {
+    let differing = count_unignored_differences(
+        &actual_rgb,
+        &expected_rgb,
+        FSUAE_W,
+        FSUAE_H,
+        row.ignored_regions,
+    );
+    if differing == 0 {
         return;
     }
 
@@ -543,12 +618,6 @@ fn run_row(row: &GoldenRow) {
     write_diff_mask(&diff_path, &actual_rgb, &expected_rgb, FSUAE_W, FSUAE_H);
 
     let total_px = (FSUAE_W * FSUAE_H) as usize;
-    let differing = actual_rgb
-        .chunks_exact(3)
-        .zip(expected_rgb.chunks_exact(3))
-        .filter(|(a, e)| a != e)
-        .count();
-
     panic!(
         "{}: framebuffer doesn't match golden ({}/{} px differ, {:.1}%).\n  \
          golden:  {}\n  actual:  {}\n  diff:    {}",
@@ -559,6 +628,36 @@ fn run_row(row: &GoldenRow) {
         golden_path.display(),
         actual_path.display(),
         diff_path.display()
+    );
+}
+
+#[test]
+fn ignored_frame_regions_exclude_only_their_own_pixels() {
+    const WIDTH: u32 = 4;
+    const HEIGHT: u32 = 3;
+
+    let expected = vec![0; (WIDTH * HEIGHT * 3) as usize];
+    let mut actual = expected.clone();
+    let ignored = FrameRegion {
+        x: 1,
+        y: 1,
+        width: 2,
+        height: 1,
+    };
+
+    for (x, value) in [(1_u32, 0x11_u8), (2, 0x22)] {
+        let offset = ((WIDTH + x) * 3) as usize;
+        actual[offset] = value;
+    }
+    assert_eq!(
+        count_unignored_differences(&actual, &expected, WIDTH, HEIGHT, &[ignored]),
+        0
+    );
+
+    actual[0] = 0x33;
+    assert_eq!(
+        count_unignored_differences(&actual, &expected, WIDTH, HEIGHT, &[ignored]),
+        1
     );
 }
 

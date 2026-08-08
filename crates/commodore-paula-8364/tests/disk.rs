@@ -337,6 +337,7 @@ fn read_fifo_is_bounded_and_keeps_existing_words_on_overflow() {
     assert_eq!(full.disk_dma_fifo, [0x1111, 0x2222, 0x3333]);
     assert!(full.disk_dma_fifo_full);
     assert!(!full.disk_dma_fifo_empty);
+    assert_eq!(full.disk_dma_fifo_overrun_count, 1);
 
     assert_eq!(p.service_disk_read_dma_slot(), Some(0x1111));
     p.receive_disk_read_word(0x5555);
@@ -344,6 +345,97 @@ fn read_fifo_is_bounded_and_keeps_existing_words_on_overflow() {
         p.disk_diagnostic_snapshot().disk_dma_fifo,
         [0x2222, 0x3333, 0x5555]
     );
+    assert_eq!(p.disk_diagnostic_snapshot().disk_dma_fifo_overrun_count, 1);
+}
+
+#[test]
+fn disk_slot_request_requires_transfer_state_and_fifo_capacity() {
+    let mut p = Paula8364::new();
+    assert!(!p.disk_dma_slot_requested());
+    assert_eq!(p.disk_dma_slot_request_mask(), 0b000);
+
+    let read = DSKLEN_DMAEN | 1;
+    p.write_dsklen(read);
+    p.write_dsklen(read);
+    assert!(
+        !p.disk_dma_slot_requested(),
+        "an empty read FIFO must release the fixed disk cell"
+    );
+    p.receive_disk_read_word(0x1234);
+    assert!(p.disk_dma_slot_requested());
+    assert_eq!(p.disk_dma_slot_request_mask(), 0b100);
+    assert_eq!(p.service_disk_read_dma_slot(), Some(0x1234));
+    assert!(!p.disk_dma_slot_requested());
+
+    let write = DSKLEN_DMAEN | DSKLEN_WRITE | 4;
+    p.write_dsklen(write);
+    p.write_dsklen(write);
+    assert!(p.disk_dma_slot_requested());
+    assert_eq!(p.disk_dma_slot_request_mask(), 0b111);
+    for word in [0x1111, 0x2222, 0x3333] {
+        assert!(p.accept_disk_write_dma_slot(word));
+    }
+    assert!(
+        !p.disk_dma_slot_requested(),
+        "a full write FIFO must release the fixed disk cell"
+    );
+}
+
+#[test]
+fn read_fifo_stages_request_d2_then_d1_then_d0() {
+    let mut p = Paula8364::new();
+    let read = DSKLEN_DMAEN | 4;
+    p.write_dsklen(read);
+    p.write_dsklen(read);
+
+    p.receive_disk_read_word(0x1111);
+    assert_eq!(
+        p.disk_dma_slot_request_mask(),
+        0b100,
+        "one word waits for D2"
+    );
+
+    p.receive_disk_read_word(0x2222);
+    assert_eq!(
+        p.disk_dma_slot_request_mask(),
+        0b110,
+        "two words request D1 and D2"
+    );
+
+    p.receive_disk_read_word(0x3333);
+    assert_eq!(
+        p.disk_dma_slot_request_mask(),
+        0b111,
+        "three words request D0, D1 and D2"
+    );
+
+    assert_eq!(p.service_disk_read_dma_slot(), Some(0x1111));
+    assert_eq!(p.disk_dma_slot_request_mask(), 0b110);
+    assert_eq!(
+        p.disk_diagnostic_snapshot().disk_dma_slot_request_mask,
+        0b110
+    );
+}
+
+#[test]
+fn wordsync_wait_releases_disk_cells_until_aligned_data_arrives() {
+    let mut p = Paula8364::new();
+    p.set_dsksync(0x4489);
+    p.write_adkcon(INT_SETCLR | ADKCON_WORDSYNC);
+    let read = DSKLEN_DMAEN | 2;
+    p.write_dsklen(read);
+    p.write_dsklen(read);
+
+    p.receive_disk_read_word(0xAAAA);
+    assert!(
+        !p.disk_dma_slot_requested(),
+        "pre-sync FIFO contents must not claim a memory cell"
+    );
+
+    p.receive_disk_read_word(0x4489);
+    assert!(!p.disk_dma_slot_requested());
+    p.receive_disk_read_word(0x1234);
+    assert!(p.disk_dma_slot_requested());
 }
 
 #[test]

@@ -602,6 +602,7 @@ impl emu198x_shell::WatchTarget for SpectrumRuntimeKind {
                     value: u32::from(r.value),
                     cck: None,
                     size_bytes: 1,
+                    source: None,
                 })
                 .collect()
         })

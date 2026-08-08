@@ -3,9 +3,10 @@
 **Date**: June 2026 (#30)
 
 **Implementation status:** Implemented. Disk memory transfers consume the
-authoritative grant as of commit `24b20ce4`; the independent rotational stream
-crosses Paula's bounded FIFO as defined by
-[Amiga disk rotation and DMA arbitration](amiga-disk-dma-fifo-arbitration.md).
+authoritative grant as of commit `24b20ce4`; Paula now supplies the per-cell
+D0/D1/D2 request mask and Agnus retains actual disk use for the rest of the
+CCK. The independent rotational stream crosses Paula's bounded FIFO as defined
+by [Amiga disk rotation and DMA arbitration](amiga-disk-dma-fifo-arbitration.md).
 
 ## The decision
 
@@ -18,8 +19,9 @@ CPU, sprite DMA, audio DMA, disk DMA, bitplane fetch, Paula return-latency
 The hardware-correct OCS PAL layout (vAmiga `SequencerDas`/`SequencerBpl`,
 Minimig `agnus.v` priority chain):
 
-- Fixed chipset slots on **odd** hpos, gated by DMACON:
-  refresh `0x01/03/05` + EOL; disk `0x07/09/0B`; audio `0x0D/0F/11/13`;
+- Fixed chipset slots on **odd** hpos, gated by DMACON and the channel's actual
+  request state: refresh `0x01/03/05` + EOL; disk D0/D1/D2
+  `0x07/09/0B`; audio `0x0D/0F/11/13`;
   sprite opportunities `0x15..0x33` (`n=(hpos-0x15)/4`, word
   `((hpos-0x15)/2)&1`). A sprite claims its pair only when it requests a
   control or data fetch; an idle opportunity falls through the priority
@@ -30,21 +32,32 @@ Minimig `agnus.v` priority chain):
 - Copper: the **even** free cells (`COPEN && busOwner==NONE && even &&
   hpos != 0xE0`).
 - CPU: every cell no one else actually takes.
-- Priority on a contended cell:
-  `disk > refresh > audio > bitplane > sprite > copper > cpu`.
+- Positional priority on a contended cell is
+  `disk > refresh > audio > bitplane > sprite > copper > cpu`. Blitter
+  arbitration then occupies an actually unused CPU/free or yielded-Copper
+  cell. A mature CPU chip-RAM request outranks a non-nasty blitter; `BLTPRI`
+  allows the blitter to pre-empt it.
 
-A granted copper cell is consumed by the CPU unless the copper *actually
-fetched* it that CCK. `current_slot` is positional — it grants the copper
-every even free cell when COPEN is set and cannot see a parked WAIT — so
-the CPU gate keys off `Copper::bus_used_this_cck`, set only at the
-copper's real chip-RAM fetch. This mirrors vAmiga's `busOwner`, which a
-waiting copper never sets.
+A Copper-eligible cell is offered first to the Copper. A waiting, stopped or
+internally throttled Copper yields that cell to an active blitter when the CPU
+does not need the chip bus. A mature CPU chip-RAM request wins against a
+non-nasty blitter, while a nasty blitter takes the cell before the CPU.
+`current_slot` is positional: it cannot see a parked WAIT. The scheduler
+therefore keys the second-stage choice off `Copper::bus_used_this_cck`,
+mirroring vAmiga's `busOwner`, which a waiting Copper never sets.
+
+An active Copper instruction owns both modeled fetch cells. The common Copper
+abstraction reads the instruction pair when its second accepted fetch cell
+completes, but the first phase is still a real bus allocation. Marking only the
+second phase allowed a nasty blitter or CPU to reuse the first cell and changed
+real-software output.
 
 A state-sensitive grant remains authoritative for the whole CCK. Servicing
-sprite DMA can latch a new VSTOP during the second control-word fetch, but
-that state change cannot retroactively give the already-consumed cell to the
-CPU. Agnus therefore records actual sprite bus use until the next CCK as well
-as exposing the newly computed plan.
+disk, sprite, Copper or blitter DMA can change the live state from which a new
+plan would be computed, but that change cannot retroactively give an
+already-consumed cell to another master. The scheduler therefore retains
+actual-use latches across both CPU phases of the CCK and clears them only when
+the next CCK starts.
 
 ## Why
 
@@ -58,11 +71,12 @@ bitplane DMA. Collapsing to one authority is the cycle-exact foundation
 the blitter-contention, copper↔blitter-sync, and audio/sprite-timing work
 builds on.
 
-The copper runs on *even* cells (not odd) because real Agnus allocates the
+The Copper runs on *even* cells (not odd) because real Agnus allocates the
 even in-unit free cells to it; the old odd-cell rule was an artifact of the
-compressed map. The CPU must yield idle-copper cells or chip-RAM-bound code
-runs ~2× too slow (it regressed the WB1.3 boot until the
-`bus_used_this_cck` gate landed).
+compressed map. The CPU must receive a Copper-eligible cell when neither the
+Copper nor blitter uses it; otherwise chip-RAM-bound code runs about twice too
+slow. Conversely, the CPU must remain stalled when a parked Copper yields the
+cell to a nasty blitter.
 
 ## Implications
 
@@ -71,8 +85,14 @@ runs ~2× too slow (it regressed the WB1.3 boot until the
   arbitration, no parallel fetch logic.
 - The driver passes `copper_slot_granted` (from `cck_bus_plan`) into
   `Copper::tick_cck`; the copper no longer computes its own parity.
+- The machine-facing plan combines Agnus's D0/D1/D2 position decode with
+  Paula's current stage mask. One read word requests D2, two request D1 and
+  D2, and a full FIFO requests all three. An idle disk opportunity falls
+  through instead of reserving the bus.
 - `service_cpu_bus` consumes the plan's explicit CPU grant, including
-  blitter-nasty ownership, while preserving the parked-Copper fallthrough.
+  actual disk, sprite, Copper and blitter ownership. A parked-Copper
+  fallthrough reaches an idle-CPU or nasty blitter; a competing non-nasty
+  blitter yields to the CPU.
 - A just-started blit consumes two accepted startup CCKs before its first
   channel operation. An accepted startup CCK is a CPU/free cell for which
   the same plan asserts `blitter_dma_progress_granted`; disabled blitter DMA
@@ -195,6 +215,11 @@ If I catch myself proposing any of these, stop and re-read the "Why".
   whether that sprite requests control or data DMA on the current line.
 - Recomputing `cck_bus_plan()` after a state-mutating DMA service and using
   the new result to retroactively grant the same CCK to the CPU.
+- Treating an enabled but unrequested D0/D1/D2 opportunity as disk ownership.
+- Letting a parked Copper hand its eligible cell directly to the CPU without
+  first applying blitter priority.
+- Recording only the Copper phase that completes the paired instruction read;
+  both accepted fetch cells own the bus.
 - Reconstructing any installed Agnus's vertical bitplane eligibility as a
   range comparison
   over VSTART, VSTOP and the current beam position instead of preserving the
@@ -213,6 +238,8 @@ If I catch myself proposing any of these, stop and re-read the "Why".
 - "The beam is past DDFSTOP, so recompute the fetch end from its current
   value."
 - "current_slot already says Copper, so stall the CPU."
+- "The Copper is waiting, so this cell always belongs to the CPU."
+- "The first Copper fetch phase does not read the pair yet, so it is free."
 - "SPREN reserves every sprite slot whether or not the channel fetches."
 
 ## Related documents
