@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   frame-replay and audio-replay gate.
 - Requalify all ten Amiga entries under the corrected final arbitration core;
   each entry now passes its exact frame/audio oracle and snapshot/replay gate.
+- Requalify the Workbench 3.1 and Banshee AGA frame baselines after the Lisa
+  bitplane/DIW phase correction. Banshee's overlapping playfield is exactly a
+  two-host-sample translation; Workbench retains its complete pointer image.
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/emu198x-catalogue-v0.2.0) - 2026-06-04
 

@@ -317,9 +317,11 @@ path = "commodore-amiga/workbench-3.1.adf"
 
 [entry.boot]
 # The complete desktop is present at frame 1800. The 768 x 576 catalogue
-# capture crops pixel-exactly to the reviewed 752 x 572 A1200 golden.
+# capture crops pixel-exactly to the reviewed 752 x 572 A1200 golden. This
+# baseline includes the corrected Lisa bitplane/DIW phase and retains the
+# independently clocked pointer without an ignored region.
 wait_frames = 1800
-frame_hash = "xxh64:52d4c7a7e424d995"
+frame_hash = "xxh64:bf5386b4b59c8528"
 
 [entry.audio]
 # Workbench is silent at the measured window.
@@ -352,9 +354,11 @@ button = "left"
 wait_frames = 5700
 # Settled POWERUPS instruction page. Samples taken every 100 frames from 5300
 # through 6100 were identical; this midpoint is 400 frames from both endpoints.
-# This exercises an AGA-only title beyond its release screen; independent
-# pixel accuracy remains bounded by the Test Kit cases.
-frame_hash = "xxh64:09b34d92add8bddf"
+# After the Lisa bitplane/DIW correction, the old x=0..765 region equals the
+# corrected x=2..767 region exactly. The full-frame hash retains that two-host-
+# sample phase change. This exercises an AGA-only title beyond its release
+# screen; independent pixel accuracy remains bounded by the Test Kit cases.
+frame_hash = "xxh64:67b5a4958c46955c"
 
 [entry.audio]
 # The Banshee preview soundtrack is active in stereo at this window.
