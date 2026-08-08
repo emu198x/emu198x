@@ -90,6 +90,117 @@ fn snapshot_round_trip_preserves_mid_cycle_runtime_state() {
 }
 
 #[test]
+fn snapshot_round_trip_preserves_live_sprite_pipeline() {
+    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+
+    // Put one solid sprite through the live MC/MCBASE fetch chain and the
+    // draw-stage shift register. The snapshot point is deliberately inside
+    // the sprite rather than at a frame boundary: resetting either pipeline
+    // to its default state on restore drops the remaining pixels.
+    let machine = runtime.machine_mut();
+    machine.cpu_write(0xD011, 0x1B); // DEN + 25-row display
+    machine.cpu_write(0xD018, 0x14); // screen matrix $0400
+    machine.cpu_write(0xD015, 0x01); // sprite 0 enabled
+    machine.cpu_write(0xD000, 172); // X -> framebuffer x=196
+    machine.cpu_write(0xD001, 100); // first rendered row is 101 in this harness
+    machine.cpu_write(0xD027, 0x01); // white
+    machine.cpu_write(0x07F8, 0x80); // sprite pointer -> $2000
+    for offset in 0..63u16 {
+        machine.cpu_write(0x2000 + offset, 0xFF);
+    }
+    while machine.raster_line() != 101 || machine.cycle_in_line() != 35 {
+        machine.tick();
+    }
+
+    let snapshot = runtime
+        .snapshot()
+        .expect("active-sprite C64 runtime should snapshot");
+    let mut expected = runtime.machine().clone();
+    let mut restored = C64Runtime::blank(Model::C64PalBreadbin);
+    restored
+        .restore(&snapshot)
+        .expect("active-sprite snapshot should restore");
+
+    for _ in 0..8 {
+        assert_eq!(restored.machine_mut().tick(), expected.tick());
+    }
+    let row_start = 101 * mos_vic_ii::FB_WIDTH as usize;
+    let sprite_span = row_start + 190..row_start + 230;
+    assert_eq!(
+        &restored.machine().framebuffer()[sprite_span.clone()],
+        &expected.framebuffer()[sprite_span],
+        "restored sprite shift/fetch state must draw the same remaining pixels"
+    );
+}
+
+#[test]
+fn snapshot_round_trip_preserves_queued_sid_samples() {
+    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+
+    // Runtime audio is drained only when a frame completes. Snapshot in the
+    // middle of the frame, after the deterministic SID decimator has queued
+    // output that belongs to the eventual frame packet.
+    for _ in 0..1_000 {
+        runtime.machine_mut().tick();
+    }
+    assert!(
+        runtime.machine().sid().buffer_len() > 0,
+        "test setup must have queued SID output"
+    );
+
+    let snapshot = runtime
+        .snapshot()
+        .expect("mid-frame audio C64 runtime should snapshot");
+    let mut expected = runtime.machine().clone();
+    let mut restored = C64Runtime::blank(Model::C64PalBreadbin);
+    restored
+        .restore(&snapshot)
+        .expect("mid-frame audio snapshot should restore");
+
+    assert_eq!(
+        restored.machine_mut().take_audio_buffer(),
+        expected.take_audio_buffer(),
+        "restored runtime must retain samples already generated this frame"
+    );
+    assert_eq!(
+        restored.machine_mut().take_audio_channel_buffers(),
+        expected.take_audio_channel_buffers(),
+        "restored runtime must retain per-voice samples generated this frame"
+    );
+}
+
+#[test]
+fn runtime_drains_sid_voice_buffers_at_frame_boundary() {
+    use common_commodore_c64::TIMING_PAL_BREADBIN;
+
+    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+    let mut frame_sink = FrameCollector::default();
+    let mut audio_sink = NullAudioSink;
+    let mut trace_sink = NullTraceSink;
+
+    runtime
+        .run_until(
+            MachineTime::new(u64::from(TIMING_PAL_BREADBIN.cycles_per_frame)),
+            &mut HostIo {
+                input_events: &[],
+                frame_sink: &mut frame_sink,
+                audio_sink: &mut audio_sink,
+                trace_sink: &mut trace_sink,
+            },
+        )
+        .expect("blank C64 runtime should complete one frame");
+
+    let channels = runtime.machine_mut().take_audio_channel_buffers();
+    assert!(
+        channels.iter().all(Vec::is_empty),
+        "runtime must not retain diagnostic voice samples after frame output"
+    );
+}
+
+#[test]
 fn snapshot_round_trip_preserves_attached_drive_state() {
     let mut runtime =
         C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware_with_drive())
@@ -175,6 +286,20 @@ fn restore_rejects_corrupt_postcard_bytes() {
         .expect_err("garbage bytes should not deserialise");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("decode failed")),
+        "unexpected error variant: {err:?}",
+    );
+}
+
+#[test]
+fn restore_rejects_old_schema_before_decoding_its_payload() {
+    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+    let err = runtime
+        .restore(&[3])
+        .expect_err("version 3 snapshot should be rejected before payload decode");
+    assert!(
+        matches!(err, MachineError::InvalidSnapshot { ref reason }
+            if reason == "unsupported snapshot version 3; expected 4"),
         "unexpected error variant: {err:?}",
     );
 }

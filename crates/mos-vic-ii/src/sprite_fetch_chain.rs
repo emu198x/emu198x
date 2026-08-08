@@ -20,9 +20,11 @@
 //! `docs/plans/2026-06-30-c64-vic-ii-vc-vcbase-rc-rewrite.md`
 //! (Increment 5 § sprite sequencer, S4).
 
+use serde::{Deserialize, Serialize};
+
 /// Per-sprite MC/MCBASE/exp-flop state. The bit masks are shared across the
 /// eight sprites; MC and MCBASE are per sprite.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct SpriteFetchChain {
     /// Data counter (0-63): byte offset into the sprite's 63-byte data block.
     mc: [u8; 8],

@@ -727,6 +727,16 @@ impl C64 {
         self.sid.take_buffer()
     }
 
+    /// Drains the current per-voice SID diagnostic buffers.
+    ///
+    /// These samples are generated alongside the mixed output. The runtime
+    /// drains them at every frame boundary even when no diagnostic consumer is
+    /// attached, preventing an unbounded per-voice backlog during long runs.
+    #[must_use]
+    pub fn take_audio_channel_buffers(&mut self) -> [Vec<f32>; 3] {
+        self.sid.take_channel_buffers()
+    }
+
     /// Current host-side SID audio controls.
     #[must_use]
     pub const fn audio_controls(&self) -> AudioControls {

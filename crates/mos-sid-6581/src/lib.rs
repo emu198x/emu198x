@@ -263,9 +263,10 @@ pub struct Sid6581 {
     /// The C64 board's output coupling (16 kHz low-pass + 16 Hz high-pass).
     #[serde(default)]
     ext_filter: ExternalFilter,
-    #[serde(skip)]
+    /// Mixed samples generated since the runtime last emitted a frame packet.
+    /// Mid-frame snapshots retain them so restored audio is sample-identical.
     buffer: Vec<f32>,
-    #[serde(skip)]
+    /// Per-voice samples generated over the same pending output window.
     channel_buffers: [Vec<f32>; 3],
 }
 

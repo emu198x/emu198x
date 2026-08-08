@@ -21,9 +21,11 @@
 //! `docs/plans/2026-06-30-c64-vic-ii-vc-vcbase-rc-rewrite.md`
 //! (Increment 5 § sprite sequencer).
 
+use serde::{Deserialize, Serialize};
+
 /// One sprite pixel the sequencer emitted: which sprite, and its multicolour
 /// selector (1 → `$D025`, 2 → the sprite's own `$D027+i`, 3 → `$D026`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct SpritePixel {
     pub sprite: u8,
     /// Multicolour pixel selector, 1..=3 (0 is transparent and never emitted).
@@ -33,7 +35,7 @@ pub(crate) struct SpritePixel {
 /// The result of drawing one beam pixel: the winning (front-most) sprite pixel
 /// to render, and the coverage mask of every sprite with a non-transparent
 /// pixel here (for collision detection).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct DrawnPixel {
     pub winner: Option<SpritePixel>,
     pub coverage: u8,
@@ -41,7 +43,7 @@ pub(crate) struct DrawnPixel {
 
 /// Per-sprite draw-stage state. All eight sprites share the bit-mask registers;
 /// the shift register and pixel latch are per sprite.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct SpriteSequencer {
     /// 24-bit data shift register (`sbuf_reg`), MSB first.
     shift_reg: [u32; 8],

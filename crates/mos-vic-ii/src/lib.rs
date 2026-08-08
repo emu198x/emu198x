@@ -277,33 +277,27 @@ pub struct Vic {
     /// `evaluate_sprite_dma`. Independent of the draw-stage sequencer.
     sprite_dma_active: [bool; 8],
     /// Draw-stage sprite sequencer (VICE shift-register pixel pipeline). It is
-    /// the sole sprite render path; transient render state rebuilt each line,
-    /// so it skips serialisation.
-    #[serde(skip)]
+    /// the sole sprite render path. Its shift registers and per-pixel flops
+    /// persist across cycles, so snapshots preserve it at arbitrary phases.
     sprite_sequencer: SpriteSequencer,
     /// Sprite fetch chain (MC/MCBASE/exp-flop + crunch) and its MC-addressed
     /// data, feeding the sequencer continuously (VICE model): the chain sets
     /// display bits at cyc 58 (→ `set_pending`) and loads data at the s-access
-    /// (→ `load_data`). Used only on the sequencer path. Transient render state.
-    #[serde(skip)]
+    /// (→ `load_data`). Used only on the sequencer path. MC/MCBASE and fetched
+    /// data are live hardware state and therefore part of a snapshot.
     chain: SpriteFetchChain,
-    #[serde(skip)]
     chain_data: [[u8; 3]; 8],
-    #[serde(skip)]
     chain_fetch_base: [u16; 8],
     /// This cycle's 8 raw sprite pixels (pre-foreground-priority), produced by
     /// the per-cycle draw pass and composited by `render_pixels`.
-    #[serde(skip)]
     sprite_cycle_px: [Option<SpritePixel>; 8],
     /// This cycle's 8 sprite coverage masks (which sprites have a pixel), for
     /// collision detection in the composite.
-    #[serde(skip)]
     sprite_cycle_cov: [u8; 8],
     /// This cycle's graphics foreground mask (8 bits), latched by
     /// `render_pixels` for the collision pass. Zero off the display window, so
     /// sprite-background collisions only register over real foreground while
     /// sprite-sprite collisions still register everywhere.
-    #[serde(skip)]
     gfx_fg_mask: u8,
     sprite_sprite_collision: u8,
     sprite_bg_collision: u8,

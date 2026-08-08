@@ -975,6 +975,11 @@ impl MachineCore for C64Runtime {
             if frame_complete {
                 self.emit_frame(host)?;
                 let audio = self.machine.take_audio_buffer();
+                // Per-voice SID samples are diagnostic stems generated beside
+                // the mixed stream. They currently have no shell sink, but
+                // must still be drained on the same boundary so long-running
+                // sessions do not retain every sample since power-on.
+                drop(self.machine.take_audio_channel_buffers());
                 if !audio.is_empty() {
                     host.audio_sink.push_audio(AudioPacket {
                         timestamp: self.time,
