@@ -9,6 +9,51 @@ fn manifest_path() -> PathBuf {
 }
 
 #[test]
+fn closure_catalogue_has_ten_entries_across_ocs_ecs_and_aga() {
+    let manifest = load_manifest(&manifest_path()).expect("Amiga manifest should parse");
+
+    assert_eq!(
+        manifest.entry.len(),
+        10,
+        "the Amiga closure catalogue must retain exactly ten reviewed entries"
+    );
+
+    let variants = manifest
+        .entry
+        .iter()
+        .map(|entry| entry.variant.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        variants
+            .iter()
+            .filter(|variant| variant.contains("-ocs-"))
+            .count(),
+        6,
+        "the closure catalogue must retain six OCS entries"
+    );
+    assert_eq!(
+        variants
+            .iter()
+            .filter(|variant| variant.contains("-ecs-"))
+            .count(),
+        2,
+        "the closure catalogue must retain two ECS entries"
+    );
+    assert_eq!(
+        variants
+            .iter()
+            .filter(|variant| variant.contains("-aga-"))
+            .count(),
+        2,
+        "the closure catalogue must retain two AGA entries"
+    );
+    assert!(
+        variants.iter().any(|variant| variant.ends_with("-ntsc")),
+        "the closure catalogue must retain an NTSC timing-domain entry"
+    );
+}
+
+#[test]
 fn joystick_scripts_use_labelled_amiga_control_ports() {
     let manifest = load_manifest(&manifest_path()).expect("Amiga manifest should parse");
 

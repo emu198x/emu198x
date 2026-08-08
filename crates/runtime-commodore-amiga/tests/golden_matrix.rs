@@ -28,9 +28,10 @@
 //! - ROMs: `~/.emu198x/roms/commodore-amiga/<name>.rom`
 //! - Disks: `~/.emu198x/media/commodore-amiga/<name>.adf`
 //!
-//! When a ROM or ADF is missing the row prints a skip marker and
-//! returns. CI without the artifacts stays green; local runs with
-//! the artifacts gate the harness against regressions.
+//! By default, a missing ROM or ADF prints a skip marker so CI without private
+//! artifacts remains green. Accuracy-closure runs set
+//! `EMU198X_REQUIRE_GOLDEN_ASSETS=1`; in that mode every missing artifact is a
+//! test failure rather than a skip.
 //!
 //! # Capturing / updating goldens
 //!
@@ -85,7 +86,7 @@ struct GoldenRow {
 }
 
 /// One reviewed rectangle in the cropped FS-UAE coordinate space.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct FrameRegion {
     x: u32,
     y: u32,
@@ -97,6 +98,13 @@ const WB13_FREE_MEMORY_READOUT: &[FrameRegion] = &[FrameRegion {
     x: 270,
     y: 36,
     width: 50,
+    height: 18,
+}];
+
+const WB12_FREE_MEMORY_READOUT: &[FrameRegion] = &[FrameRegion {
+    x: 319,
+    y: 36,
+    width: 60,
     height: 18,
 }];
 
@@ -189,7 +197,11 @@ const MATRIX: &[GoldenRow] = &[
             workbench_disk: DiskAsset::HomeMedia("workbench-1.2.adf"),
             post_swap_frames: 3000,
         },
-        ignored_regions: &[],
+        // As on Workbench 1.3, the allocator-derived free-memory digits may
+        // move in 16-byte allocator quanta when the desktop is observed at a
+        // nearby instruction boundary. The surrounding title bar remains
+        // exact.
+        ignored_regions: WB12_FREE_MEMORY_READOUT,
     },
     // AGA: A1200 + Kickstart 3.1 booting Workbench 3.1 to the desktop.
     // Locks the FMODE bitplane wide-fetch and 68020 full-format EA decode
@@ -253,11 +265,23 @@ fn update_mode() -> bool {
     std::env::var_os("EMU198X_UPDATE_GOLDENS").is_some_and(|v| !v.is_empty())
 }
 
+/// `true` when an explicitly invoked accuracy run requires every matrix asset.
+fn require_all_assets() -> bool {
+    std::env::var_os("EMU198X_REQUIRE_GOLDEN_ASSETS").is_some_and(|v| !v.is_empty())
+}
+
+fn report_missing_artifact(row: &str, message: &str) {
+    if require_all_assets() {
+        panic!("{row}: {message}");
+    }
+    eprintln!("skipping {row}: {message}");
+}
+
 /// Read a single file, returning `None` with a skip message if
 /// absent. Used for both ROMs and ADFs.
 fn load_optional_artifact(path: &Path, kind: &str, row: &str) -> Option<Vec<u8>> {
     if !path.exists() {
-        eprintln!("skipping {row}: {kind} missing at {}", path.display());
+        report_missing_artifact(row, &format!("{kind} missing at {}", path.display()));
         return None;
     }
     Some(std::fs::read(path).unwrap_or_else(|e| panic!("read {kind} at {}: {e}", path.display())))
@@ -267,15 +291,16 @@ fn disk_asset_path(spec: DiskAsset, row: &str) -> Option<PathBuf> {
     match spec {
         DiskAsset::HomeMedia(name) => {
             let Some(media) = media_dir() else {
-                eprintln!("skipping {row}: $HOME not set");
+                report_missing_artifact(row, "$HOME not set");
                 return None;
             };
             Some(media.join(name))
         }
         DiskAsset::A1000KickstartZip => {
             let Some(path) = a1000_kickstart_disk_path() else {
-                eprintln!(
-                    "skipping {row}: A1000 Kickstart disk missing; set EMU198X_AMIGA_A1000_KICKSTART_DISK"
+                report_missing_artifact(
+                    row,
+                    "A1000 Kickstart disk missing; set EMU198X_AMIGA_A1000_KICKSTART_DISK",
                 );
                 return None;
             };
@@ -287,7 +312,7 @@ fn disk_asset_path(spec: DiskAsset, row: &str) -> Option<PathBuf> {
 fn load_optional_disk_asset(spec: DiskAsset, row: &str) -> Option<Vec<u8>> {
     let path = disk_asset_path(spec, row)?;
     if !path.exists() {
-        eprintln!("skipping {row}: disk image missing at {}", path.display());
+        report_missing_artifact(row, &format!("disk image missing at {}", path.display()));
         return None;
     }
     Some(
@@ -658,6 +683,36 @@ fn ignored_frame_regions_exclude_only_their_own_pixels() {
     assert_eq!(
         count_unignored_differences(&actual, &expected, WIDTH, HEIGHT, &[ignored]),
         1
+    );
+}
+
+#[test]
+fn workbench_masks_cover_only_the_allocator_readouts() {
+    assert_eq!(
+        MATRIX
+            .iter()
+            .filter(|row| !row.ignored_regions.is_empty())
+            .map(|row| row.name)
+            .collect::<Vec<_>>(),
+        ["a500-ks13-wb13", "a1000-ks12-wb12"]
+    );
+    assert_eq!(
+        WB13_FREE_MEMORY_READOUT,
+        [FrameRegion {
+            x: 270,
+            y: 36,
+            width: 50,
+            height: 18,
+        }]
+    );
+    assert_eq!(
+        WB12_FREE_MEMORY_READOUT,
+        [FrameRegion {
+            x: 319,
+            y: 36,
+            width: 60,
+            height: 18,
+        }]
     );
 }
 
