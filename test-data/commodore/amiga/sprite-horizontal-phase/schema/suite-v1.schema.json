@@ -1,0 +1,453 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sprite horizontal-phase suite manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "suite",
+    "build",
+    "cases",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "suite": {
+      "$ref": "#/$defs/suite"
+    },
+    "build": {
+      "$ref": "#/$defs/build"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "$ref": "#/$defs/case"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "word": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{4}$"
+    },
+    "suite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "license",
+        "source_revision"
+      ],
+      "properties": {
+        "id": {
+          "const": "org.198x.amiga.sprite-horizontal-phase"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "license": {
+          "const": "CC0-1.0"
+        },
+        "source_revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "version"
+      ],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "toolchain",
+        "case_file_sha256",
+        "source_sha256"
+      ],
+      "properties": {
+        "toolchain": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "target",
+            "assembler",
+            "linker",
+            "python"
+          ],
+          "properties": {
+            "target": {
+              "const": "m68k-elf"
+            },
+            "assembler": {
+              "$ref": "#/$defs/tool"
+            },
+            "linker": {
+              "$ref": "#/$defs/tool"
+            },
+            "python": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "implementation",
+                "version"
+              ],
+              "properties": {
+                "implementation": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "version": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        "case_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source_sha256": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "applicability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chipsets",
+        "regions",
+        "min_chip_ram_bytes"
+      ],
+      "properties": {
+        "chipsets": {
+          "const": [
+            "OCS",
+            "ECS",
+            "AGA"
+          ]
+        },
+        "regions": {
+          "const": [
+            "PAL"
+          ]
+        },
+        "min_chip_ram_bytes": {
+          "type": "integer",
+          "minimum": 524288
+        }
+      }
+    },
+    "registers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "diwstrt",
+        "diwstop",
+        "ddfstrt",
+        "ddfstop",
+        "bplcon0",
+        "bplcon1",
+        "bplcon2",
+        "bplcon3",
+        "bplcon4",
+        "fmode",
+        "bpl1mod",
+        "bpl2mod",
+        "spr0pos",
+        "spr0ctl",
+        "spr0data",
+        "spr0datb",
+        "color00",
+        "color01",
+        "color17",
+        "dmacon_enable"
+      ],
+      "properties": {
+        "diwstrt": { "$ref": "#/$defs/word" },
+        "diwstop": { "$ref": "#/$defs/word" },
+        "ddfstrt": { "$ref": "#/$defs/word" },
+        "ddfstop": { "$ref": "#/$defs/word" },
+        "bplcon0": { "$ref": "#/$defs/word" },
+        "bplcon1": { "$ref": "#/$defs/word" },
+        "bplcon2": { "$ref": "#/$defs/word" },
+        "bplcon3": { "$ref": "#/$defs/word" },
+        "bplcon4": { "$ref": "#/$defs/word" },
+        "fmode": { "$ref": "#/$defs/word" },
+        "bpl1mod": { "$ref": "#/$defs/word" },
+        "bpl2mod": { "$ref": "#/$defs/word" },
+        "spr0pos": { "$ref": "#/$defs/word" },
+        "spr0ctl": { "$ref": "#/$defs/word" },
+        "spr0data": { "$ref": "#/$defs/word" },
+        "spr0datb": { "$ref": "#/$defs/word" },
+        "color00": { "$ref": "#/$defs/word" },
+        "color01": { "$ref": "#/$defs/word" },
+        "color17": { "$ref": "#/$defs/word" },
+        "dmacon_enable": { "$ref": "#/$defs/word" }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resolution",
+        "sample_beam_line",
+        "bitplane_rows",
+        "bitplane_words_per_row",
+        "marker_word_index",
+        "marker_bit_index",
+        "sprite_data_lines",
+        "horizontal_mapping",
+        "anchors"
+      ],
+      "properties": {
+        "resolution": {
+          "const": "lores"
+        },
+        "sample_beam_line": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 624
+        },
+        "bitplane_rows": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "bitplane_words_per_row": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "marker_word_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "marker_bit_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "sprite_data_lines": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "horizontal_mapping": {
+          "const": "producer-recorded"
+        },
+        "anchors": {
+          "const": [
+            "retained hardwired HBLANK",
+            "DMA-fed one-bitplane marker"
+          ]
+        }
+      }
+    },
+    "programming_schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "steady_state"
+      ],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "minLength": 1
+        },
+        "steady_state": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ready_record_address",
+        "ready_magic",
+        "case_number_address",
+        "schema_version_address",
+        "field_counter_address",
+        "byte_order",
+        "ready_timeout_fields",
+        "settle_fields",
+        "capture_fields",
+        "adjacent_field_stability_required",
+        "blanking_retained",
+        "overscan_retained",
+        "alignment_search"
+      ],
+      "properties": {
+        "ready_record_address": { "const": "0x0002ff00" },
+        "ready_magic": { "const": "SPHX" },
+        "case_number_address": { "const": "0x0002ff04" },
+        "schema_version_address": { "const": "0x0002ff06" },
+        "field_counter_address": { "const": "0x0002ff08" },
+        "byte_order": { "const": "big-endian" },
+        "ready_timeout_fields": {
+          "type": "integer",
+          "minimum": 9
+        },
+        "settle_fields": {
+          "type": "integer",
+          "minimum": 8
+        },
+        "capture_fields": {
+          "type": "integer",
+          "minimum": 3
+        },
+        "adjacent_field_stability_required": { "const": true },
+        "blanking_retained": { "const": true },
+        "overscan_retained": { "const": true },
+        "alignment_search": { "const": false }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "serial",
+        "serial_address",
+        "serial_maximum_bytes",
+        "background",
+        "marker",
+        "sprite"
+      ],
+      "properties": {
+        "serial": {
+          "type": "string",
+          "pattern": "^[ -~]+$"
+        },
+        "serial_address": { "const": "0x0002ff40" },
+        "serial_maximum_bytes": { "const": 64 },
+        "background": { "type": "string", "minLength": 1 },
+        "marker": { "type": "string", "minLength": 1 },
+        "sprite": { "type": "string", "minLength": 1 }
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "numeric_id",
+        "question",
+        "applicability",
+        "registers",
+        "geometry",
+        "programming_schedule",
+        "capture",
+        "identity",
+        "expected"
+      ],
+      "properties": {
+        "id": { "const": "fixed-lores-sprite" },
+        "numeric_id": { "const": 1 },
+        "question": {
+          "type": "string",
+          "pattern": "\\?$"
+        },
+        "applicability": { "$ref": "#/$defs/applicability" },
+        "registers": { "$ref": "#/$defs/registers" },
+        "geometry": { "$ref": "#/$defs/geometry" },
+        "programming_schedule": { "$ref": "#/$defs/programming_schedule" },
+        "capture": { "$ref": "#/$defs/capture" },
+        "identity": { "$ref": "#/$defs/identity" },
+        "expected": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "observations"
+          ],
+          "properties": {
+            "status": { "const": "unresolved" },
+            "observations": {
+              "type": "array",
+              "maxItems": 0
+            }
+          }
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "adf_file",
+        "payload_file",
+        "adf_bytes",
+        "payload_bytes",
+        "sha256",
+        "load_address",
+        "sectors",
+        "bootblock_checksum"
+      ],
+      "properties": {
+        "case_id": { "const": "fixed-lores-sprite" },
+        "adf_file": { "const": "fixed-lores-sprite.adf" },
+        "payload_file": { "const": "fixed-lores-sprite.bin" },
+        "adf_bytes": { "const": 901120 },
+        "payload_bytes": { "type": "integer", "minimum": 1 },
+        "sha256": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "adf",
+            "payload"
+          ],
+          "properties": {
+            "adf": { "$ref": "#/$defs/sha256" },
+            "payload": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "load_address": { "const": 196608 },
+        "sectors": { "type": "integer", "minimum": 1 },
+        "bootblock_checksum": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]{8}$"
+        }
+      }
+    }
+  }
+}

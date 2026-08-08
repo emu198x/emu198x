@@ -81,6 +81,10 @@ a separate two-host-HIRES-sample pointer observation under its beam-absolute
 crop. Inspected UAE source still specifies the same one-lores-pixel start delay
 for OCS/ECS and AGA, so Emu198x does not add a Lisa-only offset from that image
 alone. A machine-neutral sprite-phase probe is the next evidence step.
+The project-authored
+[sprite horizontal-phase conformance corpus](../../test-data/commodore/amiga/sprite-horizontal-phase/README.md)
+fixes that register program and capture contract without declaring an expected
+AGA offset.
 
 ## Verification
 
@@ -120,3 +124,4 @@ separate Copper colour-phase disagreement, not by the sprite coordinate.
 - [Amiga sprite DMA lifecycle](amiga-sprite-dma-lifecycle.md)
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Amiga Test Kit v1.21 video conformance](../processes/amiga-test-kit-video-conformance.md)
+- [Sprite horizontal-phase conformance corpus](../../test-data/commodore/amiga/sprite-horizontal-phase/README.md)

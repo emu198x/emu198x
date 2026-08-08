@@ -29,6 +29,11 @@ question:
   covers writes made after a comparator position has passed on the current
   line.
 
+[`sprite-horizontal-phase/`](sprite-horizontal-phase/) provides one
+emulator-neutral, unresolved fixture for comparing a fixed low-resolution
+sprite edge against retained hardwired HBLANK and a bitplane marker across
+PAL OCS, ECS, and AGA profiles.
+
 ## Related directories
 
 - [`../c64/`](../c64/) contains Commodore 64 test data.

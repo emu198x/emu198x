@@ -1,0 +1,96 @@
+{
+  "source_format_version": 1,
+  "suite": {
+    "id": "org.198x.amiga.sprite-horizontal-phase",
+    "version": "1.0.0",
+    "license": "CC0-1.0",
+    "source_revision": "source-v1"
+  },
+  "defaults": {
+    "applicability": {
+      "chipsets": [
+        "OCS",
+        "ECS",
+        "AGA"
+      ],
+      "regions": [
+        "PAL"
+      ],
+      "min_chip_ram_bytes": 524288
+    },
+    "registers": {
+      "diwstrt": "0x2c81",
+      "diwstop": "0xf4c1",
+      "ddfstrt": "0x0038",
+      "ddfstop": "0x00d0",
+      "bplcon0": "0x1000",
+      "bplcon1": "0x0000",
+      "bplcon2": "0x0000",
+      "bplcon3": "0x0000",
+      "bplcon4": "0x0011",
+      "fmode": "0x0000",
+      "bpl1mod": "0x0000",
+      "bpl2mod": "0x0000",
+      "spr0pos": "0x8064",
+      "spr0ctl": "0x9000",
+      "spr0data": "0xffff",
+      "spr0datb": "0x0000",
+      "color00": "0x0001",
+      "color01": "0x00f0",
+      "color17": "0x0f00",
+      "dmacon_enable": "0x8320"
+    },
+    "geometry": {
+      "resolution": "lores",
+      "sample_beam_line": 132,
+      "bitplane_rows": 256,
+      "bitplane_words_per_row": 20,
+      "marker_word_index": 4,
+      "marker_bit_index": 15,
+      "sprite_data_lines": 16,
+      "horizontal_mapping": "producer-recorded",
+      "anchors": [
+        "retained hardwired HBLANK",
+        "DMA-fed one-bitplane marker"
+      ]
+    },
+    "programming_schedule": {
+      "phase": "once after payload load, with DMA disabled",
+      "steady_state": "The register words and image data remain fixed; bitplane and sprite DMA pointers are restored at every vertical blank."
+    },
+    "capture": {
+      "ready_record_address": "0x0002ff00",
+      "ready_magic": "SPHX",
+      "case_number_address": "0x0002ff04",
+      "schema_version_address": "0x0002ff06",
+      "field_counter_address": "0x0002ff08",
+      "byte_order": "big-endian",
+      "ready_timeout_fields": 600,
+      "settle_fields": 8,
+      "capture_fields": 3,
+      "adjacent_field_stability_required": true,
+      "blanking_retained": true,
+      "overscan_retained": true,
+      "alignment_search": false
+    }
+  },
+  "cases": [
+    {
+      "id": "fixed-lores-sprite",
+      "numeric_id": 1,
+      "question": "What horizontal interval does sprite 0 occupy relative to retained hardwired HBLANK and the fixed bitplane marker under this register program?",
+      "identity": {
+        "serial": "amiga-sprite-phase-v1/01-fixed-lores-sprite",
+        "serial_address": "0x0002ff40",
+        "serial_maximum_bytes": 64,
+        "background": "dark blue COLOR00",
+        "marker": "bright green COLOR01",
+        "sprite": "bright red COLOR17"
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    }
+  ]
+}

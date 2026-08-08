@@ -46,6 +46,7 @@ tarball also carries the free Amstrad-permissioned 48K ROM.
 | Amiga programmable HBLANK | `runtime-commodore-amiga` · `amiga_programmable_hblank` | [`commodore/amiga/programmable-hblank/`](commodore/amiga/programmable-hblank/) | [`scripts/verify-amiga-programmable-hblank.sh`](../scripts/verify-amiga-programmable-hblank.sh) | CC0-1.0 | Kickstart images for the selected ECS and AGA profiles, supplied externally |
 | Amiga programmable HBLANK write timing | `runtime-commodore-amiga` · `amiga_programmable_hblank_write_timing` | [`commodore/amiga/programmable-hblank-write-timing/`](commodore/amiga/programmable-hblank-write-timing/) | [`scripts/verify-amiga-programmable-hblank-write-timing.sh`](../scripts/verify-amiga-programmable-hblank-write-timing.sh) | CC0-1.0 | Kickstart images for the selected ECS and AGA profiles, supplied externally |
 | Amiga Paula audio | `runtime-commodore-amiga` · `amiga_paula_audio` | [`commodore/amiga/paula-audio/`](commodore/amiga/paula-audio/) | [`scripts/verify-amiga-paula-audio.sh`](../scripts/verify-amiga-paula-audio.sh) | CC0-1.0 | Kickstart 1.3 r34.005, supplied externally |
+| Amiga sprite horizontal phase | No strict consumer yet; unresolved evidence fixture | [`commodore/amiga/sprite-horizontal-phase/`](commodore/amiga/sprite-horizontal-phase/) | None; build and semantic validation are corpus-local | CC0-1.0 | Kickstart images for the selected OCS, ECS and AGA profiles, supplied externally |
 
 The programmable-HBLANK corpus is project-authored and emulator-neutral.
 Sources, case definitions, schemas, and deterministic build tools are retained
@@ -85,6 +86,14 @@ boundary. Exact RMS magnitude is not compared because the producers use
 different filter, gain, and resampling paths. The neutral source cases remain
 unresolved, and the package does not establish physical-hardware evidence or
 a two-family software consensus.
+
+The sprite-horizontal-phase corpus asks one unresolved question about a fixed
+low-resolution sprite edge relative to retained hardwired HBLANK and a
+bitplane marker. One deterministic ADF serves PAL OCS, ECS and AGA profiles.
+The corpus supplies strict suite and capture schemas plus semantic validation,
+but no producer capture, expected interval or Emu198x assertion is registered
+yet. It must not be treated as a conformance gate until independently reviewed
+observations and a strict consumer are added.
 
 ## System-level external gates
 

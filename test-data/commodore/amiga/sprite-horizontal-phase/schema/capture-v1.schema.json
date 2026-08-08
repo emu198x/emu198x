@@ -1,0 +1,600 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sprite horizontal-phase capture record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "suite_id",
+    "suite_version",
+    "case_id",
+    "artifact",
+    "producer",
+    "machine",
+    "execution",
+    "source_capture",
+    "normalization",
+    "observations",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "suite_id": {
+      "const": "org.198x.amiga.sprite-horizontal-phase"
+    },
+    "suite_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "case_id": {
+      "const": "fixed-lores-sprite"
+    },
+    "artifact": {
+      "$ref": "#/$defs/artifact"
+    },
+    "producer": {
+      "$ref": "#/$defs/producer"
+    },
+    "machine": {
+      "$ref": "#/$defs/machine"
+    },
+    "execution": {
+      "$ref": "#/$defs/execution"
+    },
+    "source_capture": {
+      "$ref": "#/$defs/source_capture"
+    },
+    "normalization": {
+      "$ref": "#/$defs/normalization"
+    },
+    "observations": {
+      "$ref": "#/$defs/observations"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sample_or_null": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adf_file",
+        "adf_sha256",
+        "payload_file",
+        "payload_sha256"
+      ],
+      "properties": {
+        "adf_file": {
+          "const": "fixed-lores-sprite.adf"
+        },
+        "adf_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "payload_file": {
+          "const": "fixed-lores-sprite.bin"
+        },
+        "payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "product",
+        "version",
+        "revision",
+        "source_url",
+        "implementation_family"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "physical-hardware",
+            "software-emulator",
+            "fpga-reimplementation"
+          ]
+        },
+        "product": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "implementation_family": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "cpu",
+        "agnus_or_alice",
+        "denise_or_lisa",
+        "chipset",
+        "region",
+        "chip_ram_bytes",
+        "firmware"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cpu": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agnus_or_alice": {
+          "type": "string",
+          "minLength": 1
+        },
+        "denise_or_lisa": {
+          "type": "string",
+          "minLength": 1
+        },
+        "chipset": {
+          "enum": [
+            "OCS",
+            "ECS",
+            "AGA"
+          ]
+        },
+        "region": {
+          "const": "PAL"
+        },
+        "chip_ram_bytes": {
+          "type": "integer",
+          "minimum": 524288
+        },
+        "firmware": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "revision",
+            "sha256"
+          ],
+          "properties": {
+            "revision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cold_boot",
+        "command_or_procedure",
+        "configuration_file_name",
+        "configuration_sha256",
+        "ready_rule",
+        "ready_observed_field",
+        "settle_fields",
+        "captured_fields",
+        "adjacent_field_stability"
+      ],
+      "properties": {
+        "cold_boot": {
+          "type": "boolean"
+        },
+        "command_or_procedure": {
+          "type": "string",
+          "minLength": 1
+        },
+        "configuration_file_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "configuration_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "ready_rule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "record_address",
+            "magic",
+            "case_number",
+            "schema_version",
+            "field_counter_minimum",
+            "byte_order"
+          ],
+          "properties": {
+            "record_address": {
+              "const": "0x0002ff00"
+            },
+            "magic": {
+              "const": "SPHX"
+            },
+            "case_number": {
+              "const": 1
+            },
+            "schema_version": {
+              "const": 1
+            },
+            "field_counter_minimum": {
+              "type": "integer",
+              "minimum": 8
+            },
+            "byte_order": {
+              "const": "big-endian"
+            }
+          }
+        },
+        "ready_observed_field": {
+          "type": "integer",
+          "minimum": 8
+        },
+        "settle_fields": {
+          "type": "integer",
+          "minimum": 8
+        },
+        "captured_fields": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 8
+          }
+        },
+        "adjacent_field_stability": {
+          "enum": [
+            "confirmed",
+            "not-confirmed"
+          ]
+        }
+      }
+    },
+    "source_capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "width",
+        "height",
+        "pixel_format",
+        "stride_bytes",
+        "blanking_retained",
+        "overscan_retained",
+        "filter",
+        "scaling",
+        "shader",
+        "automatic_crop",
+        "file_name",
+        "file_sha256",
+        "decoded_pixel_file_name",
+        "decoded_pixel_sha256"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pixel_format": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stride_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "blanking_retained": {
+          "const": true
+        },
+        "overscan_retained": {
+          "const": true
+        },
+        "filter": {
+          "const": "none"
+        },
+        "scaling": {
+          "const": "none"
+        },
+        "shader": {
+          "const": "none"
+        },
+        "automatic_crop": {
+          "const": false
+        },
+        "file_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "decoded_pixel_file_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "decoded_pixel_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "normalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "beam_mapping",
+        "measurement_crop",
+        "field_handling",
+        "color_conversion",
+        "alignment_search"
+      ],
+      "properties": {
+        "beam_mapping": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sample_beam_line",
+            "sample_rows",
+            "horizontal_origin_description",
+            "samples_per_lores_pixel_numerator",
+            "samples_per_lores_pixel_denominator"
+          ],
+          "properties": {
+            "sample_beam_line": {
+              "const": 132
+            },
+            "sample_rows": {
+              "type": "array",
+              "minItems": 3,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "field",
+                  "capture_row"
+                ],
+                "properties": {
+                  "field": {
+                    "type": "integer",
+                    "minimum": 8
+                  },
+                  "capture_row": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            },
+            "horizontal_origin_description": {
+              "type": "string",
+              "minLength": 1
+            },
+            "samples_per_lores_pixel_numerator": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "samples_per_lores_pixel_denominator": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "measurement_crop": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "x": { "type": "integer", "minimum": 0 },
+            "y": { "type": "integer", "minimum": 0 },
+            "width": { "type": "integer", "minimum": 1 },
+            "height": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "field_handling": {
+          "enum": [
+            "separate-fields",
+            "progressive-source",
+            "weave",
+            "bob"
+          ]
+        },
+        "color_conversion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "alignment_search": {
+          "const": false
+        }
+      }
+    },
+    "edge_status": {
+      "enum": [
+        "observed",
+        "not-observed",
+        "unmeasurable"
+      ]
+    },
+    "interval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "start_sample",
+        "stop_sample"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/edge_status"
+        },
+        "start_sample": {
+          "$ref": "#/$defs/sample_or_null"
+        },
+        "stop_sample": {
+          "$ref": "#/$defs/sample_or_null"
+        }
+      }
+    },
+    "field_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "sample_row",
+        "hblank_status",
+        "hblank_stop_sample",
+        "marker",
+        "sprite",
+        "sprite_start_minus_hblank_stop_samples",
+        "sprite_start_minus_marker_start_samples",
+        "uncertainty_samples"
+      ],
+      "properties": {
+        "field": {
+          "type": "integer",
+          "minimum": 8
+        },
+        "sample_row": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hblank_status": {
+          "$ref": "#/$defs/edge_status"
+        },
+        "hblank_stop_sample": {
+          "$ref": "#/$defs/sample_or_null"
+        },
+        "marker": {
+          "$ref": "#/$defs/interval"
+        },
+        "sprite": {
+          "$ref": "#/$defs/interval"
+        },
+        "sprite_start_minus_hblank_stop_samples": {
+          "$ref": "#/$defs/sample_or_null"
+        },
+        "sprite_start_minus_marker_start_samples": {
+          "$ref": "#/$defs/sample_or_null"
+        },
+        "uncertainty_samples": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coordinate_unit",
+        "interval_convention",
+        "measurement_method",
+        "fields",
+        "notes"
+      ],
+      "properties": {
+        "coordinate_unit": {
+          "const": "source-capture sample"
+        },
+        "interval_convention": {
+          "const": "start-inclusive-stop-exclusive"
+        },
+        "measurement_method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fields": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/field_observation"
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operator",
+        "capture_date",
+        "host",
+        "classification"
+      ],
+      "properties": {
+        "operator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capture_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "classification": {
+          "enum": [
+            "hardware-evidence",
+            "software-derived",
+            "fpga-derived",
+            "diagnostic-only"
+          ]
+        }
+      }
+    }
+  }
+}
