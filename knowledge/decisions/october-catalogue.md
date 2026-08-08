@@ -76,6 +76,26 @@ The escape hatch: if the runtime interfaces don't actually converge cleanly when
 
 ## Implementation choices
 
+Release screens, cracktros, trainers, selectors and guest prompts are passed
+through the bounded ordinary-input mechanism defined by
+[Catalogue startup navigation](catalogue-startup-navigation.md). The catalogue
+does not patch media or guest state to reach a waypoint.
+
+### Volatile guest readouts
+
+A frame remains an exact pixel hash by default. If a reviewed guest-owned
+readout legitimately varies with the exact observation instant, an entry may
+exclude only that field through bounds-checked `boot.ignore_rects`. The runner
+zeroes those RGBA pixels for hashing but retains the complete PNG for review.
+This is not a pixel tolerance: every pixel outside the named rectangles must
+still match exactly, and the manifest test must pin any checked-in exception's
+coordinates.
+
+Workbench 1.3 is the first use. Its allocator-derived free-memory number can
+change around the capture boundary; the catalogue excludes only the 50 x 18
+numeric field. The corresponding runtime golden applies the same narrow rule
+in its cropped coordinate space.
+
 ### xxhash64 for frame and audio hashes
 
 Frame and audio hashes are integrity checks, not crypto. xxhash64 is fast, tiny, and the `twox-hash` crate is mature. The 64-bit hash is short enough to read at a glance in the manifest, long enough that collisions are not a practical concern at 40-entry scale.
@@ -187,6 +207,7 @@ Catalogue drift comes dressed as scope creep or "while I'm in here" tidying. If 
 
 - [Product roadmap](product-roadmap.md) — Spectrum-public + four-system engineering bar, must-haves, post-October waves
 - [Save state format](save-state-format.md) — adjacent test-infrastructure decision; postcard snapshots already have round-trip proofs
+- [Catalogue startup navigation](catalogue-startup-navigation.md) — bounded ordinary guest input for release screens, trainers, selectors and prompts
 - [Runtime internal shape](runtime-internal-shape.md) — the per-runtime four-module shape the catalogue harness consumes
 - [Phase 1 inventory + Phase 2 plan](../log.md) — the gap analysis the catalogue addresses
 - [Code198x October launch spec](../../../../Code198x/docs/decisions/october-2026-launch-spec.md) — the cross-project Spectrum-only October scope this decision aligns with

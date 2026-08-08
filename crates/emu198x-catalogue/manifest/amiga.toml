@@ -23,6 +23,12 @@ files = [
 ]
 
 [[system.firmware]]
+variant = "a500-ocs-ntsc"
+files = [
+    { id = "commodore-amiga-kickstart-rom", path = "commodore-amiga/kick13.rom" },
+]
+
+[[system.firmware]]
 variant = "a500-plus-ecs-pal"
 files = [
     { id = "commodore-amiga-kickstart-rom", path = "commodore-amiga/kick204.rom" },
@@ -67,15 +73,16 @@ slot = "floppy-0"
 path = "commodore-amiga/workbench-1.3.adf"
 
 [entry.boot]
-# Workbench 1.3 boot is long. The existing boot_invariants regression
-# uses 25M ticks ≈ ~175 frames at PAL. Catalogue overshoots to 600 to
-# give margin for the AmigaDOS startup window to render fully.
-# Captures the canonical AmigaDOS splash:
-#   "Copyright ©1987 Commodore-Amiga, Inc. / All rights reserved.
-#    Release 1.3 / A500/A2000 U.K. Workbench disk. Release 1.3 version 34.20"
-# with the orange cursor on the classic blue Workbench background.
-wait_frames = 600
-frame_hash = "xxh64:59787c4d45822282"
+# Correct normal MFM pacing reaches the reviewed Workbench desktop at
+# frame 3500. The catalogue uses that stable post-startup waypoint rather
+# than sampling an intermediate AmigaDOS window whose cursor position
+# depends on how much of the startup sequence has loaded.
+wait_frames = 3500
+frame_hash = "xxh64:d04f967ff00ab933"
+# Workbench's allocator-derived free-memory value can change around this
+# capture boundary. Exclude only its six digits; the rest of the full
+# 768 x 576 frame remains part of the exact hash.
+ignore_rects = [{ x = 278, y = 38, width = 50, height = 18 }]
 
 [entry.audio]
 # Workbench desktop has no music or sound effects.
@@ -99,8 +106,9 @@ slot = "floppy-0"
 path = "commodore-amiga/workbench-2.04.adf"
 
 [entry.boot]
-# WB 2.04 boot is longer than WB 1.3. The boot block loads, the OS
-# brings up libraries, and the AmigaDOS startup-sequence runs. With
+# WB 2.04 boot is longer than the original catalogue waypoint. The boot
+# block loads, the OS brings up libraries, and the AmigaDOS startup-sequence
+# runs. With
 # the floppy spin-up regression fixed (peripheral-commodore-amiga-
 # floppy 2026-05-05) the disk loads cleanly and we land on the
 # canonical "KeyMap Selection" prompt the WB 2.04 startup-sequence
@@ -112,8 +120,8 @@ path = "commodore-amiga/workbench-2.04.adf"
 # This is the strongest single-frame proof that WB 2.04 actually
 # booted: it requires the boot block to have run, libraries to have
 # initialised, and the startup-sequence script to have executed.
-wait_frames = 1500
-frame_hash = "xxh64:f13c054d5b989d12"
+wait_frames = 2500
+frame_hash = "xxh64:7f328097710b32b5"
 
 [entry.audio]
 # Workbench desktop has no music or sound effects.
@@ -133,27 +141,33 @@ variant = "a500-ocs-pal-a501"
 # to .adf). Validates the trackloader path beyond Workbench.
 kind = "disk"
 slot = "floppy-0"
-path = "commodore-amiga/Barbarian - The Ultimate Warrior (1988)(Palace)[cr BS1 - TKT - INA].adf"
+path = "commodore-amiga/Barbarian - The Ultimate Warrior (1988)(Palace)[cr BS1 - TKT - INA].zip"
 
-[[entry.script]]
-# BSO cracker intros respond to joystick port-1 FIRE button.
-at_frame = 1500
-port = 1
-button = "fire"
+[[entry.startup]]
+# Correct normal MFM pacing reaches the BSO intro after the old frame-1500
+# input point. Click the left mouse button once the intro is visibly active.
+# The May fixture called this joystick FIRE, but the then-swapped CIA-A fire
+# lines meant that event actually asserted the mouse-port button.
+action = "wait_frames"
+frames = 6500
+
+[[entry.startup]]
+action = "click_mouse"
+button = "left"
 
 [entry.boot]
-# After FIRE the BSO cracker intro hands off to the actual Palace
-# Barbarian title. wait_frames covers the post-FIRE load.
+# After the click the BSO cracker intro hands off to the actual Palace
+# Barbarian title. wait_frames covers the post-click load.
 # Captures the canonical "BARBARIAN" title (Palace logo + score
-# header + snake-coiled tree pillars + "DEMONSTRATION" subtitle).
-wait_frames = 6000
-frame_hash = "xxh64:6265d00efcf40768"
+# header + snake-coiled tree pillars) during its demonstration loop.
+wait_frames = 4999
+frame_hash = "xxh64:da26789277ea081e"
 
 [entry.audio]
-# Title attract sequence — silent at this 2 s window.
+# The demonstration loop is audibly active at this window.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:f6389c53ba66240d"
+hash = "xxh64:d583c66c852360ee"
 
 [[entry]]
 id = "1943"
@@ -171,19 +185,24 @@ kind = "disk"
 slot = "floppy-0"
 path = "commodore-amiga/1943 - The Battle of Midway (1989)(GO!)[cr PNA].zip"
 
-[[entry.script]]
-# Paranoimia cracker intros also respond to joystick port-1 FIRE.
-at_frame = 1500
-port = 1
-button = "fire"
+[[entry.startup]]
+# Correct normal MFM pacing reaches the Paranoimia intro after the old
+# frame-1500 input point. As with Barbarian, this release screen polls
+# the left mouse button rather than the port-2 joystick fire line.
+action = "wait_frames"
+frames = 6500
+
+[[entry.startup]]
+action = "click_mouse"
+button = "left"
 
 [entry.boot]
-# After FIRE the Paranoimia cracker intro hands off to the actual
-# 1943 game. wait_frames covers the post-FIRE load. Captures the
+# After the click the Paranoimia cracker intro hands off to the actual
+# 1943 game. wait_frames covers the post-click load. Captures the
 # canonical 1943 title: "1943™ / THE BATTLE OF MIDWAY / F1 - ONE
 # PLAYER / Joystick control only / PRESS FIRE ON JOYSTICK TO START
 # / © 1987 CAPCOM".
-wait_frames = 6000
+wait_frames = 4999
 frame_hash = "xxh64:99d5044f70a3bb21"
 
 [entry.audio]
@@ -202,22 +221,27 @@ variant = "a500-ocs-pal-a501"
 
 [entry.media]
 # OCS single-disk Imagine port. Ackerlight cracker release; the
-# Ackerlight intro responds to joystick FIRE which hands off to the
+# Ackerlight intro responds to the left mouse button and hands off to the
 # actual title attract loop.
 kind = "disk"
 slot = "floppy-0"
 path = "commodore-amiga/Arkanoid - Revenge of Doh (1988-11-05)(Imagine)[cr Ackerlight].zip"
 
-[[entry.script]]
-at_frame = 1500
-port = 1
-button = "fire"
+[[entry.startup]]
+# Startup actions are sequential and bounded. Wait for the Ackerlight intro,
+# then dismiss it through the ordinary emulated mouse input path.
+action = "wait_frames"
+frames = 6500
+
+[[entry.startup]]
+action = "click_mouse"
+button = "left"
 
 [entry.boot]
 # Captures the canonical Imagine title — TAITO COIN-OP / ARKANOID /
 # REVENGE OF DOH / Imagine "..the name of the game" / "(C)1987 TAITO
 # (C)1988 IMAGINE / CONVERSION BY PETER JOHNSON".
-wait_frames = 6000
+wait_frames = 5999
 frame_hash = "xxh64:5155963b4ae77b9d"
 
 [entry.audio]
@@ -244,25 +268,144 @@ kind = "disk"
 slot = "floppy-0"
 path = "commodore-amiga/Bad Dudes vs. Dragon Ninja (1989)(Imagine)[cr OCL][t +3 OCL].zip"
 
-[[entry.script]]
-# OCL cracker intro prompts "(RETURN)" at the bottom right. RETURN
-# is queued at frame 4000 but the cracker doesn't appear to respond
-# in the headless harness — the captured frame stays on the cracker
-# greetings ("DRAGON NINJA + TRAINER / CRACKED & TRAINED BY WEETIBIX
-# IN 1989"). The cracker intro is itself the ECS waypoint: it proves
-# disk DMA, MFM decode, trackloader, and Denise rendering all work
-# on the ECS chip stack. Reaching the actual game proper requires
-# either a working RETURN-on-cracker scripting path or a
-# crack-stripped ADF.
-at_frame = 4000
-press = "return"
+[[entry.startup]]
+# The OCL release screen responds once normal MFM pacing has reached it.
+# RETURN opens the trainer menu.
+action = "wait_frames"
+frames = 7000
+
+[[entry.startup]]
+action = "press_key"
+key = "return"
+
+[[entry.startup]]
+# The trainer menu's own RETURN action begins the game.
+# One release-observation frame follows the first three-frame key hold. The
+# remaining wait retains the established frame-12500 second input point.
+action = "wait_frames"
+frames = 5496
+
+[[entry.startup]]
+action = "press_key"
+key = "return"
 
 [entry.boot]
-wait_frames = 6000
-frame_hash = "xxh64:7c76c827d285b2cf"
+wait_frames = 7999
+# Actual Imagine DRAGON NINJA title/credits sequence after leaving both the
+# release screen and trainer menu. This is the ECS real-software waypoint.
+frame_hash = "xxh64:6960ab0c86578a58"
 
 [entry.audio]
-# Cracker intro is silent at this window.
+# The title sequence is silent at this measured window.
 from_frame = 60
 secs = 2.0
 hash = "xxh64:f6389c53ba66240d"
+
+[[entry]]
+id = "workbench-3.1-desktop"
+title = "Amiga Workbench 3.1 desktop boot (AGA A1200)"
+year = 1996
+publisher = "ESCOM"
+variant = "a1200-aga-pal"
+
+[entry.media]
+# Bootable Workbench disk from the six-disk 3.1 set. This row exercises
+# the stock A1200's 68EC020, Alice/Lisa display path and 2 MiB chip RAM.
+kind = "disk"
+slot = "floppy-0"
+path = "commodore-amiga/workbench-3.1.adf"
+
+[entry.boot]
+# The complete desktop is present at frame 1800. The 768 x 576 catalogue
+# capture crops pixel-exactly to the reviewed 752 x 572 A1200 golden.
+wait_frames = 1800
+frame_hash = "xxh64:52d4c7a7e424d995"
+
+[entry.audio]
+# Workbench is silent at the measured window.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:f6389c53ba66240d"
+
+[[entry]]
+id = "banshee-demo-aga"
+title = "Banshee playable demo (AGA)"
+year = 1994
+publisher = "Core Design"
+variant = "a1200-aga-pal"
+
+[entry.media]
+kind = "disk"
+slot = "floppy-0"
+path = "commodore-amiga/Banshee (demo-playable) (1994)(Core)(AGA)[cr ATX].zip"
+
+[[entry.startup]]
+# Dismiss the Anthrox release screen only after its loader is active.
+action = "wait_frames"
+frames = 6500
+
+[[entry.startup]]
+action = "click_mouse"
+button = "left"
+
+[entry.boot]
+wait_frames = 5700
+# Settled POWERUPS instruction page. Samples taken every 100 frames from 5300
+# through 6100 were identical; this midpoint is 400 frames from both endpoints.
+# This exercises an AGA-only title beyond its release screen; independent
+# pixel accuracy remains bounded by the Test Kit cases.
+frame_hash = "xxh64:09b34d92add8bddf"
+
+[entry.audio]
+# The Banshee preview soundtrack is active in stereo at this window.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:e80049171d171254"
+
+[[entry]]
+id = "state-of-the-art"
+title = "State of the Art"
+year = 1992
+publisher = "Spaceballs"
+variant = "a500-ocs-pal-a501"
+
+[entry.media]
+kind = "disk"
+slot = "floppy-0"
+path = "commodore-amiga/State of the Art (1992-12-29)(Spaceballs)[TP2#1].zip"
+
+[entry.boot]
+wait_frames = 6000
+# Active full-screen effect after the loader and title sequence. This is a
+# deterministic compatibility waypoint, not an independent visual oracle.
+frame_hash = "xxh64:5ea33166d3d0545e"
+
+[entry.audio]
+# The demo soundtrack is active in stereo at this window.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:87bfc0fccfd57b43"
+
+[[entry]]
+id = "alien-syndrome-ntsc"
+title = "Alien Syndrome (NTSC US)"
+year = 1988
+publisher = "Sega"
+variant = "a500-ocs-ntsc"
+
+[entry.media]
+kind = "disk"
+slot = "floppy-0"
+path = "commodore-amiga/Alien Syndrome (1988)(Sega)(NTSC)(US)[cr][budget].zip"
+
+[entry.boot]
+wait_frames = 6000
+# Complete OPTIONS screen under the NTSC raster and clock domain. Reaching
+# it proves that the title sequence has progressed normally.
+frame_hash = "xxh64:da93ac91600d23da"
+
+[entry.audio]
+# Title music is active in stereo at this window.
+from_frame = 60
+secs = 2.0
+hash = "xxh64:51c8fefac1d56170"

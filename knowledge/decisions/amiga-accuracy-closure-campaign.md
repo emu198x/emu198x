@@ -46,6 +46,9 @@ compatibility percentage and must not be presented as one.
   fixed-point and forward-replay tests. Debug reads are non-driving, and the
   scheduler, CPU, chipset, peripheral and expansion state needed to investigate
   disagreements is exposed.
+- Source-aware memory watches distinguish CPU, blitter D-channel and disk
+  read-DMA writes. Agnus and Paula diagnostics expose both planned D0/D1/D2
+  disk cells and the hardware master that actually consumed the current CCK.
 
 ## Why the family score was not higher at assessment
 
@@ -63,8 +66,8 @@ recorded:
 Independent proof is also uneven. OCS has the strongest video oracle; ECS and
 AGA have narrower comparator coverage. Paula has directed component tests but
 no independent waveform oracle, and the driver does not claim an exact Paula
-sampling phase. The compatibility catalogue currently has six Amiga entries
-and is weighted toward A500 software.
+sampling phase. At the time of assessment, the compatibility catalogue had
+six Amiga entries and was weighted toward A500 software.
 
 Model completeness is a separate boundary:
 
@@ -146,6 +149,12 @@ campaign open.
 | 2026-08-01 | 3. Registered A1200 visual comparison | A reproducible FS-UAE 5.0.7 package now supplies seven images for six A1200 AGA PAL Test Kit v1.21 cases. The strict Emu198x lane agrees exactly on every RGB8 pixel. Closing the comparison exposed and corrected Lisa's one-hires-pixel `COLORxx` output delay and a board wrapper that paused Denise's bitplane pipeline before the retained viewport. The A500 OCS lane remains exact after both corrections. This completes step 3 at the declared single-family software-evidence level; it does not establish physical-hardware accuracy, UAE-family independence from WinUAE, or general AGA compatibility. |
 | 2026-08-01 | 4. Workbench 1.3 baseline audit | The A500+A501 row remained at the AmigaDOS startup window at frames 2,500 and 3,000 on clean revision `85d3dd05`. The desktop appears by frame 3,500 and is pixel-exact with the existing golden. The last preserved Jul-29 binary reached the same golden at frame 2,500. This is an expected waypoint shift after normal MFM pacing moved from 28 to 112 CCKs per word, not a Lisa/full-raster regression or a new golden. The matrix now captures frame 3,500. The host-time-backed A501 RTC was recorded as a separate deterministic-execution gap. |
 | 2026-08-01 | 4. Deterministic RTC timebase | The RTC now advances from completed PAL or NTSC system ticks after taking its initial timestamp. Clock mode, whole seconds, subsecond phase and phase rate survive version-32 snapshots; grouped and leaf queries remain equal between machine ticks. Host-synchronized progression is an explicit component mode. Supplying a fixed epoch through a future runtime builder remains separate interface work. |
+| 2026-08-08 | 1. Disk-cell request and actual-use refinement | Paula now stages read requests across D2, D1/D2 or D0/D1/D2 according to the three-word FIFO occupancy, while Agnus retains ownership of the fixed cell decode. An actual-use latch prevents the final serviced word from returning the same CCK to the CPU after Paula clears its live request. Track changes retain rotational word phase, and media mount or eject invalidates the encoded-track cache. WinUAE supports the selected read-stage mapping; vAmiga differs, so direct hardware confirmation remains desirable. Separate write-stage timing is not claimed. |
+| 2026-08-08 | 1/2. Actual-owner Copper and blitter arbitration | A waiting or throttled Copper yields an eligible cell to a blitter when the CPU is idle; a mature CPU chip-RAM request outranks non-nasty DMA, while `BLTPRI` may pre-empt it. Both fetch cells of an active Copper instruction remain Copper-owned. Directed common and machine regressions cover active-fetch, idle-CPU, non-nasty CPU-priority and nasty-mode paths. |
+| 2026-08-08 | Inspection provenance | The common Amiga watch records CPU, blitter D-channel and disk read-DMA writes with source, CCK, address, value, width and concurrent CPU context. Shared shell filters can select one source and an inclusive CCK window without changing the legacy CPU-only stream. |
+| 2026-08-08 | Snapshot media fixed point | Version-34 snapshots preserve DF0 writability and reattach the skipped ADF object after restoring the drive mechanism and encoded-track state. Restore no longer synthesizes a disk insertion. Live guest writes are encoded; a successful flush invalidates stale MFM without changing word phase; read-only and writable media both retain byte-level fixed points, and a restored writable image accepts another persisted write. |
+| 2026-08-08 | 4. Bounded release-screen navigation | The catalogue now passes release screens, trainers, selectors and prompts through sequential bounded waits and ordinary guest input. Every release receives one guest-visible frame, preventing adjacent actions from collapsing into one host batch. The Ackerlight *Arkanoid: Revenge of Doh* entry retained its established frame and audio goldens in the first review run; the ten-entry requalification below was performed against the final arbitration refinements. |
+| 2026-08-08 | 4. Final-core catalogue requalification | Commit `891c236a` is the arbitration and writable-media baseline. In the complete ten-entry Amiga sweep, all ten entries passed byte-fixed-point snapshot plus frame/audio replay; six also retained their exact frame/audio oracles immediately. The four shifted deterministic phases were captured and reviewed, then each passed an exact individual rerun after requalification. Workbench 1.3 excludes only its 50 x 18 allocator-derived free-memory digits; every other pixel remains exact. Banshee uses the midpoint of matching 100-frame samples across an 800-frame POWERUPS-page span rather than a dissolve. The catalogue now spans OCS PAL, OCS NTSC, ECS and AGA, but remains compatibility evidence for those entries rather than an independent hardware oracle. |
 
 ## Related Documents
 
@@ -162,6 +171,7 @@ campaign open.
 - [Amiga programmable-HBLANK write timing](../processes/amiga-programmable-hblank-write-timing.md)
 - [Amiga Paula-audio conformance](../processes/amiga-paula-audio-conformance.md)
 - [Amiga RTC time source](amiga-rtc-time-source.md)
+- [Catalogue startup navigation](catalogue-startup-navigation.md)
 - [Registered vAmiga Paula-audio package](../../test-data/commodore/amiga/paula-audio/references/vamiga-4.4b12-60fd1e6b/README.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)
 - [October catalogue](october-catalogue.md)

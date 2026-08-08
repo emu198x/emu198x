@@ -2,7 +2,7 @@
 //!
 //! This crate is the October-launch regression bench: 10 titles per system
 //! across the four launch targets (Spectrum, C64, NES, Amiga). Each entry
-//! asserts a boot frame hash, optional scripted-input progression, and an
+//! asserts a boot frame hash, optional guest-input startup navigation, and an
 //! audio-window hash.
 //!
 //! The runner dispatches all four system families and the supported variants
@@ -18,7 +18,7 @@ use common_sinclair_zx_spectrum::timing::{TIMING_48K, TIMING_128K, TIMING_PLUS2A
 use emu198x_shell::{
     ControlCommand, FamilyRuntime, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent,
     MachineCore, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
-    SessionQueryProvider, read_firmware_asset, read_media_asset,
+    ScriptStep as ShellScriptStep, SessionQueryProvider, read_firmware_asset, read_media_asset,
 };
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use machine_sinclair_zx_spectrum_plus2::SpectrumPlus2;
@@ -62,6 +62,21 @@ const DEFAULT_C64_BOOT_FRAMES: u32 = 240;
 /// Frame budget for the C64 disk autoload to see the "SEARCHING FOR"
 /// prompt after issuing LOAD.
 const DEFAULT_C64_DISK_PROMPT_FRAMES: u32 = 600;
+
+/// Longest exact frame wait allowed in one catalogue startup action.
+/// At PAL 50 fps this is twenty minutes of emulated time.
+const MAX_STARTUP_WAIT_FRAMES: u32 = 60_000;
+
+/// Longest key, mouse-button, or controller-button hold accepted by the
+/// catalogue startup navigator.
+const MAX_STARTUP_HOLD_FRAMES: u32 = 120;
+
+/// Aggregate cap for one startup sequence. This prevents a typo in a
+/// checked-in manifest from turning one catalogue entry into an unbounded run.
+const MAX_STARTUP_TOTAL_FRAMES: u32 = 120_000;
+
+const DEFAULT_STARTUP_HOLD_FRAMES: u32 = 3;
+const STARTUP_RELEASE_OBSERVATION_FRAMES: u32 = 1;
 
 /// Top-level manifest shape (one TOML file per system).
 #[derive(Debug, Deserialize)]
@@ -126,6 +141,12 @@ pub struct Entry {
     pub boot: Boot,
     #[serde(default)]
     pub script: Vec<ScriptStep>,
+    /// Sequential startup navigation through release screens, trainers,
+    /// selectors, and similar guest UI. This is deliberately restricted to
+    /// exact waits and ordinary emulated input. New entries should use this
+    /// instead of the legacy absolute-frame `script` form.
+    #[serde(default)]
+    pub startup: Vec<StartupStep>,
     pub audio: Audio,
 }
 
@@ -140,6 +161,10 @@ pub struct Media {
     pub slot: String,
     /// Path relative to the catalogue media root.
     pub path: String,
+    /// Whether the guest may write to this image. Archive media defaults to
+    /// read-only; a work disk must opt in explicitly.
+    #[serde(default)]
+    pub writable: bool,
     /// Extra one-shot tape-motor spin-up delay in phi2 cycles, shifting
     /// the whole tape timeline relative to the machine's frame-locked
     /// boot sequence — i.e. *when within a frame the user pressed PLAY*.
@@ -152,16 +177,38 @@ pub struct Media {
 }
 
 /// Boot waypoint. After the system's setup phase completes (tape stops,
-/// cartridge boots, KERNAL reaches READY) the runner runs any
-/// `script[]` steps, then waits `wait_frames` more frames, then captures
-/// the frame. For games that need a LOAD-then-RUN sequence (e.g. C64
-/// disk titles), the scripted RUN happens before this capture so the
-/// boot frame lands on the actual title screen.
+/// cartridge boots, KERNAL reaches READY) the runner runs either legacy
+/// `script[]` steps or sequential `startup[]` actions, then waits
+/// `wait_frames` more frames and captures the frame. For games that need a
+/// LOAD-then-RUN sequence (e.g. C64 disk titles), the input happens before
+/// this capture so the boot frame lands on the actual title screen.
 #[derive(Debug, Deserialize)]
 pub struct Boot {
     pub wait_frames: u32,
     /// Expected `xxh64:HEX` of the RGBA8888 frame at the waypoint.
     pub frame_hash: String,
+    /// Regions whose RGBA pixels are zeroed before the boot frame is hashed.
+    ///
+    /// This is reserved for small, understood guest-owned readouts whose
+    /// value legitimately depends on the exact capture instant. The PNG
+    /// remains unmodified so the complete captured frame is still available
+    /// for human review.
+    #[serde(default)]
+    pub ignore_rects: Vec<BootIgnoreRect>,
+}
+
+/// One pixel-aligned rectangle excluded from a boot frame hash.
+///
+/// Coordinates use a top-left origin and an exclusive right/bottom edge:
+/// `(x, y, width, height)`. Width and height must be nonzero, and the whole
+/// rectangle must fit within the captured frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BootIgnoreRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// One scripted input step. `at_frame` is counted from the start of the
@@ -183,9 +230,11 @@ pub enum ScriptStep {
     /// `middle`. Currently only honoured on Amiga; other systems
     /// silently drop pointer events.
     Click { at_frame: u32, click: String },
-    /// Joystick button press on a controller port. `port` is 0 or 1
-    /// (Amiga port-0 mouse / port-1 joystick; C64 port-1 / port-2).
-    /// `button` is `fire`, `button1`, etc. — system-specific.
+    /// Joystick button press on a controller port. Port numbering follows
+    /// the machine's labelled hardware: Amiga control port 2 is its normal
+    /// joystick (`JOY1DAT`), while C64 software commonly uses control port
+    /// 2. Port 0 is the cross-system primary-stick alias. `button` is
+    /// `fire`, `button1`, etc. — system-specific.
     Button {
         at_frame: u32,
         port: u8,
@@ -203,8 +252,132 @@ impl ScriptStep {
     }
 }
 
+/// One sequential, bounded startup-navigation action.
+///
+/// The catalogue uses this restricted language to pass release screens,
+/// trainers, selectors, and prompts without modifying media or guest state.
+/// Each input action expands to the shared shell executor's ordinary
+/// [`InputEvent`] plus an exact [`ShellScriptStep::RunFrames`] hold and one
+/// release-observation frame. Actions run in manifest order; waits are
+/// relative to the preceding action.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
+pub enum StartupStep {
+    /// Advance the machine for an exact, bounded number of native frames.
+    WaitFrames { frames: u32 },
+    /// Press and release one symbolic keyboard key.
+    PressKey {
+        key: String,
+        #[serde(default = "default_startup_hold_frames")]
+        hold_frames: u32,
+    },
+    /// Click one button on the primary Amiga-style mouse device.
+    ClickMouse {
+        button: String,
+        #[serde(default = "default_startup_hold_frames")]
+        hold_frames: u32,
+    },
+    /// Press and release one named controller button on a labelled port.
+    PressButton {
+        port: u8,
+        button: String,
+        #[serde(default = "default_startup_hold_frames")]
+        hold_frames: u32,
+    },
+}
+
+const fn default_startup_hold_frames() -> u32 {
+    DEFAULT_STARTUP_HOLD_FRAMES
+}
+
+impl StartupStep {
+    fn frame_cost(&self) -> u32 {
+        match self {
+            Self::WaitFrames { frames } => *frames,
+            Self::PressKey { hold_frames, .. }
+            | Self::ClickMouse { hold_frames, .. }
+            | Self::PressButton { hold_frames, .. } => {
+                hold_frames.saturating_add(STARTUP_RELEASE_OBSERVATION_FRAMES)
+            }
+        }
+    }
+
+    fn shell_steps(&self) -> Vec<ShellScriptStep> {
+        match self {
+            Self::WaitFrames { frames } => {
+                vec![ShellScriptStep::RunFrames { frames: *frames }]
+            }
+            Self::PressKey { key, hold_frames } => input_press_steps(
+                InputEvent::Key {
+                    name: key.clone().into(),
+                    pressed: true,
+                },
+                InputEvent::Key {
+                    name: key.clone().into(),
+                    pressed: false,
+                },
+                *hold_frames,
+            ),
+            Self::ClickMouse {
+                button,
+                hold_frames,
+            } => input_press_steps(
+                InputEvent::PointerButton {
+                    device: "mouse-1".into(),
+                    button: button.clone().into(),
+                    pressed: true,
+                },
+                InputEvent::PointerButton {
+                    device: "mouse-1".into(),
+                    button: button.clone().into(),
+                    pressed: false,
+                },
+                *hold_frames,
+            ),
+            Self::PressButton {
+                port,
+                button,
+                hold_frames,
+            } => input_press_steps(
+                InputEvent::Button {
+                    port: *port,
+                    name: button.clone().into(),
+                    pressed: true,
+                },
+                InputEvent::Button {
+                    port: *port,
+                    name: button.clone().into(),
+                    pressed: false,
+                },
+                *hold_frames,
+            ),
+        }
+    }
+}
+
+fn input_press_steps(
+    pressed: InputEvent,
+    released: InputEvent,
+    hold_frames: u32,
+) -> Vec<ShellScriptStep> {
+    vec![
+        ShellScriptStep::Input {
+            events: vec![pressed],
+        },
+        ShellScriptStep::RunFrames {
+            frames: hold_frames,
+        },
+        ShellScriptStep::Input {
+            events: vec![released],
+        },
+        ShellScriptStep::RunFrames {
+            frames: STARTUP_RELEASE_OBSERVATION_FRAMES,
+        },
+    ]
+}
+
 /// Audio capture window. `from_frame` is counted from the boot waypoint
-/// capture (i.e. after script + wait_frames have completed).
+/// capture (i.e. after startup input + `wait_frames` have completed).
 #[derive(Debug, Deserialize)]
 pub struct Audio {
     pub from_frame: u32,
@@ -288,6 +461,8 @@ pub enum CatalogueError {
     ManifestNotFound(PathBuf),
     #[error("manifest parse failed: {0}")]
     ManifestParse(toml::de::Error),
+    #[error("manifest is invalid: {0}")]
+    ManifestInvalid(String),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("session error: {0}")]
@@ -335,7 +510,112 @@ pub fn load_manifest(path: &Path) -> Result<Manifest, CatalogueError> {
             CatalogueError::Io(err)
         }
     })?;
-    toml::from_str(&text).map_err(CatalogueError::ManifestParse)
+    parse_manifest(&text)
+}
+
+fn parse_manifest(text: &str) -> Result<Manifest, CatalogueError> {
+    let manifest = toml::from_str(text).map_err(CatalogueError::ManifestParse)?;
+    validate_manifest(&manifest)?;
+    Ok(manifest)
+}
+
+fn validate_manifest(manifest: &Manifest) -> Result<(), CatalogueError> {
+    for entry in &manifest.entry {
+        validate_entry_startup(entry)?;
+        validate_boot_ignore_rects(entry)?;
+    }
+    Ok(())
+}
+
+fn validate_boot_ignore_rects(entry: &Entry) -> Result<(), CatalogueError> {
+    for (index, rect) in entry.boot.ignore_rects.iter().enumerate() {
+        if rect.width == 0 || rect.height == 0 {
+            return Err(CatalogueError::ManifestInvalid(format!(
+                "entry '{}' boot ignore rectangle {index} must have nonzero width and height",
+                entry.id
+            )));
+        }
+        if rect.x.checked_add(rect.width).is_none() || rect.y.checked_add(rect.height).is_none() {
+            return Err(CatalogueError::ManifestInvalid(format!(
+                "entry '{}' boot ignore rectangle {index} overflows its coordinates",
+                entry.id
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_entry_startup(entry: &Entry) -> Result<(), CatalogueError> {
+    if !entry.script.is_empty() && !entry.startup.is_empty() {
+        return Err(CatalogueError::ManifestInvalid(format!(
+            "entry '{}' declares both legacy script steps and sequential startup actions",
+            entry.id
+        )));
+    }
+
+    let mut total_frames = 0u32;
+    for (index, step) in entry.startup.iter().enumerate() {
+        let (declared_frames, maximum) = match step {
+            StartupStep::WaitFrames { frames } => (*frames, MAX_STARTUP_WAIT_FRAMES),
+            StartupStep::PressKey {
+                key, hold_frames, ..
+            } => {
+                validate_input_name(entry, index, "key", key)?;
+                (*hold_frames, MAX_STARTUP_HOLD_FRAMES)
+            }
+            StartupStep::ClickMouse {
+                button,
+                hold_frames,
+            } => {
+                validate_input_name(entry, index, "mouse button", button)?;
+                (*hold_frames, MAX_STARTUP_HOLD_FRAMES)
+            }
+            StartupStep::PressButton {
+                button,
+                hold_frames,
+                ..
+            } => {
+                validate_input_name(entry, index, "controller button", button)?;
+                (*hold_frames, MAX_STARTUP_HOLD_FRAMES)
+            }
+        };
+
+        if declared_frames == 0 || declared_frames > maximum {
+            return Err(CatalogueError::ManifestInvalid(format!(
+                "entry '{}' startup action {} has frame count {declared_frames}; expected 1..={maximum}",
+                entry.id, index
+            )));
+        }
+        total_frames = total_frames.checked_add(step.frame_cost()).ok_or_else(|| {
+            CatalogueError::ManifestInvalid(format!(
+                "entry '{}' startup frame budget overflows",
+                entry.id
+            ))
+        })?;
+        if total_frames > MAX_STARTUP_TOTAL_FRAMES {
+            return Err(CatalogueError::ManifestInvalid(format!(
+                "entry '{}' startup frame budget {total_frames} exceeds {MAX_STARTUP_TOTAL_FRAMES}",
+                entry.id
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_input_name(
+    entry: &Entry,
+    index: usize,
+    kind: &str,
+    name: &str,
+) -> Result<(), CatalogueError> {
+    if name.trim().is_empty() {
+        return Err(CatalogueError::ManifestInvalid(format!(
+            "entry '{}' startup action {index} has an empty {kind} name",
+            entry.id
+        )));
+    }
+    Ok(())
 }
 
 /// Hashes one byte slice with xxhash64 and formats as `xxh64:HEX`.
@@ -344,6 +624,83 @@ pub fn hash_xxh64(bytes: &[u8]) -> String {
     let mut hasher = XxHash64::default();
     hasher.write(bytes);
     format!("xxh64:{:016x}", hasher.finish())
+}
+
+fn hash_boot_frame(
+    entry: &Entry,
+    rgba: &mut [u8],
+    frame_width: u32,
+    frame_height: u32,
+) -> Result<String, CatalogueError> {
+    validate_boot_ignore_rects(entry)?;
+
+    let expected_len = u64::from(frame_width)
+        .checked_mul(u64::from(frame_height))
+        .and_then(|pixels| pixels.checked_mul(4))
+        .and_then(|bytes| usize::try_from(bytes).ok())
+        .ok_or_else(|| {
+            CatalogueError::Session(format!(
+                "boot frame dimensions {frame_width}x{frame_height} exceed the host address space"
+            ))
+        })?;
+    if rgba.len() != expected_len {
+        return Err(CatalogueError::Session(format!(
+            "boot frame RGBA length {} does not match {frame_width}x{frame_height} ({expected_len} bytes)",
+            rgba.len()
+        )));
+    }
+
+    for (index, rect) in entry.boot.ignore_rects.iter().enumerate() {
+        let right = rect.x.checked_add(rect.width).ok_or_else(|| {
+            CatalogueError::ManifestInvalid(format!(
+                "entry '{}' boot ignore rectangle {index} overflows its x coordinate",
+                entry.id
+            ))
+        })?;
+        let bottom = rect.y.checked_add(rect.height).ok_or_else(|| {
+            CatalogueError::ManifestInvalid(format!(
+                "entry '{}' boot ignore rectangle {index} overflows its y coordinate",
+                entry.id
+            ))
+        })?;
+        if right > frame_width || bottom > frame_height {
+            return Err(CatalogueError::ManifestInvalid(format!(
+                "entry '{}' boot ignore rectangle {index} at ({}, {}) size {}x{} is outside captured frame {frame_width}x{frame_height}",
+                entry.id, rect.x, rect.y, rect.width, rect.height
+            )));
+        }
+
+        let row_bytes = usize::try_from(u64::from(rect.width) * 4).map_err(|_| {
+            CatalogueError::Session(format!(
+                "entry '{}' boot ignore rectangle {index} is too wide for the host address space",
+                entry.id
+            ))
+        })?;
+        for y in rect.y..bottom {
+            let first_pixel = u64::from(y) * u64::from(frame_width) + u64::from(rect.x);
+            let byte_start = usize::try_from(first_pixel * 4).map_err(|_| {
+                CatalogueError::Session(format!(
+                    "entry '{}' boot ignore rectangle {index} offset exceeds the host address space",
+                    entry.id
+                ))
+            })?;
+            let byte_end = byte_start.checked_add(row_bytes).ok_or_else(|| {
+                CatalogueError::Session(format!(
+                    "entry '{}' boot ignore rectangle {index} row exceeds the host address space",
+                    entry.id
+                ))
+            })?;
+            let row = rgba.get_mut(byte_start..byte_end).ok_or_else(|| {
+                CatalogueError::Session(format!(
+                    "entry '{}' boot ignore rectangle {index} does not fit the RGBA buffer",
+                    entry.id
+                ))
+            })?;
+            row.fill(0);
+        }
+    }
+
+    Ok(hash_xxh64(rgba))
 }
 
 /// Runs one catalogue entry against the appropriate system runtime.
@@ -1417,11 +1774,10 @@ where
         .map_err(|err| CatalogueError::Session(format!("media {media_path:?}: {err}")))?;
 
     let mut media_set = MediaSet::new();
-    media_set.push(MediaImage::new(
-        media.slot.clone(),
-        media_kind,
-        &media_loaded.bytes,
-    ));
+    media_set.push(
+        MediaImage::new(media.slot.clone(), media_kind, &media_loaded.bytes)
+            .writable(media.writable),
+    );
 
     session
         .prepare(&media_set, &[])
@@ -1444,18 +1800,18 @@ where
 }
 
 /// Generic assertion runner. Once the per-system/variant setup has the
-/// session loaded and at the start of the script phase (tape stopped,
+/// session loaded and at the start of the input phase (tape stopped,
 /// cartridge running, READY shown, etc.), this advances the timeline:
 ///
-///   1. Run `script[]` steps (each `at_frame` is relative to start of
-///      this phase). Lets disk-loaded titles type RUN, multi-stage
-///      loaders advance through prompts, etc.
+///   1. Run legacy `script[]` steps or bounded, sequential `startup[]`
+///      actions. Lets disk-loaded titles type RUN and multi-stage loaders
+///      advance through guest prompts.
 ///   2. Wait `boot.wait_frames` more frames.
 ///   3. Capture boot frame.
 ///   4. Wait `audio.from_frame` more frames.
 ///   5. Capture `audio.secs`-second audio window.
 ///
-/// Putting script before the boot capture means disk-game titles can
+/// Putting input before the boot capture means disk-game titles can
 /// land on their real post-RUN title screen as the boot waypoint
 /// rather than the (boring) post-LOAD READY prompt.
 fn run_assertions<M, Q>(
@@ -1505,13 +1861,46 @@ fn build_run_result(
     }
 }
 
-/// Runs the script phase, the post-script `boot.wait_frames` advance,
+/// Runs the guest-input phase, the post-input `boot.wait_frames` advance,
 /// and captures the boot waypoint frame. After this returns the session
 /// is sitting at the boot waypoint with the latest frame populated.
 fn run_script_then_capture_boot_frame<M, Q>(
     session: &mut HeadlessSession<M, Q>,
     entry: &Entry,
 ) -> Result<(String, Vec<u8>), CatalogueError>
+where
+    M: MachineCore,
+    Q: SessionQueryProvider<M>,
+{
+    validate_entry_startup(entry)?;
+    if entry.startup.is_empty() {
+        run_legacy_script(session, entry)?;
+    } else {
+        run_startup_sequence(session, entry)?;
+    }
+
+    session
+        .run_frames(entry.boot.wait_frames)
+        .map_err(|err| CatalogueError::Session(format!("boot wait: {err}")))?;
+
+    let boot_frame = session
+        .latest_frame()
+        .ok_or_else(|| CatalogueError::Session("no frame at boot waypoint".into()))?;
+    let mut boot_rgba = boot_frame
+        .rgba_pixels()
+        .map_err(|err| CatalogueError::Session(format!("rgba: {err}")))?;
+    let boot_hash = hash_boot_frame(entry, &mut boot_rgba, boot_frame.width, boot_frame.height)?;
+    let boot_png = boot_frame
+        .png_bytes()
+        .map_err(|err| CatalogueError::Session(format!("boot png: {err}")))?;
+
+    Ok((boot_hash, boot_png))
+}
+
+fn run_legacy_script<M, Q>(
+    session: &mut HeadlessSession<M, Q>,
+    entry: &Entry,
+) -> Result<(), CatalogueError>
 where
     M: MachineCore,
     Q: SessionQueryProvider<M>,
@@ -1577,22 +1966,29 @@ where
         frames_consumed = frames_consumed.saturating_add(3);
     }
 
-    session
-        .run_frames(entry.boot.wait_frames)
-        .map_err(|err| CatalogueError::Session(format!("boot wait: {err}")))?;
+    Ok(())
+}
 
-    let boot_frame = session
-        .latest_frame()
-        .ok_or_else(|| CatalogueError::Session("no frame at boot waypoint".into()))?;
-    let boot_rgba = boot_frame
-        .rgba_pixels()
-        .map_err(|err| CatalogueError::Session(format!("rgba: {err}")))?;
-    let boot_hash = hash_xxh64(&boot_rgba);
-    let boot_png = boot_frame
-        .png_bytes()
-        .map_err(|err| CatalogueError::Session(format!("boot png: {err}")))?;
+fn run_startup_sequence<M, Q>(
+    session: &mut HeadlessSession<M, Q>,
+    entry: &Entry,
+) -> Result<(), CatalogueError>
+where
+    M: MachineCore,
+    Q: SessionQueryProvider<M>,
+{
+    for (index, action) in entry.startup.iter().enumerate() {
+        for step in action.shell_steps() {
+            step.execute(session).map_err(|err| {
+                CatalogueError::Session(format!(
+                    "startup action {index} for entry '{}': {err}",
+                    entry.id
+                ))
+            })?;
+        }
+    }
 
-    Ok((boot_hash, boot_png))
+    Ok(())
 }
 
 /// Runs the post-waypoint `audio.from_frame` advance, then captures the
@@ -2258,12 +2654,344 @@ fn spectrum_frames_per_sec(timing: &common_sinclair_zx_spectrum::timing::FrameTi
 mod tests {
     use super::*;
 
+    fn manifest_with_entry_steps(steps: &str) -> String {
+        format!(
+            r#"
+[system]
+id = "amiga"
+
+[[entry]]
+id = "startup-test"
+title = "Startup test"
+year = 1988
+publisher = "Test"
+variant = "a500-ocs-pal-a501"
+
+{steps}
+
+[entry.boot]
+wait_frames = 1
+frame_hash = "xxh64:0000000000000000"
+
+[entry.audio]
+from_frame = 1
+secs = 0.02
+hash = "xxh64:0000000000000000"
+"#
+        )
+    }
+
     #[test]
     fn hash_xxh64_format_is_stable() {
         let h = hash_xxh64(b"hello world");
         assert!(h.starts_with("xxh64:"), "got: {h}");
         assert_eq!(h.len(), "xxh64:".len() + 16);
         assert_eq!(h, hash_xxh64(b"hello world"));
+    }
+
+    fn manifest_with_boot_ignore_rects(rects: &str) -> String {
+        manifest_with_entry_steps("").replacen(
+            "frame_hash = \"xxh64:0000000000000000\"",
+            &format!("frame_hash = \"xxh64:0000000000000000\"\nignore_rects = [{rects}]"),
+            1,
+        )
+    }
+
+    #[test]
+    fn boot_ignore_rectangles_are_optional_and_parse_with_pixel_geometry() {
+        let default_manifest =
+            parse_manifest(&manifest_with_entry_steps("")).expect("default manifest should parse");
+        assert!(default_manifest.entry[0].boot.ignore_rects.is_empty());
+
+        let mut rgba = vec![0x5a; 3 * 2 * 4];
+        let expected_hash = hash_xxh64(&rgba);
+        let actual_hash = hash_boot_frame(&default_manifest.entry[0], &mut rgba, 3, 2)
+            .expect("an unmasked frame should hash");
+        assert_eq!(actual_hash, expected_hash);
+
+        let manifest = parse_manifest(&manifest_with_boot_ignore_rects(
+            "{ x = 12, y = 34, width = 56, height = 7 }",
+        ))
+        .expect("well-formed rectangle should parse");
+        assert_eq!(
+            manifest.entry[0].boot.ignore_rects,
+            [BootIgnoreRect {
+                x: 12,
+                y: 34,
+                width: 56,
+                height: 7,
+            }]
+        );
+    }
+
+    #[test]
+    fn catalogue_media_is_read_only_unless_the_entry_opts_in() {
+        let base = manifest_with_entry_steps("").replacen(
+            "[entry.boot]",
+            "[entry.media]\nkind = \"disk\"\nslot = \"floppy-0\"\npath = \"archive.adf\"\n\n[entry.boot]",
+            1,
+        );
+        let default_manifest = parse_manifest(&base).expect("default media should parse");
+        assert!(
+            !default_manifest.entry[0]
+                .media
+                .as_ref()
+                .expect("media should exist")
+                .writable
+        );
+
+        let writable = base.replacen(
+            "path = \"archive.adf\"",
+            "path = \"archive.adf\"\nwritable = true",
+            1,
+        );
+        let writable_manifest = parse_manifest(&writable).expect("writable media should parse");
+        assert!(
+            writable_manifest.entry[0]
+                .media
+                .as_ref()
+                .expect("media should exist")
+                .writable
+        );
+    }
+
+    #[test]
+    fn boot_ignore_rectangle_zeroes_only_selected_rgba_pixels_before_hashing() {
+        let manifest = parse_manifest(&manifest_with_boot_ignore_rects(
+            "{ x = 1, y = 0, width = 1, height = 2 }",
+        ))
+        .expect("rectangle should parse");
+        let entry = &manifest.entry[0];
+        let mut rgba: Vec<u8> = (1..=24).collect();
+        let mut expected = rgba.clone();
+        expected[4..8].fill(0);
+        expected[16..20].fill(0);
+
+        let actual_hash = hash_boot_frame(entry, &mut rgba, 3, 2).expect("mask should fit");
+
+        assert_eq!(rgba, expected);
+        assert_eq!(actual_hash, hash_xxh64(&expected));
+    }
+
+    #[test]
+    fn manifest_rejects_zero_sized_or_overflowing_boot_ignore_rectangles() {
+        for rect in [
+            "{ x = 0, y = 0, width = 0, height = 1 }",
+            "{ x = 0, y = 0, width = 1, height = 0 }",
+            "{ x = 4294967295, y = 0, width = 1, height = 1 }",
+        ] {
+            let err = parse_manifest(&manifest_with_boot_ignore_rects(rect))
+                .expect_err("invalid rectangle must fail");
+            assert!(matches!(err, CatalogueError::ManifestInvalid(_)), "{err}");
+        }
+    }
+
+    #[test]
+    fn manifest_rejects_malformed_boot_ignore_rectangles() {
+        for rect in [
+            "{ x = 0, y = 0, width = 1 }",
+            "{ x = 0, y = 0, width = 1, height = 1, right = 1 }",
+        ] {
+            let err = parse_manifest(&manifest_with_boot_ignore_rects(rect))
+                .expect_err("malformed rectangle must fail");
+            assert!(matches!(err, CatalogueError::ManifestParse(_)), "{err}");
+        }
+    }
+
+    #[test]
+    fn boot_ignore_rectangle_must_fit_the_captured_frame() {
+        let manifest = parse_manifest(&manifest_with_boot_ignore_rects(
+            "{ x = 2, y = 0, width = 2, height = 1 }",
+        ))
+        .expect("bounds depend on captured dimensions");
+        let mut rgba = vec![0xff; 3 * 2 * 4];
+
+        let err = hash_boot_frame(&manifest.entry[0], &mut rgba, 3, 2)
+            .expect_err("out-of-bounds rectangle must fail");
+
+        assert!(matches!(err, CatalogueError::ManifestInvalid(_)));
+        assert!(
+            err.to_string().contains("outside captured frame 3x2"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn startup_actions_parse_as_strictly_tagged_sequential_steps() {
+        let text = manifest_with_entry_steps(
+            r#"
+[[entry.startup]]
+action = "wait_frames"
+frames = 6500
+
+[[entry.startup]]
+action = "press_key"
+key = "return"
+
+[[entry.startup]]
+action = "click_mouse"
+button = "left"
+hold_frames = 4
+
+[[entry.startup]]
+action = "press_button"
+port = 2
+button = "fire"
+"#,
+        );
+
+        let manifest = parse_manifest(&text).expect("startup manifest should parse");
+        assert_eq!(
+            manifest.entry[0].startup,
+            [
+                StartupStep::WaitFrames { frames: 6500 },
+                StartupStep::PressKey {
+                    key: "return".into(),
+                    hold_frames: 3,
+                },
+                StartupStep::ClickMouse {
+                    button: "left".into(),
+                    hold_frames: 4,
+                },
+                StartupStep::PressButton {
+                    port: 2,
+                    button: "fire".into(),
+                    hold_frames: 3,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn startup_actions_expand_only_to_shared_time_and_input_steps() {
+        let action = StartupStep::ClickMouse {
+            button: "left".into(),
+            hold_frames: 3,
+        };
+
+        assert_eq!(
+            action.shell_steps(),
+            [
+                ShellScriptStep::Input {
+                    events: vec![InputEvent::PointerButton {
+                        device: "mouse-1".into(),
+                        button: "left".into(),
+                        pressed: true,
+                    }],
+                },
+                ShellScriptStep::RunFrames { frames: 3 },
+                ShellScriptStep::Input {
+                    events: vec![InputEvent::PointerButton {
+                        device: "mouse-1".into(),
+                        button: "left".into(),
+                        pressed: false,
+                    }],
+                },
+                ShellScriptStep::RunFrames { frames: 1 },
+            ]
+        );
+    }
+
+    #[test]
+    fn adjacent_startup_inputs_observe_release_before_the_next_press() {
+        let action = StartupStep::PressKey {
+            key: "return".into(),
+            hold_frames: 3,
+        };
+        let steps = [action.clone(), action]
+            .iter()
+            .flat_map(StartupStep::shell_steps)
+            .collect::<Vec<_>>();
+
+        assert!(matches!(
+            &steps[2],
+            ShellScriptStep::Input {
+                events
+            } if events == &[InputEvent::Key {
+                name: "return".into(),
+                pressed: false,
+            }]
+        ));
+        assert_eq!(steps[3], ShellScriptStep::RunFrames { frames: 1 });
+        assert!(matches!(
+            &steps[4],
+            ShellScriptStep::Input {
+                events
+            } if events == &[InputEvent::Key {
+                name: "return".into(),
+                pressed: true,
+            }]
+        ));
+    }
+
+    #[test]
+    fn legacy_script_entries_remain_valid() {
+        let text = manifest_with_entry_steps(
+            r#"
+[[entry.script]]
+at_frame = 6500
+click = "left"
+"#,
+        );
+
+        let manifest = parse_manifest(&text).expect("legacy manifest should parse");
+        assert_eq!(manifest.entry[0].script.len(), 1);
+        assert!(manifest.entry[0].startup.is_empty());
+    }
+
+    #[test]
+    fn manifest_rejects_mixed_legacy_and_startup_navigation() {
+        let text = manifest_with_entry_steps(
+            r#"
+[[entry.script]]
+at_frame = 6500
+click = "left"
+
+[[entry.startup]]
+action = "wait_frames"
+frames = 6500
+"#,
+        );
+
+        let err = parse_manifest(&text).expect_err("mixed navigation forms must fail");
+        assert!(matches!(err, CatalogueError::ManifestInvalid(_)));
+        assert!(err.to_string().contains("declares both"), "{err}");
+    }
+
+    #[test]
+    fn manifest_rejects_zero_or_excessive_startup_frame_counts() {
+        for steps in [
+            r#"
+[[entry.startup]]
+action = "wait_frames"
+frames = 0
+"#,
+            r#"
+[[entry.startup]]
+action = "press_key"
+key = "return"
+hold_frames = 121
+"#,
+        ] {
+            let err = parse_manifest(&manifest_with_entry_steps(steps))
+                .expect_err("out-of-range startup frames must fail");
+            assert!(matches!(err, CatalogueError::ManifestInvalid(_)));
+        }
+    }
+
+    #[test]
+    fn manifest_rejects_unknown_startup_fields() {
+        let text = manifest_with_entry_steps(
+            r#"
+[[entry.startup]]
+action = "click_mouse"
+button = "left"
+patch_guest_memory = true
+"#,
+        );
+
+        let err = parse_manifest(&text).expect_err("unknown startup fields must fail");
+        assert!(matches!(err, CatalogueError::ManifestParse(_)));
     }
 
     #[test]
@@ -2357,8 +3085,10 @@ mod tests {
                 boot: Boot {
                     wait_frames: 2,
                     frame_hash: "xxh64:0000000000000000".into(),
+                    ignore_rects: vec![],
                 },
                 script: vec![],
+                startup: vec![],
                 audio: Audio {
                     from_frame: 1,
                     secs: 0.02,
@@ -2670,8 +3400,10 @@ hash = "xxh64:0000000000000000"
             boot: Boot {
                 wait_frames: 0,
                 frame_hash: "xxh64:0000000000000000".into(),
+                ignore_rects: vec![],
             },
             script: vec![],
+            startup: vec![],
             audio: Audio {
                 from_frame: 0,
                 secs: 0.0,

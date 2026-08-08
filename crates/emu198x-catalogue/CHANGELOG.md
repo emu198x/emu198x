@@ -9,11 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Honour an entry's explicit `media.writable` setting while keeping archive
+  media read-only by default.
+- Add optional, bounds-checked boot-frame ignore rectangles. Selected RGBA
+  pixels are zeroed only for hashing, while capture PNGs remain complete for
+  review.
+- Restrict the Workbench 1.3 exclusion to its allocator-derived free-memory
+  field; every pixel outside that 50 x 18 rectangle remains exact.
+- Add strictly tagged, sequential `entry.startup` actions for passing guest
+  release screens, trainers, selectors, and prompts through ordinary emulated
+  input. Every wait and input hold is bounded, and manifests cannot mix this
+  form with legacy absolute-frame `entry.script` steps.
+- Advance one native frame after every startup input release so adjacent
+  actions cannot collapse their release and next press into one host batch.
+- Move the Arkanoid Ackerlight intro handoff to the bounded startup navigator
+  at its corrected-MFM input point, retaining the reviewed golden waypoint.
+- Move the Barbarian, 1943, Bad Dudes and Banshee release-screen and trainer
+  handoffs to the same bounded navigator, using input points reviewed after
+  the corrected MFM pacing.
+- Move Banshee's post-release capture from an active dissolve to the midpoint
+  of matching 100-frame samples across an 800-frame POWERUPS-page span.
+- Requalify the reviewed Barbarian, Bad Dudes, State of the Art and Alien
+  Syndrome visual/audio waypoints after corrected disk, Copper and blitter
+  arbitration shifted their deterministic animation phases.
 - Route A600 ECS and A1200 AGA entries through the Amiga catalogue runner,
   using each runtime profile's native frame timing for capture and audio
   windows.
+- Add Workbench 3.1, Banshee, State of the Art and Alien Syndrome entries,
+  including an A500 OCS NTSC firmware route.
 - Run every Amiga catalogue entry through the shared save-state fixed-point,
   frame-replay and audio-replay gate.
+- Requalify all ten Amiga entries under the corrected final arbitration core;
+  each entry now passes its exact frame/audio oracle and snapshot/replay gate.
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/emu198x-catalogue-v0.2.0) - 2026-06-04
 

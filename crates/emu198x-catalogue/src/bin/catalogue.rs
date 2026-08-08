@@ -11,8 +11,9 @@ use std::path::PathBuf;
 use std::process;
 
 use emu198x_catalogue::{
-    CatalogueError, Entry, EntryOutcome, Manifest, RunResult, load_manifest, run_entry,
-    run_entry_for_capture,
+    CatalogueError, Entry, EntryOutcome, Manifest, RunResult, SnapshotCheckResult, SnapshotOutcome,
+    load_manifest, run_amiga_entry_with_snapshot_check, run_entry, run_entry_for_capture,
+    run_spectrum_entry_with_snapshot_check,
 };
 
 const USAGE: &str = "\
@@ -182,7 +183,8 @@ fn cmd_run(argv: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut failures = 0u32;
     for entry in entries {
-        let result = run_entry(&manifest, entry, &media_root, &firmware_root)?;
+        let (result, snapshot) =
+            run_entry_for_verification(&manifest, entry, &media_root, &firmware_root)?;
         let mark = match &result.outcome {
             EntryOutcome::Pass => "PASS",
             EntryOutcome::BootHashMismatch { .. } | EntryOutcome::AudioHashMismatch { .. } => {
@@ -194,10 +196,39 @@ fn cmd_run(argv: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             failures = failures.saturating_add(1);
             print_capture(&entry.id, &result);
         }
+        if let Some(snapshot) = snapshot {
+            if matches!(snapshot.outcome, SnapshotOutcome::Pass) {
+                println!("[SNAP-PASS] {}", entry.id);
+            } else {
+                println!("[SNAP-FAIL] {} — {:?}", entry.id, snapshot.outcome);
+                failures = failures.saturating_add(1);
+            }
+        }
     }
 
     if failures > 0 {
         process::exit(1);
     }
     Ok(())
+}
+
+fn run_entry_for_verification(
+    manifest: &Manifest,
+    entry: &Entry,
+    media_root: &std::path::Path,
+    firmware_root: &std::path::Path,
+) -> Result<(RunResult, Option<SnapshotCheckResult>), CatalogueError> {
+    match manifest.system.id.as_str() {
+        "spectrum" => {
+            let (result, snapshot) =
+                run_spectrum_entry_with_snapshot_check(manifest, entry, media_root, firmware_root)?;
+            Ok((result, Some(snapshot)))
+        }
+        "amiga" => {
+            let (result, snapshot) =
+                run_amiga_entry_with_snapshot_check(manifest, entry, media_root, firmware_root)?;
+            Ok((result, Some(snapshot)))
+        }
+        _ => run_entry(manifest, entry, media_root, firmware_root).map(|result| (result, None)),
+    }
 }
