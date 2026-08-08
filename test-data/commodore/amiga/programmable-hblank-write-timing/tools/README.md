@@ -16,7 +16,17 @@ capture directories. It verifies adjacent-field identity and prints the
 guard, marker, and black runs around the mutation output. It is not used to
 generate expected output.
 
+`verify_fs_uae_package.py` independently checks the retained registered
+package. It does not import the packager's semantic functions. It verifies
+the ten APNG and record hashes, decodes all thirty RGBA frames, proves each
+three-frame group is byte-identical, checks concatenated decoded-pixel hashes,
+rediscovers the doubled mutation rows, and re-derives the baseline, mutation,
+control, and marker intervals without alignment search or pixel tolerance.
+It uses Pillow, which is already required by the registered packager.
+
 ## Related files
 
 - [`../src/README.md`](../src/README.md) describes the assembled sources.
 - [`../dist/README.md`](../dist/README.md) describes generated output.
+- [`../references/fs-uae-5.0.7-f362278c/README.md`](../references/fs-uae-5.0.7-f362278c/README.md)
+  describes the registered package checked by the independent verifier.

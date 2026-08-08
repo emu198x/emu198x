@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   canonical Denise group and the AGA compatibility group
 - Expose Lisa's pending one-hires-pixel `COLORxx` output delay through the
   canonical Denise and AGA diagnostic groups
+- Expose Denise/Lisa's early `COLORxx`, enhanced selector and programmable
+  horizontal-blank propagation stages through discoverable diagnostics
 - Expose all six Gary motherboard address-decoder configuration flags through
   discoverable grouped and leaf queries
 - Expose every implemented CIA register, timer, serial, port, TOD and read-latch
@@ -82,6 +84,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- [breaking] Bump Amiga postcard snapshots to version 35 so in-flight
+  Denise/Lisa display-register propagation survives restore; version 34
+  cannot represent the early and normal display-side stages.
 - [breaking] Bump Amiga postcard snapshots to version 34 so DF0 mount
   writability survives restore and skipped media objects are reattached
   without generating a second physical insertion event; version 33 cannot

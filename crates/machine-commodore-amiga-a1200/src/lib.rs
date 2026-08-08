@@ -1353,9 +1353,9 @@ impl AmigaA1200 {
             0x094 => self.agnus.write_ddfstop(val),
             0x100 => {
                 self.agnus.write_bplcon0(val);
-                // Mirror into Denise so HIRES/HAM/DBLPF/LACE bits take
-                // effect at the next pixel, not only next tick.
-                self.denise.ocs.bplcon0 = val;
+                // The register mirror is immediate; the ECSENA copy used by
+                // Lisa's programmable blanking crosses normal output stages.
+                self.denise.write_word(offset, val);
                 if self.debug_bplcon0_log.len() < 8192 {
                     self.debug_bplcon0_log.push((
                         self.tick_count / TICKS_PER_CCK,

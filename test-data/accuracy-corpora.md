@@ -44,7 +44,7 @@ tarball also carries the free Amstrad-permissioned 48K ROM.
 | Corpus | Consumer | Corpus path | Strict wrapper | Licence | Required firmware |
 |---|---|---|---|---|---|
 | Amiga programmable HBLANK | `runtime-commodore-amiga` · `amiga_programmable_hblank` | [`commodore/amiga/programmable-hblank/`](commodore/amiga/programmable-hblank/) | [`scripts/verify-amiga-programmable-hblank.sh`](../scripts/verify-amiga-programmable-hblank.sh) | CC0-1.0 | Kickstart images for the selected ECS and AGA profiles, supplied externally |
-| Amiga programmable HBLANK write timing | Reference evidence registered; Emu198x consumer pending | [`commodore/amiga/programmable-hblank-write-timing/`](commodore/amiga/programmable-hblank-write-timing/) | none | CC0-1.0 | Kickstart images for the selected ECS and AGA profiles, supplied externally |
+| Amiga programmable HBLANK write timing | `runtime-commodore-amiga` · `amiga_programmable_hblank_write_timing` | [`commodore/amiga/programmable-hblank-write-timing/`](commodore/amiga/programmable-hblank-write-timing/) | [`scripts/verify-amiga-programmable-hblank-write-timing.sh`](../scripts/verify-amiga-programmable-hblank-write-timing.sh) | CC0-1.0 | Kickstart images for the selected ECS and AGA profiles, supplied externally |
 | Amiga Paula audio | `runtime-commodore-amiga` · `amiga_paula_audio` | [`commodore/amiga/paula-audio/`](commodore/amiga/paula-audio/) | [`scripts/verify-amiga-paula-audio.sh`](../scripts/verify-amiga-paula-audio.sh) | CC0-1.0 | Kickstart 1.3 r34.005, supplied externally |
 
 The programmable-HBLANK corpus is project-authored and emulator-neutral.
@@ -65,8 +65,14 @@ state changes within a line rather than settled output geometry. Its
 registered FS-UAE package contains ten stable ECS and AGA observations from
 the UAE implementation family. Copperline 0.13.0 and vAmiga 4.4b12 cannot
 answer the question through an admissible path. The observations therefore
-remain single-family evidence, and no Emu198x conformance consumer is
-registered yet.
+remain single-family evidence. The strict Emu198x consumer verifies the
+corpus, artifacts, package, and referenced evidence, boots the complete
+ten-run matrix, proves the scheduled writes through the Copper MOVE log, and
+compares all three semantic lines at fixed coordinates without tolerance or
+alignment search. It writes structured success and failure reports keyed by
+the full source revision. A passing result means agreement with the
+registered UAE-family observations; it does not establish physical-hardware
+conformance.
 
 The Paula-audio corpus is a three-case steady-waveform suite. Its Emu198x
 consumer verifies corpus identity, boots each case, and compares routing,

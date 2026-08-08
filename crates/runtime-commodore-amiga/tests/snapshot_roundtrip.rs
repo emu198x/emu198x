@@ -1881,7 +1881,55 @@ fn aga_programmed_hblank_latch_survives_snapshot_round_trip() -> Result<(), Box<
 }
 
 #[test]
-fn aga_delayed_color_write_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
+fn ocs_early_color_write_queue_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
+    const COLOR00: u32 = 0x00DF_F180;
+    const NEW_COLOR: u16 = 0x0ABC;
+
+    let mut original = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    original.machine_mut().poke_word(COLOR00, NEW_COLOR);
+
+    let board_before = original
+        .machine()
+        .denise()
+        .board_pipeline_diagnostic_snapshot();
+    assert_eq!(board_before.pending_early_writes.len(), 1);
+    assert_eq!(board_before.pending_early_writes[0].register, 0x0180);
+    assert_eq!(board_before.pending_early_writes[0].value, NEW_COLOR);
+    assert_eq!(original.machine().denise().color(0), 0);
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    restored.restore(&snapshot)?;
+
+    assert_eq!(
+        restored
+            .machine()
+            .denise()
+            .board_pipeline_diagnostic_snapshot(),
+        board_before,
+    );
+    assert_eq!(snapshot, restored.snapshot()?);
+
+    original.machine_mut().tick();
+    restored.machine_mut().tick();
+
+    for runtime in [&original, &restored] {
+        assert!(
+            runtime
+                .machine()
+                .denise()
+                .board_pipeline_diagnostic_snapshot()
+                .pending_early_writes
+                .is_empty()
+        );
+        assert_eq!(runtime.machine().denise().color(0), NEW_COLOR);
+    }
+    assert_eq!(original.snapshot()?, restored.snapshot()?);
+    Ok(())
+}
+
+#[test]
+fn aga_early_and_delayed_color_writes_survive_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
     const TARGET_VPOS: u16 = 0x0032;
     const TARGET_HPOS: u16 = 0x0080;
     const VIEWPORT_V_START: u16 = 0x0019;
@@ -1954,8 +2002,8 @@ fn aga_delayed_color_write_survives_snapshot_round_trip() -> Result<(), Box<dyn 
         .machine()
         .denise_aga()
         .diagnostic_snapshot()
-        .delayed_color_write
-        .expect("the second COLOR00 write must still be pending");
+        .pending_early_color_write
+        .expect("the second COLOR00 write must still be in Lisa's early stage");
     assert_eq!(pending.palette_index, 0);
     assert_eq!(pending.previous_rgb24, 0x0011_2233);
     assert_eq!(pending.previous_rgb12, Some(0x0123));
@@ -1987,7 +2035,7 @@ fn aga_delayed_color_write_survives_snapshot_round_trip() -> Result<(), Box<dyn 
             .machine()
             .denise_aga()
             .diagnostic_snapshot()
-            .delayed_color_write,
+            .pending_early_color_write,
         Some(pending),
     );
     assert!(
@@ -1998,7 +2046,6 @@ fn aga_delayed_color_write_survives_snapshot_round_trip() -> Result<(), Box<dyn 
             .palette_genlock[0],
         "restore must retain the new COLOR00 genlock flag",
     );
-
     original.machine_mut().tick();
     restored.machine_mut().tick();
 
@@ -2006,8 +2053,39 @@ fn aga_delayed_color_write_survives_snapshot_round_trip() -> Result<(), Box<dyn 
     for (name, runtime) in [("original", &original), ("restored", &restored)] {
         assert_eq!(
             &runtime.machine().denise().framebuffer()[phase_one_offset..phase_one_offset + 2],
+            &[OLD_ARGB, OLD_ARGB],
+            "{name} phase one must retain the old colour throughout the early stage",
+        );
+        assert!(
+            runtime
+                .machine()
+                .denise_aga()
+                .diagnostic_snapshot()
+                .pending_early_color_write
+                .is_none(),
+            "{name} early-stage write must retire after the current output tick",
+        );
+        assert_eq!(
+            runtime
+                .machine()
+                .denise_aga()
+                .diagnostic_snapshot()
+                .delayed_color_write,
+            Some(pending),
+            "{name} must retain Lisa's additional one-hires-sample delay",
+        );
+    }
+
+    original.machine_mut().tick();
+    restored.machine_mut().tick();
+
+    let next_phase_zero_offset = phase_zero_offset + 4;
+    for (name, runtime) in [("original", &original), ("restored", &restored)] {
+        assert_eq!(
+            &runtime.machine().denise().framebuffer()
+                [next_phase_zero_offset..next_phase_zero_offset + 2],
             &[OLD_ARGB, NEW_ARGB],
-            "{name} phase one must show the old colour for exactly one hires sample",
+            "{name} next phase must show Lisa's one-hires-sample colour delay",
         );
         assert!(
             runtime
@@ -2016,9 +2094,133 @@ fn aga_delayed_color_write_survives_snapshot_round_trip() -> Result<(), Box<dyn 
                 .diagnostic_snapshot()
                 .delayed_color_write
                 .is_none(),
-            "{name} pending write must expire on the next Lisa output sample",
+            "{name} delayed write must expire after one Lisa output sample",
         );
     }
+    assert_eq!(
+        original.machine().denise_aga().diagnostic_snapshot(),
+        restored.machine().denise_aga().diagnostic_snapshot(),
+    );
+    assert_eq!(
+        original
+            .machine()
+            .denise()
+            .board_pipeline_diagnostic_snapshot(),
+        restored
+            .machine()
+            .denise()
+            .board_pipeline_diagnostic_snapshot(),
+    );
+    Ok(())
+}
+
+#[test]
+fn aga_display_register_pipelines_survive_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    {
+        let machine = original.machine_mut();
+        machine.poke_word(0x00DF_F1C4, 0x0740); // HBSTRT
+        machine.poke_word(0x00DF_F1C6, 0x0350); // HBSTOP
+        machine.poke_word(0x00DF_F100, 0x0001); // BPLCON0.ECSENA
+        machine.poke_word(0x00DF_F106, 0x0001); // BPLCON3.EXTBLKEN
+        machine.tick();
+        machine.poke_word(0x00DF_F180, 0x0ABC); // COLOR00
+    }
+
+    let board_before = original
+        .machine()
+        .denise()
+        .board_pipeline_diagnostic_snapshot();
+    let selectors_before = original
+        .machine()
+        .denise_aga()
+        .as_inner()
+        .output_selector_pipeline();
+    let lisa_before = original.machine().denise_aga().diagnostic_snapshot();
+
+    assert!(board_before.pending_early_writes.is_empty());
+    assert!(lisa_before.pending_early_color_write.is_some());
+    assert!(
+        !original
+            .machine()
+            .denise_aga()
+            .as_inner()
+            .output_ecsena_enabled()
+    );
+    assert!(
+        !original
+            .machine()
+            .denise_aga()
+            .as_inner()
+            .output_extblken_enabled()
+    );
+    assert!(selectors_before[1].ecsena_enabled);
+    assert!(selectors_before[1].extblken_enabled);
+    assert_eq!(lisa_before.programmed_hblank_visible.hbstrt, 0);
+    assert_eq!(lisa_before.programmed_hblank_visible.hbstop, 0);
+    assert_eq!(lisa_before.programmed_hblank_pipeline[1].hbstrt, 0x0740);
+    assert_eq!(lisa_before.programmed_hblank_pipeline[1].hbstop, 0x0350);
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    restored.restore(&snapshot)?;
+
+    assert_eq!(
+        restored
+            .machine()
+            .denise()
+            .board_pipeline_diagnostic_snapshot(),
+        board_before,
+    );
+    assert_eq!(
+        restored
+            .machine()
+            .denise_aga()
+            .as_inner()
+            .output_selector_pipeline(),
+        selectors_before,
+    );
+    assert_eq!(
+        restored.machine().denise_aga().diagnostic_snapshot(),
+        lisa_before
+    );
+    assert_eq!(snapshot, restored.snapshot()?);
+
+    for _ in 0..3 {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+    }
+    assert_eq!(original.snapshot()?, restored.snapshot()?);
+    assert!(
+        original
+            .machine()
+            .denise_aga()
+            .as_inner()
+            .output_ecsena_enabled()
+    );
+    assert!(
+        original
+            .machine()
+            .denise_aga()
+            .as_inner()
+            .output_extblken_enabled()
+    );
+    assert_eq!(
+        original
+            .machine()
+            .denise_aga()
+            .programmed_hblank_visible()
+            .hbstrt,
+        0x0740,
+    );
+    assert_eq!(
+        original
+            .machine()
+            .denise_aga()
+            .programmed_hblank_visible()
+            .hbstop,
+        0x0350,
+    );
     Ok(())
 }
 
@@ -2080,10 +2282,10 @@ fn ecs_snapshot_restore_preserves_model_specific_gayle_composition() -> Result<(
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 32, and confirm the version-mismatch arm fires with a
+/// field back to 34, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV34` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 34` that byte is `0x22`.
+/// of a `SnapshotEnvelopeV35` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 35` that byte is `0x23`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -2092,20 +2294,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 34,
-        "postcard varint for SNAPSHOT_VERSION = 34 should be 0x22"
+        bytes[0], 35,
+        "postcard varint for SNAPSHOT_VERSION = 35 should be 0x23"
     );
-    bytes[0] = 32;
+    bytes[0] = 34;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-32 snapshot should be rejected before payload decode");
+        .expect_err("version-34 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 32; expected 34"
+                if reason == "unsupported snapshot version 34; expected 35"
         ),
         "expected version-mismatch reason, got {err:?}"
     );

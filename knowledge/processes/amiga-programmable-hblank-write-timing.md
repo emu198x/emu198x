@@ -91,18 +91,42 @@ Both are therefore recorded as unsupported rather than as behavioural votes.
 
 ## Emu198x use
 
-An Emu198x consumer must verify corpus and artifact identities before boot,
-derive the actual tested Copper write from the Copper MOVE log, and measure
-the baseline, mutation, and following lines separately.
+The registered Emu198x consumer is
+`crates/runtime-commodore-amiga/tests/amiga_programmable_hblank_write_timing.rs`.
+It is invoked through
+[`scripts/verify-amiga-programmable-hblank-write-timing.sh`](../../scripts/verify-amiga-programmable-hblank-write-timing.sh).
+The wrapper builds the corpus without Python bytecode output, verifies both
+firmware images, and records the full Git revision and dirty-worktree state.
+
+The consumer verifies the corpus sources and artifacts, the complete
+registered FS-UAE package identity, and every package-referenced capture,
+configuration, manifest, log, and observation record before booting a case.
+It boots all five cases on both the ECS and AGA profiles. Each run validates
+the ready record, captures three byte-identical adjacent fields, and derives
+the tested write from the machine's Copper MOVE log. CPU custom-register
+writes are retained as diagnostics but are not used as evidence of a Copper
+write. Each captured field must retain the marker MOVE at horizontal position
+138 and the tested MOVE at position 142; a lower-bound check against the
+programmed `WAIT` is not sufficient for this timing lane.
+
+The baseline, mutation, and following lines are measured separately at fixed
+beam-to-framebuffer rows. Reference raw samples map to native Emu198x output
+pixels through the declared version-1 transform
+`emu_output_pixel = fs_uae_raw_sample + 8`. This preserves the AGA marker's
+half-lores edge. The comparison performs no alignment search, rounding,
+tolerance, or automatic phase adjustment.
 
 Regression tests may encode the selected event-latched implementation model.
 Until an independent audited family or physical-hardware capture agrees, a
 passing Emu198x result means that it matches the registered UAE-family
 observation. It must not be described as hardware conformance.
 
-Failures should retain the measured intervals, relevant custom-register
-writes, Copper MOVE log, and diagnostic frames below
-`target/accuracy/amiga-programmable-hblank-write-timing/`. There is no
+Every run writes a structured result, including successful runs, below
+`target/accuracy/amiga-programmable-hblank-write-timing/1.0.0/<full-revision>/`.
+The revision summary retains all ten outcomes. Failures additionally retain
+the captured RGBA fields, measured intervals, relevant CPU custom-register
+writes, and Copper MOVE log. The test completes the matrix before failing, so
+one disagreement does not hide the remaining observations. There is no
 golden-update mode.
 
 ## Promotion

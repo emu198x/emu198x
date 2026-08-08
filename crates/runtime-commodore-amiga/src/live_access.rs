@@ -33,7 +33,9 @@
 //! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../../knowledge/decisions/amiga-machine-catalogue.md
 
 use commodore_agnus_ocs::{Agnus, AgnusBusDiagnosticSnapshot};
-use commodore_denise_aga::{DeniseAgaDelayedColorWrite, DeniseAgaDiagnosticSnapshot};
+use commodore_denise_aga::{
+    DeniseAgaDelayedColorWrite, DeniseAgaDiagnosticSnapshot, DeniseAgaProgrammedHblankRegisters,
+};
 use commodore_denise_ocs::DeniseDiagnosticSnapshot;
 use commodore_gary::GaryDiagnosticSnapshot;
 use commodore_gayle::GayleDiagnosticSnapshot;
@@ -117,10 +119,21 @@ pub struct AgaLisaSnapshot {
     pub ham_prev_rgb24: u32,
     pub programmed_hblank_active: bool,
     pub delayed_color_write: Option<DeniseAgaDelayedColorWrite>,
+    pub pending_early_color_write: Option<DeniseAgaDelayedColorWrite>,
+    pub programmed_hblank_input: DeniseAgaProgrammedHblankRegisters,
+    pub programmed_hblank_visible: DeniseAgaProgrammedHblankRegisters,
+    pub programmed_hblank_pipeline: [DeniseAgaProgrammedHblankRegisters; 2],
     /// 256-entry 24-bit palette (8 banks × 32), stored `0x00RRGGBB`.
     pub palette_24: [u32; 256],
     /// Per-entry transparency/genlock flags accompanying the AGA palette.
     pub palette_genlock: [bool; 256],
+}
+
+/// One inspectable ECS selector stage in the Denise/Lisa output path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub struct EnhancedDeniseSelectorSnapshot {
+    pub ecsena_enabled: bool,
+    pub extblken_enabled: bool,
 }
 
 /// Complete read-only view of the ECS Agnus timing layer. AGA Alice inherits
@@ -184,6 +197,9 @@ pub struct EnhancedDeniseSnapshot {
     pub bplcon3: u16,
     pub ecsena_enabled: bool,
     pub extblken_enabled: bool,
+    pub output_ecsena_enabled: bool,
+    pub output_extblken_enabled: bool,
+    pub output_selector_pipeline: [EnhancedDeniseSelectorSnapshot; 2],
     pub shres_enabled: bool,
     pub bplhwrm_enabled: bool,
     pub sprhwrm_enabled: bool,
@@ -253,11 +269,22 @@ fn enhanced_denise_snapshot(
     bplcon0: u16,
     programmed_hblank_active: bool,
 ) -> EnhancedDeniseSnapshot {
+    let output_selectors = denise.output_selectors();
+    let output_selector_pipeline =
+        denise
+            .output_selector_pipeline()
+            .map(|stage| EnhancedDeniseSelectorSnapshot {
+                ecsena_enabled: stage.ecsena_enabled,
+                extblken_enabled: stage.extblken_enabled,
+            });
     EnhancedDeniseSnapshot {
         deniseid,
         bplcon3: denise.bplcon3,
         ecsena_enabled: (bplcon0 & 0x0001) != 0,
         extblken_enabled: denise.extblken_enabled(),
+        output_ecsena_enabled: output_selectors.ecsena_enabled,
+        output_extblken_enabled: output_selectors.extblken_enabled,
+        output_selector_pipeline,
         shres_enabled: denise.shres_enabled(),
         bplhwrm_enabled: denise.bplhwrm_enabled(),
         sprhwrm_enabled: denise.sprhwrm_enabled(),
@@ -1083,8 +1110,8 @@ impl AmigaLiveAccess for AmigaEcs {
         let denise = self.denise_ecs();
         let output_active = agnus.programmed_hblank_routed_active()
             && agnus.blanken_enabled()
-            && (self.bplcon0() & 0x0001) != 0
-            && denise.extblken_enabled();
+            && denise.output_ecsena_enabled()
+            && denise.output_extblken_enabled();
         Some(enhanced_denise_snapshot(
             denise,
             denise.deniseid(),
@@ -1390,8 +1417,8 @@ impl AmigaLiveAccess for AmigaA1200 {
         let lisa = self.denise_aga();
         let ecs_denise = lisa.as_inner();
         let output_active = lisa.programmed_hblank_active()
-            && (self.bplcon0() & 0x0001) != 0
-            && ecs_denise.extblken_enabled();
+            && ecs_denise.output_ecsena_enabled()
+            && ecs_denise.output_extblken_enabled();
         Some(enhanced_denise_snapshot(
             ecs_denise,
             lisa.deniseid(),
@@ -1586,6 +1613,7 @@ impl AmigaLiveAccess for AmigaA1200 {
 
     fn aga_lisa(&self) -> Option<AgaLisaSnapshot> {
         let aga = self.denise_aga();
+        let diagnostic = aga.diagnostic_snapshot();
         Some(AgaLisaSnapshot {
             deniseid: aga.deniseid(),
             // bplcon3 lives on the inner ECS Denise; reachable via Deref.
@@ -1594,7 +1622,11 @@ impl AmigaLiveAccess for AmigaA1200 {
             spr_width: aga.spr_width,
             ham_prev_rgb24: aga.ham_prev_rgb24,
             programmed_hblank_active: aga.programmed_hblank_active(),
-            delayed_color_write: aga.diagnostic_snapshot().delayed_color_write,
+            delayed_color_write: diagnostic.delayed_color_write,
+            pending_early_color_write: diagnostic.pending_early_color_write,
+            programmed_hblank_input: diagnostic.programmed_hblank_input,
+            programmed_hblank_visible: diagnostic.programmed_hblank_visible,
+            programmed_hblank_pipeline: diagnostic.programmed_hblank_pipeline,
             palette_24: aga.palette_24,
             palette_genlock: aga.palette_genlock,
         })

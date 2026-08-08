@@ -459,6 +459,10 @@ pub(crate) fn chipset_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "overlay": m.overlay(),
         "ecsena_enabled": enhanced_denise.map(|denise| denise.ecsena_enabled),
         "extblken_enabled": enhanced_denise.map(|denise| denise.extblken_enabled),
+        "output_ecsena_enabled":
+            enhanced_denise.map(|denise| denise.output_ecsena_enabled),
+        "output_extblken_enabled":
+            enhanced_denise.map(|denise| denise.output_extblken_enabled),
         "blanken_enabled": enhanced_agnus.map(|agnus| agnus.blanken_enabled),
         "programmed_hblank_output_active":
             enhanced_denise.map(|denise| denise.programmed_hblank_active),
@@ -1106,6 +1110,10 @@ pub(crate) fn denise_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "ham_previous_rgb12": core.ham_previous_rgb12,
         "ham_previous_rgb24": core.ham_previous_rgb24,
         "delayed_color_write": Value::Null,
+        "pending_early_color_write": Value::Null,
+        "programmed_hblank_input": Value::Null,
+        "programmed_hblank_visible": Value::Null,
+        "programmed_hblank_pipeline": Value::Null,
         "last_shift_load": {
             "hires": core.last_shift_load.hires,
             "odd_scroll": core.last_shift_load.odd_scroll,
@@ -1130,12 +1138,31 @@ pub(crate) fn denise_snapshot(m: &dyn AmigaLiveAccess) -> Value {
             "delayed_color_write".to_owned(),
             json!(lisa.delayed_color_write),
         );
+        snapshot.insert(
+            "pending_early_color_write".to_owned(),
+            json!(lisa.pending_early_color_write),
+        );
+        snapshot.insert(
+            "programmed_hblank_input".to_owned(),
+            json!(lisa.programmed_hblank_input),
+        );
+        snapshot.insert(
+            "programmed_hblank_visible".to_owned(),
+            json!(lisa.programmed_hblank_visible),
+        );
+        snapshot.insert(
+            "programmed_hblank_pipeline".to_owned(),
+            json!(lisa.programmed_hblank_pipeline),
+        );
     }
     let enhanced = json!({
         "deniseid": denise.map(|state| state.deniseid),
         "bplcon3": denise.map(|state| state.bplcon3),
         "ecsena_enabled": denise.map(|state| state.ecsena_enabled),
         "extblken_enabled": denise.map(|state| state.extblken_enabled),
+        "output_ecsena_enabled": denise.map(|state| state.output_ecsena_enabled),
+        "output_extblken_enabled": denise.map(|state| state.output_extblken_enabled),
+        "output_selector_pipeline": denise.map(|state| state.output_selector_pipeline),
         "shres_enabled": denise.map(|state| state.shres_enabled),
         "bplhwrm_enabled": denise.map(|state| state.bplhwrm_enabled),
         "sprhwrm_enabled": denise.map(|state| state.sprhwrm_enabled),
@@ -1571,6 +1598,10 @@ pub(crate) fn aga_snapshot(m: &dyn AmigaLiveAccess) -> Option<Value> {
         "ham_prev_rgb24": aga.ham_prev_rgb24,
         "programmed_hblank_active": aga.programmed_hblank_active,
         "delayed_color_write": aga.delayed_color_write,
+        "pending_early_color_write": aga.pending_early_color_write,
+        "programmed_hblank_input": aga.programmed_hblank_input,
+        "programmed_hblank_visible": aga.programmed_hblank_visible,
+        "programmed_hblank_pipeline": aga.programmed_hblank_pipeline,
         "palette_24_nonzero_per_bank": bank_nonzero,
         "palette_24": aga.palette_24.to_vec(),
         "palette_genlock": aga.palette_genlock.to_vec(),

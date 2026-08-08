@@ -358,6 +358,14 @@ mod tests {
     use commodore_denise_ocs::DeniseOcs;
     type TestDenise = Denise<DeniseOcs>;
 
+    /// Record a Denise-owned MOVE without advancing the separate display
+    /// clock. These tests use palette entries only as a convenient sink for
+    /// Copper control-flow assertions; board-level RGA propagation is covered
+    /// by the programmable-HBLANK write-timing integration test.
+    fn record_denise_move_without_output_tick(denise: &mut TestDenise, register: u16, value: u16) {
+        denise.ocs.write_word(register, value);
+    }
+
     fn build_test_memory_with_list(list: &[(u16, u16)], at: u32) -> Memory {
         let mut mem = Memory::new(vec![0u8; 256 * 1024]);
         // Drop overlay so chip RAM writes via this mem helper land
@@ -389,10 +397,10 @@ mod tests {
     /// Tick the copper for `ccks` wall-CCKs, advancing hpos each
     /// tick and holding vpos fixed. Grants the copper its even free
     /// cells so it sees unconstrained availability. MOVEs returned by
-    /// the copper are routed through Denise — these tests only
-    /// exercise Denise-owned registers, so a local routing closure
-    /// is enough. The machine layer wires this through the full
-    /// `dispatch_custom_write` in production.
+    /// the copper are recorded in Denise's register mirror. These tests do not
+    /// advance the display clock, so they intentionally bypass the board-level
+    /// RGA propagation stage. The machine layer wires production MOVEs through
+    /// the full `dispatch_custom_write` path.
     fn run_ccks(copper: &mut Copper, mem: &Memory, denise: &mut TestDenise, vpos: u16, ccks: u16) {
         for i in 0..ccks {
             let hpos = i % 227;
@@ -403,7 +411,7 @@ mod tests {
                 copper_slot_granted(hpos),
                 false,
             ) {
-                denise.write_word(reg, val);
+                record_denise_move_without_output_tick(denise, reg, val);
             }
         }
     }
@@ -462,7 +470,7 @@ mod tests {
         for i in 0..40u16 {
             let write = copper.tick_cck(&mem, 0, pal_comparator_hpos(i % 227), false, false);
             if let Some((reg, val)) = write {
-                denise.write_word(reg, val);
+                record_denise_move_without_output_tick(&mut denise, reg, val);
             }
         }
         assert_eq!(
@@ -489,7 +497,7 @@ mod tests {
             if let Some((reg, val)) =
                 copper.tick_cck(&mem, 0, pal_comparator_hpos(i % 227), false, false)
             {
-                denise.write_word(reg, val);
+                record_denise_move_without_output_tick(&mut denise, reg, val);
             }
         }
         assert_eq!(
@@ -531,7 +539,7 @@ mod tests {
                 copper_slot_granted(hpos),
                 false,
             ) {
-                denise.write_word(reg, val);
+                record_denise_move_without_output_tick(&mut denise, reg, val);
             }
         }
         assert_eq!(denise.color(0), 0);
@@ -882,7 +890,7 @@ mod tests {
                     copper_slot_granted(hpos),
                     false,
                 ) {
-                    denise.write_word(reg, val);
+                    record_denise_move_without_output_tick(&mut denise, reg, val);
                     if reg == 0x0180 {
                         return Some(vpos);
                     }
@@ -940,7 +948,7 @@ mod tests {
                 copper_slot_granted(hpos),
                 true,
             ) {
-                denise.write_word(reg, val);
+                record_denise_move_without_output_tick(&mut denise, reg, val);
             }
         }
         assert_eq!(
@@ -960,7 +968,7 @@ mod tests {
                 copper_slot_granted(hpos),
                 false,
             ) {
-                denise.write_word(reg, val);
+                record_denise_move_without_output_tick(&mut denise, reg, val);
             }
         }
         assert_eq!(
@@ -992,7 +1000,7 @@ mod tests {
                 copper_slot_granted(hpos),
                 blitter_busy,
             ) {
-                denise.write_word(reg, val);
+                record_denise_move_without_output_tick(&mut denise, reg, val);
             }
         }
         denise.color(0)

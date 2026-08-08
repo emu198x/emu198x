@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Expose the live `BPLCON3.EXTBLKEN` selector through a read-only accessor
+- Expose serialized raw, in-flight and display-visible ECSENA/EXTBLKEN
+  selector state
+
+### Fixed
+
+- Propagate BPLCON0.ECSENA and BPLCON3.EXTBLKEN through the normal
+  three-half-CCK display path
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-denise-ecs-v0.2.0) - 2026-06-04
 

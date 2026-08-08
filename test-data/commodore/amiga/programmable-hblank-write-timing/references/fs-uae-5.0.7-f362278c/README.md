@@ -150,6 +150,9 @@ run provenance needed to audit those records.
   producer, capture adapter, and packaging toolchain.
 - [`producer-build-v1.json`](producer-build-v1.json) records the exact source,
   patch, build, binary, dependency, and capture-change identities.
+- [`provenance-redaction.md`](provenance-redaction.md) explains why the
+  capture-host details cannot be removed from the registered v1 package in
+  place.
 
 ## Related files
 
@@ -159,3 +162,4 @@ run provenance needed to audit those records.
 - [UAE event-model source audit](../uae-event-model-source-audit.md)
 - [Steady-state FS-UAE package](../../../programmable-hblank/references/fs-uae-5.0.7-f362278c/README.md)
 - [Conformance process](../../../../../../knowledge/processes/amiga-programmable-hblank-write-timing.md)
+- [Independent retained-package verifier](../../tools/verify_fs_uae_package.py)

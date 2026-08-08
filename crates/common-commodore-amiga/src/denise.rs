@@ -137,11 +137,22 @@ pub struct DenisePriorLineRasterDiagnosticSnapshot {
 /// The concrete chip pipeline is exposed by its own diagnostic snapshot. The
 /// framebuffer remains available through [`Denise::framebuffer`] and is not
 /// copied into this snapshot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DeniseBoardPipelineDiagnosticSnapshot {
     pub bytes_this_line: u32,
     pub last_begin_line: Option<u16>,
     pub prior_line_raster: Option<DenisePriorLineRasterDiagnosticSnapshot>,
+    /// Early-stage COLOR writes waiting for the current output tick to retire.
+    pub pending_early_writes: Vec<DenisePendingRegisterWrite>,
+}
+
+/// One Denise/Lisa register write retained until the early output stage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DenisePendingRegisterWrite {
+    /// Custom-register offset in the `$DFFxxx` window.
+    pub register: u16,
+    /// Word presented to the display chip.
+    pub value: u16,
 }
 
 /// Decode a DIWSTRT/DIWSTOP register pair into the effective vertical
@@ -206,6 +217,9 @@ pub struct Denise<C: DeniseChip> {
     /// Previous physical line retained through the post-wrap interval before
     /// Denise reaches fixed HBLANK start and begins the new display line.
     prior_line_raster: Option<PriorLineRasterContext>,
+    /// COLOR writes cross Denise's early RGA stage after the current output
+    /// tick. Lisa then applies its own one-hires-sample palette-output delay.
+    pending_early_writes: Vec<DenisePendingRegisterWrite>,
 }
 
 impl<C: DeniseChip> Default for Denise<C> {
@@ -223,13 +237,24 @@ impl<C: DeniseChip> Denise<C> {
             bytes_this_line: 0,
             last_begin_line: None,
             prior_line_raster: None,
+            pending_early_writes: Vec::new(),
         }
     }
 
     /// CPU / copper write to a Denise-owned custom register. Thin
-    /// forwarder into the chip's `write_word`.
+    /// forwarder into the chip's `write_word`, except that COLOR writes cross
+    /// the early display-side RGA stage after the current output tick.
     pub fn write_word(&mut self, offset: u16, val: u16) {
-        self.ocs.write_word(offset, val);
+        if (0x0180..=0x01BE).contains(&offset) && offset.is_multiple_of(2) {
+            if !self.ocs.write_color_with_early_output_delay(offset, val) {
+                self.pending_early_writes.push(DenisePendingRegisterWrite {
+                    register: offset,
+                    value: val,
+                });
+            }
+        } else {
+            self.ocs.write_word(offset, val);
+        }
     }
 
     /// DENISEID register read ($DFF07C). Each chip variant returns
@@ -284,6 +309,7 @@ impl<C: DeniseChip> Denise<C> {
                     interlace_row: prior.interlace_row,
                 }
             }),
+            pending_early_writes: self.pending_early_writes.clone(),
         }
     }
 
@@ -620,6 +646,18 @@ impl<C: DeniseChip> Denise<C> {
         if !output_samples_advanced {
             self.ocs.advance_color_output_samples(2);
         }
+
+        // COLOR writes become chip-visible only after this output tick. This
+        // is Denise's early RGA stage; AGA Lisa's existing colour-output
+        // delay remains inside `DeniseAga::handle_color_write`.
+        for pending in self.pending_early_writes.drain(..) {
+            self.ocs.write_word(pending.register, pending.value);
+        }
+        self.ocs.advance_early_color_output_pipeline();
+
+        // Enhanced-chipset selector/comparator copies use the normal display
+        // path and therefore advance independently of the early COLOR stage.
+        self.ocs.advance_register_output_pipeline();
 
         // Capture after the terminal pixel has been composed. The following
         // physical line's pre-$12 interval will finish this displayed row.
@@ -991,6 +1029,7 @@ mod tests {
                 bytes_this_line: 0,
                 last_begin_line: None,
                 prior_line_raster: None,
+                pending_early_writes: Vec::new(),
             },
         );
 
@@ -1017,6 +1056,7 @@ mod tests {
                 bytes_this_line: 2,
                 last_begin_line: Some(0x002C),
                 prior_line_raster: None,
+                pending_early_writes: Vec::new(),
             },
         );
 
@@ -1036,6 +1076,7 @@ mod tests {
                     vertical_diw_active: true,
                     interlace_row: None,
                 }),
+                pending_early_writes: Vec::new(),
             },
         );
 
@@ -1045,6 +1086,41 @@ mod tests {
         let retired = denise.board_pipeline_diagnostic_snapshot();
         assert_eq!(retired.last_begin_line, Some(0x002D));
         assert_eq!(retired.prior_line_raster, None);
+    }
+
+    #[test]
+    fn color_write_crosses_the_early_output_stage() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let memory = Memory::new(vec![0; 2]);
+        let mut agnus = Agnus::new();
+        let mut denise = Denise::<DeniseOcs>::new();
+        denise.ocs.set_palette(0, 0x0123);
+
+        denise.write_word(0x0180, 0x0ABC);
+
+        assert_eq!(denise.color(0), 0x0123);
+        assert_eq!(
+            denise
+                .board_pipeline_diagnostic_snapshot()
+                .pending_early_writes,
+            vec![DenisePendingRegisterWrite {
+                register: 0x0180,
+                value: 0x0ABC,
+            }],
+        );
+
+        let line_ccks = agnus.current_line_ccks();
+        denise.tick(0, None, false, &mut agnus, &memory, line_ccks);
+
+        assert_eq!(denise.color(0), 0x0ABC);
+        assert!(
+            denise
+                .board_pipeline_diagnostic_snapshot()
+                .pending_early_writes
+                .is_empty(),
+        );
     }
 
     #[test]

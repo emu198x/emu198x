@@ -16,6 +16,15 @@ const BPLCON3_BRDNTRAN: u16 = 0x0010;
 const BPLCON2_KILLEHB: u16 = 0x0200;
 const BPLCON3_ENBPLCN3: u16 = 0x0001;
 
+/// Display-side ECS programmable-blanking selector levels.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DeniseEcsOutputSelectors {
+    /// Denise-visible BPLCON0.ECSENA level.
+    pub ecsena_enabled: bool,
+    /// Denise-visible BPLCON3.EXTBLKEN level.
+    pub extblken_enabled: bool,
+}
+
 /// Thin ECS wrapper that currently reuses the OCS Denise implementation.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct DeniseEcs {
@@ -26,6 +35,11 @@ pub struct DeniseEcs {
     /// AGA Lisa builds on the same register state for palette banking and
     /// LOCT handling.
     pub bplcon3: u16,
+    /// Selector levels currently visible to the external blanking path.
+    output_selectors: DeniseEcsOutputSelectors,
+    /// Two normal-stage propagation copies between register mirrors and
+    /// display-visible selector state.
+    output_selector_pipeline: [DeniseEcsOutputSelectors; 2],
 }
 
 impl DeniseEcs {
@@ -35,6 +49,8 @@ impl DeniseEcs {
         Self {
             inner: InnerDeniseOcs::new(),
             bplcon3: 0,
+            output_selectors: DeniseEcsOutputSelectors::default(),
+            output_selector_pipeline: [DeniseEcsOutputSelectors::default(); 2],
         }
     }
 
@@ -42,7 +58,16 @@ impl DeniseEcs {
     /// constructor routing during the early ECS bring-up phase.
     #[must_use]
     pub fn from_ocs(inner: InnerDeniseOcs) -> Self {
-        Self { inner, bplcon3: 0 }
+        let selectors = DeniseEcsOutputSelectors {
+            ecsena_enabled: inner.bplcon0 & 0x0001 != 0,
+            extblken_enabled: false,
+        };
+        Self {
+            inner,
+            bplcon3: 0,
+            output_selectors: selectors,
+            output_selector_pipeline: [selectors; 2],
+        }
     }
 
     /// Borrow the wrapped OCS Denise core.
@@ -82,6 +107,48 @@ impl DeniseEcs {
             }
             _ => self.inner.write_word(offset, val),
         }
+    }
+
+    /// Register-mirror selector values before display-side propagation.
+    #[must_use]
+    pub const fn raw_output_selectors(&self) -> DeniseEcsOutputSelectors {
+        DeniseEcsOutputSelectors {
+            ecsena_enabled: self.inner.bplcon0 & 0x0001 != 0,
+            extblken_enabled: self.bplcon3 & BPLCON3_ENBPLCN3 != 0,
+        }
+    }
+
+    /// Selector values currently visible to the programmable-blanking path.
+    #[must_use]
+    pub const fn output_selectors(&self) -> DeniseEcsOutputSelectors {
+        self.output_selectors
+    }
+
+    /// Pending normal-stage selector copies, nearest output stage first.
+    #[must_use]
+    pub const fn output_selector_pipeline(&self) -> [DeniseEcsOutputSelectors; 2] {
+        self.output_selector_pipeline
+    }
+
+    /// Advance register-mirror selector values through the three-half-CCK
+    /// display path. A write preceding the current output tick is visible only
+    /// after that tick and the following two ticks have retired.
+    pub fn advance_output_selector_pipeline(&mut self) {
+        self.output_selectors = self.output_selector_pipeline[0];
+        self.output_selector_pipeline[0] = self.output_selector_pipeline[1];
+        self.output_selector_pipeline[1] = self.raw_output_selectors();
+    }
+
+    /// Whether BPLCON0.ECSENA is visible at the display output stage.
+    #[must_use]
+    pub const fn output_ecsena_enabled(&self) -> bool {
+        self.output_selectors.ecsena_enabled
+    }
+
+    /// Whether BPLCON3.EXTBLKEN is visible at the display output stage.
+    #[must_use]
+    pub const fn output_extblken_enabled(&self) -> bool {
+        self.output_selectors.extblken_enabled
     }
 
     /// Whether ECS SuperHires mode is requested in BPLCON0.
@@ -234,6 +301,33 @@ mod tests {
         denise.as_inner_mut().set_palette(2, 0x0456);
 
         assert_eq!(denise.as_inner().palette[2], 0x0456);
+    }
+
+    #[test]
+    fn programmable_blanking_selectors_cross_three_output_ticks() {
+        let mut denise = DeniseEcs::new();
+        denise.write_word(0x0100, 0x0001); // ECSENA
+        denise.write_word(0x0106, 0x0001); // EXTBLKEN
+
+        let enabled = super::DeniseEcsOutputSelectors {
+            ecsena_enabled: true,
+            extblken_enabled: true,
+        };
+        let disabled = super::DeniseEcsOutputSelectors::default();
+        assert_eq!(denise.raw_output_selectors(), enabled);
+        assert_eq!(denise.output_selectors(), disabled);
+        assert_eq!(denise.output_selector_pipeline(), [disabled; 2]);
+
+        denise.advance_output_selector_pipeline();
+        assert_eq!(denise.output_selectors(), disabled);
+        assert_eq!(denise.output_selector_pipeline(), [disabled, enabled]);
+
+        denise.advance_output_selector_pipeline();
+        assert_eq!(denise.output_selectors(), disabled);
+        assert_eq!(denise.output_selector_pipeline(), [enabled; 2]);
+
+        denise.advance_output_selector_pipeline();
+        assert_eq!(denise.output_selectors(), enabled);
     }
 
     #[test]

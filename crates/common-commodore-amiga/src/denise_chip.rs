@@ -108,6 +108,23 @@ pub trait DeniseChip:
         let _ = samples;
     }
 
+    /// Apply a COLOR write while retaining the previous value for the current
+    /// output tick. Returns `true` when the concrete chip owns this early
+    /// stage; the board wrapper otherwise queues the complete register write.
+    fn write_color_with_early_output_delay(&mut self, offset: u16, value: u16) -> bool {
+        let _ = (offset, value);
+        false
+    }
+
+    /// Retire one early COLOR-write output stage after a master/4 tick.
+    fn advance_early_color_output_pipeline(&mut self) {}
+
+    /// Advance display-side custom-register propagation by one master/4 tick.
+    ///
+    /// OCS has no additional selector or comparator stages. ECS Super Denise
+    /// and AGA Lisa override this hook for their normal-stage output controls.
+    fn advance_register_output_pipeline(&mut self) {}
+
     // ── Field accessors used by the wrapper ──
     fn palette(&self) -> &[u16; 32];
     fn interlace_active(&self) -> bool;
@@ -299,6 +316,9 @@ impl DeniseChip for DeniseEcs {
     }
     fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16 {
         DeniseEcs::resolve_color_rgb12(self, color_idx)
+    }
+    fn advance_register_output_pipeline(&mut self) {
+        self.advance_output_selector_pipeline();
     }
     fn palette(&self) -> &[u16; 32] {
         &self.as_inner().palette

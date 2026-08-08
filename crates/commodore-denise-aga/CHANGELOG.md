@@ -11,11 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Expose a complete side-effect-free diagnostic snapshot of Lisa-owned
   register, 24-bit palette, HAM8 and programmable-blanking state
+- Expose Lisa's serialized early colour and normal programmable-blanking
+  register propagation stages
 
 ### Fixed
 
 - Drive Lisa programmable horizontal blanking from a serialized fine-phase
   comparator latch, with ECSENA and EXTBLKEN sampled at the event boundary
+- Preserve immediate AGA colour-register reads while delaying display output
+  by Denise's early stage plus Lisa's existing one-hires-sample stage
+- Propagate Alice HBSTRT/HBSTOP copies through Lisa's normal display path
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-denise-aga-v0.2.0) - 2026-06-04
 

@@ -1302,10 +1302,16 @@ fn assert_denise_board_pipeline<M: AmigaMachine>(runtime: &mut AmigaRuntime<M>) 
     initial_fields.sort_unstable();
     assert_eq!(
         initial_fields,
-        ["bytes_this_line", "last_begin_line", "prior_line_raster",],
+        [
+            "bytes_this_line",
+            "last_begin_line",
+            "pending_early_writes",
+            "prior_line_raster",
+        ],
     );
     assert_eq!(initial["bytes_this_line"], json!(0));
     assert_eq!(initial["last_begin_line"], Value::Null);
+    assert_eq!(initial["pending_early_writes"], json!([]));
     assert_eq!(initial["prior_line_raster"], Value::Null);
 
     let provider = AmigaSessionQueryProvider;
@@ -1521,17 +1527,30 @@ fn aga_queries_expose_lisa_and_composed_hblank_state() {
         "previous_genlock": false,
     });
     assert_eq!(
-        query_value(&runtime, "aga.delayed_color_write"),
+        query_value(&runtime, "aga.pending_early_color_write"),
         expected_delayed_color,
     );
     assert_eq!(
-        query_value(&runtime, "denise.delayed_color_write"),
+        query_value(&runtime, "denise.pending_early_color_write"),
         expected_delayed_color,
     );
     runtime.machine_mut().poke_word(0x00DF_F1C4, 0x0040); // HBSTRT
     runtime.machine_mut().poke_word(0x00DF_F1C6, 0x0080); // HBSTOP
     runtime.machine_mut().poke_word(0x00DF_F100, 0x0001); // ECSENA
     runtime.machine_mut().poke_word(0x00DF_F106, 0x0001); // EXTBLKEN
+    assert_eq!(query_value(&runtime, "denise.ecsena_enabled"), json!(true));
+    assert_eq!(
+        query_value(&runtime, "denise.extblken_enabled"),
+        json!(true)
+    );
+    assert_eq!(
+        query_value(&runtime, "denise.output_ecsena_enabled"),
+        json!(false),
+    );
+    assert_eq!(
+        query_value(&runtime, "denise.output_extblken_enabled"),
+        json!(false),
+    );
 
     for _ in 0..2_048 {
         runtime.machine_mut().tick();
@@ -1559,6 +1578,10 @@ fn aga_queries_expose_lisa_and_composed_hblank_state() {
     );
     assert_eq!(
         query_value(&runtime, "denise.delayed_color_write"),
+        Value::Null,
+    );
+    assert_eq!(
+        query_value(&runtime, "aga.pending_early_color_write"),
         Value::Null,
     );
     assert_eq!(

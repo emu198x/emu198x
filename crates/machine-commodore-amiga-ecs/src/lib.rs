@@ -1313,9 +1313,9 @@ impl AmigaEcs {
             0x094 => self.agnus.write_ddfstop(val),
             0x100 => {
                 self.agnus.write_bplcon0(val);
-                // Mirror into Denise so HIRES/HAM/DBLPF/LACE bits take
-                // effect at the next pixel, not only next tick.
-                self.denise.ocs.bplcon0 = val;
+                // The register mirror is immediate; the ECSENA copy used by
+                // programmable blanking crosses Denise's normal output stages.
+                self.denise.write_word(offset, val);
                 if self.debug_bplcon0_log.len() < 8192 {
                     self.debug_bplcon0_log.push((
                         self.tick_count / TICKS_PER_CCK,
@@ -2196,15 +2196,12 @@ impl AmigaDriver for AmigaEcs {
     }
 
     fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
-        const BPLCON0_ECSENA: u16 = 0x0001;
-        const BPLCON3_EXTBLKEN: u16 = 0x0001;
-
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
         let horizontal_blanking_active = self.agnus.programmed_hblank_routed_active()
             && self.agnus.blanken_enabled()
-            && (self.agnus.bplcon0 & BPLCON0_ECSENA) != 0
-            && (self.denise.ocs.bplcon3 & BPLCON3_EXTBLKEN) != 0;
+            && self.denise.ocs.output_ecsena_enabled()
+            && self.denise.ocs.output_extblken_enabled();
         let horizontal_blanking =
             denise::HorizontalBlanking::from_level(horizontal_blanking_active);
         let line_ccks = self.agnus.current_line_ccks();
@@ -3171,8 +3168,8 @@ mod bus_plan_dispatch_tests {
         amiga.agnus.ddfstrt = 0x0038;
         amiga.agnus.ddfstop = 0x00D0;
         amiga.agnus.bplcon0 = 0x1000;
-        amiga.denise.write_word(0x0180, 0x0000);
-        amiga.denise.write_word(0x0182, 0x0FFF);
+        amiga.denise.ocs.write_word(0x0180, 0x0000);
+        amiga.denise.ocs.write_word(0x0182, 0x0FFF);
         amiga.denise.write_word(0x0110, 0x8000);
         observe_ddf_start(&mut amiga);
         amiga.agnus.hpos = 0x0038;
