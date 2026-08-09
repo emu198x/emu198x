@@ -84,7 +84,8 @@ Each stage is one commit's worth of work with a definite done-condition.
    assert an exact match, so a regression fails *and* an unannounced improvement
    fails. Done in this stage alongside this record.
 2. **`sprdma_and_dmc_dma`** — two ROMs, one defect, well-documented behaviour
-   (DMC DMA stealing cycles during sprite DMA). Most tractable.
+   (DMC DMA stealing cycles during sprite DMA). Expected values now recorded;
+   see [below](#stage-2-what-the-oracle-showed). Not yet fixed.
 3. **`cpu_timing_test6`** — one ROM, one settled value to chase.
 4. **`blargg_nes_cpu_test5`** — hardest. `#FF` means "some sub-test failed"
    without saying which, so the ROM's text output has to be decoded first. A
@@ -93,6 +94,48 @@ Each stage is one commit's worth of work with a definite done-condition.
 5. **Triage the 15 visual-only ROMs.** They can never pass or fail, so under a
    gated sweep they need an explicit declared exclusion rather than a third
    category nobody revisits.
+
+## Stage 2: what the oracle showed
+
+The ROM reports its failure as sixteen measured clock counts and a CRC over
+them. Sixteen numbers with nothing to compare them against cannot distinguish
+"one cycle out" from "the wrong shape", so the first move was to obtain the
+expected sixteen rather than edit DMA timing until a CRC matched. Mesen2's core
+was built headless and driven through its C API by
+[`tools/mesen-nes-cross-check`](../../tools/mesen-nes-cross-check/); the full
+table is at
+[`test-data/nintendo/nes/blargg-survey/sprdma-dmc-dma-expected.tsv`](../../test-data/nintendo/nes/blargg-survey/sprdma-dmc-dma-expected.tsv).
+
+**The defect is narrow.** Every difference is `+1`, never `-1` and never more
+than 1, at exactly the alignments where the reference takes the shorter path.
+Emu198x is one cycle too slow at half the alignments — an alignment cycle taken
+unconditionally where hardware takes it only when the get/put phase demands it.
+The reference alternates by parity; Emu198x returns a flat value.
+
+⚠ **Four candidate causes were measured and disproved**, each recorded so it is
+not re-attempted:
+
+| Hypothesis | Measurement | Verdict |
+|---|---|---|
+| OAM DMA length wrong | 513/514 by alignment | correct |
+| DMC DMA length wrong | 3/4 by alignment | correct |
+| Combined arbitration flat | alternates 515/516 as `$4014` slides | correct |
+| Get/put phase inverted vs Mesen | ROM never settles at all | worse |
+
+The third is the sharpest. Emu198x's arbitration *does* alternate correctly when
+the experiment is reproduced in-process, yet returns a flat table under the real
+ROM — so the divergence is in how the DMC request arrives on the APU's own
+clock, not in the arbitration the in-process probe exercises. The diagnostic
+probes that establish this are `probe_oamdma_length_by_alignment`,
+`probe_dmc_dma_length_by_alignment` and `probe_combined_dma_by_dmc_offset` in
+the `machine-nintendo-nes` lib tests, plus the `sprdma_dmc_probe` test target.
+
+A separate, real gap was found and fixed on the way: a `$4015` write clearing
+DMC enable did not cancel a queued transfer, so it still stole a cycle. Mesen2
+splits cancel-before-halt from abort-after-halt and Emu198x now does too. ⚠ It
+is **reference-matched but locally unproven** — these two ROMs never disable the
+DMC mid-transfer, so no test in the corpus exercises it, and the gated sweep is
+unchanged at 135/5/15 with it in place.
 
 ## ⚠ On acquiring more test ROMs
 

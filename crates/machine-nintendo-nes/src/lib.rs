@@ -83,6 +83,10 @@ pub struct NesSnapshot {
     dma_need_halt: bool,
     #[serde(default)]
     dma_need_dummy: bool,
+    /// DMC DMA aborted after its halt cycle. `serde(default)` so snapshots
+    /// written before this field existed still load as "not aborting".
+    #[serde(default)]
+    dma_abort_dmc: bool,
     #[serde(default)]
     dma_halt_done: bool,
     controller1_shift: u8,
@@ -162,6 +166,9 @@ pub struct Nes {
     dma_need_halt: bool,
     /// A dummy cycle is pending (DMC requires a dummy before its fetch).
     dma_need_dummy: bool,
+    /// DMC DMA aborted after its halt cycle: the fetch is skipped, but the
+    /// cycles already spent are not refunded. Mesen2's `_abortDmcDma`.
+    dma_abort_dmc: bool,
     /// The initial halt cycle has run and the DMA loop is in progress.
     dma_halt_done: bool,
 
@@ -231,6 +238,7 @@ impl Nes {
             dmc_dma_active: false,
             dma_need_halt: false,
             dma_need_dummy: false,
+            dma_abort_dmc: false,
             dma_halt_done: false,
             controller1_shift: 0,
             controller1_state: 0,
@@ -263,6 +271,7 @@ impl Nes {
         self.dmc_dma_active = false;
         self.dma_need_halt = false;
         self.dma_need_dummy = false;
+        self.dma_abort_dmc = false;
         self.dma_halt_done = false;
     }
 
@@ -309,6 +318,30 @@ impl Nes {
             self.dmc_dma_active = true;
             self.dma_need_halt = true;
             self.dma_need_dummy = true;
+        }
+
+        // ⚠⚠ A `$4015` write that clears DMC enable cancels the transfer, and
+        // WHERE it lands changes the cycle cost — which is what
+        // `sprdma_and_dmc_dma` measures across 16 alignments.
+        //
+        // Mesen2 splits this in `StopDmcTransfer()`:
+        //   * still waiting on the halt cycle → cancel outright, no cycles taken
+        //   * already halted → it can only be ABORTED, and the halt/dummy cycles
+        //     already spent are not refunded
+        //
+        // Collapsing the two (or ignoring the write entirely, as before) makes
+        // the transfer cost whole cycles too many at some alignments.
+        if std::mem::take(&mut self.apu.dmc.dma_cancelled) && self.dmc_dma_active {
+            if self.dma_need_halt {
+                // Pre-halt: nothing has been spent, so drop the whole request.
+                self.dmc_dma_active = false;
+                self.dma_need_halt = false;
+                self.dma_need_dummy = false;
+            } else {
+                // Post-halt: abort. The in-flight cycles stand; the fetch does
+                // not happen. An OAM transfer sharing these cycles continues.
+                self.dma_abort_dmc = true;
+            }
         }
 
         let dma_pending = self.sprite_dma_active || self.dmc_dma_active;
@@ -414,7 +447,14 @@ impl Nes {
 
         let get_cycle = self.cpu_cycle_count & 1 == 0;
         if get_cycle {
-            if self.dmc_dma_active && !self.dma_need_halt && !self.dma_need_dummy {
+            if self.dma_abort_dmc {
+                // Aborted after halt: this cycle is still consumed, but no
+                // sample fetch happens and the DMC request is discarded.
+                self.dma_abort_dmc = false;
+                self.dmc_dma_active = false;
+                self.dma_consume_flag();
+                let _ = self.cpu_read(self.cpu.addr);
+            } else if self.dmc_dma_active && !self.dma_need_halt && !self.dma_need_dummy {
                 // DMC ready — fetch the sample byte, stealing this get
                 // cycle from any in-flight OAM transfer.
                 self.dma_consume_flag();
@@ -752,6 +792,7 @@ impl Nes {
             dmc_dma_active: self.dmc_dma_active,
             dma_need_halt: self.dma_need_halt,
             dma_need_dummy: self.dma_need_dummy,
+            dma_abort_dmc: self.dma_abort_dmc,
             dma_halt_done: self.dma_halt_done,
             controller1_shift: self.controller1_shift,
             controller1_state: self.controller1_state,
@@ -786,6 +827,7 @@ impl Nes {
         self.dmc_dma_active = snapshot.dmc_dma_active;
         self.dma_need_halt = snapshot.dma_need_halt;
         self.dma_need_dummy = snapshot.dma_need_dummy;
+        self.dma_abort_dmc = snapshot.dma_abort_dmc;
         self.dma_halt_done = snapshot.dma_halt_done;
         self.controller1_shift = snapshot.controller1_shift;
         self.controller1_state = snapshot.controller1_state;
@@ -819,6 +861,7 @@ impl Nes {
             dmc_dma_active: snapshot.dmc_dma_active,
             dma_need_halt: snapshot.dma_need_halt,
             dma_need_dummy: snapshot.dma_need_dummy,
+            dma_abort_dmc: snapshot.dma_abort_dmc,
             dma_halt_done: snapshot.dma_halt_done,
             controller1_shift: snapshot.controller1_shift,
             controller1_state: snapshot.controller1_state,
@@ -1040,6 +1083,113 @@ mod tests {
         }
         assert!(!nes.sprite_dma_active, "OAM DMA completes");
         assert_eq!(nes.sprite_dma_counter, 0x200, "256 bytes copied");
+    }
+
+    #[test]
+    #[ignore = "diagnostic: prints OAM DMA length at each get/put alignment"]
+    fn probe_oamdma_length_by_alignment() {
+        for parity in 0..2u64 {
+            let mut nes = nop_nes();
+            for _ in 0..30 {
+                nes.tick();
+            }
+            // Force the get/put phase the DMA will see, so both alignments
+            // are measured from an otherwise identical machine state.
+            // `tick` is one PPU dot; the parity counter only moves on the
+            // one master tick in three that is a CPU cycle.
+            while nes.cpu_cycle_count & 1 != parity {
+                nes.tick();
+            }
+            nes.cpu_write(0x4014, 0x02);
+
+            let mut start = None;
+            let mut guard = 0;
+            while nes.sprite_dma_active && guard < 8000 {
+                nes.tick();
+                if start.is_none() && nes.dma_halt_done {
+                    start = Some(nes.cpu_cycle_count);
+                }
+                guard += 1;
+            }
+            let cycles = nes.cpu_cycle_count - start.expect("DMA halted");
+            eprintln!("parity {parity}: OAM DMA took {} cycles", cycles + 1);
+        }
+    }
+
+    /// Reproduce `sprdma_and_dmc_dma`'s experiment in-process: start an OAM
+    /// transfer, raise a DMC sample DMA `t` CPU cycles later, and measure the
+    /// combined stall. Mesen2 reports a table that alternates by one cycle
+    /// with `t`'s parity; a flat column here localises the defect to the
+    /// arbitration rather than to either DMA on its own.
+    #[test]
+    #[ignore = "diagnostic: prints combined OAM+DMC stall per DMC offset"]
+    fn probe_combined_dma_by_dmc_offset() {
+        for parity in 0..2u64 {
+            let mut row = Vec::new();
+            for t in 0..16u64 {
+                let mut nes = nop_nes();
+                for _ in 0..30 {
+                    nes.tick();
+                }
+                while nes.cpu_cycle_count & 1 != parity {
+                    nes.tick();
+                }
+                nes.apu.dmc.current_address = 0xC000;
+                nes.apu.dmc.bytes_remaining = 1;
+
+                // The DMC request is on the APU's own clock, so hold it fixed
+                // and slide the `$4014` write by `t` CPU cycles — the variable
+                // the ROM's T+ column actually sweeps.
+                let base = nes.cpu_cycle_count;
+                let mut written = false;
+                let mut start = None;
+                let mut guard = 0;
+                while (nes.sprite_dma_active || nes.dmc_dma_active || !written) && guard < 8000 {
+                    if !written && nes.cpu_cycle_count >= base + t {
+                        nes.cpu_write(0x4014, 0x02);
+                        nes.apu.dmc.dma_pending = true;
+                        written = true;
+                    }
+                    nes.tick();
+                    if start.is_none() && nes.dma_halt_done {
+                        start = Some(nes.cpu_cycle_count);
+                    }
+                    guard += 1;
+                }
+                row.push(nes.cpu_cycle_count - start.expect("DMA halted") + 1);
+            }
+            let cells: Vec<String> = row.iter().map(|c| c.to_string()).collect();
+            eprintln!("parity {parity}: {}", cells.join(" "));
+        }
+    }
+
+    #[test]
+    #[ignore = "diagnostic: prints DMC DMA length at each get/put alignment"]
+    fn probe_dmc_dma_length_by_alignment() {
+        for parity in 0..2u64 {
+            let mut nes = nop_nes();
+            for _ in 0..30 {
+                nes.tick();
+            }
+            while nes.cpu_cycle_count & 1 != parity {
+                nes.tick();
+            }
+            nes.apu.dmc.current_address = 0xC000;
+            nes.apu.dmc.bytes_remaining = 1;
+            nes.apu.dmc.dma_pending = true;
+
+            let mut start = None;
+            let mut guard = 0;
+            while (nes.apu.dmc.dma_pending || nes.dmc_dma_active) && guard < 200 {
+                nes.tick();
+                if start.is_none() && nes.dma_halt_done {
+                    start = Some(nes.cpu_cycle_count);
+                }
+                guard += 1;
+            }
+            let cycles = nes.cpu_cycle_count - start.expect("DMA halted");
+            eprintln!("parity {parity}: DMC DMA took {} cycles", cycles + 1);
+        }
     }
 
     #[test]

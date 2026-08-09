@@ -761,6 +761,10 @@ pub struct Dmc {
     enabled: bool,
     /// Signals the tick loop to steal a CPU cycle for a DMA fetch.
     pub dma_pending: bool,
+    /// Set when `$4015` clears DMC enable while a DMA request was queued.
+    /// The machine layer consumes this to decide between cancelling a
+    /// not-yet-halted transfer and aborting a halted one.
+    pub dma_cancelled: bool,
 }
 
 impl Dmc {
@@ -784,6 +788,7 @@ impl Dmc {
             silence_flag: true,
             enabled: false,
             dma_pending: false,
+            dma_cancelled: false,
         }
     }
 
@@ -1316,6 +1321,21 @@ impl Apu {
                     }
                 } else {
                     self.dmc.bytes_remaining = 0;
+                    // ⚠⚠ A queued-but-unstarted DMA must be CANCELLED, not left
+                    // pending. `$4015` bit 4 cleared while `dma_pending` was set
+                    // previously left the request standing, so the machine layer
+                    // still stole a cycle for a transfer the program had just
+                    // disabled — the sprite/DMC contention cost came out wrong
+                    // by whole cycles at some alignments.
+                    //
+                    // Mesen2 splits this in `StopDmcTransfer()`: before the halt
+                    // cycle the DMA is cancelled outright; once halted it can
+                    // only be *aborted*, which is a different and observable
+                    // path. This clears the pre-halt case; the machine layer
+                    // owns the post-halt one, since only it knows whether the
+                    // halt cycle has run.
+                    self.dmc.dma_pending = false;
+                    self.dmc.dma_cancelled = true;
                 }
                 self.dmc.enabled = dmc_enable;
                 self.dmc.irq_flag = false;
