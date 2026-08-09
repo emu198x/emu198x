@@ -150,7 +150,46 @@ sprite-DMA / DMC-DMA arbitration this ROM is named for, and that arbitration is
 no longer listed as out of scope in the crate's own header, where it had sat
 unmeasured.
 
-What remains, and where stage 2 resumes: the intervals *between* transfers.
+### It is the DMC channel, not the DMA
+
+⚠ **Correction to the reading below.** The inter-transfer intervals turned out to
+be an *effect*, not the cause: they differ by exactly 1.00 NTSC frames (29 636
+against 29 780.7 CPU cycles/frame) at T+00, T+02 and T+04, which is a one-cycle
+error crossing a vblank sync window and costing a whole frame. A symptom
+amplifier, not a location.
+
+Following it down localised the defect. Mesen2's DMC sample address is a
+constant `$E3C0`, so a Lua read callback on that one address logs the CPU cycle
+of every sample fetch — no operation type needed, which Lua callbacks do not
+receive. Comparing fetch cycles against Emu198x's DMA episode trace:
+
+| Mesen2 | Emu198x | |
+|---|---|---|
+| 1228471 | 1228472 | +1 |
+| 1228903 | 1228904 | +1 |
+| 1229335 | 1229336 | +1 |
+| 1229767 | 1229768 | +1 |
+| 1230199 | *(none)* | Mesen fetches once more here; Emu198x does not |
+
+Emu198x's fetches run exactly one cycle late, then Mesen fits in an extra fetch
+that Emu198x never performs, after which the two sequences desynchronise. Over
+the same window Mesen makes **35 sample fetches to Emu198x's 30**, and Emu198x's
+DMC falls silent for ~129 000 cycles where Mesen keeps fetching every 3 424.
+
+⚠ **The DMA length is not the difference.** Emu198x's DMC-only DMAs are 4 cycles
+in 25 of 27 cases, which looked like the flat-versus-alternating signature until
+Mesen's fetch spacing was measured at the same 432 cycles (428 period + 4 DMA).
+Both take 4 there. The hypothesis is dead; what differs is **how often the
+channel asks at all** — its timer and sample-restart scheduling, in
+`ricoh-apu-2a03`, not the arbitration in `machine-nintendo-nes`.
+
+⚠ The two runs' boot alignment differs by ~119 cycles at the first fetch, so
+absolute cycle comparisons need care. The gap *sequences* are the trustworthy
+signal, and they diverge structurally: Mesen `402, 432, 432, 432, 432, 3050,
+4378, 2470, 3424…` against Emu198x `284, 432, 432, 432, 3050, 518, 3858, 2472,
+3424…`.
+
+### Superseded reading: the intervals between transfers
 Logging the CPU cycle at each episode shows Mesen's first five inter-episode
 intervals alternating (177041, 149765, 177905, 146541, 181383) where Emu198x's
 are uniformly low (147405, 149391, 148269, 150687, 148755) — the same

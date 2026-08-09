@@ -167,3 +167,72 @@ fn probe_sprdma_and_dmc_dma() {
 fn probe_sprdma_and_dmc_dma_512() {
     probe("sprdma_and_dmc_dma_512.nes");
 }
+
+/// List every DMA episode -- including the DMC-only ones the trace comparison
+/// discards -- around the first OAM transfers, with each episode's first and
+/// last cycle.
+///
+/// The ROM reports ~528 clocks for a region that must contain the 513/514-cycle
+/// OAM transfer, and the transfer is known to match the reference exactly. That
+/// leaves ~14 cycles of overhead to hold the discrepancy, and the only
+/// alignment-sensitive thing that fits is a DMC-only DMA at 3 or 4 cycles.
+#[test]
+#[ignore = "diagnostic: lists DMA episodes bracketing the first OAM transfers"]
+fn probe_dma_episodes_around_transfers() {
+    let Some(root) = rom_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let path = root
+        .join("sprdma_and_dmc_dma")
+        .join("sprdma_and_dmc_dma.nes");
+    let Ok(bytes) = std::fs::read(&path) else {
+        eprintln!("missing {}", path.display());
+        return;
+    };
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+    nes.start_dma_trace();
+
+    let mut raw: Vec<(u64, u16, bool)> = Vec::new();
+    let mut oam_seen = 0;
+    while nes.master_clock() < MAX_TICKS && oam_seen < 3 {
+        for _ in 0..30_000 {
+            nes.tick();
+        }
+        raw.extend(nes.take_dma_trace());
+        nes.start_dma_trace();
+        oam_seen = raw
+            .iter()
+            .filter(|(_, a, _)| *a < 0x0800)
+            .map(|(c, _, _)| c / 100_000)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+    }
+
+    // Split at halts, keeping every episode this time.
+    let mut episodes: Vec<Vec<(u64, u16)>> = Vec::new();
+    let mut current: Vec<(u64, u16)> = Vec::new();
+    for &(cyc, addr, is_halt) in &raw {
+        if is_halt && !current.is_empty() {
+            episodes.push(std::mem::take(&mut current));
+        }
+        current.push((cyc, addr));
+    }
+    episodes.push(current);
+
+    for (i, ep) in episodes.iter().enumerate() {
+        let is_oam = ep.iter().any(|(_, a)| *a < 0x0800);
+        let first = ep[0].0;
+        let last = ep[ep.len() - 1].0;
+        let kind = if is_oam { "OAM+DMC" } else { "DMC-only" };
+        eprintln!(
+            "{i:03} {kind} start={first} end={last} span={} reads={}",
+            last - first + 1,
+            ep.len()
+        );
+        if i > 60 {
+            break;
+        }
+    }
+}
