@@ -236,3 +236,63 @@ fn probe_dma_episodes_around_transfers() {
         }
     }
 }
+
+/// Interleave `$4015` re-arm writes with DMC sample fetches, both stamped with
+/// the CPU cycle, to compare against Mesen2's `dmc-fetch-cycles.lua` output.
+///
+/// With `sample_length` 1 every fetch needs its own re-arm, so a re-arm landing
+/// while the channel still has bytes remaining is silently ignored.
+#[test]
+#[ignore = "diagnostic: $4015 re-arms interleaved with DMC sample fetches"]
+fn probe_dmc_rearm_vs_fetch() {
+    let Some(root) = rom_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let path = root
+        .join("sprdma_and_dmc_dma")
+        .join("sprdma_and_dmc_dma.nes");
+    let Ok(bytes) = std::fs::read(&path) else {
+        eprintln!("missing {}", path.display());
+        return;
+    };
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+    nes.start_dma_trace();
+
+    let mut raw: Vec<(u64, u16, bool)> = Vec::new();
+    let mut writes: Vec<u64> = Vec::new();
+    while nes.master_clock() < MAX_TICKS && raw.len() < 4000 {
+        for _ in 0..30_000 {
+            nes.tick();
+        }
+        raw.extend(nes.take_dma_trace());
+        writes.extend(nes.take_reg_4015_trace());
+        nes.start_dma_trace();
+    }
+
+    // Episodes exclude the register-write markers; a DMC-only episode's last
+    // read is its sample fetch.
+    let mut out: Vec<(u64, char)> = Vec::new();
+    let mut current: Vec<(u64, u16)> = Vec::new();
+    let flush = |cur: &mut Vec<(u64, u16)>, out: &mut Vec<(u64, char)>| {
+        if !cur.is_empty() && !cur.iter().any(|(_, a)| *a < 0x0800) {
+            out.push((cur[cur.len() - 1].0, 'F'));
+        }
+        cur.clear();
+    };
+    for &c in &writes {
+        out.push((c, 'W'));
+    }
+    for &(cyc, addr, is_halt) in &raw {
+        if is_halt {
+            flush(&mut current, &mut out);
+        }
+        current.push((cyc, addr));
+    }
+    flush(&mut current, &mut out);
+    out.sort_by_key(|(c, _)| *c);
+    for (cyc, kind) in out.iter().take(24) {
+        eprintln!("{kind} {cyc}");
+    }
+}

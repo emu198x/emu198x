@@ -150,7 +150,50 @@ sprite-DMA / DMC-DMA arbitration this ROM is named for, and that arbitration is
 no longer listed as out of scope in the crate's own header, where it had sat
 unmeasured.
 
-### It is the DMC channel, not the DMA
+### ROOT CAUSE: the DMC transfer-start delay is missing
+
+A `$4015` write that re-arms an idle DMC does not start its DMA immediately on
+hardware. Mesen2's `DeltaModulationChannel::WriteRam`:
+
+```cpp
+InitSample();
+//Delay a number of cycles based on odd/even cycles
+//Allows behavior to match dmc_dma_start_test
+if((_console->GetCpu()->GetCycleCount() & 0x01) == 0) {
+    _transferStartDelay = 2;
+} else {
+    _transferStartDelay = 3;
+}
+```
+
+`ProcessClock` then counts it down and calls `StartDmcTransfer` on the cycle it
+reaches zero. **Emu198x sets `dma_pending` immediately, with no delay.**
+
+⚠ The delay is **2 or 3 by get/put parity**. A zero delay is parity-independent,
+which is exactly why every measurement in this campaign found Emu198x flat where
+the reference alternates. It accounts for the whole failure:
+
+| Observation | Explained by |
+|---|---|
+| `+1` at exactly half the alignments, never `-1` | delay is 2 or 3, we use 0 |
+| Emu198x's table flat where Mesen alternates | zero delay cannot vary with parity |
+| re-arm→fetch latency 11 where Mesen is 12 | one cycle of the missing delay |
+| Mesen sweeps 12, 11, 10, 9; Emu198x only 11, 10, 9 | the sweep loses its first case |
+| 30 sample fetches against Mesen's 35 | the sweep terminates an iteration early |
+
+Measured with `probe_dmc_rearm_vs_fetch` against
+[`dmc-fetch-cycles.lua`](../../tools/mesen-nes-cross-check/dmc-fetch-cycles.lua).
+
+**The fix** belongs in `ricoh-apu-2a03`: hold a countdown on `$4015` re-arm
+instead of raising `dma_pending` at once. ⚠ The delay's length depends on the
+CPU's get/put parity, which the APU does not currently know — the machine owns
+it as `cpu_cycle_count`. Deciding how the APU learns the phase is the design
+question the fix has to answer first, and it should not be guessed at.
+
+⚠ Mesen's comment names `dmc_dma_start_test` as the ROM this behaviour exists
+to satisfy. That suite is in the corpus and should gate the fix.
+
+### Superseded reading: it is the DMC channel, not the DMA
 
 ⚠ **Correction to the reading below.** The inter-transfer intervals turned out to
 be an *effect*, not the cause: they differ by exactly 1.00 NTSC frames (29 636

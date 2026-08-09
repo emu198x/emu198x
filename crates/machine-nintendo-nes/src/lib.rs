@@ -188,6 +188,10 @@ pub struct Nes {
     /// the DMC sample address for a steal, the CPU's pending address for a
     /// halt, dummy or alignment cycle.
     dma_trace: Option<Vec<(u64, u16, bool)>>,
+    /// CPU cycles at which the program wrote `$4015`, recorded alongside
+    /// [`Self::dma_trace`]. Kept separate because a DMA halt read can land on
+    /// `$4015` too, and the two are not distinguishable by address.
+    reg_4015_trace: Option<Vec<u64>>,
 
     // ── Controller I/O ──────────────────────────────────────────
     /// Controller 1 shift register (active bits to be read out
@@ -258,6 +262,7 @@ impl Nes {
             dma_abort_dmc: false,
             dma_halt_done: false,
             dma_trace: None,
+            reg_4015_trace: None,
             controller1_shift: 0,
             controller1_state: 0,
             controller2_shift: 0,
@@ -537,6 +542,7 @@ impl Nes {
     /// recorded. See [`Self::dma_trace`].
     pub fn start_dma_trace(&mut self) {
         self.dma_trace = Some(Vec::new());
+        self.reg_4015_trace = Some(Vec::new());
     }
 
     /// Number of DMA episodes recorded so far, so a caller can stop ticking
@@ -545,6 +551,11 @@ impl Nes {
         self.dma_trace
             .as_ref()
             .map_or(0, |t| t.iter().filter(|(_, _, halt)| *halt).count())
+    }
+
+    /// Take the recorded `$4015` write cycles. See [`Self::reg_4015_trace`].
+    pub fn take_reg_4015_trace(&mut self) -> Vec<u64> {
+        self.reg_4015_trace.take().unwrap_or_default()
     }
 
     /// Take the recorded DMA read addresses and disarm the trace.
@@ -650,6 +661,17 @@ impl Nes {
             // $2000-$3FFF: PPU registers.
             0x2000..=0x3FFF => self.ppu.cpu_write(addr, value, self.mapper.as_mut()),
 
+            // $4015: APU status. Recorded in the DMA trace when armed, so a
+            // diagnostic can see where the ROM re-arms the DMC relative to the
+            // sample fetches. ⚠ A DMA halt read at $4015 would be
+            // indistinguishable here; that is acceptable for a diagnostic.
+            0x4015 => {
+                if let Some(trace) = self.reg_4015_trace.as_mut() {
+                    trace.push(self.cpu_cycle_count);
+                }
+                self.apu.write(addr, value);
+            }
+
             // $4014: OAMDMA — halts the CPU and copies 256 bytes from
             // page $XX00 to OAM. A halt cycle + 256 read/write pairs =
             // 513 or 514 cycles by get/put alignment; see `dma_cycle`.
@@ -676,7 +698,7 @@ impl Nes {
             }
 
             // $4000-$4013, $4015, $4017: APU registers.
-            0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write(addr, value),
+            0x4000..=0x4013 | 0x4017 => self.apu.write(addr, value),
 
             // $4018-$401F: APU test registers (unused).
             0x4018..=0x401F => {}
@@ -921,6 +943,7 @@ impl Nes {
             dma_abort_dmc: snapshot.dma_abort_dmc,
             dma_halt_done: snapshot.dma_halt_done,
             dma_trace: None,
+            reg_4015_trace: None,
             controller1_shift: snapshot.controller1_shift,
             controller1_state: snapshot.controller1_state,
             controller2_shift: snapshot.controller2_shift,
