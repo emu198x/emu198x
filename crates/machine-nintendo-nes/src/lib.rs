@@ -873,9 +873,28 @@ mod tests {
     #[test]
     #[ignore = "diagnostic: run a directory of blargg NES test ROMs (EMU198X_NES_SUITE)"]
     fn diagnostic_nes_suite() {
-        let dir = std::env::var("EMU198X_NES_SUITE").expect("set EMU198X_NES_SUITE");
-        let mut roms: Vec<_> = std::fs::read_dir(&dir)
-            .expect("read NES suite dir")
+        // ⚠⚠ SKIP when the input is absent; never panic. This test lives in the
+        // LIB target, which cargo runs before the integration targets, so a
+        // panic here fast-fails the whole package: `cargo test
+        // -p machine-nintendo-nes -- --ignored` reported "0 passed; 1 failed;
+        // 19 filtered out" and ran no blargg ROM at all. The NES ignored suite
+        // was therefore unrunnable on any machine without this variable set,
+        // which is a plausible reason the core reached 3,300 lines of PPU with
+        // no recorded accuracy measurement while other systems got campaigns.
+        //
+        // Every other ROM-dependent test here already does the right thing —
+        // `blargg_root()` returns Option and the test becomes a no-op. Match it.
+        let Ok(dir) = std::env::var("EMU198X_NES_SUITE") else {
+            eprintln!("skipping diagnostic_nes_suite: EMU198X_NES_SUITE not set");
+            return;
+        };
+        // A set-but-wrong path is the same situation: report and skip rather
+        // than take the package down with it.
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            eprintln!("skipping diagnostic_nes_suite: cannot read {dir}");
+            return;
+        };
+        let mut roms: Vec<_> = entries
             .flatten()
             .map(|e| e.path())
             .filter(|p| p.extension().is_some_and(|x| x == "nes"))
