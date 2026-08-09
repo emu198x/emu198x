@@ -79,8 +79,8 @@ impl MachineKind {
         }
     }
 
-    /// Parses a snake-case identifier from a script step.
-    #[allow(dead_code)] // wired when script-mode SetMachine support lands
+    /// Parses a snake-case identifier from a script step or the
+    /// `--machine` CLI flag.
     #[must_use]
     pub fn from_script_id(id: &str) -> Option<Self> {
         Some(match id {
@@ -99,6 +99,21 @@ impl MachineKind {
             "timex_ts2068" => Self::TimexTS2068,
             _ => return None,
         })
+    }
+
+    /// Every accepted script identifier, comma-separated, in
+    /// [`Self::all`] order. Derived from the enum rather than written
+    /// out, so an added variant can't leave a stale list behind in an
+    /// error message — which is exactly what happened to the
+    /// `set_machine` tool, whose hand-written list named only the SOLID
+    /// 8 while `from_script_id` accepted all 13.
+    #[must_use]
+    pub fn script_id_list() -> String {
+        Self::all()
+            .iter()
+            .map(|kind| kind.script_id())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     /// All variants in catalogue order: SOLID 8 (16K → 48K → Plus →

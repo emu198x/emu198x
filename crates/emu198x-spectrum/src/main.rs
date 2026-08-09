@@ -79,11 +79,21 @@ pub enum AppError {
     #[error("tape transport requested without tape media")]
     MissingTape,
 
+    /// `--machine` named an unknown variant, or one contradicted by the
+    /// script's first portable snapshot.
+    #[error("--machine: {reason}")]
+    InvalidMachine {
+        /// Why the requested variant was refused.
+        reason: String,
+    },
+
     #[error("--autoload-tape conflicts with --play-tape")]
     ConflictingTapeWorkflow,
 
     /// One script step is recognised by the shell vocabulary but not
-    /// yet handled by this binary (currently `set_machine`).
+    /// handled by this binary. `set_machine` was the last such step;
+    /// it has been supported since #456 and now routes through
+    /// `HeadlessSession::swap_machine`.
     #[error("script step `{step}` is unsupported: {reason}")]
     ScriptUnsupported {
         /// The step's serde tag (e.g. `"set_machine"`).

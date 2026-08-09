@@ -1,6 +1,6 @@
 //! Headless / script execution mode.
 //!
-//! Boots a default 48K runtime, optionally translates surviving CLI
+//! Boots a Spectrum runtime, optionally translates surviving CLI
 //! convenience flags (`--tape`, `--play-tape`, `--autoload-tape`) into
 //! prepended `ScriptStep`s, then iterates the script (CLI-derived
 //! steps + JSON-file steps if provided). System-specific steps —
@@ -8,9 +8,12 @@
 //! executor sees them; everything else delegates to
 //! `ScriptStep::execute_collect`.
 //!
-//! Default boot policy is **eager 48K**: a script that doesn't include
-//! `set_machine` runs on the default 48K runtime. Preserves Code198x's
-//! existing screenshot/video pipelines, which assume 48K implicitly.
+//! Default boot policy is **eager 48K**: a run that names no variant
+//! uses the 48K runtime. Preserves Code198x's existing screenshot/video
+//! pipelines, which assume 48K implicitly. Two things override it —
+//! `--machine ID`, and a script whose first portable `LoadSnapshot`
+//! targets a non-48K image. A mid-script `set_machine` step instead
+//! swaps variant during the run.
 //!
 //! Output: a `RunnerReport` JSON document on stdout when a script file
 //! is supplied, or a one-line tape-state summary otherwise.
@@ -33,6 +36,15 @@ script (if any), plus any prepended convenience-flag steps.
 Options:
     --script PATH        execute the JSON session at PATH
     --headless           run without a window (implied by --script)
+    --machine ID         boot this variant instead of the default 48K.
+                         One of: spectrum_16k, spectrum_48k,
+                         spectrum_plus, spectrum_128k, spectrum_plus2,
+                         spectrum_plus2a, spectrum_plus2b,
+                         spectrum_plus3, pentagon_128, scorpion_zs256,
+                         timex_tc2048, timex_tc2068, timex_ts2068.
+                         Selects the boot variant; use a mid-script
+                         { \"action\": \"set_machine\" } step to swap
+                         variant during a run.
     --tape PATH          load a tape image into slot tape-1
                          (== { \"action\": \"load_media\", \"slot\": \"tape-1\",
                               \"kind\": \"tape\", \"path\": PATH })
@@ -51,6 +63,7 @@ See `knowledge/decisions/script-vocabulary.md` for the schema.
 Examples:
     emu198x-spectrum --script boot.json
     emu198x-spectrum --headless --tape manic.tzx --autoload-tape --script run.json
+    emu198x-spectrum --headless --machine spectrum_128k --tape testInt.tap --script run.json
 ";
 
 /// CLI surface for headless / script mode.
@@ -58,6 +71,9 @@ Examples:
 pub struct ScriptCli {
     /// Optional JSON session file to execute.
     pub script: Option<PathBuf>,
+    /// Variant to boot, as a `MachineKind` script identifier. `None`
+    /// keeps the default 48K boot policy.
+    pub machine: Option<String>,
     /// Tape media to load into `tape-1` before script execution.
     pub tape: Option<PathBuf>,
     /// Start tape transport on `tape-1` immediately.
@@ -82,6 +98,7 @@ where
             "--script" => {
                 cli.script = Some(PathBuf::from(next_arg(&mut iter, "--script")));
             }
+            "--machine" => cli.machine = Some(next_arg(&mut iter, "--machine")),
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
             "--play-tape" => cli.play_tape = true,
             "--autoload-tape" => cli.autoload_tape = true,
@@ -101,6 +118,7 @@ where
 pub fn run(cli: ScriptCli) -> Result<(), AppError> {
     let inputs = ScriptInputs {
         script: cli.script.clone(),
+        machine: cli.machine.clone(),
         tape: cli.tape.clone(),
         play_tape: cli.play_tape,
         autoload_tape: cli.autoload_tape,
@@ -170,11 +188,34 @@ mod tests {
             cli,
             ScriptCli {
                 script: Some(PathBuf::from("run.json")),
+                machine: None,
                 tape: Some(PathBuf::from("manic.tzx")),
                 play_tape: false,
                 autoload_tape: true,
             }
         );
+    }
+
+    #[test]
+    fn parse_cli_reads_machine_id() {
+        let cli = parse_cli([
+            "--headless".to_owned(),
+            "--machine".to_owned(),
+            "spectrum_128k".to_owned(),
+            "--tape".to_owned(),
+            "testInt.tap".to_owned(),
+        ]);
+        assert_eq!(cli.machine.as_deref(), Some("spectrum_128k"));
+        assert_eq!(cli.tape, Some(PathBuf::from("testInt.tap")));
+    }
+
+    /// The flag is not validated at parse time — `run_script` resolves
+    /// it against `MachineKind::from_script_id` so the error carries the
+    /// enum-derived list of accepted identifiers.
+    #[test]
+    fn parse_cli_does_not_validate_machine_id() {
+        let cli = parse_cli(["--machine".to_owned(), "spectrum_999k".to_owned()]);
+        assert_eq!(cli.machine.as_deref(), Some("spectrum_999k"));
     }
 
     #[test]

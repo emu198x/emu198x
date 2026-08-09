@@ -174,9 +174,8 @@ pub(crate) fn execute_set_machine(
 ) -> Result<ScriptObservation, ToolError> {
     let kind = MachineKind::from_script_id(requested).ok_or_else(|| {
         ToolError::InvalidArguments(format!(
-            "set_machine: unknown machine id `{requested}`; expected one of \
-             spectrum_16k, spectrum_48k, spectrum_plus, spectrum_128k, \
-             spectrum_plus2, spectrum_plus2a, spectrum_plus2b, spectrum_plus3"
+            "set_machine: unknown machine id `{requested}`; expected one of {}",
+            MachineKind::script_id_list()
         ))
     })?;
     let model = kind_to_model(kind);

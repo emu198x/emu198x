@@ -9,8 +9,9 @@
 //! `SetMachine` works here: the session holds the same family enum the
 //! MCP server holds, so mid-script variant swaps route through the
 //! shared `HeadlessSession::swap_machine` (#456). The initial variant
-//! is picked from the script's first portable `LoadSnapshot` (so a
-//! 128K-family snapshot boots its own runtime), defaulting to 48K.
+//! comes from `--machine`, else the script's first portable
+//! `LoadSnapshot` (so a 128K-family snapshot boots its own runtime),
+//! else 48K.
 
 use std::path::PathBuf;
 
@@ -38,6 +39,9 @@ const DEFAULT_TAPE_SLOT: &str = "tape-1";
 pub struct ScriptInputs {
     /// Optional JSON session file to execute.
     pub script: Option<PathBuf>,
+    /// Variant to boot, as a `MachineKind` script identifier. `None`
+    /// keeps the default 48K boot policy.
+    pub machine: Option<String>,
     /// Tape media to load before script execution.
     pub tape: Option<PathBuf>,
     /// Start tape transport on `tape-1` immediately.
@@ -59,10 +63,10 @@ pub struct RunnerReport {
     pub tape_playing: bool,
 }
 
-/// Runs the script. Pre-scans the script for the first portable
-/// `LoadSnapshot` step; if it targets a 128K-family snapshot, boots
-/// that variant instead of the default 48K and pre-applies the
-/// snapshot. Otherwise eager-boots 48K and iterates as usual.
+/// Runs the script. The boot variant comes from `--machine` when
+/// given, otherwise from the first portable `LoadSnapshot` step: if
+/// that targets a 128K-family snapshot, boots that variant and
+/// pre-applies the snapshot. Failing both, eager-boots 48K.
 ///
 /// The pre-scan is what makes diagnostic flows like "drop a SkoolKit
 /// `tap2sna.py` snapshot into our emulator and run it" work — applying
@@ -91,10 +95,8 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
     // family enum either way, so picking the variant is just a
     // `MachineKind`; one boot path covers all of them.
     let preload = detect_first_portable_snapshot(json_script.as_ref())?;
-    let boot_kind = match &preload {
-        Some(preload) => snapshot_model_to_kind(preload.model),
-        None => MachineKind::Spectrum48K,
-    };
+    let boot_kind =
+        resolve_boot_kind(inputs.machine.as_deref(), preload.as_ref().map(|p| p.model))?;
 
     let runtime = boot_eager_kind(boot_kind)?;
     let frame_ticks = runtime.native_frame_ticks();
@@ -298,6 +300,67 @@ fn boot_eager_kind(kind: MachineKind) -> Result<SpectrumRuntimeKind, AppError> {
 /// Pentagon / Scorpion clones) falls back to 48K and applies the
 /// snapshot against that map. Preserves the model→variant routing the
 /// old per-variant boot helpers hard-coded.
+/// Picks the variant to boot from the `--machine` flag and the
+/// script's first portable snapshot.
+///
+/// `--machine` selects the **boot** variant rather than desugaring to a
+/// prepended `set_machine` step, and that distinction is load-bearing:
+/// `HeadlessSession::swap_machine` installs a freshly-built runtime and
+/// hard-resets, so a swap running after `--tape` had already loaded
+/// media into the session would silently discard it. Choosing the
+/// variant up front also skips a wasted 48K boot.
+///
+/// A mid-script `set_machine` step keeps its swap semantics — that is
+/// the documented way to change variant *during* a run (#456).
+///
+/// # Errors
+///
+/// Returns [`AppError::ScriptStepRejected`] when the identifier is not a
+/// known variant, or when it contradicts the variant implied by the
+/// script's first portable snapshot. Booting the requested variant and
+/// then applying a snapshot built for a different one is the exact
+/// failure the snapshot pre-scan exists to prevent, so the conflict is
+/// refused rather than resolved by precedence.
+fn resolve_boot_kind(
+    requested: Option<&str>,
+    preload_model: Option<SnapshotModel>,
+) -> Result<MachineKind, AppError> {
+    let requested = match requested {
+        Some(id) => {
+            Some(
+                MachineKind::from_script_id(id).ok_or_else(|| AppError::InvalidMachine {
+                    reason: format!(
+                        "unknown machine id `{id}`; expected one of {}",
+                        MachineKind::script_id_list()
+                    ),
+                })?,
+            )
+        }
+        None => None,
+    };
+
+    match (requested, preload_model) {
+        (Some(requested), Some(model)) => {
+            let implied = snapshot_model_to_kind(model);
+            if implied == requested {
+                Ok(requested)
+            } else {
+                Err(AppError::InvalidMachine {
+                    reason: format!(
+                        "{} conflicts with the script's first portable snapshot, \
+                         which is a {} image",
+                        requested.script_id(),
+                        implied.script_id()
+                    ),
+                })
+            }
+        }
+        (Some(requested), None) => Ok(requested),
+        (None, Some(model)) => Ok(snapshot_model_to_kind(model)),
+        (None, None) => Ok(MachineKind::Spectrum48K),
+    }
+}
+
 fn snapshot_model_to_kind(model: SnapshotModel) -> MachineKind {
     match model {
         SnapshotModel::Spectrum128K => MachineKind::Spectrum128K,
@@ -395,6 +458,93 @@ fn _control_command_anchor() -> ControlCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn boot_kind_defaults_to_48k() {
+        assert_eq!(
+            resolve_boot_kind(None, None).expect("no inputs is always valid"),
+            MachineKind::Spectrum48K
+        );
+    }
+
+    #[test]
+    fn machine_flag_selects_boot_variant() {
+        assert_eq!(
+            resolve_boot_kind(Some("spectrum_128k"), None).expect("known id"),
+            MachineKind::Spectrum128K
+        );
+    }
+
+    /// The exotics are reachable too — `from_script_id` has always
+    /// accepted all 13 variants even though the `set_machine` error
+    /// message used to name only the SOLID 8.
+    #[test]
+    fn machine_flag_accepts_the_exotics() {
+        assert_eq!(
+            resolve_boot_kind(Some("pentagon_128"), None).expect("known id"),
+            MachineKind::Pentagon128
+        );
+    }
+
+    #[test]
+    fn unknown_machine_id_is_rejected_and_lists_the_accepted_ids() {
+        let err = resolve_boot_kind(Some("spectrum_999k"), None)
+            .expect_err("an unknown id must not fall back to 48K");
+        let message = err.to_string();
+        assert!(
+            message.contains("spectrum_999k"),
+            "the error should name the rejected id, got: {message}"
+        );
+        assert!(
+            message.contains("spectrum_128k") && message.contains("timex_ts2068"),
+            "the error should list the accepted ids, got: {message}"
+        );
+    }
+
+    /// A snapshot still picks the boot variant on its own.
+    #[test]
+    fn snapshot_model_selects_boot_variant_without_the_flag() {
+        assert_eq!(
+            resolve_boot_kind(None, Some(SnapshotModel::Spectrum128K)).expect("valid"),
+            MachineKind::Spectrum128K
+        );
+    }
+
+    #[test]
+    fn machine_flag_agreeing_with_the_snapshot_is_accepted() {
+        assert_eq!(
+            resolve_boot_kind(Some("spectrum_128k"), Some(SnapshotModel::Spectrum128K))
+                .expect("agreement is not a conflict"),
+            MachineKind::Spectrum128K
+        );
+    }
+
+    /// Booting the requested variant and then applying a snapshot built
+    /// for another would leave the CPU on a hybrid memory map — the
+    /// exact failure the snapshot pre-scan exists to prevent. Refuse
+    /// rather than pick a winner.
+    #[test]
+    fn machine_flag_conflicting_with_the_snapshot_is_refused() {
+        let err = resolve_boot_kind(Some("spectrum_48k"), Some(SnapshotModel::Spectrum128K))
+            .expect_err("a contradicted --machine must not be silently overridden");
+        let message = err.to_string();
+        assert!(
+            message.contains("spectrum_48k") && message.contains("spectrum_128k"),
+            "the error should name both variants, got: {message}"
+        );
+    }
+
+    #[test]
+    fn machine_id_list_covers_every_variant() {
+        let list = MachineKind::script_id_list();
+        for kind in MachineKind::all() {
+            assert!(
+                list.contains(kind.script_id()),
+                "{} missing from the accepted-id list",
+                kind.script_id()
+            );
+        }
+    }
     // `profile()` comes from the `MachineCore` trait — only the variant-swap
     // test reads it, so scope the import to the test module.
     use emu198x_shell::MachineCore;
