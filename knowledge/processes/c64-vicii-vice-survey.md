@@ -46,9 +46,11 @@ a separate `-dirty` result directory and cannot be treated as closure evidence.
 
 The underlying integration test boots the PAL breadbin profile for 150 frames,
 loads each selected PRG directly into RAM, updates BASIC's end-of-program
-pointer, types `RUN`, and settles for 60 frames. Direct PRG injection avoids
-making disk or tape behaviour part of this video question; the program still
-runs through the normal CPU, memory and VIC-II paths.
+pointer, and types `RUN`. Each key is held for three frames and followed by a
+two-frame inter-character interval; typing has a ten-frame settle, followed by
+60 explicit capture-settle frames. Direct PRG injection avoids making disk or
+tape behaviour part of this video question; the program still runs through
+the normal CPU, memory and VIC-II paths.
 
 ## Result
 

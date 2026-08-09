@@ -21,7 +21,7 @@ pub const MAX_KEY_HOLD_FRAMES: u32 = 600;
 pub const DEFAULT_TYPE_SETTLE_FRAMES: u32 = 10;
 /// Frames run after each character's release so the editor registers
 /// consecutive identical keys as separate presses.
-const INTER_CHAR_FRAMES: u32 = 2;
+pub const DEFAULT_INTER_CHAR_FRAMES: u32 = 2;
 
 fn queue_key<Q: SessionQueryProvider<C64Runtime>>(
     session: &mut HeadlessSession<C64Runtime, Q>,
@@ -82,7 +82,7 @@ pub fn type_string<Q: SessionQueryProvider<C64Runtime>>(
         for key in keys.iter().rev() {
             queue_key(session, key, false);
         }
-        session.run_frames(INTER_CHAR_FRAMES)?;
+        session.run_frames(DEFAULT_INTER_CHAR_FRAMES)?;
         typed += 1;
     }
 

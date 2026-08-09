@@ -83,9 +83,59 @@ fn snapshot_round_trip_preserves_mid_cycle_runtime_state() {
             expected_machine.vic().ba_low
         );
         assert_eq!(
+            restored.machine().vic().ba_low_cycles(),
+            expected_machine.vic().ba_low_cycles()
+        );
+        assert_eq!(
+            restored.machine().vic().aec_is_low(),
+            expected_machine.vic().aec_is_low()
+        );
+        assert_eq!(
             restored.machine().framebuffer(),
             expected_machine.framebuffer()
         );
+    }
+}
+
+#[test]
+fn snapshot_round_trip_preserves_ba_to_aec_handover() {
+    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+    let machine = runtime.machine_mut();
+    machine.cpu_write(0xD011, 0x11); // DEN on; line $30 is not initially bad
+    while machine.raster_line() != 0x30 || machine.cycle_in_line() != 16 {
+        machine.tick();
+    }
+
+    // Force a badline after the ordinary cycles 12-14 BA lead has passed.
+    // Processing cycle 16 performs the first invalid c-access and leaves the
+    // global handover counter one cycle old.
+    machine.cpu_write(0xD011, 0x10);
+    machine.tick();
+    assert!(machine.vic().ba_low);
+    assert!(!machine.vic().aec_is_low());
+    assert_eq!(machine.vic().ba_low_cycles(), 1);
+
+    let snapshot = runtime
+        .snapshot()
+        .expect("mid-handover C64 runtime should snapshot");
+    let mut expected = runtime.machine().clone();
+    let mut restored = C64Runtime::blank(Model::C64PalBreadbin);
+    restored
+        .restore(&snapshot)
+        .expect("mid-handover snapshot should restore");
+
+    for _ in 0..4 {
+        assert_eq!(restored.machine_mut().tick(), expected.tick());
+        assert_eq!(
+            restored.machine().vic().ba_low_cycles(),
+            expected.vic().ba_low_cycles()
+        );
+        assert_eq!(
+            restored.machine().vic().aec_is_low(),
+            expected.vic().aec_is_low()
+        );
+        assert_eq!(restored.machine().framebuffer(), expected.framebuffer());
     }
 }
 
@@ -295,11 +345,11 @@ fn restore_rejects_old_schema_before_decoding_its_payload() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");
     let err = runtime
-        .restore(&[3])
-        .expect_err("version 3 snapshot should be rejected before payload decode");
+        .restore(&[4])
+        .expect_err("version 4 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason }
-            if reason == "unsupported snapshot version 3; expected 4"),
+            if reason == "unsupported snapshot version 4; expected 5"),
         "unexpected error variant: {err:?}",
     );
 }

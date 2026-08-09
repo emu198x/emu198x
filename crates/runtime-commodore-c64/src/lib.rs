@@ -30,6 +30,6 @@ pub use profiles::{Model, profile_for, profiles};
 pub use queries::C64SessionQueryProvider;
 pub use runtime::C64Runtime;
 pub use typing::{
-    DEFAULT_KEY_HOLD_FRAMES, DEFAULT_TYPE_SETTLE_FRAMES, MAX_KEY_HOLD_FRAMES, press_key,
-    type_string,
+    DEFAULT_INTER_CHAR_FRAMES, DEFAULT_KEY_HOLD_FRAMES, DEFAULT_TYPE_SETTLE_FRAMES,
+    MAX_KEY_HOLD_FRAMES, press_key, type_string,
 };

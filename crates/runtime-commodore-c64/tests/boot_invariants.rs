@@ -110,7 +110,7 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
     Ok(())
 }
 
-/// Seam 5 waypoint: C64 snapshot envelope version is locked at 4.
+/// Seam 5 waypoint: C64 snapshot envelope version is locked at 5.
 ///
 /// Postcard varint-encodes the leading `version: u32` field as a
 /// single byte (for value ≤ 127). A silent bump would change the
@@ -122,9 +122,10 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
 /// GeoRAM/REU sizes, 1351-mouse port) joined the envelope so a restored
 /// snapshot keeps them across a reset, and to 4 when live VIC-II sprite
 /// pipeline state and queued SID samples became part of arbitrary-phase
-/// snapshots.
+/// snapshots, and to 5 when the global VIC-II BA-to-AEC delay became explicit
+/// serialised state.
 #[test]
-fn snapshot_envelope_version_is_locked_at_v4() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_locked_at_v5() -> Result<(), Box<dyn Error>> {
     let runtime = C64Runtime::new(
         Model::C64PalBreadbin,
         vec![0; KERNAL_SIZE],
@@ -135,8 +136,8 @@ fn snapshot_envelope_version_is_locked_at_v4() -> Result<(), Box<dyn Error>> {
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must have a non-empty envelope");
     assert_eq!(
-        bytes[0], 4,
-        "C64 snapshot envelope version should be 4 (got {})",
+        bytes[0], 5,
+        "C64 snapshot envelope version should be 5 (got {})",
         bytes[0]
     );
     Ok(())

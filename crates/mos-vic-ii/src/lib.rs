@@ -62,7 +62,24 @@ use palette::PALETTE;
 /// Rendering consumes the same pre-increment VMLI and generates fresh idle or
 /// graphics pixels beneath an opened vertical border instead of retaining the
 /// previous frame's border pixels.
-pub const FRAME_ROUTING_VERSION: u32 = 3;
+///
+/// **Version 4** (2026-08-08): aggregate BA now has an explicit three-cycle
+/// handover to AEC. Forced badlines store the disconnected `$FF` matrix byte
+/// and the sampled CPU-side colour nibble until the fourth consecutive BA-low
+/// cycle; ordinary badlines retain their cycles 12-14 lead and valid cycle-15
+/// access. The C64 machine supplies the CPU Phi2 byte through `VicPhi2Bus`.
+pub const FRAME_ROUTING_VERSION: u32 = 4;
+
+/// CPU-side data visible during the VIC-II's Phi2 phase.
+///
+/// The machine resolves this value from the live CPU address/data pins before
+/// ticking the VIC-II. Keeping it as a sampled value leaves the video chip
+/// independent of the CPU implementation while making bus ownership explicit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VicPhi2Bus {
+    /// Byte currently supplied by the CPU side of the shared data bus.
+    pub cpu_data: u8,
+}
 
 const PAL_FIRST_VISIBLE_LINE: u16 = 0;
 const PAL_LAST_VISIBLE_LINE: u16 = 312;
@@ -250,19 +267,20 @@ pub struct Vic {
     /// See [`Vic::cpu_stalled`] for the AEC-equivalent signal that
     /// fires only when the VIC-II is actually on the bus.
     pub ba_low: bool,
-    /// AEC-equivalent: `true` when the CPU is actually off the bus
-    /// because the VIC-II has taken it (badline DMA cycles 15-54,
-    /// or sprite DMA cycles 58/59 for sprite 0 and shifted onwards
-    /// for sprites 1-7). Differs from [`Vic::ba_low`] by the 3-cycle
-    /// BA-warm-up window where the CPU can still complete writes.
+    /// AEC-equivalent: `true` when the CPU is actually off the bus because the
+    /// VIC-II has taken it. This becomes true on the fourth consecutive cycle
+    /// of aggregate BA-low state and remains true while BA stays low, including
+    /// across overlapping badline and sprite requests.
     ///
-    /// The machine layer currently drives `cpu.rdy` off `ba_low`
-    /// only (NMOS-correct), and this field is informational for
-    /// diagnostic tests and future fidelity work (e.g. modelling
-    /// CPU writes that race against AEC drop). The asymmetry
-    /// between the two fields is asserted in unit tests; see
+    /// The machine layer drives `cpu.rdy` from `ba_low` (NMOS-correct), while
+    /// this field controls whether a Phi2 matrix access owns the memory bus.
+    /// The asymmetry between the two signals is asserted in unit tests; see
     /// `c64-architecture-review.md` Seam 1.
     pub cpu_stalled: bool,
+    /// Number of consecutive Phi2 cycles for which aggregate BA has remained
+    /// low, saturated at four. The first three cycles are the CPU wind-down
+    /// interval; at four the VIC-II owns the bus and AEC is low.
+    ba_low_cycles: u8,
 
     #[serde(with = "BigArray")]
     regs: [u8; 0x40],
@@ -369,6 +387,7 @@ impl Vic {
             irq: false,
             ba_low: false,
             cpu_stalled: false,
+            ba_low_cycles: 0,
             regs: [0; 0x40],
             raster_line: 0,
             raster_cycle: 0,
@@ -415,7 +434,7 @@ impl Vic {
     }
 
     /// Tick the VIC-II for one `phi2` cycle.
-    pub fn tick(&mut self, memory: &dyn VicMemory) -> bool {
+    pub fn tick(&mut self, memory: &dyn VicMemory, phi2_bus: VicPhi2Bus) -> bool {
         // The display/g-access phase sees the state entering this cycle. A
         // forced badline created after cycle 15 does not leave idle until the
         // cycle-16 Phi2 phase, so its first active display access is cycle 17.
@@ -439,10 +458,13 @@ impl Vic {
         self.check_badline();
         self.apply_phi2_video_counter_events();
 
-        let badline_stall = self.is_badline && (15..=54).contains(&self.raster_cycle);
-        let sprite_stall = self.is_sprite_dma_stealing();
-        self.cpu_stalled = badline_stall || sprite_stall;
         self.ba_low = self.compute_ba_low();
+        self.ba_low_cycles = if self.ba_low {
+            self.ba_low_cycles.saturating_add(1).min(4)
+        } else {
+            0
+        };
+        self.cpu_stalled = self.ba_low_cycles == 4;
 
         // Stream the video-matrix c-access: one read per Phi2 cycle of a
         // badline (cycles 15-54), into the matrix line buffer indexed by VMLI
@@ -450,7 +472,7 @@ impl Vic {
         // batched 40-read row fetch preserves ordinary row bytes while also
         // representing the shorter fetch sequence of a forced late badline.
         if self.is_badline && (15..=54).contains(&self.raster_cycle) {
-            self.c_access(memory);
+            self.c_access(memory, phi2_bus.cpu_data);
         }
 
         self.raster_cycle += 1;
@@ -626,11 +648,20 @@ impl Vic {
     /// Streamed one-per-cycle across a badline's cycles 15-54 (replacing the
     /// archive's batched 40-read row fetch). The screen address is
     /// `screen_base + VC`. VMLI tracks the paired display-buffer entry. On an
-    /// ordinary badline this produces the familiar 40 linear cells; a forced
-    /// late badline deliberately begins later and produces fewer pairs.
-    fn c_access(&mut self, memory: &dyn VicMemory) {
+    /// ordinary badline this produces the familiar 40 linear cells. During a
+    /// forced late badline, attempted accesses before AEC falls store `$FF`
+    /// plus the CPU-side low nibble without touching VIC memory.
+    fn c_access(&mut self, memory: &dyn VicMemory, cpu_data: u8) {
         let idx = self.vmli as usize;
         if idx >= self.screen_row.len() {
+            return;
+        }
+        if !self.cpu_stalled {
+            self.screen_row[idx] = 0xFF;
+            self.colour_row[idx] = cpu_data & 0x0F;
+            // This internal disconnected-matrix value does not update the
+            // simplified CPU-visible open-bus latch. That latch needs its own
+            // evidence contract before invalid Phi2 activity can change it.
             return;
         }
         let addr = self.vram_addr(self.screen_base() + self.vc);
@@ -1261,6 +1292,7 @@ impl Vic {
         }
     }
 
+    #[cfg(test)]
     fn is_sprite_dma_stealing(&self) -> bool {
         let c = self.raster_cycle;
         let cpl = self.cycles_per_line;
@@ -1439,6 +1471,24 @@ impl Vic {
     #[must_use]
     pub const fn ba_is_low(&self) -> bool {
         self.ba_low
+    }
+
+    /// Whether AEC is low and the VIC-II currently owns the Phi2 bus.
+    #[must_use]
+    pub const fn aec_is_low(&self) -> bool {
+        self.cpu_stalled
+    }
+
+    /// Consecutive BA-low Phi2 cycles, saturated at four.
+    #[must_use]
+    pub const fn ba_low_cycles(&self) -> u8 {
+        self.ba_low_cycles
+    }
+
+    /// Whether the display sequencer is in idle state.
+    #[must_use]
+    pub const fn idle_state(&self) -> bool {
+        self.idle_state
     }
 
     /// Set the active VIC bank.
@@ -1628,7 +1678,11 @@ mod tests {
     }
 
     fn tick_vic(vic: &mut Vic, mem: &TestMemory) -> bool {
-        vic.tick(mem)
+        tick_vic_with_cpu_data(vic, mem, 0)
+    }
+
+    fn tick_vic_with_cpu_data(vic: &mut Vic, mem: &TestMemory, cpu_data: u8) -> bool {
+        vic.tick(mem, VicPhi2Bus { cpu_data })
     }
 
     fn advance_to(vic: &mut Vic, memory: &TestMemory, line: u16, cycle: u8) {
@@ -2527,14 +2581,12 @@ mod tests {
     }
 
     #[test]
-    fn late_badline_keeps_first_matrix_fetch_at_vmli_zero() {
+    fn late_badline_uses_invalid_matrix_data_until_aec_is_low() {
         let chargen = vec![0u8; 4096];
         let mut colours = vec![0u8; 1024];
-        colours[0x120] = 0x0C;
-        colours[0x121] = 0x0D;
+        colours[0x123] = 0x0D;
         let mut memory = TestMemory::with_colour(&chargen, colours);
-        memory.ram_write(0x0120, 0x42);
-        memory.ram_write(0x0121, 0x43);
+        memory.ram_write(0x0123, 0x43);
 
         let mut vic = Vic::new(VicModel::Pal6569);
         vic.raster_line = 0x30;
@@ -2553,24 +2605,49 @@ mod tests {
         assert!(!vic.is_badline());
 
         // Changing YSCROLL after cycle 15 creates the late badline. Cycle 16
-        // still performs its Phi1 access in idle state; Phi2 then fetches the
-        // first matrix entry at VCBASE/VMLI zero.
+        // still performs its Phi1 access in idle state. BA has had no lead
+        // time, so the attempted Phi2 c-access stores the disconnected matrix
+        // value and the CPU-side low nibble in slot zero.
         vic.write(0x11, 0x10);
-        tick_vic(&mut vic, &memory);
+        tick_vic_with_cpu_data(&mut vic, &memory, 0x8A);
         assert!(vic.is_badline());
+        assert!(vic.ba_low);
+        assert!(!vic.aec_is_low());
+        assert_eq!(vic.ba_low_cycles(), 1);
         assert_eq!(vic.vc(), 0x0120);
         assert_eq!(vic.vmli(), 0);
-        assert_eq!(vic.screen_row[0], 0x42);
-        assert_eq!(vic.colour_row[0], 0x0C);
+        assert_eq!(vic.screen_row[0], 0xFF);
+        assert_eq!(vic.colour_row[0], 0x0A);
         assert_eq!(vic.screen_row[1], 0x00);
 
-        // Cycle 17 is the first display g-access. It consumes slot zero,
-        // advances VC/VMLI, then the c-access fills slot one.
-        tick_vic(&mut vic, &memory);
+        // Cycles 17 and 18 remain in the three-cycle BA wind-down interval.
+        // Distinct inputs prove that the nibble is supplied through the bus
+        // contract rather than hard-coded for one test program.
+        tick_vic_with_cpu_data(&mut vic, &memory, 0x95);
         assert_eq!(vic.vc(), 0x0121);
         assert_eq!(vic.vmli(), 1);
-        assert_eq!(vic.screen_row[1], 0x43);
-        assert_eq!(vic.colour_row[1], 0x0D);
+        assert_eq!(vic.screen_row[1], 0xFF);
+        assert_eq!(vic.colour_row[1], 0x05);
+        assert_eq!(vic.ba_low_cycles(), 2);
+        assert!(!vic.aec_is_low());
+
+        tick_vic_with_cpu_data(&mut vic, &memory, 0xC3);
+        assert_eq!(vic.vc(), 0x0122);
+        assert_eq!(vic.vmli(), 2);
+        assert_eq!(vic.screen_row[2], 0xFF);
+        assert_eq!(vic.colour_row[2], 0x03);
+        assert_eq!(vic.ba_low_cycles(), 3);
+        assert!(!vic.aec_is_low());
+
+        // Cycle 19 is the fourth consecutive BA-low cycle. AEC is now low and
+        // the first real matrix/colour read fills slot three.
+        tick_vic_with_cpu_data(&mut vic, &memory, 0x77);
+        assert_eq!(vic.vc(), 0x0123);
+        assert_eq!(vic.vmli(), 3);
+        assert_eq!(vic.screen_row[3], 0x43);
+        assert_eq!(vic.colour_row[3], 0x0D);
+        assert_eq!(vic.ba_low_cycles(), 4);
+        assert!(vic.aec_is_low());
     }
 
     #[test]
@@ -2585,7 +2662,7 @@ mod tests {
 
         let mut vic = Vic::new(VicModel::Pal6569);
         vic.raster_line = 0x30;
-        vic.raster_cycle = 15;
+        vic.raster_cycle = 12;
         vic.den_latch = true;
         vic.write(0x11, 0x10);
         vic.vcbase = 0x0200;
@@ -2594,7 +2671,15 @@ mod tests {
         vic.idle_state = false;
         vic.is_badline = true;
 
+        for expected_age in 1..=3 {
+            tick_vic(&mut vic, &memory);
+            assert_eq!(vic.ba_low_cycles(), expected_age);
+            assert!(!vic.aec_is_low());
+        }
+        assert_eq!(vic.raster_cycle(), 15);
+
         tick_vic(&mut vic, &memory);
+        assert!(vic.aec_is_low());
         assert_eq!(vic.vc(), 0x0200);
         assert_eq!(vic.vmli(), 0);
         assert_eq!(vic.screen_row[0], 0x52);
@@ -2605,6 +2690,30 @@ mod tests {
         assert_eq!(vic.vmli(), 1);
         assert_eq!(vic.screen_row[1], 0x63);
         assert_eq!(vic.colour_row[1], 0x06);
+    }
+
+    #[test]
+    fn continuous_ba_across_badline_and_sprite_dma_keeps_aec_low() {
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.raster_line = 0x30;
+        vic.raster_cycle = 54;
+        vic.den_latch = true;
+        vic.is_badline = true;
+        vic.idle_state = false;
+        vic.ba_low = true;
+        vic.ba_low_cycles = 3;
+        vic.write(0x11, 0x10); // keep line $30 bad
+        vic.write(0x15, 0x01); // sprite 0 enabled
+        vic.write(0x01, 0x30); // sprite 0 DMA-active on this line
+
+        tick_vic(&mut vic, &memory); // final badline BA cycle
+        assert!(vic.aec_is_low());
+        assert_eq!(vic.ba_low_cycles(), 4);
+
+        tick_vic(&mut vic, &memory); // sprite BA begins without a high gap
+        assert!(vic.ba_low);
+        assert!(vic.aec_is_low());
+        assert_eq!(vic.ba_low_cycles(), 4);
     }
 
     #[test]

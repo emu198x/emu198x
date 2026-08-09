@@ -7,7 +7,7 @@ use format_commodore_c64_tap::{TapParseError, TapSystem, TapVideo, encode_tap, p
 use mos_6502::M6502;
 use mos_cia_6526::Cia6526;
 use mos_sid_6581::{AudioControls, Sid6581, SidChannel};
-use mos_vic_ii::{Vic, VicModel};
+use mos_vic_ii::{Vic, VicModel, VicPhi2Bus};
 
 use crate::action_replay::ActionReplay;
 use crate::config::{C64Config, C64Model};
@@ -912,7 +912,8 @@ impl C64 {
     /// Returns `true` when this tick completed a frame.
     pub fn tick(&mut self) -> bool {
         self.phi2_cycles = self.phi2_cycles.saturating_add(1);
-        self.vic.tick(&self.memory);
+        let phi2_bus = self.vic_phi2_bus();
+        self.vic.tick(&self.memory, phi2_bus);
         self.cia1.flag = !self.datasette.advance_phi2_cycle();
         self.refresh_keyboard_scan();
         self.cia1.tick();
@@ -947,7 +948,8 @@ impl C64 {
     /// Returns `true` when this tick completed a frame.
     pub fn tick_with_iec_bus(&mut self, bus: &mut IecBus) -> bool {
         self.phi2_cycles = self.phi2_cycles.saturating_add(1);
-        self.vic.tick(&self.memory);
+        let phi2_bus = self.vic_phi2_bus();
+        self.vic.tick(&self.memory, phi2_bus);
         self.cia1.flag = !self.datasette.advance_phi2_cycle();
         self.refresh_keyboard_scan();
         self.sync_iec_bus(bus);
@@ -976,6 +978,18 @@ impl C64 {
         }
 
         false
+    }
+
+    /// Sample the CPU side of the shared Phi2 data bus without triggering I/O
+    /// read side effects. Reads resolve through the current PLA mapping;
+    /// writes retain the byte already driven on the CPU data pins.
+    fn vic_phi2_bus(&self) -> VicPhi2Bus {
+        let cpu_data = if self.cpu.rw {
+            self.peek(self.cpu.addr)
+        } else {
+            self.cpu.data
+        };
+        VicPhi2Bus { cpu_data }
     }
 
     /// Advances the board by a fixed number of `phi2` cycles.
@@ -1970,6 +1984,44 @@ mod tests {
         assert_eq!(machine.cpu().regs.a, 0x42);
         assert_eq!(machine.memory().ram_read(0x0200), 0x42);
         assert_eq!(machine.cpu().regs.pc, 0x0405);
+    }
+
+    #[test]
+    fn phi2_bus_samples_live_cpu_read_and_write_pins() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.memory.ram_write(0x0400, 0x8A);
+        machine.cpu.addr = 0x0400;
+        machine.cpu.rw = true;
+        machine.cpu.data = 0x55;
+        assert_eq!(machine.vic_phi2_bus().cpu_data, 0x8A);
+
+        machine.cpu.rw = false;
+        machine.cpu.data = 0x3C;
+        assert_eq!(machine.vic_phi2_bus().cpu_data, 0x3C);
+    }
+
+    #[test]
+    fn sta_d011_completion_exposes_the_next_opcode_to_the_vic() {
+        let mut machine = stub_machine_with_reset_vector(C64Model::PalBreadbin, 0x0400);
+        machine.memory.ram_write(0x0400, 0xA9); // LDA #$10
+        machine.memory.ram_write(0x0401, 0x10);
+        machine.memory.ram_write(0x0402, 0x8D); // STA $D011
+        machine.memory.ram_write(0x0403, 0x11);
+        machine.memory.ram_write(0x0404, 0xD0);
+        machine.memory.ram_write(0x0405, 0x8A); // TXA: low nibble $A
+
+        // Seven reset cycles, two for LDA immediate and four for STA absolute.
+        for _ in 0..13 {
+            machine.tick();
+        }
+
+        assert_eq!(machine.vic_register(0x11), 0x10);
+        assert!(machine.cpu().rw);
+        assert!(machine.cpu().sync);
+        assert_eq!(machine.cpu().addr, machine.cpu().regs.pc);
+        assert_eq!(machine.cpu().addr, 0x0405);
+        assert_eq!(machine.cpu().data, 0x10, "write pin retains the STA byte");
+        assert_eq!(machine.vic_phi2_bus().cpu_data, 0x8A);
     }
 
     #[test]

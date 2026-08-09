@@ -21,8 +21,8 @@ use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::HeadlessSession;
 use mos_vic_ii::{FB_HEIGHT, FB_WIDTH};
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, DEFAULT_KEY_HOLD_FRAMES, DEFAULT_TYPE_SETTLE_FRAMES,
-    Model, type_string,
+    C64Runtime, C64SessionQueryProvider, DEFAULT_INTER_CHAR_FRAMES, DEFAULT_KEY_HOLD_FRAMES,
+    DEFAULT_TYPE_SETTLE_FRAMES, Model, type_string,
 };
 use sha2::{Digest, Sha256};
 
@@ -633,6 +633,9 @@ fn survey_testbench_categories() {
                 "model": "c64-pal-breadbin",
                 "vic_model": "6569",
                 "boot_frames": 150,
+                "key_hold_frames": DEFAULT_KEY_HOLD_FRAMES,
+                "inter_char_frames": DEFAULT_INTER_CHAR_FRAMES,
+                "type_settle_frames": DEFAULT_TYPE_SETTLE_FRAMES,
                 "settle_frames": 60,
                 "program_load": "direct-prg-with-basic-vartab-update",
                 "typed_command": "RUN\n",
@@ -664,6 +667,41 @@ fn survey_testbench_categories() {
             .expect("VIC-II survey producer result should encode");
         std::fs::write(&result_path, encoded).expect("VIC-II survey producer result should write");
         eprintln!("wrote structured VIC-II survey result");
+    }
+}
+
+/// All five PAL 6569 colour-fetch-bug programs exactly match their registered
+/// indexed reference planes. Together they cover the disconnected `$FF`
+/// matrix byte, the CPU-side colour nibble, line-buffer leakage and the first
+/// valid access after the three-cycle BA-to-AEC handover.
+#[test]
+#[ignore = "strict colour-fetch parity requires C64 ROMs + VIC-II testbench"]
+fn colorfetchbug_cases_match_vice_references_exactly() {
+    if !roms_present() || testbench_dir().is_none() {
+        eprintln!("skip: C64 ROMs or testbench not staged");
+        return;
+    }
+    let dir = testbench_dir().expect("checked");
+    let cases: Vec<_> = SURVEY
+        .iter()
+        .filter(|(label, _, _)| label.starts_with("colorfetchbug"))
+        .collect();
+    assert_eq!(cases.len(), 5, "the strict lane must retain all five cases");
+
+    for &&(label, prg, refpng) in &cases {
+        let reference = decode_reference_png(&dir.join(refpng));
+        let framebuffer = run_testprog(prg, 60);
+        let comparison = compare_indexed(&framebuffer, &reference, VICE_CROP_X, VICE_CROP_Y);
+        let total = comparison.reference.len();
+        assert_eq!(
+            comparison.matched_pixels, total,
+            "{label} differs from its registered indexed reference plane"
+        );
+        assert_eq!(
+            sha256_hex(&comparison.actual),
+            sha256_hex(&comparison.reference),
+            "{label} indexed-plane identity differs"
+        );
     }
 }
 

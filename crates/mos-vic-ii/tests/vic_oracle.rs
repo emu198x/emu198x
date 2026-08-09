@@ -16,7 +16,7 @@
 use std::cell::RefCell;
 
 use mos_vic_ii::oracle::{self, canonical_for_engine_cycle, expected_ba_low};
-use mos_vic_ii::{Vic, VicMemory, VicModel};
+use mos_vic_ii::{Vic, VicMemory, VicModel, VicPhi2Bus};
 
 const CYCLES_PER_LINE: u32 = 63;
 const LINES_PER_FRAME: u32 = 312;
@@ -99,7 +99,7 @@ fn capture_line(setup: impl Fn(&mut Vic), line: u16) -> Vec<CycleObs> {
         let this_line = (k / CYCLES_PER_LINE) as u16;
         let this_cycle = (k % CYCLES_PER_LINE) as u8;
         mem.clear();
-        vic.tick(&mem);
+        vic.tick(&mem, VicPhi2Bus::default());
         if this_line == line {
             obs.push(CycleObs {
                 cycle: this_cycle,
@@ -171,6 +171,41 @@ fn non_badline_does_no_matrix_fetch() {
     let matrix: usize = obs.iter().map(CycleObs::matrix_reads).sum();
     assert_eq!(colour, 0, "no colour-RAM reads off a badline");
     assert_eq!(matrix, 0, "no video-matrix reads off a badline");
+}
+
+#[test]
+fn forced_badline_waits_for_aec_before_reading_matrix_memory() {
+    let mut vic = Vic::new(VicModel::Pal6569);
+    vic.write(0x11, 0x19); // DEN=1, RSEL=1, YSCROLL=1: line $30 is not bad
+    vic.write(0x16, 0x08);
+    vic.write(REG_D018, 0x18);
+    let mem = RecordingMemory::new();
+
+    while vic.raster_line() != 0x30 || vic.raster_cycle() != 16 {
+        vic.tick(&mem, VicPhi2Bus::default());
+    }
+    vic.write(0x11, 0x18); // force line $30 bad after the normal BA lead
+
+    for cycle in 16..=19 {
+        mem.clear();
+        vic.tick(&mem, VicPhi2Bus { cpu_data: 0x8A });
+        let matrix_reads = mem
+            .vram
+            .borrow()
+            .iter()
+            .filter(|&&addr| (SCREEN_LO..SCREEN_HI).contains(&addr))
+            .count();
+        let colour_reads = mem.colour.borrow().len();
+        if cycle < 19 {
+            assert_eq!(matrix_reads, 0, "cycle {cycle}: matrix bus is not owned");
+            assert_eq!(colour_reads, 0, "cycle {cycle}: colour RAM is not read");
+            assert!(!vic.aec_is_low());
+        } else {
+            assert_eq!(matrix_reads, 1, "cycle 19: first valid c-access");
+            assert_eq!(colour_reads, 1, "cycle 19: first valid colour read");
+            assert!(vic.aec_is_low());
+        }
+    }
 }
 
 #[test]

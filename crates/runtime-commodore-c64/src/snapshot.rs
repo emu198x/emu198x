@@ -13,6 +13,10 @@ use serde::{Deserialize, Serialize};
 use crate::drives::IecDriveSnapshot;
 use crate::runtime::C64Runtime;
 
+/// Version 5 adds the VIC-II's live BA-to-AEC delay counter. Without it, a
+/// restore during the three-cycle bus handover could make the next matrix or
+/// sprite access valid at the wrong Phi2 phase.
+///
 /// Version 4 makes arbitrary mid-frame snapshots lossless by including the
 /// live VIC-II sprite fetch/draw pipeline and SID samples queued since the last
 /// frame boundary. Those fields were omitted from earlier machine snapshots.
@@ -25,14 +29,14 @@ use crate::runtime::C64Runtime;
 /// Version 2 moved from the fixed 1541-plus-1581 pair to a per-port array of
 /// model-tagged drive snapshots (IEC devices 8–11), so a snapshot records
 /// whichever drive the user chose on each port.
-const SNAPSHOT_VERSION: u32 = 4;
+const SNAPSHOT_VERSION: u32 = 5;
 
 /// Persistable C64 runtime envelope. Wraps the machine's chip snapshot with the
 /// surrounding runtime context (model identifier, time, the live IEC bus state,
 /// the per-port drive snapshots, each port's cycle-accumulator phase, and the
 /// expansion bookkeeping a reset rebuilds from).
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV4 {
+struct SnapshotEnvelopeV5 {
     version: u32,
     profile_id: String,
     time: MachineTime,
@@ -49,7 +53,7 @@ struct SnapshotEnvelopeV4 {
 /// Encode a runtime as postcard bytes. Caller-side error type is
 /// [`MachineError::InvalidSnapshot`] with the postcard reason.
 pub(crate) fn encode(runtime: &C64Runtime) -> Result<Vec<u8>, MachineError> {
-    postcard::to_allocvec(&SnapshotEnvelopeV4 {
+    postcard::to_allocvec(&SnapshotEnvelopeV5 {
         version: SNAPSHOT_VERSION,
         profile_id: runtime.profile().profile_id.as_str().to_owned(),
         time: runtime.time(),
@@ -85,7 +89,7 @@ pub(crate) fn decode(runtime: &mut C64Runtime, bytes: &[u8]) -> Result<(), Machi
         });
     }
 
-    let snapshot: SnapshotEnvelopeV4 =
+    let snapshot: SnapshotEnvelopeV5 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
