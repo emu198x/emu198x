@@ -388,6 +388,10 @@ fn sweep() {
     let mut timed_out = 0u32;
     let mut paniced = 0u32;
     let mut visual = 0u32;
+    // Keyed on (suite, rom) so the baseline can name a ROM unambiguously —
+    // "2.Details.nes" exists in three suites.
+    let mut observed: std::collections::BTreeMap<(String, String), String> =
+        std::collections::BTreeMap::new();
 
     for dir_name in SWEEP_DIRS {
         let dir_path = root.join(dir_name);
@@ -408,20 +412,24 @@ fn sweep() {
             match outcome {
                 Ok(Ok(Verdict::Pass { ticks })) => {
                     passed += 1;
+                    observed.insert((dir_name.to_string(), label.clone()), "pass".into());
                     eprintln!("  PASS     {label:<32} ({ticks} ticks)");
                 }
                 Ok(Ok(Verdict::Fail { code, text, ticks })) => {
                     failed += 1;
+                    observed.insert((dir_name.to_string(), label.clone()), "fail".into());
                     let snippet: String =
                         text.lines().next().unwrap_or("").chars().take(80).collect();
                     eprintln!("  FAIL #{code:02X} {label:<32} ({ticks} ticks) — {snippet}");
                 }
                 Ok(Ok(Verdict::Timeout)) => {
                     timed_out += 1;
+                    observed.insert((dir_name.to_string(), label.clone()), "timeout".into());
                     eprintln!("  ---T---  {label:<32} (no $6000 result in {MAX_TICKS} ticks)");
                 }
                 Ok(Ok(Verdict::Visual)) => {
                     visual += 1;
+                    observed.insert((dir_name.to_string(), label.clone()), "visual".into());
                     eprintln!("  VISUAL   {label:<32} (visual demo — no result protocol)");
                 }
                 Ok(Err(e)) => {
@@ -440,4 +448,76 @@ fn sweep() {
     eprintln!(
         "Total: {total}  Pass: {passed}  Fail: {failed}  Timeout: {timed_out}  Visual: {visual}  Panic/load: {paniced}"
     );
+
+    // ⚠⚠ Gate on the declared baseline. Until this existed the sweep RAN the
+    // whole corpus, printed a verdict per ROM, tallied them — and then passed
+    // unconditionally. The suite was green whether every ROM passed or every
+    // ROM failed, so the information it gathered was discarded at the last
+    // line. That is why the NES core could sit at 135/5/15 with nobody able to
+    // say so.
+    assert_against_baseline(&observed);
+}
+
+/// Compare observed verdicts against the declared baseline.
+///
+/// ⚠ An EXACT match is required in both directions. A regression fails, and so
+/// does an unannounced improvement: a ROM that starts passing must be recorded
+/// in the baseline deliberately. Otherwise a fix silently shifts the reference
+/// and the file stops describing anything anyone chose.
+///
+/// The baseline is tab-separated rather than JSON so the test parses it with
+/// std alone — adding a JSON dependency to assert 155 lines is not a trade
+/// worth making.
+fn assert_against_baseline(observed: &std::collections::BTreeMap<(String, String), String>) {
+    let path = match baseline_path() {
+        Some(p) => p,
+        None => {
+            eprintln!("no declared baseline found; skipping the gate");
+            return;
+        }
+    };
+    let text = std::fs::read_to_string(&path).expect("read declared sweep baseline");
+    let mut declared = std::collections::BTreeMap::new();
+    for line in text.lines() {
+        if line.starts_with('#') || line.trim().is_empty() {
+            continue;
+        }
+        let mut f = line.split('\t');
+        let (Some(suite), Some(rom), Some(verdict)) = (f.next(), f.next(), f.next()) else {
+            panic!("malformed baseline line: {line}");
+        };
+        declared.insert((suite.to_string(), rom.to_string()), verdict.to_string());
+    }
+
+    let mut diffs = Vec::new();
+    for (key, got) in observed {
+        match declared.get(key) {
+            Some(want) if want == got => {}
+            Some(want) => diffs.push(format!(
+                "  {}/{}: declared {want}, observed {got}",
+                key.0, key.1
+            )),
+            None => diffs.push(format!("  {}/{}: not in baseline ({got})", key.0, key.1)),
+        }
+    }
+    for key in declared.keys() {
+        if !observed.contains_key(key) {
+            diffs.push(format!("  {}/{}: in baseline but not swept", key.0, key.1));
+        }
+    }
+    assert!(
+        diffs.is_empty(),
+        "sweep diverged from the declared baseline ({} difference(s)):\n{}\n\n\
+         If this is a deliberate fix, update {} in the same commit.",
+        diffs.len(),
+        diffs.join("\n"),
+        path.display()
+    );
+}
+
+/// Locate the declared baseline, relative to this crate.
+fn baseline_path() -> Option<PathBuf> {
+    let p = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../test-data/nintendo/nes/blargg-survey/sweep-baseline-v1.tsv");
+    p.is_file().then(|| p.clone())
 }
