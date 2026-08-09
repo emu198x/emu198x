@@ -55,7 +55,14 @@ use palette::PALETTE;
 /// fetch/crunch/fetch-bug edge cases now match VICE, so any catalogue frame
 /// carrying sprites re-hashes. See the sprite-sequencer increment in
 /// `docs/plans/2026-06-30-c64-vic-ii-vc-vcbase-rc-rewrite.md`.
-pub const FRAME_ROUTING_VERSION: u32 = 2;
+///
+/// **Version 3** (2026-08-08): display g-access observes the entering Phi1
+/// idle state before a late badline changes state on Phi2. VC/VMLI then
+/// advance before the paired c-access only when that g-access was active.
+/// Rendering consumes the same pre-increment VMLI and generates fresh idle or
+/// graphics pixels beneath an opened vertical border instead of retaining the
+/// previous frame's border pixels.
+pub const FRAME_ROUTING_VERSION: u32 = 3;
 
 const PAL_FIRST_VISIBLE_LINE: u16 = 0;
 const PAL_LAST_VISIBLE_LINE: u16 = 312;
@@ -326,14 +333,10 @@ pub struct Vic {
 
     // --- Video-counter chain (VC/VCBASE/RC/VMLI) ---
     //
-    // Shadow of the real VIC-II addressing chain, Increment 2 of the
-    // VC/VCBASE/RC rewrite (see
-    // `docs/plans/2026-06-30-c64-vic-ii-vc-vcbase-rc-rewrite.md`). Advanced
-    // per the canonical rules (ported from VICE `vicii-cycle.c:202-563` +
-    // `vicii-fetch.c:234-269`) but NOT yet driving fetches — the engine still
-    // addresses memory geometrically. These run in parallel so the rewrite's
-    // Increment 3 can swap the fetch addressing over once the counters are
-    // proven against the geometry path.
+    // Live VIC-II addressing chain. VC drives graphics and matrix addressing;
+    // VMLI selects the paired screen/colour row entry consumed by the display
+    // pipeline and filled by c-access. The Phi1/Phi2 split preserves the
+    // delayed display-state transition of a forced late badline.
     /// Video counter (10-bit) — the live video-matrix offset.
     vc: u16,
     /// Video counter base (10-bit) — latched from VC at each row end (RC==7).
@@ -413,6 +416,11 @@ impl Vic {
 
     /// Tick the VIC-II for one `phi2` cycle.
     pub fn tick(&mut self, memory: &dyn VicMemory) -> bool {
+        // The display/g-access phase sees the state entering this cycle. A
+        // forced badline created after cycle 15 does not leave idle until the
+        // cycle-16 Phi2 phase, so its first active display access is cycle 17.
+        let display_active_at_phi1 = !self.idle_state;
+
         if self.raster_cycle == self.timing.chk_dma[0] {
             self.evaluate_sprite_dma();
         }
@@ -425,10 +433,11 @@ impl Vic {
         self.run_sprite_draw_cycle();
 
         self.update_border_flip_flops();
-        self.render_pixels(memory);
+        self.render_pixels(memory, display_active_at_phi1);
         self.accumulate_sprite_collisions();
+        self.advance_video_counters_after_g_access(display_active_at_phi1);
         self.check_badline();
-        self.advance_video_counters();
+        self.apply_phi2_video_counter_events();
 
         let badline_stall = self.is_badline && (15..=54).contains(&self.raster_cycle);
         let sprite_stall = self.is_sprite_dma_stealing();
@@ -438,10 +447,8 @@ impl Vic {
         // Stream the video-matrix c-access: one read per Phi2 cycle of a
         // badline (cycles 15-54), into the matrix line buffer indexed by VMLI
         // and addressed by VC. The per-cycle replacement for the archive's
-        // batched 40-read row fetch — same bytes (VC equals the geometry
-        // address, proven by the shadow-counter increment), hardware-correct
-        // timing. The Phi1 g-access in `render_pixels` already streamed per
-        // cycle, so this closes the c-access half of the addressing rewrite.
+        // batched 40-read row fetch preserves ordinary row bytes while also
+        // representing the shorter fetch sequence of a forced late badline.
         if self.is_badline && (15..=54).contains(&self.raster_cycle) {
             self.c_access(memory);
         }
@@ -484,19 +491,30 @@ impl Vic {
             && (self.raster_line & 7) == yscroll;
     }
 
-    /// Advance the shadow VC/VCBASE/RC/VMLI chain for this cycle.
+    /// Advance VC/VMLI after this cycle's Phi1 display g-access.
     ///
-    /// Ported from VICE (`vicii-cycle.c` start-of-frame `:202-209`, UpdateVc
-    /// `:543-549`, UpdateRc `:553-563`, badline-clears-idle `:51-59`;
-    /// `vicii-fetch.c:267-269` for the g-access increment). Runs after
-    /// `check_badline` so `is_badline` reflects this line. Cycle numbers are
-    /// the engine's 0-based `raster_cycle`, which equals the canonical 1-based
-    /// number for 1..=62 (see `oracle::engine_to_canonical`); the relevant
-    /// events here (14, 16-55, 58) all fall in that range.
+    /// The entering idle/display state is captured before the cycle begins.
+    /// This matters when a D011 write creates a late badline: cycle 16 remains
+    /// an idle g-access even though Phi2 enables display and performs c-access
+    /// zero. Cycle 17 is then the first g-access that advances the counters.
+    fn advance_video_counters_after_g_access(&mut self, display_active_at_phi1: bool) {
+        let c = self.raster_cycle;
+
+        if (16..=55).contains(&c) && display_active_at_phi1 {
+            self.vc = (self.vc + 1) & 0x03FF;
+            if self.vmli < 40 {
+                self.vmli += 1;
+            }
+        }
+    }
+
+    /// Apply the Phi2 events in the VC/VCBASE/RC/VMLI chain.
     ///
-    /// **Shadow only** — nothing reads these counters yet; the geometry path
-    /// still drives fetches. Increment 3 swaps the addressing over.
-    fn advance_video_counters(&mut self) {
+    /// Ported from VICE (`vicii-cycle.c` start-of-frame, UpdateVc, UpdateRc
+    /// and badline idle-state changes). This runs after `check_badline`, so a
+    /// register write observed on this cycle may change the Phi2 badline state
+    /// without retroactively changing the Phi1 g-access above.
+    fn apply_phi2_video_counter_events(&mut self) {
         let c = self.raster_cycle;
 
         // Start of frame: VC and VCBASE reset (VICE start_of_frame).
@@ -520,15 +538,6 @@ impl Vic {
             }
         }
 
-        // g-access — canonical cycles 16-55: advance VC and VMLI once per
-        // displayed character, but only while displaying (not idle).
-        if (16..=55).contains(&c) && !self.idle_state {
-            self.vc = (self.vc + 1) & 0x03FF;
-            if self.vmli < 40 {
-                self.vmli += 1;
-            }
-        }
-
         // UpdateRc — canonical cycle 58: at the end of an 8-row block latch
         // VCBASE and go idle; otherwise step the row counter.
         if c == 58 {
@@ -543,25 +552,25 @@ impl Vic {
         }
     }
 
-    /// Shadow video counter (VC). See [`Vic::advance_video_counters`].
+    /// Live video counter (VC).
     #[must_use]
     pub const fn vc(&self) -> u16 {
         self.vc
     }
 
-    /// Shadow video counter base (VCBASE).
+    /// Live video counter base (VCBASE).
     #[must_use]
     pub const fn vcbase(&self) -> u16 {
         self.vcbase
     }
 
-    /// Shadow row counter (RC), 0-7.
+    /// Live row counter (RC), 0-7.
     #[must_use]
     pub const fn rc(&self) -> u8 {
         self.rc
     }
 
-    /// Shadow video matrix line index (VMLI), 0-40.
+    /// Live video matrix line index (VMLI), 0-40.
     #[must_use]
     pub const fn vmli(&self) -> u8 {
         self.vmli
@@ -616,10 +625,9 @@ impl Vic {
     ///
     /// Streamed one-per-cycle across a badline's cycles 15-54 (replacing the
     /// archive's batched 40-read row fetch). The screen address is
-    /// `screen_base + VC`, which equals the geometry path's
-    /// `screen_base + text_row*40 + col` — VMLI tracks the column and VC the
-    /// matrix offset, both proven against the geometry path in the
-    /// shadow-counter increment.
+    /// `screen_base + VC`. VMLI tracks the paired display-buffer entry. On an
+    /// ordinary badline this produces the familiar 40 linear cells; a forced
+    /// late badline deliberately begins later and produces fewer pairs.
     fn c_access(&mut self, memory: &dyn VicMemory) {
         let idx = self.vmli as usize;
         if idx >= self.screen_row.len() {
@@ -657,7 +665,7 @@ impl Vic {
             .position(|&(c, _)| (c + 1) % cpl == cycle)
     }
 
-    fn render_pixels(&mut self, memory: &dyn VicMemory) {
+    fn render_pixels(&mut self, memory: &dyn VicMemory, display_active_at_phi1: bool) {
         // Cleared every cycle so the collision pass sees no foreground off the
         // display window (borders, retrace); render_pixels re-latches it below
         // only where graphics data is actually shifted out.
@@ -674,47 +682,68 @@ impl Vic {
         let fb_x = (self.raster_cycle - FIRST_VISIBLE_CYCLE) as usize * 8;
         let fb_offset = fb_y * FB_WIDTH as usize + fb_x;
         let border_colour = PALETTE[(self.regs[0x20] & 0x0F) as usize];
-        let rsel = self.regs[0x11] & 0x08 != 0;
-        let char_vstart = if rsel { 0x33u16 } else { 0x37u16 };
-        let char_vstop = if rsel { 0xFBu16 } else { 0xF7u16 };
-        let in_char_area = self.den_latch
-            && (char_vstart..char_vstop).contains(&self.raster_line)
-            && (DISPLAY_START_CYCLE..DISPLAY_END_CYCLE).contains(&self.raster_cycle);
+        let background_colour = PALETTE[(self.regs[0x21] & 0x0F) as usize];
+        let in_horizontal_display =
+            (DISPLAY_START_CYCLE..DISPLAY_END_CYCLE).contains(&self.raster_cycle);
+
+        // Generate a fresh under-border value throughout the horizontal
+        // display region. When software keeps the vertical border flip-flop
+        // open beyond the ordinary line range, the live idle/display pipeline
+        // is exposed instead of stale pixels from the preceding frame.
+        // Horizontal side-border opening has its own continuing shifter/idle
+        // behaviour and is deliberately left unchanged by this vertical fix.
+        if in_horizontal_display {
+            for px in 0..8usize {
+                let idx = fb_offset + px;
+                if idx < self.framebuffer.len() {
+                    self.framebuffer[idx] = background_colour;
+                }
+            }
+        }
+
+        let display_pipeline_visible = !self.border_vert_ff && in_horizontal_display;
 
         let mut fg_mask: u8 = 0;
 
-        if self.raster_cycle == DISPLAY_START_CYCLE && in_char_area {
+        if self.raster_cycle == DISPLAY_START_CYCLE && !self.border_vert_ff {
             self.xscroll_latch = self.regs[0x16] & 0x07;
-            let bg = PALETTE[(self.regs[0x21] & 0x0F) as usize];
-            self.xscroll_carry_pixels = [bg; 8];
+            self.xscroll_carry_pixels = [background_colour; 8];
             self.xscroll_carry_fg = 0;
         }
 
-        if in_char_area {
-            let display_cycle = self.raster_cycle - DISPLAY_START_CYCLE;
-            let col = display_cycle as usize;
-
-            if col < 40 {
-                let char_code = self.screen_row[col];
-                let colour_nybble = self.colour_row[col];
-                let bmm = self.regs[0x11] & 0x20 != 0;
-                let ecm = self.regs[0x11] & 0x40 != 0;
-                let mcm = self.regs[0x16] & 0x10 != 0;
-
-                let cell = if ecm && (bmm || mcm) {
-                    CellPixels::solid(PALETTE[0])
-                } else if bmm && mcm {
-                    self.render_mcm_bitmap(char_code, colour_nybble, memory)
-                } else if bmm {
-                    self.render_hires_bitmap(char_code, memory)
-                } else if ecm {
-                    self.render_ecm_text(char_code, colour_nybble, memory)
-                } else if mcm {
-                    self.render_mcm_text(char_code, colour_nybble, memory)
+        if display_pipeline_visible {
+            let cell = if display_active_at_phi1 {
+                let col = self.vmli as usize;
+                if col >= 40 {
+                    None
                 } else {
-                    self.render_standard_text(char_code, colour_nybble, memory)
-                };
+                    let char_code = self.screen_row[col];
+                    let colour_nybble = self.colour_row[col];
+                    let bmm = self.regs[0x11] & 0x20 != 0;
+                    let ecm = self.regs[0x11] & 0x40 != 0;
+                    let mcm = self.regs[0x16] & 0x10 != 0;
 
+                    let cell = if ecm && (bmm || mcm) {
+                        CellPixels::solid(PALETTE[0])
+                    } else if bmm && mcm {
+                        self.render_mcm_bitmap(char_code, colour_nybble, memory)
+                    } else if bmm {
+                        self.render_hires_bitmap(char_code, memory)
+                    } else if ecm {
+                        self.render_ecm_text(char_code, colour_nybble, memory)
+                    } else if mcm {
+                        self.render_mcm_text(char_code, colour_nybble, memory)
+                    } else {
+                        self.render_standard_text(char_code, colour_nybble, memory)
+                    };
+
+                    Some(cell)
+                }
+            } else {
+                Some(self.render_idle_cell(memory))
+            };
+
+            if let Some(cell) = cell {
                 let xscroll = self.xscroll_latch as usize;
 
                 if xscroll == 0 {
@@ -771,6 +800,68 @@ impl Vic {
         // (called from `tick`) so it runs in the border too.
         self.gfx_fg_mask = fg_mask;
         self.draw_sprites_sequencer(fb_offset, fg_mask);
+    }
+
+    /// Resolve the graphics value fetched while the display state is idle.
+    ///
+    /// The VIC-II does not stop its g-access window when `idle_state` is set.
+    /// It reads the bank's ghost byte (`$3FFF`, or `$39FF` with ECM enabled)
+    /// and presents zero for the paired video-matrix and colour entries. This
+    /// normally remains hidden by the border, but vertical/side-border effects
+    /// expose it. VICE models the same split in `vicii_fetch_idle_gfx` and the
+    /// idle branch of `vicii_draw_cycle`.
+    fn render_idle_cell(&self, memory: &dyn VicMemory) -> CellPixels {
+        let bmm = self.regs[0x11] & 0x20 != 0;
+        let ecm = self.regs[0x11] & 0x40 != 0;
+        let mcm = self.regs[0x16] & 0x10 != 0;
+
+        if ecm && (bmm || mcm) {
+            return CellPixels::solid(PALETTE[0]);
+        }
+
+        let idle_addr = if ecm { 0x39FF } else { 0x3FFF };
+        let bitmap = memory.read_vram(self.vram_addr(idle_addr));
+        let mut cell = CellPixels {
+            colour: [PALETTE[0]; 8],
+            fg_mask: 0,
+        };
+        let background = PALETTE[(self.regs[0x21] & 0x0F) as usize];
+
+        if bmm {
+            // VBUF and CBUF are zero in idle state. Hires bitmap therefore
+            // resolves both colours to black. In multicolour bitmap mode 00
+            // still selects D021, while 01/10/11 resolve through the zeroed
+            // matrix/colour entries to black.
+            if mcm {
+                for pair in 0..4usize {
+                    let px = pair * 2;
+                    if (bitmap >> (6 - pair * 2)) & 0x03 == 0 {
+                        cell.colour[px] = background;
+                        cell.colour[px + 1] = background;
+                    } else {
+                        cell.fg_mask |= (1 << (pair * 2)) | (1 << (pair * 2 + 1));
+                    }
+                }
+            } else {
+                for px in 0..8usize {
+                    if (bitmap >> (7 - px)) & 1 != 0 {
+                        cell.fg_mask |= 1 << px;
+                    }
+                }
+            }
+            return cell;
+        }
+
+        // Zero CBUF selects hires decoding even when MCM is enabled; zero
+        // VBUF also selects background register zero in ECM text mode.
+        for px in 0..8usize {
+            if (bitmap >> (7 - px)) & 1 != 0 {
+                cell.fg_mask |= 1 << px;
+            } else {
+                cell.colour[px] = background;
+            }
+        }
+        cell
     }
 
     /// Accumulate sprite-sprite (`$D01E`) and sprite-background (`$D01F`)
@@ -2433,6 +2524,202 @@ mod tests {
         for px in 4..8 {
             assert_eq!(fb_pixel(&vic, fb_x0 + px, fb_y), PALETTE[1]);
         }
+    }
+
+    #[test]
+    fn late_badline_keeps_first_matrix_fetch_at_vmli_zero() {
+        let chargen = vec![0u8; 4096];
+        let mut colours = vec![0u8; 1024];
+        colours[0x120] = 0x0C;
+        colours[0x121] = 0x0D;
+        let mut memory = TestMemory::with_colour(&chargen, colours);
+        memory.ram_write(0x0120, 0x42);
+        memory.ram_write(0x0121, 0x43);
+
+        let mut vic = Vic::new(VicModel::Pal6569);
+        vic.raster_line = 0x30;
+        vic.raster_cycle = 15;
+        vic.den_latch = true;
+        vic.vcbase = 0x0120;
+        vic.vc = 0x0120;
+        vic.vmli = 0;
+        vic.idle_state = true;
+        vic.is_badline = false;
+        // Line $30 has vertical phase zero. Keep it non-bad through cycle 15.
+        vic.write(0x11, 0x11);
+
+        tick_vic(&mut vic, &memory);
+        assert_eq!(vic.raster_cycle(), 16);
+        assert!(!vic.is_badline());
+
+        // Changing YSCROLL after cycle 15 creates the late badline. Cycle 16
+        // still performs its Phi1 access in idle state; Phi2 then fetches the
+        // first matrix entry at VCBASE/VMLI zero.
+        vic.write(0x11, 0x10);
+        tick_vic(&mut vic, &memory);
+        assert!(vic.is_badline());
+        assert_eq!(vic.vc(), 0x0120);
+        assert_eq!(vic.vmli(), 0);
+        assert_eq!(vic.screen_row[0], 0x42);
+        assert_eq!(vic.colour_row[0], 0x0C);
+        assert_eq!(vic.screen_row[1], 0x00);
+
+        // Cycle 17 is the first display g-access. It consumes slot zero,
+        // advances VC/VMLI, then the c-access fills slot one.
+        tick_vic(&mut vic, &memory);
+        assert_eq!(vic.vc(), 0x0121);
+        assert_eq!(vic.vmli(), 1);
+        assert_eq!(vic.screen_row[1], 0x43);
+        assert_eq!(vic.colour_row[1], 0x0D);
+    }
+
+    #[test]
+    fn ordinary_badline_fetches_slot_zero_then_advances_before_slot_one() {
+        let chargen = vec![0u8; 4096];
+        let mut colours = vec![0u8; 1024];
+        colours[0x0200] = 0x05;
+        colours[0x0201] = 0x06;
+        let mut memory = TestMemory::with_colour(&chargen, colours);
+        memory.ram_write(0x0200, 0x52);
+        memory.ram_write(0x0201, 0x63);
+
+        let mut vic = Vic::new(VicModel::Pal6569);
+        vic.raster_line = 0x30;
+        vic.raster_cycle = 15;
+        vic.den_latch = true;
+        vic.write(0x11, 0x10);
+        vic.vcbase = 0x0200;
+        vic.vc = 0x0200;
+        vic.vmli = 0;
+        vic.idle_state = false;
+        vic.is_badline = true;
+
+        tick_vic(&mut vic, &memory);
+        assert_eq!(vic.vc(), 0x0200);
+        assert_eq!(vic.vmli(), 0);
+        assert_eq!(vic.screen_row[0], 0x52);
+        assert_eq!(vic.colour_row[0], 0x05);
+
+        tick_vic(&mut vic, &memory);
+        assert_eq!(vic.vc(), 0x0201);
+        assert_eq!(vic.vmli(), 1);
+        assert_eq!(vic.screen_row[1], 0x63);
+        assert_eq!(vic.colour_row[1], 0x06);
+    }
+
+    #[test]
+    fn open_vertical_border_replaces_stale_pixels_with_idle_background() {
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.raster_line = 0x30;
+        vic.raster_cycle = DISPLAY_START_CYCLE;
+        vic.den_latch = true;
+        vic.border_vert_ff = false;
+        vic.border_main_ff = false;
+        vic.idle_state = true;
+        vic.write(0x11, 0x11); // non-bad YSCROLL phase
+        vic.write(0x16, 0x08); // CSEL: clear main FF at cycle 16
+        vic.write(0x20, 0x0E); // stale border colour
+        vic.write(0x21, 0x00); // idle/background colour
+
+        let fb_y = 0x30usize;
+        let fb_x = (DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE) as usize * 8;
+        let offset = fb_y * FB_WIDTH as usize + fb_x;
+        vic.framebuffer[offset..offset + 8].fill(PALETTE[0x0E]);
+
+        tick_vic(&mut vic, &memory);
+        assert_eq!(
+            &vic.framebuffer[offset..offset + 8],
+            &[PALETTE[0]; 8],
+            "an open vertical border must expose freshly generated idle pixels"
+        );
+    }
+
+    #[test]
+    fn open_vertical_border_exposes_live_display_cell() {
+        let chargen = vec![0xFFu8; 4096];
+        let memory = TestMemory::new(&chargen);
+        let mut vic = Vic::new(VicModel::Pal6569);
+        vic.raster_line = 0x30;
+        vic.raster_cycle = DISPLAY_START_CYCLE + 1;
+        vic.den_latch = true;
+        vic.border_vert_ff = false;
+        vic.border_main_ff = false;
+        vic.idle_state = false;
+        vic.vmli = 0;
+        vic.screen_row[0] = 0;
+        vic.colour_row[0] = 0x0C;
+        vic.write(0x11, 0x11); // standard text, non-bad YSCROLL phase
+        vic.write(0x16, 0x08);
+        vic.write(0x18, 0x04); // character data at $1000
+
+        let fb_y = 0x30usize;
+        let fb_x = (DISPLAY_START_CYCLE + 1 - FIRST_VISIBLE_CYCLE) as usize * 8;
+        let offset = fb_y * FB_WIDTH as usize + fb_x;
+        tick_vic(&mut vic, &memory);
+        assert_eq!(
+            &vic.framebuffer[offset..offset + 8],
+            &[PALETTE[0x0C]; 8],
+            "an open vertical border must reveal the active display pipeline"
+        );
+    }
+
+    #[test]
+    fn open_vertical_border_exposes_idle_bitmap_fetch() {
+        let chargen = vec![0u8; 4096];
+        let mut memory = TestMemory::new(&chargen);
+        memory.ram_write(0x3FFF, 0x80);
+
+        let mut vic = Vic::new(VicModel::Pal6569);
+        vic.raster_line = 0xF9;
+        vic.raster_cycle = DISPLAY_START_CYCLE + 1;
+        vic.den_latch = true;
+        vic.border_vert_ff = false;
+        vic.border_main_ff = false;
+        vic.idle_state = true;
+        vic.write(0x11, 0x31); // DEN + hires bitmap mode
+        vic.write(0x16, 0x08);
+        vic.write(0x21, 0x06); // distinguish background fill from idle output
+
+        let fb_y = 0xF9usize;
+        let fb_x = (DISPLAY_START_CYCLE + 1 - FIRST_VISIBLE_CYCLE) as usize * 8;
+        let offset = fb_y * FB_WIDTH as usize + fb_x;
+        tick_vic(&mut vic, &memory);
+        assert_eq!(
+            &vic.framebuffer[offset..offset + 8],
+            &[PALETTE[0]; 8],
+            "idle bitmap fetches use zeroed video-matrix colours, not D021"
+        );
+    }
+
+    #[test]
+    fn idle_multicolour_bitmap_keeps_d021_for_zero_pairs() {
+        let chargen = vec![0u8; 4096];
+        let mut memory = TestMemory::new(&chargen);
+        memory.ram_write(0x3FFF, 0b00_01_10_11);
+
+        let mut vic = Vic::new(VicModel::Pal6569);
+        vic.raster_line = 0xF9;
+        vic.raster_cycle = DISPLAY_START_CYCLE + 1;
+        vic.den_latch = true;
+        vic.border_vert_ff = false;
+        vic.border_main_ff = false;
+        vic.idle_state = true;
+        vic.write(0x11, 0x31); // DEN + bitmap mode
+        vic.write(0x16, 0x18); // CSEL + multicolour mode
+        vic.write(0x21, 0x06);
+
+        let fb_y = 0xF9usize;
+        let fb_x = (DISPLAY_START_CYCLE + 1 - FIRST_VISIBLE_CYCLE) as usize * 8;
+        let offset = fb_y * FB_WIDTH as usize + fb_x;
+        tick_vic(&mut vic, &memory);
+        assert_eq!(
+            &vic.framebuffer[offset..offset + 8],
+            &[
+                PALETTE[6], PALETTE[6], PALETTE[0], PALETTE[0], PALETTE[0], PALETTE[0], PALETTE[0],
+                PALETTE[0],
+            ],
+            "multicolour bitmap idle data maps 00 to D021 and 01/10/11 to black"
+        );
     }
 
     // ----- Cov-5c wave 2: directed coverage tests -----
