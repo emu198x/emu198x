@@ -15,8 +15,8 @@ id = "spectrum"
 # FRAME_ROUTING_VERSION (common-sinclair-zx-spectrum::ula_engine).
 # Mismatch fails loud with a re-capture instruction. See
 # knowledge/decisions/spectrum-architecture-review.md Seam 4.
-audio_routing_version = 1
-frame_routing_version = 3
+audio_routing_version = 3
+frame_routing_version = 4
 
 [[system.firmware]]
 variant = "48k"
@@ -117,7 +117,7 @@ frame_hash = "xxh64:3849ef196db5a88f"
 # title screen.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:53f2a337ab7999b6"
+hash = "xxh64:375ee829884bd3c9"
 
 [[entry]]
 id = "knight-lore"
@@ -140,7 +140,7 @@ frame_hash = "xxh64:074e242db0720e42"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d6abacf058dfc09f"
+hash = "xxh64:d6588709ce228308"
 
 [[entry]]
 id = "jet-set-willy"
@@ -163,7 +163,7 @@ frame_hash = "xxh64:84755482f7074dbf"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "atic-atac"
@@ -188,7 +188,7 @@ frame_hash = "xxh64:81301d5c0b355bf9"
 # confirms no spurious audio output, not a unique waveform.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "skool-daze"
@@ -211,7 +211,7 @@ frame_hash = "xxh64:38cd0180bf456390"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:a558ac08f2340aa0"
+hash = "xxh64:94ae4fa62616f624"
 
 [[entry]]
 id = "chuckie-egg"
@@ -234,7 +234,7 @@ frame_hash = "xxh64:3523e9cc4d817ded"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:94719e9d906ed93e"
+hash = "xxh64:993f501a6d0f316a"
 
 [[entry]]
 id = "saboteur"
@@ -258,7 +258,7 @@ frame_hash = "xxh64:0e1cacb0a7d6bea9"
 # 2 s of silence (warning screen has no music). Same caveat as Atic Atac.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "sabre-wulf"
@@ -284,7 +284,7 @@ frame_hash = "xxh64:bbd9f61fd2d79daf"
 # the menu-silence hashes elsewhere.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c9019616a2702bc5"
+hash = "xxh64:843f1028e0e1a59a"
 
 [[entry]]
 id = "lords-of-midnight"
@@ -310,7 +310,7 @@ frame_hash = "xxh64:7c4d050a81b56d1c"
 # Atic Atac / Saboteur (menu silence is reproducibly identical).
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "head-over-heels"
@@ -335,7 +335,7 @@ frame_hash = "xxh64:3d36372a6034bc91"
 # 2 s of menu silence — same hash as Atic Atac / Saboteur / Lords.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 # ─── 48K custom-pulse loaders ───────────────────────────────────
 # Every TAP entry above loads through the BASIC ROM's standard
@@ -380,7 +380,7 @@ frame_hash = "xxh64:8e063f13a212b240"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "back-to-skool-tape-microsphere"
@@ -411,7 +411,7 @@ frame_hash = "xxh64:2c2358ec94044554"
 # path is alive end-to-end through the Microsphere loader.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:ec7309e3fa562f27"
+hash = "xxh64:30772d86e5f91ef8"
 
 [[entry]]
 id = "back-to-the-future-tape-bleepload"
@@ -444,7 +444,7 @@ frame_hash = "xxh64:84f0c9c00a18a47e"
 # clean enough for the AY to produce sound.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:6c8dffcbac3b30eb"
+hash = "xxh64:6aaee9fdc4020c77"
 
 # ─── Speedlock-tape cluster ─────────────────────────────────────
 # Unlocked 2026-05-13 by the TZX partial-last-byte parser fix (see
@@ -486,7 +486,7 @@ frame_hash = "xxh64:43f4dd995e59fabe"
 # starts a game, which we'd need scripted input to reach.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "robocop-tape-speedlock"
@@ -516,7 +516,7 @@ frame_hash = "xxh64:3f225520cedc41e9"
 # no AY music; the music driver only starts in-game.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "dragon-ninja-tape-speedlock"
@@ -545,7 +545,7 @@ frame_hash = "xxh64:1d7411eccce6eccb"
 # waypoint, distinct from the canonical silence hash.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:ccdc15ed95e30869"
+hash = "xxh64:3899aef92d741517"
 
 [[entry]]
 id = "renegade-tape-speedlock"
@@ -573,7 +573,7 @@ frame_hash = "xxh64:805174e353503a99"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d4b9cabd6095e6e5"
+hash = "xxh64:6057b29e34068d35"
 
 [[entry]]
 id = "combat-school-tape-speedlock"
@@ -602,7 +602,7 @@ frame_hash = "xxh64:9555472c791e2e9a"
 # Combat School's title-screen music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:dc1e26d2f96c7a71"
+hash = "xxh64:1ace5ac8c1dba78a"
 
 [[entry]]
 id = "rambo-tape-speedlock"
@@ -630,7 +630,7 @@ frame_hash = "xxh64:0ef5c4d4a22f56fb"
 # Rambo's attract music — distinct from the loader-silence hash.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c353530c67876f4d"
+hash = "xxh64:f3fa85a5f3ced684"
 
 [[entry]]
 id = "star-wars-tape-speedlock"
@@ -657,7 +657,7 @@ frame_hash = "xxh64:1361c56d5e7e733e"
 # Star Wars title sting plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:8356199c0848de2b"
+hash = "xxh64:9e72abf6dc093af6"
 
 [[entry]]
 id = "mikie-tape-speedlock"
@@ -686,7 +686,7 @@ frame_hash = "xxh64:eeb8c01e6f30d891"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "nemesis-tape-speedlock"
@@ -714,7 +714,7 @@ frame_hash = "xxh64:85bb2d88174c407f"
 # Title-screen music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:00bc0ab1be674c8a"
+hash = "xxh64:f8d19bee35ea8cfa"
 
 [[entry]]
 id = "salamander-tape-speedlock"
@@ -742,7 +742,7 @@ frame_hash = "xxh64:95c2a0a05d1d025d"
 # Salamander's title music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:a2e07235e7779042"
+hash = "xxh64:a8df33fa3166a267"
 
 [[entry]]
 id = "bubble-bobble-tape-speedlock"
@@ -775,7 +775,7 @@ frame_hash = "xxh64:a1fce5d9e562ae1c"
 # inserts a credit, which would need scripted input to reach.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "green-beret-tape-speedlock"
@@ -812,7 +812,7 @@ frame_hash = "xxh64:71f988e0154d825f"
 # off the AY/beeper until the player presses a key.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "arkanoid-tape"
@@ -850,7 +850,7 @@ frame_hash = "xxh64:c9a50ee6e7a62080"
 # against display fetches.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 # ─── Spectrum+ entries ──────────────────────────────────────────
 # Mirrors the 48K title set on the dedicated machine-sinclair-zx-
@@ -880,7 +880,7 @@ frame_hash = "xxh64:3849ef196db5a88f"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:53f2a337ab7999b6"
+hash = "xxh64:375ee829884bd3c9"
 
 [[entry]]
 id = "knight-lore-plus"
@@ -901,7 +901,7 @@ frame_hash = "xxh64:074e242db0720e42"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d6abacf058dfc09f"
+hash = "xxh64:d6588709ce228308"
 
 [[entry]]
 id = "jet-set-willy-plus"
@@ -922,7 +922,7 @@ frame_hash = "xxh64:84755482f7074dbf"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "atic-atac-plus"
@@ -943,7 +943,7 @@ frame_hash = "xxh64:81301d5c0b355bf9"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "skool-daze-plus"
@@ -964,7 +964,7 @@ frame_hash = "xxh64:38cd0180bf456390"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:a558ac08f2340aa0"
+hash = "xxh64:94ae4fa62616f624"
 
 [[entry]]
 id = "chuckie-egg-plus"
@@ -985,7 +985,7 @@ frame_hash = "xxh64:3523e9cc4d817ded"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:94719e9d906ed93e"
+hash = "xxh64:993f501a6d0f316a"
 
 [[entry]]
 id = "saboteur-plus"
@@ -1006,7 +1006,7 @@ frame_hash = "xxh64:0e1cacb0a7d6bea9"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "sabre-wulf-plus"
@@ -1027,7 +1027,7 @@ frame_hash = "xxh64:bbd9f61fd2d79daf"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c9019616a2702bc5"
+hash = "xxh64:843f1028e0e1a59a"
 
 [[entry]]
 id = "lords-of-midnight-plus"
@@ -1048,7 +1048,7 @@ frame_hash = "xxh64:7c4d050a81b56d1c"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "head-over-heels-plus"
@@ -1069,7 +1069,7 @@ frame_hash = "xxh64:3d36372a6034bc91"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "chase-hq"
@@ -1089,14 +1089,14 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
 # Captures the "CHASE H Q / © 1989 OCEAN SOFTWARE / © 1988 TAITO" title
 # screen with the SCORE/TIME/SPEED HUD and police lights.
 wait_frames = 60
-frame_hash = "xxh64:4f3e26739a0d71be"
+frame_hash = "xxh64:920da4ca7b1f875d"
 
 [entry.audio]
 # Captures the AY title-screen music — the reason 128K Chase H.Q. exists
 # as a distinct release from the 48K version.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:aede03775afcfd4a"
+hash = "xxh64:c76dc1ae8e550913"
 
 [[entry]]
 id = "robocop"
@@ -1131,7 +1131,7 @@ frame_hash = "xxh64:50965d46a26bbafc"
 # capture the actual AY soundtrack in a later pass.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "operation-wolf"
@@ -1156,7 +1156,7 @@ frame_hash = "xxh64:43f4dd995e59fabe"
 # yet at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "out-run"
@@ -1184,7 +1184,7 @@ frame_hash = "xxh64:1838727d99e21182"
 # title music has started by this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:a9ddca2b8a84e3c4"
+hash = "xxh64:668d100b65aecee3"
 
 [[entry]]
 id = "rainbow-islands"
@@ -1202,13 +1202,13 @@ path = "Sinclair/ZX Spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble B
 # Tim Follin's AY soundtrack on the 128K — bubbly, technically
 # accomplished arrangement that's a showpiece for the chip.
 wait_frames = 60
-frame_hash = "xxh64:5099b5dbc9f28210"
+frame_hash = "xxh64:51fd5828568a5393"
 
 [entry.audio]
 # 128K silence hash — Tim Follin's music hasn't kicked in yet.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:73ff0aca86082619"
+hash = "xxh64:25e26fbe7fd02cf6"
 
 [[entry]]
 id = "bubble-bobble"
@@ -1232,7 +1232,7 @@ frame_hash = "xxh64:efbc1a70201a1b87"
 # 128K silence hash — chiptune driver hasn't started yet.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "where-time-stood-still"
@@ -1258,7 +1258,7 @@ frame_hash = "xxh64:076876874e1f4725"
 # in the set whose music driver is fully running by 3.2 s post-load.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:6a66a07be51a847b"
+hash = "xxh64:81759e534b8a082e"
 
 [[entry]]
 id = "total-eclipse"
@@ -1283,7 +1283,7 @@ frame_hash = "xxh64:139aaf56e6c27028"
 # 128K silence hash — Freescape's title screen has minimal sound.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "castle-master"
@@ -1308,7 +1308,7 @@ frame_hash = "xxh64:915844668f32246e"
 # 128K silence hash — title music driver hasn't started yet.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "lords-of-chaos"
@@ -1333,7 +1333,7 @@ frame_hash = "xxh64:954a541d8b19ddc8"
 # 128K silence hash — RPG title screen has no music.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 # ─── +2 entries (mirror of 128K) ────────────────────────────────
 # Grey +2 (Amstrad-built, 1986) is electrically identical to the 128K
@@ -1357,12 +1357,12 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:4f3e26739a0d71be"
+frame_hash = "xxh64:920da4ca7b1f875d"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:aede03775afcfd4a"
+hash = "xxh64:c76dc1ae8e550913"
 
 [[entry]]
 id = "robocop-plus2"
@@ -1385,7 +1385,7 @@ frame_hash = "xxh64:50965d46a26bbafc"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "operation-wolf-plus2"
@@ -1406,7 +1406,7 @@ frame_hash = "xxh64:43f4dd995e59fabe"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "out-run-plus2"
@@ -1427,7 +1427,7 @@ frame_hash = "xxh64:1838727d99e21182"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:a9ddca2b8a84e3c4"
+hash = "xxh64:668d100b65aecee3"
 
 [[entry]]
 id = "rainbow-islands-plus2"
@@ -1443,12 +1443,12 @@ path = "Sinclair/ZX Spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble B
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:5099b5dbc9f28210"
+frame_hash = "xxh64:51fd5828568a5393"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:73ff0aca86082619"
+hash = "xxh64:25e26fbe7fd02cf6"
 
 [[entry]]
 id = "bubble-bobble-plus2"
@@ -1469,7 +1469,7 @@ frame_hash = "xxh64:efbc1a70201a1b87"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "where-time-stood-still-plus2"
@@ -1490,7 +1490,7 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:6a66a07be51a847b"
+hash = "xxh64:81759e534b8a082e"
 
 [[entry]]
 id = "total-eclipse-plus2"
@@ -1511,7 +1511,7 @@ frame_hash = "xxh64:139aaf56e6c27028"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "castle-master-plus2"
@@ -1532,7 +1532,7 @@ frame_hash = "xxh64:915844668f32246e"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "lords-of-chaos-plus2"
@@ -1553,7 +1553,7 @@ frame_hash = "xxh64:954a541d8b19ddc8"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 # ─── +2A entries (mirror of +2) ─────────────────────────────────
 # The grey +2A (1987) is the Amstrad-built successor to the +2
@@ -1576,12 +1576,12 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:e1f8f5c9f17590de"
+frame_hash = "xxh64:1c267694361cef31"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "robocop-plus2a"
@@ -1603,7 +1603,7 @@ frame_hash = "xxh64:50965d46a26bbafc"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "operation-wolf-plus2a"
@@ -1624,7 +1624,7 @@ frame_hash = "xxh64:43f4dd995e59fabe"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "out-run-plus2a"
@@ -1645,7 +1645,7 @@ frame_hash = "xxh64:1838727d99e21182"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:5883da58ece505ad"
+hash = "xxh64:9907d3d5d5d53da9"
 
 [[entry]]
 id = "rainbow-islands-plus2a"
@@ -1666,7 +1666,7 @@ frame_hash = "xxh64:f2e02e1dc9c1cc40"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:73ff0aca86082619"
+hash = "xxh64:25e26fbe7fd02cf6"
 
 [[entry]]
 id = "bubble-bobble-plus2a"
@@ -1687,7 +1687,7 @@ frame_hash = "xxh64:184d0e0c05bd8db9"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "where-time-stood-still-plus2a"
@@ -1708,7 +1708,7 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:dcda966624d1279a"
+hash = "xxh64:bc401958854d4588"
 
 [[entry]]
 id = "total-eclipse-plus2a"
@@ -1729,7 +1729,7 @@ frame_hash = "xxh64:139aaf56e6c27028"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "castle-master-plus2a"
@@ -1750,7 +1750,7 @@ frame_hash = "xxh64:915844668f32246e"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "lords-of-chaos-plus2a"
@@ -1771,7 +1771,7 @@ frame_hash = "xxh64:954a541d8b19ddc8"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 # ─── +2B entries (mirror of +2) ─────────────────────────────────
 # The grey +2B (1988) is the Amstrad-built minor revision of the
@@ -1794,12 +1794,12 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:e1f8f5c9f17590de"
+frame_hash = "xxh64:1c267694361cef31"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "robocop-plus2b"
@@ -1821,7 +1821,7 @@ frame_hash = "xxh64:50965d46a26bbafc"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "operation-wolf-plus2b"
@@ -1842,7 +1842,7 @@ frame_hash = "xxh64:43f4dd995e59fabe"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "out-run-plus2b"
@@ -1863,7 +1863,7 @@ frame_hash = "xxh64:1838727d99e21182"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:5883da58ece505ad"
+hash = "xxh64:9907d3d5d5d53da9"
 
 [[entry]]
 id = "rainbow-islands-plus2b"
@@ -1884,7 +1884,7 @@ frame_hash = "xxh64:f2e02e1dc9c1cc40"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:73ff0aca86082619"
+hash = "xxh64:25e26fbe7fd02cf6"
 
 [[entry]]
 id = "bubble-bobble-plus2b"
@@ -1905,7 +1905,7 @@ frame_hash = "xxh64:184d0e0c05bd8db9"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "where-time-stood-still-plus2b"
@@ -1926,7 +1926,7 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:dcda966624d1279a"
+hash = "xxh64:bc401958854d4588"
 
 [[entry]]
 id = "total-eclipse-plus2b"
@@ -1947,7 +1947,7 @@ frame_hash = "xxh64:139aaf56e6c27028"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "castle-master-plus2b"
@@ -1968,7 +1968,7 @@ frame_hash = "xxh64:915844668f32246e"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "lords-of-chaos-plus2b"
@@ -1989,7 +1989,7 @@ frame_hash = "xxh64:954a541d8b19ddc8"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 # ─── +3 disk entries ────────────────────────────────────────────
 # 3" floppy titles for the 1987 Amstrad-built +3. Every entry below
@@ -2048,7 +2048,7 @@ frame_hash = "xxh64:47fda6722c6032b2"
 # reach its post-load audio state.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:2996ccb687a4f072"
+hash = "xxh64:586b1fef81bb4138"
 
 [[entry]]
 id = "rainbow-islands-plus3"
@@ -2072,12 +2072,12 @@ path = "Sinclair/ZX Spectrum/Games/[DSK]/Rainbow Islands - The Story of Bubble B
 # header. The Rainbow Islands loader cycles through this screen
 # before the actual title image.
 wait_frames = 6000
-frame_hash = "xxh64:205e453d1a8348d1"
+frame_hash = "xxh64:5099b5dbc9f28210"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "cybernoid-plus3"
@@ -2100,12 +2100,12 @@ path = "Sinclair/ZX Spectrum/Games/[DSK]/Cybernoid - The Fighting Machine (1988)
 # ("1 START GAME / 2 DEFINE KEYS / 3 INTERFACE 2 / 4 KEMPSTON /
 # S SOUND ON/OFF").
 wait_frames = 6000
-frame_hash = "xxh64:ac41233eec0a5763"
+frame_hash = "xxh64:f6bb01176162f8ab"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:cc4e10271d4a2971"
+hash = "xxh64:950fc51f488e439b"
 
 [[entry]]
 id = "cybernoid-2-plus3"
@@ -2130,7 +2130,7 @@ frame_hash = "xxh64:75af0c3a8272b1e8"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "saboteur-ii-plus3"
@@ -2162,7 +2162,7 @@ frame_hash = "xxh64:7d472737af467c03"
 # the wider 6000-frame buffer aren't in the audio-window slice).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "sim-city-plus3"
@@ -2196,7 +2196,7 @@ frame_hash = "xxh64:0c6fa6a0c1e30127"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "stormlord-plus3"
@@ -2225,12 +2225,12 @@ path = "Sinclair/ZX Spectrum/Games/[DSK]/Stormlord (1989)(Hewson Consultants)(+3
 # (which doesn't replicate that delay) hashes a slightly earlier
 # frame of the title-screen animation.
 wait_frames = 6000
-frame_hash = "xxh64:1cfe2141608a0b1f"
+frame_hash = "xxh64:3cee50fc8c327c09"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:2a2e1d6366c07fb4"
+hash = "xxh64:240c58aa37494976"
 
 [[entry]]
 id = "starglider-2-plus3"
@@ -2261,7 +2261,7 @@ frame_hash = "xxh64:5c8dc6f976335002"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:149b05ecc9e9b482"
+hash = "xxh64:9808c7e4445a42af"
 
 [[entry]]
 id = "lotus-esprit-plus3"
@@ -2288,12 +2288,12 @@ path = "Sinclair/ZX Spectrum/Games/[DSK]/Lotus Esprit Turbo Challenge (1990)(Gre
 # list (CENTRAL LOCKING / SEAT RESTRAINTS / ELECTROCHROMIC
 # MIRROR / etc.). A static post-load attract state.
 wait_frames = 6000
-frame_hash = "xxh64:01dc6aa4b2494b57"
+frame_hash = "xxh64:bfa8481a6e3a2d39"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:ba288ee0d06e1c01"
+hash = "xxh64:e9affc9f92fc3a04"
 
 [[entry]]
 id = "combat-school-plus3"
@@ -2324,7 +2324,7 @@ frame_hash = "xxh64:57dcd2c21787f26b"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "turrican-plus3"
@@ -2356,7 +2356,7 @@ frame_hash = "xxh64:96bfd748d60dd83a"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "tetris-plus3"
@@ -2383,12 +2383,12 @@ path = "Sinclair/ZX Spectrum/Games/[DSK]/Tetris (1988)(Mirrorsoft)(+3).zip"
 # logo, "MIRROR Soft PRESSENTS" banner, scrolling credits ribbon
 # at the bottom showing "...N SOFTWARE AND ..."
 wait_frames = 6000
-frame_hash = "xxh64:626777931143f07c"
+frame_hash = "xxh64:44e86d7b2d68e978"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:fde09415b49a834b"
+hash = "xxh64:abffb9a23121b009"
 
 # ─── Speedlock-6 cluster ────────────────────────────────────────
 # Four titles that share Ocean's Speedlock-6 protection: a weak-
@@ -2424,7 +2424,7 @@ frame_hash = "xxh64:43f4dd995e59fabe"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c27195d1cabf3150"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "robocop-plus3"
@@ -2450,7 +2450,7 @@ frame_hash = "xxh64:3f225520cedc41e9"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:bb2b7e8b506b0c76"
+hash = "xxh64:73e65c0beb12302d"
 
 [[entry]]
 id = "where-time-stood-still-plus3"
@@ -2479,7 +2479,7 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c13cea8a1ed3cfbc"
+hash = "xxh64:a29389ec537880b0"
 
 [[entry]]
 id = "dragon-ninja-plus3"
@@ -2503,12 +2503,12 @@ path = "Sinclair/ZX Spectrum/Games/[DSK]/Bad Dudes vs. Dragon Ninja (1988)(Imagi
 # PAUL OWENS" credit. The dragon-decorated frame border is the
 # tell — Imagine's standard title-screen styling.
 wait_frames = 6000
-frame_hash = "xxh64:39048dfbb2af5d15"
+frame_hash = "xxh64:3524d443b7b57aeb"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:58ee202f279db118"
+hash = "xxh64:9181a9d024e8e254"
 
 # ─── 16K entries ────────────────────────────────────────────────
 # 1982-83 titles small enough to fit in 16K of RAM. All use the same
@@ -2536,7 +2536,7 @@ frame_hash = "xxh64:18f261b5e0277a4e"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "pssst"
@@ -2559,7 +2559,7 @@ frame_hash = "xxh64:4cb69ba95ba20ab3"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "cookie"
@@ -2582,7 +2582,7 @@ frame_hash = "xxh64:de288bc8f0834cbb"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "tranz-am"
@@ -2605,7 +2605,7 @@ frame_hash = "xxh64:9196ee8a9192195f"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "hungry-horace"
@@ -2630,7 +2630,7 @@ frame_hash = "xxh64:cde3f51384af7e34"
 # the menu-silence hash elsewhere.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:2d08628b01eb398d"
+hash = "xxh64:e7dc7e936ce9db3e"
 
 [[entry]]
 id = "horace-goes-skiing"
@@ -2653,7 +2653,7 @@ frame_hash = "xxh64:45acacd11172455f"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:884d984d900eb226"
+hash = "xxh64:18db4a25c640db5c"
 
 [[entry]]
 id = "penetrator"
@@ -2676,7 +2676,7 @@ frame_hash = "xxh64:d949ce8028ea7cd1"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "football-manager"
@@ -2700,7 +2700,7 @@ frame_hash = "xxh64:03bb0fe89ecfd233"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 [[entry]]
 id = "time-gate"
@@ -2723,7 +2723,7 @@ frame_hash = "xxh64:a0650d47e35c0faa"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
 
 # ─── Kempston routing verification ──────────────────────────────
 # Seam 2 catalogue verification. Boot-invariant waypoint #4
@@ -2777,19 +2777,44 @@ port = 0
 button = "fire"
 
 [entry.boot]
-# Captures a gameplay frame 600 frames after the FIRE press. The
-# discriminator: without the FIRE event reaching the Kempston state
-# byte, sabre stays sheathed, no kills happen, and the 1UP score
-# diverges (captured baseline without-FIRE: xxh64:be6c03aae02465f9
-# with 1UP 000545; locked with-FIRE hash below corresponds to 1UP
-# 001070 from a sabre-swing kill at frame 300).
+# Captures a gameplay frame 600 frames after the FIRE press.
+#
+# The discriminator, re-derived 2026-08-09. The two runs are
+# byte-deterministic and differ in exactly one respect — whether the
+# FIRE event is delivered — so any difference in the captured frame is
+# caused by that event and nothing else. Verified live at that date by
+# capturing the entry with and without the FIRE step:
+#
+#   with FIRE:    xxh64:fc2686d16c6cee1a   1UP 001050, 2 lives
+#   without FIRE: xxh64:4bba69482c628a75   1UP 001050, 3 lives
+#
+# The frames differ, so routing through
+# `InputEvent::Button { port: 0, name: "fire" }` →
+# `SpectrumMachine::set_kempston_button` → `$1F` bit 4 is live.
+#
+# CAUTION — the original score-based anchor is void. It read
+# "without-FIRE 1UP 000545 vs with-FIRE 001070 from a sabre-swing
+# kill". Both runs now score 001050: the score converged, and the
+# visible discriminator is the lives counter. The all-variant Z80
+# interrupt-timing changes of 2026-07-26 (4284a55d, faecec34) shifted
+# long-run gameplay, and this is the only 48K-family entry that
+# captures live gameplay rather than a static screen, so it is the only
+# one that noticed. All 46 other 48K-family frame hashes were byte
+# identical across the same re-capture.
+#
+# A score is a poor anchor precisely because two runs can converge on
+# one by unrelated routes, as these did. If this entry is revised,
+# prefer asserting that the with- and without-FIRE hashes *differ* —
+# that tests the routing directly instead of a downstream consequence
+# of it. Note also that CPU-timing changes bump no routing version, so
+# nothing warns when they move a capture like this one.
 wait_frames = 600
-frame_hash = "xxh64:cfdff309609111f7"
+frame_hash = "xxh64:fc2686d16c6cee1a"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:dd9870db805b0685"
+hash = "xxh64:eb8a56ce7f3f7748"
 
 [[entry]]
 id = "gulpman"
@@ -2813,4 +2838,4 @@ frame_hash = "xxh64:79b364aada20e54f"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d21bc79639a0edde"
+hash = "xxh64:2f99db11eda56a85"
