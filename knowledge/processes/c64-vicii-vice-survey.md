@@ -112,6 +112,8 @@ similarity does not make any implementation the specification.
 
 - [C64 accuracy closure campaign](../decisions/c64-accuracy-closure-campaign.md)
 - [PAL 6569 late-badline display phase](../decisions/c64-late-badline-display-phase.md)
+- [C64 BA-to-AEC handover](../decisions/c64-ba-aec-handover.md)
+- [PAL 6569 far-edge late-badline DMA window](../decisions/c64-far-edge-badline-window.md)
 - [C64 architecture review](../decisions/c64-architecture-review.md)
 - [MOS 6569 / 6567 VIC-II](../chips/mos-vic-ii.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)

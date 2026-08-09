@@ -144,6 +144,13 @@ serialising the live BA-to-AEC handover age. A mid-handover regression compares
 restored execution with an unforked machine so the next matrix access cannot
 become valid at the wrong Phi2 phase.
 
+Commit `d140a36f` advances the envelope to version 6. It serialises
+source-resolved badline BA, sprite BA and c-access latches, the pending
+`$D011` completion phase and the explicit far-edge badline-window marker. A
+regression restores both the pending cycle-53 state and the exhausted
+`Some(0)` sentinel, preventing the ordinary cycle-54 access from reopening
+after restore.
+
 The catalogue replay gate landed on 2026-08-08 at snapshot envelope version 4.
 All 13 C64 entries restored into a fresh same-profile runtime and required
 byte-identical re-encoding plus matching post-waypoint frame and audio output.
@@ -156,6 +163,9 @@ This is deterministic replay evidence, not an independent hardware-accuracy
 oracle. After the BA-to-AEC correction, the same 13 entries retained every
 frame and audio hash and passed both gates again at snapshot envelope version
 5 and frame-routing version 4.
+After the far-edge badline-window correction, the same matrix retains every
+hash and produces 13 `PASS` plus 13 `SNAP-PASS` results at snapshot envelope
+version 6 and frame-routing version 5.
 
 **Why this matters for other systems.** Every system with stateful audio (Amiga Paula, NES APU, Game Boy APU) and stateful video DMA has the same surface. Get the C64 right; the rehydration pattern transfers.
 
@@ -194,6 +204,11 @@ without requiring an unrelated golden change.
 were recaptured before the manifest advanced; every frame and audio hash was
 unchanged. The complete matrix then produced 13 `PASS` and 13 `SNAP-PASS`
 results.
+
+**Requalification: 2026-08-08.** The far-edge late-badline correction in
+commit `d140a36f` advances `FRAME_ROUTING_VERSION` to 5 and the snapshot
+envelope to version 6. All 13 entries retain their frame and audio hashes. The
+complete matrix produces 13 `PASS` and 13 `SNAP-PASS` results.
 
 **Why this matters for other systems.** Every system the catalogue tracks needs this oracle. The Spectrum's Seam 4 work is system-agnostic infrastructure; the C64 is the first beneficiary of the pattern beyond the system that originated it.
 
@@ -318,4 +333,5 @@ The Spectrum's silicon-level reference was Smith's *The ZX Spectrum ULA* — a s
 - [`save-state-format.md`](save-state-format.md) — the postcard envelope the C64's snapshot work extends
 - [PAL 6569 late-badline display phase](c64-late-badline-display-phase.md) — the version-3 display-phase decision
 - [C64 BA-to-AEC handover](c64-ba-aec-handover.md) — the version-4 bus-ownership decision
+- [PAL 6569 far-edge late-badline DMA window](c64-far-edge-badline-window.md) — the version-5 far-edge fetch-window decision
 - [`october-catalogue.md`](october-catalogue.md) — the October-public bar (C64 is engineering-bar, no October deadline)

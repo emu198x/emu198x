@@ -3,6 +3,7 @@
 **Date:** 2026-08-08
 **Status:** BINDING
 **Implementation revision:** `74f31553`
+**Follow-up qualification:** `d140a36f`
 
 ## The question
 
@@ -113,6 +114,12 @@ The subsequent BA-to-AEC handover correction advances the engine contract to
 13 catalogue entries retained their frame and audio hashes after recapture,
 then passed ordinary and fresh-runtime snapshot verification at version 4.
 
+Revision `d140a36f` adds source-resolved badline BA, sprite BA and c-access
+queries together with the pending `$D011` phase and explicit far-edge-window
+state. Snapshot envelope version 6 preserves those states. The far-edge
+correction advances `FRAME_ROUTING_VERSION` to 5; all 13 catalogue entries
+again retain their hashes and pass ordinary plus fresh-runtime replay gates.
+
 ## Verification
 
 Focused tests establish that:
@@ -158,6 +165,14 @@ clean report is retained at
 That result closes the selected PAL 6569 colour-fetch contract without
 changing this document's display-phase decision.
 
+Revision `d140a36f` resolves the separate far-edge fetch-window length. It
+raises `sequencer-bug` from 96,266 to 104,394 matching pixels while all five
+exact colour-fetch planes and every other survey plane remain byte-identical.
+The clean report is
+`target/accuracy/c64-vicii-survey/d140a36f782862706e04b15272bf5f7f4a145862/report.json`.
+That result leaves 54 pixels across eight rows for the delayed C-data output
+question; it does not change the entering-Phi1 decision specified here.
+
 ## Evidence boundary
 
 This decision fixes display-state and matrix-index phase only.
@@ -181,17 +196,15 @@ exact-output lane. The selected `border-250` program is still not a complete
 oracle for the staged idle-bitmap, multicolour-bitmap and combined horizontal
 and vertical-border programs.
 
-The bus correction changes 136 pixels in the separate `sequencer-bug` case
-and reduces its net match count by 72. Cross-emulator cycle traces rule out an
-instruction-timing or missing-stall explanation: the apparent lead came from
-comparing Emu198x's scheduled pre-tick CPU pins with VICE's post-access
-monitor phase. The remaining signature is classified as delayed C-data output
-sequencing plus a late-window termination error, not a reason to change the
-exact BA-to-AEC result. The post-trigger trace holds the following opcode for
-21 cycles; VICE's instruction schedule implies only the ordinary 19-cycle
-sprite-DMA interval. AEC-sensitive sprite Phi2 bytes 0 and 2 and the effect of
-invalid activity on `last_bus_data` also remain separate evidence-bounded
-questions.
+Cross-emulator cycle traces rule out an instruction-timing or missing-stall
+explanation for the separate `sequencer-bug` case: the apparent lead came
+from comparing Emu198x's scheduled pre-tick CPU pins with VICE's post-access
+monitor phase. Revision `d140a36f` then removes the excess far-edge c-access
+and aligns the following store at cycle 55. The residual is now classified as
+delayed C-data output sequencing, not a reason to change the exact display
+phase, ownership or window-length results. AEC-sensitive sprite Phi2 bytes 0
+and 2 and the effect of invalid activity on `last_bus_data` remain separate
+evidence-bounded questions.
 
 The decision is evidenced for the PAL 6569 profile. The implementation uses
 the same entering-state split for the existing 6567 variants, but no
@@ -232,6 +245,7 @@ focused tests and clean survey comparison to be rerun.
 - [C64 accuracy closure campaign](c64-accuracy-closure-campaign.md)
 - [C64 architecture review](c64-architecture-review.md)
 - [C64 BA-to-AEC handover](c64-ba-aec-handover.md)
+- [PAL 6569 far-edge late-badline DMA window](c64-far-edge-badline-window.md)
 - [CPU bus interface](cpu-bus-interface.md)
 - [Save state format](save-state-format.md)
 - [MOS 6569 / 6567 VIC-II](../chips/mos-vic-ii.md)

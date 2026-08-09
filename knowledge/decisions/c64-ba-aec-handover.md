@@ -3,6 +3,7 @@
 **Date:** 2026-08-08
 **Status:** BINDING
 **Implementation revision:** `9176e269`
+**Follow-up qualification:** `d140a36f`
 
 ## The question
 
@@ -89,10 +90,12 @@ retained write byte, supplies the low nibble at the forced-badline boundary.
 ## Persistence and inspection
 
 The consecutive BA-low age is delayed machine state. It is serialised with
-the VIC-II, and C64 snapshot envelope version 5 preserves it. A regression
-snapshot taken within the three-cycle handover compares restored execution
-with an unforked machine so restoring cannot make an access valid one cycle
-early or late.
+the VIC-II. Snapshot envelope version 5 first preserved it; the current
+version 6 also preserves the source-resolved BA latches, c-access activity,
+pending `$D011` completion phase and explicit far-edge window. Regression
+snapshots taken within the three-cycle handover and at the far-edge boundary
+compare restored execution with an unforked machine so restoring cannot make
+an access valid one cycle early or late.
 
 The runtime query surface now exposes the state needed to inspect this
 contract. In addition to the existing `cpu.addr`, `cpu.data` and `vic.ba_low`
@@ -104,12 +107,18 @@ paths, revision `9176e269` adds:
 - `vic.last_bus_data`; and
 - `vic.rc`, `vic.vc`, `vic.vcbase` and `vic.vmli`.
 
-`FRAME_ROUTING_VERSION` is 4 because the invalid matrix and colour values are
-observable pixels. All 13 catalogue entries were recaptured and retained
-their existing frame and audio hashes. The complete version-4 matrix then
-passed both ordinary and fresh-runtime snapshot verification. These are
-Emu198x compatibility and determinism checks, not independent hardware
-evidence.
+Revision `d140a36f` adds `vic.badline_ba_low`, `vic.sprite_ba_low`,
+`vic.c_access_active`, `vic.pending_d011_write_cycle`,
+`vic.late_badline_window` and `vic.late_badline_fetches_remaining`. These
+separate ownership age from the causes and access attempt being inspected.
+
+The ownership correction advanced `FRAME_ROUTING_VERSION` to 4 because the
+invalid matrix and colour values are observable pixels. The later far-edge
+window correction advances it to 5 without changing this ownership contract.
+All 13 catalogue entries retain their existing frame and audio hashes and pass
+both ordinary and fresh-runtime snapshot verification at routing version 5
+and snapshot version 6. These are Emu198x compatibility and determinism
+checks, not independent hardware evidence.
 
 ## Verification
 
@@ -131,27 +140,23 @@ All five registered `colorfetchbug` programs match all 104,448 classified
 pixels and have byte-identical indexed-plane hashes relative to their
 references. The strict five-program colour-fetch lane also passes.
 
-The handover changes 136 pixels in the separate `sequencer-bug` case and
-reduces its net matching count by 72, from 96,338 to 96,266. Cycle traces from
-VICE and Emu198x show the stable-raster handler, complete initial sprite-DMA
-stall and the critical `$3B` write to `$D011` at the same effective cycles
-once pre-tick pins and post-access monitor reports are compared at the same
-boundary. The trace then exposes a separate late-window error: Emu198x holds
-the following opcode for 21 cycles, while VICE's instruction schedule implies
-the ordinary 19-cycle sprite interval. The remaining work is therefore
-late-created fetch-window termination followed by C-data output sequencing,
-not an upstream IRQ phase error and not a reason to change the now-exact
-BA-to-AEC ownership contract.
+Cycle traces from VICE and Emu198x show the stable-raster handler, complete
+initial sprite-DMA stall and the critical `$3B` write to `$D011` at the same
+effective cycles once pre-tick pins and post-access monitor reports are
+compared at the same boundary. Revision `d140a36f` closes the separate
+far-edge window error without changing the ownership rule. `sequencer-bug`
+improves from 96,266 to 104,394 matching pixels, while all five exact
+`colorfetchbug` outputs remain unchanged. Its remaining 54 pixels are now
+classified as delayed C-data output sequencing rather than an upstream IRQ,
+CPU-stall or ownership error.
 
 ## Evidence boundary
 
-This decision governs matrix c-access ownership and its invalid data only. It
-does not define how many c-access attempts remain when software creates a
-badline part-way through the fetch window. The `sequencer-bug` trace shows the
-current generic through-cycle-54 rule holding BA two cycles beyond the
-reference instruction schedule when the trigger occurs at the far edge. That
-window-length question must be corrected without changing which of the
-remaining accesses are valid.
+This decision governs matrix c-access ownership and its invalid data only. The
+number of attempts remaining after a far-edge write is governed by
+[the far-edge badline-window decision](c64-far-edge-badline-window.md).
+Revision `d140a36f` closes that question without changing which attempted
+accesses own the bus.
 
 This decision also does not define whether sprite Phi2 bytes 0 and 2 must
 observe the same invalid-access sideband during the BA-to-AEC interval.
@@ -166,9 +171,8 @@ Exposing `vic.last_bus_data` makes that state inspectable; it does not settle
 its physical meaning.
 
 The implementation still combines fetch and display more closely than the
-reference sequencers. After the late-window length is corrected, it still has
-no distinct delayed C-data output state for the forced-badline carry behaviour
-exposed by `sequencer-bug`.
+reference sequencers. It has no distinct delayed C-data output state for the
+remaining forced-badline carry behaviour exposed by `sequencer-bug`.
 VirtualC64 delays the combined g-access result before loading the graphics
 sequencer; Hoxs64 retains current and previous C-data values plus an explicit
 carry state. Selecting the smallest hardware-shaped Emu198x contract that
@@ -202,6 +206,7 @@ tests and all five strict colour-fetch cases to be rerun.
 ## Related Documents
 
 - [PAL 6569 late-badline display phase](c64-late-badline-display-phase.md)
+- [PAL 6569 far-edge late-badline DMA window](c64-far-edge-badline-window.md)
 - [C64 accuracy closure campaign](c64-accuracy-closure-campaign.md)
 - [C64 architecture review](c64-architecture-review.md)
 - [CPU bus interface](cpu-bus-interface.md)
