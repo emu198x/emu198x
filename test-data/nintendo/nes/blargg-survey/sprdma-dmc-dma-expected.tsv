@@ -20,6 +20,9 @@
 #   * combined stall with a sliding $4014 -- alternates 515/516, correct
 #   * inverting the get/put phase to match Mesen's pre-increment evaluation --
 #     the ROM then never settles at all
+#   * the OAM transfer itself -- a cycle-by-cycle bus-op diff against Mesen2
+#     matches on all 16 transfers, address for address, so the extra cycle is
+#     NOT inside the transfer. See the campaign record.
 #
 # rom	t_plus	mesen2	emu198x	delta
 sprdma_and_dmc_dma	00	527	528	+1

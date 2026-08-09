@@ -71,6 +71,91 @@ fn probe(name: &str) {
     eprintln!("{}", nametable_text(&nes));
 }
 
+/// Print the DMA read-cycle sequence of the first few DMA episodes, in the
+/// same shape as `tools/mesen-nes-cross-check/dma-trace.lua` prints from
+/// Mesen2. The first position where the two disagree is the extra cycle.
+///
+/// Addresses identify each cycle's role: `$07xx` is an OAM transfer read,
+/// `$Exxx`/`$Cxxx` a DMC sample fetch or the CPU's pending address for a
+/// halt/dummy/alignment cycle.
+fn trace(name: &str, episodes: usize, cycles: usize) {
+    let Some(root) = rom_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let path = root.join("sprdma_and_dmc_dma").join(name);
+    let Ok(bytes) = std::fs::read(&path) else {
+        eprintln!("missing {}", path.display());
+        return;
+    };
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+    nes.start_dma_trace();
+
+    // Most DMA episodes are DMC-only (3-4 cycles, no OAM reads). The Mesen
+    // side logs only episodes a `$4014` write opened, so collect generously
+    // and keep the ones that actually transfer sprites.
+    // Accumulate across takes rather than replacing, so an episode straddling
+    // a drain boundary is not lost.
+    let mut raw: Vec<(u64, u16, bool)> = Vec::new();
+    let mut settled = false;
+    while nes.master_clock() < MAX_TICKS && !settled {
+        for _ in 0..30_000 {
+            nes.tick();
+            if nes.peek(0x6001) == 0xDE
+                && nes.peek(0x6002) == 0xB0
+                && nes.peek(0x6003) == 0x61
+                && nes.peek(0x6000) != 0x80
+            {
+                settled = true;
+                break;
+            }
+        }
+        raw.extend(nes.take_dma_trace());
+        nes.start_dma_trace();
+    }
+    let all = split_episodes(&raw);
+    // The measurements are at the END of the run; the Mesen side's ring buffer
+    // retains its tail for the same reason.
+    let collected: Vec<Vec<(u64, u16)>> = all.iter().rev().take(episodes).rev().cloned().collect();
+
+    eprintln!("\n═══ {name} ═══ ({} episodes total)", all.len());
+    for (i, ep) in collected.iter().enumerate() {
+        eprintln!("=== episode {}", i + 1);
+        // 16 to a row, matching the Lua side's packing so the two outputs diff
+        // line for line.
+        eprintln!("start_cycle {}", ep[0].0);
+        for chunk in ep.iter().take(cycles).collect::<Vec<_>>().chunks(16) {
+            let cells: Vec<String> = chunk.iter().map(|(_, a)| format!("{a:04X}")).collect();
+            eprintln!("{}", cells.join(" "));
+        }
+    }
+}
+
+/// Split a trace at its halt cycles and keep only episodes that read the OAM
+/// source page — the ones a `$4014` write opened.
+fn split_episodes(trace: &[(u64, u16, bool)]) -> Vec<Vec<(u64, u16)>> {
+    let mut out: Vec<Vec<(u64, u16)>> = Vec::new();
+    let mut current: Vec<(u64, u16)> = Vec::new();
+    for &(cyc, addr, is_halt) in trace {
+        if is_halt && !current.is_empty() {
+            out.push(std::mem::take(&mut current));
+        }
+        current.push((cyc, addr));
+    }
+    out.push(current);
+    // OAM DMA sources a RAM page; DMC fetches and halt/dummy reads land in
+    // cartridge space, so a RAM read is what distinguishes a sprite transfer.
+    out.retain(|ep| ep.iter().any(|(_, a)| *a < 0x0800));
+    out
+}
+
+#[test]
+#[ignore = "diagnostic: prints the DMA bus-op trace for diffing against Mesen2"]
+fn trace_sprdma_and_dmc_dma() {
+    trace("sprdma_and_dmc_dma.nes", 20, 560);
+}
+
 #[test]
 #[ignore = "diagnostic: prints the ROM's measured clock table"]
 fn probe_sprdma_and_dmc_dma() {

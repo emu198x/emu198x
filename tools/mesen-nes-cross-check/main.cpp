@@ -19,6 +19,8 @@
 #include <thread>
 
 extern "C" {
+int32_t LoadScript(char *name, char *path, char *content, int32_t scriptId);
+void GetScriptLog(int32_t scriptId, char *outScriptLog, uint32_t maxLength);
 void InitDll();
 void InitializeEmu(const char *homeFolder, void *windowHandle, void *viewerHandle,
                    bool softwareRenderer, bool noAudio, bool noVideo, bool noInput);
@@ -35,6 +37,29 @@ void GetMemoryValues(int type, uint32_t start, uint32_t end, uint8_t *output);
 static const int NES_MEMORY = 8;
 // EmulationFlags::MaximumSpeed — Core/Shared/SettingTypes.h.
 static const int MAXIMUM_SPEED = 0x04;
+
+// Read a Lua script to run alongside the ROM, or an empty string if
+// EMU198X_MESEN_SCRIPT is unset. The script logs through `emu.log`, which the
+// runner drains after the ROM settles.
+static std::string read_script() {
+  const char *path = getenv("EMU198X_MESEN_SCRIPT");
+  if (!path) {
+    return "";
+  }
+  FILE *f = fopen(path, "rb");
+  if (!f) {
+    fprintf(stderr, "cannot open script %s\n", path);
+    return "";
+  }
+  std::string out;
+  char buf[4096];
+  size_t n;
+  while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+    out.append(buf, n);
+  }
+  fclose(f);
+  return out;
+}
 
 int main(int argc, char *argv[]) {
   if (argc < 3) {
@@ -55,6 +80,16 @@ int main(int argc, char *argv[]) {
     if (!LoadRom(const_cast<char *>(rom.c_str()), patch)) {
       printf("LoadRom failed\n");
       continue;
+    }
+
+    // The script has to be loaded after the ROM: the script manager lives on
+    // the debugger, which is created for the running console.
+    std::string script = read_script();
+    int32_t scriptId = -1;
+    if (!script.empty()) {
+      char name[] = "trace";
+      char path[1] = {0};
+      scriptId = LoadScript(name, path, const_cast<char *>(script.c_str()), -1);
     }
 
     // Poll rather than run a fixed frame count: these ROMs settle in well
@@ -85,6 +120,12 @@ int main(int argc, char *argv[]) {
     GetMemoryValues(NES_MEMORY, 0x6004, 0x6004 + sizeof(text) - 1, text);
     text[sizeof(text) - 1] = 0;
     printf("%s\n", reinterpret_cast<char *>(text));
+
+    if (scriptId >= 0) {
+      std::string log(1 << 20, '\0');
+      GetScriptLog(scriptId, &log[0], static_cast<uint32_t>(log.size()));
+      printf("──── script log ────\n%s\n", log.c_str());
+    }
     fflush(stdout);
 
     Stop();

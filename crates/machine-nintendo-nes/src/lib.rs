@@ -22,9 +22,15 @@
 //! CPU + PPU + APU + OAMDMA + controller I/O. Deliberately out of
 //! scope:
 //!
-//! - Sub-cycle-accurate OAMDMA/DMC DMA overlap arbitration.
 //! - Runtime / `System` trait integration.
 //! - Turbo / fast-forward / rewind.
+//!
+//! ⚠ "Sub-cycle-accurate OAMDMA/DMC DMA overlap arbitration" was listed here as
+//! out of scope until it was measured. Every DMA read cycle of all sixteen OAM
+//! transfers in `sprdma_and_dmc_dma` matches Mesen2 exactly, address for
+//! address, so the arbitration is in scope and correct. The ROM still fails,
+//! but not here; see
+//! [nes-accuracy-closure-campaign.md](../../knowledge/decisions/nes-accuracy-closure-campaign.md).
 //!
 //! # Porting provenance
 //!
@@ -171,6 +177,17 @@ pub struct Nes {
     dma_abort_dmc: bool,
     /// The initial halt cycle has run and the DMA loop is in progress.
     dma_halt_done: bool,
+    /// Diagnostic bus-op trace of DMA read cycles, armed by
+    /// [`Nes::start_dma_trace`] and `None` otherwise, so the cost in a normal
+    /// build is one predictable branch per DMA read cycle and nothing else.
+    ///
+    /// Exists to be diffed against a reference emulator. `sprdma_and_dmc_dma`
+    /// reports its failure as a table of totals that cannot say WHICH cycle is
+    /// wrong; the sequence of DMA read addresses can, because each address
+    /// identifies its cycle's role — the OAM source page for a transfer read,
+    /// the DMC sample address for a steal, the CPU's pending address for a
+    /// halt, dummy or alignment cycle.
+    dma_trace: Option<Vec<(u64, u16, bool)>>,
 
     // ── Controller I/O ──────────────────────────────────────────
     /// Controller 1 shift register (active bits to be read out
@@ -240,6 +257,7 @@ impl Nes {
             dma_need_dummy: false,
             dma_abort_dmc: false,
             dma_halt_done: false,
+            dma_trace: None,
             controller1_shift: 0,
             controller1_state: 0,
             controller2_shift: 0,
@@ -441,7 +459,7 @@ impl Nes {
         if !self.dma_halt_done {
             self.dma_halt_done = true;
             self.dma_need_halt = false;
-            let _ = self.cpu_read(self.cpu.addr);
+            let _ = self.dma_read_halt(self.cpu.addr);
             return;
         }
 
@@ -453,27 +471,27 @@ impl Nes {
                 self.dma_abort_dmc = false;
                 self.dmc_dma_active = false;
                 self.dma_consume_flag();
-                let _ = self.cpu_read(self.cpu.addr);
+                let _ = self.dma_read(self.cpu.addr);
             } else if self.dmc_dma_active && !self.dma_need_halt && !self.dma_need_dummy {
                 // DMC ready — fetch the sample byte, stealing this get
                 // cycle from any in-flight OAM transfer.
                 self.dma_consume_flag();
                 let addr = self.apu.dmc.current_address;
-                let byte = self.cpu_read(addr);
+                let byte = self.dma_read(addr);
                 self.apu.dmc.receive_dma_byte(byte);
                 self.dmc_dma_active = false;
             } else if self.sprite_dma_active {
                 // OAM read.
                 self.dma_consume_flag();
                 let addr = u16::from(self.dma_page) << 8 | u16::from(self.dma_offset);
-                self.dma_read_value = self.cpu_read(addr);
+                self.dma_read_value = self.dma_read(addr);
                 self.dma_offset = self.dma_offset.wrapping_add(1);
                 self.sprite_dma_counter += 1;
             } else {
                 // DMC running but not yet ready (halt/dummy pending),
                 // no OAM transfer: a dummy read.
                 self.dma_consume_flag();
-                let _ = self.cpu_read(self.cpu.addr);
+                let _ = self.dma_read(self.cpu.addr);
             }
         } else if self.sprite_dma_active && self.sprite_dma_counter & 1 == 1 {
             // OAM write — route through OAMADDR ($2003), which the PPU
@@ -487,12 +505,51 @@ impl Nes {
         } else {
             // Put cycle with no OAM write due: alignment dummy read.
             self.dma_consume_flag();
-            let _ = self.cpu_read(self.cpu.addr);
+            let _ = self.dma_read(self.cpu.addr);
         }
 
         if !self.sprite_dma_active && !self.dmc_dma_active {
             self.dma_halt_done = false;
         }
+    }
+
+    /// One DMA read cycle's bus op, recording the address when a trace is
+    /// armed. Every read in [`Self::dma_cycle`] goes through here so a trace
+    /// cannot silently miss a cycle.
+    fn dma_read(&mut self, addr: u16) -> u8 {
+        self.dma_read_tagged(addr, false)
+    }
+
+    /// As [`Self::dma_read`], but marks this cycle as the halt that opens a DMA
+    /// episode, so a trace can be split into episodes for comparison.
+    fn dma_read_halt(&mut self, addr: u16) -> u8 {
+        self.dma_read_tagged(addr, true)
+    }
+
+    fn dma_read_tagged(&mut self, addr: u16, is_halt: bool) -> u8 {
+        if let Some(trace) = self.dma_trace.as_mut() {
+            trace.push((self.cpu_cycle_count, addr, is_halt));
+        }
+        self.cpu_read(addr)
+    }
+
+    /// Arm the diagnostic DMA bus-op trace, discarding anything already
+    /// recorded. See [`Self::dma_trace`].
+    pub fn start_dma_trace(&mut self) {
+        self.dma_trace = Some(Vec::new());
+    }
+
+    /// Number of DMA episodes recorded so far, so a caller can stop ticking
+    /// once it has seen enough without draining the trace.
+    pub fn dma_trace_episodes(&self) -> usize {
+        self.dma_trace
+            .as_ref()
+            .map_or(0, |t| t.iter().filter(|(_, _, halt)| *halt).count())
+    }
+
+    /// Take the recorded DMA read addresses and disarm the trace.
+    pub fn take_dma_trace(&mut self) -> Vec<(u64, u16, bool)> {
+        self.dma_trace.take().unwrap_or_default()
     }
 
     /// Clear one pending DMA halt/dummy flag per cycle (Mesen2's
@@ -863,6 +920,7 @@ impl Nes {
             dma_need_dummy: snapshot.dma_need_dummy,
             dma_abort_dmc: snapshot.dma_abort_dmc,
             dma_halt_done: snapshot.dma_halt_done,
+            dma_trace: None,
             controller1_shift: snapshot.controller1_shift,
             controller1_state: snapshot.controller1_state,
             controller2_shift: snapshot.controller2_shift,
@@ -1134,20 +1192,26 @@ mod tests {
                 while nes.cpu_cycle_count & 1 != parity {
                     nes.tick();
                 }
-                nes.apu.dmc.current_address = 0xC000;
-                nes.apu.dmc.bytes_remaining = 1;
+                // Drive the DMC from its own timer rather than poking
+                // `dma_pending` once. A bare OAM transfer is 513/514 cycles and
+                // the ROM reports 525-528, so the DMC must steal repeatedly
+                // across a single transfer — a single-shot request is the wrong
+                // scenario, and the interaction between successive steals is
+                // exactly what a single shot cannot show.
+                nes.cpu_write(0x4010, 0x0F); // fastest rate: reload every 54 CPU cycles
+                nes.cpu_write(0x4012, 0xC0); // sample at $C000
+                nes.cpu_write(0x4013, 0xFF); // long enough to run throughout
+                nes.cpu_write(0x4015, 0x10); // enable DMC
 
-                // The DMC request is on the APU's own clock, so hold it fixed
-                // and slide the `$4014` write by `t` CPU cycles — the variable
-                // the ROM's T+ column actually sweeps.
+                // Slide the `$4014` write by `t` CPU cycles — the variable the
+                // ROM's T+ column sweeps — against that free-running DMC.
                 let base = nes.cpu_cycle_count;
                 let mut written = false;
                 let mut start = None;
                 let mut guard = 0;
-                while (nes.sprite_dma_active || nes.dmc_dma_active || !written) && guard < 8000 {
+                while (nes.sprite_dma_active || !written) && guard < 8000 {
                     if !written && nes.cpu_cycle_count >= base + t {
                         nes.cpu_write(0x4014, 0x02);
-                        nes.apu.dmc.dma_pending = true;
                         written = true;
                     }
                     nes.tick();

@@ -124,11 +124,41 @@ not re-attempted:
 
 The third is the sharpest. Emu198x's arbitration *does* alternate correctly when
 the experiment is reproduced in-process, yet returns a flat table under the real
-ROM — so the divergence is in how the DMC request arrives on the APU's own
-clock, not in the arbitration the in-process probe exercises. The diagnostic
-probes that establish this are `probe_oamdma_length_by_alignment`,
-`probe_dmc_dma_length_by_alignment` and `probe_combined_dma_by_dmc_offset` in
-the `machine-nintendo-nes` lib tests, plus the `sprdma_dmc_probe` test target.
+ROM. The diagnostic probes that establish this are
+`probe_oamdma_length_by_alignment`, `probe_dmc_dma_length_by_alignment` and
+`probe_combined_dma_by_dmc_offset` in the `machine-nintendo-nes` lib tests.
+
+### The bus-op diff, and what it rules out
+
+Reproducing the ROM's experiment in-process kept producing approximations of
+it, so the next step compared the two emulators directly instead. Both sides
+now emit the same thing: the address of every DMA read cycle, split into
+episodes at the halt. Mesen2's side is a Lua script
+([`dma-trace.lua`](../../tools/mesen-nes-cross-check/dma-trace.lua)) using its
+scripting API, so no struct layout has to be matched; Emu198x's side is
+[`Nes::start_dma_trace`], with every read in `dma_cycle` routed through one
+helper so a trace cannot silently miss a cycle. The 256th `$2004` write ends an
+episode on both sides, which is what makes the two outputs line up.
+
+⚠ **All sixteen OAM transfers — one per alignment, the ROM does no others —
+match cycle for cycle, address for address.** Byte-identical, 285 lines each.
+Since the read sequences are identical and every transfer has exactly 256 write
+cycles, the transfers are also the same *length*.
+
+**So the extra cycle is not inside the OAM DMA.** The defect is not the
+sprite-DMA / DMC-DMA arbitration this ROM is named for, and that arbitration is
+no longer listed as out of scope in the crate's own header, where it had sat
+unmeasured.
+
+What remains, and where stage 2 resumes: the intervals *between* transfers.
+Logging the CPU cycle at each episode shows Mesen's first five inter-episode
+intervals alternating (177041, 149765, 177905, 146541, 181383) where Emu198x's
+are uniformly low (147405, 149391, 148269, 150687, 148755) — the same
+flat-versus-alternating signature as the ROM's own table, at frame scale rather
+than transfer scale. The untraced remainder is the DMC-only DMA episodes, which
+both traces discard because neither is opened by a `$4014` write. That is the
+next place to look, and it is a different subsystem from the one this stage
+started on.
 
 A separate, real gap was found and fixed on the way: a `$4015` write clearing
 DMC enable did not cancel a queued transfer, so it still stole a cycle. Mesen2
