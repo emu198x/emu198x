@@ -2,6 +2,12 @@
 
 use std::path::{Path, PathBuf};
 
+// The shared corpora live in the *umbrella* checkout at
+// `198x/assets/test-suites/`, which is two levels above this repo's
+// root (`198x/Emu198x/emu198x`) — not one. The fallbacks below said
+// `../assets/...` and so resolved to `198x/Emu198x/assets`, which does
+// not exist, silently forcing every local run to depend on the env var
+// while `tests/spectrum.md` claimed the path was "already baked in".
 const TOM_HARTE_Z80_ENV: &str = "EMU198X_Z80_TOM_HARTE_DIR";
 const ZEX_DIR_ENV: &str = "EMU198X_ZEX_DIR";
 const FUSE_Z80_TESTS_ENV: &str = "EMU198X_FUSE_Z80_TESTS_DIR";
@@ -14,14 +20,17 @@ pub fn find_tom_harte_z80_dir() -> Result<PathBuf, String> {
         candidates.push(PathBuf::from(path));
     }
 
-    candidates.push(repo_root.join("../assets/test-suites/processor-tests/z80/v1"));
+    candidates.push(repo_root.join("../../assets/test-suites/processor-tests/z80/v1"));
     candidates.push(repo_root.join("test-data/z80/v1"));
 
     first_existing_path(candidates).ok_or_else(|| {
         missing_fixture_message(
             "Tom Harte Z80 corpus",
             TOM_HARTE_Z80_ENV,
-            &[repo_root.join("test-data/z80/v1")],
+            &[
+                repo_root.join("../../assets/test-suites/processor-tests/z80/v1"),
+                repo_root.join("test-data/z80/v1"),
+            ],
         )
     })
 }
@@ -35,14 +44,23 @@ pub fn find_zex_binary(name: &str) -> Result<PathBuf, String> {
         candidates.push(PathBuf::from(dir).join(&filename));
     }
 
-    candidates.push(repo_root.join("../assets/test-suites/zex").join(&filename));
+    candidates.push(
+        repo_root
+            .join("../../assets/test-suites/zex")
+            .join(&filename),
+    );
     candidates.push(repo_root.join("test-data/zex").join(&filename));
 
     first_existing_path(candidates).ok_or_else(|| {
         missing_fixture_message(
             &format!("ZEX binary {filename}"),
             ZEX_DIR_ENV,
-            &[repo_root.join("test-data/zex").join(&filename)],
+            &[
+                repo_root
+                    .join("../../assets/test-suites/zex")
+                    .join(&filename),
+                repo_root.join("test-data/zex").join(&filename),
+            ],
         )
     })
 }

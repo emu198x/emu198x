@@ -313,13 +313,15 @@ fn run_opcode_tests(path: &Path) -> (usize, usize, Vec<String>) {
 #[test]
 #[ignore = "requires local Tom Harte Z80 corpus and runs for minutes"]
 fn run_all() {
-    let test_path = match find_tom_harte_z80_dir() {
-        Ok(path) => path,
-        Err(message) => {
-            eprintln!("{message}");
-            return;
-        }
-    };
+    // Fail rather than skip. This is a declared accuracy gate, and it
+    // is `#[ignore]`d — reaching it means someone asked for it by name.
+    // Returning early on a missing corpus still reports `test result:
+    // ok`, which is indistinguishable from 1,604,000 passing vectors in
+    // a log or a CI summary; a baseline was very nearly recorded as
+    // "Tom Harte 100%" from a run that executed nothing. Same principle
+    // as the catalogue's routing-version constants: an absent or stale
+    // oracle must be loud, not quietly green.
+    let test_path = find_tom_harte_z80_dir().unwrap_or_else(|message| panic!("{message}"));
 
     let read_dir = match std::fs::read_dir(&test_path) {
         Ok(read_dir) => read_dir,
