@@ -95,14 +95,23 @@ though the framebuffer is serialised: snapshot fidelity must preserve current
 output state without making future pixels depend on unrelated frame history.
 
 VC, VCBASE, RC and VMLI have focused chip-level getters and direct tests.
-Idle state and the border flip-flops are visible to internal tests and
-serialisation, but are not yet exposed through the runtime C64 query surface.
-This decision does not claim that the live debugger surface is complete.
+Revision `9176e269` subsequently exposed `vic.badline`, `vic.idle_state`,
+`vic.ba_low`, `vic.ba_low_cycles`, `vic.aec_low`, `vic.cpu_stalled`,
+`vic.last_bus_data`, `vic.rc`, `vic.vc`, `vic.vcbase` and `vic.vmli` through
+the runtime C64 query surface. `cpu.addr`, `cpu.data` and the added
+`cpu.data_in` path make the CPU side inspectable at the same boundary. The
+border flip-flops remain internal, so this decision does not claim that the
+live debugger surface is complete.
 
 The observable frame contract changes, so `FRAME_ROUTING_VERSION` is 3. All
 13 C64 catalogue entries were recaptured; their frame and audio hashes were
 unchanged. The version-3 manifest then passed ordinary and fresh-runtime
 snapshot verification for all 13 entries.
+
+The subsequent BA-to-AEC handover correction advances the engine contract to
+`FRAME_ROUTING_VERSION` 4 and the C64 snapshot envelope to version 5. Its
+13 catalogue entries retained their frame and audio hashes after recapture,
+then passed ordinary and fresh-runtime snapshot verification at version 4.
 
 ## Verification
 
@@ -139,18 +148,26 @@ planes relative to the clean `100c613d` baseline:
 The indexed-plane hashes and exact counts for `gfxfetch`, `dmadelay`,
 `greydot`, `spritecrunch`, `spritedma`, `vicii_timing`, `videomode` and
 `screenpos` remain unchanged. This is a measured improvement, not closure of
-the `colorfetchbug` category.
+the `colorfetchbug` category at revision `74f31553`.
+
+Revision `9176e269` resolves the separate bus-ownership question. The survey
+now registers all five `colorfetchbug` programs, and each matches all 104,448
+classified pixels with an indexed-plane hash identical to its reference. The
+clean report is retained at
+`target/accuracy/c64-vicii-survey/9176e2690fe25c069fe2b4cb4529a0de4f22f23d/report.json`.
+That result closes the selected PAL 6569 colour-fetch contract without
+changing this document's display-phase decision.
 
 ## Evidence boundary
 
 This decision fixes display-state and matrix-index phase only.
 
-A forced late badline has no normal three-cycle BA lead. VICE, VirtualC64 and
-Hoxs64 model its first three attempted matrix accesses as invalid: the
-character byte is `$FF`, while the colour nibble comes from CPU-side bus or
-next-opcode state. Emu198x still performs an ordinary valid screen and colour
-read for every matrix access. Correcting that requires an explicit CPU/VIC bus
-contract; the VIC-II must not invent CPU bus data internally.
+The first-three invalid matrix accesses are no longer an unresolved part of
+this decision. Revision `9176e269` supplies an explicit CPU/VIC Phi2 bus
+sample, derives AEC from consecutive aggregate BA-low cycles and stores `$FF`
+plus the CPU-side low nibble while AEC remains high. That distinct question is
+specified by the
+[BA-to-AEC handover decision](c64-ba-aec-handover.md).
 
 The implementation does not yet model a distinct draw-side DMLI, a separately
 latched graphics buffer or the complete graphics shifter pipeline. Fetch and
@@ -159,11 +176,22 @@ VIC-II bus latch. Eight pixels are rendered as one cycle-sized batch. Register
 writes whose effects change within those eight dots therefore remain outside
 this decision.
 
-The registered survey selects only `colorfetchbug/bitmap.prg`. The staged
-`main`, `main2`, `main3` and `main4` programs are not yet strict registered
-cases. Likewise, the selected `border-250` program is not a complete oracle
-for the staged idle-bitmap, multicolour-bitmap and combined horizontal and
-vertical-border programs.
+All five staged `colorfetchbug` programs are now registered and form a strict
+exact-output lane. The selected `border-250` program is still not a complete
+oracle for the staged idle-bitmap, multicolour-bitmap and combined horizontal
+and vertical-border programs.
+
+The bus correction changes 136 pixels in the separate `sequencer-bug` case
+and reduces its net match count by 72. Cross-emulator cycle traces rule out an
+instruction-timing or missing-stall explanation: the apparent lead came from
+comparing Emu198x's scheduled pre-tick CPU pins with VICE's post-access
+monitor phase. The remaining signature is classified as delayed C-data output
+sequencing plus a late-window termination error, not a reason to change the
+exact BA-to-AEC result. The post-trigger trace holds the following opcode for
+21 cycles; VICE's instruction schedule implies only the ordinary 19-cycle
+sprite-DMA interval. AEC-sensitive sprite Phi2 bytes 0 and 2 and the effect of
+invalid activity on `last_bus_data` also remain separate evidence-bounded
+questions.
 
 The decision is evidenced for the PAL 6569 profile. The implementation uses
 the same entering-state split for the existing 6567 variants, but no
@@ -187,9 +215,10 @@ Reject changes that:
 - leave stale framebuffer pixels beneath an opened vertical border;
 - apply the vertical under-border fill across the horizontal side-border
   region;
-- fabricate the first three invalid matrix values without an observable
-  CPU/VIC bus source;
-- describe the improved survey fraction as a category pass or hardware proof;
+- alter the first three invalid matrix values without preserving the explicit
+  CPU/VIC bus source and ownership contract;
+- describe the partial revision-`74f31553` survey fraction as a category pass
+  or hardware proof;
   or
 - extend the PAL phase claim to another VIC-II model without model-specific
   evidence.
@@ -202,6 +231,7 @@ focused tests and clean survey comparison to be rerun.
 
 - [C64 accuracy closure campaign](c64-accuracy-closure-campaign.md)
 - [C64 architecture review](c64-architecture-review.md)
+- [C64 BA-to-AEC handover](c64-ba-aec-handover.md)
 - [CPU bus interface](cpu-bus-interface.md)
 - [Save state format](save-state-format.md)
 - [MOS 6569 / 6567 VIC-II](../chips/mos-vic-ii.md)

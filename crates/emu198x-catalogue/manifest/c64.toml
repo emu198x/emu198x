@@ -15,11 +15,11 @@ id = "c64"
 # re-capture instruction. See
 # knowledge/decisions/c64-architecture-review.md Seam 4.
 audio_routing_version = 4
-# Version 3 separates the entering Phi1 display state from a late badline's
-# Phi2 transition and renders mode-correct idle g-access data beneath an open
-# border. All 13 frame and audio hashes were recaptured unchanged on
-# 2026-08-08 before this version was advanced.
-frame_routing_version = 3
+# Version 4 additionally derives AEC from the aggregate BA-low handover and
+# represents the invalid matrix data seen before the VIC-II owns Phi2. All 13
+# frame and audio hashes were recaptured unchanged on 2026-08-08 before this
+# version was advanced.
+frame_routing_version = 4
 
 [[system.firmware]]
 variant = "pal"

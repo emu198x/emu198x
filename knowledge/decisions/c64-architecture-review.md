@@ -1,7 +1,7 @@
 # Decision: C64 architecture review — tighten the seams, not the spine
 
 **Date:** 2026-05-20
-**Status:** Mostly landed — Seam 1 audit only; Seams 2, 3, 4, 5 landed 2026-05-20/21
+**Status:** Landed; active fidelity requalification continues
 
 ## What this is
 
@@ -56,6 +56,24 @@ If the review below appears to require revisiting any of these, the review is wr
 **Scope.** ~50 lines in `mos-vic-ii` (cycle accounting), ~20 lines in the machine-layer tick (audit), one structural waypoint test in `runtime-commodore-c64`.
 
 **Status: audit landed 2026-05-21** (commit `a9ab627`). Promoted `cpu_stalled` from a discarded return value to a public field on `Vic`. Audit conclusion: `ba_low` (cycles 12-54 of a badline, 5-cycle window per sprite) and `cpu_stalled` (cycles 15-54 / 2-cycle per sprite) are NOT redundant — they encode the 3-cycle NMOS warm-up between BA assertion and AEC drop. Machine layer correctly drives `cpu.rdy` off `ba_low` (NMOS read-stall semantics); `cpu_stalled` is exposed for future fidelity work modelling writes that race against AEC drop. Six lock-down tests added: badline asymmetry, sprite asymmetry, full 8-sprite DMA cycle table vs Mäkelä §3.8, disabled-sprite cycle release, raster IRQ exact-phi2 assertion, raster IRQ non-spurious-fire. No engine behavior change. Subsequent engine work (e.g. cycle-count corrections from a regression) bumps `FRAME_ROUTING_VERSION` and triggers re-capture.
+
+**Bus-ownership correction: 2026-08-08.** Commit `9176e269` replaces the
+fixed per-cause `cpu_stalled` schedule with a load-bearing AEC-equivalent
+derived from consecutive aggregate BA-low cycles. The handover age increments
+through the three-cycle warning interval, saturates when AEC falls and does
+not restart when one continuous BA-low interval crosses badline and sprite-DMA
+causes. CPU RDY remains driven by BA, including the NMOS write-cycle exception.
+
+The machine now samples the live CPU Phi2 byte through the explicit
+`VicPhi2Bus` value before ticking the VIC-II. During a forced late badline,
+cycles 16–18 store `$FF` and that byte's low nibble without reading matrix or
+colour RAM; cycle 19 is the first valid access. An ordinary badline retains its
+valid cycle-15 access after its cycles 12–14 BA lead. The five registered
+`colorfetchbug` programs match their indexed references exactly. Normalised
+VICE and Emu198x traces align the stable-raster handlers and critical `$3B`
+write, ruling out an upstream IRQ phase error. The continued trace exposes a
+two-cycle excess in the late-created fetch/BA window before the separate
+delayed C-data output question.
 
 **Why this matters for other systems.** Every system with cycle-stealing video DMA (BBC Micro, Atari 800/XL, Apple II HBL, Amiga blitter) shares the same seam shape. Get the C64's right; the pattern transfers.
 
@@ -121,7 +139,23 @@ The Spectrum's Seam 3 fix surfaced two real bugs (Z80 walker rehydration, ULA co
 
 Snapshot envelope version 4 serialises the VIC-II sequencer, MC/MCBASE fetch chain, fetched data, per-cycle render latches and both SID output queues. The runtime now drains the diagnostic per-voice queues with the mixed buffer at each frame boundary, bounding their size during long runs. Regression tests snapshot an active sprite and a non-empty SID queue, then compare restored execution and audio with an unforked clone. The serde audit now walks every Rust source file in the C64 CPU, VIC-II, SID, CIA, board, IEC, drive and runtime stack; the current reviewed skip count is zero. The 6502 walker and all persistent chip state remain owned serialisable values, so no rehydration hook is required.
 
-The catalogue replay gate landed on 2026-08-08. All 13 C64 entries now restore into a fresh same-profile runtime and require byte-identical re-encoding plus matching post-waypoint frame and audio output. The first full sweep exposed one restore-time normalisation bug: refreshing an unchanged datasette motor line restarted an in-flight transition delay. Making the physical line setter idempotent removed the drift. The final matrix is 13/13 `PASS` and 13/13 `SNAP-PASS` across firmware-only boot, D64, D81, G64, TAP, cartridge, 1541, 1571 and 1581 paths. This is deterministic replay evidence, not an independent hardware-accuracy oracle.
+Commit `9176e269` advances the current snapshot envelope to version 5 by
+serialising the live BA-to-AEC handover age. A mid-handover regression compares
+restored execution with an unforked machine so the next matrix access cannot
+become valid at the wrong Phi2 phase.
+
+The catalogue replay gate landed on 2026-08-08 at snapshot envelope version 4.
+All 13 C64 entries restored into a fresh same-profile runtime and required
+byte-identical re-encoding plus matching post-waypoint frame and audio output.
+The first full sweep exposed one restore-time normalisation bug: refreshing an
+unchanged datasette motor line restarted an in-flight transition delay. Making
+the physical line setter idempotent removed the drift. The qualified
+version-3 routing matrix was 13/13 `PASS` and 13/13 `SNAP-PASS` across
+firmware-only boot, D64, D81, G64, TAP, cartridge, 1541, 1571 and 1581 paths.
+This is deterministic replay evidence, not an independent hardware-accuracy
+oracle. After the BA-to-AEC correction, the same 13 entries retained every
+frame and audio hash and passed both gates again at snapshot envelope version
+5 and frame-routing version 4.
 
 **Why this matters for other systems.** Every system with stateful audio (Amiga Paula, NES APU, Game Boy APU) and stateful video DMA has the same surface. Get the C64 right; the rehydration pattern transfers.
 
@@ -154,6 +188,12 @@ entries were recaptured before the manifest was advanced; every frame and
 audio hash remained unchanged. The complete version-3 matrix then produced
 13 `PASS` and 13 `SNAP-PASS` results. The version gate therefore forced review
 without requiring an unrelated golden change.
+
+**Requalification: 2026-08-08.** The BA-to-AEC correction in commit
+`9176e269` advances the engine's `FRAME_ROUTING_VERSION` to 4. All 13 entries
+were recaptured before the manifest advanced; every frame and audio hash was
+unchanged. The complete matrix then produced 13 `PASS` and 13 `SNAP-PASS`
+results.
 
 **Why this matters for other systems.** Every system the catalogue tracks needs this oracle. The Spectrum's Seam 4 work is system-agnostic infrastructure; the C64 is the first beneficiary of the pattern beyond the system that originated it.
 
@@ -249,17 +289,6 @@ In order of leverage for unblocking the C64's progression from "reaches stable t
 - NTSC variant boot-validation depth. The PAL profile is the canonical one; NTSC remains research-grade per the C64 status doc.
 - The C64-mini / C64-DTV / C128 variants. Not in the engineering-bar scope.
 
-## Related
-
-- [`spectrum-architecture-review.md`](spectrum-architecture-review.md) — the template this review mirrors
-- [`amiga-architecture-review.md`](amiga-architecture-review.md) — the sibling review for the third active system
-- [`cpu-bus-interface.md`](cpu-bus-interface.md) — the spine this review preserves
-- [`within-family-layering.md`](within-family-layering.md) — the chip-per-crate structure the seam fixes respect
-- [`runtime-internal-shape.md`](runtime-internal-shape.md) — the runtime shape per-system reviews build on
-- [`save-state-format.md`](save-state-format.md) — the postcard envelope the C64's snapshot work extends
-- [PAL 6569 late-badline display phase](c64-late-badline-display-phase.md) — the version-3 frame-routing decision and retained survey result
-- [`october-catalogue.md`](october-catalogue.md) — the October-public bar (C64 is engineering-bar, no October deadline)
-
 ## Reference library cross-links
 
 The C64 reference library at `../reference/by-system/commodore-c64/` holds 300+ files. Most relevant to the seams below:
@@ -278,3 +307,15 @@ The Spectrum's silicon-level reference was Smith's *The ZX Spectrum ULA* — a s
 ### Cross-cutting global KB
 
 - `~/knowledge/retro-peripheral-architecture-is-pin-budget-not-design-choice.md` — applies to the C64 as much as the Spectrum. The VIC-II's BA pin and the CPU's RDY pin are the entire bus-arbitration vocabulary; everything else (sprite DMA, badlines, AEC) is built on those two wires. Pin budget shapes architecture.
+
+## Related Documents
+
+- [`spectrum-architecture-review.md`](spectrum-architecture-review.md) — the template this review mirrors
+- [`amiga-architecture-review.md`](amiga-architecture-review.md) — the sibling review for the third active system
+- [`cpu-bus-interface.md`](cpu-bus-interface.md) — the spine this review preserves
+- [`within-family-layering.md`](within-family-layering.md) — the chip-per-crate structure the seam fixes respect
+- [`runtime-internal-shape.md`](runtime-internal-shape.md) — the runtime shape per-system reviews build on
+- [`save-state-format.md`](save-state-format.md) — the postcard envelope the C64's snapshot work extends
+- [PAL 6569 late-badline display phase](c64-late-badline-display-phase.md) — the version-3 display-phase decision
+- [C64 BA-to-AEC handover](c64-ba-aec-handover.md) — the version-4 bus-ownership decision
+- [`october-catalogue.md`](october-catalogue.md) — the October-public bar (C64 is engineering-bar, no October deadline)

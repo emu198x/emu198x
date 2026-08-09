@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use common::local_rom_firmware;
 use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::HeadlessSession;
-use mos_vic_ii::{FB_HEIGHT, FB_WIDTH};
+use mos_vic_ii::{FB_HEIGHT, FB_WIDTH, oracle::engine_to_canonical};
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_INTER_CHAR_FRAMES, DEFAULT_KEY_HOLD_FRAMES,
     DEFAULT_TYPE_SETTLE_FRAMES, Model, type_string,
@@ -74,6 +74,21 @@ fn run_testprog_on(
     model: Model,
     cycles_per_frame: u32,
 ) -> Vec<u32> {
+    let mut session = prepare_testprog_on(rel_prg, model, cycles_per_frame);
+    session
+        .run_frames(settle_frames)
+        .expect("settle frames should run");
+
+    session.machine_mut().machine_mut().framebuffer().to_vec()
+}
+
+/// Boot, load and start one testbench program without consuming its requested
+/// observation interval.
+fn prepare_testprog_on(
+    rel_prg: &str,
+    model: Model,
+    cycles_per_frame: u32,
+) -> HeadlessSession<C64Runtime, C64SessionQueryProvider> {
     let dir = testbench_dir().expect("testbench dir checked by caller");
     let prg = std::fs::read(dir.join(rel_prg)).expect("testbench .prg should read");
 
@@ -110,10 +125,6 @@ fn run_testprog_on(
     )
     .expect("typing RUN should succeed");
     session
-        .run_frames(settle_frames)
-        .expect("settle frames should run");
-
-    session.machine_mut().machine_mut().framebuffer().to_vec()
 }
 
 /// Write an ARGB framebuffer as an RGB PNG (calibration aid).
@@ -469,6 +480,213 @@ fn dump_prg_framebuffer() {
     let fb = run_testprog(&rel, 60);
     write_framebuffer_png("/tmp/vicii_dump.png", &fb);
     eprintln!("wrote /tmp/vicii_dump.png for {rel}");
+}
+
+/// Cycle-vocabulary regression for the two `$D011` stores in
+/// `sequencer-bug`. Scheduled CPU pins, the entering VIC phase, the post-VIC
+/// CPU access phase and VICE's store-watchpoint timestamp are intentionally
+/// separate: comparing them as if they were one phase creates false deltas.
+#[test]
+#[ignore = "diagnostic: pins sequencer-bug D011 writes to the VIC-II cycle boundary"]
+fn sequencer_bug_d011_write_cycle_boundary() {
+    if !roms_present() || testbench_dir().is_none() {
+        eprintln!("skip: C64 ROMs or testbench not staged");
+        return;
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct Position(u16, u8, u8);
+    let pos = |line, cycle| Position(line, cycle, engine_to_canonical(cycle));
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct ExecPhase {
+        pc: u16,
+        scheduled_pins: Position,
+        cpu_access_phase: Position,
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct D011Write {
+        value: u8,
+        scheduled_pins: Position,
+        vic_phase_consumed: Position,
+        cpu_access_phase: Position,
+        vice_monitor_observed: Position,
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct BusTransition {
+        vic_phase: Position,
+        ba_low: bool,
+        aec_low: bool,
+        badline: bool,
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct StallSample {
+        vic_phase: Position,
+        addr: u16,
+        sync: bool,
+    }
+    let exec = |pc, line, scheduled, access| ExecPhase {
+        pc,
+        scheduled_pins: pos(line, scheduled),
+        cpu_access_phase: pos(line, access),
+    };
+    let bus = |line, cycle, ba_low, aec_low, badline| BusTransition {
+        vic_phase: pos(line, cycle),
+        ba_low,
+        aec_low,
+        badline,
+    };
+
+    let mut session = prepare_testprog_on(
+        "sequencer-bug/bug.prg",
+        Model::C64PalBreadbin,
+        TIMING_PAL_BREADBIN.cycles_per_frame,
+    );
+    session.run_frames(60).expect("steady raster loop");
+
+    let mut execs = Vec::new();
+    let mut writes = Vec::new();
+    let mut transitions = Vec::new();
+    let mut stalls = Vec::new();
+    let mut trace_bus = false;
+    for _ in 0..TIMING_PAL_BREADBIN.cycles_per_frame {
+        let machine = session.machine_mut().machine_mut();
+        let cpu = machine.cpu();
+        let before = pos(machine.raster_line(), machine.cycle_in_line());
+        let addr = cpu.addr;
+        let value = cpu.data;
+        let rw = cpu.rw;
+        let sync = cpu.sync;
+        let cpu_cycles = cpu.total_cycles;
+        let ba_low = machine.vic().ba_is_low();
+        let aec_low = machine.vic().aec_is_low();
+        let target_exec =
+            sync && matches!(addr, 0x0941 | 0x096D | 0x0994 | 0x09B7 | 0x09BA | 0x09CE);
+        let target_write =
+            !rw && addr == 0xD011 && matches!((before.0, value), (51, 0x3B) | (53, 0x3C));
+        if sync && addr == 0x0994 {
+            trace_bus = true;
+        }
+
+        machine.tick();
+        let after = pos(machine.raster_line(), machine.cycle_in_line());
+        let cpu_advanced = machine.cpu().total_cycles != cpu_cycles;
+
+        if target_exec && cpu_advanced {
+            execs.push(ExecPhase {
+                pc: addr,
+                scheduled_pins: before,
+                cpu_access_phase: after,
+            });
+        }
+        if target_write {
+            let vice_monitor_observed = if value == 0x3B {
+                pos(51, 54)
+            } else {
+                pos(53, 55)
+            };
+            writes.push(D011Write {
+                value,
+                scheduled_pins: before,
+                vic_phase_consumed: before,
+                cpu_access_phase: after,
+                vice_monitor_observed,
+            });
+        }
+        if trace_bus {
+            let vic = machine.vic();
+            if vic.ba_is_low() != ba_low || vic.aec_is_low() != aec_low {
+                transitions.push(BusTransition {
+                    vic_phase: before,
+                    ba_low: vic.ba_is_low(),
+                    aec_low: vic.aec_is_low(),
+                    badline: vic.is_badline(),
+                });
+            }
+            if !cpu_advanced {
+                stalls.push(StallSample {
+                    vic_phase: before,
+                    addr,
+                    sync,
+                });
+            }
+        }
+        if trace_bus && sync && addr == 0x0A04 && cpu_advanced {
+            break;
+        }
+    }
+
+    assert_eq!(
+        execs,
+        vec![
+            exec(0x0941, 48, 8, 9),
+            exec(0x096D, 49, 8, 9),
+            exec(0x0994, 50, 0, 1),
+            exec(0x09B7, 50, 53, 54),
+            exec(0x09BA, 51, 13, 14),
+            exec(0x09CE, 51, 49, 50),
+        ],
+        "steady handler and pre-write CPU phases should match VICE 3.10"
+    );
+    assert_eq!(
+        writes,
+        vec![
+            D011Write {
+                value: 0x3B,
+                scheduled_pins: pos(51, 52),
+                vic_phase_consumed: pos(51, 52),
+                cpu_access_phase: pos(51, 53),
+                vice_monitor_observed: pos(51, 54),
+            },
+            D011Write {
+                value: 0x3C,
+                scheduled_pins: pos(53, 55),
+                vic_phase_consumed: pos(53, 55),
+                cpu_access_phase: pos(53, 56),
+                vice_monitor_observed: pos(53, 55),
+            },
+        ]
+    );
+
+    // The first store's c52 pins, c53 access and VICE c54 watchpoint are one
+    // execution event under three observation conventions. The second store is
+    // deliberately not normalised: after the forced badline, VICE observes its
+    // next-opcode/store checkpoint at c55 while Emu's post-VIC access is c56.
+    assert_eq!(transitions.len(), 12);
+    assert_eq!(
+        &transitions[..6],
+        &[
+            bus(50, 55, true, false, false),
+            bus(50, 58, true, true, false),
+            bus(51, 11, false, false, false),
+            bus(51, 53, true, false, true),
+            bus(51, 56, true, true, true),
+            bus(52, 11, false, false, false),
+        ]
+    );
+    assert_eq!(stalls.len(), 77);
+    assert_eq!(
+        (stalls[0].vic_phase, stalls[18].vic_phase),
+        (pos(50, 55), pos(51, 10))
+    );
+    assert!(stalls[..19].iter().all(|s| s.addr == 0x09B9 && !s.sync));
+    assert_eq!(
+        (stalls[19].vic_phase, stalls[39].vic_phase),
+        (pos(51, 53), pos(52, 10))
+    );
+    assert!(stalls[19..40].iter().all(|s| s.addr == 0x09D1 && s.sync));
+    assert_eq!(
+        (stalls[40].vic_phase, stalls[58].vic_phase),
+        (pos(52, 55), pos(53, 10))
+    );
+    assert_eq!(
+        (stalls[59].vic_phase, stalls[76].vic_phase),
+        (pos(53, 56), pos(54, 10))
+    );
+    assert!(stalls[59..].iter().all(|s| s.addr == 0x0A04 && s.sync));
 }
 
 /// Rewrite-relevant testbench cases: (label, program, reference PNG). The

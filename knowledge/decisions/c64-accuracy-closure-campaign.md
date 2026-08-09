@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-08
 **Status:** ACTIVE
-**Assessment revision:** `74f31553`
+**Assessment revision:** `9176e269`
 
 ## The question
 
@@ -15,9 +15,9 @@ The strongest supported slice is the PAL breadbin C64 running ordinary disk,
 tape and cartridge software. CPU functional coverage, deterministic state and
 inspection are strong. The current VIC-II comparison nevertheless contains
 repeatable differences in register timing, screen positioning, video modes
-and the remaining invalid-fetch portion of forced late badlines. Parity with
-mature reference emulators is therefore not yet defensible across the
-behaviour Emu198x claims to support.
+and C-data output sequencing after forced late badlines. Parity with mature
+reference emulators is therefore not yet defensible across the behaviour
+Emu198x claims to support.
 
 No numerical family score is assigned. The available measurements describe
 different assertion boundaries: CPU final-state rows, selected full-machine
@@ -57,8 +57,7 @@ output rather than analogue colour reproduction.
 | `vicii_timing` | 84.720% |
 | `screenpos` | 87.800% |
 | `videomode` | 88.980% |
-| `sequencer-bug` | 92.235% |
-| `colorfetchbug` | 92.456% |
+| `sequencer-bug` | 92.166% |
 | `border` | 92.533% |
 | `spritecrunch` | 95.190% |
 | `spritefetchbug` | 97.004% |
@@ -67,23 +66,25 @@ output rather than analogue colour reproduction.
 | `greydot` | 99.993% |
 | `spritedma` | 99.998% |
 | `dmadelay` | 100.000% |
+| `colorfetchbug` | 100.000% for each of five programs |
 
 These are pixel-match fractions, not test pass rates. Each row is one
-representative program. The third-party testbench reference set has uneven
-per-image provenance: some images are constructed expectations, some cases
-describe measured C64 behaviour, and the set is not uniformly a direct
-hardware capture or the output of a second emulator family. The staged corpus
-upstream revision is unresolved; the survey runner pins the 37 selected input
-files by byte identity. The survey establishes where to investigate; it does
-not turn partial matches into conformance claims.
+representative program except `colorfetchbug`, which reports all five selected
+programs. The third-party testbench reference set has uneven per-image
+provenance: some images are constructed expectations, some cases describe
+measured C64 behaviour, and the set is not uniformly a direct hardware
+capture or the output of a second emulator family. The staged corpus upstream
+revision is unresolved; the survey runner pins the 37 selected input files by
+byte identity. The survey establishes where to investigate; it does not turn
+partial matches into conformance claims.
 
 The strict lanes currently require at least 99 percent for PAL 6569
 `gfxfetch`, at least 99.9 percent for PAL 6569 `spritedma`, and at least 94
 percent overall for NTSC 6567R8 `gfxfetch`. The NTSC residual is concentrated
 in the viewport-wrapping rows; overlapping content is approximately 99.3
-percent. The other four colour-fetch-bug programs reproduce the same confined
-late-badline signature at 94.821 to 95.233 percent. There is no strict
-6567R56A or 8565 comparison yet. The PAL 6569
+percent. A separate strict lane now requires pixel and indexed-hash identity
+for all five PAL 6569 colour-fetch-bug programs; all five pass at revision
+`9176e269`. There is no strict 6567R56A or 8565 comparison yet. The PAL 6569
 `greydot` reference does not establish 8565 grey-dot behaviour.
 
 ### SID audio
@@ -100,16 +101,18 @@ late-badline signature at 94.821 to 95.233 percent. There is no strict
 
 ### Determinism and compatibility
 
-- Snapshot envelope version 4 preserves the active VIC-II sprite, fetch and
-  render pipeline plus queued mixed and per-voice SID audio. Active-sprite and
-  non-empty-audio regressions compare restored execution with an unforked
-  machine. The recursive C64 serde audit currently finds no skipped state in
-  the CPU, VIC-II, SID, CIA, board, IEC, drive or runtime stack. This state was
-  established by commit `6a8cad9c`.
-- At frame-routing version 3, all 13 C64 catalogue entries produce `PASS` and
+- Snapshot envelope version 5 preserves the active VIC-II sprite, fetch and
+  render pipeline, queued mixed and per-voice SID audio, and the live
+  BA-to-AEC handover age. Active-sprite, non-empty-audio and mid-handover
+  regressions compare restored execution with an unforked machine. The
+  recursive C64 serde audit currently finds no skipped state in the CPU,
+  VIC-II, SID, CIA, board, IEC, drive or runtime stack. The live-pipeline
+  foundation was established by commit `6a8cad9c`; the handover state was
+  added by commit `9176e269`.
+- At frame-routing version 4, all 13 C64 catalogue entries produce `PASS` and
   `SNAP-PASS`. The matrix covers firmware-only boot, D64, D81, G64, TAP,
   EasyFlash, Final Cartridge III, Action Replay, 1541, 1571 and 1581 paths.
-  Every frame and audio hash remained unchanged when version 3 was recaptured.
+  Every frame and audio hash remained unchanged when version 4 was recaptured.
   These hashes are Emu198x regression oracles, not independent hardware
   evidence. Every entry currently uses a PAL profile.
 - The runtime has PAL and NTSC breadbin profiles plus PAL and NTSC C64C
@@ -118,7 +121,7 @@ late-badline signature at 94.821 to 95.233 percent. There is no strict
 
 ## Why a parity claim is not yet defensible
 
-### Measured result: late-badline display phase
+### Measured result: late-badline display phase and bus handover
 
 Commit `74f31553` separates the display state entering Phi1 from a forced
 badline that becomes active during Phi2. Cycle 16 retains its idle g-access,
@@ -127,19 +130,40 @@ advancing. Rendering now selects the live pre-increment VMLI rather than a
 geometry-derived column. An opened vertical border also exposes fresh active
 or mode-correct idle output rather than stale framebuffer pixels.
 
-The clean revision-keyed comparison improved `colorfetchbug` by 24,192 pixels
-to 92.456 percent and `sb_sprite_fetch` by 23,040 pixels to 98.578 percent.
-`spritefetchbug`, `border` and `sequencer-bug` also improved; all eight other
-indexed output planes remained identical. The focused phase question is
-therefore decided, but the `colorfetchbug` category is not closed.
+The clean revision-keyed comparison at `74f31553` improved `colorfetchbug` by
+24,192 pixels to 92.456 percent and `sb_sprite_fetch` by 23,040 pixels to
+98.578 percent. `spritefetchbug`, `border` and `sequencer-bug` also improved;
+all eight other indexed output planes remained identical. That revision
+settled the focused display-phase question.
 
-The remaining forced-badline seam is the missing BA-prefetch behaviour. The
-first three attempted c-accesses occur before the VIC-II owns the bus and must
-not read ordinary screen and colour RAM. Representing their `$FF` character
-value and CPU-derived colour nibble requires an explicit CPU/VIC bus contract.
-It must not be approximated by inventing CPU data inside the video chip. The
-exact phase and evidence boundary are recorded in
-[PAL 6569 late-badline display phase](c64-late-badline-display-phase.md).
+Commit `9176e269` then makes bus ownership depend on consecutive aggregate
+BA-low cycles. During the first three cycles, before AEC falls, a matrix
+access stores `$FF` and the low nibble of an explicit CPU-side Phi2 bus sample
+without reading screen or colour RAM. The fourth consecutive BA-low cycle is
+the first valid access. The handover does not restart while badline and sprite
+DMA causes overlap, and CPU RDY remains driven by BA with the NMOS write-cycle
+exception.
+
+All five registered PAL 6569 `colorfetchbug` programs now match every one of
+their 104,448 classified pixels and have indexed-plane hashes identical to
+their references. The clean report is
+`target/accuracy/c64-vicii-survey/9176e2690fe25c069fe2b4cb4529a0de4f22f23d/report.json`.
+The selected colour-fetch contract is therefore closed.
+
+The same change moves 136 pixels in `sequencer-bug` and reduces the net match
+count by 72, from 96,338 to 96,266. A VICE instruction trace and an Emu198x
+pin trace align at the stable-raster handler, through the complete sprite-DMA
+stall and at the critical `$3B` write after normalising their observation phases.
+The critical trigger is therefore not an upstream CPU timing lead. Continuing
+the trace reveals a separate defect after it: Emu198x holds the next opcode
+for 21 cycles across the forced-badline and sprite interval, while VICE's
+instruction schedule implies the ordinary 19-cycle sprite interval. The
+remaining work is classified as late-created fetch-window termination and
+delayed C-data output sequencing. Reverting the now-exact ownership rule would
+conceal those separate omissions. The phase and bus questions are recorded
+independently in
+[PAL 6569 late-badline display phase](c64-late-badline-display-phase.md) and
+[C64 BA-to-AEC handover](c64-ba-aec-handover.md).
 
 ### Other claim boundaries
 
@@ -156,6 +180,11 @@ Other claim boundaries remain:
 - SID open-bus decay, TEST ramp details, ring-modulation polarity and 8580
   combined-waveform/noise interactions need stronger coverage.
 - Ultimax unmapped reads do not yet model the required open-bus behaviour.
+- Invalid matrix accesses deliberately do not update the simplified
+  `last_bus_data` latch. The effect of disconnected Phi2 activity on that
+  latch remains an evidence-bounded open-bus question.
+- Sprite Phi2 bytes 0 and 2 are not yet governed by a selected external oracle
+  for their AEC-sensitive invalid-access sideband.
 - REU transfers complete as one machine operation rather than participating in
   cycle-visible bus arbitration.
 - The catalogue has no NTSC or C64C entry.
@@ -179,16 +208,17 @@ Work proceeds in this order:
    gates.
 2. Preserve the revision-keyed VIC-II report, including fixture identity,
    model, crop, palette-classification method and exact per-case results.
-3. Complete the forced-badline invalid-c-access contract, broaden
-   `colorfetchbug` beyond the selected bitmap program, promote the corrected
-   `sb_sprite_fetch` representative when its remaining signature is
-   classified, then address `vicii_timing`. Introduce explicit dot or
-   Phi1/Phi2 stages where the evidence requires them. A change must
-   improve the targeted oracle without absorbing an unexplained regression in
-   a stronger lane. Treat the testbench program and reference image as the
-   black-box contract, inspect vendored VICE 3.10 as implementation evidence,
-   and use Hoxs64, VirtualC64 or MiSTer where they can independently classify a
-   residual. VICE source is not itself the specification.
+3. Preserve the exact five-program forced-badline c-access contract. Give a
+   late-created badline its evidence-backed remaining fetch-window length,
+   then model the delayed C-data output state required by the classified
+   `sequencer-bug` residual. Next classify `sb_sprite_fetch` and
+   address `vicii_timing`. Introduce explicit dot or Phi1/Phi2 stages where the
+   evidence requires them. A change must improve the targeted oracle without
+   absorbing an unexplained regression in a stronger lane. Treat the
+   testbench program and reference image as the black-box contract, inspect
+   vendored VICE 3.10 as implementation evidence, and use Hoxs64, VirtualC64
+   or MiSTer where they can independently classify a residual. VICE source is
+   not itself the specification.
 4. Promote corrected representative cases to strict assertions and broaden
    within each category before making a category-level claim. Add strict
    6567R56A and 8565 contracts only after suitable model-specific references
@@ -251,11 +281,13 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-08-08 | 1. Catalogue replay | Commit `bdb07858` adds fresh-runtime snapshot replay to every C64 catalogue entry. The complete 13-entry PAL matrix passes both ordinary and replay assertions across boot, disk, tape, cartridge and three drive families. |
 | 2026-08-08 | 2. Revision-keyed VIC-II survey | The focused wrapper pins all 37 consumed PRG, PNG and ROM inputs for 17 programs across 13 categories, admits exact integer pixel counts from the Rust producer, and writes a path-free report under the full source revision. The upstream testbench revision and per-image evidence provenance remain explicit unresolved boundaries. |
 | 2026-08-08 | 3. Late-badline display phase | Commit `74f31553` separates entering Phi1 display state from the Phi2 badline transition, consumes live pre-increment VMLI, and generates mode-correct idle output beneath an opened vertical border. Five survey cases improve and eight remain identical. All 13 catalogue frame/audio hashes recapture unchanged at routing version 3, then pass ordinary and fresh-runtime replay gates. The first-three invalid c-access contract remains open. |
+| 2026-08-08 | 3. BA-to-AEC handover | Commit `9176e269` adds an explicit CPU-side Phi2 bus sample, derives AEC from consecutive aggregate BA-low cycles and stores `$FF` plus the supplied CPU nibble for the three invalid forced-badline c-accesses. All five registered `colorfetchbug` programs now match exactly. Snapshot envelope version 5 preserves a mid-handover state and runtime queries expose the bus and sequencer fields. All 13 catalogue entries retain their frame and audio hashes at `FRAME_ROUTING_VERSION` 4 and pass ordinary plus fresh-runtime replay verification. Normalised VICE and Emu198x traces rule out an upstream IRQ phase error at the critical `sequencer-bug` trigger, then expose a two-cycle late-window excess before the separate delayed C-data output question. |
 
 ## Related Documents
 
 - [C64 architecture review](c64-architecture-review.md)
 - [PAL 6569 late-badline display phase](c64-late-badline-display-phase.md)
+- [C64 BA-to-AEC handover](c64-ba-aec-handover.md)
 - [October catalogue](october-catalogue.md)
 - [Save state format](save-state-format.md)
 - [Live-machine serde](savestate-live-machine-serde.md)
