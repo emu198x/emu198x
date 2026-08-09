@@ -14,7 +14,7 @@ pivots from broad improvement to failure-driven maintenance?
 The strongest supported slice is the 48K and 128K Sinclair machines running
 ordinary tape, disk and snapshot software. CPU coverage is the best in the
 fleet: every Spectrum-native oracle passes, and `z80test` passes with no
-allowlist at all. The 114-entry catalogue across eight variants is the largest
+allowlist at all. The 103-entry catalogue across eight variants is the largest
 regression foundation any system in the workspace has.
 
 The gap is not a known defect. It is a **measurement gap**. Every declared
@@ -33,11 +33,40 @@ probes, byte-equal framebuffer goldens and catalogue frame/audio hashes.
 Combining them into one percentage would imply a weighting the evidence does
 not provide.
 
+## Two goals, staged
+
+The campaign's end state is the pivot gate below. Inside it sits a nearer,
+differently-shaped milestone, because CRASH! Live in October 2026 does not need
+the campaign finished — it needs something specific and true to say.
+
+**October milestone.** Emu198x can make a specific, reproducible, public
+accuracy claim about the 48K and 128K Spectrum, backed by a graded survey
+against published real-hardware results and verifiable by anyone who runs the
+same suite. Today the strongest honest public statement is "every test we have
+passes", which is weak precisely because all eight ULA gates are binary. Steps
+1, 2, 3 and 5 serve this.
+
+**Campaign end state.** The pivot gate: Spectrum work becomes failure-driven.
+Steps 6, 7 and 8 — the RZX harness, 128K/Amstrad-class contention evidence, and
+sourcing `ulatest3` / `progforhackers` — are not October-shaped and are not
+scoped against that date.
+
+The distinction matters because the two deadlines answer different questions.
+The milestone asks "what can we defensibly say in public?"; the gate asks "when
+does broad improvement stop?".
+
 ## Evidence supporting the assessment
 
 Every figure below is a fresh run at `a19de51c`, not inherited from
 [`tests/spectrum.md`](../tests/spectrum.md), which was last refreshed
 2026-05-31 with 47 Spectrum-crate commits landing since.
+
+**The baseline is complete, and it found the catalogue red.** The CPU layer and
+all eight variants are measured. The catalogue — the only audio oracle and the
+only media-path coverage — does not run at all; see § Determinism and
+compatibility. Step 3 must not begin until it is restored, because its
+governing rule is that a change may not absorb an unexplained regression in a
+stronger lane, and the strongest lane is currently reporting nothing.
 
 ### Processor
 
@@ -79,12 +108,22 @@ about margin; one that fails says only "something moved".
 
 ### Determinism and compatibility
 
-- 114 catalogue entries across eight variants, each gated on snapshot
-  round-trip through a fresh-from-firmware runtime, at `audio_routing_version`
-  1 and `frame_routing_version` 3.
+- **The catalogue does not currently run.** 103 entries are authored across
+  eight variants, but the manifest declares `audio_routing_version = 1` and
+  `frame_routing_version = 3` while the runtime is at **3** and **4**. Seam 4
+  refuses on the first entry, so the pass is aborting at `manic-miner` with
+  zero entries verified. It has been in this state since **2026-06-05**, when
+  `85f3abbc` AC-coupled the beeper and bumped the audio version; `9d2ef79e`
+  moved both again on 2026-07-26. Twenty Spectrum-crate commits have landed
+  since the last re-capture, none of them catalogue-verified.
 - Routing-version constants fail loud on stale hashes (architecture review
   Seam 4), so a timing change cannot silently relabel captured output as
-  expected.
+  expected. **This worked exactly as designed — and nine weeks passed before
+  anyone ran the gate that would surface it.** A loud gate nobody runs is a
+  silent gate.
+- There is therefore currently **no audio regression coverage and no
+  media-path coverage** for any Spectrum variant. The catalogue is the only
+  oracle for both.
 - Catalogue frame and audio hashes are Emu198x regression oracles, not
   independent hardware evidence.
 - The runtime suite passes 35/35, and 48K and 128K boot invariants both pass.
@@ -168,7 +207,7 @@ change fleet-wide is a separate decision, deliberately not taken here.
 - **Deferred architecture-review fidelity findings remain open**: palette
   luminance deviating from BT.601, the beeper's four output voltages modelled
   as two, and the 5C-versus-6C breezeway shift.
-- Catalogue coverage is 114 entries against a bar of the full Code198x
+- Catalogue coverage is 103 entries against a bar of the full Code198x
   curriculum corpus; authoring continues as titles enter the curriculum.
 
 ## Ordered closure campaign
@@ -179,9 +218,24 @@ it (`fix:` / `feat:` bump; `test:` / `docs:` do not). The Amiga and C64
 campaigns produced 40 consecutive non-conventional commits and therefore no
 version bump at all; this campaign does not repeat that.
 
-1. **Preserve the foundation.** No timing change may weaken the 114-entry
-   catalogue, its snapshot round-trip gate, the routing-version constants, or
-   any of the eight currently-passing ULA gates.
+1. **Restore the catalogue, then preserve it.** This is now the campaign's
+   first real work item, not a formality. Re-capture all 103 entries' frame and
+   audio hashes at `AUDIO_ROUTING_VERSION` 3 / `FRAME_ROUTING_VERSION` 4, then
+   verify ordinary and fresh-runtime replay across all eight variants.
+
+   Re-capture accepts current behaviour as correct, so it must not be
+   mechanical. Two intentional changes are being baked in — the beeper
+   AC-coupling (`85f3abbc`) and the 128K HALT2INT contention pin (`9d2ef79e`) —
+   and any *unintentional* drift in the same nine-week window would be baked in
+   alongside them. The 2026-05-19/-20 re-capture wave handled this by holding
+   R-Type's 128 audio hash as a canonical *unchanged* invariant and confirming
+   it did not move; this wave needs an equivalent control chosen before
+   capture, not after. Commit the re-capture separately from any behaviour
+   change, as that wave did across nine commits.
+
+   Thereafter no timing change may weaken the catalogue, its snapshot
+   round-trip gate, the routing-version constants, or any of the eight passing
+   ULA gates.
 2. **Register the ZXSpectrum4.net 35-test suite as a graded survey.** Pin the
    image by SHA-256, boot it headless, drive the "all tests" path, and parse the
    per-test `Pass` / `Fail` / `Expecting:` output into a revision-keyed report
@@ -255,7 +309,7 @@ The broad Spectrum push ends when:
   variant that has one available;
 - 128K and Amstrad-class contention have registered evidence, in-house or
   otherwise, with provenance and boundary stated;
-- the 114-entry catalogue passes ordinary and fresh-runtime replay gates at the
+- the 103-entry catalogue passes ordinary and fresh-runtime replay gates at the
   closing revision; and
 - a revision-keyed closure report records every gate and its evidence class.
 
@@ -271,6 +325,8 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-08-09 | 2. Survey source identified | `timingTests48k.sna` structurally confirmed as the ZXSpectrum4.net 35-test suite: self-grading, contended/uncontended, early/late classification, published real-hardware expected values. Already on disk; no acquisition needed. Upstream provenance and licence still to resolve. |
 | 2026-08-09 | Gate integrity | Commit `bd4e7887`. The Tom Harte gate resolved no corpus and reported `ok`; the fallback path was off by one directory level and a missing fixture returned early instead of failing. `find_zex_binary` had the identical off-by-one. The gate now resolves with no env var set and reports 1,604,000/1,604,000. |
 | 2026-08-09 | 7. 128K oracle identified | `testInt.tap`, catalogued as "unidentified — likely a Woody interrupt timing test", is in fact **TEST INT v1.10 by Yuri Kovalenko, "COMPER-Utility", 1995** — a Soviet-scene diagnostic that measures INT signal duration against a мала/Норма/велика band on a 10–120 scale, alongside effective data-bus bits and an IM 2 figure. It targets Pentagon 48/128 and the Sinclair Spectrum and refuses to run below 128K. It is a direct oracle for INT pulse length, which no current gate measures, and it discriminates Pentagon from Sinclair. Turning it into an assertion needs a screen-region decode or a RAM probe, since it reports through a bar graph rather than a printed number. |
+| 2026-08-09 | Baseline completed — catalogue is RED | The six previously unmeasured variant crates (16K, Plus, +2, +2A, +2B, +3) all pass, though each carries only lib unit tests and a boot test — no ULA, timing or floating-bus gate among them, so six of eight SOLID variants have no accuracy instrumentation beyond "it boots". The catalogue does not run at all: the manifest declares `audio_routing_version = 1` / `frame_routing_version = 3` against a runtime at 3 / 4, so Seam 4 refuses at the first entry (`manic-miner`) and zero of 103 entries are verified. Red since 2026-06-05 (`85f3abbc`, beeper AC-coupling), moved again 2026-07-26 (`9d2ef79e`), with 20 Spectrum-crate commits landing unverified since the last re-capture. Restoring it is now step 1. Corrected: the manifest holds 103 entries, not the 114 first reported — the earlier count included non-`[[entry]]` tables. |
+| 2026-08-09 | Tooling | Commit `abd0360c`. `EMU198X_CATALOGUE_SYSTEMS` scopes a catalogue run to named manifests. A full pass is ~192 entries across four systems; a per-system campaign needs its own system's baseline without tripling wall time or absorbing a sibling system's in-flight work. |
 | 2026-08-09 | 4. Block-repeat residuals reclassified | The standing note called these "the *final* repeat iteration" and "silicon-variable … effectively unclosable without silicon evidence". Both are wrong, and the second followed from the first. FUSE runs `edb2_1`/`edb3_1`/`edb9_2`/`edbb_1` for **21 T-states** with B = `0x0a`, `0x03`, `0x00`, `0x04` — 21 is the *repeating* cost, 16 the terminating one — so every disputed case observes a **non-final** iteration with PC rewound. `edba_1 INDR` has the identical shape (B = `0x06`, 21 T-states) and passes every bit, so we do model the repeating-iteration rule; it agrees for one instruction and disagrees for four siblings. Separately, `z80full`/`z80flags`/`z80memptr` set `maskflags equ 0`, comparing the full `0xFF` mask including bits 3 and 5, and every block instruction including the `->NOP'` variants passes against real-48K-Zilog CRCs — the suite is not silent on these bits, though it observes the instruction after completion rather than mid-repeat. Net: the debt is not closed, but it moves from silicon mystery to a tractable inconsistency in our own model. Comment corrected at the allowlist; the gate still reports 1,351/1,356 with 0 unexpected. |
 | 2026-08-09 | Tooling | Commit `32d59886`. `emu198x-spectrum --machine ID` boots any of the 13 variants headlessly, so variant-specific test software no longer needs a scratch JSON script. Needed by steps 2 and 7. |
 
