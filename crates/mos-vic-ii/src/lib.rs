@@ -68,7 +68,12 @@ use palette::PALETTE;
 /// and the sampled CPU-side colour nibble until the fourth consecutive BA-low
 /// cycle; ordinary badlines retain their cycles 12-14 lead and valid cycle-15
 /// access. The C64 machine supplies the CPU Phi2 byte through `VicPhi2Bus`.
-pub const FRAME_ROUTING_VERSION: u32 = 4;
+///
+/// **Version 5** (2026-08-08): a cycle-53 `$D011` write that creates a badline
+/// carries its post-VIC completion phase into the following VIC tick. The one
+/// remaining far-edge matrix-DMA slot can no longer reopen as a second access
+/// through the ordinary cycle-54 predicate.
+pub const FRAME_ROUTING_VERSION: u32 = 5;
 
 /// CPU-side data visible during the VIC-II's Phi2 phase.
 ///
@@ -281,6 +286,27 @@ pub struct Vic {
     /// low, saturated at four. The first three cycles are the CPU wind-down
     /// interval; at four the VIC-II owns the bus and AEC is low.
     ba_low_cycles: u8,
+    /// Source-resolved copy of the matrix-DMA contribution to the most recent
+    /// aggregate BA result.
+    badline_ba_low: bool,
+    /// Source-resolved copy of the sprite-DMA contribution to the most recent
+    /// aggregate BA result.
+    sprite_ba_low: bool,
+    /// Whether the most recent Phi2 phase attempted a video-matrix c-access.
+    /// This remains true for an invalid pre-AEC access; ownership validity is
+    /// reported separately by [`Vic::aec_is_low`].
+    c_access_active: bool,
+    /// A `$D011` write is applied after the VIC phase in the board scheduler.
+    /// Retaining its completed CPU phase until the next VIC tick lets
+    /// `check_badline` distinguish a dynamically-created late badline from an
+    /// ordinary line that was already bad before its DMA window.
+    pending_d011_write_cycle: Option<u8>,
+    /// Remaining c-accesses in a badline created at the post-VIC far edge
+    /// (CPU completion phase 53 or later). `None` leaves ordinary and earlier
+    /// forced badlines on their established streaming schedule; `Some(0)`
+    /// deliberately remains distinct after the far-edge window is exhausted
+    /// so the generic cycle-54 slot cannot reopen it.
+    late_badline_fetches_remaining: Option<u8>,
 
     #[serde(with = "BigArray")]
     regs: [u8; 0x40],
@@ -388,6 +414,11 @@ impl Vic {
             ba_low: false,
             cpu_stalled: false,
             ba_low_cycles: 0,
+            badline_ba_low: false,
+            sprite_ba_low: false,
+            c_access_active: false,
+            pending_d011_write_cycle: None,
+            late_badline_fetches_remaining: None,
             regs: [0; 0x40],
             raster_line: 0,
             raster_cycle: 0,
@@ -458,7 +489,9 @@ impl Vic {
         self.check_badline();
         self.apply_phi2_video_counter_events();
 
-        self.ba_low = self.compute_ba_low();
+        self.badline_ba_low = self.badline_ba_low();
+        self.sprite_ba_low = self.sprite_ba_low();
+        self.ba_low = self.badline_ba_low || self.sprite_ba_low;
         self.ba_low_cycles = if self.ba_low {
             self.ba_low_cycles.saturating_add(1).min(4)
         } else {
@@ -471,14 +504,19 @@ impl Vic {
         // and addressed by VC. The per-cycle replacement for the archive's
         // batched 40-read row fetch preserves ordinary row bytes while also
         // representing the shorter fetch sequence of a forced late badline.
-        if self.is_badline && (15..=54).contains(&self.raster_cycle) {
+        self.c_access_active = self.badline_c_access_active();
+        if self.c_access_active {
             self.c_access(memory, phi2_bus.cpu_data);
+            if let Some(remaining) = &mut self.late_badline_fetches_remaining {
+                *remaining = remaining.saturating_sub(1);
+            }
         }
 
         self.raster_cycle += 1;
         if self.raster_cycle >= self.cycles_per_line {
             self.raster_cycle = 0;
             self.raster_line += 1;
+            self.late_badline_fetches_remaining = None;
 
             if self.raster_line >= self.lines_per_frame {
                 self.raster_line = 0;
@@ -501,6 +539,7 @@ impl Vic {
     }
 
     fn check_badline(&mut self) {
+        let was_badline = self.is_badline;
         let den = self.regs[0x11] & 0x10 != 0;
         let yscroll = u16::from(self.regs[0x11] & 0x07);
 
@@ -511,6 +550,15 @@ impl Vic {
         self.is_badline = self.den_latch
             && (DISPLAY_START_LINE..DISPLAY_END_LINE).contains(&self.raster_line)
             && (self.raster_line & 7) == yscroll;
+
+        if let Some(write_cycle) = self.pending_d011_write_cycle.take() {
+            if !was_badline && self.is_badline {
+                self.late_badline_fetches_remaining =
+                    (write_cycle >= 53).then_some(54u8.saturating_sub(write_cycle));
+            } else if was_badline && !self.is_badline {
+                self.late_badline_fetches_remaining = None;
+            }
+        }
     }
 
     /// Advance VC/VMLI after this cycle's Phi1 display g-access.
@@ -1305,12 +1353,20 @@ impl Vic {
             .any(|(i, &(p, _))| self.sprite_dma_active[i] && (c == p || c == (p + 1) % cpl))
     }
 
-    fn compute_ba_low(&self) -> bool {
-        self.badline_ba_low() || self.sprite_ba_low()
+    fn badline_ba_low(&self) -> bool {
+        self.is_badline
+            && match self.late_badline_fetches_remaining {
+                Some(remaining) => remaining != 0,
+                None => (12..=54).contains(&self.raster_cycle),
+            }
     }
 
-    fn badline_ba_low(&self) -> bool {
-        self.is_badline && (12..=54).contains(&self.raster_cycle)
+    fn badline_c_access_active(&self) -> bool {
+        self.is_badline
+            && match self.late_badline_fetches_remaining {
+                Some(remaining) => remaining != 0,
+                None => (15..=54).contains(&self.raster_cycle),
+            }
     }
 
     fn sprite_ba_low(&self) -> bool {
@@ -1438,6 +1494,7 @@ impl Vic {
 
         match reg & 0x3F {
             0x11 => {
+                self.pending_d011_write_cycle = Some(self.raster_cycle);
                 self.raster_compare =
                     (self.raster_compare & 0x00FF) | (u16::from(value & 0x80) << 1);
             }
@@ -1483,6 +1540,45 @@ impl Vic {
     #[must_use]
     pub const fn ba_low_cycles(&self) -> u8 {
         self.ba_low_cycles
+    }
+
+    /// Whether badline matrix DMA contributed to BA on the most recent Phi2.
+    #[must_use]
+    pub const fn badline_ba_is_low(&self) -> bool {
+        self.badline_ba_low
+    }
+
+    /// Whether sprite DMA contributed to BA on the most recent Phi2.
+    #[must_use]
+    pub const fn sprite_ba_is_low(&self) -> bool {
+        self.sprite_ba_low
+    }
+
+    /// Whether the most recent Phi2 attempted a video-matrix c-access.
+    #[must_use]
+    pub const fn c_access_is_active(&self) -> bool {
+        self.c_access_active
+    }
+
+    /// CPU completion phase of a `$D011` write awaiting the next VIC tick.
+    #[must_use]
+    pub const fn pending_d011_write_cycle(&self) -> Option<u8> {
+        self.pending_d011_write_cycle
+    }
+
+    /// Whether the current badline uses the explicit post-VIC far-edge window.
+    #[must_use]
+    pub const fn uses_late_badline_window(&self) -> bool {
+        self.late_badline_fetches_remaining.is_some()
+    }
+
+    /// Remaining matrix accesses in an explicit post-VIC far-edge window.
+    /// `None` identifies the established ordinary/earlier-forced schedule;
+    /// `Some(0)` identifies an exhausted far-edge window whose display state
+    /// may still be active.
+    #[must_use]
+    pub const fn late_badline_fetches_remaining(&self) -> Option<u8> {
+        self.late_badline_fetches_remaining
     }
 
     /// Whether the display sequencer is in idle state.
@@ -2609,8 +2705,15 @@ mod tests {
         // time, so the attempted Phi2 c-access stores the disconnected matrix
         // value and the CPU-side low nibble in slot zero.
         vic.write(0x11, 0x10);
+        assert_eq!(vic.pending_d011_write_cycle(), Some(16));
         tick_vic_with_cpu_data(&mut vic, &memory, 0x8A);
         assert!(vic.is_badline());
+        assert!(!vic.uses_late_badline_window());
+        assert_eq!(vic.late_badline_fetches_remaining(), None);
+        assert!(vic.badline_ba_is_low());
+        assert!(!vic.sprite_ba_is_low());
+        assert!(vic.c_access_is_active());
+        assert_eq!(vic.pending_d011_write_cycle(), None);
         assert!(vic.ba_low);
         assert!(!vic.aec_is_low());
         assert_eq!(vic.ba_low_cycles(), 1);
@@ -2651,6 +2754,71 @@ mod tests {
     }
 
     #[test]
+    fn cycle_53_d011_write_leaves_one_late_badline_access() {
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.raster_line = 0x30;
+        vic.raster_cycle = 53;
+        vic.den_latch = true;
+        vic.vc = 0x0120;
+        vic.vmli = 0;
+        vic.idle_state = true;
+        vic.regs[0x11] = 0x11; // line $30 is not bad at YSCROLL 1
+        vic.is_badline = false;
+
+        // The CPU completes this write after the VIC has consumed its cycle-52
+        // phase. The entering engine-cycle-53 tick is therefore the sole
+        // remaining matrix-DMA opportunity (physical cycle 54).
+        vic.write(0x11, 0x10);
+        assert_eq!(vic.pending_d011_write_cycle(), Some(53));
+        tick_vic_with_cpu_data(&mut vic, &memory, 0x8A);
+        assert!(vic.is_badline());
+        assert!(vic.uses_late_badline_window());
+        assert_eq!(vic.late_badline_fetches_remaining(), Some(0));
+        assert!(vic.badline_ba_is_low());
+        assert!(vic.c_access_is_active());
+        assert_eq!(vic.screen_row[0], 0xFF);
+        assert_eq!(vic.colour_row[0], 0x0A);
+        assert_eq!(vic.vmli(), 0);
+
+        // The ordinary cycle-54 slot would be a second attempt. A line created
+        // at CPU phase 53 has no such remaining c-access or badline BA source.
+        tick_vic_with_cpu_data(&mut vic, &memory, 0x95);
+        assert!(vic.is_badline());
+        assert!(!vic.badline_ba_is_low());
+        assert!(!vic.c_access_is_active());
+        assert_eq!(vic.late_badline_fetches_remaining(), Some(0));
+        assert_eq!(vic.screen_row[1], 0x00);
+
+        while vic.raster_cycle != 0 {
+            tick_vic_with_cpu_data(&mut vic, &memory, 0x95);
+        }
+        assert!(!vic.uses_late_badline_window());
+        assert_eq!(vic.late_badline_fetches_remaining(), None);
+    }
+
+    #[test]
+    fn cycle_54_d011_write_has_no_late_badline_access() {
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.raster_line = 0x30;
+        vic.raster_cycle = 54;
+        vic.den_latch = true;
+        vic.vc = 0x0120;
+        vic.vmli = 0;
+        vic.idle_state = true;
+        vic.regs[0x11] = 0x11; // line $30 is not bad at YSCROLL 1
+        vic.is_badline = false;
+
+        vic.write(0x11, 0x10);
+        tick_vic_with_cpu_data(&mut vic, &memory, 0x8A);
+        assert!(vic.is_badline());
+        assert!(vic.uses_late_badline_window());
+        assert_eq!(vic.late_badline_fetches_remaining(), Some(0));
+        assert!(!vic.badline_ba_is_low());
+        assert!(!vic.c_access_is_active());
+        assert_eq!(vic.screen_row[0], 0x00);
+    }
+
+    #[test]
     fn ordinary_badline_fetches_slot_zero_then_advances_before_slot_one() {
         let chargen = vec![0u8; 4096];
         let mut colours = vec![0u8; 1024];
@@ -2670,6 +2838,7 @@ mod tests {
         vic.vmli = 0;
         vic.idle_state = false;
         vic.is_badline = true;
+        assert_eq!(vic.late_badline_fetches_remaining(), None);
 
         for expected_age in 1..=3 {
             tick_vic(&mut vic, &memory);

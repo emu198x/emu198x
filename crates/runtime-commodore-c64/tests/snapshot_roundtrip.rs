@@ -91,6 +91,26 @@ fn snapshot_round_trip_preserves_mid_cycle_runtime_state() {
             expected_machine.vic().aec_is_low()
         );
         assert_eq!(
+            restored.machine().vic().badline_ba_is_low(),
+            expected_machine.vic().badline_ba_is_low()
+        );
+        assert_eq!(
+            restored.machine().vic().sprite_ba_is_low(),
+            expected_machine.vic().sprite_ba_is_low()
+        );
+        assert_eq!(
+            restored.machine().vic().c_access_is_active(),
+            expected_machine.vic().c_access_is_active()
+        );
+        assert_eq!(
+            restored.machine().vic().pending_d011_write_cycle(),
+            expected_machine.vic().pending_d011_write_cycle()
+        );
+        assert_eq!(
+            restored.machine().vic().late_badline_fetches_remaining(),
+            expected_machine.vic().late_badline_fetches_remaining()
+        );
+        assert_eq!(
             restored.machine().framebuffer(),
             expected_machine.framebuffer()
         );
@@ -135,8 +155,67 @@ fn snapshot_round_trip_preserves_ba_to_aec_handover() {
             restored.machine().vic().aec_is_low(),
             expected.vic().aec_is_low()
         );
+        assert_eq!(
+            restored.machine().vic().late_badline_fetches_remaining(),
+            expected.vic().late_badline_fetches_remaining()
+        );
         assert_eq!(restored.machine().framebuffer(), expected.framebuffer());
     }
+}
+
+#[test]
+fn snapshot_round_trip_preserves_exhausted_late_badline_window() {
+    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+    let machine = runtime.machine_mut();
+    machine.cpu_write(0xD011, 0x11); // DEN on; line $30 is not initially bad
+    while machine.raster_line() != 0x30 || machine.cycle_in_line() != 53 {
+        machine.tick();
+    }
+
+    machine.cpu_write(0xD011, 0x10);
+    assert_eq!(machine.vic().pending_d011_write_cycle(), Some(53));
+    let pending_snapshot = runtime
+        .snapshot()
+        .expect("pending late-badline write should snapshot");
+    let mut restored = C64Runtime::blank(Model::C64PalBreadbin);
+    restored
+        .restore(&pending_snapshot)
+        .expect("pending late-badline write should restore");
+    assert_eq!(
+        restored.machine().vic().pending_d011_write_cycle(),
+        Some(53)
+    );
+
+    restored.machine_mut().tick();
+    assert!(restored.machine().vic().c_access_is_active());
+    assert_eq!(
+        restored.machine().vic().late_badline_fetches_remaining(),
+        Some(0)
+    );
+
+    let exhausted_snapshot = restored
+        .snapshot()
+        .expect("exhausted late-badline window should snapshot");
+    let mut expected = restored.machine().clone();
+    let mut exhausted = C64Runtime::blank(Model::C64PalBreadbin);
+    exhausted
+        .restore(&exhausted_snapshot)
+        .expect("exhausted late-badline window should restore");
+    assert_eq!(
+        exhausted.machine().vic().late_badline_fetches_remaining(),
+        Some(0)
+    );
+    assert!(exhausted.machine().vic().badline_ba_is_low());
+    assert!(exhausted.machine().vic().c_access_is_active());
+
+    assert_eq!(exhausted.machine_mut().tick(), expected.tick());
+    assert!(!exhausted.machine().vic().badline_ba_is_low());
+    assert!(!exhausted.machine().vic().c_access_is_active());
+    assert_eq!(
+        exhausted.machine().vic().late_badline_fetches_remaining(),
+        Some(0)
+    );
 }
 
 #[test]
@@ -345,11 +424,11 @@ fn restore_rejects_old_schema_before_decoding_its_payload() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");
     let err = runtime
-        .restore(&[4])
-        .expect_err("version 4 snapshot should be rejected before payload decode");
+        .restore(&[5])
+        .expect_err("version 5 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason }
-            if reason == "unsupported snapshot version 4; expected 5"),
+            if reason == "unsupported snapshot version 5; expected 6"),
         "unexpected error variant: {err:?}",
     );
 }

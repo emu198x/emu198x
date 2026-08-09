@@ -129,14 +129,20 @@ pub(crate) const C64_QUERY_PATHS: &[&str] = &[
     "vic.background_colour",
     "vic.aec_low",
     "vic.badline",
+    "vic.badline_ba_low",
     "vic.ba_low",
     "vic.ba_low_cycles",
     "vic.border_colour",
+    "vic.c_access_active",
     "vic.cpu_stalled",
     "vic.idle_state",
     "vic.irq",
     "vic.last_bus_data",
+    "vic.late_badline_window",
+    "vic.late_badline_fetches_remaining",
+    "vic.pending_d011_write_cycle",
     "vic.rc",
+    "vic.sprite_ba_low",
     "vic.vc",
     "vic.vcbase",
     "vic.vmli",
@@ -342,14 +348,26 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "vic.background_colour" => json!(machine.machine().vic_register(0x21) & 0x0F),
             "vic.aec_low" => json!(machine.machine().vic().aec_is_low()),
             "vic.badline" => json!(machine.machine().vic().is_badline()),
+            "vic.badline_ba_low" => json!(machine.machine().vic().badline_ba_is_low()),
             "vic.ba_low" => json!(machine.machine().vic().ba_is_low()),
             "vic.ba_low_cycles" => json!(machine.machine().vic().ba_low_cycles()),
             "vic.border_colour" => json!(machine.machine().vic_register(0x20) & 0x0F),
+            "vic.c_access_active" => json!(machine.machine().vic().c_access_is_active()),
             "vic.cpu_stalled" => json!(machine.machine().vic().cpu_stalled),
             "vic.idle_state" => json!(machine.machine().vic().idle_state()),
             "vic.irq" => json!(machine.machine().vic().irq_active()),
             "vic.last_bus_data" => json!(machine.machine().vic().last_bus_data()),
+            "vic.late_badline_window" => {
+                json!(machine.machine().vic().uses_late_badline_window())
+            }
+            "vic.late_badline_fetches_remaining" => {
+                json!(machine.machine().vic().late_badline_fetches_remaining())
+            }
+            "vic.pending_d011_write_cycle" => {
+                json!(machine.machine().vic().pending_d011_write_cycle())
+            }
             "vic.rc" => json!(machine.machine().vic().rc()),
+            "vic.sprite_ba_low" => json!(machine.machine().vic().sprite_ba_is_low()),
             "vic.vc" => json!(machine.machine().vic().vc()),
             "vic.vcbase" => json!(machine.machine().vic().vcbase()),
             "vic.vmli" => json!(machine.machine().vic().vmli()),

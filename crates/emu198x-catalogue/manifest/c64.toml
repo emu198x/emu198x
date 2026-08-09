@@ -19,7 +19,7 @@ audio_routing_version = 4
 # represents the invalid matrix data seen before the VIC-II owns Phi2. All 13
 # frame and audio hashes were recaptured unchanged on 2026-08-08 before this
 # version was advanced.
-frame_routing_version = 4
+frame_routing_version = 5
 
 [[system.firmware]]
 variant = "pal"

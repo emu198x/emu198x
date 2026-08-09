@@ -122,10 +122,11 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
 /// GeoRAM/REU sizes, 1351-mouse port) joined the envelope so a restored
 /// snapshot keeps them across a reset, and to 4 when live VIC-II sprite
 /// pipeline state and queued SID samples became part of arbitrary-phase
-/// snapshots, and to 5 when the global VIC-II BA-to-AEC delay became explicit
-/// serialised state.
+/// snapshots, to 5 when the global VIC-II BA-to-AEC delay became explicit
+/// serialised state, and to 6 when source-resolved BA and late-badline window
+/// state became inspectable and restorable.
 #[test]
-fn snapshot_envelope_version_is_locked_at_v5() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_locked_at_v6() -> Result<(), Box<dyn Error>> {
     let runtime = C64Runtime::new(
         Model::C64PalBreadbin,
         vec![0; KERNAL_SIZE],
@@ -136,8 +137,8 @@ fn snapshot_envelope_version_is_locked_at_v5() -> Result<(), Box<dyn Error>> {
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must have a non-empty envelope");
     assert_eq!(
-        bytes[0], 5,
-        "C64 snapshot envelope version should be 5 (got {})",
+        bytes[0], 6,
+        "C64 snapshot envelope version should be 6 (got {})",
         bytes[0]
     );
     Ok(())

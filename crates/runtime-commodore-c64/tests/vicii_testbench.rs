@@ -528,6 +528,14 @@ fn sequencer_bug_d011_write_cycle_boundary() {
         addr: u16,
         sync: bool,
     }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct SourceSample {
+        vic_phase: Position,
+        badline_ba_low: bool,
+        sprite_ba_low: bool,
+        c_access_active: bool,
+    }
     let exec = |pc, line, scheduled, access| ExecPhase {
         pc,
         scheduled_pins: pos(line, scheduled),
@@ -538,6 +546,12 @@ fn sequencer_bug_d011_write_cycle_boundary() {
         ba_low,
         aec_low,
         badline,
+    };
+    let source = |line, cycle, badline_ba_low, sprite_ba_low, c_access_active| SourceSample {
+        vic_phase: pos(line, cycle),
+        badline_ba_low,
+        sprite_ba_low,
+        c_access_active,
     };
 
     let mut session = prepare_testprog_on(
@@ -551,6 +565,7 @@ fn sequencer_bug_d011_write_cycle_boundary() {
     let mut writes = Vec::new();
     let mut transitions = Vec::new();
     let mut stalls = Vec::new();
+    let mut source_samples = Vec::new();
     let mut trace_bus = false;
     for _ in 0..TIMING_PAL_BREADBIN.cycles_per_frame {
         let machine = session.machine_mut().machine_mut();
@@ -598,6 +613,14 @@ fn sequencer_bug_d011_write_cycle_boundary() {
         }
         if trace_bus {
             let vic = machine.vic();
+            if before.0 == 51 && (50..=58).contains(&before.1) {
+                source_samples.push(SourceSample {
+                    vic_phase: before,
+                    badline_ba_low: vic.badline_ba_is_low(),
+                    sprite_ba_low: vic.sprite_ba_is_low(),
+                    c_access_active: vic.c_access_is_active(),
+                });
+            }
             if vic.ba_is_low() != ba_low || vic.aec_is_low() != aec_low {
                 transitions.push(BusTransition {
                     vic_phase: before,
@@ -643,9 +666,9 @@ fn sequencer_bug_d011_write_cycle_boundary() {
             },
             D011Write {
                 value: 0x3C,
-                scheduled_pins: pos(53, 55),
-                vic_phase_consumed: pos(53, 55),
-                cpu_access_phase: pos(53, 56),
+                scheduled_pins: pos(53, 54),
+                vic_phase_consumed: pos(53, 54),
+                cpu_access_phase: pos(53, 55),
                 vice_monitor_observed: pos(53, 55),
             },
         ]
@@ -653,18 +676,40 @@ fn sequencer_bug_d011_write_cycle_boundary() {
 
     // The first store's c52 pins, c53 access and VICE c54 watchpoint are one
     // execution event under three observation conventions. The second store is
-    // deliberately not normalised: after the forced badline, VICE observes its
-    // next-opcode/store checkpoint at c55 while Emu's post-VIC access is c56.
-    assert_eq!(transitions.len(), 12);
+    // post-VIC access and VICE's next-opcode/store checkpoint agree at c55
+    // after the forced badline's remaining DMA window is constrained.
+    assert_eq!(transitions.len(), 14);
     assert_eq!(
-        &transitions[..6],
+        transitions,
         &[
             bus(50, 55, true, false, false),
             bus(50, 58, true, true, false),
             bus(51, 11, false, false, false),
             bus(51, 53, true, false, true),
-            bus(51, 56, true, true, true),
+            bus(51, 54, false, false, true),
+            bus(51, 55, true, false, true),
+            bus(51, 58, true, true, true),
             bus(52, 11, false, false, false),
+            bus(52, 55, true, false, false),
+            bus(52, 58, true, true, false),
+            bus(53, 11, false, false, false),
+            bus(53, 55, true, false, false),
+            bus(53, 58, true, true, false),
+            bus(54, 11, false, false, false),
+        ]
+    );
+    assert_eq!(
+        source_samples,
+        vec![
+            source(51, 50, false, false, false),
+            source(51, 51, false, false, false),
+            source(51, 52, false, false, false),
+            source(51, 53, true, false, true),
+            source(51, 54, false, false, false),
+            source(51, 55, false, true, false),
+            source(51, 56, false, true, false),
+            source(51, 57, false, true, false),
+            source(51, 58, false, true, false),
         ]
     );
     assert_eq!(stalls.len(), 77);
@@ -674,19 +719,28 @@ fn sequencer_bug_d011_write_cycle_boundary() {
     );
     assert!(stalls[..19].iter().all(|s| s.addr == 0x09B9 && !s.sync));
     assert_eq!(
-        (stalls[19].vic_phase, stalls[39].vic_phase),
-        (pos(51, 53), pos(52, 10))
+        stalls[19],
+        StallSample {
+            vic_phase: pos(51, 53),
+            addr: 0x09D1,
+            sync: true,
+        }
     );
-    assert!(stalls[19..40].iter().all(|s| s.addr == 0x09D1 && s.sync));
     assert_eq!(
-        (stalls[40].vic_phase, stalls[58].vic_phase),
+        (stalls[20].vic_phase, stalls[38].vic_phase),
+        (pos(51, 55), pos(52, 10))
+    );
+    assert!(stalls[20..39].iter().all(|s| s.addr == 0x09D2 && !s.sync));
+    assert_eq!(
+        (stalls[39].vic_phase, stalls[57].vic_phase),
         (pos(52, 55), pos(53, 10))
     );
+    assert!(stalls[39..58].iter().all(|s| s.addr == 0x09EC && s.sync));
     assert_eq!(
-        (stalls[59].vic_phase, stalls[76].vic_phase),
-        (pos(53, 56), pos(54, 10))
+        (stalls[58].vic_phase, stalls[76].vic_phase),
+        (pos(53, 55), pos(54, 10))
     );
-    assert!(stalls[59..].iter().all(|s| s.addr == 0x0A04 && s.sync));
+    assert!(stalls[58..].iter().all(|s| s.addr == 0x0A04 && s.sync));
 }
 
 /// Rewrite-relevant testbench cases: (label, program, reference PNG). The
@@ -905,22 +959,27 @@ fn colorfetchbug_cases_match_vice_references_exactly() {
         .filter(|(label, _, _)| label.starts_with("colorfetchbug"))
         .collect();
     assert_eq!(cases.len(), 5, "the strict lane must retain all five cases");
+    let mut failures = Vec::new();
 
     for &&(label, prg, refpng) in &cases {
         let reference = decode_reference_png(&dir.join(refpng));
         let framebuffer = run_testprog(prg, 60);
         let comparison = compare_indexed(&framebuffer, &reference, VICE_CROP_X, VICE_CROP_Y);
         let total = comparison.reference.len();
-        assert_eq!(
-            comparison.matched_pixels, total,
-            "{label} differs from its registered indexed reference plane"
-        );
-        assert_eq!(
-            sha256_hex(&comparison.actual),
-            sha256_hex(&comparison.reference),
-            "{label} indexed-plane identity differs"
-        );
+        let actual_hash = sha256_hex(&comparison.actual);
+        let reference_hash = sha256_hex(&comparison.reference);
+        if comparison.matched_pixels != total || actual_hash != reference_hash {
+            failures.push(format!(
+                "{label}: {}/{} pixels, actual {actual_hash}, reference {reference_hash}",
+                comparison.matched_pixels, total
+            ));
+        }
     }
+    assert!(
+        failures.is_empty(),
+        "colour-fetch exact lane disagrees:\n{}",
+        failures.join("\n")
+    );
 }
 
 /// Fraction of a single reference row (`ry`) whose C64 colour index matches our
@@ -994,6 +1053,10 @@ fn diff_by_row() {
     let dir = testbench_dir().expect("checked");
     let reference = decode_reference_png(&dir.join(refpng));
     let fb = run_testprog(prg, 60);
+    eprintln!(
+        "aggregate match: {:.3}%",
+        match_fraction(&fb, &reference, VICE_CROP_X, VICE_CROP_Y) * 100.0
+    );
 
     eprintln!(
         "\n=== {cat}: rows below {:.0}% (ref-y → engine line {}+ref-y) ===",
