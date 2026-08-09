@@ -101,7 +101,7 @@ variant = "48k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Manic Miner (1983)(Bug-Byte)[a3].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Manic Miner (1983)(Bug-Byte)[a3].zip"
 
 [entry.boot]
 # Frames after the tape load completes, before capturing the title-screen
@@ -129,7 +129,7 @@ variant = "48k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Knight Lore (1984)(Ultimate Play The Game)[a].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Knight Lore (1984)(Ultimate Play The Game)[a].zip"
 
 [entry.boot]
 # Filmation isometric engine — pressure-tests sprite-heavy frame timing.
@@ -152,7 +152,7 @@ variant = "48k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Jet Set Willy (1984)(Software Projects).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Jet Set Willy (1984)(Software Projects).zip"
 
 [entry.boot]
 # Different tape header to Manic Miner — exercises a second loader path.
@@ -175,7 +175,7 @@ variant = "48k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Atic Atac (1983)(Ultimate Play The Game).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Atic Atac (1983)(Ultimate Play The Game).zip"
 
 [entry.boot]
 # Top-down arcade-adventure — different engine class to Knight Lore.
@@ -200,7 +200,7 @@ variant = "48k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Skool Daze (1984)(Microsphere).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Skool Daze (1984)(Microsphere).zip"
 
 [entry.boot]
 # Sandbox school sim with AI characters — wholly different game shape.
@@ -223,7 +223,7 @@ variant = "48k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Chuckie Egg (1983)(A'n'F)[a2].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Chuckie Egg (1983)(A'n'F)[a2].zip"
 
 [entry.boot]
 # Pre-Manic-Miner platform classic — earliest era of 48K platformers.
@@ -246,7 +246,7 @@ variant = "48k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Saboteur! (1985)(Durell)[a2].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Saboteur! (1985)(Durell)[a2].zip"
 
 [entry.boot]
 # Late-period 48K with stealth mechanics — Clive Townsend.
@@ -270,7 +270,7 @@ variant = "48k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Game).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Game).zip"
 
 [entry.boot]
 # Pre-Filmation Ultimate engine — flick-screen scrolling, sprite-heavy
@@ -296,7 +296,7 @@ variant = "48k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Lords of Midnight, The (1984)(Beyond).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Lords of Midnight, The (1984)(Beyond).zip"
 
 [entry.boot]
 # Mike Singleton's landscape engine — RPG / wargame hybrid with
@@ -322,7 +322,7 @@ variant = "48k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Head over Heels (1987)(Ocean)(48K-128K)[aka Foot and Mouth].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Head over Heels (1987)(Ocean)(48K-128K)[aka Foot and Mouth].zip"
 
 [entry.boot]
 # Filmation II — Jon Ritman's late-period iteration of the Knight Lore
@@ -367,7 +367,7 @@ variant = "48k"
 # tagged TZX but the loader runs fine on 48K.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Ace of Aces (1986)(U.S. Gold)(128K)[Alkatraz Protection System].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Ace of Aces (1986)(U.S. Gold)(128K)[Alkatraz Protection System].zip"
 
 [entry.boot]
 # Captures the post-load input-select menu: "PLEASE SELECT: /
@@ -396,7 +396,7 @@ variant = "48k"
 # from Speedlock (where 2/5/7 all fail) and Alkatraz.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Back to Skool (1985)(Microsphere).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Back to Skool (1985)(Microsphere).zip"
 
 [entry.boot]
 # Captures the in-game demo-mode attract loop: yellow classroom
@@ -428,7 +428,7 @@ variant = "48k"
 # and Microsphere fast.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Back to the Future (1985)(Electric Dreams)(48K-128K)[BleepLoad].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Back to the Future (1985)(Electric Dreams)(48K-128K)[BleepLoad].zip"
 
 [entry.boot]
 # Captures the main menu: "BACK TO THE FUTURE" header, options
@@ -470,7 +470,7 @@ variant = "48k"
 # fix unblocks.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip"
 
 [entry.boot]
 # Programmer credits scroll: "PROGRAMMING BY ANDREW DEAKIN /
@@ -500,7 +500,7 @@ variant = "48k"
 # Speedlock 7 family as Op Wolf — partial-last-byte fix unblocks.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/MOVIE COLLECTION 22 - RoboCop (1991)(Hit Squad, The)(48K-128K)(Side A)[SpeedLock 7].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/MOVIE COLLECTION 22 - RoboCop (1991)(Hit Squad, The)(48K-128K)(Side A)[SpeedLock 7].zip"
 
 [entry.boot]
 # High-score table: "MURPHY 50000 / LEWIS 40000 / ED 209 30000 /
@@ -530,7 +530,7 @@ variant = "48k"
 # arcade conversion. Speedlock 7 protection.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 25 - Dragon Ninja (1991)(Hit Squad, The)[SpeedLock 7].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/ARCADE COLLECTION 25 - Dragon Ninja (1991)(Hit Squad, The)[SpeedLock 7].zip"
 
 [entry.boot]
 # Main menu: "DRAGON-NINJA" banner, options "0 START GAME / 1
@@ -559,7 +559,7 @@ variant = "48k"
 # Technos' arcade beat-em-up. ARCADE COLLECTION 06.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 06 - Renegade (1990)(Hit Squad, The)[SpeedLock 7].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/ARCADE COLLECTION 06 - Renegade (1990)(Hit Squad, The)[SpeedLock 7].zip"
 
 [entry.boot]
 # Hall of Fame attract state: R.KRAY, A.CAPONE, F.M.CHU, B.MALONE,
@@ -587,7 +587,7 @@ variant = "48k"
 # Boot Camp. ARCADE COLLECTION 08.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 08 - Combat School (1990)(Hit Squad, The)[SpeedLock 7].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/ARCADE COLLECTION 08 - Combat School (1990)(Hit Squad, The)[SpeedLock 7].zip"
 
 [entry.boot]
 # Title screen with full credits: "COMBAT SCHOOL" logo (red and
@@ -616,7 +616,7 @@ variant = "48k"
 # movie tie-in. MOVIE COLLECTION 01.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/MOVIE COLLECTION 01 - Rambo (1989)(Hit Squad, The)[SpeedLock 7].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/MOVIE COLLECTION 01 - Rambo (1989)(Hit Squad, The)[SpeedLock 7].zip"
 
 [entry.boot]
 # Hall of Fame: "PLAYER 1 / 000000 / RAMBO / PLAYER 2 / 000000 /
@@ -644,7 +644,7 @@ variant = "48k"
 # vector-graphics arcade. MOVIE COLLECTION 10.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/MOVIE COLLECTION 10 - Star Wars (1990)(Hit Squad, The)[SpeedLock 7].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/MOVIE COLLECTION 10 - Star Wars (1990)(Hit Squad, The)[SpeedLock 7].zip"
 
 [entry.boot]
 # Title screen: "STAR WARS" logo in outlined white vector style,
@@ -671,7 +671,7 @@ variant = "48k"
 # 1984 arcade game. ARCADE COLLECTION 13.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 13 - Mikie (1990)(Hit Squad, The)[SpeedLock 7].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/ARCADE COLLECTION 13 - Mikie (1990)(Hit Squad, The)[SpeedLock 7].zip"
 
 [entry.boot]
 # Mikie's animated title screen — Mikie character with hearts.
@@ -700,7 +700,7 @@ variant = "48k"
 # 1985 arcade Gradius. ARCADE COLLECTION 15.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 15 - Nemesis (1990)(Hit Squad, The)[SpeedLock 7].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/ARCADE COLLECTION 15 - Nemesis (1990)(Hit Squad, The)[SpeedLock 7].zip"
 
 [entry.boot]
 # Input-select menu: "NEMESIS" logo, "1 PLAYER (selected) / 2
@@ -728,7 +728,7 @@ variant = "48k"
 # 1986 Salamander/Life Force arcade shooter. ARCADE COLLECTION 16.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 16 - Salamander (1990)(Hit Squad, The)[SpeedLock 7].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/ARCADE COLLECTION 16 - Salamander (1990)(Hit Squad, The)[SpeedLock 7].zip"
 
 [entry.boot]
 # Title screen: "SALAMANDER" in flame-coloured logo, "PRESS ANY
@@ -758,7 +758,7 @@ variant = "48k"
 # but the same TZX-level mechanism (0x14 block with bits_last=6).
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/ARCADE COLLECTION 30 - Bubble Bobble (1992)(Hit Squad, The)(48K-128K)[SpeedLock 5][re-release].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/ARCADE COLLECTION 30 - Bubble Bobble (1992)(Hit Squad, The)(48K-128K)[SpeedLock 5][re-release].zip"
 
 [entry.boot]
 # Title screen with full BUBBLE BOBBLE logo in yellow cloud, the
@@ -799,7 +799,7 @@ variant = "48k"
 # mislabelled or Speedlock-2 has sub-variants that behave differently.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Green Beret (1986)(Imagine)[SpeedLock 2].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Green Beret (1986)(Imagine)[SpeedLock 2].zip"
 
 [entry.boot]
 # Post-load attract screen, captured 2026-05-13. Loads to game code
@@ -834,7 +834,7 @@ variant = "48k"
 # release was [SpeedLock 2]; this TAP variant strips the protection).
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Arkanoid (1987)(Imagine).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Arkanoid (1987)(Imagine).zip"
 
 [entry.boot]
 # Captured 2026-05-19 against FRAME_ROUTING_VERSION = 3 in the Phase 1
@@ -871,7 +871,7 @@ variant = "plus"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Manic Miner (1983)(Bug-Byte)[a3].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Manic Miner (1983)(Bug-Byte)[a3].zip"
 
 [entry.boot]
 wait_frames = 60
@@ -892,7 +892,7 @@ variant = "plus"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Knight Lore (1984)(Ultimate Play The Game)[a].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Knight Lore (1984)(Ultimate Play The Game)[a].zip"
 
 [entry.boot]
 wait_frames = 60
@@ -913,7 +913,7 @@ variant = "plus"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Jet Set Willy (1984)(Software Projects).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Jet Set Willy (1984)(Software Projects).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -934,7 +934,7 @@ variant = "plus"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Atic Atac (1983)(Ultimate Play The Game).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Atic Atac (1983)(Ultimate Play The Game).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -955,7 +955,7 @@ variant = "plus"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Skool Daze (1984)(Microsphere).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Skool Daze (1984)(Microsphere).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -976,7 +976,7 @@ variant = "plus"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Chuckie Egg (1983)(A'n'F)[a2].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Chuckie Egg (1983)(A'n'F)[a2].zip"
 
 [entry.boot]
 wait_frames = 60
@@ -997,7 +997,7 @@ variant = "plus"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Saboteur! (1985)(Durell)[a2].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Saboteur! (1985)(Durell)[a2].zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1018,7 +1018,7 @@ variant = "plus"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Game).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Game).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1039,7 +1039,7 @@ variant = "plus"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Lords of Midnight, The (1984)(Beyond).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Lords of Midnight, The (1984)(Beyond).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1060,7 +1060,7 @@ variant = "plus"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Head over Heels (1987)(Ocean)(48K-128K)[aka Foot and Mouth].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Head over Heels (1987)(Ocean)(48K-128K)[aka Foot and Mouth].zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1081,7 +1081,7 @@ variant = "128k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 # First 128K entry — exercises the AY music path and the 128K menu
@@ -1108,7 +1108,7 @@ variant = "128k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 # KNOWN-WEDGE: captures the "SORRY LOAD ERROR" SpeedLock-7 anti-tamper
@@ -1145,7 +1145,7 @@ kind = "tape"
 slot = "tape-1"
 # 128K-specific release — different release than the 48K-128K combo
 # tape; the 128K release uses extended AY music throughout play.
-path = "sinclair/spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1168,7 +1168,7 @@ variant = "128k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1 of 2 Side A)[SpeedLock 4].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1 of 2 Side A)[SpeedLock 4].zip"
 
 [entry.boot]
 # 128K mode unlocks multiple AY radio tracks selectable in-game —
@@ -1196,7 +1196,7 @@ variant = "128k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 # Tim Follin's AY soundtrack on the 128K — bubbly, technically
@@ -1220,7 +1220,7 @@ variant = "128k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
 
 [entry.boot]
 # Wally Beben's chiptune AY conversion of the famous arcade theme —
@@ -1244,7 +1244,7 @@ variant = "128k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)[aka Land That Time Forgot, The][aka Tibet].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)[aka Land That Time Forgot, The][aka Tibet].zip"
 
 [entry.boot]
 # Denton Designs's atmospheric exploration game — 128K-only release,
@@ -1270,7 +1270,7 @@ variant = "128k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).zip"
 
 [entry.boot]
 # Freescape engine — 3D vector landscape, Egyptian pyramid puzzle.
@@ -1295,7 +1295,7 @@ variant = "128k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
 
 [entry.boot]
 # Late Freescape — Domark / Incentive's 128K-only fantasy RPG with
@@ -1320,7 +1320,7 @@ variant = "128k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
 
 [entry.boot]
 # Mythos Games's 128K-only tactical RPG (Julian Gollop, pre-X-COM).
@@ -1353,7 +1353,7 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1374,7 +1374,7 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 # KNOWN-WEDGE — same SpeedLock-7 anti-tamper as `robocop` (128K). See
@@ -1397,7 +1397,7 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1418,7 +1418,7 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1 of 2 Side A)[SpeedLock 4].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1 of 2 Side A)[SpeedLock 4].zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1439,7 +1439,7 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1460,7 +1460,7 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1481,7 +1481,7 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)[aka Land That Time Forgot, The][aka Tibet].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)[aka Land That Time Forgot, The][aka Tibet].zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1502,7 +1502,7 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1523,7 +1523,7 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1544,7 +1544,7 @@ variant = "plus2"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1572,7 +1572,7 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1593,7 +1593,7 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 # KNOWN-WEDGE — same SpeedLock-7 anti-tamper as `robocop` (128K).
@@ -1615,7 +1615,7 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1636,7 +1636,7 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1 of 2 Side A)[SpeedLock 4].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1 of 2 Side A)[SpeedLock 4].zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1657,7 +1657,7 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1678,7 +1678,7 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1699,7 +1699,7 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)[aka Land That Time Forgot, The][aka Tibet].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)[aka Land That Time Forgot, The][aka Tibet].zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1720,7 +1720,7 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1741,7 +1741,7 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1762,7 +1762,7 @@ variant = "plus2a"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1790,7 +1790,7 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Chase H.Q. (1989)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1811,7 +1811,7 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 # KNOWN-WEDGE — same SpeedLock-7 anti-tamper as `robocop` (128K).
@@ -1833,7 +1833,7 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Operation Wolf (1988)(Ocean)(128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1854,7 +1854,7 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1 of 2 Side A)[SpeedLock 4].zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Out Run (1987)(U.S. Gold)(48K-128K)(Tape 1 of 2 Side A)[SpeedLock 4].zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1875,7 +1875,7 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1896,7 +1896,7 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TZX]/Bubble Bobble (1987)(Firebird)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1917,7 +1917,7 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)[aka Land That Time Forgot, The][aka Tibet].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Where Time Stood Still (1988)(Ocean)(128K)[aka Land That Time Forgot, The][aka Tibet].zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1938,7 +1938,7 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Total Eclipse (1988)(Incentive)(48K-128K).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1959,7 +1959,7 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Castle Master (1990)(Domark).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -1980,7 +1980,7 @@ variant = "plus2b"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Lords of Chaos (1990)(Blade).zip"
 
 [entry.boot]
 wait_frames = 60
@@ -2022,7 +2022,7 @@ variant = "plus3"
 # title.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Chase H.Q. (1989)(Ocean)(+3).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Chase H.Q. (1989)(Ocean)(+3).zip"
 
 [entry.boot]
 # Captures the in-game options screen: stage scoreboard at the top
@@ -2063,7 +2063,7 @@ variant = "plus3"
 # overfit to one specific disk layout.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(+3).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(+3).zip"
 
 [entry.boot]
 # Captures Graftgold's credits / scoreboard screen: "RAINBOW
@@ -2092,7 +2092,7 @@ variant = "plus3"
 # specific assumptions and Hewson's protection.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Cybernoid - The Fighting Machine (1988)(Hewson Consultants)(+3).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Cybernoid - The Fighting Machine (1988)(Hewson Consultants)(+3).zip"
 
 [entry.boot]
 # Captures the in-game main menu: title logo, "BY RAFFAELE CECCO /
@@ -2121,7 +2121,7 @@ variant = "plus3"
 # the top of the screen and a Loader progress bar at the bottom.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Cybernoid II - The Revenge (1988)(Hewson Consultants)(+3).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Cybernoid II - The Revenge (1988)(Hewson Consultants)(+3).zip"
 
 [entry.boot]
 wait_frames = 6000
@@ -2147,7 +2147,7 @@ variant = "plus3"
 # Hewson scheme.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Saboteur II - Avenging Angel (1987)(Durell)(+3)[h Alex Rider, 2015][tr pl][Speed-up version].zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Saboteur II - Avenging Angel (1987)(Durell)(+3)[h Alex Rider, 2015][tr pl][Speed-up version].zip"
 
 [entry.boot]
 # Captures the loader title bar — "Saboteur 2 (Speed up)" in blue
@@ -2181,7 +2181,7 @@ variant = "plus3"
 # track-by-track key sectors Speedlock and friends use.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Sim City (1990)(Infogrames)(+3)(FR)(en).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Sim City (1990)(Infogrames)(+3)(FR)(en).zip"
 
 [entry.boot]
 # Captures the difficulty-select screen: the inverse "SYSTEM
@@ -2213,7 +2213,7 @@ variant = "plus3"
 # without touching the earlier Cybernoid entries.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Stormlord (1989)(Hewson Consultants)(+3).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Stormlord (1989)(Hewson Consultants)(+3).zip"
 
 [entry.boot]
 # Captures the title / control-select screen: "hewson presents
@@ -2246,7 +2246,7 @@ variant = "plus3"
 # code Rainbird specialised in. Single-side disk.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Starglider 2 - The Egrons Strike Back (1989)(Rainbird)(+3).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Starglider 2 - The Egrons Strike Back (1989)(Rainbird)(+3).zip"
 
 [entry.boot]
 # Captures the title screen: large blue "STARGLIDER 2" logo over
@@ -2279,7 +2279,7 @@ variant = "plus3"
 # regression surfaces here more clearly than on the others.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Lotus Esprit Turbo Challenge (1990)(Gremlin Graphics)(+3).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Lotus Esprit Turbo Challenge (1990)(Gremlin Graphics)(+3).zip"
 
 [entry.boot]
 # Captures the dashboard equipment screen: "INTERIOR /
@@ -2311,7 +2311,7 @@ variant = "plus3"
 # Rainbow Islands / RoboCop / etc.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Combat School + Gryzor Preview (1987)(Ocean)(+3).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Combat School + Gryzor Preview (1987)(Ocean)(+3).zip"
 
 [entry.boot]
 # Captures the cyan-banner Ocean compilation menu: "OCEAN
@@ -2344,7 +2344,7 @@ variant = "plus3"
 # `EXEC_READ_TIMEOUT_TICKS` in `nec-upd765a`.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Turrican (1990)(Rainbow Arts)(+3)(Side A).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Turrican (1990)(Rainbow Arts)(+3)(Side A).zip"
 
 [entry.boot]
 # Captures the full attract title screen: yellow "TURRICAN" logo
@@ -2376,7 +2376,7 @@ variant = "plus3"
 # Unblocked by `read_id_index` in `nec-upd765a`.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Tetris (1988)(Mirrorsoft)(+3).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Tetris (1988)(Mirrorsoft)(+3).zip"
 
 [entry.boot]
 # Captures the Mirrorsoft title screen: rainbow-coloured "TETRIS"
@@ -2412,7 +2412,7 @@ variant = "plus3"
 # expects the bytes to differ between reads.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Operation Wolf (1988)(Ocean)(+3).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Operation Wolf (1988)(Ocean)(+3).zip"
 
 [entry.boot]
 # Captures the credits frame: "PROGRAMMING BY ANDREW DEAKIN /
@@ -2438,7 +2438,7 @@ variant = "plus3"
 # one of Ocean's flagship 1988 disk titles.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/RoboCop (1988)(Ocean)(+3).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/RoboCop (1988)(Ocean)(+3).zip"
 
 [entry.boot]
 # Captures the input-select menu: "1 KEYBOARD / 2 SINCLAIR /
@@ -2464,7 +2464,7 @@ variant = "plus3"
 # Speedlock-6 protection as Op Wolf / RoboCop.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Where Time Stood Still (1988)(Ocean)(+3)[aka Land That Time Forgot, The][aka Tibet].zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Where Time Stood Still (1988)(Ocean)(+3)[aka Land That Time Forgot, The][aka Tibet].zip"
 
 [entry.boot]
 # Captures the full control-selection menu: yellow "WHERE TIME
@@ -2494,7 +2494,7 @@ variant = "plus3"
 # fix isn't Ocean-brand-specific.
 kind = "disk"
 slot = "disk-a"
-path = "sinclair/spectrum/Games/[DSK]/Bad Dudes vs. Dragon Ninja (1988)(Imagine)(+3).zip"
+path = "Sinclair/ZX Spectrum/Games/[DSK]/Bad Dudes vs. Dragon Ninja (1988)(Imagine)(+3).zip"
 
 [entry.boot]
 # Captures the framed control-selection menu: red "DRAGON-NINJA"
@@ -2525,7 +2525,7 @@ variant = "16k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Jet Pac (1983)(Ultimate Play The Game)(16K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Jet Pac (1983)(Ultimate Play The Game)(16K).zip"
 
 [entry.boot]
 # Ultimate's debut title. Fixed-screen action with a procedurally-built
@@ -2548,7 +2548,7 @@ variant = "16k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Pssst (1983)(Ultimate Play The Game)(16K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Pssst (1983)(Ultimate Play The Game)(16K).zip"
 
 [entry.boot]
 # Single-screen action — protect a flower from insects. Second of
@@ -2571,7 +2571,7 @@ variant = "16k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Cookie (1983)(Ultimate Play The Game)(16K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Cookie (1983)(Ultimate Play The Game)(16K).zip"
 
 [entry.boot]
 # Single-screen kitchen battle — bake a cake while ingredients try
@@ -2594,7 +2594,7 @@ variant = "16k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Tranz Am (1983)(Ultimate Play The Game)(16K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Tranz Am (1983)(Ultimate Play The Game)(16K).zip"
 
 [entry.boot]
 # Top-down driving game across a wrap-around USA. Different engine
@@ -2617,7 +2617,7 @@ variant = "16k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Hungry Horace (1982)(Sinclair Research)(16K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Hungry Horace (1982)(Sinclair Research)(16K).zip"
 
 [entry.boot]
 # Sinclair Research's house-published Pac-Man-alike. Earliest era of
@@ -2642,7 +2642,7 @@ variant = "16k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Horace Goes Skiing (1983)(Sinclair Research)(16K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Horace Goes Skiing (1983)(Sinclair Research)(16K).zip"
 
 [entry.boot]
 # Sequel — road-cross + skiing in two phases. Different engine to
@@ -2665,7 +2665,7 @@ variant = "16k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Penetrator (1982)(Melbourne House).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Penetrator (1982)(Melbourne House).zip"
 
 [entry.boot]
 # Scramble-clone with a built-in level editor. Notable for the
@@ -2688,7 +2688,7 @@ variant = "16k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Football Manager (1982)(Addictive Games).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Football Manager (1982)(Addictive Games).zip"
 
 [entry.boot]
 # Kevin Toms's text-driven management classic. Genre-defining strategy
@@ -2712,7 +2712,7 @@ variant = "16k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/4D Time-Gate (1982)(Quicksilva).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/4D Time-Gate (1982)(Quicksilva).zip"
 
 [entry.boot]
 # Vector wireframe space combat. Quicksilva's early-era technical
@@ -2752,7 +2752,7 @@ variant = "48k"
 # the Seam 2 routing path through `$1F`.
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Game).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Game).zip"
 
 [[entry.script]]
 # Select KEMPSTON JOYSTICK (option 4) from the control menu.
@@ -2801,7 +2801,7 @@ variant = "16k"
 [entry.media]
 kind = "tape"
 slot = "tape-1"
-path = "sinclair/spectrum/Games/[TAP]/Gulpman (1982)(Campbell Systems)(16K).zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Gulpman (1982)(Campbell Systems)(16K).zip"
 
 [entry.boot]
 # Pac-Man-alike from the early independent era. Pre-dates Hungry
