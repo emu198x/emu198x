@@ -29,8 +29,9 @@ LOG_FILENAME = "survey.log"
 TESTBENCH_ENV = "EMU198X_C64_VICII_TESTBENCH_DIR"
 ROM_ENV = "EMU198X_C64_ROM_DIR"
 EVIDENCE_SCOPE = (
-    "This report records digital colour-index agreement for 13 selected PAL "
-    "6569 VIC-II testbench programs at one Emu198x revision. It is not a "
+    "This report records digital colour-index agreement for 17 selected PAL "
+    "6569 VIC-II testbench programs across 13 categories at one Emu198x "
+    "revision. It is not a "
     "general C64-accuracy, analogue-video or physical-hardware-conformance claim."
 )
 
@@ -38,6 +39,10 @@ EXPECTED_CASES = (
     ("gfxfetch", "gfxfetch/gfxfetch.prg", "gfxfetch/references/gfxfetch.prg.png"),
     ("dmadelay", "dmadelay/test1-2a-03.prg", "dmadelay/references/test1-2a-03.prg.png"),
     ("colorfetchbug", "colorfetchbug/bitmap.prg", "colorfetchbug/references/bitmap.prg.png"),
+    ("colorfetchbug-main", "colorfetchbug/main.prg", "colorfetchbug/references/main.prg.png"),
+    ("colorfetchbug-main2", "colorfetchbug/main2.prg", "colorfetchbug/references/main2.prg.png"),
+    ("colorfetchbug-main3", "colorfetchbug/main3.prg", "colorfetchbug/references/main3.prg.png"),
+    ("colorfetchbug-main4", "colorfetchbug/main4.prg", "colorfetchbug/references/main4.prg.png"),
     ("sequencer-bug", "sequencer-bug/bug.prg", "sequencer-bug/references/bug.prg.png"),
     ("greydot", "greydot/greydot.prg", "greydot/references/greydot.prg.png"),
     (

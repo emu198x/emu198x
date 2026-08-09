@@ -18,7 +18,8 @@ The runner requires two explicit directories:
 
 The tracked
 [`assets-v1.json`](../../test-data/commodore/c64/vicii-vice-survey/assets-v1.json)
-manifest identifies the 13 selected PRGs, 13 reference PNGs and three firmware
+manifest identifies 17 selected PRGs across 13 categories, 17 reference PNGs
+and three firmware
 images by logical path, byte count and SHA-256. The wrapper refuses missing,
 additional, reordered or byte-different selected inputs. It does not require
 or claim an identity for files elsewhere in the large staged testbench.
@@ -61,7 +62,7 @@ Diagnostic dirty runs use `<full-revision>-dirty` instead. The report contains
 no host paths. It records:
 
 - the source revision and dirty state;
-- the tracked fixture-manifest identity and all 29 verified logical assets;
+- the tracked fixture-manifest identity and all 37 verified logical assets;
 - the PAL breadbin runtime and 6569 model contract;
 - the 416 x 312 framebuffer and fixed `(16, 16)` crop into each 384 x 272
   reference;
@@ -85,10 +86,12 @@ compare as digital colour indices even when their chosen RGB palettes differ.
 The survey says nothing about PAL encoding, composite artifacts, luminance,
 chroma, display calibration or other analogue output properties.
 
-The 13 rows are representative measurements. A result such as 69.294 percent
+The 17 rows are representative measurements. The colour-fetch-bug category
+uses all five supplied programs; each other category uses one selected
+program. A result such as 92.456 percent
 means that fraction of the selected image's 104,448 pixels has the same
 classified colour index. It does not mean that the category, chip or emulator
-is 69.294 percent accurate. A case becomes a strict conformance assertion only
+is 92.456 percent accurate. A case becomes a strict conformance assertion only
 through a separately reviewed threshold or exact reference contract.
 
 ## Interpreting changes

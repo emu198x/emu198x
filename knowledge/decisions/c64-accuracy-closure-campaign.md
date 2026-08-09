@@ -45,11 +45,12 @@ a weighting that the evidence does not provide.
 
 ### VIC-II video
 
-The PAL 6569 breadth survey runs one canonical program per category from the
-VICE VIC-II testbench and compares its 384 x 272 reference image after the
-fixed 16-pixel crop. Pixels are classified by nearest C64 palette index, so the
-measurement tests digital colour-index output rather than analogue colour
-reproduction.
+The PAL 6569 breadth survey runs 17 selected programs across 13 categories
+from the VICE VIC-II testbench and compares each 384 x 272 reference image
+after the fixed 16-pixel crop. It registers all five colour-fetch-bug programs
+and one representative from each other category. Pixels are classified by
+nearest C64 palette index, so the measurement tests digital colour-index
+output rather than analogue colour reproduction.
 
 | Category | Matching pixels |
 | --- | ---: |
@@ -72,7 +73,7 @@ representative program. The third-party testbench reference set has uneven
 per-image provenance: some images are constructed expectations, some cases
 describe measured C64 behaviour, and the set is not uniformly a direct
 hardware capture or the output of a second emulator family. The staged corpus
-upstream revision is unresolved; the survey runner pins the 29 selected input
+upstream revision is unresolved; the survey runner pins the 37 selected input
 files by byte identity. The survey establishes where to investigate; it does
 not turn partial matches into conformance claims.
 
@@ -80,7 +81,9 @@ The strict lanes currently require at least 99 percent for PAL 6569
 `gfxfetch`, at least 99.9 percent for PAL 6569 `spritedma`, and at least 94
 percent overall for NTSC 6567R8 `gfxfetch`. The NTSC residual is concentrated
 in the viewport-wrapping rows; overlapping content is approximately 99.3
-percent. There is no strict 6567R56A or 8565 comparison yet. The PAL 6569
+percent. The other four colour-fetch-bug programs reproduce the same confined
+late-badline signature at 94.821 to 95.233 percent. There is no strict
+6567R56A or 8565 comparison yet. The PAL 6569
 `greydot` reference does not establish 8565 grey-dot behaviour.
 
 ### SID audio
@@ -246,7 +249,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-08-08 | Campaign baseline | Assessment and ordered closure work recorded at revision `bdb07858`. The PAL 6569 breadth survey ranges from 69.294 percent for `colorfetchbug` to 100 percent for `dmadelay`; the results are diagnostic fractions rather than conformance rates. |
 | 2026-08-08 | 1. Live snapshot state | Commit `6a8cad9c` serialises the active VIC-II fetch/draw pipeline and queued SID output, bounds the diagnostic audio queues and replaces the incomplete serde-skip check with a recursive zero-skip audit. |
 | 2026-08-08 | 1. Catalogue replay | Commit `bdb07858` adds fresh-runtime snapshot replay to every C64 catalogue entry. The complete 13-entry PAL matrix passes both ordinary and replay assertions across boot, disk, tape, cartridge and three drive families. |
-| 2026-08-08 | 2. Revision-keyed VIC-II survey | The focused wrapper pins all 29 consumed PRG, PNG and ROM inputs, admits exact integer pixel counts from the Rust producer, and writes a path-free report under the full source revision. The upstream testbench revision and per-image evidence provenance remain explicit unresolved boundaries. |
+| 2026-08-08 | 2. Revision-keyed VIC-II survey | The focused wrapper pins all 37 consumed PRG, PNG and ROM inputs for 17 programs across 13 categories, admits exact integer pixel counts from the Rust producer, and writes a path-free report under the full source revision. The upstream testbench revision and per-image evidence provenance remain explicit unresolved boundaries. |
 | 2026-08-08 | 3. Late-badline display phase | Commit `74f31553` separates entering Phi1 display state from the Phi2 badline transition, consumes live pre-increment VMLI, and generates mode-correct idle output beneath an opened vertical border. Five survey cases improve and eight remain identical. All 13 catalogue frame/audio hashes recapture unchanged at routing version 3, then pass ordinary and fresh-runtime replay gates. The first-three invalid c-access contract remains open. |
 
 ## Related Documents

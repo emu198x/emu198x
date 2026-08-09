@@ -12,6 +12,10 @@
       "gfxfetch",
       "dmadelay",
       "colorfetchbug",
+      "colorfetchbug-main",
+      "colorfetchbug-main2",
+      "colorfetchbug-main3",
+      "colorfetchbug-main4",
       "sequencer-bug",
       "greydot",
       "spritecrunch",
@@ -23,7 +27,7 @@
       "border",
       "screenpos"
     ],
-    "asset_count": 29
+    "asset_count": 37
   },
   "assets": [
     {
@@ -73,6 +77,70 @@
       "relative_path": "colorfetchbug/references/bitmap.prg.png",
       "bytes": 1810,
       "sha256": "39be1ab3571fbb7e1d9fcb36485830239a1658ce0ff045e392ff8e49b048c5cd"
+    },
+    {
+      "id": "program:colorfetchbug-main",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "colorfetchbug/main.prg",
+      "bytes": 374,
+      "sha256": "1cd8efd75ccf8c02e43b9c4c5cd72e09a0d7819e1e7b88e1ce1a0f3b1e5cd2a1"
+    },
+    {
+      "id": "reference:colorfetchbug-main",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "colorfetchbug/references/main.prg.png",
+      "bytes": 3669,
+      "sha256": "11b47ecc8a7f87a718356053d52913b20f82576ccd21982653e0aba76d7fc5da"
+    },
+    {
+      "id": "program:colorfetchbug-main2",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "colorfetchbug/main2.prg",
+      "bytes": 312,
+      "sha256": "e8725be2a9955888fc54b889ece337a982a08fb3363869e9764e6abe0dcfc440"
+    },
+    {
+      "id": "reference:colorfetchbug-main2",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "colorfetchbug/references/main2.prg.png",
+      "bytes": 2762,
+      "sha256": "4b67a9e8f6da524b5a317880bd3ce4ed5e94eeb612ca8737412e59529776607a"
+    },
+    {
+      "id": "program:colorfetchbug-main3",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "colorfetchbug/main3.prg",
+      "bytes": 336,
+      "sha256": "52745c3246422a2642ea6c4c4feccd831ef6e17cfb61f31297e17f5f28dba0e5"
+    },
+    {
+      "id": "reference:colorfetchbug-main3",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "colorfetchbug/references/main3.prg.png",
+      "bytes": 3021,
+      "sha256": "3504360c37627490a368b42a7cf1d11444af3f4b822b6d368ba6ed5b8e41c9c3"
+    },
+    {
+      "id": "program:colorfetchbug-main4",
+      "role": "program",
+      "root": "testbench",
+      "relative_path": "colorfetchbug/main4.prg",
+      "bytes": 341,
+      "sha256": "fd76715d4f2ddbf85f91f8d7bf0d16c6c3edc73c2d5119c692c78f5f069fe7ed"
+    },
+    {
+      "id": "reference:colorfetchbug-main4",
+      "role": "reference",
+      "root": "testbench",
+      "relative_path": "colorfetchbug/references/main4.prg.png",
+      "bytes": 3086,
+      "sha256": "8a64853e70934b1b5bbc11916f1f361bcc7ce6a88403a13519436293a5101933"
     },
     {
       "id": "program:sequencer-bug",

@@ -3,8 +3,10 @@
 This directory identifies the external inputs consumed by the PAL 6569
 VIC-II breadth survey.
 
-The scope is the 13 selected test programs, their 13 reference PNGs and the
-three C64 ROMs used to boot each program. The assets themselves remain in the
+The scope is 17 selected test programs across 13 categories, their 17
+reference PNGs and the three C64 ROMs used to boot each program. The
+colour-fetch-bug category contributes all five of its programs; every other
+category contributes one representative. The assets themselves remain in the
 operator's external testbench and firmware holdings. Their byte counts and
 SHA-256 identities are pinned by [`assets-v1.json`](assets-v1.json).
 

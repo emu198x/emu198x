@@ -471,8 +471,9 @@ fn dump_prg_framebuffer() {
     eprintln!("wrote /tmp/vicii_dump.png for {rel}");
 }
 
-/// Rewrite-relevant testbench categories: (label, program, reference PNG). One
-/// canonical PAL 6569 program per category, all with 384x272 references.
+/// Rewrite-relevant testbench cases: (label, program, reference PNG). The
+/// selection covers 13 PAL 6569 categories and broadens the colour-fetch-bug
+/// category to all five programs. All references are 384x272.
 const SURVEY: &[(&str, &str, &str)] = &[
     (
         "gfxfetch",
@@ -488,6 +489,26 @@ const SURVEY: &[(&str, &str, &str)] = &[
         "colorfetchbug",
         "colorfetchbug/bitmap.prg",
         "colorfetchbug/references/bitmap.prg.png",
+    ),
+    (
+        "colorfetchbug-main",
+        "colorfetchbug/main.prg",
+        "colorfetchbug/references/main.prg.png",
+    ),
+    (
+        "colorfetchbug-main2",
+        "colorfetchbug/main2.prg",
+        "colorfetchbug/references/main2.prg.png",
+    ),
+    (
+        "colorfetchbug-main3",
+        "colorfetchbug/main3.prg",
+        "colorfetchbug/references/main3.prg.png",
+    ),
+    (
+        "colorfetchbug-main4",
+        "colorfetchbug/main4.prg",
+        "colorfetchbug/references/main4.prg.png",
     ),
     (
         "sequencer-bug",

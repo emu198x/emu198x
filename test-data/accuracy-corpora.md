@@ -112,10 +112,11 @@ for the A1200. An ADF may be delivered raw or in a ZIP; each manifest applies
 to the normalised ADF bytes. The public-domain ADFs remain externally supplied,
 and the proprietary Kickstart ROMs must not be added to the corpus store.
 
-The C64 VIC-II survey consumes one PAL 6569 program and reference image from
-each of 13 testbench categories. Its tracked
+The C64 VIC-II survey consumes 17 PAL 6569 programs and reference images from
+13 testbench categories. It registers all five colour-fetch-bug programs and
+one representative from each other category. Its tracked
 [`assets-v1.json`](commodore/c64/vicii-vice-survey/assets-v1.json) manifest pins
-the 26 external testbench files and three ROMs by byte count and SHA-256 while
+the 34 external testbench files and three ROMs by byte count and SHA-256 while
 leaving their bytes external. The wrapper compares nearest C64 palette indices,
 records exact integer pixel counts and writes a revision-keyed report. The
 results are diagnostic fractions, not pass rates, and the reference

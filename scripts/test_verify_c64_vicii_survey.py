@@ -110,8 +110,8 @@ class VerifyC64ViciiSurveyTests(unittest.TestCase):
             manifest_path, testbench, roms, _ = self.fixture(root)
             result = survey.load_and_verify_assets(manifest_path, testbench, roms)
 
-            self.assertEqual(result["verified_asset_count"], 29)
-            self.assertEqual(result["scope"]["asset_count"], 29)
+            self.assertEqual(result["verified_asset_count"], 37)
+            self.assertEqual(result["scope"]["asset_count"], 37)
             self.assertEqual(
                 [asset["id"] for asset in result["assets"]],
                 [contract[0] for contract in survey.expected_asset_contract()],
@@ -143,7 +143,7 @@ class VerifyC64ViciiSurveyTests(unittest.TestCase):
         result = survey.validate_producer(self.producer(revision), revision, False)
         cases = result["cases"]
 
-        self.assertEqual(len(cases), 13)
+        self.assertEqual(len(cases), 17)
         self.assertEqual(cases[0]["id"], "gfxfetch")
         self.assertEqual(cases[0]["matched_pixels"], 100_000)
         self.assertEqual(cases[0]["total_pixels"], 104_448)
