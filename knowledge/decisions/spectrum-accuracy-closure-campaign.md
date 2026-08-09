@@ -144,17 +144,14 @@ change fleet-wide is a separate decision, deliberately not taken here.
 
 ### Other claim boundaries
 
-- **The four residual FUSE block-I/O disagreements may be misclassified.**
-  `edb2_1 INIR`, `edb3_1 OTIR`, `edb9_2 CPDR` and `edbb_1 OTDR` differ only in
-  the undocumented X/Y flag bits and are tracked as blocked on silicon
-  evidence. But `z80test` — which outranks FUSE, and whose expected values were
-  measured on a real 48K Sinclair board — passes with zero allowlist entries.
-  If `z80full` / `z80flags` genuinely exercise the final repeat iteration of
-  those instructions, the higher-ranked hardware oracle already agrees with us,
-  and these are FUSE encoding a different formula rather than correctness debt.
-  Verify by inspecting `z80test`'s block-instruction coverage before recording
-  either conclusion: CRC aggregation means a compensating pair of errors could
-  in principle cancel.
+- **The four residual FUSE block-repeat disagreements are reclassified, not
+  closed.** `edb2_1 INIR`, `edb3_1 OTIR`, `edb9_2 CPDR` and `edbb_1 OTDR`
+  differ only in the undocumented X/Y bits. They were tracked as
+  "silicon-variable at the final iteration ... effectively unclosable without
+  silicon evidence". Both halves of that are wrong; see the step 4 progress-log
+  entry. The disagreement is real and stays allowlisted, but it is now a
+  tractable inconsistency in our own repeating-iteration model rather than a
+  silicon mystery.
 - **`Float48K` now accepts T-state 14337**, where `tests/spectrum.md` documents
   14338 → `255` and 14339 → `128`. The change is a deliberate re-pin
   (`db49e7cd`), and the architecture review already carries "48K T-state probe
@@ -200,10 +197,11 @@ version bump at all; this campaign does not repeat that.
    published expected values as the black-box contract; consult vendored Fuse,
    SpecIde, zesarux and the MiSTer core as implementation evidence, never as
    specification.
-4. **Verify the `z80test` block-instruction coverage question** and reclassify
-   the four FUSE residuals as fixed, as FUSE-formula disagreement, or as
-   genuinely blocked on silicon. Cheap, and it either closes a standing debt
-   item or sharpens it.
+4. ~~**Verify the `z80test` block-instruction coverage question** and
+   reclassify the four FUSE residuals.~~ **Done 2026-08-09** — see the progress
+   log. Follow-on: differential the repeating-iteration flag rule against the
+   vendored SpecIde, Fuse and zesarux implementations to explain why `INDR`
+   agrees with FUSE while its four siblings do not.
 5. **Reconcile the `Float48K` probe offset** against the published real-hardware
    value, and record whether the two-T-state difference is a frame-origin
    convention or a behaviour question.
@@ -249,7 +247,9 @@ The broad Spectrum push ends when:
 - the 35-test timing survey runs as a revision-keyed report with pinned fixture
   identity, and every category either passes or carries a precise retained
   disagreement signature;
-- the four FUSE block-I/O residuals are reclassified with stated evidence;
+- the four FUSE block-repeat residuals are explained — why `INDR` agrees and
+  its four siblings do not — and then fixed, scoped out, or recorded as
+  blocked on new evidence;
 - the `Float48K` probe offset is reconciled against the published figure;
 - an RZX replay harness runs at least one real-hardware recording per SOLID
   variant that has one available;
@@ -271,6 +271,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-08-09 | 2. Survey source identified | `timingTests48k.sna` structurally confirmed as the ZXSpectrum4.net 35-test suite: self-grading, contended/uncontended, early/late classification, published real-hardware expected values. Already on disk; no acquisition needed. Upstream provenance and licence still to resolve. |
 | 2026-08-09 | Gate integrity | Commit `bd4e7887`. The Tom Harte gate resolved no corpus and reported `ok`; the fallback path was off by one directory level and a missing fixture returned early instead of failing. `find_zex_binary` had the identical off-by-one. The gate now resolves with no env var set and reports 1,604,000/1,604,000. |
 | 2026-08-09 | 7. 128K oracle identified | `testInt.tap`, catalogued as "unidentified — likely a Woody interrupt timing test", is in fact **TEST INT v1.10 by Yuri Kovalenko, "COMPER-Utility", 1995** — a Soviet-scene diagnostic that measures INT signal duration against a мала/Норма/велика band on a 10–120 scale, alongside effective data-bus bits and an IM 2 figure. It targets Pentagon 48/128 and the Sinclair Spectrum and refuses to run below 128K. It is a direct oracle for INT pulse length, which no current gate measures, and it discriminates Pentagon from Sinclair. Turning it into an assertion needs a screen-region decode or a RAM probe, since it reports through a bar graph rather than a printed number. |
+| 2026-08-09 | 4. Block-repeat residuals reclassified | The standing note called these "the *final* repeat iteration" and "silicon-variable … effectively unclosable without silicon evidence". Both are wrong, and the second followed from the first. FUSE runs `edb2_1`/`edb3_1`/`edb9_2`/`edbb_1` for **21 T-states** with B = `0x0a`, `0x03`, `0x00`, `0x04` — 21 is the *repeating* cost, 16 the terminating one — so every disputed case observes a **non-final** iteration with PC rewound. `edba_1 INDR` has the identical shape (B = `0x06`, 21 T-states) and passes every bit, so we do model the repeating-iteration rule; it agrees for one instruction and disagrees for four siblings. Separately, `z80full`/`z80flags`/`z80memptr` set `maskflags equ 0`, comparing the full `0xFF` mask including bits 3 and 5, and every block instruction including the `->NOP'` variants passes against real-48K-Zilog CRCs — the suite is not silent on these bits, though it observes the instruction after completion rather than mid-repeat. Net: the debt is not closed, but it moves from silicon mystery to a tractable inconsistency in our own model. Comment corrected at the allowlist; the gate still reports 1,351/1,356 with 0 unexpected. |
 | 2026-08-09 | Tooling | Commit `32d59886`. `emu198x-spectrum --machine ID` boots any of the 13 variants headlessly, so variant-specific test software no longer needs a scratch JSON script. Needed by steps 2 and 7. |
 
 ## Related Documents

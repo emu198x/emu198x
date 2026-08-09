@@ -131,15 +131,43 @@ struct FuseObserved {
 const ACCEPTED_FUSE_DISAGREEMENTS: &[(&str, &[&str])] = &[
     ("76", &["PC"]),
     // Four block-repeat instructions disagree only on the X/Y
-    // undocumented AF bits (F bits 2 and 3) of the *final* repeat
-    // iteration — INIR (edb2), OTIR (edb3), CPDR (edb9) and OTDR
-    // (edbb). WZ now matches FUSE (and Patrik Rak's z80memptr) after
-    // the 2026-05-31 fix that stopped the repeat path from clobbering
-    // the WZ value (BC ± 1) set during the IN/OUT portion; everything
-    // except the undoc X/Y bits matches. These bits are silicon-
-    // variable at the final iteration (issue #13) — verified against
-    // FUSE's own fixtures, they're effectively unclosable without
-    // silicon evidence, so they stay allowlisted.
+    // undocumented AF bits (F bits 3 and 5) — INIR (edb2), OTIR
+    // (edb3), CPDR (edb9) and OTDR (edbb). WZ now matches FUSE (and
+    // Patrik Rak's z80memptr) after the 2026-05-31 fix that stopped
+    // the repeat path from clobbering the WZ value (BC ± 1) set during
+    // the IN/OUT portion; everything except the undoc X/Y bits matches.
+    //
+    // Reclassified 2026-08-09. The previous note called these "the
+    // *final* repeat iteration" and "silicon-variable ... effectively
+    // unclosable". Both claims are wrong, and the second followed from
+    // the first:
+    //
+    // - FUSE runs each of these for 21 T-states with B = 0x0a, 0x03,
+    //   0x00 and 0x04 respectively (tests.in). 21 T-states is the
+    //   *repeating* cost; 16 is the terminating one. So every disputed
+    //   case observes a NON-final iteration, with PC rewound to
+    //   re-execute — not the final one.
+    // - `edba_1` INDR has the identical shape (B = 0x06, 21 T-states)
+    //   and passes every bit. We therefore do model the repeating-
+    //   iteration rule; it agrees with FUSE for one instruction and
+    //   disagrees for four siblings. That is an inconsistency in our
+    //   model, not silicon variance.
+    // - Patrik Rak's z80full / z80flags / z80memptr set `maskflags
+    //   equ 0` (src/*.asm), so they compare the full 0xFF flag mask
+    //   including bits 3 and 5, and every block instruction — INIR,
+    //   INDR, OTIR, OTDR, CPIR, CPDR, LDIR, LDDR and the ->NOP'
+    //   variants — passes against CRCs measured on a real 48K Zilog
+    //   board. The suite is not silent on these bits. It observes the
+    //   instruction after completion, so it does not obviously cover
+    //   FUSE's mid-repeat point, but it does constrain the rule.
+    //
+    // Still allowlisted: the disagreement is real and unexplained. But
+    // it is now a tractable question — why one of five siblings agrees
+    // — rather than a silicon mystery. Next step is a differential
+    // against the vendored SpecIde / Fuse / zesarux implementations of
+    // the repeat H/PV adjustment (see `repeat_block_io_flags` in
+    // src/execute.rs, which the I/O paths apply and the compare path
+    // does not).
     //
     // NB: `edb9` is CPDR (ED B9), a block-*compare*, not a block-I/O
     // op — an earlier note mislabelled it INDR. INDR itself (`edba`)
