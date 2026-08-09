@@ -111,6 +111,19 @@ fn snapshot_round_trip_preserves_mid_cycle_runtime_state() {
             expected_machine.vic().late_badline_fetches_remaining()
         );
         assert_eq!(
+            restored.machine().vic().forced_badline_output_delay(),
+            expected_machine.vic().forced_badline_output_delay()
+        );
+        assert_eq!(
+            restored
+                .machine()
+                .vic()
+                .forced_badline_cdata_carry_cycles_remaining(),
+            expected_machine
+                .vic()
+                .forced_badline_cdata_carry_cycles_remaining()
+        );
+        assert_eq!(
             restored.machine().framebuffer(),
             expected_machine.framebuffer()
         );
@@ -159,6 +172,17 @@ fn snapshot_round_trip_preserves_ba_to_aec_handover() {
             restored.machine().vic().late_badline_fetches_remaining(),
             expected.vic().late_badline_fetches_remaining()
         );
+        assert_eq!(
+            restored.machine().vic().forced_badline_output_delay(),
+            expected.vic().forced_badline_output_delay()
+        );
+        assert_eq!(
+            restored
+                .machine()
+                .vic()
+                .forced_badline_cdata_carry_cycles_remaining(),
+            expected.vic().forced_badline_cdata_carry_cycles_remaining()
+        );
         assert_eq!(restored.machine().framebuffer(), expected.framebuffer());
     }
 }
@@ -193,6 +217,17 @@ fn snapshot_round_trip_preserves_exhausted_late_badline_window() {
         restored.machine().vic().late_badline_fetches_remaining(),
         Some(0)
     );
+    assert_eq!(restored.machine().vic().forced_badline_output_delay(), 2);
+    assert!(
+        restored
+            .machine()
+            .vic()
+            .forced_badline_cdata_carry_pending()
+    );
+    assert_eq!(
+        restored.machine().vic().forced_badline_cdata_carry_slot(),
+        Some(0)
+    );
 
     let exhausted_snapshot = restored
         .snapshot()
@@ -206,6 +241,17 @@ fn snapshot_round_trip_preserves_exhausted_late_badline_window() {
         exhausted.machine().vic().late_badline_fetches_remaining(),
         Some(0)
     );
+    assert_eq!(exhausted.machine().vic().forced_badline_output_delay(), 2);
+    assert!(
+        exhausted
+            .machine()
+            .vic()
+            .forced_badline_cdata_carry_pending()
+    );
+    assert_eq!(
+        exhausted.machine().vic().forced_badline_cdata_carry_slot(),
+        Some(0)
+    );
     assert!(exhausted.machine().vic().badline_ba_is_low());
     assert!(exhausted.machine().vic().c_access_is_active());
 
@@ -215,6 +261,13 @@ fn snapshot_round_trip_preserves_exhausted_late_badline_window() {
     assert_eq!(
         exhausted.machine().vic().late_badline_fetches_remaining(),
         Some(0)
+    );
+    assert_eq!(exhausted.machine().vic().forced_badline_output_delay(), 1);
+    assert!(
+        exhausted
+            .machine()
+            .vic()
+            .forced_badline_cdata_carry_pending()
     );
 }
 
@@ -428,7 +481,7 @@ fn restore_rejects_old_schema_before_decoding_its_payload() {
         .expect_err("version 5 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason }
-            if reason == "unsupported snapshot version 5; expected 6"),
+            if reason == "unsupported snapshot version 5; expected 7"),
         "unexpected error variant: {err:?}",
     );
 }

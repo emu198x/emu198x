@@ -73,7 +73,14 @@ use palette::PALETTE;
 /// carries its post-VIC completion phase into the following VIC tick. The one
 /// remaining far-edge matrix-DMA slot can no longer reopen as a second access
 /// through the ordinary cycle-54 predicate.
-pub const FRAME_ROUTING_VERSION: u32 = 5;
+///
+/// **Version 6** (2026-08-08): a forced badline leaves the graphics output on
+/// the two cells already resident in the VIC-II's C/V/G pipeline. At the
+/// far-right edge this keeps both exposed cells on idle data even though Phi2
+/// has already changed the internal display state and attempted its final
+/// matrix access. The one displaced C-data entry is carried into the next
+/// RC-zero display line instead of permanently corrupting the row buffer.
+pub const FRAME_ROUTING_VERSION: u32 = 6;
 
 /// CPU-side data visible during the VIC-II's Phi2 phase.
 ///
@@ -254,6 +261,23 @@ impl CellPixels {
     }
 }
 
+/// Narrow C-data carry state for a one-slot badline created at the end of the
+/// matrix-fetch window.
+///
+/// Hoxs64 models the silicon's short-forced-badline propagation as a bitwise
+/// carry across the video-matrix line buffer. In the far-edge case there is
+/// only one displaced entry, so retaining that entry until the next RC-zero
+/// display line is the equivalent bounded operation. The 40-cycle lifetime is
+/// the interval during which Hoxs64 applies its carry path.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+struct ForcedBadlineCdataCarry {
+    source_line: u16,
+    slot: u8,
+    screen: u8,
+    colour: u8,
+    cycles_remaining: u8,
+}
+
 /// VIC-II chip state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Vic {
@@ -307,6 +331,15 @@ pub struct Vic {
     /// deliberately remains distinct after the far-edge window is exhausted
     /// so the generic cycle-54 slot cannot reopen it.
     late_badline_fetches_remaining: Option<u8>,
+    /// Number of already-pipelined idle cells still presented after a `$D011`
+    /// write changes the VIC-II from idle to display state. The first affected
+    /// cycle was rendered before the Phi2 transition; these are the two
+    /// additional C/V/G cells resident in the output pipeline.
+    forced_badline_output_delay: u8,
+    /// C-data entry displaced by the sole invalid far-edge c-access. The
+    /// sequencer carries this value into the next RC-zero display line rather
+    /// than leaving the line buffer permanently corrupted.
+    forced_badline_cdata_carry: Option<ForcedBadlineCdataCarry>,
 
     #[serde(with = "BigArray")]
     regs: [u8; 0x40],
@@ -419,6 +452,8 @@ impl Vic {
             c_access_active: false,
             pending_d011_write_cycle: None,
             late_badline_fetches_remaining: None,
+            forced_badline_output_delay: 0,
+            forced_badline_cdata_carry: None,
             regs: [0; 0x40],
             raster_line: 0,
             raster_cycle: 0,
@@ -470,6 +505,7 @@ impl Vic {
         // forced badline created after cycle 15 does not leave idle until the
         // cycle-16 Phi2 phase, so its first active display access is cycle 17.
         let display_active_at_phi1 = !self.idle_state;
+        self.resolve_forced_badline_cdata_carry(display_active_at_phi1);
 
         if self.raster_cycle == self.timing.chk_dma[0] {
             self.evaluate_sprite_dma();
@@ -484,6 +520,7 @@ impl Vic {
 
         self.update_border_flip_flops();
         self.render_pixels(memory, display_active_at_phi1);
+        self.forced_badline_output_delay = self.forced_badline_output_delay.saturating_sub(1);
         self.accumulate_sprite_collisions();
         self.advance_video_counters_after_g_access(display_active_at_phi1);
         self.check_badline();
@@ -511,6 +548,7 @@ impl Vic {
                 *remaining = remaining.saturating_sub(1);
             }
         }
+        self.age_forced_badline_cdata_carry();
 
         self.raster_cycle += 1;
         if self.raster_cycle >= self.cycles_per_line {
@@ -553,6 +591,10 @@ impl Vic {
 
         if let Some(write_cycle) = self.pending_d011_write_cycle.take() {
             if !was_badline && self.is_badline {
+                // Phi1 and the current draw have already observed idle state.
+                // The two C/V/G cells behind that fetch remain in the output
+                // pipeline after the Phi2 badline transition.
+                self.forced_badline_output_delay = 2;
                 self.late_badline_fetches_remaining =
                     (write_cycle >= 53).then_some(54u8.saturating_sub(write_cycle));
             } else if was_badline && !self.is_badline {
@@ -705,6 +747,17 @@ impl Vic {
             return;
         }
         if !self.cpu_stalled {
+            if self.late_badline_fetches_remaining == Some(1)
+                && self.forced_badline_cdata_carry.is_none()
+            {
+                self.forced_badline_cdata_carry = Some(ForcedBadlineCdataCarry {
+                    source_line: self.raster_line,
+                    slot: self.vmli,
+                    screen: self.screen_row[idx],
+                    colour: self.colour_row[idx],
+                    cycles_remaining: 40,
+                });
+            }
             self.screen_row[idx] = 0xFF;
             self.colour_row[idx] = cpu_data & 0x0F;
             // This internal disconnected-matrix value does not update the
@@ -717,6 +770,43 @@ impl Vic {
         self.screen_row[idx] = byte;
         self.last_bus_data = byte;
         self.colour_row[idx] = memory.read_colour(self.vc);
+    }
+
+    /// Resolve the bounded one-slot form of the forced-badline C-data carry.
+    ///
+    /// The first g-access of the following RC-zero display line consumes the
+    /// carried entry. This happens before the simplified direct renderer reads
+    /// slot zero, corresponding to the reference implementations' separate
+    /// display-line index and C/V output pipeline.
+    fn resolve_forced_badline_cdata_carry(&mut self, display_active_at_phi1: bool) {
+        let Some(carry) = self.forced_badline_cdata_carry else {
+            return;
+        };
+        if self.raster_line == carry.source_line
+            || self.raster_cycle != DISPLAY_START_CYCLE
+            || !display_active_at_phi1
+            || self.is_badline
+            || self.rc != 0
+        {
+            return;
+        }
+
+        let idx = usize::from(carry.slot);
+        if idx < self.screen_row.len() {
+            self.screen_row[idx] = carry.screen;
+            self.colour_row[idx] = carry.colour;
+        }
+        self.forced_badline_cdata_carry = None;
+    }
+
+    fn age_forced_badline_cdata_carry(&mut self) {
+        let Some(carry) = &mut self.forced_badline_cdata_carry else {
+            return;
+        };
+        carry.cycles_remaining = carry.cycles_remaining.saturating_sub(1);
+        if carry.cycles_remaining == 0 {
+            self.forced_badline_cdata_carry = None;
+        }
     }
 
     /// The sprite whose p-access (pointer + data byte 0) falls on this cycle,
@@ -791,7 +881,7 @@ impl Vic {
         }
 
         if display_pipeline_visible {
-            let cell = if display_active_at_phi1 {
+            let cell = if display_active_at_phi1 && self.forced_badline_output_delay == 0 {
                 let col = self.vmli as usize;
                 if col >= 40 {
                     None
@@ -1579,6 +1669,37 @@ impl Vic {
     #[must_use]
     pub const fn late_badline_fetches_remaining(&self) -> Option<u8> {
         self.late_badline_fetches_remaining
+    }
+
+    /// Number of forced-badline output cells still sourced from the idle
+    /// C/V/G pipeline.
+    #[must_use]
+    pub const fn forced_badline_output_delay(&self) -> u8 {
+        self.forced_badline_output_delay
+    }
+
+    /// Whether a displaced far-edge C-data entry remains in the carry window.
+    #[must_use]
+    pub const fn forced_badline_cdata_carry_pending(&self) -> bool {
+        self.forced_badline_cdata_carry.is_some()
+    }
+
+    /// Slot held by the far-edge C-data carry, when active.
+    #[must_use]
+    pub const fn forced_badline_cdata_carry_slot(&self) -> Option<u8> {
+        match self.forced_badline_cdata_carry {
+            Some(carry) => Some(carry.slot),
+            None => None,
+        }
+    }
+
+    /// Cycles left in the bounded far-edge C-data carry window.
+    #[must_use]
+    pub const fn forced_badline_cdata_carry_cycles_remaining(&self) -> Option<u8> {
+        match self.forced_badline_cdata_carry {
+            Some(carry) => Some(carry.cycles_remaining),
+            None => None,
+        }
     }
 
     /// Whether the display sequencer is in idle state.
@@ -2779,6 +2900,10 @@ mod tests {
         assert_eq!(vic.screen_row[0], 0xFF);
         assert_eq!(vic.colour_row[0], 0x0A);
         assert_eq!(vic.vmli(), 0);
+        assert_eq!(vic.forced_badline_output_delay(), 2);
+        assert!(vic.forced_badline_cdata_carry_pending());
+        assert_eq!(vic.forced_badline_cdata_carry_slot(), Some(0));
+        assert_eq!(vic.forced_badline_cdata_carry_cycles_remaining(), Some(39));
 
         // The ordinary cycle-54 slot would be a second attempt. A line created
         // at CPU phase 53 has no such remaining c-access or badline BA source.
@@ -2788,6 +2913,10 @@ mod tests {
         assert!(!vic.c_access_is_active());
         assert_eq!(vic.late_badline_fetches_remaining(), Some(0));
         assert_eq!(vic.screen_row[1], 0x00);
+        assert_eq!(vic.forced_badline_output_delay(), 1);
+
+        tick_vic_with_cpu_data(&mut vic, &memory, 0x95);
+        assert_eq!(vic.forced_badline_output_delay(), 0);
 
         while vic.raster_cycle != 0 {
             tick_vic_with_cpu_data(&mut vic, &memory, 0x95);
@@ -2816,6 +2945,80 @@ mod tests {
         assert!(!vic.badline_ba_is_low());
         assert!(!vic.c_access_is_active());
         assert_eq!(vic.screen_row[0], 0x00);
+        assert_eq!(vic.forced_badline_output_delay(), 2);
+    }
+
+    #[test]
+    fn forced_badline_keeps_two_following_cells_on_idle_output() {
+        let chargen = vec![0u8; 4096];
+        let mut memory = TestMemory::new(&chargen);
+        memory.ram_write(0x0900, 0xFF); // bitmap byte at VC $120, RC 0
+        memory.ram_write(0x0908, 0xFF); // bitmap byte at VC $121, RC 0
+
+        let mut vic = Vic::new(VicModel::Pal6569);
+        vic.raster_line = 0x30;
+        vic.raster_cycle = 53;
+        vic.den_latch = true;
+        vic.vc = 0x0120;
+        vic.vmli = 0;
+        vic.idle_state = true;
+        vic.regs[0x11] = 0x31; // BMM; line $30 is not bad at YSCROLL 1
+        vic.regs[0x16] = 0x08; // 40 columns: right border closes at cycle 56
+        vic.regs[0x21] = 0x06;
+        vic.border_vert_ff = false;
+        vic.border_main_ff = false;
+
+        vic.write(0x11, 0x30);
+        tick_vic_with_cpu_data(&mut vic, &memory, 0x8A);
+        assert_eq!(vic.forced_badline_output_delay(), 2);
+
+        for (cycle, remaining) in [(54u8, 1u8), (55, 0)] {
+            tick_vic_with_cpu_data(&mut vic, &memory, 0x95);
+            assert_eq!(vic.forced_badline_output_delay(), remaining);
+            let fb_y = usize::from(vic.raster_line - FIRST_VISIBLE_LINE);
+            let fb_x = usize::from(cycle - FIRST_VISIBLE_CYCLE) * 8;
+            for px in 0..8 {
+                assert_eq!(
+                    fb_pixel(&vic, fb_x + px, fb_y),
+                    PALETTE[0],
+                    "cycle {cycle} pixel {px} should retain idle C/V output"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn far_edge_cdata_carry_restores_slot_zero_on_next_rc_zero_line() {
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.raster_line = 0x30;
+        vic.raster_cycle = 53;
+        vic.den_latch = true;
+        vic.vc = 0x0120;
+        vic.vmli = 0;
+        vic.rc = 7;
+        vic.idle_state = true;
+        vic.regs[0x11] = 0x11;
+        vic.is_badline = false;
+        vic.screen_row[0] = 0xF6;
+        vic.colour_row[0] = 0x05;
+
+        vic.write(0x11, 0x10);
+        tick_vic_with_cpu_data(&mut vic, &memory, 0x8A);
+        assert_eq!(vic.screen_row[0], 0xFF);
+        assert_eq!(vic.colour_row[0], 0x0A);
+        assert!(vic.forced_badline_cdata_carry_pending());
+
+        advance_until(&mut vic, &memory, 0x31, DISPLAY_START_CYCLE);
+        assert_eq!(vic.rc(), 0);
+        assert!(!vic.is_badline());
+        assert!(vic.forced_badline_cdata_carry_pending());
+
+        tick_vic(&mut vic, &memory);
+        assert_eq!(vic.screen_row[0], 0xF6);
+        assert_eq!(vic.colour_row[0], 0x05);
+        assert!(!vic.forced_badline_cdata_carry_pending());
+        assert_eq!(vic.forced_badline_cdata_carry_slot(), None);
+        assert_eq!(vic.forced_badline_cdata_carry_cycles_remaining(), None);
     }
 
     #[test]

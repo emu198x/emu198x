@@ -590,6 +590,26 @@ fn sequencer_bug_d011_write_cycle_boundary() {
         let after = pos(machine.raster_line(), machine.cycle_in_line());
         let cpu_advanced = machine.cpu().total_cycles != cpu_cycles;
 
+        if trace_bus
+            && matches!(before.0, 51..=53)
+            && matches!(before.1, 14 | 16 | 52 | 53 | 54 | 55 | 58)
+        {
+            let vic = machine.vic();
+            eprintln!(
+                "counter {:?} -> {:?}: vc={} vcbase={} vmli={} rc={} idle={} bad={} delay={} carry={:?}",
+                before,
+                after,
+                vic.vc(),
+                vic.vcbase(),
+                vic.vmli(),
+                vic.rc(),
+                vic.idle_state(),
+                vic.is_badline(),
+                vic.forced_badline_output_delay(),
+                vic.forced_badline_cdata_carry_cycles_remaining()
+            );
+        }
+
         if target_exec && cpu_advanced {
             execs.push(ExecPhase {
                 pc: addr,
