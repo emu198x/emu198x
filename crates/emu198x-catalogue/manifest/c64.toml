@@ -15,7 +15,11 @@ id = "c64"
 # re-capture instruction. See
 # knowledge/decisions/c64-architecture-review.md Seam 4.
 audio_routing_version = 4
-frame_routing_version = 2
+# Version 3 separates the entering Phi1 display state from a late badline's
+# Phi2 transition and renders mode-correct idle g-access data beneath an open
+# border. All 13 frame and audio hashes were recaptured unchanged on
+# 2026-08-08 before this version was advanced.
+frame_routing_version = 3
 
 [[system.firmware]]
 variant = "pal"

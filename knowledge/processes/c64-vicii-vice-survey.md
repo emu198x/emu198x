@@ -106,6 +106,7 @@ similarity does not make any implementation the specification.
 ## Related Documents
 
 - [C64 accuracy closure campaign](../decisions/c64-accuracy-closure-campaign.md)
+- [PAL 6569 late-badline display phase](../decisions/c64-late-badline-display-phase.md)
 - [C64 architecture review](../decisions/c64-architecture-review.md)
 - [MOS 6569 / 6567 VIC-II](../chips/mos-vic-ii.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)

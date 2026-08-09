@@ -148,6 +148,13 @@ The capture-bypass mechanism (`run_entry_for_capture`) is already system-agnosti
 
 **Status: landed 2026-05-20.** `AUDIO_ROUTING_VERSION: u32 = 1` added to `mos-sid-6581/src/lib.rs`; `FRAME_ROUTING_VERSION: u32 = 1` added to `mos-vic-ii/src/lib.rs`; `c64.toml` declares both. `verify_routing_versions` in `emu198x-catalogue/src/lib.rs` extended with a `"c64"` arm. Three new unit tests cover the C64 happy path + both mismatch paths (audio + frame). The capture-bypass already covers C64 by construction (system-agnostic). Future fidelity work (Seam 1 BA/RDY accounting, SID filter rehydration in Seam 3, etc.) will bump the appropriate constant and trigger a forced re-capture of the C64 catalogue.
 
+**Requalification: 2026-08-08.** The late-badline Phi1/Phi2 correction in
+commit `74f31553` advances `FRAME_ROUTING_VERSION` to 3. All 13 current C64
+entries were recaptured before the manifest was advanced; every frame and
+audio hash remained unchanged. The complete version-3 matrix then produced
+13 `PASS` and 13 `SNAP-PASS` results. The version gate therefore forced review
+without requiring an unrelated golden change.
+
 **Why this matters for other systems.** Every system the catalogue tracks needs this oracle. The Spectrum's Seam 4 work is system-agnostic infrastructure; the C64 is the first beneficiary of the pattern beyond the system that originated it.
 
 ### Seam 5 — Per-variant boot invariants suite
@@ -250,6 +257,7 @@ In order of leverage for unblocking the C64's progression from "reaches stable t
 - [`within-family-layering.md`](within-family-layering.md) — the chip-per-crate structure the seam fixes respect
 - [`runtime-internal-shape.md`](runtime-internal-shape.md) — the runtime shape per-system reviews build on
 - [`save-state-format.md`](save-state-format.md) — the postcard envelope the C64's snapshot work extends
+- [PAL 6569 late-badline display phase](c64-late-badline-display-phase.md) — the version-3 frame-routing decision and retained survey result
 - [`october-catalogue.md`](october-catalogue.md) — the October-public bar (C64 is engineering-bar, no October deadline)
 
 ## Reference library cross-links
