@@ -1,0 +1,490 @@
+{
+  "schema": "org.198x.emu198x.nes-blargg-survey-assets.v1",
+  "id": "nes-blargg-breadth-survey-assets-v1",
+  "source": {
+    "suite": "nes-test-roms (blargg and contributors)",
+    "holding": "198x/assets/test-suites/nes-test-roms",
+    "upstream_revision": "unresolved"
+  },
+  "scope": {
+    "machine": "NES / Famicom (NTSC)",
+    "suite_families": [
+      "blargg_nes_cpu_test5",
+      "blargg_ppu_tests_2005.09.15b",
+      "cpu_dummy_reads",
+      "dmc_dma_during_read4",
+      "dmc_tests",
+      "dpcmletterbox",
+      "full_palette",
+      "mmc3_test",
+      "nmi_sync",
+      "oam_read",
+      "oam_stress",
+      "other",
+      "ppu_read_buffer",
+      "ppu_vbl_nmi",
+      "sprite_hit_tests_2005.10.05",
+      "sprite_overflow_tests",
+      "volume_tests"
+    ],
+    "asset_count": 57
+  },
+  "assets": [
+    {
+      "id": "rom:cpu",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "blargg_nes_cpu_test5/cpu.nes",
+      "bytes": 270352,
+      "sha256": "782b97d45ade98f642893341277bf161d6ff0f973fd0de0de3753d844e931940"
+    },
+    {
+      "id": "rom:official",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "blargg_nes_cpu_test5/official.nes",
+      "bytes": 270352,
+      "sha256": "5b412b3940abe3f9ed562b86b93cf660688bee95eba927c4dacd53c9da89fe9a"
+    },
+    {
+      "id": "rom:palette_ram",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "blargg_ppu_tests_2005.09.15b/palette_ram.nes",
+      "bytes": 16400,
+      "sha256": "11c1de16c67795b247169819a34b9d4dd46165478d6de19d7cd6e7311e906a80"
+    },
+    {
+      "id": "rom:power_up_palette",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "blargg_ppu_tests_2005.09.15b/power_up_palette.nes",
+      "bytes": 16400,
+      "sha256": "4a02958db36d1e1affb6e6b80d556e4a6840847cc42027d2c875fbe917db9f49"
+    },
+    {
+      "id": "rom:sprite_ram",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "blargg_ppu_tests_2005.09.15b/sprite_ram.nes",
+      "bytes": 16400,
+      "sha256": "81275795ea64dfe22f05e35ef3316e6cf84eba40fc9538fc637a08bf263a3110"
+    },
+    {
+      "id": "rom:vbl_clear_time",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "blargg_ppu_tests_2005.09.15b/vbl_clear_time.nes",
+      "bytes": 16400,
+      "sha256": "1a1d3ae8062ce0d4f1f3eafa35bf3c3e5df94fe198e7630a09678a60b03b73a0"
+    },
+    {
+      "id": "rom:vram_access",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "blargg_ppu_tests_2005.09.15b/vram_access.nes",
+      "bytes": 16400,
+      "sha256": "a0cde2a3c98d9f62afcba62d4e8f4f4228574ff96ce96fbfdc777e1393c16ee6"
+    },
+    {
+      "id": "rom:cpu_dummy_reads",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "cpu_dummy_reads/cpu_dummy_reads.nes",
+      "bytes": 40976,
+      "sha256": "db4f91b80c5fbc123e7dcb420fb7fea9b8a18613edf4de7f3d1e3ed95e3117c9"
+    },
+    {
+      "id": "rom:dma_2007_read",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "dmc_dma_during_read4/dma_2007_read.nes",
+      "bytes": 32784,
+      "sha256": "a2e0fa3f6f155cbe0b8c9517b2f6a57f1fd68f13711c11d6d2fe5676c522d7b2"
+    },
+    {
+      "id": "rom:dma_4016_read",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "dmc_dma_during_read4/dma_4016_read.nes",
+      "bytes": 32784,
+      "sha256": "c6af72e11c197b449129921a9992db2351d9121bb593b3d0ab71895b646b0ebe"
+    },
+    {
+      "id": "rom:double_2007_read",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "dmc_dma_during_read4/double_2007_read.nes",
+      "bytes": 32784,
+      "sha256": "779e6e7db863a7405a3dda8723b8517a23d271e78ce4802970fb0a7d3039ce6b"
+    },
+    {
+      "id": "rom:buffer_retained",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "dmc_tests/buffer_retained.nes",
+      "bytes": 16400,
+      "sha256": "32aaccfa2fda811d1127feeaf4dcf36cf1803cca866800c71815dfb86254daae"
+    },
+    {
+      "id": "rom:latency",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "dmc_tests/latency.nes",
+      "bytes": 16400,
+      "sha256": "346c182ce408280a4fb14513f18ae519b135136a250ed3738abc295a6a1b2208"
+    },
+    {
+      "id": "rom:status",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "dmc_tests/status.nes",
+      "bytes": 16400,
+      "sha256": "ef18582e0625dfe522bdf2f8b0b16cd221c630940fbc97c52c8cf23832ce92bd"
+    },
+    {
+      "id": "rom:status_irq",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "dmc_tests/status_irq.nes",
+      "bytes": 16400,
+      "sha256": "81013c38721e966f037969aae7c66a5f904fc706f96437910b93f7262cb77a70"
+    },
+    {
+      "id": "rom:dpcmletterbox",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "dpcmletterbox/dpcmletterbox.nes",
+      "bytes": 24592,
+      "sha256": "dbf91829a13baa8ab672fb6846be7c5ca8f5e2826ef939c189e261ed9ba43729"
+    },
+    {
+      "id": "rom:flowing_palette",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "full_palette/flowing_palette.nes",
+      "bytes": 40976,
+      "sha256": "bcac93cba22243da0625e82126c4c12bf529b20b57dcc626d8cb0776df5156f0"
+    },
+    {
+      "id": "rom:full_palette",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "full_palette/full_palette.nes",
+      "bytes": 40976,
+      "sha256": "7924ba0a808fb1b7029fab5b3fcfe08c8a318a9bdae2948258ffdcbb8d99b657"
+    },
+    {
+      "id": "rom:full_palette_smooth",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "full_palette/full_palette_smooth.nes",
+      "bytes": 40976,
+      "sha256": "cf3dccb3e149d6edfd53d1d020bce988973c732f51e5cfbedac1c69fedec495f"
+    },
+    {
+      "id": "rom:1-clocking",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "mmc3_test/1-clocking.nes",
+      "bytes": 40976,
+      "sha256": "57c77c66edde8c45e17bda02691dd3c7fd0b270c1ec024dff4e11a7778dfaa37"
+    },
+    {
+      "id": "rom:2-details",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "mmc3_test/2-details.nes",
+      "bytes": 40976,
+      "sha256": "89e1f16514aafeee90b5ab849dd73dbf1456dbd363ec2e3b798461125a33068a"
+    },
+    {
+      "id": "rom:3-A12_clocking",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "mmc3_test/3-A12_clocking.nes",
+      "bytes": 40976,
+      "sha256": "dc6779b3d64e27b8d3b2b6dee7a1b528b9b6401ac0e6a9a1d5ab928dcd8ad6bb"
+    },
+    {
+      "id": "rom:4-scanline_timing",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "mmc3_test/4-scanline_timing.nes",
+      "bytes": 40976,
+      "sha256": "0474550dbf811bf1acda2178bf355edd5c100088479a09d881f84994c1690b82"
+    },
+    {
+      "id": "rom:5-MMC3",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "mmc3_test/5-MMC3.nes",
+      "bytes": 40976,
+      "sha256": "f714089b5d056a50d63854a8d13359914d20d6144d8b25e48f880116ae73d8fd"
+    },
+    {
+      "id": "rom:demo_ntsc",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "nmi_sync/demo_ntsc.nes",
+      "bytes": 40976,
+      "sha256": "6f630cf1b37fea5c34d62800855a5384e8bacd578aba3131752f1fb777b4638a"
+    },
+    {
+      "id": "rom:demo_pal",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "nmi_sync/demo_pal.nes",
+      "bytes": 40976,
+      "sha256": "8848fb7f7a20c9acb58a4cdeae2d04a9fd4a33159524cec1f77c802d36861851"
+    },
+    {
+      "id": "rom:oam_read",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "oam_read/oam_read.nes",
+      "bytes": 40976,
+      "sha256": "f298973dabeb61ca35007445f7a615f77e87703c958c870986af83b1aabde926"
+    },
+    {
+      "id": "rom:oam_stress",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "oam_stress/oam_stress.nes",
+      "bytes": 40976,
+      "sha256": "95882d72a7acabe928fd277e3b3e0372f21ef3d41e36d7d8fb17fc017a356f70"
+    },
+    {
+      "id": "rom:nestest",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "other/nestest.nes",
+      "bytes": 24592,
+      "sha256": "f67d55fd6b3cf0bad1cc85f1df0d739c65b53e79cecb7fea8f77ec0eadab0004"
+    },
+    {
+      "id": "rom:test_ppu_read_buffer",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "ppu_read_buffer/test_ppu_read_buffer.nes",
+      "bytes": 49168,
+      "sha256": "230a52fc557c098eba163801d1b6bbf9f57fe8c5ff79a3f968c804dedb1290ba"
+    },
+    {
+      "id": "rom:01-vbl_basics",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "ppu_vbl_nmi/rom_singles/01-vbl_basics.nes",
+      "bytes": 40976,
+      "sha256": "06aea5af4edab4e3141c939cd5ac9936f8758203b25dcaf84ae1a09db49e024a"
+    },
+    {
+      "id": "rom:02-vbl_set_time",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes",
+      "bytes": 40976,
+      "sha256": "dd98856130078844e3aa4bd95a9be8ab501ea84c089f1d8ad49a1b20af4b3a80"
+    },
+    {
+      "id": "rom:03-vbl_clear_time",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes",
+      "bytes": 40976,
+      "sha256": "787fdaa4dd6c5b6df5f4308fb6d55b57e2c2f69bd5ecdf8ad5c69735db4fcc72"
+    },
+    {
+      "id": "rom:04-nmi_control",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "ppu_vbl_nmi/rom_singles/04-nmi_control.nes",
+      "bytes": 40976,
+      "sha256": "84722c75b896c47c8642f83220230fe14f0a31e55e26ecb83c400e6a26d91b32"
+    },
+    {
+      "id": "rom:05-nmi_timing",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "ppu_vbl_nmi/rom_singles/05-nmi_timing.nes",
+      "bytes": 40976,
+      "sha256": "72e515d689d7404ae5779b8c9c4c7b3563a755a94bd44864516f1b03df044482"
+    },
+    {
+      "id": "rom:06-suppression",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "ppu_vbl_nmi/rom_singles/06-suppression.nes",
+      "bytes": 40976,
+      "sha256": "811dd5997bbf48c2e5687ab06845f17ea76b2be472786596c334137582cc72aa"
+    },
+    {
+      "id": "rom:07-nmi_on_timing",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "ppu_vbl_nmi/rom_singles/07-nmi_on_timing.nes",
+      "bytes": 40976,
+      "sha256": "1ed154363660b5775b112ae63ce9bb4e400ebde2afef4d0ac12fc433efda3702"
+    },
+    {
+      "id": "rom:08-nmi_off_timing",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "ppu_vbl_nmi/rom_singles/08-nmi_off_timing.nes",
+      "bytes": 40976,
+      "sha256": "1d2a4093091c8e58a7f99d6a3531bbc6346b52cfc59bcb17ca04c1f2376cf2fc"
+    },
+    {
+      "id": "rom:09-even_odd_frames",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "ppu_vbl_nmi/rom_singles/09-even_odd_frames.nes",
+      "bytes": 40976,
+      "sha256": "1ac04283021ddd9294cc74ee709c55e20a350dc4815c15a8a93b3654837e858d"
+    },
+    {
+      "id": "rom:10-even_odd_timing",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "ppu_vbl_nmi/rom_singles/10-even_odd_timing.nes",
+      "bytes": 40976,
+      "sha256": "7217d2d172ce11ad45c4da40c2f22201cf0eb758bc2cd8dd39d2cf0a7d4ca83e"
+    },
+    {
+      "id": "rom:01.basics",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_hit_tests_2005.10.05/01.basics.nes",
+      "bytes": 16400,
+      "sha256": "51819e8e502bd88fe3b7244198a074dbeef2e848f66c587be04b04f1f0d4bb52"
+    },
+    {
+      "id": "rom:02.alignment",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_hit_tests_2005.10.05/02.alignment.nes",
+      "bytes": 16400,
+      "sha256": "125bbb3ce1e67370f1f4559c2ad3221e52a3e98880b9789400292b5f3a8b39e6"
+    },
+    {
+      "id": "rom:03.corners",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_hit_tests_2005.10.05/03.corners.nes",
+      "bytes": 16400,
+      "sha256": "9dd57776bc6267fe6183c5521d67cbe3fccc6662ae545eb2c419949bf39644d3"
+    },
+    {
+      "id": "rom:04.flip",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_hit_tests_2005.10.05/04.flip.nes",
+      "bytes": 16400,
+      "sha256": "5f7142bddb51b7577f93fa22f9f668efebbeea00346d7255089e1863acb9d46a"
+    },
+    {
+      "id": "rom:05.left_clip",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_hit_tests_2005.10.05/05.left_clip.nes",
+      "bytes": 16400,
+      "sha256": "69b329658c17b953f149c2f0de77eb272089df22c815bd2fd3d6f43206791c13"
+    },
+    {
+      "id": "rom:06.right_edge",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_hit_tests_2005.10.05/06.right_edge.nes",
+      "bytes": 16400,
+      "sha256": "8e6653fcb869e06873e29e5e4423122ea72ba0bf38f3ba9e39f471420db759a4"
+    },
+    {
+      "id": "rom:07.screen_bottom",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_hit_tests_2005.10.05/07.screen_bottom.nes",
+      "bytes": 16400,
+      "sha256": "05849956f80267838c5b6556310266b794078a4300841cbb36339fd141905a0b"
+    },
+    {
+      "id": "rom:08.double_height",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_hit_tests_2005.10.05/08.double_height.nes",
+      "bytes": 16400,
+      "sha256": "127fd966b6b32d6d88a53c5f59d7e938827783c9ad056091f119be1c4ab21c71"
+    },
+    {
+      "id": "rom:09.timing_basics",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_hit_tests_2005.10.05/09.timing_basics.nes",
+      "bytes": 16400,
+      "sha256": "311698c717e50150edd0b5fd0016c41de686463205c20efb5630d6adb90859fd"
+    },
+    {
+      "id": "rom:10.timing_order",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_hit_tests_2005.10.05/10.timing_order.nes",
+      "bytes": 16400,
+      "sha256": "0f36bc07bfe51c416e3cc1a5231053572aa6b15aa60e6d2fd0568be49b6dc2e9"
+    },
+    {
+      "id": "rom:11.edge_timing",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_hit_tests_2005.10.05/11.edge_timing.nes",
+      "bytes": 16400,
+      "sha256": "5a7c121f6e76617be88a0a7035c0e402293be5c685c95b97190a8d70835736ab"
+    },
+    {
+      "id": "rom:1.Basics",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_overflow_tests/1.Basics.nes",
+      "bytes": 16400,
+      "sha256": "1a6782f63ccb3a3dd1aa6a24272036c9c3aa232c2d1ff0b21e872741a3ee4fe2"
+    },
+    {
+      "id": "rom:2.Details",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_overflow_tests/2.Details.nes",
+      "bytes": 16400,
+      "sha256": "6405a7ff1042fe7a50d9bfe521e43460a3251799425bd3e1863b29b67e7cd587"
+    },
+    {
+      "id": "rom:3.Timing",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_overflow_tests/3.Timing.nes",
+      "bytes": 16400,
+      "sha256": "2252ec8fc35932b408f409ef9b6863edf084aa871fc10ad180b0ac4c2468ef8c"
+    },
+    {
+      "id": "rom:4.Obscure",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_overflow_tests/4.Obscure.nes",
+      "bytes": 16400,
+      "sha256": "aebf2199344321465ae0d8dcd81f6c528c7f661f31f1814711365b4e573a8263"
+    },
+    {
+      "id": "rom:5.Emulator",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "sprite_overflow_tests/5.Emulator.nes",
+      "bytes": 16400,
+      "sha256": "cf994454219696de82794f0b84f2bd63458444d12a1171c85bba8697ab94acb4"
+    },
+    {
+      "id": "rom:volumes",
+      "role": "rom",
+      "root": "nes-test-roms",
+      "relative_path": "volume_tests/volumes.nes",
+      "bytes": 24592,
+      "sha256": "36c4628d400212adb61bc08f2f7b32c522e4c2d3ae949d35304ea4b12fed0df8"
+    }
+  ]
+}
