@@ -60,36 +60,90 @@ const CONTENDED_PER_LINE: u32 = 128;
 /// The canonical delay pattern across an 8-T-state contention slot.
 const PATTERN: [u32; 8] = [6, 5, 4, 3, 2, 1, 0, 0];
 
-/// T-states by which the harness's phase sample runs ahead of the gate.
+/// C0 cycles (half T-states) in one contention period.
+const C0_PERIOD: usize = 16;
+
+/// Offset from the ULA's pixel counter to the canonical C0 index.
 ///
-/// The harness reads the pixel counter *between* ticks, while the gate
-/// evaluates `DELAY_TABLE_48K` at the start of the tick on which an
-/// instruction's first M-cycle is decided. Those instants are one
-/// T-state apart, so the sampled index names a later slot than the one
-/// the gate acted on, and every row of the table inherited that shift.
+/// This is the Seam 1 alignment, and it is the one number here that the
+/// reference does not fix. Smith derives the wait as `CLKWAIT = C3 + C2`
+/// and states the ULA counter and the Z80 T-state grid are offset by half
+/// a C0 cycle, but Chapter 18 explicitly declines to pin the counter's
+/// absolute phase — it requires aligning to a named test program, and
+/// the wiki decision names `Float48K`. The engine's own `Float48K`
+/// reading is one T-state off the published figure, which is the same
+/// ambiguity seen from the other end.
 ///
-/// Fixed from the two single-M-cycle anchors, `NOP` and `INC BC`, whose
-/// frame totals are independently exact — so their per-phase cost must
-/// be exact too, and any residual there is sampling alone. With the
-/// offset applied both read `+0`, range `+0 .. +0`.
+/// The value is not fitted to the instruction costs. With this offset
+/// the derived table below reproduces the gate's *measured* delay table
+/// exactly — `effective_delay_table` in `ferranti-ula-6c001e` records
+/// 12, 11 and 0 C0 cycles at pixel phases 3, 4 and 15, and the
+/// derivation gives the same — so it is pinned by a measurement of the
+/// table rather than by the numbers it is later used to predict.
+const SEAM1_C0_ORIGIN: usize = 1;
+
+// No separate sampling correction is applied, and that is deliberate.
+//
+// The whole-T-state version of this harness needed one, because it
+// calibrated its phase against instruction costs. `SEAM1_C0_ORIGIN` is
+// instead pinned by `effective_delay_table`, which samples the gate the
+// same way this harness does — between ticks — so the sampling
+// convention is already inside the origin. Adding a second correction
+// on top double-counts it; measured, it moves every case one T-state
+// the wrong way.
+
+/// Is the wait asserted at canonical C0 index `c0`?
 ///
-/// **A residual remains, and it is not this offset.** The multi-M-cycle
-/// cases read `+1` rather than `0`, and no single constant can zero both
-/// groups: a further T-state would fix them and push the anchors to
-/// `-1`. The multi-M-cycle cases were not used to choose the offset,
-/// which is precisely why they are worth reporting — they say the
-/// canonical *phase walk* mismodels something about how a second
-/// M-cycle picks up its delay, by one T-state per instruction.
+/// Straight from `CLKWAIT = C3 + C2` (Smith Chapter 18, p. 192): `C2` is
+/// bit 2 of the master counter and toggles every 4 C0 cycles, `C3` is bit
+/// 3 and toggles every 8, so the wait is low only while both are low —
+/// 4 free cycles in every 16, matching the "6 of every 8 C0 cycles"
+/// figure and the two zero entries of `[6,5,4,3,2,1,0,0]`.
+const fn clkwait_asserted(c0: usize) -> bool {
+    let c2 = (c0 >> 2) & 1;
+    let c3 = (c0 >> 3) & 1;
+    c2 == 1 || c3 == 1
+}
+
+/// C0 cycles an access arriving at `c0` waits before the gate frees it.
+fn wait_c0(c0: usize) -> usize {
+    (0..C0_PERIOD)
+        .find(|d| !clkwait_asserted((c0 + d) % C0_PERIOD))
+        .unwrap_or(0)
+}
+
+/// Canonical cost of an instruction arriving at canonical C0 index
+/// `c0`, in whole T-states.
 ///
-/// That residual does not touch the frame totals, which match exactly
-/// for all seven cases, so it is a property of the per-instruction model
-/// rather than of the engine. Treat `contention_cost_by_arrival_phase`
-/// as indicative and
-/// `contention_matches_the_canonical_model_per_instruction` as
-/// authoritative until the phase walk is reconciled. It is deliberately
-/// left as a known residual rather than absorbed into a second constant,
-/// because a table tuned until it agrees stops being evidence.
-const PHASE_SAMPLE_OFFSET: usize = 1;
+/// The walk runs in C0 cycles because that is the resolution the gate
+/// works at: Smith has the ULA hold the clock high during the *first
+/// half* of `T1`, with wait transitions aligned to the negative edge of
+/// C0. A whole-T-state walk cannot represent that, which is why the
+/// earlier version of this function mis-scored every multi-M-cycle
+/// instruction by exactly one T-state — a second M-cycle can land on
+/// either C0 parity, and half a cycle can only be spent as a whole one.
+/// That rounding is the final `div_ceil`, and it is the whole point.
+///
+/// **Known residual.** This gets all five multi-M-cycle cases exact and
+/// leaves the two single-M-cycle anchors one T-state high. The leading
+/// explanation is that the walk treats the wait as level-sensitive on
+/// every C0 cycle, whereas the gate only evaluates while
+/// `z80_clock_high` — so contention fires on alternate C0 cycles, and an
+/// arrival on the other parity waits up to two C0 less than this model
+/// charges. That term is not added here on purpose: three formulations
+/// have now been tried, each fixing one group and breaking the other,
+/// and adding a fourth constant without an independent way to pin it
+/// would be fitting the model to the answer.
+fn canonical_cost_c0(mut c0: usize, mcycles: &[u32]) -> u32 {
+    let mut cost = 0usize;
+    for length in mcycles {
+        let wait = wait_c0(c0);
+        let span = wait + (*length as usize) * 2;
+        cost += span;
+        c0 = (c0 + span) % C0_PERIOD;
+    }
+    (cost as u32).div_ceil(2)
+}
 
 /// Contended RAM: the whole lower 16K.
 const CODE_BASE: u16 = 0x4000;
@@ -324,10 +378,10 @@ fn contention_cost_by_arrival_phase() {
         let mut spent = 0u32;
         while spent < FRAME_TSTATES {
             let (_, pixel, video, _, _) = machine.ula().debug_raster();
-            // The gate's own index, in T-states rather than half-cycles,
-            // corrected by the sampling offset below.
-            let phase = (((pixel & 0x0F) / 2) as usize + 8 - PHASE_SAMPLE_OFFSET) & 7;
-            let canonical = canonical_cost_from_phase(phase, case.mcycles);
+            // Canonical C0 index, and the T-state phase it falls in.
+            let c0 = ((pixel as usize) + SEAM1_C0_ORIGIN) % C0_PERIOD;
+            let phase = c0 / 2;
+            let canonical = canonical_cost_c0(c0, case.mcycles);
             let measured = step_one_instruction(&mut machine);
             spent += measured;
             let (_, _, still_video, _, _) = machine.ula().debug_raster();
@@ -367,19 +421,6 @@ fn contention_cost_by_arrival_phase() {
             );
         }
     }
-}
-
-/// Canonical cost of an instruction arriving at contention phase
-/// `phase`, entirely inside the video window: each M-cycle waits
-/// `PATTERN[phase]`, then runs, and the phase advances by both.
-fn canonical_cost_from_phase(mut phase: usize, mcycles: &[u32]) -> u32 {
-    let mut cost = 0u32;
-    for length in mcycles {
-        let delay = PATTERN[phase & 7];
-        cost += delay + length;
-        phase = (phase + (delay + length) as usize) & 7;
-    }
-    cost
 }
 
 /// The instrument has to be checked before its readings mean anything.
