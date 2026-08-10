@@ -91,9 +91,17 @@ Each stage is one commit's worth of work with a definite done-condition.
    without saying which, so the ROM's text output has to be decoded first. A
    prior investigation exists at
    `docs/handoffs/2026-05-30-nes-official-cpu-test5-investigation.md`.
-5. **Triage the 15 visual-only ROMs.** They can never pass or fail, so under a
-   gated sweep they need an explicit declared exclusion rather than a third
-   category nobody revisits.
+5. **Triage the 15 visual-only ROMs.** ⚠ Two things are already known about
+   the `dmc_tests` four, measured rather than assumed: Mesen2 confirms they
+   carry no `$6000` protocol at all, and their nametable RAM holds no ASCII, so
+   the text reader that works for the `$6000`-era suites returns nothing. They
+   draw tile indices against a CHR font. Gating them needs tile-index decoding
+   or framebuffer comparison, not the existing text path -- which matters
+   because `dmc_tests/latency.nes` is the natural gate for the DMC
+   transfer-start delay and is not cheaply available. See
+   `probe_dmc_tests_text`. Until then they can neither pass nor fail, so a
+   gated sweep needs an explicit declared exclusion for them rather than a
+   third category nobody revisits.
 
 ## Stage 2: what the oracle showed
 

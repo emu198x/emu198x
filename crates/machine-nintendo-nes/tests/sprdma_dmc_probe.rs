@@ -296,3 +296,31 @@ fn probe_dmc_rearm_vs_fetch() {
         eprintln!("{kind} {cyc}");
     }
 }
+
+/// Read the on-screen text of the `dmc_tests` ROMs.
+///
+/// These predate blargg's `$6000` result protocol and report only by drawing to
+/// the screen, which is why the sweep files them as visual-only. Their text is
+/// still in nametable RAM, so if it is legible they can become real gates --
+/// `latency.nes` in particular exercises the DMC transfer-start timing.
+#[test]
+#[ignore = "diagnostic: prints dmc_tests on-screen text"]
+fn probe_dmc_tests_text() {
+    let Some(root) = rom_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    for name in ["latency.nes", "buffer_retained.nes", "status.nes"] {
+        let path = root.join("dmc_tests").join(name);
+        let Ok(bytes) = std::fs::read(&path) else {
+            eprintln!("missing {}", path.display());
+            continue;
+        };
+        let parsed = parse_ines(&bytes).expect("parse iNES");
+        let mut nes = Nes::new(parsed.mapper);
+        for _ in 0..600 {
+            nes.run_frame();
+        }
+        eprintln!("\n═══ {name} ═══\n{}", nametable_text(&nes));
+    }
+}
