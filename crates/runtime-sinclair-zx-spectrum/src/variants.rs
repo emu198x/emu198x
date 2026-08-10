@@ -1212,6 +1212,18 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
         Ok(())
     }
 
+    fn reattach_disk_image(&mut self, slot: &str, bytes: &[u8]) -> Result<(), String> {
+        if !self.supports_disk_slot(slot) {
+            return Err(format!("unsupported disk slot `{slot}`"));
+        }
+        let image = format_amstrad_dsk::parse(bytes)?;
+        // Restore, not insertion: keep the controller's cached read
+        // state, which the snapshot already carried. See
+        // `Upd765a::reattach_disk`.
+        self.fdc.reattach_disk(0, image);
+        Ok(())
+    }
+
     fn eject_disk_image(&mut self, slot: &str) -> Result<(), String> {
         if !self.supports_disk_slot(slot) {
             return Err(format!("unsupported disk slot `{slot}`"));

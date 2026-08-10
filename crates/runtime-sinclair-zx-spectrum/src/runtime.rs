@@ -151,6 +151,27 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
         Err("this machine has no disk interface".to_owned())
     }
 
+    /// Re-mounts disk-image bytes during a save-state restore,
+    /// preserving controller state that a fresh insertion would
+    /// invalidate. Default: falls back to
+    /// [`load_disk_image`](Self::load_disk_image), which is correct for
+    /// any machine whose controller caches nothing across a mount.
+    ///
+    /// Restoring is not inserting. The +3's FDC caches a re-read key,
+    /// re-read count and per-drive `ReadID` rotational position; those
+    /// are carried in the snapshot and must survive the replay that
+    /// re-mounts the image (Seam 3). Routing that replay through
+    /// `load_disk_image` cleared them, so every +3 save state silently
+    /// lost its re-read position.
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable reason if the image cannot be parsed
+    /// or if the target slot is unknown.
+    fn reattach_disk_image(&mut self, slot: &str, bytes: &[u8]) -> Result<(), String> {
+        self.load_disk_image(slot, bytes)
+    }
+
     /// Ejects the disk at the given media slot. Default: reports that the
     /// machine has no disk interface. The counterpart to
     /// [`load_disk_image`](Self::load_disk_image); variants with a real drive
@@ -583,8 +604,11 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
     ) -> Result<(), MachineError> {
         self.disk_images = images;
         for entry in &self.disk_images {
+            // `reattach_disk_image`, not `load_disk_image`: this is a
+            // restore, so controller state the snapshot already carried
+            // must survive the re-mount. See `SpectrumMachine::reattach_disk_image`.
             self.machine
-                .load_disk_image(&entry.slot, &entry.bytes)
+                .reattach_disk_image(&entry.slot, &entry.bytes)
                 .map_err(|reason| MachineError::InvalidMedia {
                     slot: entry.slot.clone(),
                     reason,

@@ -393,6 +393,31 @@ impl Upd765a {
         }
     }
 
+    /// Re-mount an image during a save-state restore, preserving the
+    /// controller's cached read state.
+    ///
+    /// The counterpart to [`insert_disk`](Self::insert_disk), and the
+    /// distinction is the point. Inserting a disk is a physical event:
+    /// the medium under the head changed, so the re-read key, re-read
+    /// count and per-drive `ReadID` rotational position are all stale
+    /// and must be invalidated. Restoring a snapshot is not a physical
+    /// event — the image being re-mounted is the *same* image the
+    /// cached state describes, and that state was faithfully carried in
+    /// the snapshot.
+    ///
+    /// `disks` is `#[serde(skip)]` because a parsed image is large and
+    /// not reconstructible from controller state alone, so a +3
+    /// snapshot caches the raw bytes at the runtime layer and replays
+    /// them after decode (Seam 3 of
+    /// `knowledge/decisions/spectrum-architecture-review.md`). That
+    /// replay must land here rather than in `insert_disk`, or the
+    /// restore clears the very state it just restored.
+    pub fn reattach_disk(&mut self, drive: usize, image: DiskImage) {
+        if drive < 4 {
+            self.disks[drive] = Some(image);
+        }
+    }
+
     pub fn eject_disk(&mut self, drive: usize) {
         if drive < 4 {
             self.disks[drive] = None;
@@ -1077,6 +1102,68 @@ impl Peripheral for Upd765a {
 
 #[cfg(test)]
 mod tests {
+
+    /// Restoring a save state must not look like inserting a disk.
+    ///
+    /// `disks` is `#[serde(skip)]`, so a +3 snapshot carries the raw
+    /// image separately and replays it after decode (Seam 3). That
+    /// replay went through `insert_disk`, which invalidates the
+    /// marginal-encoding cache — correct for a user swapping a disk,
+    /// wrong for a restore, where the cache is part of the state being
+    /// restored. The result was a +3 save state that silently lost its
+    /// re-read position: every one of the 16 catalogue +3 entries
+    /// failed re-encode by exactly 4 bytes, `reread_key` collapsing
+    /// from `Some(..)` to `None`.
+    #[test]
+    fn reattach_disk_preserves_cached_read_state() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        fdc.insert_disk(0, DiskImage::default());
+        fdc.reread_key = Some((0, 12, 0, 24));
+        fdc.reread_count = 17;
+        fdc.read_id_index[0] = 3;
+
+        fdc.reattach_disk(0, DiskImage::default());
+
+        assert!(fdc.has_disk(0), "reattach must mount the image");
+        assert_eq!(
+            fdc.reread_key,
+            Some((0, 12, 0, 24)),
+            "reattach must preserve the re-read key"
+        );
+        assert_eq!(
+            fdc.reread_count, 17,
+            "reattach must preserve the re-read count"
+        );
+        assert_eq!(
+            fdc.read_id_index[0], 3,
+            "reattach must preserve the ReadID rotational position"
+        );
+    }
+
+    /// The counterpart: genuine insertion still invalidates the cache,
+    /// because the medium really did change.
+    #[test]
+    fn insert_disk_still_clears_cached_read_state() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        fdc.insert_disk(0, DiskImage::default());
+        fdc.reread_key = Some((0, 12, 0, 24));
+        fdc.reread_count = 17;
+        fdc.read_id_index[0] = 3;
+
+        fdc.insert_disk(0, DiskImage::default());
+
+        assert_eq!(
+            fdc.reread_key, None,
+            "insertion invalidates the re-read key"
+        );
+        assert_eq!(fdc.reread_count, 0, "insertion resets the re-read count");
+        assert_eq!(
+            fdc.read_id_index[0], 0,
+            "insertion resets the ReadID position"
+        );
+    }
     use super::*;
 
     #[test]
