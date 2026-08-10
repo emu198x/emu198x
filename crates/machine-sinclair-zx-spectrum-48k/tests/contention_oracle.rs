@@ -489,21 +489,42 @@ fn trace_one_instruction() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
     };
+    // Which instruction to trace; defaults to the two-M-cycle case that
+    // first exposed the double stall.
+    let want = std::env::var("EMU198X_TRACE_CASE").unwrap_or_else(|_| "LD A,(HL)".to_string());
     let case = cases()
         .into_iter()
-        .find(|c| c.name == "LD A,(HL)")
-        .expect("LD A,(HL) should be one of the cases");
+        .find(|c| c.name == want)
+        .unwrap_or_else(|| panic!("no such case: {want}"));
     let mut machine = prepare(&case, &rom);
 
-    // Settle into the video window and onto the locked phase.
+    // Settle into the video window, staying inside this frame.
+    //
+    // An earlier version waited for a specific arrival phase, which is
+    // fine for an instruction that locks onto it and a trap for one that
+    // does not: `NOP` never visits phase 1, so the loop ran past the
+    // frame boundary, took the interrupt the ROM enables during
+    // alignment, and traced the ISR instead. The trace looked plausible —
+    // uncontended addresses and a clock that never stalls — which is
+    // exactly why the guard below exists.
     let mut spent = 0u32;
     loop {
-        let (_, pixel, video, _, _) = machine.ula().debug_raster();
-        if video && (pixel & 0x0F) / 2 == 1 && spent > 20000 {
+        let (_, _, video, _, _) = machine.ula().debug_raster();
+        if video && spent > FRAME_TSTATES / 4 {
             break;
         }
         spent += step_one_instruction(&mut machine);
+        assert!(
+            spent < FRAME_TSTATES,
+            "settle ran past the frame boundary without finding the video window"
+        );
     }
+    assert!(
+        (CODE_BASE..CODE_END).contains(&machine.z80().regs.pc),
+        "trace left the instruction stream (pc {:#06x}) — it would be \
+         tracing the ROM, not the case under test",
+        machine.z80().regs.pc
+    );
 
     println!("\n  T  pixel ph  vid clk   addr  mreq rd wr m1 rfsh    pc");
     for t in 0..26 {
@@ -525,5 +546,45 @@ fn trace_one_instruction() {
             z.regs.pc
         );
         machine.advance_tstates(1);
+    }
+}
+
+/// Does the measured frame actually execute the instruction under test?
+///
+/// The trace showed the CPU sitting in ROM at `$11d2`, which would mean
+/// the oracle had been scoring the ROM rather than the filled stream.
+/// This samples the PC across a measured frame and reports how much of
+/// it ran inside contended RAM.
+#[test]
+#[ignore = "diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
+fn measured_frame_runs_the_instruction_under_test() {
+    let Some(rom) = rom_bytes() else {
+        panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
+    };
+
+    for case in cases() {
+        let mut machine = prepare(&case, &rom);
+        let (mut inside, mut outside) = (0u32, 0u32);
+        let mut spent = 0u32;
+        let mut first_escape = None;
+        while spent < FRAME_TSTATES {
+            let pc = machine.z80().regs.pc;
+            if (CODE_BASE..CODE_END).contains(&pc) {
+                inside += 1;
+            } else {
+                outside += 1;
+                if first_escape.is_none() {
+                    first_escape = Some((spent, pc));
+                }
+            }
+            spent += step_one_instruction(&mut machine);
+        }
+        let total = inside + outside;
+        println!(
+            "{:<12} in-RAM {inside:>6}/{total:<6} ({:>5.1}%)  first escape: {:?}",
+            case.name,
+            inside as f64 / total as f64 * 100.0,
+            first_escape
+        );
     }
 }
