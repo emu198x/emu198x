@@ -725,6 +725,10 @@ Mesen2 rather than by blargg.** Every gate built here so far ultimately rests
 on a value the test's author published; that one would not. Worth doing, worth
 labelling honestly when it is.
 
+⚠ **Superseded 2026-08-10 — and the Mesen-defined trace was never necessary.**
+The four report their code *audibly*, and blargg published the encoding. See
+[the section below](#the-dmc_tests-beep-their-verdict).
+
 **`test_ppu_read_buffer`** diverges wholesale on the palette rather than by an
 offset, and reports through custom CHR tiles plus audio. Different in kind;
 needs its own investigation.
@@ -939,6 +943,84 @@ So it is not the capture path. Next step is inside Mesen rather than outside it:
 `NesConsole::GetPpuFrame` hands out `_ppu->GetScreenBuffer(false)`; find which
 of the two output buffers that selects and whether the headless build ever
 fills it. Stopped there deliberately rather than trying a fifth flag.
+
+## The `dmc_tests` beep their verdict
+
+Closed 2026-08-10. The record said these four were ungateable except by a
+Mesen2-defined trace, and that was wrong in the most useful way: the gate that
+was missing rests on a value blargg published, like every other gate here.
+
+### What the record got right, now measured
+
+They have no `$6000` protocol. No `DE B0 61` signature, and `$6000-$6007` all
+zeroes after 900M ticks — over 1.7× the budget `test_ppu_read_buffer` needed.
+⚠ That claim was previously *inferred*, and the identical inference about
+`test_ppu_read_buffer` had just turned out to be wrong, so it was worth the
+five minutes to measure rather than inherit.
+
+### The channel that was there all along
+
+blargg's shell readme (`ppu_open_bus/readme.txt`) documents an audible result:
+
+> A byte is reported as a series of tones. The code is in binary, with a low
+> tone for 0 and a high tone for 1, and with leading zeroes skipped. The first
+> tone is always a zero. A final code of 0 means passed.
+
+| Tones | Binary | Code |
+|---|---|---|
+| low | `0` | 0 — passed |
+| low high | `01` | 1 — failed |
+| low high low | `010` | 2 |
+| low high high | `011` | 3 |
+
+⚠ The readme attributes the tones to NSF builds, and these four are `.nes`.
+They emit them anyway — measured, not assumed in either direction.
+
+**The gate reads the code's LENGTH, not its value**, and that is enough:
+because leading zeroes are skipped and the first tone is always the zero, code
+0 is one tone and every non-zero code is two or more. "Exactly one tone" is
+exactly "passed". All four beep once.
+
+### The counter is under test, by three ROMs with known codes
+
+A tone counter that always returned 1 would pass all four gates while proving
+nothing — the failure mode this campaign has met repeatedly. So the same
+function is pointed at three ROMs whose codes are established through a
+completely separate channel, `$6000`, read by the sweep:
+
+| ROM | `$6000` | expected tones | measured |
+|---|---|---|---|
+| `mmc3_irq_tests/1.Clocking` | `$00` | 1 | 1 |
+| `mmc3_irq_tests/5.MMC3_rev_A` | `$03` | 3 | 3 |
+| `mmc3_test_2/6-MMC3_alt` | `$02` | 3 | 3 |
+
+⚠ Honest limit: that shows the counter discriminates on blargg shell ROMs, not
+on `dmc_tests` specifically. No failing build of these four exists to aim it at.
+
+### Decoding the value was attempted and abandoned
+
+Within one ROM the two tones are an octave apart — `6-MMC3_alt` beeps
+222/444/222 Hz for code 2, textbook `010`. But absolute pitch is not portable:
+`mmc3_irq_tests` beeps near 440 Hz where `mmc3_test_2` beeps near 222. And
+autocorrelation on the APU's mix ties across harmonics — 440, 221 and 147 Hz
+score identically on the same burst — so a low/high classifier picks a
+sub-harmonic as often as a fundamental. Zero-crossing counting was worse: DC
+offset made one low tone read anywhere from 25 Hz to 400 Hz.
+
+Two estimators, both rejected, so the third was not attempted. The decoder
+**refuses rather than guesses** when the tones do not span enough pitch, and
+`probe_tone_shape` keeps the measurements for whoever wants the value as well
+as the verdict.
+
+### The corpus has no unexamined ROMs left
+
+```
+Total: 174  Pass: 152  Fail: 2  Timeout: 0  Gated: 20  Visual: 0
+```
+
+⚠ `Visual: 0` means every ROM has a **named gate**, not that everything is
+verified. The gates differ in strength, and the standing warning still holds:
+absence of a failing gate is not evidence of correctness where no gate runs.
 
 ## ⚠ On acquiring more test ROMs
 

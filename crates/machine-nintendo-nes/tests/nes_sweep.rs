@@ -106,6 +106,21 @@ const GATED_EXTERNALLY: &[(&str, &str)] = &[
     ("count_errors_fast.nes", "tests/screen_goldens.rs"),
     ("test_buttons.nes", "tests/screen_goldens.rs"),
     ("volumes.nes", "tests/screen_goldens.rs"),
+    // Gated on the ROM's own published CRC set rather than a golden:
+    // these two document several legal outputs, so a single reference
+    // capture cannot arbitrate between them.
+    ("dma_2007_read.nes", "tests/dmc_dma_read4_crc.rs"),
+    ("double_2007_read.nes", "tests/dmc_dma_read4_crc.rs"),
+    // ⚠ The four dmc_tests really do have no $6000 protocol — measured,
+    // not inferred: no DE B0 61 signature and all zeroes at $6000-$6007
+    // after 900M ticks. But they are not ungradeable. blargg's shell
+    // beeps its result code, the encoding is published, and code 0
+    // (passed) is a single tone where every non-zero code is two or
+    // more. All four beep once.
+    ("buffer_retained.nes", "tests/dmc_tests_audio.rs"),
+    ("latency.nes", "tests/dmc_tests_audio.rs"),
+    ("status.nes", "tests/dmc_tests_audio.rs"),
+    ("status_irq.nes", "tests/dmc_tests_audio.rs"),
 ];
 
 const VISUAL_ROMS: &[&str] = &[
