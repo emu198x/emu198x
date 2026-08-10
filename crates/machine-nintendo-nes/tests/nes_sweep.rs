@@ -165,19 +165,52 @@ fn try_nametable_protocol(nes: &Nes) -> Option<Verdict> {
             });
         }
     }
-    // blargg_nes_cpu_test5/official.nes is a BUILD_MULTI build —
-    // it prints "All tests complete" regardless of per-test
-    // pass/fail and stores the final result code at $00FF. 0xFF
-    // is the sentinel set whenever any sub-test fails. See
-    // docs/handoffs/2026-05-30-nes-official-cpu-test5-investigation.md.
-    if find_ascii(nt, b"All tests complete") && nes.peek(0x00FF) == 0xFF {
+    // blargg_nes_cpu_test5 is a BUILD_MULTI build: it runs eleven
+    // sub-tests, prints "All tests complete" either way, and marks each
+    // PASSING sub-test with a `$00` tile at column 31.
+    //
+    // ⚠⚠ `$00FF` is NOT a result sentinel. It was read as one from
+    // 2026-05-30 until Mesen2 — which runs these ROMs correctly — was
+    // measured and found to end with `$00FF == 0xFF` as well. Grading on
+    // it declared both ROMs failures for the whole campaign. The byte is
+    // residue; the markers are the actual channel.
+    //
+    // ⚠ The marker for sub-test N sits one row BELOW N's name, so the
+    // last one lands on the separator line and the first test's row is
+    // always bare. That looks exactly like "test 01 failed", and it is
+    // the second thing that made this ROM read as broken. Mesen2's
+    // nametable is byte-identical, markers included.
+    if find_ascii(nt, b"All tests complete") {
+        let names = count_subtest_rows(nt);
+        let marks = count_pass_markers(nt);
+        if marks >= names && names > 0 {
+            return Some(Verdict::Pass {
+                ticks: nes.master_clock(),
+            });
+        }
         return Some(Verdict::Fail {
-            code: 0xFF,
-            text: "blargg multi-test variant: $00FF == 0xFF (sub-test failed)".into(),
+            code: 1,
+            text: format!("multi-test build: {marks} pass markers for {names} sub-tests"),
             ticks: nes.master_clock(),
         });
     }
     None
+}
+
+/// Rows of the form `NN-name`, i.e. one per sub-test the multi-cart ran.
+fn count_subtest_rows(nt: &[u8]) -> usize {
+    (0..30)
+        .filter(|row| {
+            let r = &nt[row * 32..row * 32 + 32];
+            r.windows(3)
+                .any(|w| w[0].is_ascii_digit() && w[1].is_ascii_digit() && w[2] == b'-')
+        })
+        .count()
+}
+
+/// `$00` tiles at column 31 — the shell's per-sub-test pass marker.
+fn count_pass_markers(nt: &[u8]) -> usize {
+    (0..30).filter(|row| nt[row * 32 + 31] == 0x00).count()
 }
 
 fn find_ascii(haystack: &[u8], needle: &[u8]) -> bool {

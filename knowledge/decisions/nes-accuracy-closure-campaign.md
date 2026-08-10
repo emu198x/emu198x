@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-09
 **Status:** ACTIVE
-**Assessment revision:** `b7463525`
+**Assessment revision:** `b7463525`; stages 1-4 closed 2026-08-10
 
 ## The question
 
@@ -14,10 +14,21 @@ improvement to failure-driven maintenance?
 The NES core is in better shape than its instrumentation suggested. Every case
 wired to a specific harness passes — `sprite_hit` 01–11 and `sprite_overflow`
 1–5 in full, which are the discriminators emulators habitually fail — and a
-whole-corpus sweep of 155 ROMs reports **135 pass, 5 fail, 15 visual-only, 0
-timeouts**.
+whole-corpus sweep of 155 ROMs reported **135 pass, 5 fail, 15 visual-only, 0
+timeouts** at the campaign's start.
 
 The gap was never accuracy. It was that **nothing asserted the result**.
+
+⚠ **That reading proved truer than intended.** Of the five opening failures,
+**one was a real defect and four were grading defects** — the harness reporting
+failures the emulator never had. The sweep now stands at **140 pass, 0 fail, 15
+visual-only**, reached with a single change to an emulator crate (the DMC
+transfer-start delay, stage 2). Stages 3 and 4 changed only the grader.
+
+⚠⚠ **Zero fails is not proof of correctness.** 15 ROMs are visual-only and
+ungraded, and 99 `.nes` files on disk sit in directories the sweep never
+enumerates. The campaign's goal was never "all green" — see below — and the
+honest statement is that no *graded* ROM currently fails.
 
 Two defects hid it, both fixed in this campaign's first stage:
 
@@ -53,6 +64,12 @@ Not "all green". Two of the current five failures may prove to be genuine
 hardware behaviour the test asserts more strictly than the silicon does; that is
 a finding to record, not a defect to force. The criterion is that nothing is
 unexamined.
+
+⚠ **In the event, four of the five were not hardware behaviour and not defects
+either — they were the harness misreading its own inputs.** The distinction the
+goal anticipated (defect vs stricter-than-silicon) missed a third category:
+verdicts manufactured by the grader. That category cost more of this campaign
+than the one genuine defect did.
 
 ## Evidence — sweep at `b7463525`
 
@@ -93,10 +110,11 @@ Each stage is one commit's worth of work with a definite done-condition.
    passing all along; the harness misgraded it. Closed at stage 3 with no
    change to any emulator crate. See
    [below](#stage-3-the-defect-was-in-the-grader).
-4. **`blargg_nes_cpu_test5`** — hardest. `#FF` means "some sub-test failed"
-   without saying which, so the ROM's text output has to be decoded first. A
-   prior investigation exists at
-   `docs/handoffs/2026-05-30-nes-official-cpu-test5-investigation.md`.
+4. ✅ **`blargg_nes_cpu_test5`** — ⚠ **not an emulator defect either.** Both
+   ROMs pass; the `#FF` was a misread sentinel. Closed with no change to any
+   emulator crate. See [below](#stage-4-the-sentinel-that-was-not-one). This
+   supersedes `docs/handoffs/2026-05-30-nes-official-cpu-test5-investigation.md`,
+   whose central inference was wrong.
 5. **Triage the 15 visual-only ROMs.** ⚠ Two things are already known about
    the `dmc_tests` four, measured rather than assumed: Mesen2 confirms they
    carry no `$6000` protocol at all, and their nametable RAM holds no ASCII, so
@@ -368,6 +386,47 @@ by default; its readme documents holding B for official + all undocumented, or A
 for official + `$EB` + unofficial NOPs. The sweep boots it with no buttons held,
 so undocumented-opcode *timing* remains untested. Worth a controller-holding
 variant, and cheap now that the ROM grades correctly.
+
+## Stage 4: the sentinel that was not one
+
+`cpu.nes` and `official.nes` both pass. All eleven sub-tests pass in both. No
+emulator crate changed.
+
+**What `$00FF = 0xFF` is.** Not a result code. The 2026-05-30 handoff inferred
+it was one — "`$00FF == 0xFF` after a run is a reliable indicator of a
+`blargg_nes_cpu_test5`-family fail" — and the sweep's grader was built on that
+sentence. **Mesen2 ends with `$00FF == 0xFF` too.** It is residue, exactly like
+`cpu_timing_test`'s `$00F0`.
+
+**What the missing marker is.** The shell marks each *passing* sub-test with a
+`$00` tile at column 31 — one row BELOW that sub-test's name. So the last
+marker lands on the separator line and `01-implied`'s own row is always bare.
+Counted correctly there are **eleven markers for eleven sub-tests**. The handoff
+read the bare first row as "01-implied failed" and spent its analysis on which
+implied opcode was at fault. None was.
+
+**Three independent measurements agree**, which is what makes this safe to
+declare rather than merely plausible:
+
+| Evidence | Result |
+|---|---|
+| All 20 of `01-implied`'s expected CRCs, taken from `source/01-implied.a`, searched for in zero page during the run | all 20 observed, in order, ~171 000 ticks apart |
+| Emu198x's nametable vs Mesen2's, byte for byte, both ROMs | identical, markers included |
+| `$00FF` after the run, both emulators | `0xFF` in both |
+
+The CRC check is the strongest of the three because it is independent of both
+the screen and the reference: blargg published the correct checksums in the
+source, and our CPU produces every one of them.
+
+⚠ The ROM never printed a failing opcode. `instr_test_end.a`'s `@wrong` handler
+prints the opcode and mnemonic on any CRC mismatch, and sampling the screen
+throughout the run showed it never fired. That alone should have been read as
+"nothing failed" rather than "the detail scrolled away".
+
+**The grader now counts markers against sub-test rows** instead of reading
+`$00FF`. Tooling added: `nametable-dump.lua` and `zp-sentinel.lua` in the
+cross-check harness, and `probe_implied_checksums` /
+`probe_cpu_test5_raw_nametable`.
 
 ## ⚠ On acquiring more test ROMs
 

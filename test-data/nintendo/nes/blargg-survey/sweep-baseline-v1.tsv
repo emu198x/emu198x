@@ -10,8 +10,18 @@
 # grading defect: a scratch byte in $F0 outranked the ROM's own on-screen
 # "PASSED". The emulator was passing this ROM all along.
 #
+# Both blargg_nes_cpu_test5 ROMs likewise moved fail -> pass with NO emulator
+# change. Their #FF came from reading $00FF as a result sentinel; Mesen2 ends
+# with $00FF == 0xFF too, and produces a byte-identical nametable. Graded on
+# the shell's own per-sub-test pass markers now.
+#
+# ⚠ Zero fails does NOT mean the core is proven. 15 ROMs are visual-only and
+# ungraded, and 99 .nes files on disk are in directories the sweep never
+# enumerates. Absence of a failing gate is not evidence of correctness where
+# no gate runs.
+#
 # suite	rom	verdict	code
-# totals: {'pass': 138, 'fail': 2, 'visual': 15}
+# totals: {'pass': 140, 'fail': 0, 'visual': 15}
 apu_mixer	dmc.nes	pass	
 apu_mixer	noise.nes	pass	
 apu_mixer	square.nes	pass	
@@ -41,8 +51,8 @@ blargg_apu_2005.07.30	08.irq_timing.nes	pass
 blargg_apu_2005.07.30	09.reset_timing.nes	pass	
 blargg_apu_2005.07.30	10.len_halt_timing.nes	pass	
 blargg_apu_2005.07.30	11.len_reload_timing.nes	pass	
-blargg_nes_cpu_test5	cpu.nes	fail	0xFF
-blargg_nes_cpu_test5	official.nes	fail	0xFF
+blargg_nes_cpu_test5	cpu.nes	pass
+blargg_nes_cpu_test5	official.nes	pass
 blargg_ppu_tests_2005.09.15b	palette_ram.nes	pass	
 blargg_ppu_tests_2005.09.15b	power_up_palette.nes	pass	
 blargg_ppu_tests_2005.09.15b	sprite_ram.nes	pass	
