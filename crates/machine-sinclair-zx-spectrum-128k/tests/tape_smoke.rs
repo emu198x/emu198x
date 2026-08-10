@@ -26,11 +26,6 @@ const SYSTEM_TESTS_DIR_ENV: &str = "EMU198X_SPECTRUM_SYSTEM_TESTS_DIR";
 
 const BOOT_FRAMES: usize = 200;
 const RUN_BUDGET_FRAMES: usize = 5_000;
-const SCREEN_TEXT_COLS: usize = 32;
-const SCREEN_TEXT_ROWS: usize = 24;
-const ROM_TEXT_GLYPH_BASE: u16 = 0x3D00;
-const ROM_TEXT_GLYPH_FIRST: u8 = 0x20;
-const ROM_TEXT_GLYPH_COUNT: usize = 96;
 
 fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").expect("HOME must be set"))
@@ -247,49 +242,12 @@ fn run_and_compare(tap_filename: &str, png_stem: &str) {
 /// HALT2INT prints through ROM 1 (48 BASIC). Reading that ROM bank
 /// directly keeps glyph decoding independent of the final paging state.
 fn screen_text_lines(machine: &Spectrum128K) -> Vec<String> {
-    let glyphs: Vec<[u8; 8]> = (0..ROM_TEXT_GLYPH_COUNT)
-        .map(|glyph_index| {
-            let mut glyph = [0u8; 8];
-            let glyph_base = ROM_TEXT_GLYPH_BASE + (glyph_index as u16) * 8;
-            for (row, byte) in glyph.iter_mut().enumerate() {
-                *byte = machine.memory.read_rom_byte(1, glyph_base + row as u16);
-            }
-            glyph
-        })
-        .collect();
-
-    (0..SCREEN_TEXT_ROWS)
-        .map(|text_row| {
-            let mut line = String::with_capacity(SCREEN_TEXT_COLS);
-            for text_col in 0..SCREEN_TEXT_COLS {
-                let mut cell = [0u8; 8];
-                for (pixel_row, byte) in cell.iter_mut().enumerate() {
-                    let y = text_row * 8 + pixel_row;
-                    let addr = 0x4000
-                        + (((y & 0b1100_0000) as u16) << 5)
-                        + (((y & 0b0011_1000) as u16) << 2)
-                        + (((y & 0b0000_0111) as u16) << 8)
-                        + text_col as u16;
-                    *byte = machine.memory.read(addr);
-                }
-
-                let decoded =
-                    glyphs
-                        .iter()
-                        .position(|glyph| *glyph == cell)
-                        .map_or('?', |glyph_index| {
-                            let code = ROM_TEXT_GLYPH_FIRST + glyph_index as u8;
-                            match code {
-                                0x20..=0x7E => code as char,
-                                0x7F => '©',
-                                _ => '?',
-                            }
-                        });
-                line.push(decoded);
-            }
-            line
-        })
-        .collect()
+    common_sinclair_zx_spectrum::screen_text::decode_screen_text(
+        // Glyphs from ROM 1 (48 BASIC) explicitly, so decoding does
+        // not depend on whichever bank is paged in at capture time.
+        |addr| machine.memory.read_rom_byte(1, addr),
+        |addr| machine.memory.read(addr),
+    )
 }
 
 #[test]

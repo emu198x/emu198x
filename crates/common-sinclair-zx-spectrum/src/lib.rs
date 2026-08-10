@@ -13,6 +13,7 @@ pub mod memory;
 pub mod memory_watch;
 pub mod palette;
 pub mod peripheral;
+pub mod screen_text;
 mod serde_skip_audit;
 pub mod snapshot;
 pub mod tape;
