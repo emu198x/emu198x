@@ -142,6 +142,29 @@ fn try_nametable_protocol(nes: &Nes) -> Option<Verdict> {
             ticks: nes.master_clock(),
         });
     }
+    // ⚠ blargg's *older* `console.a` shell (cpu_timing_test6) prints in
+    // UPPER CASE and uses its own vocabulary, so the mixed-case tokens
+    // above never match it. It has no `$6000` and no result byte at all —
+    // the screen is its only channel, which is why the case difference was
+    // enough to hand the verdict to a scratch byte in `$F0`.
+    if find_ascii(nt, b"PASSED") {
+        return Some(Verdict::Pass {
+            ticks: nes.master_clock(),
+        });
+    }
+    for token in [
+        b"FAIL OP".as_slice(),
+        b"UNKNOWN ERROR".as_slice(),
+        b"BASIC TIMING WRONG".as_slice(),
+    ] {
+        if find_ascii(nt, token) {
+            return Some(Verdict::Fail {
+                code: 1,
+                text: format!("{} (on-screen)", String::from_utf8_lossy(token)),
+                ticks: nes.master_clock(),
+            });
+        }
+    }
     // blargg_nes_cpu_test5/official.nes is a BUILD_MULTI build —
     // it prints "All tests complete" regardless of per-test
     // pass/fail and stores the final result code at $00FF. 0xFF
@@ -211,6 +234,9 @@ fn run_one(path: &Path) -> Result<Verdict, String> {
     let mut tick_count: u64 = 0;
     let mut hist_f8 = SettleHistory::default();
     let mut hist_f0 = SettleHistory::default();
+    // Weakest channel: a non-`1` settled byte, held back until every
+    // stronger channel has failed to decide by the tick ceiling.
+    let mut settle_fallback: Option<(u16, u8)> = None;
     while tick_count < MAX_TICKS {
         nes.tick();
         tick_count += 1;
@@ -272,17 +298,27 @@ fn run_one(path: &Path) -> Result<Verdict, String> {
             // `$F0` protocols in parallel. Either may settle first.
             hist_f8.observe(nes.peek(0x00F8));
             hist_f0.observe(nes.peek(0x00F0));
+            // ⚠⚠ A settled byte is an INFERENCE ("this stopped changing"),
+            // not a positive result the ROM declared. Only `1` -- the
+            // protocol's own pass code -- is trusted to decide here. Any
+            // other value is far more likely to be scratch residue that
+            // simply went quiet, so it is remembered as a fallback and the
+            // ROM keeps running to give a positive channel (on-screen text,
+            // `$6000`) the chance to speak.
+            //
+            // Measured, not assumed: across the 155-ROM corpus the settle
+            // channels decide 43 ROMs, 42 of them at exactly `0x01`. The one
+            // non-`1` value ever produced was `cpu_timing_test.nes` at
+            // `0x98` -- the low byte of a font-upload pointer left in `$F0`
+            // by `console.a`, which the ROM never touches again. It graded a
+            // PASSING ROM as a failure for the whole campaign.
             if let Some(code) = try_settle_protocol(&nes, &hist_f8) {
                 if code == 1 {
                     return Ok(Verdict::Pass {
                         ticks: nes.master_clock(),
                     });
                 }
-                return Ok(Verdict::Fail {
-                    code,
-                    text: format!("settled at $00F8 = {code:#04X}"),
-                    ticks: nes.master_clock(),
-                });
+                settle_fallback.get_or_insert((0x00F8u16, code));
             }
             if let Some(code) = try_settle_protocol(&nes, &hist_f0) {
                 if code == 1 {
@@ -290,11 +326,7 @@ fn run_one(path: &Path) -> Result<Verdict, String> {
                         ticks: nes.master_clock(),
                     });
                 }
-                return Ok(Verdict::Fail {
-                    code,
-                    text: format!("settled at $00F0 = {code:#04X}"),
-                    ticks: nes.master_clock(),
-                });
+                settle_fallback.get_or_insert((0x00F0u16, code));
             }
             // PPU nametable grader is more expensive than a byte
             // peek, so sample it every NAMETABLE_POLL_INTERVAL
@@ -305,6 +337,13 @@ fn run_one(path: &Path) -> Result<Verdict, String> {
                 return Ok(v);
             }
         }
+    }
+    if let Some((addr, code)) = settle_fallback {
+        return Ok(Verdict::Fail {
+            code,
+            text: format!("settled at ${addr:04X} = {code:#04X} (no positive channel spoke)"),
+            ticks: nes.master_clock(),
+        });
     }
     Ok(Verdict::Timeout)
 }

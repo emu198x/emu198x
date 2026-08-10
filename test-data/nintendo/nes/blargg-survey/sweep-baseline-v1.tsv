@@ -6,8 +6,12 @@
 # Both sprdma_and_dmc_dma ROMs moved fail -> pass when the DMC gained its
 # $4015 transfer-start delay; see knowledge/decisions/nes-accuracy-closure-campaign.md.
 #
+# cpu_timing_test moved fail -> pass with NO emulator change. Its #98 was a
+# grading defect: a scratch byte in $F0 outranked the ROM's own on-screen
+# "PASSED". The emulator was passing this ROM all along.
+#
 # suite	rom	verdict	code
-# totals: {'pass': 137, 'fail': 3, 'visual': 15}
+# totals: {'pass': 138, 'fail': 2, 'visual': 15}
 apu_mixer	dmc.nes	pass	
 apu_mixer	noise.nes	pass	
 apu_mixer	square.nes	pass	
@@ -59,7 +63,7 @@ cpu_interrupts_v2	rom_singles/4-irq_and_dma.nes	pass
 cpu_interrupts_v2	rom_singles/5-branch_delays_irq.nes	pass	
 cpu_reset	ram_after_reset.nes	pass	
 cpu_reset	registers.nes	pass	
-cpu_timing_test6	cpu_timing_test.nes	fail	0x98
+cpu_timing_test6	cpu_timing_test.nes	pass
 dmc_dma_during_read4	dma_2007_read.nes	visual	
 dmc_dma_during_read4	dma_2007_write.nes	pass	
 dmc_dma_during_read4	dma_4016_read.nes	visual	

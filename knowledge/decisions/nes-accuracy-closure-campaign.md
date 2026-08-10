@@ -89,7 +89,10 @@ Each stage is one commit's worth of work with a definite done-condition.
    values now match the Mesen2 oracle and both ROMs report Passed. See
    [below](#stage-2-what-the-oracle-showed) for the evidence and
    [the outcome](#stage-2-outcome-the-two-path-model-was-right).
-3. **`cpu_timing_test6`** — one ROM, one settled value to chase.
+3. ✅ **`cpu_timing_test6`** — ⚠ **not an emulator defect.** The ROM was
+   passing all along; the harness misgraded it. Closed at stage 3 with no
+   change to any emulator crate. See
+   [below](#stage-3-the-defect-was-in-the-grader).
 4. **`blargg_nes_cpu_test5`** — hardest. `#FF` means "some sub-test failed"
    without saying which, so the ROM's text output has to be decoded first. A
    prior investigation exists at
@@ -315,6 +318,56 @@ splits cancel-before-halt from abort-after-halt and Emu198x now does too. ⚠ It
 is **reference-matched but locally unproven** — these two ROMs never disable the
 DMC mid-transfer, so no test in the corpus exercises it, and the gated sweep is
 unchanged at 135/5/15 with it in place.
+
+## Stage 3: the defect was in the grader
+
+`cpu_timing_test.nes` passes, and has been passing throughout this campaign. It
+prints `PASSED` on screen at 54.6M ticks. The `#98` the sweep reported was never
+a result code.
+
+**What `$00F0 = 0x98` actually is.** The ROM's shell (`console.a`) uses `$F0`/`$F1`
+as a pointer while uploading its font to CHR RAM at init — `$98` is the low byte
+of `chr_data`. Nothing touches `$F0` again for the remaining 16 seconds, so it
+sits perfectly steady and the settle heuristic read it as a verdict.
+
+**Two independent grader defects had to line up.** Either alone would have been
+caught:
+
+1. The `$F0`/`$F8` settle channel treated *any* steady non-zero byte as a result
+   code, on the protocol's "1 = pass, other = fail with that code" reading. That
+   is an **inference** — "this stopped changing" — dressed as a declaration.
+2. The nametable channel only knew the mixed-case `$6000`-era vocabulary
+   (`Passed`/`Failed`). This ROM's older shell prints `PASSED` in upper case, so
+   the one channel that could have spoken did not match.
+
+The settle channel fires at 10M ticks; the ROM prints its verdict at 54.6M. The
+weak channel therefore always won the race, 44M ticks before the strong one had
+anything to say.
+
+**Measured before fixing.** Instrumenting the sweep to report which channel
+decided each verdict showed the settle channels deciding 43 of 155 ROMs — and
+**42 of those settle at exactly `0x01`**, the protocol's defined pass code. The
+non-`1` branch had fired exactly once in the entire corpus, on this ROM, and was
+wrong. That is what justified demoting it rather than tuning it.
+
+**The fix, in the grader only.** A settled value of `1` still decides a pass
+immediately. Any other settled value is now held as a fallback and the ROM keeps
+running, so a positive channel gets its chance; the fallback is reported only if
+nothing else speaks by the tick ceiling. The nametable channel learned the older
+shell's vocabulary (`PASSED`, `FAIL OP`, `UNKNOWN ERROR`, `BASIC TIMING WRONG`).
+
+⚠ **This is the campaign's own theme a third time.** Stage 1 found a sweep that
+computed verdicts and discarded them. Here the measurement was taken, kept, and
+*attributed to the wrong source*. A harness that can fabricate a failure is worse
+than one that stays silent: it sends real work after a defect that does not
+exist. This one absorbed part of the campaign's stated fault budget from the
+outset.
+
+⚠ **Coverage note, not a defect.** The ROM tests **official instructions only**
+by default; its readme documents holding B for official + all undocumented, or A
+for official + `$EB` + unofficial NOPs. The sweep boots it with no buttons held,
+so undocumented-opcode *timing* remains untested. Worth a controller-holding
+variant, and cheap now that the ROM grades correctly.
 
 ## ⚠ On acquiring more test ROMs
 
