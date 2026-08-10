@@ -110,6 +110,22 @@ pub struct Ppu {
 
     // ── Data read buffer ($2007) ────────────────────────────────
     read_buffer: u8,
+    /// `ppu_clock` at the last buffered `$2007` read, and the value that
+    /// read returned.
+    ///
+    /// ⚠ Two `$2007` reads on CONSECUTIVE CPU cycles are not two
+    /// independent reads. The second returns what the first returned —
+    /// the PPU cannot present a freshly-latched buffer that fast — while
+    /// the address still increments twice and the buffer still refills
+    /// once. blargg's `double_2007_read`: "Double read of $2007
+    /// sometimes ignores extra read, and puts odd things into buffer."
+    ///
+    /// Reached by `lda abs,X` across a page boundary, whose dummy read
+    /// lands on `$2007` one cycle before the real one.
+    #[serde(default)]
+    last_ppudata_read_clock: u64,
+    #[serde(default)]
+    last_ppudata_result: u8,
     /// Open bus latch: last value written to any PPU register.
     open_bus: u8,
     /// Per-bit decay tracking for [`Self::open_bus`]. Each entry
@@ -329,6 +345,8 @@ impl Ppu {
             w: false,
 
             read_buffer: 0,
+            last_ppudata_read_clock: u64::MAX,
+            last_ppudata_result: 0,
             open_bus: 0,
             open_bus_decay: [0; 8],
 
@@ -1159,9 +1177,31 @@ impl Ppu {
                     self.read_buffer = self.ppu_read(addr & 0x2FFF, mapper);
                     result
                 } else {
-                    let result = self.read_buffer;
+                    // A read on the CPU cycle immediately after another
+                    // returns the earlier result, not the newly latched
+                    // buffer. The refill and the increment below happen
+                    // either way — only the value handed back differs.
+                    //
+                    // Threshold is 4 dots' worth of master units: wider
+                    // than one CPU cycle (3 dots NTSC, 3.2 PAL) and
+                    // narrower than two, in both regions.
+                    let gap = self.ppu_clock.saturating_sub(self.last_ppudata_read_clock);
+                    // `gap > 0` matters: two reads cannot share a CPU
+                    // cycle on hardware, so a zero gap means a caller
+                    // read twice without advancing the clock — a unit
+                    // test, not a double read.
+                    let back_to_back = self.last_ppudata_read_clock != u64::MAX
+                        && gap > 0
+                        && gap <= self.master_divider * 4;
+                    let result = if back_to_back {
+                        self.last_ppudata_result
+                    } else {
+                        self.read_buffer
+                    };
                     self.read_buffer = self.ppu_read(addr, mapper);
                     self.refresh_open_bus(0xFF, result);
+                    self.last_ppudata_read_clock = self.ppu_clock;
+                    self.last_ppudata_result = result;
                     result
                 };
                 let new_v = self

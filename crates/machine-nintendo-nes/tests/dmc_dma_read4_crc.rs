@@ -92,28 +92,15 @@ fn dma_2007_read_crc() {
     expect_crc_in("dma_2007_read", &["159A7A8F", "5E3DF9C4"]);
 }
 
-// ────────────────────────────────────────────────────────────────
-//  ⚠ double_2007_read — CONFIRMED DEFECT, gate withheld
-//
-//  Its gate would read:
-//      expect_crc_in("double_2007_read",
-//          &["85CFD627", "F018C287", "440EF923", "E52F41A5"]);
-//
-//  We print D84F6815, which is none of them. This is NOT the
-//  multiple-legal-outputs situation above — the ROM enumerates its
-//  acceptable checksums and ours is outside the set.
-//
-//  The screen localises it. Line 1 is "22 33 44 55 66", matching the
-//  documented first line. Line 2 is "33 44 55 66 77", where every legal
-//  variant begins 22, 02 or 32 — so the first byte of the SECOND read
-//  is wrong and the rest follow from it.
-//
-//  Per the ROM's own header: "Double read of $2007 sometimes ignores
-//  extra read, and puts odd things into buffer." Two reads of $2007 in
-//  immediate succession (`lda $20F7,x` with x=$10) collide with a DMC
-//  DMA, and the value our read buffer ends up holding differs from any
-//  the hardware produces.
-//
-//  Withheld rather than left red so the suite stays trustworthy.
-//  Re-enable it as the fix lands — it is the assertion for that work.
-// ────────────────────────────────────────────────────────────────
+/// ⚠ Was failing at `D84F6815`, outside the documented set: two `$2007`
+/// reads on consecutive CPU cycles were treated as independent, so the
+/// second handed back a freshly latched buffer instead of repeating the
+/// first read's value. Fixed in `ricoh-ppu-2c02`; now prints `85CFD627`.
+#[test]
+#[ignore = "ROM run — requires test-suites/nes-test-roms"]
+fn double_2007_read_crc() {
+    expect_crc_in(
+        "double_2007_read",
+        &["85CFD627", "F018C287", "440EF923", "E52F41A5"],
+    );
+}
