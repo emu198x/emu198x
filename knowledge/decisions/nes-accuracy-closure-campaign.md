@@ -573,6 +573,42 @@ NTSC), which is why that comparison is not here.
 changing it mid-run would leave the PPU's dot counter and the CPU phase
 accumulator on different clocks.
 
+## Stage 5 attempt: the golden-screen approach, and why it stalled
+
+**Not delivered.** Recorded so the next attempt starts from the blocker rather
+than rediscovering it.
+
+The plan was sound and the reasoning still holds: these ROMs cannot be read as
+text (no `$6000`, no result byte, no ASCII, font uploaded to CHR RAM), but they
+can be **compared**. Tile indices, palette entries and sprite state are what the
+PPU was *told* to draw, and unlike rendered pixels they are emulator-independent.
+Mesen2 runs them correctly, so its structural screen state is the oracle.
+`tools/mesen-nes-cross-check/screen-state.lua` captures exactly that and works.
+
+⚠ **What killed it: Mesen2's NES default is `RamState::Random`.** Nametable RAM,
+palette RAM and OAM all power up randomised. Two consecutive Mesen runs of
+`dmc_tests/latency.nes` differ on **every line** of the dump — all 30 nametable
+rows, the palette and OAM — because the bytes the ROM writes are buried in
+power-on noise. A golden captured this way would freeze one RNG draw and assert
+nothing.
+
+That two-run comparison is the technique worth keeping: **before trusting any
+reference capture, run the reference twice.** If it does not reproduce itself,
+it cannot arbitrate anything. It cost one command and saved a gate that would
+have failed for the wrong reason forever.
+
+**The next step is specific.** `SetNesConfig` is exported from
+`InteropDLL/ConfigApiWrapper.cpp`; setting `RamPowerOnState = AllZeros` makes
+the capture deterministic. It requires replicating the `NesConfig` struct layout
+byte-exactly in `main.cpp` — a mismatch is undefined behaviour rather than a
+visible error, so it must be done against the current Mesen2 snapshot and
+verified by the same two-run check.
+
+⚠ An alternative that avoids the struct entirely: have the ROM's own writes
+identify the region, by capturing under two different RNG draws and masking
+every byte that differs. Cheaper, but it yields a partial-screen gate rather
+than a whole-screen one.
+
 ## ⚠ On acquiring more test ROMs
 
 Candidates for later acquisition once the current corpus is exhausted. Candidates for later
