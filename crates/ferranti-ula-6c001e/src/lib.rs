@@ -151,6 +151,14 @@ impl Ula for FerrantiUla {
             // M-cycle — Smith Chapter 18, p. 197: the circuit detects `T1`
             // of a contended cycle by waiting for A14 high with A15 and
             // MREQT23 low.
+            // `/MREQT23` — see `UlaEngine::mreq_t23`. Keying off
+            // `!cpu_mreq` alone lets the gate re-arm in `T3`, while the
+            // contended address is still on the bus, and charges a
+            // second full rotation to every M-cycle past `M1`.
+            // `/MREQT23` — see `UlaEngine::mreq_t23`. Keying off
+            // `!cpu_mreq` alone lets the gate re-arm in `T3`, while the
+            // contended address is still on the bus, and charges a
+            // second full rotation to every M-cycle past `M1`.
             let mem_contention = contended_addr && e.z80_clock_high && !e.mreq_t23;
 
             let io_even_port = (cpu_addr & 1) == 0;
@@ -210,6 +218,100 @@ impl Ula for FerrantiUla {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use common_sinclair_zx_spectrum::timing;
+
+    struct ContendedMemory;
+
+    impl MemoryBus for ContendedMemory {
+        fn read(&self, _addr: u16) -> u8 {
+            0
+        }
+
+        fn write(&mut self, _addr: u16, _value: u8) {}
+
+        fn is_contended(&self, _addr: u16) -> bool {
+            true
+        }
+    }
+
+    /// Committing an access must suppress contention that would
+    /// otherwise fire — the `/MREQT23` term (Smith Chapter 18, pp.
+    /// 192-193 and 197).
+    ///
+    /// Keying the gate off `MREQ` being inactive *right now* also matches
+    /// the trailing T-state of a memory cycle, where the contended
+    /// address is still on the bus, so every M-cycle past `M1` was
+    /// charged a second full 8-T-state rotation. `M1` hid the fault: the
+    /// cycle following its access is the refresh, whose address is
+    /// uncontended, so single-M-cycle instructions measured exact while
+    /// everything else drifted.
+    ///
+    /// Written as a differential rather than a fixed expectation. Two
+    /// runs are driven from the same point with the same pin sequence
+    /// except that one asserts `MREQ` to commit an access; the pixel
+    /// counter advances whether or not the CPU clock is held, so the runs
+    /// stay phase-aligned and are directly comparable. The test demands
+    /// a tick where the committed run runs and the uncommitted run
+    /// stalls. A gate without `MREQT23` produces identical traces —
+    /// once `MREQ` is low again it has no memory of the access — so this
+    /// cannot pass vacuously, and it does fail against the old gate.
+    #[test]
+    fn a_committed_access_suppresses_contention_that_would_otherwise_fire() {
+        fn clock_trace(commit: bool) -> Vec<bool> {
+            let mut ula = FerrantiUla::new(UlaRevision::Ferranti6C);
+            let mut fb = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
+            let tick = |ula: &mut _, mreq: bool, fb: &mut [u8]| {
+                Ula::tick(ula, &ContendedMemory, 0x4000, mreq, false, false, fb);
+            };
+
+            // Into the contended window, then on to the free window that
+            // releases the CPU — the delay table ends a stall, not MREQ.
+            for _ in 0..256 {
+                tick(&mut ula, false, &mut fb);
+                if !ula.cpu_clock_active() {
+                    break;
+                }
+            }
+            for _ in 0..256 {
+                tick(&mut ula, false, &mut fb);
+                if ula.cpu_clock_active() {
+                    break;
+                }
+            }
+
+            // Optionally commit an access, then record what the gate does
+            // once MREQ is low again in both runs.
+            for _ in 0..3 {
+                tick(&mut ula, commit, &mut fb);
+            }
+            (0..6)
+                .map(|_| {
+                    tick(&mut ula, false, &mut fb);
+                    ula.cpu_clock_active()
+                })
+                .collect()
+        }
+
+        let committed = clock_trace(true);
+        let uncommitted = clock_trace(false);
+
+        assert!(
+            uncommitted.iter().any(|running| !running),
+            "the uncommitted run should stall, or the comparison proves nothing"
+        );
+        assert!(
+            committed
+                .iter()
+                .zip(&uncommitted)
+                .any(|(with, without)| *with && !*without),
+            "committing an access did not suppress any contention: the \
+             /MREQT23 term is missing, and the gate re-arms in the trailing \
+             T-state, charging a second rotation to every M-cycle past M1\n\
+             committed:   {committed:?}\n\
+             uncommitted: {uncommitted:?}"
+        );
+    }
 
     fn empty_keyboard() -> [u8; 8] {
         [0xFF; 8]
