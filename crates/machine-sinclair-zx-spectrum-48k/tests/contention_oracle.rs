@@ -49,8 +49,19 @@ const ROM_PATH_ENV: &str = "EMU198X_SPECTRUM_48K_ROM";
 
 /// T-states in a 48K frame.
 const FRAME_TSTATES: u32 = 69888;
-/// First T-state of the display area.
-const FIRST_DISPLAY: u32 = 14336;
+/// First T-state at which contention applies.
+///
+/// **Not** the first display *fetch* — contention opens one T-state
+/// earlier. Verified against FUSE's `spectrum_contend_delay_65432100`
+/// frame-wide by `matches_fuse_contention_across_the_whole_frame`: at
+/// 14336 the two models disagreed at 21,504 of 69,888 T-states in a
+/// clean one-T-state lag; at 14335 they agree everywhere.
+///
+/// Our own 128K ULA already notes the distinction — "contention follows
+/// /Border rather than the later video-fetch window" — while the 48K
+/// Ferranti gates on `e.video`, the fetch window. That is the same
+/// conflation the floating-bus pattern made.
+const FIRST_DISPLAY: u32 = 14335;
 /// T-states per scan line.
 const PER_LINE: u32 = 224;
 /// Display lines that carry contention.
@@ -597,4 +608,48 @@ fn measured_frame_runs_the_instruction_under_test() {
             first_escape
         );
     }
+}
+
+/// Our canonical contention model must agree with FUSE's frame-wide.
+///
+/// The oracle scores the engine against `delay_at`. If that reference is
+/// itself wrong, "exact" means nothing — which is precisely what happened
+/// while `FIRST_DISPLAY` was 14336.
+#[test]
+fn matches_fuse_contention_across_the_whole_frame() {
+    // FUSE spec48 wires `spectrum_contend_delay_65432100`: pattern
+    // {5,4,3,2,1,0,0,6} at offset 1, which rotated is our
+    // [6,5,4,3,2,1,0,0]. Geometry from `machine.c`, where
+    // `line_times[0] = top_left_pixel - 24*224 - 16 = 8944`.
+    const FUSE_PATTERN: [u32; 8] = [5, 4, 3, 2, 1, 0, 0, 6];
+    const LINE_TIMES_0: u32 = 8944;
+    const LEFT_BORDER: u32 = 24;
+    const HORIZONTAL_SCREEN: u32 = 128;
+    const OFFSET: u32 = 1;
+    const BORDER_HEIGHT: u32 = 24;
+
+    fn fuse_delay(t: u32) -> u32 {
+        if t < LINE_TIMES_0 {
+            return 0;
+        }
+        let line = (t - LINE_TIMES_0) / PER_LINE;
+        if !(BORDER_HEIGHT..BORDER_HEIGHT + DISPLAY_LINES).contains(&line) {
+            return 0;
+        }
+        let through = (t - LINE_TIMES_0 + (LEFT_BORDER - 16)) % PER_LINE;
+        if !(LEFT_BORDER - OFFSET..LEFT_BORDER + HORIZONTAL_SCREEN - OFFSET).contains(&through) {
+            return 0;
+        }
+        FUSE_PATTERN[(through % 8) as usize]
+    }
+
+    let mismatches: Vec<_> = (0..FRAME_TSTATES)
+        .filter(|&t| delay_at(t) != fuse_delay(t))
+        .take(8)
+        .collect();
+    assert!(
+        mismatches.is_empty(),
+        "canonical contention disagrees with FUSE at {:?}...",
+        mismatches
+    );
 }

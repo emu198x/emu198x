@@ -166,6 +166,47 @@ not, which means something in how contention reaches the floating-bus
 sample is still not understood. That is the question to answer, and it is
 now well posed.
 
+## The third error, found 2026-08-10 by differential
+
+**The 48K contention window opens three T-states late.**
+
+FUSE's `spectrum_contend_delay_65432100` starts contending at frame
+T-state **14335**. Our Ferranti gates contention on `e.video`, which
+opens at `fetch_start` — scan 0, pixel 4 — i.e. our-T 2, which is
+FUSE-T **14338**.
+
+The confirmation is already in this tree. `sinclair-ula-7k010e` carries
+the comment: *"Contention follows /Border rather than the later
+video-fetch window: on the 128K it begins at T=14361, while the floating
+bus does not expose the first fetch until T=14364."* That is the same
+three-T-state gap. **The 128K models it; the 48K does not**, because the
+Ferranti keys contention and the video fetch off the same flag.
+
+**Why nothing caught it.** The contended window is 128 T-states, exactly
+sixteen complete 8-T-state groups, so rotating its phase leaves the total
+delay per line unchanged. The per-instruction oracle scores whole-frame
+instruction counts and is therefore *structurally blind* to a window
+phase error. It reported "exact" with the reference at 14336 and again at
+14335 — two different models, same verdict.
+
+The oracle's own reference was also wrong: `delay_at` started at 14336
+and disagreed with FUSE at 21,504 of 69,888 T-states in a clean
+one-T-state lag. Pinned to FUSE now by
+`matches_fuse_contention_across_the_whole_frame`.
+
+**Why this is the strong candidate for the contention / floating-bus
+conflict.** A window-phase error changes precisely when contention bites
+relative to the beam, which is what a cycle-exact `IN` probe like floatspy
+measures, while leaving bulk instruction throughput — the timing survey —
+untouched. That is the observed signature: survey improves with the latch
+on, floatspy breaks, and no sample lead reconciles them.
+
+**Next action.** Give the 48K a contention window that opens three
+T-states before the fetch window, as the 128K already does, then re-test
+the latch. Note the window opens before `pixel 0` of the scan line, so it
+wraps into the previous line — fiddly enough to warrant its own careful
+change rather than being bolted on at the end of a long session.
+
 ## Next
 
 1. Find the third error. It is in the floating-bus path, it is not the
