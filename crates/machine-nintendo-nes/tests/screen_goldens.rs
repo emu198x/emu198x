@@ -271,19 +271,35 @@ fn probe_frame_alignment() {
 //  because the difference looks like a real defect, and a permanently
 //  red gate teaches people to ignore the suite.
 //
-//  1. dma_2007_read and double_2007_read — CANDIDATE DEFECT.
-//     Both print counters, and every one of ours is exactly ONE
-//     HIGHER than Mesen2's:
-//         dma_2007_read     mesen "3344"   emu198x "4455"
-//         double_2007_read  mesen "223344556 6" emu198x "334455667 7"
-//     Both ROMs count $2007 reads colliding with DMC DMA. A uniform
-//     +1 across two independent ROMs is the signature of one
-//     off-by-one in that path, not two coincidences — compare the
-//     stage-2 DMC finding, where a uniform offset named a missing
-//     fixed-cost step.
+//  1. dma_2007_read and double_2007_read — ⚠ NOT GATEABLE THIS WAY.
+//     A single golden cannot gate a ROM with several legal outputs,
+//     and these have several. From their own source headers:
 //
-//     ⚠ Do not "fix" this by regenerating the goldens from our own
-//     output. Mesen2 passes these ROMs; we are the ones to change.
+//       dma_2007_read.s:   "33 44 or 44 55"
+//                          crc "159A7A8F or 5E3DF9C4"
+//       double_2007_read.s "(depends on CPU-PPU synchronization)"
+//                          five listed outputs, four listed CRCs
+//
+//     ⚠ An earlier note here called these a candidate defect on the
+//     strength of a uniform +1 against Mesen2. That was wrong for
+//     dma_2007_read: ours prints "44 55", which is the SECOND
+//     documented-correct answer. Mesen2 happens to land on the first.
+//     Neither is more right; the outcome turns on CPU-PPU alignment at
+//     reset, which the ROM says outright.
+//
+//     The lesson is about the oracle, not the emulator. A reference
+//     emulator captures ONE draw from a set of legal behaviours. Before
+//     treating a divergence from it as a defect, check whether the ROM
+//     admits more than one answer — these say so in their first ten
+//     lines.
+//
+//     The right gate is the ROM's own CRC check, which accepts any of
+//     the legal outputs. That is a different mechanism and is not built.
+//
+//     ⚠ Still open: double_2007_read prints "33 44 55 66 77", which is
+//     NOT among its five documented outputs (they begin 22, 02 or 32).
+//     Worth investigating on its own terms — via the ROM's CRC, not a
+//     screen diff.
 //
 //  2. test_ppu_read_buffer — different in kind. Its palette diverges
 //     wholesale rather than by an offset, and bisqwit's ROM reports

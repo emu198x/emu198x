@@ -652,20 +652,39 @@ the mirror. Unresolved, that reported four differences on every ROM, none real.
 Not "cannot be gated" — the goldens exist and the comparison runs. Withheld
 because a permanently red gate teaches people to ignore the suite.
 
-**`dma_2007_read` and `double_2007_read` — CANDIDATE DEFECT.** Both print
-counters, and every one of ours is exactly **one higher** than Mesen2's:
+**`dma_2007_read` and `double_2007_read` — ⚠ CORRECTION: not a defect, and not
+gateable this way.**
 
-| ROM | Mesen2 | Emu198x |
-|---|---|---|
-| `dma_2007_read` | `3344` | `4455` |
-| `double_2007_read` | `2 2 3 3 4 4 5 5 6 6` | `3 3 4 4 5 5 6 6 7 7` |
+These were briefly recorded here as a candidate defect, on the strength of a
+uniform `+1` against Mesen2 across two independent ROMs. **Their own source
+headers refute it:**
 
-Both count `$2007` reads colliding with DMC DMA. A uniform `+1` across two
-independent ROMs is one off-by-one in that path, not two coincidences — the
-same shape of evidence that named the missing fixed-cost step in stage 2. This
-is the **first new defect candidate since the DMC transfer-start delay**, and
-the first thing this campaign has found that is plausibly in the emulator
-rather than the instruments.
+```
+dma_2007_read.s    "33 44 or 44 55"   crc "159A7A8F or 5E3DF9C4"
+double_2007_read.s "(depends on CPU-PPU synchronization)"
+                   five listed outputs, four listed CRCs
+```
+
+Ours prints `44 55` — the **second documented-correct answer**. Mesen2 lands on
+the first. Neither is more right; the outcome turns on CPU-PPU alignment at
+reset, which the ROM states in its first ten lines.
+
+⚠ **The lesson is about the oracle, not the emulator.** A reference emulator
+captures **one draw from a set of legal behaviours**. Every use of Mesen2 in
+this campaign has assumed its answer is *the* answer, which held while the ROMs
+were deterministic — and silently stops holding for ROMs that admit several.
+Before reading a divergence from a reference as a defect, check whether the ROM
+allows more than one outcome. These two say so plainly, and it cost a wrong
+"candidate defect" claim to notice.
+
+A single golden cannot gate a multi-outcome ROM. The right gate is the ROM's
+own CRC check, which accepts any legal output — a different mechanism, not
+built.
+
+⚠ Genuinely still open: `double_2007_read` prints `33 44 55 66 77`, which is
+**not** among its five documented outputs (they begin `22`, `02` or `32`).
+That one deserves investigation on its own terms, through the ROM's CRC rather
+than a screen diff.
 
 **`test_ppu_read_buffer`** diverges wholesale on the palette rather than by an
 offset, and reports through custom CHR tiles plus audio. Different in kind;
