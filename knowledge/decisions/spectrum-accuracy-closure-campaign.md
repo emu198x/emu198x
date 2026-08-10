@@ -272,6 +272,44 @@ version bump at all; this campaign does not repeat that.
    remaining disagreement as fixed, explicitly outside the supported claim, or
    blocked on stronger evidence.
 
+## Step 3 working contract
+
+Agreed 2026-08-10 so unattended closure work is auditable against
+something written rather than judgement in the moment.
+
+**Metric.** Contended failures in the timing survey, from a baseline of
+33/35 at `242e9abe` (uncontended 32 pass / 3 fail).
+
+**A change is rejected unless all four hold:**
+
+1. Survey contended failures strictly decrease, and uncontended does not
+   get worse.
+2. All eight binary ULA gates still pass.
+3. CPU oracles unchanged: `z80test` 6/6 with zero allowlist, FUSE
+   1,351/1,356 with 0 unexpected, Tom Harte 1,604,000/1,604,000.
+4. Catalogue stays 103/103 PASS and 103/103 SNAP-PASS.
+
+Gates 1–3 run per candidate (minutes); gate 4 runs before any commit
+(~90 minutes).
+
+**Prohibited.** Weakening, skipping or allowlisting any gate to make a
+change pass. **Re-capturing catalogue hashes** — that would let a bad
+contention change launder itself green, and a re-capture needs a control
+chosen before capture, which is a decision rather than unattended work.
+Routing-version bumps. Anything outside the Spectrum ULA and the three
+named instruction-timing failures.
+
+**Method.** Per RULES §32, work from the vendored reference emulators —
+SpecIde first as the closest architecturally, then Fuse and zesarux —
+never deduce contention from the spec alone.
+
+**Stop and report** on: three consecutive refuted hypotheses in one
+category; any guardrail that cannot be satisfied; or a change that
+improves the survey while moving a catalogue hash, which is the
+CPU-timing trap in
+[routing versions do not cover CPU timing](routing-versions-do-not-cover-cpu-timing.md)
+and needs a human.
+
 ## Non-goals
 
 This campaign does not expand into every Spectrum clone or peripheral.
