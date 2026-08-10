@@ -282,6 +282,23 @@ pub struct UlaEngine {
     #[serde(skip)]
     pub vid_en: bool,
     // Contention tracking
+    /// `MREQT23` — Smith Chapter 18, pp. 192-193 and Figure 18-15.
+    ///
+    /// A **gated D-latch**, not a delay line. `/MREQ` falls halfway
+    /// through `T1`; delaying it until the clock goes high at the end of
+    /// that T-state produces a signal that is high for `T2` and `T3` and
+    /// low for `T1`, which is what disables contention checking for the
+    /// rest of an M-cycle once its access has committed. Smith draws the
+    /// latch inside the contention handler itself, fed from `/MREQD` —
+    /// it is generated within the ULA rather than supplied by the CPU,
+    /// so it needs no extra pin on `Ula::tick`.
+    ///
+    /// The distinction from a delay matters: `z80_mreq_prev` decays after
+    /// one half-cycle and lets the gate re-arm in `T3` while the
+    /// contended address is still on the bus, charging a second full
+    /// rotation. A latch holds across `T2` and `T3` and releases in time
+    /// for the next `T1`.
+    pub mreq_t23: bool,
     pub z80_mreq_prev: bool,
     pub z80_iorq_prev: bool,
     pub z80_iorq_prev2: bool,
@@ -461,6 +478,7 @@ impl UlaEngine {
             border_active: true,
             border_aolatch: 7,
             vid_en: false,
+            mreq_t23: false,
             z80_mreq_prev: false,
             z80_iorq_prev: false,
             z80_iorq_prev2: false,
@@ -736,6 +754,13 @@ impl UlaEngine {
             self.z80_iorq_prev = cpu_iorq;
             self.z80_mreq_prev = cpu_mreq;
             self.z80_clock_high = !self.z80_clock_high;
+            // Latch `/MREQ` on the rising clock edge. While the CPU is
+            // stalled this method does not run, so the latch holds — which
+            // is correct: a stalled CPU sits in `T1` with `MREQ` inactive
+            // and must keep contending.
+            if self.z80_clock_high {
+                self.mreq_t23 = cpu_mreq;
+            }
         }
     }
 
