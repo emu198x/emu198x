@@ -573,10 +573,47 @@ NTSC), which is why that comparison is not here.
 changing it mid-run would leave the PPU's dot counter and the CPU phase
 accumulator on different clocks.
 
-## Stage 5 attempt: the golden-screen approach, and why it stalled
+## Stage 5 attempt: two findings, and the four ROMs are not gateable by screen
 
-**Not delivered.** Recorded so the next attempt starts from the blocker rather
-than rediscovering it.
+**Not delivered**, and one long-standing belief in this record was wrong.
+
+### ⚠ CORRECTION: `dmc_tests` do not draw anything
+
+This record has said since stage 2 that the four `dmc_tests` ROMs "draw tile
+indices against a CHR font", and that gating them needed tile-index decoding or
+framebuffer comparison. **That is false.** They produce no screen output at all.
+
+Measured two ways:
+
+* **Mesen2 writes nothing to either nametable across 2400 frames** (~40 s
+  emulated), with power-on RAM forced to zeros so "blank" means "never written"
+  rather than "buried in noise".
+* Emu198x's own bus trace over 60M ticks:
+
+  | ROM | PPU reg writes | APU reg writes | nametable non-zero |
+  |---|---|---|---|
+  | `latency` | 9 (3 × `$2001`) | 81 | **0** |
+  | `buffer_retained` | 9 | 39 | **0** |
+  | `status` | 9 | 39 | **0** |
+  | `status_irq` | 9 | 42 | **0** |
+
+Nine PPU register writes is enabling and disabling rendering. **These ROMs
+report by beeping** — the APU is their only output channel. No screen-based
+gate can ever work on them, whatever is done about determinism, and
+`latency.nes` cannot become the DMC gate by that route.
+
+Gating them means comparing **audio** — the APU register write sequence, or the
+DMC's internal state trace, against a reference. A different mechanism from
+anything this campaign has built, and honest to call unstarted rather than
+blocked.
+
+⚠ The wrong belief survived this long because it was plausible and never
+measured: "visual-only" was inferred from "no `$6000` protocol and no ASCII in
+the nametable", and "draws with a custom font" was the natural explanation. The
+two-run determinism check is what finally made the nametable readable enough to
+show there was nothing in it.
+
+### The determinism blocker, now solved
 
 The plan was sound and the reasoning still holds: these ROMs cannot be read as
 text (no `$6000`, no result byte, no ASCII, font uploaded to CHR RAM), but they
@@ -585,7 +622,7 @@ PPU was *told* to draw, and unlike rendered pixels they are emulator-independent
 Mesen2 runs them correctly, so its structural screen state is the oracle.
 `tools/mesen-nes-cross-check/screen-state.lua` captures exactly that and works.
 
-⚠ **What killed it: Mesen2's NES default is `RamState::Random`.** Nametable RAM,
+✅ **Solved.** Mesen2's NES default is `RamState::Random`: Nametable RAM,
 palette RAM and OAM all power up randomised. Two consecutive Mesen runs of
 `dmc_tests/latency.nes` differ on **every line** of the dump — all 30 nametable
 rows, the palette and OAM — because the bytes the ROM writes are buried in
@@ -597,17 +634,16 @@ reference capture, run the reference twice.** If it does not reproduce itself,
 it cannot arbitrate anything. It cost one command and saved a gate that would
 have failed for the wrong reason forever.
 
-**The next step is specific.** `SetNesConfig` is exported from
-`InteropDLL/ConfigApiWrapper.cpp`; setting `RamPowerOnState = AllZeros` makes
-the capture deterministic. It requires replicating the `NesConfig` struct layout
-byte-exactly in `main.cpp` — a mismatch is undefined behaviour rather than a
-visible error, so it must be done against the current Mesen2 snapshot and
-verified by the same two-run check.
+**Fixed in `main.cpp`.** `SetNesConfig` with `RamPowerOnState = AllZeros`,
+called before `LoadRom`. The struct is **not** replicated — `main.cpp` now
+includes Mesen2's own `Shared/SettingTypes.h` (built with `-I Core -I .`), so
+the 14 184-byte layout is exact by construction and a snapshot update becomes a
+compile error rather than silent corruption. Re-running the two-run check now
+reports the capture reproducible.
 
-⚠ An alternative that avoids the struct entirely: have the ROM's own writes
-identify the region, by capturing under two different RNG draws and masking
-every byte that differs. Cheaper, but it yields a partial-screen gate rather
-than a whole-screen one.
+That makes the cross-check harness usable as a golden source for **any** ROM
+that does render — which is most of stage 5's remaining list. It is only these
+four that are out of reach, and for a different reason.
 
 ## ⚠ On acquiring more test ROMs
 

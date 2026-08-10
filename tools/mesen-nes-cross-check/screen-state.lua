@@ -11,21 +11,19 @@
 --   OAM <256 hex bytes>        -- sprite RAM
 --   DONE
 
--- ⚠⚠ NOT USABLE AS A GOLDEN SOURCE YET. Mesen2's NES default is
--- `RamState::Random` (Core/Shared/SettingTypes.h), so nametable RAM,
--- palette RAM and OAM all come up randomised. Two consecutive runs of
--- dmc_tests/latency.nes differ on EVERY line of this dump — the bytes
--- the ROM writes are buried in power-on noise, and a golden captured
--- this way would be a snapshot of one RNG draw.
+-- ⚠ Only meaningful because main.cpp forces `RamPowerOnState = AllZeros`
+-- before loading. Mesen2's NES default is `RamState::Random`: nametable
+-- RAM, palette RAM and OAM all power up randomised, and two consecutive
+-- runs of dmc_tests/latency.nes once differed on EVERY line of this dump.
+-- A golden captured under randomised RAM freezes one RNG draw.
 --
--- The fix is `SetNesConfig` (exported from InteropDLL/ConfigApiWrapper.cpp)
--- with `RamPowerOnState = AllZeros`, which means replicating the
--- `NesConfig` struct layout byte-exactly in main.cpp. Getting that wrong
--- is undefined behaviour rather than a visible error, so it needs doing
--- carefully against the current Mesen2 snapshot.
+-- ⚠ Before trusting any capture from here as a golden, run the ROM twice
+-- and diff. A reference that does not reproduce itself cannot arbitrate
+-- anything, and the failure is silent — a plausible-looking dump.
 --
--- The script itself is correct and worth keeping; only the determinism
--- of what it observes is missing.
+-- ⚠ A dump of all zeros means the ROM has not drawn YET (or never does),
+-- not that the screen is the answer. The four dmc_tests ROMs write
+-- nothing to either nametable at any point; they report by beeping.
 
 local dumped = false
 -- ⚠ Hardcoded: Mesen sandboxes Lua's `os` library by default, so this

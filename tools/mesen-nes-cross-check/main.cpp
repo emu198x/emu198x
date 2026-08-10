@@ -18,7 +18,19 @@
 #include <string>
 #include <thread>
 
+// ⚠ Mesen2's own header, not a hand-written copy. `NesConfig` is 14 KB of
+// struct; replicating its layout here would be undefined behaviour the
+// moment the vendored snapshot moves, and a mismatch shows up as silent
+// corruption rather than a compile error. Including the real definition
+// makes the layout exact by construction.
+#include "Shared/SettingTypes.h"
+
 extern "C" {
+// Set the NES core's configuration. Declared here rather than taken from
+// a Mesen header because the InteropDLL exports are C-linkage entry
+// points, but the NesConfig it takes IS the real struct above.
+void SetNesConfig(NesConfig config);
+
 int32_t LoadScript(char *name, char *path, char *content, int32_t scriptId);
 void GetScriptLog(int32_t scriptId, char *outScriptLog, uint32_t maxLength);
 void InitDll();
@@ -70,6 +82,20 @@ int main(int argc, char *argv[]) {
   InitDll();
   InitializeEmu(argv[1], nullptr, nullptr, true, true, true, true);
   SetEmulationFlag(MAXIMUM_SPEED, true);
+
+  // ⚠⚠ Determinism. Mesen2's NES default is `RamState::Random`, so
+  // nametable RAM, palette RAM and OAM all power up randomised. Two
+  // consecutive runs of dmc_tests/latency.nes differed on EVERY line of a
+  // screen-state dump, because the bytes a ROM writes are buried in
+  // power-on noise. Any capture used as a golden must be reproducible, so
+  // force zeros before loading anything.
+  //
+  // Verify with the two-run check, not by inspection: run the same ROM
+  // twice and diff. A reference that does not reproduce itself cannot
+  // arbitrate anything.
+  NesConfig nesCfg;
+  nesCfg.RamPowerOnState = RamState::AllZeros;
+  SetNesConfig(nesCfg);
 
   for (int i = 2; i < argc; i++) {
     std::string rom = argv[i];

@@ -66,6 +66,15 @@ const VISUAL_ROMS: &[&str] = &[
     // that the test framework can't reduce to a `$6000` result;
     // they never print "Passed" / "Failed" tokens, so the
     // multi-protocol grader gets no signal and times out.
+    //
+    // ⚠ The four dmc_tests write NOTHING to either nametable — 9 PPU
+    // register writes each, three of them `$2001`, which is rendering
+    // being switched on and off. They report by BEEPING. Measured in
+    // both emulators; Mesen2 leaves the nametable untouched across
+    // 2400 frames with power-on RAM zeroed. An earlier note here and
+    // in the campaign record said they "draw tile indices against a
+    // CHR font" — that was inferred, never measured, and is wrong.
+    // No screen-based gate can work on them; gating needs audio.
     // The write-side variants (`dma_2007_write.nes`,
     // `read_write_2007.nes`) DO emit nametable text on the
     // observable cases and stay graded normally.

@@ -164,3 +164,51 @@ fn mmc5_executes_code_from_exram() {
          code running from ExRAM did not produce output"
     );
 }
+
+/// What the `dmc_tests` ROMs actually write.
+///
+/// ⚠ Mesen2 writes NOTHING to either nametable across 2400 frames on
+/// these, so the long-held note that they "draw tile indices against a
+/// CHR font" is wrong — there is no screen output to compare at all.
+/// This records where their output does go.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_dmc_tests_output_channels() {
+    let Some(root) = root() else {
+        return;
+    };
+    for name in ["latency", "buffer_retained", "status", "status_irq"] {
+        let Ok(bytes) = std::fs::read(root.join(format!("dmc_tests/{name}.nes"))) else {
+            continue;
+        };
+        let parsed = parse_ines(&bytes).expect("parse iNES");
+        let mut nes = Nes::new(parsed.mapper);
+        let (mut ppu_w, mut apu_w, mut ram_w) = (0u64, 0u64, 0u64);
+        let mut mask_writes = 0u64;
+        while nes.master_clock() < 60_000_000 {
+            nes.tick();
+            if !nes.cpu.rw {
+                match nes.cpu.addr {
+                    0x2000..=0x3FFF => {
+                        ppu_w += 1;
+                        if nes.cpu.addr & 7 == 1 {
+                            mask_writes += 1;
+                        }
+                    }
+                    0x4000..=0x4017 => apu_w += 1,
+                    0x0000..=0x1FFF => ram_w += 1,
+                    _ => {}
+                }
+            }
+        }
+        let nt_nonzero = nes
+            .effective_nametable()
+            .iter()
+            .filter(|&&b| b != 0)
+            .count();
+        println!(
+            "  {name:<16} ppu_reg={ppu_w:<6} ($2001={mask_writes}) apu_reg={apu_w:<7} \
+             ram={ram_w:<8} nametable_nonzero={nt_nonzero}"
+        );
+    }
+}
