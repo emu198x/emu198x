@@ -28,8 +28,9 @@
 //! ⚠ "Sub-cycle-accurate OAMDMA/DMC DMA overlap arbitration" was listed here as
 //! out of scope until it was measured. Every DMA read cycle of all sixteen OAM
 //! transfers in `sprdma_and_dmc_dma` matches Mesen2 exactly, address for
-//! address, so the arbitration is in scope and correct. The ROM still fails,
-//! but not here; see
+//! address, so the arbitration is in scope and correct. Both ROMs now pass; the
+//! remaining defect was in the DMC's `$4015` transfer-start delay, not the
+//! arbitration. See
 //! [nes-accuracy-closure-campaign.md](../../knowledge/decisions/nes-accuracy-closure-campaign.md).
 //!
 //! # Porting provenance

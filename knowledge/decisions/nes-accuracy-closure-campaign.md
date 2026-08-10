@@ -83,9 +83,12 @@ Each stage is one commit's worth of work with a definite done-condition.
 1. ✅ **Gate the sweep.** Record the 155 verdicts as a declared baseline and
    assert an exact match, so a regression fails *and* an unannounced improvement
    fails. Done in this stage alongside this record.
-2. **`sprdma_and_dmc_dma`** — two ROMs, one defect, well-documented behaviour
-   (DMC DMA stealing cycles during sprite DMA). Expected values now recorded;
-   see [below](#stage-2-what-the-oracle-showed). Not yet fixed.
+2. ✅ **`sprdma_and_dmc_dma`** — two ROMs, one defect, well-documented behaviour
+   (DMC DMA stealing cycles during sprite DMA). Fixed at `1aa4eb67`: the DMC
+   gained the `$4015` transfer-start delay it was missing. All 32 alignment
+   values now match the Mesen2 oracle and both ROMs report Passed. See
+   [below](#stage-2-what-the-oracle-showed) for the evidence and
+   [the outcome](#stage-2-outcome-the-two-path-model-was-right).
 3. **`cpu_timing_test6`** — one ROM, one settled value to chase.
 4. **`blargg_nes_cpu_test5`** — hardest. `#FF` means "some sub-test failed"
    without saying which, so the ROM's text output has to be decoded first. A
@@ -102,6 +105,17 @@ Each stage is one commit's worth of work with a definite done-condition.
    `probe_dmc_tests_text`. Until then they can neither pass nor fail, so a
    gated sweep needs an explicit declared exclusion for them rather than a
    third category nobody revisits.
+
+   ⚠ **The Spectrum ROM-font decoder does not transfer**, checked when stage 2
+   closed. `common-sinclair-zx-spectrum::screen_text` (added at `da0f91e7`)
+   decodes a *known* font out of ROM against display-file geometry. The
+   `dmc_tests` ROMs are a harder problem in kind: their iNES header declares
+   **0 KB of CHR**, so the font is uploaded to CHR RAM at runtime, and their PRG
+   contains no ASCII at all -- the only printable run in the whole 16 KB is a
+   block of `U` filler. Recovering their text means rendering CHR RAM glyphs and
+   matching them against a reference font supplied from outside the ROM, which
+   is OCR against an unknown font rather than decoding a known one. Framebuffer
+   comparison against Mesen2 is the cheaper route and stays the stage-5 plan.
 
 ## Stage 2: what the oracle showed
 
@@ -200,6 +214,51 @@ question the fix has to answer first, and it should not be guessed at.
 
 ⚠ Mesen's comment names `dmc_dma_start_test` as the ROM this behaviour exists
 to satisfy. That suite is in the corpus and should gate the fix.
+
+### Stage 2 outcome: the two-path model was right
+
+Fixed at `1aa4eb67`. The root-cause reading above held, and the sequence that
+proved it is worth keeping because two earlier attempts had failed here.
+
+**The decisive step was removing behaviour, not adding it.** Making `$4015`
+enable set `current_address` and `bytes_remaining` and *nothing else* — no
+request, no delay — was run on its own first, as a falsifiable test of the
+model. The re-arm-to-fetch latency immediately walked 14, 13, 12, 11, 10, 9,
+against a baseline that managed only 11, 10, 9 before the write pre-empted the
+walk and truncated it. Writes at a 433-cycle cadence, fetches at 432: the
+vernier the model predicted.
+
+At that point all 16 alignments already tracked Mesen2's relative shape exactly
+and were uniformly 3 cycles short — an alignment-independent constant, which is
+what a missing fixed-length delay looks like. Adding `transfer_start_delay`
+(2 or 3 by parity) supplied it. All 32 rows then matched the oracle and both
+ROMs reported Passed.
+
+Why the two prior attempts failed: both made `transfer_start_delay` the fetch
+*trigger*, which deletes the timer-driven path along with the defect. The delay
+is an **additional** path for the cold-start case, not a replacement for
+buffer-consumption requests. Ordering the work as remove-then-measure-then-add
+is what separated the two effects; had the delay gone in first, its uniform +3
+would have been invisible underneath the still-flat table.
+
+Two further points the fix settled:
+
+* **A second, independent defect** sat in `clock_output`: the request came after
+  the `if`/`else`, so it also fired on the silence path where the buffer was
+  already empty and hardware requests nothing. It now sits inside the
+  buffer-consumed branch, guarded by `transfer_start_delay == 0` so a
+  `$4015`-armed start owns the next fetch.
+* **The open question is answered.** A traced `transferStartDelay` that stayed 0
+  at an idle-channel enable was a polling artefact, not a hidden guard: the
+  delay is 2–3 cycles and `ProcessClock` decrements it every CPU cycle, so a
+  Lua poll can miss the whole transient.
+
+The parity is published by the machine as `Apu::cpu_cycle_odd`. It must be the
+CPU cycle counter the DMA arbiter aligns on — the APU's own `odd_cycle` counts
+APU cycles and is free to be out of phase.
+
+⚠ `dmc_dma_start_test` is **not** in the local corpus, so it did not gate this.
+The two `sprdma_and_dmc_dma` ROMs did, against the 32-row Mesen2 oracle.
 
 ### Superseded reading: it is the DMC channel, not the DMA
 
