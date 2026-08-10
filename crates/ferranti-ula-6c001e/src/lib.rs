@@ -219,6 +219,91 @@ impl Ula for FerrantiUla {
 mod tests {
     use super::*;
 
+    /// Measure the gate's *effective* delay table and print it beside the
+    /// canonical one.
+    ///
+    /// The residual on multi-M-cycle instructions in the per-instruction
+    /// oracle is unexplained, and one candidate is that the engine's
+    /// table sits at a different phase origin from the published
+    /// `[6,5,4,3,2,1,0,0]`: `DELAY_TABLE_48K` is free at half-cycles
+    /// 15, 0, 1 and 2, whereas the canonical pattern's zero-delay slots
+    /// are T-phases 6 and 7. Rather than argue from the table's contents,
+    /// this ticks the ULA to each arrival half-cycle in turn and counts
+    /// how long the clock is actually withheld.
+    ///
+    /// The answer is that the table is **not** misaligned. At odd
+    /// half-cycles the measured stalls are 6, 5, 4, 3, 2, 1, 0, 0
+    /// T-states — canonical exactly — with the phase origin at
+    /// half-cycle 3, which independently confirms the one-T-state
+    /// sampling offset the oracle calibrates.
+    ///
+    /// The even half-cycles are the interesting column: they cost an
+    /// extra *half* T-state (5.5, 4.5, 3.5, …), because contention only
+    /// fires while `z80_clock_high`. Arriving on the opposite parity
+    /// costs half a cycle that can only be spent as a whole one. That is
+    /// the shape of the residual the per-instruction oracle reports on
+    /// multi-M-cycle instructions and not on single-M-cycle ones, and it
+    /// is something the canonical whole-T-state model cannot represent.
+    #[test]
+    #[ignore = "diagnostic probe"]
+    fn effective_delay_table() {
+        use common_sinclair_zx_spectrum::timing;
+        const CANONICAL: [u32; 8] = [6, 5, 4, 3, 2, 1, 0, 0];
+
+        println!("\n half-cycle  T-phase  stall(half)  stall(T)  canonical[T-phase]");
+        for h in 0..16u16 {
+            let mut ula = FerrantiUla::new(UlaRevision::Ferranti6C);
+            let mut fb = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
+            // `video` is latched as the line's fetch window opens, so
+            // the ULA has to be ticked in from the start of a line rather
+            // than parked mid-window — jumping straight to a pixel leaves
+            // the latch clear and no contention fires at all.
+            ula.engine.scan = 100;
+            ula.engine.pixel = 0;
+            for _ in 0..(128 + h) {
+                Ula::tick(
+                    &mut ula,
+                    &ContendedMemory,
+                    0x4000,
+                    false,
+                    false,
+                    false,
+                    &mut fb,
+                );
+            }
+
+            // Clear the MREQT23 latch and the clock phase so the arrival
+            // is defined by the pixel counter alone.
+            ula.engine.mreq_t23 = false;
+            ula.engine.z80_clock_high = true;
+
+            // Contended address, MREQ inactive: the gate should stall.
+            let mut stall = 0u32;
+            for _ in 0..64 {
+                Ula::tick(
+                    &mut ula,
+                    &ContendedMemory,
+                    0x4000,
+                    false,
+                    false,
+                    false,
+                    &mut fb,
+                );
+                if ula.cpu_clock_active() {
+                    break;
+                }
+                stall += 1;
+            }
+
+            let tphase = h / 2;
+            println!(
+                "{h:>10} {tphase:>8} {stall:>12} {:>9.1} {:>18}",
+                stall as f64 / 2.0,
+                CANONICAL[tphase as usize]
+            );
+        }
+    }
+
     use common_sinclair_zx_spectrum::timing;
 
     struct ContendedMemory;
