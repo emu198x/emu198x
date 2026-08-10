@@ -358,3 +358,88 @@ jobs:
 
       - name: Run z80test
         run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test z80test -- --include-ignored --nocapture
+
+  # Floating-bus oracles: Float48K / Float128k (Woody) and floatspy (Ramsoft),
+  # the latter byte-compared against Spectron's own reference screens.
+  #
+  # Added 2026-08-10 after a contention fix silently regressed the floating
+  # bus. The timing survey improved, the catalogue passed, the unit tests
+  # passed — and floatspy, which caught it, was an ignored test outside the
+  # matrix, so it only ran because someone went looking. These are the
+  # strongest floating-bus oracles in the tree and they belong in CI.
+  floating-bus:
+    name: floating-bus (Float48K / Float128k / floatspy)
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.configured == 'true'
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-accuracy-floating-bus
+
+      - name: Install Linux build dependencies
+        # These tests boot a full Spectrum, which pulls in the host
+        # audio/input stack (cpal -> alsa, gilrs -> libudev).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev libudev-dev
+
+      - name: Provision corpus + 48K ROM from store
+        env:
+          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p corpora
+          cd corpora
+          gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
+            -p 'spectrum-system-tests.tar.zst' -p 'z80test.tar.zst' -p 'SHA256SUMS'
+          grep ' spectrum-system-tests.tar.zst$' SHA256SUMS | sha256sum -c -
+          grep ' z80test.tar.zst$' SHA256SUMS | sha256sum -c -
+          tar --zstd -xf 'spectrum-system-tests.tar.zst'
+          tar --zstd -xf 'z80test.tar.zst'
+          echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
+          echo "EMU198X_SPECTRUM_SYSTEM_TESTS_DIR=$(pwd)/spectrum-system-tests/tapes" >> "$GITHUB_ENV"
+          echo "EMU198X_SPECTRON_RESULTS_DIR=$(pwd)/spectrum-system-tests/spectron-results" >> "$GITHUB_ENV"
+
+      - name: Assert the corpus is actually present
+        # These tests `return` early when their tape or ROM is missing, so a
+        # half-provisioned corpus passes vacuously — which is the failure
+        # mode this job exists to prevent. Check the inputs explicitly
+        # before running anything.
+        run: |
+          set -euo pipefail
+          for f in "${EMU198X_SPECTRUM_48K_ROM}" \
+                   "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/Float48k.tap" \
+                   "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/Float128k.tap" \
+                   "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/floatspy.tap" \
+                   "${EMU198X_SPECTRON_RESULTS_DIR}/floatspy_48.png"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::missing corpus input: $f — the floating-bus tests would skip silently"
+              exit 1
+            fi
+          done
+
+      - name: Float48K (48K first-display-byte T-state)
+        run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test float_bus -- --include-ignored --nocapture
+
+      - name: Float128k (128K first-display-byte T-state)
+        run: cargo test --release -p machine-sinclair-zx-spectrum-128k --test float_bus -- --include-ignored --nocapture
+
+      - name: floatspy (golden + Spectron byte-compare)
+        run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test tape_smoke -- --include-ignored --nocapture floatspy

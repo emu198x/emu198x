@@ -23,6 +23,7 @@ locally; the workflow uses the same env-var contract.
 | FUSE Z80 | `zilog-z80` · `z80_fuse` | `EMU198X_FUSE_Z80_TESTS_DIR` | FUSE emulator (`fuse-emulator-fuse/z80/tests`) | GPL-2.0-or-later | no |
 | Wolfgang Lorenz 6502 | `mos-6502` · `lorenz_tests` | `EMU198X_6502_LORENZ_DIR` | Wolfgang Lorenz C64 test suite (via VICE `bin/`) | freeware | no — uses a synthetic free KERNAL |
 | ZEXDOC + ZEXALL | `zilog-z80` · `zex_tests` | `EMU198X_ZEX_DIR` | Frank Cringle Z80 exerciser (`*.com`) | freeware | no |
+| Spectrum system tests | `machine-sinclair-zx-spectrum-48k` · `float_bus`, `tape_smoke`; `machine-sinclair-zx-spectrum-128k` · `float_bus` | `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR` + `EMU198X_SPECTRON_RESULTS_DIR` | `Float48k.tap` / `Float128k.tap` / `floatspy.tap` and the reference screens, all from oldbit-com/Spectron (`tests/`) | see repo | 48K Spectrum ROM — reuses the one in the `z80test` tarball |
 | z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | raxoft/z80test (`*.tap`) | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
 
 The SingleStepTests 68000 fixture bytes are pinned by
@@ -38,6 +39,31 @@ corpus now runs from this one nightly. ZEX previously ran from checked-in
 binaries via a dedicated `zex.yml` workflow, which was retired when the binaries
 were removed. z80test runs Patrik Rak's exerciser on a full 48K Spectrum, so its
 tarball also carries the free Amstrad-permissioned 48K ROM.
+
+### `spectrum-system-tests` layout
+
+The `floating-bus` nightly job expects this shape inside the tarball:
+
+```text
+spectrum-system-tests/
+  tapes/              # Float48k.tap, Float128k.tap, floatspy.tap
+  spectron-results/   # floatspy_48.png, floatspy_128.png
+```
+
+Both come from the vendored Spectron checkout at
+`emulators/zx-spectrum/Spectron/tests/` in the umbrella tree — the tapes
+from `Spectron.Integration.Tests/TestFiles/`, the screens from `Results/`.
+They live in the umbrella rather than this repo, which is why CI needs
+them staged into the corpora store.
+
+**Why this corpus is worth the setup.** These are the strongest
+floating-bus oracles in the tree, and until 2026-08-10 none of them ran
+in CI. A ULA contention fix landed that improved the timing survey,
+passed the catalogue and passed every unit test, while silently
+regressing the floating bus — floatspy caught it, but only because
+someone ran it by hand for an unrelated reason. The job asserts its
+inputs exist before running, because these tests return early when a tape
+is missing and would otherwise report a vacuous pass.
 
 ## Project-authored system-level corpus
 
