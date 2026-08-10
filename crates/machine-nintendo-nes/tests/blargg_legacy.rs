@@ -72,17 +72,52 @@ enum Legacy {
     NoPass(String),
 }
 
-fn run_legacy(rom_path: &PathBuf) -> Result<Legacy, String> {
+/// How one legacy ROM is driven and graded.
+///
+/// Defaults describe the common case: no buttons, and the `$6000`-era
+/// shell's mixed-case `"Passed"`.
+struct LegacyRun<'a> {
+    /// Controller-1 buttons held for the whole run (bits per
+    /// `Nes::set_controller1`).
+    ///
+    /// ⚠ Held, not pressed. A ROM that selects a mode from the pad
+    /// reads it during init, and releasing before that read drops
+    /// silently back to the default mode — which looks exactly like a
+    /// pass on the mode you thought you selected.
+    held: u8,
+    /// Token the ROM prints on success. blargg's older `console.a`
+    /// shell prints upper-case `"PASSED"`, not `"Passed"`.
+    pass_token: &'a str,
+    /// Per-run tick ceiling. Overridden for ROMs whose runtime depends
+    /// on the mode selected — `cpu_timing_test` takes ~55M ticks over
+    /// the official set but ~88M over the undocumented one, so a single
+    /// global ceiling would report the wider mode as a failure while
+    /// showing its banner correctly.
+    max_ticks: u64,
+}
+
+impl Default for LegacyRun<'_> {
+    fn default() -> Self {
+        Self {
+            held: 0,
+            pass_token: "Passed",
+            max_ticks: MAX_TICKS,
+        }
+    }
+}
+
+fn run_legacy(rom_path: &PathBuf, opts: &LegacyRun<'_>) -> Result<Legacy, String> {
     let bytes = std::fs::read(rom_path).map_err(|e| format!("read {rom_path:?}: {e}"))?;
     let parsed = parse_ines(&bytes).map_err(|e| format!("parse {rom_path:?}: {e}"))?;
     let mut nes = Nes::new(parsed.mapper);
+    nes.set_controller1(opts.held);
 
     let mut scan_at = SCAN_PERIOD;
-    while nes.master_clock() < MAX_TICKS {
+    while nes.master_clock() < opts.max_ticks {
         nes.tick();
         if nes.master_clock() >= scan_at {
             scan_at += SCAN_PERIOD;
-            if ciram_text(&nes).contains("Passed") {
+            if ciram_text(&nes).contains(opts.pass_token) {
                 return Ok(Legacy::Passed);
             }
         }
@@ -95,8 +130,8 @@ fn run_legacy(rom_path: &PathBuf) -> Result<Legacy, String> {
     Ok(Legacy::NoPass(text))
 }
 
-/// Look up one legacy ROM and run it, asserting it prints "Passed".
-fn run_or_skip(rel: &str) {
+/// Look up one legacy ROM and run it, asserting it prints its pass token.
+fn run_or_skip_with(rel: &str, opts: &LegacyRun<'_>) {
     let Some(root) = blargg_root() else {
         eprintln!("blargg root not found; skipping {rel}");
         return;
@@ -106,12 +141,20 @@ fn run_or_skip(rel: &str) {
         eprintln!("legacy ROM not present at {rom:?}; skipping");
         return;
     }
-    match run_legacy(&rom).unwrap_or_else(|e| panic!("legacy run failed: {e}")) {
+    match run_legacy(&rom, opts).unwrap_or_else(|e| panic!("legacy run failed: {e}")) {
         Legacy::Passed => eprintln!("legacy test {rel} passed"),
         Legacy::NoPass(text) => {
-            panic!("legacy test {rel} did not print \"Passed\"; screen: {text:?}")
+            panic!(
+                "legacy test {rel} did not print {:?}; screen: {text:?}",
+                opts.pass_token
+            )
         }
     }
+}
+
+/// Look up one legacy ROM and run it, asserting it prints "Passed".
+fn run_or_skip(rel: &str) {
+    run_or_skip_with(rel, &LegacyRun::default());
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -130,4 +173,92 @@ fn run_or_skip(rel: &str) {
 #[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
 fn cpu_dummy_reads() {
     run_or_skip("cpu_dummy_reads/cpu_dummy_reads.nes");
+}
+
+// ────────────────────────────────────────────────────────────────
+//  cpu_timing_test6
+//
+//  Instruction timing for every official and undocumented opcode
+//  except the branches and the 12 HLTs, in both the normal and
+//  page-crossing cases. The ROM selects its instruction set from
+//  controller 1 during init:
+//
+//      (nothing)  official only
+//      A          official + $EB + the unofficial NOPs
+//      B          official + all undocumented
+//
+//  ⚠ The sweep boots this ROM with no buttons, so it only ever
+//  covered the official set. The two held-button modes below are the
+//  undocumented-opcode timing coverage, and they are the point of
+//  wiring it here rather than leaving it to the sweep.
+//
+//  ⚠ Each gate asserts the ROM's own mode banner as well as PASSED.
+//  Without that, a button-hold that failed to register would drop the
+//  ROM back to official-only and still print PASSED — a green test
+//  proving nothing about the set it claims to cover.
+//
+//  It reports on-screen only (no $6000, no result byte) using the
+//  older `console.a` shell, which prints in UPPER CASE. Its
+//  `readme.txt` carries blargg's authoritative cycle tables.
+// ────────────────────────────────────────────────────────────────
+
+const CPU_TIMING_ROM: &str = "cpu_timing_test6/cpu_timing_test.nes";
+
+/// Assert the ROM printed both its mode banner and `PASSED`, so the
+/// gate cannot pass on a mode it did not actually run.
+fn cpu_timing_mode(held: u8, banner: &str) {
+    let Some(root) = blargg_root() else {
+        eprintln!("blargg root not found; skipping {CPU_TIMING_ROM}");
+        return;
+    };
+    let rom = root.join(CPU_TIMING_ROM);
+    if !rom.is_file() {
+        eprintln!("legacy ROM not present at {rom:?}; skipping");
+        return;
+    }
+    let opts = LegacyRun {
+        held,
+        pass_token: "PASSED",
+        // The undocumented set settles at ~88M ticks; allow headroom.
+        max_ticks: 130_000_000,
+    };
+    match run_legacy(&rom, &opts).unwrap_or_else(|e| panic!("legacy run failed: {e}")) {
+        Legacy::Passed => {}
+        Legacy::NoPass(text) => {
+            panic!("cpu_timing_test ({banner}) did not print \"PASSED\"; screen: {text:?}")
+        }
+    }
+    // Re-run only far enough to read the banner back. Cheap relative to
+    // the ~16 s test itself, and it is the only thing standing between
+    // this gate and a false green.
+    let bytes = std::fs::read(&rom).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+    nes.set_controller1(held);
+    while nes.master_clock() < 20_000_000 && !ciram_text(&nes).contains(banner) {
+        nes.tick();
+    }
+    assert!(
+        ciram_text(&nes).contains(banner),
+        "cpu_timing_test never showed the {banner:?} banner — the held button \
+         ({held:#04X}) did not select the intended instruction set"
+    );
+}
+
+#[test]
+#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+fn cpu_timing_official() {
+    cpu_timing_mode(0x00, "OFFICIAL INSTRUCTIONS ONLY");
+}
+
+#[test]
+#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+fn cpu_timing_official_plus_nops() {
+    cpu_timing_mode(0x01, "OFFICIAL + NOP");
+}
+
+#[test]
+#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+fn cpu_timing_all_undocumented() {
+    cpu_timing_mode(0x02, "OFFICIAL + UNDOCUMENTED");
 }

@@ -71,23 +71,26 @@ fn screen_text(nes: &Nes) -> String {
     out
 }
 
-#[test]
-#[ignore = "diagnostic: prints cpu_timing_test's on-screen result"]
-fn probe_cpu_timing_test() {
-    let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
-    };
+/// Controller-1 button held through boot, which is how the ROM selects
+/// its instruction set. Bit layout per `Nes::set_controller1`.
+const HELD_NONE: u8 = 0x00;
+const HELD_A: u8 = 0x01;
+const HELD_B: u8 = 0x02;
+
+/// Run the ROM with `held` on controller 1 and return
+/// `(verdict_ticks, screen_text)`.
+///
+/// ⚠ The button must be held for the whole run, not pressed once. The
+/// ROM reads the pad during init to choose its instruction set, and a
+/// release before that read silently drops it back to official-only —
+/// which looks identical to a pass on the wider set.
+fn run_with(root: &std::path::Path, held: u8) -> Option<(Option<u64>, String)> {
     let path = root.join("cpu_timing_test6").join("cpu_timing_test.nes");
-    let Ok(bytes) = std::fs::read(&path) else {
-        eprintln!("missing {}", path.display());
-        return;
-    };
+    let bytes = std::fs::read(&path).ok()?;
     let parsed = parse_ines(&bytes).expect("parse iNES");
     let mut nes = Nes::new(parsed.mapper);
+    nes.set_controller1(held);
 
-    // Stop as soon as the ROM has printed a verdict; otherwise run to
-    // the ceiling and dump whatever is on screen.
     let mut scan_at = SCAN_PERIOD;
     let mut settled_at = None;
     while nes.master_clock() < MAX_TICKS {
@@ -101,14 +104,35 @@ fn probe_cpu_timing_test() {
             }
         }
     }
+    Some((settled_at, screen_text(&nes)))
+}
 
-    eprintln!(
-        "\n═══ cpu_timing_test.nes ({}) ═══\n{}",
-        settled_at.map_or_else(
-            || format!("no verdict by {MAX_TICKS} ticks"),
-            |t| format!("verdict at {t} ticks")
-        ),
-        screen_text(&nes)
-    );
-    eprintln!("$00F0 = {:#04X}", nes.peek(0x00F0));
+#[test]
+#[ignore = "diagnostic: prints cpu_timing_test's on-screen result"]
+fn probe_cpu_timing_test() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+
+    // All three instruction-set selections the ROM's readme documents.
+    // The default (nothing held) covers official instructions only, so
+    // undocumented-opcode timing is untested unless a button is held.
+    for (held, label) in [
+        (HELD_NONE, "official only"),
+        (HELD_A, "official + $EB + unofficial NOPs"),
+        (HELD_B, "official + all undocumented"),
+    ] {
+        let Some((settled_at, text)) = run_with(&root, held) else {
+            eprintln!("missing cpu_timing_test.nes");
+            return;
+        };
+        eprintln!(
+            "\n═══ cpu_timing_test.nes — {label} (held {held:#04X}) — {} ═══\n{text}",
+            settled_at.map_or_else(
+                || format!("no verdict by {MAX_TICKS} ticks"),
+                |t| format!("verdict at {t} ticks")
+            ),
+        );
+    }
 }
