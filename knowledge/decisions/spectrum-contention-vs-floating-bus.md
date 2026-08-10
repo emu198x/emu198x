@@ -1,7 +1,8 @@
 # Spectrum contention and the floating bus are co-tuned
 
 **Status:** Open. Contention fix written, evidenced, and *deliberately not
-enabled* pending a floating-bus derivation. 2026-08-10.
+enabled* pending a floating-bus derivation. I/O contention now derived
+against FUSE and ruled out as the floating-bus blocker. 2026-08-10.
 
 ## The short version
 
@@ -97,6 +98,10 @@ floating-bus oracle deserves revisiting.
 - **`IN` instruction timing.** Exact, as above.
 - **Contention parity and the `MREQT23` clearing edge.** Both measured
   and eliminated; see `spectrum-accuracy-closure-campaign.md`.
+- **I/O contention.** Derived against FUSE frame-wide and ruled out *for
+  the floating bus specifically* — floatspy reads port `$00FF`, which FUSE
+  does not contend at all. It is still broken for three of the four port
+  classes; see the I/O section below.
 
 ## Why the fix is committed but unwired
 
@@ -251,13 +256,112 @@ I/O test hammering `IN A,(0FFh)`. That is the next thing to derive, and
 it should be derived against FUSE's `ula_contend_port_early/late` the way
 the floating-bus pattern was — not adjusted and re-measured.
 
+## The I/O path, derived — and the lead it closes
+
+The untested half is now tested. `io_contention_oracle.rs` transcribes
+FUSE's `ula_contend_port_early`/`_late` whole, and scores the engine's
+measured `IN A,(C)` cost against it at every arrival T-state in the frame,
+for five port classes sharing one origin offset.
+
+**I/O contention is not what breaks floatspy.** floatspy contains exactly
+one I/O instruction. Disassembled from `floatspy.tap` at offset 5580:
+
+```asm
+01 FF 00    LD BC,$00FF
+78          LD A,B        ; A = $00
+DB FF       IN A,($FF)    ; port = $00FF
+C9          RET
+```
+
+`IN A,(n)` takes the port's high byte from `A`, so the address is `$00FF` —
+the ROM page, uncontended, odd. That is FUSE's `N:4` class: **no I/O
+contention at all**, at any T-state. The engine already matches it exactly,
+0 of 63,744 samples, and still matches exactly with the `MREQT23` latch
+wired in. No change to the I/O gate can move floatspy's `IN` by one
+T-state, because there is nothing there to change. (The tape's only other
+`IN`-shaped bytes, `ED 40` at offset 2089, sit inside the ASCII string
+`*** SELF TEST ***` and are never executed.)
+
+So the `IOREQTW3` lead is closed for the floating bus. It was the strongest
+remaining candidate and it is wrong, for a reason that could have been
+established at any point by reading the test program's port.
+
+**I/O contention is separately, genuinely broken.** At HEAD, against FUSE:
+
+| port class | FUSE shape | wrong | engine mean | FUSE mean |
+|---|---|---|---|---|
+| `$40FE` contended, ULA | `C:1 C:3` | 8,769 / 52,692 | 34.39 | 22.60 |
+| `$40FF` contended, odd | `C:1 C:1 C:1 C:1` | 9,684 / 52,692 | 34.39 | 27.69 |
+| `$C0FE` uncontended, ULA | `N:1 C:3` | 12,288 / 57,600 | 22.67 | 21.78 |
+| `$C0FF` uncontended, odd | `N:4` | 0 / 63,744 | 15.73 | 15.73 |
+| `$00FF` floatspy | `N:4` | 0 / 63,744 | 15.73 | 15.73 |
+
+The load-bearing row is stated in a form the fitted origin cannot reach.
+`$40FE` and `$40FF` differ only in the bit the gate tests, and the engine
+costs them the same **to within 0.00 T-states**, where FUSE separates them
+by **5.10** — the ULA-port case is *cheaper*, because the ULA holds the bus
+for three T-states in one go rather than contending four times. No origin
+offset can create a distinction a gate does not test for.
+
+**The page dependence the engine does show comes from the wrong place.**
+`mem_contention` is `contended_addr && z80_clock_high && !cpu_mreq`. During
+an I/O cycle `MREQ` is inactive and `cpu_addr` holds the *port*, so a port
+in `$4000..$8000` trips **memory** contention. That is why the two
+contended-page classes measure identically: the leak dominates, and the
+even/odd term adds nothing on top of a gate already asserted. It is the
+same defect family as the `MREQT23` bug — a gate keying on a signal being
+inactive *now* rather than on the access it is meant to describe.
+
+## Re-testing the latch, and a trap found while doing it
+
+With `!cpu_mreq` swapped for `!e.mreq_t23`, total disagreement falls from
+30,741 to 21,318 and `$C0FE` goes from 12,288 wrong to exact. That reads as
+a clear improvement — and it is not safe to read it that way, because the
+fitted origin moved from **+14335 to +14334** at the same time. The raster
+did not move. A gate that decides one T-state later than the reference is
+indistinguishable from an origin one T-state earlier, so the offset had
+been quietly absorbing the change.
+
+Held at a fixed origin (+14335, which is `FIRST_DISPLAY`, itself pinned to
+FUSE), the latch reads the other way: `$C0FF` and `$00FF` go from **0
+wrong to 18,432 wrong, every one of them exactly +1 T-state**. Those
+classes have no I/O contention at all, so that T-state is the two contended
+`M1` fetches. The latch over-charges them.
+
+That is a mechanism for floatspy's failure that does not involve I/O
+contention: every contended `M1` pair costs one T-state more, so floatspy's
+`IN` lands at a different raster position and samples a different byte.
+
+The harness therefore takes `EMU198X_IO_ORACLE_OFFSET` to pin the origin.
+Any comparison between two gate configurations must use it. This is the
+third time on this problem that a free parameter has absorbed a real error
+— after `SAMPLE_LEAD` and after the oracle's own `delay_at` origin — and it
+is worth naming as the recurring shape rather than three separate
+surprises.
+
+The latch remains unwired. The evidence for it is now more mixed than the
+survey score suggested, not less.
+
 ## Next
 
-1. Find the third error. It is in the floating-bus path, it is not the
-   sample lead or the pattern phase, and it is masked by the contention
-   bug. FUSE's `spectrum_unattached_port` is the reference implementation
-   to derive against — read it as a whole model rather than comparing
-   constants.
+1. Settle the origin independently of any fit. Every cross-configuration
+   claim above is provisional until `tstate_in_frame() == 0` is mapped to a
+   FUSE T-state by something other than a best-fit search — the engine's
+   own raster is the obvious candidate, and `debug_raster()` already
+   exposes it. Two configurations currently fit +14335 and +14334, and the
+   retracted window section argued for +14336 from a pixel mapping. Three
+   answers, no measurement.
+2. Fix the I/O gate against the derived model. It needs the port's page,
+   and it needs two shapes rather than one: `C:1 C:3` when the ULA answers
+   the port, `C:1 C:1 C:1 C:1` when it does not. The differential is the
+   gate to fix it against; it can fail, and it was checked by mutation
+   before being trusted. This is worth doing on its own merits — three of
+   four port classes are wrong — but it will not move floatspy.
+3. Find the third error. It is in the floating-bus path, it is not the
+   sample lead, the pattern phase, or I/O contention, and it is masked by
+   the contention bug. FUSE's `spectrum_unattached_port` is the reference
+   implementation to derive against — read it as a whole model rather than
+   comparing constants.
 2. Establish whether floatspy's self-test passes on **real 48K
    hardware**. This is the single observation that would settle whether
    our burst-read failure is a defect or a convention disagreement, and
