@@ -23,7 +23,7 @@ locally; the workflow uses the same env-var contract.
 | FUSE Z80 | `zilog-z80` · `z80_fuse` | `EMU198X_FUSE_Z80_TESTS_DIR` | FUSE emulator (`fuse-emulator-fuse/z80/tests`) | GPL-2.0-or-later | no |
 | Wolfgang Lorenz 6502 | `mos-6502` · `lorenz_tests` | `EMU198X_6502_LORENZ_DIR` | Wolfgang Lorenz C64 test suite (via VICE `bin/`) | freeware | no — uses a synthetic free KERNAL |
 | ZEXDOC + ZEXALL | `zilog-z80` · `zex_tests` | `EMU198X_ZEX_DIR` | Frank Cringle Z80 exerciser (`*.com`) | freeware | no |
-| Spectrum system tests | `machine-sinclair-zx-spectrum-48k` · `float_bus`, `tape_smoke`; `machine-sinclair-zx-spectrum-128k` · `float_bus` | `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR` + `EMU198X_SPECTRON_RESULTS_DIR` | `Float48k.tap` / `Float128k.tap` / `floatspy.tap` and the reference screens, all from oldbit-com/Spectron (`tests/`) | see repo | 48K Spectrum ROM — reuses the one in the `z80test` tarball |
+| Spectrum system tests | `machine-sinclair-zx-spectrum-48k` · `float_bus`, `tape_smoke`; `machine-sinclair-zx-spectrum-128k` · `float_bus` | `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR` + `EMU198X_SPECTRON_RESULTS_DIR` | reference screens from oldbit-com/Spectron (`tests/Results/`); tapes are third-party programs it bundles — RAMSOFT floatspy v0.33 and Woody's Float48k/Float128k | screens MIT (© 2025 OldBit); tapes are long-circulated freeware, not covered by Spectron's licence, redistributed in the **private** store only | 48K Spectrum ROM — reuses the one in the `z80test` tarball |
 | z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | raxoft/z80test (`*.tap`) | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
 
 The SingleStepTests 68000 fixture bytes are pinned by

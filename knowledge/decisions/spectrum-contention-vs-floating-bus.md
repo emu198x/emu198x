@@ -130,6 +130,42 @@ Fixed since: the floating-bus oracles now run nightly (`d7dec6c6`, needs
 the `spectrum-system-tests` corpus uploaded) and the Float48K assertion
 parses the probe's answer (`26e87d60`).
 
+## Later the same day: two hypotheses closed, one contradiction opened
+
+**`ORIGIN` is correct.** The `ad0e8c53` commit message guessed the stray
+T-state lived there. It does not. Our first display fetch is scan 0,
+pixel 4 — our-T 2 with two pixels per T-state — which maps to FUSE-T
+14338, exactly FUSE's first floating-bus byte. The origin checks out
+against our own geometry, so that lead is closed.
+
+Float48K's 14337 against Woody's 14338 is therefore what
+`FLOAT48K_EXPECTED_TSTATE` said before any of this: the probe detects the
+first non-`$FF` **edge**, while Woody's figure is the **byte-on-bus**
+instant. Different measurements, ±1 expected, not an error.
+
+**The pattern phase was not what blocked the contention fix.** With the
+pattern corrected against FUSE and the lead at 2, re-wiring the latch
+still fails floatspy by the same 948 pixels. The two defects were
+independent; fixing one did not unblock the other. Survey with the latch
+re-wired re-confirmed at 37/70.
+
+**And that leaves a contradiction worth stating sharply**, because it is
+the next thing to explain rather than a vague disagreement:
+
+- Spectron contends with a **T-state-indexed delay table**
+  (`ContentionProvider.BuildContentionTable`, pattern `[6,5,4,3,2,1,0,0]`
+  applied once per access). That is the canonical per-access model and it
+  structurally cannot re-arm, so Spectron does **not** share our bug.
+- With the latch **on**, our per-instruction oracle shows every case
+  matching that same canonical model exactly.
+- Yet floatspy matches us only with the latch **off** — only when we
+  over-contend.
+
+Two implementations of the same canonical model should agree. They do
+not, which means something in how contention reaches the floating-bus
+sample is still not understood. That is the question to answer, and it is
+now well posed.
+
 ## Next
 
 1. Find the third error. It is in the floating-bus path, it is not the
