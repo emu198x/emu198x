@@ -212,3 +212,44 @@ fn probe_dmc_tests_output_channels() {
         );
     }
 }
+
+/// What CRC do the dmc_dma_during_read4 ROMs print?
+///
+/// ⚠ These ROMs have several legal outputs (their source headers list
+/// them), so a screen diff against one reference capture cannot grade
+/// them. They end with `jsr print_crc`, and the header lists every
+/// acceptable checksum — that is the real verdict channel.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_dma_read4_crcs() {
+    let Some(root) = root() else { return };
+    for name in [
+        "dma_2007_read",
+        "double_2007_read",
+        "dma_4016_read",
+        "dma_2007_write",
+        "read_write_2007",
+    ] {
+        let Ok(bytes) = std::fs::read(root.join(format!("dmc_dma_during_read4/{name}.nes"))) else {
+            continue;
+        };
+        let parsed = parse_ines(&bytes).expect("parse iNES");
+        let mut nes = Nes::new(parsed.mapper);
+        for _ in 0..300 {
+            nes.run_frame();
+        }
+        let text: String = nes
+            .effective_nametable()
+            .iter()
+            .map(|&b| {
+                if (0x20..=0x7E).contains(&b) {
+                    b as char
+                } else {
+                    ' '
+                }
+            })
+            .collect();
+        let compact: Vec<&str> = text.split_whitespace().collect();
+        println!("  {name:<18} {}", compact.join(" "));
+    }
+}

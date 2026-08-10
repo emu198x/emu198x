@@ -681,10 +681,38 @@ A single golden cannot gate a multi-outcome ROM. The right gate is the ROM's
 own CRC check, which accepts any legal output — a different mechanism, not
 built.
 
-⚠ Genuinely still open: `double_2007_read` prints `33 44 55 66 77`, which is
-**not** among its five documented outputs (they begin `22`, `02` or `32`).
-That one deserves investigation on its own terms, through the ROM's CRC rather
-than a screen diff.
+### ✅ Resolved by reading the ROM's own CRC
+
+`jsr print_crc` ends each of these ROMs, and the source header lists every
+acceptable checksum. Reading the printed value settles both cases:
+
+| ROM | prints | documented | verdict |
+|---|---|---|---|
+| `dma_2007_read` | `5E3DF9C4` | `159A7A8F` or `5E3DF9C4` | ✅ **correct** — gated in `tests/dmc_dma_read4_crc.rs` |
+| `double_2007_read` | `D84F6815` | `85CFD627`, `F018C287`, `440EF923`, `E52F41A5` | ⚠ **DEFECT** |
+
+**`double_2007_read` is a genuine defect** — the campaign's second, after the
+DMC transfer-start delay. Not the multiple-legal-outputs situation: the ROM
+enumerates its acceptable checksums and ours is outside the set.
+
+The screen localises it. Line 1 is `22 33 44 55 66`, matching the documented
+first line. Line 2 is `33 44 55 66 77`, where **every** legal variant begins
+`22`, `02` or `32` — so the first byte of the *second* read is wrong and the
+rest follow from it.
+
+Per the ROM's header: *"Double read of `$2007` sometimes ignores extra read,
+and puts odd things into buffer."* Two reads of `$2007` in immediate succession
+(`lda $20F7,x` with `x=$10`) colliding with a DMC DMA leave our read buffer
+holding a value the hardware never produces.
+
+Its gate is written and withheld in `tests/dmc_dma_read4_crc.rs`, ready to
+enable as the assertion for that fix.
+
+⚠ **Method note.** This is the mechanism the four audio-only `dmc_tests` also
+need — blargg's ca65 framework CRCs *all* console output, so a ROM that prints
+nothing still accumulates a checkable checksum. One mechanism, two stuck
+problems; the `dmc_tests` route is now a short step rather than an unstarted
+one.
 
 **`test_ppu_read_buffer`** diverges wholesale on the palette rather than by an
 offset, and reports through custom CHR tiles plus audio. Different in kind;
