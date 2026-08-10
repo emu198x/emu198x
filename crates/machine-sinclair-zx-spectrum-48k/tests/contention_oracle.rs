@@ -159,8 +159,9 @@ fn rom_bytes() -> Option<Vec<u8>> {
     std::fs::read(path).ok()
 }
 
-/// Run one case for exactly one frame and return instructions retired.
-fn measure(case: &Case, rom: &[u8]) -> u64 {
+/// A machine filled with the case's instruction, aligned to a frame
+/// boundary, with the CPU aimed at contended RAM.
+fn prepare(case: &Case, rom: &[u8]) -> Spectrum48k {
     let mut machine = Spectrum48k::new();
     machine.load_rom_bytes(rom).expect("48K ROM should load");
     machine.reset();
@@ -185,10 +186,34 @@ fn measure(case: &Case, rom: &[u8]) -> u64 {
     }
     machine.z80_mut().regs.pc = CODE_BASE;
     (case.setup)(&mut machine);
+    machine
+}
 
+/// Run one case for exactly one frame and return instructions retired.
+fn measure(case: &Case, rom: &[u8]) -> u64 {
+    let mut machine = prepare(case, rom);
     let before = machine.z80().instructions_retired();
     machine.advance_tstates(FRAME_TSTATES);
     machine.z80().instructions_retired() - before
+}
+
+/// Advance until one more instruction retires; returns its cost in
+/// T-states. Stepping a T-state at a time is what makes the cost exact —
+/// the retired counter is the only reliable instruction boundary.
+fn step_one_instruction(machine: &mut Spectrum48k) -> u32 {
+    let target = machine.z80().instructions_retired() + 1;
+    let start = machine.tstate_in_frame();
+    let mut cost = 0u32;
+    while machine.z80().instructions_retired() < target {
+        machine.advance_tstates(1);
+        cost += 1;
+        assert!(cost <= 512, "instruction should retire within 512 T-states");
+    }
+    debug_assert_eq!(
+        cost,
+        (machine.tstate_in_frame() + FRAME_TSTATES - start) % FRAME_TSTATES
+    );
+    cost
 }
 
 #[test]
@@ -228,4 +253,137 @@ fn contention_matches_the_canonical_model_per_instruction() {
     }
 
     assert_eq!(ran, cases().len(), "every case should have been measured");
+}
+
+/// Cost by the arrival phase the *gate itself* uses.
+///
+/// An earlier version of this derived the phase from `tstate_in_frame`
+/// and produced a table that could not be reconciled with the frame
+/// totals. The reason is that the gate indexes `DELAY_TABLE_48K` by the
+/// ULA's pixel counter, whose origin need not coincide with the frame
+/// T-state origin — and the known one-T-state `Float48K` discrepancy
+/// lives in exactly that gap. Reading the engine's own phase and `video`
+/// flag through `debug_raster()` removes the assumption rather than
+/// guessing at it, and needs no instrumentation.
+///
+/// Sampling is confined to instructions that begin and end inside the
+/// video window, so no sample straddles a boundary and the canonical
+/// cost is a pure phase walk.
+#[test]
+#[ignore = "diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
+fn contention_cost_by_arrival_phase() {
+    let Some(rom) = rom_bytes() else {
+        panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
+    };
+
+    for case in cases() {
+        let mut machine = prepare(&case, &rom);
+
+        // `[(count, measured_sum, canonical_sum, diff_min, diff_max)]`.
+        let mut by_phase = [(0u32, 0u32, 0u32, i64::MAX, i64::MIN); 8];
+        let mut spent = 0u32;
+        while spent < FRAME_TSTATES {
+            let (_, pixel, video, _, _) = machine.ula().debug_raster();
+            // The gate's own index, in T-states rather than half-cycles.
+            let phase = ((pixel & 0x0F) / 2) as usize;
+            let canonical = canonical_cost_from_phase(phase, case.mcycles);
+            let measured = step_one_instruction(&mut machine);
+            spent += measured;
+            let (_, _, still_video, _, _) = machine.ula().debug_raster();
+            if !video || !still_video {
+                continue;
+            }
+            let diff = measured as i64 - canonical as i64;
+            let slot = &mut by_phase[phase];
+            slot.0 += 1;
+            slot.1 += measured;
+            slot.2 += canonical;
+            slot.3 = slot.3.min(diff);
+            slot.4 = slot.4.max(diff);
+        }
+
+        println!("\n{}  {:?}", case.name, case.mcycles);
+        println!(
+            "{:>5} {:>6} {:>7} {:>10} {:>10} {:>8} {:>12}",
+            "phase", "delay", "samples", "canonical", "measured", "diff", "diff range"
+        );
+        println!("{}", "-".repeat(66));
+        for (phase, (count, measured, canonical, lo, hi)) in by_phase.iter().enumerate() {
+            if *count == 0 {
+                println!(
+                    "{phase:>5} {:>6} {:>7} {:>10} {:>10} {:>8} {:>12}",
+                    PATTERN[phase], 0, "-", "-", "-", "-"
+                );
+                continue;
+            }
+            let m = *measured as f64 / *count as f64;
+            let c = *canonical as f64 / *count as f64;
+            println!(
+                "{phase:>5} {:>6} {count:>7} {c:>10.2} {m:>10.2} {:>+8.2} {:>12}",
+                PATTERN[phase],
+                m - c,
+                format!("{lo:+} .. {hi:+}")
+            );
+        }
+    }
+}
+
+/// Canonical cost of an instruction arriving at contention phase
+/// `phase`, entirely inside the video window: each M-cycle waits
+/// `PATTERN[phase]`, then runs, and the phase advances by both.
+fn canonical_cost_from_phase(mut phase: usize, mcycles: &[u32]) -> u32 {
+    let mut cost = 0u32;
+    for length in mcycles {
+        let delay = PATTERN[phase & 7];
+        cost += delay + length;
+        phase = (phase + (delay + length) as usize) & 7;
+    }
+    cost
+}
+
+/// The instrument has to be checked before its readings mean anything.
+/// Stepping a T-state at a time must produce exactly the same execution
+/// as one bulk advance: same instruction count, and per-instruction costs
+/// that sum to the frame. If the driver batched work per call, or the
+/// retired counter lagged, the per-phase table would be measuring the
+/// harness rather than the engine.
+#[test]
+#[ignore = "diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
+fn stepping_one_tstate_agrees_with_a_bulk_advance() {
+    let Some(rom) = rom_bytes() else {
+        panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
+    };
+
+    for case in cases() {
+        let bulk = measure(&case, &rom);
+
+        let mut machine = prepare(&case, &rom);
+        let mut stepped = 0u64;
+        let mut spent = 0u32;
+        while spent < FRAME_TSTATES {
+            spent += step_one_instruction(&mut machine);
+            stepped += 1;
+        }
+
+        // The loop runs one instruction past the frame, so `spent`
+        // overshoots by that instruction's cost and `stepped` counts it.
+        // `bulk` counts instructions *retired* inside the frame, so the
+        // straddler is the one legitimate unit of difference.
+        let overshoot = spent - FRAME_TSTATES;
+        println!(
+            "{:<12} bulk={bulk:>6} stepped={stepped:>6} overshoot={overshoot:>3}T",
+            case.name
+        );
+        assert!(
+            overshoot < 64,
+            "{}: overshoot {overshoot} should be one instruction's worth",
+            case.name
+        );
+        assert!(
+            stepped == bulk || stepped == bulk + 1,
+            "{}: stepping executed {stepped} against a bulk {bulk}; they must \
+             agree bar the instruction straddling the frame boundary",
+            case.name
+        );
+    }
 }
