@@ -183,6 +183,14 @@ pub struct Ppu {
     // ── Configuration ───────────────────────────────────────────
     /// Pre-render scanline number (261 for NTSC, 311 for PAL).
     pre_render_line: u16,
+    /// Internal master-clock units per PPU dot: 4 on NTSC, 5 on PAL.
+    ///
+    /// ⚠ Per-instance, not a constant, because the CPU:PPU ratio is
+    /// 1:3 on NTSC but 1:3.2 on PAL. Both regions keep the master
+    /// oscillator as the loop driver — only the divider changes. See
+    /// `knowledge/decisions/nes-clock-topology.md`.
+    #[serde(default = "default_master_divider")]
+    master_divider: u64,
     /// Suppress VBL flag on the next tick. Set when $2002 is read
     /// on the exact PPU cycle that VBL would be set.
     suppress_vbl: bool,
@@ -233,6 +241,12 @@ fn default_true() -> bool {
 /// the start / end phase split.
 pub const MASTER_CLOCK_DIVIDER: u64 = 4;
 
+/// Serde default for [`Ppu::master_divider`] — NTSC, so snapshots taken
+/// before the field existed restore as NTSC.
+fn default_master_divider() -> u64 {
+    MASTER_CLOCK_DIVIDER
+}
+
 /// Number of PPU-clock ticks (4× PPU dots) after which an open-bus
 /// bit decays back to 0 if not refreshed. Real hardware varies with
 /// chip + temperature, with ~600 ms typical (per nesdev). At
@@ -249,6 +263,23 @@ impl Ppu {
     #[must_use]
     pub fn new() -> Self {
         Self::new_with_pre_render_line(261)
+    }
+
+    /// Create a PPU with an explicit region geometry.
+    ///
+    /// `pre_render_line` is 261 (NTSC) or 311 (PAL); `master_divider`
+    /// is the number of internal master-clock units in one dot, 4 or 5.
+    #[must_use]
+    pub fn new_with_timing(pre_render_line: u16, master_divider: u64) -> Self {
+        let mut ppu = Self::new_with_pre_render_line(pre_render_line);
+        ppu.master_divider = master_divider;
+        ppu
+    }
+
+    /// Internal master-clock units per dot for this PPU.
+    #[must_use]
+    pub fn master_divider(&self) -> u64 {
+        self.master_divider
     }
 
     /// Create a PPU with the given pre-render scanline number.
@@ -319,6 +350,7 @@ impl Ppu {
             nmi: false,
 
             pre_render_line,
+            master_divider: MASTER_CLOCK_DIVIDER,
             suppress_vbl: false,
             bus_address: 0,
             prev_a12: false,
@@ -355,7 +387,7 @@ impl Ppu {
     /// calls this with `target = internal_master_clock - 1` to
     /// realise the `_ppuOffset = 1` phase lag.
     pub fn run(&mut self, mapper: &mut dyn Mapper, target_master_clock: u64) {
-        while self.ppu_clock + MASTER_CLOCK_DIVIDER <= target_master_clock {
+        while self.ppu_clock + self.master_divider <= target_master_clock {
             self.tick(mapper);
         }
     }
@@ -416,7 +448,7 @@ impl Ppu {
         self.prev_rendering_enabled = self.rendering_enabled();
 
         // Advance dot/scanline + internal master clock counter.
-        self.ppu_clock = self.ppu_clock.saturating_add(MASTER_CLOCK_DIVIDER);
+        self.ppu_clock = self.ppu_clock.saturating_add(self.master_divider);
         self.dot += 1;
         if self.dot > 340 {
             self.dot = 0;
