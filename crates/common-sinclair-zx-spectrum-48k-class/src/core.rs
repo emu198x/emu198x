@@ -497,22 +497,34 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
 
     /// Read the floating bus for an unused odd-port `IN`.
     ///
-    /// The live ULA bus is exact *at the beam*, but a real `IN A,(n)`
-    /// samples the data bus three T-states after our `io_read` fires for
-    /// it (`handle_bus` resolves the IO transaction relative to the M1
-    /// boundary rather than the data phase). Verified against floatspy
-    /// (#62): its timed read (`in a,(0ffh)`, port `0x00FF`) lands on the
-    /// first floating-bus data slot on real hardware, which is `+3`
-    /// T-states from where our `io_read` fires. So evaluate the
-    /// floating-bus model at the hardware sample instant instead of the
-    /// live beam value.
+    /// Our `io_read` fires when the IO transaction resolves — the IORQ
+    /// rising edge — while hardware latches the data bus later in the
+    /// cycle. `SAMPLE_LEAD` is that gap.
     ///
-    /// `tstate_in_frame()` numbers the frame from display line 0, which is
-    /// FUSE T-state 14336; add the 3 T-state sample lead → FUSE-T =
-    /// our-T + 14339. The model is byte-exact vs Spectron/FUSE (#10).
+    /// **This constant currently carries a known one-T-state error, and
+    /// that is deliberate.** Three sources put the true gap at 2: the Z80
+    /// latches at the edge ending `TW` (our trace has IORQ rising at
+    /// cycle-start+1 and release at +3); FUSE's `readport` samples at
+    /// start+3 via `contend_early` then `contend_late`; and SpecIde
+    /// samples at `ST_IORD_T3L_DATARD`, the fourth T-state. At `2` here,
+    /// though, Float48K reads 14337 against Woody's hardware-measured
+    /// 14338, so one T-state is unaccounted for somewhere in this path.
+    ///
+    /// The most likely home for it is `ORIGIN`. We assert our frame
+    /// T-state 0 is FUSE T-state 14336, but FUSE has
+    /// `line_times[24] = 14320` (top-left pixel of that line's *border*)
+    /// and `top_left_pixel = 14336` — sixteen T-states apart, being the
+    /// four border columns at 4T each. Which of those our origin actually
+    /// corresponds to has not been verified, and until it is, moving this
+    /// constant only relocates the error.
+    ///
+    /// It is left here, in one clearly-labelled place, rather than being
+    /// absorbed into the byte pattern where it lived until 2026-08-10 —
+    /// see `floating_bus_byte`. Splitting one error across two constants
+    /// is what made it invisible for so long.
     fn floating_bus_read(&self) -> u8 {
         const ORIGIN: u32 = 14_336; // our-T 0 == FUSE-T of display line 0
-        const SAMPLE_LEAD: u32 = 3; // hardware samples 3 T after our io_read
+        const SAMPLE_LEAD: u32 = 2; // see the note above: known ±1
         const FLOAT_START: u32 = 14_338; // Spectron FloatingBusStartTicks (48K)
         let frame = TIMING_48K.tstates_per_frame;
         let t = (self.tstate_in_frame() + ORIGIN + SAMPLE_LEAD) % frame;

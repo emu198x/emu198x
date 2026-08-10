@@ -412,10 +412,14 @@ pub fn floating_bus_byte(
     tstates_per_line: u32,
     memory: &dyn MemoryBus,
 ) -> u8 {
-    if frame_tstate <= float_start {
+    // `float_start` is the T-state of the *first* data byte, not the last
+    // idle one — FUSE returns `display_line_start[0]` at 14338 itself.
+    // Treating it as exclusive put every slot one T-state late across the
+    // whole frame; see `fuse_floating_bus_differential`.
+    if frame_tstate < float_start {
         return 0xFF;
     }
-    let rel = frame_tstate - 1 - float_start;
+    let rel = frame_tstate - float_start;
     let line = rel / tstates_per_line;
     if line >= 192 {
         return 0xFF;
@@ -986,19 +990,132 @@ mod tests {
         const FS: u32 = 14_338; // 48K FloatingBusStartTicks
         let b = |t: u32| floating_bus_byte(t, FS, 224, &mem);
 
-        // First 8-T group of display line 0 (rel 0..7): bitmap col0, attr
-        // col0, bitmap col1, attr col1, then four idle slots.
-        assert_eq!(b(FS + 1), 0x00, "rel 0 → bitmap column 0");
-        assert_eq!(b(FS + 2), 0x80, "rel 1 → attribute column 0");
-        assert_eq!(b(FS + 3), 0x01, "rel 2 → bitmap column 1");
-        assert_eq!(b(FS + 4), 0x81, "rel 3 → attribute column 1");
+        // `float_start` is the T-state of the *first data byte*, not the
+        // last idle one. This test previously indexed from `FS + 1`, which
+        // encoded the one-T-state lag corrected on 2026-08-10 — see
+        // `fuse_floating_bus_differential`, which checks the whole frame
+        // against FUSE's `spectrum_unattached_port` rather than four slots.
+        //
+        // First 8-T group of display line 0: bitmap col0, attr col0,
+        // bitmap col1, attr col1, then four idle slots.
+        assert_eq!(b(FS), 0x00, "rel 0 → bitmap column 0");
+        assert_eq!(b(FS + 1), 0x80, "rel 1 → attribute column 0");
+        assert_eq!(b(FS + 2), 0x01, "rel 2 → bitmap column 1");
+        assert_eq!(b(FS + 3), 0x81, "rel 3 → attribute column 1");
         for rel in 4..8 {
-            assert_eq!(b(FS + 1 + rel), 0xFF, "rel {rel} idle");
+            assert_eq!(b(FS + rel), 0xFF, "rel {rel} idle");
         }
-        // Before the first content T-state, the right border (col >= 128),
-        // and below the 192-line display all read idle.
-        assert_eq!(b(FS), 0xFF, "at/before float_start");
-        assert_eq!(b(FS + 1 + 128), 0xFF, "column 128 past the active region");
-        assert_eq!(b(FS + 1 + 192 * 224), 0xFF, "line 192 past the display");
+        // Before the first data T-state, the right border (col >= 128), and
+        // below the 192-line display all read idle.
+        assert_eq!(b(FS - 1), 0xFF, "before float_start");
+        assert_eq!(b(FS + 128), 0xFF, "column 128 past the active region");
+        assert_eq!(b(FS + 192 * 224), 0xFF, "line 192 past the display");
+    }
+}
+
+#[cfg(test)]
+mod fuse_floating_bus_differential {
+    use super::*;
+    use crate::memory::MemoryBus;
+
+    /// Screen memory whose byte identifies its own address, and which
+    /// never returns `0xFF` — so `0xFF` unambiguously means "idle bus"
+    /// and any other mismatch means the two models addressed different
+    /// bytes.
+    struct AddressCodedScreen;
+    impl MemoryBus for AddressCodedScreen {
+        fn read(&self, addr: u16) -> u8 {
+            (addr % 251) as u8
+        }
+        fn write(&mut self, _addr: u16, _value: u8) {}
+        fn is_contended(&self, _addr: u16) -> bool {
+            true
+        }
+    }
+
+    /// FUSE's `spectrum_unattached_port`, transcribed.
+    ///
+    /// Constants from `libspectrum` `timings_frame_ferranti_5c_6c`
+    /// (left_border 24, horizontal_screen 128, 224 T/line, top_left_pixel
+    /// 14336) and FUSE's `machine.c`, where
+    /// `line_times[0] = top_left_pixel - 24*224 - 16 = 8944`, so the first
+    /// screen line starts at `line_times[24] = 14320`.
+    ///
+    /// This is the reference implementation, not a restatement of ours —
+    /// the point is to disagree where we are wrong.
+    fn fuse_unattached_port(t: u32, memory: &dyn MemoryBus) -> u8 {
+        const FIRST_SCREEN_LINE_T: u32 = 14_320;
+        const PER_LINE: u32 = 224;
+        const LEFT_BORDER: u32 = 24;
+        const HORIZONTAL_SCREEN: u32 = 128;
+        // `left_border - DISPLAY_BORDER_WIDTH_COLS * 4` = 24 - 16.
+        const THROUGH_LINE_ADJUST: u32 = 8;
+
+        if t < FIRST_SCREEN_LINE_T {
+            return 0xFF;
+        }
+        let line = (t - FIRST_SCREEN_LINE_T) / PER_LINE;
+        if line >= 192 {
+            return 0xFF;
+        }
+        let through_line = t - (FIRST_SCREEN_LINE_T + line * PER_LINE) + THROUGH_LINE_ADJUST;
+        if !(LEFT_BORDER..LEFT_BORDER + HORIZONTAL_SCREEN).contains(&through_line) {
+            return 0xFF;
+        }
+        let mut column = ((through_line - LEFT_BORDER) / 8) * 2;
+        let y = line as u16;
+        match through_line % 8 {
+            5 => {
+                column += 1;
+                memory.read_screen(
+                    0x4000 | UlaEngine::compute_attr_addr(y).wrapping_add(column as u16),
+                )
+            }
+            3 => memory
+                .read_screen(0x4000 | UlaEngine::compute_attr_addr(y).wrapping_add(column as u16)),
+            4 => {
+                column += 1;
+                memory.read_screen(
+                    0x4000 | UlaEngine::compute_data_addr(y).wrapping_add(column as u16),
+                )
+            }
+            2 => memory
+                .read_screen(0x4000 | UlaEngine::compute_data_addr(y).wrapping_add(column as u16)),
+            _ => 0xFF,
+        }
+    }
+
+    /// Our floating-bus model must agree with FUSE's at every T-state of
+    /// the frame.
+    ///
+    /// This compares *models* rather than outcomes, which is the point:
+    /// every floating-bus experiment routed through a test program also
+    /// routed through that program's conventions — Ramsoft's first byte
+    /// at 14347 against FUSE's 14338 is a nine-T-state gap sitting
+    /// between the emulator and the answer. A direct diff removes it, and
+    /// cannot be satisfied by tuning a constant.
+    #[test]
+    fn matches_fuse_across_the_whole_frame() {
+        let mem = AddressCodedScreen;
+        let mut mismatches = Vec::new();
+        for t in 0..69_888u32 {
+            let ours = floating_bus_byte(t, 14_338, 224, &mem);
+            let theirs = fuse_unattached_port(t, &mem);
+            if ours != theirs {
+                mismatches.push((t, ours, theirs));
+            }
+        }
+        if !mismatches.is_empty() {
+            let total = mismatches.len();
+            let sample: Vec<String> = mismatches
+                .iter()
+                .take(12)
+                .map(|(t, o, f)| format!("t={t} ours={o:#04x} fuse={f:#04x}"))
+                .collect();
+            panic!(
+                "floating-bus model disagrees with FUSE at {total} of 69888 T-states\n  {}",
+                sample.join("\n  ")
+            );
+        }
     }
 }
