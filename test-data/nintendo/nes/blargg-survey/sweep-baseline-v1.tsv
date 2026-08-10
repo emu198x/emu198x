@@ -15,13 +15,25 @@
 # with $00FF == 0xFF too, and produces a byte-identical nametable. Graded on
 # the shell's own per-sub-test pass markers now.
 #
-# ⚠ Zero fails does NOT mean the core is proven. 15 ROMs are visual-only and
-# ungraded, and 99 .nes files on disk are in directories the sweep never
-# enumerates. Absence of a failing gate is not evidence of correctness where
-# no gate runs.
+# 2026-08-10: coverage gap closed. The sweep reached 155 of the 263 .nes files
+# on disk; every directory is now either swept or named in UNSWEPT_DIRS with a
+# reason, asserted by every_directory_is_accounted_for. Sweep is now 171.
+#
+# The two fails are EXPECTED and are not defects. mmc3_irq_tests/readme.txt:
+# "The last two ROMs test different revisions of the MMC3, so at most only one
+# will pass on a particular emulator." We implement MMC3B, so rev_B passes and
+# rev_A fails; mmc3_test_2's 5-MMC3 / 6-MMC3_alt are the same pair. This is the
+# same reason blargg_ppu.rs leaves mmc3_test's 6-MMC6 unwired.
+#
+# ⚠ Full green is NOT proof of correctness. 18 ROMs are visual-only and
+# ungraded, and three MMC5 ROMs (mmc5test, mmc5test_v2, exram) are excluded as
+# UNRESOLVED — they render nothing at all despite mapper 5 being implemented,
+# which is unexplained and may be a real defect. Absence of a failing gate is
+# not evidence of correctness where no gate runs.
 #
 # suite	rom	verdict	code
-# totals: {'pass': 140, 'fail': 0, 'visual': 15}
+# totals: {'pass': 151, 'fail': 2, 'visual': 18}
+
 apu_mixer	dmc.nes	pass	
 apu_mixer	noise.nes	pass	
 apu_mixer	square.nes	pass	
@@ -124,6 +136,18 @@ instr_test-v5	rom_singles/15-brk.nes	pass
 instr_test-v5	rom_singles/16-special.nes	pass	
 instr_timing	rom_singles/1-instr_timing.nes	pass	
 instr_timing	rom_singles/2-branch_timing.nes	pass	
+mmc3_irq_tests	1.Clocking.nes	pass
+mmc3_irq_tests	2.Details.nes	pass
+mmc3_irq_tests	3.A12_clocking.nes	pass
+mmc3_irq_tests	4.Scanline_timing.nes	pass
+mmc3_irq_tests	5.MMC3_rev_A.nes	fail	0x03
+mmc3_irq_tests	6.MMC3_rev_B.nes	pass
+mmc3_test_2	rom_singles/1-clocking.nes	pass
+mmc3_test_2	rom_singles/2-details.nes	pass
+mmc3_test_2	rom_singles/3-A12_clocking.nes	pass
+mmc3_test_2	rom_singles/4-scanline_timing.nes	pass
+mmc3_test_2	rom_singles/5-MMC3.nes	pass
+mmc3_test_2	rom_singles/6-MMC3_alt.nes	fail	0x02
 nes_instr_test	rom_singles/01-implied.nes	pass	
 nes_instr_test	rom_singles/02-immediate.nes	pass	
 nes_instr_test	rom_singles/03-zero_page.nes	pass	
@@ -151,6 +175,10 @@ ppu_vbl_nmi	rom_singles/07-nmi_on_timing.nes	pass
 ppu_vbl_nmi	rom_singles/08-nmi_off_timing.nes	pass	
 ppu_vbl_nmi	rom_singles/09-even_odd_frames.nes	pass	
 ppu_vbl_nmi	rom_singles/10-even_odd_timing.nes	pass	
+read_joy3	count_errors.nes	visual
+read_joy3	count_errors_fast.nes	visual
+read_joy3	test_buttons.nes	visual
+read_joy3	thorough_test.nes	pass
 sprdma_and_dmc_dma	sprdma_and_dmc_dma.nes	pass
 sprdma_and_dmc_dma	sprdma_and_dmc_dma_512.nes	pass
 sprite_hit_tests_2005.10.05	01.basics.nes	pass	

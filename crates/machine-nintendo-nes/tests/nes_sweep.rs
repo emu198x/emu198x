@@ -94,6 +94,16 @@ const VISUAL_ROMS: &[&str] = &[
     // `tests/ppu_read_buffer_probe.rs` for the diagnostic that
     // walked through the entire boot sequence.
     "test_ppu_read_buffer.nes",
+    // read_joy3: three of the four are observational rather than
+    // pass/fail. `count_errors` and `count_errors_fast` print an X each
+    // time a DMC fetch collides with a controller read and explicitly
+    // note that "a conflict doesn't affect the result of read_joy",
+    // so there is no verdict to grade; `test_buttons` needs a human
+    // pressing buttons. `thorough_test.nes` DOES produce a verdict and
+    // stays graded.
+    "count_errors.nes",
+    "count_errors_fast.nes",
+    "test_buttons.nes",
 ];
 
 /// Delay between observing the `$81` "needs reset" status and
@@ -444,6 +454,99 @@ const SWEEP_DIRS: &[&str] = &[
     "oam_stress",
     "ppu_open_bus",
     "ppu_read_buffer",
+    // Mappers and input. Added 2026-08-10 while closing the gap between
+    // the corpus on disk and what the sweep actually reached; see
+    // UNSWEPT_DIRS below for what is deliberately still outside it.
+    "mmc3_irq_tests",
+    "mmc3_test_2",
+    "read_joy3",
+];
+
+/// Directories of the corpus the sweep deliberately does NOT enumerate,
+/// each with the reason.
+///
+/// ⚠ This exists so "not swept" is a recorded decision rather than an
+/// oversight. The campaign's goal is that every ROM is accounted for —
+/// passing, or carrying a stated reason — and a directory nobody listed
+/// is exactly the gap that let three false failures stand for months.
+///
+/// Asserted against the filesystem by [`every_directory_is_accounted_for`],
+/// so a newly-added directory fails the suite until it is either swept or
+/// explicitly excluded here.
+const UNSWEPT_DIRS: &[(&str, &str)] = &[
+    (
+        "mmc3_test",
+        "gated ROM-by-ROM in blargg_ppu.rs, which also records why 6-MMC6 \
+         is excluded (an MMC3B core cannot pass both it and 5-MMC3)",
+    ),
+    (
+        "pal_apu_tests",
+        "PAL timing; ricoh-apu-2a03 has ApuRegion but Nes::new builds an \
+         NTSC machine only, so these would be graded at the wrong clock. \
+         A real capability gap, not a grading one",
+    ),
+    (
+        "240pee",
+        "240p test suite — calibration patterns for human/display inspection",
+    ),
+    ("blargg_litewall", "demo effect, no result protocol"),
+    ("nes15-1.0.0", "a 15-puzzle game, not a test"),
+    ("ny2011", "demo"),
+    ("scanline", "visual scanline-timing demo"),
+    ("scanline-a1", "visual scanline-timing demo"),
+    ("scrolltest", "visual scrolling demo"),
+    ("spritecans-2011", "demo"),
+    ("stomper", "demo"),
+    ("tutor", "demo"),
+    ("window5", "visual colour-window demo (NTSC+PAL pair)"),
+    (
+        "PaddleTest3",
+        "requires paddle peripheral input the sweep cannot supply",
+    ),
+    (
+        "vaus-test",
+        "requires Arkanoid Vaus controller input the sweep cannot supply",
+    ),
+    (
+        "MMC1_A12",
+        "interactive: draws with an offset font and asks the operator to \
+         adjust a delay with the D-pad",
+    ),
+    (
+        "m22chrbankingtest",
+        "visual: displays a CHR bank grid for inspection",
+    ),
+    (
+        "nrom368",
+        "homebrew NROM-368 mapper-proposal demo (C source, music, tileset); \
+         fail368.nes exists to SHOW the failure mode, not to be passed",
+    ),
+    (
+        "tvpassfail",
+        "display calibration for the physical TV; needs a human and the A \
+         button to page through screens",
+    ),
+    (
+        "mmc5test",
+        "⚠ UNRESOLVED, not benign. Renders nothing at all by 40M ticks. \
+         Mapper 5 IS implemented, so a blank screen is unexplained and may \
+         be an MMC5 defect. Excluded to keep the sweep honest, NOT because \
+         it was triaged as visual. See probe_timeout_screens.",
+    ),
+    (
+        "mmc5test_v2",
+        "⚠ UNRESOLVED — same blank screen as mmc5test; see above",
+    ),
+    (
+        "exram",
+        "⚠ UNRESOLVED — MMC5 ExRAM test, same blank screen; see mmc5test",
+    ),
+    (
+        "other",
+        "mixed bag of demos, homebrew games and one-off probes with no \
+         common result protocol; nestest.nes among them is gated by \
+         tests/nestest.rs",
+    ),
 ];
 
 #[test]
@@ -587,9 +690,124 @@ fn assert_against_baseline(observed: &std::collections::BTreeMap<(String, String
     );
 }
 
+/// Every directory in the corpus is either swept or explicitly excluded.
+///
+/// ⚠ Not `#[ignore]`d, unlike the sweep itself: it only reads directory
+/// names, so it costs nothing and can run in the normal suite. That
+/// matters — the gap this closes (99 `.nes` files in directories nobody
+/// had listed) survived precisely because noticing it required someone
+/// to go looking.
+#[test]
+fn every_directory_is_accounted_for() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let excluded: std::collections::BTreeSet<&str> = UNSWEPT_DIRS.iter().map(|(d, _)| *d).collect();
+    let swept: std::collections::BTreeSet<&str> = SWEEP_DIRS.iter().copied().collect();
+
+    let mut unaccounted = Vec::new();
+    for entry in std::fs::read_dir(&root)
+        .expect("read corpus root")
+        .flatten()
+    {
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // Only directories that actually contain ROMs need a decision.
+        let has_roms = walk_has_nes(&entry.path());
+        if has_roms && !swept.contains(name.as_str()) && !excluded.contains(name.as_str()) {
+            unaccounted.push(name);
+        }
+    }
+    unaccounted.sort();
+    assert!(
+        unaccounted.is_empty(),
+        "test-rom directories are neither swept nor declared unswept: {unaccounted:?}\n\
+         Add each to SWEEP_DIRS, or to UNSWEPT_DIRS with the reason."
+    );
+
+    // And the reverse: a declared exclusion that no longer exists is a
+    // stale claim, which is its own kind of wrong record.
+    let stale: Vec<&str> = UNSWEPT_DIRS
+        .iter()
+        .map(|(d, _)| *d)
+        .filter(|d| !root.join(d).is_dir())
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "UNSWEPT_DIRS names directories that no longer exist: {stale:?}"
+    );
+}
+
+fn walk_has_nes(dir: &Path) -> bool {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            if walk_has_nes(&p) {
+                return true;
+            }
+        } else if p.extension().is_some_and(|s| s == "nes") {
+            return true;
+        }
+    }
+    false
+}
+
 /// Locate the declared baseline, relative to this crate.
 fn baseline_path() -> Option<PathBuf> {
     let p = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../test-data/nintendo/nes/blargg-survey/sweep-baseline-v1.tsv");
     p.is_file().then(|| p.clone())
+}
+
+/// Print the on-screen text of named ROMs, for triaging a timeout into
+/// "visual-only", "needs input", or "genuinely stuck".
+#[test]
+#[ignore = "diagnostic: prints screen text for triage"]
+fn probe_timeout_screens() {
+    let Some(root) = nes_test_roms_root() else {
+        return;
+    };
+    for rel in [
+        "MMC1_A12/mmc1_a12.nes",
+        "mmc5test/mmc5test.nes",
+        "mmc5test_v2/mmc5test.nes",
+        "exram/mmc5exram.nes",
+        "m22chrbankingtest/0-127.nes",
+        "nrom368/test1.nes",
+        "nrom368/fail368.nes",
+    ] {
+        let Ok(bytes) = std::fs::read(root.join(rel)) else {
+            continue;
+        };
+        let Ok(parsed) = parse_ines(&bytes) else {
+            continue;
+        };
+        let mut nes = Nes::new(parsed.mapper);
+        while nes.master_clock() < 40_000_000 {
+            nes.tick();
+        }
+        let nt = nes.ppu.nametable_ram();
+        println!("\n═══ {rel} ═══");
+        for row in 0..30 {
+            let line: String = nt[row * 32..row * 32 + 32]
+                .iter()
+                .map(|&b| {
+                    if (0x21..=0x7E).contains(&b) {
+                        b as char
+                    } else {
+                        ' '
+                    }
+                })
+                .collect();
+            if !line.trim().is_empty() {
+                println!("  {}", line.trim_end());
+            }
+        }
+    }
 }

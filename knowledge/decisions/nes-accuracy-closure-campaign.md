@@ -428,11 +428,50 @@ throughout the run showed it never fired. That alone should have been read as
 cross-check harness, and `probe_implied_checksums` /
 `probe_cpu_test5_raw_nametable`.
 
+## ✅ Coverage gap closed (2026-08-10)
+
+The sweep reached 155 of the 263 `.nes` files on disk. **Every directory is now
+either swept or named in `UNSWEPT_DIRS` with a reason**, and
+`every_directory_is_accounted_for` asserts that — a new directory fails the
+suite until someone decides about it. That test is deliberately NOT `#[ignore]`d:
+it only reads directory names, and the gap it closes survived because noticing
+it required going to look.
+
+The sweep is now **171: 151 pass, 2 fail, 0 timeout, 18 visual**.
+
+⚠ The 99 un-swept files were mostly not tests. What they actually were:
+
+| Category | Directories |
+|---|---|
+| Real test suites, now swept (+16 ROMs) | `mmc3_irq_tests`, `mmc3_test_2`, `read_joy3` |
+| Already gated elsewhere | `mmc3_test` (in `blargg_ppu.rs`) |
+| Demos, games, homebrew | `other` (39), `blargg_litewall`, `240pee`, `nes15`, `ny2011`, `scanline`, `scanline-a1`, `scrolltest`, `spritecans-2011`, `stomper`, `tutor`, `window5`, `nrom368` |
+| Need peripherals or a human | `PaddleTest3`, `vaus-test`, `tvpassfail`, `MMC1_A12`, `m22chrbankingtest` |
+| Wrong region | `pal_apu_tests` |
+| **⚠ Unresolved** | `mmc5test`, `mmc5test_v2`, `exram` |
+
+**The two new failures are expected and are not defects.** `mmc3_irq_tests`'s
+own readme: *"The last two ROMs test different revisions of the MMC3, so at most
+only one will pass on a particular emulator."* We implement MMC3B, so `rev_B`
+passes and `rev_A` fails; `mmc3_test_2`'s `5-MMC3` / `6-MMC3_alt` are the same
+pair. It is the same reason `blargg_ppu.rs` leaves `mmc3_test`'s `6-MMC6`
+unwired. The real result here is **ten new MMC3 IRQ-counter passes**, covering
+scanline timing and A12 clocking, which nothing previously gated.
+
+### ⚠ Two capability gaps this surfaced
+
+1. **No PAL machine.** `ricoh-apu-2a03` has `ApuRegion` and a PAL rate table,
+   but `Nes::new` builds an NTSC machine only, so `pal_apu_tests` (10 ROMs)
+   cannot be graded at all. This is a capability gap, not a grading one.
+2. **Three MMC5 ROMs render nothing.** `mmc5test`, `mmc5test_v2` and `exram`
+   produce a completely blank screen by 40M ticks, despite mapper 5 being
+   implemented and `mmc5_expansion.rs` existing. **This is unexplained and may
+   be a real defect.** They are excluded as UNRESOLVED rather than filed as
+   visual, precisely so the distinction is not lost. Next lead: `probe_timeout_screens`.
+
 ## ⚠ On acquiring more test ROMs
 
-The corpus is 263 ROMs and the sweep reaches 155. Before adding suites, close
-the gap between those two numbers — an unswept ROM already on disk is worth
-more than a newly fetched one, and costs nothing to obtain. Candidates for later
+Candidates for later acquisition once the current corpus is exhausted. Candidates for later
 acquisition once the current corpus is exhausted: the NESdev `ppu_sprite_hit`
 and `ppu_sprite_overflow` originals, Tom Harte's 6502 per-instruction corpus
 (already used for Z80 in this workspace), and `nes_cpu_exec_space`.
