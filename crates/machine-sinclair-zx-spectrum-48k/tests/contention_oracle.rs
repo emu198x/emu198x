@@ -28,6 +28,14 @@
 //! case ran. Turning any individual case into a gate is a separate
 //! decision, taken once the engine agrees with the oracle.
 //!
+//! Two views, and they are not equally authoritative.
+//! `contention_matches_the_canonical_model_per_instruction` compares
+//! whole-frame instruction counts and matches exactly for every case.
+//! `contention_cost_by_arrival_phase` breaks the same work down by
+//! contention phase and still carries a one-T-state residual on
+//! multi-M-cycle instructions — see `PHASE_SAMPLE_OFFSET`. Read the
+//! frame totals as the result and the phase table as a diagnostic.
+//!
 //! ```sh
 //! cargo test --release -p machine-sinclair-zx-spectrum-48k \
 //!     --test contention_oracle -- --ignored --nocapture
@@ -51,6 +59,37 @@ const DISPLAY_LINES: u32 = 192;
 const CONTENDED_PER_LINE: u32 = 128;
 /// The canonical delay pattern across an 8-T-state contention slot.
 const PATTERN: [u32; 8] = [6, 5, 4, 3, 2, 1, 0, 0];
+
+/// T-states by which the harness's phase sample runs ahead of the gate.
+///
+/// The harness reads the pixel counter *between* ticks, while the gate
+/// evaluates `DELAY_TABLE_48K` at the start of the tick on which an
+/// instruction's first M-cycle is decided. Those instants are one
+/// T-state apart, so the sampled index names a later slot than the one
+/// the gate acted on, and every row of the table inherited that shift.
+///
+/// Fixed from the two single-M-cycle anchors, `NOP` and `INC BC`, whose
+/// frame totals are independently exact — so their per-phase cost must
+/// be exact too, and any residual there is sampling alone. With the
+/// offset applied both read `+0`, range `+0 .. +0`.
+///
+/// **A residual remains, and it is not this offset.** The multi-M-cycle
+/// cases read `+1` rather than `0`, and no single constant can zero both
+/// groups: a further T-state would fix them and push the anchors to
+/// `-1`. The multi-M-cycle cases were not used to choose the offset,
+/// which is precisely why they are worth reporting — they say the
+/// canonical *phase walk* mismodels something about how a second
+/// M-cycle picks up its delay, by one T-state per instruction.
+///
+/// That residual does not touch the frame totals, which match exactly
+/// for all seven cases, so it is a property of the per-instruction model
+/// rather than of the engine. Treat `contention_cost_by_arrival_phase`
+/// as indicative and
+/// `contention_matches_the_canonical_model_per_instruction` as
+/// authoritative until the phase walk is reconciled. It is deliberately
+/// left as a known residual rather than absorbed into a second constant,
+/// because a table tuned until it agrees stops being evidence.
+const PHASE_SAMPLE_OFFSET: usize = 1;
 
 /// Contended RAM: the whole lower 16K.
 const CODE_BASE: u16 = 0x4000;
@@ -285,8 +324,9 @@ fn contention_cost_by_arrival_phase() {
         let mut spent = 0u32;
         while spent < FRAME_TSTATES {
             let (_, pixel, video, _, _) = machine.ula().debug_raster();
-            // The gate's own index, in T-states rather than half-cycles.
-            let phase = ((pixel & 0x0F) / 2) as usize;
+            // The gate's own index, in T-states rather than half-cycles,
+            // corrected by the sampling offset below.
+            let phase = (((pixel & 0x0F) / 2) as usize + 8 - PHASE_SAMPLE_OFFSET) & 7;
             let canonical = canonical_cost_from_phase(phase, case.mcycles);
             let measured = step_one_instruction(&mut machine);
             spent += measured;
