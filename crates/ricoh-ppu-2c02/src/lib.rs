@@ -191,6 +191,13 @@ pub struct Ppu {
     /// `knowledge/decisions/nes-clock-topology.md`.
     #[serde(default = "default_master_divider")]
     master_divider: u64,
+    /// Whether the pre-render line drops a dot on odd frames.
+    ///
+    /// ⚠ NTSC only. The 2C07 (PAL) runs every frame at the full 341
+    /// dots — there is no short frame — so a PAL machine must clear
+    /// this or every odd frame comes out one dot early.
+    #[serde(default = "default_odd_frame_dot_skip")]
+    odd_frame_dot_skip: bool,
     /// Suppress VBL flag on the next tick. Set when $2002 is read
     /// on the exact PPU cycle that VBL would be set.
     suppress_vbl: bool,
@@ -247,6 +254,11 @@ fn default_master_divider() -> u64 {
     MASTER_CLOCK_DIVIDER
 }
 
+/// Serde default for [`Ppu::odd_frame_dot_skip`] — NTSC behaviour.
+fn default_odd_frame_dot_skip() -> bool {
+    true
+}
+
 /// Number of PPU-clock ticks (4× PPU dots) after which an open-bus
 /// bit decays back to 0 if not refreshed. Real hardware varies with
 /// chip + temperature, with ~600 ms typical (per nesdev). At
@@ -280,6 +292,13 @@ impl Ppu {
     #[must_use]
     pub fn master_divider(&self) -> u64 {
         self.master_divider
+    }
+
+    /// Enable or disable the NTSC odd-frame dot skip.
+    ///
+    /// Set `false` for PAL: the 2C07 has no short frame.
+    pub fn set_odd_frame_dot_skip(&mut self, enabled: bool) {
+        self.odd_frame_dot_skip = enabled;
     }
 
     /// Create a PPU with the given pre-render scanline number.
@@ -351,6 +370,7 @@ impl Ppu {
 
             pre_render_line,
             master_divider: MASTER_CLOCK_DIVIDER,
+            odd_frame_dot_skip: true,
             suppress_vbl: false,
             bus_address: 0,
             prev_a12: false,
@@ -504,7 +524,11 @@ impl Ppu {
         // toggles BG on (or off) immediately before dot 339 therefore
         // does not affect this frame's skip — matching Mesen's 1-cycle
         // delay on `_renderingEnabled` (blargg 10-even_odd_timing).
-        if self.dot == 339 && self.frame_odd && self.prev_rendering_enabled {
+        if self.odd_frame_dot_skip
+            && self.dot == 339
+            && self.frame_odd
+            && self.prev_rendering_enabled
+        {
             self.dot = 340;
         }
     }

@@ -498,9 +498,9 @@ const UNSWEPT_DIRS: &[(&str, &str)] = &[
     ),
     (
         "pal_apu_tests",
-        "PAL timing; ricoh-apu-2a03 has ApuRegion but Nes::new builds an \
-         NTSC machine only, so these would be graded at the wrong clock. \
-         A real capability gap, not a grading one",
+        "PAL: needs Nes::new_with_region(.., Region::Pal), which the sweep \
+         cannot express per-directory. Gated in tests/pal_apu.rs instead — \
+         all ten pass, and seven of them discriminate by region",
     ),
     (
         "240pee",

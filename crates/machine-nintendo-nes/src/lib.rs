@@ -318,6 +318,8 @@ impl Nes {
         // lockout is invisible to correct code and silently drops the writes
         // of code that does not wait.
         let mut ppu = Ppu::new_with_timing(region.pre_render_line(), region.dot_units());
+        // The 2C07 runs every frame at the full 341 dots.
+        ppu.set_odd_frame_dot_skip(region == Region::Ntsc);
         ppu.arm_reset_write_lockout();
 
         Self {

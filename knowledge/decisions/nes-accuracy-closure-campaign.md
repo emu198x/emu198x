@@ -460,9 +460,8 @@ scanline timing and A12 clocking, which nothing previously gated.
 
 ### ⚠ Two capability gaps this surfaced
 
-1. **No PAL machine.** `ricoh-apu-2a03` has `ApuRegion` and a PAL rate table,
-   but `Nes::new` builds an NTSC machine only, so `pal_apu_tests` (10 ROMs)
-   cannot be graded at all. This is a capability gap, not a grading one.
+1. ~~No PAL machine.~~ ✅ **Closed — see below.** All ten `pal_apu_tests` pass,
+   and seven of them discriminate by region.
 2. ~~Three MMC5 ROMs render nothing.~~ **Resolved — see below. They were never
    blank; the harness was reading a buffer that is always empty for MMC5.**
 
@@ -516,6 +515,49 @@ non-uniform framebuffer, because a ROM that drew its banner and then died in
 ExRAM would satisfy the first check alone.
 
 Sweep: **174 — 151 pass, 2 expected fails, 0 timeout, 21 visual.**
+
+## PAL support
+
+`Nes::new_with_region(mapper, Region::Pal)` exists, and all ten
+`pal_apu_tests` ROMs pass — a suite that could not be graded at any clock the
+emulator could previously produce.
+
+**Why this did not violate the clock decision.**
+[`nes-clock-topology.md`](nes-clock-topology.md) already anticipated it: *"the
+CPU : PPU ratio stays at 1:3.2 on PAL, which is why PAL and NTSC use different
+PPU tick budgets."* The master oscillator still drives the loop in both regions.
+Only the dividers move.
+
+The blocker was that 3.2 dots per CPU cycle cannot be expressed by a counter of
+whole dots. The `% 3` divider became a **phase accumulator over master-clock
+units** — 4 per dot and 12 per cycle on NTSC, 5 and 16 on PAL. NTSC is
+arithmetically identical to the counter it replaces, which the unchanged sweep
+(174 — 151/2/0/21) confirms; PAL yields the 3, 3, 3, 3, 4 pattern the ratio
+demands.
+
+| | NTSC | PAL |
+|---|---|---|
+| master-clock units per dot | 4 | 5 |
+| units per CPU cycle | 12 | 16 |
+| dots per CPU cycle | 3 | 3.2 |
+| pre-render line | 261 | 311 |
+| odd-frame dot skip | yes | **no** — the 2C07 has no short frame |
+| APU tables | `ApuRegion::Ntsc` | `ApuRegion::Pal` |
+
+⚠ **The gate was checked before it was trusted.** Ten green tests prove nothing
+about PAL if the ROMs pass under NTSC too — the same trap as a mode-selecting
+ROM whose held button never registered. `probe_pal_roms_discriminate` runs each
+ROM in both regions: **seven settle at 1 on PAL and 2 or 3 on NTSC.** The three
+that agree across regions (`01.len_ctr`, `02.len_table`, `03.irq_flag`) are
+region-insensitive and are kept for the APU behaviour they assert, not as PAL
+evidence.
+
+⚠ **What this does NOT establish.** Only the APU is exercised. PAL PPU geometry
+(312 lines, the 70-line VBLANK) is wired and self-consistent but has no ROM
+asserting it, and no PAL *video* output has been compared against a reference.
+`Region` is fixed at construction by design — it is read every tick, and
+changing it mid-run would leave the PPU's dot counter and the CPU phase
+accumulator on different clocks.
 
 ## ⚠ On acquiring more test ROMs
 
