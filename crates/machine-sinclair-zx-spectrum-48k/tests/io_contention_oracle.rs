@@ -340,29 +340,53 @@ fn mismatches(samples: &[(u32, u32)], port: u16, offset: i32) -> usize {
 /// A scored port class: name, port, FUSE shape, and its raw samples.
 type Scored = (&'static str, u16, &'static str, Vec<(u32, u32)>);
 
+/// Add this to an engine frame T-state to get FUSE's.
+///
+/// **Measured, not fitted.** `the_frame_origin_is_pinned_by_the_interrupt`
+/// establishes it from the one event both implementations define
+/// identically and neither derives from contention: the `/INT` edge. FUSE
+/// asserts the interrupt at frame T-state 0 — `spectrum_frame()` subtracts
+/// a frame from `tstates` and `z80_interrupt()` runs immediately after,
+/// with `/INT` held while `tstates < interrupt_length`. The engine asserts
+/// it at its own T-state 55553, and 69888 - 55553 = 14335.
+///
+/// This matters more than it looks. Fitting the offset makes it a free
+/// parameter, and a free parameter absorbs exactly the error this harness
+/// exists to find: a gate deciding one T-state late is indistinguishable
+/// from an origin one T-state early. That is not hypothetical — wiring the
+/// `MREQT23` latch moved the *fitted* winner from +14335 to +14334 while
+/// the raster it supposedly describes had not moved at all, and the shift
+/// was hiding a real +1 T-state regression on every contended `M1` pair.
+///
+/// Two further readings agree at the same anchor: the engine holds `/INT`
+/// for 32 T-states, which is `interrupt_length` for the Ferranti 5C/6C in
+/// libspectrum's `timings.c`; and +14335 puts the engine's T-state 1 at
+/// FUSE's `top_left_pixel` of 14336, one T-state after the contention
+/// window opens, which is where `FIRST_DISPLAY` already had it.
+const ORIGIN: i32 = 14335;
+
+/// The origin to score against: pinned by default, fitted on request.
+///
+/// The fit is kept because a disagreement between it and `ORIGIN` is
+/// itself a finding — it says the engine's contention phase has moved
+/// relative to its own interrupt. Reported, never silently adopted.
+fn scoring_offset(collected: &[Scored]) -> i32 {
+    match std::env::var("EMU198X_IO_ORACLE_OFFSET").as_deref() {
+        Ok("fit") => best_shared_offset(collected),
+        Ok(pinned) => pinned.parse().expect("offset override must be an integer"),
+        Err(_) => ORIGIN,
+    }
+}
+
 /// The offset that best reconciles *all* classes at once.
 ///
 /// Coarse pass over every T-state in the frame on a strided subsample,
 /// then an exhaustive fine pass over the whole sample set around the
 /// coarse winner. One class can be talked into agreement by moving the
-/// origin; four sharing a single offset cannot.
+/// origin; five sharing a single offset cannot.
 fn best_shared_offset(collected: &[Scored]) -> i32 {
     const COARSE_STRIDE: usize = 97;
     const FINE_WINDOW: i32 = 24;
-
-    // The offset can be pinned instead of fitted, and sometimes must be.
-    //
-    // Fitting it makes it a free parameter, and a free parameter absorbs
-    // exactly the kind of error this harness exists to find: a gate that
-    // decides one T-state later than the reference is indistinguishable
-    // from an origin one T-state earlier. Measured — wiring the `MREQT23`
-    // latch moves the fitted winner from +14335 to +14334, while the
-    // raster it supposedly describes has not moved at all. So any
-    // comparison *between* two gate configurations has to hold the offset
-    // fixed, and `EMU198X_IO_ORACLE_OFFSET` is how.
-    if let Ok(pinned) = std::env::var("EMU198X_IO_ORACLE_OFFSET") {
-        return pinned.parse().expect("offset override must be an integer");
-    }
 
     let score = |offset: i32, stride: usize| -> usize {
         collected
@@ -378,6 +402,71 @@ fn best_shared_offset(collected: &[Scored]) -> i32 {
     (coarse - FINE_WINDOW..=coarse + FINE_WINDOW)
         .min_by_key(|&offset| score(offset, 1))
         .expect("the fine window is not empty")
+}
+
+/// The frame origin, from the interrupt rather than from a best fit.
+///
+/// Everything phase-resolved in this file rests on mapping the engine's
+/// frame T-state to FUSE's, and for a while that mapping was whatever
+/// minimised disagreement — which is no measurement at all. The `/INT`
+/// edge is a measurement: FUSE's frame T-state 0 *is* the interrupt, and
+/// the engine's raster raises `int_active` at a T-state of its own that
+/// owes nothing to the contention gate.
+///
+/// Runs without a ROM-dependent instruction stream and asserts two things,
+/// either of which can fail: where the edge falls, and how long it lasts.
+#[test]
+#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+fn the_frame_origin_is_pinned_by_the_interrupt() {
+    use common_sinclair_zx_spectrum::ula::Ula;
+
+    /// `interrupt_length` for `timings_frame_ferranti_5c_6c`, libspectrum
+    /// `timings.c`. FUSE holds `/INT` while `tstates < interrupt_length`.
+    const FUSE_INTERRUPT_LENGTH: u32 = 32;
+
+    let Some(rom) = rom_bytes() else {
+        panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
+    };
+    let mut machine = Spectrum48k::new();
+    machine.load_rom_bytes(&rom).expect("48K ROM should load");
+    machine.reset();
+    while machine.tstate_in_frame() != 0 {
+        machine.advance_tstates(1);
+    }
+
+    let mut edges = Vec::new();
+    let mut prev = machine.ula().interrupt_active();
+    for _ in 0..FRAME_TSTATES {
+        machine.advance_tstates(1);
+        let now = machine.ula().interrupt_active();
+        if now != prev {
+            edges.push((machine.tstate_in_frame(), now));
+        }
+        prev = now;
+    }
+
+    assert_eq!(
+        edges.len(),
+        2,
+        "expected one interrupt assertion and one release per frame, got {edges:?}"
+    );
+    let (onset, rising) = edges[0];
+    let (release, falling) = edges[1];
+    assert!(rising && !falling, "edges out of order: {edges:?}");
+
+    assert_eq!(
+        release - onset,
+        FUSE_INTERRUPT_LENGTH,
+        "the engine holds /INT for {} T-states against FUSE's {FUSE_INTERRUPT_LENGTH}",
+        release - onset
+    );
+    assert_eq!(
+        FRAME_TSTATES as i32 - onset as i32,
+        ORIGIN,
+        "/INT rises at engine T-state {onset}, which puts the origin at {}, \
+         not the {ORIGIN} this file scores against",
+        FRAME_TSTATES as i32 - onset as i32
+    );
 }
 
 /// The reference has to be checked before its readings mean anything.
@@ -495,13 +584,29 @@ fn io_contention_matches_fuse_across_the_whole_frame() {
         collected.push((case.name, case.port, case.shape, all));
     }
 
-    let best = best_shared_offset(&collected);
+    let best = scoring_offset(&collected);
     let total: usize = collected
         .iter()
         .map(|(_, port, _, all)| mismatches(all, *port, best))
         .sum();
     let samples_total: usize = collected.iter().map(|(_, _, _, all)| all.len()).sum();
-    println!("\nbest shared origin offset {best:+} — {total} of {samples_total} samples disagree");
+    println!("\norigin offset {best:+} — {total} of {samples_total} samples disagree");
+
+    // The best fit is computed but never adopted. A disagreement between it
+    // and the interrupt-pinned origin is itself the finding: it says the
+    // engine's contention phase has moved relative to its own interrupt.
+    let fitted = best_shared_offset(&collected);
+    if fitted != best {
+        let fitted_total: usize = collected
+            .iter()
+            .map(|(_, port, _, all)| mismatches(all, *port, fitted))
+            .sum();
+        println!(
+            "  NOTE: best fit is {fitted:+} ({fitted_total} wrong), not the pinned \
+             {best:+}. The gate's phase has moved against its own interrupt — read \
+             that as the result, not as a reason to rescore."
+        );
+    }
 
     // The offset's neighbourhood, so it is visible whether the winner is a
     // sharp minimum or one of a plateau.
