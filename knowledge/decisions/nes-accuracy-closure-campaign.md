@@ -874,6 +874,72 @@ and should not be filed as noise. Next step: bisect frames 58-466 by comparing
 CPU cycle counts at each nametable write against Mesen, rather than comparing
 frame numbers.
 
+## PAL video: the blocker is gone, and the instrument is the wrong one
+
+Worked 2026-08-10. The recorded blocker was that Mesen2's region
+auto-detection reads the PAL test ROMs as NTSC, because none of them carries a
+PAL flag in its iNES header — so a "PAL golden" was really an NTSC capture
+under a PAL filename.
+
+**That blocker is removed.** `main.cpp` honours `EMU198X_MESEN_REGION=pal`
+through the same `NesConfig` struct that already forced `RamPowerOnState`, and
+`region-check.lua` reads back what Mesen is *actually* running rather than what
+was asked for: `region=Pal`, `clockRate=1662607`. ⚠ The read-back matters. A
+setting that is silently ignored produces captures that look exactly like
+successful ones.
+
+### The finding that changes the plan
+
+With region forcing available, the obvious next move was to capture structural
+goldens under PAL and compare. Before trusting them, the same control this
+campaign applies everywhere: **does the measurement discriminate?**
+
+`pal_screen.rs::region_sensitivity_of_each_rom` runs each candidate on our own
+machine under both regions and diffs the structural signature:
+
+| ROM | NTSC vs PAL |
+|---|---|
+| `nmi_sync/demo_pal.nes` | identical |
+| `window5/colorwin_pal.nes` | identical |
+| `other/window_old_pal.nes` | identical |
+| `other/window2_pal.nes` | identical |
+| `nes15-1.0.0/nes15-PAL.nes` | identical |
+
+**All five are region-blind.** Nametable, palette RAM and OAM are byte-identical
+under both regions, because their region-dependence lives entirely in raster
+timing. A structural PAL gate would have passed just as happily on an NTSC
+machine — a test that passes when the thing it names is broken.
+
+⚠ This is the standing lesson arriving from a new direction. Every earlier
+instance was about a *test* that could not fail; this is about an *instrument*
+that cannot see. Both are caught by the same question, asked before the result
+is believed rather than after.
+
+### The instrument it needs
+
+Rendered pixels, compared in a way that does not assume a shared palette. Two
+emulators need not agree on the RGB of NES colour `$21`; Mesen2 ships several
+palettes. But if both drew the same picture, their framebuffers agree **up to a
+bijection on colours** — so replacing each pixel with the index of its colour's
+first appearance in raster order cancels the palette exactly, and the index
+images must then match byte for byte. `tools/mesen-nes-cross-check/screen-pixels.lua`
+implements that capture, encoded one character per pixel so 240 rows fit inside
+Mesen's 500-row script log.
+
+⚠ **Blocked**: Mesen2's headless PPU frame buffer reads back all black — one
+distinct colour across all 61 440 pixels, indistinguishable from "the ROM drew
+nothing". Four hypotheses eliminated:
+
+- the `noVideo` argument to `InitializeEmu` (cleared it; no change)
+- `EmulationFlags::MaximumSpeed` skipping frame rendering (disabled it; no change)
+- Lua table indexing (it is 1-based, confirmed; `emu.getPixel` reads black too)
+- the Lua API itself — `emu.takeScreenshot` returns a 258-byte PNG, a blank image
+
+So it is not the capture path. Next step is inside Mesen rather than outside it:
+`NesConsole::GetPpuFrame` hands out `_ppu->GetScreenBuffer(false)`; find which
+of the two output buffers that selects and whether the headless build ever
+fills it. Stopped there deliberately rather than trying a fifth flag.
+
 ## ⚠ On acquiring more test ROMs
 
 Candidates for later acquisition once the current corpus is exhausted. Candidates for later

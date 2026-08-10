@@ -94,8 +94,21 @@ int main(int argc, char *argv[]) {
   }
 
   InitDll();
-  InitializeEmu(argv[1], nullptr, nullptr, true, true, true, true);
-  SetEmulationFlag(MAXIMUM_SPEED, true);
+  // ⚠ `noVideo` defaults to true here, and with it `emu.getScreenBuffer()`
+  // returns a blank frame — one distinct colour across all 61 440 pixels,
+  // which reads as "the ROM drew nothing" rather than "video is off".
+  // Opt in with EMU198X_MESEN_VIDEO=1 for pixel captures, and leave it
+  // off otherwise so structural captures keep the exact path their
+  // existing goldens were taken on.
+  bool wantVideo = getenv("EMU198X_MESEN_VIDEO") != nullptr;
+  InitializeEmu(argv[1], nullptr, nullptr, true, true, !wantVideo, true);
+  // ⚠ MaximumSpeed skips frame rendering, so the PPU frame buffer stays
+  // blank and `emu.getScreenBuffer()` reports one distinct colour over
+  // all 61 440 pixels — indistinguishable from "the ROM drew nothing".
+  // Pixel captures have to run at normal speed.
+  if (!wantVideo) {
+    SetEmulationFlag(MAXIMUM_SPEED, true);
+  }
 
   // ⚠⚠ Determinism. Mesen2's NES default is `RamState::Random`, so
   // nametable RAM, palette RAM and OAM all power up randomised. Two
@@ -109,6 +122,23 @@ int main(int argc, char *argv[]) {
   // arbitrate anything.
   NesConfig nesCfg;
   nesCfg.RamPowerOnState = RamState::AllZeros;
+
+  // ⚠ Region. Mesen2 defaults to `ConsoleRegion::Auto`, which reads the
+  // iNES header — and the PAL test ROMs carry NO PAL flag, so Auto runs
+  // every one of them as NTSC. A "PAL" capture taken that way is an NTSC
+  // capture with a PAL filename, which is worse than no capture at all.
+  // Set EMU198X_MESEN_REGION=pal to force the 2C07.
+  if (const char *region = getenv("EMU198X_MESEN_REGION")) {
+    if (strcmp(region, "pal") == 0) {
+      nesCfg.Region = ConsoleRegion::Pal;
+    } else if (strcmp(region, "ntsc") == 0) {
+      nesCfg.Region = ConsoleRegion::Ntsc;
+    } else {
+      fprintf(stderr, "unknown EMU198X_MESEN_REGION %s (want pal|ntsc)\n", region);
+      return 2;
+    }
+    printf("region forced to %s\n", region);
+  }
   SetNesConfig(nesCfg);
 
   for (int i = 2; i < argc; i++) {
