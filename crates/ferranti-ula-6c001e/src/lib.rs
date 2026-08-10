@@ -244,62 +244,89 @@ mod tests {
     /// the shape of the residual the per-instruction oracle reports on
     /// multi-M-cycle instructions and not on single-M-cycle ones, and it
     /// is something the canonical whole-T-state model cannot represent.
+    ///
+    /// Measured at both clock parities, the rule is that **the wait ends
+    /// only on a clock-high C0 that is not asserted**. The two parities
+    /// agree everywhere except inside the free window: a low-half arrival
+    /// there must first reach the high half, and at pixel 2 that lands
+    /// past the window, costing the full 13 C0 rather than 0.
+    ///
+    /// Worth recording what this does *not* explain. Applying that rule
+    /// to the arrivals the single-M-cycle anchors actually see leaves
+    /// their wait unchanged, so the parity term — now pinned by
+    /// measurement rather than fitted — is not the cause of the one
+    /// T-state those cases are out by in the oracle.
     #[test]
     #[ignore = "diagnostic probe"]
     fn effective_delay_table() {
         use common_sinclair_zx_spectrum::timing;
         const CANONICAL: [u32; 8] = [6, 5, 4, 3, 2, 1, 0, 0];
 
-        println!("\n half-cycle  T-phase  stall(half)  stall(T)  canonical[T-phase]");
+        println!("\n half-cycle  T-phase  stall@clkhi  stall@clklo  delta  canonical[T-phase]");
         for h in 0..16u16 {
-            let mut ula = FerrantiUla::new(UlaRevision::Ferranti6C);
-            let mut fb = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
-            // `video` is latched as the line's fetch window opens, so
-            // the ULA has to be ticked in from the start of a line rather
-            // than parked mid-window — jumping straight to a pixel leaves
-            // the latch clear and no contention fires at all.
-            ula.engine.scan = 100;
-            ula.engine.pixel = 0;
-            for _ in 0..(128 + h) {
-                Ula::tick(
-                    &mut ula,
-                    &ContendedMemory,
-                    0x4000,
-                    false,
-                    false,
-                    false,
-                    &mut fb,
-                );
-            }
-
-            // Clear the MREQT23 latch and the clock phase so the arrival
-            // is defined by the pixel counter alone.
-            ula.engine.mreq_t23 = false;
-            ula.engine.z80_clock_high = true;
-
-            // Contended address, MREQ inactive: the gate should stall.
-            let mut stall = 0u32;
-            for _ in 0..64 {
-                Ula::tick(
-                    &mut ula,
-                    &ContendedMemory,
-                    0x4000,
-                    false,
-                    false,
-                    false,
-                    &mut fb,
-                );
-                if ula.cpu_clock_active() {
-                    break;
+            let mut stalls = [0u32; 2];
+            for (slot, clk_hi) in [true, false].into_iter().enumerate() {
+                let mut ula = FerrantiUla::new(UlaRevision::Ferranti6C);
+                let mut fb = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
+                let _ = clk_hi;
+                // `video` is latched as the line's fetch window opens, so
+                // the ULA has to be ticked in from the start of a line rather
+                // than parked mid-window — jumping straight to a pixel leaves
+                // the latch clear and no contention fires at all.
+                ula.engine.scan = 100;
+                ula.engine.pixel = 0;
+                for _ in 0..(128 + h) {
+                    Ula::tick(
+                        &mut ula,
+                        &ContendedMemory,
+                        0x4000,
+                        false,
+                        false,
+                        false,
+                        &mut fb,
+                    );
                 }
-                stall += 1;
+
+                // Clear the MREQT23 latch and the clock phase so the arrival
+                // is defined by the pixel counter alone.
+                ula.engine.mreq_t23 = false;
+                ula.engine.z80_clock_high = clk_hi;
+
+                // Contended address, MREQ inactive. Count C0 cycles until
+                // the Z80 can actually advance past `T1`.
+                //
+                // The stop condition matters. The gate can only hold the
+                // clock *high*, so a cycle arriving on the low half is never
+                // withheld — stopping at "first cycle the clock is active"
+                // therefore reports zero for every low-half arrival, which is
+                // an artefact of the question, not a property of the gate.
+                // What the CPU is waiting for is a high-half cycle that is
+                // not withheld, so that is what is counted.
+                let mut stall = 0u32;
+                for _ in 0..64 {
+                    let was_high = ula.engine.z80_clock_high;
+                    Ula::tick(
+                        &mut ula,
+                        &ContendedMemory,
+                        0x4000,
+                        false,
+                        false,
+                        false,
+                        &mut fb,
+                    );
+                    if was_high && ula.cpu_clock_active() {
+                        break;
+                    }
+                    stall += 1;
+                }
+                stalls[slot] = stall;
             }
 
             let tphase = h / 2;
+            let delta = stalls[0] as i64 - stalls[1] as i64;
             println!(
-                "{h:>10} {tphase:>8} {stall:>12} {:>9.1} {:>18}",
-                stall as f64 / 2.0,
-                CANONICAL[tphase as usize]
+                "{h:>10} {tphase:>8} {:>12} {:>12} {delta:>+6} {:>19}",
+                stalls[0], stalls[1], CANONICAL[tphase as usize]
             );
         }
     }
