@@ -147,7 +147,11 @@ impl Ula for FerrantiUla {
         // Contention (48K model): memory + I/O + internal
         if e.video {
             let contended_addr = memory.is_contended(cpu_addr);
-            let mem_contention = contended_addr && e.z80_clock_high && !cpu_mreq;
+            // `/MREQT23` gates the wait so it cannot re-arm inside an
+            // M-cycle — Smith Chapter 18, p. 197: the circuit detects `T1`
+            // of a contended cycle by waiting for A14 high with A15 and
+            // MREQT23 low.
+            let mem_contention = contended_addr && e.z80_clock_high && !e.mreq_t23;
 
             let io_even_port = (cpu_addr & 1) == 0;
             let io_contention = (cpu_iorq || e.z80_iorq_prev) && io_even_port && e.z80_clock_high;
