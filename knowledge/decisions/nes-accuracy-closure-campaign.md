@@ -708,11 +708,22 @@ holding a value the hardware never produces.
 Its gate is written and withheld in `tests/dmc_dma_read4_crc.rs`, ready to
 enable as the assertion for that fix.
 
-⚠ **Method note.** This is the mechanism the four audio-only `dmc_tests` also
-need — blargg's ca65 framework CRCs *all* console output, so a ROM that prints
-nothing still accumulates a checkable checksum. One mechanism, two stuck
-problems; the `dmc_tests` route is now a short step rather than an unstarted
-one.
+⚠ **Method note, and a correction to it.** The CRC route was expected to carry
+over to the four audio-only `dmc_tests` — blargg's ca65 framework checksums all
+console output, so a ROM that prints nothing should still accumulate one.
+
+**It does not carry over.** `dmc_tests` ships **no source and no readme**: four
+`.nes` files and nothing else, unlike every other suite here. The CRC gate
+works by comparing against the checksums the ROM's *own author* published; with
+no source there is no published set, and these ROMs print nothing on screen to
+read one from. The PRG contains no ASCII at all beyond a block of `U` filler.
+
+So the four remain ungateable by any mechanism this campaign has built. What
+would work is comparing the APU register write sequence, or a DMC state trace,
+against Mesen2 — but note what that changes: **correctness would be defined by
+Mesen2 rather than by blargg.** Every gate built here so far ultimately rests
+on a value the test's author published; that one would not. Worth doing, worth
+labelling honestly when it is.
 
 **`test_ppu_read_buffer`** diverges wholesale on the palette rather than by an
 offset, and reports through custom CHR tiles plus audio. Different in kind;
