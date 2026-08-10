@@ -95,6 +95,26 @@ const STEP_TSTATES: u32 = 1;
 /// there. Catalogue frame hashes are unaffected (visible-pixel tap).
 const FLOAT48K_EXPECTED_TSTATE: u32 = 14337;
 
+/// The probe's actual answer: the T-state of the first row whose byte is
+/// not `255`.
+///
+/// Float48K sweeps a range and prints one `<t-state> <byte>` row per step,
+/// with `255` meaning "floating bus idle". The result is the first row that
+/// reads anything else. Parsing that is the whole point — a substring
+/// search over the transcript matches the *swept* value rather than the
+/// *reported* one, and cannot fail.
+fn first_non_ff_tstate(transcript: &str) -> Option<u32> {
+    transcript.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        let tstate = parts.next()?.parse::<u32>().ok()?;
+        let byte = parts.next()?.parse::<u32>().ok()?;
+        if parts.next().is_some() || byte == 255 {
+            return None;
+        }
+        Some(tstate)
+    })
+}
+
 fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").expect("HOME must be set"))
 }
@@ -419,26 +439,34 @@ fn float48k_prints_expected_tstate() {
          --- transcript ---\n{transcript}",
     );
 
-    // Strict assertion (un-gated 2026-05-20). The harness captures at PR-ALL
-    // with a control-byte state machine that skips AT / INK / PAPER / FLASH /
-    // BRIGHT / INVERSE / OVER / TAB argument bytes, and STEP_TSTATES = 1
-    // guarantees every PR-ALL entry is caught (the legacy 4-T-state
-    // granularity dropped ~50% of PR-ALL hits because the routine is called
-    // too frequently to fit between samples). The completion marker waits
-    // for a complete result line (T-state + non-`255` byte). With those
-    // harness fixes the probe output is clean and we can pin the result.
+    // Strict assertion. The harness captures at PR-ALL with a control-byte
+    // state machine that skips AT / INK / PAPER / FLASH / BRIGHT / INVERSE /
+    // OVER / TAB argument bytes, and STEP_TSTATES = 1 guarantees every PR-ALL
+    // entry is caught (the legacy 4-T-state granularity dropped ~50% of
+    // PR-ALL hits because the routine is called too frequently to fit between
+    // samples).
+    //
+    // **This parses the probe's answer rather than searching for it.** Until
+    // 2026-08-10 the check was `transcript.contains("14337")`, and the probe
+    // prints *every swept T-state* as its own `<t> <byte>` row — so the
+    // expected value always appeared somewhere in the transcript and the
+    // assertion passed no matter what the answer was. It reported
+    // "STRICT PASS — found expected T-state 14337" while the first non-`$FF`
+    // byte was actually at 14340. A gate that cannot fail is worse than no
+    // gate, because it is quoted as evidence.
     //
     // Pins our engine's measured value `FLOAT48K_EXPECTED_TSTATE`. A
     // regression in the ULA shifter pipeline, the Z80's IO-read M-cycle,
     // or the floating-bus exposure surfaces here.
-    let expected = FLOAT48K_EXPECTED_TSTATE.to_string();
-    assert!(
-        transcript.contains(&expected),
-        "Float48K probe did not produce expected T-state {expected}\n\
+    let measured = first_non_ff_tstate(&transcript);
+    assert_eq!(
+        measured,
+        Some(FLOAT48K_EXPECTED_TSTATE),
+        "Float48K probe reported {measured:?}, expected {FLOAT48K_EXPECTED_TSTATE}\n\
          (engine timing regression — see FLOAT48K_EXPECTED_TSTATE's comment)\n\
          --- transcript ---\n{transcript}",
     );
-    eprintln!("\nFloat48K: STRICT PASS — found expected T-state {expected}");
+    eprintln!("\nFloat48K: STRICT PASS — first non-$FF byte at T-state {FLOAT48K_EXPECTED_TSTATE}");
 }
 
 /// Save the current 48K framebuffer as an RGBA PNG using the Spectrum
