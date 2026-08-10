@@ -34,6 +34,7 @@
 //! ```
 
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::ula::Ula;
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 
 const ROM_PATH_ENV: &str = "EMU198X_SPECTRUM_48K_ROM";
@@ -385,5 +386,63 @@ fn stepping_one_tstate_agrees_with_a_bulk_advance() {
              agree bar the instruction straddling the frame boundary",
             case.name
         );
+    }
+}
+
+/// Half-open trace of one instruction, T-state by T-state.
+///
+/// This is what turned "multi-M-cycle instructions cost one slot too
+/// many" into a mechanism. It shows the operand read at `$5000` stalled
+/// *twice*: once before the access commits, and again immediately after,
+/// because `MREQ` deasserts while the contended address is still on the
+/// bus and the gate re-arms. `M1` escapes only because what follows its
+/// access is the refresh cycle, whose address is uncontended — which is
+/// why single-M-cycle instructions come out exact.
+///
+/// Kept because the gate's behaviour is easier to argue about from a
+/// trace than from a pass count, and because any change to the gate
+/// should be read here first.
+#[test]
+#[ignore = "diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
+fn trace_one_instruction() {
+    let Some(rom) = rom_bytes() else {
+        panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
+    };
+    let case = cases()
+        .into_iter()
+        .find(|c| c.name == "LD A,(HL)")
+        .expect("LD A,(HL) should be one of the cases");
+    let mut machine = prepare(&case, &rom);
+
+    // Settle into the video window and onto the locked phase.
+    let mut spent = 0u32;
+    loop {
+        let (_, pixel, video, _, _) = machine.ula().debug_raster();
+        if video && (pixel & 0x0F) / 2 == 1 && spent > 20000 {
+            break;
+        }
+        spent += step_one_instruction(&mut machine);
+    }
+
+    println!("\n  T  pixel ph  vid clk   addr  mreq rd wr m1 rfsh    pc");
+    for t in 0..26 {
+        let (_, pixel, video, _, _) = machine.ula().debug_raster();
+        let clk = machine.ula().cpu_clock_active();
+        let z = machine.z80();
+        println!(
+            "{t:>3} {:>6} {:>2} {:>4} {:>3}  {:#06x} {:>5} {:>2} {:>2} {:>2} {:>4}  {:#06x}",
+            pixel & 0x0F,
+            (pixel & 0x0F) / 2,
+            video as u8,
+            clk as u8,
+            z.addr,
+            z.mreq as u8,
+            z.rd as u8,
+            z.wr as u8,
+            z.m1 as u8,
+            z.rfsh as u8,
+            z.regs.pc
+        );
+        machine.advance_tstates(1);
     }
 }
