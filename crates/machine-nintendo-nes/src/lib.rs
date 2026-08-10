@@ -954,6 +954,15 @@ impl Nes {
         self.master_clock
     }
 
+    /// CPU cycles since construction, DMA stalls included.
+    ///
+    /// Differs from `cpu.total_cycles`, which freezes while the CPU is
+    /// halted for DMA. This one is the get/put phase counter.
+    #[must_use]
+    pub fn cpu_cycle_count(&self) -> u64 {
+        self.cpu_cycle_count
+    }
+
     /// Completed frame count.
     #[must_use]
     pub fn frame_count(&self) -> u64 {

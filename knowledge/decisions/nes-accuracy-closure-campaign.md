@@ -552,9 +552,23 @@ that agree across regions (`01.len_ctr`, `02.len_table`, `03.irq_flag`) are
 region-insensitive and are kept for the APU behaviour they assert, not as PAL
 evidence.
 
-⚠ **What this does NOT establish.** Only the APU is exercised. PAL PPU geometry
-(312 lines, the 70-line VBLANK) is wired and self-consistent but has no ROM
-asserting it, and no PAL *video* output has been compared against a reference.
+**PAL PPU geometry is now gated too** — `tests/pal_geometry.rs`, six assertions
+against the documented 2C07 numbers: 312 scanlines, a 106 392-dot frame, a
+70-line VBLANK (241–310), and 66 495 CPU cycles per two frames, which is the
+3.2 ratio's half-cycle surviving rather than being rounded away.
+
+⚠ The dot-skip pair is the one to read carefully. `pal_never_skips_a_dot` is
+worthless on its own: if the ROM never enabled rendering, NTSC would not skip
+either and the test would pass proving nothing. `ntsc_does_skip_a_dot_on_odd_frames`
+is its control, asserting that the same ROM on NTSC **does** produce a 340-dot
+frame. Both are needed; neither means much alone.
+
+⚠ **What this still does NOT establish.** No PAL *video output* has been compared
+against a reference — the geometry gate proves the machine counts dots, lines
+and cycles like a 2C07, not that what those dots contain is right. Forcing
+Mesen2 into PAL needs a settings path the cross-check harness does not yet have
+(the PAL test ROMs carry no PAL header flag, so its auto-detection reads them as
+NTSC), which is why that comparison is not here.
 `Region` is fixed at construction by design — it is read every tick, and
 changing it mid-run would leave the PPU's dot counter and the CPU phase
 accumulator on different clocks.
