@@ -229,6 +229,15 @@ fn cases() -> Vec<Case> {
             mcycles: &[4, 3, 3, 3, 3],
             setup: |_| {},
         },
+        // `IN A,(n)` — M1, operand fetch, then a 4-T-state IO cycle (the
+        // Z80 inserts one automatic wait state in IO). Port `$FF` is the
+        // floating-bus port floatspy and Float48K both read.
+        Case {
+            name: "IN A,(0FFh)",
+            bytes: &[0xDB, 0xFF],
+            mcycles: &[4, 3, 4],
+            setup: |_| {},
+        },
         // Six M-cycles. This is the shape the failing suite cases use.
         Case {
             name: "LD BC,(nn)",
@@ -526,19 +535,20 @@ fn trace_one_instruction() {
         machine.z80().regs.pc
     );
 
-    println!("\n  T  pixel ph  vid clk   addr  mreq rd wr m1 rfsh    pc");
+    println!("\n  T  pixel ph  vid clk   addr  mreq iorq rd wr m1 rfsh    pc");
     for t in 0..26 {
         let (_, pixel, video, _, _) = machine.ula().debug_raster();
         let clk = machine.ula().cpu_clock_active();
         let z = machine.z80();
         println!(
-            "{t:>3} {:>6} {:>2} {:>4} {:>3}  {:#06x} {:>5} {:>2} {:>2} {:>2} {:>4}  {:#06x}",
+            "{t:>3} {:>6} {:>2} {:>4} {:>3}  {:#06x} {:>5} {:>4} {:>2} {:>2} {:>2} {:>4}  {:#06x}",
             pixel & 0x0F,
             (pixel & 0x0F) / 2,
             video as u8,
             clk as u8,
             z.addr,
             z.mreq as u8,
+            z.iorq as u8,
             z.rd as u8,
             z.wr as u8,
             z.m1 as u8,

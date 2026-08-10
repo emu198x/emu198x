@@ -324,6 +324,15 @@ fn assert_screen_matches_spectron(spectron_png: &str, framebuffer: &[u8]) {
             best_sy = sy;
         }
     }
+    // Dump the live screen before asserting. Without this the failure
+    // says only how many pixels differ, and the nearest frame to hand is
+    // the *initial* screen from `floatspy_runs_to_completion` — a
+    // different screen entirely, which makes it very easy to diff the
+    // wrong pair and draw a confident wrong conclusion.
+    let live_path = std::env::temp_dir().join(format!("{spectron_png}-live.png"));
+    write_indexed_png(&live_path, framebuffer);
+    eprintln!("Live self-test frame: {}", live_path.display());
+
     let total = 256 * 192;
     assert_eq!(
         best_matches, total,
