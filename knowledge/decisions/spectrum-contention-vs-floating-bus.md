@@ -166,7 +166,7 @@ not, which means something in how contention reaches the floating-bus
 sample is still not understood. That is the question to answer, and it is
 now well posed.
 
-## The third error, found 2026-08-10 by differential
+## RETRACTED: "the third error" (see the correction below)
 
 **The 48K contention window opens three T-states late.**
 
@@ -201,11 +201,55 @@ measures, while leaving bulk instruction throughput — the timing survey —
 untouched. That is the observed signature: survey improves with the latch
 on, floatspy breaks, and no sample lead reconciles them.
 
-**Next action.** Give the 48K a contention window that opens three
-T-states before the fetch window, as the 128K already does, then re-test
-the latch. Note the window opens before `pixel 0` of the scan line, so it
-wraps into the previous line — fiddly enough to warrant its own careful
-change rather than being bolted on at the end of a long session.
+**Next action.** ~~Give the 48K a contention window that opens three
+T-states before the fetch window.~~ **Done, measured, and wrong — see
+below.**
+
+## Correction: the window was already right
+
+The section above is retracted. The 48K contention window is **not** three
+T-states late, and the evidence against it was already in hand when the
+claim was made.
+
+Re-scoring the engine against the FUSE-pinned canonical, with the
+*existing* window and the latch on, produced exact agreement on `NOP`,
+`INC BC`, `LD A,(HL)` and `LD BC,(nn)`. That is a direct measurement
+saying the engine's window already matches FUSE. The "three T-states
+late" claim came instead from mapping pixels to FUSE T-states by hand —
+our-T 2 for the first fetch, therefore FUSE-T 14338 — and was acted on
+despite the measurement contradicting it.
+
+Implementing it made things worse, which is the appropriate outcome:
+
+| state | survey | floatspy |
+|---|---|---|
+| latch off, existing window (committed) | 34/70 | pass |
+| latch on, existing window | **37/70** | fail |
+| latch on, border-based window | **35/70** | fail |
+
+The window change cost two survey cases and shifted `LD BC,(nn)` from
+exact to 0.7% out, while not helping floatspy at all. Reverted.
+
+**What survives from that work:** the oracle's canonical reference *was*
+wrong — `delay_at` opened at 14336 against FUSE's 14335, disagreeing at
+21,504 T-states — and is now pinned frame-wide by
+`matches_fuse_contention_across_the_whole_frame`. That is a real
+improvement to the measuring instrument, and it is what allowed the
+window claim to be tested and killed quickly.
+
+**And the contradiction is now sharper.** With the latch on, our memory
+contention matches FUSE's canonical model exactly for every instruction
+tested. Spectron implements that same canonical model. Yet floatspy
+passes on Spectron and fails on us. Memory contention is therefore
+unlikely to be where the disagreement lives.
+
+**The untested half is I/O contention.** `io_contention` still uses
+`cpu_iorq || e.z80_iorq_prev` — the same one-half-cycle approximation
+that was proved wrong for `MREQ`. Smith's Figure 18-15 draws *two* gated
+D-latches, `MREQT23` and `IOREQTW3`; we approximate both. floatspy is an
+I/O test hammering `IN A,(0FFh)`. That is the next thing to derive, and
+it should be derived against FUSE's `ula_contend_port_early/late` the way
+the floating-bus pattern was — not adjusted and re-measured.
 
 ## Next
 
