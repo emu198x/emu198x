@@ -61,12 +61,13 @@ Every figure below is a fresh run at `a19de51c`, not inherited from
 [`tests/spectrum.md`](../tests/spectrum.md), which was last refreshed
 2026-05-31 with 47 Spectrum-crate commits landing since.
 
-**The baseline is complete, and it found the catalogue red.** The CPU layer and
-all eight variants are measured. The catalogue — the only audio oracle and the
-only media-path coverage — does not run at all; see § Determinism and
-compatibility. Step 3 must not begin until it is restored, because its
-governing rule is that a change may not absorb an unexplained regression in a
-stronger lane, and the strongest lane is currently reporting nothing.
+**The baseline is complete and the foundation is restored.** The CPU layer and
+all eight variants are measured, and the catalogue runs 103/103 PASS with
+103/103 SNAP-PASS as of `ad686cb6`. Restoring it took a media-path repoint, a
+controlled re-capture and one real bug fix — and it caught that bug itself, a
+`+3` save-state defect that had been invisible for three months. Step 3 is now
+unblocked: a change that absorbs an unexplained regression in a stronger lane
+will be seen.
 
 ### Processor
 
@@ -108,22 +109,19 @@ about margin; one that fails says only "something moved".
 
 ### Determinism and compatibility
 
-- **The catalogue does not currently run.** 103 entries are authored across
-  eight variants, but the manifest declares `audio_routing_version = 1` and
-  `frame_routing_version = 3` while the runtime is at **3** and **4**. Seam 4
-  refuses on the first entry, so the pass is aborting at `manic-miner` with
-  zero entries verified. It has been in this state since **2026-06-05**, when
-  `85f3abbc` AC-coupled the beeper and bumped the audio version; `9d2ef79e`
-  moved both again on 2026-07-26. Twenty Spectrum-crate commits have landed
-  since the last re-capture, none of them catalogue-verified.
+- **The catalogue runs green**: 103 entries across eight variants, 103/103
+  PASS and 103/103 SNAP-PASS at `ad686cb6`, each gated on snapshot round-trip
+  through a fresh-from-firmware runtime at `audio_routing_version` 3 and
+  `frame_routing_version` 4. It had not run since **2026-06-05** — see the
+  progress log for the three independent breakages that had to be cleared.
 - Routing-version constants fail loud on stale hashes (architecture review
   Seam 4), so a timing change cannot silently relabel captured output as
   expected. **This worked exactly as designed — and nine weeks passed before
   anyone ran the gate that would surface it.** A loud gate nobody runs is a
   silent gate.
-- There is therefore currently **no audio regression coverage and no
-  media-path coverage** for any Spectrum variant. The catalogue is the only
-  oracle for both.
+- The catalogue is the **only** oracle for audio and for media paths on every
+  Spectrum variant. While it was red there was no coverage of either, which is
+  why restoring it preceded all other campaign work.
 - Catalogue frame and audio hashes are Emu198x regression oracles, not
   independent hardware evidence.
 - The runtime suite passes 35/35, and 48K and 128K boot invariants both pass.
@@ -325,6 +323,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-08-09 | 2. Survey source identified | `timingTests48k.sna` structurally confirmed as the ZXSpectrum4.net 35-test suite: self-grading, contended/uncontended, early/late classification, published real-hardware expected values. Already on disk; no acquisition needed. Upstream provenance and licence still to resolve. |
 | 2026-08-09 | Gate integrity | Commit `bd4e7887`. The Tom Harte gate resolved no corpus and reported `ok`; the fallback path was off by one directory level and a missing fixture returned early instead of failing. `find_zex_binary` had the identical off-by-one. The gate now resolves with no env var set and reports 1,604,000/1,604,000. |
 | 2026-08-09 | 7. 128K oracle identified | `testInt.tap`, catalogued as "unidentified — likely a Woody interrupt timing test", is in fact **TEST INT v1.10 by Yuri Kovalenko, "COMPER-Utility", 1995** — a Soviet-scene diagnostic that measures INT signal duration against a мала/Норма/велика band on a 10–120 scale, alongside effective data-bus bits and an IM 2 figure. It targets Pentagon 48/128 and the Sinclair Spectrum and refuses to run below 128K. It is a direct oracle for INT pulse length, which no current gate measures, and it discriminates Pentagon from Sinclair. Turning it into an assertion needs a screen-region decode or a RAM probe, since it reports through a bar graph rather than a printed number. |
+| 2026-08-09 | 1. **Step 1 complete — catalogue fully green** | Commit `ad686cb6`. The `+3` snapshot failures traced to snapshot version 2 (Seam 3, `7ea88420`, 2026-05-20), which made a mounted disk survive restore by caching the raw image and replaying it after decode — through `load_disk_image` → `insert_disk`, which invalidates the FDC's re-read key, re-read count and per-drive `ReadID` position. Those fields serialise normally and decoded correctly; the replay ran last and cleared what the decode had just restored. So the change that made the disk survive restore is what introduced the loss, six days after the last green run. Fixed by separating the two events: `Upd765a::reattach_disk` mounts without touching cached state, and `SpectrumMachine::reattach_disk_image` defaults to `load_disk_image` so machines that cache nothing are unaffected. Not merely a hash mismatch — those fields drive the marginal-encoding model, so reloading a `+3` save state reset the re-read counter and a Speedlock-style loader mid-retry could diverge from an unbroken run. **The full catalogue now runs 103/103 PASS and 103/103 SNAP-PASS**, the first clean result since 2026-06-05. A first hypothesis (that the catalogue's own restore path called `insert_disk`) was refuted by an isolated FDC round-trip test before any fix was written — right function, wrong caller. |
 | 2026-08-09 | 1. Catalogue restored — and it immediately caught a hidden regression | Media paths repointed (`b060ac16`) and all 103 entries re-captured at routing 3/4 (`b822b5fa`), gated on the 48K-family frame control: 46 of 47 byte-identical, the one exception investigated and explained rather than absorbed. Verification: **103/103 PASS** on frame and audio — the re-capture is correct and the frame/audio regression foundation is real again. **87/103 SNAP-PASS**: all 16 `+3` entries fail the snapshot re-encode, and nothing outside `+3` does. Identical signature on every one — the re-encoded snapshot is exactly **4 bytes shorter**, with tens of thousands of differing bytes starting ~60% in (`Some(1) -> Some(0)`). This is a **regression**, not a known limitation: the SOLID status doc records 2026-05-14 with all 16 `+3` entries SNAP-PASS and "re-encode bytes are byte-identical". It is not caused by the re-capture, which only changed expected hashes — the snapshot check compares snapshot bytes against re-encoded snapshot bytes and never consults the manifest. `+3` is the only variant with an FDC, and `+2A`/`+2B` share the Amstrad class and pass, so the fault is in the disk-image serialisation. It hid for roughly three months because the catalogue could not run. |
 | 2026-08-09 | Baseline completed — catalogue is RED | The six previously unmeasured variant crates (16K, Plus, +2, +2A, +2B, +3) all pass, though each carries only lib unit tests and a boot test — no ULA, timing or floating-bus gate among them, so six of eight SOLID variants have no accuracy instrumentation beyond "it boots". The catalogue does not run at all: the manifest declares `audio_routing_version = 1` / `frame_routing_version = 3` against a runtime at 3 / 4, so Seam 4 refuses at the first entry (`manic-miner`) and zero of 103 entries are verified. Red since 2026-06-05 (`85f3abbc`, beeper AC-coupling), moved again 2026-07-26 (`9d2ef79e`), with 20 Spectrum-crate commits landing unverified since the last re-capture. Restoring it is now step 1. Corrected: the manifest holds 103 entries, not the 114 first reported — the earlier count included non-`[[entry]]` tables. |
 | 2026-08-09 | Tooling | Commit `abd0360c`. `EMU198X_CATALOGUE_SYSTEMS` scopes a catalogue run to named manifests. A full pass is ~192 entries across four systems; a per-system campaign needs its own system's baseline without tripling wall time or absorbing a sibling system's in-flight work. |
