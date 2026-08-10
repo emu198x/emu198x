@@ -333,6 +333,11 @@ impl Nes {
         // where `cpu.total_cycles` would freeze.
         self.cpu_cycle_count += 1;
 
+        // Publish the get/put phase to the APU. The DMC's transfer-start
+        // delay is chosen from it, and it must be the same counter the DMA
+        // arbiter aligns on (see `dma_cycle`) rather than the APU's own.
+        self.apu.cpu_cycle_odd = self.cpu_cycle_count & 1 != 0;
+
         // Take a newly-pending DMC sample DMA under machine control; the
         // machine then owns its halt → dummy → fetch sequence and can
         // interleave it with an in-flight OAM transfer.

@@ -3,8 +3,11 @@
 # and an unannounced improvement fails too, so a fix has to be recorded here
 # deliberately rather than silently absorbed.
 #
+# Both sprdma_and_dmc_dma ROMs moved fail -> pass when the DMC gained its
+# $4015 transfer-start delay; see knowledge/decisions/nes-accuracy-closure-campaign.md.
+#
 # suite	rom	verdict	code
-# totals: {'pass': 135, 'fail': 5, 'visual': 15}
+# totals: {'pass': 137, 'fail': 3, 'visual': 15}
 apu_mixer	dmc.nes	pass	
 apu_mixer	noise.nes	pass	
 apu_mixer	square.nes	pass	
@@ -134,8 +137,8 @@ ppu_vbl_nmi	rom_singles/07-nmi_on_timing.nes	pass
 ppu_vbl_nmi	rom_singles/08-nmi_off_timing.nes	pass	
 ppu_vbl_nmi	rom_singles/09-even_odd_frames.nes	pass	
 ppu_vbl_nmi	rom_singles/10-even_odd_timing.nes	pass	
-sprdma_and_dmc_dma	sprdma_and_dmc_dma.nes	fail	0x01
-sprdma_and_dmc_dma	sprdma_and_dmc_dma_512.nes	fail	0x01
+sprdma_and_dmc_dma	sprdma_and_dmc_dma.nes	pass
+sprdma_and_dmc_dma	sprdma_and_dmc_dma_512.nes	pass
 sprite_hit_tests_2005.10.05	01.basics.nes	pass	
 sprite_hit_tests_2005.10.05	02.alignment.nes	pass	
 sprite_hit_tests_2005.10.05	03.corners.nes	pass	
