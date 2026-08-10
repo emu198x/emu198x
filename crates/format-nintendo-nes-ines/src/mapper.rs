@@ -187,6 +187,21 @@ pub trait Mapper: Send {
         false
     }
 
+    /// Side-effect-free view of [`Self::nametable_read`], for tooling.
+    ///
+    /// ⚠ Exists because `nametable_read` takes `&mut self` — MMC5 uses
+    /// nametable fetches to drive its scanline detector, so a debugger
+    /// or test harness calling it would corrupt the very timing it is
+    /// trying to observe. Anything that wants to *look* at the screen
+    /// must come through here.
+    ///
+    /// A mapper that overrides `nametable_read` should override this
+    /// too, or screen-reading tools will silently see empty CIRAM
+    /// instead of what the PPU actually fetches.
+    fn nametable_peek(&self, _addr: u16) -> Option<u8> {
+        None
+    }
+
     /// Capture concrete mapper state for save-state export.
     fn snapshot(&self) -> MapperSnapshot;
 

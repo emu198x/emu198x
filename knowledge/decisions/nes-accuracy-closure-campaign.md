@@ -448,7 +448,7 @@ The sweep is now **171: 151 pass, 2 fail, 0 timeout, 18 visual**.
 | Demos, games, homebrew | `other` (39), `blargg_litewall`, `240pee`, `nes15`, `ny2011`, `scanline`, `scanline-a1`, `scrolltest`, `spritecans-2011`, `stomper`, `tutor`, `window5`, `nrom368` |
 | Need peripherals or a human | `PaddleTest3`, `vaus-test`, `tvpassfail`, `MMC1_A12`, `m22chrbankingtest` |
 | Wrong region | `pal_apu_tests` |
-| **⚠ Unresolved** | `mmc5test`, `mmc5test_v2`, `exram` |
+| Visual, no result protocol (MMC5) | `mmc5test`, `mmc5test_v2`, `exram` |
 
 **The two new failures are expected and are not defects.** `mmc3_irq_tests`'s
 own readme: *"The last two ROMs test different revisions of the MMC3, so at most
@@ -463,11 +463,59 @@ scanline timing and A12 clocking, which nothing previously gated.
 1. **No PAL machine.** `ricoh-apu-2a03` has `ApuRegion` and a PAL rate table,
    but `Nes::new` builds an NTSC machine only, so `pal_apu_tests` (10 ROMs)
    cannot be graded at all. This is a capability gap, not a grading one.
-2. **Three MMC5 ROMs render nothing.** `mmc5test`, `mmc5test_v2` and `exram`
-   produce a completely blank screen by 40M ticks, despite mapper 5 being
-   implemented and `mmc5_expansion.rs` existing. **This is unexplained and may
-   be a real defect.** They are excluded as UNRESOLVED rather than filed as
-   visual, precisely so the distinction is not lost. Next lead: `probe_timeout_screens`.
+2. ~~Three MMC5 ROMs render nothing.~~ **Resolved — see below. They were never
+   blank; the harness was reading a buffer that is always empty for MMC5.**
+
+## The MMC5 "blank screens": a harness blind spot, not a defect
+
+The three MMC5 ROMs render correctly. Their screens match Mesen2 **byte for
+byte**. The blank was in the observer.
+
+**MMC5 keeps its nametable RAM inside the mapper** and can map ExRAM or a fill
+tile into any of the four `$2000-$2FFF` slots. The PPU already routed reads and
+writes through `Mapper::nametable_read`/`nametable_write`, so rendering was
+always right — but every tool that inspected the screen read
+`ppu.nametable_ram()`, the console's CIRAM, which for an MMC5 cartridge is
+**never written at all**. The sweep's nametable grader was structurally blind to
+mapper 5.
+
+⚠ Note what nearly happened. The evidence — three ROMs, blank screen, mapper
+implemented — supported "possible MMC5 defect", and that was how it was first
+recorded. What refuted it was checking a channel the suspect code could not
+influence: **the framebuffer**, which showed 10 and 20 distinct colours and
+~16 000 non-background pixels. This is the fourth time in this campaign that a
+confident reading of an emulator defect came from an instrument rather than the
+emulator.
+
+### What changed
+
+* `Mapper::nametable_peek(&self, addr)` — a side-effect-free view, defaulting
+  to `None`. It has to exist separately because `nametable_read` takes
+  `&mut self`: MMC5 drives its scanline detector off nametable fetches, so a
+  debugger reading the screen through it would corrupt the timing it is trying
+  to observe.
+* `Nes::effective_nametable()` — mapper first, CIRAM fallback. **This is the
+  accessor screen-reading tools should use.** `ppu.nametable_ram()` answers a
+  narrower question than it appears to.
+* The sweep's nametable grader now uses it, so any future mapper that serves
+  its own nametables is graded rather than silently timing out.
+
+### The verdicts
+
+All three are **visual** — no result protocol. `mmc5test` and `mmc5test_v2`
+draw with a custom graphics font (no ASCII to match at all); `mmc5exram` is a
+colour-bar demo. That is now a measured classification rather than an
+assumption.
+
+The capability worth keeping is gated on its own: `mmc5_executes_code_from_exram`
+in `tests/mmc5_screen.rs`. `mmc5exram.nes` copies its per-frame bar routine into
+ExRAM and runs it from `$5C00-$5FFF` during VBLANK — "A proper emulator will be
+able to handle this without any problems", per the ROM's own text. The gate
+asserts both the banner (through the effective nametable) **and** a
+non-uniform framebuffer, because a ROM that drew its banner and then died in
+ExRAM would satisfy the first check alone.
+
+Sweep: **174 — 151 pass, 2 expected fails, 0 timeout, 21 visual.**
 
 ## ⚠ On acquiring more test ROMs
 

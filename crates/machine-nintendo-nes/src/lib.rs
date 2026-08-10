@@ -775,6 +775,32 @@ impl Nes {
         self.apu.set_audio_channel_gain(channel, gain);
     }
 
+    /// The 2 KiB of nametable the PPU actually fetches, mapper included.
+    ///
+    /// ⚠⚠ Use this, not `ppu.nametable_ram()`, to read what is on screen.
+    /// A mapper may serve `$2000-$2FFF` from its own memory: MMC5 keeps
+    /// its nametable RAM inside the mapper and can map ExRAM or a fill
+    /// tile into any of the four slots, so the console's CIRAM stays
+    /// **entirely empty** for every MMC5 ROM. Three of them were briefly
+    /// recorded as rendering nothing on exactly that mistake — the ROMs
+    /// were fine, and the framebuffer proved it.
+    ///
+    /// Side-effect free: goes through [`Mapper::nametable_peek`] rather
+    /// than `nametable_read`, which would clock MMC5's scanline detector.
+    #[must_use]
+    pub fn effective_nametable(&self) -> [u8; 2048] {
+        let ciram = self.ppu.nametable_ram();
+        let mut out = [0u8; 2048];
+        for (i, slot) in out.iter_mut().enumerate() {
+            let addr = 0x2000 + u16::try_from(i).expect("2048 fits in u16");
+            *slot = self
+                .mapper
+                .nametable_peek(addr)
+                .unwrap_or_else(|| ciram[i & 0x07FF]);
+        }
+        out
+    }
+
     /// Peek a byte of CPU-visible memory (no side effects).
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {

@@ -104,6 +104,17 @@ const VISUAL_ROMS: &[&str] = &[
     "count_errors.nes",
     "count_errors_fast.nes",
     "test_buttons.nes",
+    // MMC5. ⚠ Visual because they carry no result protocol — NOT because
+    // they render nothing, which is what they appeared to do while the
+    // grader read `ppu.nametable_ram()`. MMC5 serves nametables from
+    // inside the mapper, so CIRAM is always empty for these; the grader
+    // now reads `Nes::effective_nametable()` and their screens match
+    // Mesen2 byte for byte. mmc5test/mmc5test_v2 draw with a custom
+    // graphics font (no ASCII to match), and mmc5exram is a colour-bar
+    // demo. The capability that matters — executing code from ExRAM — is
+    // gated properly in tests/mmc5_screen.rs.
+    "mmc5test.nes",
+    "mmc5exram.nes",
 ];
 
 /// Delay between observing the `$81` "needs reset" status and
@@ -135,7 +146,10 @@ const SETTLE_TICKS: u64 = 10_000_000;
 /// dmc_tests / dmc_dma_during_read4 / blargg_nes_cpu_test5
 /// suites, which never write to `$6000` / `$F8` / `$F0`.
 fn try_nametable_protocol(nes: &Nes) -> Option<Verdict> {
-    let nt = nes.ppu.nametable_ram();
+    // ⚠ Effective nametable, not `ppu.nametable_ram()`. A mapper may
+    // serve $2000-$2FFF itself — MMC5 always does — leaving the
+    // console's CIRAM empty and this whole channel blind.
+    let nt = &nes.effective_nametable();
     // The blargg shell prints the entire exit string in one
     // newline-flanked block: e.g. `"\n\nPassed\n\n\n"`. Detect
     // only the clean tokens, not the bare "Error " (initial
@@ -460,6 +474,9 @@ const SWEEP_DIRS: &[&str] = &[
     "mmc3_irq_tests",
     "mmc3_test_2",
     "read_joy3",
+    "mmc5test",
+    "mmc5test_v2",
+    "exram",
 ];
 
 /// Directories of the corpus the sweep deliberately does NOT enumerate,
@@ -525,21 +542,6 @@ const UNSWEPT_DIRS: &[(&str, &str)] = &[
         "tvpassfail",
         "display calibration for the physical TV; needs a human and the A \
          button to page through screens",
-    ),
-    (
-        "mmc5test",
-        "⚠ UNRESOLVED, not benign. Renders nothing at all by 40M ticks. \
-         Mapper 5 IS implemented, so a blank screen is unexplained and may \
-         be an MMC5 defect. Excluded to keep the sweep honest, NOT because \
-         it was triaged as visual. See probe_timeout_screens.",
-    ),
-    (
-        "mmc5test_v2",
-        "⚠ UNRESOLVED — same blank screen as mmc5test; see above",
-    ),
-    (
-        "exram",
-        "⚠ UNRESOLVED — MMC5 ExRAM test, same blank screen; see mmc5test",
     ),
     (
         "other",
@@ -774,7 +776,6 @@ fn probe_timeout_screens() {
         return;
     };
     for rel in [
-        "MMC1_A12/mmc1_a12.nes",
         "mmc5test/mmc5test.nes",
         "mmc5test_v2/mmc5test.nes",
         "exram/mmc5exram.nes",
@@ -792,7 +793,7 @@ fn probe_timeout_screens() {
         while nes.master_clock() < 40_000_000 {
             nes.tick();
         }
-        let nt = nes.ppu.nametable_ram();
+        let nt = nes.effective_nametable();
         println!("\n═══ {rel} ═══");
         for row in 0..30 {
             let line: String = nt[row * 32..row * 32 + 32]
