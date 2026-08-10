@@ -48,11 +48,44 @@ enum Verdict {
     /// to the screen for human inspection. Counted separately so
     /// it doesn't pollute the fail / timeout counts.
     Visual,
+    /// No protocol the sweep can read, but covered by a named gate
+    /// elsewhere.
+    ///
+    /// ⚠ Distinct from `Visual` on purpose. `Visual` means "nobody
+    /// checks this", which is a standing invitation for a regression to
+    /// go unnoticed. Once a ROM has a real gate, saying `Visual` is
+    /// stale — but calling it `Pass` would claim the sweep graded it,
+    /// which it cannot. This says what is true: the sweep has no
+    /// channel here, and something else does.
+    GatedExternally(&'static str),
 }
 
 /// ROM filenames that are visual demos (no programmatic result
 /// channel). Matched on the leaf filename only; any test ROM
 /// with one of these names is graded as `Verdict::Visual`.
+/// ROMs with no sweep-readable protocol that ARE gated elsewhere, with
+/// where. Checked before [`VISUAL_ROMS`], so moving a ROM here is what
+/// promotes it out of "unexamined".
+const GATED_EXTERNALLY: &[(&str, &str)] = &[
+    // Structural screen comparison against Mesen2 goldens — nametable,
+    // palette and OAM at scanline 240 dot 0. See the header of
+    // tests/screen_goldens.rs for why that position and not a frame
+    // counter.
+    ("dma_4016_read.nes", "tests/screen_goldens.rs"),
+    ("dpcmletterbox.nes", "tests/screen_goldens.rs"),
+    ("mmc5exram.nes", "tests/screen_goldens.rs"),
+    ("flowing_palette.nes", "tests/screen_goldens.rs"),
+    ("full_palette.nes", "tests/screen_goldens.rs"),
+    ("full_palette_smooth.nes", "tests/screen_goldens.rs"),
+    ("mmc5test.nes", "tests/screen_goldens.rs"),
+    ("demo_ntsc.nes", "tests/screen_goldens.rs"),
+    ("demo_pal.nes", "tests/screen_goldens.rs"),
+    ("count_errors.nes", "tests/screen_goldens.rs"),
+    ("count_errors_fast.nes", "tests/screen_goldens.rs"),
+    ("test_buttons.nes", "tests/screen_goldens.rs"),
+    ("volumes.nes", "tests/screen_goldens.rs"),
+];
+
 const VISUAL_ROMS: &[&str] = &[
     "demo_ntsc.nes",
     "demo_pal.nes",
@@ -287,10 +320,13 @@ impl SettleHistory {
 }
 
 fn run_one(path: &Path) -> Result<Verdict, String> {
-    if let Some(name) = path.file_name().and_then(|n| n.to_str())
-        && VISUAL_ROMS.contains(&name)
-    {
-        return Ok(Verdict::Visual);
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if let Some((_, where_gated)) = GATED_EXTERNALLY.iter().find(|(n, _)| *n == name) {
+            return Ok(Verdict::GatedExternally(where_gated));
+        }
+        if VISUAL_ROMS.contains(&name) {
+            return Ok(Verdict::Visual);
+        }
     }
     let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
     let parsed = parse_ines(&bytes).map_err(|e| format!("parse: {e}"))?;
@@ -574,6 +610,7 @@ fn sweep() {
     let mut timed_out = 0u32;
     let mut paniced = 0u32;
     let mut visual = 0u32;
+    let mut gated = 0u32;
     // Keyed on (suite, rom) so the baseline can name a ROM unambiguously —
     // "2.Details.nes" exists in three suites.
     let mut observed: std::collections::BTreeMap<(String, String), String> =
@@ -618,6 +655,11 @@ fn sweep() {
                     observed.insert((dir_name.to_string(), label.clone()), "visual".into());
                     eprintln!("  VISUAL   {label:<32} (visual demo — no result protocol)");
                 }
+                Ok(Ok(Verdict::GatedExternally(where_gated))) => {
+                    gated += 1;
+                    observed.insert((dir_name.to_string(), label.clone()), "gated".into());
+                    eprintln!("  GATED    {label:<32} (no sweep protocol; gated in {where_gated})");
+                }
                 Ok(Err(e)) => {
                     paniced += 1;
                     eprintln!("  ERROR    {label:<32} — {e}");
@@ -632,7 +674,7 @@ fn sweep() {
 
     eprintln!("\n=== SWEEP SUMMARY ===");
     eprintln!(
-        "Total: {total}  Pass: {passed}  Fail: {failed}  Timeout: {timed_out}  Visual: {visual}  Panic/load: {paniced}"
+        "Total: {total}  Pass: {passed}  Fail: {failed}  Timeout: {timed_out}  Gated: {gated}  Visual: {visual}  Panic/load: {paniced}"
     );
 
     // ⚠⚠ Gate on the declared baseline. Until this existed the sweep RAN the

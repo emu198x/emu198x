@@ -613,6 +613,86 @@ the nametable", and "draws with a custom font" was the natural explanation. The
 two-run determinism check is what finally made the nametable readable enough to
 show there was nothing in it.
 
+### Second attempt: all 17 render, and the nametable comparison works
+
+All 17 non-`dmc_tests` visual ROMs **do** produce structural screen state — but
+five of them (`full_palette` ×3, `nmi_sync` ×2) write **no nametable bytes at
+all**; they render entirely through palette RAM. A nametable-only survey
+reported them as never drawing, which is the `dmc_tests` mistake in a new
+costume: the first survey script checked one channel and would have declared
+five working ROMs dead.
+
+Mesen2 goldens for all 17 are captured and committed at
+`test-data/nintendo/nes/screen-goldens/` (nametable + palette + OAM, frame 600,
+reproducible).
+
+✅ **14 of the 17 are gated** in `tests/screen_goldens.rs`. Two problems stood
+between the first all-17-fail run and that, and neither was an emulator defect.
+
+**1. The two emulators were sampling different moments.** Mesen2's `endFrame`
+fires at **scanline 240, cycle 0** — measured with `where-endframe.lua`, not
+assumed. Our `run_frame` returns 21 scanlines later at the wrap to scanline 0,
+by which point the NMI handler has rewritten palette RAM for the next frame.
+These ROMs rewrite the palette many times per frame, so "the palette at end of
+frame" means nothing until both sides name the same PPU position. The gate now
+runs to the Nth occurrence of (scanline 240, dot 0).
+
+⚠ The tempting shortcut — drop the palette from the signature — would have
+passed all 17 while comparing nothing on five of them, since `full_palette` ×3
+and `nmi_sync` ×2 write no nametable bytes at all.
+
+**2. Palette mirroring has to be resolved before comparing.** `$3F10`, `$3F14`,
+`$3F18` and `$3F1C` mirror `$3F00/$04/$08/$0C`. Our PPU redirects writes at
+`mirror_palette_addr`, so the **raw** 32-byte array keeps power-on values in
+those four slots while the PPU never reads them; Mesen2's memory dump resolves
+the mirror. Unresolved, that reported four differences on every ROM, none real.
+
+### ⚠ Three withheld, and two of them look like a real defect
+
+Not "cannot be gated" — the goldens exist and the comparison runs. Withheld
+because a permanently red gate teaches people to ignore the suite.
+
+**`dma_2007_read` and `double_2007_read` — CANDIDATE DEFECT.** Both print
+counters, and every one of ours is exactly **one higher** than Mesen2's:
+
+| ROM | Mesen2 | Emu198x |
+|---|---|---|
+| `dma_2007_read` | `3344` | `4455` |
+| `double_2007_read` | `2 2 3 3 4 4 5 5 6 6` | `3 3 4 4 5 5 6 6 7 7` |
+
+Both count `$2007` reads colliding with DMC DMA. A uniform `+1` across two
+independent ROMs is one off-by-one in that path, not two coincidences — the
+same shape of evidence that named the missing fixed-cost step in stage 2. This
+is the **first new defect candidate since the DMC transfer-start delay**, and
+the first thing this campaign has found that is plausibly in the emulator
+rather than the instruments.
+
+**`test_ppu_read_buffer`** diverges wholesale on the palette rather than by an
+offset, and reports through custom CHR tiles plus audio. Different in kind;
+needs its own investigation.
+
+### The baseline needed a third category
+
+The first instinct was to leave these 14 as `visual`, on the grounds that the
+sweep still cannot grade them. That was wrong, and worth recording as an error
+rather than quietly fixing.
+
+`visual` in this baseline means **nobody checks this ROM**. Once a ROM has a
+real gate that statement is false, and a stale "unexamined" label is exactly
+the condition this campaign spent its whole length undoing. But `pass` would
+claim the sweep graded it, which it did not.
+
+So the sweep gained a `gated` verdict carrying *where* the gate lives:
+
+```
+Total: 174  Pass: 151  Fail: 2  Timeout: 0  Gated: 14  Visual: 7
+```
+
+Seven ROMs remain genuinely ungraded, and each has a reason: the four
+`dmc_tests` are audio-only and never draw, and `dma_2007_read`,
+`double_2007_read` and `test_ppu_read_buffer` have gates written but withheld
+pending the divergence above.
+
 ### The determinism blocker, now solved
 
 The plan was sound and the reasoning still holds: these ROMs cannot be read as

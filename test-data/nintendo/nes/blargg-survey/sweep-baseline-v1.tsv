@@ -32,13 +32,23 @@
 # are visual because they carry no result protocol. ExRAM code execution is
 # gated in tests/mmc5_screen.rs.
 #
-# ⚠ Full green is NOT proof of correctness. 21 ROMs are visual-only and
-# ungraded, and pal_apu_tests (10 ROMs) cannot run at all without a PAL
-# machine. Absence of a failing gate is not evidence of correctness where no
-# gate runs.
+# 'gated' means the sweep has no protocol it can read for that ROM, but a named
+# gate elsewhere does cover it — currently tests/screen_goldens.rs, comparing
+# nametable + palette + OAM against Mesen2 at scanline 240 dot 0. Distinct from
+# 'visual', which means nobody checks it, and distinct from 'pass', which would
+# claim the sweep graded it.
+#
+# ⚠ 7 ROMs remain genuinely ungraded: the four dmc_tests (audio-only, they
+# never draw), plus dma_2007_read, double_2007_read and test_ppu_read_buffer,
+# whose screen gates are WITHHELD because they diverge from Mesen2 in a way
+# that looks like a real defect — see tests/screen_goldens.rs. pal_apu_tests
+# (10 ROMs) is gated separately in tests/pal_apu.rs.
+#
+# ⚠ Full green is NOT proof of correctness. Absence of a failing gate is not
+# evidence of correctness where no gate runs.
 #
 # suite	rom	verdict	code
-# totals: {'pass': 151, 'fail': 2, 'visual': 21}
+# totals: {'pass': 151, 'fail': 2, 'gated': 14, 'visual': 7}
 
 
 apu_mixer	dmc.nes	pass	
@@ -95,18 +105,18 @@ cpu_reset	registers.nes	pass
 cpu_timing_test6	cpu_timing_test.nes	pass
 dmc_dma_during_read4	dma_2007_read.nes	visual	
 dmc_dma_during_read4	dma_2007_write.nes	pass	
-dmc_dma_during_read4	dma_4016_read.nes	visual	
+dmc_dma_during_read4	dma_4016_read.nes	gated
 dmc_dma_during_read4	double_2007_read.nes	visual	
 dmc_dma_during_read4	read_write_2007.nes	pass	
 dmc_tests	buffer_retained.nes	visual	
 dmc_tests	latency.nes	visual	
 dmc_tests	status.nes	visual	
 dmc_tests	status_irq.nes	visual	
-dpcmletterbox	dpcmletterbox.nes	visual	
-exram	mmc5exram.nes	visual
-full_palette	flowing_palette.nes	visual	
-full_palette	full_palette.nes	visual	
-full_palette	full_palette_smooth.nes	visual	
+dpcmletterbox	dpcmletterbox.nes	gated
+exram	mmc5exram.nes	gated
+full_palette	flowing_palette.nes	gated
+full_palette	full_palette.nes	gated
+full_palette	full_palette_smooth.nes	gated
 instr_misc	rom_singles/01-abs_x_wrap.nes	pass	
 instr_misc	rom_singles/02-branch_wrap.nes	pass	
 instr_misc	rom_singles/03-dummy_reads.nes	pass	
@@ -156,8 +166,8 @@ mmc3_test_2	rom_singles/3-A12_clocking.nes	pass
 mmc3_test_2	rom_singles/4-scanline_timing.nes	pass
 mmc3_test_2	rom_singles/5-MMC3.nes	pass
 mmc3_test_2	rom_singles/6-MMC3_alt.nes	fail	0x02
-mmc5test	mmc5test.nes	visual
-mmc5test_v2	mmc5test.nes	visual
+mmc5test	mmc5test.nes	gated
+mmc5test_v2	mmc5test.nes	gated
 nes_instr_test	rom_singles/01-implied.nes	pass	
 nes_instr_test	rom_singles/02-immediate.nes	pass	
 nes_instr_test	rom_singles/03-zero_page.nes	pass	
@@ -169,8 +179,8 @@ nes_instr_test	rom_singles/08-ind_y.nes	pass
 nes_instr_test	rom_singles/09-branches.nes	pass	
 nes_instr_test	rom_singles/10-stack.nes	pass	
 nes_instr_test	rom_singles/11-special.nes	pass	
-nmi_sync	demo_ntsc.nes	visual	
-nmi_sync	demo_pal.nes	visual	
+nmi_sync	demo_ntsc.nes	gated
+nmi_sync	demo_pal.nes	gated
 oam_read	oam_read.nes	pass	
 oam_stress	oam_stress.nes	pass	
 ppu_open_bus	ppu_open_bus.nes	pass	
@@ -185,9 +195,9 @@ ppu_vbl_nmi	rom_singles/07-nmi_on_timing.nes	pass
 ppu_vbl_nmi	rom_singles/08-nmi_off_timing.nes	pass	
 ppu_vbl_nmi	rom_singles/09-even_odd_frames.nes	pass	
 ppu_vbl_nmi	rom_singles/10-even_odd_timing.nes	pass	
-read_joy3	count_errors.nes	visual
-read_joy3	count_errors_fast.nes	visual
-read_joy3	test_buttons.nes	visual
+read_joy3	count_errors.nes	gated
+read_joy3	count_errors_fast.nes	gated
+read_joy3	test_buttons.nes	gated
 read_joy3	thorough_test.nes	pass
 sprdma_and_dmc_dma	sprdma_and_dmc_dma.nes	pass
 sprdma_and_dmc_dma	sprdma_and_dmc_dma_512.nes	pass
@@ -214,4 +224,4 @@ vbl_nmi_timing	4.vbl_clear_timing.nes	pass
 vbl_nmi_timing	5.nmi_suppression.nes	pass	
 vbl_nmi_timing	6.nmi_disable.nes	pass	
 vbl_nmi_timing	7.nmi_timing.nes	pass	
-volume_tests	volumes.nes	visual	
+volume_tests	volumes.nes	gated
