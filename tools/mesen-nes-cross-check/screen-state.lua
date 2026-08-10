@@ -25,11 +25,22 @@
 -- not that the screen is the answer. The four dmc_tests ROMs write
 -- nothing to either nametable at any point; they report by beeping.
 
+-- ⚠ A dump is only meaningful once the ROM's screen has SETTLED. A ROM
+-- that is still moving at the sampled frame gets compared mid-phase, and
+-- the difference reads exactly like a defect. `test_ppu_read_buffer`
+-- displays art for 666 frames while its longest sub-test runs; at frame
+-- 600 the two emulators were in different phases of the same correct
+-- sequence, and its palette values agree exactly once both have settled.
+-- Before adding a ROM here, check that its screen stops changing —
+-- `palette-phases.lua` and `nametable-phases.lua` report the boundaries.
+
 local dumped = false
--- ⚠ Hardcoded: Mesen sandboxes Lua's `os` library by default, so this
--- cannot be read from the environment. Keep it in step with the frame
--- count the Emu198x side samples at.
-local TARGET_FRAME = 600
+-- Mesen sandboxes Lua's `os` library, so this cannot be read from the
+-- environment directly; `main.cpp` prepends an assignment when
+-- `EMU198X_MESEN_FRAME` is set. Keep the default in step with
+-- `SAMPLE_FRAME` in `tests/screen_goldens.rs`.
+SAMPLE_FRAME = SAMPLE_FRAME or 600
+local TARGET_FRAME = SAMPLE_FRAME
 
 local function dump()
   if dumped then return end

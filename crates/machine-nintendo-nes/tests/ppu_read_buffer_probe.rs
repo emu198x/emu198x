@@ -1,10 +1,22 @@
 //! Diagnostic probe for `ppu_read_buffer/test_ppu_read_buffer.nes`.
 //!
-//! The sweep grader reports the ROM as TIMEOUT (never sets
-//! `$6000 = $80`). Earlier diagnostics noted PC sitting at `$EBD8`
-//! for ~25M ticks then bouncing to `$FFA9` (NMI/IRQ vicinity).
-//! This probe samples PC over the first ~30M ticks and reports the
-//! hottest PCs so we can see what loop is spinning.
+//! ⚠ RESOLVED: the ROM passes, and it always did. It writes the full
+//! blargg `$6000` report and ends "Passed"; the sweep timed out because
+//! the ROM needs ~520M ticks against a 200M ceiling — it runs a still
+//! image for 666 frames while its longest sub-test works. It is graded
+//! by the sweep now, via `SLOW_ROMS`.
+//!
+//! The older probes here date from believing the ROM hung: they sample
+//! PC and the VBL-wait loop. Kept because they are the record of what
+//! was checked, but read the header of `tests/screen_goldens.rs` for the
+//! resolution before spending time on them.
+//!
+//! ⚠ Still open: we reach the ROM's art phase 39 frames later than
+//! Mesen2 (638 vs 599), with the phase itself lasting an identical 666
+//! frames either side. `probe_nametable_change_frames` localises it to a
+//! single 31-iteration sub-test loop — a flat 12-frame cadence for us,
+//! a repeating 12,10,10 for Mesen. `probe_cpu_cycles_per_frame` was the
+//! first hypothesis and acquitted CPU/PPU alignment.
 //!
 //! Not part of the normal sweep — `#[ignore]`d. Run with:
 //!
@@ -478,4 +490,295 @@ fn vblank_flag_during_stall() {
             rising_edges,
         );
     }
+}
+
+/// Record every change to palette RAM from reset, with the CPU PC that
+/// caused it. 960 nametable bytes and 256 OAM bytes agree with Mesen
+/// while 32 palette bytes do not, so the question is whether the values
+/// written are wrong or the addresses are.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_palette_write_trace() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+
+    let mut prev = nes.ppu.palette_ram().to_vec();
+    let mut events = 0u32;
+    let mut last_reported_clock = 0u64;
+    // The ROM halts well inside 600 frames; walk to the sample point.
+    let mut seen = 0u64;
+    loop {
+        nes.tick();
+        let now = nes.ppu.palette_ram();
+        if now != prev.as_slice() {
+            events += 1;
+            if events <= 60 || events.is_multiple_of(200) {
+                let changed: Vec<String> = now
+                    .iter()
+                    .zip(prev.iter())
+                    .enumerate()
+                    .filter(|(_, (a, b))| a != b)
+                    .map(|(i, (a, b))| format!("$3F{i:02X}: {b:02X}->{a:02X}"))
+                    .collect();
+                println!(
+                    "#{events:<5} clk={:<10} (+{:<8}) PC=${:04X} sl={:<3} dot={:<3}  {}",
+                    nes.master_clock(),
+                    nes.master_clock() - last_reported_clock,
+                    nes.cpu.regs.pc,
+                    nes.ppu.scanline(),
+                    nes.ppu.dot(),
+                    changed.join(" ")
+                );
+                last_reported_clock = nes.master_clock();
+            }
+            prev = now.to_vec();
+        }
+        if nes.ppu.scanline() == 240 && nes.ppu.dot() == 0 {
+            seen += 1;
+            if seen == 600 {
+                break;
+            }
+            nes.tick();
+        }
+    }
+    println!("\ntotal palette-RAM change events: {events}");
+}
+
+/// Dump the nametable at several late frames so the screen can be
+/// rendered and read. Frame 600 — where the structural golden samples —
+/// is mid-test: the readme's expected output ends "the test is in
+/// progress", and "Passed" prints later.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_nametable_at_late_frames() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+
+    let marks = [600u64, 900, 1200, 1500, 1800, 2100, 2400];
+    let mut seen = 0u64;
+    let mut next = 0usize;
+    loop {
+        nes.tick();
+        if nes.ppu.scanline() == 240 && nes.ppu.dot() == 0 {
+            seen += 1;
+            if next < marks.len() && seen == marks[next] {
+                println!("=== FRAME {seen}");
+                let nt = nes.effective_nametable();
+                for row in 0..30 {
+                    let hex: String = nt[row * 32..row * 32 + 32]
+                        .iter()
+                        .map(|b| format!("{b:02X}"))
+                        .collect();
+                    println!("NT {row:02} {hex}");
+                }
+                let raw = nes.ppu.palette_ram();
+                let pal: String = (0..32)
+                    .map(|i| {
+                        let src = if matches!(i, 0x10 | 0x14 | 0x18 | 0x1C) {
+                            i - 0x10
+                        } else {
+                            i
+                        };
+                        format!("{:02X}", raw[src])
+                    })
+                    .collect();
+                println!("PAL {pal}");
+                next += 1;
+                if next == marks.len() {
+                    return;
+                }
+            }
+            nes.tick();
+        }
+    }
+}
+
+/// Sample the palette once per frame at Mesen's `endFrame` position and
+/// report every phase change, so the ROM's phase boundaries can be
+/// compared against the reference rather than guessed at.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_palette_phase_boundaries() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+
+    let resolve = |raw: &[u8; 32]| -> String {
+        (0..32)
+            .map(|i| {
+                let src = if matches!(i, 0x10 | 0x14 | 0x18 | 0x1C) {
+                    i - 0x10
+                } else {
+                    i
+                };
+                format!("{:02X}", raw[src])
+            })
+            .collect()
+    };
+
+    let mut frame = 0u64;
+    let mut last = String::new();
+    while frame < 2600 {
+        nes.tick();
+        if nes.ppu.scanline() == 240 && nes.ppu.dot() == 0 {
+            frame += 1;
+            let now = resolve(nes.ppu.palette_ram());
+            if now != last {
+                println!("frame {frame:>5}: {now}");
+                last = now;
+            }
+            nes.tick();
+        }
+    }
+}
+
+/// Log which nametable rows change on which frame, mirroring
+/// `tools/mesen-nes-cross-check/nametable-phases.lua`, so a timing
+/// offset against the reference can be localised to the sub-test that
+/// caused it.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_nametable_change_frames() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+
+    let mut prev: Vec<Option<u64>> = vec![None; 30];
+    let mut frame = 0u64;
+    while frame < 700 {
+        nes.tick();
+        if nes.ppu.scanline() == 240 && nes.ppu.dot() == 0 {
+            frame += 1;
+            let nt = nes.effective_nametable();
+            let mut changed = Vec::new();
+            for row in 0..30 {
+                let h = nt[row * 32..row * 32 + 32]
+                    .iter()
+                    .fold(0u64, |a, &b| (a * 31 + b as u64) % 16_777_216);
+                if prev[row] != Some(h) {
+                    if prev[row].is_some() {
+                        changed.push(row.to_string());
+                    }
+                    prev[row] = Some(h);
+                }
+            }
+            if !changed.is_empty() {
+                println!("NTCHG {frame:>5} rows={}", changed.join(","));
+            }
+            nes.tick();
+        }
+    }
+}
+
+/// Read the blargg `$6000` console. Mesen2 reports the full report text
+/// here for this ROM, ending "Passed" — so the protocol is live, and
+/// `CnRom` carries work RAM at `$6000-$7FFF` precisely for it. This
+/// checks what our run leaves there.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_6000_console() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+
+    for mark in [60u64, 300, 600, 1200, 1500, 1800, 2400] {
+        while nes.frame_count() < mark {
+            nes.run_frame();
+        }
+        let sig = [nes.peek(0x6001), nes.peek(0x6002), nes.peek(0x6003)];
+        let text: String = (0x6004u16..0x6404)
+            .map(|a| nes.peek(a))
+            .take_while(|&b| b != 0)
+            .map(|b| {
+                if (0x20..=0x7E).contains(&b) {
+                    b as char
+                } else {
+                    '.'
+                }
+            })
+            .collect();
+        println!(
+            "frame {mark:>5}: $6000=${:02X} sig={:02X?} text={text:?}",
+            nes.peek(0x6000),
+            sig
+        );
+    }
+}
+
+/// CPU cycles between successive crossings of a fixed PPU position.
+///
+/// Mesen runs one of this ROM's sub-test loops on a repeating
+/// 12,10,10-frame period where ours is a flat 12. A period-3 signature
+/// suggested the CPU/PPU alignment might not be rotating, so this
+/// measured it.
+///
+/// ⚠ It does not support that: ours alternates 29781/29780 CPU cycles
+/// per frame, which is exactly right for a 89 342/89 341-dot pair with
+/// the odd-frame dot skip active. The alignment DOES vary. The cause of
+/// the 12,10,10 cadence is therefore still unknown — recorded so the
+/// next attempt does not re-run this measurement expecting an answer.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_cpu_cycles_per_frame() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+    for _ in 0..120 {
+        nes.run_frame();
+    }
+    while !(nes.ppu.scanline() == 0 && nes.ppu.dot() == 0) {
+        nes.tick();
+    }
+    let mut prev = nes.cpu_cycle_count();
+    let mut prev_clock = nes.master_clock();
+    let mut deltas = Vec::new();
+    let mut dots = Vec::new();
+    for _ in 0..12 {
+        nes.tick();
+        while !(nes.ppu.scanline() == 0 && nes.ppu.dot() == 0) {
+            nes.tick();
+        }
+        let now = nes.cpu_cycle_count();
+        deltas.push(now - prev);
+        dots.push((nes.master_clock() - prev_clock) / 4);
+        prev = now;
+        prev_clock = nes.master_clock();
+    }
+    println!("dots per frame:       {dots:?}");
+    println!("CPU cycles per frame: {deltas:?}");
+    println!(
+        "(89342 dots = 29780.67 CPU cycles; a constant count means the alignment never rotates)"
+    );
 }

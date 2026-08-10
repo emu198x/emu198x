@@ -729,6 +729,9 @@ labelling honestly when it is.
 offset, and reports through custom CHR tiles plus audio. Different in kind;
 needs its own investigation.
 
+⚠ **Resolved 2026-08-10, and both halves of that sentence were wrong.** See
+[the section below](#test_ppu_read_buffer-two-stacked-mistakes).
+
 ### The baseline needed a third category
 
 The first instinct was to leave these 14 as `visual`, on the grounds that the
@@ -750,6 +753,9 @@ Seven ROMs remain genuinely ungraded, and each has a reason: the four
 `dmc_tests` are audio-only and never draw, and `dma_2007_read`,
 `double_2007_read` and `test_ppu_read_buffer` have gates written but withheld
 pending the divergence above.
+
+⚠ Superseded: `test_ppu_read_buffer` is graded by the sweep from 2026-08-10,
+so the baseline is now `Pass: 152 … Visual: 6`.
 
 ### The determinism blocker, now solved
 
@@ -782,6 +788,91 @@ reports the capture reproducible.
 That makes the cross-check harness usable as a golden source for **any** ROM
 that does render — which is most of stage 5's remaining list. It is only these
 four that are out of reach, and for a different reason.
+
+## `test_ppu_read_buffer`: two stacked mistakes
+
+Closed 2026-08-10 with **no emulator change**. The ROM passes, and always did.
+Both things this record previously said about it were wrong, and they were
+wrong in ways worth keeping.
+
+### Mistake 1 — the palette difference was a sampling artifact
+
+The structural gate sampled at frame 600. At that frame Mesen2's palette and
+ours disagreed on all 32 bytes while the nametable's 960 bytes and OAM's 256
+matched exactly. A 32-byte disagreement surrounded by 1 216 bytes of agreement
+looked like a narrow, specific defect.
+
+It was not a defect. The ROM displays a still image for 666 frames while its
+longest sub-test runs — the readme says so: *"In order to distract you with
+entertainment, art is provided. Contemplate on the art while the test is in
+progress."* Sampling the phase boundaries on both sides
+(`tools/mesen-nes-cross-check/palette-phases.lua` and
+`probe_palette_phase_boundaries`) gives:
+
+| | art phase starts | art phase ends | duration |
+|---|---|---|---|
+| Mesen2 | frame 599 | frame 1264 | 666 frames |
+| Emu198x | frame 638 | frame 1303 | 666 frames |
+
+At frame 600 Mesen had entered the art phase and we had not. **Two different
+phases of the same correct sequence were being compared.** Our art-phase
+palette is byte-identical to Mesen's golden, and so is the settled one. The
+nametable matched throughout only because the text does not change across the
+boundary — which is exactly why it gave no warning.
+
+⚠ **The lesson generalises a rule this campaign already learned once.** Stage 5
+established that a comparison needs both sides at the same PPU *position*
+(scanline 240, dot 0 — not a frame counter). The same argument applies to the
+*frame*: a golden is only meaningful once the screen has **settled**. The fix
+is procedural, and now written into `screen-state.lua`: before capturing a
+golden, check the ROM has stopped changing.
+
+### Mistake 2 — it was never a screen-only ROM
+
+The sweep listed it as `visual` with a long comment asserting it "reports
+pass/fail via screen + audio" and that "plain ASCII scanning can't read the
+verdict". Both claims were inferred from the readme's description of the
+*display*, never measured against `$6000`.
+
+It writes the standard blargg report. `$6001-$6003` hold `DE B0 61`, the text
+at `$6004` ends "Passed", and `$6000` goes `$80` → `$00`. `CnRom` already
+carries work RAM at `$6000-$7FFF` for exactly this reason, and its doc comment
+names this ROM.
+
+The only real obstacle was time: the ROM reports at ~520M master ticks against
+a `MAX_TICKS` of 200M — about 1 450 frames where the ceiling allows ~560. It
+now has a per-ROM budget in `SLOW_ROMS`, and the sweep grades it `pass` on the
+author's own protocol, which is a better gate than any golden. Its frame-600
+golden has been deleted rather than recaptured.
+
+⚠ **The trap worth naming.** `MAX_TICKS` carries a note that raising the
+ceiling to 250M was tried and flipped nothing. That experiment could not have
+flipped this ROM: it was on `VISUAL_ROMS`, so raising the ceiling never ran it.
+**A ROM excluded from the sweep is excluded from the sweep's experiments too**,
+and the exclusion cites a timeout the exclusion itself made permanent.
+
+### Left open — a 39-frame timing divergence
+
+We reach the art phase 39 frames after Mesen (638 vs 599), and every phase
+boundary from frame 466 onward carries the same 39-frame offset with identical
+durations. Frames 1-58 agree exactly, so one thing between frames 58 and 466
+costs us 39 frames.
+
+`probe_nametable_change_frames` localises it to a single sub-test loop that
+updates one nametable row 31 times — the sprite-0-hit / `$4014` DMA / RAM
+mirroring test. **Same iteration count in both**, different period: a flat 12
+frames for us, a repeating 12,10,10 for Mesen.
+
+The period-3 cadence suggested CPU/PPU alignment that fails to rotate. That was
+measured and **acquitted**: our per-frame CPU cycle count alternates
+29 781/29 780, which is right for an 89 342/89 341-dot pair with the odd-frame
+dot skip active. Cause unknown.
+
+The ROM passes in both emulators, so this is an accuracy question rather than a
+verdict question — but it is a real, reproducible, precisely-located divergence
+and should not be filed as noise. Next step: bisect frames 58-466 by comparing
+CPU cycle counts at each nametable write against Mesen, rather than comparing
+frame numbers.
 
 ## ⚠ On acquiring more test ROMs
 

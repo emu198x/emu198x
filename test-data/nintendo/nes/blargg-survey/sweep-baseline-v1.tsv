@@ -38,11 +38,20 @@
 # 'visual', which means nobody checks it, and distinct from 'pass', which would
 # claim the sweep graded it.
 #
-# ⚠ 7 ROMs remain genuinely ungraded: the four dmc_tests (audio-only, they
-# never draw), plus dma_2007_read, double_2007_read and test_ppu_read_buffer,
-# whose screen gates are WITHHELD because they diverge from Mesen2 in a way
-# that looks like a real defect — see tests/screen_goldens.rs. pal_apu_tests
-# (10 ROMs) is gated separately in tests/pal_apu.rs.
+# 2026-08-10: test_ppu_read_buffer moved visual -> pass with NO emulator
+# change. It was never a screen-only ROM: it writes the full blargg $6000
+# report, ends "Passed", and our run reports $6000 = $00. It only looked
+# protocol-less because it needs ~520M ticks — over twice MAX_TICKS — so the
+# sweep timed out, and the ROM was then excluded, which meant the later
+# "raised the ceiling to 250M, nothing flipped" experiment could not reach it.
+# Now carried in SLOW_ROMS with its own budget. ⚠ Excluding a ROM from the
+# sweep excludes it from the sweep's experiments too.
+#
+# ⚠ 6 ROMs remain genuinely ungraded: the four dmc_tests (audio-only, they
+# never draw), plus dma_2007_read and double_2007_read, whose screen gates are
+# WITHHELD because those ROMs admit several legal outputs — they are gated on
+# the author's published CRC set in tests/dmc_dma_read4_crc.rs instead.
+# pal_apu_tests (10 ROMs) is gated separately in tests/pal_apu.rs.
 #
 # ⚠ Full green is NOT proof of correctness. Absence of a failing gate is not
 # evidence of correctness where no gate runs.
@@ -184,7 +193,7 @@ nmi_sync	demo_pal.nes	gated
 oam_read	oam_read.nes	pass	
 oam_stress	oam_stress.nes	pass	
 ppu_open_bus	ppu_open_bus.nes	pass	
-ppu_read_buffer	test_ppu_read_buffer.nes	visual	
+ppu_read_buffer	test_ppu_read_buffer.nes	pass	
 ppu_vbl_nmi	rom_singles/01-vbl_basics.nes	pass	
 ppu_vbl_nmi	rom_singles/02-vbl_set_time.nes	pass	
 ppu_vbl_nmi	rom_singles/03-vbl_clear_time.nes	pass	

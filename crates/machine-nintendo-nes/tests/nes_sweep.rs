@@ -22,10 +22,32 @@ use std::path::{Path, PathBuf};
 /// 10 timeouts are stuck in tight infinite loops (DMC waiting on
 /// DMA that doesn't fire, official.nes spinning at $8003-$8005)
 /// rather than just slow. Time bumps don't help.
+///
+/// ⚠ That experiment could not have flipped `test_ppu_read_buffer`:
+/// the ROM was on [`VISUAL_ROMS`] at the time, so raising the ceiling
+/// never ran it. It needs ~520M ticks and is now in [`SLOW_ROMS`].
+/// A ROM excluded from the sweep is excluded from the sweep's
+/// experiments too — which is the trap that kept it ungraded.
+///
 /// Per-ROM tick budget. The slowest legitimate test we run
 /// (oam_stress) finishes at ~152M ticks, so the budget needs to
 /// be above that. Adds a little headroom for future tests.
 const MAX_TICKS: u64 = 200_000_000;
+
+/// ROMs that legitimately need longer than [`MAX_TICKS`], with the
+/// budget each needs. Kept per-ROM rather than raising the global
+/// ceiling: 173 of the 174 finish well inside it, and a blanket rise
+/// would make every genuine infinite-loop timeout that much slower to
+/// report.
+const SLOW_ROMS: &[(&str, u64)] = &[
+    // bisqwit's ppu_read_buffer runs its longest sub-test for ~666
+    // frames behind a still image ("art is provided. Contemplate on
+    // the art while the test is in progress"), and only then writes
+    // its result. It reports `$6000 = $00` at ~520M ticks — over
+    // twice the standard ceiling, and the sole reason it looked like
+    // a ROM with no result protocol.
+    ("test_ppu_read_buffer.nes", 700_000_000),
+];
 
 fn nes_test_roms_root() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
@@ -122,20 +144,6 @@ const VISUAL_ROMS: &[&str] = &[
     // human / oscilloscope inspection of inter-channel mixing
     // levels. No `$6000` protocol, no nametable verdict.
     "volumes.nes",
-    // bisqwit's test_ppu_read_buffer.nes — reports pass/fail via
-    // screen + audio (low-pitched fat tone = failure, bright beeps
-    // = progress) per the suite's `readme.txt`. The ROM runs to
-    // completion and enters its halt loop at `$EBE2: BEQ $EBE2`
-    // after writing the per-sub-test result table to the nametable
-    // using custom CHR tiles (so plain ASCII scanning can't read
-    // the verdict). Our CPU + PPU drive the ROM through every
-    // sub-test correctly — the initial `BIT $2002 / BPL` VBL-wait
-    // loop exits on the first frame, the per-sub-test code runs,
-    // the NMI handler at `$1D18` fires, and the halt loop is the
-    // ROM's intentional exit point. See
-    // `tests/ppu_read_buffer_probe.rs` for the diagnostic that
-    // walked through the entire boot sequence.
-    "test_ppu_read_buffer.nes",
     // read_joy3: three of the four are observational rather than
     // pass/fail. `count_errors` and `count_errors_fast` print an X each
     // time a DMC fetch collides with a controller read and explicitly
@@ -320,12 +328,16 @@ impl SettleHistory {
 }
 
 fn run_one(path: &Path) -> Result<Verdict, String> {
+    let mut budget = MAX_TICKS;
     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
         if let Some((_, where_gated)) = GATED_EXTERNALLY.iter().find(|(n, _)| *n == name) {
             return Ok(Verdict::GatedExternally(where_gated));
         }
         if VISUAL_ROMS.contains(&name) {
             return Ok(Verdict::Visual);
+        }
+        if let Some((_, ticks)) = SLOW_ROMS.iter().find(|(n, _)| *n == name) {
+            budget = *ticks;
         }
     }
     let bytes = std::fs::read(path).map_err(|e| format!("read: {e}"))?;
@@ -339,7 +351,7 @@ fn run_one(path: &Path) -> Result<Verdict, String> {
     // Weakest channel: a non-`1` settled byte, held back until every
     // stronger channel has failed to decide by the tick ceiling.
     let mut settle_fallback: Option<(u16, u8)> = None;
-    while tick_count < MAX_TICKS {
+    while tick_count < budget {
         nes.tick();
         tick_count += 1;
         if !signature_seen

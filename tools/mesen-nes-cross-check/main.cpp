@@ -64,6 +64,20 @@ static std::string read_script() {
     return "";
   }
   std::string out;
+  // Mesen sandboxes Lua's `os` library, so a script cannot read its own
+  // parameters from the environment. Prepending an assignment is the way
+  // in: scripts that want a sample frame declare
+  // `SAMPLE_FRAME = SAMPLE_FRAME or <default>`, which this overrides.
+  //
+  // ⚠ Needed because one sample frame does not suit every ROM. A ROM
+  // whose screen is still moving at the sampled frame will be compared
+  // mid-phase, which looks exactly like a defect and is not one —
+  // `test_ppu_read_buffer` cost a whole investigation that way.
+  if (const char *frame = getenv("EMU198X_MESEN_FRAME")) {
+    out += "SAMPLE_FRAME = ";
+    out += frame;
+    out += "\n";
+  }
   char buf[4096];
   size_t n;
   while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {

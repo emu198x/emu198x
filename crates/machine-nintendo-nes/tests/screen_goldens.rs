@@ -207,8 +207,9 @@ screen_gate!(mmc5test, "mmc5test/mmc5test.nes");
 screen_gate!(mmc5test_v2, "mmc5test_v2/mmc5test.nes");
 screen_gate!(demo_ntsc, "nmi_sync/demo_ntsc.nes");
 screen_gate!(demo_pal, "nmi_sync/demo_pal.nes");
-// test_ppu_read_buffer: see KNOWN DIVERGENCES below.
-// screen_gate!(test_ppu_read_buffer, "ppu_read_buffer/test_ppu_read_buffer.nes");
+// test_ppu_read_buffer is NOT gated here, and needs no golden: it
+// reports through blargg's $6000 protocol like any other shell ROM and
+// is graded by the sweep. See KNOWN DIVERGENCES below.
 screen_gate!(count_errors, "read_joy3/count_errors.nes");
 screen_gate!(count_errors_fast, "read_joy3/count_errors_fast.nes");
 screen_gate!(test_buttons, "read_joy3/test_buttons.nes");
@@ -301,10 +302,38 @@ fn probe_frame_alignment() {
 //     Worth investigating on its own terms — via the ROM's CRC, not a
 //     screen diff.
 //
-//  2. test_ppu_read_buffer — different in kind. Its palette diverges
-//     wholesale rather than by an offset, and bisqwit's ROM reports
-//     through custom CHR tiles with an audio channel besides. Needs
-//     its own investigation before a verdict.
+//  2. test_ppu_read_buffer — RESOLVED, and it was never a defect. Two
+//     separate mistakes stacked here.
+//
+//     The palette difference was a SAMPLING artifact. The ROM shows a
+//     still image for 666 frames while its longest sub-test runs
+//     ("Contemplate on the art while the test is in progress"). At
+//     frame 600 Mesen was in the art phase and we had not entered it
+//     yet, so two different phases of the same correct sequence were
+//     compared. Our art-phase palette is byte-identical to Mesen's,
+//     and so is the settled one; the nametable matched all along
+//     because the text does not change across the boundary.
+//
+//     ⚠ The general rule this file already states for the sample
+//     POSITION applies just as much to the sample FRAME: a comparison
+//     is only meaningful once the screen has SETTLED. Check that a ROM
+//     has stopped changing before capturing a golden for it —
+//     tools/mesen-nes-cross-check/palette-phases.lua reports the
+//     boundaries.
+//
+//     The second mistake was believing it had no result protocol. It
+//     writes the full blargg $6000 report and ends "Passed"; the sweep
+//     had simply timed out at MAX_TICKS, ~560 frames short of the
+//     ~1450 it needs. It is graded by the sweep now, on the author's
+//     own protocol, which beats any golden.
+//
+//     ⚠ Left open: reaching the art phase takes us 39 frames longer
+//     than Mesen — 638 vs 599, with identical 666-frame duration
+//     either side. Localised to one 31-iteration sub-test loop whose
+//     cadence is a flat 12 frames for us and a repeating 12,10,10 for
+//     Mesen. Cause unknown; CPU/PPU alignment was measured and
+//     ACQUITTED (tests/ppu_read_buffer_probe.rs). The ROM passes in
+//     both, so this is an accuracy question, not a verdict question.
 //
 //  Re-enable each `screen_gate!` above as its cause is resolved.
 // ────────────────────────────────────────────────────────────────
