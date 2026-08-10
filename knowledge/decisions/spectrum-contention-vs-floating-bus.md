@@ -342,21 +342,109 @@ surprises.
 The latch remains unwired. The evidence for it is now more mixed than the
 survey score suggested, not less.
 
+## The origin, settled
+
+The offset is no longer fitted. FUSE's frame T-state 0 **is** the
+interrupt: `spectrum_frame()` subtracts a frame from `tstates` and
+`z80_interrupt()` runs immediately after, holding `/INT` while
+`tstates < interrupt_length`. The engine raises `int_active` at its own
+T-state **55553**, and 69888 − 55553 = **14335**. That is a measurement of
+an edge both implementations define and neither derives from contention.
+
+Two further readings agree at the same anchor. The engine holds `/INT` for
+exactly **32** T-states, which is `interrupt_length` for
+`timings_frame_ferranti_5c_6c` in libspectrum's `timings.c`. And +14335
+puts engine T-state 1 at FUSE's `top_left_pixel` of 14336, one T-state
+after the contention window opens — where `FIRST_DISPLAY` already had it,
+arrived at independently.
+
+That also disposes of the third candidate. The retracted window section
+argued +14336 from a hand mapping of pixels to T-states; at two pixels per
+T-state that mapping carries a half-T-state ambiguity the interrupt edge
+does not have.
+
+`the_frame_origin_is_pinned_by_the_interrupt` gates it, and the
+differential scores against `ORIGIN` rather than a fit. The fit is still
+computed and printed only when it disagrees — a divergence now means the
+gate's phase has moved against its own interrupt, which is a finding.
+
+## The I/O fork, and how the HDL resolved it
+
+Reading Chapter 18's prose on Figure 18-15 — "`/IWAIT` and its source NOR
+gate are physically gone", the handler "used `/MWAIT` alone", and "all
+contention … is processed through the single Memory Contention NOR-gate
+fan-in" — suggested the 6C had *no* I/O contention path, and that a ULA
+port outside `$4000..$7FFF` should not contend at all. That contradicts
+FUSE, which gives it `N:1 C:3`, and it is not a small disagreement:
+keyboard reads are `IN A,($FE)` with the half-row in `A`, so `$FEFE`,
+`$BFFE` and friends all land in the disputed class.
+
+Chapter 18 §7 flags its own limit here — the 6C topology "needs Smith's
+accompanying HDL implementation at `opencores.org/projects/zx_ula`, not the
+OCR text. The text on pp. 205–207 is partial." So the HDL was acquired
+rather than the fork adjudicated. It is now at
+`198x/emulators/zx-spectrum/zx_ula/` (Miguel Angel Rodriguez Jodar, Univ.
+Seville, from Smith's book and the Harlequin), indexed there.
+
+**The prose reading was wrong, and the HDL says so plainly.** Both the CPLD
+and FPGA variants carry the same block:
+
+```verilog
+wire ioreq_n = a[0] | iorq_n;              // IORQ *and* an even port
+wire Nor1 = (~(a[14] | ~ioreq_n))
+          | (~(~a[15] | ~ioreq_n))
+          | (~(hc[2] | hc[3]))
+          | (~Border_n | ~ioreqtw3 | ~CPUClk | ~mreqt23);
+wire Nor2 = (~(hc[2] | hc[3])) | ~Border_n | ~CPUClk | ioreq_n | ~ioreqtw3;
+wire CLKContention = ~Nor1 | ~Nor2;
+always @(posedge CPUClk) begin
+  ioreqtw3 <= ioreq_n;
+  mreqt23  <= mreq_n;
+end
+```
+
+Negating `Nor1` gives `(A14 | IORQ) & (/A15 | IORQ) & (C2|C3) & /Border &
+ioreqtw3 & CPUClk & mreqt23`. **The `IORQ` term short-circuits the address
+decode.** When the ULA answers the port, both address conditions are
+satisfied whatever the page — so a ULA port contends regardless of where
+its address lands. `Nor2` is a second contention path for the same case.
+
+What `ioreqtw3` does is *cut the contention short*: it latches `ioreq_n` on
+the next `CPUClk` edge, after which both paths are disarmed. That is the
+"cancellation of contention during legitimate I/O cycles" the prose
+describes — not the absence of an I/O path, which is what it had been read
+to mean.
+
+All four classes then fall out, and they are FUSE's:
+
+| class | mechanism | shape |
+|---|---|---|
+| `$40FE` contended, ULA | address decode at `T1`, then `IORQ`, then cancelled | `C:1 C:3` |
+| `$40FF` contended, odd | `ioreq_n` never asserts; address decode armed all cycle | `C:1 C:1 C:1 C:1` |
+| `$C0FE` uncontended, ULA | no `T1` decode; `IORQ` short-circuits, then cancelled | `N:1 C:3` |
+| `$C0FF` uncontended, odd | neither path arms | `N:4` |
+
+So the reference emulator and the gate-level source agree completely, and
+the engine is wrong against both. Implement FUSE's table, by the HDL's
+mechanism.
+
+The HDL also latches `mreqt23` on `posedge CPUClk` exactly as
+`UlaEngine::mreq_t23` does, and requires it high in `Nor1` — which is
+evidence *for* the latch, against the +1 T-state regression measured above.
+Those two have not been reconciled and that is the open thread.
+
 ## Next
 
-1. Settle the origin independently of any fit. Every cross-configuration
-   claim above is provisional until `tstate_in_frame() == 0` is mapped to a
-   FUSE T-state by something other than a best-fit search — the engine's
-   own raster is the obvious candidate, and `debug_raster()` already
-   exposes it. Two configurations currently fit +14335 and +14334, and the
-   retracted window section argued for +14336 from a pixel mapping. Three
-   answers, no measurement.
-2. Fix the I/O gate against the derived model. It needs the port's page,
-   and it needs two shapes rather than one: `C:1 C:3` when the ULA answers
-   the port, `C:1 C:1 C:1 C:1` when it does not. The differential is the
-   gate to fix it against; it can fail, and it was checked by mutation
-   before being trusted. This is worth doing on its own merits — three of
-   four port classes are wrong — but it will not move floatspy.
+1. Fix the I/O gate against the HDL. Contention is one address decode with
+   `IORQ` short-circuiting it for ULA ports, plus `ioreqtw3` cancelling
+   after one `CPUClk` edge — not the current `mem_contention ||
+   io_contention` with an even-port test and no page term. The differential
+   is the gate to fix it against; it can fail, and it was checked by
+   mutation before being trusted. This will not move floatspy.
+2. Reconcile `MREQT23` with the HDL. The HDL requires the latch; our
+   measurement says wiring it costs one T-state per contended `M1` pair.
+   One of the two is wrong, and the HDL now gives a gate-level model to
+   diff the engine against rather than a survey score to trade off.
 3. Find the third error. It is in the floating-bus path, it is not the
    sample lead, the pattern phase, or I/O contention, and it is masked by
    the contention bug. FUSE's `spectrum_unattached_port` is the reference
