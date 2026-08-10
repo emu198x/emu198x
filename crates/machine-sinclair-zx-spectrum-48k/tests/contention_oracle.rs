@@ -120,8 +120,22 @@ fn cases() -> Vec<Case> {
             mcycles: &[4, 3],
             setup: |m| m.z80_mut().regs.hl = 0x5000,
         },
+        // Four and five M-cycles, to show how the error scales with the
+        // number of memory cycles rather than with the instruction's
+        // length. Operand bytes address $5000, itself contended.
+        Case {
+            name: "LD A,(nn)",
+            bytes: &[0x3A, 0x00, 0x50],
+            mcycles: &[4, 3, 3, 3],
+            setup: |_| {},
+        },
+        Case {
+            name: "LD HL,(nn)",
+            bytes: &[0x2A, 0x00, 0x50],
+            mcycles: &[4, 3, 3, 3, 3],
+            setup: |_| {},
+        },
         // Six M-cycles. This is the shape the failing suite cases use.
-        // Operand bytes address $5000, itself contended.
         Case {
             name: "LD BC,(nn)",
             bytes: &[0xED, 0x4B, 0x00, 0x50],
@@ -185,20 +199,30 @@ fn contention_matches_the_canonical_model_per_instruction() {
     };
 
     println!(
-        "\n{:<14} {:>10} {:>10} {:>9}  M-cycles",
-        "instruction", "canonical", "measured", "excess"
+        "\n{:<12} {:>3} {:>9} {:>9} {:>8} {:>9}  M-cycles",
+        "instruction", "Ms", "canonical", "measured", "excess", "extra T"
     );
-    println!("{}", "-".repeat(62));
+    println!("{}", "-".repeat(76));
 
     let mut ran = 0;
     for case in cases() {
         let canonical = canonical_per_frame(case.mcycles);
         let measured = measure(&case, &rom);
-        // Fewer instructions retired means more time lost to waits.
+        // Fewer instructions retired means more time lost to waits. The
+        // T-state form is the diagnostic one: it is comparable across
+        // instructions of different length, where the percentage is not.
         let excess = (canonical as f64 - measured as f64) / canonical as f64 * 100.0;
+        let extra_t =
+            FRAME_TSTATES as f64 / measured as f64 - FRAME_TSTATES as f64 / canonical as f64;
         println!(
-            "{:<14} {:>10} {:>10} {:>8.1}%  {:?}",
-            case.name, canonical, measured, excess, case.mcycles
+            "{:<12} {:>3} {:>9} {:>9} {:>7.1}% {:>9.3}  {:?}",
+            case.name,
+            case.mcycles.len(),
+            canonical,
+            measured,
+            excess,
+            extra_t,
+            case.mcycles
         );
         ran += 1;
     }
