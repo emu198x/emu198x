@@ -47,9 +47,7 @@
 //! shows up as a reviewable diff in a golden rather than as a silent
 //! change under an emulator-wide test:
 //!
-//! 1. Memory write `/MREQ` ends at `T2b` and `/WR` runs `T2a`–`T2b`
-//!    (Zilog: `T1b`–`T3b` and `T2b`–`T3b`).
-//! 2. I/O `/IORQ` runs `T2a`–`TWa` (Zilog: `T2b`–`T3b`).
+//! 1. I/O `/IORQ` runs `T2a`–`TWa` (Zilog: `T2b`–`T3b`).
 //!
 //! ```sh
 //! cargo test -p zilog-z80 --test bus_pin_waveform
@@ -230,10 +228,10 @@ fn memory_write_bus_pins() {
             "7   M1(T4Fall)         0000  RFSH\n",
             "8   MemWrite(T1Rise)   5000\n",
             "9   MemWrite(T1Fall)   5000  MREQ\n",
-            "10  MemWrite(T2Rise)   5000  MREQ WR\n",
+            "10  MemWrite(T2Rise)   5000  MREQ\n",
             "11  MemWrite(T2Fall)   5000  MREQ WR\n",
-            "12  MemWrite(T3Rise)   5000\n",
-            "13  MemWrite(T3Fall)   5000\n",
+            "12  MemWrite(T3Rise)   5000  MREQ WR\n",
+            "13  MemWrite(T3Fall)   5000  MREQ WR\n",
         )
     );
 }

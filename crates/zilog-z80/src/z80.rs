@@ -722,15 +722,20 @@ impl Z80 {
                 if self.wait {
                     return;
                 }
-                self.wr = true;
                 self.phase = Phase::MemWrite(MemPhase::T2Fall);
             }
             MemPhase::T2Fall => {
+                // `/WR` drops half a T-state after `/MREQ`, once the data
+                // bus is stable — Zilog UM0080 notes that this is what lets
+                // it be used directly as an R/W pulse to most memories.
+                // SpecIde asserts it in `ST_MEMWR_T2L_WAITST`, the same
+                // half-cycle.
+                self.wr = true;
                 self.phase = Phase::MemWrite(MemPhase::T3Rise);
             }
             MemPhase::T3Rise => {
-                self.mreq = false;
-                self.wr = false;
+                // Both strobes run to the end of `T3`. The next M-cycle's
+                // `T1`↑ releases them.
                 self.phase = Phase::MemWrite(MemPhase::T3Fall);
             }
             MemPhase::T3Fall => {
