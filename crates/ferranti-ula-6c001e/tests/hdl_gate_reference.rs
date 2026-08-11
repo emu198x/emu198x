@@ -75,96 +75,10 @@
 // only reason it is trustworthy at all.
 #![allow(clippy::nonminimal_bool)]
 
-/// `hc` is 9 bits and wraps at 447 — 448 `clk7` cycles per line, which is
-/// the same rate as our own `pixel` counter.
-const HC_PER_LINE: u16 = 448;
-
-/// The HDL's contention block, as state.
-///
-/// Register names and polarities are the HDL's, not ours. `ioreqtw3` and
-/// `mreqt23` hold *active-low* signals, so "high" means "no request was
-/// latched" — the opposite sense to `UlaEngine::mreq_t23`. Keeping the
-/// HDL's polarity is the point: a transcription that silently renames
-/// things is where a misread hides.
-#[derive(Clone, Copy, Debug)]
-struct HdlGate {
-    hc: u16,
-    cpu_clk: bool,
-    ioreqtw3: bool,
-    mreqt23: bool,
-}
-
-/// The Z80 pins the gate looks at, in the HDL's active-low convention.
-#[derive(Clone, Copy, Debug)]
-struct Pins {
-    a: u16,
-    mreq_n: bool,
-    iorq_n: bool,
-}
-
-impl HdlGate {
-    fn new(hc: u16) -> Self {
-        Self {
-            hc,
-            cpu_clk: false,
-            ioreqtw3: true,
-            mreqt23: true,
-        }
-    }
-
-    /// `CLKContention`, combinational.
-    fn contention(&self, p: Pins, border_n: bool) -> bool {
-        let ioreq_n = (p.a & 1 != 0) | p.iorq_n;
-        let ula_io = !ioreq_n;
-        let a14 = p.a & 0x4000 != 0;
-        let a15 = p.a & 0x8000 != 0;
-        let window = (self.hc & 0x04 != 0) | (self.hc & 0x08 != 0);
-
-        // `~Nor1` — every term negated and ANDed. The `ula_io` disjuncts
-        // are the short-circuit: when the ULA answers the port, both
-        // address conditions hold whatever the address is.
-        let nor1 = (a14 || ula_io)
-            && (!a15 || ula_io)
-            && window
-            && border_n
-            && self.ioreqtw3
-            && self.cpu_clk
-            && self.mreqt23;
-
-        // `~Nor2` — the same, minus the address terms and `mreqt23`,
-        // requiring the ULA to be answering.
-        let nor2 = window && border_n && self.cpu_clk && ula_io && self.ioreqtw3;
-
-        nor1 || nor2
-    }
-
-    /// One `posedge clk7`. Returns whether `CPUClk` *changed*, which is
-    /// when the Z80 advances.
-    ///
-    /// Both edges, not just the rise: the Z80 is a half-cycle state
-    /// machine, and its pins move on each `CPUClk` transition. Advancing
-    /// only on the rise makes every T-state take two, which is exactly
-    /// what the acceptance test caught the first time this was written.
-    /// While the gate holds `CPUClk` high there is no transition, and that
-    /// is what a stall costs.
-    fn clk7_edge(&mut self, p: Pins, border_n: bool) -> bool {
-        let contention = self.contention(p, border_n);
-
-        let was_high = self.cpu_clk;
-        // `if (CPUClk && !CLKContention) CPUClk <= 0; else CPUClk <= 1;`
-        self.cpu_clk = !(was_high && !contention);
-        self.hc = (self.hc + 1) % HC_PER_LINE;
-
-        // `always @(posedge CPUClk)` — a derived clock, so it fires in the
-        // same delta as the `clk7` edge that raised it, sampling the pins
-        // as they stand.
-        if !was_high && self.cpu_clk {
-            self.ioreqtw3 = (p.a & 1 != 0) | p.iorq_n;
-            self.mreqt23 = p.mreq_n;
-        }
-        was_high != self.cpu_clk
-    }
-}
+// The model itself lives in the crate, not here. A second transcription
+// in this file is what it was written to avoid: two copies drift, and a
+// drifting reference is worse than none.
+use ferranti_ula_6c001e::hdl_model::{HdlGate, Pins};
 
 /// One Z80 T-state's worth of pins, as the gate sees them.
 ///
