@@ -666,10 +666,12 @@ impl Z80 {
                 self.phase = Phase::MemRead(MemPhase::T2Fall);
             }
             MemPhase::T2Fall => {
-                // Latch data
-                // data_in has been set by the machine
-                self.mreq = false;
-                self.rd = false;
+                // data_in has been set by the machine. `/MREQ` and `/RD`
+                // stay low to the end of `T3` — Zilog UM0080's memory-read
+                // diagram releases them on the edge that ends the cycle,
+                // which is the next M-cycle's `T1`↑. SpecIde does the same:
+                // `ST_MEMRD_T1L_ADDRWR` asserts them and
+                // `ST_MEMRD_T3L_DATARD` is where they go back high.
                 self.phase = Phase::MemRead(MemPhase::T3Rise);
             }
             MemPhase::T3Rise => {

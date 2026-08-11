@@ -47,10 +47,9 @@
 //! shows up as a reviewable diff in a golden rather than as a silent
 //! change under an emulator-wide test:
 //!
-//! 1. Memory read `/MREQ`, `/RD` end at `T2a` (Zilog: `T3b`).
-//! 2. Memory write `/MREQ` ends at `T2b` and `/WR` runs `T2a`–`T2b`
+//! 1. Memory write `/MREQ` ends at `T2b` and `/WR` runs `T2a`–`T2b`
 //!    (Zilog: `T1b`–`T3b` and `T2b`–`T3b`).
-//! 3. I/O `/IORQ` runs `T2a`–`TWa` (Zilog: `T2b`–`T3b`).
+//! 2. I/O `/IORQ` runs `T2a`–`TWa` (Zilog: `T2b`–`T3b`).
 //!
 //! A further departure is visible in the address column rather than the
 //! strobes: when the next M-cycle is *not* an `M1`, its address appears
@@ -215,9 +214,9 @@ fn memory_read_bus_pins() {
             "8   MemRead(T1Rise)    5000\n",
             "9   MemRead(T1Fall)    5000  MREQ RD\n",
             "10  MemRead(T2Rise)    5000  MREQ RD\n",
-            "11  MemRead(T2Fall)    5000\n",
-            "12  MemRead(T3Rise)    5000\n",
-            "13  MemRead(T3Fall)    5000\n",
+            "11  MemRead(T2Fall)    5000  MREQ RD\n",
+            "12  MemRead(T3Rise)    5000  MREQ RD\n",
+            "13  MemRead(T3Fall)    5000  MREQ RD\n",
         )
     );
 }
