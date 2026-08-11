@@ -1,7 +1,8 @@
 # Plan: how to actually finish Spectrum contention
 
 **Date:** 2026-08-11
-**Status:** PROPOSED — not started
+**Status:** IN PROGRESS — Phase 1 done, Phase 3 partly done and partly
+disconfirmed. See “What happened” below before acting on the plan.
 **Supersedes the approach in:**
 [`spectrum-contention-vs-floating-bus.md`](spectrum-contention-vs-floating-bus.md)
 
@@ -228,6 +229,112 @@ Real hardware. A 48K plus a logic analyser, or someone in the community
 running a timing suite. Not currently available, and worth revisiting given
 how much time this has cost — an accuracy-first emulator with no access to the
 machine it emulates is working at a permanent disadvantage.
+
+## What happened
+
+Recorded 2026-08-11, after Phase 1 and the first half of Phase 3.
+
+### Phase 1 landed, and found more than five defects
+
+`bus_pin_waveform.rs` is an asserting golden covering `M1`, memory read,
+memory write, I/O read, I/O write, an internal cycle and the not-taken
+displacement cycle. Every strobe now matches Zilog UM0080, cross-checked
+against SpecIde's half-cycle states, which agree exactly on the memory
+read and write and disagree in two places where Zilog governs.
+
+The five defects the plan listed were real. Four more were not on the
+list:
+
+- **`/RFSH` ended a T-state early.** A ULA input — the Sinclair ULAs
+  derive snow from it.
+- **The next M-cycle's address was presented half a T-state early**, on
+  the previous cycle's last half-cycle, because `try_advance_walker`
+  called `setup_signals` as it handed over. This was a live corruption
+  once `/WR` correctly ran to the end of `T3`: a host driving the bus from
+  raw pins — Pentagon, Scorpion and Timex all do — wrote the outgoing byte
+  to the incoming address. `IM 2` jumped to `$5601` instead of `$5678`.
+- **`MStep::ContendPc` had no `/RD` and a short `/MREQ`.** FUSE scores the
+  not-taken `JR cc` / `DJNZ` operand cycle as `contend_read( PC, 3 )`.
+- **Internal cycles drove `IR`.** Nothing drives the address bus during an
+  internal cycle; it holds the last address driven. FUSE gets both cases
+  from that one rule — `IR` after `M1`, `DE` after `LDIR`'s write.
+
+### The gate armed on the wrong clock phase, and that is now measured
+
+The plan expected Phase 1 to move the survey and said to record which way.
+It moved it **down**: 36 failing to 40. That was correct behaviour from a
+correct pin. With `/MREQ` running `T1b`–`T3b` it covers five of a memory
+read's six half-cycles, leaving exactly **one** arming half-cycle per
+M-cycle — the one where the CPU is about to drop it. The gate's other
+term selected the opposite parity, so the engine could not contend a
+memory access at all.
+
+`machine-sinclair-zx-spectrum-48k/tests/contention_arming.rs` measures
+this on the real machine, from inside `FerrantiUla::tick`. Before the fix:
+four arming opportunities in the window, all on `M1(T1Fall)`, all with
+`z80_clock_high` false, zero stalls.
+
+The fix is `UlaEngine::gate_arms_this_halfcycle`, and it is derived: the
+edge the ULA withholds is the one that drops `/MREQ`, a `Fall` phase, and
+`z80_clock_high` is measured true on `Rise` phases. Survey **36 failing →
+29 of 70**, the best this engine has recorded — better than the 34
+baseline and better than the 37 that wiring `MREQT23` reached.
+
+**This is the likely origin of `MREQT23`.** The latch was invented to
+cancel an over-contention that existed only because the strobe was two and
+a half T-states short. With the pin right, `!cpu_mreq` inhibits re-arming
+on its own. No latch is wired in.
+
+### Phase 3's SpecIde gate is disconfirmed as written
+
+Ported whole, not adjusted: the free-running delay line, the `IOREQTW3`
+cancellation, and mutual exclusion between the memory and I/O terms. The
+prerequisite the plan names — clocking the delay line on the ULA rather
+than the CPU — was fixed in the same change, so this was not the earlier
+no-op.
+
+It moved nothing toward the target and the I/O differential away from it:
+survey unchanged at 29, I/O differential 75,081 → 84,099 against a 30,741
+ratchet, floating bus unchanged, floatspy still red. **Reverted.** The
+ratchet's own rule is that a rise means the change made I/O contention
+worse, and there is no argument here that FUSE is wrong.
+
+So the plan's diagnosis — that we hold one of three terms and the other
+two are the answer — is not supported. The I/O path needs its own
+derivation, not this port.
+
+### Standing state
+
+| gate | baseline | now | target |
+|---|---|---|---|
+| ZXSpectrum4.net survey | 36 failing | **29** | < 36 |
+| Float48K | 14337 | 14337 | 14337 |
+| I/O differential | 30,741 | 75,081 | < 30,741 |
+| Float128K | 14363 | 14362 | 14364 |
+| floatspy | byte-exact | red | byte-exact |
+| +2A max delay | 1 | 1 | 7 |
+
+The memory path is derived and better than it has ever been. Everything
+still outstanding is on the I/O path: the differential, both floating-bus
+figures, and the +2A. They are one problem — when the ULA samples the bus
+relative to the I/O M-cycle — and they have not been solved.
+
+### An instrument lesson, paid for twice
+
+`contention_arming`'s first port-class measurement reported that the
+engine collapses FUSE's four classes into two. It was wrong: the harness
+set `BC` before settling the machine, ROM code overwrote it, and all four
+runs measured `$FFFE`. Moving the assignment after the settle was still
+not enough, because the settle stops mid-instruction and the in-flight ROM
+instruction retired over the top of it.
+
+The harness self-checked twice, in the shape the +2A differential taught —
+"harness fault, not a finding" — and both checks passed, because they
+verified that the *recording aligned with the CPU* and alignment was never
+the problem. **An instrument must also check that it is driving the thing
+it claims to drive.** Corrected, the four classes separate and track
+FUSE's ordering; what survives is the narrower divergence already on
+record, `$40FE` and `$40FF` costing the same.
 
 ## The commit sequence
 
