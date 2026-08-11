@@ -1191,22 +1191,54 @@ before/after-processing ambiguity, and every comparison in this investigation
 that used them — the per-slot counts, the per-iteration totals, the DMA trace —
 was correct first time.
 
+### The bisect, and the shape of the whole thing
+
+Done convention-free: match palette transitions by their **value** (which needs
+no shared coordinate system at all) and compare the **CPU cycle** at each.
+
+| palette transition | Mesen2 cycle | Emu198x cycle | gap |
+|---|---|---|---|
+| first write | 57 060 | 27 394 | −29 666 |
+| `0F0F0F...` | 116 621 | 116 736 | **+115** |
+| ... through frame 16 | | | **+115** |
+| `0B1D0D03...` | 533 550 | 503 884 | **−29 666** |
+| ... through frame 58 | | | **−29 666** |
+| `0F200C2C...` | 13 905 000 | 15 036 773 | **+1 131 773** |
+| art phase start | 17 865 828 | 18 997 602 | +1 131 774 |
+| art phase end | 37 699 641 | 38 831 415 | +1 131 774 |
+
+The gap does not drift. It sits flat, then **steps by exactly one frame**
+(29 781 cycles) at discrete points: once at frame 17 in our favour, then 39
+times against us between frames 58 and 466. Net 38.
+
+Every step is one frame, and one frame is exactly what a suppression hit costs.
+So the picture is complete:
+
+1. The two emulators start ~115 CPU cycles apart — 0.4% of a frame.
+2. The wait loop polls `$2002` on a 21-dot grid. Whether a poll lands on the
+   VBlank set dot is decided by where that grid sits, and 115 cycles is enough
+   to put the two on opposite sides of it.
+3. Each disagreement costs exactly one frame, and shifts the phase again.
+
+**The 38 frames are amplification of a ~115-cycle startup difference, not an
+accumulating error.** Both emulators implement suppression identically; they
+simply take different numbers of hits.
+
+⚠ This reframes the whole question. There is no 38-frame defect to find. The
+only concrete residual is the **115 CPU cycles at startup**, plus the one-frame
+offset in when the very first palette write happens — both reset/power-on
+timing questions, and both far smaller than what they grow into.
+
 ### What remains open
 
-**Where does the phase difference originate?** Both emulators are deterministic
-and run the same ROM, so identical behaviour would keep them in the same phase.
-It does not, so something differs at least once, somewhere before the loop.
+The ~115-cycle startup offset, and the one-frame difference before the first
+palette write. Everything downstream is explained.
 
-Everything inside the loop has been measured and matches: CPU cycles between
-waits, cycles per iteration, cycles per frame, OAM DMA length, and now the
-suppression rule itself.
-
-⚠ The obvious next step — bisecting the first `$2002` read per frame — returned
-an ambiguous result and should not be built on. It reports our reads running
-two frames ahead of Mesen2's around frames 43-58, while
-`probe_palette_phase_boundaries` has the two agreeing exactly on every phase
-boundary from frame 17 to 58. Both cannot be true. Settle which instrument is
-wrong before treating either as a bisect.
+⚠ Do not use `probe_first_2002_read_per_frame` as a bisect: no frame shift
+aligns the two sides (best is 20 identical positions out of 84), so it is not
+capturing the same set of reads on both. The palette-value/CPU-cycle method
+above is the sound one — it needs no shared frame numbering at all, which is
+the whole point.
 
 The ROM passes in both emulators. This is an accuracy question, not a verdict
 question, and none of the corpus's gates depend on it.

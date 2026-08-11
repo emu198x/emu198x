@@ -1293,11 +1293,8 @@ fn probe_nmi_vs_poll_race() {
 /// Position of the FIRST `$2002` read in each frame — the counterpart of
 /// `tools/mesen-nes-cross-check/first-2002-read.lua`.
 ///
-/// ⚠ Bisects where the two emulators' phase first diverges. Both run the
-/// same ROM deterministically, so identical behaviour would keep them in
-/// the same phase; they are 38 frames apart by the end, so at least one
-/// thing differs at least once, and this finds the first frame where it
-/// shows.
+/// Intended to bisect where the two emulators' phase first diverges. It
+/// does not work — see the warning below.
 ///
 /// ⚠ Position labels are NOT directly comparable. Mesen processes cycle
 /// N then exposes `_cycle == N`; we expose the dot we are ABOUT to
@@ -1306,15 +1303,22 @@ fn probe_nmi_vs_poll_race() {
 /// suppression window is off by one" conclusion — in fact both suppress
 /// at the same moment, and Mesen loses frames to it too.
 ///
-/// ⚠ UNRESOLVED, and do not build on it: this reports our read runs two
-/// frames earlier than Mesen's around frames 43-58 (our 43-47 against
-/// its 45-49), while `probe_palette_phase_boundaries` has the two
-/// agreeing EXACTLY on every phase boundary from frame 17 to 58. Both
-/// cannot be right. Either this "first read per frame" detection is
-/// wrong — the CPU holds an address across its whole cycle, and the
-/// de-duplication here is the obvious suspect — or the palette
-/// comparison is insensitive to a shift. Settle that before treating
-/// either as a bisect result.
+/// ⚠⚠ **UNSOUND — do not use this as a bisect.** No frame shift aligns
+/// the two sides: the best of thirteen candidate shifts leaves 20
+/// identical positions out of 84. That is not an offset, it is two
+/// different sets of reads, so the detection here does not match
+/// Mesen2's read callback. The CPU holds an address across its whole
+/// cycle and the de-duplication is the likely culprit.
+///
+/// The sound bisect needs no frame numbering at all: match palette
+/// transitions by their VALUE and compare the CPU cycle at each. See
+/// `probe_palette_phase_boundaries`, which prints both. That method
+/// found the answer — the gap sits flat and steps by exactly one frame
+/// at discrete points, so the divergence is suppression hits differing,
+/// amplified from a ~115-cycle startup offset.
+///
+/// Kept only as the record of an instrument that failed and how it was
+/// caught.
 #[test]
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_first_2002_read_per_frame() {
