@@ -297,8 +297,102 @@ fn stall_episodes(observed: &[Observed]) -> Vec<usize> {
     out
 }
 
-fn report_io(port: u16, label: &str) {
-    let observed = observe_io(port, 600);
+/// One I/O read M-cycle, as the gate treated it.
+///
+/// `episodes` is the count that maps onto FUSE. A *charge point* there is
+/// one consultation of the delay table; here it is one maximal run of
+/// withheld half-cycles. Two charges landing on adjacent half-cycles would
+/// merge into one run, so this is a lower bound on charge points — which
+/// means a shortfall below is a real shortfall and an excess would be a
+/// harness question.
+struct IoCycle {
+    stalled: usize,
+    episodes: usize,
+    /// The `IoRead` phase each withheld run began on.
+    starts: Vec<String>,
+    /// Was the delay table open anywhere in this M-cycle? A class that
+    /// never meets an open table cannot contend whatever the gate says,
+    /// so a zero reading from one of those means nothing.
+    table_open: bool,
+}
+
+/// Split an observation into its I/O read M-cycles.
+///
+/// A stalled half-cycle does not advance the CPU, so the phase repeats;
+/// the M-cycle is therefore the maximal run of consecutive `IoRead`
+/// entries, not a fixed eight.
+fn io_cycles(observed: &[Observed]) -> Vec<IoCycle> {
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    while i < observed.len() {
+        if !observed[i].phase.starts_with("IoRead") {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < observed.len() && observed[i].phase.starts_with("IoRead") {
+            i += 1;
+        }
+        let run = &observed[start..i];
+
+        let mut episodes = 0usize;
+        let mut starts = Vec::new();
+        let mut prev_stalled = false;
+        for o in run {
+            let stalled = !o.cpu_clock;
+            if stalled && !prev_stalled {
+                episodes += 1;
+                starts.push(o.phase.clone());
+            }
+            prev_stalled = stalled;
+        }
+
+        out.push(IoCycle {
+            stalled: run.iter().filter(|o| !o.cpu_clock).count(),
+            episodes,
+            starts,
+            table_open: run.iter().any(|o| o.video && o.table),
+        });
+    }
+    out
+}
+
+/// FUSE's contention charge points for one `IN`, counted from
+/// `ula_contend_port_early` and `ula_contend_port_late` in
+/// `fuse-emulator-fuse/peripherals/ula.c`.
+///
+/// `early` consults `ula_contention_no_mreq` once when the port address
+/// lies in a contended page. `late` consults it once when the ULA answers
+/// the port, three times when it does not and the page is contended, and
+/// not at all otherwise. That is the four-way table — `C:1, C:3` /
+/// `N:1, C:3` / `C:1, C:1, C:1, C:1` / `N:4` — read as a count of the
+/// points at which the raster is given the chance to stall the CPU.
+///
+/// Counting charge points rather than T-states is deliberate. A T-state
+/// total depends on the arrival phase and on a frame origin, and this
+/// project has had three separate errors hidden by a fitted origin. How
+/// many times the gate can fire inside one I/O M-cycle depends on
+/// neither: it is a property of the gate's terms alone, and no choice of
+/// origin can give a gate a distinction it does not test for.
+fn fuse_charge_points(port: u16) -> usize {
+    let page_contended = (0x4000..0x8000).contains(&port);
+    let answered_by_ula = port & 1 == 0;
+    let early = usize::from(page_contended);
+    let late = if answered_by_ula {
+        1
+    } else if page_contended {
+        3
+    } else {
+        0
+    };
+    early + late
+}
+
+fn report_io(port: u16, label: &str) -> Vec<IoCycle> {
+    // 2400 half-cycles is 600 T-states — nearly three scan lines, so the
+    // I/O M-cycles land on every phase of the 8-T-state pattern rather
+    // than on whichever few a short window happened to catch.
+    let observed = observe_io(port, 2400);
 
     // Self-check: the port under test has to actually reach the bus. It is
     // not enough that the recording aligns with the CPU — the harness must
@@ -345,41 +439,167 @@ fn report_io(port: u16, label: &str) {
 
     let episodes = stall_episodes(&observed);
     let io_halfcycles = observed.iter().filter(|o| o.iorq).count();
+    let cycles = io_cycles(&observed);
 
-    // Isolate the I/O M-cycle. The episode list above spans the two `M1`
-    // fetches of `ED 78` as well, and those are identical for all four
-    // ports — so a difference between port classes is invisible in the
-    // total and only shows here.
-    let in_io_cycle: usize = observed
-        .iter()
-        .filter(|o| o.phase.starts_with("IoRead") && !o.cpu_clock)
-        .count();
-    let io_cycles = observed
-        .iter()
-        .filter(|o| o.phase == "IoRead(T1Rise)")
-        .count();
+    let in_io_cycle: usize = cycles.iter().map(|c| c.stalled).sum();
+    let with_table_open = cycles.iter().filter(|c| c.table_open).count();
+    let max_episodes = cycles.iter().map(|c| c.episodes).max().unwrap_or(0);
 
     println!(
         "\nhalf-cycles with /IORQ asserted: {io_halfcycles}\n\
          stall episodes over the whole window: {episodes:?}\n\
          total stalled half-cycles: {}\n\
-         I/O M-cycles observed: {io_cycles}\n\
-         stalled half-cycles inside them: {in_io_cycle}",
+         I/O M-cycles observed: {}\n\
+         of those, meeting an open delay table: {with_table_open}\n\
+         stalled half-cycles inside them: {in_io_cycle}\n\
+         most withheld runs in any one I/O M-cycle: {max_episodes} \
+         (FUSE charges {} here)",
         episodes.iter().sum::<usize>(),
+        cycles.len(),
+        fuse_charge_points(port),
     );
+
+    println!("\n  per I/O M-cycle — table, withheld half-cycles, runs, where they began");
+    for (i, c) in cycles.iter().enumerate().take(16) {
+        println!(
+            "    {i:>2}  {:<6} {:>2} withheld  {:>1} run(s)  {:?}",
+            if c.table_open { "open" } else { "shut" },
+            c.stalled,
+            c.episodes,
+            c.starts,
+        );
+    }
+
+    // Self-check, the second half of the pair this file paid for twice.
+    // The first is in `observe_program`: the recording has to line up with
+    // the CPU. This one is the other half — the run has to have met an
+    // open delay table, or a class reading zero is reporting the border,
+    // not the gate.
+    assert!(
+        with_table_open > 0,
+        "harness fault, not a finding: none of the {} I/O M-cycles observed \
+         for ${port:04X} met an open delay table, so this class could not \
+         have contended whatever the gate does.",
+        cycles.len(),
+    );
+
+    cycles
 }
 
+/// The four FUSE port classes, asserted rather than printed.
+///
+/// The memory side of this problem only became tractable once an
+/// instrument named a half-cycle. The I/O side has had one 300,000-sample
+/// aggregate in `io_contention_oracle` that can say a number moved and
+/// nothing about *where*. This is the half-cycle-resolved counterpart: for
+/// each of FUSE's four port classes it drives the real machine, records
+/// from inside the ULA, and counts how many separate times the gate is
+/// given the chance to stall the CPU inside one I/O M-cycle.
+///
+/// The reference is `ula_contend_port_early` / `_late` transcribed as
+/// `fuse_charge_points`, not a constant lifted out of them.
+///
+/// ## What it says, recorded 2026-08-11
+///
+/// | port | gate | FUSE | withheld runs begin on |
+/// |---|---|---|---|
+/// | `$40FE` | 2 | 2 | `T1Fall`, `T3Fall` |
+/// | `$00FE` | 1 | 1 | `T3Rise` |
+/// | `$40FF` | **2** | **4** | `T1Fall`, `T3Fall` |
+/// | `$00FF` | 0 | 0 | — |
+///
+/// Three classes of four already agree, which is a narrower result than
+/// the frame-wide differential's "the engine cannot separate `$40FE` from
+/// `$40FF`" and contradicts part of it. The gate *does* separate `$00FE`
+/// from `$40FE`. What it cannot do is charge a contended-page odd port
+/// four times: `$40FF` and `$40FE` come out identical because neither of
+/// their runs is the ULA-answers decode at all. `ula_io` is false for an
+/// odd port, so the I/O term never fires on `$40FF`, and both runs are the
+/// *memory* gate — `contended_addr && !cpu_mreq`, which holds for every
+/// half-cycle of an I/O M-cycle because `/MREQ` is never asserted in one.
+///
+/// That the memory gate is what implements `contend_port_early` is not
+/// obviously wrong — FUSE's early charge is conditioned on the port page,
+/// exactly what the memory gate tests. What is missing is the rest of
+/// `contend_port_late`'s odd-port branch.
 #[test]
-#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
-fn report_where_io_contention_arms() {
-    // FUSE's four-way table, from `ula_contend_port_early` /
-    // `ula_contend_port_late` in `peripherals/ula.c`, distinguishes these
-    // by the port's page and whether the ULA answers the port at all.
-    report_io(0x40FE, "ULA port, contended page — FUSE: C:1, C:3");
-    report_io(0x00FE, "ULA port, uncontended page — FUSE: N:1, C:3");
-    report_io(
-        0x40FF,
-        "odd port, contended page — FUSE: C:1, C:1, C:1, C:1",
+#[ignore = "KNOWN DIVERGENCE: $40FF gets two withheld runs per I/O M-cycle \
+            where FUSE charges four; the other three classes agree. See the \
+            table on this test. Also needs EMU198X_SPECTRUM_48K_ROM"]
+fn io_contention_matches_the_four_fuse_port_classes() {
+    let cases: [(u16, &str); 4] = [
+        (0x40FE, "ULA port, contended page — FUSE: C:1, C:3"),
+        (0x00FE, "ULA port, uncontended page — FUSE: N:1, C:3"),
+        (
+            0x40FF,
+            "odd port, contended page — FUSE: C:1, C:1, C:1, C:1",
+        ),
+        (0x00FF, "odd port, uncontended page — FUSE: N:4"),
+    ];
+
+    let measured: Vec<(u16, Vec<IoCycle>)> = cases
+        .iter()
+        .map(|&(port, label)| (port, report_io(port, label)))
+        .collect();
+
+    let peak = |port: u16| -> usize {
+        measured
+            .iter()
+            .find(|(p, _)| *p == port)
+            .expect("class measured")
+            .1
+            .iter()
+            .map(|c| c.episodes)
+            .max()
+            .unwrap_or(0)
+    };
+
+    println!("\n{:<8} {:>10} {:>10}", "port", "engine", "FUSE");
+    println!("{}", "-".repeat(30));
+    for &(port, _) in &cases {
+        println!(
+            "${port:04X}  {:>10} {:>10}",
+            peak(port),
+            fuse_charge_points(port)
+        );
+    }
+
+    // Every class at once, rather than failing on the first. Which
+    // classes agree is the diagnosis: three of four agreeing points at one
+    // missing term, where four of four disagreeing would point at the
+    // whole model.
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter(|&&(port, _)| peak(port) != fuse_charge_points(port))
+        .map(|&(port, label)| {
+            format!(
+                "${port:04X} ({label}): gate {}, FUSE {}",
+                peak(port),
+                fuse_charge_points(port)
+            )
+        })
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "the gate and FUSE disagree on how many times the raster may stall \
+         an I/O M-cycle:\n  {}\nThe per-M-cycle tables above say which \
+         half-cycle each withheld run began on.",
+        wrong.join("\n  "),
     );
-    report_io(0x00FF, "odd port, uncontended page — FUSE: N:4");
+
+    // The offset-invariant statement, kept separate because it is the one
+    // no origin and no delay table can reach. `$40FE` and `$40FF` differ
+    // only in the bit that decides whether the ULA answers the port, and
+    // FUSE charges them two points and four. A gate that reaches them both
+    // through a term testing something else must treat them alike.
+    assert_ne!(
+        peak(0x40FE),
+        peak(0x40FF),
+        "the gate gives $40FE and $40FF the same number of withheld runs \
+         ({}), so whatever produced them is not the ULA-answers decode. \
+         FUSE charges {} and {}.",
+        peak(0x40FE),
+        fuse_charge_points(0x40FE),
+        fuse_charge_points(0x40FF),
+    );
 }
