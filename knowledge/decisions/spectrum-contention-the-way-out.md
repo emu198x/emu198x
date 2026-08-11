@@ -398,7 +398,7 @@ odd port, so the I/O term never fires on `$40FF`; both of its runs are the
 *memory* gate, whose `contended_addr && !cpu_mreq` holds for every
 half-cycle of an I/O M-cycle because `/MREQ` is never asserted in one.
 `$40FE` reaching the right count is the memory gate standing in for
-`contend_port_early`, which is not obviously wrong — FUSE's early charge is
+`contend_port_early`, and that may well be right — FUSE's early charge is
 conditioned on the same port page.
 
 ### The +2A stale pin is disconfirmed
