@@ -295,6 +295,15 @@ mod tests {
     fn contention_starts_before_video_fetch_with_phase_one_offset() {
         let mut ula = SinclairUla::new();
         let mut framebuffer = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
+        // These two tests are about *where* the contention window opens
+        // relative to the border latch and the video fetch — not about
+        // which clock half arms the gate. Seed the arming half explicitly
+        // so they keep testing the window: a fresh engine starts
+        // `z80_clock_high` at `true`, which is the non-arming half, and
+        // leaving it implicit made them depend on a parity they are not
+        // about.
+        ula.engine.z80_clock_high = false;
+        assert!(ula.engine.gate_arms_this_halfcycle());
         let tick = |ula: &mut SinclairUla, framebuffer: &mut [u8]| {
             ula.tick(&ContendedMemory, 0x4000, false, false, false, framebuffer);
         };
@@ -332,7 +341,12 @@ mod tests {
         let mut framebuffer = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
         ula.engine.scan = 310;
         ula.engine.pixel = 449;
-        ula.engine.z80_clock_high = false;
+        // Start on the half that does not arm the gate, so the assertions
+        // below are about the window's phase and not about parity. Which
+        // raw level means "not arming" moved when the polarity was
+        // derived; every expectation about the window is unchanged.
+        ula.engine.z80_clock_high = true;
+        assert!(!ula.engine.gate_arms_this_halfcycle());
 
         ula.tick(
             &ContendedMemory,
@@ -344,7 +358,9 @@ mod tests {
         );
         assert_eq!(ula.engine.pixel, 450);
         assert!(ula.engine.cpu_clock);
-        assert!(ula.engine.z80_clock_high);
+        // The tick was not withheld, so the clock advanced to the other
+        // half — the arming one.
+        assert!(ula.engine.gate_arms_this_halfcycle());
         assert!(
             ula.engine.border_active,
             "rendering border remains active before the next line",
