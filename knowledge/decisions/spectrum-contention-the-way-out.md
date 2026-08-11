@@ -1,8 +1,10 @@
 # Plan: how to actually finish Spectrum contention
 
 **Date:** 2026-08-11
-**Status:** IN PROGRESS — Phase 1 done, Phase 3 partly done and partly
-disconfirmed. See “What happened” below before acting on the plan.
+**Status:** IN PROGRESS — Phase 1 done; the I/O sample instant derived and
+the floating bus closed on both machines; Phase 3's gate diagnosis
+disconfirmed and rewritten. See “What happened” below before acting on the
+plan, and treat the plan's own Phase 3 as superseded by it.
 **Supersedes the approach in:**
 [`spectrum-contention-vs-floating-bus.md`](spectrum-contention-vs-floating-bus.md)
 
@@ -303,6 +305,39 @@ So the plan's diagnosis — that we hold one of three terms and the other
 two are the answer — is not supported. The I/O path needs its own
 derivation, not this port.
 
+### The floating-bus sample instant is derived, and both leads are gone
+
+`io_read` fires on the `/IORQ` rising edge; the CPU latches the data bus at
+the end of the M-cycle. In the phase machine that is `IoRead(T2Fall)` to
+`IoRead(T4Fall)` — four half-cycles, **two T-states** — and it is fixed
+M-cycle geometry, the same for every variant, port and host. SpecIde reads
+at `ST_IORD_T3L_DATARD`, its own last half-cycle; FUSE calls
+`readport_internal` after `contend_port_early` (+1) and `_late` (+2), so
+cycle start + 3 against an edge at + 1. All three agree.
+
+Both `SAMPLE_LEAD` constants are gone, replaced by one
+`zilog_z80::IO_READ_DATA_LATCH_LEAD_TSTATES` that `bus_pin_waveform`
+re-derives from the recorded waveform rather than restating. Each machine's
+origin is now libspectrum's `top_left_pixel` for its own ULA — 14336 for
+`timings_frame_ferranti_5c_6c`, **14362** for `timings_frame_ferranti_7c`,
+where the 128K core had an undocumented 14363.
+
+Float128K reads 14364. Float48K is unchanged at 14337, which is the check
+that this is a rule: the derivation had to reproduce a value it could not
+be tuned to.
+
+**#851's numbers were stale before the work started** — it records 14363
+and the engine read 14362 once Phase 1 landed. The lesson the +2A taught
+applies here too: a measurement taken before a pin change is not evidence
+about the engine after it.
+
+One T-state remains and is now isolated rather than absorbed. Float48K
+reads 14337 against Woody's hardware-measured 14338, and
+`io_contention_oracle`'s `/INT`-pinned origin puts our T-state 0 one
+earlier than `top_left_pixel` does. Dropping both origins by one would put
+the 48K on Woody's figure and take the 128K off 14364, so the open question
+is between the two anchors, not between the two machines.
+
 ### Standing state
 
 | gate | baseline | now | target |
@@ -310,14 +345,83 @@ derivation, not this port.
 | ZXSpectrum4.net survey | 36 failing | **29** | < 36 |
 | Float48K | 14337 | 14337 | 14337 |
 | I/O differential | 30,741 | 75,081 | < 30,741 |
-| Float128K | 14363 | 14362 | 14364 |
+| Float128K | 14363 | **14364** | 14364 |
 | floatspy | byte-exact | red | byte-exact |
 | +2A max delay | 1 | 1 | 7 |
 
-The memory path is derived and better than it has ever been. Everything
-still outstanding is on the I/O path: the differential, both floating-bus
-figures, and the +2A. They are one problem — when the ULA samples the bus
-relative to the I/O M-cycle — and they have not been solved.
+### Phase 3's remaining diagnosis, rewritten
+
+The plan said everything outstanding was on the I/O path. The offset sweep
+`io_contention_oracle` prints says otherwise:
+
+```
+offset      +14331  +14332  +14333  +14334  +14335  +14336  +14337
+mismatches   72585   75657   74889   15171   75081   78921   80457
+```
+
+`+14335` is the origin pinned to the `/INT` edge and is what the ratchet
+scores against. `+14334` is a **sharp isolated minimum** at 15,171 — five
+times better than any neighbour and comfortably under the 30,741 ratchet.
+An origin shift moves the two contended `M1` fetches of `IN A,(C)` as well
+as the port cycle, so an error a single global shift can absorb is one in
+contention charging generally, not in the I/O gate.
+
+Read that as: Phase 1 moved the engine's contention charge one T-state
+later against its own interrupt, and most of the ratchet's 30,741 → 75,081
+is that rather than anything I/O-specific. **The fit is a diagnosis, not a
+setting** — rescoring at +14334 is the failure this record's own drift
+triggers name.
+
+It is invisible everywhere else because there is no asserting memory-side
+engine-versus-FUSE differential. `contention_oracle.rs`'s frame-wide test
+compares two *models* of the delay table, and its engine-scoring tests are
+report-only. Closing that gap is the next move, ahead of touching the gate.
+
+### The four port classes, measured
+
+`contention_arming` now asserts FUSE's four-way table as a count of charge
+points — `ula_contend_port_early` and `_late` transcribed, not a constant
+lifted out of them.
+
+| port | gate | FUSE | withheld runs begin on |
+|---|---|---|---|
+| `$40FE` | 2 | 2 | `T1Fall`, `T3Fall` |
+| `$00FE` | 1 | 1 | `T3Rise` |
+| `$40FF` | **2** | **4** | `T1Fall`, `T3Fall` |
+| `$00FF` | 0 | 0 | — |
+
+Three of four agree, which narrows the standing claim that the engine
+cannot separate the port classes: it separates `$00FE` from `$40FE`
+correctly. The single defect is that `$40FF` gets two runs where FUSE
+charges four, and the mechanism is now visible. `ula_io` is false for an
+odd port, so the I/O term never fires on `$40FF`; both of its runs are the
+*memory* gate, whose `contended_addr && !cpu_mreq` holds for every
+half-cycle of an I/O M-cycle because `/MREQ` is never asserted in one.
+`$40FE` reaching the right count is the memory gate standing in for
+`contend_port_early`, which is not obviously wrong — FUSE's early charge is
+conditioned on the same port page.
+
+### The +2A stale pin is disconfirmed
+
+`fuse_differential`'s drive asserted `/MREQ` for four half-cycles of six
+where Phase 1 gave a memory read five, and this gate contends on `/MREQ`
+*asserted*, so every number in #856 was taken against a strobe the CPU had
+stopped producing. Corrected, it measures 23,060 M-cycles, 1,728 contended,
+engine max 1 — identical to the last digit. The stalls never fall on the
+half-cycle the correction touches.
+
+Two of #856's other experiments re-run against the correct pin: the
+Sinclair polarity with the shipped 3-run mask measures no contention at all
+and the self-check catches it; the same polarity with a 14-half-cycle run
+reproduces the 6 against 7. That result survives the pin fix.
+
+The residual T-state is a half-cycle lost in `mcycle_cost`'s division, and
+moving the run's start does not recover it: `z80_clock_high` freezes during
+a stall, so the mask's phase against the arming parity is not fixed and
+cannot be settled from a frame *maximum*. Choosing a phase because it makes
+the number reach 7 would be a fit. The +2A needs an arrival-resolved
+differential of the kind the 48K has before its mask moves; nothing was
+landed.
 
 ### An instrument lesson, paid for twice
 
@@ -335,6 +439,12 @@ the problem. **An instrument must also check that it is driving the thing
 it claims to drive.** Corrected, the four classes separate and track
 FUSE's ordering; what survives is the narrower divergence already on
 record, `$40FE` and `$40FF` costing the same.
+
+A third check has since been added for the same reason: the run must have
+met an open delay table. Without it a class reading zero is reporting the
+border rather than the gate, and `$00FF` legitimately reads zero — so the
+one class that is *supposed* to be silent was indistinguishable from a
+harness that had wandered out of the display window.
 
 ## The commit sequence
 
