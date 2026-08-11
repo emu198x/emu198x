@@ -1526,13 +1526,27 @@ fn aga_queries_expose_lisa_and_composed_hblank_state() {
         "previous_rgb12": null,
         "previous_genlock": false,
     });
+    // `poke_word` is a debugger write, so it dispatches after the output
+    // tick and lands directly in Lisa's own one-hires-sample colour delay.
+    // Only a Copper MOVE crosses Denise's pre-output RGA stage and shows up
+    // as `pending_early_color_write` — see
+    // `knowledge/decisions/amiga-denise-color-output-phase.md`.
     assert_eq!(
-        query_value(&runtime, "aga.pending_early_color_write"),
+        query_value(&runtime, "aga.delayed_color_write"),
         expected_delayed_color,
     );
     assert_eq!(
-        query_value(&runtime, "denise.pending_early_color_write"),
+        query_value(&runtime, "denise.delayed_color_write"),
         expected_delayed_color,
+    );
+    assert_eq!(
+        query_value(&runtime, "aga.pending_early_color_write"),
+        Value::Null,
+        "a debugger write must not enter the Copper pre-output queue",
+    );
+    assert_eq!(
+        query_value(&runtime, "denise.pending_early_color_write"),
+        Value::Null,
     );
     runtime.machine_mut().poke_word(0x00DF_F1C4, 0x0040); // HBSTRT
     runtime.machine_mut().poke_word(0x00DF_F1C6, 0x0080); // HBSTOP
