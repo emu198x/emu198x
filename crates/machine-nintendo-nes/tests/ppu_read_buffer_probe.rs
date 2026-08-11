@@ -1098,3 +1098,248 @@ fn probe_oam_dma_cost() {
          doc comment. The transfer itself is 513, measured from the bus trace."
     );
 }
+
+/// Every `$2002` poll that lands near the VBlank set dot, during the two
+/// waits that decide the divergence.
+///
+/// `probe_wait_poll_grid` shows the wait entered at scanline 241 dot 70
+/// takes 8506 polls — two frames — while the one entered at dot 64 takes
+/// 4252, one frame. Two frames means a VBlank went by unseen, and the
+/// only way to miss a 6820-dot window with a 21-dot poll grid is
+/// suppression: a read landing on the dot the flag sets returns 0 and
+/// consumes it.
+///
+/// `ricoh_ppu_2c02` suppresses on exactly `(241, 1)`. This reports every
+/// poll landing at scanline 241 dots 0-3 and what it read, so the miss
+/// can be attributed rather than assumed.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_polls_near_vbl_set() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+
+    let mut frame = 0u64;
+    while frame < 200 {
+        nes.run_frame();
+        frame += 1;
+    }
+
+    let mut prev_pc = nes.cpu.regs.pc;
+    let start = frame;
+    println!("polls landing at scanline 241 dots 0-4, and $2002 reads at those dots:");
+    while frame < start + 14 {
+        let pre_sl = nes.ppu.scanline();
+        let pre_dot = nes.ppu.dot();
+        let pre_status = nes.ppu.status();
+        nes.tick();
+        let pc = nes.cpu.regs.pc;
+        if pc != prev_pc {
+            if (pc == 0xEBD5 || pc == 0xEBD2) && pre_sl == 241 && pre_dot <= 4 {
+                println!(
+                    "  f{frame} PC=${pc:04X} poll at sl{pre_sl} dot{pre_dot}  status before=${pre_status:02X} after=${:02X}",
+                    nes.ppu.status()
+                );
+            }
+            prev_pc = pc;
+        }
+        if nes.ppu.scanline() == 240 && nes.ppu.dot() == 0 {
+            frame += 1;
+            nes.tick();
+        }
+    }
+    println!("(no lines above = the miss is NOT suppression)");
+}
+
+/// Wait durations on our side, with a SOUND exit marker.
+///
+/// ⚠ `$EBDA` cannot mark the exit (it is the `BPL`'s not-taken address,
+/// hit on every poll) and neither can "the next entry", which lumps the
+/// wait together with the work that follows it. The exit is the first
+/// poll at `$EBD5` that actually observes bit 7 set — that is the read
+/// whose `BPL` falls through.
+///
+/// This is the counterpart of the Mesen2 duration table, which uses exec
+/// callbacks and is sound on that side.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_wait_durations() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+
+    let mut frame = 0u64;
+    while frame < 200 {
+        nes.run_frame();
+        frame += 1;
+    }
+
+    const FRAME_DOTS: f64 = 89342.0;
+    let mut prev_pc = nes.cpu.regs.pc;
+    let mut entry: Option<(u64, u16, u16, u64)> = None;
+    let start = frame;
+    println!("wait durations (exit = first poll that sees bit 7):");
+    while frame < start + 26 {
+        let pre_sl = nes.ppu.scanline();
+        let pre_dot = nes.ppu.dot();
+        let pre_status = nes.ppu.status();
+        let pre_clock = nes.master_clock();
+        nes.tick();
+        let pc = nes.cpu.regs.pc;
+        if pc != prev_pc {
+            if pc == 0xEBD2 {
+                entry = Some((frame, pre_sl, pre_dot, pre_clock));
+            }
+            if pc == 0xEBD5
+                && pre_status & 0x80 != 0
+                && let Some((ef, esl, edot, eclock)) = entry.take()
+            {
+                let dots = (pre_clock - eclock) / 4;
+                println!(
+                    "  f{ef} enter sl{esl:>3}d{edot:>3}  ->  exit f{frame} sl{pre_sl:>3}d{pre_dot:>3}   \
+                     {dots:>7} dots = {:.2} frames",
+                    dots as f64 / FRAME_DOTS
+                );
+            }
+            prev_pc = pc;
+        }
+        if nes.ppu.scanline() == 240 && nes.ppu.dot() == 0 {
+            frame += 1;
+            nes.tick();
+        }
+    }
+}
+
+/// Every `$2002` read and every NMI entry across the missed VBlank.
+///
+/// The wait entered at scanline 241 dot 69 lasts exactly 2.00 frames:
+/// it clears the flag, then frame 205's VBlank passes unseen and it
+/// catches frame 206's. Suppression is ruled out — no poll lands within
+/// four dots of the set dot. The remaining consumer is the ROM's NMI
+/// handler, which lives in RAM at `$1D18` (the vector points below
+/// `$2000`) and reads `$2002` itself. Whether the polling loop or the
+/// NMI handler sees the flag first is a race decided within a few dots
+/// of scanline 241 dot 1.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_nmi_vs_poll_race() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+
+    let mut frame = 0u64;
+    while frame < 203 {
+        nes.run_frame();
+        frame += 1;
+    }
+
+    let mut prev_pc = nes.cpu.regs.pc;
+    while frame < 207 {
+        let pre_sl = nes.ppu.scanline();
+        let pre_dot = nes.ppu.dot();
+        let pre_status = nes.ppu.status();
+        let addr = nes.cpu.addr;
+        let rw = nes.cpu.rw;
+        let pc_before = nes.cpu.regs.pc;
+        nes.tick();
+        // A $2002 read: report who did it and what it took.
+        if rw && addr == 0x2002 && (pre_sl == 241 || pre_sl == 240) && pre_dot < 40 {
+            println!(
+                "  f{frame} $2002 READ by PC=${pc_before:04X} at sl{pre_sl} dot{pre_dot}  \
+                 status was ${pre_status:02X}"
+            );
+        }
+        let pc = nes.cpu.regs.pc;
+        if pc != prev_pc {
+            if pc == 0x1D18 {
+                println!(
+                    "  f{frame} NMI ENTRY at sl{:>3} dot{:>3}  status=${:02X}",
+                    nes.ppu.scanline(),
+                    nes.ppu.dot(),
+                    nes.ppu.status()
+                );
+            }
+            prev_pc = pc;
+        }
+        if nes.ppu.scanline() == 240 && nes.ppu.dot() == 0 {
+            frame += 1;
+            nes.tick();
+        }
+    }
+}
+
+/// Position of the FIRST `$2002` read in each frame — the counterpart of
+/// `tools/mesen-nes-cross-check/first-2002-read.lua`.
+///
+/// ⚠ Bisects where the two emulators' phase first diverges. Both run the
+/// same ROM deterministically, so identical behaviour would keep them in
+/// the same phase; they are 39 frames apart by the end, so at least one
+/// thing differs at least once, and this finds the first frame where it
+/// shows.
+///
+/// ⚠ Position labels are NOT directly comparable. Mesen processes cycle
+/// N then exposes `_cycle == N`; we expose the dot we are ABOUT to
+/// process. **Our dot D is the same physical moment as Mesen's cycle
+/// D-1.** Reading the raw labels as equal produced a wrong "our VBL
+/// suppression window is off by one" conclusion — in fact both suppress
+/// at the same moment, and Mesen loses frames to it too.
+///
+/// ⚠ UNRESOLVED, and do not build on it: this reports our read runs two
+/// frames earlier than Mesen's around frames 43-58 (our 43-47 against
+/// its 45-49), while `probe_palette_phase_boundaries` has the two
+/// agreeing EXACTLY on every phase boundary from frame 17 to 58. Both
+/// cannot be right. Either this "first read per frame" detection is
+/// wrong — the CPU holds an address across its whole cycle, and the
+/// de-duplication here is the obvious suspect — or the palette
+/// comparison is insensitive to a shift. Settle that before treating
+/// either as a bisect result.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_first_2002_read_per_frame() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+
+    let mut frame = 0u64;
+    let mut seen_this_frame = false;
+    let mut last_addr_was_2002 = false;
+    while frame <= 140 {
+        let pre_sl = nes.ppu.scanline();
+        let pre_dot = nes.ppu.dot();
+        let is_read = nes.cpu.rw && nes.cpu.addr == 0x2002;
+        nes.tick();
+        if is_read && !last_addr_was_2002 && !seen_this_frame && frame >= 40 {
+            seen_this_frame = true;
+            println!(
+                "FIRST2002 {frame:>5} sl={pre_sl:>3} cyc={:>3}",
+                pre_dot as i32 - 1
+            );
+        }
+        last_addr_was_2002 = is_read;
+        if nes.ppu.scanline() == 240 && nes.ppu.dot() == 0 {
+            frame += 1;
+            seen_this_frame = false;
+            nes.tick();
+        }
+    }
+}

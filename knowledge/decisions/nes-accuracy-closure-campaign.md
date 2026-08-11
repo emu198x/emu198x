@@ -1109,18 +1109,61 @@ address of the `BPL $EBD5`, so PC passes through it on every poll. Mesen2's
 exec callback marks the real exit; a PC-watch does not. That one reported
 "waited 0 frames" for every call, which is at least obviously wrong.
 
+### The mechanism, found
+
+The extra frame is **VBlank suppression**, and it is not a defect.
+
+The wait loop polls `$2002` every 7 CPU cycles = 21 dots. When one of those
+polls lands exactly on the moment the VBlank flag sets, the read returns 0 and
+consumes the flag, so that frame's VBlank never becomes visible and the loop
+waits out another whole frame. Traced directly: at frame 205 a poll's read
+lands on the suppression moment, and every later poll that frame reads `$00`
+until the next frame's VBlank at 8506 polls — exactly 2.00 frames, against 1.00
+for the neighbouring wait.
+
+⚠ **Mesen2 does exactly the same thing.** Its `$2002` reads land on the
+suppression moment at frames 154, 158, 166, 170 and 188 — which are precisely
+the frames its 12-frame iterations skip. Both emulators lose frames this way.
+The difference is only *how often*: our loop is phase-locked into hitting it
+twice per 12-frame iteration, and Mesen2's is not.
+
+### ⚠ A second wrong claim, made and retracted
+
+The traces appear to show a behavioural difference. Ours suppresses on a read
+logged at scanline 241 **dot 1**; Mesen2 suppresses on one logged at scanline
+241 **cycle 0**, and its read at cycle 1 returns the flag SET. Mesen2's source
+carries the NESdev rule verbatim — *"Reading one PPU clock before reads it as
+clear and never sets the flag or generates NMI for that frame"* — so ours
+looked one dot late.
+
+It is not. The two emulators label PPU positions differently: Mesen processes
+cycle N and then exposes `_cycle == N`, while we expose the dot we are **about
+to** process. Our dot D is the same physical moment as Mesen's cycle D-1. The
+suppression windows coincide exactly, and the unit test
+`reading_2002_at_241_dot_1_suppresses_vbl` documents our convention.
+
+**Twice in one investigation, a cross-emulator comparison of position or cycle
+labels produced a defect claim that direct measurement then refuted** — the OAM
+DMA span, and now this. The rule is worth stating plainly: *labels are not
+observations.* Compare behaviour anchored to an event both sides agree on, or
+compare each side against the documented rule separately.
+
 ### What remains open
 
-**What perturbs Mesen2's wait-loop exit phase by one poll, when every cycle
-count either side of it matches ours exactly?**
+**Where does the phase difference originate?** Both emulators are deterministic
+and run the same ROM, so identical behaviour would keep them in the same phase.
+It does not, so something differs at least once, somewhere before the loop.
 
-Everything that could shift the arrival dot has been measured and matches. The
-remaining candidates are things that change *when the VBlank flag becomes
-visible to a `$2002` read* without changing any cycle count: the exact dot the
-flag sets on, suppression behaviour when a read coincides with the set, and NMI
-interaction with the loop. Next step is to trace the flag's set/clear dots and
-the value each `BIT $2002` in the loop actually returns, on both sides, rather
-than to measure more cycle counts — those are exhausted.
+Everything inside the loop has been measured and matches: CPU cycles between
+waits, cycles per iteration, cycles per frame, OAM DMA length, and now the
+suppression rule itself.
+
+⚠ The obvious next step — bisecting the first `$2002` read per frame — returned
+an ambiguous result and should not be built on. It reports our reads running
+two frames ahead of Mesen2's around frames 43-58, while
+`probe_palette_phase_boundaries` has the two agreeing exactly on every phase
+boundary from frame 17 to 58. Both cannot be true. Settle which instrument is
+wrong before treating either as a bisect.
 
 The ROM passes in both emulators. This is an accuracy question, not a verdict
 question, and none of the corpus's gates depend on it.
