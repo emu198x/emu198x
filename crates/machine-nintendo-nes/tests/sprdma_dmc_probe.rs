@@ -500,3 +500,51 @@ fn probe_dmc_tests_audio() {
         );
     }
 }
+
+/// OAM DMA stall length, counted from the DMA bus-op trace rather than
+/// inferred from an instruction span.
+///
+/// ⚠ The trace records READS only — the halt read, the alignment dummy
+/// and 256 OAM source reads — because put-cycle writes go straight to
+/// `ppu.oam_dma_write`. So the count of entries is not the stall; the
+/// span between the first and last recorded cycle is, plus the final
+/// write cycle.
+///
+/// NESdev: the `$4014` write suspends the CPU for 513 cycles, or 514 if
+/// the write lands on a put cycle. `lib.rs` says so in two comments and
+/// nothing has ever asserted it.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_oam_dma_stall_from_trace() {
+    let Some(root) = rom_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+    for _ in 0..200 {
+        nes.run_frame();
+    }
+    nes.start_dma_trace();
+    for _ in 0..26 {
+        nes.run_frame();
+    }
+    let trace = nes.take_dma_trace();
+    let episodes = split_episodes(&trace);
+    println!("{} OAM episodes", episodes.len());
+    for ep in episodes.iter().take(6) {
+        let (Some(&(first, _)), Some(&(last, _))) = (ep.first(), ep.last()) else {
+            continue;
+        };
+        println!(
+            "  reads={:<4} first_cycle={first} last_cycle={last} span={} \
+             (+1 final write cycle = stall {})",
+            ep.len(),
+            last - first + 1,
+            last - first + 2
+        );
+    }
+    println!("expected stall: 513 (write on a get cycle) or 514 (put cycle)");
+}

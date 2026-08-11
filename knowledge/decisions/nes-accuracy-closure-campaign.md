@@ -870,13 +870,9 @@ frames for us, a repeating 12,10,10 for Mesen.
 The period-3 cadence suggested CPU/PPU alignment that fails to rotate. That was
 measured and **acquitted**: our per-frame CPU cycle count alternates
 29 781/29 780, which is right for an 89 342/89 341-dot pair with the odd-frame
-dot skip active. Cause unknown.
+dot skip active.
 
-The ROM passes in both emulators, so this is an accuracy question rather than a
-verdict question — but it is a real, reproducible, precisely-located divergence
-and should not be filed as noise. Next step: bisect frames 58-466 by comparing
-CPU cycle counts at each nametable write against Mesen, rather than comparing
-frame numbers.
+Chased further on 2026-08-11 — see [the section below](#chasing-the-39-frame-divergence).
 
 ## PAL video: the blocker is gone, and the instrument is the wrong one
 
@@ -1021,6 +1017,113 @@ Total: 174  Pass: 152  Fail: 2  Timeout: 0  Gated: 20  Visual: 0
 ⚠ `Visual: 0` means every ROM has a **named gate**, not that everything is
 verified. The gates differ in strength, and the standing warning still holds:
 absence of a failing gate is not evidence of correctness where no gate runs.
+
+## Chasing the 39-frame divergence
+
+Worked 2026-08-11. Not closed, but narrowed from "39 frames somewhere in a
+600-frame run" to a single wait, a single threshold, and one specific unanswered
+question. Four candidate causes were measured and acquitted, and one wrong claim
+was made and retracted along the way.
+
+### Where the frames go
+
+The sub-test loop spends 92% of its time in one VBlank-wait subroutine:
+
+```text
+$EBCE  BIT $8E      ; skip the wait entirely if the flag is set
+$EBD0  BMI $EBDA
+$EBD2  BIT $2002    ; clear the VBL flag
+$EBD5  BIT $2002    ; wait for it to be set again
+$EBD8  BPL $EBD5
+$EBDA  RTS
+```
+
+Ten calls per iteration in both emulators, at the same PPU positions, in the
+same order. The whole divergence is which of those waits costs two frames
+instead of one.
+
+**Threshold, measured:** entering the wait at scanline 241 costs one frame at
+cycle ≤ 67 and two frames at cycle 68. Mesen2 arrives at 50/55/59/62/67/68
+across iterations. **We arrive at dot 70 every single time.**
+
+### What is identical, and it is nearly everything
+
+| Measurement | Emu198x | Mesen2 |
+|---|---|---|
+| CPU cycles between consecutive waits | 24666, 30699, 28122, ... | identical |
+| CPU cycles per slow iteration | 357 366 | 357 366 |
+| CPU cycles per frame | 29781/29780 alternating | identical |
+| OAM DMA stall | 513 | 513 |
+
+Mesen2's fast iteration is 297 804 cycles — exactly 10 frames — so it is not
+doing less work, it is losing two fewer frames to the threshold.
+
+### The signature
+
+Mesen2's per-slot cycle counts jitter by **exactly ±7** between iterations —
+one poll of the 7-cycle `BIT $2002 / BPL` loop. Ours never jitter by anything.
+Our loop is phase-locked into a 12-frame period; Mesen2's visits 10, 11 and 12.
+
+⚠ Our own perfect periodicity is the anomaly, not Mesen2's variation. A
+deterministic system that returns to the same state every 12 frames has no
+state that fails to return; Mesen2 has one, and it is worth exactly 7 CPU
+cycles.
+
+### Acquitted
+
+- **CPU/PPU alignment.** Per-frame CPU cycle counts alternate 29781/29780 in
+  both — correct for an 89342/89341-dot pair with the odd-frame dot skip.
+- **Frame length.** Identical, strictly alternating, in both.
+- **OAM DMA length.** 513 cycles, counted straight off the DMA bus trace: 257
+  reads (halt + 256 source reads, no alignment dummy), a 512-cycle span, plus
+  the final write cycle.
+- **The `$2002` read/VBL race as a simple threshold effect.** The threshold is
+  real but sits at scanline 241 cycle 67/68, nowhere near the dot-0-to-2 window
+  the documented race occupies.
+
+### ⚠ One wrong claim, made and retracted
+
+Measuring the span `$E50F -> $E2C9` (the `STA $4014` through to the target of
+the following `JSR`) gave 524/525 for us against Mesen2's 523/524. Subtracting
+the instruction overhead, Mesen2's numbers land exactly on the documented
+513/514 and ours land one above — which reads as an OAM DMA one cycle too long,
+and `lib.rs` states 513/514 in two comments **with no test ever asserting it**,
+so a missing gate around a real defect was entirely plausible.
+
+It is not a defect. Counting the transfer directly off the DMA bus trace gives
+513. The span is what is unreliable: both ends are instruction boundaries, but
+Mesen2's exec callback fires on opcode fetch while our side triggers when the
+PC register takes the value, and for a `JSR` those are different cycles.
+
+**The lesson is a sharper version of one this campaign already carries.** A
+cross-emulator comparison is only trustworthy at 1-cycle resolution if both
+sides sample the *same event*. The slot-to-slot counts in
+`probe_vbl_wait_cpu_cycles` do — they agree exactly, which is itself the
+evidence that those measurement points align — and the DMA span does not. When
+two instruments disagree by exactly one, suspect the instruments before the
+subject.
+
+A second instrument failed the same way and was deleted rather than kept:
+`$EBDA` looks like the wait routine's exit, but it is also the not-taken
+address of the `BPL $EBD5`, so PC passes through it on every poll. Mesen2's
+exec callback marks the real exit; a PC-watch does not. That one reported
+"waited 0 frames" for every call, which is at least obviously wrong.
+
+### What remains open
+
+**What perturbs Mesen2's wait-loop exit phase by one poll, when every cycle
+count either side of it matches ours exactly?**
+
+Everything that could shift the arrival dot has been measured and matches. The
+remaining candidates are things that change *when the VBlank flag becomes
+visible to a `$2002` read* without changing any cycle count: the exact dot the
+flag sets on, suppression behaviour when a read coincides with the set, and NMI
+interaction with the loop. Next step is to trace the flag's set/clear dots and
+the value each `BIT $2002` in the loop actually returns, on both sides, rather
+than to measure more cycle counts — those are exhausted.
+
+The ROM passes in both emulators. This is an accuracy question, not a verdict
+question, and none of the corpus's gates depend on it.
 
 ## ⚠ On acquiring more test ROMs
 

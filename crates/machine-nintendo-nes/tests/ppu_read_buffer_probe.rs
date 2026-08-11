@@ -11,12 +11,39 @@
 //! was checked, but read the header of `tests/screen_goldens.rs` for the
 //! resolution before spending time on them.
 //!
-//! ⚠ Still open: we reach the ROM's art phase 39 frames later than
-//! Mesen2 (638 vs 599), with the phase itself lasting an identical 666
-//! frames either side. `probe_nametable_change_frames` localises it to a
-//! single 31-iteration sub-test loop — a flat 12-frame cadence for us,
-//! a repeating 12,10,10 for Mesen. `probe_cpu_cycles_per_frame` was the
-//! first hypothesis and acquitted CPU/PPU alignment.
+//! ⚠ Still open, but narrowed a long way. We reach the ROM's art phase
+//! 39 frames later than Mesen2 (638 vs 599). It is entirely accounted
+//! for by one 31-iteration sub-test loop that spends 92% of its time in
+//! the VBlank wait at `$EBD5`:
+//!
+//! ```text
+//! $EBCE  BIT $8E      ; skip the wait if the flag is set
+//! $EBD0  BMI $EBDA
+//! $EBD2  BIT $2002    ; clear the VBL flag
+//! $EBD5  BIT $2002    ; wait for it to be set again
+//! $EBD8  BPL $EBD5
+//! $EBDA  RTS
+//! ```
+//!
+//! What is IDENTICAL in both emulators, measured: the CPU cycles between
+//! consecutive waits (24666, 30699, 28122, ...), the total per slow
+//! iteration (exactly 357 366 cycles), the per-frame CPU cycle counts
+//! (29781/29780 strictly alternating), and the OAM DMA stall (513).
+//!
+//! What DIFFERS: one wait's arrival dot. Entering at scanline 241 costs
+//! one frame at cycle ≤ 67 and two at cycle 68. Mesen2 arrives at
+//! 50/55/59/62/67/68 across iterations; we arrive at dot 70 every single
+//! time. Mesen2's per-slot counts jitter by exactly ±7 — one poll of the
+//! 7-cycle wait loop — and ours never jitter at all, so our loop is
+//! phase-locked into a 12-frame period while Mesen2's visits 10, 11 and
+//! 12.
+//!
+//! Acquitted along the way: CPU/PPU alignment
+//! (`probe_cpu_cycles_per_frame`), frame length, and OAM DMA length.
+//!
+//! The open question is now specific: **what perturbs Mesen2's wait-loop
+//! exit phase by one poll, when every cycle count either side of it
+//! matches ours exactly?**
 //!
 //! Not part of the normal sweep — `#[ignore]`d. Run with:
 //!
@@ -780,5 +807,294 @@ fn probe_cpu_cycles_per_frame() {
     println!("CPU cycles per frame: {deltas:?}");
     println!(
         "(89342 dots = 29780.67 CPU cycles; a constant count means the alignment never rotates)"
+    );
+}
+
+/// What is the 31-iteration sub-test loop doing with its frames?
+///
+/// Our iteration takes a flat 12 frames; Mesen2's repeats 12,10,10.
+/// Same iteration count, so the loop body is the same work — the
+/// question is what it waits on. This samples PC across two whole
+/// iterations and reports the hot addresses, so the wait loop can be
+/// named rather than guessed at.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_subtest_loop_pcs() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+
+    // Row 15 is the row the loop updates. Track its hash so iteration
+    // boundaries are exact rather than assumed from the frame numbers.
+    let row_hash = |nes: &Nes| -> u64 {
+        let nt = nes.effective_nametable();
+        nt[15 * 32..16 * 32]
+            .iter()
+            .fold(0u64, |a, &b| (a * 31 + b as u64) % 16_777_216)
+    };
+
+    // Run into the steady part of the sequence.
+    let mut frame = 0u64;
+    while frame < 200 {
+        nes.run_frame();
+        frame += 1;
+    }
+
+    let mut prev = row_hash(&nes);
+    let mut boundaries: Vec<u64> = Vec::new();
+    let mut pcs: BTreeMap<u16, u64> = BTreeMap::new();
+    let mut sample_at = nes.master_clock();
+    // Two iterations at ~12 frames each, with headroom.
+    while boundaries.len() < 3 && frame < 260 {
+        nes.tick();
+        if nes.master_clock() >= sample_at {
+            sample_at += 12; // ~once per CPU cycle
+            if boundaries.len() == 1 {
+                *pcs.entry(nes.cpu.regs.pc).or_insert(0) += 1;
+            }
+        }
+        if nes.ppu.scanline() == 240 && nes.ppu.dot() == 0 {
+            frame += 1;
+            let h = row_hash(&nes);
+            if h != prev {
+                boundaries.push(frame);
+                prev = h;
+            }
+            nes.tick();
+        }
+    }
+
+    println!("row-15 changes at frames {boundaries:?}");
+    let total: u64 = pcs.values().sum();
+    let mut hot: Vec<(u16, u64)> = pcs.into_iter().collect();
+    hot.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
+    println!("PC distribution over one iteration ({total} samples):");
+    for (pc, n) in hot.iter().take(16) {
+        println!(
+            "  ${pc:04X}  {n:>7}  {:>5.1}%",
+            100.0 * *n as f64 / total as f64
+        );
+    }
+    println!("distinct PCs: {}", hot.len());
+}
+
+/// CPU cycles between consecutive entries to the VBlank-wait routine,
+/// with the PPU position of each entry — the exact counterpart of
+/// `tools/mesen-nes-cross-check/vbl-wait-trace.lua`.
+///
+/// ⚠ Entries only. `$EBDA` looks like the exit marker and is not usable
+/// as one here: it is the not-taken address of the `BPL $EBD5` at
+/// `$EBD8`, so PC passes through it on EVERY poll of the loop, 21 dots
+/// apart. Mesen2's exec callback fires on opcode fetch and so does mark
+/// the real exit — the two are not comparable, and treating them as
+/// comparable produced a bogus "waited 0 frames" reading.
+///
+/// This is the measurement that localises the 39-frame divergence. The
+/// call sequence and positions agree with Mesen2 for the first half of
+/// each iteration and then drift a few dots late, which is enough to
+/// push one wait past a threshold and cost a whole extra frame.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_vbl_wait_cpu_cycles() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+
+    let mut frame = 0u64;
+    while frame < 200 {
+        nes.run_frame();
+        frame += 1;
+    }
+
+    let mut entries: Vec<(u64, u16, u16, u64)> = Vec::new();
+    let mut prev_pc = nes.cpu.regs.pc;
+    let start = frame;
+    while frame < start + 40 {
+        nes.tick();
+        let pc = nes.cpu.regs.pc;
+        if pc != prev_pc {
+            if pc == 0xEBD2 {
+                entries.push((
+                    frame,
+                    nes.ppu.scanline(),
+                    nes.ppu.dot(),
+                    nes.cpu_cycle_count(),
+                ));
+            }
+            prev_pc = pc;
+        }
+        if nes.ppu.scanline() == 240 && nes.ppu.dot() == 0 {
+            frame += 1;
+            nes.tick();
+        }
+    }
+
+    println!("EMU198X — CPU cycles between consecutive wait entries");
+    for i in 1..entries.len() {
+        let (pf, psl, pd, pc) = entries[i - 1];
+        let (f, sl, d, c) = entries[i];
+        println!(
+            "  slot {}->{}  f{pf}->f{f}  sl{psl:>3}d{pd:>3} -> sl{sl:>3}d{d:>3}   {:>7} CPU cycles",
+            (i - 1) % 10,
+            i % 10,
+            c - pc
+        );
+        if i % 10 == 0 {
+            println!();
+        }
+    }
+}
+
+/// Which cycle-stealing events happen inside one iteration, and what do
+/// they cost?
+///
+/// Mesen2's per-slot CPU cycle counts jitter by exactly ±7 — one poll of
+/// the `BIT $2002 / BPL` wait loop — between iterations, while ours are
+/// bit-identical every time. Something perturbs Mesen's phase and
+/// nothing perturbs ours. This sub-test is the one that combines
+/// "sprite 0 hit flag, $4014 DMA and the RAM mirroring", so OAM DMA,
+/// whose length is 513 or 514 cycles depending on CPU parity, is the
+/// obvious candidate: a parity that never varies would lock the phase.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_dma_costs_in_the_loop() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+
+    let mut frame = 0u64;
+    while frame < 200 {
+        nes.run_frame();
+        frame += 1;
+    }
+
+    // Measure the DMA stall directly: the CPU stops advancing PC for the
+    // duration, so a long gap between PC changes IS the DMA. An earlier
+    // attempt timed "until the bus address changes" and reported 1 cycle
+    // for every DMA, which is the write cycle, not the transfer.
+    let mut stalls: Vec<(u64, u16, u64)> = Vec::new();
+    let mut last_pc = nes.cpu.regs.pc;
+    let mut last_change = nes.cpu_cycle_count();
+    let mut last_write_4014: Option<u16> = None;
+    let start = frame;
+    while frame < start + 26 {
+        let addr = nes.cpu.addr;
+        let rw = nes.cpu.rw;
+        nes.tick();
+        if !rw && addr == 0x4014 {
+            last_write_4014 = Some(nes.cpu.regs.pc);
+        }
+        let pc = nes.cpu.regs.pc;
+        if pc != last_pc {
+            let gap = nes.cpu_cycle_count() - last_change;
+            if gap > 100 {
+                stalls.push((frame, last_pc, gap));
+            }
+            last_pc = pc;
+            last_change = nes.cpu_cycle_count();
+        }
+        if nes.ppu.scanline() == 240 && nes.ppu.dot() == 0 {
+            frame += 1;
+            nes.tick();
+        }
+    }
+
+    println!("CPU stalls over 26 frames (a stall of ~513/514 is an OAM DMA):");
+    let mut counts: BTreeMap<u64, usize> = BTreeMap::new();
+    for (f, pc, gap) in &stalls {
+        println!("  f{f}  after PC=${pc:04X}  {gap} CPU cycles");
+        *counts.entry(*gap).or_insert(0) += 1;
+    }
+    println!("distinct stall lengths: {counts:?}");
+    let _ = last_write_4014;
+}
+
+/// Cost of the OAM DMA at `$E50F`, measured over the same span Mesen2's
+/// `oam-dma-cost.lua` uses.
+///
+/// ```text
+/// $E50D  LDA $97
+/// $E50F  STA $4014     ; starts the OAM DMA
+/// $E512  JSR $E2C9     ; -> $E2C9
+/// ```
+///
+/// ⚠⚠ **This measurement produced a wrong claim; keep the retraction
+/// with it.** Ours reports 524/525 against Mesen2's 523/524 over what
+/// looks like the same span, which reads as an OAM DMA one cycle too
+/// long. It is not: `sprdma_dmc_probe::probe_oam_dma_stall_from_trace`
+/// counts the transfer directly off the DMA bus trace — 257 reads, a
+/// 512-cycle span, one final write cycle — and gets **513**, which is
+/// correct.
+///
+/// The span is the unreliable part. Both ends are instruction
+/// boundaries, but Mesen2's exec callback fires on opcode fetch while
+/// this side triggers when the PC register takes the value, and for a
+/// `JSR` those are not the same cycle. A cross-emulator span is only
+/// trustworthy at 1-cycle resolution if both sides sample the same
+/// event — the slot-to-slot counts in `probe_vbl_wait_cpu_cycles` do
+/// (they agree exactly, 24666/30699/28122/...), and this does not.
+///
+/// What the numbers DO show is a distribution difference: ours is
+/// skewed 20:4 across the two parities where Mesen2's is 12:14. That is
+/// a consequence of the locked phase, not its cause.
+///
+/// ⚠ Span ends at the JSR TARGET, not at `$E512`: the DMA runs on the
+/// cycle after the write, so a window closing at `$E512` measures the
+/// STA alone and reports a flat 4 cycles on both emulators.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_oam_dma_cost() {
+    let Some(root) = nes_test_roms_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+
+    let mut costs: BTreeMap<u64, usize> = BTreeMap::new();
+    let mut at_write: Option<u64> = None;
+    let mut prev_pc = nes.cpu.regs.pc;
+    let mut frame = 0u64;
+    while frame < 260 {
+        nes.tick();
+        let pc = nes.cpu.regs.pc;
+        if pc != prev_pc {
+            if pc == 0xE50F {
+                at_write = Some(nes.cpu_cycle_count());
+            }
+            if pc == 0xE2C9
+                && let Some(start) = at_write.take()
+            {
+                *costs.entry(nes.cpu_cycle_count() - start).or_insert(0) += 1;
+            }
+            prev_pc = pc;
+        }
+        if nes.ppu.scanline() == 240 && nes.ppu.dot() == 0 {
+            frame += 1;
+            nes.tick();
+        }
+    }
+    println!("EMU198X OAM DMA cost ($E50F -> $E2C9): {costs:?}");
+    println!("Mesen2 over the same window: {{523: 12, 524: 14}}");
+    println!(
+        "⚠ Do NOT read a defect out of the 1-cycle offset — see this test's \
+         doc comment. The transfer itself is 513, measured from the bus trace."
     );
 }
