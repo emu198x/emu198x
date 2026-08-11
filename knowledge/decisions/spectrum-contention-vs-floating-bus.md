@@ -790,6 +790,33 @@ not a bug in either — it is this displacement, seen through instruction
 costs. **The engine cannot match both, and the question is which authority
 governs**, not which code is wrong.
 
+## Confirmed against the real Verilog
+
+Everything above rested on a transcription, and a transcription is only a
+reading. So the actual gates were simulated — Icarus Verilog against the
+vendored `zx_ula`; benches and results in
+`crates/ferranti-ula-6c001e/tests/verilog/`.
+
+**The window opens at T-state 14338 after `/INT`, then every 8.** Exactly
+what the transcription predicted, and exactly 3 after FUSE's 14335. The
+displacement is real silicon behaviour, not a misreading of the source. The
+address decode checks out alongside it: `$4000` with `/MREQ` inactive
+stalls every 8 T-states, `$C000` never stalls.
+
+**The ULA-port path exists and is even-port-only.** With `/IORQ` pulsed for
+five `clk7`, `$C0FE` stalls at even pulse phases and `$C0FF` never does.
+It stalls exactly *once*, which is the tell rather than a disappointment:
+the pulse period is eight `CPUClk` periods, so the alignment holds only
+until the first stall stretches the clock and destroys it. Enough to
+confirm the path and its even-port gating; not enough for per-class costs.
+Those need a bench driving real Z80 M-cycles with the CPU clocked by
+`clkcpu`, so stalls feed back as they do in hardware.
+
+A static `/IORQ` cannot test this at all — `ioreqtw3` latches low on the
+first `CPUClk` rise and disarms the gate permanently, which is the
+cancellation working. That trap is recorded in the bench's README because
+it reads exactly like a refutation.
+
 ## Next
 
 1. Decide which authority governs the contended window, and record it.
