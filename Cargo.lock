@@ -2767,6 +2767,7 @@ dependencies = [
 name = "motorola-68010"
 version = "0.2.0"
 dependencies = [
+ "emu198x-test-skip",
  "flate2",
  "motorola-68000",
  "motorola-68k-common",
@@ -2794,6 +2795,7 @@ dependencies = [
 name = "motorola-68030"
 version = "0.2.0"
 dependencies = [
+ "emu198x-test-skip",
  "motorola-68000",
  "motorola-68010",
  "motorola-68020",
@@ -2806,6 +2808,7 @@ dependencies = [
 name = "motorola-68040"
 version = "0.2.0"
 dependencies = [
+ "emu198x-test-skip",
  "motorola-68000",
  "motorola-68010",
  "motorola-68020",
