@@ -455,6 +455,25 @@ impl Z80 {
         }
     }
 
+    /// Drive the current M-step's address (and write data) onto the bus.
+    ///
+    /// Called from each cycle's first half-cycle rather than from
+    /// `try_advance_walker`, which runs on the *last* half-cycle of the
+    /// cycle being ended. Presenting there put the next address on the bus
+    /// half a T-state early, while the previous cycle's strobes were still
+    /// asserted — so a host that drives the bus from the raw pins wrote the
+    /// outgoing byte to the incoming address. That corrupted the `IM 2`
+    /// vector table: the last `PUSH` of the response wrote its low byte
+    /// over `(I<<8)|vector` before the handler address was read back.
+    ///
+    /// It also mattered to the ULA, which decides contention from the
+    /// address bus and would see a contended address half a cycle before
+    /// the CPU had committed to the cycle.
+    fn present_step_signals(&mut self) {
+        self.walker
+            .setup_signals(&mut self.addr, &mut self.data, &mut self.regs);
+    }
+
     /// Release every bus strobe the previous M-cycle left asserted.
     ///
     /// Several Zilog strobes run to *the end of* their last T-state rather
@@ -650,8 +669,8 @@ impl Z80 {
     fn tick_mem_read(&mut self, phase: MemPhase) {
         match phase {
             MemPhase::T1Rise => {
-                // Address on bus (set by caller before entering this M-cycle)
                 self.release_bus_strobes();
+                self.present_step_signals();
                 self.phase = Phase::MemRead(MemPhase::T1Fall);
             }
             MemPhase::T1Fall => {
@@ -689,8 +708,8 @@ impl Z80 {
     fn tick_mem_write(&mut self, phase: MemPhase) {
         match phase {
             MemPhase::T1Rise => {
-                // Address on bus (set by caller)
                 self.release_bus_strobes();
+                self.present_step_signals();
                 self.phase = Phase::MemWrite(MemPhase::T1Fall);
             }
             MemPhase::T1Fall => {
@@ -728,6 +747,7 @@ impl Z80 {
         match phase {
             MemPhase::T1Rise => {
                 self.release_bus_strobes();
+                self.present_step_signals();
                 self.phase = Phase::Contend(MemPhase::T1Fall);
             }
             MemPhase::T1Fall => {
@@ -761,6 +781,7 @@ impl Z80 {
             IoPhase::T1Rise => {
                 // Port address on bus
                 self.release_bus_strobes();
+                self.present_step_signals();
                 self.phase = Phase::IoRead(IoPhase::T1Fall);
             }
             IoPhase::T1Fall => {
@@ -801,8 +822,9 @@ impl Z80 {
     fn tick_io_write(&mut self, phase: IoPhase) {
         match phase {
             IoPhase::T1Rise => {
-                // Port address on bus
+                // Port address and data on bus
                 self.release_bus_strobes();
+                self.present_step_signals();
                 self.phase = Phase::IoWrite(IoPhase::T1Fall);
             }
             IoPhase::T1Fall => {
@@ -842,8 +864,10 @@ impl Z80 {
 
     fn tick_internal(&mut self, phase: InternalPhase) {
         // An internal cycle has no `T1Rise` of its own, so it releases the
-        // previous cycle's strobes here. Idempotent — it drives nothing.
+        // previous cycle's strobes and presents `IR` here. Both are
+        // idempotent, which is why repeating them each tick is fine.
         self.release_bus_strobes();
+        self.present_step_signals();
         if phase.remaining <= 1 {
             self.walker.advance();
             self.try_advance_walker();
@@ -1011,9 +1035,11 @@ impl Z80 {
         loop {
             match self.walker.begin_current_step() {
                 Some(phase) => {
-                    // Set up signals for this step
-                    self.walker
-                        .setup_signals(&mut self.addr, &mut self.data, &mut self.regs);
+                    // The address and write data are *not* presented here.
+                    // This runs on the last half-cycle of the M-cycle being
+                    // ended, and Zilog presents every address on the next
+                    // cycle's `T1`↑. Each cycle's first half-cycle calls
+                    // `setup_signals` for itself.
                     self.phase = phase;
                     return;
                 }

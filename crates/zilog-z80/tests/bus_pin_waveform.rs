@@ -51,12 +51,6 @@
 //!    (Zilog: `T1b`–`T3b` and `T2b`–`T3b`).
 //! 2. I/O `/IORQ` runs `T2a`–`TWa` (Zilog: `T2b`–`T3b`).
 //!
-//! A further departure is visible in the address column rather than the
-//! strobes: when the next M-cycle is *not* an `M1`, its address appears
-//! one half-cycle early, on the previous cycle's `T4Fall`/`T3Fall` row,
-//! because `try_advance_walker` calls `setup_signals` as it hands over.
-//! `M1`→`M1` does not do this. Zilog presents every address at `T1`↑.
-//!
 //! ```sh
 //! cargo test -p zilog-z80 --test bus_pin_waveform
 //! ```
@@ -210,7 +204,7 @@ fn memory_read_bus_pins() {
             "4   M1(T3Rise)         0000  RFSH\n",
             "5   M1(T3Fall)         0000  MREQ RFSH\n",
             "6   M1(T4Rise)         0000  MREQ RFSH\n",
-            "7   M1(T4Fall)         5000  RFSH\n",
+            "7   M1(T4Fall)         0000  RFSH\n",
             "8   MemRead(T1Rise)    5000\n",
             "9   MemRead(T1Fall)    5000  MREQ RD\n",
             "10  MemRead(T2Rise)    5000  MREQ RD\n",
@@ -233,7 +227,7 @@ fn memory_write_bus_pins() {
             "4   M1(T3Rise)         0000  RFSH\n",
             "5   M1(T3Fall)         0000  MREQ RFSH\n",
             "6   M1(T4Rise)         0000  MREQ RFSH\n",
-            "7   M1(T4Fall)         5000  RFSH\n",
+            "7   M1(T4Fall)         0000  RFSH\n",
             "8   MemWrite(T1Rise)   5000\n",
             "9   MemWrite(T1Fall)   5000  MREQ\n",
             "10  MemWrite(T2Rise)   5000  MREQ WR\n",
@@ -264,7 +258,7 @@ fn io_read_bus_pins() {
             "12  M1(T3Rise)         0001  RFSH\n",
             "13  M1(T3Fall)         0001  MREQ RFSH\n",
             "14  M1(T4Rise)         0001  MREQ RFSH\n",
-            "15  M1(T4Fall)         C0FE  RFSH\n",
+            "15  M1(T4Fall)         0001  RFSH\n",
             "16  IoRead(T1Rise)     C0FE\n",
             "17  IoRead(T1Fall)     C0FE\n",
             "18  IoRead(T2Rise)     C0FE  IORQ RD\n",
@@ -297,7 +291,7 @@ fn io_write_bus_pins() {
             "12  M1(T3Rise)         0001  RFSH\n",
             "13  M1(T3Fall)         0001  MREQ RFSH\n",
             "14  M1(T4Rise)         0001  MREQ RFSH\n",
-            "15  M1(T4Fall)         C0FE  RFSH\n",
+            "15  M1(T4Fall)         0001  RFSH\n",
             "16  IoWrite(T1Rise)    C0FE\n",
             "17  IoWrite(T1Fall)    C0FE\n",
             "18  IoWrite(T2Rise)    C0FE  IORQ WR\n",
@@ -322,7 +316,7 @@ fn internal_cycle_bus_pins() {
             "4   M1(T3Rise)         0000  RFSH\n",
             "5   M1(T3Fall)         0000  MREQ RFSH\n",
             "6   M1(T4Rise)         0000  MREQ RFSH\n",
-            "7   M1(T4Fall)         0001  RFSH\n",
+            "7   M1(T4Fall)         0000  RFSH\n",
             "8   Internal(4)        0001\n",
             "9   Internal(3)        0001\n",
             "10  Internal(2)        0001\n",
