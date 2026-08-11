@@ -4,39 +4,79 @@
 //! as they stand at each half-cycle, and the machine ticks the ULA
 //! *before* the CPU — so the ULA sees the pins left by the previous CPU
 //! tick. Every attempt so far to reason that offset out has been wrong,
-//! including several of mine, so this prints it instead.
+//! including several of mine, so this asserts it instead of printing it.
 //!
-//! The reference waveforms are Zilog's, and they are what
-//! `ferranti-ula-6c001e/tests/hdl_gate_reference.rs` models. In half-cycles
-//! from the start of the M-cycle, with `T1a` = 0:
+//! ## The convention, stated once
 //!
-//! | cycle | `/MREQ` low | `/IORQ` low |
-//! |---|---|---|
-//! | `M1` opcode | `T1b`–`T2b` | — |
-//! | `M1` refresh | `T3b`–`T4a` | — |
-//! | memory read | `T1b`–`T3b` | — |
-//! | memory write | `T1b`–`T3b` | — |
-//! | I/O read | — | `T2b`–`T3b` (Zilog `T2`–`T3`, incl. `TW`) |
+//! Each row is one half-cycle. The `phase` column names the phase handler
+//! that ran during it, so `M1(T1Fall)` is half-cycle `T1b` of an `M1`
+//! cycle. The pins listed are the ones that handler left asserted — which
+//! is what the next chip on the bus sees for the whole of that half-cycle,
+//! because the Z80 drives them until its next tick. A strobe first listed
+//! on `T1Fall` is therefore low from the falling edge of `T1`, which is how
+//! Zilog draws it.
+//!
+//! A strobe that runs to *the end of* its last T-state has no handler of
+//! its own to release it: the releasing clock edge is the next M-cycle's
+//! `T1Rise`. So "still asserted on the last row of the cycle" is the
+//! correct rendering of "released at the end of `T3`", not a leak.
+//!
+//! ## The reference
+//!
+//! Zilog UM0080 (*Z80 CPU User Manual*), the timing diagrams for the
+//! opcode-fetch, memory read/write and input/output cycles.
+//!
+//! | cycle | strobe | Zilog | asserted during |
+//! |---|---|---|---|
+//! | `M1` opcode | `/MREQ`, `/RD` | `T1`↓ → `T3`↑ | `T1b`–`T2b` |
+//! | `M1` refresh | `/RFSH` | `T3`↑ → next `T1`↑ | `T3a`–`T4b` |
+//! | `M1` refresh | `/MREQ` | `T3`↓ → `T4`↓ | `T3b`–`T4a` |
+//! | memory read | `/MREQ`, `/RD` | `T1`↓ → end of `T3` | `T1b`–`T3b` |
+//! | memory write | `/MREQ` | `T1`↓ → end of `T3` | `T1b`–`T3b` |
+//! | memory write | `/WR` | `T2`↓ → end of `T3` | `T2b`–`T3b` |
+//! | I/O | `/IORQ` + `/RD`\|`/WR` | `T2`↓ → end of `T3` | `T2b`–`T3b`, over `T2`/`TW`/`T3` |
+//!
+//! The I/O cycle's automatic wait state means its four T-states are `T1`,
+//! `T2`, `TW`, `T3`; this state machine names them `T1`–`T4`, so a row
+//! reading `IoRead(T3Fall)` is Zilog's `TWb` and `IoRead(T4Fall)` is `T3b`.
+//!
+//! ## Departures, as locked below
+//!
+//! These waveforms are **today's behaviour**, not the reference. Six
+//! departures are recorded here deliberately, so that correcting each one
+//! shows up as a reviewable diff in a golden rather than as a silent
+//! change under an emulator-wide test:
+//!
+//! 1. `M1` opcode `/MREQ`, `/RD` end at `T2a` (Zilog: `T2b`).
+//! 2. `M1` refresh `/MREQ` is `T3b` only (Zilog: `T3b`–`T4a`).
+//! 3. `/RFSH` ends at `T3b` (Zilog: `T4b`).
+//! 4. Memory read `/MREQ`, `/RD` end at `T2a` (Zilog: `T3b`).
+//! 5. Memory write `/MREQ` ends at `T2b` and `/WR` runs `T2a`–`T2b`
+//!    (Zilog: `T1b`–`T3b` and `T2b`–`T3b`).
+//! 6. I/O `/IORQ` runs `T2a`–`TWa` (Zilog: `T2b`–`T3b`).
+//!
+//! A seventh departure is visible in the address column rather than the
+//! strobes: when the next M-cycle is *not* an `M1`, its address appears
+//! one half-cycle early, on the previous cycle's `T4Fall`/`T3Fall` row,
+//! because `try_advance_walker` calls `setup_signals` as it hands over.
+//! `M1`→`M1` does not do this. Zilog presents every address at `T1`↑.
 //!
 //! ```sh
-//! cargo test -p zilog-z80 --test bus_pin_waveform -- --nocapture
+//! cargo test -p zilog-z80 --test bus_pin_waveform
 //! ```
 
 use zilog_z80::Z80;
 
 /// Tick the CPU one half-cycle at a time and record what the next chip on
-/// the bus would see: the pins as they stand *after* each tick.
-fn waveform(
-    program: &[u8],
-    setup: fn(&mut Z80),
-    halfcycles: usize,
-) -> Vec<(u16, bool, bool, bool)> {
+/// the bus would see: the phase that ran, and the pins as they stand
+/// *after* each tick.
+fn waveform(program: &[u8], setup: fn(&mut Z80), halfcycles: usize) -> String {
     let mut cpu = Z80::new();
 
     setup(&mut cpu);
 
-    let mut out = Vec::new();
-    for _ in 0..halfcycles {
+    let mut out = String::new();
+    for i in 0..halfcycles {
         // Feed the opcode stream from a fixed window; the machine would do
         // this from memory, and for a pin trace only the pins matter.
         let index = (cpu.addr as usize).wrapping_sub(0x4000);
@@ -44,86 +84,217 @@ fn waveform(
             .get(index % program.len().max(1))
             .copied()
             .unwrap_or(0);
+
+        let phase = format!("{:?}", cpu.phase);
         cpu.tick();
-        out.push((cpu.addr, cpu.mreq, cpu.iorq, cpu.rfsh));
+
+        let mut pins = Vec::new();
+        for (name, level) in [
+            ("M1", cpu.m1),
+            ("MREQ", cpu.mreq),
+            ("IORQ", cpu.iorq),
+            ("RD", cpu.rd),
+            ("WR", cpu.wr),
+            ("RFSH", cpu.rfsh),
+        ] {
+            if level {
+                pins.push(name);
+            }
+        }
+
+        let row = format!("{i:<3} {phase:<18} {:04X}  {}", cpu.addr, pins.join(" "));
+        out.push_str(row.trim_end());
+        out.push('\n');
     }
     out
 }
 
-fn show(name: &str, w: &[(u16, bool, bool, bool)]) {
-    println!("\n{name}");
-    print!("  half-cycle ");
-    for i in 0..w.len() {
-        print!("{:>3}", i);
-    }
-    println!();
-    print!("  addr $     ");
-    for (a, _, _, _) in w {
-        print!("{:>3}", (a >> 12) & 0xF);
-    }
-    println!("   (top nibble)");
-    print!("  /MREQ low  ");
-    for (_, m, _, _) in w {
-        print!("{:>3}", if *m { "L" } else { "." });
-    }
-    println!();
-    print!("  /IORQ low  ");
-    for (_, _, i, _) in w {
-        print!("{:>3}", if *i { "L" } else { "." });
-    }
-    println!();
-    print!("  /RFSH low  ");
-    for (_, _, _, r) in w {
-        print!("{:>3}", if *r { "L" } else { "." });
-    }
-    println!();
+/// Back-to-back `M1` cycles from a `NOP` stream.
+fn m1_waveform(halfcycles: usize) -> String {
+    waveform(&[0x00], |c| c.regs.pc = 0x4000, halfcycles)
+}
+
+/// `LD A,(HL)` — `M1` then a memory read from $5000.
+fn memory_read_waveform() -> String {
+    waveform(
+        &[0x7E],
+        |c| {
+            c.regs.pc = 0x4000;
+            c.regs.hl = 0x5000;
+        },
+        14,
+    )
+}
+
+/// `LD (HL),A` — `M1` then a memory write to $5000.
+fn memory_write_waveform() -> String {
+    waveform(
+        &[0x77],
+        |c| {
+            c.regs.pc = 0x4000;
+            c.regs.hl = 0x5000;
+        },
+        14,
+    )
+}
+
+/// `IN A,(C)` — `ED` prefix, opcode, then the I/O read cycle.
+fn io_read_waveform() -> String {
+    waveform(
+        &[0xED, 0x78],
+        |c| {
+            c.regs.pc = 0x4000;
+            c.regs.bc = 0xC0FE;
+        },
+        24,
+    )
+}
+
+/// `OUT (C),A` — `ED` prefix, opcode, then the I/O write cycle.
+fn io_write_waveform() -> String {
+    waveform(
+        &[0xED, 0x79],
+        |c| {
+            c.regs.pc = 0x4000;
+            c.regs.bc = 0xC0FE;
+        },
+        24,
+    )
 }
 
 #[test]
-#[ignore = "diagnostic pin trace"]
-fn print_bus_pin_waveforms() {
-    // NOP stream: back-to-back M1 cycles.
-    show(
-        "NOP, NOP  (M1 x2)",
-        &waveform(&[0x00], |c| c.regs.pc = 0x4000, 16),
+fn m1_cycle_bus_pins() {
+    assert_eq!(
+        m1_waveform(16),
+        concat!(
+            "0   M1(T1Rise)         4000  M1\n",
+            "1   M1(T1Fall)         4000  M1 MREQ RD\n",
+            "2   M1(T2Rise)         4000  M1 MREQ RD\n",
+            "3   M1(T2Fall)         4000  M1\n",
+            "4   M1(T3Rise)         0000  RFSH\n",
+            "5   M1(T3Fall)         0000  MREQ RFSH\n",
+            "6   M1(T4Rise)         0000\n",
+            "7   M1(T4Fall)         0000\n",
+            "8   M1(T1Rise)         4001  M1\n",
+            "9   M1(T1Fall)         4001  M1 MREQ RD\n",
+            "10  M1(T2Rise)         4001  M1 MREQ RD\n",
+            "11  M1(T2Fall)         4001  M1\n",
+            "12  M1(T3Rise)         0001  RFSH\n",
+            "13  M1(T3Fall)         0001  MREQ RFSH\n",
+            "14  M1(T4Rise)         0001\n",
+            "15  M1(T4Fall)         0001\n",
+        )
     );
+}
 
-    // LD A,(HL): M1 then a memory read from $5000.
-    show(
-        "LD A,(HL)  (M1 + memory read)",
-        &waveform(
-            &[0x7E],
-            |c| {
-                c.regs.pc = 0x4000;
-                c.regs.hl = 0x5000;
-            },
-            14,
-        ),
+#[test]
+fn memory_read_bus_pins() {
+    assert_eq!(
+        memory_read_waveform(),
+        concat!(
+            "0   M1(T1Rise)         4000  M1\n",
+            "1   M1(T1Fall)         4000  M1 MREQ RD\n",
+            "2   M1(T2Rise)         4000  M1 MREQ RD\n",
+            "3   M1(T2Fall)         4000  M1\n",
+            "4   M1(T3Rise)         0000  RFSH\n",
+            "5   M1(T3Fall)         0000  MREQ RFSH\n",
+            "6   M1(T4Rise)         0000\n",
+            "7   M1(T4Fall)         5000\n",
+            "8   MemRead(T1Rise)    5000\n",
+            "9   MemRead(T1Fall)    5000  MREQ RD\n",
+            "10  MemRead(T2Rise)    5000  MREQ RD\n",
+            "11  MemRead(T2Fall)    5000\n",
+            "12  MemRead(T3Rise)    5000\n",
+            "13  MemRead(T3Fall)    5000\n",
+        )
     );
+}
 
-    // LD (HL),A: M1 then a memory write.
-    show(
-        "LD (HL),A  (M1 + memory write)",
-        &waveform(
-            &[0x77],
-            |c| {
-                c.regs.pc = 0x4000;
-                c.regs.hl = 0x5000;
-            },
-            14,
-        ),
+#[test]
+fn memory_write_bus_pins() {
+    assert_eq!(
+        memory_write_waveform(),
+        concat!(
+            "0   M1(T1Rise)         4000  M1\n",
+            "1   M1(T1Fall)         4000  M1 MREQ RD\n",
+            "2   M1(T2Rise)         4000  M1 MREQ RD\n",
+            "3   M1(T2Fall)         4000  M1\n",
+            "4   M1(T3Rise)         0000  RFSH\n",
+            "5   M1(T3Fall)         0000  MREQ RFSH\n",
+            "6   M1(T4Rise)         0000\n",
+            "7   M1(T4Fall)         5000\n",
+            "8   MemWrite(T1Rise)   5000\n",
+            "9   MemWrite(T1Fall)   5000  MREQ\n",
+            "10  MemWrite(T2Rise)   5000  MREQ WR\n",
+            "11  MemWrite(T2Fall)   5000  MREQ WR\n",
+            "12  MemWrite(T3Rise)   5000\n",
+            "13  MemWrite(T3Fall)   5000\n",
+        )
     );
+}
 
-    // IN A,(C): ED prefix, opcode, then the I/O cycle.
-    show(
-        "IN A,(C)  (M1 x2 + I/O read)",
-        &waveform(
-            &[0xED, 0x78],
-            |c| {
-                c.regs.pc = 0x4000;
-                c.regs.bc = 0xC0FE;
-            },
-            24,
-        ),
+#[test]
+fn io_read_bus_pins() {
+    assert_eq!(
+        io_read_waveform(),
+        concat!(
+            "0   M1(T1Rise)         4000  M1\n",
+            "1   M1(T1Fall)         4000  M1 MREQ RD\n",
+            "2   M1(T2Rise)         4000  M1 MREQ RD\n",
+            "3   M1(T2Fall)         4000  M1\n",
+            "4   M1(T3Rise)         0000  RFSH\n",
+            "5   M1(T3Fall)         0000  MREQ RFSH\n",
+            "6   M1(T4Rise)         0000\n",
+            "7   M1(T4Fall)         0000\n",
+            "8   M1(T1Rise)         4001  M1\n",
+            "9   M1(T1Fall)         4001  M1 MREQ RD\n",
+            "10  M1(T2Rise)         4001  M1 MREQ RD\n",
+            "11  M1(T2Fall)         4001  M1\n",
+            "12  M1(T3Rise)         0001  RFSH\n",
+            "13  M1(T3Fall)         0001  MREQ RFSH\n",
+            "14  M1(T4Rise)         0001\n",
+            "15  M1(T4Fall)         C0FE\n",
+            "16  IoRead(T1Rise)     C0FE\n",
+            "17  IoRead(T1Fall)     C0FE\n",
+            "18  IoRead(T2Rise)     C0FE  IORQ RD\n",
+            "19  IoRead(T2Fall)     C0FE  IORQ RD\n",
+            "20  IoRead(T3Rise)     C0FE  IORQ RD\n",
+            "21  IoRead(T3Fall)     C0FE\n",
+            "22  IoRead(T4Rise)     C0FE\n",
+            "23  IoRead(T4Fall)     C0FE\n",
+        )
+    );
+}
+
+#[test]
+fn io_write_bus_pins() {
+    assert_eq!(
+        io_write_waveform(),
+        concat!(
+            "0   M1(T1Rise)         4000  M1\n",
+            "1   M1(T1Fall)         4000  M1 MREQ RD\n",
+            "2   M1(T2Rise)         4000  M1 MREQ RD\n",
+            "3   M1(T2Fall)         4000  M1\n",
+            "4   M1(T3Rise)         0000  RFSH\n",
+            "5   M1(T3Fall)         0000  MREQ RFSH\n",
+            "6   M1(T4Rise)         0000\n",
+            "7   M1(T4Fall)         0000\n",
+            "8   M1(T1Rise)         4001  M1\n",
+            "9   M1(T1Fall)         4001  M1 MREQ RD\n",
+            "10  M1(T2Rise)         4001  M1 MREQ RD\n",
+            "11  M1(T2Fall)         4001  M1\n",
+            "12  M1(T3Rise)         0001  RFSH\n",
+            "13  M1(T3Fall)         0001  MREQ RFSH\n",
+            "14  M1(T4Rise)         0001\n",
+            "15  M1(T4Fall)         C0FE\n",
+            "16  IoWrite(T1Rise)    C0FE\n",
+            "17  IoWrite(T1Fall)    C0FE\n",
+            "18  IoWrite(T2Rise)    C0FE  IORQ WR\n",
+            "19  IoWrite(T2Fall)    C0FE  IORQ WR\n",
+            "20  IoWrite(T3Rise)    C0FE  IORQ WR\n",
+            "21  IoWrite(T3Fall)    C0FE\n",
+            "22  IoWrite(T4Rise)    C0FE\n",
+            "23  IoWrite(T4Fall)    C0FE\n",
+        )
     );
 }
