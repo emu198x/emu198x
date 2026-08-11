@@ -83,7 +83,11 @@ fn waveform(program: &[u8], setup: fn(&mut Z80), halfcycles: usize) -> String {
             .copied()
             .unwrap_or(0);
 
-        let phase = format!("{:?}", cpu.phase);
+        // `Internal`'s Debug carries the countdown in a struct literal;
+        // flatten it to `Internal(4)` so the column stays readable.
+        let phase = format!("{:?}", cpu.phase)
+            .replace("InternalPhase { remaining: ", "")
+            .replace(" }", "");
         cpu.tick();
 
         let mut pins = Vec::new();
@@ -134,6 +138,17 @@ fn memory_write_waveform() -> String {
         },
         14,
     )
+}
+
+/// `INC BC` — `M1` then two internal T-states with no bus activity.
+///
+/// The case that catches a leak. A strobe released "at the end of its last
+/// T-state" has no handler of its own to release it — the next M-cycle's
+/// `T1Rise` does that. An internal cycle has no `T1Rise`, so a strobe left
+/// asserted into one stays asserted, and on a Spectrum the ULA would go on
+/// reading it as a live access.
+fn internal_cycle_waveform() -> String {
+    waveform(&[0x03], |c| c.regs.pc = 0x4000, 14)
 }
 
 /// `IN A,(C)` — `ED` prefix, opcode, then the I/O read cycle.
@@ -293,6 +308,29 @@ fn io_write_bus_pins() {
             "21  IoWrite(T3Fall)    C0FE\n",
             "22  IoWrite(T4Rise)    C0FE\n",
             "23  IoWrite(T4Fall)    C0FE\n",
+        )
+    );
+}
+
+#[test]
+fn internal_cycle_bus_pins() {
+    assert_eq!(
+        internal_cycle_waveform(),
+        concat!(
+            "0   M1(T1Rise)         4000  M1\n",
+            "1   M1(T1Fall)         4000  M1 MREQ RD\n",
+            "2   M1(T2Rise)         4000  M1 MREQ RD\n",
+            "3   M1(T2Fall)         4000  M1 MREQ RD\n",
+            "4   M1(T3Rise)         0000  RFSH\n",
+            "5   M1(T3Fall)         0000  MREQ RFSH\n",
+            "6   M1(T4Rise)         0000  MREQ\n",
+            "7   M1(T4Fall)         0001\n",
+            "8   Internal(4)        0001\n",
+            "9   Internal(3)        0001\n",
+            "10  Internal(2)        0001\n",
+            "11  Internal(1)        0001\n",
+            "12  M1(T1Rise)         4001  M1\n",
+            "13  M1(T1Fall)         4001  M1 MREQ RD\n",
         )
     );
 }
