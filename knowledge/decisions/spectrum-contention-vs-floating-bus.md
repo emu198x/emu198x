@@ -433,14 +433,151 @@ The HDL also latches `mreqt23` on `posedge CPUClk` exactly as
 evidence *for* the latch, against the +1 T-state regression measured above.
 Those two have not been reconciled and that is the open thread.
 
+## Attempting the gate fix, and what it exposed
+
+Two attempts, both reverted. The tree is at HEAD; this records what they
+established, because the second result is the useful one.
+
+**Attempt 1 — the HDL expression, latch sampled directly.**
+`!ioreq_tw3 && z80_clock_high && (ula_io || (contended_addr && !cpu_mreq))`,
+with `ioreq_tw3` latched from `ula_io` on the rising clock edge alongside
+`mreq_t23`.
+
+The load-bearing defect moved: the contended-page pair gap went from
+**0.00 to −6.39** against FUSE's **−6.53**. The engine separated `$40FE`
+from `$40FF` for the first time, in the right direction and nearly the
+right size. But `$C0FE` stopped contending altogether — 15.73 where FUSE
+wants 18.52, 18,432 samples wrong — because the latch asserted half a
+T-state early and cancelled the contention `T2` is supposed to charge.
+Total disagreement 39,639 against HEAD's 30,741.
+
+**Attempt 2 — the latch delayed by a half-cycle.** `IOREQTW3` is high for
+`TW` and `T3` and low for `T2`; `/IORQ` falls *mid-*`T2`, after the clock
+edge the HDL samples on, while our latch runs at the end of the tick when
+the pin has already moved. Taking the pre-edge value should restore the
+signal its name describes.
+
+It produced numbers **identical to HEAD, to the digit**. That is the
+finding.
+
+**Why, and it is structural rather than a polarity slip.** Our gate is
+level-held: contention stalls the CPU until the delay table frees it, and
+while stalled `track_z80_clock` does not run, so neither latch clocks. A
+single contention event therefore spans a whole 6-of-8 window — through
+`TW` and `T3` and out the other side. By the time the latch can take,
+`IORQ` has gone. There is never anything left for `IOREQTW3` to cancel.
+
+FUSE, by contrast, charges *discrete* delays at four separate points and
+re-reads the table at each. `C:1 C:3` versus `C:1 C:1 C:1 C:1` is a
+statement about **how many separate times** the table is consulted — and a
+model that absorbs one whole window per event cannot express the
+difference, whatever the cancellation term does.
+
+So the I/O shape is not reachable by editing the gate expression. It needs
+the stall model to charge per-T-state rather than per-window, which is a
+change to the same machinery `MREQT23` sits on — and that is very likely
+the same reason the latch measures +1 T-state per contended `M1` pair while
+the HDL says it should be required. **The two open threads are probably one
+thread.**
+
+Stopped there rather than trying a third variation on the gate: two
+attempts had already produced one partial fix and one no-op, which is the
+shape the cadence rule says to reset on.
+
+## Correction: the stall model was never the problem
+
+The section above concluded that our level-held stall cannot express
+`C:1 C:3`, and proposed a fork over charging per-window versus
+per-T-state. **That was wrong**, and the HDL says so in four lines:
+
+```verilog
+always @(posedge clk7) begin
+    if (CPUClk && !CLKContention) CPUClk <= 0;
+    else CPUClk <= 1;
+end
+```
+
+`CPUClk` is *held high* while contention persists. The HDL is level-held
+too. Our stall model is the same kind as the silicon's, RULES.md clock
+rule 3 is not in question, and no re-architecture is implied.
+
+That reduces the question to something mechanical: given identical pin
+sequences, does our gate produce the same `CPUClk` waveform as the HDL's?
+
+## The gate-level harness, and three Z80 defects
+
+`crates/ferranti-ula-6c001e/tests/hdl_gate_reference.rs` transcribes the
+HDL's contention block and runs it as an executable model — no ROM, no CPU,
+no frame, at the half-cycle resolution the disagreement lives at.
+
+A transcription is only another reading, which is what put two failed
+attempts in the tree. What makes this one usable is an **independent
+acceptance test**: it must reproduce FUSE's four-way table for every
+arrival phase under a *single* rotation shared by all four classes. Until
+it does, a mismatch means the transcription is wrong. Four classes with
+four different shapes cannot be rotated into agreement by luck.
+
+It failed three times, and **every failure was in the Z80's pins, not in
+the ULA**:
+
+1. **The CPU advanced on one clock edge instead of two**, making every
+   T-state cost two. Mine, in the harness.
+2. **`/IORQ` released a T-state early** — at the end of `TW` rather than
+   the end of `T3`. Ours, in `zilog-z80`. With the port address still on
+   the bus, `IOREQTW3` releases early and a contended port re-arms the
+   address decode for the final T-state, collapsing `C:1 C:3` toward
+   `C:1 C:1 C:1 C:1`.
+3. **`/IORQ` asserted half a T-state early** — on `T2`'s edge rather than
+   half a clock after the address is stable, which is Zilog's own wording.
+   `IOREQTW3` then latches *before* the contention it is meant to allow has
+   been charged, and a ULA port outside the contended page stops contending
+   at all.
+
+Defects 2 and 3 each name `uncontended, ULA` as the failing class — exactly
+the class the engine gets wrong. Defect 2 is corroborated three ways: the
+acceptance test, `reference/by-topic/cpu-z80/cpu-z80-reference.md` ("like
+memory read", wait state inserted between `T2` and `T3`), and the Z80 bus
+model paired with the HDL at `zx_ula/fpga_version/ula_test_for_ise_and_isim/
+cpu.v`. Defect 3 is the acceptance test plus Zilog; note that `cpu.v`
+*disagrees*, driving `/IORQ` across the whole of `T2` — but it is testbench
+stimulus, not an authority on Z80 pin timing.
+
+**So the contention gate was probably never the bug.** Two attempts to fix
+it failed because the defect was upstream, in the CPU's pins.
+
+## What is still not explained
+
+Applying the fixes and measuring, each one trades one port-class pair
+against the other, and a uniform **+1 T-state** survives every
+configuration:
+
+| configuration | contended pair gap | uncontended pair gap |
+|---|---|---|
+| HEAD | 0.00 (want −5.10) | 6.94 (want 6.05) |
+| `/IORQ` held through `T3` + HDL gate + `MREQT23` | −8.01 (want −8.24) | 0.00 (want 2.73) |
+| …and `/IORQ` asserted mid-`T2` | 0.00 (want −5.83) | **6.94 (want 6.87)** |
+
+Each configuration nails one pair and loses the other, and in every one of
+them the `N:4` classes — which have no I/O contention at all and are pure
+`M1` memory contention — sit exactly **+1** high whenever `MREQT23` is
+wired in. That +1 is the same residual that has blocked the latch from the
+start, it is a *memory*-contention effect with no I/O in it, and it is now
+the single unexplained quantity. Nothing was landed; the tree is at HEAD.
+
 ## Next
 
-1. Fix the I/O gate against the HDL. Contention is one address decode with
-   `IORQ` short-circuiting it for ULA ports, plus `ioreqtw3` cancelling
-   after one `CPUClk` edge — not the current `mem_contention ||
-   io_contention` with an even-port test and no page term. The differential
-   is the gate to fix it against; it can fail, and it was checked by
-   mutation before being trusted. This will not move floatspy.
+1. Put the `+1` under the harness. It is pure `M1` contention, so it needs
+   no I/O modelling at all: run a `NOP` stream through the HDL model and
+   compare against FUSE's `contend_read(pc, 4)` per phase. If the HDL and
+   FUSE agree there, the residual is ours and the harness will localise it
+   the way it localised the `/IORQ` defects. This is the last unknown
+   blocking `MREQT23`, and through it the whole contention fix.
+2. Land the Z80 `/IORQ` timing with the gate, once the `+1` is understood.
+   The pin fixes are well-evidenced but must not land alone: each makes the
+   measured system worse until the gate matches, because the old gate
+   miscounts the corrected window.
+3. Only then the floating bus. It remains untouched by all of this —
+   floatspy reads `$00FF`, which no I/O change can reach.
 2. Reconcile `MREQT23` with the HDL. The HDL requires the latch; our
    measurement says wiring it costs one T-state per contended `M1` pair.
    One of the two is wrong, and the HDL now gives a gate-level model to
