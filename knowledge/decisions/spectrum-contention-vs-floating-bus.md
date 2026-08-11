@@ -819,12 +819,12 @@ it reads exactly like a refutation.
 
 ## Next
 
-1. Decide which authority governs the contended window, and record it.
-   FUSE is validated against real software — its own comment cites Arkanoid
-   and Sidewize — and is the reference RULES.md #32 nominates. The HDL is a
-   clone reconstruction of the silicon. They agree on everything except
-   where the window opens. This is a decision, not a defect, and it wants
-   its own record before any code moves.
+1. **Decided: FUSE governs.** See
+   [`fuse-governs-the-contended-window.md`](fuse-governs-the-contended-window.md).
+   The three-T-state divergence from the gate-level source is deliberate and
+   recorded. The consequence for the work below is that the derived gate
+   change cannot land in the form that matches the HDL — it needs a
+   compensating window shift so the net matches FUSE.
 2. Then land the gate, whichever way that goes. The gate change is fully
    derived and verified against the HDL; only its disagreement with FUSE
    blocks it.
