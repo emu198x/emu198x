@@ -31,7 +31,7 @@ use common_sinclair_zx_spectrum::timing::{
 use common_sinclair_zx_spectrum::ula::Ula;
 use ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
 use peripheral_kempston_joystick::KempstonJoystick;
-use zilog_z80::{BusOp, Z80};
+use zilog_z80::{BusOp, IO_READ_DATA_LATCH_LEAD_TSTATES, Z80};
 
 use crate::tape_input::TapeInput;
 use crate::variant::Variant48kClass;
@@ -503,37 +503,38 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
 
     /// Read the floating bus for an unused odd-port `IN`.
     ///
-    /// Our `io_read` fires when the IO transaction resolves — the IORQ
-    /// rising edge — while hardware latches the data bus later in the
-    /// cycle. `SAMPLE_LEAD` is that gap.
+    /// Our `io_read` fires when the I/O transaction resolves — the `/IORQ`
+    /// rising edge — while the CPU latches the data bus at the end of the
+    /// M-cycle. The floating bus moves within that gap, so it has to be
+    /// read at the latch, not at the edge.
     ///
-    /// **This constant currently carries a known one-T-state error, and
-    /// that is deliberate.** Three sources put the true gap at 2: the Z80
-    /// latches at the edge ending `TW` (our trace has IORQ rising at
-    /// cycle-start+1 and release at +3); FUSE's `readport` samples at
-    /// start+3 via `contend_early` then `contend_late`; and SpecIde
-    /// samples at `ST_IORD_T3L_DATARD`, the fourth T-state. At `2` here,
-    /// though, Float48K reads 14337 against Woody's hardware-measured
-    /// 14338, so one T-state is unaccounted for somewhere in this path.
+    /// The gap is [`IO_READ_DATA_LATCH_LEAD_TSTATES`], **derived from the
+    /// I/O M-cycle's geometry and shared by every variant**. It used to be
+    /// a `SAMPLE_LEAD` fitted here and a second one fitted in the
+    /// 128K-class core, which is how the same one-T-state error came to be
+    /// hidden twice over (#851).
     ///
-    /// The most likely home for it is `ORIGIN`. We assert our frame
-    /// T-state 0 is FUSE T-state 14336, but FUSE has
-    /// `line_times[24] = 14320` (top-left pixel of that line's *border*)
-    /// and `top_left_pixel = 14336` — sixteen T-states apart, being the
-    /// four border columns at 4T each. Which of those our origin actually
-    /// corresponds to has not been verified, and until it is, moving this
-    /// constant only relocates the error.
+    /// `ORIGIN` maps our frame T-state 0 onto FUSE's frame, and it is
+    /// libspectrum's `top_left_pixel` for this ULA —
+    /// `timings_frame_ferranti_5c_6c` in `timings.c`. The 128K-class core
+    /// uses the same rule against `timings_frame_ferranti_7c`.
     ///
-    /// It is left here, in one clearly-labelled place, rather than being
-    /// absorbed into the byte pattern where it lived until 2026-08-10 —
-    /// see `floating_bus_byte`. Splitting one error across two constants
-    /// is what made it invisible for so long.
+    /// **One T-state is still unaccounted for, and it is not this
+    /// lead.** Float48K reads 14337 against Woody's hardware-measured
+    /// 14338. `io_contention_oracle`'s `ORIGIN` — pinned to the `/INT`
+    /// edge by `the_frame_origin_is_pinned_by_the_interrupt`, which is a
+    /// measurement — puts our T-state 0 at FUSE's **14335**, one earlier
+    /// than the `top_left_pixel` used here. Dropping both origins by one
+    /// to match it would put Float48K on Woody's 14338 and take Float128K
+    /// off 14364, so the open question is between the interrupt anchor and
+    /// `top_left_pixel`, not between the two machines. Recorded rather
+    /// than fitted; see #851.
     fn floating_bus_read(&self) -> u8 {
-        const ORIGIN: u32 = 14_336; // our-T 0 == FUSE-T of display line 0
-        const SAMPLE_LEAD: u32 = 2; // see the note above: known ±1
+        /// libspectrum `timings_frame_ferranti_5c_6c.top_left_pixel`.
+        const ORIGIN: u32 = 14_336;
         const FLOAT_START: u32 = 14_338; // Spectron FloatingBusStartTicks (48K)
         let frame = TIMING_48K.tstates_per_frame;
-        let t = (self.tstate_in_frame() + ORIGIN + SAMPLE_LEAD) % frame;
+        let t = (self.tstate_in_frame() + ORIGIN + IO_READ_DATA_LATCH_LEAD_TSTATES) % frame;
         common_sinclair_zx_spectrum::ula_engine::floating_bus_byte(
             t,
             FLOAT_START,
@@ -913,8 +914,8 @@ mod tests {
 
         for i in 0..SPAN {
             let t = START + i;
-            // The live beam bus (io_read adds a +3 T-state hardware
-            // sample-lead correction; see `floating_bus_read`).
+            // The live beam bus. `io_read` adds the I/O M-cycle's
+            // edge-to-latch lead on top of this; see `floating_bus_read`.
             let live = m.ula.floating_bus();
             match spectron(t) {
                 None => assert_eq!(

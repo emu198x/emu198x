@@ -20,4 +20,4 @@ pub mod z80;
 pub use disasm::disassemble;
 pub use registers::Registers;
 pub use stepper::Z80Stepper;
-pub use z80::{BusOp, Z80};
+pub use z80::{BusOp, IO_READ_DATA_LATCH_LEAD_TSTATES, Z80};

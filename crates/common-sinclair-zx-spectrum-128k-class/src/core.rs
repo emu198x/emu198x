@@ -30,7 +30,7 @@ use common_sinclair_zx_spectrum::ula_engine::floating_bus_byte;
 use gi_ay_3_8912::Ay3_8912;
 use peripheral_kempston_joystick::KempstonJoystick;
 use sinclair_ula_7k010e::SinclairUla;
-use zilog_z80::{BusOp, Z80};
+use zilog_z80::{BusOp, IO_READ_DATA_LATCH_LEAD_TSTATES, Z80};
 
 use crate::memory::Memory128K;
 use crate::variant::Class128kVariant;
@@ -348,14 +348,27 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             // ULA's display-bus phase.
             0xFF
         } else {
-            // The 128K odd-port bus sample is three T-states ahead of the
-            // ULA table coordinate. The origin is the first contention
-            // T-state established by the Fuse/Spectron reference model.
-            const LIVE_BUS_ORIGIN: u32 = 14_363;
-            const SAMPLE_LEAD: u32 = 3;
-            let frame_tstate =
-                (self.frame_position().tstate(&TIMING_128K) + LIVE_BUS_ORIGIN + SAMPLE_LEAD)
-                    % TIMING_128K.tstates_per_frame;
+            // The floating bus, sampled where the CPU latches it.
+            //
+            // `LIVE_BUS_ORIGIN` maps our frame T-state 0 onto FUSE's frame
+            // and is libspectrum's `top_left_pixel` for this ULA —
+            // `timings_frame_ferranti_7c` in `timings.c`, which is 14362.
+            // The lead onto it is the I/O M-cycle's own geometry, shared
+            // with every other variant; see
+            // `IO_READ_DATA_LATCH_LEAD_TSTATES` and the 48K-class core,
+            // which applies the same two constants against
+            // `timings_frame_ferranti_5c_6c`.
+            //
+            // This carried its own fitted `SAMPLE_LEAD = 3` against an
+            // origin of 14363 until #851. Neither was derived; together
+            // they read one T-state short of the reference, and the fix is
+            // not to move either of them again but to state the rule both
+            // machines follow.
+            const LIVE_BUS_ORIGIN: u32 = 14_362;
+            let frame_tstate = (self.frame_position().tstate(&TIMING_128K)
+                + LIVE_BUS_ORIGIN
+                + IO_READ_DATA_LATCH_LEAD_TSTATES)
+                % TIMING_128K.tstates_per_frame;
             floating_bus_byte(
                 frame_tstate,
                 14_364,

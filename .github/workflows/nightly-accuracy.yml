@@ -459,25 +459,14 @@ jobs:
         run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test float_bus -- --include-ignored --nocapture
 
       - name: Float128k (128K first-display-byte T-state)
-        # `float128k_prints_expected_tstate` is skipped by name, not by
-        # `#[ignore]` — this step passes `--include-ignored`, which runs
-        # ignored tests by design, so the attribute alone would not skip it.
-        #
-        # It reads 14363 against an expected 14364 (#851). The expectation is
-        # correct and the engine is wrong: a second fitted `SAMPLE_LEAD`,
-        # corroborating the one-T-state error the 48K constant already admits
-        # to. Neither the golden nor the constant is being adjusted to hide it.
-        #
-        # Be clear about the cost: this is the only floating-bus test in the
-        # file, so with it skipped this step gates nothing about the 128K
-        # floating bus. The two tests that still run cover the key matrix and
-        # TAP block parsing. The step is kept so the ROMs and tape stay
-        # provisioned and verified, and so removing the skip is a one-line
-        # change when the IO-sample derivation lands (#851).
+        # `float128k_prints_expected_tstate` ran skipped-by-name here while
+        # the engine read one T-state short of 14364 (#851). The I/O sample
+        # instant is now derived from the M-cycle rather than fitted per
+        # machine, the engine reads 14364, and the skip is gone — so this
+        # step gates the 128K floating bus again.
         run: |
           cargo test --release -p machine-sinclair-zx-spectrum-128k \
-            --test float_bus -- --include-ignored --nocapture \
-            --skip float128k_prints_expected_tstate
+            --test float_bus -- --include-ignored --nocapture
 
       - name: floatspy (golden + Spectron byte-compare)
         run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test tape_smoke -- --include-ignored --nocapture floatspy
