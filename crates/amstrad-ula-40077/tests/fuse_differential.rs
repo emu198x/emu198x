@@ -89,9 +89,18 @@ fn mcycle_cost(gate: &mut AmstradGateArray, framebuffer: &mut [u8]) -> u32 {
     let mut ticks = 0usize;
 
     while advanced < HALF_CYCLES && ticks < 128 {
-        // `/MREQ` low from the back half of T1 to the back half of T3,
-        // as a Z80 read cycle drives it.
-        let mreq = (1..=4).contains(&advanced);
+        // `/MREQ` low from the back half of `T1` to the end of `T3`, as
+        // the Z80 drives it. Five half-cycles of the six, not four:
+        // `zilog-z80`'s `memory_read_bus_pins` golden has `MREQ` on rows
+        // `T1Fall` through `T3Fall`.
+        //
+        // This drove `1..=4` until 2026-08-11 — the strobe as it was
+        // *before* the Z80's pins were corrected to Zilog's waveforms,
+        // when a memory read released `/MREQ` a full T-state early. The
+        // Amstrad gate contends on `/MREQ` **asserted**, so its whole
+        // measurement rides on this span, and every number in #856 was
+        // taken against the short pin.
+        let mreq = (1..=5).contains(&advanced);
         Ula::tick(gate, &Contended, 0x4000, mreq, false, false, framebuffer);
         ticks += 1;
         if gate.cpu_clock_active() {
@@ -153,6 +162,40 @@ fn mcycle_costs() -> Vec<u32> {
 /// corroborates #856 by an independent route — a driven M-cycle scored
 /// against the reference, rather than deriving the declared pattern from
 /// the mask and finding no alignment fits.
+///
+/// ## The drive rode a stale pin, and correcting it changes nothing
+///
+/// Every number in #856 was taken while this drive asserted `/MREQ` for
+/// four half-cycles of the six. Phase 1 had already made a memory read
+/// hold it for five, and this gate contends on `/MREQ` *asserted*, so
+/// there was good reason to expect the whole sequence to be worthless.
+///
+/// Corrected to the golden's five, 2026-08-11: **23,060 M-cycles, 1,728
+/// contended, engine max 1** — identical to the last digit. The stalls
+/// never fall on the half-cycle the correction touches, so the stale pin
+/// is not what caps this gate at 1 T-state. Recorded because a
+/// disconfirmed suspect is worth as much as a confirmed one, and this one
+/// looked compelling.
+///
+/// Two of #856's other experiments were re-run against the correct pin at
+/// the same time and are also unchanged in character:
+///
+/// | gate | mask | engine max |
+/// |---|---|---|
+/// | `cpu_mreq && z80_clock_high` (shipped) | shipped 3-run | 1 |
+/// | `!cpu_mreq && gate_arms_this_halfcycle()` | shipped 3-run | 0 — self-check fires |
+/// | `!cpu_mreq && gate_arms_this_halfcycle()` | 14-run at 2..=15 | 6 |
+/// | `!cpu_mreq && gate_arms_this_halfcycle()` | 14-run wrapped from 3 | 6 |
+///
+/// So #856's "6 against 7" survives the pin fix. The residual T-state is
+/// a half-cycle truncated in `mcycle_cost`'s division, and moving the
+/// run's start does not recover it — `z80_clock_high` freezes during a
+/// stall, so the mask's phase against the arming parity is not fixed and
+/// cannot be reasoned about from a *maximum*. Landing a mask phase to
+/// make this number reach 7 would be a fit. What this test compares is a
+/// frame maximum; deciding a phase needs an arrival-resolved differential
+/// of the kind `io_contention_oracle` is for the 48K, and the +2A does
+/// not have one yet. Nothing was landed.
 #[test]
 #[ignore = "KNOWN DIVERGENCE (#856): DELAY_TABLE_PLUS2A caps contention at \
             1 T-state where FUSE's pattern reaches 7 — the mask cannot \
