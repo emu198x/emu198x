@@ -274,20 +274,15 @@ fn float128k_prints_expected_tstate() {
     let rom0_path = rom0_path();
     let rom1_path = rom1_path();
     if !rom0_path.is_file() || !rom1_path.is_file() {
-        eprintln!(
-            "128K ROMs not found at {} / {} — skipping Float128K test",
+        emu198x_test_skip::skip!(
+            "128K ROMs not found at {} / {}",
             rom0_path.display(),
             rom1_path.display()
         );
-        return;
     }
     let tap_path = system_tests_dir().join("Float128k.tap");
     if !tap_path.is_file() {
-        eprintln!(
-            "Float128k.tap not found at {} — skipping (download from oldbit-com/Spectron)",
-            tap_path.display()
-        );
-        return;
+        emu198x_test_skip::skip!("Float128k.tap not found at {}", tap_path.display());
     }
 
     let rom0 = std::fs::read(&rom0_path).expect("128K ROM 0 should read");

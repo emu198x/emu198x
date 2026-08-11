@@ -175,8 +175,7 @@ fn tone_count(rel: &str) -> Option<usize> {
 #[ignore = "ROM run — requires test-suites/nes-test-roms"]
 fn counter_separates_passing_from_failing_roms() {
     if roms_root().is_none() {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms not found");
     }
     for (rel, expected, why) in [
         (
@@ -239,8 +238,7 @@ dmc_gate!(status_irq, "dmc_tests/status_irq.nes");
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_tone_shape() {
     if roms_root().is_none() {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms not found");
     }
     for rel in [
         "mmc3_irq_tests/1.Clocking.nes",

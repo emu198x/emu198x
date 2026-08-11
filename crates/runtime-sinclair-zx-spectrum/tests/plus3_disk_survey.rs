@@ -135,8 +135,7 @@ fn survey_titles() -> Vec<(&'static str, &'static str, &'static str)> {
 fn survey_plus3_disk_titles() {
     let firmware_root = home().join(".emu198x/roms/amstrad-zx-spectrum-plus3");
     if !firmware_root.exists() {
-        eprintln!("[skip] missing +3 ROMs at {firmware_root:?}");
-        return;
+        emu198x_test_skip::skip!("missing +3 ROMs at {firmware_root:?}");
     }
 
     let mut firmware_set_storage: Vec<Vec<u8>> = Vec::with_capacity(4);

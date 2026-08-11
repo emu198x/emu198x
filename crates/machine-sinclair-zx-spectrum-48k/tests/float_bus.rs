@@ -352,19 +352,11 @@ fn run_full(
 fn float48k_prints_expected_tstate() {
     let rom_path = rom_path();
     if !rom_path.is_file() {
-        eprintln!(
-            "48K ROM not found at {} — skipping Float48K test",
-            rom_path.display()
-        );
-        return;
+        emu198x_test_skip::skip!("48K ROM not found at {}", rom_path.display());
     }
     let tap_path = system_tests_dir().join("Float48k.tap");
     if !tap_path.is_file() {
-        eprintln!(
-            "Float48k.tap not found at {} — skipping (download from oldbit-com/Spectron)",
-            tap_path.display()
-        );
-        return;
+        emu198x_test_skip::skip!("Float48k.tap not found at {}", tap_path.display());
     }
 
     let rom = std::fs::read(&rom_path).expect("48K ROM should read");

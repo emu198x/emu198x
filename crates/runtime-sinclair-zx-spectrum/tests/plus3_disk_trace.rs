@@ -43,8 +43,7 @@ fn trace_plus3_loader_pc_histogram() {
         .join(&dsk_file);
     eprintln!("=== Tracing {dsk_file} ===");
     if !firmware_root.exists() || !dsk_path.exists() {
-        eprintln!("[skip] missing +3 ROMs or Chase H.Q. (+3) DSK");
-        return;
+        emu198x_test_skip::skip!("missing +3 ROMs or Chase H.Q. (+3) DSK");
     }
 
     let mut firmware_set_storage: Vec<Vec<u8>> = Vec::with_capacity(4);

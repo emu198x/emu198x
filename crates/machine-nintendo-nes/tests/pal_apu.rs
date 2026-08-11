@@ -109,8 +109,7 @@ fn run_ntsc(rel: &str) -> Option<u8> {
 #[ignore = "diagnostic: shows which PAL ROMs discriminate by region"]
 fn probe_pal_roms_discriminate() {
     if root().is_none() {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms not found");
     }
     for rel in ROMS {
         let pal = run_pal(rel);

@@ -296,8 +296,7 @@ fn spectrum_query_provider_detects_booted_48k_rom() {
     };
 
     if !rom_path.is_file() {
-        eprintln!("ROM not found at {}", rom_path.display());
-        return;
+        emu198x_test_skip::skip!("ROM not found at {}", rom_path.display());
     }
 
     let rom = match fs::read(&rom_path) {
@@ -372,8 +371,7 @@ fn spectrum_boot_wait_and_prompt_input_change_decoded_text() {
     };
 
     if !rom_path.is_file() {
-        eprintln!("ROM not found at {}", rom_path.display());
-        return;
+        emu198x_test_skip::skip!("ROM not found at {}", rom_path.display());
     }
 
     let rom = match fs::read(&rom_path) {
@@ -468,15 +466,13 @@ fn spectrum_boots_and_loads_manic_miner_from_zipped_tzx() {
         emu198x_test_skip::skip!("HOME is not set; skipping ROM-backed Manic Miner load test");
     };
     let Some(tape_path) = spectrum_manic_miner_tzx_path() else {
-        eprintln!(
+        emu198x_test_skip::skip!(
             "Manic Miner TZX zip not found; set EMU198X_SPECTRUM_MANIC_MINER_TZX to a Manic Miner TZX zip path"
         );
-        return;
     };
 
     if !rom_path.is_file() {
-        eprintln!("ROM not found at {}", rom_path.display());
-        return;
+        emu198x_test_skip::skip!("ROM not found at {}", rom_path.display());
     }
 
     let rom = match fs::read(&rom_path) {
@@ -529,15 +525,13 @@ fn spectrum_boots_and_loads_jet_set_willy_from_zipped_tzx() {
         emu198x_test_skip::skip!("HOME is not set; skipping ROM-backed Jet Set Willy load test");
     };
     let Some(tape_path) = spectrum_jet_set_willy_tzx_path() else {
-        eprintln!(
+        emu198x_test_skip::skip!(
             "Jet Set Willy TZX zip not found; set EMU198X_SPECTRUM_JET_SET_WILLY_TZX to a Jet Set Willy TZX zip path"
         );
-        return;
     };
 
     if !rom_path.is_file() {
-        eprintln!("ROM not found at {}", rom_path.display());
-        return;
+        emu198x_test_skip::skip!("ROM not found at {}", rom_path.display());
     }
 
     let rom = match fs::read(&rom_path) {
