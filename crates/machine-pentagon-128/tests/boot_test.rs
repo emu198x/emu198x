@@ -12,8 +12,7 @@ fn rom_dir() -> Option<PathBuf> {
 #[ignore = "requires local Pentagon ROMs at ~/.emu198x/roms/pentagon-128/pentagon-{0,1}.rom"]
 fn boot_to_menu_renders_screen_content() {
     let Some(dir) = rom_dir() else {
-        eprintln!("HOME not set — cannot locate Pentagon ROMs");
-        return;
+        emu198x_test_skip::skip!("HOME not set — cannot locate Pentagon ROMs");
     };
     let rom0 = dir.join("pentagon-0.rom");
     let rom1 = dir.join("pentagon-1.rom");

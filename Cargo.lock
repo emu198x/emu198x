@@ -950,6 +950,7 @@ name = "emu198x-amiga"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-test-skip",
  "emu198x-ui",
  "machine-commodore-amiga-a1200",
  "mos-cia-8520",
@@ -1090,6 +1091,7 @@ name = "emu198x-dragon"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-test-skip",
  "emu198x-ui",
  "format-dragon-bin",
  "format-dragon-cas",
@@ -1230,6 +1232,7 @@ name = "emu198x-shell"
 version = "0.2.0"
 dependencies = [
  "cpal",
+ "emu198x-test-skip",
  "gilrs",
  "isa-disasm",
  "png",
@@ -2109,6 +2112,7 @@ name = "machine-atari-2600"
 version = "0.2.0"
 dependencies = [
  "atari-tia",
+ "emu198x-test-skip",
  "mos-6502",
  "mos-riot-6532",
  "postcard",
@@ -2275,6 +2279,7 @@ dependencies = [
  "commodore-gary",
  "commodore-paula-8364",
  "common-commodore-amiga",
+ "emu198x-test-skip",
  "format-commodore-amiga-adf",
  "gvp-a530",
  "mos-cia-8520",
@@ -2406,6 +2411,7 @@ dependencies = [
 name = "machine-nintendo-nes"
 version = "0.2.0"
 dependencies = [
+ "emu198x-test-skip",
  "format-nintendo-nes-ines",
  "mos-6502",
  "ricoh-apu-2a03",
@@ -2432,6 +2438,7 @@ version = "0.2.0"
 dependencies = [
  "beta-disk-interface",
  "common-sinclair-zx-spectrum",
+ "emu198x-test-skip",
  "format-sinclair-zx-spectrum-z80",
  "gi-ay-3-8912",
  "pentagon-ula",
@@ -2447,6 +2454,7 @@ version = "0.2.0"
 dependencies = [
  "beta-disk-interface",
  "common-sinclair-zx-spectrum",
+ "emu198x-test-skip",
  "format-sinclair-zx-spectrum-z80",
  "gi-ay-3-8912",
  "peripheral-kempston-joystick",
@@ -2485,6 +2493,7 @@ version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-128k-class",
+ "emu198x-test-skip",
  "format-sinclair-zx-spectrum-tap",
  "png",
 ]
@@ -2495,6 +2504,7 @@ version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
+ "emu198x-test-skip",
  "ferranti-ula-6c001e",
 ]
 
@@ -2505,6 +2515,7 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
  "emu198x-shell",
+ "emu198x-test-skip",
  "ferranti-ula-6c001e",
  "format-sinclair-zx-spectrum-tap",
  "peripheral-kempston-joystick",
@@ -2519,6 +2530,7 @@ version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-48k-class",
+ "emu198x-test-skip",
  "ferranti-ula-6c001e",
 ]
 
@@ -2528,6 +2540,7 @@ version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-128k-class",
+ "emu198x-test-skip",
 ]
 
 [[package]]
@@ -2536,6 +2549,7 @@ version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-amstrad-class",
+ "emu198x-test-skip",
 ]
 
 [[package]]
@@ -2544,6 +2558,7 @@ version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-amstrad-class",
+ "emu198x-test-skip",
 ]
 
 [[package]]
@@ -2552,6 +2567,7 @@ version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-amstrad-class",
+ "emu198x-test-skip",
  "nec-upd765a",
 ]
 
@@ -2618,6 +2634,7 @@ name = "machine-timex-tc2048"
 version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
+ "emu198x-test-skip",
  "format-sinclair-zx-spectrum-snapshot",
  "peripheral-kempston-joystick",
  "png",
@@ -2632,6 +2649,7 @@ name = "machine-timex-ts2068"
 version = "0.2.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
+ "emu198x-test-skip",
  "format-sinclair-zx-spectrum-snapshot",
  "gi-ay-3-8912",
  "peripheral-kempston-joystick",
@@ -2761,6 +2779,7 @@ dependencies = [
 name = "motorola-68020"
 version = "0.2.0"
 dependencies = [
+ "emu198x-test-skip",
  "flate2",
  "motorola-68000",
  "motorola-68010",
@@ -3896,6 +3915,7 @@ dependencies = [
  "commodore-gayle",
  "common-commodore-amiga",
  "emu198x-shell",
+ "emu198x-test-skip",
  "format-commodore-amiga-adf",
  "gvp-a530",
  "machine-commodore-amiga-a1200",
@@ -3919,6 +3939,7 @@ dependencies = [
  "common-commodore-c64",
  "common-commodore-iec",
  "emu198x-shell",
+ "emu198x-test-skip",
  "format-commodore-c64-bas",
  "format-commodore-c64-d64",
  "format-commodore-c64-g64",
@@ -4043,6 +4064,7 @@ name = "runtime-nintendo-nes"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-test-skip",
  "format-nintendo-nes-ines",
  "machine-nintendo-nes",
  "postcard",
@@ -4093,6 +4115,7 @@ dependencies = [
  "common-sinclair-zx-spectrum-amstrad-class",
  "criterion",
  "emu198x-shell",
+ "emu198x-test-skip",
  "format-amstrad-dsk",
  "format-sinclair-zx-spectrum-bas",
  "format-sinclair-zx-spectrum-sna",
@@ -5503,6 +5526,7 @@ dependencies = [
 name = "zilog-z80"
 version = "0.2.0"
 dependencies = [
+ "emu198x-test-skip",
  "isa-disasm",
  "postcard",
  "serde",

@@ -36,6 +36,7 @@ thiserror = { workspace = true }
 zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
 
 [dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.2.0" }
 criterion = { workspace = true }
 format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna", version = "0.2.0" }
 format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.2.0" }

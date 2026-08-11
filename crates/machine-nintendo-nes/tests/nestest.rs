@@ -87,8 +87,7 @@ fn parse_log_line(line: &str) -> Option<(u16, u8, u8, u8, u8, u8, u64)> {
 #[test]
 fn nestest_smoke() {
     let Some(dir) = fixture_dir() else {
-        eprintln!("SKIPPING: nestest fixture not found");
-        return;
+        emu198x_test_skip::skip!("nestest fixture not found");
     };
 
     let rom_data = std::fs::read(dir.join("nestest.nes")).expect("read nestest.nes");

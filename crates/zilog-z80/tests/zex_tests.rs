@@ -827,7 +827,7 @@ fn run_zexall() {
 #[ignore = "requires local ZEX corpus and EMU198X_ZEX_CHECKPOINT to target one checkpoint"]
 fn run_zexdoc_checkpoint() {
     let Some(target) = zex_checkpoint_target_from_env(ZexSuite::Doc) else {
-        return;
+        emu198x_test_skip::skip!("ZEX corpus not staged");
     };
 
     let result = run_zex_suite(
@@ -844,7 +844,7 @@ fn run_zexdoc_checkpoint() {
 #[ignore = "requires local ZEX corpus and EMU198X_ZEX_CHECKPOINT to target one checkpoint"]
 fn run_zexall_checkpoint() {
     let Some(target) = zex_checkpoint_target_from_env(ZexSuite::All) else {
-        return;
+        emu198x_test_skip::skip!("ZEX corpus not staged");
     };
 
     let result = run_zex_suite(

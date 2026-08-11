@@ -27,8 +27,7 @@ fn rom_dir() -> Option<PathBuf> {
 #[ignore = "requires local Scorpion ROMs at ~/.emu198x/roms/scorpion-zs256/{scorpion-0..3}.rom"]
 fn boot_runs_service_rom() {
     let Some(dir) = rom_dir() else {
-        eprintln!("HOME not set — cannot locate Scorpion ROMs");
-        return;
+        emu198x_test_skip::skip!("HOME not set — cannot locate Scorpion ROMs");
     };
     let roms: [PathBuf; 4] = std::array::from_fn(|i| dir.join(format!("scorpion-{i}.rom")));
     for rom in &roms {

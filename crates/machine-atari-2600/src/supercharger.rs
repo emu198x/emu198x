@@ -537,8 +537,7 @@ mod tests {
     #[test]
     fn real_phaser_patrol_loads_clean() {
         let Some(data) = phaser_patrol() else {
-            eprintln!("skipping: Phaser Patrol.a26 not staged");
-            return;
+            emu198x_test_skip::skip!("Phaser Patrol.a26 not staged");
         };
         assert_eq!(data.len(), LOAD_SIZE, "single-load proto");
         let mut sc = Supercharger::new(&data);

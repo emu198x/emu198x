@@ -210,12 +210,12 @@ macro_rules! dmc_gate {
         #[ignore = "ROM run — requires test-suites/nes-test-roms"]
         fn $name() {
             if roms_root().is_none() {
-                eprintln!("nes-test-roms not found; skipping");
-                return;
+                emu198x_test_skip::skip!(
+                    "nes-test-roms corpus not staged (test-suites/nes-test-roms)"
+                );
             }
             let Some(count) = tone_count($rel) else {
-                eprintln!("ROM not present; skipping {}", $rel);
-                return;
+                emu198x_test_skip::skip!("nes-test-roms ROM not present: {}", $rel);
             };
             assert_eq!(
                 count, 1,

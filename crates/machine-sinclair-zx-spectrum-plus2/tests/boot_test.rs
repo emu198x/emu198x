@@ -24,8 +24,7 @@ fn rom_dir() -> Option<PathBuf> {
 #[ignore = "requires local +2 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus2/{plus2-0,plus2-1}.rom"]
 fn boot_to_menu_renders_screen_content() {
     let Some(dir) = rom_dir() else {
-        eprintln!("HOME not set — cannot locate +2 ROMs");
-        return;
+        emu198x_test_skip::skip!("HOME not set — cannot locate +2 ROMs");
     };
     let rom0 = dir.join("plus2-0.rom");
     let rom1 = dir.join("plus2-1.rom");

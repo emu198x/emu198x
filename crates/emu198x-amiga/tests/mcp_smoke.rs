@@ -119,7 +119,7 @@ fn unwrap_tool_text(result: &Value) -> Value {
 #[test]
 fn mcp_server_boots_and_lists_tools() {
     let Some((rom_bytes, _rom_path)) = load_rom() else {
-        return;
+        emu198x_test_skip::skip!("Amiga Kickstart ROM not staged");
     };
     let (mut server, mut session) = boot_server(rom_bytes);
 
@@ -186,7 +186,7 @@ fn mcp_server_boots_and_lists_tools() {
 #[test]
 fn set_machine_swaps_the_live_variant() {
     let Some((rom_bytes, _rom_path)) = load_rom() else {
-        return;
+        emu198x_test_skip::skip!("Amiga Kickstart ROM not staged");
     };
     let home = std::env::var("HOME").expect("HOME is set");
     let a500_rom = PathBuf::from(&home).join(".emu198x/roms/commodore-amiga/kick13.rom");
@@ -243,7 +243,7 @@ fn set_machine_swaps_the_live_variant() {
 #[test]
 fn mcp_tools_drive_a_real_boot() {
     let Some((rom_bytes, _rom_path)) = load_rom() else {
-        return;
+        emu198x_test_skip::skip!("Amiga Kickstart ROM not staged");
     };
     let (mut server, mut session) = boot_server(rom_bytes);
 

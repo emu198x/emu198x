@@ -180,8 +180,7 @@ fn probe_sprdma_and_dmc_dma_512() {
 #[ignore = "diagnostic: lists DMA episodes bracketing the first OAM transfers"]
 fn probe_dma_episodes_around_transfers() {
     let Some(root) = rom_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let path = root
         .join("sprdma_and_dmc_dma")
@@ -246,8 +245,7 @@ fn probe_dma_episodes_around_transfers() {
 #[ignore = "diagnostic: $4015 re-arms interleaved with DMC sample fetches"]
 fn probe_dmc_rearm_vs_fetch() {
     let Some(root) = rom_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let path = root
         .join("sprdma_and_dmc_dma")
@@ -307,8 +305,7 @@ fn probe_dmc_rearm_vs_fetch() {
 #[ignore = "diagnostic: prints dmc_tests on-screen text"]
 fn probe_dmc_tests_text() {
     let Some(root) = rom_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     for name in ["latency.nes", "buffer_retained.nes", "status.nes"] {
         let path = root.join("dmc_tests").join(name);
@@ -337,8 +334,7 @@ fn probe_dmc_tests_text() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_dmc_tests_6000_protocol() {
     let Some(root) = rom_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     // ⚠ The last three are the CONTROL. blargg encodes a result code as
     // binary with a leading zero, low tone = 0 and high tone = 1, so a
@@ -424,8 +420,7 @@ fn probe_dmc_tests_6000_protocol() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_dmc_tests_audio() {
     let Some(root) = rom_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     const RATE: f32 = 48_000.0;
     // ⚠ The last three are the CONTROL. blargg encodes a result code as
@@ -517,8 +512,7 @@ fn probe_dmc_tests_audio() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_oam_dma_stall_from_trace() {
     let Some(root) = rom_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");

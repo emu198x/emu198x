@@ -1144,8 +1144,7 @@ mod tests {
         // Every other ROM-dependent test here already does the right thing —
         // `blargg_root()` returns Option and the test becomes a no-op. Match it.
         let Ok(dir) = std::env::var("EMU198X_NES_SUITE") else {
-            eprintln!("skipping diagnostic_nes_suite: EMU198X_NES_SUITE not set");
-            return;
+            emu198x_test_skip::skip!("diagnostic_nes_suite: EMU198X_NES_SUITE not set");
         };
         // A set-but-wrong path is the same situation: report and skip rather
         // than take the package down with it.

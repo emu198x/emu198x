@@ -118,7 +118,7 @@ fn compare_or_update(name: &str, framebuffer: &[u8]) {
 #[ignore = "requires local TS2068 ROMs at ~/.emu198x/roms/timex-ts2068/{ts2068,exrom}.rom"]
 fn golden_ts2068_boot() {
     let Some(dir) = rom_dir() else {
-        return;
+        emu198x_test_skip::skip!("Timex TS2068 ROM not staged (~/.emu198x/roms/timex-ts2068)");
     };
     let main_rom = dir.join("ts2068.rom");
     let exrom = dir.join("exrom.rom");

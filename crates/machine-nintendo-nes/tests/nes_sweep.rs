@@ -627,8 +627,7 @@ const UNSWEPT_DIRS: &[(&str, &str)] = &[
 #[ignore = "long survey; run with --release --ignored --nocapture"]
 fn sweep() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping sweep");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms not found; skipping sweep");
     };
 
     let mut total = 0u32;
@@ -780,8 +779,7 @@ fn assert_against_baseline(observed: &std::collections::BTreeMap<(String, String
 #[test]
 fn every_directory_is_accounted_for() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let excluded: std::collections::BTreeSet<&str> = UNSWEPT_DIRS.iter().map(|(d, _)| *d).collect();
     let swept: std::collections::BTreeSet<&str> = SWEEP_DIRS.iter().copied().collect();
@@ -851,7 +849,7 @@ fn baseline_path() -> Option<PathBuf> {
 #[ignore = "diagnostic: prints screen text for triage"]
 fn probe_timeout_screens() {
     let Some(root) = nes_test_roms_root() else {
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     for rel in [
         "mmc5test/mmc5test.nes",

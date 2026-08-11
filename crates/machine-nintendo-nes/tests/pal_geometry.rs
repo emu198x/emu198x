@@ -59,8 +59,7 @@ fn dots_per_frame(nes: &mut Nes) -> u64 {
 #[ignore = "ROM run — requires test-suites/nes-test-roms"]
 fn pal_frame_is_312_scanlines() {
     let Some(mapper) = load() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let mut nes = Nes::new_with_region(mapper, Region::Pal);
     assert_eq!(
@@ -80,8 +79,7 @@ fn pal_frame_is_312_scanlines() {
 #[ignore = "ROM run — requires test-suites/nes-test-roms"]
 fn ntsc_frame_is_262_scanlines() {
     let Some(mapper) = load() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let mut nes = Nes::new(mapper);
     assert_eq!(nes.ppu.pre_render_line(), 261);
@@ -104,8 +102,7 @@ fn ntsc_frame_is_262_scanlines() {
 #[ignore = "ROM run — requires test-suites/nes-test-roms"]
 fn pal_never_skips_a_dot() {
     let Some(mapper) = load() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let mut nes = Nes::new_with_region(mapper, Region::Pal);
     // Let the ROM enable rendering before measuring.
@@ -132,8 +129,7 @@ fn pal_never_skips_a_dot() {
 #[ignore = "ROM run — requires test-suites/nes-test-roms"]
 fn ntsc_does_skip_a_dot_on_odd_frames() {
     let Some(mapper) = load() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let mut nes = Nes::new(mapper);
     for _ in 0..30 {
@@ -159,8 +155,7 @@ fn ntsc_does_skip_a_dot_on_odd_frames() {
 #[ignore = "ROM run — requires test-suites/nes-test-roms"]
 fn pal_vblank_spans_70_scanlines() {
     let Some(mapper) = load() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let mut nes = Nes::new_with_region(mapper, Region::Pal);
     for _ in 0..30 {
@@ -191,8 +186,7 @@ fn pal_vblank_spans_70_scanlines() {
 #[ignore = "ROM run — requires test-suites/nes-test-roms"]
 fn pal_cpu_runs_at_one_cycle_per_3_2_dots() {
     let Some(mapper) = load() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let mut nes = Nes::new_with_region(mapper, Region::Pal);
     while !(nes.ppu.scanline() == 0 && nes.ppu.dot() == 0) {

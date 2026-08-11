@@ -69,8 +69,7 @@ fn nes_test_roms_root() -> Option<PathBuf> {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_ppu_read_buffer() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let rom_path = root.join("ppu_read_buffer/test_ppu_read_buffer.nes");
     let bytes = std::fs::read(&rom_path).expect("rom should read");
@@ -151,8 +150,7 @@ fn probe_ppu_read_buffer() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn what_the_cpu_actually_reads_from_2002() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let rom_path = root.join("ppu_read_buffer/test_ppu_read_buffer.nes");
     let bytes = std::fs::read(&rom_path).expect("rom should read");
@@ -277,7 +275,7 @@ fn what_the_cpu_actually_reads_from_2002() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn long_run_pc_distribution() {
     let Some(root) = nes_test_roms_root() else {
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let rom_path = root.join("ppu_read_buffer/test_ppu_read_buffer.nes");
     let bytes = std::fs::read(&rom_path).expect("rom should read");
@@ -370,7 +368,7 @@ fn long_run_pc_distribution() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn one_loop_iteration_with_vbl_set() {
     let Some(root) = nes_test_roms_root() else {
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let rom_path = root.join("ppu_read_buffer/test_ppu_read_buffer.nes");
     let bytes = std::fs::read(&rom_path).expect("rom should read");
@@ -450,8 +448,7 @@ struct Read2002 {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn vblank_flag_during_stall() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let rom_path = root.join("ppu_read_buffer/test_ppu_read_buffer.nes");
     let bytes = std::fs::read(&rom_path).expect("rom should read");
@@ -528,8 +525,7 @@ fn vblank_flag_during_stall() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_palette_write_trace() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
@@ -586,8 +582,7 @@ fn probe_palette_write_trace() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_nametable_at_late_frames() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
@@ -640,8 +635,7 @@ fn probe_nametable_at_late_frames() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_palette_phase_boundaries() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
@@ -691,8 +685,7 @@ fn probe_palette_phase_boundaries() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_nametable_change_frames() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
@@ -734,8 +727,7 @@ fn probe_nametable_change_frames() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_6000_console() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
@@ -782,8 +774,7 @@ fn probe_6000_console() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_cpu_cycles_per_frame() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
@@ -828,8 +819,7 @@ fn probe_cpu_cycles_per_frame() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_subtest_loop_pcs() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
@@ -909,8 +899,7 @@ fn probe_subtest_loop_pcs() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_vbl_wait_cpu_cycles() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
@@ -976,8 +965,7 @@ fn probe_vbl_wait_cpu_cycles() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_dma_costs_in_the_loop() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
@@ -1067,8 +1055,7 @@ fn probe_dma_costs_in_the_loop() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_oam_dma_cost() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
@@ -1123,8 +1110,7 @@ fn probe_oam_dma_cost() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_polls_near_vbl_set() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
@@ -1177,8 +1163,7 @@ fn probe_polls_near_vbl_set() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_wait_durations() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
@@ -1241,8 +1226,7 @@ fn probe_wait_durations() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_nmi_vs_poll_race() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
@@ -1323,8 +1307,7 @@ fn probe_nmi_vs_poll_race() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_first_2002_read_per_frame() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let bytes =
         std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");

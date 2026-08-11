@@ -517,7 +517,9 @@ fn floatspy_selftest_ok() {
 #[ignore = "requires local 48K ROM and halt2int.tap; ~100 s wall time"]
 fn halt2int_runs_to_completion() {
     let Some(machine) = run_to_completion("halt2int") else {
-        return;
+        emu198x_test_skip::skip!(
+            "Spectrum 48K ROM or tape image not staged (EMU198X_SPECTRUM_48K_ROM)"
+        );
     };
     let lines = screen_text_lines(&machine);
 
