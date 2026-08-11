@@ -746,8 +746,16 @@ impl Z80 {
         }
     }
 
-    // === Contended Memory Cycle (no RD/WR strobe) ===
+    // === Not-taken Displacement Cycle ===
 
+    /// The operand cycle of a `JR cc` or `DJNZ` that does not branch.
+    ///
+    /// It is a memory read on the bus and a memory read to the ULA: the
+    /// Z80 fetches the displacement byte and then discards it, which is
+    /// why this step exists separately from `FetchByte` — the byte is not
+    /// latched and `PC` is advanced by the `Execute` that follows. FUSE
+    /// scores it as `contend_read( PC, 3 )` in `opcodes_base.c`, the same
+    /// call it uses for any operand fetch, so the pins are a read's.
     fn tick_contend(&mut self, phase: MemPhase) {
         match phase {
             MemPhase::T1Rise => {
@@ -757,6 +765,7 @@ impl Z80 {
             }
             MemPhase::T1Fall => {
                 self.mreq = true;
+                self.rd = true;
                 self.phase = Phase::Contend(MemPhase::T2Rise);
             }
             MemPhase::T2Rise => {
@@ -766,7 +775,6 @@ impl Z80 {
                 self.phase = Phase::Contend(MemPhase::T2Fall);
             }
             MemPhase::T2Fall => {
-                self.mreq = false;
                 self.phase = Phase::Contend(MemPhase::T3Rise);
             }
             MemPhase::T3Rise => {

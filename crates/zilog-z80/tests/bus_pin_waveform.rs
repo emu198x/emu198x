@@ -42,12 +42,9 @@
 //!
 //! ## Departures, as locked below
 //!
-//! Two outstanding, both in cycles that carry no read strobe of their own:
+//! One outstanding:
 //!
-//! 1. `MStep::ContendPc` — the not-taken displacement cycle of `JR cc` and
-//!    `DJNZ` — asserts `/MREQ` for `T1b`–`T2a` and never asserts `/RD`.
-//!    The Z80 fetches that byte; FUSE scores it as `contend_read( PC, 3 )`.
-//! 2. An internal cycle drives `IR` onto the address bus. Nothing drives
+//! 1. An internal cycle drives `IR` onto the address bus. Nothing drives
 //!    the bus during an internal cycle, so it should hold the last address
 //!    driven — which is `IR` only when the previous cycle was `M1`'s
 //!    refresh.
@@ -388,11 +385,11 @@ fn contend_cycle_bus_pins() {
             "6   M1(T4Rise)         0000  MREQ RFSH\n",
             "7   M1(T4Fall)         0000  RFSH\n",
             "8   Contend(T1Rise)    4001\n",
-            "9   Contend(T1Fall)    4001  MREQ\n",
-            "10  Contend(T2Rise)    4001  MREQ\n",
-            "11  Contend(T2Fall)    4001\n",
-            "12  Contend(T3Rise)    4001\n",
-            "13  Contend(T3Fall)    4001\n",
+            "9   Contend(T1Fall)    4001  MREQ RD\n",
+            "10  Contend(T2Rise)    4001  MREQ RD\n",
+            "11  Contend(T2Fall)    4001  MREQ RD\n",
+            "12  Contend(T3Rise)    4001  MREQ RD\n",
+            "13  Contend(T3Fall)    4001  MREQ RD\n",
         )
     );
 }
