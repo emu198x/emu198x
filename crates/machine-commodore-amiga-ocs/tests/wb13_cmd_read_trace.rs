@@ -615,7 +615,7 @@ fn trace_wb13_cmd_read_request_and_loop_state() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -833,7 +833,7 @@ fn trace_wb13_later_read_block_writers() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let unit44 = run_unit44_watch_pass(&rom, &adf_bytes);
@@ -880,7 +880,7 @@ fn trace_wb13_later_request_origin_context() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let unit44 = run_unit44_watch_pass(&rom, &adf_bytes);

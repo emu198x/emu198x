@@ -410,8 +410,10 @@ fn print_result(r: &FixtureResult) {
 fn harte_baseline_full_sweep() {
     let root = fixture_root();
     if !root.exists() {
-        eprintln!("Skipping: fixture dir not found at {}", root.display());
-        return;
+        emu198x_test_skip::skip!(
+            "SingleStepTests 680020 corpus not staged: {}",
+            root.display()
+        );
     }
 
     let mut entries: Vec<PathBuf> = std::fs::read_dir(&root)
@@ -473,8 +475,7 @@ fn harte_nop_smoke() {
     let root = fixture_root();
     let path = root.join("NOP.msgpack");
     if !path.exists() {
-        eprintln!("Skipping: {} not found", path.display());
-        return;
+        emu198x_test_skip::skip!("SingleStepTests fixture not staged: {}", path.display());
     }
 
     let r = run_fixture(&path).expect("NOP fixture loads");
