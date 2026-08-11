@@ -1676,8 +1676,7 @@ mod tests {
     #[test]
     fn restore_snapshot_is_blocked_while_recording_is_active() {
         if crate::video::find_ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg not on PATH");
-            return;
+            emu198x_test_skip::skip!("ffmpeg not on PATH — video capture cannot be exercised");
         }
         let mut session = HeadlessSession::new(DummyMachine::new(), 69_888);
         session.run_frames(1).expect("frame should run");
@@ -1715,8 +1714,7 @@ mod tests {
     #[test]
     fn nested_start_video_recording_is_rejected() {
         if crate::video::find_ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg not on PATH");
-            return;
+            emu198x_test_skip::skip!("ffmpeg not on PATH — video capture cannot be exercised");
         }
         let mut session = HeadlessSession::new(DummyMachine::new(), 69_888);
         session.run_frames(1).expect("frame should run");
@@ -1760,8 +1758,7 @@ mod tests {
     #[test]
     fn pre_recording_audio_is_trimmed_so_tape_loader_does_not_leak() {
         if crate::video::find_ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg not on PATH");
-            return;
+            emu198x_test_skip::skip!("ffmpeg not on PATH — video capture cannot be exercised");
         }
         // Three warmup frames before recording — DummyMachine emits two
         // audio samples per frame, so the capture buffer holds six
@@ -1814,8 +1811,7 @@ mod tests {
     #[test]
     fn run_frames_during_recording_tees_each_frame_into_the_recorder() {
         if crate::video::find_ffmpeg().is_none() {
-            eprintln!("skipping: ffmpeg not on PATH");
-            return;
+            emu198x_test_skip::skip!("ffmpeg not on PATH — video capture cannot be exercised");
         }
         let mut session = HeadlessSession::new(DummyMachine::new(), 69_888);
         session.run_frames(1).expect("warmup frame");

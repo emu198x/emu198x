@@ -430,11 +430,7 @@ mod tests {
         };
         let a1200_rom = PathBuf::from(&home).join(".emu198x/roms/commodore-amiga/kick31a1200.rom");
         if !a1200_rom.exists() {
-            eprintln!(
-                "skipping: A1200 Kickstart missing at {}",
-                a1200_rom.display()
-            );
-            return;
+            emu198x_test_skip::skip!("A1200 Kickstart not staged: {}", a1200_rom.display());
         }
 
         let temp_dir = std::env::temp_dir();
