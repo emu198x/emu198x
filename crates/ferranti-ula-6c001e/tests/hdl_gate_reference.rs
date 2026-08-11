@@ -748,7 +748,6 @@ fn engine_cost(pixel_phase: u16, pins: &[HalfCycle]) -> Option<u32> {
 /// naively lagging the pin feed is not the fix — it was tried and made
 /// every case worse, because during a stall the CPU does not tick and the
 /// lag must not accumulate.
-
 ///
 /// Both produce a 16-entry table indexed by their own phase counter, and
 /// neither counter's origin is fixed by anything here — so, as everywhere

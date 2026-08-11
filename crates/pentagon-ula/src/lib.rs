@@ -67,7 +67,7 @@ impl Ula for PentagonUla {
         self.engine.tick_rendering(memory, framebuffer, None);
         // No contention — CPU clock is always live.
         self.engine.cpu_clock = true;
-        self.engine.track_z80_clock(cpu_iorq, false);
+        self.engine.track_z80_clock(cpu_iorq, false, false);
     }
 
     fn cpu_clock_active(&self) -> bool {

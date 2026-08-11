@@ -63,7 +63,7 @@ impl Ula for ScorpionUla {
     ) {
         self.engine.tick_rendering(memory, framebuffer, None);
         self.engine.cpu_clock = true; // No contention.
-        self.engine.track_z80_clock(cpu_iorq, false);
+        self.engine.track_z80_clock(cpu_iorq, false, false);
     }
 
     fn cpu_clock_active(&self) -> bool {

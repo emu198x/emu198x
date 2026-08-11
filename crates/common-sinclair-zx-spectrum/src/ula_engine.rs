@@ -299,6 +299,17 @@ pub struct UlaEngine {
     /// rotation. A latch holds across `T2` and `T3` and releases in time
     /// for the next `T1`.
     pub mreq_t23: bool,
+
+    /// `IOREQTW3` — the second gated D-latch of Smith's Figure 18-15, and
+    /// the counterpart to [`Self::mreq_t23`]. Where `MREQT23` arms
+    /// contention at `T1`, this one *cancels* it once a legitimate I/O
+    /// cycle has been recognised.
+    ///
+    /// Source: `zx_ula`, `fpga_version/rtl/ula.v` — `ioreqtw3 <= ioreq_n`
+    /// on `posedge CPUClk`, with `ioreq_n = a[0] | iorq_n`. Stored
+    /// active-high, so this field is the HDL register inverted.
+    pub ioreq_tw3: bool,
+
     pub z80_mreq_prev: bool,
     pub z80_iorq_prev: bool,
     pub z80_iorq_prev2: bool,
@@ -483,6 +494,7 @@ impl UlaEngine {
             border_aolatch: 7,
             vid_en: false,
             mreq_t23: false,
+            ioreq_tw3: false,
             z80_mreq_prev: false,
             z80_iorq_prev: false,
             z80_iorq_prev2: false,
@@ -752,7 +764,10 @@ impl UlaEngine {
     }
 
     /// Track Z80 clock phase (called after contention decision).
-    pub fn track_z80_clock(&mut self, cpu_iorq: bool, cpu_mreq: bool) {
+    ///
+    /// `ula_io` is the variant's own decode of "the ULA answers this port
+    /// and `IORQ` is asserted" — `a[0] | iorq_n` in the HDL, inverted.
+    pub fn track_z80_clock(&mut self, cpu_iorq: bool, cpu_mreq: bool, ula_io: bool) {
         if self.cpu_clock {
             self.z80_iorq_prev2 = self.z80_iorq_prev;
             self.z80_iorq_prev = cpu_iorq;
@@ -762,8 +777,10 @@ impl UlaEngine {
             // stalled this method does not run, so the latch holds — which
             // is correct: a stalled CPU sits in `T1` with `MREQ` inactive
             // and must keep contending.
+            // Both latches share the edge in the HDL (`posedge CPUClk`).
             if self.z80_clock_high {
                 self.mreq_t23 = cpu_mreq;
+                self.ioreq_tw3 = ula_io;
             }
         }
     }

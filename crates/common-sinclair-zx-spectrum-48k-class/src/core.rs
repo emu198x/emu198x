@@ -221,6 +221,12 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         &self.ula
     }
 
+    /// Mutable ULA access, for arming the half-cycle recorder.
+    #[doc(hidden)]
+    pub fn ula_mut(&mut self) -> &mut FerrantiUla {
+        &mut self.ula
+    }
+
     /// Reattaches `&'static` references that don't survive serde's
     /// `#[serde(skip)]` round-trip, and rehydrates the Z80 walker
     /// sequence from the preserved sequence identity and opcode. Call

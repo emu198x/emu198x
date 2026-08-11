@@ -689,20 +689,90 @@ case worse, because during a stall the CPU does not tick and the lag must
 not accumulate. Three attempts were made on this and each was worse than
 the last; nothing was landed.
 
+## A sound instrument, at last
+
+`machine-sinclair-zx-spectrum-48k/tests/ula_gate_vs_hdl.rs` synthesises
+nothing. It runs the real machine and records what the ULA is given and
+what it decides **from inside `FerrantiUla::tick`**, then replays that
+recording through the HDL model. There is no tick order to get wrong,
+because the recording is taken at the one point where the question has a
+definite answer. The model moved into the crate (`hdl_model.rs`) so there
+is exactly one transcription rather than two that can drift.
+
+It caught its own first bug within minutes, which is the point. The
+recorder initially captured `e.pixel` *after* `tick_rendering` advanced it,
+while the gate indexes `DELAY_TABLE_48K` by the value *before* — a
+one-pixel shift that exactly cancels the known one-pixel rotation between
+our table and the HDL's `hc[2]|hc[3]`, and so reported perfect agreement
+that was not there. Fixed, and the recorder now has its own gate
+(`the_recorder_records_what_it_claims`).
+
+## `MREQT23` is required, and this settles it
+
+With the latch **unwired**, the engine diverges from the HDL at 61 of 400
+half-cycles on the non-ULA port classes, and the trace says exactly why:
+
+- where `/MREQ` is **active** (`T1`), the model contends and the engine
+  does not;
+- where `/MREQ` is **inactive** (`T2`/`T3`), the engine contends and the
+  model does not.
+
+Both key off "MREQ inactive", but the model keys off the *latch* and the
+engine off the live pin — so the engine contends after the access instead
+of at the start of it. Smith's `T1` detection is A14 high with A15 and
+`MREQT23` low; keying off the live pin cannot express that.
+
+Wiring the latch takes those two classes to **0 divergences**. Adding the
+`IOREQTW3` cancellation and the folded `Nor1`/`Nor2` expression takes
+**all four classes to 0** — the engine's gate matching the gate-level
+source exactly, half-cycle for half-cycle, on the real machine.
+
+The earlier retraction was right to re-open this. The claim before that —
+"`MREQT23` is not needed" — was wrong, and came from the broken harness.
+
+## And the finding that reframes the problem
+
+**Matching the HDL costs one T-state per contended M-cycle against FUSE.**
+With the gate matching the HDL exactly, the frame-wide differential — which
+is pinned to FUSE and to the interrupt-derived origin — reports every class
+uniformly `+1`, including the `N:4` classes that have no I/O in them at
+all. Reverting the gate returns it to exact.
+
+So the engine can match the HDL *or* FUSE, not both. The two authorities
+disagree by one T-state on contended memory access, and every harness that
+claimed otherwise had a free parameter absorbing it:
+`the_hdl_model_reproduces_fuse_*` searches for a rotation, finds `(1,1)`,
+and reports exact — a 16-way rotation search can absorb a uniform
+one-T-state offset without trace. That is now the third time a fitted
+alignment has hidden a real error here, after `SAMPLE_LEAD` and the
+oracle's `delay_at` origin.
+
+Confirming it: rotating `DELAY_TABLE_48K` by one pixel to match the HDL's
+window takes the gate-level divergences to zero and leaves the frame-wide
+numbers **byte-identical**. A one-pixel shift is invisible at T-state
+resolution because `z80_clock_high` only samples alternate pixels — so that
+rotation is unevidenced either way, and was reverted.
+
+Both latches are now computed and maintained but **not consulted**, with
+the wiring written out in a comment. Nothing else changed; the tree
+measures identically to before at the frame level.
+
 ## Next
 
-1. Fix `engine_cost` to drive the ULA the way `driver.rs` does, and
-   re-derive the engine-side table from scratch. Until then the only
-   trustworthy statements about the engine come from the frame-wide
-   differential.
-2. Re-open `MREQT23`. It is not settled.
-3. Land the five pin fixes with the gate as one change, once there is a
-   sound instrument to judge it by. Applied together they are measurably
-   *not* an improvement on the frame-wide differential today
-   (contended-page pair −12.29 against −6.96 wanted, and `$C0FE` not
-   contending), so something in the gate is still wrong.
-4. Only then the floating bus. It remains untouched by all of this —
-   floatspy reads `$00FF`, which no I/O change can reach.
+1. Settle HDL against FUSE at a *fixed* alignment. This is the whole
+   question now. The rotation search must be replaced by the
+   interrupt-pinned origin — the same anchor the frame-wide differential
+   uses — and the two scored directly. If the HDL really is one T-state
+   heavier per contended M-cycle, that is a statement about which
+   authority to follow, and it deserves its own decision record.
+2. Then land the gate, whichever way that goes. The gate change is fully
+   derived and verified against the HDL; only its disagreement with FUSE
+   blocks it.
+3. The five Z80 pin defects are independent of all this and still stand,
+   from `zilog-z80/tests/bus_pin_waveform.rs` read against Zilog. They were
+   not landed because they cannot be judged until the above is settled.
+4. Only then the floating bus. Still untouched — floatspy reads `$00FF`,
+   which no I/O change can reach.
 2. Reconcile `MREQT23` with the HDL. The HDL requires the latch; our
    measurement says wiring it costs one T-state per contended `M1` pair.
    One of the two is wrong, and the HDL now gives a gate-level model to

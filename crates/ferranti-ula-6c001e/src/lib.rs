@@ -5,6 +5,9 @@
 //! - `knowledge/systems/spectrum/contention.md`
 //! - Adapted from `../Emu198x-Older/crates/ferranti-ula-6c001e/src/lib.rs`
 
+#[doc(hidden)]
+pub mod hdl_model;
+
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::timing::{self, FrameTiming};
 use common_sinclair_zx_spectrum::ula::Ula;
@@ -15,6 +18,33 @@ use common_sinclair_zx_spectrum::ula_engine::{self, DELAY_TABLE_48K, UlaEngine};
 pub struct FerrantiUla {
     engine: UlaEngine,
     revision: UlaRevision,
+
+    /// Half-cycle recorder, off unless explicitly armed.
+    ///
+    /// Records what `tick` was *given* and what it *decided*, from inside
+    /// the ULA. That is the only place the question can be answered
+    /// without assuming anything about the driver: two separate attempts
+    /// to reproduce the driver's tick order in a test harness both got it
+    /// wrong by a half-cycle, in opposite directions, and a half-cycle is
+    /// exactly the width of the window `IOREQTW3` opens and closes in.
+    #[serde(skip)]
+    trace: Option<Vec<UlaTick>>,
+}
+
+/// One half-cycle as the ULA saw it. `_before` fields are sampled prior to
+/// the contention decision, which is the state that decision was made on.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UlaTick {
+    pub pixel: u16,
+    pub video: bool,
+    pub addr: u16,
+    pub mreq: bool,
+    pub iorq: bool,
+    pub clock_high_before: bool,
+    pub ioreq_tw3_before: bool,
+    pub mreq_t23_before: bool,
+    pub cpu_clock_after: bool,
 }
 
 /// Which family of the 48K-class Ferranti ULA this machine carries.
@@ -58,6 +88,7 @@ impl FerrantiUla {
         Self {
             engine: UlaEngine::new(&ula_engine::CONFIG_48K),
             revision,
+            trace: None,
         }
     }
 
@@ -84,6 +115,18 @@ impl FerrantiUla {
             self.engine.idle,
             self.engine.bus_data,
         )
+    }
+
+    /// Arm the half-cycle recorder, discarding anything already held.
+    #[doc(hidden)]
+    pub fn debug_trace_start(&mut self) {
+        self.trace = Some(Vec::new());
+    }
+
+    /// Take the recording and disarm.
+    #[doc(hidden)]
+    pub fn debug_trace_take(&mut self) -> Vec<UlaTick> {
+        self.trace.take().unwrap_or_default()
     }
 
     /// Reinstall the 48K timing config after a snapshot restore.
@@ -144,6 +187,29 @@ impl Ula for FerrantiUla {
         // Rendering: video fetch, pixel output, counters, interrupt
         e.tick_rendering(memory, framebuffer, snow);
 
+        // State as it stands before the contention decision, kept for the
+        // recorder. Cheap enough to take unconditionally; the push is what
+        // is gated.
+        let before = (
+            // The pixel the delay table is *indexed by*, not the counter's
+            // value after `tick_rendering` advanced it. Recording the
+            // post-advance value shifts the trace one pixel, which happens
+            // to cancel the known one-pixel rotation between
+            // `DELAY_TABLE_48K` and the HDL's `hc[2]|hc[3]` — and so
+            // reports perfect agreement that is not there.
+            phase as u16,
+            e.video,
+            e.z80_clock_high,
+            e.ioreq_tw3,
+            e.mreq_t23,
+        );
+
+        // The ULA answers even ports (`spec48_port_from_ula`); the HDL
+        // folds that decode into the pin, `ioreq_n = a[0] | iorq_n`.
+        // Outside the window because the latches clock on every `CPUClk`
+        // edge, border or not.
+        let ula_io = (cpu_addr & 1) == 0;
+
         // Contention (48K model): memory + I/O + internal
         if e.video {
             let contended_addr = memory.is_contended(cpu_addr);
@@ -174,19 +240,47 @@ impl Ula for FerrantiUla {
             // sample lead or the pattern phase — both were tried.
             //
             // See `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
+            // **Both latches are maintained but not consulted.** Wiring
+            // them in makes the gate match the HDL exactly — verified
+            // half-cycle for half-cycle on the real machine by
+            // `machine-sinclair-zx-spectrum-48k`'s `ula_gate_vs_hdl` — and
+            // costs one T-state per contended M-cycle against FUSE. The
+            // HDL and FUSE genuinely disagree here; the engine can match
+            // one or the other, not both.
+            //
+            //     let contended_access = contended_addr && !e.mreq_t23;
+            //     let contention = !e.ioreq_tw3
+            //         && e.z80_clock_high
+            //         && (ula_io || contended_access);
+            //
+            // See `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
             let mem_contention = contended_addr && e.z80_clock_high && !cpu_mreq;
-
-            let io_even_port = (cpu_addr & 1) == 0;
-            let io_contention = (cpu_iorq || e.z80_iorq_prev) && io_even_port && e.z80_clock_high;
-
+            let io_contention = (cpu_iorq || e.z80_iorq_prev) && ula_io && e.z80_clock_high;
             let contention = mem_contention || io_contention;
             e.cpu_clock = !(contention && DELAY_TABLE_48K[phase]);
         } else {
             e.cpu_clock = true;
         }
 
+        // Record before `track_z80_clock` advances the latches, so the
+        // captured state is the state the decision above was made on.
+        if let Some(trace) = &mut self.trace {
+            trace.push(UlaTick {
+                pixel: before.0,
+                video: before.1,
+                addr: cpu_addr,
+                mreq: cpu_mreq,
+                iorq: cpu_iorq,
+                clock_high_before: before.2,
+                ioreq_tw3_before: before.3,
+                mreq_t23_before: before.4,
+                cpu_clock_after: self.engine.cpu_clock,
+            });
+        }
+
+        let e = &mut self.engine;
         // Track Z80 clock phase
-        e.track_z80_clock(cpu_iorq, cpu_mreq);
+        e.track_z80_clock(cpu_iorq, cpu_mreq, cpu_iorq && ula_io);
     }
 
     fn cpu_clock_active(&self) -> bool {

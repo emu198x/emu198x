@@ -146,7 +146,7 @@ impl Ula for TimexScld {
             e.cpu_clock = true;
         }
 
-        e.track_z80_clock(cpu_iorq, cpu_mreq);
+        e.track_z80_clock(cpu_iorq, cpu_mreq, cpu_iorq && (cpu_addr & 1) == 0);
     }
 
     fn cpu_clock_active(&self) -> bool {
