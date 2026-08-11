@@ -62,6 +62,7 @@ struct Observed {
     phase: String,
     addr: u16,
     mreq: bool,
+    iorq: bool,
     pixel: u16,
     video: bool,
     clock_high: bool,
@@ -73,19 +74,37 @@ struct Observed {
 /// Run `LD A,(HL)` out of contended RAM, reading contended RAM, and record
 /// every ULA tick over `halfcycles` master cycles.
 fn observe(halfcycles: u32) -> Vec<Observed> {
+    // `LD A,(HL)` repeated: an M1 fetch plus a memory read, both from
+    // contended RAM, and nothing else to reason about.
+    observe_program(&[0x7E], |m| m.z80_mut().regs.hl = 0x5000, halfcycles)
+}
+
+/// The same, for `IN A,(C)` on a given port.
+fn observe_io(port: u16, halfcycles: u32) -> Vec<Observed> {
+    observe_program(
+        &[0xED, 0x78],
+        move |m| m.z80_mut().regs.bc = port,
+        halfcycles,
+    )
+}
+
+fn observe_program(
+    program: &[u8],
+    setup: impl FnOnce(&mut Spectrum48k),
+    halfcycles: u32,
+) -> Vec<Observed> {
     let rom = rom_bytes().expect("48K ROM should be provisioned");
     let mut m = Spectrum48k::new();
     m.load_rom_bytes(&rom).expect("48K ROM should load");
     m.reset();
 
-    // `LD A,(HL)` repeated: an M1 fetch plus a memory read, both from
-    // contended RAM, and nothing else to reason about.
     let mut addr = CODE_BASE;
     while addr < CODE_END {
-        m.memory_mut().write(addr, 0x7E);
+        m.memory_mut()
+            .write(addr, program[((addr - CODE_BASE) as usize) % program.len()]);
         addr += 1;
     }
-    m.z80_mut().regs.hl = 0x5000;
+    setup(&mut m);
 
     // Settle well inside the display window, where the table is live.
     while m.tstate_in_frame() < 20_000 {
@@ -140,6 +159,7 @@ fn observe(halfcycles: u32) -> Vec<Observed> {
             phase,
             addr,
             mreq,
+            iorq: t.iorq,
             pixel: t.pixel,
             video: t.video,
             clock_high: t.clock_high_before,
@@ -245,4 +265,72 @@ fn the_gate_arms_on_the_half_cycle_that_precedes_mreq() {
         offered.len(),
         armed > 0,
     );
+}
+
+/// One stall episode: a run of consecutive withheld half-cycles.
+fn stall_episodes(observed: &[Observed]) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut run = 0usize;
+    for o in observed {
+        if o.cpu_clock {
+            if run > 0 {
+                out.push(run);
+                run = 0;
+            }
+        } else {
+            run += 1;
+        }
+    }
+    if run > 0 {
+        out.push(run);
+    }
+    out
+}
+
+fn report_io(port: u16, label: &str) {
+    let observed = observe_io(port, 600);
+
+    println!("\n=== IN A,(C) on ${port:04X} — {label}");
+    println!(
+        "{:<22} {:>5} {:>5} {:>5} {:>6} {:>6} {:>6} {:>6}",
+        "phase", "addr", "MREQ", "IORQ", "pixel", "clkhi", "table", "clock"
+    );
+    println!("{}", "-".repeat(70));
+    for o in observed.iter().skip(24).take(40) {
+        println!(
+            "{:<22} {:>5X} {:>5} {:>5} {:>6} {:>6} {:>6} {:>6}",
+            o.phase,
+            o.addr,
+            if o.mreq { "L" } else { "." },
+            if o.iorq { "L" } else { "." },
+            o.pixel,
+            o.clock_high,
+            o.table,
+            if o.cpu_clock { "run" } else { "STALL" },
+        );
+    }
+
+    let episodes = stall_episodes(&observed);
+    let io_halfcycles = observed.iter().filter(|o| o.iorq).count();
+    println!(
+        "\nhalf-cycles with /IORQ asserted: {io_halfcycles}\n\
+         stall episodes (length in half-cycles): {episodes:?}\n\
+         total stalled half-cycles: {}",
+        episodes.iter().sum::<usize>(),
+    );
+}
+
+#[test]
+#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+fn report_where_io_contention_arms() {
+    // FUSE's four-way table, from `ula_contend_port_early` /
+    // `ula_contend_port_late` in `peripherals/ula.c`, distinguishes these
+    // by the port's page and whether the ULA answers the port at all.
+    report_io(0x40FE, "ULA port, contended page — FUSE: C:1, C:3");
+    report_io(0x00FE, "ULA port, uncontended page — FUSE: N:1, C:3");
+    report_io(
+        0x40FF,
+        "odd port, contended page — FUSE: C:1, C:1, C:1, C:1",
+    );
+    report_io(0x00FF, "odd port, uncontended page — FUSE: N:4");
 }
