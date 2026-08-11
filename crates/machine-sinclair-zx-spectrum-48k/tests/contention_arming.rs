@@ -518,9 +518,9 @@ fn report_io(port: u16, label: &str) -> Vec<IoCycle> {
 /// *memory* gate — `contended_addr && !cpu_mreq`, which holds for every
 /// half-cycle of an I/O M-cycle because `/MREQ` is never asserted in one.
 ///
-/// That the memory gate is what implements `contend_port_early` is not
-/// obviously wrong — FUSE's early charge is conditioned on the port page,
-/// exactly what the memory gate tests. What is missing is the rest of
+/// That the memory gate is what implements `contend_port_early` may well
+/// be right — FUSE's early charge is conditioned on the port page, exactly
+/// what the memory gate tests. What is missing is the rest of
 /// `contend_port_late`'s odd-port branch.
 #[test]
 #[ignore = "KNOWN DIVERGENCE: $40FF gets two withheld runs per I/O M-cycle \
