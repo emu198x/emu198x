@@ -91,6 +91,11 @@ const C0_PERIOD: usize = 16;
 /// 12, 11 and 0 C0 cycles at pixel phases 3, 4 and 15, and the
 /// derivation gives the same — so it is pinned by a measurement of the
 /// table rather than by the numbers it is later used to predict.
+///
+/// **It is pinned by a measurement of the gate against itself**, which
+/// `memory_contention_matches_fuse_at_every_arrival_tstate` shows is not
+/// enough: it confirms whatever the table happens to hold, and the table
+/// holds a phase the differential scores 88,871 samples against.
 const SEAM1_C0_ORIGIN: usize = 1;
 
 // No separate sampling correction is applied, and that is deliberate.
@@ -161,7 +166,11 @@ const CODE_BASE: u16 = 0x4000;
 const CODE_END: u16 = 0x8000;
 
 /// Delay a contended M-cycle starting at frame T-state `t` incurs.
+///
+/// Wraps, because a cost walk starting late in the frame runs off the end
+/// of it and the raster does not stop there.
 fn delay_at(t: u32) -> u32 {
+    let t = t % FRAME_TSTATES;
     if t < FIRST_DISPLAY {
         return 0;
     }
@@ -276,6 +285,15 @@ fn rom_bytes() -> Option<Vec<u8>> {
 /// A machine filled with the case's instruction, aligned to a frame
 /// boundary, with the CPU aimed at contended RAM.
 fn prepare(case: &Case, rom: &[u8]) -> Spectrum48k {
+    prepare_at(case, rom, 0)
+}
+
+/// The same, started `skew` T-states past the frame boundary.
+///
+/// The skew is what gives arrival-T-state coverage. An instruction whose
+/// cost is a multiple of the pattern's period revisits the same handful of
+/// arrival phases forever; sweeping the start position walks the rest.
+fn prepare_at(case: &Case, rom: &[u8], skew: u32) -> Spectrum48k {
     let mut machine = Spectrum48k::new();
     machine.load_rom_bytes(rom).expect("48K ROM should load");
     machine.reset();
@@ -298,6 +316,7 @@ fn prepare(case: &Case, rom: &[u8]) -> Spectrum48k {
     while machine.tstate_in_frame() != 0 {
         machine.advance_tstates(1);
     }
+    machine.advance_tstates(skew);
     machine.z80_mut().regs.pc = CODE_BASE;
     (case.setup)(&mut machine);
     machine
@@ -607,6 +626,341 @@ fn measured_frame_runs_the_instruction_under_test() {
             inside as f64 / total as f64 * 100.0,
             first_escape
         );
+    }
+}
+
+// ---------------------------------------------------------------------
+// The arrival-resolved memory differential.
+//
+// Everything above this line is report-only or compares two *models*.
+// That is the gap this section closes, and it is not a theoretical one:
+// a global one-T-state phase shift in the engine's contention charge
+// survived a whole phase of work because nothing here could fail on it.
+// Frame totals are structurally blind to phase — the contended window is
+// sixteen whole 8-T-state groups, so a walk that starts one T-state late
+// retires the same number of instructions — and
+// `contention_cost_by_arrival_phase` prints a table nobody has to read.
+// ---------------------------------------------------------------------
+
+/// Add this to an engine frame T-state to get FUSE's.
+///
+/// **Measured, not fitted**, and measured from the one event both
+/// implementations define identically and neither derives from
+/// contention: the `/INT` edge. FUSE's frame T-state 0 *is* the interrupt
+/// — `spectrum_frame()` subtracts a frame from `tstates` and
+/// `z80_interrupt()` runs immediately after — and the engine raises
+/// `int_active` at a T-state of its own that owes nothing to the gate.
+/// 69888 - 55553 = 14335.
+///
+/// `the_origin_is_pinned_by_the_interrupt` asserts it here rather than
+/// taking `io_contention_oracle`'s word for it; they are separate test
+/// binaries and a constant shared by copying is a constant that drifts.
+///
+/// Fitting this instead would make it a free parameter, and a free
+/// parameter absorbs exactly the error this differential exists to find:
+/// a gate charging one T-state late is indistinguishable from an origin
+/// one T-state early. See `fuse-governs-the-contended-window.md`, whose
+/// drift triggers name the fit by name.
+const ORIGIN: i32 = 14335;
+
+/// FUSE's cost for an instruction arriving at FUSE frame T-state `t`.
+///
+/// `tstates += delay[tstates]; tstates += length`, once per M-cycle —
+/// FUSE's whole memory contention model, and the same walk
+/// `canonical_per_frame` uses. What is new here is that the arrival
+/// T-state is the engine's own, mapped through `ORIGIN`, rather than a
+/// walk of the model against itself.
+fn fuse_cost(t: u32, mcycles: &[u32]) -> u32 {
+    let mut now = t;
+    for length in mcycles {
+        now += delay_at(now);
+        now += length;
+    }
+    now - t
+}
+
+/// `(arrival T-state, measured cost)` for a frame's worth of one case.
+///
+/// The first two instructions of each pass are discarded: aiming `PC` at
+/// the stream lands mid-M-cycle whenever the skew does, so the first
+/// retirement is the tail of whatever the CPU was already doing.
+fn arrival_samples(case: &Case, rom: &[u8], skew: u32) -> Vec<(u32, u32)> {
+    let mut machine = prepare_at(case, rom, skew);
+    for _ in 0..2 {
+        step_one_instruction(&mut machine);
+    }
+    let mut out = Vec::new();
+    let mut spent = 0u32;
+    while spent < FRAME_TSTATES {
+        let arrival = machine.tstate_in_frame();
+        let pc = machine.z80().regs.pc;
+        assert!(
+            (CODE_BASE..CODE_END).contains(&pc),
+            "{}: execution left the instruction stream at pc {pc:#06x} — an \
+             interrupt or a stray jump would make every later sample a \
+             measurement of the ROM",
+            case.name
+        );
+        let cost = step_one_instruction(&mut machine);
+        out.push((arrival, cost));
+        spent += cost;
+    }
+    out
+}
+
+/// A scored case: name, M-cycle lengths, and its raw arrival samples.
+///
+/// Named for the same reason `io_contention_oracle`'s `Scored` is: the
+/// tuple is passed through four separate reporting passes, and spelling it
+/// out at each one is where a field silently swaps places.
+type Scored = (&'static str, &'static [u32], Vec<(u32, u32)>);
+
+fn mismatches(samples: &[(u32, u32)], mcycles: &[u32], offset: i32) -> usize {
+    samples
+        .iter()
+        .filter(|&&(arrival, measured)| {
+            let t = (arrival as i32 + offset).rem_euclid(FRAME_TSTATES as i32) as u32;
+            fuse_cost(t, mcycles) != measured
+        })
+        .count()
+}
+
+/// The origin, asserted from the interrupt rather than assumed.
+///
+/// Runs without an instruction stream and can fail two ways: where the
+/// edge falls, and how long it is held.
+#[test]
+#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+fn the_origin_is_pinned_by_the_interrupt() {
+    /// `interrupt_length` for `timings_frame_ferranti_5c_6c`, libspectrum
+    /// `timings.c`. FUSE holds `/INT` while `tstates < interrupt_length`.
+    const FUSE_INTERRUPT_LENGTH: u32 = 32;
+
+    let Some(rom) = rom_bytes() else {
+        panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
+    };
+    let mut machine = Spectrum48k::new();
+    machine.load_rom_bytes(&rom).expect("48K ROM should load");
+    machine.reset();
+    while machine.tstate_in_frame() != 0 {
+        machine.advance_tstates(1);
+    }
+
+    let mut edges = Vec::new();
+    let mut prev = machine.ula().interrupt_active();
+    for _ in 0..FRAME_TSTATES {
+        machine.advance_tstates(1);
+        let now = machine.ula().interrupt_active();
+        if now != prev {
+            edges.push((machine.tstate_in_frame(), now));
+        }
+        prev = now;
+    }
+
+    assert_eq!(
+        edges.len(),
+        2,
+        "expected one interrupt assertion and one release per frame, got {edges:?}"
+    );
+    let (onset, rising) = edges[0];
+    let (release, falling) = edges[1];
+    assert!(rising && !falling, "edges out of order: {edges:?}");
+    assert_eq!(
+        release - onset,
+        FUSE_INTERRUPT_LENGTH,
+        "the engine holds /INT for {} T-states against FUSE's {FUSE_INTERRUPT_LENGTH}",
+        release - onset
+    );
+    assert_eq!(
+        FRAME_TSTATES as i32 - onset as i32,
+        ORIGIN,
+        "/INT rises at engine T-state {onset}, which puts the origin at {}, \
+         not the {ORIGIN} this file scores against",
+        FRAME_TSTATES as i32 - onset as i32
+    );
+}
+
+/// Memory contention against FUSE, at every arrival T-state in the frame.
+///
+/// The counterpart of `io_contention_oracle`'s differential for a plain
+/// contended memory access, and the instrument the I/O side's offset sweep
+/// asked for. Six instruction shapes, one to six M-cycles, all executing
+/// out of contended RAM and reading contended RAM, each scored against
+/// FUSE's per-M-cycle walk at the `/INT`-pinned origin.
+///
+/// The offset sweep is printed for the same reason the I/O one is: a
+/// disagreement between the fitted winner and the pinned origin is itself
+/// a finding — it says the engine's contention phase has moved against its
+/// own interrupt — and is never a reason to rescore.
+#[test]
+#[ignore = "differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
+fn memory_contention_matches_fuse_at_every_arrival_tstate() {
+    let Some(rom) = rom_bytes() else {
+        panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
+    };
+
+    // Skews of 0..8 walk the arrival point across a whole period of the
+    // 8-T-state pattern, so no phase goes unvisited even for an
+    // instruction whose cost divides it.
+    const SKEWS: u32 = 8;
+
+    // `IN A,(n)` is excluded: its third M-cycle is a port cycle, which
+    // FUSE charges through `ula_contend_port_early`/`_late` rather than
+    // through the memory walk. It belongs to `io_contention_oracle`, and
+    // mixing it in here would let a known-red I/O gate mask the memory
+    // result this test exists to isolate.
+    let cases: Vec<Case> = cases()
+        .into_iter()
+        .filter(|c| !c.name.starts_with("IN "))
+        .collect();
+
+    let collected: Vec<Scored> = cases
+        .iter()
+        .map(|case| {
+            let mut all = Vec::new();
+            for skew in 0..SKEWS {
+                all.extend(arrival_samples(case, &rom, skew));
+            }
+            (case.name, case.mcycles, all)
+        })
+        .collect();
+
+    let score = |offset: i32| -> usize {
+        collected
+            .iter()
+            .map(|(_, mcycles, all)| mismatches(all, mcycles, offset))
+            .sum()
+    };
+
+    let total = score(ORIGIN);
+    let samples_total: usize = collected.iter().map(|(_, _, all)| all.len()).sum();
+    println!("\norigin offset {ORIGIN:+} — {total} of {samples_total} samples disagree");
+
+    // The neighbourhood, so it is visible whether the pinned origin sits
+    // in a plateau or next to a sharp minimum it is not on.
+    print!("\n{:<14}", "offset");
+    for d in -4..=4i32 {
+        print!("{:>9}", format!("{:+}", ORIGIN + d));
+    }
+    println!();
+    print!("{:<14}", "mismatches");
+    for d in -4..=4i32 {
+        print!("{:>9}", score(ORIGIN + d));
+    }
+    println!();
+
+    // Per case, so a shape-dependent error is separable from a global
+    // one. A phase shift hits every case; a missing M-cycle hits the long
+    // ones only.
+    println!(
+        "\n{:<14} {:>3} {:>9} {:>9} {:>7}  first divergences (t: got/want)",
+        "instruction", "Ms", "samples", "wrong", "%"
+    );
+    println!("{}", "-".repeat(88));
+    for (name, mcycles, all) in &collected {
+        let wrong: Vec<_> = all
+            .iter()
+            .filter_map(|&(arrival, measured)| {
+                let t = (arrival as i32 + ORIGIN).rem_euclid(FRAME_TSTATES as i32) as u32;
+                let want = fuse_cost(t, mcycles);
+                (want != measured).then_some((t, measured, want))
+            })
+            .collect();
+        let head: Vec<String> = wrong
+            .iter()
+            .take(3)
+            .map(|(t, got, want)| format!("{t}: {got}/{want}"))
+            .collect();
+        println!(
+            "{name:<14} {:>3} {:>9} {:>9} {:>6.1}%  {}",
+            mcycles.len(),
+            all.len(),
+            wrong.len(),
+            wrong.len() as f64 / all.len() as f64 * 100.0,
+            head.join("  ")
+        );
+    }
+
+    // Where the disagreement sits, by the delay the raster owed at the
+    // arrival T-state. A gate one T-state out of phase is wrong at the
+    // two ends of the pattern and right in the middle, which reads very
+    // differently from a gate that charges the wrong amount everywhere.
+    println!(
+        "\n{:<14} {}",
+        "instruction",
+        (0..8)
+            .map(|p| format!("{:>7}", format!("d={}", PATTERN[p])))
+            .collect::<String>()
+    );
+    println!("{}", "-".repeat(72));
+    for (name, mcycles, all) in &collected {
+        let mut wrong = [0u32; 8];
+        let mut seen = [0u32; 8];
+        for &(arrival, measured) in all {
+            let t = (arrival as i32 + ORIGIN).rem_euclid(FRAME_TSTATES as i32) as u32;
+            if delay_at(t) == 0 && delay_at(t + 4) == 0 {
+                continue;
+            }
+            let slot = ((t + FRAME_TSTATES - FIRST_DISPLAY) % 8) as usize;
+            seen[slot] += 1;
+            if fuse_cost(t, mcycles) != measured {
+                wrong[slot] += 1;
+            }
+        }
+        print!("{name:<14} ");
+        for p in 0..8 {
+            print!("{:>6.0}%", wrong[p] as f64 / seen[p].max(1) as f64 * 100.0);
+        }
+        println!();
+    }
+
+    // The self-check. Outside the contended window neither model charges
+    // anything, so every case must cost exactly its uncontended length.
+    // If this fails the harness is measuring something other than the
+    // instruction it thinks it is, and nothing above it means anything.
+    for (name, mcycles, all) in &collected {
+        let bare: u32 = mcycles.iter().sum();
+        let quiet_wrong = all
+            .iter()
+            .filter(|&&(arrival, _)| {
+                let start = (arrival as i32 + ORIGIN).rem_euclid(FRAME_TSTATES as i32) as u32;
+                (0..FIRST_DISPLAY.saturating_sub(64)).contains(&start)
+            })
+            .filter(|&&(_, measured)| measured != bare)
+            .count();
+        assert_eq!(
+            quiet_wrong, 0,
+            "{name}: {quiet_wrong} samples outside the contended window did \
+             not cost the bare {bare} T-states"
+        );
+    }
+
+    // The ratchet, and it goes last so that a red run still prints
+    // everything above it. `io_contention_oracle` asserted before its
+    // diagnostics for a whole phase, which is how a sharp minimum one
+    // T-state off the pinned origin went unread.
+    //
+    // A ceiling, not a target. Lower it in the commit that earns it;
+    // never raise it.
+    //
+    // 88,871 is what the engine scores today. It is not a small number,
+    // and the sweep above says why: the pinned origin is not the
+    // minimum. `+14334` scores 2,328. An origin shift moves every
+    // contended M-cycle at once, so a single global shift absorbing the
+    // error puts it in the contention window's phase against the frame,
+    // not in any one instruction shape. Read the fit as the diagnosis and
+    // do not rescore there — that is the failure
+    // `fuse-governs-the-contended-window.md` lists in its drift triggers.
+    const RATCHET: usize = 88_871;
+    assert!(
+        total <= RATCHET,
+        "memory contention regressed against FUSE: {total} of {samples_total} \
+         samples disagree, was {RATCHET}. If this change is right and the \
+         reference is wrong, say so explicitly and move the ratchet in the \
+         same commit — do not widen it silently."
+    );
+    if total < RATCHET {
+        println!("\nRATCHET: {total} of {samples_total} — improved on {RATCHET}.");
     }
 }
 

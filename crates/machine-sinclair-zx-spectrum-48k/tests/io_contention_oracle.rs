@@ -625,32 +625,6 @@ fn io_contention_matches_fuse_across_the_whole_frame() {
     }
     println!();
 
-    // The ratchet. This harness measured for weeks without ever being able
-    // to fail, which is how `ad0e8c53` shifted the 128K floating bus by a
-    // T-state unnoticed (#851). The number below is what the engine scores
-    // today, against FUSE, with the origin pinned to the interrupt.
-    //
-    // It is a ceiling, not a target. Lower it whenever the derivation in
-    // `spectrum-contention-the-way-out.md` improves the score, and never
-    // raise it: a rise means the change made I/O contention worse, whatever
-    // else it improved. Record the new figure in the same commit that earns
-    // it, so the history says which change bought which ground.
-    const RATCHET: usize = 30_741;
-    assert!(
-        total <= RATCHET,
-        "I/O contention regressed against FUSE: {total} of {samples_total} \
-         samples disagree, was {RATCHET}. If this change is right and the \
-         reference is wrong, say so explicitly and move the ratchet in the \
-         same commit — do not widen it silently."
-    );
-    if total < RATCHET {
-        println!(
-            "\nRATCHET: {total} of {samples_total} — improved on {RATCHET}. \
-             Lower the constant in this commit."
-        );
-    }
-    println!();
-
     // What the disagreement looks like, per class, at that offset.
     println!(
         "\n{:<20} {:<16} {:>8} {:>8}  first divergences (t: got/want)",
@@ -776,4 +750,36 @@ fn io_contention_matches_fuse_across_the_whole_frame() {
              did not cost the bare 12 T-states"
         );
     }
+
+    // The ratchet, and it goes last. This harness measured for weeks
+    // without ever being able to fail, which is how `ad0e8c53` shifted the
+    // 128K floating bus by a T-state unnoticed (#851). The number below is
+    // what the engine scores today, against FUSE, with the origin pinned
+    // to the interrupt.
+    //
+    // Last is where an assertion belongs when everything above it is a
+    // diagnostic. It sat before the per-class and per-phase tables for a
+    // whole phase of work, so every red run — which is every run that
+    // matters — threw away its own explanation. The offset sweep survived
+    // only because it happens to print earlier.
+    //
+    // It is a ceiling, not a target. Lower it whenever the derivation in
+    // `spectrum-contention-the-way-out.md` improves the score, and never
+    // raise it: a rise means the change made I/O contention worse, whatever
+    // else it improved. Record the new figure in the same commit that earns
+    // it, so the history says which change bought which ground.
+    const RATCHET: usize = 30_741;
+    if total < RATCHET {
+        println!(
+            "\nRATCHET: {total} of {samples_total} — improved on {RATCHET}. \
+             Lower the constant in this commit."
+        );
+    }
+    assert!(
+        total <= RATCHET,
+        "I/O contention regressed against FUSE: {total} of {samples_total} \
+         samples disagree, was {RATCHET}. If this change is right and the \
+         reference is wrong, say so explicitly and move the ratchet in the \
+         same commit — do not widen it silently."
+    );
 }
