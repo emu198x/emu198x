@@ -455,6 +455,24 @@ impl Z80 {
         }
     }
 
+    /// Release every bus strobe the previous M-cycle left asserted.
+    ///
+    /// Several Zilog strobes run to *the end of* their last T-state rather
+    /// than to a named edge inside it — `/RFSH` to the next `T1`↑, and the
+    /// memory and I/O strobes to the end of `T3`. That releasing edge is the
+    /// first edge of the next machine cycle, so it belongs here rather than
+    /// in a handler of the cycle being ended. Every cycle calls this on its
+    /// first half-cycle, and `tick_internal` calls it too because an
+    /// internal cycle has no `T1Rise` and would otherwise let a strobe run
+    /// on for the length of an `ADD HL,rr`.
+    fn release_bus_strobes(&mut self) {
+        self.mreq = false;
+        self.iorq = false;
+        self.rd = false;
+        self.wr = false;
+        self.rfsh = false;
+    }
+
     // === M1 Opcode Fetch ===
 
     fn tick_m1(&mut self, phase: M1Phase) {
@@ -464,10 +482,9 @@ impl Z80 {
                 // phantom M1 reads that address, discards the byte and forces
                 // NOP internally; T2Fall therefore does not advance PC.
                 // Address bus = PC, assert M1.
+                self.release_bus_strobes();
                 self.addr = self.regs.pc;
                 self.m1 = true;
-                self.mreq = false;
-                self.rd = false;
                 self.phase = Phase::M1(M1Phase::T1Fall);
             }
             M1Phase::T1Fall => {
@@ -519,7 +536,7 @@ impl Z80 {
                 // The refresh `/MREQ` pulse is a full clock wide — Zilog
                 // UM0080 drops it on `T3`↓ and releases it on `T4`↓, so it
                 // spans `T3b`–`T4a` and is still low through this half-cycle.
-                self.rfsh = false;
+                // `/RFSH` stays low: it runs to the next `T1`↑.
                 self.regs.inc_r();
                 self.phase = Phase::M1(M1Phase::T4Fall);
             }
@@ -634,8 +651,7 @@ impl Z80 {
         match phase {
             MemPhase::T1Rise => {
                 // Address on bus (set by caller before entering this M-cycle)
-                self.mreq = false;
-                self.rd = false;
+                self.release_bus_strobes();
                 self.phase = Phase::MemRead(MemPhase::T1Fall);
             }
             MemPhase::T1Fall => {
@@ -672,8 +688,7 @@ impl Z80 {
         match phase {
             MemPhase::T1Rise => {
                 // Address on bus (set by caller)
-                self.mreq = false;
-                self.wr = false;
+                self.release_bus_strobes();
                 self.phase = Phase::MemWrite(MemPhase::T1Fall);
             }
             MemPhase::T1Fall => {
@@ -710,9 +725,7 @@ impl Z80 {
     fn tick_contend(&mut self, phase: MemPhase) {
         match phase {
             MemPhase::T1Rise => {
-                self.mreq = false;
-                self.rd = false;
-                self.wr = false;
+                self.release_bus_strobes();
                 self.phase = Phase::Contend(MemPhase::T1Fall);
             }
             MemPhase::T1Fall => {
@@ -745,6 +758,7 @@ impl Z80 {
         match phase {
             IoPhase::T1Rise => {
                 // Port address on bus
+                self.release_bus_strobes();
                 self.phase = Phase::IoRead(IoPhase::T1Fall);
             }
             IoPhase::T1Fall => {
@@ -786,6 +800,7 @@ impl Z80 {
         match phase {
             IoPhase::T1Rise => {
                 // Port address on bus
+                self.release_bus_strobes();
                 self.phase = Phase::IoWrite(IoPhase::T1Fall);
             }
             IoPhase::T1Fall => {
@@ -824,6 +839,9 @@ impl Z80 {
     // === Internal (no bus activity) ===
 
     fn tick_internal(&mut self, phase: InternalPhase) {
+        // An internal cycle has no `T1Rise` of its own, so it releases the
+        // previous cycle's strobes here. Idempotent — it drives nothing.
+        self.release_bus_strobes();
         if phase.remaining <= 1 {
             self.walker.advance();
             self.try_advance_walker();
@@ -841,12 +859,9 @@ impl Z80 {
             NmiAckPhase::T1Rise => {
                 // NMI begins with an M1 memory read at PC. The byte is
                 // discarded and PC does not advance.
+                self.release_bus_strobes();
                 self.addr = self.regs.pc;
                 self.m1 = true;
-                self.mreq = false;
-                self.rd = false;
-                self.iorq = false;
-                self.rfsh = false;
                 self.phase = Phase::NmiAck(NmiAckPhase::T1Fall);
             }
             NmiAckPhase::T1Fall => {
@@ -898,12 +913,9 @@ impl Z80 {
     fn tick_int_ack(&mut self, phase: IntAckPhase) {
         match phase {
             IntAckPhase::T1Rise => {
+                self.release_bus_strobes();
                 self.addr = self.regs.pc;
                 self.m1 = true;
-                self.mreq = false;
-                self.iorq = false;
-                self.rd = false;
-                self.rfsh = false;
                 self.phase = Phase::IntAck(IntAckPhase::T1Fall);
             }
             IntAckPhase::T1Fall => {
@@ -1445,32 +1457,44 @@ mod tests {
         // T2 rise: data latched
         z80.tick();
 
-        // T2 fall: end read, PC incremented
+        // T2 fall: opcode latched, PC incremented. The strobes stay low —
+        // Zilog releases them on the rising edge of T3, so they span
+        // T1b-T2b.
         z80.tick();
-        assert!(!z80.mreq);
-        assert!(!z80.rd);
+        assert!(z80.mreq);
+        assert!(z80.rd);
         assert_eq!(z80.regs.pc, 1);
 
-        // T3 rise: refresh — IR on bus, RFSH active, MREQ not yet active
-        // (MREQ goes active at T3 fall, one half-cycle later — this window
-        // allows the ULA to apply contention if IR is in contended memory)
+        // T3 rise: opcode strobes released; refresh begins — IR on bus,
+        // RFSH active, MREQ not yet active again (the refresh pulse starts
+        // at T3 fall, one half-cycle later — this window allows the ULA to
+        // apply contention if IR is in contended memory)
         z80.tick();
         assert!(z80.rfsh);
         assert!(!z80.mreq); // MREQ not yet active at T3 rise
+        assert!(!z80.rd);
         assert!(!z80.m1);
 
         // T3 fall: MREQ goes active for refresh
         z80.tick();
         assert!(z80.mreq);
 
-        // T4 rise: end refresh, R incremented
+        // T4 rise: R incremented. The refresh MREQ pulse is a full clock
+        // wide (T3b-T4a) and RFSH runs to the next T1 rise, so both are
+        // still low here.
         z80.tick();
-        assert!(!z80.rfsh);
-        assert!(!z80.mreq);
+        assert!(z80.rfsh);
+        assert!(z80.mreq);
         assert_eq!(z80.regs.r, 1);
 
-        // T4 fall: decode
+        // T4 fall: decode; the refresh MREQ pulse ends.
         z80.tick();
+        assert!(!z80.mreq);
+        assert!(z80.rfsh); // released by the next cycle's T1 rise
+
+        // Next T1 rise: RFSH released as the new address goes out.
+        z80.tick();
+        assert!(!z80.rfsh);
         // After 8 half-cycles, we should be back at M1 T1 rise (NOP loops)
     }
 
