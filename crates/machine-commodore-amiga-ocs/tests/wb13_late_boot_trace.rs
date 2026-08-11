@@ -1040,7 +1040,7 @@ fn trace_wb13_late_boot_tasks_and_signals() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -1305,7 +1305,7 @@ fn trace_wb13_validator_lifecycle() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -1513,7 +1513,7 @@ fn trace_wb13_validator_transition_window() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut discover = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
@@ -1835,7 +1835,7 @@ fn trace_wb13_validator_signal_window() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -2083,7 +2083,7 @@ fn trace_wb13_validator_task_field_writers() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -2194,7 +2194,7 @@ fn trace_wb13_validator_ports_and_sigalloc() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -2430,7 +2430,7 @@ fn trace_wb13_validator_idcmp_port_traffic() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -2872,7 +2872,7 @@ fn trace_wb13_validator_idcmp_creator_path() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut discovery = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
@@ -3160,7 +3160,7 @@ fn trace_wb13_validator_idcmp_ref_holder_writers() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut discovery = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
@@ -3235,7 +3235,7 @@ fn trace_wb13_validator_requester_entry_path() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut discovery = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
@@ -3552,7 +3552,7 @@ fn trace_wb13_validator_idcmp_bridge_gap() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut discovery = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
@@ -3776,7 +3776,7 @@ fn trace_wb13_validator_requester_ram_chain() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut discovery = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
@@ -4089,7 +4089,7 @@ fn compare_wb13_acknowledged_vs_pending_disk_change() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let acknowledged = run_case(&rom, &adf_bytes, false);
@@ -4135,7 +4135,7 @@ fn trace_wb13_validator_requester_payload_strings() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -4259,7 +4259,7 @@ fn trace_wb13_disk_write_path_gap() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -4365,7 +4365,7 @@ fn trace_wb13_trackdisk_beginio_requests() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut discover = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
@@ -4442,7 +4442,7 @@ fn trace_wb13_root_block_read_compare() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut discover = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
@@ -4590,7 +4590,7 @@ fn trace_wb13_workbench_display_memory() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -4727,7 +4727,7 @@ fn trace_wb13_workbench_screen_blits() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -4814,7 +4814,7 @@ fn trace_wb13_workbench_copper_display_build() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut discover = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
@@ -4927,7 +4927,7 @@ fn trace_wb13_workbench_copper_builder_source_context() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -4986,7 +4986,7 @@ fn trace_wb13_workbench_copper_source_block_writers() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     const WATCH_LO: u32 = 0x00C0_5C60;
@@ -5076,7 +5076,7 @@ fn trace_wb13_workbench_copper_source_slots() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -5134,7 +5134,7 @@ fn trace_wb13_workbench_display_slot_writers() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     const WATCH_LO: u32 = 0x00C0_5CE8;
@@ -5248,7 +5248,7 @@ fn trace_wb13_display_mode_source_field() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut discover = AmigaOcs::with_slow_ram(rom.clone(), 512 * 1024);
@@ -5382,7 +5382,7 @@ fn trace_wb13_display_custom_byte_writes() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -5446,7 +5446,7 @@ fn trace_wb13_copper_bplcon0_mode_writes() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -5503,7 +5503,7 @@ fn trace_wb13_hires_line_fetch_cadence() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);
@@ -5590,7 +5590,7 @@ fn trace_wb13_hires_line_actual_bitplane_fetches() {
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
     else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/media/commodore-amiga/workbench-1.3.adf");
     };
 
     let mut amiga = AmigaOcs::with_slow_ram(rom, 512 * 1024);

@@ -56,7 +56,7 @@ fn trace_a500_kick12_wb12_first_alert() {
         home.join(".emu198x/roms/commodore-amiga/kick12.rom"),
         "kick12.rom",
     ) else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/roms/commodore-amiga/kick12.rom");
     };
     let Some(adf_bytes) = load_artifact(
         home.join(".emu198x/media/commodore-amiga/workbench-1.2.adf"),
@@ -140,7 +140,7 @@ fn trace_a500_kick12_early_boot_branch_to_alert() {
         home.join(".emu198x/roms/commodore-amiga/kick12.rom"),
         "kick12.rom",
     ) else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/roms/commodore-amiga/kick12.rom");
     };
 
     let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, rom).expect("build KS 1.2 runtime");
@@ -239,7 +239,7 @@ fn trace_a500_kick12_chip_probe_instruction_flow() {
         home.join(".emu198x/roms/commodore-amiga/kick12.rom"),
         "kick12.rom",
     ) else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/roms/commodore-amiga/kick12.rom");
     };
 
     let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, rom).expect("build KS 1.2 runtime");
@@ -366,7 +366,7 @@ fn trace_a500_kick12_last_instructions_before_alert() {
         home.join(".emu198x/roms/commodore-amiga/kick12.rom"),
         "kick12.rom",
     ) else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/roms/commodore-amiga/kick12.rom");
     };
 
     let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, rom).expect("build KS 1.2 runtime");
@@ -423,7 +423,7 @@ fn trace_a500_kick12_cpu_detect_helper() {
         home.join(".emu198x/roms/commodore-amiga/kick12.rom"),
         "kick12.rom",
     ) else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/roms/commodore-amiga/kick12.rom");
     };
 
     let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, rom).expect("build KS 1.2 runtime");
@@ -501,7 +501,7 @@ fn trace_a500_kick12_pre_helper_call_and_alert_frame() {
         home.join(".emu198x/roms/commodore-amiga/kick12.rom"),
         "kick12.rom",
     ) else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/roms/commodore-amiga/kick12.rom");
     };
 
     let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, rom).expect("build KS 1.2 runtime");
@@ -588,7 +588,7 @@ fn trace_kick12_slow_ram_probe_on_a500_variants() {
         home.join(".emu198x/roms/commodore-amiga/kick12.rom"),
         "kick12.rom",
     ) else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/roms/commodore-amiga/kick12.rom");
     };
 
     for (model, label) in [
@@ -674,7 +674,7 @@ fn trace_kick12_nodisk_on_plain_256k_chip_machine() {
         home.join(".emu198x/roms/commodore-amiga/kick12.rom"),
         "kick12.rom",
     ) else {
-        return;
+        emu198x_test_skip::skip!("not staged: ~/.emu198x/roms/commodore-amiga/kick12.rom");
     };
 
     let mut amiga = AmigaOcs::with_ram_config(
