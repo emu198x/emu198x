@@ -402,16 +402,22 @@ mod tests {
     /// half-cycle 3, which independently confirms the one-T-state
     /// sampling offset the oracle calibrates.
     ///
-    /// The even half-cycles are the interesting column: they cost an
-    /// extra *half* T-state (5.5, 4.5, 3.5, …), because contention only
-    /// fires while `z80_clock_high`. Arriving on the opposite parity
+    /// These numbers survived the change of arming polarity byte for
+    /// byte, once this probe stopped naming a clock *level* and started
+    /// asking the gate which half-cycle arms it. That is the useful
+    /// result: the polarity moved which edge is withheld, and moved the
+    /// delay ramp not at all.
+    ///
+    /// The non-arming column is the interesting one: it costs an extra
+    /// *half* T-state (5.5, 4.5, 3.5, …), because contention only fires
+    /// on the arming half-cycle. Arriving on the opposite parity
     /// costs half a cycle that can only be spent as a whole one. That is
     /// the shape of the residual the per-instruction oracle reports on
     /// multi-M-cycle instructions and not on single-M-cycle ones, and it
     /// is something the canonical whole-T-state model cannot represent.
     ///
     /// Measured at both clock parities, the rule is that **the wait ends
-    /// only on a clock-high C0 that is not asserted**. The two parities
+    /// only on an arming C0 that is not asserted**. The two parities
     /// agree everywhere except inside the free window: a low-half arrival
     /// there must first reach the high half, and at pixel 2 that lands
     /// past the window, costing the full 13 C0 rather than 0.
@@ -451,13 +457,17 @@ mod tests {
 
         let mut measured = [(0u32, 0u32); 16];
 
-        println!("\n half-cycle  T-phase  stall@clkhi  stall@clklo  delta  canonical[T-phase]");
+        println!("\n half-cycle  T-phase  stall@arming  stall@other  delta  canonical[T-phase]");
         for h in 0..16u16 {
             let mut stalls = [0u32; 2];
-            for (slot, clk_hi) in [true, false].into_iter().enumerate() {
+            // Seed the *arming* parity, not the raw clock level. Which
+            // level arms the gate is a property of the gate and has moved
+            // once already; naming the level here is what made this probe
+            // need repairing when it did.
+            for (slot, arrives_arming) in [true, false].into_iter().enumerate() {
                 let mut ula = FerrantiUla::new(UlaRevision::Ferranti6C);
                 let mut fb = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
-                let _ = clk_hi;
+
                 // `video` is latched as the line's fetch window opens, so
                 // the ULA has to be ticked in from the start of a line rather
                 // than parked mid-window — jumping straight to a pixel leaves
@@ -479,21 +489,25 @@ mod tests {
                 // Clear the MREQT23 latch and the clock phase so the arrival
                 // is defined by the pixel counter alone.
                 ula.engine.mreq_t23 = false;
-                ula.engine.z80_clock_high = clk_hi;
+                ula.engine.z80_clock_high = !arrives_arming;
 
                 // Contended address, MREQ inactive. Count C0 cycles until
-                // the Z80 can actually advance past `T1`.
+                // the Z80 can advance past `T1`.
                 //
-                // The stop condition matters. The gate can only hold the
-                // clock *high*, so a cycle arriving on the low half is never
-                // withheld — stopping at "first cycle the clock is active"
-                // therefore reports zero for every low-half arrival, which is
-                // an artefact of the question, not a property of the gate.
-                // What the CPU is waiting for is a high-half cycle that is
-                // not withheld, so that is what is counted.
+                // The stop condition matters, and it has to follow the
+                // gate rather than restate it. The gate withholds only on
+                // the arming half-cycle, so a cycle arriving on the other
+                // one is never withheld — stopping at "first cycle the
+                // clock is active" reports zero for every such arrival,
+                // which is an artefact of the question. What the CPU is
+                // waiting for is an *arming* half-cycle that is not
+                // withheld, so that is what is counted. Asking
+                // `gate_arms_this_halfcycle` keeps this probe honest if the
+                // polarity is ever revisited; spelling the parity out here
+                // is what made it need repairing when it was.
                 let mut stall = 0u32;
                 for _ in 0..64 {
-                    let was_high = ula.engine.z80_clock_high;
+                    let was_arming = ula.engine.gate_arms_this_halfcycle();
                     Ula::tick(
                         &mut ula,
                         &ContendedMemory,
@@ -503,7 +517,7 @@ mod tests {
                         false,
                         &mut fb,
                     );
-                    if was_high && ula.cpu_clock_active() {
+                    if was_arming && ula.cpu_clock_active() {
                         break;
                     }
                     stall += 1;
@@ -542,11 +556,11 @@ mod tests {
             );
         }
 
-        // And the even half of each pair costs an extra C0 — half a
-        // T-state that can only be spent as a whole one, because the gate
-        // withholds the clock only while it is high. This is the shape of
-        // the residual the per-instruction oracle reports on multi-M-cycle
-        // instructions.
+        // And an arrival on the non-arming half costs an extra C0 — half
+        // a T-state that can only be spent as a whole one, because the
+        // gate withholds the clock only on the arming half. This is the
+        // shape of the residual the per-instruction oracle reports on
+        // multi-M-cycle instructions.
         for h in (4..15).step_by(2) {
             assert_eq!(
                 measured[h].0,
