@@ -432,6 +432,8 @@ jobs:
           echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
           echo "EMU198X_SPECTRUM_SYSTEM_TESTS_DIR=$(pwd)/spectrum-system-tests/tapes" >> "$GITHUB_ENV"
           echo "EMU198X_SPECTRON_RESULTS_DIR=$(pwd)/spectrum-system-tests/spectron-results" >> "$GITHUB_ENV"
+          echo "EMU198X_SPECTRUM_128K_ROM0=$(pwd)/spectrum-system-tests/roms/128-0.rom" >> "$GITHUB_ENV"
+          echo "EMU198X_SPECTRUM_128K_ROM1=$(pwd)/spectrum-system-tests/roms/128-1.rom" >> "$GITHUB_ENV"
 
       - name: Assert the corpus is actually present
         # These tests `return` early when their tape or ROM is missing, so a
@@ -444,7 +446,9 @@ jobs:
                    "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/Float48k.tap" \
                    "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/Float128k.tap" \
                    "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/floatspy.tap" \
-                   "${EMU198X_SPECTRON_RESULTS_DIR}/floatspy_48.png"; do
+                   "${EMU198X_SPECTRON_RESULTS_DIR}/floatspy_48.png" \
+                   "${EMU198X_SPECTRUM_128K_ROM0}" \
+                   "${EMU198X_SPECTRUM_128K_ROM1}"; do
             if [ ! -f "$f" ]; then
               echo "::error::missing corpus input: $f — the floating-bus tests would skip silently"
               exit 1
