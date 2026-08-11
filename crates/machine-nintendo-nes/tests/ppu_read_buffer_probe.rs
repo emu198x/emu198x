@@ -12,7 +12,8 @@
 //! resolution before spending time on them.
 //!
 //! ⚠ Still open, but narrowed a long way. We reach the ROM's art phase
-//! 39 frames later than Mesen2 (638 vs 599). It is entirely accounted
+//! 38 frames later than Mesen2 — 1 131 774 CPU cycles, measured
+//! identically at both ends of the art phase. It is entirely accounted
 //! for by one 31-iteration sub-test loop that spends 92% of its time in
 //! the VBlank wait at `$EBD5`:
 //!
@@ -668,7 +669,13 @@ fn probe_palette_phase_boundaries() {
             frame += 1;
             let now = resolve(nes.ppu.palette_ram());
             if now != last {
-                println!("frame {frame:>5}: {now}");
+                // ⚠ Quote CPU cycles alongside the frame. Frame counters
+                // are convention-dependent across emulators — a Mesen
+                // script's own counter starts at script load,
+                // `ppu.frameCount` at power-on, and the gap between them
+                // depends on where in the frame you sample. CPU cycles
+                // have no such ambiguity.
+                println!("frame {frame:>5} cpu={:>10}: {now}", nes.cpu_cycle_count());
                 last = now;
             }
             nes.tick();
@@ -894,7 +901,7 @@ fn probe_subtest_loop_pcs() {
 /// the real exit — the two are not comparable, and treating them as
 /// comparable produced a bogus "waited 0 frames" reading.
 ///
-/// This is the measurement that localises the 39-frame divergence. The
+/// This is the measurement that localises the 38-frame divergence. The
 /// call sequence and positions agree with Mesen2 for the first half of
 /// each iteration and then drift a few dots late, which is enough to
 /// push one wait past a threshold and cost a whole extra frame.
@@ -1288,7 +1295,7 @@ fn probe_nmi_vs_poll_race() {
 ///
 /// ⚠ Bisects where the two emulators' phase first diverges. Both run the
 /// same ROM deterministically, so identical behaviour would keep them in
-/// the same phase; they are 39 frames apart by the end, so at least one
+/// the same phase; they are 38 frames apart by the end, so at least one
 /// thing differs at least once, and this finds the first frame where it
 /// shows.
 ///

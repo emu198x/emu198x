@@ -815,8 +815,12 @@ progress."* Sampling the phase boundaries on both sides
 
 | | art phase starts | art phase ends | duration |
 |---|---|---|---|
-| Mesen2 | frame 599 | frame 1264 | 666 frames |
-| Emu198x | frame 638 | frame 1303 | 666 frames |
+| Mesen2 | CPU cycle 17 865 828 | 37 699 641 | 666 frames |
+| Emu198x | CPU cycle 18 997 602 | 38 831 415 | 666 frames |
+
+⚠ Quoted in CPU cycles, not frames, and see the correction in
+[the later section](#chasing-the-38-frame-divergence) for why. The gap is
+1 131 774 cycles — **38 frames** — and it is identical at both ends.
 
 At frame 600 Mesen had entered the art phase and we had not. **Two different
 phases of the same correct sequence were being compared.** Our art-phase
@@ -855,12 +859,12 @@ flipped this ROM: it was on `VISUAL_ROMS`, so raising the ceiling never ran it.
 **A ROM excluded from the sweep is excluded from the sweep's experiments too**,
 and the exclusion cites a timeout the exclusion itself made permanent.
 
-### Left open — a 39-frame timing divergence
+### Left open — a 38-frame timing divergence
 
-We reach the art phase 39 frames after Mesen (638 vs 599), and every phase
-boundary from frame 466 onward carries the same 39-frame offset with identical
+We reach the art phase 38 frames after Mesen, and every phase
+boundary from frame 466 onward carries the same offset with identical
 durations. Frames 1-58 agree exactly, so one thing between frames 58 and 466
-costs us 39 frames.
+costs us 38 frames.
 
 `probe_nametable_change_frames` localises it to a single sub-test loop that
 updates one nametable row 31 times — the sprite-0-hit / `$4014` DMA / RAM
@@ -872,7 +876,7 @@ measured and **acquitted**: our per-frame CPU cycle count alternates
 29 781/29 780, which is right for an 89 342/89 341-dot pair with the odd-frame
 dot skip active.
 
-Chased further on 2026-08-11 — see [the section below](#chasing-the-39-frame-divergence).
+Chased further on 2026-08-11 — see [the section below](#chasing-the-38-frame-divergence).
 
 ## PAL video: the blocker is gone, and the instrument is the wrong one
 
@@ -1018,9 +1022,9 @@ Total: 174  Pass: 152  Fail: 2  Timeout: 0  Gated: 20  Visual: 0
 verified. The gates differ in strength, and the standing warning still holds:
 absence of a failing gate is not evidence of correctness where no gate runs.
 
-## Chasing the 39-frame divergence
+## Chasing the 38-frame divergence
 
-Worked 2026-08-11. Not closed, but narrowed from "39 frames somewhere in a
+Worked 2026-08-11. Not closed, but narrowed from "38 frames somewhere in a
 600-frame run" to a single wait, a single threshold, and one specific unanswered
 question. Four candidate causes were measured and acquitted, and one wrong claim
 was made and retracted along the way.
@@ -1147,6 +1151,45 @@ labels produced a defect claim that direct measurement then refuted** — the OA
 DMA span, and now this. The rule is worth stating plainly: *labels are not
 observations.* Compare behaviour anchored to an event both sides agree on, or
 compare each side against the documented rule separately.
+
+### ⚠ A third correction: it is 38 frames, not 39
+
+The headline figure was wrong, and by the same mechanism as the other two.
+
+`palette-phases.lua` counts frames with **its own counter**, which starts when
+the script loads — after `LoadRom`. Our probe counts from power-on. Comparing
+599 against 638 therefore compared two different origins.
+
+Worse, the offset is not even constant: `ppu.frameCount` minus a script's own
+counter is **1** when sampled from an `endFrame` callback and **2** from a
+mid-frame memory callback, because the script's counter has only been
+incremented for completed frames. Two Mesen scripts using different counters
+cannot be compared with each other either — which briefly made the suppression
+frames look like they matched the skipped frames for the wrong reason.
+
+Re-anchored on CPU cycles, which have no frame-boundary convention:
+
+| | art phase starts | art phase ends |
+|---|---|---|
+| Mesen2 | 17 865 828 | 37 699 641 |
+| Emu198x | 18 997 602 | 38 831 415 |
+| difference | **1 131 774** | **1 131 774** |
+
+1 131 774 CPU cycles is **38 frames**. Identical at both ends, which is the
+same fact the equal 666-frame durations were showing.
+
+**Three wrong numbers in one investigation, all from the same cause: comparing
+labels across instruments that do not share a convention.** The DMA span
+compared PC-update against opcode-fetch; the suppression dot compared
+about-to-process against just-processed; the headline compared script-load
+origin against power-on origin. None of the underlying behaviour was ever
+wrong.
+
+The rule earned here: **quote cross-emulator measurements in CPU cycles.**
+They count from power-on in both, they have no frame-boundary or
+before/after-processing ambiguity, and every comparison in this investigation
+that used them — the per-slot counts, the per-iteration totals, the DMA trace —
+was correct first time.
 
 ### What remains open
 

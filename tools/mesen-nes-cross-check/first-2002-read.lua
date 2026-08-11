@@ -13,9 +13,19 @@
 local FIRST = 40
 local LAST = 140
 local seen = {}
+-- ⚠ Count frames locally, exactly as palette-phases.lua and
+-- nametable-phases.lua do. `ppu.frameCount` counts from power-on while a
+-- script's own counter starts when the script loads — after LoadRom — so
+-- the two differ by a constant, and mixing them silently offsets every
+-- frame number in a cross-script comparison.
+local frames = 0
+emu.addEventCallback(function()
+  frames = frames + 1
+end, emu.eventType.endFrame)
+
 emu.addMemoryCallback(function()
   local st = emu.getState()
-  local f = st["ppu.frameCount"]
+  local f = frames
   if f < FIRST or f > LAST or seen[f] then
     return
   end

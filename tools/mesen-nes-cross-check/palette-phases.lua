@@ -35,7 +35,15 @@ emu.addEventCallback(function()
   end
   local now = palette()
   if now ~= last then
-    emu.log("PHASE " .. string.format("%5d", frames) .. " " .. now)
+        local st = emu.getState()
+    -- ⚠ Frame counters are convention-dependent: a script's own counter
+    -- starts at script load, `ppu.frameCount` at power-on, and the gap
+    -- between them depends on WHERE IN THE FRAME you sample (1 at
+    -- endFrame, 2 from a mid-frame memory callback on this ROM). CPU
+    -- cycles have no such ambiguity, so quote them for anything compared
+    -- across emulators.
+    emu.log(string.format("PHASE local=%5d abs=%5d cpu=%d %s",
+      frames, st["ppu.frameCount"], st["cpu.cycleCount"], now))
     last = now
   end
   if frames == LIMIT then

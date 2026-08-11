@@ -21,10 +21,20 @@
 local FIRST = 150
 local LAST = 200
 
+-- ⚠ Count frames locally, as palette-phases.lua and
+-- nametable-phases.lua do. `ppu.frameCount` counts from power-on and a
+-- script's own counter starts at script load — they differ by 2 on this
+-- ROM, and mixing them silently offsets every frame number in a
+-- cross-script comparison.
+local frames = 0
+emu.addEventCallback(function()
+  frames = frames + 1
+end, emu.eventType.endFrame)
+
 local function log_at(tag)
   return function()
     local st = emu.getState()
-    local f = st["ppu.frameCount"]
+    local f = frames
     if f < FIRST or f > LAST then
       return
     end
@@ -41,7 +51,7 @@ emu.addMemoryCallback(function()
   -- ⚠ emu.getState() returns a FLAT table with dotted key names —
   -- st["ppu.scanline"], not st.ppu.scanline. The nested form indexes nil.
   local st = emu.getState()
-  local f = st["ppu.frameCount"]
+  local f = frames
   if f < FIRST or f > LAST then
     return
   end
@@ -49,7 +59,7 @@ emu.addMemoryCallback(function()
 end, emu.callbackType.exec, 0xEBD2)
 
 emu.addEventCallback(function()
-  if emu.getState()["ppu.frameCount"] == LAST then
+  if frames == LAST then
     emu.log("DONE")
   end
 end, emu.eventType.endFrame)

@@ -8,7 +8,7 @@
 -- cycle and 514 when it lands on a put cycle, so across a run the cost
 -- MUST take both values. Emu198x reports the identical cost every single
 -- time here, which would lock the CPU/PPU phase and is the leading
--- suspect for the 39-frame divergence. This measures Mesen2's.
+-- suspect for the 38-frame divergence. This measures Mesen2's.
 --
 -- ⚠ Measured from $E50F to the JSR TARGET $E2C9, not to $E512. Mesen
 -- runs a pending DMA on the cycle after the write, so the exec callback

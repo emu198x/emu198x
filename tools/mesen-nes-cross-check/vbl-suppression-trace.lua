@@ -1,7 +1,7 @@
 -- Every $2002 read landing near the VBlank set dot, with what it read.
 --
 -- ⚠ This decides between two very different explanations for the
--- 39-frame divergence in test_ppu_read_buffer.
+-- 38-frame divergence in test_ppu_read_buffer.
 --
 -- The wait loop at $EBD5 polls $2002 every 7 CPU cycles = 21 dots. In
 -- Emu198x one of those polls lands exactly on scanline 241 dot 1 — the
@@ -23,9 +23,19 @@
 local FIRST = 150
 local LAST = 200
 
+-- ⚠ Count frames locally, exactly as palette-phases.lua and
+-- nametable-phases.lua do. `ppu.frameCount` counts from power-on while a
+-- script's own counter starts when the script loads — after LoadRom — so
+-- the two differ by a constant, and mixing them silently offsets every
+-- frame number in a cross-script comparison.
+local frames = 0
+emu.addEventCallback(function()
+  frames = frames + 1
+end, emu.eventType.endFrame)
+
 emu.addMemoryCallback(function(address, value)
   local st = emu.getState()
-  local f = st["ppu.frameCount"]
+  local f = frames
   if f < FIRST or f > LAST then
     return
   end

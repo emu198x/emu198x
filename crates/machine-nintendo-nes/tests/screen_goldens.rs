@@ -327,8 +327,9 @@ fn probe_frame_alignment() {
 //     ~1450 it needs. It is graded by the sweep now, on the author's
 //     own protocol, which beats any golden.
 //
-//     ⚠ Left open: reaching the art phase takes us 39 frames longer
-//     than Mesen — 638 vs 599, with identical 666-frame duration
+//     ⚠ Left open: reaching the art phase takes us 38 frames longer
+//     than Mesen — 1 131 774 CPU cycles, identical at both phase
+//     boundaries, with identical 666-frame duration
 //     either side. Localised to one 31-iteration sub-test loop whose
 //     cadence is a flat 12 frames for us and a repeating 12,10,10 for
 //     Mesen. Cause unknown; CPU/PPU alignment was measured and
