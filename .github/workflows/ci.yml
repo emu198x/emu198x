@@ -173,7 +173,42 @@ jobs:
         # runs them. This is the workspace test step too — there is
         # no separate `cargo test --workspace` job; the regression
         # signal comes from this run's pass/fail.
+        env:
+          # Tests that need a ROM, corpus or disk image return early when
+          # it is absent and libtest prints `ok`, so a green run cannot be
+          # told from a vacuous one. libtest captures output from passing
+          # tests, which is why grepping this log for "skipping" finds
+          # nothing — the file survives that capture.
+          #
+          # Deliberately not strict here: CI genuinely has no ROMs, so a
+          # skip is honest. EMU198X_STRICT_FIXTURES belongs on the nightly
+          # accuracy run, which provisions fixtures — but only once every
+          # guard has been converted, or it fails on the unconverted ones
+          # for the wrong reason. See the tally below for what remains.
+          EMU198X_SKIP_LOG: ${{ github.workspace }}/target/test-skips.tsv
         run: ./scripts/coverage.sh
+
+      - name: Publish skipped-fixture summary
+        # Runs even when the suite fails — a failing run is exactly when
+        # you want to know how much of it never executed.
+        if: always()
+        run: |
+          log="${GITHUB_WORKSPACE}/target/test-skips.tsv"
+          {
+            echo "## Skipped for missing fixtures"
+            echo
+            if [ ! -s "${log}" ]; then
+              echo "None — every test ran."
+            else
+              echo "**$(wc -l < "${log}" | tr -d ' ') tests did not run.**"
+              echo "A green suite does not cover these."
+              echo
+              echo '| Count | Fixture |'
+              echo '|---|---|'
+              cut -f2 "${log}" | sort | uniq -c | sort -rn \
+                | sed -E 's/^ *([0-9]+) (.*)$/| \1 | \2 |/'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Run Spectrum-side coverage gate
         # Gates the SOLID criterion 11 floor. The summary step below

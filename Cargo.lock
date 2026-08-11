@@ -1319,6 +1319,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-test-skip"
+version = "0.2.0"
+
+[[package]]
 name = "emu198x-ui"
 version = "0.2.0"
 dependencies = [
@@ -3960,6 +3964,7 @@ name = "runtime-dragon"
 version = "0.2.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-test-skip",
  "format-dragon-bin",
  "format-dragon-cas",
  "format-dragon-disk",

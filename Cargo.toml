@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     # Active members
+    "crates/emu198x-test-skip",
     "crates/common-acorn-cassette",
     "crates/common-commodore-amiga",
     "crates/common-commodore-c64",
