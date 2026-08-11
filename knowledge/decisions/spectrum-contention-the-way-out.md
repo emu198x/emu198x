@@ -82,6 +82,32 @@ fed wrong pins can never be right, and none of this is contentious — it is
 Zilog against us. Add golden waveforms per M-cycle type so they cannot drift
 back. **Prerequisite for everything else.**
 
+### Phase 2 baseline, recorded 2026-08-11 at `d9d5e58b`
+
+```
+classification: TYPE1 (Early) timings detected.
+cases recorded: 70  failing: 36
+```
+
+**34/70.** The infrastructure Phase 2 needs already exists: the survey writes
+`target/accuracy/spectrum-timing-survey/<commit>/report.json`, so per-commit
+tracking is a matter of using it rather than building it.
+
+Two things make this a better gate than the frame-wide differential, beyond
+being real software:
+
+- **Every failure names an instruction class.** `test 35 IN A,(n); OUT (n),A;
+  IN r,(C)` is the I/O contention work; `test 30 LDI; LDIR` is block transfer;
+  `test 3 NOP; LD r,r; INC r; DEC r` is the simplest possible case and is
+  currently 407 against an expected 405. That is a diagnostic surface a
+  frame-total can never give.
+- **It classifies the machine.** "TYPE1 (Early)" is the survey's own reading of
+  which real-hardware timing variant we behave like — a fact about us worth
+  watching across changes, and one no model differential reports.
+
+Of the 36 failures, 33 are contended cases and 3 uncontended, so most of the
+gap is contention rather than base instruction timing.
+
 **Phase 2 — change the acceptance criterion.** Promote real test programs to
 the primary contention gate:
 
