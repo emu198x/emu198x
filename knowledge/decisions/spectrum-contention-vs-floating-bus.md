@@ -653,16 +653,55 @@ reproduces FUSE across four case families under one alignment:
 origin, the delay table, and the stall model. And `MREQT23`, which should
 stay out.
 
+## Retraction: the engine-scoring half of the harness is unsound
+
+The table above — `NOP` exact, `$40FE` +6, `$C0FE` −1, and everything that
+followed from it — **cannot be relied on**. `driver.rs` calls `tick_ula()`
+*before* `tick_cpu_and_bus()`, so the real gate always sees the pins left
+by the previous CPU tick. `engine_cost` feeds it the current entry, which
+shifts the comparison by a half-cycle.
+
+That is precisely the width of the window `IOREQTW3` opens and closes in,
+so the error changes the verdict on the two ULA-port classes and leaves
+everything else looking right. The tell was there and was missed: with all
+five pin fixes and the gate fix applied, the harness reported six of seven
+cases exact while the frame-wide differential reported the contended-page
+pair *over*-separated at −12.29 against a wanted −6.96. Two instruments
+disagreeing is a fact about the instruments, and the frame-wide one has
+been pinned to FUSE and to the interrupt; this one had not been checked
+against the machine at all.
+
+**What survives.** The model-against-FUSE tests are untouched by this —
+they involve no engine, no driver and no offset. So these still stand:
+the HDL model reproduces FUSE's four-way port table, its `M1` contention,
+and `LD A,(HL)`/`LD BC,(nn)`, all under one shared rotation; and the five
+Z80 pin defects, which were read off `bus_pin_waveform.rs` against Zilog
+rather than through this harness.
+
+**What does not.** Every claim about *where the engine differs* — the +6,
+the −1, "memory contention is right", and "MREQT23 is not needed". That
+last one is the costly retraction: it was the conclusion that closed a
+months-old parked decision, and it rested on `NOP`, `LD A,(HL)` and
+`LD BC,(nn)` measuring exact through this harness. They may or may not.
+
+Naively lagging the pin feed is *not* the fix — tried, and it made every
+case worse, because during a stall the CPU does not tick and the lag must
+not accumulate. Three attempts were made on this and each was worse than
+the last; nothing was landed.
+
 ## Next
 
-1. Land all five as one change. None is an improvement alone — the pin
-   fixes make the measured system worse while the gate miscounts the
-   corrected window, and the gate fixes need correct pins to have anything
-   right to count. That mutual dependence is why every attempt so far
-   see-sawed, and it is now understood rather than merely observed.
-2. Re-measure against the gate-level harness, the frame-wide differential,
-   the timing survey, and floatspy — in that order, cheapest first.
-3. Only then the floating bus. It remains untouched by all of this —
+1. Fix `engine_cost` to drive the ULA the way `driver.rs` does, and
+   re-derive the engine-side table from scratch. Until then the only
+   trustworthy statements about the engine come from the frame-wide
+   differential.
+2. Re-open `MREQT23`. It is not settled.
+3. Land the five pin fixes with the gate as one change, once there is a
+   sound instrument to judge it by. Applied together they are measurably
+   *not* an improvement on the frame-wide differential today
+   (contended-page pair −12.29 against −6.96 wanted, and `$C0FE` not
+   contending), so something in the gate is still wrong.
+4. Only then the floating bus. It remains untouched by all of this —
    floatspy reads `$00FF`, which no I/O change can reach.
 2. Reconcile `MREQT23` with the HDL. The HDL requires the latch; our
    measurement says wiring it costs one T-state per contended `M1` pair.

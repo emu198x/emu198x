@@ -734,6 +734,22 @@ fn engine_cost(pixel_phase: u16, pins: &[HalfCycle]) -> Option<u32> {
 
 /// Score the engine's gate against the model, pin for pin.
 ///
+/// **Unsound as written — do not trust its verdict on the engine.**
+/// `driver.rs` calls `tick_ula()` *before* `tick_cpu_and_bus()`, so the
+/// real gate always sees the pins left by the previous CPU tick. This
+/// feeds it the current entry instead, which shifts the comparison by a
+/// half-cycle. That is exactly the width of the window `IOREQTW3` opens
+/// and closes in, so it changes the verdict on the two ULA-port classes
+/// and leaves the rest looking right — which is how it disagreed with the
+/// frame-wide differential while appearing to pass.
+///
+/// The model-against-FUSE tests above are unaffected: no engine, no
+/// driver, no offset. Only the engine-scoring tests need this fixed, and
+/// naively lagging the pin feed is not the fix — it was tried and made
+/// every case worse, because during a stall the CPU does not tick and the
+/// lag must not accumulate.
+
+///
 /// Both produce a 16-entry table indexed by their own phase counter, and
 /// neither counter's origin is fixed by anything here — so, as everywhere
 /// else in this file, the comparison is a search for **one rotation shared
