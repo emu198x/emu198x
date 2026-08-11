@@ -543,13 +543,19 @@ fn kempston_attaches_on_first_gamepad_event_128k() -> Result<(), Box<dyn Error>>
 fn contention_table_matches_canonical_for_known_window() {
     use common_sinclair_zx_spectrum::ula_engine::{DELAY_TABLE_48K, DELAY_TABLE_PLUS2A};
 
-    // 48K/128K: contention active during the 12 fetch-window phases
-    // (indices 3-14), idle on the 4 phases that bracket the cycle
-    // (0, 1, 2, 15). Produces `[6, 5, 4, 3, 2, 1, 0, 0]` once sampled
-    // at one entry per T-state — see contention.md §"48K".
+    // 48K/128K: contention active for 12 phases (indices 0-11), free on
+    // the 4 that follow the ULA's fetch group (12, 13, 14, 15). Produces
+    // `[6, 5, 4, 3, 2, 1, 0, 0]` once sampled at one entry per T-state —
+    // see contention.md §"48K".
+    //
+    // The free run was at 15, 0, 1, 2 until the table stopped being a
+    // literal and started being `C3 + C2` read on the counter origin the
+    // ULA's own fetch group fixes. Straddling the T-state boundary at
+    // both ends is what let the window's effective phase depend on which
+    // half-cycle the CPU arrived on; whole T-states cannot.
     let expected_48k: [bool; 16] = [
-        false, false, false, true, true, true, true, true, true, true, true, true, true, true,
-        true, false,
+        true, true, true, true, true, true, true, true, true, true, true, true, false, false,
+        false, false,
     ];
     assert_eq!(
         DELAY_TABLE_48K, expected_48k,

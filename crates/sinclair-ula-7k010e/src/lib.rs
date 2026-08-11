@@ -74,10 +74,27 @@ impl Ula for SinclairUla {
             None
         };
         // HALT2INT128's early-128K hardware profile fixes the delay-table
-        // origin one ULA pixel after this logical /Border coordinate. The
-        // alternating Z80 clock level then produces the documented
-        // T-state contention ramp across the two-pixel CPU clock cells.
-        let phase = contention_pixel.map(|pixel| ((pixel as usize) + 1) & 0x0F);
+        // origin against this logical /Border coordinate. The alternating
+        // Z80 clock level then produces the documented T-state contention
+        // ramp across the two-pixel CPU clock cells.
+        //
+        // The offset was `+1` while `DELAY_TABLE_48K` was a literal whose
+        // free run sat at half-cycles 15, 0, 1, 2. That table is now
+        // derived from the counter bits with its origin taken from the
+        // ULA's own fetch group, which moved the free run three pixels
+        // earlier to 12–15. This offset carries the same three pixels the
+        // other way, so the 128K's raster alignment is exactly the one
+        // HALT2INT128 pinned — unchanged, half-cycle for half-cycle.
+        //
+        // Two constants held the 128K's phase between them and only their
+        // sum was ever measured; splitting the change would have moved the
+        // sum, which is why they move together here. The 128K has no
+        // arrival-resolved memory differential of its own yet — when it
+        // does, this offset is the first thing it should be asked about,
+        // because the 48K needs no such term at all.
+        const HDL_TABLE_ORIGIN_SHIFT: usize = 3;
+        let phase = contention_pixel
+            .map(|pixel| ((pixel as usize) + 1 + 16 - HDL_TABLE_ORIGIN_SHIFT) & 0x0F);
 
         // Snow: a CPU refresh with I in screen-RAM range collides with
         // the video fetch (the Sinclair ULA ignores /RFSH). gap #12.

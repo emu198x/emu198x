@@ -25,6 +25,7 @@
 //! ```
 
 use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::ula_engine::HDL_HC_LEAD_PIXELS;
 use ferranti_ula_6c001e::hdl_model::{HdlGate, Pins};
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 
@@ -71,16 +72,36 @@ struct Divergence {
     model_contends: bool,
 }
 
+/// The HDL's `hc` for one of our pixel counts.
+///
+/// The two counters run at the same rate and wrap at the same place, and
+/// this harness used to hand one straight to the other. They do not share
+/// an origin: the HDL presents display addresses to VRAM at `hc[3:0]` 8,
+/// 9, 12, 13 and attributes at 10, 11, 14, 15, where ours fetches at
+/// pixels 4–11. Four pixels, and every signal the HDL indexes by `hc`
+/// inherits them — `hc[2] | hc[3]` above all, which is the whole
+/// contention window.
+///
+/// Passing `t.pixel` through unconverted made the model disagree with the
+/// engine across the entire fetch group and read as a gate defect. It was
+/// an assumption in the harness. See `HDL_HC_LEAD_PIXELS`.
+/// The recording carries `pixel & 0x0F`, and `hc[2]`/`hc[3]` are the only
+/// bits the gate reads, so the conversion stays inside one 16-pixel cycle.
+fn hdl_hc(pixel: u16) -> u16 {
+    debug_assert!(pixel < 16, "the recorder stores a phase, not a counter");
+    (pixel + HDL_HC_LEAD_PIXELS as u16) & 0x0F
+}
+
 /// Replay a recording through the model and return where they differ.
 fn replay(trace: &[ferranti_ula_6c001e::UlaTick]) -> (Vec<Divergence>, usize) {
     let first = trace.first().expect("recording should not be empty");
-    let mut gate = HdlGate::with_clock(first.pixel, first.clock_high_before);
+    let mut gate = HdlGate::with_clock(hdl_hc(first.pixel), first.clock_high_before);
     let mut out = Vec::new();
     let mut latch_mismatches = 0usize;
 
     for (index, t) in trace.iter().enumerate() {
         // Lockstep on raster and clock; the gate and latches stay free.
-        gate.hc = t.pixel;
+        gate.hc = hdl_hc(t.pixel);
         gate.cpu_clk = t.clock_high_before;
 
         // The engine stores `mreq_t23` as the latched *active-high* pin;

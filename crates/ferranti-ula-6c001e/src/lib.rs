@@ -387,20 +387,25 @@ mod tests {
     /// Measure the gate's *effective* delay table and print it beside the
     /// canonical one.
     ///
-    /// The residual on multi-M-cycle instructions in the per-instruction
-    /// oracle is unexplained, and one candidate is that the engine's
-    /// table sits at a different phase origin from the published
-    /// `[6,5,4,3,2,1,0,0]`: `DELAY_TABLE_48K` is free at half-cycles
-    /// 15, 0, 1 and 2, whereas the canonical pattern's zero-delay slots
-    /// are T-phases 6 and 7. Rather than argue from the table's contents,
-    /// this ticks the ULA to each arrival half-cycle in turn and counts
-    /// how long the clock is actually withheld.
+    /// Rather than argue from the table's contents, this ticks the ULA to
+    /// each arrival half-cycle in turn and counts how long the clock is
+    /// actually withheld.
     ///
-    /// The answer is that the table is **not** misaligned. At odd
-    /// half-cycles the measured stalls are 6, 5, 4, 3, 2, 1, 0, 0
-    /// T-states — canonical exactly — with the phase origin at
-    /// half-cycle 3, which independently confirms the one-T-state
-    /// sampling offset the oracle calibrates.
+    /// The measured ramp is `6, 5, 4, 3, 2, 1, 0, 0` T-states with its
+    /// phase origin at **half-cycle 0** — the canonical pattern, on the
+    /// canonical T-state grid, with no rotation constant between them.
+    /// That is what `DELAY_TABLE_48K` being derived from `C3 + C2` on the
+    /// fetch group's origin buys: the CPU's T-states and the ULA's pixel
+    /// counter start together, and each delay slot is two whole pixels of
+    /// one T-state rather than a pair straddling a boundary.
+    ///
+    /// The literal this replaced was free at half-cycles 15, 0, 1 and 2
+    /// and reproduced the same ramp at origin 3. It read as canonical
+    /// too, and the difference did not show up here — a single access
+    /// pays the same ramp either way. It showed up as a whole-T-state
+    /// shift of the window against the frame, which is what
+    /// `contention_oracle`'s arrival-resolved differential scores and
+    /// this probe cannot see.
     ///
     /// These numbers survived the change of arming polarity byte for
     /// byte, once this probe stopped naming a clock *level* and started
@@ -408,38 +413,27 @@ mod tests {
     /// result: the polarity moved which edge is withheld, and moved the
     /// delay ramp not at all.
     ///
-    /// The non-arming column is the interesting one: it costs an extra
-    /// *half* T-state (5.5, 4.5, 3.5, …), because contention only fires
-    /// on the arming half-cycle. Arriving on the opposite parity
-    /// costs half a cycle that can only be spent as a whole one. That is
-    /// the shape of the residual the per-instruction oracle reports on
-    /// multi-M-cycle instructions and not on single-M-cycle ones, and it
-    /// is something the canonical whole-T-state model cannot represent.
+    /// The non-arming column is the interesting one: it costs one C0
+    /// *less* than the arming one — half a T-state that can only be spent
+    /// as a whole one, because the gate withholds only on the arming
+    /// half. That is the shape of the residual the per-instruction oracle
+    /// still reports on multi-M-cycle instructions and not on
+    /// single-M-cycle ones, and it is something the canonical
+    /// whole-T-state model cannot represent.
     ///
-    /// Measured at both clock parities, the rule is that **the wait ends
-    /// only on an arming C0 that is not asserted**. The two parities
-    /// agree everywhere except inside the free window: a low-half arrival
-    /// there must first reach the high half, and at pixel 2 that lands
-    /// past the window, costing the full 13 C0 rather than 0.
-    ///
-    /// Worth recording what this does *not* explain. Applying that rule
-    /// to the arrivals the single-M-cycle anchors actually see leaves
-    /// their wait unchanged, so the parity term — now pinned by
-    /// measurement rather than fitted — is not the cause of the one
-    /// T-state those cases are out by in the oracle.
+    /// The two parities now agree on every slot of the ramp, where the
+    /// literal made them differ inside the free window. `h = 15` is the
+    /// one boundary case left: a non-arming arrival on the last free
+    /// half-cycle reaches the arming half only after the window has shut,
+    /// and pays the whole next rotation.
     #[test]
     fn effective_delay_table() {
         use common_sinclair_zx_spectrum::timing;
         const CANONICAL: [u32; 8] = [6, 5, 4, 3, 2, 1, 0, 0];
 
-        /// The measured table, in C0 half-cycles, as `(clk high, clk low)`
-        /// per arrival half-cycle. Two of these are boundary cases rather
-        /// than delay slots: `h = 2` is where the fetch window opens, and
-        /// `h = 0` / `h = 15` sit either side of the wrap.
+        /// The measured table, in C0 half-cycles, as `(arming, other)` per
+        /// arrival half-cycle.
         const MEASURED: [(u32, u32); 16] = [
-            (0, 1),
-            (0, 1),
-            (0, 13),
             (12, 12),
             (11, 11),
             (10, 10),
@@ -453,6 +447,9 @@ mod tests {
             (2, 2),
             (1, 1),
             (0, 1),
+            (0, 1),
+            (0, 1),
+            (0, 13),
         ];
 
         let mut measured = [(0u32, 0u32); 16];
@@ -542,30 +539,40 @@ mod tests {
         );
 
         // The property the table above is evidence *for*, stated directly
-        // so a coincidental match cannot pass for the real thing: on the
-        // clock-high half, odd arrivals reproduce the canonical
-        // [6,5,4,3,2,1,0,0] pattern in T-states, with the phase origin at
-        // half-cycle 3.
-        for h in (1..16).step_by(2) {
+        // so a coincidental match cannot pass for the real thing: an
+        // arrival on the arming half of T-phase `p` stalls `CANONICAL[p]`
+        // T-states, with the phase origin at half-cycle 0.
+        //
+        // There is no rotation constant in that statement, and there was
+        // one before. A `slot` expression is where a phase error hides:
+        // it can be chosen to make any alignment read as canonical, which
+        // is exactly what it did.
+        for h in (0..16).step_by(2) {
             let t_states = measured[h].0 / 2;
-            let slot = ((h + 13) / 2) % 8;
+            let slot = h / 2;
             assert_eq!(
                 t_states, CANONICAL[slot],
-                "odd half-cycle {h} should stall {} T-states (canonical slot {slot}), not {t_states}",
+                "half-cycle {h} opens T-phase {slot} and should stall {} \
+                 T-states, not {t_states}",
                 CANONICAL[slot],
             );
         }
 
-        // And an arrival on the non-arming half costs an extra C0 — half
-        // a T-state that can only be spent as a whole one, because the
-        // gate withholds the clock only on the arming half. This is the
-        // shape of the residual the per-instruction oracle reports on
+        // And within a T-phase the second half-cycle costs one C0 less —
+        // half a T-state that can only be spent as a whole one, because
+        // the gate withholds the clock only on the arming half. This is
+        // the shape of the residual the per-instruction oracle reports on
         // multi-M-cycle instructions.
-        for h in (4..15).step_by(2) {
+        //
+        // Bounded to the ramp. Inside the free window the relationship
+        // inverts: there is nothing left to withhold, so the second
+        // half-cycle costs one C0 *more* while it waits for an arming
+        // half to arrive.
+        for h in (0..12).step_by(2) {
             assert_eq!(
                 measured[h].0,
                 measured[h + 1].0 + 1,
-                "even half-cycle {h} should cost one C0 more than {}",
+                "half-cycle {h} should cost one C0 more than {}",
                 h + 1,
             );
         }
