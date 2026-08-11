@@ -516,13 +516,16 @@ impl Z80 {
                 self.phase = Phase::M1(M1Phase::T4Rise);
             }
             M1Phase::T4Rise => {
-                // End refresh
-                self.mreq = false;
+                // The refresh `/MREQ` pulse is a full clock wide — Zilog
+                // UM0080 drops it on `T3`↓ and releases it on `T4`↓, so it
+                // spans `T3b`–`T4a` and is still low through this half-cycle.
                 self.rfsh = false;
                 self.regs.inc_r();
                 self.phase = Phase::M1(M1Phase::T4Fall);
             }
             M1Phase::T4Fall => {
+                // End refresh.
+                self.mreq = false;
                 let opcode = self.data;
 
                 match self.walker.prefix {

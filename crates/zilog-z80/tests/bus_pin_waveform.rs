@@ -47,14 +47,13 @@
 //! shows up as a reviewable diff in a golden rather than as a silent
 //! change under an emulator-wide test:
 //!
-//! 1. `M1` refresh `/MREQ` is `T3b` only (Zilog: `T3b`–`T4a`).
-//! 2. `/RFSH` ends at `T3b` (Zilog: `T4b`).
-//! 3. Memory read `/MREQ`, `/RD` end at `T2a` (Zilog: `T3b`).
-//! 4. Memory write `/MREQ` ends at `T2b` and `/WR` runs `T2a`–`T2b`
+//! 1. `/RFSH` ends at `T3b` (Zilog: `T4b`).
+//! 2. Memory read `/MREQ`, `/RD` end at `T2a` (Zilog: `T3b`).
+//! 3. Memory write `/MREQ` ends at `T2b` and `/WR` runs `T2a`–`T2b`
 //!    (Zilog: `T1b`–`T3b` and `T2b`–`T3b`).
-//! 5. I/O `/IORQ` runs `T2a`–`TWa` (Zilog: `T2b`–`T3b`).
+//! 4. I/O `/IORQ` runs `T2a`–`TWa` (Zilog: `T2b`–`T3b`).
 //!
-//! A seventh departure is visible in the address column rather than the
+//! A further departure is visible in the address column rather than the
 //! strobes: when the next M-cycle is *not* an `M1`, its address appears
 //! one half-cycle early, on the previous cycle's `T4Fall`/`T3Fall` row,
 //! because `try_advance_walker` calls `setup_signals` as it hands over.
@@ -172,7 +171,7 @@ fn m1_cycle_bus_pins() {
             "3   M1(T2Fall)         4000  M1 MREQ RD\n",
             "4   M1(T3Rise)         0000  RFSH\n",
             "5   M1(T3Fall)         0000  MREQ RFSH\n",
-            "6   M1(T4Rise)         0000\n",
+            "6   M1(T4Rise)         0000  MREQ\n",
             "7   M1(T4Fall)         0000\n",
             "8   M1(T1Rise)         4001  M1\n",
             "9   M1(T1Fall)         4001  M1 MREQ RD\n",
@@ -180,7 +179,7 @@ fn m1_cycle_bus_pins() {
             "11  M1(T2Fall)         4001  M1 MREQ RD\n",
             "12  M1(T3Rise)         0001  RFSH\n",
             "13  M1(T3Fall)         0001  MREQ RFSH\n",
-            "14  M1(T4Rise)         0001\n",
+            "14  M1(T4Rise)         0001  MREQ\n",
             "15  M1(T4Fall)         0001\n",
         )
     );
@@ -197,7 +196,7 @@ fn memory_read_bus_pins() {
             "3   M1(T2Fall)         4000  M1 MREQ RD\n",
             "4   M1(T3Rise)         0000  RFSH\n",
             "5   M1(T3Fall)         0000  MREQ RFSH\n",
-            "6   M1(T4Rise)         0000\n",
+            "6   M1(T4Rise)         0000  MREQ\n",
             "7   M1(T4Fall)         5000\n",
             "8   MemRead(T1Rise)    5000\n",
             "9   MemRead(T1Fall)    5000  MREQ RD\n",
@@ -220,7 +219,7 @@ fn memory_write_bus_pins() {
             "3   M1(T2Fall)         4000  M1 MREQ RD\n",
             "4   M1(T3Rise)         0000  RFSH\n",
             "5   M1(T3Fall)         0000  MREQ RFSH\n",
-            "6   M1(T4Rise)         0000\n",
+            "6   M1(T4Rise)         0000  MREQ\n",
             "7   M1(T4Fall)         5000\n",
             "8   MemWrite(T1Rise)   5000\n",
             "9   MemWrite(T1Fall)   5000  MREQ\n",
@@ -243,7 +242,7 @@ fn io_read_bus_pins() {
             "3   M1(T2Fall)         4000  M1 MREQ RD\n",
             "4   M1(T3Rise)         0000  RFSH\n",
             "5   M1(T3Fall)         0000  MREQ RFSH\n",
-            "6   M1(T4Rise)         0000\n",
+            "6   M1(T4Rise)         0000  MREQ\n",
             "7   M1(T4Fall)         0000\n",
             "8   M1(T1Rise)         4001  M1\n",
             "9   M1(T1Fall)         4001  M1 MREQ RD\n",
@@ -251,7 +250,7 @@ fn io_read_bus_pins() {
             "11  M1(T2Fall)         4001  M1 MREQ RD\n",
             "12  M1(T3Rise)         0001  RFSH\n",
             "13  M1(T3Fall)         0001  MREQ RFSH\n",
-            "14  M1(T4Rise)         0001\n",
+            "14  M1(T4Rise)         0001  MREQ\n",
             "15  M1(T4Fall)         C0FE\n",
             "16  IoRead(T1Rise)     C0FE\n",
             "17  IoRead(T1Fall)     C0FE\n",
@@ -276,7 +275,7 @@ fn io_write_bus_pins() {
             "3   M1(T2Fall)         4000  M1 MREQ RD\n",
             "4   M1(T3Rise)         0000  RFSH\n",
             "5   M1(T3Fall)         0000  MREQ RFSH\n",
-            "6   M1(T4Rise)         0000\n",
+            "6   M1(T4Rise)         0000  MREQ\n",
             "7   M1(T4Fall)         0000\n",
             "8   M1(T1Rise)         4001  M1\n",
             "9   M1(T1Fall)         4001  M1 MREQ RD\n",
@@ -284,7 +283,7 @@ fn io_write_bus_pins() {
             "11  M1(T2Fall)         4001  M1 MREQ RD\n",
             "12  M1(T3Rise)         0001  RFSH\n",
             "13  M1(T3Fall)         0001  MREQ RFSH\n",
-            "14  M1(T4Rise)         0001\n",
+            "14  M1(T4Rise)         0001  MREQ\n",
             "15  M1(T4Fall)         C0FE\n",
             "16  IoWrite(T1Rise)    C0FE\n",
             "17  IoWrite(T1Fall)    C0FE\n",
