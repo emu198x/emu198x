@@ -49,13 +49,14 @@ fn home() -> PathBuf {
 fn trace_iff_and_mixer_from_skoolkit_snapshot() {
     let snapshot_path = PathBuf::from("/tmp/rainbow-sk-128.z80");
     if !snapshot_path.exists() {
-        eprintln!("skipped: {} not found", snapshot_path.display());
-        return;
+        emu198x_test_skip::skip!(
+            "Rainbow Islands snapshot not staged: {}",
+            snapshot_path.display()
+        );
     }
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-128k");
     if !firmware_root.exists() {
-        eprintln!("skipped: 128K ROMs not installed");
-        return;
+        emu198x_test_skip::skip!("Spectrum 128K ROMs not staged");
     }
 
     let rom0 = read_firmware_asset(&firmware_root.join("128-0.rom")).expect("128 rom 0");

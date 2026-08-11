@@ -520,8 +520,7 @@ fn is_expected_divergent_fixture(name: &str) -> bool {
 fn inherited_subset_passes_real_hw_68000_corpus() {
     let root = fixture_root();
     if !root.exists() {
-        eprintln!("Skipping: fixture dir not found at {}", root.display());
-        return;
+        emu198x_test_skip::skip!("fixture dir not found at {}", root.display());
     }
 
     let mut entries: Vec<PathBuf> = std::fs::read_dir(&root)

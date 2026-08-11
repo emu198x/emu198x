@@ -26,12 +26,10 @@ fn boot_to_basic_renders_screen_content() {
     let main_rom = dir.join("ts2068.rom");
     let exrom = dir.join("exrom.rom");
     if !main_rom.exists() {
-        eprintln!("TS2068 main ROM not found at {}", main_rom.display());
-        return;
+        emu198x_test_skip::skip!("TS2068 main ROM not found at {}", main_rom.display());
     }
     if !exrom.exists() {
-        eprintln!("TS2068 EXROM not found at {}", exrom.display());
-        return;
+        emu198x_test_skip::skip!("TS2068 EXROM not found at {}", exrom.display());
     }
 
     let mut machine = TimexTS2068::new(TimexModel::TS2068);

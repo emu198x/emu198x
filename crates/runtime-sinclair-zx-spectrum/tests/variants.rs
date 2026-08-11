@@ -1355,8 +1355,7 @@ fn tc2048_boot_banner_is_detected_with_real_rom() {
     let dir = rom_dir(".emu198x/roms/timex-tc2048").expect("HOME set");
     let path = dir.join("tc2048.rom");
     if !path.exists() {
-        eprintln!("TC2048 ROM not at {} — skipping", path.display());
-        return;
+        emu198x_test_skip::skip!("TC2048 ROM not at {}", path.display());
     }
     let rom = std::fs::read(&path).expect("read TC2048 ROM");
     let mut m = TimexTC2048::new();
@@ -1402,8 +1401,7 @@ fn spectrum_128k_boot_banner_is_detected_with_real_rom() {
     let rom0 = std::fs::read(dir.join("128-0.rom"));
     let rom1 = std::fs::read(dir.join("128-1.rom"));
     let (Ok(rom0), Ok(rom1)) = (rom0, rom1) else {
-        eprintln!("128K ROMs missing — skipping");
-        return;
+        emu198x_test_skip::skip!("128K ROMs missing");
     };
     let mut m = Spectrum128K::new();
     m.memory.load_roms(&rom0, &rom1);
@@ -1439,8 +1437,7 @@ fn spectrum_plus3_boot_banner_is_detected_with_real_rom() {
     let r2 = std::fs::read(dir.join("plus3-2.rom"));
     let r3 = std::fs::read(dir.join("plus3-3.rom"));
     let (Ok(r0), Ok(r1), Ok(r2), Ok(r3)) = (r0, r1, r2, r3) else {
-        eprintln!("+3 ROMs missing — skipping");
-        return;
+        emu198x_test_skip::skip!("+3 ROMs missing");
     };
     let mut m = SpectrumPlus3::new();
     m.memory.load_roms(&r0, &r1, &r2, &r3);
@@ -1470,8 +1467,7 @@ fn pentagon_128_boot_banner_is_detected_with_real_rom() {
     let r0 = std::fs::read(dir.join("pentagon-0.rom"));
     let r1 = std::fs::read(dir.join("pentagon-1.rom"));
     let (Ok(r0), Ok(r1)) = (r0, r1) else {
-        eprintln!("Pentagon ROMs missing — skipping");
-        return;
+        emu198x_test_skip::skip!("Pentagon ROMs missing");
     };
     let mut m = Pentagon128::new();
     m.memory.load_roms(&r0, &r1);
@@ -1509,8 +1505,7 @@ fn probe_scorpion_screen_ram() {
     let r2 = std::fs::read(dir.join("scorpion-2.rom"));
     let r3 = std::fs::read(dir.join("scorpion-3.rom"));
     let (Ok(r0), Ok(r1), Ok(r2), Ok(r3)) = (r0, r1, r2, r3) else {
-        eprintln!("Scorpion ROMs missing — skipping");
-        return;
+        emu198x_test_skip::skip!("Scorpion ROMs missing");
     };
     let mut m = ScorpionZS256::new();
     m.memory.load_roms(&r0, &r1, &r2, &r3);
@@ -1561,8 +1556,7 @@ fn probe_ts2068_screen_ram() {
     let main_path = dir.join("ts2068.rom");
     let exrom_path = dir.join("exrom.rom");
     if !main_path.exists() || !exrom_path.exists() {
-        eprintln!("TS2068 ROMs missing — skipping");
-        return;
+        emu198x_test_skip::skip!("TS2068 ROMs missing");
     }
     let mut m = TimexTS2068::new(TimexModel::TS2068);
     m.memory.load_rom(&main_path).expect("ts2068 main ROM");

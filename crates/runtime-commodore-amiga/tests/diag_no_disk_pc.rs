@@ -11,8 +11,7 @@ fn no_disk_final_pc() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let rom_path = home.join(".emu198x/roms/commodore-amiga/kick13.rom");
     if !rom_path.exists() {
-        eprintln!("skipping: no kick13.rom");
-        return;
+        emu198x_test_skip::skip!("no kick13.rom");
     }
     let rom = std::fs::read(&rom_path).expect("read ROM");
     let mut rt = AmigaOcsRuntime::new(Model::A500OcsPalA501, rom).expect("build");

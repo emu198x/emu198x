@@ -162,8 +162,7 @@ fn screen_state(nes: &Nes) -> Vec<String> {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn region_sensitivity_of_each_rom() {
     if roms_root().is_none() {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms not found");
     }
     for rel in CANDIDATES {
         let (Some(mut ntsc), Some(mut pal)) = (load(rel, Region::Ntsc), load(rel, Region::Pal))
