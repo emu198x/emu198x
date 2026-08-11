@@ -822,9 +822,13 @@ it reads exactly like a refutation.
 1. **Decided: FUSE governs.** See
    [`fuse-governs-the-contended-window.md`](fuse-governs-the-contended-window.md).
    The three-T-state divergence from the gate-level source is deliberate and
-   recorded. The consequence for the work below is that the derived gate
-   change cannot land in the form that matches the HDL — it needs a
-   compensating window shift so the net matches FUSE.
+   recorded. The consequence for the work below is that **the derived gate
+   change does not land at all**. Measured: with the gate in, no window
+   phase of the sixteen reconciles it with FUSE — best is 44,355 disagreeing
+   samples against 30,741 for the shipped gate. Window agreement is
+   necessary but not sufficient; the HDL also charges contention at `T1`
+   where FUSE charges at the M-cycle start, which is a structural difference
+   rather than a phase. The latches stay computed and unconsulted.
 2. Then land the gate, whichever way that goes. The gate change is fully
    derived and verified against the HDL; only its disagreement with FUSE
    blocks it.

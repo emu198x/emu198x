@@ -73,21 +73,40 @@ Three reasons, in order of weight:
    is partial; the HDL is how that gap was filled, not an independent witness
    to the silicon.
 
-## What this costs
+## What this costs: the HDL gate does not land
 
 The gate change derived in
 [`spectrum-contention-vs-floating-bus.md`](spectrum-contention-vs-floating-bus.md)
 — `MREQT23` armed, `IOREQTW3` cancelling, the folded `Nor1`/`Nor2` expression —
 makes the engine match the HDL exactly, half-cycle for half-cycle on the real
-machine. Under this decision it **cannot land in that form**: matching the HDL
-costs one T-state per contended M-cycle against FUSE, which the frame-wide
-differential reports as a uniform `+1` on every port class.
+machine. Under this decision it **does not land at all**.
 
-The gate logic itself is not in question — it is derived, and verified against
-the gates. What must change with it is the **window position**, so that the net
-result matches FUSE. Landing the gate without shifting the window, or shifting
-the window without the gate, each makes the emulator measurably worse; that
-mutual dependence is why five separate attempts see-sawed.
+The first draft of this record said it could land paired with a compensating
+window shift, on the reasoning that the two models differ only by three
+T-states. **That was wrong, and measuring it is what showed it.** With the gate
+in, sweeping the window phase across all sixteen positions against the
+frame-wide differential:
+
+| window rotation | disagreeing samples of 303,363 |
+|---|---|
+| 0 | 82,755 |
+| **1 or 2 (best)** | **44,355** |
+| 3–15 | 63,360 – 86,403 |
+
+against **30,741** for the shipped gate. No phase reconciles them; the best is
+worse than doing nothing.
+
+The reason is that the anchored `+3` result compares *windows* — where
+contention is permitted — and window agreement is necessary but not
+sufficient for equal costs. The HDL gate also differs in **when inside an
+M-cycle** it charges: `MREQT23` arms at `T1`, while FUSE charges once at the
+M-cycle start with the table sampled there. That is a structural difference in
+the contention model, not a phase, and no rotation converts one into the other.
+
+So the shipped gate stays: `contended_addr && z80_clock_high && !cpu_mreq`,
+with both latches computed and maintained but not consulted. It is a coarser
+model than the silicon's and it reproduces FUSE, which is what this decision
+asks for.
 
 ## What would reopen this
 
@@ -112,8 +131,9 @@ Re-read this entry if you find yourself:
 - moving `FIRST_DISPLAY`, `DELAY_TABLE_48K`, or any contention-window constant
   "to match the hardware reference";
 - treating a disagreement with `zx_ula` as a bug in our engine;
-- landing the `MREQT23` / `IOREQTW3` gate change without a compensating window
-  shift, on the grounds that it matches the gate-level source;
+- landing the `MREQT23` / `IOREQTW3` gate change on the grounds that it matches
+  the gate-level source — it does, and it still moves the engine away from
+  FUSE, with no window shift able to compensate;
 - adding a rotation or offset search to reconcile two timing models. Three
   separate errors here have been hidden by a fitted alignment —
   `SAMPLE_LEAD`, the oracle's `delay_at` origin, and the rotation search that
