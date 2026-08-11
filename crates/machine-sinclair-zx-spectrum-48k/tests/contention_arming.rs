@@ -104,13 +104,23 @@ fn observe_program(
             .write(addr, program[((addr - CODE_BASE) as usize) % program.len()]);
         addr += 1;
     }
-    setup(&mut m);
-
-    // Settle well inside the display window, where the table is live.
+    // Settle well inside the display window, where the table is live, then
+    // run on to an instruction boundary before touching the registers.
+    //
+    // Order matters twice over. Settling runs ROM code, which rewrites
+    // `BC` — so the registers must be set afterwards, not before. And the
+    // settle stops mid-instruction, so a ROM instruction still in flight
+    // would retire over the top of them. Getting either wrong measured
+    // four port classes that were all secretly the same port.
     while m.tstate_in_frame() < 20_000 {
         m.advance_tstates(1);
     }
+    let boundary = m.z80().instructions_retired() + 1;
+    while m.z80().instructions_retired() < boundary {
+        m.advance_tstates(1);
+    }
     m.z80_mut().regs.pc = CODE_BASE;
+    setup(&mut m);
 
     let divisor = m.frame_timing().cpu_divisor;
     let second = divisor / 2;
@@ -290,13 +300,36 @@ fn stall_episodes(observed: &[Observed]) -> Vec<usize> {
 fn report_io(port: u16, label: &str) {
     let observed = observe_io(port, 600);
 
+    // Self-check: the port under test has to actually reach the bus. It is
+    // not enough that the recording aligns with the CPU — the harness must
+    // also be driving the thing it says it is. The first version of this
+    // set `BC` before settling the machine, so ROM code overwrote it and
+    // all four classes below ran on `$FFFF` and reported identical,
+    // quotable, wrong results.
+    let on_bus = observed.iter().filter(|o| o.iorq && o.addr == port).count();
+    assert!(
+        on_bus > 0,
+        "harness fault, not a finding: no half-cycle put ${port:04X} on the \
+         address bus with /IORQ asserted, so this run measured some other \
+         port. Observed I/O addresses: {:?}",
+        observed
+            .iter()
+            .filter(|o| o.iorq)
+            .map(|o| format!("{:04X}", o.addr))
+            .collect::<std::collections::BTreeSet<_>>(),
+    );
+
     println!("\n=== IN A,(C) on ${port:04X} — {label}");
     println!(
         "{:<22} {:>5} {:>5} {:>5} {:>6} {:>6} {:>6} {:>6}",
         "phase", "addr", "MREQ", "IORQ", "pixel", "clkhi", "table", "clock"
     );
     println!("{}", "-".repeat(70));
-    for o in observed.iter().skip(24).take(40) {
+    for o in observed
+        .iter()
+        .filter(|o| o.phase.starts_with("IoRead"))
+        .take(24)
+    {
         println!(
             "{:<22} {:>5X} {:>5} {:>5} {:>6} {:>6} {:>6} {:>6}",
             o.phase,
@@ -312,10 +345,26 @@ fn report_io(port: u16, label: &str) {
 
     let episodes = stall_episodes(&observed);
     let io_halfcycles = observed.iter().filter(|o| o.iorq).count();
+
+    // Isolate the I/O M-cycle. The episode list above spans the two `M1`
+    // fetches of `ED 78` as well, and those are identical for all four
+    // ports — so a difference between port classes is invisible in the
+    // total and only shows here.
+    let in_io_cycle: usize = observed
+        .iter()
+        .filter(|o| o.phase.starts_with("IoRead") && !o.cpu_clock)
+        .count();
+    let io_cycles = observed
+        .iter()
+        .filter(|o| o.phase == "IoRead(T1Rise)")
+        .count();
+
     println!(
         "\nhalf-cycles with /IORQ asserted: {io_halfcycles}\n\
-         stall episodes (length in half-cycles): {episodes:?}\n\
-         total stalled half-cycles: {}",
+         stall episodes over the whole window: {episodes:?}\n\
+         total stalled half-cycles: {}\n\
+         I/O M-cycles observed: {io_cycles}\n\
+         stalled half-cycles inside them: {in_io_cycle}",
         episodes.iter().sum::<usize>(),
     );
 }
