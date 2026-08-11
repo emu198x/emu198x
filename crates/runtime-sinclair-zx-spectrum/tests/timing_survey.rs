@@ -578,7 +578,12 @@ fn timing_survey_records_every_case() {
     //
     // A ceiling, not a target. Lower it in the same commit that earns the
     // improvement; never raise it silently.
-    const RATCHET_FAILURES: usize = 36;
+    //
+    // 13, from 36 at the start of the contention work and 29 before the
+    // window's phase and edge were derived rather than written out. Six
+    // of the thirteen have a wrong loop count; the rest fail on `R` or
+    // `SP` readings alone.
+    const RATCHET_FAILURES: usize = 13;
     assert!(
         failures.len() <= RATCHET_FAILURES,
         "timing survey regressed: {} of {} cases failing, was {RATCHET_FAILURES}. \

@@ -775,7 +775,7 @@ fn io_contention_matches_fuse_across_the_whole_frame() {
     // out of contended RAM pays for two contended `M1` fetches before it
     // reaches the port cycle, so most of what this harness was scoring
     // was never I/O-specific. The remainder is.
-    const RATCHET: usize = 26_886;
+    const RATCHET: usize = 21_510;
     if total < RATCHET {
         println!(
             "\nRATCHET: {total} of {samples_total} — improved on {RATCHET}. \

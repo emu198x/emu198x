@@ -103,10 +103,18 @@ impl Ula for TimexScld {
         let e = &mut self.engine;
         let phase = (e.pixel as usize) & 0x0F;
 
+        // The contention window, read before `tick_rendering` advances
+        // the counter — sixteen whole fetch cycles from the boundary, not
+        // the fetch window `e.video` opens four pixels in. See
+        // `ula_engine::CONTENDED_PIXELS_PER_LINE`; the SCLD shares the
+        // Ferranti's fetch phase, so it shares the relationship.
+        let contend_window =
+            e.scan < ula_engine::CONTENDED_LINES && e.pixel < ula_engine::CONTENDED_PIXELS_PER_LINE;
+
         e.tick_rendering(memory, framebuffer, None);
 
         // Same contention as 48K Ferranti (memory + I/O)
-        if e.video {
+        if contend_window {
             let contended_addr = memory.is_contended(cpu_addr);
             // `/MREQT23` — see `UlaEngine::mreq_t23`. Keying off
             // `!cpu_mreq` alone lets the gate re-arm in `T3`, while the

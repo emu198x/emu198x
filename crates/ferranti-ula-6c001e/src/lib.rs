@@ -180,6 +180,28 @@ impl Ula for FerrantiUla {
         let e = &mut self.engine;
         let phase = (e.pixel as usize) & 0x0F;
 
+        // The contention window, read from the counter before
+        // `tick_rendering` advances it — the same instant `phase` names.
+        //
+        // Not `e.video`. That flag opens at `fetch_start`, four pixels
+        // into the 16-pixel cycle the first fetch belongs to, because it
+        // is the *fetch* window. The HDL gates contention on `Border_n`,
+        // which is `!hc[8]` — 256 pixels, sixteen whole fetch cycles,
+        // beginning at a cycle boundary. Its first fetch sits at `hc` 8
+        // and its window opens at `hc` 0; ours sits at pixel 4 and its
+        // window opens at pixel 0. Same relationship, our counter.
+        //
+        // The four pixels are two T-states, and they were charged to the
+        // wrong side of every one of the 192 display lines: the engine
+        // began contending two T-states after FUSE did and stopped two
+        // T-states after it stopped. See
+        // `machine-sinclair-zx-spectrum-48k`'s
+        // `memory_contention_matches_fuse_at_every_arrival_tstate`, whose
+        // entire residual was at the line edges once the window's *phase*
+        // was fixed.
+        let contend_window =
+            e.scan < ula_engine::CONTENDED_LINES && e.pixel < ula_engine::CONTENDED_PIXELS_PER_LINE;
+
         // Snow: a CPU refresh with I in screen-RAM range collides with
         // the video fetch (the Ferranti ULA ignores /RFSH). gap #12.
         let snow = ula_engine::snow_address(cpu_rfsh, cpu_addr);
@@ -211,7 +233,7 @@ impl Ula for FerrantiUla {
         let ula_io = (cpu_addr & 1) == 0;
 
         // Contention (48K model): memory + I/O + internal
-        if e.video {
+        if contend_window {
             let contended_addr = memory.is_contended(cpu_addr);
             // `/MREQT23` gates the wait so it cannot re-arm inside an
             // M-cycle — Smith Chapter 18, p. 197: the circuit detects `T1`
