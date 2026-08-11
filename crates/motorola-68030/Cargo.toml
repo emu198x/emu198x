@@ -15,6 +15,7 @@ motorola-68020 = { path = "../motorola-68020", version = "0.2.0" }
 serde = { workspace = true }
 
 [dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.2.0" }
 rmp-serde = { workspace = true }
 serde = { workspace = true }
 
