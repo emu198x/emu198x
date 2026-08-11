@@ -254,7 +254,7 @@ impl Ula for FerrantiUla {
             //         && (ula_io || contended_access);
             //
             // See `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
-            let mem_contention = contended_addr && e.z80_clock_high && !cpu_mreq;
+            let mem_contention = contended_addr && e.gate_arms_this_halfcycle() && !cpu_mreq;
             let io_contention = (cpu_iorq || e.z80_iorq_prev) && ula_io && e.z80_clock_high;
             let contention = mem_contention || io_contention;
             e.cpu_clock = !(contention && DELAY_TABLE_48K[phase]);

@@ -219,6 +219,10 @@ pub struct UlaEngine {
     /// CPU clock output: true = CPU may tick.
     pub cpu_clock: bool,
     /// Z80 internal clock phase. Toggles when CPU ticks.
+    ///
+    /// Read it through [`UlaEngine::gate_arms_this_halfcycle`] rather than
+    /// directly: the raw level names the *previous* half-cycle's, and
+    /// which of the two a contention gate wants is not a matter of taste.
     pub z80_clock_high: bool,
     /// Interrupt signal.
     pub int_active: bool,
@@ -761,6 +765,33 @@ impl UlaEngine {
                 self.int_active = false;
             }
         }
+    }
+
+    /// Is this the half-cycle whose CPU clock edge would begin a bus access?
+    ///
+    /// The Sinclair ULAs stall the CPU *before* it commits to a contended
+    /// access: they see a contended address with `/MREQ` still inactive and
+    /// withhold the clock edge that would drop it. That edge is `T1`↓ — a
+    /// `Fall` phase — so this is the only half-cycle per M-cycle on which a
+    /// memory access can be contended, now that `/MREQ` runs `T1b`–`T3b`
+    /// and covers the other five.
+    ///
+    /// `z80_clock_high` is sampled before `track_z80_clock` advances it, so
+    /// it names the level the CPU clock held during the previous
+    /// half-cycle: true when the CPU is about to run a `Rise` phase, false
+    /// when it is about to run a `Fall` phase. That is measured, not
+    /// assumed — see `machine-sinclair-zx-spectrum-48k`'s
+    /// `contention_arming`, which records the real machine from inside
+    /// `tick` and reports which half-cycles offer the gate an arming
+    /// opportunity and what this term reads on each.
+    ///
+    /// So the gate arms on the complement. While the CPU is stalled
+    /// `track_z80_clock` does not run and this holds, which is what keeps
+    /// the stall asserted until the delay table's window closes — the
+    /// stall self-limits on the raster, not on a counter.
+    #[must_use]
+    pub fn gate_arms_this_halfcycle(&self) -> bool {
+        !self.z80_clock_high
     }
 
     /// Track Z80 clock phase (called after contention decision).
