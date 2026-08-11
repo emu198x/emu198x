@@ -9,6 +9,21 @@ crates.io may hit their own 1.0 on their own schedules.
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/emu198x/emu198x/compare/v0.2.0...v0.2.1) - 2026-08-11
+
+### Added
+
+- *(spectrum)* boot any variant headlessly with --machine
+
+### Other
+
+- make the release able to ship binaries again
+- Correct Amiga DMA ownership and media persistence
+- inherit the Emu198x suite version
+- declare the last two silent guards, both in src test modules
+- give every fixture guard a voice, across the workspace
+- Ship higher-CPU Amiga profiles
+
 ## [0.1.0] — 2026-05-23
 
 Initial public release. Six per-system native verifier shells, each shipping
