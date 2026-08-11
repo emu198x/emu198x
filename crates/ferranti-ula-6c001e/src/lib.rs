@@ -328,6 +328,62 @@ impl Ula for FerrantiUla {
 mod tests {
     use super::*;
 
+    /// The half-cycle recorder must capture the state each contention
+    /// decision was made *on*, not the state left behind after it.
+    ///
+    /// This is not hypothetical. The recorder first captured `pixel`
+    /// after `tick_rendering` had advanced it, while the phase the gate
+    /// consults is computed before — a one-pixel skew that exactly
+    /// cancelled a known table rotation and made the engine and the HDL
+    /// model appear to agree perfectly when they did not. The check that
+    /// caught it lives in `machine-sinclair-zx-spectrum-48k`'s
+    /// differential, which is `#[ignore]`d because it needs a real ROM.
+    /// Nothing about the recorder needs one, so the guard belongs here
+    /// where it runs.
+    #[test]
+    fn the_recorder_captures_the_state_each_decision_was_made_on() {
+        use common_sinclair_zx_spectrum::timing;
+
+        let mut ula = FerrantiUla::new(UlaRevision::Ferranti6C);
+        let mut fb = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
+
+        ula.engine.scan = 100;
+        ula.engine.pixel = 0;
+        let first_pixel = ula.engine.pixel;
+
+        ula.debug_trace_start();
+        for _ in 0..8 {
+            Ula::tick(
+                &mut ula,
+                &ContendedMemory,
+                0x4000,
+                true,
+                false,
+                false,
+                &mut fb,
+            );
+        }
+        let trace = ula.debug_trace_take();
+
+        assert_eq!(trace.len(), 8, "one entry per tick, no more and no less");
+        for (i, tick) in trace.iter().enumerate() {
+            assert_eq!(
+                tick.pixel,
+                first_pixel + i as u16,
+                "entry {i} must hold the pixel the decision was made on; \
+                 an off-by-one here is the skew that hid a real disagreement",
+            );
+            assert_eq!(tick.addr, 0x4000, "entry {i} must record the CPU address");
+            assert!(tick.mreq, "entry {i} must record /MREQ as asserted");
+            assert!(!tick.iorq, "entry {i} must record /IORQ as idle");
+        }
+
+        assert!(
+            ula.debug_trace_take().is_empty(),
+            "taking the recording must also disarm it",
+        );
+    }
+
     /// Measure the gate's *effective* delay table and print it beside the
     /// canonical one.
     ///
@@ -366,10 +422,34 @@ mod tests {
     /// measurement rather than fitted — is not the cause of the one
     /// T-state those cases are out by in the oracle.
     #[test]
-    #[ignore = "diagnostic probe"]
     fn effective_delay_table() {
         use common_sinclair_zx_spectrum::timing;
         const CANONICAL: [u32; 8] = [6, 5, 4, 3, 2, 1, 0, 0];
+
+        /// The measured table, in C0 half-cycles, as `(clk high, clk low)`
+        /// per arrival half-cycle. Two of these are boundary cases rather
+        /// than delay slots: `h = 2` is where the fetch window opens, and
+        /// `h = 0` / `h = 15` sit either side of the wrap.
+        const MEASURED: [(u32, u32); 16] = [
+            (0, 1),
+            (0, 1),
+            (0, 13),
+            (12, 12),
+            (11, 11),
+            (10, 10),
+            (9, 9),
+            (8, 8),
+            (7, 7),
+            (6, 6),
+            (5, 5),
+            (4, 4),
+            (3, 3),
+            (2, 2),
+            (1, 1),
+            (0, 1),
+        ];
+
+        let mut measured = [(0u32, 0u32); 16];
 
         println!("\n half-cycle  T-phase  stall@clkhi  stall@clklo  delta  canonical[T-phase]");
         for h in 0..16u16 {
@@ -436,6 +516,43 @@ mod tests {
             println!(
                 "{h:>10} {tphase:>8} {:>12} {:>12} {delta:>+6} {:>19}",
                 stalls[0], stalls[1], CANONICAL[tphase as usize]
+            );
+            measured[h as usize] = (stalls[0], stalls[1]);
+        }
+
+        assert_eq!(
+            measured, MEASURED,
+            "the gate's effective delay table changed; the printed table \
+             above shows how, and any change here moves contention for \
+             every contended access",
+        );
+
+        // The property the table above is evidence *for*, stated directly
+        // so a coincidental match cannot pass for the real thing: on the
+        // clock-high half, odd arrivals reproduce the canonical
+        // [6,5,4,3,2,1,0,0] pattern in T-states, with the phase origin at
+        // half-cycle 3.
+        for h in (1..16).step_by(2) {
+            let t_states = measured[h].0 / 2;
+            let slot = ((h + 13) / 2) % 8;
+            assert_eq!(
+                t_states, CANONICAL[slot],
+                "odd half-cycle {h} should stall {} T-states (canonical slot {slot}), not {t_states}",
+                CANONICAL[slot],
+            );
+        }
+
+        // And the even half of each pair costs an extra C0 — half a
+        // T-state that can only be spent as a whole one, because the gate
+        // withholds the clock only while it is high. This is the shape of
+        // the residual the per-instruction oracle reports on multi-M-cycle
+        // instructions.
+        for h in (4..15).step_by(2) {
+            assert_eq!(
+                measured[h].0,
+                measured[h + 1].0 + 1,
+                "even half-cycle {h} should cost one C0 more than {}",
+                h + 1,
             );
         }
     }
