@@ -184,29 +184,13 @@ const fn hc_pin(a: u16, mreq_n: bool, iorq_n: bool) -> HalfCycle {
 
 /// `IN A,(C)` as a half-cycle pin sequence: `M1`, `M1`, then the I/O cycle.
 ///
-/// `/MREQ` falls halfway through `T1` and the refresh address in `T3`/`T4`
-/// is uncontended (`I` sits in the ROM page after reset). `/IORQ` falls
-/// halfway through `T2` of the I/O cycle and is released at the end of
-/// `TW` — traced on the engine and consistent with the Z80's own timing.
+/// `/IORQ` falls halfway through `T2` and is held to the end of `T3` —
+/// both established by the acceptance test below, and both places our own
+/// Z80 currently differs.
 fn in_a_c_pins(code_addr: u16, port: u16) -> Vec<HalfCycle> {
-    const REFRESH: u16 = 0x3F00; // I/R — uncontended
     let mut pins = Vec::new();
-
-    // Two M1 fetches, four T-states each.
-    for step in 0..2u16 {
-        let pc = code_addr + step;
-        // T1: /MREQ high, then low.
-        pins.push(hc_pin(pc, true, true));
-        pins.push(hc_pin(pc, false, true));
-        // T2: /MREQ low throughout.
-        pins.push(hc_pin(pc, false, true));
-        pins.push(hc_pin(pc, false, true));
-        // T3, T4: refresh — address uncontended, /MREQ low for the strobe.
-        pins.push(hc_pin(REFRESH, false, true));
-        pins.push(hc_pin(REFRESH, false, true));
-        pins.push(hc_pin(REFRESH, true, true));
-        pins.push(hc_pin(REFRESH, true, true));
-    }
+    m1_pins(code_addr, &mut pins);
+    m1_pins(code_addr + 1, &mut pins);
 
     // I/O cycle: T1, T2, TW, T3. No /MREQ at any point.
     pins.push(hc_pin(port, true, true)); // T1
@@ -218,6 +202,40 @@ fn in_a_c_pins(code_addr: u16, port: u16) -> Vec<HalfCycle> {
     pins.push(hc_pin(port, true, false)); // T3 — /IORQ held to the end
     pins.push(hc_pin(port, true, false));
 
+    pins
+}
+
+/// One `M1` opcode fetch, four T-states, as half-cycle pins.
+///
+/// `/MREQ` falls halfway through `T1` and is released at the end of `T2`;
+/// the refresh strobe then falls halfway through `T3` and is released
+/// during `T4`. The refresh address is uncontended — `I` sits in the ROM
+/// page after reset — so it cannot contend, but it still drives `MREQT23`,
+/// which is what makes its phase matter at the *next* `T1`.
+fn m1_pins(pc: u16, out: &mut Vec<HalfCycle>) {
+    const REFRESH: u16 = 0x3F00; // I/R — uncontended
+
+    out.push(hc_pin(pc, true, true)); // T1 — /MREQ falls mid-T-state
+    out.push(hc_pin(pc, false, true));
+    out.push(hc_pin(pc, false, true)); // T2 — low throughout
+    out.push(hc_pin(pc, false, true));
+    out.push(hc_pin(REFRESH, true, true)); // T3 — refresh strobe falls
+    out.push(hc_pin(REFRESH, false, true));
+    out.push(hc_pin(REFRESH, false, true)); // T4 — released
+    out.push(hc_pin(REFRESH, true, true));
+}
+
+/// A run of `count` `NOP`s — nothing but back-to-back `M1` fetches out of
+/// contended RAM.
+///
+/// This is the shape that isolates the `+1`. It has no I/O in it at all,
+/// so `IOREQTW3` never moves and every term but the address decode and
+/// `MREQT23` drops out of the gate.
+fn nop_stream_pins(code_addr: u16, count: u16) -> Vec<HalfCycle> {
+    let mut pins = Vec::new();
+    for i in 0..count {
+        m1_pins(code_addr.wrapping_add(i), &mut pins);
+    }
     pins
 }
 
@@ -483,4 +501,94 @@ fn trace_the_failing_class() {
             }
         }
     }
+}
+
+/// Cost of `count` back-to-back `NOP`s from frame T-state `t0`, per FUSE.
+///
+/// FUSE models an `M1` as one `contend_read( pc, 4 )` — contention charged
+/// once at the start of the M-cycle, then four T-states.
+fn fuse_nop_stream_cost(t0: u32, count: u16) -> u32 {
+    let mut t = t0;
+    for _ in 0..count {
+        t += fuse_delay(t);
+        t += 4;
+    }
+    t - t0
+}
+
+/// The `+1`, isolated.
+///
+/// Every configuration of the contention fix so far leaves the `N:4` port
+/// classes exactly one T-state high whenever `MREQT23` is wired in. Those
+/// classes have no I/O contention at all, so the residual is pure `M1`
+/// memory contention and can be reproduced without an I/O cycle anywhere
+/// near it. That is what this runs: nothing but back-to-back opcode
+/// fetches out of contended RAM.
+///
+/// The question it answers is which side owns the `+1`. If the HDL and
+/// FUSE agree here under the same rotation the I/O table found, then the
+/// reference and the reference emulator are consistent on memory
+/// contention and the residual is ours — and, given that both `/IORQ`
+/// defects turned out to be pin *phase*, `/MREQ`'s phase is the obvious
+/// next suspect. If they disagree, the two authorities differ about memory
+/// contention and that is a much larger finding than a stray T-state.
+#[test]
+fn the_hdl_model_reproduces_fuse_m1_contention() {
+    const RUN: u16 = 8;
+    let pins = nop_stream_pins(0x4000, RUN);
+
+    let hdl: Vec<u32> = (0..16u16).map(|hc0| hdl_cost(hc0, &pins, true)).collect();
+    let fuse: Vec<u32> = (0..8u32).map(|t| fuse_nop_stream_cost(t, RUN)).collect();
+
+    println!("\n{RUN} back-to-back NOPs out of contended RAM");
+    print!("{:<22}", "HDL by hc phase");
+    for v in &hdl {
+        print!("{v:>4}");
+    }
+    println!();
+    print!("{:<22}", "FUSE by T-state phase");
+    for v in &fuse {
+        print!("{v:>4}");
+    }
+    println!();
+
+    let mut found = Vec::new();
+    for parity in 0..2u16 {
+        for rot in 0..8u16 {
+            if (0..8usize).all(|p| hdl[(((p as u16 + rot) % 8) * 2 + parity) as usize] == fuse[p]) {
+                found.push((parity, rot));
+            }
+        }
+    }
+    println!("\nrotations that reconcile: {found:?}");
+
+    // The rotation the I/O table settled on. If memory contention
+    // reconciles at a *different* one, the two are not describing the same
+    // alignment and one of the pin sequences is wrong — which is exactly
+    // how both `/IORQ` defects surfaced.
+    let io_rotation = (1u16, 1u16);
+    println!(
+        "I/O table's rotation {io_rotation:?} is {} here",
+        if found.contains(&io_rotation) {
+            "shared"
+        } else {
+            "NOT shared"
+        }
+    );
+
+    // Where the disagreement sits at the I/O rotation, per phase.
+    println!("\n{:>6} {:>8} {:>8} {:>7}", "phase", "HDL", "FUSE", "diff");
+    for p in 0..8usize {
+        let h = hdl[(((p as u16 + io_rotation.1) % 8) * 2 + io_rotation.0) as usize];
+        let f = fuse[p];
+        println!("{p:>6} {h:>8} {f:>8} {:>+7}", h as i64 - f as i64);
+    }
+
+    assert!(
+        !found.is_empty(),
+        "the HDL and FUSE do not agree on pure M1 contention under any \
+         rotation. That is not a stray T-state — it means the gate-level \
+         source and the reference emulator disagree about memory \
+         contention, and the engine has been scored against FUSE all along."
+    );
 }
