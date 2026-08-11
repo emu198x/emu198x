@@ -40,10 +40,17 @@
 //! `T2`, `TW`, `T3`; this state machine names them `T1`–`T4`, so a row
 //! reading `IoRead(T3Fall)` is Zilog's `TWb` and `IoRead(T4Fall)` is `T3b`.
 //!
-//! ## Departures
+//! ## Departures, as locked below
 //!
-//! None outstanding. Every strobe above matches the reference, and the
-//! address is presented on each cycle's own `T1`↑.
+//! Two outstanding, both in cycles that carry no read strobe of their own:
+//!
+//! 1. `MStep::ContendPc` — the not-taken displacement cycle of `JR cc` and
+//!    `DJNZ` — asserts `/MREQ` for `T1b`–`T2a` and never asserts `/RD`.
+//!    The Z80 fetches that byte; FUSE scores it as `contend_read( PC, 3 )`.
+//! 2. An internal cycle drives `IR` onto the address bus. Nothing drives
+//!    the bus during an internal cycle, so it should hold the last address
+//!    driven — which is `IR` only when the previous cycle was `M1`'s
+//!    refresh.
 //!
 //! Where the table and this engine disagree with SpecIde, the only other
 //! signal-level Z80 in the tree, it is in two places and Zilog governs both:
@@ -143,6 +150,44 @@ fn memory_write_waveform() -> String {
 /// reading it as a live access.
 fn internal_cycle_waveform() -> String {
     waveform(&[0x03], |c| c.regs.pc = 0x4000, 14)
+}
+
+/// `JR NZ,e` with Z set — `M1` then the not-taken displacement cycle.
+///
+/// The Z80 still fetches the displacement byte it is about to ignore, and
+/// FUSE scores it as a plain contended read: `contend_read( PC, 3 )` in
+/// `opcodes_base.c`, the same as any operand fetch. `MStep::ContendPc`
+/// models it as a cycle of its own.
+fn contend_cycle_waveform() -> String {
+    waveform(
+        &[0x20, 0x05],
+        |c| {
+            c.regs.pc = 0x4000;
+            c.regs.set_f(0x40); // Z set, so the branch is not taken
+        },
+        14,
+    )
+}
+
+/// `LDI` — `M1`, `M1`, a read from `HL`, a write to `DE`, then two
+/// internal T-states.
+///
+/// The internal cycles are what this case is for. Nothing drives the
+/// address bus during them, so it holds the last address driven — `DE`.
+/// FUSE scores exactly that: `contend_write_no_mreq( DE, 1 )` twice in
+/// `z80_ed.c`, against `contend_read_no_mreq( IR, 1 )` for the internal
+/// cycles of `INC BC`, which follow `M1` and so see the refresh address.
+/// One rule, two addresses.
+fn internal_after_write_waveform() -> String {
+    waveform(
+        &[0xED, 0xA0],
+        |c| {
+            c.regs.pc = 0x4000;
+            c.regs.hl = 0x5000;
+            c.regs.de = 0x6000;
+        },
+        32,
+    )
 }
 
 /// `IN A,(C)` — `ED` prefix, opcode, then the I/O read cycle.
@@ -325,6 +370,70 @@ fn internal_cycle_bus_pins() {
             "11  Internal(1)        0001\n",
             "12  M1(T1Rise)         4001  M1\n",
             "13  M1(T1Fall)         4001  M1 MREQ RD\n",
+        )
+    );
+}
+
+#[test]
+fn contend_cycle_bus_pins() {
+    assert_eq!(
+        contend_cycle_waveform(),
+        concat!(
+            "0   M1(T1Rise)         4000  M1\n",
+            "1   M1(T1Fall)         4000  M1 MREQ RD\n",
+            "2   M1(T2Rise)         4000  M1 MREQ RD\n",
+            "3   M1(T2Fall)         4000  M1 MREQ RD\n",
+            "4   M1(T3Rise)         0000  RFSH\n",
+            "5   M1(T3Fall)         0000  MREQ RFSH\n",
+            "6   M1(T4Rise)         0000  MREQ RFSH\n",
+            "7   M1(T4Fall)         0000  RFSH\n",
+            "8   Contend(T1Rise)    4001\n",
+            "9   Contend(T1Fall)    4001  MREQ\n",
+            "10  Contend(T2Rise)    4001  MREQ\n",
+            "11  Contend(T2Fall)    4001\n",
+            "12  Contend(T3Rise)    4001\n",
+            "13  Contend(T3Fall)    4001\n",
+        )
+    );
+}
+
+#[test]
+fn internal_after_write_bus_pins() {
+    assert_eq!(
+        internal_after_write_waveform(),
+        concat!(
+            "0   M1(T1Rise)         4000  M1\n",
+            "1   M1(T1Fall)         4000  M1 MREQ RD\n",
+            "2   M1(T2Rise)         4000  M1 MREQ RD\n",
+            "3   M1(T2Fall)         4000  M1 MREQ RD\n",
+            "4   M1(T3Rise)         0000  RFSH\n",
+            "5   M1(T3Fall)         0000  MREQ RFSH\n",
+            "6   M1(T4Rise)         0000  MREQ RFSH\n",
+            "7   M1(T4Fall)         0000  RFSH\n",
+            "8   M1(T1Rise)         4001  M1\n",
+            "9   M1(T1Fall)         4001  M1 MREQ RD\n",
+            "10  M1(T2Rise)         4001  M1 MREQ RD\n",
+            "11  M1(T2Fall)         4001  M1 MREQ RD\n",
+            "12  M1(T3Rise)         0001  RFSH\n",
+            "13  M1(T3Fall)         0001  MREQ RFSH\n",
+            "14  M1(T4Rise)         0001  MREQ RFSH\n",
+            "15  M1(T4Fall)         0001  RFSH\n",
+            "16  MemRead(T1Rise)    5000\n",
+            "17  MemRead(T1Fall)    5000  MREQ RD\n",
+            "18  MemRead(T2Rise)    5000  MREQ RD\n",
+            "19  MemRead(T2Fall)    5000  MREQ RD\n",
+            "20  MemRead(T3Rise)    5000  MREQ RD\n",
+            "21  MemRead(T3Fall)    5000  MREQ RD\n",
+            "22  MemWrite(T1Rise)   6000\n",
+            "23  MemWrite(T1Fall)   6000  MREQ\n",
+            "24  MemWrite(T2Rise)   6000  MREQ\n",
+            "25  MemWrite(T2Fall)   6000  MREQ WR\n",
+            "26  MemWrite(T3Rise)   6000  MREQ WR\n",
+            "27  MemWrite(T3Fall)   6000  MREQ WR\n",
+            "28  Internal(4)        0002\n",
+            "29  Internal(3)        0002\n",
+            "30  Internal(2)        0002\n",
+            "31  Internal(1)        0002\n",
         )
     );
 }
