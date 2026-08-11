@@ -765,6 +765,15 @@ pub struct Dmc {
     /// The machine layer consumes this to decide between cancelling a
     /// not-yet-halted transfer and aborting a halted one.
     pub dma_cancelled: bool,
+    /// Cycles left before a `$4015`-initiated transfer may start.
+    ///
+    /// ⚠⚠ Enabling an *idle* DMC does NOT request the fetch there. Hardware
+    /// has no buffer-consumption event to hang the request on, so it
+    /// synthesises one 2 or 3 cycles later, chosen by CPU get/put parity.
+    /// See [`Dmc::start_transfer`] for why this must not be collapsed into
+    /// an immediate request.
+    #[serde(default)]
+    pub transfer_start_delay: u8,
 }
 
 impl Dmc {
@@ -789,6 +798,30 @@ impl Dmc {
             enabled: false,
             dma_pending: false,
             dma_cancelled: false,
+            transfer_start_delay: 0,
+        }
+    }
+
+    /// Request a sample fetch, if one is actually due.
+    ///
+    /// Mirrors Mesen2's `StartDmcTransfer`: a request only stands when the
+    /// sample buffer is empty and bytes remain. Both callers — the output
+    /// unit consuming the buffer, and the `$4015` start delay expiring —
+    /// funnel through here so the guard cannot be forgotten at one of them.
+    fn start_transfer(&mut self) {
+        if self.sample_buffer_empty && self.bytes_remaining > 0 {
+            self.dma_pending = true;
+        }
+    }
+
+    /// Count down a pending `$4015` transfer-start delay, requesting the
+    /// fetch as it expires. Called once per CPU cycle.
+    fn clock_transfer_start_delay(&mut self) {
+        if self.transfer_start_delay > 0 {
+            self.transfer_start_delay -= 1;
+            if self.transfer_start_delay == 0 {
+                self.start_transfer();
+            }
         }
     }
 
@@ -832,10 +865,15 @@ impl Dmc {
                 self.silence_flag = false;
                 self.shift_register = self.sample_buffer;
                 self.sample_buffer_empty = true;
-            }
-            // Request the next byte if there are more to fetch
-            if self.sample_buffer_empty && self.bytes_remaining > 0 {
-                self.dma_pending = true;
+                // ⚠ The request belongs INSIDE this branch. Sitting after the
+                // if/else it also fired on the silence path, where the buffer
+                // was already empty and hardware requests nothing.
+                //
+                // The interlock: a `$4015` write that armed the start delay
+                // owns the next fetch, so consumption must not pre-empt it.
+                if self.transfer_start_delay == 0 {
+                    self.start_transfer();
+                }
             }
         }
     }
@@ -931,6 +969,16 @@ pub struct Apu {
     noise: Noise,
     /// DMC channel. Public for DMA coordination with the system bus.
     pub dmc: Dmc,
+    /// Parity of the machine's CPU cycle counter, published by the machine
+    /// layer each cycle.
+    ///
+    /// ⚠ The APU cannot derive this. Its own `odd_cycle` counts APU cycles
+    /// and is free to be out of phase; the DMA get/put phase belongs to the
+    /// CPU cycle counter, which keeps running through DMA stalls. The DMC
+    /// transfer-start delay is chosen from it, so it must come from the
+    /// same counter the DMA arbiter uses.
+    #[serde(default)]
+    pub cpu_cycle_odd: bool,
 
     // Frame counter
     frame_mode: FrameCounterMode,
@@ -1043,6 +1091,7 @@ impl Apu {
             triangle: Triangle::new(),
             noise: Noise::new(),
             dmc: Dmc::new(),
+            cpu_cycle_odd: false,
             frame_mode: FrameCounterMode::FourStep,
             frame_counter: 0,
             frame_step: 0,
@@ -1315,9 +1364,13 @@ impl Apu {
                     if self.dmc.bytes_remaining == 0 {
                         self.dmc.current_address = self.dmc.sample_address;
                         self.dmc.bytes_remaining = self.dmc.sample_length;
-                        if self.dmc.sample_buffer_empty {
-                            self.dmc.dma_pending = true;
-                        }
+                        // ⚠⚠ Do NOT request the fetch here. Requesting on the
+                        // write made the fetch ride the write's cadence, so
+                        // `sprdma_and_dmc_dma`'s alignment table came out flat
+                        // where hardware alternates. Hardware instead waits
+                        // 2 or 3 cycles by get/put parity, which lets the
+                        // timer's own 432-cycle cadence stay in charge.
+                        self.dmc.transfer_start_delay = if self.cpu_cycle_odd { 3 } else { 2 };
                     }
                 } else {
                     self.dmc.bytes_remaining = 0;
@@ -1419,6 +1472,11 @@ impl Apu {
             self.noise.clock_timer();
         }
         self.odd_cycle = !self.odd_cycle;
+
+        // A `$4015`-armed transfer start counts down every CPU cycle and is
+        // serviced before the timer, so the delay expiring and the output
+        // unit consuming the buffer on the same cycle resolve in that order.
+        self.dmc.clock_transfer_start_delay();
 
         // DMC timer ticks every CPU cycle
         self.dmc.tick();
@@ -2286,8 +2344,39 @@ mod tests {
             apu.dmc.bytes_remaining > 0,
             "DMC should have bytes to fetch"
         );
-        assert!(apu.dmc.dma_pending, "DMC should request first DMA fetch");
         assert_eq!(apu.dmc.current_address, 0xC000);
+
+        // ⚠ Enabling an idle DMC must NOT request the fetch on the write
+        // itself. Doing so made the fetch ride the write's cadence instead of
+        // the timer's, and `sprdma_and_dmc_dma` measured a flat alignment
+        // table where hardware alternates.
+        assert!(
+            !apu.dmc.dma_pending,
+            "the $4015 write must not request the fetch itself"
+        );
+        assert_eq!(
+            apu.dmc.transfer_start_delay, 2,
+            "even CPU cycle gives a 2-cycle start delay"
+        );
+
+        apu.tick();
+        assert!(!apu.dmc.dma_pending, "still counting the delay out");
+        apu.tick();
+        assert!(apu.dmc.dma_pending, "delay expired, so the fetch is due");
+    }
+
+    #[test]
+    fn dmc_enable_start_delay_is_three_on_an_odd_cycle() {
+        let mut apu = Apu::new();
+        apu.cpu_cycle_odd = true;
+        apu.write(0x4012, 0x00);
+        apu.write(0x4013, 0x01);
+        apu.write(0x4015, 0x10);
+
+        assert_eq!(
+            apu.dmc.transfer_start_delay, 3,
+            "odd CPU cycle gives a 3-cycle start delay"
+        );
     }
 
     #[test]
@@ -2863,16 +2952,53 @@ mod tests {
     }
 
     #[test]
-    fn dmc_clock_output_requests_dma_when_more_bytes() {
+    fn dmc_clock_output_requests_dma_when_buffer_consumed() {
         let mut apu = Apu::new();
         apu.dmc.silence_flag = true;
         apu.dmc.bits_remaining = 1;
-        apu.dmc.sample_buffer_empty = true; // buffer was already empty
+        apu.dmc.sample_buffer = 0xA5;
+        apu.dmc.sample_buffer_empty = false; // buffer holds a byte to consume
         apu.dmc.bytes_remaining = 5;
         apu.dmc.clock_output();
         assert!(
             apu.dmc.dma_pending,
-            "DMA requested when buffer empty and bytes remain"
+            "consuming the buffer requests the next byte"
+        );
+    }
+
+    #[test]
+    fn dmc_clock_output_does_not_request_dma_on_the_silence_path() {
+        // ⚠ The request used to sit after the if/else, so it fired here too --
+        // where the buffer was already empty, the channel goes silent, and
+        // hardware requests nothing.
+        let mut apu = Apu::new();
+        apu.dmc.silence_flag = false;
+        apu.dmc.bits_remaining = 1;
+        apu.dmc.sample_buffer_empty = true;
+        apu.dmc.bytes_remaining = 5;
+        apu.dmc.clock_output();
+        assert!(apu.dmc.silence_flag, "channel goes silent");
+        assert!(
+            !apu.dmc.dma_pending,
+            "the silence path must not request a fetch"
+        );
+    }
+
+    #[test]
+    fn dmc_transfer_start_delay_defers_the_consumption_request() {
+        // The interlock: a $4015 write that armed the start delay owns the
+        // next fetch, so buffer consumption must not pre-empt it.
+        let mut apu = Apu::new();
+        apu.dmc.transfer_start_delay = 2;
+        apu.dmc.silence_flag = true;
+        apu.dmc.bits_remaining = 1;
+        apu.dmc.sample_buffer = 0xA5;
+        apu.dmc.sample_buffer_empty = false;
+        apu.dmc.bytes_remaining = 5;
+        apu.dmc.clock_output();
+        assert!(
+            !apu.dmc.dma_pending,
+            "an armed start delay owns the next fetch"
         );
     }
 

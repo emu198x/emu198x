@@ -11,7 +11,8 @@
 //!
 //! - The master clock drives the loop.
 //! - The PPU ticks every master clock division (1 dot per call).
-//! - The CPU ticks every 3rd PPU dot (`cpu_divider`).
+//! - The CPU ticks every 3rd PPU dot on NTSC, every 3.2 on PAL
+//!   (`cpu_phase`, driven by [`Region`]).
 //! - NMI and IRQ are routed from PPU/mapper to CPU between ticks.
 //! - OAMDMA stalls the CPU for 513/514 cycles when `$4014` is
 //!   written.
@@ -28,8 +29,9 @@
 //! ⚠ "Sub-cycle-accurate OAMDMA/DMC DMA overlap arbitration" was listed here as
 //! out of scope until it was measured. Every DMA read cycle of all sixteen OAM
 //! transfers in `sprdma_and_dmc_dma` matches Mesen2 exactly, address for
-//! address, so the arbitration is in scope and correct. The ROM still fails,
-//! but not here; see
+//! address, so the arbitration is in scope and correct. Both ROMs now pass; the
+//! remaining defect was in the DMC's `$4015` transfer-start delay, not the
+//! arbitration. See
 //! [nes-accuracy-closure-campaign.md](../../knowledge/decisions/nes-accuracy-closure-campaign.md).
 //!
 //! # Porting provenance
@@ -59,6 +61,59 @@ pub use ricoh_ppu_2c02::{
     FB_HEIGHT, FB_WIDTH, TV_CROP_BOTTOM, TV_CROP_TOP, TV_VISIBLE_HEIGHT, TV_VISIBLE_WIDTH,
 };
 
+/// Console region. Selects the clock divider and frame geometry.
+///
+/// ⚠ The master oscillator drives the loop in both regions — only the
+/// dividers change. NTSC runs 1 CPU cycle per 3 dots; PAL runs 1 per
+/// **3.2** (dot = 5 master units, CPU = 16), giving a 3, 3, 3, 3, 4
+/// pattern. See `knowledge/decisions/nes-clock-topology.md`.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Region {
+    /// 21.477 272 MHz master, 262 scanlines, 1 CPU cycle per 3 dots.
+    #[default]
+    Ntsc,
+    /// 26.601 712 MHz master, 312 scanlines, 1 CPU cycle per 3.2 dots.
+    Pal,
+}
+
+impl Region {
+    /// Internal master-clock units in one PPU dot.
+    #[must_use]
+    pub const fn dot_units(self) -> u64 {
+        match self {
+            Self::Ntsc => 4,
+            Self::Pal => 5,
+        }
+    }
+
+    /// Internal master-clock units in one CPU cycle.
+    #[must_use]
+    pub const fn cpu_units(self) -> u64 {
+        match self {
+            Self::Ntsc => 12,
+            Self::Pal => 16,
+        }
+    }
+
+    /// Pre-render scanline: the last line of the frame.
+    #[must_use]
+    pub const fn pre_render_line(self) -> u16 {
+        match self {
+            Self::Ntsc => 261,
+            Self::Pal => 311,
+        }
+    }
+
+    /// Matching APU region, for the frame-counter and DMC rate tables.
+    #[must_use]
+    pub const fn apu_region(self) -> ricoh_apu_2a03::ApuRegion {
+        match self {
+            Self::Ntsc => ricoh_apu_2a03::ApuRegion::Ntsc,
+            Self::Pal => ricoh_apu_2a03::ApuRegion::Pal,
+        }
+    }
+}
+
 /// Serializable NES machine state.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct NesSnapshot {
@@ -68,7 +123,10 @@ pub struct NesSnapshot {
     mapper: MapperSnapshot,
     #[serde(with = "BigArray")]
     ram: [u8; 2048],
-    cpu_divider: u8,
+    #[serde(default)]
+    cpu_phase: u64,
+    #[serde(default)]
+    region: Region,
     master_clock: u64,
     #[serde(default)]
     internal_master_clock: u64,
@@ -123,9 +181,18 @@ pub struct Nes {
     /// `$1FFF`).
     ram: [u8; 2048],
 
-    /// PPU clock divider. The CPU ticks when this hits 0.
-    /// Counts 0, 1, 2, 0, 1, 2, … — the CPU ticks on 0.
-    cpu_divider: u8,
+    /// Master-clock units accumulated since the last CPU cycle.
+    ///
+    /// ⚠ Replaces a `% 3` counter because the CPU:PPU ratio is 1:3 on
+    /// NTSC but **1:3.2** on PAL — 3, 3, 3, 3, 4 dots repeating. Both
+    /// regions keep the master oscillator driving the loop; only the
+    /// divider changes. See `knowledge/decisions/nes-clock-topology.md`.
+    ///
+    /// NTSC is bit-identical to the old counter: 4 units per dot, 12
+    /// per CPU cycle, so the CPU still ticks on every third dot.
+    cpu_phase: u64,
+    /// NTSC or PAL. Fixed at construction.
+    region: Region,
 
     /// Master clock: PPU dots since construction.
     master_clock: u64,
@@ -229,6 +296,19 @@ impl Nes {
     /// for the first [`Self::tick()`].
     #[must_use]
     pub fn new(mapper: Box<dyn Mapper>) -> Self {
+        Self::new_with_region(mapper, Region::Ntsc)
+    }
+
+    /// Build a machine for an explicit [`Region`].
+    ///
+    /// ⚠ The region is fixed at construction: it selects the clock
+    /// dividers, the PPU's frame geometry and the APU's timing tables,
+    /// all of which are read on every tick. Nothing supports changing
+    /// it on a running machine, and nothing should — a mid-run change
+    /// would leave the PPU's dot counter and the CPU phase accumulator
+    /// referring to different clocks.
+    #[must_use]
+    pub fn new_with_region(mapper: Box<dyn Mapper>, region: Region) -> Self {
         let mut cpu = M6502::new_2a03();
         cpu.reset();
 
@@ -237,16 +317,19 @@ impl Nes {
         // state). Games wait for two VBLANKs before touching these, so the
         // lockout is invisible to correct code and silently drops the writes
         // of code that does not wait.
-        let mut ppu = Ppu::new();
+        let mut ppu = Ppu::new_with_timing(region.pre_render_line(), region.dot_units());
+        // The 2C07 runs every frame at the full 341 dots.
+        ppu.set_odd_frame_dot_skip(region == Region::Ntsc);
         ppu.arm_reset_write_lockout();
 
         Self {
             cpu,
             ppu,
-            apu: Apu::new(),
+            apu: Apu::new_with_region(region.apu_region()),
             mapper,
             ram: [0; 2048],
-            cpu_divider: 0,
+            cpu_phase: 0,
+            region,
             master_clock: 0,
             internal_master_clock: 0,
             frame_count: 0,
@@ -309,10 +392,19 @@ impl Nes {
         // Mirror at 4× resolution so the start/end phase split
         // can drive `ppu.run` at sub-PPU-dot precision. Public
         // master_clock stays at PPU-dot resolution for back-compat.
-        self.internal_master_clock += ricoh_ppu_2c02::MASTER_CLOCK_DIVIDER;
-        self.cpu_divider = (self.cpu_divider + 1) % 3;
+        self.internal_master_clock += self.region.dot_units();
+        self.cpu_phase += self.region.dot_units();
 
-        if self.cpu_divider != 0 {
+        // The CPU cycle boundary. On NTSC this is exactly every third
+        // dot, identical to the `% 3` counter it replaces; on PAL the
+        // accumulator produces the 3, 3, 3, 3, 4 pattern that 16 master
+        // units per CPU cycle against 5 per dot demands.
+        let cpu_due = self.cpu_phase >= self.region.cpu_units();
+        if cpu_due {
+            self.cpu_phase -= self.region.cpu_units();
+        }
+
+        if !cpu_due {
             // Non-CPU master tick: PPU runs with the 1-master-tick
             // lag (Mesen `_ppuOffset = 1` analog). PPU is
             // permanently behind the wall clock by 1 master tick.
@@ -332,6 +424,11 @@ impl Nes {
         // the get/put parity counter — it ticks during DMA cycles too,
         // where `cpu.total_cycles` would freeze.
         self.cpu_cycle_count += 1;
+
+        // Publish the get/put phase to the APU. The DMC's transfer-start
+        // delay is chosen from it, and it must be the same counter the DMA
+        // arbiter aligns on (see `dma_cycle`) rather than the APU's own.
+        self.apu.cpu_cycle_odd = self.cpu_cycle_count & 1 != 0;
 
         // Take a newly-pending DMC sample DMA under machine control; the
         // machine then owns its halt → dummy → fetch sequence and can
@@ -769,6 +866,32 @@ impl Nes {
         self.apu.set_audio_channel_gain(channel, gain);
     }
 
+    /// The 2 KiB of nametable the PPU actually fetches, mapper included.
+    ///
+    /// ⚠⚠ Use this, not `ppu.nametable_ram()`, to read what is on screen.
+    /// A mapper may serve `$2000-$2FFF` from its own memory: MMC5 keeps
+    /// its nametable RAM inside the mapper and can map ExRAM or a fill
+    /// tile into any of the four slots, so the console's CIRAM stays
+    /// **entirely empty** for every MMC5 ROM. Three of them were briefly
+    /// recorded as rendering nothing on exactly that mistake — the ROMs
+    /// were fine, and the framebuffer proved it.
+    ///
+    /// Side-effect free: goes through [`Mapper::nametable_peek`] rather
+    /// than `nametable_read`, which would clock MMC5's scanline detector.
+    #[must_use]
+    pub fn effective_nametable(&self) -> [u8; 2048] {
+        let ciram = self.ppu.nametable_ram();
+        let mut out = [0u8; 2048];
+        for (i, slot) in out.iter_mut().enumerate() {
+            let addr = 0x2000 + u16::try_from(i).expect("2048 fits in u16");
+            *slot = self
+                .mapper
+                .nametable_peek(addr)
+                .unwrap_or_else(|| ciram[i & 0x07FF]);
+        }
+        out
+    }
+
     /// Peek a byte of CPU-visible memory (no side effects).
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
@@ -831,6 +954,15 @@ impl Nes {
         self.master_clock
     }
 
+    /// CPU cycles since construction, DMA stalls included.
+    ///
+    /// Differs from `cpu.total_cycles`, which freezes while the CPU is
+    /// halted for DMA. This one is the get/put phase counter.
+    #[must_use]
+    pub fn cpu_cycle_count(&self) -> u64 {
+        self.cpu_cycle_count
+    }
+
     /// Completed frame count.
     #[must_use]
     pub fn frame_count(&self) -> u64 {
@@ -858,7 +990,8 @@ impl Nes {
             apu: self.apu.clone(),
             mapper: self.mapper.snapshot(),
             ram: self.ram,
-            cpu_divider: self.cpu_divider,
+            cpu_phase: self.cpu_phase,
+            region: self.region,
             master_clock: self.master_clock,
             internal_master_clock: self.internal_master_clock,
             frame_count: self.frame_count,
@@ -893,7 +1026,8 @@ impl Nes {
         self.apu.after_restore();
         self.mapper = mapper_from_snapshot(snapshot.mapper);
         self.ram = snapshot.ram;
-        self.cpu_divider = snapshot.cpu_divider;
+        self.cpu_phase = snapshot.cpu_phase;
+        self.region = snapshot.region;
         self.master_clock = snapshot.master_clock;
         self.internal_master_clock = snapshot.internal_master_clock;
         self.frame_count = snapshot.frame_count;
@@ -927,7 +1061,8 @@ impl Nes {
             apu,
             mapper: mapper_from_snapshot(snapshot.mapper),
             ram: snapshot.ram,
-            cpu_divider: snapshot.cpu_divider,
+            cpu_phase: snapshot.cpu_phase,
+            region: snapshot.region,
             master_clock: snapshot.master_clock,
             internal_master_clock: snapshot.internal_master_clock,
             frame_count: snapshot.frame_count,

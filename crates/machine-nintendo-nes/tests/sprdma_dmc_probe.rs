@@ -324,3 +324,227 @@ fn probe_dmc_tests_text() {
         eprintln!("\n═══ {name} ═══\n{}", nametable_text(&nes));
     }
 }
+
+/// ⚠ Measure, do not infer. The four `dmc_tests` were recorded as
+/// having no readable result channel on the strength of their behaviour
+/// (they never draw) and a readme they do not ship. The identical claim
+/// about `test_ppu_read_buffer` turned out to be wrong: it wrote the
+/// full `$6000` report all along and merely needed more time.
+///
+/// This checks the `$6000` protocol on all four, over a budget well past
+/// the sweep's ceiling.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_dmc_tests_6000_protocol() {
+    let Some(root) = rom_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    // ⚠ The last three are the CONTROL. blargg encodes a result code as
+    // binary with a leading zero, low tone = 0 and high tone = 1, so a
+    // pass (code 0) is ONE tone and codes 2 and 3 are THREE. The two
+    // mmc3 ROMs fail by design with codes $02 and $03, and 1.Clocking
+    // passes. If the counter cannot tell those apart it cannot read a
+    // dmc_tests verdict either, and a one-tone reading would mean
+    // nothing.
+    for (name, path_rel) in [
+        ("buffer_retained", "dmc_tests/buffer_retained.nes"),
+        ("latency", "dmc_tests/latency.nes"),
+        ("status", "dmc_tests/status.nes"),
+        ("status_irq", "dmc_tests/status_irq.nes"),
+        ("CTRL pass", "mmc3_irq_tests/1.Clocking.nes"),
+        ("CTRL fail $03", "mmc3_irq_tests/5.MMC3_rev_A.nes"),
+        ("CTRL fail $02", "mmc3_test_2/rom_singles/6-MMC3_alt.nes"),
+    ] {
+        let path = root.join(path_rel);
+        let Ok(bytes) = std::fs::read(&path) else {
+            println!("{name:<18} MISSING");
+            continue;
+        };
+        let parsed = parse_ines(&bytes).expect("parse iNES");
+        let mut nes = Nes::new(parsed.mapper);
+        let mut sig_at: Option<u64> = None;
+        let mut result: Option<(u64, u8)> = None;
+        // 900M ticks — well past test_ppu_read_buffer's ~520M.
+        while nes.master_clock() < 900_000_000 {
+            nes.run_frame();
+            if sig_at.is_none()
+                && nes.peek(0x6001) == 0xDE
+                && nes.peek(0x6002) == 0xB0
+                && nes.peek(0x6003) == 0x61
+            {
+                sig_at = Some(nes.frame_count());
+            }
+            if sig_at.is_some() && result.is_none() {
+                let st = nes.peek(0x6000);
+                if st != 0x80 {
+                    result = Some((nes.frame_count(), st));
+                    break;
+                }
+            }
+        }
+        let text: String = (0x6004u16..0x6204)
+            .map(|a| nes.peek(a))
+            .take_while(|&b| b != 0)
+            .map(|b| {
+                if (0x20..=0x7E).contains(&b) {
+                    b as char
+                } else {
+                    '.'
+                }
+            })
+            .collect();
+        println!(
+            "{name:<18} sig={:?} $6000=${:02X} result={:?} bytes@6000..6008={:02X?} text={text:?}",
+            sig_at,
+            nes.peek(0x6000),
+            result,
+            (0x6000u16..0x6008).map(|a| nes.peek(a)).collect::<Vec<_>>()
+        );
+    }
+}
+
+/// Do the `dmc_tests` actually beep?
+///
+/// blargg's shell documents an audible result channel: "A byte is
+/// reported as a series of tones. The code is in binary, with a low tone
+/// for 0 and a high tone for 1, and with leading zeroes skipped. The
+/// first tone is always a zero. A final code of 0 means passed."
+/// (`ppu_open_bus/readme.txt`.) That is the ROM author's own protocol,
+/// so decoding it would gate these four on a published expectation
+/// rather than on Mesen2.
+///
+/// ⚠ The readme attributes the tones to NSF builds. These four are
+/// `.nes`. Whether the .nes builds emit them at all is the question —
+/// measured here rather than assumed in either direction.
+///
+/// Segments 48 kHz audio into bursts by RMS and estimates each burst's
+/// pitch by zero-crossing rate.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_dmc_tests_audio() {
+    let Some(root) = rom_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    const RATE: f32 = 48_000.0;
+    // ⚠ The last three are the CONTROL. blargg encodes a result code as
+    // binary with a leading zero, low tone = 0 and high tone = 1, so a
+    // pass (code 0) is ONE tone and codes 2 and 3 are THREE. The two
+    // mmc3 ROMs fail by design with codes $02 and $03, and 1.Clocking
+    // passes. If the counter cannot tell those apart it cannot read a
+    // dmc_tests verdict either, and a one-tone reading would mean
+    // nothing.
+    for (name, path_rel) in [
+        ("buffer_retained", "dmc_tests/buffer_retained.nes"),
+        ("latency", "dmc_tests/latency.nes"),
+        ("status", "dmc_tests/status.nes"),
+        ("status_irq", "dmc_tests/status_irq.nes"),
+        ("CTRL pass", "mmc3_irq_tests/1.Clocking.nes"),
+        ("CTRL fail $03", "mmc3_irq_tests/5.MMC3_rev_A.nes"),
+        ("CTRL fail $02", "mmc3_test_2/rom_singles/6-MMC3_alt.nes"),
+    ] {
+        let path = root.join(path_rel);
+        let Ok(bytes) = std::fs::read(&path) else {
+            println!("{name:<18} MISSING");
+            continue;
+        };
+        let parsed = parse_ines(&bytes).expect("parse iNES");
+        let mut nes = Nes::new(parsed.mapper);
+        let mut audio: Vec<f32> = Vec::new();
+        for _ in 0..900 {
+            nes.run_frame();
+            audio.extend(nes.take_audio_buffer());
+        }
+        // Window RMS at 10 ms, then group loud windows into bursts.
+        let win = (RATE * 0.01) as usize;
+        let mut loud: Vec<bool> = Vec::new();
+        for chunk in audio.chunks(win) {
+            let rms = (chunk.iter().map(|s| s * s).sum::<f32>() / chunk.len() as f32).sqrt();
+            loud.push(rms > 0.02);
+        }
+        let mut bursts: Vec<(usize, usize)> = Vec::new();
+        let mut start: Option<usize> = None;
+        for (i, &l) in loud.iter().enumerate() {
+            match (l, start) {
+                (true, None) => start = Some(i),
+                (false, Some(s)) => {
+                    bursts.push((s, i));
+                    start = None;
+                }
+                _ => {}
+            }
+        }
+        if let Some(s) = start {
+            bursts.push((s, loud.len()));
+        }
+        let peak = audio.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
+        let tones: Vec<String> = bursts
+            .iter()
+            .take(12)
+            .map(|&(s, e)| {
+                let seg = &audio[s * win..(e * win).min(audio.len())];
+                let crossings = seg
+                    .windows(2)
+                    .filter(|w| (w[0] < 0.0) != (w[1] < 0.0))
+                    .count();
+                let hz = crossings as f32 * RATE / (2.0 * seg.len() as f32);
+                format!("{:.0}Hz/{}ms", hz, (e - s) * 10)
+            })
+            .collect();
+        println!(
+            "{name:<18} samples={} peak={peak:.4} bursts={} tones=[{}]",
+            audio.len(),
+            bursts.len(),
+            tones.join(" ")
+        );
+    }
+}
+
+/// OAM DMA stall length, counted from the DMA bus-op trace rather than
+/// inferred from an instruction span.
+///
+/// ⚠ The trace records READS only — the halt read, the alignment dummy
+/// and 256 OAM source reads — because put-cycle writes go straight to
+/// `ppu.oam_dma_write`. So the count of entries is not the stall; the
+/// span between the first and last recorded cycle is, plus the final
+/// write cycle.
+///
+/// NESdev: the `$4014` write suspends the CPU for 513 cycles, or 514 if
+/// the write lands on a put cycle. `lib.rs` says so in two comments and
+/// nothing has ever asserted it.
+#[test]
+#[ignore = "diagnostic; requires local nes-test-roms"]
+fn probe_oam_dma_stall_from_trace() {
+    let Some(root) = rom_root() else {
+        eprintln!("nes-test-roms not found; skipping");
+        return;
+    };
+    let bytes =
+        std::fs::read(root.join("ppu_read_buffer/test_ppu_read_buffer.nes")).expect("read rom");
+    let parsed = parse_ines(&bytes).expect("parse iNES");
+    let mut nes = Nes::new(parsed.mapper);
+    for _ in 0..200 {
+        nes.run_frame();
+    }
+    nes.start_dma_trace();
+    for _ in 0..26 {
+        nes.run_frame();
+    }
+    let trace = nes.take_dma_trace();
+    let episodes = split_episodes(&trace);
+    println!("{} OAM episodes", episodes.len());
+    for ep in episodes.iter().take(6) {
+        let (Some(&(first, _)), Some(&(last, _))) = (ep.first(), ep.last()) else {
+            continue;
+        };
+        println!(
+            "  reads={:<4} first_cycle={first} last_cycle={last} span={} \
+             (+1 final write cycle = stall {})",
+            ep.len(),
+            last - first + 1,
+            last - first + 2
+        );
+    }
+    println!("expected stall: 513 (write on a get cycle) or 514 (put cycle)");
+}

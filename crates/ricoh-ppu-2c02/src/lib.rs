@@ -110,6 +110,22 @@ pub struct Ppu {
 
     // ── Data read buffer ($2007) ────────────────────────────────
     read_buffer: u8,
+    /// `ppu_clock` at the last buffered `$2007` read, and the value that
+    /// read returned.
+    ///
+    /// ⚠ Two `$2007` reads on CONSECUTIVE CPU cycles are not two
+    /// independent reads. The second returns what the first returned —
+    /// the PPU cannot present a freshly-latched buffer that fast — while
+    /// the address still increments twice and the buffer still refills
+    /// once. blargg's `double_2007_read`: "Double read of $2007
+    /// sometimes ignores extra read, and puts odd things into buffer."
+    ///
+    /// Reached by `lda abs,X` across a page boundary, whose dummy read
+    /// lands on `$2007` one cycle before the real one.
+    #[serde(default)]
+    last_ppudata_read_clock: u64,
+    #[serde(default)]
+    last_ppudata_result: u8,
     /// Open bus latch: last value written to any PPU register.
     open_bus: u8,
     /// Per-bit decay tracking for [`Self::open_bus`]. Each entry
@@ -183,6 +199,21 @@ pub struct Ppu {
     // ── Configuration ───────────────────────────────────────────
     /// Pre-render scanline number (261 for NTSC, 311 for PAL).
     pre_render_line: u16,
+    /// Internal master-clock units per PPU dot: 4 on NTSC, 5 on PAL.
+    ///
+    /// ⚠ Per-instance, not a constant, because the CPU:PPU ratio is
+    /// 1:3 on NTSC but 1:3.2 on PAL. Both regions keep the master
+    /// oscillator as the loop driver — only the divider changes. See
+    /// `knowledge/decisions/nes-clock-topology.md`.
+    #[serde(default = "default_master_divider")]
+    master_divider: u64,
+    /// Whether the pre-render line drops a dot on odd frames.
+    ///
+    /// ⚠ NTSC only. The 2C07 (PAL) runs every frame at the full 341
+    /// dots — there is no short frame — so a PAL machine must clear
+    /// this or every odd frame comes out one dot early.
+    #[serde(default = "default_odd_frame_dot_skip")]
+    odd_frame_dot_skip: bool,
     /// Suppress VBL flag on the next tick. Set when $2002 is read
     /// on the exact PPU cycle that VBL would be set.
     suppress_vbl: bool,
@@ -233,6 +264,17 @@ fn default_true() -> bool {
 /// the start / end phase split.
 pub const MASTER_CLOCK_DIVIDER: u64 = 4;
 
+/// Serde default for [`Ppu::master_divider`] — NTSC, so snapshots taken
+/// before the field existed restore as NTSC.
+fn default_master_divider() -> u64 {
+    MASTER_CLOCK_DIVIDER
+}
+
+/// Serde default for [`Ppu::odd_frame_dot_skip`] — NTSC behaviour.
+fn default_odd_frame_dot_skip() -> bool {
+    true
+}
+
 /// Number of PPU-clock ticks (4× PPU dots) after which an open-bus
 /// bit decays back to 0 if not refreshed. Real hardware varies with
 /// chip + temperature, with ~600 ms typical (per nesdev). At
@@ -249,6 +291,30 @@ impl Ppu {
     #[must_use]
     pub fn new() -> Self {
         Self::new_with_pre_render_line(261)
+    }
+
+    /// Create a PPU with an explicit region geometry.
+    ///
+    /// `pre_render_line` is 261 (NTSC) or 311 (PAL); `master_divider`
+    /// is the number of internal master-clock units in one dot, 4 or 5.
+    #[must_use]
+    pub fn new_with_timing(pre_render_line: u16, master_divider: u64) -> Self {
+        let mut ppu = Self::new_with_pre_render_line(pre_render_line);
+        ppu.master_divider = master_divider;
+        ppu
+    }
+
+    /// Internal master-clock units per dot for this PPU.
+    #[must_use]
+    pub fn master_divider(&self) -> u64 {
+        self.master_divider
+    }
+
+    /// Enable or disable the NTSC odd-frame dot skip.
+    ///
+    /// Set `false` for PAL: the 2C07 has no short frame.
+    pub fn set_odd_frame_dot_skip(&mut self, enabled: bool) {
+        self.odd_frame_dot_skip = enabled;
     }
 
     /// Create a PPU with the given pre-render scanline number.
@@ -279,6 +345,8 @@ impl Ppu {
             w: false,
 
             read_buffer: 0,
+            last_ppudata_read_clock: u64::MAX,
+            last_ppudata_result: 0,
             open_bus: 0,
             open_bus_decay: [0; 8],
 
@@ -319,6 +387,8 @@ impl Ppu {
             nmi: false,
 
             pre_render_line,
+            master_divider: MASTER_CLOCK_DIVIDER,
+            odd_frame_dot_skip: true,
             suppress_vbl: false,
             bus_address: 0,
             prev_a12: false,
@@ -355,7 +425,7 @@ impl Ppu {
     /// calls this with `target = internal_master_clock - 1` to
     /// realise the `_ppuOffset = 1` phase lag.
     pub fn run(&mut self, mapper: &mut dyn Mapper, target_master_clock: u64) {
-        while self.ppu_clock + MASTER_CLOCK_DIVIDER <= target_master_clock {
+        while self.ppu_clock + self.master_divider <= target_master_clock {
             self.tick(mapper);
         }
     }
@@ -416,7 +486,7 @@ impl Ppu {
         self.prev_rendering_enabled = self.rendering_enabled();
 
         // Advance dot/scanline + internal master clock counter.
-        self.ppu_clock = self.ppu_clock.saturating_add(MASTER_CLOCK_DIVIDER);
+        self.ppu_clock = self.ppu_clock.saturating_add(self.master_divider);
         self.dot += 1;
         if self.dot > 340 {
             self.dot = 0;
@@ -472,7 +542,11 @@ impl Ppu {
         // toggles BG on (or off) immediately before dot 339 therefore
         // does not affect this frame's skip — matching Mesen's 1-cycle
         // delay on `_renderingEnabled` (blargg 10-even_odd_timing).
-        if self.dot == 339 && self.frame_odd && self.prev_rendering_enabled {
+        if self.odd_frame_dot_skip
+            && self.dot == 339
+            && self.frame_odd
+            && self.prev_rendering_enabled
+        {
             self.dot = 340;
         }
     }
@@ -1103,9 +1177,31 @@ impl Ppu {
                     self.read_buffer = self.ppu_read(addr & 0x2FFF, mapper);
                     result
                 } else {
-                    let result = self.read_buffer;
+                    // A read on the CPU cycle immediately after another
+                    // returns the earlier result, not the newly latched
+                    // buffer. The refill and the increment below happen
+                    // either way — only the value handed back differs.
+                    //
+                    // Threshold is 4 dots' worth of master units: wider
+                    // than one CPU cycle (3 dots NTSC, 3.2 PAL) and
+                    // narrower than two, in both regions.
+                    let gap = self.ppu_clock.saturating_sub(self.last_ppudata_read_clock);
+                    // `gap > 0` matters: two reads cannot share a CPU
+                    // cycle on hardware, so a zero gap means a caller
+                    // read twice without advancing the clock — a unit
+                    // test, not a double read.
+                    let back_to_back = self.last_ppudata_read_clock != u64::MAX
+                        && gap > 0
+                        && gap <= self.master_divider * 4;
+                    let result = if back_to_back {
+                        self.last_ppudata_result
+                    } else {
+                        self.read_buffer
+                    };
                     self.read_buffer = self.ppu_read(addr, mapper);
                     self.refresh_open_bus(0xFF, result);
+                    self.last_ppudata_read_clock = self.ppu_clock;
+                    self.last_ppudata_result = result;
                     result
                 };
                 let new_v = self

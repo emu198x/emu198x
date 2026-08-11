@@ -1,59 +1,63 @@
-# Expected clock counts for the sprdma_and_dmc_dma ROMs, and what Emu198x
-# currently measures. Obtained from Mesen2 (which passes both ROMs) via
-# tools/mesen-nes-cross-check; Emu198x column from the sprdma_dmc_probe test.
+# Clock counts for the sprdma_and_dmc_dma ROMs. Obtained from Mesen2 (which
+# passes both ROMs) via tools/mesen-nes-cross-check; Emu198x column from the
+# sprdma_dmc_probe test.
 #
 # The ROM sweeps 16 get/put alignments (T+) and prints the total clocks each
-# takes. Emu198x fails both with #01 because its CRC over these 16 values
-# differs. Recorded so the defect can be targeted by diff rather than guessed
-# at: every difference is +1, never -1 and never more than 1, at exactly the
-# alignments where the reference takes the SHORTER path. Emu198x is one cycle
-# too slow at half the alignments -- an alignment cycle taken unconditionally
-# where hardware takes it only when the get/put phase demands it.
+# takes, then CRCs the 16 values.
 #
-# ⚠ Not a gate. Nothing asserts against this file; it is the oracle the fix is
-# aimed at. The gate is sweep-baseline-v1.tsv, which records the FAILING
-# verdicts as they stand.
+# ✅ RESOLVED at 1aa4eb67. All 32 rows match and both ROMs report Passed. The
+# defect was a missing DMC transfer-start delay: a $4015 write that re-armed an
+# idle channel requested its sample fetch immediately, so the fetch rode the
+# write's 433-cycle cadence instead of the timer's 432 and the table came out
+# flat where hardware alternates. See knowledge/decisions/nes-accuracy-closure-campaign.md.
 #
-# Verified not to be the cause (each measured, each disproved):
+# Kept as the regression oracle. Re-measure with:
+#   cargo test -p machine-nintendo-nes --test sprdma_dmc_probe \
+#       probe_sprdma_and_dmc_dma -- --ignored --nocapture
+#
+# ⚠ Not a gate. Nothing asserts against this file. The gate is
+# sweep-baseline-v1.tsv, which declares both ROMs as passing.
+#
+# Ruled out along the way (each measured, each disproved) -- do not retry:
 #   * OAM DMA alone -- 513/514 by alignment, correct
 #   * DMC DMA alone -- 3/4 by alignment, correct
 #   * combined stall with a sliding $4014 -- alternates 515/516, correct
 #   * inverting the get/put phase to match Mesen's pre-increment evaluation --
 #     the ROM then never settles at all
 #   * the OAM transfer itself -- a cycle-by-cycle bus-op diff against Mesen2
-#     matches on all 16 transfers, address for address, so the extra cycle is
+#     matches on all 16 transfers, address for address, so the extra cycle was
 #     NOT inside the transfer. See the campaign record.
 #
 # rom	t_plus	mesen2	emu198x	delta
-sprdma_and_dmc_dma	00	527	528	+1
+sprdma_and_dmc_dma	00	527	527	0
 sprdma_and_dmc_dma	01	528	528	0
-sprdma_and_dmc_dma	02	527	528	+1
+sprdma_and_dmc_dma	02	527	527	0
 sprdma_and_dmc_dma	03	528	528	0
-sprdma_and_dmc_dma	04	527	528	+1
+sprdma_and_dmc_dma	04	527	527	0
 sprdma_and_dmc_dma	05	526	526	0
-sprdma_and_dmc_dma	06	525	526	+1
+sprdma_and_dmc_dma	06	525	525	0
 sprdma_and_dmc_dma	07	526	526	0
-sprdma_and_dmc_dma	08	525	526	+1
+sprdma_and_dmc_dma	08	525	525	0
 sprdma_and_dmc_dma	09	526	526	0
-sprdma_and_dmc_dma	0A	525	526	+1
+sprdma_and_dmc_dma	0A	525	525	0
 sprdma_and_dmc_dma	0B	526	526	0
-sprdma_and_dmc_dma	0C	525	526	+1
+sprdma_and_dmc_dma	0C	525	525	0
 sprdma_and_dmc_dma	0D	526	526	0
-sprdma_and_dmc_dma	0E	525	526	+1
+sprdma_and_dmc_dma	0E	525	525	0
 sprdma_and_dmc_dma	0F	526	526	0
-sprdma_and_dmc_dma_512	00	525	526	+1
+sprdma_and_dmc_dma_512	00	525	525	0
 sprdma_and_dmc_dma_512	01	526	526	0
-sprdma_and_dmc_dma_512	02	525	526	+1
+sprdma_and_dmc_dma_512	02	525	525	0
 sprdma_and_dmc_dma_512	03	526	526	0
 sprdma_and_dmc_dma_512	04	524	524	0
-sprdma_and_dmc_dma_512	05	525	526	+1
+sprdma_and_dmc_dma_512	05	525	525	0
 sprdma_and_dmc_dma_512	06	526	526	0
-sprdma_and_dmc_dma_512	07	527	528	+1
-sprdma_and_dmc_dma_512	08	527	528	+1
+sprdma_and_dmc_dma_512	07	527	527	0
+sprdma_and_dmc_dma_512	08	527	527	0
 sprdma_and_dmc_dma_512	09	528	528	0
 sprdma_and_dmc_dma_512	0A	526	526	0
-sprdma_and_dmc_dma_512	0B	527	528	+1
-sprdma_and_dmc_dma_512	0C	527	528	+1
+sprdma_and_dmc_dma_512	0B	527	527	0
+sprdma_and_dmc_dma_512	0C	527	527	0
 sprdma_and_dmc_dma_512	0D	528	528	0
-sprdma_and_dmc_dma_512	0E	527	528	+1
+sprdma_and_dmc_dma_512	0E	527	527	0
 sprdma_and_dmc_dma_512	0F	528	528	0
