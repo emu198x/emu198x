@@ -503,6 +503,10 @@ fn dragon_textstar_cas_path() -> Option<PathBuf> {
         return Some(path);
     }
 
+    if let Some(path) = home_path(".emu198x/media/dragon/textstar.zip") {
+        return Some(path);
+    }
+
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)?;
@@ -518,6 +522,10 @@ fn dragon_textstar_cas_path() -> Option<PathBuf> {
 
 fn dragon_machine_code_cas_path() -> Option<PathBuf> {
     if let Some(path) = existing_env_path("EMU198X_DRAGON_MACHINE_CAS") {
+        return Some(path);
+    }
+
+    if let Some(path) = home_path(".emu198x/media/dragon/color-invaders.zip") {
         return Some(path);
     }
 
