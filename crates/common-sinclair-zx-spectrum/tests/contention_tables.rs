@@ -47,14 +47,22 @@ fn origins_reproducing(mask: &[bool; 16], pattern: [u8; 8]) -> Vec<usize> {
         .collect()
 }
 
+/// The alignment is 0, and that is the result rather than a detail.
+///
+/// It was 3 while the mask was a hand-written literal: T-phase 0 arrived
+/// three half-cycles into the 16-pixel cycle, so the CPU's T-state grid
+/// and the ULA's pixel counter were offset by one and a half T-states
+/// with nothing to say why. Now that the mask is `C3 + C2` read on the
+/// origin the ULA's fetch group fixes, the two grids share an origin and
+/// the free run occupies two whole T-states.
 #[test]
 fn the_48k_pattern_falls_out_of_its_mask() {
     let origins = origins_reproducing(&DELAY_TABLE_48K, CONTENTION_PATTERN_48K);
     assert_eq!(
         origins,
-        vec![3],
+        vec![0],
         "DELAY_TABLE_48K should reproduce {CONTENTION_PATTERN_48K:?} at exactly \
-         one phase alignment (half-cycle 3), and did so at {origins:?}. \
+         one phase alignment (half-cycle 0), and did so at {origins:?}. \
          A second alignment would mean the mask is ambiguous; none would mean \
          the mask and the pattern have drifted apart.",
     );

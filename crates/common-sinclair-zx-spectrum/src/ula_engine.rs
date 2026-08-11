@@ -376,11 +376,60 @@ pub const IDLE_TABLE: [bool; 16] = [
     true, true,
 ];
 
-/// 48K/128K contention delay table.
-pub const DELAY_TABLE_48K: [bool; 16] = [
-    false, false, false, true, true, true, true, true, true, true, true, true, true, true, true,
-    false,
-];
+/// Pixels the ULA's counter runs ahead of the HDL's `hc` for the same
+/// point in the fetch cycle.
+///
+/// The HDL presents display addresses to VRAM at `hc[3:0]` 8, 9, 12, 13
+/// and attribute addresses at 10, 11, 14, 15 (`zx_ula`,
+/// `fpga_version/rtl/ula.v`, the "cycles 8 and 12" / "cycles 10 and 14"
+/// branches), so its fetch group is `hc` 8–15. Ours is pixels 4–11 —
+/// `MEM_TABLE` and `IDLE_TABLE` above, placed there by Seam 1 from Smith
+/// Chapter 13. Same four reads, same order, a counter origin four pixels
+/// apart.
+///
+/// This is the number that lets a signal the HDL expresses in *its*
+/// counter's bits be evaluated against ours. Without it the two counters
+/// are related only by assumption, and an assumption is what
+/// `DELAY_TABLE_48K` used to encode.
+pub const HDL_HC_LEAD_PIXELS: usize = 4;
+
+/// 48K/128K contention delay table, indexed by `pixel & 0x0F`.
+/// `true` = the ULA may withhold the CPU clock this half-cycle.
+///
+/// `CLKWAIT = C3 + C2` — Smith Chapter 18 p. 192, and `hc[2] | hc[3]` in
+/// the HDL. Two counter bits, not sixteen hand-written booleans, and the
+/// difference matters: the literal form carried a phase against the fetch
+/// cycle that nothing stated and nothing could check, and it was wrong by
+/// a T-state.
+///
+/// **The phase is the whole content of this constant.** `C2 | C3` fixes
+/// the window's *shape* — twelve asserted half-cycles then four free,
+/// giving `[6,5,4,3,2,1,0,0]` — but says nothing about where the free run
+/// falls against the display. Smith's Chapter 18 declines to pin the
+/// counter's absolute phase; the HDL does pin it, because one counter
+/// drives both its fetch and its `CLKWAIT`, and `HDL_HC_LEAD_PIXELS`
+/// carries that relationship across to ours. The free run lands on pixels
+/// 12–15: the two T-states after the ULA's fetch group ends and before
+/// the two-T-state wind-up to the next one.
+///
+/// Landing on whole T-states is itself a result. The previous literal was
+/// free at 15, 0, 1 and 2, straddling a T-state boundary at both ends, so
+/// which two T-states the CPU actually got depended on the parity of the
+/// half-cycle it happened to arrive on. This table cannot express that
+/// ambiguity.
+pub const DELAY_TABLE_48K: [bool; 16] = clkwait_from_counter_bits();
+
+/// `C3 + C2` over one 16-pixel cycle, read on our counter's origin.
+const fn clkwait_from_counter_bits() -> [bool; 16] {
+    let mut table = [false; 16];
+    let mut pixel = 0usize;
+    while pixel < 16 {
+        let hc = (pixel + HDL_HC_LEAD_PIXELS) & 0x0F;
+        table[pixel] = (hc >> 2) & 1 == 1 || (hc >> 3) & 1 == 1;
+        pixel += 1;
+    }
+    table
+}
 
 /// +2A/+3 contention delay table — different pattern.
 pub const DELAY_TABLE_PLUS2A: [bool; 16] = [

@@ -76,27 +76,22 @@ const C0_PERIOD: usize = 16;
 
 /// Offset from the ULA's pixel counter to the canonical C0 index.
 ///
-/// This is the Seam 1 alignment, and it is the one number here that the
-/// reference does not fix. Smith derives the wait as `CLKWAIT = C3 + C2`
-/// and states the ULA counter and the Z80 T-state grid are offset by half
-/// a C0 cycle, but Chapter 18 explicitly declines to pin the counter's
-/// absolute phase — it requires aligning to a named test program, and
-/// the wiki decision names `Float48K`. The engine's own `Float48K`
-/// reading is one T-state off the published figure, which is the same
-/// ambiguity seen from the other end.
+/// Smith derives the wait as `CLKWAIT = C3 + C2` but Chapter 18 declines
+/// to pin the counter's absolute phase, so this number cannot come from
+/// there. It comes from the HDL, where one counter drives both the fetch
+/// and `CLKWAIT`: `hc[3:0]` 8–15 presents display and attribute addresses
+/// to VRAM, ours fetches at pixels 4–11, and the four pixels between them
+/// carry every `hc`-indexed signal across. It is
+/// `ula_engine::HDL_HC_LEAD_PIXELS`, named again here rather than
+/// imported so that a drift between the two shows up as this file's
+/// derivation disagreeing with the gate rather than as both moving
+/// together in silence.
 ///
-/// The value is not fitted to the instruction costs. With this offset
-/// the derived table below reproduces the gate's *measured* delay table
-/// exactly — `effective_delay_table` in `ferranti-ula-6c001e` records
-/// 12, 11 and 0 C0 cycles at pixel phases 3, 4 and 15, and the
-/// derivation gives the same — so it is pinned by a measurement of the
-/// table rather than by the numbers it is later used to predict.
-///
-/// **It is pinned by a measurement of the gate against itself**, which
-/// `memory_contention_matches_fuse_at_every_arrival_tstate` shows is not
-/// enough: it confirms whatever the table happens to hold, and the table
-/// holds a phase the differential scores 88,871 samples against.
-const SEAM1_C0_ORIGIN: usize = 1;
+/// It was 1, pinned by `effective_delay_table` — which measures the gate
+/// against itself and so confirms whatever the table happens to hold. It
+/// held a phase this file's arrival-resolved differential scored 88,871
+/// samples against.
+const SEAM1_C0_ORIGIN: usize = 4;
 
 // No separate sampling correction is applied, and that is deliberate.
 //
@@ -943,15 +938,18 @@ fn memory_contention_matches_fuse_at_every_arrival_tstate() {
     // A ceiling, not a target. Lower it in the commit that earns it;
     // never raise it.
     //
-    // 88,871 is what the engine scores today. It is not a small number,
-    // and the sweep above says why: the pinned origin is not the
-    // minimum. `+14334` scores 2,328. An origin shift moves every
-    // contended M-cycle at once, so a single global shift absorbing the
-    // error puts it in the contention window's phase against the frame,
-    // not in any one instruction shape. Read the fit as the diagnosis and
-    // do not rescore there — that is the failure
-    // `fuse-governs-the-contended-window.md` lists in its drift triggers.
-    const RATCHET: usize = 88_871;
+    // 9,858, down from 88,871 when the contention window's phase was
+    // locked to the ULA's fetch group. The number that matters more than
+    // the number: the pinned origin is now the sweep's minimum, where it
+    // used to sit beside a sharp one at `+14334`. Nothing was rescored to
+    // get there.
+    //
+    // What is left is entirely multi-M-cycle. `NOP` and `INC BC` are
+    // exact at every arrival T-state in the frame; every remaining
+    // disagreement is an instruction with a second memory cycle, which is
+    // the re-arming residual `trace_one_instruction` shows and a separate
+    // defect from the window's phase.
+    const RATCHET: usize = 9_858;
     assert!(
         total <= RATCHET,
         "memory contention regressed against FUSE: {total} of {samples_total} \
