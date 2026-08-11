@@ -128,6 +128,72 @@ expression above. Score on the survey first, the differentials second.
 injected, not three hand-written copies in `ferranti-ula-6c001e`,
 `sinclair-ula-7k010e` and `timex-scld` that have already drifted apart.
 
+## The architectural suspects
+
+The four phases above assume the design is sound and only the logic is wrong.
+That assumption deserves testing, because several of this session's dead ends
+were not logic errors — they were the design making a half-cycle question
+unanswerable. Each item below is listed with the concrete confusion it caused,
+not as a tidy-up.
+
+**A. The ULA/CPU tick order puts a half-cycle of delay in a feedback loop that
+has none in hardware.** `driver.rs` calls `tick_ula()` and then
+`tick_cpu_and_bus()`, so the gate decides half-cycle *N* from pins the CPU
+presented at *N−1*. In silicon the loop — gate to `CPUClk` to Z80 pins back to
+gate — settles combinationally inside one clock period. Ours cannot, so every
+comparison against a reference needs a half-cycle correction applied
+somewhere, by someone who has correctly guessed the direction.
+
+*Evidence:* two separate synthetic-pin harnesses got that direction wrong,
+in opposite directions, and both produced confident wrong verdicts on the
+ULA-port classes. The `ula_gate_vs_hdl` recorder had to be built *inside*
+`FerrantiUla::tick` precisely because that is the only place the skew is not
+ambiguous.
+
+*Possible rework:* split the CPU tick into **present pins** and **advance
+state**, and order the half-cycle as present → gate → advance. The pins the
+gate sees would then be the ones the CPU is actually driving, and the
+correction disappears rather than moving.
+
+**B. Clock domains for ULA-internal signals were never decided.**
+`z80_iorq_prev` / `z80_iorq_prev2` live inside `track_z80_clock`, which only
+runs when the CPU is clocked — so they **freeze during a stall**. SpecIde's
+equivalent `z80_c_2` is a free-running shift clocked every ULA cycle. The HDL's
+`ioreqtw3` / `mreqt23` are `posedge CPUClk`. Those are three different domains
+and ours was not chosen, it was inherited from where the code happened to sit.
+
+*Evidence:* the SpecIde gate port was byte-identical to doing nothing, purely
+because of this.
+
+**C. `DELAY_TABLE_48K` is a hand-written 16-entry table where the hardware has
+two counter bits.** The gate is `C2 | C3`. Encoding that as a literal invites
+exactly the phase error it has: ours is rotated one pixel against the HDL's
+window, which is invisible at T-state resolution and so survived undetected.
+
+*Possible rework:* derive the window from the pixel counter's bits, so the
+phase relationship is stated once and cannot drift.
+
+**D. Three hand-written copies of the gate.** `ferranti-ula-6c001e`,
+`sinclair-ula-7k010e` and `timex-scld` each carry their own boolean, and they
+have already diverged — the 128K one contends from `/Border` while the 48K
+contends from the video-fetch window, a difference recorded in a comment and
+never reconciled. RULES.md #9 asks for one ULA implementation per variant; it
+does not ask for the same contention expression written out three times. What
+differs between variants is the *decode* — which ports, which pages — not the
+topology.
+
+## Sequencing, if the rework is taken
+
+**A is the big one and should be attempted before Phase 3, not after.** If the
+tick order is wrong, Phase 3 would be tuning a gate against a skewed clock and
+the result would be another compensation rather than a fix. It is also the
+riskiest change in the engine — it touches every machine that uses
+`SpectrumDriver` — so it wants the survey baseline (34/70, recorded above) as
+its gate, and a hard rule that a rework which does not raise it gets reverted.
+
+B and C are small and can go with Phase 1. D is a cleanup and should go last,
+once there is one correct expression worth having a single copy of.
+
 ## Why this is not another see-saw
 
 Every previous attempt changed the engine and asked an oracle whether it had
