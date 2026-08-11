@@ -103,12 +103,10 @@ fn dump_speedlock7_loader_ram() {
 
     eprintln!("=== Tracing {tzx_file} ===");
     if !firmware_root.exists() {
-        eprintln!("[skip] 48K ROM directory missing: {firmware_root:?}");
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM directory not staged: {firmware_root:?}");
     }
     if !tzx_path.exists() {
-        eprintln!("[skip] TZX missing: {tzx_path:?}");
-        return;
+        emu198x_test_skip::skip!("SpeedLock TZX not staged: {tzx_path:?}");
     }
 
     let rom_path = firmware_root.join("48.rom");
@@ -282,7 +280,7 @@ fn find_feb3_write_in_green_beret() {
     let tzx_file = "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip";
     let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
     let mut firmware = FirmwareSet::new();
@@ -433,7 +431,7 @@ fn measure_one(label: &str, tzx_relative_path: &str) {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
     let mut firmware = FirmwareSet::new();
@@ -529,7 +527,7 @@ fn measure_fill_one(label: &str, tzx_relative_path: &str) {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
     let mut firmware = FirmwareSet::new();
@@ -773,7 +771,7 @@ fn time_byte_decoder(label: &str, tzx_relative_path: &str) {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
     let mut firmware = FirmwareSet::new();
@@ -1105,7 +1103,7 @@ fn dump_green_beret_spans() {
     let tzx_path = spectrum_tzx_root()
         .join("ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip");
     if !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("SpeedLock TZX not staged: {tzx_path:?}");
     }
     let bytes = read_media_asset(&tzx_path, MediaKind::Tape)
         .expect("tzx")
@@ -1140,8 +1138,7 @@ fn dump_green_beret_spans() {
 fn survey_speedlock7_pauses() {
     let tzx_root = spectrum_tzx_root();
     if !tzx_root.exists() {
-        eprintln!("TZX root not present; skipping");
-        return;
+        emu198x_test_skip::skip!("Spectrum TZX library not staged: {tzx_root:?}");
     }
     let mut entries: Vec<_> = std::fs::read_dir(&tzx_root)
         .expect("read dir")
@@ -1238,7 +1235,7 @@ fn green_beret_with_extended_pause() {
     let tzx_file = "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip";
     let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
     let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
@@ -1321,7 +1318,7 @@ fn check_90ef_writes_in_green_beret() {
     let tzx_file = "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip";
     let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
     let mut firmware = FirmwareSet::new();
@@ -1526,7 +1523,7 @@ fn log_hl_at_fe9d(label: &str, tzx_relative_path: &str) {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
     let mut firmware = FirmwareSet::new();
@@ -1648,7 +1645,7 @@ fn log_speedlock7_verifier_hits(label: &str, tzx_relative_path: &str, max_frames
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
     let mut firmware = FirmwareSet::new();
@@ -1811,7 +1808,7 @@ fn trace_speedlock7_byte_decoder_b_values() {
     let tzx_file = "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip";
     let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
     let mut firmware = FirmwareSet::new();
@@ -2120,7 +2117,7 @@ fn sample_border_color_through_loader() {
     let tzx_file = "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip";
     let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
 
     let rom_path = firmware_root.join("48.rom");
@@ -2297,7 +2294,7 @@ fn probe_tape_and_pc(label: &str, tzx_relative_path: &str) {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
     let mut firmware = FirmwareSet::new();
@@ -2417,7 +2414,7 @@ fn dump_speedlock2_head_over_heels_tape_state() {
         "ARCADE COLLECTION 12 - Head over Heels (1990)(Hit Squad, The)(48K-128K)[SpeedLock 2].zip";
     let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
     let mut firmware = FirmwareSet::new();
@@ -2514,7 +2511,7 @@ fn dump_speedlock2_head_over_heels_loader_bytes() {
         "ARCADE COLLECTION 12 - Head over Heels (1990)(Hit Squad, The)(48K-128K)[SpeedLock 2].zip";
     let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");
     let mut firmware = FirmwareSet::new();
@@ -2589,7 +2586,7 @@ fn dump_speedlock7_tzx_span_widths_around_57050() {
     let tzx_file = "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip";
     let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !tzx_path.exists() {
-        return;
+        emu198x_test_skip::skip!("SpeedLock TZX not staged: {tzx_path:?}");
     }
     let tape = read_media_asset(&tzx_path, MediaKind::Tape).expect("tzx");
     let stream = tzx_to_stream(&tape.bytes).expect("parse tzx");
@@ -2644,8 +2641,7 @@ fn dump_speedlock7_decrypted_loader() {
     let tzx_file = "ARCADE COLLECTION 20 - Operation Wolf (1991)(Hit Squad, The)[SpeedLock 7].zip";
     let tzx_path = spectrum_tzx_root().join(tzx_file);
     if !firmware_root.exists() || !tzx_path.exists() {
-        eprintln!("[skip] firmware or TZX missing");
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or SpeedLock TZX not staged");
     }
 
     let rom_path = firmware_root.join("48.rom");
