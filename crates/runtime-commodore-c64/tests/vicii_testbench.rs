@@ -254,8 +254,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 #[ignore = "calibration aid: derives crop offset + palette match vs VICE reference"]
 fn calibrate_gfxfetch_alignment() {
     if !roms_present() || testbench_dir().is_none() {
-        eprintln!("skip: C64 ROMs or testbench not staged");
-        return;
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
     }
     let dir = testbench_dir().expect("checked");
     let reference = decode_reference_png(&dir.join("gfxfetch/references/gfxfetch.prg.png"));
@@ -350,8 +349,7 @@ fn match_fraction_bounded(
 #[ignore = "calibration aid: NTSC crop offset + match vs VICE 6567R8 reference"]
 fn calibrate_ntsc_gfxfetch_alignment() {
     if !roms_present() || testbench_dir().is_none() {
-        eprintln!("skip: C64 ROMs or testbench not staged");
-        return;
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
     }
     let dir = testbench_dir().expect("checked");
     let reference = decode_reference_png(&dir.join("gfxfetch/references/gfxfetch_ntsc.prg.png"));
@@ -415,8 +413,7 @@ fn calibrate_ntsc_gfxfetch_alignment() {
 #[ignore = "requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-vicii"]
 fn ntsc_gfxfetch_matches_vice_reference() {
     if !roms_present() || testbench_dir().is_none() {
-        eprintln!("skip: C64 ROMs or testbench not staged");
-        return;
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
     }
     let dir = testbench_dir().expect("checked");
     let reference = decode_reference_png(&dir.join("gfxfetch/references/gfxfetch_ntsc.prg.png"));
@@ -450,8 +447,7 @@ fn ntsc_gfxfetch_matches_vice_reference() {
 #[ignore = "requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-vicii"]
 fn gfxfetch_matches_vice_reference() {
     if !roms_present() || testbench_dir().is_none() {
-        eprintln!("skip: C64 ROMs or testbench not staged");
-        return;
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
     }
     let dir = testbench_dir().expect("checked");
     let reference = decode_reference_png(&dir.join("gfxfetch/references/gfxfetch.prg.png"));
@@ -470,8 +466,7 @@ fn gfxfetch_matches_vice_reference() {
 #[ignore = "diagnostic: dumps framebuffer for the VICII_DUMP_PRG program"]
 fn dump_prg_framebuffer() {
     if !roms_present() || testbench_dir().is_none() {
-        eprintln!("skip: C64 ROMs or testbench not staged");
-        return;
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
     }
     let Ok(rel) = std::env::var("VICII_DUMP_PRG") else {
         eprintln!("set VICII_DUMP_PRG=<category/name.prg>");
@@ -490,8 +485,7 @@ fn dump_prg_framebuffer() {
 #[ignore = "diagnostic: pins sequencer-bug D011 writes to the VIC-II cycle boundary"]
 fn sequencer_bug_d011_write_cycle_boundary() {
     if !roms_present() || testbench_dir().is_none() {
-        eprintln!("skip: C64 ROMs or testbench not staged");
-        return;
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -868,8 +862,7 @@ fn survey_testbench_categories() {
             result_path.is_none(),
             "report-mode VIC-II survey requires the configured C64 ROM set and testbench"
         );
-        eprintln!("skip: C64 ROMs or testbench not staged");
-        return;
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
     }
     let dir = testbench_dir().expect("checked");
     let mut rows: Vec<(f64, &str)> = Vec::new();
@@ -970,8 +963,7 @@ fn survey_testbench_categories() {
 #[ignore = "strict colour-fetch parity requires C64 ROMs + VIC-II testbench"]
 fn colorfetchbug_cases_match_vice_references_exactly() {
     if !roms_present() || testbench_dir().is_none() {
-        eprintln!("skip: C64 ROMs or testbench not staged");
-        return;
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
     }
     let dir = testbench_dir().expect("checked");
     let cases: Vec<_> = SURVEY
@@ -1031,8 +1023,7 @@ fn row_match_fraction(fb: &[u32], reference: &RefImage, dx: u32, dy: u32, ry: u3
 #[ignore = "sequencer: spritedma floor vs VICE (requires ROMs + testbench)"]
 fn sprite_sequencer_spritedma_parity() {
     if !roms_present() || testbench_dir().is_none() {
-        eprintln!("skip: C64 ROMs or testbench not staged");
-        return;
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
     }
     let dir = testbench_dir().expect("checked");
     let reference = decode_reference_png(&dir.join("spritedma/references/d017-54.prg.png"));
@@ -1058,8 +1049,7 @@ fn sprite_sequencer_spritedma_parity() {
 #[ignore = "oracle: per-scanline match % vs VICE for VICII_DIFF_CAT (sprite-chain rebuild)"]
 fn diff_by_row() {
     if !roms_present() || testbench_dir().is_none() {
-        eprintln!("skip: C64 ROMs or testbench not staged");
-        return;
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
     }
     let cat = std::env::var("VICII_DIFF_CAT").unwrap_or_else(|_| "sequencer-bug".to_string());
     let thresh: f64 = std::env::var("VICII_DIFF_THRESH")
