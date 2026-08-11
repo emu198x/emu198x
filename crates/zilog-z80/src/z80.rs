@@ -793,24 +793,26 @@ impl Z80 {
                 self.phase = Phase::IoRead(IoPhase::T2Rise);
             }
             IoPhase::T2Rise => {
-                // IORQ and RD active
-                self.iorq = true;
-                self.rd = true;
                 self.phase = Phase::IoRead(IoPhase::T2Fall);
             }
             IoPhase::T2Fall => {
+                // `/IORQ` and `/RD` drop on `T2`↓ — half a clock later than
+                // a memory cycle's, which is what gives a peripheral the
+                // extra decode time the automatic wait state exists for.
+                // They run to the end of the cycle. Note the phase names:
+                // an I/O cycle is `T1`, `T2`, `TW`, `T3`, so `T3Rise` here
+                // is Zilog's `TW`↑ and `T4Fall` is `T3b`.
+                self.iorq = true;
+                self.rd = true;
                 if self.wait {
                     return; // I/O wait state
                 }
                 self.phase = Phase::IoRead(IoPhase::T3Rise);
             }
             IoPhase::T3Rise => {
-                // Data available
                 self.phase = Phase::IoRead(IoPhase::T3Fall);
             }
             IoPhase::T3Fall => {
-                self.iorq = false;
-                self.rd = false;
                 self.phase = Phase::IoRead(IoPhase::T4Rise);
             }
             IoPhase::T4Rise => {
@@ -837,11 +839,12 @@ impl Z80 {
                 self.phase = Phase::IoWrite(IoPhase::T2Rise);
             }
             IoPhase::T2Rise => {
-                self.iorq = true;
-                self.wr = true;
                 self.phase = Phase::IoWrite(IoPhase::T2Fall);
             }
             IoPhase::T2Fall => {
+                // As for the read: `T2`↓ to the end of the cycle.
+                self.iorq = true;
+                self.wr = true;
                 if self.wait {
                     return;
                 }
@@ -851,8 +854,6 @@ impl Z80 {
                 self.phase = Phase::IoWrite(IoPhase::T3Fall);
             }
             IoPhase::T3Fall => {
-                self.iorq = false;
-                self.wr = false;
                 self.phase = Phase::IoWrite(IoPhase::T4Rise);
             }
             IoPhase::T4Rise => {

@@ -40,14 +40,18 @@
 //! `T2`, `TW`, `T3`; this state machine names them `T1`–`T4`, so a row
 //! reading `IoRead(T3Fall)` is Zilog's `TWb` and `IoRead(T4Fall)` is `T3b`.
 //!
-//! ## Departures, as locked below
+//! ## Departures
 //!
-//! These waveforms are **today's behaviour**. The departures still
-//! outstanding are recorded here deliberately, so that correcting each one
-//! shows up as a reviewable diff in a golden rather than as a silent
-//! change under an emulator-wide test:
+//! None outstanding. Every strobe above matches the reference, and the
+//! address is presented on each cycle's own `T1`↑.
 //!
-//! 1. I/O `/IORQ` runs `T2a`–`TWa` (Zilog: `T2b`–`T3b`).
+//! Where the table and this engine disagree with SpecIde, the only other
+//! signal-level Z80 in the tree, it is in two places and Zilog governs both:
+//! SpecIde runs the `M1` `/MREQ` as one continuous pulse from `T1b` to
+//! `T4a` where Zilog has two, separated by `T3a`; and it drops `/IORQ` on
+//! `T2`↑ where Zilog draws `T2`↓. The first is invisible on a Spectrum,
+//! whose refresh address is uncontended; the second is half a T-state of
+//! I/O contention and is not.
 //!
 //! ```sh
 //! cargo test -p zilog-z80 --test bus_pin_waveform
@@ -259,12 +263,12 @@ fn io_read_bus_pins() {
             "15  M1(T4Fall)         0001  RFSH\n",
             "16  IoRead(T1Rise)     C0FE\n",
             "17  IoRead(T1Fall)     C0FE\n",
-            "18  IoRead(T2Rise)     C0FE  IORQ RD\n",
+            "18  IoRead(T2Rise)     C0FE\n",
             "19  IoRead(T2Fall)     C0FE  IORQ RD\n",
             "20  IoRead(T3Rise)     C0FE  IORQ RD\n",
-            "21  IoRead(T3Fall)     C0FE\n",
-            "22  IoRead(T4Rise)     C0FE\n",
-            "23  IoRead(T4Fall)     C0FE\n",
+            "21  IoRead(T3Fall)     C0FE  IORQ RD\n",
+            "22  IoRead(T4Rise)     C0FE  IORQ RD\n",
+            "23  IoRead(T4Fall)     C0FE  IORQ RD\n",
         )
     );
 }
@@ -292,12 +296,12 @@ fn io_write_bus_pins() {
             "15  M1(T4Fall)         0001  RFSH\n",
             "16  IoWrite(T1Rise)    C0FE\n",
             "17  IoWrite(T1Fall)    C0FE\n",
-            "18  IoWrite(T2Rise)    C0FE  IORQ WR\n",
+            "18  IoWrite(T2Rise)    C0FE\n",
             "19  IoWrite(T2Fall)    C0FE  IORQ WR\n",
             "20  IoWrite(T3Rise)    C0FE  IORQ WR\n",
-            "21  IoWrite(T3Fall)    C0FE\n",
-            "22  IoWrite(T4Rise)    C0FE\n",
-            "23  IoWrite(T4Fall)    C0FE\n",
+            "21  IoWrite(T3Fall)    C0FE  IORQ WR\n",
+            "22  IoWrite(T4Rise)    C0FE  IORQ WR\n",
+            "23  IoWrite(T4Fall)    C0FE  IORQ WR\n",
         )
     );
 }
