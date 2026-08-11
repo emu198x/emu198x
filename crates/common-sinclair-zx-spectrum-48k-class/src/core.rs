@@ -994,7 +994,7 @@ mod tests {
     }
 
     #[test]
-    fn not_taken_djnz_uses_mreq_only_fallthrough_cycle() {
+    fn not_taken_djnz_reads_the_displacement_it_discards() {
         let mut machine = Spectrum48k::new();
         configure_machine_for_timing_test(&mut machine, 0x4000);
         machine.z80.regs.set_b(1);
@@ -1006,20 +1006,20 @@ mod tests {
 
         assert!(
             trace.iter().any(|sample| {
-                sample.addr == 0x4001 && sample.mreq && !sample.rd && !sample.wr && !sample.iorq
+                sample.addr == 0x4001 && sample.mreq && sample.rd && !sample.wr && !sample.iorq
             }),
-            "expected DJNZ fallthrough to expose a contended PC cycle at the displacement address"
+            "expected DJNZ fallthrough to read the displacement address"
         );
         assert!(
             !trace
                 .iter()
-                .any(|sample| sample.addr == 0x4001 && sample.mreq && sample.rd),
-            "not-taken DJNZ must not read the displacement byte"
+                .any(|sample| sample.addr == 0x4001 && sample.wr),
+            "the displacement cycle is a read, never a write"
         );
     }
 
     #[test]
-    fn not_taken_jr_cc_uses_mreq_only_fallthrough_cycle() {
+    fn not_taken_jr_cc_reads_the_displacement_it_discards() {
         let mut machine = Spectrum48k::new();
         configure_machine_for_timing_test(&mut machine, 0x4000);
         machine.z80.regs.set_f(0x00);
@@ -1031,15 +1031,15 @@ mod tests {
 
         assert!(
             trace.iter().any(|sample| {
-                sample.addr == 0x4001 && sample.mreq && !sample.rd && !sample.wr && !sample.iorq
+                sample.addr == 0x4001 && sample.mreq && sample.rd && !sample.wr && !sample.iorq
             }),
-            "expected not-taken JR cc to expose a contended PC cycle at the displacement address"
+            "expected not-taken JR cc to read the displacement address"
         );
-        assert!(
-            !trace
-                .iter()
-                .any(|sample| sample.addr == 0x4001 && sample.mreq && sample.rd),
-            "not-taken JR cc must not read the displacement byte"
+        // The byte is fetched and thrown away: PC lands after the
+        // displacement rather than at the branch target.
+        assert_eq!(
+            machine.z80.regs.pc, 0x4002,
+            "the fetched displacement must not be applied"
         );
     }
 

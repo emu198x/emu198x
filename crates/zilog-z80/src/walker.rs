@@ -183,7 +183,17 @@ impl Walker {
                 *data = self.staged.write_val;
             }
             MStep::Internal(_) => {
-                *addr = regs.ir();
+                // Nothing drives the address bus during an internal
+                // cycle, so it holds the last address driven. That is
+                // `IR` only when the previous cycle was `M1`'s refresh —
+                // after a memory access it is that access's address.
+                //
+                // The distinction is visible to the ULA, which contends
+                // on whatever address it finds, and FUSE scores both
+                // cases from the same rule: `contend_read_no_mreq( IR, 1 )`
+                // for the internal cycles of `INC BC`, which follow `M1`,
+                // against `contend_write_no_mreq( DE, 1 )` for `LDI`'s,
+                // which follow the write to `DE` (`z80_ed.c`).
             }
             MStep::NmiAck | MStep::IntAck => {
                 *addr = regs.pc;

@@ -135,7 +135,7 @@ impl Ula for TimexScld {
             // sample lead or the pattern phase — both were tried.
             //
             // See `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
-            let mem_contention = contended_addr && e.z80_clock_high && !cpu_mreq;
+            let mem_contention = contended_addr && e.gate_arms_this_halfcycle() && !cpu_mreq;
 
             let io_even_port = (cpu_addr & 1) == 0;
             let io_contention = (cpu_iorq || e.z80_iorq_prev) && io_even_port && e.z80_clock_high;
