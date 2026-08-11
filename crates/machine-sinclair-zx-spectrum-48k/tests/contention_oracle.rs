@@ -938,18 +938,21 @@ fn memory_contention_matches_fuse_at_every_arrival_tstate() {
     // A ceiling, not a target. Lower it in the commit that earns it;
     // never raise it.
     //
-    // 9,858, down from 88,871 when the contention window's phase was
-    // locked to the ULA's fetch group. The number that matters more than
-    // the number: the pinned origin is now the sweep's minimum, where it
-    // used to sit beside a sharp one at `+14334`. Nothing was rescored to
-    // get there.
+    // 18 of 370,024, from 88,871. The window's phase closed most of it
+    // and the window's *edge* closed the rest: every remaining
+    // disagreement at 9,858 was within a couple of T-states of a display
+    // line's boundary, because the engine gated contention on the fetch
+    // window rather than on the sixteen whole fetch cycles the HDL's
+    // `Border_n` spans.
     //
-    // What is left is entirely multi-M-cycle. `NOP` and `INC BC` are
-    // exact at every arrival T-state in the frame; every remaining
-    // disagreement is an instruction with a second memory cycle, which is
-    // the re-arming residual `trace_one_instruction` shows and a separate
-    // defect from the window's phase.
-    const RATCHET: usize = 9_858;
+    // The eighteen that are left are harness residue rather than engine
+    // defects: each reports a cost far below the instruction's
+    // uncontended length — 8 T-states for a four-M-cycle `LD A,(nn)` —
+    // which is the tail of an M-cycle already in flight when the pass
+    // started. Two discarded instructions is not always enough at every
+    // skew. Left visible rather than tuned away, because raising the
+    // discard to silence them would also silence a real short cost.
+    const RATCHET: usize = 18;
     assert!(
         total <= RATCHET,
         "memory contention regressed against FUSE: {total} of {samples_total} \

@@ -376,6 +376,23 @@ pub const IDLE_TABLE: [bool; 16] = [
     true, true,
 ];
 
+/// Scan lines that carry contention — the display lines.
+pub const CONTENDED_LINES: u16 = 192;
+
+/// Pixels at the start of each display line over which the ULA may
+/// withhold the CPU clock.
+///
+/// The HDL's `Border_n` is `!hc[8]`: 256 `clk7` cycles, which is sixteen
+/// whole 16-pixel fetch cycles and 128 T-states. It begins at a fetch
+/// cycle boundary — `hc` 0, eight pixels ahead of that cycle's VRAM
+/// access at `hc` 8 — and so does ours, at pixel 0, four pixels ahead of
+/// the access at pixel 4.
+///
+/// The window is therefore **not** `UlaEngine::video`, which opens at
+/// `fetch_start` because it is the fetch window. The two differ by those
+/// four pixels at both ends of all 192 display lines.
+pub const CONTENDED_PIXELS_PER_LINE: u16 = 256;
+
 /// Pixels the ULA's counter runs ahead of the HDL's `hc` for the same
 /// point in the fetch cycle.
 ///
