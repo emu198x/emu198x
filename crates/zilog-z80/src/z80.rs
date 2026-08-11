@@ -241,6 +241,41 @@ pub enum IoPhase {
     T4Fall,
 }
 
+/// T-states between the `/IORQ` assertion edge and the instant the CPU
+/// latches the data bus, for an I/O read.
+///
+/// A host that dispatches from [`Z80::bus_request`] is told about an I/O
+/// read on the `/IORQ` *rising* edge, because that is the one edge in the
+/// cycle a level-driven strobe can be collapsed to. A peripheral holding
+/// a steady value across the cycle does not care. A bus whose value moves
+/// within the cycle — the Spectrum's floating bus is the only one we
+/// model — does, and needs to know how far ahead of it the latch sits.
+///
+/// It is fixed M-cycle geometry, not a per-machine tuning. `/IORQ` and
+/// `/RD` drop on `T2`↓ (Zilog UM0080's input cycle; `tick_io_read`) and
+/// the cycle ends on its last half-cycle, where `advance_to_next_step`
+/// calls `Walker::latch_read`. In this state machine's phase names that
+/// is `T2Fall` to `T4Fall` — four half-cycles, **two T-states** — and
+/// nothing about the host, the variant or the port can change it.
+///
+/// Two independent references put the latch at the same place:
+///
+/// - **SpecIde**, the other signal-level Z80 in the tree, calls
+///   `readIo(d)` from `ST_IORD_T3L_DATARD`
+///   (`198x/emulators/zx-spectrum/SpecIde/source/src/Z80.cc`) — the low
+///   half of `T3`, which with the automatic wait state is the last
+///   half-cycle of the four.
+/// - **FUSE** charges `ula_contend_port_early` (one T-state) and
+///   `ula_contend_port_late` (two more) *before* calling
+///   `readport_internal`, and only then the closing `tstates++`
+///   (`fuse-emulator-fuse/periph.c`). So it samples at cycle start + 3
+///   where the `/IORQ` edge is at cycle start + 1: a gap of two.
+///
+/// Locked by `zilog-z80`'s `bus_pin_waveform` golden, which re-derives
+/// this number from the recorded I/O-read waveform rather than restating
+/// it.
+pub const IO_READ_DATA_LATCH_LEAD_TSTATES: u32 = 2;
+
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InternalPhase {
     /// Half-cycles remaining (counts down).

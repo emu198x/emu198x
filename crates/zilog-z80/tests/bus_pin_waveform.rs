@@ -312,6 +312,84 @@ fn io_read_bus_pins() {
     );
 }
 
+/// The floating-bus sample instant, re-derived from the waveform above.
+///
+/// A host dispatching from `bus_request` learns about an I/O read on the
+/// `/IORQ` rising edge, but the CPU latches the data bus at the end of the
+/// M-cycle. A bus whose value moves within the cycle — the Spectrum's
+/// floating bus — has to be read at the latch, so the gap between the two
+/// is a number the Spectrum crates depend on. It lived there for a year as
+/// two hand-fitted `SAMPLE_LEAD` constants, 2 on the 48K and 3 on the
+/// 128K, neither of which was derived and both of which were fitted
+/// against an `/IORQ` edge that has since moved.
+///
+/// So this reads it off the pins rather than restating it. The assertion
+/// is not "the constant is 2" — it is "the constant is what the recorded
+/// waveform says", which is a different claim and the one worth locking.
+/// If a later change to `tick_io_read` moves either edge, the golden above
+/// fails *and* this recomputes, so the constant cannot silently go stale.
+#[test]
+fn io_read_data_latch_lead_is_two_tstates() {
+    let rows: Vec<(usize, String, bool)> = io_read_waveform()
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_ascii_whitespace();
+            let index: usize = fields.next()?.parse().ok()?;
+            let phase = fields.next()?.to_string();
+            phase
+                .starts_with("IoRead")
+                .then(|| (index, phase, line.contains("IORQ")))
+        })
+        .collect();
+
+    // The strobe edge: the first half-cycle of the cycle on which a
+    // peripheral sees `/IORQ`, which is the edge `bus_request` reports.
+    let (edge, _, _) = *rows
+        .iter()
+        .find(|(_, _, iorq)| *iorq)
+        .expect("the I/O read cycle must assert /IORQ somewhere");
+
+    // The latch: `IoPhase::T4Fall` is the half-cycle whose handler calls
+    // `advance_to_next_step`, and that is where `Walker::latch_read` takes
+    // `data_in`. Checking it is also the cycle's last half-cycle is what
+    // makes naming it here a reading rather than an assumption.
+    let (latch, _, latch_iorq) = *rows
+        .iter()
+        .find(|(_, phase, _)| phase == "IoRead(T4Fall)")
+        .expect("the I/O read cycle must reach T4Fall");
+    assert_eq!(
+        latch,
+        rows.last().expect("the cycle has rows").0,
+        "T4Fall is not the last half-cycle of the I/O read cycle, so it is \
+         not where the data is latched — re-derive this from `tick_io_read` \
+         before trusting the lead below"
+    );
+    assert!(
+        latch_iorq,
+        "/IORQ is released before the latch half-cycle, so the CPU would be \
+         latching a bus no peripheral is being asked to drive"
+    );
+
+    let halfcycles = latch - edge;
+    assert_eq!(
+        halfcycles % 2,
+        0,
+        "the edge and the latch fall on opposite clock phases ({halfcycles} \
+         half-cycles apart), so the gap is not a whole number of T-states \
+         and a T-state-resolution sample lead cannot express it"
+    );
+    assert_eq!(
+        (halfcycles / 2) as u32,
+        zilog_z80::IO_READ_DATA_LATCH_LEAD_TSTATES,
+        "the waveform puts the data latch {} T-states after the /IORQ edge, \
+         not the {} `IO_READ_DATA_LATCH_LEAD_TSTATES` claims. The constant \
+         is derived from this cycle's geometry — update it here, in this \
+         commit, with the pin change that moved it.",
+        halfcycles / 2,
+        zilog_z80::IO_READ_DATA_LATCH_LEAD_TSTATES,
+    );
+}
+
 #[test]
 fn io_write_bus_pins() {
     assert_eq!(

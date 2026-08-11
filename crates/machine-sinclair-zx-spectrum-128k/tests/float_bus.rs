@@ -75,20 +75,25 @@ const STEP_TSTATES: u32 = 1;
 /// capture provenance remains incomplete; this is an implementation target,
 /// not a claim of a new direct hardware measurement.
 ///
-/// **The engine currently reads 14363, and this expectation is kept at
-/// 14364 deliberately — see #851.** `ad0e8c53` corrected the floating-bus
-/// phase in the shared `ula_engine`, and the 48K compensated by moving its
-/// `SAMPLE_LEAD` from 3 to 2. The 128K carries a separate `SAMPLE_LEAD = 3`
-/// in `common-sinclair-zx-spectrum-128k-class` that was not adjusted, so
-/// the shared change moved this by one T-state unopposed.
+/// **Reached by derivation, not by fitting — this is what closes #851.**
+/// The engine read 14363 when that issue was filed and 14362 once the
+/// Z80's bus pins were corrected to Zilog's waveforms, because the
+/// 128K-class core carried its own `SAMPLE_LEAD = 3` against an origin of
+/// 14363 and neither number came from anywhere.
 ///
-/// Do not lower this to 14363, and do not raise the 128K `SAMPLE_LEAD` to
-/// 4. The 48K constant's own note already records a deliberate
-/// one-T-state error; this is independent corroboration of the same
-/// error, from a second machine. Fitting a second constant to hide it is
-/// the failure `fuse-governs-the-contended-window.md` lists in its drift
-/// triggers. Both constants should fall out of the IO-sample derivation in
-/// `spectrum-contention-the-way-out.md`.
+/// Both are gone. The core now applies one shared, derived constant —
+/// `zilog_z80::IO_READ_DATA_LATCH_LEAD_TSTATES`, the two T-states between
+/// the `/IORQ` edge and the CPU's data latch, re-derived from the recorded
+/// I/O-read waveform by `zilog-z80`'s `bus_pin_waveform` — onto an origin
+/// that is libspectrum's `top_left_pixel` for this ULA,
+/// `timings_frame_ferranti_7c` = 14362. The 48K-class core applies the
+/// same two constants against `timings_frame_ferranti_5c_6c` = 14336 and
+/// comes out unchanged, which is the check that this is a rule rather than
+/// a second fit.
+///
+/// So the number is load-bearing in both directions now: it is what the
+/// derivation predicts, and it was not available to be tuned to. If it
+/// moves, the sample instant or the origin moved — do not re-bless it.
 const FLOAT128K_EXPECTED_TSTATE: u32 = 14364;
 
 fn home() -> PathBuf {
@@ -284,9 +289,8 @@ fn run_full(
 }
 
 #[test]
-#[ignore = "KNOWN DIVERGENCE (#851): reads 14363, expects 14364 — a second \
-           fitted SAMPLE_LEAD, see the constant's note below. Also needs local \
-           128K ROMs and Float128k.tap; ~50 s at cycle-accurate tape speed"]
+#[ignore = "needs local 128K ROMs and Float128k.tap; ~50 s at cycle-accurate \
+           tape speed"]
 fn float128k_prints_expected_tstate() {
     let rom0_path = rom0_path();
     let rom1_path = rom1_path();
