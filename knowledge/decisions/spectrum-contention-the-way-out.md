@@ -136,8 +136,26 @@ were not logic errors — they were the design making a half-cycle question
 unanswerable. Each item below is listed with the concrete confusion it caused,
 not as a tidy-up.
 
-**A. The ULA/CPU tick order puts a half-cycle of delay in a feedback loop that
-has none in hardware.** `driver.rs` calls `tick_ula()` and then
+**A. RETRACTED — the tick order is correct.** Recorded because it was
+asserted here and acted on, and because the reasoning is worth not repeating.
+
+The claim was that ticking the ULA before the CPU inserts a half-cycle into a
+feedback loop that settles combinationally in silicon. There is no such loop.
+The Z80 drives pins that **persist until its next tick**, so a ULA sampling
+"the previous tick's pins" is sampling the pins the Z80 is *currently
+driving* — which is exactly what the hardware sees. `driver.rs` is right.
+
+What is really there is narrower and is not architectural: the Z80's phase
+handlers set pins that become visible to the ULA in the *following*
+half-cycle, and that convention is written down nowhere. It is what made two
+synthetic-pin harnesses wrong in opposite directions. The fix is Phase 1 plus
+a stated convention and the `bus_pin_waveform.rs` golden test, not a
+restructure.
+
+The original claim follows, struck through in substance:
+
+~~The ULA/CPU tick order puts a half-cycle of delay in a feedback loop that
+has none in hardware.~~ `driver.rs` calls `tick_ula()` and then
 `tick_cpu_and_bus()`, so the gate decides half-cycle *N* from pins the CPU
 presented at *N−1*. In silicon the loop — gate to `CPUClk` to Z80 pins back to
 gate — settles combinationally inside one clock period. Ours cannot, so every
@@ -184,15 +202,13 @@ topology.
 
 ## Sequencing, if the rework is taken
 
-**A is the big one and should be attempted before Phase 3, not after.** If the
-tick order is wrong, Phase 3 would be tuning a gate against a skewed clock and
-the result would be another compensation rather than a fix. It is also the
-riskiest change in the engine — it touches every machine that uses
-`SpectrumDriver` — so it wants the survey baseline (34/70, recorded above) as
-its gate, and a hard rule that a rework which does not raise it gets reverted.
+With A retracted, there is **no large rework in front of Phase 3**. B and C
+are small and go with Phase 1; D is a cleanup and goes last, once there is one
+correct expression worth having a single copy of.
 
-B and C are small and can go with Phase 1. D is a cleanup and should go last,
-once there is one correct expression worth having a single copy of.
+The standing rule stays regardless: any change here takes the survey baseline
+(34/70, recorded above) as its gate, and one that does not raise it gets
+reverted.
 
 ## Why this is not another see-saw
 
