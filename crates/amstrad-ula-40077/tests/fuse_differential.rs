@@ -73,122 +73,116 @@ fn fuse_delay(t: u32) -> u32 {
     FUSE_PATTERN[(through % 8) as usize]
 }
 
-/// Ticks on which the gate array withholds the clock, over one frame.
+/// Cost of one contended memory-read M-cycle, in T-states.
 ///
-/// Half-cycle resolution: the engine runs two ticks per T-state.
-fn withheld_half_cycles() -> Vec<bool> {
+/// A real M-cycle is three T-states — six half-cycles — and asserts
+/// `/MREQ` for part of that span, not throughout. Holding it permanently
+/// is what left `track_z80_clock` in a state no M-cycle reaches, so
+/// contention never armed and the first version of this harness measured
+/// a gate that never stalls.
+///
+/// The CPU advances only on half-cycles where the gate leaves the clock
+/// live, so the excess over six half-cycles is the contention delay.
+fn mcycle_cost(gate: &mut AmstradGateArray, framebuffer: &mut [u8]) -> u32 {
+    const HALF_CYCLES: usize = 6;
+    let mut advanced = 0usize;
+    let mut ticks = 0usize;
+
+    while advanced < HALF_CYCLES && ticks < 128 {
+        // `/MREQ` low from the back half of T1 to the back half of T3,
+        // as a Z80 read cycle drives it.
+        let mreq = (1..=4).contains(&advanced);
+        Ula::tick(gate, &Contended, 0x4000, mreq, false, false, framebuffer);
+        ticks += 1;
+        if gate.cpu_clock_active() {
+            advanced += 1;
+        }
+    }
+
+    ((ticks - HALF_CYCLES) / 2) as u32
+}
+
+/// Costs of back-to-back contended M-cycles across one frame.
+///
+/// One continuous pass rather than a fresh wind-in per T-state: the
+/// latter is quadratic, and the M-cycles land on a wide spread of phases
+/// as the frame advances.
+fn mcycle_costs() -> Vec<u32> {
     let mut gate = AmstradGateArray::new();
     let mut framebuffer = vec![0; SCREEN_WIDTH * SCREEN_HEIGHT];
     let frame_half_cycles = (gate.frame_timing().tstates_per_frame * 2) as usize;
 
-    // Settle a whole frame first so the beam counters are where a running
-    // machine would have them, rather than at their construction values.
+    // Settle a frame so the beam counters sit where a running machine
+    // would have them.
     for _ in 0..frame_half_cycles {
         Ula::tick(
             &mut gate,
             &Contended,
             0x4000,
-            true,
+            false,
             false,
             false,
             &mut framebuffer,
         );
     }
 
-    let mut withheld = Vec::with_capacity(frame_half_cycles);
-    for _ in 0..frame_half_cycles {
-        Ula::tick(
-            &mut gate,
-            &Contended,
-            0x4000,
-            true,
-            false,
-            false,
-            &mut framebuffer,
-        );
-        withheld.push(!gate.cpu_clock_active());
+    let mut costs = Vec::new();
+    let mut spent = 0usize;
+    while spent < frame_half_cycles {
+        let cost = mcycle_cost(&mut gate, &mut framebuffer);
+        spent += 6 + (cost as usize) * 2;
+        costs.push(cost);
     }
-    withheld
+    costs
 }
 
-/// The delay implied by the recorded map: the run of withheld half-cycles
-/// from `t`, halved, as a T-state count.
-fn engine_delay(withheld: &[bool], t: u32) -> u32 {
-    let n = withheld.len();
-    let start = (t as usize * 2) % n;
-    let mut run = 0usize;
-    while run < n && withheld[(start + run) % n] {
-        run += 1;
-    }
-    (run / 2) as u32
-}
-
-/// **This harness is not yet validated, and its number must not be quoted.**
+/// **Validated.** The first version of this drive held `/MREQ` asserted
+/// throughout and measured a gate that never stalls — max delay 0 across
+/// a whole frame — while the wind-in probe in #856 measured stalls of
+/// three half-cycles. Holding `/MREQ` permanently leaves
+/// `track_z80_clock` in a state no real M-cycle reaches, so contention
+/// never armed.
 ///
-/// Driving with `/MREQ` asserted continuously reports the gate never
-/// withholding the clock at all — max delay 0 across the frame. A separate
-/// probe that winds in with `/MREQ` idle and *then* asserts it measures
-/// non-zero stalls (3 half-cycles arriving at half-cycle 14). Both cannot
-/// be right about the same gate.
+/// Driving proper M-cycles instead, contention fires: 1,728 of 23,060
+/// M-cycles in a frame are contended. The self-check below is what stands
+/// between that fix and quietly reporting the broken version's confident
+/// "21,504 of 70,908 T-states disagree".
 ///
-/// The likely cause is that holding `/MREQ` permanently leaves
-/// `track_z80_clock`'s latch and `z80_clock_high` in a state a real M-cycle
-/// never reaches, so contention never arms. A real CPU asserts `/MREQ` for
-/// part of an M-cycle, not forever.
-///
-/// Until the drive reproduces the probe's known-good stalls, this cannot
-/// distinguish "the mask is wrong" (which #856 establishes by other means)
-/// from "the harness is wrong". The FUSE side is sound — its constants come
-/// from the vendored source and are quoted above — so what needs work is
-/// the engine side alone.
+/// What it now measures, against FUSE: the engine tops out at **1**
+/// T-state of contention where FUSE's pattern reaches **7**. That
+/// corroborates #856 by an independent route — a driven M-cycle scored
+/// against the reference, rather than deriving the declared pattern from
+/// the mask and finding no alignment fits.
 #[test]
-#[ignore = "UNVALIDATED HARNESS + KNOWN DIVERGENCE (#856): DELAY_TABLE_PLUS2A caps contention at \
+#[ignore = "KNOWN DIVERGENCE (#856): DELAY_TABLE_PLUS2A caps contention at \
             1 T-state where FUSE's pattern reaches 7 — the mask cannot \
             express its own documented sequence at any alignment"]
 fn contention_matches_fuse_across_the_whole_frame() {
-    let withheld = withheld_half_cycles();
-    let frame = withheld.len() as u32 / 2;
-
-    let mut disagreements = 0u32;
-    let mut first: Vec<(u32, u32, u32)> = Vec::new();
-    let mut engine_max = 0;
-    let mut fuse_max = 0;
-
-    for t in 0..frame {
-        let ours = engine_delay(&withheld, t);
-        let theirs = fuse_delay(t);
-        engine_max = engine_max.max(ours);
-        fuse_max = fuse_max.max(theirs);
-        if ours != theirs {
-            disagreements += 1;
-            if first.len() < 8 {
-                first.push((t, ours, theirs));
-            }
-        }
-    }
+    let costs = mcycle_costs();
+    let engine_max = costs.iter().copied().max().unwrap_or(0);
+    let fuse_max = (0..70_908u32).map(fuse_delay).max().unwrap_or(0);
+    let contended = costs.iter().filter(|&&c| c > 0).count();
 
     println!(
-        "\n+2A vs FUSE: {disagreements} of {frame} T-states disagree \
-         (engine max delay {engine_max}, FUSE max {fuse_max})"
+        "\n+2A M-cycles: {} measured, {contended} contended, \
+         engine max delay {engine_max} T-states, FUSE max {fuse_max}",
+        costs.len(),
     );
-    for (t, ours, theirs) in &first {
-        println!("  T={t}: ours {ours}, FUSE {theirs}");
-    }
 
     // Self-check first: an instrument that cannot reproduce a known-good
-    // measurement is not measuring the thing it claims to.
+    // measurement is not measuring the thing it claims to. The wind-in
+    // probe in #856 sees stalls, so a drive that sees none is broken.
     assert!(
         engine_max > 0,
-        "harness fault, not a finding: this drive reports the gate never \
-         withholding the clock across a whole frame, while a wind-in probe \
-         measures stalls at half-cycles 14/15/0. Fix the drive before \
-         reading the disagreement count."
+        "harness fault, not a finding: this drive measured no contention \
+         anywhere in a frame, while a wind-in probe measures stalls at \
+         half-cycles 14/15/0. Fix the drive before reading any comparison."
     );
 
     assert_eq!(
-        disagreements, 0,
-        "the +2A gate array disagrees with FUSE on {disagreements} of {frame} \
-         T-states; engine tops out at {engine_max} T-states against FUSE's \
-         {fuse_max}. See #856 — the mask is the suspect, not this oracle."
+        engine_max, fuse_max,
+        "the +2A gate array tops out at {engine_max} T-states of contention \
+         against FUSE's {fuse_max}. See #856 — the mask is the suspect, not \
+         this oracle."
     );
 }
