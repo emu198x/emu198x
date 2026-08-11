@@ -486,11 +486,11 @@ impl Z80 {
                 self.phase = Phase::M1(M1Phase::T2Fall);
             }
             M1Phase::T2Fall => {
-                // End of read: deassert MREQ, RD
-                // Latch the opcode byte
+                // Latch the opcode byte. `/MREQ` and `/RD` stay low: Zilog
+                // UM0080's opcode-fetch diagram releases them on the rising
+                // edge of `T3`, half a T-state after this one, so they span
+                // `T1b`–`T2b`. SpecIde's `ST_OCF_*` states agree.
                 let opcode = if self.halt { 0x00 } else { self.data_in };
-                self.mreq = false;
-                self.rd = false;
                 if !self.halt {
                     self.regs.pc = self.regs.pc.wrapping_add(1);
                 }
@@ -499,6 +499,9 @@ impl Z80 {
                 self.phase = Phase::M1(M1Phase::T3Rise);
             }
             M1Phase::T3Rise => {
+                // The opcode strobes end here, on the rising edge of T3.
+                self.mreq = false;
+                self.rd = false;
                 // Refresh: IR on address bus, RFSH active.
                 // MREQ goes active on T3Fall (not T3Rise) — this half-cycle
                 // with addr=IR and mreq=false allows the ULA to apply
