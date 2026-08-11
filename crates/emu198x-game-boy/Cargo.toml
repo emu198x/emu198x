@@ -26,3 +26,9 @@ serde_json = { workspace = true }
 
 [lints]
 workspace = true
+
+# `publish = false` (added in 63fac19e) keeps this off crates.io but also
+# hides it from cargo-dist, which owns the GitHub Release. `dist = true`
+# restores it without publishing.
+[package.metadata.dist]
+dist = true
