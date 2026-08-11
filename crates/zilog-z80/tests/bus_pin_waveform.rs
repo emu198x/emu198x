@@ -40,14 +40,11 @@
 //! `T2`, `TW`, `T3`; this state machine names them `T1`–`T4`, so a row
 //! reading `IoRead(T3Fall)` is Zilog's `TWb` and `IoRead(T4Fall)` is `T3b`.
 //!
-//! ## Departures, as locked below
+//! ## Departures
 //!
-//! One outstanding:
-//!
-//! 1. An internal cycle drives `IR` onto the address bus. Nothing drives
-//!    the bus during an internal cycle, so it should hold the last address
-//!    driven — which is `IR` only when the previous cycle was `M1`'s
-//!    refresh.
+//! None outstanding. Every strobe above matches the reference, each
+//! address is presented on its own cycle's `T1`↑, and an internal cycle
+//! drives nothing at all.
 //!
 //! Where the table and this engine disagree with SpecIde, the only other
 //! signal-level Z80 in the tree, it is in two places and Zilog governs both:
@@ -361,10 +358,10 @@ fn internal_cycle_bus_pins() {
             "5   M1(T3Fall)         0000  MREQ RFSH\n",
             "6   M1(T4Rise)         0000  MREQ RFSH\n",
             "7   M1(T4Fall)         0000  RFSH\n",
-            "8   Internal(4)        0001\n",
-            "9   Internal(3)        0001\n",
-            "10  Internal(2)        0001\n",
-            "11  Internal(1)        0001\n",
+            "8   Internal(4)        0000\n",
+            "9   Internal(3)        0000\n",
+            "10  Internal(2)        0000\n",
+            "11  Internal(1)        0000\n",
             "12  M1(T1Rise)         4001  M1\n",
             "13  M1(T1Fall)         4001  M1 MREQ RD\n",
         )
@@ -427,10 +424,10 @@ fn internal_after_write_bus_pins() {
             "25  MemWrite(T2Fall)   6000  MREQ WR\n",
             "26  MemWrite(T3Rise)   6000  MREQ WR\n",
             "27  MemWrite(T3Fall)   6000  MREQ WR\n",
-            "28  Internal(4)        0002\n",
-            "29  Internal(3)        0002\n",
-            "30  Internal(2)        0002\n",
-            "31  Internal(1)        0002\n",
+            "28  Internal(4)        6000\n",
+            "29  Internal(3)        6000\n",
+            "30  Internal(2)        6000\n",
+            "31  Internal(1)        6000\n",
         )
     );
 }
