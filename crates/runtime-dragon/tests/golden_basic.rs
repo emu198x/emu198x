@@ -646,15 +646,40 @@ fn compare_or_update_golden(name: &str, png: &[u8]) {
 
     let expected = std::fs::read(&golden_path)
         .unwrap_or_else(|err| panic!("read golden {}: {err}", golden_path.display()));
-    if expected != png {
+
+    // Compare decoded images, not encoded bytes. A byte comparison also
+    // gates on the PNG encoder: `png` 0.17 -> 0.18 changed the default
+    // deflate settings and re-encoded this identical frame from 14,935
+    // bytes to 2,667, which reads as a Dragon regression and is not one.
+    let expected_image = decode_golden(&expected, &golden_path.display().to_string());
+    let actual_image = decode_golden(png, "captured frame");
+    if expected_image != actual_image {
         let actual_path = dir.join(format!("{name}.actual.png"));
         std::fs::write(&actual_path, png)
             .unwrap_or_else(|err| panic!("write actual {}: {err}", actual_path.display()));
+        let (ew, eh, _) = &expected_image;
+        let (aw, ah, _) = &actual_image;
         panic!(
-            "{name}: Dragon golden mismatch; wrote actual to {}",
+            "{name}: Dragon golden mismatch ({ew}x{eh} golden vs {aw}x{ah} actual); \
+             wrote actual to {}",
             actual_path.display()
         );
     }
+}
+
+/// Decode a PNG to `(width, height, raw pixel bytes)` so goldens compare on
+/// image content alone.
+fn decode_golden(png: &[u8], what: &str) -> (u32, u32, Vec<u8>) {
+    let decoder = png::Decoder::new(Cursor::new(png));
+    let mut reader = decoder
+        .read_info()
+        .unwrap_or_else(|err| panic!("{what} should be a valid PNG: {err}"));
+    let mut buf = vec![0; reader.output_buffer_size().expect("bounded frame size")];
+    let info = reader
+        .next_frame(&mut buf)
+        .unwrap_or_else(|err| panic!("decode {what}: {err}"));
+    buf.truncate(info.buffer_size());
+    (info.width, info.height, buf)
 }
 
 fn assert_png_dimensions(png: &[u8], expected_width: u32, expected_height: u32) {
@@ -820,4 +845,65 @@ fn query_u64(
         .value
         .as_u64()
         .unwrap_or_else(|| panic!("{path} query should be an unsigned integer"))
+}
+
+/// Encode an RGBA image at a chosen deflate level, so the tests below can
+/// produce two different byte streams for the same picture.
+fn encode_rgba(width: u32, height: u32, pixels: &[u8], level: png::Compression) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut encoder = png::Encoder::new(&mut out, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_compression(level);
+    let mut writer = encoder.write_header().expect("write PNG header");
+    writer.write_image_data(pixels).expect("write PNG pixels");
+    writer.finish().expect("finish PNG");
+    out
+}
+
+fn solid_rgba(width: u32, height: u32) -> Vec<u8> {
+    (0..(width * height))
+        .flat_map(|i| {
+            let v = (i % 251) as u8;
+            [v, v.wrapping_add(7), v.wrapping_add(29), 0xFF]
+        })
+        .collect()
+}
+
+/// The bug this comparison replaced: `png` 0.17 -> 0.18 re-encoded an
+/// unchanged Dragon frame from 14,935 bytes to 2,667 and the byte-comparing
+/// golden read that as a regression.
+#[test]
+fn golden_compare_ignores_the_png_encoder() {
+    let pixels = solid_rgba(32, 16);
+    let fast = encode_rgba(32, 16, &pixels, png::Compression::Fast);
+    let best = encode_rgba(32, 16, &pixels, png::Compression::NoCompression);
+
+    assert_ne!(fast, best, "the two encodings must differ as bytes");
+    assert_eq!(decode_golden(&fast, "fast"), decode_golden(&best, "best"));
+}
+
+/// And the comparison must still be able to fail, or it gates nothing.
+#[test]
+fn golden_compare_catches_a_single_changed_pixel() {
+    let pixels = solid_rgba(32, 16);
+    let mut mutated = pixels.clone();
+    mutated[4 * (8 * 32 + 17)] ^= 0xFF;
+
+    let original = encode_rgba(32, 16, &pixels, png::Compression::Fast);
+    let changed = encode_rgba(32, 16, &mutated, png::Compression::Fast);
+
+    assert_ne!(
+        decode_golden(&original, "original"),
+        decode_golden(&changed, "changed"),
+    );
+}
+
+/// A frame of the wrong size must fail too, rather than compare as a prefix.
+#[test]
+fn golden_compare_catches_a_dimension_change() {
+    let wide = encode_rgba(32, 16, &solid_rgba(32, 16), png::Compression::Fast);
+    let tall = encode_rgba(16, 32, &solid_rgba(16, 32), png::Compression::Fast);
+
+    assert_ne!(decode_golden(&wide, "wide"), decode_golden(&tall, "tall"));
 }
