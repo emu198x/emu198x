@@ -228,3 +228,77 @@ Real hardware. A 48K plus a logic analyser, or someone in the community
 running a timing suite. Not currently available, and worth revisiting given
 how much time this has cost — an accuracy-first emulator with no access to the
 machine it emulates is working at a permanent disadvantage.
+
+## The commit sequence
+
+Small, each independently defensible, each with its own gate. The rule
+throughout: **the survey baseline is 34/70 and a commit that lowers it gets
+reverted.** Nothing here batches a behaviour change with a refactor.
+
+### Phase 1 — pins and conventions
+
+1. **`test(z80)`: golden pin waveforms.** Promote `bus_pin_waveform.rs` from a
+   printing diagnostic to an asserting test, locking today's *actual*
+   waveforms. No behaviour change. This is the safety net for everything after
+   it, and it must land first so that steps 2–6 each show up as a deliberate,
+   reviewable diff in a golden file.
+2. **`fix(z80)`: `M1` opcode strobe spans `T1b`–`T2b`.** One strobe, one
+   commit, golden updated in the same commit with the Zilog citation.
+3. **`fix(z80)`: `M1` refresh strobe spans `T3b`–`T4a`.**
+4. **`fix(z80)`: memory read holds `/MREQ` and `/RD` to the end of `T3`.** The
+   big one — this is the over-contention `MREQT23` was invented to cancel.
+   Expect the survey to move; record which way.
+5. **`fix(z80)`: memory write holds `/MREQ` and `/WR` to the end of `T3`.**
+6. **`fix(z80)`: I/O holds `/IORQ` and `/RD` to the end of the cycle.**
+7. **`refactor(ula)`: derive the contention window from counter bits.**
+   Replace `DELAY_TABLE_48K` with `C2 | C3`. Behaviour-neutral by
+   construction if the phase is preserved; the frame-wide differential is the
+   check, and any change in it means the phase was *not* preserved and the
+   commit is wrong.
+
+Steps 2–6 will each move the survey, possibly downward in isolation, because
+they are five parts of one correction. **They land on a branch and merge as a
+unit once the survey is at least 34/70 again**, with the individual commits
+preserved. That is the one place batching is right: the Zilog citation is
+per-strobe, but the acceptance is collective.
+
+### Phase 2 — the oracle
+
+8. **`test(spectrum)`: make the timing survey an asserting gate at 34/70.**
+   A floor, not a target. It fails if the count drops. Cheap, and it is what
+   makes every later step safe.
+9. **`docs`: demote the frame-wide FUSE differential to a diagnostic** in its
+   own module docs, so a future reader does not treat a regression there as a
+   defect.
+
+### Phase 3 — the gate
+
+10. **`fix(ula)`: clock the `IORQ` delay line on the ULA, not the CPU.** It
+    currently freezes during a stall. Behaviour change, small, and a
+    prerequisite — without it the next commit is a no-op, which is exactly
+    what happened when it was tried.
+11. **`fix(ula)`: cancel I/O contention with the delayed `IORQ`.** The
+    `IOREQTW3` term.
+12. **`fix(ula)`: make memory and I/O contention mutually exclusive.** The
+    term we have never had, and the likeliest cause of `$40FE` and `$40FF`
+    costing the same.
+
+Each of 10–12 is scored on the survey and on `ula_gate_vs_hdl`. If 12 does
+not separate the contended-page port classes, stop — the model is wrong
+again, and the next move is measurement, not another term.
+
+### Phase 4 — consolidation
+
+13. **`refactor(ula)`: one contention expression, variant decodes injected.**
+    Pure refactor, no behaviour change, all three variants' tests green
+    before and after.
+14. **`fix(ula)`: reconcile the 128K window with the 48K.** The divergence
+    recorded in `sinclair-ula-7k010e`'s comment — `/Border` against the
+    video-fetch window — is a real bug and should be fixed on its own, with
+    its own evidence, not smuggled into the refactor.
+
+### What stays unlanded
+
+The `MREQT23` gate remains computed and unconsulted until Phase 3 is done and
+the survey has spoken. It is the single most re-litigated item in this
+project's history and it does not move again without a number attached.
