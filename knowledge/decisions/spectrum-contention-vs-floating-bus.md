@@ -598,23 +598,70 @@ CPU always enters an M-cycle on the same parity; the odd column is a state
 the real machine never occupies, and the engine's flat no-contention
 reading there is an artefact of driving it into one.
 
-**Two things this does *not* establish.** `NOP` ×2 is exact with the
-*current* gate — `!cpu_mreq` live, no `MREQT23` — so for `M1` the latch and
-the live pin coincide, and nothing here says the latch is needed. But the
-re-arm bug it was written for was diagnosed on `LD A,(HL)` and
-`LD BC,(nn)`, and this harness models only `M1` and `IN`; plain memory
-read/write M-cycles are not covered yet. The `MREQT23` question is
-therefore still open, just no longer in the way.
+## `MREQT23` resolved: the latch is not needed
+
+The harness now covers plain memory M-cycles — `LD A,(HL)` and
+`LD BC,(nn)`, the two cases the re-arm bug was originally diagnosed on. The
+model reproduces FUSE exactly on both, at the same rotation `(1,1)` every
+other case shares; four independent case families now agree under one
+alignment, which is what makes it an alignment rather than a fitted
+constant.
+
+Against that model, driven with the model's pins, **the engine is exact on
+both** — with the *current* gate, `!cpu_mreq` live, no latch:
+
+| case | engine against model |
+|---|---|
+| `NOP` ×2 | exact |
+| `LD A,(HL)` | **exact** |
+| `LD BC,(nn)` | **exact** |
+
+The re-arm bug does not reproduce when the pins are right. And our pins are
+not right: `tick_mem_read` releases `/MREQ` at the **end of `T2`**, a full
+T-state early, while the contended address is still driven — which is
+precisely the "`MREQ` deasserts while the contended address is still on the
+bus and the gate re-arms" mechanism this record opened with. The write path
+does the same half a T-state early, at `T3Rise`.
+
+So `MREQT23` was a fix for a Z80 pin defect, applied to the ULA. That is
+why it improved the timing survey (it cancels a real over-charge) *and*
+cost a T-state elsewhere (it over-corrects where the pins happen to be
+right), and why no amount of work on the gate ever reconciled the two. The
+latch stays unwired, and this closes it — not as a trade, but because the
+defect it compensates for is somewhere else.
+
+## Everything that is actually wrong
+
+All five are now evidenced at gate resolution, against a model that
+reproduces FUSE across four case families under one alignment:
+
+**Z80 pins** (`zilog-z80`)
+
+1. `/IORQ` asserted half a T-state early — on `T2`'s edge, not half a clock
+   after the address is stable.
+2. `/IORQ` released a T-state early — end of `TW`, not end of `T3`.
+3. `/MREQ` released a T-state early in memory reads — end of `T2`, not end
+   of `T3`. The write path releases half a T-state early at `T3Rise`.
+
+**ULA gate** (`ferranti-ula-6c001e`), both in the ULA-port path only
+
+4. No `IOREQTW3` cancellation — `+6` T-states on a contended-page ULA port.
+5. I/O contention window one T-state short — `−1` on an uncontended-page
+   ULA port.
+
+**Not wrong:** memory contention, both non-ULA port classes, the frame
+origin, the delay table, and the stall model. And `MREQT23`, which should
+stay out.
 
 ## Next
 
-1. Extend the harness to memory read/write M-cycles. That is where
-   `MREQT23` was diagnosed and the only remaining gap in coverage; until it
-   is there, the latch cannot be settled either way.
-2. Land the two gate defects with the two Z80 pin fixes, as one change.
-   Each is well-evidenced and none can land alone: the pin fixes make the
-   measured system worse while the gate miscounts the corrected window, and
-   the gate fixes need correct pins to have anything right to count.
+1. Land all five as one change. None is an improvement alone — the pin
+   fixes make the measured system worse while the gate miscounts the
+   corrected window, and the gate fixes need correct pins to have anything
+   right to count. That mutual dependence is why every attempt so far
+   see-sawed, and it is now understood rather than merely observed.
+2. Re-measure against the gate-level harness, the frame-wide differential,
+   the timing survey, and floatspy — in that order, cheapest first.
 3. Only then the floating bus. It remains untouched by all of this —
    floatspy reads `$00FF`, which no I/O change can reach.
 2. Reconcile `MREQT23` with the HDL. The HDL requires the latch; our

@@ -225,6 +225,61 @@ fn m1_pins(pc: u16, out: &mut Vec<HalfCycle>) {
     out.push(hc_pin(REFRESH, true, true));
 }
 
+/// One memory read M-cycle, three T-states, as half-cycle pins.
+///
+/// `/MREQ` falls halfway through `T1`, the same as the opcode fetch, and
+/// stays low to the end of the cycle — there is no refresh here to release
+/// it early, which is exactly what distinguishes this from `M1` and why
+/// the re-arm bug showed on `LD A,(HL)` and not on `NOP`.
+fn mem_read_pins(addr: u16, out: &mut Vec<HalfCycle>) {
+    out.push(hc_pin(addr, true, true)); // T1 — /MREQ falls mid-T-state
+    out.push(hc_pin(addr, false, true));
+    out.push(hc_pin(addr, false, true)); // T2
+    out.push(hc_pin(addr, false, true));
+    out.push(hc_pin(addr, false, true)); // T3 — held to the end
+    out.push(hc_pin(addr, false, true));
+}
+
+/// `LD A,(HL)` — `M1` plus one contended memory read.
+///
+/// The two-M-cycle case the `MREQT23` re-arm bug was originally diagnosed
+/// on: the read was charged twice, once before the access committed and
+/// again immediately after, because `/MREQ` deasserts while the contended
+/// address is still on the bus.
+fn ld_a_hl_pins(code_addr: u16, data_addr: u16) -> Vec<HalfCycle> {
+    let mut pins = Vec::new();
+    m1_pins(code_addr, &mut pins);
+    mem_read_pins(data_addr, &mut pins);
+    pins
+}
+
+/// `LD BC,(nn)` — `ED` prefix, opcode, two operand fetches, two reads.
+///
+/// Six M-cycles, the longest case in the per-instruction oracle and the
+/// one whose error scaled with M-cycle count rather than instruction
+/// length.
+fn ld_bc_nn_pins(code_addr: u16, data_addr: u16) -> Vec<HalfCycle> {
+    let mut pins = Vec::new();
+    m1_pins(code_addr, &mut pins);
+    m1_pins(code_addr + 1, &mut pins);
+    mem_read_pins(code_addr + 2, &mut pins);
+    mem_read_pins(code_addr + 3, &mut pins);
+    mem_read_pins(data_addr, &mut pins);
+    mem_read_pins(data_addr + 1, &mut pins);
+    pins
+}
+
+/// Cost of a sequence of M-cycles from frame T-state `t0`, per FUSE —
+/// contention charged once at the start of each.
+fn fuse_mcycle_cost(t0: u32, mcycles: &[u32]) -> u32 {
+    let mut t = t0;
+    for length in mcycles {
+        t += fuse_delay(t);
+        t += length;
+    }
+    t - t0
+}
+
 /// A run of `count` `NOP`s — nothing but back-to-back `M1` fetches out of
 /// contended RAM.
 ///
@@ -746,6 +801,142 @@ fn the_engine_gate_against_the_hdl_model() {
             .filter(|d| diffs.iter().all(|x| x == d));
         println!(
             "{:<18}   reachable phases: {}",
+            "",
+            match uniform {
+                Some(0) => "exact".to_string(),
+                Some(d) => format!("uniformly {d:+} T-states"),
+                None => format!("varies: {diffs:?}"),
+            }
+        );
+    }
+}
+
+/// The last coverage gap: memory read M-cycles that are not `M1`.
+///
+/// `MREQT23` exists for these. An `M1` escapes the re-arm bug because what
+/// follows its access is the refresh, whose address is uncontended — so
+/// `NOP` agreeing proves nothing about the latch. These are the cases the
+/// bug was diagnosed on, and the model has to be established on them
+/// before the engine can be judged against it.
+#[test]
+fn the_hdl_model_reproduces_fuse_multi_mcycle_contention() {
+    struct Case {
+        name: &'static str,
+        pins: Vec<HalfCycle>,
+        mcycles: &'static [u32],
+    }
+
+    let cases = vec![
+        Case {
+            name: "LD A,(HL)",
+            pins: ld_a_hl_pins(0x4000, 0x5000),
+            mcycles: &[4, 3],
+        },
+        Case {
+            name: "LD BC,(nn)",
+            pins: ld_bc_nn_pins(0x4000, 0x5000),
+            mcycles: &[4, 4, 3, 3, 3, 3],
+        },
+    ];
+
+    // The rotation the I/O and M1 tables both settled on. A third and
+    // fourth case agreeing at the same one is what makes it an alignment
+    // rather than a fitted constant.
+    const SHARED: (u16, u16) = (1, 1);
+
+    for case in &cases {
+        let hdl: Vec<u32> = (0..16u16)
+            .map(|hc0| hdl_cost(hc0, &case.pins, true))
+            .collect();
+        let fuse: Vec<u32> = (0..8u32)
+            .map(|t| fuse_mcycle_cost(t, case.mcycles))
+            .collect();
+
+        println!("\n{} {:?}", case.name, case.mcycles);
+        print!("{:<22}", "HDL by hc phase");
+        for v in &hdl {
+            print!("{v:>4}");
+        }
+        println!();
+        print!("{:<22}", "FUSE by T-state phase");
+        for v in &fuse {
+            print!("{v:>4}");
+        }
+        println!();
+
+        let mut found = Vec::new();
+        for parity in 0..2u16 {
+            for rot in 0..8u16 {
+                if (0..8usize)
+                    .all(|p| hdl[(((p as u16 + rot) % 8) * 2 + parity) as usize] == fuse[p])
+                {
+                    found.push((parity, rot));
+                }
+            }
+        }
+        println!("  rotations: {found:?}");
+        print!("  vs FUSE at {SHARED:?}:");
+        for p in 0..8usize {
+            let h = hdl[(((p as u16 + SHARED.1) % 8) * 2 + SHARED.0) as usize];
+            print!(" {:+}", h as i64 - fuse[p] as i64);
+        }
+        println!();
+
+        assert!(
+            found.contains(&SHARED),
+            "{}: the HDL and FUSE do not agree at the rotation every other \
+             case shares. Either the memory-read pin sequence is wrong, or \
+             the two authorities differ on multi-M-cycle contention — and \
+             that would matter far more than a stray T-state.",
+            case.name
+        );
+    }
+}
+
+/// The engine on the same multi-M-cycle sequences.
+///
+/// This is what settles `MREQT23`. If the engine over-charges these by a
+/// contention window while `NOP` stays exact, the re-arm bug is real and
+/// the latch is its fix; if it does not, the latch is solving a problem
+/// the engine no longer has.
+#[test]
+#[ignore = "diagnostic; scores the engine against the model"]
+fn the_engine_on_multi_mcycle_sequences() {
+    let cases = [
+        ("LD A,(HL)", ld_a_hl_pins(0x4000, 0x5000)),
+        ("LD BC,(nn)", ld_bc_nn_pins(0x4000, 0x5000)),
+        ("NOP x2", nop_stream_pins(0x4000, 2)),
+    ];
+
+    println!("\ncost by phase — model (m) against engine (e)");
+    for (name, pins) in &cases {
+        let model: Vec<u32> = (0..16u16).map(|hc0| hdl_cost(hc0, pins, true)).collect();
+        let engine: Vec<Option<u32>> = (0..16u16).map(|phase| engine_cost(phase, pins)).collect();
+
+        print!("\n{name:<14} m");
+        for v in &model {
+            print!("{v:>4}");
+        }
+        println!();
+        print!("{:<14} e", "");
+        for v in &engine {
+            match v {
+                Some(x) => print!("{x:>4}"),
+                None => print!("{:>4}", "-"),
+            }
+        }
+        println!();
+
+        let diffs: Vec<i64> = (0..16usize)
+            .step_by(2)
+            .filter_map(|p| engine[p].map(|e| e as i64 - model[p] as i64))
+            .collect();
+        let uniform = diffs
+            .first()
+            .copied()
+            .filter(|d| diffs.iter().all(|x| x == d));
+        println!(
+            "{:<14}   reachable phases: {}",
             "",
             match uniform {
                 Some(0) => "exact".to_string(),
