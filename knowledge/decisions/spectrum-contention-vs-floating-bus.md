@@ -757,14 +757,47 @@ Both latches are now computed and maintained but **not consulted**, with
 the wiring written out in a comment. Nothing else changed; the tree
 measures identically to before at the frame level.
 
+## Settled: FUSE contends three T-states before the HDL
+
+Both sides anchor to the same event, and neither anchor is fitted. FUSE's
+frame T-state 0 **is** the interrupt. The HDL asserts `msk_int_n` at
+`vc == 248, hc == 0`, and from `vc = 248` to `vc = 0` is
+`(312 − 248) × 448 = 28672` `clk7` cycles — **14336 T-states**, exactly
+libspectrum's `top_left_pixel` for the Ferranti 5C/6C. The two geometries
+agree about where the display sits relative to the interrupt, so the
+mapping is forced rather than chosen.
+
+Scored that way, frame-wide (`hdl_vs_fuse_anchored.rs`):
+
+| offset applied to the HDL | mismatched T-states of 69,888 |
+|---|---|
+| 0 | 12,672 |
+| **+3** | **0** |
+
+They describe the **same window** — identical shape, identical duty — with
+FUSE's opening exactly **three T-states earlier**. FUSE contends from
+14335; the HDL's `hc[2]|hc[3]` first permits it at 14338.
+
+**Three is not a new number.** The retracted section at the top of this
+record derived it by hand — 14335 against 14338 — and was reverted because
+implementing it cost two survey cases. `sinclair-ula-7k010e` carries the
+same gap in a comment: the 128K contends from T=14361 while the first fetch
+is at T=14364. That work was right about the gap and wrong about what to do
+with it. It is now anchored rather than inferred, and gated.
+
+So the `+1` the engine shows against FUSE when its gate matches the HDL is
+not a bug in either — it is this displacement, seen through instruction
+costs. **The engine cannot match both, and the question is which authority
+governs**, not which code is wrong.
+
 ## Next
 
-1. Settle HDL against FUSE at a *fixed* alignment. This is the whole
-   question now. The rotation search must be replaced by the
-   interrupt-pinned origin — the same anchor the frame-wide differential
-   uses — and the two scored directly. If the HDL really is one T-state
-   heavier per contended M-cycle, that is a statement about which
-   authority to follow, and it deserves its own decision record.
+1. Decide which authority governs the contended window, and record it.
+   FUSE is validated against real software — its own comment cites Arkanoid
+   and Sidewize — and is the reference RULES.md #32 nominates. The HDL is a
+   clone reconstruction of the silicon. They agree on everything except
+   where the window opens. This is a decision, not a defect, and it wants
+   its own record before any code moves.
 2. Then land the gate, whichever way that goes. The gate change is fully
    derived and verified against the HDL; only its disagreement with FUSE
    blocks it.
