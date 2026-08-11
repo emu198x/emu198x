@@ -592,3 +592,166 @@ fn the_hdl_model_reproduces_fuse_m1_contention() {
          contention, and the engine has been scored against FUSE all along."
     );
 }
+
+// =====================================================================
+// The engine, driven by the same pins.
+//
+// Everything above establishes the model. This scores `FerrantiUla`
+// against it, at the same half-cycle resolution and with the same pin
+// sequences — which is the whole reason the model was built.
+//
+// Doing it this way removes the guesswork that sank the two earlier
+// attempts. Those were scored through a whole machine, so the engine's
+// contention was entangled with the Z80's pin timing, and a defect in
+// either looked identical from outside. Here the pins are *given*, taken
+// from the same source the model uses, so any divergence is the gate's.
+// =====================================================================
+
+use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
+use common_sinclair_zx_spectrum::ula::Ula;
+use ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
+
+/// Memory that answers only the question the gate asks.
+struct ContendedLower16K;
+
+impl MemoryBus for ContendedLower16K {
+    fn read(&self, _addr: u16) -> u8 {
+        0
+    }
+    fn write(&mut self, _addr: u16, _value: u8) {}
+    fn is_contended(&self, addr: u16) -> bool {
+        (0x4000..0x8000).contains(&addr)
+    }
+}
+
+/// Cost of a pin sequence through the engine, entered at ULA pixel phase
+/// `pixel_phase`.
+///
+/// Only one alignment needs sweeping, not two: the pixel counter and
+/// `z80_clock_high` both advance once per tick, so fixing the pixel phase
+/// fixes the clock phase with it.
+///
+/// Returns `None` if the sequence ran out of the display window, where the
+/// comparison would be meaningless — the model holds `Border_n` asserted
+/// throughout and the engine cannot.
+fn engine_cost(pixel_phase: u16, pins: &[HalfCycle]) -> Option<u32> {
+    let mut ula = FerrantiUla::new(UlaRevision::Ferranti6C);
+    let mem = ContendedLower16K;
+    let mut fb = vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT];
+
+    // Settle to the wanted phase, early enough in the contended window
+    // that the sequence has room to finish inside it. Idle pins on an
+    // uncontended address cannot contend, so the counters just advance.
+    let mut settle = 0u32;
+    loop {
+        let (_, pixel, video, _, _) = ula.debug_raster();
+        if video && pixel % 16 == pixel_phase && pixel < 128 {
+            break;
+        }
+        ula.tick(&mem, 0x0000, false, false, false, &mut fb);
+        settle += 1;
+        if settle > 1_000_000 {
+            return None;
+        }
+    }
+
+    let mut index = 0usize;
+    let mut ticks = 0u32;
+    while index < pins.len() {
+        let p = pins[index];
+        ula.tick(&mem, p.a, !p.mreq_n, !p.iorq_n, false, &mut fb);
+        if ula.cpu_clock_active() {
+            index += 1;
+        }
+        ticks += 1;
+        if ticks > 4096 {
+            return None;
+        }
+    }
+
+    let (_, _, video, _, _) = ula.debug_raster();
+    if !video {
+        return None; // ran past the window; not comparable
+    }
+    Some(ticks / 2)
+}
+
+/// Score the engine's gate against the model, pin for pin.
+///
+/// Both produce a 16-entry table indexed by their own phase counter, and
+/// neither counter's origin is fixed by anything here — so, as everywhere
+/// else in this file, the comparison is a search for **one rotation shared
+/// by every case**. `NOP` and the four port classes together pin it: five
+/// tables with four distinct shapes cannot be rotated into agreement by
+/// accident.
+///
+/// Report-only. The engine is known to disagree — that is the open work —
+/// and the value is in *where*, which the per-case rotations give.
+#[test]
+#[ignore = "diagnostic; scores the engine against the model"]
+fn the_engine_gate_against_the_hdl_model() {
+    struct Case {
+        name: &'static str,
+        pins: Vec<HalfCycle>,
+    }
+
+    let mut cases = vec![Case {
+        name: "NOP x2",
+        pins: nop_stream_pins(0x4000, 2),
+    }];
+    for class in classes() {
+        cases.push(Case {
+            name: class.name,
+            pins: in_a_c_pins(0x4000, class.port),
+        });
+    }
+
+    println!("\ncost by phase — model (m) against engine (e)");
+    for case in &cases {
+        let model: Vec<u32> = (0..16u16)
+            .map(|hc0| hdl_cost(hc0, &case.pins, true))
+            .collect();
+        let engine: Vec<Option<u32>> = (0..16u16)
+            .map(|phase| engine_cost(phase, &case.pins))
+            .collect();
+
+        print!("\n{:<18} m", case.name);
+        for v in &model {
+            print!("{v:>4}");
+        }
+        println!();
+        print!("{:<18} e", "");
+        for v in &engine {
+            match v {
+                Some(x) => print!("{x:>4}"),
+                None => print!("{:>4}", "-"),
+            }
+        }
+        println!();
+
+        // Only every second phase is reachable. A Z80 T-state is two ULA
+        // ticks, so the CPU always enters an M-cycle on the same parity —
+        // the odd column here is a state the real machine never occupies,
+        // and the engine's flat "no contention" reading there is an
+        // artefact of driving it into one. Judging on all sixteen would
+        // condemn the gate for something it is never asked to do.
+        let diffs: Vec<i64> = (0..16usize)
+            .step_by(2)
+            .filter_map(|p| engine[p].map(|e| e as i64 - model[p] as i64))
+            .collect();
+        let uniform = diffs
+            .first()
+            .copied()
+            .filter(|d| diffs.iter().all(|x| x == d));
+        println!(
+            "{:<18}   reachable phases: {}",
+            "",
+            match uniform {
+                Some(0) => "exact".to_string(),
+                Some(d) => format!("uniformly {d:+} T-states"),
+                None => format!("varies: {diffs:?}"),
+            }
+        );
+    }
+}

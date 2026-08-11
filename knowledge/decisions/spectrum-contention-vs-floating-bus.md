@@ -564,18 +564,57 @@ wired in. That +1 is the same residual that has blocked the latch from the
 start, it is a *memory*-contention effect with no I/O in it, and it is now
 the single unexplained quantity. Nothing was landed; the tree is at HEAD.
 
+## The `+1` localised, and the gate's defects named
+
+**The reference and FUSE agree on memory contention.** Eight back-to-back
+`NOP`s out of contended RAM — pure `M1`, no I/O anywhere near it — through
+the HDL model against FUSE's `contend_read(pc, 4)`: exact agreement at all
+eight phases, and at the same rotation `(1,1)` the four-way I/O table
+settled on. So the gate-level source and the reference emulator are
+consistent across both cases under one alignment. The residual is ours.
+
+**Driving the engine with the model's own pins names it exactly.**
+`the_engine_gate_against_the_hdl_model` runs `FerrantiUla::tick` through
+the same synthetic pin sequences the model uses, at the same half-cycle
+resolution. Because the pins are *given* rather than produced by our Z80,
+any divergence is the gate's alone — which is the entanglement that sank
+both earlier attempts:
+
+| case | engine against model |
+|---|---|
+| `NOP` ×2 — pure `M1` | **exact** |
+| `$40FF` contended, odd | **exact** |
+| `$C0FF` uncontended, odd | **exact** |
+| `$40FE` contended, ULA | **uniformly +6 T-states** |
+| `$C0FE` uncontended, ULA | **uniformly −1 T-state** |
+
+Memory contention is right. Both non-ULA port classes are right. **Every
+defect is in the ULA-port path**, and there are exactly two: a missing
+`IOREQTW3` cancellation, worth a whole contention window (+6), and an I/O
+contention window one T-state short (−1).
+
+Only every second phase is scored. A Z80 T-state is two ULA ticks, so the
+CPU always enters an M-cycle on the same parity; the odd column is a state
+the real machine never occupies, and the engine's flat no-contention
+reading there is an artefact of driving it into one.
+
+**Two things this does *not* establish.** `NOP` ×2 is exact with the
+*current* gate — `!cpu_mreq` live, no `MREQT23` — so for `M1` the latch and
+the live pin coincide, and nothing here says the latch is needed. But the
+re-arm bug it was written for was diagnosed on `LD A,(HL)` and
+`LD BC,(nn)`, and this harness models only `M1` and `IN`; plain memory
+read/write M-cycles are not covered yet. The `MREQT23` question is
+therefore still open, just no longer in the way.
+
 ## Next
 
-1. Put the `+1` under the harness. It is pure `M1` contention, so it needs
-   no I/O modelling at all: run a `NOP` stream through the HDL model and
-   compare against FUSE's `contend_read(pc, 4)` per phase. If the HDL and
-   FUSE agree there, the residual is ours and the harness will localise it
-   the way it localised the `/IORQ` defects. This is the last unknown
-   blocking `MREQT23`, and through it the whole contention fix.
-2. Land the Z80 `/IORQ` timing with the gate, once the `+1` is understood.
-   The pin fixes are well-evidenced but must not land alone: each makes the
-   measured system worse until the gate matches, because the old gate
-   miscounts the corrected window.
+1. Extend the harness to memory read/write M-cycles. That is where
+   `MREQT23` was diagnosed and the only remaining gap in coverage; until it
+   is there, the latch cannot be settled either way.
+2. Land the two gate defects with the two Z80 pin fixes, as one change.
+   Each is well-evidenced and none can land alone: the pin fixes make the
+   measured system worse while the gate miscounts the corrected window, and
+   the gate fixes need correct pins to have anything right to count.
 3. Only then the floating bus. It remains untouched by all of this —
    floatspy reads `$00FF`, which no I/O change can reach.
 2. Reconcile `MREQT23` with the HDL. The HDL requires the latch; our
