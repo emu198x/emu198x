@@ -295,12 +295,13 @@ fn load_spectron_indices(path: &Path) -> (Vec<u8>, usize, usize) {
 /// installed.
 fn assert_screen_matches_spectron(spectron_png: &str, framebuffer: &[u8]) {
     let Some(dir) = std::env::var_os(SPECTRON_RESULTS_ENV) else {
-        return;
+        emu198x_test_skip::skip!(
+            "Spectron reference screens not staged (EMU198X_SPECTRON_RESULTS_DIR)"
+        );
     };
     let path = PathBuf::from(dir).join(spectron_png);
     if !path.is_file() {
-        eprintln!("spectron ref {} not found — skipping", path.display());
-        return;
+        emu198x_test_skip::skip!("Spectron reference {} not staged", path.display());
     }
     let (spec, sw, sh) = load_spectron_indices(&path);
     let sbl = (sw - 256) / 2; // symmetric horizontal border
@@ -401,7 +402,7 @@ fn run_and_compare(test_name: &str) {
 /// that name (gated on `EMU198X_SPECTRON_RESULTS_DIR`).
 fn run_and_compare_with_spectron(test_name: &str, spectron_png: Option<&str>) {
     let Some(machine) = run_to_completion(test_name) else {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM or {test_name}.tap not staged");
     };
 
     compare_or_update(test_name, machine.framebuffer());
@@ -473,11 +474,11 @@ fn floatspy_runs_to_completion() {
 fn floatspy_selftest_ok() {
     let rom_path = rom_path();
     if !rom_path.is_file() {
-        return;
+        emu198x_test_skip::skip!("Spectrum 48K ROM not staged (EMU198X_SPECTRUM_48K_ROM)");
     }
     let tap_path = system_tests_dir().join("floatspy.tap");
     if !tap_path.is_file() {
-        return;
+        emu198x_test_skip::skip!("floatspy.tap not staged (EMU198X_SPECTRUM_SYSTEM_TESTS_DIR)");
     }
     let rom = std::fs::read(&rom_path).expect("read 48K ROM");
     let tape_blocks = tap_blocks_to_tape_blocks(

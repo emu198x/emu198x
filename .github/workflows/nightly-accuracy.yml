@@ -30,6 +30,22 @@ env:
   CORPORA_REPO: ${{ vars.ACCURACY_CORPORA_REPO }}
   CORPORA_TAG: ${{ vars.ACCURACY_CORPORA_TAG || 'v1' }}
 
+  # Every job here provisions the fixtures its tests need, from the store
+  # above, in an explicit step. So a test that skips for a missing fixture
+  # is not reporting an honest absence — it is reporting that provisioning
+  # silently failed, and it would otherwise report that as a pass.
+  #
+  # This is the environment `emu198x-test-skip` exists for. On CI proper a
+  # skip is honest (there are no ROMs there) and is only counted; here it
+  # is an error.
+  #
+  # The corpus tests already behave this way by using `.expect()` on their
+  # corpus roots. What this covers is the rest: the ZEX, z80test and
+  # floating-bus jobs, whose Spectrum tests guarded with a bare `return`
+  # and passed in silence when the 48K ROM, floatspy.tap or the Spectron
+  # reference screens were absent.
+  EMU198X_STRICT_FIXTURES: "1"
+
 jobs:
   # Secrets can't be read in a job-level `if`, so a preflight job turns
   # "is the store configured?" into an output the corpus jobs gate on. On a
