@@ -1,0 +1,14 @@
+[package]
+name = "emu198x-test-skip"
+description = "Declare a test skipped for a missing fixture, so it cannot pass silently"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+# Deliberately dependency-free. This is a dev-dependency of ~50 leaf
+# crates, so anything it pulls in is paid for by all of them.
+
+[lints]
+workspace = true

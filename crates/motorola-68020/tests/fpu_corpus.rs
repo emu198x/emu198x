@@ -468,12 +468,7 @@ fn print_result(r: &FixtureResult) {
 #[ignore]
 fn fpu_corpus_full_sweep() {
     let Some(root) = fixture_root() else {
-        eprintln!("Skipping: no FP corpus directory found.");
-        eprintln!("Generate it with:");
-        eprintln!(
-            "  cargo run --manifest-path tools/m68k-test-gen/Cargo.toml -- --fp --all --count 2500"
-        );
-        return;
+        emu198x_test_skip::skip!("no FP corpus directory found");
     };
 
     let mut entries: Vec<PathBuf> = std::fs::read_dir(&root)
@@ -527,8 +522,7 @@ fn fpu_corpus_full_sweep() {
 #[ignore]
 fn fpu_corpus_fadd_smoke() {
     let Some(root) = fixture_root() else {
-        eprintln!("Skipping: no FP corpus directory found.");
-        return;
+        emu198x_test_skip::skip!("no FP corpus directory found");
     };
     let path = root.join("FADD.msgpack");
     if !path.exists() {

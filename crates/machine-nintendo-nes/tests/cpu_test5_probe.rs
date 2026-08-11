@@ -131,8 +131,7 @@ fn watch(rom_path: &PathBuf, until: u64) {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_cpu_test5_raw_nametable() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     for name in ["official", "cpu"] {
         let rom = root.join(format!("blargg_nes_cpu_test5/{name}.nes"));
@@ -197,8 +196,7 @@ const IMPLIED_ENTRIES: &[(u8, &str, u32)] = &[
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_implied_checksums() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let rom = root.join("blargg_nes_cpu_test5/official.nes");
     let bytes = std::fs::read(&rom).expect("rom should read");
@@ -241,8 +239,7 @@ fn probe_implied_checksums() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_official_screen_during_run() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     // Test 01 runs first, so the failing-opcode print lands early.
     watch(&root.join("blargg_nes_cpu_test5/official.nes"), 30_000_000);
@@ -252,8 +249,7 @@ fn probe_official_screen_during_run() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_cpu_nes() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     run_one(&root.join("blargg_nes_cpu_test5/cpu.nes"));
 }
@@ -262,8 +258,7 @@ fn probe_cpu_nes() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_official_nes() {
     let Some(root) = nes_test_roms_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     run_one(&root.join("blargg_nes_cpu_test5/official.nes"));
 }

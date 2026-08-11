@@ -12,5 +12,8 @@ common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version
 common-sinclair-zx-spectrum-48k-class = { path = "../common-sinclair-zx-spectrum-48k-class", version = "0.2.0" }
 ferranti-ula-6c001e = { path = "../ferranti-ula-6c001e", version = "0.2.0" }
 
+[dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.2.0" }
+
 [lints]
 workspace = true

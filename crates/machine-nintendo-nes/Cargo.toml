@@ -15,5 +15,8 @@ ricoh-ppu-2c02 = { path = "../ricoh-ppu-2c02", version = "0.2.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 
+[dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.2.0" }
+
 [lints]
 workspace = true

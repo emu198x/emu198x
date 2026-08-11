@@ -17,6 +17,7 @@ serde = { workspace = true }
 zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
 
 [dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.2.0" }
 format-sinclair-zx-spectrum-tap = { path = "../format-sinclair-zx-spectrum-tap", version = "0.2.0" }
 png = { workspace = true }
 

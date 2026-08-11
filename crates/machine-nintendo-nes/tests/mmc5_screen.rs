@@ -45,8 +45,7 @@ const ROMS: &[&str] = &[
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_mmc5_screens() {
     let Some(root) = root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     for rel in ROMS {
         let Ok(bytes) = std::fs::read(root.join(rel)) else {
@@ -126,8 +125,7 @@ fn probe_mmc5_screens() {
 #[ignore = "ROM run — requires test-suites/nes-test-roms"]
 fn mmc5_executes_code_from_exram() {
     let Some(root) = root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     let path = root.join("exram/mmc5exram.nes");
     let Ok(bytes) = std::fs::read(&path) else {
@@ -175,7 +173,7 @@ fn mmc5_executes_code_from_exram() {
 #[ignore = "diagnostic; requires local nes-test-roms"]
 fn probe_dmc_tests_output_channels() {
     let Some(root) = root() else {
-        return;
+        emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
     };
     for name in ["latency", "buffer_retained", "status", "status_irq"] {
         let Ok(bytes) = std::fs::read(root.join(format!("dmc_tests/{name}.nes"))) else {

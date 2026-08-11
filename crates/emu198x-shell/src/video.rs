@@ -761,8 +761,7 @@ mod tests {
     #[test]
     fn start_and_finish_round_trip_writes_mp4_when_ffmpeg_is_available() {
         let Some(_) = find_ffmpeg() else {
-            eprintln!("skipping: ffmpeg not on PATH");
-            return;
+            emu198x_test_skip::skip!("ffmpeg not on PATH");
         };
 
         let temp_dir = std::env::temp_dir();
@@ -804,8 +803,7 @@ mod tests {
     #[test]
     fn start_and_finish_with_audio_muxes_track_when_ffmpeg_is_available() {
         let Some(_) = find_ffmpeg() else {
-            eprintln!("skipping: ffmpeg not on PATH");
-            return;
+            emu198x_test_skip::skip!("ffmpeg not on PATH");
         };
 
         let temp_dir = std::env::temp_dir();

@@ -254,7 +254,7 @@ fn screen_text_lines(machine: &Spectrum128K) -> Vec<String> {
 #[ignore = "requires local 128K ROMs and halt2int128.tap; ~100 s wall time"]
 fn halt2int128_runs_to_completion() {
     let Some(machine) = run_to_completion("halt2int128.tap") else {
-        return;
+        emu198x_test_skip::skip!("Spectrum 128K ROMs or tape image not staged");
     };
     let lines = screen_text_lines(&machine);
 

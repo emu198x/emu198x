@@ -343,7 +343,7 @@ fn assert_passed_with_allowlist(name: &str, outcome: &TestOutcome, allowed_failu
 #[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80doc() {
     let Some(outcome) = run_one("z80doc") else {
-        return;
+        emu198x_test_skip::skip!("z80test corpus not staged");
     };
     assert_passed("z80doc", &outcome);
 }
@@ -352,7 +352,7 @@ fn z80doc() {
 #[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80docflags() {
     let Some(outcome) = run_one("z80docflags") else {
-        return;
+        emu198x_test_skip::skip!("z80test corpus not staged");
     };
     assert_passed("z80docflags", &outcome);
 }
@@ -361,7 +361,7 @@ fn z80docflags() {
 #[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80flags() {
     let Some(outcome) = run_one("z80flags") else {
-        return;
+        emu198x_test_skip::skip!("z80test corpus not staged");
     };
     assert_passed("z80flags", &outcome);
 }
@@ -370,7 +370,7 @@ fn z80flags() {
 #[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80full() {
     let Some(outcome) = run_one("z80full") else {
-        return;
+        emu198x_test_skip::skip!("z80test corpus not staged");
     };
     assert_passed("z80full", &outcome);
 }
@@ -379,7 +379,7 @@ fn z80full() {
 #[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80ccf() {
     let Some(outcome) = run_one("z80ccf") else {
-        return;
+        emu198x_test_skip::skip!("z80test corpus not staged");
     };
     assert_passed("z80ccf", &outcome);
 }
@@ -395,7 +395,7 @@ const Z80MEMPTR_ALLOWLIST: &[&str] = &[];
 #[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80memptr() {
     let Some(outcome) = run_one("z80memptr") else {
-        return;
+        emu198x_test_skip::skip!("z80test corpus not staged");
     };
     assert_passed_with_allowlist("z80memptr", &outcome, Z80MEMPTR_ALLOWLIST);
 }

@@ -11,5 +11,8 @@ repository.workspace = true
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.2.0" }
 common-sinclair-zx-spectrum-128k-class = { path = "../common-sinclair-zx-spectrum-128k-class", version = "0.2.0" }
 
+[dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.2.0" }
+
 [lints]
 workspace = true

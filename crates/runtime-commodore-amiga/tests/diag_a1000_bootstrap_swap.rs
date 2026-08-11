@@ -71,7 +71,7 @@ fn kickstart_disk_path() -> Option<PathBuf> {
 #[ignore = "needs local A1000 bootstrap ROM, Kickstart disk, and Workbench 1.2 disk"]
 fn script_swaps_after_a1000_wom_lock() {
     let Some(bootstrap_rom_path) = bootstrap_rom_path() else {
-        return;
+        emu198x_test_skip::skip!("Amiga A1000 bootstrap artifacts not staged");
     };
     let Some(kickstart_disk_path) = kickstart_disk_path() else {
         return;

@@ -27,6 +27,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.2.0" }
 peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy", version = "0.2.0" }
 png = { workspace = true }
 sha2 = { workspace = true }

@@ -272,8 +272,7 @@ onscreen_test!(
 #[ignore = "survey: requires local nes-test-roms; run with --ignored --nocapture"]
 fn survey_onscreen_suites() {
     let Some(root) = blargg_root() else {
-        eprintln!("blargg root not found; skipping survey");
-        return;
+        emu198x_test_skip::skip!("blargg root not found; skipping survey");
     };
 
     let suites: &[(&str, u16, &[&str])] = &[

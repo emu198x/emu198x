@@ -171,7 +171,7 @@ fn run_frames<F: FnMut()>(count: u32, mut step: F) {
 #[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn golden_spectrum_16k_boot() {
     let Some(dir) = rom_dir("sinclair-zx-spectrum-48k") else {
-        return;
+        emu198x_test_skip::skip!("Spectrum ROMs not staged (~/.emu198x/roms/sinclair-zx-spectrum)");
     };
     let rom = dir.join("48.rom");
     if skip_if_missing(&rom) {
@@ -188,7 +188,7 @@ fn golden_spectrum_16k_boot() {
 #[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn golden_spectrum_48k_boot() {
     let Some(dir) = rom_dir("sinclair-zx-spectrum-48k") else {
-        return;
+        emu198x_test_skip::skip!("Spectrum ROMs not staged (~/.emu198x/roms/sinclair-zx-spectrum)");
     };
     let rom = dir.join("48.rom");
     if skip_if_missing(&rom) {
@@ -205,7 +205,7 @@ fn golden_spectrum_48k_boot() {
 #[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn golden_spectrum_plus_boot() {
     let Some(dir) = rom_dir("sinclair-zx-spectrum-48k") else {
-        return;
+        emu198x_test_skip::skip!("Spectrum ROMs not staged (~/.emu198x/roms/sinclair-zx-spectrum)");
     };
     let rom = dir.join("48.rom");
     if skip_if_missing(&rom) {
@@ -222,7 +222,7 @@ fn golden_spectrum_plus_boot() {
 #[ignore = "requires local 128K ROMs at ~/.emu198x/roms/sinclair-zx-spectrum-128k/{128-0,128-1}.rom"]
 fn golden_spectrum_128k_boot() {
     let Some(dir) = rom_dir("sinclair-zx-spectrum-128k") else {
-        return;
+        emu198x_test_skip::skip!("Spectrum ROMs not staged (~/.emu198x/roms/sinclair-zx-spectrum)");
     };
     let rom0 = dir.join("128-0.rom");
     let rom1 = dir.join("128-1.rom");
@@ -240,7 +240,7 @@ fn golden_spectrum_128k_boot() {
 #[ignore = "requires local +2 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus2/{plus2-0,plus2-1}.rom"]
 fn golden_spectrum_plus2_boot() {
     let Some(dir) = rom_dir("amstrad-zx-spectrum-plus2") else {
-        return;
+        emu198x_test_skip::skip!("Spectrum ROMs not staged (~/.emu198x/roms/sinclair-zx-spectrum)");
     };
     let rom0 = dir.join("plus2-0.rom");
     let rom1 = dir.join("plus2-1.rom");
@@ -275,7 +275,7 @@ fn load_plus3_roms<V: common_sinclair_zx_spectrum_amstrad_class::AmstradVariant>
 #[ignore = "requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/{plus3-0..3}.rom"]
 fn golden_spectrum_plus2a_boot() {
     let Some(dir) = rom_dir("amstrad-zx-spectrum-plus3") else {
-        return;
+        emu198x_test_skip::skip!("Spectrum ROMs not staged (~/.emu198x/roms/sinclair-zx-spectrum)");
     };
     let mut machine = SpectrumPlus2A::new();
     if !load_plus3_roms(&mut machine, &dir) {
@@ -293,7 +293,7 @@ fn golden_spectrum_plus2b_boot() {
     // +2B golden reflects its own "+2B" menu header rather than
     // showing "+2A" via shared ROMs.
     let Some(dir) = rom_dir("amstrad-zx-spectrum-plus2b") else {
-        return;
+        emu198x_test_skip::skip!("Spectrum ROMs not staged (~/.emu198x/roms/sinclair-zx-spectrum)");
     };
     let mut machine = SpectrumPlus2B::new();
     if !load_plus3_roms(&mut machine, &dir) {
@@ -307,7 +307,7 @@ fn golden_spectrum_plus2b_boot() {
 #[ignore = "requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/{plus3-0..3}.rom"]
 fn golden_spectrum_plus3_boot() {
     let Some(dir) = rom_dir("amstrad-zx-spectrum-plus3") else {
-        return;
+        emu198x_test_skip::skip!("Spectrum ROMs not staged (~/.emu198x/roms/sinclair-zx-spectrum)");
     };
     let mut machine = SpectrumPlus3::new();
     if !load_plus3_roms(&mut machine, &dir) {

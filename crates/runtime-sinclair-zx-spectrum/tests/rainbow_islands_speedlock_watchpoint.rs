@@ -129,8 +129,7 @@ fn read_pair(
 #[ignore = "diagnostic — pin the instruction that writes the diverging $74A4-$74A5 word in Rainbow Islands"]
 fn find_74a4_writes_in_rainbow_islands() {
     let Some((mut session, tape_bytes)) = build_session() else {
-        eprintln!("skipped: 128K ROMs or Rainbow Islands TZX not installed");
-        return;
+        emu198x_test_skip::skip!("skipped: 128K ROMs or Rainbow Islands TZX not installed");
     };
 
     // Phase 1 — coarse scan in 100-frame chunks, continuing until

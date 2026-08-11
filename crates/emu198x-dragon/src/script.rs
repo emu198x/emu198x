@@ -7170,7 +7170,7 @@ mod tests {
     #[test]
     fn dragon_dos_dir_command_lists_vdk_directory() {
         let Some(rom_path) = test_required_env_path("EMU198X_DRAGON32_ROM") else {
-            return;
+            emu198x_test_skip::skip!("Dragon ROM not staged (EMU198X_DRAGON32_ROM)");
         };
         let Some(dos_rom_path) = test_required_env_path("EMU198X_DRAGON_DOS_ROM") else {
             return;
@@ -7223,7 +7223,7 @@ mod tests {
     #[test]
     fn dragon_dos_save_command_exports_persisted_vdk_entry() {
         let Some(rom_path) = test_required_env_path("EMU198X_DRAGON32_ROM") else {
-            return;
+            emu198x_test_skip::skip!("Dragon ROM not staged (EMU198X_DRAGON32_ROM)");
         };
         let Some(dos_rom_path) = test_required_env_path("EMU198X_DRAGON_DOS_ROM") else {
             return;
@@ -7651,8 +7651,7 @@ mod tests {
     #[test]
     fn bin_smoke_matrix_runs_synthetic_program_when_dragon_rom_available() {
         let Some(rom_path) = test_dragon32_rom_path() else {
-            eprintln!("skipping Dragon BIN smoke regression: set EMU198X_DRAGON32_ROM");
-            return;
+            emu198x_test_skip::skip!("Dragon BIN smoke regression: set EMU198X_DRAGON32_ROM");
         };
         let rom = load_rom(&rom_path)
             .unwrap_or_else(|err| panic!("read Dragon 32 ROM at {}: {err}", rom_path.display()));

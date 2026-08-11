@@ -17,6 +17,7 @@ timex-scld = { path = "../timex-scld", version = "0.2.0" }
 zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
 
 [dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.2.0" }
 png = { workspace = true }
 
 [lints]

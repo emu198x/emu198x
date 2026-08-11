@@ -1035,7 +1035,7 @@ fn find_named_task(amiga: &AmigaOcs, name: &str) -> Option<u32> {
 fn trace_wb13_late_boot_tasks_and_signals() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -1300,7 +1300,7 @@ fn trace_wb13_late_boot_tasks_and_signals() {
 fn trace_wb13_validator_lifecycle() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -1508,7 +1508,7 @@ fn trace_wb13_validator_lifecycle() {
 fn trace_wb13_validator_transition_window() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -1830,7 +1830,7 @@ fn trace_wb13_validator_transition_window() {
 fn trace_wb13_validator_signal_window() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -2078,7 +2078,7 @@ fn trace_wb13_validator_signal_window() {
 fn trace_wb13_validator_task_field_writers() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -2189,7 +2189,7 @@ fn trace_wb13_validator_task_field_writers() {
 fn trace_wb13_validator_ports_and_sigalloc() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -2425,7 +2425,7 @@ fn trace_wb13_validator_ports_and_sigalloc() {
 fn trace_wb13_validator_idcmp_port_traffic() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -2867,7 +2867,7 @@ fn force_wake_validator_experiments() {
 fn trace_wb13_validator_idcmp_creator_path() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -3155,7 +3155,7 @@ fn trace_wb13_validator_idcmp_creator_path() {
 fn trace_wb13_validator_idcmp_ref_holder_writers() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -3230,7 +3230,7 @@ fn trace_wb13_validator_idcmp_ref_holder_writers() {
 fn trace_wb13_validator_requester_entry_path() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -3547,7 +3547,7 @@ fn trace_wb13_validator_requester_entry_path() {
 fn trace_wb13_validator_idcmp_bridge_gap() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -3771,7 +3771,7 @@ fn trace_wb13_validator_idcmp_bridge_gap() {
 fn trace_wb13_validator_requester_ram_chain() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -4084,7 +4084,7 @@ fn compare_wb13_acknowledged_vs_pending_disk_change() {
 
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -4130,7 +4130,7 @@ fn trace_wb13_validator_requester_payload_strings() {
 
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -4254,7 +4254,7 @@ fn trace_wb13_validator_requester_payload_strings() {
 fn trace_wb13_disk_write_path_gap() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -4360,7 +4360,7 @@ fn trace_wb13_disk_write_path_gap() {
 fn trace_wb13_trackdisk_beginio_requests() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -4437,7 +4437,7 @@ fn trace_wb13_root_block_read_compare() {
 
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -4585,7 +4585,7 @@ fn trace_wb13_root_block_read_compare() {
 fn trace_wb13_workbench_display_memory() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -4722,7 +4722,7 @@ fn trace_wb13_workbench_display_memory() {
 fn trace_wb13_workbench_screen_blits() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -4809,7 +4809,7 @@ fn trace_wb13_workbench_screen_blits() {
 fn trace_wb13_workbench_copper_display_build() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -4922,7 +4922,7 @@ fn trace_wb13_workbench_copper_display_build() {
 fn trace_wb13_workbench_copper_builder_source_context() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -4981,7 +4981,7 @@ fn trace_wb13_workbench_copper_builder_source_context() {
 fn trace_wb13_workbench_copper_source_block_writers() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -5071,7 +5071,7 @@ fn trace_wb13_workbench_copper_source_block_writers() {
 fn trace_wb13_workbench_copper_source_slots() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -5129,7 +5129,7 @@ fn trace_wb13_workbench_copper_source_slots() {
 fn trace_wb13_workbench_display_slot_writers() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -5243,7 +5243,7 @@ fn trace_wb13_workbench_display_slot_writers() {
 fn trace_wb13_display_mode_source_field() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -5377,7 +5377,7 @@ fn trace_wb13_display_custom_byte_writes() {
 
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -5441,7 +5441,7 @@ fn trace_wb13_display_custom_byte_writes() {
 fn trace_wb13_copper_bplcon0_mode_writes() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -5498,7 +5498,7 @@ fn trace_wb13_copper_bplcon0_mode_writes() {
 fn trace_wb13_hires_line_fetch_cadence() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))
@@ -5585,7 +5585,7 @@ fn trace_wb13_hires_line_fetch_cadence() {
 fn trace_wb13_hires_line_actual_bitplane_fetches() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
-        return;
+        emu198x_test_skip::skip!("Amiga Workbench 1.3 trace artifacts not staged");
     };
     let Some(adf_bytes) =
         load_artifact(&home.join(".emu198x/media/commodore-amiga/workbench-1.3.adf"))

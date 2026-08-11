@@ -18,7 +18,7 @@ const GOLDEN_NAME: &str = "dragon32-basic";
 #[test]
 fn dragon32_real_rom_reaches_basic_prompt_and_captures_frame() {
     let Some(session) = booted_dragon_session() else {
-        return;
+        emu198x_test_skip::skip!("Dragon 32 ROM not staged (EMU198X_DRAGON32_ROM)");
     };
 
     assert_eq!(
@@ -44,7 +44,7 @@ fn dragon32_real_rom_reaches_basic_prompt_and_captures_frame() {
 #[test]
 fn dragon64_real_rom_reaches_basic_prompt() {
     let Some(mut session) = booted_dragon64_session() else {
-        return;
+        emu198x_test_skip::skip!("Dragon 64 ROM not staged (EMU198X_DRAGON64_ROM)");
     };
 
     let boot = session
@@ -70,7 +70,7 @@ fn dragon64_real_rom_reaches_basic_prompt() {
 #[test]
 fn dragon64_exec_48000_enters_sixty_four_kib_mode() {
     let Some(mut session) = booted_dragon64_session() else {
-        return;
+        emu198x_test_skip::skip!("Dragon 64 ROM not staged (EMU198X_DRAGON64_ROM)");
     };
 
     let boot = session
@@ -134,7 +134,7 @@ fn dragon64_exec_48000_enters_sixty_four_kib_mode() {
 #[test]
 fn dragon32_real_rom_echoes_basic_keyboard_input() {
     let Some(mut session) = booted_dragon_session() else {
-        return;
+        emu198x_test_skip::skip!("Dragon 32 ROM not staged (EMU198X_DRAGON32_ROM)");
     };
 
     tap_key(&mut session, "a");
@@ -164,7 +164,7 @@ fn dragon32_real_rom_echoes_basic_keyboard_input() {
 #[test]
 fn dragon32_real_rom_accepts_enter_key() {
     let Some(mut session) = booted_dragon_session() else {
-        return;
+        emu198x_test_skip::skip!("Dragon 32 ROM not staged (EMU198X_DRAGON32_ROM)");
     };
 
     for name in ["p", "r", "i", "n", "t", "space", "1"] {
@@ -195,8 +195,7 @@ fn dragon32_real_rom_accepts_enter_key() {
 #[test]
 fn dragon_runtime_mounts_real_textstar_cas_zip_when_available() {
     let Some(cas_path) = dragon_textstar_cas_path() else {
-        eprintln!("skipping Dragon CAS smoke: local Textstar CAS archive not found");
-        return;
+        emu198x_test_skip::skip!("Textstar CAS archive not staged");
     };
 
     let loaded = read_media_asset(&cas_path, MediaKind::Tape)
@@ -227,11 +226,10 @@ fn dragon_runtime_mounts_real_textstar_cas_zip_when_available() {
 #[test]
 fn dragon_runtime_starts_real_textstar_cas_after_cload_when_available() {
     let Some(mut session) = booted_dragon_session() else {
-        return;
+        emu198x_test_skip::skip!("Dragon 32 ROM not staged (EMU198X_DRAGON32_ROM)");
     };
     let Some(cas_path) = dragon_textstar_cas_path() else {
-        eprintln!("skipping Dragon CLOAD smoke: local Textstar CAS archive not found");
-        return;
+        emu198x_test_skip::skip!("Textstar CAS archive not staged");
     };
 
     let loaded = read_media_asset(&cas_path, MediaKind::Tape)
@@ -262,11 +260,10 @@ fn dragon_runtime_starts_real_textstar_cas_after_cload_when_available() {
 #[test]
 fn dragon_runtime_loads_real_textstar_cas_to_basic_prompt_when_available() {
     let Some(mut session) = booted_dragon_session() else {
-        return;
+        emu198x_test_skip::skip!("Dragon 32 ROM not staged (EMU198X_DRAGON32_ROM)");
     };
     let Some(cas_path) = dragon_textstar_cas_path() else {
-        eprintln!("skipping Dragon CLOAD completion smoke: local Textstar CAS archive not found");
-        return;
+        emu198x_test_skip::skip!("Textstar CAS archive not staged");
     };
 
     let loaded = read_media_asset(&cas_path, MediaKind::Tape)
@@ -312,11 +309,10 @@ fn dragon_runtime_loads_real_textstar_cas_to_basic_prompt_when_available() {
 #[test]
 fn dragon_runtime_runs_real_textstar_after_cload_when_available() {
     let Some(mut session) = booted_dragon_session() else {
-        return;
+        emu198x_test_skip::skip!("Dragon 32 ROM not staged (EMU198X_DRAGON32_ROM)");
     };
     let Some(cas_path) = dragon_textstar_cas_path() else {
-        eprintln!("skipping Dragon RUN smoke: local Textstar CAS archive not found");
-        return;
+        emu198x_test_skip::skip!("Textstar CAS archive not staged");
     };
 
     let loaded = read_media_asset(&cas_path, MediaKind::Tape)
@@ -354,11 +350,12 @@ fn dragon_runtime_runs_real_textstar_after_cload_when_available() {
 #[test]
 fn dragon_runtime_loads_and_executes_real_machine_code_cas_when_available() {
     let Some(mut session) = booted_dragon_session() else {
-        return;
+        emu198x_test_skip::skip!("Dragon 32 ROM not staged (EMU198X_DRAGON32_ROM)");
     };
     let Some(cas_path) = dragon_machine_code_cas_path() else {
-        eprintln!("skipping Dragon CLOADM smoke: local machine-code CAS archive not found");
-        return;
+        emu198x_test_skip::skip!(
+            "machine-code CAS archive not staged (EMU198X_DRAGON_MACHINE_CAS)"
+        );
     };
 
     let loaded = read_media_asset(&cas_path, MediaKind::Tape)
@@ -506,6 +503,10 @@ fn dragon_textstar_cas_path() -> Option<PathBuf> {
         return Some(path);
     }
 
+    if let Some(path) = home_path(".emu198x/media/dragon/textstar.zip") {
+        return Some(path);
+    }
+
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)?;
@@ -521,6 +522,10 @@ fn dragon_textstar_cas_path() -> Option<PathBuf> {
 
 fn dragon_machine_code_cas_path() -> Option<PathBuf> {
     if let Some(path) = existing_env_path("EMU198X_DRAGON_MACHINE_CAS") {
+        return Some(path);
+    }
+
+    if let Some(path) = home_path(".emu198x/media/dragon/color-invaders.zip") {
         return Some(path);
     }
 

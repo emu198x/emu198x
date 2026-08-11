@@ -20,8 +20,7 @@ fn rom_dir() -> Option<PathBuf> {
 #[ignore = "requires local TC2048 ROM at ~/.emu198x/roms/timex-tc2048/tc2048.rom"]
 fn boot_to_basic_renders_screen_content() {
     let Some(dir) = rom_dir() else {
-        eprintln!("HOME not set — cannot locate TC2048 ROM");
-        return;
+        emu198x_test_skip::skip!("HOME not set — cannot locate TC2048 ROM");
     };
     let rom = dir.join("tc2048.rom");
     if !rom.exists() {

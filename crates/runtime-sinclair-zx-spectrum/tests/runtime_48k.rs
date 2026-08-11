@@ -290,8 +290,9 @@ fn spectrum_query_provider_reads_runtime_state() {
 #[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn spectrum_query_provider_detects_booted_48k_rom() {
     let Some(rom_path) = spectrum_48k_rom_path() else {
-        eprintln!("HOME is not set; skipping ROM-backed Spectrum boot detection test");
-        return;
+        emu198x_test_skip::skip!(
+            "HOME is not set; skipping ROM-backed Spectrum boot detection test"
+        );
     };
 
     if !rom_path.is_file() {
@@ -367,8 +368,7 @@ fn spectrum_query_provider_detects_booted_48k_rom() {
 #[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn spectrum_boot_wait_and_prompt_input_change_decoded_text() {
     let Some(rom_path) = spectrum_48k_rom_path() else {
-        eprintln!("HOME is not set; skipping ROM-backed Spectrum prompt input test");
-        return;
+        emu198x_test_skip::skip!("HOME is not set; skipping ROM-backed Spectrum prompt input test");
     };
 
     if !rom_path.is_file() {
@@ -439,10 +439,9 @@ fn spectrum_boot_wait_and_prompt_input_change_decoded_text() {
 #[ignore = "requires local Manic Miner TZX zip"]
 fn runtime_loads_zipped_manic_miner_tzx_media() {
     let Some(tape_path) = spectrum_manic_miner_tzx_path() else {
-        eprintln!(
+        emu198x_test_skip::skip!(
             "Manic Miner TZX zip not found; set EMU198X_SPECTRUM_MANIC_MINER_TZX to a Manic Miner TZX zip path"
         );
-        return;
     };
 
     let tape = match read_media_asset(&tape_path, MediaKind::Tape) {
@@ -466,8 +465,7 @@ fn runtime_loads_zipped_manic_miner_tzx_media() {
 #[ignore = "requires local 48K ROM and Manic Miner TZX zip"]
 fn spectrum_boots_and_loads_manic_miner_from_zipped_tzx() {
     let Some(rom_path) = spectrum_48k_rom_path() else {
-        eprintln!("HOME is not set; skipping ROM-backed Manic Miner load test");
-        return;
+        emu198x_test_skip::skip!("HOME is not set; skipping ROM-backed Manic Miner load test");
     };
     let Some(tape_path) = spectrum_manic_miner_tzx_path() else {
         eprintln!(
@@ -528,8 +526,7 @@ fn spectrum_boots_and_loads_manic_miner_from_zipped_tzx() {
 #[ignore = "requires local 48K ROM and Jet Set Willy TZX zip"]
 fn spectrum_boots_and_loads_jet_set_willy_from_zipped_tzx() {
     let Some(rom_path) = spectrum_48k_rom_path() else {
-        eprintln!("HOME is not set; skipping ROM-backed Jet Set Willy load test");
-        return;
+        emu198x_test_skip::skip!("HOME is not set; skipping ROM-backed Jet Set Willy load test");
     };
     let Some(tape_path) = spectrum_jet_set_willy_tzx_path() else {
         eprintln!(

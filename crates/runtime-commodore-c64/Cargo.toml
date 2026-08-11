@@ -26,6 +26,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.2.0" }
 mos-vic-ii = { path = "../mos-vic-ii", version = "0.2.0" }
 png = { workspace = true }
 sha2 = { workspace = true }

@@ -22,8 +22,7 @@ fn rom_dir() -> Option<PathBuf> {
 #[ignore = "requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/{plus3-0..3}.rom"]
 fn boot_to_menu_renders_screen_content() {
     let Some(dir) = rom_dir() else {
-        eprintln!("HOME not set — cannot locate +3 ROMs");
-        return;
+        emu198x_test_skip::skip!("HOME not set — cannot locate +3 ROMs");
     };
     for i in 0..4 {
         let rom = dir.join(format!("plus3-{i}.rom"));
