@@ -566,6 +566,37 @@ fn timing_survey_records_every_case() {
     }
     println!("  report: {}", path.display());
 
+    // The ratchet. This survey ran for weeks reporting 36 failures and
+    // returning `ok`, so no contention change could ever be scored by it
+    // automatically — which is how `ad0e8c53` moved the 128K floating bus
+    // by a T-state unnoticed (#851).
+    //
+    // This is the real-software oracle: 70 graded cases from
+    // ZXSpectrum4.net running actual Z80 code, so it catches "closer to
+    // FUSE in the abstract, worse on programs people ran". Treat a rise
+    // here as more serious than a rise in the frame-wide differential.
+    //
+    // A ceiling, not a target. Lower it in the same commit that earns the
+    // improvement; never raise it silently.
+    const RATCHET_FAILURES: usize = 36;
+    assert!(
+        failures.len() <= RATCHET_FAILURES,
+        "timing survey regressed: {} of {} cases failing, was {RATCHET_FAILURES}. \
+         The failing cases are listed above. If this change is right and the \
+         suite's expectations are wrong, say which cases and why, and move the \
+         ratchet in the same commit.",
+        failures.len(),
+        cases.len(),
+    );
+    if failures.len() < RATCHET_FAILURES {
+        println!(
+            "  RATCHET: {} of {} failing — improved on {RATCHET_FAILURES}. \
+             Lower the constant in this commit.",
+            failures.len(),
+            cases.len(),
+        );
+    }
+
     assert!(
         incomplete.is_empty(),
         "tests did not complete within budget: {incomplete:?}"
