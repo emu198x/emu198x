@@ -74,6 +74,21 @@ const STEP_TSTATES: u32 = 1;
 /// Long-established Fuse/community reference coordinate. Primary hardware
 /// capture provenance remains incomplete; this is an implementation target,
 /// not a claim of a new direct hardware measurement.
+///
+/// **The engine currently reads 14363, and this expectation is kept at
+/// 14364 deliberately — see #851.** `ad0e8c53` corrected the floating-bus
+/// phase in the shared `ula_engine`, and the 48K compensated by moving its
+/// `SAMPLE_LEAD` from 3 to 2. The 128K carries a separate `SAMPLE_LEAD = 3`
+/// in `common-sinclair-zx-spectrum-128k-class` that was not adjusted, so
+/// the shared change moved this by one T-state unopposed.
+///
+/// Do not lower this to 14363, and do not raise the 128K `SAMPLE_LEAD` to
+/// 4. The 48K constant's own note already records a deliberate
+/// one-T-state error; this is independent corroboration of the same
+/// error, from a second machine. Fitting a second constant to hide it is
+/// the failure `fuse-governs-the-contended-window.md` lists in its drift
+/// triggers. Both constants should fall out of the IO-sample derivation in
+/// `spectrum-contention-the-way-out.md`.
 const FLOAT128K_EXPECTED_TSTATE: u32 = 14364;
 
 fn home() -> PathBuf {
@@ -269,7 +284,9 @@ fn run_full(
 }
 
 #[test]
-#[ignore = "requires local 128K ROMs and Float128k.tap; ~50 s wall time at cycle-accurate tape speed"]
+#[ignore = "KNOWN DIVERGENCE (#851): reads 14363, expects 14364 — a second \
+           fitted SAMPLE_LEAD, see the constant's note below. Also needs local \
+           128K ROMs and Float128k.tap; ~50 s at cycle-accurate tape speed"]
 fn float128k_prints_expected_tstate() {
     let rom0_path = rom0_path();
     let rom1_path = rom1_path();
