@@ -553,9 +553,52 @@ where a 224-T-state one does.
 Not moved, because `Float128K` reads 14364 and that is the figure this
 engine is held to; the probe counts from the interrupt, so shifting the
 edge onto `top_left_pixel` would take the floating bus off its own oracle
-to satisfy a constant nothing else measures. Settling it needs
-`float_bus_oracle` ported to the 128K, so that machine has a second anchor
-the way the 48K now does.
+to satisfy a constant nothing else measures.
+
+**The second anchor now exists, and it settles half of it.**
+`machine-sinclair-zx-spectrum-128k`'s `float_bus_oracle` scores that
+machine's live bus against FUSE frame-wide: **0 of 70,908** at `+14362`,
+uniquely, against 18,432 at the `/INT` origin of `+14364`. So the raster is
+right, `LIVE_BUS_ORIGIN` is right, and the two T-states belong to
+`CONFIG_128K.int_start_pixel`.
+
+Moving it was then tried rather than argued about: `int_start_pixel` 1 → 5
+takes `Float128K` from 14364 to **14362** and fails strict. The probe
+tracks the interrupt one for one, so the two anchors trade off exactly and
+the correction cannot land alone.
+
+What is left is a question this engine cannot answer from the inside.
+FUSE's interrupt sits 14362 T-states before `top_left_pixel`; ours sits
+14364, and the floating bus is exact either way because `io_read` maps
+through `LIVE_BUS_ORIGIN` rather than through the interrupt.
+`Float128K`'s 14364 is the only oracle spanning both, and its own evidence
+note calls it a long-established Fuse/community coordinate whose primary
+hardware capture provenance remains incomplete. Either `int_start_pixel`
+is two T-states out and 14364 is the wrong target, or the interrupt is
+right and the two T-states are in how the probe counts. Settling it needs
+`Float128K` run under FUSE itself, or a capture on real hardware.
+
+### HALT2INT128 runs again, and passes
+
+The tape the 128K's contention constants were pinned against had never
+been staged, so `halt2int128_runs_to_completion` had been skipping since
+it was written — silently, and then as a hard failure once
+`EMU198X_STRICT_FIXTURES` was introduced. HALT2INT v3's own archive ships
+a 128K build under exactly that name, GPLv2 with sources; it is in the
+`spectrum-system-tests` corpus as of 2026-08-12.
+
+It passes: the 128K classifies the complete HALT profile as **Early**. So
+the oracle this record cites for the 128K's window is green and checkable
+again, rather than cited from memory.
+
+Staging the corpus also un-skipped `super_halt_invaders_runs_to_completion`,
+which fails at 5,936 of 104,192 pixels. Its golden was blessed at
+`9d2ef79e` — the commit that pinned the 128K contention — so it predates
+the whole contention rework and the tape to re-check it was absent for all
+of it. **Not re-blessed.** The two captures are the same title screen at
+different points in its animation, with the live one missing the title
+line, and deciding whether that is right is a judgement about the current
+engine rather than a refresh.
 
 ### The four port classes, measured
 
