@@ -276,7 +276,24 @@ fn timing_survey_records_every_case() {
     // window's phase and edge were derived rather than written out. Six
     // of the thirteen have a wrong loop count; the rest fail on `R` or
     // `SP` readings alone.
-    const RATCHET_FAILURES: usize = 13;
+    //
+    // **8**, earned by #880 charging each port class the number of
+    // contention lookups FUSE charges it. Five of the six loop-count cases
+    // went green together: test 32 (`INI/INIR/IND/INDR`) and test 35
+    // (`IN A,(n); OUT (n),A`) in *both* passes, and test 33
+    // (`OUTI/OTIR/OUTD/OTDR`) in its Contended pass. That is the group
+    // `spectrum-accuracy-what-is-left.md` predicted, and predicted for the
+    // right reason: the suite drives those cases with `B` in the contended
+    // range, so their **Uncontended** pass was never uncontended — it was
+    // I/O contention on a contended-page port, mislabelled by the suite.
+    //
+    // What is left has changed character, which is the more useful half of
+    // this number. Seven of the eight survivors disagree on `R` or `SP`
+    // alone — tests 1, 9, 11, 15, 23, 24 and 34, each off by one `R` — and
+    // only test 33's Uncontended pass still has a loop count. The board is
+    // no longer contention-shaped, so the next contention change should not
+    // expect to move it.
+    const RATCHET_FAILURES: usize = 8;
     assert!(
         failures.len() <= RATCHET_FAILURES,
         "timing survey regressed: {} of {} cases failing, was {RATCHET_FAILURES}. \
