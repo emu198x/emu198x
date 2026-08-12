@@ -1,7 +1,8 @@
 # What is left on Spectrum accuracy, and the order to take it
 
 **Date:** 2026-08-12
-**Status:** PLAN — nothing here is started
+**Status:** PLAN — item 1 attempted and its premise disconfirmed; see the
+amendment under item 1. Start at item 2.
 **Follows:** [`spectrum-contention-the-way-out.md`](spectrum-contention-the-way-out.md),
 which is now largely a record of what happened rather than a plan.
 
@@ -73,6 +74,32 @@ contention and belongs with item 3.
 **Disproves it.** If the M-cycle structure already matches Zilog, the
 defect is in `R` register increments per iteration — the survey reports
 `R=` separately and it is wrong on these cases too.
+
+> **AMENDED 2026-08-12 — the premise above is disconfirmed. Do not start here.**
+>
+> `crates/machine-sinclair-zx-spectrum-48k/tests/uncontended_instruction_timing.rs`
+> (PR #873) measures sixteen instructions — the whole block-I/O and plain
+> `IN`/`OUT` family among them — against Zilog UM0080, at five frame
+> offsets each. **Every total is exact.** `INI` costs 16, not 17. The
+> M-cycle structure in `zilog-z80` is right, and the "one defect in a
+> shared crate" reading of the two machines' identical failure was wrong.
+>
+> Getting there cost three self-inflicted wrong answers, each of which
+> looked like the predicted defect. The first is the one that matters
+> here: with `BC = $40FF` the *port's high byte comes from B*, which put
+> the port in the contended page and made `INI` read 24 against Zilog's
+> 16 — precisely the "wrong by one per iteration, times the loop count"
+> signature this item predicted. Changing B to `$C0` made it exact.
+>
+> That is the reframe. The survey drives these cases with B in the
+> contended range, so what tests 32/33/35 measure in their **Uncontended**
+> pass is not uncontended at all — it is **I/O contention on a
+> contended-page port**, and it belongs to item 3, not here. The label in
+> the survey is misleading; the failure is real.
+>
+> The board's largest identified group therefore collapses into item 3,
+> and item 2 (the +2A mask, 149,185 samples) is now the largest thing
+> left. Take item 2 first.
 
 ### 2. The +2A contention mask — the biggest single number, and a known shape
 
