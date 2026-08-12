@@ -117,3 +117,58 @@ resolving: engine gap `0.00` → `-5.18` on the contended page, and `6.90`
 → `7.79` on the uncontended page. The gap between two ports differing
 only in their low bit is stated in a form the origin offset cannot reach,
 which is why it is the load-bearing number.
+
+## The target, derived
+
+Reading `contend_port_preio` / `contend_port_postio` as positions rather
+than counts gives the lookup offsets inside the I/O M-cycle directly.
+`preio` charges at offset 0 when the page is contended; `postio` charges
+at offset 1 always for an even port, and at offsets 1, 2 and 3 for an odd
+port on a contended page.
+
+| page | A0 | off 0 | off 1 | off 2 | off 3 | lookups |
+|---|---|---|---|---|---|---|
+| contended | even | ● | ● | | | 2 |
+| contended | odd | ● | ● | ● | ● | 4 |
+| uncontended | even | | ● | | | 1 |
+| uncontended | odd | | | | | 0 |
+
+So offset 0 is asserted by the page bits alone, and offsets 2 and 3 by
+`A0` and the page together. That is the whole specification.
+
+## Two things found while scoping the change
+
+**The contended-odd class is exact by accident.** The 48K gate is
+
+```rust
+let mem_contention = contended_addr && e.gate_arms_this_halfcycle() && !cpu_mreq;
+let io_contention  = (cpu_iorq || e.z80_iorq_prev) && ula_io && e.z80_clock_high;
+```
+
+`io_contention` never consults the page. The page dependence the engine
+shows comes from `mem_contention`, whose `!cpu_mreq` term is true
+throughout an I/O M-cycle — so a port address in `$4000..$8000` trips
+*memory* contention. That leak is what charges the contended-odd class
+its four lookups, and it is why that class scores zero.
+
+The consequence for sequencing: the leak cannot be closed on its own.
+Removing it without first giving `io_contention` the page term takes a
+currently-exact class off zero. Both halves must land in one commit, and
+the contended-odd class's zero is the check that the new gate reproduces
+what the leak was supplying.
+
+**The engine cannot yet express the table.** `UlaEngine` carries
+`z80_iorq_prev` and `z80_iorq_prev2` — two half-cycles of `IORQ` history.
+An I/O M-cycle is four T-states, eight half-cycles, so no combination of
+the present latches distinguishes offset 1 from offset 3. The change
+therefore needs new state: a position counter for the I/O M-cycle,
+maintained in `track_z80_clock` alongside `mreq_t23` and `ioreq_tw3`.
+
+That counter has a subtlety worth settling before it is written. On the
+Z80, `IORQ` is asserted from `T2` through `T3` — three T-states, not
+four — while FUSE's offsets run from the start of the cycle, `preio`
+landing before `IORQ` falls. So the counter cannot simply count
+half-cycles of asserted `IORQ`; its origin has to be pinned against the
+same trace `contention_arming` records. Getting that origin wrong shifts
+every offset in the table by one and would look exactly like a phase
+error, which is the failure mode this whole file exists to avoid.
