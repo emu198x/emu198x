@@ -245,7 +245,7 @@ impl UiSystem for SpectrumSystem {
     fn state_open_filter(&self) -> Option<(&'static str, &'static [&'static str])> {
         Some((
             "Snapshots & states",
-            &["sna", "z80", "zip", "emu198x-state"],
+            &["sna", "z80", "szx", "zip", "emu198x-state"],
         ))
     }
 
@@ -254,16 +254,17 @@ impl UiSystem for SpectrumSystem {
     }
 }
 
-/// Loads any of the three state formats by extension: `.sna`/`.z80`/`.zip` are
-/// portable snapshots (parsed + applied), anything else is the internal
-/// postcard save-state (restored). Mirrors the bespoke `load_any_snapshot`.
+/// Loads any of the portable state formats by extension:
+/// `.sna`/`.z80`/`.szx`/`.zip` are parsed and applied, anything else is the
+/// internal postcard save-state (restored). Mirrors the bespoke
+/// `load_any_snapshot`.
 fn load_any_snapshot(runtime: &mut SpectrumRuntimeKind, path: &Path) -> Result<(), String> {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .map(str::to_ascii_lowercase);
     match ext.as_deref() {
-        Some("sna") | Some("z80") | Some("zip") => {
+        Some("sna") | Some("z80") | Some("szx") | Some("zip") => {
             let loaded = read_media_asset(path, MediaKind::Snapshot).map_err(|e| e.to_string())?;
             let inner = loaded
                 .archive_member
@@ -276,9 +277,12 @@ fn load_any_snapshot(runtime: &mut SpectrumRuntimeKind, path: &Path) -> Result<(
             } else if inner.ends_with(".z80") {
                 format_sinclair_zx_spectrum_z80::parse_z80(&loaded.bytes)
                     .map_err(|e| e.to_string())?
+            } else if inner.ends_with(".szx") {
+                format_sinclair_zx_spectrum_szx::parse_szx(&loaded.bytes)
+                    .map_err(|e| e.to_string())?
             } else {
                 return Err(format!(
-                    "unrecognised snapshot (expected .sna/.z80): {inner}"
+                    "unrecognised snapshot (expected .sna/.z80/.szx): {inner}"
                 ));
             };
             runtime.apply_snapshot(&snapshot);

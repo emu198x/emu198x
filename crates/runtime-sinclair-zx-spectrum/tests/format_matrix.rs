@@ -24,6 +24,7 @@
 use common_sinclair_zx_spectrum::snapshot::SnapshotModel;
 use emu198x_shell::{MachineCore, MediaImage, MediaKind, MediaSet};
 use format_sinclair_zx_spectrum_sna::parse_sna;
+use format_sinclair_zx_spectrum_szx::parse_szx;
 use format_sinclair_zx_spectrum_z80::parse_z80;
 use machine_sinclair_zx_spectrum_16k::Spectrum16K;
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
@@ -179,6 +180,46 @@ fn spectrum_16k_loads_tap() {
     load_tape_into(&mut runtime, &minimal_tap());
 }
 
+/// A minimal 128K `.szx`: header, `Z80R`, `SPCR`, and eight uncompressed
+/// RAM pages.
+///
+/// Uncompressed on purpose — `format-sinclair-zx-spectrum-szx` covers the
+/// zlib path in its own unit tests, and this matrix is about the runtime
+/// accepting what the parser produces, not about the codec.
+fn minimal_szx_128k() -> Vec<u8> {
+    fn chunk(id: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(id);
+        out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        out.extend_from_slice(body);
+        out
+    }
+
+    // "ZXST", v1.4, machine id 2 (128K), no flags.
+    let mut f = vec![b'Z', b'X', b'S', b'T', 1, 4, 2, 0];
+
+    let mut regs = Vec::new();
+    for w in [0u16; 11] {
+        regs.extend_from_slice(&w.to_le_bytes());
+    }
+    regs.extend_from_slice(&0x8000u16.to_le_bytes()); // PC
+    regs.extend_from_slice(&[0x00, 0x00, 1, 1, 1]); // I, R, IFF1, IFF2, IM
+    regs.extend_from_slice(&0u32.to_le_bytes());
+    regs.extend_from_slice(&[0, 0]);
+    regs.extend_from_slice(&0u16.to_le_bytes());
+    f.extend_from_slice(&chunk(b"Z80R", &regs));
+
+    // Border 0, $7FFD = 0, union byte, last $FE, four reserved.
+    f.extend_from_slice(&chunk(b"SPCR", &[0, 0, 0, 0xFF, 0, 0, 0, 0]));
+
+    for page in 0..8u8 {
+        let mut body = vec![0u8, 0, page]; // flags = uncompressed
+        body.extend_from_slice(&vec![page; 16_384]);
+        f.extend_from_slice(&chunk(b"RAMP", &body));
+    }
+    f
+}
+
 #[test]
 fn spectrum_16k_loads_tzx() {
     let mut runtime = Spectrum16kRuntime::new(Model::Spectrum16KPal, Spectrum16K::new());
@@ -272,6 +313,15 @@ fn spectrum_128k_loads_sna_128k() {
     let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
     let snap = parse_sna(&minimal_sna_128k()).expect("parse SNA 128K");
     assert_eq!(snap.model, SnapshotModel::Spectrum128K);
+    SpectrumMachine::apply_snapshot(runtime.machine_mut(), &snap);
+}
+
+#[test]
+fn spectrum_128k_loads_szx() {
+    let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
+    let snap = parse_szx(&minimal_szx_128k()).expect("parse SZX 128K");
+    assert_eq!(snap.model, SnapshotModel::Spectrum128K);
+    assert_eq!(snap.pages.len(), 8);
     SpectrumMachine::apply_snapshot(runtime.machine_mut(), &snap);
 }
 

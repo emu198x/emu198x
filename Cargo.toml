@@ -51,6 +51,7 @@ members = [
     "crates/format-sinclair-zx-spectrum-rzx",
     "crates/format-sinclair-zx-spectrum-sna",
     "crates/format-sinclair-zx-spectrum-snapshot",
+    "crates/format-sinclair-zx-spectrum-szx",
     "crates/format-sinclair-zx-spectrum-tap",
     "crates/format-sinclair-zx-spectrum-tzx",
     "crates/format-sinclair-zx-spectrum-z80",

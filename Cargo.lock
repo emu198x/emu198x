@@ -1301,6 +1301,7 @@ dependencies = [
  "emu198x-ui",
  "format-sinclair-zx-spectrum-bas",
  "format-sinclair-zx-spectrum-sna",
+ "format-sinclair-zx-spectrum-szx",
  "format-sinclair-zx-spectrum-z80",
  "runtime-sinclair-zx-spectrum",
  "serde",
@@ -1591,6 +1592,14 @@ dependencies = [
 [[package]]
 name = "format-sinclair-zx-spectrum-snapshot"
 version = "0.2.1"
+
+[[package]]
+name = "format-sinclair-zx-spectrum-szx"
+version = "0.2.1"
+dependencies = [
+ "flate2",
+ "format-sinclair-zx-spectrum-snapshot",
+]
 
 [[package]]
 name = "format-sinclair-zx-spectrum-tap"
@@ -4122,6 +4131,7 @@ dependencies = [
  "format-amstrad-dsk",
  "format-sinclair-zx-spectrum-bas",
  "format-sinclair-zx-spectrum-sna",
+ "format-sinclair-zx-spectrum-szx",
  "format-sinclair-zx-spectrum-tap",
  "format-sinclair-zx-spectrum-tzx",
  "format-sinclair-zx-spectrum-z80",
