@@ -93,6 +93,47 @@ floatspy worthless; its burst-read self-test is a genuine check. It does
 mean this repository's designation of floatspy as *the* authoritative
 floating-bus oracle deserves revisiting.
 
+> **AMENDED 2026-08-12 — that last sentence is withdrawn. FUSE and floatspy
+> agree with each other; we disagree with both.**
+>
+> The argument above pits FUSE against floatspy on the strength of FUSE's
+> `14338` versus Ramsoft's `14347` convention. Both programs have now been
+> *run under FUSE 1.7* — the Cocoa build at `/Applications/Fuse.app`, 48K,
+> the same tapes the oracles use — and FUSE prints:
+>
+> | probe | hardware | FUSE | this engine |
+> |---|---|---|---|
+> | `Float48K` first non-`$FF` | 14338 | **14338** | 14336 |
+> | floatspy `IN() BYTE` | 0 | **0** | 54 |
+>
+> So there is no FUSE-versus-Ramsoft precedence question to settle. FUSE
+> reaches the hardware answer on both, which means its port model, its
+> floating bus and its frame origin are self-consistent in a way ours are
+> not, and floatspy's designation as an authoritative oracle is *supported*
+> rather than in doubt. The two probes are not in tension with
+> [`fuse-governs-the-contended-window.md`](fuse-governs-the-contended-window.md);
+> nothing here requires choosing between them.
+>
+> FUSE's Float48K output also shows the shape, which the single printed
+> number hides: non-`$FF` at 14338-14341, `255` at 14342-14345, non-`$FF`
+> again at 14346-14349 — the four-on, four-off fetch pattern, so the
+> disagreement is a phase error against a pattern we reproduce, not a
+> missing pattern.
+>
+> **One defect found on the way, and it is not the one that moved the
+> probes.** `the_in_path_samples_the_bus_where_fuse_does_under_contention`
+> scores a contended-page odd port and reports 1,537 of 57,602 arrivals
+> wrong, exact at lead +1, +2 and +3. Our sample instant is the `/IORQ`
+> assertion plus `IO_READ_DATA_LATCH_LEAD_TSTATES`, which is right as *CPU*
+> time and blind to the raster T-states a contention stall inserts between
+> the two edges; FUSE's `readport` charges `contend_port_early` and
+> `contend_port_late` *before* `readport_internal`, so its delays are
+> already spent when it samples. Running the same harness against
+> `d7afe4a7` gives the identical 1,537, so this predates #880 and #880 does
+> not affect it — that PR left the contended-odd class charging the same four
+> lookups on the same four falling half-cycles. The fix is to sample where
+> the CPU latches rather than compute the latch from a constant.
+
 ## Ruled out
 
 - **Pattern phase.** Our data slots sit at group offsets 0-3 where FUSE's
