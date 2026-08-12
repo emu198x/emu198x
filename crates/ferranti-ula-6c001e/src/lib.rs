@@ -44,6 +44,10 @@ pub struct UlaTick {
     pub clock_high_before: bool,
     pub ioreq_tw3_before: bool,
     pub mreq_t23_before: bool,
+    /// `UlaEngine::mcycle_fall` as the decision saw it. Already advanced for
+    /// this half-cycle — unlike the `_before` fields, that *is* the state the
+    /// decision was made on.
+    pub mcycle_fall: u8,
     pub cpu_clock_after: bool,
 }
 
@@ -180,6 +184,15 @@ impl Ula for FerrantiUla {
         let e = &mut self.engine;
         let phase = (e.pixel as usize) & 0x0F;
 
+        // Where in its M-cycle the CPU is, for the gate below. Before the
+        // decision, and before `tick_rendering`, because it names *this*
+        // half-cycle rather than the one just finished — see
+        // `UlaEngine::track_mcycle_fall`. Outside the contention window for
+        // the same reason the latches are: it clocks on every `CPUClk` edge,
+        // border or not, and an M-cycle straddling the window's edge must
+        // arrive with its position already correct.
+        e.track_mcycle_fall(cpu_addr, cpu_mreq, cpu_iorq);
+
         // The contention window, read from the counter before
         // `tick_rendering` advances it — the same instant `phase` names.
         //
@@ -296,6 +309,7 @@ impl Ula for FerrantiUla {
                 clock_high_before: before.2,
                 ioreq_tw3_before: before.3,
                 mreq_t23_before: before.4,
+                mcycle_fall: self.engine.mcycle_fall,
                 cpu_clock_after: self.engine.cpu_clock,
             });
         }
