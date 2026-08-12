@@ -338,6 +338,180 @@ fn mismatches(bus: &[u8], machine: &Spectrum48k, offset: i32) -> usize {
     mismatches_strided(bus, machine, offset, 1)
 }
 
+/// The bus is one half of the `IN`. This is the other.
+///
+/// `floating_bus_matches_fuse_at_every_tstate` proves the ULA leaves the
+/// right byte on the bus at the right T-state. It says nothing about
+/// *when the CPU reads it*, which is `floating_bus_read`'s
+/// `ORIGIN + IO_READ_DATA_LATCH_LEAD_TSTATES` — and that is the only part
+/// of the path still capable of putting `$40` where Spectron has `$00`.
+///
+/// So: run the instruction floatspy runs, at every arrival T-state in the
+/// frame, and score the byte it comes back with — not its cost — against
+/// the byte FUSE's `readport` would have sampled.
+///
+/// Out of *uncontended* RAM and on FUSE's `N:4` port, deliberately. The
+/// `IN` costs a flat twelve T-states with nothing charged at either end,
+/// so the sample instant is fixed geometry from the arrival T-state and
+/// this measures the read phase alone. A contended arrangement would
+/// re-measure the contention gate and call it a floating-bus result.
+#[test]
+#[ignore = "differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
+fn the_in_path_samples_the_bus_where_fuse_does() {
+    /// `IN A,(C)` out of uncontended RAM: `M1`, `M1`, then the I/O cycle.
+    /// FUSE models the two `M1`s as four T-states each, so the I/O
+    /// M-cycle opens eight T-states after the instruction arrives.
+    const IO_MCYCLE_OFFSET: u32 = 8;
+    /// FUSE samples the unattached port at the I/O cycle's start plus
+    /// three: `ula_contend_port_early` adds one and `_late` two more
+    /// before `readport_internal` runs (`periph.c`). For `$00FF` — an odd
+    /// port in an uncontended page, FUSE's `N:4` class — neither adds any
+    /// delay, so the three are the bare M-cycle geometry.
+    const FUSE_SAMPLE_OFFSET: u32 = 3;
+    /// The instruction's uncontended cost: 4 + 4 + 4.
+    const BARE_COST: u32 = 12;
+    /// The port floatspy reads, and the one class that pays nothing.
+    const PORT: u16 = 0x00FF;
+    /// Uncontended upper RAM, so no `M1` fetch is charged either.
+    const CODE_BASE: u16 = 0x8000;
+    const CODE_END: u16 = 0xC000;
+
+    let Some(rom) = rom_bytes() else {
+        panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
+    };
+
+    let mut samples: Vec<(u32, u8)> = Vec::new();
+    // Twelve skews walk the arrival point across more than one whole
+    // instruction, so between them the passes cover every phase of the
+    // 8-T-state fetch pattern.
+    for skew in 0..12u32 {
+        let mut machine = Spectrum48k::new();
+        machine.load_rom_bytes(&rom).expect("48K ROM should load");
+        machine.reset();
+        for addr in SCREEN_BASE..SCREEN_END {
+            machine.memory_mut().write(addr, screen_pattern(addr));
+        }
+        let mut addr = CODE_BASE;
+        while addr < CODE_END {
+            machine.memory_mut().write(addr, 0xED);
+            machine.memory_mut().write(addr + 1, 0x78);
+            addr += 2;
+        }
+        while machine.tstate_in_frame() != 0 {
+            machine.advance_tstates(1);
+        }
+        machine.advance_tstates(skew);
+        machine.z80_mut().regs.pc = CODE_BASE;
+        machine.z80_mut().regs.bc = PORT;
+        machine.z80_mut().regs.iff1 = false;
+        machine.z80_mut().regs.iff2 = false;
+
+        // Aiming `PC` at the stream lands mid-M-cycle whenever the skew
+        // does, so the first retirement is the tail of whatever the CPU
+        // was already doing.
+        for _ in 0..2 {
+            step_one_instruction(&mut machine);
+        }
+        let mut spent = 0u32;
+        while spent < FRAME_TSTATES {
+            let arrival = machine.tstate_in_frame();
+            assert!(
+                (CODE_BASE..CODE_END).contains(&machine.z80().regs.pc),
+                "execution left the instruction stream, so every later sample \
+                 is a measurement of the ROM"
+            );
+            let cost = step_one_instruction(&mut machine);
+            assert_eq!(
+                cost, BARE_COST,
+                "an `IN A,(C)` on an uncontended page cost {cost} T-states, \
+                 not {BARE_COST} — something is charging this instruction and \
+                 the sample instant is no longer fixed geometry"
+            );
+            samples.push((arrival, (machine.z80().regs.af >> 8) as u8));
+            spent += cost;
+        }
+    }
+
+    // The harness has to be reading the floating bus at all. A port some
+    // peripheral claims, or a `read_fe` misroute, would return a constant
+    // and agree with nothing.
+    let distinct: std::collections::BTreeSet<u8> = samples.iter().map(|&(_, b)| b).collect();
+    assert!(
+        distinct.len() > 16,
+        "the `IN` returned only {} distinct bytes across the frame, so it is \
+         not reading the floating bus",
+        distinct.len()
+    );
+
+    let screen = {
+        let mut machine = Spectrum48k::new();
+        machine.load_rom_bytes(&rom).expect("48K ROM should load");
+        machine.reset();
+        for addr in SCREEN_BASE..SCREEN_END {
+            machine.memory_mut().write(addr, screen_pattern(addr));
+        }
+        machine
+    };
+
+    let wrong = |lead: i64| -> usize {
+        samples
+            .iter()
+            .filter(|&&(arrival, got)| {
+                let t = (arrival as i64
+                    + ORIGIN as i64
+                    + IO_MCYCLE_OFFSET as i64
+                    + FUSE_SAMPLE_OFFSET as i64
+                    + lead)
+                    .rem_euclid(FRAME_TSTATES as i64) as u32;
+                got != fuse_unattached_port(t, &screen)
+            })
+            .count()
+    };
+
+    println!("\n{:<10} {:>10}", "lead delta", "wrong");
+    for delta in -4..=4i64 {
+        println!("{delta:<+10} {:>10}", wrong(delta));
+    }
+
+    let total = wrong(0);
+    let first: Vec<String> = samples
+        .iter()
+        .filter_map(|&(arrival, got)| {
+            let t =
+                (arrival + ORIGIN as u32 + IO_MCYCLE_OFFSET + FUSE_SAMPLE_OFFSET) % FRAME_TSTATES;
+            let want = fuse_unattached_port(t, &screen);
+            (got != want).then(|| format!("arrival {arrival} (fuse {t}): got {got}, want {want}"))
+        })
+        .take(6)
+        .collect();
+    for line in &first {
+        println!("  {line}");
+    }
+
+    assert_eq!(
+        total,
+        0,
+        "the `IN` path returned the wrong floating-bus byte at {total} of {} \
+         arrival T-states. The bus itself is byte-exact against FUSE \
+         (`floating_bus_matches_fuse_at_every_tstate`), so a non-zero count \
+         here is the read phase — `ORIGIN` or \
+         `IO_READ_DATA_LATCH_LEAD_TSTATES` in `floating_bus_read`.",
+        samples.len()
+    );
+}
+
+/// Advance until one more instruction retires; returns its cost.
+fn step_one_instruction(machine: &mut Spectrum48k) -> u32 {
+    let target = machine.z80().instructions_retired() + 1;
+    let mut cost = 0u32;
+    while machine.z80().instructions_retired() < target {
+        machine.advance_tstates(1);
+        cost += 1;
+        assert!(cost <= 512, "instruction should retire within 512 T-states");
+    }
+    cost
+}
+
 /// The differential itself.
 #[test]
 #[ignore = "differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
