@@ -403,7 +403,11 @@ them the number it was scored on:
 |---|---|---|---|
 | ZXSpectrum4.net survey | 36 failing | **13** | < 36 |
 | — of which wrong loop count | — | **6** | 0 |
-| memory differential | (none) | **18** of 370,024 | 0 |
+| memory differential (48K) | (none) | **18** of 370,024 | 0 |
+| memory differential (128K) | (none) | **17** of 375,406 | 0 |
+| memory differential (+2A) | (none) | **149,185** of 442,666 | 0 |
+| floating-bus differential (48K) | (none) | **0** of 69,888 | 0 |
+| `IN`-path byte differential (48K) | (none) | **0** of 66,000-odd | 0 |
 | I/O differential | 30,741 | **21,510** | < 30,741 |
 | Float48K | 14337 | 14337 | 14337 |
 | Float128K | 14363 | **14364** | 14364 |
@@ -437,6 +441,121 @@ sampled at an instant contention has moved, coming back `$40` instead of
 `spectrum-contention-vs-floating-bus.md` have both been pointing at,
 reduced from a whole-screen diff to a single wrong byte. Neither golden was
 re-blessed.
+
+#### The floating-bus path is byte-exact, and floatspy's byte is not in it
+
+Recorded 2026-08-12. `IDLE_TABLE` and `MEM_TABLE` were the named suspects
+— both shifted four pixels by Seam 1, neither ever scored frame-wide
+against anything. Both are **disconfirmed**, and so is every other link in
+the path.
+
+`machine-sinclair-zx-spectrum-48k`'s `float_bus_oracle.rs` scores the
+ULA's *live* bus — `Ula::floating_bus()`, read on a real machine tick by
+tick over a screen whose bytes identify their own addresses — against
+FUSE's `spectrum_unattached_port` at every T-state in the frame. It is
+**0 of 69,888**, at one offset in the frame and no other. A strided sweep
+of all 69,888 finds no rival; the nearest neighbours cost 15,360.
+
+Its companion `the_in_path_samples_the_bus_where_fuse_does` closes the
+other half. It runs floatspy's own instruction — `IN A,(C)` on `$00FF`,
+out of uncontended RAM so the twelve T-states are flat and the sample
+instant is pure geometry — at every arrival T-state, and scores the *byte
+returned* against the byte FUSE's `readport` samples. Also **0**, with a
+sharp isolated minimum.
+
+So the tables, the model, the frame origin, the sample instant and the
+byte the instruction returns are all exact against FUSE. floatspy reads
+the correct byte for the T-state it reads at, which means the **T-state**
+is wrong — not the bus. The same reading covers Float48K's 14337 against
+Woody's 14338: both programs synchronise on the interrupt and count
+T-states from it. That is where the residual now lives, and it is a
+sharper statement than the one this section opened with.
+
+#### The `/INT` anchor was one T-state out, and it was the probe
+
+The origin the bus is exact at is **14336** — libspectrum's
+`top_left_pixel`, and the origin `floating_bus_read` already maps
+through. `io_contention_oracle` and `contention_oracle` score against
+14335 and call it pinned by the `/INT` edge.
+
+It is not. `the_frame_origin_is_pinned_by_the_interrupt` advances a whole
+T-state and *then* samples `interrupt_active()`, so it labels an edge that
+fell during T-state *k* as *k+1*. Measured in half-cycles, the edge rises
+at the start of engine T-state 55552, giving 69888 − 55552 = **14336** —
+the same number the frame of screen bytes gives, from an anchor sharing
+nothing with it but the raster.
+
+**The window does not move, and that was checked rather than assumed.**
+Re-scoring the memory differential at the corrected origin costs 87,765
+instead of 18, which looks like a one-T-state-late window. Moving the
+window to match was tried — phase and edge together, two pixels earlier —
+and both origin-independent oracles rejected it: the survey went 13
+failing to **17** and floatspy's diff widened from 72 pixels to **140**,
+while the differential only improved from 18 to 33 at the corrected
+origin. The gap is the harness's *arrival label*, not the gate; see
+`ARRIVAL_LABEL_LEAD_TSTATES` below.
+
+### The other two machines have differentials now
+
+Both ported from the 48K's `memory_contention_matches_fuse_at_every_arrival_tstate`,
+with geometry re-derived from libspectrum rather than translated, and both
+taking their origin from the `/INT` edge at **half-cycle** resolution.
+
+**128K — both constants are right.** `sinclair-ula-7k010e` held its phase
+in two things whose sum alone had ever been measured: a logical `/Border`
+coordinate and a delay-table index offset. The sweep has a sharp isolated
+minimum of **17 of 375,406**, with about 87,000 one T-state either side. A
+window whose sum was right and whose parts were not would give a broad or
+displaced minimum; this gives neither. The seventeen are harness residue
+of the same kind as the 48K's eighteen — every one reports a cost far
+below the instruction's uncontended length, the tail of an M-cycle already
+in flight when the pass started — and the two single-M-cycle anchors are
+wrong at 0 of 202,568 samples between them.
+
+**+2A — the phase is not the free parameter, and #856 closes in the
+negative.** The offset sweep is **flat**: 123,927 to 157,334 of 442,666
+across seventeen origins, no minimum anywhere. There is no phase at which
+this gate agrees with FUSE, so no rotation of the mask is the fix, and the
+question a frame maximum could not answer is answered by not arising. What
+the gate does instead is undercharge everywhere — `NOP` costs 4.00
+T-states inside the contended window to the last digit against FUSE's mean
+of 9.00, so a single-M-cycle instruction is *never* contended at any
+arrival T-state; `LD BC,(nn)` reads 22.25 against 42.54; only 81,646 of
+442,666 samples are charged anything at all. #856's derivable half — three
+trues in `DELAY_TABLE_PLUS2A` where the pattern needs fourteen — is the
+whole story rather than half of one. Nothing was landed on the gate.
+
+#### `ARRIVAL_LABEL_LEAD_TSTATES`, and why it is named rather than absorbed
+
+All three differentials score one T-state below their machine's measured
+`/INT` origin. That is a property of the measurement — the harness labels
+an instruction's arrival one T-state later than the M-cycle FUSE charges —
+and it is a named constant in each file rather than folded into the
+origin, because a silently-absorbed T-state is how this problem has gone
+wrong twice already.
+
+Three things say it is the label and not the engines: the same single
+T-state comes out on three machines with different line lengths, frame
+lengths, ULAs and window derivations, two of which contend on opposite
+polarities of `/MREQ`; removing it by moving the 48K's window instead was
+rejected by both origin-independent oracles; and the residual either side
+of it is what a correct gate looks like — 18 and 17 — against roughly
+87,000 one T-state away.
+
+#### `int_start_pixel` was never re-derived for a 228-T-state line
+
+Recorded, not acted on. All three configs use `int_scan` 248 and
+`int_start_pixel` 1. On the 48K that lands the `/INT` edge exactly on
+`top_left_pixel` (14336). On the 128K it lands 14364 against 14362, and on
+the +2A 14364 against 14365 — a 228-T-state line does not put scan 248
+where a 224-T-state one does.
+
+Not moved, because `Float128K` reads 14364 and that is the figure this
+engine is held to; the probe counts from the interrupt, so shifting the
+edge onto `top_left_pixel` would take the floating bus off its own oracle
+to satisfy a constant nothing else measures. Settling it needs
+`float_bus_oracle` ported to the 128K, so that machine has a second anchor
+the way the 48K now does.
 
 ### The four port classes, measured
 
