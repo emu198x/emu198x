@@ -1,0 +1,15 @@
+[package]
+name = "format-sinclair-zx-spectrum-szx"
+description = ".szx (ZX-State) snapshot format parser for the ZX Spectrum"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot", version = "0.2.0" }
+flate2 = { workspace = true }
+
+[lints]
+workspace = true

@@ -21,6 +21,7 @@ emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
 emu198x-ui = { path = "../emu198x-ui", version = "0.2.0", optional = true }
 format-sinclair-zx-spectrum-bas = { path = "../format-sinclair-zx-spectrum-bas", version = "0.2.0" }
 format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna", version = "0.2.0" }
+format-sinclair-zx-spectrum-szx = { path = "../format-sinclair-zx-spectrum-szx", version = "0.2.0" }
 format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.2.0" }
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.2.0" }
 serde = { workspace = true }

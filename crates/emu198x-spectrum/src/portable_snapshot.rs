@@ -27,7 +27,10 @@ pub fn is_portable_snapshot_path(path: &Path) -> bool {
     let Some(ext) = path.extension().and_then(|s| s.to_str()) else {
         return false;
     };
-    matches!(ext.to_ascii_lowercase().as_str(), "sna" | "z80" | "zip")
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "sna" | "z80" | "szx" | "zip"
+    )
 }
 
 /// Reads + parses a portable snapshot from disk. Returns the parsed
