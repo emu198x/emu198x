@@ -24,6 +24,16 @@ pub(crate) const BASIC_PROMPT_ROW: usize = 23;
 pub(crate) const KEY_EDGE_FRAMES: u32 = 2;
 const COMMAND_SETTLE_FRAMES: u32 = 10;
 
+/// Frames run between successive reads while waiting for the `K` prompt.
+const PROMPT_POLL_FRAMES: u32 = 2;
+
+/// Frame budget for the `K` prompt to appear after the editor is opened.
+///
+/// Generous on purpose. The cursor *flashes*, on a ~32-frame cycle, so a
+/// wait shorter than one full cycle can miss a prompt that is there —
+/// which would turn this fix into a rarer version of the bug it replaces.
+const PROMPT_WAIT_FRAMES: u32 = 200;
+
 /// Result returned after the standard 48K tape autoload command has been
 /// entered and tape transport has started.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,14 +110,26 @@ where
 
     let boot = session.wait_for_boot(max_boot_frames)?;
 
+    // On a cold boot row 23 holds the copyright message, so ENTER is
+    // tapped to open the editor.
     if !basic_prompt_ready(session)? {
         tap_key(session, "enter")?;
     }
 
-    let prompt_line = decoded_prompt_line(session)?;
-    if prompt_line.trim_end() != "K" {
-        return Err(SpectrumAutoloadError::PromptNotReady { line: prompt_line });
-    }
+    // Then *wait* for the prompt, rather than reading once.
+    //
+    // This read used to happen with no frames run in between, so it
+    // sampled row 23 before the ROM had repainted it and got 32 spaces —
+    // neither the copyright line nor `K` — and autoload failed on every
+    // cold 48K boot, in the UI as well as headless (#869). The blank
+    // result was the tell: the ROM had cleared the line and not yet drawn
+    // the cursor.
+    //
+    // Polling rather than a fixed settle, because the cursor flashes: a
+    // single sample at any fixed delay can land on the wrong half of the
+    // cycle. Every other keyboard step in this file already settles
+    // deliberately; this one did not.
+    wait_for_basic_prompt(session)?;
 
     tap_key(session, "j")?;
     tap_symbol_combo(session, "p")?;
@@ -124,6 +146,33 @@ where
         boot,
         reached: session.time(),
     })
+}
+
+/// Run frames until row 23 shows the `K` keyword-entry cursor.
+///
+/// # Errors
+///
+/// Returns [`SpectrumAutoloadError::PromptNotReady`] carrying the last
+/// line seen if the prompt does not appear within [`PROMPT_WAIT_FRAMES`].
+fn wait_for_basic_prompt<R, Q>(
+    session: &mut HeadlessSession<R, Q>,
+) -> Result<(), SpectrumAutoloadError>
+where
+    R: MachineCore,
+    Q: SessionQueryProvider<R>,
+{
+    let mut waited = 0;
+    loop {
+        let line = decoded_prompt_line(session)?;
+        if line.trim_end() == "K" {
+            return Ok(());
+        }
+        if waited >= PROMPT_WAIT_FRAMES {
+            return Err(SpectrumAutoloadError::PromptNotReady { line });
+        }
+        session.run_frames(PROMPT_POLL_FRAMES)?;
+        waited += PROMPT_POLL_FRAMES;
+    }
 }
 
 fn basic_prompt_ready<R, Q>(session: &HeadlessSession<R, Q>) -> Result<bool, SessionError>
