@@ -26,6 +26,32 @@ use crate::runtime::{SpectrumMachine, SpectrumRuntime};
 /// high-res, etc.) are appended at runtime via
 /// [`SpectrumMachine::variant_query_paths`].
 pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
+    // The CPU. The data was already reachable — `SpectrumMachine` exposes
+    // `z80_registers`, `z80_halted` and `instructions_retired` for the
+    // `query_cpu` MCP tool — but none of it was in the query catalogue, so
+    // a script could not ask "where is the guest?".
+    //
+    // That gap is why diagnosing #872 needed a bespoke Rust probe: the
+    // question "is the Z80 halted or spinning, and where?" is three lines
+    // of script and was instead a test binary. `runtime-atari-800xl` and
+    // `runtime-jupiter-ace` both expose `cpu.pc`; this family did not.
+    "cpu",
+    "cpu.af",
+    "cpu.bc",
+    "cpu.de",
+    "cpu.halted",
+    "cpu.hl",
+    "cpu.i",
+    "cpu.iff1",
+    "cpu.iff2",
+    "cpu.im",
+    "cpu.instruction_complete",
+    "cpu.instructions_retired",
+    "cpu.ix",
+    "cpu.iy",
+    "cpu.pc",
+    "cpu.r",
+    "cpu.sp",
     "screen.text.cols",
     "screen.text.lines",
     "basic.prog",
@@ -43,6 +69,30 @@ pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
     "tape.loaded",
     "tape.playing",
 ];
+
+/// Every CPU leaf in one object, so a single query answers "where is the
+/// guest and what is it doing?" — the question a hang needs.
+fn cpu_object<M: SpectrumMachine>(machine: &M) -> Value {
+    let r = machine.z80_registers();
+    json!({
+        "af": r.af,
+        "bc": r.bc,
+        "de": r.de,
+        "halted": machine.z80_halted(),
+        "hl": r.hl,
+        "i": r.i,
+        "iff1": r.iff1,
+        "iff2": r.iff2,
+        "im": r.im,
+        "instruction_complete": machine.z80_instruction_complete(),
+        "instructions_retired": machine.z80_instructions_retired(),
+        "ix": r.ix,
+        "iy": r.iy,
+        "pc": r.pc,
+        "r": r.r,
+        "sp": r.sp,
+    })
+}
 
 pub(crate) const SCREEN_TEXT_COLS: usize = 32;
 pub(crate) const SCREEN_TEXT_ROWS: usize = 24;
@@ -197,6 +247,23 @@ impl<M: SpectrumMachine> SessionQueryProvider<SpectrumRuntime<M>> for SpectrumSe
     ) -> Result<Option<QueryResult>, QueryError> {
         let machine = runtime.machine();
         let value = match path {
+            "cpu" => cpu_object(machine),
+            "cpu.af" => json!(machine.z80_registers().af),
+            "cpu.bc" => json!(machine.z80_registers().bc),
+            "cpu.de" => json!(machine.z80_registers().de),
+            "cpu.halted" => json!(machine.z80_halted()),
+            "cpu.hl" => json!(machine.z80_registers().hl),
+            "cpu.i" => json!(machine.z80_registers().i),
+            "cpu.iff1" => json!(machine.z80_registers().iff1),
+            "cpu.iff2" => json!(machine.z80_registers().iff2),
+            "cpu.im" => json!(machine.z80_registers().im),
+            "cpu.instruction_complete" => json!(machine.z80_instruction_complete()),
+            "cpu.instructions_retired" => json!(machine.z80_instructions_retired()),
+            "cpu.ix" => json!(machine.z80_registers().ix),
+            "cpu.iy" => json!(machine.z80_registers().iy),
+            "cpu.pc" => json!(machine.z80_registers().pc),
+            "cpu.r" => json!(machine.z80_registers().r),
+            "cpu.sp" => json!(machine.z80_registers().sp),
             "screen.text.cols" => json!(SCREEN_TEXT_COLS),
             "screen.text.rows" => json!(SCREEN_TEXT_ROWS),
             "screen.text.lines" => json!(screen_text_lines(machine)),
