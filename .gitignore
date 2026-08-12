@@ -31,6 +31,27 @@ knowledge/references/
 knowledge/systems/
 knowledge/tests/
 
+# Accuracy corpora, provisioned from the `accuracy-corpora` release store
+# (see .github/workflows/nightly-accuracy.yml, "Provision corpora from
+# store"). Tapes, ROMs, test suites and reference screens: local-only inputs
+# with their own provenance, several tens of MiB, never committed here.
+#
+#   gh release download v1 -R emu198x/accuracy-corpora \
+#     -p 'spectrum-system-tests.tar.zst' -p 'zx-spectrum-tests.tar.zst' \
+#     -p 'z80test.tar.zst' -p 'SHA256SUMS'
+#   grep ' <name>.tar.zst$' SHA256SUMS | shasum -a 256 -c -
+#   tar --zstd -xf '<name>.tar.zst'
+#
+# CI extracts into `corpora/`; extracting at the repo root is the local
+# habit, and these entries are what keep a stray `git add -A` from
+# committing 29 MiB of tape images.
+/spectrum-system-tests/
+/zx-spectrum-tests/
+/z80test/
+/corpora/
+/*.tar.zst
+/SHA256SUMS
+
 # Vale synced package
 .vale/
 
