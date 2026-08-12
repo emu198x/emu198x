@@ -448,10 +448,44 @@ const fn clkwait_from_counter_bits() -> [bool; 16] {
     table
 }
 
-/// +2A/+3 contention delay table — different pattern.
+/// +2A/+3 contention delay table, indexed by `pixel & 0x0F`.
+/// `true` = the gate array may withhold the CPU clock this half-cycle.
+///
+/// Eleven contiguous asserted half-cycles from pixel 4, free over
+/// pixels 15 and 0–3.
+///
+/// **This mask is measured, not derived.** Unlike `DELAY_TABLE_48K`,
+/// which `clkwait_from_counter_bits` builds from `C3 + C2` and a stated
+/// counter relationship, no primary description of the Amstrad gate
+/// array's clock-withholding window is in hand. What fixes it here is
+/// `machine-sinclair-zx-spectrum-plus2a`'s arrival-resolved differential
+/// against FUSE: sweeping run length 2–14 against every one of the
+/// sixteen start positions puts a single sharp minimum at length 11,
+/// start 4 — **5,166 of 375,407** samples disagreeing, against
+/// 85,962–92,489 at every adjacent start and 88,485 at length 10.
+/// A seventeen-fold gap to its neighbours is what makes it a
+/// measurement rather than a fit.
+///
+/// The previous literal asserted three half-cycles and scored 149,185 of
+/// 442,666. It undercharged everywhere — a single-M-cycle instruction
+/// was never contended at any arrival T-state, `NOP` costing 4.00
+/// against FUSE's mean 9.00.
+///
+/// Note what this mask is *not*. FUSE contends the +3 with
+/// `contention_pattern_76543210` (`{5,4,3,2,1,0,7,6}` read at offset 4,
+/// so `1,0,7,6,5,4,3,2`), which spends seven of every eight T-states
+/// contended and one free. Reproducing that ratio directly — fourteen
+/// asserted half-cycles of sixteen — overcharges by roughly double,
+/// `NOP` reaching 14.67 against a wanted 7.44, and scores 45,707. The
+/// gate array's window does not map onto FUSE's per-T-state table by a
+/// simple count, and `cpu_divisor` 5 puts 2.5 pixels in a T-state, so
+/// this table's domain and FUSE's are not the same grid. Deriving the
+/// window from the hardware remains open; see #856 for why fitting to a
+/// frame *maximum* rather than an arrival-resolved differential is the
+/// trap here.
 pub const DELAY_TABLE_PLUS2A: [bool; 16] = [
-    true, false, false, false, false, false, false, false, false, false, false, false, false,
-    false, true, true,
+    false, false, false, false, true, true, true, true, true, true, true, true, true, true, true,
+    false,
 ];
 
 /// Default config for serde deserialization. The owning machine must call

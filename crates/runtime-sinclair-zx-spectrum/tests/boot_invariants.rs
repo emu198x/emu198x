@@ -564,13 +564,15 @@ fn contention_table_matches_canonical_for_known_window() {
          knowledge/decisions/spectrum-architecture-review.md Seam 5"
     );
 
-    // +2A/+3: completely different shape — contention only at the
-    // three phases bracketing the cycle (0, 14, 15). Produces
-    // `[1, 0, 7, 6, 5, 4, 3, 2]` once sampled per T-state — see
-    // contention.md §"+2A / +3".
+    // +2A/+3: eleven contiguous asserted half-cycles from pixel 4,
+    // free over 15 and 0-3. Measured against FUSE by
+    // `machine-sinclair-zx-spectrum-plus2a`'s arrival-resolved
+    // differential, not derived — see the constant's own comment for
+    // the sweep that isolates it and why FUSE's per-T-state
+    // `[1, 0, 7, 6, 5, 4, 3, 2]` does not map onto it by a simple count.
     let expected_plus2a: [bool; 16] = [
-        true, false, false, false, false, false, false, false, false, false, false, false, false,
-        false, true, true,
+        false, false, false, false, true, true, true, true, true, true, true, true, true, true,
+        true, false,
     ];
     assert_eq!(
         DELAY_TABLE_PLUS2A, expected_plus2a,

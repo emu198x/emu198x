@@ -197,9 +197,10 @@ fn mcycle_costs() -> Vec<u32> {
 /// of the kind `io_contention_oracle` is for the 48K, and the +2A does
 /// not have one yet. Nothing was landed.
 #[test]
-#[ignore = "KNOWN DIVERGENCE (#856): DELAY_TABLE_PLUS2A caps contention at \
-            1 T-state where FUSE's pattern reaches 7 — the mask cannot \
-            express its own documented sequence at any alignment"]
+#[ignore = "KNOWN DIVERGENCE: DELAY_TABLE_PLUS2A caps contention at 5 \
+            T-states where FUSE's pattern reaches 7. Was 1 before the mask \
+            was measured against the arrival-resolved differential; the \
+            remaining 2 is the same residue as that oracle's 5,166"]
 fn contention_matches_fuse_across_the_whole_frame() {
     let costs = mcycle_costs();
     let engine_max = costs.iter().copied().max().unwrap_or(0);
