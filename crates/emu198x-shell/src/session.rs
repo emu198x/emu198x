@@ -50,6 +50,21 @@ pub enum SessionError {
         expected: &'static str,
     },
 
+    /// A snapshot save was asked for under an extension naming a format
+    /// this writer does not produce.
+    #[error(
+        "refusing to write the emu198x state format to {path}: the .{ext} \
+         extension names a snapshot format this writer does not produce, and \
+         the loader dispatches on the extension — so the file would be read \
+         back with the wrong parser. Save to .emu198x-state instead."
+    )]
+    SnapshotFormatMismatch {
+        /// The path that was asked for.
+        path: String,
+        /// The extension that names a foreign format.
+        ext: String,
+    },
+
     /// Boot was not detected within the requested frame budget.
     #[error("boot was not detected within {max_frames} frames: {reason}")]
     BootTimeout {
@@ -209,6 +224,24 @@ pub struct HeadlessSession<M, Q = NoAdditionalQueries> {
     recorder: Option<VideoRecorder>,
     audio_offset_at_recording_start: usize,
     audio_recording: Option<AudioRecording>,
+}
+
+/// Extensions a loader hands to a **foreign** snapshot parser, and which
+/// [`HeadlessSession::save_snapshot`] therefore must not write.
+///
+/// Exactly the set `emu198x-spectrum`'s `is_portable_snapshot_path`
+/// claims. Deliberately not "every extension in `asset.rs`'s snapshot
+/// list": `.pst` is in that list and is *our own* state format — the
+/// Spectrum classifier lets it fall through to `restore_snapshot`, and
+/// three existing tests write state under it. Refusing it would break
+/// working callers to fix a bug they do not have.
+///
+/// A machine that adds a loader for a foreign format should add its
+/// extension here in the same change, or it inherits #867.
+fn foreign_snapshot_extension(path: &Path) -> Option<String> {
+    const FOREIGN: &[&str] = &["sna", "szx", "z80", "zip"];
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    FOREIGN.contains(&ext.as_str()).then_some(ext)
 }
 
 impl<M> HeadlessSession<M, NoAdditionalQueries> {
@@ -673,10 +706,29 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
 
     /// Writes the current machine snapshot to disk.
     ///
+    /// This always writes the emu198x portable **state** format, whatever
+    /// the path is called. Loaders dispatch on the extension, so a state
+    /// file named `.sna` is handed to the `.sna` parser and the machine is
+    /// restored from misread bytes — silently, with a plausible-looking
+    /// corrupt screen and a zero exit status. That is #867, and it cost a
+    /// day of debugging a game that was fine.
+    ///
+    /// So an extension naming a format this writer does not produce is
+    /// refused, at the point of the mistake, rather than honoured into a
+    /// file that cannot be read back.
+    ///
     /// # Errors
     ///
-    /// Returns an error if snapshot generation or file output fails.
+    /// Returns [`SessionError::SnapshotFormatMismatch`] if the path's
+    /// extension names a foreign snapshot format, or an error if snapshot
+    /// generation or file output fails.
     pub fn save_snapshot(&self, path: &Path) -> Result<(), SessionError> {
+        if let Some(ext) = foreign_snapshot_extension(path) {
+            return Err(SessionError::SnapshotFormatMismatch {
+                path: path.display().to_string(),
+                ext,
+            });
+        }
         std::fs::write(path, self.snapshot_bytes()?)?;
         Ok(())
     }
@@ -1442,6 +1494,32 @@ mod tests {
 
         session.run_frames(1).expect("second frame should run");
         assert_eq!(session.machine().received_inputs.len(), 1);
+    }
+
+    #[test]
+    fn save_snapshot_refuses_an_extension_it_does_not_write() {
+        // #867: this writer always produces the emu198x state format, and
+        // every loader dispatches on the extension — so a state file named
+        // `.sna` was handed to the `.sna` parser and restored from misread
+        // bytes, silently, with exit status 0.
+        for name in ["boot.sna", "boot.SNA", "boot.z80", "boot.szx", "boot.zip"] {
+            assert!(
+                foreign_snapshot_extension(Path::new(name)).is_some(),
+                "{name} names a foreign snapshot format and must be refused"
+            );
+        }
+        // What this writer does produce, and anything unclaimed. `.pst` in
+        // particular is *ours*: it is in `asset.rs`'s snapshot list, but the
+        // Spectrum classifier lets it fall through to the postcard state
+        // reader and existing callers write state under it. Refusing it
+        // would break working callers to fix a bug they do not have.
+        for name in ["boot.emu198x-state", "boot.pst", "boot", "boot.bin"] {
+            assert_eq!(
+                foreign_snapshot_extension(Path::new(name)),
+                None,
+                "{name} must still be writable"
+            );
+        }
     }
 
     #[test]
