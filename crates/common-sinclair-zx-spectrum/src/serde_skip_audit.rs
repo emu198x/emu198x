@@ -44,11 +44,16 @@ struct SerdeSkipAudit {
 const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[
     SerdeSkipAudit {
         path: "crates/common-sinclair-zx-spectrum/src/ula_engine.rs",
-        expected: 6,
+        expected: 8,
         justification: "Two-stage shifter pipeline + AOLatch border + \
-                        config: pipeline state drains within one 16-pixel \
-                        cycle; AOLatch within one character cell; config \
-                        is `&'static`, reattached by `reattach_config()`.",
+                        config + M-cycle fall counter: pipeline state drains \
+                        within one 16-pixel cycle; AOLatch within one \
+                        character cell; config is `&'static`, reattached by \
+                        `reattach_config()`. `mcycle_fall`/`prev_fall_addr` \
+                        default to a shut counter and rebuild on the first \
+                        address change, which is the next M-cycle — a \
+                        restored state resumes at an instruction boundary, so \
+                        there is no I/O M-cycle in flight to be mid-count.",
     },
     SerdeSkipAudit {
         path: "crates/nec-upd765a/src/lib.rs",

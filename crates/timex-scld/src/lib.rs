@@ -146,6 +146,12 @@ impl Ula for TimexScld {
             let mem_contention = contended_addr && e.gate_arms_this_halfcycle() && !cpu_mreq;
 
             let io_even_port = (cpu_addr & 1) == 0;
+            // As in `sinclair-ula-7k010e`: the 48K's gate now counts FUSE's
+            // contention lookups instead of holding a level, and this one
+            // deliberately does not, because the Timex has boot and golden
+            // tests and no contention oracle at all. See
+            // `knowledge/decisions/io-contention-is-a-count-not-a-level.md`,
+            // "48K only, deliberately".
             let io_contention = (cpu_iorq || e.z80_iorq_prev) && io_even_port && e.z80_clock_high;
 
             let contention = mem_contention || io_contention;

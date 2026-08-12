@@ -318,6 +318,40 @@ pub struct UlaEngine {
     pub z80_iorq_prev: bool,
     pub z80_iorq_prev2: bool,
 
+    /// How many strobe-free falling half-cycles the current M-cycle has
+    /// offered so far; 0 when this is not one of them.
+    ///
+    /// FUSE's `C:n` is *one contention lookup then n T-states*, not a
+    /// duration, so an I/O M-cycle's lookup count differs by port class —
+    /// see `knowledge/decisions/io-contention-is-a-count-not-a-level.md`.
+    /// Expressing a count needs a position inside the M-cycle, and two
+    /// half-cycles of `/IORQ` history cannot supply one.
+    ///
+    /// The falling half-cycles are the ones that matter: they are where the
+    /// Sinclair gate arms ([`Self::gate_arms_this_halfcycle`]), so they are
+    /// where FUSE's per-T-state lookups land. An M-cycle presents its
+    /// address with every strobe released, then drops `/MREQ` half a
+    /// T-state later — so a memory cycle offers exactly one strobe-free
+    /// falling edge and an I/O cycle, whose `/MREQ` never drops at all,
+    /// offers two before `/IORQ` arrives. **That second one is the whole
+    /// reason this counter exists**: it is FUSE's offset 1, and nothing
+    /// visible on the pins tells it apart from offset 0.
+    ///
+    /// A new address restarts the count, which is what keeps an `Internal`
+    /// M-cycle — strobe-free throughout, and carrying the previous cycle's
+    /// stale address — from ever reaching 2.
+    ///
+    /// Not serialised: it is derived within-M-cycle state that reconstructs
+    /// itself on the next address change, and adding a field to the save
+    /// state's postcard layout to carry it would be a format break for
+    /// nothing.
+    #[serde(skip)]
+    pub mcycle_fall: u8,
+    /// The address seen on the previous falling half-cycle, for
+    /// [`Self::mcycle_fall`]'s new-address test.
+    #[serde(skip)]
+    pub prev_fall_addr: u16,
+
     /// Framebuffer width (352 for standard, 704 for Timex hi-res capable).
     pub fb_width: usize,
 
@@ -602,6 +636,8 @@ impl UlaEngine {
             z80_mreq_prev: false,
             z80_iorq_prev: false,
             z80_iorq_prev2: false,
+            mcycle_fall: 0,
+            prev_fall_addr: 0,
             fb_width: SCREEN_WIDTH,
             scld_mode: 0,
             scld_hires_ink: 0,
@@ -892,6 +928,44 @@ impl UlaEngine {
     #[must_use]
     pub fn gate_arms_this_halfcycle(&self) -> bool {
         !self.z80_clock_high
+    }
+
+    /// Advance [`Self::mcycle_fall`] — called *before* the contention
+    /// decision, unlike every other latch here.
+    ///
+    /// The ordering is forced, and it is why this is not folded into
+    /// [`Self::track_z80_clock`] as
+    /// `knowledge/decisions/io-contention-is-a-count-not-a-level.md`
+    /// sketched. `track_z80_clock` runs after the decision and is handed the
+    /// pins the decision was made on; a counter updated there names the
+    /// half-cycle that has just been decided, so a gate reading it would be
+    /// one falling edge behind and would charge FUSE's offset 1 at offset 2.
+    /// This runs first and names the half-cycle being decided now.
+    ///
+    /// A stalled CPU has not moved, so neither has its M-cycle: `cpu_clock`
+    /// here is the previous half-cycle's decision, and while it is false the
+    /// pins and the clock phase are both frozen and the count must freeze
+    /// with them. Counting through a stall would inflate the position by the
+    /// length of the stall the gate itself caused.
+    pub fn track_mcycle_fall(&mut self, cpu_addr: u16, cpu_mreq: bool, cpu_iorq: bool) {
+        if !self.cpu_clock || !self.gate_arms_this_halfcycle() {
+            return;
+        }
+        self.mcycle_fall = if cpu_mreq || cpu_iorq {
+            0
+        } else if cpu_addr != self.prev_fall_addr {
+            1
+        } else if self.mcycle_fall > 0 {
+            self.mcycle_fall.saturating_add(1)
+        } else {
+            // A strobe-free falling edge on a *stale* address, with no run
+            // in progress: an `Internal` M-cycle sitting on the refresh
+            // address. It offers the memory gate its usual arming
+            // opportunity but it is not an M-cycle position, so the count
+            // stays shut rather than walking up to 2.
+            0
+        };
+        self.prev_fall_addr = cpu_addr;
     }
 
     /// Track Z80 clock phase (called after contention decision).

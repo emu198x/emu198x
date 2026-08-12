@@ -44,6 +44,10 @@ pub struct UlaTick {
     pub clock_high_before: bool,
     pub ioreq_tw3_before: bool,
     pub mreq_t23_before: bool,
+    /// `UlaEngine::mcycle_fall` as the decision saw it. Already advanced for
+    /// this half-cycle — unlike the `_before` fields, that *is* the state the
+    /// decision was made on.
+    pub mcycle_fall: u8,
     pub cpu_clock_after: bool,
 }
 
@@ -180,6 +184,15 @@ impl Ula for FerrantiUla {
         let e = &mut self.engine;
         let phase = (e.pixel as usize) & 0x0F;
 
+        // Where in its M-cycle the CPU is, for the gate below. Before the
+        // decision, and before `tick_rendering`, because it names *this*
+        // half-cycle rather than the one just finished — see
+        // `UlaEngine::track_mcycle_fall`. Outside the contention window for
+        // the same reason the latches are: it clocks on every `CPUClk` edge,
+        // border or not, and an M-cycle straddling the window's edge must
+        // arrive with its position already correct.
+        e.track_mcycle_fall(cpu_addr, cpu_mreq, cpu_iorq);
+
         // The contention window, read from the counter before
         // `tick_rendering` advances it — the same instant `phase` names.
         //
@@ -276,9 +289,68 @@ impl Ula for FerrantiUla {
             //         && (ula_io || contended_access);
             //
             // See `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
-            let mem_contention = contended_addr && e.gate_arms_this_halfcycle() && !cpu_mreq;
-            let io_contention = (cpu_iorq || e.z80_iorq_prev) && ula_io && e.z80_clock_high;
-            let contention = mem_contention || io_contention;
+
+            // Three lookups, not one level.
+            //
+            // FUSE's `C:n` is *one* contention lookup followed by n
+            // T-states, so what distinguishes its four port classes is how
+            // many discrete lookups happen inside the I/O M-cycle: 2 for a
+            // contended even port, 4 for a contended odd one, 1 for an
+            // uncontended even one, 0 for an uncontended odd one. A level
+            // test held across half-cycles can reproduce 0 and 4 — never
+            // asserted, and asserted throughout — and cannot reproduce 1 or
+            // 2, because a count of discrete events is not a property a
+            // level has. Every one of the 21,510 disagreements the previous
+            // gate scored sat in the two classes needing 1 and 2. See
+            // `knowledge/decisions/io-contention-is-a-count-not-a-level.md`
+            // for the derivation and the lookup-offset table.
+            //
+            // The three terms below are FUSE's three branches, each placed
+            // on the falling half-cycle its offset names — the offsets are
+            // pinned by `machine-sinclair-zx-spectrum-48k`'s
+            // `the_io_lookup_offsets_are_pinned_to_the_falling_half_cycles`.
+            let arming = e.gate_arms_this_halfcycle();
+            // No strobe driven yet: the M-cycle has presented its address
+            // and not committed to an access. True for one falling
+            // half-cycle of a memory cycle, and for two of an I/O cycle,
+            // whose `/MREQ` never drops at all.
+            let strobe_free = !cpu_mreq && !cpu_iorq;
+
+            // `ula_contend_port_early`, and ordinary memory contention. One
+            // page-keyed lookup on each strobe-free arming half-cycle: the
+            // M-cycle's `T1` for a memory access, `T1` *and* `T2` for an I/O
+            // access, which is FUSE's offsets 0 and 1. That coincidence is
+            // not a fudge — `contend_port_early` is conditioned on the port
+            // page and on nothing else, which is exactly what this term
+            // tests, so the memory gate *is* the early port charge.
+            //
+            // `!cpu_iorq` is the leak being closed. Keying on `!cpu_mreq`
+            // alone left this term true through the whole I/O M-cycle,
+            // because an I/O cycle never asserts `/MREQ`, so a port address
+            // in `$4000..$8000` tripped *memory* contention four times over.
+            // That is what charged the contended-odd class its four lookups
+            // and made it exact by accident, and what over-charged the
+            // contended-even class by the two lookups it does not make.
+            let mem_contention = contended_addr && arming && strobe_free;
+
+            // `ula_contend_port_late`, the branch taken when the ULA answers
+            // the port. One lookup at offset 1, keyed on the port's low bit
+            // and not on its page — the distinction the old gate could not
+            // draw, and the reason `$C0FE` was charged nothing where FUSE
+            // charges it once. Offset 1 is the second strobe-free arming
+            // half-cycle, which only an I/O M-cycle has; `/IORQ` does not
+            // become visible until the third, so the counter is the only
+            // thing that can name it.
+            let port_answered = ula_io && arming && strobe_free && e.mcycle_fall == 2;
+
+            // `ula_contend_port_late`, the branch taken when the ULA does
+            // *not* answer the port and the page is contended: three further
+            // lookups, at offsets 1, 2 and 3. Offset 1 is `mem_contention`
+            // above; these are the other two, and by then `/IORQ` is up, so
+            // they read the pin rather than the counter.
+            let port_unanswered = contended_addr && !ula_io && arming && cpu_iorq;
+
+            let contention = mem_contention || port_answered || port_unanswered;
             e.cpu_clock = !(contention && DELAY_TABLE_48K[phase]);
         } else {
             e.cpu_clock = true;
@@ -296,6 +368,7 @@ impl Ula for FerrantiUla {
                 clock_high_before: before.2,
                 ioreq_tw3_before: before.3,
                 mreq_t23_before: before.4,
+                mcycle_fall: self.engine.mcycle_fall,
                 cpu_clock_after: self.engine.cpu_clock,
             });
         }

@@ -67,6 +67,8 @@ struct Observed {
     video: bool,
     clock_high: bool,
     table: bool,
+    /// `UlaEngine::mcycle_fall` as the contention decision saw it.
+    mcycle_fall: u8,
     /// False when the ULA withheld this half-cycle's CPU clock edge.
     cpu_clock: bool,
 }
@@ -174,6 +176,7 @@ fn observe_program(
             video: t.video,
             clock_high: t.clock_high_before,
             table: DELAY_TABLE_48K[(t.pixel as usize) & 0x0F],
+            mcycle_fall: t.mcycle_fall,
             cpu_clock: t.cpu_clock_after,
         });
     }
@@ -499,7 +502,7 @@ fn report_io(port: u16, label: &str) -> Vec<IoCycle> {
 /// The reference is `ula_contend_port_early` / `_late` transcribed as
 /// `fuse_charge_points`, not a constant lifted out of them.
 ///
-/// ## What it says, recorded 2026-08-11
+/// ## What it said, recorded 2026-08-11, against the old level gate
 ///
 /// | port | gate | FUSE | withheld runs begin on |
 /// |---|---|---|---|
@@ -508,24 +511,50 @@ fn report_io(port: u16, label: &str) -> Vec<IoCycle> {
 /// | `$40FF` | **2** | **4** | `T1Fall`, `T3Fall` |
 /// | `$00FF` | 0 | 0 | — |
 ///
-/// Three classes of four already agree, which is a narrower result than
-/// the frame-wide differential's "the engine cannot separate `$40FE` from
-/// `$40FF`" and contradicts part of it. The gate *does* separate `$00FE`
-/// from `$40FE`. What it cannot do is charge a contended-page odd port
-/// four times: `$40FF` and `$40FE` come out identical because neither of
-/// their runs is the ULA-answers decode at all. `ula_io` is false for an
-/// odd port, so the I/O term never fires on `$40FF`, and both runs are the
-/// *memory* gate — `contended_addr && !cpu_mreq`, which holds for every
-/// half-cycle of an I/O M-cycle because `/MREQ` is never asserted in one.
+/// Three classes of four agreed, which was a narrower result than the
+/// frame-wide differential's "the engine cannot separate `$40FE` from
+/// `$40FF`" and contradicted part of it. What the gate could not do was
+/// charge a contended-page odd port four times: `$40FF` and `$40FE` came
+/// out identical because neither of their runs was the ULA-answers decode
+/// at all. `ula_io` is false for an odd port, so the I/O term never fired
+/// on `$40FF`, and both runs were the *memory* gate —
+/// `contended_addr && !cpu_mreq`, which holds for every half-cycle of an
+/// I/O M-cycle because `/MREQ` is never asserted in one.
 ///
-/// That the memory gate is what implements `contend_port_early` may well
-/// be right — FUSE's early charge is conditioned on the port page, exactly
-/// what the memory gate tests. What is missing is the rest of
-/// `contend_port_late`'s odd-port branch.
+/// That the memory gate is what implements `contend_port_early` turned out
+/// to be right: FUSE's early charge is conditioned on the port page,
+/// exactly what the memory gate tests, and the gate now leans on that
+/// deliberately.
+///
+/// ## What it says now, and why it still cannot be the score
+///
+/// | port | gate | FUSE | charges the gate actually makes |
+/// |---|---|---|---|
+/// | `$40FE` | 1 | 2 | 2 — `T1Fall`, `T2Fall` |
+/// | `$00FE` | 1 | 1 | 1 — `T2Fall` |
+/// | `$40FF` | 2 | 4 | 4 — `T1Fall`..`T4Fall` |
+/// | `$00FF` | 0 | 0 | 0 |
+///
+/// The charge counts are now FUSE's in every class —
+/// `io_contention_oracle` scores 0 of 297,222 samples, per class, which is
+/// the instrument that can see them. This one still reads low, and by
+/// exactly the factor its own doc comment predicts: **a run merges
+/// adjacent charges**. Two lookups one T-state apart withhold a contiguous
+/// stretch of half-cycles and count as one run, so `$40FE`'s two charges
+/// read 1 and `$40FF`'s four read 2.
+///
+/// That is not a defect to fix here. It is the reason
+/// `io-contention-is-a-count-not-a-level.md` forbids scoring gate changes
+/// against this file: three terms were tuned against a run count and died.
+/// The `assert_ne!` at the end is the part of this test that survives the
+/// merging, because it compares two classes rather than a class against a
+/// number.
 #[test]
-#[ignore = "KNOWN DIVERGENCE: $40FF gets two withheld runs per I/O M-cycle \
-            where FUSE charges four; the other three classes agree. See the \
-            table on this test. Also needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "KNOWN LIMITATION: a withheld *run* merges charges landing one \
+            T-state apart, so this reports 1 where the gate charges 2 and 2 \
+            where it charges 4. Score I/O contention with \
+            io_contention_oracle, which is at zero. See the tables on this \
+            test. Also needs EMU198X_SPECTRUM_48K_ROM"]
 fn io_contention_matches_the_four_fuse_port_classes() {
     let cases: [(u16, &str); 4] = [
         (0x40FE, "ULA port, contended page — FUSE: C:1, C:3"),
@@ -602,4 +631,157 @@ fn io_contention_matches_the_four_fuse_port_classes() {
         fuse_charge_points(0x40FE),
         fuse_charge_points(0x40FF),
     );
+}
+
+/// Where inside the I/O M-cycle each of FUSE's four lookups falls.
+///
+/// The gate can only express a *count* of lookups if it can name the
+/// half-cycle each one lands on, and `UlaEngine::mcycle_fall` is the counter
+/// that names them. Getting its origin wrong shifts every entry of the table
+/// in `knowledge/decisions/io-contention-is-a-count-not-a-level.md` by one
+/// and looks exactly like a phase error, so it is pinned here before any gate
+/// reads it.
+///
+/// ## The correspondence
+///
+/// FUSE enters `readport` with `tstates` at the first T-state of the I/O
+/// M-cycle — `IN A,(C)` is two `contend_read( PC, 4 )` calls and nothing
+/// else beforehand — so its offsets 0, 1, 2 and 3 are that M-cycle's four
+/// T-states in order. This state machine names them `T1`, `T2`, `T3`, `T4`
+/// where Zilog names them `T1`, `T2`, `TW`, `T3` (see `tick_io_read`), which
+/// leaves the mapping to the half-cycle:
+///
+/// | FUSE offset | Zilog | `IoPhase` | half-cycle |
+/// |---|---|---|---|
+/// | 0 | `T1` | `T1` | `T1Fall` |
+/// | 1 | `T2` | `T2` | `T2Fall` |
+/// | 2 | `TW` | `T3` | `T3Fall` |
+/// | 3 | `T3` | `T4` | `T4Fall` |
+///
+/// The *falling* half-cycle of each, because that is the only one the gate
+/// arms on — `the_gate_arms_on_the_half_cycle_that_precedes_mreq` above
+/// measures that, and `UlaEngine::gate_arms_this_halfcycle` carries it.
+///
+/// That last column is not merely asserted. `io_contention_oracle` scores
+/// the contended-odd class — FUSE's `C:1 C:1 C:1 C:1`, a lookup at every one
+/// of the four offsets — at **zero wrong of 54,531 samples**, and the engine
+/// reaches that class through a gate that arms on exactly these four falling
+/// half-cycles and nothing else. Four lookups mapped onto four consecutive
+/// T-states in order admit only the identity, so an exact class already
+/// pins the origin; this test is what makes the pin fail loudly if the
+/// M-cycle geometry underneath it ever moves.
+///
+/// ## What it checks
+///
+/// That `mcycle_fall` reads 1 on `T1Fall` and 2 on `T2Fall` — the two
+/// lookups that happen before `/IORQ` is visible and which therefore have
+/// nothing else to tell them apart — and that a reading of 2 happens *only*
+/// there, so the counter cannot hand a spurious lookup to a memory cycle.
+#[test]
+#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+fn the_io_lookup_offsets_are_pinned_to_the_falling_half_cycles() {
+    /// The phase each FUSE offset's lookup must land on.
+    const OFFSETS: [(&str, u8); 4] = [
+        ("IoRead(T1Fall)", 1),
+        ("IoRead(T2Fall)", 2),
+        // Offsets 2 and 3 need no counter: `/IORQ` is visible by then, and
+        // both carry the same rule, so the gate reads the pin directly.
+        ("IoRead(T3Fall)", 0),
+        ("IoRead(T4Fall)", 0),
+    ];
+
+    for port in [0x40FEu16, 0x00FE, 0x40FF, 0x00FF] {
+        let observed = observe_io(port, 2400);
+
+        // Self-check, the same one `report_io` pays for: the port has to
+        // have reached the bus, or this is a measurement of some other port.
+        let on_bus = observed.iter().filter(|o| o.iorq && o.addr == port).count();
+        assert!(
+            on_bus > 0,
+            "harness fault, not a finding: no half-cycle put ${port:04X} on \
+             the address bus with /IORQ asserted."
+        );
+
+        // What each phase of the M-cycle actually reads. Printed whole
+        // because the assertions below only name four of them, and a
+        // surprise anywhere else is the thing worth seeing.
+        let mut census: std::collections::BTreeMap<String, std::collections::BTreeSet<(u8, bool)>> =
+            std::collections::BTreeMap::new();
+        for o in &observed {
+            census
+                .entry(o.phase.clone())
+                .or_default()
+                .insert((o.mcycle_fall, o.iorq));
+        }
+        println!("\n=== ${port:04X} — (mcycle_fall, IORQ) seen on each phase");
+        for (phase, seen) in &census {
+            println!("  {phase:<22} {seen:?}");
+        }
+
+        for (phase, want) in OFFSETS {
+            let entries: Vec<&Observed> = observed.iter().filter(|o| o.phase == phase).collect();
+            assert!(
+                !entries.is_empty(),
+                "${port:04X}: no half-cycle ran {phase}, so the offset it \
+                 carries was never observed"
+            );
+            let wrong: Vec<u8> = entries
+                .iter()
+                .map(|o| o.mcycle_fall)
+                .filter(|&got| got != want)
+                .collect();
+            assert!(
+                wrong.is_empty(),
+                "${port:04X}: {phase} read mcycle_fall {wrong:?} where the \
+                 table needs {want}. The counter's origin is off, and every \
+                 offset below it moves with it."
+            );
+            // The rule for offsets 2 and 3 is the `/IORQ` pin, so the pin
+            // has to be up by then and down before then — one T-state of
+            // slack either way would swap two lookups for two others.
+            let iorq_wanted = want == 0;
+            assert!(
+                entries.iter().all(|o| o.iorq == iorq_wanted),
+                "${port:04X}: {phase} disagrees about /IORQ — it must be \
+                 {iorq_wanted} for the offsets the gate reads off the pin to \
+                 be offsets 2 and 3 and no others"
+            );
+        }
+
+        // The phase names above and the engine's own clock parity have to
+        // agree about which half-cycles are falling ones, or the table's
+        // right-hand column is naming something the gate cannot read.
+        // `clock_high` false is what `gate_arms_this_halfcycle` returns true
+        // for.
+        let misnamed: Vec<&str> = observed
+            .iter()
+            .filter(|o| o.phase.ends_with("Fall)") == o.clock_high)
+            .map(|o| o.phase.as_str())
+            .collect();
+        assert!(
+            misnamed.is_empty(),
+            "${port:04X}: {misnamed:?} disagree about their own half-cycle — \
+             a phase named `Fall` must be one the gate arms on, and the \
+             offsets are placed on falling half-cycles by name."
+        );
+
+        // Exclusivity, over the half-cycles the gate can act on. A count of 2
+        // is the one reading nothing on the pins corroborates, so no other
+        // arming half-cycle may reach it — an `Internal` cycle sitting on a
+        // stale even address would otherwise be handed a lookup FUSE never
+        // makes. The count is only advanced on falling half-cycles and so
+        // still reads 2 on the rising one after `T2Fall`, where the gate's
+        // own arming term discards it.
+        let stray: std::collections::BTreeSet<&str> = observed
+            .iter()
+            .filter(|o| !o.clock_high && o.mcycle_fall >= 2 && o.phase != "IoRead(T2Fall)")
+            .map(|o| o.phase.as_str())
+            .collect();
+        assert!(
+            stray.is_empty(),
+            "${port:04X}: mcycle_fall reached 2 or more on arming half-cycles \
+             {stray:?}, not only on the I/O M-cycle's second T-state. Every \
+             one of those is a lookup charged where FUSE charges none."
+        );
+    }
 }

@@ -136,6 +136,16 @@ impl Ula for SinclairUla {
             let mem_contention = contended_addr && e.gate_arms_this_halfcycle() && !cpu_mreq;
 
             let io_even_port = (cpu_addr & 1) == 0;
+            // This is the level test the 48K has replaced with a count of
+            // FUSE's contention lookups, which took `io_contention_oracle`
+            // from 21,510 wrong to 0. It is left here **on purpose**: the
+            // 128K has a memory `contention_oracle` and no I/O counterpart,
+            // and changing a contention gate that nothing can score is what
+            // RULES.md #32 exists to prevent. The mechanism is shared
+            // (`UlaEngine::mcycle_fall`), so adopting it is three lines once
+            // this machine has an oracle. See
+            // `knowledge/decisions/io-contention-is-a-count-not-a-level.md`,
+            // "48K only, deliberately".
             let io_contention = (cpu_iorq || e.z80_iorq_prev) && io_even_port && e.z80_clock_high;
 
             let contention = mem_contention || io_contention;
