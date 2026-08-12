@@ -696,7 +696,7 @@ fn memory_contention_matches_fuse_at_every_arrival_tstate() {
     //
     // A ceiling, not a target: lower it in the commit that earns it,
     // never raise it.
-    const RATCHET: usize = 149_185;
+    const RATCHET: usize = 5_166;
     assert!(
         total <= RATCHET,
         "+2A memory contention regressed against FUSE: {total} of \
