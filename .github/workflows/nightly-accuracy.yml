@@ -471,6 +471,28 @@ jobs:
       - name: floatspy (golden + Spectron byte-compare)
         run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test tape_smoke -- --include-ignored --nocapture floatspy
 
+      - name: Live floating bus vs FUSE, frame-wide (48K)
+        # Float48K and floatspy are *programs* reading the bus through the
+        # `IN` path, so they can only report one sample each. This scores
+        # the bus the ULA actually drives at every T-state in the frame,
+        # plus the byte the `IN` path returns at every arrival T-state —
+        # both currently exact, and both able to fail on their own.
+        #
+        # It is what disconfirmed `IDLE_TABLE`/`MEM_TABLE` as floatspy's
+        # remaining wrong byte. Cheap: under a second once built.
+        run: |
+          cargo test --release -p machine-sinclair-zx-spectrum-48k \
+            --test float_bus_oracle -- --include-ignored --nocapture
+
+      - name: Live floating bus vs FUSE, frame-wide (128K)
+        # The 128K's second frame anchor. It also asserts that the `/INT`
+        # edge and the raster still *disagree* by two T-states — a known
+        # defect held open deliberately, so that reconciling it fails a
+        # test rather than silently outdating the record.
+        run: |
+          cargo test --release -p machine-sinclair-zx-spectrum-128k \
+            --test float_bus_oracle -- --include-ignored --nocapture
+
   # Contention oracles: the frame-wide I/O differential against FUSE, and
   # the 70-case ZXSpectrum4.net timing survey.
   #
@@ -528,6 +550,9 @@ jobs:
           tar --zstd -xf 'spectrum-system-tests.tar.zst'
           echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
           echo "EMU198X_SPECTRUM_TIMING_SUITE=$(pwd)/spectrum-system-tests/suites" >> "$GITHUB_ENV"
+          echo "EMU198X_SPECTRUM_128K_ROM0=$(pwd)/spectrum-system-tests/roms/128-0.rom" >> "$GITHUB_ENV"
+          echo "EMU198X_SPECTRUM_128K_ROM1=$(pwd)/spectrum-system-tests/roms/128-1.rom" >> "$GITHUB_ENV"
+          echo "EMU198X_SPECTRUM_PLUS3_ROM_DIR=$(pwd)/spectrum-system-tests/roms" >> "$GITHUB_ENV"
 
       - name: Assert the corpus is actually present
         # Same reasoning as the floating-bus job: a half-provisioned corpus
@@ -535,7 +560,11 @@ jobs:
         run: |
           set -euo pipefail
           for f in "${EMU198X_SPECTRUM_48K_ROM}" \
-                   "${EMU198X_SPECTRUM_TIMING_SUITE}/timingTests48k.sna"; do
+                   "${EMU198X_SPECTRUM_TIMING_SUITE}/timingTests48k.sna" \
+                   "${EMU198X_SPECTRUM_128K_ROM0}" \
+                   "${EMU198X_SPECTRUM_128K_ROM1}" \
+                   "${EMU198X_SPECTRUM_PLUS3_ROM_DIR}/plus3-0.rom" \
+                   "${EMU198X_SPECTRUM_PLUS3_ROM_DIR}/plus3-3.rom"; do
             if [ ! -f "$f" ]; then
               echo "::error::missing corpus input: $f — the contention oracles would skip"
               exit 1
@@ -567,3 +596,146 @@ jobs:
 
       - name: ZXSpectrum4.net timing survey (ratchet)
         run: cargo test --release -p runtime-sinclair-zx-spectrum --test timing_survey -- --include-ignored --nocapture
+
+      # The three arrival-resolved memory differentials. Each scores real
+      # instruction costs against FUSE's per-M-cycle walk at every arrival
+      # T-state in the frame, with the origin measured from the `/INT` edge
+      # rather than fitted. A frame *total* cannot see a phase error —
+      # the contended window is sixteen whole 8-T-state groups — which is
+      # how a one-T-state shift survived a whole phase of work with every
+      # gate green.
+      #
+      # All three are sub-second once built, so the cost here is the build
+      # this job already pays for.
+      - name: Memory contention differential vs FUSE, 48K (ratchet 18)
+        run: |
+          cargo test --release -p machine-sinclair-zx-spectrum-48k \
+            --test contention_oracle -- --include-ignored --nocapture
+
+      - name: Memory contention differential vs FUSE, 128K (ratchet 17)
+        # The 128K's contention phase lives in two constants whose *sum*
+        # was all HALT2INT128 could ever measure. This is what separates
+        # them.
+        run: |
+          cargo test --release -p machine-sinclair-zx-spectrum-128k \
+            --test contention_oracle -- --include-ignored --nocapture
+
+      - name: Memory contention differential vs FUSE, +2A (ratchet 149185)
+        # A floor to work down from, not a near-miss to protect: this gate
+        # undercharges everywhere and its offset sweep is flat, so no phase
+        # fixes it (#856). The ratchet stops it getting worse while that is
+        # addressed.
+        #
+        # It needs the +3 ROM set, which is why that was added to the
+        # corpus — without it this harness returns early and passes
+        # vacuously, which is how #856 went unmeasured in the first place.
+        run: |
+          cargo test --release -p machine-sinclair-zx-spectrum-plus2a \
+            --test contention_oracle -- --include-ignored --nocapture
+
+  # The 128K's own real-software oracle, plus the two fixtures that had
+  # never been staged.
+  #
+  # Split from `contention-oracles` because it is the only Spectrum job
+  # needing the `zx-spectrum-tests` corpus — the zxe.io depot snapshot, 29
+  # MiB against the 45 KiB of `spectrum-system-tests` — and because the
+  # survey costs ~7 minutes where everything in that job is sub-second.
+  spectrum-128k-oracles:
+    name: 128K (timing survey + HALT2INT + SZX)
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.configured == 'true'
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-accuracy-spectrum-128k
+
+      - name: Install Linux build dependencies
+        # Booting a whole Spectrum pulls in the host audio/input stack
+        # (cpal -> alsa, gilrs -> libudev).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev libudev-dev
+
+      - name: Provision corpora from store
+        env:
+          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p corpora
+          cd corpora
+          gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
+            -p 'spectrum-system-tests.tar.zst' -p 'zx-spectrum-tests.tar.zst' \
+            -p 'SHA256SUMS'
+          grep ' spectrum-system-tests.tar.zst$' SHA256SUMS | sha256sum -c -
+          grep ' zx-spectrum-tests.tar.zst$' SHA256SUMS | sha256sum -c -
+          tar --zstd -xf 'spectrum-system-tests.tar.zst'
+          tar --zstd -xf 'zx-spectrum-tests.tar.zst'
+          echo "EMU198X_ZX_SPECTRUM_TESTS_DIR=$(pwd)/zx-spectrum-tests" >> "$GITHUB_ENV"
+          echo "EMU198X_SPECTRUM_SYSTEM_TESTS_DIR=$(pwd)/spectrum-system-tests/tapes" >> "$GITHUB_ENV"
+          echo "EMU198X_SPECTRUM_128K_ROM0=$(pwd)/spectrum-system-tests/roms/128-0.rom" >> "$GITHUB_ENV"
+          echo "EMU198X_SPECTRUM_128K_ROM1=$(pwd)/spectrum-system-tests/roms/128-1.rom" >> "$GITHUB_ENV"
+
+      - name: Assert the corpus is actually present
+        # Same reasoning as the other Spectrum jobs. `halt2int128.tap` in
+        # particular had never been staged, so its test skipped from the
+        # day it was written — which is why the oracle the 128K's
+        # contention constants were pinned against could not be re-checked.
+        run: |
+          set -euo pipefail
+          for f in "${EMU198X_SPECTRUM_128K_ROM0}" \
+                   "${EMU198X_SPECTRUM_128K_ROM1}" \
+                   "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/halt2int128.tap" \
+                   "${EMU198X_ZX_SPECTRUM_TESTS_DIR}/ZX Spectrum Timing Tests - 128K v1.0 (2015-03-30)(Butler, Richard; Butler, Tim)[!].szx"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::missing corpus input: $f — the 128K oracles would skip"
+              exit 1
+            fi
+          done
+
+      - name: SZX reader against real files
+        # The format the 128K timing suite ships in. Parses every `.szx` in
+        # the corpus, not just the one that motivated the reader — a parser
+        # tested on one writer's output is tested on one writer's habits.
+        run: |
+          cargo test --release -p format-sinclair-zx-spectrum-szx \
+            --test real_files -- --include-ignored --nocapture
+
+      - name: HALT2INT128 (128K HALT-to-interrupt profile)
+        # The oracle `spectrum-contention-the-way-out.md` cites for the
+        # 128K's contention window. It had never run: the tape was not in
+        # any corpus.
+        run: |
+          cargo test --release -p machine-sinclair-zx-spectrum-128k \
+            --test tape_smoke -- --include-ignored --nocapture \
+            halt2int128
+
+      - name: ZXSpectrum4.net timing survey, 128K (ratchet 10 of 67)
+        # The 128K's first graded real-software oracle. ~7 minutes.
+        run: |
+          cargo test --release -p runtime-sinclair-zx-spectrum \
+            --test timing_survey_128k -- --include-ignored --nocapture
+
+      - name: Upload the 128K survey report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spectrum-timing-survey-128k
+          path: target/accuracy/spectrum-timing-survey-128k/**/report.json
+          if-no-files-found: warn

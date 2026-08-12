@@ -430,8 +430,11 @@ fn the_delay_table_still_matches_fuse() {
 #[ignore = "needs the +3 ROM set"]
 fn the_origin_is_pinned_by_the_interrupt() {
     let Some(roms) = roms() else {
-        eprintln!("+3 ROMs not found; set {ROM_DIR_ENV} to run this harness");
-        return;
+        // Not a bare `return`. A harness that passes when its fixture is
+        // absent gates nothing, and this one exists because #856 went
+        // unmeasured for months. `skip!` fails under
+        // `EMU198X_STRICT_FIXTURES`, which the nightly sets.
+        emu198x_test_skip::skip!("+3 ROM set not staged; set {}", ROM_DIR_ENV);
     };
     let mut machine = fresh(&roms);
     while tstate_in_frame(&machine) != 0 {
@@ -486,8 +489,11 @@ fn the_origin_is_pinned_by_the_interrupt() {
 #[ignore = "differential harness; needs the +3 ROM set"]
 fn memory_contention_matches_fuse_at_every_arrival_tstate() {
     let Some(roms) = roms() else {
-        eprintln!("+3 ROMs not found; set {ROM_DIR_ENV} to run this harness");
-        return;
+        // Not a bare `return`. A harness that passes when its fixture is
+        // absent gates nothing, and this one exists because #856 went
+        // unmeasured for months. `skip!` fails under
+        // `EMU198X_STRICT_FIXTURES`, which the nightly sets.
+        emu198x_test_skip::skip!("+3 ROM set not staged; set {}", ROM_DIR_ENV);
     };
 
     // Skews of 0..8 walk the arrival point across a whole period of the
