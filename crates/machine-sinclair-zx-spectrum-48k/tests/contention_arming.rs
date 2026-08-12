@@ -502,7 +502,7 @@ fn report_io(port: u16, label: &str) -> Vec<IoCycle> {
 /// The reference is `ula_contend_port_early` / `_late` transcribed as
 /// `fuse_charge_points`, not a constant lifted out of them.
 ///
-/// ## What it says, recorded 2026-08-11
+/// ## What it said, recorded 2026-08-11, against the old level gate
 ///
 /// | port | gate | FUSE | withheld runs begin on |
 /// |---|---|---|---|
@@ -511,24 +511,50 @@ fn report_io(port: u16, label: &str) -> Vec<IoCycle> {
 /// | `$40FF` | **2** | **4** | `T1Fall`, `T3Fall` |
 /// | `$00FF` | 0 | 0 | — |
 ///
-/// Three classes of four already agree, which is a narrower result than
-/// the frame-wide differential's "the engine cannot separate `$40FE` from
-/// `$40FF`" and contradicts part of it. The gate *does* separate `$00FE`
-/// from `$40FE`. What it cannot do is charge a contended-page odd port
-/// four times: `$40FF` and `$40FE` come out identical because neither of
-/// their runs is the ULA-answers decode at all. `ula_io` is false for an
-/// odd port, so the I/O term never fires on `$40FF`, and both runs are the
-/// *memory* gate — `contended_addr && !cpu_mreq`, which holds for every
-/// half-cycle of an I/O M-cycle because `/MREQ` is never asserted in one.
+/// Three classes of four agreed, which was a narrower result than the
+/// frame-wide differential's "the engine cannot separate `$40FE` from
+/// `$40FF`" and contradicted part of it. What the gate could not do was
+/// charge a contended-page odd port four times: `$40FF` and `$40FE` came
+/// out identical because neither of their runs was the ULA-answers decode
+/// at all. `ula_io` is false for an odd port, so the I/O term never fired
+/// on `$40FF`, and both runs were the *memory* gate —
+/// `contended_addr && !cpu_mreq`, which holds for every half-cycle of an
+/// I/O M-cycle because `/MREQ` is never asserted in one.
 ///
-/// That the memory gate is what implements `contend_port_early` may well
-/// be right — FUSE's early charge is conditioned on the port page, exactly
-/// what the memory gate tests. What is missing is the rest of
-/// `contend_port_late`'s odd-port branch.
+/// That the memory gate is what implements `contend_port_early` turned out
+/// to be right: FUSE's early charge is conditioned on the port page,
+/// exactly what the memory gate tests, and the gate now leans on that
+/// deliberately.
+///
+/// ## What it says now, and why it still cannot be the score
+///
+/// | port | gate | FUSE | charges the gate actually makes |
+/// |---|---|---|---|
+/// | `$40FE` | 1 | 2 | 2 — `T1Fall`, `T2Fall` |
+/// | `$00FE` | 1 | 1 | 1 — `T2Fall` |
+/// | `$40FF` | 2 | 4 | 4 — `T1Fall`..`T4Fall` |
+/// | `$00FF` | 0 | 0 | 0 |
+///
+/// The charge counts are now FUSE's in every class —
+/// `io_contention_oracle` scores 0 of 297,222 samples, per class, which is
+/// the instrument that can see them. This one still reads low, and by
+/// exactly the factor its own doc comment predicts: **a run merges
+/// adjacent charges**. Two lookups one T-state apart withhold a contiguous
+/// stretch of half-cycles and count as one run, so `$40FE`'s two charges
+/// read 1 and `$40FF`'s four read 2.
+///
+/// That is not a defect to fix here. It is the reason
+/// `io-contention-is-a-count-not-a-level.md` forbids scoring gate changes
+/// against this file: three terms were tuned against a run count and died.
+/// The `assert_ne!` at the end is the part of this test that survives the
+/// merging, because it compares two classes rather than a class against a
+/// number.
 #[test]
-#[ignore = "KNOWN DIVERGENCE: $40FF gets two withheld runs per I/O M-cycle \
-            where FUSE charges four; the other three classes agree. See the \
-            table on this test. Also needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "KNOWN LIMITATION: a withheld *run* merges charges landing one \
+            T-state apart, so this reports 1 where the gate charges 2 and 2 \
+            where it charges 4. Score I/O contention with \
+            io_contention_oracle, which is at zero. See the tables on this \
+            test. Also needs EMU198X_SPECTRUM_48K_ROM"]
 fn io_contention_matches_the_four_fuse_port_classes() {
     let cases: [(u16, &str); 4] = [
         (0x40FE, "ULA port, contended page — FUSE: C:1, C:3"),

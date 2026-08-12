@@ -11,25 +11,38 @@
 //! (cpu_iorq || e.z80_iorq_prev) && io_even_port && e.z80_clock_high
 //! ```
 //!
-//! which is the same one-half-cycle delay-line approximation that was
-//! proved wrong for `MREQ`, and which knows nothing about the *page* the
+//! which was the same one-half-cycle delay-line approximation that was
+//! proved wrong for `MREQ`, and which knew nothing about the *page* the
 //! port address lands in. FUSE contends in three of the four classes, with
-//! a different shape in each; this gate has one shape and one test.
+//! a different shape in each; that gate had one shape and one test.
 //!
 //! See `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
 //!
 //! ## What it found
 //!
-//! - The engine cannot separate `$40FE` from `$40FF` at all — the two
-//!   differ only in the bit the gate tests, yet cost the same to within
-//!   0.00 T-states, where FUSE separates them by 5.10. The page
-//!   dependence the engine *does* show comes from the wrong place: the
-//!   memory gate's `!cpu_mreq` term is true throughout an I/O cycle, so a
-//!   port address in `$4000..$8000` trips *memory* contention.
+//! - The engine could not separate `$40FE` from `$40FF` at all — the two
+//!   differ only in the bit the gate tested, yet cost the same to within
+//!   0.00 T-states, where FUSE separates them. The page dependence the
+//!   engine *did* show came from the wrong place: the memory gate's
+//!   `!cpu_mreq` term is true throughout an I/O cycle, so a port address in
+//!   `$4000..$8000` tripped *memory* contention.
 //! - `$00FF`, the port floatspy reads, is FUSE's `N:4` class: no I/O
-//!   contention at any arrival T-state. The engine matches it exactly,
-//!   0 of 63,744 samples, with or without the `MREQT23` latch. I/O
-//!   contention is therefore not what breaks floatspy.
+//!   contention at any arrival T-state. The engine matched it exactly,
+//!   0 of 63,744 samples, with or without the `MREQT23` latch.
+//!
+//! ## What it says now
+//!
+//! Zero of 297,222, all five classes, at the interrupt-pinned origin. The
+//! gate charges a *count* of lookups at FUSE's offsets rather than holding
+//! a level; see
+//! `knowledge/decisions/io-contention-is-a-count-not-a-level.md`.
+//!
+//! The second bullet above drew a conclusion that has since been
+//! falsified, and it is left standing as a warning. `$00FF` is uncontended
+//! in both models, so I/O contention looked irrelevant to floatspy — but
+//! floatspy's *probe* reaches its `IN A,($FF)` through an `IN A,(254)`, an
+//! even port, whose cost this fix changes. "The port under test is
+//! uncontended" does not imply "the program measuring it is unaffected".
 //!
 //! ## Why this shape
 //!
@@ -544,10 +557,10 @@ fn the_port_model_reproduces_the_four_way_table() {
         );
     }
 
-    // And the engine's current gate cannot express this: it keys only on
-    // the port's low bit, so it must treat `$40FF` and `$C0FF` alike. If
-    // this ever stops holding, the gate has been changed and the claim in
-    // the decision record needs revisiting.
+    // And the reference has to separate the two odd-port classes by page,
+    // because that is the distinction the engine's gate now draws with its
+    // `contended_addr` term. A reference that could not state it would let
+    // a gate that ignored the page score exact.
     assert_ne!(
         fuse_in_a_c_cost(busy, 0x40FF),
         fuse_in_a_c_cost(busy, 0xC0FF),
@@ -775,15 +788,28 @@ fn io_contention_matches_fuse_across_the_whole_frame() {
     // out of contended RAM pays for two contended `M1` fetches before it
     // reaches the port cycle, so most of what this harness was scoring
     // was never I/O-specific. The remainder is.
-    const RATCHET: usize = 21_510;
-    if total < RATCHET {
-        println!(
-            "\nRATCHET: {total} of {samples_total} — improved on {RATCHET}. \
-             Lower the constant in this commit."
-        );
-    }
-    assert!(
-        total <= RATCHET,
+    //
+    // Then 21,510, and now **zero**, bought by replacing the I/O gate's
+    // level test with a count of contention lookups at the offsets FUSE
+    // charges them — `ferranti-ula-6c001e`'s three port terms. All five
+    // classes are exact, including the two that were already exact and
+    // stood as the regression guard.
+    //
+    // Zero is a ceiling like any other, and a more useful one: nothing can
+    // now improve this harness's score, so any movement at all is a
+    // regression. What it does *not* mean is that Spectrum I/O timing is
+    // finished — this scores `IN A,(C)` against FUSE's port model, and the
+    // one T-state still unaccounted for in the floating-bus path moved when
+    // this landed. See `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
+    //
+    // At zero the ratchet stops being an inequality: `<=` would be an
+    // absurd comparison and clippy says so. It is an equality now, which is
+    // the stronger statement and the one that was always intended — the
+    // instruction to move the constant in the same commit stands, but there
+    // is only one direction left to move it in.
+    const RATCHET: usize = 0;
+    assert_eq!(
+        total, RATCHET,
         "I/O contention regressed against FUSE: {total} of {samples_total} \
          samples disagree, was {RATCHET}. If this change is right and the \
          reference is wrong, say so explicitly and move the ratchet in the \

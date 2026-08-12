@@ -1,8 +1,14 @@
 # Spectrum contention and the floating bus are co-tuned
 
-**Status:** Open. Contention fix written, evidenced, and *deliberately not
-enabled* pending a floating-bus derivation. I/O contention now derived
-against FUSE and ruled out as the floating-bus blocker. 2026-08-10.
+**Status:** Open. The `MREQT23` memory-contention fix is written, evidenced,
+and *deliberately not enabled* pending a floating-bus derivation.
+
+I/O contention is a separate matter and is now **fixed and enabled** — the
+gate charges FUSE's lookup counts and `io_contention_oracle` scores zero of
+297,222. That landing falsified this record's claim that I/O contention was
+ruled out as a floating-bus factor: it moves both floating-bus probes by a
+T-state. The two remaining floating-bus divergences are recorded under
+"Ruled out" below and are the live question here. 2026-08-12.
 
 ## The short version
 
@@ -98,10 +104,18 @@ floating-bus oracle deserves revisiting.
 - **`IN` instruction timing.** Exact, as above.
 - **Contention parity and the `MREQT23` clearing edge.** Both measured
   and eliminated; see `spectrum-accuracy-closure-campaign.md`.
-- **I/O contention.** Derived against FUSE frame-wide and ruled out *for
+- ~~**I/O contention.** Derived against FUSE frame-wide and ruled out *for
   the floating bus specifically* — floatspy reads port `$00FF`, which FUSE
-  does not contend at all. It is still broken for three of the four port
-  classes; see the I/O section below.
+  does not contend at all.~~ **Falsified 2026-08-12.** The port under test
+  being uncontended does not make the program measuring it unaffected.
+  floatspy reaches its `IN A,($FF)` through an `IN A,(254)` — an even port
+  — and Float48K's probe does the same, so both ride on the even-port
+  class. Fixing I/O contention to FUSE's lookup counts
+  ([`io-contention-is-a-count-not-a-level.md`](io-contention-is-a-count-not-a-level.md))
+  moved `Float48K` from 14337 to 14336 against hardware's 14338, and
+  floatspy's `IN() BYTE` from 0 to 54. `btime` and `ptime` did not move —
+  `btime` still reports `14112 + 224 = 14336` byte for byte — so this is
+  specific to the floating-bus path, not a general timing shift.
 
 ## Why the fix is committed but unwired
 
