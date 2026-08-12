@@ -405,6 +405,7 @@ them the number it was scored on:
 | — of which wrong loop count | — | **6** | 0 |
 | memory differential (48K) | (none) | **18** of 370,024 | 0 |
 | memory differential (128K) | (none) | **17** of 375,406 | 0 |
+| ZXSpectrum4.net survey (128K) | (none) | **10** of 67 failing | 0 |
 | memory differential (+2A) | (none) | **149,185** of 442,666 | 0 |
 | floating-bus differential (48K) | (none) | **0** of 69,888 | 0 |
 | `IN`-path byte differential (48K) | (none) | **0** of 66,000-odd | 0 |
@@ -494,6 +495,53 @@ failing to **17** and floatspy's diff widened from 72 pixels to **140**,
 while the differential only improved from 18 to 33 at the corrected
 origin. The gap is the harness's *arrival label*, not the gate; see
 `ARRIVAL_LABEL_LEAD_TSTATES` below.
+
+### The 128K has a real-software oracle, and it agrees
+
+Recorded 2026-08-12. Until now everything real that had ever run against
+the 128K's timing was HALT2INT128 — one pass/fail. The ZXSpectrum4.net
+suite has a 128K build by the same authors, and it now runs:
+`runtime-sinclair-zx-spectrum`'s `timing_survey_128k`, **67 cases
+recorded, 10 failing**.
+
+That corroborates the differential work from a direction FUSE cannot. The
+memory differential says 17 of 375,406 at the pinned origin; a graded
+suite of real Z80 code, self-scored against values recorded on real
+hardware, agrees that this machine is broadly right and names where it is
+not.
+
+The ten are shaped, not scattered:
+
+- **Block I/O fails in both modes.** `INI/INIR/IND/INDR` (test 32) and
+  `OUTI/OTIR/OUTD/OTDR` (test 33) are wrong uncontended *and* contended,
+  by ~13 loops and a long way on `R`. Uncontended failure means this is
+  not contention at all — it is the instructions' own timing, and it is
+  the same family the 48K survey has never got right either.
+- **The arithmetic group fails contended only**, by one or two on `R` and
+  four on `SP` (tests 4, 17, 18, 26). That is a contention shape.
+- Two singletons: `EXX/EX AF,AF'` and `CALL cc/JR cc/DJNZ`, contended.
+
+So the next contention move on this machine has a per-instruction target
+rather than a total, and the block-I/O group is visibly a separate
+problem from the contention gate.
+
+#### Two things the suite itself does that the harness had to measure
+
+**It has 34 tests, not the 35 its prompt offers.** The prompt reads
+`choose test 1-35 or leave blank`, inherited from the 48K build. Asking
+for 35 drops out with `9 STOP statement, 1350:1` — the suite falling off
+the end of its own table. Taking the prompt at its word costs one dead
+test per run and reads exactly like a hang.
+
+**Test 2's contended pass cannot complete**, stopping with
+`4 Out of memory, 5070:1` after its uncontended pass has already reported
+`Pass`. It reproduces from a fresh boot, and it is also what ends the run
+if the prompt is answered with a blank line to select every test — which
+is the same reason the 48K harness boots once per test rather than
+driving all of them in one session. Whether this is the suite running out
+of room on a 128K in 48K mode or something this engine does to it is **not
+established**. `KNOWN_INCOMPLETE` records it as an exact set, so a new gap
+fails and this one closing is also a finding.
 
 ### The other two machines have differentials now
 
