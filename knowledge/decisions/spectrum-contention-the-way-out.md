@@ -2,9 +2,10 @@
 
 **Date:** 2026-08-11
 **Status:** IN PROGRESS — Phase 1 done; the I/O sample instant derived and
-the floating bus closed on both machines; Phase 3's gate diagnosis
-disconfirmed and rewritten. See “What happened” below before acting on the
-plan, and treat the plan's own Phase 3 as superseded by it.
+the floating bus closed on both machines; the contention window's phase and
+edge derived, taking the survey to 13 of 70; Phase 3's gate diagnosis
+disconfirmed twice and rewritten. See “What happened” below before acting on
+the plan, and treat the plan's own Phase 3 as superseded by it.
 **Supersedes the approach in:**
 [`spectrum-contention-vs-floating-bus.md`](spectrum-contention-vs-floating-bus.md)
 
@@ -186,13 +187,22 @@ and ours was not chosen, it was inherited from where the code happened to sit.
 *Evidence:* the SpecIde gate port was byte-identical to doing nothing, purely
 because of this.
 
-**C. `DELAY_TABLE_48K` is a hand-written 16-entry table where the hardware has
-two counter bits.** The gate is `C2 | C3`. Encoding that as a literal invites
-exactly the phase error it has: ours is rotated one pixel against the HDL's
-window, which is invisible at T-state resolution and so survived undetected.
+**C. DONE, and it was right.** `DELAY_TABLE_48K` was a hand-written 16-entry
+table where the hardware has two counter bits. The gate is `C2 | C3`.
+Encoding that as a literal invited exactly the phase error it had.
 
-*Possible rework:* derive the window from the pixel counter's bits, so the
-phase relationship is stated once and cannot drift.
+The rework this entry proposed — *derive the window from the pixel counter's
+bits, so the phase relationship is stated once and cannot drift* — is what
+landed, and the error it was carrying was larger than the entry guessed. Not
+one pixel: **three**, and a second four-pixel error in the window's edge
+alongside it. Together they were a whole T-state of phase and two T-states
+at every line boundary, worth 88,871 of 371,054 samples against FUSE and
+sixteen cases of the timing survey.
+
+The entry was also right about *why* it survived: "invisible at T-state
+resolution". Every probe pointed at the table measured the gate against
+itself. It took a differential resolved by arrival T-state and anchored to
+the interrupt to see it. See “The memory differential, and what it found”.
 
 **D. Three hand-written copies of the gate.** `ferranti-ula-6c001e`,
 `sinclair-ula-7k010e` and `timex-scld` each carry their own boolean, and they
@@ -338,44 +348,95 @@ earlier than `top_left_pixel` does. Dropping both origins by one would put
 the 48K on Woody's figure and take the 128K off 14364, so the open question
 is between the two anchors, not between the two machines.
 
+### The memory differential, and what it found
+
+The gap named below — no asserting memory-side engine-versus-FUSE
+differential — is closed. `contention_oracle.rs` now carries
+`memory_contention_matches_fuse_at_every_arrival_tstate`: seven instruction
+shapes from one to six M-cycles, executing out of contended RAM and reading
+contended RAM, every arrival T-state in the frame, scored against FUSE's
+per-M-cycle walk at the `/INT`-pinned origin, asserting.
+
+It opened at **88,871 of 371,054** and reproduced the I/O sweep's shape
+independently and far more sharply — `+14334` scored 2,328, against 88,871
+at the pin. One global shift, so the error was in the contention window's
+phase rather than in any instruction shape, exactly as the I/O sweep had
+argued.
+
+**Two defects, both phase errors, neither fitted.**
+
+*The window's phase against the fetch.* `DELAY_TABLE_48K` was sixteen
+hand-written booleans, free at half-cycles 15, 0, 1 and 2 — straddling a
+T-state boundary at both ends, so its effective phase depended on which
+parity the CPU arrived on. Smith gives the shape as `CLKWAIT = C3 + C2` and
+Chapter 18 declines to pin the counter's absolute phase, but the **HDL pins
+it**, because one counter drives both its fetch and its `CLKWAIT`:
+`zx_ula`'s `fpga_version/rtl/ula.v` presents display addresses to VRAM at
+`hc[3:0]` 8, 9, 12, 13 and attributes at 10, 11, 14, 15, and gates
+contention on `hc[2] | hc[3]`. Our fetch group is pixels 4–11 — four pixels
+earlier — so `C3 + C2` read on that origin puts the free run at pixels
+12–15. `HDL_HC_LEAD_PIXELS` states those four pixels once.
+
+*The window's edge.* Contention was gated on `UlaEngine::video`, which opens
+at `fetch_start`. The HDL gates it on `Border_n` = `!hc[8]`: 256 pixels,
+sixteen whole fetch cycles, beginning at a cycle *boundary* eight pixels
+ahead of that cycle's access. Ours begins at pixel 0, four pixels ahead of
+the access at pixel 4. Two T-states, mischarged at both ends of all 192
+display lines, and the entire residual left after the phase fix.
+
+Three corroborations that the phase is derived rather than fitted, none of
+them the number it was scored on:
+
+- `contention_tables` reproduces `[6,5,4,3,2,1,0,0]` at alignment **0**
+  rather than 3 — the CPU's T-state grid and the ULA's pixel counter share
+  an origin, where the literal put them one and a half T-states apart.
+- `effective_delay_table`'s two clock parities now agree across the whole
+  ramp. The literal made them differ inside the free window, because a
+  four-pixel free run starting on an odd pixel gives the two parities
+  different T-states.
+- The pinned origin is now the offset sweep's **minimum**, where it used to
+  sit beside a sharp one a T-state away.
+
 ### Standing state
 
 | gate | baseline | now | target |
 |---|---|---|---|
-| ZXSpectrum4.net survey | 36 failing | **29** | < 36 |
+| ZXSpectrum4.net survey | 36 failing | **13** | < 36 |
+| — of which wrong loop count | — | **6** | 0 |
+| memory differential | (none) | **18** of 370,024 | 0 |
+| I/O differential | 30,741 | **21,510** | < 30,741 |
 | Float48K | 14337 | 14337 | 14337 |
-| I/O differential | 30,741 | 75,081 | < 30,741 |
 | Float128K | 14363 | **14364** | 14364 |
-| floatspy | byte-exact | red | byte-exact |
+| floatspy | red, 18px | red, 72px | byte-exact |
 | +2A max delay | 1 | 1 | 7 |
 
-### Phase 3's remaining diagnosis, rewritten
+The survey is the best this engine has recorded: 36 at the start of the
+contention work, 34 at the Phase 2 baseline, 37 with `MREQT23` wired, 29
+after the arming parity, **13** now.
 
-The plan said everything outstanding was on the I/O path. The offset sweep
-`io_contention_oracle` prints says otherwise:
+Worth stating plainly, because the record has been read the other way
+before: the window's phase fix *alone* took the survey from 29 to **33**,
+and the edge fix took it from 33 to 13. Landing the first without the
+second would have looked like the see-saw this record was written about. It
+was one defect seen from two ends, and the differential is what said so —
+the four cases the phase fix broke were all multi-M-cycle, which is where
+the phase fix's whole 9,858 residual also lived.
 
-```
-offset      +14331  +14332  +14333  +14334  +14335  +14336  +14337
-mismatches   72585   75657   74889   15171   75081   78921   80457
-```
+### What is left on the floating bus
 
-`+14335` is the origin pinned to the `/INT` edge and is what the ratchet
-scores against. `+14334` is a **sharp isolated minimum** at 15,171 — five
-times better than any neighbour and comfortably under the 30,741 ratchet.
-An origin shift moves the two contended `M1` fetches of `IN A,(C)` as well
-as the port cycle, so an error a single global shift can absorb is one in
-contention charging generally, not in the I/O gate.
+One byte. `floatspy`'s menu prints its `IN()` result as **64** where its
+golden and Spectron's `floatspy_48.png` print **0**. That is the whole
+72-pixel diff in `tape_smoke` and one character cell of the self-test's
+945-pixel gap against Spectron; it was 18 pixels before this work and is
+not repaired by it.
 
-Read that as: Phase 1 moved the engine's contention charge one T-state
-later against its own interrupt, and most of the ratchet's 30,741 → 75,081
-is that rather than anything I/O-specific. **The fit is a diagnosis, not a
-setting** — rescoring at +14334 is the failure this record's own drift
-triggers name.
-
-It is invisible everywhere else because there is no asserting memory-side
-engine-versus-FUSE differential. `contention_oracle.rs`'s frame-wide test
-compares two *models* of the delay table, and its engine-scoring tests are
-report-only. Closing that gap is the next move, ahead of touching the gate.
+The floating-bus *timing* did not move — Float48K reads 14337 and
+Float128K 14364, both unchanged through every step. So this is a byte
+sampled at an instant contention has moved, coming back `$40` instead of
+`$00`. It is the third floating-bus error this record and
+`spectrum-contention-vs-floating-bus.md` have both been pointing at,
+reduced from a whole-screen diff to a single wrong byte. Neither golden was
+re-blessed.
 
 ### The four port classes, measured
 
@@ -400,6 +461,35 @@ half-cycle of an I/O M-cycle because `/MREQ` is never asserted in one.
 `$40FE` reaching the right count is the memory gate standing in for
 `contend_port_early`, and that may well be right — FUSE's early charge is
 conditioned on the same port page.
+
+#### The obvious fix is a no-op, and the next one is worse
+
+Adding `contend_port_late`'s odd-port branch — `(ula_io ||
+contended_addr)` — changes **nothing**. Byte-identical: 75,081 of 294,153,
+`$40FF` still at two runs, every class unmoved.
+
+The reason is a term interaction the charge-count table cannot show. The
+memory gate arms on `gate_arms_this_halfcycle`, a `Fall` phase; the I/O
+term arms on `z80_clock_high`, a `Rise`. `track_z80_clock` does not run
+while the CPU is stalled, so `z80_clock_high` **freezes** during a stall.
+Once the memory gate withholds a half-cycle inside a contended-page I/O
+M-cycle, the clock parity stops advancing and the I/O term never sees an
+arming half-cycle at all. It is shadowed, not absent.
+
+Making the two mutually exclusive — SpecIde's third term, suppressing the
+memory gate while `/IORQ` is live — does not rescue it either: still two
+runs, and the differential rises to 78,339. `/IORQ` is not asserted until
+`T2Fall`, so at the M-cycle's start the memory gate is the *only* term that
+can fire, and suppressing it deletes exactly the charge that was correctly
+standing in for `contend_port_early`. **Third disconfirmation of mutual
+exclusion**, and the first one with a mechanism rather than a score.
+
+So the I/O shape is not one missing term. Either the gate needs an arming
+parity that survives a stall, or the harness's "maximal run of withheld
+half-cycles" is the wrong counterpart to FUSE's charge points for a
+level-sensitive gate — a run merges two adjacent charges, which its own
+doc already flags as a lower bound. Settling which is the next instrument
+question, not the next gate change.
 
 ### The +2A stale pin is disconfirmed
 
