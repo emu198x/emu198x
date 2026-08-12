@@ -621,3 +621,328 @@ fn floating_bus_matches_fuse_at_every_tstate() {
          several origins rather than the frame's"
     );
 }
+
+/// FUSE's `ula_contention[]` for the 48K — `spectrum_contend_delay_65432100`
+/// in `machines/spec48.c`, where `contend_delay` and `contend_delay_no_mreq`
+/// are wired to the same function, so port contention reads from this too.
+///
+/// Third transcription of this table in the tree, and deliberately not a
+/// copy: `the_port_delay_table_still_matches_fuse` below re-derives it from
+/// libspectrum's frame geometry and compares, which is the rule
+/// `io_contention_oracle` set when it duplicated it the second time. In
+/// FUSE's own frame coordinates, so [`ORIGIN`] is applied by the caller.
+fn delay_at(t: u32) -> u32 {
+    const FIRST_DISPLAY: u32 = 14_335;
+    const DISPLAY_LINES: u32 = 192;
+    const CONTENDED_PER_LINE: u32 = 128;
+    const PATTERN: [u32; 8] = [6, 5, 4, 3, 2, 1, 0, 0];
+
+    let t = t % FRAME_TSTATES;
+    if t < FIRST_DISPLAY {
+        return 0;
+    }
+    let into_display = t - FIRST_DISPLAY;
+    if into_display / PER_LINE >= DISPLAY_LINES {
+        return 0;
+    }
+    let in_line = into_display % PER_LINE;
+    if in_line >= CONTENDED_PER_LINE {
+        return 0;
+    }
+    PATTERN[(in_line % 8) as usize]
+}
+
+/// The T-state at which FUSE's `readport` samples the unattached port.
+///
+/// **The delays land before the sample, and that is the whole point of this
+/// function.** `periph.c` calls `ula_contend_port_early`, then
+/// `ula_contend_port_late`, and *then* `readport_internal` — checked against
+/// the vendored source, because the order decides the answer and the
+/// existing `FUSE_SAMPLE_OFFSET = 3` reads as bare geometry only for a class
+/// that is charged nothing.
+///
+/// So FUSE's sample instant moves with the contention it charged. Ours is
+/// the `/IORQ` assertion plus a fixed [`IO_READ_DATA_LATCH_LEAD_TSTATES`],
+/// which cannot include a delay charged after that assertion — and for a
+/// contended-page odd port `contend_port_late` charges two.
+///
+/// `io_cycle_start` is in FUSE's frame coordinates.
+fn fuse_sample_tstate(io_cycle_start: u32, port: u16) -> u32 {
+    let page_contended = (0x4000..0x8000).contains(&port);
+    let answered_by_ula = port & 1 == 0;
+
+    let mut t = io_cycle_start;
+
+    // `ula_contend_port_early`
+    if page_contended {
+        t += delay_at(t);
+    }
+    t += 1;
+
+    // `ula_contend_port_late`
+    if answered_by_ula {
+        t += delay_at(t);
+        t += 2;
+    } else if page_contended {
+        t += delay_at(t);
+        t += 1;
+        t += delay_at(t);
+        t += 1;
+        t += delay_at(t);
+    } else {
+        t += 2;
+    }
+
+    t
+}
+
+/// The delay table has to be checked before its readings mean anything.
+///
+/// Re-derived from libspectrum's `timings_frame_ferranti_5c_6c` rather than
+/// trusted because it was copied from a sibling harness.
+#[test]
+fn the_port_delay_table_still_matches_fuse() {
+    const FUSE_PATTERN: [u32; 8] = [5, 4, 3, 2, 1, 0, 0, 6];
+    const LINE_TIMES_0: u32 = 8_944;
+    const LEFT_BORDER: u32 = 24;
+    const HORIZONTAL_SCREEN: u32 = 128;
+    const OFFSET: u32 = 1;
+    const BORDER_HEIGHT: u32 = 24;
+    const DISPLAY_LINES: u32 = 192;
+
+    fn fuse_delay(t: u32) -> u32 {
+        if t < LINE_TIMES_0 {
+            return 0;
+        }
+        let line = (t - LINE_TIMES_0) / PER_LINE;
+        if !(BORDER_HEIGHT..BORDER_HEIGHT + DISPLAY_LINES).contains(&line) {
+            return 0;
+        }
+        let through = (t - LINE_TIMES_0 + (LEFT_BORDER - 16)) % PER_LINE;
+        if !(LEFT_BORDER - OFFSET..LEFT_BORDER + HORIZONTAL_SCREEN - OFFSET).contains(&through) {
+            return 0;
+        }
+        FUSE_PATTERN[(through % 8) as usize]
+    }
+
+    let bad: Vec<_> = (0..FRAME_TSTATES)
+        .filter(|&t| delay_at(t) != fuse_delay(t))
+        .take(8)
+        .collect();
+    assert!(bad.is_empty(), "delay table disagrees with FUSE at {bad:?}");
+}
+
+/// Where the `IN` path samples the bus *when contention is charged*.
+///
+/// `the_in_path_samples_the_bus_where_fuse_does` scores the sample instant
+/// on `$00FF` from uncontended RAM — FUSE's `N:4` class, charged nothing,
+/// with the code page charged nothing either — and asserts the instruction
+/// costs exactly 12 T-states. It is by construction the one case where no
+/// delay can land before the sample, so it cannot see whether ours and
+/// FUSE's sample instants still agree once a delay does.
+///
+/// That gap is what #880 walked into. Charging each port class the number of
+/// lookups FUSE charges it moved the even-port lookup to the M-cycle's
+/// second T-state — *before* `/IORQ` is asserted — and both floating-bus
+/// probe programs moved a T-state with it. `Float48K` went 14337 to 14336
+/// against hardware's 14338, floatspy's `IN() BYTE` went 0 to 54, and
+/// floatspy's Spectron self-test stopped completing. Running both programs
+/// under FUSE 1.7 settles which side is wrong: FUSE prints **14338** and
+/// **byte 0**, so FUSE and the hardware measurements agree and the engine
+/// disagrees with both.
+///
+/// This scores the case the existing test omits: a **contended-page odd
+/// port**, which reads the floating bus (odd) *and* is charged four lookups
+/// (contended page). Two of those four land after `/IORQ` is asserted, which
+/// our fixed lead cannot see.
+///
+/// ## Why this can adjudicate the origin, and the other differentials cannot
+///
+/// `io_contention_oracle` and `contention_oracle` supply their own
+/// [`CONTENTION_ORACLE_ORIGIN`], one T-state from the [`ORIGIN`] the raster
+/// keeps. A gate one T-state late is indistinguishable from an origin one
+/// T-state early — `io_contention_oracle`'s own `ORIGIN` comment says so —
+/// and a differential that fits its own origin cannot break the tie.
+///
+/// This one cannot fit anything. It scores a *byte* against the bus, at the
+/// origin pinned twice over by `floating_bus_matches_fuse_at_every_tstate`
+/// and `the_interrupt_and_the_bus_agree_on_the_frame_origin`. The lead sweep
+/// printed below is the diagnosis: a uniform displacement means the sample
+/// instant is wrong, and a residual no single lead can remove means the
+/// delays are landing in the wrong places.
+#[test]
+#[ignore = "differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
+fn the_in_path_samples_the_bus_where_fuse_does_under_contention() {
+    /// Two uncontended `M1` fetches before the I/O M-cycle opens.
+    const IO_MCYCLE_OFFSET: u32 = 8;
+    /// Contended page, odd port: FUSE's `C:1 C:1 C:1 C:1`, four lookups,
+    /// and odd so the ULA does not answer it and the bus is what `IN`
+    /// returns.
+    const PORT: u16 = 0x40FF;
+    /// Uncontended upper RAM, so neither `M1` fetch is charged and the I/O
+    /// M-cycle opens a fixed eight T-states after the instruction arrives.
+    const CODE_BASE: u16 = 0x8000;
+    const CODE_END: u16 = 0xC000;
+
+    let Some(rom) = rom_bytes() else {
+        panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
+    };
+
+    let mut samples: Vec<(u32, u8)> = Vec::new();
+    for skew in 0..12u32 {
+        let mut machine = Spectrum48k::new();
+        machine.load_rom_bytes(&rom).expect("48K ROM should load");
+        machine.reset();
+        for addr in SCREEN_BASE..SCREEN_END {
+            machine.memory_mut().write(addr, screen_pattern(addr));
+        }
+        let mut addr = CODE_BASE;
+        while addr < CODE_END {
+            machine.memory_mut().write(addr, 0xED);
+            machine.memory_mut().write(addr + 1, 0x78);
+            addr += 2;
+        }
+        while machine.tstate_in_frame() != 0 {
+            machine.advance_tstates(1);
+        }
+        machine.advance_tstates(skew);
+        machine.z80_mut().regs.pc = CODE_BASE;
+        machine.z80_mut().regs.bc = PORT;
+        machine.z80_mut().regs.iff1 = false;
+        machine.z80_mut().regs.iff2 = false;
+
+        for _ in 0..2 {
+            step_one_instruction(&mut machine);
+        }
+        let mut spent = 0u32;
+        while spent < FRAME_TSTATES {
+            let arrival = machine.tstate_in_frame();
+            assert!(
+                (CODE_BASE..CODE_END).contains(&machine.z80().regs.pc),
+                "execution left the instruction stream, so every later sample \
+                 is a measurement of the ROM"
+            );
+            let cost = step_one_instruction(&mut machine);
+            samples.push((arrival, (machine.z80().regs.af >> 8) as u8));
+            spent += cost;
+        }
+    }
+
+    // Self-check: this class has to actually be contended somewhere, or a
+    // clean score would only prove the window was shut all frame.
+    let contended = samples
+        .iter()
+        .filter(|&&(arrival, _)| {
+            let start = (arrival as i64 + ORIGIN as i64 + IO_MCYCLE_OFFSET as i64)
+                .rem_euclid(FRAME_TSTATES as i64) as u32;
+            fuse_sample_tstate(start, PORT) != start + 3
+        })
+        .count();
+    assert!(
+        contended > 0,
+        "harness fault, not a finding: FUSE charges this class nothing at any \
+         of the {} arrival T-states sampled, so there is no delay for the \
+         sample instant to disagree about",
+        samples.len()
+    );
+    println!(
+        "\narrivals sampled: {}, of which charged: {contended}",
+        samples.len()
+    );
+
+    let screen = {
+        let mut machine = Spectrum48k::new();
+        machine.load_rom_bytes(&rom).expect("48K ROM should load");
+        machine.reset();
+        for addr in SCREEN_BASE..SCREEN_END {
+            machine.memory_mut().write(addr, screen_pattern(addr));
+        }
+        machine
+    };
+
+    let wrong = |lead: i64| -> usize {
+        samples
+            .iter()
+            .filter(|&&(arrival, got)| {
+                let start = (arrival as i64 + ORIGIN as i64 + IO_MCYCLE_OFFSET as i64)
+                    .rem_euclid(FRAME_TSTATES as i64) as u32;
+                let t = (fuse_sample_tstate(start, PORT) as i64 + lead)
+                    .rem_euclid(FRAME_TSTATES as i64) as u32;
+                got != fuse_unattached_port(t, &screen)
+            })
+            .count()
+    };
+
+    // The diagnosis. A minimum away from 0 means the sample instant is
+    // uniformly displaced; no minimum at all means the delays are landing
+    // in the wrong places and no lead can rescue it.
+    println!("\n{:<12} {:>10}", "lead delta", "wrong");
+    for delta in -6..=6i64 {
+        println!("{delta:<+12} {:>10}", wrong(delta));
+    }
+
+    let total = wrong(0);
+    for &(arrival, got) in samples.iter().take(400) {
+        let start = (arrival as i64 + ORIGIN as i64 + IO_MCYCLE_OFFSET as i64)
+            .rem_euclid(FRAME_TSTATES as i64) as u32;
+        let t = fuse_sample_tstate(start, PORT);
+        let want = fuse_unattached_port(t, &screen);
+        if got != want {
+            println!(
+                "  arrival {arrival}: io start {start}, fuse samples at {t} \
+                 (+{} charged): got {got}, want {want}",
+                t - (start + 3)
+            );
+            break;
+        }
+    }
+
+    // A ratchet rather than a `0`, because this is new coverage over a
+    // defect that predates it and the fix is a machine-core change, not a
+    // constant.
+    //
+    // **1,537 of 57,602, and pre-existing.** Attributed rather than assumed:
+    // this same harness, appended to `d7afe4a7` in a throwaway worktree,
+    // reports the identical 1,537 with the identical lead sweep and the
+    // identical first divergence. #880 did not cause it and does not affect
+    // it — it left the contended-odd class charging the same four lookups on
+    // the same four falling half-cycles the memory-gate leak had been
+    // charging, which is why that class scored exact before and after.
+    //
+    // The lead sweep above is the diagnosis and it is unambiguous: **0 wrong
+    // at +1, +2 and +3**, 1,537 at 0, and five figures at every other
+    // offset. So the sample instant is uniformly *early* rather than
+    // mis-phased, and the plateau is three wide only because the bus holds
+    // the same byte across those T-states at every arrival sampled.
+    //
+    // The fix is to sample where the CPU latches instead of computing the
+    // latch. `IO_READ_DATA_LATCH_LEAD_TSTATES` is 2 because `/IORQ` falls on
+    // `T2`↓ and the data bus is latched on `T4`↓ — correct as *CPU* time, and
+    // that is what `bus_pin_waveform` pins. But the floating bus moves in
+    // *raster* time, and a contention stall between the two edges inserts
+    // raster T-states the constant cannot see. FUSE has no such gap: its
+    // `readport` runs `contend_port_early`, then `contend_port_late`, then
+    // `readport_internal`, so every delay it charged is already in `tstates`
+    // when it samples. Deferring our read to the latch — letting `data_in`
+    // track the live bus for the M-cycle rather than fixing it at the
+    // assertion — removes the constant from this path entirely.
+    //
+    // Lower it in the same commit that earns it; never raise it.
+    const RATCHET: usize = 1_537;
+    assert!(
+        total <= RATCHET,
+        "the `IN` path returned the wrong floating-bus byte at {total} of {} \
+         arrival T-states on a contended-page odd port, was {RATCHET}. The bus \
+         model itself is byte-exact against FUSE and so is the uncontended \
+         sample instant, so this is the contention delay charged after \
+         `/IORQ` is asserted, which a fixed lead from that assertion cannot \
+         include.",
+        samples.len()
+    );
+    if total < RATCHET {
+        println!(
+            "\nRATCHET: {total} of {} — improved on {RATCHET}.",
+            samples.len()
+        );
+    }
+}
