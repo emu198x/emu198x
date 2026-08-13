@@ -1,0 +1,14 @@
+[package]
+name = "amstrad-gate-array"
+description = "Amstrad Gate Array (40007 / 40010) — the CPC's video, palette and ROM-paging chip"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[lints]
+workspace = true

@@ -10,6 +10,7 @@ members = [
     "crates/common-commodore-iec",
     "crates/common-commodore-iec-drive",
     "crates/common-nintendo-game-boy",
+    "crates/amstrad-gate-array",
     "crates/amstrad-ula-40077",
     "crates/beta-disk-interface",
     "crates/common-sinclair-zx-spectrum",
