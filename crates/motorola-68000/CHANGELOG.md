@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Define `Cpu68000::tick` as one modelled CPU input-clock edge; four calls,
+  rather than one, make up the minimum 68000 bus cycle
 - Extend the direct CPU serde layout with persisted instruction-cache state;
   versioned machine/runtime envelopes must reject earlier positional payloads
 - Gate instruction-cache use and allocation on the MC68030 external
