@@ -169,25 +169,25 @@ impl Mtx {
 
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
-        let target_frame = self.frame_count + 1;
-        loop {
-            self.tick_cpu();
-            if self.vdp.frame_count >= target_frame {
-                break;
-            }
+        while !self.tick_cpu() {
+            // The TMS9918A asserts VBlank after active line 192 but does not
+            // finish the raster until line 313. A machine frame ends at that
+            // raster wrap, not at the earlier interrupt edge.
         }
-        self.frame_count = target_frame;
+        self.frame_count += 1;
         self.master_clock - start
     }
 
-    fn tick_cpu(&mut self) {
+    /// Advance one Z80 T-state and report whether the VDP raster wrapped.
+    fn tick_cpu(&mut self) -> bool {
         self.master_clock += 1;
         self.psg.tick();
 
+        let mut frame_complete = false;
         self.vdp_accum += VDP_CLOCK_HZ as i64;
         while self.vdp_accum >= CPU_CLOCK_HZ as i64 {
             self.vdp_accum -= CPU_CLOCK_HZ as i64;
-            self.vdp.tick();
+            frame_complete |= self.vdp.tick();
         }
 
         // VDP /INT feeds CTC channel 0's CLK/TRG input; the CTC edge-counts
@@ -213,6 +213,8 @@ impl Mtx {
             self.cpu.tick();
             self.handle_bus();
         }
+
+        frame_complete
     }
 
     fn handle_bus(&mut self) {
@@ -483,7 +485,7 @@ impl zilog_z80::Z80Stepper for Mtx {
     }
 
     fn step_tick(&mut self) {
-        self.tick_cpu();
+        let _ = self.tick_cpu();
     }
 }
 
@@ -531,10 +533,20 @@ mod tests {
     }
 
     #[test]
-    fn frame_advances_count() {
+    fn each_pal_frame_runs_one_complete_vdp_raster() {
         let mut sys = Mtx::new(trap_rom(), MtxModel::Mtx500).expect("init");
-        let _ = sys.run_frame();
-        assert_eq!(sys.frame_count(), 1);
+        let first = sys.run_frame();
+        let second = sys.run_frame();
+        let expected = 342u64 * 313 * CPU_CLOCK_HZ / VDP_CLOCK_HZ;
+
+        assert_eq!(sys.frame_count(), 2);
+        for ticks in [first, second] {
+            assert!(
+                ticks.abs_diff(expected) <= 1,
+                "got {ticks} T-states, expected {expected} or {}",
+                expected + 1
+            );
+        }
     }
 
     #[test]

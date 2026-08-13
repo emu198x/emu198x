@@ -11,7 +11,10 @@ use emu198x_shell::{
 };
 use runtime_memotech_mtx::{Model, MtxRuntime, MtxSessionQueryProvider};
 
-const FRAME_TICKS_PAL: u64 = 4_000_000 / 50;
+// Stay below the TMS9918A's approximately 79,746-T-state PAL frame. The
+// frame-granular runtime always finishes the current frame, so an 80,000-tick
+// request crossed the next boundary and emitted two frames per MCP call.
+const FRAME_TICKS_PAL: u64 = 79_700;
 
 /// Runs MCP mode.
 ///
@@ -65,5 +68,28 @@ fn rom_path() -> Option<PathBuf> {
         Some(default)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_budget_runs_exact_requested_frame_count() {
+        let runtime = MtxRuntime::new(Model::Mtx500, vec![0; 16 * 1024]).expect("valid test ROM");
+        let mut session = HeadlessSession::new(runtime, FRAME_TICKS_PAL);
+
+        session.run_frames(1).expect("first frame");
+        assert_eq!(
+            session.machine().machine().expect("machine").frame_count(),
+            1
+        );
+
+        session.run_frames(3).expect("three more frames");
+        assert_eq!(
+            session.machine().machine().expect("machine").frame_count(),
+            4
+        );
     }
 }

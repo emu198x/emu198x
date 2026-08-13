@@ -5,10 +5,12 @@ use emu198x_shell::{
     mcp::{Server, ServerInfo, serve_stdio},
     mcp_tools::{register_base_tools, register_keyboard_tools},
 };
+use machine_jupiter_ace::TSTATES_PER_FRAME;
 use runtime_jupiter_ace::{JupiterAceRuntime, JupiterAceSessionQueryProvider, Model};
 
-// Jupiter Ace runs at ~3.25 MHz, ~50 Hz PAL → ~65,000 t-states/frame.
-const FRAME_TICKS: u64 = 65_000;
+// One exact display frame. A rounded 65,000-tick budget is longer than the
+// 64,584-tick machine frame, so `run_frames(1)` would execute two frames.
+const FRAME_TICKS: u64 = TSTATES_PER_FRAME as u64;
 
 /// Runs MCP mode. Starts blank — ROM arrives via firmware load.
 ///
@@ -30,4 +32,28 @@ pub fn run() -> Result<(), String> {
     // The machine has a keyboard, so the shared press_key / type_string apply.
     register_keyboard_tools(server.registry_mut());
     serve_stdio(&mut server, &mut session).map_err(|err| err.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_budget_runs_exact_requested_frame_count() {
+        let runtime =
+            JupiterAceRuntime::new(Model::Ace3k, vec![0; 8 * 1024]).expect("valid test ROM");
+        let mut session = HeadlessSession::new(runtime, FRAME_TICKS);
+
+        session.run_frames(1).expect("first frame");
+        assert_eq!(
+            session.machine().machine().expect("machine").frame_count(),
+            1
+        );
+
+        session.run_frames(3).expect("three more frames");
+        assert_eq!(
+            session.machine().machine().expect("machine").frame_count(),
+            4
+        );
+    }
 }

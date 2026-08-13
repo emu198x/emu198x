@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep the MCP frame budget below one complete PAL raster so each requested
+  frame emits exactly one machine frame.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/emu198x-memotech-mtx-v0.2.0) - 2026-06-04
 
 ### Added
