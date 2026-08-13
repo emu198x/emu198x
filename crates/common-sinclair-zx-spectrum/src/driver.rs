@@ -162,8 +162,8 @@ pub trait SpectrumDriver {
     /// - Loop while `hc < frame_hc`:
     ///     - At CPU half-cycle phases 0 and `divisor / 2`:
     ///         - `tick_ula`
-    ///         - If CPU clock is active (or uncontended), `tick_cpu_and_bus`
     ///         - `feed_irq`
+    ///         - If CPU clock is active (or uncontended), `tick_cpu_and_bus`
     ///         - At the second phase (T-state boundary), `on_tstate(hc)`
     ///         - `tick_peripherals`
     ///     - `hc += 1`
@@ -202,11 +202,18 @@ pub trait SpectrumDriver {
         if phase == 0 || phase == second_halfcycle_phase {
             self.tick_ula();
 
+            // Before the CPU ticks, not after. The Z80 samples `/INT` at
+            // an instruction boundary during its own tick, so feeding the
+            // pin afterwards hands it the ULA's state from the *previous*
+            // scheduled edge — half a T-state stale. That staleness and
+            // the CPU's own sampling instant were two separate half-
+            // T-state lags on the same signal, which is why correcting
+            // either one alone changed nothing measurable.
+            self.feed_irq();
+
             if !self.contended() || self.cpu_clock_active() {
                 self.tick_cpu_and_bus();
             }
-
-            self.feed_irq();
 
             if phase == second_halfcycle_phase {
                 self.on_tstate(position);

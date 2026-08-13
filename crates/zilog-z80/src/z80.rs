@@ -104,6 +104,24 @@ pub struct Z80 {
     pub walker: Walker,
     /// EI was just executed — defer interrupt check by one instruction.
     pub(crate) ei_pending: bool,
+
+    /// An instruction has retired and the CPU is at an instruction
+    /// boundary whose interrupt sample has not been taken yet.
+    ///
+    /// `/INT` is sampled *at* the boundary — the `T1`↑ that starts the
+    /// next `M1` — not on the retiring instruction's last half-cycle.
+    /// The two are half a T-state apart, and the difference decides
+    /// whether an `/INT` asserted exactly on a boundary is taken now or
+    /// a whole instruction later. Deferring the sample costs nothing:
+    /// the accepted interrupt sequence still begins on this same tick,
+    /// because the check runs at the top of [`Z80::tick`] and the
+    /// dispatch below it executes whichever phase the check leaves.
+    ///
+    /// `#[serde(default)]` so snapshots written before this field
+    /// deserialise; `false` is the safe value, costing at most one
+    /// deferred sample immediately after a restore.
+    #[serde(default)]
+    interrupt_sample_pending: bool,
     /// Previous NMI state for edge detection.
     nmi_prev: bool,
 
@@ -338,6 +356,7 @@ impl Default for Z80 {
             phase: Phase::M1(M1Phase::T1Rise),
             walker: Walker::default(),
             ei_pending: false,
+            interrupt_sample_pending: false,
             nmi_prev: false,
             prev_mr: false,
             prev_mw: false,
@@ -475,6 +494,18 @@ impl Z80 {
     /// - `iorq && wr`: I/O write — `io_write(addr, data)`
     /// - `iorq && m1`: interrupt acknowledge — set `data_in = vector_byte`
     pub fn tick(&mut self) {
+        // Sample `/NMI` and `/INT` at the instruction boundary, before
+        // the `T1`↑ that starts the next `M1` drives anything. An
+        // accepted interrupt leaves `self.phase` on the response's first
+        // half-cycle, which the dispatch below then runs on this tick —
+        // so the response begins exactly where it did when the sample
+        // was taken on the previous half-cycle, and no instruction
+        // changes cost.
+        if self.interrupt_sample_pending {
+            self.interrupt_sample_pending = false;
+            self.sample_interrupts_at_boundary();
+        }
+
         // Dispatch to the appropriate phase handler
         match self.phase {
             Phase::M1(m1) => self.tick_m1(m1),
@@ -1147,8 +1178,26 @@ impl Z80 {
         // instruction start (see begin_instruction below). So Q naturally
         // reflects whether this instruction modified flags.
 
-        // Check for interrupts
+        // Interrupts are *not* sampled here. This runs on the retiring
+        // instruction's last half-cycle, and the boundary the CPU samples
+        // at is the `T1`↑ half a T-state later. Arm the sample and let
+        // `tick` take it — see `interrupt_sample_pending`.
+        self.interrupt_sample_pending = true;
 
+        // Start the next M1 fetch. While halted, PC remains at the byte after
+        // HALT; tick_m1 reads and discards that byte without advancing PC.
+        // An accepted interrupt therefore pushes the same post-HALT address.
+        self.phase = Phase::M1(M1Phase::T1Rise);
+    }
+
+    /// Sample `/NMI` and `/INT` at an instruction boundary.
+    ///
+    /// Returns `true` when an interrupt was accepted, in which case
+    /// `self.phase` already names the first half-cycle of the response
+    /// sequence and the caller must dispatch it on this same tick — that
+    /// is what keeps the response starting exactly where it did when the
+    /// sample was taken half a T-state earlier.
+    fn sample_interrupts_at_boundary(&mut self) -> bool {
         // NMI is edge-triggered: detect rising edge
         let nmi_edge = self.nmi && !self.nmi_prev;
         self.nmi_prev = self.nmi;
@@ -1161,7 +1210,7 @@ impl Z80 {
             self.walker.prefix = crate::walker::Prefix::InterruptNmi;
             self.walker.opcode = 0; // not a real opcode
             self.try_advance_walker();
-            return;
+            return true;
         }
 
         // IRQ is level-triggered, checked if IFF1 is set
@@ -1180,16 +1229,12 @@ impl Z80 {
             self.walker.prefix = identity;
             self.walker.opcode = 0;
             self.try_advance_walker();
-            return;
+            return true;
         }
 
         // Clear EI pending flag (EI defers interrupts by one instruction)
         self.ei_pending = false;
-
-        // Start the next M1 fetch. While halted, PC remains at the byte after
-        // HALT; tick_m1 reads and discards that byte without advancing PC.
-        // An accepted interrupt therefore pushes the same post-HALT address.
-        self.phase = Phase::M1(M1Phase::T1Rise);
+        false
     }
 
     /// Execute the current instruction's operation using staged data.
@@ -1670,14 +1715,20 @@ mod tests {
         z80.regs.sp = 0xFF00;
         z80.nmi = true;
         step_one(&mut z80, &mut mem);
+        // `/NMI`'s rising edge is detected at the instruction boundary,
+        // so hold the pin through the tick that samples it. That tick
+        // also runs the response's first half-cycle, leaving 21 of the
+        // 22 to snapshot across.
+        assert_eq!(z80.phase, Phase::M1(M1Phase::T1Rise));
+        z80.tick();
         z80.nmi = false;
 
-        assert_eq!(z80.phase, Phase::NmiAck(NmiAckPhase::T1Rise));
+        assert_eq!(z80.phase, Phase::NmiAck(NmiAckPhase::T1Fall));
         assert_response_round_trips_at_every_halfcycle(
             &z80,
             &mem,
             0xFF,
-            22,
+            21,
             crate::walker::Prefix::InterruptNmi,
         );
     }
@@ -1700,14 +1751,21 @@ mod tests {
             z80.regs.iff1 = true;
             z80.irq = true;
             step_one(&mut z80, &mut mem);
+            // `/INT` is sampled at the instruction boundary — the `T1`↑
+            // that starts the next `M1` — so the pin has to be held
+            // through the tick that takes the sample. That tick also runs
+            // the response's first half-cycle, so one fewer remains to
+            // snapshot across.
+            assert_eq!(z80.phase, Phase::M1(M1Phase::T1Rise));
+            z80.tick();
             z80.irq = false;
 
-            assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T1Rise));
+            assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T1Fall));
             assert_response_round_trips_at_every_halfcycle(
                 &z80,
                 &mem,
                 vector,
-                response_halfcycles,
+                response_halfcycles - 1,
                 identity,
             );
 
@@ -1732,8 +1790,13 @@ mod tests {
         // instruction boundary. The interrupt response is a further M1
         // cycle, so its refresh increment must wrap only R's low seven bits.
         step_one(&mut z80, &mut mem);
-        assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T1Rise));
+        // `/INT` is sampled at the boundary — the `T1`↑ starting the next
+        // `M1` — not on the retiring instruction's last half-cycle, so the
+        // CPU is here with the sample armed and takes it on the next tick.
+        assert_eq!(z80.phase, Phase::M1(M1Phase::T1Rise));
+        z80.tick();
         z80.irq = false;
+        assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T1Fall));
 
         step_one(&mut z80, &mut mem);
 
@@ -1773,9 +1836,14 @@ mod tests {
         z80.regs.im = 2;
         z80.irq = true;
         step_one(&mut z80, &mut mem);
+        // The boundary tick takes the `/INT` sample and runs the
+        // response's `T1`↑, so the loop below observes one half-cycle
+        // fewer. Nothing is lost: `T1`↑ only presents the address.
+        assert_eq!(z80.phase, Phase::M1(M1Phase::T1Rise));
+        z80.tick();
         z80.irq = false;
 
-        assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T1Rise));
+        assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T1Fall));
         z80.regs.i = 0x40;
         z80.regs.r = 0x12;
         let response_pc = z80.regs.pc;
@@ -1784,7 +1852,7 @@ mod tests {
         let mut saw_refresh = false;
         let mut saw_refresh_mreq = false;
 
-        for _ in 0..14 {
+        for _ in 0..13 {
             assert!(matches!(z80.phase, Phase::IntAck(_)));
             z80.tick();
             assert!(!z80.rd, "INT acknowledge must not assert RD");
@@ -1828,18 +1896,26 @@ mod tests {
         z80.regs.im = 2;
         z80.irq = true;
         step_one(&mut z80, &mut mem);
+        // The boundary tick takes the sample and runs the response's
+        // `T1`↑; the staged byte is planted after it, because accepting
+        // the interrupt begins a new instruction and clears staging.
+        assert_eq!(z80.phase, Phase::M1(M1Phase::T1Rise));
+        z80.tick();
         z80.irq = false;
 
-        assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T1Rise));
+        assert_eq!(z80.phase, Phase::IntAck(IntAckPhase::T1Fall));
         z80.regs.i = 0x40;
         z80.walker.staged.data_lo = 0xA5;
         let response_pc = z80.regs.pc;
-        let mut halfcycles = 0;
+        // One: the boundary tick above already ran the response's `T1`↑.
+        // The total below is the whole response including the inserted
+        // wait, so it has to count that half-cycle too.
+        let mut halfcycles = 1;
         let mut acknowledge_count = 0;
 
         // Reach the falling edge of the second automatic TW. IORQ rises
         // during this prefix and bus_request must expose one acknowledge.
-        for _ in 0..7 {
+        for _ in 0..6 {
             z80.tick();
             halfcycles += 1;
             if let Some(request) = z80.bus_request() {
@@ -1905,8 +1981,14 @@ mod tests {
 
         z80.nmi = true;
         step_one(&mut z80, &mut mem);
+        // The boundary tick detects `/NMI`'s edge and runs the
+        // response's `T1`↑, so the loop below observes one half-cycle
+        // fewer.
+        assert_eq!(z80.phase, Phase::M1(M1Phase::T1Rise));
+        z80.tick();
+        z80.nmi = false;
 
-        assert_eq!(z80.phase, Phase::NmiAck(NmiAckPhase::T1Rise));
+        assert_eq!(z80.phase, Phase::NmiAck(NmiAckPhase::T1Fall));
         z80.regs.i = 0x40;
         z80.regs.r = 0x12;
         let response_pc = z80.regs.pc;
@@ -1915,7 +1997,7 @@ mod tests {
         let mut saw_refresh = false;
         let mut saw_refresh_mreq = false;
 
-        for _ in 0..10 {
+        for _ in 0..9 {
             assert!(matches!(z80.phase, Phase::NmiAck(_)));
             z80.tick();
             assert!(!z80.iorq);
