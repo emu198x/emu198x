@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Derive the 300-RPM index period from the active PAL or NTSC E-clock rate
 - Reattach snapshot media without raising a new disk-change event or altering
   restored drive-mechanism state.
 

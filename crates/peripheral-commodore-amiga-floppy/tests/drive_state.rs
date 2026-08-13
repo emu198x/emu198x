@@ -21,6 +21,7 @@ use peripheral_commodore_amiga_floppy::AmigaFloppyDrive;
 const MOTOR_SPINUP_TICKS: u32 = 350_000;
 /// Matches the archive's private `INDEX_PULSE_TICKS` constant.
 const INDEX_PULSE_TICKS: u32 = 141_876;
+const PAL_E_CLOCK_HZ: u64 = 709_379;
 
 /// Select + motor-on, deasserted step, direction outward, side lower.
 fn select_motor_on(drive: &mut AmigaFloppyDrive) {
@@ -75,10 +76,10 @@ fn motor_spin_up_takes_full_spin_up_interval() {
     select_motor_on(&mut drive);
     assert!(!drive.status().ready, "not spinning at motor-on");
     for _ in 0..MOTOR_SPINUP_TICKS - 1 {
-        drive.tick();
+        drive.tick(PAL_E_CLOCK_HZ);
         assert!(!drive.status().ready, "still spinning up");
     }
-    drive.tick();
+    drive.tick(PAL_E_CLOCK_HZ);
     assert!(drive.status().ready, "spun up after MOTOR_SPINUP_TICKS");
 }
 
@@ -87,13 +88,16 @@ fn spinning_selected_drive_emits_one_index_pulse_per_revolution() {
     let mut drive = with_blank_disk();
     select_motor_on(&mut drive);
     for _ in 0..MOTOR_SPINUP_TICKS {
-        let _ = drive.tick();
+        let _ = drive.tick(PAL_E_CLOCK_HZ);
     }
     // After spin-up, exactly one index pulse per INDEX_PULSE_TICKS.
     for _ in 0..INDEX_PULSE_TICKS - 1 {
-        assert!(!drive.tick());
+        assert!(!drive.tick(PAL_E_CLOCK_HZ));
     }
-    assert!(drive.tick(), "index pulse at end of revolution");
+    assert!(
+        drive.tick(PAL_E_CLOCK_HZ),
+        "index pulse at end of revolution"
+    );
 }
 
 #[test]
@@ -101,12 +105,15 @@ fn deselecting_drive_suppresses_index_pulses() {
     let mut drive = with_blank_disk();
     select_motor_on(&mut drive);
     for _ in 0..MOTOR_SPINUP_TICKS {
-        let _ = drive.tick();
+        let _ = drive.tick(PAL_E_CLOCK_HZ);
     }
     // Deselect (sel=false) with motor still on.
     drive.update_control(false, false, false, false, true);
     for _ in 0..INDEX_PULSE_TICKS {
-        assert!(!drive.tick(), "no index pulses while deselected");
+        assert!(
+            !drive.tick(PAL_E_CLOCK_HZ),
+            "no index pulses while deselected"
+        );
     }
 }
 
@@ -155,7 +162,7 @@ fn selecting_with_motor_on_bypasses_id_stream() {
     select_motor_on(&mut drive);
     assert!(!drive.status().ready, "motor not yet at speed");
     for _ in 0..MOTOR_SPINUP_TICKS {
-        drive.tick();
+        drive.tick(PAL_E_CLOCK_HZ);
     }
     assert!(
         drive.status().ready,
@@ -173,7 +180,7 @@ fn diagnostic_snapshot_exposes_media_mechanism_and_write_state_without_side_effe
     drive.note_write_mfm_word(0x2AAA);
 
     drive.update_control(false, false, false, true, true);
-    assert!(!drive.tick());
+    assert!(!drive.tick(PAL_E_CLOCK_HZ));
 
     let snapshot = drive.diagnostic_snapshot();
     assert!(snapshot.has_disk);

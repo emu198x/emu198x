@@ -676,7 +676,11 @@ pub trait AmigaDriver {
                 // state and feeds status back onto CIA-A PRA.
                 // CIA-B FLAG pin is wired to the floppy /INDEX pulse on the
                 // Amiga; the drive emits one index pulse per revolution.
-                if self.drive_mut().tick() {
+                let e_clock_hz = match self.agnus().region {
+                    AgnusRegion::Pal => PAL_SYSTEM_TICK_HZ / CIA_E_CLOCK_DIVISOR,
+                    AgnusRegion::Ntsc => NTSC_SYSTEM_TICK_HZ / CIA_E_CLOCK_DIVISOR,
+                };
+                if self.drive_mut().tick(e_clock_hz) {
                     self.cia_b_mut().flag_falling_edge();
                 }
                 self.refresh_cia_a_external_inputs();

@@ -88,8 +88,13 @@ impl DiskImage for AdfDiskImage {
 
 /// E-clock ticks for motor spin-up (~500ms at 709 kHz).
 const MOTOR_SPINUP_TICKS: u32 = 350_000;
-/// E-clock ticks per disk revolution at 300 RPM (~200ms at 709 kHz).
-const INDEX_PULSE_TICKS: u32 = 141_876;
+/// A 300-RPM drive completes five revolutions per second.
+const REVOLUTIONS_PER_SECOND: u64 = 5;
+
+/// Nearest whole E-clock count for one 300-RPM revolution.
+const fn index_pulse_ticks(e_clock_hz: u64) -> u64 {
+    (e_clock_hz + REVOLUTIONS_PER_SECOND / 2) / REVOLUTIONS_PER_SECOND
+}
 
 /// Drive status bits for CIA-A PRA (active-low: 0 = asserted).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -373,9 +378,15 @@ impl AmigaFloppyDrive {
         }
     }
 
-    /// Advance motor spin-up and rotational timing. Call at E-clock rate.
+    /// Advance motor spin-up and rotational timing. Call at E-clock rate and
+    /// supply that rate in hertz for the installed video region.
+    ///
+    /// The mechanical index period is 200 ms in both PAL and NTSC machines;
+    /// deriving its E-clock count here avoids making the NTSC drive run at the
+    /// PAL-derived 302.75 RPM.
     /// Returns `true` when the spinning drive emits one index pulse.
-    pub fn tick(&mut self) -> bool {
+    pub fn tick(&mut self, e_clock_hz: u64) -> bool {
+        debug_assert!(e_clock_hz > 0, "E-clock rate must be non-zero");
         if self.motor_on && !self.motor_spinning {
             self.spin_timer += 1;
             if self.spin_timer >= MOTOR_SPINUP_TICKS {
@@ -393,7 +404,7 @@ impl AmigaFloppyDrive {
         }
 
         self.index_timer += 1;
-        if self.index_timer >= INDEX_PULSE_TICKS {
+        if u64::from(self.index_timer) >= index_pulse_ticks(e_clock_hz) {
             self.index_timer = 0;
             return true;
         }
@@ -562,6 +573,10 @@ impl Default for AmigaFloppyDrive {
 mod tests {
     use super::*;
 
+    const PAL_E_CLOCK_HZ: u64 = 709_379;
+    const NTSC_E_CLOCK_HZ: u64 = 715_909;
+    const PAL_INDEX_PULSE_TICKS: u64 = index_pulse_ticks(PAL_E_CLOCK_HZ);
+
     #[test]
     fn step_toward_center() {
         let mut drive = AmigaFloppyDrive::new();
@@ -643,7 +658,7 @@ mod tests {
         drive.update_control(false, false, false, true, true);
         assert!(!drive.status().ready); // not spinning yet
         for _ in 0..MOTOR_SPINUP_TICKS {
-            drive.tick();
+            drive.tick(PAL_E_CLOCK_HZ);
         }
         assert!(drive.status().ready); // now spinning
     }
@@ -672,7 +687,7 @@ mod tests {
         assert!(!drive.status().ready);
 
         for _ in 0..MOTOR_SPINUP_TICKS {
-            assert!(!drive.tick());
+            assert!(!drive.tick(PAL_E_CLOCK_HZ));
         }
         assert!(drive.status().ready);
     }
@@ -692,7 +707,7 @@ mod tests {
         // Poll the motor-on PRB pattern every tick while spin-up runs.
         for _ in 0..MOTOR_SPINUP_TICKS {
             drive.update_control(false, false, false, true, true);
-            drive.tick();
+            drive.tick(PAL_E_CLOCK_HZ);
         }
         assert!(
             drive.status().ready,
@@ -708,12 +723,34 @@ mod tests {
         drive.acknowledge_disk_change();
         drive.update_control(false, false, false, true, true);
         for _ in 0..MOTOR_SPINUP_TICKS {
-            assert!(!drive.tick());
+            assert!(!drive.tick(PAL_E_CLOCK_HZ));
         }
-        for _ in 0..(INDEX_PULSE_TICKS - 1) {
-            assert!(!drive.tick());
+        for _ in 0..(PAL_INDEX_PULSE_TICKS - 1) {
+            assert!(!drive.tick(PAL_E_CLOCK_HZ));
         }
-        assert!(drive.tick());
+        assert!(drive.tick(PAL_E_CLOCK_HZ));
+    }
+
+    #[test]
+    fn index_period_tracks_the_installed_region_e_clock() {
+        assert_eq!(index_pulse_ticks(PAL_E_CLOCK_HZ), 141_876);
+        assert_eq!(index_pulse_ticks(NTSC_E_CLOCK_HZ), 143_182);
+
+        for e_clock_hz in [PAL_E_CLOCK_HZ, NTSC_E_CLOCK_HZ] {
+            let mut drive = AmigaFloppyDrive::new();
+            let adf =
+                Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+            drive.insert_disk(adf);
+            drive.acknowledge_disk_change();
+            drive.update_control(false, false, false, true, true);
+            for _ in 0..MOTOR_SPINUP_TICKS {
+                assert!(!drive.tick(e_clock_hz));
+            }
+            for _ in 0..(index_pulse_ticks(e_clock_hz) - 1) {
+                assert!(!drive.tick(e_clock_hz));
+            }
+            assert!(drive.tick(e_clock_hz));
+        }
     }
 
     #[test]
@@ -724,11 +761,11 @@ mod tests {
         drive.acknowledge_disk_change();
         drive.update_control(false, false, false, true, true);
         for _ in 0..MOTOR_SPINUP_TICKS {
-            assert!(!drive.tick());
+            assert!(!drive.tick(PAL_E_CLOCK_HZ));
         }
         drive.update_control(false, false, false, false, true);
-        for _ in 0..INDEX_PULSE_TICKS {
-            assert!(!drive.tick());
+        for _ in 0..PAL_INDEX_PULSE_TICKS {
+            assert!(!drive.tick(PAL_E_CLOCK_HZ));
         }
     }
 
@@ -751,7 +788,7 @@ mod tests {
         drive.acknowledge_disk_change();
         drive.update_control(false, false, false, true, true);
         for _ in 0..MOTOR_SPINUP_TICKS {
-            drive.tick();
+            drive.tick(PAL_E_CLOCK_HZ);
         }
         drive.update_control(false, false, false, false, true);
 
@@ -796,7 +833,7 @@ mod tests {
         drive.acknowledge_disk_change();
         drive.update_control(false, false, false, true, true);
         for _ in 0..MOTOR_SPINUP_TICKS {
-            drive.tick();
+            drive.tick(PAL_E_CLOCK_HZ);
         }
 
         let mfm = drive.encode_mfm_track();
@@ -897,7 +934,7 @@ mod tests {
         drive.acknowledge_disk_change();
         drive.update_control(false, false, true, true, true);
         for _ in 0..17 {
-            drive.tick();
+            drive.tick(PAL_E_CLOCK_HZ);
         }
         drive.note_write_mfm_word(0x4489);
         let expected = drive.diagnostic_snapshot();
