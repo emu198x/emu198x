@@ -911,3 +911,130 @@ it reads exactly like a refutation.
 4. Re-capture the Spectrum catalogue once, against code that is right on
    both axes. The 39 hashes captured on 2026-08-10 were discarded for
    exactly this reason.
+
+## The contradiction resolved: the probe is immune, the sync is not
+
+The record above kept treating Float48K's movement under a contention
+change as impossible, because the probe's timed window touches nothing
+the gate can reach. **The window really is immune. The sync is not**, and
+that is where a contention change gets in.
+
+Both halves of the claim are now measured rather than argued.
+
+**"Runs uncontended" is true, and it is not an inference.** `Float48k.tap`
+decodes to a `CODE` block at 60000 plus a BASIC-POKEd routine at `$F230`.
+The POKEd routine is a run of `NOP`s, one trim instruction — `NOP`,
+`RET NZ`, `INC HL` or `LD A,0` for a residual delay of 4, 5, 6 or 7 — and
+a `RET`. The second ISR at `$EAC7` is `LD BC,$0251`, a 593-iteration
+`DEC BC`/`LD A,B`/`OR C`/`JP NZ` loop, `LD HL,0`, `CALL $F230`, `XOR A`,
+`IN A,($FF)`. Every address is `$8000`+ or ROM; the port is odd and
+uncontended. Instrumenting the engine's cumulative contention-stall
+counter and reading it at both ends of the window gives the same value
+every iteration:
+
+```text
+INTACK pc=EAC7 t=55555 hc=222222 hc%4=2 stalls=648684 odd=19736
+FLOATREAD pc=EAD9 t=69881 hc=279526 hc%4=2 stalls=648684 odd=19736
+```
+
+Zero contention events between the sync and the read.
+
+**"Syncs on the interrupt" is false.** `hc` counts quarter-T-states
+(`cpu_divisor: 4`) and the CPU is scheduled at `hc % 4 ∈ {0, 2}`, two
+ticks per T-state. The sync acknowledge lands at `hc = 222224` under #880
+and `hc = 222222` under `d7afe4a7` — **half a T-state apart**. A
+contention stall skips scheduled CPU edges, and an *odd*-length skip
+leaves the CPU on the opposite phase for good. Stall run-lengths:
+
+| gate | run lengths | odd episodes |
+|---|---|---|
+| `d7afe4a7` | 1, 3, 5, 7, 9, 11 and evens | **19,736** |
+| #880 | 2, 4, 6, 8, 10, 12 | **1** |
+
+The odd episodes under `d7afe4a7` cluster at `$0xxx` (9,867) and `$7xxx`
+(9,857) — the ROM's `IN A,($FE)` keyboard scans meeting the old
+`(cpu_iorq || z80_iorq_prev) && ula_io` half-cycle approximation. `HALT`
+quantises the interrupt to a four-T-state refetch boundary but preserves
+sub-T-state phase, so a slip picked up in the BASIC interpreter and in
+the probe's own contended screen paint (`$4000`/`$5800`, before the `DI`)
+survives the sync intact.
+
+**So #880 is not a regression on this probe.** Under `d7afe4a7` the
+sample T-states run 69881, 69882, 69883, **69885, 69885**, 69886, 69887,
+**1** — a duplicate and a skip. Engine T-state 0 is never sampled at all,
+and the "14337" it prints is the iteration after the one it missed. Under
+#880 the sweep advances exactly one T-state per iteration and reports
+14336.
+
+**Two corrections to this record fall out.** The claim above that
+Float48K "rides on the even-port class" through its own `OUT ($FE)` is
+wrong: that `OUT` is at `$EAA8`, before the first `HALT`. The real
+coupling is the ROM's keyboard scans, which run before the sync. And
+`floatspy_selftest_ok` **passes** at HEAD; only
+`floatspy_runs_to_completion` fails, at 72 of 104,192 pixels.
+
+## Where the remaining two T-states are not
+
+Not the sample instant, and now for both instruction shapes.
+`the_in_path_samples_the_bus_where_fuse_does` only ever covered
+`IN A,(C)` (`ED 78`), whose I/O M-cycle opens eight T-states after the
+instruction arrives. Float48K reads through `IN A,(n)` (`DB FF`), which
+opens at seven. `the_in_a_n_sample_instant_matches_fuse` scores that
+geometry the same way and gets **0 wrong of 76,248** arrivals. With the
+bus pattern already byte-exact frame-wide, the read is eliminated at both
+ends and the residual is in the **arrival**.
+
+A tempting non-fix, recorded so it is not tried again: dropping
+`floating_bus_read`'s `ORIGIN` from 14336 to 14335 puts Float48K on
+14337 *and* makes `floatspy_runs_to_completion` pass, with
+`io_contention_oracle` untouched. In that expression `ORIGIN` and
+`IO_READ_DATA_LATCH_LEAD_TSTATES` are the same arithmetic, so this is
+moving the sample lead by one — which
+`the_in_path_samples_the_bus_where_fuse_does` forbids, and which is the
+fitted-parameter-absorbs-a-real-error shape for the fourth time on this
+problem. Not landed.
+
+## The `HALT` acknowledge, derived — and one defect found
+
+`halt_interrupt_oracle.rs` scores the interrupt acknowledge against FUSE
+1.7.0 at every phase of the `HALT` refetch grid. FUSE's model is three
+pieces of vendored source rather than a constant: `HALT` is a plain
+four-T-state `M1` that refetches itself (`opcodes_base.c:523`), the frame
+event wraps the counter and calls `z80_interrupt()` in the same handler
+with events running only between instructions (`spectrum.c:91`), and
+leaving `HALT` costs **nothing** — `if( z80.halted ) { PC++; z80.halted =
+0; }`, then 7 + 3 + 3 + 3 + 3 = **19** T-states in IM 2 (`z80.c:202`).
+
+Everything is stated relative to the engine's own `/INT` assertion, so
+the harness never touches the contested `ORIGIN`.
+
+| phase of grid vs `/INT` | acceptance instant | acknowledge cost |
+|---|---|---|
+| 1, 2, 3 | matches FUSE | **19 — matches FUSE** |
+| 0 | **4 T-states late** | 19 — matches FUSE |
+
+**The acknowledge's cost is exact; the acceptance instant is not.** The
+engine requires `/INT` to be asserted strictly *before* an instruction
+boundary where FUSE accepts one asserted *at* it, so a `/INT` coinciding
+with a refetch boundary costs a whole extra refetch. That is a sixth
+Z80-side defect, alongside the five pin defects already listed.
+
+**It does not explain Float48K.** The probe's second sync lands on a
+phase where the two agree, and a four-T-state error on both syncs would
+move the sweep by eight, not two. So the acknowledge is now eliminated
+too, and the arrival question narrows to what happens *between* the two
+syncs.
+
+Two tests in that file are `#[ignore]`d against this divergence —
+`the_acknowledge_begins_at_the_first_refetch_boundary` and
+`the_int_to_handler_latency_matches_fuse`. They are listed here so the
+ignore is not forgotten, per `a-gate-nobody-runs-is-a-silent-gate.md`.
+Weakening them to match would pin the divergence in; asserting current
+behaviour would make a wrong answer the gate.
+
+**Next on this thread.** The chain between Float48K's two syncs is tuned
+to within a few T-states of a frame — `LDIR` of 3325 bytes is 69,820
+T-states, and the `NOP` at `$EAB8` is a pad. The engine re-enters the
+first ISR a *variable* number of times (three at #880, one at
+`d7afe4a7`, zero on some iterations), which means the chain is landing on
+the wrong side of that margin. That is where to look next.
