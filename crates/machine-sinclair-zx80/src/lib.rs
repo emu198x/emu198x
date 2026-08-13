@@ -104,8 +104,18 @@ impl Zx80 {
         });
 
         // The ZX80 does NOT wire NMI to the ULA — leave self.cpu.nmi alone.
-        self.cpu.tick();
-        self.handle_bus();
+        //
+        // Two CPU half-cycles per T-state. `Z80::tick` advances one
+        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
+        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states against
+        // the Z80's 4. The ULA above is denominated in T-states (207 per
+        // line, 312 lines, 3.25 MHz), so it was the CPU that was wrong and
+        // not the ULA — the machine rendered a full 50 Hz raster while
+        // executing half the code that belongs in one.
+        for _ in 0..2 {
+            self.cpu.tick();
+            self.handle_bus();
+        }
     }
 
     fn handle_bus(&mut self) {
