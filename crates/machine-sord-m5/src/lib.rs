@@ -244,8 +244,22 @@ impl SordM5 {
     }
 
     fn tick_tstate(&mut self) {
-        self.cpu.tick();
-        self.handle_bus();
+        // Two CPU half-cycles per T-state. `Z80::tick` advances one
+        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
+        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states
+        // against the Z80's 4.
+        //
+        // The IRQ line is fed before each tick, not after: the Z80 samples
+        // `/INT` at an instruction boundary during its own tick. Unlike the
+        // Sega machines the VDP is *not* re-denominated to half-cycles,
+        // because it does not reach the CPU directly — the CTC below stands
+        // between them and ticks once per T-state, so a finer VDP interleave
+        // could not change when the interrupt arrives.
+        for _ in 0..2 {
+            self.cpu.irq = self.ctc.interrupt();
+            self.cpu.tick();
+            self.handle_bus();
+        }
 
         self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
         while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
@@ -269,7 +283,6 @@ impl SordM5 {
         // to trigger — so the channel deadlocked and round logic never advanced.
         self.ctc.set_trg(VDP_INT_CTC_CHANNEL, !self.vdp.interrupt);
         self.ctc.tick();
-        self.cpu.irq = self.ctc.interrupt();
 
         self.cpu_tstates += 1;
     }
