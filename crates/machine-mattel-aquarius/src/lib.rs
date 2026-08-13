@@ -319,8 +319,17 @@ impl Aquarius {
     }
 
     fn tick_tstate(&mut self) {
-        self.cpu.tick();
-        self.handle_bus();
+        // Two CPU half-cycles per T-state. `Z80::tick` advances one
+        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
+        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states
+        // against the Z80's 4, and the machine executed half the work per
+        // frame that `tstates_per_frame` budgets for. The Aquarius has no
+        // chip on the CPU clock and no interrupt source wired here, so the
+        // CPU tick is all there is to interleave.
+        for _ in 0..2 {
+            self.cpu.tick();
+            self.handle_bus();
+        }
         self.cpu_tstates += 1;
     }
 
