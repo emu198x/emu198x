@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Freeze the current CCK's Agnus DMA ownership before dispatching a Copper
+  write, so that write cannot reallocate its own bus cell to bitplane DMA
 - Reserve both modeled Copper instruction-fetch cells so the first word-fetch
   phase cannot be double-allocated to the blitter or CPU
 - Offer a Copper-eligible cell that a waiting or throttled Copper did not use

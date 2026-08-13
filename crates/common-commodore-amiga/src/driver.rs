@@ -516,13 +516,17 @@ pub trait AmigaDriver {
                     self.copper_mut().jump1();
                 }
 
+                // Freeze Agnus's physical ownership plan before the Copper
+                // runs. A MOVE may change DMACON, BPLCON0 or another DMA
+                // register immediately, but it cannot retroactively reassign
+                // the cell that carried the MOVE to another DMA channel.
+                let bus_plan = self.agnus_bus_plan();
+
                 // Copper runs when DMACON.COPEN (bit 7) AND DMAEN (bit 9)
                 // are both set. Agnus arbitrates the chip bus; pass the
                 // current CCK's copper grant (`current_slot` == Copper,
                 // the even free cells) so the copper only fetches on the
-                // cells Agnus allocates to it (#30). Computed before the
-                // copper's own MOVE dispatch so a same-CCK DMACON write
-                // can't retroactively change this cell's grant.
+                // cells Agnus allocates to it (#30).
                 //
                 // Reset the copper's per-CCK bus-usage flag every CCK
                 // (whether or not the copper runs): the copper sets it only
@@ -530,7 +534,7 @@ pub trait AmigaDriver {
                 // reads it so a parked/throttled copper yields its granted
                 // cell to the CPU.
                 self.copper_mut().bus_used_this_cck = false;
-                let copper_slot_granted = self.agnus_bus_plan().copper_dma_slot_granted;
+                let copper_slot_granted = bus_plan.copper_dma_slot_granted;
                 if self.agnus().dmacon & 0x0280 == 0x0280 {
                     // Route copper MOVEs through the same custom-register
                     // dispatch the CPU uses. The copper can legitimately
@@ -555,11 +559,9 @@ pub trait AmigaDriver {
                 }
 
                 // ── Paula audio engine — one step per CCK ────────────────
-                // Audio DMA slot arbitration is Agnus's job now; we pull
-                // the plan for this CCK and extract the audio grant. Paula
-                // also needs the raw DMACON value for its master+channel
-                // enable gates.
-                let bus_plan = self.agnus_bus_plan();
+                // Audio DMA slot arbitration is Agnus's job. Use the frozen
+                // plan for this CCK; Paula also needs the current raw DMACON
+                // value for its master+channel enable gates.
                 bitplane_dma_fetch_plane = bus_plan.bitplane_dma_fetch_plane;
 
                 // ── Blitter DMA and completion pipeline ───────────────
@@ -575,9 +577,10 @@ pub trait AmigaDriver {
                 // before the CPU, matching the actual-owner arbitration used
                 // by Agnus. A non-nasty blitter may use it only when the CPU
                 // has no mature chip-RAM request; BLTPRI may pre-empt one.
-                // Conversely, a Copper MOVE can change DMACON and therefore
-                // the fresh plan below; its recorded bus use remains
-                // authoritative and prevents a second owner in the same CCK.
+                // A Copper MOVE may change the live enable state used below,
+                // but ownership of the current physical cell remains frozen.
+                // Its recorded bus use prevents the yielded-cell path from
+                // admitting a second owner in the same CCK.
                 let copper_bus_used = self.copper().bus_used_this_cck;
                 let copper_yielded_slot =
                     matches!(bus_plan.slot_owner, SlotOwner::Copper) && !copper_bus_used;

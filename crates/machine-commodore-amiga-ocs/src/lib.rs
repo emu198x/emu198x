@@ -2763,6 +2763,45 @@ mod tests {
     }
 
     #[test]
+    fn copper_bplcon0_move_cannot_reallocate_its_cell_to_bitplane_dma() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.agnus.vpos = 0x0020;
+        amiga.agnus.write_diwstop(0xA0C1);
+        amiga.agnus.write_diwstrt(0x2010);
+        amiga.agnus.write_ddfstrt(0x0038);
+        amiga.agnus.write_ddfstop(0x00D0);
+        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BPLEN | bits::DMACON_COPEN;
+        amiga.agnus.bplcon0 = 0;
+        while amiga.agnus.hpos < 0x0038 {
+            amiga.agnus.tick_cck();
+        }
+        assert_eq!(amiga.agnus.ddf_start_match(), Some(0x0038));
+
+        amiga.memory.write_word(0x1000, 0x0100); // MOVE BPLCON0
+        amiga.memory.write_word(0x1002, 0x6000); // Low resolution, six planes
+        amiga.copper.pc = 0x1000;
+        amiga.copper.cck_phase = 1; // Complete the pair on this granted cell
+        amiga.agnus.bpl_pt[5] = 0x2000;
+        amiga.agnus.hpos = 0x0039; // Enter $3A, the BPL6 cell for this DDF phase
+        amiga.cck_phase = 0;
+
+        amiga.tick();
+
+        assert_eq!(amiga.agnus.hpos, 0x003A);
+        assert!(amiga.copper.bus_used_this_cck);
+        assert_eq!(amiga.agnus.bplcon0, 0x6000);
+        assert_eq!(
+            amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
+            Some(5),
+            "the updated registers describe BPL6 ownership at this cell",
+        );
+        assert_eq!(
+            amiga.agnus.bpl_pt[5], 0x2000,
+            "the Copper-owned cell cannot also fetch BPL6",
+        );
+    }
+
+    #[test]
     fn track_change_preserves_rotational_word_phase() {
         const WORD_PHASE: usize = 173;
 
