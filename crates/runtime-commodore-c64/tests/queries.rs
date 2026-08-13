@@ -80,6 +80,37 @@ fn query_provider_reports_blank_runtime_as_not_booted() {
 }
 
 #[test]
+fn vic_forced_badline_queries_expose_live_state() {
+    let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+    let provider = C64SessionQueryProvider;
+
+    let query = |path| {
+        provider
+            .query(&runtime, path)
+            .unwrap_or_else(|err| panic!("{path} query should not fail: {err:?}"))
+            .unwrap_or_else(|| panic!("{path} query should resolve"))
+            .value
+    };
+
+    assert_eq!(query("vic.forced_badline_cdata_carry_age"), json!(null));
+    assert_eq!(
+        query("vic.forced_badline_cdata_carry_cycles_remaining"),
+        json!(null)
+    );
+    assert_eq!(query("vic.forced_badline_cdata_carry_value"), json!(null));
+    assert_eq!(query("vic.forced_badline_cdata_carry_slot"), json!(null));
+    assert_eq!(
+        query("vic.forced_badline_cdata_destination_vmli"),
+        json!(null)
+    );
+    assert_eq!(
+        query("vic.forced_badline_cdata_eligibility_cycles_remaining"),
+        json!(null)
+    );
+}
+
+#[test]
 fn runtime_load_media_and_transport_update_tape_queries() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");

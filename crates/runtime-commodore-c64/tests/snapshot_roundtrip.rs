@@ -118,10 +118,18 @@ fn snapshot_round_trip_preserves_mid_cycle_runtime_state() {
             restored
                 .machine()
                 .vic()
-                .forced_badline_cdata_carry_cycles_remaining(),
+                .forced_badline_cdata_eligibility_cycles_remaining(),
             expected_machine
                 .vic()
-                .forced_badline_cdata_carry_cycles_remaining()
+                .forced_badline_cdata_eligibility_cycles_remaining()
+        );
+        assert_eq!(
+            restored.machine().vic().forced_badline_cdata_carry_age(),
+            expected_machine.vic().forced_badline_cdata_carry_age()
+        );
+        assert_eq!(
+            restored.machine().vic().forced_badline_cdata_carry_value(),
+            expected_machine.vic().forced_badline_cdata_carry_value()
         );
         assert_eq!(
             restored.machine().framebuffer(),
@@ -180,8 +188,18 @@ fn snapshot_round_trip_preserves_ba_to_aec_handover() {
             restored
                 .machine()
                 .vic()
-                .forced_badline_cdata_carry_cycles_remaining(),
-            expected.vic().forced_badline_cdata_carry_cycles_remaining()
+                .forced_badline_cdata_eligibility_cycles_remaining(),
+            expected
+                .vic()
+                .forced_badline_cdata_eligibility_cycles_remaining()
+        );
+        assert_eq!(
+            restored.machine().vic().forced_badline_cdata_carry_age(),
+            expected.vic().forced_badline_cdata_carry_age()
+        );
+        assert_eq!(
+            restored.machine().vic().forced_badline_cdata_carry_value(),
+            expected.vic().forced_badline_cdata_carry_value()
         );
         assert_eq!(restored.machine().framebuffer(), expected.framebuffer());
     }
@@ -225,7 +243,10 @@ fn snapshot_round_trip_preserves_exhausted_late_badline_window() {
             .forced_badline_cdata_carry_pending()
     );
     assert_eq!(
-        restored.machine().vic().forced_badline_cdata_carry_slot(),
+        restored
+            .machine()
+            .vic()
+            .forced_badline_cdata_destination_vmli(),
         Some(0)
     );
 
@@ -249,7 +270,10 @@ fn snapshot_round_trip_preserves_exhausted_late_badline_window() {
             .forced_badline_cdata_carry_pending()
     );
     assert_eq!(
-        exhausted.machine().vic().forced_badline_cdata_carry_slot(),
+        exhausted
+            .machine()
+            .vic()
+            .forced_badline_cdata_destination_vmli(),
         Some(0)
     );
     assert!(exhausted.machine().vic().badline_ba_is_low());
@@ -477,11 +501,11 @@ fn restore_rejects_old_schema_before_decoding_its_payload() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");
     let err = runtime
-        .restore(&[5])
-        .expect_err("version 5 snapshot should be rejected before payload decode");
+        .restore(&[7])
+        .expect_err("version 7 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason }
-            if reason == "unsupported snapshot version 5; expected 7"),
+            if reason == "unsupported snapshot version 7; expected 8"),
         "unexpected error variant: {err:?}",
     );
 }

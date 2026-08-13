@@ -135,9 +135,13 @@ pub(crate) const C64_QUERY_PATHS: &[&str] = &[
     "vic.border_colour",
     "vic.c_access_active",
     "vic.cpu_stalled",
+    "vic.forced_badline_cdata_carry_age",
     "vic.forced_badline_cdata_carry_cycles_remaining",
     "vic.forced_badline_cdata_carry_pending",
     "vic.forced_badline_cdata_carry_slot",
+    "vic.forced_badline_cdata_carry_value",
+    "vic.forced_badline_cdata_destination_vmli",
+    "vic.forced_badline_cdata_eligibility_cycles_remaining",
     "vic.forced_badline_output_delay",
     "vic.idle_state",
     "vic.irq",
@@ -358,6 +362,9 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "vic.border_colour" => json!(machine.machine().vic_register(0x20) & 0x0F),
             "vic.c_access_active" => json!(machine.machine().vic().c_access_is_active()),
             "vic.cpu_stalled" => json!(machine.machine().vic().cpu_stalled),
+            "vic.forced_badline_cdata_carry_age" => {
+                json!(machine.machine().vic().forced_badline_cdata_carry_age())
+            }
             "vic.forced_badline_cdata_carry_cycles_remaining" => {
                 json!(
                     machine
@@ -366,11 +373,30 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
                         .forced_badline_cdata_carry_cycles_remaining()
                 )
             }
+            "vic.forced_badline_cdata_eligibility_cycles_remaining" => {
+                json!(
+                    machine
+                        .machine()
+                        .vic()
+                        .forced_badline_cdata_eligibility_cycles_remaining()
+                )
+            }
             "vic.forced_badline_cdata_carry_pending" => {
                 json!(machine.machine().vic().forced_badline_cdata_carry_pending())
             }
             "vic.forced_badline_cdata_carry_slot" => {
                 json!(machine.machine().vic().forced_badline_cdata_carry_slot())
+            }
+            "vic.forced_badline_cdata_carry_value" => {
+                json!(machine.machine().vic().forced_badline_cdata_carry_value())
+            }
+            "vic.forced_badline_cdata_destination_vmli" => {
+                json!(
+                    machine
+                        .machine()
+                        .vic()
+                        .forced_badline_cdata_destination_vmli()
+                )
             }
             "vic.forced_badline_output_delay" => {
                 json!(machine.machine().vic().forced_badline_output_delay())
