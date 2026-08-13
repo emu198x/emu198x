@@ -785,3 +785,88 @@ fn the_io_lookup_offsets_are_pinned_to_the_falling_half_cycles() {
         );
     }
 }
+
+/// Is anything charged during the interrupt-acknowledge cycle?
+///
+/// The last candidate for a one-T-state shift in `Float48K`. That probe
+/// re-synchronises on the interrupt (`EI; HALT`), vectors through IM2
+/// straight into its delay loop, and runs entirely in uncontended memory on
+/// an uncontended odd port — so nothing the contention gate does should
+/// reach it. It moves anyway: reverting `ferranti-ula-6c001e` to `d7afe4a7`
+/// takes it from 14336 back to 14337.
+///
+/// The acknowledge cycle is the only `/IORQ` left in that path, and it is
+/// not an I/O M-cycle. `tick_int_ack` presents `PC` and asserts `/IORQ` from
+/// `T3`↓ to `T5`↑ with `/M1` — the Z80's acknowledge signature, which a
+/// peripheral is supposed to distinguish from a port access by gating
+/// `/IORQ` with `/M1`. The ULA is handed neither `/M1` nor the M-cycle type,
+/// so from the pins alone an acknowledge cycle looks like an I/O read: it
+/// reaches `mcycle_fall == 2` on its `T2Fall` exactly as a port cycle does,
+/// and it asserts `/IORQ` on falling half-cycles exactly as a port cycle
+/// does. Both of the port terms added for FUSE's lookup counts key on those.
+///
+/// The reason it was dismissed is that the interrupt fires in the vertical
+/// blank, where `contend_window` is shut — which is an argument, not a
+/// measurement, and the whole campaign has been a lesson in the difference.
+#[test]
+#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+fn the_interrupt_acknowledge_cycle_is_never_contended() {
+    use common_sinclair_zx_spectrum::ula::Ula;
+
+    let rom = rom_bytes().expect("48K ROM should be provisioned");
+    let mut m = Spectrum48k::new();
+    m.load_rom_bytes(&rom).expect("48K ROM should load");
+    m.reset();
+    // Let the ROM reach its main loop and enable interrupts.
+    for _ in 0..200 {
+        m.run_frame();
+    }
+
+    let divisor = m.frame_timing().cpu_divisor;
+    let halfcycles = m.frame_timing().halfcycles_per_frame;
+
+    let mut ack_halfcycles = 0usize;
+    let mut ack_stalled = 0usize;
+    let mut stalled_on: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut ack_tstates: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+
+    // Two frames, so an acknowledge cycle is caught wherever it falls.
+    for _ in 0..halfcycles * 2 {
+        let hc_phase = m.hc() % divisor;
+        if hc_phase == 0 || hc_phase == divisor / 2 {
+            let phase = format!("{:?}", m.z80().phase);
+            if phase.starts_with("IntAck") {
+                ack_halfcycles += 1;
+                ack_tstates.insert(m.tstate_in_frame());
+                if !m.ula().cpu_clock_active() {
+                    ack_stalled += 1;
+                    stalled_on.insert(phase);
+                }
+            }
+        }
+        m.advance_halfcycles(1);
+    }
+
+    println!("\nacknowledge half-cycles observed: {ack_halfcycles}");
+    println!("of those, with the CPU clock withheld: {ack_stalled}");
+    println!("frame T-states they fell on: {ack_tstates:?}");
+    if !stalled_on.is_empty() {
+        println!("withheld on: {stalled_on:?}");
+    }
+
+    // Self-check first: a run that never acknowledged an interrupt cannot
+    // say anything about what the acknowledge cycle is charged.
+    assert!(
+        ack_halfcycles > 0,
+        "harness fault, not a finding: no interrupt-acknowledge cycle ran in \
+         two frames, so nothing here is evidence about one"
+    );
+
+    assert_eq!(
+        ack_stalled, 0,
+        "the ULA withheld the CPU clock on {ack_stalled} of {ack_halfcycles} \
+         acknowledge half-cycles ({stalled_on:?}). An acknowledge cycle is \
+         not a port access — FUSE charges it no port contention — and the \
+         gate cannot tell the two apart without `/M1`."
+    );
+}
