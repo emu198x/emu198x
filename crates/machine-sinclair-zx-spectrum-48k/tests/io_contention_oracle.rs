@@ -429,8 +429,12 @@ fn best_shared_offset(collected: &[Scored]) -> i32 {
 /// Runs without a ROM-dependent instruction stream and asserts two things,
 /// either of which can fail: where the edge falls, and how long it lasts.
 #[test]
-#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "needs EMU198X_SPECTRUM_48K_ROM; and currently a known \
+            divergence — the interrupt-derived origin measures +14336 \
+            where the contention gate scores 0 only at +14335. See \
+            knowledge/decisions/spectrum-contention-vs-floating-bus.md"]
 fn the_frame_origin_is_pinned_by_the_interrupt() {
+    use common_sinclair_zx_spectrum::driver::SpectrumDriver;
     use common_sinclair_zx_spectrum::ula::Ula;
 
     /// `interrupt_length` for `timings_frame_ferranti_5c_6c`, libspectrum
@@ -447,13 +451,23 @@ fn the_frame_origin_is_pinned_by_the_interrupt() {
         machine.advance_tstates(1);
     }
 
+    // Stepped a master tick at a time. Polling with `advance_tstates(1)`
+    // and reading `tstate_in_frame()` afterwards names the T-state *after*
+    // the one the edge fell in, and this test used to do exactly that: it
+    // reported an onset of 55553 where the pin rises at the first master
+    // tick of 55552, and then passed by comparing that one-too-high onset
+    // against an `ORIGIN` that is one too low. Two errors cancelling is
+    // not a measurement. See
+    // `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
+    let divisor = machine.frame_timing().cpu_divisor;
     let mut edges = Vec::new();
     let mut prev = machine.ula().interrupt_active();
-    for _ in 0..FRAME_TSTATES {
-        machine.advance_tstates(1);
+    for _ in 0..(FRAME_TSTATES * divisor) {
+        machine.advance_halfcycles(1);
         let now = machine.ula().interrupt_active();
         if now != prev {
-            edges.push((machine.tstate_in_frame(), now));
+            // `hc` is already past the tick that moved the pin.
+            edges.push(((machine.hc() - 1) / divisor, now));
         }
         prev = now;
     }
@@ -473,12 +487,27 @@ fn the_frame_origin_is_pinned_by_the_interrupt() {
         "the engine holds /INT for {} T-states against FUSE's {FUSE_INTERRUPT_LENGTH}",
         release - onset
     );
+    // The interrupt-derived origin, measured rather than fitted.
+    //
+    // FUSE's frame T-state 0 *is* the interrupt: `spectrum_frame()`
+    // subtracts a frame and `z80_interrupt()` runs in the same handler.
+    // So whatever engine T-state raises `/INT` maps onto FUSE's 0, and
+    // the origin is the rest of the frame.
+    let interrupt_origin = FRAME_TSTATES as i32 - onset as i32;
+    println!(
+        "/INT rises at engine T-state {onset}; interrupt-derived origin \
+         {interrupt_origin}; this file scores contention against {ORIGIN}"
+    );
     assert_eq!(
-        FRAME_TSTATES as i32 - onset as i32,
-        ORIGIN,
-        "/INT rises at engine T-state {onset}, which puts the origin at {}, \
-         not the {ORIGIN} this file scores against",
-        FRAME_TSTATES as i32 - onset as i32
+        interrupt_origin, ORIGIN,
+        "/INT rises at engine T-state {onset}, which puts the \
+         interrupt-derived origin at {interrupt_origin}, not the {ORIGIN} \
+         this file scores contention against. Both numbers are now \
+         measured at half-cycle resolution and neither is fitted, so this \
+         is a real one-T-state gap between the interrupt anchor and the \
+         contention window — not the labelling artefact \
+         `the_arrival_label_and_the_raster_agree_on_the_tstate` rules out, \
+         which is about arrivals rather than about `/INT`."
     );
 }
 

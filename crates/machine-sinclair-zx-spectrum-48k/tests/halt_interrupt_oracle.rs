@@ -120,6 +120,7 @@
 //!     --test halt_interrupt_oracle -- --nocapture
 //! ```
 
+use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::ula::Ula;
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
@@ -262,17 +263,27 @@ fn prepare(phase_fillers: u32) -> Spectrum48k {
 /// harness that parks relative to `FRAME_TSTATES` waits for an edge that
 /// has already been and gone. Measuring it also keeps this file clear of
 /// `ORIGIN`: every interval below is stated against this edge.
+///
+/// Measured at **half-cycle** resolution, and deliberately so. Polling
+/// with `advance_tstates(1)` and reading `tstate_in_frame()` afterwards
+/// reports the T-state *after* the one the edge fell in — the first
+/// version of this harness did exactly that and put `/INT` at 55553
+/// where the pin rises at the start of 55552, which moved every FUSE
+/// boundary it computes.
 fn int_assert_tstate() -> u32 {
     let mut machine = prepare(0);
     // Interrupts off, so the CPU cannot take the edge we are looking for.
     machine.z80_mut().regs.iff1 = false;
     machine.z80_mut().regs.iff2 = false;
+    let divisor = machine.frame_timing().cpu_divisor;
     let mut prev = machine.ula().interrupt_active();
-    for _ in 0..=FRAME_TSTATES {
-        machine.advance_tstates(1);
+    for _ in 0..=(FRAME_TSTATES * divisor) {
+        machine.advance_halfcycles(1);
         let now = machine.ula().interrupt_active();
         if now && !prev {
-            return machine.tstate_in_frame();
+            // `hc` has already been incremented past the tick that
+            // raised the pin, so name that tick rather than this one.
+            return (machine.hc() - 1) / divisor;
         }
         prev = now;
     }
@@ -287,6 +298,7 @@ fn sample(phase_fillers: u32, run_in: u32) -> Option<Sample> {
 
     // Park a few hundred T-states ahead of `/INT` — long enough to be
     // settled in `HALT`, short enough that the run stays cheap.
+    let divisor = machine.frame_timing().cpu_divisor;
     let start = int_assert_tstate() - run_in;
     while machine.tstate_in_frame() != start {
         machine.advance_tstates(1);
@@ -301,11 +313,19 @@ fn sample(phase_fillers: u32, run_in: u32) -> Option<Sample> {
     let mut stalls = 0u32;
     let mut prev_int = machine.ula().interrupt_active();
     let mut prev_m1 = machine.z80().m1;
+    let mut prev_stalled = false;
 
-    // Long enough to reach `/INT` and settle into the handler, and no
-    // longer — a runaway would otherwise return `None` and be dropped.
-    for _ in 0..4_000u32 {
-        let t = machine.tstate_in_frame();
+    // Stepped a master tick at a time, not a T-state at a time. Reading
+    // the pins once per T-state names the T-state *after* the edge —
+    // `/INT` rises at the first master tick of 55552 and a per-T-state
+    // poll reports 55553 — and while every interval here is a difference
+    // and so survives a uniform shift, the printed T-states would not be
+    // the machine's. This costs four times the iterations and buys
+    // numbers that can be compared with a trace.
+    for _ in 0..(4_000u32 * divisor) {
+        machine.advance_halfcycles(1);
+        // `hc` is already past the tick that produced this state.
+        let t = (machine.hc().wrapping_sub(1)) / divisor;
         let z80 = machine.z80();
         let m1_edge = z80.m1 && !prev_m1;
         prev_m1 = z80.m1;
@@ -332,14 +352,17 @@ fn sample(phase_fillers: u32, run_in: u32) -> Option<Sample> {
         }
         prev_int = int_now;
 
-        if halt_fetch.is_some() && isr_start.is_none() && !machine.ula().cpu_clock_active() {
+        // Count stall *episodes*, not stalled master ticks: a single
+        // contention event spans several.
+        let stalled = !machine.ula().cpu_clock_active();
+        if halt_fetch.is_some() && isr_start.is_none() && stalled && !prev_stalled {
             stalls += 1;
         }
+        prev_stalled = stalled;
 
         if isr_start.is_some() {
             break;
         }
-        machine.advance_tstates(1);
     }
 
     Some(Sample {
