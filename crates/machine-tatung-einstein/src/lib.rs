@@ -281,8 +281,24 @@ impl Einstein {
     }
 
     fn tick_tstate(&mut self) {
-        self.cpu.tick();
-        self.handle_bus();
+        // Two CPU half-cycles per T-state. `Z80::tick` advances one
+        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
+        // T-state ran the CPU at half speed. This machine paces its frame
+        // off the VDP rather than a fixed T-state budget, so the symptom was
+        // not a short frame but a half-full one: the comment in `run_frame`
+        // about the CPU fitting "its true 4 MHz worth of T-states" into a
+        // VDP raster only became true with this fix.
+        //
+        // The keyboard interrupt is fed before each tick, not after: the Z80
+        // samples `/INT` at an instruction boundary during its own tick. The
+        // VDP is not re-denominated to half-cycles as the Sega machines' is,
+        // because on the Einstein it does not drive `/IRQ` at all.
+        for _ in 0..2 {
+            self.cpu.irq = self.kbd_int_pending;
+            self.cpu.tick();
+            self.handle_bus();
+        }
+
         self.fdc.tick();
 
         self.vdp_accum += VDP_CLOCK_HZ;
@@ -295,9 +311,6 @@ impl Einstein {
         if self.psg_phase == 0 {
             self.psg.tick();
         }
-
-        // VDP /INT → Z80 /IRQ; CTC stub doesn't generate interrupts.
-        self.cpu.irq = self.kbd_int_pending;
 
         self.cpu_tstates += 1;
     }
