@@ -128,3 +128,71 @@ ColecoVision, Sord M5, Memotech MTX, Tatung Einstein, SVI-328, and a
 line counter — a genuinely different assertion source from a ULA tied to
 the beam. The CTC machines (Einstein, MTX) are the strongest test of IM 2
 with real vectors, but need a reference emulator vendored first.
+
+## The cross-machine look found something else first
+
+Going to the Master System to *prove* the interrupt-sampling change
+instead found two defects in how the machine drives the shared CPU. Both
+are now fixed, and neither had anything to do with interrupts sampling.
+
+**Correction to the section above:** this record claimed there is no
+vendored reference emulator for the Master System. That is wrong.
+`198x/emulators/sega-master-system/INDEX.md` designates
+`multi-system/genesis-plus-gx` as the canonical SMS reference and lists
+the relevant files; `ares` and `mame` cover it too. Three independent
+references, already present. RULES.md rule 32 is satisfied — the
+directory looked empty because the reference lives in `multi-system/`,
+which the INDEX explains.
+
+**The Z80 ran at half speed.** `Z80::tick` advances one half-cycle —
+`T1Rise`, then `T1Fall`. `Sms::tick_tstate` called it **once** while
+incrementing `cpu_tstates` by one, against constants that are the real
+figures (228 T-states per scanline, 342 dots, the correct 3:2 dot ratio).
+So every instruction cost twice the T-states it should, and the machine
+executed half the work per frame its own budget allows. Measured: a `NOP`
+cost **8.000** T-states against Zilog's 4.
+
+The SG-1000 carried it identically, down to a comment reading "CPU
+half-cycle tick" directly above `cpu_tstates += 1` — the author knew
+which it was and counted the other.
+
+Nothing caught it. Both suites passed throughout: boot tests reach their
+screens either way, and a *uniform* halving of CPU speed is invisible to
+anything that never compares an instruction's cost against a known
+figure. `crates/machine-sega-{master-system,sg-1000}/tests/cpu_rate.rs`
+now does exactly that, on `NOP` — the least disputed number in the
+instruction set, with no memory operand, index prefix or conditional
+path. If `NOP` is right the clock division is right; if it is wrong,
+nothing else can be.
+
+**And the same `/INT` ordering defect the Spectrum had.** Both machines
+fed `cpu.irq = vdp.interrupt` *after* `cpu.tick()`, so the CPU read the
+VDP's line one tick stale — the host-contract half of
+[`zilog-z80-samples-int-at-the-instruction-boundary.md`](zilog-z80-samples-int-at-the-instruction-boundary.md).
+Now fed before the tick, inside the two-half-cycle loop, with the VDP
+phase accumulator re-denominated to 4 so its 3:2 dot ratio is unchanged
+but interleaved twice as finely.
+
+**The pattern is wider, and is not yet measured.** Every Z80 machine in
+the workspace calls `cpu.tick()` once per its tick function, and most
+feed `.irq` after it:
+
+| machine | `.irq` fed | verified |
+|---|---|---|
+| Master System, SG-1000 | after → **fixed** | **measured** (8.000 → 4.000 T/`NOP`) |
+| MSX, ColecoVision, Sord M5, Tatung Einstein, SVI-328 | after tick | inspection only |
+| Memotech MTX, Jupiter Ace | before tick | inspection only |
+| Aquarius, ZX81 | no `.irq` found | inspection only |
+
+Only the two Sega machines are measured. A single `tick()` per tick
+function is **not** by itself proof of half speed — the Spectrum calls
+`tick_cpu_and_bus` once per scheduled edge and twice per T-state, which
+is correct. Each machine needs its own `cpu_rate` probe before any claim
+is made about it, and that is the next piece of work.
+
+**Consequence for the interrupt proof.** The cross-machine review this
+survey was opened for cannot start on the Sega machines until their
+timing is re-validated against `genesis-plus-gx` at the corrected CPU
+rate. Fixing the clock is a prerequisite, not the proof: a machine
+running its CPU at half speed could not have told us anything about a
+half-T-state sampling instant.

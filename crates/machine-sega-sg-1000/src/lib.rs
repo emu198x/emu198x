@@ -60,7 +60,10 @@ use zilog_z80::{BusOp, Z80};
 /// VDP dot ticks per CPU T-state, numerator.
 const VDP_DOT_PHASE_NUMERATOR: u32 = 3;
 /// VDP dot ticks per CPU T-state, denominator.
-const VDP_DOT_PHASE_DENOMINATOR: u32 = 2;
+// Accumulated per CPU **half-cycle**, so the denominator is 4 rather
+// than 2: three dots per four half-cycles is the same 3:2 against
+// T-states, interleaved twice as finely.
+const VDP_DOT_PHASE_DENOMINATOR: u32 = 4;
 
 /// CPU T-states per scanline (342 VDP dots × 2 / 3).
 const CPU_TSTATES_PER_SCANLINE: u64 = 228;
@@ -205,25 +208,36 @@ impl Sg1000 {
 
     /// Advance one Z80 T-state and the chips it drives.
     fn tick_tstate(&mut self) {
-        // 1. CPU half-cycle tick + pin-driven bus inspection.
-        self.cpu.tick();
-        self.handle_bus();
+        // Two CPU half-cycles per T-state. `Z80::tick` advances one
+        // half-cycle, and this loop used to call it once while counting a
+        // whole T-state — the comment even said "CPU half-cycle tick"
+        // next to `cpu_tstates += 1`. A `NOP` cost 8 T-states against the
+        // Z80's 4, so the machine executed half the work per frame that
+        // 228 T-states per scanline budgets for.
+        for _ in 0..2 {
+            // 1. Pins before the tick, not after. The Z80 samples `/INT`
+            //    at an instruction boundary during its own tick, so
+            //    feeding the line afterwards hands it the VDP's state
+            //    from the previous half-cycle. See
+            //    `knowledge/decisions/zilog-z80-samples-int-at-the-instruction-boundary.md`.
+            self.cpu.irq = self.vdp.interrupt;
+            // 2. Pause line → Z80 NMI (level-driven; the host releases).
+            self.cpu.nmi = self.pause_pressed;
 
-        // 2. VDP advances by 3/2 dots per T-state — phase counter.
-        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
-        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-            self.vdp.tick();
-            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+            // 3. CPU half-cycle tick + pin-driven bus inspection.
+            self.cpu.tick();
+            self.handle_bus();
+
+            // 4. VDP advances by 3/4 dots per half-cycle — phase counter.
+            self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
+            while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+                self.vdp.tick();
+                self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+            }
         }
 
-        // 3. PSG runs at the Z80 clock on SG-1000.
+        // 5. PSG runs at the Z80 clock on SG-1000.
         self.psg.tick();
-
-        // 4. VDP INT → Z80 IRQ.
-        self.cpu.irq = self.vdp.interrupt;
-
-        // 5. Pause line → Z80 NMI (level-driven; the host releases).
-        self.cpu.nmi = self.pause_pressed;
 
         self.cpu_tstates += 1;
     }
