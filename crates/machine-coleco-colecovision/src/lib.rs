@@ -60,9 +60,13 @@ use zilog_z80::{BusOp, Z80};
 /// CPU T-states** — the same 3:2 phase as the SG-1000 (identical
 /// TMS9918A + Z80 at the same clocks). Replaces the donor's flat 3:1
 /// approximation, which ran both the VDP and wall-clock 1.5× fast.
+///
+/// Accumulated per CPU **half-cycle**, so the denominator is 4 rather than
+/// 2: three dots per four half-cycles is the same 3:2 against T-states,
+/// interleaved twice as finely.
 const VDP_DOT_PHASE_NUMERATOR: u32 = 3;
-/// VDP dot ticks per CPU T-state, denominator.
-const VDP_DOT_PHASE_DENOMINATOR: u32 = 2;
+/// VDP dot ticks per CPU half-cycle, denominator.
+const VDP_DOT_PHASE_DENOMINATOR: u32 = 4;
 
 /// CPU T-states per scanline (342 VDP dots × 2 / 3).
 const CPU_TSTATES_PER_SCANLINE: u64 = 228;
@@ -243,26 +247,34 @@ impl ColecoVision {
 
     /// Advance one Z80 T-state and the chips it drives.
     fn tick_cpu_cycle(&mut self) {
-        // 1. CPU half-cycle ticks until the next bus op is requested.
-        //    Per RULES.md rule 6 we drive the Z80 by inspecting its
-        //    pins; `bus_request()` collapses one M-cycle's worth of
-        //    half-cycles into one bus transaction. The Z80 half-cycles
-        //    are advanced by `tick()` until the request is honoured.
-        self.cpu.tick();
-        self.handle_bus();
+        // 1. Two CPU half-cycles per T-state. Per RULES.md rule 6 we drive
+        //    the Z80 by inspecting its pins; `Z80::tick` advances one
+        //    half-cycle — `T1Rise` then `T1Fall` — so calling it once per
+        //    T-state ran the CPU at half speed: a `NOP` cost 8 T-states
+        //    against the Z80's 4, and the machine executed half the work
+        //    per frame that `cpu_cycles_per_frame` budgets for.
+        for _ in 0..2 {
+            // 2. VDP INT pin drives the Z80 IRQ pin directly, fed before
+            //    the tick rather than after. The Z80 samples `/INT` at an
+            //    instruction boundary during its own tick, so setting the
+            //    line afterwards hands it the VDP's state from the
+            //    previous half-cycle.
+            self.cpu.irq = self.vdp.interrupt;
 
-        // 2. VDP advances by 3/2 dots per T-state — phase counter.
-        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
-        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-            self.vdp.tick();
-            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+            self.cpu.tick();
+            self.handle_bus();
+
+            // 3. VDP advances by 3/2 dots per T-state — phase counter,
+            //    now accumulated per half-cycle.
+            self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
+            while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+                self.vdp.tick();
+                self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+            }
         }
 
-        // 3. PSG advances one CPU clock (internal ÷ 16 divider).
+        // 4. PSG advances one CPU clock (internal ÷ 16 divider).
         self.psg.tick();
-
-        // 4. VDP INT pin drives the Z80 IRQ pin directly.
-        self.cpu.irq = self.vdp.interrupt;
 
         self.cpu_cycles += 1;
     }

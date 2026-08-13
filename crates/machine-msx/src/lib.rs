@@ -83,9 +83,13 @@ use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
 
 /// VDP dot ticks per CPU T-state, numerator (TMS9918A on MSX).
+///
+/// Accumulated per CPU **half-cycle**, so the denominator is 4 rather than
+/// 2: three dots per four half-cycles is the same 3:2 against T-states,
+/// interleaved twice as finely.
 const VDP_DOT_PHASE_NUMERATOR: u32 = 3;
-/// VDP dot ticks per CPU T-state, denominator.
-const VDP_DOT_PHASE_DENOMINATOR: u32 = 2;
+/// VDP dot ticks per CPU half-cycle, denominator.
+const VDP_DOT_PHASE_DENOMINATOR: u32 = 4;
 /// CPU T-states per scanline (342 VDP dots × 2 / 3).
 const CPU_TSTATES_PER_SCANLINE: u64 = 228;
 const NTSC_SCANLINES_PER_FRAME: u64 = 262;
@@ -368,14 +372,31 @@ impl Msx {
 
     /// Advance one Z80 T-state.
     fn tick_tstate(&mut self) {
-        self.cpu.tick();
-        self.handle_bus();
+        // Two CPU half-cycles per T-state. `Z80::tick` advances one
+        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
+        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states
+        // against the Z80's 4, and the machine executed half the work
+        // per frame that `tstates_per_frame` budgets for.
+        for _ in 0..2 {
+            // VDP INT → Z80 IRQ, fed before the tick, not after. The Z80
+            // samples `/INT` at an instruction boundary during its own
+            // tick, so setting the line afterwards hands it the VDP's
+            // state from the previous half-cycle. MSX has no separate NMI
+            // source. See
+            // `knowledge/decisions/zilog-z80-samples-int-at-the-instruction-boundary.md`.
+            self.cpu.irq = self.vdp.interrupt;
 
-        // VDP dots at 3:2 ratio per T-state.
-        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
-        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-            self.vdp.tick();
-            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+            self.cpu.tick();
+            self.handle_bus();
+
+            // VDP dots at 3:2 against T-states, accumulated per
+            // half-cycle so the frame interrupt lands at the correct
+            // scanline relative to CPU execution.
+            self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
+            while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+                self.vdp.tick();
+                self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+            }
         }
 
         // PSG runs at CPU ÷ 2.
@@ -383,9 +404,6 @@ impl Msx {
         if self.psg_phase == 0 {
             self.psg.tick();
         }
-
-        // VDP INT → Z80 IRQ. MSX has no separate NMI source.
-        self.cpu.irq = self.vdp.interrupt;
 
         self.cpu_tstates += 1;
     }
