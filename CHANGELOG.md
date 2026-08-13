@@ -9,6 +9,12 @@ crates.io may hit their own 1.0 on their own schedules.
 
 ## [Unreleased]
 
+## [0.2.2](https://github.com/emu198x/emu198x/compare/v0.2.1...v0.2.2) - 2026-08-13
+
+### Added
+
+- *(spectrum)* read .szx snapshots
+
 ## [0.2.1](https://github.com/emu198x/emu198x/compare/v0.2.0...v0.2.1) - 2026-08-11
 
 ### Added
