@@ -196,3 +196,73 @@ timing is re-validated against `genesis-plus-gx` at the corrected CPU
 rate. Fixing the clock is a prerequisite, not the proof: a machine
 running its CPU at half speed could not have told us anything about a
 half-T-state sampling instant.
+
+## The sweep: nine of eleven Z80 machines run the CPU at half speed
+
+Measured, not inferred. Each machine was driven through its own
+`Z80Stepper::step_tick` on a ROM of `NOP`s, counting ticks per retired
+instruction. A Zilog `NOP` is four T-states, so a machine whose
+`step_tick` is one T-state should read **4.000**.
+
+| machine | step_ticks per `NOP` | verdict |
+|---|---|---|
+| Jupiter Ace | **4.000** | correct |
+| Master System, SG-1000 | 8.000 → **4.000** | fixed, this campaign |
+| MSX | 8.000 | half speed |
+| ColecoVision | 8.000 | half speed |
+| Sord M5 | 8.000 | half speed |
+| Spectravideo SVI-328 | 8.000 | half speed |
+| Tatung Einstein | 8.000 | half speed |
+| Mattel Aquarius | 8.000 | half speed |
+| Memotech MTX | 8.000 | half speed |
+| ZX81 | 8.000 | half speed |
+| ZX80 | 8.000 | half speed |
+
+The Jupiter Ace reading 4.000 is what makes the rest a measurement rather
+than a broken probe: one machine in the fleet does it correctly, through
+the same harness, on the same instruction.
+
+**And it had already been found.** `machine-jupiter-ace`'s `tick_tstate`
+carries this comment, in the tree, today:
+
+> The `zilog-z80` core is a half-cycle state machine: it needs two ticks
+> per T-state (the Spectrum drives it the same way — see
+> `common-sinclair-zx-spectrum` `tick_one_halfcycle`). Driving it once
+> per T-state under-clocked the CPU 2× and meant the IRQ was never
+> sampled at an instruction boundary, so the Forth ROM spun forever
+> waiting for its 50 Hz frame interrupt.
+
+So this is not a new discovery. It is the *same* defect, diagnosed
+correctly once, fixed on the machine where it happened to stop the ROM
+booting, and never propagated to the other nine. The Sega pair were found
+independently in this campaign and fixed the same way.
+
+Note the second half of that comment: under-clocking and the interrupt
+sampling instant are the same failure on these machines, because a CPU
+ticked once per T-state never reaches the boundary the sample is taken
+at. That is why the Ace's Forth ROM hung rather than merely running slow.
+
+**Why nothing caught it.** A *uniform* halving of CPU speed is invisible
+to every gate these machines have: boot tests reach their screens either
+way, golden framebuffers were captured under the same halving, and
+nothing compared an instruction's cost against a known figure.
+`crates/machine-sega-{master-system,sg-1000}/tests/cpu_rate.rs` is the
+shape that catches it, and every machine above wants one.
+
+**The durable fix is a layer, not nine patches.** The Spectrum family
+does not have this bug because `SpectrumDriver::tick_one_halfcycle` gets
+the cadence right once for seven machines. These eleven each hand-roll
+their loop, which is exactly the case
+[`../../RULES.md`](../../RULES.md) rule 30 covers — promote cross-machine
+functionality to the highest layer that fits. The per-machine work is
+mechanical (wrap the CPU tick in `for _ in 0..2`, feed `.irq` before the
+tick, leave the once-per-T-state chip ticks where they are, as the Ace
+does); the question worth answering first is whether these machines
+should share a driver trait rather than each rediscovering the cadence.
+
+**Order of work.** Fix the nine with a `cpu_rate` gate each — the Ace is
+the template and the Sega pair are worked examples — then revisit the
+shared-driver question with eleven known-correct loops to generalise
+from. Only then is the cross-machine interrupt proof meaningful: none of
+these machines could have said anything useful about a half-T-state
+sampling instant while running at half speed.
