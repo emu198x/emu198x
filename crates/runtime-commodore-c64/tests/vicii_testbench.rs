@@ -595,26 +595,6 @@ fn sequencer_bug_d011_write_cycle_boundary() {
         let after = pos(machine.raster_line(), machine.cycle_in_line());
         let cpu_advanced = machine.cpu().total_cycles != cpu_cycles;
 
-        if trace_bus
-            && matches!(before.0, 51..=53)
-            && matches!(before.1, 14 | 16 | 52 | 53 | 54 | 55 | 58)
-        {
-            let vic = machine.vic();
-            eprintln!(
-                "counter {:?} -> {:?}: vc={} vcbase={} vmli={} rc={} idle={} bad={} delay={} carry={:?}",
-                before,
-                after,
-                vic.vc(),
-                vic.vcbase(),
-                vic.vmli(),
-                vic.rc(),
-                vic.idle_state(),
-                vic.is_badline(),
-                vic.forced_badline_output_delay(),
-                vic.forced_badline_cdata_carry_cycles_remaining()
-            );
-        }
-
         if target_exec && cpu_advanced {
             execs.push(ExecPhase {
                 pc: addr,
@@ -766,6 +746,63 @@ fn sequencer_bug_d011_write_cycle_boundary() {
         (pos(53, 55), pos(54, 10))
     );
     assert!(stalls[58..].iter().all(|s| s.addr == 0x0A04 && s.sync));
+}
+
+/// Diagnostic: report every CPU bus write to `$D020` during one settled frame
+/// of `VICII_D020_PRG` (default `colorfetchbug/main.prg`). RMW instructions
+/// drive the unmodified byte and then the modified byte on consecutive Phi2
+/// cycles, so inspecting only register changes hides half the timing evidence.
+#[test]
+#[ignore = "diagnostic: reports D020 CPU bus phases"]
+fn d020_write_cycle_boundary() {
+    if !roms_present() || testbench_dir().is_none() {
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
+    }
+
+    let rel =
+        std::env::var("VICII_D020_PRG").unwrap_or_else(|_| "colorfetchbug/main.prg".to_owned());
+    let mut session = prepare_testprog_on(
+        &rel,
+        Model::C64PalBreadbin,
+        TIMING_PAL_BREADBIN.cycles_per_frame,
+    );
+    session.run_frames(60).expect("steady raster loop");
+
+    let mut writes = Vec::new();
+    for _ in 0..TIMING_PAL_BREADBIN.cycles_per_frame {
+        let machine = session.machine_mut().machine_mut();
+        let cpu = machine.cpu();
+        let before_line = machine.raster_line();
+        let before_cycle = machine.cycle_in_line();
+        let addr = cpu.addr;
+        let value = cpu.data;
+        let rw = cpu.rw;
+        let pc = cpu.regs.pc;
+        let sync = cpu.sync;
+        let total_cycles = cpu.total_cycles;
+
+        machine.tick();
+        let advanced = machine.cpu().total_cycles != total_cycles;
+        if !rw && addr == 0xD020 && advanced {
+            writes.push((
+                before_line,
+                before_cycle,
+                engine_to_canonical(before_cycle),
+                value & 0x0F,
+                pc,
+                sync,
+            ));
+        }
+    }
+
+    eprintln!("D020 writes (line, engine cycle, canonical cycle, value, pc, sync):");
+    for write in &writes {
+        eprintln!("{write:?}");
+    }
+    assert!(
+        !writes.is_empty(),
+        "settled VIC-II diagnostic frame should write D020"
+    );
 }
 
 /// Rewrite-relevant testbench cases: (label, program, reference PNG). The
@@ -1005,6 +1042,58 @@ fn colorfetchbug_cases_match_vice_references_exactly() {
     );
 }
 
+/// The far-edge `$D011` C-data carry leaves two characterised residuals: one
+/// eight-row character at the direct renderer's unresolved G-access/output
+/// boundary, plus two dot-zero colour-register transitions that require the
+/// PAL 6569 colour-resolution ring. Keep both shapes exact so an unrelated
+/// timing change cannot trade one disagreement for another.
+#[test]
+#[ignore = "strict sequencer-bug parity requires C64 ROMs + VIC-II testbench"]
+fn sequencer_bug_retains_only_the_known_pipeline_disagreements() {
+    if !roms_present() || testbench_dir().is_none() {
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
+    }
+    let dir = testbench_dir().expect("checked");
+    let reference = decode_reference_png(&dir.join("sequencer-bug/references/bug.prg.png"));
+    let framebuffer = run_testprog("sequencer-bug/bug.prg", 60);
+    let comparison = compare_indexed(&framebuffer, &reference, VICE_CROP_X, VICE_CROP_Y);
+
+    let mismatches: Vec<_> = comparison
+        .actual
+        .iter()
+        .zip(&comparison.reference)
+        .enumerate()
+        .filter(|(_, (actual, expected))| actual != expected)
+        .map(|(index, (&actual, &expected))| {
+            let index = index as u32;
+            (
+                index % reference.width,
+                index / reference.width,
+                actual,
+                expected,
+            )
+        })
+        .collect();
+    let mut expected = vec![(32, 34, 11, 12), (64, 34, 12, 11)];
+    for x in 32..=39 {
+        expected.push((x, 36, 6, 15));
+    }
+    for y in 37..=42 {
+        expected.push((32, y, 6, 15));
+        expected.push((39, y, 6, 15));
+    }
+    for x in 32..=39 {
+        expected.push((x, 43, 6, 15));
+    }
+    expected.sort_unstable();
+    let mut mismatches = mismatches;
+    mismatches.sort_unstable();
+    assert_eq!(
+        mismatches, expected,
+        "sequencer-bug must retain only the characterised G/output and colour-ring residuals"
+    );
+}
+
 /// Fraction of a single reference row (`ry`) whose C64 colour index matches our
 /// framebuffer when the reference is placed at (`dx`,`dy`).
 fn row_match_fraction(fb: &[u32], reference: &RefImage, dx: u32, dy: u32, ry: u32) -> f64 {
@@ -1074,10 +1163,29 @@ fn diff_by_row() {
     let dir = testbench_dir().expect("checked");
     let reference = decode_reference_png(&dir.join(refpng));
     let fb = run_testprog(prg, 60);
+    let comparison = compare_indexed(&fb, &reference, VICE_CROP_X, VICE_CROP_Y);
     eprintln!(
         "aggregate match: {:.3}%",
-        match_fraction(&fb, &reference, VICE_CROP_X, VICE_CROP_Y) * 100.0
+        comparison.matched_pixels as f64 / comparison.reference.len() as f64 * 100.0
     );
+    let mismatch_count = comparison.reference.len() - comparison.matched_pixels;
+    if mismatch_count <= 128 {
+        let mismatches: Vec<_> = comparison
+            .actual
+            .iter()
+            .zip(&comparison.reference)
+            .enumerate()
+            .filter_map(|(index, (&actual, &expected))| {
+                (actual != expected).then_some((
+                    index as u32 % reference.width,
+                    index as u32 / reference.width,
+                    actual,
+                    expected,
+                ))
+            })
+            .collect();
+        eprintln!("indexed mismatches (x, y, actual, expected): {mismatches:?}");
+    }
 
     eprintln!(
         "\n=== {cat}: rows below {:.0}% (ref-y → engine line {}+ref-y) ===",

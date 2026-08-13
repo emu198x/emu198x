@@ -1,7 +1,7 @@
 # C64 catalogue. See knowledge/decisions/october-catalogue.md.
 #
-# Coverage target: 10 entries spanning D64 disk, TAP datasette, NTSC,
-# and named SID showcases. Cartridges deferred until subsystem lands.
+# Coverage: 13 entries spanning firmware-only boot, D64/D81/G64 disk,
+# TAP datasette, cartridges, 1541/1571/1581 routes and SID showcases.
 #
 # Media paths resolve against:
 #   EMU198X_CATALOGUE_MEDIA_ROOT     (default: /Volumes/Data/Library/ROMs/TOSEC)
@@ -15,11 +15,12 @@ id = "c64"
 # re-capture instruction. See
 # knowledge/decisions/c64-architecture-review.md Seam 4.
 audio_routing_version = 4
-# Version 4 additionally derives AEC from the aggregate BA-low handover and
-# represents the invalid matrix data seen before the VIC-II owns Phi2. All 13
-# frame and audio hashes were recaptured unchanged on 2026-08-08 before this
-# version was advanced.
-frame_routing_version = 6
+# Version 7 adds the PAL 6569 far-edge forced-badline C-data carry network.
+# Two output cells remain hidden, while only the first following G-access
+# suppresses VC/VMLI advancement. The version is advanced even when catalogue
+# hashes stay unchanged because an arbitrary-cycle snapshot can observe the
+# corrected pipeline state.
+frame_routing_version = 7
 
 [[system.firmware]]
 variant = "pal"
