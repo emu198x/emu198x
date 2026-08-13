@@ -95,6 +95,26 @@ snapshot encoding is positional: this adds a field to `Z80`'s wire
 format, so snapshots written before it will not decode. That is a
 snapshot format change, not a compatibility shim.
 
+## Cross-machine review: what the validation surface actually offers
+
+Surveyed 2026-08-13 and written up in
+[`z80-validation-surface.md`](z80-validation-surface.md). The short
+version: ZEXDOC/ZEXALL, Tom Harte, the `zilog-z80` unit suite, the
+ZXSpectrum4.net timing survey and `halt2int128` are real gates and all
+pass. Three things that looked like Z80 validation are not — the FUSE
+reference suite was never running (corpus now wired in, and after fixing
+a half-cycle sampling error in the harness it **passes at 1351 of
+1356** — the engine agreed with FUSE all along), the
+Super HALT Invaders Test never leaves its title screen, and `tape_smoke`
+silently degrades to a pass when its Spectron oracle is absent.
+
+For the second machine this record asks for, there is no Z80
+machine-level suite in `assets/test-suites` and no vendored reference
+emulator for the Master System. The cheapest route is SMS or SG-1000,
+whose VDP raises `/INT` from a line counter rather than from the beam,
+and for which `genesis-plus-gx` is already vendored under
+`emulators/multi-system/`.
+
 ## See also
 
 - [`spectrum-contention-vs-floating-bus.md`](spectrum-contention-vs-floating-bus.md)
@@ -102,6 +122,8 @@ snapshot format change, not a compatibility shim.
   Float48K that made the defect visible.
 - [`fuse-governs-the-contended-window.md`](fuse-governs-the-contended-window.md)
   — the precedent for preferring FUSE to a paper reading.
+- [`z80-validation-surface.md`](z80-validation-surface.md) — which Z80
+  gates are real, which are silent, and what a cross-machine proof needs.
 - [`cpu-bus-interface.md`](cpu-bus-interface.md) — why the pins are public
   and the host drives them, which is what makes the ordering rule above a
   host contract rather than an internal detail.

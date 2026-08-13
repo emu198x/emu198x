@@ -76,12 +76,25 @@ pub fn find_fuse_z80_tests_dir() -> Result<PathBuf, String> {
 
     candidates.push(repo_root.join("test-data/fuse/z80"));
 
+    // The vendored FUSE source carries the corpus it is the reference
+    // for. `198x/emulators/zx-spectrum/fuse-1.7.0/z80/tests` holds
+    // `tests.in` and `tests.expected` byte-identically to any separate
+    // download, so there is nothing to fetch and nothing to keep in
+    // sync — the fixtures and the emulator we score against are the same
+    // release. See `../../decisions/` on reference emulators
+    // (`RULES.md` rule 32).
+    // Two depths: a normal checkout sits at `198x/Emu198x/emu198x`, a
+    // `git worktree` one level deeper under `198x/Emu198x/.worktrees/<name>`.
+    const VENDORED_FUSE: &str = "emulators/zx-spectrum/fuse-1.7.0/z80/tests";
+    candidates.push(repo_root.join("../..").join(VENDORED_FUSE));
+    candidates.push(repo_root.join("../../..").join(VENDORED_FUSE));
+
+    let documented = [
+        repo_root.join("test-data/fuse/z80"),
+        repo_root.join("../..").join(VENDORED_FUSE),
+    ];
     first_existing_path(candidates).ok_or_else(|| {
-        missing_fixture_message(
-            "FUSE Z80 test directory",
-            FUSE_Z80_TESTS_ENV,
-            &[repo_root.join("test-data/fuse/z80")],
-        )
+        missing_fixture_message("FUSE Z80 test directory", FUSE_Z80_TESTS_ENV, &documented)
     })
 }
 
