@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Collapse held Z80 bus strobes so each Beta Disk or peripheral operation is
+  dispatched once per guest transaction.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-pentagon-128-v0.2.0) - 2026-06-04
 
 ### Other

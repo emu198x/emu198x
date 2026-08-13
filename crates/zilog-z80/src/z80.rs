@@ -428,9 +428,9 @@ impl Z80 {
     /// Edge-detected bus transaction request, if one fired this tick.
     ///
     /// Real Z80 bus strobes are level-driven and held active across
-    /// multiple half-cycles per M-cycle (e.g. IORQ+RD is high for three
-    /// consecutive phases of an `IN` instruction). A naïve dispatcher
-    /// that re-reads from the peripheral every tick where
+    /// multiple half-cycles per M-cycle (the current I/O waveform holds
+    /// `IORQ+RD` high for five consecutive phases of an `IN` instruction). A
+    /// naïve dispatcher that re-reads from the peripheral every tick where
     /// `iorq && rd` would advance any FDC / AY / state-bearing port
     /// machine multiple times per instruction — which actually broke
     /// the +3 BIOS disk Loader, where the µPD765A's result FIFO was

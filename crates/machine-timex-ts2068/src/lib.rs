@@ -34,7 +34,7 @@ use format_sinclair_zx_spectrum_snapshot::Snapshot;
 use gi_ay_3_8912::Ay3_8912;
 use peripheral_kempston_joystick::KempstonJoystick;
 use timex_scld::TimexScld;
-use zilog_z80::Z80;
+use zilog_z80::{BusOp, Z80};
 
 use crate::memory::MemoryTimex;
 
@@ -231,16 +231,13 @@ impl TimexTS2068 {
     }
 
     fn handle_bus(&mut self) {
-        if self.z80.mreq && self.z80.rd {
-            self.z80.data_in = self.memory.read(self.z80.addr);
-        } else if self.z80.mreq && self.z80.wr {
-            self.memory.write(self.z80.addr, self.z80.data);
-        } else if self.z80.iorq && self.z80.rd && !self.z80.m1 {
-            self.z80.data_in = self.io_read(self.z80.addr);
-        } else if self.z80.iorq && self.z80.wr {
-            self.io_write(self.z80.addr, self.z80.data);
-        } else if self.z80.iorq && self.z80.m1 {
-            self.z80.data_in = 0xFF;
+        match self.z80.bus_request() {
+            Some(BusOp::MemRead) => self.z80.data_in = self.memory.read(self.z80.addr),
+            Some(BusOp::MemWrite) => self.memory.write(self.z80.addr, self.z80.data),
+            Some(BusOp::IoRead) => self.z80.data_in = self.io_read(self.z80.addr),
+            Some(BusOp::IoWrite) => self.io_write(self.z80.addr, self.z80.data),
+            Some(BusOp::IntAck) => self.z80.data_in = 0xFF,
+            None => {}
         }
     }
 
@@ -441,6 +438,34 @@ mod tests {
         m.io_write(0x00F5, 0x08); // select Vol A
         m.io_write(0x00F6, 0x0A); // write
         assert_eq!(m.io_read(0x00F5), 0x0A);
+    }
+
+    #[test]
+    fn held_io_write_is_dispatched_once() {
+        let mut m = TimexTS2068::new(TimexModel::TS2068);
+        m.z80.addr = 0x00F5;
+        m.z80.data = 0x0D;
+        m.z80.iorq = true;
+        m.z80.wr = true;
+        m.z80.m1 = false;
+
+        m.handle_bus();
+        assert_eq!(m.ay.selected_register(), 0x0D);
+
+        // Change the driven data while the same held strobe is active. A raw
+        // level dispatcher would apply it; the edge-collapsed bus must not.
+        m.z80.data = 0x07;
+        m.handle_bus();
+        m.handle_bus();
+        assert_eq!(m.ay.selected_register(), 0x0D);
+
+        m.z80.iorq = false;
+        m.z80.wr = false;
+        m.handle_bus();
+        m.z80.iorq = true;
+        m.z80.wr = true;
+        m.handle_bus();
+        assert_eq!(m.ay.selected_register(), 0x07);
     }
 
     #[test]
