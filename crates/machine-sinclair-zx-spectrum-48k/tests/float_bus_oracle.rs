@@ -958,3 +958,148 @@ fn the_in_path_samples_the_bus_where_fuse_does_under_contention() {
         );
     }
 }
+
+/// The same differential as `the_in_path_samples_the_bus_where_fuse_does`,
+/// but driving `IN A,(n)` — **the instruction Float48K actually uses**.
+///
+/// That test covers `IN A,(C)` (`ED 78`), whose I/O M-cycle opens eight
+/// T-states after the instruction arrives: two `M1`s at four apiece.
+/// Float48K's probe reads through `DB FF`, one `M1` and a three-T-state
+/// operand fetch, so its I/O cycle opens at **seven**. Nothing said the
+/// engine placed the sample correctly relative to *that* geometry, and
+/// while Float48K was two T-states out against FUSE it was a live
+/// candidate for where the two went.
+///
+/// It is not: 0 wrong at every arrival T-state, same as `IN A,(C)`. The
+/// value of the test is that it closes the candidate, so the residual
+/// can be pursued in the arrival rather than in the read. See
+/// `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
+#[test]
+#[ignore = "differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
+fn the_in_a_n_sample_instant_matches_fuse() {
+    /// `M1` (4) then the operand fetch (3).
+    const IO_MCYCLE_OFFSET: i64 = 7;
+    /// As `the_in_path_samples_the_bus_where_fuse_does`: FUSE runs
+    /// `contend_port_early` and `_late` before `readport_internal`, and
+    /// for `$00FF` — its `N:4` class — neither adds delay, so the three
+    /// are bare M-cycle geometry.
+    const FUSE_SAMPLE_OFFSET: i64 = 3;
+    /// `IN A,(n)` uncontended: 4 + 3 + 4.
+    const BARE_COST: u32 = 11;
+    const PORT_LOW: u8 = 0xFF;
+    const CODE_BASE: u16 = 0x8000;
+    const CODE_END: u16 = 0xC000;
+
+    let Some(rom) = rom_bytes() else {
+        panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
+    };
+
+    let mut samples: Vec<(u32, u8)> = Vec::new();
+    for skew in 0..12u32 {
+        let mut machine = Spectrum48k::new();
+        machine.load_rom_bytes(&rom).expect("48K ROM should load");
+        machine.reset();
+        for addr in SCREEN_BASE..SCREEN_END {
+            machine.memory_mut().write(addr, screen_pattern(addr));
+        }
+        let mut addr = CODE_BASE;
+        while addr < CODE_END {
+            machine.memory_mut().write(addr, 0xDB);
+            machine.memory_mut().write(addr + 1, PORT_LOW);
+            addr += 2;
+        }
+        while machine.tstate_in_frame() != 0 {
+            machine.advance_tstates(1);
+        }
+        machine.advance_tstates(skew);
+        machine.z80_mut().regs.pc = CODE_BASE;
+        // `IN A,(n)` takes the port's high byte from `A`, so `A = 0`
+        // gives `$00FF` — floatspy's port, and FUSE's `N:4` class.
+        machine.z80_mut().regs.af &= 0x00FF;
+        machine.z80_mut().regs.iff1 = false;
+        machine.z80_mut().regs.iff2 = false;
+
+        // Aiming `PC` at the stream lands mid-M-cycle whenever the skew
+        // does, so the first retirement is the tail of whatever the CPU
+        // was already doing. Re-align afterwards: `DB FF` read one byte
+        // out is `FF` — `RST 38` — which leaves the stream for the ROM.
+        for _ in 0..2 {
+            step_one_instruction(&mut machine);
+        }
+        machine.z80_mut().regs.pc = CODE_BASE;
+        machine.z80_mut().regs.af &= 0x00FF;
+
+        let mut spent = 0u32;
+        while spent < FRAME_TSTATES {
+            let arrival = machine.tstate_in_frame();
+            assert!(
+                (CODE_BASE..CODE_END).contains(&machine.z80().regs.pc),
+                "execution left the instruction stream, so every later \
+                 sample is a measurement of the ROM"
+            );
+            let cost = step_one_instruction(&mut machine);
+            assert_eq!(
+                cost, BARE_COST,
+                "an `IN A,(n)` on an uncontended page cost {cost} \
+                 T-states, not {BARE_COST} — something is charging this \
+                 instruction and the sample instant is no longer fixed \
+                 geometry"
+            );
+            samples.push((arrival, (machine.z80().regs.af >> 8) as u8));
+            spent += cost;
+            // Keep `A` at zero so the port stays `$00FF`.
+            machine.z80_mut().regs.af &= 0x00FF;
+        }
+    }
+
+    let distinct: std::collections::BTreeSet<u8> = samples.iter().map(|&(_, b)| b).collect();
+    assert!(
+        distinct.len() > 16,
+        "the `IN` returned only {} distinct bytes across the frame, so it \
+         is not reading the floating bus",
+        distinct.len()
+    );
+
+    let screen = {
+        let mut machine = Spectrum48k::new();
+        machine.load_rom_bytes(&rom).expect("48K ROM should load");
+        machine.reset();
+        for addr in SCREEN_BASE..SCREEN_END {
+            machine.memory_mut().write(addr, screen_pattern(addr));
+        }
+        machine
+    };
+
+    let wrong = |lead: i64| -> usize {
+        samples
+            .iter()
+            .filter(|&&(arrival, got)| {
+                let t = (i64::from(arrival)
+                    + i64::from(ORIGIN)
+                    + IO_MCYCLE_OFFSET
+                    + FUSE_SAMPLE_OFFSET
+                    + lead)
+                    .rem_euclid(i64::from(FRAME_TSTATES)) as u32;
+                got != fuse_unattached_port(t, &screen)
+            })
+            .count()
+    };
+
+    println!("\n{:<10} {:>10}", "lead delta", "wrong");
+    for delta in -4..=4i64 {
+        println!("{delta:<+10} {:>10}", wrong(delta));
+    }
+
+    let total = wrong(0);
+    assert_eq!(
+        total,
+        0,
+        "the `IN A,(n)` path returned the wrong floating-bus byte at \
+         {total} of {} arrival T-states. `IN A,(C)` is exact \
+         (`the_in_path_samples_the_bus_where_fuse_does`) and the bus \
+         itself is byte-exact against FUSE \
+         (`floating_bus_matches_fuse_at_every_tstate`), so a non-zero \
+         count here is this instruction's M-cycle geometry specifically.",
+        samples.len()
+    );
+}
