@@ -31,7 +31,7 @@ Flag genuinely out-of-roadmap work before expanding scope. Roadmap tiers live at
 
 ## CPU
 
-5. The Z80 is a half-cycle signal-level state machine. No instruction-level abstraction. *Other CPUs we add* (6502, 68000, 6809, …) tick at *their* native granularity (cycle-level for the 6502, half-cycle for the 68000) — but always cycle-accurate, never instruction-accurate.
+5. The Z80 is a half-cycle signal-level state machine. No instruction-level abstraction. *Other CPUs we add* (6502, 68000, 6809, …) tick at *their* evidence-backed native observation granularity (one clock period for the current 6502 and 68000 cores) — but always cycle-accurate, never instruction-accurate. `Cpu68000::tick` is one modelled CPU clock period; four calls make up its minimum bus cycle.
 6. **No Bus trait, no bus callback, no method-call-style memory access. Ever. For any CPU.** Every CPU we emulate — past, present, and future, every variant we ever add — exposes its bus state as public pin fields (`addr`, `data`, `data_in`, `rw`/`mreq`/`iorq`/etc.) and the machine inspects those pins between ticks to perform bus transactions. This is non-negotiable: multi-chip bus accuracy requires the pins to be continuously visible to other chips on the same master clock (Spectrum ULA contention, C64 VIC-II sprite DMA, Amiga Agnus bus arbitration, NES PPU/CPU interleave — every system has this, and the answer is the same for every system). See [`knowledge/decisions/cpu-bus-interface.md`](knowledge/decisions/cpu-bus-interface.md) for the full rationale.
 7. Each MStep sequence is a static array. Execute is 0 half-cycles.
 8. Conditional instructions: Execute BEFORE the conditional steps (RET cc, CALL cc, DJNZ).

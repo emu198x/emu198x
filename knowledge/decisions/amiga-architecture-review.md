@@ -57,7 +57,8 @@ These decisions are load-bearing and have proven themselves on the Spectrum, NES
 - Chip-as-trait/struct-with-pins. One implementation per variant.
 - Manufacturer-chipname crate naming.
 - Per-system run loops; no universal tick pattern.
-- Half-cycle Z80, cycle-level 6502, half-cycle 68000.
+- Half-cycle Z80; one clock period per step for the 6502 and current 68000
+  core. The 68000 minimum bus cycle spans four steps.
 
 If the review below appears to require revisiting any of these, the review is wrong and the decision wins.
 

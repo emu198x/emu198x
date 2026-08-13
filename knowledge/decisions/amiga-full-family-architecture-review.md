@@ -50,7 +50,8 @@ this review revisits them:
 - **Pin-level CPU bus interface for every CPU.** `Cpu68000` exposes
   `addr`, `data`, `as_n`, `uds_n`, `lds_n`, `r_w_n`, `fc0..fc2`,
   `dtack_n`, `berr_n`, `vpa_n`, `ipl0_n..ipl2_n`, `reset_n` as pins.
-  The machine layer reads pins between half-cycles. No Bus trait.
+  The machine layer reads pins before each modelled CPU clock step. No Bus
+  trait.
   Same shape will be used for 68010 / 68020 / 68030 / 68040 / 68060
   / AC68080 with the bus-protocol differences (sync vs async, 16-bit
   vs 32-bit) modelled by the per-CPU crate.

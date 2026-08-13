@@ -64,9 +64,8 @@ impl TestMem {
     }
 }
 
-/// Run the CPU for up to `max_ticks` 4-clock cycles, servicing
-/// bus requests from `mem`. The CPU's `ipl` field is set to
-/// `ipl_level` before each tick.
+/// Run the CPU for up to `max_ticks` CPU clock periods, servicing bus requests
+/// from `mem`. The CPU's `ipl` field is set to `ipl_level` before each tick.
 ///
 /// Returns when the CPU enters a BRA.S * (opcode $60FE) tight loop
 /// or when `max_ticks` is exhausted.

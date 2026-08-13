@@ -29,7 +29,8 @@ systems have NO macOS or Linux emulator available."
 ### 1. Cycle-accurate emulation as a craft commitment
 
 Every chip does what the silicon does. Every CPU is cycle-accurate
-(per CPU — half-cycle for Z80 and 68000, cycle-level for 6502).
+(per CPU — half-cycle for Z80, clock-period level for the current 6502 and
+68000 cores).
 Every system's loop is master-clock-driven. Accuracy is a release
 criterion, not a backlog item.
 
