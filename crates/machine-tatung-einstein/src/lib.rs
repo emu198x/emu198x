@@ -297,18 +297,21 @@ impl Einstein {
         // into it, not the ~3.58 MHz the old fixed T-state budget implied.
         // Same VDP-frame-driven loop as the Memotech MTX.
         let start = self.cpu_tstates;
-        let target_frame = self.frame_count + 1;
         // Defensive cap (~2× a PAL frame at 4 MHz) so a misbehaving VDP can't
         // spin forever.
         let cap = start + 160_000;
-        while self.vdp.frame_count < target_frame && self.cpu_tstates < cap {
-            self.tick_tstate();
+        let mut frame_complete = false;
+        while !frame_complete && self.cpu_tstates < cap {
+            frame_complete = self.tick_tstate();
         }
-        self.frame_count = target_frame;
+        if frame_complete {
+            self.frame_count += 1;
+        }
         self.cpu_tstates - start
     }
 
-    fn tick_tstate(&mut self) {
+    /// Advance one Z80 T-state and report whether the VDP raster wrapped.
+    fn tick_tstate(&mut self) -> bool {
         // Two CPU half-cycles per T-state. `Z80::tick` advances one
         // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
         // T-state ran the CPU at half speed. This machine paces its frame
@@ -329,10 +332,11 @@ impl Einstein {
 
         self.fdc.tick();
 
+        let mut frame_complete = false;
         self.vdp_accum += VDP_CLOCK_HZ;
         while self.vdp_accum >= CPU_CLOCK_HZ {
             self.vdp_accum -= CPU_CLOCK_HZ;
-            self.vdp.tick();
+            frame_complete |= self.vdp.tick();
         }
 
         self.psg_phase ^= 1;
@@ -341,6 +345,7 @@ impl Einstein {
         }
 
         self.cpu_tstates += 1;
+        frame_complete
     }
 
     fn handle_bus(&mut self) {
@@ -734,7 +739,7 @@ impl zilog_z80::Z80Stepper for Einstein {
     }
 
     fn step_tick(&mut self) {
-        self.tick_tstate();
+        let _ = self.tick_tstate();
     }
 }
 
@@ -871,33 +876,36 @@ mod tests {
     #[test]
     fn ntsc_frame_runs_one_vdp_frame_of_4mhz_tstates() {
         let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
-        // The VDP increments frame_count at vblank (scanline 192), so the
-        // first run_frame is a short 193-line startup frame; measure a
-        // steady-state one.
-        sys.run_frame();
-        let t = sys.run_frame();
+        let first = sys.run_frame();
+        let second = sys.run_frame();
         // One full NTSC VDP frame is 342 × 262 dots; at 4 MHz : 5.369318 MHz
-        // that is ≈66 754 T-states — ~1.5× the ~44 730 the old 3.58 MHz-
+        // that is ≈66 753 T-states — ~1.5× the ~44 730 the old 3.58 MHz-
         // equivalent budget produced.
         let expected = 342u64 * 262 * 4_000_000 / 5_369_318;
-        assert!(
-            t.abs_diff(expected) <= 400,
-            "got {t} T-states, expected ≈{expected} for one 4 MHz NTSC frame"
-        );
+        for ticks in [first, second] {
+            assert!(
+                ticks.abs_diff(expected) <= 1,
+                "got {ticks} T-states, expected {expected} or {} for one 4 MHz NTSC frame",
+                expected + 1
+            );
+        }
     }
 
     #[test]
     fn pal_frame_runs_one_vdp_frame_of_4mhz_tstates() {
         let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Pal);
-        sys.run_frame(); // discard the short startup frame
-        let t = sys.run_frame();
+        let first = sys.run_frame();
+        let second = sys.run_frame();
         // One full PAL VDP frame is 342 × 313 dots; at 4 MHz : 5.369318 MHz
-        // that is ≈79 760 T-states (4 MHz / 50.16 Hz).
+        // that is ≈79 746 T-states (4 MHz / 50.16 Hz).
         let expected = 342u64 * 313 * 4_000_000 / 5_369_318;
-        assert!(
-            t.abs_diff(expected) <= 400,
-            "got {t} T-states, expected ≈{expected} for one 4 MHz PAL frame"
-        );
+        for ticks in [first, second] {
+            assert!(
+                ticks.abs_diff(expected) <= 1,
+                "got {ticks} T-states, expected {expected} or {} for one 4 MHz PAL frame",
+                expected + 1
+            );
+        }
     }
 
     #[test]

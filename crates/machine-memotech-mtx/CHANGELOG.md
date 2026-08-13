@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- End `run_frame` at the TMS9918A raster wrap instead of its earlier VBlank
+  interrupt, eliminating the short power-on frame.
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-memotech-mtx-v0.2.0) - 2026-06-04
 
 ### Added
