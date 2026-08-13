@@ -49,7 +49,10 @@ use crate::{
 
 const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
 const DEFAULT_SCALE: u32 = 1;
-const INPUT_SLICES_PER_FRAME: u32 = 4;
+// `AmigaRuntime::run_until` publishes complete video fields. A sub-field
+// target therefore still advances one whole field, so the UI must issue one
+// run request per displayed field rather than four nominal input slices.
+const INPUT_SLICES_PER_FRAME: u32 = 1;
 const MOUSE_DEVICE: &str = "mouse-1";
 
 // The joystick lives in Amiga control port 2 (JOY1DAT) per *Mapping the
@@ -500,6 +503,17 @@ mod tests {
             Some("a500"),
             "current variant tracks the active model"
         );
+    }
+
+    #[test]
+    fn whole_field_runtime_uses_one_input_slice() {
+        let system = AmigaSystem {
+            model: ModelArg::A500,
+            disk: None,
+            keyboard_joystick: false,
+        };
+
+        assert_eq!(system.input_slices_per_frame(), 1);
     }
 
     #[test]

@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add the `a500-gvp-a530` PAL research profile to CLI, UI, script, and MCP
   model selection
 
+### Fixed
+
+- Pace the frame-granular Amiga runtime with one UI request per displayed
+  field instead of advancing four complete fields per host frame
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/emu198x-amiga-v0.2.0) - 2026-06-04
 
 ### Added

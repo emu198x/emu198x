@@ -169,6 +169,34 @@ fn run_until_advances_time_and_emits_frame() {
 }
 
 #[test]
+fn sub_field_target_still_advances_one_complete_field() {
+    let mut runtime =
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let target = MachineTime::new(A500_PAL_FRAME_TICKS / 4);
+    let mut frame_sink = NullFrameSink;
+    let mut audio_sink = AudioCollector::default();
+    let mut trace_sink = NullTraceSink;
+
+    let result = runtime
+        .run_until(
+            target,
+            &mut HostIo {
+                input_events: &[],
+                frame_sink: &mut frame_sink,
+                audio_sink: &mut audio_sink,
+                trace_sink: &mut trace_sink,
+            },
+        )
+        .expect("runtime should finish its current field");
+
+    let completed_field =
+        MachineTime::new(A500_PAL_FRAME_TICKS + FIRST_FRAME_PUBLICATION_DELAY_TICKS);
+    assert_eq!(result.reached, completed_field);
+    assert_eq!(runtime.time(), completed_field);
+    assert_eq!(audio_sink.packets, 1);
+}
+
+#[test]
 fn run_until_publishes_pal_frame_after_raster_carry_reaches_right_edge() {
     let mut runtime =
         AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
