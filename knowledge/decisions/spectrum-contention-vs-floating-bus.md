@@ -1038,3 +1038,124 @@ T-states, and the `NOP` at `$EAB8` is a pad. The engine re-enters the
 first ISR a *variable* number of times (three at #880, one at
 `d7afe4a7`, zero on some iterations), which means the chain is landing on
 the wrong side of that margin. That is where to look next.
+
+## The origin, re-measured: `/INT` rises at 55552, not 55553
+
+"The origin, settled" above is **withdrawn**. It rests on a mismeasurement,
+and the instrument that produced it was passing on two cancelling errors.
+
+`the_frame_origin_is_pinned_by_the_interrupt` found the `/INT` edge by
+
+```rust
+machine.advance_tstates(1);
+if now != prev { edges.push((machine.tstate_in_frame(), now)); }
+```
+
+which reads the level *after* advancing and so names the T-state **after**
+the one the edge fell in. Stepped a master tick at a time instead, the pin
+rises at the first master tick of engine T-state **55552** — `hc = 222208`,
+which is exactly `4 × 55552`. The test reported 55553.
+
+That single T-state is load-bearing, because the test then asserted
+`69888 − onset == ORIGIN`, and `69888 − 55553 = 14335` is the value the
+file scores contention against. **A one-too-high onset was being compared
+against a one-too-low origin, and the test passed on the cancellation.**
+Measured properly, the interrupt-derived origin is `69888 − 55552 =`
+**14336** — which is libspectrum's `top_left_pixel` and the constant
+`floating_bus_read` already uses.
+
+Three things follow, and only the first is a conclusion.
+
+**The two origins were never the pair this record thought.** The
+floating-bus origin and the interrupt anchor *agree*, at 14336. The
+outlier is the contention gate, which scores 0 of 297,222 against FUSE
+only at 14335. So the open question is no longer "which of our two
+origins is right" — both are now measured and neither is fitted — but
+"why does our contention gate need an origin one T-state before our own
+interrupt edge".
+
+**This is the fourth time.** After `SAMPLE_LEAD`, the oracle's `delay_at`,
+and the HDL harness's rotation search, a free or mismeasured parameter has
+absorbed a real error. The pattern is worth more attention than any of the
+four individually: *every instrument in this campaign that was not
+measured at half-cycle resolution has been wrong by half a T-state or
+more.* The `HALT` differential had the same defect in its own `/INT` and
+`M1` readings and is now stepped a master tick at a time; its verdicts
+were unaffected because every interval it scores is a difference, but its
+printed T-states were not the machine's.
+
+**And the obvious inference is wrong, which was worth two minutes to
+find out.** If the fitted origin had been hiding a real error, then
+`MREQT23` — which the HDL requires, and whose wiring has read as a
+uniform "+1 T-state" regression throughout this record — should come good
+at the true origin. Measured, with `EMU198X_IO_ORACLE_OFFSET` pinning the
+origin:
+
+| gate | origin +14335 | origin +14336 (interrupt-derived) |
+|---|---|---|
+| no latch (shipped) | **0 of 297,222** | 76,806 |
+| `MREQT23` wired | 60,483 | 16,128 |
+
+The latch is dramatically better at the true origin than at the fitted one
+— 16,128 against 60,483 — which is real evidence that the origin error was
+distorting every previous judgement of it. But it is not zero, and the
+shipped gate at +14335 still is. So the latch stays out, the story "the
+fitted origin was hiding a correct latch" is **false**, and nobody needs
+to run this experiment again.
+
+`the_frame_origin_is_pinned_by_the_interrupt` is `#[ignore]`d against the
+divergence it now correctly reports, and listed here so the ignore is not
+forgotten.
+
+## Float48K's two syncs are a convergence loop, not jitter
+
+The re-entry of ISR #1 that this record noted as varying between builds is
+not noise. It is the probe's method, and decoding it explains what the
+engine is doing wrong.
+
+ISR #1 runs `EI` at `$EAAC` and then `LDIR` of 3325 bytes — 3324 × 21 + 16
+= **69,820** T-states — into a `NOP` at `$EAB8` and a `DI` at `$EAB9`.
+Adding the acknowledge, the `JP` at `$C1C1` and the three register loads
+puts the end of that `NOP` at **69,887** T-states after the interrupt was
+accepted, one short of a frame. So:
+
+- if the interrupt was accepted `A` T-states after `/INT`, the `NOP` ends
+  `A − 1` T-states after the *next* `/INT`;
+- when `A ≥ 1` that `NOP` boundary is at or after `/INT`, the interrupt is
+  taken again, and the new offset is `A − 1`;
+- when `A = 0` the `NOP` ends one T-state early, the `DI` closes the
+  window, and the program proceeds.
+
+**The loop is a decrement-until-zero.** It exists to strip the four-T-state
+quantisation that `HALT` leaves behind, and it lands the second sync on an
+exact frame boundary. The `LD A,R` at `$EAC3` — 9 T-states, the only odd
+cost in the tail — is the fine adjustment that makes the arithmetic come
+out.
+
+The engine cannot reach the fixed point. Its acceptance test requires
+`/INT` to be asserted strictly *before* the boundary, so at `A = 1` it
+declines the interrupt that FUSE takes, and the loop terminates one short.
+The trace shows exactly that: acknowledge offsets of 4, 3, 2, 1 on
+successive re-entries, terminating at 1 where FUSE terminates at 0.
+
+That is the same defect `halt_interrupt_oracle` isolates on the phase
+where `/INT` coincides with a refetch boundary — so it is **not** confined
+to one phase in four after all. The convergence loop *drives the machine
+into that phase deliberately*, every iteration. The earlier note in this
+record that the defect "does not on its own account for Float48K's two
+T-states" was written before the loop was decoded; it accounts for one of
+them, at the second sync.
+
+**Where the defect lives, at half-cycle resolution.** The refetch `M1`
+edges fall at engine T-states 55548, 55552, 55556. `/INT` rises at the
+first master tick of 55552 — the same tick as an `M1` edge. But the CPU's
+end-of-instruction interrupt check runs at tick `hc = 222206`, **two
+master ticks earlier**, so it has already committed to another refetch.
+
+Reordering `feed_irq()` before `tick_cpu_and_bus()` in the shared driver
+does **not** fix it and was reverted: at tick 222206 the ULA has not
+raised `/INT` yet either, so the CPU sees the same value in both orders.
+The question is why the check runs half a T-state before the `M1` edge it
+belongs to — which is a `zilog-z80` state-machine question, in the same
+family as the five pin defects already listed, and the next thing to
+settle.
