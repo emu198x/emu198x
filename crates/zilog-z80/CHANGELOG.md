@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Define shared instruction-step accounting in machine-native timing units; current machines use one Z80 T-state per step
+
 ### Fixed
 
 - Model accepted INT and NMI refresh cycles, including their `R` increments
