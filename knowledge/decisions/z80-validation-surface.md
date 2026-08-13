@@ -329,3 +329,40 @@ a fault in this campaign.
 **The shared-driver question is now open with twelve working loops
 behind it.** See
 [`z80-machines-should-share-a-cadence-driver.md`](z80-machines-should-share-a-cadence-driver.md).
+
+## The follow-up audit found genuine over-advancement too
+
+The nine-machine correction above is an **under-tick**: those CPUs received one
+half-cycle call per T-state instead of two. It does not contradict the earlier
+Spectrum overtick. The complete audit separated three independent units that
+had previously all been described as “ticks”.
+
+**Held Z80 I/O strobes were dispatched repeatedly.** A Z80 I/O transaction
+holds its active pins across five half-cycle host calls. Most machines consume
+the edge-collapsed `Z80::bus_request()` result, but Pentagon 128, Scorpion
+ZS-256, TC2048 and TC/TS2068 polled the raw pins. Stateful endpoints therefore
+received one guest transaction five times. Commit `7cf099c6` routes all four
+through `BusOp`; regressions prove that one held Beta-disk read consumes one
+byte and that SCLD and AY register selection change only on a new transaction.
+
+**Old instruction stepping could retire more than one operation.** The former
+loop watched the level-valued `instruction_complete` flag. A one-M-cycle
+instruction could deassert and reassert that flag within one host call, so the
+loop never observed the intervening false state and ran on. The monotonic
+retirement counter and shared `Z80Stepper` fixed that earlier. Commit
+`dfe3182b` now pins its accounting unit as one machine T-state and completes
+direct `NOP` cadence coverage with Jupiter Ace.
+
+**One requested native frame could emit two.** Jupiter Ace used a rounded
+65,000-T-state budget for a 64,584-T-state frame. MTX and Einstein combined a
+rounded budget with a TMS9918 counter that increments at vertical blank rather
+than raster wrap, making their first interval shorter than a physical frame.
+Commit `53b9a39f` makes machine frame completion follow raster wrap and uses
+budgets below the minimum native frame. Commit `03bd2103` makes shared
+`run_frames(N)` issue N successive native-frame targets, so fractional or
+alternating frame lengths cannot accumulate into a missing or extra frame.
+
+These are separate defects with separate gates. CPU cadence is measured by
+instruction cost; bus dispatch by one side effect per collapsed request; and
+host execution by exact frame-count deltas. Passing one does not imply either
+of the others.

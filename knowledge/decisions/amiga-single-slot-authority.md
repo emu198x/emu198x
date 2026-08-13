@@ -7,6 +7,9 @@ authoritative grant as of commit `24b20ce4`; Paula now supplies the per-cell
 D0/D1/D2 request mask and Agnus retains actual disk use for the rest of the
 CCK. The independent rotational stream crosses Paula's bounded FIFO as defined
 by [Amiga disk rotation and DMA arbitration](amiga-disk-dma-fifo-arbitration.md).
+Commit `4f04d55c` additionally freezes the complete physical plan before a
+Copper MOVE, preventing that write from retroactively creating a bitplane
+owner for the same cell.
 
 ## The decision
 
@@ -57,7 +60,10 @@ disk, sprite, Copper or blitter DMA can change the live state from which a new
 plan would be computed, but that change cannot retroactively give an
 already-consumed cell to another master. The scheduler therefore retains
 actual-use latches across both CPU phases of the CCK and clears them only when
-the next CCK starts.
+the next CCK starts. It also retains the pre-Copper plan for fixed, audio,
+bitplane, sprite, disk and yielded-cell arbitration during that CCK. A Copper
+write changes register state immediately where the receiving chip permits it,
+but only the next physical cell can acquire newly enabled DMA ownership.
 
 ## Why
 
