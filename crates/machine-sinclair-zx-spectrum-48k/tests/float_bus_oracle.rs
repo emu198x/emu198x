@@ -915,17 +915,29 @@ fn the_in_path_samples_the_bus_where_fuse_does_under_contention() {
     // mis-phased, and the plateau is three wide only because the bus holds
     // the same byte across those T-states at every arrival sampled.
     //
-    // The fix is to sample where the CPU latches instead of computing the
-    // latch. `IO_READ_DATA_LATCH_LEAD_TSTATES` is 2 because `/IORQ` falls on
-    // `T2`↓ and the data bus is latched on `T4`↓ — correct as *CPU* time, and
-    // that is what `bus_pin_waveform` pins. But the floating bus moves in
-    // *raster* time, and a contention stall between the two edges inserts
-    // raster T-states the constant cannot see. FUSE has no such gap: its
-    // `readport` runs `contend_port_early`, then `contend_port_late`, then
-    // `readport_internal`, so every delay it charged is already in `tstates`
-    // when it samples. Deferring our read to the latch — letting `data_in`
-    // track the live bus for the M-cycle rather than fixing it at the
-    // assertion — removes the constant from this path entirely.
+    // **What it is not, measured rather than argued.** The obvious reading is
+    // that `IO_READ_DATA_LATCH_LEAD_TSTATES` is the culprit: it is 2 because
+    // `/IORQ` falls on `T2`↓ and the bus is latched on `T4`↓, which is right
+    // as *CPU* time and is what `bus_pin_waveform` pins, while the floating
+    // bus moves in *raster* time and a stall between those edges inserts
+    // raster T-states a CPU-time constant cannot see. FUSE has no such gap —
+    // its `readport` spends `contend_port_early` and `contend_port_late`
+    // before `readport_internal`.
+    //
+    // That reading was implemented and **it changes nothing**. Re-reading the
+    // bus on every half-cycle of the I/O read, so the value the CPU latches
+    // is taken at the latch itself and the constant disappears, leaves this
+    // count at 1,537 exactly and leaves `Float48K` at 14336 exactly. It was
+    // reverted: a behaviour change that moves no measurement is not a fix.
+    //
+    // The sweep says why, and it was there to be read: the residual is a
+    // *uniform* shift. Delay accumulation would be phase-dependent, showing
+    // as a residual no single lead could remove. A flat +1 is the shape of a
+    // one-T-state labelling error, which is the shape of the seam between
+    // this file's `ORIGIN` and the contention differentials'
+    // `CONTENTION_ORACLE_ORIGIN` — the same one T-state `Float48K` sits from
+    // hardware and `floating_bus_read`'s own comment calls unaccounted for.
+    // Look there, not at the lead.
     //
     // Lower it in the same commit that earns it; never raise it.
     const RATCHET: usize = 1_537;
