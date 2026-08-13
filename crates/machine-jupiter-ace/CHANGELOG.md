@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Direct CPU-cadence regression proving that a `NOP` consumes four machine T-states
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-jupiter-ace-v0.2.0) - 2026-06-04
 
 ### Added
