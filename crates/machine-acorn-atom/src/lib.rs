@@ -689,7 +689,12 @@ mod tests {
         // Type "AB", then DELETE should remove the 'B'.
         for k in [AtomKey::A, AtomKey::B] {
             sys.press_key(k);
-            sys.run_frame();
+            // Hold three 20 ms fields so the COS keyboard scan debounces the
+            // key across more than one scan — one field is a single scan and
+            // drops it. Same hold as `tap` in `tests/tape_load.rs`.
+            for _ in 0..3 {
+                sys.run_frame();
+            }
             sys.release_key(k);
             for _ in 0..3 {
                 sys.run_frame();
@@ -697,7 +702,9 @@ mod tests {
         }
         assert_eq!(sys.peek(prompt + 2), 0x02, "'B' (display 0x02) typed");
         sys.press_key(AtomKey::Delete);
-        sys.run_frame();
+        for _ in 0..3 {
+            sys.run_frame();
+        }
         sys.release_key(AtomKey::Delete);
         for _ in 0..3 {
             sys.run_frame();
@@ -730,7 +737,10 @@ mod tests {
             }
             for k in [AtomKey::Num1, AtomKey::Num2, AtomKey::Num3] {
                 sys.press_key(k);
-                sys.run_frame();
+                // Three fields: one is a single COS scan and debounces away.
+                for _ in 0..3 {
+                    sys.run_frame();
+                }
                 sys.release_key(k);
                 for _ in 0..3 {
                     sys.run_frame();
@@ -741,7 +751,9 @@ mod tests {
                 sys.press_key(AtomKey::Shift);
             }
             sys.press_key(key);
-            sys.run_frame();
+            for _ in 0..3 {
+                sys.run_frame();
+            }
             sys.release_key(key);
             if shift {
                 sys.release_key(AtomKey::Shift);
@@ -780,13 +792,18 @@ mod tests {
             .find(|&a| sys.peek(a) & 0x3f == 0x3e)
             .expect("prompt");
         sys.press_key(AtomKey::Lock);
-        sys.run_frame();
+        // Three fields: one is a single COS scan and debounces away.
+        for _ in 0..3 {
+            sys.run_frame();
+        }
         sys.release_key(AtomKey::Lock);
         for _ in 0..3 {
             sys.run_frame();
         }
         sys.press_key(AtomKey::A);
-        sys.run_frame();
+        for _ in 0..3 {
+            sys.run_frame();
+        }
         sys.release_key(AtomKey::A);
         for _ in 0..3 {
             sys.run_frame();
