@@ -107,12 +107,42 @@ Keep the per-machine gates after the migration. They are three lines of
 construction each and they pin the *machine*, not the driver; a shared driver
 with a per-machine `cpu_divisor` can still be handed the wrong divisor.
 
-## Open question worth a separate measurement
+## The Amiga family is precedent, not a second instance
 
-RULES rule 5 says the 68000 ticks at half-cycle granularity too, and the three
-Amiga machines call `cpu.tick()` directly from their own loops. The same unit
-mismatch is available to them, and nothing in the workspace currently compares
-a 68000 instruction's cost against a known figure. A `cpu_rate`-shaped gate on
-a known-cost 68000 instruction is cheap and would answer it either way. This is
-a measurement to take, not a claim being made — the Z80 sweep's whole lesson is
-that a single `cpu.tick()` per tick function proves nothing on its own.
+An earlier draft of this record claimed the three Amiga machines call
+`cpu.tick()` from their own hand-rolled loops and so carry the same latent unit
+mismatch. **That is wrong**, and the correction is the more useful fact.
+
+`common-commodore-amiga/src/driver.rs` is a unified per-CCK driver shared by all
+three machines, and its header records that it exists because the per-machine
+`tick()` loop and `service_cpu_bus()` body were *copy-pasted* across them (#34).
+So the Amiga family has already made exactly the move this record proposes, for
+exactly the reason given here. The `cpu.tick()` visible in
+`machine-commodore-amiga-ocs` is a trait implementation the driver calls, not a
+loop.
+
+The Amiga driver is also a richer model than the sketch above: it computes a
+variable `cpu_edges` count per system tick and consumes them through
+`cpu_domain_phase_mut().take_edge()`, servicing the bus before each edge and
+feeding `ipl` before each tick. That variable edge count is how one driver
+serves both a 7.09 MHz 68000 and a 14 MHz 68EC020 — worth studying before
+designing the Z80 equivalent, and a reason to expect the eventual shape to be
+closer to it than to `SpectrumDriver`.
+
+Two smaller things survive the correction:
+
+- **No gate compares a 68000 instruction's cost against a known figure**, in
+  either `motorola-68000` or `common-commodore-amiga`. That is a detection gap
+  rather than a suspected defect — there is no structural hazard here of the
+  kind the Z80 machines had, so it does not carry the same urgency. A
+  `cpu_rate`-shaped gate would still be cheap.
+- **RULES rule 5 says "half-cycle for the 68000", while `Motorola68000::tick`
+  documents "Call every 4 crystal clocks"** (`motorola-68000/src/cpu.rs:1481`).
+  Those may describe the same instant depending on the crystal/CCK/tick ratio,
+  which has not been pinned down. Flagged for checking, not asserted as a
+  discrepancy.
+
+Note also that the 68000 core already documents the pins-before-tick contract
+the Z80 machines had to be taught — "Before calling: write `ipl` from Paula's
+interrupt priority encoder" — so only the cadence half of the Z80 defect was
+ever available here, and the shared driver closed it.
