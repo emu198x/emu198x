@@ -602,7 +602,19 @@ fn record_step_start_events(
                 Some(memory[address as usize]),
             );
         }
-        Phase::MemRead(MemPhase::T1Rise) => {
+        // `T1Fall`, not `T1Rise`. `present_step_signals` drives the
+        // address *during* the cycle's first half-cycle, and this
+        // function runs before that tick — so sampling at `T1Rise` reads
+        // the bus the previous M-cycle left behind. FUSE logs the
+        // contention event with the address of the access about to
+        // happen, which is what the bus carries for the whole of `T1`;
+        // `T1Fall` is the same T-state, so `time` is unchanged.
+        //
+        // This was 830 of 1356 fixtures failing as `expected [4 MC 0001],
+        // got [4 MC 0000]`, and it was the harness, not the core: the
+        // `M1` arm above reads `regs.pc` rather than the bus and was
+        // always right, which is why only the non-`M1` accesses failed.
+        Phase::MemRead(MemPhase::T1Fall) => {
             let address = z80.addr;
             push_fuse_event(events, time, FuseEventKind::MemContend, address, None);
             push_fuse_event(
@@ -613,7 +625,7 @@ fn record_step_start_events(
                 Some(memory[address as usize]),
             );
         }
-        Phase::MemWrite(MemPhase::T1Rise) => {
+        Phase::MemWrite(MemPhase::T1Fall) => {
             let address = z80.addr;
             push_fuse_event(events, time, FuseEventKind::MemContend, address, None);
             push_fuse_event(
@@ -624,11 +636,16 @@ fn record_step_start_events(
                 Some(z80.data),
             );
         }
-        Phase::Contend(MemPhase::T1Rise) => {
+        Phase::Contend(MemPhase::T1Fall) => {
             push_fuse_event(events, time, FuseEventKind::MemContend, z80.addr, None);
         }
-        Phase::IoRead(IoPhase::T1Rise) => record_io_read_events(events, time, z80.addr),
-        Phase::IoWrite(IoPhase::T1Rise) => record_io_write_events(events, time, z80.addr, z80.data),
+        // `T1Fall` for the same reason as the memory arms above: the port
+        // address is driven during `T1`↑, so sampling before that tick
+        // reads the previous M-cycle's bus. With a stale port the
+        // contention branches key off the wrong page too, so this fixed
+        // both the addresses and the missing `PC` events.
+        Phase::IoRead(IoPhase::T1Fall) => record_io_read_events(events, time, z80.addr),
+        Phase::IoWrite(IoPhase::T1Fall) => record_io_write_events(events, time, z80.addr, z80.data),
         Phase::Internal(InternalPhase { remaining }) if matches!(z80.walker.current_step(), Some(MStep::Internal(tstates)) if remaining == tstates * 2) =>
         {
             let address = fuse_internal_addr(z80);
