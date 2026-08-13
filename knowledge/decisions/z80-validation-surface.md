@@ -266,3 +266,66 @@ shared-driver question with eleven known-correct loops to generalise
 from. Only then is the cross-machine interrupt proof meaningful: none of
 these machines could have said anything useful about a half-T-state
 sampling instant while running at half speed.
+
+## The nine are fixed and measured
+
+Done 2026-08-13. Every machine's own `cpu_rate` gate read 8.000 T-states
+per `NOP` before its fix and 4.000 after — the sweep re-taken through
+twelve independent instruments rather than one.
+
+**Two counts in this record are wrong.** Not eleven machines hand-roll
+the cadence but **twelve**: Jupiter Ace, Master System, SG-1000, MSX,
+ColecoVision, Sord M5, SVI-328, Einstein, Aquarius, MTX, ZX81, ZX80. And
+`SpectrumDriver` is shared by **twelve** machines, not seven — 48K, 16K,
+128K, +, +2, +2A, +2B, +3, Pentagon 128, Scorpion ZS-256, TC2048, TS2068.
+Twelve machines got the cadence right through one shared driver; twelve
+hand-rolled it and nine got it wrong.
+
+**The VDP re-denomination is not fleet-wide, and the axis is where the
+interrupt goes.** #889 re-denominated the Sega VDP phase accumulator from
+2 to 4 because the VDP's INT pin drives the Z80 directly. Checked
+individually:
+
+| machines | `/INT` path | re-denominated |
+|---|---|---|
+| MSX, ColecoVision, SVI-328 | TMS9918A → Z80 directly, 3:2 dots | **yes** — same wiring and ratio as the Sega VDP |
+| Sord M5, Memotech MTX | VDP → CTC trigger → CTC INT → Z80 | no — the CTC ticks once per T-state, so it cannot sample an edge or change its output any faster |
+| Tatung Einstein | keyboard interrupt, vector `$F7` | no — the VDP does not drive `/IRQ` at all |
+| ZX81 | ULA `/NMI`, T-state-denominated ULA | no — the ULA is a T-state device by construction |
+| ZX80, Aquarius | nothing wired | no — no interrupt source in the tick |
+
+**The ZX80 and ZX81 needed a check that could have gone the other way.**
+Both count `master_clock` in the same unit they tick the CPU in, so if
+that unit were the half-cycle they would have been internally consistent
+and the 8.000 reading would have been the probe's fault. It is not:
+`sinclair-zx81-ula`'s `tick` is documented as "advance the ULA by one CPU
+T-state (3.25 MHz)" over 207 T-states × 312 lines — 64,584 per frame,
+which is 50.3 Hz at 3.25 MHz and only there. The ULA was right and the
+CPU was wrong.
+
+**No goldens moved, because these nine have none.** The warning to expect
+golden movement does not apply here: not one of the nine crates has a
+stored framebuffer to compare against. Their boot tests assert structural
+properties — a non-trivial framebuffer, a game leaving its pre-play
+state, an interrupt reaching the CPU — and all of them still pass at the
+corrected rate. The strongest is the Sord M5's Dig Dug probe, which
+exercises exactly the VDP → CTC → IM 2 path the change touches:
+`cart_round_spawns_and_runs` and `vdp_int_drives_ctc_channel3` both pass.
+
+**Assets staged for the previously unrunnable gates.** Four `#[ignore]`d
+tests were failing on missing inputs rather than on behaviour, and are
+now runnable from `~/.emu198x/roms/`: the Sord M5 Dig Dug cart, an
+Aquarius cartridge and its character ROM, and a real Einstein CPCEMU
+`.dsk`. All pass.
+
+One genuinely stale gate is left alone: `machine-memotech-mtx`'s
+`rom_boot` asserts the ROM is exactly 16 KB, while the installed
+`mtx.rom` is the 24 KB OS + BASIC + Assembler set — confirmed by checksum
+against the three TOSEC firmware images, with the 16 KB OS + BASIC
+predecessor still present as a `.bak`. Its sibling `boot_trace` runs fine
+on 24 KB. That is a stale assertion against a deliberate ROM upgrade, not
+a fault in this campaign.
+
+**The shared-driver question is now open with twelve working loops
+behind it.** See
+[`z80-machines-should-share-a-cadence-driver.md`](z80-machines-should-share-a-cadence-driver.md).
