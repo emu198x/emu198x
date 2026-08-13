@@ -287,30 +287,33 @@ fn timing_survey_records_every_case() {
     // range, so their **Uncontended** pass was never uncontended — it was
     // I/O contention on a contended-page port, mislabelled by the suite.
     //
-    // What is left has changed character, which is the more useful half of
-    // this number. Seven of the eight survivors disagree on `R` or `SP`
-    // alone — tests 1, 9, 11, 15, 23, 24 and 34, each off by one `R` — and
-    // only test 33's Uncontended pass still has a loop count. The board is
-    // no longer contention-shaped, so the next contention change should not
-    // expect to move it.
-    const RATCHET_FAILURES: usize = 8;
+    // The eight that remained were the tell, and reading them as "no
+    // longer contention-shaped" was right for the wrong reason. Seven of
+    // them disagreed on `R` alone — tests 1, 9, 11, 15, 23, 24 and 34,
+    // each off by exactly one — which is the signature of an interrupt
+    // accepted one instruction late: the CPU runs one more `M1` fetch, and
+    // `R` counts it.
+    //
+    // That is what it was. The Z80 sampled `/INT` on the retiring
+    // instruction's last half-cycle rather than at the boundary, and the
+    // Spectrum driver fed the pin *after* ticking the CPU — two half-
+    // T-state lags on the same signal, so correcting either alone changed
+    // nothing. Correcting both took this survey to zero.
+    //
+    // This is now a zero-failure gate rather than a budget, so it is
+    // written as `is_empty` rather than a comparison against a constant —
+    // `len() <= 0` is an absurd-extreme comparison and Clippy is right to
+    // reject it. Any failure here is a regression.
     assert!(
-        failures.len() <= RATCHET_FAILURES,
-        "timing survey regressed: {} of {} cases failing, was {RATCHET_FAILURES}. \
-         The failing cases are listed above. If this change is right and the \
-         suite's expectations are wrong, say which cases and why, and move the \
-         ratchet in the same commit.",
+        failures.is_empty(),
+        "timing survey regressed: {} of {} cases failing, and this survey \
+         passes completely. The failing cases are listed above. If this \
+         change is right and the suite's expectations are wrong, say which \
+         cases and why, and reinstate a documented allowance in the same \
+         commit rather than deleting the assertion.",
         failures.len(),
         cases.len(),
     );
-    if failures.len() < RATCHET_FAILURES {
-        println!(
-            "  RATCHET: {} of {} failing — improved on {RATCHET_FAILURES}. \
-             Lower the constant in this commit.",
-            failures.len(),
-            cases.len(),
-        );
-    }
 
     assert!(
         incomplete.is_empty(),

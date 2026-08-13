@@ -966,12 +966,27 @@ and the "14337" it prints is the iteration after the one it missed. Under
 #880 the sweep advances exactly one T-state per iteration and reports
 14336.
 
-**Two corrections to this record fall out.** The claim above that
+**One correction to this record falls out.** The claim above that
 Float48K "rides on the even-port class" through its own `OUT ($FE)` is
 wrong: that `OUT` is at `$EAA8`, before the first `HALT`. The real
-coupling is the ROM's keyboard scans, which run before the sync. And
-`floatspy_selftest_ok` **passes** at HEAD; only
-`floatspy_runs_to_completion` fails, at 72 of 104,192 pixels.
+coupling is the ROM's keyboard scans, which run before the sync.
+
+> **RETRACTED.** This paragraph also claimed `floatspy_selftest_ok`
+> *passes* at HEAD, and that the "FAILS 48,207 of 49,152" reading was
+> stale. That was wrong, and the way it was wrong is worth keeping. The
+> run behind the claim did not set `EMU198X_SPECTRON_RESULTS_DIR`, and
+> `tape_smoke` skips the Spectron comparison entirely when that variable
+> is unset — "Unset → that extra check is skipped". The test reported
+> `ok` because it had nothing to compare against. Re-run with the
+> variable set, on `origin/main` and again with the boundary-sample fix,
+> it fails identically at **48,207 of 49,152** both times. So the
+> original reading stands, and the failure is neither stale nor a
+> regression.
+>
+> A test harness that silently degrades to a pass when its oracle is
+> absent is the same family as `a-gate-nobody-runs-is-a-silent-gate.md`,
+> and it is now the fifth instrument in this campaign to report something
+> other than what it measured.
 
 ## Where the remaining two T-states are not
 
@@ -1159,3 +1174,71 @@ The question is why the check runs half a T-state before the `M1` edge it
 belongs to — which is a `zilog-z80` state-machine question, in the same
 family as the five pin defects already listed, and the next thing to
 settle.
+
+## Resolved: the interrupt was sampled half a T-state early, twice over
+
+The convergence loop above named the defect and the `HALT` differential
+located it. Both halves are now fixed, and the campaign's central symptom
+is gone.
+
+**Two stacked half-T-state lags on the same signal.**
+
+1. `Z80` sampled `/INT` on the **retiring instruction's last
+   half-cycle**, not at the instruction boundary — the `T1`↑ that starts
+   the next `M1`.
+2. The Spectrum driver called `feed_irq()` **after** `tick_cpu_and_bus()`,
+   so the CPU read the pin as the ULA had left it one scheduled edge
+   earlier.
+
+Correcting either alone measures as **no change at all**, which is why
+the `feed_irq` reorder was tried, found inert and reverted earlier in
+this record. At the tick where the old check ran, the ULA has not raised
+`/INT` in either order; at the tick where the new check runs, the stale
+feed still hides it. Only both together move anything. That is a shape
+worth remembering — a real defect that reads as "not it" under either
+half of its own fix.
+
+**What moved.** Nothing regressed:
+
+| instrument | before | after |
+|---|---|---|
+| ZXSpectrum4.net timing survey | 8 of 69 failing | **0 of 69** |
+| `halt_interrupt_oracle` | 2 of 4 failing (`#[ignore]`d) | **4 of 4** |
+| Float48K | 14336 | **14337**, its expected value |
+| `float_bus_oracle` | 7 of 7 | 7 of 7 |
+| `io_contention_oracle` | 0 of 297,222 wrong | 0 of 297,222 wrong |
+| ZEXDOC / ZEXALL / Tom Harte | pass | pass |
+| 48K and 128K crates | green | green |
+
+The survey is the load-bearing corroboration, and it had been describing
+the answer for some time without anyone reading it that way: seven of its
+eight surviving failures disagreed on **`R` alone, each by exactly one**.
+An interrupt accepted one instruction late runs one more `M1` fetch, and
+`R` counts it. The survey knows nothing about floating buses, contention
+or Float48K, so its going to zero is independent of everything else here.
+
+The two `#[ignore]`s this record was carrying against
+`halt_interrupt_oracle` are removed, and the survey's ratchet is now a
+zero-failure gate rather than a budget.
+
+**The decision, and what it does not settle.** Matching FUSE here means
+declining Zilog UM0080's literal wording — "the rising edge of the last
+clock cycle at the end of any instruction", which is earlier than both
+the old behaviour and the new one. That is recorded on its own terms in
+[`zilog-z80-samples-int-at-the-instruction-boundary.md`](zilog-z80-samples-int-at-the-instruction-boundary.md),
+in the CPU's decision folder rather than only here, because `zilog-z80`
+is shared and the next machine to hit it will not read the Spectrum's
+record. It is **adopted, pending cross-machine review**: the Spectrum
+cannot vary the axis that matters, because its `/INT` assertion instant
+is fixed by the raster. A second Z80 machine whose interrupt comes from
+somewhere else — a gate array, a CTC, a VDP — exercises the same
+sampling instant against a different assertion instant, and that is the
+test that would settle it.
+
+**What is still open.** Float48K now reads 14337 where FUSE reads 14338,
+so one T-state remains — but it is the only one, and it is no longer
+entangled with contention, the floating-bus read, or the acknowledge.
+Also still open, and now better posed: the interrupt-derived origin
+measures 14336 while the contention gate scores zero against FUSE only at
+14335 (`the_frame_origin_is_pinned_by_the_interrupt`, `#[ignore]`d against
+that divergence).

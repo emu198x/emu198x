@@ -100,20 +100,21 @@
 //!
 //! ## What it found
 //!
-//! The acknowledge **cost** is FUSE-exact — 19 T-states on every phase
-//! of the grid. The acceptance **instant** is not: on the one phase in
-//! four where `/INT` goes active exactly on a refetch boundary, the
-//! engine waits a whole further refetch and acknowledges four T-states
-//! late. It requires `/INT` to be asserted strictly *before* the
+//! On first run the acknowledge **cost** was FUSE-exact — 19 T-states on
+//! every phase — while the acceptance **instant** was four T-states late
+//! on the one phase in four where `/INT` goes active exactly on a refetch
+//! boundary. The engine required `/INT` asserted strictly *before* the
 //! boundary; FUSE accepts one asserted *at* it.
 //!
-//! That is a real divergence from the governing reference
-//! (`fuse-governs-the-contended-window.md`) and it is recorded here, but
-//! it does **not** on its own account for Float48K's two T-states: the
-//! probe's second sync lands on a phase where the two agree, and a
-//! four-T-state error on both syncs would move the sweep by eight. The
-//! arrival question stays open with the acknowledge now eliminated from
-//! it — see `spectrum-contention-vs-floating-bus.md`.
+//! That defect is fixed. The Z80 now samples `/INT` at the boundary and
+//! the Spectrum driver feeds the pin before ticking the CPU — two half-
+//! T-state lags on the same signal, which is why correcting either alone
+//! measured as no change at all. All four tests here pass, the
+//! ZXSpectrum4.net timing survey went from eight failing cases to zero,
+//! and Float48K moved onto its expected T-state. See
+//! `spectrum-contention-vs-floating-bus.md` and, for the Zilog-versus-FUSE
+//! question the fix settles by choosing FUSE,
+//! `zilog-z80-samples-int-at-the-instruction-boundary.md`.
 //!
 //! ```sh
 //! cargo test -p machine-sinclair-zx-spectrum-48k \
@@ -457,9 +458,6 @@ fn the_measured_window_is_free_of_contention() {
 /// so the ignore is not forgotten — this repository already carries
 /// `a-gate-nobody-runs-is-a-silent-gate.md` on exactly that risk.
 #[test]
-#[ignore = "known divergence: acceptance is 4 T-states late when `/INT` \
-            coincides with a refetch boundary — see \
-            knowledge/decisions/spectrum-contention-vs-floating-bus.md"]
 fn the_acknowledge_begins_at_the_first_refetch_boundary() {
     let samples = samples();
 
@@ -545,9 +543,6 @@ fn the_acknowledge_costs_what_fuse_charges() {
 /// acknowledge's cost is exact, so the whole error is the wait in front
 /// of it. `#[ignore]`d alongside its cause.
 #[test]
-#[ignore = "known divergence: inherits the acceptance-instant error on \
-            the phase where `/INT` coincides with a refetch boundary — \
-            see knowledge/decisions/spectrum-contention-vs-floating-bus.md"]
 fn the_int_to_handler_latency_matches_fuse() {
     let samples = samples();
 
