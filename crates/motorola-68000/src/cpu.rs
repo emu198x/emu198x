@@ -436,8 +436,8 @@ pub struct AddressErrorObservation {
 
 /// Motorola 68000 CPU with reactive bus state machine.
 ///
-/// Call [`tick`](Cpu68000::tick) once per modelled CPU input-clock edge. A
-/// minimum 68000 bus cycle spans four such calls.
+/// Call [`tick`](Cpu68000::tick) once per modelled CPU clock period. A minimum
+/// 68000 bus cycle spans four such calls.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Cpu68000 {
     /// CPU register file (D0-D7, A0-A7, USP, SSP, PC, SR).
@@ -1467,7 +1467,7 @@ impl Cpu68000 {
         matches!(self.state, State::Idle) && self.micro_ops.is_empty()
     }
 
-    /// Advance the CPU by one modelled CPU input-clock edge.
+    /// Advance the CPU by one modelled CPU clock period.
     ///
     /// State advances on every call. A minimum 68000 bus cycle consumes four
     /// calls; internal delays and stretched bus cycles consume more. On each
@@ -1479,7 +1479,7 @@ impl Cpu68000 {
     /// 4. Initiate the next bus cycle or internal delay
     /// 5. Advance the current state (bus polling, delay countdown)
     ///
-    /// The machine layer must call this once per CPU input-clock edge and:
+    /// The machine layer must call this once per CPU clock period and:
     /// 1. Before calling: write `bus_status` if the CPU is in a
     ///    `BusCycle` state (inspect the state via the bus output
     ///    fields set by `initiate_bus_cycle`).
