@@ -31,7 +31,7 @@ use common_sinclair_zx_spectrum::ula::Ula;
 use gi_ay_3_8912::Ay3_8912;
 use pentagon_ula::PentagonUla;
 use peripheral_kempston_joystick::KempstonJoystick;
-use zilog_z80::Z80;
+use zilog_z80::{BusOp, Z80};
 
 use crate::memory::MemoryPentagon;
 
@@ -162,26 +162,29 @@ impl Pentagon128 {
     }
 
     fn handle_bus(&mut self) {
-        // Beta disk watches every M1 fetch for its `$3Dxx` magic-page trap.
-        if self.z80.m1 && self.z80.mreq && self.z80.rd {
-            self.beta.on_m1(self.z80.addr);
-        }
-
-        if self.z80.mreq && self.z80.rd {
-            // While TR-DOS is paged in, ROM reads come from the Beta ROM.
-            if self.beta.trdos_paged && self.z80.addr < 0x4000 {
-                self.z80.data_in = self.memory.read_trdos_rom(self.z80.addr);
-            } else {
-                self.z80.data_in = self.memory.read(self.z80.addr);
+        // Z80 strobes remain asserted across several half-cycles. Collapse
+        // them to one host transaction so stateful Beta-disk reads advance
+        // once per IN rather than once per asserted phase.
+        match self.z80.bus_request() {
+            Some(BusOp::MemRead) => {
+                // Beta disk watches each M1 fetch for its `$3Dxx` magic-page
+                // trap. `MemRead` is already edge-collapsed, so the fetch is
+                // reported once.
+                if self.z80.m1 {
+                    self.beta.on_m1(self.z80.addr);
+                }
+                // While TR-DOS is paged in, ROM reads come from the Beta ROM.
+                if self.beta.trdos_paged && self.z80.addr < 0x4000 {
+                    self.z80.data_in = self.memory.read_trdos_rom(self.z80.addr);
+                } else {
+                    self.z80.data_in = self.memory.read(self.z80.addr);
+                }
             }
-        } else if self.z80.mreq && self.z80.wr {
-            self.memory.write(self.z80.addr, self.z80.data);
-        } else if self.z80.iorq && self.z80.rd && !self.z80.m1 {
-            self.z80.data_in = self.io_read(self.z80.addr);
-        } else if self.z80.iorq && self.z80.wr {
-            self.io_write(self.z80.addr, self.z80.data);
-        } else if self.z80.iorq && self.z80.m1 {
-            self.z80.data_in = 0xFF;
+            Some(BusOp::MemWrite) => self.memory.write(self.z80.addr, self.z80.data),
+            Some(BusOp::IoRead) => self.z80.data_in = self.io_read(self.z80.addr),
+            Some(BusOp::IoWrite) => self.io_write(self.z80.addr, self.z80.data),
+            Some(BusOp::IntAck) => self.z80.data_in = 0xFF,
+            None => {}
         }
     }
 
@@ -382,6 +385,38 @@ mod tests {
         m.advance_tstates(7);
         // 7 T-states × 4 hc/T = 28 half-cycles
         assert_eq!(m.hc, 28);
+    }
+
+    #[test]
+    fn held_io_read_advances_beta_disk_once() {
+        let mut m = Pentagon128::new();
+        let mut disk = vec![0; 80 * 2 * 16 * 256];
+        disk[..3].copy_from_slice(&[0xAB, 0xCD, 0xEF]);
+        m.beta.insert_disk(0, disk);
+        m.beta.trdos_paged = true;
+        m.beta.write(0x5F, 1);
+        m.beta.write(0x1F, 0x80);
+
+        m.z80.addr = 0x007F;
+        m.z80.iorq = true;
+        m.z80.rd = true;
+        m.z80.m1 = false;
+        m.handle_bus();
+        assert_eq!(m.z80.data_in, 0xAB);
+
+        // `/IORQ` + `/RD` remain asserted for further half-cycles of the
+        // same IN. Those phases must not consume more bytes from the WD1793.
+        m.handle_bus();
+        m.handle_bus();
+        assert_eq!(m.z80.data_in, 0xAB);
+
+        m.z80.iorq = false;
+        m.z80.rd = false;
+        m.handle_bus();
+        m.z80.iorq = true;
+        m.z80.rd = true;
+        m.handle_bus();
+        assert_eq!(m.z80.data_in, 0xCD);
     }
 
     #[test]
