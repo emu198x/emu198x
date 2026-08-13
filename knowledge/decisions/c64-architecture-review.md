@@ -13,7 +13,7 @@ This document mirrors [`spectrum-architecture-review.md`](spectrum-architecture-
 
 ## What we are *not* changing
 
-These decisions are load-bearing, validated by the 6502 100% Tom Harte pass, the KERNAL boot-to-READY proof at frame 108 (~2.16 s emulated, matching real-hardware ~2.5 s), and the seven catalogue entries running through to expected end-states. Nothing in this review revisits them:
+These decisions are load-bearing, validated by the 6502 100% Tom Harte pass, the KERNAL boot-to-READY proof at frame 108 (~2.16 s emulated, matching real-hardware ~2.5 s), and the 13 catalogue entries running through to expected end-states. Nothing in this review revisits them:
 
 - **Master oscillator drives the loop.** `C64::tick` in `crates/machine-commodore-c64/src/machine.rs:369` advances one phi2 cycle: VIC first (asserts BA low for badlines / sprite DMA), CIAs second, IRQ/NMI/RDY wiring third, CPU bus transaction fourth (gated on RDY for reads), SID last. The phi2 counter is the only time anchor.
 - **Pin-level CPU bus interface, no Bus trait.** `mos-6502` exposes `addr`, `data`, `data_in`, `rw`, `sync`, `rdy`, `irq`, `nmi` as fields. The machine layer reads pins between ticks and dispatches reads/writes through the `$01` banking decoder.
@@ -74,6 +74,21 @@ VICE and Emu198x traces align the stable-raster handlers and critical `$3B`
 write, ruling out an upstream IRQ phase error. The continued trace exposes a
 two-cycle excess in the late-created fetch/BA window before the separate
 delayed C-data output question.
+
+**Far-edge C-data qualification: 2026-08-13.** The scheduling audit confirms
+that one C64 machine tick advances exactly one Phi2 cycle. The machine does not
+contain the double-tick or overtick previously found in the Z80-family path.
+The analogous local defect was inside the compressed video pipeline. Two
+resident output cells remain visually hidden, but only the first following
+g-access is idle and suppresses VC/VMLI. The active g-access behind the second
+hidden cell advances both counters. Applying that literal staging together
+with a bounded 12-bit C-data carry raises `sequencer-bug` from 104,394 to
+104,418 matching pixels, and all five colour-fetch planes remain exact. The
+30 retained disagreements are two colour-ring dots plus a 28-pixel character
+outline at the unresolved active-g-access/delayed-output boundary. A rejected
+two-suppression experiment reached 104,446 but contradicted the Hoxs64 hidden
+counter state. This is not evidence for changing the board scheduler or
+BA-to-AEC ownership.
 
 **Why this matters for other systems.** Every system with cycle-stealing video DMA (BBC Micro, Atari 800/XL, Apple II HBL, Amiga blitter) shares the same seam shape. Get the C64's right; the pattern transfers.
 
@@ -167,6 +182,13 @@ After the far-edge badline-window correction, the same matrix retains every
 hash and produces 13 `PASS` plus 13 `SNAP-PASS` results at snapshot envelope
 version 6 and frame-routing version 5.
 
+Snapshot envelope version 8 additionally preserves the two-cell forced-output
+delay and the bounded C-data carry's age and 12-bit value. Directed round trips
+compare that live state and subsequent output with an unforked machine. The
+schema change is required even though the state exists for no more than its
+40-clock eligibility window: restoring without it can change a later RC-zero
+line.
+
 **Why this matters for other systems.** Every system with stateful audio (Amiga Paula, NES APU, Game Boy APU) and stateful video DMA has the same surface. Get the C64 right; the rehydration pattern transfers.
 
 ### Seam 4 — Catalogue oracle integrity
@@ -209,6 +231,17 @@ results.
 commit `d140a36f` advances `FRAME_ROUTING_VERSION` to 5 and the snapshot
 envelope to version 6. All 13 entries retain their frame and audio hashes. The
 complete matrix produces 13 `PASS` and 13 `SNAP-PASS` results.
+
+**Requalification: commit `70cd523b`.** The hidden-output and bounded C-data
+correction advances `FRAME_ROUTING_VERSION` to 7 and the snapshot envelope to
+version 8. The strict survey changes only the `sequencer-bug` indexed plane;
+the focused literal-model comparison reaches 104,418 of 104,448 pixels and
+all five colour-fetch cases remain exact. Its exact 30-pixel residual is a
+strict assertion. The complete version-7 survey confirms that every other
+registered score and indexed hash is unchanged. All 13 catalogue entries pass
+their ordinary and fresh-runtime snapshot-replay gates. Catalogue hashes remain
+regression evidence and do not extend this PAL 6569
+software-comparison result into a physical-hardware claim.
 
 **Why this matters for other systems.** Every system the catalogue tracks needs this oracle. The Spectrum's Seam 4 work is system-agnostic infrastructure; the C64 is the first beneficiary of the pattern beyond the system that originated it.
 
@@ -334,4 +367,5 @@ The Spectrum's silicon-level reference was Smith's *The ZX Spectrum ULA* — a s
 - [PAL 6569 late-badline display phase](c64-late-badline-display-phase.md) — the version-3 display-phase decision
 - [C64 BA-to-AEC handover](c64-ba-aec-handover.md) — the version-4 bus-ownership decision
 - [PAL 6569 far-edge late-badline DMA window](c64-far-edge-badline-window.md) — the version-5 far-edge fetch-window decision
+- [PAL 6569 far-edge forced-badline C-data](c64-forced-badline-cdata-pipeline.md) — the version-7 hidden-output, counter and bounded C-data decision
 - [`october-catalogue.md`](october-catalogue.md) — the October-public bar (C64 is engineering-bar, no October deadline)

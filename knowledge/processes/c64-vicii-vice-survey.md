@@ -96,6 +96,16 @@ classified colour index. It does not mean that the category, chip or emulator
 is 92.456 percent accurate. A case becomes a strict conformance assertion only
 through a separately reviewed threshold or exact reference contract.
 
+The strict PAL 6569 lanes retain two different contract shapes. All five
+registered `colorfetchbug` programs require complete pixel and indexed-hash
+identity. The `sequencer-bug` program requires an exact retained-disagreement
+signature, so a timing change cannot exchange one residual for another while
+preserving a rounded percentage. The 2026-08-13 literal far-edge C-data model
+changes only that indexed plane relative to revision `d140a36f`. It matches
+104,418 of 104,448 pixels and retains an exact 30-pixel signature: two
+colour-ring dots and a 28-pixel character outline at the
+active-g-access/delayed-output boundary.
+
 ## Interpreting changes
 
 Compare reports only when the manifest identity, runtime contract and
@@ -114,6 +124,7 @@ similarity does not make any implementation the specification.
 - [PAL 6569 late-badline display phase](../decisions/c64-late-badline-display-phase.md)
 - [C64 BA-to-AEC handover](../decisions/c64-ba-aec-handover.md)
 - [PAL 6569 far-edge late-badline DMA window](../decisions/c64-far-edge-badline-window.md)
+- [PAL 6569 far-edge forced-badline C-data](../decisions/c64-forced-badline-cdata-pipeline.md)
 - [C64 architecture review](../decisions/c64-architecture-review.md)
 - [MOS 6569 / 6567 VIC-II](../chips/mos-vic-ii.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)

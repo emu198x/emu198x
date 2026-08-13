@@ -3,7 +3,7 @@
 **Date:** 2026-08-08
 **Status:** BINDING
 **Implementation revision:** `74f31553`
-**Follow-up qualification:** `d140a36f`
+**Follow-up qualification:** 2026-08-13
 
 ## The question
 
@@ -173,6 +173,16 @@ The clean report is
 That result leaves 54 pixels across eight rows for the delayed C-data output
 question; it does not change the entering-Phi1 decision specified here.
 
+The 2026-08-13 follow-up models that downstream C-data question without
+changing this decision. Two C/V/G cells remain visually hidden after the
+far-edge Phi2 transition. The first following g-access is idle and does not
+advance VC/VMLI; the active g-access behind the second hidden cell advances
+both counters. A bounded 12-bit C-data carry then operates on the next eligible
+RC-zero display line. The full survey changes only `sequencer-bug`, while all
+five colour-fetch cases remain exact. The literal model reaches 104,418 of
+104,448 matching pixels and retains a characterised 30-pixel output-stage
+signature.
+
 ## Evidence boundary
 
 This decision fixes display-state and matrix-index phase only.
@@ -200,11 +210,18 @@ Cross-emulator cycle traces rule out an instruction-timing or missing-stall
 explanation for the separate `sequencer-bug` case: the apparent lead came
 from comparing Emu198x's scheduled pre-tick CPU pins with VICE's post-access
 monitor phase. Revision `d140a36f` then removes the excess far-edge c-access
-and aligns the following store at cycle 55. The residual is now classified as
-delayed C-data output sequencing, not a reason to change the exact display
-phase, ownership or window-length results. AEC-sensitive sprite Phi2 bytes 0
-and 2 and the effect of invalid activity on `last_bus_data` remain separate
-evidence-bounded questions.
+and aligns the following store at cycle 55. The 2026-08-13 C-data follow-up
+resolves the hidden-output and carry state without changing the exact display
+phase, ownership or window-length results. Its retained 28-pixel character
+outline requires a distinct active-g-access/delayed-output stage; the two
+dot-zero register-colour pixels belong to the unimplemented PAL 6569
+colour-resolution ring. AEC-sensitive sprite Phi2 bytes 0 and 2 and the effect
+of invalid activity on `last_bus_data` remain separate evidence-bounded
+questions.
+
+The breadth survey also retains a post-badline `videomode` phase-accounting
+lead. It is an independent continuation question; it does not reopen the
+entering-Phi1 ordering specified here or the far-edge C-data state.
 
 The decision is evidenced for the PAL 6569 profile. The implementation uses
 the same entering-state split for the existing 6567 variants, but no
@@ -246,6 +263,7 @@ focused tests and clean survey comparison to be rerun.
 - [C64 architecture review](c64-architecture-review.md)
 - [C64 BA-to-AEC handover](c64-ba-aec-handover.md)
 - [PAL 6569 far-edge late-badline DMA window](c64-far-edge-badline-window.md)
+- [PAL 6569 far-edge forced-badline C-data](c64-forced-badline-cdata-pipeline.md)
 - [CPU bus interface](cpu-bus-interface.md)
 - [Save state format](save-state-format.md)
 - [MOS 6569 / 6567 VIC-II](../chips/mos-vic-ii.md)
