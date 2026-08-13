@@ -111,11 +111,22 @@ impl Zx81 {
             0xC000..=0xFFFF => ram[((addr - 0xC000) & mask) as usize],
         });
 
-        // ULA NMI line is gated by the NMI generator enable bit.
-        self.cpu.nmi = self.ula.nmi_active() && self.nmi_enabled;
+        // Two CPU half-cycles per T-state. `Z80::tick` advances one
+        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
+        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states against
+        // the Z80's 4. The ULA above is denominated in T-states (207 per
+        // line, 312 lines, 3.25 MHz), so it was the CPU that was wrong and
+        // not the ULA — the machine rendered a full 50 Hz raster while
+        // executing half the code that belongs in one.
+        for _ in 0..2 {
+            // ULA NMI line is gated by the NMI generator enable bit, fed
+            // before the tick: the Z80 samples its interrupt inputs at an
+            // instruction boundary during its own tick.
+            self.cpu.nmi = self.ula.nmi_active() && self.nmi_enabled;
 
-        self.cpu.tick();
-        self.handle_bus();
+            self.cpu.tick();
+            self.handle_bus();
+        }
     }
 
     fn handle_bus(&mut self) {
