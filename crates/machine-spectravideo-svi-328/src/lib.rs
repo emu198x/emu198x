@@ -72,8 +72,10 @@ use serde::{Deserialize, Serialize};
 use ti_tms9918::{Tms9918, VdpRegion};
 use zilog_z80::{BusOp, Z80};
 
+/// VDP dot ticks per CPU half-cycle. Three dots per four half-cycles is the
+/// TMS9918A's 3:2 against T-states, interleaved twice as finely.
 const VDP_DOT_PHASE_NUMERATOR: u32 = 3;
-const VDP_DOT_PHASE_DENOMINATOR: u32 = 2;
+const VDP_DOT_PHASE_DENOMINATOR: u32 = 4;
 const CPU_TSTATES_PER_SCANLINE: u64 = 228;
 const NTSC_SCANLINES_PER_FRAME: u64 = 262;
 const PAL_SCANLINES_PER_FRAME: u64 = 313;
@@ -198,21 +200,31 @@ impl Svi328 {
     }
 
     fn tick_tstate(&mut self) {
-        self.cpu.tick();
-        self.handle_bus();
+        // Two CPU half-cycles per T-state. `Z80::tick` advances one
+        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
+        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states
+        // against the Z80's 4.
+        for _ in 0..2 {
+            // VDP INT → Z80 IRQ, fed before the tick. The Z80 samples
+            // `/INT` at an instruction boundary during its own tick, so
+            // setting the line afterwards hands it the previous
+            // half-cycle's state.
+            self.cpu.irq = self.vdp.interrupt;
 
-        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
-        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-            self.vdp.tick();
-            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+            self.cpu.tick();
+            self.handle_bus();
+
+            self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
+            while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+                self.vdp.tick();
+                self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+            }
         }
 
         self.psg_phase ^= 1;
         if self.psg_phase == 0 {
             self.psg.tick();
         }
-
-        self.cpu.irq = self.vdp.interrupt;
 
         self.cpu_tstates += 1;
     }
