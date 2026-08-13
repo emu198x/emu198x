@@ -12,7 +12,7 @@ use crate::debug_info::DebugSymbols;
 use crate::error::MachineError;
 use crate::headless::prepare_machine;
 use crate::host::{FramePacket, FrameSink, HostIo, InputEvent, NullTraceSink, TraceSink};
-use crate::machine::{FamilyRuntime, MachineCore, ResetKind, RunResult};
+use crate::machine::{FamilyRuntime, MachineCore, ResetKind, RunResult, StopReason};
 use crate::media::MediaSet;
 use crate::query::{
     NoAdditionalQueries, QueryError, QueryPathsResult, QueryResult, SessionQueryProvider,
@@ -926,8 +926,19 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     /// Returns an error if the machine or one host-side sink rejects the
     /// execution request.
     pub fn run_frames(&mut self, count: u32) -> Result<RunResult, SessionError> {
-        let delta = self.native_frame_ticks.saturating_mul(u64::from(count));
-        self.run_until(self.time().saturating_add(delta))
+        if count == 0 {
+            return self.run_until(self.time());
+        }
+
+        let mut last = RunResult::new(self.time(), StopReason::ReachedTarget);
+        for _ in 0..count {
+            let before = self.time();
+            last = self.run_until(before.saturating_add(self.native_frame_ticks))?;
+            if last.stop_reason != StopReason::ReachedTarget || self.time() <= before {
+                break;
+            }
+        }
+        Ok(last)
     }
 
     /// Runs the machine for an exact number of sub-frame ticks (one
@@ -966,8 +977,22 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         count: u32,
         trace_sink: &mut dyn TraceSink,
     ) -> Result<RunResult, SessionError> {
-        let delta = self.native_frame_ticks.saturating_mul(u64::from(count));
-        self.run_until_with_trace_sink(self.time().saturating_add(delta), trace_sink)
+        if count == 0 {
+            return self.run_until_with_trace_sink(self.time(), trace_sink);
+        }
+
+        let mut last = RunResult::new(self.time(), StopReason::ReachedTarget);
+        for _ in 0..count {
+            let before = self.time();
+            last = self.run_until_with_trace_sink(
+                before.saturating_add(self.native_frame_ticks),
+                trace_sink,
+            )?;
+            if last.stop_reason != StopReason::ReachedTarget || self.time() <= before {
+                break;
+            }
+        }
+        Ok(last)
     }
 
     /// Encodes the latest emitted frame as PNG.
@@ -1295,6 +1320,8 @@ mod tests {
         restored: usize,
         received_inputs: Vec<InputEvent>,
         pacing: u64,
+        frame_durations: Option<[u64; 2]>,
+        frames_run: u32,
     }
 
     impl DummyMachine {
@@ -1325,6 +1352,15 @@ mod tests {
                 commands: 0,
                 restored: 0,
                 received_inputs: Vec::new(),
+                frame_durations: None,
+                frames_run: 0,
+            }
+        }
+
+        fn with_alternating_frames() -> Self {
+            Self {
+                frame_durations: Some([5, 4]),
+                ..Self::new()
             }
         }
     }
@@ -1353,20 +1389,31 @@ mod tests {
             host: &mut HostIo<'_>,
         ) -> Result<RunResult, MachineError> {
             self.received_inputs.extend_from_slice(host.input_events);
-
             // One frame per native frame, which is what a machine does. This
             // used to jump to `target` and emit a single frame however long
             // the run was, leaving the session's chunking to manufacture the
             // rest — so it could not tell a sink that sees every frame from
             // one that samples them.
+            //
+            // A runtime configured with `frame_durations` models a
+            // frame-granular machine whose physical frame length alternates,
+            // like the MTX and Einstein PAL frame at 79,747/79,746 T-states.
+            // It can only stop on a completed frame, so it runs past `target`
+            // to the next boundary rather than clamping to it.
             let mut emitted = 0;
             while self.time < target {
-                self.time = MachineTime::new(
-                    self.time
-                        .saturating_add(DUMMY_FRAME_TICKS)
-                        .get()
-                        .min(target.get()),
-                );
+                self.time = match self.frame_durations {
+                    Some(durations) => self
+                        .time
+                        .saturating_add(durations[self.frames_run as usize % 2]),
+                    None => MachineTime::new(
+                        self.time
+                            .saturating_add(DUMMY_FRAME_TICKS)
+                            .get()
+                            .min(target.get()),
+                    ),
+                };
+                self.frames_run += 1;
                 emitted += 1;
                 host.frame_sink.push_frame(FramePacket {
                     timestamp: self.time,
@@ -1377,10 +1424,12 @@ mod tests {
                     pixels: &DUMMY_FRAME_PIXELS,
                 })?;
             }
-            self.time = target;
+            if self.frame_durations.is_none() {
+                self.time = target;
+            }
             if emitted == 0 {
                 host.frame_sink.push_frame(FramePacket {
-                    timestamp: target,
+                    timestamp: self.time,
                     format: PixelFormat::Indexed8,
                     width: 32,
                     height: 32,
@@ -1390,13 +1439,13 @@ mod tests {
             }
 
             host.audio_sink.push_audio(AudioPacket {
-                timestamp: target,
+                timestamp: self.time,
                 sample_rate: 44_100,
                 channels: 1,
                 samples: &[0.0, 0.5],
             })?;
 
-            Ok(RunResult::new(target, StopReason::ReachedTarget))
+            Ok(RunResult::new(self.time, StopReason::ReachedTarget))
         }
 
         fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
@@ -1553,6 +1602,24 @@ mod tests {
         assert!(session.screenshot_png_bytes().is_ok());
         assert!(session.audio_wav_bytes().is_ok());
         assert_eq!(session.last_run_result(), Some(result));
+    }
+
+    #[test]
+    fn run_frames_preserves_count_across_variable_frame_lengths() {
+        let mut session = HeadlessSession::new(DummyMachine::with_alternating_frames(), 4);
+        let result = session.run_frames(10).expect("ten frames should run");
+
+        assert_eq!(session.machine().frames_run, 10);
+        assert_eq!(result.reached, MachineTime::new(45));
+
+        let mut traced = HeadlessSession::new(DummyMachine::with_alternating_frames(), 4);
+        let mut trace_sink = NullTraceSink;
+        let result = traced
+            .run_frames_with_trace_sink(10, &mut trace_sink)
+            .expect("ten traced frames should run");
+
+        assert_eq!(traced.machine().frames_run, 10);
+        assert_eq!(result.reached, MachineTime::new(45));
     }
 
     #[test]
