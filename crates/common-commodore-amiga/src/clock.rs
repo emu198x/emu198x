@@ -296,6 +296,7 @@ const fn greatest_common_divisor(mut lhs: u64, mut rhs: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::board::{NTSC_SYSTEM_TICK_HZ, PAL_SYSTEM_TICK_HZ};
 
     #[test]
     fn cpu_domain_phase_retains_unconsumed_edges() {
@@ -409,10 +410,13 @@ mod tests {
 
     #[test]
     fn one_complete_ratio_period_has_no_drift() {
-        let mut clock = CpuClock::from_ratio(40_000_000, 7_093_790);
+        let mut pal = CpuClock::from_ratio(40_000_000, PAL_SYSTEM_TICK_HZ);
+        let mut ntsc = CpuClock::from_ratio(40_000_000, NTSC_SYSTEM_TICK_HZ);
 
-        assert_eq!(clock.edges_for_ticks(709_379), 4_000_000);
-        assert_eq!(clock.phase(), 0);
+        assert_eq!(pal.edges_for_ticks(709_379), 4_000_000);
+        assert_eq!(pal.phase(), 0);
+        assert_eq!(ntsc.edges_for_ticks(715_909), 4_000_000);
+        assert_eq!(ntsc.phase(), 0);
     }
 
     #[test]
