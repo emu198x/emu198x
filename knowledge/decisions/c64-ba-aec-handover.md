@@ -3,7 +3,7 @@
 **Date:** 2026-08-08
 **Status:** BINDING
 **Implementation revision:** `9176e269`
-**Follow-up qualification:** `d140a36f`
+**Follow-up qualification:** `70cd523b`
 
 ## The question
 
@@ -90,12 +90,13 @@ retained write byte, supplies the low nibble at the forced-badline boundary.
 ## Persistence and inspection
 
 The consecutive BA-low age is delayed machine state. It is serialised with
-the VIC-II. Snapshot envelope version 5 first preserved it; the current
-version 6 also preserves the source-resolved BA latches, c-access activity,
-pending `$D011` completion phase and explicit far-edge window. Regression
-snapshots taken within the three-cycle handover and at the far-edge boundary
-compare restored execution with an unforked machine so restoring cannot make
-an access valid one cycle early or late.
+the VIC-II. Snapshot envelope version 5 first preserved it; version 6 added
+the source-resolved BA latches, c-access activity, pending `$D011` completion
+phase and explicit far-edge window. Current version 8 additionally preserves
+the downstream forced-output delay and C-data carry. Regression snapshots
+taken within the three-cycle handover and at the far-edge boundary compare
+restored execution with an unforked machine so restoring cannot make an
+access valid one cycle early or late.
 
 The runtime query surface now exposes the state needed to inspect this
 contract. In addition to the existing `cpu.addr`, `cpu.data` and `vic.ba_low`
@@ -150,6 +151,14 @@ improves from 96,266 to 104,394 matching pixels, while all five exact
 classified as delayed C-data output sequencing rather than an upstream IRQ,
 CPU-stall or ownership error.
 
+The 2026-08-13 follow-up models that downstream output state without changing
+the ownership rule. Two cells remain visually hidden; only the first following
+idle g-access suppresses VC/VMLI, while the active g-access behind the second
+advances both counters. A bounded 12-bit C-data carry then operates on the next
+eligible RC-zero line. The survey changes only `sequencer-bug`, and all five
+colour-fetch planes remain exact. The literal model reaches 104,418 of 104,448
+matching pixels and retains a characterised 30-pixel output-stage signature.
+
 ## Evidence boundary
 
 This decision governs matrix c-access ownership and its invalid data only. The
@@ -171,12 +180,12 @@ Exposing `vic.last_bus_data` makes that state inspectable; it does not settle
 its physical meaning.
 
 The implementation still combines fetch and display more closely than the
-reference sequencers. It has no distinct delayed C-data output state for the
-remaining forced-badline carry behaviour exposed by `sequencer-bug`.
-VirtualC64 delays the combined g-access result before loading the graphics
-sequencer; Hoxs64 retains current and previous C-data values plus an explicit
-carry state. Selecting the smallest hardware-shaped Emu198x contract that
-preserves the exact colour-fetch lane is the next display-pipeline question.
+reference sequencers, but it now carries the far-edge output delay and packed
+C-data state explicitly. The remaining display-pipeline questions are the
+separation of active g-access/counter state from delayed visual output and the
+PAL 6569 colour-resolution ring for dot-level register-backed output, not
+matrix ownership. The post-badline `videomode` phase-accounting lead is also
+separate from this decision.
 
 The exact-output evidence is for the PAL 6569 profile and the five pinned
 staged programs. It does not establish equivalent behaviour for 6567R8,
@@ -197,7 +206,8 @@ Reject changes that:
 - update `last_bus_data` from invalid Phi2 activity without an independent
   open-bus evidence contract;
 - hide the handover age from snapshots or inspection; or
-- change the ownership rule to repair the separate C-data latch residual.
+- change the ownership rule to repair the separate downstream output-stage
+  residual.
 
 Any change to BA aggregation, CPU write scheduling, Phi2 bus sampling,
 matrix access, sprite sideband access or snapshot state requires the directed
@@ -207,6 +217,7 @@ tests and all five strict colour-fetch cases to be rerun.
 
 - [PAL 6569 late-badline display phase](c64-late-badline-display-phase.md)
 - [PAL 6569 far-edge late-badline DMA window](c64-far-edge-badline-window.md)
+- [PAL 6569 far-edge forced-badline C-data](c64-forced-badline-cdata-pipeline.md)
 - [C64 accuracy closure campaign](c64-accuracy-closure-campaign.md)
 - [C64 architecture review](c64-architecture-review.md)
 - [CPU bus interface](cpu-bus-interface.md)

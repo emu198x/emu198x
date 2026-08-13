@@ -3,6 +3,7 @@
 **Date:** 2026-08-08
 **Status:** BINDING
 **Implementation revision:** `d140a36f`
+**Follow-up qualification:** `70cd523b`
 
 ## The question
 
@@ -138,13 +139,34 @@ frame-routing version 5. Each produces both `PASS` and `SNAP-PASS` with
 snapshot envelope version 6. This is regression and determinism evidence, not
 an independent hardware oracle.
 
+## Downstream C-data qualification
+
+The 2026-08-13 follow-up preserves this one-access window unchanged and models
+what survives after it. Two already-resident C/V/G cells remain visually
+hidden after the Phi2 transition. Only the first following g-access remains
+idle and suppresses VC/VMLI; the active g-access behind the second hidden cell
+advances both counters. The sole invalid c-access starts a bounded 12-bit
+C-data carry for eligible output on the next RC-zero display line.
+
+The full survey changes only the `sequencer-bug` indexed plane relative to
+revision `d140a36f`, and all five colour-fetch cases remain exact. The literal
+model reaches 104,418 of 104,448 matching pixels. Its 30 disagreements are two
+colour-ring dots and a 28-pixel character outline at the remaining
+active-g-access/delayed-output boundary. Snapshot envelope version 8 preserves
+the output delay and carry, while frame-routing version 7 identifies the
+revised output contract.
+
+This does not revise the number of c-access attempts specified here. The
+downstream state is specified separately by
+[PAL 6569 far-edge forced-badline C-data](c64-forced-badline-cdata-pipeline.md).
+
 ## Evidence boundary
 
 This decision governs only the number of matrix c-access attempts remaining
-after the selected far-edge badline transition. It does not define the delayed
-C-data value presented to the draw pipeline after those accesses. The
-remaining 54-pixel `sequencer-bug` signature is now the next isolated display
-sequencing question.
+after the selected far-edge badline transition. The historical 54-pixel
+`sequencer-bug` signature motivated, but is not specified by, this decision.
+The later output, counter and C-data state is governed by the dedicated
+follow-up decision.
 
 The decision is evidenced for the PAL 6569 profile and the staged
 `sequencer-bug` and `colorfetchbug` programs. It does not establish equivalent
@@ -164,7 +186,8 @@ Reject changes that:
 - merge badline and sprite BA causes so the trace can no longer distinguish
   them;
 - omit the pending or exhausted state from snapshots; or
-- describe the remaining 54 pixels as closed by this decision.
+- attribute closure of the historical 54-pixel signature to this access-count
+  decision rather than the downstream C-data decision.
 
 Any change to `$D011` scheduling, badline-window selection, c-access
 predicates, BA-source aggregation or snapshot state requires the directed
@@ -174,6 +197,7 @@ tests, strict colour-fetch lane, sequencer trace and clean survey to be rerun.
 
 - [PAL 6569 late-badline display phase](c64-late-badline-display-phase.md)
 - [C64 BA-to-AEC handover](c64-ba-aec-handover.md)
+- [PAL 6569 far-edge forced-badline C-data](c64-forced-badline-cdata-pipeline.md)
 - [C64 accuracy closure campaign](c64-accuracy-closure-campaign.md)
 - [C64 architecture review](c64-architecture-review.md)
 - [Save state format](save-state-format.md)
