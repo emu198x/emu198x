@@ -84,6 +84,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "amstrad-gate-array"
+version = "0.2.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "amstrad-ula-40077"
 version = "0.2.1"
 dependencies = [
