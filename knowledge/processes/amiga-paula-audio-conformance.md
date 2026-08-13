@@ -91,9 +91,9 @@ The Emu198x capture observes:
 
 | Case | Dominant output | AC RMS | Fundamental |
 | --- | --- | ---: | ---: |
-| `channel-0-full` | right | 0.354971423 | 3463.398 Hz |
-| `channel-1-full` | left | 0.354971299 | 3463.398 Hz |
-| `channel-0-half` | right | 0.177485636 | 3463.398 Hz |
+| `channel-0-full` | right | 0.354971554 | 3463.227605 Hz |
+| `channel-1-full` | left | 0.354961095 | 3463.227605 Hz |
+| `channel-0-half` | right | 0.177485657 | 3463.227605 Hz |
 
 The inactive output is exactly silent in all three current captures. The
 half/full RMS ratio is 0.5 within the recorded precision.
@@ -110,9 +110,17 @@ produced at revision
 | `channel-0-half` | right | 0.04579806595009139 | 3463.059313215401 Hz |
 
 The registered channel-0 half/full RMS ratio is 0.49995283459854284. Emu198x
-agrees on output assignment. Its approximately 3463.397548 Hz fundamental
-differs from the vAmiga observation by approximately 0.338235 Hz, or 0.0098
-percent. Its 0.5 half/full ratio differs by approximately 0.0000472.
+agrees on output assignment. Its approximately 3463.227605 Hz three-field
+zero-crossing estimate differs from the vAmiga observation by approximately
+0.168292 Hz, or 0.00486 percent. Its 0.5 half/full ratio differs by
+approximately 0.0000472.
+
+The finite capture window makes the measured frequency sensitive to the first
+and last crossing phases. The clock-derived Emu198x cadence for PAL CCK
+`3,546,895 Hz`, `AUDxPER = 512`, and two alternating sample bytes is
+`3,546,895 / (2 * 512) = 3463.7646484375 Hz`. The measured value is an
+observation of that cadence through the 48 kHz host resampler, not a replacement
+for the oscillator-derived rate.
 
 Exact RMS magnitude is not compared across producers because vAmiga and
 Emu198x use different filter, gain, and resampling paths. The asserted boundary
