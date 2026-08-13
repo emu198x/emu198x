@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   count only completed instructions in shared script and MCP observations;
   targets without a counter retain the exact-step guarantee
 
+### Fixed
+
+- Advance `run_frames` one native boundary at a time so fractional frame
+  lengths cannot accumulate into a missing frame on large requests
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/emu198x-shell-v0.2.0) - 2026-06-04
 
 ### Added
