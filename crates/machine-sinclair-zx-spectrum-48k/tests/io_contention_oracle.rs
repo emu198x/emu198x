@@ -816,3 +816,112 @@ fn io_contention_matches_fuse_across_the_whole_frame() {
          same commit — do not widen it silently."
     );
 }
+
+/// Does the arrival label name the T-state the raster is in?
+///
+/// [`ORIGIN`] is 14335 here and 14336 in `float_bus_oracle`, which measures
+/// the same `/INT` edge at half-cycle resolution and finds it at the *start*
+/// of engine T-state 55552. That file calls the difference "a probe
+/// convention rather than an engine behaviour" — prose, asserted nowhere,
+/// and load-bearing for every number this harness prints.
+///
+/// It is load-bearing because a gate deciding one T-state late is
+/// indistinguishable from an origin one T-state early, and this file's own
+/// `ORIGIN` comment says exactly that. If the convention story is right,
+/// both oracles reconcile at 14336 and the gate is sound. If it is wrong,
+/// the contention phase is off by one and every residual quoted here is
+/// quoted against a displaced ruler.
+///
+/// So: `tstate_in_frame` is `hc / cpu_divisor`, a floor of the half-cycle
+/// counter. An instruction beginning halfway through a frame T-state would
+/// be labelled with the T-state it started inside, while FUSE — which has no
+/// sub-T-state notion — counts from a whole boundary. This records the phase
+/// instructions actually begin on, and scores each phase group against both
+/// candidate origins.
+#[test]
+#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+fn the_arrival_label_and_the_raster_agree_on_the_tstate() {
+    use common_sinclair_zx_spectrum::driver::SpectrumDriver;
+
+    /// The origin `float_bus_oracle` measures, from the same `/INT` edge at
+    /// half-cycle resolution plus a frame of live bus content.
+    const RASTER_ORIGIN: i32 = 14_336;
+
+    let Some(rom) = rom_bytes() else {
+        panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
+    };
+
+    // One contended and one uncontended class is enough: the question is
+    // about the label, not the port.
+    for port in [0x40FEu16, 0xC0FF] {
+        // (sub-T-state phase at arrival, arrival T-state, measured cost)
+        let mut samples: Vec<(u32, u32, u32)> = Vec::new();
+        for skew in 0..12u32 {
+            let mut machine = prepare(port, skew, &rom);
+            let divisor = machine.frame_timing().cpu_divisor;
+            for _ in 0..2 {
+                step_one_instruction(&mut machine);
+            }
+            let mut spent = 0u32;
+            while spent < FRAME_TSTATES {
+                let phase = machine.hc() % divisor;
+                let arrival = machine.tstate_in_frame();
+                let cost = step_one_instruction(&mut machine);
+                samples.push((phase, arrival, cost));
+                spent += cost;
+            }
+        }
+
+        let phases: std::collections::BTreeMap<u32, usize> =
+            samples
+                .iter()
+                .fold(std::collections::BTreeMap::new(), |mut m, &(p, _, _)| {
+                    *m.entry(p).or_default() += 1;
+                    m
+                });
+
+        println!("\n=== ${port:04X}");
+        println!("  sub-T-state phase at arrival: {phases:?}");
+
+        let wrong_at = |offset: i32, phase: Option<u32>| -> usize {
+            samples
+                .iter()
+                .filter(|&&(p, _, _)| phase.is_none_or(|want| p == want))
+                .filter(|&&(_, arrival, measured)| {
+                    let t = (arrival as i32 + offset).rem_euclid(FRAME_TSTATES as i32) as u32;
+                    fuse_in_a_c_cost(t, port) != measured
+                })
+                .count()
+        };
+
+        println!(
+            "  all arrivals:   {ORIGIN:+} -> {:>7} wrong,  {RASTER_ORIGIN:+} -> {:>7} wrong  (of {})",
+            wrong_at(ORIGIN, None),
+            wrong_at(RASTER_ORIGIN, None),
+            samples.len(),
+        );
+        for (&p, &n) in &phases {
+            println!(
+                "  phase {p}:        {ORIGIN:+} -> {:>7} wrong,  {RASTER_ORIGIN:+} -> {:>7} wrong  (of {n})",
+                wrong_at(ORIGIN, Some(p)),
+                wrong_at(RASTER_ORIGIN, Some(p)),
+            );
+        }
+
+        // The finding, whichever way it falls. A single phase means the
+        // label is unambiguous and the origin gap is a real one-T-state
+        // disagreement between the contention path and the raster. More
+        // than one means instructions begin on both half-cycles of a frame
+        // T-state, and the label is genuinely ambiguous — which would make
+        // the "probe convention" reading right, and this harness's arrival
+        // T-state the thing to fix rather than the gate.
+        assert_eq!(
+            phases.keys().copied().collect::<Vec<u32>>(),
+            vec![0],
+            "instructions arrived on more than one sub-T-state phase for \
+             ${port:04X}: {phases:?}. That would make the arrival label \
+             genuinely ambiguous and the `probe convention` reading of the \
+             origin gap right — fix the label, not the gate."
+        );
+    }
+}
