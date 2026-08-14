@@ -31,8 +31,13 @@ fn uef_path() -> PathBuf {
     if let Ok(p) = env::var("ACORN_UEF") {
         return PathBuf::from(p);
     }
+    // Four levels up, not two: `emulators/` is a sibling of the whole Emu198x
+    // org container at the 198x umbrella level, so the walk is
+    // crate -> crates -> emu198x -> Emu198x -> 198x. Two levels landed inside
+    // this repo, where there is no `emulators/` at all, and the test failed
+    // reporting a missing file for an asset that was present all along.
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../emulators/bbc-micro/b-em/tapes/Welcome_B.uef")
+        .join("../../../../emulators/bbc-micro/b-em/tapes/Welcome_B.uef")
 }
 
 /// Demodulate the tape and return the tokenised-BASIC data of its first CFS
