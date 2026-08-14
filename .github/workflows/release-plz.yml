@@ -123,3 +123,57 @@ jobs:
         run: release-plz release-pr
         env:
           GIT_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+
+      # release-plz reasons in *packages* and only considers the ones it is
+      # configured to release, so 181 of this workspace's 209 crates were
+      # invisible to it — v0.2.2 came out with one entry against eighty-six
+      # commits. git-cliff reasons in *commits* and has no package model, which
+      # is what this repo actually is: one suite, one version, one changelog.
+      #
+      # This runs after release-plz because the version it just decided is the
+      # heading the entries belong under.
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff@2.13.1
+
+      - name: Write the changelog onto the release PR
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          branch=$(gh pr list --state open --search 'chore: release' \
+                     --json headRefName --jq '.[0].headRefName // empty')
+          if [ -z "$branch" ]; then
+            echo "no open release PR — nothing to write a changelog onto"
+            exit 0
+          fi
+
+          git fetch origin "$branch"
+          git checkout "$branch"
+
+          # The version release-plz just wrote is the one to file entries under.
+          version=$(awk '
+            /^\[workspace.package\]/ { in_wp = 1; next }
+            /^\[/ { in_wp = 0 }
+            in_wp && /^version = / { gsub(/"/, "", $3); print $3; exit }
+          ' Cargo.toml)
+
+          # Replace this version's section rather than appending another copy:
+          # this workflow runs on every push to main, and `--prepend` inserts
+          # unconditionally. Regenerating the whole file would be idempotent for
+          # free but would destroy the hand-written v0.1.0 prose.
+          python3 scripts/changelog-section-reset.py CHANGELOG.md "${version}"
+          git-cliff --unreleased --tag "v${version}" --prepend CHANGELOG.md
+
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "changelog already current"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "chore: regenerate the changelog for v${version}"
+          git push origin "$branch"

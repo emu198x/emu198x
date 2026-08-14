@@ -15,8 +15,13 @@ git_release_enable = false   # cargo-dist owns the GitHub Release
 git_tag_enable = false       # the release workflow owns the suite tag
 git_tag_name = "v{{ version }}"
 git_only = false             # enabled only for shipping emulator packages
-changelog_update = true      # every package writes the one suite changelog
-changelog_path = "./CHANGELOG.md"
+# release-plz does not write the changelog: it only ever considers crates it
+# is configured to release, so 181 of this workspace's 209 crates were
+# invisible to it and 85 of the 86 commits in v0.2.2 could not appear. It
+# still owns version bumps and the release PR, which it does correctly.
+# The changelog is generated from the whole history by git-cliff — see
+# cliff.toml and the "Write the changelog" step in release-plz.yml.
+changelog_update = false
 release_commits = '^(feat|fix)(\([^)]*\))?!?:'
 
 [[package]]
