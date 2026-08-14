@@ -40,8 +40,22 @@
 //! `cpu_rate` asserts the unstretched figure so the change is visible when it
 //! lands.
 //!
-//! Video rendering is also absent: the Gate Array decodes pixels and holds the
-//! palette, but nothing yet walks the CRTC's addresses into a framebuffer.
+//! # Video
+//!
+//! Rendered at the dot clock rather than reconstructed from the CRTC's
+//! registers: every character clock, whatever the CRTC is pointing at right now
+//! becomes sixteen dots. Two bytes are fetched, the Gate Array shifts them out
+//! through the current mode and palette, and with display disabled the border
+//! pen fills the slot instead — which is the whole of how a CPC border works.
+//!
+//! The beam locks to the CRTC's sync pulses, exactly as the monitor does. That
+//! is what makes this machine's characteristic tricks work: a program that
+//! moves R2 or R7, splits the screen with R12/R13, or changes mode partway down
+//! a frame gets what the hardware would give it, because nothing here assumes a
+//! screen is 40 characters by 25 rows. Deriving addresses from the registers
+//! instead — the approach `machine-acorn-bbc-micro` takes with the same chip —
+//! would be simpler and would have to be replaced to run most of the CPC
+//! software worth running.
 //!
 //! # I/O decode
 //!
@@ -77,6 +91,43 @@ const AY_CLOCK_HZ: u32 = 1_000_000;
 const AY_SAMPLE_RATE: u32 = 48_000;
 const AY_SAMPLES_PER_FRAME: usize = 1024;
 
+/// Dots per character clock: a 16 MHz dot clock against the 1 MHz CRTC.
+///
+/// The Gate Array fetches two bytes per character clock and shifts them out
+/// across these sixteen dots — eight each. How many dots a *pixel* occupies is
+/// therefore a consequence of the mode rather than a separate setting: mode 2
+/// packs eight pixels into a byte and so spends one dot each, mode 1 four
+/// pixels at two dots, mode 0 two pixels at four.
+const DOTS_PER_CHAR: usize = 16;
+
+/// Framebuffer width, 48 character columns at full dot resolution.
+///
+/// Caprice32 draws a visible window of `4 + 40 + 4` columns — four of border,
+/// the forty of a standard display, four more of border (`CPC_VISIBLE_SCR_WIDTH`
+/// in `cap32.h`, given there at half dot resolution as 384). At the full dot
+/// clock that is 768.
+pub const FB_WIDTH: u32 = 48 * DOTS_PER_CHAR as u32;
+
+/// Framebuffer height, matching Caprice32's `CPC_VISIBLE_SCR_HEIGHT`: the 200
+/// displayed lines with 35 of border above and below.
+pub const FB_HEIGHT: u32 = 270;
+
+/// Dots after the HSync edge at which the visible window opens.
+///
+/// A standard CPC line puts HSync at character 46 of 64 (CRTC R2 against R0),
+/// so the display restarts `64 - 46 = 18` characters after the sync edge.
+/// Opening the window four characters earlier gives the left border its four
+/// columns: `(18 - 4) x 16`.
+const H_VISIBLE_START: i32 = 14 * DOTS_PER_CHAR as i32;
+
+/// Lines after the VSync edge at which the visible window opens.
+///
+/// A standard screen puts VSync at character row 30 of 39 (CRTC R7 against R4),
+/// eight lines to the row, so the display restarts `312 - 240 = 72` lines after
+/// the sync edge. Opening 35 lines earlier centres the 200 displayed lines in
+/// the 270 the window is tall.
+const V_VISIBLE_START: i32 = 72 - 35;
+
 /// Amstrad CPC464.
 #[derive(Serialize, Deserialize)]
 pub struct AmstradCpc {
@@ -102,6 +153,18 @@ pub struct AmstradCpc {
     psg_control: u8,
     cpu_tstates: u64,
     frame_count: u64,
+
+    /// Visible display, ARGB32. Per
+    /// `knowledge/decisions/framebuffer-pixel-format.md` the format is the
+    /// chip's own choice; the Gate Array resolves pens to colours itself
+    /// through `decode_byte_rgb`, so writing ARGB directly costs nothing.
+    framebuffer: Vec<u32>,
+    /// Dots since the last HSync edge — the beam's position across the line.
+    beam_x: i32,
+    /// Lines since the last VSync edge.
+    beam_y: i32,
+    prev_hsync: bool,
+    prev_vsync: bool,
 }
 
 impl AmstradCpc {
@@ -133,6 +196,11 @@ impl AmstradCpc {
             psg_control: 0,
             cpu_tstates: 0,
             frame_count: 0,
+            framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
+            beam_x: 0,
+            beam_y: 0,
+            prev_hsync: false,
+            prev_vsync: false,
         })
     }
 
@@ -158,6 +226,24 @@ impl AmstradCpc {
     #[must_use]
     pub fn gate_array(&self) -> &GateArray {
         &self.gate_array
+    }
+
+    /// Framebuffer (768×270 ARGB32).
+    #[must_use]
+    pub fn framebuffer(&self) -> &[u32] {
+        &self.framebuffer
+    }
+
+    /// Framebuffer width in pixels.
+    #[must_use]
+    pub fn framebuffer_width(&self) -> u32 {
+        FB_WIDTH
+    }
+
+    /// Framebuffer height in pixels.
+    #[must_use]
+    pub fn framebuffer_height(&self) -> u32 {
+        FB_HEIGHT
     }
 
     /// Run one frame's worth of T-states, returning how many were consumed.
@@ -197,6 +283,8 @@ impl AmstradCpc {
         if self.crtc_phase >= TSTATES_PER_CRTC_TICK {
             self.crtc_phase = 0;
             self.crtc.tick();
+            self.track_beam();
+            self.draw_char();
             // The Gate Array counts the CRTC's syncs; this is the whole of the
             // CPC's interrupt source.
             self.gate_array.set_hsync(self.crtc.hsync);
@@ -205,6 +293,92 @@ impl AmstradCpc {
         }
 
         self.cpu_tstates += 1;
+    }
+
+    /// Move the beam in response to the CRTC's sync pulses.
+    ///
+    /// The CPC's monitor has no idea where a frame begins; it locks to the sync
+    /// pulses it is handed. Deriving the beam position the same way is what
+    /// makes the CRTC tricks the machine is known for work: a program that
+    /// moves R2 or R7, or ends a line early, moves the picture here exactly as
+    /// it would on the real thing, because nothing anywhere assumes a screen is
+    /// 40 characters by 25 rows.
+    fn track_beam(&mut self) {
+        let hsync = self.crtc.hsync;
+        let vsync = self.crtc.vsync;
+        if vsync && !self.prev_vsync {
+            self.beam_y = 0;
+        }
+        if hsync && !self.prev_hsync {
+            self.beam_x = 0;
+            self.beam_y += 1;
+        }
+        self.prev_hsync = hsync;
+        self.prev_vsync = vsync;
+    }
+
+    /// Shift one character clock's worth of dots out to the framebuffer.
+    ///
+    /// Two bytes per character clock, eight dots each. With display disabled
+    /// the Gate Array emits the border colour instead of fetching anything,
+    /// which is the whole of how the CPC's border works — there is no separate
+    /// border register beyond its pen.
+    fn draw_char(&mut self) {
+        let mut dots = [self.gate_array.border_rgb(); DOTS_PER_CHAR];
+        if self.crtc.display_enable {
+            let base = Self::screen_address(self.crtc.memory_address(), self.crtc.raster_address());
+            let mut pixels = [0u32; 8];
+            for half in 0..2 {
+                // Video fetches come off RAM directly: the Gate Array is not
+                // behind the CPU's memory map, so a paged-in ROM is invisible
+                // to it. MAME reads `m_ram->pointer()[address]` for the same
+                // reason.
+                let byte = self.ram[base.wrapping_add(half) as usize];
+                let count = self.gate_array.decode_byte_rgb(byte, &mut pixels);
+                if count == 0 {
+                    continue;
+                }
+                let dots_per_pixel = DOTS_PER_CHAR / 2 / count;
+                let origin = half as usize * (DOTS_PER_CHAR / 2);
+                for (i, &colour) in pixels.iter().take(count).enumerate() {
+                    let start = origin + i * dots_per_pixel;
+                    dots[start..start + dots_per_pixel].fill(colour);
+                }
+            }
+        }
+        self.blit(&dots);
+        // Unconditionally, and not inside `blit`: the beam keeps sweeping
+        // across lines that fall outside the visible window, and stalling it
+        // there would shear every line that does land inside one.
+        self.beam_x += DOTS_PER_CHAR as i32;
+    }
+
+    /// Where the Gate Array fetches a character's two bytes from.
+    ///
+    /// The CPC scatters the screen rather than laying it out in rows: the
+    /// raster line within a character row selects one of eight 2 KB blocks, and
+    /// two bits of the CRTC address choose the 16 KB page. That is why a CPC
+    /// screen is 16 KB for 16 KB of pixels yet consecutive text rows are not
+    /// consecutive in memory. From MAME's
+    /// `amstrad_gate_array_get_video_data`.
+    fn screen_address(ma: u16, ra: u8) -> u16 {
+        ((ma & 0x3000) << 2) | ((u16::from(ra) & 0x07) << 11) | ((ma & 0x03FF) << 1)
+    }
+
+    /// Place one character clock's dots, clipped to the visible window.
+    fn blit(&mut self, dots: &[u32; DOTS_PER_CHAR]) {
+        let y = self.beam_y - V_VISIBLE_START;
+        if y < 0 || y >= FB_HEIGHT as i32 {
+            return;
+        }
+        let row = y as usize * FB_WIDTH as usize;
+        let left = self.beam_x - H_VISIBLE_START;
+        for (i, &colour) in dots.iter().enumerate() {
+            let x = left + i as i32;
+            if x >= 0 && x < FB_WIDTH as i32 {
+                self.framebuffer[row + x as usize] = colour;
+            }
+        }
     }
 
     fn handle_bus(&mut self) {
@@ -444,6 +618,129 @@ mod tests {
             before + 1,
             "the CRTC advances exactly one character on the fourth T-state"
         );
+    }
+
+    /// Program the CRTC the way the CPC firmware does: 64 characters across
+    /// with HSync at 46, 39 rows of 8 lines with VSync at row 30, and a 40x25
+    /// display. Without this the CRTC's zeroed registers produce no picture.
+    fn program_standard_screen(cpc: &mut AmstradCpc) {
+        for (reg, value) in [
+            (0u8, 63u8), // R0 horizontal total - 1
+            (1, 40),     // R1 horizontal displayed
+            (2, 46),     // R2 HSync position
+            (3, 0x8E),   // R3 sync widths
+            (4, 38),     // R4 vertical total - 1
+            (6, 25),     // R6 vertical displayed
+            (7, 30),     // R7 VSync position
+            (9, 7),      // R9 max raster - 1
+            (12, 0x30),  // R12/R13 start address: screen at $C000
+            (13, 0x00),
+        ] {
+            cpc.io_write(0xBC00, reg);
+            cpc.io_write(0xBD00, value);
+        }
+    }
+
+    #[test]
+    fn a_character_clock_is_sixteen_dots_wide_in_every_mode() {
+        // Two bytes per character clock and sixteen dots to spend on them, so
+        // the pixels-per-byte of the mode fixes how wide a pixel is. Getting
+        // this wrong stretches or squashes the whole picture.
+        for (mode_bits, pixels_per_char) in [(0u8, 4), (1, 8), (2, 16)] {
+            let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+            cpc.io_write(0x7F00, 0b1000_0000 | mode_bits);
+            let dots_per_pixel = DOTS_PER_CHAR / pixels_per_char;
+            assert_eq!(
+                dots_per_pixel * pixels_per_char,
+                DOTS_PER_CHAR,
+                "mode {mode_bits} must divide the character clock exactly"
+            );
+        }
+    }
+
+    #[test]
+    fn the_screen_address_scatters_rows_across_2k_blocks() {
+        // The CPC's screen is not laid out in rows: the raster line within a
+        // character row picks one of eight 2 KB blocks. Row 0 line 0 and row 0
+        // line 1 are 2 KB apart, not 80 bytes.
+        assert_eq!(AmstradCpc::screen_address(0, 0), 0x0000);
+        assert_eq!(AmstradCpc::screen_address(0, 1), 0x0800);
+        assert_eq!(AmstradCpc::screen_address(0, 7), 0x3800);
+        // Consecutive characters are two bytes apart, the pair fetched per
+        // character clock.
+        assert_eq!(AmstradCpc::screen_address(1, 0), 0x0002);
+        // The two high CRTC bits choose the 16 KB page, which is how the
+        // firmware puts the screen at $C000.
+        assert_eq!(AmstradCpc::screen_address(0x3000, 0), 0xC000);
+    }
+
+    #[test]
+    fn the_border_fills_the_screen_when_nothing_is_displayed() {
+        // A CRTC still producing sync but displaying nothing: every dot is
+        // border. There is no separate border register on a CPC, just the pen
+        // the Gate Array emits whenever display is disabled.
+        //
+        // Note this needs the sync pulses. A CRTC with all registers zeroed
+        // produces no sync at all, and a monitor handed no sync shows no
+        // picture rather than a border — which is what the framebuffer does.
+        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        program_standard_screen(&mut cpc);
+        for (reg, value) in [(1u8, 0u8), (6, 0)] {
+            cpc.io_write(0xBC00, reg); // nothing displayed, sync unchanged
+            cpc.io_write(0xBD00, value);
+        }
+        cpc.io_write(0x7F00, 0b0101_0000 | 26); // INKR: border, code 26
+        let border = cpc.gate_array().border_rgb();
+        for _ in 0..3 {
+            cpc.run_frame();
+        }
+        assert!(
+            cpc.framebuffer().iter().all(|&px| px == border),
+            "every dot should be border colour"
+        );
+    }
+
+    #[test]
+    fn a_displayed_screen_paints_pixels_inside_a_border() {
+        // The real shape of a CPC frame: a block of display with border around
+        // it. Pen 1 is set to a colour the border is not, and the screen filled
+        // with a byte that selects pen 1 everywhere, so the two are separable.
+        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        program_standard_screen(&mut cpc);
+        cpc.io_write(0x7F00, 0b1000_0001); // RMR: mode 1, both ROMs in
+        cpc.io_write(0x7F00, 0b0000_0011); // pen 3
+        cpc.io_write(0x7F00, 0b0100_0000 | 26); // ink: code 26
+        cpc.io_write(0x7F00, 0b0001_0000); // border pen
+        cpc.io_write(0x7F00, 0b0100_0000 | 4); // ink: code 4
+
+        // In mode 1 a pen comes from bit 7 and bit 3, so $FF selects pen 3 for
+        // all four of the byte's pixels.
+        cpc.ram[0xC000..0x1_0000].fill(0xFF);
+
+        for _ in 0..3 {
+            cpc.run_frame();
+        }
+
+        let border = cpc.gate_array().border_rgb();
+        let ink = cpc.gate_array().pen_rgb(3);
+        assert_ne!(border, ink, "the test needs the two to differ");
+
+        let fb = cpc.framebuffer();
+        // The corners are border by construction: four character columns and
+        // 35 lines of it surround the display.
+        assert_eq!(fb[0], border, "top-left corner");
+        assert_eq!(
+            fb[(FB_HEIGHT * FB_WIDTH - 1) as usize],
+            border,
+            "bottom-right corner"
+        );
+        // The centre falls inside the 40x25 display.
+        let centre = (FB_HEIGHT / 2 * FB_WIDTH + FB_WIDTH / 2) as usize;
+        assert_eq!(fb[centre], ink, "centre should be displayed pixels");
+
+        let ink_dots = fb.iter().filter(|&&px| px == ink).count();
+        // 40 characters x 16 dots x 200 lines of display.
+        assert_eq!(ink_dots, 40 * DOTS_PER_CHAR * 200, "the whole display area");
     }
 
     #[test]
