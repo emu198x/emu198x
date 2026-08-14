@@ -4,6 +4,46 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.2.2] - 2026-08-14
+
+
+### Added
+
+- *(spectrum)* Read .szx snapshots
+- *(spectrum)* Expose the CPU on the query surface
+- *(cpc)* Add the Amstrad Gate Array's video modes and palette
+- *(release)* Generate the changelog from commits, not from packages
+
+
+### Fixed
+
+- *(z80)* Hold the M1 opcode strobes to the rising edge of T3
+- *(z80)* Make the M1 refresh strobe a full clock wide
+- *(z80)* Hold /RFSH to the start of the next machine cycle
+- *(z80)* Hold the memory read strobes to the end of T3
+- *(z80)* Present each M-cycle's address on its own T1 rise
+- *(z80)* Hold the memory write strobes to the end of T3
+- *(z80)* Hold the I/O strobes from T2 fall to the end of the cycle
+- *(z80)* Give the not-taken displacement cycle a read's pins
+- *(z80)* Stop driving IR during internal cycles
+- *(ula)* Arm the contention gate on the edge that drops /MREQ
+- *(spectrum)* Derive the floating-bus sample instant from the I/O M-cycle
+- *(ula)* Phase-lock the contention window to the ULA's fetch group
+- *(ula)* Open the contention window at the fetch cycle, not the fetch
+- *(shell)* Refuse a snapshot extension we do not write, and wait for the BASIC prompt
+- *(spectrum)* Charge +2A contention from a measured mask
+- *(spectrum)* Charge each port class the lookups FUSE charges it
+- *(z80)* Sample /INT at the instruction boundary, not a half-cycle early
+- *(sega)* Tick the Z80 twice per T-state, and feed /INT before the tick
+- *(msx,coleco,svi)* Tick the Z80 twice per T-state, and feed /INT before it
+- *(sord-m5,mtx)* Tick the Z80 twice per T-state on the CTC-vectored machines
+- *(einstein)* Tick the Z80 twice per T-state, making the 4 MHz claim true
+- *(zx80,zx81)* Tick the Z80 twice per T-state against a T-state ULA
+- *(aquarius)* Tick the Z80 twice per T-state
+- *(release)* Let every crate's work reach the suite changelog
+- *(release)* Process every crate so its commits can reach the changelog
+- *(release)* Write the suite changelog from the workspace, not from one machine
+
 The per-system binaries stay at 0.x for now; library crates published to
 crates.io may hit their own 1.0 on their own schedules.
 
