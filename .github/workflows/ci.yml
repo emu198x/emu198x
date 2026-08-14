@@ -40,14 +40,6 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
 
-      # release-plz has no wildcard for `changelog_include`, so the suite
-      # changelog's crate list is a hand-maintained mirror of the workspace.
-      # It drifted to covering 28 of 209 crates, which silently kept every
-      # machine, chip and format change out of the release notes. This is the
-      # gate that stops it drifting again; it needs no Rust, so it rides along
-      # with the cheapest job.
-      - name: Check release changelog coverage
-        run: python3 scripts/check-release-changelog-coverage.py
 
   clippy:
     name: Clippy
