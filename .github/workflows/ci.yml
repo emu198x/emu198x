@@ -81,7 +81,7 @@ jobs:
   # Cross-platform smoke build. Catches platform-specific compile
   # regressions on macOS (primary dev host) and Windows without
   # paying the cost of a full test run on those OSes. The full test
-  # suite still runs only on Linux via the coverage job below; this
+  # suite still runs only on Linux, via the `test` job below; this
   # job only proves the workspace compiles. cpal and gilrs each pick
   # up native audio/gamepad backends on macOS and Windows, so no
   # platform-specific install is needed outside Linux.
@@ -117,16 +117,96 @@ jobs:
       - name: Build workspace
         run: cargo check --workspace --all-targets
 
-  # The coverage job is the workspace's only test runner — cargo
-  # llvm-cov compiles every test binary with `-C instrument-coverage`
-  # and runs them, so we get both regression coverage AND coverage
-  # metrics in one pass. Gated on fmt + clippy so a fast lint failure
-  # doesn't waste a slow coverage compile.
-  # The Coverage job is disabled for now. It cost ~5 minutes on the
-  # critical path of every PR (it gated on fmt + clippy) and had not
-  # failed in any recent run, with its threshold sitting at 72 against a
-  # stated target of 90 — a floor well below the aspiration it was meant
-  # to ratchet toward. Removed 2026-08-13 by decision, not by accident.
+  # The workspace's test runner. Deliberately *not* gated on fmt +
+  # clippy: those are seconds, this is minutes, and making it wait
+  # behind them adds its whole duration to the critical path instead
+  # of overlapping with them. That coupling is what made the old
+  # coverage job feel expensive enough to remove.
+  #
+  # Not instrumented. `cargo llvm-cov` used to serve as both the test
+  # run and the coverage measurement; separating them means a PR
+  # answers "did it pass" without paying for "how much is covered".
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    env:
+      # Tests that need a ROM, corpus or disk image return early when it
+      # is absent and libtest prints `ok`, so a green run cannot be told
+      # from a vacuous one. libtest captures output from passing tests,
+      # which is why grepping the log for "skipping" finds nothing — this
+      # file survives that capture.
+      #
+      # Deliberately not strict: CI genuinely has no ROMs, so a skip here
+      # is honest. `EMU198X_STRICT_FIXTURES` belongs on the nightly
+      # accuracy run, which provisions fixtures.
+      EMU198X_SKIP_LOG: ${{ github.workspace }}/target/test-skips.tsv
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies
+        # libasound2-dev: audio (cpal). libudev-dev: gamepad enumeration
+        # via gilrs for the host-input layer.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev libudev-dev
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test-linux
+
+      - name: Run the workspace test suite
+        # `--no-fail-fast` so one broken crate does not hide the state of
+        # every crate after it.
+        run: cargo test --workspace --no-fail-fast
+
+      - name: Publish skipped-fixture summary
+        # Runs even when the suite fails — a failing run is exactly when
+        # you want to know how much of it never executed.
+        if: always()
+        run: |
+          log="${GITHUB_WORKSPACE}/target/test-skips.tsv"
+          {
+            echo "## Skipped for missing fixtures"
+            echo
+            if [ ! -s "${log}" ]; then
+              echo "None — every test ran."
+            else
+              echo "**$(wc -l < "${log}" | tr -d ' ') tests did not run.**"
+              echo "A green suite does not cover these."
+              echo
+              echo '| Count | Fixture |'
+              echo '|---|---|'
+              cut -f2 "${log}" | sort | uniq -c | sort -rn \
+                | sed -E 's/^ *([0-9]+) (.*)$/| \1 | \2 |/'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  # The Coverage job is disabled. It cost ~5 minutes on the critical path
+  # of every PR (it gated on fmt + clippy) and had not failed in any
+  # recent run, with its threshold sitting at 72 against a stated target
+  # of 90 — a floor well below the aspiration it was meant to ratchet
+  # toward. Removed 2026-08-13 by decision, not by accident.
+  #
+  # What that removal also took, unremarked, was the workspace's only
+  # test execution: `cargo llvm-cov --workspace --lib --tests` was the
+  # test run as well as the measurement, so for a day every green tick
+  # meant "compiles" and nothing more. The `test` job above restores the
+  # execution. Coverage itself is still worth having on a nightly
+  # schedule — a ratchet that never fires looks identical to one that is
+  # working.
   #
   # To restore it, recover the job from this file's history
   # (`git log -p -- .github/workflows/ci.yml`); scripts/coverage.sh and
