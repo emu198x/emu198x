@@ -24,6 +24,48 @@ Every format crate includes the full system name, even when the format is curren
 
 The current `format-tap` and `format-tzx` need renaming to `format-sinclair-zx-spectrum-tap` and `format-sinclair-zx-spectrum-tzx` before Phase 2 (C64).
 
+### Amendment 2026-08-14: parsing may be shared beneath the namespaced crates
+
+**The namespaced crates stay. What moves is what sits under them.**
+
+When a format genuinely is one format across systems, the *byte-level block
+parsing* may live in an unnamespaced crate that the per-system crates depend
+on. The per-system crate remains the public entry point and owns the
+interpretation.
+
+This came up building the Amstrad CPC's tape support. CDT is TZX — not a
+lookalike with the same extension, the same format — and the Spectrum's
+parser is 987 lines of block decoding with nothing Spectrum-specific in it.
+Duplicating that into `format-amstrad-cpc-cdt` would put two copies of the
+same block table in the tree and let them drift, which is what
+[RULES.md](../../RULES.md) rule 30 exists to prevent.
+
+The original reasoning — "each crate may need system-specific interpretation"
+— was right, and the CPC proves it rather than contradicting it. CDT pulse
+lengths are expressed in the Spectrum's 3.5 MHz T-states, so the CPC scales
+them by 40/35 to its own 4 MHz clock (Caprice32's `CYCLE_SCALE`). That scale
+is exactly the "system-specific interpretation" the decision anticipated. It
+is also about ten lines, sitting on top of a parser that is identical for both.
+
+So the split is:
+
+| Layer | Crate | Holds |
+|---|---|---|
+| Block parsing | `format-tzx` | The format's block table. No system knowledge. |
+| Interpretation | `format-sinclair-zx-spectrum-tzx`, `format-amstrad-cpc-cdt` | Clock scaling, system quirks, the public API each machine uses. |
+
+**This does not reinstate the pre-Phase-2 naming.** `format-tap` and
+`format-tzx` were renamed because *TAP* means two unrelated formats on
+Spectrum and C64, and an unnamespaced `format-tap` was a genuine ambiguity.
+A shared crate is admissible only where the format really is one format; the
+test is whether a single parser can serve both systems without conditionals
+on which system is asking. TAP fails that test and must stay two crates. TZX
+passes it.
+
+**Drift trigger.** If a shared parsing crate starts growing
+`if system == …` branches, the sharing was wrong. Split it and take the
+duplication.
+
 ## Runtime libraries
 
 Sit *above* the per-machine crates and *below* the runner bin. Hold the system-family `Machine` enum that wraps every variant, the snapshot loader, the audio mixer, the file router, and any other code that's shared across all variants of one system family but is not consumed by individual machine implementations.
