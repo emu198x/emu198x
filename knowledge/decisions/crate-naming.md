@@ -111,7 +111,14 @@ Naming is where conventions decay first. If I'm about to propose or create any o
 **Bad names to reject:**
 
 - Short / unprefixed names: `emu-spectrum`, `emu-c64`, `chip-z80`, `chip-6502`, `core`, `utils`
-- Un-namespaced formats: `format-tap`, `format-tzx`, `format-dsk`, `format-sna` — every format crate must include the full system name even if currently unique
+- Un-namespaced formats as a *system's entry point*: `format-tap`, `format-dsk`,
+  `format-sna` — the crate a machine depends on must include the full system
+  name even if the format is currently unique to one system. The 2026-08-14
+  amendment permits an unnamespaced crate **beneath** those, holding block
+  parsing only, and only where one parser serves every system without
+  branching on which is asking. `format-tzx` is such a crate. A machine
+  reaching past its own format crate to depend on the shared one directly is
+  the drift to catch.
 - Ambiguous chip names missing the manufacturer prefix
 - Generic dumping grounds: `shared`, `helpers`, `misc`, `util`
 - `common` without a system prefix (should be `common-sinclair-zx-spectrum`, etc.)
@@ -126,4 +133,9 @@ Naming is where conventions decay first. If I'm about to propose or create any o
 - "No manufacturer prefix, everyone knows what 6502 means"
 - "Let me put this in `emu198x-shell` since it's kind of shared" (no — `emu198x-*` is for cross-project infrastructure, not Spectrum-specific code)
 
-**Why this matters:** the existing `format-tap` and `format-tzx` are explicitly called out in this document as needing renaming to `format-sinclair-zx-spectrum-tap` / `format-sinclair-zx-spectrum-tzx` before Phase 2 (C64). TAP exists on both Spectrum and C64 as completely different formats. If I'm suggesting a short name "for convenience," I'm proposing to repeat a known mistake that already has a cleanup task on the roadmap.
+**Why this matters:** `format-tap` and `format-tzx` were both once unnamespaced and were renamed before Phase 2 (C64). TAP exists on both Spectrum and C64 as completely different formats, so that rename was correcting a real ambiguity and still stands. If I'm suggesting a short name "for convenience," I'm proposing to repeat a known mistake that already has a cleanup task on the roadmap.
+
+The 2026-08-14 amendment is not a licence to undo it. It permits exactly one
+thing: a shared *parsing* crate under the namespaced ones, where a single
+parser serves every system without conditionals. "For convenience" is not
+that test, and TAP still fails it.
