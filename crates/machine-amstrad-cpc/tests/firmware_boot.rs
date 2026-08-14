@@ -89,4 +89,29 @@ fn the_firmware_reaches_its_boot_screen() {
         drawn > 500,
         "expected the boot message in screen RAM, found {drawn} non-zero bytes"
     );
+
+    // And that the screen reaches the framebuffer. Only two colours can appear
+    // on a boot screen — the firmware programmed pens 0 and 1 and the border,
+    // and set all three to blue or bright yellow.
+    let paper = ga.pen_rgb(0);
+    let ink = ga.pen_rgb(1);
+    let fb = cpc.framebuffer();
+    assert_eq!(
+        fb.len(),
+        (cpc.framebuffer_width() * cpc.framebuffer_height()) as usize
+    );
+
+    let stray = fb.iter().filter(|&&px| px != paper && px != ink).count();
+    assert_eq!(stray, 0, "the boot screen is blue and yellow, nothing else");
+
+    // The banner is a few hundred characters of text on an otherwise empty
+    // screen, so ink is a small minority — but present. A framebuffer that
+    // never got its display fetches would be uniformly paper and pass every
+    // check above this one.
+    let ink_dots = fb.iter().filter(|&&px| px == ink).count();
+    assert!(
+        (2_000..40_000).contains(&ink_dots),
+        "expected the banner's text, found {ink_dots} ink dots of {}",
+        fb.len()
+    );
 }
