@@ -7,22 +7,36 @@
 //!
 //! # What this crate covers
 //!
-//! The Gate Array has four jobs. This crate implements the two that are pure
-//! register state and combinational decode:
+//! The Gate Array has four jobs. This crate implements three:
 //!
 //! - **Video mode and pixel decode** — turning a display byte into pen numbers.
 //! - **The palette** — 16 pens plus a border, each holding a 5-bit hardware
 //!   colour code.
+//! - **Interrupt generation** — counting CRTC HSyncs to `/INT`, with the VSync
+//!   resynchronisation that keeps interrupts locked to the frame.
 //!
-//! It also holds the **ROM-paging** and **interrupt-counter-reset** bits,
-//! because they live in the same register as the video mode and the chip does
-//! nothing with them but drive lines the machine reads. Acting on them is the
-//! machine's job.
+//! It also holds the **ROM-paging** bits, because they live in the same register
+//! as the video mode; the chip does nothing with them but drive lines the
+//! machine reads.
 //!
-//! The two jobs deliberately *not* here are the interrupt counter (which needs
-//! the CRTC's HSYNC) and `/WAIT` generation. Both are machine-level wiring
-//! rather than register state, and both are timing work that wants its own
-//! validation.
+//! The one job deliberately *not* here is **`/WAIT` generation** — the
+//! stretching of every Z80 M-cycle to a multiple of 4 T-states that gives the
+//! CPC its ~3.3 MHz effective rate. That is a property of how the machine drives
+//! the CPU rather than of this chip's registers, and it has no oracle among the
+//! vendored emulators (none of MAME, Arnold or Caprice32 models `/WAIT` as a
+//! pin), so it wants its own validation against the firmware guide's figure.
+//!
+//! # Interrupts
+//!
+//! A 6-bit counter advances on each HSync falling edge and raises `/INT` at 52,
+//! wrapping to zero. A VSync arms a resynchronisation two HSyncs later: the
+//! counter resets, and if it had passed 32 an interrupt is raised on the way
+//! past. Acknowledgement clears `/INT` and **bit 5 only**, which is what lets
+//! that rule distinguish a period where an interrupt was taken from one where
+//! none was.
+//!
+//! The `>= 32` branch contradicts the Grimware wiki and follows MAME and Arnold
+//! instead; the reasoning is recorded at [`GateArray::set_hsync`].
 //!
 //! # Register decode
 //!
@@ -190,9 +204,20 @@ pub struct GateArray {
     mode: VideoMode,
     lower_rom_enabled: bool,
     upper_rom_enabled: bool,
-    /// Latched `RMR` bit 4, consumed by the machine driving the interrupt
-    /// counter.
-    interrupt_reset_pending: bool,
+
+    /// HSync line counter, 6 bits. Counts CRTC HSyncs; an interrupt is raised
+    /// at 52 and the counter wraps to zero.
+    hsync_counter: u8,
+    /// HSyncs still to see before the VSync resynchronisation fires. Zero when
+    /// no VSync is being tracked.
+    hsync_after_vsync: u8,
+    /// Previous HSync level, for falling-edge detection.
+    prev_hsync: bool,
+    /// Previous VSync level, for rising-edge detection.
+    prev_vsync: bool,
+    /// The `/INT` line to the Z80. The machine reads this before each CPU tick
+    /// and calls [`GateArray::acknowledge_interrupt`] when the Z80 takes it.
+    interrupt: bool,
 }
 
 impl Default for GateArray {
@@ -214,7 +239,11 @@ impl GateArray {
             mode: VideoMode::Mode0,
             lower_rom_enabled: true,
             upper_rom_enabled: true,
-            interrupt_reset_pending: false,
+            hsync_counter: 0,
+            hsync_after_vsync: 0,
+            prev_hsync: false,
+            prev_vsync: false,
+            interrupt: false,
         }
     }
 
@@ -240,8 +269,11 @@ impl GateArray {
                 // Bits 2 and 3 *disable* when set.
                 self.lower_rom_enabled = value & 0x04 == 0;
                 self.upper_rom_enabled = value & 0x08 == 0;
+                // Bit 4 resets the interrupt counter. The Gate Array does this
+                // itself, so it is not something the machine has to notice.
                 if value & 0x10 != 0 {
-                    self.interrupt_reset_pending = true;
+                    self.hsync_counter = 0;
+                    self.interrupt = false;
                 }
             }
             _ => {}
@@ -295,8 +327,80 @@ impl GateArray {
     ///
     /// `RMR` bit 4 is a one-shot request rather than a level, so the machine
     /// consumes it once and the flag drops.
-    pub fn take_interrupt_reset(&mut self) -> bool {
-        core::mem::replace(&mut self.interrupt_reset_pending, false)
+    /// The `/INT` line to the Z80.
+    #[must_use]
+    pub fn interrupt(&self) -> bool {
+        self.interrupt
+    }
+
+    /// The HSync line counter, 0-63. Exposed for tests and debugging.
+    #[must_use]
+    pub fn interrupt_counter(&self) -> u8 {
+        self.hsync_counter
+    }
+
+    /// Drive the CRTC's HSync line.
+    ///
+    /// The counter advances on the **falling** edge, raising `/INT` every 52
+    /// lines. A VSync arms a resynchronisation two HSyncs later, which is what
+    /// keeps interrupts locked to the frame instead of drifting against it.
+    pub fn set_hsync(&mut self, level: bool) {
+        let falling = self.prev_hsync && !level;
+        self.prev_hsync = level;
+        if !falling {
+            return;
+        }
+
+        self.hsync_counter = (self.hsync_counter + 1) & 0x3F;
+
+        if self.hsync_after_vsync > 0 {
+            self.hsync_after_vsync -= 1;
+            if self.hsync_after_vsync == 0 {
+                // A counter past 32 means this period ran more than 32 lines
+                // without an interrupt being acknowledged — acknowledgement is
+                // what clears bit 5 — so one is owed before the counter resets.
+                //
+                // MAME (`amstrad_m.cpp`, the HSync handler) and Arnold
+                // (`src/cpc/garray.c`) both do this. The Grimware wiki states
+                // the opposite, verbatim: "If the counter>=32 (bit5=1), then no
+                // interrupt request is issued and counter is reset to 0. If the
+                // counter<32 (bit5=0), then an interrupt request is issued".
+                // Two independent implementations that run real software are
+                // taken over one prose page, and the mechanism only coheres
+                // this way round — Grimware's reading would swallow the
+                // interrupt that is nearly due and add one that is not. Recheck
+                // against real hardware if CPC software ever disagrees.
+                if self.hsync_counter >= 32 {
+                    self.interrupt = true;
+                }
+                self.hsync_counter = 0;
+            }
+        }
+
+        if self.hsync_counter >= 52 {
+            self.hsync_counter = 0;
+            self.interrupt = true;
+        }
+    }
+
+    /// Drive the CRTC's VSync line. A rising edge arms the two-HSync
+    /// resynchronisation described on [`GateArray::set_hsync`].
+    pub fn set_vsync(&mut self, level: bool) {
+        if level && !self.prev_vsync {
+            self.hsync_after_vsync = 2;
+        }
+        self.prev_vsync = level;
+    }
+
+    /// The Z80 has taken the interrupt: drop `/INT` and clear bit 5 of the
+    /// counter.
+    ///
+    /// Clearing bit 5 rather than the whole counter is what lets the VSync
+    /// resynchronisation tell "no interrupt was acknowledged this period" from
+    /// "one was" — see [`GateArray::set_hsync`].
+    pub fn acknowledge_interrupt(&mut self) {
+        self.interrupt = false;
+        self.hsync_counter &= 0x1F;
     }
 
     /// Decode one display byte into pen numbers, writing into `out` and
@@ -400,13 +504,101 @@ mod tests {
         }
     }
 
+    /// Pulse HSync `n` times, low-then-high, so each pulse is one falling edge.
+    fn hsyncs(ga: &mut GateArray, n: usize) {
+        for _ in 0..n {
+            ga.set_hsync(true);
+            ga.set_hsync(false);
+        }
+    }
+
     #[test]
-    fn interrupt_reset_is_a_one_shot() {
+    fn rmr_bit4_resets_the_interrupt_counter() {
         let mut ga = GateArray::new();
-        assert!(!ga.take_interrupt_reset());
-        ga.write(0b1001_0000); // RMR bit 4
-        assert!(ga.take_interrupt_reset());
-        assert!(!ga.take_interrupt_reset(), "consumed, not latched");
+        hsyncs(&mut ga, 10);
+        assert_eq!(ga.interrupt_counter(), 10);
+        ga.write(0b1001_0000); // RMR with the interrupt-reset bit
+        assert_eq!(ga.interrupt_counter(), 0);
+        assert!(!ga.interrupt());
+    }
+
+    #[test]
+    fn the_counter_advances_on_the_falling_edge_only() {
+        // Holding HSync high must not count; only the release does.
+        let mut ga = GateArray::new();
+        ga.set_hsync(true);
+        ga.set_hsync(true);
+        ga.set_hsync(true);
+        assert_eq!(ga.interrupt_counter(), 0);
+        ga.set_hsync(false);
+        assert_eq!(ga.interrupt_counter(), 1);
+    }
+
+    #[test]
+    fn an_interrupt_arrives_every_52_lines() {
+        let mut ga = GateArray::new();
+        hsyncs(&mut ga, 51);
+        assert!(!ga.interrupt(), "not due yet at 51");
+        assert_eq!(ga.interrupt_counter(), 51);
+        hsyncs(&mut ga, 1);
+        assert!(ga.interrupt(), "due at 52");
+        assert_eq!(ga.interrupt_counter(), 0, "counter wraps at 52");
+    }
+
+    #[test]
+    fn acknowledging_clears_int_but_only_bit_five_of_the_counter() {
+        // The distinction matters: the VSync rule reads bit 5 to tell whether
+        // this period had an interrupt taken.
+        let mut ga = GateArray::new();
+        hsyncs(&mut ga, 52); // fires, counter back to 0
+        hsyncs(&mut ga, 35); // counter 35 — bit 5 set
+        assert_eq!(ga.interrupt_counter(), 35);
+        ga.acknowledge_interrupt();
+        assert!(!ga.interrupt());
+        assert_eq!(ga.interrupt_counter(), 3, "35 & 0x1F");
+    }
+
+    #[test]
+    fn vsync_resyncs_two_hsyncs_later_and_owes_an_interrupt_past_32() {
+        let mut ga = GateArray::new();
+        hsyncs(&mut ga, 40);
+        ga.acknowledge_interrupt(); // clear any pending INT, counter 40 & 0x1F = 8
+        hsyncs(&mut ga, 30); // counter 38 — past 32, nothing acknowledged since
+        assert!(!ga.interrupt());
+
+        ga.set_vsync(true);
+        hsyncs(&mut ga, 1);
+        assert!(!ga.interrupt(), "resync waits for the second HSync");
+        hsyncs(&mut ga, 1);
+        assert!(ga.interrupt(), "counter was past 32, so one is owed");
+        assert_eq!(ga.interrupt_counter(), 0);
+    }
+
+    #[test]
+    fn vsync_below_32_resets_without_an_interrupt() {
+        let mut ga = GateArray::new();
+        hsyncs(&mut ga, 10);
+        ga.set_vsync(true);
+        hsyncs(&mut ga, 2);
+        assert!(!ga.interrupt(), "counter was under 32, nothing owed");
+        assert_eq!(ga.interrupt_counter(), 0);
+    }
+
+    #[test]
+    fn vsync_arms_once_per_rising_edge() {
+        // Holding VSync high must not re-arm the countdown every line.
+        let mut ga = GateArray::new();
+        hsyncs(&mut ga, 10);
+        ga.set_vsync(true);
+        hsyncs(&mut ga, 2);
+        assert_eq!(ga.interrupt_counter(), 0);
+        ga.set_vsync(true); // still high — no new edge
+        hsyncs(&mut ga, 5);
+        assert_eq!(
+            ga.interrupt_counter(),
+            5,
+            "counting normally, not resyncing"
+        );
     }
 
     #[test]
