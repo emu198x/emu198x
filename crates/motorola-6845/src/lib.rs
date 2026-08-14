@@ -241,13 +241,24 @@ impl Crtc6845 {
             // End of character row
             self.ra = 0;
 
-            // VSYNC generation
+            self.v_counter += 1;
+
+            // VSYNC generation, against the row just *entered*. Comparing
+            // before the increment starts the pulse at the end of row R7
+            // instead of its beginning — a whole character row late, which
+            // moves the picture eight lines up the screen on any machine that
+            // locks its display to the sync. MAME's `mc6845.cpp` increments
+            // `m_line_counter` and then calls `match_line()`, and its raw
+            // screen configuration puts `vsync_on_pos` at
+            // `m_vert_sync_pos * video_char_height` — row R7's first line.
+            //
+            // A sync position of row 0 still never fires: the frame-restart
+            // paths below reset the counter and return without testing. No
+            // machine here configures R7 = 0, so that is left alone.
             if self.v_counter == v_sync_pos {
                 self.vsync = true;
                 self.vsync_counter = 0;
             }
-
-            self.v_counter += 1;
 
             if self.v_counter > v_total {
                 // Start vertical adjust period
