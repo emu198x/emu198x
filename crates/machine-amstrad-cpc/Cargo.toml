@@ -1,0 +1,19 @@
+[package]
+name = "machine-amstrad-cpc"
+description = "Amstrad CPC464 machine — Z80, Gate Array, 6845 CRTC, AY-3-8912 and 8255 PPI"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+amstrad-gate-array = { path = "../amstrad-gate-array", version = "0.2.0" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.2.0" }
+intel-8255 = { path = "../intel-8255", version = "0.2.0" }
+motorola-6845 = { path = "../motorola-6845", version = "0.2.0" }
+serde = { workspace = true }
+zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
+
+[lints]
+workspace = true
