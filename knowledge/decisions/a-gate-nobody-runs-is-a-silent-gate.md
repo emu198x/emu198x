@@ -78,6 +78,30 @@ that nobody would find out until someone tried.
 implies is to run them and find out, before either the Amiga or NES campaign
 claims a green foundation.
 
+## A fourth instance: the BBC tape test, 2026-08-14
+
+`machine-acorn-bbc-micro`'s `os_loads_a_real_tape` had never run. It resolved
+`emulators/` two directories up instead of four, landing inside the emu198x
+repo rather than at the umbrella level, so every invocation died on the UEF
+before reaching the machine. It is `#[ignore]`d, so nothing invoked it
+unbidden — rule 1 exactly.
+
+The new wrinkle is the **shape of the failure**. This gate did not silently
+report success; it failed loudly, as designed. But it failed with
+`read UEF: NotFound`, which reads as a missing asset, and that is how it was
+first reported — as something to go and fetch. `Welcome_B.uef` had shipped with
+the vendored b-em throughout.
+
+**An unrun gate's first failure is evidence about the gate, not about the
+environment.** A test that has never passed has never had its fixtures, paths
+or assumptions checked by anything. Read its first failure as "this test is
+wrong" until proven otherwise; the environmental reading is the comfortable one
+and it costs nothing to rule out first.
+
+Fixing it gave the BBC end-to-end tape coverage it had never had, and gave the
+`motorola-6845` VSync correction landed the same day an integration test it
+would otherwise have lacked.
+
 ## Non-goals
 
 This does not argue for running every gate on every commit. The corpora are
@@ -101,6 +125,9 @@ Stop and re-read this decision if you find yourself:
   weeks.
 - Reasoning about catalogue health from entry counts in a manifest instead of
   a result from the harness.
+- Concluding that an asset, ROM or fixture is missing on the word of a
+  never-passing test, without checking that the path it built is the path you
+  meant.
 
 ## Related Documents
 
