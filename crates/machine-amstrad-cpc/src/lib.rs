@@ -128,6 +128,106 @@ const H_VISIBLE_START: i32 = 14 * DOTS_PER_CHAR as i32;
 /// the 270 the window is tall.
 const V_VISIBLE_START: i32 = 72 - 35;
 
+/// Keyboard matrix rows. Nine of keys plus row 9, which carries joystick 0 and
+/// the `DEL` key.
+pub const KEYBOARD_ROWS: usize = 10;
+
+/// Shift lives at row 2, bit 5 (MAME `kbrow.2`, mask `0x20`).
+const SHIFT_ROW: usize = 2;
+const SHIFT_BIT: u8 = 5;
+
+/// Where a character sits in the matrix: row, bit, and whether Shift is needed.
+///
+/// Only the unshifted and Shift-ed legends are covered — the CPC's Control
+/// combinations and the keypad are reachable through [`AmstradCpc::press_key`]
+/// directly. Rows and bits are MAME's `kbrow.N` port definitions for `cpc464`.
+#[must_use]
+pub fn key_for_char(c: char) -> Option<(usize, u8, bool)> {
+    // (row, bit) for the unshifted legend, then the shifted legend where the
+    // two differ. The CPC's number row is shifted the way a UK keyboard is.
+    let plain: &[(char, usize, u8)] = &[
+        ('\r', 2, 2),
+        ('\n', 2, 2), // Enter
+        (' ', 5, 7),
+        ('0', 4, 0),
+        ('9', 4, 1),
+        ('8', 5, 0),
+        ('7', 5, 1),
+        ('6', 6, 0),
+        ('5', 6, 1),
+        ('4', 7, 0),
+        ('3', 7, 1),
+        ('2', 8, 1),
+        ('1', 8, 0),
+        ('-', 3, 1),
+        ('@', 3, 2),
+        ('p', 3, 3),
+        (';', 3, 4),
+        (':', 3, 5),
+        ('/', 3, 6),
+        ('.', 3, 7),
+        ('o', 4, 2),
+        ('i', 4, 3),
+        ('l', 4, 4),
+        ('k', 4, 5),
+        ('m', 4, 6),
+        (',', 4, 7),
+        ('u', 5, 2),
+        ('y', 5, 3),
+        ('h', 5, 4),
+        ('j', 5, 5),
+        ('n', 5, 6),
+        ('r', 6, 2),
+        ('t', 6, 3),
+        ('g', 6, 4),
+        ('f', 6, 5),
+        ('b', 6, 6),
+        ('v', 6, 7),
+        ('e', 7, 2),
+        ('w', 7, 3),
+        ('s', 7, 4),
+        ('d', 7, 5),
+        ('c', 7, 6),
+        ('x', 7, 7),
+        ('q', 8, 3),
+        ('a', 8, 5),
+        ('z', 8, 7),
+        ('[', 2, 1),
+        (']', 2, 3),
+        ('\\', 2, 6),
+    ];
+    // Legends reached with Shift.
+    let shifted: &[(char, usize, u8)] = &[
+        ('=', 3, 1),
+        ('*', 3, 5),
+        ('?', 3, 6),
+        ('>', 3, 7),
+        ('_', 4, 0),
+        (')', 4, 1),
+        ('<', 4, 7),
+        ('(', 5, 0),
+        ('\'', 5, 1),
+        ('&', 6, 0),
+        ('%', 6, 1),
+        ('$', 7, 0),
+        ('#', 7, 1),
+        ('"', 8, 1),
+        ('!', 8, 0),
+        ('+', 3, 4),
+    ];
+
+    let lower = c.to_ascii_lowercase();
+    if let Some(&(_, row, bit)) = plain.iter().find(|&&(k, _, _)| k == lower) {
+        // An upper-case letter is the same key with Shift; a digit is not,
+        // because its shifted legend is punctuation.
+        return Some((row, bit, c.is_ascii_uppercase()));
+    }
+    shifted
+        .iter()
+        .find(|&&(k, _, _)| k == c)
+        .map(|&(_, row, bit)| (row, bit, true))
+}
+
 /// Amstrad CPC464.
 #[derive(Serialize, Deserialize)]
 pub struct AmstradCpc {
@@ -159,6 +259,9 @@ pub struct AmstradCpc {
     /// chip's own choice; the Gate Array resolves pens to colours itself
     /// through `decode_byte_rgb`, so writing ARGB directly costs nothing.
     framebuffer: Vec<u32>,
+    /// Keyboard matrix, active low: a zero bit is a pressed key. Ten rows,
+    /// selected by PPI port C and read back through the AY's port A.
+    keyboard: [u8; KEYBOARD_ROWS],
     /// Dots since the last HSync edge — the beam's position across the line.
     beam_x: i32,
     /// Lines since the last VSync edge.
@@ -197,6 +300,8 @@ impl AmstradCpc {
             cpu_tstates: 0,
             frame_count: 0,
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
+            // Active low: every key released.
+            keyboard: [0xFF; KEYBOARD_ROWS],
             beam_x: 0,
             beam_y: 0,
             prev_hsync: false,
@@ -244,6 +349,46 @@ impl AmstradCpc {
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
         FB_HEIGHT
+    }
+
+    /// Press a key at the given (row, bit) matrix cell.
+    pub fn press_key(&mut self, row: usize, bit: u8) {
+        if row < KEYBOARD_ROWS && bit < 8 {
+            self.keyboard[row] &= !(1 << bit);
+        }
+    }
+
+    /// Release a key at the given (row, bit) matrix cell.
+    pub fn release_key(&mut self, row: usize, bit: u8) {
+        if row < KEYBOARD_ROWS && bit < 8 {
+            self.keyboard[row] |= 1 << bit;
+        }
+    }
+
+    /// Press the key (and Shift, where the legend needs it) that produces `c`.
+    ///
+    /// Returns false for a character the keyboard cannot produce, so a caller
+    /// typing a string can tell the difference between "typed" and "silently
+    /// dropped".
+    pub fn press_char(&mut self, c: char) -> bool {
+        let Some((row, bit, shift)) = key_for_char(c) else {
+            return false;
+        };
+        if shift {
+            self.press_key(SHIFT_ROW, SHIFT_BIT);
+        }
+        self.press_key(row, bit);
+        true
+    }
+
+    /// Release the key (and Shift) that produces `c`.
+    pub fn release_char(&mut self, c: char) {
+        if let Some((row, bit, shift)) = key_for_char(c) {
+            self.release_key(row, bit);
+            if shift {
+                self.release_key(SHIFT_ROW, SHIFT_BIT);
+            }
+        }
     }
 
     /// Run one frame's worth of T-states, returning how many were consumed.
@@ -441,6 +586,18 @@ impl AmstradCpc {
                 // Port A is the AY data bus. The PSG only answers when port C's
                 // control bits select "read".
                 if self.psg_control & 0xC0 == 0x40 {
+                    // The keyboard hangs off the AY's own port A, with the row
+                    // chosen by the low nibble of PPI port C — the same nibble
+                    // that carries the tape and speaker bits. So reading a key
+                    // means a PPI write followed by an AY register 14 read, and
+                    // the matrix has to be presented at the moment of the read
+                    // rather than latched earlier. MAME does the same thing at
+                    // `m_io_kbrow[m_ppi_port_outputs[amstrad_ppi_PortC] & 0x0F]`.
+                    if self.psg.selected_register() == 14 {
+                        let row = (self.psg_control & 0x0F) as usize;
+                        let bits = self.keyboard.get(row).copied().unwrap_or(0xFF);
+                        self.psg.set_port_a_input_mask(bits);
+                    }
                     return self.psg.read_data();
                 }
             }
@@ -741,6 +898,62 @@ mod tests {
         let ink_dots = fb.iter().filter(|&&px| px == ink).count();
         // 40 characters x 16 dots x 200 lines of display.
         assert_eq!(ink_dots, 40 * DOTS_PER_CHAR * 200, "the whole display area");
+    }
+
+    /// Read one keyboard row the way the firmware does: park the AY register
+    /// number on PPI port A, latch it with port C's select code, switch port C
+    /// to read, then read port A back.
+    fn read_keyboard_row(cpc: &mut AmstradCpc, row: u8) -> u8 {
+        cpc.io_write(0xF400, 14); // PPI port A = AY register number
+        cpc.io_write(0xF600, 0xC0 | row); // port C: select register, row in low nibble
+        cpc.io_write(0xF600, 0x40 | row); // port C: read, same row
+        cpc.io_read(0xF400)
+    }
+
+    #[test]
+    fn a_pressed_key_pulls_its_matrix_bit_low() {
+        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        // Space is row 5, bit 7.
+        assert_eq!(read_keyboard_row(&mut cpc, 5), 0xFF, "nothing pressed");
+        cpc.press_key(5, 7);
+        assert_eq!(
+            read_keyboard_row(&mut cpc, 5),
+            0x7F,
+            "space should pull bit 7 low"
+        );
+        // A different row is unaffected — the low nibble of port C really is
+        // selecting, rather than every row being returned at once.
+        assert_eq!(read_keyboard_row(&mut cpc, 4), 0xFF, "row 4 untouched");
+        cpc.release_key(5, 7);
+        assert_eq!(read_keyboard_row(&mut cpc, 5), 0xFF, "released");
+    }
+
+    #[test]
+    fn shifted_characters_press_shift_too() {
+        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        // '&' is Shift + 6; 6 is row 6 bit 0, Shift is row 2 bit 5.
+        assert!(cpc.press_char('&'));
+        assert_eq!(read_keyboard_row(&mut cpc, 6) & 0x01, 0, "the 6 key");
+        assert_eq!(read_keyboard_row(&mut cpc, 2) & 0x20, 0, "Shift");
+        cpc.release_char('&');
+        assert_eq!(read_keyboard_row(&mut cpc, 6), 0xFF);
+        assert_eq!(read_keyboard_row(&mut cpc, 2), 0xFF);
+
+        // A digit is *not* shifted, even though its key carries a shifted
+        // legend — getting this backwards types punctuation for numbers.
+        assert!(cpc.press_char('6'));
+        assert_eq!(
+            read_keyboard_row(&mut cpc, 2) & 0x20,
+            0x20,
+            "Shift stays up"
+        );
+    }
+
+    #[test]
+    fn unmappable_characters_report_themselves() {
+        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        assert!(!cpc.press_char('\u{20AC}'), "no euro sign on a CPC464");
+        assert!(cpc.press_char('a'));
     }
 
     #[test]
