@@ -72,6 +72,7 @@
 //! | A10 = 0 | expansion / FDC — absent on a 464 |
 
 use amstrad_gate_array::GateArray;
+use common_tape::{TapePlayer, TapeSpan};
 use gi_ay_3_8912::Ay3_8912;
 use intel_8255::Ppi8255;
 use motorola_6845::Crtc6845;
@@ -251,6 +252,11 @@ pub struct AmstradCpc {
     crtc_phase: u32,
     /// AY register latch, driven through PPI port C.
     psg_control: u8,
+    /// Cassette. The CPC drives the motor itself through PPI port C, so this
+    /// plays only while the firmware says it should.
+    tape: TapePlayer,
+    /// Whether the machine has the cassette motor running.
+    tape_motor: bool,
     cpu_tstates: u64,
     frame_count: u64,
 
@@ -297,6 +303,8 @@ impl AmstradCpc {
             selected_upper_rom: 0,
             crtc_phase: 0,
             psg_control: 0,
+            tape: TapePlayer::new(),
+            tape_motor: false,
             cpu_tstates: 0,
             frame_count: 0,
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
@@ -349,6 +357,47 @@ impl AmstradCpc {
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
         FB_HEIGHT
+    }
+
+    /// Load a tape, as a timing-span stream in the CPC's own T-states.
+    ///
+    /// `format-amstrad-cpc-cdt` produces these from a `.cdt`, having already
+    /// scaled the file's reference-clock figures to 4 MHz.
+    pub fn insert_tape(&mut self, spans: Vec<TapeSpan>) {
+        self.tape.load_stream(spans);
+        if self.tape_motor {
+            self.tape.play();
+        }
+    }
+
+    /// Whether the firmware currently has the cassette motor running.
+    #[must_use]
+    pub fn tape_motor_on(&self) -> bool {
+        self.tape_motor
+    }
+
+    /// The tape, for inspecting playback position.
+    #[must_use]
+    pub fn tape(&self) -> &TapePlayer {
+        &self.tape
+    }
+
+    /// Start or stop the cassette motor.
+    ///
+    /// The CPC drives this itself: `CAT`, `RUN"` and `LOAD"` all pull PPI port
+    /// C bit 4 high before reading, and drop it when they are done. Playback
+    /// follows the motor rather than running free, so a tape sitting in the
+    /// machine with nothing loading stays where it is.
+    fn set_tape_motor(&mut self, on: bool) {
+        if on == self.tape_motor {
+            return;
+        }
+        self.tape_motor = on;
+        if on {
+            self.tape.play();
+        } else {
+            self.tape.stop();
+        }
     }
 
     /// Press a key at the given (row, bit) matrix cell.
@@ -435,6 +484,13 @@ impl AmstradCpc {
             self.gate_array.set_hsync(self.crtc.hsync);
             self.gate_array.set_vsync(self.crtc.vsync);
             self.psg.tick();
+        }
+
+        // The tape runs on wall-clock time, not on anything the CPU asks for,
+        // so it advances every T-state the machine executes — but only while
+        // the motor is on, which is the firmware's decision.
+        if self.tape_motor {
+            self.tape.advance_tstates(1);
         }
 
         self.cpu_tstates += 1;
@@ -634,7 +690,12 @@ impl AmstradCpc {
         // The CRTC's own line rather than the Gate Array's copy. They are the
         // same signal: `tick_tstate` hands `crtc.vsync` to the Gate Array on
         // the same character clock, so there is no phase between them.
-        u8::from(self.crtc.vsync) | LINKS
+        // Bit 7 is the cassette read line. The player only advances while the
+        // motor is on, so a stopped tape holds whatever level it stopped at —
+        // which is what a real one does.
+        let cassette = u8::from(self.tape.ear_level()) << 7;
+
+        u8::from(self.crtc.vsync) | LINKS | cassette
     }
 
     fn io_write(&mut self, port: u16, value: u8) {
@@ -659,9 +720,11 @@ impl AmstradCpc {
             let ppi_port = ((port >> 8) & 0x03) as u8;
             self.ppi.write(ppi_port, value);
             if ppi_port == 2 {
-                // Port C carries the AY's bus control in bits 7-6 and the
+                // Port C carries the AY's bus control in bits 7-6, the
+                // cassette write line in bit 5, the motor in bit 4, and the
                 // keyboard row in bits 3-0.
                 self.psg_control = value;
+                self.set_tape_motor(value & 0x10 != 0);
                 match value & 0xC0 {
                     0x80 => self.psg.write_data(self.ppi.read(0)),
                     0xC0 => self.psg.select_register(self.ppi.read(0)),
@@ -1015,6 +1078,70 @@ mod tests {
         }
         assert!(seen_high, "VSync should assert once a frame");
         assert!(seen_low, "and spend most of the frame deasserted");
+    }
+
+    #[test]
+    fn the_motor_gates_tape_playback() {
+        // A CPC drives its own motor. A tape that ran free would advance
+        // through its pilot tone while BASIC sat at the prompt, and be
+        // somewhere in the middle of a block by the time a loader looked.
+        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        cpc.insert_tape(vec![TapeSpan::Pulse(100); 8]);
+        assert!(!cpc.tape_motor_on(), "motor off at reset");
+
+        for _ in 0..400 {
+            cpc.tick_tstate();
+        }
+        assert_eq!(
+            cpc.tape().span_position().0,
+            0,
+            "a stopped tape does not move"
+        );
+
+        // Port C bit 4 high: motor on.
+        cpc.io_write(0xF600, 0x10);
+        assert!(cpc.tape_motor_on());
+        for _ in 0..400 {
+            cpc.tick_tstate();
+        }
+        assert!(
+            cpc.tape().span_position().0 > 0,
+            "a running tape advances with the CPU"
+        );
+
+        // And stops again when the firmware drops the line.
+        let stopped_at = cpc.tape().span_position().0;
+        cpc.io_write(0xF600, 0x00);
+        assert!(!cpc.tape_motor_on());
+        for _ in 0..400 {
+            cpc.tick_tstate();
+        }
+        assert_eq!(cpc.tape().span_position().0, stopped_at, "and holds there");
+    }
+
+    #[test]
+    fn the_cassette_line_reaches_port_b_bit_7() {
+        // Bit 7 is the only way a CPC hears its tape. A machine that never
+        // presents the level boots and types perfectly and loads nothing.
+        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        // One long pulse, so the level is stable either side of the edge.
+        cpc.insert_tape(vec![TapeSpan::Pulse(200), TapeSpan::Pulse(200)]);
+        cpc.io_write(0xF600, 0x10); // motor on
+
+        let before = cpc.io_read(0xF500) & 0x80;
+        for _ in 0..200 {
+            cpc.tick_tstate();
+        }
+        let after = cpc.io_read(0xF500) & 0x80;
+        assert_ne!(
+            before, after,
+            "the pulse ended and should have flipped bit 7"
+        );
+        assert_eq!(
+            after >> 7,
+            u8::from(cpc.tape().ear_level()),
+            "bit 7 must be the player's level, not an independent guess"
+        );
     }
 
     #[test]
