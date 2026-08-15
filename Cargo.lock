@@ -979,6 +979,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-amstrad-cpc"
+version = "0.2.3"
+dependencies = [
+ "emu198x-shell",
+ "emu198x-ui",
+ "machine-amstrad-cpc",
+ "runtime-amstrad-cpc",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-atari-2600"
 version = "0.2.3"
 dependencies = [

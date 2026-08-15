@@ -34,7 +34,7 @@ Primary systems:
 - Nintendo Game Boy
 - Dragon 32
 
-Extended systems include Atari 800XL/2600/5200/7800, Acorn BBC Micro/Electron/Atom, Sega Master System/SG-1000, MSX1, ColecoVision, Commodore VIC-20/PET, Sinclair ZX80/ZX81, Sord M5, Memotech MTX, Mattel Aquarius, Tatung Einstein, Jupiter Ace, Spectravideo SVI-328, and Oric-1/Atmos.
+Extended systems include Amstrad CPC464, Atari 800XL/2600/5200/7800, Acorn BBC Micro/Electron/Atom, Sega Master System/SG-1000, MSX1, ColecoVision, Commodore VIC-20/PET, Sinclair ZX80/ZX81, Sord M5, Memotech MTX, Mattel Aquarius, Tatung Einstein, Jupiter Ace, Spectravideo SVI-328, and Oric-1/Atmos.
 
 Do not treat this README as the detailed status matrix. For boot depth, required ROMs, missing chips, and per-system remaining work, use the status docs linked above.
 
