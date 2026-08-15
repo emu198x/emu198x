@@ -4,6 +4,25 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.2.3] - 2026-08-15
+
+
+### Added
+
+- *(cpc)* Generate interrupts in the Gate Array from the CRTC's HSync
+- *(cpc)* Boot the CPC464 firmware to its own blue-and-yellow screen
+- *(cpc)* Render the display at the dot clock
+- *(cpc)* Let the CPC be typed at
+
+
+### Fixed
+
+- *(6845)* Start VSync at the beginning of row R7, not its end
+- *(bbc)* Point the tape test at the UEF that was there all along
+- *(uef)* Default the tape test to the UEF we already vendor
+- *(cpc)* Report VSync on PPI port B, where programs look for it
+- *(c64)* Stop type_string dropping characters, and wire load_basic_program
+
 ## [0.2.2] - 2026-08-14
 
 
