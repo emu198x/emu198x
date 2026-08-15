@@ -549,6 +549,12 @@ pub enum ScriptStep {
         /// Start address (CPU-visible, low byte first).
         addr: u32,
         /// Number of bytes to read. Implementations may cap at 256.
+        ///
+        /// Optional, defaulting to 16. The MCP schema has always advertised
+        /// `"default": 16` and listed only `addr` as required, but the field
+        /// had no serde default, so omitting it failed with `missing field
+        /// len` — a tool promising something it did not do (#905).
+        #[serde(default = "default_memory_read_len")]
         len: u32,
     },
     /// Write one byte to CPU-visible memory.
@@ -1872,6 +1878,11 @@ const fn default_true() -> bool {
     true
 }
 
+/// Matches the `len` default the `memory_read` MCP schema advertises.
+const fn default_memory_read_len() -> u32 {
+    16
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2226,6 +2237,22 @@ mod tests {
                 assert_eq!(bytes, vec![0x42, 0x99, 0x00, 0x00]);
             }
             other => panic!("expected a MemoryRead observation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn memory_read_len_defaults_to_sixteen() {
+        // The MCP schema advertises `"default": 16` and lists only `addr` as
+        // required; before #905 the field had no serde default, so omitting it
+        // failed to deserialise with `missing field len`.
+        let step: ScriptStep =
+            serde_json::from_str(r#"{"action":"memory_read","addr":49152}"#).expect("deserialises");
+        match step {
+            ScriptStep::MemoryRead { addr, len } => {
+                assert_eq!(addr, 0xC000);
+                assert_eq!(len, 16);
+            }
+            other => panic!("expected a MemoryRead step, got {other:?}"),
         }
     }
 
