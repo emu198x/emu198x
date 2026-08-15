@@ -187,6 +187,92 @@ impl Default for TapePlayer {
     }
 }
 
+/// Appends one pulse and flips the level.
+///
+/// A zero-length pulse flips without emitting a span. TZX produces these, and
+/// treating one as a span with a zero countdown gives a player nothing to
+/// count down from.
+pub fn push_pulse(current_level: &mut bool, duration: u32, spans: &mut Vec<TapeSpan>) {
+    if duration == 0 {
+        *current_level = !*current_level;
+        return;
+    }
+
+    spans.push(TapeSpan::Pulse(duration));
+    *current_level = !*current_level;
+}
+
+/// Appends spans for the supplied data bytes, most-significant bit first.
+///
+/// Two pulses per bit, which is how every machine here encodes tape data: the
+/// bit's value is in the *length* of its pulse pair, not in a level.
+pub fn data_block_spans(
+    data: &[u8],
+    bits_in_last_byte: u8,
+    zero_len: u32,
+    one_len: u32,
+    current_level: &mut bool,
+    spans: &mut Vec<TapeSpan>,
+) {
+    if data.is_empty() {
+        return;
+    }
+
+    let last_idx = data.len() - 1;
+    for (idx, &byte) in data.iter().enumerate() {
+        let bits = if idx == last_idx {
+            bits_in_last_byte
+        } else {
+            8
+        };
+        for bit in (0..bits).rev() {
+            let pulse = if byte & (1 << bit) != 0 {
+                one_len
+            } else {
+                zero_len
+            };
+            push_pulse(current_level, pulse, spans);
+            push_pulse(current_level, pulse, spans);
+        }
+    }
+}
+
+/// Appends pause-after-data spans.
+///
+/// `tstates_per_ms` is explicit because a pause is the one part of a tape
+/// stream quoted in real time rather than in clock ticks, so it is the one
+/// place a format has to know what clock it is speaking in. The caller decides:
+/// a Spectrum ROM block uses the machine's 3,500, and a TZX file uses 3,500 as
+/// the format's *reference* clock even when the machine reading it is not a
+/// Spectrum.
+///
+/// Called from the TAP/TZX data-block path, where `pause_ms = 0` means "no
+/// pause, run straight into the next block". The TZX standalone Pause block
+/// (`0x20`) handles its own `pause = 0` → `Stop` semantic in the parser.
+pub fn append_pause_spans(
+    pause_ms: u32,
+    tstates_per_ms: u32,
+    current_level: &mut bool,
+    spans: &mut Vec<TapeSpan>,
+) {
+    if pause_ms == 0 {
+        return;
+    }
+
+    spans.push(TapeSpan::Level {
+        duration: tstates_per_ms,
+        level: *current_level,
+    });
+
+    if pause_ms > 1 {
+        spans.push(TapeSpan::Level {
+            duration: (pause_ms - 1) * tstates_per_ms,
+            level: false,
+        });
+        *current_level = false;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,6 +345,62 @@ mod tests {
         player.play();
         player.advance_tstates(1_000);
         assert!(!player.is_playing());
+    }
+
+    #[test]
+    fn pause_zero_emits_nothing() {
+        // TZX spec: pause=0 after a data block means "no pause, continue
+        // immediately to the next block." Speedlock 7 tapes chain dozens of
+        // pure-data blocks via pause=0; an emit-Stop behaviour here broke them
+        // by flipping the player out of playing mid-load. Moved from
+        // `common-sinclair-zx-spectrum` with the function.
+        let mut spans = Vec::new();
+        let mut current_level = true;
+
+        append_pause_spans(0, 3_500, &mut current_level, &mut spans);
+
+        assert!(spans.is_empty());
+        assert!(current_level, "level unchanged when no pause is emitted");
+    }
+
+    #[test]
+    fn a_pause_is_measured_in_the_clock_it_is_given() {
+        // The same one-millisecond pause is a different number of T-states on
+        // a 3.5 MHz Spectrum and a 4 MHz CPC. Passing the clock in is what
+        // keeps that conversion visible at the call site.
+        let mut level = false;
+        let mut spectrum = Vec::new();
+        append_pause_spans(2, 3_500, &mut level, &mut spectrum);
+        let mut level = false;
+        let mut cpc = Vec::new();
+        append_pause_spans(2, 4_000, &mut level, &mut cpc);
+
+        assert_eq!(
+            spectrum[0],
+            TapeSpan::Level {
+                duration: 3_500,
+                level: false
+            }
+        );
+        assert_eq!(
+            cpc[0],
+            TapeSpan::Level {
+                duration: 4_000,
+                level: false
+            }
+        );
+    }
+
+    #[test]
+    fn a_data_bit_is_two_pulses_of_the_same_length() {
+        let mut level = false;
+        let mut spans = Vec::new();
+        // 0b1000_0000: one 1-bit then seven 0-bits.
+        data_block_spans(&[0x80], 8, 10, 20, &mut level, &mut spans);
+        assert_eq!(spans.len(), 16, "eight bits, two pulses each");
+        assert_eq!(spans[0], TapeSpan::Pulse(20));
+        assert_eq!(spans[1], TapeSpan::Pulse(20));
+        assert_eq!(spans[2], TapeSpan::Pulse(10));
     }
 
     #[test]

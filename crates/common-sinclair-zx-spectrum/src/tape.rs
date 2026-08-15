@@ -41,7 +41,11 @@ pub const TSTATES_PER_MS: u32 = 3_500;
 // needs them. Re-exported here so Spectrum-family code and its 12 consumers
 // carry on importing them from this crate. See
 // `knowledge/decisions/crate-naming.md`.
-pub use common_tape::{TapePlayer, TapeSpan};
+// The span builders moved to `common-tape` with the player: they are how
+// every pulse-encoded tape is written, not how the Spectrum writes one.
+// `append_pause_spans` gained an explicit T-states-per-millisecond argument
+// there, since a pause is the one part of a tape quoted in real time.
+pub use common_tape::{TapePlayer, TapeSpan, data_block_spans, push_pulse};
 
 /// One standard-speed tape block ready for playback.
 ///
@@ -99,72 +103,7 @@ pub fn standard_block_spans(
     push_pulse(current_level, SYNC1_PULSE, spans);
     push_pulse(current_level, SYNC2_PULSE, spans);
     data_block_spans(&block.data, 8, ZERO_PULSE, ONE_PULSE, current_level, spans);
-    append_pause_spans(pause_ms, current_level, spans);
-}
-
-/// Appends spans for the supplied data bytes, most-significant bit first.
-pub fn data_block_spans(
-    data: &[u8],
-    bits_in_last_byte: u8,
-    zero_len: u32,
-    one_len: u32,
-    current_level: &mut bool,
-    spans: &mut Vec<TapeSpan>,
-) {
-    if data.is_empty() {
-        return;
-    }
-
-    let last_idx = data.len() - 1;
-    for (idx, &byte) in data.iter().enumerate() {
-        let bits = if idx == last_idx {
-            bits_in_last_byte
-        } else {
-            8
-        };
-        for bit in (0..bits).rev() {
-            let pulse = if byte & (1 << bit) != 0 {
-                one_len
-            } else {
-                zero_len
-            };
-            push_pulse(current_level, pulse, spans);
-            push_pulse(current_level, pulse, spans);
-        }
-    }
-}
-
-/// Appends pause-after-data spans. Called from the TAP/TZX data-
-/// block path (where pause_ms=0 means "no pause, run straight into
-/// the next block"). The TZX standalone Pause block (0x20) handles
-/// its own pause=0 → Stop semantic separately in its parser.
-pub fn append_pause_spans(pause_ms: u32, current_level: &mut bool, spans: &mut Vec<TapeSpan>) {
-    if pause_ms == 0 {
-        return;
-    }
-
-    spans.push(TapeSpan::Level {
-        duration: TSTATES_PER_MS,
-        level: *current_level,
-    });
-
-    if pause_ms > 1 {
-        spans.push(TapeSpan::Level {
-            duration: (pause_ms - 1) * TSTATES_PER_MS,
-            level: false,
-        });
-        *current_level = false;
-    }
-}
-
-fn push_pulse(current_level: &mut bool, duration: u32, spans: &mut Vec<TapeSpan>) {
-    if duration == 0 {
-        *current_level = !*current_level;
-        return;
-    }
-
-    spans.push(TapeSpan::Pulse(duration));
-    *current_level = !*current_level;
+    common_tape::append_pause_spans(pause_ms, TSTATES_PER_MS, current_level, spans);
 }
 
 #[cfg(test)]
@@ -424,21 +363,5 @@ mod tests {
             }
         }
         assert_eq!(edges, 32, "exactly 32 edges expected for 32 pilot pulses");
-    }
-
-    #[test]
-    fn pause_zero_emits_nothing() {
-        // TZX spec: pause=0 after a data block means "no pause,
-        // continue immediately to the next block." Speedlock 7 tapes
-        // chain dozens of pure-data blocks via pause=0; the old
-        // emit-Stop behaviour broke them by flipping tape.is_playing
-        // false mid-load.
-        let mut spans = Vec::new();
-        let mut current_level = true;
-
-        append_pause_spans(0, &mut current_level, &mut spans);
-
-        assert!(spans.is_empty());
-        assert!(current_level, "level unchanged when no pause is emitted");
     }
 }

@@ -1625,6 +1625,7 @@ name = "format-sinclair-zx-spectrum-tzx"
 version = "0.2.2"
 dependencies = [
  "common-sinclair-zx-spectrum",
+ "format-tzx",
 ]
 
 [[package]]
@@ -1632,6 +1633,13 @@ name = "format-sinclair-zx-spectrum-z80"
 version = "0.2.2"
 dependencies = [
  "format-sinclair-zx-spectrum-snapshot",
+]
+
+[[package]]
+name = "format-tzx"
+version = "0.2.2"
+dependencies = [
+ "common-tape",
 ]
 
 [[package]]
