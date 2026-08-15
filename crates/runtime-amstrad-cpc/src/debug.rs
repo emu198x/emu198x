@@ -9,6 +9,11 @@
 //! trait's default) says what is true; the CPC's device state is reachable
 //! through the `query` paths instead. The Spectrum's `debug.rs` takes the same
 //! route for the same kind of reason.
+//!
+//! This is a deferral, not the intended end state: #926 widens the shared
+//! `IoEvent` port to the `u16` the bus actually carries, after which this
+//! module gains the trace and the ZX81 stops truncating its own. Until then
+//! `io_trace` refuses rather than reporting every CPC device as port 0.
 
 use emu198x_shell::DebugPrimitives;
 use machine_amstrad_cpc::AmstradCpc;
