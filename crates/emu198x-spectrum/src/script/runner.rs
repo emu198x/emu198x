@@ -436,6 +436,15 @@ fn map_script_error(err: ScriptError) -> AppError {
             ),
         },
         ScriptError::InvalidStep { step, reason } => AppError::ScriptStepRejected { step, reason },
+        // A character the keyboard cannot produce is a rejected step, not a
+        // silent shortfall — see #916.
+        ScriptError::UntypableCharacter { ch, supported } => AppError::ScriptStepRejected {
+            step: "type_string",
+            reason: format!(
+                "cannot type {ch:?} on this machine — no keycap or shift chord \
+                 produces it. Supported keys: {supported}"
+            ),
+        },
         ScriptError::Asset(e) => AppError::Asset(e),
         ScriptError::Io(e) => AppError::Io(e),
         ScriptError::Parse(e) => AppError::Io(std::io::Error::other(format!("script parse: {e}"))),

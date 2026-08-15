@@ -18,15 +18,16 @@ use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::{
     BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession,
     MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
-    ScriptObservation, TraceEvent, TraceSink, boot_machine, read_firmware_asset, read_media_asset,
-    read_program_asset,
+    ScriptObservation, ScriptStep, TraceEvent, TraceSink, boot_machine, read_firmware_asset,
+    read_media_asset, read_program_asset,
 };
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
-    DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_disk,
+    C64Runtime, C64SessionQueryProvider, DEFAULT_BASIC_LOADER_BOOT_FRAMES,
+    DEFAULT_DISK_AUTOLOAD_SLOT, DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
+    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT,
+    DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_disk,
     autoload_basic_disk_with_trace_sink, autoload_basic_tape, autoload_basic_tape_with_trace_sink,
-    file_loader::load_host_file,
+    file_loader::load_host_file, load_basic_source,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -538,11 +539,26 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
     if let Some(path) = &cli.script {
         let script = HeadlessScript::from_path(path)
             .map_err(|err| format!("failed to load script {}: {err}", path.display()))?;
-        observations.extend(
-            script
-                .execute_collect(&mut session)
-                .map_err(|err| format!("script execution failed: {err}"))?,
-        );
+        // Step by step rather than `execute_collect` on the whole script, so
+        // the C64's own steps can be intercepted before the shared executor
+        // sees them. `load_basic_program` is one: the shell has no handler for
+        // it and reports `requires a system-specific handler` *mid-run*, after
+        // a script has already booted and typed — a late failure on an action
+        // the parser had accepted. The C64 has had the loader all along, wired
+        // only into its MCP tool. See #914.
+        for step in &script.steps {
+            let emitted = match step {
+                ScriptStep::LoadBasicProgram { path, run } => {
+                    Some(execute_load_basic_program(&mut session, path, *run)?)
+                }
+                other => other
+                    .execute_collect(&mut session)
+                    .map_err(|err| format!("script execution failed: {err}"))?,
+            };
+            if let Some(observation) = emitted {
+                observations.push(observation);
+            }
+        }
     }
 
     if cli.start_tape {
@@ -705,6 +721,36 @@ fn load_firmware_bytes(cli: &Cli) -> Result<Vec<LoadedFirmware>, String> {
                 })
         })
         .collect()
+}
+
+/// Installs a plain-text BASIC program, as the MCP tool of the same name does.
+///
+/// Shares `load_basic_source` with `mcp_tools::LoadBasicProgramTool` rather
+/// than reimplementing the poke-and-relink: the tokeniser writes to `$0801`,
+/// relinks the line pointers and sets `VARTAB`, and optionally drives the
+/// editor to `RUN`.
+fn execute_load_basic_program(
+    session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>,
+    path: &Path,
+    run: bool,
+) -> Result<ScriptObservation, String> {
+    let source = fs::read_to_string(path).map_err(|err| {
+        format!(
+            "load_basic_program: failed to read {}: {err}",
+            path.display()
+        )
+    })?;
+    let result = load_basic_source(session, &source, run, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
+        .map_err(|err| {
+            format!(
+                "load_basic_program: BASIC loader failed for {}: {err}",
+                path.display()
+            )
+        })?;
+    Ok(ScriptObservation::LoadBasicProgram {
+        program_bytes: result.program_bytes,
+        ran: result.ran,
+    })
 }
 
 fn load_program_bytes(path: &Path) -> Result<LoadedProgram, String> {

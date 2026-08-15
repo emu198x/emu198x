@@ -297,11 +297,27 @@ pub fn keys_for_char(ch: char) -> Option<Vec<&'static str>> {
         '-' => vec!["minus"],
         '@' => vec!["at"],
         '*' => vec!["asterisk"],
+        // The shifted number row, in keycap order. Five of these were here and
+        // four were not, which is the shape a hand-written table decays into:
+        // the ones somebody needed got added, the rest were never missed.
+        '!' => vec!["lshift", "1"],
         '"' => vec!["lshift", "2"],
-        '?' => vec!["lshift", "/"],
+        '#' => vec!["lshift", "3"],
+        '$' => vec!["lshift", "4"],
+        '%' => vec!["lshift", "5"],
+        '&' => vec!["lshift", "6"],
+        '\'' => vec!["lshift", "7"],
         '(' => vec!["lshift", "8"],
         ')' => vec!["lshift", "9"],
-        '$' => vec!["lshift", "4"],
+        // Shifted punctuation. `<` and `>` are the costly omissions: dropping
+        // one usually leaves valid BASIC, so `H=48+C+(C>9)*57` was entered as
+        // `H=48+C+(C9)*57` — `C9` being a legal variable of value 0 — and ran
+        // without complaint, producing a plausible wrong answer. See #916.
+        '<' => vec!["lshift", ","],
+        '>' => vec!["lshift", "."],
+        '[' => vec!["lshift", ":"],
+        ']' => vec!["lshift", "semicolon"],
+        '?' => vec!["lshift", "/"],
         _ => return None,
     })
 }
@@ -629,6 +645,44 @@ mod key_position_tests {
     fn shifted_punctuation_returns_a_chord() {
         assert_eq!(super::keys_for_char('"'), Some(vec!["lshift", "2"]));
         assert_eq!(super::keys_for_char('?'), Some(vec!["lshift", "/"]));
+    }
+
+    #[test]
+    fn every_printable_ascii_character_on_the_keyboard_maps() {
+        // The table was hand-written and eight characters were missing from
+        // it, which `type_string` skipped in silence — see #916. Enumerating
+        // the whole keycap set is what stops that recurring: a gap fails here
+        // rather than in somebody's BASIC listing weeks later.
+        //
+        // Excluded deliberately: characters with no C64 keycap and no Shift
+        // chord that reaches them. Backslash, braces, backtick, tilde,
+        // underscore, caret and bar simply are not on the keyboard.
+        const UNREACHABLE: &str = "\\{}`~_^|";
+        for ch in (0x20u8..0x7F).map(char::from) {
+            if UNREACHABLE.contains(ch) {
+                assert_eq!(
+                    super::keys_for_char(ch),
+                    None,
+                    "{ch:?} is not on a C64 keyboard and should report so"
+                );
+                continue;
+            }
+            assert!(
+                super::keys_for_char(ch).is_some(),
+                "{ch:?} is a C64 keycap but has no mapping — type_string would \
+                 drop it silently"
+            );
+        }
+    }
+
+    #[test]
+    fn the_comparison_operators_map() {
+        // Called out separately because these are the ones that corrupt
+        // quietly: removing `>` from `(C>9)` leaves `(C9)`, a legal variable
+        // reference, so the program runs and gives a wrong answer instead of a
+        // syntax error.
+        assert_eq!(super::keys_for_char('<'), Some(vec!["lshift", ","]));
+        assert_eq!(super::keys_for_char('>'), Some(vec!["lshift", "."]));
     }
 
     #[test]

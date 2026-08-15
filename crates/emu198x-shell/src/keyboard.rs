@@ -56,8 +56,14 @@ pub trait KeyboardTarget {
 
     /// Translate `ch` into the simultaneous key chord that produces it —
     /// modifiers first, base key last (e.g. Spectrum `'A'` →
-    /// `["CapsShift", "A"]`, `'a'` → `["A"]`). Returns `None` to skip a
-    /// character with no single-keystroke equivalent.
+    /// `["CapsShift", "A"]`, `'a'` → `["A"]`). Returns `None` for a character
+    /// with no single-keystroke equivalent on this machine.
+    ///
+    /// A `None` is an error, not a skip: `type_string` refuses the whole step
+    /// rather than typing the rest. Silently dropping a character means a
+    /// script asks for one string and the machine receives another, which on
+    /// the C64 turned a comparison into a variable reference and produced a
+    /// program that ran and gave the wrong answer (#916).
     fn keys_for_char(&self, ch: char) -> Option<Vec<String>>;
 
     /// Frame timing tuned to this machine's keyboard scan.
