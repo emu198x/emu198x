@@ -141,7 +141,12 @@ const SHIFT_BIT: u8 = 5;
 ///
 /// Only the unshifted and Shift-ed legends are covered — the CPC's Control
 /// combinations and the keypad are reachable through [`AmstradCpc::press_key`]
-/// directly. Rows and bits are MAME's `kbrow.N` port definitions for `cpc464`.
+/// directly. Rows and bits are MAME's `kbrow.N` port definitions for `cpc464`,
+/// cross-checked against Caprice32's `InputMapper::cpc_kbd`
+/// (`emulators/amstrad-cpc/caprice32/src/keyboard.cpp`), whose scancodes read
+/// as `0xRB`. Caprice32 is where `^` and the five Shift-ed legends below it
+/// came from: they are keys a CPC464 has and this table did not, so a caller
+/// typing `{` was told the machine could not produce it.
 #[must_use]
 pub fn key_for_char(c: char) -> Option<(usize, u8, bool)> {
     // (row, bit) for the unshifted legend, then the shifted legend where the
@@ -196,9 +201,15 @@ pub fn key_for_char(c: char) -> Option<(usize, u8, bool)> {
         ('[', 2, 1),
         (']', 2, 3),
         ('\\', 2, 6),
+        ('^', 3, 0),
     ];
     // Legends reached with Shift.
     let shifted: &[(char, usize, u8)] = &[
+        ('£', 3, 0),
+        ('|', 3, 2),
+        ('`', 2, 6),
+        ('{', 2, 1),
+        ('}', 2, 3),
         ('=', 3, 1),
         ('*', 3, 5),
         ('?', 3, 6),
@@ -339,6 +350,63 @@ impl AmstradCpc {
     #[must_use]
     pub fn gate_array(&self) -> &GateArray {
         &self.gate_array
+    }
+
+    /// The CRTC, for inspecting the programmed screen geometry.
+    #[must_use]
+    pub fn crtc(&self) -> &Crtc6845 {
+        &self.crtc
+    }
+
+    /// The PSG, for inspecting the AY's register file.
+    #[must_use]
+    pub fn psg(&self) -> &Ay3_8912 {
+        &self.psg
+    }
+
+    /// The CPU, for register inspection and disassembly.
+    #[must_use]
+    pub fn cpu(&self) -> &Z80 {
+        &self.cpu
+    }
+
+    /// The CPU, mutably — needed after a snapshot restore, which has to
+    /// rebuild the micro-op walker the serialised state cannot carry.
+    pub fn cpu_mut(&mut self) -> &mut Z80 {
+        &mut self.cpu
+    }
+
+    /// The 64 KB of RAM, whatever is paged over it.
+    #[must_use]
+    pub fn ram(&self) -> &[u8] {
+        &self.ram
+    }
+
+    /// Write one byte, bypassing the CPU.
+    ///
+    /// Lands in RAM whatever is paged in, because that is what a CPU write
+    /// does here — the ROMs are read-only overlays, not a competing store.
+    /// A `poke` into `$0000-$3FFF` while the lower ROM is enabled therefore
+    /// takes effect but stays invisible to [`Self::peek`] until the firmware
+    /// pages the ROM out, which is the hardware's behaviour rather than a
+    /// limitation of this method.
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.ram[addr as usize] = value;
+    }
+
+    /// Drain the PSG's audio for the frame just run.
+    ///
+    /// Trailing silence is trimmed so a machine making no sound costs the host
+    /// nothing to mix, matching what the other AY machines here hand back.
+    pub fn take_audio_buffer(&mut self) -> Vec<f32> {
+        let mut out = vec![0.0_f32; AY_SAMPLES_PER_FRAME];
+        self.psg.end_frame(&mut out);
+        if let Some(last) = out.iter().rposition(|s| *s != 0.0) {
+            out.truncate(last + 1);
+        } else {
+            out.clear();
+        }
+        out
     }
 
     /// Framebuffer (768×270 ARGB32).
@@ -798,6 +866,48 @@ mod tests {
     }
 
     #[test]
+    fn poke_lands_in_ram_under_a_paged_in_rom() {
+        // Same rule as a CPU write, so a debugger poking $0000-$3FFF with the
+        // OS paged in gets the hardware's answer rather than a special case:
+        // the byte is there, and the ROM goes on answering reads until it is
+        // paged out.
+        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        cpc.poke(0x0100, 0xAB);
+        assert_eq!(cpc.peek(0x0100), 0x00, "the OS ROM still answers");
+        assert_eq!(cpc.ram()[0x0100], 0xAB, "but the byte landed");
+        cpc.io_write(0x7F00, 0b1000_0100); // page the OS out
+        assert_eq!(cpc.peek(0x0100), 0xAB);
+
+        // Somewhere no ROM covers, a poke is visible at once.
+        cpc.poke(0x8000, 0x5A);
+        assert_eq!(cpc.peek(0x8000), 0x5A);
+    }
+
+    #[test]
+    fn a_silent_machine_hands_back_no_audio() {
+        // The AY powers up with every channel off, so a frame of silence
+        // should cost a host nothing to mix rather than 1024 zeroes.
+        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        cpc.run_frame();
+        assert!(cpc.take_audio_buffer().is_empty());
+    }
+
+    #[test]
+    fn an_audible_machine_hands_back_samples() {
+        // Channel A at a mid tone, full volume, tone enabled: the mixer's
+        // enable bits are active low, so $FE leaves only tone A through.
+        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        for (reg, val) in [(0u8, 0x00u8), (1, 0x01), (7, 0xFE), (8, 0x0F)] {
+            cpc.psg.select_register(reg);
+            cpc.psg.write_data(val);
+        }
+        cpc.run_frame();
+        let audio = cpc.take_audio_buffer();
+        assert!(!audio.is_empty(), "a sounding AY produced no samples");
+        assert!(audio.iter().any(|s| *s != 0.0));
+    }
+
+    #[test]
     fn an_unselected_upper_rom_reads_as_open_bus() {
         // An unexpanded 464 has only ROM 0.
         let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
@@ -1048,6 +1158,34 @@ mod tests {
         let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
         assert!(!cpc.press_char('\u{20AC}'), "no euro sign on a CPC464");
         assert!(cpc.press_char('a'));
+    }
+
+    #[test]
+    fn every_printable_ascii_but_the_tilde_has_a_key() {
+        // A character this table cannot place is one a caller cannot type, and
+        // that gap is invisible until someone tries: on the C64 the same shape
+        // of hole turned a typed comparison into a variable reference and ran
+        // (#916). Only `~` is genuinely absent from a CPC464 keyboard —
+        // Caprice32's table has no entry for it either.
+        for c in ' '..='~' {
+            let mapped = key_for_char(c).is_some();
+            assert_eq!(mapped, c != '~', "{c:?}");
+        }
+        // Two beyond ASCII that the keyboard does carry.
+        assert_eq!(key_for_char('£'), Some((3, 0, true)));
+        assert_eq!(key_for_char('^'), Some((3, 0, false)));
+    }
+
+    #[test]
+    fn a_shifted_legend_shares_its_keys_cell() {
+        // `{` is Shift+`[`, not a key of its own — the pairs Caprice32 encodes
+        // as the same scancode with `MOD_CPC_SHIFT`.
+        for (shifted, plain) in [('{', '['), ('}', ']'), ('`', '\\'), ('|', '@'), ('£', '^')] {
+            let (row, bit, needs_shift) = key_for_char(shifted).expect("shifted legend");
+            let (plain_row, plain_bit, _) = key_for_char(plain).expect("plain legend");
+            assert!(needs_shift, "{shifted:?}");
+            assert_eq!((row, bit), (plain_row, plain_bit), "{shifted:?}");
+        }
     }
 
     #[test]

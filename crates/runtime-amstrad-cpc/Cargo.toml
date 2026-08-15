@@ -1,0 +1,22 @@
+[package]
+name = "runtime-amstrad-cpc"
+description = "Amstrad CPC family metadata and headless runtime wrapper"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+amstrad-gate-array = { path = "../amstrad-gate-array", version = "0.2.0" }
+common-tape = { path = "../common-tape", version = "0.2.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
+format-amstrad-cpc-cdt = { path = "../format-amstrad-cpc-cdt", version = "0.2.0" }
+machine-amstrad-cpc = { path = "../machine-amstrad-cpc", version = "0.2.0" }
+postcard = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
+
+[lints]
+workspace = true

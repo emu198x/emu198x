@@ -1462,7 +1462,7 @@ dependencies = [
 
 [[package]]
 name = "format-amstrad-cpc-cdt"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "common-tape",
  "format-tzx",
@@ -3909,6 +3909,21 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "runtime-amstrad-cpc"
+version = "0.2.3"
+dependencies = [
+ "amstrad-gate-array",
+ "common-tape",
+ "emu198x-shell",
+ "format-amstrad-cpc-cdt",
+ "machine-amstrad-cpc",
+ "postcard",
+ "serde",
+ "serde_json",
+ "zilog-z80",
 ]
 
 [[package]]

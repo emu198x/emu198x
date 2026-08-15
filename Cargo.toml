@@ -188,6 +188,7 @@ members = [
     "crates/runtime-acorn-atom",
     "crates/runtime-acorn-bbc-micro",
     "crates/runtime-acorn-electron",
+    "crates/runtime-amstrad-cpc",
     "crates/runtime-atari-2600",
     "crates/runtime-atari-5200",
     "crates/runtime-atari-7800",
