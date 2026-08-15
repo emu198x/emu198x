@@ -1461,6 +1461,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-amstrad-cpc-cdt"
+version = "0.2.2"
+dependencies = [
+ "common-tape",
+ "format-tzx",
+]
+
+[[package]]
 name = "format-amstrad-dsk"
 version = "0.2.3"
 dependencies = [
@@ -2144,6 +2152,8 @@ name = "machine-amstrad-cpc"
 version = "0.2.3"
 dependencies = [
  "amstrad-gate-array",
+ "common-tape",
+ "format-amstrad-cpc-cdt",
  "gi-ay-3-8912",
  "intel-8255",
  "motorola-6845",
