@@ -21,6 +21,9 @@ mod tests {
 
     const FRAME_TICKS_NTSC: u64 = 262 * 228;
 
+    const MISSING_ROMS: &str = "needs atarixl.rom + ataribas.rom in ~/.emu198x/roms/atari-800xl/; \
+         these tests are `#[ignore]`d, so asking for them by name means you want them run";
+
     fn rom(name: &str) -> Option<Vec<u8>> {
         let home = std::env::var("HOME").ok()?;
         std::fs::read(
@@ -29,6 +32,15 @@ mod tests {
                 .join(name),
         )
         .ok()
+    }
+
+    /// Both ROMs, or a loud failure. These used to `eprintln!` and `return`,
+    /// which is how they stayed broken: a `--ignored` sweep on a machine
+    /// without the ROMs reported two passes and ran no assertions. Panicking
+    /// makes an absent ROM look like what it is — see
+    /// `knowledge/decisions/a-gate-nobody-runs-is-a-silent-gate.md`.
+    fn roms() -> (Option<Vec<u8>>, Option<Vec<u8>>) {
+        (rom("atarixl.rom"), rom("ataribas.rom"))
     }
 
     fn body(resp: &ToolResponse) -> Value {
@@ -40,9 +52,8 @@ mod tests {
     #[test]
     #[ignore = "requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
     fn inspection_tools_report_booted_state() {
-        let (Some(os), Some(basic)) = (rom("atarixl.rom"), rom("ataribas.rom")) else {
-            eprintln!("skipping: ROMs not present");
-            return;
+        let (Some(os), Some(basic)) = roms() else {
+            panic!("{MISSING_ROMS}");
         };
         let runtime = Atari800xlRuntime::new(Model::A800xlNtsc, Some(os), Some(basic), None, true)
             .expect("runtime");
@@ -78,36 +89,45 @@ mod tests {
         assert!(chip(&mut session, "pokey")["irqen"].is_string());
         assert!(chip(&mut session, "pia")["portb"].is_string());
 
-        // Shared memory_read: 16 space-separated hex bytes by default.
-        let mem = call(&mut session, "memory_read", json!({"addr": "$0200"}));
-        let hex = mem["hex"].as_str().expect("hex string");
-        assert_eq!(hex.split_whitespace().count(), 16);
+        // Shared memory_read: addresses are integers, the observation reports
+        // `bytes` as an array rather than a `hex` string, and `len` defaults to
+        // 16. This test passed `"$0200"` and read `hex`, and was never run, so
+        // nothing caught either — see #905.
+        let mem = call(&mut session, "memory_read", json!({"addr": 0x0200}));
+        let bytes = mem["bytes"].as_array().expect("bytes array");
+        assert_eq!(bytes.len(), 16);
 
         // poke/read round-trip via the shared tools.
         call(
             &mut session,
             "poke_byte",
-            json!({"addr": "$0600", "value": "$5A"}),
+            json!({"addr": 0x0600, "value": 0x5A}),
         );
         let back = call(
             &mut session,
             "memory_read",
             json!({"addr": 0x0600, "len": 1}),
         );
-        assert_eq!(back["hex"].as_str().expect("hex"), "5A");
+        assert_eq!(
+            back["bytes"].as_array().expect("bytes array"),
+            &[json!(0x5A)]
+        );
 
         // poke_word is little-endian.
         call(
             &mut session,
             "poke_word",
-            json!({"addr": "$0610", "value": "$ABCD"}),
+            json!({"addr": 0x0610, "value": 0xABCD}),
         );
         let w = call(
             &mut session,
             "memory_read",
-            json!({"addr": "$0610", "len": 2}),
+            json!({"addr": 0x0610, "len": 2}),
         );
-        assert_eq!(w["hex"].as_str().expect("hex"), "CD AB");
+        assert_eq!(
+            w["bytes"].as_array().expect("bytes array"),
+            &[json!(0xCD), json!(0xAB)]
+        );
     }
 
     fn screen_addr(ram: &[u8]) -> usize {
@@ -129,9 +149,8 @@ mod tests {
     #[test]
     #[ignore = "requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
     fn run_and_input_tools_drive_basic() {
-        let (Some(os), Some(basic)) = (rom("atarixl.rom"), rom("ataribas.rom")) else {
-            eprintln!("skipping: ROMs not present");
-            return;
+        let (Some(os), Some(basic)) = roms() else {
+            panic!("{MISSING_ROMS}");
         };
         let runtime = Atari800xlRuntime::new(Model::A800xlNtsc, Some(os), Some(basic), None, true)
             .expect("runtime");
@@ -152,11 +171,16 @@ mod tests {
 
         // Shared run_until_pc: the idle BASIC prompt sits at its current PC,
         // so running to that PC is reached immediately.
-        let pc = call(&mut session, "query_cpu", json!({}))["pc"]
-            .as_str()
-            .expect("pc")
-            .to_owned();
-        let ran = call(&mut session, "run_until_pc", json!({"pc": pc}));
+        // `query_cpu` nests machine-specific fields under `registers` (its own
+        // tool description says so), and the 6502 reports `pc` as a `$XXXX`
+        // string. `run_until_pc` takes `addr`, as an integer. This test read
+        // `pc` from the top level and passed it back under the wrong key, in
+        // the wrong type — three mistakes that all needed the test to actually
+        // run before anything would say so.
+        let registers = call(&mut session, "query_cpu", json!({}))["registers"].clone();
+        let pc_text = registers["pc"].as_str().expect("pc is a $XXXX string");
+        let pc = u32::from_str_radix(pc_text.trim_start_matches('$'), 16).expect("pc parses");
+        let ran = call(&mut session, "run_until_pc", json!({"addr": pc}));
         assert_eq!(ran["reached"], true, "run_until_pc revisits idle PC: {ran}");
 
         // type_string drives BASIC: `PRINT 6*7` then RETURN evaluates to 42.
