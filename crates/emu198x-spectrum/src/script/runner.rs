@@ -28,7 +28,7 @@ use runtime_sinclair_zx_spectrum::{
 use serde::Serialize;
 
 use crate::AppError;
-use crate::machine::{MachineKind, rom_root, variant_rom_bundle};
+use crate::machine::{MachineKind, RomOverrides, resolved_rom_bundle, rom_override_entry};
 use crate::mcp::tools::{dispatch_live_step, execute_autoload_tape, execute_load_basic_program};
 use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapshot_at};
 
@@ -48,6 +48,11 @@ pub struct ScriptInputs {
     pub play_tape: bool,
     /// Run the BASIC autoload sequence on `tape-1` once boot is detected.
     pub autoload_tape: bool,
+    /// Raw `--rom` values. Resolved against the boot variant's bundle
+    /// once that variant is known, because `ID=PATH` is checked against
+    /// it and a bare `PATH` only means anything on a single-ROM variant.
+    /// Empty resolves the whole bundle under `~/.emu198x/roms`.
+    pub rom: Vec<String>,
 }
 
 /// Final report emitted on stdout when a script file is supplied.
@@ -98,7 +103,19 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
     let boot_kind =
         resolve_boot_kind(inputs.machine.as_deref(), preload.as_ref().map(|p| p.model))?;
 
-    let runtime = boot_eager_kind(boot_kind)?;
+    // Resolve `--rom` now the boot variant is settled: `ID=PATH` is
+    // checked against that variant's bundle, and a bare `PATH` only has a
+    // meaning on a single-ROM one.
+    let mut rom_overrides = RomOverrides::new();
+    for spec in &inputs.rom {
+        let (id, path) =
+            rom_override_entry(spec, boot_kind).map_err(|err| AppError::MissingRom {
+                path: err.to_string(),
+            })?;
+        rom_overrides.insert(id, path);
+    }
+
+    let runtime = boot_eager_kind(boot_kind, &rom_overrides)?;
     let frame_ticks = runtime.native_frame_ticks();
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
@@ -237,11 +254,12 @@ fn map_tool_error(err: ToolError) -> AppError {
 ///
 /// Pub(crate) so the binary's MCP mode reuses the same boot path —
 /// MCP's session lifecycle starts identically to script mode.
-pub(crate) fn boot_eager_48k() -> Result<Spectrum48kRuntime, AppError> {
-    let root = rom_root().ok_or_else(|| AppError::MissingRom {
-        path: "$HOME unset; cannot locate ROM bundle".to_owned(),
+pub(crate) fn boot_eager_48k(overrides: &RomOverrides) -> Result<Spectrum48kRuntime, AppError> {
+    let bundle = resolved_rom_bundle(MachineKind::Spectrum48K, overrides).map_err(|err| {
+        AppError::MissingRom {
+            path: err.to_string(),
+        }
     })?;
-    let bundle = variant_rom_bundle(MachineKind::Spectrum48K, &root);
     let (id, path) = bundle
         .into_iter()
         .next()
@@ -268,11 +286,13 @@ pub(crate) fn boot_eager_48k() -> Result<Spectrum48kRuntime, AppError> {
 /// `HeadlessSession::swap_machine`. The script runner holds the family
 /// enum (`SpectrumRuntimeKind`), so the result slots straight into the
 /// session regardless of which model was picked (#456).
-fn boot_eager_kind(kind: MachineKind) -> Result<SpectrumRuntimeKind, AppError> {
-    let root = rom_root().ok_or_else(|| AppError::MissingRom {
-        path: "$HOME unset; cannot locate ROM bundle".to_owned(),
+fn boot_eager_kind(
+    kind: MachineKind,
+    overrides: &RomOverrides,
+) -> Result<SpectrumRuntimeKind, AppError> {
+    let bundle = resolved_rom_bundle(kind, overrides).map_err(|err| AppError::MissingRom {
+        path: err.to_string(),
     })?;
-    let bundle = variant_rom_bundle(kind, &root);
     // Two-pass: read all ROM bytes first into a stable Vec<Vec<u8>>,
     // then push borrows into the FirmwareSet. Avoids the borrow-checker
     // conflict between mutating the holder and borrowing its entries.
@@ -614,7 +634,7 @@ mod tests {
     /// the 48K or 128K ROM bundles are absent.
     #[test]
     fn set_machine_step_swaps_variant_in_script_mode() {
-        let runtime = match boot_eager_48k() {
+        let runtime = match boot_eager_48k(&RomOverrides::new()) {
             Ok(rt) => rt,
             Err(_) => {
                 eprintln!("skipping: 48K ROM missing (set up ~/.emu198x/roms/...)");
