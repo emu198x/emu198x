@@ -38,5 +38,5 @@ pub use snapshot::{
     Paged128kMemory, SnapshotBankTarget, apply_48k_pages, apply_128k_bank_pages,
     apply_ay_registers, apply_z80_registers,
 };
-pub use tape::{TapeBlock, TapePlayer, TapeSpan};
+pub use tape::{SpectrumTapePlayer, TapeBlock, TapePlayer, TapeSpan};
 pub use tape_recorder::TapeRecorder;

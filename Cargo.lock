@@ -607,6 +607,7 @@ dependencies = [
 name = "common-sinclair-zx-spectrum"
 version = "0.2.2"
 dependencies = [
+ "common-tape",
  "format-sinclair-zx-spectrum-snapshot",
  "gi-ay-3-8912",
  "serde",
@@ -651,6 +652,13 @@ dependencies = [
  "serde",
  "serde_json",
  "zilog-z80",
+]
+
+[[package]]
+name = "common-tape"
+version = "0.2.2"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

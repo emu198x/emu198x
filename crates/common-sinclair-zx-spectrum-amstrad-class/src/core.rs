@@ -15,6 +15,7 @@
 //! peripheral on this core. See
 //! `knowledge/decisions/spectrum-joystick-architecture.md`.
 
+use common_sinclair_zx_spectrum::SpectrumTapePlayer;
 use std::marker::PhantomData;
 
 use amstrad_ula_40077::AmstradGateArray;

@@ -36,16 +36,12 @@ pub const PAUSE_MS: u32 = 1_000;
 /// CPU T-states per millisecond at 3.5 MHz.
 pub const TSTATES_PER_MS: u32 = 3_500;
 
-/// One machine-facing tape timing span.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum TapeSpan {
-    /// Hold the current level for `duration` T-states, then toggle it.
-    Pulse(u32),
-    /// Hold `level` for `duration` T-states without an edge at the end.
-    Level { duration: u32, level: bool },
-    /// Stop playback and wait for explicit user resume.
-    Stop,
-}
+// `TapeSpan` and `TapePlayer` moved to `common-tape` on 2026-08-14: they are
+// the same model for every machine with a cassette port, and the Amstrad CPC
+// needs them. Re-exported here so Spectrum-family code and its 12 consumers
+// carry on importing them from this crate. See
+// `knowledge/decisions/crate-naming.md`.
+pub use common_tape::{TapePlayer, TapeSpan};
 
 /// One standard-speed tape block ready for playback.
 ///
@@ -57,165 +53,20 @@ pub struct TapeBlock {
     pub data: Vec<u8>,
 }
 
-/// Tape player that advances through one timing-span stream.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct TapePlayer {
-    spans: Vec<TapeSpan>,
-    span_idx: usize,
-    level: bool,
-    countdown: u32,
-    playing: bool,
-}
-
-impl TapePlayer {
-    /// Creates an empty tape player with no loaded media.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            spans: Vec::new(),
-            span_idx: 0,
-            level: false,
-            countdown: 0,
-            playing: false,
-        }
-    }
-
-    /// Loads one timing-span stream and rewinds playback to the start.
-    pub fn load_stream(&mut self, spans: Vec<TapeSpan>) {
-        self.spans = spans;
-        self.span_idx = 0;
-        self.level = false;
-        self.countdown = 0;
-        self.playing = false;
-    }
-
-    /// Loads a raw pulse stream and rewinds playback to the start.
-    pub fn load_pulses(&mut self, pulses: Vec<u32>) {
-        self.load_stream(pulses.into_iter().map(TapeSpan::Pulse).collect());
-    }
-
+/// Loading standard-speed Spectrum ROM blocks into a player.
+///
+/// This is an extension trait rather than a method on [`TapePlayer`] because
+/// the player is machine-agnostic and this encoding is not: pilot counts, sync
+/// lengths and bit pulses are the Spectrum ROM loader's format. A machine that
+/// wants them imports this trait; the Amstrad CPC does not.
+pub trait SpectrumTapePlayer {
     /// Converts standard-speed blocks into timing spans and loads them.
-    pub fn load_blocks(&mut self, blocks: Vec<TapeBlock>) {
-        self.load_stream(standard_blocks_to_stream(&blocks));
-    }
-
-    /// Starts or resumes playback from the current tape position.
-    pub fn play(&mut self) {
-        if self.playing || self.span_idx >= self.spans.len() {
-            return;
-        }
-
-        self.playing = true;
-        if self.countdown == 0 {
-            self.start_current_span();
-        }
-    }
-
-    /// Stops playback without rewinding the current tape position.
-    pub fn stop(&mut self) {
-        self.playing = false;
-    }
-
-    /// Returns whether any tape media is currently loaded.
-    #[must_use]
-    pub fn has_tape(&self) -> bool {
-        !self.spans.is_empty()
-    }
-
-    /// Returns whether playback is currently active.
-    #[must_use]
-    pub fn is_playing(&self) -> bool {
-        self.playing
-    }
-
-    /// Returns the current EAR level.
-    #[must_use]
-    pub fn ear_level(&self) -> bool {
-        self.level
-    }
-
-    /// Diagnostic: returns the current playback position (span index)
-    /// and total span count.
-    #[must_use]
-    pub fn span_position(&self) -> (usize, usize) {
-        (self.span_idx, self.spans.len())
-    }
-
-    /// Diagnostic: returns the T-states remaining on the current span
-    /// (the countdown).
-    #[must_use]
-    pub fn span_countdown(&self) -> u32 {
-        self.countdown
-    }
-
-    /// Diagnostic: returns the current span variant, if any.
-    #[must_use]
-    pub fn current_span(&self) -> Option<&TapeSpan> {
-        self.spans.get(self.span_idx)
-    }
-
-    /// Advances the tape by the supplied number of CPU T-states.
-    pub fn advance_tstates(&mut self, tstates: u32) {
-        if !self.playing {
-            return;
-        }
-
-        let mut remaining = tstates;
-        while remaining > 0 && self.playing {
-            if self.countdown > remaining {
-                self.countdown -= remaining;
-                return;
-            }
-
-            remaining -= self.countdown;
-
-            if matches!(self.spans.get(self.span_idx), Some(TapeSpan::Pulse(_))) {
-                self.level = !self.level;
-            }
-
-            self.countdown = 0;
-            self.span_idx += 1;
-            self.start_current_span();
-        }
-    }
-
-    fn start_current_span(&mut self) {
-        while self.span_idx < self.spans.len() {
-            match self.spans[self.span_idx] {
-                TapeSpan::Pulse(0) => {
-                    self.level = !self.level;
-                    self.span_idx += 1;
-                }
-                TapeSpan::Pulse(duration) => {
-                    self.countdown = duration;
-                    return;
-                }
-                TapeSpan::Level { duration, level } => {
-                    self.level = level;
-                    if duration == 0 {
-                        self.span_idx += 1;
-                        continue;
-                    }
-                    self.countdown = duration;
-                    return;
-                }
-                TapeSpan::Stop => {
-                    self.span_idx += 1;
-                    self.playing = false;
-                    self.countdown = 0;
-                    return;
-                }
-            }
-        }
-
-        self.playing = false;
-        self.countdown = 0;
-    }
+    fn load_blocks(&mut self, blocks: Vec<TapeBlock>);
 }
 
-impl Default for TapePlayer {
-    fn default() -> Self {
-        Self::new()
+impl SpectrumTapePlayer for TapePlayer {
+    fn load_blocks(&mut self, blocks: Vec<TapeBlock>) {
+        self.load_stream(standard_blocks_to_stream(&blocks));
     }
 }
 

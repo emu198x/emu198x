@@ -12,6 +12,7 @@
 //! Timex — have their own ULAs and additional state (AY, paging, FDC)
 //! and keep their own machine implementations.
 
+use common_sinclair_zx_spectrum::SpectrumTapePlayer;
 use std::marker::PhantomData;
 
 use common_sinclair_zx_spectrum::audio::{
