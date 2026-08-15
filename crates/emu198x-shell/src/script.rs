@@ -1544,8 +1544,24 @@ impl ScriptStep {
                             step: "type_string",
                         });
                     };
-                    let chords: Vec<Vec<String>> =
-                        text.chars().filter_map(|ch| kt.keys_for_char(ch)).collect();
+                    // Refuse rather than skip. `filter_map` here dropped any
+                    // character the machine could not type and carried on, so
+                    // a script asked for one string and the machine received
+                    // another. On the C64 that quietly turned
+                    // `H=48+C+(C>9)*57` into `H=48+C+(C9)*57` — still valid
+                    // BASIC, still runs, wrong answer (#916). For a scripted,
+                    // non-interactive tool, refusing to type is far better
+                    // than typing something else.
+                    let mut chords: Vec<Vec<String>> = Vec::with_capacity(text.chars().count());
+                    for ch in text.chars() {
+                        let Some(chord) = kt.keys_for_char(ch) else {
+                            return Err(ScriptError::UntypableCharacter {
+                                ch,
+                                supported: kt.key_names_hint().to_owned(),
+                            });
+                        };
+                        chords.push(chord);
+                    }
                     (kt.key_timing(), chords)
                 };
                 let hold = hold_frames
@@ -1804,6 +1820,15 @@ pub enum ScriptError {
     /// Query resolution failed.
     #[error(transparent)]
     Query(#[from] QueryError),
+
+    /// `type_string` was given a character this machine's keyboard cannot
+    /// produce. Reported rather than skipped: a script that asks for text and
+    /// silently receives different text is worse than one that fails.
+    #[error(
+        "`type_string` cannot type {ch:?} on this machine — it has no keycap \
+         or shift chord for it. Supported keys: {supported}"
+    )]
+    UntypableCharacter { ch: char, supported: String },
 
     /// One step requires a binary-side handler the shell crate does
     /// not own (e.g. `SetMachine`, `AutoloadTape`). Per-system binaries
@@ -2406,11 +2431,11 @@ mod tests {
             other => panic!("expected InvalidStep, got {other:?}"),
         }
 
-        // type_string counts only translatable chars: 'a','B',' ' map; '!' skips.
+        // type_string types every character it was given.
         match run(
             &mut session,
             ScriptStep::TypeString {
-                text: "aB !".to_owned(),
+                text: "aB ".to_owned(),
                 hold_frames: None,
                 settle_frames: None,
             },
@@ -2419,6 +2444,23 @@ mod tests {
         {
             ScriptObservation::TypeString { chars_typed, .. } => assert_eq!(chars_typed, 3),
             other => panic!("expected TypeString, got {other:?}"),
+        }
+
+        // ...and refuses one it cannot. This assertion used to read the other
+        // way round — `"aB !"` typed three characters and dropped the `!`
+        // without complaint, which is the behaviour #916 was filed against.
+        // The dummy target here supports only A-Z, Space and Enter, so `!` is
+        // untypable on it exactly as the eight missing symbols were on a real
+        // C64.
+        match (ScriptStep::TypeString {
+            text: "aB !".to_owned(),
+            hold_frames: None,
+            settle_frames: None,
+        })
+        .execute_collect(&mut session)
+        {
+            Err(ScriptError::UntypableCharacter { ch, .. }) => assert_eq!(ch, '!'),
+            other => panic!("expected UntypableCharacter, got {other:?}"),
         }
     }
 
