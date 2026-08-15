@@ -104,6 +104,7 @@ members = [
     "crates/emu198x-acorn-bbc-micro",
     "crates/emu198x-acorn-electron",
     "crates/emu198x-acorn-atom",
+    "crates/emu198x-amstrad-cpc",
     "crates/emu198x-atari-2600",
     "crates/emu198x-atari-5200",
     "crates/emu198x-atari-7800",

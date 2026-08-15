@@ -41,6 +41,10 @@ name = "emu198x-amiga"
 git_only = true
 
 [[package]]
+name = "emu198x-amstrad-cpc"
+git_only = true
+
+[[package]]
 name = "emu198x-atari-2600"
 git_only = true
 
