@@ -19,6 +19,7 @@
 // doesn't flip on something that's transient.
 #![cfg_attr(not(feature = "ui"), allow(dead_code))]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Every Spectrum-family variant: the SOLID 8 plus the five exotics.
@@ -253,9 +254,159 @@ pub enum FirmwareError {
         path: String,
     },
 
+    /// A `--rom ID=PATH` override named an ID this variant does not have.
+    #[error("no ROM `{id}` on {machine}; this variant takes: {known}")]
+    UnknownRomId {
+        /// The firmware ID the caller asked to override.
+        id: String,
+        /// The variant's script identifier, e.g. `spectrum_128k`.
+        machine: &'static str,
+        /// The IDs this variant does take, comma-separated.
+        known: String,
+    },
+
+    /// A bare `--rom PATH` was given for a variant that boots several
+    /// ROMs, so which one it meant is unknowable.
+    #[error(
+        "{machine} boots {count} ROMs, so a bare --rom PATH is ambiguous; \
+         use --rom ID=PATH with one of: {known}"
+    )]
+    AmbiguousRomPath {
+        /// The variant's script identifier.
+        machine: &'static str,
+        /// How many ROMs the variant boots.
+        count: usize,
+        /// The IDs this variant takes, comma-separated.
+        known: String,
+    },
+
     /// Filesystem read failed for one ROM.
     #[error(transparent)]
     Io(#[from] std::io::Error),
+}
+
+/// Caller-supplied ROM paths, keyed by the firmware ID
+/// [`variant_rom_bundle`] uses.
+///
+/// Empty is the ordinary case: every ROM resolves under [`rom_root`].
+/// An entry replaces exactly one bundle path and leaves the rest alone,
+/// which is what this family needs — a +3 boots four ROMs, so a single
+/// scalar `--rom` could not express "this one, conventional for the
+/// other three" (#842).
+pub type RomOverrides = BTreeMap<String, PathBuf>;
+
+/// Parse one `--rom ID=PATH` spec.
+///
+/// Splits on the first `=` only, because a path may contain one.
+/// Returns `None` for a malformed spec so the caller can report it with
+/// its own usage text.
+#[must_use]
+pub fn parse_rom_override_spec(spec: &str) -> Option<(String, PathBuf)> {
+    let (id, path) = spec.split_once('=')?;
+    if id.is_empty() || path.is_empty() {
+        return None;
+    }
+    Some((id.to_owned(), PathBuf::from(path)))
+}
+
+/// Turn one `--rom` value into an override entry against `kind`'s bundle.
+///
+/// Accepts both spellings so one flag means one thing across every mode:
+///
+/// - `ID=PATH` names the bundle entry explicitly, and is the only form
+///   that can express a multi-ROM variant.
+/// - a bare `PATH` is sugar for the sole ROM of a single-ROM variant.
+///
+/// # Errors
+///
+/// [`FirmwareError::AmbiguousRomPath`] for a bare path on a variant with
+/// more than one ROM. Silently applying it to the first entry leaves the
+/// rest conventional, which boots a machine assembled from two different
+/// ROM sets and reports success.
+pub fn rom_override_entry(
+    spec: &str,
+    kind: MachineKind,
+) -> Result<(String, PathBuf), FirmwareError> {
+    if let Some(entry) = parse_rom_override_spec(spec) {
+        return Ok(entry);
+    }
+    let bundle = variant_rom_bundle(kind, Path::new(""));
+    match bundle.as_slice() {
+        [(id, _)] => Ok(((*id).to_owned(), PathBuf::from(spec))),
+        _ => Err(FirmwareError::AmbiguousRomPath {
+            machine: kind.script_id(),
+            count: bundle.len(),
+            known: bundle
+                .iter()
+                .map(|(id, _)| *id)
+                .collect::<Vec<_>>()
+                .join(", "),
+        }),
+    }
+}
+
+/// Apply `overrides` to a bundle, replacing paths by firmware ID.
+///
+/// # Errors
+///
+/// [`FirmwareError::UnknownRomId`] if an override names an ID the
+/// variant does not have. Ignoring it would silently boot the
+/// conventional ROM after being told to use a specific one — the
+/// failure mode this flag exists to prevent, and one that looks like a
+/// success.
+pub fn apply_rom_overrides(
+    bundle: Vec<(&'static str, PathBuf)>,
+    overrides: &RomOverrides,
+    kind: MachineKind,
+) -> Result<Vec<(&'static str, PathBuf)>, FirmwareError> {
+    if let Some(unknown) = overrides.keys().find(|id| {
+        !bundle
+            .iter()
+            .any(|(bundle_id, _)| *bundle_id == id.as_str())
+    }) {
+        return Err(FirmwareError::UnknownRomId {
+            id: unknown.clone(),
+            machine: kind.script_id(),
+            known: bundle
+                .iter()
+                .map(|(id, _)| *id)
+                .collect::<Vec<_>>()
+                .join(", "),
+        });
+    }
+    Ok(bundle
+        .into_iter()
+        .map(|(id, path)| match overrides.get(id) {
+            Some(override_path) => (id, override_path.clone()),
+            None => (id, path),
+        })
+        .collect())
+}
+
+/// The variant's ROM bundle with any overrides applied.
+///
+/// # Errors
+///
+/// [`FirmwareError::HomeUnset`] if `HOME` is unset *and* the overrides
+/// leave some ROM to resolve conventionally. An invocation that names
+/// every ROM explicitly has no use for the convention root, and failing
+/// it there would make the flag useless in exactly the sandboxed builds
+/// that most want it. [`FirmwareError::UnknownRomId`] for an override
+/// naming no ROM of this variant.
+pub fn resolved_rom_bundle(
+    kind: MachineKind,
+    overrides: &RomOverrides,
+) -> Result<Vec<(&'static str, PathBuf)>, FirmwareError> {
+    // `rom_root` fails only with HOME unset. Build against a placeholder
+    // in that case: if the overrides name every ROM no placeholder path
+    // survives, and if they do not, the check below names the gap.
+    let root = rom_root();
+    let bundle = variant_rom_bundle(kind, root.as_deref().unwrap_or_else(|| Path::new("")));
+    let resolved = apply_rom_overrides(bundle, overrides, kind)?;
+    if root.is_none() && resolved.iter().any(|(id, _)| !overrides.contains_key(*id)) {
+        return Err(FirmwareError::HomeUnset);
+    }
+    Ok(resolved)
 }
 
 /// Reads every ROM the variant declares from disk into owned byte
@@ -295,5 +446,164 @@ mod tests {
     fn script_id_returns_none_for_unknown_variant() {
         assert_eq!(MachineKind::from_script_id("spectrum_999k"), None);
         assert_eq!(MachineKind::from_script_id(""), None);
+    }
+
+    #[test]
+    fn a_rom_spec_splits_on_its_first_equals() {
+        // A path may contain `=`, so only the first one separates.
+        assert_eq!(
+            parse_rom_override_spec("sinclair-zx-spectrum-48k-rom=/roms/a=b/48.rom"),
+            Some((
+                "sinclair-zx-spectrum-48k-rom".to_owned(),
+                PathBuf::from("/roms/a=b/48.rom")
+            ))
+        );
+    }
+
+    #[test]
+    fn a_malformed_rom_spec_is_rejected_rather_than_guessed() {
+        for spec in ["", "=", "no-equals-here", "=/roms/48.rom", "some-id="] {
+            assert_eq!(parse_rom_override_spec(spec), None, "{spec:?}");
+        }
+    }
+
+    #[test]
+    fn an_override_replaces_only_the_rom_it_names() {
+        // The 128K takes two ROMs; pinning one must leave the other
+        // resolving conventionally, which is the whole reason the flag is
+        // keyed by ID rather than being a scalar `--rom`.
+        let root = Path::new("/conventional");
+        let bundle = variant_rom_bundle(MachineKind::Spectrum128K, root);
+        let mut overrides = RomOverrides::new();
+        overrides.insert(
+            "sinclair-zx-spectrum-128k-rom-1".to_owned(),
+            PathBuf::from("/pinned/128-1.rom"),
+        );
+
+        let resolved = apply_rom_overrides(bundle, &overrides, MachineKind::Spectrum128K)
+            .expect("a known id resolves");
+        assert_eq!(resolved.len(), 2);
+        assert_eq!(resolved[0].0, "sinclair-zx-spectrum-128k-rom-0");
+        assert_eq!(
+            resolved[0].1,
+            root.join("sinclair-zx-spectrum-128k/128-0.rom"),
+            "the un-named ROM must still resolve conventionally"
+        );
+        assert_eq!(resolved[1].1, PathBuf::from("/pinned/128-1.rom"));
+    }
+
+    #[test]
+    fn an_unknown_rom_id_is_an_error_not_a_silent_fallback() {
+        // Booting the conventional ROM after being told to use a specific
+        // one is the failure this flag exists to prevent: it looks like a
+        // success and produces the wrong bytes (#842).
+        let bundle = variant_rom_bundle(MachineKind::Spectrum48K, Path::new("/conventional"));
+        let mut overrides = RomOverrides::new();
+        overrides.insert(
+            "sinclair-zx-spectrum-128k-rom-0".to_owned(),
+            PathBuf::from("/pinned/128-0.rom"),
+        );
+
+        let err = apply_rom_overrides(bundle, &overrides, MachineKind::Spectrum48K)
+            .expect_err("a 128K id on a 48K boot should be refused");
+        let message = err.to_string();
+        assert!(
+            message.contains("sinclair-zx-spectrum-128k-rom-0"),
+            "{message}"
+        );
+        assert!(message.contains("spectrum_48k"), "{message}");
+        // The error names what the variant does take, so the fix is visible.
+        assert!(
+            message.contains("sinclair-zx-spectrum-48k-rom"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn every_variants_bundle_ids_are_overridable() {
+        // A caller can only pin what the bundle names, so every ID the
+        // bundle produces must round-trip through `apply_rom_overrides`.
+        // Catches a variant added with an ID that nothing can address.
+        for kind in MachineKind::all() {
+            let bundle = variant_rom_bundle(kind, Path::new("/conventional"));
+            assert!(!bundle.is_empty(), "{} has no ROMs", kind.script_id());
+            let overrides: RomOverrides = bundle
+                .iter()
+                .map(|(id, _)| ((*id).to_owned(), PathBuf::from(format!("/pinned/{id}"))))
+                .collect();
+            let resolved = apply_rom_overrides(bundle, &overrides, kind)
+                .unwrap_or_else(|err| panic!("{}: {err}", kind.script_id()));
+            for (id, path) in resolved {
+                assert_eq!(
+                    path,
+                    PathBuf::from(format!("/pinned/{id}")),
+                    "{} did not honour {id}",
+                    kind.script_id()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_bare_path_names_the_sole_rom_of_a_single_rom_variant() {
+        // The UI's `--rom 48.rom` spelling, which predates the flag taking
+        // IDs and must keep working.
+        let (id, path) = rom_override_entry("/roms/48.rom", MachineKind::Spectrum48K)
+            .expect("48K takes one ROM");
+        assert_eq!(id, "sinclair-zx-spectrum-48k-rom");
+        assert_eq!(path, PathBuf::from("/roms/48.rom"));
+    }
+
+    #[test]
+    fn a_bare_path_on_a_multi_rom_variant_is_refused() {
+        // Applying it to the first entry would leave the other three
+        // conventional and boot a machine assembled from two ROM sets,
+        // reporting success. That is what the UI's `--rom` used to do.
+        let err = rom_override_entry("/roms/plus3-0.rom", MachineKind::SpectrumPlus3)
+            .expect_err("a +3 boots four ROMs");
+        let message = err.to_string();
+        assert!(message.contains("boots 4 ROMs"), "{message}");
+        assert!(message.contains("--rom ID=PATH"), "{message}");
+        assert!(
+            message.contains("sinclair-zx-spectrum-plus3-rom-3"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn an_id_spelling_works_on_a_single_rom_variant_too() {
+        // One flag, one meaning across every variant: the explicit form is
+        // never wrong, so a caller can always use it.
+        let (id, path) = rom_override_entry(
+            "sinclair-zx-spectrum-48k-rom=/roms/48.rom",
+            MachineKind::Spectrum48K,
+        )
+        .expect("the explicit form is always accepted");
+        assert_eq!(id, "sinclair-zx-spectrum-48k-rom");
+        assert_eq!(path, PathBuf::from("/roms/48.rom"));
+    }
+
+    #[test]
+    fn overriding_the_whole_bundle_does_not_need_home() {
+        // The sandboxed builds that most want this flag are exactly the
+        // ones without a usable `$HOME`; requiring the convention root
+        // there would make the flag useless where it matters most.
+        //
+        // `rom_root` reads the process environment, so this test cannot
+        // manipulate it safely alongside others. Assert the same property
+        // through the piece that decides it instead: with every ID named,
+        // no conventional path survives, so nothing needs the root.
+        let bundle = variant_rom_bundle(MachineKind::SpectrumPlus3, Path::new(""));
+        let overrides: RomOverrides = bundle
+            .iter()
+            .map(|(id, _)| ((*id).to_owned(), PathBuf::from(format!("/pinned/{id}"))))
+            .collect();
+        let resolved = apply_rom_overrides(bundle, &overrides, MachineKind::SpectrumPlus3)
+            .expect("all four ids are known");
+        assert_eq!(resolved.len(), 4);
+        assert!(
+            resolved.iter().all(|(_, path)| path.starts_with("/pinned")),
+            "a conventional path survived: {resolved:?}"
+        );
     }
 }

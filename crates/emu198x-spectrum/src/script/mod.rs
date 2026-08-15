@@ -54,16 +54,26 @@ Options:
     --autoload-tape      wait for boot, type LOAD \"\", and start tape-1
                          (== { \"action\": \"autoload_tape\", \"slot\": \"tape-1\",
                               \"max_boot_frames\": 250 })
+    --rom ID=PATH        boot this ROM instead of the conventional one.
+                         Repeatable; each ID names one entry of the
+                         variant's bundle and the rest still resolve
+                         under ~/.emu198x/roms. An ID the variant does
+                         not have is an error, not a silent fallback.
+                         48K family:  sinclair-zx-spectrum-48k-rom
+                         128K:        sinclair-zx-spectrum-128k-rom-{0,1}
+                         +2:          sinclair-zx-spectrum-plus2-rom-{0,1}
+                         +2A/+3:      sinclair-zx-spectrum-plus3-rom-{0..3}
     --help, -h           show this help
 
-For richer automation (firmware overrides, snapshots, screenshots,
-audio capture, frame counts, query waits) write a JSON script.
-See `knowledge/decisions/script-vocabulary.md` for the schema.
+For richer automation (snapshots, screenshots, audio capture, frame
+counts, query waits) write a JSON script. `ScriptStep` in
+`crates/emu198x-shell/src/script.rs` is the schema.
 
 Examples:
     emu198x-spectrum --script boot.json
     emu198x-spectrum --headless --tape manic.tzx --autoload-tape --script run.json
     emu198x-spectrum --headless --machine spectrum_128k --tape testInt.tap --script run.json
+    emu198x-spectrum --headless --rom sinclair-zx-spectrum-48k-rom=/roms/48.rom --script run.json
 ";
 
 /// CLI surface for headless / script mode.
@@ -80,6 +90,8 @@ pub struct ScriptCli {
     pub play_tape: bool,
     /// Run the BASIC autoload sequence on `tape-1` once boot is detected.
     pub autoload_tape: bool,
+    /// Raw `--rom` values, resolved against the boot variant's bundle.
+    pub rom: Vec<String>,
 }
 
 /// Parses CLI args for headless / script mode. Mode flags (`--headless`,
@@ -94,7 +106,11 @@ where
 
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--headless" => {} // Mode marker; already detected by the dispatcher.
+            // Mode markers; already detected by the dispatcher. `--mcp` is
+            // here because MCP mode reuses this parser to pick up `--rom`,
+            // and the catch-all below would otherwise kill the process on
+            // the very flag that selected the mode.
+            "--headless" | "--mcp" => {}
             "--script" => {
                 cli.script = Some(PathBuf::from(next_arg(&mut iter, "--script")));
             }
@@ -102,6 +118,12 @@ where
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
             "--play-tape" => cli.play_tape = true,
             "--autoload-tape" => cli.autoload_tape = true,
+            "--rom" => {
+                // Resolution needs the boot variant, which `--machine` may
+                // not have supplied yet, so keep the raw spec and resolve in
+                // `run` once the variant is known.
+                cli.rom.push(next_arg(&mut iter, "--rom"));
+            }
             "--help" | "-h" => {
                 println!("{USAGE}");
                 process::exit(0);
@@ -122,6 +144,7 @@ pub fn run(cli: ScriptCli) -> Result<(), AppError> {
         tape: cli.tape.clone(),
         play_tape: cli.play_tape,
         autoload_tape: cli.autoload_tape,
+        rom: cli.rom.clone(),
     };
 
     let report = run_script(inputs)?;
@@ -192,6 +215,7 @@ mod tests {
                 tape: Some(PathBuf::from("manic.tzx")),
                 play_tape: false,
                 autoload_tape: true,
+                rom: Vec::new(),
             }
         );
     }

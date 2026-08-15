@@ -44,7 +44,9 @@ use runtime_sinclair_zx_spectrum::{
     SpectrumRuntimeKind, SpectrumSessionQueryProvider, autoload_basic_tape,
 };
 
-use crate::machine::{MachineKind, read_variant_firmware, rom_root, variant_rom_bundle};
+use crate::machine::{
+    MachineKind, RomOverrides, read_variant_firmware, resolved_rom_bundle, rom_override_entry,
+};
 use crate::mcp::tools::kind_to_model;
 
 const DEFAULT_SCALE: u32 = 2;
@@ -300,7 +302,8 @@ fn load_any_snapshot(runtime: &mut SpectrumRuntimeKind, path: &Path) -> Result<(
 /// Parsed interactive CLI (preserved from the bespoke runner).
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Cli {
-    pub rom: Option<PathBuf>,
+    /// Raw `--rom` values, resolved against the boot variant's bundle.
+    pub rom: Vec<String>,
     pub tape: Option<PathBuf>,
     pub play_tape: bool,
     pub autoload_tape: bool,
@@ -313,7 +316,9 @@ const USAGE: &str = "\
 Usage: emu198x-spectrum [OPTIONS]
 
 Options:
-    --rom PATH         48K ROM image or zip containing one ROM candidate
+    --rom PATH         ROM image or zip, for a single-ROM variant
+    --rom ID=PATH      one entry of a multi-ROM variant's bundle;
+                       repeatable, the rest still resolve conventionally
     --tape PATH        TAP/TZX image or zip containing one tape candidate
     --play-tape        start tape transport immediately after media load
     --autoload-tape    wait for boot, type LOAD \"\", and start tape-1
@@ -416,29 +421,40 @@ fn build_runtime(cli: &Cli) -> Result<SpectrumRuntimeKind, String> {
     Ok(session.into_machine())
 }
 
-/// The 48K firmware: the `--rom` override (a single 48K image) or the staged
-/// variant bundle.
+/// The variant's firmware: every `--rom` override applied over the staged
+/// bundle.
+///
+/// This used to take the first bundle entry, read the one `--rom` file into
+/// it, and return a single-image set — which on a 128K handed a two-ROM
+/// machine one ROM. Routing through `resolved_rom_bundle` means every
+/// variant gets its whole bundle, with only the named entries replaced
+/// (#842).
 fn resolve_firmware(cli: &Cli, kind: MachineKind) -> Result<Vec<(String, Vec<u8>)>, String> {
-    if let Some(rom_path) = &cli.rom {
-        let root = rom_root().ok_or("$HOME unset; cannot locate the 48K ROM id")?;
-        let id = variant_rom_bundle(kind, &root)
-            .first()
-            .map(|(id, _)| (*id).to_owned())
-            .ok_or("no firmware id for the 48K")?;
-        let bytes = read_firmware_asset(rom_path)
+    let mut overrides = RomOverrides::new();
+    for spec in &cli.rom {
+        let (id, path) = rom_override_entry(spec, kind).map_err(|e| e.to_string())?;
+        overrides.insert(id, path);
+    }
+    if overrides.is_empty() {
+        return read_variant_firmware(kind)
+            .map(|images| {
+                images
+                    .into_iter()
+                    .map(|(id, b)| (id.to_owned(), b))
+                    .collect()
+            })
+            .map_err(|e| e.to_string());
+    }
+    let bundle = resolved_rom_bundle(kind, &overrides).map_err(|e| e.to_string())?;
+    let mut images = Vec::with_capacity(bundle.len());
+    for (id, path) in bundle {
+        let bytes = read_firmware_asset(&path)
             .map_err(|e| e.to_string())?
             .bytes
             .to_vec();
-        return Ok(vec![(id, bytes)]);
+        images.push((id.to_owned(), bytes));
     }
-    read_variant_firmware(kind)
-        .map(|images| {
-            images
-                .into_iter()
-                .map(|(id, b)| (id.to_owned(), b))
-                .collect()
-        })
-        .map_err(|e| e.to_string())
+    Ok(images)
 }
 
 /// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
@@ -453,7 +469,7 @@ where
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
+            "--rom" => cli.rom.push(next_arg(&mut iter, "--rom")),
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
             "--play-tape" => cli.play_tape = true,
             "--autoload-tape" => cli.autoload_tape = true,
@@ -520,7 +536,7 @@ mod tests {
             "--scale".to_owned(),
             "3".to_owned(),
         ]);
-        assert_eq!(cli.rom, Some(PathBuf::from("48.rom")));
+        assert_eq!(cli.rom, vec!["48.rom".to_owned()]);
         assert_eq!(cli.tape, Some(PathBuf::from("manic.zip")));
         assert!(cli.autoload_tape);
         assert_eq!(cli.scale, 3);

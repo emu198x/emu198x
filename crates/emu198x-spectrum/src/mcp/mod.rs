@@ -23,6 +23,7 @@ use emu198x_shell::{
 use runtime_sinclair_zx_spectrum::{SpectrumRuntimeKind, SpectrumSessionQueryProvider};
 
 use crate::AppError;
+use crate::machine::{MachineKind, RomOverrides, rom_override_entry};
 use crate::script::runner::boot_eager_48k;
 
 /// Runs MCP mode. Boots an eager 48K session wrapped in the
@@ -34,8 +35,20 @@ use crate::script::runner::boot_eager_48k;
 ///
 /// Returns an error if the 48K ROM cannot be loaded or the stdio loop
 /// hits an I/O failure.
-pub fn run() -> Result<(), AppError> {
-    let runtime_48k = boot_eager_48k()?;
+pub fn run(rom_specs: &[String]) -> Result<(), AppError> {
+    // MCP always boots 48K eagerly, so `--rom` resolves against that
+    // bundle; a client that then swaps variant via `set_machine` gets the
+    // conventional ROMs for the new one.
+    let mut rom_overrides = RomOverrides::new();
+    for spec in rom_specs {
+        let (id, path) = rom_override_entry(spec, MachineKind::Spectrum48K).map_err(|err| {
+            AppError::MissingRom {
+                path: err.to_string(),
+            }
+        })?;
+        rom_overrides.insert(id, path);
+    }
+    let runtime_48k = boot_eager_48k(&rom_overrides)?;
     let kind = SpectrumRuntimeKind::Spectrum48K(runtime_48k);
     let frame_halfcycles = u64::from(kind.frame_halfcycles());
     let mut session = HeadlessSession::new_with_query_provider(
@@ -181,7 +194,7 @@ mod tests {
     /// when the ROM is absent.
     #[test]
     fn mcp_tools_drive_a_real_boot() {
-        let runtime_48k = match boot_eager_48k() {
+        let runtime_48k = match boot_eager_48k(&RomOverrides::new()) {
             Ok(rt) => rt,
             Err(_) => {
                 eprintln!("skipping: 48K ROM missing (set up ~/.emu198x/roms/...)");
@@ -262,7 +275,7 @@ mod tests {
     /// applied. Skips when the 48K ROM is absent.
     #[test]
     fn load_snapshot_routes_portable_sna_not_postcard() {
-        let runtime_48k = match boot_eager_48k() {
+        let runtime_48k = match boot_eager_48k(&RomOverrides::new()) {
             Ok(rt) => rt,
             Err(_) => {
                 eprintln!("skipping: 48K ROM missing (set up ~/.emu198x/roms/...)");

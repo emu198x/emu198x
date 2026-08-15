@@ -70,7 +70,11 @@ pub enum AppError {
     #[error("invalid --scale value {value}")]
     InvalidScale { value: u32 },
 
-    #[error("no ROM supplied and default Spectrum ROM was not found at {path}")]
+    // `path` also carries a `FirmwareError`'s message on the boot paths
+    // that flatten one into here, so the wording has to fit both a bare
+    // path and a sentence. It used to say "no ROM supplied", which became
+    // wrong the moment `--rom` could supply one (#842).
+    #[error("Spectrum ROM unavailable: {path}")]
     MissingRom { path: String },
 
     #[error(transparent)]
@@ -152,7 +156,13 @@ fn main() {
             let cli = script::parse_cli(args);
             script::run(cli)
         }
-        Mode::Mcp => mcp::run(),
+        Mode::Mcp => {
+            // `--rom ID=PATH` applies to the eager 48K boot here too, so
+            // an MCP client can be handed a pinned ROM the same way a
+            // script run can (#842).
+            let cli = script::parse_cli(args);
+            mcp::run(&cli.rom)
+        }
     };
 
     if let Err(err) = result {
