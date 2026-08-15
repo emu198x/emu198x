@@ -601,9 +601,40 @@ impl AmstradCpc {
                     return self.psg.read_data();
                 }
             }
+            if ppi_port == 1 {
+                return self.port_b();
+            }
             return self.ppi.read(ppi_port);
         }
         0xFF
+    }
+
+    /// PPI port B, which is wired to the outside world rather than driven by
+    /// the PPI itself, so the value is assembled here rather than read back
+    /// from the chip.
+    ///
+    /// | Bit | Source |
+    /// |---|---|
+    /// | 7 | Cassette read data |
+    /// | 6 | Printer busy |
+    /// | 4 | Refresh rate link: 1 = 50 Hz |
+    /// | 3-1 | Manufacturer link |
+    /// | 0 | **VSync** |
+    ///
+    /// Bit 0 is the one that matters most and was missing until now. It is how
+    /// a program waits for the frame: the firmware does not need it to boot, so
+    /// the machine reached its `Ready` prompt without it, but any loader or
+    /// game that syncs to the raster spins forever on a bit that never changes.
+    fn port_b(&self) -> u8 {
+        // MAME assembles the link bits as
+        // `((links & 0x07) << 1) | (links & 0x10)`, which for a stock Amstrad
+        // at 50 Hz — the default, and what a CPC464 is — gives 0x1E.
+        const LINKS: u8 = 0x1E;
+
+        // The CRTC's own line rather than the Gate Array's copy. They are the
+        // same signal: `tick_tstate` hands `crtc.vsync` to the Gate Array on
+        // the same character clock, so there is no phase between them.
+        u8::from(self.crtc.vsync) | LINKS
     }
 
     fn io_write(&mut self, port: u16, value: u8) {
@@ -954,6 +985,36 @@ mod tests {
         let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
         assert!(!cpc.press_char('\u{20AC}'), "no euro sign on a CPC464");
         assert!(cpc.press_char('a'));
+    }
+
+    #[test]
+    fn port_b_reports_vsync_and_the_pcb_links() {
+        // How a CPC program waits for the frame. A bit that never moves is a
+        // loader that never finishes.
+        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        program_standard_screen(&mut cpc);
+
+        let mut seen_high = false;
+        let mut seen_low = false;
+        for _ in 0..TSTATES_PER_FRAME {
+            cpc.tick_tstate();
+            let b = cpc.io_read(0xF500);
+            assert_eq!(b & 0x1E, 0x1E, "Amstrad at 50 Hz: link bits are 1s");
+            if b & 0x01 == 0x01 {
+                seen_high = true;
+            } else {
+                seen_low = true;
+            }
+            // Bit 0 must agree with the CRTC every single tick, not merely
+            // toggle at some point during the frame.
+            assert_eq!(
+                b & 0x01,
+                u8::from(cpc.crtc.vsync),
+                "port B bit 0 must track VSync"
+            );
+        }
+        assert!(seen_high, "VSync should assert once a frame");
+        assert!(seen_low, "and spend most of the frame deasserted");
     }
 
     #[test]
