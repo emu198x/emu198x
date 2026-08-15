@@ -1042,9 +1042,15 @@ const WATCH_LOG_DEFAULT_LIMIT: u32 = 64;
 /// Run one bounded debug-step attempt and report whether the target's
 /// monotonic instruction-boundary counter advanced. Targets without that
 /// optional counter explicitly guarantee the historical exact-step contract.
+/// One step inside a run-until loop.
+///
+/// Uses [`DebugTarget::step_instruction_no_resync`], so the caller **must**
+/// call [`DebugTarget::resync`] once the loop ends. Resyncing per instruction
+/// meant a full framebuffer conversion for every step: 200,000 steps took
+/// 24.1s with it and 0.7s without (#915).
 fn step_debug_target(target: &mut dyn DebugTarget) -> (u64, bool) {
     let before = target.instruction_boundary_count();
-    let ticks = target.step_instruction();
+    let ticks = target.step_instruction_no_resync();
     let after = target.instruction_boundary_count();
     let completed = match (before, after) {
         (Some(before), Some(after)) => after != before,
@@ -1224,6 +1230,9 @@ impl ScriptStep {
                 }
                 let pc = target.pc();
                 let next = target.disassemble(pc).map(|(text, _)| text);
+                // Derived state was left behind while stepping; bring it
+                // back before anything can read it (#915).
+                target.resync();
                 Ok(Some(ScriptObservation::Step {
                     instructions: completed,
                     ticks,
@@ -1256,6 +1265,9 @@ impl ScriptStep {
                     steps += 1;
                 }
                 reached |= target.pc() == target_pc;
+                // Derived state was left behind while stepping; bring it
+                // back before anything can read it (#915).
+                target.resync();
                 Ok(Some(ScriptObservation::RunUntilPc {
                     reached,
                     pc: target.pc(),
@@ -1286,6 +1298,9 @@ impl ScriptStep {
                     steps += 1;
                 }
                 reached |= targets.contains(&target.pc());
+                // Derived state was left behind while stepping; bring it
+                // back before anything can read it (#915).
+                target.resync();
                 Ok(Some(ScriptObservation::RunUntilAnyPc {
                     reached,
                     pc: target.pc(),
@@ -1330,6 +1345,9 @@ impl ScriptStep {
                         break;
                     }
                 }
+                // Derived state was left behind while stepping; bring it
+                // back before anything can read it (#915).
+                target.resync();
                 Ok(Some(ScriptObservation::RunUntilMemChange {
                     addrs: addrs.clone(),
                     changed: changed_addr.is_some(),
@@ -1875,6 +1893,9 @@ mod tests {
         tape_loaded: usize,
         commands: usize,
         restored: usize,
+        /// Counts `dbg_resync` calls, so tests can assert that every stepping
+        /// verb puts derived state back before returning (#915).
+        resyncs: usize,
         ram: Vec<u8>,
         mem_watch: Option<(u32, u32)>,
         mem_log: Vec<crate::watch::WatchMemoryRecord>,
@@ -1912,6 +1933,7 @@ mod tests {
                 tape_loaded: 0,
                 commands: 0,
                 restored: 0,
+                resyncs: 0,
                 ram: vec![0u8; 0x1_0000],
                 mem_watch: None,
                 mem_log: Vec::new(),
@@ -1927,6 +1949,9 @@ mod tests {
     // A trivial debug surface over the dummy machine's RAM, so the generic
     // `memory_read` step has a `DebugTarget` to read through.
     impl crate::debug::DebugPrimitives for DummyMachine {
+        fn dbg_resync(&mut self) {
+            self.resyncs += 1;
+        }
         fn dbg_pc(&self) -> u32 {
             0
         }
@@ -2348,6 +2373,54 @@ mod tests {
                 assert!(pc_trace.is_empty());
             }
             other => panic!("expected Step, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_stepping_verb_resyncs_derived_state_before_returning() {
+        // The run-until loops step with `step_instruction_no_resync`, because
+        // resyncing per instruction meant a full framebuffer conversion for
+        // every step — 200,000 steps took 24.1s with it and 0.7s without
+        // (#915). That speed is only safe if the loop resyncs when it stops.
+        //
+        // Counting the resyncs is what makes forgetting one fail here rather
+        // than showing up as a stale screenshot much later.
+        for (name, step) in [
+            (
+                "step",
+                ScriptStep::Step {
+                    instructions: Some(4),
+                },
+            ),
+            (
+                "run_until_pc",
+                ScriptStep::RunUntilPc {
+                    addr: 0xFFFF,
+                    max_steps: Some(4),
+                },
+            ),
+            (
+                "run_until_any_pc",
+                ScriptStep::RunUntilAnyPc {
+                    targets: vec![0xFFFF],
+                    max_steps: Some(4),
+                },
+            ),
+            (
+                "run_until_mem_change",
+                ScriptStep::RunUntilMemChange {
+                    addrs: vec![0x1234],
+                    max_steps: Some(4),
+                },
+            ),
+        ] {
+            let mut session = HeadlessSession::new(DummyMachine::new(), 1);
+            step.execute_collect(&mut session).expect("step executes");
+            assert_eq!(
+                session.machine().resyncs,
+                1,
+                "`{name}` must resync exactly once when it stops"
+            );
         }
     }
 

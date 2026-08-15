@@ -95,6 +95,28 @@ pub trait DebugTarget {
     /// clock, and audio phase) before returning.
     fn step_instruction(&mut self) -> u64;
 
+    /// Step one instruction *without* resyncing derived state.
+    ///
+    /// [`step_instruction`](Self::step_instruction) must leave the
+    /// framebuffer, clock and audio phase consistent before returning, because
+    /// its caller may read them. A loop that steps thousands of times before
+    /// looking at anything pays that resync every iteration for no benefit: on
+    /// the C64 it is a full RGBA framebuffer conversion per instruction, and
+    /// measured at **34x the cost of the stepping itself** (#915).
+    ///
+    /// A caller using this **must** call [`resync`](Self::resync) before
+    /// reading derived state or returning to anything that might. The default
+    /// implementation is [`step_instruction`](Self::step_instruction), so a
+    /// machine that has not opted in stays correct and merely stays slow.
+    fn step_instruction_no_resync(&mut self) -> u64 {
+        self.step_instruction()
+    }
+
+    /// Bring derived state (framebuffer, clock, audio phase) back in step
+    /// after one or more [`step_instruction_no_resync`](Self::step_instruction_no_resync)
+    /// calls. A no-op for machines that never deferred anything.
+    fn resync(&mut self) {}
+
     /// Whether this machine supports I/O port tracing (port-mapped
     /// Z80-family machines). Memory-mapped machines (6502 family) return
     /// `false`; debug them with `memory_read` / `disasm` / `run_until_pc`.
@@ -146,6 +168,12 @@ pub trait DebugPrimitives {
     fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)>;
     /// See [`DebugTarget::step_instruction`].
     fn dbg_step(&mut self) -> u64;
+    /// See [`DebugTarget::step_instruction_no_resync`].
+    fn dbg_step_no_resync(&mut self) -> u64 {
+        self.dbg_step()
+    }
+    /// See [`DebugTarget::resync`].
+    fn dbg_resync(&mut self) {}
     /// See [`DebugTarget::supports_io_trace`].
     fn dbg_supports_io_trace(&self) -> bool {
         false
@@ -176,6 +204,12 @@ impl<T: DebugPrimitives> DebugTarget for T {
     }
     fn disassemble(&self, addr: u32) -> Option<(String, u8)> {
         self.dbg_disassemble(addr)
+    }
+    fn step_instruction_no_resync(&mut self) -> u64 {
+        self.dbg_step_no_resync()
+    }
+    fn resync(&mut self) {
+        self.dbg_resync();
     }
     fn step_instruction(&mut self) -> u64 {
         self.dbg_step()
@@ -329,14 +363,21 @@ macro_rules! impl_z80_debug_primitives {
                 Some(::zilog_z80::disassemble(addr as u16, |a| m.peek(a)))
             }
             fn dbg_step(&mut self) -> u64 {
+                let ticks = self.dbg_step_no_resync();
+                self.update_rgba_framebuffer();
+                ticks
+            }
+            fn dbg_step_no_resync(&mut self) -> u64 {
                 use ::zilog_z80::Z80Stepper as _;
                 let ticks = match $get_mut(&mut self.machine) {
                     ::core::option::Option::Some(m) => m.step_instruction(),
                     ::core::option::Option::None => return 0,
                 };
                 self.time = self.time.saturating_add(ticks);
-                self.update_rgba_framebuffer();
                 ticks
+            }
+            fn dbg_resync(&mut self) {
+                self.update_rgba_framebuffer();
             }
             fn dbg_supports_io_trace(&self) -> bool {
                 true
@@ -416,13 +457,20 @@ macro_rules! impl_6502_debug_primitives {
                 })
             }
             fn dbg_step(&mut self) -> u64 {
+                let ticks = self.dbg_step_no_resync();
+                self.update_rgba_framebuffer();
+                ticks
+            }
+            fn dbg_step_no_resync(&mut self) -> u64 {
                 let ticks = match $get_mut(&mut self.machine) {
                     ::core::option::Option::Some(m) => m.step_instruction(),
                     ::core::option::Option::None => return 0,
                 };
                 self.time = self.time.saturating_add(ticks);
-                self.update_rgba_framebuffer();
                 ticks
+            }
+            fn dbg_resync(&mut self) {
+                self.update_rgba_framebuffer();
             }
             fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)> {
                 let m = $get(&self.machine)?;
@@ -481,13 +529,20 @@ macro_rules! impl_6809_debug_primitives {
                 })
             }
             fn dbg_step(&mut self) -> u64 {
+                let ticks = self.dbg_step_no_resync();
+                self.update_rgba_framebuffer();
+                ticks
+            }
+            fn dbg_step_no_resync(&mut self) -> u64 {
                 let ticks = match $get_mut(&mut self.machine) {
                     ::core::option::Option::Some(m) => m.step_instruction(),
                     ::core::option::Option::None => return 0,
                 };
                 self.time = self.time.saturating_add(ticks);
-                self.update_rgba_framebuffer();
                 ticks
+            }
+            fn dbg_resync(&mut self) {
+                self.update_rgba_framebuffer();
             }
             fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)> {
                 let m = $get(&self.machine)?;
@@ -563,13 +618,20 @@ macro_rules! impl_sm83_debug_primitives {
                 Some(::sharp_lr35902::disassemble(addr as u16, |a| m.peek(a)))
             }
             fn dbg_step(&mut self) -> u64 {
+                let ticks = self.dbg_step_no_resync();
+                self.update_rgba_framebuffer();
+                ticks
+            }
+            fn dbg_step_no_resync(&mut self) -> u64 {
                 let ticks = match $get_mut(&mut self.machine) {
                     ::core::option::Option::Some(m) => m.step_instruction(),
                     ::core::option::Option::None => return 0,
                 };
                 self.time = self.time.saturating_add(ticks);
-                self.update_rgba_framebuffer();
                 ticks
+            }
+            fn dbg_resync(&mut self) {
+                self.update_rgba_framebuffer();
             }
             // I/O tracing is unsupported — the Game Boy is memory-mapped.
         }
