@@ -1,0 +1,14 @@
+[package]
+name = "format-tzx"
+description = "TZX/CDT block parsing, shared by every system that reads the format"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+common-tape = { path = "../common-tape", version = "0.2.0" }
+
+[lints]
+workspace = true
