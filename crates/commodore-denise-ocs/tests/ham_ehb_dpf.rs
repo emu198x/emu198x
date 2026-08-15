@@ -353,7 +353,6 @@ fn normal_mode_ignores_ham_ehb() {
 }
 
 #[test]
-#[ignore = "known dual-playfield sprite-priority bug"]
 fn dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite() {
     fn encode_sprite_pos_ctl(hstart: u16, vstart: u16, vstop: u16) -> (u16, u16) {
         let pos = ((vstart & 0x00FF) << 8) | ((hstart >> 1) & 0x00FF);
@@ -367,7 +366,13 @@ fn dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite() {
     let mut denise = DeniseOcs::new();
     denise.queue_shift_load_from_bpl1dat();
     denise.trigger_shift_load();
-    denise.bplcon0 = 0x0400; // DBLPF
+    // BPU=2 as well as DBLPF. Setting DBLPF alone leaves BPU at zero, which
+    // means no bitplanes at all: both playfields read as transparent,
+    // `front_playfield` is None, and a sprite wins every pixel regardless of
+    // BPLCON2. That is what this test used to do, and the resulting failure
+    // was filed as a Denise priority bug (#906) when the priority logic was
+    // correct throughout.
+    denise.bplcon0 = 0x2400; // BPU=2 + DBLPF
     denise.set_palette(1, 0x00F); // PF1 color
     denise.set_palette(9, 0x0F0); // PF2 color
     denise.set_palette(17, 0xF00); // sprite 0 color
@@ -381,9 +386,12 @@ fn dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite() {
 
     // Both playfields active on this pixel: PF1 code=1 (plane 1), PF2 code=1 (plane 2).
     // PF2PRI=1 puts PF2 in front of PF1.
-    denise.bpl_shift[0] = 0x8000;
-    denise.bpl_shift[1] = 0x8000;
-    denise.shift_count = 1;
+    // Load through the real path. Writing `bpl_shift` directly does not arm
+    // anything: the pixel loop gates on the private per-plane
+    // `bpl_shift_count`, which only `trigger_shift_load` sets.
+    denise.bpl_data[0] = 0x8000;
+    denise.bpl_data[1] = 0x8000;
+    denise.trigger_shift_load();
     denise.bplcon2 = 0x0044; // PF2PRI=1, PF1P=4 (sprite beats PF1), PF2P=0 (PF2 beats sprite)
     assert_eq!(
         denise.output_pixel_color(23, 9),
@@ -391,9 +399,9 @@ fn dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite() {
         "front PF2 should hide sprite when PF2P places PF2 ahead of SP01"
     );
 
-    denise.bpl_shift[0] = 0x8000;
-    denise.bpl_shift[1] = 0x8000;
-    denise.shift_count = 1;
+    denise.bpl_data[0] = 0x8000;
+    denise.bpl_data[1] = 0x8000;
+    denise.trigger_shift_load();
     denise.bplcon2 = 0x004C; // PF2PRI=1, PF2P=1 => SP01 in front of PF2
     assert_eq!(
         denise.output_pixel_color(23, 9),
