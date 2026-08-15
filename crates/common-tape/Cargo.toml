@@ -1,0 +1,14 @@
+[package]
+name = "common-tape"
+description = "Machine-agnostic tape timing spans and playback"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[lints]
+workspace = true

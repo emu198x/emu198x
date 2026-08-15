@@ -18,6 +18,7 @@
 
 pub mod memory;
 
+use common_sinclair_zx_spectrum::SpectrumTapePlayer;
 use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;

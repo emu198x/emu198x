@@ -11,6 +11,7 @@
 //! array), Pentagon, Scorpion, Timex — have different ULAs, paging, or
 //! contention models and keep their own machine implementations.
 
+use common_sinclair_zx_spectrum::SpectrumTapePlayer;
 use std::marker::PhantomData;
 
 use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
