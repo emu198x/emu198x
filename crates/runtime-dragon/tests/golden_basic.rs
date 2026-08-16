@@ -642,11 +642,20 @@ fn compare_or_update_golden(name: &str, png: &[u8]) {
     }
 
     if !golden_path.exists() {
-        eprintln!(
-            "skipping Dragon golden compare: missing {}",
+        // Write it, then fail. Returning here instead made a missing
+        // golden a silent pass: delete the file and the test goes green
+        // having compared nothing. Every other golden helper in the
+        // workspace already panics on this — `machine-pentagon-128`,
+        // `machine-timex-tc2048`, `machine-timex-ts2068` and
+        // `runtime-sinclair-zx-spectrum` all use exactly this wording —
+        // and the Dragon was the one left behind. See
+        // `knowledge/decisions/a-gate-nobody-runs-is-a-silent-gate.md`.
+        std::fs::write(&golden_path, png)
+            .unwrap_or_else(|err| panic!("write golden {}: {err}", golden_path.display()));
+        panic!(
+            "golden {} did not exist — wrote it now, re-run to verify",
             golden_path.display()
         );
-        return;
     }
 
     let expected = std::fs::read(&golden_path)
