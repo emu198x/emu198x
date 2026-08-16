@@ -396,16 +396,15 @@ impl AmstradCpc {
 
     /// Drain the PSG's audio for the frame just run.
     ///
-    /// Trailing silence is trimmed so a machine making no sound costs the host
-    /// nothing to mix, matching what the other AY machines here hand back.
+    /// Always a whole frame, silence included. Trimming trailing zeros —
+    /// which this did, copied from the Einstein — makes a quiet frame
+    /// contribute nothing, so a capture of a silent machine produced a WAV
+    /// with no samples and an MP4 with no streams, both reported as
+    /// success. It also shortens the audio timeline relative to the video
+    /// one, so a note played after a quiet passage lands early (#934).
     pub fn take_audio_buffer(&mut self) -> Vec<f32> {
         let mut out = vec![0.0_f32; AY_SAMPLES_PER_FRAME];
         self.psg.end_frame(&mut out);
-        if let Some(last) = out.iter().rposition(|s| *s != 0.0) {
-            out.truncate(last + 1);
-        } else {
-            out.clear();
-        }
         out
     }
 
@@ -884,12 +883,35 @@ mod tests {
     }
 
     #[test]
-    fn a_silent_machine_hands_back_no_audio() {
-        // The AY powers up with every channel off, so a frame of silence
-        // should cost a host nothing to mix rather than 1024 zeroes.
+    fn a_silent_machine_still_hands_back_a_whole_frame() {
+        // Silence is data: it keeps the audio timeline the same length as
+        // the video one. Returning an empty buffer here made a capture of
+        // a quiet machine write a WAV with no samples and an MP4 with no
+        // streams (#934).
         let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
         cpc.run_frame();
-        assert!(cpc.take_audio_buffer().is_empty());
+        let audio = cpc.take_audio_buffer();
+        assert_eq!(audio.len(), AY_SAMPLES_PER_FRAME);
+        assert!(audio.iter().all(|s| *s == 0.0), "a silent frame is silent");
+    }
+
+    #[test]
+    fn every_frame_is_the_same_length_whether_it_sounds_or_not() {
+        // The property that matters for a capture: N frames of machine
+        // time produce N frames of audio, so the two timelines stay in
+        // step regardless of when the machine happens to make a noise.
+        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        cpc.run_frame();
+        let silent = cpc.take_audio_buffer().len();
+
+        for (reg, val) in [(0u8, 0x00u8), (1, 0x01), (7, 0xFE), (8, 0x0F)] {
+            cpc.psg.select_register(reg);
+            cpc.psg.write_data(val);
+        }
+        cpc.run_frame();
+        let sounding = cpc.take_audio_buffer();
+        assert_eq!(silent, sounding.len());
+        assert!(sounding.iter().any(|s| *s != 0.0), "this frame sounds");
     }
 
     #[test]

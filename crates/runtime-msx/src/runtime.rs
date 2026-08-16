@@ -228,14 +228,13 @@ impl MsxRuntime {
         };
         let mut out = vec![0.0_f32; self.audio_scratch.len()];
         machine.psg_mut().end_frame(&mut out);
-        // The PSG zero-pads when its internal count is shorter than
-        // the requested slice; trim trailing zeros to avoid emitting
-        // silence past the actual frame.
-        if let Some(last_non_zero) = out.iter().rposition(|s| *s != 0.0) {
-            out.truncate(last_non_zero + 1);
-        } else {
-            out.clear();
-        }
+        // A whole frame, silence included. This used to trim trailing
+        // zeros "to avoid emitting silence past the actual frame", but a
+        // zero sample and an absent one are not the same thing to a
+        // consumer that concatenates: a quiet frame contributed nothing,
+        // so a capture of a silent machine wrote an empty WAV, and any
+        // leading quiet shifted later audio earlier than the video it
+        // belongs to (#934).
         out
     }
 }

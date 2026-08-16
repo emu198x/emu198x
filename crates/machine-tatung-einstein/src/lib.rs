@@ -625,14 +625,14 @@ impl Einstein {
     }
 
     /// Drain accumulated PSG audio samples for the most recent frame.
+    ///
+    /// Always a whole frame, silence included — see #934. Trimming
+    /// trailing zeros made a quiet frame contribute nothing at all, so a
+    /// capture of a silent machine wrote a WAV with no samples and an MP4
+    /// with no streams, both reported as success.
     pub fn take_audio_buffer(&mut self) -> Vec<f32> {
         let mut out = vec![0.0_f32; AY_SAMPLES_PER_FRAME];
         self.psg.end_frame(&mut out);
-        if let Some(last) = out.iter().rposition(|s| *s != 0.0) {
-            out.truncate(last + 1);
-        } else {
-            out.clear();
-        }
         out
     }
 
