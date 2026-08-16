@@ -9,15 +9,21 @@
 //! (when `UPDATE_GOLDENS=1` is set or the golden is missing) or
 //! compares decoded bytes against the checked-in golden in
 //! `tests/goldens/`. Same shape as `runtime-sinclair-zx-spectrum`'s
-//! `goldens.rs` for the boot screens. HALT2INT is deliberately a
-//! semantic exception: its floating-bus classification is not yet an
-//! authority, so that smoke decodes the finished screen and asserts
-//! only the independently established `HALT: Early` result.
+//! `goldens.rs` for the boot screens. HALT2INT decodes the finished
+//! screen and asserts the `HALT: Early` result on top of the pixel
+//! compare. Its doc used to call the floating-bus classification "not
+//! yet an authority" and check only the HALT half — which was right to
+//! be suspicious and wrong to stop there: with Spectron's reference
+//! wired in, that classification reads `Unknown` where Spectron gets
+//! `Early`, every other value on the screen being identical (#940).
 //!
 //! Each smoke also byte-compares its 256×192 screen content against
-//! Spectron's `tests/Results/<name>_48.png` reference when
-//! `EMU198X_SPECTRON_RESULTS_DIR` is set — a trusted timing-accurate
-//! oracle, not just our own golden (#10). Spectron's PNGs turn out to
+//! Spectron's `tests/Results/<name>_48.png` reference — a trusted
+//! timing-accurate oracle, not just our own golden (#10). Those
+//! references are checked in at `test-data/spectrum/spectron-results/`,
+//! so this runs with no environment set up;
+//! `EMU198X_SPECTRON_RESULTS_DIR` overrides the location for the
+//! nightly, which provisions its own copy. Spectron's PNGs turn out to
 //! be clean 4× nearest-neighbour scales of its raw framebuffer, so
 //! after downscaling and mapping both sides to Spectrum colour indices
 //! the content compares exactly. `btime` matches byte-for-byte today;
@@ -49,12 +55,23 @@ use std::path::{Path, PathBuf};
 
 const ROM_PATH_ENV: &str = "EMU198X_SPECTRUM_48K_ROM";
 const SYSTEM_TESTS_DIR_ENV: &str = "EMU198X_SPECTRUM_SYSTEM_TESTS_DIR";
-/// Directory holding Spectron's `tests/Results/<name>.png` references
-/// (e.g. `…/emulators/zx-spectrum/Spectron/tests/Results`). When set,
-/// the smokes additionally byte-compare their 256×192 screen content
-/// against Spectron's — a trusted timing-accurate oracle, not just our
-/// own locked golden. Unset → that extra check is skipped.
+/// Overrides the directory holding Spectron's `tests/Results/<name>.png`
+/// references, so the nightly can point at its own provisioned bundle.
+/// Unset — the developer default — the references checked in under
+/// [`SPECTRON_RESULTS_CHECKED_IN`] are used.
 const SPECTRON_RESULTS_ENV: &str = "EMU198X_SPECTRON_RESULTS_DIR";
+
+/// The checked-in Spectron references, relative to this crate.
+///
+/// They live in the repository rather than the private corpus mirror
+/// because they are MIT-licensed and small (116 KB), and because a
+/// comparator nobody can run is not a comparator: while these were
+/// absent from every developer machine, `assert_screen_matches_spectron`
+/// skipped, `emu198x-test-skip` reported that as `ok`, and the 48K
+/// floating-bus regression of 2026-08-11 went unreproduced locally for
+/// five days — the nightly, which has the references, failed nightly
+/// throughout (#10, #939). See `test-data/spectrum/spectron-results/`.
+const SPECTRON_RESULTS_CHECKED_IN: &str = "../../test-data/spectrum/spectron-results";
 
 const BOOT_FRAMES: usize = 200;
 const RUN_BUDGET_FRAMES: usize = 5_000;
@@ -67,6 +84,15 @@ fn rom_path() -> PathBuf {
     std::env::var_os(ROM_PATH_ENV)
         .map(PathBuf::from)
         .unwrap_or_else(|| home().join(".emu198x/roms/sinclair-zx-spectrum-48k/48.rom"))
+}
+
+/// Where Spectron's reference screens are read from: the override when
+/// set, otherwise the copies checked in beside this crate.
+fn spectron_results_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os(SPECTRON_RESULTS_ENV) {
+        return PathBuf::from(dir);
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(SPECTRON_RESULTS_CHECKED_IN)
 }
 
 fn system_tests_dir() -> PathBuf {
@@ -294,15 +320,17 @@ fn load_spectron_indices(path: &Path) -> (Vec<u8>, usize, usize) {
 /// difference from the reference. No-op when the references aren't
 /// installed.
 fn assert_screen_matches_spectron(spectron_png: &str, framebuffer: &[u8]) {
-    let Some(dir) = std::env::var_os(SPECTRON_RESULTS_ENV) else {
-        emu198x_test_skip::skip!(
-            "Spectron reference screens not staged (EMU198X_SPECTRON_RESULTS_DIR)"
-        );
-    };
-    let path = PathBuf::from(dir).join(spectron_png);
-    if !path.is_file() {
-        emu198x_test_skip::skip!("Spectron reference {} not staged", path.display());
-    }
+    let path = spectron_results_dir().join(spectron_png);
+    // Not a skip. These references are checked in, so a missing one is a
+    // broken checkout or a wrong name — both worth failing over. Skipping
+    // is what made this comparator do nothing for months while reporting
+    // `ok`; the only thing it should tolerate is being pointed elsewhere.
+    assert!(
+        path.is_file(),
+        "Spectron reference {} is missing. Checked-in references live in \
+         test-data/spectrum/spectron-results/; {SPECTRON_RESULTS_ENV} overrides that.",
+        path.display()
+    );
     let (spec, sw, sh) = load_spectron_indices(&path);
     let sbl = (sw - 256) / 2; // symmetric horizontal border
     const OX: usize = 48;
@@ -529,6 +557,12 @@ fn halt2int_runs_to_completion() {
         "HALT2INT should classify the HALT profile as Early; decoded screen:\n{}",
         lines.join("\n"),
     );
+
+    // The decoded-text check above passes on a screen that is wrong
+    // everywhere the text is right, so hold the whole 256x192 to the
+    // oracle too. `halt2int_48.png` has been sitting in Spectron's
+    // results unused (#10).
+    assert_screen_matches_spectron("halt2int_48.png", machine.framebuffer());
 }
 
 #[test]
