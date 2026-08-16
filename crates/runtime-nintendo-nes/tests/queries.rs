@@ -8,6 +8,7 @@ use emu198x_shell::{
     HostIo, MachineCore, MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink,
     NullFrameSink, NullTraceSink, QueryError, SessionQueryProvider,
 };
+use machine_nintendo_nes::Nes;
 use runtime_nintendo_nes::{Model, NesRuntime, NesSessionQueryProvider};
 use serde_json::json;
 
@@ -288,4 +289,157 @@ fn blargg_valid_is_false_without_signature_bytes() {
         .expect("blargg.valid should not error")
         .expect("blargg.valid should resolve");
     assert_eq!(value.value, json!(false));
+}
+
+/// OAM and the derived sprite view, which exist so sprite dropout can be
+/// counted rather than inferred from pixels (#904).
+#[test]
+fn query_provider_exposes_oam_and_counts_sprites_per_scanline() {
+    let rom = minimal_ines();
+    let mut runtime = NesRuntime::blank(Model::NesNtsc);
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &rom));
+    runtime.load_media(&media).expect("valid iNES should load");
+
+    {
+        let nes = runtime.machine_mut().expect("cartridge loaded");
+        // Ten sprites on scanline 100 — two more than the PPU can draw —
+        // and one on its own at scanline 50.
+        for i in 0..10u8 {
+            nes.ppu.write_oam(i * 4, 100);
+            nes.ppu.write_oam(i * 4 + 1, i);
+            nes.ppu.write_oam(i * 4 + 2, 0);
+            nes.ppu.write_oam(i * 4 + 3, i * 8);
+        }
+        nes.ppu.write_oam(10 * 4, 50);
+        // Park the rest off the visible area.
+        for i in 11..64u8 {
+            nes.ppu.write_oam(i * 4, 0xF8);
+        }
+    }
+
+    let provider = NesSessionQueryProvider;
+    let q = |path: &str| {
+        provider
+            .query(&runtime, path)
+            .expect("query should succeed")
+            .unwrap_or_else(|| panic!("provider should own {path}"))
+            .value
+    };
+
+    // Raw OAM, as the issue asked for: 256 bytes, first sprite's Y.
+    let oam = q("sprites.oam");
+    let oam = oam.as_array().expect("oam is an array");
+    assert_eq!(oam.len(), 256);
+    assert_eq!(oam[0], json!(100));
+
+    // Decoded list, so a caller need not do the arithmetic.
+    let list = q("sprites.list");
+    let list = list.as_array().expect("list is an array");
+    assert_eq!(list.len(), 64);
+    assert_eq!(list[0]["y"], json!(100));
+    assert_eq!(list[0]["x"], json!(0));
+    assert_eq!(list[10]["y"], json!(50));
+
+    // 8x8 sprites cover their Y through Y+7 — the same in-range test the
+    // core's own evaluation uses.
+    // A sprite at Y draws on Y+1..=Y+8, so Y=100 covers lines 101-108.
+    assert_eq!(q("sprites.height"), json!(8));
+    let per_line = q("sprites.per_scanline");
+    let per_line = per_line.as_array().expect("per_scanline is an array");
+    assert_eq!(per_line.len(), 240);
+    assert_eq!(per_line[100], json!(0), "the sprite's own Y line is clear");
+    assert_eq!(per_line[101], json!(10), "first line they cover");
+    assert_eq!(per_line[108], json!(10), "last line they cover");
+    assert_eq!(per_line[109], json!(0), "one line below");
+    assert_eq!(per_line[51], json!(1), "the lone sprite");
+
+    // The answer the issue actually wants: which lines drop sprites.
+    let overflow = q("sprites.overflow_lines");
+    let overflow = overflow.as_array().expect("overflow_lines is an array");
+    assert_eq!(
+        overflow
+            .iter()
+            .map(|v| v.as_u64().expect("scanline number"))
+            .collect::<Vec<_>>(),
+        (101..=108).collect::<Vec<u64>>(),
+        "ten sprites on a line exceeds the eight the PPU can draw"
+    );
+}
+
+/// Switching to 8x16 sprites doubles the lines each covers, so the same
+/// OAM overflows twice as many.
+#[test]
+fn sprite_scanline_counts_follow_the_sprite_height_bit() {
+    let rom = minimal_ines();
+    let mut runtime = NesRuntime::blank(Model::NesNtsc);
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &rom));
+    runtime.load_media(&media).expect("valid iNES should load");
+
+    // A frame first: the PPU ignores $2000 for roughly one frame after
+    // reset, so writing before that would silently leave 8x8 sprites and
+    // the test would be asserting on the default rather than the write.
+    let mut frame_sink = NullFrameSink;
+    let mut audio_sink = NullAudioSink;
+    let mut trace_sink = NullTraceSink;
+    runtime
+        .run_until(
+            MachineTime::new(NTSC_FRAME_TICKS * 2),
+            &mut HostIo {
+                input_events: &[],
+                frame_sink: &mut frame_sink,
+                audio_sink: &mut audio_sink,
+                trace_sink: &mut trace_sink,
+            },
+        )
+        .expect("a loaded runtime should run");
+
+    {
+        let nes = runtime.machine_mut().expect("cartridge loaded");
+        for i in 0..9u8 {
+            nes.ppu.write_oam(i * 4, 100);
+        }
+        for i in 9..64u8 {
+            nes.ppu.write_oam(i * 4, 0xF8);
+        }
+        // Through the real register write, not a test-only setter.
+        let Nes { ppu, mapper, .. } = nes;
+        ppu.cpu_write(0x2000, 0x20, mapper.as_mut()); // 8x16 sprites
+    }
+
+    let provider = NesSessionQueryProvider;
+    let height = provider
+        .query(&runtime, "sprites.height")
+        .expect("query should succeed")
+        .expect("provider should own the path")
+        .value;
+    assert_eq!(height, json!(16));
+
+    let overflow = provider
+        .query(&runtime, "sprites.overflow_lines")
+        .expect("query should succeed")
+        .expect("provider should own the path")
+        .value;
+    let lines: Vec<u64> = overflow
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|v| v.as_u64().expect("scanline number"))
+        .collect();
+    assert_eq!(lines, (101..=116).collect::<Vec<u64>>());
+}
+
+/// A blank runtime has no PPU to read, so these report the path as
+/// unavailable rather than inventing empty sprite data.
+#[test]
+fn sprite_paths_are_unavailable_without_a_cartridge() {
+    let runtime = NesRuntime::blank(Model::NesNtsc);
+    let provider = NesSessionQueryProvider;
+    for path in ["sprites", "sprites.oam", "sprites.overflow_lines"] {
+        match provider.query(&runtime, path) {
+            Err(QueryError::UnavailablePath { .. }) => {}
+            other => panic!("{path}: expected UnavailablePath, got {other:?}"),
+        }
+    }
 }

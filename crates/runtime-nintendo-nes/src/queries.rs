@@ -65,6 +65,14 @@ pub(crate) const NES_QUERY_PATHS: &[&str] = &[
     "ppu.rendering_enabled",
     "ppu.scanline",
     "ppu.status",
+    "sprites",
+    "sprites.height",
+    "sprites.list",
+    "sprites.oam",
+    "sprites.overflow_lines",
+    "sprites.per_scanline",
+    "sprites.selected_this_line",
+    "sprites.sprite_zero_on_line",
     "test.blargg.signature",
     "test.blargg.status",
     "test.blargg.text",
@@ -117,6 +125,13 @@ impl SessionQueryProvider<NesRuntime> for NesSessionQueryProvider {
                 path,
                 "apu",
                 apu_snapshot(loaded_machine(machine, path)?),
+            ));
+        }
+        if is_chip(path, "sprites") {
+            return Ok(chip_field(
+                path,
+                "sprites",
+                sprite_snapshot(loaded_machine(machine, path)?),
             ));
         }
         if is_chip(path, "mapper") {
@@ -246,6 +261,99 @@ fn ppu_snapshot(nes: &Nes) -> Value {
         "rendering_enabled": (p.mask() & 0x18) != 0,
     })
 }
+
+/// Sprite state: raw OAM, the decoded sprite list, and the per-scanline
+/// in-range counts that make the 8-per-line limit measurable.
+///
+/// Its own group rather than more keys on `ppu`, because these are the
+/// largest values the NES surface exposes and `query ppu` is a routine
+/// call; folding a 256-byte array and a 240-entry one into it would make
+/// every general inspection carry them.
+///
+/// Sprite flicker is the visible consequence of the 8-per-line limit, and
+/// it cannot be measured from pixels: a period-2 alternation test over
+/// Contra's frame buffer reported 86 hits, every one of them the water —
+/// a wave scrolling exactly 8 pixels per frame, so a cell repeats every
+/// two frames and is structurally indistinguishable from a blinking
+/// sprite. PPUSTATUS bit 5 does not rescue it either, because the game's
+/// own `$2002` read clears it long before a script can sample it. Counted
+/// from OAM, the question is direct (#904).
+fn sprite_snapshot(nes: &Nes) -> Value {
+    let p = &nes.ppu;
+    let oam = p.oam();
+    let height = u16::from(sprite_height(p.ctrl()));
+
+    let list: Vec<Value> = (0..64)
+        .map(|i| {
+            let base = i * 4;
+            json!({
+                "index": i,
+                "y": oam[base],
+                "tile": oam[base + 1],
+                "attr": oam[base + 2],
+                "x": oam[base + 3],
+                "palette": oam[base + 2] & 0x03,
+                "behind_background": oam[base + 2] & 0x20 != 0,
+                "flip_h": oam[base + 2] & 0x40 != 0,
+                "flip_v": oam[base + 2] & 0x80 != 0,
+            })
+        })
+        .collect();
+
+    // A sprite at Y is drawn on lines Y+1 through Y+height, not Y through
+    // Y+height-1: evaluation runs during scanline N and fills secondary
+    // OAM for N+1, so the core's own in-range test (`scanline - y <
+    // height`, wrapping) selects for the line *after* the one it ran on.
+    // Counting from the same rule keeps this a description of what this
+    // emulator draws rather than a second opinion about the NES.
+    //
+    // The one-line shift is not pedantry. $EF is the standard place to
+    // park an unused sprite precisely because Y=239 draws on 240-247,
+    // entirely off-screen; counting it from Y would report every parked
+    // sprite as an overflow on line 239 and bury the real ones. It also
+    // gives the right answer for scanline 0, which no sprite can reach.
+    let per_scanline: Vec<u8> = (0..VISIBLE_SCANLINES)
+        .map(|line| {
+            let eval_line = line.wrapping_sub(1);
+            (0..64)
+                .filter(|i| {
+                    let y = u16::from(oam[i * 4]);
+                    eval_line.wrapping_sub(y) < height
+                })
+                .count()
+                .min(u8::MAX as usize) as u8
+        })
+        .collect();
+
+    let overflow_lines: Vec<u16> = per_scanline
+        .iter()
+        .enumerate()
+        .filter(|(_, count)| **count > MAX_SPRITES_PER_LINE)
+        .map(|(line, _)| line as u16)
+        .collect();
+
+    json!({
+        "oam": oam.as_slice(),
+        "list": list,
+        "height": height,
+        "per_scanline": per_scanline,
+        "overflow_lines": overflow_lines,
+        "selected_this_line": p.sprite_count(),
+        "sprite_zero_on_line": p.sprite_zero_on_line(),
+    })
+}
+
+/// Sprite height in scanlines, from PPUCTRL bit 5.
+const fn sprite_height(ctrl: u8) -> u8 {
+    if ctrl & 0x20 != 0 { 16 } else { 8 }
+}
+
+/// Visible scanlines on an NTSC/PAL NES frame.
+const VISIBLE_SCANLINES: u16 = 240;
+
+/// Sprites the PPU can draw on one scanline. A line with more in range
+/// than this is where dropout — and so flicker — happens.
+const MAX_SPRITES_PER_LINE: u8 = 8;
 
 /// 2A03 APU snapshot — frame-counter IRQ + DMC channel (folded from
 /// the old `query_apu`).
