@@ -320,6 +320,28 @@ fn load_spectron_indices(path: &Path) -> (Vec<u8>, usize, usize) {
 /// difference from the reference. No-op when the references aren't
 /// installed.
 fn assert_screen_matches_spectron(spectron_png: &str, framebuffer: &[u8]) {
+    assert_screen_scores_against_spectron(spectron_png, framebuffer, 256 * 192);
+}
+
+/// The comparator above, but scored against a *recorded* match count rather
+/// than a perfect one.
+///
+/// For screens with a divergence that is already understood and filed. The
+/// assertion is still exact — the count must be the recorded number, not
+/// merely at least it — so the gate stays live: it fails if the divergence
+/// grows, and equally if it shrinks, which is how a fix gets noticed rather
+/// than silently absorbed. That is the same ratchet discipline the
+/// contention differentials use, and for the same reason: a comparator that
+/// tolerates a range stops reporting the thing it was built to report.
+///
+/// Prefer fixing the divergence. Reach for this only when the alternative is
+/// deleting the assertion, which is how `halt2int_48.png` sat unused while
+/// its test printed `ok` (#10).
+fn assert_screen_scores_against_spectron(
+    spectron_png: &str,
+    framebuffer: &[u8],
+    expected_matches: usize,
+) {
     let path = spectron_results_dir().join(spectron_png);
     // Not a skip. These references are checked in, so a missing one is a
     // broken checkout or a wrong name — both worth failing over. Skipping
@@ -363,10 +385,16 @@ fn assert_screen_matches_spectron(spectron_png: &str, framebuffer: &[u8]) {
     eprintln!("Live self-test frame: {}", live_path.display());
 
     let total = 256 * 192;
+    let verdict = if expected_matches == total {
+        "differs from Spectron"
+    } else {
+        "no longer differs from Spectron by the recorded amount"
+    };
     assert_eq!(
-        best_matches, total,
-        "{spectron_png}: 256×192 screen content differs from Spectron — \
-         {best_matches}/{total} match at best vertical alignment (spec_y={best_sy})"
+        best_matches, expected_matches,
+        "{spectron_png}: 256×192 screen content {verdict} — \
+         {best_matches}/{total} match at best vertical alignment (spec_y={best_sy}), \
+         expected {expected_matches}/{total}"
     );
 }
 
@@ -562,7 +590,23 @@ fn halt2int_runs_to_completion() {
     // everywhere the text is right, so hold the whole 256x192 to the
     // oracle too. `halt2int_48.png` has been sitting in Spectron's
     // results unused (#10).
-    assert_screen_matches_spectron("halt2int_48.png", machine.framebuffer());
+    //
+    // Wiring it surfaces #940 immediately: HALT2INT prints `Float: Unknown`
+    // where Spectron prints `Float: Early`, and that one word is the entire
+    // difference — 48 pixels. Every numeric reading on the screen matches.
+    // The divergence predates the #939 regression; the engine at
+    // `f1bcd433~1` scores identically.
+    //
+    // Recorded rather than asserted-perfect so this reads as the oracle it
+    // is: 49104 is a fact about the current engine, and moving off it in
+    // either direction is news. Fixing #940 fails this test, which is
+    // correct — the fix updates the number in the same commit.
+    const HALT2INT_MATCHES_PENDING_940: usize = 49_104;
+    assert_screen_scores_against_spectron(
+        "halt2int_48.png",
+        machine.framebuffer(),
+        HALT2INT_MATCHES_PENDING_940,
+    );
 }
 
 #[test]
