@@ -197,7 +197,14 @@ published or made more widely accessible without a rights review.
   (default `v1`).
 - One `zstd` tarball asset per corpus, named `<artifact>.tar.zst`:
   `harte-6502`, `harte-z80`, `harte-68000`, `sm83`, `dormann-6502`,
-  `fuse-z80`, `lorenz-6502` (the Lorenz tarball includes the KERNAL).
+  `fuse-z80`, `lorenz-6502` (the Lorenz tarball includes the KERNAL),
+  `z80test`, `spectrum-system-tests`, `zx-spectrum-tests`.
+
+  The last three carry ROMs as well as cases: `z80test` ships the free
+  (Amstrad-permissioned) 48K ROM the exerciser boots on, and
+  `spectrum-system-tests` ships `roms/128-0.rom` and `roms/128-1.rom`
+  alongside `tapes/`. Jobs read the ROM paths straight out of the extracted
+  tree rather than expecting them staged separately.
 - A `SHA256SUMS` asset listing each tarball's checksum — the workflow verifies
   against it, so checksums live in the store, not hard-coded here.
 - The `harte-68000` asset must contain files matching the in-repository
@@ -227,6 +234,44 @@ configuration reports the missing assets and skips the corpus jobs.
 
 Re-run on demand from the Actions tab (`workflow_dispatch`) once the store is
 live.
+
+## Staging a corpus locally
+
+Pull from the same store the nightly uses, so a local run and a CI run are
+comparing the same bytes:
+
+```sh
+mkdir -p ~/.emu198x/test-data && cd /tmp
+gh release download v1 -R emu198x/accuracy-corpora \
+  -p 'zx-spectrum-tests.tar.zst' -p 'SHA256SUMS'
+grep ' zx-spectrum-tests.tar.zst$' SHA256SUMS | shasum -a 256 -c -
+tar --zstd -xf zx-spectrum-tests.tar.zst -C ~/.emu198x/test-data/
+```
+
+Verify the checksum rather than trusting the download — the workflow does,
+and a corpus that silently differs from CI's is worse than no corpus, because
+it makes a local result look authoritative when it is not. Note `shasum -a
+256 -c` on macOS where the workflow uses GNU `sha256sum`.
+
+Then point the job's env var at it. The Spectrum corpora and their variables:
+
+| Artifact | Variable | Feeds |
+|---|---|---|
+| `zx-spectrum-tests` | `EMU198X_ZX_SPECTRUM_TESTS_DIR` | 128K timing survey, SZX real-file reader |
+| `spectrum-system-tests` | `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR` (→ `tapes/`) | tape smokes, floating-bus oracles |
+| `z80test` | `EMU198X_Z80TEST_DIR` | Patrik Rak's Z80 exerciser |
+
+Set `EMU198X_STRICT_FIXTURES=1` alongside them. Without it a corpus you
+failed to stage turns into a skip, which libtest prints as `ok` — and a
+green run that asserted nothing is the failure mode this whole file exists
+to prevent. The nightly sets it for exactly that reason; a developer run
+that omits it is not reproducing the nightly.
+
+Two of these are nightly-only and slow — the 48K survey takes about 29
+minutes, the 128K about 6.5 — which is precisely why their records go stale:
+a PR that earns an improvement cannot see it. If you change contention,
+`/INT` timing or anything else that moves instruction cost, run the surveys
+before assuming the constants still describe reality.
 
 ## Related documents
 
