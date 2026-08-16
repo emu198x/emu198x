@@ -1570,6 +1570,22 @@ impl Ppu {
         &self.oam
     }
 
+    /// Sprites the last evaluation selected for the line being rendered.
+    ///
+    /// This is the PPU's own result, capped at the hardware's 8, so
+    /// comparing it against the number of sprites actually in range on
+    /// that line is what shows dropout.
+    #[must_use]
+    pub fn sprite_count(&self) -> u8 {
+        self.sprite_count
+    }
+
+    /// Whether sprite 0 is among the selected sprites for this line.
+    #[must_use]
+    pub fn sprite_zero_on_line(&self) -> bool {
+        self.sprite_zero_on_line
+    }
+
     /// PPUCTRL register ($2000).
     #[must_use]
     pub fn ctrl(&self) -> u8 {
