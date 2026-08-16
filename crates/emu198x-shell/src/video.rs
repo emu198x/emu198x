@@ -441,9 +441,33 @@ fn video_pass_args(width: u32, height: u32, fps: u32, output: &Path) -> Vec<Stri
     // Near-lossless H.264 with full 4:4:4 chroma. Retro framebuffers
     // routinely use INK/PAPER dither — checkerboard patterns at single-
     // pixel frequency — and the libx264 default (CRF 23 + 4:2:0 chroma
-    // subsampling) smears that into flat colour. CRF 12 keeps every
-    // detail visible; yuv444p stops chroma subsampling blurring
-    // iso-luminant colour dither even where luma contrast is absent.
+    // subsampling) smears that into flat colour. yuv444p stops chroma
+    // subsampling blurring iso-luminant colour dither even where luma
+    // contrast is absent.
+    //
+    // Rate control is a **constant quantiser**, not CRF. CRF spends bits
+    // where they perceptually matter *over time*, which is the opposite
+    // of what a capture master wants: every frame should be equally
+    // faithful, including the first. Under CRF 12 the opening frames
+    // carried visible quantisation error around single-pixel
+    // transitions, converging over roughly the first GOP — on a short
+    // looping clip that reads as a corruption flash at every restart
+    // (#734).
+    //
+    // Measured on a 352x296 Spectrum-like scene, 96 frames, worst
+    // per-channel error against the *source* frames:
+    //
+    //   CRF 12 (adaptive):  21 on every frame; first frame deviates 33
+    //                       from the settled encode, converging by ~f65
+    //   QP 12 (this):        6 on every frame; first frame deviates 4,
+    //                       and 0 from f17 onward
+    //
+    // Disabling AQ alone got the first-frame deviation to 5 but left a
+    // constant 11 against the source, and `-tune stillimage` left 14 —
+    // both worse than removing rate-control adaptation outright. The
+    // cost is about a third more bytes, which is the honest price of
+    // every frame being encoded as well as every other.
+    //
     // Playback compatibility tradeoff: yuv444p decodes less universally
     // than yuv420p — drop back to 4:2:0 if downstream tooling rejects
     // the master.
@@ -465,7 +489,7 @@ fn video_pass_args(width: u32, height: u32, fps: u32, output: &Path) -> Vec<Stri
         "libx264".to_owned(),
         "-pix_fmt".to_owned(),
         "yuv444p".to_owned(),
-        "-crf".to_owned(),
+        "-qp".to_owned(),
         "12".to_owned(),
         "-preset".to_owned(),
         "slow".to_owned(),
@@ -593,9 +617,17 @@ mod tests {
         assert!(args.iter().any(|arg| arg == "libx264"));
         // Full chroma (4:4:4) keeps iso-luminant dither intact.
         assert!(args.iter().any(|arg| arg == "yuv444p"));
-        // Near-lossless rate control — CRF 12 (default libx264 is 23).
-        assert!(args.iter().any(|arg| arg == "-crf"));
-        assert!(args.iter().any(|arg| arg == "12"));
+        // A constant quantiser, not CRF: CRF varies quality across the
+        // clip, which put visible error on the opening frames (#734).
+        assert!(
+            !args.iter().any(|arg| arg == "-crf"),
+            "CRF reintroduces the first-GOP convergence artefact"
+        );
+        let qp = args
+            .iter()
+            .position(|arg| arg == "-qp")
+            .expect("constant-quantiser flag");
+        assert_eq!(args[qp + 1], "12");
         assert!(args.iter().any(|arg| arg == "320x240"));
         assert!(args.iter().any(|arg| arg == "50"));
         assert!(args.iter().any(|arg| arg == "/tmp/out.mp4"));
