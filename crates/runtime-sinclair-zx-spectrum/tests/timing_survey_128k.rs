@@ -345,30 +345,43 @@ fn timing_survey_128k_records_every_case() {
         .iter()
         .map(|(t, m)| (*t, (*m).to_owned()))
         .collect();
-    assert_eq!(
-        missing, known,
-        "the set of cases that never reported has changed. Extra entries are \
-         a stall or an undriven prompt; missing entries mean a known gap \
-         closed and the record needs updating."
-    );
+    // Both records are scored before either is asserted.
+    //
+    // These used to be two `assert!`s in a row, which meant the first stale
+    // constant hid the second: the never-reported set was wrong, so it
+    // failed, so the ratchet below it never ran — and the ratchet had been
+    // sitting at 10 while the survey scored 8 for long enough that nobody
+    // could say when it changed. A survey that costs ~6.5 minutes gets one
+    // run per night, and that run has to report everything it found, not
+    // the first thing.
+    let mut stale = Vec::new();
 
-    // The ratchet goes last, so a red run still prints its own explanation.
+    if missing != known {
+        stale.push(format!(
+            "the set of cases that never reported has changed: found {missing:?}, \
+             recorded {known:?}. Extra entries are a stall or an undriven prompt; \
+             missing entries mean a known gap closed and the record needs updating."
+        ));
+    }
+
     // A ceiling, not a target: lower it in the commit that earns it, never
     // raise it silently.
     // 10 of 67, the first recorded figure for this machine. The shape
     // mirrors the 48K's: the block I/O groups (`INI`/`INIR`, `OUTI`/`OTIR`)
     // fail in both modes, and the arithmetic group fails contended only.
     const RATCHET_FAILURES: usize = 10;
-    assert!(
-        failures.len() <= RATCHET_FAILURES,
-        "128K timing survey regressed: {} of {} cases failing, was \
-         {RATCHET_FAILURES}. The failing cases are listed above. If this \
-         change is right and the suite's expectations are wrong, say which \
-         cases and why, and move the ratchet in the same commit.",
-        failures.len(),
-        cases.len(),
-    );
-    if failures.len() < RATCHET_FAILURES {
+    if failures.len() > RATCHET_FAILURES {
+        stale.push(format!(
+            "128K timing survey regressed: {} of {} cases failing, was \
+             {RATCHET_FAILURES}. The failing cases are listed above. If this \
+             change is right and the suite's expectations are wrong, say which \
+             cases and why, and move the ratchet in the same commit.",
+            failures.len(),
+            cases.len(),
+        ));
+    } else if failures.len() < RATCHET_FAILURES {
+        // Not a failure, but not silent either: an improvement nobody
+        // records is an improvement nobody can defend later.
         println!(
             "  RATCHET: {} of {} failing — improved on {RATCHET_FAILURES}. \
              Lower the constant in this commit.",
@@ -376,6 +389,12 @@ fn timing_survey_128k_records_every_case() {
             cases.len()
         );
     }
+
+    assert!(
+        stale.is_empty(),
+        "the 128K survey's record no longer describes what it measures:\n  - {}",
+        stale.join("\n  - ")
+    );
 }
 
 /// The report path is derived, not hand-built.
