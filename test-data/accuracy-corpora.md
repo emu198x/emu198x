@@ -23,8 +23,28 @@ locally; the workflow uses the same env-var contract.
 | FUSE Z80 | `zilog-z80` · `z80_fuse` | `EMU198X_FUSE_Z80_TESTS_DIR` | FUSE emulator (`fuse-emulator-fuse/z80/tests`) | GPL-2.0-or-later | no |
 | Wolfgang Lorenz 6502 | `mos-6502` · `lorenz_tests` | `EMU198X_6502_LORENZ_DIR` | Wolfgang Lorenz C64 test suite (via VICE `bin/`) | freeware | no — uses a synthetic free KERNAL |
 | ZEXDOC + ZEXALL | `zilog-z80` · `zex_tests` | `EMU198X_ZEX_DIR` | Frank Cringle Z80 exerciser (`*.com`) | freeware | no |
-| Spectrum system tests | `machine-sinclair-zx-spectrum-48k` · `float_bus`, `tape_smoke`; `machine-sinclair-zx-spectrum-128k` · `float_bus` | `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR` + `EMU198X_SPECTRON_RESULTS_DIR` | reference screens from oldbit-com/Spectron (`tests/Results/`); tapes are third-party programs it bundles — RAMSOFT floatspy v0.33 and Woody's Float48k/Float128k | screens MIT (© 2025 OldBit); tapes are long-circulated freeware, not covered by Spectron's licence, redistributed in the **private** store only | 48K Spectrum ROM — reuses the one in the `z80test` tarball |
+| Spectrum system tests | `machine-sinclair-zx-spectrum-48k` · `float_bus`, `tape_smoke`; `machine-sinclair-zx-spectrum-128k` · `float_bus` | `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR` (tapes) — the Spectron screens are **checked in**, see below | tapes are third-party programs Spectron bundles — RAMSOFT floatspy v0.33 and Woody's Float48k/Float128k | tapes are long-circulated freeware, not covered by Spectron's licence, redistributed in the **private** store only | 48K Spectrum ROM — reuses the one in the `z80test` tarball |
 | z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | raxoft/z80test (`*.tap`) | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
+
+## The one exception: Spectron's reference screens
+
+Every corpus above comes from the private mirror. Spectron's expected-output
+screens do not — they are checked in at
+[`spectrum/spectron-results/`](spectrum/spectron-results/), because they are
+MIT-licensed (© 2026 Wojciech Sobieszek), small (116 KB), and because keeping
+them out of the tree cost more than it saved.
+
+`assert_screen_matches_spectron` skipped when it could not find them, and
+`emu198x-test-skip` reports a skip as `ok` unless `EMU198X_STRICT_FIXTURES` is
+set. No developer machine had the screens, so the comparison silently did
+nothing locally while the nightly — which provisions them and does set that
+variable — failed every night from 2026-08-11. The 48K floating-bus regression
+(#939) was reproducible on any machine the whole time; nothing local would say
+so. `EMU198X_SPECTRON_RESULTS_DIR` still overrides, so the nightly keeps using
+its own bundle.
+
+The *tapes* stay in the private store: they are freeware, not Spectron's to
+license, and far larger.
 
 The SingleStepTests 68000 fixture bytes are pinned by
 [`singlesteptests-680x0-e0d5ece.sha256`](singlesteptests-680x0-e0d5ece.sha256).
