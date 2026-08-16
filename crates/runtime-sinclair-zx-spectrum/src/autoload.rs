@@ -1,8 +1,14 @@
 //! Spectrum-family host-side tape autoload helpers.
 //!
-//! These helpers do not bypass the machine. They drive the real 48K ROM editor
-//! through the shared headless-session boundary, then start the normal tape
-//! transport once `LOAD ""` has been entered.
+//! These helpers do not bypass the machine. They drive the real ROM through
+//! the shared headless-session boundary, then start the normal tape transport.
+//!
+//! Two shapes, because the family boots two ways. A 48K reaches a BASIC
+//! editor, so the helper types `LOAD ""` into it. The 128K family reaches a
+//! menu whose first entry is the tape loader, so the helper selects that
+//! instead — the ROM types the command itself. Which one to use is decided by
+//! reading the screen rather than by variant, so a machine is handled by what
+//! it actually booted to.
 
 use emu198x_shell::session::BootWaitResult;
 use emu198x_shell::{
@@ -21,6 +27,42 @@ pub const DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES: u32 = 250;
 pub const DEFAULT_TAPE_AUTOLOAD_SLOT: &str = "tape-1";
 
 pub(crate) const BASIC_PROMPT_ROW: usize = 23;
+
+/// Screen row holding the first entry of the 128K-family boot menu.
+///
+/// Confirmed by booting each variant for 300 frames: 128K and +2 show
+/// `Tape Loader` here, +2A and +3 show `Loader`, and in every case it is
+/// the first entry and the one selected at boot.
+const MENU_FIRST_ENTRY_ROW: usize = 8;
+
+/// Frame budget for a 128K-family menu to be drawn after the boot banner.
+///
+/// Measured: the 128K draws its menu 5 frames after `wait_for_boot`
+/// returns, the +3 80 frames after. Generous against that, because
+/// spending the budget costs a cold 48K only the frames it then spends
+/// waiting for its own prompt anyway.
+const MENU_WAIT_FRAMES: u32 = 200;
+
+/// Row-23 text the 128K family shows while its tape loader is listening
+/// (`To cancel - press BREAK twice`). Matched on the distinctive word so
+/// the check does not depend on the surrounding wording or spacing.
+const TAPE_PROMPT_MARKER: &str = "BREAK";
+
+/// Frame budget for that prompt to appear after the menu entry is taken.
+///
+/// Sized for the +3, which is far slower than the rest of the family: its
+/// `Loader` tries the disk drive first and only offers tape once that
+/// times out, measured at ~2,600 frames — some 52 seconds of machine
+/// time. The 128K, +2 and +2A reach the prompt within a few frames, so
+/// they never approach this. Waiting is free for them and the difference
+/// between loading and not for the +3.
+const TAPE_PROMPT_WAIT_FRAMES: u32 = 4_000;
+
+/// Labels the 128K family gives its tape-loader menu entry.
+///
+/// `Loader` is the +2A/+3 spelling; ordered longest-first so the more
+/// specific label is matched before the substring it contains.
+const MENU_LOADER_LABELS: &[&str] = &["Tape Loader", "Loader"];
 pub(crate) const KEY_EDGE_FRAMES: u32 = 2;
 const COMMAND_SETTLE_FRAMES: u32 = 10;
 
@@ -110,6 +152,40 @@ where
 
     let boot = session.wait_for_boot(max_boot_frames)?;
 
+    // The 128K family boots to a menu rather than an editor, so there is
+    // no `K` prompt to type into and the 48K path below would time out
+    // waiting for one (#50). Decided by what is on screen, not by
+    // variant: the machine is handled by what it actually booted to.
+    //
+    // Waited for, not sampled. `wait_for_boot` returns on the copyright
+    // banner, which the 128K draws *before* its menu — at frame 58
+    // against the menu's 63, and the +3's menu does not appear until
+    // frame 136. A single read here saw a blank row and fell through to
+    // the typing path, whose ENTER then selected the loader by accident
+    // and left the helper waiting for a `K` that would never come. The
+    // blank result was the same tell as #869.
+    if wait_for_loader_menu(session)? {
+        // The loader entry is the one selected at boot on every variant,
+        // so ENTER takes it and the ROM issues the load itself.
+        tap_key(session, "enter")?;
+        // Then wait for the ROM to actually start listening before the
+        // tape rolls. A fixed settle is not enough: the +3 takes far
+        // longer to reach its loading prompt than the 128K does, and
+        // starting the transport early played the pilot tone at a ROM
+        // that was not yet reading it — the tape ran to no effect and the
+        // machine sat on "Insert tape and press PLAY" forever.
+        wait_for_tape_prompt(session)?;
+        session.command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            slot.to_owned(),
+            MediaTransportAction::Start,
+        )))?;
+        return Ok(SpectrumTapeAutoloadResult {
+            slot: slot.to_owned(),
+            boot,
+            reached: session.time(),
+        });
+    }
+
     // On a cold boot row 23 holds the copyright message, so ENTER is
     // tapped to open the editor.
     if !basic_prompt_ready(session)? {
@@ -146,6 +222,104 @@ where
         boot,
         reached: session.time(),
     })
+}
+
+/// Run frames until the 128K-family loader says it is waiting for tape.
+///
+/// Every variant in the family shows the same cancel hint on row 23 while
+/// its tape loader is listening, so that is the signal. Falls through
+/// after [`TAPE_PROMPT_WAIT_FRAMES`] rather than failing: starting the
+/// transport anyway is what this helper did before, so a ROM that words
+/// its prompt differently is no worse off than it was.
+fn wait_for_tape_prompt<R, Q>(session: &mut HeadlessSession<R, Q>) -> Result<(), SessionError>
+where
+    R: MachineCore,
+    Q: SessionQueryProvider<R>,
+{
+    let mut waited = 0;
+    while waited < TAPE_PROMPT_WAIT_FRAMES {
+        if decoded_prompt_line(session)?.contains(TAPE_PROMPT_MARKER) {
+            return Ok(());
+        }
+        session.run_frames(PROMPT_POLL_FRAMES)?;
+        waited += PROMPT_POLL_FRAMES;
+    }
+    Ok(())
+}
+
+/// Wait for a 128K-family boot menu whose first entry is the tape loader.
+///
+/// `true` means the menu is up and ENTER will take the loader. `false`
+/// means this machine reached an editor instead, or showed neither within
+/// [`MENU_WAIT_FRAMES`] — a cold 48K sits on its copyright screen until
+/// ENTER is tapped, which the caller's typing path does.
+///
+/// Matching only the known loader labels is deliberate. Treating *any*
+/// text on that row as a menu would misread an unrelated screen as one,
+/// and a machine whose menu this helper cannot recognise is no worse off
+/// than before: it falls through and reports the prompt it did find.
+///
+/// Waited for, not sampled, for the same reason as everything else here:
+/// `wait_for_boot` returns on the copyright banner, and a partly-painted
+/// row reads as a truncated label — the 128K was caught mid-paint showing
+/// `Tape Loade`.
+///
+/// Deliberately does not tap ENTER itself: on the 128K family that would
+/// select a menu entry before anything had decided which one.
+fn wait_for_loader_menu<R, Q>(session: &mut HeadlessSession<R, Q>) -> Result<bool, SessionError>
+where
+    R: MachineCore,
+    Q: SessionQueryProvider<R>,
+{
+    let mut waited = 0;
+    loop {
+        if let Some(entry) = menu_first_entry(session)?
+            && MENU_LOADER_LABELS
+                .iter()
+                .any(|label| entry.eq_ignore_ascii_case(label))
+        {
+            return Ok(true);
+        }
+        if basic_prompt_ready(session)? || waited >= MENU_WAIT_FRAMES {
+            return Ok(false);
+        }
+        session.run_frames(PROMPT_POLL_FRAMES)?;
+        waited += PROMPT_POLL_FRAMES;
+    }
+}
+
+/// The first entry of the 128K-family boot menu, if one is on screen.
+///
+/// Returns `None` on a machine that booted to an editor instead, which is
+/// how the 48K falls through to the typing path.
+///
+/// The menu is drawn inside a box of block-graphic characters, so the row
+/// carries non-ASCII glyphs either side of the label; those are stripped
+/// rather than matched, leaving the label itself.
+fn menu_first_entry<R, Q>(session: &HeadlessSession<R, Q>) -> Result<Option<String>, SessionError>
+where
+    R: MachineCore,
+    Q: SessionQueryProvider<R>,
+{
+    let result = session.query("screen.text.lines")?;
+    let Some(lines) = result.value.as_array() else {
+        return Err(SessionError::UnexpectedQueryValue {
+            path: "screen.text.lines".to_owned(),
+            expected: "an array of strings",
+        });
+    };
+    let Some(row) = lines
+        .get(MENU_FIRST_ENTRY_ROW)
+        .and_then(serde_json::Value::as_str)
+    else {
+        return Ok(None);
+    };
+    let label: String = row
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == ' ')
+        .collect();
+    let label = label.trim().to_owned();
+    Ok((!label.is_empty()).then_some(label))
 }
 
 /// Run frames until row 23 shows the `K` keyword-entry cursor.
