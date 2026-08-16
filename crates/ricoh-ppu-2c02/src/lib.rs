@@ -924,13 +924,30 @@ impl Ppu {
         let sprite_x = self.secondary_oam[i * 4 + 3];
 
         let flip_v = attribs & 0x80 != 0;
+        // `row` is nominally 0..sprite_height, but it is not guaranteed to
+        // be: the in-range test that put this sprite in secondary OAM ran
+        // during evaluation (dots 65-256) and read the sprite-size bit as
+        // it was *then*, while this fetch reads it again now. A PPUCTRL
+        // write between dot 256 and this dot — an ordinary raster split —
+        // changes the size under the sprite, so one evaluated against a
+        // 16-line height can be fetched against an 8-line one and arrive
+        // here with `row` up to 15. Hardware re-reads the size bit at
+        // fetch time exactly like this and simply emits a garbled address;
+        // it has no notion of an invalid row.
+        //
+        // So the arithmetic wraps rather than saturating or clamping, and
+        // wraps the *same way* as `sprite_fetch_addr`, which computes the
+        // bus address for these same dots. The two must agree: one drives
+        // the rendered pattern, the other the A12 edges an MMC3 counts. It
+        // already wrapped; this did not, so a debug build trapped on
+        // `7 - row` while release wrapped and rendered on (#757).
         let mut row = next_scanline.wrapping_sub(sprite_y);
 
         let (table, tile, sprite_row) = if sprite_height == 16 {
             let table = u16::from(tile_index & 1) * 0x1000;
             let tile = tile_index & 0xFE;
             if flip_v {
-                row = 15 - row;
+                row = 15u16.wrapping_sub(row);
             }
             if row >= 8 {
                 (table, tile + 1, row - 8)
@@ -940,14 +957,16 @@ impl Ppu {
         } else {
             let table = if self.ctrl & 0x08 != 0 { 0x1000u16 } else { 0 };
             if flip_v {
-                row = 7 - row;
+                row = 7u16.wrapping_sub(row);
             }
             (table, tile_index, row)
         };
 
-        let addr = table + u16::from(tile) * 16 + sprite_row;
+        let addr = table
+            .wrapping_add(u16::from(tile).wrapping_mul(16))
+            .wrapping_add(sprite_row);
         let mut lo = mapper.chr_read(addr);
-        let mut hi = mapper.chr_read(addr + 8);
+        let mut hi = mapper.chr_read(addr.wrapping_add(8));
 
         if attribs & 0x40 != 0 {
             lo = flip_byte(lo);
@@ -2825,6 +2844,115 @@ mod tests {
         ppu.secondary_oam[2] = 0; // no flip
         let addr = ppu.sprite_fetch_addr(0, false);
         assert_eq!(addr, 0x1050);
+    }
+
+    /// A PPUCTRL write between sprite evaluation and the pattern fetch
+    /// changes the sprite size under a sprite already in secondary OAM.
+    /// The sprite was evaluated against a 16-line height and is fetched
+    /// against an 8-line one, so `row` arrives above 7 and the flip
+    /// subtraction underflowed — a debug-build panic, while release
+    /// wrapped and rendered on (#757).
+    #[test]
+    fn a_sprite_size_change_between_eval_and_fetch_does_not_panic() {
+        let mut mapper = dummy_mapper();
+        let mut ppu = Ppu::new();
+        ppu.mask = 0x18;
+        ppu.ctrl = 0x20; // 8x16 while evaluating
+        for i in 0..64 {
+            ppu.oam[i * 4] = 0xF0; // everything else out of range
+        }
+        // Y=17 is in range for scanline 32 at 8x16 (32 - 17 = 15 < 16)
+        // and out of range at 8x8, which is the whole point.
+        ppu.oam[0] = 17;
+        ppu.oam[1] = 0;
+        ppu.oam[2] = 0x80; // flip_v — without this the subtraction is absent
+        ppu.oam[3] = 0;
+
+        ppu.scanline = 32;
+        ppu.dot = 0;
+        for _ in 0..341 {
+            if ppu.dot == 257 {
+                ppu.ctrl = 0x00; // 8x8 for the fetch window
+            }
+            ppu.tick(&mut mapper);
+        }
+        assert_eq!(ppu.sprite_count, 1, "the sprite was evaluated in range");
+    }
+
+    /// The rendered pattern and the bus address are computed by two
+    /// functions over the same secondary-OAM slot. They must agree: one
+    /// feeds the picture, the other the A12 edges an MMC3 counts. Before
+    /// #757 `sprite_fetch_addr` wrapped and `load_sprite_pattern` did not,
+    /// so they agreed only in release.
+    #[test]
+    fn both_sprite_fetch_paths_agree_on_an_out_of_range_row() {
+        let mut ppu = Ppu::new();
+        ppu.sprite_count = 1;
+        ppu.scanline = 32;
+
+        for (height_bit, flip) in [(0x00u8, 0x80u8), (0x00, 0x00), (0x20, 0x80), (0x20, 0x00)] {
+            for sprite_y in [17u8, 24, 0xFF, 0xF0] {
+                ppu.ctrl = height_bit;
+                ppu.secondary_oam[0] = sprite_y;
+                ppu.secondary_oam[1] = 0x42;
+                ppu.secondary_oam[2] = flip;
+                ppu.secondary_oam[3] = 0;
+
+                // The address the bus path reports for this slot's low byte.
+                ppu.dot = 257 + 4;
+                let bus_addr = ppu.sprite_fetch_addr(0, false);
+
+                // ...and the one the pattern load actually reads. Captured
+                // through a mapper that records its CHR reads, so this is
+                // the address used rather than a recomputation of it.
+                let mut recorder = RecordingMapper::new();
+                ppu.load_sprite_pattern(0, &mut recorder);
+                assert_eq!(
+                    recorder.reads.first().copied(),
+                    Some(bus_addr),
+                    "ctrl={height_bit:#04X} flip={flip:#04X} y={sprite_y}"
+                );
+            }
+        }
+    }
+
+    /// Wraps the dummy mapper and records the CHR addresses read, so a
+    /// test can assert on the address a fetch *used* rather than on a
+    /// recomputation of it.
+    struct RecordingMapper {
+        inner: Nrom,
+        reads: Vec<u16>,
+    }
+
+    impl RecordingMapper {
+        fn new() -> Self {
+            Self {
+                inner: dummy_mapper(),
+                reads: Vec::new(),
+            }
+        }
+    }
+
+    impl Mapper for RecordingMapper {
+        fn cpu_read(&self, addr: u16) -> u8 {
+            self.inner.cpu_read(addr)
+        }
+        fn cpu_write(&mut self, addr: u16, value: u8) {
+            self.inner.cpu_write(addr, value);
+        }
+        fn chr_read(&mut self, addr: u16) -> u8 {
+            self.reads.push(addr);
+            self.inner.chr_read(addr)
+        }
+        fn chr_write(&mut self, addr: u16, value: u8) {
+            self.inner.chr_write(addr, value);
+        }
+        fn mirroring(&self) -> Mirroring {
+            self.inner.mirroring()
+        }
+        fn snapshot(&self) -> format_nintendo_nes_ines::MapperSnapshot {
+            self.inner.snapshot()
+        }
     }
 
     #[test]
