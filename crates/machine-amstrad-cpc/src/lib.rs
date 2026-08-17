@@ -71,6 +71,8 @@
 //! | A11 = 0 | 8255 PPI, port in A9-A8 |
 //! | A10 = 0 | expansion / FDC — absent on a 464 |
 
+pub mod screen_text;
+
 use amstrad_gate_array::GateArray;
 use common_tape::{TapePlayer, TapeSpan};
 use gi_ay_3_8912::Ay3_8912;
@@ -344,6 +346,47 @@ impl AmstradCpc {
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
         self.mem_read(addr)
+    }
+
+    /// Read a byte straight out of RAM, ignoring ROM paging.
+    ///
+    /// [`Self::peek`] honours the read map, so at `$C000` it returns whichever
+    /// upper ROM is selected rather than the screen underneath it. Anything
+    /// reading video memory wants this instead.
+    #[must_use]
+    pub fn ram_byte(&self, addr: u16) -> u8 {
+        self.ram[addr as usize]
+    }
+
+    /// Decode the screen into 25 rows of text.
+    ///
+    /// Reads RAM directly, takes the font from the OS ROM, and takes the mode
+    /// and display start from the Gate Array and CRTC as they stand — so the
+    /// result follows whatever the running software has set up.
+    #[must_use]
+    pub fn screen_text(&self) -> Vec<String> {
+        screen_text::decode_screen_text(
+            |addr| self.ram_byte(addr),
+            &self.os_rom,
+            self.gate_array.mode(),
+            self.screen_base(),
+        )
+    }
+
+    /// Byte address the CRTC is displaying from.
+    ///
+    /// R12/R13 count in CRTC characters, and the CPC wires the top two bits to
+    /// select one of four 16 KB screen blocks rather than to extend the
+    /// address linearly — so the block bits and the offset bits are shifted
+    /// differently.
+    #[must_use]
+    pub fn screen_base(&self) -> u16 {
+        // R12 bits 4-5 pick one of four 16 KB blocks; bits 0-1 are the
+        // offset's high bits; R13 is the low byte. The offset counts CRTC
+        // characters, so it doubles to a byte address — but the block bits do
+        // not, which is why they are shifted separately.
+        let start = self.crtc.start_address();
+        ((start & 0x3000) << 2) | ((start & 0x0300) << 1) | ((start & 0x00FF) << 1)
     }
 
     /// The CPU, for inspecting registers and bus pins.
