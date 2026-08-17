@@ -351,12 +351,24 @@ fn tap(cpc: &mut AmstradCpc, c: char) {
 /// Array's HSync counter rather than by a raster. The Spectrum cannot vary
 /// that axis.
 ///
-/// The page is captured, not yet scored. SHAKER renders hex nibbles `A`-`F`
-/// as `:;<=>?` — the `add a,'0'` shortcut with no `>9` correction — so a
-/// reported `#<<` is `#CC`. That reading is inferred from the glyphs rather
-/// than from SHAKER's source, so the values are printed for a human to check
-/// against the Compendium before any of them is treated as a verdict on this
-/// emulator. Confirming it is what turns this from a capture into a gate.
+/// The page is captured, not yet scored, because what its values *mean* is
+/// still open.
+///
+/// A first reading guessed that SHAKER rendered hex `A`-`F` as `:;<=>?` — the
+/// `add a,'0'` shortcut with no `>9` correction — which would have made the
+/// reported `#<<` read as `#CC`. **That guess is wrong.** SHAKER's
+/// byte-to-hex routine is a table lookup (`LD B,$40` / `LD C,nibble` /
+/// `LD A,(BC)`), and the table at `$4000` in the module image is a plain
+/// `30 31 .. 39 41 42 43 44 45 46` — `0123456789ABCDEF`. It prints correct
+/// hex.
+///
+/// So `<` is not a mangled digit, and the slots were written rather than left
+/// alone: the templates in the binary use `x` as their placeholder
+/// (`Unbreakable DD Prefix on Pending Int #xx (Exp#00)`), and `x` is not what
+/// is on screen.
+///
+/// What writes them is not established. Until it is, asserting on any of
+/// these values would be asserting on something nobody has read correctly.
 ///
 /// The page's own first line is the standing caveat:
 /// `SK 2-UNRELIABLE INTERRUPT SYSTEM BETWEEN CPCs`. A disagreement is not
