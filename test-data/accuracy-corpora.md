@@ -187,11 +187,14 @@ entry addresses the suite expects; that module D takes over the machine and
 draws its menu; that SHAKER's *own* CRTC detection reports type 0, which is
 real software checking the claim that a 464 carries an HD6845S rather than a
 comment asserting it; and that SHAKER KILLER 2 reaches and reports its four
-interrupt measurements. It does **not** assert the measured values. They are
-captured, not scored: the printed slots do not read as the two hex digits the
-binary's own templates imply, and what writes them is not established — see
-#966. Asserting on them would be asserting on something nobody has read
-correctly. SHAKER's own page header is the second reason for restraint
+interrupt measurements. It does **not** assert the measured values, and on a
+464 it cannot: SHAKER saves the screen into expanded RAM before running KILLER
+2, a 464 has none, so the copy lands on the suite's own byte-to-hex table and
+every value prints as `<` or as a string-terminating `$00`. That is faithful —
+a real unexpanded 464 does the same — and it is pinned by
+`killer_2_saves_the_screen_over_its_own_hex_table_on_a_464`. Scoring the page
+needs a 6128-class variant with banked RAM, tracked as #968. SHAKER's own page
+header is the second reason for restraint
 (`SK 2-UNRELIABLE INTERRUPT SYSTEM BETWEEN CPCs`): a disagreement is not
 automatically a defect until a target CPC variant is named.
 
