@@ -446,17 +446,15 @@ fn the_measured_window_is_free_of_contention() {
 /// The acceptance instant: the acknowledge must begin at the first
 /// `HALT` refetch boundary at or after `/INT`.
 ///
-/// **Currently fails on one phase in four**, and is `#[ignore]`d rather
-/// than deleted or weakened so that re-landing is a one-line change. The
-/// engine requires `/INT` to be asserted strictly before the boundary
-/// where FUSE accepts one asserted at it, so a `/INT` coinciding with a
-/// refetch boundary costs a whole extra refetch. Weakening the assertion
-/// to match would pin the divergence in; asserting the *current*
-/// behaviour would make a wrong answer the gate.
+/// Passes on all four grid phases. It failed on one in four until
+/// `56e8148b`: the engine required `/INT` to be asserted strictly before
+/// the boundary where FUSE accepts one asserted *at* it, so a `/INT`
+/// coinciding with a refetch boundary cost a whole extra refetch. It was
+/// `#[ignore]`d against that divergence rather than weakened, so
+/// re-landing was a one-line change.
 ///
-/// Listed in `knowledge/decisions/spectrum-contention-vs-floating-bus.md`
-/// so the ignore is not forgotten — this repository already carries
-/// `a-gate-nobody-runs-is-a-silent-gate.md` on exactly that risk.
+/// The history is in
+/// `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
 #[test]
 fn the_acknowledge_begins_at_the_first_refetch_boundary() {
     let samples = samples();
@@ -539,9 +537,17 @@ fn the_acknowledge_costs_what_fuse_charges() {
 /// of errors in the two tests above would leave both failing and this
 /// one passing — which would itself be a finding.
 ///
-/// Fails on the same one phase in four, and for the same reason: the
-/// acknowledge's cost is exact, so the whole error is the wait in front
-/// of it. `#[ignore]`d alongside its cause.
+/// Passed the same one phase in four as the test above, and re-landed
+/// with it in `56e8148b`: the acknowledge's cost was always exact, so
+/// the whole error was the wait in front of it.
+///
+/// That makes this the measurement that rules interrupt acceptance out
+/// as the cause of Float48K's remaining one-T-state shortfall (#939).
+/// Read it for what it is, though: it scores the engine against FUSE,
+/// not against silicon. If FUSE itself accepts one T-state late, every
+/// row here still matches and the probe is still off by one — which is
+/// why #939 needs hardware, per
+/// `knowledge/decisions/hardware-outranks-fuse.md`.
 #[test]
 fn the_int_to_handler_latency_matches_fuse() {
     let samples = samples();
