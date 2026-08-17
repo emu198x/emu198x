@@ -199,12 +199,16 @@ same — and it is pinned by
 **On a 6128 they are read and scored.** With banked RAM the table survives,
 and SHAKER prints each measurement beside the value it expects.
 `shaker_killer_2_scores_on_a_6128` pins all six exactly, value included, so a
-change in either direction fails. Three currently agree with SHAKER. The three
-that do not are exactly the measurements of where the interrupt lands relative
-to an instruction, which is what unmodelled `/WAIT` stretching moves — see
-#959. Wrong answers are pinned as they stand rather than skipped, because a
-wrong answer that is understood and cannot be widened quietly is worth more
-than a gate nobody runs.
+change in either direction fails. **All six agree.** Three did not until
+`/WAIT` stretching landed (#959), and the three that did not were exactly the
+measurements of where the interrupt lands relative to an instruction — the ones
+an unstretched instruction length moves. Modelling the pin moved those three
+onto SHAKER's expected values and left the other three alone.
+
+That makes this the CPC's strongest conformance gate: real period software
+scoring the machine against figures its author took from hardware. It also
+chose the free T-state — at 0, `DEC DE` reports SHAKER's CRTC 3/4 expectation
+instead of the CRTC 0 one, so only one phase satisfies every line.
 
 SHAKER's own page header is the second reason for restraint
 (`SK 2-UNRELIABLE INTERRUPT SYSTEM BETWEEN CPCs`): a disagreement is not

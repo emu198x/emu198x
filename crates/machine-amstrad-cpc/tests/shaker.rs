@@ -565,28 +565,32 @@ struct Measurement {
     agreeing: usize,
 }
 
-/// What this machine currently reports, against what SHAKER expects.
+/// What this machine reports, against what SHAKER expects.
 ///
-/// Three of the six agree. The three that do not are the measurements of where
-/// the interrupt lands *relative to an instruction*, which is what `/WAIT`
-/// stretching moves — see #959. The Gate Array stretches every M-cycle to a
-/// 1 µs boundary and this machine does not model it, so an instruction's
-/// length here is its unstretched Z80 length. That these three are exactly the
-/// instruction-relative ones, and that the three not measured against an
-/// instruction all pass, is the strongest evidence the tree has that `/WAIT`
-/// is the missing piece rather than the interrupt path.
+/// **All six agree.** Three did not until `/WAIT` stretching landed (#959),
+/// and the three that did not were exactly the measurements of where the
+/// interrupt lands *relative to an instruction* — the ones an unstretched
+/// instruction length would move. Modelling the pin moved all three onto
+/// SHAKER's expected values and left the other three alone, which is the
+/// strongest confirmation available that the stretching is right rather than
+/// merely different.
+///
+/// This page also chose the free T-state. At `WAIT_FREE_TSTATE` of 0 the same
+/// run reports `DEC DE` as `#58`, SHAKER's expectation for a CRTC 3 or 4
+/// rather than the `#59` it wants from this machine's CRTC 0. Only 2 satisfies
+/// every line.
 const MEASUREMENTS: &[Measurement] = &[
     Measurement {
-        line: "TEST INT ON INST SET n,(IX+n'):#E0 (#40 0/16 or #44)",
-        agreeing: 0,
+        line: "TEST INT ON INST SET n,(IX+n'):#40 (#40 0/16 or #44)",
+        agreeing: 1,
     },
     Measurement {
-        line: "TEST INT ON INST CP (IX+n):#2E,#31 (C2/C2 or C5/C5 or C2/C5)",
-        agreeing: 0,
+        line: "TEST INT ON INST CP (IX+n):#C2,#C2 (C2/C2 or C5/C5 or C2/C5)",
+        agreeing: 1,
     },
     Measurement {
-        line: "TEST INT ON INST DEC DE   :#7E (CRTC 3+4:#58/ OTHERS:#59)",
-        agreeing: 0,
+        line: "TEST INT ON INST DEC DE   :#59 (CRTC 3+4:#58/ OTHERS:#59)",
+        agreeing: 1,
     },
     Measurement {
         line: "Unbreakable DD Prefix on Pending Int #00 (Exp#00), On R52:#0E18 (Exp#0E18)",
@@ -608,11 +612,10 @@ const MEASUREMENTS: &[Measurement] = &[
 /// value SHAKER expects.
 ///
 /// Every line is asserted **exactly**, value included, so a change in either
-/// direction fails. Three currently disagree with SHAKER's expectations and
-/// are pinned as they stand rather than skipped: pinning a wrong answer that
-/// is understood is worth more than not running, provided nobody can widen it
-/// quietly. If `/WAIT` stretching lands and these move, the diff says whether
-/// it moved them to the right place.
+/// direction fails. All six agree with SHAKER's own expectations since `/WAIT`
+/// stretching landed (#959), which makes this the CPC's strongest conformance
+/// gate: it is real period software scoring the machine against figures its
+/// author took from hardware.
 #[test]
 #[ignore = "needs shaker26.dsk and the CPC6128 firmware — run with --ignored"]
 fn shaker_killer_2_scores_on_a_6128() {
@@ -666,9 +669,9 @@ fn shaker_killer_2_scores_on_a_6128() {
     // inferred by reading the table.
     let agreeing: usize = MEASUREMENTS.iter().map(|m| m.agreeing).sum();
     assert_eq!(
-        agreeing, 3,
-        "three of the six measurements on this page should match SHAKER's own \
-         expectations, and the three that do not should be the \
-         instruction-relative ones"
+        agreeing, 6,
+        "every measurement on this page should match SHAKER's own expectation. \
+         If this drops, `/WAIT` stretching or the interrupt path regressed — \
+         see #959"
     );
 }

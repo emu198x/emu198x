@@ -25,11 +25,11 @@
 //! discovering it later. See
 //! `knowledge/decisions/z80-validation-surface.md`.
 //!
-//! # What is not modelled yet
+//! # `/WAIT`
 //!
-//! **`/WAIT`.** The Gate Array stretches every Z80 M-cycle to a multiple of four
-//! T-states, giving an effective ~3.3 MHz rather than 4 — stated outright in the
-//! official firmware guide, which is in the reference library:
+//! The Gate Array holds `/WAIT` low for three T-states in every four, so every
+//! Z80 M-cycle is stretched onto the 1 µs grid and the effective clock is
+//! ~3.3 MHz rather than 4. The official firmware guide states the consequence:
 //!
 //! > Accesses to memory are synchronised with the video logic — they are
 //! > constrained to occur on microsecond boundaries. This has the effect of
@@ -37,14 +37,18 @@
 //! > (clock cycles). In practice this alters the instruction timing so that the
 //! > effective clock rate is approximately 3.3 MHz.
 //!
-//! `Z80::wait` is a modelled pin the core honours, so the mechanism is
-//! available. What is missing is an oracle: none of the three vendored
-//! emulators models `/WAIT` as a pin (MAME configures a flat 4 MHz Z80; Arnold
-//! folds the stretching into per-instruction cycle counts), so it has to be
-//! validated against that ~3.3 MHz figure and observed program timing rather
-//! than by reading their source. Until then the CPU runs unstretched, and
-//! `cpu_rate` asserts the unstretched figure so the change is visible when it
-//! lands.
+//! Modelled as the pin, not as a table of instruction lengths:
+//! [`amstrad_gate_array::wait_asserted`] shapes it and this machine drives it
+//! from the character-clock phase, leaving the Z80 core to produce whatever
+//! that yields. It went unmodelled for a long time for want of an oracle —
+//! none of MAME, Arnold or Caprice32 models `/WAIT` as a pin. SHAKER supplied
+//! one, and also chose which T-state is free; see
+//! [`amstrad_gate_array::WAIT_FREE_TSTATE`].
+//!
+//! # What is not modelled yet
+//!
+//! **The disc.** No µPD765 and no AMSDOS, so a [`CpcModel::Cpc6128`] is a
+//! 128 KB machine without a drive.
 //!
 //! # Video
 //!
@@ -727,6 +731,14 @@ impl AmstradCpc {
 
     /// Advance one T-state.
     fn tick_tstate(&mut self) {
+        // The Gate Array holds `/WAIT` low for three T-states in every four,
+        // freeing the Z80 for one — Compendium §27.7.2. The Z80 samples the
+        // pin at `T2`, so an M-cycle reaching `T2` on a held T-state stalls
+        // until the free one, which is what quantises the CPU onto the 1 µs
+        // grid. `crtc_phase` is that grid already: four T-states to the
+        // character clock.
+        self.cpu.wait = amstrad_gate_array::wait_asserted(self.crtc_phase);
+
         // Two CPU half-cycles per T-state. `Z80::tick` advances one half-cycle,
         // so calling it once here would run the CPU at half speed — the defect
         // the 2026-08-13 campaign found on nine machines. `cpu_rate.rs` holds
