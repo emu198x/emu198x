@@ -149,7 +149,7 @@ observations and a strict consumer are added.
 | Amiga Test Kit v1.21 A500 video | `runtime-commodore-amiga` · `amiga_test_kit_video` | `EMU198X_AMIGA_TEST_KIT_V121_ADF` | keirf/amiga-stuff tag `testkit-v1.21` | Public domain / Unlicense | Kickstart 1.3 r34.005 through `EMU198X_AMIGA_KICKSTART_13_ROM` |
 | Amiga Test Kit v1.21 A1200 video | `runtime-commodore-amiga` · `amiga_test_kit_video` | `EMU198X_AMIGA_TEST_KIT_V121_ADF` | keirf/amiga-stuff tag `testkit-v1.21` | Public domain / Unlicense | A1200 Kickstart 3.1 r40.068 through `EMU198X_AMIGA_KICKSTART_31_A1200_ROM` |
 | C64 VIC-II PAL 6569 survey | `runtime-commodore-c64` · `vicii_testbench` | `EMU198X_C64_VICII_TESTBENCH_DIR` | VICE VIC-II testbench staging; exact upstream revision unresolved | Unresolved; externally supplied | C64 KERNAL, BASIC and character ROMs through `EMU198X_C64_ROM_DIR` |
-| SHAKER 2.6 (CPC) | `machine-amstrad-cpc` · `shaker` | `EMU198X_CPC_SHAKER_DSK` | shaker.logonsystem.eu (`Shaker_CSL/shaker26.dsk`) | Creative Commons; attribution requested — cite the CRTC Compendium | CPC464 firmware through `EMU198X_CPC_ROM` |
+| SHAKER 2.6 (CPC) | `machine-amstrad-cpc` · `shaker` | `EMU198X_CPC_SHAKER_DSK` | shaker.logonsystem.eu (`Shaker_CSL/shaker26.dsk`) | Creative Commons; attribution requested — cite the CRTC Compendium | CPC464 firmware through `EMU198X_CPC_ROM`; CPC6128 firmware through `EMU198X_CPC_6128_ROM` |
 
 The Test Kit ADFs and their profile-specific Kickstart images are pinned by
 [`amiga-test-kit-v1.12.sha256`](amiga-test-kit-v1.12.sha256) and
@@ -187,14 +187,26 @@ entry addresses the suite expects; that module D takes over the machine and
 draws its menu; that SHAKER's *own* CRTC detection reports type 0, which is
 real software checking the claim that a 464 carries an HD6845S rather than a
 comment asserting it; and that SHAKER KILLER 2 reaches and reports its four
-interrupt measurements. It does **not** assert the measured values, and on a
-464 it cannot: SHAKER saves the screen into expanded RAM before running KILLER
-2, a 464 has none, so the copy lands on the suite's own byte-to-hex table and
-every value prints as `<` or as a string-terminating `$00`. That is faithful —
-a real unexpanded 464 does the same — and it is pinned by
-`killer_2_saves_the_screen_over_its_own_hex_table_on_a_464`. Scoring the page
-needs a 6128-class variant with banked RAM, tracked as #968. SHAKER's own page
-header is the second reason for restraint
+interrupt measurements.
+
+**On a 464 the values cannot be read at all.** SHAKER saves the screen into
+expanded RAM before running KILLER 2, a 464 has none, so the copy lands on the
+suite's own byte-to-hex table and every value prints as `<` or as a
+string-terminating `$00`. That is faithful — a real unexpanded 464 does the
+same — and it is pinned by
+`killer_2_saves_the_screen_over_its_own_hex_table_on_a_464`.
+
+**On a 6128 they are read and scored.** With banked RAM the table survives,
+and SHAKER prints each measurement beside the value it expects.
+`shaker_killer_2_scores_on_a_6128` pins all six exactly, value included, so a
+change in either direction fails. Three currently agree with SHAKER. The three
+that do not are exactly the measurements of where the interrupt lands relative
+to an instruction, which is what unmodelled `/WAIT` stretching moves — see
+#959. Wrong answers are pinned as they stand rather than skipped, because a
+wrong answer that is understood and cannot be widened quietly is worth more
+than a gate nobody runs.
+
+SHAKER's own page header is the second reason for restraint
 (`SK 2-UNRELIABLE INTERRUPT SYSTEM BETWEEN CPCs`): a disagreement is not
 automatically a defect until a target CPC variant is named.
 
