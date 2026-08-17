@@ -1,19 +1,17 @@
 //! `DebugPrimitives` for the CPC runtime.
 //!
-//! Hand-written rather than `impl_z80_debug_primitives!` for one reason: that
-//! macro advertises I/O tracing unconditionally, and
-//! [`emu198x_shell::IoEvent`] carries an 8-bit port. The CPC decodes I/O on
-//! A15-A10 rather than the low byte — `$7F00` is the Gate Array and `$BC00`
-//! the CRTC, and both have a low byte of zero — so a trace narrowed to `u8`
-//! would report every device as port 0. Leaving the trace unsupported (the
-//! trait's default) says what is true; the CPC's device state is reachable
-//! through the `query` paths instead. The Spectrum's `debug.rs` takes the same
-//! route for the same kind of reason.
+//! Hand-written rather than `impl_z80_debug_primitives!`, which is a
+//! historical shape rather than a constraint now — see below.
 //!
-//! This is a deferral, not the intended end state: #926 widens the shared
-//! `IoEvent` port to the `u16` the bus actually carries, after which this
-//! module gains the trace and the ZX81 stops truncating its own. Until then
-//! `io_trace` refuses rather than reporting every CPC device as port 0.
+//! This module used to leave I/O tracing unsupported. [`emu198x_shell::IoEvent`]
+//! carried an 8-bit port, and the CPC decodes I/O on A15-A10 rather than the
+//! low byte: `$7F00` is the Gate Array, `$BC00` the CRTC, `$F400`-`$F700` the
+//! PPI, and every one of those has a low byte of zero. A trace narrowed to
+//! `u8` would have reported every CPC device as port 0, so refusing said what
+//! was true.
+//!
+//! #926 widened the shared port to the `u16` the bus actually carries, so the
+//! trace is here and reports whole addresses.
 
 use emu198x_shell::DebugPrimitives;
 use machine_amstrad_cpc::AmstradCpc;
@@ -87,5 +85,29 @@ impl DebugPrimitives for AmstradCpcRuntime {
 
     fn dbg_resync(&mut self) {
         self.update_rgba_framebuffer();
+    }
+
+    fn dbg_supports_io_trace(&self) -> bool {
+        true
+    }
+
+    fn dbg_start_io_trace(&mut self) {
+        if let Some(m) = self.machine.as_mut() {
+            m.start_io_trace();
+        }
+    }
+
+    fn dbg_take_io_trace(&mut self) -> Vec<emu198x_shell::IoEvent> {
+        self.machine.as_mut().map_or_else(Vec::new, |m| {
+            m.take_io_trace()
+                .into_iter()
+                .map(|e| emu198x_shell::IoEvent {
+                    pc: u32::from(e.pc),
+                    port: e.port,
+                    value: e.value,
+                    write: e.write,
+                })
+                .collect()
+        })
     }
 }

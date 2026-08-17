@@ -138,7 +138,7 @@ impl Zx81 {
                 self.mem_write(self.cpu.addr, self.cpu.data);
             }
             Some(BusOp::IoRead) => {
-                let io_port = (self.cpu.addr & 0xFF) as u8;
+                let io_port = self.cpu.addr;
                 let io_pc = self.cpu.regs.pc;
                 let io_val = self.io_read(self.cpu.addr);
                 self.cpu.data_in = io_val;
@@ -155,7 +155,7 @@ impl Zx81 {
                 if let Some(trace) = &mut self.io_trace {
                     trace.push(IoEvent {
                         pc: self.cpu.regs.pc,
-                        port: (self.cpu.addr & 0xFF) as u8,
+                        port: self.cpu.addr,
                         value: self.cpu.data,
                         write: true,
                     });
@@ -355,8 +355,12 @@ mod tests {
 pub struct IoEvent {
     /// CPU program counter at the time of the access.
     pub pc: u16,
-    /// I/O port (low 8 bits of the address bus).
-    pub port: u8,
+    /// I/O port — the full 16-bit address bus.
+    ///
+    /// The ZX81 decodes its keyboard on the **high** byte: `IN A,($FE)`
+    /// selects the row from `A15`-`A8`, so a trace that kept only the low
+    /// byte could not say which row was scanned. Fixed in #926.
+    pub port: u16,
     /// Byte written, or byte returned on a read.
     pub value: u8,
     /// `true` for `OUT`, `false` for `IN`.
