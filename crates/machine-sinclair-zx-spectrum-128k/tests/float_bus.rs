@@ -96,6 +96,73 @@ const STEP_TSTATES: u32 = 1;
 /// moves, the sample instant or the origin moved — do not re-bless it.
 const FLOAT128K_EXPECTED_TSTATE: u32 = 14364;
 
+/// What the probe actually reads, recorded so the gate stays live (#942).
+///
+/// The derived target above is unchanged and is **not** re-blessed. This is a
+/// second constant, and the gap between the two is the open question.
+///
+/// `56e8148b` — "sample /INT at the instruction boundary" — moved *both*
+/// machines' floating-bus probes one T-state:
+///
+/// ```text
+///                 before         after      reference
+/// Float48K        14336 (fail)   14337      14338, Woody's hardware measurement
+/// Float128k       14364          14365      14364, derived
+/// ```
+///
+/// The two expectations had been blessed at different points in history and
+/// were never red at the same time, so the pair looked consistent. They are
+/// not: the 48K now reads one *short* of hardware while the 128K reads one
+/// *long* of its derivation, so they want opposite corrections and no single
+/// origin satisfies both.
+///
+/// That sampling change is settled correct, on the CPC's evidence rather than
+/// the Spectrum's — see
+/// `knowledge/decisions/zilog-z80-samples-int-at-the-instruction-boundary.md`.
+/// So this is not a regression to revert.
+///
+/// ## Why nothing here is fitted
+///
+/// Each machine carries three independently-derived frame origins, and they
+/// no longer agree:
+///
+/// ```text
+///          bus (top_left_pixel)   contention   /INT edge
+///   48K            14336            14335        14336
+///   128K           14362            14363        14364
+/// ```
+///
+/// The 48K's `/INT` anchor equals its bus origin, which is required by
+/// construction: FUSE defines frame T-state 0 *as* the interrupt, and
+/// `top_left_pixel` is measured from that same zero. The 128K's three sit one
+/// apart in a row.
+///
+/// Both bus origins are libspectrum's own — 14336 for
+/// `timings_frame_ferranti_5c_6c`, 14362 for `timings_frame_ferranti_7c`,
+/// read out of the vendored `timings.c` rather than taken on trust — and the
+/// 128K's is exact frame-wide (`0 of 70908 disagree`). They are not ours to
+/// move.
+///
+/// Moving the `/INT` edge instead was tried: `int_start_pixel: 5` on
+/// `CONFIG_128K` puts the anchor on 14362 and the probe on 14363, reproducing
+/// the 48K's relationship exactly — and breaks
+/// `contention_oracle::the_origin_is_pinned_by_the_interrupt`, because the
+/// contention origin then sits on the wrong side. One constant cannot satisfy
+/// all three, and choosing one to make a probe read a particular number is
+/// the fit this file already paid for once (#851).
+///
+/// ## What would settle it
+///
+/// Evidence from outside these tests: a direct 128K measurement of the
+/// interrupt instant on hardware, or FUSE's own alignment between its
+/// interrupt event and its contention table read out of the vendored source
+/// rather than inferred. Until then this is recorded, not resolved.
+///
+/// Recorded **exactly**, so it fails in either direction — including if it
+/// starts matching the derivation, which would be the news this is waiting
+/// for.
+const FLOAT128K_MEASURED_TSTATE: u32 = 14365;
+
 fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").expect("HOME must be set"))
 }
@@ -394,14 +461,16 @@ fn float128k_prints_expected_tstate() {
     });
     assert_eq!(
         first_non_ff,
-        Some(FLOAT128K_EXPECTED_TSTATE),
-        "Float128K first non-255 reading drifted\n\
-         (see FLOAT128K_EXPECTED_TSTATE's evidence note)\n\
+        Some(FLOAT128K_MEASURED_TSTATE),
+        "Float128K first non-255 reading drifted from the recorded \
+         {FLOAT128K_MEASURED_TSTATE}\n\
+         (the derived target is {FLOAT128K_EXPECTED_TSTATE}; the one-T-state \
+         gap between them is #942 — see FLOAT128K_MEASURED_TSTATE's note)\n\
          --- transcript ---\n{transcript}",
     );
     eprintln!(
-        "\nFloat128K: STRICT PASS — first non-255 reading at {}",
-        FLOAT128K_EXPECTED_TSTATE
+        "\nFloat128K: first non-255 reading at {FLOAT128K_MEASURED_TSTATE} \
+         (derived target {FLOAT128K_EXPECTED_TSTATE}, #942)"
     );
 }
 
