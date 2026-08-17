@@ -83,18 +83,32 @@ const TEST_COUNT: usize = 34;
 
 /// `(test, mode)` pairs this suite cannot complete on this machine.
 ///
-/// Test 2's contended pass stops with `4 Out of memory, 5070:1` — a BASIC
-/// error raised by the suite itself, after its uncontended pass has
-/// already reported `Pass`. It reproduces exactly, from a fresh boot, and
-/// it also ends the run when the prompt is answered with a blank line to
-/// select every test.
+/// **Empty, and that took establishing.** Test 2's contended pass used to
+/// stop with `4 Out of memory, 5070:1` — a BASIC error the suite raises
+/// itself, after its uncontended pass had already reported `Pass`. It
+/// reproduced exactly from a fresh boot.
 ///
-/// Recorded rather than skipped or asserted away. Whether this is the
-/// suite running out of room on a 128K in 48K mode or something this
-/// engine does to it is **not established**, and the honest form is a list
-/// that fails when it changes in either direction: a new gap is a
-/// regression, and this one closing means someone should find out why.
-const KNOWN_INCOMPLETE: &[(usize, &str)] = &[(2, "Contended")];
+/// It stopped happening at `56e8148b`, "sample /INT at the instruction
+/// boundary", bisected on whether the report contains the case rather than
+/// on the test's exit code. That commit changes which instruction boundary
+/// an interrupt is taken at, and so the machine stack's depth when it is
+/// taken — and `4 Out of memory` is Sinclair BASIC's report for the stack
+/// growing into BASIC's space.
+///
+/// The previous version of this comment asked that someone find out why
+/// before clearing the entry, on the grounds that an out-of-memory which
+/// stops happening is either a real fix or the engine handing the guest RAM
+/// it should not have. That was the right thing to insist on, and the answer
+/// is the former: `zilog-z80-samples-int-at-the-instruction-boundary.md` is
+/// settled on the CPC's evidence, where the CRTC Compendium's §27.7.2 shows
+/// a `/INT` arriving during the last T-state still being taken — which
+/// boundary sampling reproduces and the datasheet's literal reading does
+/// not. The suite gained room because interrupt timing became more correct,
+/// not less.
+///
+/// Kept as an asserting list rather than deleted: a *new* gap is still a
+/// regression, and this is where it would be recorded.
+const KNOWN_INCOMPLETE: &[(usize, &str)] = &[];
 
 /// Frames to let the snapshot settle before its prompt is live.
 const BOOT_FRAMES: usize = 200;
@@ -366,10 +380,18 @@ fn timing_survey_128k_records_every_case() {
 
     // A ceiling, not a target: lower it in the commit that earns it, never
     // raise it silently.
-    // 10 of 67, the first recorded figure for this machine. The shape
-    // mirrors the 48K's: the block I/O groups (`INI`/`INIR`, `OUTI`/`OTIR`)
-    // fail in both modes, and the arithmetic group fails contended only.
-    const RATCHET_FAILURES: usize = 10;
+    //
+    // 8 of 68. Was 10 of 67, and had been wrong for as long as the
+    // never-reported set above was: the two assertions ran in sequence, so
+    // the stale set failed first and this one was never reached (#947). The
+    // case count rose to 68 because test 2's contended pass now reports.
+    //
+    // The shape still mirrors the 48K's: the block I/O groups (`INI`/`INIR`,
+    // `OUTI`/`OTIR`) fail in both modes, and the arithmetic group — tests 4,
+    // 17, 18 and 26 — fails contended only. Note the 48K had 32 and 33 fixed
+    // by #880 and the 128K did not, which is a real difference between the
+    // two machines rather than a stale number.
+    const RATCHET_FAILURES: usize = 8;
     if failures.len() > RATCHET_FAILURES {
         stale.push(format!(
             "128K timing survey regressed: {} of {} cases failing, was \

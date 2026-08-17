@@ -726,7 +726,7 @@ jobs:
             --test tape_smoke -- --include-ignored --nocapture \
             halt2int128
 
-      - name: ZXSpectrum4.net timing survey, 128K (ratchet 10 of 67)
+      - name: ZXSpectrum4.net timing survey, 128K (ratchet 8 of 68)
         # The 128K's first graded real-software oracle. ~7 minutes.
         run: |
           cargo test --release -p runtime-sinclair-zx-spectrum \
