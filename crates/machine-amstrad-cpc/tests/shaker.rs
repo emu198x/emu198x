@@ -351,31 +351,20 @@ fn tap(cpc: &mut AmstradCpc, c: char) {
 /// Array's HSync counter rather than by a raster. The Spectrum cannot vary
 /// that axis.
 ///
-/// The page is captured, not yet scored, because what its values *mean* is
-/// still open.
+/// The page is captured, not scored, and on a 464 it cannot be scored at all:
+/// SHAKER destroys its own hex table before printing, which
+/// [`killer_2_saves_the_screen_over_its_own_hex_table_on_a_464`] pins and #968
+/// explains. The reported `:#<` and `:#` are a corrupted *print*, not a
+/// measurement — the value handed to the printer is `$DC`.
 ///
-/// A first reading guessed that SHAKER rendered hex `A`-`F` as `:;<=>?` — the
-/// `add a,'0'` shortcut with no `>9` correction — which would have made the
-/// reported `#<<` read as `#CC`. **That guess is wrong.** SHAKER's
-/// byte-to-hex routine is a table lookup (`LD B,$40` / `LD C,nibble` /
-/// `LD A,(BC)`), and the table at `$4000` in the module image is a plain
-/// `30 31 .. 39 41 42 43 44 45 46` — `0123456789ABCDEF`. It prints correct
-/// hex.
-///
-/// So `<` is not a mangled digit, and the slots were written rather than left
-/// alone: the templates in the binary use `x` as their placeholder
-/// (`Unbreakable DD Prefix on Pending Int #xx (Exp#00)`), and `x` is not what
-/// is on screen.
-///
-/// Nor is it an unmasked index reading past that table. Past `$400F` sits
-/// `FF FF 0C CC 30 F0 3C FC ..`, a mode-0 pixel table, and `$3C` is in it — but
-/// two of the slots print *nothing*, and no index into that region yields an
-/// empty cell. `$0C` would clear the screen, and nothing clears.
-///
-/// What writes them is not established. Until it is, asserting on any of
-/// these values would be asserting on something nobody has read correctly.
-/// Tracked in #966, which asks for a write trace rather than a third reading
-/// of the glyphs.
+/// Two readings of the glyphs died before anyone traced the writes, which is
+/// why they are recorded here rather than quietly dropped. The first guessed
+/// that SHAKER rendered hex `A`-`F` as `:;<=>?` via the `add a,'0'` shortcut
+/// with no `>9` correction, making `#<<` read `#CC`. The second guessed an
+/// unmasked index reading past the table into the mode-0 pixel data that
+/// follows it. Both are wrong: the printer at `$A0E1` masks with `AND $0F`,
+/// and the table it reads is the right one — it has simply been overwritten by
+/// then.
 ///
 /// The page's own first line is the standing caveat:
 /// `SK 2-UNRELIABLE INTERRUPT SYSTEM BETWEEN CPCs`. A disagreement is not
@@ -444,4 +433,104 @@ fn shaker_killer_2_reports_its_interrupt_measurements() {
             "SHAKER KILLER 2 did not report {expected:?}:\n{joined}"
         );
     }
+}
+
+/// SHAKER's byte-to-hex table, which the page above prints its measurements
+/// through.
+const HEX_TABLE: &[u8; 16] = b"0123456789ABCDEF";
+/// Where module D keeps it.
+const HEX_TABLE_ADDR: u16 = 0x4000;
+
+/// The routine SHAKER installs over the firmware jumpblock to save the screen
+/// before KILLER 2 scribbles on it:
+///
+/// ```text
+/// PUSH HL
+/// LD BC,$7FC4 : OUT (C),C     ; Gate Array RAM configuration 4
+/// LD HL,$C000 : LD DE,$4000 : LD BC,$4000 : LDIR
+/// LD BC,$7FC0 : OUT (C),C     ; back to configuration 0
+/// POP HL / RET
+/// ```
+const SCREEN_SAVE: &[u8] = &[
+    0xE5, 0x01, 0xC4, 0x7F, 0xED, 0x49, 0x21, 0x00, 0xC0, 0x11, 0x00, 0x40, 0x01, 0x00, 0x40, 0xED,
+    0xB0, 0x01, 0xC0, 0x7F, 0xED, 0x49, 0xE1, 0xC9,
+];
+const SCREEN_SAVE_ADDR: u16 = 0xBC00;
+
+/// Why SHAKER KILLER 2's measurements cannot be scored on a 464: the suite
+/// destroys its own hex table before printing them, and on this machine that
+/// is correct behaviour rather than a defect.
+///
+/// The page reports `:#<` and `:#` where its templates want `:#xx`. That is not
+/// a mangled digit and not a timing result. Traced 2026-08-17:
+///
+/// 1. The printer at `$A0E1` is exactly the routine the Compendium describes —
+///    `LD B,$40` / nibble / `LD A,(BC)` — and it masks with `AND $0F`, so an
+///    out-of-range index into the table is impossible.
+/// 2. It patches the template's two `x` bytes in place. The value it was asked
+///    to print is `$DC`, which should read `DC`.
+/// 3. It reads `$3C` and `$00` instead, because `$4000` no longer holds
+///    `0123456789ABCDEF` — it holds a copy of the screen. `$3C` is `<`; `$00`
+///    terminates the string, which is why those lines stop dead rather than
+///    printing a wrong digit. The blanks are truncation, not empty values.
+/// 4. The copy is [`SCREEN_SAVE`], installed over the firmware jumpblock and
+///    run the instant `I` is pressed. It selects Gate Array RAM configuration
+///    4, copies 16 KB from `$C000` to `$4000`, and selects configuration 0
+///    again.
+///
+/// On a 6128 that copy lands in bank 4 and main RAM at `$4000` is banked out,
+/// so the table survives. A 464 has 64 KB and no PAL to do the banking — the
+/// Gate Array ignores a `11`-prefixed write, which this repository models
+/// deliberately — so the copy lands on the table. A real unexpanded 464 does
+/// the same thing.
+///
+/// So scoring this page needs a 6128-class variant with banked RAM, not a
+/// timing fix. See #968.
+#[test]
+#[ignore = "needs shaker26.dsk and the CPC464 firmware — run with --ignored"]
+fn killer_2_saves_the_screen_over_its_own_hex_table_on_a_464() {
+    let (dsk, rom) = (dsk_path(), firmware_path());
+    if !dsk.exists() || !rom.exists() {
+        emu198x_test_skip::skip!("shaker26.dsk or cpc464.rom not staged");
+    }
+    let img = format_amstrad_dsk::parse(&fs::read(&dsk).expect("read dsk")).expect("parse dsk");
+    let module = extract(&img, "SHAKE26D.BIN").expect("SHAKE26D.BIN");
+    let firmware = fs::read(&rom).expect("read firmware");
+
+    let mut cpc = boot_and_enter(&firmware, &module);
+    run_until_screen_has(&mut cpc, "CPC SHAKER 2.6 MODULE D", 600).expect("menu");
+
+    let table = |cpc: &AmstradCpc| -> Vec<u8> {
+        (0..16).map(|i| cpc.ram_byte(HEX_TABLE_ADDR + i)).collect()
+    };
+    assert_eq!(
+        table(&cpc),
+        HEX_TABLE.as_slice(),
+        "the hex table should be intact while the menu is up"
+    );
+
+    tap(&mut cpc, 'I');
+    for _ in 0..600 {
+        cpc.run_frame();
+    }
+
+    let installed: Vec<u8> = (0..u16::try_from(SCREEN_SAVE.len()).expect("fits"))
+        .map(|i| cpc.ram_byte(SCREEN_SAVE_ADDR + i))
+        .collect();
+    assert_eq!(
+        installed, SCREEN_SAVE,
+        "SHAKER should have installed its screen-save routine over the jumpblock"
+    );
+
+    // The screen is 16 KB from `$C000`, so the first byte of the table now
+    // holds the first byte of the screen. Asserting the whole copy would be
+    // asserting on whatever was drawn; asserting the table is gone is the
+    // claim that matters.
+    assert_ne!(
+        table(&cpc),
+        HEX_TABLE.as_slice(),
+        "the screen save should have landed on the hex table — a 464 cannot \
+         bank `$4000` out. If this now passes, banked RAM arrived and the \
+         measurements on this page may be scorable; see #968"
+    );
 }
