@@ -367,8 +367,15 @@ fn tap(cpc: &mut AmstradCpc, c: char) {
 /// (`Unbreakable DD Prefix on Pending Int #xx (Exp#00)`), and `x` is not what
 /// is on screen.
 ///
+/// Nor is it an unmasked index reading past that table. Past `$400F` sits
+/// `FF FF 0C CC 30 F0 3C FC ..`, a mode-0 pixel table, and `$3C` is in it — but
+/// two of the slots print *nothing*, and no index into that region yields an
+/// empty cell. `$0C` would clear the screen, and nothing clears.
+///
 /// What writes them is not established. Until it is, asserting on any of
 /// these values would be asserting on something nobody has read correctly.
+/// Tracked in #966, which asks for a write trace rather than a third reading
+/// of the glyphs.
 ///
 /// The page's own first line is the standing caveat:
 /// `SK 2-UNRELIABLE INTERRUPT SYSTEM BETWEEN CPCs`. A disagreement is not
