@@ -2164,10 +2164,13 @@ version = "0.2.3"
 dependencies = [
  "amstrad-gate-array",
  "common-tape",
+ "emu198x-test-skip",
  "format-amstrad-cpc-cdt",
+ "format-amstrad-dsk",
  "gi-ay-3-8912",
  "intel-8255",
  "motorola-6845",
+ "nec-upd765a",
  "serde",
  "zilog-z80",
 ]

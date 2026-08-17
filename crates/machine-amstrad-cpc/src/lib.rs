@@ -346,6 +346,24 @@ impl AmstradCpc {
         self.mem_read(addr)
     }
 
+    /// The CPU, for inspecting registers and bus pins.
+    #[must_use]
+    pub fn z80(&self) -> &Z80 {
+        &self.cpu
+    }
+
+    /// The CPU, mutably — for a harness that has to seed `PC`/`SP`.
+    pub fn z80_mut(&mut self) -> &mut Z80 {
+        &mut self.cpu
+    }
+
+    /// Advance the machine by an exact number of CPU T-states.
+    pub fn advance_tstates(&mut self, tstates: u32) {
+        for _ in 0..tstates {
+            self.tick_tstate();
+        }
+    }
+
     /// The Gate Array, for inspecting video mode, palette and interrupt state.
     #[must_use]
     pub fn gate_array(&self) -> &GateArray {
