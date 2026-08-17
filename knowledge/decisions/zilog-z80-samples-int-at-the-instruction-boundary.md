@@ -1,10 +1,12 @@
 # The Z80 samples `/INT` at the instruction boundary
 
-**Status:** Adopted on the Spectrum's evidence, **pending cross-machine
-review**. The change is landed because four independent Spectrum
-instruments moved together and none regressed. It is recorded here, in
-the CPU's own decision folder rather than only in the Spectrum's, because
-`zilog-z80` is shared and the next machine to hit this will not read
+**Status:** **Settled**, 2026-08-17. Adopted on the Spectrum's evidence
+in the first instance, then confirmed on the Amstrad CPC — a machine whose
+`/INT` comes from a gate array rather than a raster — by Longshot's CRTC
+Compendium and by two independent CPC reference emulators. See the two
+cross-machine sections below. It is recorded here, in the CPU's own decision
+folder rather than only in the Spectrum's, because `zilog-z80` is shared and
+the next machine to hit this will not read
 `spectrum-contention-vs-floating-bus.md`.
 
 ## The decision
@@ -190,6 +192,72 @@ unconfirmed.
 | Licence | Creative Commons, attribution requested — cite the CRTC Compendium |
 | SHA-256 | `f7082f8eab521d632c343a288f54038af6df090c59b372e0d2866269c2cc4d08` |
 | Size | 194,816 bytes |
+
+## The CRTC Compendium settles the CPC side, 2026-08-17
+
+Longshot's *Amstrad CPC CRTC Compendium* v1.10 (chapter 27, "Interrupts")
+documents the CPC's interrupt behaviour from hardware testing. It is
+independent of FUSE, of the Spectrum, and of any emulator, and it agrees with
+this record.
+
+**An interrupt is taken at the end of the instruction, not inside it**
+(§27.3.3):
+
+> Indeed, an interrupt cannot cut an instruction (except a repetitive
+> instruction like LDIR or OTIR). So, if the instruction is several
+> microseconds long, the interrupt will occur after the instruction completes.
+
+**And — the load-bearing part — a pin that arrives during the *last* T-state
+is still taken.** §27.7.2 walks two cases for a `NOP` cycle by cycle. When the
+Gate Array raises `/INT` early, the Z80A sees it "at the start of T3 cycle".
+When it raises it late:
+
+> The end of the HSYNC arrived too late. The GA has processed the signal, but
+> the Z80A will be informed about this at T4 cycle. **The interruption will
+> still occur at the end of the NOP instruction.**
+
+That is the discriminator this record could not get from the Spectrum. Zilog
+UM0080's literal wording — "the rising edge of the last clock cycle at the end
+of any instruction" — would miss a pin that only arrives *during* the last
+T-state. The CPC takes it anyway. Sampling at the boundary reproduces that;
+sampling at the start of the final T-state does not.
+
+So the datasheet's literal reading is contradicted by hardware on a second
+machine, with a `/INT` sourced from a gate array rather than a raster, which
+is precisely the axis the section above says the Spectrum cannot vary.
+
+### What this does not settle
+
+`SK 2-UNRELIABLE INTERRUPT SYSTEM BETWEEN CPCs`, SHAKER's own warning, turns
+out to be about the **CRTC**, not the CPU (§27.7.2):
+
+> Unfortunately, CRTCs are not reliable concerning the management of their
+> HSYNC signal. […] If the end of HSYNC arrives too late, then the Z80A is not
+> warned in time, and the interruption does not take place.
+
+So the variability is in *when the Gate Array raises the pin*, not in when the
+Z80A samples it. That is a useful separation: it means a disagreement on
+SHAKER's interrupt page implicates the CRTC/Gate Array timing chain rather
+than this decision.
+
+### A better instrument than SHAKER's screen
+
+The Compendium gives directly testable figures, which is worth more than
+decoding SHAKER's UI (whose value notation is still unread — see the retraction
+in the `shaker` harness's docs). §27.4:
+
+> The Z80A RST #38 instruction lasts 4 µsec when called by code. When an
+> interrupt occurs, the call in #38 lasts 5 µsec.
+
+At 4 MHz that is 16 versus 20 T-states — a concrete assertion this engine can
+be held to without reading a bitmap at all.
+
+| | |
+|---|---|
+| Source | *Amstrad CPC CRTC Compendium* v1.10 (07.2026), Longshot / Logon System |
+| Chapter | 27 — Interrupts; §27.3.3, §27.4, §27.7.2 |
+| Obtained | `shaker.logonsystem.eu/ACCC1.10-EN.pdf` |
+| Licence | Creative Commons; the document asks to be cited directly |
 
 ## See also
 
