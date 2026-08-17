@@ -9,6 +9,16 @@ repository.workspace = true
 
 [dependencies]
 cpal = { workspace = true }
+# The Debug198x sidecar reader from Asm198x. Serde-only by design: reading a
+# `.debug198x` file must not drag in the assembler's parser, engine, or
+# dialects. The dependency direction is one-way — asm198x writes, Emu198x
+# reads — so this crate must never gain a dependency back on asm198x.
+#
+# Pinned to its own rev rather than isa-disasm's: that pin (2026-06-04)
+# predates debug198x (2026-07-06), and bumping it would change disassembly
+# output across every 6502/6809 machine. Different packages from one repo at
+# two revs is fine; cargo just checks the repo out twice.
+debug198x = { git = "https://github.com/asm198x/asm198x", rev = "e8d54481887335b969d4f7ebe09f23f590c53407" }
 gilrs = { workspace = true }
 # Shared 6502/6809 disassembler from Asm198x (the isa spec crate). Pinned to a
 # reproducible rev — isa-disasm is untagged. Re-exported below so the

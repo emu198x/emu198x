@@ -1,5 +1,6 @@
 //! Shared JSON script execution on top of one headless session.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -8,6 +9,7 @@ use thiserror::Error;
 use crate::asset::{AssetLoadError, read_media_asset};
 use crate::control::ControlCommand;
 use crate::debug::DebugTarget;
+use crate::debug_info::{DebugInfoError, DebugSymbols, SourceLine};
 use crate::machine::{MachineCore, ResetKind};
 use crate::media::{MediaImage, MediaKind, MediaSet};
 use crate::query::{QueryError, QueryPathsResult, QueryResult, SessionQueryProvider};
@@ -73,6 +75,13 @@ pub struct AyWriteEntry {
 }
 
 /// One decoded instruction returned by [`ScriptObservation::Disasm`].
+///
+/// With a Debug198x sidecar attached to the session (`load_debug_info`),
+/// `mnemonic` has its address operands substituted (`JSR $C012` reads `JSR
+/// init`), and `symbol` and `source` carry the label at this address and the
+/// line that produced it. With no sidecar, `mnemonic` is the raw disassembly
+/// and both new fields are omitted from the serialised form, so output for a
+/// build without debug info is byte for byte what it was before.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DisasmInstruction {
     /// Address of this instruction.
@@ -83,6 +92,12 @@ pub struct DisasmInstruction {
     pub raw: Vec<u8>,
     /// Decoded mnemonic.
     pub mnemonic: String,
+    /// Label defined exactly at this address, from the loaded sidecar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    /// Source line that assembled to this instruction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceLine>,
 }
 
 /// One captured write reported by [`ScriptObservation::WatchMemoryLog`].
@@ -377,6 +392,47 @@ pub enum ScriptStep {
     RunUntilPc {
         /// Target program counter.
         addr: u32,
+        /// Optional instruction budget. `None` uses the default cap.
+        #[serde(default)]
+        max_steps: Option<u64>,
+    },
+    /// Attach a Debug198x sidecar to the session.
+    ///
+    /// Reads the `.debug198x` file Asm198x wrote beside the image, and from
+    /// then on `disasm` annotates instructions with labels and source lines,
+    /// `debug_symbol` resolves names, and `run_until_line` can break on a
+    /// source line. Emits [`ScriptObservation::DebugInfoLoaded`].
+    LoadDebugInfo {
+        /// Path to the `.debug198x` sidecar.
+        path: PathBuf,
+        /// Absolute load addresses for relocatable sections, keyed by section
+        /// id. Only needed where the sidecar cannot know the address itself —
+        /// Amiga hunks placed by the loader. Absolutely-located builds carry
+        /// their base in the sidecar and need nothing here.
+        #[serde(default)]
+        section_bases: BTreeMap<u32, u64>,
+    },
+    /// Look up one symbol from the loaded sidecar.
+    ///
+    /// Resolves a label to its absolute address, or a constant to its value —
+    /// the address to hand to `run_until_pc` to break on a routine by name.
+    /// Emits [`ScriptObservation::DebugSymbol`].
+    DebugSymbol {
+        /// Symbol name as it appears in the source.
+        name: String,
+    },
+    /// Run the CPU until it reaches a source line.
+    ///
+    /// Resolves `file`:`line` to the lowest address that line assembled to,
+    /// then runs as `run_until_pc` does. Requires a loaded sidecar. Emits
+    /// [`ScriptObservation::RunUntilLine`].
+    RunUntilLine {
+        /// Source file name. Matched against the sidecar's recorded path in
+        /// full, or by basename — the assembler records the path it was given,
+        /// which is rarely the one a debugger UI knows.
+        file: String,
+        /// 1-based line number.
+        line: u32,
         /// Optional instruction budget. `None` uses the default cap.
         #[serde(default)]
         max_steps: Option<u64>,
@@ -858,6 +914,51 @@ pub enum ScriptObservation {
         /// Number of instructions executed.
         steps: u64,
     },
+    /// Result of `load_debug_info`.
+    DebugInfoLoaded {
+        /// Sidecar that was loaded.
+        path: PathBuf,
+        /// CPU the build targets, from the sidecar header.
+        cpu: String,
+        /// Assembler dialect the source was written in.
+        dialect: String,
+        /// Source files that produced the image.
+        sources: Vec<String>,
+        /// Number of sections described.
+        sections: usize,
+        /// Number of symbols available for lookup.
+        symbols: usize,
+        /// Number of line spans available for lookup.
+        lines: usize,
+    },
+    /// Result of `debug_symbol`.
+    DebugSymbol {
+        /// Name that was looked up.
+        name: String,
+        /// Resolved address (or constant value), absent if the name is
+        /// unknown or its section has no base.
+        addr: Option<u32>,
+    },
+    /// Result of `run_until_line`.
+    RunUntilLine {
+        /// Source file asked for.
+        file: String,
+        /// Source line asked for.
+        line: u32,
+        /// Address that line assembled to, absent if it emitted no bytes.
+        addr: Option<u32>,
+        /// `true` when PC reached that address before the budget expired.
+        reached: bool,
+        /// Final PC.
+        pc: u32,
+        /// The line the machine actually stopped on — what a debugger
+        /// highlights. Equal to the requested line on a clean hit.
+        stopped_at: Option<SourceLine>,
+        /// Machine-native ticks consumed.
+        ticks: u64,
+        /// Number of instructions executed.
+        steps: u64,
+    },
     /// Result of `run_until_any_pc`.
     RunUntilAnyPc {
         /// `true` when PC matched any target before the budget expired.
@@ -1281,6 +1382,110 @@ impl ScriptStep {
                     steps,
                 }))
             }
+            Self::LoadDebugInfo {
+                path,
+                section_bases,
+            } => {
+                let mut symbols = DebugSymbols::load(path)?;
+                for (section, base) in section_bases {
+                    symbols.set_section_base(*section, *base);
+                }
+                let header = symbols.header();
+                let (sections, symbol_count, lines) = symbols.counts();
+                let observation = ScriptObservation::DebugInfoLoaded {
+                    path: path.clone(),
+                    cpu: header.cpu.clone(),
+                    dialect: header.dialect.clone(),
+                    sources: header.sources.clone(),
+                    sections,
+                    symbols: symbol_count,
+                    lines,
+                };
+                session.set_debug_symbols(Some(symbols));
+                Ok(Some(observation))
+            }
+            Self::DebugSymbol { name } => {
+                let Some(symbols) = session.debug_symbols() else {
+                    return Err(ScriptError::NoDebugInfo {
+                        step: "debug_symbol",
+                    });
+                };
+                Ok(Some(ScriptObservation::DebugSymbol {
+                    name: name.clone(),
+                    addr: symbols.addr_of(name),
+                }))
+            }
+            Self::RunUntilLine {
+                file,
+                line,
+                max_steps,
+            } => {
+                let budget = max_steps.unwrap_or(RUN_UNTIL_MAX_STEPS);
+                let Some(symbols) = session.debug_symbols() else {
+                    return Err(ScriptError::NoDebugInfo {
+                        step: "run_until_line",
+                    });
+                };
+                let resolved = symbols.addr_of_line(file, *line);
+                let Some(target_pc) = resolved else {
+                    // The line emitted no bytes, so there is nowhere to break.
+                    // Report that without running the machine: running to the
+                    // budget would look like "the line was never reached".
+                    let pc = session.machine().debug_target().map_or(0, |t| t.pc());
+                    return Ok(Some(ScriptObservation::RunUntilLine {
+                        file: file.clone(),
+                        line: *line,
+                        addr: None,
+                        reached: false,
+                        pc,
+                        stopped_at: None,
+                        ticks: 0,
+                        steps: 0,
+                    }));
+                };
+
+                let Some(target) = session.machine_mut().debug_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep {
+                        step: "run_until_line",
+                    });
+                };
+                let mut ticks = 0u64;
+                let mut steps = 0u64;
+                let mut reached = false;
+                while steps < budget {
+                    if target.pc() == target_pc {
+                        reached = true;
+                        break;
+                    }
+                    let (step_ticks, instruction_completed) = step_debug_target(target);
+                    ticks += step_ticks;
+                    if !instruction_completed {
+                        break;
+                    }
+                    steps += 1;
+                }
+                reached |= target.pc() == target_pc;
+                // As `run_until_pc`: derived state was left behind while
+                // stepping, so resync before anything reads it (#915).
+                target.resync();
+                let pc = target.pc();
+                // Re-borrowed after the run: this is where the machine
+                // actually stopped, which is the line a debugger highlights.
+                // On a clean hit it is the requested line; when the budget
+                // ran out it is wherever the program got to, which is the
+                // more useful answer than repeating what was asked for.
+                let stopped_at = session.debug_symbols().and_then(|s| s.line_at(pc));
+                Ok(Some(ScriptObservation::RunUntilLine {
+                    file: file.clone(),
+                    line: *line,
+                    addr: Some(target_pc),
+                    reached,
+                    pc,
+                    stopped_at,
+                    ticks,
+                    steps,
+                }))
+            }
             Self::RunUntilAnyPc { targets, max_steps } => {
                 let budget = max_steps.unwrap_or(RUN_UNTIL_MAX_STEPS);
                 let Some(target) = session.machine_mut().debug_target_mut() else {
@@ -1383,8 +1588,20 @@ impl ScriptStep {
                         bytes: len.max(1),
                         raw,
                         mnemonic,
+                        symbol: None,
+                        source: None,
                     });
                     a = a.wrapping_add(span);
+                }
+                // Symbolised in a second pass: `target` holds a borrow of the
+                // session for the decode loop, and the sidecar lives on the
+                // session beside the machine, not inside it.
+                if let Some(symbols) = session.debug_symbols() {
+                    for instruction in &mut decoded {
+                        instruction.symbol = symbols.symbol_at(instruction.addr).map(str::to_owned);
+                        instruction.source = symbols.line_at(instruction.addr);
+                        instruction.mnemonic = symbols.symbolise(&instruction.mnemonic);
+                    }
                 }
                 Ok(Some(ScriptObservation::Disasm {
                     addr: *addr,
@@ -1853,6 +2070,20 @@ pub enum ScriptError {
          or shift chord for it. Supported keys: {supported}"
     )]
     UntypableCharacter { ch: char, supported: String },
+
+    /// A Debug198x sidecar could not be loaded.
+    #[error(transparent)]
+    DebugInfo(#[from] DebugInfoError),
+
+    /// A step needing symbols ran with no sidecar attached. Reported rather
+    /// than treated as "symbol not found": the two have different fixes, and
+    /// a source-line breakpoint that silently never fires because nobody
+    /// called `load_debug_info` is a bad half-hour.
+    #[error("script step `{step}` needs debug info — run `load_debug_info` first")]
+    NoDebugInfo {
+        /// The step's serde tag (e.g. `"run_until_line"`).
+        step: &'static str,
+    },
 
     /// One step requires a binary-side handler the shell crate does
     /// not own (e.g. `SetMachine`, `AutoloadTape`). Per-system binaries

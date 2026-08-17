@@ -465,6 +465,17 @@ fn map_script_error(err: ScriptError) -> AppError {
                  produces it. Supported keys: {supported}"
             ),
         },
+        // A missing or unreadable sidecar is a rejected step, not a fatal
+        // I/O error: the script asked for symbols and did not get them, and
+        // naming the step is what makes that fixable.
+        ScriptError::DebugInfo(e) => AppError::ScriptStepRejected {
+            step: "load_debug_info",
+            reason: e.to_string(),
+        },
+        ScriptError::NoDebugInfo { step } => AppError::ScriptStepRejected {
+            step,
+            reason: format!("step `{step}` needs debug info — run `load_debug_info` first"),
+        },
         ScriptError::Asset(e) => AppError::Asset(e),
         ScriptError::Io(e) => AppError::Io(e),
         ScriptError::Parse(e) => AppError::Io(std::io::Error::other(format!("script parse: {e}"))),

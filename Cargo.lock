@@ -849,6 +849,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c87e182de0887fd5361989c677c4e8f5000cd9491d6d563161a8f3a5519fc7f"
 
 [[package]]
+name = "debug198x"
+version = "0.0.8"
+source = "git+https://github.com/asm198x/asm198x?rev=e8d54481887335b969d4f7ebe09f23f590c53407#e8d54481887335b969d4f7ebe09f23f590c53407"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1258,6 +1267,7 @@ name = "emu198x-shell"
 version = "0.2.3"
 dependencies = [
  "cpal",
+ "debug198x",
  "emu198x-test-skip",
  "gilrs",
  "isa-disasm",

@@ -1,0 +1,7 @@
+{"t":"header","format":"debug198x","format_version":"0.1","tool":"hand-authored","tool_version":"0","cpu":"z80","dialect":"sjasmplus","sources":["spectrum128-banked.s"]}
+{"t":"section","id":0,"name":"bank1"}
+{"t":"section","id":1,"name":"bank3"}
+{"t":"symbol","name":"draw","kind":"label","section":0,"offset":16,"space":{"slot":3,"page":1}}
+{"t":"symbol","name":"music","kind":"label","section":1,"offset":16,"space":{"slot":3,"page":3}}
+{"t":"line","file":"spectrum128-banked.s","line":5,"section":0,"offset":16,"length":2}
+{"t":"line","file":"spectrum128-banked.s","line":12,"section":1,"offset":16,"length":2}

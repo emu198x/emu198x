@@ -1,0 +1,16 @@
+{"t":"header","format":"debug198x","format_version":"0.1","tool":"asm198x","tool_version":"0.0.8","cpu":"6502","dialect":"acme","sources":["test-data/commodore/c64/debug198x/border-walk.s"]}
+{"t":"section","id":0,"name":"main","base":49152}
+{"t":"symbol","name":"border","kind":"const","value":53280}
+{"t":"symbol","name":"start","kind":"label","section":0,"offset":0}
+{"t":"symbol","name":"loop","kind":"label","section":0,"offset":5}
+{"t":"symbol","name":"done","kind":"label","section":0,"offset":18}
+{"t":"symbol","name":"counter","kind":"label","section":0,"offset":19}
+{"t":"line","file":"test-data/commodore/c64/debug198x/border-walk.s","line":13,"section":0,"offset":0,"length":2}
+{"t":"line","file":"test-data/commodore/c64/debug198x/border-walk.s","line":14,"section":0,"offset":2,"length":3}
+{"t":"line","file":"test-data/commodore/c64/debug198x/border-walk.s","line":16,"section":0,"offset":5,"length":3}
+{"t":"line","file":"test-data/commodore/c64/debug198x/border-walk.s","line":17,"section":0,"offset":8,"length":3}
+{"t":"line","file":"test-data/commodore/c64/debug198x/border-walk.s","line":18,"section":0,"offset":11,"length":3}
+{"t":"line","file":"test-data/commodore/c64/debug198x/border-walk.s","line":19,"section":0,"offset":14,"length":2}
+{"t":"line","file":"test-data/commodore/c64/debug198x/border-walk.s","line":20,"section":0,"offset":16,"length":2}
+{"t":"line","file":"test-data/commodore/c64/debug198x/border-walk.s","line":22,"section":0,"offset":18,"length":1}
+{"t":"line","file":"test-data/commodore/c64/debug198x/border-walk.s","line":24,"section":0,"offset":19,"length":1}

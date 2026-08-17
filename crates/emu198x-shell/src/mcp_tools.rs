@@ -470,7 +470,8 @@ fn run_io_trace<M: MachineCore, Q: SessionQueryProvider<M>>(
 /// when no debug target is available.
 ///
 /// Registers: `query_cpu`, `memory_read`, `poke_byte`, `poke_word`, `disasm`,
-/// `step`, `run_until_pc`, `run_until_any_pc`, `run_until_mem_change` (all
+/// `load_debug_info`, `debug_symbol`, `run_until_line`, `step`,
+/// `run_until_pc`, `run_until_any_pc`, `run_until_mem_change` (all
 /// `ScriptStep`-backed), plus `io_trace` (a bespoke [`InlineTool`]: it runs
 /// frames and is gated on port-mapped I/O, so it has no `ScriptStep`).
 pub fn register_debug_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
@@ -529,13 +530,58 @@ where
     );
     common(
         "disasm",
-        "Disassemble `instructions` opcodes from `addr`; each line carries text + raw bytes.",
+        "Disassemble `instructions` opcodes from `addr`; each line carries text + raw bytes, \
+         plus its label and source line once `load_debug_info` has attached a sidecar.",
         json!({
             "type": "object",
             "required": ["addr"],
             "properties": {
                 "addr":         { "type": "integer" },
                 "instructions": { "type": "integer", "minimum": 1, "maximum": 256, "default": 16 }
+            }
+        }),
+    );
+    common(
+        "load_debug_info",
+        "Attach a Debug198x sidecar (`.debug198x`) written by Asm198x beside the image. \
+         Symbolises `disasm` and enables `debug_symbol` / `run_until_line`.",
+        json!({
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "path": { "type": "string", "description": "Path to the .debug198x sidecar." },
+                "section_bases": {
+                    "type": "object",
+                    "description":
+                        "Absolute load address per section id, for relocatable images \
+                         (Amiga hunks). Absolutely-located builds need none.",
+                    "additionalProperties": { "type": "integer" }
+                }
+            }
+        }),
+    );
+    common(
+        "debug_symbol",
+        "Resolve a symbol from the loaded sidecar to its address (or a constant to its value).",
+        json!({
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": { "type": "string", "description": "Symbol name as written in the source." }
+            }
+        }),
+    );
+    common(
+        "run_until_line",
+        "Break on a source line: run until PC reaches the first address `file`:`line` assembled to. \
+         Reports the line actually stopped on.",
+        json!({
+            "type": "object",
+            "required": ["file", "line"],
+            "properties": {
+                "file":      { "type": "string", "description": "Source file name; matched in full or by basename." },
+                "line":      { "type": "integer", "minimum": 1, "description": "1-based line number." },
+                "max_steps": { "type": "integer", "minimum": 1 }
             }
         }),
     );
