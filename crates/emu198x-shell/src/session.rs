@@ -8,6 +8,7 @@ use crate::capture::{
     AudioCapture, CaptureError, CapturedFrame, LatestFrameCapture, WavStreamWriter,
 };
 use crate::control::ControlCommand;
+use crate::debug_info::DebugSymbols;
 use crate::error::MachineError;
 use crate::headless::prepare_machine;
 use crate::host::{HostIo, InputEvent, NullTraceSink, TraceSink};
@@ -224,6 +225,7 @@ pub struct HeadlessSession<M, Q = NoAdditionalQueries> {
     recorder: Option<VideoRecorder>,
     audio_offset_at_recording_start: usize,
     audio_recording: Option<AudioRecording>,
+    debug_symbols: Option<DebugSymbols>,
 }
 
 /// Extensions a loader hands to a **foreign** snapshot parser, and which
@@ -269,7 +271,30 @@ impl<M, Q> HeadlessSession<M, Q> {
             query_provider,
             recorder: None,
             audio_offset_at_recording_start: 0,
+            debug_symbols: None,
         }
+    }
+
+    /// Attaches (or clears) the debug symbols for the loaded image.
+    ///
+    /// Held on the session rather than the machine because a sidecar
+    /// describes the *build* that was loaded, not the hardware: the same
+    /// machine runs a different program each time one is loaded, and no
+    /// machine core should need to know the format exists.
+    pub fn set_debug_symbols(&mut self, symbols: Option<DebugSymbols>) {
+        self.debug_symbols = symbols;
+    }
+
+    /// The debug symbols attached to this session, if a sidecar was loaded.
+    #[must_use]
+    pub fn debug_symbols(&self) -> Option<&DebugSymbols> {
+        self.debug_symbols.as_ref()
+    }
+
+    /// Mutable access, for supplying section bases after a relocatable load.
+    #[must_use]
+    pub fn debug_symbols_mut(&mut self) -> Option<&mut DebugSymbols> {
+        self.debug_symbols.as_mut()
     }
 
     /// Returns the wrapped machine runtime.
