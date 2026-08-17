@@ -1,4 +1,10 @@
-//! Amstrad CPC464 — Z80, Gate Array, 6845 CRTC, AY-3-8912 and 8255 PPI.
+//! Amstrad CPC — Z80, Gate Array, 6845 CRTC, AY-3-8912 and 8255 PPI.
+//!
+//! Two models: the CPC464 with 64 KB, and a CPC6128 with 128 KB and the
+//! HAL16L8 PAL's eight RAM configurations ([`CpcModel`]). The 6128's disc —
+//! its µPD765 and AMSDOS — is not modelled, so a `Cpc6128` here is a 128 KB
+//! machine without a drive. Banked RAM arrived for SHAKER, whose interrupt
+//! page saves the screen into the second bank and is unreadable without it.
 //!
 //! Scoped in `Emu198x/docs/plans/2026-08-13-amstrad-cpc-plan.md`. Every chip but
 //! the Gate Array was already in the workspace and proven in a shipping machine,
@@ -242,7 +248,60 @@ pub fn key_for_char(c: char) -> Option<(usize, u8, bool)> {
         .map(|&(_, row, bit)| (row, bit, true))
 }
 
-/// Amstrad CPC464.
+/// Which CPC this is.
+///
+/// The models differ in more than this enum captures — the 664 and 6128 carry
+/// a µPD765 and AMSDOS, which are not modelled — so this names only what the
+/// machine can actually be. A `Cpc6128` here is a 128 KB machine with banked
+/// RAM and no disc.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CpcModel {
+    /// 64 KB, no banking. The Gate Array ignores a `11`-prefixed write and
+    /// there is no PAL to catch it.
+    #[default]
+    Cpc464,
+    /// 128 KB with the HAL16L8 PAL's eight RAM configurations.
+    Cpc6128,
+}
+
+impl CpcModel {
+    /// RAM fitted, in bytes.
+    #[must_use]
+    pub const fn ram_bytes(self) -> usize {
+        match self {
+            Self::Cpc464 => 0x1_0000,
+            Self::Cpc6128 => 0x2_0000,
+        }
+    }
+
+    /// Whether a `%11xxxxxx` write to the Gate Array's port selects a RAM
+    /// configuration.
+    #[must_use]
+    pub const fn has_banked_ram(self) -> bool {
+        matches!(self, Self::Cpc6128)
+    }
+}
+
+/// The PAL's eight RAM configurations: for each, the 16 KB bank each of the
+/// Z80's four blocks reads.
+///
+/// Banks 0-3 are the base 64 KB, 4-7 the second. Configuration 0 is the
+/// identity, which is what a 464 is permanently in.
+///
+/// From `reference/by-system/amstrad-cpc/cpc-reference.md` §3, and matching
+/// Caprice32's `ga_init_banking` table (`src/cap32.cpp`) entry for entry.
+const RAM_CONFIGS: [[usize; 4]; 8] = [
+    [0, 1, 2, 3],
+    [0, 1, 2, 7],
+    [4, 5, 6, 7],
+    [0, 3, 2, 7],
+    [0, 4, 2, 3],
+    [0, 5, 2, 3],
+    [0, 6, 2, 3],
+    [0, 7, 2, 3],
+];
+
+/// Amstrad CPC — a 464 by default, a 6128 when built with [`CpcModel::Cpc6128`].
 #[derive(Serialize, Deserialize)]
 pub struct AmstradCpc {
     cpu: Z80,
@@ -251,7 +310,17 @@ pub struct AmstradCpc {
     psg: Ay3_8912,
     ppi: Ppi8255,
 
-    /// 64 KB of RAM, always writable even where a ROM is paged in.
+    /// Which machine this is. Defaults so that a snapshot taken before the
+    /// 6128 existed still loads as the 464 it was.
+    #[serde(default)]
+    model: CpcModel,
+    /// Selected PAL RAM configuration, 0-7, indexing [`RAM_CONFIGS`]. Always 0
+    /// on a 464.
+    #[serde(default)]
+    ram_config: u8,
+
+    /// RAM — 64 KB on a 464, 128 KB on a 6128 — always writable even where a
+    /// ROM is paged in.
     ram: Vec<u8>,
     /// Lower ROM: the OS, at `$0000-$3FFF` when the Gate Array enables it.
     os_rom: Vec<u8>,
@@ -298,6 +367,19 @@ impl AmstradCpc {
     ///
     /// Returns an error unless the image is exactly 32 KB.
     pub fn new(firmware: &[u8]) -> Result<Self, String> {
+        Self::with_model(firmware, CpcModel::Cpc464)
+    }
+
+    /// Build a given CPC model from its 32 KB firmware image.
+    ///
+    /// The firmware is not checked against the model — a 6128 built from
+    /// `cpc464.rom` is a 464 with 128 KB and banking, which is not a machine
+    /// Amstrad sold but is a reasonable thing to want in a test.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error unless the image is exactly 32 KB.
+    pub fn with_model(firmware: &[u8], model: CpcModel) -> Result<Self, String> {
         if firmware.len() != 0x8000 {
             return Err(format!(
                 "CPC firmware must be 32 KB (16 KB OS + 16 KB BASIC), got {}",
@@ -305,6 +387,8 @@ impl AmstradCpc {
             ));
         }
         Ok(Self {
+            model,
+            ram_config: 0,
             cpu: Z80::new(),
             gate_array: GateArray::new(),
             crtc: {
@@ -316,7 +400,7 @@ impl AmstradCpc {
             },
             psg: Ay3_8912::new(AY_CLOCK_HZ, AY_SAMPLE_RATE, AY_SAMPLES_PER_FRAME),
             ppi: Ppi8255::new(),
-            ram: vec![0; 0x1_0000],
+            ram: vec![0; model.ram_bytes()],
             os_rom: firmware[..0x4000].to_vec(),
             basic_rom: firmware[0x4000..].to_vec(),
             selected_upper_rom: 0,
@@ -354,14 +438,53 @@ impl AmstradCpc {
         self.mem_read(addr)
     }
 
-    /// Read a byte straight out of RAM, ignoring ROM paging.
+    /// Which model this machine is.
+    #[must_use]
+    pub const fn model(&self) -> CpcModel {
+        self.model
+    }
+
+    /// The PAL RAM configuration currently selected, 0-7. Always 0 on a 464.
+    #[must_use]
+    pub const fn ram_config(&self) -> u8 {
+        self.ram_config
+    }
+
+    /// Translate a Z80 address to an offset into RAM through the PAL's current
+    /// configuration.
+    ///
+    /// On a 464 — and on a 6128 in configuration 0 — this is the identity.
+    fn ram_offset(&self, addr: u16) -> usize {
+        let block = (addr >> 14) as usize;
+        let bank = RAM_CONFIGS[self.ram_config as usize][block];
+        bank * 0x4000 + (addr as usize & 0x3FFF)
+    }
+
+    /// Read a byte straight out of RAM, ignoring ROM paging **and banking**.
     ///
     /// [`Self::peek`] honours the read map, so at `$C000` it returns whichever
     /// upper ROM is selected rather than the screen underneath it. Anything
-    /// reading video memory wants this instead.
+    /// reading video memory wants this instead — and video is why this ignores
+    /// banking too. The CRTC drives RAM directly rather than through the PAL,
+    /// so the display always shows the base 64 KB whatever the Z80 has paged
+    /// in. Caprice32 does the same, fetching from `pbRAM + video_address`
+    /// while CPU accesses go through its banked pointers.
+    ///
+    /// So on a 6128 this addresses the base 64 KB. Use [`Self::ram_byte_at`]
+    /// to reach a specific bank.
     #[must_use]
     pub fn ram_byte(&self, addr: u16) -> u8 {
         self.ram[addr as usize]
+    }
+
+    /// Read a byte at a physical RAM offset, past both paging and banking.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the offset is beyond the RAM fitted.
+    #[must_use]
+    pub fn ram_byte_at(&self, offset: usize) -> u8 {
+        self.ram[offset]
     }
 
     /// Decode the screen into 25 rows of text.
@@ -458,7 +581,17 @@ impl AmstradCpc {
     /// pages the ROM out, which is the hardware's behaviour rather than a
     /// limitation of this method.
     pub fn poke(&mut self, addr: u16, value: u8) {
-        self.ram[addr as usize] = value;
+        let offset = self.ram_offset(addr);
+        self.ram[offset] = value;
+    }
+
+    /// Drive an I/O write from outside the CPU, exactly as an `OUT` would.
+    ///
+    /// The counterpart to [`Self::poke`]. The CPC decodes I/O on the high
+    /// address bits, so the port matters as much as the value — `$7F00`
+    /// reaches the Gate Array and the 6128's PAL, `$BC00`/`$BD00` the CRTC.
+    pub fn out(&mut self, port: u16, value: u8) {
+        self.io_write(port, value);
     }
 
     /// Drain the PSG's audio for the frame just run.
@@ -723,7 +856,8 @@ impl AmstradCpc {
             }
             Some(BusOp::MemWrite) => {
                 // Writes always land in RAM, whatever is paged over it.
-                self.ram[self.cpu.addr as usize] = self.cpu.data;
+                let offset = self.ram_offset(self.cpu.addr);
+                self.ram[offset] = self.cpu.data;
             }
             Some(BusOp::IoRead) => {
                 self.cpu.data_in = self.io_read(self.cpu.addr);
@@ -754,7 +888,7 @@ impl AmstradCpc {
                     0xFF
                 }
             }
-            _ => self.ram[addr as usize],
+            _ => self.ram[self.ram_offset(addr)],
         }
     }
 
@@ -838,6 +972,12 @@ impl AmstradCpc {
         // A15 = 0 and A14 = 1: the Gate Array. Write-only.
         if port & 0x8000 == 0 && port & 0x4000 != 0 {
             self.gate_array.write(value);
+            // The Gate Array ignores a `11`-prefixed write — that function is
+            // the 6128's HAL16L8 PAL, sharing the port rather than the chip.
+            // A 464 has no PAL, so the write goes nowhere at all.
+            if value & 0b1100_0000 == 0b1100_0000 && self.model.has_banked_ram() {
+                self.ram_config = value & 0b0000_0111;
+            }
         }
         // A14 = 0: the CRTC.
         if port & 0x4000 == 0 {

@@ -44,7 +44,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_amstrad_cpc::AmstradCpc;
+use machine_amstrad_cpc::{AmstradCpc, CpcModel};
 use nec_upd765a::DiskImage;
 
 /// CPC DATA format: nine 512-byte sectors per track, IDs `&C1..&C9`.
@@ -88,6 +88,15 @@ fn firmware_path() -> PathBuf {
         return PathBuf::from(p);
     }
     PathBuf::from(env::var("HOME").expect("HOME")).join(".emu198x/roms/amstrad-cpc/cpc464.rom")
+}
+
+/// The 6128's firmware — OS v3 and BASIC 1.1. A different image from the
+/// 464's, not the same ROM in a bigger machine.
+fn firmware_path_6128() -> PathBuf {
+    if let Some(p) = env::var_os("EMU198X_CPC_6128_ROM") {
+        return PathBuf::from(p);
+    }
+    PathBuf::from(env::var("HOME").expect("HOME")).join(".emu198x/roms/amstrad-cpc/cpc6128.rom")
 }
 
 /// Read one 1 KB allocation block.
@@ -185,7 +194,12 @@ fn extract(img: &DiskImage, want: &str) -> Option<AmsdosFile> {
 /// Boot the firmware, inject `module`, and enter it on an instruction
 /// boundary.
 fn boot_and_enter(firmware: &[u8], module: &AmsdosFile) -> AmstradCpc {
-    let mut cpc = AmstradCpc::new(firmware).expect("build machine");
+    boot_and_enter_model(firmware, module, CpcModel::Cpc464)
+}
+
+/// As [`boot_and_enter`], for a given model.
+fn boot_and_enter_model(firmware: &[u8], module: &AmsdosFile, model: CpcModel) -> AmstradCpc {
+    let mut cpc = AmstradCpc::with_model(firmware, model).expect("build machine");
     for _ in 0..BOOT_FRAMES {
         cpc.run_frame();
     }
@@ -532,5 +546,129 @@ fn killer_2_saves_the_screen_over_its_own_hex_table_on_a_464() {
         "the screen save should have landed on the hex table — a 464 cannot \
          bank `$4000` out. If this now passes, banked RAM arrived and the \
          measurements on this page may be scorable; see #968"
+    );
+}
+
+/// Frames for the measurements to settle after selecting KILLER 2.
+const KILLER_2_SETTLE_FRAMES: usize = 1_200;
+
+/// One line of SHAKER KILLER 2's report, as it stands on a 6128.
+///
+/// `line` is matched as a prefix of the decoded row, so it carries both the
+/// measurement's name and the value it currently produces. Asserting the whole
+/// prefix means a change in *either* fails, which is the point: these are
+/// ratchets, not tolerances.
+struct Measurement {
+    line: &'static str,
+    /// How many values on this line match SHAKER's own printed expectation.
+    /// Most lines carry one; the `DD Prefix` line carries two.
+    agreeing: usize,
+}
+
+/// What this machine currently reports, against what SHAKER expects.
+///
+/// Three of the six agree. The three that do not are the measurements of where
+/// the interrupt lands *relative to an instruction*, which is what `/WAIT`
+/// stretching moves — see #959. The Gate Array stretches every M-cycle to a
+/// 1 µs boundary and this machine does not model it, so an instruction's
+/// length here is its unstretched Z80 length. That these three are exactly the
+/// instruction-relative ones, and that the three not measured against an
+/// instruction all pass, is the strongest evidence the tree has that `/WAIT`
+/// is the missing piece rather than the interrupt path.
+const MEASUREMENTS: &[Measurement] = &[
+    Measurement {
+        line: "TEST INT ON INST SET n,(IX+n'):#E0 (#40 0/16 or #44)",
+        agreeing: 0,
+    },
+    Measurement {
+        line: "TEST INT ON INST CP (IX+n):#2E,#31 (C2/C2 or C5/C5 or C2/C5)",
+        agreeing: 0,
+    },
+    Measurement {
+        line: "TEST INT ON INST DEC DE   :#7E (CRTC 3+4:#58/ OTHERS:#59)",
+        agreeing: 0,
+    },
+    Measurement {
+        line: "Unbreakable DD Prefix on Pending Int #00 (Exp#00), On R52:#0E18 (Exp#0E18)",
+        agreeing: 2,
+    },
+    Measurement {
+        line: "Break ED xx on Pending Int #00 (Exp#00)",
+        agreeing: 1,
+    },
+];
+
+/// SHAKER KILLER 2, scored on a 6128.
+///
+/// On a 464 this page cannot be read at all: SHAKER saves the screen into
+/// expanded RAM, a 464 has none, and the copy lands on the suite's own
+/// byte-to-hex table — see
+/// [`killer_2_saves_the_screen_over_its_own_hex_table_on_a_464`]. With banked
+/// RAM the table survives and the measurements print, each one next to the
+/// value SHAKER expects.
+///
+/// Every line is asserted **exactly**, value included, so a change in either
+/// direction fails. Three currently disagree with SHAKER's expectations and
+/// are pinned as they stand rather than skipped: pinning a wrong answer that
+/// is understood is worth more than not running, provided nobody can widen it
+/// quietly. If `/WAIT` stretching lands and these move, the diff says whether
+/// it moved them to the right place.
+#[test]
+#[ignore = "needs shaker26.dsk and the CPC6128 firmware — run with --ignored"]
+fn shaker_killer_2_scores_on_a_6128() {
+    let (dsk, rom) = (dsk_path(), firmware_path_6128());
+    if !dsk.exists() || !rom.exists() {
+        emu198x_test_skip::skip!("shaker26.dsk or cpc6128.rom not staged");
+    }
+    let img = format_amstrad_dsk::parse(&fs::read(&dsk).expect("read dsk")).expect("parse dsk");
+    let module = extract(&img, "SHAKE26D.BIN").expect("SHAKE26D.BIN");
+    let firmware = fs::read(&rom).expect("read firmware");
+
+    let mut cpc = boot_and_enter_model(&firmware, &module, CpcModel::Cpc6128);
+    run_until_screen_has(&mut cpc, "CPC SHAKER 2.6 MODULE D", 900).expect("SHAKER's menu");
+
+    tap(&mut cpc, 'I');
+    for _ in 0..KILLER_2_SETTLE_FRAMES {
+        cpc.run_frame();
+    }
+
+    let rows = cpc.screen_text();
+    eprintln!(
+        "--- SHAKER KILLER 2 on a 6128 ---\n{}\n---",
+        rows.join("\n")
+    );
+
+    // The table has to have survived, or every value below is a `<`.
+    assert_eq!(
+        (0..16u16)
+            .map(|i| cpc.ram_byte_at(0x4000 + usize::from(i)))
+            .collect::<Vec<_>>(),
+        HEX_TABLE.as_slice(),
+        "the hex table should survive on a 6128 — the screen save banks `$4000` out"
+    );
+
+    let mut missing = Vec::new();
+    for m in MEASUREMENTS {
+        if !rows.iter().any(|r| r.starts_with(m.line)) {
+            missing.push(m.line);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "SHAKER KILLER 2 reported different measurements than recorded. Each \
+         line below is pinned exactly, value included — if one moved, decide \
+         whether it moved to the *right* value before editing it, and say so. \
+         Missing: {missing:#?}\nGot:\n{}",
+        rows.join("\n")
+    );
+
+    // Stated separately so the count is visible in the record rather than
+    // inferred by reading the table.
+    let agreeing: usize = MEASUREMENTS.iter().map(|m| m.agreeing).sum();
+    assert_eq!(
+        agreeing, 3,
+        "three of the six measurements on this page should match SHAKER's own \
+         expectations, and the three that do not should be the \
+         instruction-relative ones"
     );
 }
