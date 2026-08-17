@@ -1,7 +1,8 @@
 # Decision: a machine stalls its Z80 by `/WAIT` or by its clock, and the CPC's is the clock
 
 **Date:** 2026-08-17
-**Status:** ACTIVE
+**Status:** ACTIVE — **amended the same day**; the taxonomy stands, the
+prescription for the CPC was tried, measured and withdrawn (see *Amendment*)
 **Applies to:** every Z80 machine in this workspace — how it holds its CPU back
 **Supersedes the mechanism chosen in:** #972, which put the Amstrad CPC on the
 `/WAIT` pin
@@ -16,8 +17,9 @@ matter of taste:
 | **`/WAIT` pin** | the Z80's — extend an M-cycle at `T2` while the pin is held | machines that genuinely assert the pin: a device asking for more time |
 | **Clock gating** | the *machine's* — the video chip owns the CPU clock and decides when it advances | Ferranti ULA (whole Spectrum family), and the Amstrad CPC |
 
-**The Amstrad CPC belongs in the second row**, not the first. Its microsecond
-quantisation cannot be produced by any `/WAIT` pattern, and the proof is below.
+**The Amstrad CPC stays in the first row, on `/WAIT`** — see the *Amendment*.
+This entry originally moved it to the second, on the strength of the proof
+below. The proof is sound; the conclusion drawn from it was not.
 
 Do not add a third mechanism. If a machine seems to need one, the question to
 ask first is which of these two its chip actually implements.
@@ -64,6 +66,38 @@ that phase).
 The Gate Array also generates the Z80's clock. That is where the quantisation
 has to come from.
 
+## Amendment, 2026-08-17: the migration was measured and is worse
+
+The prescription below — move the CPC to clock gating — was implemented and
+scored. It regresses the best oracle this machine has:
+
+| SHAKER KILLER 2 | `/WAIT` pin | clock gating | expects |
+|---|---|---|---|
+| `SET n,(IX+n')` | `#40` ✓ | `#5C` ✗ | `#40` |
+| `CP (IX+n)` | `#C2,#C2` ✓ | `#7B,#78` ✗ | `C2/C2` |
+| `DEC DE` | `#59` ✓ | `#59` ✓ | `#59` |
+| DD prefix, R52, Break ED | ✓✓✓ | ✓✓✓ | — |
+
+Six of six becomes four of six. **The model that provably cannot reproduce
+Caprice32's table is the one that reproduces the hardware.**
+
+The resolution is that `cc_op` was the wrong target. It is a *per-instruction
+bookkeeping total*: what an instruction costs, start to finish. SHAKER measures
+something finer and more direct — where an interrupt lands **within** an
+instruction. A model can reproduce every total and still place events wrongly
+inside them, which is exactly what clock gating does here.
+
+Per [`hardware-outranks-fuse.md`](hardware-outranks-fuse.md), real software
+measuring real behaviour outranks a reference emulator's table. So:
+
+- **The CPC stays on `/WAIT`.**
+- The proof stands, and its meaning changes: no `/WAIT` pattern can produce
+  `cc_op`, therefore **`cc_op` is not a complete account of CPC timing** — not
+  "therefore the pin is wrong".
+- The open question is no longer "which mechanism" but "what satisfies the
+  totals *and* the sub-instruction placement". Nothing does both today.
+  Tracked in #971.
+
 ## What this means in practice
 
 **The `/WAIT` pin stays, and stays correct.** Sampling at `T2` and extending
@@ -72,11 +106,11 @@ machine whose device genuinely asks for time — an MSX or Master System
 inserting VDP wait states — wants exactly this and nothing else. The pin is not
 the problem; using it for a job that is not `/WAIT`'s was.
 
-**The CPC moves to clock gating**, joining the eight Spectrum-family machines
-that already work that way through `SpectrumDriver::cpu_clock_active`. The rule
-to implement is that an M-cycle may only *begin* on a microsecond boundary,
-which makes each one cost a multiple of four as a consequence rather than as a
-table.
+**The CPC does not move to clock gating.** It was tried — an M-cycle may only
+*begin* on a microsecond boundary, which makes each cost a multiple of four as
+a consequence rather than as a table — and it costs two of SHAKER's six
+measurements. The eight Spectrum-family machines keep clock gating because it
+is right for the Ferranti ULA, not because it generalises.
 
 **Not a per-instruction table.** Caprice32 and Arnold both encode the stretched
 costs as opcode tables, which is why neither could serve as an oracle for the
@@ -102,8 +136,13 @@ Re-read this entry when any of these appears:
   pin, insufficient as an account of the timing.
 - a third stalling mechanism, or a machine-specific hook on the Z80 core for
   timing that is really the machine's own clock.
-- "clock gating measured worse" — it was measured worse once, from a prototype
-  with an off-by-one. That result is void.
+- "clock gating measured worse" — this happened three times. The first two were
+  prototypes with real bugs, and dismissing the approach on them was wrong. The
+  third was a correct implementation, and it *is* worse, on SHAKER. Do not
+  re-litigate without a new oracle.
+- "Caprice32's table is ground truth" — it is a per-instruction total, no pin
+  model can produce it, and yet the pin model beats the table-shaped model on
+  hardware. One witness, not the answer.
 
 ## Sources
 
