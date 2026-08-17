@@ -77,23 +77,25 @@ const STEP_TSTATES: u32 = 1;
 /// — that is the canonical Smith Ch 12 / Ch 21 "fetched byte on the data
 /// bus" tap.
 ///
-/// **Our engine:** prints `14337` since the #62 floating-bus read-phase
-/// fix. The ULA's two-stage shifter lands the bus exposure at T-14338
-/// (matching silicon), but the IO-read sample point inside the `IN`
-/// M-cycle never lined up with hardware: before the fix this probe read
-/// one T-state *late* (14339), and floatspy read the wrong byte entirely.
+/// **Our engine:** prints `14338` — the hardware value — since the read
+/// origin moved on 2026-08-17 (#939, #940, #851).
 ///
-/// The fix samples the floating bus at the hardware instant (a +3 lead;
-/// see `SpectrumMachineCore::floating_bus_read`), which makes floatspy
-/// byte-equal to Spectron's `floatspy_48.png` — the authoritative,
-/// full-self-test oracle (`floatspy_selftest_ok`). With it, this edge-
-/// detection probe lands one T-state *early* (14337) instead of one late.
-/// Both probes do `in a,(0ffh)`, so a residual ±1 T-state between them
-/// (floatspy lands its specific byte exactly; Float48K's first-non-`$FF`
-/// edge is 1 before Woody's 14338) is the remaining sub-T-state IO-sample
-/// fidelity item. floatspy is the stronger oracle, so the fix is anchored
-/// there. Catalogue frame hashes are unaffected (visible-pixel tap).
-const FLOAT48K_EXPECTED_TSTATE: u32 = 14337;
+/// The history is worth keeping, because it was nearly settled at the
+/// wrong number twice. The ULA's two-stage shifter has always landed the
+/// bus exposure at T-14338, matching silicon; what never lined up was the
+/// `IN` sample point. Before #62 this probe read one T-state *late*
+/// (14339) and floatspy read the wrong byte entirely. #62's read-phase
+/// fix moved it to 14337 — one *early* — and that residual was recorded
+/// as "the remaining sub-T-state IO-sample fidelity item", with floatspy
+/// treated as the stronger oracle and the disagreement left standing.
+///
+/// It was not sub-T-state. The read origin was one out, and moving it
+/// puts all three hardware oracles on the same answer at once: this probe
+/// reads 14338, floatspy matches `floatspy_48.png`, and HALT2INT stops
+/// printing `Float: Unknown` and matches all 49152 pixels of
+/// `halt2int_48.png`. Catalogue frame hashes are unaffected
+/// (visible-pixel tap).
+const FLOAT48K_EXPECTED_TSTATE: u32 = 14338;
 
 /// The probe's actual answer: the T-state of the first row whose byte is
 /// not `255`.

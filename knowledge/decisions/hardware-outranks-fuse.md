@@ -102,3 +102,37 @@ hardware figure as the target rather than as a residual.
 - [`zilog-z80-samples-int-at-the-instruction-boundary.md`](zilog-z80-samples-int-at-the-instruction-boundary.md)
   — settled the other way round: a datasheet's literal reading lost to
   hardware behaviour on a second machine.
+
+## Applied 2026-08-17: the 48K floating-bus read origin
+
+First use of this decision, and it settled a question three issues had been
+carrying (#939, #940, #851).
+
+The `IN` sample origin for the 48K floating bus was libspectrum's
+`top_left_pixel`, 14336. Three hardware-derived oracles say 14335:
+
+| Oracle | at 14336 | at 14335 |
+|---|---|---|
+| Woody's Float48K (hardware, WoS 17551) | 14337 | **14338** ✓ |
+| Spectron `floatspy_48.png` | fails | **matches** ✓ |
+| Spectron `halt2int_48.png` | `Float: Unknown`, 49104/49152 | **`Early`, 49152/49152** ✓ |
+
+FUSE is the only witness for 14336, and it is a reference emulator's constant
+rather than a measurement. Hardware wins; the origin moved.
+
+**What it is not.** The ULA's bus *content* was never in question — it is
+byte-exact against FUSE across the whole frame at 14336, and
+`float_bus_oracle`'s frame-wide differential passes either side of the change.
+What moved is when the CPU *samples*, which is why the two sample-instant
+differentials now carry `FUSE_SAMPLE_OFFSET = 2` against FUSE's 3. That single
+constant is where the divergence is stated.
+
+**Not the shared Z80 lead, and that was measured rather than assumed.** Taking
+`IO_READ_DATA_LATCH_LEAD_TSTATES` from 2 to 1 gives the same 48K answer, so it
+looked like the tidier fix — but it moves Float128K from 14365 to 14366, away
+from the 14364 that machine wants. The 128K's own one-T-state gap (#942) is a
+separate question and stays open.
+
+**Cost:** two FUSE sample-instant assertions restated by one constant. Nothing
+else in the Spectrum family moved; the 128K, +2A, +3 and runtime suites are
+bit-identical either side.

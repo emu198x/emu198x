@@ -367,7 +367,13 @@ fn the_in_path_samples_the_bus_where_fuse_does() {
     /// before `readport_internal` runs (`periph.c`). For `$00FF` — an odd
     /// port in an uncontended page, FUSE's `N:4` class — neither adds any
     /// delay, so the three are the bare M-cycle geometry.
-    const FUSE_SAMPLE_OFFSET: u32 = 3;
+    /// **2, not FUSE's 3.** The `IN` sample instant moved one T-state
+    /// earlier on 2026-08-17 (#939, #940): Woody's Float48K, Spectron's
+    /// `floatspy_48.png` and Spectron's `halt2int_48.png` all place it
+    /// there, and `halt2int` matches all 49152 pixels at the new instant.
+    /// This constant is where that divergence from FUSE is stated, so it
+    /// stays one number rather than a widened tolerance.
+    const FUSE_SAMPLE_OFFSET: u32 = 2;
     /// The instruction's uncontended cost: 4 + 4 + 4.
     const BARE_COST: u32 = 12;
     /// The port floatspy reads, and the one class that pays nothing.
@@ -983,7 +989,13 @@ fn the_in_a_n_sample_instant_matches_fuse() {
     /// `contend_port_early` and `_late` before `readport_internal`, and
     /// for `$00FF` — its `N:4` class — neither adds delay, so the three
     /// are bare M-cycle geometry.
-    const FUSE_SAMPLE_OFFSET: i64 = 3;
+    /// **2, not FUSE's 3.** The `IN` sample instant moved one T-state
+    /// earlier on 2026-08-17 (#939, #940): Woody's Float48K, Spectron's
+    /// `floatspy_48.png` and Spectron's `halt2int_48.png` all place it
+    /// there, and `halt2int` matches all 49152 pixels at the new instant.
+    /// This constant is where that divergence from FUSE is stated, so it
+    /// stays one number rather than a widened tolerance.
+    const FUSE_SAMPLE_OFFSET: i64 = 2;
     /// `IN A,(n)` uncontended: 4 + 3 + 4.
     const BARE_COST: u32 = 11;
     const PORT_LOW: u8 = 0xFF;

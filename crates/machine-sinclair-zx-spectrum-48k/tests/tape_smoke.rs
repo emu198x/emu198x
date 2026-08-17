@@ -586,27 +586,24 @@ fn halt2int_runs_to_completion() {
         lines.join("\n"),
     );
 
-    // The decoded-text check above passes on a screen that is wrong
-    // everywhere the text is right, so hold the whole 256x192 to the
-    // oracle too. `halt2int_48.png` has been sitting in Spectron's
-    // results unused (#10).
-    //
-    // Wiring it surfaces #940 immediately: HALT2INT prints `Float: Unknown`
-    // where Spectron prints `Float: Early`, and that one word is the entire
-    // difference — 48 pixels. Every numeric reading on the screen matches.
-    // The divergence predates the #939 regression; the engine at
-    // `f1bcd433~1` scores identically.
-    //
-    // Recorded rather than asserted-perfect so this reads as the oracle it
-    // is: 49104 is a fact about the current engine, and moving off it in
-    // either direction is news. Fixing #940 fails this test, which is
-    // correct — the fix updates the number in the same commit.
-    const HALT2INT_MATCHES_PENDING_940: usize = 49_104;
-    assert_screen_scores_against_spectron(
-        "halt2int_48.png",
-        machine.framebuffer(),
-        HALT2INT_MATCHES_PENDING_940,
+    // HALT2INT's other classification, which is the one that was wrong.
+    // It decides this by stamping `$5800` and reading the floating bus at
+    // a fixed instant: at the old read origin the read missed the
+    // attribute slot and the suite printed `Float: Unknown` (#940).
+    assert!(
+        lines.iter().any(|line| line.contains("Float: Early")),
+        "HALT2INT should classify the floating bus as Early; decoded screen:\n{}",
+        lines.join("\n"),
     );
+
+    // And hold the whole 256x192 to the oracle, because the decoded-text
+    // checks above pass on a screen that is wrong everywhere the text is
+    // right. `halt2int_48.png` sat unused in Spectron's results until #10.
+    //
+    // This was a scored ratchet at 49104 of 49152 while #940 stood — the
+    // 48 pixels of that one word. It is an exact match now, so it is
+    // asserted as one.
+    assert_screen_matches_spectron("halt2int_48.png", machine.framebuffer());
 }
 
 #[test]
