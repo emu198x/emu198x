@@ -149,6 +149,7 @@ observations and a strict consumer are added.
 | Amiga Test Kit v1.21 A500 video | `runtime-commodore-amiga` · `amiga_test_kit_video` | `EMU198X_AMIGA_TEST_KIT_V121_ADF` | keirf/amiga-stuff tag `testkit-v1.21` | Public domain / Unlicense | Kickstart 1.3 r34.005 through `EMU198X_AMIGA_KICKSTART_13_ROM` |
 | Amiga Test Kit v1.21 A1200 video | `runtime-commodore-amiga` · `amiga_test_kit_video` | `EMU198X_AMIGA_TEST_KIT_V121_ADF` | keirf/amiga-stuff tag `testkit-v1.21` | Public domain / Unlicense | A1200 Kickstart 3.1 r40.068 through `EMU198X_AMIGA_KICKSTART_31_A1200_ROM` |
 | C64 VIC-II PAL 6569 survey | `runtime-commodore-c64` · `vicii_testbench` | `EMU198X_C64_VICII_TESTBENCH_DIR` | VICE VIC-II testbench staging; exact upstream revision unresolved | Unresolved; externally supplied | C64 KERNAL, BASIC and character ROMs through `EMU198X_C64_ROM_DIR` |
+| SHAKER 2.6 (CPC) | `machine-amstrad-cpc` · `shaker` | `EMU198X_CPC_SHAKER_DSK` | shaker.logonsystem.eu (`Shaker_CSL/shaker26.dsk`) | Creative Commons; attribution requested — cite the CRTC Compendium | CPC464 firmware through `EMU198X_CPC_ROM` |
 
 The Test Kit ADFs and their profile-specific Kickstart images are pinned by
 [`amiga-test-kit-v1.12.sha256`](amiga-test-kit-v1.12.sha256) and
@@ -167,6 +168,32 @@ leaving their bytes external. The wrapper compares nearest C64 palette indices,
 records exact integer pixel counts and writes a revision-keyed report. The
 results are diagnostic fractions, not pass rates, and the reference
 images do not share one uniform hardware-provenance claim.
+
+SHAKER is Longshot's CPC hardware-accuracy suite, aimed at the Gate Array and
+the CRTC across their manufacturing variants. It ships as an Extended DSK, and
+the CPC464 has no FDC — the drive arrives with the 6128 — so the harness lifts
+the AMSDOS binaries out of the image with `format-amstrad-dsk`, boots the
+firmware to its BASIC prompt, and enters the module on an instruction boundary.
+That bypasses AMSDOS, so anything the suite expects the firmware to have set up
+must hold without it; module D does. The DSK and the firmware are pinned by
+[`amstrad-cpc-shaker-2.6.sha256`](amstrad-cpc-shaker-2.6.sha256). The firmware
+is externally supplied and falls under Amstrad's standing permission to
+redistribute its ROMs with emulators, the same grant the z80test tarball's 48K
+Spectrum ROM relies on.
+
+**What this gate asserts, and what it does not.** It asserts that the modules
+come out of the catalogue with a valid AMSDOS header checksum and the load and
+entry addresses the suite expects; that module D takes over the machine and
+draws its menu; that SHAKER's *own* CRTC detection reports type 0, which is
+real software checking the claim that a 464 carries an HD6845S rather than a
+comment asserting it; and that SHAKER KILLER 2 reaches and reports its four
+interrupt measurements. It does **not** assert the measured values. They are
+captured, not scored: the printed slots do not read as the two hex digits the
+binary's own templates imply, and what writes them is not established — see
+#966. Asserting on them would be asserting on something nobody has read
+correctly. SHAKER's own page header is the second reason for restraint
+(`SK 2-UNRELIABLE INTERRUPT SYSTEM BETWEEN CPCs`): a disagreement is not
+automatically a defect until a target CPC variant is named.
 
 The v1.12 gate is invoked through
 [`scripts/verify-amiga-test-kit.sh`](../scripts/verify-amiga-test-kit.sh). The
