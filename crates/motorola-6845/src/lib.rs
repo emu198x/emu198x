@@ -19,9 +19,49 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Which 6845 the machine actually fits.
+///
+/// The part number matters at exactly one place in this model — which
+/// registers read back. The CPC community numbers the variants 0 to 4, and
+/// software detects them by reading registers and seeing what comes out. So a
+/// machine that claims one part while reading back like another is detectable
+/// by real software, not merely wrong on paper.
+///
+/// Masks follow Arnold's `crtc.c` read tables, which are per-part rather than
+/// per-machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Crtc6845Variant {
+    /// MC6845 and UM6845R — CPC types 2 and 1. The start address (R12/R13) is
+    /// write-only; only cursor and light-pen registers read back.
+    ///
+    /// The default, because it is what this model has always done and the BBC
+    /// Micro and PET were written against it.
+    #[default]
+    Mc6845,
+    /// HD6845S, also sold as UM6845 — CPC type 0, and what a CPC464 fits. The
+    /// start address reads back too.
+    Hd6845s,
+}
+
+impl Crtc6845Variant {
+    /// Does this part read register `reg` back?
+    #[must_use]
+    pub const fn reads_back(self, reg: usize) -> bool {
+        match self {
+            // R14-R17: cursor and light pen.
+            Self::Mc6845 => matches!(reg, 14..=17),
+            // R12-R17: the start address as well.
+            Self::Hd6845s => matches!(reg, 12..=17),
+        }
+    }
+}
+
 /// Motorola 6845 CRTC.
 #[derive(Serialize, Deserialize)]
 pub struct Crtc6845 {
+    /// Which part this is. Only affects register readback.
+    #[serde(default)]
+    variant: Crtc6845Variant,
     /// Selected register number (0-17).
     selected: u8,
     /// Registers R0-R17.
@@ -72,6 +112,7 @@ impl Crtc6845 {
     #[must_use]
     pub fn new() -> Self {
         Self {
+            variant: Crtc6845Variant::default(),
             selected: 0,
             regs: [0; 18],
             h_counter: 0,
@@ -109,10 +150,22 @@ impl Crtc6845 {
     #[must_use]
     pub fn read_data(&self) -> u8 {
         let reg = self.selected as usize;
-        match reg {
-            14..=17 => self.regs[reg],
-            _ => 0, // Write-only registers return 0
+        if self.variant.reads_back(reg) {
+            self.regs[reg]
+        } else {
+            0 // Write-only on this part
         }
+    }
+
+    /// Select which 6845 this is. See [`Crtc6845Variant`].
+    pub const fn set_variant(&mut self, variant: Crtc6845Variant) {
+        self.variant = variant;
+    }
+
+    /// Which 6845 this is.
+    #[must_use]
+    pub const fn variant(&self) -> Crtc6845Variant {
+        self.variant
     }
 
     /// Current memory address output (MA0-MA13, 14-bit). This is the address
@@ -477,5 +530,45 @@ mod tests {
         }
         // MA should have advanced from the start
         assert!(crtc.memory_address() > ma_start);
+    }
+}
+#[cfg(test)]
+mod variant_tests {
+    use super::*;
+
+    /// The start address is the whole difference between a CPC type 0 and a
+    /// type 2, and it is what real software detects the part by.
+    #[test]
+    fn only_the_hd6845s_reads_the_start_address_back() {
+        for (variant, r12_reads) in [
+            (Crtc6845Variant::Mc6845, false),
+            (Crtc6845Variant::Hd6845s, true),
+        ] {
+            let mut crtc = Crtc6845::new();
+            crtc.set_variant(variant);
+            crtc.write_address(12);
+            crtc.write_data(0x30);
+            assert_eq!(crtc.read_data() != 0, r12_reads, "{variant:?} R12 readback");
+
+            // Cursor and light pen read back on every part.
+            for reg in 14..=17u8 {
+                crtc.write_address(reg);
+                crtc.write_data(0x2A);
+                assert_eq!(crtc.read_data(), 0x2A, "{variant:?} R{reg} readback");
+            }
+
+            // Timing registers never do.
+            crtc.write_address(0);
+            crtc.write_data(0x3F);
+            assert_eq!(crtc.read_data(), 0, "{variant:?} R0 should be write-only");
+        }
+    }
+
+    /// A snapshot written before the variant existed decodes as the part this
+    /// model has always behaved like, not as the CPC's.
+    #[test]
+    fn the_default_is_the_old_behaviour() {
+        assert_eq!(Crtc6845Variant::default(), Crtc6845Variant::Mc6845);
+        assert!(!Crtc6845Variant::default().reads_back(12));
     }
 }

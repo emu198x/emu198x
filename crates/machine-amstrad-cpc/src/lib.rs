@@ -77,7 +77,7 @@ use amstrad_gate_array::GateArray;
 use common_tape::{TapePlayer, TapeSpan};
 use gi_ay_3_8912::Ay3_8912;
 use intel_8255::Ppi8255;
-use motorola_6845::Crtc6845;
+use motorola_6845::{Crtc6845, Crtc6845Variant};
 use serde::{Deserialize, Serialize};
 use zilog_z80::{BusOp, Z80};
 
@@ -307,7 +307,13 @@ impl AmstradCpc {
         Ok(Self {
             cpu: Z80::new(),
             gate_array: GateArray::new(),
-            crtc: Crtc6845::new(),
+            crtc: {
+                let mut crtc = Crtc6845::new();
+                // A 464 fits an HD6845S, whose start address reads back. Leaving
+                // the default made SHAKER detect this machine as a CRTC 2.
+                crtc.set_variant(Crtc6845Variant::Hd6845s);
+                crtc
+            },
             psg: Ay3_8912::new(AY_CLOCK_HZ, AY_SAMPLE_RATE, AY_SAMPLES_PER_FRAME),
             ppi: Ppi8255::new(),
             ram: vec![0; 0x1_0000],
@@ -756,8 +762,10 @@ impl AmstradCpc {
         // A14 = 0: the CRTC. A9-A8 pick the function.
         if port & 0x4000 == 0 {
             return match (port >> 8) & 0x03 {
-                // A type 0 CRTC (HD6845S, which is what the CPC fits) has no
-                // readable status register — see the plan's CRTC-type finding.
+                // A type 0 CRTC (HD6845S, which is what a 464 fits) has no
+                // readable status register — that is a type 1 (UM6845R) part.
+                // The other half of "type 0" is that R12/R13 read back, which
+                // lives in the CRTC itself as `Crtc6845Variant::Hd6845s`.
                 0x02 => 0xFF,
                 0x03 => self.crtc.read_data(),
                 _ => 0xFF,
