@@ -166,6 +166,46 @@ fn run_one(name: &str) -> Option<TestOutcome> {
         machine.write(addr, byte);
     }
 
+    // Land on an instruction boundary before hijacking PC.
+    //
+    // `run_frame` stops when the frame's half-cycle budget runs out, which
+    // bears no relationship to where the CPU is inside an instruction. If we
+    // write `regs.pc` while an instruction is still in flight, the core
+    // finishes that instruction against the *new* PC: its remaining operand
+    // reads come out of the freshly injected binary, and it lands wherever
+    // those bytes send it.
+    //
+    // That is exactly what happened at `5bbea2f2`. The boot ended
+    // mid-instruction, the in-flight instruction swallowed z80test's first
+    // eight bytes (`di`, `push iy`, `exx`, `push hl`, `call printinit`) and
+    // execution resumed at $8008 — so `printinit` never ran, `CHAN-OPEN`
+    // never selected the upper screen, and every subsequent scroll grew the
+    // *lower* screen until the ROM ran out of room and sat in `WAIT-KEY`
+    // forever. The test reported "did not produce a Result line", which
+    // looked like a CPU timing regression and was not one. See #943.
+    //
+    // Nothing about that was new in `5bbea2f2`; it only moved the frame
+    // boundary relative to instruction boundaries, turning a latent coin
+    // flip from heads to tails. Waiting for the start of an opcode fetch
+    // (`m1` going low to high) removes the coin flip.
+    {
+        let mut prev_m1 = machine.z80().m1;
+        let mut guard = 0;
+        loop {
+            machine.advance_tstates(1);
+            let m1 = machine.z80().m1;
+            if m1 && !prev_m1 {
+                break;
+            }
+            prev_m1 = m1;
+            guard += 1;
+            assert!(
+                guard < 256,
+                "no opcode fetch began within 256 t-states of the boot ending;                  the CPU is not running"
+            );
+        }
+    }
+
     // Set up an entry that looks like a RANDOMIZE USR call: PC = load address,
     // a sentinel return address on top of stack so the test's final RET lands
     // somewhere we can trap. Disable interrupts in case one fires before the
