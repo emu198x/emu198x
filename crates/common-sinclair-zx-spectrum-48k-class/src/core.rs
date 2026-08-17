@@ -515,24 +515,43 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     /// 128K-class core, which is how the same one-T-state error came to be
     /// hidden twice over (#851).
     ///
-    /// `ORIGIN` maps our frame T-state 0 onto FUSE's frame, and it is
-    /// libspectrum's `top_left_pixel` for this ULA —
-    /// `timings_frame_ferranti_5c_6c` in `timings.c`. The 128K-class core
-    /// uses the same rule against `timings_frame_ferranti_7c`.
+    /// `ORIGIN` maps our frame T-state 0 onto FUSE's frame for **this read
+    /// path**. It was libspectrum's `top_left_pixel` for this ULA — 14336,
+    /// `timings_frame_ferranti_5c_6c` in `timings.c` — and is now 14335,
+    /// one earlier.
     ///
-    /// **One T-state is still unaccounted for, and it is not this
-    /// lead.** Float48K reads 14337 against Woody's hardware-measured
-    /// 14338. `io_contention_oracle`'s `ORIGIN` — pinned to the `/INT`
-    /// edge by `the_frame_origin_is_pinned_by_the_interrupt`, which is a
-    /// measurement — puts our T-state 0 at FUSE's **14335**, one earlier
-    /// than the `top_left_pixel` used here. Dropping both origins by one
-    /// to match it would put Float48K on Woody's 14338 and take Float128K
-    /// off 14364, so the open question is between the interrupt anchor and
-    /// `top_left_pixel`, not between the two machines. Recorded rather
-    /// than fitted; see #851.
+    /// Changed 2026-08-17 (#939, #940, #851) on three hardware-derived
+    /// witnesses, none of them FUSE:
+    ///
+    /// 1. **Woody's Float48K** reports 14338 on hardware. At 14336 we read
+    ///    14337; at 14335 we read 14338.
+    /// 2. **Spectron's `floatspy_48.png`** matches at 14335 and not at
+    ///    14336.
+    /// 3. **Spectron's `halt2int_48.png`** classifies the bus as `Early`.
+    ///    HALT2INT decides by stamping `$5800` and reading at a fixed
+    ///    instant; at 14336 the read misses the attribute slot and the
+    ///    suite prints `Unknown`. At 14335 the whole screen matches —
+    ///    49152 of 49152 pixels.
+    ///
+    /// **This moves when the CPU samples, not what the ULA drives.** The
+    /// bus *content* is unchanged and still byte-exact against FUSE across
+    /// the whole frame at 14336 — `float_bus_oracle`'s
+    /// `floating_bus_matches_fuse_at_every_tstate` compares the live ULA
+    /// capture and passes either side of this change. What moves is the
+    /// `IN` sample instant, which is why the two sample-instant
+    /// differentials in that file carry a `FUSE_SAMPLE_OFFSET` of 2 rather
+    /// than FUSE's 3.
+    ///
+    /// **Not the shared lead.** Taking
+    /// [`IO_READ_DATA_LATCH_LEAD_TSTATES`] from 2 to 1 produces the same
+    /// 48K result, and was measured: it moves Float128K from 14365 to
+    /// 14366, *away* from the 14364 that machine wants. So this is a 48K
+    /// read-origin fact rather than Z80 geometry, and the 128K's own
+    /// one-T-state gap (#942) is a separate question.
     fn floating_bus_read(&self) -> u8 {
-        /// libspectrum `timings_frame_ferranti_5c_6c.top_left_pixel`.
-        const ORIGIN: u32 = 14_336;
+        /// One earlier than libspectrum's `top_left_pixel`, on three
+        /// hardware oracles; see the note above.
+        const ORIGIN: u32 = 14_335;
         const FLOAT_START: u32 = 14_338; // Spectron FloatingBusStartTicks (48K)
         let frame = TIMING_48K.tstates_per_frame;
         let t = (self.tstate_in_frame() + ORIGIN + IO_READ_DATA_LATCH_LEAD_TSTATES) % frame;
@@ -1054,6 +1073,9 @@ mod tests {
         // ($4000) — a sentinel here proves the port routes to the bus.
         let mut machine = Spectrum48k::new();
         machine.write(0x4000, 0xAB);
+        // The first fetch slot is at frame T-state 1: `ORIGIN` is 14335 and
+        // the bus opens at 14338, so T-state 0 reads idle.
+        machine.advance_tstates(1);
         assert_eq!(machine.io_read(0xffff), 0xAB);
     }
 
@@ -1063,6 +1085,7 @@ mod tests {
         // through to the floating bus (bitmap column 0 at the reset beam).
         let mut machine = Spectrum48k::new();
         machine.write(0x4000, 0xAB);
+        machine.advance_tstates(1);
         assert_eq!(machine.io_read(0x1F), 0xAB);
     }
 
