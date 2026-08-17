@@ -87,16 +87,23 @@ fn setup_z80(z80: &mut Z80, state: &State) {
 /// `INIR (ED B2)`, `OTIR (ED B3)`, `INDR (ED BA)`, `OTDR (ED BB)` —
 /// have a WZ value at mid-repeat that FUSE expects to remain at
 /// `BC ± 1` (the value set during the IN/OUT portion) but Tom Harte's
-/// pre-2026 vectors recorded as `PC + 1` (a stale "we'll re-execute"
-/// marker we used to set in the repeat handler). Both oracles can't
-/// be right; we satisfy the Spectrum-priority side and document the
-/// known WZ-only disagreements here.
-const ACCEPTED_TOM_HARTE_DISAGREEMENTS: &[(&str, &[&str])] = &[
-    ("ed b2", &["WZ"]),
-    ("ed b3", &["WZ"]),
-    ("ed ba", &["WZ"]),
-    ("ed bb", &["WZ"]),
-];
+/// vectors record as `PC + 1`. Both oracles can't be right; we satisfy
+/// the Spectrum-priority side and document the disagreements here.
+///
+/// **`ed b2` (INIR) and `ed ba` (INDR) were removed 2026-08-17** (#949).
+/// Those two now set `WZ = PC + 1` again, because Patrik Rak's
+/// `z80memptr` requires it — `102 INIR->NOP'` and `103 INDR->NOP'` fail
+/// without it. Tom Harte wants the same value, so the disagreement is
+/// gone rather than accepted. `ed b3` (OTIR) and `ed bb` (OTDR) keep
+/// `BC ± 1` and stay listed: the OUT family passes `z80memptr` either
+/// way, so there is no Spectrum-side reason to move them.
+///
+/// Removing entries is the risk in this change. Neither this corpus nor
+/// FUSE's could be run locally when it landed, so CI adjudicates: if
+/// `ed b2` / `ed ba` still disagree, this job goes red and the two
+/// lines come back.
+const ACCEPTED_TOM_HARTE_DISAGREEMENTS: &[(&str, &[&str])] =
+    &[("ed b3", &["WZ"]), ("ed bb", &["WZ"])];
 
 fn accepted_labels_for(opcode_stem: &str) -> &'static [&'static str] {
     ACCEPTED_TOM_HARTE_DISAGREEMENTS

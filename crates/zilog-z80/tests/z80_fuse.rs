@@ -170,12 +170,31 @@ const ACCEPTED_FUSE_DISAGREEMENTS: &[(&str, &[&str])] = &[
     // does not).
     //
     // NB: `edb9` is CPDR (ED B9), a block-*compare*, not a block-I/O
-    // op — an earlier note mislabelled it INDR. INDR itself (`edba`)
-    // passes all bits exactly and is deliberately *not* listed.
-    ("edb2_1", &["AF"]), // INIR
-    ("edb3_1", &["AF"]), // OTIR
-    ("edb9_2", &["AF"]), // CPDR
-    ("edbb_1", &["AF"]), // OTDR
+    // op — an earlier note mislabelled it INDR.
+    //
+    // WZ on `edb2_1` / `edba_1`, added 2026-08-17 (#949). The 2026-05-31
+    // change described above made WZ match FUSE by removing
+    // `WZ = PC + 1` from the INIR/INDR repeat path, on the stated
+    // grounds that Patrik Rak asserted the same value. He does not:
+    // without that line `z80memptr` fails `102 INIR->NOP'` and
+    // `103 INDR->NOP'`, and the commit's claim that the suite passed
+    // could not have been measured, because it could not reach its
+    // Result line until #948. The line is restored, `z80memptr` is
+    // 160 of 160, and these two FUSE cases disagree on WZ again.
+    //
+    // Not a defect being papered over. FUSE captures these mid-repeat
+    // at 21 T-states with PC rewound; Rak observes after the
+    // instruction completes. They are measuring different instants and
+    // may both be right about their own. This engine cannot yet hold
+    // both, and `decisions/spectrum-test-oracle-priority.md` ranks
+    // `z80test` above FUSE for Spectrum work. Holding both is the open
+    // question — the point of the note above about differentialling
+    // SpecIde / Fuse / zesarux on the repeat rule.
+    ("edb2_1", &["AF", "WZ"]), // INIR — WZ added 2026-08-17, see below
+    ("edb3_1", &["AF"]),       // OTIR
+    ("edb9_2", &["AF"]),       // CPDR
+    ("edba_1", &["WZ"]),       // INDR — WZ only
+    ("edbb_1", &["AF"]),       // OTDR
 ];
 
 fn parse_hex_u16(token: &str) -> u16 {

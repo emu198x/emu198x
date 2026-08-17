@@ -67,7 +67,45 @@ Stop and re-read this decision if you find yourself:
 - **Not** an instruction to fix the INIR/INDR MEMPTR bug immediately. The fix needs silicon evidence; until that lands, the allowlist remains and the bug stays tracked. This decision is the framing change that makes the bug a bug rather than a permanent accepted disagreement.
 - **Not** specific to MEMPTR. The same priority applies to any future disagreement between Spectrum-validated and CPU-generic oracles on Z80 behaviour observable in a Spectrum context.
 
-## Update 2026-05-31 — the trigger MEMPTR cases resolved
+## Update 2026-08-17 — the 2026-05-31 update below is wrong
+
+The two `z80memptr` cases it reports as resolved were **never passing**, and
+the change it describes made them fail.
+
+`9e4bb020` removed `WZ = PC + 1` from the INIR/INDR repeat path on the stated
+grounds that FUSE *and* Patrik Rak both assert `WZ == BC ± 1` there. Rak does
+not. Restoring that one line takes `z80memptr` from 158/160 to **160 of 160**,
+with all eight exercisers green; removing it is what broke `102 INIR->NOP'` and
+`103 INDR->NOP'`.
+
+The claim could not have been checked at the time. `z80memptr` could not reach
+its Result line until #948 landed on 2026-08-16 — over two months later — so
+the recorded "z80memptr: 6/6 exercisers, no allowlisted failures" was an
+inference from the other exercisers, not a measurement of this one.
+
+**What the decision itself got right.** The adjudication order held up: it says
+`z80test` outranks FUSE for Spectrum work, and applying it correctly now gives
+the opposite code change from the one made in May. The error was in the
+evidence, not the policy — someone recorded an oracle's verdict without being
+able to run it.
+
+The trade as it actually stands:
+
+| Oracle | Rank | wants | status |
+|---|---|---|---|
+| Patrik Rak `z80memptr` | 2 | `PC + 1` | satisfied; 160/160 |
+| FUSE `edb2_1` / `edba_1` | 3 | `BC ± 1` | disagrees on WZ; allowlisted, with reasons |
+| Tom Harte `ed b2` / `ed ba` | 4 | `PC + 1` | satisfied; allowlist entries removed |
+
+FUSE captures these mid-repeat at 21 T-states with PC rewound; Rak observes
+after the instruction completes. They measure different instants and may both
+be right about their own — which is the open question, and a better one than
+the May note's "resolved". Tracked in #949.
+
+**Drift trigger.** "Both Spectrum oracles agree, so this is settled" — check
+that both were actually *run*. That is exactly what went wrong here.
+
+## Update 2026-05-31 — the trigger MEMPTR cases resolved (SUPERSEDED — see above)
 
 The decision did its job. The two `z80memptr` failures (`102 INIR->NOP'`,
 `103 INDR->NOP'`) and the matching FUSE `edba_1 INDR` case are all now
