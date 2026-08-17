@@ -21,8 +21,17 @@ use serde_json::Value;
 pub struct IoEvent {
     /// CPU program counter at the time of the access.
     pub pc: u32,
-    /// I/O port (low 8 bits of the address bus).
-    pub port: u8,
+    /// I/O port — the **full 16-bit address bus**, not the low byte.
+    ///
+    /// A Z80 puts all sixteen bits on the bus during `IN`/`OUT`, and the
+    /// machines that decode on the high byte are exactly the ones a
+    /// truncated port cannot describe. The CPC selects its Gate Array at
+    /// `$7F00` and its CRTC at `$BC00`; both have a low byte of zero, so
+    /// an eight-bit trace reports every device as port 0. See #926.
+    ///
+    /// Machines that genuinely decode on eight bits may keep a `u8` in
+    /// their own event type — the conversion widens it.
+    pub port: u16,
     /// Byte written, or byte returned on a read.
     pub value: u8,
     /// `true` for an output (`OUT`), `false` for an input (`IN`).
@@ -393,7 +402,7 @@ macro_rules! impl_z80_debug_primitives {
                         .into_iter()
                         .map(|e| $crate::IoEvent {
                             pc: u32::from(e.pc),
-                            port: e.port,
+                            port: e.port.into(),
                             value: e.value,
                             write: e.write,
                         })

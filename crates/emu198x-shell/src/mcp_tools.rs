@@ -429,7 +429,7 @@ fn run_io_trace<M: MachineCore, Q: SessionQueryProvider<M>>(
     let events = debug_mut(session)?.take_io_trace();
     let total = events.len();
 
-    let mut ports: std::collections::BTreeMap<u8, (u32, u32)> = std::collections::BTreeMap::new();
+    let mut ports: std::collections::BTreeMap<u16, (u32, u32)> = std::collections::BTreeMap::new();
     for e in &events {
         let entry = ports.entry(e.port).or_default();
         if e.write {
@@ -440,7 +440,7 @@ fn run_io_trace<M: MachineCore, Q: SessionQueryProvider<M>>(
     }
     let by_port: Vec<Value> = ports
         .iter()
-        .map(|(port, (w, r))| json!({ "port": format!("${port:02X}"), "writes": w, "reads": r }))
+        .map(|(port, (w, r))| json!({ "port": format!("${port:04X}"), "writes": w, "reads": r }))
         .collect();
     let sample: Vec<Value> = events
         .iter()
@@ -448,7 +448,7 @@ fn run_io_trace<M: MachineCore, Q: SessionQueryProvider<M>>(
         .map(|e| {
             json!({
                 "pc": format!("${:04X}", e.pc),
-                "port": format!("${:02X}", e.port),
+                "port": format!("${:04X}", e.port),
                 "value": format!("${:02X}", e.value),
                 "dir": if e.write { "out" } else { "in" },
             })

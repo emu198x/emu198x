@@ -252,6 +252,25 @@ pub fn key_for_char(c: char) -> Option<(usize, u8, bool)> {
         .map(|&(_, row, bit)| (row, bit, true))
 }
 
+/// One captured I/O port access, for the debug trace.
+///
+/// `port` is the **whole** address bus. The CPC decodes I/O on A15-A10, so
+/// the byte that names the device is the high one: `$7F00` is the Gate Array,
+/// `$BC00` the CRTC, `$F400`-`$F700` the PPI. Every one of those has a low
+/// byte of zero, which is why an eight-bit port made this machine's trace
+/// worthless and why it had none at all until #926.
+#[derive(Debug, Clone, Copy)]
+pub struct IoEvent {
+    /// CPU program counter at the time of the access.
+    pub pc: u16,
+    /// The full 16-bit address bus.
+    pub port: u16,
+    /// Byte written, or byte returned on a read.
+    pub value: u8,
+    /// `true` for `OUT`, `false` for `IN`.
+    pub write: bool,
+}
+
 /// Which CPC this is.
 ///
 /// The models differ in more than this enum captures — the 664 and 6128 carry
@@ -322,6 +341,9 @@ pub struct AmstradCpc {
     /// on a 464.
     #[serde(default)]
     ram_config: u8,
+    /// I/O port-access trace, when the debugger has asked for one.
+    #[serde(skip)]
+    io_trace: Option<Vec<IoEvent>>,
 
     /// RAM — 64 KB on a 464, 128 KB on a 6128 — always writable even where a
     /// ROM is paged in.
@@ -393,6 +415,7 @@ impl AmstradCpc {
         Ok(Self {
             model,
             ram_config: 0,
+            io_trace: None,
             cpu: Z80::new(),
             gate_array: GateArray::new(),
             crtc: {
@@ -587,6 +610,16 @@ impl AmstradCpc {
     pub fn poke(&mut self, addr: u16, value: u8) {
         let offset = self.ram_offset(addr);
         self.ram[offset] = value;
+    }
+
+    /// Start (or restart) the I/O port-access trace.
+    pub fn start_io_trace(&mut self) {
+        self.io_trace = Some(Vec::new());
+    }
+
+    /// Stop tracing and return the captured I/O events.
+    pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
+        self.io_trace.take().unwrap_or_default()
     }
 
     /// Drive an I/O write from outside the CPU, exactly as an `OUT` would.
@@ -872,10 +905,31 @@ impl AmstradCpc {
                 self.ram[offset] = self.cpu.data;
             }
             Some(BusOp::IoRead) => {
-                self.cpu.data_in = self.io_read(self.cpu.addr);
+                let port = self.cpu.addr;
+                let pc = self.cpu.regs.pc;
+                let value = self.io_read(port);
+                self.cpu.data_in = value;
+                if let Some(trace) = &mut self.io_trace {
+                    trace.push(IoEvent {
+                        pc,
+                        port,
+                        value,
+                        write: false,
+                    });
+                }
             }
             Some(BusOp::IoWrite) => {
-                self.io_write(self.cpu.addr, self.cpu.data);
+                let (port, value) = (self.cpu.addr, self.cpu.data);
+                let pc = self.cpu.regs.pc;
+                self.io_write(port, value);
+                if let Some(trace) = &mut self.io_trace {
+                    trace.push(IoEvent {
+                        pc,
+                        port,
+                        value,
+                        write: true,
+                    });
+                }
             }
             Some(BusOp::IntAck) => {
                 // IM 1: the firmware uses RST 38h, and the Gate Array drops
