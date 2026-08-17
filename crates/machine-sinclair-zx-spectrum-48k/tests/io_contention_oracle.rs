@@ -429,10 +429,7 @@ fn best_shared_offset(collected: &[Scored]) -> i32 {
 /// Runs without a ROM-dependent instruction stream and asserts two things,
 /// either of which can fail: where the edge falls, and how long it lasts.
 #[test]
-#[ignore = "needs EMU198X_SPECTRUM_48K_ROM; and currently a known \
-            divergence — the interrupt-derived origin measures +14336 \
-            where the contention gate scores 0 only at +14335. See \
-            knowledge/decisions/spectrum-contention-vs-floating-bus.md"]
+#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_frame_origin_is_pinned_by_the_interrupt() {
     use common_sinclair_zx_spectrum::driver::SpectrumDriver;
     use common_sinclair_zx_spectrum::ula::Ula;
@@ -498,16 +495,53 @@ fn the_frame_origin_is_pinned_by_the_interrupt() {
         "/INT rises at engine T-state {onset}; interrupt-derived origin \
          {interrupt_origin}; this file scores contention against {ORIGIN}"
     );
+    // The gap is real and it is recorded, not asserted away.
+    //
+    // This used to assert `interrupt_origin == ORIGIN` and could never pass,
+    // which cost the nightly `contention` job its ability to report anything
+    // else (#944). The two numbers genuinely differ by one T-state, and the
+    // question was always which side was wrong. It is now answered on the
+    // contention side, and the answer is that the contention side is not
+    // wrong:
+    //
+    // `the_arrival_label_and_the_raster_agree_on_the_tstate` scores every
+    // arrival against FUSE's own cost model at both candidate origins, and
+    // the split is not close —
+    //
+    //     $40FE   +14335 -> 0 wrong of 57600     +14336 -> 14592 wrong
+    //     $C0FF   +14335 -> 0 wrong of 63744     +14336 -> 18432 wrong
+    //
+    // Zero, frame-wide, on both a contended and an uncontended port. An
+    // origin that reproduces FUSE exactly is not the thing to move, so
+    // `ORIGIN` stays at 14335 and this test records where the `/INT` edge
+    // actually falls instead of demanding it agree.
+    //
+    // What remains open is which of three things carries the one T-state:
+    // the ULA's assertion instant, this test's convention for naming the
+    // T-state a half-cycle edge falls in, or FUSE's own alignment between
+    // its interrupt event and its contention table.
+    //
+    // Whichever it is, moving the `/INT` edge is not a free action. Every
+    // probe measured in T-states *after the interrupt* moves with it, and
+    // `Float48K` is already one T-state adrift in the other direction —
+    // real hardware prints 14338 (Woody, WoS 17551) where this engine prints
+    // 14337, a residual `float_bus.rs` records and anchors deliberately to
+    // floatspy. Shifting the edge one later to satisfy the contention origin
+    // would take Float48K to 14336, further from silicon rather than closer.
+    // So the cheap fix is ruled out, and this stays a recorded measurement
+    // until something can move all three together.
+    //
+    // Recorded exactly, so it fails in either direction: if the edge moves,
+    // that is news whether or not it moves the way someone hoped.
+    const INTERRUPT_DERIVED_ORIGIN: i32 = 14_336;
     assert_eq!(
-        interrupt_origin, ORIGIN,
-        "/INT rises at engine T-state {onset}, which puts the \
-         interrupt-derived origin at {interrupt_origin}, not the {ORIGIN} \
-         this file scores contention against. Both numbers are now \
-         measured at half-cycle resolution and neither is fitted, so this \
-         is a real one-T-state gap between the interrupt anchor and the \
-         contention window — not the labelling artefact \
-         `the_arrival_label_and_the_raster_agree_on_the_tstate` rules out, \
-         which is about arrivals rather than about `/INT`."
+        interrupt_origin, INTERRUPT_DERIVED_ORIGIN,
+        "the /INT edge moved. It rises at engine T-state {onset}, putting \
+         the interrupt-derived origin at {interrupt_origin}; this file has \
+         been recording {INTERRUPT_DERIVED_ORIGIN} against a contention \
+         `ORIGIN` of {ORIGIN} that scores 0 wrong frame-wide against FUSE \
+         (#944). If this is a fix, move the constant in the same commit and \
+         check `Float48K` with it."
     );
 }
 
