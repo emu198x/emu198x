@@ -292,11 +292,27 @@ fn shaker_module_d_takes_over_and_runs() {
         module.load
     );
 
-    // And it paints. A suite that hung at its entry would leave the boot
-    // screen untouched.
-    let ink = screen_ink(&cpc);
+    // And it paints its own menu. Ink counting could only say that *something*
+    // was drawn; decoding says what, so this is the assertion worth making.
+    let screen = cpc.screen_text();
+    let joined = screen.join("\n");
+    eprintln!("--- SHAKE26D screen ---\n{joined}\n---");
+
     assert!(
-        ink > ink_at_entry,
-        "screen unchanged since entry ({ink_at_entry} bytes) — SHAKE26D drew nothing"
+        joined.contains("CPC SHAKER 2.6 MODULE D"),
+        "SHAKE26D did not reach its own menu; screen was:\n{joined}"
+    );
+    assert!(
+        screen_ink(&cpc) > ink_at_entry,
+        "screen unchanged since entry ({ink_at_entry} bytes)"
+    );
+
+    // The interrupt tests live behind `(I) SHAKER KILLER 2`, whose own
+    // warning — `SK 2-UNRELIABLE INTERRUPT SYSTEM BETWEEN CPCs` — is the
+    // caveat to carry into any figure it reports. Reaching them needs the
+    // menu driven by key, which is the next step and not this one.
+    assert!(
+        joined.contains("SHAKER KILLER 2"),
+        "the menu entry carrying the interrupt tests is missing:\n{joined}"
     );
 }

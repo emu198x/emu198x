@@ -115,3 +115,34 @@ fn the_firmware_reaches_its_boot_screen() {
         fb.len()
     );
 }
+
+/// The boot banner, read back off the bitmap.
+///
+/// The firmware paints known text at a known moment, which makes it the one
+/// place a screen decoder can be checked against ground truth rather than
+/// against itself.
+#[test]
+#[ignore = "needs the 32 KB CPC464 firmware — run with --ignored"]
+fn the_boot_banner_decodes_back_to_text() {
+    let Some(path) = firmware_path() else {
+        panic!("CPC464 firmware not found — set EMU198X_CPC_ROM");
+    };
+    let firmware = fs::read(&path).expect("read firmware");
+    let mut cpc = AmstradCpc::new(&firmware).expect("build machine");
+    for _ in 0..150 {
+        cpc.run_frame();
+    }
+
+    let rows = cpc.screen_text();
+    let screen = rows.join("\n");
+    eprintln!("--- decoded boot screen ---\n{screen}\n---");
+
+    assert!(
+        screen.contains("BASIC 1.0"),
+        "expected the BASIC banner in the decoded screen, got:\n{screen}"
+    );
+    assert!(
+        screen.contains("Ready"),
+        "expected the Ready prompt in the decoded screen, got:\n{screen}"
+    );
+}
