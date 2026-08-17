@@ -316,3 +316,105 @@ fn shaker_module_d_takes_over_and_runs() {
         "the menu entry carrying the interrupt tests is missing:\n{joined}"
     );
 }
+
+/// Frames to hold a key so the suite's own polling loop sees it.
+const KEY_HOLD_FRAMES: usize = 10;
+
+/// Run frames until `needle` appears on the decoded screen.
+fn run_until_screen_has(cpc: &mut AmstradCpc, needle: &str, limit: usize) -> Option<Vec<String>> {
+    for _ in 0..limit {
+        cpc.run_frame();
+        let rows = cpc.screen_text();
+        if rows.iter().any(|r| r.contains(needle)) {
+            return Some(rows);
+        }
+    }
+    None
+}
+
+/// Press one key, hold it, release it.
+fn tap(cpc: &mut AmstradCpc, c: char) {
+    assert!(cpc.press_char(c), "no CPC key for {c:?}");
+    for _ in 0..KEY_HOLD_FRAMES {
+        cpc.run_frame();
+    }
+    cpc.release_char(c);
+    for _ in 0..KEY_HOLD_FRAMES {
+        cpc.run_frame();
+    }
+}
+
+/// Drive SHAKER's menu into `SHAKER KILLER 2` and read its interrupt page.
+///
+/// This is the instrument #942 wants: it measures where the interrupt lands
+/// relative to a named instruction, against a `/INT` asserted by the Gate
+/// Array's HSync counter rather than by a raster. The Spectrum cannot vary
+/// that axis.
+///
+/// The page is captured, not yet scored. SHAKER renders hex nibbles `A`-`F`
+/// as `:;<=>?` — the `add a,'0'` shortcut with no `>9` correction — so a
+/// reported `#<<` is `#CC`. That reading is inferred from the glyphs rather
+/// than from SHAKER's source, so the values are printed for a human to check
+/// against the Compendium before any of them is treated as a verdict on this
+/// emulator. Confirming it is what turns this from a capture into a gate.
+///
+/// The page's own first line is the standing caveat:
+/// `SK 2-UNRELIABLE INTERRUPT SYSTEM BETWEEN CPCs`. A disagreement is not
+/// automatically a defect here until a target CPC variant is named.
+#[test]
+#[ignore = "needs shaker26.dsk and the CPC464 firmware — run with --ignored"]
+fn shaker_killer_2_reports_its_interrupt_measurements() {
+    let (dsk, rom) = (dsk_path(), firmware_path());
+    if !dsk.exists() || !rom.exists() {
+        emu198x_test_skip::skip!("shaker26.dsk or cpc464.rom not staged");
+    }
+    let img = format_amstrad_dsk::parse(&fs::read(&dsk).expect("read dsk")).expect("parse dsk");
+    let module = extract(&img, "SHAKE26D.BIN").expect("SHAKE26D.BIN");
+    let firmware = fs::read(&rom).expect("read firmware");
+
+    let mut cpc = boot_and_enter(&firmware, &module);
+
+    let menu = run_until_screen_has(&mut cpc, "CPC SHAKER 2.6 MODULE D", 600)
+        .expect("SHAKE26D never drew its menu");
+    // SHAKER prints the CRTC type it detected. Its expectations are
+    // enumerated per type, so no result means anything without it.
+    let crtc = menu
+        .iter()
+        .rev()
+        .find(|r| r.starts_with("CRTC "))
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_owned());
+    eprintln!("[SHAKER] detected {crtc}");
+
+    tap(&mut cpc, 'I');
+    // Hardware-timing measurements, not instant checks. The page settles well
+    // inside this and does not change over four times as long.
+    for _ in 0..1_200 {
+        cpc.run_frame();
+    }
+
+    let rows = cpc.screen_text();
+    eprintln!(
+        "--- SHAKER KILLER 2 (detected {crtc}) ---\n{}\n---",
+        rows.join("\n")
+    );
+    let joined = rows.join("\n");
+
+    assert!(
+        !joined.contains("CPC SHAKER 2.6 MODULE D"),
+        "still on the menu — `I` did not select SHAKER KILLER 2:\n{joined}"
+    );
+    // The four interrupt measurements this page exists to report. Their
+    // presence is the gate; their values need the Compendium.
+    for expected in [
+        "TEST INT ON INST SET n,(IX+n')",
+        "TEST INT ON INST CP (IX+n)",
+        "TEST INT ON INST DEC DE",
+        "Unbreakable DD Prefix on Pending Int",
+    ] {
+        assert!(
+            joined.contains(expected),
+            "SHAKER KILLER 2 did not report {expected:?}:\n{joined}"
+        );
+    }
+}
