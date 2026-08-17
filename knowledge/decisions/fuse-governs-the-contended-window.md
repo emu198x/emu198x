@@ -1,7 +1,11 @@
 # Decision: FUSE governs the contended window
 
 **Date:** 2026-08-11
-**Status:** ACTIVE
+**Status:** ACTIVE, **amended 2026-08-17** by
+[`hardware-outranks-fuse.md`](hardware-outranks-fuse.md) — the reopening
+condition named at the foot of this record (a hardware measurement) has since
+been met, and the precedence question is settled there. The reasoning below
+about the gate-level source stands on its own evidence.
 **Applies to:** every Spectrum-family contention path — `ferranti-ula-6c001e`,
 `sinclair-ula-7k010e`, `timex-scld`, and the delay tables in
 `common-sinclair-zx-spectrum`
