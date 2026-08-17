@@ -19,12 +19,15 @@
 //! as the video mode; the chip does nothing with them but drive lines the
 //! machine reads.
 //!
-//! The one job deliberately *not* here is **`/WAIT` generation** — the
-//! stretching of every Z80 M-cycle to a multiple of 4 T-states that gives the
-//! CPC its ~3.3 MHz effective rate. That is a property of how the machine drives
-//! the CPU rather than of this chip's registers, and it has no oracle among the
-//! vendored emulators (none of MAME, Arnold or Caprice32 models `/WAIT` as a
-//! pin), so it wants its own validation against the firmware guide's figure.
+//! **`/WAIT` generation** — the stretching of every Z80 M-cycle onto the 1 µs
+//! grid that gives the CPC its ~3.3 MHz effective rate — is here as
+//! [`wait_asserted`], but only as the pin's shape: the machine owns the phase
+//! counter and drives the pin, because the stretching is a property of how the
+//! Z80 is clocked rather than of any register on this chip.
+//!
+//! It had no oracle for a long time, which is why it went unmodelled: none of
+//! MAME, Arnold or Caprice32 models `/WAIT` as a pin. SHAKER supplied one. See
+//! [`WAIT_FREE_TSTATE`].
 //!
 //! # Interrupts
 //!
@@ -66,6 +69,31 @@ use serde::{Deserialize, Serialize};
 
 /// Pen index of the border. The border is a seventeenth pen, selected by
 /// `PENR` bit 4 rather than by a pen number.
+/// The T-state within each character clock on which the Gate Array releases
+/// `/WAIT`, letting the Z80 advance.
+///
+/// The Gate Array holds the pin low for three T-states in every four —
+/// Longshot's *CRTC Compendium* §27.7.2: "the Gate Array also positions the
+/// Wait signal of the Z80A for ¾ of its frequency (e.g. 12/16 MHz) ... The
+/// Z80A is 'free' of the motif imposed by the Gate Array for only 4/16th of
+/// MHz (0.25 µsec, 1 cycle T)." The Z80 samples `/WAIT` at `T2`, so an M-cycle
+/// reaching `T2` on a held T-state stalls until the free one. That is what
+/// quantises the CPU onto the microsecond grid.
+///
+/// *Which* T-state is free is not in the Compendium, and it matters. SHAKER
+/// KILLER 2 settles it: at 2, all six of its interrupt measurements match the
+/// values it prints as expected, and `RST $38` from code costs the 16 T-states
+/// §27.4 gives. At 0 the same run reports `DEC DE` as `#58` — SHAKER's
+/// expectation for a CRTC 3 or 4, not the `#59` it wants from the CRTC 0 this
+/// machine is. One phase, measured rather than assumed.
+pub const WAIT_FREE_TSTATE: u32 = 2;
+
+/// Whether `/WAIT` is asserted at the given T-state of the character clock.
+#[must_use]
+pub const fn wait_asserted(tstate_in_char: u32) -> bool {
+    tstate_in_char != WAIT_FREE_TSTATE
+}
+
 pub const BORDER_PEN: u8 = 16;
 
 /// Number of addressable pens including the border.

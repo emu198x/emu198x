@@ -39,20 +39,22 @@ const RST38_BY_CODE_USEC: u64 = 4;
 /// §27.4: the same call, caused by an interrupt — 20 t-states.
 const RST38_BY_INTERRUPT_USEC: u64 = 5;
 
-/// What this engine measures today, pending #959.
+/// What this engine measures with `/WAIT` stretching modelled (#959).
 ///
-/// Both are the bare Z80's own figures: `RST` is 11 t-states and an IM 1
-/// acknowledge is 13. The CPC's Gate Array stretches every M-cycle onto a
-/// 1 µsec grid, which is what turns those into 16 and 20 — and
-/// `amstrad-gate-array` does not model `/WAIT` at all, which its own module
-/// docs say outright.
+/// `RST $38` from code is **exactly** §27.4's 16. The interrupt call is 19
+/// against §27.4's 20 — one T-state short, and short on every candidate free
+/// phase, so it is not the grid choice. That residual is #971; the rest of the
+/// stretching is not held up for it, because everything else it moves is
+/// right: all six of SHAKER KILLER 2's interrupt measurements now match the
+/// values SHAKER itself prints as expected, where three did not before.
+///
+/// Before the stretching landed these read 11 and 13 — the bare Z80's own
+/// figures, with nothing stretched at all.
 ///
 /// Recorded exactly rather than asserted as a range. The gate has to fail
-/// when this moves in *either* direction: closing #959 should break these
-/// tests and update the numbers in the same commit, and anything else that
-/// moves them is news.
-const MEASURED_RST38_BY_CODE: u64 = 11;
-const MEASURED_RST38_BY_INTERRUPT: u64 = 13;
+/// when this moves in *either* direction.
+const MEASURED_RST38_BY_CODE: u64 = 16;
+const MEASURED_RST38_BY_INTERRUPT: u64 = 19;
 
 /// Where the test code is planted. Always RAM on a CPC, and clear of both the
 /// firmware's variables and the screen.
@@ -213,19 +215,21 @@ fn the_interrupt_call_is_recorded_against_the_compendium() {
 /// together.
 ///
 /// The Compendium has an interrupt costing exactly one microsecond more than
-/// the equivalent `RST $38` — four t-states. This engine's two figures differ
-/// by **two**, the bare Z80's gap, because neither is on the CPC's
-/// microsecond grid. So the shortfall is not a constant offset that could be
-/// waved away as a measurement origin: the acknowledge is short by a different
-/// amount than the instruction is, and only modelling `/WAIT` fixes both.
+/// the equivalent `RST $38` — four t-states. This engine's two figures now
+/// differ by **three**: the instruction is exactly right and the acknowledge
+/// is one short, so the whole of the remaining error is in the acknowledge
+/// rather than spread across both. That is what makes #971 a single defect to
+/// find rather than a re-derivation of the stretching.
+///
+/// Before `/WAIT` was modelled the gap was 2, and both figures were wrong.
 #[test]
 fn the_acknowledge_gap_is_recorded_as_well_as_the_totals() {
     let documented_gap = (RST38_BY_INTERRUPT_USEC - RST38_BY_CODE_USEC) * TSTATES_PER_USEC;
     let measured_gap = MEASURED_RST38_BY_INTERRUPT - MEASURED_RST38_BY_CODE;
     assert_eq!(documented_gap, 4, "§27.4's own figures differ by 1 µsec");
     assert_eq!(
-        measured_gap, 2,
-        "the recorded gap changed; if #959 landed, update all three constants \
-         together"
+        measured_gap, 3,
+        "the recorded gap changed; update all three constants together, and \
+         say which of the two figures moved"
     );
 }
