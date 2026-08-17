@@ -385,6 +385,14 @@ fn shaker_killer_2_reports_its_interrupt_measurements() {
         .cloned()
         .unwrap_or_else(|| "unknown".to_owned());
     eprintln!("[SHAKER] detected {crtc}");
+    // The target is a 464, which fits an HD6845S — CPC type 0. SHAKER detects
+    // the part by reading registers back, so this is real software checking
+    // the claim rather than a comment asserting it. It read `CRTC 2` until
+    // `Crtc6845Variant::Hd6845s` made R12/R13 read back.
+    assert_eq!(
+        crtc, "CRTC 0",
+        "SHAKER should detect a 464's HD6845S as type 0"
+    );
 
     tap(&mut cpc, 'I');
     // Hardware-timing measurements, not instant checks. The page settles well
