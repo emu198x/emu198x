@@ -115,6 +115,82 @@ whose VDP raises `/INT` from a line counter rather than from the beam,
 and for which `genesis-plus-gx` is already vendored under
 `emulators/multi-system/`.
 
+## Amstrad CPC: two independent references agree, 2026-08-17
+
+The CPC turns out to be better provisioned than the survey above
+assumed: `emulators/amstrad-cpc/` vendors **two** reference emulators,
+Arnold and Caprice32. Both sample `/INT` at the instruction boundary,
+and neither derives that from FUSE or from a Spectrum.
+
+**Caprice32** (`src/z80.cpp`) checks after the instruction returns, in
+the main execution loop:
+
+```c
+z80_execute_instruction();
+z80_wait_states
+if (z80.EI_issued) { ... if (z80.int_pending) { z80_int_handler } }
+else if (z80.int_pending) { z80_int_handler }
+```
+
+**Arnold** (`src/cpc/z80/z80.c`) checks at the end of the opcode
+dispatch, after the instruction's `switch` completes:
+
+```c
+/* check interrupts? */
+if ((R.Flags & (Z80_CHECK_INTERRUPT_FLAG | Z80_EXECUTE_INTERRUPT_HANDLER_FLAG))
+    == (Z80_CHECK_INTERRUPT_FLAG | Z80_EXECUTE_INTERRUPT_HANDLER_FLAG))
+{
+    Cycles += Z80_ExecuteInterrupt();
+}
+```
+
+This matters because the CPC varies the axis the Spectrum cannot. Its
+`/INT` comes from the Gate Array's 6-bit HSync counter, driven by the
+CRTC, not from the beam. Our own CPC already honours the host ordering
+contract this record imposes — `machine-amstrad-cpc` sets `cpu.irq =
+gate_array.interrupt()` immediately before each `cpu.tick()` — and the
+Gate Array's counter advances on the CRTC tick, so the assertion instant
+is quantised by a different clock entirely.
+
+**This is corroboration, not the settlement the section above asks
+for.** Reading two implementations establishes that the boundary sample
+is the consensus among CPC references. It does not run anything. The
+"same treatment" means a *running* differential on the CPC, and that is
+still outstanding.
+
+### What blocks the running instrument
+
+`SHAKER` (Longshot, v2.6) is the CPC's hardware-accuracy suite, covering
+the Gate Array and CRTC 6845 across their manufacturing variants. It
+ships as an Extended DSK, and the CPC464 modelled here has no FDC —
+`machine-amstrad-cpc`'s own I/O map records the expansion/FDC decode as
+"absent on a 464". The suite cannot boot as-is.
+
+Two routes out, neither taken yet:
+
+- Model the µPD765 and a 6128-class variant. A real feature, not a
+  test-harness change.
+- Extract the AMSDOS binaries from the DSK with the existing
+  `format-amstrad-dsk` crate and inject them the way
+  `machine-sinclair-zx-spectrum-48k`'s `z80test` harness injects its code
+  block. Cheaper, but it bypasses AMSDOS, so anything SHAKER expects the
+  firmware to have set up must be supplied by hand. If that route is
+  taken, note what `z80test` cost us: injecting `PC` mid-instruction let
+  the in-flight instruction consume the injected binary's first bytes
+  (#943). Enter on an `m1` edge.
+
+SHAKER is also aimed at video circuits; whether it measures interrupt
+*acceptance* timing rather than only the counter's downstream effects is
+unconfirmed.
+
+| | |
+|---|---|
+| Upstream | `shaker.logonsystem.eu/Shaker_CSL/shaker26.dsk` |
+| Version | 2.6, five modules `SHAKE26A`–`SHAKE26E` |
+| Licence | Creative Commons, attribution requested — cite the CRTC Compendium |
+| SHA-256 | `f7082f8eab521d632c343a288f54038af6df090c59b372e0d2866269c2cc4d08` |
+| Size | 194,816 bytes |
+
 ## See also
 
 - [`spectrum-contention-vs-floating-bus.md`](spectrum-contention-vs-floating-bus.md)
