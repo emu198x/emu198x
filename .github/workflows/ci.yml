@@ -36,6 +36,112 @@ jobs:
       - name: Check the status pages are current
         run: python3 scripts/status/render_status.py --check
 
+  # Spectrum boot evidence. Amstrad permits the Sinclair ROMs to be
+  # distributed, so unlike almost every other machine here the Spectrum's
+  # "does it boot" can be checked on a pull request rather than only in the
+  # nightly. The ROM still is not committed — `Emu198x/CLAUDE.md` keeps ROM
+  # and media files out of the repository — so it comes from the same
+  # corpora store the nightly uses.
+  #
+  # Deliberately a short, named set. `z80test`, the contention oracles and
+  # the Tom Harte corpora take tens of minutes and stay nightly; these four
+  # targets total under ten seconds. Coverage was removed for costing five
+  # minutes on every PR, and this is not the change that reintroduces that.
+  #
+  # `contention_arming`'s port-class case is excluded, and not because I/O
+  # contention is broken — it is green, and `io_contention_oracle` below is
+  # the instrument that says so, at zero against FUSE across a whole frame.
+  # That case is a known limitation of its own counter: a withheld *run*
+  # merges charges landing one T-state apart, so two charges read as one and
+  # four read as two. Its ignore attribute says exactly this, and
+  # `io-contention-is-a-count-not-a-level.md` forbids scoring gate changes
+  # against that file at all — three terms were once tuned against its run
+  # count and died.
+  spectrum-boot:
+    name: Spectrum boot evidence
+    runs-on: ubuntu-latest
+    env:
+      CORPORA_REPO: ${{ vars.ACCURACY_CORPORA_REPO }}
+      CORPORA_TAG: ${{ vars.ACCURACY_CORPORA_TAG || 'v1' }}
+      # The ROM is provisioned in this job, so a test that skips for its
+      # absence is a provisioning failure, not an honest gap. Fail loudly.
+      EMU198X_STRICT_FIXTURES: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Check the corpora store is configured
+        id: store
+        env:
+          CORPORA_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+        run: |
+          if [ -n "${CORPORA_TOKEN}" ] && [ -n "${CORPORA_REPO}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Corpora store not configured — Spectrum boot evidence did NOT run."
+          fi
+
+      - name: Install Linux build dependencies
+        if: steps.store.outputs.configured == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev libudev-dev
+
+      - name: Read pinned toolchain
+        if: steps.store.outputs.configured == 'true'
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        if: steps.store.outputs.configured == 'true'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Cache Rust build artifacts
+        if: steps.store.outputs.configured == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test-linux
+
+      - name: Provision the 48K ROM from the store
+        if: steps.store.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p corpora
+          cd corpora
+          gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
+            -p 'z80test.tar.zst' -p 'SHA256SUMS'
+          grep ' z80test.tar.zst$' SHA256SUMS | sha256sum -c -
+          tar --zstd -xf 'z80test.tar.zst'
+          echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
+
+      - name: Run the Spectrum tests the ROM unlocks
+        if: steps.store.outputs.configured == 'true'
+        run: |
+          cargo test -p machine-sinclair-zx-spectrum-48k --test boot_test -- --ignored
+          cargo test -p machine-sinclair-zx-spectrum-48k --test float_bus_oracle -- --ignored
+          # The authoritative I/O contention instrument: a whole-frame
+          # differential against FUSE, currently at zero. The longest thing
+          # here at ~17s, and worth it — this is the gate the contention
+          # campaign closed on.
+          cargo test -p machine-sinclair-zx-spectrum-48k --test io_contention_oracle -- --ignored
+          cargo test -p runtime-sinclair-zx-spectrum --test boot_invariants -- --ignored
+          cargo test -p runtime-sinclair-zx-spectrum --test goldens -- --ignored
+          # Only the two `runtime_48k` cases the ROM alone unlocks. The
+          # other three want commercial tape images, and under
+          # EMU198X_STRICT_FIXTURES their skips are failures — correctly,
+          # since this job claims to have provisioned what it runs.
+          cargo test -p runtime-sinclair-zx-spectrum --test runtime_48k \
+            spectrum_boot_wait_and_prompt -- --ignored
+          cargo test -p runtime-sinclair-zx-spectrum --test runtime_48k \
+            spectrum_query_provider_detects -- --ignored
+
   fmt:
     name: Format
     runs-on: ubuntu-latest

@@ -407,8 +407,20 @@ fn spectrum_boot_wait_and_prompt_input_change_decoded_text() {
         .run_frames(2)
         .expect("prompt exposure should advance after Enter release");
 
-    let prompt_lines = screen_text_lines_from_session(&session);
-    assert_eq!(prompt_lines[23].trim_end(), "K");
+    // The ROM takes about ten frames to redraw the edit line after the key
+    // is released, and the original two-frame budget was under that — the
+    // assertion below read an empty line every time. Nobody saw it,
+    // because the test is `#[ignore]`d and the ROM is not in CI.
+    //
+    // Polling rather than a larger magic number: the exact redraw latency
+    // is the ROM's business, and a fixed count only moves where the cliff
+    // is. Sixty frames is a second of emulated time, far past any redraw.
+    let prompt_lines = wait_for_line(&mut session, 23, "K", 60);
+    assert_eq!(
+        prompt_lines[23].trim_end(),
+        "K",
+        "the K cursor should appear on the edit line within a second"
+    );
 
     session.queue_input(InputEvent::Key {
         name: "a".into(),
@@ -738,6 +750,30 @@ fn spectrum_jet_set_willy_tzx_path() -> Option<PathBuf> {
     std::env::var_os("EMU198X_SPECTRUM_JET_SET_WILLY_TZX")
         .map(PathBuf::from)
         .filter(|path| path.is_file())
+}
+
+/// Run until `line` reads `expected`, or `budget` frames elapse.
+///
+/// Returns the decoded screen either way, so the caller's assertion is what
+/// reports the failure — a helper that panicked itself would hide which
+/// expectation was not met.
+fn wait_for_line(
+    session: &mut HeadlessSession<Spectrum48kRuntime, SpectrumSessionQueryProvider>,
+    line: usize,
+    expected: &str,
+    budget: u32,
+) -> Vec<String> {
+    let mut lines = screen_text_lines_from_session(session);
+    for _ in 0..budget {
+        if lines[line].trim_end() == expected {
+            return lines;
+        }
+        session
+            .run_frames(1)
+            .expect("waiting should advance frames");
+        lines = screen_text_lines_from_session(session);
+    }
+    lines
 }
 
 fn screen_text_lines_from_session(
