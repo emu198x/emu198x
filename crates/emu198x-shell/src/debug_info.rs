@@ -163,6 +163,22 @@ impl DebugSymbols {
         self.bases.insert(section, base);
     }
 
+    /// Replaces the whole base map with the sections currently mapped.
+    ///
+    /// This is how a banked machine states its paging: the base map *is* the
+    /// paging state, so a bank that has paged out must stop being mapped, not
+    /// merely be overwritten. [`DebugSymbols::set_section_base`] accumulates,
+    /// which cannot express that — set two banks that share a slot and the
+    /// lookups answer by record order, describing a machine that cannot
+    /// exist. Rebuild the map on every paging change and that state is
+    /// unreachable.
+    ///
+    /// A page the image has no code in simply is not in `mapped`, so lookups
+    /// into it decline to answer rather than answering from another bank.
+    pub fn set_paging(&mut self, mapped: impl IntoIterator<Item = (SectionId, u64)>) {
+        self.bases = mapped.into_iter().collect();
+    }
+
     /// The sidecar's header — producing tool, CPU, dialect, source files.
     #[must_use]
     pub fn header(&self) -> &Header {
@@ -539,47 +555,74 @@ mod tests {
         assert_eq!(sym.addr_of("music"), None);
     }
 
-    /// Documents a limitation of the shared reader that the format's own
-    /// records do not have, so it is caught the moment it is fixed.
+    /// A banked section resolves correctly for whichever page is *in* the
+    /// slot, because the base map is the paging state.
     ///
-    /// `draw` (page 1) and `music` (page 3) are both at slot 3 offset 16. Once
-    /// both sections are mapped at `$C000` — which is what paging either bank
-    /// into slot 3 means — the two occupy the *same* absolute address, and
-    /// `debug198x`'s lookups match on absolute address alone: they never
-    /// consult `space`. So the answer depends on record order, not on which
-    /// page is actually paged in.
-    ///
-    /// This asserts the wrong-but-current behaviour deliberately. When the
-    /// shared crate grows page-aware lookups, this test fails, and that is the
-    /// signal to give [`DebugSymbols`] the machine's current paging state and
-    /// pass it through. Relevant to the dbg198x v1 freeze — see #741.
+    /// The whole of a 128K machine's paging is expressed by which sections are
+    /// mapped: a bank that is paged out has no base, so it contributes no
+    /// address and cannot answer. Map only what is in the slot and `draw` and
+    /// `music` — both at slot 3, offset 16 — stay distinct despite sharing an
+    /// address, with no page-aware lookup needed.
     #[test]
-    fn paged_symbols_at_one_address_are_not_yet_distinguishable() {
+    fn a_banked_symbol_resolves_by_which_page_is_in_the_slot() {
+        let banked = || {
+            DebugSymbols::from_ndjson(BANKED, "spectrum128-banked.debug198x")
+                .expect("fixture loads")
+        };
+
+        // Page 1 in slot 3: bank1 is live, bank3 is not mapped at all.
+        let mut page1 = banked();
+        page1.set_section_base(0, 0xc000);
+        assert_eq!(page1.symbol_at(0xc010), Some("draw"));
+        assert_eq!(page1.line_at(0xc010).map(|l| l.line), Some(5));
+        // The paged-out bank contributes nothing, rather than a wrong answer.
+        assert_eq!(page1.addr_of("music"), None);
+
+        // Page 3 in slot 3: the same address, the other answer.
+        let mut page3 = banked();
+        page3.set_section_base(1, 0xc000);
+        assert_eq!(page3.symbol_at(0xc010), Some("music"));
+        assert_eq!(page3.line_at(0xc010).map(|l| l.line), Some(12));
+        assert_eq!(page3.addr_of("draw"), None);
+    }
+
+    #[test]
+    fn set_paging_replaces_the_map_so_a_bank_can_page_out() {
         let mut sym = DebugSymbols::from_ndjson(BANKED, "spectrum128-banked.debug198x")
             .expect("fixture loads");
-        // Page either bank into slot 3 and its code lives at $C000.
-        sym.set_section_base(0, 0xc000); // bank1, page 1
-        sym.set_section_base(1, 0xc000); // bank3, page 3
 
-        assert_eq!(sym.addr_of("draw"), Some(0xc010));
-        assert_eq!(
-            sym.addr_of("music"),
-            Some(0xc010),
-            "same address, two pages"
-        );
+        sym.set_paging([(0, 0xc000)]);
+        assert_eq!(sym.symbol_at(0xc010), Some("draw"));
 
-        // Only one of them can be reported, and which one is decided by the
-        // order of the records rather than by the paging state.
-        assert_eq!(
-            sym.symbol_at(0xc010),
-            Some("draw"),
-            "the first matching record wins; `music` is unreachable by address"
-        );
-        assert_eq!(
-            sym.line_at(0xc010).map(|l| l.line),
-            Some(5),
-            "likewise the line map attributes the address to bank1"
-        );
+        // Page bank3 in. Bank1 must *stop* resolving — with an insert-only
+        // map it would linger and make the slot ambiguous.
+        sym.set_paging([(1, 0xc000)]);
+        assert_eq!(sym.symbol_at(0xc010), Some("music"));
+        assert_eq!(sym.addr_of("draw"), None);
+
+        // Nothing paged in: no answers, which is correct — without a paging
+        // state the question is ambiguous.
+        sym.set_paging([]);
+        assert_eq!(sym.symbol_at(0xc010), None);
+        assert_eq!(sym.line_at(0xc010), None);
+    }
+
+    /// Mapping two pages into one slot describes a machine that cannot exist,
+    /// and the lookups answer by record order.
+    ///
+    /// Kept as a guard on [`DebugSymbols::set_paging`]: the reason that method
+    /// replaces the map wholesale rather than accumulating is that an
+    /// insert-only base map lets a caller build exactly this state and get a
+    /// confidently wrong symbol. This is not a shortfall in the reader — it is
+    /// what asking an impossible question returns.
+    #[test]
+    fn two_pages_in_one_slot_is_an_impossible_state() {
+        let mut sym = DebugSymbols::from_ndjson(BANKED, "spectrum128-banked.debug198x")
+            .expect("fixture loads");
+        sym.set_section_base(0, 0xc000);
+        sym.set_section_base(1, 0xc000);
+        // Record order decides, which is why callers should use `set_paging`.
+        assert_eq!(sym.symbol_at(0xc010), Some("draw"));
     }
 
     #[test]
