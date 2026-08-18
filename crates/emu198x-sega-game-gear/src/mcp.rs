@@ -5,9 +5,9 @@ use emu198x_shell::{
     mcp::{Server, ServerInfo, serve_stdio},
     mcp_tools::register_base_tools,
 };
-use runtime_sega_master_system::{Model, SmsSessionQueryProvider, blank};
+use runtime_sega_game_gear::{Model, SmsSessionQueryProvider, blank};
 
-const SMS_FRAME_TICKS_NTSC: u64 = 228 * 262;
+const GG_FRAME_TICKS: u64 = 228 * 262;
 
 /// Runs MCP mode. Starts blank; cartridge arrives via load_media.
 ///
@@ -15,14 +15,11 @@ const SMS_FRAME_TICKS_NTSC: u64 = 228 * 262;
 ///
 /// Returns an error string if the JSON-RPC stdio loop hits an I/O failure.
 pub fn run() -> Result<(), String> {
-    let machine = blank(Model::SmsNtsc);
-    let mut session = HeadlessSession::new_with_query_provider(
-        machine,
-        SMS_FRAME_TICKS_NTSC,
-        SmsSessionQueryProvider,
-    );
+    let machine = blank(Model::GameGear);
+    let mut session =
+        HeadlessSession::new_with_query_provider(machine, GG_FRAME_TICKS, SmsSessionQueryProvider);
     let mut server = Server::new(ServerInfo::new(
-        "emu198x-sega-master-system",
+        "emu198x-sega-game-gear",
         env!("CARGO_PKG_VERSION"),
     ));
     register_base_tools(server.registry_mut());

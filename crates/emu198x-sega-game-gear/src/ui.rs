@@ -15,18 +15,16 @@ use std::time::Duration;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
-use runtime_sega_master_system::{Model, SmsRuntime, with_cartridge};
+use runtime_sega_game_gear::{Model, SmsRuntime, with_cartridge};
 
 const DEFAULT_SCALE: u32 = 3;
 /// CPU clocks per frame — `228 × lines`, matching the headless runner.
-const FRAME_TICKS_NTSC: u64 = 228 * 262;
-const FRAME_TICKS_PAL: u64 = 228 * 313;
-const NTSC_FRAME_HZ: f64 = 60.0;
-const PAL_FRAME_HZ: f64 = 50.0;
+const FRAME_TICKS: u64 = 228 * 262;
+const FRAME_HZ: f64 = 60.0;
 
 /// Player-1 control pad: directions plus the two face buttons. `south`/`east`
-/// are the names `runtime-sega-master-system`'s `controller_bit` maps to the
-/// SMS pad's button 1 / button 2. A real gamepad reaches these through the same
+/// are the names the class runtime's `controller_bit` maps to the pad's
+/// button 1 / button 2. A real gamepad reaches these through the same
 /// map; the keyboard does via [`UiSystem::map_key`].
 const SMS_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Up, ButtonTarget::new(1, "up")),
@@ -42,7 +40,7 @@ Usage: emu198x-sega-master-system [OPTIONS]
 
 Options:
     --cart PATH     cartridge ROM (required)
-    --variant KIND  sms-ntsc | sms-pal [default: sms-ntsc]
+    --variant KIND  game-gear [default: game-gear]
     --scale N       integer window scale, default 3
     --video MODE    raw | lcd | crt [default: raw]
     --help, -h      show this help
@@ -52,65 +50,62 @@ Controls:
     F12             emulator hard reset
     Arrow keys      d-pad (player 1)
     Z / X           buttons 1 and 2
-    Enter           Pause
+    Enter           Start
 
 Examples:
-    emu198x-sega-master-system --cart sonic.sms
-    emu198x-sega-master-system --cart sonic.sms --variant sms-pal --scale 4
+    emu198x-sega-game-gear --cart sonic.gg
+    emu198x-sega-game-gear --cart sonic.gg --scale 4
 ";
 
-/// Console variant — selects the model, frame tick budget and refresh rate.
-/// The Game Gear ships from `emu198x-sega-game-gear` (#998).
+/// The Game Gear shipped in one hardware configuration. Kept as a flag so an
+/// invocation that used to read `emu198x-sega-master-system --variant
+/// game-gear` migrates by changing only the binary name (#998).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Variant {
-    SmsNtsc,
-    SmsPal,
+    GameGear,
 }
 
 impl Variant {
     fn model(self) -> Model {
         match self {
-            Self::SmsNtsc => Model::SmsNtsc,
-            Self::SmsPal => Model::SmsPal,
+            Self::GameGear => Model::GameGear,
         }
     }
 
     fn frame_ticks(self) -> u64 {
         match self {
-            Self::SmsPal => FRAME_TICKS_PAL,
-            Self::SmsNtsc => FRAME_TICKS_NTSC,
+            Self::GameGear => FRAME_TICKS,
         }
     }
 
     fn frame_hz(self) -> f64 {
         match self {
-            Self::SmsPal => PAL_FRAME_HZ,
-            Self::SmsNtsc => NTSC_FRAME_HZ,
+            Self::GameGear => FRAME_HZ,
         }
     }
 }
 
-/// The Sega Master System as a [`UiSystem`] for the shared harness.
+/// The Sega Game Gear as a [`UiSystem`] for the shared harness.
 /// The variant is fixed at construction; a hard reset rebuilds the machine from
 /// the cartridge the runtime already holds.
-struct SmsSystem {
+struct GameGearSystem {
     variant: Variant,
 }
 
-impl UiSystem for SmsSystem {
+impl UiSystem for GameGearSystem {
     type Runtime = SmsRuntime;
 
     fn window_title(&self) -> String {
-        "Emu198x Sega Master System".to_owned()
+        "Emu198x Sega Game Gear".to_owned()
     }
 
     fn default_scale(&self) -> u32 {
         DEFAULT_SCALE
     }
 
-    // The SMS drove a 4:3 TV.
+    // The Game Gear is a square-pixel LCD, so it needs no aspect correction.
     fn display_aspect_ratio(&self) -> Option<f32> {
-        Some(4.0 / 3.0)
+        None
     }
 
     // The display is CPU-generated; advance whole frames so a slice never
@@ -151,10 +146,11 @@ impl UiSystem for SmsSystem {
     }
 
     fn map_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
-        // The single console button. The runtime takes it as a named key
-        // event.
+        // The single console button. The Game Gear labels it Start where the
+        // Master System labels it Pause; the runtime takes it as a named key
+        // event either way.
         match code {
-            KeyCode::Enter | KeyCode::NumpadEnter => Some(&["pause"]),
+            KeyCode::Enter | KeyCode::NumpadEnter => Some(&["start"]),
             _ => None,
         }
     }
@@ -173,7 +169,7 @@ impl Default for Cli {
     fn default() -> Self {
         Self {
             cart: None,
-            variant: Variant::SmsNtsc,
+            variant: Variant::GameGear,
             scale: DEFAULT_SCALE,
             video: VideoFilter::Raw,
         }
@@ -193,7 +189,7 @@ pub fn run(cli: Cli) -> Result<(), String> {
 
     println!("Controls: Esc quit, F12 reset, arrows d-pad, Z/X buttons, Enter Pause/Start.");
     emu198x_ui::run(
-        SmsSystem {
+        GameGearSystem {
             variant: cli.variant,
         },
         runtime,
@@ -215,9 +211,8 @@ where
             "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
             "--variant" => {
                 cli.variant = match next_arg(&mut iter, "--variant").as_str() {
-                    "sms-ntsc" | "sms" => Variant::SmsNtsc,
-                    "sms-pal" => Variant::SmsPal,
-                    other => die(&format!("--variant expects sms-ntsc|sms-pal, got {other}")),
+                    "game-gear" | "gg" => Variant::GameGear,
+                    other => die(&format!("--variant expects game-gear, got {other}")),
                 };
             }
             "--scale" => {
@@ -260,41 +255,42 @@ mod tests {
     fn parse_cli_accepts_cart_variant_scale_video() {
         let cli = parse_cli([
             "--cart".to_owned(),
-            "sonic.sms".to_owned(),
+            "game.gg".to_owned(),
             "--variant".to_owned(),
-            "sms-pal".to_owned(),
+            "game-gear".to_owned(),
             "--scale".to_owned(),
             "4".to_owned(),
             "--video".to_owned(),
             "crt".to_owned(),
         ]);
-        assert_eq!(cli.cart, Some(PathBuf::from("sonic.sms")));
-        assert_eq!(cli.variant, Variant::SmsPal);
+        assert_eq!(cli.cart, Some(PathBuf::from("game.gg")));
+        assert_eq!(cli.variant, Variant::GameGear);
         assert_eq!(cli.scale, 4);
         assert_eq!(cli.video, VideoFilter::Crt);
     }
 
     #[test]
     fn parse_cli_accepts_positional_cart() {
-        let cli = parse_cli(["sonic.sms".to_owned()]);
-        assert_eq!(cli.cart, Some(PathBuf::from("sonic.sms")));
-        assert_eq!(cli.variant, Variant::SmsNtsc);
+        let cli = parse_cli(["sonic.gg".to_owned()]);
+        assert_eq!(cli.cart, Some(PathBuf::from("sonic.gg")));
+        assert_eq!(cli.variant, Variant::GameGear);
     }
 
     #[test]
     fn variant_frame_ticks_match() {
-        assert_eq!(Variant::SmsNtsc.frame_ticks(), 228 * 262);
-        assert_eq!(Variant::SmsPal.frame_ticks(), 228 * 313);
+        assert_eq!(Variant::GameGear.frame_ticks(), 228 * 262);
     }
 
+    /// The Game Gear labels the console button Start, where its Master System
+    /// sibling labels it Pause.
     #[test]
-    fn pad_maps_and_console_button() {
-        let sms = SmsSystem {
-            variant: Variant::SmsNtsc,
+    fn pad_maps_and_console_button_is_start() {
+        let gg = GameGearSystem {
+            variant: Variant::GameGear,
         };
-        assert_eq!(sms.map_key(KeyCode::ArrowLeft), Some(HostControl::Left));
-        assert_eq!(sms.map_key(KeyCode::KeyZ), Some(HostControl::South));
-        assert_eq!(sms.map_key(KeyCode::KeyX), Some(HostControl::East));
-        assert_eq!(sms.map_keys(KeyCode::Enter), Some(&["pause"][..]));
+        assert_eq!(gg.map_key(KeyCode::ArrowLeft), Some(HostControl::Left));
+        assert_eq!(gg.map_key(KeyCode::KeyZ), Some(HostControl::South));
+        assert_eq!(gg.map_key(KeyCode::KeyX), Some(HostControl::East));
+        assert_eq!(gg.map_keys(KeyCode::Enter), Some(&["start"][..]));
     }
 }

@@ -121,7 +121,62 @@ The lift in step 6 is small (~hours, not days) because the structural pieces are
 - **"Let me make the family driver trait now even though there's only one machine."** Per [SpectrumDriver](spectrum-driver.md), the trait is justified by ≥ 2 machines sharing cadence. With one machine, the trait is speculation. Wait.
 - **"I'll generalise the snapshot helpers across families."** Spectrum's `.z80` helpers don't apply to Game Boy `.sna`. Each family's snapshot world is its own.
 - **"I'll let `common-{family}` depend on `emu198x-shell` for `InputEvent`."** No. `common` is hardware-only. The runtime layer maps host events into hardware terms. (Spectrum learned this and reverted the dep.)
+- **"Two machines in this family can share one runtime crate."** Only if they are models of one machine. Two distinct `machine_id`s in one crate hides the second from every crate-derived view — see § Amendment 2026-08-18 and #998. Split into `runtime-{family}-class` plus one runtime crate per machine.
+- **"I'll name the machine id with a constant so it reads better."** A `const MACHINE_ID` defeats the literal scan exactly as thoroughly as the variable the Game Gear was hidden behind. Write `MachineId::from("the-id")` inline and let a test assert it.
 - **"I'll make `Runtime<M>` cross-family."** No. It's family-shaped; the per-family hook surface differs (audio shape, controller shape, framebuffer shape, snapshot shape). The cross-family contract is `MachineCore`, not the runtime body. See [System-specific run loops](system-specific-run-loops.md).
+
+## Amendment 2026-08-18 — a family runtime layer, when a family holds more than one machine
+
+The five-piece structure assumed one machine per family. The Sega Master
+System family broke that assumption: the Game Gear is a separate machine —
+its own `machine_id`, its own label, its own release artifact — sharing the
+Master System's silicon, its runtime wrapper, its snapshot envelope and its
+query surface.
+
+Packing both into `runtime-sega-master-system` made the Game Gear invisible
+to every mechanical view of the portfolio (#998). It was the only crate in
+the workspace building `MachineId` from a variable rather than a literal, so
+a scan for `MachineId::from("...")` found twenty-nine machines and no error.
+
+### The sixth piece
+
+```
+runtime-{family}-class     — shared runtime, queries, snapshot, input
+runtime-{machine}          — profile catalogue and constructors, one machine_id
+```
+
+`runtime-{family}-class` appears **only** when a family ships more than one
+machine. A single-machine family keeps the five-piece shape unchanged; there
+is nothing to share and the extra crate would be ceremony.
+
+The `-class` suffix already means "a grouping within a family" in this
+workspace — `common-sinclair-zx-spectrum-48k-class`,
+`-128k-class`, `-amstrad-class`.
+
+### Why not `common-{family}`
+
+`common-{family}` is hardware-only and holds **no host-boundary types**. That
+invariant is not aspirational: all twelve `common-*` crates depend on
+`emu198x-shell` zero times. A runtime is `MachineCore`, `HostIo`, `MediaSet` —
+host-boundary by definition. Putting it in `common-` would have been the
+first breach in twelve crates, and the one that normalised the exception.
+
+### Why not two independent runtimes
+
+Considered and rejected for now: it duplicates ~500 lines whose divergence is
+plausible but unproven. If the Game Gear's stereo PSG, LCD crop and altered
+input make the shared runtime fight the differences, splitting is the correct
+follow-up — and the class crate is where that pressure will be visible.
+
+### The rule this restores
+
+**One `machine_id` per runtime crate, built from a literal.** Models are
+variants within a machine (the Spectrum's 48K/128K/+2/+3 are one machine);
+two `machine_id`s in one crate is the anomaly. `check_registry.py` enforces
+the crate-to-machine join, and [evidence is what ran, not what was
+claimed](evidence-is-what-ran-not-what-was-claimed.md) depends on it: a
+machine with no crate of its own cannot have evidence separated from its
+neighbour's.
 
 ## What this is *not*
 

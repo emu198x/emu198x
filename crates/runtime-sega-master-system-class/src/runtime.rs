@@ -1,4 +1,15 @@
-//! Runtime wrapper for Sega Master System / Game Gear.
+//! Runtime wrapper shared by every machine in the Master System class.
+//!
+//! The Master System and the Game Gear are separate machines that happen to
+//! run the same wrapper: same silicon, same snapshot envelope, same query
+//! surface. This crate holds that shared half so each machine can own its
+//! own runtime crate with a single `machine_id` (#998).
+//!
+//! The machine's identity arrives as data — a profile, a hardware variant
+//! and a model id — rather than as a type parameter. A generic
+//! `SmsRuntime<M>` would put `MachineCore` and `DebugPrimitives` impls out
+//! of reach of the per-machine crates: both traits are foreign, and
+//! `SmsRuntime<LocalModel>` is not a local type for the orphan rule.
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
@@ -8,14 +19,16 @@ use emu198x_shell::{
 use machine_sega_master_system::{Sms, SmsVariant};
 
 use crate::input::{ControllerCache, apply_input_event};
-use crate::profiles::{Model, profile_for};
 use crate::snapshot;
 
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
 pub struct SmsRuntime {
     profile: MachineProfile,
-    model: Model,
+    variant: SmsVariant,
+    /// Stable per-model identifier, checked on snapshot restore so a Game
+    /// Gear state cannot be loaded into a Master System.
+    model_id: &'static str,
     machine: Option<Sms>,
     cart_bytes: Option<Vec<u8>>,
     time: MachineTime,
@@ -27,10 +40,11 @@ pub struct SmsRuntime {
 
 impl SmsRuntime {
     #[must_use]
-    pub fn blank(model: Model) -> Self {
+    pub fn blank(profile: MachineProfile, variant: SmsVariant, model_id: &'static str) -> Self {
         Self {
-            profile: profile_for(model),
-            model,
+            profile,
+            variant,
+            model_id,
             machine: None,
             cart_bytes: None,
             time: MachineTime::default(),
@@ -42,8 +56,13 @@ impl SmsRuntime {
     }
 
     #[must_use]
-    pub fn new(model: Model, cart_rom: Vec<u8>) -> Self {
-        let mut runtime = Self::blank(model);
+    pub fn new(
+        profile: MachineProfile,
+        variant: SmsVariant,
+        model_id: &'static str,
+        cart_rom: Vec<u8>,
+    ) -> Self {
+        let mut runtime = Self::blank(profile, variant, model_id);
         runtime.insert_cartridge(cart_rom);
         runtime
     }
@@ -62,9 +81,16 @@ impl SmsRuntime {
         self.machine.as_mut()
     }
 
+    /// The hardware variant this runtime drives.
     #[must_use]
-    pub fn model(&self) -> Model {
-        self.model
+    pub fn variant(&self) -> SmsVariant {
+        self.variant
+    }
+
+    /// The model id recorded in snapshots.
+    #[must_use]
+    pub fn model_id(&self) -> &'static str {
+        self.model_id
     }
 
     pub(crate) fn set_time(&mut self, time: MachineTime) {
@@ -96,12 +122,7 @@ impl SmsRuntime {
             self.machine = None;
             return;
         };
-        let variant = match self.model {
-            Model::SmsNtsc => SmsVariant::SmsNtsc,
-            Model::SmsPal => SmsVariant::SmsPal,
-            Model::GameGear => SmsVariant::GameGear,
-        };
-        let machine = Sms::new(rom, variant);
+        let machine = Sms::new(rom, self.variant);
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;

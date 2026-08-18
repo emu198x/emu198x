@@ -5,10 +5,10 @@
 //! cartridge makes the machine debuggable without an external ROM.
 
 use emu198x_shell::SessionQueryProvider;
-use runtime_sega_master_system::{Model, SmsRuntime, SmsSessionQueryProvider};
+use runtime_sega_master_system::{Model, SmsRuntime, SmsSessionQueryProvider, with_cartridge};
 
 fn loaded() -> SmsRuntime {
-    SmsRuntime::new(Model::SmsNtsc, vec![0u8; 1024])
+    with_cartridge(Model::SmsNtsc, vec![0u8; 1024])
 }
 
 fn resolve(rt: &SmsRuntime, path: &str) -> serde_json::Value {

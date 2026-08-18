@@ -1,6 +1,6 @@
 [package]
-name = "runtime-sega-master-system"
-description = "Sega Master System machine profiles and runtime constructors"
+name = "runtime-sega-game-gear"
+description = "Sega Game Gear machine profiles and runtime constructors"
 edition.workspace = true
 version.workspace = true
 publish = false
@@ -14,7 +14,6 @@ runtime-sega-master-system-class = { path = "../runtime-sega-master-system-class
 
 [dev-dependencies]
 serde_json = { workspace = true }
-zilog-z80 = { path = "../zilog-z80", version = "0.4.0" }
 
 [lints]
 workspace = true

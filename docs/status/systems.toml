@@ -148,13 +148,14 @@ crate = "emu198x-oric-atmos"
 label = "system:oric"
 milestone = "Oric 100%"
 
-# Both Sega machines ship from one crate, which is the anomaly #998 tracks.
-# Neither is visible to a literal scan of `MachineId::from("...")`, because
-# this crate alone builds the id from a variable — which is how the Game Gear
-# went unlabelled and unmilestoned until 2026-08-18.
+# The Game Gear shipped from the Master System's crate until #998, which made
+# it the one machine no crate-derived view of the portfolio could see: this was
+# the only crate building `MachineId` from a variable, so a literal scan found
+# twenty-nine machines and no error. It went unlabelled and unmilestoned until
+# 2026-08-18. Machine-to-crate is now 1:1 across the workspace.
 [[system]]
 machine_id = "sega-game-gear"
-crate = "emu198x-sega-master-system"
+crate = "emu198x-sega-game-gear"
 label = "system:game-gear"
 milestone = "Game Gear 100%"
 

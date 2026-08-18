@@ -1,6 +1,6 @@
-//! Family-owned query surface for the SMS runtime.
+//! Query surface shared by every machine in the Master System class.
 
-use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
+use emu198x_shell::{MachineCore, QueryError, QueryResult, SessionQueryProvider};
 use machine_sega_master_system::Sms;
 use serde_json::json;
 
@@ -42,8 +42,8 @@ impl SessionQueryProvider<SmsRuntime> for SmsSessionQueryProvider {
     fn query(&self, machine: &SmsRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
             "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
-            "machine.region" => json!(format!("{:?}", machine.model().region())),
-            "machine.variant" => json!(format!("{:?}", machine.model())),
+            "machine.region" => json!(format!("{:?}", machine.profile().region)),
+            "machine.variant" => json!(format!("{:?}", machine.variant())),
             "machine.frame_count" => json!(machine.machine().map_or(0, Sms::frame_count)),
             "cpu.pc" => json!(loaded(machine, path)?.cpu().regs.pc),
             "cpu.tstates" => json!(loaded(machine, path)?.cpu_tstates()),
