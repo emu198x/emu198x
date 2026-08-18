@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.2.0" }
-machine-coleco-colecovision = { path = "../machine-coleco-colecovision", version = "0.2.0" }
-zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.3.0" }
+machine-coleco-colecovision = { path = "../machine-coleco-colecovision", version = "0.3.0" }
+zilog-z80 = { path = "../zilog-z80", version = "0.3.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

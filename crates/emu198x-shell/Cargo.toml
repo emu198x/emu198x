@@ -33,7 +33,7 @@ thiserror = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.2.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.3.0" }
 
 [lints]
 workspace = true

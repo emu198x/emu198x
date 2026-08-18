@@ -8,10 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-gi-ay-3-8910 = { path = "../gi-ay-3-8910", version = "0.2.0" }
-ti-tms9918 = { path = "../ti-tms9918", version = "0.2.0" }
-western-digital-wd1770 = { path = "../western-digital-wd1770", version = "0.2.0" }
-zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
+gi-ay-3-8910 = { path = "../gi-ay-3-8910", version = "0.3.0" }
+ti-tms9918 = { path = "../ti-tms9918", version = "0.3.0" }
+western-digital-wd1770 = { path = "../western-digital-wd1770", version = "0.3.0" }
+zilog-z80 = { path = "../zilog-z80", version = "0.3.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 

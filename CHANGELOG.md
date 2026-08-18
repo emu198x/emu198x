@@ -4,6 +4,42 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.3.0] - 2026-08-18
+
+
+### Added
+
+- *(cpc)* Load games from tape
+- *(cpc)* Add the CPC runtime, so the machine can be driven
+- *(cpc)* Add the CPC frontend, so the machine is runnable
+- *(nes)* Expose OAM and per-scanline sprite counts, so dropout is measurable
+- *(spectrum)* Autoload tape on the 128K family, not just the 48K
+- *(cpc)* Read the screen back as text
+- *(cpc)* Add a 6128 model with the PAL's banked RAM
+- *(cpc)* Model the Gate Array's /WAIT stretching
+- Read Debug198x sidecars for symbolised debugging
+
+
+### Fixed
+
+- *(denise)* Repair the dual-playfield priority test, which never armed a playfield
+- Make the Atari 800XL MCP tests run and give memory_read its advertised default
+- *(spectrum)* Let a caller pin which ROMs the Spectrum boots
+- *(nes)* Stop the debug PPU trapping when sprite size changes mid-line
+- *(dragon)* Make a missing golden fail instead of passing quietly
+- *(video)* Encode captures at a constant quantiser, not CRF
+- *(audio)* Emit whole frames, so a quiet machine still has an audio track
+- *(cpc)* Fit the 464's HD6845S, which reads its start address back
+- *(z80)* Restore WZ = PC + 1 on the INIR/INDR repeat path
+- *(spectrum)* Move the 48K floating-bus read origin to 14335
+- **Breaking** — Widen the I/O trace port to the full 16-bit address bus. `emu198x_shell::IoEvent::port` is now `u16` rather than `u8`. Every consumer is in this workspace; machines with their own `u8` event type need no change, as the conversion widens.
+- Correct the Debug198x banked-paging model
+
+
+### Performance
+
+- *(debug)* Stop re-rendering the framebuffer once per stepped instruction
+
 ## [0.2.3] - 2026-08-15
 
 
