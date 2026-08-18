@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-sega-vdp = { path = "../sega-vdp", version = "0.3.0" }
-ti-sn76489 = { path = "../ti-sn76489", version = "0.3.0" }
-zilog-z80 = { path = "../zilog-z80", version = "0.3.0" }
+sega-vdp = { path = "../sega-vdp", version = "0.4.0" }
+ti-sn76489 = { path = "../ti-sn76489", version = "0.4.0" }
+zilog-z80 = { path = "../zilog-z80", version = "0.4.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 

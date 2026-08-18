@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-gi-ay-3-8910 = { path = "../gi-ay-3-8910", version = "0.3.0" }
+gi-ay-3-8910 = { path = "../gi-ay-3-8910", version = "0.4.0" }
 serde = { workspace = true }
 
 [lints]

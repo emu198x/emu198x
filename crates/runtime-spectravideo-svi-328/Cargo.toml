@@ -8,13 +8,13 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.3.0" }
-machine-spectravideo-svi-328 = { path = "../machine-spectravideo-svi-328", version = "0.3.0" }
-zilog-z80 = { path = "../zilog-z80", version = "0.3.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.4.0" }
+machine-spectravideo-svi-328 = { path = "../machine-spectravideo-svi-328", version = "0.4.0" }
+zilog-z80 = { path = "../zilog-z80", version = "0.4.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-ti-tms9918 = { path = "../ti-tms9918", version = "0.3.0" }
+ti-tms9918 = { path = "../ti-tms9918", version = "0.4.0" }
 
 [lints]
 workspace = true
