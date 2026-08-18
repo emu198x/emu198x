@@ -56,14 +56,20 @@ commit_parsers = [
   # changelog. The plumbing that ships a release is not a change *in* the
   # release.
   #
-  # `ci` and `release` are the scopes this actually happens with — six commits
-  # across the whole history, every one of them release machinery. Deliberately
-  # not a speculative list; add `build` or `deps` here when they first appear.
+  # The list is the scopes this has actually happened with, not a speculative
+  # set: `ci`, `release`, and now `test`. `test` was added when `fix(test):
+  # hex-format digests without relying on LowerHex` — a change to test helpers
+  # so the suite compiles against sha2 0.11 — turned up in a release PR's notes
+  # under "Fixed", where a reader would take it for a fix to the emulator.
+  #
+  # That is the rule working rather than failing: the previous revision said
+  # add a scope when it first appears, and this is that. `build`, `deps` and
+  # `docs` still have not, so they are still absent.
   #
   # `protect_breaking_commits` still wins over this, so a `feat(ci)!:` would
   # appear anyway. That is right: if CI plumbing breaks someone's build, that
   # is a change in the release.
-  { message = '^(feat|fix|perf|revert)\((ci|release)\)', skip = true },
+  { message = '^(feat|fix|perf|revert)\((ci|release|test)\)', skip = true },
   { message = "^feat", group = "Added" },
   { message = "^fix", group = "Fixed" },
   { message = "^perf", group = "Performance" },
