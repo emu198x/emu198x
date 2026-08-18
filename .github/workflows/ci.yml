@@ -14,6 +14,20 @@ jobs:
   # Format and lint run as separate jobs so the workflow summary
   # surfaces them independently. Both are fast (no test compile);
   # heavier downstream jobs gate on both passing.
+  registry:
+    name: System registry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Verifies docs/status/systems.toml against the crates, the declared
+      # machine profiles, and the tracker's labels and milestones. The registry
+      # is the only place the repo's four naming vocabularies are joined, so an
+      # entry that has drifted silently un-joins a machine from its own issues.
+      - name: Check the system registry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/status/check_registry.py
+
   fmt:
     name: Format
     runs-on: ubuntu-latest

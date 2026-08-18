@@ -1,0 +1,207 @@
+# The system registry: one entry per machine, and the only place the repo's
+# four vocabularies are joined.
+#
+# The same machine is named four different ways — the shipping crate
+# (`emu198x-sinclair-zx81`), the profile's `machine_id` (`sinclair-zx81`), the
+# issue label (`system:zx81`) and the milestone (`ZX81 100%`) — and they agree
+# only by luck. The oldest systems predate the convention entirely:
+# `emu198x-c64` is `commodore-c64`, `emu198x-spectrum` is
+# `sinclair-zx-spectrum`. Nothing could be cross-referenced mechanically, which
+# is why status drifted between README, issue bodies, catalogue metadata and
+# private notes: reconciling them was manual, so it stopped happening (#825).
+#
+# Stated, not derived. Three separate attempts to infer these joins by pattern
+# matching produced wrong answers — false gaps for `atom`/`dragon`/`oric`,
+# a silently missing Game Gear, and profile ids captured as machines. A guess
+# that is usually right is exactly what this file exists to replace.
+#
+# `crate` is the shipping binary. It is not one-to-one: the Sega crate hosts
+# two machines, which is what #998 is about.
+#
+# Checked by `scripts/status/check_registry.py` in CI: every machine a profile
+# declares must appear here, and every label and milestone named here must
+# exist.
+
+[[system]]
+machine_id = "acorn-atom"
+crate = "emu198x-acorn-atom"
+label = "system:atom"
+milestone = "Acorn Atom 100%"
+
+[[system]]
+machine_id = "acorn-bbc-micro"
+crate = "emu198x-acorn-bbc-micro"
+label = "system:bbc-micro"
+milestone = "BBC Micro 100%"
+
+[[system]]
+machine_id = "acorn-electron"
+crate = "emu198x-acorn-electron"
+label = "system:electron"
+milestone = "Acorn Electron 100%"
+
+[[system]]
+machine_id = "amstrad-cpc"
+crate = "emu198x-amstrad-cpc"
+label = "system:cpc"
+milestone = "Amstrad CPC 100%"
+
+[[system]]
+machine_id = "atari-2600"
+crate = "emu198x-atari-2600"
+label = "system:atari-2600"
+milestone = "Atari 2600 100%"
+
+[[system]]
+machine_id = "atari-5200"
+crate = "emu198x-atari-5200"
+label = "system:atari-5200"
+milestone = "Atari 5200 100%"
+
+[[system]]
+machine_id = "atari-7800"
+crate = "emu198x-atari-7800"
+label = "system:atari-7800"
+milestone = "Atari 7800 100%"
+
+[[system]]
+machine_id = "atari-800xl"
+crate = "emu198x-atari-800xl"
+label = "system:atari-800xl"
+milestone = "Atari 800XL 100%"
+
+[[system]]
+machine_id = "coleco-colecovision"
+crate = "emu198x-colecovision"
+label = "system:colecovision"
+milestone = "ColecoVision 100%"
+
+[[system]]
+machine_id = "commodore-amiga"
+crate = "emu198x-amiga"
+label = "system:amiga"
+milestone = "Amiga 100%"
+
+[[system]]
+machine_id = "commodore-c64"
+crate = "emu198x-c64"
+label = "system:c64"
+milestone = "C64 100%"
+
+[[system]]
+machine_id = "commodore-pet"
+crate = "emu198x-commodore-pet"
+label = "system:pet"
+milestone = "PET 100%"
+
+[[system]]
+machine_id = "commodore-vic-20"
+crate = "emu198x-commodore-vic-20"
+label = "system:vic-20"
+milestone = "VIC-20 100%"
+
+[[system]]
+machine_id = "dragon"
+crate = "emu198x-dragon"
+label = "system:dragon"
+milestone = "Dragon 32 100%"
+
+[[system]]
+machine_id = "jupiter-ace"
+crate = "emu198x-jupiter-ace"
+label = "system:jupiter-ace"
+milestone = "Jupiter Ace 100%"
+
+[[system]]
+machine_id = "mattel-aquarius"
+crate = "emu198x-mattel-aquarius"
+label = "system:aquarius"
+milestone = "Aquarius 100%"
+
+[[system]]
+machine_id = "memotech-mtx"
+crate = "emu198x-memotech-mtx"
+label = "system:mtx"
+milestone = "Memotech MTX 100%"
+
+[[system]]
+machine_id = "microsoft-msx1"
+crate = "emu198x-msx"
+label = "system:msx"
+milestone = "MSX 100%"
+
+[[system]]
+machine_id = "nintendo-game-boy"
+crate = "emu198x-game-boy"
+label = "system:game-boy"
+milestone = "Game Boy 100%"
+
+[[system]]
+machine_id = "nintendo-nes"
+crate = "emu198x-nes"
+label = "system:nes"
+milestone = "NES 100%"
+
+[[system]]
+machine_id = "oric"
+crate = "emu198x-oric-atmos"
+label = "system:oric"
+milestone = "Oric 100%"
+
+# Both Sega machines ship from one crate, which is the anomaly #998 tracks.
+# Neither is visible to a literal scan of `MachineId::from("...")`, because
+# this crate alone builds the id from a variable — which is how the Game Gear
+# went unlabelled and unmilestoned until 2026-08-18.
+[[system]]
+machine_id = "sega-game-gear"
+crate = "emu198x-sega-master-system"
+label = "system:game-gear"
+milestone = "Game Gear 100%"
+
+[[system]]
+machine_id = "sega-master-system"
+crate = "emu198x-sega-master-system"
+label = "system:master-system"
+milestone = "Master System 100%"
+
+[[system]]
+machine_id = "sega-sg-1000"
+crate = "emu198x-sega-sg-1000"
+label = "system:sg-1000"
+milestone = "SG-1000 100%"
+
+[[system]]
+machine_id = "sinclair-zx-spectrum"
+crate = "emu198x-spectrum"
+label = "system:spectrum"
+milestone = "Spectrum 100%"
+
+[[system]]
+machine_id = "sinclair-zx80"
+crate = "emu198x-sinclair-zx80"
+label = "system:zx80"
+milestone = "ZX80 100%"
+
+[[system]]
+machine_id = "sinclair-zx81"
+crate = "emu198x-sinclair-zx81"
+label = "system:zx81"
+milestone = "ZX81 100%"
+
+[[system]]
+machine_id = "sord-m5"
+crate = "emu198x-sord-m5"
+label = "system:sord-m5"
+milestone = "Sord M5 100%"
+
+[[system]]
+machine_id = "spectravideo-svi-328"
+crate = "emu198x-spectravideo-svi-328"
+label = "system:svi-328"
+milestone = "SVI-328 100%"
+
+[[system]]
+machine_id = "tatung-einstein"
+crate = "emu198x-tatung-einstein"
+label = "system:einstein"
+milestone = "Tatung Einstein 100%"
