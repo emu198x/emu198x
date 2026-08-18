@@ -81,12 +81,29 @@ it has no right to distribute. That rules out publishing a fixture-complete
 run, and the first reading of that was a loss: the public page would
 understate every machine whose real evidence needs a ROM.
 
-It is the opposite. **A fixture-gated test only announces itself where the
-fixture is absent.** On a machine with the ROMs staged, those tests pass and
-disappear into the totals — the first full local run recorded 6,179 passes
-and *two* skips. In CI, the same tests skip with a reason that names what
-they need. CI is the diagnostic environment; a development machine is the
-one that hides the gaps.
+It is the opposite, though by less than first argued. **A fixture-gated test
+only announces itself where the fixture is absent.** On a machine with the
+ROMs staged those tests pass and disappear into the totals; in CI they skip
+with a reason naming what they need.
+
+Both environments were then measured on the same commit:
+
+| | CI | Development machine |
+| --- | --- | --- |
+| Passed | 6,169 | 6,193 |
+| Ignored | 558 | 558 |
+| Skipped for a missing fixture | **26** | **2** |
+| Ignored with no stated reason | 96 | 96 |
+
+The mechanism is real and the books balance — 24 extra skips, 24 fewer
+passes. But it is 24 tests, not a transformation. The dominant absence
+signal is the 558 ignored, and `#[ignore]` does not care where it runs, so
+that figure is identical either way.
+
+CI is therefore the right source for reasons that need no overstating: it is
+reproducible by anyone, it is marginally more diagnostic on fixtures, and it
+requires no copyrighted material. Not because a development machine is
+blind to the gaps.
 
 So the published ledger has three kinds of entry, none of which needs a
 byte of copyrighted material:
