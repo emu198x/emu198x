@@ -791,6 +791,116 @@ mod tests {
         assert_eq!(sym.symbol_at(0xc010), Some("draw"));
     }
 
+    /// The Amiga fixture: two hunks, neither carrying a base, which is the
+    /// genuinely relocatable case a loader places at run time.
+    const AMIGA: &str =
+        include_str!("../../../test-data/commodore/amiga/debug198x/68000-amiga.debug198x");
+
+    fn amiga() -> DebugSymbols {
+        DebugSymbols::from_ndjson(AMIGA, "68000-amiga.debug198x").expect("fixture loads")
+    }
+
+    #[test]
+    fn relocatable_hunks_resolve_nowhere_until_the_loader_says_where() {
+        let sym = amiga();
+        // Neither section has a `base`: where a hunk lands is not knowable at
+        // assembly time. Every lookup declines rather than guessing.
+        for name in ["start", "loop", "data", "msg", "tail"] {
+            assert_eq!(sym.addr_of(name), None, "{name} has nowhere to be yet");
+        }
+        assert_eq!(sym.symbol_at(0), None);
+        assert_eq!(sym.line_at(0), None);
+    }
+
+    #[test]
+    fn supplying_hunk_addresses_resolves_both_sections_independently() {
+        // #741's third acceptance bullet, against the fixture built for it
+        // rather than a synthetic rebase of an absolutely-located image.
+        //
+        // The two hunks are placed independently and out of order — data below
+        // code — because AmigaDOS hands back whatever memory it has, and a
+        // consumer that quietly assumed hunks were adjacent or ascending would
+        // pass a test that placed them tidily.
+        let mut sym = amiga();
+        const CODE: u64 = 0x0021_0000;
+        const DATA: u64 = 0x0007_C000;
+        sym.set_section_base(0, CODE);
+        sym.set_section_base(1, DATA);
+
+        assert_eq!(sym.addr_of("start"), Some(0x0021_0000));
+        assert_eq!(sym.addr_of("loop"), Some(0x0021_0006));
+        assert_eq!(sym.addr_of("data"), Some(0x0007_C000));
+        assert_eq!(sym.addr_of("msg"), Some(0x0007_C006));
+        assert_eq!(sym.addr_of("tail"), Some(0x0007_C00A));
+
+        // Reverse lookups agree, in both hunks.
+        assert_eq!(sym.symbol_at(0x0021_0006), Some("loop"));
+        assert_eq!(sym.symbol_at(0x0007_C006), Some("msg"));
+
+        // …and so do the line spans, which is what a source-line breakpoint
+        // in a relocatable program depends on.
+        assert_eq!(sym.line_at(0x0021_0000).map(|l| l.line), Some(2));
+        assert_eq!(sym.line_at(0x0021_0006).map(|l| l.line), Some(4));
+        assert_eq!(sym.line_at(0x0007_C000).map(|l| l.line), Some(7));
+        assert_eq!(sym.line_at(0x0007_C00A).map(|l| l.line), Some(10));
+        assert_eq!(
+            sym.addr_of_line("68000-amiga.s", 8),
+            Some(0x0007_C006),
+            "a breakpoint on a line in the data hunk"
+        );
+    }
+
+    #[test]
+    fn a_second_load_relocates_everything_rather_than_accumulating() {
+        // The same binary run twice lands somewhere else. `set_paging` replaces
+        // the map wholesale, so the previous run's addresses cannot linger and
+        // answer for a program that is no longer there.
+        let mut sym = amiga();
+        sym.set_section_base(0, 0x0021_0000);
+        sym.set_section_base(1, 0x0007_C000);
+        assert_eq!(sym.addr_of("start"), Some(0x0021_0000));
+
+        sym.set_paging([(0, 0x0040_0000), (1, 0x0041_0000)]);
+        assert_eq!(sym.addr_of("start"), Some(0x0040_0000));
+        assert_eq!(sym.addr_of("msg"), Some(0x0041_0006));
+        assert_eq!(sym.symbol_at(0x0021_0000), None, "the old load is gone");
+    }
+
+    /// An unknown `space` shape fails the **whole file**, not just its record.
+    ///
+    /// `Space` is an untagged enum, so serde has no discriminant to fall back
+    /// on: a shape it does not recognise matches no variant and the read
+    /// errors. Unknown *record types* skip cleanly by design; unknown *space
+    /// shapes* do not, and the difference is invisible from the format's
+    /// evolution promise, which speaks of new record types and new fields.
+    ///
+    /// Asserted here because this repo is the reader that would break. Our
+    /// `debug198x` pin is a fixed revision, so a sidecar written by a newer
+    /// Asm198x carrying a space shape we predate takes down every lookup in
+    /// the file rather than degrading. Worth knowing before the format
+    /// freezes, since it means the set of space shapes is effectively closed.
+    #[test]
+    fn an_unknown_space_shape_fails_the_whole_file() {
+        let unknown = format!(
+            "{}\n{}",
+            header_line(FORMAT, FORMAT_VERSION),
+            r#"{"t":"symbol","name":"x","kind":"label","section":0,"offset":0,"space":{"segment":7,"window":2}}"#
+        );
+        let err = DebugSymbols::from_ndjson(&unknown, "future-space.debug198x")
+            .expect_err("an unrecognised space shape is not tolerated");
+        assert!(matches!(err, DebugInfoError::Parse { .. }), "got {err:?}");
+
+        // For contrast: an unknown *record type* skips, as the promise says.
+        let unknown_record = format!(
+            "{}\n{}",
+            header_line(FORMAT, FORMAT_VERSION),
+            r#"{"t":"quantum","whatever":1}"#
+        );
+        let ok = DebugSymbols::from_ndjson(&unknown_record, "future-record.debug198x")
+            .expect("an unknown record type is skipped");
+        assert_eq!(ok.counts(), (0, 0, 0));
+    }
+
     #[test]
     fn refuses_a_file_that_is_not_debug198x() {
         // A well-formed header that simply is not ours — the case that would

@@ -1,0 +1,15 @@
+{"t":"header","format":"debug198x","format_version":"0.1","tool":"asm198x","tool_version":"0.0.7","cpu":"68000","dialect":"vasm","sources":["68000-amiga.s"]}
+{"t":"section","id":0,"name":"code"}
+{"t":"section","id":1,"name":"data"}
+{"t":"symbol","name":"start","kind":"label","section":0,"offset":0}
+{"t":"symbol","name":"loop","kind":"label","section":0,"offset":6}
+{"t":"symbol","name":"data","kind":"label","section":1,"offset":0}
+{"t":"symbol","name":"msg","kind":"label","section":1,"offset":6}
+{"t":"symbol","name":"tail","kind":"label","section":1,"offset":10}
+{"t":"line","file":"68000-amiga.s","line":2,"section":0,"offset":0,"length":4}
+{"t":"line","file":"68000-amiga.s","line":3,"section":0,"offset":4,"length":2}
+{"t":"line","file":"68000-amiga.s","line":4,"section":0,"offset":6,"length":4}
+{"t":"line","file":"68000-amiga.s","line":5,"section":0,"offset":10,"length":2}
+{"t":"line","file":"68000-amiga.s","line":7,"section":1,"offset":0,"length":6}
+{"t":"line","file":"68000-amiga.s","line":8,"section":1,"offset":6,"length":3}
+{"t":"line","file":"68000-amiga.s","line":10,"section":1,"offset":10,"length":4}
