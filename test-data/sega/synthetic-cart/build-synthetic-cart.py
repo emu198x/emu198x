@@ -51,6 +51,13 @@ GG_CRAM_LO = 0xF0  # G=F, R=0
 GG_CRAM_HI = 0x00  # B=0
 GG_EXPECTED_ARGB = 0xFF00FF00
 
+# The SG-1000's TMS9918 has no CRAM at all: the backdrop is an index into a
+# palette fixed in silicon, taken from the low nibble of register 7. Entry
+# 15 is white, and entry 0 — the power-on value — is transparent, so the
+# two cannot be confused.
+SG_BACKDROP_INDEX = 0x0F
+SG_EXPECTED_ARGB = 0xFFFFFFFF
+
 
 def z80(*parts: bytes) -> bytes:
     return b"".join(parts)
@@ -80,6 +87,23 @@ def cram_address(entry: int) -> bytes:
         bytes([0xD3, 0xBF]),  # out ($BF), a
         bytes([0x3E, 0xC0]),  # ld a, $C0
         bytes([0xD3, 0xBF]),  # out ($BF), a
+    )
+
+
+def sg_1000_program() -> bytes:
+    """The SG-1000's cartridge: shorter, because it has no palette to load.
+
+    Same Z80, same VDP ports, no CRAM. That difference is the reason this
+    is a third image rather than the Master System's reused: a machine
+    whose backdrop comes from a register cannot be proven by a cartridge
+    that writes colour memory.
+    """
+    return z80(
+        bytes([0xF3]),  # di
+        vdp_register(7, SG_BACKDROP_INDEX),
+        vdp_register(1, 0x40),  # display enable
+        vdp_register(0, 0x00),  # graphics I
+        bytes([0x18, 0xFE]),  # jr $
     )
 
 
@@ -115,9 +139,9 @@ def program(game_gear: bool) -> bytes:
     return body
 
 
-def build(game_gear: bool) -> bytes:
+def build(code: bytes) -> bytes:
     rom = bytearray(b"\xFF" * CART_SIZE)
-    rom[0 : len(program(game_gear))] = program(game_gear)
+    rom[0 : len(code)] = code
     return bytes(rom)
 
 
@@ -126,9 +150,14 @@ def main() -> int:
     parser.add_argument("--out-dir", type=Path, default=Path(__file__).parent)
     args = parser.parse_args()
 
-    for name, game_gear in (("master-system.sms", False), ("game-gear.gg", True)):
+    images = (
+        ("master-system.sms", program(game_gear=False)),
+        ("game-gear.gg", program(game_gear=True)),
+        ("sg-1000.sg", sg_1000_program()),
+    )
+    for name, code in images:
         path = args.out_dir / name
-        path.write_bytes(build(game_gear))
+        path.write_bytes(build(code))
         print(f"wrote {path} ({CART_SIZE} bytes)")
     return 0
 
