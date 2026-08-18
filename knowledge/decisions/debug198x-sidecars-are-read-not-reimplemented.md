@@ -104,13 +104,51 @@ A breakpoint that silently lands somewhere other than where it was asked for is
 worse than one that reports it cannot be set; a caller wanting that policy can
 walk forward itself.
 
-## Relocatable sections
+## The base map is the paging state
 
-Absolutely-located builds (C64, Spectrum) carry their base in the sidecar and
-resolve with no help. Amiga hunks are placed by the loader at run time, so the
-consumer supplies the real address per section. Until it does, lookups into
-that section return `None` rather than an address computed from a base that is
-not where the code is.
+Absolutely-located builds (C64, Spectrum 48K) carry their base in the sidecar
+and resolve with no help. Everything else supplies bases, and the rule for
+doing so is the same in both cases that need it:
+
+**Map only the sections that are actually live.** Amiga hunks are placed by the
+loader at run time, so the consumer maps them where they landed. A banked
+machine maps only the sections whose page is currently in a slot — a bank that
+has paged out stops being mapped. A section with no base contributes no address
+and cannot answer, and that is the mechanism, not a shortfall: it is what keeps
+a paged-out bank out of the lookup.
+
+This is why [`DebugSymbols::set_paging`] replaces the base map wholesale.
+`set_section_base` accumulates, and an accumulating map lets a caller hold two
+banks of one slot mapped at once — a machine that cannot exist — at which point
+the lookups answer by record order. Rebuilding on every paging change makes
+that state unreachable.
+
+### I got this wrong first, and it is worth recording why
+
+I read this as a defect in the shared reader: two symbols at one address
+distinguished in the file only by `space`, which the lookups never consult, so
+whichever record came first won. I filed it as asm198x#71 against the v1
+freeze.
+
+The premise was false. It only held because my test set *both* sections of slot
+3 to `$C000` simultaneously — my own comment said "page **either** bank into
+slot 3" and the code then mapped both. Map one, as a real machine does, and
+both banks resolve correctly today on the unchanged API. asm198x#71 is closed
+as not-a-defect; `banked_fixture_resolves_per_paging_state` had been asserting
+the correct behaviour in the Asm198x repo since 2026-07-06.
+
+The failure was not reading the fixture wrong — it was inventing a consumer
+model instead of finding the stated one. I read the crate source, which did not
+state it; the spec page did, in *The consumer model*. **A contract this repo
+depends on is not learned from the type signatures.** The lookups have a shape
+that admits an impossible base map, so the shape alone cannot tell you the
+rule.
+
+Two real things came out of it: `Section` now carries the same optional `space`
+as address-kind symbols, so a consumer holding a live paging state can derive
+the base map by lookup rather than by scraping a symbol out of each section
+(asm198x#72), and the banked contract now lives in the crate's own rustdoc
+rather than only on the spec page.
 
 ## Test provenance
 
@@ -144,3 +182,8 @@ Re-read this entry when any of these come up:
 - Anything proposing a dependency **from `debug198x` back to `asm198x`**, or
   from this repo to the assembler. That is the circularity the format exists
   to avoid.
+- "Two symbols share an address, so the reader must be page-aware" — check
+  first whether the base map is describing an impossible machine. See *I got
+  this wrong first*.
+- Accumulating into the base map across a paging change, or reaching for
+  `set_section_base` on a banked machine. Use `set_paging`.
