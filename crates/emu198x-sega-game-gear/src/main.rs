@@ -1,4 +1,4 @@
-//! `emu198x-sega-master-system` — Sega Master System native binary.
+//! `emu198x-sega-game-gear` — Sega Game Gear native binary.
 //!
 //! Three modes: UI (default), headless script (`--cart`/`--variant`/
 //! `--frames`/`--screenshot`/`--audio-capture`/`--script`) and MCP
@@ -74,14 +74,14 @@ mod tests {
 
     #[test]
     fn detect_mode_treats_bare_cart_as_ui() {
-        let args = vec!["--cart".to_owned(), "sonic.sms".to_owned()];
+        let args = vec!["--cart".to_owned(), "sonic.gg".to_owned()];
         assert_eq!(detect_mode(&args), Mode::Ui);
     }
 
     #[test]
     fn detect_mode_recognises_script_via_automation_flags() {
         for flag in ["--script", "--frames", "--screenshot", "--audio-capture"] {
-            let args = vec!["--cart".to_owned(), "sonic.sms".to_owned(), flag.to_owned()];
+            let args = vec!["--cart".to_owned(), "sonic.gg".to_owned(), flag.to_owned()];
             assert_eq!(
                 detect_mode(&args),
                 Mode::Script,

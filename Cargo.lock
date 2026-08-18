@@ -1245,6 +1245,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-sega-game-gear"
+version = "0.4.0"
+dependencies = [
+ "emu198x-shell",
+ "emu198x-ui",
+ "machine-sega-master-system",
+ "png",
+ "runtime-sega-game-gear",
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-sega-master-system"
 version = "0.4.0"
 dependencies = [
@@ -4191,7 +4203,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "runtime-sega-game-gear"
+version = "0.4.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-sega-master-system",
+ "runtime-sega-master-system-class",
+ "serde_json",
+]
+
+[[package]]
 name = "runtime-sega-master-system"
+version = "0.4.0"
+dependencies = [
+ "emu198x-shell",
+ "machine-sega-master-system",
+ "runtime-sega-master-system-class",
+ "serde_json",
+ "zilog-z80",
+]
+
+[[package]]
+name = "runtime-sega-master-system-class"
 version = "0.4.0"
 dependencies = [
  "emu198x-shell",

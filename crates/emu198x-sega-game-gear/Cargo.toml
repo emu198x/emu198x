@@ -1,6 +1,6 @@
 [package]
-name = "emu198x-sega-master-system"
-description = "Sega Master System headless runner with shell-backed script + MCP parity"
+name = "emu198x-sega-game-gear"
+description = "Sega Game Gear headless runner with shell-backed script + MCP parity"
 version.workspace = true
 publish = false
 edition.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "emu198x-sega-master-system"
+name = "emu198x-sega-game-gear"
 path = "src/main.rs"
 
 [features]
@@ -25,7 +25,7 @@ emu198x-shell = { path = "../emu198x-shell", version = "0.4.0" }
 emu198x-ui = { path = "../emu198x-ui", version = "0.4.0", optional = true }
 machine-sega-master-system = { path = "../machine-sega-master-system", version = "0.4.0" }
 png = { workspace = true }
-runtime-sega-master-system = { path = "../runtime-sega-master-system", version = "0.4.0" }
+runtime-sega-game-gear = { path = "../runtime-sega-game-gear", version = "0.4.0" }
 serde_json = { workspace = true }
 
 [lints]

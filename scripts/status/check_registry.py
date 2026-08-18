@@ -24,8 +24,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 REGISTRY = ROOT / "docs/status/systems.toml"
 NOT_A_SYSTEM = {"catalogue", "native-video", "shell", "ui", "test-skip"}
 # Machines whose id is built from a variable rather than a literal, so a scan
-# of `MachineId::from("...")` cannot see them. See #998.
-SCAN_BLIND = {"sega-master-system", "sega-game-gear"}
+# of `MachineId::from("...")` cannot see them. Empty since #998 split the Game
+# Gear out: every machine now states its id as a literal in its own crate.
+# A name here is a machine the scan is blind to, so it is asserted explicitly
+# rather than trusted to show up.
+SCAN_BLIND: set[str] = set()
 
 
 def registry() -> list[dict]:
@@ -41,11 +44,17 @@ def shipping_crates() -> set[str]:
 
 
 def declared_machines() -> set[str]:
-    """Machine ids the profiles declare, as literals."""
+    """Machine ids the profiles declare, as literals.
+
+    The scan cannot tell a profile catalogue from a `#[cfg(test)]` fixture, so
+    ids beginning `test-` are excluded by convention. Name a fixture machine
+    that way; anything else makes this check fail, which is the intended
+    outcome for a real machine nobody registered.
+    """
     found = set()
     for f in (ROOT / "crates").glob("runtime-*/src/*.rs"):
         found |= set(re.findall(r'MachineId::from\("([a-z0-9-]+)"\)', f.read_text(errors="ignore")))
-    return found - {"dummy-machine", "test-family"}
+    return {m for m in found if not m.startswith("test-")} - {"dummy-machine"}
 
 
 def gh(args: list[str]):

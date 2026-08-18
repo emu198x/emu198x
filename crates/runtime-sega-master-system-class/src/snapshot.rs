@@ -1,4 +1,4 @@
-//! Postcard-encoded snapshot envelope for the Master System runtime.
+//! Postcard-encoded snapshot envelope for the Master System class.
 //!
 //! Serialises the **live machine** (Z80, Sega VDP, SN76489 PSG, cart ROM,
 //! RAM, and mapper registers) so a restore resumes exactly, rather than the
@@ -36,7 +36,7 @@ pub(crate) fn encode(runtime: &SmsRuntime) -> Result<Vec<u8>, MachineError> {
     let snapshot = SmsRuntimeSnapshotRefV3 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
-        model_id: runtime.model().model_id(),
+        model_id: runtime.model_id(),
         machine: runtime.machine(),
     };
     postcard::to_allocvec(&snapshot).map_err(|reason| MachineError::InvalidSnapshot {
@@ -60,12 +60,12 @@ pub(crate) fn decode(runtime: &mut SmsRuntime, bytes: &[u8]) -> Result<(), Machi
             reason: format!("decode failed: {reason}"),
         })?;
     debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
-    if snapshot.model_id != runtime.model().model_id() {
+    if snapshot.model_id != runtime.model_id() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
                 "snapshot model {} does not match runtime model {}",
                 snapshot.model_id,
-                runtime.model().model_id()
+                runtime.model_id()
             ),
         });
     }
@@ -81,15 +81,51 @@ pub(crate) fn decode(runtime: &mut SmsRuntime, bytes: &[u8]) -> Result<(), Machi
 #[cfg(test)]
 mod tests {
     use super::{SNAPSHOT_VERSION, decode};
-    use crate::profiles::Model;
     use crate::runtime::SmsRuntime;
-    use emu198x_shell::{MachineCore, MachineError};
+    use emu198x_shell::{
+        CapabilitySet, ClockDesc, ClockRate, Family, MachineCore, MachineError, MachineId,
+        MachineProfile, MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy,
+    };
+    use machine_sega_master_system::SmsVariant;
     use zilog_z80::Z80Stepper;
     use zilog_z80::z80::Phase;
 
+    /// The envelope is class-level behaviour, so these tests build their own
+    /// profile rather than reaching for a machine crate's catalogue — the
+    /// class crate must not depend on the machines layered on top of it.
+    fn test_runtime() -> SmsRuntime {
+        let profile = MachineProfile {
+            machine_id: MachineId::from("test-sega-class"),
+            profile_id: ProfileId::from("test-sega-class-ntsc"),
+            display_name: "Master System class test fixture".into(),
+            family: Family::Other,
+            region: Region::Ntsc,
+            support_tier: SupportTier::Research,
+            release_year: 1985,
+            summary: "Fixture profile for envelope tests.".into(),
+            clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),
+            firmware: vec![],
+            media_slots: vec![MediaSlot::new(
+                "cartridge-1",
+                "Cartridge Slot",
+                MediaKind::Cartridge,
+                true,
+                WritebackPolicy::InMemoryOnly,
+            )],
+            capabilities: CapabilitySet::default(),
+        };
+        SmsRuntime::blank(profile, SmsVariant::SmsNtsc, "test-sega-class-ntsc")
+    }
+
+    fn cartridge_runtime() -> SmsRuntime {
+        let mut runtime = test_runtime();
+        runtime.insert_cartridge(vec![0; 0x8000]);
+        runtime
+    }
+
     #[test]
     fn decode_rejects_future_version_before_payload_decode() {
-        let mut runtime = SmsRuntime::blank(Model::SmsNtsc);
+        let mut runtime = test_runtime();
         let future_version = SNAPSHOT_VERSION + 1;
         let bytes = postcard::to_allocvec(&future_version).expect("future version should encode");
 
@@ -108,7 +144,7 @@ mod tests {
     /// Version 2 cannot preserve the accepted Z80 interrupt sequence identity.
     #[test]
     fn decode_rejects_version_2_before_payload_decode() {
-        let mut runtime = SmsRuntime::blank(Model::SmsNtsc);
+        let mut runtime = test_runtime();
         let bytes = postcard::to_allocvec(&2_u16).expect("legacy version should encode");
 
         let err = decode(&mut runtime, &bytes).expect_err("version 2 should reject");
@@ -125,7 +161,7 @@ mod tests {
 
     #[test]
     fn snapshot_mid_nmi_response_continues_identically() {
-        let mut original = SmsRuntime::new(Model::SmsNtsc, vec![0; 0x8000]);
+        let mut original = cartridge_runtime();
         original
             .machine_mut()
             .expect("cartridge should create a machine")
@@ -157,7 +193,7 @@ mod tests {
         );
 
         let snapshot = original.snapshot().expect("snapshot should encode");
-        let mut restored = SmsRuntime::blank(Model::SmsNtsc);
+        let mut restored = test_runtime();
         restored
             .restore(&snapshot)
             .expect("snapshot should restore");

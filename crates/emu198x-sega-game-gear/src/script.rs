@@ -1,24 +1,23 @@
-//! Headless SMS / Game Gear runner.
+//! Headless Game Gear runner.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
 use emu198x_shell::{HeadlessScript, HeadlessSession, MediaSet, ScriptObservation};
-use runtime_sega_master_system::{Model, SmsSessionQueryProvider, with_cartridge};
+use runtime_sega_game_gear::{Model, SmsSessionQueryProvider, with_cartridge};
 use serde_json::json;
 
-const FRAME_TICKS_NTSC: u64 = 228 * 262;
-const FRAME_TICKS_PAL: u64 = 228 * 313;
+const FRAME_TICKS: u64 = 228 * 262;
 
 const USAGE: &str = "\
-Usage: emu198x-sega-master-system [OPTIONS]
+Usage: emu198x-sega-game-gear [OPTIONS]
 
 Cartridge:
     --cart PATH                cartridge ROM (required)
 
 Variant:
-    --variant KIND             sms-ntsc | sms-pal [default: sms-ntsc]
+    --variant KIND             game-gear [default: game-gear]
     --frames N                 native video frames to run [default: 0]
 
 Capture:
@@ -44,7 +43,7 @@ impl Default for Cli {
     fn default() -> Self {
         Self {
             cart: None,
-            variant: Variant::SmsNtsc,
+            variant: Variant::GameGear,
             frames: 0,
             screenshot: None,
             audio_capture: None,
@@ -53,23 +52,24 @@ impl Default for Cli {
     }
 }
 
+/// The Game Gear shipped in one hardware configuration, so this resolves to
+/// a single value. It is kept as a flag rather than dropped so an invocation
+/// that used to read `emu198x-sega-master-system --variant game-gear`
+/// migrates by changing only the binary name (#998).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Variant {
-    SmsNtsc,
-    SmsPal,
+    GameGear,
 }
 
 impl Variant {
     const fn model(self) -> Model {
         match self {
-            Self::SmsNtsc => Model::SmsNtsc,
-            Self::SmsPal => Model::SmsPal,
+            Self::GameGear => Model::GameGear,
         }
     }
     const fn frame_ticks(self) -> u64 {
         match self {
-            Self::SmsPal => FRAME_TICKS_PAL,
-            Self::SmsNtsc => FRAME_TICKS_NTSC,
+            Self::GameGear => FRAME_TICKS,
         }
     }
 }
@@ -82,9 +82,8 @@ fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
             "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
             "--variant" => {
                 cli.variant = match next_arg(&mut iter, "--variant").as_str() {
-                    "sms-ntsc" | "sms" => Variant::SmsNtsc,
-                    "sms-pal" => Variant::SmsPal,
-                    other => die(&format!("--variant expects sms-ntsc|sms-pal, got {other}")),
+                    "game-gear" | "gg" => Variant::GameGear,
+                    other => die(&format!("--variant expects game-gear, got {other}")),
                 };
             }
             "--frames" => {
@@ -213,7 +212,7 @@ mod tests {
     fn parse_cli_defaults() {
         let cli = parse_cli(Vec::<String>::new());
         assert!(cli.cart.is_none());
-        assert_eq!(cli.variant, Variant::SmsNtsc);
+        assert_eq!(cli.variant, Variant::GameGear);
         assert_eq!(cli.frames, 0);
     }
 
@@ -223,12 +222,12 @@ mod tests {
             "--cart".into(),
             "/tmp/cart".into(),
             "--variant".into(),
-            "sms-pal".into(),
+            "game-gear".into(),
             "--frames".into(),
             "60".into(),
         ];
         let cli = parse_cli(argv);
         assert_eq!(cli.cart.expect("parsed by CLI"), Path::new("/tmp/cart"));
-        assert_eq!(cli.variant, Variant::SmsPal);
+        assert_eq!(cli.variant, Variant::GameGear);
     }
 }

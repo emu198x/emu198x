@@ -9,7 +9,7 @@
 use emu198x_shell::{
     HostIo, MachineCore, MachineTime, NullAudioSink, NullFrameSink, NullTraceSink,
 };
-use runtime_sega_master_system::{Model, SmsRuntime};
+use runtime_sega_master_system::{Model, SmsRuntime, blank};
 
 const MODEL: Model = Model::SmsNtsc;
 const WARMUP: u64 = 50_000;
@@ -31,12 +31,12 @@ fn run_to(runtime: &mut SmsRuntime, target: u64) {
 
 #[test]
 fn snapshot_round_trip_preserves_live_state() {
-    let mut runtime = SmsRuntime::blank(MODEL);
+    let mut runtime = blank(MODEL);
     run_to(&mut runtime, WARMUP);
 
     let snap = runtime.snapshot().expect("blank runtime should snapshot");
 
-    let mut restored = SmsRuntime::blank(MODEL);
+    let mut restored = blank(MODEL);
     restored.restore(&snap).expect("snapshot should restore");
 
     assert_eq!(

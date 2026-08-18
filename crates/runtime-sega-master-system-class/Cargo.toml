@@ -1,6 +1,6 @@
 [package]
-name = "runtime-sega-master-system"
-description = "Sega Master System machine profiles and runtime constructors"
+name = "runtime-sega-master-system-class"
+description = "Shared runtime, query, snapshot and input surface for the Sega Master System class of machines"
 edition.workspace = true
 version.workspace = true
 publish = false
@@ -10,11 +10,10 @@ repository.workspace = true
 [dependencies]
 emu198x-shell = { path = "../emu198x-shell", version = "0.4.0" }
 machine-sega-master-system = { path = "../machine-sega-master-system", version = "0.4.0" }
-runtime-sega-master-system-class = { path = "../runtime-sega-master-system-class", version = "0.4.0" }
-
-[dev-dependencies]
-serde_json = { workspace = true }
 zilog-z80 = { path = "../zilog-z80", version = "0.4.0" }
+postcard = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true
