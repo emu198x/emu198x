@@ -74,12 +74,47 @@ the page, in the claims column, because they record intent and sequencing.
 "Acorn Atom 100%" is closed with eleven issues done; that is a statement
 about the issues, not about the Atom.
 
+## Amendment 2026-08-18 — the published canon is built from CI, and gains by it
+
+Most of this project's verification depends on ROMs, corpora and disk images
+it has no right to distribute. That rules out publishing a fixture-complete
+run, and the first reading of that was a loss: the public page would
+understate every machine whose real evidence needs a ROM.
+
+It is the opposite. **A fixture-gated test only announces itself where the
+fixture is absent.** On a machine with the ROMs staged, those tests pass and
+disappear into the totals — the first full local run recorded 6,179 passes
+and *two* skips. In CI, the same tests skip with a reason that names what
+they need. CI is the diagnostic environment; a development machine is the
+one that hides the gaps.
+
+So the published ledger has three kinds of entry, none of which needs a
+byte of copyrighted material:
+
+| Bucket | Meaning |
+| --- | --- |
+| Passed | Verified, reproducibly, by anyone |
+| Explained absence | Names the fixture, corpus or variable it needs |
+| Unexplained absence | Does not run and does not say why |
+
+417 of the workspace's 591 `#[ignore]` attributes already carry a reason,
+and the reasons name the fixture. The remaining 174 are bare, and that
+residue is a finding the local run could not produce.
+
+Reasons are recorded verbatim and grouped by exact string. Sorting them into
+a "fixture" category by keyword would be guessing at prose — the same class
+of move that produced three wrong answers while building the registry.
+
+There is a second reason not to publish a local run: it would commit a
+standing attestation of which commercial ROMs sit on one person's disk.
+Nothing infringing, and no reason to put it in a public repository.
+
 ## Consequences
 
-- Evidence differs by environment, and that is correct, not a defect. A
-  machine with ROMs staged produces more evidence than CI, which has none.
-  The committed canon is built from the reproducible environment, and the
-  richer local run is a development instrument.
+- Evidence differs by environment, and that is correct, not a defect. The
+  committed canon is built from CI; the richer local run is a development
+  instrument, and `EMU198X_STRICT_FIXTURES` is how it fails loudly where
+  the fixtures are supposed to be present.
 - A machine with no exclusive crates cannot have its own evidence separated
   from its neighbour's. Two machines currently ship from one crate
   (Master System and Game Gear), which is what #998 asks to split. Until it
@@ -98,3 +133,7 @@ Re-read this entry when you catch any of these:
 - adding a machine, crate, label or milestone without touching the registry
 - proposing a formula that turns test counts into a support tier
 - treating a `skip!` or an `#[ignore]` as anything but a gap
+- "the local run has better numbers, publish that one" — it has fewer
+  visible gaps, which is not the same thing
+- sorting ignore reasons into buckets by keyword rather than grouping them
+  by their exact text
