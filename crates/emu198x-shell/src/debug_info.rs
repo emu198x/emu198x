@@ -317,6 +317,29 @@ impl DebugSymbols {
         )
     }
 
+    /// Sections carrying a `space` shape this build does not understand.
+    ///
+    /// Since asm198x#78, an unrecognised qualifier is carried as an opaque
+    /// value rather than failing the read — which is what stops a newer
+    /// sidecar taking down symbolisation entirely. The cost is that the
+    /// failure went quiet: such a section matches no live page, so it never
+    /// maps, and its symbols simply never resolve. A typo in a producer's
+    /// qualifier now looks exactly like a bank that is paged out.
+    ///
+    /// Nothing in the format obliges a consumer to notice, so this exists to
+    /// make it noticeable. A caller seeing no symbols where it expected some
+    /// can ask, and get "this section describes itself in a way this build
+    /// cannot read" instead of silence.
+    #[must_use]
+    pub fn unreadable_spaces(&self) -> Vec<SectionId> {
+        self.info
+            .sections
+            .iter()
+            .filter(|section| matches!(section.space, Some(Space::Unknown(_))))
+            .map(|section| section.id)
+            .collect()
+    }
+
     /// The name of the symbol *exactly at* `addr`, if any.
     ///
     /// Exact-match by design: this labels the head of a routine or data item,
@@ -866,31 +889,53 @@ mod tests {
         assert_eq!(sym.symbol_at(0x0021_0000), None, "the old load is gone");
     }
 
-    /// An unknown `space` shape fails the **whole file**, not just its record.
+    /// An unknown `space` shape is carried, not fatal — and is reportable.
     ///
-    /// `Space` is an untagged enum, so serde has no discriminant to fall back
-    /// on: a shape it does not recognise matches no variant and the read
-    /// errors. Unknown *record types* skip cleanly by design; unknown *space
-    /// shapes* do not, and the difference is invisible from the format's
-    /// evolution promise, which speaks of new record types and new fields.
+    /// It used to fail the whole file: `Space` was an untagged enum, so a
+    /// shape serde did not recognise matched no variant and the read errored,
+    /// taking every lookup with it. This repo was on the receiving end of
+    /// that, because its `debug198x` pin is a fixed revision and a sidecar
+    /// from a newer Asm198x carries shapes it predates. asm198x#78 added the
+    /// `Unknown` catch-all, so the test that pinned the old behaviour now
+    /// pins the new.
     ///
-    /// Asserted here because this repo is the reader that would break. Our
-    /// `debug198x` pin is a fixed revision, so a sidecar written by a newer
-    /// Asm198x carrying a space shape we predate takes down every lookup in
-    /// the file rather than degrading. Worth knowing before the format
-    /// freezes, since it means the set of space shapes is effectively closed.
+    /// The trade is that a loud failure became a quiet one, so the section is
+    /// asserted to be *reportable* too: degrading silently and degrading
+    /// undetectably are different things.
     #[test]
-    fn an_unknown_space_shape_fails_the_whole_file() {
+    fn an_unknown_space_shape_is_carried_and_reportable() {
         let unknown = format!(
+            "{}\n{}\n{}",
+            header_line(FORMAT, FORMAT_VERSION),
+            r#"{"t":"section","id":0,"name":"odd","space":{"segment":7,"window":2}}"#,
+            r#"{"t":"symbol","name":"x","kind":"label","section":0,"offset":0}"#
+        );
+        let sym = DebugSymbols::from_ndjson(&unknown, "future-space.debug198x")
+            .expect("an unrecognised space shape must not fail the file");
+        assert_eq!(sym.counts(), (1, 1, 0), "the records survive");
+        // It maps nowhere, because nothing can say which page it is…
+        assert_eq!(sym.addr_of("x"), None);
+        // …but a caller can find out why, rather than facing silence.
+        assert_eq!(sym.unreadable_spaces(), vec![0]);
+    }
+
+    #[test]
+    fn a_withdrawn_bank_shape_still_loads() {
+        // `Space::Bank` was withdrawn from v1 as unexercised. A file carrying
+        // one must still load — it becomes `Unknown` — so nothing already
+        // written stops working.
+        let banked = format!(
             "{}\n{}",
             header_line(FORMAT, FORMAT_VERSION),
-            r#"{"t":"symbol","name":"x","kind":"label","section":0,"offset":0,"space":{"segment":7,"window":2}}"#
+            r#"{"t":"section","id":0,"name":"far","space":{"bank":126}}"#
         );
-        let err = DebugSymbols::from_ndjson(&unknown, "future-space.debug198x")
-            .expect_err("an unrecognised space shape is not tolerated");
-        assert!(matches!(err, DebugInfoError::Parse { .. }), "got {err:?}");
+        let sym =
+            DebugSymbols::from_ndjson(&banked, "bank.debug198x").expect("a withdrawn shape loads");
+        assert_eq!(sym.unreadable_spaces(), vec![0]);
+    }
 
-        // For contrast: an unknown *record type* skips, as the promise says.
+    #[test]
+    fn an_unknown_record_type_is_still_skipped() {
         let unknown_record = format!(
             "{}\n{}",
             header_line(FORMAT, FORMAT_VERSION),
