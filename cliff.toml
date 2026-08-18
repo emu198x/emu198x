@@ -71,3 +71,21 @@ commit_parsers = [
   { message = "^(docs|test|chore|ci|build|refactor|style)", skip = true },
   { message = "^Merge", skip = true },
 ]
+
+# How a version is computed from the commits, which is policy rather than
+# tooling: whatever cuts the release, this is the rule it should follow.
+#
+# git-cliff's default is `breaking_always_bump_major = true`. On this history
+# that turns the single `fix!:` after v0.2.3 — widening `IoEvent::port` — into
+# **1.0.0**. Measured, not assumed: `git-cliff --bumped-version` returned
+# exactly that before this section existed.
+#
+# A 1.0 is a statement about the project, not a fact about one commit. Pre-1.0
+# the breaking marker moves the minor instead, which is what 0.x semver means
+# by a breaking release, and is how v0.3.0 was arrived at.
+#
+# Declaring 1.0 is therefore a deliberate act: set the workspace version by
+# hand once, and these rules resume from there.
+[bump]
+features_always_bump_minor = true
+breaking_always_bump_major = false
