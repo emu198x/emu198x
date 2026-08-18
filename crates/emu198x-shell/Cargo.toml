@@ -18,7 +18,15 @@ cpal = { workspace = true }
 # predates debug198x (2026-07-06), and bumping it would change disassembly
 # output across every 6502/6809 machine. Different packages from one repo at
 # two revs is fine; cargo just checks the repo out twice.
-debug198x = { git = "https://github.com/asm198x/asm198x", rev = "e8d54481887335b969d4f7ebe09f23f590c53407" }
+#
+# Moved to f0d3503 for asm198x#72, which gives `Section` the same optional
+# `space` qualifier the address-kind symbols already carried. That is what
+# lets a consumer derive the base map from a live paging state by lookup
+# rather than by scraping a symbol out of each section, which a section
+# holding only line records defeats. Needed for the Spectrum 128 paging
+# cross-check. Wire-additive, and source-free here: this crate reads
+# `info.sections` and never constructs a `Section`.
+debug198x = { git = "https://github.com/asm198x/asm198x", rev = "f0d35032e278ba551853bb26943609bb1db7beec" }
 gilrs = { workspace = true }
 # Shared 6502/6809 disassembler from Asm198x (the isa spec crate). Pinned to a
 # reproducible rev — isa-disasm is untagged. Re-exported below so the
